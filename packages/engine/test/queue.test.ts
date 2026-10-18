@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { parseCodedError } from '@pixelsky/protocol'
 import type {
   EngineEvent,
   EngineInfo,
@@ -178,6 +179,97 @@ describe('消息队列：调度与恢复', () => {
     await send('b')
     expect(host.open(record.id).queue.map(q => q.id)).toEqual(['a', 'c'])
     expect(() => host.cancelQueued(record.id, 'a')).toThrow('无法撤回')
+  })
+
+  it('按消息 id 调序：排到某条前面 / 最后；锚点或被挪的消息没了就整条拒绝、顺序不动', async () => {
+    const { host, adapter, record, send } = setup()
+    await send('a')
+    await until(() => !!adapter.sessions[0]?.active)
+    await send('b')
+    await send('c')
+    await send('d')
+    const order = () => host.open(record.id).queue.map(q => q.id)
+    host.moveQueued(record.id, 'd', { before: 'b' })
+    expect(order()).toEqual(['a', 'd', 'b', 'c'])
+    host.moveQueued(record.id, 'd', { before: null })
+    expect(order()).toEqual(['a', 'b', 'c', 'd'])
+    // 已经在原位：不动
+    host.moveQueued(record.id, 'c', { before: 'd' })
+    expect(order()).toEqual(['a', 'b', 'c', 'd'])
+    // 队首（正在跑的 a）发完被移走，点击时算的下标就错位了；按 id 的请求要么落对地方，要么被拒
+    adapter.sessions[0].finish()
+    await until(() => !order().includes('a'))
+    const changed = (fn: () => void) => {
+      let error: Error | null = null
+      try {
+        fn()
+      } catch (e) {
+        error = e as Error
+      }
+      expect(parseCodedError(error?.message)?.code).toBe('queue.changed')
+      expect(order()).toEqual(['b', 'c', 'd'])
+    }
+    changed(() => host.moveQueued(record.id, 'd', { before: 'a' }))
+    changed(() => host.moveQueued(record.id, 'a', { before: 'b' }))
+    changed(() => host.moveQueued(record.id, 'zzz', { before: null }))
+    changed(() => host.moveQueued(record.id, 'c', { before: 'c' }))
+  })
+
+  it('不能排到正在交付的消息前面；旧的数字下标形态照旧可用', async () => {
+    const { host, adapter, record, send } = setup()
+    await send('a')
+    await until(() => !!adapter.sessions[0]?.active)
+    await send('b')
+    await send('c')
+    const order = () => host.open(record.id).queue.map(q => q.id)
+    const before = order()
+    // a 在跑：排到它前面会插到正在发的消息前面
+    expect(() => host.moveQueued(record.id, 'c', { before: 'a' })).toThrow(/PIXELSKY_ERR/)
+    expect(order()).toEqual(before)
+    // 旧形态：数字下标，夹进范围
+    host.moveQueued(record.id, 'c', 1)
+    expect(order()).toEqual(['a', 'c', 'b'])
+    host.moveQueued(record.id, 'c', 99)
+    expect(order()).toEqual(['a', 'b', 'c'])
+    // 旧形态对不在队里 / 已在交付的消息仍是原来的中文错误
+    expect(() => host.moveQueued(record.id, 'a', 2)).toThrow('只有排队中的消息可以调序')
+    expect(() => host.moveQueued(record.id, 'zzz', 0)).toThrow('只有排队中的消息可以调序')
+  })
+
+  it('锚点已在交付（delivering）也拒绝；排完位置没变不发布队列事件', async () => {
+    const { host, adapter, record, send, events } = setup()
+    await send('a')
+    await until(() => !!adapter.sessions[0]?.active)
+    await send('b')
+    await send('c')
+    await send('d')
+    // 引导交付后一直不确认，b 停在 delivering
+    const session = adapter.sessions[0]
+    session.steer = async () => {}
+    const snapshot = host.open(record.id)
+    session.ctx.emit({ type: 'flags', flags: { ...snapshot.flags, steerAvailable: true } })
+    await host.steerQueued(record.id, 'b', snapshot.turnId!)
+    const order = () => host.open(record.id).queue.map(q => q.id)
+    expect(host.open(record.id).queue.find(q => q.id === 'b')?.status).toBe('delivering')
+    let error: Error | null = null
+    try {
+      host.moveQueued(record.id, 'd', { before: 'b' })
+    } catch (e) {
+      error = e as Error
+    }
+    expect(parseCodedError(error?.message)?.code).toBe('queue.changed')
+    expect(order()).toEqual(['a', 'b', 'c', 'd'])
+    // 排到交付中那条后面的普通消息前面是可以的
+    host.moveQueued(record.id, 'd', { before: 'c' })
+    expect(order()).toEqual(['a', 'b', 'd', 'c'])
+    // 位置没变：不再发布队列事件
+    const queueEvents = () => events.filter(e => e.type === 'queue').length
+    const n = queueEvents()
+    host.moveQueued(record.id, 'd', { before: 'c' })
+    host.moveQueued(record.id, 'c', { before: null })
+    host.moveQueued(record.id, 'c', 3)
+    expect(queueEvents()).toBe(n)
+    expect(order()).toEqual(['a', 'b', 'd', 'c'])
   })
 
   it('停止暂停队列，插队优先执行选中项并在完成后继续剩余项', async () => {

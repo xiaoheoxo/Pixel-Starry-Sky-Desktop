@@ -623,12 +623,19 @@ export class MobileGateway {
       peer.revoked = true
       throw new Error('MOBILE_REVOKED')
     }
-    // tools：这台电脑能给手机用工具和加项目（§18.4），旧版没有这个字段
+    // tools：这台电脑能给手机用工具和加项目（§18.4），旧版没有这个字段；
+    // queueMoveBefore：认得队列调序的 { before }，旧版没有，手机据此决定发对象还是数字下标
     if (method === 'hello') {
       peer.batch = (args[0] as { batch?: unknown } | undefined)?.batch === true
       // 新连上的页面在前台：断开时排上的提醒不用推了（在后台连上的手机会接着说 away）
       this.pushes.cancel(peer.phone)
-      return { version: LINK_VERSION, name: this.d.desktopName(), access: device.access, tools: true }
+      return {
+        version: LINK_VERSION,
+        name: this.d.desktopName(),
+        access: device.access,
+        tools: true,
+        queueMoveBefore: true,
+      }
     }
     // 页面切到后台 / 回到前台（§22.2）：后台时照样推送提醒；旧版电脑不认这个方法，手机不管报错
     if (method === 'away') {

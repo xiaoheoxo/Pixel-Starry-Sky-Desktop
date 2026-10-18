@@ -4,6 +4,7 @@ import { searchQuery, type EngineHost } from '@pixelsky/engine'
 import type {
   ApprovalDecision,
   InterruptOptions,
+  QueueMove,
   RewindOptions,
   SessionRecord,
   SessionSettings,
@@ -36,6 +37,17 @@ function rewindOptions(raw: unknown): RewindOptions {
   if (raw === undefined) return { conversation: true, code: false }
   const o = (raw ?? {}) as Record<string, unknown>
   return { conversation: o.conversation === true, code: o.code === true }
+}
+
+/** 队列调序目标：有限数字是旧版手机的「挪到第几位」；{ before: 非空消息 id | null } 是新形态；别的一律报参数错误，不悄悄当成第 0 位 */
+export function queueMove(raw: unknown): QueueMove {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return int(raw, 0, 100_000)
+  if (typeof raw === 'object' && raw !== null && 'before' in raw) {
+    const before = (raw as { before: unknown }).before
+    if (before === null) return { before: null }
+    if (typeof before === 'string' && before) return { before }
+  }
+  throw new Error('参数错误：queueMove 目标必须是数字或 { before: 消息 id | null }')
 }
 
 function interruptOptions(raw: unknown): InterruptOptions {
@@ -175,7 +187,7 @@ export const ENGINE_OPS = {
   'engine:compact': (c, id) => c.host.compactContext(str(id, 'id')),
   'engine:cancelQueued': (c, id, q) => c.host.cancelQueued(str(id, 'id'), str(q, 'queueId')),
   'engine:dismissQueued': (c, id, q) => c.host.dismissQueued(str(id, 'id'), str(q, 'queueId')),
-  'engine:moveQueued': (c, id, q, to) => c.host.moveQueued(str(id, 'id'), str(q, 'queueId'), int(to, 0, 100_000)),
+  'engine:moveQueued': (c, id, q, to) => c.host.moveQueued(str(id, 'id'), str(q, 'queueId'), queueMove(to)),
   'engine:runQueuedNow': (c, id, q) => c.host.runQueuedNow(str(id, 'id'), str(q, 'queueId')),
   'engine:steerQueued': (c, id, q, turn) => c.host.steerQueued(str(id, 'id'), str(q, 'queueId'), str(turn, 'turnId')),
   'engine:resumeQueue': (c, id) => c.host.resumeQueue(str(id, 'id')),

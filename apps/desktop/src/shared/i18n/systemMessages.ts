@@ -1026,6 +1026,19 @@ export const systemMessages = {
     zh: '服务出错，通常是暂时的，稍后再试',
     en: 'The service hit an error. This is usually temporary; try again shortly.',
   },
+  // 报错标题带 HTTP 状态码（引擎 claude/apiError.ts 的 withStatus：状态码插在第一小句后面）
+  'system.serviceErrorStatus': {
+    zh: '服务出错（HTTP {status}），通常是暂时的，稍后再试',
+    en: 'The service hit an error (HTTP {status}). This is usually temporary; try again shortly.',
+  },
+  'system.serviceBusyStatus': {
+    zh: '服务繁忙（HTTP {status}），请稍后再试',
+    en: 'Service busy (HTTP {status}). Try again later.',
+  },
+  'system.tooManyRequestsStatus': {
+    zh: '请求太频繁（HTTP {status}），已触发限额',
+    en: 'Too many requests (HTTP {status}). Rate limit reached.',
+  },
   'system.apiKeyInvalid': {
     zh: 'API Key 无效：检查环境变量里的 ANTHROPIC_API_KEY',
     en: 'Invalid API key: check ANTHROPIC_API_KEY in your environment variables',

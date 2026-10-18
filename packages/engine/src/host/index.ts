@@ -28,6 +28,7 @@ import type {
   NativeSessionSummary,
   OpenedSession,
   ProjectRecord,
+  QueueMove,
   AddProjectsResult,
   ForkResult,
   InterruptOptions,
@@ -411,8 +412,8 @@ export class EngineHost {
     this.m.queue.dismissQueued(id, queueId)
   }
 
-  moveQueued(id: string, queueId: string, toIndex: number): void {
-    this.m.queue.moveQueued(id, queueId, toIndex)
+  moveQueued(id: string, queueId: string, to: QueueMove): void {
+    this.m.queue.moveQueued(id, queueId, to)
   }
 
   resumeQueue(id: string): void {

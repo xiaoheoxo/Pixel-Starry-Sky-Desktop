@@ -103,7 +103,8 @@ export interface EngineBridge {
   cancelQueued(id: string, queueId: string): Promise<string>
   /** 发送失败的消息不重发也不撤回：从队列里拿掉，对话里的那条和错误卡片照旧 */
   dismissQueued(id: string, queueId: string): Promise<void>
-  moveQueued(id: string, queueId: string, toIndex: number): Promise<void>
+  /** to：{ before } 按消息 id 排到某条前面（null = 最后），队列变了会拒绝；数字是旧形态（挪到第几位） */
+  moveQueued(id: string, queueId: string, to: import('@pixelsky/protocol').QueueMove): Promise<void>
   runQueuedNow(id: string, queueId: string): Promise<void>
   steerQueued(id: string, queueId: string, expectedTurnId: string): Promise<void>
   resumeQueue(id: string): Promise<void>

@@ -51,6 +51,7 @@ import { ExpandScope } from '@/features/search/expand'
 import { DETACH_EVENT, useItemNavigation } from '@/features/search/navigation'
 import { JumpToLatest } from './JumpToLatest'
 import {
+  afterGlideCancel,
   afterResize,
   contentMark,
   innerCanScrollUp,
@@ -59,6 +60,8 @@ import {
   scrolledUp,
   type ScrollPos,
 } from './scrollFollow'
+import { glideToEnd } from './glide'
+import { motionEnabled } from '@/features/panes/motion'
 import { changesHeight, itemHeight, toolsHeight } from './blockHeight'
 import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
@@ -254,6 +257,8 @@ export function LiveTranscript({
   const lastInteract = useRef(0)
   // 点「回到最新」后的平滑滚动期间，不按中途位置改 stick
   const jumping = useRef(false)
+  // 正在进行的「回到最新」滑动的取消函数（glide.ts）；结束、被打断、切换会话、卸载时清掉
+  const glide = useRef<(() => void) | null>(null)
   // released：用户自己往上滚了（滚轮、触控板、按键、拖滚动条）。一往上就不再跟到底，哪怕还在离底部 80px 以内——
   // 否则 AI 输出时每一格滚轮还没滚出 80px 就被新内容拽回底部，表现成「滑不上去」。
   // 用户往下滚回底部附近、点「回到最新」、切换会话时才恢复
@@ -263,10 +268,14 @@ export function LiveTranscript({
     released.current = true
     stick.current = false
   }
+  // 元素外发起的滚动（搜索跳转、显示更早、轮次条拖动 / 点击 / 跳转）：先打断「回到最新」的滑动，
+  // 不然它会继续往底部推、最后还强行写到底。先于下面改 stick，打断回调里的重算才不会盖掉它
+  const cancelGlide = useCallback(() => glide.current?.(), [])
   const detachForSearch = useCallback(() => {
+    cancelGlide()
     stick.current = false
     detached.current = true
-  }, [])
+  }, [cancelGlide])
   const highlight = useItemLocation(snapshot?.record.id ?? null, scroller, !!snapshot, detachForSearch)
   const running = !!snapshot && snapshot.state !== 'idle'
   const items = snapshot?.items ?? []
@@ -412,7 +421,8 @@ export function LiveTranscript({
 
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
+    // 「回到最新」滑动期间不在这里直接贴到底：那会把滑动变成一步到位，glide 还会把它当外部写入；让 glide 每帧追
+    if (el && stick.current && !jumping.current) el.scrollTop = el.scrollHeight
   }, [blocks, showLive, starting.length])
 
   // 显示更早的一批：补出来的内容在上面，屏幕上正在看的位置不动。
@@ -464,6 +474,8 @@ export function LiveTranscript({
 
   // 切换会话时回到底部
   useLayoutEffect(() => {
+    // 先打断旧会话的滑动（它的回调会按位置重算 stick），再置位
+    glide.current?.()
     stick.current = true
     released.current = false
     lastPos.current = null
@@ -493,6 +505,7 @@ export function LiveTranscript({
     const unregister = registerTranscriptView(() => shownTurns.current)
     return () => {
       unregister()
+      glide.current?.()
       window.clearTimeout(placeTimer.current)
       const last = placeRef.current
       if (last.sessionId) savePlace(last.sessionId, last)
@@ -539,17 +552,37 @@ export function LiveTranscript({
   const jumpToLatest = (): void => {
     const el = scroller.current
     if (!el) return
+    // 上一次滑动还没结束就先打断（它的结束回调会清 jumping、按位置重算 stick，所以要在置位之前）
+    glide.current?.()
     stick.current = true
     released.current = false
     detached.current = false
     setUnseen(false)
-    // 离得很远时直接跳过去：平滑滚过一长段对话既慢，又要把沿途的内容都排版一遍
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * 3) {
-      el.scrollTop = el.scrollHeight
-      return
-    }
     jumping.current = true
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    // 滑动交给 glide.ts：每帧按当前高度重算终点，离得远先跳到离底 1.5 屏处再缓动；动画关了直接到底。
+    // jumping 在它的结束 / 打断回调里清掉（不等 scrollend，那个事件可能永远不来），glide 自带超时保险
+    const cancel = glideToEnd(el, {
+      motion: motionEnabled(),
+      onEnd: reason => {
+        glide.current = null
+        jumping.current = false
+        // 被打断：位置交给用户，按实际位置重算贴底和按钮（不然预先置的 stick 会让下一段流式内容又拽回底部）
+        if (reason !== 'done') {
+          const next = afterGlideCancel(el, stick.current, detached.current, released.current)
+          stick.current = next.stick
+          setAway(next.away)
+          if (!next.away) setUnseen(false)
+          return
+        }
+        // 滑动期间又来了内容：补到真正的底部
+        if (stick.current) el.scrollTop = el.scrollHeight
+        const near = nearBottom(el)
+        setAway(!near)
+        if (near) setUnseen(false)
+      },
+    })
+    // 动画关了时 onEnd 在 glideToEnd 里已同步调用过（jumping 已清），没有可取消的滑动
+    glide.current = jumping.current ? cancel : null
   }
 
   // 用户自己滚动或操作：结束搜索跳转后的暂停和「回到最新」的平滑滚动
@@ -608,8 +641,10 @@ export function LiveTranscript({
             <NoticeActions
               record={snapshot.record}
               text={item.text}
+              error={item.error}
               turnStart={turnStart}
               retry={snapshot.queue.length === 0}
+              compact={!!snapshot.flags.compactAvailable}
             />
           )}
         </div>
@@ -677,16 +712,6 @@ export function LiveTranscript({
                   placeRef.current.anchor = anchorOf(el)
                   placeRef.current.scrollTop = el.scrollTop
                 }, 200)
-              }}
-              onScrollEnd={e => {
-                if (!jumping.current) return
-                jumping.current = false
-                // 平滑滚动期间又来了内容：补到真正的底部
-                const el = e.currentTarget
-                if (stick.current) el.scrollTop = el.scrollHeight
-                const near = nearBottom(el)
-                setAway(!near)
-                if (near) setUnseen(false)
               }}
               onWheel={e => {
                 resume()
@@ -786,6 +811,7 @@ export function LiveTranscript({
                 scroller={scroller}
                 showTurns={showTurns}
                 onBeforeJump={detachForSearch}
+                onGrab={cancelGlide}
                 hiddenTurns={hiddenTurns}
                 onShowEarlier={windowSize !== null ? () => showEarlier(windowSize) : undefined}
               />

@@ -46,6 +46,13 @@ export const approvalMessages = {
   'approvals.keys.allow': { zh: '允许', en: 'Allow' },
   'approvals.keys.deny': { zh: '拒绝', en: 'Deny' },
   'approvals.keys.back': { zh: '回到输入框', en: 'Back to input' },
+  'approvals.keys.allowOnce': { zh: '允许一次', en: 'Allow once' },
+  'approvals.keys.startPlan': { zh: '开始执行', en: 'Start' },
+  'approvals.keys.refinePlan': { zh: '继续完善计划', en: 'Keep refining' },
+  'approvals.keys.pick': { zh: '选选项', en: 'Pick option' },
+  'approvals.keys.nextQuestion': { zh: '下一题', en: 'Next question' },
+  'approvals.keys.submit': { zh: '提交', en: 'Submit' },
+  'approvals.answeredCount': { zh: '已回答 {n}/{m}', en: 'Answered {n}/{m}' },
   'approvals.locate': { zh: '点一下跳到下面等你决定的那一项', en: 'Jump to this request below' },
   'approvals.composerHint': {
     zh: 'AI 在等你决定，现在发的消息会排在后面',

@@ -54,3 +54,32 @@ describe('engine:updateSession', () => {
     expect(calls.filter(call => call[0] === 'notice')).toEqual([])
   })
 })
+
+describe('engine:moveQueued', () => {
+  function context() {
+    const calls: unknown[][] = []
+    const c = { host: { moveQueued: (...args: unknown[]) => calls.push(args) } } as unknown as EngineOpContext
+    return { c, calls }
+  }
+
+  it('passes { before } (a message id or null) through, and still accepts the legacy index', async () => {
+    const { c, calls } = context()
+    await ENGINE_OPS['engine:moveQueued'](c, 's1', 'q1', { before: 'q2' })
+    await ENGINE_OPS['engine:moveQueued'](c, 's1', 'q1', { before: null })
+    await ENGINE_OPS['engine:moveQueued'](c, 's1', 'q1', 2)
+    expect(calls).toEqual([
+      ['s1', 'q1', { before: 'q2' }],
+      ['s1', 'q1', { before: null }],
+      ['s1', 'q1', 2],
+    ])
+  })
+
+  it('rejects a malformed anchor instead of moving the message somewhere else', () => {
+    const { c, calls } = context()
+    expect(() => ENGINE_OPS['engine:moveQueued'](c, 's1', 'q1', { before: 3 })).toThrow()
+    expect(() => ENGINE_OPS['engine:moveQueued'](c, 's1', 'q1', { before: '' })).toThrow()
+    for (const junk of ['junk', {}, { index: 2 }, undefined, null, NaN, [], { before: undefined }])
+      expect(() => ENGINE_OPS['engine:moveQueued'](c, 's1', 'q1', junk)).toThrow()
+    expect(calls).toEqual([])
+  })
+})

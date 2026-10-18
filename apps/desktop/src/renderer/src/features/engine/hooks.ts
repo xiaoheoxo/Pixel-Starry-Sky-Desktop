@@ -16,6 +16,7 @@ import {
   type ImageAttachment,
   type PermissionMode,
   type QueuedMessage,
+  type QueueMove,
   type QueueSettings,
   type SessionSettings,
   type SessionSnapshot,
@@ -314,7 +315,8 @@ export interface ComposerController {
   cancelQueued(id: string): Promise<string>
   /** 发送失败的不重发也不撤回：从队列拿掉，对话里那条标「未送达」 */
   dismissQueued(id: string): Promise<void>
-  moveQueued(id: string, index: number): Promise<void>
+  /** to：{ before } 排到某条前面（null = 最后）；队列变了会被拒绝 */
+  moveQueued(id: string, to: QueueMove): Promise<void>
   runQueuedNow(id: string): Promise<void>
   steerQueued(id: string): Promise<void>
   resumeQueue(): Promise<void>
@@ -787,8 +789,8 @@ export function useComposerController(
       record ? b.cancelQueued(record.id, id) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
     dismissQueued: id =>
       record ? b.dismissQueued(record.id, id) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
-    moveQueued: (id, index) =>
-      record ? b.moveQueued(record.id, id, index) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
+    moveQueued: (id, to) =>
+      record ? b.moveQueued(record.id, id, to) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
     runQueuedNow: id =>
       record ? b.runQueuedNow(record.id, id) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
     steerQueued: id =>

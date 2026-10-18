@@ -9,6 +9,7 @@ export type {
   EngineSessionState,
   ProjectFolder,
   QueueSettings,
+  QueueMove,
   QueueReconnect,
   QueueStatus,
   QueueSummary,
@@ -58,7 +59,18 @@ export type {
   TurnUsage,
   Usage,
 } from './usage'
-export type { CommandWrapper, FileChange, Item, ItemKind, ItemStatus, NoticeTask, TodoStep, ToolKind } from './item'
+export type {
+  CommandWrapper,
+  FileChange,
+  Item,
+  ItemKind,
+  ItemStatus,
+  NoticeError,
+  NoticeErrorKind,
+  NoticeTask,
+  TodoStep,
+  ToolKind,
+} from './item'
 export type { ApprovalDecision, ApprovalRequest, Question, QuestionOption } from './approval'
 export type { AgentRun, AgentRuns, BackgroundTask, SubagentStatus, TaskOutput, WorkflowRun } from './agents'
 export type { EngineEvent, HostEvent, OpenedSession, SessionFlags, SessionSnapshot } from './events'

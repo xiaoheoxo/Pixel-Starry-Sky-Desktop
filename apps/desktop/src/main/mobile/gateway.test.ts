@@ -246,7 +246,13 @@ describe('MobileGateway calls', () => {
     gateways.push(t.gateway)
     const p = await paired(t)
     expect(t.gateway.online('p1')).toBe(true)
-    expect(await p.call('hello')).toEqual({ version: 1, name: '测试电脑', access: 'act', tools: true })
+    expect(await p.call('hello')).toEqual({
+      version: 1,
+      name: '测试电脑',
+      access: 'act',
+      tools: true,
+      queueMoveBefore: true,
+    })
     const sessions = (await p.call('engine:sessions')) as SessionSummary[]
     expect(sessions.map(s => s.record.id)).toEqual(['new', 'old'])
     await p.call('engine:createSession', { projectId: 'proj', engine: 'codex', platform: {}, provider: {}, fast: true })
@@ -832,6 +838,10 @@ describe('helpers', () => {
     expect(() => sanitize('engine:createSession', [{}])).toThrow('MOBILE_BAD_ARGUMENT')
     expect(() => sanitize('engine:send', ['s', { text: 'x' }])).toThrow('MOBILE_BAD_ARGUMENT')
     expect(sanitize('engine:interrupt', ['s'])).toEqual(['s'])
+    // 调序：新形态 { before } 和旧手机的数字下标都原样放行（校验在电脑上的 engine:moveQueued）
+    expect(sanitize('engine:moveQueued', ['s', 'q1', { before: 'q2' }])).toEqual(['s', 'q1', { before: 'q2' }])
+    expect(sanitize('engine:moveQueued', ['s', 'q1', { before: null }])).toEqual(['s', 'q1', { before: null }])
+    expect(sanitize('engine:moveQueued', ['s', 'q1', 2])).toEqual(['s', 'q1', 2])
   })
 })
 

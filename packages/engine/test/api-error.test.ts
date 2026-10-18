@@ -31,17 +31,17 @@ describe('报错归类', () => {
     [
       'rate_limit',
       'API Error: Request rejected (429) · Number of request tokens has exceeded your per-minute rate limit',
-      '请求太频繁，已触发限额',
+      '请求太频繁（HTTP 429），已触发限额',
     ],
     [
       'server_error',
       'API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.',
-      '服务繁忙，请稍后再试',
+      '服务繁忙（HTTP 529），请稍后再试',
     ],
     [
       'server_error',
       'API Error: 500 Internal server error. This is a server-side issue, usually temporary — try again in a moment.',
-      '服务出错，通常是暂时的，稍后再试',
+      '服务出错（HTTP 500），通常是暂时的，稍后再试',
     ],
     [
       'server_error',
@@ -126,7 +126,9 @@ describe('报错归类', () => {
       'authentication_failed',
     )
     expect(errorCodeFromText('API Error: 529 Overloaded')).toBe('server_error')
-    expect(friendlyApiError(null, 'API Error: Request rejected (429) · slow down')).toBe('请求太频繁，已触发限额')
+    expect(friendlyApiError(null, 'API Error: Request rejected (429) · slow down')).toBe(
+      '请求太频繁（HTTP 429），已触发限额',
+    )
     expect(friendlyApiError(null, 'Error: file has 500 lines')).toBeNull()
     expect(friendlyApiError(null, '这一轮失败了')).toBeNull()
     expect(friendlyApiError('some_new_code', 'Something new')).toBeNull()

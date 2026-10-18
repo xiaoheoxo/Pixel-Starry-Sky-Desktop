@@ -363,6 +363,25 @@ describe('Codex app-server adapter', () => {
     await wait(() => host!.open(session.id).state === 'idle')
     expect(host!.open(session.id).context?.compacting).toBe(false)
   })
+  it('空闲超时关掉引擎进程后点压缩：不报错，重新拉起会话再压缩', async () => {
+    const { session, messages, launches } = setup(50)
+    await host!.send(session.id, 'hello')
+    await wait(() => host!.open(session.id).state === 'idle' && host!.open(session.id).flags.compactAvailable === true)
+    // idleMs=50：进程被关掉后 flags.compactAvailable 还留着，但已经没有活的会话
+    await wait(() => messages().some(m => m.method === 'turn/start'))
+    await new Promise(r => setTimeout(r, 400))
+    expect(host!.open(session.id).flags.compactAvailable).toBe(true)
+    const before = launches().length
+    await host!.compactContext(session.id)
+    await wait(() => messages().some(m => m.method === 'thread/compact/start'))
+    expect(launches().length).toBeGreaterThan(before)
+    expect(messages().filter(m => m.method === 'turn/start')).toHaveLength(1)
+    await wait(() => host!.open(session.id).state === 'idle')
+  })
+  it('会话还没开始过（没有 compactAvailable）点压缩仍然报错', async () => {
+    const { session } = setup()
+    await expect(host!.compactContext(session.id)).rejects.toThrow('当前引擎不支持原生压缩')
+  })
   it('恢复线程失败时新开线程并提示，换掉记录里的线程 id，之后的消息正常完成', async () => {
     const { session, messages } = setup()
     const failFile = join(root, 'resume-fail')

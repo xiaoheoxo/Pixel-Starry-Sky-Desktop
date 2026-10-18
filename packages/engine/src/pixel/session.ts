@@ -31,6 +31,7 @@ import {
   isApprovalSelect,
   isPlanSelect,
   planApproval,
+  textError,
   toolItem,
   toolNameFromTitle,
 } from './translate'
@@ -468,7 +469,12 @@ export class PixelSession implements EngineSession {
     if (type === 'auto_retry_end') {
       this.ctx.emit({ type: 'request_retry', retry: null })
       if (raw.success === false)
-        this.translator.notice('error', string(raw.finalError) || 'Request failed after retries')
+        this.translator.notice(
+          'error',
+          string(raw.finalError) || 'Request failed after retries',
+          null,
+          textError(string(raw.finalError)),
+        )
       return
     }
     // queue_update 不转成 queue 事件：排队由宿主管理，引导的交付以用户消息为准（userMessage）
@@ -624,10 +630,18 @@ export class PixelSession implements EngineSession {
     const active = this.active
     if (!active) return
     this.active = null
+    const info = error ? textError(error) : undefined
     if (outcome === 'failed' && error)
       this.ctx.emit({
         type: 'item_completed',
-        item: { kind: 'notice', id: 'px-error-' + active.id, level: 'error', text: error, detail: null },
+        item: {
+          kind: 'notice',
+          id: 'px-error-' + active.id,
+          level: 'error',
+          text: error,
+          detail: null,
+          ...(info ? { error: info } : {}),
+        },
       })
     this.translator.finish(outcome === 'completed' ? 'completed' : outcome === 'interrupted' ? 'interrupted' : 'failed')
     this.rejectApprovals()

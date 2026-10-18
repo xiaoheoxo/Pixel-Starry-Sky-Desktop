@@ -1,7 +1,7 @@
 // 系统托盘（docs/ui/tray.md）：通知区域图标 + 运行中 / 等你处理角标、悬停提示、右键菜单、关闭主窗口时隐藏到托盘。
 // 只算本机的会话（SSH 远端的不算）。菜单里要窗口做的事（新建任务、打开会话、勿扰、检查更新）经 tray:command 发给窗口。
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -20,6 +20,7 @@ import type { Locale } from '../../shared/i18n/messages'
 import type { TrayCommand, TrayPrefs } from '../../shared/types/tray'
 import { windowLocale } from './ui-language'
 import { sendWhenReady } from './rendererHealth'
+import { mergeWindowFile } from './windowFile'
 import type { AppContext } from './context'
 
 // ---------------------------------------------------------------------------
@@ -166,12 +167,8 @@ export function initTray(ctx: AppContext, deps: TrayDeps): TrayController {
     }
   })()
   const save = (): void => {
-    try {
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, JSON.stringify(prefs))
-    } catch {
-      /* 本次仍然生效 */
-    }
+    // 合并写入：window.json 里还有窗口位置（app/window-state.ts），不能整个覆盖
+    mergeWindowFile(file, { ...prefs })
   }
 
   const images = new Map<string, NativeImage>()

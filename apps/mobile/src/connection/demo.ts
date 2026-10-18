@@ -228,7 +228,7 @@ const change = (path: string, code: string) => ({ path, origPath: null, code, lo
 /** 假的电脑连接：和 DesktopLink 一样的对外样子，call 直接回假数据 */
 export class DemoLink {
   state: LinkState = 'ready'
-  hello: Hello = { version: 1, name: '演示电脑', access: 'act', tools: true }
+  hello: Hello = { version: 1, name: '演示电脑', access: 'act', tools: true, queueMoveBefore: true }
 
   constructor(
     readonly pairing: Pairing,

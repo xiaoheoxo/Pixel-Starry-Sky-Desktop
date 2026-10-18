@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMPTY_DRAFT,
+  answeredCount,
   canWriteIn,
   collectAnswers,
   displayLabel,
@@ -77,5 +78,18 @@ describe('提问卡片的「其他」自己输入', () => {
         [open.question]: { ...EMPTY_DRAFT, text: '没有' },
       }),
     ).toEqual({ [single.question]: '我自己执行', [open.question]: '没有' })
+  })
+})
+
+describe('已回答题数', () => {
+  const a = q('A', ['x', 'y'])
+  const b = { ...q('B', ['x', 'y']), allowOther: true }
+  it('只数答完的：没选、选了「其他」却没填都不算', () => {
+    expect(answeredCount([a, b], {})).toBe(0)
+    const picked = { [a.question]: pickOption(a, EMPTY_DRAFT, 'x') }
+    expect(answeredCount([a, b], picked)).toBe(1)
+    expect(answeredCount([a, b], { ...picked, [b.question]: toggleOther(b, EMPTY_DRAFT) })).toBe(1)
+    expect(answeredCount([a, b], { ...picked, [b.question]: { ...toggleOther(b, EMPTY_DRAFT), text: 'z' } })).toBe(2)
+    expect(answeredCount([], {})).toBe(0)
   })
 })

@@ -1,7 +1,7 @@
 import { translateMessage } from '../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import {
   ArrowDown,
@@ -21,7 +21,7 @@ import { Button, IconButton, Spinner, cn } from '@/ui'
 import { effortLabel, type ComposerController, type QueueController } from '@/features/engine'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
-import { canDismiss, isReconnecting, isSendFailure, isStarting } from './queueView'
+import { canDismiss, isReconnecting, isSendFailure, isStarting, queueMoveKey, queueMoveTarget } from './queueView'
 import { useProviders } from '@/features/account/providers'
 import { canCopyImported, isResumeLiveError } from '@/features/resume/model'
 import { nativeSessionAction, useEngineState } from '@/features/engine/store'
@@ -64,6 +64,28 @@ export function QueuedMessages({
   const [root, setRoot] = useState<HTMLElement | null>(null)
   const [viewHeight, setViewHeight] = useState<number | null>(null)
   const [open, setOpen] = useState(false)
+  // 键盘调序后要把焦点留在被挪的那一行：重排时浏览器会让被移动的节点失焦，队列变了 / 操作结束都补一次
+  const refocus = useRef<string | null>(null)
+  const focusRow = (queueId: string): void => {
+    if (!root) return
+    // 只在焦点没有去别处时才补：落在 body（被挪的节点失焦）或队列内部；输入框等地方的焦点绝不抢
+    const active = document.activeElement
+    if (active && active !== document.body && !root.contains(active)) return
+    const rows = Array.from(root.querySelectorAll<HTMLElement>('[data-queue-id]'))
+    const at = rows.findIndex(r => r.dataset.queueId === queueId)
+    const focusable = (r: HTMLElement | undefined): r is HTMLElement => !!r && r.hasAttribute('tabindex')
+    // 那一行已经不能聚焦（开始交付了）：改给相邻的一行，都没有就给队列容器，不让焦点掉到 body
+    const target =
+      (focusable(rows[at]) && rows[at]) ||
+      rows.slice(at + 1).find(focusable) ||
+      rows.slice(0, Math.max(at, 0)).reverse().find(focusable) ||
+      root.querySelector<HTMLElement>('[data-queue-list]')
+    target?.focus({ preventScroll: false })
+  }
+  useLayoutEffect(() => {
+    if (refocus.current) focusRow(refocus.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在队列变化时补焦点
+  }, [live.queue])
   useLayoutEffect(() => {
     const view = root?.closest<HTMLElement>('.conversation-view')
     if (!view) return
@@ -87,6 +109,24 @@ export function QueuedMessages({
     } finally {
       setBusy(null)
     }
+  }
+  const move = (queueId: string, dir: -1 | 1) => {
+    const to = queueMoveTarget(items, queueId, dir)
+    return to ? action(queueId, () => live.moveQueued(queueId, to)) : Promise.resolve()
+  }
+  // Alt+↑ / Alt+↓ 调序，焦点跟着那一行走（被拒绝时也留在原行）
+  const onRowKey = (e: KeyboardEvent<HTMLElement>, q: QueuedMessage): void => {
+    const dir = queueMoveKey(e.nativeEvent)
+    if (!dir || q.status !== 'queued') return
+    e.preventDefault()
+    e.stopPropagation()
+    refocus.current = q.id
+    void move(q.id, dir).finally(() => {
+      requestAnimationFrame(() => {
+        focusRow(q.id)
+        if (refocus.current === q.id) refocus.current = null
+      })
+    })
   }
   const visible = expanded ? items : items.slice(0, 3)
   const held = items.some(q => q.held)
@@ -166,8 +206,11 @@ export function QueuedMessages({
       {!collapsed && (
         // 一个框里按行列出、细线分隔；框本身滚动，滚动时被切开的那行上面始终有框的边
         <div
+          role="list"
+          tabIndex={-1}
+          data-queue-list
           style={viewHeight === null ? undefined : { maxHeight: queueListMaxHeight(viewHeight) }}
-          className="flex max-h-64 min-h-0 flex-col divide-y divide-line-card overflow-y-auto rounded-lg border border-line-card bg-surface"
+          className="flex max-h-64 min-h-0 flex-col outline-none divide-y divide-line-card overflow-y-auto rounded-lg border border-line-card bg-surface"
         >
           {visible.map(q => {
             const pending = q.status === 'dispatching' || q.status === 'delivering'
@@ -197,7 +240,19 @@ export function QueuedMessages({
                         ? tr('session.QueuedMessages.held')
                         : tr('session.live.agentTrace.queued')
             return (
-              <div key={q.id} data-queue-id={q.id} className="shrink-0 px-3 py-1.5 transition-colors hover:bg-hover/40">
+              <div
+                key={q.id}
+                data-queue-id={q.id}
+                role="listitem"
+                aria-label={tr('session.queue.rowLabel', { p0: q.text.slice(0, 80), p1: label })}
+                tabIndex={q.status === 'queued' ? 0 : undefined}
+                aria-keyshortcuts={q.status === 'queued' ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
+                onKeyDown={e => {
+                  // 只处理行自己或行里按钮上的按键，输入框之类的不拦
+                  if (e.target === e.currentTarget || (e.target as HTMLElement).closest('button')) onRowKey(e, q)
+                }}
+                className="shrink-0 px-3 py-1.5 transition-colors outline-none hover:bg-hover/40 focus-visible:bg-hover/40 focus-visible:ring-2 focus-visible:ring-composer-ring focus-visible:ring-inset"
+              >
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   {pending || busy === q.id ? (
                     <Spinner size={11} />
@@ -228,16 +283,16 @@ export function QueuedMessages({
                           size={24}
                           iconSize={12}
                           label={tr('session.QueuedMessages.moveMessageUp')}
-                          disabled={!!busy || live.queue.indexOf(q) === 0}
-                          onClick={() => void action(q.id, () => live.moveQueued(q.id, live.queue.indexOf(q) - 1))}
+                          disabled={!!busy || !queueMoveTarget(items, q.id, -1)}
+                          onClick={() => void move(q.id, -1)}
                         />
                         <IconButton
                           icon={ArrowDown}
                           size={24}
                           iconSize={12}
                           label={tr('session.QueuedMessages.moveMessageDown')}
-                          disabled={!!busy || live.queue.indexOf(q) === live.queue.length - 1}
-                          onClick={() => void action(q.id, () => live.moveQueued(q.id, live.queue.indexOf(q) + 1))}
+                          disabled={!!busy || !queueMoveTarget(items, q.id, 1)}
+                          onClick={() => void move(q.id, 1)}
                         />
                         <span title={steerReason}>
                           <Button

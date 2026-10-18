@@ -157,7 +157,7 @@ export function ApprovalStack({
       style={{ maxHeight }}
     >
       {solo.map(r => (
-        <ApprovalCard key={r.requestId} request={r} onAnswer={d => onAnswer(r, d)} />
+        <ApprovalCard key={r.requestId} request={r} onAnswer={d => onAnswer(r, d)} onEscape={onEscape} />
       ))}
       {listShown &&
         (showList ? (
@@ -417,7 +417,7 @@ export function ApprovalList({
   const live = requests.filter(r => !doneHere.has(r.requestId))
   const single =
     live.length === 1 && shown.length === 1 && failed.size === 0 && !batch && sending.size === 0 && queued.size === 0
-  if (single) return <ApprovalCard request={live[0]} onAnswer={d => onAnswer(live[0], d)} />
+  if (single) return <ApprovalCard request={live[0]} onAnswer={d => onAnswer(live[0], d)} onEscape={onEscape} />
 
   if (shown.length === 0) return null
   const entries = layoutApprovals(shown)
@@ -444,11 +444,12 @@ export function ApprovalList({
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       move(e.key === 'ArrowDown' ? 1 : -1)
-    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.repeat) {
+      // 带 Shift 的是单张卡片的「始终允许」，这里不当成允许一次；按住不放的重复不算
       e.preventDefault()
       const d = current && allowOnce(current)
       if (current && d && stateOf(current.requestId).kind === 'idle') answerOne(current, d)
-    } else if (e.key === 'Backspace' && (e.ctrlKey || e.metaKey)) {
+    } else if (e.key === 'Backspace' && (e.ctrlKey || e.metaKey) && !e.repeat) {
       e.preventDefault()
       const d = current && denyOnce(current)
       if (current && d && stateOf(current.requestId).kind === 'idle') answerOne(current, d)

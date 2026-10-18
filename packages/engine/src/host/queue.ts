@@ -1,8 +1,8 @@
 // 消息队列：发送、排队、撤回、关掉、调序、继续、插队、引导、断线自动重连（docs/ui/message-queue.md）
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { MessageInput, QueuedMessage, QueueSummary, SendReceipt } from '@pixelsky/protocol'
-import { messageWithFiles } from '@pixelsky/protocol'
+import type { MessageInput, QueuedMessage, QueueMove, QueueSummary, SendReceipt } from '@pixelsky/protocol'
+import { codedError, messageWithFiles } from '@pixelsky/protocol'
 import { messageInput, queueSettings, sameQueueSettings } from '../queue'
 import { ENGINES } from '../registry'
 import { connectionKind, reconnectDelay, reconnectLimit } from '../retry'
@@ -305,13 +305,34 @@ export class HostQueue {
     if (head?.reconnect && head.reconnect.at <= Date.now()) this.scheduleReconnect(id, rt, 1000)
   }
 
-  moveQueued(id: string, queueId: string, toIndex: number): void {
+  /**
+   * 调序。{ before } 按消息 id 定位（null = 排到最后）：被挪的消息或锚点已不在队里（队首刚好发完被移走）、
+   * 或者已经开始交付，整条拒绝（queue.changed），顺序不动，界面提示「队列已变化，排序未保存」。
+   * 数字是旧版手机发来的「挪到第几位」，只夹进范围，保持老行为
+   */
+  moveQueued(id: string, queueId: string, to: QueueMove): void {
     const rt = this.ctx.m.sessions.runtime(id)
     const source = rt.snapshot.queue.findIndex(q => q.id === queueId)
-    if (source < 0 || rt.snapshot.queue[source].status !== 'queued') throw new Error('只有排队中的消息可以调序')
+    const byId = typeof to === 'object' && to !== null
+    if (source < 0 || rt.snapshot.queue[source].status !== 'queued') {
+      if (byId) throw codedError('queue.changed')
+      throw new Error('只有排队中的消息可以调序')
+    }
     const items = [...rt.snapshot.queue]
     const item = items.splice(source, 1)[0]
-    const index = Math.max(0, Math.min(items.length, Math.trunc(toIndex)))
+    let index: number
+    if (byId) {
+      if (to.before === null) index = items.length
+      else {
+        const anchor = to.before
+        index = items.findIndex(q => q.id === anchor)
+        // 锚点没了，或锚点已经在交付：排到它前面会插到正在发的消息前面
+        if (anchor === queueId || index < 0 || ['dispatching', 'running', 'delivering'].includes(items[index].status))
+          throw codedError('queue.changed')
+      }
+    } else index = Math.max(0, Math.min(items.length, Math.trunc(to)))
+    // 排完位置没变：不用重新发布队列
+    if (index === source) return
     items.splice(index, 0, item)
     rt.snapshot = { ...rt.snapshot, queue: items }
     this.publishQueue(id)

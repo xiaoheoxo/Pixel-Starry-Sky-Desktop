@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
-import { canSteer, isPending, isReconnecting, queueItems, queueLabel, queueTitle } from './queue'
+import {
+  canSteer,
+  isPending,
+  isReconnecting,
+  queueErrorText,
+  queueItems,
+  queueLabel,
+  queueMoveArg,
+  queueMoveTarget,
+  queueTitle,
+} from './queue'
 
 const q = (id: string, patch: Partial<QueuedMessage> = {}): QueuedMessage => ({
   id,
@@ -54,5 +64,43 @@ describe('消息队列面板', () => {
     expect(canSteer(q('a', { status: 'failed' }), running)).toBe(false)
     expect(canSteer(q('a'), { ...running, flags: { ...running.flags, steerAvailable: false } })).toBe(false)
     expect(canSteer(q('a'), { ...running, state: 'idle', turnId: null })).toBe(false)
+  })
+})
+
+describe('队列调序', () => {
+  const list = ['a', 'b', 'c'].map(id => q(id))
+  it('按邻居的消息 id 算目标，不用下标', () => {
+    expect(queueMoveTarget(list, 'b', -1)).toEqual({ before: 'a' })
+    expect(queueMoveTarget(list, 'a', 1)).toEqual({ before: 'c' })
+    expect(queueMoveTarget(list, 'b', 1)).toEqual({ before: null })
+    expect(queueMoveTarget(list, 'a', -1)).toBeNull()
+    expect(queueMoveTarget(list, 'c', 1)).toBeNull()
+    expect(queueMoveTarget([q('a', { status: 'delivering' }), q('b')], 'b', -1)).toBeNull()
+  })
+  it('电脑回「队列已变化」（带代码的错误）时写成中文，别的错误原样', () => {
+    expect(queueErrorText('PIXELSKY_ERR:{"code":"queue.changed"}')).toBe('队列已变化，排序未保存')
+    expect(queueErrorText('Error: PIXELSKY_ERR:{"code":"queue.changed"}')).toBe('Error: 队列已变化，排序未保存')
+    expect(queueErrorText('只有排队中的消息可以调序')).toBe('只有排队中的消息可以调序')
+  })
+})
+
+describe('queueMoveArg：按电脑能力选调序参数', () => {
+  const queue = [q('a', { status: 'running' }), q('b'), q('c'), q('d')]
+  const items = queue.slice(1)
+  it('电脑认得 queueMoveBefore：发 { before }', () => {
+    expect(queueMoveArg(queue, items, 'c', -1, true)).toEqual({ before: 'b' })
+    expect(queueMoveArg(queue, items, 'c', 1, true)).toEqual({ before: null })
+  })
+  it('旧版电脑：和旧版手机一样发整个队列里的下标 ±1', () => {
+    expect(queueMoveArg(queue, items, 'c', -1, false)).toBe(1)
+    expect(queueMoveArg(queue, items, 'c', 1, false)).toBe(3)
+    expect(queueMoveArg(queue, items, 'b', -1, false)).toBe(0)
+    expect(queueMoveArg(queue, items, 'd', 1, false)).toBeNull()
+    expect(queueMoveArg(queue, items, 'a', -1, false)).toBeNull()
+  })
+  it('重连中的那条不当锚点', () => {
+    const r = [q('r', { reconnect: { attempt: 1, max: 3, at: 0 } as QueuedMessage['reconnect'] }), q('b'), q('c')]
+    expect(queueMoveTarget(r, 'b', -1)).toBeNull()
+    expect(queueMoveTarget(r, 'b', 1)).toEqual({ before: null })
   })
 })

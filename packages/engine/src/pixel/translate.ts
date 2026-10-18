@@ -10,17 +10,25 @@ import type {
   Item,
   ItemStatus,
   ModelTurnUsage,
+  NoticeError,
   TodoStep,
   ToolKind,
   TurnUsage,
 } from '@pixelsky/protocol'
-import { IMAGE_PLACEHOLDER } from '@pixelsky/protocol'
+import { IMAGE_PLACEHOLDER, httpStatusOf, noticeErrorOf } from '@pixelsky/protocol'
 import { displayPath } from '../claude/tools'
 import { diffAdded, diffText } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
 import { cut } from '../text'
 import { SUBAGENT_TOOL, subagentItemId, subagentRun, subagentStatus } from './agents'
 import { array, number, object, string, type Message } from './process'
+
+/** Pixel 只给一句报错原文：从原文认状态码和归类（notice.error）；认不出时 undefined */
+export function textError(text: string): NoticeError | undefined {
+  const lead = /^\s*(?:Error:?\s*)?([45]\d\d)\b/.exec(text)?.[1]
+  const status = httpStatusOf(text) ?? (lead ? Number(lead) : undefined)
+  return noticeErrorOf({ text, status })
+}
 
 export const COMMAND_TOOLS = new Set(['bash', 'powershell'])
 export const EDIT_TOOLS = new Set(['edit', 'write'])
@@ -361,10 +369,17 @@ export class PixelTranslator {
   /** 工具条目 id → 批准扩展询问时会写的摘要（approvalSummary） */
   private readonly toolSummaries = new Map<string, string>()
 
-  notice(level: 'info' | 'warn' | 'error', text: string, detail: string | null = null): void {
+  notice(level: 'info' | 'warn' | 'error', text: string, detail: string | null = null, error?: NoticeError): void {
     this.emit({
       type: 'item_completed',
-      item: { kind: 'notice', id: `${this.prefix}-n${++this.noticeSeq}`, level, text, detail },
+      item: {
+        kind: 'notice',
+        id: `${this.prefix}-n${++this.noticeSeq}`,
+        level,
+        text,
+        detail,
+        ...(error ? { error } : {}),
+      },
     })
   }
 

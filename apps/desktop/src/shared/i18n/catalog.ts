@@ -1316,6 +1316,10 @@ export const catalog = {
     "zh": "继续",
     "en": "Try again"
   },
+  "session.live.NoticeActions.compactRetry": {
+    "zh": "压缩后重试",
+    "en": "Compact and retry"
+  },
   "session.live.NoticeActions.changeRoute": {
     "zh": "换线路",
     "en": "Change route"
@@ -1585,12 +1589,12 @@ export const catalog = {
     "en": "Starting"
   },
   "session.QueuedMessages.moveMessageUp": {
-    "zh": "上移消息",
-    "en": "Move message up"
+    "zh": "上移消息（Alt+↑）",
+    "en": "Move message up (Alt+↑)"
   },
   "session.QueuedMessages.moveMessageDown": {
-    "zh": "下移消息",
-    "en": "Move message down"
+    "zh": "下移消息（Alt+↓）",
+    "en": "Move message down (Alt+↓)"
   },
   "session.QueuedMessages.steer": {
     "zh": "引导",

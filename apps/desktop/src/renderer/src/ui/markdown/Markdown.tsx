@@ -1,5 +1,5 @@
 import { useI18n } from '@/i18n/I18nProvider'
-import { memo, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useReducer, useRef } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
@@ -9,7 +9,8 @@ import { InlineCode, MarkdownLink, PathLinksContext, keepLocalPaths } from './pa
 import { MarkdownImage } from './MarkdownImage'
 import { Callout, isAlertKind, remarkAlerts } from './alerts'
 import { hasMath, normalizeMath, useMathPlugins, type PluggableList } from './math'
-import { createStreamSplitter } from './streamBlocks'
+import { createStreamSplitter, type StreamBlocks } from './streamBlocks'
+import { createTailThrottle, type TailThrottle } from './tailThrottle'
 import { rehypeHeadingIds, rehypeSourceLines } from './document'
 import type { Element, ElementContent } from 'hast'
 
@@ -118,6 +119,18 @@ const StreamChunk = memo(function StreamChunk({ text }: { text: string }) {
   )
 })
 
+/** 尾巴节流（tailThrottle.ts）：尾巴很长时最多隔 200 毫秒才刷新显示的那一份，其余情况跟最新 */
+function useThrottledBlocks(latest: StreamBlocks): StreamBlocks {
+  const [, refresh] = useReducer((n: number) => n + 1, 0)
+  const throttle = useRef<TailThrottle | null>(null)
+  throttle.current ??= createTailThrottle(refresh)
+  const shown = throttle.current.view(latest)
+  // 每次提交后看要不要排定时器；卸载（含开发模式的重新挂载）时清掉
+  useEffect(() => throttle.current?.arm())
+  useEffect(() => () => throttle.current?.dispose(), [])
+  return shown
+}
+
 /**
  * 流式输出：已写完的块各自 memo，只有尾巴随新文字重新解析；切块接着上次的位置扫，每次的开销和新增文字成正比。
  * 尾巴超长时只显示最后一段（整段每次都排版也会拖慢），完成后显示全文
@@ -126,7 +139,8 @@ function StreamingBody({ text }: { text: string }) {
   const splitter = useRef<ReturnType<typeof createStreamSplitter> | null>(null)
   splitter.current ??= createStreamSplitter()
   const split = splitter.current
-  const { completed, tail } = useMemo(() => split(text), [split, text])
+  const latest = useMemo(() => split(text), [split, text])
+  const { completed, tail } = useThrottledBlocks(latest)
   return (
     <PathLinksContext.Provider value={null}>
       {completed.map((block, i) => (

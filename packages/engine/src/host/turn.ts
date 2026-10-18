@@ -305,7 +305,10 @@ export class HostTurn {
       rt.inspectingContext
     )
       throw new Error('等待当前任务和排队消息结束后压缩')
-    if (!rt.session || !rt.snapshot.flags.compactAvailable) throw new Error('当前引擎不支持原生压缩，或会话尚未开始')
+    // 空闲超时（armIdle）会关掉引擎进程、rt.session 变空，但 flags.compactAvailable 是上一次会话报上来的，还留着：
+    // 这时不要报错，照样把 /compact 当文字入队，队列泵会重新拉起会话再执行（Claude 原生 /compact、Codex / Pixel 都认这条文字）。
+    // flags 里从没报过 compactAvailable（会话没开始过、引擎不支持）仍然报错
+    if (!rt.snapshot.flags.compactAvailable) throw new Error('当前引擎不支持原生压缩，或会话尚未开始')
     const receipt = await ctx.m.queue.send(id, '/compact')
     if (rt.snapshot.context)
       ctx.m.events.apply(id, {

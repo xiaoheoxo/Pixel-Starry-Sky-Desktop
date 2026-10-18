@@ -1,8 +1,8 @@
 // 手机看 Git 改动（docs/mobile-remote.md §18.4）：电脑把两边的全文比成带上下文的 unified diff 再发，
 // 不把两份全文都发过去（单帧 1 MB）。只有 @@ 行和 +/-/空格 开头的行，和会话里改动卡片的 diff 一样。
 
-/** 逐行比对的规模上限（去掉相同的开头结尾后两边行数的乘积）：再大就当整段删了再加，免得卡住主进程 */
-const MAX_CELLS = 2_000_000
+import { diffLines } from '@pixelsky/engine'
+
 /** 每处改动前后留几行 */
 const CONTEXT = 3
 /** 发给手机的 diff 最多这么多字符，再多截断 */
@@ -25,49 +25,12 @@ const split = (text: string | null): string[] => {
   return lines
 }
 
-/** 中间不同的那段：最长公共子序列；太大时整段删再整段加 */
-function middle(a: string[], b: string[]): Line[] {
-  const out: Line[] = []
-  if (!a.length || !b.length || a.length * b.length > MAX_CELLS) {
-    for (const l of a) out.push(['-', l])
-    for (const l of b) out.push(['+', l])
-    return out
-  }
-  const n = a.length,
-    m = b.length
-  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1))
-  for (let i = n - 1; i >= 0; i--)
-    for (let j = m - 1; j >= 0; j--)
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
-  let i = 0,
-    j = 0
-  while (i < n || j < m) {
-    if (i < n && j < m && a[i] === b[j]) {
-      out.push([' ', a[i++]])
-      j++
-    } else if (i < n && (j >= m || dp[i + 1][j] >= dp[i][j + 1])) out.push(['-', a[i++]])
-    else out.push(['+', b[j++]])
-  }
-  return out
-}
-
 /** 两段全文（新文件 original 为 null，删除的 modified 为 null）→ 只含改动和前后几行的 diff */
 export function phoneDiff(original: string | null, modified: string | null): PhoneDiff {
   const a = split(original),
     b = split(modified)
-  let start = 0
-  while (start < a.length && start < b.length && a[start] === b[start]) start++
-  let endA = a.length,
-    endB = b.length
-  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
-    endA--
-    endB--
-  }
-  const lines: Line[] = [
-    ...a.slice(0, start).map((l): Line => [' ', l]),
-    ...middle(a.slice(start, endA), b.slice(start, endB)),
-    ...a.slice(endA).map((l): Line => [' ', l]),
-  ]
+  // 共用引擎的逐行比对（先去相同头尾，中间小用 LCS、大用 Myers）
+  const lines: Line[] = diffLines(a, b)
   const changed: number[] = []
   lines.forEach(([t], i) => t !== ' ' && changed.push(i))
   // 每一行之前，两边各走到第几行（从 1 起）

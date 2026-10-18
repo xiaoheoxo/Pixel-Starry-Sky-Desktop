@@ -1,6 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import {
   EMPTY_DRAFT,
+  answeredCount,
   canWriteIn,
   collectAnswers,
   displayLabel,
@@ -12,7 +13,7 @@ import {
 } from './questionModel'
 import { tr, translateMessage } from '../../../i18n/core'
 // 审批卡片：引擎等你决定时固定显示在输入框上方（docs/engines.md §5.5）
-import { useState } from 'react'
+import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ChevronDown,
   FilePen,
@@ -24,11 +25,13 @@ import {
 } from 'lucide-react'
 import type { AlwaysScope, ApprovalDecision, ApprovalRequest, CommandWrapper, Question } from '@pixelsky/protocol'
 import { Button, DiffStat, Popover, cn } from '@/ui'
+import { isTypingTarget } from '@/ui/menuDigit'
 import { DiffView } from '@/ui/code/DiffView'
 import { CommandText } from '@/ui/code/CommandText'
 import { Markdown } from '@/ui/markdown/Markdown'
 import { FullAccessConfirm } from '../FullAccessConfirm'
 import { hasWrapperExtra, shellDisplayName } from './commandWrapper'
+import { alwaysKeyScope, approvalShortcut, digitQuestion, questionShortcut } from './approvals/cardKeys'
 
 const ICON: Record<ApprovalRequest['kind'], LucideIcon> = {
   command: SquareTerminal,
@@ -227,11 +230,38 @@ export function ApprovalBody({
   return null
 }
 
+/** 卡片底部的按键提示，样式和列表卡的一致 */
+function KeyHints({ items }: { items: { keys: string[]; label: string }[] }) {
+  return (
+    <div
+      data-approval-keys
+      className="flex flex-wrap gap-x-3 border-t border-line-subtle bg-wall-tint px-4 py-1 text-label text-fg-faint"
+    >
+      {items.map(({ keys, label }) => (
+        <span key={label} className="inline-flex items-center gap-1">
+          {keys.map(k => (
+            <kbd
+              key={k}
+              className="rounded-sm border border-line border-b-2 bg-surface px-1 font-mono text-[10.5px] leading-[15px] text-fg-muted"
+            >
+              {k}
+            </kbd>
+          ))}
+          {label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export function ApprovalCard({
   request,
   onAnswer,
+  onEscape,
 }: {
   request: ApprovalRequest
+  /** Esc：把焦点还给输入框（不拒绝） */
+  onEscape?: () => void
   /** 返回 Promise 时等它结果：失败了卡片恢复可点并显示原因，不会卡住 */
   onAnswer: (d: ApprovalDecision) => void | Promise<unknown>
 }) {
@@ -243,6 +273,9 @@ export function ApprovalCard({
   const [formText, setFormText] = useState('{}')
   // 「本会话后续不再询问」会切成完全放行：先在卡片底部就地确认，AI 继续等
   const [confirmingAll, setConfirmingAll] = useState(false)
+  const [focusWithin, setFocusWithin] = useState(false)
+  // 焦点在底部按钮上：Enter 是点按钮、数字不选题，提示里不再写
+  const [onFooter, setOnFooter] = useState(false)
   let formContent: Record<string, unknown> | null = null
   try {
     const value: unknown = JSON.parse(formText)
@@ -269,11 +302,137 @@ export function ApprovalCard({
     setDrafts(prev => ({ ...prev, [q.question]: next(prev[q.question] ?? EMPTY_DRAFT) }))
   const answers = collectAnswers(questions, drafts)
   const recommended = request.kind === 'question' ? recommendedAnswers(questions) : null
+  const canAllow = request.canAllow !== false && (request.formSchema === undefined || !!formContent)
+  const alwaysScope = alwaysKeyScope(request.alwaysScopes)
+  const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
+
+  const ctrlName = mod === '⌘' ? 'Meta' : 'Control'
+  const shortcutsAttr =
+    request.kind === 'question'
+      ? `${ctrlName}+Enter`
+      : [
+          `${ctrlName}+Enter`,
+          `${ctrlName}+Backspace`,
+          ...(alwaysScope && request.kind !== 'plan' ? [`${ctrlName}+Shift+Enter`] : []),
+          'Escape',
+        ].join(' ')
+
+  // 键盘：提问卡 1–9 选项 / Enter 下一题 / Ctrl+Enter 提交；其余卡 Ctrl/⌘+Enter 允许一次、Ctrl/⌘+⌫ 拒绝、Esc 回输入框（和列表卡一致）
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>): void => {
+    if (sent || confirmingAll || e.defaultPrevented) return
+    const target = e.target as HTMLElement
+    const typing = isTypingTarget(target)
+    const native = e.nativeEvent
+    // 按住 Enter 不放：浏览器每次连发都会点一下焦点所在的按钮（提交回答、切换选项、允许），这里拦下
+    if (native.repeat && e.key === 'Enter' && !typing) {
+      e.preventDefault()
+      return
+    }
+    if (request.kind === 'question') {
+      const block = target.closest<HTMLElement>('[data-question-index]')
+      const blockAt = block ? Number(block.dataset.questionIndex) : null
+      const onCard = target === e.currentTarget
+      const answered = questions.map(q => collectAnswers([q], drafts) !== null)
+      const pickAt = digitQuestion({ block: blockAt, onCard }, answered)
+      const result = questionShortcut(native, {
+        typing,
+        canAdvance: !!block || onCard,
+        canPick: pickAt !== null,
+      })
+      if (!result) return
+      if (result.type === 'submit') {
+        if (!answers) return
+        e.preventDefault()
+        answer({ type: 'answer', answers })
+      } else if (result.type === 'pick') {
+        const q = pickAt === null ? undefined : questions[pickAt]
+        const option = q?.options[result.index]
+        if (!q || !option) return
+        e.preventDefault()
+        update(q, d => pickOption(q, d, option.label))
+      } else {
+        // 到下一题的第一个选项；最后一题就落到「提交回答」上
+        e.preventDefault()
+        const at = blockAt === null ? 0 : blockAt + 1
+        const root = e.currentTarget
+        const next =
+          root.querySelector<HTMLElement>(`[data-question-index="${at}"] button:not(:disabled)`) ??
+          root.querySelector<HTMLElement>('[data-question-submit]:not(:disabled)')
+        next?.focus()
+      }
+      return
+    }
+    // 「始终允许」的范围菜单开着时，Esc 留给菜单
+    if (e.currentTarget.querySelector('[aria-haspopup="menu"][aria-expanded="true"]')) return
+    const result = approvalShortcut(native, {
+      typing,
+      canAllow,
+      // 计划卡没有「始终允许」
+      scopes: request.kind === 'plan' ? [] : request.alwaysScopes,
+    })
+    if (!result) return
+    e.preventDefault()
+    if (result.type === 'focusComposer') onEscape?.()
+    else if (result.type === 'allow')
+      answer(request.formSchema !== undefined ? { type: 'form', content: formContent! } : { type: 'allow' })
+    else if (result.type === 'always') answer({ type: 'allow_always', scope: result.scope })
+    else answer({ type: 'deny' })
+  }
+
+  let hints: ReactNode = null
+  if (focusWithin && !confirmingAll) {
+    if (request.kind === 'question')
+      hints = (
+        <KeyHints
+          items={[
+            ...(onFooter ? [] : [{ keys: ['1–9'], label: tr('approvals.keys.pick') }]),
+            ...(onFooter ? [] : [{ keys: ['Enter'], label: tr('approvals.keys.nextQuestion') }]),
+            { keys: [mod, 'Enter'], label: tr('approvals.keys.submit') },
+          ]}
+        />
+      )
+    else {
+      const plan = request.kind === 'plan'
+      hints = (
+        <KeyHints
+          items={[
+            ...(canAllow
+              ? [
+                  {
+                    keys: [mod, 'Enter'],
+                    label: tr(plan ? 'approvals.keys.startPlan' : 'approvals.keys.allowOnce'),
+                  },
+                ]
+              : []),
+            ...(alwaysScope && canAllow && !plan
+              ? [
+                  {
+                    keys: [mod, 'Shift', 'Enter'],
+                    label: `${SCOPE_INFO[alwaysScope].label}${tr('session.live.ApprovalCard.alwaysAllow')}`,
+                  },
+                ]
+              : []),
+            { keys: [mod, '⌫'], label: tr(plan ? 'approvals.keys.refinePlan' : 'approvals.keys.deny') },
+            { keys: ['Esc'], label: tr('approvals.keys.back') },
+          ]}
+        />
+      )
+    }
+  }
 
   return (
     <section
-      className="pop-in shrink-0 rounded-xl border border-line-strong bg-surface shadow-menu"
+      className="pop-in shrink-0 rounded-xl border border-line-strong bg-surface shadow-menu outline-none"
       aria-live="polite"
+      aria-keyshortcuts={shortcutsAttr}
+      onKeyDown={onKeyDown}
+      onFocus={e => {
+        setFocusWithin(true)
+        setOnFooter(!!(e.target as HTMLElement).closest('footer'))
+      }}
+      onBlur={e => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusWithin(false)
+      }}
       data-approval-card
       data-approval-request={request.requestId}
     >
@@ -306,8 +465,8 @@ export function ApprovalCard({
 
         {request.kind === 'question' && (
           <div className={cn(BODY, 'flex flex-col gap-3')}>
-            {questions.map(q => (
-              <div key={q.question}>
+            {questions.map((q, qi) => (
+              <div key={q.question} data-question-index={qi}>
                 <div className="mb-1.5 text-list text-fg">
                   {q.header && (
                     <span className="mr-1.5 rounded-sm bg-subtle px-1.5 py-0.5 text-label text-fg-muted">
@@ -322,7 +481,7 @@ export function ApprovalCard({
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  {q.options.map(o => {
+                  {q.options.map((o, oi) => {
                     const on = draft(q).picks.includes(o.label)
                     return (
                       <button
@@ -336,6 +495,7 @@ export function ApprovalCard({
                         )}
                       >
                         <span className={cn('flex items-center gap-1.5 text-list', on ? 'text-accent-fg' : 'text-fg')}>
+                          {oi < 9 && <kbd className="shrink-0 font-mono text-label text-fg-faint">{oi + 1}</kbd>}
                           {displayLabel(o.label)}
                           {isRecommended(o.label) && (
                             <span
@@ -417,6 +577,7 @@ export function ApprovalCard({
                 variant="primary"
                 disabled={!answers || sent}
                 className="disabled:opacity-50"
+                data-question-submit
                 onClick={() => answers && answer({ type: 'answer', answers })}
               >
                 {tr('session.live.ApprovalCard.submitAnswers')}{' '}
@@ -445,6 +606,9 @@ export function ApprovalCard({
               >
                 {tr('session.live.ApprovalCard.skip')}{' '}
               </Button>
+              <span className="ml-auto text-meta text-fg-faint">
+                {tr('approvals.answeredCount', { n: answeredCount(questions, drafts), m: questions.length })}
+              </span>
             </>
           ) : request.kind === 'plan' ? (
             <>
@@ -491,6 +655,7 @@ export function ApprovalCard({
           )}
         </footer>
       )}
+      {hints}
     </section>
   )
 }

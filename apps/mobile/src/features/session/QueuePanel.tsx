@@ -11,8 +11,10 @@ import {
   isPending,
   isReconnecting,
   isSendFailure,
+  queueErrorText,
   queueItems,
   queueLabel,
+  queueMoveArg,
   queueTitle,
 } from '@/data/queue'
 import { Button, Spinner, cn } from '@/ui'
@@ -51,14 +53,18 @@ export function QueuePanel({
       const result = await link.call(method, sessionId, ...args)
       if (method === 'engine:cancelQueued' && typeof result === 'string') onRecall(result)
     } catch (e) {
-      setError((e as Error).message === 'MOBILE_FORBIDDEN' ? '这部手机是「只看」。' : (e as Error).message)
+      setError(
+        (e as Error).message === 'MOBILE_FORBIDDEN' ? '这部手机是「只看」。' : queueErrorText((e as Error).message),
+      )
     } finally {
       setBusy(null)
     }
   }
 
   const actionsFor = (q: QueuedMessage): SheetAction[] => {
-    const index = snapshot.queue.indexOf(q)
+    const before = link?.hello?.queueMoveBefore === true
+    const up = queueMoveArg(snapshot.queue, items, q.id, -1, before)
+    const down = queueMoveArg(snapshot.queue, items, q.id, 1, before)
     const list: SheetAction[] = []
     if (isReconnecting(q))
       return [
@@ -97,11 +103,11 @@ export function QueuePanel({
       })
     if (q.status === 'queued') {
       list.push(
-        { label: '上移', disabled: index <= 0, onSelect: () => void run(q.id, 'engine:moveQueued', q.id, index - 1) },
+        { label: '上移', disabled: up === null, onSelect: () => void run(q.id, 'engine:moveQueued', q.id, up) },
         {
           label: '下移',
-          disabled: index >= snapshot.queue.length - 1,
-          onSelect: () => void run(q.id, 'engine:moveQueued', q.id, index + 1),
+          disabled: down === null,
+          onSelect: () => void run(q.id, 'engine:moveQueued', q.id, down),
         },
       )
     }

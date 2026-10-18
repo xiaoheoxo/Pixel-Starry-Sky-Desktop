@@ -49,6 +49,7 @@ import { initMemory, memoryTick, noteLoaded } from './app/memory'
 import { loadApp as loadAppPage, REACT_CRASH, watchCrashes, type CrashWatch } from './app/crashRecovery'
 import { canSend, markReady } from './app/rendererHealth'
 import { initTray, type TrayController } from './app/tray'
+import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
 import { initFeedback } from './feedback/feedback'
 import type { Locale } from '../shared/i18n/messages'
@@ -199,6 +200,8 @@ const crashWatches = new Map<Electron.WebContents, CrashWatch>()
 
 function createWindow(): BrowserWindow {
   const initial: ResolvedTheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+  // 上次的窗口位置 / 大小，对着当前显示器校验过（app/window-state.ts）；截图模式不用
+  const restored = captureDir ? null : resolveInitialWindow({ width: 1568, height: 900 }, { width: 1100, height: 700 })
   const win = new BrowserWindow({
     // 截图模式使用参考图尺寸（docs/reference/workbench-session.jpg）
     width: 1568,
@@ -227,6 +230,14 @@ function createWindow(): BrowserWindow {
     },
   })
 
+  if (restored) {
+    // setBounds 用的是外框尺寸，和保存时的 getNormalBounds 一致（构造参数里的 width / height 是内容区）
+    win.setBounds(restored.bounds)
+    // Windows 跨不同缩放比的显示器时，一次 setBounds 可能被按旧显示器的缩放比换算错（Electron 已知问题）；
+    // 窗口此时是隐藏的，再设一次没有代价
+    if (process.platform === 'win32') win.setBounds(restored.bounds)
+    trackWindowState(win, restored.maximized)
+  }
   observeWindowControls(win)
   watchWindow(win)
   // 界面崩溃后自动重新加载，反复崩溃时弹对话框（app/crashRecovery.ts）
@@ -244,7 +255,10 @@ function createWindow(): BrowserWindow {
   win.once('closed', () => crashWatches.delete(wc))
   win.webContents.on('did-finish-load', () => noteLoaded(win.webContents))
   win.once('ready-to-show', () => {
-    if (!captureDir) win.show()
+    if (captureDir) return
+    // 最大化要等页面画好再做：在隐藏窗口上调 maximize() 会让 Electron 直接把窗口显示出来（先看到一片底色）
+    if (restored?.maximized) win.maximize()
+    win.show()
   })
   win.on('close', event => {
     if (captureDir || closingAllowed.has(win) || win.webContents.isDestroyed()) return

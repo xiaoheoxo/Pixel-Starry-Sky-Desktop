@@ -90,12 +90,14 @@ export function useDemoQueueController(sessionId: string | null): QueueControlle
         items: s.items.map(i => (i.kind === 'user' && i.id === item.messageUuid ? { ...i, dismissed: true } : i)),
       }))
     },
-    moveQueued: async (id, index) =>
+    moveQueued: async (id, to) =>
       setQueue(queue => {
         const item = queue.find(q => q.id === id)
         if (!item) return queue
         const rest = queue.filter(q => q.id !== id)
-        rest.splice(Math.max(0, Math.min(rest.length, index)), 0, item)
+        const at =
+          typeof to === 'number' ? to : to.before === null ? rest.length : rest.findIndex(q => q.id === to.before)
+        rest.splice(Math.max(0, Math.min(rest.length, at)), 0, item)
         return rest
       }),
     // 重试 / 插队：从队列拿掉，在对话里显示成已发出

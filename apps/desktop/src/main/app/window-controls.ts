@@ -44,7 +44,20 @@ const SNAP_ZONES: Record<WindowSnapLayout, Zone[]> = {
 }
 
 const LAYOUTS = new Set<WindowSnapLayout>(Object.keys(SNAP_ZONES) as WindowSnapLayout[])
-const snappedWindows = new WeakMap<BrowserWindow, { bounds: Electron.Rectangle; minimum: number[] }>()
+const snappedWindows = new WeakMap<
+  BrowserWindow,
+  { bounds: Electron.Rectangle; minimum: number[]; maximized: boolean }
+>()
+
+/** 吸附前窗口是不是最大化的（没吸附返回 null）；保存窗口状态时用，免得吸附后把 maximized 存成 false */
+export function snapRestoreMaximized(win: BrowserWindow): boolean | null {
+  return snappedWindows.get(win)?.maximized ?? null
+}
+
+/** 吸附布局中的窗口：吸附前的位置大小（没吸附返回 null），保存窗口位置时用 */
+export function snapRestoreBounds(win: BrowserWindow): Electron.Rectangle | null {
+  return snappedWindows.get(win)?.bounds ?? null
+}
 
 export function snapBounds(
   area: Electron.Rectangle,
@@ -103,7 +116,11 @@ export function initWindowControls(): void {
       const bounds = snapBounds(area, layout, zone)
       if (!bounds) throw new Error('当前显示器空间不足，无法使用这个区域')
       if (!snappedWindows.has(win))
-        snappedWindows.set(win, { bounds: win.getNormalBounds(), minimum: win.getMinimumSize() })
+        snappedWindows.set(win, {
+          bounds: win.getNormalBounds(),
+          minimum: win.getMinimumSize(),
+          maximized: win.isMaximized(),
+        })
       if (win.isMaximized()) win.unmaximize()
       // 布局模式允许小于普通窗口的 1100×700；最小保持单窗格可用的 400×300。
       win.setMinimumSize(400, 300)

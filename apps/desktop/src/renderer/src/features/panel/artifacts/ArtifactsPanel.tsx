@@ -20,6 +20,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { OPEN_SESSION_EVENT } from '@/features/engine/openRequests'
 import { relativeTime } from '@/features/engine'
+import { motionEnabled } from '@/features/panes/motion'
 import { openFile } from '@/features/files/store'
 import { machineOf } from '@/features/machines/store'
 import type {
@@ -308,7 +309,7 @@ function TurnBlock({
   useI18n()
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (focusToken) ref.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    if (focusToken) ref.current?.scrollIntoView({ block: 'start', behavior: motionEnabled() ? 'smooth' : 'auto' })
   }, [focusToken])
   return (
     <div

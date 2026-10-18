@@ -44,6 +44,7 @@ export type {
   Question,
   QuestionOption,
   QueueSettings,
+  QueueMove,
   QueueReconnect,
   QueueStatus,
   QueueSummary,
@@ -74,6 +75,8 @@ export type {
   TaskOutput,
   TodoStep,
   ToolKind,
+  NoticeError,
+  NoticeErrorKind,
   NoticeTask,
   TurnOutcome,
   TurnUsage,
@@ -214,7 +217,17 @@ export { ENGINES, ENGINE_ORDER, isNewerVersion } from './engines'
 export { joinArgs, splitArgs } from './launchArgs'
 export type { CodedErrorInfo, ErrorParams } from './errors'
 export { ERROR_PREFIX, codedError, parseCodedError, replaceCodedErrors } from './errors'
-export { isQuietWarning, quietWarningKey } from './notices'
+export {
+  ERROR_CODE_KIND,
+  classifyErrorText,
+  errorKindOfStatus,
+  httpStatusOf,
+  isNoticeErrorKind,
+  isOverflowText,
+  noticeErrorOf,
+  isQuietWarning,
+  quietWarningKey,
+} from './notices'
 export type { PackageManager } from './package-manager'
 export { LOCKFILE_NAMES, detectPackageManager, scriptCommand } from './package-manager'
 export type { LogEntry, LogLevel, LogQuery, LogSettings } from './log'

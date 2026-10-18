@@ -2,7 +2,10 @@
 // 由同一会话的输入框接住执行（打开模型菜单、切换额度来源要先确认，都由输入框负责）。
 export const SOURCE_ACTION_EVENT = 'pixelsky:source-action'
 
-/** retry：出错后一键接着做，往会话里发一条「继续」（和 Claude 桌面版的 Try again 一样） */
+/**
+ * retry：出错后一键接着做，往会话里发一条「继续」（和 Claude 桌面版的 Try again 一样）；
+ * compact-retry：上下文超限时先压缩（排进队列的 /compact），再发同一条「继续」，排在压缩后面
+ */
 export type SourceAction =
   | 'open-menu'
   | 'use-self'
@@ -11,6 +14,7 @@ export type SourceAction =
   | 'sign-in'
   | 'edit-provider'
   | 'retry'
+  | 'compact-retry'
 
 export function requestSourceAction(sessionId: string, action: SourceAction): void {
   window.dispatchEvent(new CustomEvent(SOURCE_ACTION_EVENT, { detail: { sessionId, action } }))

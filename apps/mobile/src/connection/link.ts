@@ -44,6 +44,8 @@ export interface Hello {
   access: 'view' | 'act'
   /** 电脑能给手机用 Git / 文件 / 产物 / 任务工具、加项目（docs/mobile-remote.md §18.4）；旧版电脑没有 */
   tools?: boolean
+  /** 电脑认得队列调序的 { before: 消息 id | null }；旧版电脑把它当成第 0 位，手机要退回数字下标 */
+  queueMoveBefore?: boolean
 }
 
 export interface LinkHooks {

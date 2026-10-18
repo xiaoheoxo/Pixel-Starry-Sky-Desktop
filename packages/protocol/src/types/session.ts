@@ -138,6 +138,13 @@ export interface QueuedMessage {
   reconnected?: number
 }
 
+/**
+ * 调序目标。新形态按消息 id 定位（{ before: 锚点消息 id } 排到它前面，null 排到最后），
+ * 点击到宿主收到之间队列变了（队首刚好发完）也不会挪错；锚点或被挪的消息已不在队里就整条拒绝（错误码 queue.changed）。
+ * 数字是旧版的「挪到第几位」，只为旧版手机连新版电脑保留。
+ */
+export type QueueMove = { before: string | null } | number
+
 export interface QueueReconnect {
   /** 第几次重连，从 1 起 */
   attempt: number

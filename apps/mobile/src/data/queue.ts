@@ -1,6 +1,6 @@
 // 消息队列（docs/mobile-remote.md §17 第 2 项）：哪些放进队列面板、每条显示什么、能做什么。
 // 规则和桌面端 features/session/queueView.ts、QueuedMessages.tsx 一样（docs/ui/message-queue.md）。
-import type { QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
+import { replaceCodedErrors, type QueueMove, type QueuedMessage, type SessionSnapshot } from '@pixelsky/protocol'
 
 /** 空闲时直接发送、正在启动的消息：显示在对话里，不放进队列面板 */
 export function isStarting(q: QueuedMessage, paused: boolean): boolean {
@@ -51,4 +51,45 @@ export function canSteer(q: QueuedMessage, snapshot: Pick<SessionSnapshot, 'stat
   return (
     q.status === 'queued' && snapshot.flags.steerAvailable === true && snapshot.state === 'running' && !!snapshot.turnId
   )
+}
+
+/** 上移 / 下移发给电脑的调序目标：按手机上这一刻看到的邻居算成 { before: 消息 id }，不用下标
+ *  （点击到电脑收到之间队首发完了也不会挪错）。上移 = 排到上一条前面；下移 = 排到下一条的下一条前面，后面没有了就是 null（最后）。
+ *  挪不了（已在头 / 尾，或上一条已经在交付）返回 null。规则同桌面 queueView.ts 的 queueMoveTarget */
+export function queueMoveTarget(items: readonly QueuedMessage[], id: string, dir: -1 | 1): QueueMove | null {
+  // 正在重连的那条桌面端不放进列表，也不能当锚点：跳过它，邻居按桌面看到的算
+  items = items.filter(q => q.id === id || !isReconnecting(q))
+  const at = items.findIndex(q => q.id === id)
+  if (at < 0 || items[at].status !== 'queued') return null
+  if (dir < 0) {
+    const prev = items[at - 1]
+    return prev && prev.status !== 'running' && !isPending(prev) ? { before: prev.id } : null
+  }
+  if (!items[at + 1]) return null
+  const after = items[at + 2]
+  return { before: after ? after.id : null }
+}
+
+/**
+ * 上移 / 下移最终发给电脑的参数。电脑 hello 带 queueMoveBefore 才发 { before }；
+ * 旧版电脑把对象当「第 0 位」，会把消息挪到队首，所以退回旧写法：消息在整个队列（snapshot.queue）里的下标 ±1。
+ * 挪不了返回 null
+ */
+export function queueMoveArg(
+  queue: readonly QueuedMessage[],
+  items: readonly QueuedMessage[],
+  id: string,
+  dir: -1 | 1,
+  supportsBefore: boolean,
+): QueueMove | number | null {
+  if (supportsBefore) return queueMoveTarget(items, id, dir)
+  const index = queue.findIndex(q => q.id === id)
+  if (index < 0 || queue[index].status !== 'queued') return null
+  if (dir < 0) return index <= 0 ? null : index - 1
+  return index >= queue.length - 1 ? null : index + 1
+}
+
+/** 操作失败时给人看的话：电脑回的「队列已变化」是带代码的错误，换成中文；别的原样 */
+export function queueErrorText(message: string): string {
+  return replaceCodedErrors(message, info => (info.code === 'queue.changed' ? '队列已变化，排序未保存' : message))
 }

@@ -29,6 +29,19 @@ export interface TodoStep {
 
 export type ToolKind = 'read' | 'search' | 'web' | 'mcp' | 'task' | 'other'
 
+/** 报错提示的归类：界面据此给一键按钮、侧栏给状态图标（覆盖按文字猜的老办法）；overflow 是上下文超限 */
+export type NoticeErrorKind = 'auth' | 'balance' | 'route' | 'busy' | 'overflow'
+
+/**
+ * 报错提示的结构化信息，引擎在认出 API 报错时填：kind 归类（认不出就没有）、code 引擎给的原始错误代码、status HTTP 状态码。
+ * 没有这个字段的（旧会话、旧引擎）界面按文字猜
+ */
+export interface NoticeError {
+  kind?: NoticeErrorKind
+  code?: string
+  status?: number
+}
+
 /** 后台任务结束提示的结构化信息；label 是任务说明（可能为空），summary 是结束时的摘要 */
 export interface NoticeTask {
   toolUseId?: string
@@ -119,6 +132,7 @@ export type Item =
       text: string
       detail?: string | null
       task?: NoticeTask
+      error?: NoticeError
       /** 提示右边的按钮（接着引擎自己的会话：加载更早的 / 补上终端里新聊的 N 轮）；count 是轮数 */
       action?: { kind: 'native-earlier' | 'native-sync'; count: number }
     }

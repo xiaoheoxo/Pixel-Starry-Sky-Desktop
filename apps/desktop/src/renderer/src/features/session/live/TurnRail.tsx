@@ -10,7 +10,7 @@ import {
   type PointerEvent,
   type RefObject,
 } from 'react'
-import { onPaneSettled, paneMoving, settledResizeObserver } from '@/features/panes/motion'
+import { motionEnabled, onPaneSettled, paneMoving, settledResizeObserver } from '@/features/panes/motion'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { cn } from '@/ui'
@@ -35,6 +35,7 @@ export function TurnRail({
   scroller,
   showTurns,
   onBeforeJump,
+  onGrab,
   hiddenTurns = 0,
   onShowEarlier,
 }: {
@@ -44,6 +45,8 @@ export function TurnRail({
   showTurns: boolean
   /** 跳转前：暂停「贴底跟随」，不然新内容会把视口拉回底部 */
   onBeforeJump: () => void
+  /** 在滑块 / 滑轨上按下（拖动、点轨道、点刻度）：滚动权在用户手里了，打断「回到最新」的滑动 */
+  onGrab?: () => void
   /** 上面还有几轮没显示（docs/ui/turn-rail.md §9）：滑轨顶部的小标记、列表第一行；turns 只含显示出来的轮 */
   hiddenTurns?: number
   /** 点标记或列表第一行：显示更早的一批 */
@@ -202,6 +205,7 @@ export function TurnRail({
     const el = scroller.current
     if (!el || e.button !== 0) return
     e.preventDefault()
+    onGrab?.()
     if (timer.current) clearTimeout(timer.current)
     setOpen(false)
     const y = railY(e.clientY)
@@ -364,10 +368,12 @@ export function TurnRail({
   )
 }
 
-/** 离得近平滑滚，离得远直接跳（平滑滚过一长段既慢，又要把沿途内容都排版一遍） */
+/** 离得近平滑滚，离得远直接跳（平滑滚过一长段既慢，又要把沿途内容都排版一遍）；动画关了也直接跳 */
 function scrollToward(el: HTMLElement, top: number, after?: () => void): void {
   const target = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight))
-  if (Math.abs(target - el.scrollTop) > el.clientHeight * 3) {
+  const dist = Math.abs(target - el.scrollTop)
+  // 已经在目标位置时不会有 scrollend，直接收尾
+  if (!motionEnabled() || dist < 1 || dist > el.clientHeight * 3) {
     el.scrollTop = target
     after?.()
     return

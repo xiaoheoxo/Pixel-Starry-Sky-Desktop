@@ -7,11 +7,12 @@ import type {
   EngineCatalog,
   ImageAttachment,
   RequestRetryState,
+  NoticeError,
   SessionSettings,
   SkillCommand,
   TurnOutcome,
 } from '@pixelsky/protocol'
-import { EMPTY_FLAGS, codedError, isQuietWarning, viaGateway } from '@pixelsky/protocol'
+import { EMPTY_FLAGS, codedError, isQuietWarning, noticeErrorOf, viaGateway } from '@pixelsky/protocol'
 import { versionAtLeast } from '../exec'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import { NO_REPLY, seedImageCount, seedTurns, type ChatSeed, type ChatTurn } from '../chat-log'
@@ -158,6 +159,23 @@ export function codexRerouteNotice(params: Message): { text: string; detail: str
   if (reason === 'highRiskCyberActivity')
     return { text: `${text}: the request was flagged as high-risk cybersecurity activity`, detail: null }
   return { text, detail: reason ? `reason: ${reason}` : null }
+}
+
+/**
+ * Codex TurnError 的结构化信息（notice.error）：codexErrorInfo 的类型名（协议里是 camelCase，如 contextWindowExceeded）当错误代码，带 HTTP 状态码的取出来；
+ * 归类走协议里的同一张代码表，没有可用信息时 undefined
+ */
+export function turnNoticeError(raw: unknown, text: string): NoticeError | undefined {
+  const info = object(raw).codexErrorInfo
+  let code: string | undefined, status: number | undefined
+  if (typeof info === 'string' && info) code = info
+  else if (info && typeof info === 'object') {
+    const [kind, value] = Object.entries(info as Record<string, unknown>)[0] ?? []
+    code = kind || undefined
+    const http = object(value).httpStatusCode
+    if (typeof http === 'number') status = http
+  }
+  return noticeErrorOf({ code, status, text })
 }
 
 /** extraDirs：项目的附加文件夹，和工作目录一样可写（docs/ui/multi-root-projects.md §3.3） */
@@ -879,6 +897,7 @@ export class CodexSession implements EngineSession {
         turn.status === 'interrupted' ? 'interrupted' : turn.status === 'failed' ? 'failed' : 'completed',
         string(object(turn.error).message) || null,
         turnErrorDetail(turn.error),
+        turnNoticeError(turn.error, string(object(turn.error).message)),
       )
     } else if (method === 'item/started' || method === 'item/completed') {
       const item = object(params.item)
@@ -971,6 +990,7 @@ export class CodexSession implements EngineSession {
     } else if (method === 'error' || method === 'warning') {
       const text = string(object(params.error).message || params.message)
       if (method === 'error') this.reportedError = text
+      const noticeError = method === 'error' ? turnNoticeError(params.error, text) : undefined
       // 用户 config.toml 引起、不影响使用的警告（每轮都发）：和这一轮无关，不进对话，报给宿主显示在设置里
       if (method === 'warning' && isQuietWarning(text)) {
         const own = withoutOwnFeatures(text, this.ownAskFlag)
@@ -984,6 +1004,7 @@ export class CodexSession implements EngineSession {
           level: method === 'error' ? 'error' : 'warn',
           text,
           detail: turnErrorDetail(params.error, params.willRetry),
+          ...(method === 'error' && noticeError ? { error: noticeError } : {}),
         },
       })
     }
@@ -1143,7 +1164,7 @@ export class CodexSession implements EngineSession {
       for (const [pendingId, pending] of this.approvals)
         if (pending.request.canAllowAll) this.answer(pendingId, { type: 'allow' })
   }
-  private finish(outcome: TurnOutcome, error: string | null, detail: string | null = null): void {
+  private finish(outcome: TurnOutcome, error: string | null, detail: string | null = null, info?: NoticeError): void {
     const active = this.active
     if (!active) return
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
@@ -1176,7 +1197,14 @@ export class CodexSession implements EngineSession {
     if (outcome === 'failed' && error && error !== this.reportedError)
       this.ctx.emit({
         type: 'item_completed',
-        item: { kind: 'notice', id: 'cx-error-' + active.id, level: 'error', text: error, detail },
+        item: {
+          kind: 'notice',
+          id: 'cx-error-' + active.id,
+          level: 'error',
+          text: error,
+          detail,
+          ...(info ? { error: info } : {}),
+        },
       })
     this.translator.finish(outcome === 'completed' ? 'completed' : outcome === 'interrupted' ? 'interrupted' : 'failed')
     for (const id of this.approvals.keys()) this.ctx.emit({ type: 'approval_resolved', requestId: id })

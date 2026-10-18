@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { QueuedMessage } from '@pixelsky/protocol'
-import { isReconnecting, isSendFailure, isStarting, reconnectPhase } from './queueView'
+import { isReconnecting, isSendFailure, isStarting, queueMoveKey, queueMoveTarget, reconnectPhase } from './queueView'
 
 const item = (patch: Partial<QueuedMessage>): QueuedMessage => ({
   id: 'a',
@@ -48,5 +48,44 @@ describe('自动重连卡片的阶段', () => {
     expect(reconnectPhase(item({ reconnect, status: 'dispatching' }), false, 20_000)).toBe('connecting')
     expect(reconnectPhase(q, true, 9_500)).toBe('paused')
     expect(reconnectPhase(q, true, 20_000)).toBe('paused')
+  })
+})
+
+describe('队列调序目标', () => {
+  const list = ['a', 'b', 'c', 'd'].map(id => item({ id }))
+  it('上移排到上一条前面，下移排到下一条的下一条前面，后面没有了是 null', () => {
+    expect(queueMoveTarget(list, 'c', -1)).toEqual({ before: 'b' })
+    expect(queueMoveTarget(list, 'b', 1)).toEqual({ before: 'd' })
+    expect(queueMoveTarget(list, 'c', 1)).toEqual({ before: null })
+  })
+  it('已在头 / 尾、不是排队中、不在列表里：挪不了', () => {
+    expect(queueMoveTarget(list, 'a', -1)).toBeNull()
+    expect(queueMoveTarget(list, 'd', 1)).toBeNull()
+    expect(queueMoveTarget(list, 'zzz', 1)).toBeNull()
+    expect(queueMoveTarget([item({ id: 'a' }), item({ id: 'b', status: 'failed' })], 'b', -1)).toBeNull()
+  })
+  it('上一条已经在交付：不能排到它前面', () => {
+    const items = [item({ id: 'a', status: 'delivering' }), item({ id: 'b' })]
+    expect(queueMoveTarget(items, 'b', -1)).toBeNull()
+    expect(queueMoveTarget([item({ id: 'a', status: 'failed' }), item({ id: 'b' })], 'b', -1)).toEqual({ before: 'a' })
+  })
+})
+
+describe('队列调序快捷键', () => {
+  const key = (k: string, mods: Partial<Record<'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey', boolean>> = {}) => ({
+    key: k,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...mods,
+  })
+  it('只认 Alt+↑ / Alt+↓；单按方向键和带别的修饰键的都不拦', () => {
+    expect(queueMoveKey(key('ArrowUp', { altKey: true }))).toBe(-1)
+    expect(queueMoveKey(key('ArrowDown', { altKey: true }))).toBe(1)
+    expect(queueMoveKey(key('ArrowUp'))).toBe(0)
+    expect(queueMoveKey(key('ArrowDown', { altKey: true, shiftKey: true }))).toBe(0)
+    expect(queueMoveKey(key('ArrowDown', { altKey: true, ctrlKey: true }))).toBe(0)
+    expect(queueMoveKey(key('ArrowLeft', { altKey: true }))).toBe(0)
   })
 })

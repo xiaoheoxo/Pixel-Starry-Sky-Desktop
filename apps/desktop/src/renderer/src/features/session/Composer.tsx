@@ -6,6 +6,7 @@ import { IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { attachments as initialAttachments, composer, isDemo } from '@/data'
 import {
   SOURCE_ACTION_EVENT,
+  bridge,
   takePendingSourceAction,
   useDemoSourceController,
   type ComposerController,
@@ -49,6 +50,7 @@ import { useResumeCommand } from '@/features/resume/useResumeCommand'
 import { parseResumeCommand } from '@/features/resume/model'
 import { openResumePicker } from '@/features/resume/store'
 import { escapeStops } from './escapeStop'
+import { compactThenRetry } from './live/errorKind'
 import { tr } from '../../i18n/core'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
@@ -290,6 +292,18 @@ export function Composer({
       void live
         .submit(tr('session.live.NoticeActions.retryMessage'))
         .catch((e: unknown) => setError((e as Error).message))
+        .finally(() => (retrying.current = false))
+    } else if (a === 'compact-retry') {
+      // 上下文超限：先把 /compact 排进队列，再发「继续」——它排在压缩后面，压缩完才轮到；压缩发不出去（引擎不支持、正忙）就不发了
+      if (!live || live.running || retrying.current || !live.sessionId) return
+      retrying.current = true
+      setError(null)
+      const id = live.sessionId
+      const b = bridge
+      void compactThenRetry(b ? () => b.compact(id) : undefined, () =>
+        live.submit(tr('session.live.NoticeActions.retryMessage')),
+      )
+        .catch((e: unknown) => setError(translateMessage((e as Error).message)))
         .finally(() => (retrying.current = false))
     } else if (a === 'open-menu') setMenuOpen(true)
     else if (a === 'use-self') requestSource('self')

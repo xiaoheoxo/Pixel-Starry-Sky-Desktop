@@ -104,6 +104,7 @@ export const sessionMessages = {
     zh: '不重发也不撤回：消息留在对话里标「未送达」，可以直接接着说',
     en: 'Neither resend nor withdraw: the message stays in the conversation marked "Not delivered", and you can just keep going',
   },
+  'session.queue.rowLabel': { zh: '{p0}，{p1}', en: '{p0}, {p1}' },
   'session.queue.undelivered': { zh: '未送达', en: 'Not delivered' },
   'session.queue.dismissed': { zh: '已关掉', en: 'Dismissed' },
   'session.queue.resend': { zh: '重发', en: 'Resend' },
