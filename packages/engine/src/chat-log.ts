@@ -2,6 +2,7 @@
 // 命令输出、工具调用、文件改动都是工作区里的状态，新引擎和旧引擎面对同一个目录，自己看就行；
 // 重新推不出来的只有用户说过什么、助手得出了什么结论。所以这里不渲染那些条目。
 import { MAX_IMAGE_COUNT, MAX_IMAGE_TOTAL, type ImageAttachment, type Item } from '@pixelsky/protocol'
+import { cut } from './text'
 
 /** 一轮回放：用户说了什么，助手最后回了什么（助手那条可能没有，例如被打断） */
 export interface ChatTurn {
@@ -62,7 +63,7 @@ export const carriableImage = (image: ImageAttachment): boolean =>
   image.width <= HANDOFF_IMAGE_MAX_SIDE &&
   image.height <= HANDOFF_IMAGE_MAX_SIDE
 
-const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…（已截断）` : text)
+const clip = (text: string, max: number): string => (text.length > max ? `${cut(text, 0, max)}…（已截断）` : text)
 
 /** 有内容的助手回复才算数：思考、提示、统计都不是回复 */
 const isReply = (item: Item): item is Extract<Item, { kind: 'assistant' }> =>

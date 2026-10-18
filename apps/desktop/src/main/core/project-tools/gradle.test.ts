@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { checkBuildDir, decodeOutput, gradleLaunch } from './gradle-run'
+import { decodeConsoleText as decodeOutput } from '@pixelsky/engine'
+import { checkBuildDir, gradleLaunch } from './gradle-run'
 import {
   detectPlugins,
   inferTasks,
@@ -400,8 +401,8 @@ describe('gradle run helpers', () => {
 
   it('decodes UTF-8 output, falling back to GB18030 (Chinese Windows code page)', () => {
     expect(decodeOutput(Buffer.from('打包资源包 - ok', 'utf8'))).toBe('打包资源包 - ok')
-    // 「打包」的 GBK 编码
-    expect(decodeOutput(Uint8Array.from([0xb4, 0xf2, 0xb0, 0xfc]))).toBe('打包')
+    // 「打包」的 GBK 编码；固定代码页，不依赖本机
+    expect(decodeOutput(Uint8Array.from([0xb4, 0xf2, 0xb0, 0xfc]), { windows: true, codePage: 936 })).toBe('打包')
   })
 
   it('accepts only relative posix build dirs', () => {

@@ -92,6 +92,26 @@ describe('describeToolCall', () => {
     expect(describeToolCall('edit', { path: 'a.ts' })).toBe('a.ts')
     expect(describeToolCall('bash', { command: 'x'.repeat(2000) }).length).toBe(801)
   })
+
+  it('web_fetch：先写归一化后的网址，再写 prompt；prompt 再长网址也不会被截没', () => {
+    expect(describeToolCall('web_fetch', { prompt: 'p'.repeat(2000), url: 'https://Example.com/a' })).toMatch(
+      /^https:\/\/example\.com\/a — p+…$/,
+    )
+    expect(describeToolCall('web_fetch', { url: 'https://example.com/' })).toBe('https://example.com/')
+  })
+
+  it('web_fetch：各种写法的本机地址在摘要里现出原形（显示归一化后的网址）', () => {
+    expect(describeToolCall('web_fetch', { url: 'http://127。0。0。1/' })).toBe('http://127.0.0.1/')
+    expect(describeToolCall('web_fetch', { url: 'http://2130706433/' })).toBe('http://127.0.0.1/')
+    expect(describeToolCall('web_fetch', { url: 'http://ｌｏｃａｌｈｏｓｔ:3000/' })).toBe('http://localhost:3000/')
+    // 不是合法网址：照原文显示
+    expect(describeToolCall('web_fetch', { url: 'not a url' })).toBe('not a url')
+  })
+
+  it('截断不劈开 emoji', () => {
+    const emoji = String.fromCharCode(0xd83d, 0xde00)
+    expect(describeToolCall('bash', { command: `${'x'.repeat(799)}${emoji}tail` })).toBe(`${'x'.repeat(799)}…`)
+  })
 })
 
 describe('isAllowedTool / approvalTool', () => {

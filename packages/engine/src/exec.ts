@@ -4,6 +4,7 @@ import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, extname, isAbsolute, join } from 'node:path'
 import type { Launcher } from './adapter'
+import { ConsoleStreamDecoder, decodeConsoleText } from './console-text'
 
 export const IS_WINDOWS = process.platform === 'win32'
 
@@ -134,13 +135,13 @@ export function run(
       execFile(
         launcher.command,
         [...launcher.args, ...args],
-        { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' },
+        { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'buffer' },
         (err, stdout, stderr) => {
           resolve({
             ok: !err,
             started: !err || err.killed || typeof (err as { code?: unknown }).code === 'number',
-            stdout: String(stdout ?? ''),
-            stderr: String(stderr ?? ''),
+            stdout: decodeConsoleText(stdout ?? new Uint8Array()),
+            stderr: decodeConsoleText(stderr ?? new Uint8Array()),
             error: err
               ? (err as NodeJS.ErrnoException).code === 'ETIMEDOUT' || err.killed
                 ? '超时'
@@ -209,8 +210,10 @@ export function runStream(
         if (line) onLine(line)
       }
     }
-    child.stdout!.setEncoding('utf8').on('data', (chunk: string) => take('stdout', chunk))
-    child.stderr!.setEncoding('utf8').on('data', (chunk: string) => take('stderr', chunk))
+    // 按字节收再解码（UTF-8 优先，Windows 上退到系统 OEM 代码页）；多字节字符被块边界切开也不会坏
+    const decoders = { stdout: new ConsoleStreamDecoder(), stderr: new ConsoleStreamDecoder() }
+    child.stdout!.on('data', (chunk: Buffer) => take('stdout', decoders.stdout.write(chunk)))
+    child.stderr!.on('data', (chunk: Buffer) => take('stderr', decoders.stderr.write(chunk)))
     const timer = setTimeout(() => {
       timedOut = true
       killTree(child)
@@ -226,8 +229,8 @@ export function runStream(
       done({ ok: false, started: false, stdout: out.stdout, stderr: out.stderr, error: err.message }),
     )
     child.on('close', code => {
-      take('stdout', '', true)
-      take('stderr', '', true)
+      take('stdout', decoders.stdout.end(), true)
+      take('stderr', decoders.stderr.end(), true)
       done({
         ok: code === 0 && !timedOut,
         started: true,
@@ -299,8 +302,10 @@ export function runInteractive(
       }, PARTIAL_IDLE_MS)
     }
   }
-  child.stdout!.setEncoding('utf8').on('data', (chunk: string) => take('stdout', chunk))
-  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => take('stderr', chunk))
+  // 按字节收再解码（UTF-8 优先，Windows 上退到系统 OEM 代码页）；多字节字符被块边界切开也不会坏
+  const decoders = { stdout: new ConsoleStreamDecoder(), stderr: new ConsoleStreamDecoder() }
+  child.stdout!.on('data', (chunk: Buffer) => take('stdout', decoders.stdout.write(chunk)))
+  child.stderr!.on('data', (chunk: Buffer) => take('stderr', decoders.stderr.write(chunk)))
   // 命令先退出时往 stdin 写会报 EPIPE，忽略
   child.stdin!.on('error', () => undefined)
   let killed = false
@@ -317,8 +322,8 @@ export function runInteractive(
       finish({ ok: false, started: false, stdout: out.stdout, stderr: out.stderr, error: err.message }),
     )
     child.on('close', code => {
-      take('stdout', '', true)
-      take('stderr', '', true)
+      take('stdout', decoders.stdout.end(), true)
+      take('stderr', decoders.stderr.end(), true)
       finish({
         ok: code === 0 && !killed,
         started: true,

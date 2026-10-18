@@ -18,6 +18,7 @@ import { IMAGE_PLACEHOLDER } from '@pixelsky/protocol'
 import { displayPath } from '../claude/tools'
 import { diffAdded, diffText } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
+import { cut } from '../text'
 import { SUBAGENT_TOOL, subagentItemId, subagentRun, subagentStatus } from './agents'
 import { array, number, object, string, type Message } from './process'
 
@@ -134,13 +135,13 @@ function toolTitle(name: string, args: Message, cwd: string): { tool: ToolKind; 
         .split('\n')
         .map(l => l.trim())
         .find(l => l && !l.startsWith('// @options')) ?? ''
-    return { tool: 'other', title: line.length > 120 ? `${line.slice(0, 120)}…` : line }
+    return { tool: 'other', title: line.length > 120 ? `${cut(line, 0, 120)}…` : line }
   }
   if (/^mcp[_]/i.test(name)) return { tool: 'mcp', title: name.replace(/^mcp_+/i, '').replace(/__/g, ' · ') }
   const first = ['command', 'path', 'url', 'query', 'pattern'].map(k => string(args[k])).find(Boolean)
-  if (first) return { tool: 'other', title: first.length > 120 ? `${first.slice(0, 120)}…` : first }
+  if (first) return { tool: 'other', title: first.length > 120 ? `${cut(first, 0, 120)}…` : first }
   const brief = JSON.stringify(args) ?? ''
-  return { tool: 'other', title: brief.length > 80 ? `${brief.slice(0, 80)}…` : brief }
+  return { tool: 'other', title: brief.length > 80 ? `${cut(brief, 0, 80)}…` : brief }
 }
 
 /** 工具调用开始 → 条目 */
@@ -251,15 +252,26 @@ export function approvalFor(
   }
 }
 
+/** 截断；边界落在 emoji（代理对）中间时少截一位（命令行 approval.ts 的 clip 要一致） */
 function clipText(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text
+  return text.length > max ? `${cut(text, 0, max)}…` : text
 }
 
 /**
  * 批准扩展询问标题第二行的摘要（packages/cli/src/extensions/approval.ts 的 describeToolCall，写法要一致）：
  * 用来把询问对上是哪个工具条目
  */
-export function approvalSummary(args: Message): string {
+export function approvalSummary(args: Message, toolName = ''): string {
+  if (toolName === 'web_fetch' && typeof args.url === 'string') {
+    let target = args.url
+    try {
+      target = new URL(args.url.trim()).href
+    } catch {
+      // 不是合法网址：照原文
+    }
+    const ask = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+    return ask ? `${clipText(target, 400)} — ${clipText(ask, 300)}` : clipText(target, 400)
+  }
   if (typeof args.command === 'string') return clipText(args.command, 800)
   if (typeof args.path === 'string') return clipText(args.path, 400)
   if (typeof args.file_path === 'string') return clipText(args.file_path, 400)
@@ -565,7 +577,7 @@ export class PixelTranslator {
     const name = string(raw.toolName)
     const id = this.toolId(raw)
     this.toolNames.set(id, name)
-    this.toolSummaries.set(id, approvalSummary(object(raw.args)))
+    this.toolSummaries.set(id, approvalSummary(object(raw.args), name))
     this.put(toolItem(id, name, object(raw.args), this.options.cwd), false)
   }
 

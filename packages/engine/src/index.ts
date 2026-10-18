@@ -5,6 +5,15 @@ export { ENGINES, ENGINE_ORDER } from './registry'
 export { engineEnv } from './env'
 export { resolveCommand, type ResolvedCommand } from './exec'
 export {
+  ConsoleLineDecoder,
+  ConsoleStreamDecoder,
+  codePageLabel,
+  decodeConsoleText,
+  detectOemCodePage,
+  oemCodePage,
+  type ConsoleDecodeOptions,
+} from './console-text'
+export {
   CLAUDE_COMPACT_MARKER,
   isClaudeCompaction,
   rewriteCompaction,

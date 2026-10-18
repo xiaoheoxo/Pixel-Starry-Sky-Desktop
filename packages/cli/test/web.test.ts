@@ -12,6 +12,7 @@ import {
   webExtension,
   type FetchFn,
 } from '../src/tools/web.ts'
+import type { LookupFn } from '../src/tools/ip-guard.ts'
 
 type Call = { url: string; init?: RequestInit }
 
@@ -194,7 +195,8 @@ describe('web_fetch', () => {
       'https://e.com/b': redirect('https://other.com/c', 307),
       'https://other.com/c': html('<p>done</p>'),
     })
-    const r = await createWebTools({ fetch }).fetchTool.execute('1', { url: 'https://e.com/a' })
+    const lookup: LookupFn = async () => [{ address: '93.184.216.34', family: 4 }]
+    const r = await createWebTools({ fetch, lookup }).fetchTool.execute('1', { url: 'https://e.com/a' })
     expect(textOf(r)).toContain('URL: https://other.com/c')
     expect(r.details.finalUrl).toBe('https://other.com/c')
     expect(r.details.url).toBe('https://e.com/a')
@@ -340,6 +342,143 @@ describe('web_fetch', () => {
     await expect(
       createWebTools({ fetch, fetchTimeoutMs: 30 }).fetchTool.execute('1', { url: 'https://e.com/' }),
     ).rejects.toThrow(/timed out/)
+  })
+})
+
+describe('web_fetch 重定向的地址检查', () => {
+  const PUBLIC = '93.184.216.34'
+  /** 假 DNS：按主机名查表，没有的名字报 ENOTFOUND；记录被查过的名字 */
+  function fakeLookup(table: Record<string, string[]>): { lookup: LookupFn; asked: string[] } {
+    const asked: string[] = []
+    const lookup: LookupFn = async host => {
+      asked.push(host)
+      const addrs = table[host]
+      if (!addrs) throw Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' })
+      return addrs.map(address => ({ address, family: address.includes(':') ? 6 : 4 }))
+    }
+    return { lookup, asked }
+  }
+  /** 已批准的公网站点 ok.example 302 到 to；to 上放着「机密」，被拦截时不该被请求到 */
+  const redirectTo = (to: string, table: Record<string, string[]> = {}) => {
+    const { fetch, calls } = fakeFetch({ 'https://ok.example/': redirect(to), [to]: html('SECRET') })
+    const { lookup } = fakeLookup({ 'ok.example': [PUBLIC], ...table })
+    const p = createWebTools({ fetch, lookup }).fetchTool.execute('1', { url: 'https://ok.example/' })
+    return { p, calls }
+  }
+
+  it('公网站点 302 到 127.0.0.1：拦截，不发请求', async () => {
+    const { p, calls } = redirectTo('http://127.0.0.1/')
+    await expect(p).rejects.toThrow(
+      /^Blocked redirect to 127\.0\.0\.1: it resolves to a private or local address \(127\.0\.0\.1\)/,
+    )
+    expect(calls.map(c => c.url)).toEqual(['https://ok.example/'])
+  })
+
+  it('302 到云元数据 169.254.169.254：拦截', async () => {
+    const { p } = redirectTo('http://169.254.169.254/latest/meta-data')
+    await expect(p).rejects.toThrow(/Blocked redirect to 169\.254\.169\.254/)
+  })
+
+  it('302 到 IPv4 的别的写法（十六进制 / 十进制整数）：URL 归一化后同样拦截', async () => {
+    await expect(redirectTo('http://0x7f.1/').p).rejects.toThrow(/Blocked redirect/)
+    await expect(redirectTo('http://2130706433/').p).rejects.toThrow(/Blocked redirect/)
+  })
+
+  it('302 到域名但解析结果里混了内网地址：拦截', async () => {
+    const { p, calls } = redirectTo('https://evil.example/', { 'evil.example': [PUBLIC, '10.0.0.5'] })
+    await expect(p).rejects.toThrow(/Blocked redirect to evil\.example: .*\(10\.0\.0\.5\)/)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('302 到 [::ffff:127.0.0.1]：拦截', async () => {
+    const { p } = redirectTo('http://[::ffff:127.0.0.1]/')
+    await expect(p).rejects.toThrow(/Blocked redirect to \[::ffff:7f00:1\]/)
+  })
+
+  it('302 到 localhost 和 sub.localhost：不解析直接拦截', async () => {
+    const t = { localhost: [PUBLIC], 'sub.localhost': [PUBLIC] } // 即使 DNS 说是公网也不信
+    await expect(redirectTo('http://localhost/', t).p).rejects.toThrow(/Blocked redirect to localhost/)
+    await expect(redirectTo('http://sub.localhost:8080/', t).p).rejects.toThrow(
+      /Blocked redirect to sub\.localhost:8080/,
+    )
+  })
+
+  it('第一跳 http://localhost:3000 不检查，同 host 的跳转（/ → /login）放行', async () => {
+    const { fetch, calls } = fakeFetch({
+      'http://localhost:3000/': redirect('/login'),
+      'http://localhost:3000/login': html('<p>login</p>'),
+    })
+    const { lookup, asked } = fakeLookup({})
+    const r = await createWebTools({ fetch, lookup }).fetchTool.execute('1', { url: 'http://localhost:3000/' })
+    expect(textOf(r)).toContain('login')
+    expect(calls).toHaveLength(2)
+    expect(asked).toEqual([])
+  })
+
+  it('第一跳是内网 IP 也不检查；同 host 的 http ↔ https 放行', async () => {
+    const { fetch } = fakeFetch({
+      'http://192.168.1.5/': redirect('https://192.168.1.5/'),
+      'https://192.168.1.5/': redirect('http://192.168.1.5:80/x'), // 默认端口被归一化掉，host 不变
+      'http://192.168.1.5/x': html('<p>intranet</p>'),
+    })
+    const r = await createWebTools({ fetch, lookup: fakeLookup({}).lookup }).fetchTool.execute('1', {
+      url: 'http://192.168.1.5/',
+    })
+    expect(textOf(r)).toContain('intranet')
+  })
+
+  it('同主机名不同端口（localhost:3000 → localhost:6379）：拦截', async () => {
+    const { fetch, calls } = fakeFetch({
+      'http://localhost:3000/': redirect('http://localhost:6379/'),
+      'http://localhost:6379/': html('REDIS'),
+    })
+    await expect(
+      createWebTools({ fetch, lookup: fakeLookup({}).lookup }).fetchTool.execute('1', {
+        url: 'http://localhost:3000/',
+      }),
+    ).rejects.toThrow(/Blocked redirect to localhost:6379/)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('公网 → 公网放行，且只解析换了 host 的那一跳', async () => {
+    const { fetch } = fakeFetch({
+      'https://a.example/': redirect('https://b.example/x'),
+      'https://b.example/x': html('<p>b</p>'),
+    })
+    const { lookup, asked } = fakeLookup({ 'b.example': [PUBLIC, '2606:4700::1111'] })
+    const r = await createWebTools({ fetch, lookup }).fetchTool.execute('1', { url: 'https://a.example/' })
+    expect(textOf(r)).toContain('URL: https://b.example/x')
+    expect(asked).toEqual(['b.example'])
+  })
+
+  it('fake-ip 代理把域名解析成 198.18.0.7：算公网，放行', async () => {
+    const { fetch } = fakeFetch({
+      'https://a.example/': redirect('https://b.example/'),
+      'https://b.example/': html('<p>fake-ip ok</p>'),
+    })
+    const { lookup } = fakeLookup({ 'b.example': ['198.18.0.7'] })
+    const r = await createWebTools({ fetch, lookup }).fetchTool.execute('1', { url: 'https://a.example/' })
+    expect(textOf(r)).toContain('fake-ip ok')
+  })
+
+  it('重定向目标解析失败：按拦截处理（验证不了就不放行），消息带错误码', async () => {
+    const { p, calls } = redirectTo('https://nx.example/')
+    await expect(p).rejects.toThrow(/^Blocked redirect to nx\.example: its address could not be verified \(ENOTFOUND\)/)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('解析返回空列表也拦截', async () => {
+    const { p } = redirectTo('https://empty.example/', { 'empty.example': [] })
+    await expect(p).rejects.toThrow(/could not be verified \(no addresses\)/)
+  })
+
+  it('重定向目标的解析一直不返回：照样按抓取超时结束', async () => {
+    const { fetch } = fakeFetch({ 'https://ok.example/': redirect('https://slow.example/') })
+    const lookup: LookupFn = () => new Promise(() => {})
+    const p = createWebTools({ fetch, lookup, fetchTimeoutMs: 50 }).fetchTool.execute('1', {
+      url: 'https://ok.example/',
+    })
+    await expect(p).rejects.toThrow(/timed out/)
   })
 })
 

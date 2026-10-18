@@ -49,9 +49,12 @@ describe('像素星空：命令行和适配器的约定一致', () => {
       ['edit', { file_path: 'b'.repeat(500) }],
       ['mcp__gh__create_issue', { title: '标题', body: 'y'.repeat(900) }],
       ['web_fetch', { url: 'https://example.com' }],
+      ['web_fetch', { prompt: 'p'.repeat(900), url: 'http://127。0。0。1/' }],
+      ['web_fetch', { url: 'not a url' }],
+      ['bash', { command: `${'x'.repeat(799)}${String.fromCharCode(0xd83d, 0xde00)}tail` }],
       ['task', {}],
     ] as const) {
-      expect(approvalSummary(args)).toBe(approval.describeToolCall(name, args))
+      expect(approvalSummary(args, name)).toBe(approval.describeToolCall(name, args))
       expect(toolNameFromTitle(approval.approvalTitle(name, args))).toBe(name)
     }
   })

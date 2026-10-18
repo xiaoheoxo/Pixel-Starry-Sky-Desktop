@@ -156,13 +156,35 @@ export function decidePermission(input: {
   return { action: 'ask' }
 }
 
+/** 截断；边界落在 emoji（代理对）中间时少截一位，不留半个字符（适配器的 clipText 要一致） */
 function clip(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text
+  if (text.length <= max) return text
+  const high = text.charCodeAt(max - 1)
+  const low = text.charCodeAt(max)
+  const end = high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff ? max - 1 : max
+  return `${text.slice(0, end)}…`
+}
+
+/**
+ * 抓网页的摘要：先写真正会去抓的网址（WHATWG 归一化之后的：`127。0。0。1`、全角字母、`2130706433` 这类写法
+ * 在这里就现出原形），再写 prompt。不再整个参数 JSON 截断——prompt 写在前面、写得长时网址会被截没，
+ * 用户看不到批准的是哪里。适配器（packages/engine/src/pixel/translate.ts 的 approvalSummary）要算出一样的文字
+ */
+function describeWebFetch(raw: string, prompt: unknown): string {
+  let target = raw
+  try {
+    target = new URL(raw.trim()).href
+  } catch {
+    // 不是合法网址：照原文显示，工具执行时会报错
+  }
+  const ask = typeof prompt === 'string' ? prompt.trim() : ''
+  return ask ? `${clip(target, 400)} — ${clip(ask, 300)}` : clip(target, 400)
 }
 
 /** 给询问对话框用的一行摘要 */
-export function describeToolCall(_toolName: string, input: unknown): string {
+export function describeToolCall(toolName: string, input: unknown): string {
   const record = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  if (toolName === 'web_fetch' && typeof record.url === 'string') return describeWebFetch(record.url, record.prompt)
   if (typeof record.command === 'string') return clip(record.command, 800)
   if (typeof record.path === 'string') return clip(record.path, 400)
   if (typeof record.file_path === 'string') return clip(record.file_path, 400)

@@ -5,6 +5,7 @@
 // 所有网络 I/O 走可注入的 fetch，测试用假 fetch；只用可擦除的 TS 语法。
 import type { ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
+import { assertPublicHost, defaultLookup, type LookupFn } from './ip-guard.ts'
 
 export const WEB_FETCH_TOOL_NAME = 'web_fetch'
 export const WEB_SEARCH_TOOL_NAME = 'web_search'
@@ -26,6 +27,8 @@ export type Env = Record<string, string | undefined>
 
 export interface WebToolsOptions {
   fetch?: FetchFn
+  /** 重定向目标的 DNS 解析（测试注入）；默认 dns.lookup */
+  lookup?: LookupFn
   env?: Env
   fetchTimeoutMs?: number
   searchTimeoutMs?: number
@@ -178,6 +181,16 @@ export function parseHttpUrl(raw: string): URL {
 function withTimeout(signal: AbortSignal | undefined, ms: number): { signal: AbortSignal; timeout: AbortSignal } {
   const timeout = AbortSignal.timeout(ms)
   return { signal: signal ? AbortSignal.any([signal, timeout]) : timeout, timeout }
+}
+
+/** dns.lookup 不认中止信号：和超时 / 取消赛跑，解析挂住时照样按超时结束，不拖住整个工具 */
+function untilAborted<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    task.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
 }
 
 function describeNetworkError(
@@ -492,10 +505,17 @@ export interface ToolOutput<D> {
   details: D
 }
 
+// 重定向的地址检查（SSRF 防护）：第一跳是用户审批时看到的那个网址，不检查（所以批准过的
+// http://localhost:3000 开发服务器、内网主机照常能抓）；之后每一跳只要 host（主机名:端口）和第一跳不同，
+// 就要求目标只指向公网地址，否则批准一个公网站点后，它一个 302 就能把请求引到 127.0.0.1、
+// 169.254.169.254（云元数据）或内网，内容还会直接交给模型。同 host 的跳转（/ → /login、http → https）不检查。
+// 残余限制：这里的解析和 Pi 实际建立连接之间有 DNS 重绑定的窗口；走 HTTP 代理时是代理在远端解析域名，
+// 我们的检查只是参考。不去包 Pi 的 dispatcher（范围之外），第一跳靠用户审批兜底。
+// 解析失败的跳转一律拦截（见 assertPublicHost）。
 export async function runWebFetch(
   params: WebFetchParams,
   signal: AbortSignal | undefined,
-  deps: { fetch: FetchFn; timeoutMs: number; maxBodyBytes: number },
+  deps: { fetch: FetchFn; timeoutMs: number; maxBodyBytes: number; lookup?: LookupFn },
 ): Promise<ToolOutput<WebFetchDetails>> {
   const start = parseHttpUrl(String(params.url ?? '').trim())
   const combined = withTimeout(signal, deps.timeoutMs)
@@ -527,7 +547,22 @@ export async function runWebFetch(
       } catch {
         throw new Error(`Invalid redirect location: ${loc}`)
       }
-      current = parseHttpUrl(next).href // 每一跳都重新检查协议和账号密码
+      const nextUrl = parseHttpUrl(next) // 每一跳都重新检查协议和账号密码
+      if (nextUrl.host !== start.host) {
+        const check = await untilAborted(
+          assertPublicHost(nextUrl.hostname, deps.lookup ?? defaultLookup),
+          combined.signal,
+        )
+        if (!check.ok) {
+          const why = check.address
+            ? `it resolves to a private or local address (${check.address})`
+            : `its address could not be verified (${check.error ?? 'lookup failed'})`
+          throw new Error(
+            `Blocked redirect to ${nextUrl.host}: ${why}. web_fetch only follows redirects to public addresses; ask the user to fetch that URL directly if it is intended.`,
+          )
+        }
+      }
+      current = nextUrl.href
     }
     ct = parseContentType(res.headers.get('content-type'))
     kind = classifyMime(ct.mime)
@@ -542,7 +577,9 @@ export async function runWebFetch(
   } catch (err) {
     if (
       err instanceof Error &&
-      /^(Too many redirects|Invalid redirect|Unsupported URL|URLs with embedded|Invalid URL)/.test(err.message)
+      /^(Too many redirects|Invalid redirect|Blocked redirect|Unsupported URL|URLs with embedded|Invalid URL)/.test(
+        err.message,
+      )
     )
       throw err
     throw describeNetworkError(err, `Fetching ${new URL(current).host}`, signal, combined.timeout, deps.timeoutMs)
@@ -842,6 +879,7 @@ export function createWebTools(opts: WebToolsOptions = {}) {
     async execute(_toolCallId: string, params: WebFetchParams, signal?: AbortSignal) {
       const r = await runWebFetch(params, signal, {
         fetch: doFetch,
+        lookup: opts.lookup,
         timeoutMs: opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS,
         maxBodyBytes: opts.maxBodyBytes ?? MAX_BODY_BYTES,
       })
