@@ -103,3 +103,27 @@ export function topsFor(
   measured.ids.forEach((id, i) => byId.set(id, measured.tops[i] ?? Number.POSITIVE_INFINITY))
   return turns.map(t => byId.get(t.id) ?? Number.POSITIVE_INFINITY)
 }
+
+/**
+ * 轮次只取决于用户消息，流式输出时每个快照都会重新算一份：(id, n, preview) 逐项都没变就沿用上一份，
+ * 引用不变，TurnRail 里依赖 turns 的 effect 才不会每帧重跑（重建观察器、重新量每一轮的位置）
+ */
+export function reuseTurns(prev: readonly Turn[], next: Turn[]): Turn[] {
+  if (prev.length !== next.length) return next
+  for (let i = 0; i < next.length; i++) {
+    const a = prev[i],
+      b = next[i]
+    if (a.id !== b.id || a.n !== b.n || a.preview !== b.preview) return next
+  }
+  return prev as Turn[]
+}
+
+/** 两次量到的每一轮位置一样吗（ids、tops 逐项比，Infinity 等于 Infinity）：一样就不 set，免得 TurnRail 白渲染一次 */
+export function sameMeasured(
+  a: { ids: readonly string[]; tops: readonly number[] },
+  b: { ids: readonly string[]; tops: readonly number[] },
+): boolean {
+  return (
+    a.ids.length === b.ids.length && a.ids.every((id, i) => id === b.ids[i]) && a.tops.every((t, i) => t === b.tops[i])
+  )
+}

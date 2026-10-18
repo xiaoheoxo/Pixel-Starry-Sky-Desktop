@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Item } from '@pixelsky/protocol'
 import { turnsOf } from './turnRailModel'
-import { hiddenCount, initialHidden, revealEarlier, revealFor, startIndex, turnStarts } from './transcriptWindow'
+import {
+  hiddenCount,
+  initialHidden,
+  reclaimHidden,
+  revealEarlier,
+  revealFor,
+  startIndex,
+  turnStarts,
+} from './transcriptWindow'
 
 const user = (id: string, mode?: 'guidance'): Item => ({ kind: 'user', id, text: id, createdAt: 0, mode })
 const reply = (id: string): Item => ({ kind: 'assistant', id, text: id, status: 'completed' }) as Item
@@ -69,6 +77,21 @@ describe('长对话窗口', () => {
     expect(revealFor(list, starts, 0, 'a2')).toBe(0)
     // 刚好是窗口里的第一轮：已经显示
     expect(revealFor(list, starts, 30, 'u30')).toBe(30)
+  })
+
+  it('新一轮开始、显示的轮数攒到 size + 10 以上时收回到只显示 size 轮', () => {
+    // 打开时隐藏 10 轮（共 30，显示 20）；又来了 10 轮，共 40，显示 30 = size + 10：收回
+    expect(reclaimHidden(40, 10, 20)).toBe(20)
+    // 点过「显示全部」后（hidden 0）也一样
+    expect(reclaimHidden(120, 0, 20)).toBe(100)
+    // 还没攒够：显示 29 轮
+    expect(reclaimHidden(39, 10, 20)).toBeNull()
+    // 本来就没折叠的短对话、设置为「全部」：不动
+    expect(reclaimHidden(25, 0, 20)).toBeNull()
+    expect(reclaimHidden(120, 0, null)).toBeNull()
+    // 已经藏得不比目标少：不动，也绝不往回放
+    expect(reclaimHidden(120, 100, 20)).toBeNull()
+    expect(reclaimHidden(120, 110, 20)).toBeNull()
   })
 
   it('引导消息属于它前面那一轮', () => {

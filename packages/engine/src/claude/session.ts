@@ -150,6 +150,8 @@ export interface ClaudeSessionDeps {
   env: NodeJS.ProcessEnv
   projectsDir: string
   steeringValidated?: boolean
+  /** initialize 回包到了（宿主拿去更新模型目录缓存） */
+  onInitialize?: (init: Record<string, unknown>) => void
 }
 
 /** 进程在回应 initialize 之前就退出了 */
@@ -566,6 +568,7 @@ export class ClaudeSession implements EngineSession {
         { promptSuggestions: true, agentProgressSummaries: true, perTaskStopAffordance: true },
         30_000,
       )
+      this.deps.onInitialize?.(init)
       const commands = Array.isArray(init.commands) ? init.commands.map(v => str(obj(v).name)) : []
       this.ctx.emit({
         type: 'commands',

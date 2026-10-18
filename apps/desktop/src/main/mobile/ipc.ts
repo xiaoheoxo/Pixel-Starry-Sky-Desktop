@@ -105,13 +105,15 @@ export function initMobile(ctx: AppContext): void {
     desktopName: () => hostname(),
     relay: relayUrl,
     web: () => webUrl(relayUrl()) || null,
-    call: async (channel, args, owner) => {
-      // 文件、项目工具（手机的 Git / 文件 / 任务）：和窗口同一层路由，参数里的项目在哪台机器就在哪台跑
-      const tool = ctx.toolOps.get(channel)
-      if (tool) return ctx.machines ? ctx.machines.invoke(channel, args, () => tool(args)) : tool(args)
-      if (!ctx.engineCall) throw new Error('项目尚未加载')
-      return ctx.engineCall(channel, args, owner)
-    },
+    // 手机的调用不经过 ipc.handle，自己计时：通道名加 mobile: 前缀，卡顿诊断里和窗口的请求分得开
+    call: (channel, args, owner) =>
+      ipc.track(`mobile:${channel}`, async () => {
+        // 文件、项目工具（手机的 Git / 文件 / 任务）：和窗口同一层路由，参数里的项目在哪台机器就在哪台跑
+        const tool = ctx.toolOps.get(channel)
+        if (tool) return ctx.machines ? ctx.machines.invoke(channel, args, () => tool(args)) : tool(args)
+        if (!ctx.engineCall) throw new Error('项目尚未加载')
+        return ctx.engineCall(channel, args, owner)
+      }),
     send: (phone, frame) => {
       if (!link) throw new Error('MOBILE_RELAY_OFFLINE')
       link.send(phone, frame)

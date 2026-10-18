@@ -22,7 +22,7 @@ const windowsPowerShell = join(
 )
 const IS_WINDOWS = process.platform === 'win32'
 // 没装 PowerShell 7 的机器上 pwsh 的用例跳过，不报错
-const PWSH = IS_WINDOWS ? powerShell7() : null
+const PWSH = IS_WINDOWS ? await powerShell7() : null
 const SHELLS = [
   ...(PWSH ? [{ name: 'pwsh', command: PWSH }] : []),
   ...(IS_WINDOWS && existsSync(windowsPowerShell) ? [{ name: 'Windows PowerShell', command: windowsPowerShell }] : []),

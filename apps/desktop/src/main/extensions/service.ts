@@ -46,6 +46,9 @@ import { checkMcp, launcher, program, runProgram } from './check'
 import { nativeEntries } from './native'
 import { Secrets, type Cipher } from './secrets'
 
+/** 原生扩展扫描结果的缓存时长：扫描要同步遍历磁盘，输入框 / 设置页会连着请求；窗口重新获得焦点、增删改时会提前作废 */
+const NATIVE_TTL = 10_000
+const NATIVE_CACHE_MAX = 16
 interface Config {
   version: 1
   revision: number
@@ -57,10 +60,13 @@ export class ExtensionService {
   private warnings: string[] = []
   private chain: Promise<unknown> = Promise.resolve()
   private readonly retired: string[] = []
+  // 按 CLAUDE_CONFIG_DIR + 项目缓存原生扩展扫描；扫描是同步的，同一时刻到的请求依次排队，后面的直接命中缓存
+  private readonly nativeCache = new Map<string, { at: number; value: ReturnType<typeof nativeEntries> }>()
   constructor(
     readonly dir: string,
     private readonly cipher: Cipher,
     private readonly env: () => NodeJS.ProcessEnv = () => process.env,
+    private readonly now: () => number = Date.now,
   ) {
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 'config.json')
@@ -85,9 +91,20 @@ export class ExtensionService {
     this.config = next
   }
   mutate<T>(fn: () => T | Promise<T>): Promise<T> {
-    const work = this.chain.then(fn)
-    this.chain = work.catch(() => undefined)
+    // 增删改前后都作废：冲突检查要看到用户刚在终端里装的原生内容，改完后列表也要是新的
+    const work = this.chain.then(() => {
+      this.invalidateNative()
+      return fn()
+    })
+    this.chain = work.then(
+      () => this.invalidateNative(),
+      () => this.invalidateNative(),
+    )
     return work
+  }
+  /** 原生扩展缓存作废：窗口重新获得焦点、扩展包变化、设置页增删改时调用 */
+  invalidateNative(): void {
+    this.nativeCache.clear()
   }
   private entry(id: string): ExtensionEntry {
     const e = this.config.entries.find(e => e.id === id)
@@ -95,7 +112,16 @@ export class ExtensionService {
     return e
   }
   private native(project: string | null): ReturnType<typeof nativeEntries> {
-    return nativeEntries(project, this.env())
+    const env = this.env(),
+      key = (env.CLAUDE_CONFIG_DIR ?? '') + '|' + (project ?? ''),
+      now = this.now(),
+      hit = this.nativeCache.get(key)
+    if (hit && now >= hit.at && now - hit.at < NATIVE_TTL) return hit.value
+    const value = nativeEntries(project, env)
+    this.nativeCache.delete(key)
+    if (this.nativeCache.size >= NATIVE_CACHE_MAX) this.nativeCache.delete(this.nativeCache.keys().next().value!)
+    this.nativeCache.set(key, { at: now, value })
+    return value
   }
   state(project: string | null): ExtensionState {
     const native = this.native(project)

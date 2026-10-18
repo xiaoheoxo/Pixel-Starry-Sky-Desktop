@@ -431,14 +431,12 @@ describe('跨引擎接力：换引擎', () => {
     expect(plain.codex.sessions[0].inputs[0]).not.toContain('pixelsky_history')
   })
 
-  it('historyItems 返回会话的全部条目（副本），会话不存在时报错', async () => {
+  it('historyItems 返回会话的全部条目（已有运行时直接用内存里的），会话不存在时报错', async () => {
     const { host, record, say, snap } = setup()
     await say('第一句')
-    const items = host.historyItems(record.id)
+    const items = await host.historyItems(record.id)
     expect(items.map(i => i.id)).toEqual(snap().items.map(i => i.id))
-    items.pop()
-    expect(host.historyItems(record.id)).toHaveLength(snap().items.length)
-    expect(() => host.historyItems('nope')).toThrow()
+    await expect(host.historyItems('nope')).rejects.toThrow()
   })
 
   it('换回来：恢复原来的会话 id，交接只含另一个引擎期间的内容', async () => {

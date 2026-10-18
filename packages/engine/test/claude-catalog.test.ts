@@ -50,3 +50,54 @@ describe('Claude 动态模型目录', () => {
     expect(models[0]).toMatchObject({ id: 'sonnet', label: 'sonnet', efforts: ['low', 'ultra'], resolved: undefined })
   })
 })
+
+describe('Claude 目录缓存', () => {
+  it('过期后先返回旧值，后台只刷新一次', async () => {
+    const adapter = new ClaudeAdapter({
+      launcher: { command: process.execPath, args: [FAKE] },
+      env: { ...process.env },
+    })
+    const first = await adapter.catalog()
+    const a = adapter as unknown as { catalogCache: { at: number; value: unknown } | null; probing: unknown }
+    a.catalogCache!.at = Date.now() - 31 * 60_000
+    const stale = await adapter.catalog()
+    expect(stale).toBe(first)
+    expect(a.probing).not.toBeNull()
+    const again = await adapter.catalog()
+    expect(again).toBe(first)
+    await a.probing
+    expect(Date.now() - a.catalogCache!.at).toBeLessThan(5000)
+  })
+
+  it('force 清缓存重新握手', async () => {
+    const adapter = new ClaudeAdapter({
+      launcher: { command: process.execPath, args: [FAKE] },
+      env: { ...process.env },
+    })
+    const first = await adapter.catalog()
+    const forced = await adapter.catalog(true)
+    expect(forced).not.toBe(first)
+    expect(forced.models).toEqual(first.models)
+  })
+
+  it('后台刷新期间缓存被清（重新检测）：旧握手的结果不写进缓存', async () => {
+    const adapter = new ClaudeAdapter({
+      launcher: { command: process.execPath, args: [FAKE] },
+      env: { ...process.env },
+    })
+    await adapter.catalog()
+    const a = adapter as unknown as {
+      catalogCache: { at: number; value: unknown } | null
+      probing: Promise<unknown> | null
+      discover(force: boolean): Promise<unknown>
+    }
+    a.catalogCache!.at = Date.now() - 31 * 60_000
+    await adapter.catalog()
+    const running = a.probing!
+    expect(running).not.toBeNull()
+    await a.discover(true)
+    expect(a.catalogCache).toBeNull()
+    await running
+    expect(a.catalogCache).toBeNull()
+  })
+})

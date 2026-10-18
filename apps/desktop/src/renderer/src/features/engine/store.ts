@@ -34,6 +34,8 @@ export interface EngineState {
   /** 已经从主进程拿到初始数据 */
   ready: boolean
   engines: EngineInfo[]
+  /** 用户点「重新检测」的次数；目录（模型 / 输出风格）据此重新请求 */
+  detectGen: number
   defaults: EngineDefaults | null
   /** 各引擎的本机配置（设置 › 本机引擎）；输入框的引擎菜单按 hidden 过滤 */
   config: EngineConfig | null
@@ -50,6 +52,7 @@ export interface EngineState {
 let state: EngineState = {
   ready: false,
   engines: [],
+  detectGen: 0,
   defaults: null,
   config: null,
   projects: [],
@@ -405,7 +408,8 @@ function drop(ids: readonly string[]): void {
 /** 重新检测引擎（用户装好 / 登录之后） */
 export async function redetectEngines(): Promise<void> {
   if (!bridge) return
-  set({ engines: await bridge.engines(true) })
+  const engines = await bridge.engines(true)
+  set({ engines, detectGen: state.detectGen + 1 })
 }
 
 /** 一次加了几个项目时广播的事件：ProjectImport 据此弹一句「已添加 3 个项目，1 个已在列表里」 */

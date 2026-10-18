@@ -11,7 +11,7 @@ import type {
   TerminalState,
 } from '../../shared/types/terminal'
 import type { WorkspaceRef } from '../../shared/types/workspace'
-import { detectProfiles, profileInput, terminalEnvironment, terminalTitle } from './profiles'
+import { detectBuiltin, probeCustom, profileInput, terminalEnvironment, terminalTitle } from './profiles'
 import { shellIntegration, writeIntegrationFiles, type ShellIntegration } from './integration'
 import { createMarkParser, type MarkParser, type ShellMark } from './shellMarks'
 
@@ -52,13 +52,47 @@ function mergeEnv(env: Record<string, string>, extra: Record<string, string>): v
     env[key] = value
   }
 }
+/** terminals.json 里缓存的上次检测结果：下次启动先用它，不等检测 */
+interface ProfileCacheEntry {
+  id: string
+  label: string
+  command: string
+  args: string[]
+  available: boolean
+}
+function profileCache(value: unknown): ProfileCacheEntry[] {
+  const list: ProfileCacheEntry[] = []
+  for (const raw of Array.isArray(value) ? value.slice(0, 40) : []) {
+    if (
+      !raw ||
+      typeof raw.id !== 'string' ||
+      !raw.id ||
+      typeof raw.label !== 'string' ||
+      typeof raw.command !== 'string' ||
+      !Array.isArray(raw.args) ||
+      raw.args.some((v: unknown) => typeof v !== 'string') ||
+      typeof raw.available !== 'boolean'
+    )
+      continue
+    list.push({ id: raw.id, label: raw.label, command: raw.command, args: [...raw.args], available: raw.available })
+  }
+  return list
+}
 export class TerminalManager {
   private readonly file: string
   /** bash / zsh 注入脚本所在目录；写失败为 null（只影响 bash / zsh，PowerShell / cmd 不用文件） */
   private integrationDir: string | null = null
   private records: TerminalRecord[] = []
-  private profiles: TerminalProfile[] = detectProfiles()
-  private defaultId = this.profiles.find(p => p.available)?.id ?? 'powershell'
+  /** 启动时是上次检测的缓存（terminals.json 的 profileCache），没有缓存就是空的；init 起的后台检测完成后换成新结果 */
+  private profiles: TerminalProfile[] = []
+  /** 内置 Shell 的检测结果是否可信（来自缓存或本次检测）；不可信时不往 terminals.json 写缓存 */
+  private builtinKnown = false
+  /** 用户存在 terminals.json 里的默认 Shell；检测完重算 defaultId 时优先采用 */
+  private storedDefault: string | null = null
+  private defaultId = ''
+  /** 正在跑的后台检测；没在跑为 null */
+  private detecting: Promise<void> | null = null
+  private profileListeners = new Set<() => void>()
   private running = new Map<string, Runtime>()
   private owners = new Map<string, number>()
   private busy = new Set<string>()
@@ -81,18 +115,21 @@ export class TerminalManager {
     }
     try {
       const data = JSON.parse(await readFile(this.file, 'utf8'))
+      const cache = profileCache(data.profileCache)
       const custom: TerminalProfile[] = []
       for (const raw of Array.isArray(data.profiles) ? data.profiles.slice(0, 20) : []) {
         try {
           const p = profileInput(raw)
-          if (p.id) custom.push({ ...p, id: p.id, available: false, custom: true })
+          if (p.id)
+            custom.push({ ...p, id: p.id, available: cache.find(c => c.id === p.id)?.available ?? false, custom: true })
         } catch {
           /* ignore invalid profile */
         }
       }
-      this.profiles = detectProfiles(custom)
-      if (typeof data.defaultProfileId === 'string' && this.profiles.some(p => p.id === data.defaultProfileId))
-        this.defaultId = data.defaultProfileId
+      const builtin = cache.filter(c => !c.id.startsWith('custom-')).map(c => ({ ...c }))
+      this.builtinKnown = builtin.length > 0
+      this.profiles = [...builtin, ...custom]
+      if (typeof data.defaultProfileId === 'string' && data.defaultProfileId) this.storedDefault = data.defaultProfileId
       const ids = new Set<string>()
       for (const raw of Array.isArray(data.terminals) ? data.terminals.slice(0, 12) : []) {
         if (
@@ -126,12 +163,88 @@ export class TerminalManager {
     } catch {
       /* first use or damaged state */
     }
+    this.defaultId = this.pickDefault()
+    // 不等检测：它可能要异步起一次 powershell.exe，别拖住启动；检测完有变化会通知界面重新取一次
+    void this.detect()
+  }
+  /** 用户存的默认 Shell 优先（在列表里就算），否则第一个可用的 */
+  private pickDefault(): string {
+    if (this.storedDefault && this.profiles.some(p => p.id === this.storedDefault)) return this.storedDefault
+    return this.profiles.find(p => p.available)?.id ?? (this.builtinKnown ? 'powershell' : '')
+  }
+  /** 换上新的 Shell 列表并重算默认值；有变化时通知，返回列表本身有没有变 */
+  private applyProfiles(profiles: TerminalProfile[]): boolean {
+    const changed = JSON.stringify(profiles) !== JSON.stringify(this.profiles)
+    const previous = this.defaultId
+    this.profiles = profiles
+    this.defaultId = this.pickDefault()
+    if (changed || previous !== this.defaultId) for (const fn of [...this.profileListeners]) fn()
+    return changed
+  }
+  /** Shell 列表变了（后台检测完、手动刷新）时通知；界面收到后重新取一次状态 */
+  onProfilesChanged(fn: () => void): () => void {
+    this.profileListeners.add(fn)
+    return () => {
+      this.profileListeners.delete(fn)
+    }
+  }
+  /** 等正在跑的检测完成；没在跑立刻返回 */
+  profilesReady(): Promise<void> {
+    return this.detecting ?? Promise.resolve()
+  }
+  /** 重新检测一次；已经在检测就并进那一次 */
+  refresh(): Promise<void> {
+    return this.detect()
+  }
+  private detect(): Promise<void> {
+    return (this.detecting ??= this.runDetect().finally(() => {
+      this.detecting = null
+    }))
+  }
+  private async runDetect(): Promise<void> {
+    const customs = this.profiles.filter(p => p.custom)
+    try {
+      const [builtin, probed] = await Promise.all([detectBuiltin(), probeCustom(customs)])
+      // 检测期间自定义 Shell 可能被改过：只采用没变的那些的结果，其余保持现状
+      const same = (a: TerminalProfile, b: TerminalProfile): boolean =>
+        a.id === b.id && a.command === b.command && JSON.stringify(a.args) === JSON.stringify(b.args)
+      const known = this.builtinKnown
+      this.builtinKnown = true
+      const changed = this.applyProfiles([
+        ...builtin,
+        ...this.profiles
+          .filter(p => p.custom)
+          .map(p => {
+            const before = customs.find(c => same(c, p))
+            const result = before && probed.find(c => c.id === p.id)
+            return result ? { ...result, custom: true } : p
+          }),
+      ])
+      // 和缓存不一样才写盘
+      if (changed || !known) void this.save().catch(() => {})
+    } catch {
+      /* 检测出错就沿用现有列表（缓存），下次启动或手动刷新再试 */
+    }
+  }
+  /** 请求的 Shell 现在还不可用、而检测还在跑时，等检测完再判断（首次启动没有缓存的情况） */
+  private async settle(profileId: string): Promise<void> {
+    if (this.detecting && !this.profiles.some(p => p.id === profileId && p.available)) await this.detecting
   }
   private save(): Promise<void> {
     const data = JSON.stringify(
       {
         version: 1,
-        defaultProfileId: this.defaultId,
+        // 没存过用户选择时不写计算出来的默认值，这样之后装了 PowerShell 7 之类能自动换成更好的
+        defaultProfileId: this.storedDefault ?? undefined,
+        profileCache: this.builtinKnown
+          ? this.profiles.map(p => ({
+              id: p.id,
+              label: p.label,
+              command: p.command,
+              args: [...p.args],
+              available: p.available,
+            }))
+          : undefined,
         profiles: this.profiles.filter(p => p.custom),
         terminals: this.records.map(r => ({
           ...r,
@@ -154,8 +267,7 @@ export class TerminalManager {
     this.writes = task
     return task
   }
-  state(owner: number, force = false): TerminalState {
-    if (force) this.profiles = detectProfiles(this.profiles.filter(p => p.custom))
+  state(owner: number): TerminalState {
     return {
       profiles: this.profiles.map(p => ({ ...p, args: [...p.args] })),
       defaultProfileId: this.defaultId,
@@ -174,7 +286,9 @@ export class TerminalManager {
     if (owner !== undefined) this.emit(owner, { type: 'record', record: { ...r } })
   }
   async setDefault(owner: number, id: string): Promise<TerminalState> {
+    await this.settle(id)
     if (!this.profiles.some(p => p.id === id && p.available)) throw new Error('所选 Shell 不可用')
+    this.storedDefault = id
     this.defaultId = id
     await this.save()
     return this.state(owner)
@@ -183,15 +297,23 @@ export class TerminalManager {
     const p = profileInput(input)
     if (!p.id && this.profiles.filter(p => p.custom).length >= 20) throw new Error('最多保存 20 个自定义 Shell')
     if (p.id && !this.profiles.some(item => item.id === p.id && item.custom)) throw new Error('所选 Shell 不可用')
-    const profile = { ...p, id: p.id ?? 'custom-' + randomUUID(), custom: true, available: false }
-    this.profiles = detectProfiles([...this.profiles.filter(p => p.custom && p.id !== profile.id), profile])
+    const [profile] = await probeCustom([
+      { ...p, id: p.id ?? 'custom-' + randomUUID(), custom: true, available: false },
+    ])
+    // 探测期间列表可能被后台检测换过，所以探测完再同步拼
+    this.profiles = [
+      ...this.profiles.filter(item => !item.custom || item.id !== profile.id),
+      { ...profile, custom: true },
+    ]
+    this.defaultId = this.pickDefault()
     await this.save()
     return this.state(owner)
   }
   async removeProfile(owner: number, id?: string): Promise<TerminalState> {
     if (id && !this.profiles.some(p => p.id === id && p.custom)) throw new Error('只能修改自定义 Shell')
-    this.profiles = detectProfiles(id ? this.profiles.filter(p => p.custom && p.id !== id) : [])
-    if (!id || id === this.defaultId) this.defaultId = this.profiles.find(p => p.available)?.id ?? 'powershell'
+    this.profiles = this.profiles.filter(p => !p.custom || (id !== undefined && p.id !== id))
+    if (!id || id === this.storedDefault) this.storedDefault = null
+    this.defaultId = this.pickDefault()
     await this.save()
     return this.state(owner)
   }
@@ -207,6 +329,8 @@ export class TerminalManager {
     return task
   }
   private async createOnce(owner: number, ref: WorkspaceRef, profileId?: string): Promise<TerminalRecord> {
+    // 先等检测，再做数量和关闭检查：检查到 push 记录之间不能再有 await，否则并发的创建会一起越过上限
+    await this.settle(profileId ?? this.defaultId)
     if (this.stopping) throw new Error('终端正在关闭')
     if (this.records.length >= 12) throw new Error('最多打开 12 个终端，请先关闭部分标签')
     const target = this.resolve(ref)
@@ -430,7 +554,10 @@ export class TerminalManager {
     this.busy.add(id)
     try {
       if (run) await this.stop(run)
-      if (restart) return this.start(owner, record)
+      if (restart) {
+        await this.settle(record.profileId)
+        return this.start(owner, record)
+      }
       this.records = this.records.filter(r => r.id !== id)
       this.owners.delete(id)
       await this.save()

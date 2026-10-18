@@ -18,7 +18,7 @@ const BODY_LIMIT = 1024 * 1024
 
 /** 引擎宿主里这个服务用到的部分（EngineHost 满足） */
 export interface HistoryContext {
-  engine: { historyItems(id: string): Item[] } | null
+  engine: { historyItems(id: string): Promise<readonly Item[]> } | null
 }
 
 export interface HistoryEntry {
@@ -105,7 +105,7 @@ function integer(args: Args, key: string): number | undefined {
   return value
 }
 
-function run(name: string, args: Args, items: Item[]): string {
+function run(name: string, args: Args, items: readonly Item[]): string {
   if (name === 'outline') return historyOutline(items, { page: integer(args, 'page') })
   if (name === 'read') {
     const turn = integer(args, 'turn')
@@ -129,7 +129,7 @@ function mcpServer(ctx: HistoryContext, sessionId: string): Server {
   server.setRequestHandler(CallToolRequestSchema, async request => {
     try {
       if (!ctx.engine) return text('引擎还没有就绪，稍后再试。', true)
-      const items = ctx.engine.historyItems(sessionId)
+      const items = await ctx.engine.historyItems(sessionId)
       return text(run(request.params.name, (request.params.arguments ?? {}) as Args, items))
     } catch (error) {
       return text(error instanceof Error ? error.message : String(error), true)

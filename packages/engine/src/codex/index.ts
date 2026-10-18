@@ -30,7 +30,7 @@ import { codexCatalog } from './catalog'
 import { CodexSession, reservedCodexArg, type CodexLaunchOptions } from './session'
 import { CodexReader } from './reader'
 import { codexThreadExists, liveCodexThreads, listCodexThreads, newerCodexTurns, readCodexThread } from './native'
-import { CodexTranslator } from './translate'
+import { CodexTranslator, interruptedAgent } from './translate'
 import { loadCodexRuns } from './runs'
 import { CODEX_NPM_PACKAGE, installCodexWithNpm, updateCodexWithNpm } from './update'
 import { array } from './process'
@@ -275,7 +275,12 @@ export class CodexAdapter implements EngineAdapter {
       ...(this.opts.launchOptions?.() ?? { askQuestions: true }),
       defaultModel: () => this.catalogCache?.currentModel ?? null,
       knownWindows: this.knownWindows,
-      savedAgents: () => this.loadRuns(ctx.record()).agents,
+      // 宿主的运行时里已经有（打开会话时从 rollout 读过，之后实时更新）：直接用，不再整读一遍 rollout。
+      // 没有进程可接着跑了，还停在 running 的标成已中断（与 loadCodexRuns 一致）
+      savedAgents: () =>
+        ctx.runs
+          ? ctx.runs().agents.map(agent => ({ ...interruptedAgent(agent) }))
+          : this.loadRuns(ctx.record()).agents,
       ownThread: (id, own) => {
         if (own) this.ownThreads.add(id)
         else this.ownThreads.delete(id)

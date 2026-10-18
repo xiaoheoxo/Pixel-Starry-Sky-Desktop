@@ -165,7 +165,8 @@ export function pluginDirectory(root: string): {
   version: string
   components: ExtensionComponent[]
 } {
-  files(root)
+  // 只遍历一次：先跑它是为了保留校验（链接 / 目录过深 / 过大先报错，早于读 plugin.json），结果后面直接复用
+  const all = files(root)
   const manifest = jsonFile(join(root, '.claude-plugin/plugin.json'))
   const name = extensionName(manifest.name),
     components: ExtensionComponent[] = []
@@ -178,7 +179,6 @@ export function pluginDirectory(root: string): {
         local(path)
       }
   }
-  const all = files(root)
   for (const file of all) {
     const rel = relative(root, file).replaceAll('\\', '/')
     if (/^skills\/.*\/SKILL\.md$/i.test(rel) || /^commands\/.*\.md$/i.test(rel) || file === local('SKILL.md'))

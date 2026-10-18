@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CodexAdapter, EngineHost } from '../src'
 import {
   parseCodedError,
@@ -231,6 +231,73 @@ describe('Codex app-server adapter', () => {
     expect(messages().some(m => m.method === 'thread/resume')).toBe(true)
     expect(host!.open(session.id).items.filter(i => i.kind === 'user')).toHaveLength(2)
     expect(host!.open(session.id).usage?.contextWindow).toBe(128000)
+  })
+  it('空闲后重新起进程：子智能体追踪取运行时里已有的，不再整读一遍 rollout', async () => {
+    const { adapter, session } = setup()
+    const running: AgentRun = {
+      id: 'child-x',
+      label: '',
+      type: '',
+      model: '',
+      state: 'running',
+      startedAt: 1,
+      durationMs: 0,
+      tokens: 0,
+      toolCalls: 0,
+      phase: null,
+      prompt: '',
+      result: '',
+      toolUseId: null,
+    }
+    const loadRuns = vi.spyOn(adapter, 'loadRuns').mockReturnValue({ workflows: [], agents: [running] })
+    await host!.send(session.id, 'first')
+    await wait(() => host!.open(session.id).items.some(i => i.kind === 'turn_stats'))
+    // 空闲超时关掉进程，第二条消息会新建 CodexSession
+    await new Promise(r => setTimeout(r, 100))
+    await host!.send(session.id, 'second')
+    await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
+    // 只有创建运行时那一次读了 rollout
+    expect(loadRuns).toHaveBeenCalledTimes(1)
+    // 宿主快照里的追踪没被会话改动
+    expect(host!.open(session.id).runs.agents[0]).toMatchObject({ id: 'child-x', state: 'running' })
+  })
+  it('新会话连接拿到的子智能体追踪：来自宿主快照的副本，还在 running 的标成已中断，快照不被改', async () => {
+    const { adapter, session } = setup()
+    expect((await adapter.info()).status).toBe('ready')
+    const agent = (id: string, state: AgentRun['state']): AgentRun => ({
+      id,
+      label: '',
+      type: '',
+      model: '',
+      state,
+      startedAt: 1,
+      durationMs: 0,
+      tokens: 0,
+      toolCalls: 0,
+      phase: null,
+      prompt: '',
+      result: '',
+      toolUseId: null,
+    })
+    const runs = { workflows: [], agents: [agent('child-x', 'running'), agent('child-y', 'completed')] }
+    const record = host!.open(session.id).record
+    const loadRuns = vi.spyOn(adapter, 'loadRuns')
+    const ctx = {
+      record: () => record,
+      emit: () => {},
+      runs: () => runs,
+    } as unknown as SessionContext
+    const created = adapter.createSession(ctx)
+    const agents = (created as unknown as { agents: Map<string, AgentRun> }).agents
+    expect([...agents.values()].map(a => [a.id, a.state])).toEqual([
+      ['child-x', 'interrupted'],
+      ['child-y', 'completed'],
+    ])
+    // 快照里的那份没被改，也没有再读 rollout
+    expect(runs.agents[0].state).toBe('running')
+    expect(agents.get('child-x')).not.toBe(runs.agents[0])
+    expect(loadRuns).not.toHaveBeenCalled()
+    await created.close()
   })
   it('审批拒绝、中断与崩溃都结束轮次并暂停队列', async () => {
     const { session } = setup()

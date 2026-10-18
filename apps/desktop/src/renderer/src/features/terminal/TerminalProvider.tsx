@@ -7,6 +7,7 @@ import { isDemo, projects } from '@/data'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import {
   initTerminalStore,
+  refreshTerminals,
   terminalClose,
   terminalCreate,
   terminalError,
@@ -440,7 +441,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         command(state.profiles.find(p => p.id === state.defaultProfileId)?.command)
       }
       record ??= await terminalCreate(ref)
-      const program = terminalState().profiles.find(p => p.id === record.profileId)?.command
+      const profileOf = (id: string) => terminalState().profiles.find(p => p.id === id)
+      // 第一次启动没有缓存时，主进程检测完才建终端，界面的 Shell 列表可能还没取回来
+      if (!profileOf(record.profileId)) await refreshTerminals().catch(() => undefined)
+      const program = profileOf(record.profileId)?.command
       let line: string
       try {
         line = typeof command === 'function' ? command(program) : command

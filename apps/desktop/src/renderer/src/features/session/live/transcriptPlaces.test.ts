@@ -9,7 +9,7 @@ import {
   transcriptViewStats,
 } from './transcriptPlaces'
 
-const place = (hidden: number) => ({ hidden, atBottom: true, anchor: null, scrollTop: 0 })
+const place = (hidden: number, atBottom = false) => ({ hidden, atBottom, anchor: null, scrollTop: 0 })
 
 describe('对话位置的保存', () => {
   it('存取和删除', () => {
@@ -18,6 +18,15 @@ describe('对话位置的保存', () => {
     expect(placeOf(null)).toBeNull()
     forgetPlace('s1')
     expect(placeOf('s1')).toBeNull()
+  })
+
+  it('贴着底部离开的，窗口不存（回来按设置重新折叠）', () => {
+    savePlace('s2', place(5, true))
+    expect(placeOf('s2')?.hidden).toBeNull()
+    expect(placeOf('s2')?.atBottom).toBe(true)
+    savePlace('s2', place(5, false))
+    expect(placeOf('s2')?.hidden).toBe(5)
+    forgetPlace('s2')
   })
 
   it('最多 100 个，最久没动的先丢；再存一次算最近', () => {
@@ -36,6 +45,14 @@ describe('重新挂载时隐藏几轮', () => {
   it('有保存的就用它，已经显示的不再藏回去', () => {
     expect(restoredHidden(40, 100, 20, false)).toBe(40)
     expect(restoredHidden(null, 100, 20, false)).toBe(100)
+  })
+
+  it('离开时贴着底部的取较大的：展开过的窗口收回，对话长了多藏的不放回来', () => {
+    expect(restoredHidden(0, 100, 20, false, true)).toBe(100)
+    expect(restoredHidden(130, 100, 20, false, true)).toBe(130)
+    expect(restoredHidden(null, 100, 20, false, true)).toBe(100)
+    expect(restoredHidden(0, 100, 20, false, false)).toBe(0)
+    expect(restoredHidden(0, 0, null, false, true)).toBe(0)
   })
 
   it('设置为「全部」时不隐藏', () => {

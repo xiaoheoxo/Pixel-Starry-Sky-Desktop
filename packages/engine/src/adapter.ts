@@ -43,6 +43,8 @@ export interface SessionContext {
    * 适配器不发 status / record 事件：运行状态和会话记录由 EngineHost 维护。
    */
   emit(event: EngineEvent): void
+  /** 宿主里这个会话当前的智能体追踪（运行时快照）：引擎新开会话连接时拿来接着更新，不用再读一遍磁盘 */
+  runs?(): AgentRuns
   /** 引擎分配（或确认）了自己的会话 id */
   setEngineSessionId(id: string): void
   /** 引擎自己改了权限模式（例如计划模式下用户同意了计划） */

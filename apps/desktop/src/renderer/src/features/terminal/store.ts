@@ -62,6 +62,11 @@ function event(value: TerminalEvent): void {
     applyTerminalRecord(value.record)
     return
   }
+  if (value.type === 'profiles') {
+    // 启动时的 Shell 检测在后台做，完成后推一次；重新取一次（SSH 机器的列表也在 state 里合并）
+    void refreshTerminals().catch(terminalError)
+    return
+  }
   if (value.type === 'prompt') {
     const next = applyPrompt(state.marks[value.terminalId], value)
     if (next && next !== state.marks[value.terminalId]) set({ marks: { ...state.marks, [value.terminalId]: next } })

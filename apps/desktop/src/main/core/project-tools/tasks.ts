@@ -17,11 +17,12 @@ export class Tasks {
   async init(): Promise<void> {
     await this.store.init()
   }
-  state(id: string) {
+  async state(id: string) {
     this.host.resolve({ projectId: id })
+    const plans = await this.host.plans(id)
     return {
       tasks: this.store.data.tasks.filter(t => t.projectId === id).sort((a, b) => a.order - b.order),
-      plans: this.host.plans(id),
+      plans,
     }
   }
   private fields(

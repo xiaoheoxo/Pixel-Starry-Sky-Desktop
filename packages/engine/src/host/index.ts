@@ -371,9 +371,14 @@ export class EngineHost {
     return this.m.sessions.open(id)
   }
 
-  /** 会话的全部条目（只读副本，没加载过就从存储读）；给对话历史工具用 */
-  historyItems(id: string): Item[] {
-    return [...this.m.sessions.open(id).items]
+  /** 会话的全部条目（只读，不复制；已有运行时用内存里的，否则异步流式读存储，都不创建运行时）；给对话历史工具用 */
+  historyItems(id: string): Promise<readonly Item[]> {
+    return this.m.query.historyItems(id)
+  }
+
+  /** 会话里最后一个 todo（没有时 null）；不创建运行时，给任务面板用 */
+  lastTodo(id: string): Promise<Extract<Item, { kind: 'todo' }> | null> {
+    return this.m.query.lastTodo(id)
   }
 
   /** 打开会话（给界面用）：快照 + 序号，之后界面只应用序号更大的事件 */

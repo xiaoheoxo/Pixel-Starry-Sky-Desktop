@@ -104,9 +104,14 @@ export class Extensions {
       })
     }
     const service = () => this.get()
+    // 广播 extensions:changed 前先作废原生扩展缓存，各输入框收到后重新请求拿到的才是新的
+    const changed = (): void => {
+      this.service?.invalidateNative()
+      ctx.events.broadcast('extensions:changed')
+    }
     const mutate = async <T>(fn: () => Promise<T> | T): Promise<T> => {
       const value = await service().mutate(fn)
-      ctx.events.broadcast('extensions:changed')
+      changed()
       return value
     }
     handle('state', ref => service().state(project(ref)))
@@ -152,7 +157,9 @@ export class Extensions {
       return selected.canceled ? null : (selected.filePaths[0] ?? null)
     })
     // 扩展包的技能变了，输入框的技能列表也要刷新
-    ctx.extPacks?.onChange(() => ctx.events.broadcast('extensions:changed'))
+    ctx.extPacks?.onChange(changed)
+    // 用户常在终端里装了 skill 再切回来：窗口重新获得焦点时丢掉缓存，下一次请求重新扫描
+    app.on('browser-window-focus', () => this.service?.invalidateNative())
     app.on('will-quit', () => this.service?.close())
   }
 }

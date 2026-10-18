@@ -32,6 +32,8 @@ export type TerminalEvent =
    * exitCode：刚结束那条命令的退出码，不知道为 null
    */
   | { type: 'prompt'; terminalId: string; generation: number; ran: boolean | null; exitCode: number | null }
+  /** 后台检测完 Shell 列表（或默认 Shell）有变化：界面重新取一次终端状态 */
+  | { type: 'profiles' }
 export interface TerminalState {
   profiles: TerminalProfile[]
   defaultProfileId: string

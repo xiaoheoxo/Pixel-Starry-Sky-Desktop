@@ -65,8 +65,10 @@ export interface ClaudeAdapterOptions {
   steeringValidated?: boolean
 }
 
-/** 输出风格列表的缓存时间 */
-const CATALOG_TTL = 5 * 60_000
+/** 输出风格 / 模型列表的缓存时间；过期后先返回旧值、后台刷新（每次刷新都要起一个 claude.exe 握手） */
+const CATALOG_TTL = 30 * 60_000
+/** 后台刷新握手失败、留着旧列表时，隔多久再试 */
+const CATALOG_RETRY = 60_000
 
 function isEffort(x: unknown): x is Effort {
   return typeof x === 'string' && (EFFORTS as readonly string[]).includes(x)
@@ -106,6 +108,9 @@ export class ClaudeAdapter implements EngineAdapter {
   private detecting: Promise<ClaudeDiscovery> | null = null
   private catalogCache: { at: number; value: EngineCatalog } | null = null
   private probing: Promise<EngineCatalog> | null = null
+  private probingForce = false
+  /** 清缓存时自增：握手期间缓存被清过（重新检测 / 更新 / 安装），旧握手的结果不再写进缓存 */
+  private catalogGen = 0
   /** 原生安装器和 npm 装的版本号一致，都按这个包查最新版本 */
   readonly npmPackage = '@anthropic-ai/claude-code'
   /** 跨引擎接力：别的引擎期间的聊天直接写进 Claude Code 的会话记录（chat-log.ts） */
@@ -120,7 +125,7 @@ export class ClaudeAdapter implements EngineAdapter {
   private discover(force: boolean): Promise<ClaudeDiscovery> {
     if (this.cached && !force) return Promise.resolve(this.cached)
     // 重新检测时命令或参数可能变了，输出风格列表也要重新握手
-    if (force) this.catalogCache = null
+    if (force) this.dropCatalog()
     if (!this.detecting) {
       this.detecting = this.detect()
         .then(d => (this.cached = d))
@@ -274,6 +279,19 @@ export class ClaudeAdapter implements EngineAdapter {
     return windowSettings(list)
   }
 
+  /**
+   * 会话 initialize 回包里的模型列表更新缓存里的 models；缓存还没有（没握手过）就不管。
+   * 注意：本机会话在项目目录里启动、带项目设置（.claude/settings.json 的 env / availableModels），
+   * 这份列表可能是项目限定过的，会覆盖全局目录，最多持续到下一次握手刷新（30 分钟内）
+   */
+  private refreshModels(raw: unknown): void {
+    if (!this.catalogCache || !Array.isArray(raw)) return
+    const models = claudeModels(raw)
+    if (!models.length) return
+    // at 不动：只换了 models，输出风格的有效期不能被顺带延长
+    this.catalogCache = { at: this.catalogCache.at, value: { ...this.catalogCache.value, models } }
+  }
+
   private readyLauncher(record: SessionRecord): Launcher {
     const d = this.cached
     if (!d?.launcher || (d.info.status !== 'ready' && !(viaGateway(record) && d.info.status === 'unauthenticated')))
@@ -304,6 +322,12 @@ export class ClaudeAdapter implements EngineAdapter {
       projectsDir: this.opts.projectsDir ?? d.projectsDir ?? defaultProjectsDir(env),
       steeringValidated: this.opts.steeringValidated,
       extensions: ctx.extensions,
+      // 本机账号的会话自己的 initialize 回包里有模型列表，顺手更新缓存，省得过期后再起进程握手；
+      // 平台线路和自定义 API 走网关，模型列表不同，不能写进本机目录（回包到达时再按当前来源判断，会话中途换来源也对）。
+      // 输出风格受项目设置影响，也不动
+      onInitialize: init => {
+        if (!viaGateway(ctx.record())) this.refreshModels(init.models)
+      },
     })
   }
 
@@ -362,28 +386,59 @@ export class ClaudeAdapter implements EngineAdapter {
    * 不发消息、不调用模型。握手回包里有 available_output_styles 和 output_style（docs/ui/engine-settings-redesign.md §5）。
    */
   async catalog(force = false): Promise<EngineCatalog> {
-    if (!force && this.catalogCache && Date.now() - this.catalogCache.at < CATALOG_TTL) return this.catalogCache.value
-    if (this.probing) return this.probing
+    const hit = this.catalogCache
+    if (!force && hit) {
+      // 过期了也先给旧值，后台刷新一次（同一时间只刷一个，失败就留着旧值）
+      if (Date.now() - hit.at >= CATALOG_TTL) void this.refreshCatalog(false).catch(() => undefined)
+      return hit.value
+    }
+    return this.refreshCatalog(force)
+  }
+
+  private dropCatalog(): void {
+    this.catalogCache = null
+    this.catalogGen++
+  }
+
+  private refreshCatalog(force: boolean): Promise<EngineCatalog> {
+    if (this.probing) {
+      // 正在跑的是后台刷新（可能按旧参数握手）时，force 要等它结束后重新握手一次
+      if (force && !this.probingForce) return this.probing.catch(() => undefined).then(() => this.refreshCatalog(true))
+      return this.probing
+    }
+    this.probingForce = force
+    const gen = this.catalogGen
     this.probing = this.probe(force)
-      .then(value => {
+      .then(({ value, failed }) => {
+        // 握手期间缓存被清过：这份结果是按旧参数 / 旧版本得到的，只返回、不缓存
+        if (gen !== this.catalogGen) return value
+        // 握手失败（引擎可用但没握上手）不当成新鲜：1 分钟后再试，不用等满 30 分钟；
+        // 后台刷新时留着旧值，别把能用的列表换成空的（引擎真的不可用时走下面，正常写入空目录）
+        if (failed) {
+          const old = this.catalogCache
+          const keep = !force && old?.value.models?.length ? old.value : value
+          this.catalogCache = { at: Date.now() - CATALOG_TTL + CATALOG_RETRY, value: keep }
+          return keep
+        }
         this.catalogCache = { at: Date.now(), value }
         return value
       })
       .finally(() => {
         this.probing = null
+        this.probingForce = false
       })
     return this.probing
   }
 
-  private async probe(force: boolean): Promise<EngineCatalog> {
+  private async probe(force: boolean): Promise<{ value: EngineCatalog; failed: boolean }> {
     // 检测正在进行时（追加了参数会握手）等它做完，它的握手结果就是这里要的
     const d = await (this.detecting ?? this.discover(false))
-    if (!force && this.catalogCache && Date.now() - this.catalogCache.at < CATALOG_TTL) return this.catalogCache.value
-    const r =
-      d.launcher && (d.info.status === 'ready' || d.info.status === 'unauthenticated')
-        ? await this.handshake(d.launcher)
-        : null
-    return r && 'catalog' in r ? r.catalog : { outputStyles: [], currentOutputStyle: null }
+    if (!force && this.catalogCache && Date.now() - this.catalogCache.at < CATALOG_TTL)
+      return { value: this.catalogCache.value, failed: false }
+    const usable = !!d.launcher && (d.info.status === 'ready' || d.info.status === 'unauthenticated')
+    const r = usable ? await this.handshake(d.launcher!) : null
+    if (r && 'catalog' in r) return { value: r.catalog, failed: false }
+    return { value: { outputStyles: [], currentOutputStyle: null }, failed: usable }
   }
 
   /**
@@ -423,7 +478,7 @@ export class ClaudeAdapter implements EngineAdapter {
     const d = await this.discover(false)
     if (!d.launcher) throw new Error(d.info.message ?? '没找到 Claude Code')
     const r = await runStream(d.launcher, ['update'], this.env(), 5 * 60_000, onLine)
-    this.catalogCache = null
+    this.dropCatalog()
     // 版本由宿主重新检测后填上（重新检测会广播给界面）
     return { ok: r.ok, output: outputTail(r), version: null }
   }
@@ -449,7 +504,7 @@ export class ClaudeAdapter implements EngineAdapter {
     const installer = claudeInstaller(this.env())
     if (!installer) throw new Error('没找到 PowerShell / curl，请按提示在终端安装 Claude Code')
     const r = await runStream(installer, [], this.env(), 10 * 60_000, onLine)
-    this.catalogCache = null
+    this.dropCatalog()
     return { ok: r.ok, output: outputTail(r), version: null }
   }
 }

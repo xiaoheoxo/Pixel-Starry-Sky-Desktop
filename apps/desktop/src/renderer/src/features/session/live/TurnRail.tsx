@@ -14,7 +14,7 @@ import { motionEnabled, onPaneSettled, paneMoving, settledResizeObserver } from 
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { cn } from '@/ui'
-import { clampIndex, currentTurn, placeTicks, thumbOf, tickAt, topsFor, type Turn } from './turnRailModel'
+import { clampIndex, currentTurn, placeTicks, sameMeasured, thumbOf, tickAt, topsFor, type Turn } from './turnRailModel'
 
 /** 滑轨上下留的空 */
 const PAD = 4
@@ -28,6 +28,30 @@ interface Metrics {
   view: number
   content: number
   track: number
+}
+
+const NOT_MEASURED = { ids: [], tops: [] }
+
+/** 数值没变就沿用旧对象：setState 拿到同一个引用不会重新渲染 */
+const patchMetrics = (m: Metrics, patch: Partial<Metrics>): Metrics =>
+  (Object.keys(patch) as (keyof Metrics)[]).every(k => m[k] === patch[k]) ? m : { ...m, ...patch }
+
+/**
+ * 每一轮顶部在对话内容里的位置（找不到的是 Infinity）。滚动容器里只查询一次 [data-search-item] 建 id→元素表，
+ * 再统一读 rect；逐轮 querySelector 是每轮扫一遍整棵子树，读 rect 夹在查询之间还会各自触发排版
+ */
+function rowTops(el: HTMLElement, turns: readonly Turn[]): number[] {
+  const wanted = new Set(turns.map(t => t.id))
+  const rows = new Map<string, HTMLElement>()
+  for (const row of el.querySelectorAll<HTMLElement>('[data-search-item]')) {
+    const id = row.dataset.searchItem
+    if (id && wanted.has(id) && !rows.has(id)) rows.set(id, row)
+  }
+  const base = el.getBoundingClientRect().top - el.scrollTop
+  return turns.map(t => {
+    const row = rows.get(t.id)
+    return row ? row.getBoundingClientRect().top - base : Number.POSITIVE_INFINITY
+  })
 }
 
 export function TurnRail({
@@ -76,24 +100,17 @@ export function TurnRail({
     let frame = 0
     const measure = (): void => {
       frame = 0
-      const base = el.getBoundingClientRect().top - el.scrollTop
-      setMeasured(
-        withTurns
-          ? {
-              ids: turns.map(t => t.id),
-              tops: turns.map(t => {
-                const row = elementOf(t.id)
-                return row ? row.getBoundingClientRect().top - base : Number.POSITIVE_INFINITY
-              }),
-            }
-          : { ids: [], tops: [] },
+      // 量到的数值和上次一样就不 set（内容在长但每一轮的位置多半没动）
+      const next = withTurns ? { ids: turns.map(t => t.id), tops: rowTops(el, turns) } : NOT_MEASURED
+      setMeasured(prev => (sameMeasured(prev, next) ? prev : next))
+      setMetrics(m =>
+        patchMetrics(m, {
+          scrollTop: el.scrollTop,
+          view: el.clientHeight,
+          content: el.scrollHeight,
+          track: Math.max(0, (rail.current?.clientHeight ?? el.clientHeight) - PAD * 2),
+        }),
       )
-      setMetrics({
-        scrollTop: el.scrollTop,
-        view: el.clientHeight,
-        content: el.scrollHeight,
-        track: Math.max(0, (rail.current?.clientHeight ?? el.clientHeight) - PAD * 2),
-      })
     }
     const soon = (): void => {
       if (!frame) frame = requestAnimationFrame(measure)
@@ -106,8 +123,6 @@ export function TurnRail({
       ro.disconnect()
       if (frame) cancelAnimationFrame(frame)
     }
-    // elementOf 只读 scroller
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scroller, turns, withTurns])
 
   // 滚动：滑块跟着走，算当前轮（每帧最多一次）
@@ -118,13 +133,9 @@ export function TurnRail({
       pending = false
     const update = (): void => {
       frame = 0
-      setMetrics(m => ({ ...m, scrollTop: el.scrollTop, view: el.clientHeight, content: el.scrollHeight }))
+      setMetrics(m => patchMetrics(m, { scrollTop: el.scrollTop, view: el.clientHeight, content: el.scrollHeight }))
       if (!withTurns) return
-      const base = el.getBoundingClientRect().top - el.scrollTop
-      const rows = turns.map(t => {
-        const row = elementOf(t.id)
-        return row ? row.getBoundingClientRect().top - base : Number.POSITIVE_INFINITY
-      })
+      const rows = rowTops(el, turns)
       // 滚到底时最后一轮可能很短、顶部还没到视口顶部：也算最后一轮
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4
       setCurrent(atBottom ? turns.length - 1 : currentTurn(rows, el.scrollTop))
@@ -133,7 +144,7 @@ export function TurnRail({
     const onScroll = (): void => {
       if (paneMoving(el)) {
         pending = true
-        setMetrics(m => ({ ...m, scrollTop: el.scrollTop, content: el.scrollHeight }))
+        setMetrics(m => patchMetrics(m, { scrollTop: el.scrollTop, content: el.scrollHeight }))
       } else if (!frame) frame = requestAnimationFrame(update)
     }
     const off = onPaneSettled(() => {
@@ -148,7 +159,6 @@ export function TurnRail({
       el.removeEventListener('scroll', onScroll)
       if (frame) cancelAnimationFrame(frame)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scroller, turns, withTurns])
 
   const jump = (index: number): void => {

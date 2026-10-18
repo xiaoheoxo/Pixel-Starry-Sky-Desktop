@@ -208,6 +208,8 @@ export function initTray(ctx: AppContext, deps: TrayDeps): TrayController {
   let dndUntil: number | null = null
   let status: TrayStatus = { running: [], waiting: [] }
   let shownIcon: TrayIconName | null = null
+  let shownMenu: string | null = null
+  let shownOverlay: string | null = null
   const tray = new Tray(image('tray'))
   const t = (): Text => trayText(windowLocale(target()))
 
@@ -237,27 +239,42 @@ export function initTray(ctx: AppContext, deps: TrayDeps): TrayController {
       shownIcon = icon
     }
     const text = t()
-    tray.setToolTip(trayTooltip(status, text))
-    tray.setContextMenu(
-      Menu.buildFromTemplate(
-        trayMenu(
-          status,
-          { t: text, dndUntil, now: Date.now() },
-          {
-            show: () => void showWindow(),
-            newTask: () => command({ kind: 'newTask' }),
-            open: sessionId => command({ kind: 'openSession', sessionId }),
-            dnd: until => command({ kind: 'dnd', until }),
-            checkUpdate: () => command({ kind: 'checkUpdate' }),
-            quit: () => void quit(),
-          },
+    const now = Date.now()
+    const dnd = dndUntil !== null && dndUntil > now
+    // 流式输出时会话状态每 250ms 变一次，但托盘看的内容多半没变：签名一样就不重设提示、菜单、叠加图标
+    const base = [windowLocale(target()), icon, dnd, status.running, status.waiting]
+    const menuSig = JSON.stringify(base)
+    if (menuSig !== shownMenu) {
+      shownMenu = menuSig
+      tray.setToolTip(trayTooltip(status, text))
+      tray.setContextMenu(
+        Menu.buildFromTemplate(
+          trayMenu(
+            status,
+            { t: text, dndUntil, now },
+            {
+              show: () => void showWindow(),
+              newTask: () => command({ kind: 'newTask' }),
+              open: sessionId => command({ kind: 'openSession', sessionId }),
+              // 菜单可能很久才重建一次：「勿扰 1 小时」按点击那一刻算，不用建菜单时的时间
+              dnd: until => command({ kind: 'dnd', until: until === null ? null : until - now + Date.now() }),
+              checkUpdate: () => command({ kind: 'checkUpdate' }),
+              quit: () => void quit(),
+            },
+          ),
         ),
-      ),
-    )
+      )
+    }
     // 任务栏按钮上的红点：有会话等你处理（Windows）
-    if (process.platform === 'win32')
-      for (const win of windows())
-        win.setOverlayIcon(status.waiting.length ? image('overlay-attention') : null, text('tray.overlay'))
+    if (process.platform === 'win32') {
+      const wins = windows()
+      const overlaySig = JSON.stringify([wins.map(w => w.id), status.waiting.length > 0, windowLocale(target())])
+      if (overlaySig !== shownOverlay) {
+        shownOverlay = overlaySig
+        for (const win of wins)
+          win.setOverlayIcon(status.waiting.length ? image('overlay-attention') : null, text('tray.overlay'))
+      }
+    }
   }
 
   // 会话状态变了就重算（合并 250ms 内的多次变化）
@@ -277,7 +294,16 @@ export function initTray(ctx: AppContext, deps: TrayDeps): TrayController {
       refresh()
     }
   }, 60_000).unref()
-  app.on('browser-window-created', () => setTimeout(refresh, 0))
+  app.on('browser-window-created', (_event, win) => {
+    // 窗口从托盘重新显示 / 还原后，Windows 任务栏按钮是重建的，叠加图标会丢：清掉已显示记录让它补上
+    const redo = (): void => {
+      shownOverlay = null
+      refresh()
+    }
+    win.on('show', redo)
+    win.on('restore', redo)
+    setTimeout(refresh, 0)
+  })
 
   tray.on('click', () => void showWindow())
   tray.on('double-click', () => void showWindow())

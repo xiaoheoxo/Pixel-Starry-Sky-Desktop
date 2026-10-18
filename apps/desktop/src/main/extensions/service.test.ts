@@ -263,6 +263,91 @@ describe('管理配置与凭据', () => {
   })
 })
 
+describe('原生扩展扫描缓存', () => {
+  const skill = (name: string, config = join(root, 'native')): void => {
+    mkdirSync(join(config, 'skills', name), { recursive: true })
+    writeFileSync(join(config, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\nbody`)
+  }
+  const names = (s: ExtensionService): string[] => s.commands(null).map(c => c.name)
+  it('缓存期内不重复扫描，过期、增删改、手动作废后重新扫描', async () => {
+    let at = 1000
+    const cached = new ExtensionService(
+      join(root, 'cached'),
+      cipher,
+      () => ({ ...process.env, CLAUDE_CONFIG_DIR: join(root, 'native') }),
+      () => at,
+    )
+    skill('one')
+    expect(names(cached)).toEqual(['one'])
+    // 新装的 skill 在缓存期内看不到（state、commands 共用一份）
+    skill('two')
+    expect(names(cached)).toEqual(['one'])
+    expect(cached.state(null).entries.map(e => e.name)).toEqual(['one'])
+    at += 9_999
+    expect(names(cached)).toEqual(['one'])
+    at += 1
+    expect(names(cached).sort()).toEqual(['one', 'two'])
+    // 手动作废（窗口重新获得焦点、extensions:changed）
+    skill('three')
+    cached.invalidateNative()
+    expect(names(cached).sort()).toEqual(['one', 'three', 'two'])
+    // 设置页增删改（mutate）前后都作废
+    skill('four')
+    await cached.mutate(() => undefined)
+    expect(names(cached)).toContain('four')
+    skill('five')
+    await cached.mutate(() => {
+      expect(names(cached)).toContain('five')
+      skill('six')
+    })
+    expect(names(cached)).toContain('six')
+    cached.close()
+  })
+  it('冲突检查看到的是 mutate 开始时的新扫描，缓存不会放过刚装的同名原生技能', async () => {
+    const at = 1000
+    const cached = new ExtensionService(
+      join(root, 'cached'),
+      cipher,
+      () => ({ ...process.env, CLAUDE_CONFIG_DIR: join(root, 'native') }),
+      () => at,
+    )
+    expect(names(cached)).toEqual([])
+    skill('dup')
+    await expect(
+      cached.mutate(() =>
+        cached.upsert({ kind: 'skill', name: 'dup', scope: global, text: '---\nname: dup\n---\nbody' }),
+      ),
+    ).rejects.toThrow('原生安装已有同名')
+    cached.close()
+  })
+  it('不同配置目录 / 项目各自缓存，互不串', () => {
+    let config = join(root, 'native')
+    const cached = new ExtensionService(
+      join(root, 'cached'),
+      cipher,
+      () => ({ ...process.env, CLAUDE_CONFIG_DIR: config }),
+      () => 1000,
+    )
+    skill('a')
+    skill('b', join(root, 'native2'))
+    expect(names(cached)).toEqual(['a'])
+    config = join(root, 'native2')
+    expect(names(cached)).toEqual(['b'])
+    config = join(root, 'native')
+    expect(names(cached)).toEqual(['a'])
+    mkdirSync(join(project, '.claude/skills/p'), { recursive: true })
+    writeFileSync(join(project, '.claude/skills/p/SKILL.md'), '---\nname: p\n---\nx')
+    expect(
+      cached
+        .commands(project)
+        .map(c => c.name)
+        .sort(),
+    ).toEqual(['a', 'p'])
+    expect(names(cached)).toEqual(['a'])
+    cached.close()
+  })
+})
+
 describe('codexMcp', () => {
   it('HTTP 请求头按变量名引用；stdio 同名不同值时留在配置里', () => {
     const r = codexMcp(

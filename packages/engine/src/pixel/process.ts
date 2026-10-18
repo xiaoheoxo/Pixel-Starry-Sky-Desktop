@@ -3,7 +3,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import type { Launcher } from '../adapter'
-import { TailBuffer } from '../jsonl'
+import { LineSplitter, TailBuffer } from '../jsonl'
 import { logger, redact } from '../log'
 import { logProcess } from '../process-log'
 import { killTree } from '../exec'
@@ -61,20 +61,18 @@ export class PixelProcess {
       () => this.stopping,
     )
     const decoder = new StringDecoder('utf8')
-    let buffer = ''
+    const splitter = new LineSplitter()
     this.child.stdout.on('data', (data: Buffer) => {
-      buffer += decoder.write(data)
-      if (buffer.length > 40 * 1024 * 1024) {
+      const lines = splitter.push(decoder.write(data))
+      if (splitter.pending > 40 * 1024 * 1024) {
         this.stderr.push('Pixel protocol frame exceeds limit')
         log.warn('协议帧超过上限，结束进程', { pid: this.child.pid })
         this.kill()
         return
       }
-      let end: number
-      while ((end = buffer.indexOf('\n')) >= 0) {
-        // 只按 \n 切；兼容 CRLF，去掉行尾的 \r
-        const line = buffer.slice(0, end).replace(/\r$/, '')
-        buffer = buffer.slice(end + 1)
+      for (const raw of lines) {
+        // 只按 \n 切；兼容 CRLF，去掉行尾的 \r（\r 可能落在上一块末尾，所以在整行拼好后再去）
+        const line = raw.replace(/\r$/, '')
         let value: Message
         try {
           value = object(JSON.parse(line))

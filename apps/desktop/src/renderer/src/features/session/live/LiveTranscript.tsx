@@ -15,12 +15,20 @@ import {
 } from 'react'
 import { TurnRail } from './TurnRail'
 import { markTurnReviewed, useTurnReviewed } from '@/features/coding/review'
-import { turnsOf } from './turnRailModel'
+import { reuseTurns, turnsOf, type Turn } from './turnRailModel'
 import { useTurnRailOn } from '@/features/settings/turnRail'
 import { useTranscriptWindowSize } from '@/features/settings/longConversation'
 import { useSubagentView } from '@/features/settings/subagentView'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
-import { hiddenCount, initialHidden, revealEarlier, revealFor, startIndex, turnStarts } from './transcriptWindow'
+import {
+  hiddenCount,
+  initialHidden,
+  reclaimHidden,
+  revealEarlier,
+  revealFor,
+  startIndex,
+  turnStarts,
+} from './transcriptWindow'
 import {
   anchorOf,
   placeOf,
@@ -288,15 +296,23 @@ export function LiveTranscript({
   useNativeCheck(sessionId, !!snapshot?.record.imported && !snapshot.record.imported.forked)
 
   // 长对话只显示最近几轮（docs/ui/turn-rail.md §9）：win.hidden 是从头隐藏了几轮。
-  // 打开这个会话时按设置算一次，之后只会变少（点「显示更早的」、跳转到隐藏的内容），新的轮次往后加不会把已显示的藏回去
+  // 打开这个会话时按设置算一次，之后变少（点「显示更早的」、跳转到隐藏的内容）；新的轮次往后加不会把已显示的藏回去，
+  // 只有新一轮开始、用户停在底部时才收回（见下面 reclaimHidden 的 effect，A7）
   const windowSize = useTranscriptWindowSize()
   const [win, setWin] = useState<{ sessionId: string | null; hidden: number } | null>(null)
   const starts = useMemo(() => turnStarts(snapshot?.items ?? []), [snapshot?.items])
   // 标签卸载过再挂载：沿用卸载前显示的轮数（transcriptPlaces.ts）；轻量模式下最多只显示设置的轮数
   const capped = useLightweight()
+  const saved = placeOf(sessionId)
   const wanted =
     snapshot && snapshot.items.length > 0
-      ? restoredHidden(placeOf(sessionId)?.hidden ?? null, initialHidden(starts.length, windowSize), windowSize, capped)
+      ? restoredHidden(
+          saved?.hidden ?? null,
+          initialHidden(starts.length, windowSize),
+          windowSize,
+          capped,
+          saved?.atBottom ?? false,
+        )
       : 0
   const opened = !!win && win.sessionId === sessionId
   if (snapshot && snapshot.items.length > 0 && !opened) setWin({ sessionId, hidden: wanted })
@@ -316,7 +332,14 @@ export function LiveTranscript({
   shownTurns.current = Math.max(0, starts.length - hiddenTurns)
   // 内容还没到（快照在拉）时 hidden 只是占位的 0：沿用已保存的位置，等内容到了再更新，免得此时切走把它覆盖掉
   if (placeRef.current.sessionId !== sessionId)
-    placeRef.current = { hidden, atBottom: true, anchor: null, scrollTop: 0, ...placeOf(sessionId), sessionId }
+    placeRef.current = {
+      atBottom: true,
+      anchor: null,
+      scrollTop: 0,
+      ...saved,
+      hidden: saved?.hidden ?? hidden,
+      sessionId,
+    }
   if (opened) placeRef.current.hidden = hidden
   const placeTimer = useRef<number>(0)
   const firstShown = startIndex(starts, hidden)
@@ -324,9 +347,15 @@ export function LiveTranscript({
     () => (firstShown > 0 && snapshot ? snapshot.items.slice(firstShown) : (snapshot?.items ?? [])),
     [snapshot, firstShown],
   )
+  // 轮次只取决于用户消息，流式输出时每个快照都重新算一份；(id, n, preview) 没变就沿用上一份的引用，
+  // TurnRail 里依赖 turns 的 effect 才不会每帧重跑（A6）
+  const lastTurns = useRef<Turn[]>([])
   const turns = useMemo(() => {
     const list = turnsOf(shownItems)
-    return hiddenTurns > 0 ? list.map(t => ({ ...t, n: t.n + hiddenTurns })) : list
+    return (lastTurns.current = reuseTurns(
+      lastTurns.current,
+      hiddenTurns > 0 ? list.map(t => ({ ...t, n: t.n + hiddenTurns })) : list,
+    ))
   }, [shownItems, hiddenTurns])
   // 子智能体显示成小框，还是展开在执行里（docs/ui/subagent-box.md）
   const subagents = useSubagentView()
@@ -499,6 +528,22 @@ export function LiveTranscript({
     released.current = true
     setAway(true)
   }, [opened, sessionId, navigation])
+
+  // 新一轮开始、用户停在底部时把窗口收回（A7，D121）：点过「显示全部 / 显示更早的」、搜索跳转展开过的部分不会一直挂在 DOM 上。
+  // 只在轮数增加的那一次判断，不用计时器：用户往上翻（released）、搜索跳转 / 回到最新的滑动中、对话内搜索开着时绝不收回，
+  // 错过了就等下一轮。收回的是上面很远处的内容，用户在底部，位置不受影响（对话流变矮不算往上滚，见 scrolledUp）
+  const startsSeen = useRef<{ sessionId: string | null; count: number }>({ sessionId: null, count: 0 })
+  useLayoutEffect(() => {
+    const seen = startsSeen.current
+    startsSeen.current = { sessionId, count: starts.length }
+    if (!opened || seen.sessionId !== sessionId || starts.length <= seen.count) return
+    if (!stick.current || released.current || detached.current || jumping.current || navigation) return
+    if (scroller.current?.closest('.conversation-view')?.querySelector('[data-conversation-find]')) return
+    const next = reclaimHidden(starts.length, hidden, windowSize)
+    if (next === null) return
+    placeRef.current.hidden = next
+    setWin({ sessionId, hidden: next })
+  }, [starts.length, opened, sessionId, hidden, windowSize, navigation])
 
   // 卸载时把最后记下的位置写进去；挂着期间登记给内存遥测
   useEffect(() => {

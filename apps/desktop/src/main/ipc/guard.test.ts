@@ -328,4 +328,120 @@ describe('卡顿诊断（docs/ui/logging.md §4.9）', () => {
     ])
     expect(guard.ipcInFlight()).toEqual([])
   })
+
+  describe('最近结束的请求', () => {
+    function withClock<T>(run: (tick: (ms: number) => void) => T): T {
+      let clock = 1_000
+      const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+      try {
+        return run(ms => (clock += ms))
+      } finally {
+        now.mockRestore()
+      }
+    }
+
+    it('处理完的请求留 5 秒：通道、结束距今、耗时、回复的粗略大小；最近结束的在前', () => {
+      withClock(tick => {
+        guard.handle('platform:groups', () => {
+          tick(30)
+          return [1, 2, 3]
+        })
+        guard.handle('engine:openSession', () => {
+          tick(120)
+          return { snapshot: { items: new Array(500).fill(0) }, seq: 9 }
+        })
+        mocks.handlers.get('platform:groups')!(scene())
+        tick(1_000)
+        mocks.handlers.get('engine:openSession')!(scene(), 's1')
+        tick(200)
+        expect(guard.ipcRecent()).toEqual([
+          { channel: 'engine:openSession', agoMs: 200, ms: 120, size: 'items:500' },
+          { channel: 'platform:groups', agoMs: 1_320, ms: 30, size: 'len:3' },
+        ])
+        // 5 秒后掉出窗口；传了卡住时长就把窗口放宽
+        tick(4_000)
+        expect(guard.ipcRecent().map(r => r.channel)).toEqual(['engine:openSession'])
+        expect(guard.ipcRecent(2_000).map(r => r.channel)).toEqual(['engine:openSession', 'platform:groups'])
+      })
+    })
+
+    it('异步请求等 Promise 落定才算结束；失败的也记，没有大小', async () => {
+      let finish!: (v: string) => void
+      guard.handle('platform:groups', () => new Promise<string>(r => (finish = r)))
+      guard.handle('platform:models', () => Promise.reject(new Error('坏了')))
+      const pending = mocks.handlers.get('platform:groups')!(scene()) as Promise<string>
+      expect(guard.ipcRecent()).toEqual([])
+      await expect(mocks.handlers.get('platform:models')!(scene(), '1') as Promise<unknown>).rejects.toThrow('坏了')
+      expect(guard.ipcRecent().map(r => [r.channel, r.size])).toEqual([['platform:models', undefined]])
+      finish('x'.repeat(40))
+      await pending
+      expect(guard.ipcRecent().map(r => [r.channel, r.size])).toEqual([
+        ['platform:groups', 'chars:40'],
+        ['platform:models', undefined],
+      ])
+    })
+
+    it('同步抛错的请求也记；高频通道最多留 256 条，列出来最多 20 条', () => {
+      guard.handle('platform:groups', () => {
+        throw new Error('同步坏了')
+      })
+      expect(() => mocks.handlers.get('platform:groups')!(scene())).toThrow('同步坏了')
+      expect(guard.ipcRecent().map(r => r.channel)).toEqual(['platform:groups'])
+      for (let i = 0; i < 300; i++) guard.track('hot', () => i)
+      const listed = guard.ipcRecent()
+      expect(listed).toHaveLength(20)
+      expect(listed.every(r => r.channel === 'hot')).toBe(true)
+    })
+
+    it('卡住超过 5 秒、卡住期间又有请求处理完：卡住前刚结束的那条仍能在日志里看到', () => {
+      withClock(tick => {
+        guard.track('culprit', () => [1, 2, 3])
+        // 主进程卡住 6 秒；排队的请求先于日志写入处理完，写入时不能把罪魁清掉
+        tick(6_000)
+        for (let i = 0; i < 3; i++) guard.track('queued', () => i)
+        expect(guard.ipcRecent(6_000).map(r => r.channel)).toEqual(['queued', 'queued', 'queued', 'culprit'])
+        // 不放宽时窗口只有 5 秒，罪魁不在（读取时过滤，不是写入时丢掉）
+        expect(guard.ipcRecent().map(r => r.channel)).toEqual(['queued', 'queued', 'queued'])
+      })
+    })
+
+    it('卡住期间排队的请求超过 20 条：卡住前最后结束的那条挤不掉', () => {
+      withClock(tick => {
+        guard.track('before', () => 0)
+        guard.track('culprit', () => [1])
+        tick(6_000)
+        for (let i = 0; i < 40; i++) guard.track('queued', () => i)
+        const listed = guard.ipcRecent(6_000)
+        expect(listed).toHaveLength(20)
+        expect(listed.at(-1)).toMatchObject({ channel: 'culprit', size: 'len:1' })
+        expect(listed.slice(0, -1).every(r => r.channel === 'queued')).toBe(true)
+      })
+    })
+
+    it('手机网关的调用（mobile: 前缀）同样计时并留痕，卡住时能在 ipcInFlight 里看到', async () => {
+      let finish!: (v: unknown) => void
+      const pending = guard.track('mobile:engine:openSession', () => new Promise(r => (finish = r)))
+      expect(guard.ipcInFlight().map(c => c.channel)).toEqual(['mobile:engine:openSession'])
+      finish({ items: [1, 2] })
+      await pending
+      expect(guard.ipcInFlight()).toEqual([])
+      expect(guard.ipcRecent()).toMatchObject([{ channel: 'mobile:engine:openSession', size: 'items:2' }])
+    })
+  })
+
+  describe('回复大小的估计', () => {
+    it('只看顶层长度，不遍历也不序列化', () => {
+      const toJSON = vi.fn()
+      expect(guard.roughSize('abc')).toBe('chars:3')
+      expect(guard.roughSize([1, 2])).toBe('len:2')
+      expect(guard.roughSize(new Uint8Array(8))).toBe('bytes:8')
+      expect(guard.roughSize({ items: [1, 2, 3] })).toBe('items:3')
+      expect(guard.roughSize({ snapshot: { items: [1] }, seq: 1 })).toBe('items:1')
+      expect(guard.roughSize({ toJSON, other: { deep: [1, 2, 3] } })).toBeUndefined()
+      expect(toJSON).not.toHaveBeenCalled()
+      expect(guard.roughSize(null)).toBeUndefined()
+      expect(guard.roughSize(undefined)).toBeUndefined()
+      expect(guard.roughSize(42)).toBeUndefined()
+    })
+  })
 })

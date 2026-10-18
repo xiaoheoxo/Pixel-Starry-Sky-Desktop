@@ -65,6 +65,7 @@ describe('TerminalManager 的提示符标记', () => {
       (_owner, event) => events.push(event),
     )
     await manager.init()
+    await manager.profilesReady() // 等后台的 Shell 检测完，免得它之后把下面换上的列表覆盖掉
     ;(manager as unknown as { profiles: TerminalProfile[] }).profiles = [p]
     await manager.create(1, { projectId: 'p' }, p.id, 'req-' + p.id)
     return spawned[spawned.length - 1]

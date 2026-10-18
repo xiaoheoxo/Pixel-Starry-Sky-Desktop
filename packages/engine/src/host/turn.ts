@@ -105,6 +105,7 @@ export class HostTurn {
           maxRetries,
           record: () => ({ ...m.sessions.runtime(id).snapshot.record, ...(m.sessions.runtime(id).execution ?? {}) }),
           emit: e => m.events.onEngineEvent(id, e),
+          runs: () => rt.snapshot.runs,
           setEngineSessionId: engineSessionId => {
             if (rt.execution) rt.execution.engineSessionId = engineSessionId
             // 当前引擎在 engineSessions 里的 id 一起同步（旧记录没有 engineSessions，等第一轮结束时再建）

@@ -46,6 +46,7 @@ import {
   watchWindow,
 } from './app/responsiveness'
 import { initMemory, memoryTick, noteLoaded } from './app/memory'
+import { startupTimeline } from './app/startup-timing'
 import { loadApp as loadAppPage, REACT_CRASH, watchCrashes, type CrashWatch } from './app/crashRecovery'
 import { canSend, markReady } from './app/rendererHealth'
 import { initTray, type TrayController } from './app/tray'
@@ -76,6 +77,8 @@ if (process.platform === 'win32' && app.isPackaged) {
     /* 换不了就保持原样 */
   }
 }
+// 启动耗时打点：攒到第一个窗口画好、页面加载完才写一条汇总（app/startup-timing.ts）
+const startup = startupTimeline(fields => log.info('启动耗时', fields))
 /** 主进程共用的状态：事件、退出任务、引擎 / SSH 机器 / 项目工具（app/context.ts） */
 const ctx = createAppContext()
 initLogging(ctx) // 本机日志，见 app/logging.ts（越早越好：后面初始化出的错也要记下来）
@@ -253,8 +256,12 @@ function createWindow(): BrowserWindow {
   const wc = win.webContents
   crashWatches.set(wc, crashWatch)
   win.once('closed', () => crashWatches.delete(wc))
-  win.webContents.on('did-finish-load', () => noteLoaded(win.webContents))
+  win.webContents.on('did-finish-load', () => {
+    noteLoaded(win.webContents)
+    startup.reach('didFinishLoad')
+  })
   win.once('ready-to-show', () => {
+    startup.reach('readyToShow')
     if (captureDir) return
     // 最大化要等页面画好再做：在隐藏窗口上调 maximize() 会让 Electron 直接把窗口显示出来（先看到一片底色）
     if (restored?.maximized) win.maximize()
@@ -422,9 +429,10 @@ if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.pi
 protocol.registerSchemesAsPrivileged([EXT_SCHEME_PRIVILEGES])
 
 app.whenReady().then(async () => {
+  startup.step('whenReady')
   // 卡顿诊断：窗口没响应、主进程卡住、内存过高时写日志（docs/ui/logging.md §4.9）
   allowCallStacks(session.defaultSession, isAppUrl)
-  watchMainLoop()
+  watchMainLoop(() => ctx.engine?.memoryStats())
   // 内存：界面每次 log.sample() 进来时取主进程这边的数；这个每分钟的定时器兼做「内存占用高」分档和界面不报时的看门狗
   initMemory({
     engine: () => ctx.engine?.memoryStats() ?? { runtimes: 0, processes: 0, running: 0 },
@@ -441,23 +449,41 @@ app.whenReady().then(async () => {
     setAppMenu(locale)
     tray?.refresh()
   })
+  startup.step('diagnostics') // 上面的卡顿诊断、内存监控、应用菜单、界面语言
   initWindowControls()
+  startup.step('initWindowControls')
   initNotifications() // 系统通知，见 notifications/notifications.ts
+  startup.step('initNotifications')
   initAccount() // 账号登录与额度，见 account/account.ts
+  startup.step('initAccount')
   initAppInfo() // 「关于」页的版本与运行环境，见 app/info.ts
+  startup.step('initAppInfo')
   initLogIpc() // 设置 › 日志，见 app/logging.ts
+  startup.step('initLogIpc')
   initUpdater(ctx) // 自动更新（GitHub Releases），见 app/updater.ts
+  startup.step('initUpdater')
   await loadShellEnv() // macOS / Linux 从程序坞、桌面菜单启动时补回登录 shell 的 PATH，见 app/shell-env.ts
+  startup.step('loadShellEnv')
   const packs = initExtensionPacks(ctx) // 扩展包（语法 / 主题 / 图标 / 片段 / 任务 / 技能 / 提示词），见 extension-packs/ipc.ts
+  startup.step('initExtensionPacks')
   initExtStore(ctx, packs) // 扩展商店（发现、安装、更新、我的发布），见 extension-packs/market/ipc.ts
+  startup.step('initExtStore')
   await initEngine(ctx) // 引擎系统（Claude Code 等），见 engine/ipc.ts
+  startup.step('initEngine')
   initMobile(ctx) // 手机远程连接（默认关），见 mobile/ipc.ts
+  startup.step('initMobile')
   initSettingsSync(ctx) // 设置云同步，见 account/settings-sync.ts
+  startup.step('initSettingsSync')
   initFeedback(ctx) // 设置 › 反馈（云端工单、回复提醒），见 feedback/feedback.ts
+  startup.step('initFeedback')
   await initWorkspace(ctx)
+  startup.step('initWorkspace')
   await initProjectTools(ctx)
+  startup.step('initProjectTools')
   await initChannels(ctx) // 协作频道（本机 AI 协作），见 channels/ipc.ts
+  startup.step('initChannels')
   createWindow()
+  startup.step('createWindow')
   // 系统托盘（docs/ui/tray.md）：通知区域图标、右键菜单、关闭时隐藏到托盘
   if (!captureDir)
     tray = initTray(ctx, {

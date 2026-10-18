@@ -68,7 +68,7 @@ import { AiCommitButton, AiCommitNote, useAiCommit } from './AiCommit'
 import { BranchMenu } from './BranchMenu'
 import { GitHistory } from './GitHistory'
 import { FILE_HISTORY_EVENT, takeFileHistory } from './fileHistory'
-import { publishGitStatus } from './summary'
+import { publishGitStatus, refreshGitStatus, useGitLoadError, useGitRevision, useGitStatus } from './summary'
 import { demoApply } from './demoGit'
 import { demo as demoData } from '@/data/demo'
 
@@ -124,8 +124,19 @@ type Confirm = { title: string; body: ReactNode; label: string; danger: boolean;
 function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean; active: boolean }) {
   useI18n()
   const api = window.pixelsky?.projectTools
-  const [status, setStatus] = useState<GitStatus | null>(demo ? structuredClone(demoData().git.status) : null)
-  const [loadError, setLoadError] = useState('')
+  // 真实状态的读取、监听、去抖都在 ./summary.ts，这里只订阅（顶栏、输入框上方读的是同一份）；演示数据放在这里自己的内存里
+  const workspaceKey = refKey(target)
+  const [demoStatus, setDemoStatus] = useState<GitStatus | null>(() =>
+    demo ? structuredClone(demoData().git.status) : null,
+  )
+  // 不在前台时只读缓存、不登记监听：附加文件夹没别人在看，隐藏时不必每次事件都读；切回来时登记并先读一次
+  const watched = useGitStatus(demo ? null : target, active)
+  const loadError = useGitLoadError(demo ? null : target)
+  const revision = useGitRevision(demo ? null : target)
+  const status = demo ? demoStatus : watched
+  // 每读到一次状态变一次（内容没变也变）：对比里的文件内容、中栏对比标签据此重读
+  const stamp: unknown = demo ? demoStatus : revision
+  const setStatus = (next: GitStatus) => (demo ? setDemoStatus(next) : publishGitStatus(target, next))
   const [failure, setFailure] = useState<GitFailure | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -178,20 +189,6 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
     window.addEventListener(FILE_HISTORY_EVENT, consume)
     return () => window.removeEventListener(FILE_HISTORY_EVENT, consume)
   }, [])
-  // 顶栏的分支和新任务起点的改动数跟着 Git 页读到的状态走（./summary.ts）
-  useEffect(() => {
-    if (status && !demo) publishGitStatus(target, status)
-  }, [status, demo, target])
-
-  const refresh = useCallback(async () => {
-    if (demo || !api) return
-    try {
-      setStatus(await api.gitStatus(target))
-      setLoadError('')
-    } catch (e) {
-      setLoadError((e as Error).message)
-    }
-  }, [demo])
 
   /** 运行一个写操作：同一时间只有一个；结果带回最新状态，失败显示原因卡片 */
   const perform = useCallback(
@@ -202,12 +199,14 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
       setFailure(null)
       try {
         if (demo) {
-          if (demoAction) setStatus(s => s && demoApply(s, demoAction[0], demoAction[1]))
+          if (demoAction) setDemoStatus(s => s && demoApply(s, demoAction[0], demoAction[1]))
           return
         }
         last.current = fn
         const result = await fn()
+        // 写操作的结果带着最新状态；没带（不是仓库等）就强制重读一次
         if (result.status) setStatus(result.status)
+        else void refreshGitStatus(target)
         if (!result.ok) setFailure(result.failure)
         else if (result.ok && authPaused.current) authPaused.current = false
       } catch (e) {
@@ -220,38 +219,15 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
     [demo],
   )
 
-  // 刷新：可见时每 15 秒、窗口回到前台、项目工具变化、AI 回合结束（去抖）
+  // 兜底轮询：可见时每 15 秒读一次，外部改动（终端里的 git 操作）没有事件；窗口聚焦、项目工具变化、AI 回合结束的重读在 ./summary.ts
   useEffect(() => {
     if (!active || demo || !api) return
-    void refresh()
-    let timer = 0
-    const soon = () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => void refresh(), 400)
-    }
+    void refreshGitStatus(target, true)
     const poll = window.setInterval(() => {
-      if (!busyRef.current) void refresh()
+      if (!busyRef.current) void refreshGitStatus(target)
     }, POLL_MS)
-    const offTools = api.onChange(soon)
-    const offWindow = window.pixelsky!.window.onState(state => {
-      if (state.focused) soon()
-    })
-    const offEngine = window.pixelsky!.engine.onEvent(e => {
-      if (
-        e.kind === 'session' &&
-        (e.event.type === 'turn_completed' ||
-          (e.event.type === 'item_completed' && e.event.item.kind === 'file_change'))
-      )
-        soon()
-    })
-    return () => {
-      window.clearTimeout(timer)
-      window.clearInterval(poll)
-      offTools()
-      offWindow()
-      offEngine()
-    }
-  }, [active, refresh])
+    return () => window.clearInterval(poll)
+  }, [active, demo, workspaceKey])
 
   // 自动检查远端：Git 页可见且窗口在前台时每 10 分钟；认证失败后暂停，手动检查成功后恢复
   useEffect(() => {
@@ -333,7 +309,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
     else if (r === 'terminal') openRightTab('terminal')
   }
 
-  const sections = useMemo(() => (status?.repo ? gitSections(status) : []), [status])
+  const sections = useMemo(() => (status?.repo ? gitSections(status) : []), [status, stamp])
   const stage = (paths: string[] | 'all') => perform(() => api!.gitStage(target, paths), ['stage', paths])
   const unstage = (paths: string[] | 'all') => perform(() => api!.gitUnstage(target, paths), ['unstage', paths])
   const busyNote = status && status.busySessions > 0 ? <p className="mt-2 text-warn">{tr('git.confirm.busy')}</p> : null
@@ -394,7 +370,6 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
 
   // 代码模式：点文件打开到中栏（左栏列表不动、高亮当前文件）——样式 A 工作区改动开成文件标签、其余开「Git 对比」标签，
   // 样式 B 一律「Git 对比」标签（docs/ui/coding-mode.md §3.3.1–3.3.2）；对话模式仍在面板里就地看
-  const workspaceKey = refKey(target)
   const openDiff = (area: GitArea, file: GitFileChange) => {
     if (routeGitDiff(hasCodeOpener()) !== 'center') setSelected({ area, path: file.path })
     else if (gitOpenTarget(getGitOpenStyle(), area, file) === 'file' && file.local)
@@ -505,7 +480,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
           area={selected.area}
           busy={busy}
           // 每次读到新状态都重读一次（文件还在同一区、字母没变时内容也可能变了）
-          revision={status}
+          revision={stamp}
           {...fileActions(selectedFile, selected.area)}
           load={() =>
             demo
@@ -664,7 +639,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
             iconSize={14}
             disabled={busy}
             onClick={() => {
-              void refresh()
+              void refreshGitStatus(target)
               void refreshHeads(inGitWorkspace(workspaceKey))
               if (view === 'history') setHistoryKey(k => k + 1)
             }}

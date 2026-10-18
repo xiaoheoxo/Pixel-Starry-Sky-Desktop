@@ -52,5 +52,17 @@ export default defineConfig({
       alias: { '@': resolve(__dirname, 'src/renderer/src') },
     },
     plugins: [react(), tailwindcss()],
+    build: {
+      // electron-vite 默认 minify: false，界面脚本（start-*.js 约 6 MB）原样进包；打开压缩（Vite 8 = oxc），CSS 同
+      // 主进程和 preload 先不压
+      minify: true,
+      cssMinify: true,
+      rollupOptions: {
+        // 和预设的默认入口相同；electron-vite 5 + Vite 8 下只写 output 会把预设填的 input 丢掉，构建报错
+        input: resolve(__dirname, 'src/renderer/index.html'),
+        // 保留函数名 / 类名：日志里的报错栈仍可读，依赖 .name 的代码不受影响
+        output: { keepNames: true },
+      },
+    },
   },
 })

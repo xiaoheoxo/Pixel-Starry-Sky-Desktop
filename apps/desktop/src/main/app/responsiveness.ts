@@ -2,7 +2,7 @@
 // 下次卡死能从日志看出卡在哪一边、卡在哪段代码。用户卡住后多半直接结束进程，所以窗口没响应的记录马上同步写盘。
 import { app, powerMonitor, type BrowserWindow, type Session } from 'electron'
 import { logger } from '@pixelsky/engine'
-import { ipcInFlight } from '../ipc/guard'
+import { ipcInFlight, ipcRecent } from '../ipc/guard'
 import { logService } from './logging'
 
 const log = logger('perf')
@@ -131,8 +131,29 @@ export function mainLag(lateMs: number, sleeping: boolean): number | null {
   return !sleeping && lateMs >= LAG_MS ? Math.round(lateMs) : null
 }
 
-/** 主进程卡住（计时器晚到 2 秒以上）时记一条，带上那会儿还没处理完的 IPC 请求 */
-export function watchMainLoop(): void {
+/** 引擎运行时的计数（HostEngine.memoryStats 的形状）；卡住时顺带记下，看是不是会话 / 运行时堆多了 */
+export interface EngineCounts {
+  runtimes: number
+  processes: number
+  running: number
+}
+
+/** 「主进程卡住」那条日志的字段：卡了多久、那会儿没处理完的请求、卡住前后 5 秒内刚处理完的请求（含回复的粗略大小）、引擎运行时数量 */
+export function stallFields(lagMs: number, engine?: () => EngineCounts | null | undefined): Record<string, unknown> {
+  let counts: EngineCounts | null | undefined
+  try {
+    counts = engine?.()
+  } catch {
+    counts = null
+  }
+  return { lagMs, ipc: ipcInFlight(), recent: ipcRecent(lagMs), ...(counts ? { engine: counts } : {}) }
+}
+
+/**
+ * 主进程卡住（计时器晚到 2 秒以上）时记一条，带上那会儿还没处理完的 IPC 请求、最近 5 秒内处理完的请求和引擎运行时数量。
+ * 日志是卡住结束后才写的，所以「刚处理完」里常常就有罪魁（回复序列化发生在处理函数返回之后，不算在处理耗时里）。
+ */
+export function watchMainLoop(engine?: () => EngineCounts | null | undefined): void {
   let expected = performance.now() + TICK_MS
   // 睡眠期间计时器也停着，醒来第一跳会晚很久：从睡下到醒来后几秒内都不算
   let sleeping = false
@@ -146,7 +167,7 @@ export function watchMainLoop(): void {
     const now = performance.now()
     const lag = mainLag(now - expected, sleeping || now - wokeAt < TICK_MS * 5)
     expected = now + TICK_MS
-    if (lag !== null) log.warn('主进程卡住', { lagMs: lag, ipc: ipcInFlight() })
+    if (lag !== null) log.warn('主进程卡住', stallFields(lag, engine))
   }, TICK_MS).unref()
 }
 
