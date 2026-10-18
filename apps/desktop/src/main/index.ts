@@ -47,6 +47,8 @@ import {
 } from './app/responsiveness'
 import { initMemory, memoryTick, noteLoaded } from './app/memory'
 import { startupTimeline } from './app/startup-timing'
+import { rememberTheme, startSplash } from './app/splash'
+import type { SplashController } from './app/splash-controller'
 import { loadApp as loadAppPage, REACT_CRASH, watchCrashes, type CrashWatch } from './app/crashRecovery'
 import { canSend, markReady } from './app/rendererHealth'
 import { initTray, type TrayController } from './app/tray'
@@ -64,6 +66,9 @@ const TITLE_BAR: Record<ResolvedTheme, { color: string; symbolColor: string }> =
   dark: { color: '#1F1F1E', symbolColor: '#ECEBE7' },
 }
 const TITLE_BAR_HEIGHT = 48
+/** 主窗口默认大小和最小大小（启动时据此恢复上次的位置，开机画面也放在这个位置正中） */
+const WINDOW_DEFAULT = { width: 1568, height: 900 }
+const WINDOW_MIN = { width: 1100, height: 700 }
 
 // 截图模式：PIXELSKY_CAPTURE=<目录> 时按参考图尺寸截浅色/深色两张图后退出（见 scripts/capture.mjs）
 const captureDir = process.env.PIXELSKY_CAPTURE
@@ -91,6 +96,8 @@ let quitReady = false
 let quitting = false
 /** 系统托盘（app/tray.ts）；截图模式不建 */
 let tray: TrayController | null = null
+/** 启动慢时的开机画面（app/splash.ts）；截图模式不弹 */
+let splash: SplashController | null = null
 
 // 只开一份（docs/ui/tray.md §2.4）：再次启动时唤回已有的窗口（窗口可能藏在托盘里）。
 // 锁按数据目录算，演示 / 测试用别的 --user-data-dir 时互不影响；截图模式不加锁
@@ -205,7 +212,7 @@ const crashWatches = new Map<Electron.WebContents, CrashWatch>()
 function createWindow(): BrowserWindow {
   const initial: ResolvedTheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
   // 上次的窗口位置 / 大小，对着当前显示器校验过（app/window-state.ts）；截图模式不用
-  const restored = captureDir ? null : resolveInitialWindow({ width: 1568, height: 900 }, { width: 1100, height: 700 })
+  const restored = captureDir ? null : resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN)
   const win = new BrowserWindow({
     // 截图模式使用参考图尺寸（docs/reference/workbench-session.jpg）
     width: 1568,
@@ -264,9 +271,15 @@ function createWindow(): BrowserWindow {
   win.once('ready-to-show', () => {
     startup.reach('readyToShow')
     if (captureDir) return
-    // 最大化要等页面画好再做：在隐藏窗口上调 maximize() 会让 Electron 直接把窗口显示出来（先看到一片底色）
-    if (restored?.maximized) win.maximize()
-    win.show()
+    const reveal = (): void => {
+      if (win.isDestroyed()) return
+      // 最大化要等页面画好再做：在隐藏窗口上调 maximize() 会让 Electron 直接把窗口显示出来（先看到一片底色）
+      if (restored?.maximized) win.maximize()
+      win.show()
+    }
+    // 开机画面弹着时，等它停够最短时间再显示主窗口，然后它淡出
+    if (splash) splash.handOff(reveal)
+    else reveal()
   })
   win.on('close', event => {
     if (captureDir || closingAllowed.has(win) || win.webContents.isDestroyed()) return
@@ -343,6 +356,7 @@ ipc.handle('app:ready', event => markReady(event.sender), { deny: '不允许的�
 ipc.on('theme:set', (event, theme: ResolvedTheme, transparent?: boolean, background?: unknown) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!win || (theme !== 'light' && theme !== 'dark')) return
+  rememberTheme(theme) // 下次开机画面用
   // 配色主题的实色底（renderer 的 --wall-tint）；格式不对就用默认暖灰
   const base =
     typeof background === 'string' && /^#[0-9a-f]{6}$/i.test(background) ? background : TITLE_BAR[theme].color
@@ -431,6 +445,12 @@ protocol.registerSchemesAsPrivileged([EXT_SCHEME_PRIVILEGES])
 
 app.whenReady().then(async () => {
   startup.step('whenReady')
+  // 主窗口 1 秒内没画好才弹开机画面，平时看不到（app/splash.ts）
+  if (!captureDir)
+    splash = startSplash({
+      near: () => resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN).bounds,
+      log: (message, fields) => log.info(message, fields),
+    })
   // 卡顿诊断：窗口没响应、主进程卡住、内存过高时写日志（docs/ui/logging.md §4.9）
   allowCallStacks(session.defaultSession, isAppUrl)
   watchMainLoop(() => ctx.engine?.memoryStats())

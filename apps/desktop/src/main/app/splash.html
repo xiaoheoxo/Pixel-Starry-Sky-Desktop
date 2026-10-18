@@ -1,0 +1,472 @@
+<!doctype html>
+<!--
+  像素星空 · 开机画面（极简版，2026-10-18）
+
+  软件里用的就是这个文件：主进程 app/splash.ts 以 ?raw 读进来，前面插一段 window.PIXELSKY_SPLASH_QUERY 当参数，
+  用 data: 地址加载（只在启动慢时弹，见 splash.ts）。直接用浏览器打开这个文件可以预览。
+
+  纯色底 + 字标。字标淡入上浮，橙色小星随后亮起并慢慢呼吸；启动超过 1.2 秒才出现一条细线进度。
+  一个文件、不依赖外部资源（可以离线、可以放进严格的 CSP）。直接用浏览器打开是「预览模式」，右下角有控制条；
+  在软件里用时加 ?embed=1 隐藏控制条。
+
+  参数（都可省）：
+    embed=1                  嵌入软件：不显示预览控制条，铺满窗口
+    theme=dark|light|auto    默认 auto（跟随系统）
+    motion=on|off            强制完整动画 / 减少动画；不给时：嵌入软件跟随系统的「减少动画」，预览默认完整动画
+    status=文字              细线下面的状态文字；不给就不显示
+    version=0.5.1            右下角版本号；不给就不显示
+    min=900                  开场至少播放多少毫秒，done() 会等到这之后再退场
+    speed=1                  整体速度倍数（2 = 快一倍）
+    auto=毫秒                加载后多久自动 done()（预览、测试用）
+
+  脚本接口 window.PixelSplash：
+    setStatus(text)          设置状态文字（空字符串隐藏）
+    setProgress(p | null)    0–1 显示细线进度；null 回到「不确定」的来回滑动
+    setTheme('dark' | 'light' | 'auto')
+    done({ immediate })      播完开场（或立即）→ 淡出，返回 Promise；
+                             结束时派发 window 事件 'pixelsky:splash-done'，并向 parent postMessage({ type: 'pixelsky-splash-done' })
+
+  参数也可以在页面加载前写进 window.PIXELSKY_SPLASH_QUERY（同样的 a=1&b=2 格式），软件里就是这么传的。
+-->
+<html lang="zh-CN" data-theme="dark" data-motion="on">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:"
+    />
+    <title>像素星空</title>
+    <script>
+      // 先定主题和动画开关，免得第一帧闪一下
+      ;(() => {
+        const q = new URLSearchParams(window.PIXELSKY_SPLASH_QUERY ?? location.search)
+        const root = document.documentElement
+        const theme = q.get('theme') || 'auto'
+        root.dataset.theme =
+          theme === 'light' || theme === 'dark'
+            ? theme
+            : matchMedia('(prefers-color-scheme: light)').matches
+              ? 'light'
+              : 'dark'
+        // 嵌入软件时跟随系统的「减少动画」；预览是给人看效果的，默认播完整动画
+        const motion = q.get('motion')
+        const reduce =
+          motion === 'off' ||
+          (motion !== 'on' && q.has('embed') && matchMedia('(prefers-reduced-motion: reduce)').matches)
+        root.dataset.motion = reduce ? 'off' : 'on'
+        root.style.setProperty('--k', String(1 / Math.min(4, Math.max(0.25, Number(q.get('speed')) || 1))))
+        if (!q.has('embed')) root.classList.add('preview', 'framed')
+      })()
+    </script>
+    <style>
+      :root {
+        /* 深色：和欢迎页品牌区、字标 warm-dark 同一套 */
+        --bg: #15120f;
+        --text: #f3e9dc;
+        --muted: rgba(243, 233, 220, 0.5);
+        --line: rgba(243, 233, 220, 0.12);
+        --star: #f0a764;
+        --k: 1; /* 时间倍数，speed 参数换算来的 */
+        --out: cubic-bezier(0.22, 1, 0.36, 1);
+        color-scheme: dark;
+      }
+      :root[data-theme='light'] {
+        /* 浅色：米白暖底、深色字，星换成深一点的橙（字标 warm-light） */
+        --bg: #efe7db;
+        --text: #1d1915;
+        --muted: rgba(29, 25, 21, 0.5);
+        --line: rgba(29, 25, 21, 0.1);
+        --star: #d2692e;
+        color-scheme: light;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        overflow: hidden;
+      }
+      body {
+        font-family: 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+      }
+
+      .splash {
+        position: fixed;
+        inset: 0;
+        container-type: size;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--text);
+        background: var(--bg);
+        transition: background-color 300ms;
+        -webkit-app-region: drag;
+      }
+      .splash.gone {
+        visibility: hidden;
+      }
+
+      /* 字标：淡入、上浮 6px */
+      .wordmark {
+        width: clamp(180px, 44cqw, 380px);
+        overflow: visible;
+        opacity: 0;
+        animation: rise calc(700ms * var(--k)) var(--out) calc(60ms * var(--k)) forwards;
+      }
+      .wordmark .ink {
+        fill: none;
+        stroke: var(--text);
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: stroke 300ms;
+      }
+      .wordmark .dot {
+        fill: var(--text);
+        transition: fill 300ms;
+      }
+      /* 橙色小星：字标出来后亮起，之后慢慢呼吸 */
+      .wordmark .spark {
+        fill: var(--star);
+        stroke: var(--star);
+        stroke-width: 1.5;
+        stroke-linejoin: round;
+        transform-box: fill-box;
+        transform-origin: center;
+        opacity: 0;
+        animation:
+          spark-in calc(600ms * var(--k)) var(--out) calc(380ms * var(--k)) forwards,
+          breathe calc(2600ms * var(--k)) ease-in-out calc(1000ms * var(--k)) infinite;
+      }
+
+      /* 细线进度：启动超过 1.2 秒才出现，快的话根本看不到 */
+      .loader {
+        position: absolute;
+        top: calc(50% + clamp(34px, 11cqh, 64px));
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        opacity: 0;
+        animation: fade-in calc(400ms * var(--k)) ease-out calc(1200ms * var(--k)) forwards;
+      }
+      .track {
+        position: relative;
+        width: clamp(72px, 16cqw, 120px);
+        height: 1px;
+        overflow: hidden;
+        background: var(--line);
+      }
+      .track i {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 36%;
+        background: var(--text);
+        opacity: 0.55;
+        animation: slide calc(1600ms * var(--k)) ease-in-out infinite;
+      }
+      .track.det i {
+        width: calc(var(--p) * 100%);
+        animation: none;
+        transition: width 300ms var(--out);
+      }
+      .status {
+        font-size: 11.5px;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .status:empty {
+        display: none;
+      }
+      .version {
+        position: absolute;
+        right: 14px;
+        bottom: 12px;
+        font-size: 11px;
+        color: var(--muted);
+        opacity: 0;
+        animation: fade-in calc(400ms * var(--k)) ease-out calc(600ms * var(--k)) forwards;
+      }
+      .version:empty {
+        display: none;
+      }
+
+      /* 退场：一起淡出，字标略微上移 */
+      .splash.leaving .wordmark {
+        animation: leave calc(300ms * var(--k)) cubic-bezier(0.4, 0, 1, 1) forwards;
+      }
+      .splash.leaving .loader,
+      .splash.leaving .version {
+        animation: fade-out calc(200ms * var(--k)) ease-in forwards;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes spark-in {
+        from {
+          opacity: 0;
+          transform: scale(0.4) rotate(-45deg);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+      @keyframes slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(280%);
+        }
+      }
+      @keyframes fade-in {
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes fade-out {
+        to {
+          opacity: 0;
+        }
+      }
+      @keyframes leave {
+        to {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+      }
+
+      /* 减少动画：不移动、不呼吸，只淡入淡出 */
+      :root[data-motion='off'] .wordmark,
+      :root[data-motion='off'] .wordmark .spark,
+      :root[data-motion='off'] .version {
+        animation: fade-in 200ms ease-out forwards;
+      }
+      :root[data-motion='off'] .track i {
+        animation: none;
+        left: 32%;
+      }
+      :root[data-motion='off'] .splash.leaving .wordmark,
+      :root[data-motion='off'] .splash.leaving .loader {
+        animation: fade-out 160ms ease-in forwards;
+      }
+
+      /* 预览：模拟一个 560×340 的启动窗口 + 控制条 */
+      .preview body {
+        background: #0b0a09;
+      }
+      :root.preview[data-theme='light'] body {
+        background: #d9d4cc;
+      }
+      .preview.framed .splash {
+        inset: 50% auto auto 50%;
+        width: 560px;
+        height: 340px;
+        transform: translate(-50%, -50%);
+        border-radius: 12px;
+        box-shadow:
+          0 30px 80px rgba(0, 0, 0, 0.4),
+          0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
+      }
+      .controls {
+        position: fixed;
+        right: 14px;
+        bottom: 14px;
+        display: none;
+        gap: 6px;
+        padding: 6px;
+        border-radius: 10px;
+        background: rgba(20, 18, 16, 0.78);
+        backdrop-filter: blur(8px);
+        font-size: 12px;
+        z-index: 10;
+        -webkit-app-region: no-drag;
+      }
+      .preview .controls {
+        display: flex;
+      }
+      .controls button {
+        border: 0;
+        border-radius: 6px;
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #f3e9dc;
+        font: inherit;
+        cursor: pointer;
+      }
+      .controls button:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .controls button[aria-pressed='true'] {
+        background: #f0a764;
+        color: #1d1915;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="splash" id="splash" aria-busy="true" aria-label="像素星空正在启动">
+      <!-- 字标 PixelSky（apps/desktop/build/brand/wordmark-dark.svg 的同一组路径），颜色交给 CSS 变量 -->
+      <svg class="wordmark" viewBox="-8 -11.5 295 74" role="img" aria-label="PixelSky">
+        <path
+          class="ink"
+          stroke-width="4.5"
+          d="M20 1Q25.07 15.43 39.5 20.5Q25.07 25.57 20 40Q14.93 25.57 0.5 20.5Q14.93 15.43 20 1Z"
+        />
+        <g class="ink" stroke-width="5">
+          <path d="M0 40V0H10A11 11 0 0 1 10 22H0" transform="translate(65 0)" />
+          <path d="M0 12V40" transform="translate(98 0)" />
+          <path d="M0 12L20 40M20 12L0 40" transform="translate(110 0)" />
+          <path d="M0 26H28A14 14 0 1 0 23.9 35.9" transform="translate(142 0)" />
+          <path d="M0 0V40" transform="translate(182 0)" />
+          <path d="M17.89 3.21A9 9 0 1 0 11 18A11 11 0 1 1 2.57 36.07" transform="translate(194 0)" />
+          <path d="M0 0V40M19 12L0 28M6.5 22.5L19 40" transform="translate(228 0)" />
+          <path d="M0 12L10.4 36M20 12L4 52" transform="translate(259 0)" />
+        </g>
+        <circle class="dot" cx="98" cy="2" r="3" />
+        <path class="spark" d="M37 -2.5Q38.1 1.9 42.5 3Q38.1 4.1 37 8.5Q35.9 4.1 31.5 3Q35.9 1.9 37 -2.5Z" />
+      </svg>
+      <div class="loader" aria-hidden="true">
+        <div class="track" id="track"><i></i></div>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+      </div>
+      <div class="version" id="version"></div>
+    </main>
+
+    <div class="controls" id="controls">
+      <button type="button" data-act="replay">重播</button>
+      <button type="button" data-act="theme">浅色 / 深色</button>
+      <button type="button" data-act="frame">窗口 560×340</button>
+      <button type="button" data-act="motion">减少动画</button>
+      <button type="button" data-act="slow">慢启动</button>
+      <button type="button" data-act="done">完成启动</button>
+    </div>
+
+    <script>
+      ;(() => {
+        const q = new URLSearchParams(window.PIXELSKY_SPLASH_QUERY ?? location.search)
+        const root = document.documentElement
+        const embed = q.has('embed')
+        const reduce = root.dataset.motion === 'off'
+        const k = Number(getComputedStyle(root).getPropertyValue('--k')) || 1
+        const $ = id => document.getElementById(id)
+        const splash = $('splash'),
+          track = $('track'),
+          statusEl = $('status')
+        const minDuration = (Number(q.get('min')) || 900) * k
+
+        if (!embed && q.get('frame') === '0') root.classList.remove('framed')
+        $('version').textContent = q.get('version') ? 'v' + q.get('version').replace(/^v/, '') : ''
+
+        function setStatus(text) {
+          statusEl.textContent = String(text ?? '')
+        }
+        function setProgress(p) {
+          const det = typeof p === 'number' && Number.isFinite(p)
+          track.classList.toggle('det', det)
+          if (det) track.style.setProperty('--p', String(Math.min(1, Math.max(0, p))))
+        }
+        function setTheme(t) {
+          root.dataset.theme =
+            t === 'light' || t === 'dark' ? t : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        }
+
+        let leaving = null
+        function done(opts = {}) {
+          if (leaving) return leaving
+          const wait = opts.immediate ? 0 : Math.max(0, minDuration - performance.now())
+          leaving = new Promise(resolve => {
+            setTimeout(() => {
+              splash.classList.add('leaving')
+              splash.setAttribute('aria-busy', 'false')
+              setTimeout(
+                () => {
+                  splash.classList.add('gone')
+                  window.dispatchEvent(new CustomEvent('pixelsky:splash-done'))
+                  if (window.parent !== window) window.parent.postMessage({ type: 'pixelsky-splash-done' }, '*')
+                  resolve()
+                },
+                reduce ? 170 : 320 * k,
+              )
+            }, wait)
+          })
+          return leaving
+        }
+
+        window.PixelSplash = { setStatus, setProgress, setTheme, done }
+
+        setStatus(q.get('status') || '')
+        setProgress(null)
+        if ((q.get('theme') || 'auto') === 'auto')
+          matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => setTheme('auto'))
+        if (q.has('auto')) setTimeout(done, Number(q.get('auto')) || 0)
+
+        // ── 预览：控制条；默认 1.6 秒后完成，「慢启动」模拟一次要等几秒的启动 ──
+        if (embed) return
+        const slow = q.has('slow')
+        if (!q.has('auto')) {
+          if (slow) {
+            const steps = [
+              [1400, '正在检测 Claude Code / Codex…', 0.4],
+              [2600, '正在恢复会话…', 0.8],
+              [3600, '', 1],
+            ]
+            for (const [at, text, p] of steps) setTimeout(() => !leaving && (setStatus(text), setProgress(p)), at * k)
+            setTimeout(done, 3900 * k)
+          } else setTimeout(done, 1600 * k)
+        }
+        const reload = patch => {
+          const next = new URLSearchParams(location.search)
+          for (const [key, value] of Object.entries(patch)) value === null ? next.delete(key) : next.set(key, value)
+          location.search = next.toString()
+        }
+        const controls = $('controls')
+        const press = (act, on) =>
+          controls.querySelector(`[data-act="${act}"]`).setAttribute('aria-pressed', String(on))
+        controls.addEventListener('click', e => {
+          const act = e.target.closest('button')?.dataset.act
+          if (act === 'replay') location.reload()
+          if (act === 'theme') {
+            const next = root.dataset.theme === 'dark' ? 'light' : 'dark'
+            setTheme(next)
+            history.replaceState(null, '', '?' + new URLSearchParams({ ...Object.fromEntries(q), theme: next }))
+          }
+          if (act === 'frame') {
+            const on = !root.classList.contains('framed')
+            root.classList.toggle('framed', on)
+            press('frame', on)
+          }
+          if (act === 'motion') reload({ motion: reduce ? 'on' : 'off' })
+          if (act === 'slow') reload({ slow: slow ? null : '1' })
+          if (act === 'done') done({ immediate: true })
+        })
+        press('frame', root.classList.contains('framed'))
+        press('motion', reduce)
+        press('slow', slow)
+      })()
+    </script>
+  </body>
+</html>
