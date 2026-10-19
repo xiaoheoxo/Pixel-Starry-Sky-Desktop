@@ -1,0 +1,367 @@
+{
+  "id": "pixelsky.cpp",
+  "name": "C / C++ 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "C / C++ 的可选语法高亮、代码片段、CMake / Meson 任务，以及写测试和排查构建问题的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["c", "cpp", "c++", "cmake", "meson", "ctest"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "C / C++ Support",
+      "description": "C / C++ optional syntax highlighting, snippets, CMake / Meson tasks, plus a skill and prompts for writing tests and build issues"
+    }
+  },
+  "contributes": {
+    "grammars": [
+      {
+        "language": "c",
+        "aliases": ["C"],
+        "extensions": [".c", ".h"],
+        "scopeName": "source.c",
+        "path": "syntaxes/c.tmLanguage.json",
+        "configuration": "language-configuration.json",
+        "samples": ["samples/example.c"]
+      },
+      {
+        "language": "cpp",
+        "aliases": ["C++", "Cpp"],
+        "extensions": [".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp", ".inl", ".tpp"],
+        "scopeName": "source.cpp",
+        "path": "syntaxes/cpp.tmLanguage.json",
+        "configuration": "language-configuration.json",
+        "samples": ["samples/example.cpp"]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "c",
+        "path": "snippets/c.json"
+      },
+      {
+        "language": "cpp",
+        "path": "snippets/cpp.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "cmake-configure",
+        "label": {
+          "zh": "CMake 配置",
+          "en": "CMake configure"
+        },
+        "files": ["CMakeLists.txt"],
+        "tasks": [
+          {
+            "name": "configure",
+            "description": {
+              "zh": "配置项目，生成到 build 目录",
+              "en": "Configure the project into the build directory"
+            },
+            "when": "contains:project("
+          },
+          {
+            "name": "configure",
+            "description": {
+              "zh": "配置项目，生成到 build 目录",
+              "en": "Configure the project into the build directory"
+            },
+            "when": "contains:PROJECT("
+          },
+          {
+            "name": "configure",
+            "description": {
+              "zh": "配置项目，生成到 build 目录",
+              "en": "Configure the project into the build directory"
+            },
+            "when": "contains:project ("
+          },
+          {
+            "name": "configure",
+            "description": {
+              "zh": "配置项目，生成到 build 目录",
+              "en": "Configure the project into the build directory"
+            },
+            "when": "contains:PROJECT ("
+          },
+          {
+            "name": "configure",
+            "description": {
+              "zh": "配置项目，生成到 build 目录",
+              "en": "Configure the project into the build directory"
+            },
+            "when": "contains:Project("
+          }
+        ],
+        "command": "cmake -S . -B build"
+      },
+      {
+        "id": "cmake-build",
+        "label": {
+          "zh": "CMake 构建",
+          "en": "CMake build"
+        },
+        "files": ["CMakeLists.txt"],
+        "tasks": [
+          {
+            "name": "build",
+            "description": {
+              "zh": "构建 build 目录里已配置的项目",
+              "en": "Build the project configured in the build directory"
+            },
+            "when": "contains:project("
+          },
+          {
+            "name": "build",
+            "description": {
+              "zh": "构建 build 目录里已配置的项目",
+              "en": "Build the project configured in the build directory"
+            },
+            "when": "contains:PROJECT("
+          },
+          {
+            "name": "build",
+            "description": {
+              "zh": "构建 build 目录里已配置的项目",
+              "en": "Build the project configured in the build directory"
+            },
+            "when": "contains:project ("
+          },
+          {
+            "name": "build",
+            "description": {
+              "zh": "构建 build 目录里已配置的项目",
+              "en": "Build the project configured in the build directory"
+            },
+            "when": "contains:PROJECT ("
+          },
+          {
+            "name": "build",
+            "description": {
+              "zh": "构建 build 目录里已配置的项目",
+              "en": "Build the project configured in the build directory"
+            },
+            "when": "contains:Project("
+          }
+        ],
+        "command": "cmake --build build"
+      },
+      {
+        "id": "cmake-test",
+        "label": {
+          "zh": "CMake 测试",
+          "en": "CMake test"
+        },
+        "files": ["CMakeLists.txt"],
+        "tasks": [
+          {
+            "name": "test",
+            "description": {
+              "zh": "用 CTest 运行 build 目录里的测试，失败时显示输出",
+              "en": "Run the tests in the build directory with CTest, showing output on failure"
+            },
+            "when": "contains:project("
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "用 CTest 运行 build 目录里的测试，失败时显示输出",
+              "en": "Run the tests in the build directory with CTest, showing output on failure"
+            },
+            "when": "contains:PROJECT("
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "用 CTest 运行 build 目录里的测试，失败时显示输出",
+              "en": "Run the tests in the build directory with CTest, showing output on failure"
+            },
+            "when": "contains:project ("
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "用 CTest 运行 build 目录里的测试，失败时显示输出",
+              "en": "Run the tests in the build directory with CTest, showing output on failure"
+            },
+            "when": "contains:PROJECT ("
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "用 CTest 运行 build 目录里的测试，失败时显示输出",
+              "en": "Run the tests in the build directory with CTest, showing output on failure"
+            },
+            "when": "contains:Project("
+          }
+        ],
+        "command": "ctest --test-dir build --output-on-failure"
+      },
+      {
+        "id": "cmake-preset-configure",
+        "label": {
+          "zh": "CMake 预设配置",
+          "en": "CMake configure presets"
+        },
+        "files": ["CMakePresets.json", "CMakeUserPresets.json"],
+        "extract": [
+          {
+            "pattern": "(?<=\"configurePresets\"\\s*:\\s*\\[(?:(?!\"(?:buildPresets|testPresets|packagePresets|workflowPresets)\")[\\s\\S])*?)\"name\"\\s*:\\s*\"([A-Za-z0-9_][A-Za-z0-9_.:@/+=-]*)\"(?![^{}]*?\"hidden\"\\s*:\\s*true)(?<!\"hidden\"\\s*:\\s*true\\s*,[^{}]*)",
+            "flags": "g",
+            "name": 1
+          }
+        ],
+        "command": "cmake --preset {name}"
+      },
+      {
+        "id": "cmake-preset-build",
+        "label": {
+          "zh": "CMake 预设构建",
+          "en": "CMake build presets"
+        },
+        "files": ["CMakePresets.json", "CMakeUserPresets.json"],
+        "extract": [
+          {
+            "pattern": "(?<=\"buildPresets\"\\s*:\\s*\\[(?:(?!\"(?:configurePresets|testPresets|packagePresets|workflowPresets)\")[\\s\\S])*?)\"name\"\\s*:\\s*\"([A-Za-z0-9_][A-Za-z0-9_.:@/+=-]*)\"(?![^{}]*?\"hidden\"\\s*:\\s*true)(?<!\"hidden\"\\s*:\\s*true\\s*,[^{}]*)",
+            "flags": "g",
+            "name": 1
+          }
+        ],
+        "command": "cmake --build --preset {name}"
+      },
+      {
+        "id": "cmake-preset-test",
+        "label": {
+          "zh": "CMake 预设测试",
+          "en": "CMake test presets"
+        },
+        "files": ["CMakePresets.json", "CMakeUserPresets.json"],
+        "extract": [
+          {
+            "pattern": "(?<=\"testPresets\"\\s*:\\s*\\[(?:(?!\"(?:configurePresets|buildPresets|packagePresets|workflowPresets)\")[\\s\\S])*?)\"name\"\\s*:\\s*\"([A-Za-z0-9_][A-Za-z0-9_.:@/+=-]*)\"(?![^{}]*?\"hidden\"\\s*:\\s*true)(?<!\"hidden\"\\s*:\\s*true\\s*,[^{}]*)",
+            "flags": "g",
+            "name": 1
+          }
+        ],
+        "command": "ctest --preset {name}"
+      },
+      {
+        "id": "meson-setup",
+        "label": {
+          "zh": "Meson 配置",
+          "en": "Meson setup"
+        },
+        "files": ["meson.build"],
+        "tasks": [
+          {
+            "name": "setup",
+            "description": {
+              "zh": "配置项目，生成到 builddir 目录",
+              "en": "Configure the project into the builddir directory"
+            },
+            "when": "contains:project("
+          }
+        ],
+        "command": "meson setup builddir"
+      },
+      {
+        "id": "meson-build",
+        "label": {
+          "zh": "Meson 构建和测试",
+          "en": "Meson compile and test"
+        },
+        "files": ["meson.build"],
+        "tasks": [
+          {
+            "name": "compile",
+            "description": {
+              "zh": "构建 builddir 里已配置的项目",
+              "en": "Build the project configured in builddir"
+            },
+            "when": "contains:project("
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "运行 builddir 里的测试",
+              "en": "Run the tests in builddir"
+            },
+            "when": "contains:project("
+          }
+        ],
+        "command": "meson {name} -C builddir"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/cpp-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "cpp-write-tests",
+        "title": {
+          "zh": "为选中代码写单元测试",
+          "en": "Write unit tests for the selection"
+        },
+        "description": {
+          "zh": "按项目已有的测试框架补测试，覆盖边界和错误路径",
+          "en": "Add tests with the project's existing framework, covering edge cases and error paths"
+        },
+        "path": "prompts/write-tests.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "cpp-review-memory",
+        "title": {
+          "zh": "审查内存和资源安全",
+          "en": "Review memory and resource safety"
+        },
+        "description": {
+          "zh": "找出选中代码里的泄漏、越界、悬垂引用和未定义行为",
+          "en": "Find leaks, out-of-bounds access, dangling references and undefined behavior"
+        },
+        "path": "prompts/review-memory.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "cpp-explain-build-error",
+        "title": {
+          "zh": "解释编译 / 链接报错",
+          "en": "Explain a compile or link error"
+        },
+        "description": {
+          "zh": "读懂 CMake、编译器和链接器的报错并给出最小修复",
+          "en": "Decode CMake, compiler and linker errors and propose a minimal fix"
+        },
+        "path": "prompts/explain-build-error.md",
+        "where": ["composer"]
+      },
+      {
+        "id": "cpp-modernize",
+        "title": {
+          "zh": "改写成现代 C++",
+          "en": "Modernize to current C++"
+        },
+        "description": {
+          "zh": "在不改变行为的前提下，用 RAII、智能指针和标准库替换手写资源管理",
+          "en": "Replace manual resource management with RAII, smart pointers and the standard library without changing behavior"
+        },
+        "path": "prompts/modernize.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

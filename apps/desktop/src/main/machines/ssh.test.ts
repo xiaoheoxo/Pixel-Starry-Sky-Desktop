@@ -13,7 +13,7 @@ const cleanup: Array<() => void | Promise<void>> = []
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close()
 })
-async function server() {
+async function server(probe: { version?: string; arch?: string } = {}) {
   await mkdir(resolve('../../scratch'), { recursive: true })
   const dir = await mkdtemp(join(resolve('../../scratch'), 'ssh-transport-'))
   cleanup.push(() => rm(dir, { recursive: true, force: true }))
@@ -24,7 +24,10 @@ async function server() {
     forwards = new Set<Server>(),
     peers = new Set<RpcPeer>()
   let executed = 0,
-    uploaded = ''
+    uploaded = '',
+    cliInstalled = false
+  const commands: string[] = [],
+    cliCalls: string[] = []
   const ssh = new SshServer({ hostKeys: [key] }, client => {
     clients.add(client)
     client.on('error', () => {})
@@ -70,11 +73,43 @@ async function server() {
       client.on('session', accept =>
         accept().on('exec', (accept, _reject, info) => {
           executed++
+          commands.push(info.command)
           const stream = accept()
           if (info.command.includes('process.stdout.write(JSON.stringify')) {
-            stream.write(JSON.stringify({ home: '/test home', platform: 'linux', version: '22.0.0' }))
+            stream.write(
+              JSON.stringify({
+                home: '/test home',
+                platform: 'linux',
+                version: probe.version ?? '22.0.0',
+                arch: probe.arch,
+              }),
+            )
             stream.exit(0)
             stream.end()
+            return
+          }
+          // 命令行包：检查脚本带 .complete，安装脚本多一个 gunzipSync；这里假装远程的 node 照做
+          if (info.command.includes('.complete')) {
+            const entry =
+              '/test home/.local/share/pixelsky/remote/cli-' +
+              /cli-([a-f0-9]{64})/.exec(info.command)![1] +
+              '/pixel.mjs'
+            if (!info.command.includes('gunzipSync')) {
+              cliCalls.push('check')
+              if (cliInstalled) stream.write(entry)
+              stream.exit(0)
+              stream.end()
+              return
+            }
+            const chunks: Buffer[] = []
+            stream.on('data', (chunk: Buffer) => chunks.push(chunk))
+            stream.on('end', () => {
+              cliCalls.push('install:' + Buffer.concat(chunks).toString())
+              cliInstalled = true
+              stream.write(entry)
+              stream.exit(0)
+              stream.end()
+            })
             return
           }
           if (info.command.includes('Buffer.concat')) {
@@ -122,7 +157,7 @@ async function server() {
     auth: 'password',
     password: 'test-password',
   }
-  return { config, helper, stats: () => ({ executed, uploaded }) }
+  return { config, helper, stats: () => ({ executed, uploaded, commands, cliCalls }) }
 }
 describe('SSH trust and loopback transport', () => {
   it('rejects an untrusted key before executing commands, then connects and forwards both directions', async () => {
@@ -194,4 +229,64 @@ describe('SSH trust and loopback transport', () => {
     ).rejects.toThrow()
     expect(target.stats().executed).toBe(0)
   }, 15_000)
+})
+
+describe('SSH 下发像素星空命令行', () => {
+  const archive = {
+    data: Buffer.from('archive-bytes'),
+    hash: createHash('sha256').update('archive-bytes').digest('hex'),
+  }
+  const entry = '/test home/.local/share/pixelsky/remote/cli-' + archive.hash + '/pixel.mjs'
+  async function open(target: Awaited<ReturnType<typeof server>>, cliArchive: SshConnection['cliArchive']) {
+    const probe = new SshConnection()
+    cleanup.push(() => probe.close())
+    const fingerprint = await probe
+      .connect(target.config, null, undefined, target.helper, () => {})
+      .then(
+        () => '',
+        (error: FingerprintRequired) => error.fingerprint,
+      )
+    probe.close()
+    const link = new SshConnection()
+    cleanup.push(() => link.close())
+    link.cliArchive = cliArchive
+    await link.connect(target.config, fingerprint, undefined, target.helper, () => {})
+    return target.stats().commands.at(-1)!
+  }
+
+  it('Node 够新就上传一次，helper 带上入口路径；第二次连接只检查不重传', async () => {
+    const target = await server({ version: '22.19.0', arch: 'x64' })
+    const asked: string[] = []
+    const provide: SshConnection['cliArchive'] = async arch => {
+      asked.push(arch)
+      return archive
+    }
+    const first = await open(target, provide)
+    expect(first.endsWith(" 'default' '" + entry + "'")).toBe(true)
+    expect(asked).toEqual(['x64'])
+    expect(target.stats().cliCalls).toEqual(['check', 'install:archive-bytes'])
+    const second = await open(target, provide)
+    expect(second.endsWith("'" + entry + "'")).toBe(true)
+    expect(target.stats().cliCalls).toEqual(['check', 'install:archive-bytes', 'check'])
+  }, 15_000)
+
+  it('Node 不够新、架构不认识、没有包、打包失败：不下发，连接照常', async () => {
+    for (const [probe, provide] of [
+      [{ version: '22.18.0', arch: 'x64' }, async () => archive],
+      [{ version: '22.19.0', arch: 'arm' }, async () => archive],
+      [{ version: '22.19.0' }, async () => archive],
+      [{ version: '22.19.0', arch: 'x64' }, async () => null],
+      [
+        { version: '22.19.0', arch: 'x64' },
+        async () => {
+          throw new Error('pack failed')
+        },
+      ],
+    ] as const) {
+      const target = await server(probe)
+      const command = await open(target, provide)
+      expect(command.endsWith(" 'default'")).toBe(true)
+      expect(target.stats().cliCalls).toEqual([])
+    }
+  }, 30_000)
 })

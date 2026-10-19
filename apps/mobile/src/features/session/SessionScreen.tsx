@@ -1,10 +1,12 @@
 // 会话页（AI 聊天样子，docs/mobile-remote.md §21.12）：顶栏是引擎头像 + 标题 + 状态；对话按 foldTurns 折好的条目显示（向上加载更早的）、
 // 两轮相隔久了插时间；审批 / 提问卡片替换输入框；停止键在输入框里；回到最新。输入框由 App 传进来（features 之间不互相导入）。
-// 输入框上面是消息队列和只读的模式胶囊；点图片全屏看；最近一轮出错可以「重试」（§17）。
+// 输入框上面是消息队列和模式胶囊（点开改模式）；点图片全屏看；最近一轮出错可以「重试」（§17）。
+// 右上角「+」「⋯」见 SessionMenu；这一轮答完、手里没在写的时候，输入框上面给几句快捷回复（App 传给输入框的 suggest）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, Square } from 'lucide-react'
 import { foldTurns, type ApprovalDecision } from '@pixelsky/protocol'
 import type { Pairing } from '@/connection'
+import type { ToolId } from '@/data/tools'
 import { useDesktop, useSession } from '@/data/hooks'
 import { RETRY_MESSAGE, retryNoticeId, timeDividers } from '@/data/turns'
 import { linkStateText } from '@/i18n/zh'
@@ -15,6 +17,7 @@ import { ApprovalCard } from './ApprovalCard'
 import { EntryView, ThinkingRow, type TurnActions } from './ItemView'
 import { ModeChip } from './ModeChip'
 import { QueuePanel } from './QueuePanel'
+import { SessionMenu } from './SessionMenu'
 
 export function SessionScreen({
   pairing,
@@ -22,15 +25,24 @@ export function SessionScreen({
   leading,
   composer,
   onRecall,
+  onNew,
+  onTool,
+  onArchived,
 }: {
   pairing: Pairing
   sessionId: string
   /** 窄屏左上角的抽屉按钮（宽屏抽屉常驻，按钮自己藏起来） */
   leading?: ReactNode
-  /** 输入框；running 是会话页算好的「正在跑」（含启动中），停止键 / 占位字都跟它走 */
-  composer(running: boolean): ReactNode
+  /** 输入框；running 是会话页算好的「正在跑」（含启动中），停止键 / 占位字都跟它走；suggest：这一轮答完了，可以给快捷回复 */
+  composer(running: boolean, suggest: boolean): ReactNode
   /** 队列里撤回的消息：文字放回输入框 */
   onRecall(text: string): void
+  /** 右上角「+」：在这个项目里新建对话 */
+  onNew?(projectId: string): void
+  /** 「⋯」里的改动 / 文件 / Git */
+  onTool?(tool: ToolId, projectId: string): void
+  /** 归档了这个会话 */
+  onArchived?(): void
 }) {
   const { link, state, sessions, projects } = useDesktop(pairing.deviceId)
   const { view, error, loadOlder, detail, image } = useSession(pairing.deviceId, sessionId)
@@ -99,6 +111,10 @@ export function SessionScreen({
       .finally(() => setRetrying(false))
   }, [link, retrying, sessionId])
   const actions: TurnActions = { sessionId, image, view: setViewing, retryId, retrying, retry }
+  const [menuError, setMenuError] = useState<string | null>(null)
+  // 快捷回复：答完了（最后一条不是你的）、没在跑、没排队、没有「重试」
+  const suggest =
+    canAct && !!snapshot && !running && !pending && !retryId && !snapshot.queue.length && !!last && last.kind !== 'user'
 
   return (
     <Screen
@@ -113,10 +129,23 @@ export function SessionScreen({
       }
       subtitle={`${status.text}${project ? ` · ${project}` : ''}`}
       leading={leading}
-      actions={<span className="w-11 shrink-0 min-[900px]:w-6" />}
+      actions={
+        <SessionMenu
+          link={link}
+          record={record}
+          canAct={canAct}
+          running={running}
+          onNew={onNew}
+          onTool={onTool}
+          onArchived={onArchived}
+          onError={setMenuError}
+        />
+      }
       footer={
         // 宽屏：对话和输入框都在中间一栏，不铺满整个窗口
         <div className="mx-auto w-full max-w-3xl">
+          {/* 「⋯」里置顶、归档的错误：放在输入框上面，对话滚到哪都看得见 */}
+          {menuError && <p className="px-4 pt-1.5 pb-1 text-meta text-danger">{menuError}</p>}
           {pending ? (
             <>
               <ApprovalCard
@@ -143,8 +172,16 @@ export function SessionScreen({
               {snapshot && (
                 <QueuePanel link={link} sessionId={sessionId} snapshot={snapshot} canAct={canAct} onRecall={onRecall} />
               )}
-              {record && <ModeChip record={record} />}
-              {composer(running)}
+              {snapshot && (
+                <ModeChip
+                  deviceId={pairing.deviceId}
+                  link={link}
+                  sessionId={sessionId}
+                  record={snapshot.record}
+                  canAct={canAct}
+                />
+              )}
+              {composer(running, suggest)}
             </>
           )}
         </div>

@@ -6,7 +6,13 @@
 // - 网关自己的几个调用（不在契约里）：hello、unwatch、defaults、search、image（docs/mobile-remote.md §17）；
 //   工具（Git / 文件 / 产物 / 任务）和加项目也由网关放行（PHONE_TOOLS、directories、addProject，§18.4）。
 import {
+  EFFORTS,
+  ENGINES,
   IPC_CONTRACT,
+  SESSION_TITLE_LIMIT,
+  type Effort,
+  type EngineCaps,
+  type EngineCatalog,
   type EngineId,
   type HostEvent,
   type ImageAttachment,
@@ -46,6 +52,7 @@ import type { MobilePairing } from '../../shared/types/mobile'
 import type { GitDiff } from '../../shared/types/project-tools'
 import type { FileDocument } from '../../shared/types/workspace'
 import { phoneDiff, PHONE_DIFF_LIMIT, type PhoneDiff } from './diff'
+import { PushScheduler, pushChanges, waitingCount, type PushPayload } from './push'
 import type { MobileStore } from './store'
 
 const contract: Readonly<Record<string, IpcChannelSpec>> = IPC_CONTRACT
@@ -57,6 +64,18 @@ export const PAIRING_TTL = 5 * 60_000
 const MAX_WATCHED = 4
 /** 会话列表推送的节流间隔 */
 const SESSIONS_THROTTLE = 500
+/**
+ * 流式增量攒这么久打包成一帧发（云端每条连接限 500 帧/秒，docs/mobile-remote.md §17.4）；
+ * 只对 hello 时说了能拆包的手机这样做
+ */
+export const DELTA_BATCH = 100
+/** 攒着的增量超过这么多字符就立刻发，一帧不会太大（单帧 1 MB，中文转义后会变长） */
+const DELTA_BATCH_CHARS = 64_000
+/**
+ * 这么久没收到手机的任何消息：当它不在前台（突然断网时中转要等心跳超时才发现），照样推送提醒。
+ * 新版手机在前台时每 20 秒说一次 away(false)
+ */
+const SILENT_AFTER = 45_000
 /** 推给手机的会话列表最多几条（去掉归档，按更新时间） */
 const MAX_SESSIONS = 200
 /** 搜索对话内容最多回几条 */
@@ -71,7 +90,7 @@ export const PHONE_TEXT_LIMIT = 500_000
 const MAX_ARTIFACTS = 100
 
 export interface GatewayDeps {
-  store: Pick<MobileStore, 'desktopId' | 'device' | 'addDevice' | 'touch' | 'keypair'>
+  store: Pick<MobileStore, 'desktopId' | 'device' | 'devices' | 'addDevice' | 'touch' | 'keypair'>
   desktopName(): string
   relay(): string
   /** 手机网页版的地址：二维码做成这个地址的链接，手机相机扫了直接打开；null 时二维码是 pixelsky:// */
@@ -88,6 +107,8 @@ export interface GatewayDeps {
   /** 配对状态、在线状态变了（设置页刷新） */
   changed(): void
   now?(): number
+  /** 推送提醒攒多久合成一条、两条至少隔多久（测试改短），默认 PUSH_DELAY / PUSH_GAP */
+  pushTiming?: { delay: number; gap: number }
   /**
    * 本机引擎宿主上的只读查询（手机的「默认引擎」「搜索对话内容」）。契约里的 engine:defaults、engine:search
    * 跟着电脑界面当前选中的机器走，手机没法指定，所以只查本机；没有时手机退回自己的做法。
@@ -116,6 +137,8 @@ export interface CloudDevices {
   pairing(): Promise<{ code: string; expiresAt: number }>
   confirm(phone: string): Promise<void>
   remove(phone: string): Promise<void>
+  /** 网页推送（§22.2）：请云端推给这部手机；手机没登记推送时云端什么都不做 */
+  push?(phone: string, payload: PushPayload): Promise<void>
 }
 
 interface Peer {
@@ -127,7 +150,19 @@ interface Peer {
   search?: AbortController
   /** 电脑上已经吊销：回完这一次就断开 */
   revoked?: boolean
+  /** 手机页面切到后台了（它自己说的）：照样推送提醒 */
+  away?: boolean
+  /** 最后一次收到这部手机的消息 */
+  heardAt?: number
+  /** 手机能拆开打包成一帧的多个事件（hello 时说的）；旧版手机不能，事件照旧一条一帧 */
+  batch?: boolean
+  /** 攒着还没发的会话事件 */
+  pending?: SessionEvent[]
+  pendingChars?: number
+  flushTimer?: ReturnType<typeof setTimeout>
 }
+
+type SessionEvent = Extract<HostEvent, { kind: 'session' }>
 
 interface Pairing {
   secret: string
@@ -256,14 +291,93 @@ function cutText(text: string, limit: number): string {
   return text.slice(0, end > 0 ? end + 1 : limit)
 }
 
-/** 手机传来的参数：只留手机该给的字段，其余由电脑上的设置决定（权限模式、线路、模型都用电脑上的） */
+/** 手机能选的权限模式：不含 full（完全放行只能在电脑上开，docs/mobile-remote.md §21.5） */
+const PHONE_MODES = ['ask', 'edits', 'plan'] as const
+type PhoneMode = (typeof PHONE_MODES)[number]
+
+/** 手机能改的会话设置（新建和修改共用）；平台、接口、引擎、fast、ultracode 不让手机动 */
+export interface PhoneSettings {
+  permissionMode?: PhoneMode
+  /** null：用引擎默认的模型 */
+  model?: string | null
+  /** null：用引擎默认的强度 */
+  effort?: Effort | null
+  thinkingSummaries?: boolean
+}
+
+/**
+ * 从一份参数里挑出手机能改的设置，别的字段一律丢掉。字段给了但值不对（包括 full）整条拒绝，不静默丢弃；
+ * 值是否被这个引擎支持（权限模式、强度、模型）见 checkSettings / MobileGateway.vet
+ */
+export function phoneSettings(o: Record<string, unknown>): PhoneSettings {
+  const out: PhoneSettings = {}
+  if (o.permissionMode !== undefined) {
+    if (!PHONE_MODES.includes(o.permissionMode as PhoneMode)) throw new Error('MOBILE_BAD_ARGUMENT')
+    out.permissionMode = o.permissionMode as PhoneMode
+  }
+  if (o.model !== undefined) out.model = o.model === null ? null : asString(o.model)
+  if (o.effort !== undefined) {
+    if (o.effort !== null && !EFFORTS.includes(o.effort as Effort)) throw new Error('MOBILE_BAD_ARGUMENT')
+    out.effort = o.effort as Effort | null
+  }
+  if (o.thinkingSummaries !== undefined) {
+    if (typeof o.thinkingSummaries !== 'boolean') throw new Error('MOBILE_BAD_ARGUMENT')
+    out.thinkingSummaries = o.thinkingSummaries
+  }
+  return out
+}
+
+/** 引擎能力表认不认这些设置：权限模式要在 caps.permissionModes 里、强度在 caps.efforts 里、思考摘要要引擎有这个开关 */
+export function checkSettings(caps: EngineCaps, s: PhoneSettings): void {
+  if (s.permissionMode !== undefined && !caps.permissionModes.includes(s.permissionMode))
+    throw new Error('MOBILE_BAD_ARGUMENT')
+  if (s.effort && !caps.efforts.includes(s.effort)) throw new Error('MOBILE_BAD_ARGUMENT')
+  if (s.thinkingSummaries !== undefined && !caps.thinkingSummaries) throw new Error('MOBILE_BAD_ARGUMENT')
+}
+
+const asBoolean = (v: unknown): boolean => {
+  if (typeof v !== 'boolean') throw new Error('MOBILE_BAD_ARGUMENT')
+  return v
+}
+
+const asEngine = (v: unknown): EngineId => {
+  if (v !== 'claude' && v !== 'codex' && v !== 'pixel') throw new Error('MOBILE_BAD_ARGUMENT')
+  return v
+}
+
+/** 会话标题：去首尾空白、非空、不含控制字符、不超过桌面重命名的上限 */
+function asTitle(v: unknown): string {
+  if (typeof v !== 'string') throw new Error('MOBILE_BAD_ARGUMENT')
+  const title = v.trim()
+  // eslint-disable-next-line no-control-regex -- 故意匹配控制字符：和桌面一样不让标题带换行
+  if (!title || /[\u0000-\u001f\u007f]/.test(title) || Array.from(title).length > SESSION_TITLE_LIMIT)
+    throw new Error('MOBILE_BAD_ARGUMENT')
+  return title
+}
+
+/** 手机传来的参数：只留手机该给的字段，其余由电脑上的设置决定（线路、平台、引擎用电脑上的；权限模式、模型、强度只认 phoneSettings 那几项） */
 export function sanitize(method: string, args: unknown[]): unknown[] {
   switch (method) {
     case 'engine:createSession': {
       const o = (args[0] ?? {}) as Record<string, unknown>
       const engine = o.engine === 'claude' || o.engine === 'codex' || o.engine === 'pixel' ? { engine: o.engine } : {}
-      return [{ projectId: asString(o.projectId), ...engine }]
+      return [{ projectId: asString(o.projectId), ...engine, ...phoneSettings(o) }]
     }
+    case 'engine:updateSession': {
+      const patch = phoneSettings((args[1] ?? {}) as Record<string, unknown>)
+      // 一项都没留下（只给了被丢弃的字段）：没东西可改，报错让手机知道
+      if (!Object.keys(patch).length) throw new Error('MOBILE_BAD_ARGUMENT')
+      // 第三个参数告诉电脑这是手机改的，会话里留一条记录（ops.ts 的 engine:updateSession）
+      return [asString(args[0]), patch, 'mobile']
+    }
+    case 'engine:catalog':
+      return [asEngine(args[0])]
+    case 'engine:renameSession':
+      return [asString(args[0]), asTitle(args[1])]
+    case 'engine:setSessionPinned':
+      return [asString(args[0]), asBoolean(args[1])]
+    case 'engine:archiveSession':
+      return [asString(args[0]), asBoolean(args[1]), args[2] === undefined ? false : asBoolean(args[2])]
     case 'engine:send': {
       const input = args[1]
       if (typeof input === 'string') return [args[0], asString(input, 100_000)]
@@ -289,8 +403,19 @@ export class MobileGateway {
   private latestSessions: SessionSummary[] | null = null
   /** 产物扫描的请求号 */
   private scans = 0
+  /** 上一次的会话列表：和这次比，算出要推送的提醒 */
+  private pushPrev: SessionSummary[] | null = null
+  private readonly pushes: PushScheduler
 
-  constructor(private readonly d: GatewayDeps) {}
+  constructor(private readonly d: GatewayDeps) {
+    this.pushes = new PushScheduler(
+      (phone, payload) => d.cloud?.push?.(phone, payload) ?? Promise.resolve(),
+      d.pushTiming?.delay,
+      d.pushTiming?.gap,
+      () => this.now(),
+      () => waitingCount(this.pushPrev),
+    )
+  }
 
   private now(): number {
     return this.d.now?.() ?? Date.now()
@@ -433,7 +558,12 @@ export class MobileGateway {
     }
     if (decoded.type === FrameType.Pair) this.onPair(phone, decoded.body)
     else if (decoded.type === FrameType.Handshake1) this.onHandshake(phone, decoded.body)
-    else if (decoded.type === FrameType.Data) this.peers.get(phone)?.channel.receive(decoded.body)
+    else if (decoded.type === FrameType.Data) {
+      const peer = this.peers.get(phone)
+      if (!peer) return
+      peer.heardAt = this.now()
+      peer.channel.receive(decoded.body)
+    }
   }
 
   private onHandshake(phone: string, body: Uint8Array): void {
@@ -474,7 +604,7 @@ export class MobileGateway {
       },
       (method, args) => this.handle(peer, method, args),
     )
-    const peer: Peer = { phone, channel, rpc, watching: [] }
+    const peer: Peer = { phone, channel, rpc, watching: [], heardAt: this.now() }
     rpc.onClose = () => this.drop(phone, peer)
     this.peers.set(phone, peer)
     try {
@@ -493,9 +623,26 @@ export class MobileGateway {
       peer.revoked = true
       throw new Error('MOBILE_REVOKED')
     }
-    // tools：这台电脑能给手机用工具和加项目（§18.4），旧版没有这个字段
-    if (method === 'hello')
-      return { version: LINK_VERSION, name: this.d.desktopName(), access: device.access, tools: true }
+    // tools：这台电脑能给手机用工具和加项目（§18.4），旧版没有这个字段；
+    // queueMoveBefore：认得队列调序的 { before }，旧版没有，手机据此决定发对象还是数字下标
+    if (method === 'hello') {
+      peer.batch = (args[0] as { batch?: unknown } | undefined)?.batch === true
+      // 新连上的页面在前台：断开时排上的提醒不用推了（在后台连上的手机会接着说 away）
+      this.pushes.cancel(peer.phone)
+      return {
+        version: LINK_VERSION,
+        name: this.d.desktopName(),
+        access: device.access,
+        tools: true,
+        queueMoveBefore: true,
+      }
+    }
+    // 页面切到后台 / 回到前台（§22.2）：后台时照样推送提醒；旧版电脑不认这个方法，手机不管报错
+    if (method === 'away') {
+      peer.away = args[0] === true
+      if (!peer.away) this.pushes.cancel(peer.phone)
+      return null
+    }
     if (method === 'unwatch') {
       peer.watching = peer.watching.filter(id => id !== args[0])
       return null
@@ -517,6 +664,7 @@ export class MobileGateway {
     if (spec.mobile === 'act' && device.access !== 'act') throw new Error('MOBILE_FORBIDDEN')
     const clean = sanitize(method, args)
     const owner = 'mobile:' + peer.phone
+    if (method === 'engine:updateSession' || method === 'engine:createSession') await this.vet(method, clean, owner)
     if (method === 'engine:openSessionTail') {
       // 先登记再取快照：取快照期间到的事件也推过去，手机按 seq 丢掉重复的
       const id = asString(args[0])
@@ -525,6 +673,36 @@ export class MobileGateway {
     const result = await this.d.call(method, clean, owner)
     if (method === 'engine:sessions') return phoneSessions(result as SessionSummary[])
     return result
+  }
+
+  /**
+   * 手机要改 / 新建时带的设置，对着这个会话（新会话是将要用的）引擎的能力表和模型目录再核一遍：
+   * 不支持的权限模式、强度、思考摘要，不在目录里的模型，整条拒绝。sanitize 已经拦掉了 full
+   */
+  private async vet(method: string, clean: unknown[], owner: string): Promise<void> {
+    let engine: EngineId, settings: PhoneSettings
+    if (method === 'engine:updateSession') {
+      // 引擎以电脑上这个会话记录里的为准，手机不能改引擎；运行中选了下一个引擎还没生效时，设置算它的（engine/host/sessions.ts）
+      const sessions = (await this.d.call('engine:sessions', [], owner)) as SessionSummary[]
+      const record = sessions.find(s => s.record.id === clean[0])?.record
+      if (!record) throw new Error('MOBILE_NOT_FOUND')
+      engine = record.nextEngine ?? record.engine
+      settings = clean[1] as PhoneSettings
+      // 用自定义接口的会话：模型来自那个接口，不在引擎目录里，手机不能改（docs/mobile-remote.md §23.5）
+      if (record.provider && settings.model !== undefined) throw new Error('MOBILE_BAD_ARGUMENT')
+    } else {
+      const create = clean[0] as { engine?: EngineId }
+      settings = phoneSettings(create)
+      if (!Object.keys(settings).length) return
+      // 手机没指定引擎时用电脑上的默认引擎，并写明在参数里，核对的和实际用的是同一个
+      engine = create.engine ?? this.d.local?.defaultEngine() ?? 'claude'
+      create.engine = engine
+    }
+    checkSettings(ENGINES[engine].caps, settings)
+    if (typeof settings.model === 'string') {
+      const catalog = (await this.d.call('engine:catalog', [engine], owner)) as EngineCatalog | null
+      if (!catalog?.models?.some(m => m.id === settings.model)) throw new Error('MOBILE_BAD_ARGUMENT')
+    }
   }
 
   /** 工具的结果放进一帧：Git 改动比成 diff、大文件截断、大图缩小、产物只留最近的 */
@@ -636,6 +814,8 @@ export class MobileGateway {
 
   /** EventBus 的 tap：窗口收到什么，这里就看到什么 */
   hostEvent(channel: string, args: unknown[]): void {
+    if (channel === 'engine:event' && (args[0] as HostEvent | undefined)?.kind === 'sessions')
+      this.remind((args[0] as Extract<HostEvent, { kind: 'sessions' }>).sessions)
     if (!this.peers.size) return
     // 任务、Git 状态变了（电脑上已经合并过）：手机上开着的工具页重新取。
     // 手机只看事件内容不看通道名，旧版手机认不得 kind: 'tools'，会直接忽略
@@ -646,9 +826,9 @@ export class MobileGateway {
     if (channel !== 'engine:event') return
     const event = args[0] as HostEvent
     if (event.kind === 'session') {
-      let slim: HostEvent | null = null
+      let slim: SessionEvent | null = null
       for (const peer of this.peers.values())
-        if (peer.watching.includes(event.sessionId)) peer.rpc.event('engine:event', (slim ??= slimForPhone(event)))
+        if (peer.watching.includes(event.sessionId)) this.sessionEvent(peer, (slim ??= slimForPhone(event)))
     } else if (event.kind === 'sessions') {
       this.latestSessions = event.sessions
       this.sessionsTimer ??= setTimeout(() => {
@@ -661,6 +841,48 @@ export class MobileGateway {
       }, SESSIONS_THROTTLE)
     } else if (event.kind === 'projects') {
       for (const peer of this.peers.values()) peer.rpc.event('engine:event', event)
+    }
+  }
+
+  /**
+   * 会话事件：流式增量攒一会儿，打包成一帧发；别的事件（审批、状态、条目完成）到了先发攒着的，再立刻发它，顺序不变。
+   * 不合并增量的内容：手机按 seq 一条条应用（apps/mobile/src/data/session.ts）
+   */
+  private sessionEvent(peer: Peer, event: SessionEvent): void {
+    if (!peer.batch) {
+      peer.rpc.event('engine:event', event)
+      return
+    }
+    if (event.event.type !== 'item_delta') {
+      // 先发攒着的，再单独发这一条：它可能很大（条目完成带整段输出），不和增量挤一帧
+      this.flush(peer)
+      peer.rpc.event('engine:event', event)
+      return
+    }
+    ;(peer.pending ??= []).push(event)
+    peer.pendingChars = (peer.pendingChars ?? 0) + event.event.delta.length
+    if (peer.pendingChars >= DELTA_BATCH_CHARS) this.flush(peer)
+    else peer.flushTimer ??= setTimeout(() => this.flush(peer), DELTA_BATCH)
+  }
+
+  private flush(peer: Peer): void {
+    if (peer.flushTimer) clearTimeout(peer.flushTimer)
+    peer.flushTimer = undefined
+    const events = peer.pending ?? []
+    peer.pending = undefined
+    peer.pendingChars = 0
+    if (events.length === 1) peer.rpc.event('engine:event', events[0])
+    else if (events.length) peer.rpc.event('engine:event', { kind: 'batch', events })
+  }
+
+  /** 会话列表变了：有新的「等你处理 / 完成 / 出错」时，推给不在线或页面在后台的手机 */
+  private remind(sessions: SessionSummary[]): void {
+    if (!this.d.cloud?.push) return
+    const changes = pushChanges(this.pushPrev, sessions)
+    this.pushPrev = sessions
+    for (const device of this.d.store.devices) {
+      const peer = this.peers.get(device.id)
+      if (!peer || peer.away || this.now() - (peer.heardAt ?? 0) > SILENT_AFTER) this.pushes.add(device.id, changes)
     }
   }
 
@@ -686,6 +908,7 @@ export class MobileGateway {
     const peer = this.peers.get(phone)
     if (!peer || (only && peer !== only)) return
     this.peers.delete(phone)
+    if (peer.flushTimer) clearTimeout(peer.flushTimer)
     peer.search?.abort()
     peer.channel.fail(new Error('MOBILE_DISCONNECTED'))
     peer.rpc.close()
@@ -695,6 +918,7 @@ export class MobileGateway {
   close(): void {
     if (this.sessionsTimer) clearTimeout(this.sessionsTimer)
     this.sessionsTimer = null
+    this.pushes.close()
     this.dropAll()
     this.pairing = null
   }

@@ -121,6 +121,7 @@ export const SYNC_ENTRIES: readonly SyncEntry[] = [
   storageEntry('desktop.cacheMissAlert', 'display', 'pixelsky.cache-miss-alert'),
   storageEntry('desktop.rewindConfirmSkip', 'display', 'pixelsky.rewind-confirm-skip'),
   storageEntry('desktop.editorWrap', 'display', 'pixelsky.editor.wrap'),
+  storageEntry('desktop.editorAutoSave', 'display', 'pixelsky.editor.autoSave'),
   storageEntry('desktop.diffMode', 'display', 'pixelsky.git.diffMode'),
   storageEntry('desktop.usageChart', 'display', 'pixelsky.usage-chart'),
   {

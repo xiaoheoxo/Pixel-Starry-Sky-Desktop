@@ -40,8 +40,7 @@ export function EntryView({ entry, last, waiting, truncated, onDetail, actions }
   switch (item.kind) {
     case 'user':
       // 断线后电脑自动发的「继续」：一行小字，不当成你说的话
-      if (item.reconnect)
-        return <p className="text-label text-fg-faint">已自动重连 · 第 {item.reconnect} 次</p>
+      if (item.reconnect) return <p className="text-label text-fg-faint">已自动重连 · 第 {item.reconnect} 次</p>
       if (item.dismissed)
         return (
           <div className="flex flex-col items-end gap-1">

@@ -3,10 +3,10 @@ import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createServer, connect } from 'node:net'
 import { randomUUID } from 'node:crypto'
-import { StringDecoder } from 'node:string_decoder'
 import type { WorkspaceRef } from '../../../shared/types/workspace'
 import type { ServiceDefinition, ServiceInput, EnvironmentState, ToolStatus } from '../../../shared/types/project-tools'
 import { JsonStore, directory, gitInfo, optional, run, samePath, value, type ToolsHost } from './common'
+import { ConsoleLineDecoder, detectOemCodePage } from '@pixelsky/engine'
 import { LOCKFILE_NAMES, detectPackageManager } from '@pixelsky/protocol'
 
 interface Runtime {
@@ -14,7 +14,7 @@ interface Runtime {
   done: Promise<void>
   stopping: boolean
   secrets: string[]
-  decoder: StringDecoder
+  decoders: { stdout: ConsoleLineDecoder; stderr: ConsoleLineDecoder }
 }
 const envPattern = /TOKEN|SECRET|PASSWORD|KEY|AUTH|CREDENTIAL|COOKIE/i
 export function redact(input: string, secrets: string[]): string {
@@ -253,6 +253,7 @@ export class Services {
       process.platform === 'win32'
         ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', s.command]
         : ['-c', s.command]
+    await detectOemCodePage() // 先查好系统代码页（只查一次），输出解码时用
     const child = spawn(command, args, {
       cwd: s.cwd,
       env,
@@ -274,30 +275,34 @@ export class Services {
       done: new Promise(r => {
         finish = r
       }),
-      decoder: new StringDecoder('utf8'),
+      // 按字节收、整行解码：UTF-8 优先，原生程序按系统代码页（GBK 等）输出的行也能读。
+      // 两个流各用一个，免得两边的半行拼在一起；密钥在解码前先按字节遮掉（解错编码也拆不散它）
+      decoders: {
+        stdout: new ConsoleLineDecoder({ mask: secrets }),
+        stderr: new ConsoleLineDecoder({ mask: secrets }),
+      },
     }
     this.running.set(id, runtime)
-    const update = (chunk: Buffer): void => {
-      if (this.running.get(id) !== runtime) return
-      // Render only complete lines: a credential split across data events is never leaked.
-      pending += runtime.decoder.write(chunk)
-      const last = pending.lastIndexOf('\n')
-      if (last >= 0) {
-        s.output = (s.output + redact(pending.slice(0, last + 1), secrets)).slice(-24_000)
-        pending = pending.slice(last + 1)
-        this.changed()
+    const update =
+      (decoder: ConsoleLineDecoder) =>
+      (chunk: Buffer): void => {
+        if (this.running.get(id) !== runtime) return
+        // Render only complete lines: a credential split across data events is never leaked.
+        const text = decoder.write(chunk)
+        if (text) {
+          s.output = (s.output + redact(text, secrets)).slice(-24_000)
+          this.changed()
+        }
       }
-      if (pending.length > 32_000) pending = '[long output omitted]\n'
-    }
-    let pending = ''
-    child.stdout?.on('data', update)
-    child.stderr?.on('data', update)
+    child.stdout?.on('data', update(runtime.decoders.stdout))
+    child.stderr?.on('data', update(runtime.decoders.stderr))
     child.once('close', (code, signal) => {
       if (this.running.get(id) !== runtime) {
         finish()
         return
       }
-      s.output = (s.output + redact(pending + runtime.decoder.end(), secrets)).slice(-24_000)
+      const rest = runtime.decoders.stdout.end() + runtime.decoders.stderr.end()
+      s.output = (s.output + redact(rest, secrets)).slice(-24_000)
       s.status = runtime.stopping || code === 0 ? 'stopped' : 'failed'
       s.error = s.status === 'failed' ? signal || String(code) : null
       s.exitCode = code

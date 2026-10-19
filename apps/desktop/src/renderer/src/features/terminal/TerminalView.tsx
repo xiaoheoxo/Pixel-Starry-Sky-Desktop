@@ -11,6 +11,8 @@ import { openFile } from '@/features/files/store'
 import { findPathMatches } from '@/features/files/pathMatch'
 import { terminalFilePath } from './fileLinks'
 import { COMMAND_PALETTE, NEW_TERMINAL, TOGGLE_TERMINAL } from '@/features/layout/shortcuts'
+import { isMac } from '@/features/layout/keybindings'
+import { isCopyKey } from './copyKey'
 import { useI18n } from '@/i18n/I18nProvider'
 
 const ansi = [
@@ -153,9 +155,13 @@ export function TerminalView({
         latest.current.onCycle(event.shiftKey ? -1 : 1)
         return false
       }
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.code === 'KeyC') {
+      if (isCopyKey(event, term.hasSelection(), isMac)) {
         event.preventDefault()
-        void copy().catch(terminalError)
+        // Ctrl+C 复制完清掉选区，下一次 Ctrl+C 就是中断
+        const plain = !event.shiftKey
+        void copy()
+          .then(() => plain && term.clearSelection())
+          .catch(terminalError)
         return false
       }
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.code === 'KeyV') {

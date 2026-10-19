@@ -10,6 +10,7 @@ import { nativeText } from '../app/ui-language'
 import type { AppContext } from '../app/context'
 import { ExtensionPacks } from './service'
 import { registerPackProtocol } from './protocol'
+import { storeIcons } from './market/icons'
 
 let wasm: Uint8Array | null = null
 
@@ -53,6 +54,7 @@ export function initExtensionPacks(ctx: AppContext): ExtensionPacks {
       ? join(process.resourcesPath, 'builtin-extensions')
       : join(__dirname, '../../resources/builtin-extensions'),
     appVersion: app.getVersion(),
+    removeIcons: id => storeIcons().remove(id),
   })
   ctx.extPacks = service
   service.onChange(() => ctx.events.broadcast('extpacks:changed'))

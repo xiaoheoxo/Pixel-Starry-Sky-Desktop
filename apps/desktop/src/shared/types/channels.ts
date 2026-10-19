@@ -1,8 +1,36 @@
 // 协作频道的数据类型（docs/ui/channels.md §9，Phase B 的改动见 docs/ui/channels-phase-b.md §10.1）。
 // 主进程（main/core/channels/）和渲染层共用；演示数据（mock/channels.ts）只填界面要用的字段。
-import type { ApprovalRequest, EngineId, FileAttachment, ImageAttachment, SessionSettings } from '@pixelsky/protocol'
+import type {
+  ApprovalRequest,
+  EngineId,
+  FileAttachment,
+  FileChange,
+  ImageAttachment,
+  Item,
+  SearchFragment,
+  SessionSettings,
+} from '@pixelsky/protocol'
 
 export type ChannelAgentStatus = 'idle' | 'running' | 'waiting' | 'offline'
+
+/** 频道的提醒级别（docs/ui/channels-local-ai.md §3.1 #13） */
+export type ChannelNotify = 'all' | 'important' | 'mute'
+
+/**
+ * 任务卡上「正在做什么」的一步（docs/ui/channels-local-ai.md §3.1 #2）：只留显示要用的字段（和对话里工具行的说法一样），
+ * at 是主进程第一次看到这一步的时间（条目本身不带时间）
+ */
+export type ChannelStep = { id: string; at: number; running: boolean } & (
+  | Pick<Extract<Item, { kind: 'command' }>, 'kind' | 'command' | 'description'>
+  | { kind: 'file_change'; changes: Array<Pick<FileChange, 'kind' | 'path'>> }
+  | Pick<Extract<Item, { kind: 'tool' }>, 'kind' | 'tool' | 'name' | 'title'>
+)
+
+/** 进行中的任务在做什么：最近几步（先后顺序）、AI 最近说的一句 */
+export interface ChannelActivity {
+  steps: ChannelStep[]
+  say: { text: string; at: number } | null
+}
 
 // ── Phase C：多人团队（docs/ui/channels-phase-c.md §5.3） ──
 
@@ -65,8 +93,13 @@ export interface HumanMember {
   lastSeenAt?: number | null
 }
 
-/** AI 成员派活时用的会话设置；没写的用引擎默认值 */
-export type AgentSettings = Partial<Pick<SessionSettings, 'model' | 'effort' | 'permissionMode'>>
+/**
+ * AI 成员派活时用的会话设置；没写的用引擎默认值。额度来源（docs/ui/channels-local-ai.md §3.1 #1）：
+ * 都不写是自有账号；platform 是像素星空平台（分组 + 账号），provider 是自定义接口，两个不能同时有
+ */
+export type AgentSettings = Partial<
+  Pick<SessionSettings, 'model' | 'effort' | 'permissionMode' | 'platform' | 'provider'>
+>
 
 /** AI 成员的配置（全局，可以加进多个频道；docs/ui/channels-phase-b.md §2.2），存在 members.json */
 export interface AgentConfig {
@@ -141,6 +174,14 @@ export interface Channel {
   projectId?: string | null
   /** local = 本机 AI 协作；team = 团队频道（Phase C） */
   scope: 'local' | 'team'
+  /** 频道说明：每次派活都带上（docs/ui/channels-local-ai.md §3.1 #9；只有本机频道有） */
+  notes?: string | null
+  /** 置顶的消息 id（先后顺序），派活时作为资料带上 */
+  pinned?: string[]
+  /** 这个频道的系统提醒（§3.1 #13）：全部 / 只提醒要我处理的（等你确认、失败）/ 不提醒；没写是全部 */
+  notify?: ChannelNotify
+  /** 归档的时间（§3.1 #11）：收进列表底部「已归档」，只读，可恢复；没归档是 null / 没写 */
+  archivedAt?: number | null
   /** Phase C：团队频道属于哪个团队 */
   teamId?: string
   memberIds: string[]
@@ -214,6 +255,8 @@ export interface ChannelTask extends ChannelMessageBase {
   waitingCount?: number
   /** 进行中这一轮的计划进度 */
   progress?: { done: number; total: number } | null
+  /** 进行中这一轮「正在做什么」：最近几步和 AI 最近说的一句（只在内存里，不写盘） */
+  activity?: ChannelActivity | null
   /** 排队中：同一个成员前面还有几项活 */
   ahead?: number
   /** 机器断开了，重连后继续跟踪 */
@@ -230,13 +273,41 @@ export interface ChannelTask extends ChannelMessageBase {
 
 export interface ChannelEvent extends ChannelMessageBase {
   kind: 'event'
-  event: 'joined' | 'added' | 'removed' | 'renamed' | 'topic' | 'left' | 'agentAdded' | 'agentRemoved'
+  event:
+    | 'joined'
+    | 'added'
+    | 'removed'
+    | 'renamed'
+    | 'topic'
+    | 'left'
+    | 'agentAdded'
+    | 'agentRemoved'
+    | 'archived'
+    | 'restored'
   actorId: string
   targetId?: string | null
   value?: string | null
 }
 
 export type ChannelMessage = ChannelTextMessage | ChannelTask | ChannelEvent
+
+/** 频道消息搜索的一条结果（docs/ui/channels-local-ai.md §3.1 #8）：本机频道的文字消息和任务卡标题 */
+export interface ChannelSearchHit {
+  channelId: string
+  messageId: string
+  kind: 'message' | 'task'
+  /** 发消息的人；任务卡是接活的成员 */
+  authorId: string
+  at: number
+  snippet: SearchFragment[]
+}
+
+export interface ChannelSearchResult {
+  /** 新的在前 */
+  hits: ChannelSearchHit[]
+  /** 命中的比 hits 多（只给最近的这些） */
+  truncated: boolean
+}
 
 /** 主进程推给渲染层的频道状态（channels:state / channels:changed） */
 export interface ChannelsSnapshot {
@@ -246,6 +317,11 @@ export interface ChannelsSnapshot {
   members: ChannelMember[]
   /** 频道开出来的会话 → 频道名（侧栏、看板上显示 `# 频道名`） */
   sessionChannels: Record<string, string>
+  /**
+   * 本机频道开出来的会话 → 最近一张任务卡（docs/ui/channels-local-ai.md §3.1 #12）：
+   * 这些会话的系统提醒按频道的说法写，点开回到频道定位到卡片
+   */
+  sessionTasks?: Record<string, { channelId: string; taskId: string; memberId: string }>
   // ── Phase C ──
   teams: TeamInfo[]
   invites: PendingInvite[]

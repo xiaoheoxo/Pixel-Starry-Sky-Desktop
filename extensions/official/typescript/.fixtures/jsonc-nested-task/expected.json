@@ -1,0 +1,11 @@
+[
+  {
+    "template": "deno",
+    "file": "deno.jsonc",
+    "tasks": [
+      { "name": "start", "linux": "deno task start", "windows": "deno task start" },
+      { "name": "check", "linux": "deno task check", "windows": "deno task check" },
+      { "name": "ci", "linux": "deno task ci", "windows": "deno task ci" }
+    ]
+  }
+]

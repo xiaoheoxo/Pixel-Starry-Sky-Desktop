@@ -1,0 +1,184 @@
+{
+  "id": "pixelsky.java",
+  "name": "Java 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Java 的可选语法高亮、代码片段、Maven 任务，以及写测试和查异常的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["java", "maven", "junit", "jdk", "spring"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "Java Support",
+      "description": "Java optional syntax highlighting, snippets, Maven tasks, plus a skill and prompts for writing tests and debugging exceptions"
+    }
+  },
+  "contributes": {
+    "grammars": [
+      {
+        "language": "java",
+        "aliases": ["Java", "java"],
+        "extensions": [".java"],
+        "scopeName": "source.java",
+        "path": "syntaxes/java.tmLanguage.json",
+        "configuration": "language-configuration.json",
+        "samples": ["samples/Sample.java"]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "java",
+        "path": "snippets/java.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "maven",
+        "label": {
+          "zh": "Maven",
+          "en": "Maven"
+        },
+        "files": ["pom.xml"],
+        "runner": {
+          "windows": "mvnw.cmd",
+          "default": "./mvnw",
+          "fallback": "mvn",
+          "when": "exists:mvnw"
+        },
+        "tasks": [
+          {
+            "name": "clean",
+            "description": {
+              "zh": "清理 target 目录",
+              "en": "Delete the target directory"
+            }
+          },
+          {
+            "name": "compile",
+            "description": {
+              "zh": "编译主代码",
+              "en": "Compile main sources"
+            }
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "运行单元测试",
+              "en": "Run unit tests"
+            }
+          },
+          {
+            "name": "package",
+            "description": {
+              "zh": "打包（jar / war）",
+              "en": "Build the jar / war"
+            }
+          },
+          {
+            "name": "verify",
+            "description": {
+              "zh": "运行测试和集成检查",
+              "en": "Run tests and integration checks"
+            }
+          },
+          {
+            "name": "install",
+            "description": {
+              "zh": "打包并安装到本地仓库",
+              "en": "Package and install into the local repository"
+            }
+          },
+          {
+            "name": "spring-boot:run",
+            "description": {
+              "zh": "启动 Spring Boot 应用",
+              "en": "Run the Spring Boot application"
+            },
+            "when": "contains:spring-boot-maven-plugin"
+          },
+          {
+            "name": "quarkus:dev",
+            "description": {
+              "zh": "Quarkus 开发模式（热重载）",
+              "en": "Quarkus dev mode with live reload"
+            },
+            "when": "contains:quarkus-maven-plugin"
+          }
+        ],
+        "command": "{runner} {name}",
+        "cwd": "{dir}"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/java-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "java-write-junit-tests",
+        "title": {
+          "zh": "为选中代码写 JUnit 5 测试",
+          "en": "Write JUnit 5 tests for the selection"
+        },
+        "description": {
+          "zh": "按项目已有的测试风格补单元测试",
+          "en": "Add unit tests in the project's existing style"
+        },
+        "path": "prompts/write-junit-tests.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "java-explain-stacktrace",
+        "title": {
+          "zh": "解释 Java 异常堆栈",
+          "en": "Explain a Java stack trace"
+        },
+        "description": {
+          "zh": "把选中的堆栈或报错定位到根因",
+          "en": "Trace the selected stack trace or error to its root cause"
+        },
+        "path": "prompts/explain-stacktrace.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "java-modernize",
+        "title": {
+          "zh": "用新语法改写选中代码",
+          "en": "Modernize the selection"
+        },
+        "description": {
+          "zh": "在项目 JDK 版本允许范围内使用 record、switch 表达式等",
+          "en": "Use records, switch expressions and more, within the project's JDK level"
+        },
+        "path": "prompts/modernize.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "java-add-javadoc",
+        "title": {
+          "zh": "补 Javadoc",
+          "en": "Add Javadoc"
+        },
+        "description": {
+          "zh": "为选中的类或方法补充 Javadoc 注释",
+          "en": "Write Javadoc for the selected class or method"
+        },
+        "path": "prompts/add-javadoc.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

@@ -7,7 +7,7 @@ import { CodexTranslator, interruptedAgent } from './translate'
 const DAY = 86_400_000
 
 /** UUIDv7 的线程 id：前 48 位是毫秒时间戳，rollout 按它的日期放目录；不是 v7 返回 null */
-function threadTime(threadId: string): number | null {
+export function threadTime(threadId: string): number | null {
   const hex = threadId.replace(/-/g, '')
   if (!/^[0-9a-f]{32}$/i.test(hex) || hex[12] !== '7') return null
   return parseInt(hex.slice(0, 12), 16)

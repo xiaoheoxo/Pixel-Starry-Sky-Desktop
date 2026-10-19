@@ -50,7 +50,7 @@ export function Chips<T extends string>({
   onChange(value: T): void
 }) {
   return (
-    <div role="radiogroup" className="flex gap-2 overflow-x-auto px-4 pb-1">
+    <div role="radiogroup" className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-1">
       {items.map(i => (
         <button
           key={i.value}

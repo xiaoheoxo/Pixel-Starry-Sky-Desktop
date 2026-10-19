@@ -1,0 +1,213 @@
+{
+  "异步函数": {
+    "prefix": "afn",
+    "body": ["async function ${1:name}(${2:args}) {", "  $0", "}"],
+    "description": "异步函数"
+  },
+  "箭头函数常量": {
+    "prefix": "arrfn",
+    "body": ["const ${1:name} = (${2:args}) => {", "  $0", "};"],
+    "description": "const 箭头函数"
+  },
+  "try / catch 异常处理": {
+    "prefix": "trycatch",
+    "body": ["try {", "  $1", "} catch (error) {", "  ${2:throw error;}", "} finally {", "  $0", "}"],
+    "description": "try / catch / finally 异常处理"
+  },
+  "带超时的 fetch JSON": {
+    "prefix": "fetchjson",
+    "body": [
+      "async function ${1:fetchJson}(url, init = {}, timeoutMs = ${2:10000}) {",
+      "  const controller = new AbortController();",
+      "  const timer = setTimeout(() => controller.abort(), timeoutMs);",
+      "  try {",
+      "    const res = await fetch(url, { ...init, signal: controller.signal });",
+      "    if (!res.ok) throw new Error(`HTTP \\${res.status} \\${res.statusText}`);",
+      "    return await res.json();",
+      "  } finally {",
+      "    clearTimeout(timer);",
+      "  }",
+      "}",
+      "$0"
+    ],
+    "description": "fetch 请求 JSON：AbortController 超时、检查 res.ok"
+  },
+  "测试：describe": {
+    "prefix": "descr",
+    "body": ["describe('${1:name}', () => {", "  $0", "});"],
+    "description": "describe 测试组（vitest / jest）"
+  },
+  "测试：it": {
+    "prefix": "itt",
+    "body": ["it('${1:should do something}', () => {", "  $0", "});"],
+    "description": "it 测试用例"
+  },
+  "测试：异步 it": {
+    "prefix": "ita",
+    "body": ["it('${1:should do something}', async () => {", "  $0", "});"],
+    "description": "异步 it 测试用例"
+  },
+  "测试：it.each 表格": {
+    "prefix": "iteach",
+    "body": [
+      "it.each([",
+      "  [${1:1}, ${2:2}, ${3:3}],",
+      "])('${4:add(%i, %i) = %i}', (a, b, expected) => {",
+      "  expect(${5:add}(a, b)).toBe(expected);",
+      "});",
+      "$0"
+    ],
+    "description": "it.each 表格驱动测试"
+  },
+  "测试：导入 vitest": {
+    "prefix": "vitest",
+    "body": ["import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';", "$0"],
+    "description": "导入 vitest 的测试函数"
+  },
+  "测试：vi.mock 模块": {
+    "prefix": "vimock",
+    "body": ["vi.mock('${1:./module}', () => ({", "  ${2:fn}: vi.fn(),", "}));", "$0"],
+    "description": "vitest 模拟整个模块"
+  },
+  "等待一段时间": {
+    "prefix": "sleepfn",
+    "body": ["const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));", "$0"],
+    "description": "返回 Promise 的 sleep"
+  },
+  "防抖函数": {
+    "prefix": "debouncefn",
+    "body": [
+      "function debounce(fn, wait = ${1:200}) {",
+      "  let timer;",
+      "  return (...args) => {",
+      "    clearTimeout(timer);",
+      "    timer = setTimeout(() => fn(...args), wait);",
+      "  };",
+      "}",
+      "$0"
+    ],
+    "description": "防抖"
+  },
+  "失败重试（指数退避）": {
+    "prefix": "retryfn",
+    "body": [
+      "async function retry(fn, attempts = ${1:3}, baseMs = ${2:200}) {",
+      "  let lastError;",
+      "  for (let i = 0; i < attempts; i++) {",
+      "    try {",
+      "      return await fn();",
+      "    } catch (error) {",
+      "      lastError = error;",
+      "      if (i < attempts - 1) await new Promise((r) => setTimeout(r, baseMs * 2 ** i));",
+      "    }",
+      "  }",
+      "  throw lastError;",
+      "}",
+      "$0"
+    ],
+    "description": "失败重试，间隔指数增长"
+  },
+  "Promise.all": {
+    "prefix": "promall",
+    "body": ["const [${1:a}, ${2:b}] = await Promise.all([", "  ${3:fetchA()},", "  ${4:fetchB()},", "]);", "$0"],
+    "description": "并发等待多个 Promise"
+  },
+  "Promise.allSettled": {
+    "prefix": "promsettled",
+    "body": [
+      "const results = await Promise.allSettled([${1:tasks}]);",
+      "const fulfilled = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);",
+      "const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason);",
+      "$0"
+    ],
+    "description": "等所有 Promise 结束并分出成功失败"
+  },
+  "for of 带下标": {
+    "prefix": "forof",
+    "body": ["for (const [${1:i}, ${2:item}] of ${3:items}.entries()) {", "  $0", "}"],
+    "description": "遍历 entries() 得到下标和元素"
+  },
+  "类": {
+    "prefix": "cls",
+    "body": [
+      "export class ${1:Name} {",
+      "  #${2:dep};",
+      "",
+      "  constructor(${2:dep}) {",
+      "    this.#${2:dep} = ${2:dep};",
+      "  }",
+      "",
+      "  ${3:method}() {",
+      "    $0",
+      "  }",
+      "}"
+    ],
+    "description": "带构造函数的类"
+  },
+  "安全解析 JSON": {
+    "prefix": "jsonparse",
+    "body": [
+      "function parseJson(text, fallback) {",
+      "  try {",
+      "    return JSON.parse(text);",
+      "  } catch {",
+      "    return fallback;",
+      "  }",
+      "}",
+      "$0"
+    ],
+    "description": "JSON.parse 失败时返回默认值"
+  },
+  "Node 入口 main": {
+    "prefix": "nmain",
+    "body": [
+      "async function main() {",
+      "  $0",
+      "}",
+      "",
+      "main().catch((error) => {",
+      "  console.error(error);",
+      "  process.exitCode = 1;",
+      "});"
+    ],
+    "description": "异步 main，失败时设退出码"
+  },
+  "必填环境变量": {
+    "prefix": "reqenv",
+    "body": [
+      "function requireEnv(name) {",
+      "  const value = process.env[name];",
+      "  if (!value) throw new Error(`Missing environment variable: \\${name}`);",
+      "  return value;",
+      "}",
+      "$0"
+    ],
+    "description": "读取必填环境变量，缺失就报错"
+  },
+  "JSDoc / TSDoc 注释": {
+    "prefix": "doc",
+    "body": [
+      "/**",
+      " * ${1:说明}",
+      " *",
+      " * @param {${2:string}} ${3:name} ${4:参数说明}",
+      " * @returns {${5:void}} ${6:返回值说明}",
+      " */"
+    ],
+    "description": "函数文档注释"
+  },
+  "zod 模式": {
+    "prefix": "zodschema",
+    "body": [
+      "import { z } from 'zod';",
+      "",
+      "export const ${1:User}Schema = z.object({",
+      "  id: z.string().min(1),",
+      "  name: z.string().min(1),",
+      "  email: z.string().min(1).optional(),",
+      "});",
+      "$0"
+    ],
+    "description": "zod 对象模式"
+  }
+}

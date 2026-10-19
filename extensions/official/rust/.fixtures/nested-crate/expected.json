@@ -1,0 +1,62 @@
+[
+  {
+    "template": "cargo-clippy",
+    "file": "crates/app/Cargo.lock",
+    "tasks": [
+      {
+        "name": "clippy",
+        "description": "运行 clippy 静态检查",
+        "linux": "cd crates/app && cargo clippy",
+        "windows": "Set-Location -LiteralPath crates/app; if ($?) { cargo clippy }"
+      }
+    ]
+  },
+  {
+    "template": "cargo-doc",
+    "file": "crates/app/Cargo.lock",
+    "tasks": [
+      {
+        "name": "doc",
+        "description": "生成本项目的文档（不含依赖）",
+        "linux": "cd crates/app && cargo doc --no-deps",
+        "windows": "Set-Location -LiteralPath crates/app; if ($?) { cargo doc --no-deps }"
+      }
+    ]
+  },
+  {
+    "template": "cargo-clippy-strict",
+    "file": "crates/app/Cargo.lock",
+    "tasks": [
+      {
+        "name": "clippy-strict",
+        "description": "clippy 检查全部目标，警告当作错误",
+        "linux": "cd crates/app && cargo clippy --all-targets -- -D warnings",
+        "windows": "Set-Location -LiteralPath crates/app; if ($?) { cargo clippy --all-targets -- -D warnings }"
+      }
+    ]
+  },
+  {
+    "template": "cargo-fmt",
+    "file": "crates/app/Cargo.lock",
+    "tasks": [
+      {
+        "name": "fmt",
+        "description": "格式化整个工作区",
+        "linux": "cd crates/app && cargo fmt --all",
+        "windows": "Set-Location -LiteralPath crates/app; if ($?) { cargo fmt --all }"
+      }
+    ]
+  },
+  {
+    "template": "cargo-fmt-check",
+    "file": "crates/app/Cargo.lock",
+    "tasks": [
+      {
+        "name": "fmt-check",
+        "description": "只检查格式，不改文件",
+        "linux": "cd crates/app && cargo fmt --all --check",
+        "windows": "Set-Location -LiteralPath crates/app; if ($?) { cargo fmt --all --check }"
+      }
+    ]
+  }
+]

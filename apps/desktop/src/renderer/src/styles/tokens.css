@@ -130,6 +130,13 @@
   --shadow-composer: 0 2px 4px -2px rgba(32, 33, 31, 0.04), 0 8px 24px -8px rgba(32, 33, 31, 0.08);
   --shadow-menu: 0 2px 8px -2px rgba(32, 33, 31, 0.06), 0 12px 24px -8px rgba(32, 33, 31, 0.1);
   --shadow-workbench: 0 6px 24px -12px rgba(32, 33, 31, 0.08);
+
+  /* 标志（ui/Logo.tsx、ui/Wordmark.tsx）：浅色主题用深色方块 + 米白 P，字标深色；深色主题见下面那份（docs/brand/logo-replacement.md） */
+  --logo-tile: #1d1915;
+  --logo-mark: #f4efe8;
+  --logo-star: #f0a764;
+  --logo-word: #1d1915;
+  --logo-word-star: #d2692e;
 }
 
 :root[data-theme='dark'],
@@ -252,6 +259,13 @@
   --shadow-composer: 0 2px 6px rgba(0, 0, 0, 0.14), 0 12px 28px -10px rgba(0, 0, 0, 0.32);
   --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.2), 0 12px 32px -8px rgba(0, 0, 0, 0.35);
   --shadow-workbench: 0 8px 28px -14px rgba(0, 0, 0, 0.24);
+
+  /* 标志（ui/Logo.tsx、ui/Wordmark.tsx）：深色主题用浅色方块 + 深色 P，字标米色（docs/brand/logo-replacement.md） */
+  --logo-tile: #f3e9dc;
+  --logo-mark: #1b1713;
+  --logo-star: #d2692e;
+  --logo-word: #f3e9dc;
+  --logo-word-star: #f0a764;
 }
 
 /* 配色主题（<html data-palette>，features/appearance/palette.ts）：每套浅色、深色各一份，跟主题的浅色 / 深色 / 跟随系统组合使用。
@@ -993,6 +1007,8 @@
   --dur-pane-focus: 450ms; /* 换窗格的短暂高亮 */
   --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1); /* 稍微冲过头再回来，开关滑块用 */
   --dur-switch: 280ms; /* 开关滑块滑动 */
+  --dur-move: 320ms; /* 列表里的行换位置 */
+  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
 }
 :root[data-platform='darwin'] {
   --titlebar-reserve: 0px;

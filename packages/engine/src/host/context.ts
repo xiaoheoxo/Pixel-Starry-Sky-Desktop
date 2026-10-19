@@ -31,6 +31,8 @@ import type { HostTurn } from './turn'
 import type { HostUsage } from './usage'
 
 export interface EngineHostOptions {
+  /** 本机的系统代理（http://主机:端口）：补给引擎进程（env.ts systemProxyEnv）；远程机器上不传 */
+  systemProxy?: (engine: EngineId) => string | null
   platformCharges?: (settlement: PlatformSettlement, signal: AbortSignal) => Promise<PlatformCharge[]>
   settlementDelays?: number[]
   /** 这个账号在这段时间的全部调用（旧记录按时间补录实扣用，docs/ui/usage.md §11.2）；账号已切换时抛错 */
@@ -65,6 +67,23 @@ export interface EngineHostOptions {
   reconnectDelays?: number[]
 }
 
+/** 正在跑的这一轮（turn.ts 调 send 前设置，turn_completed 读完清掉）：断线重连判断「引擎收到这条没有 / 有没有进展」用 */
+export interface TurnTrack {
+  turnId: string
+  /** 这一轮对应的队列项 */
+  queueId: string
+  /** 这一轮发给引擎的用户消息条目 id（引擎确认收到时 input_ack 带的就是它） */
+  userItemId: string
+  /** 这一轮发的是「继续」（原消息早就送达了） */
+  resume: boolean
+  /** 引擎确认收到了这一轮的消息，或者已经有输出 */
+  delivered: boolean
+  /** 这一轮已经有输出（助手 / 推理 / 工具 / 命令）：重连次数从头算 */
+  progressed: boolean
+  /** 引擎自己重试过这次请求（request_retry）：宿主不再叠加一层重连 */
+  engineRetried: boolean
+}
+
 export interface Runtime {
   inspectingContext?: boolean
   sessionMaxRetries: number | null | undefined
@@ -78,6 +97,7 @@ export interface Runtime {
   stopping: boolean
   generation: number
   activeId: string | null
+  turn?: TurnTrack
   execution: SessionRecord | null
   sessionSource: string | null | undefined
   /** 启动这个进程时的引擎级设置（launchKey）；设置变了，下一条消息前重启进程 */

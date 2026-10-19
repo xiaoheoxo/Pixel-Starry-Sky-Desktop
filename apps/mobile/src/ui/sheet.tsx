@@ -1,5 +1,7 @@
-// 底部弹出的操作菜单（队列里一条消息能做的事、加图片选拍照还是相册）
+// 底部弹出的操作菜单（队列里一条消息能做的事、加图片选拍照还是相册）。
+// 都挂到 body 上（portal）：顶栏有 backdrop-blur，放在顶栏里的菜单（会话页的「⋯」）不挂出去的话会被顶栏框住。
 import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { WIDE, cn, useMedia } from './index'
 
@@ -19,11 +21,14 @@ export function ActionSheet({ title, actions, onClose }: { title?: string; actio
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col justify-end bg-black/40" onClick={onClose}>
+  return createPortal(
+    <div
+      className="fixed inset-x-0 top-0 z-40 flex h-app flex-col items-center justify-end bg-black/40"
+      onClick={onClose}
+    >
       <div
         role="menu"
-        className="sheet-in flex flex-col gap-2 px-3 pb-[max(env(safe-area-inset-bottom),12px)]"
+        className="sheet-in flex w-full max-w-lg flex-col gap-2 px-3 pb-[max(env(safe-area-inset-bottom),12px)]"
         onClick={e => e.stopPropagation()}
       >
         <div className="overflow-hidden rounded-2xl bg-popover shadow-popover">
@@ -58,7 +63,8 @@ export function ActionSheet({ title, actions, onClose }: { title?: string; actio
           取消
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -81,15 +87,18 @@ export function ConfirmSheet({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col items-center justify-end bg-black/40" onClick={onClose}>
+  return createPortal(
+    <div
+      className="fixed inset-x-0 top-0 z-40 flex h-app flex-col items-center justify-end bg-black/40"
+      onClick={onClose}
+    >
       <div
         role="dialog"
         aria-label={title}
         className="sheet-in flex w-full max-w-lg flex-col gap-2 px-3 pb-[max(env(safe-area-inset-bottom),12px)]"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex max-h-[70dvh] flex-col overflow-hidden rounded-2xl bg-popover shadow-popover">
+        <div className="flex max-h-[calc(var(--app-height,100dvh)*0.7)] flex-col overflow-hidden rounded-2xl bg-popover shadow-popover">
           <div className="border-b border-line-subtle px-4 py-3 text-center text-ui font-medium">{title}</div>
           <div className="min-h-0 overflow-y-auto px-4 py-3 text-meta text-fg-secondary">{children}</div>
           <button
@@ -111,12 +120,13 @@ export function ConfirmSheet({
           取消
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
 /**
- * 通用面板：窄屏从底部弹出（最高 85dvh，内容区自己滚动），宽屏（WIDE）改成右侧 420px 的覆盖面板。
+ * 通用面板：窄屏从底部弹出（最高为看得见高度的 85%，内容区自己滚动；整层跟着 --app-height，iPhone 键盘弹出时不被挡住），宽屏（WIDE）改成右侧 420px 的覆盖面板。
  * Esc、点遮罩、右上角关闭都会调 onClose；children 放内容，footer 固定在底部。
  */
 export function Sheet({
@@ -133,11 +143,14 @@ export function Sheet({
   const wide = useMedia(WIDE)
   const titleId = useId()
   const dialog = useRef<HTMLDivElement>(null)
-  // 打开时焦点进面板、关闭时还给打开它的元素；Tab 只在面板里转
+  // 打开它的元素：在第一次渲染时记下（effect 跑的时候 autoFocus 已经把焦点挪进面板了）
+  const opener = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  // 打开时焦点进面板（里面已经有元素自己 autoFocus 了就不抢）、关闭时还给打开它的元素；Tab 只在面板里转
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    dialog.current?.focus()
-    return () => opener?.focus()
+    const el = dialog.current
+    if (el && !el.contains(document.activeElement)) el.focus()
+    const back = opener.current
+    return () => back?.focus()
   }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -159,9 +172,9 @@ export function Sheet({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  return (
+  return createPortal(
     <div
-      className={cn('fixed inset-0 z-40 flex bg-black/40', wide ? 'justify-end' : 'flex-col justify-end')}
+      className={cn('fixed inset-x-0 top-0 z-40 flex h-app bg-black/40', wide ? 'justify-end' : 'flex-col justify-end')}
       onClick={onClose}
     >
       <div
@@ -174,7 +187,7 @@ export function Sheet({
           'flex min-h-0 flex-col bg-popover shadow-popover outline-none',
           wide
             ? 'panel-in h-full w-[420px] max-w-full border-l border-line-subtle'
-            : 'sheet-in max-h-[85dvh] w-full rounded-t-2xl pb-[env(safe-area-inset-bottom)]',
+            : 'sheet-in max-h-[85%] w-full rounded-t-2xl pb-[env(safe-area-inset-bottom)]',
         )}
         onClick={e => e.stopPropagation()}
       >
@@ -194,6 +207,7 @@ export function Sheet({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
         {footer && <div className="shrink-0 border-t border-line-subtle">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

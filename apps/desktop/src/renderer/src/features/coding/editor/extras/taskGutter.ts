@@ -6,7 +6,7 @@ import { tr } from '@/i18n/core'
 import type { OpenFile } from '@/features/files/store'
 import { useCodingWorkspace } from '../../workspace'
 import { gutterGroupForFile } from '../../tasks/model'
-import { loadTasks, TASKS_STALE_MS, useRunTasks, useTaskRunner, useTaskStatuses } from '../../tasks/store'
+import { isAlive, loadTasks, TASKS_STALE_MS, useRunTasks, useTaskRunner, useTaskStatuses } from '../../tasks/store'
 
 export interface GutterItem {
   line: number
@@ -104,7 +104,7 @@ export function useTaskGutter(tab: OpenFile | null): readonly Extension[] {
   // 状态拼成字符串：只有哪些在跑变了才重建扩展
   const items = group
     ? group.tasks.flatMap(t =>
-        t.line ? [{ line: t.line, name: t.name, running: statuses.of(group, t).kind === 'running' }] : [],
+        t.line ? [{ line: t.line, name: t.name, running: isAlive(statuses.of(group, t)) }] : [],
       )
     : []
   const token = items.map(i => `${i.line}:${i.name}:${i.running ? 1 : 0}`).join(',')

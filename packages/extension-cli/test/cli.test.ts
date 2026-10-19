@@ -173,15 +173,15 @@ describe('JSON', () => {
       'output',
     ])
     expect(j.schema).toBe(1)
-    expect(j.tool).toMatchObject({ name: 'pixelsky-ext', rulesVersion: 1 })
+    expect(j.tool).toMatchObject({ name: 'pixelsky-ext', rulesVersion: 2 })
     expect(j.command).toBe('validate')
     expect(j.input).toEqual({ kind: 'folder', path: dotenv(), bytes: null })
     expect(j.options).toEqual({ level: 'upload', grammar: 'full', appVersion: null, strict: false })
     expect(j.pack).toEqual({ id: 'pixelsky.dotenv', version: '1.0.0', files: 7, bytes: 8328 })
-    expect(j.status).toBe('ok')
-    expect(j.verdict).toEqual({ pass: true, blocking: 0 })
-    // 慢机器上可能多一条测速提示（warning / hint），其余计数必须为 0
+    // 慢机器上可能多一条测速提示（warning / hint，状态随之变成 warning），其余计数必须为 0
     const timing = j.issues.length - withoutTiming(j.issues as Array<{ code: string }>).length
+    expect(j.status).toBe(timing ? 'warning' : 'ok')
+    expect(j.verdict).toEqual({ pass: true, blocking: 0 })
     expect(j.counts).toEqual({ error: 0, warning: timing, reject: 0, hint: timing, note: 0 })
     expect(withoutTiming(j.issues as Array<{ code: string }>)).toEqual([])
     expect(j.notChecked).toEqual(['publisher', 'versionIncrement', 'listedConflicts'])
@@ -296,8 +296,8 @@ describe('help / version', () => {
   it('--version 一行，规则版本和软件版本都在', async () => {
     const r = await run(['--version'])
     expect(r.code).toBe(0)
-    expect(r.out).toMatch(/^pixelsky-ext \d+\.\d+\.\d+（规则 v1，同像素星空 .+）\n$/)
-    expect((await run(['--version', '--lang', 'en'])).out).toMatch(/\(rules v1, matches PixelSky /)
+    expect(r.out).toMatch(/^pixelsky-ext \d+\.\d+\.\d+（规则 v2，同像素星空 .+）\n$/)
+    expect((await run(['--version', '--lang', 'en'])).out).toMatch(/\(rules v2, matches PixelSky /)
   })
 
   it('help / --help / -h，可带命令名', async () => {

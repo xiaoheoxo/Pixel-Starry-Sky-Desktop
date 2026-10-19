@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectRecord, SessionSummary } from '@pixelsky/protocol'
-import { currentProject, projectGroups } from './workspace'
+import { currentProject } from './workspace'
 
 const project = (id: string, name = id): ProjectRecord => ({ id, name, path: 'C:/' + id, addedAt: 1 })
 const session = (
@@ -20,24 +20,6 @@ const sessions = [
   session('runs', 'app', 3, 'running'),
   session('gone', 'app', 9, 'idle', 8),
 ]
-
-describe('projectGroups', () => {
-  it('keeps the desktop project order and puts waiting and running sessions first', () => {
-    const groups = projectGroups(sessions, projects)
-    expect(groups.map(g => g.project.id)).toEqual(['web', 'app', 'empty'])
-    expect(groups[0].sessions.map(s => s.record.id)).toEqual(['asks', 'new', 'old'])
-    expect(groups[0]).toMatchObject({ waiting: 1, running: 0 })
-    expect(groups[1].sessions.map(s => s.record.id)).toEqual(['runs'])
-    expect(groups[1]).toMatchObject({ waiting: 0, running: 1 })
-    expect(groups[2].sessions).toEqual([])
-  })
-
-  it('filters by title, keeps whole projects whose name matches, hides the rest', () => {
-    expect(projectGroups(sessions, projects, 'NEW').map(g => [g.project.id, g.sessions.length])).toEqual([['web', 1]])
-    expect(projectGroups(sessions, projects, '安卓').map(g => [g.project.id, g.sessions.length])).toEqual([['app', 1]])
-    expect(projectGroups(sessions, projects, '没有这个')).toEqual([])
-  })
-})
 
 describe('currentProject', () => {
   it('prefers the open session, then the remembered project, then the latest activity', () => {

@@ -12,6 +12,8 @@
 //   含「后台」  → 起一个后台命令（background_tasks_changed），等 stop_task 才结束
 //   含「并行」  → 起后台子智能体 bga1「甲」、bga2「乙」，多智能体编排 wf1「编排」和后台命令 bg1，然后慢慢输出直到被中断
 //   一轮成功结束后发一条 prompt_suggestion
+//   FAKE_CLAUDE_REPLAY=1  收到用户消息后先回显一帧 isReplay 的用户消息（真实 CLI 的 --replay-user-messages）
+//   含「断线」  → 第一次没有任何输出就以网络类报错结束这一轮（FAKE_CLAUDE_DROP_FLAG 指向的文件记录已断过）
 //   FAKE_CLAUDE_FAST_BLOCKED  Fast 模式开不了的原因（不设时可以开）
 //   其他       → 回复「收到：<消息>」
 // 环境变量：
@@ -287,6 +289,14 @@ async function runTurn(text) {
       error: 'authentication_failed',
     })
     result('success', { is_error: true, result: reason })
+    turn = null
+    return
+  }
+
+  if (text.includes('断线') && !(process.env.FAKE_CLAUDE_DROP_FLAG && existsSync(process.env.FAKE_CLAUDE_DROP_FLAG))) {
+    // 第一次遇到「断线」：没有任何助手输出，直接以网络类报错结束这一轮（之后重发 / 继续时正常回复；FAKE_CLAUDE_DROP_FLAG 记录已断过）
+    if (process.env.FAKE_CLAUDE_DROP_FLAG) writeFileSync(process.env.FAKE_CLAUDE_DROP_FLAG, '1')
+    result('success', { is_error: true, result: 'API Error: Unable to connect to API (ECONNRESET)' })
     turn = null
     return
   }
@@ -961,6 +971,17 @@ function handle(msg) {
       setTimeout(send, Number(process.env.FAKE_CLAUDE_CONTEXT_DELAY ?? 0))
       return
     }
+    // --replay-user-messages：收到的用户消息原样回显一帧（isReplay），宿主据此确认「引擎收到了」
+    if (process.env.FAKE_CLAUDE_REPLAY === '1')
+      out({
+        type: 'user',
+        message: msg.message,
+        parent_tool_use_id: null,
+        session_id: sessionId,
+        uuid: msg.uuid,
+        timestamp: new Date().toISOString(),
+        isReplay: true,
+      })
     if (process.env.FAKE_CLAUDE_GUIDE) {
       out({ type: 'command_lifecycle', command_uuid: msg.uuid, state: 'queued' })
       if (turn && process.env.FAKE_CLAUDE_GUIDE === 'fold') {

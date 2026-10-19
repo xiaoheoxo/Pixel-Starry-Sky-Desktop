@@ -90,7 +90,7 @@ jobs:
         run: node -e "require('node-pty'); console.log('node-pty ok')"
       - name: 打包并上传到草稿 Release
         working-directory: apps/desktop
-        run: pnpm build && pnpm exec electron-builder ${{ matrix.args }} --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
+        run: pnpm --filter @pixelsky/cli exec node scripts/tools.mjs --release && pnpm build && pnpm --filter @pixelsky/cli smoke && pnpm exec electron-builder ${{ matrix.args }} --publish ${{ github.ref_type == 'tag' && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 没有 Apple 开发者证书：不去钥匙串里找，只做 ad-hoc 签名（electron-builder.yml 的 mac.identity）

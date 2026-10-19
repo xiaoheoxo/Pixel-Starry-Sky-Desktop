@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "buildPresets": [
+    { "name": "b-release", "configurePreset": "a-release" }
+  ],
+  "configurePresets": [
+    { "name": "a-release", "generator": "Unix Makefiles", "binaryDir": "${sourceDir}/out" }
+  ]
+}

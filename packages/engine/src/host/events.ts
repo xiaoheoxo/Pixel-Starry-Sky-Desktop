@@ -1,8 +1,30 @@
 // 事件：apply 是唯一写快照的入口（先落盘再广播，seq 递增）；适配器发来的事件在这里推导运行状态
-import { reduce, type EngineEvent, type SessionRecord } from '@pixelsky/protocol'
-import type { HostContext } from './context'
+import { reduce, replyPreview, type EngineEvent, type Item, type SessionRecord } from '@pixelsky/protocol'
+import type { HostContext, Runtime } from './context'
+import { reconnectedCount } from './queue'
 
 type DeltaEvent = Extract<EngineEvent, { type: 'item_delta' }>
+
+/** 原地接着终端里的 Codex 会话的对话：空闲这么久就关进程、放开线程的写入锁 */
+const CODEX_IMPORTED_IDLE_MS = 2 * 60_000
+
+/**
+ * 最近一轮最后一条 assistant 回复的预览（SessionRecord.lastReply）：从末尾往前找，遇到普通用户消息（这一轮的起点）就停；
+ * 中途插入的引导消息（guidance）不算起点。这一轮没有回复、或回复是空的 / 全是记号，返回 undefined（调用方保留旧值）
+ */
+export function lastTurnReply(items: readonly Item[]): string | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind === 'user' && item.mode !== 'guidance') return undefined
+    if (item.kind !== 'assistant') continue
+    const preview = replyPreview(item.text)
+    if (preview) return preview
+  }
+  return undefined
+}
+
+/** 引擎在干活的条目：看到它们说明引擎收到了这一轮的消息（用户消息、提示不算） */
+const WORK_KINDS: ReadonlySet<Item['kind']> = new Set(['assistant', 'reasoning', 'tool', 'command'])
 
 export class HostEvents {
   /** 每个会话一条还没应用的文字增量（同一条目同一字段的连续增量合并在这里） */
@@ -65,12 +87,60 @@ export class HostEvents {
     this.ctx.opts.emit({ kind: 'sessions', sessions: this.ctx.m.sessions.sessions() })
   }
 
+  /**
+   * 按当前这一轮（rt.turn）记下引擎收到消息了没有、有没有进展（断线重连用，queue.ts reconnect）：
+   * 引擎确认收到（input_ack）、有输出、或者自己在重试，都算收到；有输出才算有进展。
+   * 第一次确认收到、且这一轮不是「继续」时，把队列项标成 delivered。
+   * engineRetried：引擎重试之后又有输出，说明重试成功接上了，之后再断要由宿主重连，所以清掉。
+   * 已知限制：这里只按「当前这一轮」的 turnId 和 rt.snapshot.turnId 对上来记；旧一轮迟到的输出
+   * 如果赶在新一轮 turn_started 之后到达，会被当成新一轮的输出（把新一轮误判成已送达），目前没有办法区分，先不处理。
+   */
+  private trackTurn(id: string, rt: Runtime, event: EngineEvent): void {
+    const t = rt.turn
+    if (!t || rt.snapshot.turnId !== t.turnId) return
+    // 已经有输出、引擎也没在重试：条目和增量不用再查（每个文字增量都过这里），只剩引擎重试要留意
+    if (t.progressed && !t.engineRetried && event.type !== 'request_retry') return
+    let delivered = false
+    switch (event.type) {
+      case 'input_ack':
+        delivered = event.state === 'consumed' && event.id === t.userItemId
+        break
+      case 'item_started':
+      case 'item_completed':
+        if (WORK_KINDS.has(event.item.kind)) {
+          delivered = true
+          t.progressed = true
+          t.engineRetried = false
+        }
+        break
+      case 'item_delta': {
+        const kind = rt.snapshot.items.find(i => i.id === event.itemId)?.kind
+        if (kind && WORK_KINDS.has(kind)) {
+          delivered = true
+          t.progressed = true
+          t.engineRetried = false
+        }
+        break
+      }
+      case 'request_retry':
+        if (event.retry && event.retry.turnId === t.turnId) {
+          delivered = true
+          t.engineRetried = true
+        }
+        break
+    }
+    if (!delivered || t.delivered) return
+    t.delivered = true
+    if (!t.resume) this.ctx.m.queue.changeQueue(id, t.queueId, { delivered: true })
+  }
+
   /** 适配器发来的事件：在这里推导运行状态 */
   onEngineEvent(id: string, event: EngineEvent): void {
     const { ctx } = this
     const m = ctx.m
     const rt = ctx.runtimes.get(id)
     if (!rt) return
+    this.trackTurn(id, rt, event)
     // 已结束轮次的迟到 result 不能清理正在执行的新轮和审批。
     if (event.type === 'turn_completed' && event.turnId !== rt.snapshot.turnId) return
     if (event.type === 'request_cache_reset') {
@@ -129,6 +199,7 @@ export class HostEvents {
         const entry = done.engineSessions?.[engine]
         const held = rt.holdCursor === event.turnId || (event.outcome === 'failed' && !!done.engineSessions)
         rt.holdCursor = undefined
+        const reply = lastTurnReply(rt.snapshot.items)
         this.patchRecord(id, {
           engineSessions: {
             ...done.engineSessions,
@@ -140,6 +211,8 @@ export class HostEvents {
           },
           lastOutcome: event.outcome,
           lastError: event.outcome === 'failed' ? (event.error ?? '').slice(0, 500) || null : null,
+          // 这一轮没有回复（只有用户消息、或只有工具调用）时不写，保留上一次的预览
+          ...(reply === undefined ? {} : { lastReply: reply }),
           updatedAt: Date.now(),
         })
         // 连接问题断开的：这条留在队首，等一会儿自动接着做，队列不暂停（queue.ts reconnect）
@@ -153,11 +226,12 @@ export class HostEvents {
                 status: 'failed',
                 error: event.error ?? '任务执行失败',
                 reconnect: undefined,
-                ...(item.reconnect ? { reconnected: item.reconnect.attempt } : {}),
+                ...(item.reconnect ? { reconnected: reconnectedCount(item.reconnect, true) } : {}),
               })
           } else if (item) m.queue.removeQueue(id, item.id, 'accepted')
           rt.activeId = null
         }
+        rt.turn = undefined
         const awaitingGuidance = rt.snapshot.queue.some(q => q.status === 'delivering')
         if (!awaitingGuidance) rt.execution = null
         if (event.outcome !== 'completed' && !reconnecting) rt.snapshot = { ...rt.snapshot, queuePaused: true }
@@ -219,13 +293,25 @@ export class HostEvents {
     const rt = this.ctx.runtimes.get(id)
     if (!rt || rt.snapshot.background) return
     if (rt.idleTimer) clearTimeout(rt.idleTimer)
+    // 原地接着终端里的 Codex 会话：进程一直拿着线程的写入锁，终端里 `codex resume` 会报被占用，所以 2 分钟空闲就放开
+    // （docs/ui/codex-resume.md §4.6）；下一条消息再 thread/resume
+    // 只在当前执行者还是 Codex、并且还接着原线程时才缩短：换到别的引擎、或回退后换了新线程，进程没拿着原线程的锁
+    const record = rt.snapshot.record
+    const imported = record.imported
+    const idleMs =
+      imported?.engine === 'codex' &&
+      !imported.forked &&
+      record.engine === 'codex' &&
+      record.engineSessionId === imported.sessionId
+        ? Math.min(this.ctx.idleMs, CODEX_IMPORTED_IDLE_MS)
+        : this.ctx.idleMs
     rt.idleTimer = setTimeout(() => {
       rt.idleTimer = null
       if (rt.snapshot.state !== 'idle' || rt.snapshot.background || !rt.session) return
       const s = rt.session
       rt.session = null
       void s.close()
-    }, this.ctx.idleMs)
+    }, idleMs)
     rt.idleTimer.unref?.()
   }
 }

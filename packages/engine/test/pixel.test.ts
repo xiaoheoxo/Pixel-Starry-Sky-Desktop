@@ -6,7 +6,7 @@ import { EngineHost, PixelAdapter } from '../src'
 import type { EngineInfo, HostEvent } from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, SessionContext } from '../src/adapter'
 import { ENGINES } from '../src/registry'
-import { PIXEL_MODES, pixelModelsConfig, reservedPixelArg } from '../src/pixel/session'
+import { PIXEL_MODES, pixelModelsConfig, reservedPixelArg, searchToolArgs } from '../src/pixel/session'
 import { modelEfforts } from '../src/pixel/catalog'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
@@ -28,8 +28,8 @@ const wait = async (fn: () => boolean): Promise<void> => {
   throw new Error('Pixel test timed out')
 }
 /**
- * 本机装的 coding agent 可能在环境里留着 ANTHROPIC_BASE_URL 之类的变量：那些会让 Pixel 会话多写一份 models.json、
- * 多带 --session-dir，断言就跟着变。这里清掉，需要哪个用例自己按 extra 给。
+ * 本机装的 coding agent 可能在环境里留着 ANTHROPIC_BASE_URL 之类的变量：那些会让 Pixel 会话多带一份 provider 配置，
+ * 断言就跟着变。这里清掉，需要哪个用例自己按 extra 给。
  */
 function pixelEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env }
@@ -37,14 +37,13 @@ function pixelEnv(): NodeJS.ProcessEnv {
     if (/^(ANTHROPIC|OPENAI)_/i.test(key) || /^PIXELSKY_PIXEL_/i.test(key)) delete env[key]
   return env
 }
-function setup(idleMs = 50, extra: Record<string, unknown> = {}) {
+function setup(idleMs = 50, extra: Record<string, unknown> = {}, hostExtra: Record<string, unknown> = {}) {
   const log = join(root, 'rpc.jsonl'),
     argv = join(root, 'argv.jsonl'),
     events: HostEvent[] = []
   const adapter = new PixelAdapter({
     launcher: { command: process.execPath, args: [FAKE] },
     env: { ...pixelEnv(), FAKE_PIXEL_LOG: log, FAKE_PIXEL_ARGV: argv, FAKE_PIXEL_DIR: join(root, 'sessions') },
-    agentRoot: join(root, 'agents'),
     ...extra,
   } as never)
   host = new EngineHost({
@@ -52,6 +51,7 @@ function setup(idleMs = 50, extra: Record<string, unknown> = {}) {
     adapters: { pixel: adapter },
     emit: e => events.push(e),
     idleMs,
+    ...hostExtra,
   })
   const session = host.createSession({
     projectId: host.addProject(root).id,
@@ -138,7 +138,7 @@ describe('Pixel 引擎适配器', () => {
     expect(stats).toMatchObject({ outcome: 'completed' })
     expect(snap(session.id).usage?.contextWindow).toBe(200000)
     expect(snap(session.id).usage?.costUsd).toBeGreaterThan(0.005)
-    expect(argvs()[0].argv).toEqual(['--mode', 'rpc', '--permission-mode', 'default'])
+    expect(argvs()[0].argv).toEqual(['--mode', 'rpc', '--permission-mode', 'default', '--tools', '+grep,+find,+ls'])
     const log = messages()
     expect(log.find(m => m.type === 'set_model')).toMatchObject({ provider: 'fake', modelId: 'fake-pixel' })
     expect(log.find(m => m.type === 'set_thinking_level')).toMatchObject({ level: 'high' })
@@ -163,6 +163,132 @@ describe('Pixel 引擎适配器', () => {
     const denied = snap(session.id).items.filter(i => i.kind === 'command')[1]
     expect(denied).toMatchObject({ status: 'declined' })
     expect(snap(session.id).pending).toEqual([])
+  })
+  it('批准（三选一）：卡片带「本会话」始终允许，三种决定各回对应的选项原文', async () => {
+    const { session, messages } = setup()
+    const answers: string[] = []
+    for (const decision of [{ type: 'allow_always', scope: 'session' }, { type: 'allow' }, { type: 'deny' }] as const) {
+      await host!.send(session.id, '三选一')
+      await wait(() => snap(session.id).pending.length === 1)
+      const request = snap(session.id).pending[0]
+      expect(request).toMatchObject({ kind: 'command', command: 'rm y', alwaysScopes: ['session'] })
+      host!.answer(session.id, request.requestId, decision)
+      await wait(() => snap(session.id).pending.length === 0 && idle(session.id))
+      answers.push(
+        messages()
+          .filter(m => m.type === 'extension_ui_response')
+          .pop().value,
+      )
+    }
+    expect(answers).toEqual(['本会话不再询问 / Always allow in this session', '允许 / Allow', '拒绝 / Deny'])
+    expect(
+      snap(session.id)
+        .items.filter(i => i.kind === 'command')
+        .pop(),
+    ).toMatchObject({ status: 'declined' })
+  })
+  it('同一条消息里两条命令：第二张卡挂第二条，不会挂回已经批准、还在跑的第一条', async () => {
+    const { session } = setup()
+    await host!.send(session.id, '两条命令')
+    await wait(() => snap(session.id).pending.length === 1)
+    const first = snap(session.id).pending[0]
+    expect(first).toMatchObject({ kind: 'command', command: 'rm a' })
+    host!.answer(session.id, first.requestId, { type: 'allow' })
+    await wait(() => snap(session.id).pending.length === 1 && snap(session.id).pending[0].requestId !== first.requestId)
+    const second = snap(session.id).pending[0]
+    expect(second).toMatchObject({ kind: 'command', command: 'rm b' })
+    expect(second.itemId).not.toBe(first.itemId)
+    expect(snap(session.id).items.find(i => i.id === second.itemId)).toMatchObject({ command: 'rm b' })
+    host!.answer(session.id, second.requestId, { type: 'deny' })
+    await wait(() => idle(session.id))
+    const commands = snap(session.id).items.filter(i => i.kind === 'command')
+    expect(commands.map(c => [c.kind === 'command' && c.command, 'status' in c && c.status])).toEqual([
+      ['rm a', 'completed'],
+      ['rm b', 'failed'],
+    ])
+  })
+  it('子智能体转来的审批：卡片按子进程里的参数显示改动，挂在 task 条目上', async () => {
+    const { session, messages } = setup()
+    await host!.send(session.id, '子智能体审批')
+    await wait(() => snap(session.id).pending.length === 1)
+    const request = snap(session.id).pending[0]
+    expect(request).toMatchObject({ kind: 'file_change', alwaysScopes: ['session'] })
+    expect(request.changes?.[0]).toMatchObject({ path: 'child.txt', kind: 'add' })
+    expect(request.changes?.[0].diff).toContain('+from child')
+    expect(snap(session.id).items.find(i => i.id === request.itemId)).toMatchObject({ kind: 'tool', name: 'Agent' })
+    host!.answer(session.id, request.requestId, { type: 'allow_always', scope: 'session' })
+    await wait(() => idle(session.id))
+    expect(
+      messages()
+        .filter(m => m.type === 'extension_ui_response')
+        .pop().value,
+    ).toBe('本会话不再询问 / Always allow in this session')
+  })
+  it('桌面端管理的扩展：MCP 文件和免批准工具走环境变量，技能每个目录一个 --skill', async () => {
+    const skill = join(root, 'skills', 'review')
+    const { session, argvs } = setup(
+      50,
+      {},
+      {
+        extensions: () => ({
+          key: 'ext',
+          pluginDirs: [],
+          pathDirs: [],
+          skillRoots: [skill],
+          mcpFile: join(root, 'mcp.json'),
+          allowTools: ['mcp__pixelsky_history'],
+        }),
+      },
+    )
+    await host!.send(session.id, '你好')
+    await wait(() => idle(session.id) && argvs().length > 0)
+    const launch = argvs()[0]
+    expect(launch.mcpFile).toBe(join(root, 'mcp.json'))
+    expect(launch.allowTools).toBe('mcp__pixelsky_history')
+    expect(launch.argv.slice(launch.argv.indexOf('--skill'), launch.argv.indexOf('--skill') + 2)).toEqual([
+      '--skill',
+      skill,
+    ])
+  })
+  it('计划模式：exit_plan_mode 变成计划卡片；开始执行后跟着命令行退出计划模式，继续完善算已拒绝', async () => {
+    const { session, messages } = setup()
+    await host!.update(session.id, { permissionMode: 'plan' })
+    await host!.send(session.id, '交计划')
+    await wait(() => snap(session.id).pending.length === 1)
+    const request = snap(session.id).pending[0]
+    expect(request).toMatchObject({ kind: 'plan', plan: '# 改登录\n1. 改 a.ts', alwaysScopes: [] })
+    expect(request.itemId).toBeTruthy()
+    expect(snap(session.id).items.find(i => i.id === request.itemId)).toMatchObject({
+      kind: 'tool',
+      name: 'ExitPlanMode',
+      title: '改登录',
+      output: '# 改登录\n1. 改 a.ts',
+    })
+    host!.answer(session.id, request.requestId, { type: 'deny' })
+    await wait(() => idle(session.id) && snap(session.id).pending.length === 0)
+    expect(
+      messages()
+        .filter(m => m.type === 'extension_ui_response')
+        .pop(),
+    ).toMatchObject({
+      value: '继续完善计划 / Keep planning',
+    })
+    expect(snap(session.id).items.find(i => i.id === request.itemId)).toMatchObject({ status: 'declined' })
+    expect(host!.record(session.id)?.permissionMode).toBe('plan')
+
+    await host!.send(session.id, '交计划')
+    await wait(() => snap(session.id).pending.length === 1)
+    host!.answer(session.id, snap(session.id).pending[0].requestId, { type: 'allow' })
+    await wait(() => idle(session.id) && host!.record(session.id)?.permissionMode === 'ask')
+    expect(
+      messages()
+        .filter(m => m.type === 'extension_ui_response')
+        .pop(),
+    ).toMatchObject({
+      value: '开始执行 / Start implementing',
+    })
+    // 命令行自己换的模式：适配器不再发 /pixelsky-mode
+    expect(messages().filter(m => m.type === 'prompt' && m.message === '/pixelsky-mode default')).toHaveLength(0)
   })
   it('停止：abort 后这一轮以 interrupted 结束；等批准时停止也行', async () => {
     const { session, messages, events } = setup(60_000)
@@ -272,7 +398,7 @@ describe('Pixel 引擎适配器', () => {
     await wait(() => idle(session.id))
     expect(snap(session.id).items.filter(i => i.kind === 'compaction')).toHaveLength(2)
   })
-  it('网关会话：写每个会话自己的 models.json（不含密钥），密钥只走环境变量，不带本机的 ANTHROPIC_API_KEY', async () => {
+  it('网关会话：provider 配置走环境变量交给命令行（不含密钥），配置目录不换，密钥只走环境变量，不带本机的 ANTHROPIC_API_KEY', async () => {
     const { session, argvs } = setup(50, {
       env: {
         ...process.env,
@@ -289,15 +415,26 @@ describe('Pixel 引擎适配器', () => {
     const launch = argvs()[0]
     expect(launch.token).toBe('secret-1')
     expect(launch.anthropicKey).toBeNull()
-    expect(launch.argv).toContain('--session-dir')
-    expect(launch.models.providers.pixelsky).toMatchObject({
+    expect(launch.argv).not.toContain('--session-dir')
+    expect(launch.agentDir).toBeNull()
+    expect(launch.providers.pixelsky).toMatchObject({
       baseUrl: 'http://127.0.0.1:9/v1',
       api: 'anthropic-messages',
       apiKey: '$PIXELSKY_PIXEL_TOKEN',
     })
-    expect(JSON.stringify(launch.models)).not.toContain('secret-1')
+    expect(JSON.stringify(launch.providers)).not.toContain('secret-1')
   })
-  it('models.json 生成：网关、用户自己的 ANTHROPIC_BASE_URL / OPENAI_BASE_URL、什么都没有', () => {
+  it('默认再开 grep / find / ls；用户自己选了工具就不加', async () => {
+    expect(searchToolArgs([])).toEqual(['--tools', '+grep,+find,+ls'])
+    expect(searchToolArgs(['--tools', 'read,bash'])).toEqual([])
+    expect(searchToolArgs(['--no-builtin-tools'])).toEqual([])
+    expect(searchToolArgs(['-t=read'])).toEqual([])
+    const { session, argvs } = setup()
+    await host!.send(session.id, 'hi').catch(() => {})
+    await wait(() => argvs().length === 1)
+    expect(argvs()[0].argv.join(' ')).toContain('--tools +grep,+find,+ls')
+  })
+  it('provider 配置生成：网关、用户自己的 ANTHROPIC_BASE_URL / OPENAI_BASE_URL、什么都没有', () => {
     expect(pixelModelsConfig({}, null)).toBeNull()
     expect(pixelModelsConfig({ ANTHROPIC_BASE_URL: 'https://relay.example/' }, null)).toEqual({
       providers: { anthropic: { baseUrl: 'https://relay.example/' } },
@@ -341,7 +478,6 @@ describe('Pixel 接手带图片的聊天', () => {
     const adapter = new PixelAdapter({
       launcher: { command: process.execPath, args: [FAKE] },
       env: { ...process.env, FAKE_PIXEL_LOG: log, FAKE_PIXEL_DIR: join(root, 'sessions') },
-      agentRoot: join(root, 'agents'),
     } as never)
     host = new EngineHost({
       dataDir: join(root, 'engine'),

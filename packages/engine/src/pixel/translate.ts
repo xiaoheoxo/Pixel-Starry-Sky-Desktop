@@ -3,25 +3,42 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import type {
+  AgentRun,
   ApprovalRequest,
   EngineEvent,
   FileChange,
   Item,
   ItemStatus,
   ModelTurnUsage,
+  NoticeError,
   TodoStep,
   ToolKind,
   TurnUsage,
 } from '@pixelsky/protocol'
-import { IMAGE_PLACEHOLDER } from '@pixelsky/protocol'
+import { IMAGE_PLACEHOLDER, httpStatusOf, noticeErrorOf } from '@pixelsky/protocol'
 import { displayPath } from '../claude/tools'
 import { diffAdded, diffText } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
+import { cut } from '../text'
+import { SUBAGENT_TOOL, subagentItemId, subagentRun, subagentStatus } from './agents'
 import { array, number, object, string, type Message } from './process'
+
+/** Pixel 只给一句报错原文：从原文认状态码和归类（notice.error）；认不出时 undefined */
+export function textError(text: string): NoticeError | undefined {
+  const lead = /^\s*(?:Error:?\s*)?([45]\d\d)\b/.exec(text)?.[1]
+  const status = httpStatusOf(text) ?? (lead ? Number(lead) : undefined)
+  return noticeErrorOf({ text, status })
+}
 
 export const COMMAND_TOOLS = new Set(['bash', 'powershell'])
 export const EDIT_TOOLS = new Set(['edit', 'write'])
 export const TODO_TOOL = 'todo_write'
+/** 计划模式交计划的工具（packages/cli/src/extensions/plan.ts）；条目名用 Claude 的 ExitPlanMode，界面按这个名字显示计划正文 */
+export const EXIT_PLAN_TOOL = 'exit_plan_mode'
+const PLAN_ITEM_NAME = 'ExitPlanMode'
+/** 计划确认的标题第一行和两个选项（plan.ts 的 PLAN_TITLE / PLAN_OPTIONS，原文要一致） */
+export const PLAN_TITLE = '计划已就绪，要开始执行吗？ / Ready to implement this plan?'
+export const PLAN_OPTIONS = ['开始执行 / Start implementing', '继续完善计划 / Keep planning'] as const
 
 /** 工具结果的文字（图片只留占位） */
 export function resultText(result: unknown): string {
@@ -117,11 +134,22 @@ function toolTitle(name: string, args: Message, cwd: string): { tool: ToolKind; 
     case 'grep':
       return { tool: 'search', title: [string(args.pattern), path].filter(Boolean).join(' · ') }
   }
+  if (name === 'web_fetch') return { tool: 'web', title: string(args.url) }
+  if (name === 'web_search') return { tool: 'web', title: string(args.query) }
+  // Pi 的 codemode：脚本里再调别的工具（每个调用另有自己的条目），这里显示脚本的第一行
+  if (name === 'codemode') {
+    const line =
+      string(args.code)
+        .split('\n')
+        .map(l => l.trim())
+        .find(l => l && !l.startsWith('// @options')) ?? ''
+    return { tool: 'other', title: line.length > 120 ? `${cut(line, 0, 120)}…` : line }
+  }
   if (/^mcp[_]/i.test(name)) return { tool: 'mcp', title: name.replace(/^mcp_+/i, '').replace(/__/g, ' · ') }
   const first = ['command', 'path', 'url', 'query', 'pattern'].map(k => string(args[k])).find(Boolean)
-  if (first) return { tool: 'other', title: first.length > 120 ? `${first.slice(0, 120)}…` : first }
+  if (first) return { tool: 'other', title: first.length > 120 ? `${cut(first, 0, 120)}…` : first }
   const brief = JSON.stringify(args) ?? ''
-  return { tool: 'other', title: brief.length > 80 ? `${brief.slice(0, 80)}…` : brief }
+  return { tool: 'other', title: brief.length > 80 ? `${cut(brief, 0, 80)}…` : brief }
 }
 
 /** 工具调用开始 → 条目 */
@@ -139,13 +167,81 @@ export function toolItem(id: string, name: string, args: Message, cwd: string): 
   if (EDIT_TOOLS.has(name))
     return { kind: 'file_change', id, changes: fileChangesFromArgs(name, args, cwd), status: 'running' }
   if (name === TODO_TOOL) return { kind: 'todo', id, steps: todoSteps(args), status: 'running' }
+  // 子智能体：界面按 Claude 的 Agent 工具显示（能打开智能体追踪）
+  if (name === SUBAGENT_TOOL)
+    return {
+      kind: 'tool',
+      id,
+      tool: 'task',
+      name: 'Agent',
+      title: string(args.description) || 'Subagent',
+      output: '',
+      status: 'running',
+    }
+  if (name === EXIT_PLAN_TOOL) {
+    const plan = string(args.plan)
+    const title =
+      plan
+        .split('\n')
+        .map(l => l.replace(/^#+\s*/, '').trim())
+        .find(Boolean) ?? ''
+    return { kind: 'tool', id, tool: 'other', name: PLAN_ITEM_NAME, title, output: plan, status: 'running' }
+  }
   const { tool, title } = toolTitle(name, args, cwd)
   return { kind: 'tool', id, tool, name, title, output: '', status: 'running' }
 }
 
-/** 批准请求（extension_ui_request 的 confirm）→ 审批卡片。item 是对应的工具条目（找不到时按标题拼） */
-export function approvalFor(requestId: string, title: string, message: string, item: Item | null): ApprovalRequest {
-  const base = { requestId, itemId: item?.id ?? null, alwaysScopes: [] as [] }
+/**
+ * 批准扩展询问时的三个选项（packages/cli/src/extensions/approval.ts 的 APPROVAL_OPTIONS，原文要一致）：
+ * extension_ui_request 是 select、选项正好是这三个时当审批卡片，「本会话不再询问」= 始终允许（session）
+ */
+export const APPROVAL_OPTIONS = [
+  '允许 / Allow',
+  '本会话不再询问 / Always allow in this session',
+  '拒绝 / Deny',
+] as const
+
+export function isPlanSelect(title: string, options: readonly string[]): boolean {
+  return (
+    title.split('\n')[0] === PLAN_TITLE &&
+    options.length === PLAN_OPTIONS.length &&
+    options.every((o, i) => o === PLAN_OPTIONS[i])
+  )
+}
+
+/** 计划确认卡片（和 Claude 的 ExitPlanMode 一样：开始执行 / 继续完善） */
+export function planApproval(requestId: string, title: string, item: Item | null): ApprovalRequest {
+  const [, ...plan] = title.split('\n')
+  return {
+    requestId,
+    itemId: item?.id ?? null,
+    kind: 'plan',
+    title: '计划已就绪，要开始执行吗？',
+    plan: plan.join('\n'),
+    alwaysScopes: [],
+  }
+}
+
+export function isApprovalSelect(title: string, options: readonly string[]): boolean {
+  return (
+    !!toolNameFromTitle(title) &&
+    options.length === APPROVAL_OPTIONS.length &&
+    options.every((o, i) => o === APPROVAL_OPTIONS[i])
+  )
+}
+
+/**
+ * 批准请求 → 审批卡片。item 是对应的工具条目（找不到时按标题拼）。
+ * 新的批准扩展用 select（标题第二行是摘要，能「本会话不再询问」），旧版用 confirm（只有允许 / 拒绝）
+ */
+export function approvalFor(
+  requestId: string,
+  title: string,
+  message: string,
+  item: Item | null,
+  alwaysScopes: Array<'session'> = [],
+): ApprovalRequest {
+  const base = { requestId, itemId: item?.id ?? null, alwaysScopes }
   if (item?.kind === 'command')
     return { ...base, kind: 'command', title: 'Run command', command: item.command, description: '' }
   if (item?.kind === 'file_change')
@@ -157,10 +253,40 @@ export function approvalFor(requestId: string, title: string, message: string, i
   return {
     ...base,
     kind: 'tool',
-    title: name ? `Use ${name}` : title,
+    title: name ? `Use ${name}` : title.split('\n')[0],
     toolName: name || undefined,
     input: message,
     description: '',
+  }
+}
+
+/** 截断；边界落在 emoji（代理对）中间时少截一位（命令行 approval.ts 的 clip 要一致） */
+function clipText(text: string, max: number): string {
+  return text.length > max ? `${cut(text, 0, max)}…` : text
+}
+
+/**
+ * 批准扩展询问标题第二行的摘要（packages/cli/src/extensions/approval.ts 的 describeToolCall，写法要一致）：
+ * 用来把询问对上是哪个工具条目
+ */
+export function approvalSummary(args: Message, toolName = ''): string {
+  if (toolName === 'web_fetch' && typeof args.url === 'string') {
+    let target = args.url
+    try {
+      target = new URL(args.url.trim()).href
+    } catch {
+      // 不是合法网址：照原文
+    }
+    const ask = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+    return ask ? `${clipText(target, 400)} — ${clipText(ask, 300)}` : clipText(target, 400)
+  }
+  if (typeof args.command === 'string') return clipText(args.command, 800)
+  if (typeof args.path === 'string') return clipText(args.path, 400)
+  if (typeof args.file_path === 'string') return clipText(args.file_path, 400)
+  try {
+    return clipText(JSON.stringify(args), 800)
+  } catch {
+    return ''
   }
 }
 
@@ -209,6 +335,7 @@ export class PixelTranslator {
   beginTurn(): void {
     this.items.clear()
     this.toolNames.clear()
+    this.toolSummaries.clear()
     this.turnModels = {}
     this.assistantError = null
   }
@@ -222,20 +349,37 @@ export class PixelTranslator {
     this.assistantError = null
     return error
   }
-  /** 本轮已有工具条目对应的最早一个、还在等批准的：按工具名找（批准请求里没有 toolCallId） */
-  runningTool(name: string, skip: ReadonlySet<string>): Item | null {
-    for (const item of this.items.values())
-      if (!skip.has(item.id) && 'status' in item && item.status === 'running' && this.toolNames.get(item.id) === name)
-        return item
-    return null
+  /**
+   * 批准请求对应的工具条目（批准请求里没有 toolCallId）：本轮还在跑、不在 skip 里的同名条目，
+   * 摘要（标题第二行）一样的优先，都对不上时取最早的
+   */
+  runningTool(name: string, skip: ReadonlySet<string>, summary?: string): Item | null {
+    const open = [...this.items.values()].filter(
+      item =>
+        !skip.has(item.id) && 'status' in item && item.status === 'running' && this.toolNames.get(item.id) === name,
+    )
+    return (
+      (summary === undefined ? undefined : open.find(item => this.toolSummaries.get(item.id) === summary)) ??
+      open[0] ??
+      null
+    )
   }
   /** 工具条目 id → Pi 的工具名 */
   private readonly toolNames = new Map<string, string>()
+  /** 工具条目 id → 批准扩展询问时会写的摘要（approvalSummary） */
+  private readonly toolSummaries = new Map<string, string>()
 
-  notice(level: 'info' | 'warn' | 'error', text: string, detail: string | null = null): void {
+  notice(level: 'info' | 'warn' | 'error', text: string, detail: string | null = null, error?: NoticeError): void {
     this.emit({
       type: 'item_completed',
-      item: { kind: 'notice', id: `${this.prefix}-n${++this.noticeSeq}`, level, text, detail },
+      item: {
+        kind: 'notice',
+        id: `${this.prefix}-n${++this.noticeSeq}`,
+        level,
+        text,
+        detail,
+        ...(error ? { error } : {}),
+      },
     })
   }
 
@@ -403,15 +547,58 @@ export class PixelTranslator {
     })
   }
 
+  /** 工具条目 id；子智能体的不带随机前缀（重新打开会话时追踪窗口按它找条目） */
+  private toolId(raw: Message): string {
+    const call = string(raw.toolCallId)
+    return string(raw.toolName) === SUBAGENT_TOOL ? subagentItemId(call) : `${this.prefix}-t-${call}`
+  }
+
+  /** 这个会话的子智能体（整个会话的，不随一轮清空）：工具调用 id → 追踪里的一项 */
+  private readonly agents = new Map<string, AgentRun>()
+  private readonly agentTools = new Map<string, string | null>()
+  /** 打开会话时从主会话文件读回以前的子智能体 */
+  seedRuns(runs: readonly AgentRun[]): void {
+    for (const run of runs) {
+      const call = run.toolUseId?.replace(/^px-task-/, '') ?? run.id
+      if (!this.agents.has(call)) this.agents.set(call, run)
+    }
+  }
+  private subagentProgress(raw: Message, final: boolean): void {
+    const call = string(raw.toolCallId)
+    const details = object(final ? object(raw.result).details : object(raw.partialResult).details)
+    if (!Object.keys(details).length && !final) return
+    const prior = this.agents.get(call)
+    let run = Object.keys(details).length ? subagentRun(details, call) : prior
+    if (!run) return
+    // 工具出错（子智能体失败）时 details 是空的：状态和原因从工具结果里拿（结果还是之前的进度）
+    if (final && raw.isError === true && run.state === 'running')
+      run = { ...run, state: 'failed', result: resultText(object(raw.result)).slice(0, 500) || run.result }
+    this.agents.set(call, run)
+    this.agentTools.set(call, string(details.lastTool) || this.agentTools.get(call) || null)
+    this.emitRuns()
+  }
+  private emitRuns(): void {
+    const runs = [...this.agents.values()]
+    this.emit({ type: 'runs', runs: { workflows: [], agents: runs } })
+    this.emit({
+      type: 'subagents',
+      subagents: [...this.agents.entries()]
+        .filter(([, r]) => r.state === 'running')
+        .map(([call, r]) => subagentStatus(r, this.agentTools.get(call) ?? null)),
+    })
+  }
+
   private toolStart(raw: Message): void {
     const name = string(raw.toolName)
-    const id = `${this.prefix}-t-${string(raw.toolCallId)}`
+    const id = this.toolId(raw)
     this.toolNames.set(id, name)
+    this.toolSummaries.set(id, approvalSummary(object(raw.args), name))
     this.put(toolItem(id, name, object(raw.args), this.options.cwd), false)
   }
 
   private toolUpdate(raw: Message): void {
-    const id = `${this.prefix}-t-${string(raw.toolCallId)}`
+    if (string(raw.toolName) === SUBAGENT_TOOL) return this.subagentProgress(raw, false)
+    const id = this.toolId(raw)
     const item = this.items.get(id)
     if (!item || (item.kind !== 'command' && item.kind !== 'tool')) return
     const text = clip(resultText(raw.partialResult))
@@ -429,7 +616,8 @@ export class PixelTranslator {
   }
 
   private toolEnd(raw: Message): void {
-    const id = `${this.prefix}-t-${string(raw.toolCallId)}`
+    if (string(raw.toolName) === SUBAGENT_TOOL) this.subagentProgress(raw, true)
+    const id = this.toolId(raw)
     const prior = this.items.get(id)
     if (!prior) return
     const result = object(raw.result)
@@ -458,6 +646,9 @@ export class PixelTranslator {
     } else if (prior.kind === 'todo') {
       item = { ...prior, status }
       if (isError && status === 'failed' && text) this.notice('error', text)
+    } else if (prior.kind === 'tool' && prior.name === PLAN_ITEM_NAME) {
+      // 展开看的是计划正文；用户选了继续完善算「已拒绝」（和 Claude 的 ExitPlanMode 一样）
+      item = { ...prior, status: !isError && /keep refining/i.test(text) ? 'declined' : status }
     } else if (prior.kind === 'tool') {
       item = { ...prior, output: text, status }
     }

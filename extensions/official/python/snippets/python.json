@@ -1,0 +1,293 @@
+{
+  "入口守卫": {
+    "prefix": "main",
+    "description": "if __name__ == \"__main__\" 入口守卫",
+    "body": ["if __name__ == \"__main__\":", "\t${1:main}()$0"]
+  },
+  "main 函数加入口": {
+    "prefix": "mainfn",
+    "description": "带返回码的 main 函数和入口守卫",
+    "body": [
+      "def main() -> int:",
+      "\t${1:pass}",
+      "\treturn 0",
+      "",
+      "",
+      "if __name__ == \"__main__\":",
+      "\traise SystemExit(main())$0"
+    ]
+  },
+  "函数（类型注解）": {
+    "prefix": "def",
+    "description": "带类型注解和 docstring 的函数",
+    "body": ["def ${1:name}(${2:arg}: ${3:str}) -> ${4:None}:", "\t\"\"\"${5:说明}\"\"\"", "\t${0:pass}"]
+  },
+  "异步函数": {
+    "prefix": "adef",
+    "description": "async def 函数",
+    "body": ["async def ${1:name}(${2:arg}: ${3:str}) -> ${4:None}:", "\t\"\"\"${5:说明}\"\"\"", "\t${0:pass}"]
+  },
+  "类": {
+    "prefix": "class",
+    "description": "带 __init__ 的类",
+    "body": [
+      "class ${1:Name}:",
+      "\t\"\"\"${2:说明}\"\"\"",
+      "",
+      "\tdef __init__(self, ${3:value}: ${4:int}) -> None:",
+      "\t\tself.$3 = $3$0"
+    ]
+  },
+  "数据类": {
+    "prefix": "dataclass",
+    "description": "@dataclass 数据类",
+    "body": [
+      "from dataclasses import dataclass",
+      "",
+      "",
+      "@dataclass(frozen=${1|True,False|})",
+      "class ${2:Name}:",
+      "\t${3:field}: ${4:str}$0"
+    ]
+  },
+  "属性": {
+    "prefix": "prop",
+    "description": "@property 只读属性",
+    "body": ["@property", "def ${1:name}(self) -> ${2:str}:", "\treturn self._$1$0"]
+  },
+  "枚举": {
+    "prefix": "enum",
+    "description": "Enum 枚举类",
+    "body": ["from enum import Enum", "", "", "class ${1:Color}(Enum):", "\t${2:RED} = ${3:\"red\"}$0"]
+  },
+  "pytest 测试": {
+    "prefix": "test",
+    "description": "pytest 测试函数",
+    "body": ["def test_${1:name}() -> None:", "\t${2:actual} = ${3:None}", "\tassert $2 == ${4:expected}$0"]
+  },
+  "pytest fixture": {
+    "prefix": "fixture",
+    "description": "pytest fixture（文件里要已有 import pytest）",
+    "body": ["@pytest.fixture", "def ${1:name}():", "\t${2:value} = ${3:None}", "\treturn $2$0"]
+  },
+  "pytest fixture（带清理）": {
+    "prefix": "fixtureyield",
+    "description": "用 yield 做清理的 pytest fixture（需要 import pytest）",
+    "body": ["@pytest.fixture", "def ${1:name}():", "\t${2:resource} = ${3:None}", "\tyield $2", "\t${0:# 清理}"]
+  },
+  "pytest 参数化": {
+    "prefix": "parametrize",
+    "description": "pytest.mark.parametrize 参数化测试（需要 import pytest）",
+    "body": [
+      "@pytest.mark.parametrize(",
+      "\t(\"${1:value}\", \"${2:expected}\"),",
+      "\t[",
+      "\t\t(${3:1}, ${4:1}),",
+      "\t\t(${5:2}, ${6:2}),",
+      "\t],",
+      ")",
+      "def test_${7:name}($1, $2) -> None:",
+      "\tassert ${8:func}($1) == $2$0"
+    ]
+  },
+  "pytest 断言异常": {
+    "prefix": "raises",
+    "description": "pytest.raises 断言抛出异常（需要 import pytest）",
+    "body": ["with pytest.raises(${1:ValueError}, match=\"${2:message}\"):", "\t${3:func}()$0"]
+  },
+  "pytest 条件跳过": {
+    "prefix": "skipif",
+    "description": "pytest.mark.skipif 条件跳过（需要 import pytest；默认条件用到 sys）",
+    "body": [
+      "@pytest.mark.skipif(${1:sys.platform == \"win32\"}, reason=\"${2:原因}\")",
+      "def test_${3:name}() -> None:",
+      "\t${0:pass}"
+    ]
+  },
+  "mock 补丁": {
+    "prefix": "patch",
+    "description": "unittest.mock.patch 上下文",
+    "body": [
+      "from unittest import mock",
+      "",
+      "with mock.patch(\"${1:module.attr}\") as ${2:mocked}:",
+      "\t$2.return_value = ${3:None}",
+      "\t$0"
+    ]
+  },
+  "上下文管理器（函数）": {
+    "prefix": "ctxmgr",
+    "description": "contextlib.contextmanager 上下文管理器",
+    "body": [
+      "from collections.abc import Iterator",
+      "from contextlib import contextmanager",
+      "",
+      "",
+      "@contextmanager",
+      "def ${1:name}(${2:arg}: ${3:str}) -> Iterator[${4:None}]:",
+      "\t${5:# 进入}",
+      "\ttry:",
+      "\t\tyield ${6}",
+      "\tfinally:",
+      "\t\t${0:# 退出}"
+    ]
+  },
+  "上下文管理器（类）": {
+    "prefix": "ctxclass",
+    "description": "实现 __enter__ / __exit__ 的类",
+    "body": [
+      "class ${1:Name}:",
+      "\tdef __enter__(self) -> \"$1\":",
+      "\t\treturn self",
+      "",
+      "\tdef __exit__(self, exc_type, exc, tb) -> None:",
+      "\t\t$0"
+    ]
+  },
+  "try / except 异常处理": {
+    "prefix": "try",
+    "description": "try / except / else / finally 异常处理",
+    "body": [
+      "try:",
+      "\t${1:pass}",
+      "except ${2:Exception} as exc:",
+      "\t${3:raise}",
+      "else:",
+      "\t${4:pass}",
+      "finally:",
+      "\t${0:pass}"
+    ]
+  },
+  "自定义异常": {
+    "prefix": "exc",
+    "description": "自定义异常类",
+    "body": ["class ${1:AppError}(Exception):", "\t\"\"\"${2:说明}\"\"\"$0"]
+  },
+  "日志初始化": {
+    "prefix": "logging",
+    "description": "logging 基本配置和模块级 logger",
+    "body": [
+      "import logging",
+      "",
+      "logger = logging.getLogger(__name__)",
+      "",
+      "",
+      "if __name__ == \"__main__\":",
+      "\tlogging.basicConfig(",
+      "\t\tlevel=logging.${1|INFO,DEBUG,WARNING,ERROR|},",
+      "\t\tformat=\"%(asctime)s %(levelname)s %(name)s: %(message)s\",",
+      "\t)$0"
+    ]
+  },
+  "模块 logger": {
+    "prefix": "logger",
+    "description": "模块级 logger",
+    "body": ["import logging", "", "logger = logging.getLogger(__name__)$0"]
+  },
+  "argparse 命令行": {
+    "prefix": "argparse",
+    "description": "argparse 命令行解析",
+    "body": [
+      "import argparse",
+      "",
+      "",
+      "def parse_args(argv: list[str] | None = None) -> argparse.Namespace:",
+      "\tparser = argparse.ArgumentParser(description=\"${1:说明}\")",
+      "\tparser.add_argument(\"${2:path}\", help=\"${3:帮助}\")",
+      "\tparser.add_argument(\"-v\", \"--verbose\", action=\"store_true\")",
+      "\treturn parser.parse_args(argv)$0"
+    ]
+  },
+  "读文本文件": {
+    "prefix": "readfile",
+    "description": "pathlib 读取 UTF-8 文本",
+    "body": ["from pathlib import Path", "", "${1:text} = Path(${2:\"path.txt\"}).read_text(encoding=\"utf-8\")$0"]
+  },
+  "写文本文件": {
+    "prefix": "writefile",
+    "description": "pathlib 写入 UTF-8 文本（先建父目录）",
+    "body": [
+      "from pathlib import Path",
+      "",
+      "path = Path(${1:\"out/result.txt\"})",
+      "path.parent.mkdir(parents=True, exist_ok=True)",
+      "path.write_text(${2:text}, encoding=\"utf-8\")$0"
+    ]
+  },
+  "读写 JSON": {
+    "prefix": "jsonfile",
+    "description": "pathlib + json 读写 JSON",
+    "body": [
+      "import json",
+      "from pathlib import Path",
+      "",
+      "data = json.loads(Path(${1:\"data.json\"}).read_text(encoding=\"utf-8\"))",
+      "Path(${2:\"out.json\"}).write_text(",
+      "\tjson.dumps(data, ensure_ascii=False, indent=2) + \"\\n\", encoding=\"utf-8\"",
+      ")$0"
+    ]
+  },
+  "Protocol 协议": {
+    "prefix": "protocol",
+    "description": "typing.Protocol 结构化类型",
+    "body": [
+      "from typing import Protocol",
+      "",
+      "",
+      "class ${1:Reader}(Protocol):",
+      "\tdef ${2:read}(self, ${3:size}: ${4:int}) -> ${5:bytes}: ...$0"
+    ]
+  },
+  "TypedDict": {
+    "prefix": "typeddict",
+    "description": "TypedDict 字典类型",
+    "body": ["from typing import TypedDict", "", "", "class ${1:Movie}(TypedDict):", "\t${2:title}: ${3:str}$0"]
+  },
+  "f-string 调试": {
+    "prefix": "fdebug",
+    "description": "f-string 的 = 调试写法",
+    "body": ["print(f\"{${1:value}=}\")$0"]
+  },
+  "列表推导式": {
+    "prefix": "lcomp",
+    "description": "带条件的列表推导式",
+    "body": ["[${1:item} for $1 in ${2:items} if ${3:item}]$0"]
+  },
+  "字典推导式": {
+    "prefix": "dcomp",
+    "description": "字典推导式",
+    "body": ["{${1:key}: ${2:value} for $1, $2 in ${3:mapping}.items()}$0"]
+  },
+  "函数结果缓存": {
+    "prefix": "cache",
+    "description": "functools.cache 缓存函数结果",
+    "body": [
+      "from functools import cache",
+      "",
+      "",
+      "@cache",
+      "def ${1:name}(${2:n}: ${3:int}) -> ${4:int}:",
+      "\t${0:pass}"
+    ]
+  },
+  "异步入口": {
+    "prefix": "asyncmain",
+    "description": "asyncio.run 异步入口",
+    "body": [
+      "import asyncio",
+      "",
+      "",
+      "async def main() -> None:",
+      "\t${1:pass}",
+      "",
+      "",
+      "if __name__ == \"__main__\":",
+      "\tasyncio.run(main())$0"
+    ]
+  },
+  "类型检查导入": {
+    "prefix": "typecheck",
+    "description": "TYPE_CHECKING 下的导入",
+    "body": ["from typing import TYPE_CHECKING", "", "if TYPE_CHECKING:", "\tfrom ${1:module} import ${2:Name}$0"]
+  }
+}

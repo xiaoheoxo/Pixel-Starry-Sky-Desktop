@@ -1,0 +1,295 @@
+{
+  "main 函数": {
+    "prefix": "main",
+    "body": ["func main() {", "\t$0", "}"],
+    "description": "main 函数（文件里已有 package main 时用）"
+  },
+  "main 带 run": {
+    "prefix": "mainfile",
+    "body": [
+      "package main",
+      "",
+      "import (",
+      "\t\"fmt\"",
+      "\t\"os\"",
+      ")",
+      "",
+      "func main() {",
+      "\tif err := run(); err != nil {",
+      "\t\tfmt.Fprintln(os.Stderr, err)",
+      "\t\tos.Exit(1)",
+      "\t}",
+      "}",
+      "",
+      "func run() error {",
+      "\t$0",
+      "\treturn nil",
+      "}"
+    ],
+    "description": "整个文件：package main + main 只负责退出码，逻辑放进 run() error（用于空文件）"
+  },
+  "init 函数": {
+    "prefix": "initfn",
+    "body": ["func init() {", "\t$0", "}"],
+    "description": "包初始化函数"
+  },
+  "函数": {
+    "prefix": "func",
+    "body": ["func ${1:name}(${2}) ${3:error} {", "\t$0", "}"],
+    "description": "函数"
+  },
+  "方法": {
+    "prefix": "meth",
+    "body": ["func (${1:r} *${2:Type}) ${3:Name}(${4}) ${5:error} {", "\t$0", "}"],
+    "description": "指针接收者方法"
+  },
+  "结构体": {
+    "prefix": "struct",
+    "body": ["type ${1:Name} struct {", "\t${2:Field} ${3:string}", "}", "$0"],
+    "description": "结构体类型"
+  },
+  "接口": {
+    "prefix": "iface",
+    "body": ["type ${1:Name} interface {", "\t${2:Method}(${3}) ${4:error}", "}", "$0"],
+    "description": "接口类型"
+  },
+  "构造函数": {
+    "prefix": "newfn",
+    "body": ["func New${1:Type}(${2}) *${1:Type} {", "\treturn &${1:Type}{", "\t\t$0", "\t}", "}"],
+    "description": "返回指针的 New 构造函数"
+  },
+  "iota 枚举": {
+    "prefix": "enum",
+    "body": ["type ${1:Kind} int", "", "const (", "\t${2:KindA} ${1:Kind} = iota", "\t${3:KindB}", ")", "$0"],
+    "description": "自定义整型加 iota 常量"
+  },
+  "错误判断": {
+    "prefix": "iferr",
+    "body": ["if err != nil {", "\treturn ${1:err}", "}", "$0"],
+    "description": "if err != nil 直接返回"
+  },
+  "错误包装": {
+    "prefix": "errwrap",
+    "body": ["if err != nil {", "\treturn fmt.Errorf(\"${1:做某事}: %w\", err)", "}", "$0"],
+    "description": "用 %w 包装错误后返回（需要 import fmt）"
+  },
+  "哨兵错误": {
+    "prefix": "errvar",
+    "body": ["var Err${1:NotFound} = errors.New(\"${2:not found}\")", "$0"],
+    "description": "包级哨兵错误（需要 import errors）"
+  },
+  "自定义错误类型": {
+    "prefix": "errtype",
+    "body": [
+      "type ${1:MyError} struct {",
+      "\t${2:Code} int",
+      "\tErr  error",
+      "}",
+      "",
+      "func (e *${1:MyError}) Error() string {",
+      "\treturn fmt.Sprintf(\"${3:操作失败}: %v\", e.Err)",
+      "}",
+      "",
+      "func (e *${1:MyError}) Unwrap() error { return e.Err }",
+      "$0"
+    ],
+    "description": "带 Unwrap 的自定义错误类型"
+  },
+  "errors.Is": {
+    "prefix": "erris",
+    "body": ["if errors.Is(err, ${1:ErrNotFound}) {", "\t$0", "}"],
+    "description": "按哨兵错误判断"
+  },
+  "errors.As": {
+    "prefix": "erras",
+    "body": ["var ${1:target} *${2:MyError}", "if errors.As(err, &${1:target}) {", "\t$0", "}"],
+    "description": "按错误类型取出"
+  },
+  "for range": {
+    "prefix": "forr",
+    "body": ["for ${1:i}, ${2:v} := range ${3:items} {", "\t$0", "}"],
+    "description": "for range 遍历"
+  },
+  "for 计数": {
+    "prefix": "fori",
+    "body": ["for ${1:i} := 0; ${1:i} < ${2:n}; ${1:i}++ {", "\t$0", "}"],
+    "description": "经典 for 循环"
+  },
+  "switch": {
+    "prefix": "switch",
+    "body": ["switch ${1:value} {", "case ${2:a}:", "\t$0", "default:", "}"],
+    "description": "switch 语句"
+  },
+  "类型 switch": {
+    "prefix": "tswitch",
+    "body": ["switch v := ${1:x}.(type) {", "case ${2:string}:", "\t_ = v$0", "default:", "}"],
+    "description": "类型 switch"
+  },
+  "select": {
+    "prefix": "select",
+    "body": [
+      "select {",
+      "case ${1:v} := <-${2:ch}:",
+      "\t_ = ${1:v}$0",
+      "case <-ctx.Done():",
+      "\treturn ctx.Err()",
+      "}"
+    ],
+    "description": "select 同时等通道和 ctx.Done()"
+  },
+  "带超时的 context": {
+    "prefix": "ctxtimeout",
+    "body": ["ctx, cancel := context.WithTimeout(${1:ctx}, ${2:5}*time.Second)", "defer cancel()", "$0"],
+    "description": "context.WithTimeout 并 defer cancel（需要 import context、time）"
+  },
+  "可取消的 context": {
+    "prefix": "ctxcancel",
+    "body": ["ctx, cancel := context.WithCancel(${1:ctx})", "defer cancel()", "$0"],
+    "description": "context.WithCancel 并 defer cancel"
+  },
+  "goroutine 加 WaitGroup": {
+    "prefix": "gowg",
+    "body": [
+      "var wg sync.WaitGroup",
+      "for _, ${1:item} := range ${2:items} {",
+      "\twg.Add(1)",
+      "\tgo func() {",
+      "\t\tdefer wg.Done()",
+      "\t\t$0",
+      "\t}()",
+      "}",
+      "wg.Wait()"
+    ],
+    "description": "并发处理一批任务并等待（Go 1.22+ 起每轮循环变量独立）"
+  },
+  "errgroup": {
+    "prefix": "errgroup",
+    "body": [
+      "g, ctx := errgroup.WithContext(${1:ctx})",
+      "g.Go(func() error {",
+      "\t$0",
+      "\treturn nil",
+      "})",
+      "if err := g.Wait(); err != nil {",
+      "\treturn err",
+      "}"
+    ],
+    "description": "errgroup 并发（golang.org/x/sync/errgroup，项目里已依赖时再用）"
+  },
+  "互斥锁": {
+    "prefix": "mutex",
+    "body": ["${1:mu}.Lock()", "defer ${1:mu}.Unlock()", "$0"],
+    "description": "加锁并 defer 解锁"
+  },
+  "defer Close": {
+    "prefix": "deferclose",
+    "body": ["defer ${1:f}.Close()", "$0"],
+    "description": "defer 关闭资源"
+  },
+  "打开文件": {
+    "prefix": "openfile",
+    "body": ["f, err := os.Open(${1:path})", "if err != nil {", "\treturn err", "}", "defer f.Close()", "$0"],
+    "description": "打开文件并 defer Close"
+  },
+  "HTTP 处理函数": {
+    "prefix": "handler",
+    "body": ["func ${1:handle}(w http.ResponseWriter, r *http.Request) {", "\t$0", "}"],
+    "description": "net/http 处理函数"
+  },
+  "HTTP 服务": {
+    "prefix": "httpserver",
+    "body": [
+      "mux := http.NewServeMux()",
+      "mux.HandleFunc(\"${1:GET /health}\", func(w http.ResponseWriter, r *http.Request) {",
+      "\tw.WriteHeader(http.StatusOK)",
+      "})",
+      "",
+      "srv := &http.Server{",
+      "\tAddr:              \"${2::8080}\",",
+      "\tHandler:           mux,",
+      "\tReadHeaderTimeout: 5 * time.Second,",
+      "}",
+      "if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {",
+      "\treturn err",
+      "}"
+    ],
+    "description": "ServeMux 加带 ReadHeaderTimeout 的 http.Server（\"GET /path\" 路由写法需要 Go 1.22+）"
+  },
+  "JSON 结构体": {
+    "prefix": "jsonstruct",
+    "body": [
+      "type ${1:Payload} struct {",
+      "\t${2:ID}   int    `json:\"${3:id}\"`",
+      "\t${4:Name} string `json:\"${5:name},omitempty\"`",
+      "}",
+      "$0"
+    ],
+    "description": "带 json 标签的结构体"
+  },
+  "JSON 响应": {
+    "prefix": "jsonresp",
+    "body": [
+      "w.Header().Set(\"Content-Type\", \"application/json\")",
+      "if err := json.NewEncoder(w).Encode(${1:payload}); err != nil {",
+      "\thttp.Error(w, err.Error(), http.StatusInternalServerError)",
+      "\treturn",
+      "}"
+    ],
+    "description": "向 ResponseWriter 写 JSON"
+  },
+  "测试函数": {
+    "prefix": "test",
+    "body": ["func Test${1:Name}(t *testing.T) {", "\t$0", "}"],
+    "description": "单元测试函数"
+  },
+  "表驱动测试": {
+    "prefix": "tdt",
+    "body": [
+      "func Test${1:Name}(t *testing.T) {",
+      "\ttests := []struct {",
+      "\t\tname string",
+      "\t\tin   ${2:string}",
+      "\t\twant ${3:string}",
+      "\t}{",
+      "\t\t{name: \"${4:case}\", in: ${5:\"\"}, want: ${6:\"\"}},",
+      "\t}",
+      "\tfor _, tt := range tests {",
+      "\t\tt.Run(tt.name, func(t *testing.T) {",
+      "\t\t\tgot := ${1:Name}(tt.in)",
+      "\t\t\tif got != tt.want {",
+      "\t\t\t\tt.Errorf(\"${1:Name}(%v) = %v, want %v\", tt.in, got, tt.want)",
+      "\t\t\t}",
+      "\t\t})",
+      "\t}",
+      "}"
+    ],
+    "description": "表驱动测试，带子测试"
+  },
+  "子测试": {
+    "prefix": "trun",
+    "body": ["t.Run(\"${1:name}\", func(t *testing.T) {", "\t$0", "})"],
+    "description": "t.Run 子测试"
+  },
+  "测试辅助函数": {
+    "prefix": "thelper",
+    "body": ["func ${1:helper}(t *testing.T${2}) {", "\tt.Helper()", "\t$0", "}"],
+    "description": "带 t.Helper() 的测试辅助函数"
+  },
+  "基准测试": {
+    "prefix": "bench",
+    "body": ["func Benchmark${1:Name}(b *testing.B) {", "\tfor b.Loop() {", "\t\t$0", "\t}", "}"],
+    "description": "基准测试（b.Loop 需要 Go 1.24+，旧版本改用 for i := 0; i < b.N; i++）"
+  },
+  "模糊测试": {
+    "prefix": "fuzz",
+    "body": [
+      "func Fuzz${1:Name}(f *testing.F) {",
+      "\tf.Add(${2:\"seed\"})",
+      "\tf.Fuzz(func(t *testing.T, ${3:s string}) {",
+      "\t\t$0",
+      "\t})",
+      "}"
+    ],
+    "description": "Go 原生模糊测试"
+  }
+}

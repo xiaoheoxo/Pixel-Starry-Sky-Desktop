@@ -790,6 +790,86 @@ export const systemMessages = {
     zh: 'Claude Code 的会话记录不在了，已把像素星空里的聊天（{p0} 轮）写进新的引擎会话（工具调用和文件改动没有带过去）',
     en: 'The Claude Code session record is gone. The chat from Pixel Starry Sky ({p0} turns) was written into a new engine session (tool calls and file changes were not carried over)',
   },
+  'system.nativeCodexUnavailable': {
+    zh: 'Codex 没装好，读不到它的会话',
+    en: 'Codex isn’t set up, so its sessions can’t be read',
+  },
+  'system.nativeCodexUnavailableReason': {
+    zh: 'Codex 没装好，读不到它的会话：{p0}',
+    en: 'Codex isn’t set up, so its sessions can’t be read: {p0}',
+  },
+  'system.nativeIdeContext': {
+    zh: '这一轮带着编辑器的上下文',
+    en: 'This turn carried context from the editor',
+  },
+  'system.nativeNotFollowing': {
+    zh: '这个对话已经不接着原来的会话了，没法再复制一份',
+    en: 'This conversation no longer continues the original session, so it can’t be copied again',
+  },
+  'system.nativeCodexReaderClosed': {
+    zh: 'Codex 正在更新或已重新检测，读取被中断了，请重试',
+    en: 'Codex is being updated or was re-detected, so reading was interrupted. Please try again',
+  },
+  'system.nativeNothingToCopy': {
+    zh: '这个会话还没有聊完的一轮，没法复制',
+    en: 'This session has no finished turn yet, so it can’t be copied',
+  },
+  'system.nativePixelskyThread': {
+    zh: '这个线程以前在像素星空里用过，换引擎时带过去的聊天不会显示，模型照样看得到',
+    en: 'This thread was used in Pixel Starry Sky before. Chat carried over when switching engines is not shown here, but the model still sees it',
+  },
+  'system.nativeRecreatedCodex': {
+    zh: 'Codex 的会话记录不在了，已把像素星空里的聊天（{p0} 轮）写进新的引擎会话（工具调用和文件改动没有带过去）',
+    en: 'The Codex session record is gone. The chat from Pixel Starry Sky ({p0} turns) was written into a new engine session (tool calls and file changes were not carried over)',
+  },
+  'system.nativeCodexTerminal': {
+    zh: '接着终端里的 Codex 会话 · {p0} 轮',
+    en: 'Continuing the Codex session from the terminal · {p0} turns',
+  },
+  'system.nativeCodexTerminalEarlier': {
+    zh: '接着终端里的 Codex 会话 · {p0} 轮（更早的 {p1} 轮没有显示）',
+    en: 'Continuing the Codex session from the terminal · {p0} turns ({p1} earlier turns not shown)',
+  },
+  'system.nativeCodexOther': {
+    zh: '接着 Codex 会话（来自其他程序）· {p0} 轮',
+    en: 'Continuing a Codex session (from another program) · {p0} turns',
+  },
+  'system.nativeCodexOtherEarlier': {
+    zh: '接着 Codex 会话（来自其他程序）· {p0} 轮（更早的 {p1} 轮没有显示）',
+    en: 'Continuing a Codex session (from another program) · {p0} turns ({p1} earlier turns not shown)',
+  },
+  'system.nativeCodexCopyTerminal': {
+    zh: '复制了终端里的 Codex 会话 · {p0} 轮（原会话不动，两边可以同时用）',
+    en: 'Copied the Codex session from the terminal · {p0} turns (the original is untouched; both can be used at the same time)',
+  },
+  'system.nativeCodexCopyTerminalEarlier': {
+    zh: '复制了终端里的 Codex 会话 · {p0} 轮（原会话不动，两边可以同时用）（更早的 {p1} 轮没有显示）',
+    en: 'Copied the Codex session from the terminal · {p0} turns (the original is untouched; both can be used at the same time) ({p1} earlier turns not shown)',
+  },
+  'system.nativeCodexCopyOther': {
+    zh: '复制了其他程序的 Codex 会话 · {p0} 轮（原会话不动，两边可以同时用）',
+    en: 'Copied a Codex session from another program · {p0} turns (the original is untouched; both can be used at the same time)',
+  },
+  'system.nativeCodexCopyOtherEarlier': {
+    zh: '复制了其他程序的 Codex 会话 · {p0} 轮（原会话不动，两边可以同时用）（更早的 {p1} 轮没有显示）',
+    en: 'Copied a Codex session from another program · {p0} turns (the original is untouched; both can be used at the same time) ({p1} earlier turns not shown)',
+  },
+  'system.nativeCodexLegacyTerminal': {
+    zh: '复制了终端里的 Codex 会话 · {p0} 轮（旧格式的线程不能原地回退，复制成新线程接着聊，原会话不动）',
+    en: 'Copied the Codex session from the terminal · {p0} turns (legacy-format threads can’t be rewound in place, so it was copied into a new thread; the original is untouched)',
+  },
+  'system.nativeCodexLegacyTerminalEarlier': {
+    zh: '复制了终端里的 Codex 会话 · {p0} 轮（旧格式的线程不能原地回退，复制成新线程接着聊，原会话不动）（更早的 {p1} 轮没有显示）',
+    en: 'Copied the Codex session from the terminal · {p0} turns (legacy-format threads can’t be rewound in place, so it was copied into a new thread; the original is untouched) ({p1} earlier turns not shown)',
+  },
+  'system.nativeCodexLegacyOther': {
+    zh: '复制了其他程序的 Codex 会话 · {p0} 轮（旧格式的线程不能原地回退，复制成新线程接着聊，原会话不动）',
+    en: 'Copied a Codex session from another program · {p0} turns (legacy-format threads can’t be rewound in place, so it was copied into a new thread; the original is untouched)',
+  },
+  'system.nativeCodexLegacyOtherEarlier': {
+    zh: '复制了其他程序的 Codex 会话 · {p0} 轮（旧格式的线程不能原地回退，复制成新线程接着聊，原会话不动）（更早的 {p1} 轮没有显示）',
+    en: 'Copied a Codex session from another program · {p0} turns (legacy-format threads can’t be rewound in place, so it was copied into a new thread; the original is untouched) ({p1} earlier turns not shown)',
+  },
   'system.fastModeTemporarilyUnavailable': {
     zh: 'Fast 模式暂时不可用',
     en: 'Fast mode temporarily unavailable',
@@ -945,6 +1025,19 @@ export const systemMessages = {
   'system.serviceErrorTemporary': {
     zh: '服务出错，通常是暂时的，稍后再试',
     en: 'The service hit an error. This is usually temporary; try again shortly.',
+  },
+  // 报错标题带 HTTP 状态码（引擎 claude/apiError.ts 的 withStatus：状态码插在第一小句后面）
+  'system.serviceErrorStatus': {
+    zh: '服务出错（HTTP {status}），通常是暂时的，稍后再试',
+    en: 'The service hit an error (HTTP {status}). This is usually temporary; try again shortly.',
+  },
+  'system.serviceBusyStatus': {
+    zh: '服务繁忙（HTTP {status}），请稍后再试',
+    en: 'Service busy (HTTP {status}). Try again later.',
+  },
+  'system.tooManyRequestsStatus': {
+    zh: '请求太频繁（HTTP {status}），已触发限额',
+    en: 'Too many requests (HTTP {status}). Rate limit reached.',
   },
   'system.apiKeyInvalid': {
     zh: 'API Key 无效：检查环境变量里的 ANTHROPIC_API_KEY',
@@ -1434,6 +1527,14 @@ export const systemMessages = {
     zh: '请先停止当前任务再回退',
     en: 'Stop the current task before rewinding',
   },
+  'system.rewindReconnecting': {
+    zh: '正在自动重连，请先停止再回退',
+    en: 'Auto-reconnecting. Stop it before rewinding',
+  },
+  'system.reconnectOriginalGone': {
+    zh: '原消息已不在对话里，请重试或撤回',
+    en: 'The original message is no longer in the conversation. Retry or withdraw it',
+  },
   'system.rewindUnsupported': {
     zh: '当前引擎暂不支持回退',
     en: 'The current engine does not support rewinding yet',
@@ -1478,4 +1579,27 @@ export const systemMessages = {
     en: "This message hasn't been sent yet. Retry or withdraw it",
   },
   'system.connectionLost': { zh: '连接中断', en: 'Connection lost' },
+  'system.storeRefreshFirst': { zh: '请先刷新套餐信息', en: 'Refresh the plan info first' },
+  'system.storeNoPanelUrl': { zh: '没有可用的面板地址', en: 'No usable panel address' },
+  'system.storeLoadFailedHttp': { zh: '暂时读不到订阅套餐和充值信息（HTTP {p0}）', en: 'Could not read plans and top-up info (HTTP {p0})' },
+  'system.storeInvalidData': { zh: '服务返回的套餐数据异常', en: 'Invalid plan data returned by service' },
+  'system.storeInvalidPage': { zh: '无效的面板页', en: 'Invalid panel page' },
+  'system.storePanelCredentials': { zh: '面板地址带有用户名或密码，已拒绝打开', en: 'The panel address contains a username or password, so it was not opened' },
+  'system.storePanelNotHttps': { zh: '面板地址不是 https，已拒绝打开', en: 'The panel address is not https, so it was not opened' },
+  'system.storePanelUntrusted': { zh: '面板地址不在可信域名内，已拒绝打开', en: 'The panel address is not on a trusted domain, so it was not opened' },
+  'system.checkoutInvalidRequest': { zh: '请求参数不正确', en: 'Invalid request' },
+  'system.checkoutBusy': { zh: '已有一笔订单正在创建，请稍候', en: 'Another order is being created. Please wait' },
+  'system.checkoutInvalidData': { zh: '服务返回的付款数据异常', en: 'Invalid payment data returned by service' },
+  'system.checkoutFailedHttp': { zh: '付款服务暂时不可用（HTTP {p0}）', en: 'The payment service is unavailable (HTTP {p0})' },
+  'system.checkoutOrderNotFound': { zh: '找不到这笔订单，请重新下单', en: 'Order not found. Please place a new order' },
+  'system.checkoutPanelUrlUntrusted': { zh: '确认地址不在可信域名内，已拒绝打开', en: 'The confirmation URL is not trusted and was not opened' },
+  'system.checkoutNoPayPage': { zh: '这笔订单没有可以打开的支付页', en: 'This order has no payment page to open' },
+  'system.checkoutNetwork': { zh: '连不上付款服务，请检查网络后重试', en: 'Cannot reach the payment service. Check your network and try again' },
+  'system.checkoutTimeout': { zh: '付款服务响应超时，请稍后重试', en: 'The payment service timed out. Try again later' },
+  'system.checkoutCreateTimeout': { zh: '下单超时：请稍后在「继续付款」里查看，不会重复下单', en: 'Placing the order timed out. Check "Continue payment" later; no duplicate order will be created' },
+  'system.checkoutAccountChanged': { zh: '登录状态已变化，请重试', en: 'The sign-in state changed. Please try again' },
+  'system.checkoutNoOwnerWindow': { zh: '找不到发起请求的窗口', en: 'The window that made the request was not found' },
+  // 付款窗口标题：带上当前页面的主机名，让用户看得出页面来自哪里；支付方式认不出时（英文界面只认 alipay / wxpay）用通用写法
+  'system.checkoutPayWindowTitle': { zh: '{p0}付款页面 · {p1}', en: '{p0} payment page · {p1}' },
+  'system.checkoutPayWindowTitleGeneric': { zh: '付款页面 · {p0}', en: 'Payment page · {p0}' },
 } as const

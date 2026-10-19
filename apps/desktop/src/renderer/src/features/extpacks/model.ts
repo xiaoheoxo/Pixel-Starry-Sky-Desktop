@@ -4,11 +4,13 @@ import type { ExtPackContributes, ExtPackContributionKind, ExtPackInfo, ExtPackS
 
 export const EMPTY_PACK_STATE: ExtPackState = { revision: 0, loading: true, packs: [] }
 
-/** 生效的扩展：内置在前，其后按添加时间从早到晚 */
+const SOURCE_RANK: Record<ExtPackInfo['source'], number> = { builtin: 0, store: 1, folder: 2 }
+
+/** 生效的扩展：内置 → 商店 → 文件夹，同来源按添加时间从早到晚 */
 export function livePacks(state: ExtPackState): ExtPackInfo[] {
   return state.packs
     .filter(p => p.live)
-    .sort((a, b) => (a.source === b.source ? a.addedAt - b.addedAt : a.source === 'builtin' ? -1 : 1))
+    .sort((a, b) => SOURCE_RANK[a.source] - SOURCE_RANK[b.source] || a.addedAt - b.addedAt)
 }
 
 export interface ContributionRef<K extends ExtPackContributionKind> {

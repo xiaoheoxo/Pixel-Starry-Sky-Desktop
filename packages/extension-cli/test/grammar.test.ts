@@ -73,6 +73,8 @@ async function run(
   })
 }
 const codes = (r: { issues: Array<{ code: string }> }): string[] => r.issues.map(i => i.code)
+/** 用真实引擎跑的用例：去掉测速类问题再比（慢的 CI 机器上会多一条测速提示，helpers/timing.ts） */
+const stableCodes = (r: { issues: Array<{ code: string }> }): string[] => withoutTiming(r.issues).map(i => i.code)
 
 describe('collectRegexes', () => {
   it('walks patterns, repository, injections and captures with JSON pointers', () => {
@@ -243,7 +245,7 @@ describe('checkGrammars (inline, real Oniguruma)', () => {
 
   it('passes a clean grammar and records the measurement', async () => {
     const r = await run({ 'g.json': SIMPLE, 's.txt': '# a\nfoo bar\n' }, [spec])
-    expect(codes(r)).toEqual([])
+    expect(stableCodes(r)).toEqual([])
     expect(r.results).toHaveLength(1)
     expect(r.results[0]).toMatchObject({ index: 0, scopeName: 'source.demo', regexes: 2 })
     expect(r.results[0].samples[0]).toMatchObject({ path: 's.txt', sourceLines: 2, lines: 5000 })
@@ -273,7 +275,7 @@ describe('checkGrammars (inline, real Oniguruma)', () => {
       ],
     })
     const r = await run({ 'g.json': text, 's.txt': 'aa\n<<EOF\nbody\nEOF\n' }, [spec])
-    expect(codes(r)).toEqual([])
+    expect(stableCodes(r)).toEqual([])
   })
 
   it('does not neutralize an escaped backslash followed by a digit in end', async () => {
@@ -323,10 +325,10 @@ describe('checkGrammars (inline, real Oniguruma)', () => {
       samples: ['s.txt'],
     }
     const withHost = await run(files, [hostSpec, injSpec])
-    expect(codes(withHost)).toEqual([])
+    expect(stableCodes(withHost)).toEqual([])
     expect(withHost.results[1].samples).toHaveLength(1)
     const alone = await run(files, [injSpec])
-    expect(codes(alone)).toEqual([])
+    expect(stableCodes(alone)).toEqual([])
     expect(alone.results[0]).toMatchObject({ regexes: 1, samples: [] })
   })
 

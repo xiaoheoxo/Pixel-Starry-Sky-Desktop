@@ -163,8 +163,9 @@ export function sharedDirAgents(members: readonly ChannelMember[]): string[] {
 // 状态更新（都返回新对象，不改原值）
 // ---------------------------------------------------------------------------
 
+/** 侧栏角标：归档的频道不算 */
 export function unreadTotal(channels: readonly Channel[]): number {
-  return channels.reduce((sum, c) => sum + Math.max(0, c.unread), 0)
+  return channels.reduce((sum, c) => sum + (c.archivedAt ? 0 : Math.max(0, c.unread)), 0)
 }
 
 export function markRead(channels: Channel[], id: string): Channel[] {

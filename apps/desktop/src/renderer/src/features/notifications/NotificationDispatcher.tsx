@@ -9,6 +9,9 @@ import { useSettings } from '@/features/settings/SettingsProvider'
 import { recovered } from '@/features/recovery/recovered'
 import { requestFeedback } from '@/features/feedback/focus'
 import { threadOfNotification } from '@/features/feedback/logic'
+import { getPage, setPage } from '@/features/layout/page'
+import { channelActions, getChannels, selectedChannel } from '@/features/channels/store'
+import { channelNotice, taskOfNotice } from '@/features/channels/channelNotice'
 import {
   BACKGROUND_SETTLE_MS,
   backgroundChange,
@@ -60,16 +63,33 @@ export function NotificationDispatcher() {
     const state = createDeliveryState()
     const deliver = (intent: NotificationIntent) => {
       const prefs = getNotificationPrefs()
+      // 频道派出去的活：按频道的说法写，点开回到频道里那张卡（docs/ui/channels-local-ai.md §3.1 #12）
+      const channels = getChannels()
+      const record = getEngineState().sessions.find(s => s.record.id === intent.sessionId)?.record
+      const detail = intent.detail ? translateMessage(intent.detail) : ''
+      const channel = channelNotice(intent, detail, channels, record?.title ?? null)
+      // 这个频道调成了不提醒 / 只提醒要我处理的：会话自己的提醒也不发（同一件事）
+      if (channel?.muted) return
+      const viewingChannel =
+        !!channel && getPage() === 'channels' && selectedChannel(channels)?.id === channel.channelId
       const decision = decide(
         intent,
-        { prefs, focused: document.hasFocus(), viewing: isViewingSession(intent.sessionId), now: Date.now() },
+        {
+          prefs,
+          focused: document.hasFocus(),
+          viewing: isViewingSession(intent.sessionId) || viewingChannel,
+          now: Date.now(),
+        },
         state,
       )
       if (!decision.show) return
-      const content = payload(intent, decision.summary, state.recent.length)
+      const content =
+        channel && !decision.summary
+          ? { title: channel.title, body: channel.body, sessionId: intent.sessionId }
+          : payload(intent, decision.summary, state.recent.length)
       void bridge.notifications
         .show({
-          id: decision.summary ? `summary-${Date.now()}` : intent.dedupeKey,
+          id: decision.summary ? `summary-${Date.now()}` : (channel?.id ?? intent.dedupeKey),
           ...content,
           sound: prefs.sound,
           attention: intent.kind === 'waiting',
@@ -115,6 +135,13 @@ export function NotificationDispatcher() {
       if (threadId) {
         requestFeedback({ threadId })
         openSettingsRef.current('feedback')
+        return
+      }
+      // 频道任务的提醒：回到频道，定位到那张卡
+      const task = taskOfNotice(id)
+      if (task) {
+        setPage('channels')
+        void channelActions.focusMessage(task.channelId, task.taskId)
         return
       }
       if (sessionId) window.dispatchEvent(new CustomEvent(OPEN_SESSION_EVENT, { detail: { sessionId } }))

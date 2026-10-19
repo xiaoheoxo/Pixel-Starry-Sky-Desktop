@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { EngineId } from '@pixelsky/protocol'
+import { RESUME_ENGINE_NAMES, type ResumeEngine } from './store'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { machineOf } from '@/features/machines/store'
@@ -12,9 +13,9 @@ export interface AppCommand {
   source: 'app'
 }
 
-/** 只有执行者是 Claude Code、对话不在远程机器上才出现（执行者看 nextEngine ?? engine，新任务看草稿 / 默认） */
+/** 执行者是 Claude Code 或 Codex、对话不在远程机器上才出现（执行者看 nextEngine ?? engine，新任务看草稿 / 默认） */
 export function resumeAvailable(engine: EngineId | null | undefined, workspaceId: string | null | undefined): boolean {
-  return engine === 'claude' && machineOf(workspaceId) === 'local'
+  return (engine === 'claude' || engine === 'codex') && machineOf(workspaceId) === 'local'
 }
 
 export function useResumeCommand(
@@ -23,12 +24,17 @@ export function useResumeCommand(
 ): AppCommand | null {
   const { locale } = useI18n()
   const available = resumeAvailable(engine, workspaceId)
+  const resumeEngine: ResumeEngine | null = available ? (engine as ResumeEngine) : null
   return useMemo(
     () =>
-      available
-        ? { invocation: 'app', name: 'resume', description: tr('resume.command.description'), source: 'app' }
+      resumeEngine
+        ? {
+            invocation: 'app',
+            name: 'resume',
+            description: tr('resume.command.description', { engine: RESUME_ENGINE_NAMES[resumeEngine] }),
+            source: 'app',
+          }
         : null,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [available, locale],
+    [resumeEngine, locale], // eslint-disable-line react-hooks/exhaustive-deps
   )
 }

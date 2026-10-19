@@ -2,7 +2,7 @@ import { tr } from '../../i18n/core'
 // 账号状态：模块级 store，所有调用方共享同一份（一次 getState + 一个 onChange 订阅）
 // 规格见 docs/ui/account.md §4.3
 import { useMemo, useSyncExternalStore } from 'react'
-import type { AccountInfo, AccountState } from '../../../../shared/types/account'
+import type { AccountInfo, AccountRefreshResult, AccountState, LoginFailure } from '../../../../shared/types/account'
 import type { AccountBridge } from '../../../../preload/account'
 import { formatBalance } from './format'
 import { demo } from '@/data/demo'
@@ -22,10 +22,16 @@ export interface UseAccountResult {
   balanceText: string | null
   error: string | null
   refreshing: boolean
+  /** 登录中：两边核对的授权码（如 2AE5B0-156C42）和授权页地址（回调服务起来后才有） */
+  authCode: string | null
+  loginUrl: string | null
+  /** 上一次登录没成功的原因（未登录时才有；主动取消、从没登录过为 null） */
+  failure: LoginFailure | null
   login: () => Promise<void>
   cancelLogin: () => Promise<void>
   logout: () => Promise<void>
-  refresh: () => Promise<void>
+  /** 重新拉取账号数据；返回刷新后的账号和失败原因（概览页另外通过 error 显示） */
+  refresh: () => Promise<AccountRefreshResult>
 }
 
 interface Snapshot {
@@ -33,12 +39,15 @@ interface Snapshot {
   account: AccountInfo | null
   refreshing: boolean
   error: string | null
+  authCode?: string
+  loginUrl?: string
+  failure?: LoginFailure
 }
 
 const LOADING: Snapshot = { status: 'loading', account: null, refreshing: false, error: null }
 const SIGNED_OUT: Snapshot = { status: 'signed-out', account: null, refreshing: false, error: null }
 /** 演示模式的快照：第一次读取时创建，之后保持同一个对象（useSyncExternalStore 要求快照稳定） */
-let DEMO: Snapshot | null = null
+let DEMO: Snapshot | null = null // 账号对象变了才重建
 
 function getBridge(): AccountBridge | null {
   return window.pixelsky?.account ?? null
@@ -51,9 +60,16 @@ function isDemoMode(): boolean {
 function toSnapshot(s: AccountState): Snapshot {
   switch (s.status) {
     case 'signed-out':
-      return { status: 'signed-out', account: null, refreshing: false, error: s.error ?? null }
+      return { status: 'signed-out', account: null, refreshing: false, error: s.error ?? null, failure: s.reason }
     case 'signing-in':
-      return { status: 'signing-in', account: null, refreshing: false, error: null }
+      return {
+        status: 'signing-in',
+        account: null,
+        refreshing: false,
+        error: null,
+        authCode: s.authCode,
+        loginUrl: s.url,
+      }
     case 'signed-in':
       return { status: 'signed-in', account: s.account, refreshing: s.refreshing, error: s.error ?? null }
   }
@@ -99,7 +115,8 @@ function start() {
 }
 
 function subscribe(listener: () => void): () => void {
-  if (isDemoMode()) return () => {}
+  // 演示模式：软件内付款到账后演示账号会变（mock/checkout.ts）
+  if (isDemoMode()) return demo().checkout.subscribe(listener)
   listeners.add(listener)
   start()
   return () => {
@@ -108,7 +125,11 @@ function subscribe(listener: () => void): () => void {
 }
 
 function getSnapshot(): Snapshot {
-  if (isDemoMode()) return (DEMO ??= { status: 'signed-in', account: demo().account, refreshing: false, error: null })
+  if (isDemoMode()) {
+    const account = demo().checkout.account()
+    if (DEMO?.account !== account) DEMO = { status: 'signed-in', account, refreshing: false, error: null }
+    return DEMO as Snapshot
+  }
   // 没有桥接（普通浏览器）：直接是未登录，不必等待
   if (!getBridge()) return SIGNED_OUT
   return snapshot
@@ -137,7 +158,22 @@ function makeAction(name: 'login' | 'cancelLogin' | 'logout' | 'refresh', fallba
 const login = makeAction('login', () => tr('account.useAccount.signInFailedPlease'))
 const cancelLogin = makeAction('cancelLogin', () => tr('account.useAccount.couldNotCancelSign'))
 const logout = makeAction('logout', () => tr('account.useAccount.couldNotSignOut'))
-const refresh = makeAction('refresh', () => tr('account.useAccount.refreshFailedTryAgain'))
+/** 刷新账号：主进程一定发新请求，返回刷新后的账号数据和失败原因 */
+const refresh = async (): Promise<AccountRefreshResult> => {
+  if (isDemoMode()) return { error: null, account: getSnapshot().account }
+  const bridge = getBridge()
+  if (!bridge) return { error: null, account: null }
+  try {
+    const res = await bridge.refresh()
+    // 被拒绝的来源（非应用页面）拿到 undefined：不能当成「刷新成功、没变化」
+    if (!res) return { error: tr('account.useAccount.refreshFailedTryAgain'), account: null }
+    return { error: res?.error ?? null, account: res?.account ?? null }
+  } catch (e) {
+    const fallback = tr('account.useAccount.refreshFailedTryAgain')
+    routeError(e, fallback)
+    return { error: errorText(e, fallback), account: null }
+  }
+}
 
 /** 账号状态钩子。所有调用方共享同一个 store；操作函数引用稳定、不会抛出 */
 export function useAccount(): UseAccountResult {
@@ -151,6 +187,9 @@ export function useAccount(): UseAccountResult {
       balanceText: account ? formatBalance(account.balance, account.currency) : null,
       error: snap.error,
       refreshing: snap.refreshing,
+      authCode: snap.authCode ?? null,
+      loginUrl: snap.loginUrl ?? null,
+      failure: snap.failure ?? (snap.status === 'signed-out' && snap.error ? 'failed' : null),
       login,
       cancelLogin,
       logout,

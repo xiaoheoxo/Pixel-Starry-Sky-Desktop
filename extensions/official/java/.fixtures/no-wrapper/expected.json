@@ -1,0 +1,44 @@
+[
+  {
+    "template": "maven",
+    "file": "pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "mvn clean",
+        "windows": "mvn clean"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "mvn compile",
+        "windows": "mvn compile"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "mvn test",
+        "windows": "mvn test"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "mvn package",
+        "windows": "mvn package"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "mvn verify",
+        "windows": "mvn verify"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "mvn install",
+        "windows": "mvn install"
+      }
+    ]
+  }
+]

@@ -1,6 +1,15 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
+import type {
+  CloseOptions,
+  EngineAdapter,
+  EngineSession,
+  Launcher,
+  LoginProcess,
+  RewindAnchor,
+  SessionContext,
+} from '../adapter'
+import type { ListOptions, LiveState, NativeRead, NativeSessionList, NewerTurns, ReadOptions } from '../native/types'
 import {
   type AgentRuns,
   codedError,
@@ -11,7 +20,7 @@ import {
   type SessionRecord,
   viaGateway,
 } from '@pixelsky/protocol'
-import { engineEnv } from '../env'
+import { engineEnv, systemProxyEnv } from '../env'
 import { outputTail, run, runInteractive, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { customCodex, discoverCodex, toolEnvironment } from './discover'
@@ -19,7 +28,9 @@ import { codexAnchor, readCodexTurns } from './branch'
 import { CodexProcess, object } from './process'
 import { codexCatalog } from './catalog'
 import { CodexSession, reservedCodexArg, type CodexLaunchOptions } from './session'
-import { CodexTranslator } from './translate'
+import { CodexReader } from './reader'
+import { codexThreadExists, liveCodexThreads, listCodexThreads, newerCodexTurns, readCodexThread } from './native'
+import { CodexTranslator, interruptedAgent } from './translate'
 import { loadCodexRuns } from './runs'
 import { CODEX_NPM_PACKAGE, installCodexWithNpm, updateCodexWithNpm } from './update'
 import { array } from './process'
@@ -29,6 +40,8 @@ export interface CodexAdapterOptions {
   overridePath?: () => string | null
   env?: NodeJS.ProcessEnv
   extraEnv?: () => Record<string, string>
+  /** 系统代理（http://主机:端口）；没开代理、开关关了时为 null。用户自己设了代理变量时不用（env.ts systemProxyEnv） */
+  systemProxy?: () => string | null
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   launcher?: Launcher
   launchOptions?: () => CodexLaunchOptions
@@ -41,6 +54,24 @@ export class CodexAdapter implements EngineAdapter {
   private askRejected = false
   /** Codex 报过的各模型窗口（GitHub #20）：设了自动压缩、没填窗口时按它算 token 数 */
   private readonly knownWindows = new Map<string, number>()
+  /** 只读的 app-server（列线程、读历史，docs/ui/codex-resume.md §3.5）：每个适配器一个，空闲 60 秒自己关 */
+  private readonly reader = new CodexReader(async () => {
+    await this.info()
+    const found = this.cached
+    // 没登录不影响读历史；没装好 / 检测出错读不了
+    if (!found?.launcher || (found.info.status !== 'ready' && found.info.status !== 'unauthenticated')) return null
+    return {
+      launcher: found.launcher,
+      args: this.launchArgs(),
+      // 读取进程不带网关变量；CODEX_HOME 和 codexHome() 是同一份
+      env: { ...toolEnvironment(found.launcher, this.env()), CODEX_HOME: this.codexHome() },
+      cwd: homedir(),
+    }
+  })
+  /** 像素星空自己的会话正占着的线程（CodexSession 拿到线程 id 时登记、关闭时撤销）：列表上「正开着」不算它们 */
+  private readonly ownThreads = new Set<string>()
+  /** 最近列出过的线程的来源（终端 / 其他程序）：锁文件只说被占着，是谁占的按来源近似 */
+  private readonly listed = new Map<string, 'terminal' | 'other'>()
   readonly npmPackage = CODEX_NPM_PACKAGE
   readonly updateNeedsIdle = true
   /** thread id 由 Codex 分配：宿主不预先塞 id（docs/codex-engine.md 回退 / 分叉一节） */
@@ -48,7 +79,10 @@ export class CodexAdapter implements EngineAdapter {
   /** 跨引擎接力：别的引擎期间的聊天用 thread/inject_items 注入线程（chat-log.ts） */
   readonly seedsHistory = true
   private env(): NodeJS.ProcessEnv {
-    return { ...engineEnv(this.opts.env ?? process.env), ...this.opts.extraEnv?.() }
+    const base = engineEnv(this.opts.env ?? process.env)
+    const extra = this.opts.extraEnv?.() ?? {}
+    // 补的代理变量放最后：只在用户没设代理时才有，NO_PROXY 已经并进了用户原有的
+    return { ...base, ...extra, ...systemProxyEnv(base, extra, this.opts.systemProxy?.() ?? null) }
   }
   constructor(private readonly opts: CodexAdapterOptions = {}) {}
   checkLaunch(command: string | null, args: readonly string[]): void {
@@ -66,6 +100,8 @@ export class CodexAdapter implements EngineAdapter {
   /** 一键更新：npm 全局装的用 npm install -g（docs/ui/engine-update.md）；宿主随后重新检测 */
   async update(onLine?: (line: string) => void): Promise<EngineUpdateResult> {
     await this.info()
+    // 读取进程也占着 codex.exe：Windows 上 npm 换不了被占用的程序
+    await this.reader.close()
     const exe = this.cached?.info.path
     if (!exe) throw new Error(this.cached?.info.message ?? '没找到 Codex')
     const result = await updateCodexWithNpm(exe, this.env(), onLine)
@@ -92,6 +128,7 @@ export class CodexAdapter implements EngineAdapter {
   }
   /** 一键安装：npm install -g（找得到 npm 时 info.installable 才为真） */
   async install(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
+    await this.reader.close()
     const result = await installCodexWithNpm(this.env(), onLine)
     this.catalogCache = null
     return result
@@ -106,6 +143,7 @@ export class CodexAdapter implements EngineAdapter {
   }
   private async detect(): Promise<EngineInfo> {
     this.askRejected = false
+    const before = this.cached?.info.path
     const result = this.opts.launcher
       ? {
           info: {
@@ -119,6 +157,9 @@ export class CodexAdapter implements EngineAdapter {
         }
       : await discoverCodex(this.opts.overridePath?.() ?? null, this.env())
     this.cached = result
+    // Codex 换了位置（用户在设置里换了命令、重装）：读取进程还是旧程序，马上关掉，不占着旧的 codex.exe。
+    // 参数、环境变量（CODEX_HOME）变了由读取进程自己在下次请求前核对、换进程（reader.ts readerLaunchKey）
+    if (before !== undefined && before !== result.info.path) void this.reader.close()
     if (!result.launcher || result.info.status !== 'ready') return result.info
     let stderr = ''
     const proc = new CodexProcess(
@@ -189,7 +230,7 @@ export class CodexAdapter implements EngineAdapter {
    * 回退 / 分叉的截断点：起一个临时 app-server 冷读线程的轮次（不 resume），按用户消息 clientId 求「最后保留的一轮」。
    * 读不到（没装、线程没了、没有 clientId）返回 null，宿主按「找不到」处理
    */
-  async rewindAnchor(record: SessionRecord, userItemIds: string[]): Promise<{ at: string | null } | null> {
+  async rewindAnchor(record: SessionRecord, userItemIds: string[]): Promise<RewindAnchor | null> {
     if (!record.engineSessionId) return null
     let proc: CodexProcess | undefined
     try {
@@ -204,7 +245,10 @@ export class CodexAdapter implements EngineAdapter {
         { notification() {}, request: id => p.respondError(id, 'Read-only history'), exit() {} },
       ))
       await p.initialize()
-      return codexAnchor(await readCodexTurns(p, record.engineSessionId), userItemIds)
+      // 从终端导入的线程：用户条目的 id 就是 turn id，每一轮都能对位
+      return codexAnchor(await readCodexTurns(p, record.engineSessionId), userItemIds, {
+        byTurnId: record.imported?.engine === 'codex',
+      })
     } catch {
       return null
     } finally {
@@ -236,13 +280,60 @@ export class CodexAdapter implements EngineAdapter {
       ...(this.opts.launchOptions?.() ?? { askQuestions: true }),
       defaultModel: () => this.catalogCache?.currentModel ?? null,
       knownWindows: this.knownWindows,
-      savedAgents: () => this.loadRuns(ctx.record()).agents,
+      // 宿主的运行时里已经有（打开会话时从 rollout 读过，之后实时更新）：直接用，不再整读一遍 rollout。
+      // 没有进程可接着跑了，还停在 running 的标成已中断（与 loadCodexRuns 一致）
+      savedAgents: () =>
+        ctx.runs
+          ? ctx.runs().agents.map(agent => ({ ...interruptedAgent(agent) }))
+          : this.loadRuns(ctx.record()).agents,
+      ownThread: (id, own) => {
+        if (own) this.ownThreads.add(id)
+        else this.ownThreads.delete(id)
+      },
     })
+  }
+  /** Codex 的数据目录：读取进程、会话进程和这里是同一份（env.CODEX_HOME，没有就是 ~/.codex） */
+  codexHome(record?: SessionRecord): string {
+    const env = record && viaGateway(record) ? { ...this.env(), ...this.opts.sessionEnv?.(record) } : this.env()
+    return env.CODEX_HOME || join(homedir(), '.codex')
+  }
+  /** 关掉适配器自己的常驻进程（应用退出）：读取进程 */
+  close(opts?: CloseOptions): Promise<void> {
+    return this.reader.close(opts)
+  }
+  // ---------- 接着终端里的 Codex 会话（docs/ui/codex-resume.md） ----------
+  async nativeSessions(cwd: string, opts?: ListOptions): Promise<NativeSessionList> {
+    const list = await listCodexThreads(this.reader, cwd, opts)
+    for (const s of list.sessions) {
+      this.listed.delete(s.id)
+      this.listed.set(s.id, s.source)
+    }
+    // 只留最近列出的一批，旧的不再需要
+    while (this.listed.size > 2000) this.listed.delete(this.listed.keys().next().value!)
+    return list
+  }
+  readNativeSession(cwd: string, id: string, opts?: ReadOptions): Promise<NativeRead | null> {
+    return readCodexThread(this.reader, cwd, id, opts)
+  }
+  newerNativeTurns(
+    cwd: string,
+    id: string,
+    after: string,
+    opts?: { turns?: number; afterTurn?: boolean },
+  ): Promise<NewerTurns | null> {
+    // 终端里正开着：末尾还没结束的那一轮不补（和导入时一样），等它结束了下次 check 再补
+    const live = this.nativeLive([{ id, mtimeMs: 0 }]).get(id) != null
+    return newerCodexTurns(this.reader, cwd, id, after, { turns: opts?.turns, live })
+  }
+  hasNativeSession(record: SessionRecord): boolean {
+    return !record.engineSessionId || codexThreadExists(this.codexHome(record), record.engineSessionId)
+  }
+  nativeLive(rows: readonly { id: string; mtimeMs: number }[]): Map<string, LiveState> {
+    return liveCodexThreads(this.codexHome(), rows, this.ownThreads, this.listed)
   }
   /** 子智能体追踪从线程的 rollout 还原（读不到就是空的） */
   loadRuns(record: SessionRecord): AgentRuns {
     if (!record.engineSessionId) return { workflows: [], agents: [] }
-    const env = viaGateway(record) ? { ...this.env(), ...this.opts.sessionEnv?.(record) } : this.env()
-    return loadCodexRuns(env.CODEX_HOME || join(homedir(), '.codex'), record.engineSessionId)
+    return loadCodexRuns(this.codexHome(record), record.engineSessionId)
   }
 }

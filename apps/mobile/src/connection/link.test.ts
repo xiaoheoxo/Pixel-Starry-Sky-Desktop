@@ -8,7 +8,7 @@ import {
   generateKeypair,
   toBase64Url,
 } from '@pixelsky/link'
-import { DesktopLink, type LinkState } from './link'
+import { DesktopLink, unbatch, type LinkState } from './link'
 import type { Pairing } from './storage'
 
 vi.mock('@/platform', () => ({ inApp: false }))
@@ -158,5 +158,16 @@ describe('DesktopLink', () => {
     ws.close(4001)
     expect(link.state).toBe('removed')
     expect(link.pairing.status).toBe('removed')
+  })
+})
+
+describe('unbatch', () => {
+  it('电脑打包成一帧的多个事件按顺序拆开，别的原样', () => {
+    const a = { kind: 'session', seq: 2 },
+      b = { kind: 'session', seq: 3 }
+    expect(unbatch({ kind: 'batch', events: [a, b] })).toEqual([a, b])
+    expect(unbatch(a)).toEqual([a])
+    expect(unbatch({ kind: 'batch' })).toEqual([{ kind: 'batch' }])
+    expect(unbatch(null)).toEqual([null])
   })
 })

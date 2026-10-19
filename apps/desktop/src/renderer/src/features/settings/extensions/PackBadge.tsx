@@ -6,7 +6,7 @@ export function PackBadge({
   tone = 'neutral',
   children,
 }: {
-  tone?: 'neutral' | 'warn' | 'danger'
+  tone?: 'neutral' | 'warn' | 'danger' | 'info'
   children: ReactNode
 }) {
   return (
@@ -16,6 +16,8 @@ export function PackBadge({
         tone === 'neutral' && 'bg-subtle text-fg-muted',
         tone === 'warn' && 'bg-subtle text-warn',
         tone === 'danger' && 'bg-subtle text-danger',
+        // 「官方」标：蓝色，和反馈状态「团队已看到」同一个蓝
+        tone === 'info' && 'bg-status-seen/12 text-status-seen',
       )}
     >
       {children}

@@ -17,6 +17,13 @@ describe('livePacks', () => {
     const d = fakePack({ key: 'f-d', live: false })
     expect(livePacks(fakeState(a, b, c, d)).map(p => p.key)).toEqual(['b-c', 'f-b', 'f-a'])
   })
+  it('三种来源：内置 → 商店 → 文件夹，同来源按添加时间', () => {
+    const f = fakePack({ key: 'f', source: 'folder', addedAt: 1 })
+    const s2 = fakePack({ key: 's2', source: 'store', addedAt: 8 })
+    const s1 = fakePack({ key: 's1', source: 'store', addedAt: 3 })
+    const b = fakePack({ key: 'b', source: 'builtin', addedAt: 9 })
+    expect(livePacks(fakeState(f, s2, s1, b)).map(p => p.key)).toEqual(['b', 's1', 's2', 'f'])
+  })
 })
 
 describe('contributionsFrom', () => {

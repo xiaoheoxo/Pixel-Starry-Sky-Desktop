@@ -142,7 +142,8 @@ describe('IPC contract shape', () => {
     for (const [channel, spec] of mobile) {
       expect(spec.kind, channel).toBe('invoke')
       // 跟着参数里的会话 / 项目 ID 走，不跟着电脑上当前选中的机器；新建任务的参数是 { projectId }，同样按它路由
-      if (channel === 'engine:createSession') expect(spec.route).toBe('selected')
+      // 模型目录的参数是引擎名，不是会话 / 项目 ID，也只能跟着选中的机器走（手机只读）
+      if (channel === 'engine:createSession' || channel === 'engine:catalog') expect(spec.route).toBe('selected')
       else expect(['resource', 'aggregate'], `${channel}: route`).toContain(spec.route)
       expect(spec.remote, `${channel}: remote`).toBe(channel)
       expect(Object.keys(ENGINE_OPS), `${channel}: op`).toContain(channel)

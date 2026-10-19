@@ -1,14 +1,31 @@
 // 新建任务：选项目、引擎，写第一句话（可以带图片）。引擎默认用电脑上设的那个（docs/mobile-remote.md §17 第 7 项）；
-// 权限模式、线路、模型都用电脑上的设置（手机传了也会被电脑忽略，D095）。
+// 权限模式、模型、强度默认用电脑上的设置，也可以在「模式」里先选好（C2，§21.5；完全放行只能在电脑上开）。线路总是用电脑上的。
 import { useRef, useState } from 'react'
-import { Check, Folder, Send } from 'lucide-react'
-import { ENGINES, ENGINE_ORDER, type EngineId, type SessionRecord } from '@pixelsky/protocol'
+import { Check, ChevronRight, Folder, Send } from 'lucide-react'
+import {
+  ENGINES,
+  ENGINE_ORDER,
+  type Effort,
+  type EngineId,
+  type PermissionMode,
+  type SessionRecord,
+} from '@pixelsky/protocol'
 import type { Pairing } from '@/connection'
-import { useDefaultEngine, useDesktop } from '@/data/hooks'
+import { useCatalog, useDefaultEngine, useDesktop } from '@/data/hooks'
+import { effortOptions, modeChip, modelOptions, permissionOptions, widens } from '@/data/mode'
 import { imageDataUrl, usePendingImages } from '@/data/images'
 import { attemptFor, sendKey, type SendAttempt } from '@/data/retry'
 import { Banner, Button, Empty, Screen, Section, Segmented, Spinner, cn } from '@/ui'
 import { AttachButton, AttachmentStrip } from '@/ui/images'
+import { ModeSheet } from '@/ui/ModeSheet'
+
+/** 新会话的模式；null 都是「用电脑上的设置」 */
+interface Settings {
+  permissionMode: PermissionMode | null
+  model: string | null
+  effort: Effort | null
+}
+const DESKTOP: Settings = { permissionMode: null, model: null, effort: null }
 
 export function NewTask({
   pairing,
@@ -31,6 +48,16 @@ export function NewTask({
   // 没选过就跟电脑上的默认引擎；电脑版太旧拿不到时用 Claude
   const [picked, setPicked] = useState<EngineId | null>(null)
   const engine = picked ?? defaultEngine ?? 'claude'
+  // 模型和强度跟引擎走：换了引擎（包括电脑上的默认引擎晚一点才取到）就回到电脑上的设置；
+  // 权限模式留着（新引擎也支持这一档时），免得先选好的「只规划」被悄悄换成电脑上更宽的设置
+  const [settings, setSettings] = useState<{ engine: EngineId; value: Settings }>({ engine, value: DESKTOP })
+  const kept = settings.value.permissionMode
+  const mode =
+    settings.engine === engine
+      ? settings.value
+      : { ...DESKTOP, permissionMode: kept && ENGINES[engine]?.caps.permissionModes.includes(kept) ? kept : null }
+  const setMode = (patch: Partial<Settings>) => setSettings({ engine, value: { ...mode, ...patch } })
+  const [modeOpen, setModeOpen] = useState(false)
   const [text, setText] = useState(initialText)
   const images = usePendingImages()
   const [busy, setBusy] = useState(false)
@@ -47,10 +74,11 @@ export function NewTask({
     setError(null)
     const value = text.trim()
     const ids = images.images.map(i => i.id)
-    const target = JSON.stringify([chosen, engine])
+    const picks = Object.fromEntries(Object.entries(mode).filter(([, v]) => v !== null))
+    const target = JSON.stringify([chosen, engine, picks])
     try {
       if (created.current?.key !== target) {
-        const record = await link.call<SessionRecord>('engine:createSession', { projectId: chosen, engine })
+        const record = await link.call<SessionRecord>('engine:createSession', { projectId: chosen, engine, ...picks })
         created.current = { key: target, sessionId: record.id }
       }
       const sessionId = created.current.sessionId
@@ -65,7 +93,8 @@ export function NewTask({
       attempt.current = null
       onCreated(sessionId)
     } catch (e) {
-      setError((e as Error).message)
+      const code = (e as Error).message
+      setError(code === 'MOBILE_BAD_ARGUMENT' ? '电脑不接受这个模式，换一个或用电脑上的设置。' : code)
       setBusy(false)
     }
   }
@@ -146,13 +175,91 @@ export function NewTask({
               value={engine}
               onChange={setPicked}
             />
-            <p className="mt-2 px-1 text-label text-fg-faint">
-              {defaultEngine && !picked ? '默认用电脑上设的引擎。' : ''}模型、权限模式和线路用电脑上的设置。
-            </p>
+            {defaultEngine && !picked && <p className="mt-2 px-1 text-label text-fg-faint">默认用电脑上设的引擎。</p>}
           </div>
+          <Section title="模式">
+            <button
+              type="button"
+              onClick={() => setModeOpen(true)}
+              className="flex min-h-12 w-full items-center gap-3 px-4 py-2 text-left active:bg-hover"
+            >
+              <span className="min-w-0 flex-1 truncate text-ui">{modeText(mode)}</span>
+              <ChevronRight size={18} className="shrink-0 text-fg-faint" />
+            </button>
+          </Section>
           {error && <Banner tone="danger">{error}</Banner>}
         </div>
       )}
+      {modeOpen && (
+        <NewMode
+          deviceId={pairing.deviceId}
+          engine={engine}
+          mode={mode}
+          onChange={setMode}
+          onClose={() => setModeOpen(false)}
+        />
+      )}
     </Screen>
+  )
+}
+
+/** 「每步问我 · Opus 4.1 · 高」；没选的项不显示，全没选是「用电脑上的设置」 */
+function modeText(mode: Settings): string {
+  const chip = modeChip({ permissionMode: mode.permissionMode ?? 'ask', model: mode.model, effort: mode.effort })
+  const parts = [mode.permissionMode && chip.permission, chip.model, chip.effort].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '用电脑上的设置'
+}
+
+function NewMode({
+  deviceId,
+  engine,
+  mode,
+  onChange,
+  onClose,
+}: {
+  deviceId: string
+  engine: EngineId
+  mode: Settings
+  onChange(patch: Partial<Settings>): void
+  onClose(): void
+}) {
+  const catalog = useCatalog(deviceId, engine)
+  const model = catalog.models?.find(m => m.id === mode.model)
+  return (
+    <ModeSheet
+      title="新会话的模式"
+      readOnly={catalog.unsupported}
+      error={catalog.unsupported ? '电脑上的像素星空版本较旧，新会话用电脑上的设置。' : null}
+      note="没选的项用电脑上的设置。"
+      onClose={onClose}
+      groups={[
+        {
+          key: 'permission',
+          title: '权限',
+          options: permissionOptions(engine, null),
+          value: mode.permissionMode ?? '',
+          onPick: v => {
+            const to = (v || null) as PermissionMode | null
+            if (to && widens(null, to) && !confirm('放宽权限：AI 改文件时不再先问你。确定吗？')) return
+            onChange({ permissionMode: to })
+          },
+        },
+        {
+          key: 'model',
+          title: catalog.models === null && !catalog.unsupported ? '模型（正在取）' : '模型',
+          options: modelOptions(catalog.models, mode.model),
+          value: mode.model ?? '',
+          // 换了模型：强度可能不在新模型的范围里，回到默认
+          onPick: v => onChange({ model: v || null, effort: null }),
+        },
+        {
+          key: 'effort',
+          title: '推理强度',
+          options: effortOptions(engine, model, mode.effort),
+          value: mode.effort ?? '',
+          onPick: v => onChange({ effort: (v || null) as Effort | null }),
+        },
+      ]}
+    />
   )
 }

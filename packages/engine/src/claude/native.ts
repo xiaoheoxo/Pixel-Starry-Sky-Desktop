@@ -1,13 +1,11 @@
 // 接着 Claude Code 自己留下的会话（docs/ui/claude-resume.md）：列出会话、判断是不是还开着、把旧历史导入成条目。
 // 记录文件可能有几百 MB，全部用流式索引（transcript-index.ts）加定位读，不把整份记录读进内存。
 import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs'
-import { open, readdir, realpath, stat } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { open, readdir, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Item } from '@pixelsky/protocol'
 import { NO_REPLY } from '../chat-log'
-import { IS_WINDOWS } from '../exec'
-import { HANDOFF_TAG } from '../handoff'
 import { NEW_TITLE, titleFrom } from '../host/title'
 import { transcriptItems } from './runs'
 import { obj, str } from './shape'
@@ -20,167 +18,72 @@ import {
   readRowsAt,
   transcriptIndex,
   userContent,
-  type IndexOptions,
   type IndexRow,
   type RowPos,
   type TranscriptIndex,
 } from './transcript-index'
 
+import { countUsers, fit } from '../native/items'
+import { matchCwd } from '../native/paths'
+import { splitPrompt } from '../native/prompt'
+import { NATIVE_TEXT } from '../native/text'
+import type {
+  ListOptions,
+  LiveState,
+  NativeListedDetail,
+  NativeListedSession,
+  NativeRead,
+  NativeSessionList,
+  NewerTurns,
+  ReadOptions,
+  TailBudget,
+} from '../native/types'
+
+// 旧名字保留，Claude 侧代码的 import 不用改
+export type {
+  ListOptions,
+  LiveState,
+  NativeRead,
+  NewerTurns,
+  ReadOptions,
+  TailBudget,
+  NativeListedDetail as ClaudeSessionDetail,
+  NativeListedSession as ClaudeSessionSummary,
+} from '../native/types'
+/** Claude 的列表一定带尾部预算 */
+export type ClaudeSessionList = NativeSessionList & { budget: TailBudget }
+export { NATIVE_TEXT } from '../native/text'
+export { splitPrompt, type PromptParts } from '../native/prompt'
+
 type Row = Record<string, unknown>
 
-/** 导入时放进对话的提示文字（引擎发的中文，界面靠 shared/i18n/systemMessages.ts 翻译；数字原样写在句子里） */
-export const NATIVE_TEXT = {
-  relayRun: (turns: number) => `以下 ${turns} 轮是在像素星空里用别的引擎聊的，接力时写进了这个会话`,
-  handoff: '这一轮带着像素星空的交接材料',
-  gap: (turns: number) => `中间还有 ${turns} 轮没有显示`,
-  images: (count: number) => `（${count} 张图片没有导入）`,
-  /** 对话最上面的分隔条；missing 是还没显示的更早的轮数 */
-  divider: (source: 'terminal' | 'other', copy: boolean, turns: number, missing: number): string => {
-    const base = copy
-      ? `复制了${source === 'terminal' ? '终端里' : '其他程序'}的 Claude Code 会话 · ${turns} 轮（原会话不动，两边可以同时用）`
-      : source === 'terminal'
-        ? `接着终端里的 Claude Code 会话 · ${turns} 轮`
-        : `接着 Claude Code 会话（来自其他程序）· ${turns} 轮`
-    return missing > 0 ? `${base}（更早的 ${missing} 轮没有显示）` : base
-  },
-  /** 加载更早的越过压缩边界时，放在压缩条目上面 */
-  summaryOnly: '以上是压缩之前的轮次，模型只看到压缩摘要',
-  newer: (turns: number) => `这个会话在终端里又聊了 ${turns} 轮，显示里还没有`,
-  synced: (turns: number) => `已补上终端里的 ${turns} 轮`,
-  gone: '这个会话的记录已经不在了',
-  cancelled: '已取消导入',
-  earlierGone: '这个会话的记录已经不在了，更早的没法再加载',
-  unsupported: '这个引擎不支持接着本机会话',
-  /** 原生记录不在了，接力把像素星空里的聊天写进新的引擎会话 */
-  recreated: (turns: number) =>
-    `Claude Code 的会话记录不在了，已把像素星空里的聊天（${turns} 轮）写进新的引擎会话（工具调用和文件改动没有带过去）`,
-} as const
-
-const OVERVIEW_PREFIX = '（像素星空补充：'
 const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}…` : s)
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim()
-
-export interface PromptParts {
-  /** 用户自己的话 */
-  text: string
-  /** 文字交接材料（<pixelsky-handoff>…</pixelsky-handoff>） */
-  handoff: string | null
-  /** 接力第一轮前面的概要（到第一个空行为止） */
-  overview: string | null
-}
-
-/** 用户话前面像素星空加的两种东西拆开：文字交接材料（§3.2）和接力的概要 */
-export function splitPrompt(raw: string): PromptParts {
-  let text = raw
-  let handoff: string | null = null
-  let overview: string | null = null
-  if (text.trimStart().startsWith(`<${HANDOFF_TAG}`)) {
-    const close = `</${HANDOFF_TAG}>`
-    const i = text.indexOf(close)
-    if (i >= 0) {
-      handoff = text.slice(text.indexOf(`<${HANDOFF_TAG}`), i + close.length)
-      text = text.slice(i + close.length).replace(/^\r?\n(?:\r?\n)?/, '')
-    }
-  }
-  if (text.startsWith(OVERVIEW_PREFIX)) {
-    const i = text.indexOf('\n\n')
-    if (i >= 0) {
-      overview = text.slice(0, i)
-      text = text.slice(i + 2)
-    }
-  }
-  return { text, handoff, overview }
-}
-
-// ---------- 路径 ----------
-
-function normalDir(p: string): string {
-  const r = resolve(p).replace(/[\\/]+$/, '')
-  return IS_WINDOWS ? r.toLowerCase() : r
-}
-
-/** 两个目录是不是同一个：Windows 忽略大小写和末尾分隔符，对不上时两边 realpath 再比（符号链接 / 目录联接） */
-async function sameDir(a: string, b: string): Promise<boolean> {
-  if (normalDir(a) === normalDir(b)) return true
-  try {
-    return normalDir(await realpath(a)) === normalDir(await realpath(b))
-  } catch {
-    return false
-  }
-}
-
-/** child 是不是在 parent 下面（含相同）；是的话返回相对路径（相同时 ''） */
-function under(parent: string, child: string): string | null {
-  // Windows 上 relative 不区分大小写，剩下的部分保持记录里的写法
-  const rel = relative(resolve(parent), resolve(child))
-  return rel.startsWith('..') || isAbsolute(rel) ? null : rel.replace(/\\/g, '/')
-}
-
-/** 记录里的 cwd 对得上项目路径吗。subfolders：项目下面的子文件夹也算（返回相对路径） */
-async function matchCwd(
-  project: string,
-  recorded: string,
-  subfolders: boolean,
-): Promise<{ subdir: string | null } | null> {
-  if (await sameDir(project, recorded)) return { subdir: null }
-  if (!subfolders) return null
-  let rel = under(project, recorded)
-  if (rel === null) {
-    try {
-      rel = under(await realpath(project), await realpath(recorded))
-    } catch {
-      return null
-    }
-  }
-  if (rel === null) return null
-  if (rel === '') return { subdir: null }
-  // 子文件夹已经不在了：启动会报「工作目录不存在」，不列
-  const gone = await stat(recorded).then(
-    s => !s.isDirectory(),
-    () => true,
-  )
-  return gone ? null : { subdir: rel }
-}
 
 // ---------- 列表：第一步（stat + 头 64 KB） ----------
 
 const HEAD_BYTES = 64 * 1024
+/** 头 64 KB 里认不出 cwd 时最多往下读到这里（第一句话里贴了截图、长日志） */
+const HEAD_MAX = 16 * 1024 * 1024
+const HEAD_CHUNK_MAX = 4 * 1024 * 1024
 /** 列表里最多给这么多个（按修改时间从新到旧） */
 export const LIST_LIMIT = 200
 /** 每次打开选择框读尾部的总字节数、单个文件的上限（§3.2） */
 export const TAIL_BUDGET = 64 * 1024 * 1024
 export const TAIL_CAP = 4 * 1024 * 1024
 
-export interface ClaudeSessionSummary {
-  id: string
-  file: string
-  size: number
-  mtimeMs: number
-  /** 先是 mtime，尾部读到最后一个 timestamp 后（detail.lastActive）界面只改显示，不改排序 */
-  updatedAt: number
-  /** 记录里的工作目录 */
-  cwd: string
-  /** 会话开在项目的子文件夹里时的相对路径，在项目根目录为 null */
-  subdir: string | null
-  title: string
-  firstPrompt: string
-  lastPrompt: string | null
-  branch: string | null
-  /** entrypoint 是 cli 的算终端，其余（sdk-cli、读不到……）算其他程序 */
-  source: 'terminal' | 'other'
-  model: string | null
-}
-
 interface HeadInfo {
   cwd: string | null
   entrypoint: string | null
   branch: string | null
-  /** 第一句真正的用户输入（去掉像素星空加的前缀） */
+  /** 第一句真正的用户输入（去掉像素星空加的前缀）；只发图片的不算，标题接着往后找有字的 */
   first: string
+  /** 头部有过真正的用户输入（包括只发了图片的） */
+  prompted: boolean
   customTitle: string | null
   aiTitle: string | null
   lastPrompt: string | null
-  /** 头 64 KB 就是整个文件 */
+  /** 头部读到了文件末尾（整个文件都读过了） */
   whole: boolean
 }
 
@@ -214,45 +117,64 @@ async function readHead(file: string, size: number, mtimeMs: number): Promise<He
   const key = `${file}|${size}|${mtimeMs}`
   const hit = headCache.get(key)
   if (hit) return remember(headCache, key, hit)
-  const fh = await open(file, 'r')
-  let raw: string
-  try {
-    const buf = Buffer.alloc(Math.min(HEAD_BYTES, size))
-    const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
-    raw = buf.subarray(0, bytesRead).toString('utf8')
-  } finally {
-    await fh.close()
-  }
-  const whole = size <= HEAD_BYTES
-  const lines = raw.split('\n')
-  // 不是整个文件时最后一行多半是半截
-  if (!whole) lines.pop()
   const info: HeadInfo = {
     cwd: null,
     entrypoint: null,
     branch: null,
     first: '',
+    prompted: false,
     customTitle: null,
     aiTitle: null,
     lastPrompt: null,
-    whole,
+    whole: false,
   }
-  for (const line of lines) {
-    const e = parseLine(line)
-    if (!e) continue
-    if (info.cwd === null && typeof e.cwd === 'string') info.cwd = e.cwd
-    if (info.entrypoint === null && typeof e.entrypoint === 'string') info.entrypoint = e.entrypoint
-    if (typeof e.gitBranch === 'string' && e.gitBranch) info.branch = e.gitBranch
-    if (e.type === 'ai-title' && typeof e.aiTitle === 'string') info.aiTitle = e.aiTitle
-    else if (e.type === 'custom-title' && typeof (e.customTitle ?? e.title) === 'string')
-      info.customTitle = (e.customTitle ?? e.title) as string
-    else if (e.type === 'last-prompt' && typeof e.lastPrompt === 'string') info.lastPrompt = e.lastPrompt
-    else if (e.type === 'user' && !info.first && e.isSidechain !== true) {
-      const content = userContent(obj(e.message).content)
-      if (classifyUser(e, content) === 'prompt') info.first = splitPrompt(content.text).text
+  const fh = await open(file, 'r')
+  try {
+    // 先读头 64 KB。第一句话贴了截图 / 长日志时那一行就超过 64 KB，被截掉的半行里才有 cwd：
+    // 还没认出 cwd 就接着往下读（最多 HEAD_MAX）；认出了 cwd、还没有用户输入、又有一行被截在边界上，只把这一行读完
+    let pos = 0
+    let carry = Buffer.alloc(0)
+    for (let chunk = HEAD_BYTES; ; chunk = Math.min(chunk * 2, HEAD_CHUNK_MAX)) {
+      const buf = Buffer.alloc(Math.max(0, Math.min(chunk, size - pos)))
+      const { bytesRead } = buf.length ? await fh.read(buf, 0, buf.length, pos) : { bytesRead: 0 }
+      const extra = pos > 0
+      pos += bytesRead
+      const end = pos >= size || bytesRead === 0
+      const data = Buffer.concat([carry, buf.subarray(0, bytesRead)])
+      // 只读完被截的那一行时到第一个换行为止，后面读进来的不算（whole 只在真的看完了整个文件时为 true）
+      const finishing = extra && info.cwd !== null
+      const nl = finishing ? data.indexOf(0x0a) : data.lastIndexOf(0x0a)
+      const cut = finishing && nl >= 0 ? nl + 1 : end ? data.length : nl + 1
+      for (const line of data.subarray(0, cut).toString('utf8').split('\n')) takeHead(info, line)
+      carry = data.subarray(cut)
+      info.whole = end && carry.length === 0
+      if (end || pos >= HEAD_MAX) break
+      if (info.cwd !== null && (info.prompted || (extra ? cut > 0 : carry.length === 0))) break
     }
+  } finally {
+    await fh.close()
   }
   return remember(headCache, key, info)
+}
+
+/** 头部的一行：认 cwd、来源、分支、标题和第一句用户输入 */
+function takeHead(info: HeadInfo, line: string): void {
+  const e = parseLine(line)
+  if (!e) return
+  if (info.cwd === null && typeof e.cwd === 'string') info.cwd = e.cwd
+  if (info.entrypoint === null && typeof e.entrypoint === 'string') info.entrypoint = e.entrypoint
+  if (typeof e.gitBranch === 'string' && e.gitBranch) info.branch = e.gitBranch
+  if (e.type === 'ai-title' && typeof e.aiTitle === 'string') info.aiTitle = e.aiTitle
+  else if (e.type === 'custom-title' && typeof (e.customTitle ?? e.title) === 'string')
+    info.customTitle = (e.customTitle ?? e.title) as string
+  else if (e.type === 'last-prompt' && typeof e.lastPrompt === 'string') info.lastPrompt = e.lastPrompt
+  else if (e.type === 'user' && !info.first && e.isSidechain !== true) {
+    const content = userContent(obj(e.message).content)
+    if (classifyUser(e, content) === 'prompt') {
+      info.prompted = true
+      info.first = splitPrompt(content.text).text
+    }
+  }
 }
 
 const pad = (n: number): string => String(n).padStart(2, '0')
@@ -279,28 +201,6 @@ const promptLine = (raw: string | null): string | null => {
   if (!raw) return null
   const text = oneLine(splitPrompt(raw).text)
   return text ? clip(text, 200) : null
-}
-
-export interface ListOptions {
-  /** 最多给多少个，默认 LIST_LIMIT */
-  limit?: number
-  /** 项目子文件夹里开的会话也列出来（§3.1 D） */
-  subfolders?: boolean
-  /** 尾部总预算（字节）、单个文件上限，默认 TAIL_BUDGET / TAIL_CAP */
-  tailBudget?: number
-  tailCap?: number
-}
-
-export interface ClaudeSessionList {
-  /** 第一步的结果：按修改时间从新到旧；只有元数据的已经去掉 */
-  sessions: ClaudeSessionSummary[]
-  /**
-   * 第二步：按顺序读这些会话的尾部（不传 ids 就是 sessions 全部），读一个出一个。
-   * 共用这次列表的预算；读到的内容也会补进 sessions 里对应的条目。signal 触发时停下
-   */
-  details(ids?: readonly string[], signal?: AbortSignal): AsyncGenerator<ClaudeSessionDetail>
-  /** 这次列表的尾部预算（剩余字节） */
-  budget: TailBudget
 }
 
 /** 候选目录：精确的 <projects>/<编码路径>；子文件夹和长路径（目录名被截断加哈希）靠前缀扫描，之后用记录里的 cwd 核对 */
@@ -354,7 +254,8 @@ export async function listClaudeSessions(
   opts: ListOptions = {},
 ): Promise<ClaudeSessionList> {
   const subfolders = opts.subfolders === true
-  const files: { id: string; file: string; size: number; mtimeMs: number }[] = []
+  const files: { id: string; file: string; size: number; mtimeMs: number; direct: boolean }[] = []
+  const directDir = join(projectsDir, encodeCwd(cwd))
   for (const dir of await candidateDirs(projectsDir, cwd, subfolders)) {
     let names: string[]
     try {
@@ -371,7 +272,13 @@ export async function listClaudeSessions(
         try {
           const st = await stat(file)
           return st.isFile() && st.size > 0
-            ? { id: name.slice(0, -'.jsonl'.length), file, size: st.size, mtimeMs: st.mtimeMs }
+            ? {
+                id: name.slice(0, -'.jsonl'.length),
+                file,
+                size: st.size,
+                mtimeMs: st.mtimeMs,
+                direct: dir === directDir,
+              }
             : null
         } catch {
           return null
@@ -391,18 +298,20 @@ export async function listClaudeSessions(
     } catch {
       return null
     }
-    if (!head.cwd) return null
-    const where = await matchCwd(cwd, head.cwd, subfolders)
+    // 读到 HEAD_MAX 还没有 cwd：在这个项目自己的记录目录里就算这个项目的（编码撞车的目录里有 cwd 的照常核对）
+    const recorded = head.cwd ?? (f.direct ? cwd : null)
+    if (!recorded) return null
+    const where = await matchCwd(cwd, recorded, subfolders)
     if (!where) return null
     // 头部没有用户输入、又已经是整个文件、也没有 last-prompt：只有元数据，不列
-    if (!head.first && head.whole && !head.lastPrompt) return null
-    const summary: ClaudeSessionSummary = {
+    if (!head.first && !head.prompted && head.whole && !head.lastPrompt) return null
+    const summary: NativeListedSession = {
       id: f.id,
       file: f.file,
       size: f.size,
       mtimeMs: f.mtimeMs,
       updatedAt: f.mtimeMs,
-      cwd: head.cwd,
+      cwd: recorded,
       subdir: where.subdir,
       title: chooseTitle({ custom: head.customTitle, ai: null, first: head.first, last: head.lastPrompt }, f.mtimeMs),
       firstPrompt: clip(oneLine(head.first), 200),
@@ -413,7 +322,7 @@ export async function listClaudeSessions(
     }
     return summary
   })
-  const sessions = built.filter((s): s is ClaudeSessionSummary => s !== null)
+  const sessions = built.filter((s): s is NativeListedSession => s !== null)
   const budget: TailBudget = { left: opts.tailBudget ?? TAIL_BUDGET }
   return {
     sessions,
@@ -437,31 +346,6 @@ export async function listClaudeSessions(
 }
 
 // ---------- 列表：第二步（尾部） ----------
-
-export interface TailBudget {
-  left: number
-}
-
-export interface ClaudeSessionDetail {
-  id: string
-  lastPrompt: string | null
-  title: string
-  /** 最后一个 timestamp；读不到为 null */
-  lastActive: number | null
-  /** 最后一条 assistant 的 message.model（跳过 <synthetic> 和接力行） */
-  model: string | null
-  branch: string | null
-  /** 头部没有用户输入、尾部也没有 last-prompt：只有元数据，该隐藏 */
-  hidden: boolean
-  /** 末尾的 continued-in 指向的会话 id */
-  continuedIn: string | null
-  /** continuedIn 对应的记录在同一个目录里：这一行不列 */
-  superseded: boolean
-  /** 预算用完了，没有读尾部（其余字段是第一步的） */
-  skipped: boolean
-  /** 这次实际读了多少字节（命中缓存为 0） */
-  read: number
-}
 
 interface TailInfo {
   lastPrompt: string | null
@@ -552,10 +436,10 @@ async function readTail(file: string, size: number, budget: TailBudget, cap: num
  * 单个文件最多读 cap 字节，总共受 budget 限制（读一次扣一次，命中缓存不扣）；预算用完了返回 skipped
  */
 export async function claudeSessionDetail(
-  s: ClaudeSessionSummary,
+  s: NativeListedSession,
   budget: TailBudget,
   cap = TAIL_CAP,
-): Promise<ClaudeSessionDetail> {
+): Promise<NativeListedDetail> {
   const key = `${s.file}|${s.size}|${s.mtimeMs}`
   let tail = tailCache.get(key)
   let read = 0
@@ -607,7 +491,7 @@ export async function claudeSessionDetail(
     lastActive: tail.lastActive,
     model: tail.model,
     branch: tail.branch ?? s.branch,
-    hidden: !(head?.first ?? s.firstPrompt) && lastPrompt === null,
+    hidden: !(head?.first || head?.prompted || s.firstPrompt) && lastPrompt === null,
     continuedIn: tail.continuedIn,
     superseded:
       !!tail.continuedIn &&
@@ -619,8 +503,6 @@ export async function claudeSessionDetail(
 }
 
 // ---------- 正开着吗 ----------
-
-export type LiveState = 'terminal' | 'other' | 'maybe' | null
 
 function pidAlive(pid: number): boolean {
   try {
@@ -703,47 +585,6 @@ export function liveClaudeSessions(
 }
 
 // ---------- 导入 ----------
-
-export interface ReadOptions {
-  /** 最近多少轮，默认 50 */
-  turns?: number
-  /** 条目上限，默认 1000 */
-  maxItems?: number
-  signal?: AbortSignal
-  /** 建索引的进度（已读字节 / 总字节） */
-  onProgress?: IndexOptions['onProgress']
-  /** 加载更早的：当前显示着的最早一条用户条目（行 uuid），取它之前的 turns 轮 */
-  before?: string
-  /** 会话正开着：末尾还没结束的一轮（有没结果的 tool_use）不导入，截断点退到它前面 */
-  live?: boolean
-  /** 索引的块大小，测试用 */
-  chunk?: number
-}
-
-export interface NativeRead {
-  file: string
-  /** 条目：user 的 id 是行 uuid、engine 为 claude；其余 imp-<uuid>-<n>；工具用 toolu id；提示用 randomUUID */
-  items: Item[]
-  title: string
-  /** 这条分支一共多少轮（沿 logicalParentUuid 越过压缩边界数，不读内容） */
-  turns: number
-  /** 这次给出了多少轮 */
-  shown: number
-  /** 最近一次压缩的摘要文字 */
-  summary: string | null
-  source: 'terminal' | 'other'
-  /** 最后一条 assistant 的 message.model */
-  model: string | null
-  /** 分支末端（last-prompt 的 leafUuid 规则，可能是 system / attachment 行） */
-  leafUuid: string | null
-  /** 导入的这一段里最后一条 user / assistant 的 uuid：复制一份接着聊的截断点（live 时退到没结束的那一轮前面） */
-  at: string | null
-  /** 给出的最早一条用户条目（加载更早的从这里接着往前） */
-  earliestShownUuid: string | null
-  hasEarlier: boolean
-  /** 给出的内容在最近一次压缩之前（模型只看到压缩摘要）；加载更早的越过边界时为 true */
-  compacted: boolean
-}
 
 const isTurn = (r: IndexRow): boolean => !r.sidechain && (r.user === 'prompt' || r.user === 'command')
 
@@ -925,18 +766,6 @@ async function render(idx: TranscriptIndex, rows: readonly IndexRow[], cwd: stri
   )
 }
 
-/** 条目超过上限时从前面整轮整轮去掉（至少留最后一轮）；返回留下的和去掉了几轮 */
-function fit(items: Item[], maxItems: number): { items: Item[]; dropped: number } {
-  if (items.length <= maxItems) return { items, dropped: 0 }
-  const users = items.flatMap((item, i) => (item.kind === 'user' ? [i] : []))
-  if (users.length === 0) return { items: items.slice(-maxItems), dropped: 0 }
-  let k = users.findIndex(i => i >= items.length - maxItems)
-  if (k < 0) k = users.length - 1
-  return { items: items.slice(users[k]), dropped: k }
-}
-
-const countUsers = (items: readonly Item[]): number => items.filter(i => i.kind === 'user').length
-
 async function summaryText(idx: TranscriptIndex, chain: readonly IndexRow[]): Promise<string | null> {
   const b = lastBoundary(chain)
   const row = b >= 0 ? chain.slice(b + 1).find(r => r.user === 'summary') : undefined
@@ -1052,21 +881,6 @@ export async function readClaudeSession(
     hasEarlier: before > 0,
     compacted: lastB >= 0 && start < lastB,
   }
-}
-
-export interface NewerTurns {
-  /** 接在已有条目后面的新条目；超过 turns 轮时最前面是一条「中间还有 M 轮没有显示」 */
-  items: Item[]
-  /** after 之后一共多少轮 */
-  turns: number
-  /** 给出了多少轮 */
-  shown: number
-  /** 中间没显示的轮数 */
-  gap: number
-  leafUuid: string | null
-  at: string | null
-  /** after（或它这一轮的末尾）那一行的 uuid：像素星空认识的最后位置，「复制一份接着聊」从这里分叉 */
-  base: string
 }
 
 /**

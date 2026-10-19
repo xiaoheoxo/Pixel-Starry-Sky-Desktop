@@ -15,7 +15,7 @@ import type {
   SessionSettings,
 } from '@pixelsky/protocol'
 import type { ChatSeed } from './chat-log'
-import type { ClaudeSessionList, ListOptions, LiveState, NativeRead, NewerTurns, ReadOptions } from './claude/native'
+import type { NativeSessionList, ListOptions, LiveState, NativeRead, NewerTurns, ReadOptions } from './native/types'
 
 /** 要启动的程序：可执行文件 + 固定在前面的参数（例如用 node 跑 cli.js 时是 [cli.js]） */
 export interface Launcher {
@@ -43,6 +43,8 @@ export interface SessionContext {
    * 适配器不发 status / record 事件：运行状态和会话记录由 EngineHost 维护。
    */
   emit(event: EngineEvent): void
+  /** 宿主里这个会话当前的智能体追踪（运行时快照）：引擎新开会话连接时拿来接着更新，不用再读一遍磁盘 */
+  runs?(): AgentRuns
   /** 引擎分配（或确认）了自己的会话 id */
   setEngineSessionId(id: string): void
   /** 引擎自己改了权限模式（例如计划模式下用户同意了计划） */
@@ -102,6 +104,15 @@ export interface CloseOptions {
   quick?: boolean
 }
 
+/**
+ * 回退的截断点：at 是最后保留的位置（null = 回到会话开头）。
+ * unchanged：被移除的消息都没进过引擎的记录，引擎那边什么都不用动（宿主不改待执行的回退 / 分叉）
+ */
+export interface RewindAnchor {
+  at: string | null
+  unchanged?: true
+}
+
 /** 应用退出时给引擎进程自己退出的时间：Claude Code 空闲时关掉 stdin 约 0.6 秒就退，在忙时常常 5 秒也不退 */
 export const QUICK_CLOSE_MS = 1_000
 
@@ -142,10 +153,7 @@ export interface EngineAdapter {
    * 回退：按要移除的用户消息（按顺序）在引擎记录里找截断点。
    * 返回 null 表示这些消息都没进入引擎上下文；at 为 null 表示回到会话开头（换新的引擎会话）。
    */
-  rewindAnchor?(
-    record: SessionRecord,
-    userItemIds: string[],
-  ): { at: string | null } | null | Promise<{ at: string | null } | null>
+  rewindAnchor?(record: SessionRecord, userItemIds: string[]): RewindAnchor | null | Promise<RewindAnchor | null>
   /** 引擎自己分配会话 id（Codex）：宿主不能预先塞 randomUUID，新会话的 engineSessionId 用 null，启动时由引擎新建 */
   readonly enginePicksSessionId?: boolean
   /**
@@ -169,7 +177,7 @@ export interface EngineAdapter {
    */
   beforeCompaction?(record: SessionRecord, userItemId: string): boolean | Promise<boolean>
   /** 接着引擎自己留下的会话（docs/ui/claude-resume.md）：列出这个文件夹的会话（第一步），尾部信息靠返回的 details 补 */
-  nativeSessions?(cwd: string, opts?: ListOptions): Promise<ClaudeSessionList>
+  nativeSessions?(cwd: string, opts?: ListOptions): Promise<NativeSessionList>
   /** 把引擎自己的一个会话读成条目（流式，能取消）；记录不在了返回 null */
   readNativeSession?(cwd: string, id: string, opts?: ReadOptions): Promise<NativeRead | null>
   /** 补上：after 之后新增的轮次；after 不在当前分支上或记录不在了返回 null */
@@ -183,6 +191,8 @@ export interface EngineAdapter {
   hasNativeSession?(record: SessionRecord): boolean
   /** 这些会话现在有没有别的进程开着（不含像素星空自己起的进程）；id 不在结果里的按没开着算 */
   nativeLive?(rows: readonly { id: string; mtimeMs: number }[]): Map<string, LiveState>
+  /** 应用退出时关掉适配器自己的常驻进程（Codex 的只读 app-server）；quick 同会话的 close：最多等 1 秒 */
+  close?(opts?: CloseOptions): Promise<void>
   /** 旁聊：带着会话上下文单独问一次，没有工具、不写记录（§3） */
   sideQuestion?(record: SessionRecord, prompt: string, signal: AbortSignal): Promise<string>
 }

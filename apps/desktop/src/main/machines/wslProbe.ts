@@ -75,6 +75,7 @@ shell_find() {
 PRETTY=$(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | head -n 1 | sed -e 's/^PRETTY_NAME=//' -e 's/^"//' -e 's/"$//')
 KERNEL=$(uname -r 2>/dev/null)
 CHARMAP=$(locale charmap 2>/dev/null)
+ARCH=$(uname -m 2>/dev/null)
 
 try_node env "$PIXELSKY_NODE"
 try_node shell "$(shell_find node)"
@@ -93,8 +94,8 @@ for n in claude codex; do
   for p in "$HOME"/.nvm/versions/node/*/bin/$n; do try_cli $n "$p"; done
 done
 
-printf 'PIXELSKY_PROBE={"pretty":%s,"kernel":%s,"distro":%s,"shell":%s,"home":%s,"charmap":%s,' \
-  "$(s "$PRETTY")" "$(s "$KERNEL")" "$(s "$WSL_DISTRO_NAME")" "$(s "$SHELL")" "$(s "$HOME")" "$(s "$CHARMAP")"
+printf 'PIXELSKY_PROBE={"pretty":%s,"kernel":%s,"distro":%s,"shell":%s,"home":%s,"charmap":%s,"arch":%s,' \
+  "$(s "$PRETTY")" "$(s "$KERNEL")" "$(s "$WSL_DISTRO_NAME")" "$(s "$SHELL")" "$(s "$HOME")" "$(s "$CHARMAP")" "$(s "$ARCH")"
 printf '"nodes":[%s],"claude":[%s],"codex":[%s],' "$NODES" "$CL" "$CX"
 printf '"login":{"claude":%s,"codex":%s}}\n' \
   "$(b "$(file_has "$HOME/.claude/.credentials.json")")" "$(b "$(file_has "$HOME/.codex/auth.json")")"
@@ -130,10 +131,19 @@ export interface WslProbe {
   shell: string | null
   home: string | null
   charmap: string | null
+  /** uname -m 归一化后的架构；认不出（含 32 位）是 null，不下发命令行 */
+  arch: 'x64' | 'arm64' | null
   nodes: WslProbeNode[]
   claude: WslProbeCli[]
   codex: WslProbeCli[]
   login: { claude: boolean; codex: boolean }
+}
+
+export function normalizeArch(raw: unknown): 'x64' | 'arm64' | null {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (value === 'x86_64' || value === 'amd64' || value === 'x64') return 'x64'
+  if (value === 'aarch64' || value === 'arm64') return 'arm64'
+  return null
 }
 
 export function parseProbe(stdout: string): WslProbe | null {
@@ -152,6 +162,7 @@ export function parseProbe(stdout: string): WslProbe | null {
         shell: value.shell ?? null,
         home: value.home ?? null,
         charmap: value.charmap ?? null,
+        arch: normalizeArch(value.arch),
         nodes: Array.isArray(value.nodes) ? value.nodes : [],
         claude: Array.isArray(value.claude) ? value.claude : [],
         codex: Array.isArray(value.codex) ? value.codex : [],

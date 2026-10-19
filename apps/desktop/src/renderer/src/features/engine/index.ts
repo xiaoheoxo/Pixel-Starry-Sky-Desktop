@@ -27,6 +27,7 @@ export {
   useEngineState,
 } from './store'
 export { recentSpansProjects } from './sidebarData'
+export { useSidebarFreezeOn } from './sidebarFreeze'
 export { OPEN_SESSION_EVENT, useOpenSessionRequests } from './openRequests'
 export {
   SOURCE_ACTION_EVENT,

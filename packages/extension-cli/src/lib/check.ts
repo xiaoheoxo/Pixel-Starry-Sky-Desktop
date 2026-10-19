@@ -60,6 +60,8 @@ export interface CheckInputOptions {
   strict?: boolean
   /** 语法引擎在哪跑；默认 worker（源码里直接跑的测试用 inline） */
   runner?: 'inline' | 'worker'
+  /** runner 为 worker 时 worker 线程跑哪个文件（默认是本文件所在的包）；被打进别的程序时要指到那个程序自己的入口 */
+  workerUrl?: URL
 }
 
 /** 只读前 limit 字节：超大的 zip 不整个读进内存 */
@@ -138,6 +140,7 @@ export async function checkInput(path: string, opts: CheckInputOptions): Promise
       inactive: staticCheck.inactive.grammars ?? [],
       mode: grammar,
       runner: opts.runner ?? 'worker',
+      ...(opts.workerUrl ? { workerUrl: opts.workerUrl } : {}),
     })
     grammarResults = engine.results
     check = checkPack(files, { source: 'folder', grammar: engine.issues })

@@ -2,7 +2,7 @@
 // SSH 辅助进程注入数据目录下的 trash/（core/project-tools/trash.ts）；都不注入时用 git clean。所有命令以参数数组执行，路径前一律加 `--`。
 import { spawn } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { WorkspaceRef } from '../../../shared/types/workspace'
 import type {
   GitAction,
@@ -26,7 +26,7 @@ import type {
   GitStatus,
 } from '../../../shared/types/project-tools'
 import { workspacePath } from '../workspace-files'
-import { value, type ToolsHost } from './common'
+import { samePath, value, type ToolsHost } from './common'
 import {
   classifyGitError,
   isHash,
@@ -44,6 +44,11 @@ export const DIFF_LIMIT = 2 * 1024 * 1024
 const OUTPUT_LIMIT = 16 * 1024 * 1024
 const MAX_PATHS = 5000
 export const GIT_TIMEOUTS = { read: 15_000, diff: 10_000, stage: 30_000, commit: 300_000, remote: 90_000 }
+/** 同一仓库的状态查询：从那一轮开始算，这段时间内到的请求共用同一份结果（写操作完成后作废） */
+const STATUS_REUSE_MS = 500
+/** 工作区 → 仓库根的缓存隔多久重新问一次 git（期间每次只用 stat 核对 .git 还在） */
+const REPO_RECHECK_MS = 60_000
+const CACHE_LIMIT = 64
 
 /**
  * 不弹任何交互：凭据 / 编辑器 / 分页器都关掉，英文输出便于分类，状态查询不抢 index.lock，
@@ -174,27 +179,133 @@ interface Repo {
 /** 放弃未跟踪文件时的去处：本机进系统回收站，远端移到数据目录的 trash/（docs/ui/git-panel.md §2.4）；不给则用 git clean */
 export type GitTrash = (files: TrashFile[]) => Promise<void>
 
+const EMPTY_STATUS: GitStatus = {
+  repo: false,
+  missing: false,
+  root: null,
+  branch: null,
+  detached: false,
+  head: null,
+  initial: false,
+  upstream: null,
+  ahead: 0,
+  behind: 0,
+  remotes: [],
+  staged: [],
+  unstaged: [],
+  untracked: [],
+  conflicted: [],
+  truncated: false,
+  operation: null,
+  fetchedAt: null,
+  busySessions: 0,
+}
+
+const pathKey = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
+
+/** 状态里要看的 git 内部文件（rev-parse --git-path 的顺序）；最后的 config 不进状态，只用来判断 remote 有没有变 */
+const STATE_PATHS = [
+  'MERGE_HEAD',
+  'rebase-merge',
+  'rebase-apply',
+  'CHERRY_PICK_HEAD',
+  'REVERT_HEAD',
+  'FETCH_HEAD',
+  'config',
+]
+const CONFIG_AT = STATE_PATHS.length - 1
+
+/** 一个仓库的固定信息：git 内部路径（worktree / submodule 里 .git 是文件，由 rev-parse 带到真正的目录）和 remote 缓存 */
+interface RepoMeta {
+  paths: string[] | null
+  configKey: string | null
+  remotes: string[] | null
+}
+
+/** 同一仓库同一工作区前缀的状态查询：同时最多一轮在跑、一轮在排队 */
+interface StatusRun {
+  gen: number
+  startedAt: number
+  promise: Promise<GitStatus>
+}
+interface StatusEntry {
+  root: string
+  /** 写操作完成后加一：之前开始的那一轮结果不再复用 */
+  gen: number
+  running: StatusRun | null
+  next: Promise<GitStatus> | null
+  done: { gen: number; startedAt: number; status: GitStatus } | null
+}
+
+/** 文件的 mtime + 大小，读不到是 null */
+const fileKey = (path: string): Promise<string | null> =>
+  stat(path).then(
+    info => `${info.mtimeMs}:${info.size}`,
+    () => null,
+  )
+
 export class GitTools {
   private locks = new Map<string, Promise<unknown>>()
+  private repos = new Map<string, { repo: Repo; at: number }>()
+  private resolving = new Map<string, Promise<Repo | 'missing' | null>>()
+  private metas = new Map<string, RepoMeta>()
+  private statuses = new Map<string, StatusEntry>()
   constructor(
     private host: ToolsHost,
     private changed: () => void,
-    private opts: { trash?: GitTrash; timeouts?: Partial<typeof GIT_TIMEOUTS> } = {},
+    private opts: {
+      trash?: GitTrash
+      timeouts?: Partial<typeof GIT_TIMEOUTS>
+      /** 状态结果复用多久（毫秒）；测试里设 0 关掉 */
+      statusReuseMs?: number
+    } = {},
   ) {}
 
   private timeout(kind: keyof typeof GIT_TIMEOUTS): number {
     return this.opts.timeouts?.[kind] ?? GIT_TIMEOUTS[kind]
   }
 
+  /**
+   * 工作区所在的仓库。仓库根按工作区缓存：每次只用 stat 核对 .git 还在（根目录有、工作区自己没有新建的 .git），
+   * 每 60 秒或核对不过再问一次 git；不是仓库、没装 git 不缓存。同一时刻的多次查询共用一次 rev-parse。
+   */
   private async repo(ref: WorkspaceRef): Promise<Repo | 'missing' | null> {
     const workspace = this.host.resolve(ref).path
+    const key = pathKey(resolve(workspace))
+    const hit = this.repos.get(key)
+    if (hit) {
+      if (Date.now() - hit.at < REPO_RECHECK_MS && (await this.repoIntact(hit.repo))) return hit.repo
+      this.repos.delete(key)
+    }
+    let job = this.resolving.get(key)
+    if (!job) {
+      job = this.lookup(workspace, key).finally(() => this.resolving.delete(key))
+      this.resolving.set(key, job)
+    }
+    return job
+  }
+
+  private async lookup(workspace: string, key: string): Promise<Repo | 'missing' | null> {
     const run = await runGit(workspace, ['rev-parse', '--show-toplevel', '--show-prefix'], {
       timeout: this.timeout('read'),
     })
     if (run.missing) return 'missing'
     if (run.code !== 0) return null
     const [root = '', prefix = ''] = text(run.stdout).split(/\r?\n/)
-    return { root: resolve(root.trim()), prefix: prefix.trim(), workspace }
+    const repo = { root: resolve(root.trim()), prefix: prefix.trim(), workspace }
+    this.repos.set(key, { repo, at: Date.now() })
+    return repo
+  }
+
+  private async repoIntact(repo: Repo): Promise<boolean> {
+    const exists = (dir: string) =>
+      stat(join(dir, '.git')).then(
+        () => true,
+        () => false,
+      )
+    const nested = samePath(repo.workspace, repo.root) ? Promise.resolve(false) : exists(repo.workspace)
+    const [own, inner] = await Promise.all([exists(repo.root), nested])
+    return own && !inner
   }
 
   private async exec(
@@ -242,68 +353,120 @@ export class GitTools {
     return this.host.sessions(repo.workspace).filter(s => s.state !== 'idle').length
   }
 
-  async status(ref: WorkspaceRef): Promise<GitStatus> {
-    const empty: GitStatus = {
-      repo: false,
-      missing: false,
-      root: null,
-      branch: null,
-      detached: false,
-      head: null,
-      initial: false,
-      upstream: null,
-      ahead: 0,
-      behind: 0,
-      remotes: [],
-      staged: [],
-      unstaged: [],
-      untracked: [],
-      conflicted: [],
-      truncated: false,
-      operation: null,
-      fetchedAt: null,
-      busySessions: 0,
-    }
+  /**
+   * 工作区的 Git 状态。同一仓库同时到的请求共用一轮 git status，结果再复用 0.5 秒；写操作完成后作废。
+   * `fresh` 要求读一轮在此之后才开始的（写操作前后、需要准确判断的地方用）。
+   */
+  async status(ref: WorkspaceRef, fresh = false): Promise<GitStatus> {
     const repo = await this.repo(ref)
-    if (repo === 'missing') return { ...empty, missing: true }
-    if (!repo) return empty
+    if (repo === 'missing') return { ...EMPTY_STATUS, missing: true }
+    if (!repo) return EMPTY_STATUS
+    const status = await this.sharedStatus(repo, fresh)
+    // 会话是否在运行不用 git 查，每次按当前的取
+    return { ...status, busySessions: this.busy(repo) }
+  }
+
+  private sharedStatus(repo: Repo, fresh: boolean): Promise<GitStatus> {
+    const reuse = this.opts.statusReuseMs ?? STATUS_REUSE_MS
+    const key = pathKey(repo.root) + '\0' + repo.prefix
+    let entry = this.statuses.get(key)
+    if (!entry) {
+      this.prune()
+      this.statuses.set(key, (entry = { root: pathKey(repo.root), gen: 0, running: null, next: null, done: null }))
+    }
+    const now = Date.now()
+    const { done, running } = entry
+    if (!fresh && done && done.gen === entry.gen && now - done.startedAt < reuse) return Promise.resolve(done.status)
+    if (!running) return this.launch(repo, entry)
+    if (!fresh && running.gen === entry.gen && now - running.startedAt < reuse) return running.promise
+    // 正在跑的那一轮开始得太早（或中间有过写操作）：排一轮接在它后面，之后到的请求共用这一轮
+    entry.next ??= running.promise
+      .then(
+        () => {},
+        () => {},
+      )
+      .then(() => {
+        entry.next = null
+        return this.launch(repo, entry)
+      })
+    return entry.next
+  }
+
+  private launch(repo: Repo, entry: StatusEntry): Promise<GitStatus> {
+    const run: StatusRun = { gen: entry.gen, startedAt: Date.now(), promise: Promise.resolve(EMPTY_STATUS) }
+    const job = this.readStatus(repo)
+    // 同步部分（起 git 进程）返回后才算这一轮开始
+    run.startedAt = Date.now()
+    run.promise = job
+      .then(
+        status => {
+          if (run.gen === entry.gen) entry.done = { gen: run.gen, startedAt: run.startedAt, status }
+          return status
+        },
+        error => {
+          entry.done = null
+          throw error
+        },
+      )
+      .finally(() => {
+        if (entry.running === run) entry.running = null
+      })
+    entry.running = run
+    return run.promise
+  }
+
+  /** 这个仓库发生了写操作：之前的结果不再复用，开始得早的那一轮即使跑完也不记下来 */
+  private invalidate(repo: Repo): void {
+    const root = pathKey(repo.root)
+    for (const entry of this.statuses.values())
+      if (entry.root === root) {
+        entry.gen++
+        entry.done = null
+      }
+  }
+
+  /** 状态记录只留最近用过的：超过上限时丢掉闲着的 */
+  private prune(): void {
+    if (this.statuses.size < CACHE_LIMIT) return
+    for (const [key, entry] of this.statuses) if (!entry.running && !entry.next) this.statuses.delete(key)
+  }
+
+  /** git 内部文件的路径（worktree / submodule 里 .git 是文件，rev-parse 会带到真正的目录）；读失败是 null */
+  private async gitPaths(repo: Repo): Promise<string[] | null> {
+    const args = ['rev-parse']
+    for (const name of STATE_PATHS) args.push('--git-path', name)
+    const run = await runGit(repo.root, args, { timeout: this.timeout('read') })
+    if (run.code !== 0) return null
+    const lines = text(run.stdout)
+      .split(/\r?\n/)
+      .map(p => p.trim())
+      .filter(Boolean)
+    return lines.length === STATE_PATHS.length ? lines.map(p => resolve(repo.root, p)) : null
+  }
+
+  /** 真正跑 git。固定不变的东西缓存：git 内部路径只问一次，remote 只在 config 变了才重问，常态下只剩 git status 一个进程 */
+  private async readStatus(repo: Repo): Promise<GitStatus> {
+    const rootKey = pathKey(repo.root)
+    const cached = this.metas.get(rootKey)
+    // 先把 git status 起起来（Windows 上 spawn 是同步的，可能很慢；launch 要等它返回才开始计复用窗口）
+    const statusJob = runGit(repo.root, ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'], {
+      timeout: this.timeout('read'),
+    })
+    const knownKey = cached?.paths ? await fileKey(cached.paths[CONFIG_AT]) : null
+    const remotesKnown = !!cached?.remotes && !!knownKey && cached.configKey === knownKey
     const [statusRun, remotesRun, pathsRun] = await Promise.all([
-      runGit(repo.root, ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'], {
-        timeout: this.timeout('read'),
-      }),
-      runGit(repo.root, ['remote'], { timeout: this.timeout('read') }),
-      runGit(
-        repo.root,
-        [
-          'rev-parse',
-          '--git-path',
-          'MERGE_HEAD',
-          '--git-path',
-          'rebase-merge',
-          '--git-path',
-          'rebase-apply',
-          '--git-path',
-          'CHERRY_PICK_HEAD',
-          '--git-path',
-          'REVERT_HEAD',
-          '--git-path',
-          'FETCH_HEAD',
-        ],
-        { timeout: this.timeout('read') },
-      ),
+      statusJob,
+      remotesKnown ? null : runGit(repo.root, ['remote'], { timeout: this.timeout('read') }),
+      cached?.paths ? null : this.gitPaths(repo),
     ])
     if (statusRun.code !== 0)
       throw new Error(
         statusRun.timedOut ? 'Git 状态读取超时' : statusRun.stderr.trim().split('\n').at(-1) || 'Git 状态读取失败',
       )
     const parsed = parseStatusV2(text(statusRun.stdout), repo.prefix)
-    const gitPaths = text(pathsRun.stdout)
-      .split(/\r?\n/)
-      .map(p => p.trim())
-      .filter(Boolean)
-      .map(p => resolve(repo.root, p))
+    const gitPaths = cached?.paths ?? pathsRun
     const exists = await Promise.all(
-      gitPaths.map(p =>
+      (gitPaths ?? []).slice(0, CONFIG_AT).map(p =>
         stat(p).then(
           info => info,
           () => null,
@@ -313,19 +476,33 @@ export class GitTools {
     const [merge, rebaseMerge, rebaseApply, cherry, revert, fetchHead] = exists
     const operation =
       rebaseMerge || rebaseApply ? 'rebase' : merge ? 'merge' : cherry ? 'cherry-pick' : revert ? 'revert' : null
+    let remotes = cached?.remotes ?? []
+    let meta: RepoMeta | null = null
+    if (remotesRun) {
+      remotes = text(remotesRun.stdout)
+        .split(/\r?\n/)
+        .map(r => r.trim())
+        .filter(Boolean)
+      // 读成功且拿得到 config 的指纹才记下：下次 config 没变就不再起进程
+      const configKey = knownKey ?? (gitPaths ? await fileKey(gitPaths[CONFIG_AT]) : null)
+      if (remotesRun.code === 0 && configKey) meta = { paths: gitPaths, configKey, remotes }
+    }
+    if (gitPaths && !cached?.paths) meta ??= { paths: gitPaths, configKey: null, remotes: null }
+    if (meta) this.remember(rootKey, meta)
     return {
-      ...empty,
+      ...EMPTY_STATUS,
       ...parsed,
       repo: true,
       root: repo.root,
-      remotes: text(remotesRun.stdout)
-        .split(/\r?\n/)
-        .map(r => r.trim())
-        .filter(Boolean),
+      remotes,
       operation,
       fetchedAt: fetchHead ? fetchHead.mtimeMs : null,
-      busySessions: this.busy(repo),
     }
+  }
+
+  private remember(rootKey: string, meta: RepoMeta): void {
+    if (this.metas.size >= CACHE_LIMIT && !this.metas.has(rootKey)) this.metas.delete(this.metas.keys().next().value!)
+    this.metas.set(rootKey, meta)
   }
 
   private async blob(repo: Repo, spec: string): Promise<Buffer | null> {
@@ -838,12 +1015,13 @@ export class GitTools {
     if (repo === 'missing')
       return { ok: false, failure: { kind: 'missing', action, detail: '', remedies: [] }, status: null }
     if (!repo) return { ok: false, failure: { kind: 'notRepo', action, detail: '', remedies: [] }, status: null }
-    const key = process.platform === 'win32' ? repo.root.toLowerCase() : repo.root
+    const key = pathKey(repo.root)
     const prior = this.locks.get(key) ?? Promise.resolve()
     const task = prior
       .catch(() => {})
       .then(async (): Promise<GitResult> => {
-        const before = await this.status(ref)
+        // 写操作前后都读一轮此刻才开始的，不用复用的结果
+        const before = await this.status(ref, true)
         if (guard && before.busySessions > 0)
           return { ok: false, failure: { kind: 'busy', action, detail: '', remedies: [] }, status: before }
         try {
@@ -853,11 +1031,13 @@ export class GitTools {
             error instanceof GitError
               ? error.failure
               : { kind: 'invalid' as const, action, detail: (error as Error).message, remedies: [] }
+          this.invalidate(repo)
           this.changed()
-          return { ok: false, failure, status: await this.status(ref).catch(() => null) }
+          return { ok: false, failure, status: await this.status(ref, true).catch(() => null) }
         }
+        this.invalidate(repo)
         this.changed()
-        return { ok: true, status: await this.status(ref) }
+        return { ok: true, status: await this.status(ref, true) }
       })
     this.locks.set(key, task)
     try {
@@ -922,7 +1102,10 @@ export class GitTools {
       await this.exec(repo, 'commit', ['commit', '-q', '-F', '-'], 'commit', message).catch(error =>
         this.hookFailure(repo, error, ['pre-commit', 'prepare-commit-msg', 'commit-msg']),
       )
-      if (v.push === true) await this.pushIn(repo, await this.status(ref), false)
+      if (v.push === true) {
+        this.invalidate(repo)
+        await this.pushIn(repo, await this.status(ref, true), false)
+      }
     })
   }
 

@@ -5,16 +5,42 @@ import type { DemoSessionChange } from '@/data/types'
 export const busy = (s: SessionSummary): boolean => s.state !== 'idle' || !!s.background
 /** 侧栏「置顶」分组里的会话：带上所属项目名 */
 export type PinnedSession = Session & { project?: string; projectId?: string }
+/** 冻结快照：会话 ID → 冻结那一刻的 updatedAt（侧栏按「最近」排的那把钥匙） */
+export type RecencyFreeze = ReadonlyMap<string, number>
+
+/** 抓一份冻结快照：鼠标进侧栏时调用 */
+export function captureRecency(sessions: readonly SessionSummary[]): RecencyFreeze {
+  return new Map(sessions.map(s => [s.record.id, s.record.updatedAt]))
+}
+
+/**
+ * 冻结「按最近活动自动排序」：快照里的会话按冻结时的 updatedAt 排（相同保持原顺序），
+ * 快照里没有的（冻结期间新建的）用它真实的 updatedAt，所以排在最前面。
+ * 只冻结这一把钥匙：置顶 / 置底 / 归档 / 换项目 / 改名都不看它，照旧即时生效（下游的 bottomOrder / pinnedOrder 是稳定排序）。
+ * 没有快照（没冻结）时原样返回
+ */
+export function freezeRecency(sessions: SessionSummary[], frozen: RecencyFreeze | null | undefined): SessionSummary[] {
+  if (!frozen?.size) return sessions
+  const key = (s: SessionSummary): number => frozen.get(s.record.id) ?? s.record.updatedAt
+  return sessions
+    .map((s, i) => ({ s, i, k: key(s) }))
+    .sort((a, b) => b.k - a.k || a.i - b.i)
+    .map(x => x.s)
+}
+
 export function sidebarData(
   projects: ProjectRecord[],
-  sessions: SessionSummary[],
+  allSessions: SessionSummary[],
   unread: Record<string, boolean>,
   time: (stamp: number) => string,
+  /** 鼠标在侧栏里时的冻结快照；null / 不传是不冻结 */
+  frozen?: RecencyFreeze | null,
 ): {
   projects: Project[]
   pinned: PinnedSession[]
   recent: Array<RecentItem & { status: SessionStatus }>
 } {
+  const sessions = freezeRecency(allSessions, frozen)
   const status = (s: SessionSummary): SessionStatus => (busy(s) ? 'running' : unread[s.record.id] ? 'unread' : 'idle')
   const row = (s: SessionSummary) => ({
     id: s.record.id,

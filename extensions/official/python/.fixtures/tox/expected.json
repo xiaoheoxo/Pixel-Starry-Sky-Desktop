@@ -1,0 +1,34 @@
+[
+  {
+    "template": "tox",
+    "file": "tox.ini",
+    "tasks": [
+      {
+        "name": "lint",
+        "description": "代码检查",
+        "linux": "tox -e lint",
+        "windows": "tox -e lint"
+      },
+      {
+        "name": "docs",
+        "linux": "tox -e docs",
+        "windows": "tox -e docs"
+      },
+      {
+        "name": "py311",
+        "linux": "tox -e py311",
+        "windows": "tox -e py311"
+      },
+      {
+        "name": "py312",
+        "linux": "tox -e py312",
+        "windows": "tox -e py312"
+      },
+      {
+        "name": "3.13",
+        "linux": "tox -e 3.13",
+        "windows": "tox -e 3.13"
+      }
+    ]
+  }
+]

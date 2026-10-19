@@ -23,6 +23,37 @@ export function groupTasks(sessions: readonly SessionSummary[], recentLimit = RE
   }
 }
 
+/** 首页和抽屉的会话列表（C3，docs/mobile-remote.md §21.3）：「等你处理」置顶，其余里置顶的在前，再按时间排 */
+export interface SessionList {
+  waiting: SessionSummary[]
+  rest: SessionSummary[]
+  /** rest 截掉了几条（「显示更多」） */
+  more: number
+}
+
+export function sessionList(sessions: readonly SessionSummary[], limit = RECENT_STEP): SessionList {
+  const live = sessions.filter(s => !s.record.archivedAt)
+  const byTime = (a: SessionSummary, b: SessionSummary) => b.record.updatedAt - a.record.updatedAt
+  const pinned = (s: SessionSummary) => (s.record.pinnedAt ? 1 : 0)
+  const rest = live.filter(s => s.state !== 'waiting').sort((a, b) => pinned(b) - pinned(a) || byTime(a, b))
+  return {
+    waiting: live.filter(s => s.state === 'waiting').sort(byTime),
+    rest: rest.slice(0, limit),
+    more: Math.max(0, rest.length - limit),
+  }
+}
+
+/** 一行会话不是空闲时的状态（头像角上的点、第二行的字）；空闲时 null，第二行显示最后一句回复 */
+export function sessionStatus(
+  s: SessionSummary,
+): { tone: 'danger' | 'online' | 'warn'; text: string; pulse?: boolean } | null {
+  if (s.state === 'waiting') return { tone: 'danger', text: '等你处理' }
+  if (s.state === 'starting') return { tone: 'online', text: '正在启动…', pulse: true }
+  if (s.state === 'running') return { tone: 'online', text: '正在回复…', pulse: true }
+  if (s.record.lastOutcome === 'failed') return { tone: 'warn', text: '出错了' }
+  return null
+}
+
 /** 列表里显示的标题：没有标题时用「未命名会话」 */
 export function taskTitle(s: SessionSummary): string {
   return s.record.title.trim() || '未命名会话'
@@ -36,10 +67,6 @@ export function ago(at: number, now = Date.now()): string {
   if (s < 86400) return `${Math.floor(s / 3600)} 小时前`
   return `${Math.floor(s / 86400)} 天前`
 }
-
-/** 「最近」一共有几条（判断要不要「显示更多」） */
-export const recentCount = (sessions: readonly SessionSummary[]): number =>
-  sessions.filter(s => !s.record.archivedAt && s.state === 'idle').length
 
 /**
  * 按关键词（标题、项目名、引擎名，多个词都要有，不分大小写）和项目筛任务。

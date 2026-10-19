@@ -2,13 +2,16 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 // 错误卡片下面的一键按钮（docs/ui/source-switch.md §3.5）：只给最近一轮的错误，按错误类型和会话的额度来源给下一步。
 // 按钮只发请求（features/engine/sourceActions.ts），切换额度来源的确认由同一会话的输入框负责。不会自动切换。
-import { ENGINES, type SessionRecord } from '@pixelsky/protocol'
+import type { NoticeError, SessionRecord } from '@pixelsky/protocol'
 import { demoRetry, requestSourceAction, type SourceAction } from '@/features/engine'
 import { isDemo } from '@/data'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { requestLogFocus } from '@/features/logs/focus'
 import { requestFeedback } from '@/features/feedback/focus'
-import { classifyError, type ErrorKind } from './errorKind'
+import { actionsFor, classifyError, noticeActions } from './errorKind'
+
+// 纯函数在 errorKind.ts（测试不用加载引擎）；侧栏悬停卡从这里取 actionsFor
+export { actionsFor, noticeActions }
 
 export const SOURCE_ACTION_LABEL: Record<SourceAction, string> = {
   get 'open-menu'() {
@@ -32,39 +35,26 @@ export const SOURCE_ACTION_LABEL: Record<SourceAction, string> = {
   get retry() {
     return tr('session.live.NoticeActions.retry')
   },
-}
-
-/** 侧栏状态悬停卡也用（features/sidebar/SessionStatusCard.tsx） */
-export function actionsFor(
-  kind: ErrorKind,
-  record: Pick<SessionRecord, 'platform' | 'provider'>,
-  engine: SessionRecord['engine'],
-): SourceAction[] {
-  // 自定义 API（docs/ui/custom-api.md §3.3）：失败不自动改用别的来源，按钮让用户自己选
-  if (record.provider && !record.platform) {
-    const platform: SourceAction[] = ENGINES[engine].caps.platformSwitch ? ['use-platform'] : []
-    if (kind === 'auth') return ['edit-provider', ...platform, 'use-self']
-    if (kind === 'balance' || kind === 'busy') return ['edit-provider', ...platform]
-    return ['open-menu', 'edit-provider']
-  }
-  if (record.platform) {
-    if (kind === 'auth') return ['sign-in', 'use-self']
-    if (kind === 'balance') return ['open-account', 'open-menu', 'use-self']
-    return ['open-menu', 'use-self']
-  }
-  // 自有：只有能接平台额度的引擎（能力表 platformSwitch）才给「改用平台」
-  return ENGINES[engine].caps.platformSwitch ? ['use-platform'] : []
+  get 'compact-retry'() {
+    return tr('session.live.NoticeActions.compactRetry')
+  },
 }
 
 /** 卡片下面最后一个按钮「查看日志」：打开设置 › 日志，筛到这个会话这一轮（docs/ui/logging.md §3.2） */
 export function NoticeActions({
   record,
   text,
+  error,
   turnStart,
   retry = false,
+  compact = false,
 }: {
   record: SessionRecord
   text: string
+  /** 引擎给的结构化报错信息（notice.error）；没有时按文字归类 */
+  error?: NoticeError
+  /** 引擎支持原生压缩（snapshot.flags.compactAvailable）：上下文超限时给「压缩后重试」 */
+  compact?: boolean
   /** 给「重试」：会话空闲、队列也空着时（没发出去的消息在队列里有自己的重试） */
   retry?: boolean
   /** 这一轮用户消息的时间；没有时按十分钟前 */
@@ -72,11 +62,7 @@ export function NoticeActions({
 }) {
   useI18n()
   const settings = useSettings()
-  const kind = classifyError(text)
-  const actions: SourceAction[] = [
-    ...(retry ? (['retry'] as const) : []),
-    ...(kind ? actionsFor(kind, record, record.engine) : []),
-  ]
+  const actions = noticeActions(classifyError(text, error), record, record.engine, { retry, compact })
   const viewLogs = () => {
     requestLogFocus(record.id, turnStart ?? Date.now() - 10 * 60_000)
     settings.openSettings('logs')

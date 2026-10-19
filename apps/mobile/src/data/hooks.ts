@@ -1,8 +1,10 @@
 // 界面用的数据钩子：电脑列表、某台电脑的任务和项目、某个会话。只经 connection/ 拿数据。
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type {
+  EngineCatalog,
   EngineEvent,
   EngineId,
+  EngineModel,
   HostEvent,
   ImageAttachment,
   Item,
@@ -54,6 +56,8 @@ export interface DesktopData {
   sessions: SessionSummary[]
   projects: ProjectRecord[]
   loaded: boolean
+  /** 显示的是上次存在本机的列表，这次还没从电脑取到新的；此时 loaded 也是 true */
+  cached: boolean
 }
 
 /** 一台电脑的任务列表和项目（全应用一份，见 desktop.ts） */
@@ -190,4 +194,31 @@ export function useContentSearch(deviceId: string | undefined, text: string, pro
     }
   }, [state, link, query, projectId])
   return result
+}
+
+export interface Catalog {
+  models: EngineModel[] | null
+  /** 电脑版太旧（手机还不能取模型目录），只能在电脑上改 */
+  unsupported: boolean
+}
+
+/** 引擎报上来的模型目录（改模式面板用）；同一台电脑、同一个引擎只取一次 */
+export function useCatalog(deviceId: string | undefined, engine: EngineId, enabled = true): Catalog {
+  const state = useLinkState(deviceId)
+  const link = deviceId ? connections.link(deviceId) : undefined
+  const [catalog, setCatalog] = useState<Catalog>({ models: null, unsupported: false })
+  useEffect(() => {
+    if (!enabled || state !== 'ready' || !link) return
+    let alive = true
+    setCatalog({ models: null, unsupported: false })
+    link.call<EngineCatalog>('engine:catalog', engine).then(
+      r => alive && setCatalog({ models: r?.models ?? [], unsupported: false }),
+      // 只有旧版电脑（不认这个通道）算「不支持」；别的错（引擎没装、超时）当作没有目录
+      (e: Error) => alive && setCatalog({ models: [], unsupported: e.message === 'MOBILE_UNSUPPORTED' }),
+    )
+    return () => {
+      alive = false
+    }
+  }, [enabled, state, link, engine])
+  return catalog
 }

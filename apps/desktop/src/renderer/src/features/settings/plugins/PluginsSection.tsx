@@ -472,8 +472,10 @@ export function PluginsSection() {
                       <span className="block break-words text-list font-medium">{row.name}</span>
                       <span className="mt-1 block break-words text-meta text-fg-muted">{row.description}</span>
                       <span className="mt-1 block text-meta text-fg-faint">
-                        {(e.engines ?? ['claude']).map(engine => ENGINES[engine].name).join(' / ')} ·{' '}
-                        {t(e.scope.kind === 'global' ? '全局' : '当前项目')}
+                        {(e.engines ?? ['claude'])
+                          .map(engine => (engine === 'pixel' ? tr('engine.pixel.name') : ENGINES[engine].name))
+                          .join(' / ')}{' '}
+                        · {t(e.scope.kind === 'global' ? '全局' : '当前项目')}
                         {e.version ? ' · ' + e.version : ''}
                         {!row.component && e.kind === 'plugin' ? ' · ' + e.components.length + ' ' + t('组件') : ''}
                         {row.component ? ' · ' + t('随插件启用') : ''}

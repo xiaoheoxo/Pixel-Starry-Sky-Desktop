@@ -28,9 +28,17 @@ export interface AccountInfo {
   /** 上次成功拉取的时间（毫秒时间戳） */
   updatedAt: number
 }
+/** 手动刷新账号的结果：error 是失败原因（中文宿主文案，界面用 translateMessage），account 是刷新后的账号数据 */
+export interface AccountRefreshResult {
+  error: string | null
+  account: AccountInfo | null
+}
+/** 登录没成功的原因（欢迎页按它显示不同的提示）：超时、在授权页点了取消、连不上服务、其他 */
+export type LoginFailure = 'timeout' | 'denied' | 'network' | 'failed'
 export type AccountState =
-  | { status: 'signed-out'; error?: string }
-  | { status: 'signing-in'; authCode: string }
+  | { status: 'signed-out'; error?: string; reason?: LoginFailure }
+  /** url：授权页地址，回调服务起来后才有（「复制登录链接」用） */
+  | { status: 'signing-in'; authCode: string; url?: string }
   | { status: 'signed-in'; account: AccountInfo; refreshing: boolean; error?: string }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +97,10 @@ export interface StoreMethod {
 export interface StoreCatalog {
   /** Sub2api 的支付总开关 */
   enabled: boolean
+  /** 支付币种 */
   currency: string
+  /** 云端没给币种（currency 是默认值猜的）时为 false；缺省当作已知 */
+  currencyKnown?: boolean
   plans: StorePlan[]
   recharge: StoreRecharge
   methods: StoreMethod[]
@@ -97,10 +108,92 @@ export interface StoreCatalog {
   /** 面板购买页 / 兑换页地址（可能是不带域名的路径，打开时由主进程校验） */
   purchaseUrl: string
   redeemUrl: string
+  /** 软件内付款的能力标记（docs/ui/in-app-payment.md §4.12）；云端没给（旧版本）就是不开 */
+  checkout?: StoreCheckout
+}
+/** 软件内扫码付款：开关、可用的支付方式（现在只会是 alipay / wxpay）、订单有效期 */
+export interface StoreCheckout {
+  enabled: boolean
+  methods: string[]
+  orderTimeoutMinutes: number
 }
 export type StoreLinkKind = 'purchase' | 'redeem'
 /** 打开面板页时可带的查询：「订阅」标签，以及要预选的套餐分组 */
 export interface StoreLinkParams {
   tab?: 'subscription'
   group?: number
+}
+
+// ---------------------------------------------------------------------------
+// 软件内付款（docs/ui/in-app-payment.md §4.4、§6.6）：订单字段由主进程从云端的蛇形 JSON 解析成驼峰
+// ---------------------------------------------------------------------------
+
+export type CheckoutKind = 'balance' | 'plan'
+/**
+ * pending 待付；paid 已付款正在到账；completed 已到账；expired / cancelled / failed 终态；
+ * refunding / refunded 退款中 / 已退款；云端给了不认识的值就是 unknown
+ */
+export type CheckoutStatus =
+  | 'pending'
+  | 'paid'
+  | 'completed'
+  | 'expired'
+  | 'cancelled'
+  | 'failed'
+  | 'refunding'
+  | 'refunded'
+  | 'unknown'
+export interface CheckoutOrder {
+  orderId: number
+  kind: CheckoutKind
+  status: CheckoutStatus
+  /** 支付方式（alipay / wxpay）及其显示名 */
+  method: string
+  methodLabel: string
+  /** 应付金额，以 Sub2api 返回的为准（含手续费、汇率、折扣） */
+  payAmount: number
+  payCurrency: string
+  /** 手续费，百分数 */
+  feeRate: number
+  /** 余额充值的到账额度和赠送（美元）；套餐单为 null */
+  credited: number | null
+  bonus: number | null
+  /** 套餐单的套餐；余额充值为 null */
+  plan: { id: number; name: string; validityDays: number } | null
+  /** 二维码内容：只在 pending 时有；provider 是支付商给的付款码，pay_url 是拿支付链接充当（扫码后会打开支付页） */
+  qrContent: string | null
+  qrSource: 'provider' | 'pay_url' | null
+  /** 支付页链接：只在 pending 时有，且只留 https 且不带用户名密码的。打开浏览器走 checkoutOpenPayUrl（主进程只打开自己记下的这一条） */
+  payUrl: string | null
+  /** ISO 时间；倒计时用 serverTime 和 expiresAt 算，不受本机时钟偏差影响 */
+  createdAt: string
+  expiresAt: string
+  paidAt: string | null
+  completedAt: string | null
+  serverTime: string
+  /** 是不是复用的已有待付单 */
+  reused: boolean
+  /** 云端读单时面板凭证已失效（订单状态是最后一次读到的）；缺省当作有效 */
+  panelValid?: boolean
+}
+/** 付款窗口的事件（主进程推给渲染层）：用户自己关了窗口，或页面没能加载出来（窗口已被主进程关掉） */
+export interface PayWindowEvent {
+  orderId: number
+  state: 'closed' | 'failed'
+}
+/** 下单参数：requestId 是一次「下单意图」一个 UUID，重试和确认账号后续下单都用同一个 */
+export interface CheckoutCreateInput {
+  requestId: string
+  kind: CheckoutKind
+  /** kind=balance：支付金额（人民币），最多两位小数 */
+  amount?: number
+  /** kind=plan：商品数据里在售的套餐 id */
+  planId?: number
+  method: string
+}
+/** 面板凭证状态：usableForCheckout 表示凭证还够用于下单（云端要求至少剩 35 分钟） */
+export interface PanelStatus {
+  valid: boolean
+  expiresAt: string | null
+  usableForCheckout: boolean
 }

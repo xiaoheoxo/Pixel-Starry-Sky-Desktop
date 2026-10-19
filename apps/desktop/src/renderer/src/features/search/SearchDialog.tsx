@@ -3,7 +3,7 @@ import { openTask } from '@/features/panel/openTask'
 import { useI18n } from '@/i18n/I18nProvider'
 import { getLocale, tr, translateMessage } from '../../i18n/core'
 import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { ChevronRight, CornerDownLeft, Folder, MessageSquare, Search, SquareTerminal, X } from 'lucide-react'
+import { ChevronRight, CornerDownLeft, Folder, Hash, MessageSquare, Search, SquareTerminal, X } from 'lucide-react'
 import type { SearchQuery, SearchResponse, SearchResult, SearchScope } from '@pixelsky/protocol'
 import { IconButton, Spinner, cn } from '@/ui'
 import { OPEN_SESSION_EVENT, bridge, useEngineState } from '@/features/engine'
@@ -18,9 +18,13 @@ import { demoFileHits, searchFiles, type FileHit, type FileHits } from './fileSe
 import { groupResults, titleFragments, type ResultGroup } from './groupResults'
 import { fieldLabel, projectLabel } from './fieldLabel'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
+import type { ChannelSearchHit, ChannelSearchResult } from '../../../../shared/types/channels'
+import { setPage } from '@/features/layout/page'
+import { channelActions, useChannels } from '@/features/channels/store'
+import { hitPlace, NO_HITS, searchChannelMessages } from '@/features/channels/search'
 
-/** 「项目文件」只在界面里，不发给会话搜索 */
-type Scope = SearchScope | 'files'
+/** 「项目文件」「频道消息」只在界面里，不发给会话搜索 */
+type Scope = SearchScope | 'files' | 'channels'
 
 const SCOPES: Array<{ id: Scope; name: string }> = [
   {
@@ -53,8 +57,17 @@ const SCOPES: Array<{ id: Scope; name: string }> = [
       return tr('search.SearchDialog.projectFiles')
     },
   },
+  {
+    id: 'channels',
+    get name() {
+      return tr('channels.search.scope')
+    },
+  },
 ]
 const noFiles: FileHits = { hits: [], truncated: false }
+/** 「全部」里带前几条频道消息（docs/ui/channels-local-ai.md §3.1 #8），「频道消息」范围最多 50 条 */
+const CHANNEL_BRIEF = 5
+const CHANNEL_FULL = 50
 
 const caretAtEnd = (input: HTMLInputElement | null): boolean =>
   !!input && input.selectionStart === input.selectionEnd && input.selectionEnd === input.value.length
@@ -92,6 +105,10 @@ export function SearchDialog({
   const [text, setText] = useState('')
   const [scope, setScope] = useState<Scope>('all')
   const [fileHits, setFileHits] = useState<FileHits>(noFiles)
+  const [channelHits, setChannelHits] = useState<ChannelSearchResult>(NO_HITS)
+  const channelList = useChannels(s => s.channels)
+  const channelMembers = useChannels(s => s.members)
+  const memberNames = useMemo(() => new Map(channelMembers.map(m => [m.id, m.name])), [channelMembers])
   const [projectId, setProjectId] = useState<string | null>(null)
   const [response, setResponse] = useState(emptyResponse)
   const [loading, setLoading] = useState(true)
@@ -128,10 +145,20 @@ export function SearchDialog({
       ]),
     [groups, expanded],
   )
-  const total = fileHitList.length + rows.length
+  // 顺序：项目文件、会话、频道消息
+  const channelStart = fileHitList.length + rows.length
+  const total = channelStart + channelHits.hits.length
+  const openChannelHit = (hit: ChannelSearchHit) => {
+    setPage('channels')
+    void channelActions.focusMessage(hit.channelId, hit.messageId, hit.at)
+    onClose()
+  }
   const activateIndex = (i: number) => {
     if (i < fileHitList.length) openHit(fileHitList[i])
-    else {
+    else if (i >= channelStart) {
+      const hit = channelHits.hits[i - channelStart]
+      if (hit) openChannelHit(hit)
+    } else {
       const row = rows[i - fileHitList.length]
       if (row) activate(row.kind === 'group' ? row.group.head : row.hit)
     }
@@ -171,6 +198,7 @@ export function SearchDialog({
     setError(null)
     setResponse(emptyResponse)
     setFileHits(noFiles)
+    setChannelHits(NO_HITS)
     setSelected(0)
     setExpanded(new Set())
     if (composing) return
@@ -189,6 +217,25 @@ export function SearchDialog({
                 scope === 'files' ? Promise.reject(err) : noFiles,
               )
           : Promise.resolve(noFiles)
+        // 频道消息：「全部」里带前几条，「频道消息」范围取全部；「全部」里出错不影响会话结果
+        const wantChannels = (scope === 'all' || scope === 'channels') && !!text.trim()
+        const channels = wantChannels
+          ? searchChannelMessages(text, {
+              limit: scope === 'channels' ? CHANNEL_FULL : CHANNEL_BRIEF,
+              projectId,
+            }).catch(err => (scope === 'channels' ? Promise.reject(err) : NO_HITS))
+          : Promise.resolve(NO_HITS)
+        if (scope === 'channels') {
+          try {
+            const hits = await channels
+            if (!disposed && request.current === requestId) setChannelHits(hits)
+          } catch (err) {
+            if (!disposed && request.current === requestId) setError((err as Error).message)
+          } finally {
+            if (!disposed && request.current === requestId) setLoading(false)
+          }
+          return
+        }
         if (scope === 'files') {
           try {
             const hits = await files
@@ -202,12 +249,13 @@ export function SearchDialog({
         }
         const query: SearchQuery = { requestId, text, scope, projectId }
         try {
-          const [result, tasks, hits] = await Promise.all([
+          const [result, tasks, hits, channelResult] = await Promise.all([
             isDemo ? demo().search.run(query) : bridge?.search(query),
             !isDemo && scope === 'all' && text.trim()
               ? window.pixelsky?.projectTools.searchTasks(text, projectId)
               : Promise.resolve([]),
             files,
+            channels,
           ])
           if (result && tasks?.length) {
             const rows: SearchResult[] = tasks.map(task => ({
@@ -230,6 +278,7 @@ export function SearchDialog({
           if (!result) throw new Error(tr('search.SearchDialog.localConversationSearchIs'))
           setResponse(result)
           setFileHits(hits)
+          setChannelHits(channelResult)
         } catch (err) {
           if (!disposed && request.current === requestId) setError((err as Error).message)
         } finally {
@@ -248,7 +297,7 @@ export function SearchDialog({
     dialog.current
       ?.querySelector<HTMLElement>(`[data-result-index="${selected}"]`)
       ?.scrollIntoView({ block: 'nearest' })
-  }, [selected, response, fileHits])
+  }, [selected, response, fileHits, channelHits])
 
   return (
     <div
@@ -528,23 +577,89 @@ export function SearchDialog({
               </div>
             )
           })}
+          {channelHits.hits.map((hit, n) => {
+            const i = channelStart + n
+            const place = hitPlace(hit, channelList, memberNames)
+            return (
+              <Fragment key={hit.messageId}>
+                {/* 「全部」里频道消息排在会话后面，单独起个头 */}
+                {n === 0 && scope === 'all' && (
+                  <p role="presentation" className="px-3 pt-3 pb-1 text-label font-medium text-fg-faint">
+                    {tr('channels.search.scope')}
+                  </p>
+                )}
+                <div
+                  id={`search-result-${i}`}
+                  role="option"
+                  aria-selected={i === selected}
+                  tabIndex={-1}
+                  data-result-index={i}
+                  data-channel-hit={hit.messageId}
+                  onMouseEnter={() => setSelected(i)}
+                  onClick={() => openChannelHit(hit)}
+                  className={cn(
+                    'flex w-full cursor-default items-start gap-3 rounded-lg px-3 py-2.5 text-left',
+                    i === selected ? 'bg-selected' : 'hover:bg-hover',
+                  )}
+                >
+                  <Hash size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-fg-muted" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-ui font-medium text-fg">#{place.channel}</span>
+                    <span className="mt-0.5 block truncate text-label text-fg-faint">
+                      {place.author} ·{' '}
+                      {new Date(hit.at).toLocaleString(getLocale(), {
+                        month: 'numeric',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}{' '}
+                      · {tr(hit.kind === 'task' ? 'channels.search.kind.task' : 'channels.search.kind.message')}
+                      {place.archived && ` · ${tr('channels.search.archived')}`}
+                    </span>
+                    <span className="mt-1 block whitespace-pre-wrap break-words text-meta leading-relaxed text-fg-muted">
+                      <Fragments parts={hit.snippet} />
+                    </span>
+                  </span>
+                  {i === selected && <CornerDownLeft size={13} className="mt-1 shrink-0 text-fg-faint" />}
+                </div>
+              </Fragment>
+            )
+          })}
+          {scope === 'all' && channelHits.truncated && (
+            <button
+              type="button"
+              onClick={() => setScope('channels')}
+              className="mx-3 my-1 text-label text-accent-fg hover:underline"
+            >
+              {tr('channels.search.globalMore')}
+            </button>
+          )}
+          {scope === 'channels' && channelHits.truncated && (
+            <p role="status" className="px-3 py-2 text-meta text-fg-muted">
+              {tr('channels.search.latest', { count: channelHits.hits.length })}
+            </p>
+          )}
           {!total && (
             <div role="status" className="px-4 py-9 text-center text-ui text-fg-muted">
               {loading
                 ? tr('search.SearchDialog.searching')
                 : error
                   ? translateMessage(error)
-                  : scope === 'files'
-                    ? !fileRef
-                      ? tr('search.SearchDialog.openAProjectFirst')
-                      : text.trim()
-                        ? tr('search.SearchDialog.noMatchingContentTry')
-                        : tr('search.SearchDialog.typeToSearchFiles')
-                    : !response.sessionCount
-                      ? tr('search.SearchDialog.noConversationsYetStart')
-                      : text.trim()
-                        ? tr('search.SearchDialog.noMatchingContentTry')
-                        : tr('search.SearchDialog.noConversationsInThis')}
+                  : scope === 'channels'
+                    ? text.trim()
+                      ? tr('search.SearchDialog.noMatchingContentTry')
+                      : tr('channels.search.typeToSearch')
+                    : scope === 'files'
+                      ? !fileRef
+                        ? tr('search.SearchDialog.openAProjectFirst')
+                        : text.trim()
+                          ? tr('search.SearchDialog.noMatchingContentTry')
+                          : tr('search.SearchDialog.typeToSearchFiles')
+                      : !response.sessionCount
+                        ? tr('search.SearchDialog.noConversationsYetStart')
+                        : text.trim()
+                          ? tr('search.SearchDialog.noMatchingContentTry')
+                          : tr('search.SearchDialog.noConversationsInThis')}
             </div>
           )}
           {scope === 'files' && fileHits.truncated && (

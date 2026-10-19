@@ -13,9 +13,9 @@ if (process.env.FAKE_PIXEL_ARGV)
       electron: process.env.ELECTRON_RUN_AS_NODE ?? null,
       token: process.env.PIXELSKY_PIXEL_TOKEN ?? null,
       anthropicKey: process.env.ANTHROPIC_API_KEY ?? null,
-      models: process.env.PIXELSKY_CODING_AGENT_DIR
-        ? JSON.parse(readFileSync(join(process.env.PIXELSKY_CODING_AGENT_DIR, 'models.json'), 'utf8'))
-        : null,
+      providers: process.env.PIXELSKY_PIXEL_PROVIDERS ? JSON.parse(process.env.PIXELSKY_PIXEL_PROVIDERS) : null,
+      mcpFile: process.env.PIXELSKY_MCP_FILE ?? null,
+      allowTools: process.env.PIXELSKY_ALLOW_TOOLS ?? null,
     }) + '\n',
   )
 if (process.argv.includes('--version')) {
@@ -25,6 +25,8 @@ if (process.argv.includes('--version')) {
 const dir = process.env.FAKE_PIXEL_DIR ?? process.cwd()
 mkdirSync(dir, { recursive: true })
 const out = value => process.stdout.write(JSON.stringify(value) + '\n')
+/** 批准扩展三选一的选项原文 */
+const APPROVAL = ['允许 / Allow', '本会话不再询问 / Always allow in this session', '拒绝 / Deny']
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const models = [
   {
@@ -99,16 +101,54 @@ async function tool(toolName, args, result, isError = false, partial = null) {
     })
     await sleep(5)
   }
-  if (toolName === 'bash' && args.command === 'rm x') {
-    // 批准流程：等界面回答
+  if (toolName === 'exit_plan_mode') {
+    // 计划确认：开始执行时像批准扩展一样报新的权限模式，再回工具结果
     const id = `ui-${++tools}`
     out({
       type: 'extension_ui_request',
       id,
-      method: 'confirm',
-      title: '允许工具 bash？ / Allow tool bash?',
-      message: 'rm x',
+      method: 'select',
+      title: '计划已就绪，要开始执行吗？ / Ready to implement this plan?' + String.fromCharCode(10) + args.plan,
+      options: ['开始执行 / Start implementing', '继续完善计划 / Keep planning'],
     })
+    const start = await new Promise(resolve => (approval = { id, resolve }))
+    if (start === true)
+      out({
+        type: 'extension_ui_request',
+        id: `ui-${++tools}`,
+        method: 'setStatus',
+        statusKey: 'pixelsky-mode',
+        statusText: 'default',
+      })
+    result = {
+      content: [
+        {
+          type: 'text',
+          text: start === true ? 'The user approved the plan.' : 'The user wants to keep refining the plan.',
+        },
+      ],
+    }
+  }
+  if (toolName === 'bash' && (args.command === 'rm x' || args.command === 'rm y')) {
+    // 批准流程：等界面回答。rm x 是旧版批准扩展的 confirm，rm y 是新版的三选一 select
+    const id = `ui-${++tools}`
+    out(
+      args.command === 'rm x'
+        ? {
+            type: 'extension_ui_request',
+            id,
+            method: 'confirm',
+            title: '允许工具 bash？ / Allow tool bash?',
+            message: 'rm x',
+          }
+        : {
+            type: 'extension_ui_request',
+            id,
+            method: 'select',
+            title: '允许工具 bash？ / Allow tool bash?' + String.fromCharCode(10) + 'rm y',
+            options: ['允许 / Allow', '本会话不再询问 / Always allow in this session', '拒绝 / Deny'],
+          },
+    )
     const confirmed = await new Promise(resolve => (approval = { id, resolve }))
     if (confirmed === 'cancelled') {
       out({
@@ -156,6 +196,69 @@ async function turn(prompt) {
       return
     }
     await text('收到引导')
+  } else if (prompt.includes('交计划')) {
+    await tool('exit_plan_mode', { plan: '# 改登录' + String.fromCharCode(10) + '1. 改 a.ts' }, null)
+  } else if (prompt.includes('三选一')) {
+    await tool('bash', { command: 'rm y' }, { content: [{ type: 'text', text: 'removed' }] })
+  } else if (prompt.includes('两条命令')) {
+    // 同一条消息里的两条命令（Pi 的并行执行）：先逐个开始、逐个问批准，全问完了再一起跑完
+    const calls = []
+    for (const command of ['rm a', 'rm b']) {
+      const toolCallId = `call-${++tools}`
+      out({ type: 'tool_execution_start', toolCallId, toolName: 'bash', args: { command } })
+      const id = `ui-${++tools}`
+      out({
+        type: 'extension_ui_request',
+        id,
+        method: 'select',
+        title: `允许工具 bash？ / Allow tool bash?\n${command}`,
+        options: APPROVAL,
+      })
+      calls.push({ toolCallId, ok: await new Promise(resolve => (approval = { id, resolve })) })
+    }
+    for (const { toolCallId, ok } of calls)
+      out({
+        type: 'tool_execution_end',
+        toolCallId,
+        toolName: 'bash',
+        result: { content: [{ type: 'text', text: ok ? 'removed' : 'denied' }] },
+        isError: !ok,
+      })
+    await text('两条都问完了')
+  } else if (prompt.includes('子智能体审批')) {
+    // 子智能体（task）里要批准的 write：先报上下文（setStatus），紧接着是转过来的询问
+    const toolCallId = `call-${++tools}`
+    out({
+      type: 'tool_execution_start',
+      toolCallId,
+      toolName: 'task',
+      args: { description: '写文件', prompt: 'write' },
+    })
+    const args = { path: 'child.txt', content: 'from child' }
+    out({
+      type: 'extension_ui_request',
+      id: `ui-${++tools}`,
+      method: 'setStatus',
+      statusKey: 'pixelsky-approval-context',
+      statusText: JSON.stringify({ toolCallId, agentId: 'child-1', label: '写文件', tool: 'write', args }),
+    })
+    const id = `ui-${++tools}`
+    out({
+      type: 'extension_ui_request',
+      id,
+      method: 'select',
+      title: '允许工具 write？ / Allow tool write?\nchild.txt',
+      options: APPROVAL,
+    })
+    const ok = await new Promise(resolve => (approval = { id, resolve }))
+    out({
+      type: 'tool_execution_end',
+      toolCallId,
+      toolName: 'task',
+      result: { content: [{ type: 'text', text: ok ? 'wrote child.txt' : 'denied' }] },
+      isError: false,
+    })
+    await text('子智能体完成')
   } else if (prompt.includes('审批')) {
     await tool('bash', { command: 'rm x' }, { content: [{ type: 'text', text: 'removed' }] })
     await sleep(80) // 取消的批准之后，真的 Pi 会再进模型一轮；给 abort 留出到达的时间
@@ -251,7 +354,13 @@ readline
     if (process.env.FAKE_PIXEL_LOG) appendFileSync(process.env.FAKE_PIXEL_LOG, JSON.stringify(m) + '\n')
     if (m.type === 'extension_ui_response') {
       if (approval?.id === m.id) {
-        approval.resolve(m.cancelled ? 'cancelled' : m.confirmed === true)
+        approval.resolve(
+          m.cancelled
+            ? 'cancelled'
+            : 'value' in m
+              ? m.value !== '拒绝 / Deny' && m.value !== '继续完善计划 / Keep planning'
+              : m.confirmed === true,
+        )
         approval = null
       }
       return

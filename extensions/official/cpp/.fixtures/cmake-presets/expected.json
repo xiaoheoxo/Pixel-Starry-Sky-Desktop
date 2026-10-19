@@ -1,0 +1,54 @@
+[
+  {
+    "template": "cmake-configure",
+    "file": "CMakeLists.txt",
+    "tasks": [
+      { "name": "configure", "description": "配置项目，生成到 build 目录", "linux": "cmake -S . -B build", "windows": "cmake -S . -B build" }
+    ]
+  },
+  {
+    "template": "cmake-build",
+    "file": "CMakeLists.txt",
+    "tasks": [
+      { "name": "build", "description": "构建 build 目录里已配置的项目", "linux": "cmake --build build", "windows": "cmake --build build" }
+    ]
+  },
+  {
+    "template": "cmake-test",
+    "file": "CMakeLists.txt",
+    "tasks": [
+      { "name": "test", "description": "用 CTest 运行 build 目录里的测试，失败时显示输出", "linux": "ctest --test-dir build --output-on-failure", "windows": "ctest --test-dir build --output-on-failure" }
+    ]
+  },
+  {
+    "template": "cmake-preset-configure",
+    "file": "CMakePresets.json",
+    "tasks": [
+      { "name": "dev", "linux": "cmake --preset dev", "windows": "cmake --preset dev" },
+      { "name": "release", "linux": "cmake --preset release", "windows": "cmake --preset release" },
+      { "name": "ci-linux", "linux": "cmake --preset ci-linux", "windows": "cmake --preset ci-linux" }
+    ]
+  },
+  {
+    "template": "cmake-preset-build",
+    "file": "CMakePresets.json",
+    "tasks": [
+      { "name": "dev", "linux": "cmake --build --preset dev", "windows": "cmake --build --preset dev" },
+      { "name": "release", "linux": "cmake --build --preset release", "windows": "cmake --build --preset release" }
+    ]
+  },
+  {
+    "template": "cmake-preset-test",
+    "file": "CMakePresets.json",
+    "tasks": [
+      { "name": "dev", "linux": "ctest --preset dev", "windows": "ctest --preset dev" }
+    ]
+  },
+  {
+    "template": "cmake-preset-configure",
+    "file": "CMakeUserPresets.json",
+    "tasks": [
+      { "name": "mine", "linux": "cmake --preset mine", "windows": "cmake --preset mine" }
+    ]
+  }
+]

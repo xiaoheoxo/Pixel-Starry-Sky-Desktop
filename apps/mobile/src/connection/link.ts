@@ -44,6 +44,8 @@ export interface Hello {
   access: 'view' | 'act'
   /** 电脑能给手机用 Git / 文件 / 产物 / 任务工具、加项目（docs/mobile-remote.md §18.4）；旧版电脑没有 */
   tools?: boolean
+  /** 电脑认得队列调序的 { before: 消息 id | null }；旧版电脑把它当成第 0 位，手机要退回数字下标 */
+  queueMoveBefore?: boolean
 }
 
 export interface LinkHooks {
@@ -52,6 +54,15 @@ export interface LinkHooks {
   onEvent(event: unknown): void
   /** 配对状态变了（确认 / 移除），要存下来 */
   onPairing(pairing: Pairing): void
+}
+
+/** 握手时告诉电脑：能拆开打包成一帧的多个事件（旧版电脑不认，照旧一条一帧） */
+const HELLO = { batch: true }
+
+/** 电脑把流式增量打包成一帧发来的样子（apps/desktop/src/main/mobile/gateway.ts 的 flush） */
+export function unbatch(data: unknown): unknown[] {
+  const batch = data as { kind?: unknown; events?: unknown } | null
+  return batch?.kind === 'batch' && Array.isArray(batch.events) ? batch.events : [data]
 }
 
 /** 中转关闭码（services/cloud/internal/bridge）：令牌失效 */
@@ -115,7 +126,12 @@ export class DesktopLink {
       if (this.timer) clearTimeout(this.timer)
       this.delay = 1000
       this.open()
-    } else if (this.state === 'ready') this.call('hello').catch(() => this.ws?.close())
+    } else if (this.state === 'ready') this.call('hello', HELLO).catch(() => this.ws?.close())
+  }
+
+  /** 页面切到后台 / 回到前台：告诉电脑，后台时它照样推送提醒（旧版电脑不认，不管报错） */
+  away(hidden: boolean): void {
+    if (this.state === 'ready') this.call('away', hidden).catch(() => undefined)
   }
 
   call<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
@@ -302,10 +318,12 @@ export class DesktopLink {
       () => this.handshake(),
       browserCodec,
     )
-    rpc.onEvent = (_channel, data) => this.hooks.onEvent(data)
+    rpc.onEvent = (_channel, data) => {
+      for (const event of unbatch(data)) this.hooks.onEvent(event)
+    }
     this.rpc = rpc
     this.channel = channel
-    void rpc.call<Hello>('hello', [], 10_000).then(
+    void rpc.call<Hello>('hello', [HELLO], 10_000).then(
       hello => {
         if (this.rpc !== rpc) return
         this.unguard()
@@ -316,6 +334,8 @@ export class DesktopLink {
         }
         this.hello = hello
         this.set('ready')
+        // 在后台时连上的（系统短暂唤醒）：电脑要知道
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') this.away(true)
       },
       () => this.ws?.close(),
     )

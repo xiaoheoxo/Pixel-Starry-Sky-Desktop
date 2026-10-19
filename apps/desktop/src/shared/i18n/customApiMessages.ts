@@ -101,6 +101,13 @@ export const customApiMessages = {
   'customApi.saving': { zh: '正在保存…', en: 'Saving…' },
   'customApi.cancel': { zh: '取消', en: 'Cancel' },
   'customApi.close': { zh: '关闭', en: 'Close' },
+  'customApi.discardTitle': { zh: '放弃未保存的改动？', en: 'Discard unsaved changes?' },
+  'customApi.discardBody': {
+    zh: '这个接口的改动还没保存，关掉后刚填的内容会丢失。',
+    en: 'Your changes to this endpoint are not saved. Closing will lose what you entered.',
+  },
+  'customApi.discard': { zh: '放弃改动', en: 'Discard changes' },
+  'customApi.keepEditing': { zh: '继续编辑', en: 'Keep editing' },
   'customApi.defaultEndpoint': { zh: '默认接口', en: 'Default endpoint' },
   'customApi.defaultEndpointHint': {
     zh: '新任务用哪个接口和模型。Claude Code 只列 Anthropic 协议的接口，Codex 只列 Responses 的',

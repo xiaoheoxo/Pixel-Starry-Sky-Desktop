@@ -43,6 +43,8 @@ export const MAX_FILE_COUNT = 10
 export const MAX_FILE_TEXT_TOTAL = 300 * 1024
 /** 一个文件带上的文字（字符）：解码后的字符数不会超过读的字节数 */
 const MAX_FILE_TEXT = FILE_INLINE_BYTES
+/** 原文件路径的长度上限（字符） */
+const MAX_FILE_PATH = 4096
 
 /** 共用校验：草稿恢复、IPC 入队和重启后读队列时再检查一次 */
 export function validateFiles(value: unknown): FileAttachment[] {
@@ -71,6 +73,11 @@ export function validateFiles(value: unknown): FileAttachment[] {
       typeof file.text !== 'string' ||
       file.text.length > MAX_FILE_TEXT ||
       (file.source !== undefined && !FILE_SOURCES.includes(file.source)) ||
+      (file.path !== undefined &&
+        (typeof file.path !== 'string' ||
+          !file.path ||
+          file.path.length > MAX_FILE_PATH ||
+          /[\u0000-\u001f\u007f]/.test(file.path))) ||
       (truncated &&
         (typeof file.tail !== 'string' ||
           file.tail.length > MAX_FILE_TEXT ||
@@ -91,6 +98,7 @@ export function validateFiles(value: unknown): FileAttachment[] {
       text: file.text,
       ...(truncated ? { tail: file.tail, omitted: file.omitted } : {}),
       ...(file.source ? { source: file.source } : {}),
+      ...(file.path ? { path: file.path } : {}),
     }
   })
 }
@@ -111,30 +119,35 @@ const attr = (value: string): string =>
 /** 正文里出现结束标记时改写，免得被当成文件结束 */
 const body = (text: string): string => text.replace(/<\/attached_file/gi, '<\\/attached_file')
 
-/** 发给引擎的样子：每个文件一段 <attached_file>，截断时标出带了哪几行、中间省略了多少 */
+/**
+ * 发给引擎的样子：每个文件一段 <attached_file>，截断时标出带了哪几行、中间省略了多少。
+ * 有本机路径时写上 path；文本文件截断了再提示省略的行可以按路径读（文档按路径读到的是原文件，不提示）
+ */
 export function fileAttachmentBlock(file: FileAttachment): string {
   const size =
     file.bytes >= 1024 * 1024 ? `${(file.bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(file.bytes / 1024)} KB`
   const source = file.source
     ? ` source="${SOURCE_NOTE[file.source]}" note="text extracted by the app; images and layout are not included"`
     : ''
-  const head = `<attached_file name="${attr(file.name)}" size="${size}" lines="${file.lines}"${source}`
+  const path = file.path ? ` path="${attr(file.path)}"` : ''
+  const head = `<attached_file name="${attr(file.name)}"${path} size="${size}" lines="${file.lines}"${source}`
   const end = (text: string): string => (text.endsWith('\n') ? '' : '\n')
   if (file.tail === undefined) return `${head}>\n${body(file.text)}${end(file.text)}</attached_file>`
   const shown = fileShownLines(file)
+  const readable = file.path && !file.source ? '; the full file is at the path above, read it for these lines' : ''
   // 只留开头（文档）：后面省略了多少行
   if (!file.tail)
     return (
       `${head} shown="1-${shown.head}">\n` +
       body(file.text) +
       end(file.text) +
-      `[... ${file.omitted} more lines omitted (${shown.head + 1}-${file.lines}) ...]\n</attached_file>`
+      `[... ${file.omitted} more lines omitted (${shown.head + 1}-${file.lines})${readable} ...]\n</attached_file>`
     )
   const from = file.lines - shown.tail + 1
   return (
     `${head} shown="1-${shown.head}, ${from}-${file.lines}">\n` +
     body(file.text) +
-    `[... ${file.omitted} lines omitted (${shown.head + 1}-${from - 1}) ...]\n` +
+    `[... ${file.omitted} lines omitted (${shown.head + 1}-${from - 1})${readable} ...]\n` +
     body(file.tail ?? '') +
     `${file.tail?.endsWith('\n') ? '' : '\n'}</attached_file>`
   )

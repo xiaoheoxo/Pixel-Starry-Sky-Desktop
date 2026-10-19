@@ -31,6 +31,7 @@ import {
   FILE_SAVED_EVENT,
   OPEN_FILES_EVENT,
   dirtyFile,
+  displacedDirtyFiles,
   openFile,
   openFilesUnder,
   removeFile,
@@ -50,6 +51,15 @@ import { isHidingIgnored, isIgnoredPath, setHideIgnored, splitStatuses, useHideI
 const pathKey = (path: string): string => {
   const p = path.replaceAll('\\', '/').replace(/\/$/, '')
   return window.pixelsky?.platform === 'win32' ? p.toLowerCase() : p
+}
+
+/** 磁盘上 to 还在不在（看它所在文件夹的列表）；读不到、列表截断了没找到都按不在算 */
+async function destinationExists(ref: WorkspaceRef, to: string): Promise<boolean> {
+  const listing = await window.pixelsky!.files.listExisting(ref, parentOf(to)).catch(() => null)
+  const name = to.split('/').pop() ?? to
+  const same = (a: string): boolean =>
+    window.pixelsky?.platform === 'win32' ? a.toLowerCase() === name.toLowerCase() : a === name
+  return !!listing?.entries.some(entry => same(entry.name))
 }
 
 const TreeExpansion = createContext({ version: 0, expanded: false })
@@ -368,6 +378,13 @@ export function FileTree({
   const [editing, setEditing] = useState<EditState | null>(null),
     [deleting, setDeleting] = useState<{ ref: WorkspaceRef; entry: FileEntry } | null>(null),
     [deleteBusy, setDeleteBusy] = useState(false),
+    // 改名 / 移动会顶掉目标位置有未保存修改的标签：先问，run 收到确认丢弃的标签 id
+    [displacing, setDisplacing] = useState<{
+      paths: string[]
+      run: (discard: readonly string[]) => Promise<void>
+      discard: string[]
+    } | null>(null),
+    [displaceBusy, setDisplaceBusy] = useState(false),
     [opError, setOpError] = useState('')
   const [drag, setDrag] = useState<DragSource | null>(null),
     [dropKey, setDropKey] = useState<string | null>(null),
@@ -387,15 +404,57 @@ export function FileTree({
       window.dispatchEvent(new CustomEvent(EXPAND_ROOT_EVENT, { detail: refKey(next.ref) }))
     setEditing(next)
   }
+  /**
+   * 改名 / 移动 from → to 会顶掉目标位置有未保存修改的标签（外部程序把目标文件移走了、标签还开着）：
+   * 弹确认框、返回 true，调用方先不动磁盘；用户确认后 run 带着要丢弃的标签 id 再做一次。没有这种标签返回 false。
+   * 目标在磁盘上还在时不问：改名本身会报「已存在」，什么都不会丢
+   */
+  const askDisplace = async (
+    ref: WorkspaceRef,
+    from: string,
+    to: string,
+    run: (discard: readonly string[]) => Promise<void>,
+  ): Promise<boolean> => {
+    const dirty = displacedDirtyFiles(ref, from, to)
+    if (!dirty.length || (await destinationExists(ref, to))) return false
+    setOpError('')
+    setDisplacing({ paths: dirty.map(tab => tab.path), discard: dirty.map(tab => tab.id), run })
+    return true
+  }
+  const confirmDisplace = async (): Promise<void> => {
+    if (!displacing) return
+    setDisplaceBusy(true)
+    setOpError('')
+    try {
+      await displacing.run(displacing.discard)
+      setDisplacing(null)
+    } catch (e) {
+      setOpError((e as Error).message)
+    } finally {
+      setDisplaceBusy(false)
+    }
+  }
   const submit = async (name: string): Promise<void> => {
     const current = editing
     if (!current) return
     const bridge = window.pixelsky!.files
     lastMove.current = null
     if (current.mode === 'rename') {
-      if (!current.path) return
-      const { path } = await bridge.rename(current.ref, current.path, join2(current.parent, name))
-      renameOpenFiles(current.ref, current.path, path)
+      const from = current.path
+      if (!from) return
+      const to = join2(current.parent, name)
+      const rename = async (discard: readonly string[]): Promise<void> => {
+        const { path } = await bridge.rename(current.ref, from, to)
+        renameOpenFiles(current.ref, from, path, discard)
+      }
+      if (
+        await askDisplace(current.ref, from, to, async discard => {
+          await rename(discard)
+          refresh()
+        })
+      )
+        return setEditing(null)
+      await rename([])
     } else {
       const { path } = await bridge.create(current.ref, join2(current.parent, name), current.mode)
       if (current.mode === 'file') void openFile(current.ref, path).catch(() => {})
@@ -456,30 +515,43 @@ export function FileTree({
     setDrag(null)
     setDropKey(null)
   }
-  const undoMove = async (record: { ref: WorkspaceRef; from: string; to: string }): Promise<void> => {
+  const undoMove = async (
+    record: { ref: WorkspaceRef; from: string; to: string },
+    discard?: readonly string[],
+  ): Promise<void> => {
     if (lastMove.current !== record)
       return void toast(tr('workspace.undoFailed', { reason: tr('workspace.undoStale') }))
+    if (!discard && (await askDisplace(record.ref, record.to, record.from, ids => undoMove(record, ids)))) return
     lastMove.current = null
     try {
       const { path } = await window.pixelsky!.files.rename(record.ref, record.to, record.from)
-      renameOpenFiles(record.ref, record.to, path)
+      renameOpenFiles(record.ref, record.to, path, discard)
       expandFolder(record.ref, parentOf(path))
       refresh()
     } catch (e) {
       toast(tr('workspace.undoFailed', { reason: translateMessage((e as Error).message) }))
     }
   }
-  const move = async (source: DragSource, folder: string): Promise<boolean> => {
+  const move = async (source: DragSource, folder: string, discard?: readonly string[]): Promise<boolean> => {
     endDrag()
     setOpError('')
     if (isDemo) {
       setOpError(tr('workspace.demoCannotModify'))
       return false
     }
+    const target = movedPath(source, folder)
+    if (
+      !discard &&
+      (await askDisplace(source.ref, source.path, target, async ids => {
+        // 确认后移动成功：剪切的那一项也作废（粘贴时）
+        if (await move(source, folder, ids)) setCut(current => (current === source ? null : current))
+      }))
+    )
+      return false
     lastMove.current = null
     try {
-      const { path } = await window.pixelsky!.files.rename(source.ref, source.path, movedPath(source, folder))
-      renameOpenFiles(source.ref, source.path, path)
+      const { path } = await window.pixelsky!.files.rename(source.ref, source.path, target)
+      renameOpenFiles(source.ref, source.path, path, discard)
       const record = { ref: source.ref, from: source.path, to: path }
       lastMove.current = record
       expandFolder(source.ref, folder)
@@ -730,6 +802,33 @@ export function FileTree({
                   run: () => setHideIgnored(project.path, !hidden),
                 }
               })}
+            />
+          )}
+          {displacing && (
+            <ConfirmDialog
+              title={tr('workspace.displaceTitle', { count: displacing.paths.length })}
+              description={
+                <div className="flex flex-col gap-2">
+                  <p>{tr('workspace.displaceHint')}</p>
+                  <ul className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
+                    {displacing.paths.map(path => (
+                      <li key={path} className="truncate font-mono text-meta text-fg" title={path}>
+                        {path}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              }
+              confirmLabel={tr('workspace.displaceConfirm')}
+              cancelLabel={tr('workspace.cancel')}
+              busy={displaceBusy}
+              error={opError ? translateMessage(opError) : null}
+              danger
+              onConfirm={() => void confirmDisplace()}
+              onCancel={() => {
+                setDisplacing(null)
+                setOpError('')
+              }}
             />
           )}
           {deleting && (

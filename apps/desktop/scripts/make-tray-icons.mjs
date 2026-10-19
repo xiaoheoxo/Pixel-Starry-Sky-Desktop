@@ -1,4 +1,4 @@
-// 生成托盘图标（docs/ui/tray.md §2.5）：从 build/icon.png 缩小到托盘用的几种尺寸，运行中 / 等你处理在右下角加圆点，
+// 生成托盘图标（docs/ui/tray.md §2.5）：把 build/icon.png（scripts/make-brand-icons.mjs 画的方块标）缩小到托盘用的几种尺寸，运行中 / 等你处理在右下角加圆点，
 // 圆点外留一圈透明缝（深色、浅色任务栏上都分得清），写成多尺寸 .ico（Windows）和 PNG（其他平台）。
 // 用法：pnpm --filter @pixelsky/desktop exec electron scripts/make-tray-icons.mjs（环境里不能有 ELECTRON_RUN_AS_NODE，空值也不行）
 // 结果入库在 build/tray/，打包时由 electron-builder.yml 的 extraResources 带进 resources/tray。
@@ -6,12 +6,11 @@ import { app, nativeImage } from 'electron'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ico } from './ico.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const out = join(root, 'build/tray')
 const SIZES = [16, 20, 24, 32, 40, 48]
-/** 1024px 原图里飞船主体所在的正方形 */
-const CROP = { x: 160, y: 230, width: 700, height: 700 }
 const VARIANTS = {
   tray: null,
   'tray-running': [0x2f, 0xb3, 0x7e],
@@ -51,34 +50,12 @@ function badge(bitmap, size, rgb) {
     }
 }
 
-/** 多尺寸 ICO，每一帧直接存 PNG（Windows Vista 起支持） */
-function ico(pngs) {
-  const header = Buffer.alloc(6 + pngs.length * 16)
-  header.writeUInt16LE(0, 0)
-  header.writeUInt16LE(1, 2)
-  header.writeUInt16LE(pngs.length, 4)
-  let offset = header.length
-  pngs.forEach(({ size, png }, k) => {
-    const e = 6 + k * 16
-    header[e] = size >= 256 ? 0 : size
-    header[e + 1] = size >= 256 ? 0 : size
-    header.writeUInt16LE(1, e + 4)
-    header.writeUInt16LE(32, e + 6)
-    header.writeUInt32LE(png.length, e + 8)
-    header.writeUInt32LE(offset, e + 12)
-    offset += png.length
-  })
-  return Buffer.concat([header, ...pngs.map(p => p.png)])
-}
-
 app.whenReady().then(() => {
   const icon = nativeImage.createFromPath(join(root, 'build/icon.png'))
   if (icon.isEmpty()) throw new Error('读不到 build/icon.png')
-  // 托盘只有 16–48px：去掉外圈的星星、云和小火箭（缩小后糊成一团），只留中间的飞船
-  const source = icon.crop(CROP)
   mkdirSync(out, { recursive: true })
   const frame = (size, rgb) => {
-    const img = source.resize({ width: size, height: size, quality: 'best' })
+    const img = icon.resize({ width: size, height: size, quality: 'best' })
     const bitmap = Buffer.from(img.toBitmap())
     if (rgb) badge(bitmap, size, rgb)
     return nativeImage.createFromBitmap(bitmap, { width: size, height: size }).toPNG()

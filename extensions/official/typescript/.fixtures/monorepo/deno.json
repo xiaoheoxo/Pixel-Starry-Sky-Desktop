@@ -1,0 +1,6 @@
+{
+  "workspace": ["./packages/web"],
+  "tasks": {
+    "fmt-check": "deno fmt --check"
+  }
+}

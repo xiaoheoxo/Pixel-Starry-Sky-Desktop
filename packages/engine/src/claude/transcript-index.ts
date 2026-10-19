@@ -36,6 +36,8 @@ export type UserKind = 'prompt' | 'command' | 'summary' | 'result' | 'other'
 
 export interface IndexRow extends RowPos {
   uuid: string
+  /** Original item id when a relay row needs a fresh UUID. */
+  pixelskyItemId?: string
   parent: string | null
   logical: string | null
   type: string
@@ -164,7 +166,8 @@ export function classifyUser(
   if (t.startsWith('<command-') || t.startsWith('<local-command-') || t.startsWith('<task-notification')) return 'other'
   // 中断时 Claude Code 自己补的一行，不是用户输入
   if (t.startsWith('[Request interrupted by user')) return 'other'
-  return content.hasText && t ? 'prompt' : 'other'
+  // 只发了图片（没写字）也是一轮用户输入：不然导入时这一轮被并进上一轮、补上时找不到（GitHub 报告，2026-10-17）
+  return (content.hasText && t) || content.images > 0 ? 'prompt' : 'other'
 }
 
 // ---------- 建索引 ----------
@@ -226,7 +229,13 @@ function addRow(idx: TranscriptIndex, e: Row, line: number, offset: number, len:
     idx.boundaryLine = Math.max(idx.boundaryLine, line)
   }
   if (type === 'user') {
-    if (!side) idx.userParents.set(row.uuid, row.parent)
+    if (!side) {
+      idx.userParents.set(row.uuid, row.parent)
+      if (typeof e.pixelskyItemId === 'string' && e.pixelskyItemId) {
+        row.pixelskyItemId = e.pixelskyItemId
+        idx.userParents.set(e.pixelskyItemId, row.parent)
+      }
+    }
     const content = userContent(message.content)
     const kind = classifyUser(e, content)
     row.user = kind

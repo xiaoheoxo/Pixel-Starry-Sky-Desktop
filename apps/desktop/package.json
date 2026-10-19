@@ -1,6 +1,6 @@
 {
   "name": "@pixelsky/desktop",
-  "version": "0.4.9-beta",
+  "version": "0.5.5",
   "private": true,
   "description": "像素星空桌面端",
   "homepage": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:demo": "node scripts/dev.mjs --demo",
-    "build": "electron-vite build && electron-vite build --config electron.remote.config.ts",
+    "build": "pnpm --filter @pixelsky/cli bundle && electron-vite build && electron-vite build --config electron.remote.config.ts",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "capture": "electron-vite build && node scripts/capture.mjs",
@@ -16,7 +16,7 @@
     "dist": "pnpm build && electron-builder --win --publish never",
     "dist:mac": "pnpm build && electron-builder --mac --publish never",
     "dist:linux": "pnpm build && electron-builder --linux --publish never",
-    "test": "vitest run src/renderer/src src/main src/shared --root ."
+    "test": "vitest run src/renderer/src src/main src/shared src/workers --root ."
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",

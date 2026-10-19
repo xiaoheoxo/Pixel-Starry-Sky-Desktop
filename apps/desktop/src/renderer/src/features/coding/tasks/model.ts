@@ -7,48 +7,52 @@ import type {
   RunTaskState,
 } from '../../../../../shared/types/project-tools'
 import type { TerminalRecord } from '../../../../../shared/types/terminal'
-import { extTaskCommand, shellName } from './extCommand'
+import { extTaskCommand, quote, shellKind, shellName, TaskCommandError } from './extCommand'
 
 // 扩展任务的命令拼装在 extCommand.ts（不引用扩展 store，node 测试能直接用）；shellName 也放在那里，这里原样再导出
-export { shellName }
-
-/** 目录带空格或引号时加双引号 */
-function quoteDir(dir: string): string {
-  return /[\s"]/.test(dir) ? `"${dir.replaceAll('"', '\\"')}"` : dir
-}
+export { shellName, TaskCommandError }
 
 /**
  * Gradle 的命令（docs/ui/coding-tasks.md §9.3）：有 wrapper 用 ./gradlew（PowerShell 自己会找 gradlew.bat，cmd 要写 .\gradlew.bat），
- * 构建不在工作区根时加 -p；根项目只写任务名，子项目写全路径
+ * 构建不在工作区根时加 -p；根项目只写任务名，子项目写全路径。目录、wrapper 路径、任务路径都按终端加引号
  */
 function gradleCommand(group: RunTaskGroup, task: RunTask, shell: string | undefined): string {
   const g = group.gradle!
-  const name = shellName(shell)
+  const kind = shellKind(shell)
+  // gradle / gradlew 在 Windows 上是 .bat：PowerShell 调它会按旧规则传参，含 & | < > ^ % " 的值没法安全传
+  const q = (value: string): string => quote(value, kind, undefined, true)
   let runner = 'gradle'
   if (g.wrapper) {
     const path =
-      name === 'cmd'
+      kind === 'cmd'
         ? `.\\${g.buildDir ? g.buildDir.replaceAll('/', '\\') + '\\' : ''}gradlew.bat`
         : `./${g.buildDir ? g.buildDir + '/' : ''}gradlew`
+    const quoted = q(path)
     // PowerShell 里带引号的路径要用 & 才会执行
-    runner = /[\s"]/.test(path) ? `${name === 'powershell' || name === 'pwsh' ? '& ' : ''}${quoteDir(path)}` : path
+    runner = (kind === 'pwsh' || kind === 'ps5') && quoted !== path ? `& ${quoted}` : quoted
   }
-  const dir = g.buildDir ? ` -p ${quoteDir(g.buildDir)}` : ''
-  return `${runner}${dir} ${g.project === ':' ? task.name : `${g.project}:${task.name}`}`
+  const dir = g.buildDir ? ` -p ${q(g.buildDir)}` : ''
+  return `${runner}${dir} ${q(g.project === ':' ? task.name : `${g.project}:${task.name}`)}`
 }
 
-/** 在终端里跑这个任务的命令；子文件夹用工具自己的目录参数，不 cd。shell 是终端程序（只有 Gradle 在 cmd 里写法不同），不知道时按 PowerShell / sh 都能用的写 */
+/**
+ * 在终端里跑这个任务的命令；子文件夹用工具自己的目录参数，不 cd。
+ * shell 是终端程序，决定引号写法（extCommand.quote）：PowerShell / sh 单引号，cmd 双引号，不知道时单引号（含 ' 按 PowerShell 双写）。
+ * cmd 下目录或任务名含 % 时抛 TaskCommandError
+ */
 export function taskCommand(group: RunTaskGroup, task: RunTask, shell?: string): string {
   if (group.kind === 'gradle' && group.gradle) return gradleCommand(group, task, shell)
   if (group.kind === 'ext' && group.ext) return extTaskCommand(group, task, shell)
+  const kind = shellKind(shell)
+  const q = (value: string): string => quote(value, kind)
   const dir = group.dir
-  if (group.kind === 'make') return dir ? `make -C ${quoteDir(dir)} ${task.name}` : `make ${task.name}`
+  if (group.kind === 'make') return dir ? `make -C ${q(dir)} ${q(task.name)}` : `make ${q(task.name)}`
   if (group.kind === 'cargo')
-    return dir ? `cargo ${task.name} --manifest-path ${quoteDir(`${dir}/Cargo.toml`)}` : `cargo ${task.name}`
+    return dir ? `cargo ${q(task.name)} --manifest-path ${q(`${dir}/Cargo.toml`)}` : `cargo ${q(task.name)}`
   const manager = group.manager ?? 'npm'
-  if (!dir) return `${manager} run ${task.name}`
+  if (!dir) return `${manager} run ${q(task.name)}`
   const flag = manager === 'pnpm' ? '--dir' : manager === 'npm' ? '--prefix' : '--cwd'
-  return `${manager} ${flag} ${quoteDir(dir)} run ${task.name}`
+  return `${manager} ${flag} ${q(dir)} run ${q(task.name)}`
 }
 
 const POWERSHELL_EXIT = '; $ok=$?; if ($LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $ok) { exit 1 }; exit 0'
@@ -64,7 +68,7 @@ export function exitSuffix(program: string | undefined): string {
   return '; exit $?'
 }
 
-export type TaskStatusKind = 'idle' | 'running' | 'ok' | 'failed' | 'stopped'
+export type TaskStatusKind = 'idle' | 'running' | 'stopping' | 'ok' | 'failed' | 'stopped'
 export interface TaskStatus {
   kind: TaskStatusKind
   /** 失败时的退出码；不知道为 null */
@@ -72,15 +76,41 @@ export interface TaskStatus {
 }
 export const IDLE: TaskStatus = { kind: 'idle', code: null }
 
-/** 终端记录 → 任务状态。stopped 是本地标记（发过 Ctrl+C），压过「终端还在跑」 */
-export function taskStatus(record: TerminalRecord | undefined, stopped = false): TaskStatus {
+/** 这次运行在界面里记下的几件事（store.ts 的 Run），taskStatus 据此在终端记录之上推状态 */
+export interface RunFlags {
+  /** 点了停止，但这个 shell 没有提示符标记可等：直接算已停止（旧行为） */
+  stopped?: boolean
+  /** 点了停止，等提示符回来才算已停止 */
+  stopping?: boolean
+  /** 命令写进终端之后，提示符回来了（Ctrl+C 中止了整行，exit 后缀没执行）；code 是标记里的退出码，不知道为 null */
+  ended?: { code: number | null } | null
+}
+
+/** Ctrl+C 打断的退出码：bash / zsh 的 128+SIGINT，Windows 的 STATUS_CONTROL_C_EXIT（有符号 / 无符号两种写法） */
+const INTERRUPTED = new Set([130, -1073741510, 3221225786])
+
+/** 提示符回来了的结果：点了停止 / 被 Ctrl+C 打断 / 退出码未知 都算已停止；0 成功；其余失败 */
+function endedStatus(code: number | null, stopping: boolean): TaskStatus {
+  if (stopping || code === null || INTERRUPTED.has(code)) return { kind: 'stopped', code: null }
+  return code === 0 ? { kind: 'ok', code: null } : { kind: 'failed', code }
+}
+
+/**
+ * 终端记录 → 任务状态。任务命令后面有 exit 后缀，正常跑完 shell 会退出（看 record）；
+ * 被 Ctrl+C 中止时 shell 留在提示符，靠提示符标记（flags.ended）知道结束了。
+ * 没有标记的 shell 只有 stopped（发过 Ctrl+C）压过「终端还在跑」（已退出的除外：退出码说了算）。标记判定过结束的以标记为准，之后 shell 再退出也不改
+ */
+export function taskStatus(record: TerminalRecord | undefined, flags: RunFlags = {}): TaskStatus {
   if (!record) return IDLE
-  if (stopped && record.status !== 'exited') return { kind: 'stopped', code: null }
-  if (record.status === 'running' || record.status === 'starting') return { kind: 'running', code: null }
+  // 已经按提示符标记判定结束的，之后用户在终端里再 exit 也不改判
+  if (flags.ended && record.status !== 'error') return endedStatus(flags.ended.code, !!flags.stopping)
   if (record.status === 'exited')
     return record.exitCode === 0 ? { kind: 'ok', code: null } : { kind: 'failed', code: record.exitCode ?? null }
+  if (flags.stopped) return { kind: 'stopped', code: null }
   if (record.status === 'error') return { kind: 'failed', code: null }
-  return IDLE
+  if (record.status !== 'running' && record.status !== 'starting') return IDLE
+  if (flags.stopping) return { kind: 'stopping', code: null }
+  return { kind: 'running', code: null }
 }
 
 /** 终端名：Gradle 子项目的任务写全路径（:fabric:runClient），其余就是任务名 */

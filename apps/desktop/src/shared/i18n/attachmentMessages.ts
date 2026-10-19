@@ -100,6 +100,12 @@ export const attachmentMessages = {
     zh: '文件较大，只带上开头 {p0} 行和结尾 {p1} 行，中间 {p2} 行省略',
     en: 'Large file: only the first {p0} and last {p1} lines are sent; {p2} lines in between are left out',
   },
+  'composer.file.byPath': { zh: '可按路径读全文', en: 'Full file via path' },
+  'composer.file.byPathHint': {
+    zh: '中间省略的部分智能体可以按路径读完整文件：{p0}',
+    en: 'The agent can read the omitted part from the full file: {p0}',
+  },
+  'composer.file.path': { zh: '路径：{p0}', en: 'Path: {p0}' },
   'composer.file.omitted': { zh: '… 中间省略 {p0} 行 …', en: '… {p0} lines left out …' },
   'composer.file.secret': { zh: '可能含密钥', en: 'May contain secrets' },
   'composer.file.secretHint': {

@@ -13,6 +13,7 @@ import type {
   Item,
   ItemStatus,
   ModelTurnUsage,
+  NoticeError,
   NoticeTask,
   PermissionMode,
   SubagentStatus,
@@ -28,7 +29,7 @@ import { RequestCacheReader } from './request-cache'
 import { requestRetryState } from './retry-state'
 import { ContextReader } from './context'
 import { obj, num, str } from './shape'
-import { ERROR_TEXT, friendlyApiError } from './apiError'
+import { ERROR_TEXT, apiNoticeError, friendlyApiError } from './apiError'
 
 type Msg = Record<string, unknown>
 type CompactionItem = Extract<Item, { kind: 'compaction' }>
@@ -317,7 +318,13 @@ export class ClaudeTranslator {
     return `${prefix}-${Date.now().toString(36)}-${++this.seq}`
   }
 
-  notice(level: 'info' | 'warn' | 'error', text: string, detail?: string | null, task?: NoticeTask): void {
+  notice(
+    level: 'info' | 'warn' | 'error',
+    text: string,
+    detail?: string | null,
+    task?: NoticeTask,
+    error?: NoticeError,
+  ): void {
     this.cb.emit({
       type: 'item_completed',
       item: {
@@ -327,6 +334,7 @@ export class ClaudeTranslator {
         text,
         ...(detail ? { detail } : {}),
         ...(task ? { task } : {}),
+        ...(error ? { error } : {}),
       },
     })
   }
@@ -754,7 +762,14 @@ export class ClaudeTranslator {
     // 带报错代码的回复：先记下，等这一轮的结果一起出一条（失败的结果本身也会报错，原来会出两条）；
     // 不在一轮里（零散消息）时马上提示
     if (typeof msg.error === 'string' && msg.error) {
-      if (!this.turnId) this.notice('error', ERROR_TEXT[msg.error] ?? `请求出错（${msg.error}）`)
+      if (!this.turnId)
+        this.notice(
+          'error',
+          ERROR_TEXT[msg.error] ?? `请求出错（${msg.error}）`,
+          null,
+          undefined,
+          apiNoticeError(msg.error, ''),
+        )
       // 这条消息的文字是真的回复（例如写到上限被截断），不当报错原文
       else if (!this.apiError)
         this.apiError = { code: msg.error, raw: ERROR_TEXT[msg.error] ?? `请求出错（${msg.error}）` }
@@ -866,11 +881,17 @@ export class ClaudeTranslator {
       error = friendly ?? raw
       if (this.retry?.attempt !== null && this.retry?.attempt !== undefined)
         error += `\n本次请求已重试 ${this.retry.attempt} 次${this.retry.maxRetries !== null && this.retry.attempt >= this.retry.maxRetries ? '，达到重试上限' : ''}。`
-      this.notice('error', error, friendly ? raw : null)
+      this.notice('error', error, friendly ? raw : null, undefined, apiNoticeError(apiError?.code ?? null, raw))
     } else if (apiError) {
       // 收到报错消息、这一轮却没算失败：也只提示一次
       const friendly = friendlyApiError(apiError.code, apiError.raw)
-      this.notice('error', friendly ?? apiError.raw, friendly ? apiError.raw : null)
+      this.notice(
+        'error',
+        friendly ?? apiError.raw,
+        friendly ? apiError.raw : null,
+        undefined,
+        apiNoticeError(apiError.code, apiError.raw),
+      )
     }
     const usage = this.turnUsage(msg)
     // 这一轮说完了，派出去的后台子智能体可能还在跑：带上个数，宿主和通知按「还没做完」处理

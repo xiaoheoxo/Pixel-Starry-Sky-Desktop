@@ -61,6 +61,7 @@ export const EXT_ISSUE_CODES = [
   'manifest.url',
   'manifest.version',
   'pack.duplicateId',
+  'pack.storeBlocked',
   'pack.validate',
   'prompt.body',
   'prompt.fields',

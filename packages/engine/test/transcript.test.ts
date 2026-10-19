@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { clearTranscriptIndexCache, leafOf, transcriptIndex } from '../src/claude/transcript-index'
 import {
   anchorPosition,
   copyTranscriptUntil,
@@ -161,9 +162,10 @@ describe('跨引擎接力：把聊天写进 Claude Code 的记录', () => {
     const path = await seedTranscript(dir, '/work/proj', 'old', [{ id: uuid, user: '问', assistant: '答' }], '')
     expect(path).toBe(existing)
     const lines = read(path)
-    const seeded = lines.filter(l => l.sessionId === 'old' && (l.type === 'user' || l.type === 'assistant')).slice(-2)
-    expect(seeded[0]).toMatchObject({ uuid, parentUuid: 'u2' })
-    expect(lines.at(-1)).toMatchObject({ type: 'last-prompt', leafUuid: seeded[1].uuid })
+    const seeded = lines.filter(l => l.sessionId === 'old' && (l.type === 'user' || l.type === 'assistant')).slice(-3)
+    expect(seeded[0]).toMatchObject({ type: 'assistant', parentUuid: 'u2' })
+    expect(seeded[1]).toMatchObject({ uuid, parentUuid: seeded[0].uuid })
+    expect(lines.at(-1)).toMatchObject({ type: 'last-prompt', leafUuid: seeded[2].uuid })
   })
 
   // 失败的一轮游标不动，进程关掉后重试会把同一轮再交一次
@@ -173,9 +175,13 @@ describe('跨引擎接力：把聊天写进 Claude Code 的记录', () => {
     it('已经接力写过的轮次不再写：uuid 不重复，父链不成环，截断点不变', async () => {
       const turns = [{ id: uuid, user: '问', assistant: '答' }]
       const path = await seedTranscript(dir, '/work/proj', 'again', turns, '')
-      const before = readFileSync(path, 'utf8')
+      const before = read(path)
       await seedTranscript(dir, '/work/proj', 'again', turns, '')
-      expect(readFileSync(path, 'utf8')).toBe(before)
+      expect(read(path).filter(l => l.type !== 'last-prompt')).toEqual(before)
+      expect(read(path).at(-1)).toMatchObject({ type: 'last-prompt', leafUuid: currentLeaf(path) })
+      const pointed = readFileSync(path, 'utf8')
+      await seedTranscript(dir, '/work/proj', 'again', turns, '')
+      expect(readFileSync(path, 'utf8')).toBe(pointed)
       // 后面跟着新的一轮时只写新的那轮，接在原来的末端后面
       const leaf = currentLeaf(path)
       await seedTranscript(dir, '/work/proj', 'again', [...turns, { id: second, user: '再问', assistant: '再答' }], '')
@@ -199,9 +205,10 @@ describe('跨引擎接力：把聊天写进 Claude Code 的记录', () => {
           .map(r => JSON.stringify(r))
           .join('\n') + '\n',
       )
-      const before = readFileSync(existing, 'utf8')
+      const before = read(existing)
       await seedTranscript(dir, '/work/proj', 'failed', [{ id: uuid, user: '问', assistant: null }], '')
-      expect(readFileSync(existing, 'utf8')).toBe(before)
+      expect(read(existing).filter(l => l.type !== 'last-prompt')).toEqual(before)
+      expect(read(existing).at(-1)).toMatchObject({ type: 'last-prompt', leafUuid: 'err' })
       expect(await findRewindAnchor(existing, [uuid])).toEqual({ at: 'a0' })
     })
 
@@ -223,10 +230,115 @@ describe('跨引擎接力：把聊天写进 Claude Code 的记录', () => {
           .join('\n') + '\n',
       )
       await seedTranscript(dir, '/work/proj', 'rewound', [{ id: uuid, user: '问', assistant: '答' }], '')
-      const seeded = read(existing).filter(l => l.type === 'user').at(-1)!
+      const seeded = read(existing)
+        .filter(l => l.type === 'user')
+        .at(-1)!
       expect(seeded.uuid).not.toBe(uuid)
+      expect(seeded.pixelskyItemId).toBe(uuid)
       expect(seeded.parentUuid).toBe('a1')
       expect(read(existing).filter(l => l.uuid === uuid)).toHaveLength(1)
+      expect(await findRewindAnchor(existing, [uuid])).toEqual({ at: 'a1' })
+      clearTranscriptIndexCache()
+      expect(await findRewindAnchor(existing, [uuid])).toEqual({ at: 'a1' })
+      const before = readFileSync(existing, 'utf8')
+      await seedTranscript(dir, '/work/proj', 'rewound', [{ id: uuid, user: '问', assistant: '答' }], '')
+      expect(readFileSync(existing, 'utf8')).toBe(before)
+    })
+
+    it('跳过未回复的末端用户消息后，先补助手占位再接下一轮', async () => {
+      mkdirSync(join(dir, '-work-proj'))
+      const existing = join(dir, '-work-proj', 'unfinished.jsonl')
+      writeFileSync(
+        existing,
+        [
+          { type: 'user', uuid: 'u0', parentUuid: null },
+          { type: 'assistant', uuid: 'a0', parentUuid: 'u0' },
+          { type: 'user', uuid, parentUuid: 'a0' },
+        ]
+          .map(r => JSON.stringify(r))
+          .join('\n') + '\n',
+      )
+      await seedTranscript(
+        dir,
+        '/work/proj',
+        'unfinished',
+        [
+          { id: uuid, user: '未回复', assistant: null },
+          { id: second, user: '下一轮', assistant: '答' },
+        ],
+        'NO_REPLY',
+      )
+      const messages = read(existing).filter(l => l.type === 'user' || l.type === 'assistant')
+      expect(messages.map(l => l.type)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant'])
+      expect(messages.filter(l => l.uuid === uuid)).toHaveLength(1)
+      expect(messages[3]).toMatchObject({
+        parentUuid: uuid,
+        message: { content: [{ type: 'text', text: 'NO_REPLY' }] },
+      })
+      expect(messages[4]).toMatchObject({ uuid: second, parentUuid: messages[3].uuid })
+      expect(messages[5].parentUuid).toBe(second)
+      expect(await findRewindAnchor(existing, [uuid])).toEqual({ at: 'a0' })
+    })
+
+    it('全部跳过时仍把旧 last-prompt 指向当前分支末端', async () => {
+      mkdirSync(join(dir, '-work-proj'))
+      const existing = join(dir, '-work-proj', 'stale.jsonl')
+      writeFileSync(
+        existing,
+        [
+          { type: 'user', uuid: 'u0', parentUuid: null },
+          { type: 'assistant', uuid: 'a0', parentUuid: 'u0' },
+          { type: 'user', uuid: 'o1', parentUuid: 'a0' },
+          { type: 'assistant', uuid: 'o2', parentUuid: 'o1' },
+          { type: 'last-prompt', leafUuid: 'o2', lastPrompt: '旧提示' },
+          { type: 'user', uuid, parentUuid: 'a0' },
+          { type: 'assistant', uuid: 'a1', parentUuid: uuid },
+        ]
+          .map(r => JSON.stringify(r))
+          .join('\n') + '\n',
+      )
+      const before = read(existing)
+      await seedTranscript(dir, '/work/proj', 'stale', [{ id: uuid, user: '问', assistant: '答' }], '')
+      expect(read(existing).slice(0, -1)).toEqual(before)
+      expect(read(existing).at(-1)).toMatchObject({ type: 'last-prompt', leafUuid: 'a1', lastPrompt: '旧提示' })
+      expect(leafOf(await transcriptIndex(existing))).toBe('a1')
+    })
+
+    it('去重和续写使用与导入相同的 last-prompt 分支', async () => {
+      mkdirSync(join(dir, '-work-proj'))
+      const existing = join(dir, '-work-proj', 'selected.jsonl')
+      writeFileSync(
+        existing,
+        [
+          { type: 'user', uuid: 'u0', parentUuid: null },
+          { type: 'assistant', uuid: 'a0', parentUuid: 'u0' },
+          { type: 'user', uuid, parentUuid: 'a0' },
+          { type: 'assistant', uuid: 'selected', parentUuid: uuid },
+          { type: 'user', uuid: 'other', parentUuid: 'a0' },
+          { type: 'assistant', uuid: 'physical-tail', parentUuid: 'other' },
+          { type: 'last-prompt', leafUuid: 'selected' },
+        ]
+          .map(r => JSON.stringify(r))
+          .join('\n') + '\n',
+      )
+      const before = readFileSync(existing, 'utf8')
+      await seedTranscript(dir, '/work/proj', 'selected', [{ id: uuid, user: '问', assistant: '答' }], '')
+      expect(readFileSync(existing, 'utf8')).toBe(before)
+      await seedTranscript(
+        dir,
+        '/work/proj',
+        'selected',
+        [
+          { id: uuid, user: '问', assistant: '答' },
+          { id: second, user: '新问', assistant: '新答' },
+        ],
+        '',
+      )
+      expect(
+        read(existing)
+          .filter(l => l.type === 'user')
+          .at(-1),
+      ).toMatchObject({ uuid: second, parentUuid: 'selected' })
     })
   })
 
@@ -273,6 +385,42 @@ describe('跨引擎接力：把聊天写进 Claude Code 的记录', () => {
       expect(users).toHaveLength(2)
       expect(users[1]).toMatchObject({ parentUuid: lines[1].uuid })
       expect(await findRewindAnchor(path, [uuid, 'next'])).toEqual({ at: null })
+    })
+  })
+
+  // PR #96 #10 / #11
+  describe('非 UUID 的条目 id 和同一批重复的 id', () => {
+    const retryId = `${uuid}-retry-33333333-3333-4333-8333-333333333333`
+
+    it('重试出来的 id（X-retry-…）再交接一次不重复写，记录里带 pixelskyItemId', async () => {
+      const turn = { id: retryId, user: '重试的一轮', assistant: null }
+      const path = await seedTranscript(dir, '/work/proj', 'retry', [turn], '（没回复）')
+      await seedTranscript(dir, '/work/proj', 'retry', [turn], '（没回复）')
+      const users = read(path).filter(l => l.type === 'user')
+      expect(users).toHaveLength(1)
+      expect(users[0]).toMatchObject({ pixelskyItemId: retryId })
+      expect(users[0].uuid).not.toBe(retryId)
+    })
+
+    it('同一批里 id 相同的轮次只写一次', async () => {
+      const path = await seedTranscript(
+        dir,
+        '/work/proj',
+        'dup',
+        [
+          { id: uuid, user: '一', assistant: '答一' },
+          { id: uuid, user: '一（重复）', assistant: '答二' },
+          { id: 'plain', user: '二', assistant: '答' },
+          { id: 'plain', user: '二（重复）', assistant: '答' },
+        ],
+        '（没回复）',
+      )
+      const lines = read(path)
+      expect(lines.filter(l => l.uuid === uuid)).toHaveLength(1)
+      expect(lines.filter(l => l.type === 'user').map(l => (l.message as { content: string }).content)).toEqual([
+        '一',
+        '二',
+      ])
     })
   })
 })

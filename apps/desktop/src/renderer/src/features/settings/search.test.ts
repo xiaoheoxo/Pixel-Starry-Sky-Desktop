@@ -108,3 +108,14 @@ describe('环境变量文本框', () => {
     expect(parseEnvLines('没有等号').bad).toBe('没有等号')
   })
 })
+
+describe('设置搜索：扩展页签', () => {
+  it.each([
+    ['发现', 'discover'],
+    ['discover', 'discover'],
+    ['我的发布', 'publish'],
+    ['publish', 'publish'],
+  ])('搜「%s」能搜到 extTab=%s', (q, tab) => {
+    expect(searchSettings(q, label).some(h => h.section === 'extensions' && h.extTab === tab)).toBe(true)
+  })
+})

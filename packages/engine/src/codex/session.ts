@@ -6,18 +6,21 @@ import type {
   ContextWindows,
   EngineCatalog,
   ImageAttachment,
+  RequestRetryState,
+  NoticeError,
   SessionSettings,
   SkillCommand,
   TurnOutcome,
 } from '@pixelsky/protocol'
-import { EMPTY_FLAGS, isQuietWarning, viaGateway } from '@pixelsky/protocol'
+import { EMPTY_FLAGS, codedError, isQuietWarning, noticeErrorOf, viaGateway } from '@pixelsky/protocol'
 import { versionAtLeast } from '../exec'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import { NO_REPLY, seedImageCount, seedTurns, type ChatSeed, type ChatTurn } from '../chat-log'
 import { CodexProcess, array, object, string, type Message } from './process'
 import { readCodexTurns, revertTarget } from './branch'
 import { codexCatalog } from './catalog'
-import { codexCommand } from './command'
+import { codexThreadName } from './native'
+import { codexCommandParts } from './command'
 import { codexChanges, CodexTranslator, tokenCounts } from './translate'
 import { CODEX_WINDOW_ENV, codexContextConfig } from './context-config'
 
@@ -41,6 +44,8 @@ export interface CodexLaunchOptions {
   knownWindows?: Map<string, number>
   /** 以前派出过的子智能体（从 rollout 还原）：接着跑完时在原来的追踪上更新 */
   savedAgents?: () => AgentRun[]
+  /** 这个会话占着的线程：拿到线程 id 时登记、换线程 / 进程退出 / 关闭时撤销（适配器的 ownThreads，列表上「正开着」不算它们） */
+  ownThread?: (id: string, own: boolean) => void
 }
 
 /** 用户追加的参数里第一个由像素星空控制的（docs/ui/engine-launch.md §3）：--listen，改平台线路的 -c；都允许时返回 null */
@@ -113,6 +118,66 @@ export function turnErrorDetail(raw: unknown, willRetry?: unknown): string | nul
   return lines.join('\n')
 }
 
+/**
+ * Codex 自己在重连（error 通知带 willRetry: true，message 是「Reconnecting... 2/5」）：转成界面的「正在重试 n/m」状态条。
+ * 原因优先写 HTTP 状态码，其次附加说明的第一行；Codex 不报等多久，retryAt 为 null
+ */
+export function codexRetryState(raw: unknown, turnId: string): RequestRetryState {
+  const error = object(raw)
+  const message = string(error.message).trim()
+  const count = /(\d+)\s*\/\s*(\d+)/.exec(message)
+  let status: number | null = null
+  const info = error.codexErrorInfo
+  if (info && typeof info === 'object')
+    for (const value of Object.values(info as Record<string, unknown>)) {
+      const code = object(value).httpStatusCode
+      if (typeof code === 'number') status = code
+    }
+  const details = string(error.additionalDetails).trim().split('\n')[0].trim()
+  const reason =
+    status !== null
+      ? `HTTP ${status}`
+      : details
+        ? details.slice(0, 300)
+        : message.replace(/^Reconnecting\.*\s*(\d+\s*\/\s*\d+)?\s*/i, '').trim() || 'Connection lost'
+  return {
+    turnId,
+    attempt: count ? Number(count[1]) : null,
+    maxRetries: count ? Number(count[2]) : null,
+    retryAt: null,
+    reason,
+  }
+}
+
+/** Codex 这一轮换了模型（model/rerouted）：给对话里的提示；原因认不出时写在详情里 */
+export function codexRerouteNotice(params: Message): { text: string; detail: string | null } | null {
+  const from = string(params.fromModel),
+    to = string(params.toModel),
+    reason = string(params.reason)
+  if (!to || to === from) return null
+  const text = `Codex switched the model from ${from || 'the selected model'} to ${to}`
+  if (reason === 'highRiskCyberActivity')
+    return { text: `${text}: the request was flagged as high-risk cybersecurity activity`, detail: null }
+  return { text, detail: reason ? `reason: ${reason}` : null }
+}
+
+/**
+ * Codex TurnError 的结构化信息（notice.error）：codexErrorInfo 的类型名（协议里是 camelCase，如 contextWindowExceeded）当错误代码，带 HTTP 状态码的取出来；
+ * 归类走协议里的同一张代码表，没有可用信息时 undefined
+ */
+export function turnNoticeError(raw: unknown, text: string): NoticeError | undefined {
+  const info = object(raw).codexErrorInfo
+  let code: string | undefined, status: number | undefined
+  if (typeof info === 'string' && info) code = info
+  else if (info && typeof info === 'object') {
+    const [kind, value] = Object.entries(info as Record<string, unknown>)[0] ?? []
+    code = kind || undefined
+    const http = object(value).httpStatusCode
+    if (typeof http === 'number') status = http
+  }
+  return noticeErrorOf({ code, status, text })
+}
+
 /** extraDirs：项目的附加文件夹，和工作目录一样可写（docs/ui/multi-root-projects.md §3.3） */
 export function codexPermission(mode: string, cwd?: string, extraDirs: readonly string[] = []): Message {
   return mode === 'full'
@@ -149,6 +214,12 @@ export class CodexSession implements EngineSession {
   private opening: Promise<void> | null = null
   private closed = false
   private threadId: string | null = null
+  /** 线程现在在 Codex 里的名字（syncThreadName 用来判断要不要改） */
+  private threadName = ''
+  /** 已经向 options.ownThread 登记的线程 id */
+  private ownedThread: string | null = null
+  /** 恢复线程失败、改开了新线程的英文提示：要等聊天注入之后才发（注入成功且宿主已经说过「记录不在了」就不发） */
+  private resumeNotice: string | null = null
   private nativeTurnId: string | null = null
   private readonly finishedTurns = new Set<string>()
   private active: {
@@ -176,6 +247,8 @@ export class CodexSession implements EngineSession {
   /** 派出过的子智能体：每轮换新翻译器也要保留 */
   private readonly agents = new Map<string, AgentRun>()
   private reportedError: string | null = null
+  /** 这一轮正显示着 Codex 的重连状态条（codexRetryState）：有新输出或一轮结束时清掉 */
+  private retryShown = false
   /** 同一毫秒内的多条报错也要各自保留，id 不能只靠时间戳 */
   private noticeSeq = 0
   /** 启动时带了 model_context_window：报上来的窗口是设置的值，不记成 Codex 自己的 */
@@ -313,6 +386,7 @@ export class CodexSession implements EngineSession {
         if (this.proc !== proc || (askFlag && this.startup === 'pending')) return
         if (!this.closed && this.active) this.finish('failed', tail || 'Codex process exited')
         this.threadId = null
+        this.own(null)
       },
     })
     this.proc = proc
@@ -332,8 +406,11 @@ export class CodexSession implements EngineSession {
       const policy = codexPermission(this.settings.permissionMode)
       if (allowed.length && !allowed.includes(policy.approvalPolicy))
         throw new Error('Codex managed requirements prohibit this permission mode')
+      const modelProvider = gatewayProvider ?? (string(environment.PIXELSKY_CODEX_PROVIDER) || undefined)
       const threadParams = {
         cwd: record.cwd,
+        // 显式带上来源：resume / fork 不带时 Codex 沿用线程自己存的来源，平台会话接以前用别的来源开的线程会绕过网关
+        ...(modelProvider ? { modelProvider } : {}),
         // 附加文件夹：Codex 只靠可写目录不知道它们在哪，开线程时说一声
         ...(record.extraDirs?.length ? { developerInstructions: extraDirsNote(record.extraDirs) } : {}),
         ...(record.model ? { model: record.model } : {}),
@@ -368,6 +445,9 @@ export class CodexSession implements EngineSession {
         } catch (error) {
           // 进程已经退出说明是连接问题，照常报错；进程还在说明线程找不到或已损坏，改用新线程
           if (!proc.alive) throw error
+          // 另一个进程（例如终端里的 codex）正写着这个线程：改开新线程会丢上下文，报给界面让用户选
+          if (/already has an active writer/i.test((error as Error).message))
+            throw codedError('resume.live', { source: record.imported?.source ?? 'other' })
           thread = await proc.request('thread/start', threadParams)
           resumeFailed = true
         }
@@ -386,6 +466,7 @@ export class CodexSession implements EngineSession {
         }
       else thread = await proc.request('thread/start', threadParams)
       this.threadId = string(object(thread.thread).id)
+      this.threadName = string(object(thread.thread).name)
       this.threadModel = string(thread.model) || null
       // 恢复的线程会报它实际的协作模式（新建的不报）：可能还停在计划模式（上次退出前选的计划），下一轮需要时切回 default
       const held = object(thread.collaborationMode),
@@ -398,13 +479,17 @@ export class CodexSession implements EngineSession {
       this.modeEffort = heldDefault ? string(heldSettings.reasoning_effort) || null : null
       if (!this.threadId) throw new Error('Codex did not return a thread ID')
       this.ctx.setEngineSessionId(this.threadId)
-      const warning = resumeFailed
+      this.own(this.threadId)
+      this.syncThreadName()
+      // 恢复失败的提示等聊天注入之后再发（run()），其余的这里就发
+      this.resumeNotice = resumeFailed
         ? 'Could not resume the Codex thread; started a new thread (previous context was not carried over)'
-        : rewindFailed
-          ? 'Could not rewind the Codex thread to this message; started a new thread (previous context was not carried over)'
-          : forkFailed
-            ? 'Could not fork the Codex thread; started a new thread (previous context was not carried over)'
-            : null
+        : null
+      const warning = rewindFailed
+        ? 'Could not rewind the Codex thread to this message; started a new thread (previous context was not carried over)'
+        : forkFailed
+          ? 'Could not fork the Codex thread; started a new thread (previous context was not carried over)'
+          : null
       if (warning)
         this.ctx.emit({
           type: 'item_completed',
@@ -462,6 +547,38 @@ export class CodexSession implements EngineSession {
       throw error
     }
   }
+  /**
+   * 经网关的线程在 Codex 自己的列表里打不开：名字带上「[像素星空]」前缀，跟着会话标题改；
+   * 改用自己的账号接着聊时去掉前缀。改名失败（老版本 Codex 没有这个接口）不影响对话
+   */
+  private syncThreadName(): void {
+    const proc = this.proc,
+      id = this.threadId
+    if (!proc?.alive || !id) return
+    const record = this.ctx.record()
+    const name = codexThreadName(this.threadName, record.title, viaGateway(record))
+    if (name === null) return
+    // 先记下，同一个名字不重复发
+    this.threadName = name
+    void proc.request('thread/name/set', { threadId: id, name }).catch(() => {})
+  }
+  /** 登记 / 撤销这个会话占着的线程（换了线程先撤销旧的；null 是不再占着） */
+  private own(id: string | null): void {
+    if (this.ownedThread === id) return
+    if (this.ownedThread) this.options.ownThread?.(this.ownedThread, false)
+    this.ownedThread = id
+    if (id) this.options.ownThread?.(id, true)
+  }
+  /** 把恢复失败的英文提示发出去（只发一次） */
+  private flushResumeNotice(): void {
+    const text = this.resumeNotice
+    this.resumeNotice = null
+    if (!text) return
+    this.ctx.emit({
+      type: 'item_completed',
+      item: { kind: 'notice', id: `cx-resume-${Date.now()}-${++this.noticeSeq}`, level: 'warn', text, detail: null },
+    })
+  }
   /** 给模型 Default 模式的提问指令：允许提问且 Codex 带着开关启动 */
   private asks(): boolean {
     return this.options.askQuestions && this.askFlag
@@ -506,6 +623,7 @@ export class CodexSession implements EngineSession {
     )
     this.nativeTurnId = null
     this.reportedError = null
+    this.retryShown = false
     const active = this.active
     void this.run(text, userItemId, attachments, seed).catch(error => {
       if (this.active === active) this.finish('failed', (error as Error).message)
@@ -542,10 +660,14 @@ export class CodexSession implements EngineSession {
           diagnosticStale: true,
         },
       })
+      this.flushResumeNotice()
       await this.proc!.request('thread/compact/start', { threadId: this.threadId })
     } else {
       // 跨引擎接力：别的引擎期间的聊天先注入线程；注入不了就把交接材料加在消息前面
       const injected = !seed || (await this.injectSeed(seed, sees))
+      // 线程记录没了、宿主已经把整段聊天写进新线程并说过一句：不再重复报「没能恢复」；注入失败照旧报
+      if (injected && seed?.recreated) this.resumeNotice = null
+      else this.flushResumeNotice()
       const body = injected ? text : `${seed.fallback}\n\n${text}`
       // 退回文字交接时，材料里说明过的更早消息的图片排在消息自己的图片前面；模型不能看图就不带
       const images = !injected && sees ? [...(seed.fallbackImages ?? []), ...attachments] : attachments
@@ -595,20 +717,19 @@ export class CodexSession implements EngineSession {
     return this.catalog?.models?.find(m => m.id === id)?.fastTier
   }
   /**
-   * Fast 开不了的原因（docs/codex-engine.md §3.5）：走平台 / 自定义接口、provider 不是 openai 时没核实档位加价，
-   * 当前模型没有 Fast 档位时也不行；能开时 null
+   * Fast 不设门禁（docs/codex-engine.md §3.5，2026-10-17 用户要求）：开关什么时候都能开，拿不准支不支持时只提示原因
+   * （fastBlocked 带原因、fastAvailable 仍是 true）；确认支持（自己的 openai 登录、模型有 Fast 档位）时 null。
+   * - codex_gateway：走平台 / 像素星空接口（用户要求照样带档位：接口支持就生效，不支持的开了也没效果）
+   * - codex_unverified：provider 不是 openai 或目录里这个模型没有 Fast 档位
+   * 两种都是开着照样带 priority，接口支持就生效
    */
-  private fastBlocked(): string | null {
-    if (viaGateway(this.ctx.record()) || (this.catalog?.currentProvider ?? 'openai') !== 'openai')
-      return 'codex_gateway'
-    return this.fastTier() ? null : 'model_not_allowed'
+  private fastHint(): string | null {
+    if (viaGateway(this.ctx.record())) return 'codex_gateway'
+    if ((this.catalog?.currentProvider ?? 'openai') !== 'openai' || !this.fastTier()) return 'codex_unverified'
+    return null
   }
   private emitFlags(): void {
-    const blocked = this.fastBlocked()
-    if (blocked && this.settings.fast) {
-      this.settings.fast = false
-      this.ctx.setFast(false)
-    }
+    const hint = this.fastHint()
     this.ctx.emit({
       type: 'flags',
       flags: {
@@ -616,9 +737,9 @@ export class CodexSession implements EngineSession {
         compactAvailable: true,
         contextAvailable: false,
         steerAvailable: this.options.steeringValidated === true,
-        fastAvailable: !blocked,
+        fastAvailable: true,
         fastState: this.settings.fast ? 'on' : 'off',
-        fastBlocked: blocked,
+        fastBlocked: hint,
         ultracodeAvailable: false,
       },
     })
@@ -661,10 +782,13 @@ export class CodexSession implements EngineSession {
       },
     }
   }
-  /** Fast：能开时每轮都写明档位（开 priority、关 default），以界面开关为准；开不了时不带，用 Codex 自己的配置 */
+  /**
+   * Fast：开着时每轮带档位；关着时只在确认支持时写明 default（盖过 config.toml 里的档位），
+   * 拿不准时不带，用 Codex 自己的配置
+   */
   private serviceTier(): Message {
-    if (this.fastBlocked()) return {}
-    return { serviceTier: this.settings.fast ? (this.fastTier() ?? 'priority') : 'default' }
+    if (this.settings.fast) return { serviceTier: this.fastTier() ?? 'priority' }
+    return this.fastHint() ? {} : { serviceTier: 'default' }
   }
   async steer(text: string, id: string, attachments: ImageAttachment[] = []): Promise<void> {
     if (!this.active || !this.nativeTurnId || !this.options.steeringValidated)
@@ -740,6 +864,11 @@ export class CodexSession implements EngineSession {
       return false
     }
   }
+  private clearRetry(): void {
+    if (!this.retryShown) return
+    this.retryShown = false
+    this.ctx.emit({ type: 'request_retry', retry: null })
+  }
   private consume(id: string): void {
     if (this.guidance.delete(id)) this.ctx.emit({ type: 'input_ack', id, state: 'consumed', mode: 'guidance' })
   }
@@ -768,6 +897,7 @@ export class CodexSession implements EngineSession {
         turn.status === 'interrupted' ? 'interrupted' : turn.status === 'failed' ? 'failed' : 'completed',
         string(object(turn.error).message) || null,
         turnErrorDetail(turn.error),
+        turnNoticeError(turn.error, string(object(turn.error).message)),
       )
     } else if (method === 'item/started' || method === 'item/completed') {
       const item = object(params.item)
@@ -780,15 +910,17 @@ export class CodexSession implements EngineSession {
         }
       } else {
         this.active.activity = true
+        this.clearRetry()
         this.translator.item(item, method === 'item/completed')
       }
     } else if (
       /^item\/(agentMessage|plan)\/delta$|^item\/reasoning\/summaryTextDelta$|^item\/commandExecution\/outputDelta$/.test(
         method,
       )
-    )
+    ) {
+      this.clearRetry()
       this.translator.delta(method, params)
-    else if (method === 'turn/plan/updated') this.translator.plan(params)
+    } else if (method === 'turn/plan/updated') this.translator.plan(params)
     else if (method === 'thread/tokenUsage/updated') {
       const usage = object(params.tokenUsage)
       this.totals = tokenCounts(usage.total)
@@ -836,9 +968,29 @@ export class CodexSession implements EngineSession {
           diagnosticStale: true,
         },
       })
+    } else if (method === 'error' && params.willRetry === true) {
+      // Codex 自己在重连：显示成「正在重试 n/m」状态条，不再每次一条红色报错；最后还是失败时 turn/completed 会报
+      this.retryShown = true
+      this.ctx.emit({ type: 'request_retry', retry: codexRetryState(params.error, this.active.id) })
+    } else if (method === 'model/rerouted') {
+      const notice = codexRerouteNotice(params)
+      if (!notice) return
+      // 之后的用量、上下文窗口都记在实际用的模型上
+      this.active.model = string(params.toModel)
+      this.ctx.emit({
+        type: 'item_completed',
+        item: {
+          kind: 'notice',
+          id: `cx-reroute-${Date.now()}-${++this.noticeSeq}`,
+          level: 'warn',
+          text: notice.text,
+          detail: notice.detail,
+        },
+      })
     } else if (method === 'error' || method === 'warning') {
       const text = string(object(params.error).message || params.message)
       if (method === 'error') this.reportedError = text
+      const noticeError = method === 'error' ? turnNoticeError(params.error, text) : undefined
       // 用户 config.toml 引起、不影响使用的警告（每轮都发）：和这一轮无关，不进对话，报给宿主显示在设置里
       if (method === 'warning' && isQuietWarning(text)) {
         const own = withoutOwnFeatures(text, this.ownAskFlag)
@@ -852,6 +1004,7 @@ export class CodexSession implements EngineSession {
           level: method === 'error' ? 'error' : 'warn',
           text,
           detail: turnErrorDetail(params.error, params.willRetry),
+          ...(method === 'error' && noticeError ? { error: noticeError } : {}),
         },
       })
     }
@@ -870,7 +1023,8 @@ export class CodexSession implements EngineSession {
       // 子智能体的条目不在主对话里，卡片不挂到条目上
       itemId = params.itemId && !subagent ? 'cx-' + string(params.itemId) : null
     let request: ApprovalRequest
-    if (method === 'item/commandExecution/requestApproval')
+    if (method === 'item/commandExecution/requestApproval') {
+      const { command, wrapper } = codexCommandParts(string(params.command))
       request = {
         requestId: key,
         itemId,
@@ -878,12 +1032,13 @@ export class CodexSession implements EngineSession {
         title: params.networkApprovalContext
           ? title('Codex network access', 'Codex subagent {agent} network access')
           : title('Codex command approval', 'Codex subagent {agent} command approval'),
-        command: codexCommand(string(params.command)),
+        command,
+        ...(wrapper ? { wrapper } : {}),
         description: string(params.reason),
         input: params.networkApprovalContext,
         alwaysScopes: ['session'],
       }
-    else if (method === 'item/fileChange/requestApproval')
+    } else if (method === 'item/fileChange/requestApproval')
       request = {
         requestId: key,
         itemId,
@@ -1009,11 +1164,15 @@ export class CodexSession implements EngineSession {
       for (const [pendingId, pending] of this.approvals)
         if (pending.request.canAllowAll) this.answer(pendingId, { type: 'allow' })
   }
-  private finish(outcome: TurnOutcome, error: string | null, detail: string | null = null): void {
+  private finish(outcome: TurnOutcome, error: string | null, detail: string | null = null, info?: NoticeError): void {
     const active = this.active
     if (!active) return
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
+    // 状态条由 turn_completed 一起清掉
+    this.retryShown = false
+    // 第一轮开始时标题才从第一句话定下来；用户改了标题也在这里跟上
+    this.syncThreadName()
     if (this.compacting) {
       this.compacting = false
       this.ctx.emit({
@@ -1038,7 +1197,14 @@ export class CodexSession implements EngineSession {
     if (outcome === 'failed' && error && error !== this.reportedError)
       this.ctx.emit({
         type: 'item_completed',
-        item: { kind: 'notice', id: 'cx-error-' + active.id, level: 'error', text: error, detail },
+        item: {
+          kind: 'notice',
+          id: 'cx-error-' + active.id,
+          level: 'error',
+          text: error,
+          detail,
+          ...(info ? { error: info } : {}),
+        },
       })
     this.translator.finish(outcome === 'completed' ? 'completed' : outcome === 'interrupted' ? 'interrupted' : 'failed')
     for (const id of this.approvals.keys()) this.ctx.emit({ type: 'approval_resolved', requestId: id })
@@ -1115,6 +1281,7 @@ export class CodexSession implements EngineSession {
   }
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    this.own(null)
     await this.interrupt()
     await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
     this.ctx.extensions?.dispose?.()

@@ -13,7 +13,7 @@ export interface ToolsTarget {
 }
 export interface ToolsHost {
   resolve(ref: WorkspaceRef): ToolsTarget
-  plans(projectId: string): AiPlan[]
+  plans(projectId: string): AiPlan[] | Promise<AiPlan[]>
   sessions(path: string): { id: string; title: string; state: string }[]
   create(projectId: string, cwd: string): SessionRecord
   withStopped<T>(path: string, action: () => Promise<T>): Promise<T>

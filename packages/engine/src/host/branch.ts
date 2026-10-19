@@ -17,6 +17,7 @@ import type {
 } from '@pixelsky/protocol'
 import { ENGINES } from '../registry'
 import type { HostContext } from './context'
+import { lastTurnReply } from './events'
 import { derivedSeen, lastItemId } from './handoff'
 
 /** 还原代码前存一份当前内容，总共超过这个大小就不提供代码撤销 */
@@ -42,7 +43,7 @@ type UserItem = Extract<Item, { kind: 'user' }>
 /** 回退会动到的会话记录字段（撤销时整体放回） */
 type RewindState = Pick<
   SessionRecord,
-  'engineSessionId' | 'pendingRewind' | 'pendingFork' | 'engineSessions' | 'nextEngine'
+  'engineSessionId' | 'pendingRewind' | 'pendingFork' | 'engineSessions' | 'nextEngine' | 'lastReply'
 >
 
 const rewindState = (record: SessionRecord): RewindState => ({
@@ -51,6 +52,7 @@ const rewindState = (record: SessionRecord): RewindState => ({
   pendingFork: record.pendingFork ?? null,
   engineSessions: record.engineSessions,
   nextEngine: record.nextEngine ?? null,
+  lastReply: record.lastReply ?? null,
 })
 
 export class HostBranch {
@@ -73,6 +75,9 @@ export class HostBranch {
     if (ctx.closing) throw new Error('应用正在退出')
     if (ctx.changingSessions.has(id)) throw new Error('正在处理这个会话，请稍后重试')
     const rt = ctx.m.sessions.runtime(id)
+    // 等着的 / 派发中的自动重连会按对话里的原消息发「继续」，回退会把它删掉：先停止再回退
+    if (rt.snapshot.queue.some(q => q.reconnect && !q.held && (q.status === 'queued' || q.status === 'dispatching')))
+      throw new Error('正在自动重连，请先停止再回退')
     if (rt.snapshot.state !== 'idle' || rt.pumping || rt.stopping || rt.activeId || rt.inspectingContext)
       throw new Error('请先停止当前任务再回退')
   }
@@ -265,7 +270,12 @@ export class HostBranch {
     // 引擎原生记录里的截断点找到了：它的上下文保留到那里
     let worked = untouched
     if (untouched) patch = {}
-    else if (anchor && forkOnly) {
+    else if (anchor?.unchanged) {
+      // 被回退的消息都没进过引擎的记录（启动失败、还没发出去）：线程里什么都不用动，待执行的回退 / 分叉原样保留
+      // （改成线程「现在」的最后一轮会把终端里之后新聊的轮次也带进来，还会盖掉更早的待回退）
+      worked = true
+      patch = {}
+    } else if (anchor && forkOnly) {
       worked = !!anchor.at
       patch = anchor.at
         ? { pendingFork: { from: forkOnly.from, at: anchor.at } }
@@ -297,7 +307,8 @@ export class HostBranch {
       if (key !== record.engine && other && !(other.seen !== null && keptIds.has(other.seen)))
         engineSessions[key] = { id: null, seen: null }
     }
-    m.events.patchRecord(id, { ...patch, engineSessions })
+    // 列表里的「最后一句回复」跟着退回到保留的最后一轮（被回退掉的那条不再显示）
+    m.events.patchRecord(id, { ...patch, engineSessions, lastReply: lastTurnReply(kept) ?? null })
     if (!worked && thread && kept.length > 0)
       m.events.apply(id, {
         type: 'item_completed',
@@ -376,10 +387,13 @@ export class HostBranch {
     const thread = source.engineSessionId ?? source.pendingFork?.from ?? null
     const anchor = thread ? await adapter?.rewindAnchor?.({ ...source, engineSessionId: thread }, later) : null
     if (ctx.closing) throw new Error('应用正在退出')
+    // 还没启动的分叉会话里，被分叉的消息都没进过线程（unchanged）：沿用它原来的 pendingFork.at，不要挪到线程现在的最后一轮
+    const anchorAt =
+      anchor?.unchanged && !source.engineSessionId && source.pendingFork ? source.pendingFork.at : anchor?.at
     const now = Date.now()
     // 分叉出的会话只带当前引擎的原生会话：截断点找到了，它读到的位置不变或退到最后处理的那一轮末尾；
     // 没找到就是新会话什么都没看到，第一条消息带完整交接
-    const forked = !!(anchor?.at && thread)
+    const forked = !!(anchorAt && thread)
     const keptIds = new Set(items.map(item => item.id))
     const oldEntry = source.engineSessions?.[source.engine]
     const oldSeen = oldEntry ? oldEntry.seen : source.engineSessions ? null : lastItemId(rt.snapshot.items)
@@ -405,17 +419,19 @@ export class HostBranch {
       updatedAt: now,
       lastOutcome: null,
       lastError: null,
+      // 分叉只带到截断点：预览用截断点之前最后一轮的回复，不沿用来源会话的
+      lastReply: lastTurnReply(items) ?? null,
       archivedAt: null,
       bottomedAt: null,
       pinnedAt: null,
       pendingRewind: null,
-      pendingFork: anchor?.at && thread ? { from: thread, at: anchor.at } : null,
+      pendingFork: anchorAt && thread ? { from: thread, at: anchorAt } : null,
       forkedFrom: { sessionId: source.id, title: source.title },
       // 导入来的标记只属于原对话，不然同一个终端会话被两条记录认领
       imported: null,
     }
     const notice: Item[] =
-      !anchor?.at && thread && items.length > 0
+      !anchorAt && thread && items.length > 0
         ? [
             {
               kind: 'notice',

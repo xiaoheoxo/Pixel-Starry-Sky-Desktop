@@ -39,8 +39,15 @@ export function settle(item: Item, status: ItemStatus): Item {
   return item.status === 'running' ? { ...item, status } : item
 }
 
+/** 增量几乎都落在最后一项：先看末尾，再从后往前找（id 唯一，结果和 findIndex 一致） */
+function indexOfId(items: readonly Item[], id: string): number {
+  const last = items.length - 1
+  if (last >= 0 && items[last].id === id) return last
+  return items.findLastIndex(x => x.id === id)
+}
+
 function upsert(items: Item[], item: Item): Item[] {
-  const i = items.findIndex(x => x.id === item.id)
+  const i = indexOfId(items, item.id)
   if (i < 0) return [...items, item]
   const next = items.slice()
   next[i] = item
@@ -81,7 +88,7 @@ export function reduce(s: SessionSnapshot, e: EngineEvent): SessionSnapshot {
     case 'input_ack':
       return s
     case 'items_truncated': {
-      const i = s.items.findIndex(x => x.id === e.fromItemId)
+      const i = indexOfId(s.items, e.fromItemId)
       return i < 0 ? s : { ...s, items: s.items.slice(0, i) }
     }
     case 'items_reset':
@@ -90,7 +97,7 @@ export function reduce(s: SessionSnapshot, e: EngineEvent): SessionSnapshot {
     case 'item_completed':
       return { ...s, items: upsert(s.items, e.item) }
     case 'item_delta': {
-      const i = s.items.findIndex(x => x.id === e.itemId)
+      const i = indexOfId(s.items, e.itemId)
       if (i < 0) return s
       const item = s.items[i]
       let next: Item

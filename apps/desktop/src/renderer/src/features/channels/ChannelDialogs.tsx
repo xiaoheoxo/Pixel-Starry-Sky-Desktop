@@ -12,6 +12,18 @@ import type { AgentMember, Channel } from '@/data/types'
 import type { AgentConfig } from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
 import { channelActions, useChannels } from './store'
+import { usePlatformCatalog } from '@/features/account/platform'
+import { useProviders } from '@/features/account/providers'
+import { channelLabel } from '@/features/model-channels/channelLabels'
+import {
+  modelChoices,
+  modelForSource,
+  settingsForSource,
+  sourceKeyOf,
+  sourceOptions,
+  type SourceContext,
+  type SourceKey,
+} from './agentSource'
 
 const INPUT =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg outline-none focus:border-accent-line focus:ring-2 focus:ring-composer-ring'
@@ -77,6 +89,7 @@ export function ChannelDialog({
   const inTeam = !!teamId || channel?.scope === 'team'
   const [name, setName] = useState(channel?.name ?? '')
   const [topic, setTopic] = useState(channel?.topic ?? '')
+  const [notes, setNotes] = useState(channel?.notes ?? '')
   const [projectId, setProjectId] = useState<string>(channel ? (channel.projectId ?? '') : (currentProject ?? ''))
   const [members, setMembers] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -86,9 +99,13 @@ export function ChannelDialog({
     setBusy(true)
     setError(null)
     const input = { name, topic: topic.trim() || null, projectId: inTeam ? null : projectId || null }
+    // 频道说明只有本机频道有；新建时建好再存（建频道的接口不带它）
+    const note = notes.trim() || null
     const done = channel
-      ? channelActions.updateChannel(channel.id, inTeam ? { name, topic: input.topic } : input)
-      : channelActions.createChannel(teamId ? { ...input, teamId } : { ...input, memberIds: members }).then(() => {})
+      ? channelActions.updateChannel(channel.id, inTeam ? { name, topic: input.topic } : { ...input, notes: note })
+      : channelActions
+          .createChannel(teamId ? { ...input, teamId } : { ...input, memberIds: members })
+          .then(id => (note && !teamId ? channelActions.updateChannel(id, { notes: note }) : undefined))
     done.then(onClose, e => {
       setError(errorText(e))
       setBusy(false)
@@ -119,6 +136,18 @@ export function ChannelDialog({
           <Field label={tr('channels.dialog.topic')}>
             <input value={topic} maxLength={200} onChange={e => setTopic(e.target.value)} className={INPUT} />
           </Field>
+          {!inTeam && (
+            <Field label={tr('channels.dialog.notes')}>
+              <textarea
+                value={notes}
+                maxLength={2000}
+                rows={3}
+                placeholder={tr('channels.dialog.notesHint')}
+                onChange={e => setNotes(e.target.value)}
+                className={cn(INPUT, 'resize-none')}
+              />
+            </Field>
+          )}
           {inTeam ? (
             teamName && <p className="text-meta text-fg-faint">{tr('team.channel.inTeam', { name: teamName })}</p>
           ) : (
@@ -217,6 +246,7 @@ export function AgentDialog({
   const [projectId, setProjectId] = useState(editing?.projectId ?? firstProject)
   const [copyId, setCopyId] = useState<string>(editing?.copyId ?? '')
   const [model, setModel] = useState<string>(editing?.settings.model ?? '')
+  const [source, setSource] = useState<SourceKey>(sourceKeyOf(editing?.settings))
   const [permission, setPermission] = useState<PermissionMode | ''>(editing?.settings.permissionMode ?? '')
   const [instructions, setInstructions] = useState(editing?.instructions ?? '')
   const [mode, setMode] = useState<AgentConfig['mode']>(editing?.mode ?? 'per-task')
@@ -224,16 +254,52 @@ export function AgentDialog({
   const [error, setError] = useState<string | null>(null)
   const copies = useCopies(projectId)
   const catalog = useEngineCatalog(engine)
-  const modelOptions: SelectOption<string>[] = [
-    { value: '', label: tr('channels.agent.default') },
-    ...(catalog?.models ?? []).map(m => ({ value: m.id, label: m.label, hint: m.id !== m.label ? m.id : undefined })),
-    ...(model && !catalog?.models?.some(m => m.id === model) ? [{ value: model, label: model }] : []),
-  ]
+  const platform = usePlatformCatalog()
+  const { providers } = useProviders()
+  const sourceCtx: SourceContext = { email: platform.email, groups: platform.groups, providers }
+  const ownModels = (catalog?.models ?? []).map(m => ({ id: m.id, label: m.label }))
+  // 额度来源（docs/ui/channels-local-ai.md §3.1 #1）：自有账号 / 像素星空平台 / 这个引擎能用的自定义接口
+  const selfHint =
+    engine === 'claude' ? channelLabel('claude') : engine === 'codex' ? channelLabel('chatgpt') : undefined
+  const sourceSelect: SelectOption<SourceKey>[] = sourceOptions(engine, sourceCtx).map(o =>
+    o.kind === 'self'
+      ? { value: o.value, label: tr('channels.agent.source.self'), hint: selfHint }
+      : o.kind === 'platform'
+        ? {
+            value: o.value,
+            label: tr('channels.agent.source.platform'),
+            disabled: !!o.disabled && source !== 'platform',
+            description: o.disabled
+              ? tr(o.disabled === 'signin' ? 'channels.agent.source.signin' : 'channels.agent.source.noRoute')
+              : undefined,
+          }
+        : { value: o.value, label: o.name ?? o.value, hint: channelLabel('custom') },
+  )
+  // 编辑时原来的接口已经删了：留一项，保存时提示
+  if (source.startsWith('custom:') && !sourceSelect.some(o => o.value === source))
+    sourceSelect.push({ value: source, label: tr('channels.agent.source.providerGone'), disabled: true })
+  const choices = modelChoices(engine, source, sourceCtx, ownModels)
+  const modelOptions: SelectOption<string>[] =
+    source === 'self'
+      ? [
+          { value: '', label: tr('channels.agent.default') },
+          ...ownModels.map(m => ({ value: m.id, label: m.label, hint: m.id !== m.label ? m.id : undefined })),
+          ...(model && !ownModels.some(m => m.id === model) ? [{ value: model, label: model }] : []),
+        ]
+      : [
+          ...choices.map(m => ({ value: m.id, label: m.label })),
+          ...(model && !choices.some(m => m.id === model) ? [{ value: model, label: model }] : []),
+        ]
+  const pickSource = (key: SourceKey): void => {
+    setSource(key)
+    setModel(modelForSource(engine, key, model, sourceCtx, ownModels))
+  }
   const permissionOptions: SelectOption<PermissionMode | ''>[] = [
     { value: '', label: tr('channels.agent.default') },
     ...PERMISSION_MODES.map(m => ({ value: m, label: PERMISSION_INFO[m].label, hint: PERMISSION_INFO[m].hint })),
   ]
-  const canSave = !!name.trim() && !!projectId && (ready.some(e => e.id === engine) || !!editing)
+  const canSave =
+    !!name.trim() && !!projectId && (ready.some(e => e.id === engine) || !!editing) && (source === 'self' || !!model)
 
   const run = (fn: () => Promise<unknown>) => {
     if (busy) return
@@ -246,7 +312,8 @@ export function AgentDialog({
   }
   const submit = () => {
     if (!canSave) return
-    run(() =>
+    // async：来源不能用时 settingsForSource 抛的错也走 run 的错误提示
+    run(async () =>
       channelActions.saveMember(editing ? null : channel.id, {
         ...(editing ? { id: editing.id } : {}),
         name,
@@ -254,7 +321,7 @@ export function AgentDialog({
         projectId,
         copyId: copyId || null,
         settings: {
-          ...(model ? { model } : {}),
+          ...settingsForSource(engine, source, model, sourceCtx),
           ...(permission ? { permissionMode: permission } : {}),
         },
         instructions,
@@ -317,7 +384,10 @@ export function AgentDialog({
                   options={ready.map(e => ({ value: e.id, label: e.version ? `${e.name} ${e.version}` : e.name }))}
                   onChange={v => {
                     setEngine(v)
-                    setModel('')
+                    // 换了引擎：来源这个引擎用不了（接口协议不对、平台没线路）就回到自有账号
+                    const keep = sourceOptions(v, sourceCtx).some(o => o.value === source && !o.disabled)
+                    setSource(keep ? source : 'self')
+                    setModel(keep && source !== 'self' ? modelForSource(v, source, model, sourceCtx, []) : '')
                   }}
                 />
               ) : (
@@ -355,15 +425,30 @@ export function AgentDialog({
             </div>
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
               <div className="flex min-w-0 flex-col gap-1.5">
-                <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.model')}</span>
+                <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.source')}</span>
                 <Select
-                  label={tr('channels.agent.model')}
-                  value={model}
-                  options={modelOptions}
-                  onChange={setModel}
-                  mono
+                  label={tr('channels.agent.source')}
+                  value={source}
+                  options={sourceSelect}
+                  onChange={pickSource}
                 />
               </div>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.model')}</span>
+                {modelOptions.length ? (
+                  <Select
+                    label={tr('channels.agent.model')}
+                    value={model}
+                    options={modelOptions}
+                    onChange={setModel}
+                    mono
+                  />
+                ) : (
+                  <p className="flex h-8 items-center text-meta text-warn">{tr('channels.agent.source.noModels')}</p>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
               <div className="flex min-w-0 flex-col gap-1.5">
                 <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.permission')}</span>
                 <Select

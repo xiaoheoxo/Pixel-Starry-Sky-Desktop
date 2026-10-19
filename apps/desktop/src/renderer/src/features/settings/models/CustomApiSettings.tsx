@@ -1,6 +1,6 @@
 // 设置 › 模型与额度 › 自定义 API（docs/ui/custom-api.md §3.1）：接口列表、添加 / 编辑对话框、测试连接、读取模型、计价参照。
 // Key 只进不出：对话框里 Key 留空表示不改，附加请求头已保存的值显示为打码
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, CheckCircle2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { officialModels, officialPrice } from '@pixelsky/protocol'
@@ -26,6 +26,7 @@ import type {
 } from '../../../../../shared/types/providers'
 import { FIELD } from '../engines/parts'
 import { ContextWindowInput } from './ContextWindowInput'
+import { isProviderDraftDirty, type ProviderDraft } from './providerDraft'
 
 /** 打码的请求头值，和主进程 MASKED_SECRET 一致 */
 const MASKED = '••••••••'
@@ -189,6 +190,28 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
   const [result, setResult] = useState<ProviderTestResult | null>(null)
   const [readCount, setReadCount] = useState<number | null>(null)
   const official = useMemo(() => officialModels(protocol === 'anthropic' ? 'anthropic' : 'openai'), [protocol])
+  // 打开时的草稿快照：关闭前和当前内容比，有改动先确认，免得误碰空白处 / Esc 丢掉刚填的 Key 和模型
+  const draft: ProviderDraft = {
+    template,
+    name,
+    protocol,
+    baseUrl,
+    apiKey,
+    auth,
+    models,
+    smallModel,
+    fallback,
+    headersText,
+  }
+  const initialDraft = useRef(draft)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // 点空白处要 mousedown 和 click 都落在背景上才关，避免在输入框里拖选文字时松手在外面误关
+  const backdropDown = useRef(false)
+  const requestClose = (): void => {
+    // 「新增模型」输入框里还有没添加的字也算没存的改动
+    if (isProviderDraftDirty(initialDraft.current, draft) || newModel.trim() !== '') setConfirmDiscard(true)
+    else close()
+  }
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -271,17 +294,22 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
       data-provider-dialog
       className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
       onMouseDown={e => {
-        if (e.target === e.currentTarget && !locked) close()
+        backdropDown.current = e.target === e.currentTarget
+      }}
+      onClick={e => {
+        const full = backdropDown.current && e.target === e.currentTarget
+        backdropDown.current = false
+        if (full && !locked) requestClose()
       }}
       onKeyDown={e => {
         e.stopPropagation()
-        if (e.key === 'Escape' && !locked) close()
+        if (e.key === 'Escape' && !locked) requestClose()
       }}
     >
       <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line-card bg-popover shadow-menu">
         <header className="flex shrink-0 items-center gap-2 border-b border-line px-5 py-3">
           <h2 className="flex-1 text-ui font-semibold">{title}</h2>
-          <IconButton icon={X} label={tr('customApi.close')} disabled={locked} onClick={close} />
+          <IconButton icon={X} label={tr('customApi.close')} disabled={locked} onClick={requestClose} />
         </header>
         <div className="flex min-h-0 flex-col gap-4 overflow-auto p-5">
           {!provider && (
@@ -539,7 +567,7 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
             )}
           </Button>
           <span className="flex-1" />
-          <Button variant="ghost" disabled={locked} onClick={close}>
+          <Button variant="ghost" disabled={locked} onClick={requestClose}>
             {tr('customApi.cancel')}
           </Button>
           <Button variant="primary" disabled={locked || contextInvalid} onClick={() => void run('save')}>
@@ -547,6 +575,18 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
           </Button>
         </footer>
       </div>
+      {confirmDiscard && (
+        <ConfirmDialog
+          title={tr('customApi.discardTitle')}
+          description={tr('customApi.discardBody')}
+          confirmLabel={tr('customApi.discard')}
+          cancelLabel={tr('customApi.keepEditing')}
+          busy={false}
+          danger
+          onConfirm={close}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      )}
     </div>,
     document.body,
   )

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { StoreRecharge } from '../../../../shared/types/account'
-import { checkAmount, isCurrentPlan, matchTier, quoteRecharge, round2, validityLabel } from './storeLogic'
+import {
+  checkAmount,
+  diffAccount,
+  isCurrentPlan,
+  matchTier,
+  payAmountTrusted,
+  quoteRecharge,
+  round2,
+  roundUp2,
+  snapOf,
+  validityLabel,
+} from './storeLogic'
 
 const recharge = (over: Partial<StoreRecharge> = {}): StoreRecharge => ({
   enabled: true,
@@ -96,5 +107,94 @@ describe('checkAmount', () => {
   })
   it('max 为 0 表示不限', () => {
     expect(checkAmount('99999', { min: 0, max: 0 })).toEqual({ ok: true, value: 99999 })
+  })
+})
+
+describe('round2 / roundUp2 的数值算法', () => {
+  it('极小值、极大值不再出 NaN', () => {
+    expect(round2(1e-7)).toBe(0)
+    expect(round2(-1e-7)).toBe(0)
+    expect(Object.is(round2(-1e-7), 0)).toBe(true) // 不出 -0
+    expect(round2(5e-324)).toBe(0)
+    expect(round2(1e21)).toBe(1e21)
+    expect(roundUp2(1e-7)).toBe(0.01)
+    expect(roundUp2(0)).toBe(0)
+    expect(roundUp2(-1e-7)).toBe(0)
+  })
+  it('NaN 和 Infinity 原样返回，不抛错', () => {
+    expect(round2(NaN)).toBeNaN()
+    expect(round2(Infinity)).toBe(Infinity)
+    expect(roundUp2(NaN)).toBeNaN()
+    expect(roundUp2(-Infinity)).toBe(-Infinity)
+  })
+  it('1.005 一类的浮点误差仍按十进制处理', () => {
+    expect(round2(1.005)).toBe(1.01)
+    expect(round2(-1.005)).toBe(-1.01)
+    expect(round2(2.675)).toBe(2.68)
+    expect(round2(0.1 + 0.2)).toBe(0.3)
+    expect(roundUp2(1.001)).toBe(1.01)
+    expect(roundUp2(1.5)).toBe(1.5)
+    expect(roundUp2(0.07)).toBe(0.07) // 0.07 × 100 = 7.000000000000001 不会被多进一分
+  })
+  it('极小金额的报价也是有限数', () => {
+    const q = quoteRecharge(recharge({ multiplier: 1e-9, feeRate: 1e-9 }), 1e-7)
+    for (const v of [q.credited, q.bonus, q.payBase, q.fee, q.pay]) expect(Number.isFinite(v)).toBe(true)
+  })
+})
+
+describe('payAmountTrusted：币种对不上或拿不准就不显示应付', () => {
+  const plans = (...currencies: string[]) => currencies.map(currency => ({ currency })) as never
+  it('云端明确给了币种，套餐币种一致（忽略大小写）：可信', () => {
+    expect(payAmountTrusted({ currency: 'CNY', currencyKnown: true, plans: plans('CNY', 'cny') })).toBe(true)
+    expect(payAmountTrusted({ currency: 'CNY', plans: [] })).toBe(true)
+  })
+  it('套餐币种和支付币种对不上：不可信', () => {
+    expect(payAmountTrusted({ currency: 'CNY', currencyKnown: true, plans: plans('CNY', 'USD') })).toBe(false)
+  })
+  it('云端没给币种（默认值是猜的）或币种为空：不可信', () => {
+    expect(payAmountTrusted({ currency: 'CNY', currencyKnown: false, plans: [] })).toBe(false)
+    expect(payAmountTrusted({ currency: '', plans: [] })).toBe(false)
+  })
+})
+
+describe('diffAccount：付款前后对比', () => {
+  const acc = (balance: number | null, plan: { name: string; expiresAt: string | null } | null) =>
+    snapOf({ balance, plan: plan && { ...plan, daily: null, weekly: null, monthly: null } })
+  it('没变化返回 null（暂未到账）', () => {
+    const a = acc(10, { name: 'Pro', expiresAt: '2026-11-01' })
+    expect(diffAccount(a, acc(10, { name: 'Pro', expiresAt: '2026-11-01' }))).toBeNull()
+    expect(diffAccount(acc(10 + 1e-12, null), acc(10, null))).toBeNull()
+  })
+  it('余额变了', () => {
+    expect(diffAccount(acc(10, null), acc(35, null))).toEqual({
+      balance: { from: 10, to: 35 },
+      plan: null,
+      expires: null,
+    })
+  })
+  it('余额减少（会话在扣费）、套餐失效、到期时间变早都不算到账', () => {
+    expect(diffAccount(acc(10, null), acc(9.98, null))).toBeNull()
+    expect(diffAccount(acc(1, { name: 'A', expiresAt: null }), acc(1, null))).toBeNull()
+    expect(
+      diffAccount(acc(1, { name: 'A', expiresAt: '2026-12-01' }), acc(1, { name: 'A', expiresAt: '2026-11-01' })),
+    ).toBeNull()
+  })
+  it('开通套餐、换套餐', () => {
+    expect(diffAccount(acc(1, null), acc(1, { name: 'Pro', expiresAt: null }))?.plan).toEqual({ from: null, to: 'Pro' })
+    expect(diffAccount(acc(1, { name: 'A', expiresAt: null }), acc(1, { name: 'B', expiresAt: null }))?.plan).toEqual({
+      from: 'A',
+      to: 'B',
+    })
+  })
+  it('续费：同一个套餐到期时间变长', () => {
+    const r = diffAccount(
+      acc(1, { name: 'Pro', expiresAt: '2026-11-01' }),
+      acc(1, { name: 'Pro', expiresAt: '2026-12-01' }),
+    )
+    expect(r).toEqual({ balance: null, plan: null, expires: { from: '2026-11-01', to: '2026-12-01' } })
+  })
+  it('余额读不到（null）时不算余额变化', () => {
+    expect(diffAccount(acc(null, null), acc(5, null))).toBeNull()
+    expect(diffAccount(acc(5, null), acc(null, null))).toBeNull()
   })
 })

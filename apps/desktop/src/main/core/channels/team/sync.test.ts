@@ -162,6 +162,28 @@ describe('TeamSync', () => {
     expect(t.cloud.calls.some(c => c.path.includes('before='))).toBe(true)
   })
 
+  it('消息分页：全部在同一毫秒时按最早那条的 id 往前取，一条不漏', async () => {
+    const t = setup()
+    const clock = t.cloud as unknown as { tick: number }
+    for (let i = 1; i <= 130; i++) {
+      // 假云端每条消息的时间 = 基准 + (++tick) 秒：每次拨回同一刻
+      clock.tick = 0
+      t.cloud.userPost('u:2', 'tc_1', `第 ${i} 条`)
+    }
+    await t.online()
+    const first = await t.sync.page('tc_1')
+    expect(first.messages).toHaveLength(100)
+    const oldest = first.messages[0]
+    expect(new Set(first.messages.map(m => m.at)).size).toBe(1)
+    // 只给时间：同一毫秒的全被排除（老的调用）
+    expect((await t.sync.page('tc_1', oldest.at)).messages).toHaveLength(0)
+    const older = await t.sync.page('tc_1', oldest.at, oldest.id)
+    expect(older.messages).toHaveLength(30)
+    expect(older.more).toBe(false)
+    expect(older.messages[0]).toMatchObject({ text: '第 1 条' })
+    expect(older.messages.at(-1)).toMatchObject({ text: '第 30 条' })
+  })
+
   it('缓存只留最近 500 条', async () => {
     const t = setup()
     await t.online()

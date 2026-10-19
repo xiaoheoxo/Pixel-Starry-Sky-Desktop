@@ -31,6 +31,7 @@ describe('mobile dependency rules', () => {
         'ui',
         'platform',
         'main.tsx',
+        'env.d.ts',
         'architecture.test.ts',
       ]).toContain(t)
   })

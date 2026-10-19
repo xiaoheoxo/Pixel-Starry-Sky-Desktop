@@ -74,6 +74,8 @@ export interface ApprovalSummary {
   where: string | null
   /** 路径在项目外 */
   outside: boolean
+  /** Codex 命令的外层 shell 还带了额外参数 */
+  wrapped?: boolean
   added?: number
   removed?: number
 }
@@ -127,9 +129,10 @@ export function approvalSummary(r: ApprovalRequest, cwd: string | null): Approva
       mono: true,
       hint: project,
       hintShort: null,
-      full: r.description ? `${r.command ?? ''}\n${r.description}` : (r.command ?? ''),
+      full: [r.command ?? '', r.wrapper?.line, r.description].filter(Boolean).join('\n'),
       where: cwd,
       outside: false,
+      wrapped: !!r.wrapper?.extra.length,
     }
   }
   if (r.kind === 'file_change') {

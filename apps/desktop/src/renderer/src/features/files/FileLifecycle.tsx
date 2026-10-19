@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useEngineState } from '@/features/engine'
 import { usePaneState } from '@/features/panes/store'
 import { isFileTab, leaves } from '@/features/panes/tree'
-import { activateFile, checkOpenFiles, ensureFile, getFiles, hasDirtyFiles } from './store'
+import { activateFile, checkOpenFiles, ensureFile, getFiles, hasDirtyFiles, refreshActiveHead } from './store'
 import { confirmFiles } from './FileConfirm'
 
 export function FileLifecycle() {
@@ -25,6 +25,8 @@ export function FileLifecycle() {
   }, [changeKey])
   useEffect(() => {
     window.addEventListener('focus', checkOpenFiles)
+    // 在终端里提交过：正在看的标签的「变更」基准跟上新的 HEAD
+    window.addEventListener('focus', refreshActiveHead)
     const before = (e: BeforeUnloadEvent): void => {
       if (hasDirtyFiles()) {
         e.preventDefault()
@@ -42,6 +44,7 @@ export function FileLifecycle() {
     })
     return () => {
       window.removeEventListener('focus', checkOpenFiles)
+      window.removeEventListener('focus', refreshActiveHead)
       window.removeEventListener('beforeunload', before)
       unsubscribe?.()
     }

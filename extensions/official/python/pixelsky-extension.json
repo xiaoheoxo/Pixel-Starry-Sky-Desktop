@@ -1,0 +1,375 @@
+{
+  "id": "pixelsky.python",
+  "name": "Python 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Python 的代码片段、uv / Poetry / PDM / tox / nox 等任务，以及写测试和查报错的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["python", "pytest", "uv", "poetry", "tox", "nox"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "Python Support",
+      "description": "Python snippets, uv / Poetry / PDM / tox / nox tasks, plus a skill and prompts for writing tests and reading tracebacks"
+    }
+  },
+  "contributes": {
+    "snippets": [
+      {
+        "language": "python",
+        "path": "snippets/python.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "uv",
+        "label": {
+          "zh": "uv",
+          "en": "uv"
+        },
+        "files": ["uv.lock"],
+        "tasks": [
+          {
+            "name": "sync",
+            "description": {
+              "zh": "按锁文件安装依赖",
+              "en": "Install dependencies from the lockfile"
+            }
+          },
+          {
+            "name": "lock",
+            "description": {
+              "zh": "更新锁文件",
+              "en": "Update the lockfile"
+            }
+          }
+        ],
+        "command": "uv {name}"
+      },
+      {
+        "id": "uv-run",
+        "label": {
+          "zh": "uv run",
+          "en": "uv run"
+        },
+        "files": ["uv.lock"],
+        "tasks": [
+          {
+            "name": "pytest",
+            "description": {
+              "zh": "运行测试",
+              "en": "Run tests"
+            },
+            "when": "contains:name = \"pytest\""
+          },
+          {
+            "name": "pyright",
+            "description": {
+              "zh": "类型检查",
+              "en": "Type check"
+            },
+            "when": "contains:name = \"pyright\""
+          }
+        ],
+        "command": "uv run {name}"
+      },
+      {
+        "id": "uv-mypy",
+        "label": {
+          "zh": "uv run mypy",
+          "en": "uv run mypy"
+        },
+        "files": ["uv.lock"],
+        "tasks": [
+          {
+            "name": "mypy",
+            "description": {
+              "zh": "mypy 类型检查",
+              "en": "mypy type check"
+            },
+            "when": "contains:name = \"mypy\""
+          }
+        ],
+        "command": "uv run mypy ."
+      },
+      {
+        "id": "uv-ruff",
+        "label": {
+          "zh": "uv run ruff",
+          "en": "uv run ruff"
+        },
+        "files": ["uv.lock"],
+        "tasks": [
+          {
+            "name": "check",
+            "description": {
+              "zh": "Ruff 检查",
+              "en": "Ruff lint"
+            },
+            "when": "contains:name = \"ruff\""
+          },
+          {
+            "name": "format",
+            "description": {
+              "zh": "Ruff 格式化",
+              "en": "Ruff format"
+            },
+            "when": "contains:name = \"ruff\""
+          }
+        ],
+        "command": "uv run ruff {name} ."
+      },
+      {
+        "id": "poetry",
+        "label": {
+          "zh": "Poetry",
+          "en": "Poetry"
+        },
+        "files": ["poetry.lock"],
+        "tasks": [
+          {
+            "name": "install",
+            "description": {
+              "zh": "安装依赖",
+              "en": "Install dependencies"
+            }
+          },
+          {
+            "name": "lock",
+            "description": {
+              "zh": "更新锁文件",
+              "en": "Update the lockfile"
+            }
+          },
+          {
+            "name": "build",
+            "description": {
+              "zh": "打包",
+              "en": "Build the package"
+            }
+          }
+        ],
+        "command": "poetry {name}"
+      },
+      {
+        "id": "poetry-run",
+        "label": {
+          "zh": "Poetry run",
+          "en": "Poetry run"
+        },
+        "files": ["poetry.lock"],
+        "tasks": [
+          {
+            "name": "pytest",
+            "description": {
+              "zh": "运行测试",
+              "en": "Run tests"
+            },
+            "when": "contains:name = \"pytest\""
+          }
+        ],
+        "command": "poetry run {name}"
+      },
+      {
+        "id": "pdm-scripts",
+        "label": {
+          "zh": "PDM 脚本",
+          "en": "PDM scripts"
+        },
+        "files": ["pyproject.toml"],
+        "extract": [
+          {
+            "pattern": "^(?<=\\[tool\\.pdm\\.scripts\\][^\\[]*?)([A-Za-z0-9][A-Za-z0-9_-]*)(?:\\.[A-Za-z_]+)?[ \\t]*=",
+            "flags": "gm",
+            "name": 1,
+            "description": {
+              "commentBefore": "#"
+            }
+          },
+          {
+            "pattern": "^\\[tool\\.pdm\\.scripts\\.([A-Za-z0-9][A-Za-z0-9_-]*)\\]",
+            "flags": "gm",
+            "name": 1,
+            "description": {
+              "commentBefore": "#"
+            }
+          }
+        ],
+        "command": "pdm run {name}"
+      },
+      {
+        "id": "poe",
+        "label": {
+          "zh": "Poe the Poet",
+          "en": "Poe the Poet"
+        },
+        "files": ["pyproject.toml"],
+        "extract": [
+          {
+            "pattern": "^(?<=\\[tool\\.poe\\.tasks\\][^\\[]*?)([A-Za-z0-9][A-Za-z0-9_-]*)(?:\\.[A-Za-z_]+)?[ \\t]*=",
+            "flags": "gm",
+            "name": 1,
+            "description": {
+              "commentBefore": "#"
+            }
+          },
+          {
+            "pattern": "^\\[tool\\.poe\\.tasks\\.([A-Za-z0-9][A-Za-z0-9_-]*)\\]",
+            "flags": "gm",
+            "name": 1,
+            "description": {
+              "commentBefore": "#"
+            }
+          }
+        ],
+        "command": "poe {name}"
+      },
+      {
+        "id": "tox",
+        "label": {
+          "zh": "tox",
+          "en": "tox"
+        },
+        "files": ["tox.ini"],
+        "extract": [
+          {
+            "pattern": "^\\[testenv:([A-Za-z0-9][A-Za-z0-9_.-]*)\\]",
+            "flags": "gm",
+            "name": 1,
+            "description": {
+              "commentBefore": "#"
+            }
+          },
+          {
+            "pattern": "(?<=^[ \\t]*env_?list[ \\t]*=[^\\n]*?)(?<![A-Za-z0-9_.{-])((?:[A-Za-z]|[0-9]+\\.[0-9])[A-Za-z0-9_.-]*)(?=[ \\t]*(?:,|$))",
+            "flags": "gm",
+            "name": 1
+          }
+        ],
+        "command": "tox -e {name}"
+      },
+      {
+        "id": "nox",
+        "label": {
+          "zh": "nox",
+          "en": "nox"
+        },
+        "files": ["noxfile.py"],
+        "extract": [
+          {
+            "pattern": "(?=def[ \\t])(?<=^@(?:nox\\.)?session[ \\t]*\\r?\\n)def[ \\t]+([A-Za-z0-9][A-Za-z0-9_]*)",
+            "flags": "gm",
+            "name": 1
+          },
+          {
+            "pattern": "(?=def[ \\t])(?<=^@(?:nox\\.)?session\\((?![^)]*\\bname[ \\t]*=)[^)]*\\)[ \\t]*\\r?\\n)def[ \\t]+([A-Za-z0-9][A-Za-z0-9_]*)",
+            "flags": "gm",
+            "name": 1
+          },
+          {
+            "pattern": "(?=def[ \\t])(?<=^@(?:nox\\.)?session[ \\t]*\\r?\\n@[^\\n]*\\n)def[ \\t]+([A-Za-z0-9][A-Za-z0-9_]*)",
+            "flags": "gm",
+            "name": 1
+          },
+          {
+            "pattern": "(?=def[ \\t])(?<=^@(?:nox\\.)?session\\((?![^)]*\\bname[ \\t]*=)[^)]*\\)[ \\t]*\\r?\\n@[^\\n]*\\n)def[ \\t]+([A-Za-z0-9][A-Za-z0-9_]*)",
+            "flags": "gm",
+            "name": 1
+          },
+          {
+            "pattern": "^@(?:nox\\.)?session\\([^)]*\\bname[ \\t]*=[ \\t]*[\"']([A-Za-z0-9][A-Za-z0-9_.:@/+=-]*)[\"']",
+            "flags": "gm",
+            "name": 1
+          }
+        ],
+        "command": "nox -s {name}"
+      },
+      {
+        "id": "pipenv",
+        "label": {
+          "zh": "Pipenv 脚本",
+          "en": "Pipenv scripts"
+        },
+        "files": ["Pipfile"],
+        "extract": [
+          {
+            "pattern": "^(?<=\\[scripts\\][^\\[]*?)([A-Za-z0-9][A-Za-z0-9_-]*)[ \\t]*=",
+            "flags": "gm",
+            "name": 1
+          }
+        ],
+        "command": "pipenv run {name}"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/python-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "python-write-pytest",
+        "title": {
+          "zh": "为选中代码写 pytest 测试",
+          "en": "Write pytest tests for the selection"
+        },
+        "description": {
+          "zh": "给选中的代码写 pytest 测试，覆盖正常、边界和出错情况",
+          "en": "Write pytest tests covering normal, edge and error cases"
+        },
+        "path": "prompts/write-pytest.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "python-add-type-hints",
+        "title": {
+          "zh": "补全类型注解",
+          "en": "Add type hints"
+        },
+        "description": {
+          "zh": "给选中的代码补上类型注解，不改变行为",
+          "en": "Add type annotations to the selection without changing behavior"
+        },
+        "path": "prompts/add-type-hints.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "python-add-docstrings",
+        "title": {
+          "zh": "补全 docstring",
+          "en": "Add docstrings"
+        },
+        "description": {
+          "zh": "给选中的函数和类补上 docstring",
+          "en": "Add docstrings to the selected functions and classes"
+        },
+        "path": "prompts/add-docstrings.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "python-explain-traceback",
+        "title": {
+          "zh": "解释报错堆栈",
+          "en": "Explain a traceback"
+        },
+        "description": {
+          "zh": "粘贴 Python 报错，让 AI 找原因并给出最小修复",
+          "en": "Paste a Python error and get the cause plus a minimal fix"
+        },
+        "path": "prompts/explain-traceback.md",
+        "where": ["composer"]
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

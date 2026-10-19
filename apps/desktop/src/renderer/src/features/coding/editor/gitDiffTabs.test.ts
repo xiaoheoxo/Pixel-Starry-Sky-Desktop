@@ -22,8 +22,18 @@ vi.mock('./codeTabs', async () => {
   }
 })
 
-const { commitDiffInput, getGitDiffTab, gitPanelKey, openGitDiffTab, setGitFileKey, syncGitDiffTabs, workDiffInput } =
-  await import('./gitDiffTabs')
+const {
+  commitDiffInput,
+  getGitDiffTab,
+  gitPanelKey,
+  gitStatusRevision,
+  inGitWorkspace,
+  noteGitHead,
+  openGitDiffTab,
+  setGitFileKey,
+  syncGitDiffTabs,
+  workDiffInput,
+} = await import('./gitDiffTabs')
 
 const ref = { projectId: 'p1' }
 const file = (path: string, code: GitCode = 'M') => ({ path, origPath: null, code, local: path, submodule: false })
@@ -31,6 +41,38 @@ const commitFile = { path: 'a.ts', origPath: null, code: 'M' as const, insertion
 
 beforeEach(() => {
   state.group = EMPTY_GROUP
+})
+
+describe('状态版本和 HEAD', () => {
+  it('每读到一次状态，这个工作区的版本加一（文件还在同一区、字母没变时对比标签靠它重读）', () => {
+    const before = gitStatusRevision('p:rev')
+    const sections = [{ area: 'staged' as const, files: [file('staged.js')] }]
+    syncGitDiffTabs('p:rev', sections)
+    syncGitDiffTabs('p:rev', sections)
+    expect(gitStatusRevision('p:rev')).toBe(before + 2)
+    expect(gitStatusRevision('p:other')).toBe(0)
+  })
+  it('noteGitHead：第一次看到不算换了，之后提交号变了才算', () => {
+    expect(noteGitHead('p:head', 'aaa')).toBe(false)
+    expect(noteGitHead('p:head', 'aaa')).toBe(false)
+    expect(noteGitHead('p:head', 'bbb')).toBe(true)
+    expect(noteGitHead('p:head', 'bbb')).toBe(false)
+    // 空仓库第一次提交
+    expect(noteGitHead('p:empty', null)).toBe(false)
+    expect(noteGitHead('p:empty', 'ccc')).toBe(true)
+  })
+})
+
+describe('inGitWorkspace', () => {
+  it('按工作区匹配文件标签；附加文件夹「::N/」对应「#N」的面板；会话在项目里的别名也认', () => {
+    expect(inGitWorkspace('p:w1')({ ref: { projectId: 'w1' }, path: 'src/a.ts' })).toBe(true)
+    expect(inGitWorkspace('p:w1')({ ref: { projectId: 'w1' }, path: '::1/a.ts' })).toBe(false)
+    expect(inGitWorkspace('p:w1#1')({ ref: { projectId: 'w1' }, path: '::1/a.ts' })).toBe(true)
+    expect(inGitWorkspace('p:w1#1')({ ref: { projectId: 'w1', folder: 1 }, path: 'a.ts' })).toBe(true)
+    expect(inGitWorkspace('p:w1')({ ref: { projectId: 'w2' }, path: 'a.ts' })).toBe(false)
+    setGitFileKey('s:sess-w3', 'p:w3')
+    expect(inGitWorkspace('s:sess-w3')({ ref: { projectId: 'w3' }, path: 'a.ts' })).toBe(true)
+  })
 })
 
 describe('Git 对比标签 store', () => {

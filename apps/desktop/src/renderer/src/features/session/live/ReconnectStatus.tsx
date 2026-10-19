@@ -6,10 +6,19 @@ import { RotateCw } from 'lucide-react'
 import type { QueuedMessage } from '@pixelsky/protocol'
 import { Button, cn } from '@/ui'
 import { bridge } from '@/features/engine'
-import { isReconnecting } from '../queueView'
+import { isReconnecting, reconnectPhase } from '../queueView'
 
-/** 断线后宿主正在自动重连（Codex 的 Reconnecting n/m）：倒计时、立即重连、停止；样子和 RetryStatus 一样 */
-export function ReconnectStatus({ sessionId, queue }: { sessionId: string; queue: QueuedMessage[] | undefined }) {
+/** 断线后宿主正在自动重连（Codex 的 Reconnecting n/m）：倒计时、立即重连、停止；样子和 RetryStatus 一样。
+ *  队列暂停时（比如重启后恢复出来的）不会自己重连：不转圈、没有进度条，给「继续重连」/「停止」 */
+export function ReconnectStatus({
+  sessionId,
+  queue,
+  paused,
+}: {
+  sessionId: string
+  queue: QueuedMessage[] | undefined
+  paused: boolean
+}) {
   useI18n()
   const item = queue?.find(isReconnecting)
   const reconnect = item?.reconnect
@@ -32,10 +41,13 @@ export function ReconnectStatus({ sessionId, queue }: { sessionId: string; queue
     }
   }, [reconnect])
   if (!item || !reconnect) return null
-  const connecting = item.status === 'dispatching' || now >= reconnect.at
+  const phase = reconnectPhase(item, paused, now)
+  const connecting = phase === 'connecting'
+  // 到点却没动静（stalled）：回到等待的样子，不再装作正在连接，但仍可以点「立即重连」
+  const showBar = phase !== 'paused'
   const seconds = Math.max(1, Math.ceil((reconnect.at - now) / 1000))
   const total = Math.max(1, reconnect.at - reconnect.since)
-  const progress = connecting ? 100 : Math.min(100, Math.max(0, ((now - reconnect.since) / total) * 100))
+  const progress = phase !== 'waiting' ? 100 : Math.min(100, Math.max(0, ((now - reconnect.since) / total) * 100))
   const act = async (fn: () => Promise<unknown>): Promise<void> => {
     if (!bridge || busy) return
     setBusy(true)
@@ -63,7 +75,10 @@ export function ReconnectStatus({ sessionId, queue }: { sessionId: string; queue
             className={cn('shrink-0 text-warn', connecting && 'animate-spin [animation-duration:1.1s]')}
           />
           <span className="text-meta text-fg-secondary tabular-nums">
-            {tr('session.reconnect.reconnecting', { p0: reconnect.attempt, p1: reconnect.max })}
+            {tr(paused ? 'session.reconnect.paused' : 'session.reconnect.reconnecting', {
+              p0: reconnect.attempt,
+              p1: reconnect.max,
+            })}
             <span className="mx-1 inline-flex gap-[3px] align-middle" aria-hidden>
               {Array.from({ length: reconnect.max }, (_, i) => (
                 <i
@@ -75,7 +90,8 @@ export function ReconnectStatus({ sessionId, queue }: { sessionId: string; queue
                 />
               ))}
             </span>
-            {connecting ? tr('session.reconnect.connecting') : tr('session.reconnect.inSeconds', { p0: seconds })}
+            {phase === 'connecting' && tr('session.reconnect.connecting')}
+            {phase === 'waiting' && tr('session.reconnect.inSeconds', { p0: seconds })}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -83,10 +99,10 @@ export function ReconnectStatus({ sessionId, queue }: { sessionId: string; queue
             variant="subtle"
             data-reconnect-now
             className="h-7 px-2 text-meta"
-            disabled={busy || connecting}
+            disabled={busy || item.status === 'dispatching'}
             onClick={() => void act(() => bridge!.runQueuedNow(sessionId, item.id))}
           >
-            {tr('session.reconnect.now')}
+            {tr(paused ? 'session.reconnect.resume' : 'session.reconnect.now')}
           </Button>
           <Button
             variant="ghost"
@@ -103,9 +119,14 @@ export function ReconnectStatus({ sessionId, queue }: { sessionId: string; queue
         {reconnect.reason && `${translateMessage(reconnect.reason)} · `}
         {reconnect.resend ? tr('session.reconnect.resendHint') : tr('session.reconnect.resumeHint')}
       </p>
-      <div className="mt-2 ml-[22px] h-0.5 overflow-hidden rounded-full bg-subtle">
-        <i className="block h-full bg-warn transition-[width] duration-200 ease-linear" style={{ width: `${progress}%` }} />
-      </div>
+      {showBar && (
+        <div className="mt-2 ml-[22px] h-0.5 overflow-hidden rounded-full bg-subtle">
+          <i
+            className="block h-full bg-warn transition-[width] duration-200 ease-linear"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
       {error && <p className="mt-1 text-meta text-danger">{translateMessage(error)}</p>}
     </div>
   )

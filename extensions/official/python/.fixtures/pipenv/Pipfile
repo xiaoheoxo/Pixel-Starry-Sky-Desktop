@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+flask = "*"
+
+[dev-packages]
+pytest = "*"
+
+[scripts]
+start = "flask run"
+test = "pytest -q"
+
+[requires]
+python_version = "3.12"

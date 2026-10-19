@@ -84,6 +84,7 @@ const demoRows = (query = '') =>
 const render = (extra: Partial<PickerViewProps> = {}): string => {
   const groups = extra.groups ?? demoRows()
   const props: PickerViewProps = {
+    engine: 'claude',
     groups,
     query: '',
     selectedId: groups.all[0]?.id ?? null,
@@ -153,6 +154,14 @@ describe('ResumePickerView', () => {
     expect(html.indexOf('data-resume-action="inplace"')).toBeLessThan(html.indexOf('data-resume-action="copy"'))
     expect(html).not.toContain('data-resume-action="close-there"')
   })
+  it('可能还开着的说明按引擎区分：Codex 说写入锁，Claude 说最近写过', () => {
+    const groups = demoRows()
+    const maybe = groups.all.find(r => r.live === 'maybe')!
+    expect(render({ groups, selectedId: maybe.id })).toContain('最近几分钟内被写过')
+    const codex = render({ engine: 'codex', groups, selectedId: maybe.id })
+    expect(codex).toContain('写入锁还在')
+    expect(codex).not.toContain('最近几分钟')
+  })
   it('点过「我去那边关掉再来」的行提示关掉后再按 Enter，不再展开按钮', () => {
     const groups = demoRows()
     const live = groups.all.find(r => r.live === 'terminal')!
@@ -177,6 +186,31 @@ describe('ResumePickerView', () => {
     expect(render({ groups: none, loading: true })).toContain('正在读取会话…')
     expect(render({ reading: true })).toContain('data-resume-reading')
     expect(render({ groups: none, noProject: true })).toContain('先打开一个项目')
+  })
+  it('重新查找：头部一直有（读取中、没有项目时灰掉）；没有任何会话时空状态里也有，过滤没匹配时没有', () => {
+    const none = groupRows([])
+    expect(render()).toMatch(/<button[^>]*aria-label="重新查找"[^>]*data-resume-action="recheck"(?![^>]*disabled)/)
+    expect(render({ loading: true })).toMatch(/<button[^>]*data-resume-action="recheck"[^>]*disabled/)
+    expect(render({ groups: none, noProject: true })).toMatch(/<button[^>]*data-resume-action="recheck"[^>]*disabled/)
+    expect(render({ groups: none })).toContain('data-resume-action="recheck-empty"')
+    const filtered = render({ groups: demoRows('不存在的词'), query: '不存在的词' })
+    expect(filtered).not.toContain('data-resume-action="recheck-empty"')
+  })
+  it('engine 为 codex：标题、空状态、错误、帮助是 Codex 的', () => {
+    const none = groupRows([])
+    expect(render({ engine: 'codex' })).toContain('接着 Codex 会话')
+    expect(render({ engine: 'claude' })).toContain('接着 Claude Code 会话')
+    expect(render({ engine: 'codex', groups: none })).toContain('这个文件夹还没有 Codex 会话记录')
+    // 引擎真实抛的整句，后面接原因：不再套一层「读不到 Codex 的会话：」
+    const error = render({ engine: 'codex', groups: none, error: 'Codex 没装好，读不到它的会话：spawn ENOENT' })
+    expect(error).toContain('Codex 没装好，读不到它的会话：spawn ENOENT')
+    expect(error).not.toContain('读不到 Codex 的会话')
+    expect(error).not.toContain('Claude Code')
+    expect(render({ engine: 'codex', groups: none, error: 'EACCES' })).toContain('读不到 Codex 的会话：EACCES')
+    const help = render({ engine: 'codex', help: true })
+    expect(help).toContain('Codex 不让两个程序同时写一个会话')
+    expect(help).not.toContain('--resume')
+    expect(render({ engine: 'claude', help: true })).toContain('--resume')
   })
   it('状态栏的一句话和帮助', () => {
     expect(render({ notice: '这个会话的记录已经不在了' })).toContain('这个会话的记录已经不在了')

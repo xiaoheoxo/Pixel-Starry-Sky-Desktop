@@ -1,0 +1,12 @@
+{
+  "title": "路径里有冒号（NTFS 备用数据流）",
+  "expectCodes": ["files.path"],
+  "input": "zip",
+  "base": "pixelsky.dotenv",
+  "zipEntries": [
+    {
+      "name": "docs/a:stream.txt",
+      "text": "x"
+    }
+  ]
+}

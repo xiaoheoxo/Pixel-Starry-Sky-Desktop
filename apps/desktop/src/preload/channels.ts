@@ -2,9 +2,11 @@ import type {
   AgentInput,
   ChannelAttachments,
   ChannelInput,
+  ChannelNotify,
   ChannelMessage,
   ChannelMessagePush,
   ChannelsSnapshot,
+  ChannelSearchResult,
   AgentPolicy,
   ChannelTaskAction,
   ChannelTextMessage,
@@ -16,9 +18,29 @@ import type {
 export interface ChannelsBridge {
   state(): Promise<ChannelsSnapshot>
   /** 一页消息（最多 200 条）；before 是毫秒时间戳，取这之前的 */
-  messages(channelId: string, before?: number | null): Promise<{ messages: ChannelMessage[]; more: boolean }>
+  /** before / beforeId：界面里最早那条消息的时间和 id，取它前面的一页（按 id 定位，同一毫秒跨页不漏） */
+  messages(
+    channelId: string,
+    before?: number | null,
+    beforeId?: string | null,
+  ): Promise<{ messages: ChannelMessage[]; more: boolean }>
   create(input: ChannelInput): Promise<string>
-  update(id: string, patch: { name?: string; topic?: string | null; projectId?: string | null }): Promise<void>
+  update(
+    id: string,
+    patch: {
+      name?: string
+      topic?: string | null
+      notes?: string | null
+      notify?: ChannelNotify
+      projectId?: string | null
+      /** 归档 / 恢复（docs/ui/channels-local-ai.md §3.1 #11） */
+      archived?: boolean
+    },
+  ): Promise<void>
+  /** 置顶 / 取消置顶一条文字消息（docs/ui/channels-local-ai.md §3.1 #9） */
+  pin(channelId: string, messageId: string, pinned: boolean): Promise<void>
+  /** 搜频道消息（§3.1 #8）：新的在前；projectId 只搜默认项目是它的频道 */
+  search(text: string, opts?: { limit?: number; projectId?: string | null }): Promise<ChannelSearchResult>
   delete(id: string): Promise<void>
   post(channelId: string, input: PostInput): Promise<{ message: ChannelTextMessage; tasks: string[] }>
   /** 一条消息带的图片和文件全文；没有时两个空数组 */

@@ -278,6 +278,7 @@ export function ConversationFind({
   return (
     <div
       role="search"
+      data-conversation-find
       className="pop-in absolute top-3 right-5 z-30 flex h-9 max-w-[calc(100%-2rem)] items-center gap-1 rounded-lg border border-line bg-popover pr-1 pl-2.5 shadow-popover"
     >
       <Search size={14} strokeWidth={1.5} className="shrink-0 text-fg-muted" />

@@ -57,16 +57,16 @@ describe('taskCommand', () => {
     expect(taskCommand(npm('apps/web', 'bun'), task('dev'))).toBe('bun --cwd apps/web run dev')
   })
   it('没有包管理器时用 npm；目录带空格加引号', () => {
-    expect(taskCommand(npm('my app', undefined), task('dev'))).toBe('npm --prefix "my app" run dev')
+    expect(taskCommand(npm('my app', undefined), task('dev'))).toBe("npm --prefix 'my app' run dev")
   })
   it('make 和 cargo', () => {
     const make: RunTaskGroup = { kind: 'make', file: 'Makefile', dir: '', tasks: [] }
     expect(taskCommand(make, task('clean'))).toBe('make clean')
-    expect(taskCommand({ ...make, dir: 'sub dir' }, task('clean'))).toBe('make -C "sub dir" clean')
+    expect(taskCommand({ ...make, dir: 'sub dir' }, task('clean'))).toBe("make -C 'sub dir' clean")
     const cargo: RunTaskGroup = { kind: 'cargo', file: 'src-tauri/Cargo.toml', dir: 'src-tauri', tasks: [] }
     expect(taskCommand(cargo, task('build'))).toBe('cargo build --manifest-path src-tauri/Cargo.toml')
     expect(taskCommand({ ...cargo, dir: '' }, task('test'))).toBe('cargo test')
-    expect(taskCommand({ ...cargo, dir: 'a b' }, task('run'))).toBe('cargo run --manifest-path "a b/Cargo.toml"')
+    expect(taskCommand({ ...cargo, dir: 'a b' }, task('run'))).toBe("cargo run --manifest-path 'a b/Cargo.toml'")
   })
 })
 
@@ -91,8 +91,43 @@ describe('taskStatus', () => {
     expect(taskStatus(record({ status: 'running' })).kind).toBe('running')
     expect(taskStatus(record({ status: 'exited', exitCode: 0 })).kind).toBe('ok')
     expect(taskStatus(record({ status: 'exited', exitCode: 2 }))).toEqual({ kind: 'failed', code: 2 })
-    expect(taskStatus(record({ status: 'running' }), true).kind).toBe('stopped')
-    expect(taskStatus(record({ status: 'exited', exitCode: 0 }), true).kind).toBe('ok')
+    expect(taskStatus(record({ status: 'running' }), { stopped: true }).kind).toBe('stopped')
+    expect(taskStatus(record({ status: 'exited', exitCode: 0 }), { stopped: true }).kind).toBe('ok')
+  })
+
+  it('点了停止、提示符还没回来：正在停止（不是已停止）', () => {
+    expect(taskStatus(record({ status: 'running' }), { stopping: true }).kind).toBe('stopping')
+  })
+
+  it('提示符回来了：看退出码，0 成功、非 0 失败', () => {
+    const running = record({ status: 'running' })
+    expect(taskStatus(running, { ended: { code: 0 } })).toEqual({ kind: 'ok', code: null })
+    expect(taskStatus(running, { ended: { code: 2 } })).toEqual({ kind: 'failed', code: 2 })
+  })
+
+  it('Ctrl+C 打断的退出码（130、Windows 的 STATUS_CONTROL_C_EXIT）和不知道的退出码都算已停止，不标失败', () => {
+    const running = record({ status: 'running' })
+    for (const code of [130, -1073741510, 3221225786, null])
+      expect(taskStatus(running, { ended: { code } })).toEqual({ kind: 'stopped', code: null })
+  })
+
+  it('正在停止时提示符回来：已停止，不管退出码', () => {
+    const running = record({ status: 'running' })
+    expect(taskStatus(running, { stopping: true, ended: { code: 1 } }).kind).toBe('stopped')
+    expect(taskStatus(running, { stopping: true, ended: { code: 0 } }).kind).toBe('stopped')
+  })
+
+  it('shell 退出了（exit 后缀的旧判定）就看退出码', () => {
+    const exited = record({ status: 'exited', exitCode: 4 })
+    expect(taskStatus(exited, { stopping: true })).toEqual({ kind: 'failed', code: 4 })
+    expect(taskStatus(exited, { stopped: true })).toEqual({ kind: 'failed', code: 4 })
+  })
+
+  it('已经按标记判定结束的，之后用户在终端里又 exit 也不改判', () => {
+    const exited = record({ status: 'exited', exitCode: 5 })
+    expect(taskStatus(exited, { ended: { code: 0 } })).toEqual({ kind: 'ok', code: null })
+    expect(taskStatus(exited, { ended: { code: 2 } })).toEqual({ kind: 'failed', code: 2 })
+    expect(taskStatus(exited, { stopping: true, ended: { code: 1 } }).kind).toBe('stopped')
   })
 })
 
@@ -191,7 +226,7 @@ describe('Gradle（§9）', () => {
     expect(taskCommand(nested, nested.tasks[0])).toBe('./android/gradlew -p android build')
     expect(taskCommand(nested, nested.tasks[0], 'cmd')).toBe('.\\android\\gradlew.bat -p android build')
     const spaced = gradle(':', 'my app')
-    expect(taskCommand(spaced, spaced.tasks[0], 'pwsh')).toBe('& "./my app/gradlew" -p "my app" build')
+    expect(taskCommand(spaced, spaced.tasks[0], 'pwsh')).toBe("& './my app/gradlew' -p 'my app' build")
     expect(taskCommand(gradle(':', '', false), root.tasks[0])).toBe('gradle build')
     expect(taskTitle(root, root.tasks[0])).toBe('build')
     expect(taskTitle(fabric, fabric.tasks[1])).toBe(':fabric:runClient')

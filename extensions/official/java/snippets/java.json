@@ -1,0 +1,234 @@
+{
+  "main 方法": {
+    "prefix": "main",
+    "body": ["public static void main(String[] args) {", "\t$0", "}"],
+    "description": "程序入口 main 方法"
+  },
+  "公开类": {
+    "prefix": "class",
+    "body": ["public class ${1:$TM_FILENAME_BASE} {", "\t$0", "}"],
+    "description": "公开类，类名默认取文件名"
+  },
+  "带 main 的类": {
+    "prefix": "classmain",
+    "body": [
+      "public class ${1:$TM_FILENAME_BASE} {",
+      "",
+      "\tpublic static void main(String[] args) {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "带 main 方法的类"
+  },
+  "记录类": {
+    "prefix": "record",
+    "body": ["public record ${1:$TM_FILENAME_BASE}(${2:String name}) {", "\t$0", "}"],
+    "description": "record 记录类"
+  },
+  "接口": {
+    "prefix": "interface",
+    "body": ["public interface ${1:$TM_FILENAME_BASE} {", "\t$0", "}"],
+    "description": "接口"
+  },
+  "枚举": {
+    "prefix": "enum",
+    "body": ["public enum ${1:$TM_FILENAME_BASE} {", "\t${2:FIRST}, ${3:SECOND};", "\t$0", "}"],
+    "description": "枚举"
+  },
+  "密封接口": {
+    "prefix": "sealed",
+    "body": ["public sealed interface ${1:Shape} permits ${2:Circle}, ${3:Square} {", "\t$0", "}"],
+    "description": "sealed 密封接口"
+  },
+  "包声明": {
+    "prefix": "package",
+    "body": "package ${1:com.example};\n$0",
+    "description": "package 声明"
+  },
+  "公开方法": {
+    "prefix": "method",
+    "body": ["public ${1:void} ${2:name}(${3}) {", "\t$0", "}"],
+    "description": "公开方法"
+  },
+  "静态方法": {
+    "prefix": "smethod",
+    "body": ["public static ${1:void} ${2:name}(${3}) {", "\t$0", "}"],
+    "description": "公开静态方法"
+  },
+  "私有字段": {
+    "prefix": "field",
+    "body": "private final ${1:String} ${2:name};$0",
+    "description": "私有 final 字段"
+  },
+  "常量": {
+    "prefix": "const",
+    "body": "private static final ${1:String} ${2:NAME} = ${3:\"value\"};$0",
+    "description": "private static final 常量"
+  },
+  "构造方法": {
+    "prefix": "ctor",
+    "body": ["public ${1:$TM_FILENAME_BASE}(${2:String name}) {", "\tthis.${3:name} = ${3:name};", "\t$0", "}"],
+    "description": "构造方法"
+  },
+  "for 循环": {
+    "prefix": "fori",
+    "body": ["for (int ${1:i} = 0; ${1:i} < ${2:n}; ${1:i}++) {", "\t$0", "}"],
+    "description": "按下标循环"
+  },
+  "增强 for": {
+    "prefix": "foreach",
+    "body": ["for (${1:var} ${2:item} : ${3:items}) {", "\t$0", "}"],
+    "description": "for-each 循环"
+  },
+  "if / else 分支": {
+    "prefix": "ifelse",
+    "body": ["if (${1:condition}) {", "\t$2", "} else {", "\t$0", "}"],
+    "description": "if / else 分支"
+  },
+  "switch 表达式": {
+    "prefix": "switch",
+    "body": [
+      "var ${1:result} = switch (${2:value}) {",
+      "\tcase ${3:A} -> ${4:1};",
+      "\tcase ${5:B} -> ${6:2};",
+      "\tdefault -> ${7:0};",
+      "};",
+      "$0"
+    ],
+    "description": "switch 表达式（Java 14+）"
+  },
+  "try / catch 异常捕获": {
+    "prefix": "trycatch",
+    "body": ["try {", "\t$1", "} catch (${2:Exception} e) {", "\t$0", "}"],
+    "description": "try / catch 异常捕获"
+  },
+  "try-with-resources": {
+    "prefix": "trywith",
+    "body": [
+      "try (${1:var} ${2:reader} = ${3:Files.newBufferedReader(path)}) {",
+      "\t$4",
+      "} catch (${5:IOException} e) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "try-with-resources，自动关闭资源"
+  },
+  "Stream 流水线": {
+    "prefix": "stream",
+    "body": [
+      "${1:items}.stream()",
+      "\t.filter(${2:x} -> ${3:x != null})",
+      "\t.map(${4:x} -> ${5:x})",
+      "\t.collect(Collectors.toList());"
+    ],
+    "description": "stream 过滤、映射并收集"
+  },
+  "Stream 分组": {
+    "prefix": "groupby",
+    "body": [
+      "Map<${1:String}, List<${2:Item}>> ${3:grouped} = ${4:items}.stream()",
+      "\t.collect(Collectors.groupingBy(${2:Item}::${5:category}));"
+    ],
+    "description": "按字段分组"
+  },
+  "Optional 取值": {
+    "prefix": "opt",
+    "body": "Optional.ofNullable(${1:value}).map(${2:v} -> ${3:v}).orElse(${4:null});$0",
+    "description": "Optional 映射并给默认值"
+  },
+  "Optional 不存在则抛错": {
+    "prefix": "optthrow",
+    "body": "${1:repository}.findById(${2:id})\n\t.orElseThrow(() -> new ${3:IllegalArgumentException}(\"${4:not found}\"));$0",
+    "description": "Optional 为空时抛异常"
+  },
+  "Logger": {
+    "prefix": "logger",
+    "body": "private static final Logger log = LoggerFactory.getLogger(${1:$TM_FILENAME_BASE}.class);$0",
+    "description": "SLF4J 日志对象，需要 import org.slf4j"
+  },
+  "JUnit 5 测试类": {
+    "prefix": "testclass",
+    "body": [
+      "import static org.junit.jupiter.api.Assertions.*;",
+      "",
+      "import org.junit.jupiter.api.Test;",
+      "",
+      "class ${1:$TM_FILENAME_BASE} {",
+      "",
+      "\t@Test",
+      "\tvoid ${2:works}() {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "JUnit 5 测试类骨架"
+  },
+  "JUnit 5 测试方法": {
+    "prefix": "test",
+    "body": ["@Test", "void ${1:shouldDoSomething}() {", "\t$0", "}"],
+    "description": "JUnit 5 @Test 方法"
+  },
+  "JUnit 5 参数化测试": {
+    "prefix": "ptest",
+    "body": [
+      "@ParameterizedTest",
+      "@CsvSource({\"${1:1, 2, 3}\"})",
+      "void ${2:adds}(${3:int a, int b, int expected}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "JUnit 5 参数化测试 @ParameterizedTest + @CsvSource"
+  },
+  "JUnit 5 断言抛错": {
+    "prefix": "assertthrows",
+    "body": "assertThrows(${1:IllegalArgumentException}.class, () -> ${2:call()});$0",
+    "description": "断言抛出指定异常"
+  },
+  "equals 和 hashCode": {
+    "prefix": "equals",
+    "body": [
+      "@Override",
+      "public boolean equals(Object o) {",
+      "\tif (this == o) return true;",
+      "\tif (!(o instanceof ${1:$TM_FILENAME_BASE} that)) return false;",
+      "\treturn Objects.equals(${2:id}, that.${2:id});",
+      "}",
+      "",
+      "@Override",
+      "public int hashCode() {",
+      "\treturn Objects.hash(${2:id});",
+      "}"
+    ],
+    "description": "equals 与 hashCode（instanceof 模式匹配，Java 16+）"
+  },
+  "toString": {
+    "prefix": "tostr",
+    "body": [
+      "@Override",
+      "public String toString() {",
+      "\treturn \"${1:$TM_FILENAME_BASE}{${2:id}=\" + ${2:id} + \"}\";",
+      "}"
+    ]
+  },
+  "CompletableFuture 异步": {
+    "prefix": "async",
+    "body": "CompletableFuture.supplyAsync(() -> ${1:compute()})\n\t.thenApply(${2:r} -> ${3:r})\n\t.exceptionally(ex -> ${4:null});$0",
+    "description": "异步计算并处理异常"
+  },
+  "Spring REST 控制器": {
+    "prefix": "restcontroller",
+    "body": [
+      "@RestController",
+      "@RequestMapping(\"/${1:api/items}\")",
+      "public class ${2:$TM_FILENAME_BASE} {",
+      "",
+      "\t@GetMapping(\"/{id}\")",
+      "\tpublic ${3:Object} get(@PathVariable ${4:Long} id) {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Spring Web 的 REST 控制器骨架"
+  }
+}

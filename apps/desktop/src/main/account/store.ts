@@ -1,10 +1,11 @@
 // 订阅套餐与充值（主进程）：读云端 GET /v1/platform/store，并在系统浏览器里打开 Sub2api 面板的购买页 / 兑换页。
 // 规格见 docs/cloud-service.md §4.16、docs/ui/settings.md §9.4–9.6。付款一律在浏览器里完成，桌面端不碰支付。
-import { shell } from 'electron'
-import { platformFetch, signedInEmail } from './account'
+import { app, shell } from 'electron'
+import { baseUrl, platformFetch, signedInEmail } from './account'
 import type {
   StoreBonusTier,
   StoreCatalog,
+  StoreCheckout,
   StoreLinkKind,
   StoreLinkParams,
   StorePlan,
@@ -85,6 +86,19 @@ function parseRecharge(v: unknown): StoreRecharge {
   }
 }
 
+/** 软件内付款的能力标记；没给或不是对象（旧版云端）就是不开，返回 undefined */
+function parseCheckout(v: unknown): StoreCheckout | undefined {
+  if (!isObject(v)) return undefined
+  const methods = Array.isArray(v.methods) ? v.methods.filter((m): m is string => typeof m === 'string' && !!m) : []
+  const timeout = num(v.order_timeout_minutes)
+  return {
+    // 没有可用的支付方式时等于没开
+    enabled: v.enabled === true && methods.length > 0,
+    methods,
+    orderTimeoutMinutes: timeout !== null && timeout > 0 ? timeout : 30,
+  }
+}
+
 /** 解析 /v1/platform/store 的响应：蛇形 → 驼峰；字段类型不对就报错，多出来的字段忽略 */
 export function parseStore(body: unknown): StoreCatalog {
   if (!isObject(body) || typeof body.enabled !== 'boolean' || !Array.isArray(body.plans)) {
@@ -96,20 +110,29 @@ export function parseStore(body: unknown): StoreCatalog {
         isObject(m) && text(m.type) ? [{ type: text(m.type), label: text(m.label) || text(m.type) }] : [],
       )
     : []
+  const checkout = parseCheckout(body.checkout)
   return {
     enabled: body.enabled,
     currency: text(body.currency) || 'CNY',
+    // 云端没给币种时上面的 CNY 只是猜的：界面据此不显示应付金额
+    currencyKnown: !!text(body.currency),
     plans,
     recharge: parseRecharge(body.recharge),
     methods,
     helpText: text(body.help_text),
     purchaseUrl: text(body.purchase_url),
     redeemUrl: text(body.redeem_url),
+    ...(checkout && { checkout }),
   }
 }
 
 /** 最近一次拿到的商品数据：打开浏览器的地址只认它（渲染层传不了任意地址） */
 let last: { email: string | null; catalog: StoreCatalog } | null = null
+
+/** 最近一次商品数据及其所属账号：软件内付款的参数校验（金额范围、套餐、支付方式）只认它 */
+export function lastStore(): { email: string | null; catalog: StoreCatalog } | null {
+  return last
+}
 
 export async function fetchStore(): Promise<StoreCatalog> {
   const res = await platformFetch(STORE_PATH, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
@@ -128,7 +151,31 @@ export async function fetchStore(): Promise<StoreCatalog> {
   return catalog
 }
 
-/** 面板页地址：必须是 http(s) 绝对地址；只带白名单里的查询参数 */
+/** 随版本内置的可信面板域名（含子域）：正式站（pixelstarrysky.xyz）、测试站（auth.）都在它下面 */
+const TRUSTED_PANEL_DOMAINS = ['pixelstarrysky.xyz']
+
+function normalizeHost(host: string): string {
+  return host.toLowerCase().replace(/\.$/, '')
+}
+function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+}
+
+/**
+ * 面板主机是否可信：就是云端地址的主机，或在内置可信域名（含子域）之下。
+ * 不按云端地址的注册域放宽：云端地址若在 github.io、vercel.app 这类托管平台上，同注册域会放进别人的站点
+ */
+export function isTrustedPanelHost(panelHost: string, cloudHost: string): boolean {
+  const host = normalizeHost(panelHost)
+  const cloud = normalizeHost(cloudHost)
+  if (cloud && host === cloud) return true
+  return TRUSTED_PANEL_DOMAINS.some(d => host === d || host.endsWith(`.${d}`))
+}
+
+/**
+ * 面板页地址：必须是 https 绝对地址（回环地址和未打包的开发环境可以用 http）；不能带用户名密码；
+ * 主机必须可信（与云端地址完全相同，或在内置域名列表里）；只带白名单里的查询参数
+ */
 export function storeLink(kind: StoreLinkKind, catalog: StoreCatalog, params?: StoreLinkParams): string {
   const raw = kind === 'purchase' ? catalog.purchaseUrl : kind === 'redeem' ? catalog.redeemUrl : ''
   let url: URL
@@ -138,6 +185,18 @@ export function storeLink(kind: StoreLinkKind, catalog: StoreCatalog, params?: S
     throw new Error('没有可用的面板地址')
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('没有可用的面板地址')
+  if (url.username || url.password) throw new Error('面板地址带有用户名或密码，已拒绝打开')
+  const host = normalizeHost(url.hostname)
+  if (url.protocol === 'http:' && app.isPackaged && !isLoopbackHost(host)) {
+    throw new Error('面板地址不是 https，已拒绝打开')
+  }
+  let cloudHost = ''
+  try {
+    cloudHost = new URL(baseUrl()).hostname
+  } catch {
+    /* 云端地址解析不了就只认内置列表 */
+  }
+  if (!isTrustedPanelHost(host, cloudHost)) throw new Error('面板地址不在可信域名内，已拒绝打开')
   // Sub2api 的 /purchase 只认 ?tab=subscription 和 &group=<分组 id>（预选套餐）；金额不认，所以不带
   if (kind === 'purchase' && params?.tab === 'subscription') {
     url.searchParams.set('tab', 'subscription')

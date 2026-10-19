@@ -102,7 +102,7 @@ export interface ExtPackManifest {
   permissions: unknown[]
   price: null
 }
-export type ExtPackSource = 'builtin' | 'folder'
+export type ExtPackSource = 'builtin' | 'folder' | 'store'
 export interface ExtPackIssue {
   severity: 'error' | 'warning'
   /** pack: 整个扩展不加载；contribution: 该条贡献不生效；file: 该文件不使用 / 不提供 */
@@ -138,13 +138,19 @@ export interface ExtPackInfo {
   revision: number
   status: 'ok' | 'warning' | 'error'
   manifest: ExtPackManifest | null
-  /** enabled && status !== 'error'（没有 scope:'pack' 的错误） */
+  /** enabled && status !== 'error' && !blocked && !shadowedBy（见 computeLive） */
   live: boolean
   /** 被 scope:'contribution' 错误停用的贡献的清单下标；生效 = live 且下标不在里面 */
   inactive: ExtPackInactive
   issues: ExtPackIssue[]
   options: ExtPackOptions
   skills: ExtPackSkillInfo[]
+  /** 来源是 store 时的安装回执（版本、时间、校验值、签名钥匙、装自哪个站点） */
+  store?: { version: string; installedAt: number; sha256: string; keyId: string; site: string }
+  /** 被平台停用（停用名单命中）：不生效，不能打开；reason 是名单里的原因，at 是读到名单的时间 */
+  blocked?: { reason: string; at: string }
+  /** 同 id 有更优先的来源在用（开发中的文件夹 > 商店 > 内置）：值是生效那一份的来源；不算错误，灰显 */
+  shadowedBy?: ExtPackSource
 }
 export interface ExtPackState {
   revision: number
@@ -182,6 +188,8 @@ export interface CheckPackOptions {
   appVersion?: string
   /** 语法引擎的问题；undefined = 没跑引擎，有语法时报 grammar.regexUnchecked */
   grammar?: ExtPackIssue[]
+  /** 是否扫 svg 内容（svg.unsafe）；默认 source !== 'builtin'。商店扩展启动加载时传 false（安装时已扫过） */
+  scanSvg?: boolean
 }
 export interface ExtPackCheck {
   id: string | null
@@ -237,7 +245,7 @@ export const EXT_LIMITS = {
 } as const
 
 /** 规则语义变化时加一；写进命令行的 JSON 和共享用例的期望 */
-export const EXT_RULES_VERSION = 1
+export const EXT_RULES_VERSION = 2
 
 /** 软件内置的 26 个语言 id（authoring-spec §4.5） */
 export const EXT_BUILTIN_LANGUAGE_IDS: readonly string[] = [

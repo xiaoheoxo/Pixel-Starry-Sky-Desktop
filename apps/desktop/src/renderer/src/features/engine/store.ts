@@ -34,6 +34,8 @@ export interface EngineState {
   /** 已经从主进程拿到初始数据 */
   ready: boolean
   engines: EngineInfo[]
+  /** 用户点「重新检测」的次数；目录（模型 / 输出风格）据此重新请求 */
+  detectGen: number
   defaults: EngineDefaults | null
   /** 各引擎的本机配置（设置 › 本机引擎）；输入框的引擎菜单按 hidden 过滤 */
   config: EngineConfig | null
@@ -50,6 +52,7 @@ export interface EngineState {
 let state: EngineState = {
   ready: false,
   engines: [],
+  detectGen: 0,
   defaults: null,
   config: null,
   projects: [],
@@ -405,19 +408,22 @@ function drop(ids: readonly string[]): void {
 /** 重新检测引擎（用户装好 / 登录之后） */
 export async function redetectEngines(): Promise<void> {
   if (!bridge) return
-  set({ engines: await bridge.engines(true) })
+  const engines = await bridge.engines(true)
+  set({ engines, detectGen: state.detectGen + 1 })
 }
 
 /** 一次加了几个项目时广播的事件：ProjectImport 据此弹一句「已添加 3 个项目，1 个已在列表里」 */
 export const PROJECTS_ADDED_EVENT = 'pixelsky:projects-added'
 
 /** 把添加结果并进列表，切到第一个新加的（没有新加的就切到第一个已在列表里的）；返回它的 id */
-function applyAdded(result: AddProjectsResult): string | null {
+function applyAdded(result: AddProjectsResult, quiet = false): string | null {
   const known = new Set(state.projects.map(p => p.id))
   const projects = [...state.projects, ...result.added.filter(p => !known.has(p.id))]
   const first = result.added[0] ?? result.existing[0]
   set(first ? { projects, currentProjectId: first.id } : { projects })
-  window.dispatchEvent(new CustomEvent<AddProjectsResult>(PROJECTS_ADDED_EVENT, { detail: result }))
+  window.dispatchEvent(
+    new CustomEvent<AddProjectsResult & { quiet?: boolean }>(PROJECTS_ADDED_EVENT, { detail: { ...result, quiet } }),
+  )
   return first?.id ?? null
 }
 
@@ -439,10 +445,13 @@ export async function addProject(): Promise<string | null> {
  * 按路径一次加多个本机项目（「从一个文件夹导入」、拖到侧栏的文件夹，docs/ui/multi-root-projects.md §2）。
  * 返回宿主的结果（新加的、本来就有的、加不上的），「放进一个分区」要用到项目 ID
  */
-export async function addProjectPaths(paths: string[]): Promise<AddProjectsResult | null> {
+export async function addProjectPaths(
+  paths: string[],
+  opts: { quiet?: boolean } = {},
+): Promise<AddProjectsResult | null> {
   if (!bridge || !paths.length || remotePicker()) return null
   const result = await addProjectsInBatches(paths, batch => bridge!.addProjects(batch))
-  applyAdded(result)
+  applyAdded(result, opts.quiet)
   return result
 }
 
@@ -497,7 +506,7 @@ export async function listNativeSessions(
   projectId: string,
   opts: { engine?: EngineId; subfolders?: boolean } = {},
 ): Promise<NativeSessionSummary[]> {
-  if (isDemo) return demo().conversations.nativeSessions.list(projectId)
+  if (isDemo) return demo().conversations.nativeSessions.list(projectId, opts.engine === 'codex' ? 'codex' : 'claude')
   if (!bridge) return []
   return bridge.nativeSessions(
     projectId,
@@ -512,7 +521,7 @@ export async function nativeSessionDetails(
   ids: string[],
   engine: EngineId = 'claude',
 ): Promise<NativeSessionDetail[]> {
-  if (isDemo) return demo().conversations.nativeSessions.details(ids)
+  if (isDemo) return demo().conversations.nativeSessions.details(ids, engine === 'codex' ? 'codex' : 'claude')
   if (!bridge || !ids.length) return []
   return bridge.nativeSessionDetails(projectId, engine, ids)
 }
@@ -531,7 +540,12 @@ export async function importNativeSession(
     token?: string
   } = {},
 ): Promise<NativeImportResult> {
-  if (isDemo) return demo().conversations.nativeSessions.import(nativeId, opts.mode ?? 'inplace')
+  if (isDemo)
+    return demo().conversations.nativeSessions.import(
+      nativeId,
+      opts.mode ?? 'inplace',
+      opts.engine === 'codex' ? 'codex' : 'claude',
+    )
   if (!bridge) throw new Error('引擎不可用')
   try {
     return await bridge.importNativeSession(projectId, opts.engine ?? 'claude', nativeId, {

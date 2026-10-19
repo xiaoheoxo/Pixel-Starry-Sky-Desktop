@@ -222,8 +222,8 @@ export function checkPack(src: ExtPackFiles, opts: CheckPackOptions): ExtPackChe
 
     try {
       issues.push(...validatePackFiles(src.entries, manifest, { source }))
-      // 内置扩展不扫 svg 内容（随包发行，已审过）
-      if (source === 'folder') {
+      // 内置扩展不扫 svg 内容（随包发行，已审过）；商店扩展启动加载时也可以不扫（安装时扫过）
+      if (opts.scanSvg ?? source !== 'builtin') {
         const lenient = new TextDecoder('utf-8')
         for (const [path, size] of files) {
           if (!path.toLowerCase().endsWith('.svg') || size > EXT_LIMITS.fileBytes) continue

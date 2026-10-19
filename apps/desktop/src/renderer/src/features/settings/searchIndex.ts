@@ -15,6 +15,8 @@ export interface SearchEntry {
   keywords: string
   /** 在本机引擎的哪个引擎详情页里（点结果时先打开详情） */
   engine?: EngineId
+  /** 在设置 › 扩展的哪个页签里（点结果时先切到那个页签） */
+  extTab?: 'discover' | 'installed' | 'publish'
   /** 这一行现在显不显示（随扩展启停的设置）；不显示时搜不到 */
   available?: () => boolean
 }
@@ -62,6 +64,26 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
     get keywords() {
       return tr('extensions.keywords')
+    },
+  },
+  {
+    section: 'extensions',
+    extTab: 'discover',
+    get title() {
+      return tr('extstore.tab.discover')
+    },
+    get keywords() {
+      return tr('extstore.search.keywords')
+    },
+  },
+  {
+    section: 'extensions',
+    extTab: 'publish',
+    get title() {
+      return tr('extstore.tab.publish')
+    },
+    get keywords() {
+      return tr('extstore.publish.keywords')
     },
   },
   {
@@ -134,6 +156,15 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     keywords: '编辑器 Cursor VS Code Windsurf Trae TraeCode CN 打开项目 默认',
   },
   { section: 'editor', title: '打开窗口', keywords: '编辑器 复用窗口 新窗口' },
+  {
+    section: 'editor',
+    get title() {
+      return tr('editor.autoSave.title')
+    },
+    get keywords() {
+      return tr('editor.autoSave.keywords')
+    },
+  },
   { section: 'editor', title: '指定程序路径', keywords: '编辑器 程序 路径 exe 检测' },
   { section: 'editor', title: '自定义编辑器', keywords: '编辑器 文件夹 参数 添加' },
   { section: 'account', title: '账号', keywords: '登录 退出登录 余额 套餐 订阅 充值 额度 限额' },

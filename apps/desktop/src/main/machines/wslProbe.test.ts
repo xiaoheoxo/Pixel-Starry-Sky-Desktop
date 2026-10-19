@@ -35,6 +35,7 @@ const probe = (over: Partial<WslProbe> = {}): WslProbe => ({
   shell: '/bin/bash',
   home: '/home/x',
   charmap: 'UTF-8',
+  arch: 'x64',
   nodes: [node()],
   claude: [cli()],
   codex: [],
@@ -48,6 +49,18 @@ describe('parseProbe', () => {
     const out =
       'welcome\nPIXELSKY_PROBE={"home":"/old"}\nnoise\r\nPIXELSKY_PROBE={"home":"/home/x","nodes":[]}\r\ntail\n'
     expect(parseProbe(out)?.home).toBe('/home/x')
+  })
+  it('uname -m 归一成 x64 / arm64，认不出的是 null', () => {
+    const arch = (raw: unknown) => parseProbe('PIXELSKY_PROBE=' + JSON.stringify({ arch: raw }))?.arch
+    expect(arch('x86_64')).toBe('x64')
+    expect(arch('amd64')).toBe('x64')
+    expect(arch('aarch64')).toBe('arm64')
+    expect(arch('arm64')).toBe('arm64')
+    expect(arch('armv7l')).toBeNull()
+    expect(arch('i686')).toBeNull()
+    expect(arch(null)).toBeNull()
+    expect(arch(5)).toBeNull()
+    expect(parseProbe('PIXELSKY_PROBE={}')?.arch).toBeNull()
   })
   it('没有标记或 JSON 坏了返回 null', () => {
     expect(parseProbe('nothing')).toBeNull()
@@ -189,20 +202,26 @@ describe('PROBE_SCRIPT', () => {
       expect(parsed!.nodes.find(n => n.source === 'env')?.path).toBe(process.execPath)
       expect(Array.isArray(parsed!.claude)).toBe(true)
       expect(typeof parsed!.login.claude).toBe('boolean')
+      // uname -m：本机是 Windows 上的 sh（MSYS）时是 x86_64，Linux / mac 上也认得出；至少不能让输出坏掉
+      expect(['x64', 'arm64', null]).toContain(parsed!.arch)
     },
     70000,
   )
-  it.skipIf(!shOk)('PIXELSKY_NODE 指向不存在的文件时仍输出 env 项', () => {
-    const result = spawnSync('sh', ['-s'], {
-      input: PROBE_SCRIPT,
-      encoding: 'utf8',
-      timeout: 60000,
-      env: { ...process.env, PIXELSKY_NODE: '/nope/node' },
-    })
-    const env = parseProbe(result.stdout)!.nodes.find(n => n.source === 'env')
-    expect(env).toMatchObject({ path: '/nope/node', version: null })
-    expect(pickNode(parseProbe(result.stdout))).toBeNull()
-  })
+  it.skipIf(!shOk)(
+    'PIXELSKY_NODE 指向不存在的文件时仍输出 env 项',
+    () => {
+      const result = spawnSync('sh', ['-s'], {
+        input: PROBE_SCRIPT,
+        encoding: 'utf8',
+        timeout: 60000,
+        env: { ...process.env, PIXELSKY_NODE: '/nope/node' },
+      })
+      const env = parseProbe(result.stdout)!.nodes.find(n => n.source === 'env')
+      expect(env).toMatchObject({ path: '/nope/node', version: null })
+      expect(pickNode(parseProbe(result.stdout))).toBeNull()
+    },
+    70000,
+  )
   it('不含会破坏模板字符串的写法', () => {
     expect(PROBE_SCRIPT).not.toContain('${')
     expect(PROBE_SCRIPT).not.toContain('`')

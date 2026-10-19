@@ -47,6 +47,7 @@ export function RecentItem({
       }}
       selected={selected}
       onSelect={onSelect}
+      flipKey={`recent/${item.id}`}
       trailing={<span className="shrink-0 text-meta text-fg-faint">{item.time}</span>}
       className="gap-2.5"
     >

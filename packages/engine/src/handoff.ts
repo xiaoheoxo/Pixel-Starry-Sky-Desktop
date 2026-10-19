@@ -1,6 +1,7 @@
 // 跨引擎接力的交接材料：把对话里目标引擎没看过的部分整理成一段文字，放在用户消息前面发给它。
 // 纯函数、确定性：同样的输入一定得到同样的文字（不读时间和随机数）。
 import { ENGINES, type EngineId, type ImageAttachment, type Item } from '@pixelsky/protocol'
+import { cut, wellFormed } from './text'
 
 export interface HandoffInput {
   /** 要交接的条目：full 是整段对话，delta 是目标引擎上次处理之后新增的部分 */
@@ -33,6 +34,7 @@ const SECTION_DONE_CAP = 6000
 const SECTION_TAIL_CAP = 10_000
 const FILES_LIMIT = 80
 const FILES_CHARS = 3000
+const SECTION_TODO_CAP = 2000
 
 export type UserItem = Extract<Item, { kind: 'user' }>
 
@@ -77,7 +79,7 @@ export function handoffEngines(items: readonly Item[], except?: EngineId): Engin
 }
 
 export const clip = (text: string, max: number): string =>
-  text.length > max ? `${text.slice(0, max)}…（已截断）` : text
+  text.length > max ? `${cut(text, 0, max)}…（已截断）` : text
 export const flat = (text: string): string => text.replace(/\s+/g, ' ').trim()
 /** 用户内容里不能出现我们的结束标签，免得提前结束交接段 */
 const safe = (text: string): string => text.replaceAll(`</${HANDOFF_TAG}`, `</ ${HANDOFF_TAG}`)
@@ -136,7 +138,7 @@ export function render(item: Item, limits: RenderLimits = HANDOFF_LIMITS): strin
     }
     case 'command': {
       const out = item.output.trim()
-      const tail = out.length > limits.output ? `…${out.slice(-limits.output)}` : out
+      const tail = out.length > limits.output ? `…${cut(out, out.length - limits.output)}` : out
       return `$ ${item.command}${item.exitCode === null ? '' : `（退出码 ${item.exitCode}）`}${tail ? `\n${tail}` : ''}`
     }
     case 'tool':
@@ -173,10 +175,10 @@ const renderTurn = (turn: readonly Item[]): string =>
 /** 超长时留开头和结尾 */
 function squeeze(text: string, max: number): string {
   if (text.length <= max) return text
-  if (max < 40) return text.slice(0, Math.max(0, max))
+  if (max < 40) return cut(text, 0, Math.max(0, max))
   const head = Math.floor(max * 0.4)
   const tail = max - head - 12
-  return `${text.slice(0, head)}\n…（中间省略）…\n${text.slice(text.length - tail)}`
+  return `${cut(text, 0, head)}\n…（中间省略）…\n${cut(text, text.length - tail)}`
 }
 
 /** 从最近一轮往前取，装得下就整轮放进去；至少放最近一轮（太长就压缩）。from 是放进去的最早一轮的序号 */
@@ -222,10 +224,27 @@ function filesSection(items: readonly Item[]): string {
   return [...(omitted > 0 ? [`（更早的 ${omitted} 个文件未列出）`] : []), ...lines].join('\n')
 }
 
+/** 最后一份待办；超过上限时先省掉已完成的，还放不下就只列前面的 */
 function todoSection(items: readonly Item[]): string {
   const todo = items.findLast(item => item.kind === 'todo')
   if (!todo || todo.kind !== 'todo' || todo.steps.length === 0) return ''
-  return todo.steps.map(s => `- [${STEP_LABEL[s.status]}] ${clip(flat(s.text), 200)}`).join('\n')
+  const line = (s: (typeof todo.steps)[number]) => `- [${STEP_LABEL[s.status]}] ${clip(flat(s.text), 200)}`
+  const all = todo.steps.map(line)
+  if (all.join('\n').length <= SECTION_TODO_CAP) return all.join('\n')
+  const done = todo.steps.filter(s => s.status === 'completed').length
+  const open = todo.steps.filter(s => s.status !== 'completed').map(line)
+  const kept: string[] = []
+  let used = 0
+  for (const l of open) {
+    if (used + l.length + 1 > SECTION_TODO_CAP) break
+    kept.push(l)
+    used += l.length + 1
+  }
+  return [
+    ...(done > 0 ? [`（已完成的 ${done} 项未列出）`] : []),
+    ...kept,
+    ...(kept.length < open.length ? [`（另有 ${open.length - kept.length} 项未列出）`] : []),
+  ].join('\n')
 }
 
 /** 从最新往前装，装不下的更早的丢掉；返回按原顺序的行和丢掉的条数 */
@@ -242,7 +261,45 @@ function newest(lines: readonly string[], cap: number): { lines: string[]; omitt
   return { lines: kept, omitted: lines.length - kept.length }
 }
 
-const section = (title: string, body: string): string => (body ? `## ${title}\n${body}` : '')
+/** 交接材料的一节。总长超预算时按 order 从小到大压缩（小的先压），shrink 把正文压到 max 字以内 */
+interface Section {
+  title: string
+  body: string
+  order: number
+  shrink: (body: string, max: number) => string
+}
+/** 列表类的节：留最新的几行 */
+const keepNewest = (body: string, max: number): string => {
+  const marker = '（更早的已省略）'
+  const lines = body.split('\n')
+  const kept = newest(lines, max - marker.length - 1).lines
+  // 最后一行就比 max 长：压缩这一行，不整节丢掉
+  if (!kept.length) return `${marker}\n${squeeze(lines[lines.length - 1], max - marker.length - 1)}`
+  return [marker, ...kept].join('\n')
+}
+/** 待办：前面的（正在做的、接下来要做的）最要紧，留开头 */
+const keepFirst = (body: string, max: number): string => {
+  const marker = '（后面的已省略）'
+  const kept: string[] = []
+  let used = marker.length + 1
+  for (const line of body.split('\n')) {
+    if (used + line.length + 1 > max) break
+    kept.push(line)
+    used += line.length + 1
+  }
+  return kept.length ? [...kept, marker].join('\n') : squeeze(body, max)
+}
+const section = (
+  title: string,
+  body: string,
+  order: number,
+  shrink: (body: string, max: number) => string = squeeze,
+): Section => ({ title, body, order, shrink })
+const joinSections = (sections: readonly Section[]): string =>
+  sections
+    .filter(s => s.body)
+    .map(s => `## ${s.title}\n${s.body}`)
+    .join('\n\n')
 
 /**
  * 交接材料。返回 null 表示没有值得交接的内容。
@@ -275,65 +332,83 @@ export function buildHandoff(input: HandoffInput): { text: string; count: number
   intro.push(...imageNotes(input.images ?? [], input.omittedImages ?? 0))
   const head = [open, ...intro].join('\n')
 
-  const finish = (sections: string[]): { text: string; count: number } => {
-    const body = sections.filter(Boolean).join('\n\n')
-    let text = `${head}\n\n${body}\n${close}`
-    if (text.length > budget) {
-      // 兜底：节标题等开销让总长略微超出时，从正文末尾裁掉
-      const room = Math.max(0, budget - head.length - close.length - 8)
-      text = `${head}\n\n${safe(body).slice(0, room)}…\n${close}`
+  // 超预算时先压缩次要的节（已完成的事、用户的要求、文件……），最近几轮原文最后才动；
+  // 以前是把拼好的正文从末尾裁掉，裁掉的正好是放在最后的最近几轮原文
+  const finish = (sections: Section[]): { text: string; count: number } => {
+    const room = Math.max(0, budget - head.length - close.length - 3)
+    for (const s of [...sections].filter(s => s.body).sort((a, b) => a.order - b.order)) {
+      const over = joinSections(sections).length - room
+      if (over <= 0) break
+      // 留 32 字给省略说明；压到太短就整节去掉
+      const max = s.body.length - over - 32
+      s.body = max < 80 ? '' : s.shrink(s.body, max)
     }
-    return { text, count }
+    let body = joinSections(sections)
+    // 预算比开头说明还小这类极端情况：只能整体压缩
+    if (body.length > room) body = squeeze(body, room)
+    return { text: wellFormed(`${head}\n\n${body}\n${close}`), count }
   }
 
   const turns = turnsOf(items)
   // delta：整段放得下就原文照放
   if (mode === 'delta') {
     const whole = turns.map(renderTurn).filter(Boolean).join('\n\n')
-    if (head.length + whole.length + close.length + 64 <= budget) return finish([section('期间的对话', safe(whole))])
+    if (head.length + whole.length + close.length + 64 <= budget) return finish([section('期间的对话', safe(whole), 6)])
   }
 
   const fixed = head.length + close.length + 400
   const rest = Math.max(0, budget - fixed)
-  const tailCap = Math.min(SECTION_TAIL_CAP, Math.floor(rest * 0.5))
-  const requestCap = Math.min(SECTION_REQUEST_CAP, Math.floor(rest * 0.2))
-  const doneCap = Math.min(SECTION_DONE_CAP, Math.floor(rest * 0.3))
-  const files = filesSection(items)
-  const todo = todoSection(items)
-  const tail = tailTurns(turns, tailCap)
+  const files = safe(filesSection(items))
+  const tail = tailTurns(turns, Math.min(SECTION_TAIL_CAP, Math.floor(rest * 0.5)))
+  // 最近几轮原文一开始就限在预算的一半以内，别的节压完一般都放得下，这里只是兜底：
+  // 真要压缩时重新从最近一轮往前取（整轮保留），不从中间劈开最近一轮
+  const shrinkTail = (_: string, max: number) => safe(tailTurns(turns, max).rendered)
   // 最近几轮原文已经覆盖了全部：不再重复摘要
   if (tail.from === 0)
     return finish([
-      section(mode === 'full' ? '对话原文' : '期间的对话', safe(tail.rendered)),
-      section('涉及的文件', files),
+      section(mode === 'full' ? '对话原文' : '期间的对话', safe(tail.rendered), 6, shrinkTail),
+      section('涉及的文件', files, 3, keepNewest),
     ])
 
   const earlier = turns.slice(0, tail.from)
   const first = items.find(isNormalUser)
+  const task = mode === 'full' && first ? safe(clip(first.text.trim(), TASK_CHARS) + attachmentNames(first)) : ''
+  const todo = safe(todoSection(items))
+  // 原文、任务、文件、待办先占，剩下的按 4:6 分给「用户的要求」和「已完成的事」
+  // （以前这两节各按总量取比例，再加上任务、文件、待办，几节都满时合起来会超预算）
+  const left = Math.max(0, rest - tail.rendered.length - task.length - files.length - todo.length)
   const requests = newest(
     earlier
       .flat()
       .flatMap(item =>
         item.kind === 'user' ? [`- ${clip(flat(item.text) || attachmentNames(item), REQUEST_CHARS)}`] : [],
       ),
-    requestCap,
+    Math.min(SECTION_REQUEST_CAP, Math.floor(left * 0.4)),
   )
   const done = newest(
     earlier.flatMap(turn => {
       const last = turn.findLast(item => item.kind === 'assistant' && item.text.trim())
       return last && last.kind === 'assistant' ? [`- ${clip(flat(last.text), DONE_CHARS)}`] : []
     }),
-    doneCap,
+    Math.min(SECTION_DONE_CAP, Math.floor(left * 0.6)),
   )
   const note = (n: number, what: string) => (n > 0 ? `（更早的 ${n} ${what}已省略）\n` : '')
   return finish([
-    mode === 'full' && first
-      ? section('当前任务', safe(clip(first.text.trim(), TASK_CHARS) + attachmentNames(first)))
-      : '',
-    section('用户的要求', requests.lines.length ? safe(note(requests.omitted, '条') + requests.lines.join('\n')) : ''),
-    section('已完成的事', done.lines.length ? safe(note(done.omitted, '轮') + done.lines.join('\n')) : ''),
-    section('涉及的文件', safe(files)),
-    section('待办', safe(todo)),
-    section('最近几轮原文', safe(tail.rendered)),
+    section('当前任务', task, 5),
+    section(
+      '用户的要求',
+      requests.lines.length ? safe(note(requests.omitted, '条') + requests.lines.join('\n')) : '',
+      2,
+      keepNewest,
+    ),
+    section(
+      '已完成的事',
+      done.lines.length ? safe(note(done.omitted, '轮') + done.lines.join('\n')) : '',
+      1,
+      keepNewest,
+    ),
+    section('涉及的文件', files, 3, keepNewest),
+    section('待办', todo, 4, keepFirst),
+    section('最近几轮原文', safe(tail.rendered), 6, shrinkTail),
   ])
 }

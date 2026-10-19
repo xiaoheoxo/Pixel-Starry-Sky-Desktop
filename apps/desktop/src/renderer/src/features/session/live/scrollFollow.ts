@@ -70,6 +70,21 @@ export function afterResize(
   return { follow: false, stick: hold ? stick : near, away: !near }
 }
 
+/**
+ * 「回到最新」的滑动被打断（用户滚轮 / 按键 / 拖滚动条等）：位置交给用户，按实际位置重新判断，
+ * 不然 jumpToLatest 预先置的贴底会留着，下一段流式内容又把他拽回底部。
+ * detached（搜索跳转后暂停）时不改 stick；released（用户往上滚了）时不恢复贴底
+ */
+export function afterGlideCancel(
+  el: ScrollBox,
+  stick: boolean,
+  detached: boolean,
+  released: boolean,
+): { stick: boolean; away: boolean } {
+  const near = nearBottom(el)
+  return { stick: detached ? stick : near && !released, away: !near }
+}
+
 /** 一条的文字长度：流式输出时它变长，算有新内容 */
 function grownLength(item: Item | undefined): number {
   switch (item?.kind) {

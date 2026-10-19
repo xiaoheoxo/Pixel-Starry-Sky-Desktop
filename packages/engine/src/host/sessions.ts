@@ -299,6 +299,16 @@ export class HostSessions {
     return record
   }
 
+  /**
+   * 在会话里加一条提示（手机改了设置之类，要让电脑上的人看得见；level 用 warn 不会被折叠）。
+   * 还没有任何条目的会话不加：加了它就不再算「没开始过」，之后换引擎会走接力而不是直接改（update 里的判断）
+   */
+  addNotice(id: string, level: 'info' | 'warn' | 'error', text: string): void {
+    const rt = this.runtime(id)
+    if (rt.snapshot.items.length === 0) return
+    this.ctx.m.events.apply(id, { type: 'item_completed', item: { kind: 'notice', id: randomUUID(), level, text } })
+  }
+
   setSessionBottom(id: string, bottomed: boolean): SessionRecord {
     if (this.ctx.changingSessions.has(id)) throw new Error('正在处理这个会话，请稍后重试')
     const rt = this.runtime(id)
@@ -344,6 +354,8 @@ export class HostSessions {
     ctx.changingSessions.add(id)
     try {
       if (archived) {
+        // 归档会停掉当前任务：等着的 / 派发中的自动重连一起结算成发送失败，不然会话归档了还在后台重连
+        m.queue.stopReconnect(id)
         await m.turn.interrupt(id)
         const old = rt.session
         rt.session = null

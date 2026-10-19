@@ -1,0 +1,86 @@
+[
+  {
+    "template": "go-pkgs",
+    "file": "go.mod",
+    "tasks": [
+      {
+        "name": "build",
+        "description": "编译所有包",
+        "linux": "go build ./...",
+        "windows": "go build ./..."
+      },
+      {
+        "name": "test",
+        "description": "运行所有测试",
+        "linux": "go test ./...",
+        "windows": "go test ./..."
+      },
+      {
+        "name": "vet",
+        "description": "静态检查（go vet）",
+        "linux": "go vet ./...",
+        "windows": "go vet ./..."
+      },
+      {
+        "name": "fmt",
+        "description": "格式化所有包（go fmt）",
+        "linux": "go fmt ./...",
+        "windows": "go fmt ./..."
+      },
+      {
+        "name": "generate",
+        "description": "运行 //go:generate 指令",
+        "linux": "go generate ./...",
+        "windows": "go generate ./..."
+      }
+    ]
+  },
+  {
+    "template": "go-mod",
+    "file": "go.mod",
+    "tasks": [
+      {
+        "name": "tidy",
+        "description": "整理 go.mod 和 go.sum",
+        "linux": "go mod tidy",
+        "windows": "go mod tidy"
+      },
+      {
+        "name": "download",
+        "description": "下载依赖到本机缓存",
+        "linux": "go mod download",
+        "windows": "go mod download"
+      },
+      {
+        "name": "verify",
+        "description": "校验依赖没被改过",
+        "linux": "go mod verify",
+        "windows": "go mod verify"
+      }
+    ]
+  },
+  {
+    "template": "go-run",
+    "file": "go.mod",
+    "tasks": [
+      {
+        "name": "run",
+        "description": "运行当前文件夹的 main 包",
+        "linux": "go run .",
+        "windows": "go run ."
+      }
+    ]
+  },
+  {
+    "template": "golangci-yml",
+    "file": "go.mod",
+    "tasks": [
+      {
+        "name": "lint",
+        "description": "用 golangci-lint 检查所有包",
+        "linux": "golangci-lint run ./...",
+        "windows": "golangci-lint run ./..."
+      }
+    ]
+  }
+]

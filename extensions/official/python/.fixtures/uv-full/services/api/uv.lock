@@ -1,0 +1,20 @@
+version = 1
+requires-python = ">=3.12"
+
+[[package]]
+name = "api"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fastapi" },
+]
+
+[[package]]
+name = "fastapi"
+version = "0.115.6"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "pytest"
+version = "8.3.4"
+source = { registry = "https://pypi.org/simple" }

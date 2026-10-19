@@ -1,0 +1,122 @@
+[
+  {
+    "template": "go-pkgs",
+    "file": "go.mod",
+    "tasks": [
+      {
+        "name": "build",
+        "description": "编译所有包",
+        "linux": "go build ./...",
+        "windows": "go build ./..."
+      },
+      {
+        "name": "test",
+        "description": "运行所有测试",
+        "linux": "go test ./...",
+        "windows": "go test ./..."
+      },
+      {
+        "name": "vet",
+        "description": "静态检查（go vet）",
+        "linux": "go vet ./...",
+        "windows": "go vet ./..."
+      },
+      {
+        "name": "fmt",
+        "description": "格式化所有包（go fmt）",
+        "linux": "go fmt ./...",
+        "windows": "go fmt ./..."
+      },
+      {
+        "name": "generate",
+        "description": "运行 //go:generate 指令",
+        "linux": "go generate ./...",
+        "windows": "go generate ./..."
+      }
+    ]
+  },
+  {
+    "template": "go-mod",
+    "file": "go.mod",
+    "tasks": [
+      {
+        "name": "tidy",
+        "description": "整理 go.mod 和 go.sum",
+        "linux": "go mod tidy",
+        "windows": "go mod tidy"
+      },
+      {
+        "name": "download",
+        "description": "下载依赖到本机缓存",
+        "linux": "go mod download",
+        "windows": "go mod download"
+      },
+      {
+        "name": "verify",
+        "description": "校验依赖没被改过",
+        "linux": "go mod verify",
+        "windows": "go mod verify"
+      }
+    ]
+  },
+  {
+    "template": "go-pkgs",
+    "file": "tools/go.mod",
+    "tasks": [
+      {
+        "name": "build",
+        "description": "编译所有包",
+        "linux": "cd tools && go build ./...",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go build ./... }"
+      },
+      {
+        "name": "test",
+        "description": "运行所有测试",
+        "linux": "cd tools && go test ./...",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go test ./... }"
+      },
+      {
+        "name": "vet",
+        "description": "静态检查（go vet）",
+        "linux": "cd tools && go vet ./...",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go vet ./... }"
+      },
+      {
+        "name": "fmt",
+        "description": "格式化所有包（go fmt）",
+        "linux": "cd tools && go fmt ./...",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go fmt ./... }"
+      },
+      {
+        "name": "generate",
+        "description": "运行 //go:generate 指令",
+        "linux": "cd tools && go generate ./...",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go generate ./... }"
+      }
+    ]
+  },
+  {
+    "template": "go-mod",
+    "file": "tools/go.mod",
+    "tasks": [
+      {
+        "name": "tidy",
+        "description": "整理 go.mod 和 go.sum",
+        "linux": "cd tools && go mod tidy",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go mod tidy }"
+      },
+      {
+        "name": "download",
+        "description": "下载依赖到本机缓存",
+        "linux": "cd tools && go mod download",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go mod download }"
+      },
+      {
+        "name": "verify",
+        "description": "校验依赖没被改过",
+        "linux": "cd tools && go mod verify",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { go mod verify }"
+      }
+    ]
+  }
+]

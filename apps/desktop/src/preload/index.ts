@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { HostEvent, IpcChannelName } from '@pixelsky/protocol'
-import type { AccountState } from '../shared/types/account'
+import type { AccountState, PayWindowEvent } from '../shared/types/account'
 import type { AccountBridge } from './account'
 import type { AppInfoBridge } from './app-info'
 import type { UpdateBridge } from './update'
@@ -11,6 +11,7 @@ import type { WindowState } from '../shared/types/window'
 import type { WindowBridge } from './window'
 import type { ExtensionsBridge } from './extensions'
 import type { ExtPacksBridge } from './extpacks'
+import type { ExtStoreBridge } from './extstore'
 import type { TerminalBridge } from './terminal'
 import type { ProjectToolsBridge } from './project-tools'
 import type { NotificationClick } from '../shared/types/notifications'
@@ -51,6 +52,23 @@ const account: AccountBridge = {
   refresh: () => invoke('account:refresh'),
   store: () => invoke('account:store'),
   openStore: (kind, params) => invoke('account:openStore', kind, params),
+  checkoutCreate: input => invoke('account:checkoutCreate', input),
+  checkoutGet: orderId => invoke('account:checkoutGet', orderId),
+  checkoutVerify: orderId => invoke('account:checkoutVerify', orderId),
+  checkoutCancel: orderId => invoke('account:checkoutCancel', orderId),
+  checkoutPending: () => invoke('account:checkoutPending'),
+  checkoutOpenPayUrl: orderId => invoke('account:checkoutOpenPayUrl', orderId),
+  checkoutOpenPayWindow: orderId => invoke('account:checkoutOpenPayWindow', orderId),
+  checkoutClosePayWindow: orderId => invoke('account:checkoutClosePayWindow', orderId),
+  onPayWindow: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, e: PayWindowEvent): void => cb(e)
+    on('account:payWindow', listener)
+    return () => {
+      ipcRenderer.removeListener('account:payWindow', listener)
+    }
+  },
+  panelStatus: () => invoke('account:panelStatus'),
+  panelVerify: () => invoke('account:panelVerify'),
   onChange: cb => {
     const listener = (_event: Electron.IpcRendererEvent, s: AccountState): void => cb(s)
     on('account:changed', listener)
@@ -88,6 +106,8 @@ const engine: EngineBridge = {
   cancelLogin: engine => call('engine:loginCancel', engine),
   logoutEngine: engine => call('engine:logout', engine),
   retrySettings: () => call('engine:retrySettings'),
+  systemProxy: () => call('engine:systemProxy'),
+  setSystemProxy: enabled => call('engine:setSystemProxy', enabled),
   setRetrySettings: maxRetries => call('engine:setRetrySettings', maxRetries),
   engines: force => call('engine:engines', !!force),
   defaults: () => call('engine:defaults'),
@@ -112,7 +132,7 @@ const engine: EngineBridge = {
   compact: id => call('engine:compact', id),
   cancelQueued: (id, queueId) => call('engine:cancelQueued', id, queueId),
   dismissQueued: (id, queueId) => call('engine:dismissQueued', id, queueId),
-  moveQueued: (id, queueId, toIndex) => call('engine:moveQueued', id, queueId, toIndex),
+  moveQueued: (id, queueId, to) => call('engine:moveQueued', id, queueId, to),
   runQueuedNow: (id, queueId) => call('engine:runQueuedNow', id, queueId),
   steerQueued: (id, queueId, turnId) => call('engine:steerQueued', id, queueId, turnId),
   resumeQueue: id => call('engine:resumeQueue', id),
@@ -387,13 +407,15 @@ const tray: TrayBridge = {
 // 协作频道（docs/ui/channels-phase-b.md §11）
 const channels: ChannelsBridge = {
   state: () => call('channels:state'),
-  messages: (id, before) => call('channels:messages', id, before),
+  messages: (id, before, beforeId) => call('channels:messages', id, before, beforeId),
   create: input => call('channels:create', input),
   update: (id, patch) => call('channels:update', id, patch),
   delete: id => call('channels:delete', id),
   post: (id, input) => call('channels:post', id, input),
   attachments: (id, messageId) => call('channels:attachments', id, messageId),
   markRead: id => call('channels:markRead', id),
+  pin: (id, messageId, pinned) => call('channels:pin', id, messageId, pinned),
+  search: (text, opts) => call('channels:search', text, opts),
   saveMember: (channelId, input) => call('channels:saveMember', channelId, input),
   addMember: (channelId, memberId) => call('channels:addMember', channelId, memberId),
   removeMember: (channelId, memberId) => call('channels:removeMember', channelId, memberId),
@@ -590,4 +612,27 @@ contextBridge.exposeInMainWorld('pixelsky', {
       return () => ipcRenderer.removeListener('extpacks:changed', listener)
     },
   } satisfies ExtPacksBridge,
+  extstore: {
+    catalog: query => call('extstore:catalog', query),
+    detail: id => call('extstore:detail', id),
+    install: (id, version, options) => call('extstore:install', id, version, options ?? {}),
+    cancel: id => call('extstore:cancel', id),
+    checkUpdates: options => call('extstore:checkUpdates', options ?? {}),
+    state: () => call('extstore:state'),
+    refreshBlocklist: () => call('extstore:refreshBlocklist'),
+    report: (id, input) => call('extstore:report', id, input),
+    publisher: () => call('extstore:publisher'),
+    register: name => call('extstore:register', name),
+    pickUpload: input => call('extstore:pickUpload', input),
+    upload: token => call('extstore:upload', token),
+    withdraw: (id, version) => call('extstore:withdraw', id, version),
+    delist: id => call('extstore:delist', id),
+    relist: id => call('extstore:relist', id),
+    publishCheck: (id, version) => call('extstore:publishCheck', id, version),
+    onChange: callback => {
+      const listener = (): void => callback()
+      on('extstore:changed', listener)
+      return () => ipcRenderer.removeListener('extstore:changed', listener)
+    },
+  } satisfies ExtStoreBridge,
 })

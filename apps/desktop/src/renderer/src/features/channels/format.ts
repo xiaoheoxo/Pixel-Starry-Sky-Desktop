@@ -32,6 +32,20 @@ export function formatClock(at: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 搜索结果的时间（列表窄）：今天只写时间，其它只写日期，不是今年时带上年份 */
+export function formatShortTime(at: number, now = Date.now()): string {
+  if (dayStart(at) === dayStart(now)) return formatClock(at)
+  const d = new Date(at)
+  const otherYear = d.getFullYear() !== new Date(now).getFullYear()
+  const en = getLocale() === 'en-US'
+  // 中文 10月6日 / 2025年10月6日，英文 Oct 6 / Oct 6, 2025
+  return new Intl.DateTimeFormat(en ? 'en-US' : 'zh-CN', {
+    month: en ? 'short' : 'long',
+    day: 'numeric',
+    ...(otherYear ? { year: 'numeric' } : {}),
+  }).format(d)
+}
+
 const SEEN_KEY = { minutes: 'team.seen.minutes', hours: 'team.seen.hours', days: 'team.seen.days' } as const
 
 /** 「N 分钟前在线」等；没有记录或太久以前返回 null */

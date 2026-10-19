@@ -244,6 +244,57 @@ describe('buildHandoff：交接材料', () => {
     expect(buildHandoff({ ...base, mode: 'full', items })).toEqual(buildHandoff({ ...base, mode: 'full', items }))
   })
 
+  it('各节都写满时不从末尾裁：最近一轮的结尾还在，总长不超预算', () => {
+    const items: Item[] = [user(`最初的任务 ${'t'.repeat(3000)}`, 'claude'), assistant('收到')]
+    for (let i = 0; i < 60; i++)
+      items.push(
+        user(`第 ${i} 个要求 ${'x'.repeat(500)}`, 'claude'),
+        assistant(`第 ${i} 轮做完了 ${'y'.repeat(900)}`),
+        edit(`src/${'deep/'.repeat(30)}file${i}.ts`),
+      )
+    items.push(todo(Array.from({ length: 40 }, (_, i) => [`步骤 ${i} ${'s'.repeat(190)}`, 'pending'] as const)))
+    items.push(user('最后的问题', 'claude'), assistant(`最后的回答 ${'z'.repeat(2000)} 结尾标记`))
+    const out = buildHandoff({ ...base, mode: 'full', items })!
+    expect(out.text.length).toBeLessThanOrEqual(24_000)
+    expect(out.text).toContain('用户：最后的问题')
+    expect(out.text).toContain('结尾标记')
+    expect(out.text.endsWith('</pixelsky-handoff>')).toBe(true)
+    expect(out.text).toContain('## 待办')
+    expect(out.text).toMatch(/另有 \d+ 项未列出/)
+  })
+
+  it('预算很紧时先压缩次要的节，最近几轮原文最后才动', () => {
+    const items: Item[] = [user(`最初的任务 ${'t'.repeat(3000)}`, 'claude'), assistant('收到')]
+    for (let i = 0; i < 80; i++) items.push(...turn(`要求 ${i}`, `结果 ${i}`), edit(`src/${'d/'.repeat(60)}f${i}.ts`))
+    items.push(user('最后的问题', 'claude'), assistant('最后的回答 结尾标记'))
+    const out = buildHandoff({ ...base, mode: 'full', items, budget: 3000 })!
+    expect(out.text.length).toBeLessThanOrEqual(3000)
+    expect(out.text).toContain('用户：最后的问题')
+    expect(out.text).toContain('结尾标记')
+  })
+
+  it('各处截断都不会把 emoji 劈成半个代理项', () => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    const emoji = String.fromCharCode(0xd83d, 0xde00)
+    const items: Item[] = [user(`啊${emoji.repeat(3000)}`, 'claude'), assistant(`啊${emoji.repeat(3000)}`)]
+    for (let i = 0; i < 30; i++)
+      items.push(
+        user(`啊${emoji.repeat(400)}`, 'claude'),
+        assistant(`啊${emoji.repeat(400)}`),
+        command('x', `${emoji.repeat(500)}x`),
+      )
+    for (const budget of [24_000, 6000, 2999, 1001]) {
+      const out = buildHandoff({ ...base, mode: 'full', items, budget })!
+      expect(lone.test(out.text)).toBe(false)
+      // 不是靠最后把半个 emoji 换成 U+FFFD 糊过去的：每一刀本身就没切坏
+      expect(out.text).not.toContain('�')
+      expect(out.text.length).toBeLessThanOrEqual(budget)
+    }
+    // 一轮特别长、只能压缩这一轮时也一样
+    const long = [user('问'), assistant(`啊${emoji.repeat(20_000)}`)]
+    expect(lone.test(buildHandoff({ ...base, mode: 'full', items: long, budget: 5001 })!.text)).toBe(false)
+  })
+
   it('handoffEngines：按出现顺序、去重、不含接手的引擎', () => {
     const items = [user('a', 'codex'), user('b', 'pixel'), user('c', 'codex'), user('d', 'claude'), user('e')]
     expect(handoffEngines(items, 'claude')).toEqual(['codex', 'pixel'])

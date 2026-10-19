@@ -97,6 +97,11 @@ export interface FileAttachment {
   omitted?: number
   /** 不是纯文本、是从这种文件里提取的文字（docs/ui/composer-file-attachments.md §7）；没有就是文本文件 */
   source?: FileSource
+  /**
+   * 原文件在本机磁盘上的路径：本机会话里拖进来 / 从「+」选的文件才有（远程机器、粘贴的截图和文字没有）。
+   * 发给引擎时写在 <attached_file> 上，截断了的智能体可以按路径读完整文件
+   */
+  path?: string
 }
 
 export type FileSource = 'docx' | 'xlsx' | 'pptx' | 'odt' | 'ods' | 'odp' | 'pdf' | 'rtf' | 'epub' | 'html' | 'ipynb'
@@ -123,6 +128,9 @@ export interface QueuedMessage {
   mode: 'normal' | 'guidance'
   attempt?: number
   messageUuid?: string
+  /** 引擎已经收到 messageUuid 那条原文（确认送达或已有输出）：断线重连时只发「继续」；没送达的原样重发。
+   *  每次整条发送时宿主先写 false，收到引擎的确认后写 true */
+  delivered?: boolean
   /** 队列暂停时用户在空闲状态直接发送了新消息：这条旧排队项单独保持暂停，等「继续队列」 */
   held?: boolean
   /** 发送时没有对话在运行、前面也没有可执行的排队项：立即执行，不算排队。
@@ -135,16 +143,25 @@ export interface QueuedMessage {
   reconnected?: number
 }
 
+/**
+ * 调序目标。新形态按消息 id 定位（{ before: 锚点消息 id } 排到它前面，null 排到最后），
+ * 点击到宿主收到之间队列变了（队首刚好发完）也不会挪错；锚点或被挪的消息已不在队里就整条拒绝（错误码 queue.changed）。
+ * 数字是旧版的「挪到第几位」，只为旧版手机连新版电脑保留。
+ */
+export type QueueMove = { before: string | null } | number
+
 export interface QueueReconnect {
   /** 第几次重连，从 1 起 */
   attempt: number
   max: number
+  /** 这条消息累计自动重连了几次（有输出时 attempt 会从 1 重算，它不重算）：超过 max 的 3 倍就不再重连，免得上游每次出几个字就断时无限「继续」；旧数据没有，按 attempt 算 */
+  total?: number
   /** 开始等的时间和到点派发的时间（毫秒时间戳） */
   since: number
   at: number
   /** 上一次断开的原因（第一行） */
   reason: string
-  /** 引擎还没收到这条消息：原样重发；否则发一句「继续」接着断开前的上下文做 */
+  /** 引擎还没收到这条消息（!delivered）：到时原样重发；否则发一句「继续」接着断开前的上下文做。只给界面提示，派发时以 delivered 为准 */
   resend?: boolean
 }
 
@@ -182,6 +199,13 @@ export interface SessionRecord extends SessionSettings {
   lastOutcome: TurnOutcome | null
   /** 最近一轮失败时的错误摘要（最多 500 字），其余情况为 null；旧记录没有此字段（docs/ui/tasks-inbox.md） */
   lastError?: string | null
+  /**
+   * 最近一轮 AI 最后一条回复的纯文本开头（会话列表的「最后一句回复」，docs/mobile-remote.md §21.3）：一行、最多 120 个字符
+   * （超出截断并加「…」），已去掉 Markdown 记号（代码块整块换成「[代码]」、行内代码去反引号、链接只留文字、
+   * 标题 / 列表符号 / 引用 / 加粗斜体记号去掉、多个空白合成一个空格；见 replyPreview）。
+   * 用户消息不算；一轮结束时（完成 / 失败 / 中断）如果这一轮有回复就更新，没有回复的轮次保持旧值；还没有回复时不写或为 null
+   */
+  lastReply?: string | null
   /** 回退后尚未生效的引擎截断点（Claude 记录里的条目 uuid）：下次启动引擎时使用，成功启动后清空 */
   pendingRewind?: string | null
   /** 分叉出来、还没启动过引擎的会话：第一次启动时从原引擎会话的截断点复制（docs/ui/rewind-fork-sidechat.md §2） */
@@ -203,6 +227,8 @@ export interface ImportedSession {
   turns: number
   shown: number
   forked?: boolean
+  /** 导入时这个会话是从终端还是其他程序开的：启动时撞上「正被别的进程写着」按它给提示（Codex） */
+  source?: 'terminal' | 'other'
 }
 
 /** 一个引擎自己留下的、可以接着聊的会话（终端里的 Claude Code……） */

@@ -118,13 +118,8 @@ export function AccountSection() {
         </>
       )}
       {tab !== 'overview' && (
-        <StorePages
-          tab={tab}
-          currentPlan={acc.account.plan?.name ?? null}
-          currency={acc.account.currency}
-          updatedAt={acc.account.updatedAt}
-          onRefreshAccount={acc.refresh}
-        />
+        // key：换标签（或离开账号页）就重置，付款检测随之停止
+        <StorePages key={tab} tab={tab} account={acc.account} onRefreshAccount={acc.refresh} />
       )}
     </section>
   )

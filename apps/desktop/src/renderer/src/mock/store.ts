@@ -67,6 +67,7 @@ export const demoStore: StoreCatalog = {
     { type: 'alipay', label: '支付宝' },
     { type: 'wxpay', label: '微信支付' },
   ],
+  checkout: { enabled: true, methods: ['alipay', 'wxpay'], orderTimeoutMinutes: 30 },
   helpText: '充值额度不会过期，订阅额度用完后从余额扣除。',
   purchaseUrl: 'https://panel.example.com/purchase',
   redeemUrl: 'https://panel.example.com/redeem',

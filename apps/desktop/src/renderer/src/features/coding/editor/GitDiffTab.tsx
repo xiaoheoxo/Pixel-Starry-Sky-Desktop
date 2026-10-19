@@ -6,7 +6,7 @@ import { GitDiffView } from '@/features/panel/git/GitDiffView'
 import type { GitDiff, GitFileChange } from '../../../../../shared/types/project-tools'
 import { codingLayout } from '../layoutStore'
 import { diffActions, type GitDiffArea } from './gitDiffModel'
-import { useGitDiffTab, useGitFileActions } from './gitDiffTabs'
+import { useGitDiffTab, useGitFileActions, useGitStatusRevision } from './gitDiffTabs'
 
 /** 文件名下面的说明：比的是哪两边；整个标签只读（中栏的 Git 对比不能编辑） */
 export function diffCaption(area: GitDiffArea, caption?: string): string {
@@ -28,6 +28,7 @@ export function GitDiffTab({ id }: { id: string }) {
   useI18n()
   const data = useGitDiffTab(id)
   const { actions, busy } = useGitFileActions(data?.refKey ?? '')
+  const revision = useGitStatusRevision(data?.refKey ?? '')
   if (!data) return null
   const can = diffActions(data.area)
   const api = window.pixelsky?.projectTools
@@ -61,6 +62,8 @@ export function GitDiffTab({ id }: { id: string }) {
         area={data.area}
         busy={busy || !actions}
         labelled
+        // 历史里的提交不会变，不跟状态重读
+        revision={data.area === 'commit' ? undefined : revision}
         caption={diffCaption(data.area, data.caption)}
         load={load}
         onOpen={

@@ -30,11 +30,13 @@ const TIMEOUT = 60_000
 /**
  * 没有用例的代码（见 corpus/extpacks/README.md「豁免」）：
  * - pack.duplicateId：只有多扩展并存时服务才会产生
+ * - pack.storeBlocked：只有停用名单命中文件夹扩展时服务才会产生
  * - pack.validate、validate.internal：校验器自己崩溃的兜底，没有输入能触发
  * - grammar.hang、grammar.slowLine、grammar.slowTotal、grammar.perfNearLimit：和机器速度有关，由 grammar.test.ts / bundle.test.ts 覆盖
  */
 const EXEMPT_CODES = new Set([
   'pack.duplicateId',
+  'pack.storeBlocked',
   'pack.validate',
   'validate.internal',
   'grammar.hang',

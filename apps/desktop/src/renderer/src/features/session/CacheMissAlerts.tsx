@@ -22,7 +22,8 @@ export function CacheMissAlerts() {
     if (window.pixelsky?.demo) return
     return window.pixelsky?.engine.onEvent(e => {
       const time = Date.now()
-      setNow(time)
+      // 只有缓存提醒事件会产生卡片；已有卡片时倒计时由下面的定时器（1 s 一次）刷新，其余事件不触发重渲染
+      if (e.kind === 'cache_warning') setNow(time)
       setState(s => applyCacheAlertEvent(s, e, time, enabledRef.current))
     })
   }, [])
@@ -37,7 +38,7 @@ export function CacheMissAlerts() {
       setNow(time)
       setState(s => expireCacheAlerts(s, time))
     }
-    const timer = window.setInterval(tick, 100)
+    const timer = window.setInterval(tick, 1000)
     document.addEventListener('visibilitychange', tick)
     return () => {
       window.clearInterval(timer)

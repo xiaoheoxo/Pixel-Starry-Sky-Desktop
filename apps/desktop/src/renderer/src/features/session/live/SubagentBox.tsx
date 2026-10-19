@@ -9,6 +9,7 @@ import { StatusDot, type DotStatus } from './StatusDot'
 import { RUN_STATE_LABEL, formatDuration } from './agentTrace'
 import { boxElapsed, completionBox, dispatchBox, type BoxIcon, type BoxModel, type BoxState } from './subagentBoxModel'
 import { useOpenTrace } from './trace'
+import { rowLook, useLiveOwned } from './liveOwner'
 
 const ICON: Record<BoxIcon, LucideIcon> = { bot: Bot, workflow: Workflow, terminal: Terminal }
 
@@ -37,6 +38,8 @@ function BoxView({ model }: { model: BoxModel }) {
   useI18n()
   const openTrace = useOpenTrace()
   const running = model.state === 'running' || model.state === 'approval'
+  // 底部状态行在转时小框的圆点不再脉冲；等你批准时本来就没在干活，也不脉冲
+  const pulse = rowLook(model.state === 'running', useLiveOwned()).pulse
   const now = useNow(running && model.startedAt > 0)
   const time = boxElapsed(model, now)
   const Icon = ICON[model.icon]
@@ -74,7 +77,7 @@ function BoxView({ model }: { model: BoxModel }) {
           model.state === 'approval' ? 'text-warn' : model.state === 'failed' ? 'text-danger' : 'text-fg-muted',
         )}
       >
-        <StatusDot status={DOT[model.state]} />
+        <StatusDot status={DOT[model.state]} still={!pulse} />
         {status}
         {time > 0 && <span className="text-fg-faint">{formatDuration(time)}</span>}
       </span>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectRecord, SessionSummary } from '@pixelsky/protocol'
-import { filterTasks, groupTasks, recentCount, taskProjects } from './tasks'
+import { filterTasks, sessionList, sessionStatus, taskProjects } from './tasks'
 
 const task = (
   id: string,
@@ -42,10 +42,26 @@ describe('任务搜索和筛选', () => {
     expect(taskProjects(sessions, projects).map(p => p.id)).toEqual(['app', 'web'])
   })
 
-  it('「最近」按给的条数截断；recentCount 数的是没截断前有几条', () => {
+  it('会话列表：等你处理置顶，其余置顶的在前再按时间，不含归档；截断后告诉还有几条', () => {
+    const pinned = {
+      ...task('p', '置顶的', 'web', 1),
+      record: { ...task('p', '置顶的', 'web', 1).record, pinnedAt: 1 },
+    }
+    const list = sessionList([...sessions, task('w', '等我', 'web', 2, 'waiting'), pinned as SessionSummary])
+    expect(list.waiting.map(s => s.record.id)).toEqual(['w'])
+    expect(list.rest.map(s => s.record.id)).toEqual(['p', 'b', 'a', 'c'])
+    expect(list.more).toBe(0)
     const many = Array.from({ length: 7 }, (_, i) => task('t' + i, 't' + i, 'web', i))
-    expect(groupTasks(many, 5).recent.map(s => s.record.id)).toEqual(['t6', 't5', 't4', 't3', 't2'])
-    expect(recentCount(many)).toBe(7)
-    expect(recentCount(sessions)).toBe(2)
+    expect(sessionList(many, 5).rest.map(s => s.record.id)).toEqual(['t6', 't5', 't4', 't3', 't2'])
+    expect(sessionList(many, 5).more).toBe(2)
+  })
+
+  it('一行的状态：等你处理、启动中、正在回复、上一轮出错；空闲是 null', () => {
+    expect(sessionStatus(task('a', '', 'web', 1, 'waiting'))?.text).toBe('等你处理')
+    expect(sessionStatus(task('a', '', 'web', 1, 'starting'))?.tone).toBe('online')
+    expect(sessionStatus(task('a', '', 'web', 1, 'running'))?.text).toBe('正在回复…')
+    const failed = task('a', '', 'web', 1)
+    expect(sessionStatus({ ...failed, record: { ...failed.record, lastOutcome: 'failed' } })?.tone).toBe('warn')
+    expect(sessionStatus(task('a', '', 'web', 1))).toBeNull()
   })
 })

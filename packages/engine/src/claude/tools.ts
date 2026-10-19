@@ -14,6 +14,7 @@ import type {
 import { IMAGE_PLACEHOLDER } from '@pixelsky/protocol'
 import { diffAdded, diffFromHunks, diffText, type PatchHunk } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
+import { cut } from '../text'
 import { str } from './shape'
 
 export { clip }
@@ -105,7 +106,7 @@ function toolTitle(name: string, input: Input, cwd: string): { tool: ToolKind; t
     return { tool: 'mcp', title: `${server} · ${tool}` }
   }
   const brief = JSON.stringify(input)
-  return { tool: 'other', title: brief.length > 80 ? `${brief.slice(0, 80)}…` : brief }
+  return { tool: 'other', title: brief.length > 80 ? `${cut(brief, 0, 80)}…` : brief }
 }
 
 function todoSteps(input: Input): TodoStep[] {

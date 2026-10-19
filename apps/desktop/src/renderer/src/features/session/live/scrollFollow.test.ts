@@ -3,6 +3,7 @@ import type { Item } from '@pixelsky/protocol'
 import {
   INTERACT_MS,
   STICK_PX,
+  afterGlideCancel,
   afterResize,
   contentMark,
   followResize,
@@ -157,5 +158,26 @@ describe('innerCanScrollUp', () => {
       false,
     )
     expect(run(box({}, root), root)).toBe(false)
+  })
+})
+
+describe('afterGlideCancel', () => {
+  const at = (top: number) => ({ scrollHeight: 2000, clientHeight: 500, scrollTop: top })
+
+  it('打断在离底很远的地方：不再贴底，显示「回到最新」', () => {
+    expect(afterGlideCancel(at(800), true, false, false)).toEqual({ stick: false, away: true })
+  })
+
+  it('打断在底部附近：照旧贴底，不显示按钮', () => {
+    expect(afterGlideCancel(at(1450), false, false, false)).toEqual({ stick: true, away: false })
+  })
+
+  it('用户已往上滚（released）：哪怕还在 80px 内也不恢复贴底，但按钮按位置判断', () => {
+    expect(afterGlideCancel(at(1450), true, false, true)).toEqual({ stick: false, away: false })
+  })
+
+  it('搜索跳转后暂停（detached）：贴底保持原值，只更新按钮', () => {
+    expect(afterGlideCancel(at(800), false, true, false)).toEqual({ stick: false, away: true })
+    expect(afterGlideCancel(at(1450), false, true, false)).toEqual({ stick: false, away: false })
   })
 })

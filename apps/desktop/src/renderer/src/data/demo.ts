@@ -22,6 +22,7 @@ import type {
 } from '@pixelsky/protocol'
 import type { MachineState, WorkspaceChoice } from '../../../shared/types/machines'
 import type { AccountInfo, StoreCatalog } from '../../../shared/types/account'
+import type { AccountBridge } from '../../../preload/account'
 import type { ArtifactPreview } from '../../../shared/types/artifacts'
 import type { PlatformGroupInfo } from '../../../shared/types/platform-catalog'
 import type { ProvidersState } from '../../../shared/types/providers'
@@ -43,6 +44,7 @@ import type {
   TaskState,
   RunTaskState,
 } from '../../../shared/types/project-tools'
+import type { ExtStoreBridge } from '../../../preload/extstore'
 import type { TerminalProfile } from '../../../shared/types/terminal'
 import type { SessionStatusState } from '../../../shared/types/session-status'
 import type { DirectoryListing, EditorState, FileDocument } from '../../../shared/types/workspace'
@@ -66,6 +68,25 @@ export type DemoUpdate = (
   patch?: Partial<Omit<SessionSnapshot, 'items'>>,
 ) => void
 
+/** 演示模式的软件内付款（mock/checkout.ts）：假的桥方法，和会随到账变化的演示账号 */
+export interface DemoCheckout {
+  bridge: Pick<
+    AccountBridge,
+    | 'checkoutCreate'
+    | 'checkoutGet'
+    | 'checkoutVerify'
+    | 'checkoutCancel'
+    | 'checkoutPending'
+    | 'checkoutOpenPayUrl'
+    | 'checkoutOpenPayWindow'
+    | 'checkoutClosePayWindow'
+    | 'panelStatus'
+    | 'panelVerify'
+  >
+  account(): AccountInfo
+  subscribe(listener: () => void): () => void
+}
+
 /** 全部演示数据。新增演示内容先在这里加字段，再在 mock/index.ts 填上 */
 export interface DemoSource {
   /** 侧边栏、对话、输入框等界面数据（与 data/empty.ts 同形） */
@@ -73,6 +94,8 @@ export interface DemoSource {
   account: AccountInfo
   /** 设置 → 账号里的订阅套餐、充值（形状同云端 /v1/platform/store） */
   store: StoreCatalog
+  /** 软件内付款的假桥和会随到账变化的演示账号（mock/checkout.ts，docs/ui/in-app-payment.md §6.10） */
+  checkout: DemoCheckout
   platformGroups: PlatformGroupInfo[]
   /** 自定义 API 的两条假接口 */
   providers: ProvidersState
@@ -111,6 +134,8 @@ export interface DemoSource {
   inbox: InboxItem[]
   /** 侧栏对话状态图标用的演示数据：文件夹没了、关联的 PR（docs/ui/sidebar-status-icons.md） */
   sessionStatus?: SessionStatusState
+  /** 扩展商店（设置 › 扩展 › 发现）：假的预加载桥（带一份演示目录）和已经装好的扩展 id */
+  extStore: { bridge: ExtStoreBridge; installed: string[] }
   /** 演示用的云端机器（顶栏「本机 | 云端」），machines/store.ts 演示时用它当初始状态 */
   machines?: MachineState
   /** 演示时某台机器（WSL）自己的项目和工作区；没有的机器沿用 appData.projects */
@@ -140,11 +165,11 @@ export interface DemoSource {
     rewindPreview(sessionId: string, itemId: string, firstUserId: string | null): RewindPreview
     /** 旁聊回答（§3） */
     sideAnswer(question: string): string
-    /** 接着终端里的 Claude Code 会话（docs/ui/claude-resume.md）：第一步的列表、第二步补的尾部信息、导入（只是跳到一个现成的展示对话） */
+    /** 接着终端里的 Claude Code / Codex 会话（docs/ui/claude-resume.md、codex-resume.md；按引擎各一份）：第一步的列表、第二步补的尾部信息、导入（只是跳到一个现成的展示对话） */
     nativeSessions: {
-      list(projectId: string): NativeSessionSummary[]
-      details(ids: readonly string[]): NativeSessionDetail[]
-      import(nativeId: string, mode: 'inplace' | 'copy'): NativeImportResult
+      list(projectId: string, engine?: 'claude' | 'codex'): NativeSessionSummary[]
+      details(ids: readonly string[], engine?: 'claude' | 'codex'): NativeSessionDetail[]
+      import(nativeId: string, mode: 'inplace' | 'copy', engine?: 'claude' | 'codex'): NativeImportResult
     }
     /** 会动的演示（压缩上下文、当前步骤循环播放，docs/ui/compaction.md）：update 换掉某个会话的条目，patch 改运行状态等 */
     animate?(update: DemoUpdate): void

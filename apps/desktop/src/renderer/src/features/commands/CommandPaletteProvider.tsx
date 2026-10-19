@@ -51,6 +51,8 @@ import {
 import { getPaneState, paneActions } from '@/features/panes/store'
 import { SHORTCUTS_HELP_EVENT } from '@/features/layout/ShortcutsHelp'
 import { getPage, setPage, showWorkbench } from '@/features/layout/page'
+import { extStoreCommands } from '@/features/extstore/commands'
+import { checkExtUpdates } from '@/features/extstore/store'
 import { getNotificationPrefs, setNotificationPrefs } from '@/features/settings/notifications'
 import { requestGitAction } from '@/features/panel/git/GitPanel'
 import { focusedTab, isFileTab, isNewTab, findLeaf } from '@/features/panes/tree'
@@ -192,19 +194,34 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       undefined,
       samePane,
     )
-    // 接着终端里的 Claude Code 会话（docs/ui/claude-resume.md §2.1）：按当前项目打开选择框；远程机器上暂不支持
+    // 接着终端里的 Claude Code / Codex 会话（docs/ui/claude-resume.md、codex-resume.md §2.1），各一条入口：按当前项目打开选择框；远程机器上暂不支持
     const remoteWorkspace = machineOf(ref?.sessionId ?? ref?.projectId) !== 'local'
     add(
-      'resume.open',
-      'resume.palette',
+      'resume.open.claude',
+      'resume.open.claude',
       'terminal.categoryWorkbench',
       History,
       () => {
-        openResumePicker({ projectId: projectId ?? (isDemo ? 'demo' : null) })
+        openResumePicker({ engine: 'claude', projectId: projectId ?? (isDemo ? 'demo' : null) })
       },
       undefined,
       () => hasProject() && !remoteWorkspace,
       remoteWorkspace ? t('resume.remote') : undefined,
+    )
+    // Codex 没装好（不是已就绪、也不是只差登录）时灰掉；演示模式没有引擎信息，照常可用
+    const codex = getEngineState().engines.find(e => e.id === 'codex')
+    const codexMissing = !isDemo && !!codex && codex.status !== 'ready' && codex.status !== 'unauthenticated'
+    add(
+      'resume.open.codex',
+      'resume.open.codex',
+      'terminal.categoryWorkbench',
+      History,
+      () => {
+        openResumePicker({ engine: 'codex', projectId: projectId ?? (isDemo ? 'demo' : null) })
+      },
+      undefined,
+      () => hasProject() && !remoteWorkspace && !codexMissing,
+      remoteWorkspace ? t('resume.remote') : codexMissing ? t('resume.open.codexMissing') : undefined,
     )
     add('nav.workbench', 'nav.workbench', 'terminal.categoryWorkbench', LayoutDashboard, showWorkbench)
     add('nav.channels', 'nav.channels', 'terminal.categoryWorkbench', MessageSquare, () => setPage('channels'))
@@ -503,6 +520,8 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       add('settings.' + section, key, 'terminal.categorySettings', Settings, () =>
         settings.openSettings(section as SectionId),
       )
+    for (const c of extStoreCommands({ openSettings: s => settings.openSettings(s), checkUpdates: checkExtUpdates }))
+      add(c.id, c.key, 'terminal.categorySettings', Settings, c.run)
     add(
       'help.shortcuts',
       'shortcuts.help.action',

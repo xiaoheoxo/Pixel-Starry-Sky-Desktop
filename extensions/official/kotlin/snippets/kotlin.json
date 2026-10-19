@@ -1,0 +1,215 @@
+{
+  "main 函数": {
+    "prefix": "main",
+    "body": ["fun main() {", "\t$0", "}"],
+    "description": "程序入口"
+  },
+  "数据类": {
+    "prefix": "data",
+    "body": ["data class ${1:Name}(", "\tval ${2:id}: ${3:Long},", "\tval ${4:name}: ${5:String},", ")$0"],
+    "description": "数据类 data class"
+  },
+  "密封类": {
+    "prefix": "sealed",
+    "body": [
+      "sealed class ${1:Result} {",
+      "\tdata class ${2:Success}(val ${3:value}: ${4:String}) : $1()",
+      "\tdata class ${5:Failure}(val ${6:error}: Throwable) : $1()",
+      "\tdata object ${7:Loading} : $1()",
+      "}$0"
+    ],
+    "description": "sealed class 及常见子类"
+  },
+  "密封接口": {
+    "prefix": "sealedi",
+    "body": [
+      "sealed interface ${1:Event} {",
+      "\tdata class ${2:Clicked}(val ${3:id}: ${4:Int}) : $1",
+      "\tdata object ${5:Closed} : $1",
+      "}$0"
+    ],
+    "description": "sealed interface 及实现"
+  },
+  "when 表达式": {
+    "prefix": "when",
+    "body": ["when (${1:value}) {", "\t${2:condition} -> ${3:result}", "\telse -> ${4:default}", "}$0"],
+    "description": "带 else 的 when"
+  },
+  "when 匹配类型": {
+    "prefix": "whenis",
+    "body": [
+      "when (val ${1:x} = ${2:value}) {",
+      "\tis ${3:Type} -> ${4:result}",
+      "\tis ${5:Other} -> ${6:result}",
+      "\telse -> ${7:default}",
+      "}$0"
+    ],
+    "description": "用 is 做类型分支的 when（配合密封类可去掉 else）"
+  },
+  "扩展函数": {
+    "prefix": "extfun",
+    "body": ["fun ${1:String}.${2:name}(${3}): ${4:Unit} {", "\t$0", "}"],
+    "description": "给已有类型加函数"
+  },
+  "扩展属性": {
+    "prefix": "extprop",
+    "body": ["val ${1:String}.${2:name}: ${3:Int}", "\tget() = $0"],
+    "description": "给已有类型加只读属性"
+  },
+  "挂起函数": {
+    "prefix": "suspend",
+    "body": ["suspend fun ${1:name}(${2}): ${3:Unit} {", "\t$0", "}"],
+    "description": "挂起函数 suspend fun"
+  },
+  "launch 协程": {
+    "prefix": "launch",
+    "body": ["${1:scope}.launch {", "\t$0", "}"],
+    "description": "在作用域里启动协程"
+  },
+  "async / await": {
+    "prefix": "async",
+    "body": ["val ${1:deferred} = async {", "\t${2:compute()}", "}", "val ${3:result} = $1.await()$0"],
+    "description": "启动异步任务并等待结果"
+  },
+  "并行 async 汇总": {
+    "prefix": "parallel",
+    "body": [
+      "coroutineScope {",
+      "\tval ${1:a} = async { ${2:fetchA()} }",
+      "\tval ${3:b} = async { ${4:fetchB()} }",
+      "\t$1.await() to $3.await()",
+      "}$0"
+    ],
+    "description": "结构化并发下并行取两个结果"
+  },
+  "runBlocking": {
+    "prefix": "runblocking",
+    "body": ["runBlocking {", "\t$0", "}"],
+    "description": "阻塞当前线程运行协程（入口或测试以外慎用）"
+  },
+  "withContext": {
+    "prefix": "withctx",
+    "body": ["withContext(Dispatchers.${1|IO,Default,Main|}) {", "\t$0", "}"],
+    "description": "切换协程调度器"
+  },
+  "Flow 构建": {
+    "prefix": "flow",
+    "body": ["fun ${1:name}(): Flow<${2:Int}> = flow {", "\temit(${3:value})", "}$0"],
+    "description": "返回 Flow 的函数"
+  },
+  "收集 Flow": {
+    "prefix": "collect",
+    "body": ["${1:flow}.collect { ${2:value} ->", "\t$0", "}"],
+    "description": "在协程里收集 Flow"
+  },
+  "StateFlow": {
+    "prefix": "stateflow",
+    "body": [
+      "private val _${1:state} = MutableStateFlow(${2:initial})",
+      "val $1: StateFlow<${3:Type}> = _$1.asStateFlow()$0"
+    ],
+    "description": "私有可变、对外只读的 StateFlow"
+  },
+  "kotlin.test 测试": {
+    "prefix": "test",
+    "body": [
+      "@Test",
+      "fun `${1:描述行为}`() {",
+      "\t${2:// arrange}",
+      "\t${3:// act}",
+      "\tassertEquals(${4:expected}, ${5:actual})",
+      "}$0"
+    ],
+    "description": "kotlin.test 的测试函数（反引号函数名）"
+  },
+  "JUnit 5 测试类": {
+    "prefix": "testclass",
+    "body": [
+      "import org.junit.jupiter.api.Assertions.assertEquals",
+      "import org.junit.jupiter.api.Test",
+      "",
+      "class ${1:$TM_FILENAME_BASE} {",
+      "\t@Test",
+      "\tfun `${2:描述行为}`() {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "JUnit 5 测试类骨架"
+  },
+  "协程测试": {
+    "prefix": "runtest",
+    "body": ["@Test", "fun `${1:描述行为}`() = runTest {", "\t$0", "}"],
+    "description": "kotlinx-coroutines-test 的 runTest"
+  },
+  "断言抛异常": {
+    "prefix": "assertthrows",
+    "body": ["assertFailsWith<${1:IllegalArgumentException}> {", "\t$0", "}"],
+    "description": "kotlin.test 的 assertFailsWith"
+  },
+  "空安全调用并取默认值": {
+    "prefix": "elvis",
+    "body": ["${1:value}?.${2:property} ?: ${3:default}$0"],
+    "description": "?. 加 ?: 默认值"
+  },
+  "空值提前返回": {
+    "prefix": "elvisret",
+    "body": ["val ${1:x} = ${2:value} ?: return${3}$0"],
+    "description": "为空就提前 return"
+  },
+  "let 处理非空": {
+    "prefix": "letnn",
+    "body": ["${1:value}?.let { ${2:v} ->", "\t$0", "}"],
+    "description": "非空时才执行"
+  },
+  "require 参数检查": {
+    "prefix": "require",
+    "body": ["require(${1:condition}) { \"${2:message}\" }$0"],
+    "description": "检查参数，失败抛 IllegalArgumentException"
+  },
+  "check 状态检查": {
+    "prefix": "check",
+    "body": ["check(${1:condition}) { \"${2:message}\" }$0"],
+    "description": "检查状态，失败抛 IllegalStateException"
+  },
+  "apply 配置对象": {
+    "prefix": "apply",
+    "body": ["${1:Type}().apply {", "\t$0", "}"],
+    "description": "创建并配置对象"
+  },
+  "use 自动关闭": {
+    "prefix": "use",
+    "body": ["${1:resource}.use { ${2:r} ->", "\t$0", "}"],
+    "description": "自动关闭 Closeable 资源"
+  },
+  "object 单例": {
+    "prefix": "object",
+    "body": ["object ${1:Name} {", "\t$0", "}"],
+    "description": "object 声明"
+  },
+  "伴生对象": {
+    "prefix": "companion",
+    "body": ["companion object {", "\tprivate const val ${1:TAG} = \"${2:Name}\"", "\t$0", "}"],
+    "description": "companion object 与常量"
+  },
+  "值类": {
+    "prefix": "valueclass",
+    "body": ["@JvmInline", "value class ${1:UserId}(val value: ${2:Long})$0"],
+    "description": "内联值类，给基础类型加类型约束"
+  },
+  "by lazy 属性": {
+    "prefix": "lazy",
+    "body": ["val ${1:name}: ${2:Type} by lazy {", "\t$0", "}"],
+    "description": "首次访问时才计算的属性"
+  },
+  "集合转换链": {
+    "prefix": "chain",
+    "body": ["${1:list}", "\t.filter { ${2:item} -> ${3:true} }", "\t.map { ${4:item} -> ${5:item} }$0"],
+    "description": "filter / map 链"
+  },
+  "try / catch": {
+    "prefix": "try",
+    "body": ["try {", "\t$0", "} catch (e: ${1:Exception}) {", "\t${2:throw e}", "}"],
+    "description": "捕获异常"
+  }
+}

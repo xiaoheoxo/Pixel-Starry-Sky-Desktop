@@ -1,0 +1,285 @@
+{
+  "Main 入口方法": {
+    "prefix": "main",
+    "body": [
+      "public static class Program",
+      "{",
+      "    public static int Main(string[] args)",
+      "    {",
+      "        $0",
+      "        return 0;",
+      "    }",
+      "}"
+    ],
+    "description": "带 Program 类的 Main 入口"
+  },
+  "顶层语句入口": {
+    "prefix": "tlmain",
+    "body": ["Console.WriteLine(\"${1:Hello, World!}\");", "$0"],
+    "description": "顶层语句程序入口（Console 应用）"
+  },
+  "Web 应用骨架": {
+    "prefix": "webapp",
+    "body": [
+      "var builder = WebApplication.CreateBuilder(args);",
+      "",
+      "$1",
+      "",
+      "var app = builder.Build();",
+      "",
+      "$0",
+      "",
+      "app.Run();"
+    ],
+    "description": "ASP.NET Core 最小应用骨架"
+  },
+  "类": {
+    "prefix": "class",
+    "body": ["public class ${1:${TM_FILENAME_BASE}}", "{", "    $0", "}"],
+    "description": "公开类"
+  },
+  "密封类": {
+    "prefix": "sclass",
+    "body": ["public sealed class ${1:${TM_FILENAME_BASE}}", "{", "    $0", "}"],
+    "description": "密封类"
+  },
+  "记录类型": {
+    "prefix": "record",
+    "body": "public record ${1:${TM_FILENAME_BASE}}(${2:string Name});$0",
+    "description": "位置记录 record"
+  },
+  "记录结构体": {
+    "prefix": "recstruct",
+    "body": "public readonly record struct ${1:${TM_FILENAME_BASE}}(${2:int X}, ${3:int Y});$0",
+    "description": "只读记录结构体 readonly record struct"
+  },
+  "接口": {
+    "prefix": "interface",
+    "body": ["public interface I${1:${TM_FILENAME_BASE}}", "{", "    $0", "}"],
+    "description": "接口"
+  },
+  "枚举": {
+    "prefix": "enum",
+    "body": ["public enum ${1:${TM_FILENAME_BASE}}", "{", "    ${2:None},", "    $0", "}"],
+    "description": "枚举"
+  },
+  "属性（get; set;）": {
+    "prefix": "prop",
+    "body": "public ${1:string} ${2:Name} { get; set; }$0",
+    "description": "自动属性"
+  },
+  "属性（get; init;）": {
+    "prefix": "propi",
+    "body": "public ${1:string} ${2:Name} { get; init; }$0",
+    "description": "只能在初始化时赋值的属性"
+  },
+  "必填属性": {
+    "prefix": "propr",
+    "body": "public required ${1:string} ${2:Name} { get; init; }$0",
+    "description": "required 属性（C# 11）"
+  },
+  "构造函数": {
+    "prefix": "ctor",
+    "body": ["public ${1:${TM_FILENAME_BASE}}(${2})", "{", "    $0", "}"],
+    "description": "构造函数"
+  },
+  "异步方法": {
+    "prefix": "atask",
+    "body": [
+      "public async Task<${1:int}> ${3:DoWorkAsync}(${4:CancellationToken cancellationToken = default})",
+      "{",
+      "    $0",
+      "}"
+    ],
+    "description": "返回 Task 的异步方法，带 CancellationToken"
+  },
+  "扩展方法": {
+    "prefix": "extm",
+    "body": [
+      "public static class ${1:StringExtensions}",
+      "{",
+      "    public static ${2:bool} ${3:IsBlank}(this ${4:string?} value)",
+      "    {",
+      "        $0",
+      "    }",
+      "}"
+    ],
+    "description": "静态扩展方法"
+  },
+  "xUnit 测试（Fact）": {
+    "prefix": "xfact",
+    "body": [
+      "[Fact]",
+      "public void ${1:Method}_${2:Scenario}_${3:Expected}()",
+      "{",
+      "    // Arrange",
+      "    $4",
+      "",
+      "    // Act",
+      "    $5",
+      "",
+      "    // Assert",
+      "    $0",
+      "}"
+    ],
+    "description": "xUnit [Fact] 测试"
+  },
+  "xUnit 参数化测试（Theory）": {
+    "prefix": "xtheory",
+    "body": [
+      "[Theory]",
+      "[InlineData(${1:1}, ${2:2})]",
+      "[InlineData(${3:3}, ${4:4})]",
+      "public void ${5:Method}_${6:Scenario}(${7:int} ${8:input}, ${9:int} ${10:expected})",
+      "{",
+      "    $0",
+      "}"
+    ],
+    "description": "xUnit 参数化测试 [Theory] + [InlineData]"
+  },
+  "xUnit 异步测试": {
+    "prefix": "xfacta",
+    "body": ["[Fact]", "public async Task ${1:Method}_${2:Scenario}_${3:Expected}()", "{", "    $0", "}"],
+    "description": "xUnit 异步 [Fact] 测试"
+  },
+  "NUnit 测试（Test）": {
+    "prefix": "ntest",
+    "body": [
+      "[Test]",
+      "public void ${1:Method}_${2:Scenario}_${3:Expected}()",
+      "{",
+      "    // Arrange",
+      "    $4",
+      "",
+      "    // Act",
+      "    $5",
+      "",
+      "    // Assert",
+      "    Assert.That(${6:actual}, Is.EqualTo(${7:expected}));$0",
+      "}"
+    ],
+    "description": "NUnit [Test] 测试（仅 NUnit 项目使用）"
+  },
+  "NUnit 参数化测试（TestCase）": {
+    "prefix": "ntestcase",
+    "body": [
+      "[TestCase(${1:1}, ${2:2})]",
+      "[TestCase(${3:3}, ${4:4})]",
+      "public void ${5:Method}_${6:Scenario}(${7:int} ${8:input}, ${9:int} ${10:expected})",
+      "{",
+      "    $0",
+      "}"
+    ],
+    "description": "NUnit [TestCase] 测试（仅 NUnit 项目使用）"
+  },
+  "using 语句": {
+    "prefix": "usingb",
+    "body": ["using (var ${1:resource} = ${2:new Resource()})", "{", "    $0", "}"],
+    "description": "using 块，离开时释放资源"
+  },
+  "using 声明": {
+    "prefix": "usingd",
+    "body": "using var ${1:resource} = ${2:new Resource()};$0",
+    "description": "using 声明，作用域结束时释放"
+  },
+  "await using": {
+    "prefix": "ausing",
+    "body": "await using var ${1:resource} = ${2:new Resource()};$0",
+    "description": "异步释放资源"
+  },
+  "LINQ 方法链": {
+    "prefix": "linq",
+    "body": [
+      "var ${1:result} = ${2:source}",
+      "    .Where(${3:x} => ${4:true})",
+      "    .Select(${3:x} => ${5:x})",
+      "    .ToList();$0"
+    ],
+    "description": "LINQ 方法链：Where / Select / ToList"
+  },
+  "LINQ 查询语法": {
+    "prefix": "linqq",
+    "body": [
+      "var ${1:result} = (from ${2:x} in ${3:source}",
+      "              where ${4:true}",
+      "              select ${5:x}).ToList();$0"
+    ],
+    "description": "LINQ 查询语法：from … where … select"
+  },
+  "switch 表达式": {
+    "prefix": "swe",
+    "body": [
+      "var ${1:result} = ${2:value} switch",
+      "{",
+      "    ${3:pattern} => ${4:expr},",
+      "    _ => throw new ArgumentOutOfRangeException(nameof(${2:value})),",
+      "};$0"
+    ],
+    "description": "switch 表达式"
+  },
+  "模式匹配 is": {
+    "prefix": "ispat",
+    "body": ["if (${1:obj} is ${2:string} ${3:s})", "{", "    $0", "}"],
+    "description": "is 类型模式并引入变量"
+  },
+  "属性模式匹配": {
+    "prefix": "isprop",
+    "body": ["if (${1:obj} is { ${2:Name}: ${3:not null} })", "{", "    $0", "}"],
+    "description": "is 属性模式"
+  },
+  "ILogger 注入": {
+    "prefix": "logger",
+    "body": [
+      "public class ${1:${TM_FILENAME_BASE}}(ILogger<${1:${TM_FILENAME_BASE}}> logger)",
+      "{",
+      "    public void ${2:Run}()",
+      "    {",
+      "        logger.LogInformation(\"${3:Running}\");",
+      "        $0",
+      "    }",
+      "}"
+    ],
+    "description": "构造函数注入 ILogger<T>（主构造函数）"
+  },
+  "结构化日志": {
+    "prefix": "logi",
+    "body": "logger.${1|LogInformation,LogWarning,LogError,LogDebug|}(\"${2:Processed} {${3:Count}} items\", ${4:count});$0",
+    "description": "logger 消息模板（不要用字符串插值）"
+  },
+  "最小 API GET": {
+    "prefix": "mapget",
+    "body": "app.MapGet(\"/${1:items}/{${2:id}}\", (${3:int} ${2:id}) => ${4:Results.Ok()});$0",
+    "description": "Minimal API GET 端点"
+  },
+  "最小 API POST": {
+    "prefix": "mappost",
+    "body": [
+      "app.MapPost(\"/${1:items}\", async (${2:CreateItem} body, CancellationToken ct) =>",
+      "{",
+      "    $0",
+      "    return Results.Created(\\$\"/${1:items}/{${3:body.Id}}\", body);",
+      "});"
+    ],
+    "description": "Minimal API POST 端点"
+  },
+  "检查参数为空": {
+    "prefix": "nullchk",
+    "body": "ArgumentNullException.ThrowIfNull(${1:argument});$0",
+    "description": "参数判空 ArgumentNullException.ThrowIfNull"
+  },
+  "try / catch": {
+    "prefix": "trycatch",
+    "body": ["try", "{", "    $0", "}", "catch (${1:Exception} ${2:ex})", "{", "    ${3:throw;}", "}"],
+    "description": "try catch（捕获具体异常）"
+  },
+  "await foreach": {
+    "prefix": "aforeach",
+    "body": [
+      "await foreach (var ${1:item} in ${2:stream}.WithCancellation(${3:cancellationToken}))",
+      "{",
+      "    $0",
+      "}"
+    ],
+    "description": "异步流循环"
+  }
+}

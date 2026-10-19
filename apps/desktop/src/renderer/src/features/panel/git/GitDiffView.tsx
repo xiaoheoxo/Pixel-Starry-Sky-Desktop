@@ -26,7 +26,7 @@ import { firstLineOf } from '@/features/editor/code/languageIds'
 import { loadLanguage } from '@/features/editor/code/languages'
 import { useRemember } from '../ToolsUi'
 import type { GitArea, GitDiff, GitFileChange } from '../../../../../shared/types/project-tools'
-import { diffMode, SPLIT_MIN_WIDTH, splitPath } from './gitModel'
+import { diffMode, sameGitDiff, SPLIT_MIN_WIDTH, splitPath } from './gitModel'
 
 const COLLAPSE = { margin: 3, minSize: 4 }
 
@@ -123,6 +123,7 @@ export function GitDiffView({
   caption,
   busy,
   labelled,
+  revision,
 }: {
   file: GitFileChange
   /** commit：历史里一个提交的文件（docs/ui/git-panel.md §9.5） */
@@ -142,6 +143,11 @@ export function GitDiffView({
   busy: boolean
   /** 暂存 / 取消暂存 / 撤销写成带文字的按钮（中栏地方够） */
   labelled?: boolean
+  /**
+   * Git 状态的版本（每读到一次新状态就变）：变了就在后台重读，内容一样不替换。
+   * 文件还在同一区、状态字母也没变时（比如再次 git add 了新内容），靠它跟上；历史里的提交不会变，不传
+   */
+  revision?: unknown
 }) {
   useI18n()
   const [diff, setDiff] = useState<GitDiff | null>(null)
@@ -158,22 +164,37 @@ export function GitDiffView({
     setWidth(el.clientWidth)
     return () => observer.disconnect()
   }, [])
+  // 换了文件 / 区 / 状态字母：清空重读；只是状态版本变了：后台重读，读完内容不同才替换，读失败保留原来的
+  // 只有这个文件已经显示出结果（对比或报错）才算后台重读：第一次还没读完就被刷新打断时照常重读、报错照常显示
+  const shown = useRef('')
+  const settled = useRef(false)
   useEffect(() => {
     let gone = false
-    setDiff(null)
-    setError('')
+    const key = `${area}|${file.code}|${file.path}`
+    const quiet = shown.current === key && settled.current
+    if (!quiet) {
+      shown.current = key
+      settled.current = false
+      setDiff(null)
+      setError('')
+    }
     load().then(
       d => {
-        if (!gone) setDiff(d)
+        if (gone) return
+        settled.current = true
+        setDiff(prev => (quiet && prev && sameGitDiff(prev, d) ? prev : d))
+        setError('')
       },
       e => {
-        if (!gone) setError((e as Error).message)
+        if (gone || quiet) return
+        settled.current = true
+        setError((e as Error).message)
       },
     )
     return () => {
       gone = true
     }
-  }, [file.path, area, file.code])
+  }, [file.path, area, file.code, revision])
   const mode = diffMode(preferred, width)
   const { name, dir } = splitPath(file.path)
   const jump = (delta: 1 | -1) => {

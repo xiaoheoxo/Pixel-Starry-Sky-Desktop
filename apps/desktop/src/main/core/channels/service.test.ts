@@ -124,6 +124,186 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
+describe('协作频道：团队关着', () => {
+  it('没有团队同步：团队部分是空的，连接报「不可用」（界面据此藏起团队入口）；团队操作报暂不可用', async () => {
+    const c = await open()
+    expect(c.state()).toMatchObject({ teams: [], invites: [], teamsConnection: 'unavailable', teamsSyncedAt: null })
+    await expect(c.createTeam('小队')).rejects.toThrow('团队功能暂不可用')
+  })
+})
+
+describe('协作频道：说明和置顶（docs/ui/channels-local-ai.md §3.1 #9）', () => {
+  it('说明去掉首尾空白存下来，空的算没有；派活提示词带上说明和置顶的消息', async () => {
+    const c = await open()
+    const memberId = await c.saveMember(null, agent('前端助手'))
+    const channelId = await c.create({ name: '说明', memberIds: [memberId] })
+    await c.update(channelId, { notes: '  改完要跑 pnpm check  ' })
+    expect(c.state().channels[0]).toMatchObject({ notes: '改完要跑 pnpm check', pinned: [] })
+    const { message } = await c.post(channelId, { text: '设计稿在 Figma 上', clientId: 'n1' })
+    await c.pin(channelId, message.id, true)
+    expect(c.state().channels[0].pinned).toEqual([message.id])
+    await c.post(channelId, { text: '@前端助手 改一下首页', clientId: 'n2' })
+    await settle()
+    const [send] = engine.sends()
+    expect(send.text).toContain('频道说明（这个频道里每项活都要照着做）：\n改完要跑 pnpm check')
+    expect(send.text).toContain('频道里置顶的资料：\n- 林夏：设计稿在 Figma 上')
+    await c.update(channelId, { notes: '   ' })
+    expect(c.state().channels[0].notes).toBeNull()
+  })
+  it('置顶：只能置顶文字消息，同一条不重复，可以取消，最多 10 条；重启后还在', async () => {
+    const c = await open()
+    const channelId = await c.create({ name: '置顶' })
+    const ids: string[] = []
+    for (let i = 0; i < 11; i++)
+      ids.push((await c.post(channelId, { text: `第 ${i} 条`, clientId: `p${i}` })).message.id)
+    await c.pin(channelId, ids[0], true)
+    await c.pin(channelId, ids[0], true)
+    expect(c.state().channels[0].pinned).toEqual([ids[0]])
+    for (const id of ids.slice(1, 10)) await c.pin(channelId, id, true)
+    await expect(c.pin(channelId, ids[10], true)).rejects.toThrow('最多置顶 10 条')
+    await c.pin(channelId, ids[3], false)
+    expect(c.state().channels[0].pinned).not.toContain(ids[3])
+    await expect(c.pin(channelId, 'nope', true)).rejects.toThrow('只能置顶文字消息')
+    const again = await open()
+    expect(again.state().channels[0].pinned).toHaveLength(9)
+  })
+})
+
+describe('协作频道：提醒（docs/ui/channels-local-ai.md §3.1 #12、#13）', () => {
+  it('快照里有「会话 → 频道、任务卡、成员」，提醒按频道的说法写；提醒级别默认全部，可以改，乱写报错', async () => {
+    const c = await open()
+    const memberId = await c.saveMember(null, agent('前端助手'))
+    const channelId = await c.create({ name: '提醒', memberIds: [memberId] })
+    const { tasks: ids } = await c.post(channelId, { text: '@前端助手 改首页', clientId: 'r1' })
+    await settle()
+    expect(c.state().sessionTasks).toEqual({ s1: { channelId, taskId: ids[0], memberId } })
+    expect(c.state().channels[0].notify).toBe('all')
+    await c.update(channelId, { notify: 'important' })
+    expect(c.state().channels[0].notify).toBe('important')
+    await expect(c.update(channelId, { notify: 'loud' as never })).rejects.toThrow('提醒设置无效')
+    const again = await open()
+    expect(again.state().channels[0].notify).toBe('important')
+  })
+})
+
+describe('协作频道：消息搜索（docs/ui/channels-local-ai.md §3.1 #8）', () => {
+  it('搜文字消息和任务卡标题：每个词都要出现、不分大小写，新的在前；归档的频道也搜；可以按项目筛', async () => {
+    const c = await open()
+    const memberId = await c.saveMember(null, agent('前端助手'))
+    const web = await c.create({ name: '网页版', memberIds: [memberId], projectId: 'p1' })
+    const old = await c.create({ name: '旧项目' })
+    const { message: first } = await c.post(web, { text: '首页的 Banner 要换', clientId: 's1' })
+    const { tasks } = await c.post(web, { text: '@前端助手 换掉首页 banner', clientId: 's2' })
+    const { message: third } = await c.post(old, { text: 'banner 尺寸 1200×400，首页用', clientId: 's3' })
+    await c.post(old, { text: '无关的消息', clientId: 's4' })
+    await c.taskAction(tasks[0], 'stop')
+    await settle()
+    await c.update(old, { archived: true })
+
+    const result = c.search('首页 BANNER')
+    expect(result.truncated).toBe(false)
+    expect(result.hits.map(h => [h.kind, h.channelId])).toEqual([
+      ['message', old],
+      ['task', web],
+      ['message', web],
+      ['message', web],
+    ])
+    expect(result.hits[0]).toMatchObject({ messageId: third.id, authorId: SELF_ID })
+    expect(result.hits[1]).toMatchObject({ messageId: tasks[0], authorId: memberId })
+    expect(result.hits.at(-1)!.messageId).toBe(first.id)
+    expect(result.hits[0].snippet.filter(f => f.match).map(f => f.text)).toEqual(['banner', '首页'])
+    expect(c.search('首页 尺寸').hits).toHaveLength(1)
+    expect(c.search('  ').hits).toEqual([])
+    expect(c.search('banner', { projectId: 'p1' }).hits.every(h => h.channelId === web)).toBe(true)
+    expect(c.search('banner', { limit: 2 })).toMatchObject({ truncated: true, hits: [{}, {}] })
+  })
+})
+
+describe('协作频道：归档（docs/ui/channels-local-ai.md §3.1 #11）', () => {
+  it('还有没做完的活不能归档；归档后只读、可以恢复，时间线记一笔，重启后还在', async () => {
+    const c = await open()
+    const memberId = await c.saveMember(null, agent('前端助手'))
+    const other = await c.saveMember(null, agent('审查员'))
+    const channelId = await c.create({ name: '旧项目', memberIds: [memberId] })
+    const { message, tasks: ids } = await c.post(channelId, { text: '@前端助手 改首页', clientId: 'a1' })
+    await settle()
+    await expect(c.update(channelId, { archived: true })).rejects.toThrow('频道里还有没做完的活')
+    await c.taskAction(ids[0], 'stop')
+    await settle()
+    expect(tasks(c, channelId)[0].status).toBe('stopped')
+
+    await c.update(channelId, { archived: true })
+    const archivedAt = c.state().channels[0].archivedAt
+    expect(archivedAt).toEqual(expect.any(Number))
+    expect(c.state().channels[0].unread).toBe(0)
+    const readOnly = '频道已归档，恢复后才能操作'
+    await expect(c.post(channelId, { text: '还在吗', clientId: 'a2' })).rejects.toThrow(readOnly)
+    await expect(c.pin(channelId, message.id, true)).rejects.toThrow(readOnly)
+    await expect(c.update(channelId, { name: '改名' })).rejects.toThrow(readOnly)
+    await expect(c.taskAction(ids[0], 'retry')).rejects.toThrow(readOnly)
+    await expect(c.addMember(channelId, other)).rejects.toThrow(readOnly)
+    await expect(c.saveMember(channelId, agent('新成员'))).rejects.toThrow(readOnly)
+    await expect(c.removeMember(channelId, memberId)).rejects.toThrow(readOnly)
+    // 已经在频道里的成员照常能改（成员是全局的）
+    await c.saveMember(channelId, { ...agent('前端助手'), id: memberId, instructions: '只改前端' })
+    await c.update(channelId, { archived: true })
+    expect((await open()).state().channels[0].archivedAt).toBe(archivedAt)
+
+    await c.update(channelId, { archived: false, name: '新项目' })
+    expect(c.state().channels[0]).toMatchObject({ archivedAt: null, name: '新项目' })
+    await c.post(channelId, { text: '回来了', clientId: 'a3' })
+    const events = c
+      .messages(channelId)
+      .messages.flatMap(m => (m.kind === 'event' && m.event !== 'added' ? [m.event] : []))
+    expect(events).toEqual(['archived', 'restored', 'renamed'])
+  })
+})
+
+describe('协作频道：成员的额度来源', () => {
+  it('平台额度：存进成员配置，派活开会话时带上分组和账号；自定义接口同样带上接口 id', async () => {
+    const c = await open()
+    const platform = { groupId: 'g1', account: 'me@example.com' }
+    const a = await c.saveMember(null, agent('平台助手', { settings: { model: 'claude-opus-5-5', platform } }))
+    const b = await c.saveMember(
+      null,
+      agent('接口助手', { settings: { model: 'my-claude', provider: { id: 'anth' } } }),
+    )
+    expect(c.state().members.find(m => m.id === a)).toMatchObject({ config: { settings: { platform } } })
+    const channelId = await c.create({ name: '额度', memberIds: [a, b] })
+    await c.post(channelId, { text: '@平台助手 @接口助手 看一下', clientId: 'c1' })
+    await settle()
+    const creates = engine.calls.filter(x => x.channel === 'engine:createSession').map(x => x.args[0])
+    expect(creates).toContainEqual({ projectId: 'p1', engine: 'claude', model: 'claude-opus-5-5', platform })
+    expect(creates).toContainEqual({ projectId: 'p1', engine: 'claude', model: 'my-claude', provider: { id: 'anth' } })
+  })
+  it('一直用同一个会话的成员换了额度来源：下一项活开新会话（来源是开会话时定的）', async () => {
+    const c = await open()
+    const id = await c.saveMember(null, agent('共用', { mode: 'shared' }))
+    const channelId = await c.create({ name: '共用', memberIds: [id] })
+    await c.post(channelId, { text: '@共用 第一项', clientId: 'd1' })
+    await settle()
+    const [first] = engine.sends()
+    complete(c, first.sessionId, first.clientMessageId, '好了')
+    await settle()
+    const config = c.state().members.find(m => m.id === id)
+    expect(config).toMatchObject({ config: { sharedSessionId: 's1' } })
+    await c.saveMember(null, agent('共用', { id, mode: 'shared', settings: { provider: { id: 'anth' } } }))
+    expect(c.state().members.find(m => m.id === id)).toMatchObject({ config: { sharedSessionId: null } })
+  })
+  it('不写就是自有账号；形状不对、平台和接口同时给都报「额度来源无效」', async () => {
+    const c = await open()
+    const id = await c.saveMember(null, agent('自有'))
+    expect(c.state().members.find(m => m.id === id)).toMatchObject({ config: { settings: { permissionMode: 'ask' } } })
+    const both = { platform: { groupId: 'g', account: 'a' }, provider: { id: 'p' } }
+    await expect(c.saveMember(null, agent('两个', { settings: both }))).rejects.toThrow('额度来源无效')
+    const bad = { platform: { groupId: '', account: 'a' } }
+    await expect(c.saveMember(null, agent('坏的', { settings: bad }))).rejects.toThrow('额度来源无效')
+    await expect(c.saveMember(null, agent('坏接口', { settings: { provider: { id: '../x' } } }))).rejects.toThrow(
+      '额度来源无效',
+    )
+  })
+})
+
 describe('协作频道：派活', () => {
   it('@成员 → 新开会话、改名、发提示词；做完后结果发回频道，任务卡更新摘要 / 改动 / 需要你决定', async () => {
     const c = await open()
@@ -581,4 +761,40 @@ describe('协作频道：存储与对账', () => {
     const again = await open()
     expect(again.state().channels).toEqual([])
   })
+})
+
+describe('消息分页', () => {
+  it('同一毫秒的几条消息跨在两页之间：按最早那条的 id 往前取，一条不漏；只给时间时照旧按时间', async () => {
+    const c = await open()
+    const channelId = await c.create({ name: '分页' })
+    const texts: string[] = []
+    const post = async (i: number, at?: number) => {
+      // 指定 at 时把时钟拨回去，这一条的时间就是 at（和上一条同一毫秒）
+      if (at !== undefined) now = at - 1
+      const { message } = await c.post(channelId, { text: `第 ${i} 条`, clientId: `m${i}` })
+      texts.push(`第 ${i} 条`)
+      return message
+    }
+    await post(0)
+    const first = await post(1)
+    const second = await post(2, first.at)
+    expect(second.at).toBe(first.at)
+    for (let i = 3; i < 202; i++) await post(i)
+
+    const latest = c.messages(channelId)
+    expect(latest.messages).toHaveLength(200)
+    expect(latest.more).toBe(true)
+    const oldest = latest.messages[0]
+    expect(oldest.id).toBe(second.id)
+
+    const older = c.messages(channelId, oldest.at, oldest.id)
+    expect(older.more).toBe(false)
+    const shown = [...older.messages, ...latest.messages].map(m => (m as ChannelTextMessage).text)
+    expect(shown).toEqual(texts)
+    // 不给 id（老的调用）：按时间，同一毫秒的被排除
+    expect(c.messages(channelId, oldest.at).messages.map(m => m.id)).not.toContain(first.id)
+    // id 不在了：退回按时间
+    expect(c.messages(channelId, oldest.at, 'gone').messages).toHaveLength(1)
+    // 要发 202 条（每条写盘）：整套测试并行跑时比单跑慢得多
+  }, 30_000)
 })

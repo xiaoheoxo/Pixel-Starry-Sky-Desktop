@@ -6,6 +6,14 @@ import { REMOTE_PROTOCOL } from '@pixelsky/protocol'
 import { RpcPeer, type RpcHandler } from './rpc'
 import type { MachineInput } from '../../shared/types/machines'
 import type { RemoteHello, RemoteLink, ShellChannel } from './link'
+import {
+  REMOTE_CLI_INSTALL_TIMEOUT,
+  isRemoteCliEntry,
+  remoteCliCheckScript,
+  remoteCliInstallScript,
+  remoteCliSupported,
+} from './remote-cli'
+import { remoteCliArchive, type RemoteCliProvider } from './remote-cli-source'
 
 /** Upload directory of the helper on the remote machine; changes together with the protocol version. */
 const REMOTE_DIR = 'v' + REMOTE_PROTOCOL
@@ -28,6 +36,8 @@ export class SshConnection implements RemoteLink {
   private remoteForwards = new Map<number, number>()
   private localForwards = new Map<number, Server>()
   onClose: (message: string) => void = () => {}
+  /** 命令行包的来源；测试里换掉 */
+  cliArchive: RemoteCliProvider = remoteCliArchive
   async connect(
     input: MachineInput,
     trusted: string | null,
@@ -90,10 +100,10 @@ export class SshConnection implements RemoteLink {
     const probe = await this.exec(
       'node -e ' +
         quoteSh(
-          "process.stdout.write(JSON.stringify({home:require('node:os').homedir(),platform:process.platform,version:process.versions.node}))",
+          "process.stdout.write(JSON.stringify({home:require('node:os').homedir(),platform:process.platform,version:process.versions.node,arch:process.arch}))",
         ),
     )
-    let info: { home: string; platform: string; version: string }
+    let info: { home: string; platform: string; version: string; arch?: string }
     try {
       info = JSON.parse(probe)
     } catch {
@@ -110,7 +120,10 @@ export class SshConnection implements RemoteLink {
       throw new Error('SSH_HELPER_PATH_INVALID')
     const namespace = input.id ?? 'default'
     if (!/^((ssh|wsl)-[a-f0-9-]+|default)$/.test(namespace)) throw new Error('SSH_INVALID_CONFIG')
-    const channel = await this.channel('node ' + quoteSh(remotePath) + ' ' + quoteSh(namespace))
+    const cliPath = await this.installCli(info)
+    const channel = await this.channel(
+      'node ' + quoteSh(remotePath) + ' ' + quoteSh(namespace) + (cliPath ? ' ' + quoteSh(cliPath) : ''),
+    )
     let diagnostic = ''
     channel.stderr.on('data', (data: Buffer) => {
       if (diagnostic.length < 2000) diagnostic += data.toString()
@@ -131,6 +144,27 @@ export class SshConnection implements RemoteLink {
     if (this.hello.protocol !== REMOTE_PROTOCOL || this.hello.platform !== 'linux')
       throw new Error('SSH_PROTOCOL_MISMATCH')
     return this.hello
+  }
+  /** 把像素星空命令行装到远程（已装好的不重传）。失败一律吞掉：没有命令行不影响连接，只是远程用不了像素星空引擎 */
+  private async installCli(info: { home: string; version: string; arch?: string }): Promise<string | null> {
+    try {
+      if (!remoteCliSupported(info.version, info.arch)) return null
+      const archive = await this.cliArchive(info.arch as 'x64' | 'arm64')
+      if (!archive) return null
+      let path = (await this.exec('node -e ' + quoteSh(remoteCliCheckScript(archive.hash)))).trim()
+      if (!path) {
+        path = (
+          await this.exec(
+            'node -e ' + quoteSh(remoteCliInstallScript(archive.hash)),
+            archive.data,
+            REMOTE_CLI_INSTALL_TIMEOUT,
+          )
+        ).trim()
+      }
+      return isRemoteCliEntry(path, info.home, archive.hash) ? path : null
+    } catch {
+      return null
+    }
   }
   channel(command: string, pty?: { cols: number; rows: number }): Promise<ClientChannel> {
     return new Promise((resolve, reject) =>
@@ -158,7 +192,7 @@ export class SshConnection implements RemoteLink {
       onError: cb => void channel.on('error', cb),
     }
   }
-  async exec(command: string, input?: Buffer): Promise<string> {
+  async exec(command: string, input?: Buffer, timeout = 25_000): Promise<string> {
     const channel = await this.channel(command)
     return new Promise((resolve, reject) => {
       let output = '',
@@ -166,7 +200,7 @@ export class SshConnection implements RemoteLink {
       const timer = setTimeout(() => {
         channel.close()
         reject(new Error('SSH_COMMAND_TIMEOUT'))
-      }, 25_000)
+      }, timeout)
       channel.on('data', (data: Buffer) => {
         output += data.toString()
         if (output.length > 1024 * 1024) {

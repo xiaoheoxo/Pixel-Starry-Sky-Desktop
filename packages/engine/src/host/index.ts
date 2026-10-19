@@ -28,6 +28,7 @@ import type {
   NativeSessionSummary,
   OpenedSession,
   ProjectRecord,
+  QueueMove,
   AddProjectsResult,
   ForkResult,
   InterruptOptions,
@@ -99,12 +100,14 @@ export class EngineHost {
       claude: new ClaudeAdapter({
         overridePath: () => settings.file.paths.claude ?? null,
         extraEnv: () => settings.file.env.claude ?? {},
+        systemProxy: () => opts.systemProxy?.('claude') ?? null,
         launchOptions: () => settings.launchOptions('claude'),
         sessionEnv: opts.sessionEnv,
       }),
       codex: new CodexAdapter({
         overridePath: () => settings.file.paths.codex ?? null,
         extraEnv: () => settings.file.env.codex ?? {},
+        systemProxy: () => opts.systemProxy?.('codex') ?? null,
         sessionEnv: opts.sessionEnv,
         launchOptions: () => {
           const o = settings.launchOptions('codex')
@@ -120,6 +123,7 @@ export class EngineHost {
       pixel: new PixelAdapter({
         overridePath: () => settings.file.paths.pixel ?? null,
         extraEnv: () => settings.file.env.pixel ?? {},
+        systemProxy: () => opts.systemProxy?.('pixel') ?? null,
         bundledCli: opts.pixelCli,
         sessionEnv: opts.sessionEnv,
         launchOptions: () => ({ args: settings.launchOptions('pixel').args }),
@@ -370,9 +374,14 @@ export class EngineHost {
     return this.m.sessions.open(id)
   }
 
-  /** 会话的全部条目（只读副本，没加载过就从存储读）；给对话历史工具用 */
-  historyItems(id: string): Item[] {
-    return [...this.m.sessions.open(id).items]
+  /** 会话的全部条目（只读，不复制；已有运行时用内存里的，否则异步流式读存储，都不创建运行时）；给对话历史工具用 */
+  historyItems(id: string): Promise<readonly Item[]> {
+    return this.m.query.historyItems(id)
+  }
+
+  /** 会话里最后一个 todo（没有时 null）；不创建运行时，给任务面板用 */
+  lastTodo(id: string): Promise<Extract<Item, { kind: 'todo' }> | null> {
+    return this.m.query.lastTodo(id)
   }
 
   /** 打开会话（给界面用）：快照 + 序号，之后界面只应用序号更大的事件 */
@@ -411,8 +420,8 @@ export class EngineHost {
     this.m.queue.dismissQueued(id, queueId)
   }
 
-  moveQueued(id: string, queueId: string, toIndex: number): void {
-    this.m.queue.moveQueued(id, queueId, toIndex)
+  moveQueued(id: string, queueId: string, to: QueueMove): void {
+    this.m.queue.moveQueued(id, queueId, to)
   }
 
   resumeQueue(id: string): void {
@@ -465,6 +474,11 @@ export class EngineHost {
 
   renameSession(id: string, title: unknown): SessionRecord {
     return this.m.sessions.renameSession(id, title)
+  }
+
+  /** 在会话里加一条提示条目（手机改了设置时留一条记录，docs/mobile-remote.md §21.7） */
+  addNotice(id: string, level: 'info' | 'warn' | 'error', text: string): void {
+    this.m.sessions.addNotice(id, level, text)
   }
 
   setSessionBottom(id: string, bottomed: boolean): SessionRecord {
@@ -562,6 +576,9 @@ export class EngineHost {
       if (rt.reconnectTimer) clearTimeout(rt.reconnectTimer)
     }
     // 退出时不等引擎收尾：最多等 1 秒就强制结束（原来 Claude 等满 5 秒，更新重启时白等）
-    await Promise.all(all.map(rt => rt.session?.close({ quick: true }).catch(() => undefined)))
+    await Promise.all([
+      ...all.map(rt => rt.session?.close({ quick: true }).catch(() => undefined)),
+      ...Object.values(this.ctx.adapters).map(adapter => adapter?.close?.({ quick: true }).catch(() => undefined)),
+    ])
   }
 }

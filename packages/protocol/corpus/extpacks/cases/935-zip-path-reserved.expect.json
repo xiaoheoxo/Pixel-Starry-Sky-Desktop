@@ -1,0 +1,71 @@
+{
+  "rulesVersion": 2,
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "CON/a.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/com1",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/nul.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.type",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/com1",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "CON/a.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/com1",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/nul.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "grammar.regexUnchecked",
+        "severity": "warning",
+        "scope": "pack",
+        "upload": "hint",
+        "outcome": "hint"
+      }
+    ]
+  }
+}

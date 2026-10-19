@@ -37,6 +37,13 @@ export async function initTerminalIpc(
   })
   manager = service
   await service.init()
+  // 后台检测完 Shell 列表后通知所有碰过终端通道的窗口重新取一次状态
+  service.onProfilesChanged(() => {
+    for (const owner of observed) {
+      const target = webContents.fromId(owner)
+      if (target) sendTo(target, 'terminal:event', { type: 'profiles' })
+    }
+  })
   if (machines) {
     remote = new RemoteTerminals(machines, app.getPath('userData'), (owner, event) => {
       const target = webContents.fromId(owner)
@@ -47,7 +54,7 @@ export async function initTerminalIpc(
   const handle = (name: string, fn: (e: IpcMainInvokeEvent, ...args: never[]) => unknown): void => {
     ipc.handle(
       `terminal:${name}` as ipc.InvokeChannel,
-      (event, ...args) => {
+      async (event, ...args) => {
         if (!observed.has(event.sender.id)) {
           const owner = event.sender.id
           observed.add(owner)
@@ -64,12 +71,14 @@ export async function initTerminalIpc(
             cleanup()
           })
         }
+        // 设置页的「刷新」：重新检测一遍再返回（异步，不卡主进程）
+        if (name === 'state' && args[0] === true) await service.refresh()
         if (remote) {
           const id = argumentMachine(args),
             active = machines?.currentId ?? 'local',
             owner = event.sender.id
           if (name === 'state') {
-            const local = service.state(owner, args[0] === true),
+            const local = service.state(owner),
               ssh = remote.state(owner)
             return { ...(active === 'local' ? local : ssh), terminals: [...local.terminals, ...ssh.terminals] }
           }
@@ -92,7 +101,7 @@ export async function initTerminalIpc(
       terminalOnly,
     )
   }
-  handle('state', (e, force) => service.state(e.sender.id, force === true))
+  handle('state', e => service.state(e.sender.id))
   handle('setDefaultProfile', (e, value) => service.setDefault(e.sender.id, id(value)))
   handle('saveProfile', (e, input: TerminalProfileInput) => service.saveProfile(e.sender.id, input))
   handle('removeProfile', (e, value) => service.removeProfile(e.sender.id, id(value)))

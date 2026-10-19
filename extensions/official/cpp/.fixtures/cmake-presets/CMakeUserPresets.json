@@ -1,0 +1,6 @@
+{
+  "version": 6,
+  "configurePresets": [
+    { "name": "mine", "inherits": "dev", "binaryDir": "${sourceDir}/out/mine" }
+  ]
+}

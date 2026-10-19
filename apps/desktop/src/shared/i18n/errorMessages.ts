@@ -74,4 +74,9 @@ export const errorMessages = {
     zh: '终端或别的程序里正开着这个会话，不能直接往里写',
     en: 'This session is open in the terminal or another program, so it can’t be written to directly',
   },
+  // 队列调序时被挪的消息或锚点已不在队里（docs/ui/message-queue.md）
+  'errors.queue.changed': {
+    zh: '队列已变化，排序未保存',
+    en: 'The queue changed, so the new order wasn’t saved',
+  },
 } as const

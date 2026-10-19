@@ -1,0 +1,42 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja"
+    },
+    {
+      "hidden": true,
+      "name": "base-win",
+      "inherits": "base"
+    },
+    {
+      "name": "dev",
+      "displayName": "Development",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/dev",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "ci-linux",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/out/ci"
+    }
+  ],
+  "buildPresets": [
+    { "name": "hidden-build", "hidden": true },
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "release", "configurePreset": "release", "targets": ["presets-demo"] }
+  ],
+  "testPresets": [
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } }
+  ]
+}

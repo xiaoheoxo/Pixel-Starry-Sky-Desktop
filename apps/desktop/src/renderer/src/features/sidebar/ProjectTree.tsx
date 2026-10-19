@@ -310,6 +310,7 @@ export function ProjectTree({
                 lane={lanes.get(s.id)}
                 card={cardById.get(s.id)}
                 reason={filtering}
+                flipKey={`${p.id}/${s.id}`}
               />
             ))}
             {!filtering && (hidden > 0 || (showAll[p.id] && p.sessions.length > SHOWN_SESSIONS)) && (

@@ -7,6 +7,8 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { readPackText, refreshPacks } from '@/features/extpacks/store'
 import { contributionRows, grammarConflicts, issueText, packTitle, type ContributionRow } from './model'
+import { SourceBadge } from '@/features/extstore/installed/InstalledBadges'
+import { StoreReadme } from '@/features/extstore/detail/StoreReadme'
 import { PackBadge } from './PackBadge'
 import { PackIcon, PackStatus } from './PackList'
 
@@ -124,11 +126,7 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-section font-semibold text-fg">{title}</h4>
             {pack.manifest && <span className="text-meta text-fg-faint">{pack.manifest.version}</span>}
-            {folder ? (
-              <PackBadge tone="warn">{t('extensions.badge.dev')}</PackBadge>
-            ) : (
-              <PackBadge>{t('extensions.badge.builtin')}</PackBadge>
-            )}
+            <SourceBadge source={pack.source} />
             <PackStatus pack={pack} />
           </div>
           <div className="mt-0.5 text-meta text-fg-faint">
@@ -160,15 +158,15 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
           {t('extensions.detail.reload')}
         </Button>
         <Button
-          disabled={busy || pack.status === 'error'}
+          disabled={busy || pack.status === 'error' || (!pack.enabled && !!pack.blocked)}
           onClick={() => void run(() => bridge?.setEnabled(pack.key, !pack.enabled))}
         >
           {pack.enabled ? t('extensions.detail.disable') : t('extensions.detail.enable')}
         </Button>
-        {folder &&
+        {pack.source !== 'builtin' &&
           (confirming ? (
             <span className="inline-flex items-center gap-2 text-ui text-fg-muted">
-              {t('extensions.detail.removeConfirm')}
+              {folder ? t('extensions.detail.removeConfirm') : t('extstore.installed.uninstallConfirm')}
               <Button
                 disabled={busy}
                 onClick={() =>
@@ -177,7 +175,7 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
                   })
                 }
               >
-                {t('extensions.detail.removeYes')}
+                {folder ? t('extensions.detail.removeYes') : t('extstore.installed.uninstallYes')}
               </Button>
               <Button variant="ghost" onClick={() => setConfirming(false)}>
                 {t('extensions.detail.removeNo')}
@@ -185,10 +183,20 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
             </span>
           ) : (
             <Button variant="ghost" disabled={busy} onClick={() => setConfirming(true)}>
-              {t('extensions.detail.remove')}
+              {folder ? t('extensions.detail.remove') : t('extstore.installed.uninstall')}
             </Button>
           ))}
       </div>
+      {!pack.enabled && pack.blocked && (
+        <p data-enable-reason className="mt-2 text-ui text-danger">
+          {t('extstore.detail.blockedReason', { reason: pack.blocked.reason })}
+        </p>
+      )}
+      {pack.shadowedBy && (
+        <p data-enable-reason className="mt-2 text-ui text-fg-muted">
+          {t('extstore.detail.shadowedReason', { source: t(`extstore.installed.shadowSource.${pack.shadowedBy}`) })}
+        </p>
+      )}
       {error && <p className="mt-2 text-ui text-danger">{error}</p>}
 
       {pack.manifest ? (
@@ -274,9 +282,10 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
       {readme && (
         <>
           <SubTitle>{t('extensions.detail.readme')}</SubTitle>
-          <pre className="max-h-80 overflow-auto rounded-md bg-subtle p-3 text-meta whitespace-pre-wrap text-fg-secondary">
-            {readme}
-          </pre>
+          {/* 按 Markdown 显示；和商店详情同一个渲染（不可信内容：图片只显示替代文字、链接只放行 http / https） */}
+          <div data-pack-readme className="max-h-96 overflow-auto rounded-md border border-line-subtle p-4">
+            <StoreReadme text={readme} />
+          </div>
         </>
       )}
     </div>

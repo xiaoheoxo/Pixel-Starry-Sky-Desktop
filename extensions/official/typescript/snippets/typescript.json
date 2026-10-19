@@ -1,0 +1,292 @@
+{
+  "异步函数": {
+    "prefix": "afn",
+    "body": ["async function ${1:name}(${2:args}): Promise<${3:void}> {", "  $0", "}"],
+    "description": "异步函数"
+  },
+  "箭头函数常量": {
+    "prefix": "arrfn",
+    "body": ["const ${1:name} = (${2:args}): ${3:void} => {", "  $0", "};"],
+    "description": "const 箭头函数"
+  },
+  "try / catch 异常处理": {
+    "prefix": "trycatch",
+    "body": ["try {", "  $1", "} catch (error) {", "  ${2:throw error;}", "} finally {", "  $0", "}"],
+    "description": "try / catch / finally 异常处理"
+  },
+  "带超时的 fetch JSON": {
+    "prefix": "fetchjson",
+    "body": [
+      "async function ${1:fetchJson}<T>(url: string, init: RequestInit = {}, timeoutMs = ${2:10000}): Promise<T> {",
+      "  const controller = new AbortController();",
+      "  const timer = setTimeout(() => controller.abort(), timeoutMs);",
+      "  try {",
+      "    const res = await fetch(url, { ...init, signal: controller.signal });",
+      "    if (!res.ok) throw new Error(`HTTP \\${res.status} \\${res.statusText}`);",
+      "    return (await res.json()) as T;",
+      "  } finally {",
+      "    clearTimeout(timer);",
+      "  }",
+      "}",
+      "$0"
+    ],
+    "description": "fetch 请求 JSON：AbortController 超时、检查 res.ok"
+  },
+  "测试：describe": {
+    "prefix": "descr",
+    "body": ["describe('${1:name}', () => {", "  $0", "});"],
+    "description": "describe 测试组（vitest / jest）"
+  },
+  "测试：it": {
+    "prefix": "itt",
+    "body": ["it('${1:should do something}', () => {", "  $0", "});"],
+    "description": "it 测试用例"
+  },
+  "测试：异步 it": {
+    "prefix": "ita",
+    "body": ["it('${1:should do something}', async () => {", "  $0", "});"],
+    "description": "异步 it 测试用例"
+  },
+  "测试：it.each 表格": {
+    "prefix": "iteach",
+    "body": [
+      "it.each([",
+      "  [${1:1}, ${2:2}, ${3:3}],",
+      "])('${4:add(%i, %i) = %i}', (a, b, expected) => {",
+      "  expect(${5:add}(a, b)).toBe(expected);",
+      "});",
+      "$0"
+    ],
+    "description": "it.each 表格驱动测试"
+  },
+  "测试：导入 vitest": {
+    "prefix": "vitest",
+    "body": ["import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';", "$0"],
+    "description": "导入 vitest 的测试函数"
+  },
+  "测试：vi.mock 模块": {
+    "prefix": "vimock",
+    "body": ["vi.mock('${1:./module}', () => ({", "  ${2:fn}: vi.fn(),", "}));", "$0"],
+    "description": "vitest 模拟整个模块"
+  },
+  "等待一段时间": {
+    "prefix": "sleepfn",
+    "body": ["const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));", "$0"],
+    "description": "返回 Promise 的 sleep"
+  },
+  "防抖函数": {
+    "prefix": "debouncefn",
+    "body": [
+      "function debounce<A extends unknown[]>(fn: (...args: A) => void, wait = ${1:200}): (...args: A) => void {",
+      "  let timer: ReturnType<typeof setTimeout> | undefined;",
+      "  return (...args: A) => {",
+      "    clearTimeout(timer);",
+      "    timer = setTimeout(() => fn(...args), wait);",
+      "  };",
+      "}",
+      "$0"
+    ],
+    "description": "防抖"
+  },
+  "失败重试（指数退避）": {
+    "prefix": "retryfn",
+    "body": [
+      "async function retry<T>(fn: () => Promise<T>, attempts = ${1:3}, baseMs = ${2:200}): Promise<T> {",
+      "  let lastError: unknown;",
+      "  for (let i = 0; i < attempts; i++) {",
+      "    try {",
+      "      return await fn();",
+      "    } catch (error) {",
+      "      lastError = error;",
+      "      if (i < attempts - 1) await new Promise((r) => setTimeout(r, baseMs * 2 ** i));",
+      "    }",
+      "  }",
+      "  throw lastError;",
+      "}",
+      "$0"
+    ],
+    "description": "失败重试，间隔指数增长"
+  },
+  "Promise.all": {
+    "prefix": "promall",
+    "body": ["const [${1:a}, ${2:b}] = await Promise.all([", "  ${3:fetchA()},", "  ${4:fetchB()},", "]);", "$0"],
+    "description": "并发等待多个 Promise"
+  },
+  "Promise.allSettled": {
+    "prefix": "promsettled",
+    "body": [
+      "const results = await Promise.allSettled([${1:tasks}]);",
+      "const fulfilled = results.filter((r): r is PromiseFulfilledResult<${2:unknown}> => r.status === 'fulfilled').map((r) => r.value);",
+      "const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected').map((r) => r.reason);",
+      "$0"
+    ],
+    "description": "等所有 Promise 结束并分出成功失败"
+  },
+  "for of 带下标": {
+    "prefix": "forof",
+    "body": ["for (const [${1:i}, ${2:item}] of ${3:items}.entries()) {", "  $0", "}"],
+    "description": "遍历 entries() 得到下标和元素"
+  },
+  "类": {
+    "prefix": "cls",
+    "body": [
+      "export class ${1:Name} {",
+      "  constructor(private readonly ${2:dep}: ${3:Dep}) {}",
+      "",
+      "  ${4:method}(): ${5:void} {",
+      "    $0",
+      "  }",
+      "}"
+    ],
+    "description": "带构造函数的类"
+  },
+  "安全解析 JSON": {
+    "prefix": "jsonparse",
+    "body": [
+      "function parseJson<T>(text: string, fallback: T): T {",
+      "  try {",
+      "    return JSON.parse(text) as T;",
+      "  } catch {",
+      "    return fallback;",
+      "  }",
+      "}",
+      "$0"
+    ],
+    "description": "JSON.parse 失败时返回默认值"
+  },
+  "Node 入口 main": {
+    "prefix": "nmain",
+    "body": [
+      "async function main(): Promise<void> {",
+      "  $0",
+      "}",
+      "",
+      "main().catch((error) => {",
+      "  console.error(error);",
+      "  process.exitCode = 1;",
+      "});"
+    ],
+    "description": "异步 main，失败时设退出码"
+  },
+  "必填环境变量": {
+    "prefix": "reqenv",
+    "body": [
+      "function requireEnv(name: string): string {",
+      "  const value = process.env[name];",
+      "  if (!value) throw new Error(`Missing environment variable: \\${name}`);",
+      "  return value;",
+      "}",
+      "$0"
+    ],
+    "description": "读取必填环境变量，缺失就报错"
+  },
+  "JSDoc / TSDoc 注释": {
+    "prefix": "doc",
+    "body": ["/**", " * ${1:说明}", " *", " * @param ${2:name} ${3:参数说明}", " * @returns ${4:返回值说明}", " */"],
+    "description": "函数文档注释"
+  },
+  "zod 模式": {
+    "prefix": "zodschema",
+    "body": [
+      "import { z } from 'zod';",
+      "",
+      "export const ${1:User}Schema = z.object({",
+      "  id: z.string().min(1),",
+      "  name: z.string().min(1),",
+      "  email: z.string().min(1).optional(),",
+      "});",
+      "",
+      "export type ${1:User} = z.infer<typeof ${1:User}Schema>;",
+      "$0"
+    ],
+    "description": "zod 对象模式"
+  },
+  "接口": {
+    "prefix": "intf",
+    "body": ["export interface ${1:Name} {", "  ${2:id}: ${3:string};", "  $0", "}"],
+    "description": "interface 声明"
+  },
+  "类型别名": {
+    "prefix": "typ",
+    "body": ["export type ${1:Name} = ${2:string};", "$0"],
+    "description": "type 别名"
+  },
+  "可辨识联合": {
+    "prefix": "dunion",
+    "body": [
+      "export type ${1:Shape} =",
+      "  | { kind: '${2:circle}'; ${3:radius}: number }",
+      "  | { kind: '${4:square}'; ${5:size}: number };",
+      "$0"
+    ],
+    "description": "按 kind 区分的联合类型"
+  },
+  "穷尽检查 switch": {
+    "prefix": "exhaust",
+    "body": [
+      "switch (${1:value}.${2:kind}) {",
+      "  case '${3:a}':",
+      "    $0",
+      "    break;",
+      "  default: {",
+      "    const _exhaustive: never = ${1:value};",
+      "    throw new Error(`Unhandled case: \\${String(_exhaustive)}`);",
+      "  }",
+      "}"
+    ],
+    "description": "switch 用 never 保证覆盖所有分支"
+  },
+  "assertNever": {
+    "prefix": "assertnever",
+    "body": [
+      "function assertNever(value: never): never {",
+      "  throw new Error(`Unexpected value: \\${JSON.stringify(value)}`);",
+      "}",
+      "$0"
+    ],
+    "description": "不应到达的分支辅助函数"
+  },
+  "类型守卫": {
+    "prefix": "isguard",
+    "body": [
+      "function is${1:Name}(value: unknown): value is ${1:Name} {",
+      "  return typeof value === 'object' && value !== null && '${2:id}' in value;",
+      "}",
+      "$0"
+    ],
+    "description": "自定义类型守卫"
+  },
+  "断言函数": {
+    "prefix": "assertfn",
+    "body": [
+      "function assertDefined<T>(value: T | null | undefined, message = '${1:Expected value to be defined}'): asserts value is T {",
+      "  if (value == null) throw new Error(message);",
+      "}",
+      "$0"
+    ],
+    "description": "asserts 断言函数"
+  },
+  "Result 类型": {
+    "prefix": "resulttype",
+    "body": ["export type Result<T, E = Error> =", "  | { ok: true; value: T }", "  | { ok: false; error: E };", "$0"],
+    "description": "成功/失败联合类型"
+  },
+  "satisfies 配置": {
+    "prefix": "constsat",
+    "body": ["const ${1:config} = {", "  $0", "} as const satisfies ${2:Config};"],
+    "description": "用 satisfies 校验又保留字面量类型"
+  },
+  "const 对象代替枚举": {
+    "prefix": "constenum",
+    "body": [
+      "export const ${1:Status} = {",
+      "  ${2:Active}: '${3:active}',",
+      "  ${4:Inactive}: '${5:inactive}',",
+      "} as const;",
+      "",
+      "export type ${1:Status} = (typeof ${1:Status})[keyof typeof ${1:Status}];",
+      "$0"
+    ],
+    "description": "as const 对象加联合类型"
+  }
+}

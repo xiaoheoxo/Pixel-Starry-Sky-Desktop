@@ -1,0 +1,32 @@
+[
+  {
+    "template": "dotnet",
+    "file": "global.json",
+    "tasks": [
+      {
+        "name": "build",
+        "description": "编译（目录里要恰好有一个解决方案或项目文件）",
+        "linux": "dotnet build",
+        "windows": "dotnet build"
+      },
+      {
+        "name": "test",
+        "description": "运行测试",
+        "linux": "dotnet test",
+        "windows": "dotnet test"
+      },
+      {
+        "name": "restore",
+        "description": "还原 NuGet 包",
+        "linux": "dotnet restore",
+        "windows": "dotnet restore"
+      },
+      {
+        "name": "format",
+        "description": "按 .editorconfig 格式化代码",
+        "linux": "dotnet format",
+        "windows": "dotnet format"
+      }
+    ]
+  }
+]

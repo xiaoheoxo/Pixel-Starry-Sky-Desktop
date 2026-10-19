@@ -4,6 +4,8 @@ import type { GitCommitFile, GitFileChange } from '../../../../../shared/types/p
 import { allCodeTabIds, closeCodeTab, openPseudoTab, replaceCodeTab, useCodeTabs } from './codeTabs'
 import { isGitDiffId } from './codeTabsModel'
 import { gitDiffId, planSync, type GitDiffArea } from './gitDiffModel'
+import { refKey } from '@/features/editor/refKey'
+import { splitExtra } from '@/features/files/extraFolderPaths'
 
 /**
  * 代码模式中栏的「Git 对比」标签：只读，不是文件。
@@ -73,6 +75,27 @@ export function useCurrentGitDiff(refKey: string): GitDiffTabData | undefined {
   return data && data.refKey === refKey ? data : undefined
 }
 
+/** 每个工作区（Git 面板的 key）读到第几次状态：对比标签据此重读内容（文件还在同一区、字母没变时也能跟上新内容） */
+const revisions = new Map<string, number>()
+
+/** 这个工作区的状态版本；没读过状态时 0 */
+export const gitStatusRevision = (refKey: string): number => revisions.get(refKey) ?? 0
+
+export function useGitStatusRevision(refKey: string): number {
+  useSyncExternalStore(subscribe, () => rev)
+  return gitStatusRevision(refKey)
+}
+
+/** 每个工作区最近一次看到的 HEAD（提交号；空仓库为 null） */
+const heads = new Map<string, string | null>()
+
+/** Git 面板读到状态后调用：HEAD 换了（提交、切分支、拉取、终端里提交）返回 true；第一次看到这个工作区不算 */
+export function noteGitHead(refKey: string, head: string | null): boolean {
+  const before = heads.get(refKey)
+  heads.set(refKey, head)
+  return before !== undefined && before !== head
+}
+
 /**
  * Git 面板读到新状态后调用：工作区的对比标签跟着文件走（规则见 gitDiffModel.planSync）。
  * 文件暂存 / 取消暂存后标签换到新区，还原 / 提交后关掉
@@ -87,6 +110,7 @@ export function syncGitDiffTabs(
     if (s.area !== 'staged' && s.area !== 'commit')
       for (const f of s.files) if (f.local && !work.has(f.local)) work.set(f.local, { area: s.area, path: f.path })
   workFiles.set(refKey, work)
+  revisions.set(refKey, (revisions.get(refKey) ?? 0) + 1)
   const lookup = (path: string) => (area: GitDiffArea) =>
     sections.find(s => s.area === area)?.files.find(f => f.path === path)?.code ?? null
   for (const data of [...tabs.values()]) {
@@ -129,6 +153,17 @@ export function setGitFileKey(panelKey: string, fileKey: string): void {
 
 /** 文件标签的 key 对应哪个 Git 面板的 key（没有别名就是它自己） */
 export const gitPanelKey = (fileKey: string): string => panelKeys.get(fileKey) ?? fileKey
+
+/**
+ * 文件标签在不在这个 Git 面板的工作区里（会话在项目文件夹里时文件标签记的是项目，见 setGitFileKey）。
+ * 附加文件夹里的文件：文件树打开的标签记成项目 + 「::N/…」，对应的 Git 面板是「#N」
+ */
+export const inGitWorkspace =
+  (panelKey: string) =>
+  (tab: { ref: WorkspaceRef; path: string }): boolean => {
+    const extra = tab.ref.folder ? null : splitExtra(tab.path).index
+    return gitPanelKey(refKey(extra === null ? tab.ref : { ...tab.ref, folder: extra })) === panelKey
+  }
 
 /** 这个工作区里的这个文件（相对工作区的路径）有没有未暂存的改动；Git 面板没挂着（没读过状态）时 null */
 export function useWorkFile(fileKey: string, local: string): WorkFile | null {

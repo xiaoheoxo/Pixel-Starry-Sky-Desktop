@@ -1,5 +1,5 @@
 import type { AlwaysScope } from './base'
-import type { FileChange } from './item'
+import type { CommandWrapper, FileChange } from './item'
 
 export interface QuestionOption {
   label: string
@@ -30,6 +30,8 @@ export interface ApprovalRequest {
   /** 卡片标题，例如「运行命令」「修改文件」「使用 WebFetch」 */
   title: string
   command?: string
+  /** Codex 命令显示时去掉了外层 shell：原始整行和外壳信息 */
+  wrapper?: CommandWrapper
   /** 命令说明 */
   description?: string
   changes?: FileChange[]

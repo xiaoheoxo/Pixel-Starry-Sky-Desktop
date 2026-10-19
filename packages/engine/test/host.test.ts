@@ -804,7 +804,7 @@ describe('EngineHost + Claude（假引擎）', () => {
     await host.send(record.id, '你好')
     await waitFor(() => turnsDone(record.id) === 2)
     const second = spawnArgs()[1]
-    expect(second.slice(-2)).toEqual(['--resume', record.id])
+    expect(second).toEqual(expect.arrayContaining(['--resume', record.id]))
   })
 
   it('待处理：失败后会话摘要带错误和暂停的队列，重启后不打开会话也能看到，成功后清空', async () => {
@@ -833,6 +833,48 @@ describe('EngineHost + Claude（假引擎）', () => {
     await host.send(record.id, '你好')
     await waitFor(() => turnsDone(record.id) === 2)
     expect(summary().record).toMatchObject({ lastOutcome: 'completed', lastError: null })
+  })
+
+  it('最后一句回复：一轮结束后写进记录并持久化，没有回复的一轮不改旧值', async () => {
+    const host = makeHost()
+    const { record } = setup(host)
+    expect(host.open(record.id).record.lastReply ?? null).toBeNull()
+    await host.send(record.id, '你好')
+    await waitFor(() => turnsDone(record.id) === 1)
+    const reply = () => host.sessions().find(s => s.record.id === record.id)!.record.lastReply
+    expect(reply()).toBe('收到：你好')
+    // 和 lastOutcome 同一次保存：重启后冷读出来也在
+    expect(
+      makeHost()
+        .sessions()
+        .find(s => s.record.id === record.id)?.record.lastReply,
+    ).toBe('收到：你好')
+
+    // 只有用户消息的一轮（引擎崩了、没有任何回复）：outcome 变了，lastReply 保持上一次的
+    await host.send(record.id, '崩溃吧')
+    await waitFor(() => turnsDone(record.id) === 2)
+    expect(host.open(record.id).record.lastOutcome).toBe('failed')
+    expect(reply()).toBe('收到：你好')
+
+    host.cancelQueued(record.id, host.open(record.id).queue[0].id)
+    await host.send(record.id, '再来一次')
+    await waitFor(() => turnsDone(record.id) === 3)
+    expect(reply()).toBe('收到：再来一次')
+  })
+
+  it('会话里加提示：还没开始过的会话不加（加了就不算空会话，换引擎会改走接力）', async () => {
+    const host = makeHost()
+    const { record } = setup(host)
+    host.addNotice(record.id, 'warn', '手机把模式改成了「只规划」')
+    expect(host.open(record.id).items).toEqual([])
+    await host.send(record.id, '你好')
+    await waitFor(() => turnsDone(record.id) === 1)
+    host.addNotice(record.id, 'warn', '手机把模型改成了「opus」')
+    expect(host.open(record.id).items.at(-1)).toMatchObject({
+      kind: 'notice',
+      level: 'warn',
+      text: '手机把模型改成了「opus」',
+    })
   })
 
   it('空闲回收：进程被关掉后，下次发消息用 --resume 恢复', async () => {

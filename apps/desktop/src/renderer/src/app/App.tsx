@@ -23,6 +23,7 @@ import { OPEN_FILES_EVENT } from '../features/files/store'
 import { FileLifecycle } from '../features/files/FileLifecycle'
 import { FileConfirm } from '../features/files/FileConfirm'
 import { WindowControls } from '../features/layout/WindowControls'
+import { FirstLaunch } from '../features/onboarding/FirstLaunch'
 import { OPEN_RIGHT_WORKSPACE } from '../features/panel/workspaceStore'
 import { CodingLayout } from '../features/coding/CodingLayout'
 import { codingLayout } from '../features/coding/layoutStore'
@@ -356,6 +357,8 @@ export function App() {
           </div>
         </>
       )}
+      {/* 第一次打开的欢迎页：盖住整个窗口，窗口按钮在它上面 */}
+      <FirstLaunch />
       {/* Electron 按 DOM 顺序收集拖动区域；窗口按钮必须在全部 drag 区域之后排除。 */}
       <WindowControls />
     </div>

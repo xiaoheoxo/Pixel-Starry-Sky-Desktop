@@ -1,0 +1,249 @@
+{
+  "id": "pixelsky.go",
+  "name": "Go 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Go 的代码片段、go build / test / vet / mod / golangci-lint 任务，以及写测试和修报错的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["go", "golang", "gomod", "golangci-lint", "testing"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "Go Support",
+      "description": "Go snippets, go build / test / vet / mod / golangci-lint tasks, plus a skill and prompts for writing tests and fixing errors"
+    }
+  },
+  "contributes": {
+    "snippets": [
+      {
+        "language": "go",
+        "path": "snippets/go.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "go-pkgs",
+        "label": {
+          "zh": "Go 包",
+          "en": "Go packages"
+        },
+        "files": ["go.mod"],
+        "tasks": [
+          {
+            "name": "build",
+            "description": {
+              "zh": "编译所有包",
+              "en": "Build all packages"
+            }
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "运行所有测试",
+              "en": "Run all tests"
+            }
+          },
+          {
+            "name": "vet",
+            "description": {
+              "zh": "静态检查（go vet）",
+              "en": "Static checks (go vet)"
+            }
+          },
+          {
+            "name": "fmt",
+            "description": {
+              "zh": "格式化所有包（go fmt）",
+              "en": "Format all packages (go fmt)"
+            }
+          },
+          {
+            "name": "generate",
+            "description": {
+              "zh": "运行 //go:generate 指令",
+              "en": "Run //go:generate directives"
+            }
+          }
+        ],
+        "command": "go {name} ./..."
+      },
+      {
+        "id": "go-mod",
+        "label": {
+          "zh": "Go 模块",
+          "en": "Go modules"
+        },
+        "files": ["go.mod"],
+        "tasks": [
+          {
+            "name": "tidy",
+            "description": {
+              "zh": "整理 go.mod 和 go.sum",
+              "en": "Tidy go.mod and go.sum"
+            }
+          },
+          {
+            "name": "download",
+            "description": {
+              "zh": "下载依赖到本机缓存",
+              "en": "Download dependencies to the module cache"
+            }
+          },
+          {
+            "name": "verify",
+            "description": {
+              "zh": "校验依赖没被改过",
+              "en": "Verify dependencies are unmodified"
+            }
+          }
+        ],
+        "command": "go mod {name}"
+      },
+      {
+        "id": "go-run",
+        "label": {
+          "zh": "Go 运行",
+          "en": "Go run"
+        },
+        "files": ["go.mod"],
+        "tasks": [
+          {
+            "name": "run",
+            "description": {
+              "zh": "运行当前文件夹的 main 包",
+              "en": "Run the main package in this folder"
+            },
+            "when": "exists:main.go"
+          }
+        ],
+        "command": "go run ."
+      },
+      {
+        "id": "golangci-yml",
+        "label": {
+          "zh": "golangci-lint",
+          "en": "golangci-lint"
+        },
+        "files": ["go.mod"],
+        "tasks": [
+          {
+            "name": "lint",
+            "description": {
+              "zh": "用 golangci-lint 检查所有包",
+              "en": "Lint all packages with golangci-lint"
+            },
+            "when": "exists:.golangci.yml"
+          }
+        ],
+        "command": "golangci-lint run ./..."
+      },
+      {
+        "id": "golangci-yaml",
+        "label": {
+          "zh": "golangci-lint",
+          "en": "golangci-lint"
+        },
+        "files": ["go.mod"],
+        "tasks": [
+          {
+            "name": "lint",
+            "description": {
+              "zh": "用 golangci-lint 检查所有包",
+              "en": "Lint all packages with golangci-lint"
+            },
+            "when": "exists:.golangci.yaml"
+          }
+        ],
+        "command": "golangci-lint run ./..."
+      },
+      {
+        "id": "go-work",
+        "label": {
+          "zh": "Go 工作区",
+          "en": "Go workspace"
+        },
+        "files": ["go.work"],
+        "tasks": [
+          {
+            "name": "sync",
+            "description": {
+              "zh": "把工作区的依赖同步回各模块",
+              "en": "Sync workspace dependencies back to each module"
+            }
+          }
+        ],
+        "command": "go work {name}"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/go-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "go-table-tests",
+        "title": {
+          "zh": "为选中代码写表驱动测试",
+          "en": "Write table-driven tests for the selection"
+        },
+        "description": {
+          "zh": "按 Go 惯例写表驱动测试，覆盖边界和错误路径",
+          "en": "Write idiomatic table-driven Go tests covering edge cases and error paths"
+        },
+        "path": "prompts/table-tests.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "go-explain",
+        "title": {
+          "zh": "解释这段 Go 代码",
+          "en": "Explain this Go code"
+        },
+        "description": {
+          "zh": "说明选中代码的作用、并发和错误处理细节",
+          "en": "Explain what the selection does, including concurrency and error handling"
+        },
+        "path": "prompts/explain.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "go-improve-errors",
+        "title": {
+          "zh": "改进选中代码的错误处理",
+          "en": "Improve error handling in the selection"
+        },
+        "description": {
+          "zh": "检查被忽略的错误、缺少的包装和 errors.Is / As 用法",
+          "en": "Find ignored errors, missing wrapping and misuse of errors.Is / As"
+        },
+        "path": "prompts/improve-errors.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "go-explain-error",
+        "title": {
+          "zh": "解释编译或 vet 报错",
+          "en": "Explain a compiler or vet error"
+        },
+        "description": {
+          "zh": "粘贴 go build / go vet / 测试的报错，让 AI 找原因并修复",
+          "en": "Paste a go build / go vet / test error and have the AI find the cause and fix it"
+        },
+        "path": "prompts/explain-error.md",
+        "where": ["composer"]
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

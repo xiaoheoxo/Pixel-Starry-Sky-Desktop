@@ -27,11 +27,68 @@ describe('Codex 截断点（纯函数）', () => {
     expect(codexAnchor(turns, ['m0', 'm1', 'm2'])).toEqual({ at: null })
   })
   it('被移除的消息没发到 Codex：保留全部轮次', () => {
-    expect(codexAnchor(turns, ['never-sent'])).toEqual({ at: 't3' })
+    // unchanged：线程里什么都不用动，宿主不改待执行的回退 / 分叉
+    expect(codexAnchor(turns, ['never-sent'])).toEqual({ at: 't3', unchanged: true })
   })
   it('没有 clientId（老会话）或读不到轮次：找不到', () => {
     expect(codexAnchor([turn('t1'), turn('t2')], ['m0'])).toBeNull()
     expect(codexAnchor([], ['m0'])).toBeNull()
+  })
+  describe('按 turn id 对位（从终端导入的线程，docs/ui/codex-resume.md §4.7）', () => {
+    // 终端里发的消息没有 clientId：用户条目 id 就是 turn id
+    const imported = [turn('t1'), turn('t2'), turn('t3')]
+    it('turn id 无条件参与匹配：最早含有被移除消息的一轮的前一轮', () => {
+      expect(codexAnchor(imported, ['t2', 't3'])).toEqual({ at: 't1' })
+      expect(codexAnchor(imported, ['t3'])).toEqual({ at: 't2' })
+      expect(codexAnchor(imported, ['t1', 't2', 't3'])).toEqual({ at: null })
+      // 不带 byTurnId 也认 turn id（像素星空的消息 id 是 v4、turn id 是 v7，不会误中）
+      expect(codexAnchor(imported, ['t2'], { byTurnId: true })).toEqual({ at: 't1' })
+    })
+    it('clientId 和 turn id 混在一起（导入后又在像素星空里聊了）', () => {
+      const mixed = [turn('t1'), turn('t2'), turn('t3', 'm0'), turn('t4', 'm1')]
+      expect(codexAnchor(mixed, ['m1', 't2'])).toEqual({ at: 't1' })
+      expect(codexAnchor(mixed, ['m0'])).toEqual({ at: 't2' })
+    })
+    it('线程是像素星空以前发的（轮次同时带 clientId）：按 turn id 回退照样截得开', () => {
+      // 导入来的用户条目 id 是 turn id，不是 clientId；第一条的 clientId 不算「保留的消息」
+      const sent = [turn('t1', 'c1'), turn('t2', 'c2'), turn('t3', 'c3')]
+      expect(codexAnchor(sent, ['t3'], { byTurnId: true })).toEqual({ at: 't2' })
+      expect(codexAnchor(sent, ['t1', 't2', 't3'], { byTurnId: true })).toEqual({ at: null })
+      expect(codexAnchor(sent, ['t2', 't3'])).toEqual({ at: 't1' })
+    })
+    it('byTurnId：被移除的消息都不在线程里 → 保留全部；不带 byTurnId 时老规则不变（找不到）', () => {
+      expect(codexAnchor(imported, ['never-sent'], { byTurnId: true })).toEqual({ at: 't3', unchanged: true })
+      expect(codexAnchor(imported, ['never-sent'])).toBeNull()
+      expect(codexAnchor([], ['x'], { byTurnId: true })).toBeNull()
+    })
+    it('引导消息（<turn id>-u1）归到它所在的那一轮：这一轮的第一条话还保留着 → 截不开，找不到（最后一轮）', () => {
+      expect(codexAnchor(imported, ['t3-u1'], { byTurnId: true })).toBeNull()
+      expect(codexAnchor(imported, ['t3-u1', 't3-u2'], { byTurnId: true })).toBeNull()
+    })
+    it('引导消息在中间某一轮：被移除的里有它的下一轮也一样，找不到（不能留下半轮）', () => {
+      expect(codexAnchor(imported, ['t2-u1', 't3'], { byTurnId: true })).toBeNull()
+      expect(codexAnchor(imported, ['t2-u1'], { byTurnId: true })).toBeNull()
+      // 引导消息在更晚的一轮，最早命中的是前面保留着第一条的那一轮
+      expect(codexAnchor(imported, ['t2-u1', 't3', 't3-u1'], { byTurnId: true })).toBeNull()
+    })
+    it('同时移除这一轮自己的话时整轮去掉；引导消息只是跟着一起走', () => {
+      expect(codexAnchor(imported, ['t3', 't3-u1'], { byTurnId: true })).toEqual({ at: 't2' })
+      expect(codexAnchor(imported, ['t2', 't2-u1', 't3'], { byTurnId: true })).toEqual({ at: 't1' })
+      expect(codexAnchor(imported, ['t1', 't1-u1', 't2', 't3'], { byTurnId: true })).toEqual({ at: null })
+    })
+    it('像素星空发的轮次（带 clientId）里的引导消息：第一条保留就找不到；第一条的 clientId 一起移除就截得开', () => {
+      const sent = [turn('t1', 'c1'), turn('t2', 'c2')]
+      expect(codexAnchor(sent, ['t2-u1'], { byTurnId: true })).toBeNull()
+      expect(codexAnchor(sent, ['c2', 't2-u1'], { byTurnId: true })).toEqual({ at: 't1' })
+    })
+    it('不像引导消息的 id（后缀不是数字、不是这一轮的）不算', () => {
+      expect(codexAnchor(imported, ['t3-ux'], { byTurnId: true })).toEqual({ at: 't3', unchanged: true })
+      expect(codexAnchor(imported, ['t3-u'], { byTurnId: true })).toEqual({ at: 't3', unchanged: true })
+      expect(codexAnchor(imported, ['t9-u1'], { byTurnId: true })).toEqual({ at: 't3', unchanged: true })
+    })
+    it('按 clientId 匹配的老规则不变：整轮里有保留的用户消息，截不开', () => {
+      expect(codexAnchor([turn('t1', 'm0', 'g0')], ['g0'], { byTurnId: true })).toBeNull()
+    })
   })
   it('revertTarget：at 的下一轮；at 是最后一轮不用动；找不到', () => {
     expect(revertTarget(turns, 't1')).toBe('t2')
@@ -162,7 +219,8 @@ describe('Codex 回退', { timeout: 20_000 }, () => {
     data['fake-thread'][1].clientId = 'other'
     writeFileSync(stateFile(), JSON.stringify(data))
     await host!.rewind(session.id, 'm1')
-    expect(host!.open(session.id).record.pendingRewind).toBe('turn-2')
+    // 什么都不用动：不写 pendingRewind
+    expect(host!.open(session.id).record.pendingRewind ?? null).toBeNull()
     const from = messages().length
     await say(session.id, '三', 'n0')
     expect(methods(messages().slice(from))).not.toContain('thread/revert')
@@ -240,6 +298,25 @@ describe('Codex 分叉', { timeout: 20_000 }, () => {
     expect(clientIds(after.engineSessionId!)).toEqual(['m0', 'm1', 'f0'])
     expect(clientIds('fake-thread')).toEqual(['m0', 'm1', 'm2'])
     expect(notices(forked.record.id)).toEqual([])
+  })
+
+  it('thread/fork 显式带 modelProvider：平台 / 自定义接口是网关的 provider，自己账号是 config 里的当前 provider', async () => {
+    for (const [env, expected] of [
+      [{ FAKE_CODEX_PROVIDER: 'openai' }, 'openai'],
+      [{ PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1', PIXELSKY_CODEX_TOKEN: 'tok' }, 'pixelsky-custom'],
+    ] as const) {
+      const { session, messages, say, conversation } = setup(env)
+      if (expected === 'pixelsky-custom') await host!.update(session.id, { provider: { id: 'my-api' } })
+      await conversation(['一', '二', '三'])
+      const forked = await host!.forkSession(session.id, 'm2')
+      await say(forked.record.id, '另一条路', 'f0')
+      const fork = messages().find(m => m.method === 'thread/fork')
+      expect(fork?.params?.modelProvider).toBe(expected)
+      await host!.shutdown()
+      host = undefined
+      rmSync(join(root, 'state'), { recursive: true, force: true })
+      rmSync(join(root, 'rpc.jsonl'), { force: true })
+    }
   })
 
   it('分叉到第一条：新线程，没有 pendingFork，也不调 thread/fork', async () => {

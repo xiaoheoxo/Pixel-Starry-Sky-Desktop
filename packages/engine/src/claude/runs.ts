@@ -62,13 +62,17 @@ function phasesAndAgents(progress: unknown): Pick<WorkflowRun, 'phases' | 'agent
   }
 }
 
-function readRows(file: string): Msg[] {
+/**
+ * 读会话记录文件的每一行。keep：先用整行字符串判断要不要这一行，不要的不 JSON.parse
+ * （记录里带图片的行很大，解析一遍白白花时间和内存）
+ */
+function readRows(file: string, keep?: (line: string) => boolean): Msg[] {
   try {
     if (statSync(file).size > MAX_FILE) return []
     return readFileSync(file, 'utf8')
       .split('\n')
       .flatMap(line => {
-        if (!line.trim()) return []
+        if (!line.trim() || (keep && !keep(line))) return []
         try {
           return [JSON.parse(line) as Msg]
         } catch {
@@ -217,6 +221,14 @@ export class Runs {
   }
 }
 
+/**
+ * loadSavedRuns 只用到两类行：带 toolUseResult 的（启动编排的结果、Agent 工具的结果和总数），
+ * 以及含 Agent / Task 工具调用的 assistant 行（取说明和任务）。其余行（普通对话、图片）不用解析。
+ * 这里按子串粗筛，宁可多放进来：改动 loadSavedRuns 读的字段时要同步这里
+ */
+const savedRunsRow = (line: string): boolean =>
+  line.includes('toolUseResult') || line.includes('"Agent"') || line.includes('"Task"')
+
 /** 从 Claude Code 保存的文件读出以前的编排和子智能体（sessionDir 是 <会话 id> 目录，旁边是 <会话 id>.jsonl） */
 export function loadSavedRuns(sessionDir: string): AgentRuns {
   const workflows: WorkflowRun[] = []
@@ -248,7 +260,7 @@ export function loadSavedRuns(sessionDir: string): AgentRuns {
     })
   }
 
-  const rows = readRows(`${sessionDir}.jsonl`)
+  const rows = readRows(`${sessionDir}.jsonl`, savedRunsRow)
   // 启动编排的 Workflow 工具调用（按任务 id 对应）
   for (const row of rows) {
     const launched = obj(row.toolUseResult)

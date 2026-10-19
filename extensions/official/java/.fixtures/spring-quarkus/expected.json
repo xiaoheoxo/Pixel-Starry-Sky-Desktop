@@ -1,0 +1,140 @@
+[
+  {
+    "template": "maven",
+    "file": "pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "mvn clean",
+        "windows": "mvn clean"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "mvn compile",
+        "windows": "mvn compile"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "mvn test",
+        "windows": "mvn test"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "mvn package",
+        "windows": "mvn package"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "mvn verify",
+        "windows": "mvn verify"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "mvn install",
+        "windows": "mvn install"
+      },
+      {
+        "name": "spring-boot:run",
+        "description": "启动 Spring Boot 应用",
+        "linux": "mvn spring-boot:run",
+        "windows": "mvn spring-boot:run"
+      }
+    ]
+  },
+  {
+    "template": "maven",
+    "file": "lib/pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "cd lib && mvn clean",
+        "windows": "Set-Location -LiteralPath lib; if ($?) { mvn clean }"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "cd lib && mvn compile",
+        "windows": "Set-Location -LiteralPath lib; if ($?) { mvn compile }"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "cd lib && mvn test",
+        "windows": "Set-Location -LiteralPath lib; if ($?) { mvn test }"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "cd lib && mvn package",
+        "windows": "Set-Location -LiteralPath lib; if ($?) { mvn package }"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "cd lib && mvn verify",
+        "windows": "Set-Location -LiteralPath lib; if ($?) { mvn verify }"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "cd lib && mvn install",
+        "windows": "Set-Location -LiteralPath lib; if ($?) { mvn install }"
+      }
+    ]
+  },
+  {
+    "template": "maven",
+    "file": "quarkus-app/pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "cd quarkus-app && mvn clean",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn clean }"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "cd quarkus-app && mvn compile",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn compile }"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "cd quarkus-app && mvn test",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn test }"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "cd quarkus-app && mvn package",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn package }"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "cd quarkus-app && mvn verify",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn verify }"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "cd quarkus-app && mvn install",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn install }"
+      },
+      {
+        "name": "quarkus:dev",
+        "description": "Quarkus 开发模式（热重载）",
+        "linux": "cd quarkus-app && mvn quarkus:dev",
+        "windows": "Set-Location -LiteralPath quarkus-app; if ($?) { mvn quarkus:dev }"
+      }
+    ]
+  }
+]

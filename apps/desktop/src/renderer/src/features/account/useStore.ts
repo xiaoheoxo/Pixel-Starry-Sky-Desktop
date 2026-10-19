@@ -3,6 +3,7 @@ import { tr } from '../../i18n/core'
 // 真实构建读主进程的 account.store()；演示模式用演示目录。账号数据刷新（窗口聚焦、定时、手动）后静默重读。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StoreCatalog, StoreLinkKind, StoreLinkParams } from '../../../../shared/types/account'
+import type { AccountBridge } from '../../../../preload/account'
 import { demo } from '@/data/demo'
 
 export type StoreState =
@@ -14,15 +15,34 @@ export interface UseStoreResult {
   state: StoreState
   /** 重新读取；带着旧数据时不闪回加载态 */
   reload: () => Promise<void>
-  /** 在浏览器里打开面板的购买页 / 兑换页；失败时抛出可读的错误 */
-  open: (kind: StoreLinkKind, params?: StoreLinkParams) => Promise<void>
+  /** 在浏览器里打开面板的购买页 / 兑换页；失败时抛出可读的错误。演示模式不打开任何页面，返回 'demo' */
+  open: (kind: StoreLinkKind, params?: StoreLinkParams) => Promise<OpenResult>
 }
+
+export type OpenResult = 'opened' | 'demo'
 
 /** invoke 抛出的错误带着「Error invoking remote method 'xxx': Error: 」前缀，去掉后只留给用户看的那句话 */
 export function cleanIpcError(e: unknown, fallback: string): string {
   const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
   const msg = raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '').trim()
   return msg || fallback
+}
+
+/** 打开面板页：演示模式什么都不打开（返回 'demo'）；真实构建把 IPC 的错误整理成可读文案再抛出 */
+export async function openStorePage(
+  isDemo: boolean,
+  bridge: Pick<AccountBridge, 'openStore'> | undefined,
+  kind: StoreLinkKind,
+  params?: StoreLinkParams,
+): Promise<OpenResult> {
+  if (isDemo) return 'demo'
+  if (!bridge) throw new Error(tr('settings.account.Store.openFailed'))
+  try {
+    await bridge.openStore(kind, params)
+  } catch (e) {
+    throw new Error(cleanIpcError(e, tr('settings.account.Store.openFailed')))
+  }
+  return 'opened'
 }
 
 /** refreshKey 变化（账号数据刚刷新过）就静默重读一次 */
@@ -54,16 +74,7 @@ export function useStore(refreshKey: number): UseStoreResult {
   }, [reload, refreshKey])
 
   const open = useCallback(
-    async (kind: StoreLinkKind, params?: StoreLinkParams) => {
-      if (isDemo) return
-      const bridge = window.pixelsky?.account
-      if (!bridge) throw new Error(tr('settings.account.Store.openFailed'))
-      try {
-        await bridge.openStore(kind, params)
-      } catch (e) {
-        throw new Error(cleanIpcError(e, tr('settings.account.Store.openFailed')))
-      }
-    },
+    (kind: StoreLinkKind, params?: StoreLinkParams) => openStorePage(isDemo, window.pixelsky?.account, kind, params),
     [isDemo],
   )
 

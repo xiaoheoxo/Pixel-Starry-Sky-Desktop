@@ -7,6 +7,7 @@ import { isDemo, projects } from '@/data'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import {
   initTerminalStore,
+  refreshTerminals,
   terminalClose,
   terminalCreate,
   terminalError,
@@ -17,7 +18,7 @@ import {
   useTerminalStore,
 } from './store'
 import { screens } from './screens'
-import { exitSuffix } from '@/features/coding/tasks/model'
+import { exitSuffix, TaskCommandError } from '@/features/coding/tasks/model'
 import { openRightTab } from '@/features/panel/workspaceStore'
 import { workspaceTerminals } from './workspace'
 import { getMachines, machineOf, selectMachine } from '@/features/machines/store'
@@ -64,12 +65,14 @@ interface TerminalUi {
   /**
    * 跑「任务」视图里的任务（docs/ui/coding-tasks.md §3）：reuseId 还在就复用它（已退出的先重启），否则新建；
    * 标题改成任务名，选中并显示，命令后面接「跑完退出带退出码」的后缀。返回终端 id，失败 null。
-   * command 可以是函数：按终端程序给出命令（Gradle 在 cmd 里写法不同）
+   * command 可以是函数：按终端程序给出命令（Gradle 在 cmd 里写法不同）。
+   * onSent：命令真正写进终端之后调用（比返回晚，要等 shell 的提示符画完）
    */
   runTask(
     name: string,
     command: string | ((program: string | undefined) => string),
     reuseId?: string | null,
+    onSent?: (id: string) => void,
   ): Promise<string | null>
 }
 interface Dialog {
@@ -419,6 +422,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     name: string,
     command: string | ((program: string | undefined) => string),
     reuseId?: string | null,
+    onSent?: (id: string) => void,
   ): Promise<string | null> => {
     const ref = defaultRef()
     if (!ref || creating.current) return null
@@ -430,14 +434,32 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         await terminalRestart(record.id)
         record = terminalState().terminals.find(r => r.id === reuseId)
       }
+      const created = !record
+      // 新建终端之前先按默认 Shell 拼一次：cmd 下含 % 之类拼不出来的，不必建一个马上关掉的终端（实际 Shell 不同时下面还会再拼一次）
+      if (created && typeof command === 'function') {
+        const state = terminalState()
+        command(state.profiles.find(p => p.id === state.defaultProfileId)?.command)
+      }
       record ??= await terminalCreate(ref)
+      const profileOf = (id: string) => terminalState().profiles.find(p => p.id === id)
+      // 第一次启动没有缓存时，主进程检测完才建终端，界面的 Shell 列表可能还没取回来
+      if (!profileOf(record.profileId)) await refreshTerminals().catch(() => undefined)
+      const program = profileOf(record.profileId)?.command
+      let line: string
+      try {
+        line = typeof command === 'function' ? command(program) : command
+      } catch (cause) {
+        // 命令拼不出来（cmd 下路径含 %）：新建的终端用不上，关掉；错误交给调用方提示，不当终端故障
+        if (created) await terminalClose(record.id).catch(() => undefined)
+        throw cause
+      }
       select(record.id)
       await terminalRename(record.id, name).catch(() => undefined)
-      const program = terminalState().profiles.find(p => p.id === record.profileId)?.command
-      const line = typeof command === 'function' ? command(program) : command
-      terminalRunWhenReady(record.id, isDemo ? line : line + exitSuffix(program))
-      return record.id
+      const id = record.id
+      terminalRunWhenReady(id, isDemo ? line : line + exitSuffix(program), () => onSent?.(id))
+      return id
     } catch (cause) {
+      if (cause instanceof TaskCommandError) throw cause
       terminalError(cause)
       return null
     } finally {

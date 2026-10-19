@@ -1,13 +1,23 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CodexAdapter, EngineHost } from '../src'
-import type { AgentRun, Effort, EngineEvent, EngineInfo, HostEvent, ImageAttachment } from '@pixelsky/protocol'
+import {
+  parseCodedError,
+  type AgentRun,
+  type Effort,
+  type EngineEvent,
+  type EngineInfo,
+  type HostEvent,
+  type ImageAttachment,
+} from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, SessionContext } from '../src/adapter'
 import { ENGINES } from '../src/registry'
 import {
   codexPermission,
+  codexRerouteNotice,
+  codexRetryState,
   defaultModeAskSupported,
   turnErrorDetail,
   withoutOwnFeatures,
@@ -125,32 +135,81 @@ describe('Codex app-server adapter', () => {
     expect(none.status).toBe('unauthenticated')
     expect(none.auth).toBeUndefined()
   })
-  it('重连与失败的报错带上附加说明、错误类型和 HTTP 状态码，供界面查看详情', async () => {
-    const { session } = setup()
+  it('Codex 自己重连时显示「正在重试 n/m」状态条，不再每次一条报错；最后失败的报错带附加说明、错误类型和 HTTP 状态码', async () => {
+    const { session, events } = setup()
     await host!.send(session.id, '重连')
     await wait(
       () =>
         host!.open(session.id).state === 'idle' &&
-        host!.open(session.id).items.filter(i => i.kind === 'notice').length === 3,
+        host!.open(session.id).items.some(i => i.kind === 'notice' && i.level === 'error'),
     )
-    const notices = host!.open(session.id).items.filter(i => i.kind === 'notice')
-    expect(notices.map(n => n.kind === 'notice' && n.text)).toEqual([
-      'Reconnecting... 1/2',
-      'Reconnecting... 2/2',
-      'exceeded retry limit, last status: 502 Bad Gateway',
+    const retries = events.flatMap(e =>
+      e.kind === 'session' && e.sessionId === session.id && e.event.type === 'request_retry' ? [e.event.retry] : [],
+    )
+    expect(retries).toEqual([
+      { turnId: expect.any(String), attempt: 1, maxRetries: 2, retryAt: null, reason: 'HTTP 502' },
+      { turnId: expect.any(String), attempt: 2, maxRetries: 2, retryAt: null, reason: 'HTTP 502' },
     ])
+    const snapshot = host!.open(session.id)
+    expect(snapshot.retry).toBeNull()
+    const notices = snapshot.items.filter(i => i.kind === 'notice')
+    expect(notices).toHaveLength(1)
     expect(notices[0]).toMatchObject({
       level: 'error',
-      detail: [
-        'stream disconnected before completion: error sending request for url (https://api.example.test/v1/responses)',
-        'type: responseStreamDisconnected',
-        'HTTP status: 502',
-        'will retry: yes',
-      ].join('\n'),
-    })
-    expect(notices[2]).toMatchObject({
+      text: 'exceeded retry limit, last status: 502 Bad Gateway',
       detail: ['upstream connect error', 'type: responseTooManyFailedAttempts', 'HTTP status: 502'].join('\n'),
     })
+  })
+  it('换了模型：对话里一条提示，用量记在实际用的模型上；重连后接上了就收起状态条', async () => {
+    const { session, events } = setup()
+    await host!.send(session.id, '换模型')
+    await wait(
+      () => host!.open(session.id).state === 'idle' && host!.open(session.id).items.some(i => i.kind === 'notice'),
+    )
+    const notices = host!.open(session.id).items.filter(i => i.kind === 'notice')
+    expect(notices).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        text: 'Codex switched the model from fake-codex to fake-codex-safe: the request was flagged as high-risk cybersecurity activity',
+      }),
+    ])
+    const retries = events.flatMap(e =>
+      e.kind === 'session' && e.sessionId === session.id && e.event.type === 'request_retry' ? [e.event.retry] : [],
+    )
+    expect(retries).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        maxRetries: 5,
+        reason: 'stream disconnected before completion: error decoding response body',
+      }),
+      null,
+    ])
+    const done = events.flatMap(e =>
+      e.kind === 'session' && e.sessionId === session.id && e.event.type === 'turn_completed' ? [e.event] : [],
+    )
+    expect(Object.keys(done.at(-1)!.usage!.models)).toEqual(['fake-codex-safe'])
+  })
+  it('重连状态和换模型提示的拼法', () => {
+    expect(codexRetryState({ message: 'Reconnecting... waiting for network' }, 't1')).toEqual({
+      turnId: 't1',
+      attempt: null,
+      maxRetries: null,
+      retryAt: null,
+      reason: 'waiting for network',
+    })
+    expect(
+      codexRetryState(
+        { message: 'Reconnecting... 3/5', additionalDetails: 'first line\nsecond', codexErrorInfo: 'other' },
+        't1',
+      ),
+    ).toMatchObject({ attempt: 3, maxRetries: 5, reason: 'first line' })
+    expect(codexRetryState(null, 't1').reason).toBe('Connection lost')
+    expect(codexRerouteNotice({ fromModel: 'a', toModel: 'b', reason: 'somethingNew' })).toEqual({
+      text: 'Codex switched the model from a to b',
+      detail: 'reason: somethingNew',
+    })
+    expect(codexRerouteNotice({ fromModel: 'a', toModel: 'a' })).toBeNull()
+    expect(codexRerouteNotice({ toModel: '' })).toBeNull()
   })
   it('报错详情：只有 message 时为空，字符串错误类型照样列出', () => {
     expect(turnErrorDetail({ message: 'boom' })).toBeNull()
@@ -172,6 +231,73 @@ describe('Codex app-server adapter', () => {
     expect(messages().some(m => m.method === 'thread/resume')).toBe(true)
     expect(host!.open(session.id).items.filter(i => i.kind === 'user')).toHaveLength(2)
     expect(host!.open(session.id).usage?.contextWindow).toBe(128000)
+  })
+  it('空闲后重新起进程：子智能体追踪取运行时里已有的，不再整读一遍 rollout', async () => {
+    const { adapter, session } = setup()
+    const running: AgentRun = {
+      id: 'child-x',
+      label: '',
+      type: '',
+      model: '',
+      state: 'running',
+      startedAt: 1,
+      durationMs: 0,
+      tokens: 0,
+      toolCalls: 0,
+      phase: null,
+      prompt: '',
+      result: '',
+      toolUseId: null,
+    }
+    const loadRuns = vi.spyOn(adapter, 'loadRuns').mockReturnValue({ workflows: [], agents: [running] })
+    await host!.send(session.id, 'first')
+    await wait(() => host!.open(session.id).items.some(i => i.kind === 'turn_stats'))
+    // 空闲超时关掉进程，第二条消息会新建 CodexSession
+    await new Promise(r => setTimeout(r, 100))
+    await host!.send(session.id, 'second')
+    await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
+    // 只有创建运行时那一次读了 rollout
+    expect(loadRuns).toHaveBeenCalledTimes(1)
+    // 宿主快照里的追踪没被会话改动
+    expect(host!.open(session.id).runs.agents[0]).toMatchObject({ id: 'child-x', state: 'running' })
+  })
+  it('新会话连接拿到的子智能体追踪：来自宿主快照的副本，还在 running 的标成已中断，快照不被改', async () => {
+    const { adapter, session } = setup()
+    expect((await adapter.info()).status).toBe('ready')
+    const agent = (id: string, state: AgentRun['state']): AgentRun => ({
+      id,
+      label: '',
+      type: '',
+      model: '',
+      state,
+      startedAt: 1,
+      durationMs: 0,
+      tokens: 0,
+      toolCalls: 0,
+      phase: null,
+      prompt: '',
+      result: '',
+      toolUseId: null,
+    })
+    const runs = { workflows: [], agents: [agent('child-x', 'running'), agent('child-y', 'completed')] }
+    const record = host!.open(session.id).record
+    const loadRuns = vi.spyOn(adapter, 'loadRuns')
+    const ctx = {
+      record: () => record,
+      emit: () => {},
+      runs: () => runs,
+    } as unknown as SessionContext
+    const created = adapter.createSession(ctx)
+    const agents = (created as unknown as { agents: Map<string, AgentRun> }).agents
+    expect([...agents.values()].map(a => [a.id, a.state])).toEqual([
+      ['child-x', 'interrupted'],
+      ['child-y', 'completed'],
+    ])
+    // 快照里的那份没被改，也没有再读 rollout
+    expect(runs.agents[0].state).toBe('running')
+    expect(agents.get('child-x')).not.toBe(runs.agents[0])
+    expect(loadRuns).not.toHaveBeenCalled()
+    await created.close()
   })
   it('审批拒绝、中断与崩溃都结束轮次并暂停队列', async () => {
     const { session } = setup()
@@ -304,6 +430,25 @@ describe('Codex app-server adapter', () => {
     await wait(() => host!.open(session.id).state === 'idle')
     expect(host!.open(session.id).context?.compacting).toBe(false)
   })
+  it('空闲超时关掉引擎进程后点压缩：不报错，重新拉起会话再压缩', async () => {
+    const { session, messages, launches } = setup(50)
+    await host!.send(session.id, 'hello')
+    await wait(() => host!.open(session.id).state === 'idle' && host!.open(session.id).flags.compactAvailable === true)
+    // idleMs=50：进程被关掉后 flags.compactAvailable 还留着，但已经没有活的会话
+    await wait(() => messages().some(m => m.method === 'turn/start'))
+    await new Promise(r => setTimeout(r, 400))
+    expect(host!.open(session.id).flags.compactAvailable).toBe(true)
+    const before = launches().length
+    await host!.compactContext(session.id)
+    await wait(() => messages().some(m => m.method === 'thread/compact/start'))
+    expect(launches().length).toBeGreaterThan(before)
+    expect(messages().filter(m => m.method === 'turn/start')).toHaveLength(1)
+    await wait(() => host!.open(session.id).state === 'idle')
+  })
+  it('会话还没开始过（没有 compactAvailable）点压缩仍然报错', async () => {
+    const { session } = setup()
+    await expect(host!.compactContext(session.id)).rejects.toThrow('当前引擎不支持原生压缩')
+  })
   it('恢复线程失败时新开线程并提示，换掉记录里的线程 id，之后的消息正常完成', async () => {
     const { session, messages } = setup()
     const failFile = join(root, 'resume-fail')
@@ -328,6 +473,83 @@ describe('Codex app-server adapter', () => {
     await host!.send(session.id, 'third')
     await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 3)
     expect(host!.open(session.id).state).toBe('idle')
+  })
+  it('thread/start 和 thread/resume 显式带 modelProvider：自己账号用 config 里的当前 provider，自定义接口是 pixelsky-custom', async () => {
+    const providers = (messages: () => { method?: string; params?: Record<string, unknown> }[]) =>
+      messages()
+        .filter(m => m.method === 'thread/start' || m.method === 'thread/resume')
+        .map(m => [m.method, m.params?.modelProvider])
+    const own = setup(50, { env: { FAKE_CODEX_PROVIDER: 'openai' } })
+    await host!.send(own.session.id, 'one')
+    await wait(() => host!.open(own.session.id).items.some(i => i.kind === 'turn_stats'))
+    await new Promise(r => setTimeout(r, 150))
+    await host!.send(own.session.id, 'two')
+    await wait(() => host!.open(own.session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
+    expect(providers(own.messages)).toEqual([
+      ['thread/start', 'openai'],
+      ['thread/resume', 'openai'],
+    ])
+    await host!.shutdown()
+    host = undefined
+    const gateway = setup(50, {
+      env: { PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1', PIXELSKY_CODEX_TOKEN: 'tok' },
+    })
+    await host!.update(gateway.session.id, { provider: { id: 'my-api' } })
+    await host!.send(gateway.session.id, 'one')
+    await wait(() => host!.open(gateway.session.id).items.some(i => i.kind === 'turn_stats'))
+    expect(providers(gateway.messages).at(-1)).toEqual(['thread/start', 'pixelsky-custom'])
+  })
+  it('经网关的线程在 Codex 里改名带上「[像素星空]」前缀，跟着标题改；自己账号的不改名', async () => {
+    const names = (messages: () => { method?: string; params?: Record<string, unknown> }[]) =>
+      messages()
+        .filter(m => m.method === 'thread/name/set')
+        .map(m => m.params?.name)
+    const own = setup(50, { env: { FAKE_CODEX_PROVIDER: 'openai' } })
+    await host!.send(own.session.id, 'one')
+    await wait(() => host!.open(own.session.id).items.some(i => i.kind === 'turn_stats'))
+    expect(names(own.messages)).toEqual([])
+    await host!.shutdown()
+    host = undefined
+
+    const gateway = setup(50, {
+      env: { PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1', PIXELSKY_CODEX_TOKEN: 'tok' },
+    })
+    await host!.update(gateway.session.id, { provider: { id: 'my-api' } })
+    await host!.send(gateway.session.id, 'hello there')
+    await wait(() => names(gateway.messages).length === 1)
+    expect(names(gateway.messages)).toEqual(['[像素星空] hello there'])
+    // 标题没变：第二轮不再改名
+    await host!.send(gateway.session.id, 'again')
+    await wait(() => host!.open(gateway.session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
+    expect(names(gateway.messages)).toHaveLength(1)
+  })
+  it('thread/resume 带 modelProvider：关掉进程再发送，resume 里是当前来源', async () => {
+    const { session, messages } = setup(50, {
+      env: { PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1', PIXELSKY_CODEX_TOKEN: 'tok' },
+    })
+    await host!.update(session.id, { provider: { id: 'my-api' } })
+    await host!.send(session.id, 'one')
+    await wait(() => host!.open(session.id).items.some(i => i.kind === 'turn_stats'))
+    await new Promise(r => setTimeout(r, 150))
+    await host!.send(session.id, 'two')
+    await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
+    expect(messages().find(m => m.method === 'thread/resume')?.params?.modelProvider).toBe('pixelsky-custom')
+  })
+  it('线程正被别的进程写着（already has an active writer）：失败代码 resume.live，不改开新线程', async () => {
+    const { session, messages } = setup(50, { env: { FAKE_CODEX_LOCKED: '1' } })
+    await host!.send(session.id, 'first')
+    await wait(() => host!.open(session.id).items.some(i => i.kind === 'turn_stats'))
+    const oldId = host!.open(session.id).record.engineSessionId
+    await new Promise(r => setTimeout(r, 150))
+    const starts = () => messages().filter(m => m.method === 'thread/start').length
+    const before = starts()
+    await host!.send(session.id, 'second')
+    await wait(() => host!.open(session.id).state === 'idle' && host!.open(session.id).queue.some(q => q.error))
+    expect(messages().some(m => m.method === 'thread/resume')).toBe(true)
+    expect(starts()).toBe(before)
+    const queued = host!.open(session.id).queue.find(q => q.error)
+    expect(parseCodedError(queued?.error)?.code).toBe('resume.live')
+    expect(host!.open(session.id).record.engineSessionId).toBe(oldId)
   })
   it('停止后等原生结束这一轮，不会直接结束进程', async () => {
     const { session, messages, events } = setup()
@@ -959,7 +1181,7 @@ describe('Codex app-server adapter', () => {
     // 没有指向开关的行就原样留着
     expect(withoutOwnFeatures(`${head(1)}\n${user}`, true)).toBe(`${head(1)}\n${user}`)
   })
-  it('Fast：自己的 openai 登录且模型有 priority 档位时可开，每轮写明档位；换到没有档位的模型就关掉并说明原因', async () => {
+  it('Fast：自己的 openai 登录且模型有 priority 档位时每轮写明档位；换到没有档位的模型也能开，只提示可能不生效', async () => {
     const { session, messages } = setup(50, { env: { FAKE_CODEX_PROVIDER: 'openai' } })
     await host!.update(session.id, { fast: true })
     await host!.send(session.id, '快')
@@ -973,18 +1195,50 @@ describe('Codex app-server adapter', () => {
     await wait(() => host!.open(session.id).state === 'idle' && start().length === 2)
     expect(start()[1].params.serviceTier).toBe('default')
     await host!.update(session.id, { fast: true, model: 'fake-plain' })
-    await wait(() => host!.open(session.id).flags.fastBlocked === 'model_not_allowed')
-    expect(host!.open(session.id).flags.fastAvailable).toBe(false)
-    expect(host!.open(session.id).record.fast).toBe(false)
+    await wait(() => host!.open(session.id).flags.fastBlocked === 'codex_unverified')
+    expect(host!.open(session.id).flags).toMatchObject({ fastAvailable: true, fastState: 'on' })
+    expect(host!.open(session.id).record.fast).toBe(true)
+    await host!.send(session.id, '没有档位的模型')
+    await wait(() => host!.open(session.id).state === 'idle' && start().length === 3)
+    expect(start()[2].params.serviceTier).toBe('priority')
+    // 拿不准时关掉不写 default，用 Codex 自己的配置
+    await host!.update(session.id, { fast: false })
+    await host!.send(session.id, '关掉')
+    await wait(() => host!.open(session.id).state === 'idle' && start().length === 4)
+    expect(start()[3].params.serviceTier).toBeUndefined()
   })
-  it('Fast：provider 不是 openai（自定义 / 平台线路）时开不了，不带 serviceTier', async () => {
+  it('Fast：provider 不是 openai（自己配的接口）时也能开，提示可能不生效，开着照样带档位', async () => {
     const { session, messages } = setup()
     await host!.update(session.id, { fast: true })
     await host!.send(session.id, '快')
     await wait(() => host!.open(session.id).state === 'idle')
-    expect(host!.open(session.id).flags).toMatchObject({ fastAvailable: false, fastBlocked: 'codex_gateway' })
-    expect(host!.open(session.id).record.fast).toBe(false)
-    expect(messages().find(m => m.method === 'turn/start')?.params.serviceTier).toBeUndefined()
+    expect(host!.open(session.id).flags).toMatchObject({
+      fastAvailable: true,
+      fastState: 'on',
+      fastBlocked: 'codex_unverified',
+    })
+    expect(host!.open(session.id).record.fast).toBe(true)
+    expect(messages().find(m => m.method === 'turn/start')?.params.serviceTier).toBe('priority')
+  })
+  it('Fast：走平台 / 像素星空接口时也能开，提示看接口支不支持，开着照样带档位、关着不带', async () => {
+    const { session, messages } = setup(50, {
+      env: { PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1', PIXELSKY_CODEX_TOKEN: 'tok' },
+    })
+    await host!.update(session.id, { provider: { id: 'my-api' }, fast: true })
+    await host!.send(session.id, '快')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(host!.open(session.id).flags).toMatchObject({
+      fastAvailable: true,
+      fastState: 'on',
+      fastBlocked: 'codex_gateway',
+    })
+    expect(host!.open(session.id).record.fast).toBe(true)
+    const start = () => messages().filter(m => m.method === 'turn/start')
+    expect(start()[0].params.serviceTier).toBe('priority')
+    await host!.update(session.id, { fast: false })
+    await host!.send(session.id, '关掉')
+    await wait(() => host!.open(session.id).state === 'idle' && start().length === 2)
+    expect(start()[1].params.serviceTier).toBeUndefined()
   })
 })
 

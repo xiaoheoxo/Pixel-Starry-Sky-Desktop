@@ -1,7 +1,6 @@
 // 像素星空会话：一个会话一个 `pixelsky --mode rpc` 子进程（docs/own-cli.md §4.1）
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { delimiter } from 'node:path'
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -15,11 +14,32 @@ import { EMPTY_FLAGS } from '@pixelsky/protocol'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { ChatSeed } from '../chat-log'
 import { findModel, piThinkingLevel } from './catalog'
+import {
+  APPROVAL_CONTEXT_STATUS,
+  runsFromSession,
+  subagentApproval,
+  subagentItemId,
+  type SubagentApproval,
+} from './agents'
 import { PixelProcess, array, object, string, type Message } from './process'
-import { PixelTranslator, approvalFor, toolNameFromTitle } from './translate'
+import {
+  APPROVAL_OPTIONS,
+  EXIT_PLAN_TOOL,
+  PLAN_OPTIONS,
+  PixelTranslator,
+  approvalFor,
+  isApprovalSelect,
+  isPlanSelect,
+  planApproval,
+  textError,
+  toolItem,
+  toolNameFromTitle,
+} from './translate'
 
 /** 批准扩展里运行中切换权限模式的命令（packages/cli/src/extensions/approval.ts 的 MODE_COMMAND） */
 const MODE_COMMAND = 'pixelsky-mode'
+/** 批准扩展报当前权限模式的状态键（approval.ts 的 MODE_STATUS），例如计划确认后它自己退出了计划模式 */
+const MODE_STATUS = 'pixelsky-mode'
 
 /** 我们的权限模式 → 批准扩展的 --permission-mode */
 export const PIXEL_MODES: Record<PermissionMode, string> = {
@@ -40,12 +60,28 @@ export const GATEWAY_ENV = {
   models: 'PIXELSKY_PIXEL_MODELS',
 } as const
 export const GATEWAY_PROVIDER = 'pixelsky'
+/** 交给命令行网关扩展的 provider 配置（packages/cli/src/extensions/gateway.ts 的 PROVIDERS_ENV） */
+export const PROVIDERS_ENV = 'PIXELSKY_PIXEL_PROVIDERS'
+/** 桌面端管理的 MCP 服务器文件（packages/cli/src/extensions/mcp.ts 的 MCP_FILE_ENV） */
+export const MCP_FILE_ENV = 'PIXELSKY_MCP_FILE'
+/** 不用问就放行的工具（approval.ts 的 ALLOW_TOOLS_ENV），例如只读的对话历史服务器 */
+export const ALLOW_TOOLS_ENV = 'PIXELSKY_ALLOW_TOOLS'
 
 export interface PixelLaunchOptions {
   /** 用户追加的启动参数 */
   args?: string[]
-  /** 网关会话的临时配置目录放哪（默认系统临时目录下的 pixelsky-pixel） */
-  agentRoot?: string
+}
+
+/** 用户自己选工具的参数（这时不追加 SEARCH_TOOLS，以用户为准） */
+const TOOL_SELECTION_ARGS = ['--tools', '-t', '--no-tools', '-nt', '--no-builtin-tools', '-nbt']
+
+/**
+ * Pi 默认只开 read / bash / edit / write；桌面端再开 grep / find / ls（只读、批准扩展直接放行，
+ * 对话里显示成搜索 / 读取卡片，用的是随包 bin/ 里的 rg / fd）。只含 +name 的 --tools 是在默认选择上加，不会覆盖用户的 defaultTools。
+ */
+export function searchToolArgs(userArgs: readonly string[]): string[] {
+  const own = userArgs.some(a => TOOL_SELECTION_ARGS.some(name => a === name || a.startsWith(name + '=')))
+  return own ? [] : ['--tools', '+grep,+find,+ls']
 }
 
 /** 用户追加的参数里第一个由像素星空控制的；都允许时返回 null */
@@ -65,13 +101,8 @@ export function reservedPixelArg(args: readonly string[]): string | null {
   return null
 }
 
-/** Pi 的会话目录：和终端里用 pixelsky 时一样（网关会话用临时配置目录，会话文件仍然放这里，才不会随临时目录删掉） */
-export function pixelSessionsDir(env: NodeJS.ProcessEnv): string {
-  return join(env.PIXELSKY_CODING_AGENT_DIR?.trim() || join(homedir(), '.pixelsky-cli', 'agent'), 'sessions')
-}
-
 /**
- * 需要自定义地址时生成 models.json 的内容；不需要返回 null。
+ * 需要自定义地址时生成 provider 配置（结构同 models.json）；不需要返回 null。
  * - 网关会话（PIXELSKY_PIXEL_BASE_URL）：自定义 provider "pixelsky"，密钥用 $PIXELSKY_PIXEL_TOKEN
  * - 用户自己配了 ANTHROPIC_BASE_URL / OPENAI_BASE_URL（Pi 不认这两个环境变量）：覆盖内置 provider 的 baseUrl，密钥照常用 ANTHROPIC_API_KEY / OPENAI_API_KEY
  */
@@ -108,6 +139,7 @@ export function pixelModelsConfig(env: NodeJS.ProcessEnv, model: string | null):
 
 type Pending = {
   request: ApprovalRequest
+  /** confirm / select / input / editor；approval 是批准扩展的三选一（select） */
   method: string
   options: string[]
   timer: NodeJS.Timeout | null
@@ -126,11 +158,17 @@ export class PixelSession implements EngineSession {
   private readonly approvals = new Map<string, Pending>()
   /** 已经挂到某张审批卡片上的工具条目（批准请求里没有 toolCallId，按工具名找最早的没挂过的） */
   private readonly linked = new Map<string, string>()
+  /**
+   * 本轮问过的工具条目：一个调用最多问一次，卡片答完了也不能再挂（否则同一条消息里两条命令，
+   * 第二张卡会挂到已经批准、还在跑的第一条上）
+   */
+  private readonly asked = new Set<string>()
+  /** 子智能体转来的下一条审批是哪次调用（APPROVAL_CONTEXT_STATUS），只管紧接着的那一条 */
+  private approvalContext: SubagentApproval | null = null
   /** 等 Pi 交付的引导消息（按发送顺序），交付时 Pi 会发一条用户消息 */
   private readonly guidance: string[] = []
   private promptUserSeen = false
   private translator: PixelTranslator
-  private agentDir: string | null = null
   private turnWaiters: Array<() => void> = []
 
   constructor(
@@ -169,17 +207,20 @@ export class PixelSession implements EngineSession {
       const key = Object.keys(environment).find(k => k.toLowerCase() === 'path') ?? 'PATH'
       environment[key] = [...this.ctx.extensions.pathDirs, environment[key] ?? ''].join(delimiter)
     }
-    // 自定义地址：这个会话自己的临时配置目录里放 models.json；会话文件仍放在原来的会话目录
+    // 自定义地址：交给命令行的网关扩展 pi.registerProvider()（packages/cli/src/extensions/gateway.ts）。
+    // 配置目录始终是用户自己的 ~/.pixelsky-cli/agent/，里面的 mcp.json、技能、扩展、bin/ 才会生效
     const models = pixelModelsConfig(environment, record.model)
-    if (models) {
-      const root = this.options.agentRoot ?? join(tmpdir(), 'pixelsky-pixel')
-      mkdirSync(root, { recursive: true })
-      this.agentDir = mkdtempSync(join(root, 'agent-'))
-      writeFileSync(join(this.agentDir, 'models.json'), JSON.stringify(models), { mode: 0o600 })
-      args.push('--session-dir', pixelSessionsDir(environment))
-      environment.PIXELSKY_CODING_AGENT_DIR = this.agentDir
-    }
-    args.push(...(this.options.args ?? []))
+    if (models) environment[PROVIDERS_ENV] = JSON.stringify(models.providers)
+    else delete environment[PROVIDERS_ENV]
+    // 桌面端管理的 MCP（设置 › 插件）：文件交给命令行的 MCP 扩展注册；应用自己的只读服务器不用问
+    const ext = this.ctx.extensions
+    if (ext?.mcpFile) environment[MCP_FILE_ENV] = ext.mcpFile
+    else delete environment[MCP_FILE_ENV]
+    if (ext?.allowTools?.length) environment[ALLOW_TOOLS_ENV] = ext.allowTools.join(',')
+    else delete environment[ALLOW_TOOLS_ENV]
+    // 桌面端管理的技能：每个技能目录一个 --skill（Pi 认 SKILL.md 所在的目录）
+    for (const root of ext?.skillRoots ?? []) args.push('--skill', root)
+    args.push(...searchToolArgs(this.options.args ?? []), ...(this.options.args ?? []))
     const proc = new PixelProcess(this.launcher, args, record.cwd, environment, {
       event: event => this.event(event),
       exit: (_code, tail) => {
@@ -220,6 +261,8 @@ export class PixelSession implements EngineSession {
       state = object((await proc.request('get_state')).data)
       this.modelInfo = object(state.model)
       this.ctx.setEngineSessionId(string(state.sessionFile) || string(state.sessionId))
+      // 以前的子智能体：之后的 runs 事件是整份替换，要带上它们
+      this.translator.seedRuns(runsFromSession(string(state.sessionFile)).map(({ sessionFile: _, ...run }) => run))
       // 切回旧会话：用 Pi 记的累计作基线，用量不从零开始
       const stats = object(
         (await proc.request('get_session_stats').catch(() => ({ command: 'get_session_stats', data: {} as Message })))
@@ -258,7 +301,6 @@ export class PixelSession implements EngineSession {
     } catch (error) {
       this.proc = null
       await proc.close()
-      this.cleanupAgentDir()
       throw error
     }
   }
@@ -290,12 +332,6 @@ export class PixelSession implements EngineSession {
     this.ctx.emit({ type: 'commands', commands })
   }
 
-  private cleanupAgentDir(): void {
-    if (!this.agentDir) return
-    rmSync(this.agentDir, { recursive: true, force: true })
-    this.agentDir = null
-  }
-
   // ---------------------------------------------------------------------------
   // 发送
   // ---------------------------------------------------------------------------
@@ -316,6 +352,7 @@ export class PixelSession implements EngineSession {
     this.active = active
     this.promptUserSeen = false
     this.guidance.length = 0
+    this.asked.clear()
     this.translator.beginTurn()
     void this.run(active, text, userItemId, attachments, handoffImages).catch(error => {
       if (this.active === active) this.finish('failed', (error as Error).message)
@@ -432,7 +469,12 @@ export class PixelSession implements EngineSession {
     if (type === 'auto_retry_end') {
       this.ctx.emit({ type: 'request_retry', retry: null })
       if (raw.success === false)
-        this.translator.notice('error', string(raw.finalError) || 'Request failed after retries')
+        this.translator.notice(
+          'error',
+          string(raw.finalError) || 'Request failed after retries',
+          null,
+          textError(string(raw.finalError)),
+        )
       return
     }
     // queue_update 不转成 queue 事件：排队由宿主管理，引导的交付以用户消息为准（userMessage）
@@ -448,20 +490,55 @@ export class PixelSession implements EngineSession {
       if (text) this.translator.notice(level, text)
       return
     }
+    if (method === 'setStatus') {
+      const key = string(raw.statusKey)
+      if (key === MODE_STATUS) this.syncMode(string(raw.statusText))
+      else if (key === APPROVAL_CONTEXT_STATUS) this.approvalContext = subagentApproval(string(raw.statusText))
+      return
+    }
     if (method !== 'confirm' && method !== 'select' && method !== 'input' && method !== 'editor') return
+    const context = this.approvalContext
+    this.approvalContext = null
     if (!this.active || !this.proc?.alive) {
       this.proc?.respondUi(id, { cancelled: true })
       return
     }
     const title = string(raw.title)
     let request: ApprovalRequest
-    let options: string[] = []
-    if (method === 'confirm') {
-      const item = this.translator.runningTool(toolNameFromTitle(title), new Set(this.linked.values()))
-      request = approvalFor(id, title, string(raw.message), item)
-      if (item) this.linked.set(id, item.id)
+    const options: string[] = array(raw.options).map(string)
+    let kind = method
+    const approval = method === 'confirm' || (method === 'select' && isApprovalSelect(title, options))
+    const taken = new Set([...this.linked.values(), ...this.asked])
+    if (method === 'select' && isPlanSelect(title, options)) {
+      kind = 'plan'
+      const item = this.translator.runningTool(EXIT_PLAN_TOOL, taken)
+      request = planApproval(id, title, item)
+      if (item) this.link(id, item.id)
+    } else if (approval) {
+      if (method === 'select') kind = 'approval'
+      const tool = toolNameFromTitle(title)
+      const summary = title.split('\n').slice(1).join('\n')
+      // 子智能体里的调用：主会话没有它的条目，按子进程报来的参数拼一个（不进对话），卡片挂在 task 条目上
+      const sub = context && context.tool === tool ? context : null
+      const item = sub
+        ? toolItem(`${subagentItemId(sub.toolCallId)}-${id}`, sub.tool, sub.args, this.ctx.record().cwd)
+        : this.translator.runningTool(tool, taken, method === 'select' ? summary : undefined)
+      request = approvalFor(
+        id,
+        title,
+        method === 'confirm' ? string(raw.message) : summary,
+        item,
+        method === 'select' ? ['session'] : [],
+      )
+      if (sub) {
+        const task = subagentItemId(sub.toolCallId)
+        request = {
+          ...request,
+          itemId: this.translator.items.has(task) ? task : null,
+          ...(request.kind === 'tool' ? { input: sub.args } : {}),
+        }
+      } else if (item) this.link(id, item.id)
     } else {
-      options = array(raw.options).map(string)
       request = {
         requestId: id,
         itemId: null,
@@ -484,8 +561,21 @@ export class PixelSession implements EngineSession {
     const timeout = typeof raw.timeout === 'number' && raw.timeout > 0 ? raw.timeout : 0
     const timer = timeout ? setTimeout(() => this.dropApproval(id), timeout) : null
     timer?.unref()
-    this.approvals.set(id, { request, method, options, timer })
+    this.approvals.set(id, { request, method: kind, options, timer })
     this.ctx.emit({ type: 'approval_request', request })
+  }
+
+  private link(requestId: string, itemId: string): void {
+    this.linked.set(requestId, itemId)
+    this.asked.add(itemId)
+  }
+
+  /** 命令行自己换了权限模式（计划确认后退出计划模式）：记下来并告诉宿主，不再发 /pixelsky-mode */
+  private syncMode(text: string): void {
+    const mode = (Object.keys(PIXEL_MODES) as PermissionMode[]).find(m => PIXEL_MODES[m] === text)
+    if (!mode || mode === this.settings.permissionMode) return
+    this.settings.permissionMode = mode
+    this.ctx.setPermissionMode(mode)
   }
 
   private dropApproval(id: string): void {
@@ -517,6 +607,14 @@ export class PixelSession implements EngineSession {
     const allow = decision.type === 'allow' || decision.type === 'allow_always'
     if (approval.method === 'confirm') {
       this.proc.respondUi(requestId, { confirmed: allow })
+    } else if (approval.method === 'plan') {
+      const [start, refine] = PLAN_OPTIONS
+      this.proc.respondUi(requestId, { value: allow ? start : refine })
+    } else if (approval.method === 'approval') {
+      const [once, always, deny] = APPROVAL_OPTIONS
+      this.proc.respondUi(requestId, {
+        value: decision.type === 'allow_always' ? always : decision.type === 'allow' ? once : deny,
+      })
     } else if (approval.method === 'select') {
       const answers = decision.type === 'answer' ? Object.values(decision.answers) : []
       const value = answers[0] ?? (allow ? approval.options[0] : undefined)
@@ -532,10 +630,18 @@ export class PixelSession implements EngineSession {
     const active = this.active
     if (!active) return
     this.active = null
+    const info = error ? textError(error) : undefined
     if (outcome === 'failed' && error)
       this.ctx.emit({
         type: 'item_completed',
-        item: { kind: 'notice', id: 'px-error-' + active.id, level: 'error', text: error, detail: null },
+        item: {
+          kind: 'notice',
+          id: 'px-error-' + active.id,
+          level: 'error',
+          text: error,
+          detail: null,
+          ...(info ? { error: info } : {}),
+        },
       })
     this.translator.finish(outcome === 'completed' ? 'completed' : outcome === 'interrupted' ? 'interrupted' : 'failed')
     this.rejectApprovals()
@@ -636,7 +742,6 @@ export class PixelSession implements EngineSession {
     await this.interrupt()
     this.rejectApprovals()
     await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
-    this.cleanupAgentDir()
     this.ctx.extensions?.dispose?.()
   }
 }

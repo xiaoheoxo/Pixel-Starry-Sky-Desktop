@@ -10,16 +10,18 @@ const DAY = 86_400_000
 
 /** 频道列表的一段：team 为空是「本机」 */
 export interface ChannelSection {
-  /** 'local' 或团队 id */
+  /** 'local'、'archived' 或团队 id */
   id: string
   team: TeamInfo | null
   channels: Channel[]
 }
 
 export const LOCAL_SECTION = 'local'
+/** 列表底部「已归档」（docs/ui/channels-local-ai.md §3.1 #11）：有归档的频道才有这一段 */
+export const ARCHIVED_SECTION = 'archived'
 
 /**
- * 本机频道在前，然后每个团队一段（按团队列表的顺序）。
+ * 本机频道在前，然后每个团队一段（按团队列表的顺序），归档的频道在最后一段。
  * 有搜索词时没有匹配频道的段整段隐藏；找不到团队的团队频道（刚被移出）不显示。
  */
 export function groupChannels(
@@ -27,10 +29,13 @@ export function groupChannels(
   teams: readonly TeamInfo[],
   opts: { searching?: boolean } = {},
 ): ChannelSection[] {
+  const open = channels.filter(c => !c.archivedAt)
   const sections: ChannelSection[] = [
-    { id: LOCAL_SECTION, team: null, channels: channels.filter(c => c.scope !== 'team' || !c.teamId) },
-    ...teams.map(team => ({ id: team.id, team, channels: channels.filter(c => c.teamId === team.id) })),
+    { id: LOCAL_SECTION, team: null, channels: open.filter(c => c.scope !== 'team' || !c.teamId) },
+    ...teams.map(team => ({ id: team.id, team, channels: open.filter(c => c.teamId === team.id) })),
   ]
+  const archived = channels.filter(c => c.archivedAt)
+  if (archived.length) sections.push({ id: ARCHIVED_SECTION, team: null, channels: archived })
   return opts.searching ? sections.filter(s => s.channels.length > 0) : sections
 }
 

@@ -236,7 +236,7 @@ export function ExtensionForm({
       {target.kind !== 'plugin' && target.mode !== 'json' && (
         <fieldset className="flex flex-wrap items-center gap-3 text-meta text-fg-secondary">
           <legend className="mb-2">{tr('codex.targets')}</legend>
-          {(['claude', 'codex'] as const).map(engine => (
+          {(['claude', 'codex', 'pixel'] as const).map(engine => (
             <label key={engine} className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -251,7 +251,7 @@ export function ExtensionForm({
                   )
                 }
               />
-              {ENGINES[engine].name}
+              {engine === 'pixel' ? tr('engine.pixel.name') : ENGINES[engine].name}
             </label>
           ))}
         </fieldset>

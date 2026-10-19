@@ -248,7 +248,7 @@ export function EffortMenu({ live }: { live: ComposerController }) {
                 desc={
                   fastUnavailable
                     ? tr('session.ComposerMenus.temporarilyUnavailable', { p0: live.fastBlocked ?? '原因未知' })
-                    : tr('session.ComposerMenus.fasterOutputAtHigher')
+                    : (live.fastHint ?? tr('session.ComposerMenus.fasterOutputAtHigher'))
                 }
                 checked={live.fast}
                 disabled={fastUnavailable && !live.fast}

@@ -57,7 +57,7 @@ export function RetryStatus({ sessionId, retry }: { sessionId: string; retry: Re
         <div className="flex min-w-0 items-center gap-2">
           <RotateCw size={14} strokeWidth={1.5} className="shrink-0 text-warn" />
           <span className="text-meta text-fg-secondary tabular-nums">
-            {retry.reason}
+            {translateMessage(retry.reason)}
             {tr('session.live.RetryStatus.retrying')}
             {attempt}
             {seconds !== null

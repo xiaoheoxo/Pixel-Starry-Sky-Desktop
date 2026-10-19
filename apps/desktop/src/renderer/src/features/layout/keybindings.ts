@@ -56,7 +56,12 @@ export const FIXED: readonly { label: TranslationKey; keys: () => string; bindin
     keys: () => 'Ctrl+Tab / Ctrl+Shift+Tab',
     bindings: [key('Tab', { mod: !isMac }), key('Tab', { mod: !isMac, shift: true })],
   },
-  { label: 'terminal.copy', keys: () => 'Ctrl+Shift+C', bindings: [key('KeyC', { shift: true })] },
+  // Windows / Linux 上有选中内容时 Ctrl+C 也复制（Ctrl+C 本来就是保留键，不用进 bindings）
+  {
+    label: 'terminal.copy',
+    keys: () => (isMac ? 'Ctrl+Shift+C' : 'Ctrl+C / Ctrl+Shift+C'),
+    bindings: [key('KeyC', { shift: true })],
+  },
   { label: 'terminal.paste', keys: () => 'Ctrl+Shift+V', bindings: [key('KeyV', { shift: true })] },
 ]
 

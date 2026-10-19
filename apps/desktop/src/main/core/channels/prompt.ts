@@ -170,6 +170,10 @@ export function historyLines(
 export interface DispatchInput {
   locale: Locale
   channel: { name: string; topic: string | null }
+  /** 频道说明：每项活都要照着做 */
+  notes?: string | null
+  /** 置顶的资料（「名字：原文」） */
+  pinned?: string[]
   author: string
   instructions: string
   history: string[]
@@ -182,17 +186,38 @@ export interface DispatchInput {
   together?: string[]
 }
 
+/** 置顶资料每条、合计最多这么多字（派活提示词里，超出的截掉） */
+export const PINNED_ITEM_CHARS = 1000
+export const PINNED_CHARS = 4000
+
+/** 置顶资料：多行压成一行，每条和合计都截断 */
+function pinnedRefs(lines: string[]): string[] {
+  const out: string[] = []
+  let total = 0
+  for (const line of lines) {
+    const flat = line.replace(/\s*\n\s*/g, ' ').trim()
+    const item = flat.length > PINNED_ITEM_CHARS ? `${flat.slice(0, PINNED_ITEM_CHARS)}…` : flat
+    if (!item || total + item.length > PINNED_CHARS) break
+    out.push(item)
+    total += item.length
+  }
+  return out
+}
+
 /** 第一次派给一个会话的提示词（§4.2） */
 export function dispatchPrompt(input: DispatchInput): string {
   const { locale, channel } = input
   const parts: string[] = []
   const together = input.together?.length ? input.together : null
+  const pinned = pinnedRefs(input.pinned ?? [])
   if (en(locale)) {
     parts.push(
       `You have received a task in the channel #${channel.name}.${channel.topic ? ` (Channel topic: ${channel.topic})` : ''}\nHanded to you by: ${input.author}` +
         (together ? `\nThis message went to every AI member in the channel; ${together.join(', ')} got it too.` : ''),
     )
     if (input.instructions.trim()) parts.push(`Your role:\n${input.instructions.trim()}`)
+    if (input.notes?.trim()) parts.push(`Channel guidelines (follow them for every task here):\n${input.notes.trim()}`)
+    if (pinned.length) parts.push(`Pinned reference in this channel:\n${pinned.map(p => `- ${p}`).join('\n')}`)
     if (input.history.length) parts.push(`Recent discussion (oldest first):\n${input.history.join('\n')}`)
     if (input.quoted) parts.push(`Quoted message:\n> ${input.quoted.replace(/\n/g, '\n> ')}`)
     parts.push(
@@ -207,6 +232,8 @@ export function dispatchPrompt(input: DispatchInput): string {
         (together ? `\n这条消息发给了频道里全体 AI 成员，${together.join('、')} 也同时收到了。` : ''),
     )
     if (input.instructions.trim()) parts.push(`你的职责：\n${input.instructions.trim()}`)
+    if (input.notes?.trim()) parts.push(`频道说明（这个频道里每项活都要照着做）：\n${input.notes.trim()}`)
+    if (pinned.length) parts.push(`频道里置顶的资料：\n${pinned.map(p => `- ${p}`).join('\n')}`)
     if (input.history.length) parts.push(`最近的讨论（从旧到新）：\n${input.history.join('\n')}`)
     if (input.quoted) parts.push(`引用的消息：\n> ${input.quoted.replace(/\n/g, '\n> ')}`)
     parts.push(

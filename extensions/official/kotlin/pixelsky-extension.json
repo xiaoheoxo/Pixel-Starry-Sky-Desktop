@@ -1,0 +1,105 @@
+{
+  "id": "pixelsky.kotlin",
+  "name": "Kotlin 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Kotlin 的可选语法高亮、代码片段，以及在 Gradle 项目里写代码、跑测试的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["kotlin", "gradle", "coroutines", "android", "ktlint", "detekt"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "Kotlin Support",
+      "description": "Kotlin optional syntax highlighting, snippets, plus a skill and prompts for coding and testing in Gradle projects"
+    }
+  },
+  "contributes": {
+    "grammars": [
+      {
+        "language": "kotlin",
+        "aliases": ["Kotlin"],
+        "extensions": [".kt", ".kts"],
+        "scopeName": "source.kotlin",
+        "path": "syntaxes/kotlin.tmLanguage.json",
+        "configuration": "language-configuration.json",
+        "samples": ["samples/example.kt"]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "kotlin",
+        "path": "snippets/kotlin.json"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/kotlin-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "kotlin-write-tests",
+        "title": {
+          "zh": "为选中代码写 Kotlin 测试",
+          "en": "Write Kotlin tests for the selection"
+        },
+        "description": {
+          "zh": "用项目已有的测试库补测试",
+          "en": "Add tests with the project's existing test library"
+        },
+        "path": "prompts/kotlin-write-tests.md",
+        "requires": "selection",
+        "where": ["composer", "editor"]
+      },
+      {
+        "id": "kotlin-idiomatic",
+        "title": {
+          "zh": "改写成地道的 Kotlin",
+          "en": "Make the selection idiomatic Kotlin"
+        },
+        "description": {
+          "zh": "用空安全、作用域函数、集合 API 简化，行为不变",
+          "en": "Simplify with null safety, scope functions and collection APIs without changing behavior"
+        },
+        "path": "prompts/kotlin-idiomatic.md",
+        "requires": "selection",
+        "where": ["composer", "editor"]
+      },
+      {
+        "id": "kotlin-to-coroutines",
+        "title": {
+          "zh": "改成协程 / Flow 写法",
+          "en": "Convert the selection to coroutines / Flow"
+        },
+        "description": {
+          "zh": "把回调或阻塞代码改成结构化并发",
+          "en": "Turn callbacks or blocking code into structured concurrency"
+        },
+        "path": "prompts/kotlin-to-coroutines.md",
+        "requires": "selection",
+        "where": ["composer", "editor"]
+      },
+      {
+        "id": "kotlin-explain-build-error",
+        "title": {
+          "zh": "排查 Gradle / 编译报错",
+          "en": "Diagnose a Gradle / compile error"
+        },
+        "description": {
+          "zh": "跑构建、定位 Kotlin 编译或 Gradle 报错并修复",
+          "en": "Run the build, locate the Kotlin compile or Gradle error and fix it"
+        },
+        "path": "prompts/kotlin-explain-build-error.md",
+        "where": ["composer"]
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

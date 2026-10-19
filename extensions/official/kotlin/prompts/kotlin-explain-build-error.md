@@ -1,0 +1,1 @@
+请帮我排查当前 Kotlin 项目（{{project}}）的构建或编译报错。先用项目的 Gradle wrapper 跑一遍构建（./gradlew build，Windows PowerShell 用 .\gradlew.bat build；任务较大时可先跑出错的子项目任务），读完整的报错输出，找出第一个真正的错误而不是后面连带出现的错误。说明原因（类型不匹配、空安全、缺少依赖或版本不兼容、Kotlin / Gradle / JDK 版本不匹配、kapt 或 KSP 生成代码等），做最小的修复，再重新构建确认通过。不要通过降级工具链、关闭检查或添加 @Suppress 来绕过问题；需要改依赖或版本时先告诉我。

@@ -104,6 +104,7 @@ export const sessionMessages = {
     zh: '不重发也不撤回：消息留在对话里标「未送达」，可以直接接着说',
     en: 'Neither resend nor withdraw: the message stays in the conversation marked "Not delivered", and you can just keep going',
   },
+  'session.queue.rowLabel': { zh: '{p0}，{p1}', en: '{p0}, {p1}' },
   'session.queue.undelivered': { zh: '未送达', en: 'Not delivered' },
   'session.queue.dismissed': { zh: '已关掉', en: 'Dismissed' },
   'session.queue.resend': { zh: '重发', en: 'Resend' },
@@ -115,6 +116,11 @@ export const sessionMessages = {
   'session.reconnect.inSeconds': { zh: '· 约 {p0} 秒后', en: '· in about {p0}s' },
   'session.reconnect.connecting': { zh: '· 正在连接…', en: '· Connecting…' },
   'session.reconnect.now': { zh: '立即重连', en: 'Reconnect now' },
+  'session.reconnect.paused': {
+    zh: '连接中断，自动重连已暂停 {p0}/{p1}',
+    en: 'Connection lost. Auto-reconnect paused {p0}/{p1}',
+  },
+  'session.reconnect.resume': { zh: '继续重连', en: 'Resume reconnecting' },
   'session.reconnect.resumeHint': {
     zh: '接着断开前的位置继续，不重发你的消息',
     en: 'Picks up where it stopped without resending your message',
@@ -371,4 +377,13 @@ export const sessionMessages = {
     zh: '当前回复仍用原来的额度来源，从下一条消息起切换，届时引擎会重启并接上原来的对话。',
     en: 'The current reply keeps its original credit source. The switch takes effect from the next message, when the engine restarts and resumes this conversation.',
   },
+  // 运行中的状态行（动作 + 对象 · 本轮用时 ›）：动作和对象分开写，对象用等宽字体
+  'session.live.verb.command': { zh: '正在运行', en: 'Running' },
+  'session.live.verb.edit': { zh: '正在修改', en: 'Editing' },
+  'session.live.verb.create': { zh: '正在新建', en: 'Creating' },
+  'session.live.verb.read': { zh: '正在读取', en: 'Reading' },
+  'session.live.verb.search': { zh: '正在搜索', en: 'Searching' },
+  'session.live.verb.web': { zh: '正在浏览', en: 'Browsing' },
+  'session.live.writing': { zh: '正在写回复', en: 'Writing the reply' },
+  'session.live.elapsed': { zh: '本轮 {time}', en: 'This turn {time}' },
 } as const

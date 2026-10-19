@@ -41,12 +41,11 @@ afterEach(async () => {
 const start = () => {
   server = historyServer({
     engine: {
-      historyItems: id => [
-        ...(itemsOf[id] ??
-          (() => {
-            throw new Error('会话不存在')
-          })()),
-      ],
+      historyItems: async id => {
+        const items = itemsOf[id]
+        if (!items) throw new Error('会话不存在')
+        return items
+      },
     },
   })
   return server

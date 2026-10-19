@@ -9,6 +9,7 @@ import { refreshEditors, setEditors, useEditors } from '@/features/editor/store'
 import { isDemo } from '@/data'
 import type { EditorKind } from '../../../../../shared/types/workspace'
 import { EditorIcon, editorLabel, editorSource } from '@/features/editor/EditorIcon'
+import { AutoSaveSetting } from './AutoSaveSetting'
 
 export function EditorSection() {
   useI18n()
@@ -47,6 +48,7 @@ export function EditorSection() {
           {translateMessage(error)}
         </p>
       )}
+      <AutoSaveSetting />
       <SettingRow
         title={tr('settings.editor.EditorSection.defaultOpeningMethod')}
         description={tr('settings.editor.EditorSection.toolbarOpensBuiltIn')}

@@ -22,6 +22,7 @@ export function SessionItem({
   lane,
   card,
   reason,
+  flipKey,
 }: {
   session: Session
   selected: boolean
@@ -32,6 +33,8 @@ export function SessionItem({
   card?: SessionCard
   /** 侧栏按状态筛选时：右边写原因（等你处理 / 出错 / 运行中…），代替时间 */
   reason?: boolean
+  /** 换顺序时滑动用的标记（useFlip），见 SessionRow */
+  flipKey?: string
 }) {
   useI18n()
   const running = session.status === 'running'
@@ -53,6 +56,7 @@ export function SessionItem({
       }}
       selected={selected}
       onSelect={onSelect}
+      flipKey={flipKey}
       className="[&>button]:pl-[28px]"
       trailing={
         reason && lane ? (

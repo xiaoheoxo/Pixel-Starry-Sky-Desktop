@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Bot, Check, ChevronDown, ChevronUp, CircleSlash, Square, X } from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import type { SessionSnapshot, TodoStep } from '@pixelsky/protocol'
-import { IconButton, cn } from '@/ui'
+import { IconButton, Spinner, cn } from '@/ui'
 import { elapsed, formatDuration, RUN_STATE_LABEL, shortModel, type RunState } from './agentTrace'
 import { activeStep, currentPlan, progressAgents, turnKey, type Plan, type ProgressAgent } from './progressData'
 import { activityTooltip, agentActivity, agoText } from './agentActivity'
@@ -38,6 +38,8 @@ export interface Progress {
   /** 这一轮说完了，子智能体还在后台跑 */
   background: boolean
   visible: boolean
+  /** 引擎正在干活（state 为 running）：计划里进行中的步骤才转圈；等你批准 / 回答、空闲时画静止的橙点 */
+  working: boolean
   dismiss: () => void
   /** 关掉过的卡片再显示出来（保留模式的「查看」） */
   reveal: () => void
@@ -63,25 +65,30 @@ export function useProgress(snapshot: SessionSnapshot | null): Progress {
     plan,
     agents,
     background: background && !running,
+    working: snapshot?.state === 'running',
     visible: dismissed !== key && ((running && (!!plan || agents.length > 0)) || (background && agents.length > 0)),
     dismiss,
     reveal,
   }
 }
 
-/** 步骤前的圆圈：完成绿底打勾、进行中橙色圆点、未开始空心（和工具调用行首的状态点同一套颜色） */
-export function StepMark({ status }: { status: TodoStep['status'] }) {
+/**
+ * 步骤前的圆圈：完成绿底打勾、进行中橙色转圈（和侧边栏、底部状态行同一个 Spinner）、未开始空心。
+ * live 为假（历史里的待办快照）时进行中只画一个不动的橙点，不然已经结束的一轮里会有个转圈一直转
+ */
+export function StepMark({ status, live = true }: { status: TodoStep['status']; live?: boolean }) {
   return (
     <span
       className={cn(
-        'mt-[3px] inline-flex size-[14px] shrink-0 items-center justify-center rounded-full border',
-        status === 'completed' && 'border-success bg-success text-surface',
-        status === 'in_progress' && 'border-active',
-        status === 'pending' && 'border-line-strong',
+        'mt-[3px] inline-flex size-[14px] shrink-0 items-center justify-center rounded-full',
+        status === 'completed' && 'border border-success bg-success text-surface',
+        status === 'in_progress' && !live && 'border border-active',
+        status === 'pending' && 'border border-line-strong',
       )}
     >
       {status === 'completed' && <Check size={10} strokeWidth={3} />}
-      {status === 'in_progress' && <span className="size-1.5 animate-pulse rounded-full bg-active" />}
+      {status === 'in_progress' && live && <Spinner size={11} className="text-active!" />}
+      {status === 'in_progress' && !live && <span className="size-1.5 rounded-full bg-active" />}
     </span>
   )
 }
@@ -116,7 +123,7 @@ function summary(plan: Plan | null, agents: ProgressAgent[]): string {
   return parts.join(' · ')
 }
 
-function Steps({ steps }: { steps: TodoStep[] }) {
+function Steps({ steps, working }: { steps: TodoStep[]; working: boolean }) {
   const list = useRef<HTMLOListElement>(null)
   const active = activeStep(steps)
   // 当前步骤变了：只滚动步骤列表本身，不带动对话流
@@ -138,7 +145,7 @@ function Steps({ steps }: { steps: TodoStep[] }) {
             i === active && 'bg-accent-soft',
           )}
         >
-          <StepMark status={s.status} />
+          <StepMark status={s.status} live={working} />
           <span
             className={cn(
               'min-w-0 break-words',
@@ -364,7 +371,7 @@ export function ProgressCard({
       <div className="px-3 pb-1 text-meta text-fg-muted tabular-nums">{summary(plan, agents)}</div>
       {!collapsed && (
         <div className="flex min-h-0 flex-col overflow-y-auto">
-          {plan && <Steps steps={plan.steps} />}
+          {plan && <Steps steps={plan.steps} working={progress.working} />}
           {agents.length > 0 && <Agents agents={agents} divided={!!plan} onStop={onStopAgents} />}
         </div>
       )}

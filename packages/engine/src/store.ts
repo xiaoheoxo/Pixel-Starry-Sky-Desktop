@@ -218,6 +218,17 @@ export class Store {
           () => item.id,
         )
         const settled = item.status === 'queued' || item.status === 'failed' || item.status === 'uncertain'
+        // 断线自动重连（docs/ui/message-queue.md）：
+        // - 还在等的（queued）保留，整体暂停（下面 paused），界面显示「已暂停」，点「继续重连」才接着连；
+        // - 派发中 / 运行中的转「待核对」（不知道有没有发出去），去掉重连标记，记下已自动重连的次数；
+        // - 旧数据没有 delivered：有重连标记时由 resend / messageUuid 推出来（!resend 且有 messageUuid），否则不填
+        const reconnect = item.reconnect
+        const delivered =
+          typeof item.delivered === 'boolean'
+            ? item.delivered
+            : reconnect
+              ? !reconnect.resend && !!item.messageUuid
+              : undefined
         return [
           {
             ...item,
@@ -228,6 +239,12 @@ export class Store {
             status: settled ? item.status : ('uncertain' as const),
             mode: item.mode === 'guidance' ? ('guidance' as const) : ('normal' as const),
             error: settled ? (item.error ?? null) : '上次退出前已开始交付，请核对后再重试',
+            ...(delivered === undefined ? {} : { delivered }),
+            ...(!settled && reconnect
+              ? { reconnect: undefined, reconnected: Math.max(0, (reconnect.total ?? reconnect.attempt) - 1) }
+              : {}),
+            // 旧版本可能把重连项存成 held：整体已暂停，界面要显示「已暂停」卡片，所以去掉 held
+            ...(settled && reconnect && item.held ? { held: false } : {}),
           },
         ]
       } catch {

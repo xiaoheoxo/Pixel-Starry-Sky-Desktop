@@ -6,8 +6,11 @@ import { isDemo } from '@/data'
 import { demo } from '@/data/demo'
 import { subscribePacks } from '@/features/extpacks/store'
 import { FILE_SAVED_EVENT } from '@/features/files/store'
+import { endSince, hasIntegration, weakSince } from '@/features/terminal/marks'
 import { terminalState, useTerminalStore } from '@/features/terminal/store'
 import { useTerminalUi } from '@/features/terminal/TerminalProvider'
+import { useToast } from '@/ui/ComingSoon'
+import { tr } from '@/i18n/core'
 import {
   gradleBuildKey,
   IDLE,
@@ -17,6 +20,7 @@ import {
   taskKey,
   taskStatus,
   taskTitle,
+  TaskCommandError,
   type GradleFull,
   type TaskStatus,
 } from './model'
@@ -227,8 +231,18 @@ if (typeof window !== 'undefined')
 // ---- 任务 → 终端（只在内存里，本次打开软件以来） ----
 interface Run {
   terminalId: string
-  /** 发过 Ctrl+C：行显示「已停止」，终端还在 */
+  /** 发过 Ctrl+C，但这个 shell 没有提示符标记可等：行直接显示「已停止」，终端还在 */
   stopped: boolean
+  /** 发过 Ctrl+C，等提示符回来：行显示「正在停止」，回来了才变「已停止」 */
+  stopping: boolean
+  /** 命令写进终端时这个终端已有的「命令结束」次数；之后第一次结束就是这次运行结束。命令还没写进去为 null */
+  base: number | null
+  /** base 是哪一轮 shell 的（终端重启后 generation 变了，这次运行就不在新 shell 里了）；命令还没写进去为 null */
+  baseGeneration: number | null
+  /** 点停止时 cmd 这类 shell 已发过的提示符个数：之后再出现提示符，「正在停止」才收成「已停止」 */
+  stopWeak: number
+  /** 点停止的时刻，给「正在停止」的超时兜底认是不是同一次 */
+  stopAt: number
   /** 演示模式：不开真终端，直接算成功 */
   demoOk: boolean
 }
@@ -251,8 +265,22 @@ function statusOf(key: string): TaskStatus {
   const record = terminalState().terminals.find(r => r.id === run.terminalId)
   if (!record) return IDLE
   if (run.demoOk) return { kind: 'ok', code: null }
-  return taskStatus(record, run.stopped)
+  // 命令写入时的那一轮 shell 已经不在了（手动重启过终端）：这次运行随旧 shell 结束，任务回到平时的样子
+  if (run.baseGeneration !== null && run.baseGeneration !== record.generation) return IDLE
+  const marks = terminalState().marks[run.terminalId]
+  // 命令写入之前的提示符不算（base 是写入那一刻的次数）
+  let ended = run.base === null ? null : endSince(marks, record.generation, run.base)
+  // cmd 的提示符可能是 echo on 的 .bat、for 循环每行回显出的，不能当自然结束；只在「正在停止」时用来收尾
+  if (!ended && run.stopping && weakSince(marks, record.generation, run.stopWeak)) ended = { code: null }
+  return taskStatus(record, { stopped: run.stopped, stopping: run.stopping, ended })
 }
+
+/** 不在 React 里取一个任务现在的状态 */
+export const getTaskStatus = (root: string, group: RunTaskGroup, task: RunTask): TaskStatus =>
+  statusOf(runKey(root, group, task))
+
+/** 还占着终端的状态：在跑，或点了停止还没停下来 */
+export const isAlive = (status: TaskStatus): boolean => status.kind === 'running' || status.kind === 'stopping'
 
 export interface TaskStatuses {
   /** 一个任务现在的状态 */
@@ -262,18 +290,18 @@ export interface TaskStatuses {
 }
 /** 当前工作区所有任务的状态；终端记录变化或任务对应变化时更新 */
 export function useTaskStatuses(state: RunTaskState | null): TaskStatuses {
-  const terminals = useTerminalStore().terminals
+  const { terminals, marks } = useTerminalStore()
   const version = useSyncExternalStore(subscribe, () => runVersion)
   return useMemo(() => {
     const root = state?.root ?? ''
     let running = 0
     if (state)
       for (const group of state.groups)
-        for (const task of group.tasks) if (statusOf(runKey(root, group, task)).kind === 'running') running++
+        for (const task of group.tasks) if (isAlive(statusOf(runKey(root, group, task)))) running++
     return { of: (group, task) => statusOf(runKey(root, group, task)), running }
-    // runs 是模块里的 Map，terminals / version 只用来触发重新计算
+    // runs 是模块里的 Map，terminals / marks / version 只用来触发重新计算
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, terminals, version])
+  }, [state, terminals, marks, version])
 }
 /**
  * 重启软件后任务和终端的对应没了：找一个这个工作区里同名、没在跑、也没被别的任务占着的终端接着用，
@@ -296,48 +324,115 @@ function idleTerminalNamed(name: string, root: string): string | null {
 export interface TaskRunner {
   /** 运行：还在跑就只跳到它的终端；fresh = 总是新开终端；args 接在命令后面（Gradle 的「带参数运行」） */
   run(group: RunTaskGroup, task: RunTask, fresh?: boolean, args?: string): Promise<void>
-  /** 往它的终端发 Ctrl+C，行标成已停止 */
+  /** 往它的终端发 Ctrl+C：有提示符标记的 shell 行标成「正在停止」，提示符回来才变已停止；没有的直接标已停止 */
   stop(group: RunTaskGroup, task: RunTask): void
   /** 跳到它的终端；没有终端返回 false */
   focus(group: RunTaskGroup, task: RunTask): boolean
 }
+type TerminalHost = Pick<ReturnType<typeof useTerminalUi>, 'runTask' | 'select'>
+
+/** 跳到任务的终端；没有终端返回 false */
+export function focusTask(host: TerminalHost, root: string, group: RunTaskGroup, task: RunTask): boolean {
+  const run = runs.get(runKey(root, group, task))
+  if (!run || !terminalState().terminals.some(r => r.id === run.terminalId)) return false
+  host.select(run.terminalId)
+  return true
+}
+
+/** 运行一个任务（useTaskRunner.run） */
+export async function runTaskIn(
+  host: TerminalHost,
+  root: string,
+  group: RunTaskGroup,
+  task: RunTask,
+  fresh = false,
+  args = '',
+): Promise<void> {
+  const key = runKey(root, group, task)
+  // 还在跑、或点了停止但终端还没回到提示符（可能在等「终止批处理操作吗(Y/N)?」）：不往里写新命令，只跳到它的终端让用户看
+  if (isAlive(statusOf(key)) && !fresh && focusTask(host, root, group, task)) return
+  const title = taskTitle(group, task)
+  const reuse = fresh ? null : (runs.get(key)?.terminalId ?? idleTerminalNamed(title, root))
+  const extra = args.trim()
+  // 命令写进终端的那一刻记下已有的结束次数；写入比 runTask 返回晚，两种先后都要接得住
+  let base: number | null = null
+  let baseGeneration: number | null = null
+  let created = false
+  const sent = (terminalId: string): void => {
+    const state = terminalState()
+    const generation = state.terminals.find(r => r.id === terminalId)?.generation ?? null
+    // 终端重启后复用：记录里还是上一轮 shell 的次数，新 shell 的提示符还没到，要从 0 算
+    const marks = state.marks[terminalId]
+    base = marks && marks.generation === generation ? marks.ends : 0
+    baseGeneration = generation
+    const current = runs.get(key)
+    if (created && current?.terminalId === terminalId) setRun(key, { ...current, base, baseGeneration })
+  }
+  const id = await host.runTask(
+    title,
+    program => taskCommand(group, task, program) + (extra ? ` ${extra}` : ''),
+    reuse,
+    sent,
+  )
+  if (id) {
+    setRun(key, {
+      terminalId: id,
+      stopped: false,
+      stopping: false,
+      base,
+      baseGeneration,
+      stopWeak: 0,
+      stopAt: 0,
+      demoOk: isDemo,
+    })
+    created = true
+  }
+}
+
+/** 点停止后，这么久还没等到提示符就退回旧行为显示「已停止」（用户换掉了 prompt、收不到标记时不至于永远卡住） */
+export const STOPPING_TIMEOUT_MS = 15_000
+
+/** 停止一个任务（useTaskRunner.stop）：发 Ctrl+C，然后按这个 shell 有没有提示符标记标成「正在停止」或「已停止」 */
+export function stopTaskIn(root: string, group: RunTaskGroup, task: RunTask): void {
+  const key = runKey(root, group, task)
+  const current = runs.get(key)
+  const record = current && terminalState().terminals.find(r => r.id === current.terminalId)
+  if (!current || !record) return
+  if (!isDemo) void window.pixelsky!.terminal.write(record.id, record.generation, '\x03').catch(() => undefined)
+  // 有提示符标记就等它回来（程序可能没真停，比如在问 Y/N）；没有就像以前一样直接算已停止。已经在等的再点一次只是再发一次 Ctrl+C
+  const marks = terminalState().marks[record.id]
+  if (!hasIntegration(marks, record.generation)) {
+    setRun(key, { ...current, stopped: true })
+    return
+  }
+  const stopAt = Date.now()
+  setRun(key, { ...current, stopping: true, stopWeak: marks?.weak ?? 0, stopAt })
+  // 超时兜底：期间提示符回来了状态已经是「已停止」，再标一次 stopped 无害；点了第二次停止则以最新一次为准
+  setTimeout(() => {
+    const latest = runs.get(key)
+    if (latest?.stopping && latest.stopAt === stopAt) setRun(key, { ...latest, stopped: true })
+  }, STOPPING_TIMEOUT_MS)
+}
+
 /** 跑 / 停 / 跳转；用 TerminalProvider 的 runTask 建终端（复用、改名、发命令） */
 export function useTaskRunner(state: RunTaskState | null): TaskRunner {
   const ui = useTerminalUi()
+  const toast = useToast()
   const root = state?.root ?? ''
   const { runTask, select } = ui
   const focus = useCallback(
-    (group: RunTaskGroup, task: RunTask): boolean => {
-      const run = runs.get(runKey(root, group, task))
-      if (!run || !terminalState().terminals.some(r => r.id === run.terminalId)) return false
-      select(run.terminalId)
-      return true
-    },
-    [root, select],
+    (group: RunTaskGroup, task: RunTask): boolean => focusTask({ runTask, select }, root, group, task),
+    [root, runTask, select],
   )
   const run = useCallback(
-    async (group: RunTaskGroup, task: RunTask, fresh = false, args = ''): Promise<void> => {
-      const key = runKey(root, group, task)
-      const status = statusOf(key)
-      if (status.kind === 'running' && !fresh && focus(group, task)) return
-      const title = taskTitle(group, task)
-      const reuse = fresh ? null : (runs.get(key)?.terminalId ?? idleTerminalNamed(title, root))
-      const extra = args.trim()
-      const id = await runTask(title, program => taskCommand(group, task, program) + (extra ? ` ${extra}` : ''), reuse)
-      if (id) setRun(key, { terminalId: id, stopped: false, demoOk: isDemo })
-    },
-    [root, runTask, focus],
+    (group: RunTaskGroup, task: RunTask, fresh = false, args = ''): Promise<void> =>
+      // 命令拼不出来（cmd 下含 %）时 runTaskIn 还没记下运行，任务保持空闲，只给一条提示
+      runTaskIn({ runTask, select }, root, group, task, fresh, args).catch((cause: unknown) => {
+        if (!(cause instanceof TaskCommandError)) throw cause
+        toast(tr(`coding.tasks.${cause.code}`))
+      }),
+    [root, runTask, select, toast],
   )
-  const stop = useCallback(
-    (group: RunTaskGroup, task: RunTask): void => {
-      const key = runKey(root, group, task)
-      const current = runs.get(key)
-      const record = current && terminalState().terminals.find(r => r.id === current.terminalId)
-      if (!current || !record) return
-      if (!isDemo) void window.pixelsky!.terminal.write(record.id, record.generation, '\x03').catch(() => undefined)
-      setRun(key, { ...current, stopped: true })
-    },
-    [root],
-  )
+  const stop = useCallback((group: RunTaskGroup, task: RunTask): void => stopTaskIn(root, group, task), [root])
   return { run, stop, focus }
 }

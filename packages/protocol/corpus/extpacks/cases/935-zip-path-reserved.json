@@ -1,0 +1,20 @@
+{
+  "title": "某一段是 Windows 保留名（目录 CON、文件 nul.txt）",
+  "expectCodes": ["files.path"],
+  "input": "zip",
+  "base": "pixelsky.dotenv",
+  "zipEntries": [
+    {
+      "name": "CON/a.txt",
+      "text": "x"
+    },
+    {
+      "name": "docs/nul.txt",
+      "text": "y"
+    },
+    {
+      "name": "docs/com1",
+      "text": "z"
+    }
+  ]
+}

@@ -220,6 +220,16 @@
   --shadow-workbench: 0 8px 28px -14px rgba(0, 0, 0, 0.24);
 }
 
+/* 强调色：取当前配色自带的那一组（桌面端的 tokens.css 同样这么写，那边还能在设置里换强调色；手机端没有这个设置）。
+   以前漏了这一段，bg-accent*、text-accent* 全是空值：浅色下「等你处理」变成红底黑字、「运行中」没有底色 */
+:root {
+  --accent: var(--theme-accent);
+  --accent-on: var(--theme-accent-on);
+  --accent-soft: var(--theme-accent-soft);
+  --accent-text: var(--theme-accent-text);
+  --accent-border: var(--theme-accent-border);
+}
+
 @theme inline {
   --color-app: var(--bg-app);
   --color-bubble-user: var(--bubble-user);

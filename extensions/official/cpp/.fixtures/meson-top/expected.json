@@ -1,0 +1,17 @@
+[
+  {
+    "template": "meson-setup",
+    "file": "meson.build",
+    "tasks": [
+      { "name": "setup", "description": "配置项目，生成到 builddir 目录", "linux": "meson setup builddir", "windows": "meson setup builddir" }
+    ]
+  },
+  {
+    "template": "meson-build",
+    "file": "meson.build",
+    "tasks": [
+      { "name": "compile", "description": "构建 builddir 里已配置的项目", "linux": "meson compile -C builddir", "windows": "meson compile -C builddir" },
+      { "name": "test", "description": "运行 builddir 里的测试", "linux": "meson test -C builddir", "windows": "meson test -C builddir" }
+    ]
+  }
+]

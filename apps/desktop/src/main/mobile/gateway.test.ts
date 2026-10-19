@@ -18,13 +18,16 @@ import {
   type Codec,
   type Keypair,
 } from '@pixelsky/link'
-import type { ImageAttachment, SearchResult, SessionSummary } from '@pixelsky/protocol'
+import { ENGINES, type ImageAttachment, type SearchResult, type SessionSummary } from '@pixelsky/protocol'
 import {
+  DELTA_BATCH,
+  checkSettings,
   IMAGE_INLINE,
   MobileGateway,
   PAIRING_TTL,
   PHONE_TEXT_LIMIT,
   phoneSessions,
+  phoneSettings,
   sanitize,
   type GatewayDeps,
   type PhoneSearch,
@@ -125,6 +128,7 @@ function setup(extra: Partial<GatewayDeps> = {}) {
       desktopId: 'desk-1',
       keypair: () => desktop,
       device: id => devices.find(d => d.id === id),
+      devices,
       addDevice: d => {
         const stored = { ...d, lastSeenAt: null }
         devices.push(stored)
@@ -147,9 +151,14 @@ function setup(extra: Partial<GatewayDeps> = {}) {
       pairing: async () => (cloudCalls.push('pairing'), { code: 'cloud-code', expiresAt: now + 60_000 }),
       confirm: async phone => void cloudCalls.push('confirm ' + phone),
       remove: async phone => void cloudCalls.push('remove ' + phone),
+      push: async (phone, payload) =>
+        void cloudCalls.push(
+          `push ${phone} ${payload.kind} ${payload.count} ${payload.session ?? '-'} ${payload.badge}`,
+        ),
     },
     changed: () => {},
     now: () => now,
+    pushTiming: { delay: 10, gap: 0 },
     ...extra,
   }
   const gateway = new MobileGateway(deps)
@@ -237,17 +246,25 @@ describe('MobileGateway calls', () => {
     gateways.push(t.gateway)
     const p = await paired(t)
     expect(t.gateway.online('p1')).toBe(true)
-    expect(await p.call('hello')).toEqual({ version: 1, name: '测试电脑', access: 'act', tools: true })
+    expect(await p.call('hello')).toEqual({
+      version: 1,
+      name: '测试电脑',
+      access: 'act',
+      tools: true,
+      queueMoveBefore: true,
+    })
     const sessions = (await p.call('engine:sessions')) as SessionSummary[]
     expect(sessions.map(s => s.record.id)).toEqual(['new', 'old'])
-    await p.call('engine:createSession', { projectId: 'proj', engine: 'codex', permissionMode: 'full', platform: {} })
+    await p.call('engine:createSession', { projectId: 'proj', engine: 'codex', platform: {}, provider: {}, fast: true })
     await p.call('engine:send', 's1', { text: 'hi', clientMessageId: 'c1', settings: { model: 'x' } })
     expect(t.calls.slice(-2)).toEqual([
       ['engine:createSession', [{ projectId: 'proj', engine: 'codex' }], 'mobile:p1'],
       ['engine:send', ['s1', { text: 'hi', clientMessageId: 'c1' }], 'mobile:p1'],
     ])
     await expect(p.call('engine:deleteSession', 's1')).rejects.toThrow('MOBILE_UNSUPPORTED')
-    await expect(p.call('engine:updateSession', 's1', { permissionMode: 'full' })).rejects.toThrow('MOBILE_UNSUPPORTED')
+    await expect(p.call('engine:updateSession', 's1', { permissionMode: 'full' })).rejects.toThrow(
+      'MOBILE_BAD_ARGUMENT',
+    )
     await expect(p.call('projectTools:gitDiscard', { projectId: 'proj' }, 'all')).rejects.toThrow('MOBILE_UNSUPPORTED')
   })
 
@@ -462,6 +479,123 @@ describe('MobileGateway calls', () => {
     expect(p.events[2]).toEqual({ kind: 'tools' })
   })
 
+  it('packs streaming deltas into one frame for phones that can unpack them, keeping order', async () => {
+    const t = setup()
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    await p.call('hello', { batch: true })
+    await p.call('engine:openSessionTail', 's1')
+    let seq = 1
+    const session = (event: unknown) => ({ kind: 'session', sessionId: 's1', seq: ++seq, event })
+    const delta = (text: string) => session({ type: 'item_delta', itemId: 'a', field: 'text', delta: text })
+    for (let i = 0; i < 30; i++) t.gateway.hostEvent('engine:event', [delta('x')])
+    await wait(20)
+    expect(p.events).toHaveLength(0)
+    await wait(DELTA_BATCH + 20)
+    expect(p.events).toHaveLength(1)
+    expect(p.events[0]).toMatchObject({ kind: 'batch' })
+    const first = (p.events[0] as { events: { seq: number }[] }).events
+    expect(first.map(e => e.seq)).toEqual(Array.from({ length: 30 }, (_, i) => i + 2))
+    // 审批到了：先发攒着的增量（只有一条时照旧一条一帧），再单独发它
+    t.gateway.hostEvent('engine:event', [delta('y')])
+    t.gateway.hostEvent('engine:event', [session({ type: 'approval_resolved', requestId: 'r1' })])
+    await wait(0)
+    expect(p.events.slice(1)).toMatchObject([
+      { kind: 'session', seq: 32 },
+      { kind: 'session', seq: 33 },
+    ])
+  })
+
+  it('pushes reminders to phones that are offline or in the background, not to one looking at the page', async () => {
+    const t = setup()
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    const sessions = (state: string, lastOutcome: string | null = null) =>
+      t.gateway.hostEvent('engine:event', [
+        {
+          kind: 'sessions',
+          sessions: [{ record: { id: 's1', title: 's1', updatedAt: 1, archivedAt: null, lastOutcome }, state }],
+        },
+      ])
+    const pushes = () => t.cloudCalls.filter(c => c.startsWith('push'))
+    sessions('running')
+    sessions('waiting')
+    await wait(30)
+    expect(pushes()).toEqual([])
+    // 页面切到后台：照样推
+    await p.call('away', true)
+    sessions('running')
+    sessions('idle', 'completed')
+    await wait(30)
+    expect(pushes()).toEqual(['push p1 completed 1 s1 0'])
+    // 回到前台：攒着的不推
+    sessions('running')
+    sessions('idle', 'failed')
+    await p.call('away', false)
+    await wait(30)
+    expect(pushes()).toEqual(['push p1 completed 1 s1 0'])
+    // 断开了：推，几种同时有时取最要紧的
+    t.gateway.phoneLeft('p1')
+    sessions('running')
+    sessions('idle', 'completed')
+    sessions('waiting')
+    await wait(30)
+    expect(pushes()).toEqual(['push p1 completed 1 s1 0', 'push p1 waiting 1 s1 1'])
+  })
+
+  it('names the session in a push that concerns only one, and carries the number of sessions waiting on this computer as the badge', async () => {
+    const t = setup()
+    gateways.push(t.gateway)
+    await paired(t)
+    const row = (id: string, state: string, lastOutcome: string | null = null, archivedAt: number | null = null) => ({
+      record: { id, title: id, updatedAt: 1, archivedAt, lastOutcome },
+      state,
+    })
+    const list = (...rows: ReturnType<typeof row>[]) =>
+      t.gateway.hostEvent('engine:event', [{ kind: 'sessions', sessions: rows }])
+    const pushes = () => t.cloudCalls.filter(c => c.startsWith('push'))
+    // 别的会话本来就在等（含一个归档的）：不算新提醒，但算角标
+    list(row('a', 'running'), row('b', 'waiting'), row('c', 'running'), row('z', 'waiting', null, 5))
+    t.tick(46_000)
+    list(
+      row('a', 'idle', 'completed'),
+      row('b', 'waiting'),
+      row('c', 'idle', 'completed'),
+      row('z', 'waiting', null, 5),
+    )
+    await wait(30)
+    // 两个完成：不带会话；角标是 b 一个
+    expect(pushes()).toEqual(['push p1 completed 2 - 1'])
+    list(row('a', 'running'), row('b', 'waiting'), row('c', 'idle'), row('z', 'waiting', null, 5))
+    list(row('a', 'waiting'), row('b', 'waiting'), row('c', 'idle'), row('z', 'waiting', null, 5))
+    await wait(30)
+    expect(pushes().at(-1)).toBe('push p1 waiting 1 a 2')
+  })
+
+  it('treats a phone it has not heard from for a while as not looking, and drops queued pushes when it reconnects', async () => {
+    const t = setup()
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    const sessions = (state: string) =>
+      t.gateway.hostEvent('engine:event', [
+        { kind: 'sessions', sessions: [{ record: { id: 's1', title: 's1', updatedAt: 1, archivedAt: null }, state }] },
+      ])
+    const pushes = () => t.cloudCalls.filter(c => c.startsWith('push'))
+    sessions('running')
+    t.tick(46_000)
+    sessions('waiting')
+    await wait(30)
+    expect(pushes()).toEqual(['push p1 waiting 1 s1 1'])
+    // 断开时排上的，还没到点手机就从前台连回来了：不推
+    t.gateway.phoneLeft('p1')
+    sessions('running')
+    sessions('waiting')
+    expect(await p.connect(t.desktop.publicKey)).toBe(true)
+    await p.call('hello', { batch: true })
+    await wait(30)
+    expect(pushes()).toEqual(['push p1 waiting 1 s1 1'])
+  })
+
   it('tells a removed phone before disconnecting it', async () => {
     const t = setup()
     gateways.push(t.gateway)
@@ -482,6 +616,217 @@ describe('MobileGateway calls', () => {
   })
 })
 
+// 手机改模式 / 模型 / 强度、重命名、置顶、归档（docs/mobile-remote.md §21.5、§21.7）
+describe('MobileGateway session settings', () => {
+  const record = (id: string, engine: string, permissionMode = 'ask', nextEngine: string | null = null) => ({
+    record: { id, title: id, updatedAt: 1, archivedAt: null, engine, permissionMode, nextEngine },
+    state: 'idle',
+  })
+  function settingsSetup() {
+    const calls: [string, unknown[]][] = []
+    const t = setup({
+      call: async (channel, args) => {
+        calls.push([channel, args])
+        if (channel === 'engine:sessions')
+          return [
+            record('cc', 'claude'),
+            record('cx', 'codex'),
+            record('open', 'claude', 'full'),
+            // 运行中选了像素星空、还没生效
+            record('next', 'claude', 'ask', 'pixel'),
+            // 用自定义接口
+            { ...record('api', 'claude'), record: { ...record('api', 'claude').record, provider: { id: 'p1' } } },
+          ]
+        if (channel === 'engine:catalog')
+          return { models: [{ id: 'opus' }, { id: 'sonnet' }], outputStyles: [], currentOutputStyle: null }
+        return { ok: channel }
+      },
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never },
+    })
+    gateways.push(t.gateway)
+    return { t, calls, mutations: () => calls.filter(c => !['engine:sessions', 'engine:catalog'].includes(c[0])) }
+  }
+
+  it('passes only the permission mode, model, effort and thinking summaries of an update, and marks it as from the phone', async () => {
+    const { t, calls, mutations } = settingsSetup()
+    const p = await paired(t)
+    await p.call('engine:updateSession', 'cc', {
+      permissionMode: 'edits',
+      model: 'opus',
+      effort: 'high',
+      thinkingSummaries: true,
+      engine: 'codex',
+      platform: { groupId: 'g', account: 'a' },
+      provider: { id: 'x' },
+      fast: true,
+      ultracode: true,
+      title: '改名',
+    })
+    expect(mutations()).toEqual([
+      [
+        'engine:updateSession',
+        ['cc', { permissionMode: 'edits', model: 'opus', effort: 'high', thinkingSummaries: true }, 'mobile'],
+      ],
+    ])
+    // 模型对着这个会话的引擎查目录
+    expect(calls.filter(c => c[0] === 'engine:catalog')).toEqual([['engine:catalog', ['claude']]])
+    // null 是「用引擎默认的」，不用查目录
+    await p.call('engine:updateSession', 'cc', { model: null, effort: null })
+    expect(mutations().at(-1)).toEqual(['engine:updateSession', ['cc', { model: null, effort: null }, 'mobile']])
+  })
+
+  it('rejects full, unknown modes, bad values, unsupported options, models outside the catalog and empty updates', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    const bad = (id: string, patch: unknown) =>
+      expect(p.call('engine:updateSession', id, patch)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await bad('cc', { permissionMode: 'full' })
+    await bad('cc', { permissionMode: 'full', model: 'opus' })
+    await bad('cc', { permissionMode: 'bypass' })
+    await bad('cc', { permissionMode: null })
+    await bad('cc', { effort: 'ultra' }) // Claude 没有 ultra
+    await bad('cc', { effort: 'turbo' })
+    await bad('cc', { thinkingSummaries: 'yes' })
+    await bad('cc', { model: 'gpt-x' })
+    await bad('cc', { model: '' })
+    await bad('cc', { model: 5 })
+    await bad('cc', { engine: 'codex', platform: null, fast: true })
+    await bad('cc', undefined)
+    await bad('', { model: 'opus' })
+    await expect(p.call('engine:updateSession', 'nope', { model: 'opus' })).rejects.toThrow('MOBILE_NOT_FOUND')
+    expect(mutations()).toEqual([])
+    // Codex 能选 ultra
+    await p.call('engine:updateSession', 'cx', { effort: 'ultra', permissionMode: 'plan' })
+    expect(mutations()).toHaveLength(1)
+    // 选了下一个引擎还没生效：按下一个引擎的能力核对（像素星空没有思考摘要）
+    await bad('next', { thinkingSummaries: true })
+    // 自定义接口的会话：模型不能从手机改（目录对不上），别的照常
+    await bad('api', { model: 'opus' })
+    await bad('api', { model: null })
+    expect(mutations()).toHaveLength(1)
+    await p.call('engine:updateSession', 'api', { permissionMode: 'plan' })
+    expect(mutations()).toHaveLength(2)
+  })
+
+  it('lets a session that is full on the desktop only come down, never go back up', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    await expect(p.call('engine:updateSession', 'open', { permissionMode: 'full' })).rejects.toThrow(
+      'MOBILE_BAD_ARGUMENT',
+    )
+    await p.call('engine:updateSession', 'open', { permissionMode: 'edits' })
+    // 只改模型不动权限：照常
+    await p.call('engine:updateSession', 'open', { model: 'sonnet' })
+    expect(mutations().map(c => (c[1][1] as { permissionMode?: string }).permissionMode)).toEqual(['edits', undefined])
+  })
+
+  it('refuses setting changes from a view-only phone', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    await expect(p.call('engine:updateSession', 'cc', { permissionMode: 'edits' })).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('engine:renameSession', 'cc', 'x')).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('engine:setSessionPinned', 'cc', true)).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('engine:archiveSession', 'cc', true)).rejects.toThrow('MOBILE_FORBIDDEN')
+    expect(mutations()).toEqual([])
+    // 看得到模型目录
+    expect(await p.call('engine:catalog', 'claude')).toMatchObject({ models: [{ id: 'opus' }, { id: 'sonnet' }] })
+  })
+
+  it('builds a new session from the same whitelist, pinning the engine it checked against', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    await p.call('engine:createSession', {
+      projectId: 'proj',
+      engine: 'claude',
+      permissionMode: 'plan',
+      model: 'opus',
+      effort: 'low',
+      thinkingSummaries: false,
+      platform: {},
+      fast: true,
+    })
+    // 没指定引擎：用电脑上的默认引擎（这里是 codex），写进参数里
+    await p.call('engine:createSession', { projectId: 'proj', permissionMode: 'edits', effort: 'ultra' })
+    expect(mutations()).toEqual([
+      [
+        'engine:createSession',
+        [
+          {
+            projectId: 'proj',
+            engine: 'claude',
+            permissionMode: 'plan',
+            model: 'opus',
+            effort: 'low',
+            thinkingSummaries: false,
+          },
+        ],
+      ],
+      ['engine:createSession', [{ projectId: 'proj', permissionMode: 'edits', effort: 'ultra', engine: 'codex' }]],
+    ])
+    await expect(p.call('engine:createSession', { projectId: 'proj', permissionMode: 'full' })).rejects.toThrow(
+      'MOBILE_BAD_ARGUMENT',
+    )
+    await expect(p.call('engine:createSession', { projectId: 'proj', engine: 'claude', model: 'x' })).rejects.toThrow(
+      'MOBILE_BAD_ARGUMENT',
+    )
+    await expect(
+      p.call('engine:createSession', { projectId: 'proj', engine: 'claude', effort: 'ultra' }),
+    ).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    expect(mutations()).toHaveLength(2)
+  })
+
+  it('checks rename, pin and archive arguments', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    await p.call('engine:renameSession', 'cc', '  新名字  ')
+    await p.call('engine:setSessionPinned', 'cc', true)
+    await p.call('engine:archiveSession', 'cc', true)
+    await p.call('engine:archiveSession', 'cc', true, true)
+    expect(mutations()).toEqual([
+      ['engine:renameSession', ['cc', '新名字']],
+      ['engine:setSessionPinned', ['cc', true]],
+      ['engine:archiveSession', ['cc', true, false]],
+      ['engine:archiveSession', ['cc', true, true]],
+    ])
+    const bad = (method: string, ...args: unknown[]) =>
+      expect(p.call(method, ...args)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await bad('engine:renameSession', 'cc', '   ')
+    await bad('engine:renameSession', 'cc', 'a\nb')
+    await bad('engine:renameSession', 'cc', 'x'.repeat(201))
+    await bad('engine:renameSession', 'cc', 5)
+    await bad('engine:renameSession', '', 'x')
+    await bad('engine:setSessionPinned', 'cc', 'true')
+    await bad('engine:setSessionPinned', 'cc')
+    await bad('engine:archiveSession', 'cc', 1)
+    await bad('engine:archiveSession', 'cc', true, 'yes')
+    await bad('engine:archiveSession', 'cc', true, null)
+    await p.call('engine:renameSession', 'cc', 'x'.repeat(200))
+    expect(mutations()).toHaveLength(5)
+  })
+
+  it('only serves the model catalog of a real engine, without a refresh flag', async () => {
+    const { t, calls } = settingsSetup()
+    const p = await paired(t)
+    await p.call('engine:catalog', 'codex', true)
+    await expect(p.call('engine:catalog', 'nope')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await expect(p.call('engine:catalog')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    expect(calls.filter(c => c[0] === 'engine:catalog')).toEqual([['engine:catalog', ['codex']]])
+  })
+
+  it('checks the engine capability table: permission modes, efforts, thinking summaries', () => {
+    const codex = ENGINES.codex.caps
+    expect(() => checkSettings(codex, { permissionMode: 'plan', effort: 'ultra' })).not.toThrow()
+    // 引擎没有计划模式（旧版 Codex 的情形）：不让选
+    const noPlan = { ...codex, permissionModes: codex.permissionModes.filter(m => m !== 'plan') }
+    expect(() => checkSettings(noPlan, { permissionMode: 'plan' })).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(() => checkSettings(noPlan, { permissionMode: 'edits' })).not.toThrow()
+    expect(() => checkSettings(ENGINES.pixel.caps, { thinkingSummaries: true })).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(() => checkSettings(ENGINES.claude.caps, { effort: 'ultra' })).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(phoneSettings({ permissionMode: 'ask', fast: true, engine: 'codex' })).toEqual({ permissionMode: 'ask' })
+  })
+})
+
 describe('helpers', () => {
   it('keeps only recent, unarchived sessions for the phone', () => {
     const list = Array.from({ length: 250 }, (_, i) => summary(String(i), i, i % 2 ? 1 : null))
@@ -493,6 +838,10 @@ describe('helpers', () => {
     expect(() => sanitize('engine:createSession', [{}])).toThrow('MOBILE_BAD_ARGUMENT')
     expect(() => sanitize('engine:send', ['s', { text: 'x' }])).toThrow('MOBILE_BAD_ARGUMENT')
     expect(sanitize('engine:interrupt', ['s'])).toEqual(['s'])
+    // 调序：新形态 { before } 和旧手机的数字下标都原样放行（校验在电脑上的 engine:moveQueued）
+    expect(sanitize('engine:moveQueued', ['s', 'q1', { before: 'q2' }])).toEqual(['s', 'q1', { before: 'q2' }])
+    expect(sanitize('engine:moveQueued', ['s', 'q1', { before: null }])).toEqual(['s', 'q1', { before: null }])
+    expect(sanitize('engine:moveQueued', ['s', 'q1', 2])).toEqual(['s', 'q1', 2])
   })
 })
 

@@ -10,12 +10,15 @@ import { isDemo, projects } from '@/data'
 import { translateMessage, tr } from '@/i18n/core'
 import { demo } from '@/data/demo'
 import { createHistory, HISTORY_LIMIT_BYTES, type DataEvent, type TerminalHistory } from './history'
+import { applyPrompt, type PromptMarks } from './marks'
 
 interface State extends TerminalState {
   ready: boolean
   error: string | null
+  /** 各终端的提示符记录（shell 集成）；只在收到 prompt 事件时换新对象 */
+  marks: Record<string, PromptMarks>
 }
-let state: State = { profiles: [], defaultProfileId: '', terminals: [], ready: false, error: null }
+let state: State = { profiles: [], defaultProfileId: '', terminals: [], ready: false, error: null, marks: {} }
 const listeners = new Set<() => void>()
 let init: Promise<void> | null = null
 const sinks = new Map<string, (event: DataEvent) => void>()
@@ -57,6 +60,16 @@ const seenOutput = new Set<string>()
 function event(value: TerminalEvent): void {
   if (value.type === 'record') {
     applyTerminalRecord(value.record)
+    return
+  }
+  if (value.type === 'profiles') {
+    // 启动时的 Shell 检测在后台做，完成后推一次；重新取一次（SSH 机器的列表也在 state 里合并）
+    void refreshTerminals().catch(terminalError)
+    return
+  }
+  if (value.type === 'prompt') {
+    const next = applyPrompt(state.marks[value.terminalId], value)
+    if (next && next !== state.marks[value.terminalId]) set({ marks: { ...state.marks, [value.terminalId]: next } })
     return
   }
   seenOutput.add(value.terminalId)
@@ -179,7 +192,9 @@ export async function terminalClose(id: string, force = false): Promise<void> {
   notifyHistory()
   seenOutput.delete(id)
   readyWaiters.delete(id)
-  set({ terminals: state.terminals.filter(r => r.id !== id) })
+  const marks = { ...state.marks }
+  delete marks[id]
+  set({ terminals: state.terminals.filter(r => r.id !== id), marks })
 }
 export async function terminalRestart(id: string, force = false): Promise<void> {
   const record = state.terminals.find(r => r.id === id)
@@ -196,8 +211,9 @@ export async function terminalRestart(id: string, force = false): Promise<void> 
 /**
  * 新建的终端出现第一段输出（shell 就绪）后写入一条命令；最多等 4 秒。
  * 只在用户点击时调用，命令不进任何保存的记录（D051：不自动重跑命令）。
+ * onSent：命令写进终端之后调用（任务面板在这里记下「从这一刻起的提示符才算命令结束」）。
  */
-export function terminalRunWhenReady(id: string, command: string): void {
+export function terminalRunWhenReady(id: string, command: string, onSent?: () => void): void {
   if (isDemo) {
     demoWrite(id, '\r\n$ ' + command + '\r\n')
     return
@@ -209,7 +225,10 @@ export function terminalRunWhenReady(id: string, command: string): void {
     readyWaiters.delete(id)
     const record = state.terminals.find(r => r.id === id)
     if (record && (record.status === 'running' || record.status === 'starting'))
-      void window.pixelsky!.terminal.write(id, record.generation, command + '\r').catch(terminalError)
+      void window
+        .pixelsky!.terminal.write(id, record.generation, command + '\r')
+        .then(() => onSent?.())
+        .catch(terminalError)
   }
   // 稍等一下让提示符画完，避免命令和提示符交错
   const soon = (): void => void setTimeout(send, 150)

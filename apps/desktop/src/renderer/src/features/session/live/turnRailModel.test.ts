@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Item } from '@pixelsky/protocol'
-import { clampIndex, currentTurn, placeTicks, thumbOf, tickAt, topsFor, turnsOf } from './turnRailModel'
+import {
+  clampIndex,
+  currentTurn,
+  placeTicks,
+  reuseTurns,
+  sameMeasured,
+  thumbOf,
+  tickAt,
+  topsFor,
+  turnsOf,
+} from './turnRailModel'
 
 const user = (id: string, text: string, mode?: 'guidance'): Item => ({ kind: 'user', id, text, createdAt: 0, mode })
 
@@ -18,6 +28,14 @@ describe('轮次跳转条', () => {
     ])
     expect(turns[0].preview).toBe('第一句')
     expect(turns[1].preview).toBe(`${'长'.repeat(60)}…`)
+  })
+
+  it('断线后自动发的「继续」不算一轮', () => {
+    const resume = { ...user('r', '继续'), reconnect: 1 } as Item
+    expect(turnsOf([user('a', '第一句'), resume, user('b', '第二句')]).map(t => [t.id, t.n])).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ])
   })
 
   it('刻度画在实际位置上（内容位置 / 总高 × 滑轨高）；挨太近的合并，当前轮所在的那个高亮', () => {
@@ -81,5 +99,38 @@ describe('回退后轮次变少', () => {
     expect(clampIndex(1, 3)).toBe(1)
     expect(clampIndex(4, 0)).toBe(0)
     expect(clampIndex(Number.NaN, 3)).toBe(0)
+  })
+})
+
+describe('轮次列表沿用旧引用', () => {
+  const turn = (id: string, n: number, preview = id) => ({ id, n, preview })
+
+  it('id、n、preview 都没变就返回上一份', () => {
+    const prev = [turn('a', 1), turn('b', 2)]
+    expect(reuseTurns(prev, [turn('a', 1), turn('b', 2)])).toBe(prev)
+    expect(reuseTurns([], [])).toEqual([])
+  })
+
+  it('多一轮、少一轮、n 变了（上面多显示了几轮）、预览变了都用新的', () => {
+    const prev = [turn('a', 1), turn('b', 2)]
+    const more = [turn('a', 1), turn('b', 2), turn('c', 3)]
+    expect(reuseTurns(prev, more)).toBe(more)
+    const fewer = [turn('a', 1)]
+    expect(reuseTurns(prev, fewer)).toBe(fewer)
+    const shifted = [turn('a', 11), turn('b', 12)]
+    expect(reuseTurns(prev, shifted)).toBe(shifted)
+    const edited = [turn('a', 1), turn('b', 2, '改了')]
+    expect(reuseTurns(prev, edited)).toBe(edited)
+  })
+})
+
+describe('量到的位置比较', () => {
+  it('逐项相同（含 Infinity）才算一样', () => {
+    const a = { ids: ['a', 'b'], tops: [0, Number.POSITIVE_INFINITY] }
+    expect(sameMeasured(a, { ids: ['a', 'b'], tops: [0, Number.POSITIVE_INFINITY] })).toBe(true)
+    expect(sameMeasured(a, { ids: ['a', 'b'], tops: [0, 10] })).toBe(false)
+    expect(sameMeasured(a, { ids: ['a', 'c'], tops: [0, Number.POSITIVE_INFINITY] })).toBe(false)
+    expect(sameMeasured(a, { ids: ['a'], tops: [0] })).toBe(false)
+    expect(sameMeasured({ ids: [], tops: [] }, { ids: [], tops: [] })).toBe(true)
   })
 })

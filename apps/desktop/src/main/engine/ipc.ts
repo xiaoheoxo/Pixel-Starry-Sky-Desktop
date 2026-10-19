@@ -7,7 +7,7 @@
 // 同时按原顺序带起依赖引擎的模块：平台额度、SSH 机器、扩展、终端、产物面板的本机操作。
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, dialog, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, session, type IpcMainInvokeEvent } from 'electron'
 import * as ipc from '../ipc/guard'
 import { nativeText, windowLocale } from '../app/ui-language'
 import { EngineHost } from '@pixelsky/engine'
@@ -16,6 +16,17 @@ import type { AppContext } from '../app/context'
 import { platformCalls, platformCharges, accountCalls, accountSummary } from '../platform/billing'
 import { onAccountChange, signedInEmail } from '../account/account'
 import { fetchStore, openStore } from '../account/store'
+import {
+  checkoutCancel,
+  checkoutCreate,
+  checkoutGet,
+  checkoutOpenPayUrl,
+  checkoutPending,
+  checkoutVerify,
+  panelStatus,
+  panelVerify,
+} from '../account/checkout'
+import { closePayWindow, openPayWindow } from '../account/pay-window'
 import { logger } from '@pixelsky/engine'
 import { initPlatform, validateQueuedInput } from '../platform/platform'
 import { initProviders } from '../providers/providers'
@@ -36,6 +47,7 @@ import { usageQuery } from '../core/args'
 import { npmLatest, scheduleEngineUpdateChecks } from './npm-latest'
 import { logHostEvent } from '../core/log/host-events'
 import { initProjectImport } from './project-import-ipc'
+import { SystemProxy } from './systemProxy'
 import { initSessionStatus } from '../session-status'
 
 export async function initEngine(ctx: AppContext): Promise<void> {
@@ -66,7 +78,25 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   const history = historyServer(ctx)
   app.on('will-quit', () => history.close())
   const extensions = new Extensions(ctx, history)
+  // 系统代理补给本机引擎（Claude Code / Codex 只认环境变量）；远程机器的宿主不传
+  const proxyLog = logger('proxy')
+  const systemProxy = new SystemProxy({
+    resolve: url => session.defaultSession.resolveProxy(url),
+    dir: app.getPath('userData'),
+    log: (message, fields) => proxyLog.info(message, fields),
+  })
+  systemProxy.start()
+  app.on('will-quit', () => systemProxy.stop())
+  ipc.handle('engine:systemProxy', async () => {
+    await systemProxy.refresh()
+    return systemProxy.status()
+  })
+  ipc.handle('engine:setSystemProxy', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') throw new Error('参数不对')
+    return systemProxy.setEnabled(enabled)
+  })
   const h = new EngineHost({
+    systemProxy: engine => systemProxy.forEngine(engine),
     dataDir: join(app.getPath('userData'), 'engine'),
     pixelCli: bundledPixelCli(),
     // 有 SSH 机器时由它合并本机与远端的项目 / 会话再广播
@@ -113,6 +143,20 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   handle('account:summary', (_e, query) => accountSummary(query))
   handle('account:store', () => fetchStore())
   handle('account:openStore', (_e, kind, params) => openStore(kind, params))
+  // 软件内付款（docs/ui/in-app-payment.md §6.6）：参数校验、订单号白名单、地址校验都在 main/account/checkout.ts
+  handle('account:checkoutCreate', (_e, input) => checkoutCreate(input))
+  handle('account:checkoutGet', (_e, orderId) => checkoutGet(orderId))
+  handle('account:checkoutVerify', (_e, orderId) => checkoutVerify(orderId))
+  handle('account:checkoutCancel', (_e, orderId) => checkoutCancel(orderId))
+  handle('account:checkoutPending', () => checkoutPending())
+  handle('account:checkoutOpenPayUrl', (_e, orderId) => checkoutOpenPayUrl(orderId))
+  // 付款窗口（pay_url 订单在软件里直接显示收银台页，main/account/pay-window.ts）：作为发起请求的窗口的子窗口
+  handle('account:checkoutOpenPayWindow', (e, orderId) =>
+    openPayWindow(BrowserWindow.fromWebContents(e.sender), orderId),
+  )
+  handle('account:checkoutClosePayWindow', (_e, orderId) => closePayWindow(orderId))
+  handle('account:panelStatus', () => panelStatus())
+  handle('account:panelVerify', () => panelVerify())
   // 搜索 / 产物扫描按窗口分桶；窗口关闭时中止它还没跑完的查询
   const searches = new SearchRegistry(),
     scans = new SearchRegistry()

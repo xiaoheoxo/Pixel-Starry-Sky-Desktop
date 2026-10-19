@@ -70,3 +70,8 @@ export function collectAnswers(
   }
   return answers
 }
+
+/** 已经答完的题数（页脚的「已回答 n/m」） */
+export function answeredCount(questions: Question[], drafts: Record<string, QuestionDraft>): number {
+  return questions.filter(q => draftAnswer(q, drafts[q.question] ?? EMPTY_DRAFT) !== null).length
+}

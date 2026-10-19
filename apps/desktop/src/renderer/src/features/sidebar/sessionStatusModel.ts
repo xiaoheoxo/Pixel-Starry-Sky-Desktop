@@ -79,9 +79,15 @@ export interface SessionStatus {
   prInline: boolean
 }
 
-/** 出错的会话按错误原因分图标；归不了类的就是 failed */
-export const errorKindOf = (error: string | null | undefined): ErrorKind | 'failed' =>
-  (error ? classifyError(error) : null) ?? 'failed'
+/**
+ * 出错的会话按错误原因分图标；归不了类的就是 failed（上下文超限没有单独的图标，也算 failed）。
+ * 这里只有卡片摘要里的错误文字、没有 NoticeError：对话里的错误卡片可能按引擎给的结构化 kind 归类
+ * （见 live/errorKind.ts 的 classifyError），侧栏只能按文字猜——两处偶尔不一致是预期的，别在这里补结构化数据流
+ */
+export const errorKindOf = (error: string | null | undefined): Exclude<ErrorKind, 'overflow'> | 'failed' => {
+  const kind = error ? classifyError(error) : null
+  return kind && kind !== 'overflow' ? kind : 'failed'
+}
 
 /**
  * 先后（一格只放一个）：approve / question > auth / balance / route / failed / folder > busy / offline

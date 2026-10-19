@@ -49,10 +49,6 @@ const FAST_BLOCKED: Record<string, string> = {
   get not_first_party() {
     return tr('engine.labels.onlySupportedByOfficial')
   },
-  /** Codex 走平台 / 自定义接口（docs/codex-engine.md §3.5） */
-  get codex_gateway() {
-    return tr('codex.fastGateway')
-  },
   get disabled_by_env() {
     return tr('engine.labels.disabledByEnvironmentVariable')
   },
@@ -66,6 +62,20 @@ const FAST_BLOCKED: Record<string, string> = {
 
 export function fastBlockedText(reason: string): string {
   return FAST_BLOCKED[reason] ?? tr('engine.labels.temporarilyUnavailable')
+}
+
+/** Fast 能开、但可能不生效时的提示（Codex 不设门禁，docs/codex-engine.md §3.5）；不认识的原因不提示 */
+const FAST_HINT: Record<string, string> = {
+  get codex_gateway() {
+    return tr('codex.fastGateway')
+  },
+  get codex_unverified() {
+    return tr('codex.fastUnverified')
+  },
+}
+
+export function fastHintText(reason: string): string | null {
+  return FAST_HINT[reason] ?? null
 }
 
 /** 后台任务类型名 */

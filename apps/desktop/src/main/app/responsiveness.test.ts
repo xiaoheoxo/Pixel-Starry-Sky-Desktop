@@ -39,6 +39,7 @@ import {
   mainLag,
   memoryLevel,
   remoteMemoryChecker,
+  stallFields,
   trimStack,
   watchMemory,
   watchRemoteMemory,
@@ -150,6 +151,29 @@ describe('主进程卡住', () => {
     expect(mainLag(1_999, false)).toBeNull()
     expect(mainLag(2_400.4, false)).toBe(2400)
     expect(mainLag(60_000, true)).toBeNull()
+  })
+
+  it('日志带上没处理完的请求、最近结束的请求和引擎运行时数量', async () => {
+    const { track } = await import('../ipc/guard')
+    track('engine:openSession', () => ({ items: [1, 2, 3] }))
+    let finish!: (v: unknown) => void
+    void track('mobile:engine:sessions', () => new Promise(r => (finish = r)))
+    const fields = stallFields(2_900, () => ({ runtimes: 12, processes: 3, running: 1 }))
+    expect(fields).toMatchObject({
+      lagMs: 2_900,
+      ipc: [{ channel: 'mobile:engine:sessions' }],
+      recent: [{ channel: 'engine:openSession', size: 'items:3' }],
+      engine: { runtimes: 12, processes: 3, running: 1 },
+    })
+    finish([])
+    // 引擎还没加载 / 取数出错：不带 engine，也不影响这条日志
+    expect(stallFields(2_100, () => null)).not.toHaveProperty('engine')
+    expect(
+      stallFields(2_100, () => {
+        throw new Error('x')
+      }),
+    ).not.toHaveProperty('engine')
+    expect(stallFields(2_100)).not.toHaveProperty('engine')
   })
 })
 

@@ -24,6 +24,10 @@ import { GROUP_NAME_LIMIT, getSidebarPrefs, setProjectGroups, useSidebarPrefs } 
 import { addToGroup, createGroup, newGroupId } from '@/features/sidebar/projectGroups'
 import { addedSummary, mergeImportCandidates } from '@/features/sidebar/projectImportModel'
 import { SectionTitle } from '../SettingRow'
+import { prefetchResumeCounts } from '@/features/resume/hint'
+import { ResumeHintLink } from '@/features/resume/ResumeHintLink'
+import { useSettings } from '../SettingsProvider'
+import { ResumeScanCard } from './ResumeScanCard'
 import {
   IMPORT_TOOLS,
   bucketOf,
@@ -68,9 +72,13 @@ export function ProjectsSection() {
   useI18n()
   const local = useMachines().currentId === 'local'
   const toast = useToast()
+  // 从「原来的 AI 会话」打开了新对话：关掉设置，看得到那个对话
+  const { closeSettings } = useSettings()
   const groups = useSidebarPrefs().groups ?? []
   const [candidates, setCandidates] = useState<ProjectImportCandidate[]>([])
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  /** 这次新加的项目：路径 → 项目 ID，结果行据此显示「终端里有 N 个会话」 */
+  const [addedIds, setAddedIds] = useState<Record<string, string>>({})
   /** 取消勾选的工具卡片（工具名） */
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [warnings, setWarnings] = useState<string[]>([])
@@ -126,7 +134,8 @@ export function ProjectsSection() {
     return (
       <section>
         <SectionTitle>{tr('projects.title')}</SectionTitle>
-        <p className="text-meta text-fg-muted">{tr('projectImport.localOnly')}</p>
+        <p className="mb-5 text-meta text-fg-muted">{tr('projectImport.localOnly')}</p>
+        <ResumeScanCard onOpened={closeSettings} />
       </section>
     )
 
@@ -167,7 +176,10 @@ export function ProjectsSection() {
     setError(null)
     setNotice(null)
     try {
-      const result = await addProjectPaths(chosen.map(c => c.path))
+      const result = await addProjectPaths(
+        chosen.map(c => c.path),
+        { quiet: true },
+      )
       if (!result) return
       const ids = [...result.added, ...result.existing].map(p => p.id)
       if (ids.length && (newGroup ? trimmedName : group)) {
@@ -180,6 +192,10 @@ export function ProjectsSection() {
           setGroupName('')
         } else setProjectGroups(addToGroup(current, group, ids))
       }
+      const fresh = Object.fromEntries(result.added.map(p => [p.path, p.id]))
+      setAddedIds(previous => ({ ...previous, ...fresh }))
+      // 后台查，限制并发；失败当没有，不影响导入
+      void prefetchResumeCounts(result.added.map(p => p.id)).catch(() => undefined)
       const done = new Set([...result.added, ...result.existing].map(p => p.path))
       setCandidates(previous => previous.map(c => (done.has(c.path) ? { ...c, added: true } : c)))
       setPicked(new Set(result.failed.map(f => f.path)))
@@ -200,6 +216,7 @@ export function ProjectsSection() {
     <section className="flex min-h-full flex-col">
       <SectionTitle>{tr('projects.title')}</SectionTitle>
       <p className="-mt-2 mb-5 text-meta text-fg-muted">{tr('projectImport.settingsIntro')}</p>
+      <ResumeScanCard onOpened={closeSettings} />
 
       <div data-setting-title={tr('projectImport.fromTools')} className="mb-2 flex items-baseline justify-between">
         <span className="text-label font-medium text-fg-muted">{tr('projectImport.fromTools')}</span>
@@ -558,6 +575,9 @@ export function ProjectsSection() {
                             <span dir="rtl" className="block truncate text-left font-mono text-label text-fg-faint">
                               <bdi>{c.path}</bdi>
                             </span>
+                            {addedIds[c.path] && (
+                              <ResumeHintLink projectId={addedIds[c.path]} fetch={false} className="block" />
+                            )}
                           </span>
                         </span>
                       </label>

@@ -30,10 +30,12 @@ import { withoutShownImagePlaceholders } from '@pixelsky/protocol'
 import { CopyButton, DiffStat, IconButton, cn, useToast } from '@/ui'
 import { DiffView } from '@/ui/code/DiffView'
 import { CommandText } from '@/ui/code/CommandText'
+import { hasWrapperExtra } from './commandWrapper'
 import { AnsiText } from '@/ui/code/AnsiText'
 import { useOpenTrace } from './trace'
 import { StepMark } from './ProgressCard'
 import { StatusDot } from './StatusDot'
+import { rowLook, useLiveOwned } from './liveOwner'
 import { UserText } from './UserText'
 import { shouldFoldUser, userBlocks } from './userBlocks'
 import { CodeBlock } from '@/ui/code/CodeBlock'
@@ -209,14 +211,15 @@ const thinkingTook = new Map<string, number>()
 export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
   useI18n()
   const running = item.status === 'running'
+  const look = rowLook(running, useLiveOwned())
   const hasText = !!item.text.trim()
   const { open, toggle, fold } = useFold(item.id, hasText)
   const [, tick] = useState(0)
   useEffect(() => {
-    if (!running) return
+    if (!look.clock) return
     const timer = setInterval(() => tick(n => n + 1), 1000)
     return () => clearInterval(timer)
-  }, [running])
+  }, [look.clock])
   if (running && !thinkingStart.has(item.id)) thinkingStart.set(item.id, Date.now())
   const started = thinkingStart.get(item.id)
   if (!running && started !== undefined && !thinkingTook.has(item.id)) thinkingTook.set(item.id, Date.now() - started)
@@ -224,7 +227,7 @@ export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
   if (!running && !hasText && took === null) return null
   const elapsed = running && started !== undefined ? Date.now() - started : 0
   const label = running
-    ? elapsed >= 1000
+    ? look.clock && elapsed >= 1000
       ? tr('session.live.thinkingFor', { time: formatDuration(elapsed) })
       : tr('session.live.ItemRows.thinking')
     : took !== null
@@ -248,7 +251,7 @@ export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
         className="flex h-[30px] items-center gap-2 rounded-md px-2 text-list text-fg-muted hover:bg-hover hover:text-fg-secondary"
       >
         {/* 思考完不打勾（每轮好几段，满屏绿勾太吵），只留位置让图标和工具行对齐 */}
-        <StatusDot status={running ? 'running' : 'none'} />
+        <StatusDot status={running ? 'running' : 'none'} still={!look.pulse} />
         <Brain size={15} strokeWidth={1.5} className={cn('shrink-0', running && 'text-active')} />
         <span className="tabular-nums">{label}</span>
         {!running && <Chevron open={open} />}
@@ -316,9 +319,10 @@ const TOOL_META: Record<ToolKind, { icon: LucideIcon; verb: string }> = {
  * 加类型图标；进行中图标也是橙色，动作上流过一道很淡的光，超过 3 秒在后面写用时
  */
 function RunningIcon({ icon: Icon, status }: { icon: LucideIcon; status: ItemStatus }) {
+  const look = rowLook(status === 'running', useLiveOwned())
   return (
     <>
-      <StatusDot status={status} />
+      <StatusDot status={status} still={status === 'running' && !look.pulse} />
       <Icon
         size={15}
         strokeWidth={1.5}
@@ -359,6 +363,7 @@ function Row({
 }) {
   useI18n()
   const running = status === 'running'
+  const look = rowLook(running, useLiveOwned())
   const row = (
     <button
       type="button"
@@ -374,12 +379,12 @@ function Row({
     >
       <RunningIcon icon={icon} status={status} />
       {verb && (
-        <span data-tool-verb className={cn('shrink-0', running && 'step-shimmer')}>
+        <span data-tool-verb className={cn('shrink-0', look.shimmer && 'step-shimmer')}>
           {verb}
         </span>
       )}
       {children}
-      {running && <StepClock id={id} />}
+      {look.clock && <StepClock id={id} />}
       {trailing}
       <span className="flex-1" />
       {expandable && <Chevron open={open} />}
@@ -514,6 +519,7 @@ function FileChangeLine({
   const foldable = !!c.diff
   const { open, toggle, fold } = useFold(item.id, foldable)
   const editing = item.status === 'running'
+  const look = rowLook(editing, useLiveOwned())
   const name = (
     <>
       {dir && <span className="text-fg-muted">{dir}/</span>}
@@ -523,7 +529,7 @@ function FileChangeLine({
   const summary = (
     <>
       <RunningIcon icon={c.kind === 'add' ? FilePlus : FilePen} status={item.status} />
-      <span data-tool-verb className={cn('shrink-0', editing && 'step-shimmer')}>
+      <span data-tool-verb className={cn('shrink-0', look.shimmer && 'step-shimmer')}>
         {fileVerb([c])}
       </span>
       <div className="flex min-w-0 flex-1 overflow-hidden">
@@ -541,7 +547,7 @@ function FileChangeLine({
           </button>
         )}
       </div>
-      {editing && <StepClock id={item.id} />}
+      {look.clock && <StepClock id={item.id} />}
       {(c.added > 0 || c.removed > 0) && <DiffStat added={c.added} removed={c.removed} className="text-meta" />}
       <StatusMark status={item.status} />
       <SubagentTag name={item.subagent} />
@@ -644,7 +650,7 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
           icon={SquareTerminal}
           verb={verb}
           status={item.status}
-          expandable={!!item.output}
+          expandable={!!item.output || hasWrapperExtra(item.wrapper)}
           open={open}
           onToggle={toggle}
           action={
@@ -670,6 +676,11 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
           trailing={
             <>
               <StatusMark status={item.status} />
+              {hasWrapperExtra(item.wrapper) && (
+                <span className="shrink-0 rounded-sm bg-warn/12 px-1.5 py-px text-label text-warn">
+                  {tr('approvals.wrapped')}
+                </span>
+              )}
               {item.status !== 'running' && item.exitCode !== null && item.exitCode !== 0 && (
                 <span className="shrink-0 text-meta text-danger tabular-nums">
                   {tr('session.live.exitCode', { n: item.exitCode })}
@@ -682,16 +693,24 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
           <code
             data-tool-arg
             className="truncate rounded-sm bg-subtle px-1.5 py-0.5 font-mono text-[length:calc(12.5px*var(--font-scale,1))] text-fg"
-            title={item.description ?? item.command}
+            title={
+              item.description ??
+              (item.wrapper ? tr('approvals.fullCommandTip', { line: item.wrapper.line }) : item.command)
+            }
           >
             <CommandText command={item.command} />
           </code>
         </Row>
-        {open && item.output && (
+        {open && (item.output || hasWrapperExtra(item.wrapper)) && (
           <pre
             className={cn(OUTPUT_BOX, 'p-3 font-mono text-meta leading-[1.6] whitespace-pre-wrap text-fg-secondary')}
           >
-            <LongOutput text={item.output} />
+            {item.wrapper && (
+              <span className="mb-1 block break-all select-text">
+                <span className="font-sans text-fg-muted">{tr('approvals.fullCommand')}</span> {item.wrapper.line}
+              </span>
+            )}
+            {item.output && <LongOutput text={item.output} />}
           </pre>
         )}
       </div>
@@ -834,7 +853,7 @@ export function TodoCard({ item }: { item: ItemOf<'todo'> }) {
         <ul className="mt-1 ml-[15px] flex flex-col gap-1 border-l border-line pl-3.5">
           {item.steps.map((s, i) => (
             <li key={i} className="flex items-start gap-2 text-list">
-              <StepMark status={s.status} />
+              <StepMark status={s.status} live={false} />
               <span
                 className={cn(
                   s.status === 'completed' ? 'text-fg-muted line-through' : 'text-fg',

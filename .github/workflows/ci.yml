@@ -1,0 +1,48 @@
+# 日常检查：提 PR（目标 main）或推到 main 时自动跑，不发版、不上传任何东西。
+# 和 release.yml 的区别：release.yml 只在推 v* 标签（或手动）时跑，三个系统打包并传到草稿 Release；
+# 这里只在 Windows 上做两件事：①和发版前一样的检查（类型、测试、ESLint、Prettier）；
+# ②打一次「不出安装包」的 Windows 试打包（electron-builder --dir，--publish never），让打包配置、随包命令行、node-pty 的问题在合并前就暴露，而不是等到打标签那天。
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# 同一个 PR 又推了新提交时，取消还在跑的旧检查；main 上每个合并提交都跑完，各有结论
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    # 正常 15–30 分钟；某个测试或子进程卡住时不用等默认的 6 小时
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      # 按根目录 package.json 的 packageManager 装 pnpm
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 检查（类型、测试、ESLint、Prettier）
+        run: node scripts/check.mjs
+      - name: node-pty 能加载
+        shell: bash
+        working-directory: apps/desktop
+        run: node -e "require('node-pty'); console.log('node-pty ok')"
+      # 步骤和 release.yml 的打包一致，只是加 --dir（只出免安装目录，不生成 NSIS 安装包）并且 --publish never（不上传）。
+      # tools.mjs --release 从 github.com 下载 rg / fd（按 tools.lock.json 校验 sha256），不需要 token
+      - name: 试打包（免安装目录，不发布）
+        working-directory: apps/desktop
+        run: pnpm --filter @pixelsky/cli exec node scripts/tools.mjs --release && pnpm build && pnpm --filter @pixelsky/cli smoke && pnpm exec electron-builder --win --dir --publish never
+        env:
+          # 没有证书：不去找签名身份
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'

@@ -87,3 +87,101 @@ export function stepText(item: StepItem): string {
 export function clockText(ms: number, long: (ms: number) => string): string {
   return ms < 60_000 ? tr('session.step.seconds', { n: Math.floor(ms / 1000) }) : long(ms)
 }
+
+/** 本轮用时超过这么久才显示在状态行上（刚开始的几秒数字一直在跳，没有信息量；和等待计时同一个门槛） */
+export const TURN_CLOCK_MS = WAIT_CLOCK_MS
+
+/** 最近一轮（运行中的那一轮）的条目，以及它的开始时间 */
+export interface TurnWindow {
+  items: readonly Item[]
+  /** 这一轮开始的时间（当前轮用户消息的 createdAt，重新加载窗口后也在）；对不上当前轮的用户消息时为 null */
+  startedAt: number | null
+}
+
+/**
+ * 这一轮从哪里开始。开始时间只认当前轮（turnId）的那条正式用户消息（引导也带 turnId，但不算）：
+ * 中断 / 失败的轮次不写统计行，引擎之后自己接着开的轮次（后台任务完成等）没有用户消息，
+ * 光往回找最近一条用户消息会把几分钟前的那一轮算进来，所以对不上就没有开始时间（不显示用时）。
+ * 条目只看这一轮：没对上时退到最后一条统计行 / 用户消息之后，免得更早轮次里停在 running 的条目被当成「正在进行」
+ */
+export function turnWindow(items: readonly Item[], turnId: string | null = null): TurnWindow {
+  if (turnId)
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]
+      if (item.kind === 'user' && item.mode !== 'guidance' && item.turnId === turnId)
+        return { items: items.slice(i), startedAt: item.createdAt > 0 ? item.createdAt : null }
+    }
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind === 'turn_stats') return { items: items.slice(i + 1), startedAt: null }
+    if (item.kind === 'user' && item.mode !== 'guidance') return { items: items.slice(i), startedAt: null }
+  }
+  return { items, startedAt: null }
+}
+
+/** 本轮已经过了多久；没有开始时间或还没到门槛时为 null */
+export function turnElapsed(startedAt: number | null, now: number): number | null {
+  if (startedAt === null) return null
+  const ms = Math.max(0, now - startedAt)
+  return ms >= TURN_CLOCK_MS ? ms : null
+}
+
+/**
+ * 状态行上写的「正在做什么」：verb 是动作，object 是对象（文件名、命令，用等宽字体）；
+ * 说明、子智能体、MCP 这类没法干净拆开的整句放在 verb 里，object 为 null
+ */
+export interface LiveStatus {
+  verb: string
+  object: string | null
+  /** 另外还在跑的个数（并行的子智能体等） */
+  more: number
+}
+
+const LIVE_VERB = {
+  command: 'session.live.verb.command',
+  edit: 'session.live.verb.edit',
+  create: 'session.live.verb.create',
+  read: 'session.live.verb.read',
+  search: 'session.live.verb.search',
+  web: 'session.live.verb.web',
+} as const satisfies Record<string, TranslationKey>
+
+const split = (verb: keyof typeof LIVE_VERB, object: string): Pick<LiveStatus, 'verb' | 'object'> => ({
+  verb: tr(LIVE_VERB[verb]),
+  object: object || null,
+})
+
+/** 正在进行的一步 → 动作 + 对象 */
+export function liveStep(item: StepItem): Pick<LiveStatus, 'verb' | 'object'> {
+  switch (item.kind) {
+    case 'reasoning':
+      return { verb: tr('session.wait.thinking'), object: null }
+    case 'command': {
+      // 有说明就整句用说明（「运行单元测试」），没有写命令本身
+      const description = item.description?.trim()
+      return description ? { verb: description, object: null } : split('command', firstLine(item.command))
+    }
+    case 'file_change': {
+      const [first] = item.changes
+      if (item.changes.length !== 1 || !first) return { verb: stepText(item), object: null }
+      return split(first.kind === 'add' ? 'create' : 'edit', baseName(first.path))
+    }
+    case 'tool':
+      if (item.tool === 'read' || item.tool === 'search' || item.tool === 'web')
+        return split(item.tool, firstLine(item.title))
+      return { verb: stepText(item), object: null }
+  }
+}
+
+/**
+ * 运行中状态行的内容（传这一轮的条目）：
+ * 正在输出回复文字写「正在写回复」；有在跑的一步写这一步；两步之间按最后一条条目写在等什么
+ */
+export function liveStatus(items: readonly Item[]): LiveStatus {
+  const last = items[items.length - 1]
+  if (last?.kind === 'assistant' && last.status === 'running' && last.text.trim())
+    return { verb: tr('session.live.writing'), object: null, more: 0 }
+  const step = currentStep(items)
+  if (step) return { ...liveStep(step.item), more: step.more }
+  return { verb: tr(`session.wait.${waitingFor(items)}`), object: null, more: 0 }
+}

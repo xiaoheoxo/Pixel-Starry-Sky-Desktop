@@ -5,10 +5,19 @@ import { cn } from '@/ui'
 
 export type DotStatus = 'running' | 'completed' | 'failed' | 'pending' | 'declined' | 'interrupted' | 'none'
 
-export function StatusDot({ status, className }: { status: DotStatus; className?: string }) {
+/** still：进行中也不脉冲（底部状态行已经在转时，行首只留一个静止的橙点标出是哪一行） */
+export function StatusDot({
+  status,
+  className,
+  still = false,
+}: {
+  status: DotStatus
+  className?: string
+  still?: boolean
+}) {
   return (
     <span data-status-dot={status} className={cn('flex w-[14px] shrink-0 items-center justify-center', className)}>
-      {status === 'running' && <span className="size-[7px] animate-pulse rounded-full bg-active" />}
+      {status === 'running' && <span className={cn('size-[7px] rounded-full bg-active', !still && 'animate-pulse')} />}
       {status === 'completed' && <Check size={13} strokeWidth={2.25} className="text-success" />}
       {status === 'failed' && <X size={13} strokeWidth={2.25} className="text-danger" />}
       {(status === 'pending' || status === 'declined' || status === 'interrupted') && (

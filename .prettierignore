@@ -22,3 +22,7 @@ apps/mobile/android/
 apps/desktop/resources/builtin-extensions/
 packages/protocol/corpus/extpacks/bases/
 packages/protocol/corpus/extpacks/cases/*.expect.json
+
+# 官方语言扩展：上游语法原样保留（SOURCE.md 记着来源）；任务用例按真实项目文件的样子手写
+extensions/official/*/syntaxes
+extensions/official/*/.fixtures

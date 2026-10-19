@@ -1,5 +1,11 @@
 // Git 面板的纯函数（docs/ui/git-panel.md）
-import type { GitArea, GitFailureKind, GitFileChange, GitStatus } from '../../../../../shared/types/project-tools'
+import type {
+  GitArea,
+  GitDiff,
+  GitFailureKind,
+  GitFileChange,
+  GitStatus,
+} from '../../../../../shared/types/project-tools'
 import { tr, type TranslationKey } from '../../../i18n/core'
 
 export interface GitSection {
@@ -74,3 +80,11 @@ export function neighbour(
   const i = flat.findIndex(e => e.area === area && e.file.path === path)
   return i < 0 ? null : (flat[i + delta] ?? null)
 }
+
+/** 两次读到的对比是不是一样（状态刷新后重读：一样就不替换，编辑器不重建、滚动位置不丢） */
+export const sameGitDiff = (a: GitDiff, b: GitDiff): boolean =>
+  a.path === b.path &&
+  a.original === b.original &&
+  a.modified === b.modified &&
+  a.binary === b.binary &&
+  a.tooLarge === b.tooLarge

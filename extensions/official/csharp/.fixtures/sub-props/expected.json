@@ -1,0 +1,12 @@
+[
+  {
+    "template": "dotnet-props",
+    "file": "src/Api/Directory.Build.props",
+    "tasks": [
+      { "name": "build", "description": "编译（目录里要恰好有一个解决方案或项目文件）", "linux": "cd src/Api && dotnet build", "windows": "Set-Location -LiteralPath src/Api; if ($?) { dotnet build }" },
+      { "name": "test", "description": "运行测试", "linux": "cd src/Api && dotnet test", "windows": "Set-Location -LiteralPath src/Api; if ($?) { dotnet test }" },
+      { "name": "restore", "description": "还原 NuGet 包", "linux": "cd src/Api && dotnet restore", "windows": "Set-Location -LiteralPath src/Api; if ($?) { dotnet restore }" },
+      { "name": "format", "description": "按 .editorconfig 格式化代码", "linux": "cd src/Api && dotnet format", "windows": "Set-Location -LiteralPath src/Api; if ($?) { dotnet format }" }
+    ]
+  }
+]

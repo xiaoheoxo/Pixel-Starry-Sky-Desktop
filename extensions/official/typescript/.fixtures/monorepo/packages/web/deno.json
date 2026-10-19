@@ -1,0 +1,6 @@
+{
+  "name": "@demo/web",
+  "tasks": {
+    "serve": "deno serve -A main.ts"
+  }
+}

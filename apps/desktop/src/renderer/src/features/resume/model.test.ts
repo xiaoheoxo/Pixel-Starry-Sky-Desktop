@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest'
 import type { NativeSessionDetail, NativeSessionSummary } from '@pixelsky/protocol'
 import type { PlatformGroup } from '@/features/account/platform'
 import {
+  canCopyImported,
   filterRows,
   groupRows,
   isResumeLiveError,
   mergeRows,
   moveSelection,
   needsChoice,
+  loadingImportedEngine,
   parseResumeCommand,
   resumeModel,
   rowAction,
+  unreadableText,
   type ResumeRow,
 } from './model'
 
@@ -184,9 +187,102 @@ describe('resumeModel（用会话最后用的模型，当前通道跑不了就�
       groupId: 'g1',
     })
   })
+  it('Codex：会话的模型（Thread.model）和 Claude 走同一套规则', () => {
+    const codex = {
+      ...base,
+      groups: [group('g1', ['m-a']), group('g2', ['gpt-5-codex'], 0.5)],
+      selfModels: ['gpt-5-codex'],
+    }
+    expect(resumeModel({ ...codex, source: 'platform', sessionModel: 'gpt-5-codex' })).toEqual({
+      model: 'gpt-5-codex',
+      groupId: 'g2',
+    })
+    expect(resumeModel({ ...codex, source: 'self', sessionModel: 'gpt-5-codex' })).toEqual({
+      model: 'gpt-5-codex',
+      groupId: null,
+    })
+    expect(resumeModel({ ...codex, source: 'self', sessionModel: 'o3-old' }).model).toBe('composer-model')
+  })
   it('没有模型和 <synthetic> 都用输入框的', () => {
     expect(resumeModel({ ...base, source: 'self', sessionModel: null }).model).toBe('composer-model')
     expect(resumeModel({ ...base, source: 'platform', sessionModel: '<synthetic>' }).model).toBe('composer-model')
+  })
+})
+
+describe('canCopyImported（队列里「复制一份接着聊」的条件）', () => {
+  const X = '0199c2a1-7b3e-7c40-8a1d-5e2f9b0c3001'
+  const record = (
+    over: {
+      engine?: string
+      engineSessionId?: string | null
+      imported?: { engine: string; sessionId: string; forked?: boolean } | null
+    } = {},
+  ): Parameters<typeof canCopyImported>[0] => ({
+    engine: 'codex',
+    engineSessionId: X,
+    imported: { engine: 'codex', sessionId: X },
+    ...over,
+  })
+  it('原地导入、执行者没换、线程 id 还是导入的那个才给', () => {
+    expect(canCopyImported(record())).toBe(true)
+    expect(canCopyImported(record({ imported: { engine: 'codex', sessionId: X, forked: false } }))).toBe(true)
+  })
+  it('没导入过、已经是复制出来的不给', () => {
+    expect(canCopyImported(record({ imported: null }))).toBe(false)
+    expect(canCopyImported(record({ imported: undefined }))).toBe(false)
+    expect(canCopyImported(record({ imported: { engine: 'codex', sessionId: X, forked: true } }))).toBe(false)
+    expect(canCopyImported(null)).toBe(false)
+    expect(canCopyImported(undefined)).toBe(false)
+  })
+  it('换过执行者（导入的是 Claude，现在是 Codex）不给', () => {
+    expect(canCopyImported(record({ imported: { engine: 'claude', sessionId: X } }))).toBe(false)
+  })
+  it('线程 id 不再是导入的会话（回退后改开了新线程，或还没有）不给', () => {
+    expect(canCopyImported(record({ engineSessionId: 'other-thread' }))).toBe(false)
+    expect(canCopyImported(record({ engineSessionId: null }))).toBe(false)
+  })
+})
+
+describe('loadingImportedEngine（「正在加载 X 会话」用哪个引擎）', () => {
+  const X = '0199c2a1-7b3e-7c40-8a1d-5e2f9b0c3001'
+  it('执行者还是导入的引擎、还接着导入的会话：用执行者的名字', () => {
+    expect(
+      loadingImportedEngine({ engine: 'codex', engineSessionId: X, imported: { engine: 'codex', sessionId: X } }),
+    ).toBe('codex')
+  })
+  it('复制出来、还没启动过（pendingFork 指向导入的会话）也算第一次启动', () => {
+    expect(
+      loadingImportedEngine({
+        engine: 'codex',
+        engineSessionId: null,
+        pendingFork: { from: X },
+        imported: { engine: 'codex', sessionId: X, forked: true },
+      }),
+    ).toBe('codex')
+  })
+  it('换了执行者、线程已经换掉、没导入过：用普通的启动文字（null）', () => {
+    expect(
+      loadingImportedEngine({ engine: 'claude', engineSessionId: X, imported: { engine: 'codex', sessionId: X } }),
+    ).toBeNull()
+    expect(
+      loadingImportedEngine({ engine: 'codex', engineSessionId: 'new', imported: { engine: 'codex', sessionId: X } }),
+    ).toBeNull()
+    expect(loadingImportedEngine({ engine: 'codex', engineSessionId: X })).toBeNull()
+    expect(loadingImportedEngine(null)).toBeNull()
+  })
+})
+
+describe('unreadableText（读不到会话的文字）', () => {
+  // 引擎真实抛的整句（packages/engine/src/native/text.ts 的 codexUnavailable，后面可以接冒号和原因）
+  const ENGINE_SENTENCE = 'Codex 没装好，读不到它的会话'
+  it('Codex 没装好：引擎那句整句显示，不再套一层', () => {
+    expect(unreadableText('codex', ENGINE_SENTENCE)).toBe(ENGINE_SENTENCE)
+    expect(unreadableText('codex', ENGINE_SENTENCE + '：spawn ENOENT')).toBe(ENGINE_SENTENCE + '：spawn ENOENT')
+    expect(unreadableText('codex', ENGINE_SENTENCE).match(/读不到/g)).toHaveLength(1)
+  })
+  it('别的错误照旧套「读不到……」', () => {
+    expect(unreadableText('codex', 'EACCES')).toBe('读不到 Codex 的会话：EACCES')
+    expect(unreadableText('claude', '无权限')).toBe('读不到 Claude Code 的会话目录：无权限')
   })
 })
 

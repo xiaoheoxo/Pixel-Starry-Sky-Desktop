@@ -1316,6 +1316,10 @@ export const catalog = {
     "zh": "继续",
     "en": "Try again"
   },
+  "session.live.NoticeActions.compactRetry": {
+    "zh": "压缩后重试",
+    "en": "Compact and retry"
+  },
   "session.live.NoticeActions.changeRoute": {
     "zh": "换线路",
     "en": "Change route"
@@ -1585,12 +1589,12 @@ export const catalog = {
     "en": "Starting"
   },
   "session.QueuedMessages.moveMessageUp": {
-    "zh": "上移消息",
-    "en": "Move message up"
+    "zh": "上移消息（Alt+↑）",
+    "en": "Move message up (Alt+↑)"
   },
   "session.QueuedMessages.moveMessageDown": {
-    "zh": "下移消息",
-    "en": "Move message down"
+    "zh": "下移消息（Alt+↓）",
+    "en": "Move message down (Alt+↓)"
   },
   "session.QueuedMessages.steer": {
     "zh": "引导",
@@ -3000,13 +3004,13 @@ export const catalog = {
     "zh": "到账额度",
     "en": "Credits received"
   },
-  "settings.account.TopUp.includingBonus": {
-    "zh": "（含赠送",
-    "en": "(including bonus"
+  "settings.account.TopUp.includingBonusAmount": {
+    "zh": "（含赠送 {p0}）",
+    "en": "(incl. {p0} bonus)"
   },
   "settings.account.TopUp.amountDue": {
-    "zh": "应付",
-    "en": "Amount due"
+    "zh": "预计应付",
+    "en": "Estimated amount due"
   },
   "settings.account.TopUp.pay": {
     "zh": "去支付",
@@ -3060,6 +3064,10 @@ export const catalog = {
     "zh": "无法打开面板页",
     "en": "Could not open the panel page"
   },
+  "settings.account.Store.opening": {
+    "zh": "正在打开支付页…",
+    "en": "Opening the payment page…"
+  },
   "settings.account.Store.paidHint": {
     "zh": "在浏览器里完成付款后回到这里",
     "en": "Finish paying in the browser, then come back here"
@@ -3067,6 +3075,82 @@ export const catalog = {
   "settings.account.Store.paidRefresh": {
     "zh": "我已付款，刷新",
     "en": "I have paid, refresh"
+  },
+  "settings.account.Store.accountCheck": {
+    "zh": "请确认浏览器里面板登录的是 {p0}",
+    "en": "Make sure the panel in your browser is signed in as {p0}"
+  },
+  "settings.account.Store.accountCheckHint": {
+    "zh": "付款到账的是面板里登录的账号；如果浏览器登录的是别的账号，钱会进到别人的号上。",
+    "en": "Payments go to the account signed in on the panel. If the browser is signed in as someone else, the money goes to that account."
+  },
+  "settings.account.Store.balanceNow": {
+    "zh": "当前余额 {p0}",
+    "en": "Balance {p0}"
+  },
+  "settings.account.Store.planNow": {
+    "zh": "套餐 {p0}",
+    "en": "Plan {p0}"
+  },
+  "settings.account.Store.planNone": {
+    "zh": "暂无套餐",
+    "en": "No plan"
+  },
+  "settings.account.Store.planExpires": {
+    "zh": "到期 {p0}",
+    "en": "expires {p0}"
+  },
+  "settings.account.Store.watching": {
+    "zh": "付款后会自动检查到账（2 分钟内每 15 秒一次）。",
+    "en": "After payment, arrival is checked automatically (every 15 seconds for 2 minutes)."
+  },
+  "settings.account.Store.arrived": {
+    "zh": "已到账",
+    "en": "Payment received"
+  },
+  "settings.account.Store.balanceChange": {
+    "zh": "余额 {p0} → {p1}",
+    "en": "Balance {p0} → {p1}"
+  },
+  "settings.account.Store.planChange": {
+    "zh": "套餐 {p0} → {p1}",
+    "en": "Plan {p0} → {p1}"
+  },
+  "settings.account.Store.expiresChange": {
+    "zh": "到期时间 {p0} → {p1}",
+    "en": "Expiry {p0} → {p1}"
+  },
+  "settings.account.Store.noValue": {
+    "zh": "无",
+    "en": "none"
+  },
+  "settings.account.Store.notArrived": {
+    "zh": "暂未到账：可能有几秒延迟；如果一直没到，请到面板确认登录的账号和订单",
+    "en": "Not received yet: it can take a few seconds. If it never arrives, check the signed-in account and the order on the panel"
+  },
+  "settings.account.Store.refreshFailed": {
+    "zh": "刷新失败：{p0}",
+    "en": "Refresh failed: {p0}"
+  },
+  "settings.account.Store.demoNoOpen": {
+    "zh": "演示模式不会打开支付页",
+    "en": "Demo mode does not open the payment page"
+  },
+  "settings.account.TopUp.reenterAmount": {
+    "zh": "需在面板里重新输入金额",
+    "en": "Enter the amount again in the panel"
+  },
+  "settings.account.TopUp.copyAmount": {
+    "zh": "复制金额",
+    "en": "Copy amount"
+  },
+  "settings.account.TopUp.amountCopied": {
+    "zh": "已复制",
+    "en": "Copied"
+  },
+  "settings.account.TopUp.currencyUnsure": {
+    "zh": "支付币种无法确认，请以面板显示的金额为准",
+    "en": "The payment currency cannot be confirmed. Use the amount shown on the panel"
   },
   "settings.account.TopUp.rechargeClosed": {
     "zh": "Sub2api 没有开放在线充值",
@@ -3119,6 +3203,398 @@ export const catalog = {
   "settings.account.TopUp.includingFee": {
     "zh": "（含手续费 {p0}）",
     "en": "(incl. {p0} fee)"
+  },
+  "settings.account.TopUp.scanToPay": {
+    "zh": "扫码付款",
+    "en": "Pay by QR code"
+  },
+  "settings.account.TopUp.payInBrowser": {
+    "zh": "去浏览器付款",
+    "en": "Pay in browser"
+  },
+  "settings.account.TopUp.pendingOrder": {
+    "zh": "你有一笔未付款的订单：{p0} {p1}，还剩 {p2} 分钟",
+    "en": "You have an unpaid order: {p0} {p1}, {p2} min left"
+  },
+  "settings.account.TopUp.continuePay": {
+    "zh": "继续付款",
+    "en": "Continue paying"
+  },
+  "settings.account.PlanStore.alsoInBrowser": {
+    "zh": "也可以",
+    "en": "Or"
+  },
+  "settings.account.PlanStore.buyInBrowser": {
+    "zh": "去浏览器购买",
+    "en": "buy in the browser"
+  },
+  "settings.account.Checkout.title.pay": {
+    "zh": "扫码付款",
+    "en": "Pay by QR code"
+  },
+  "settings.account.Checkout.title.done": {
+    "zh": "付款完成",
+    "en": "Payment complete"
+  },
+  "settings.account.Checkout.title.reauth": {
+    "zh": "确认账号",
+    "en": "Confirm your account"
+  },
+  "settings.account.Checkout.close": {
+    "zh": "关闭",
+    "en": "Close"
+  },
+  "settings.account.Checkout.cancel": {
+    "zh": "取消",
+    "en": "Cancel"
+  },
+  "settings.account.Checkout.back": {
+    "zh": "返回",
+    "en": "Back"
+  },
+  "settings.account.Checkout.retry": {
+    "zh": "重试",
+    "en": "Retry"
+  },
+  "settings.account.Checkout.creating": {
+    "zh": "正在生成付款码…",
+    "en": "Generating the payment code…"
+  },
+  "settings.account.Checkout.summary.balance": {
+    "zh": "余额充值",
+    "en": "Top-up"
+  },
+  "settings.account.Checkout.summary.credited": {
+    "zh": "到账 {p0}",
+    "en": "{p0} credited"
+  },
+  "settings.account.Checkout.amountDue": {
+    "zh": "应付",
+    "en": "Amount due"
+  },
+  "settings.account.Checkout.feeIncluded": {
+    "zh": "（含 {p0}% 手续费）",
+    "en": "(incl. {p0}% fee)"
+  },
+  "settings.account.Checkout.amountDiffers": {
+    "zh": "应付金额以这里为准，和预估略有差异",
+    "en": "Pay the amount shown here; it differs slightly from the estimate"
+  },
+  "settings.account.Checkout.scanWith": {
+    "zh": "请用{p0}扫码",
+    "en": "Scan with {p0}"
+  },
+  "settings.account.Checkout.remaining": {
+    "zh": "剩余 {p0}",
+    "en": "{p0} left"
+  },
+  "settings.account.Checkout.qrLabel": {
+    "zh": "{p0}付款二维码，应付 {p1}",
+    "en": "{p0} payment QR code, amount due {p1}"
+  },
+  "settings.account.Checkout.demoQr": {
+    "zh": "演示二维码，不能付款",
+    "en": "Demo QR code. It can't be paid"
+  },
+  "settings.account.Checkout.noQr": {
+    "zh": "没有可用的二维码，请改用浏览器付款",
+    "en": "No QR code is available. Pay in the browser instead"
+  },
+  "settings.account.Checkout.reused": {
+    "zh": "这是你刚才那笔未付款的订单",
+    "en": "This is the unpaid order you just placed"
+  },
+  "settings.account.Checkout.oldQrStillValid": {
+    "zh": "之前那笔未付款订单的二维码仍然可以付款，到期后才会失效",
+    "en": "The QR code of your earlier unpaid order can still be paid until it expires"
+  },
+  "settings.account.Checkout.steps": {
+    "zh": "付款进度",
+    "en": "Payment progress"
+  },
+  "settings.account.Checkout.step.waiting": {
+    "zh": "等待付款",
+    "en": "Waiting for payment"
+  },
+  "settings.account.Checkout.step.paid": {
+    "zh": "已付款",
+    "en": "Paid"
+  },
+  "settings.account.Checkout.step.completed": {
+    "zh": "已到账",
+    "en": "Credited"
+  },
+  "settings.account.Checkout.verify": {
+    "zh": "我已付款",
+    "en": "I have paid"
+  },
+  "settings.account.Checkout.cancelOrder": {
+    "zh": "取消订单",
+    "en": "Cancel order"
+  },
+  "settings.account.Checkout.cancelConfirm": {
+    "zh": "取消后这个二维码就不能付了。确定要取消这笔订单吗？",
+    "en": "This QR code can no longer be paid once the order is cancelled. Cancel this order?"
+  },
+  "settings.account.Checkout.cancelConfirmOk": {
+    "zh": "确认取消",
+    "en": "Cancel order"
+  },
+  "settings.account.Checkout.payInBrowser": {
+    "zh": "改用浏览器付款",
+    "en": "Pay in browser instead"
+  },
+  "settings.account.Checkout.payInBrowser.panel": {
+    "zh": "去网页面板付款",
+    "en": "Pay on the web panel"
+  },
+  "settings.account.Checkout.openPayPage": {
+    "zh": "扫不出来？在浏览器打开这笔订单的支付页",
+    "en": "Can't scan? Open this order's payment page in the browser"
+  },
+  "settings.account.Checkout.payWindow.hint": {
+    "zh": "请在弹出的付款窗口里，用手机{p0}扫码付款",
+    "en": "In the payment window that opened, scan the code with {p0} on your phone"
+  },
+  "settings.account.Checkout.payWindow.reopen": {
+    "zh": "重新打开付款窗口",
+    "en": "Reopen payment window"
+  },
+  "settings.account.Checkout.payWindow.browser": {
+    "zh": "在浏览器打开支付页",
+    "en": "Open payment page in browser"
+  },
+  "settings.account.Checkout.payWindow.opening": {
+    "zh": "正在打开付款窗口",
+    "en": "Opening the payment window"
+  },
+  "settings.account.Checkout.payWindow.closed": {
+    "zh": "付款窗口已关闭。还没付款的话，可以重新打开",
+    "en": "The payment window was closed. Reopen it if you haven't paid yet"
+  },
+  "settings.account.Checkout.payWindow.failed": {
+    "zh": "付款窗口没能打开或加载失败。请重新打开，或在浏览器打开支付页",
+    "en": "The payment window could not open or load. Reopen it, or open the payment page in the browser"
+  },
+  "settings.account.Checkout.payWindow.demo": {
+    "zh": "演示模式：不会真的打开付款窗口，也不能付款",
+    "en": "Demo mode: no payment window opens and nothing can be paid"
+  },
+  "settings.account.Checkout.notYet": {
+    "zh": "暂时没有查到付款，稍后会自动再查",
+    "en": "No payment found yet. We will keep checking"
+  },
+  "settings.account.Checkout.notYet.stopped": {
+    "zh": "暂时没有查到付款。如果你已经付款，请点「我已付款」再查一次，或联系客服并提供订单号 {p0}",
+    "en": "No payment found yet. If you have already paid, click \"I have paid\" to check again, or contact support with order {p0}"
+  },
+  "settings.account.Checkout.networkUnstable": {
+    "zh": "网络不稳定，正在重试",
+    "en": "The network is unstable. Retrying"
+  },
+  "settings.account.Checkout.watchFailed": {
+    "zh": "网络不稳定，暂时查不到订单状态。付完的钱不会丢，恢复后会自动到账",
+    "en": "Can't check the order right now. Your payment is safe and will be credited when the connection recovers"
+  },
+  "settings.account.Checkout.panelInvalid": {
+    "zh": "需要确认账号才能继续查询；付完的钱仍会自动到账",
+    "en": "Confirm your account to keep checking. Paid orders are still credited automatically"
+  },
+  "settings.account.Checkout.panelInvalid.go": {
+    "zh": "去浏览器确认账号",
+    "en": "Confirm account in browser"
+  },
+  "settings.account.Checkout.panelInvalid.waiting": {
+    "zh": "正在等待浏览器里的确认…（确认后会继续查询这笔订单）",
+    "en": "Waiting for the confirmation in the browser… (this order is checked again afterwards)"
+  },
+  "settings.account.Checkout.paid.title": {
+    "zh": "已收到付款，正在到账…",
+    "en": "Payment received. Crediting…"
+  },
+  "settings.account.Checkout.paid.hint": {
+    "zh": "订单会继续在后台到账，关掉这个窗口也没关系",
+    "en": "The order keeps being credited in the background. You can close this window"
+  },
+  "settings.account.Checkout.paid.slow": {
+    "zh": "到账有点慢；10 分钟还没到请联系客服，订单号 {p0}",
+    "en": "Crediting is taking a while. Contact support if it hasn't arrived in 10 minutes (order {p0})"
+  },
+  "settings.account.Checkout.done": {
+    "zh": "已到账",
+    "en": "Credited"
+  },
+  "settings.account.Checkout.done.reading": {
+    "zh": "正在读取最新余额…",
+    "en": "Reading the latest balance…"
+  },
+  "settings.account.Checkout.done.finish": {
+    "zh": "完成",
+    "en": "Done"
+  },
+  "settings.account.Checkout.expired": {
+    "zh": "订单已过期",
+    "en": "This order has expired"
+  },
+  "settings.account.Checkout.expired.hint": {
+    "zh": "如果你已经付了款，点「我已付款」再查一次",
+    "en": "If you have already paid, click \"I have paid\" to check again"
+  },
+  "settings.account.Checkout.reorder": {
+    "zh": "重新下单",
+    "en": "Place a new order"
+  },
+  "settings.account.Checkout.ended.cancelled": {
+    "zh": "订单已取消",
+    "en": "This order was cancelled"
+  },
+  "settings.account.Checkout.ended.failed": {
+    "zh": "已收到付款，但到账出了问题，平台会自动补上；长时间没到账请联系客服",
+    "en": "Payment received, but crediting ran into a problem. It will be credited automatically; contact support if it takes long"
+  },
+  "settings.account.Checkout.ended.refunding": {
+    "zh": "订单正在退款",
+    "en": "This order is being refunded"
+  },
+  "settings.account.Checkout.ended.refunded": {
+    "zh": "订单已退款",
+    "en": "This order was refunded"
+  },
+  "settings.account.Checkout.ended.unknown": {
+    "zh": "订单状态未知，请稍后再试",
+    "en": "The order status is unknown. Try again later"
+  },
+  "settings.account.Checkout.reauth.intro": {
+    "zh": "在软件里付款前，需要在浏览器里确认一次你的账号（最长 7 天确认一次）。",
+    "en": "Confirm your account in the browser once before paying in the app (at most once every 7 days)."
+  },
+  "settings.account.Checkout.reauth.account": {
+    "zh": "请确认浏览器里登录的是 {p0}。",
+    "en": "Make sure the browser is signed in as {p0}."
+  },
+  "settings.account.Checkout.reauth.go": {
+    "zh": "去浏览器确认",
+    "en": "Confirm in browser"
+  },
+  "settings.account.Checkout.reauth.again": {
+    "zh": "再试一次",
+    "en": "Try again"
+  },
+  "settings.account.Checkout.reauth.waiting": {
+    "zh": "正在等待浏览器里的确认…（确认后会自动生成二维码）",
+    "en": "Waiting for the confirmation in the browser… (the QR code appears automatically afterwards)"
+  },
+  "settings.account.Checkout.reauth.timeout": {
+    "zh": "没有等到浏览器里的确认",
+    "en": "Didn't receive the confirmation from the browser"
+  },
+  "settings.account.Checkout.announce.minutes5": {
+    "zh": "离付款截止还剩 5 分钟",
+    "en": "5 minutes left to pay"
+  },
+  "settings.account.Checkout.announce.minute1": {
+    "zh": "离付款截止还剩 1 分钟",
+    "en": "1 minute left to pay"
+  },
+  "settings.account.Checkout.announce.arrived": {
+    "zh": "已到账，{p0}",
+    "en": "Credited. {p0}"
+  },
+  "settings.account.Checkout.toast.completed": {
+    "zh": "付款已到账",
+    "en": "Payment credited"
+  },
+  "settings.account.Checkout.toast.completedWith": {
+    "zh": "付款已到账：{p0}",
+    "en": "Payment credited: {p0}"
+  },
+  "settings.account.Checkout.error.PANEL_REAUTH_REQUIRED": {
+    "zh": "需要在浏览器里确认一次账号，才能在软件里付款",
+    "en": "Confirm your account in the browser once to pay in the app"
+  },
+  "settings.account.Checkout.error.PAYMENT_DISABLED": {
+    "zh": "平台暂时关闭了在线付款",
+    "en": "Online payment is turned off for now"
+  },
+  "settings.account.Checkout.error.METHOD_UNAVAILABLE": {
+    "zh": "这种支付方式暂时不可用，请换一种或稍后再试",
+    "en": "This payment method is unavailable. Try another one or retry later"
+  },
+  "settings.account.Checkout.error.AMOUNT_OUT_OF_RANGE": {
+    "zh": "金额要在 {p0} – {p1} 之间",
+    "en": "Amount must be between {p0} and {p1}"
+  },
+  "settings.account.Checkout.error.AMOUNT_OUT_OF_RANGE_MIN": {
+    "zh": "金额不能低于 {p0}",
+    "en": "Amount must be at least {p0}"
+  },
+  "settings.account.Checkout.error.AMOUNT_OUT_OF_RANGE_ANY": {
+    "zh": "金额不在允许的范围内",
+    "en": "Amount is out of the allowed range"
+  },
+  "settings.account.Checkout.error.PLAN_UNAVAILABLE": {
+    "zh": "这个套餐已下架，请刷新后重选",
+    "en": "This plan is no longer available. Refresh and choose again"
+  },
+  "settings.account.Checkout.error.TOO_MANY_PENDING": {
+    "zh": "你有 {p0} 笔未付款的订单，请先付款或取消其中一笔",
+    "en": "You have {p0} unpaid orders. Pay or cancel one first"
+  },
+  "settings.account.Checkout.error.TOO_MANY_PENDING_ANY": {
+    "zh": "你有太多未付款的订单，请先付款或取消其中一笔",
+    "en": "You have too many unpaid orders. Pay or cancel one first"
+  },
+  "settings.account.Checkout.error.DAILY_LIMIT_EXCEEDED": {
+    "zh": "今天的付款额度只剩 {p0}",
+    "en": "Only {p0} of today's payment limit is left"
+  },
+  "settings.account.Checkout.error.DAILY_LIMIT_EXCEEDED_ANY": {
+    "zh": "今天的付款额度已用完",
+    "en": "Today's payment limit is used up"
+  },
+  "settings.account.Checkout.error.CANCEL_RATE_LIMITED": {
+    "zh": "取消订单太频繁，暂时不能下新单，请稍后再试",
+    "en": "Too many cancelled orders. Try again later"
+  },
+  "settings.account.Checkout.error.ACCOUNT_DISABLED": {
+    "zh": "账号已停用",
+    "en": "This account is disabled"
+  },
+  "settings.account.Checkout.error.RATE_LIMITED": {
+    "zh": "操作太频繁，请稍后再试",
+    "en": "Too many requests. Try again later"
+  },
+  "settings.account.Checkout.error.REQUEST_REUSED": {
+    "zh": "请求编号重复，请重新下单",
+    "en": "Duplicate request ID. Please place the order again"
+  },
+  "settings.account.Checkout.error.ORDER_NOT_FOUND": {
+    "zh": "找不到这笔订单",
+    "en": "Order not found"
+  },
+  "settings.account.Checkout.error.ORDER_NOT_CANCELLABLE": {
+    "zh": "这笔订单已经不能取消",
+    "en": "This order can no longer be cancelled"
+  },
+  "settings.account.Checkout.error.UNSUPPORTED_RESULT": {
+    "zh": "这种支付方式不能在软件里扫码，请在浏览器里付款",
+    "en": "This method can't be paid by QR code in the app. Pay in the browser instead"
+  },
+  "settings.account.Checkout.error.UPSTREAM_UNAVAILABLE": {
+    "zh": "暂时连不上付款服务，请稍后再试",
+    "en": "Payment service is unreachable. Try again later"
+  },
+  "settings.account.Checkout.error.INVALID_REQUEST": {
+    "zh": "请求参数不正确",
+    "en": "Invalid request"
+  },
+  "settings.account.Checkout.error.INTERNAL_ERROR": {
+    "zh": "付款服务出了点问题，请稍后再试",
+    "en": "The payment service ran into a problem. Try again later"
+  },
+  "settings.account.Checkout.error.UNKNOWN": {
+    "zh": "付款出错了，请稍后再试",
+    "en": "Something went wrong with the payment. Try again later"
   },
   "settings.CacheMissSettings.cacheMissAlerts": {
     "zh": "缓存未命中提醒",

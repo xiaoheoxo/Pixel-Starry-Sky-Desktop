@@ -1,10 +1,11 @@
 import { spawn as realSpawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createServer, connect, type Server } from 'node:net'
-import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { REMOTE_PROTOCOL } from '@pixelsky/protocol'
+import { packRemoteCli } from './remote-cli'
 import { WslConnection, WslNotReady, helperArgs, installArgs, installScript, shellArgs, wslExe } from './wsl'
 import { wslMachineId } from './wslList'
 
@@ -53,6 +54,21 @@ describe('wsl 参数构造', () => {
       'env',
       'LANG=C.UTF-8',
       'LC_ALL=C.UTF-8',
+    ])
+  })
+  it('helperArgs 有命令行入口时作为第三个参数', () => {
+    const id = wslMachineId('Ubuntu')
+    const cli = '/home/a/.local/share/pixelsky/remote/cli-' + hash + '/pixel.mjs'
+    expect(helperArgs('Ubuntu', '/n/node', '/h/helper.cjs', id, false, cli).slice(5)).toEqual([
+      '/n/node',
+      '/h/helper.cjs',
+      id,
+      cli,
+    ])
+    expect(helperArgs('Ubuntu', '/n/node', '/h/helper.cjs', id, true, cli).slice(-3)).toEqual([
+      '/h/helper.cjs',
+      id,
+      cli,
     ])
   })
   it('shellArgs 用登录 shell 并进到工作目录', () => {
@@ -224,6 +240,73 @@ describe('WslConnection（假 wsl.exe）', () => {
     60_000,
   )
 
+  describe('像素星空命令行下发', () => {
+    // 一个很小的假命令行目录，打成真正的包
+    async function miniArchive() {
+      const cli = join(work, 'mini-cli' + Math.random().toString(36).slice(2))
+      await mkdir(cli, { recursive: true })
+      await writeFile(join(cli, 'pixel.mjs'), 'export {}')
+      return packRemoteCli(cli, null)
+    }
+    const dirs = (home: string) => readdir(join(home, '.local/share/pixelsky/remote')).catch(() => [] as string[])
+    const helperOf = (children: ChildProcess[]) => children[children.length - 1].spawnargs
+
+    itSh(
+      '装到发行版里、helper 带上入口；第二次连接只检查不重传；失败不影响连接',
+      async () => {
+        const { home, spawn, children } = setup()
+        await mkdir(home, { recursive: true })
+        const archive = await miniArchive()
+        const entry = home + '/.local/share/pixelsky/remote/cli-' + archive.hash + '/pixel.mjs'
+        const arches: string[] = []
+        const cliArchive = async (arch: string) => (arches.push(arch), archive)
+        const exited = (child: ChildProcess) => new Promise(r => child.once('exit', r))
+
+        const first = connection()
+        await first.link.connect('Ubuntu', first.id, process.execPath, helperFile, handler, {
+          spawn,
+          requireLinux: false,
+          cliArchive,
+        })
+        expect(arches).toHaveLength(1)
+        expect(await dirs(home)).toContain('cli-' + archive.hash)
+        expect(
+          await readFile(join(home, '.local/share/pixelsky/remote/cli-' + archive.hash + '/pixel.mjs'), 'utf8'),
+        ).toBe('export {}')
+        expect(helperOf(children).at(-1)).toBe(entry)
+        const installs = () => children.filter(c => c.spawnargs.some(a => a.includes('gunzipSync'))).length
+        expect(installs()).toBe(1)
+        const gone = exited(children[children.length - 1])
+        first.link.close()
+        await gone
+
+        const second = connection()
+        await second.link.connect('Ubuntu', second.id, process.execPath, helperFile, handler, {
+          spawn,
+          requireLinux: false,
+          cliArchive,
+        })
+        expect(installs()).toBe(1)
+        expect(helperOf(children).at(-1)).toBe(entry)
+        const gone2 = exited(children[children.length - 1])
+        second.link.close()
+        await gone2
+
+        // 打包失败：连接照常，helper 不带第三个参数
+        const third = connection()
+        await third.link.connect('Ubuntu', third.id, process.execPath, helperFile, handler, {
+          spawn,
+          requireLinux: false,
+          cliArchive: async () => {
+            throw new Error('boom')
+          },
+        })
+        expect(helperOf(children).at(-1)).toBe(third.id)
+      },
+      90_000,
+    )
+  })
+
   // 只替换「起后台程序」那一次 spawn（参数里带 .cjs），其余照常走假 wsl.exe
   const withHelper = (base: typeof realSpawn, helper: string[]) =>
     ((exe: string, args: string[], options: object) =>
@@ -292,10 +375,11 @@ describe('WslConnection（假 wsl.exe）', () => {
 
   it('wsl.exe 起不来时抛带检查项的 WSL_NOT_READY', async () => {
     const { link, id } = connection()
+    // 写完再退出：Windows 上写管道是异步的，直接 exit 时 boom 可能还没写出去（机器忙时测试会时好时坏）
     const spawn = (() =>
       realSpawn(process.execPath, [
         '-e',
-        "process.stderr.write('boom');process.exit(1)",
+        "process.stderr.write('boom',()=>process.exit(1))",
       ])) as unknown as typeof realSpawn
     const error = await link.connect('Ubuntu', id, undefined, 'unused', handler, { spawn }).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(WslNotReady)

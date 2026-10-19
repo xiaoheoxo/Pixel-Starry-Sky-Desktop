@@ -1,0 +1,44 @@
+[
+  {
+    "template": "maven",
+    "file": "pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "./mvnw clean",
+        "windows": "& .\\mvnw.cmd clean"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "./mvnw compile",
+        "windows": "& .\\mvnw.cmd compile"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "./mvnw test",
+        "windows": "& .\\mvnw.cmd test"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "./mvnw package",
+        "windows": "& .\\mvnw.cmd package"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "./mvnw verify",
+        "windows": "& .\\mvnw.cmd verify"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "./mvnw install",
+        "windows": "& .\\mvnw.cmd install"
+      }
+    ]
+  }
+]

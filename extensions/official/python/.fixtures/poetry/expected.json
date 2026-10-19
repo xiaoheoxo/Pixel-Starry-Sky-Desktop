@@ -1,0 +1,38 @@
+[
+  {
+    "template": "poetry",
+    "file": "poetry.lock",
+    "tasks": [
+      {
+        "name": "install",
+        "description": "安装依赖",
+        "linux": "poetry install",
+        "windows": "poetry install"
+      },
+      {
+        "name": "lock",
+        "description": "更新锁文件",
+        "linux": "poetry lock",
+        "windows": "poetry lock"
+      },
+      {
+        "name": "build",
+        "description": "打包",
+        "linux": "poetry build",
+        "windows": "poetry build"
+      }
+    ]
+  },
+  {
+    "template": "poetry-run",
+    "file": "poetry.lock",
+    "tasks": [
+      {
+        "name": "pytest",
+        "description": "运行测试",
+        "linux": "poetry run pytest",
+        "windows": "poetry run pytest"
+      }
+    ]
+  }
+]

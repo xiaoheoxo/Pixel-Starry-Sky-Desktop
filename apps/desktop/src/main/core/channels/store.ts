@@ -10,6 +10,8 @@ import { join } from 'node:path'
 import type { AgentConfig, ChannelAttachments, ChannelMessage, ChannelTask } from '../../../shared/types/channels'
 import type { TaskRun } from './tracker'
 
+import type { ChannelNotify } from '../../../shared/types/channels'
+
 export interface StoredChannel {
   id: string
   name: string
@@ -17,6 +19,14 @@ export interface StoredChannel {
   projectId: string | null
   /** 'you' 和 AI 成员的 id */
   memberIds: string[]
+  /** 频道说明：每次派活都带上（docs/ui/channels-local-ai.md §3.1 #9）；旧数据没有 */
+  notes?: string | null
+  /** 置顶的消息 id（先后顺序），派活时作为资料带上；旧数据没有 */
+  pinned?: string[]
+  /** 系统提醒级别；旧数据没有（= all） */
+  notify?: ChannelNotify
+  /** 归档的时间；旧数据没有（= 没归档） */
+  archivedAt?: number | null
   createdAt: number
   /** 看到哪里了：这之后别人发的算未读 */
   readAt: number
@@ -169,8 +179,8 @@ export class ChannelStore {
     if (!list || i === undefined || list[i].kind !== 'task') return null
     const task = { ...list[i], ...patch } as ChannelTask
     list[i] = task
-    // 进度、待确认请求只在内存里，不写盘
-    const { progress: _p, request: _r, ...saved } = patch
+    // 进度、待确认请求、正在做什么只在内存里，不写盘
+    const { progress: _p, request: _r, activity: _a, ...saved } = patch
     if (Object.keys(saved).length)
       void this.appendLine(channelId, { kind: 'task_update', id, patch: saved }).catch(() => {})
     return task

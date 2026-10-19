@@ -1,0 +1,6 @@
+[project]
+name = "cli-tool"
+version = "0.2.0"
+
+[tool.pdm.scripts]
+serve = "python -m cli_tool serve"

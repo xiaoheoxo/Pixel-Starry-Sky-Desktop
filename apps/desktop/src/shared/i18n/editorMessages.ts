@@ -34,4 +34,40 @@ export const editorMessages = {
   'openWith.setDefault': { zh: '设为默认', en: 'Set as default' },
   'openWith.detecting': { zh: '正在查找本机的编辑器…', en: 'Looking for editors on this computer…' },
   'openWith.settings': { zh: '编辑器设置…', en: 'Editor settings…' },
+  // 自动保存（参考 VS Code 的 files.autoSave）
+  'editor.autoSave.title': { zh: '自动保存', en: 'Auto save' },
+  'editor.autoSave.description': {
+    zh: '像素星空内置编辑器里有未保存改动的文件，什么时候自动保存',
+    en: 'When files with unsaved changes in the built-in editor are saved automatically',
+  },
+  'editor.autoSave.off': { zh: '关闭', en: 'Off' },
+  'editor.autoSave.afterDelay': { zh: '停止输入后', en: 'After a delay' },
+  'editor.autoSave.onFocusChange': { zh: '编辑器失去焦点时', en: 'When the editor loses focus' },
+  'editor.autoSave.onWindowChange': { zh: '窗口失去焦点时', en: 'When the window loses focus' },
+  'editor.autoSave.default': { zh: '默认', en: 'Default' },
+  'editor.autoSave.hint.off': {
+    zh: '不自动保存，按 Ctrl+S 保存',
+    en: 'Files are not saved automatically. Press Ctrl+S to save.',
+  },
+  'editor.autoSave.hint.afterDelay': {
+    zh: '停止输入 {seconds} 秒后自动保存',
+    en: 'Saved automatically {seconds} s after you stop typing',
+  },
+  'editor.autoSave.hint.onFocusChange': {
+    zh: '点到编辑器以外的地方、换标签页或切到别的窗口时，自动保存有改动的文件',
+    en: 'Saved when you click outside the editor, switch tabs, or switch to another window',
+  },
+  'editor.autoSave.hint.onWindowChange': {
+    zh: '切到别的窗口时，自动保存有改动的文件',
+    en: 'Saved when you switch to another window',
+  },
+  'editor.autoSave.note': {
+    zh: 'AI 正在这个项目里干活时先不存，等它停下再存；文件在磁盘上被别处改过时不存，在标签页上提示',
+    en: 'While the AI is working in the project, saving waits until it stops. Files changed on disk elsewhere are not saved; the tab shows the conflict.',
+  },
+  'editor.autoSave.delay': { zh: '延迟（毫秒）', en: 'Delay (ms)' },
+  'editor.autoSave.keywords': {
+    zh: '自动保存 保存 失去焦点 延迟 auto save autosave focus delay',
+    en: 'auto save autosave focus delay save 自动保存 保存 失去焦点',
+  },
 }

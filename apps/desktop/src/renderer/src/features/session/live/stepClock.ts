@@ -24,3 +24,15 @@ export function useSince(key: string | null, active: boolean): number {
   }
   return Math.max(0, now - start)
 }
+
+/** active 时每秒刷新一次的当前时间（毫秒） */
+export function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [active])
+  return now
+}

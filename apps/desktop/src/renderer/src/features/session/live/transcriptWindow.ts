@@ -1,5 +1,6 @@
 // 长对话只显示最近几轮（docs/ui/turn-rail.md §9，D121）：纯函数。
-// 窗口用「从头隐藏了几轮」(hidden) 表示：新的轮次往后加时 hidden 不变，已经显示的不会被再藏回去
+// 窗口用「从头隐藏了几轮」(hidden) 表示：新的轮次往后加时 hidden 不变，已经显示的不会被再藏回去；
+// 点「显示更早的」、搜索跳转只会让它变小，变大（收回）只发生在新一轮开始、用户停在底部时（reclaimHidden，A7）
 import type { Item } from '@pixelsky/protocol'
 
 /** 不到「设置的轮数 + 这个数」轮的对话不折叠（只藏几轮没意义） */
@@ -50,4 +51,17 @@ export function revealFor(items: readonly Item[], starts: readonly number[], hid
     turn++
   }
   return Math.max(0, Math.min(hidden, turn))
+}
+
+/**
+ * 新一轮开始、用户停在底部时收回窗口（D121 的后半，A7）：显示的轮数攒到 size + FOLD_MARGIN 以上（和 initialHidden
+ * 同一个门槛，免得每来一轮就藏一轮）时，回到打开时那样只显示最近 size 轮。
+ * 返回新的 hidden；不用收（不折叠、还没攒够、已经不比现在藏得少）返回 null。
+ * 该不该收（贴底、没往上翻、没在搜索 / 跳转）由调用方判断，这里只算数
+ */
+export function reclaimHidden(turnCount: number, hidden: number, size: number | null): number | null {
+  if (size === null || size <= 0) return null
+  if (turnCount - hiddenCount(turnCount, hidden) < size + FOLD_MARGIN) return null
+  const next = initialHidden(turnCount, size)
+  return next > hidden ? next : null
 }

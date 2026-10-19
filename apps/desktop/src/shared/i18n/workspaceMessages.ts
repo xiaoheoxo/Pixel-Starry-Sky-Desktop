@@ -60,6 +60,16 @@ export const workspaceMessages = {
     en: '{count} open files have unsaved changes that will be lost.',
   },
   'workspace.deleting': { zh: '删除中…', en: 'Deleting…' },
+  // 改名 / 移动到的位置上，有标签开着、还有未保存的修改（文件被外部程序移走了）
+  'workspace.displaceTitle': {
+    zh: '目标位置有 {count} 个文件还没保存',
+    en: '{count} open files at the destination have unsaved changes',
+  },
+  'workspace.displaceHint': {
+    zh: '下面这些文件在磁盘上已经不在了，但标签还开着、有未保存的修改。继续改名或移动的话，它们的标签会被关掉，这些修改会丢失，无法撤销。想留着的话先取消，把内容另存到别处。',
+    en: 'These files are no longer on disk, but their tabs are still open with unsaved changes. If you continue, those tabs will be closed and the changes lost, and this can’t be undone. To keep them, cancel and save the content somewhere else first.',
+  },
+  'workspace.displaceConfirm': { zh: '丢弃这些修改并继续', en: 'Discard changes and continue' },
   'workspace.cancel': { zh: '取消', en: 'Cancel' },
   'workspace.demoCannotModify': { zh: '演示模式不能修改文件', en: 'Files can’t be changed in demo mode' },
   'workspace.moved': { zh: '已把 {name} 移到 {folder}', en: 'Moved {name} to {folder}' },

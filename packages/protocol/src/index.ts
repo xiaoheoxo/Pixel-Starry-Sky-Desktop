@@ -6,6 +6,7 @@ export type {
   ApprovalRequest,
   BackgroundTask,
   CacheWarning,
+  CommandWrapper,
   CompactionProgress,
   ContextWindows,
   Effort,
@@ -43,6 +44,7 @@ export type {
   Question,
   QuestionOption,
   QueueSettings,
+  QueueMove,
   QueueReconnect,
   QueueStatus,
   QueueSummary,
@@ -73,6 +75,8 @@ export type {
   TaskOutput,
   TodoStep,
   ToolKind,
+  NoticeError,
+  NoticeErrorKind,
   NoticeTask,
   TurnOutcome,
   TurnUsage,
@@ -120,6 +124,7 @@ export {
 } from './files'
 export type { ContextDetail, ContextDetailLevel, ContextDiagnostic, ContextPart, ContextWindow } from './context'
 export { contextCount, contextDiagnostic } from './context'
+export { REPLY_PREVIEW_MAX, replyPreview } from './replyPreview'
 export type {
   SearchFragment,
   SearchKind,
@@ -212,7 +217,17 @@ export { ENGINES, ENGINE_ORDER, isNewerVersion } from './engines'
 export { joinArgs, splitArgs } from './launchArgs'
 export type { CodedErrorInfo, ErrorParams } from './errors'
 export { ERROR_PREFIX, codedError, parseCodedError, replaceCodedErrors } from './errors'
-export { isQuietWarning, quietWarningKey } from './notices'
+export {
+  ERROR_CODE_KIND,
+  classifyErrorText,
+  errorKindOfStatus,
+  httpStatusOf,
+  isNoticeErrorKind,
+  isOverflowText,
+  noticeErrorOf,
+  isQuietWarning,
+  quietWarningKey,
+} from './notices'
 export type { PackageManager } from './package-manager'
 export { LOCKFILE_NAMES, detectPackageManager, scriptCommand } from './package-manager'
 export type { LogEntry, LogLevel, LogQuery, LogSettings } from './log'
@@ -271,19 +286,24 @@ export {
   EXT_ASSET_SCHEME,
   EXT_BUILTIN_LANGUAGE_IDS,
   EXT_BUILTIN_SCOPES,
+  EXT_ALLOWED_FILE_RE,
   EXT_ENGINE_CODES,
   EXT_ISSUE_CODES,
+  EXT_LICENSE_FILE_RE,
   EXT_LIMITS,
   EXT_MANIFEST,
   EXT_RESERVED_TASK_FILES,
   EXT_RESERVED_TASK_IDS,
   EXT_RULES_VERSION,
   EXT_TASK_NAME_RE,
+  EXT_WINDOWS_RESERVED_RE,
   EXT_ZIP_CODES,
   EXT_ZIP_FATAL,
   checkPack,
   checkSvg,
   checkVerdict,
+  compareExtVersion,
+  computeLive,
   contrastRatio,
   contributionCount,
   dedupeIssues,
@@ -297,6 +317,9 @@ export {
   hasNestedQuantifier,
   hasQuantifiedAlternation,
   inactiveContributions,
+  isExtId,
+  isExtVersion,
+  isPublisherName,
   issueOutcome,
   loaderIssue,
   locateJsonPointer,
@@ -316,3 +339,34 @@ export {
   validateTaskTemplate,
   zipIssue,
 } from './extpacks/index'
+export type {
+  ExtStoreBlockEntry,
+  ExtStoreCatalogPage,
+  ExtStoreCatalogQuery,
+  ExtStoreCheckReport,
+  ExtStoreDetail,
+  ExtStoreErrorCode,
+  ExtStoreInstallOptions,
+  ExtStoreItem,
+  ExtStoreLocal,
+  ExtStoreMyExtension,
+  ExtStoreMyVersion,
+  ExtStorePickUploadInput,
+  ExtStorePickUploadResult,
+  ExtStoreProgress,
+  ExtStorePublisher,
+  ExtStorePublisherRef,
+  ExtStorePublisherState,
+  ExtStoreRefreshResult,
+  ExtStoreReportInput,
+  ExtStoreReportReason,
+  ExtStoreSort,
+  ExtStoreState,
+  ExtStoreUpdate,
+  ExtStoreUpdates,
+  ExtStoreUploadChecks,
+  ExtStoreUploadResult,
+  ExtStoreVersion,
+  ExtStoreVersionStatus,
+} from './extstore'
+export { EXTSTORE_ERROR_CODES } from './extstore'

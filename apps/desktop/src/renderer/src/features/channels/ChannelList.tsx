@@ -14,7 +14,7 @@ import {
   Trash2,
   UserPlus,
 } from 'lucide-react'
-import { Avatar, Button, cn, CountBadge, IconButton, useComingSoon, useToast } from '@/ui'
+import { Avatar, Button, cn, CountBadge, IconButton, Spinner, useComingSoon, useToast } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { SidebarEmpty } from '@/features/sidebar/SidebarSection'
@@ -25,8 +25,11 @@ import { channelActions, channelsLive, selfMember, useChannels } from './store'
 import { ChannelDialog } from './ChannelDialogs'
 import { CreateTeamDialog, TeamSettingsDialog } from './TeamDialog'
 import { roleLabel } from './TeamParts'
-import { formatSyncTime } from './format'
+import { formatShortTime, formatSyncTime } from './format'
+import { hitPlace, useChannelSearch } from './search'
+import type { SearchFragment } from '@pixelsky/protocol'
 import {
+  ARCHIVED_SECTION,
   canCreateChannel,
   canManageTeam,
   groupChannels,
@@ -36,6 +39,8 @@ import {
 } from './teamModel'
 
 const COLLAPSED_KEY = 'pixelsky.channels.collapsed'
+/** 「已归档」默认收起：列表里记的是「展开了它」 */
+const ARCHIVED_OPEN = 'archived:open'
 
 /** 折叠的段（团队 id / 'local'）存在 localStorage，换电脑不同步 */
 function useCollapsed(): [readonly string[], (id: string) => void] {
@@ -85,6 +90,73 @@ function ChannelRow({ channel, selected, onSelect }: { channel: Channel; selecte
       {channel.mentioned && <AtSign size={13} strokeWidth={2} className="shrink-0 text-accent-fg" />}
       {channel.unread > 0 && <CountBadge count={channel.unread} />}
     </button>
+  )
+}
+
+function Snippet({ parts }: { parts: readonly SearchFragment[] }) {
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.match ? (
+          <mark key={i} className="rounded-sm bg-accent-soft px-0.5 text-accent-fg">
+            {p.text}
+          </mark>
+        ) : (
+          <span key={i}>{p.text}</span>
+        ),
+      )}
+    </>
+  )
+}
+
+/** 搜索时列表下面的「消息」段（docs/ui/channels-local-ai.md §3.1 #8）：点一条切到那个频道并跳到那条消息 */
+function MessageHits({
+  query,
+  channels,
+  names,
+}: {
+  query: string
+  channels: readonly Channel[]
+  names: ReadonlyMap<string, string>
+}) {
+  useI18n()
+  const { hits, truncated, loading } = useChannelSearch(query, { limit: 50 })
+  return (
+    <section data-channel-search-hits="" className="mt-2 flex shrink-0 flex-col">
+      <h3 className="flex h-7 items-center gap-1.5 px-2 text-label font-medium text-fg-muted">
+        {tr('channels.search.messages')}
+        {loading && <Spinner size={11} />}
+      </h3>
+      {!loading && hits.length === 0 && <SidebarEmpty>{tr('channels.search.noMessages')}</SidebarEmpty>}
+      <div className="flex flex-col gap-px">
+        {hits.map(hit => {
+          const place = hitPlace(hit, channels, names)
+          return (
+            <button
+              key={hit.messageId}
+              type="button"
+              data-search-hit={hit.messageId}
+              onClick={() => void channelActions.focusMessage(hit.channelId, hit.messageId, hit.at)}
+              className="flex w-full min-w-0 flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left hover:bg-hover"
+            >
+              <span className="flex w-full min-w-0 items-center gap-2 text-label text-fg-faint">
+                <span className="min-w-0 flex-1 truncate">
+                  {tr('channels.search.place', { channel: place.channel, author: place.author })}
+                  {place.archived && ` · ${tr('channels.search.archived')}`}
+                </span>
+                <span className="shrink-0">{formatShortTime(hit.at)}</span>
+              </span>
+              <span className="line-clamp-2 text-meta break-words text-fg-secondary">
+                <Snippet parts={hit.snippet} />
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      {truncated && (
+        <p className="px-2.5 py-1 text-label text-fg-faint">{tr('channels.search.latest', { count: hits.length })}</p>
+      )}
+    </section>
   )
 }
 
@@ -308,27 +380,43 @@ export function ChannelList({
         {teamUi && invites.map(invite => <InviteCard key={invite.id} invite={invite} />)}
         {sections.map(section => {
           const team = section.team
-          const isCollapsed = !searching && collapsed.includes(section.id)
+          const archived = section.id === ARCHIVED_SECTION
+          const isCollapsed =
+            !searching && (archived ? !collapsed.includes(ARCHIVED_OPEN) : collapsed.includes(section.id))
+          // 「已归档」收起时，正在看的那个归档频道还留一行
+          const rows = !isCollapsed
+            ? section.channels
+            : archived
+              ? section.channels.filter(c => c.id === selectedId)
+              : []
           return (
-            <section key={section.id} className="flex shrink-0 flex-col">
+            <section key={section.id} className="flex shrink-0 flex-col" data-channel-section={section.id}>
               <SectionHeader
-                title={team ? team.name : tr('team.section.local')}
+                title={
+                  team
+                    ? team.name
+                    : archived
+                      ? tr('channels.archived.section', { count: section.channels.length })
+                      : tr('team.section.local')
+                }
                 collapsed={isCollapsed}
-                onToggle={() => toggleCollapse(section.id)}
+                onToggle={() => toggleCollapse(archived ? ARCHIVED_OPEN : section.id)}
                 team={team}
                 names={names}
                 selfId={team ? selfInTeam(team) : (self?.id ?? null)}
                 offlineTip={team ? offlineTip : null}
                 onMenu={rect => team && setMenu({ x: rect.right - 180, y: rect.bottom + 4, team })}
                 onAdd={
-                  !team
-                    ? createLocal
-                    : canCreateChannel(team.role)
-                      ? () => setDialog({ kind: 'channel', teamId: team.id })
-                      : null
+                  archived
+                    ? null
+                    : !team
+                      ? createLocal
+                      : canCreateChannel(team.role)
+                        ? () => setDialog({ kind: 'channel', teamId: team.id })
+                        : null
                 }
               />
-              {!isCollapsed && (
+              {(!isCollapsed || rows.length > 0) && (
                 <div className="flex flex-col gap-px">
                   {section.channels.length === 0 && searching && (
                     <SidebarEmpty>{tr('channels.searchEmpty')}</SidebarEmpty>
@@ -336,7 +424,7 @@ export function ChannelList({
                   {section.channels.length === 0 && !searching && team && (
                     <SidebarEmpty>{tr('team.section.empty')}</SidebarEmpty>
                   )}
-                  {section.channels.map(c => (
+                  {rows.map(c => (
                     <ChannelRow key={c.id} channel={c} selected={c.id === selectedId} onSelect={() => onSelect(c.id)} />
                   ))}
                 </div>
@@ -345,6 +433,7 @@ export function ChannelList({
           )
         })}
         {sections.length === 0 && <SidebarEmpty>{tr('channels.searchEmpty')}</SidebarEmpty>}
+        {searching && <MessageHits query={query} channels={channels} names={names} />}
         {!searching && teamUi && connection === 'signed-out' && (
           <div className="mt-2 flex flex-col items-start gap-2 rounded-lg px-2.5 py-2 text-meta text-fg-faint">
             <p>{tr('team.signedOut')}</p>

@@ -11,6 +11,7 @@ import {
   render,
   type RenderLimits,
 } from './handoff'
+import { cut, wellFormed } from './text'
 
 export const OUTLINE_PAGE_SIZE = 50
 export const READ_MAX_COUNT = 5
@@ -77,7 +78,8 @@ export function historyOutline(items: readonly Item[], options: OutlineOptions =
     const reply = answer && answer.kind === 'assistant' ? flat(answer.text) : ''
     return `#${turn.number} [${engineName(turn.engine)}] 用户：${user ? clip(user, OUTLINE_CHARS) : '（无）'} → 助手：${reply ? clip(reply, OUTLINE_CHARS) : '（无回复）'}`
   })
-  return [
+  // 落单的代理项（上游原文、早先按下标截断的工具标题等）换掉：Codex 的 JSON 解析器会拒收
+  const outline = [
     `这段对话共 ${turns.length} 轮（#${turns[0].number}–#${last}），第 ${page}/${pages} 页，每页最多 ${OUTLINE_PAGE_SIZE} 轮。`,
     ...lines,
     [
@@ -87,6 +89,7 @@ export function historyOutline(items: readonly Item[], options: OutlineOptions =
       .filter(Boolean)
       .join(' '),
   ].join('\n')
+  return wellFormed(outline)
 }
 
 /** 一轮里的条目渲染成原文；交接材料的提示条目不算对话 */
@@ -125,8 +128,10 @@ export function historyRead(items: readonly Item[], options: ReadOptions): strin
     .join('\n\n')
   const end = picked.at(-1)!.number
   const more = end < last ? `\n\n（后面还有第 ${end + 1}–${last} 轮，read(turn=${end + 1}) 继续读。）` : ''
-  if (text.length <= READ_MAX_CHARS) return text + more
-  return `${text.slice(0, READ_MAX_CHARS)}\n…（超过 ${READ_MAX_CHARS} 字已截断，原文共 ${text.length} 字；请减小 count 或逐轮读取）${more}`
+  if (text.length <= READ_MAX_CHARS) return wellFormed(text + more)
+  return wellFormed(
+    `${cut(text, 0, READ_MAX_CHARS)}\n…（超过 ${READ_MAX_CHARS} 字已截断，原文共 ${text.length} 字；请减小 count 或逐轮读取）${more}`,
+  )
 }
 
 const SEARCH_KIND = { user: '用户', assistant: '助手', command: '命令', tool: '工具', file_change: '文件' } as const
@@ -175,13 +180,15 @@ export function historySearch(items: readonly Item[], options: SearchOptions): s
       if (hits.length >= limit) continue
       const from = Math.max(0, at - SNIPPET_RADIUS)
       const to = Math.min(text.length, at + query.length + SNIPPET_RADIUS)
-      const snippet = `${from > 0 ? '…' : ''}${flat(text.slice(from, to))}${to < text.length ? '…' : ''}`
+      const snippet = `${from > 0 ? '…' : ''}${flat(cut(text, from, to))}${to < text.length ? '…' : ''}`
       hits.push(`#${turn.number} [${SEARCH_KIND[item.kind as keyof typeof SEARCH_KIND]}] ${snippet}`)
     }
   if (total === 0) return `没有找到包含「${query}」的内容。`
-  return [
-    `找到 ${total} 处包含「${query}」的内容${total > hits.length ? `，显示前 ${hits.length} 处` : ''}：`,
-    ...hits,
-    '用 read(turn=N) 读对应轮次的原文。',
-  ].join('\n')
+  return wellFormed(
+    [
+      `找到 ${total} 处包含「${query}」的内容${total > hits.length ? `，显示前 ${hits.length} 处` : ''}：`,
+      ...hits,
+      '用 read(turn=N) 读对应轮次的原文。',
+    ].join('\n'),
+  )
 }

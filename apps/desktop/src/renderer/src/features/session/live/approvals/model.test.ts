@@ -107,6 +107,18 @@ describe('每项一行的摘要', () => {
     expect([s.text, s.hint, s.mono]).toEqual(['git push -u origin feat/draft', 'dsh-usage-statistics-panel', true])
     expect(approvalSummary(command('c', 'set -e\nnpm test'), CWD).text).toBe('set -e …')
   })
+  it('Codex 命令带外层：额外参数才标 wrapped；悬停文字带原始整行', () => {
+    const wrapper = (extra: string[]) => ({
+      line: 'powershell.exe -NoProfile -Command "ls"',
+      shell: 'powershell',
+      extra,
+    })
+    const plain = approvalSummary(command('c', 'ls', { wrapper: wrapper([]) }), CWD)
+    const extra = approvalSummary(command('c', 'ls', { wrapper: wrapper(['-NoProfile']) }), CWD)
+    expect([plain.wrapped, extra.wrapped]).toEqual([false, true])
+    expect(extra.full).toBe('ls\npowershell.exe -NoProfile -Command "ls"')
+    expect(approvalSummary(command('c', 'ls'), CWD)).toMatchObject({ wrapped: false, full: 'ls' })
+  })
   it('改文件：「修改 N 个文件」+ 增删行数 + 前两个文件名「等」', () => {
     const change = (path: string, added: number, removed: number) => ({
       path,

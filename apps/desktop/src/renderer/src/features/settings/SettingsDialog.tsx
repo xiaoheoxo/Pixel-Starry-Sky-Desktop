@@ -51,6 +51,7 @@ import { UsageSection } from '../usage/settings/UsageSection'
 import { ModelsSection } from './models/ModelsSection'
 import { EnginesSection } from './engines/EnginesSection'
 import { openEngineDetail } from './engines/nav'
+import { openExtTab } from '@/features/extstore/nav'
 import { EditorSection } from '../editor/settings/EditorSection'
 import { ExtensionsSection } from './extensions/ExtensionsSection'
 import { FileIconThemeSettings } from './FileIconThemeSettings'
@@ -320,6 +321,7 @@ export function SettingsDialog({
   const openHit = (hit: SearchEntry): void => {
     // 本机引擎的详情页里的设置：先打开那个引擎的详情（docs/ui/engine-settings-redesign.md §3.1）
     if (hit.section === 'engines') openEngineDetail(hit.engine ?? null)
+    if (hit.extTab) openExtTab(hit.extTab)
     setSection(hit.section)
     setJump(j => ({ title: hit.title, n: (j?.n ?? 0) + 1 }))
   }

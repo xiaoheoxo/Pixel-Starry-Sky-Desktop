@@ -1,0 +1,34 @@
+[
+  {
+    "template": "poe",
+    "file": "pyproject.toml",
+    "tasks": [
+      {
+        "name": "test",
+        "description": "运行测试",
+        "linux": "poe test",
+        "windows": "poe test"
+      },
+      {
+        "name": "lint",
+        "linux": "poe lint",
+        "windows": "poe lint"
+      },
+      {
+        "name": "docs",
+        "linux": "poe docs",
+        "windows": "poe docs"
+      },
+      {
+        "name": "typecheck",
+        "linux": "poe typecheck",
+        "windows": "poe typecheck"
+      },
+      {
+        "name": "fmt",
+        "linux": "poe fmt",
+        "windows": "poe fmt"
+      }
+    ]
+  }
+]

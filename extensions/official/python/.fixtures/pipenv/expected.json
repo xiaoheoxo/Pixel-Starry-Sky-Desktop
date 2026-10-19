@@ -1,0 +1,18 @@
+[
+  {
+    "template": "pipenv",
+    "file": "Pipfile",
+    "tasks": [
+      {
+        "name": "start",
+        "linux": "pipenv run start",
+        "windows": "pipenv run start"
+      },
+      {
+        "name": "test",
+        "linux": "pipenv run test",
+        "windows": "pipenv run test"
+      }
+    ]
+  }
+]

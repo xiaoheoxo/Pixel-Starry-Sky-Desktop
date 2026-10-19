@@ -2,7 +2,7 @@
 // 用 `pnpm dev:demo` 启动时显示，用来对照参考图调样式。
 import type { AppData } from '@/data/types'
 import { COMPOSER, RAIL_ITEMS } from '@/data/constants'
-import { demoChannelMembers, demoChannelMessages, demoChannels, demoInvites, demoTeams } from './channels'
+import { DEMO_TEAMS, demoChannelData } from './channels'
 import { SHOWCASE_PROJECT, SHOWCASE_SESSIONS, showcaseSnapshots } from './conversations'
 import { CODING_SESSION } from './coding'
 import { statusDemoProjects } from './statusDemo'
@@ -186,8 +186,6 @@ export const demo: AppData = {
   browserUrl: '127.0.0.1:8330/',
   annotations: [{ id: 1, text: '侧栏分组标题再淡一点' }],
   // 协作频道的角标由未读数计算（features/channels/store.ts），不再写在 BADGES 里
-  channels: demoChannels,
-  channelMembers: demoChannelMembers,
-  channelMessages: demoChannelMessages,
-  channelTeams: { teams: demoTeams, invites: demoInvites, connection: 'online' },
+  // 团队先关着（docs/ui/channels-local-ai.md §1），DEMO_TEAMS 改成 true 能看到团队示例
+  ...demoChannelData(DEMO_TEAMS),
 }

@@ -35,6 +35,14 @@ describe('文件附件校验', () => {
     const text = 'x'.repeat(100 * 1024)
     expect(() => validateFiles([0, 1, 2, 3].map(i => small({ id: `f${i}`, text })))).toThrow('合计不能超过')
   })
+
+  it('本机路径：留下；不是字符串、空、太长、带控制字符（换行）的拒绝', () => {
+    const path = 'D:\\logs\\latest.log'
+    expect(validateFiles([small({ path })])).toEqual([small({ path })])
+    expect(validateFiles([{ ...big(), path }])).toEqual([{ ...big(), path }])
+    for (const bad of [42, '', 'x'.repeat(4097), 'D:\\a\nb.log', 'D:\\a\u0000.log'])
+      expect(() => validateFiles([{ ...small(), path: bad }])).toThrow('格式不正确')
+  })
 })
 
 describe('发给引擎的样子', () => {
@@ -50,6 +58,23 @@ describe('发给引擎的样子', () => {
       '<attached_file name="big.log" size="30.0 MB" lines="1000" shown="1-2, 999-1000">\n' +
         'a\nb\n[... 996 lines omitted (3-998) ...]\ny\nz\n</attached_file>',
     )
+  })
+
+  it('有本机路径：写上 path；文本文件截断时提示省略的行按路径读，文档只写路径不提示', () => {
+    const path = 'D:\\logs\\latest "x".log'
+    expect(fileAttachmentBlock(small({ path }))).toBe(
+      '<attached_file name="app.log" path="D:\\logs\\latest &quot;x&quot;.log" size="1 KB" lines="2">\n' +
+        'first line\nsecond line\n</attached_file>',
+    )
+    expect(fileAttachmentBlock({ ...big(), path: 'D:\\big.log' })).toBe(
+      '<attached_file name="big.log" path="D:\\big.log" size="30.0 MB" lines="1000" shown="1-2, 999-1000">\n' +
+        'a\nb\n[... 996 lines omitted (3-998); the full file is at the path above, read it for these lines ...]\n' +
+        'y\nz\n</attached_file>',
+    )
+    const doc = fileAttachmentBlock(small({ path: 'D:\\spec.docx', source: 'docx', tail: '', omitted: 8, lines: 10 }))
+    expect(doc).toContain('path="D:\\spec.docx"')
+    expect(doc).toContain('[... 8 more lines omitted (3-10) ...]')
+    expect(doc).not.toContain('read it for these lines')
   })
 
   it('文件名转义；正文里的结束标记改写，不会提前结束', () => {

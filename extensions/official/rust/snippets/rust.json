@@ -1,0 +1,269 @@
+{
+  "main 函数": {
+    "prefix": "main",
+    "description": "入口 fn main",
+    "body": ["fn main() {", "\t$0", "}"]
+  },
+  "main 返回 Result": {
+    "prefix": "mainres",
+    "description": "fn main 返回 Result，错误用 Box<dyn Error>",
+    "body": ["use std::error::Error;", "", "fn main() -> Result<(), Box<dyn Error>> {", "\t$0", "\tOk(())", "}"]
+  },
+  "函数": {
+    "prefix": "fn",
+    "description": "函数",
+    "body": ["fn ${1:name}(${2}) {", "\t$0", "}"]
+  },
+  "公开函数": {
+    "prefix": "pfn",
+    "description": "pub 函数",
+    "body": ["pub fn ${1:name}(${2}) {", "\t$0", "}"]
+  },
+  "异步函数": {
+    "prefix": "afn",
+    "description": "async 函数",
+    "body": ["async fn ${1:name}(${2}) {", "\t$0", "}"]
+  },
+  "结构体": {
+    "prefix": "struct",
+    "description": "带 derive 的结构体",
+    "body": ["#[derive(Debug, Clone)]", "struct ${1:Name} {", "\t${2:field}: ${3:String},", "}"]
+  },
+  "结构体和 impl": {
+    "prefix": "structimpl",
+    "description": "结构体加 new 构造函数",
+    "body": [
+      "#[derive(Debug, Clone)]",
+      "struct ${1:Name} {",
+      "\t${2:field}: ${3:String},",
+      "}",
+      "",
+      "impl $1 {",
+      "\tfn new($2: $3) -> Self {",
+      "\t\tSelf { $2 }",
+      "\t}",
+      "\t$0",
+      "}"
+    ]
+  },
+  "impl 块": {
+    "prefix": "impl",
+    "description": "impl 块",
+    "body": ["impl ${1:Type} {", "\t$0", "}"]
+  },
+  "枚举": {
+    "prefix": "enum",
+    "description": "带 derive 的枚举",
+    "body": ["#[derive(Debug, Clone, PartialEq)]", "enum ${1:Name} {", "\t${2:Variant},", "}"]
+  },
+  "trait": {
+    "prefix": "trait",
+    "description": "trait 定义",
+    "body": ["trait ${1:Name} {", "\tfn ${2:method}(&self);", "}"]
+  },
+  "impl trait": {
+    "prefix": "impltrait",
+    "description": "为类型实现 trait",
+    "body": ["impl ${1:Trait} for ${2:Type} {", "\tfn ${3:method}(&self) {", "\t\t$0", "\t}", "}"]
+  },
+  "派生 derive": {
+    "prefix": "derive",
+    "description": "#[derive(...)] 派生常用 trait",
+    "body": ["#[derive(${1:Debug, Clone})]"]
+  },
+  "match": {
+    "prefix": "match",
+    "description": "match 表达式",
+    "body": ["match ${1:value} {", "\t${2:pattern} => ${3:expr},", "\t_ => ${4:expr},", "}"]
+  },
+  "match Option": {
+    "prefix": "matchopt",
+    "description": "match 一个 Option",
+    "body": ["match ${1:value} {", "\tSome(${2:v}) => ${3:expr},", "\tNone => ${4:expr},", "}"]
+  },
+  "match Result": {
+    "prefix": "matchres",
+    "description": "match 一个 Result",
+    "body": ["match ${1:value} {", "\tOk(${2:v}) => ${3:expr},", "\tErr(${4:e}) => ${5:expr},", "}"]
+  },
+  "if let 解构": {
+    "prefix": "iflet",
+    "description": "if let Some(..) 只处理一种情况",
+    "body": ["if let Some(${1:v}) = ${2:value} {", "\t$0", "}"]
+  },
+  "let else": {
+    "prefix": "letelse",
+    "description": "let ... else 提前返回",
+    "body": ["let Some(${1:v}) = ${2:value} else {", "\t${3:return;}", "};"]
+  },
+  "while let 循环": {
+    "prefix": "whilelet",
+    "description": "while let Some(..) 循环取值",
+    "body": ["while let Some(${1:item}) = ${2:iter}.next() {", "\t$0", "}"]
+  },
+  "for 循环": {
+    "prefix": "for",
+    "description": "for 循环",
+    "body": ["for ${1:item} in ${2:iter} {", "\t$0", "}"]
+  },
+  "自定义错误类型": {
+    "prefix": "errtype",
+    "description": "只用标准库的错误枚举，含 Display、Error 和 From",
+    "body": [
+      "use std::fmt;",
+      "",
+      "#[derive(Debug)]",
+      "enum ${1:AppError} {",
+      "\tIo(std::io::Error),",
+      "\t${2:Other}(String),",
+      "}",
+      "",
+      "impl fmt::Display for $1 {",
+      "\tfn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {",
+      "\t\tmatch self {",
+      "\t\t\tSelf::Io(e) => write!(f, \"io error: {e}\"),",
+      "\t\t\tSelf::$2(msg) => write!(f, \"{msg}\"),",
+      "\t\t}",
+      "\t}",
+      "}",
+      "",
+      "impl std::error::Error for $1 {",
+      "\tfn source(&self) -> Option<&(dyn std::error::Error + 'static)> {",
+      "\t\tmatch self {",
+      "\t\t\tSelf::Io(e) => Some(e),",
+      "\t\t\t_ => None,",
+      "\t\t}",
+      "\t}",
+      "}",
+      "",
+      "impl From<std::io::Error> for $1 {",
+      "\tfn from(e: std::io::Error) -> Self {",
+      "\t\tSelf::Io(e)",
+      "\t}",
+      "}"
+    ]
+  },
+  "返回 Result 的函数": {
+    "prefix": "fnres",
+    "description": "返回 Result 并用 ? 传播错误",
+    "body": [
+      "fn ${1:name}(${2}) -> Result<${3:()}, Box<dyn std::error::Error>> {",
+      "\t${4:// ...}",
+      "\t$0",
+      "\tOk(${5:()})",
+      "}"
+    ]
+  },
+  "读文件": {
+    "prefix": "readfile",
+    "description": "读取整个文本文件",
+    "body": ["let ${1:content} = std::fs::read_to_string(${2:\"path.txt\"})?;"]
+  },
+  "测试模块": {
+    "prefix": "testmod",
+    "description": "#[cfg(test)] 测试模块",
+    "body": [
+      "#[cfg(test)]",
+      "mod tests {",
+      "\tuse super::*;",
+      "",
+      "\t#[test]",
+      "\tfn ${1:it_works}() {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ]
+  },
+  "测试函数": {
+    "prefix": "test",
+    "description": "#[test] 函数",
+    "body": ["#[test]", "fn ${1:name}() {", "\t$0", "}"]
+  },
+  "应当 panic 的测试": {
+    "prefix": "testpanic",
+    "description": "#[should_panic] 测试",
+    "body": ["#[test]", "#[should_panic(expected = \"${1:message}\")]", "fn ${2:name}() {", "\t$0", "}"]
+  },
+  "返回 Result 的测试": {
+    "prefix": "testres",
+    "description": "返回 Result 的测试，可以直接用 ?",
+    "body": ["#[test]", "fn ${1:name}() -> Result<(), Box<dyn std::error::Error>> {", "\t$0", "\tOk(())", "}"]
+  },
+  "迭代器链": {
+    "prefix": "iterchain",
+    "description": "迭代器链 iter().filter().map().collect()",
+    "body": [
+      "let ${1:out}: Vec<_> = ${2:items}",
+      "\t.iter()",
+      "\t.filter(|${3:x}| ${4:true})",
+      "\t.map(|${5:x}| ${6:x.clone()})",
+      "\t.collect();"
+    ]
+  },
+  "Option 组合子": {
+    "prefix": "optchain",
+    "description": "Option 的 and_then / map / unwrap_or_default 链",
+    "body": [
+      "let ${1:out} = ${2:value}",
+      "\t.and_then(|${3:v}| ${4:v.checked_add(1)})",
+      "\t.map(|${5:n}| ${6:n * 2})",
+      "\t.unwrap_or_default();"
+    ]
+  },
+  "HashMap": {
+    "prefix": "hashmap",
+    "description": "创建 HashMap 并用 entry 计数",
+    "body": [
+      "use std::collections::HashMap;",
+      "",
+      "let mut ${1:counts}: HashMap<${2:String}, usize> = HashMap::new();",
+      "*$1.entry(${3:key}).or_insert(0) += 1;"
+    ]
+  },
+  "Default 实现": {
+    "prefix": "impldefault",
+    "description": "手写 Default",
+    "body": ["impl Default for ${1:Type} {", "\tfn default() -> Self {", "\t\tSelf {", "\t\t\t$0", "\t\t}", "\t}", "}"]
+  },
+  "Display 实现": {
+    "prefix": "impldisplay",
+    "description": "实现 fmt::Display",
+    "body": [
+      "impl std::fmt::Display for ${1:Type} {",
+      "\tfn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {",
+      "\t\twrite!(f, \"{}\", ${2:self.0})",
+      "\t}",
+      "}"
+    ]
+  },
+  "Arc Mutex": {
+    "prefix": "arcmutex",
+    "description": "跨线程共享可变数据",
+    "body": [
+      "use std::sync::{Arc, Mutex};",
+      "",
+      "let ${1:shared} = Arc::new(Mutex::new(${2:0}));",
+      "let ${3:handle} = Arc::clone(&$1);"
+    ]
+  },
+  "线程 spawn": {
+    "prefix": "spawn",
+    "description": "std::thread::spawn 并 join",
+    "body": ["let ${1:handle} = std::thread::spawn(move || {", "\t$0", "});", "$1.join().expect(\"thread panicked\");"]
+  },
+  "tokio main（需要 tokio）": {
+    "prefix": "tokiomain",
+    "description": "需要项目已依赖 tokio（features 含 macros、rt-multi-thread）",
+    "body": ["#[tokio::main]", "async fn main() {", "\t$0", "}"]
+  },
+  "tokio 测试（需要 tokio）": {
+    "prefix": "tokiotest",
+    "description": "需要项目已依赖 tokio（features 含 macros、rt）",
+    "body": ["#[tokio::test]", "async fn ${1:name}() {", "\t$0", "}"]
+  },
+  "文档注释": {
+    "prefix": "doc",
+    "description": "带 Examples 的文档注释",
+    "body": ["/// ${1:一句话说明。}", "///", "/// # Examples", "///", "/// ```", "/// $0", "/// ```"]
+  }
+}

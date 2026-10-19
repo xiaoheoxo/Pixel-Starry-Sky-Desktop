@@ -526,8 +526,15 @@ export class TeamSync {
   // 读：一页消息、已读
   // -------------------------------------------------------------------------
 
-  /** 一页消息（最多 200 条）；before 是毫秒时间戳，取这之前的。第一次打开频道时从云端拉最近 100 条 */
-  async page(channelId: string, before?: number | null): Promise<{ messages: ChannelMessage[]; more: boolean }> {
+  /**
+   * 一页消息（最多 200 条）；beforeId 是界面里最早那条消息，取它前面的（按位置，同一毫秒跨页不漏）；
+   * 这条不在缓存里时退回按毫秒时间戳 before 取。第一次打开频道时从云端拉最近 100 条
+   */
+  async page(
+    channelId: string,
+    before?: number | null,
+    beforeId?: string | null,
+  ): Promise<{ messages: ChannelMessage[]; more: boolean }> {
     const meta = this.meta.get(channelId)
     if (!meta) throw new Error('频道不存在')
     let cache = this.caches.get(channelId)
@@ -544,15 +551,20 @@ export class TeamSync {
       }
       cache.hasMore = first.hasMore
     }
-    const have = (): TeamMessage[] => (before == null ? cache!.list : cache!.list.filter(m => m.createdAt < before))
-    if (before != null && have().length < PAGE && cache.hasMore && cache.list.length) {
+    const older = before != null || !!beforeId
+    const have = (): TeamMessage[] => {
+      const at = beforeId ? cache!.list.findIndex(m => m.id === beforeId) : -1
+      if (at >= 0) return cache!.list.slice(0, at)
+      return before == null ? cache!.list : cache!.list.filter(m => m.createdAt < before)
+    }
+    if (older && have().length < PAGE && cache.hasMore && cache.list.length) {
       const oldest = cache.list[0].n
-      const older = await this.api.messages(meta.teamId, channelId, { before: oldest, limit: PAGE })
-      for (const tm of older.messages) {
+      const earlier = await this.api.messages(meta.teamId, channelId, { before: oldest, limit: PAGE })
+      for (const tm of earlier.messages) {
         this.upsert(cache, tm)
         if (tm.kind === 'task' && tm.task) this.rememberCard(meta.teamId, tm)
       }
-      cache.hasMore = older.hasMore
+      cache.hasMore = earlier.hasMore
     }
     const list = have()
     const start = Math.max(0, list.length - PAGE)

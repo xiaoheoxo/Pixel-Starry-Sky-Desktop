@@ -61,4 +61,25 @@ describe('扩展解析与范围', () => {
     writeFileSync(join(root, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'tools', skills: '../outside' }))
     expect(() => pluginDirectory(root)).toThrow('超出')
   })
+  it('插件目录先整体校验再读 manifest：层级过深先报错，组件只遍历一次也不丢', () => {
+    const deep = join(root, 'deep'),
+      nested = join(deep, ...Array.from({ length: 18 }, (_, i) => 'd' + i))
+    mkdirSync(nested, { recursive: true })
+    // 没有 plugin.json：若先读 manifest 会报找不到文件，这里要先报目录问题
+    expect(() => pluginDirectory(deep)).toThrow('层级过深')
+    const ok = join(root, 'ok')
+    mkdirSync(join(ok, '.claude-plugin'), { recursive: true })
+    mkdirSync(join(ok, 'skills/a'), { recursive: true })
+    mkdirSync(join(ok, 'commands'), { recursive: true })
+    writeFileSync(join(ok, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'pack', skills: 'extra' }))
+    writeFileSync(join(ok, 'skills/a/SKILL.md'), '---\nname: a\n---\nx')
+    writeFileSync(join(ok, 'commands/c.md'), '---\nname: c\n---\nx')
+    mkdirSync(join(ok, 'extra/b'), { recursive: true })
+    writeFileSync(join(ok, 'extra/b/SKILL.md'), '---\nname: b\n---\nx')
+    expect(
+      pluginDirectory(ok)
+        .components.map(c => c.name)
+        .sort(),
+    ).toEqual(['a', 'b', 'c'])
+  })
 })

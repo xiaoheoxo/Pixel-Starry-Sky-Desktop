@@ -1,8 +1,10 @@
 import { useI18n } from '@/i18n/I18nProvider'
-import { useEffect, useMemo, useRef } from 'react'
-import { CollapsibleSlot } from '@/ui'
+import { tr, translateMessage } from '../../i18n/core'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Archive } from 'lucide-react'
+import { Button, CollapsibleSlot, useToast } from '@/ui'
 import { OPEN_SESSION_EVENT, bridge as engineBridge } from '@/features/engine'
-import type { AgentMember, ChannelTask } from '@/data/types'
+import type { AgentMember, Channel, ChannelTask } from '@/data/types'
 import { channelActions, channelsLive, selectedChannel, selfIdIn, useChannels } from './store'
 import type { Quotable } from './ChannelMessage'
 import type { TaskCardActions } from './ChannelTaskCard'
@@ -19,6 +21,31 @@ const NO_MESSAGES: never[] = []
 /** 「打开会话」：交给现有的打开请求处理（切机器、打开会话、切回工作台） */
 const openSession = (sessionId: string) =>
   window.dispatchEvent(new CustomEvent(OPEN_SESSION_EVENT, { detail: { sessionId } }))
+
+/** 归档的频道只读：输入框换成一条说明和「恢复频道」（docs/ui/channels-local-ai.md §3.1 #11） */
+function ArchivedBar({ channel }: { channel: Channel }) {
+  useI18n()
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const restore = () => {
+    setBusy(true)
+    channelActions
+      .updateChannel(channel.id, { archived: false })
+      .catch(e => toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) })))
+      .finally(() => setBusy(false))
+  }
+  return (
+    <div data-channel-archived="" className="conversation-inset conversation-reading shrink-0 pb-4">
+      <div className="flex min-h-12 items-center gap-3 rounded-xl border border-line-card bg-surface py-2 pr-2 pl-4 text-ui text-fg-muted">
+        <Archive size={15} strokeWidth={1.5} className="shrink-0" />
+        <span className="min-w-0 flex-1">{tr('channels.archived.banner')}</span>
+        <Button className="h-8 px-3" disabled={busy} onClick={restore}>
+          {tr('channels.channel.restore')}
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 /**
  * 协作频道整页（docs/ui/channels.md）：频道列表 + 时间线 / 输入框 + 成员面板。
@@ -95,11 +122,13 @@ export function ChannelsPage({
     channelActions.setReplyTo(channel.id, id)
     composer.current?.focus()
   }
+  // 归档的频道只读：不能回复、追加要求、重试（docs/ui/channels-local-ai.md §3.1 #11）
+  const archived = !!channel.archivedAt
   const taskActions: TaskCardActions = {
     onOpenSession: openSession,
     selfId,
     onApprove: channelActions.approveTask,
-    ...(channelsLive
+    ...(channelsLive && !archived
       ? {
           onAction: channelActions.task,
           onAnswer: async (task: ChannelTask, allow: boolean) => {
@@ -126,27 +155,31 @@ export function ChannelsPage({
           newFrom={newFromMap[channel.id] ?? null}
           more={!!moreMap[channel.id]}
           onLoadOlder={() => channelActions.loadOlder(channel.id)}
-          onReply={reply}
+          onReply={archived ? undefined : reply}
           taskActions={taskActions}
         />
-        <ChannelComposer
-          key={channel.id}
-          channel={channel}
-          members={channelMembers}
-          selfId={selfId}
-          replyTo={replyTo}
-          replyAuthor={
-            replyTo
-              ? members.find(m => m.id === (replyTo.kind === 'task' ? replyTo.assigneeId : replyTo.authorId))
-              : undefined
-          }
-          followUp={followUp}
-          role={role}
-          offline={channel.scope === 'team' && connection === 'offline'}
-          onSend={(text, extra) => channelActions.send(channel.id, text, extra)}
-          onCancelReply={() => channelActions.setReplyTo(channel.id, null)}
-          inputRef={composer}
-        />
+        {archived ? (
+          <ArchivedBar channel={channel} />
+        ) : (
+          <ChannelComposer
+            key={channel.id}
+            channel={channel}
+            members={channelMembers}
+            selfId={selfId}
+            replyTo={replyTo}
+            replyAuthor={
+              replyTo
+                ? members.find(m => m.id === (replyTo.kind === 'task' ? replyTo.assigneeId : replyTo.authorId))
+                : undefined
+            }
+            followUp={followUp}
+            role={role}
+            offline={channel.scope === 'team' && connection === 'offline'}
+            onSend={(text, extra) => channelActions.send(channel.id, text, extra)}
+            onCancelReply={() => channelActions.setReplyTo(channel.id, null)}
+            inputRef={composer}
+          />
+        )}
       </section>
       <CollapsibleSlot open={membersShown} width={MEMBERS_WIDTH} side="right">
         <ChannelMembers

@@ -56,6 +56,20 @@ describe('reduce', () => {
     expect(s.items).toEqual([{ kind: 'assistant', id: 'a', text: '你好', status: 'running' }])
   })
 
+  it('增量落在非末尾条目上也能找到，且不原地改旧快照', () => {
+    const s0 = run([
+      { type: 'item_started', item: { kind: 'assistant', id: 'a', text: '甲', status: 'running' } },
+      { type: 'item_started', item: { kind: 'notice', id: 'n', level: 'warn', text: '提示' } },
+    ])
+    const before = s0.items
+    const s1 = reduce(s0, { type: 'item_delta', itemId: 'a', field: 'text', delta: '乙' })
+    expect(s1.items[0]).toMatchObject({ text: '甲乙' })
+    expect(s1.items).not.toBe(before)
+    expect(before[0]).toMatchObject({ text: '甲' })
+    const s2 = reduce(s1, { type: 'items_truncated', fromItemId: 'n' })
+    expect(s2.items.map(x => x.id)).toEqual(['a'])
+  })
+
   it('完成事件替换同 id 条目，新 id 直接追加', () => {
     const s = run([
       { type: 'item_started', item: { kind: 'assistant', id: 'a', text: '半', status: 'running' } },

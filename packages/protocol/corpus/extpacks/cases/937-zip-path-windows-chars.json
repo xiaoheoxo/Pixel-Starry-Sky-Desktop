@@ -1,0 +1,15 @@
+{
+  "title": "路径里有 Windows 不允许的字符、上标数字保留名、保留名后带空格、NFC/NFD 撞名",
+  "expectCodes": ["files.path"],
+  "input": "zip",
+  "base": "pixelsky.dotenv",
+  "zipEntries": [
+    { "name": "docs/a*b.txt", "text": "x" },
+    { "name": "docs/a|b.txt", "text": "x" },
+    { "name": "docs/COM¹.txt", "text": "x" },
+    { "name": "docs/conin$.txt", "text": "x" },
+    { "name": "docs/nul .txt", "text": "x" },
+    { "name": "docs/café.txt", "text": "x" },
+    { "name": "docs/café.txt", "text": "y" }
+  ]
+}

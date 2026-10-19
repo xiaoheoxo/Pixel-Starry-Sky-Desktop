@@ -11,6 +11,7 @@ import {
   dirtyFile,
   ensureFile,
   loadFile,
+  refreshHead,
   saveFile,
   updateFile,
   useFiles,
@@ -75,6 +76,8 @@ export function FileEditor({
     if (active) {
       activateFile(id)
       void checkFile(id)
+      // 切回这个标签：「变更」的基准跟上这期间换掉的 HEAD
+      void refreshHead(id)
     }
   }, [active, id])
   useLayoutEffect(() => {

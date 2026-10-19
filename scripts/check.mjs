@@ -1,5 +1,5 @@
 // 统一检查入口（无依赖，不经过 pnpm）
-// 用法：node scripts/check.mjs [--fast] [--strict] [--remote] [--build] [--cloud] [--only <步骤名>]
+// 用法：node scripts/check.mjs [--fast] [--strict] [--remote] [--build] [--cloud] [--extpacks] [--only <步骤名>]
 // --cloud 加跑 services/cloud 的 Go 检查（gofmt、go vet、go test），需要本机装 Go 1.27 或更新版本
 import { spawn } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
@@ -17,6 +17,7 @@ const desktop = join(root, 'apps', 'desktop')
 const engine = join(root, 'packages', 'engine')
 const protocol = join(root, 'packages', 'protocol')
 const extcli = join(root, 'packages', 'extension-cli')
+const cli = join(root, 'packages', 'cli')
 const link = join(root, 'packages', 'link')
 const mobile = join(root, 'apps', 'mobile')
 const tsc = (cwd, project) => ({
@@ -44,16 +45,25 @@ const steps = [
   { name: 'tsc:engine', group: 'tsc', ...tsc(engine, 'tsconfig.json') },
   { name: 'tsc:protocol', group: 'tsc', ...tsc(protocol, 'tsconfig.json') },
   { name: 'tsc:extension-cli', group: 'tsc', ...tsc(extcli, 'tsconfig.json') },
+  // 像素星空命令行（packages/cli）没有自己的 typescript 依赖，用根目录的
+  {
+    name: 'tsc:cli',
+    group: 'tsc',
+    cwd: cli,
+    script: join(root, 'node_modules', 'typescript', 'bin', 'tsc'),
+    args: ['--noEmit', '-p', 'tsconfig.json'],
+  },
   { name: 'tsc:link', group: 'tsc', ...tsc(link, 'tsconfig.json') },
   { name: 'tsc:mobile', group: 'tsc', ...tsc(mobile, 'tsconfig.json') },
   {
     name: 'test:desktop',
     group: 'test',
-    ...vitest(desktop, ['src/renderer/src', 'src/main', 'src/shared', '--root', '.']),
+    ...vitest(desktop, ['src/renderer/src', 'src/main', 'src/shared', 'src/workers', '--root', '.']),
   },
   { name: 'test:engine', group: 'test', ...vitest(engine) },
   { name: 'test:protocol', group: 'test', ...vitest(protocol) },
   { name: 'test:extension-cli', group: 'test', ...vitest(extcli) },
+  { name: 'test:cli', group: 'test', ...vitest(cli) },
   { name: 'test:link', group: 'test', ...vitest(link) },
   { name: 'test:mobile', group: 'test', ...vitest(mobile) },
   { name: 'docs', group: 'docs', cwd: root, script: join(root, 'scripts', 'check-docs.mjs'), args: [] },
@@ -73,6 +83,8 @@ const steps = [
     script: join(root, 'node_modules', 'prettier', 'bin', 'prettier.cjs'),
     args: ['--check', '.'],
   },
+  // 官方语言扩展按上传标准检查（含语法测速，机器忙时可能偏慢）；只有 --extpacks 时才跑
+  { name: 'extpacks', group: 'extpacks', cwd: root, script: join(root, 'scripts', 'check-extpacks.mjs'), args: [] },
   { name: 'remote', group: 'remote', cwd: root, script: join(root, 'scripts', 'check-remote.mjs'), args: [] },
   {
     name: 'build',
@@ -80,6 +92,8 @@ const steps = [
     cwd: desktop,
     script: join(desktop, 'node_modules', 'electron-vite', 'bin', 'electron-vite.js'),
     args: ['build', '--outDir', buildDir],
+    // 构建出来的主进程包里不能有语法引擎（检查进程另有一个入口）；要在 cleanup 删掉输出之前查
+    verify: { script: join(root, 'scripts', 'check-main-bundle.mjs'), args: [buildDir] },
     cleanup: () => rmSync(buildDir, { recursive: true, force: true }),
   },
   // gofmt -l 没有退出码告警，有输出就是没格式化，所以用 failOnOutput
@@ -93,6 +107,7 @@ const selected = steps.filter(step => {
   if (step.group === 'remote') return has('--remote')
   if (step.group === 'build') return has('--build')
   if (step.group === 'cloud') return has('--cloud')
+  if (step.group === 'extpacks') return has('--extpacks')
   // 文档只在本机，仓库里没有 check-docs.mjs 时跳过
   if (step.group === 'docs' && !existsSync(step.script)) return false
   if (has('--fast')) return step.group === 'tsc' || step.group === 'docs'
@@ -147,7 +162,11 @@ for (const step of selected) {
     continue
   }
   const start = Date.now()
-  const result = await run(step)
+  let result = await run(step)
+  if (result.code === 0 && step.verify) {
+    const verified = await run({ cwd: root, ...step.verify })
+    result = { code: verified.code, output: result.output + verified.output }
+  }
   step.cleanup?.()
   const passed = result.code === 0 && !(step.failOnOutput && result.output.trim() !== '')
   if (passed) {

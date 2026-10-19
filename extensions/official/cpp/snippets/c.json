@@ -1,0 +1,106 @@
+{
+  "main 函数": {
+    "prefix": "main",
+    "body": ["#include <stdio.h>", "", "int main(void) {", "    ${1:/* TODO */}", "    return 0;", "}", ""],
+    "description": "无参数的 main 函数"
+  },
+  "带参数的 main": {
+    "prefix": "mainargs",
+    "body": [
+      "#include <stdio.h>",
+      "",
+      "int main(int argc, char *argv[]) {",
+      "    ${1:/* TODO */}",
+      "    return 0;",
+      "}",
+      ""
+    ],
+    "description": "带 argc / argv 的 main 函数"
+  },
+  "头文件保护": {
+    "prefix": "once",
+    "body": [
+      "#ifndef ${1:PROJECT_MODULE}_H",
+      "#define ${1:PROJECT_MODULE}_H",
+      "",
+      "$0",
+      "",
+      "#endif /* ${1:PROJECT_MODULE}_H */"
+    ],
+    "description": "#ifndef 形式的头文件保护"
+  },
+  "C++ 兼容的头文件": {
+    "prefix": "externc",
+    "body": ["#ifdef __cplusplus", "extern \"C\" {", "#endif", "", "$0", "", "#ifdef __cplusplus", "}", "#endif"],
+    "description": "让头文件能被 C++ 代码包含的 extern \"C\" 包裹"
+  },
+  "结构体": {
+    "prefix": "struct",
+    "body": ["struct ${1:name} {", "    ${2:int value;}", "};", "$0"],
+    "description": "struct 定义"
+  },
+  "typedef 结构体": {
+    "prefix": "tdstruct",
+    "body": ["typedef struct ${1:name} {", "    ${2:int value;}", "} ${1:name};", "$0"],
+    "description": "typedef struct 定义"
+  },
+  "枚举": {
+    "prefix": "enum",
+    "body": ["typedef enum {", "    ${1:VALUE_A},", "    ${2:VALUE_B},", "} ${3:Name};", "$0"],
+    "description": "typedef enum 定义"
+  },
+  "malloc 并检查": {
+    "prefix": "malloc",
+    "body": [
+      "${1:int} *${2:p} = malloc(${3:n} * sizeof(*${2:p}));",
+      "if (${2:p} == NULL) {",
+      "    ${4:return -1;}",
+      "}",
+      "$0"
+    ],
+    "description": "用 sizeof(*p) 分配内存并检查返回值"
+  },
+  "free 并置空": {
+    "prefix": "free",
+    "body": ["free(${1:p});", "${1:p} = NULL;", "$0"],
+    "description": "释放内存后把指针置为 NULL"
+  },
+  "for 循环": {
+    "prefix": "for",
+    "body": ["for (size_t ${1:i} = 0; ${1:i} < ${2:n}; ${1:i}++) {", "    $0", "}"],
+    "description": "按 size_t 下标遍历"
+  },
+  "switch 语句": {
+    "prefix": "switch",
+    "body": ["switch (${1:value}) {", "case ${2:CASE_A}:", "    $0", "    break;", "default:", "    break;", "}"],
+    "description": "带 default 的 switch"
+  },
+  "打开文件并检查": {
+    "prefix": "fopen",
+    "body": [
+      "FILE *${1:fp} = fopen(${2:path}, \"${3|r,w,a,rb,wb|}\");",
+      "if (${1:fp} == NULL) {",
+      "    perror(${2:path});",
+      "    ${4:return -1;}",
+      "}",
+      "$0",
+      "fclose(${1:fp});"
+    ],
+    "description": "fopen 失败时用 perror 报错，最后 fclose"
+  },
+  "函数指针类型": {
+    "prefix": "funcptr",
+    "body": "typedef ${1:int} (*${2:callback_fn})(${3:void *ctx});$0",
+    "description": "函数指针的 typedef"
+  },
+  "多行宏": {
+    "prefix": "defmacro",
+    "body": ["#define ${1:MACRO_NAME}(${2:x}) \\", "    do { \\", "        $0 \\", "    } while (0)"],
+    "description": "do { } while (0) 形式的多行宏"
+  },
+  "包含系统头文件": {
+    "prefix": "inc",
+    "body": "#include <${1|stdio.h,stdlib.h,string.h,stdint.h,stdbool.h,stddef.h,errno.h,assert.h|}>$0",
+    "description": "包含系统头文件 #include <...>"
+  }
+}

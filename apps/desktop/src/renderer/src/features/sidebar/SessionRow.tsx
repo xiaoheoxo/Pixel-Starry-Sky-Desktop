@@ -28,6 +28,7 @@ export function SessionRow({
   children,
   trailing,
   className,
+  flipKey,
 }: {
   target: SessionTarget
   selected: boolean
@@ -35,6 +36,8 @@ export function SessionRow({
   children: ReactNode
   trailing: ReactNode
   className?: string
+  /** 换顺序时这一行滑动用的标记（useFlip 读 data-flip-key）；同一个列表里不重复，不传就不滑 */
+  flipKey?: string
 }) {
   const { t } = useI18n(),
     actions = useSessionActions(),
@@ -89,6 +92,7 @@ export function SessionRow({
     <div
       ref={row}
       data-session-row={target.id}
+      data-flip-key={flipKey}
       data-archived={target.archived || undefined}
       onContextMenu={event => {
         event.preventDefault()

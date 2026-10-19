@@ -1,0 +1,18 @@
+[project]
+name = "poe-demo"
+version = "0.1.0"
+
+[tool.poe.tasks]
+# 运行测试
+test = "pytest"
+lint = "ruff check ."
+docs = { shell = "mkdocs build" }
+typecheck.cmd = "mypy ."
+typecheck.help = "类型检查"
+
+[tool.poe.tasks.fmt]
+help = "格式化"
+cmd = "ruff format ."
+
+[tool.ruff]
+line-length = 100

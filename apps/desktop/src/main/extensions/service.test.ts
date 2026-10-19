@@ -58,6 +58,38 @@ describe('管理配置与凭据', () => {
     expect(cc.mcpFile).toBeUndefined()
     expect(readFileSync(join(service.dir, 'config.json'), 'utf8')).not.toContain('private-codex')
   })
+  it('像素星空：MCP 写进会话临时文件（含凭据，结束删掉），技能给目录，别的引擎的不带', () => {
+    service.upsert({
+      kind: 'mcp',
+      name: 'pixel.tools',
+      scope: global,
+      engines: ['pixel'],
+      mcp: { type: 'stdio', command: process.execPath, args: ['--version'], env: { TOKEN: 'private-pixel' } },
+    })
+    service.upsert({
+      kind: 'skill',
+      name: 'pixel-skill',
+      scope: global,
+      engines: ['pixel', 'codex'],
+      text: '---\nname: pixel-skill\ndescription: test\n---\nRead project files.',
+    })
+    service.upsert({
+      kind: 'mcp',
+      name: 'claude-only',
+      scope: global,
+      mcp: { type: 'http', url: 'https://example.com/mcp' },
+    })
+    const px = service.launch(project, 'pixel')
+    expect(px.pluginDirs).toEqual([])
+    expect(px.skillRoots).toHaveLength(1)
+    expect(existsSync(join(px.skillRoots![0], 'SKILL.md'))).toBe(true)
+    const file = JSON.parse(readFileSync(px.mcpFile!, 'utf8'))
+    expect(Object.keys(file.mcpServers)).toEqual(['pixel.tools'])
+    expect(file.mcpServers['pixel.tools']).toMatchObject({ type: 'stdio', env: { TOKEN: 'private-pixel' } })
+    expect(service.launch(project, 'codex').skillRoots).toEqual(px.skillRoots)
+    px.dispose?.()
+    expect(existsSync(px.mcpFile!)).toBe(false)
+  })
   it('凭据无法解密时仍能显示其他配置，重新填写前保留原加密文件', () => {
     const dir = join(root, 'broken')
     mkdirSync(dir)
@@ -228,6 +260,91 @@ describe('管理配置与凭据', () => {
       ),
     ).toThrow()
     expect(service.state(null).entries).toEqual([])
+  })
+})
+
+describe('原生扩展扫描缓存', () => {
+  const skill = (name: string, config = join(root, 'native')): void => {
+    mkdirSync(join(config, 'skills', name), { recursive: true })
+    writeFileSync(join(config, 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\nbody`)
+  }
+  const names = (s: ExtensionService): string[] => s.commands(null).map(c => c.name)
+  it('缓存期内不重复扫描，过期、增删改、手动作废后重新扫描', async () => {
+    let at = 1000
+    const cached = new ExtensionService(
+      join(root, 'cached'),
+      cipher,
+      () => ({ ...process.env, CLAUDE_CONFIG_DIR: join(root, 'native') }),
+      () => at,
+    )
+    skill('one')
+    expect(names(cached)).toEqual(['one'])
+    // 新装的 skill 在缓存期内看不到（state、commands 共用一份）
+    skill('two')
+    expect(names(cached)).toEqual(['one'])
+    expect(cached.state(null).entries.map(e => e.name)).toEqual(['one'])
+    at += 9_999
+    expect(names(cached)).toEqual(['one'])
+    at += 1
+    expect(names(cached).sort()).toEqual(['one', 'two'])
+    // 手动作废（窗口重新获得焦点、extensions:changed）
+    skill('three')
+    cached.invalidateNative()
+    expect(names(cached).sort()).toEqual(['one', 'three', 'two'])
+    // 设置页增删改（mutate）前后都作废
+    skill('four')
+    await cached.mutate(() => undefined)
+    expect(names(cached)).toContain('four')
+    skill('five')
+    await cached.mutate(() => {
+      expect(names(cached)).toContain('five')
+      skill('six')
+    })
+    expect(names(cached)).toContain('six')
+    cached.close()
+  })
+  it('冲突检查看到的是 mutate 开始时的新扫描，缓存不会放过刚装的同名原生技能', async () => {
+    const at = 1000
+    const cached = new ExtensionService(
+      join(root, 'cached'),
+      cipher,
+      () => ({ ...process.env, CLAUDE_CONFIG_DIR: join(root, 'native') }),
+      () => at,
+    )
+    expect(names(cached)).toEqual([])
+    skill('dup')
+    await expect(
+      cached.mutate(() =>
+        cached.upsert({ kind: 'skill', name: 'dup', scope: global, text: '---\nname: dup\n---\nbody' }),
+      ),
+    ).rejects.toThrow('原生安装已有同名')
+    cached.close()
+  })
+  it('不同配置目录 / 项目各自缓存，互不串', () => {
+    let config = join(root, 'native')
+    const cached = new ExtensionService(
+      join(root, 'cached'),
+      cipher,
+      () => ({ ...process.env, CLAUDE_CONFIG_DIR: config }),
+      () => 1000,
+    )
+    skill('a')
+    skill('b', join(root, 'native2'))
+    expect(names(cached)).toEqual(['a'])
+    config = join(root, 'native2')
+    expect(names(cached)).toEqual(['b'])
+    config = join(root, 'native')
+    expect(names(cached)).toEqual(['a'])
+    mkdirSync(join(project, '.claude/skills/p'), { recursive: true })
+    writeFileSync(join(project, '.claude/skills/p/SKILL.md'), '---\nname: p\n---\nx')
+    expect(
+      cached
+        .commands(project)
+        .map(c => c.name)
+        .sort(),
+    ).toEqual(['a', 'p'])
+    expect(names(cached)).toEqual(['a'])
+    cached.close()
   })
 })
 

@@ -10,6 +10,7 @@ import type {
   AgentPolicy,
   ChannelAttachments,
   ChannelInput,
+  ChannelNotify,
   ChannelsSnapshot,
   ChannelTaskAction,
   PendingInvite,
@@ -42,6 +43,8 @@ export interface ChannelsState {
   newFrom: Record<string, number | null>
   /** 频道开出来的会话 → 频道名 */
   sessionChannels: Record<string, string>
+  /** 本机频道开出来的会话 → 最近一张任务卡（系统提醒按频道的说法写） */
+  sessionTasks: NonNullable<ChannelsSnapshot['sessionTasks']>
   // ── Phase C：多人团队（docs/ui/channels-phase-c.md） ──
   teams: TeamInfo[]
   /** 别人邀请我（频道列表最上面的邀请卡） */
@@ -49,6 +52,8 @@ export interface ChannelsState {
   /** unavailable = 云端没有团队接口，不显示任何团队入口 */
   teamsConnection: TeamsConnection
   teamsSyncedAt: number | null
+  /** 要时间线跳到并高亮的消息（置顶列表、提醒点进来）；时间线处理完清掉 */
+  focus: { channelId: string; messageId: string } | null
 }
 
 let state: ChannelsState = {
@@ -61,10 +66,12 @@ let state: ChannelsState = {
   replyTo: {},
   newFrom: {},
   sessionChannels: {},
+  sessionTasks: {},
   teams: channelsLive ? [] : channelTeams.teams,
   invites: channelsLive ? [] : channelTeams.invites,
   teamsConnection: channelsLive ? 'unavailable' : channelTeams.connection,
   teamsSyncedAt: channelsLive ? null : Date.now(),
+  focus: null,
 }
 const listeners = new Set<() => void>()
 const subscribe = (listener: () => void) => {
@@ -95,7 +102,7 @@ export function useSessionChannel(sessionId: string): string | null {
 
 /** 当前频道：选中的不存在时退回第一个 */
 export function selectedChannel(s: ChannelsState): Channel | null {
-  return s.channels.find(c => c.id === s.selectedId) ?? s.channels[0] ?? null
+  return s.channels.find(c => c.id === s.selectedId) ?? s.channels.find(c => !c.archivedAt) ?? s.channels[0] ?? null
 }
 
 export const selfMember = (s: ChannelsState): ChannelMember | null =>
@@ -129,6 +136,7 @@ function applySnapshot(s: ChannelsSnapshot): void {
     channels: visible ? markRead(s.channels, visible) : s.channels,
     members: s.members,
     sessionChannels: s.sessionChannels,
+    sessionTasks: s.sessionTasks ?? {},
     teams: s.teams ?? [],
     invites: s.invites ?? [],
     teamsConnection: s.teamsConnection ?? 'unavailable',
@@ -147,25 +155,38 @@ function readLater(id: string): void {
   }, 300)
 }
 
-const loading = new Set<string>()
+/** 频道 id → 正在读的那一页：同一个频道同时只读一页，这时再要求的等它读完 */
+const loading = new Map<string, Promise<void>>()
 /** 读一页消息；第一次进频道时顺便定「新消息」分隔线（unread：进入前的未读数），和消息一起更新，时间线只滚一次 */
-async function loadMessages(id: string, older = false, unread = 0): Promise<void> {
-  if (!channelsBridge || loading.has(id)) return
-  loading.add(id)
-  try {
-    const before = older ? (state.messages[id]?.[0]?.at ?? null) : null
-    const page = await channelsBridge.messages(id, before)
-    const current = older ? (state.messages[id] ?? []) : []
-    let list = [...page.messages, ...current]
-    // 读的同时推过来的消息不能丢
-    if (!older) for (const m of state.messages[id] ?? []) list = upsertMessage(list, m)
-    const self = selfIdIn(state, state.channels.find(c => c.id === id)?.memberIds)
-    const newFrom = unread > 0 ? { ...state.newFrom, [id]: firstUnreadAt(list, unread, self) } : state.newFrom
-    set({ messages: { ...state.messages, [id]: list }, more: { ...state.more, [id]: page.more }, newFrom })
-  } finally {
-    loading.delete(id)
-  }
+function loadMessages(id: string, older = false, unread = 0): Promise<void> {
+  if (!channelsBridge) return Promise.resolve()
+  const running = loading.get(id)
+  if (running) return running
+  const job = readPage(channelsBridge, id, older, unread).finally(() => loading.delete(id))
+  loading.set(id, job)
+  return job
 }
+
+async function readPage(
+  bridge: NonNullable<typeof channelsBridge>,
+  id: string,
+  older: boolean,
+  unread: number,
+): Promise<void> {
+  // 更早的一页按最早那条消息的 id 定位（只用时间的话，同一毫秒的几条跨在两页之间会漏掉）
+  const oldest = older ? state.messages[id]?.[0] : undefined
+  const page = await bridge.messages(id, oldest?.at ?? null, oldest?.id ?? null)
+  const current = older ? (state.messages[id] ?? []) : []
+  let list = [...page.messages, ...current]
+  // 读的同时推过来的消息不能丢
+  if (!older) for (const m of state.messages[id] ?? []) list = upsertMessage(list, m)
+  const self = selfIdIn(state, state.channels.find(c => c.id === id)?.memberIds)
+  const newFrom = unread > 0 ? { ...state.newFrom, [id]: firstUnreadAt(list, unread, self) } : state.newFrom
+  set({ messages: { ...state.messages, [id]: list }, more: { ...state.more, [id]: page.more }, newFrom })
+}
+
+/** 搜索结果点进来，消息太早还没读进来时，最多往前再读这么多页 */
+const FOCUS_PAGES = 25
 
 if (channelsBridge) {
   channelsBridge.onChange(applySnapshot)
@@ -269,8 +290,60 @@ export const channelActions = {
     void loadMessages(id)
     return id
   },
-  updateChannel(id: string, patch: { name?: string; topic?: string | null; projectId?: string | null }): Promise<void> {
-    return channelsBridge!.update(id, patch)
+  updateChannel(
+    id: string,
+    patch: {
+      name?: string
+      topic?: string | null
+      notes?: string | null
+      notify?: ChannelNotify
+      projectId?: string | null
+      /** 归档 / 恢复（docs/ui/channels-local-ai.md §3.1 #11） */
+      archived?: boolean
+    },
+  ): Promise<void> {
+    if (channelsBridge) return channelsBridge.update(id, patch)
+    const { archived, ...rest } = patch
+    set({
+      channels: state.channels.map(c => {
+        if (c.id !== id) return c
+        const next = { ...c, ...rest, projectId: c.projectId }
+        if (archived !== undefined) next.archivedAt = archived ? Date.now() : null
+        return archived ? { ...next, unread: 0, mentioned: false } : next
+      }),
+    })
+    return Promise.resolve()
+  },
+  /** 置顶 / 取消置顶一条文字消息（docs/ui/channels-local-ai.md §3.1 #9）；演示模式只改内存 */
+  async pin(channelId: string, messageId: string, pinned: boolean): Promise<void> {
+    if (channelsBridge) return channelsBridge.pin(channelId, messageId, pinned)
+    set({
+      channels: state.channels.map(c => {
+        if (c.id !== channelId) return c
+        const rest = (c.pinned ?? []).filter(id => id !== messageId)
+        return { ...c, pinned: pinned ? [...rest, messageId] : rest }
+      }),
+    })
+  },
+  /**
+   * 切到这个频道，时间线跳到这条消息并高亮一下。
+   * at（搜索结果带的消息时间）：消息太早、还没读进来时，先往前一页页读到它，再让时间线跳
+   */
+  async focusMessage(channelId: string, messageId: string, at?: number): Promise<void> {
+    if (at != null && channelsBridge) {
+      set({ selectedId: channelId })
+      for (let page = 0; page < FOCUS_PAGES; page++) {
+        const list = state.messages[channelId]
+        // 最早那条比目标还早（严格小于）才说明目标已经不在了；同一毫秒的还要接着往前读
+        if (list && (list.some(m => m.id === messageId) || !state.more[channelId] || (list[0]?.at ?? 0) < at)) break
+        await loadMessages(channelId, !!list).catch(() => undefined)
+      }
+    }
+    set({ selectedId: channelId, focus: { channelId, messageId } })
+  },
+  /** 时间线跳过去了（或这条消息不在已读进来的消息里） */
+  focusDone(): void {
+    if (state.focus) set({ focus: null })
   },
   async deleteChannel(id: string): Promise<void> {
     await channelsBridge!.delete(id)

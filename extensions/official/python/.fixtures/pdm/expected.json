@@ -1,0 +1,50 @@
+[
+  {
+    "template": "pdm-scripts",
+    "file": "pyproject.toml",
+    "tasks": [
+      {
+        "name": "test",
+        "description": "运行测试",
+        "linux": "pdm run test",
+        "windows": "pdm run test"
+      },
+      {
+        "name": "lint",
+        "linux": "pdm run lint",
+        "windows": "pdm run lint"
+      },
+      {
+        "name": "start",
+        "linux": "pdm run start",
+        "windows": "pdm run start"
+      },
+      {
+        "name": "post_install",
+        "linux": "pdm run post_install",
+        "windows": "pdm run post_install"
+      },
+      {
+        "name": "fmt",
+        "linux": "pdm run fmt",
+        "windows": "pdm run fmt"
+      },
+      {
+        "name": "serve",
+        "linux": "pdm run serve",
+        "windows": "pdm run serve"
+      }
+    ]
+  },
+  {
+    "template": "pdm-scripts",
+    "file": "tools/cli/pyproject.toml",
+    "tasks": [
+      {
+        "name": "serve",
+        "linux": "cd tools/cli && pdm run serve",
+        "windows": "Set-Location -LiteralPath tools/cli; if ($?) { pdm run serve }"
+      }
+    ]
+  }
+]

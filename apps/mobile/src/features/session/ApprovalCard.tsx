@@ -59,7 +59,7 @@ export function ApprovalCard({
   const Icon = ICONS[request.kind] ?? ShieldAlert
 
   return (
-    <div className="sheet-in flex max-h-[70dvh] flex-col rounded-t-3xl border-t border-line bg-surface shadow-popover">
+    <div className="sheet-in flex max-h-[calc(var(--app-height,100dvh)*0.7)] flex-col rounded-t-3xl border-t border-line bg-surface shadow-popover">
       <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong" />
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-4 pt-3 pb-4">
         <div className="flex items-center gap-2.5">
@@ -75,6 +75,18 @@ export function ApprovalCard({
           </div>
         </div>
         {request.description && <p className="text-meta text-fg-secondary">{request.description}</p>}
+        {request.wrapper && request.wrapper.extra.length > 0 && (
+          <p className="flex flex-wrap items-center gap-1.5 rounded-xl bg-warn/12 px-3 py-2 text-meta text-warn">
+            <span>
+              外层 {request.wrapper.shell === 'powershell' ? 'PowerShell' : request.wrapper.shell} 还带了参数：
+            </span>
+            {request.wrapper.extra.map((a, i) => (
+              <code key={i} className="rounded-sm bg-warn/15 px-1.5 font-mono text-label break-all">
+                {a}
+              </code>
+            ))}
+          </p>
+        )}
         {request.command && (
           <pre className="max-h-40 overflow-auto rounded-xl bg-subtle px-3 py-2.5 font-mono text-label break-all whitespace-pre-wrap">
             {request.command}

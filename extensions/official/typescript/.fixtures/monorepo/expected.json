@@ -1,0 +1,20 @@
+[
+  {
+    "template": "deno",
+    "file": "deno.json",
+    "tasks": [
+      { "name": "fmt-check", "linux": "deno task fmt-check", "windows": "deno task fmt-check" }
+    ]
+  },
+  {
+    "template": "deno",
+    "file": "packages/web/deno.json",
+    "tasks": [
+      {
+        "name": "serve",
+        "linux": "cd packages/web && deno task serve",
+        "windows": "Set-Location -LiteralPath packages/web; if ($?) { deno task serve }"
+      }
+    ]
+  }
+]

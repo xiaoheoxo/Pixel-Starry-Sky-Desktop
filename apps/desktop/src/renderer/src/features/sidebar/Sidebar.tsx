@@ -1,6 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useReducedMotion } from '@/features/appearance/ThemeProvider'
 import { ChevronDown, ChevronsDownUp, ChevronsUpDown, FolderInput, FolderPlus, Import, X } from 'lucide-react'
 import { IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { ActionMenu } from '@/ui/ActionMenu'
@@ -12,7 +13,7 @@ import {
   useSidebarPrefs,
 } from '@/features/appearance/sidebar'
 import { getSidebarIcon } from '@/features/appearance/sidebarIcons'
-import { addProject, isLive, recentSpansProjects, useSidebarData } from '@/features/engine'
+import { addProject, isLive, recentSpansProjects, useSidebarData, useSidebarFreezeOn } from '@/features/engine'
 import { addProjectPaths, importProjects } from '@/features/engine/store'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { SidebarHeader } from './SidebarHeader'
@@ -29,6 +30,7 @@ import { cardsOf, filterProjects, filterSessions, lanesOf, useScrollFade, type R
 import { useSessionCards } from '@/features/board/useSessionCards'
 import { SidebarFooter } from './SidebarFooter'
 import { WslHint } from './WslHint'
+import { useFlip } from './useFlip'
 
 export interface SidebarProps {
   selectedSessionId: string | null
@@ -96,8 +98,20 @@ export function Sidebar({ selectedSessionId, onSelectSession, onCollapse }: Side
   const anyOpen = foldKeys.some(key => !prefs.collapsed?.includes(key))
   const scroller = useRef<HTMLDivElement>(null)
   useScrollFade(scroller)
+  // 鼠标在侧栏里时冻结按最近活动的自动换位置；离开后换到新顺序，行用 FLIP 滑过去，动画关了就直接换
+  const root = useRef<HTMLElement>(null)
+  useSidebarFreezeOn(root)
+  const order = useMemo(
+    () =>
+      [...projects.flatMap(p => p.sessions.map(s => `${p.id}/${s.id}`)), ...recent.map(r => `recent/${r.id}`)].join(
+        '|',
+      ),
+    [projects, recent],
+  )
+  useFlip(root, order, !useReducedMotion())
   return (
     <aside
+      ref={root}
       className={cn('flex h-full w-full min-w-0 flex-col bg-sidebar', dropping && 'sidebar-task-drop')}
       onDragOver={e => {
         if (!taskDrag(e) && !fileDrag(e)) return

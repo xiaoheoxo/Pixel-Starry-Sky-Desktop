@@ -12,6 +12,9 @@ const KEY = 'pixelsky.mobile.theme'
 const dark = () => window.matchMedia('(prefers-color-scheme: dark)').matches
 
 export function applyTheme(pref: ThemePreference = (localStorage.getItem(KEY) as ThemePreference) ?? 'system'): void {
+  // 演示模式截图用：?theme=light|dark 盖过设置（只在 vite dev 里）
+  const forced = import.meta.env.DEV ? new URLSearchParams(location.search).get('theme') : null
+  if (forced === 'light' || forced === 'dark') pref = forced
   const resolved = pref === 'system' ? (dark() ? 'dark' : 'light') : pref
   document.documentElement.dataset.theme = resolved
   // 浏览器顶栏的颜色跟着面板底色（取设计变量的值，不写死颜色）

@@ -22,9 +22,11 @@ const mocks = vi.hoisted(() => ({
   responses: new Map<string, { status: number; body: unknown }>(),
   paths: [] as string[],
 }))
-vi.mock('electron', () => ({ app: { getPath: () => '' } }))
+vi.mock('electron', () => ({ app: { getPath: () => '', isPackaged: false }, shell: { openExternal: vi.fn() } }))
 vi.mock('../account/account', () => ({
   signedInEmail: () => 'alice@example.com',
+  accountEpoch: () => 1,
+  baseUrl: () => 'https://cloud.example.test',
   // 按路径（不含查询串）回放样例
   platformFetch: async (path: string) => {
     mocks.paths.push(path)
@@ -40,6 +42,11 @@ vi.mock('../account/account', () => ({
 const { platformGroups } = await import('./platform')
 const { accountCalls, platformCharges } = await import('./billing')
 const { fetchStore } = await import('../account/store')
+const { checkoutCreate, checkoutGet, checkoutPending, panelStatus, panelVerify, parseOrder } = await import(
+  '../account/checkout'
+)
+const { shell } = await import('electron')
+const { parseCodedError } = await import('@pixelsky/protocol')
 
 function serve(path: string, s: Sample): void {
   mocks.responses.set(path, { status: s.status, body: s.body })
@@ -230,5 +237,115 @@ describe.skipIf(!hasSamples)('云端契约样例：订阅套餐与充值（§4.1
     await expect(fetchStore()).rejects.toThrow('暂时读不到订阅套餐和充值信息，请稍后重试')
     mocks.responses.set('/v1/platform/store', { status: 401, body: { error: 'invalid_token' } })
     await expect(fetchStore()).rejects.toThrow('invalid_token')
+  })
+})
+
+describe.skipIf(!hasSamples)('云端契约样例：软件内付款（docs/ui/in-app-payment.md §4.3–4.5）', () => {
+  const REQUEST_ID = '3f6c1e0a-6a4b-4f0e-9d8f-2a1c7b5e9d10'
+  // 下单要对照最近一次的商品数据：先用 store-open（带 checkout 能力标记）读一次
+  async function openStore(): Promise<void> {
+    serve('/v1/platform/store', sample('desktop/store-open.json'))
+    const store = await fetchStore()
+    expect(store.checkout).toEqual({ enabled: true, methods: ['alipay', 'wxpay'], orderTimeoutMinutes: 30 })
+  }
+  async function codeOf(p: Promise<unknown>): Promise<{ code: string; params: unknown } | null> {
+    const err = await p.then(
+      () => null,
+      (e: Error) => e,
+    )
+    expect(err).toBeInstanceOf(Error)
+    const info = parseCodedError(err!.message)
+    return info && { code: info.code, params: info.params }
+  }
+
+  it('每份订单样例都能解析；二维码和支付链接只在 pending 时有', () => {
+    for (const name of [
+      'checkout-create',
+      'checkout-create-plan',
+      'checkout-create-reused',
+      'checkout-get-paid',
+      'checkout-get-completed',
+      'checkout-get-expired',
+      'checkout-cancel',
+    ]) {
+      const order = parseOrder(sample(`desktop/${name}.json`).body)
+      expect(order.orderId, name).toBeGreaterThan(0)
+      if (order.status === 'pending') expect(order.qrContent, name).toBeTruthy()
+      else expect([order.qrContent, order.payUrl], name).toEqual([null, null])
+    }
+    const plan = parseOrder(sample('desktop/checkout-create-plan.json').body)
+    expect(plan.kind).toBe('plan')
+    expect(plan.plan).toMatchObject({ id: expect.any(Number), name: expect.any(String) })
+    expect(parseOrder(sample('desktop/checkout-create-reused.json').body).reused).toBe(true)
+  })
+
+  it('下单、查单逐项对上样例；待付列表不带二维码', async () => {
+    await openStore()
+    const s = sample('desktop/checkout-create.json')
+    serve('/v1/platform/orders', s)
+    const order = await checkoutCreate({ requestId: REQUEST_ID, kind: 'balance', amount: 120, method: 'alipay' })
+    expect(order).toMatchObject({
+      orderId: 1001,
+      kind: 'balance',
+      status: 'pending',
+      method: 'alipay',
+      payAmount: 120,
+      payCurrency: 'CNY',
+      credited: 120,
+      plan: null,
+      qrSource: 'provider',
+      reused: false,
+    })
+    expect(order.qrContent).toBe((s.body as { qr_content: string }).qr_content)
+    serve('/v1/platform/orders/1001', sample('desktop/checkout-get-paid.json'))
+    expect((await checkoutGet(1001)).status).toBe('paid')
+    serve('/v1/platform/orders', sample('desktop/checkout-pending-list.json'))
+    const list = await checkoutPending()
+    expect(list.length).toBeGreaterThan(0)
+    expect(list.every(o => o.qrContent === null)).toBe(true)
+  })
+
+  it('错误样例：按 code 抛 codedError，带上 detail 里的参数；需要确认账号是 403 不是 401', async () => {
+    await openStore()
+    const create = () => checkoutCreate({ requestId: REQUEST_ID, kind: 'balance', amount: 120, method: 'alipay' })
+    const reauth = sample('desktop/checkout-reauth-required.json')
+    expect(reauth.status).toBe(403)
+    serve('/v1/platform/orders', reauth)
+    expect(await codeOf(create())).toMatchObject({ code: 'checkout.PANEL_REAUTH_REQUIRED' })
+    serve('/v1/platform/orders', sample('desktop/checkout-too-many-pending.json'))
+    expect(await codeOf(create())).toEqual({ code: 'checkout.TOO_MANY_PENDING', params: { max: 3 } })
+    serve('/v1/platform/orders', sample('desktop/checkout-amount-out-of-range.json'))
+    expect(await codeOf(create())).toEqual({ code: 'checkout.AMOUNT_OUT_OF_RANGE', params: { min: 5, max: 500 } })
+    serve('/v1/platform/orders', sample('desktop/checkout-unsupported.json'))
+    expect(await codeOf(create())).toMatchObject({ code: 'checkout.UNSUPPORTED_RESULT' })
+    serve('/v1/platform/orders', sample('desktop/checkout-account-disabled.json'))
+    expect(await codeOf(create())).toMatchObject({ code: 'checkout.ACCOUNT_DISABLED' })
+  })
+
+  it('查单被限频：RATE_LIMITED 带 retry_after；核实时面板凭证失效：仍是订单，panelValid=false', async () => {
+    await openStore()
+    serve('/v1/platform/orders', sample('desktop/checkout-create.json'))
+    await checkoutCreate({ requestId: REQUEST_ID, kind: 'balance', amount: 120, method: 'alipay' })
+    serve('/v1/platform/orders/1001', sample('desktop/checkout-rate-limited.json'))
+    expect(await codeOf(checkoutGet(1001))).toEqual({ code: 'checkout.RATE_LIMITED', params: { retry_after: 41 } })
+    const verify = parseOrder(sample('desktop/checkout-verify-panel-invalid.json').body)
+    expect(verify.panelValid).toBe(false)
+  })
+
+  it('面板凭证状态', async () => {
+    serve('/v1/platform/panel', sample('desktop/panel-status.json'))
+    expect(await panelStatus()).toEqual({ valid: true, expiresAt: '2026-10-19T10:34:50Z', usableForCheckout: true })
+  })
+
+  it('去浏览器确认账号：样例里的确认页地址和云端同主机、https、路径对，主进程照样打开', async () => {
+    const s = sample('desktop/panel-verify.json')
+    serve('/v1/platform/panel/verify', s)
+    await panelVerify()
+    expect(shell.openExternal).toHaveBeenCalledWith((s.body as { url: string }).url)
+  })
+
+  it('商品接口：支付关着时 checkout 不开', async () => {
+    serve('/v1/platform/store', sample('desktop/store-closed.json'))
+    expect((await fetchStore()).checkout?.enabled ?? false).toBe(false)
   })
 })

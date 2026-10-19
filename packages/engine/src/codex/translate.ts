@@ -2,7 +2,7 @@ import type { AgentRun, EngineEvent, FileChange, Item, ItemStatus } from '@pixel
 import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
-import { codexCommand } from './command'
+import { codexCommandParts } from './command'
 
 export function codexChanges(value: unknown): FileChange[] {
   return array(value)
@@ -83,18 +83,20 @@ export class CodexTranslator {
         status,
         ...(status === 'running' || !timed ? {} : { durationMs: now - this.reasoningStart.get(id)! }),
       }
-    } else if (type === 'commandExecution')
+    } else if (type === 'commandExecution') {
+      const { command, wrapper } = codexCommandParts(string(raw.command))
       item = {
         kind: 'command',
         id,
-        command: codexCommand(string(raw.command)),
+        command,
+        ...(wrapper ? { wrapper } : {}),
         // description 是命令说明（悬停时显示）；Codex 没有说明，不能放工作目录
         description: null,
         output: clip(string(raw.aggregatedOutput)) || (prior?.kind === 'command' ? prior.output : ''),
         exitCode: typeof raw.exitCode === 'number' ? raw.exitCode : null,
         status,
       }
-    else if (type === 'fileChange') item = { kind: 'file_change', id, changes: codexChanges(raw.changes), status }
+    } else if (type === 'fileChange') item = { kind: 'file_change', id, changes: codexChanges(raw.changes), status }
     else if (type === 'contextCompaction') {
       const before = prior?.kind === 'compaction' ? prior : null
       const startedAt = before?.startedAt ?? Date.now()

@@ -1,8 +1,8 @@
 import { useI18n } from '@/i18n/I18nProvider'
-import { tr } from '../../i18n/core'
+import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CornerUpLeft } from 'lucide-react'
-import { Avatar, cn, CopyButton, EngineIcon, IconButton } from '@/ui'
+import { CornerUpLeft, Pin, PinOff } from 'lucide-react'
+import { Avatar, cn, CopyButton, EngineIcon, IconButton, useToast } from '@/ui'
 import { Markdown } from '@/ui/markdown/Markdown'
 import type { ChannelMember, ChannelTask, ChannelTextMessage } from '@/data/types'
 import { excerpt, splitMentions } from './model'
@@ -11,6 +11,8 @@ import { channelActions } from './store'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import type { ChannelAttachments } from '../../../../shared/types/channels'
+import { getProviders } from '@/features/account/providers'
+import { channelShort } from '@/features/model-channels/channelLabels'
 
 /** 成员头像：真人是圆形首字头像，AI 成员是圆角方块里的引擎图标 */
 export function MemberAvatar({
@@ -45,10 +47,16 @@ export function machineLabel(member: ChannelMember | undefined): string {
   return member.machine || (member.machineId === 'local' ? tr('channels.thisComputer') : member.machineId)
 }
 
-/** 模型 · 机器（AI 成员）；真人没有 */
+/** 额度来源（自有账号不写）· 模型 · 机器（AI 成员）；真人没有 */
 export function agentMeta(member: ChannelMember | undefined): string | null {
   if (member?.kind !== 'agent') return null
-  return [member.model, machineLabel(member)].filter(Boolean).join(' · ')
+  const settings = member.config?.settings
+  const credit = settings?.platform
+    ? channelShort('platform')
+    : settings?.provider
+      ? (getProviders().providers.find(p => p.id === settings.provider?.id)?.name ?? channelShort('custom'))
+      : null
+  return [credit, member.model, machineLabel(member)].filter(Boolean).join(' · ')
 }
 
 /** 项目 · 机器（任务卡底部） */
@@ -222,8 +230,13 @@ export interface MessageGroupProps {
   channelMembers: readonly ChannelMember[]
   messagesById: ReadonlyMap<string, Quotable>
   highlight: string | null
-  onReply: (id: string) => void
+  /** 没有时不能回复（归档的频道） */
+  onReply?: (id: string) => void
   onJump: (id: string) => void
+  /** 频道里置顶的消息 */
+  pinned?: ReadonlySet<string>
+  /** 置顶 / 取消置顶（只有本机频道有，docs/ui/channels-local-ai.md §3.1 #9） */
+  onPin?: (id: string, pinned: boolean) => Promise<void>
 }
 
 /** 同一作者的连续消息：第一条带头像和作者行，后面的悬停时在头像位置显示时间 */
@@ -235,9 +248,14 @@ export function MessageGroup({
   highlight,
   onReply,
   onJump,
+  pinned,
+  onPin,
 }: MessageGroupProps) {
   useI18n()
+  const toast = useToast()
   const author = membersById.get(items[0].authorId)
+  const togglePin = (id: string, on: boolean): void =>
+    void onPin?.(id, on).catch(e => toast(tr('channels.pinFailed', { error: translateMessage((e as Error).message) })))
   return (
     <div className="conversation-message mt-3 flex flex-col">
       {items.map((m, i) => {
@@ -280,20 +298,37 @@ export function MessageGroup({
                 m.text && <MentionText text={m.text} members={channelMembers} />
               )}
               {m.attached && <MessageAttachments message={m} />}
+              {pinned?.has(m.id) && (
+                <span data-pinned className="mt-0.5 inline-flex items-center gap-1 text-meta text-fg-faint">
+                  <Pin size={11} strokeWidth={1.75} />
+                  {tr('channels.pinned')}
+                </span>
+              )}
             </div>
             <div
               role="toolbar"
               aria-label={tr('channels.messageActions')}
               className="absolute -top-3 right-2 flex items-center gap-0.5 rounded-md border border-line-card bg-popover p-0.5 opacity-0 shadow-menu transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100"
             >
-              <IconButton
-                icon={CornerUpLeft}
-                label={tr('channels.reply')}
-                size={24}
-                iconSize={13}
-                onClick={() => onReply(m.id)}
-              />
+              {onReply && (
+                <IconButton
+                  icon={CornerUpLeft}
+                  label={tr('channels.reply')}
+                  size={24}
+                  iconSize={13}
+                  onClick={() => onReply(m.id)}
+                />
+              )}
               <CopyButton text={m.text} label={tr('channels.copy')} iconOnly />
+              {onPin && (
+                <IconButton
+                  icon={pinned?.has(m.id) ? PinOff : Pin}
+                  label={tr(pinned?.has(m.id) ? 'channels.unpin' : 'channels.pin')}
+                  size={24}
+                  iconSize={13}
+                  onClick={() => togglePin(m.id, !pinned?.has(m.id))}
+                />
+              )}
             </div>
           </div>
         )

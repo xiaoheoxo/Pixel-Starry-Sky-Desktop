@@ -2,10 +2,20 @@
 import { mkdtemp, mkdir, readFile, writeFile, rm, access } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { join, resolve } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { spawn } from 'node:child_process'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitResult, GitStatus } from '../../../shared/types/project-tools'
 import { git, type ToolsHost } from './common'
 import { GitTools } from './git'
+
+// 数 git 进程：真起进程，只是记下调用
+vi.mock('node:child_process', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, spawn: vi.fn(actual.spawn) }
+})
+/** 到目前为止起过几个带这个参数的 git 进程 */
+const spawned = (arg: string): number =>
+  vi.mocked(spawn).mock.calls.filter(([cmd, args]) => cmd === 'git' && (args as string[]).includes(arg)).length
 
 let root: string,
   project: string,
@@ -94,7 +104,7 @@ const tools = (
       }
     },
   },
-) => new GitTools(host, () => {}, opts)
+) => new GitTools(host, () => {}, { statusReuseMs: 0, ...opts })
 
 describe('Git 面板：状态与差异', () => {
   it('不是仓库、首次提交前的暂存 / 取消暂存', async () => {
@@ -148,6 +158,83 @@ describe('Git 面板：状态与差异', () => {
     const subStatus = await sub.status(ref)
     expect(subStatus.staged.find(f => f.path === 'web/a.txt')?.local).toBe('a.txt')
     expect(subStatus.staged.find(f => f.path === 'new.txt')?.local).toBeNull()
+  })
+})
+
+describe('Git 面板：状态缓存与合并', { timeout: 30_000 }, () => {
+  it('同一仓库同时到的状态请求只跑一轮；窗口内复用，写操作后作废', async () => {
+    await withRemote()
+    const g = tools({ statusReuseMs: 500 })
+    vi.mocked(spawn).mockClear()
+    const all = await Promise.all([1, 2, 3, 4, 5].map(() => g.status(ref)))
+    expect(all.every(s => s.branch === 'main' && s.remotes[0] === 'origin')).toBe(true)
+    expect(spawned('--show-toplevel')).toBe(1)
+    expect(spawned('status')).toBe(1)
+    // 首次：remote 和 git 内部路径各问一次
+    expect(spawned('remote')).toBe(1)
+    expect(spawned('--git-path')).toBe(1)
+    // 窗口内再读：不起进程，看不到刚写的文件（外部改动最多晚半秒）
+    await writeFile(join(project, 'late.txt'), 'x')
+    expect((await g.status(ref)).untracked).toHaveLength(0)
+    expect(spawned('status')).toBe(1)
+    // 写操作之后作废：返回的状态和接下来的读取都带上新文件
+    const staged = ok(await g.stage(ref, ['late.txt']))
+    expect(staged.staged.map(f => f.path)).toEqual(['late.txt'])
+    expect((await g.status(ref)).staged.map(f => f.path)).toEqual(['late.txt'])
+  })
+
+  it('读到一半有写操作：先开始的那一轮不记下，后到的请求拿到新结果', async () => {
+    await withRemote()
+    const g = tools({ statusReuseMs: 500 })
+    const early = g.status(ref)
+    await writeFile(join(project, 'b.txt'), 'x')
+    ok(await g.stage(ref, ['b.txt']))
+    await early
+    expect((await g.status(ref)).staged.map(f => f.path)).toEqual(['b.txt'])
+  })
+
+  it('稳定后每次只起一个 git status；config 变了才重读 remote；会话数不受缓存影响', async () => {
+    await withRemote()
+    const g = tools()
+    await g.status(ref)
+    vi.mocked(spawn).mockClear()
+    expect((await g.status(ref)).remotes).toEqual(['origin'])
+    expect(vi.mocked(spawn).mock.calls).toHaveLength(1)
+    expect(spawned('status')).toBe(1)
+    await git(project, ['remote', 'add', 'backup', remote])
+    expect((await g.status(ref)).remotes).toEqual(['backup', 'origin'])
+    expect(spawned('remote')).toBe(1)
+    busy = 2
+    expect((await g.status(ref)).busySessions).toBe(2)
+    expect(spawned('remote')).toBe(1)
+  })
+
+  it('工作区在子目录、.git 是文件的 worktree 里也能读；仓库根不会被缓存住', async () => {
+    await withRemote()
+    const linked = join(root, 'linked')
+    await git(project, ['worktree', 'add', '-q', '-b', 'side', linked])
+    const there = new GitTools({ ...host, resolve: () => ({ projectId: 'p', name: 'w', path: linked }) }, () => {}, {
+      statusReuseMs: 0,
+    })
+    const first = await there.status(ref)
+    expect(first).toMatchObject({ repo: true, branch: 'side', remotes: ['origin'], operation: null })
+    // 第二次从缓存的 git 内部路径读（路径指向 worktree 自己的目录，不是工作区下的 .git/）
+    await writeFile(join(linked, 'w.txt'), 'x')
+    vi.mocked(spawn).mockClear()
+    expect((await there.status(ref)).untracked.map(f => f.path)).toEqual(['w.txt'])
+    expect(vi.mocked(spawn).mock.calls).toHaveLength(1)
+    // 工作区里新建了自己的仓库：仓库根要跟着变
+    const g = tools()
+    await mkdir(join(project, 'web'))
+    const inner = new GitTools(
+      { ...host, resolve: () => ({ projectId: 'p', name: 'web', path: join(project, 'web') }) },
+      () => {},
+      { statusReuseMs: 0 },
+    )
+    expect((await inner.status(ref)).root).toBe(resolve(project))
+    await init(join(project, 'web'))
+    expect((await inner.status(ref)).root).toBe(resolve(project, 'web'))
+    expect(await g.status(ref)).toMatchObject({ repo: true })
   })
 })
 

@@ -112,10 +112,11 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
       fast: false,
       thinkingSummaries: false,
       backgroundTasks: false,
-      agentTrace: false,
+      // 子智能体（命令行的 task 工具）：进度从工具的 details 来，重新打开时读 Pi 会话文件
+      agentTrace: true,
       promptSuggestions: false,
-      // 批准走 confirm（允许 / 拒绝），没有「始终允许」
-      alwaysScopes: [],
+      // 批准扩展三选一：允许 / 本会话不再询问 / 拒绝（规则记在 Pi 会话文件里，续接后照样生效）
+      alwaysScopes: ['session'],
       costUsd: true,
       // 命令行跟着桌面端一起更新，不自更新
       selfUpdate: false,

@@ -3,6 +3,9 @@ import type { ExtPackFileEntry, ExtPackIssue, ExtPackManifest, ExtPackReader } f
 import {
   forSource,
   inactiveContributions,
+  isExtId,
+  isExtVersion,
+  isPublisherName,
   loaderIssue,
   packStatus,
   validateContributions,
@@ -259,6 +262,63 @@ describe('validatePackFiles', () => {
   it('F4 路径过长、反斜杠、只差大小写', () => {
     const issues = run([...good, f(`${'a/'.repeat(70)}x.json`), f('a\\b.json'), f('Icon.png'), f('icon.png')])
     expect(find(issues, 'files.path')).toHaveLength(3)
+  })
+  it('F4 路径里有冒号、Windows 保留名、某一段以 . 或空格结尾（上传拒绝）', () => {
+    const bad = [
+      'a:b.json',
+      'docs/a:stream.txt',
+      'CON/a.txt',
+      'docs/nul.txt',
+      'docs/Com1',
+      'lpt9.md',
+      'docs./a.txt',
+      'notes /b.txt',
+      'docs/c.txt.',
+      'docs/d.txt ',
+    ]
+    const issues = find(run([...good, ...bad.map(p => f(p))]), 'files.path')
+    expect(issues.map(i => i.path).sort()).toEqual([...bad].sort())
+    for (const i of issues) expect(i).toMatchObject({ severity: 'warning', scope: 'file', upload: 'reject' })
+  })
+  it('F4 Windows 非法字符 * ? " < > |、上标数字保留名、CONIN$ / CONOUT$、保留名后带空格（上传拒绝）', () => {
+    const bad = [
+      'a*b.json',
+      'a?b.json',
+      'a"b.json',
+      'a<b.json',
+      'a>b.json',
+      'a|b.json',
+      'docs/COM¹.txt',
+      'docs/com².txt',
+      'LPT³.md',
+      'conin$.txt',
+      'CONOUT$',
+      'nul .json',
+      'docs/con  .txt',
+    ]
+    const issues = find(run([...good, ...bad.map(p => f(p))]), 'files.path')
+    expect(issues.map(i => i.path).sort()).toEqual([...bad].sort())
+    for (const i of issues) expect(i).toMatchObject({ severity: 'warning', scope: 'file', upload: 'reject' })
+  })
+  it('F4 NFC 与 NFD 写法的同名文件算撞名', () => {
+    const issues = find(run([...good, f('café.json'), f('café.json')]), 'files.path')
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({ upload: 'reject' })
+  })
+  it('F4 不误伤：名字里只是含有保留名、com / lpt 后面不是一位数字、中间的点和空格', () => {
+    const ok = [
+      'console.json',
+      'con-fig.json',
+      'com10.txt',
+      'lpt.txt',
+      'a b/c d.json',
+      'a.b/c.d.json',
+      'auxiliary/x.json',
+    ]
+    expect(find(run([...good, ...ok.map(p => f(p))]), 'files.path')).toEqual([])
+  })
+  it('F4 同一个文件只算一条：有冒号又以点结尾也各报各的（每条规则一条）', () => {
+    expect(find(run([...good, f('a:b.')]), 'files.path')).toHaveLength(2)
   })
   it('F5 超过 2 MB 是 file 错误', () => {
     const i = find(run([...good, f('big.json', 3 * 1024 * 1024)]), 'files.size')[0]
@@ -839,11 +899,12 @@ describe('packStatus / loaderIssue / forSource', () => {
     expect(packStatus([loaderIssue('manifest.missing')])).toBe('error')
     expect(packStatus([loaderIssue('svg.unsafe', { path: 'a.svg' })])).toBe('warning') // 文件级错误不让整个扩展失败
   })
-  it('loaderIssue 五个代码都有中英文本，严重度 / 范围正确', () => {
+  it('loaderIssue 六个代码都有中英文本，严重度 / 范围正确', () => {
     const cases = [
       ['manifest.missing', 'error', 'pack'],
       ['files.scanLimit', 'error', 'pack'],
       ['pack.duplicateId', 'error', 'pack'],
+      ['pack.storeBlocked', 'warning', 'pack'],
       ['svg.unsafe', 'error', 'file'],
       ['files.symlink', 'error', 'file'],
     ] as const
@@ -856,9 +917,60 @@ describe('packStatus / loaderIssue / forSource', () => {
     expect(loaderIssue('pack.duplicateId', { id: 'acme.demo' }).message.zh).toContain('acme.demo')
     expect(loaderIssue('svg.unsafe', { path: 'a/b.svg' }).path).toBe('a/b.svg')
   })
+  it('pack.storeBlocked：带原因、只在本机产生（没有 upload）、不会让扩展变成错误', () => {
+    const i = loaderIssue('pack.storeBlocked', { reason: '含恶意代码' })
+    expect(i.message.zh).toContain('含恶意代码')
+    expect(i.message.en).toContain('含恶意代码')
+    expect(i.upload).toBeUndefined()
+    expect(packStatus([i])).toBe('warning')
+  })
   it('forSource：内置只留 error，folder 原样', () => {
     const issues = [...manifestIssues(base({ version: 'x' })), loaderIssue('manifest.missing')]
     expect(forSource(issues, 'builtin').map(i => i.code)).toEqual(['manifest.missing'])
     expect(forSource(issues, 'folder')).toEqual(issues)
+  })
+})
+
+// ---------------------------------------------------------------------------
+describe('isExtId / isExtVersion / isPublisherName', () => {
+  it('isExtId：发布者.名字，全小写', () => {
+    for (const ok of ['acme.demo', 'pixelsky.material-icons', 'a1b.cd', 'acme.' + 'a'.repeat(48)])
+      expect(isExtId(ok), ok).toBe(true)
+    const bad = [
+      '',
+      'acme',
+      'Acme.demo',
+      'acme.Demo',
+      'ac.demo',
+      '-acme.demo',
+      'acme.demo-',
+      'acme..demo',
+      'acme.d',
+      'acme.demo/x',
+    ]
+    for (const s of [...bad, 'acme.' + 'a'.repeat(49)]) expect(isExtId(s), s).toBe(false)
+    expect(isExtId(undefined)).toBe(false)
+    expect(isExtId(1)).toBe(false)
+  })
+  it('isExtVersion：三段数字加可选预发布后缀，总长不超过 64', () => {
+    for (const ok of ['0.0.0', '1.2.3', '1.0.0-beta.1']) expect(isExtVersion(ok), ok).toBe(true)
+    for (const bad of ['', '1.0', 'v1.0.0', '01.0.0', '1.0.0+build', '1.0.0-'])
+      expect(isExtVersion(bad), bad).toBe(false)
+    const at64 = '1.0.0-' + 'a'.repeat(58)
+    expect(at64).toHaveLength(64)
+    expect(isExtVersion(at64)).toBe(true)
+    expect(isExtVersion(at64 + 'a')).toBe(false)
+    expect(isExtVersion(null)).toBe(false)
+  })
+  it('isPublisherName：3–32 个字符，首尾不能是 -', () => {
+    expect(isPublisherName('ab')).toBe(false)
+    expect(isPublisherName('abc')).toBe(true)
+    expect(isPublisherName('a'.repeat(32))).toBe(true)
+    expect(isPublisherName('a'.repeat(33))).toBe(false)
+    expect(isPublisherName('-abc')).toBe(false)
+    expect(isPublisherName('abc-')).toBe(false)
+    expect(isPublisherName('a-c')).toBe(true)
+    expect(isPublisherName('ABC')).toBe(false)
+    expect(isPublisherName(3)).toBe(false)
   })
 })

@@ -7,17 +7,27 @@ import { createServer, type Server, type ServerResponse } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, release } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, net, safeStorage, shell } from 'electron'
+import { codedError } from '@pixelsky/protocol'
 import { nativeText, windowLocale } from '../app/ui-language'
+import { isPayWindow } from '../app/payWindowRegistry'
 import { sendTo } from '../app/rendererHealth'
 import * as ipc from '../ipc/guard'
-import type { AccountInfo, AccountPlan, AccountState, Quota } from '../../shared/types/account'
+import type {
+  AccountInfo,
+  AccountPlan,
+  AccountRefreshResult,
+  AccountState,
+  LoginFailure,
+  Quota,
+} from '../../shared/types/account'
 
 // ---------------------------------------------------------------------------
 // 常量
 // ---------------------------------------------------------------------------
 
-const DEFAULT_AUTH_URL = 'https://auth.pixelstarrysky.xyz'
+// 正式站（2026-10-17 起，docs/cloud-prod-migration.md）；测试站 https://auth.pixelstarrysky.xyz 用 PIXELSKY_AUTH_URL 指过去
+const DEFAULT_AUTH_URL = 'https://pixelstarrysky.xyz'
 const CLIENT_ID = 'pixelsky-desktop'
 const FETCH_TIMEOUT_MS = 20_000
 const LOGIN_TIMEOUT_MS = 5 * 60_000
@@ -80,6 +90,8 @@ let lastFetchAt = 0
 let flow: LoginFlow | null = null
 let refreshPromise: Promise<void> | null = null
 let fetchPromise: Promise<void> | null = null
+/** 手动刷新排在当前请求之后的那一次（等待期间的多次手动刷新共用它） */
+let followUpPromise: Promise<void> | null = null
 let initialized = false
 /** 令牌已换到、正在拉取账号数据（此时 flow 已为 null，但状态仍是 signing-in） */
 let finishing = false
@@ -95,7 +107,8 @@ function setState(next: AccountState): void {
   state = next
   for (const listener of stateListeners) listener(next)
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) sendTo(win.webContents, 'account:changed', state)
+    // 付款窗口里是第三方收银台网页，不给它软件的账号状态
+    if (!win.isDestroyed() && !isPayWindow(win)) sendTo(win.webContents, 'account:changed', state)
   }
 }
 
@@ -212,6 +225,7 @@ function resetInFlight(): void {
   epoch++
   refreshPromise = null
   fetchPromise = null
+  followUpPromise = null
 }
 
 function clearSession(error?: string): void {
@@ -383,6 +397,8 @@ export async function settingsFetch(method: 'GET' | 'PUT', body?: unknown): Prom
 async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   if (!tokens) throw new Error('请先登录像素星空账号')
   const requestEpoch = epoch
+  // 请求途中账号退出或切换：和登录过期同一个 code，调用方按「需要重新登录」处理
+  const loggedOut = (): Error => Object.assign(new Error('账号已退出，请重新登录'), { code: 'AUTH_EXPIRED' })
   // 刷新令牌被拒（登录过期，或在云端管理页被吊销）：马上退出登录，不等下一次拉取账号数据
   const signedOut = (): Error => {
     if (epoch === requestEpoch) clearSession(SIGNED_OUT_MESSAGE)
@@ -397,7 +413,7 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   }
   if (tokens.accessExpiresAt - Date.now() < REFRESH_SKEW_MS) await refresh()
   const send = async (): Promise<Response> => {
-    if (!tokens || epoch !== requestEpoch) throw new Error('账号已退出，请重新登录')
+    if (!tokens || epoch !== requestEpoch) throw loggedOut()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${tokens.accessToken}`)
     return fetch(`${baseUrl()}${path}`, { ...init, headers, redirect: 'error' })
@@ -415,7 +431,7 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   }
   if (epoch !== requestEpoch) {
     await res.body?.cancel()
-    throw new Error('账号已退出，请重新登录')
+    throw loggedOut()
   }
   return res
 }
@@ -461,6 +477,56 @@ export async function teamsFetch(
 }
 
 /**
+ * 扩展商店的作者接口（docs/ui/extension-store-client.md §7）：只能调 /v1/extensions 下的接口，不放宽其他白名单。
+ * body 发 JSON；raw 发原始字节（上传 zip），contentType 写在请求头里。
+ */
+export async function extensionsFetch(
+  method: 'GET' | 'POST',
+  path: string,
+  opts: { body?: unknown; raw?: Uint8Array; contentType?: string; timeoutMs?: number } = {},
+): Promise<Response> {
+  if (!/^\/v1\/extensions(\/|\?|$)/.test(path) || /\.\.|%2e/i.test(path)) throw new Error('无效的扩展接口')
+  const headers: Record<string, string> = {}
+  let body: RequestInit['body']
+  if (opts.raw !== undefined) {
+    body = opts.raw as RequestInit['body']
+    headers['Content-Type'] = opts.contentType ?? 'application/octet-stream'
+  } else if (opts.body !== undefined) {
+    body = JSON.stringify(opts.body)
+    headers['Content-Type'] = 'application/json'
+  }
+  try {
+    return await authedFetch(path, {
+      method,
+      ...(body !== undefined && { body, headers }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
+    })
+  } catch (e) {
+    // 只有「连不上」（fetch 抛 TypeError）才判断是不是代理造成的；超时、登录过期、取消原样抛
+    if (e instanceof TypeError && (await publicReachable())) throw codedError('extstore.proxyHint')
+    throw e
+  }
+}
+
+/**
+ * 带登录的请求用全局 fetch（不走系统代理），公开请求用 net.fetch（走系统代理）。
+ * 前者连不上时试一次公开接口：能通就说明是代理环境造成的（docs/ui/extension-store-client.md §3.2）。
+ */
+async function publicReachable(): Promise<boolean> {
+  try {
+    const res = await net.fetch(`${baseUrl()}/cloud/api/extensions?limit=1`, {
+      credentials: 'omit',
+      redirect: 'error',
+      signal: AbortSignal.timeout(8_000),
+    })
+    await res.body?.cancel().catch(() => undefined)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/**
  * 连中转用的访问令牌（WebSocket 不能走 authedFetch）：快过期或中转说令牌失效（force）时先刷新。
  * 没登录、刷新被拒（同时退出登录）时返回 null。
  */
@@ -480,6 +546,11 @@ export async function bridgeToken(force = false): Promise<string | null> {
 
 export function signedInEmail(): string | null {
   return state.status === 'signed-in' ? state.account.email : null
+}
+
+/** 登录会话代数：每次退出 / 重新登录都会变；软件内付款据此丢掉上一次登录里记下的订单 */
+export function accountEpoch(): number {
+  return epoch
 }
 
 // ---------------------------------------------------------------------------
@@ -580,6 +651,32 @@ function fetchAccount(): Promise<void> {
   })
   fetchPromise = p
   return p
+}
+
+/**
+ * 手动刷新：一定发一次点击之后才开始的新请求。
+ * 已有请求在途（焦点 / 定时刷新）时，它的数据可能是点击之前读的，所以等它结束再发一次；
+ * 等待期间的多次手动刷新共用这一次后续请求。
+ */
+function fetchAccountFresh(): Promise<void> {
+  if (!fetchPromise) return fetchAccount()
+  if (followUpPromise) return followUpPromise
+  const p: Promise<void> = fetchPromise
+    .catch(() => undefined)
+    .then(() => {
+      // 后续请求开始发的这一刻起，新的手动刷新要排到再下一次
+      if (followUpPromise === p) followUpPromise = null
+      return fetchAccount()
+    })
+  followUpPromise = p
+  return p
+}
+
+/** 刷新结束后的结果：失败原因取自账号状态（暂时性故障保留旧数据并挂 error，登录失效则变成未登录） */
+function refreshResult(): AccountRefreshResult {
+  if (state.status === 'signed-in') return { error: state.error ?? null, account: state.account }
+  if (state.status === 'signed-out') return { error: state.error ?? '请先登录像素星空账号', account: null }
+  return { error: null, account: null }
 }
 
 async function doFetchAccount(): Promise<void> {
@@ -688,12 +785,12 @@ function closeFlow(f: LoginFlow): void {
 }
 
 /** 登录失败收尾：只有当前流程仍是它自己时才改状态 */
-function failLogin(f: LoginFlow, reason?: string): void {
+function failLogin(f: LoginFlow, reason?: string, kind: LoginFailure = 'failed'): void {
   if (flow !== f) return
   flow = null
   closeFlow(f)
-  // 没有原因 = 用户自己在授权页点了「取消」，回到未登录即可，不算出错
-  setState(reason ? { status: 'signed-out', error: reason } : { status: 'signed-out' })
+  // 没有原因 = 用户自己在授权页点了「取消」，回到未登录即可，不算出错（欢迎页按 denied 提示一句）
+  setState(reason ? { status: 'signed-out', error: reason, reason: kind } : { status: 'signed-out', reason: 'denied' })
 }
 
 async function completeLogin(f: LoginFlow, code: string, verifier: string, redirectUri: string): Promise<void> {
@@ -750,7 +847,7 @@ async function completeLogin(f: LoginFlow, code: string, verifier: string, redir
     if (account) setState({ status: 'signed-in', account, refreshing: false })
   } catch (e) {
     const message = e instanceof TransientError ? e.message : `网络错误：${describeError(e)}`
-    failLogin(f, `登录失败：${message}`)
+    failLogin(f, `登录失败：${message}`, 'network')
   }
 }
 
@@ -779,7 +876,7 @@ async function login(): Promise<void> {
   const f: LoginFlow = {
     server,
     done: false,
-    timer: setTimeout(() => failLogin(f, '登录超时，请重试'), LOGIN_TIMEOUT_MS),
+    timer: setTimeout(() => failLogin(f, '登录超时，请重试', 'timeout'), LOGIN_TIMEOUT_MS),
   }
   flow = f
   setState({ status: 'signing-in', authCode })
@@ -872,6 +969,8 @@ async function login(): Promise<void> {
     auth_code: authCode,
     device_name: deviceName(),
   }).toString()
+  // 授权页地址给界面（浏览器没自动打开时「复制登录链接」）；只发给本机窗口，不写日志
+  setState({ status: 'signing-in', authCode, url: authorize.toString() })
 
   if (process.env.PIXELSKY_AUTH_NO_BROWSER === '1') {
     // 自动化测试用：不开浏览器，把授权地址打印出来由测试脚本去访问。
@@ -967,8 +1066,10 @@ export function initAccount(): void {
   )
   ipc.handle(
     'account:refresh',
-    async () => {
-      if (tokens) await fetchAccount().catch(() => undefined)
+    async (): Promise<AccountRefreshResult> => {
+      if (!tokens) return { error: '请先登录像素星空账号', account: null }
+      await fetchAccountFresh().catch(() => undefined)
+      return refreshResult()
     },
     ignore,
   )

@@ -88,6 +88,19 @@ describe('ApprovalStack', () => {
     expect(html).toContain('· client/format.ts')
     expect(count(html, '项目外')).toBe(1)
   })
+  it('Codex 命令外层带了参数：那一行带「外层带参数」，没带的不加', () => {
+    const cmd = (id: string, extra: string[]): ApprovalRequest => ({
+      ...three[0],
+      requestId: id,
+      itemId: null,
+      kind: 'command',
+      title: '运行命令',
+      command: 'ls',
+      wrapper: { line: 'powershell.exe -Command "ls"', shell: 'powershell', extra },
+    })
+    const html = render([cmd('w1', ['-NoProfile']), cmd('w2', [])])
+    expect(count(html, '外层带参数')).toBe(1)
+  })
   it('只能拒绝的：行上没有允许，写「这一项只能拒绝」；全部允许写跳过几项', () => {
     const html = render([three[0], { ...three[1], canAllow: false }])
     expect(html).toContain('这一项只能拒绝')

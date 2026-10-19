@@ -158,6 +158,17 @@ describe('checkPack 文件表', () => {
     const r = checkPack(mem(files), dev)
     expect(r.issues.find(i => i.code === 'svg.unsafe')).toMatchObject({ path: 'icon.svg', scope: 'file' })
   })
+  it('scanSvg：默认按来源（store 扫、builtin 不扫），显式传值优先', () => {
+    const bad = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    const files = { ...good({ icon: 'icon.svg' }), 'icon.svg': bad }
+    const has = (opts: Parameters<typeof checkPack>[1]) =>
+      codes(checkPack(mem(files), opts).issues).includes('svg.unsafe')
+    expect(has({ source: 'store', appVersion: APP })).toBe(true)
+    expect(has({ source: 'store', appVersion: APP, scanSvg: false })).toBe(false) // 启动时加载商店扩展：安装时扫过
+    expect(has({ source: 'folder', appVersion: APP, scanSvg: false })).toBe(false)
+    expect(has({ source: 'builtin', appVersion: APP })).toBe(false)
+    expect(has({ source: 'builtin', appVersion: APP, scanSvg: true })).toBe(true)
+  })
   it('内置来源不扫 svg，也只留 error', () => {
     const bad = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
     const files = { ...good({ icon: 'icon.svg' }), 'icon.svg': bad, '.hidden.json': '{}' }

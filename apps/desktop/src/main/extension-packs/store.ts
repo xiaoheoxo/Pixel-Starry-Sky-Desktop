@@ -7,17 +7,29 @@ export interface PackStateFile {
   version: 1
   folders: Array<{ path: string; enabled: boolean; addedAt: number; options: ExtPackOptions }>
   builtin: Record<string, { enabled: boolean; options: ExtPackOptions }>
+  /** 商店扩展（store/<id>/install.json 记装了哪些，这里只存开关和选项）；旧文件没有这个字段，读成空 */
+  store: Record<string, { enabled: boolean; options: ExtPackOptions }>
   /** 只在内存里：state.json 存在但读不出来（被占用等），本次运行不写回，免得拿空状态盖掉真文件 */
   unreadable?: true
 }
 
-export const emptyState = (): PackStateFile => ({ version: 1, folders: [], builtin: {} })
+export const emptyState = (): PackStateFile => ({ version: 1, folders: [], builtin: {}, store: {} })
 
 function options(raw: unknown): ExtPackOptions {
   const o: ExtPackOptions = {}
   const list = (raw as { overrideBuiltin?: unknown } | null)?.overrideBuiltin
   if (Array.isArray(list)) o.overrideBuiltin = list.filter((v): v is string => typeof v === 'string')
   return o
+}
+
+/** 读 { [id]: { enabled, options } }：形状不对的项丢掉，整个字段不是对象就当空 */
+function readEntries(raw: unknown, into: PackStateFile['builtin']): void {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    const item = v as Record<string, unknown> | null
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    into[id] = { enabled: item.enabled !== false, options: options(item.options) }
+  }
 }
 
 /** 把读到的内容规整成合法状态；形状不对返回 null */
@@ -36,13 +48,8 @@ function normalize(raw: unknown): PackStateFile | null {
       options: options(item.options),
     })
   }
-  const builtin = data.builtin
-  if (builtin && typeof builtin === 'object')
-    for (const [id, v] of Object.entries(builtin as Record<string, unknown>)) {
-      const item = v as Record<string, unknown> | null
-      if (!item || typeof item !== 'object') continue
-      state.builtin[id] = { enabled: item.enabled !== false, options: options(item.options) }
-    }
+  readEntries(data.builtin, state.builtin)
+  readEntries(data.store, state.store)
   return state
 }
 

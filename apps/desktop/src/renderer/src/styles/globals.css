@@ -549,6 +549,10 @@
 :root[data-motion='off'] :is(.pop-in, .fade-in, .usage-expand, .value-flash) {
   animation: none;
 }
+/* Tailwind 自带的循环动画：转圈停成静止的圆弧，闪烁的点停成实心（运行中照样看得出，只是不动） */
+:root[data-motion='off'] :is(.animate-spin, .animate-pulse, .animate-ping) {
+  animation: none;
+}
 @media (prefers-reduced-motion: reduce) {
   :root[data-motion='system']
     :is(
@@ -567,6 +571,9 @@
     transform: none;
   }
   :root[data-motion='system'] :is(.pop-in, .fade-in, .usage-expand, .value-flash) {
+    animation: none;
+  }
+  :root[data-motion='system'] :is(.animate-spin, .animate-pulse, .animate-ping) {
     animation: none;
   }
 }

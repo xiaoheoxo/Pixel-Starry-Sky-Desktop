@@ -5,6 +5,15 @@ export { ENGINES, ENGINE_ORDER } from './registry'
 export { engineEnv } from './env'
 export { resolveCommand, type ResolvedCommand } from './exec'
 export {
+  ConsoleLineDecoder,
+  ConsoleStreamDecoder,
+  codePageLabel,
+  decodeConsoleText,
+  detectOemCodePage,
+  oemCodePage,
+  type ConsoleDecodeOptions,
+} from './console-text'
+export {
   CLAUDE_COMPACT_MARKER,
   isClaudeCompaction,
   rewriteCompaction,
@@ -26,6 +35,7 @@ export {
   type ReadOptions,
   type SearchOptions,
 } from './history'
+export { diffLines, type DiffLine } from './diff'
 export { artifactQuery, collectArtifacts, recordedIn, sessionArtifacts, within } from './artifacts'
 export { UsageStore, USAGE_RETENTION_DAYS, type UsageQuery } from './usage'
 export {

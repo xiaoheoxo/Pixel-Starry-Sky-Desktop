@@ -6,6 +6,10 @@ import {
   ENGINES as ENGINE_INFO,
   MAX_IMAGE_COUNT,
   MAX_IMAGE_TOTAL,
+  PROVIDER_ID,
+  containsTerms,
+  searchSnippet,
+  searchTerms,
   validateFiles,
   validateImages,
   type HostEvent,
@@ -22,9 +26,11 @@ import type {
   AgentMember,
   Channel,
   ChannelInput,
+  ChannelNotify,
   ChannelMember,
   ChannelMessage,
   ChannelsSnapshot,
+  ChannelSearchResult,
   ChannelTask,
   ChannelTaskAction,
   ChannelTextMessage,
@@ -66,7 +72,13 @@ export const SELF_ID = 'you'
 const NAME_MAX = 40
 const INSTRUCTIONS_MAX = 2000
 const TOPIC_MAX = 200
+/** 频道说明最多这么长；置顶最多这么多条（docs/ui/channels-local-ai.md §3.1 #9） */
+export const NOTES_MAX = 2000
+export const PIN_MAX = 10
 const PAGE = 200
+/** 频道消息搜索最多返回这么多条；搜索词最多这么长（和全局搜索一样） */
+const SEARCH_LIMIT = 50
+const SEARCH_TEXT_MAX = 200
 const DAY = 86_400_000
 /** 结束了的运行信息留这么久（重试、追加要求用） */
 const KEEP_ENDED = 30 * DAY
@@ -111,6 +123,23 @@ function cleanName(value: unknown, what: string): string {
   if (!name) throw new Error(`${what}不能为空`)
   if (name.length > NAME_MAX) throw new Error(`${what}最多 ${NAME_MAX} 个字`)
   return name
+}
+
+/**
+ * 成员的额度来源（docs/ui/channels-local-ai.md §3.1 #1）：只留形状对的 platform（分组 + 账号）或 provider（接口 id），
+ * 两个都给时报错；都没有就是自有账号。分组还在不在、账号对不对，由开会话 / 发消息时的引擎判断（失败写在任务卡上）
+ */
+function creditOf(raw: AgentInput['settings']): Pick<AgentConfig['settings'], 'platform' | 'provider'> {
+  const p = raw?.platform
+  const v = raw?.provider
+  const platform =
+    p && typeof p.groupId === 'string' && p.groupId && typeof p.account === 'string' && p.account
+      ? { groupId: p.groupId.slice(0, 200), account: p.account.slice(0, 320) }
+      : null
+  const provider = v && typeof v.id === 'string' && PROVIDER_ID.test(v.id) ? { id: v.id } : null
+  if ((p && !platform) || (v && !provider)) throw new Error('额度来源无效')
+  if (platform && provider) throw new Error('额度来源无效')
+  return platform ? { platform } : provider ? { provider } : {}
 }
 
 export class Channels {
@@ -273,6 +302,10 @@ export class Channels {
         id: c.id,
         name: c.name,
         topic: c.topic,
+        notes: c.notes ?? null,
+        pinned: c.pinned ?? [],
+        notify: c.notify ?? 'all',
+        archivedAt: c.archivedAt ?? null,
         project: c.projectId ? (projects.get(c.projectId)?.name ?? null) : null,
         projectId: c.projectId,
         scope: 'local' as const,
@@ -282,9 +315,16 @@ export class Channels {
       }))
       .sort((a, b) => b.lastAt - a.lastAt)
     const sessionChannels: Record<string, string> = {}
+    const sessionTasks: NonNullable<ChannelsSnapshot['sessionTasks']> = {}
     for (const [channelId, list] of this.store.messages) {
       const name = this.store.channels.get(channelId)?.name
-      if (name) for (const m of list) if (m.kind === 'task' && m.sessionId) sessionChannels[m.sessionId] = name
+      if (name)
+        for (const m of list)
+          if (m.kind === 'task' && m.sessionId) {
+            sessionChannels[m.sessionId] = name
+            // 消息按时间排：同一个会话（共用会话的成员）留最后一张卡
+            sessionTasks[m.sessionId] = { channelId, taskId: m.id, memberId: m.assigneeId }
+          }
     }
     const members: ChannelMember[] = [
       this.self(),
@@ -304,20 +344,61 @@ export class Channels {
       channels,
       members,
       sessionChannels,
+      sessionTasks,
       teams: team?.teams ?? [],
       invites: team?.invites ?? [],
-      teamsConnection: team?.connection ?? 'signed-out',
+      // 没有团队同步（团队功能关着，见 main/channels/ipc.ts 的 teamsEnabled）：报不可用，界面藏起所有团队入口
+      teamsConnection: this.team ? (team?.connection ?? 'signed-out') : 'unavailable',
       teamsSyncedAt: team?.syncedAt ?? null,
     }
   }
 
-  messages(channelId: string, before?: number | null): { messages: ChannelMessage[]; more: boolean } {
+  /**
+   * 一页本机频道的消息（最多 PAGE 条）。beforeId 是界面里最早那条消息：取它前面的，按位置不按时间，
+   * 同一毫秒的几条消息跨在两页之间时不会漏掉；这条消息不在了（删了）才退回按时间 before 取
+   */
+  messages(
+    channelId: string,
+    before?: number | null,
+    beforeId?: string | null,
+  ): { messages: ChannelMessage[]; more: boolean } {
     const list = this.store.messages.get(channelId)
     if (!list) throw new Error('频道不存在')
-    const end = before == null ? list.length : list.findIndex(m => m.at >= before)
+    const at = beforeId ? list.findIndex(m => m.id === beforeId) : -1
+    const end = at >= 0 ? at : before == null ? list.length : list.findIndex(m => m.at >= before)
     const stop = end < 0 ? list.length : end
     const start = Math.max(0, stop - PAGE)
     return { messages: list.slice(start, stop), more: start > 0 }
+  }
+
+  /**
+   * 搜频道消息（docs/ui/channels-local-ai.md §3.1 #8）：本机频道（含归档的）的文字消息和任务卡标题，
+   * 每个词都要出现，新的在前，最多 limit 条。projectId：只搜默认项目是它的频道
+   */
+  search(text: string, opts: { limit?: number; projectId?: string | null } = {}): ChannelSearchResult {
+    const terms = searchTerms(text.slice(0, SEARCH_TEXT_MAX))
+    if (!terms.length) return { hits: [], truncated: false }
+    const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? SEARCH_LIMIT)), SEARCH_LIMIT)
+    const found: { m: Extract<ChannelMessage, { kind: 'message' | 'task' }>; body: string }[] = []
+    for (const c of this.store.channels.values()) {
+      if (opts.projectId && c.projectId !== opts.projectId) continue
+      for (const m of this.store.messages.get(c.id) ?? []) {
+        const body = m.kind === 'message' ? m.text : m.kind === 'task' ? m.title : ''
+        if (m.kind !== 'event' && body && containsTerms(body, terms)) found.push({ m, body })
+      }
+    }
+    found.sort((a, b) => b.m.at - a.m.at)
+    return {
+      hits: found.slice(0, limit).map(({ m, body }) => ({
+        channelId: m.channelId,
+        messageId: m.id,
+        kind: m.kind,
+        authorId: m.kind === 'task' ? m.assigneeId : m.authorId,
+        at: m.at,
+        snippet: searchSnippet(body, terms),
+      })),
+      truncated: found.length > limit,
+    }
   }
 
   /** 频道是团队频道吗 */
@@ -329,9 +410,10 @@ export class Channels {
   page(
     channelId: string,
     before?: number | null,
+    beforeId?: string | null,
   ): { messages: ChannelMessage[]; more: boolean } | Promise<{ messages: ChannelMessage[]; more: boolean }> {
-    if (!this.isTeam(channelId)) return this.messages(channelId, before)
-    return this.team!.page(channelId, before).then(page => ({
+    if (!this.isTeam(channelId)) return this.messages(channelId, before, beforeId)
+    return this.team!.page(channelId, before, beforeId).then(page => ({
       messages: page.messages.map(m => this.decorate(m)),
       more: page.more,
     }))
@@ -383,6 +465,13 @@ export class Channels {
     return c
   }
 
+  /** 要改动的频道：归档了只读（§3.1 #11），恢复后才能发消息、派活、改设置 */
+  private writable(id: string): StoredChannel {
+    const c = this.channel(id)
+    if (c.archivedAt) throw new Error('频道已归档，恢复后才能操作')
+    return c
+  }
+
   private uniqueChannelName(name: string, except?: string): void {
     for (const c of this.store.channels.values())
       if (c.id !== except && c.name.toLowerCase() === name.toLowerCase()) throw new Error('已经有同名的频道')
@@ -428,7 +517,18 @@ export class Channels {
     return channel.id
   }
 
-  async update(id: string, patch: { name?: string; topic?: string | null; projectId?: string | null }): Promise<void> {
+  async update(
+    id: string,
+    patch: {
+      name?: string
+      topic?: string | null
+      notes?: string | null
+      notify?: ChannelNotify
+      projectId?: string | null
+      /** 归档 / 恢复（只有本机频道） */
+      archived?: boolean
+    },
+  ): Promise<void> {
     const info = this.team?.channelInfo(id)
     if (info) {
       const wire: { name?: string; topic?: string | null } = {}
@@ -440,6 +540,17 @@ export class Channels {
       return
     }
     const c = { ...this.channel(id) }
+    const restoring = patch.archived === false && !!c.archivedAt
+    const archiving = patch.archived === true && !c.archivedAt
+    // 归档了只读：只能恢复（同一次也可以顺带改别的）
+    if (c.archivedAt && !restoring && Object.entries(patch).some(([k, v]) => k !== 'archived' && v !== undefined))
+      throw new Error('频道已归档，恢复后才能操作')
+    if (archiving && [...this.store.runs.values()].some(r => r.channelId === id && r.phase !== 'ended'))
+      throw new Error('频道里还有没做完的活，做完或停掉后再归档')
+    if (restoring) {
+      c.archivedAt = null
+      this.event(id, 'restored')
+    }
     if (patch.name !== undefined) {
       const name = cleanName(patch.name, '频道名')
       if (name !== c.name) {
@@ -458,6 +569,19 @@ export class Channels {
     }
     if (patch.projectId !== undefined)
       c.projectId = typeof patch.projectId === 'string' && patch.projectId ? patch.projectId : null
+    if (patch.notify !== undefined) {
+      if (patch.notify !== 'all' && patch.notify !== 'important' && patch.notify !== 'mute')
+        throw new Error('提醒设置无效')
+      c.notify = patch.notify
+    }
+    if (patch.notes !== undefined)
+      c.notes = typeof patch.notes === 'string' && patch.notes.trim() ? patch.notes.trim().slice(0, NOTES_MAX) : null
+    // 归档时一并标为已读：收起来的频道不再算未读
+    if (archiving) {
+      c.archivedAt = this.now()
+      c.readAt = c.archivedAt
+      this.event(id, 'archived')
+    }
     await this.store.saveChannel(c)
     this.changed()
   }
@@ -507,6 +631,9 @@ export class Channels {
     if (!project) throw new Error('项目不存在')
     const existing = raw.id ? this.member(raw.id) : undefined
     if (raw.id && !existing) throw new Error('成员不存在')
+    // 归档的频道不能加人（已经在里面的成员照常能改）
+    const into = channelId ? this.store.channels.get(channelId) : undefined
+    if (into && !(existing && into.memberIds.includes(existing.id))) this.writable(into.id)
     // 老数据里已经叫「全体」的成员不改名也能保存
     if (isReservedMentionName(name) && existing?.name.toLowerCase() !== name.toLowerCase())
       throw new Error('「全体」「all」留给 @全体，换个名字吧')
@@ -514,12 +641,15 @@ export class Channels {
     if (raw.settings?.model !== undefined) settings.model = raw.settings.model
     if (raw.settings?.effort !== undefined) settings.effort = raw.settings.effort
     if (raw.settings?.permissionMode !== undefined) settings.permissionMode = raw.settings.permissionMode
+    Object.assign(settings, creditOf(raw.settings))
     const machineId = this.deps.machineOf(raw.projectId)
+    const credit = (x: AgentConfig['settings']) => JSON.stringify([x.platform ?? null, x.provider ?? null])
     const moved =
       existing &&
       (existing.engine !== raw.engine ||
         existing.projectId !== raw.projectId ||
-        existing.copyId !== (raw.copyId ?? null))
+        existing.copyId !== (raw.copyId ?? null) ||
+        credit(existing.settings) !== credit(settings))
     const config: AgentConfig = {
       id: existing?.id ?? randomUUID(),
       name,
@@ -530,7 +660,7 @@ export class Channels {
       settings,
       instructions: (typeof raw.instructions === 'string' ? raw.instructions : '').slice(0, INSTRUCTIONS_MAX),
       mode: raw.mode === 'shared' ? 'shared' : 'per-task',
-      // 换了引擎或目录，原来的共用会话不能再用
+      // 换了引擎、目录或额度来源（会话开出来就定了），原来的共用会话不能再用
       sharedSessionId: moved ? null : (existing?.sharedSessionId ?? null),
       createdAt: existing?.createdAt ?? this.now(),
     }
@@ -552,6 +682,7 @@ export class Channels {
     const c = this.channel(channelId)
     if (!this.member(memberId)) throw new Error('成员不存在')
     if (c.memberIds.includes(memberId)) return
+    this.writable(channelId)
     await this.store.saveChannel({ ...c, memberIds: [...c.memberIds, memberId] })
     this.event(channelId, 'added', { targetId: memberId })
     this.changed()
@@ -570,7 +701,7 @@ export class Channels {
           this.finish(run, { status: 'stopped', note: 'cancelled' })
       return
     }
-    const c = this.channel(channelId)
+    const c = this.writable(channelId)
     if (!c.memberIds.includes(memberId) || memberId === SELF_ID) return
     await this.store.saveChannel({ ...c, memberIds: c.memberIds.filter(id => id !== memberId) })
     for (const run of [...this.store.runs.values()])
@@ -620,7 +751,7 @@ export class Channels {
 
   async post(channelId: string, input: PostInput): Promise<{ message: ChannelTextMessage; tasks: string[] }> {
     if (this.isTeam(channelId)) return this.postTeam(channelId, input)
-    const c = this.channel(channelId)
+    const c = this.writable(channelId)
     const text = typeof input?.text === 'string' ? input.text.trim() : ''
     const images = validateImages(input?.attachments),
       files = validateFiles(input?.files)
@@ -751,6 +882,8 @@ export class Channels {
     return dispatchPrompt({
       locale,
       channel: { name: c.name, topic: c.topic },
+      notes: c.notes ?? null,
+      pinned: this.pinnedLines(c),
       author: this.nameOf(SELF_ID),
       instructions: member.instructions,
       history: historyLines(list, { beforeId: source.id, since, skip: replyToId, nameOf: this.nameOf, locale }),
@@ -759,6 +892,31 @@ export class Channels {
       attached: source.attached ? { images: source.attached.images.length, files: source.attached.files.length } : null,
       together: this.together(c, source, member.id),
     })
+  }
+
+  /** 置顶的消息（还在的、是文字消息的）：「名字：原文」，派活时作为资料带上 */
+  private pinnedLines(c: StoredChannel): string[] {
+    const list = this.store.messages.get(c.id) ?? []
+    const sep = this.deps.locale() === 'en-US' ? ': ' : '：'
+    return (c.pinned ?? []).flatMap(id => {
+      const m = list.find(x => x.id === id)
+      return m?.kind === 'message' && m.text.trim() ? [`${this.nameOf(m.authorId)}${sep}${m.text.trim()}`] : []
+    })
+  }
+
+  /** 置顶 / 取消置顶一条文字消息（本机频道） */
+  async pin(channelId: string, messageId: string, pinned: boolean): Promise<void> {
+    const c = { ...this.writable(channelId) }
+    const message = (this.store.messages.get(channelId) ?? []).find(m => m.id === messageId)
+    if (message?.kind !== 'message') throw new Error('只能置顶文字消息')
+    const list = (c.pinned ?? []).filter(id => id !== messageId)
+    if (pinned) {
+      if (list.length >= PIN_MAX) throw new Error(`最多置顶 ${PIN_MAX} 条`)
+      list.push(messageId)
+    }
+    c.pinned = list
+    await this.store.saveChannel(c)
+    this.changed()
   }
 
   /** 源消息 @全体 时，同时收到这项活的其他 AI 成员的名字 */
@@ -1003,7 +1161,7 @@ export class Channels {
   /** 这一轮结束：更新任务卡，做完了就把回复发回频道，再开始成员的下一项活 */
   private finish(run: TaskRun, finish: Finish): void {
     const task = this.taskOf(run)
-    const ended: TaskRun = { ...run, phase: 'ended', requests: [], progress: null }
+    const ended: TaskRun = { ...run, phase: 'ended', requests: [], progress: null, activity: null }
     this.store.runs.set(run.taskId, ended)
     if (task) {
       const now = this.now()
@@ -1014,6 +1172,7 @@ export class Channels {
         note: finish.note ?? null,
         request: null,
         progress: null,
+        activity: null,
         ahead: 0,
         disconnected: false,
         endedAt: now,
@@ -1121,7 +1280,7 @@ export class Channels {
     if (action === 'retry') {
       if (!terminal(task.status)) return
       if (!this.member(task.assigneeId)) throw new Error('成员不存在')
-      const c = this.channel(task.channelId)
+      const c = this.writable(task.channelId)
       const source = this.store.messages.get(c.id)?.find(m => m.id === task.sourceMessageId)
       const fresh =
         source?.kind === 'message'
@@ -1159,7 +1318,8 @@ export class Channels {
   hostEvent(event: HostEvent): void {
     if (event.kind === 'session') {
       for (const run of [...this.store.runs.values()])
-        if (run.phase === 'sent' && run.sessionId === event.sessionId) this.apply(run, trackEvent(run, event.event))
+        if (run.phase === 'sent' && run.sessionId === event.sessionId)
+          this.apply(run, trackEvent(run, event.event, this.now()))
     } else if (event.kind === 'sessions') this.sessionsChanged(event.sessions)
     else if (event.kind === 'projects') this.changed()
   }
@@ -1213,7 +1373,7 @@ export class Channels {
       const latest = this.store.runs.get(run.taskId)
       if (!latest || latest.phase !== 'sent') continue
       this.patch(run.channelId, run.taskId, { disconnected: false })
-      this.apply(latest, reconcileRun(latest, snapshot))
+      this.apply(latest, reconcileRun(latest, snapshot, this.now()))
     }
     for (const m of new Set([...this.store.runs.values()].filter(r => r.phase === 'waiting').map(r => r.memberId)))
       void this.pump(m)
@@ -1279,7 +1439,9 @@ export class Channels {
       if (patch.disconnected !== undefined) local.disconnected = patch.disconnected
       this.teamLocal.set(run.taskId, local)
     }
-    this.exec?.send(run, patch, result)
+    // 「正在做什么」只给本机任务卡（团队卡上写云端会多一大堆更新）
+    const { activity: _activity, ...wire } = patch
+    if (Object.keys(wire).length || result) this.exec?.send(run, wire, result)
     const task = this.taskOf(run)
     if (task) this.pushMessage(task)
     return task

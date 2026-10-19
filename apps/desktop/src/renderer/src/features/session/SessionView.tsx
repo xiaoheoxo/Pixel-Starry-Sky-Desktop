@@ -286,7 +286,7 @@ function LiveSessionView({
                     <ApprovalWaitContext.Provider value={approvalWait}>
                       <LiveTranscript
                         snapshot={snapshot}
-                        footer={inlinePlan && <InlinePlan plan={inlinePlan} />}
+                        footer={inlinePlan && <InlinePlan plan={inlinePlan} working={fullProgress.working} />}
                         header={
                           forkedFrom && (
                             <button
@@ -346,7 +346,7 @@ function LiveSessionView({
                     />
                   )}
                   <RetryStatus sessionId={sessionId} retry={snapshot?.retry} />
-                  <ReconnectStatus sessionId={sessionId} queue={snapshot?.queue} />
+                  <ReconnectStatus sessionId={sessionId} queue={snapshot?.queue} paused={!!snapshot?.queuePaused} />
                   {snapshot && (
                     <ApprovalStack
                       key={`approvals:${sessionId}`}

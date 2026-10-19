@@ -1,15 +1,30 @@
 // 订阅套餐与充值的纯计算（docs/ui/settings.md §9.4–9.6）。公式照 Sub2api：
 // service/payment_recharge_bonus.go（quoteRechargeBonus）、payment/fee.go（CalculatePayAmountForCurrency）。
 import { tr } from '../../i18n/core'
-import type { StoreBonusTier, StorePlan, StoreRecharge } from '../../../../shared/types/account'
+import type {
+  AccountInfo,
+  StoreBonusTier,
+  StoreCatalog,
+  StorePlan,
+  StoreRecharge,
+} from '../../../../shared/types/account'
 
-/** 按十进制四舍五入（半数远离零），避开 1.005 这类浮点误差 */
-export function round2(v: number): number {
-  const r = Number(`${Math.round(Number(`${Math.abs(v)}e2`))}e-2`)
-  return v < 0 ? -r : r
+/** 先乘 100 再用 15 位有效数字消掉浮点误差（1.005 × 100 = 100.49999999999999 → 100.5） */
+function cents(v: number): number {
+  return Number((v * 100).toPrecision(15))
 }
-function roundUp2(v: number): number {
-  return Number(`${Math.ceil(Number(`${v}e2`) - 1e-9)}e-2`)
+
+/** 按十进制四舍五入到分（半数远离零），避开 1.005 这类浮点误差；NaN / Infinity 和大到没有小数位的数原样返回 */
+export function round2(v: number): number {
+  if (!Number.isFinite(v) || Math.abs(v) >= 1e13) return v
+  const r = Math.round(cents(Math.abs(v))) / 100
+  return v < 0 && r !== 0 ? -r : r
+}
+/** 向上取整到分（容忍 1e-9 的浮点误差）；NaN / Infinity 原样返回 */
+export function roundUp2(v: number): number {
+  if (!Number.isFinite(v) || Math.abs(v) >= 1e13) return v
+  const r = Math.ceil(cents(v) - 1e-9) / 100
+  return r === 0 ? 0 : r
 }
 
 /** 有效期文字：正好 30 / 90 / 365 天显示 月 / 季 / 年，其余按天（「7 天」） */
@@ -101,4 +116,54 @@ export function checkAmount(input: string, r: Pick<StoreRecharge, 'min' | 'max'>
   if (value < r.min) return { ok: false, reason: 'min' }
   if (r.max > 0 && value > r.max) return { ok: false, reason: 'max' }
   return { ok: true, value }
+}
+
+/**
+ * 能否显示「预计应付」：支付币种必须是云端明确给出的，且在售套餐的币种都和它一致。
+ * 对不上（或云端没给币种、只是默认值）时金额的单位拿不准，宁可不显示
+ */
+export function payAmountTrusted(catalog: Pick<StoreCatalog, 'currency' | 'currencyKnown' | 'plans'>): boolean {
+  if (catalog.currencyKnown === false || !catalog.currency) return false
+  const pay = catalog.currency.toUpperCase()
+  return catalog.plans.every(p => p.currency.toUpperCase() === pay)
+}
+
+/** 判断到账用的账号快照：余额、套餐名、到期时间 */
+export interface AccountSnap {
+  balance: number | null
+  planName: string | null
+  expiresAt: string | null
+}
+export function snapOf(account: Pick<AccountInfo, 'balance' | 'plan'>): AccountSnap {
+  return { balance: account.balance, planName: account.plan?.name ?? null, expiresAt: account.plan?.expiresAt ?? null }
+}
+
+export interface AccountChange {
+  /** 余额变了（前后都读得到才算） */
+  balance: { from: number; to: number } | null
+  /** 套餐名变了（含新开通 / 到期失效） */
+  plan: { from: string | null; to: string | null } | null
+  /** 同一个套餐的到期时间变了（续费） */
+  expires: { from: string | null; to: string | null } | null
+}
+
+/**
+ * 刷新前后的「到账」差异；没有到账迹象时返回 null。只认增加的方向：
+ * 余额变多；套餐从无到有 / 换成另一个非空套餐；同一个套餐到期时间变晚。
+ * 余额被扣（会话在用）、套餐失效都不算到账
+ */
+export function diffAccount(before: AccountSnap, after: AccountSnap): AccountChange | null {
+  const balance =
+    before.balance !== null && after.balance !== null && after.balance > before.balance + 1e-9
+      ? { from: before.balance, to: after.balance }
+      : null
+  const plan =
+    after.planName !== null && before.planName !== after.planName ? { from: before.planName, to: after.planName } : null
+  const from = before.expiresAt ? Date.parse(before.expiresAt) : NaN
+  const to = after.expiresAt ? Date.parse(after.expiresAt) : NaN
+  const expires =
+    !plan && after.planName !== null && before.planName === after.planName && to > from
+      ? { from: before.expiresAt, to: after.expiresAt }
+      : null
+  return balance || plan || expires ? { balance, plan, expires } : null
 }

@@ -1,0 +1,14 @@
+[
+  {
+    "template": "rust-toolchain",
+    "file": "rust-toolchain.toml",
+    "tasks": [
+      {
+        "name": "toolchain",
+        "description": "显示项目实际使用的工具链",
+        "linux": "rustup show",
+        "windows": "rustup show"
+      }
+    ]
+  }
+]

@@ -6,7 +6,8 @@ import { Button, Segmented, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import type { MobileAccess, MobileDevice, MobilePairing, MobileState } from '../../../../../shared/types/mobile'
 import { GroupTitle, SectionTitle, SettingRow, Toggle } from '../../settings/SettingRow'
-import { QrCode } from './QrCode'
+import { QrCode } from '@/ui/QrCode'
+import { useTheme } from '../../appearance/ThemeProvider'
 
 /** 设置 › 手机（docs/mobile-remote.md §5.4）：开关、中转地址、配对二维码、已配对的手机。演示 / 浏览器里不显示 */
 export function MobileSection() {
@@ -221,6 +222,7 @@ function Pairing({
   onDecide(accept: boolean): void
 }) {
   const { t } = useI18n()
+  const { resolved } = useTheme()
   const box = useRef<HTMLDivElement>(null)
   // 二维码 / 确认框在页面下方：出现时滚到能看见
   // 注意要用花括号：新版 Chromium 的 scrollIntoView 返回 Promise，直接当返回值会被 React 当成清理函数调用而崩溃
@@ -263,7 +265,7 @@ function Pairing({
         </div>
       ) : (
         <div className="flex items-start gap-5">
-          <QrCode text={pairing.offer} label={t('mobile.pairTitle')} />
+          <QrCode text={pairing.offer} label={t('mobile.pairTitle')} dark={resolved === 'dark'} />
           <div className="min-w-0">
             <div className="text-ui font-medium text-fg">{t('mobile.pairTitle')}</div>
             <p className="mt-1 mb-4 text-meta text-fg-muted">

@@ -1,13 +1,27 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage, type TranslationKey } from '../../i18n/core'
 import { useState, type ReactNode } from 'react'
-import { ArrowUpRight, Bot, ChevronDown, Ellipsis, Pencil, Trash2, UserMinus, UserPlus, X } from 'lucide-react'
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowUpRight,
+  Bot,
+  ChevronDown,
+  Ellipsis,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+  UserMinus,
+  UserPlus,
+  X,
+} from 'lucide-react'
 import { Button, cn, IconButton, Select, Spinner, useComingSoon, useToast } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { relativeTime } from '@/features/engine'
 import type { AgentMember, Channel, ChannelAgentStatus, ChannelMember, HumanMember } from '@/data/types'
-import type { AgentConfig, AgentPolicy, ChannelTaskStatus } from '../../../../shared/types/channels'
+import type { AgentConfig, AgentPolicy, ChannelNotify, ChannelTaskStatus } from '../../../../shared/types/channels'
 import { agentMeta, MemberAvatar } from './ChannelMessage'
 import { AgentDialog, ChannelDialog } from './ChannelDialogs'
 import { channelActions, channelsLive, useChannels } from './store'
@@ -37,12 +51,75 @@ const TASK_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
   stopped: 'channels.task.stopped',
 }
 
+const NOTIFY_OPTIONS: readonly ChannelNotify[] = ['all', 'important', 'mute']
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1">
       <h3 className="px-2 text-label font-medium text-fg-muted">{title}</h3>
       <div className="flex flex-col gap-px">{children}</div>
     </section>
+  )
+}
+
+/**
+ * 置顶的消息（docs/ui/channels-local-ai.md §3.1 #9）：派活时作为资料带上。只列读进来了的；
+ * 点一条跳到时间线上那条消息，右边可以取消置顶
+ */
+function PinnedList({ channel, members }: { channel: Channel; members: readonly ChannelMember[] }) {
+  useI18n()
+  const toast = useToast()
+  const messages = useChannels(s => s.messages[channel.id])
+  const ids = channel.pinned ?? []
+  if (!ids.length) return null
+  const byId = new Map((messages ?? []).map(m => [m.id, m]))
+  const name = (id: string) => members.find(m => m.id === id)?.name ?? '?'
+  return (
+    <Section title={tr('channels.members.pinned', { count: ids.length })}>
+      <p className="px-2 pb-1 text-meta text-fg-faint">{tr('channels.members.pinnedHint')}</p>
+      {ids.map(id => {
+        const m = byId.get(id)
+        const text = m?.kind === 'message' ? m.text.replace(/\s+/g, ' ').trim() : null
+        return (
+          <div
+            key={id}
+            data-pinned-item={id}
+            className="group/pin flex min-w-0 items-center gap-1 rounded-md hover:bg-hover"
+          >
+            <button
+              type="button"
+              disabled={!text}
+              onClick={() => void channelActions.focusMessage(channel.id, id)}
+              className="press flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left disabled:cursor-default"
+            >
+              <Pin size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-fg-faint" />
+              {text && m?.kind === 'message' ? (
+                <span className="line-clamp-2 min-w-0 flex-1 text-meta break-words text-fg-secondary">
+                  <span className="text-fg-muted">{name(m.authorId)}：</span>
+                  {text}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1 text-meta text-fg-faint">{tr('channels.members.pinnedOld')}</span>
+              )}
+            </button>
+            {channel.scope === 'local' && !channel.archivedAt && (
+              <IconButton
+                icon={PinOff}
+                label={tr('channels.unpin')}
+                size={24}
+                iconSize={12}
+                className="mr-1 shrink-0 opacity-0 group-hover/pin:opacity-100 focus-visible:opacity-100"
+                onClick={() =>
+                  void channelActions
+                    .pin(channel.id, id, false)
+                    .catch(e => toast(tr('channels.pinFailed', { error: translateMessage((e as Error).message) })))
+                }
+              />
+            )}
+          </div>
+        )
+      })}
+    </Section>
   )
 }
 
@@ -110,6 +187,7 @@ function AgentRow({
   live,
   team,
   canRemoveOthers,
+  readOnly = false,
   onOpenSession,
   onEdit,
   onRemove,
@@ -119,6 +197,8 @@ function AgentRow({
   live: boolean
   /** 团队频道 */
   team: boolean
+  /** 归档的频道：不能移出成员（成员是全局的，照常能改） */
+  readOnly?: boolean
   /** 所有者能把别人的 AI 成员移出频道 */
   canRemoveOthers: boolean
   onOpenSession: (id: string) => void
@@ -142,13 +222,17 @@ function AgentRow({
         ...(member.sessionId
           ? [{ label: tr('channels.openSession'), icon: ArrowUpRight, run: () => onOpenSession(member.sessionId!) }]
           : []),
-        {
-          label: tr('channels.members.remove'),
-          icon: UserMinus,
-          danger: true,
-          separator: true,
-          run: () => onRemove(member),
-        },
+        ...(readOnly
+          ? []
+          : [
+              {
+                label: tr('channels.members.remove'),
+                icon: UserMinus,
+                danger: true,
+                separator: true,
+                run: () => onRemove(member),
+              },
+            ]),
       ]
   return (
     <div
@@ -321,6 +405,10 @@ export function ChannelMembers({
   }
   const policyFailed = (e: unknown) =>
     toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) }))
+  // 归档的频道只读（docs/ui/channels-local-ai.md §3.1 #11）：只能恢复、删除，成员和设置都不能改
+  const archived = !!channel.archivedAt
+  const setArchived = (on: boolean) =>
+    void channelActions.updateChannel(channel.id, { archived: on }).catch(policyFailed)
   return (
     <aside
       aria-label={tr('channels.members.title')}
@@ -364,7 +452,40 @@ export function ChannelMembers({
           <dd className="text-fg-secondary">
             {tr(channel.scope === 'team' ? 'channels.scope.team' : 'channels.scope.local')}
           </dd>
+          {!team && (
+            <>
+              <dt className="self-center text-fg-faint">{tr('channels.members.notify')}</dt>
+              <dd className="min-w-0">
+                <Select
+                  label={tr('channels.members.notify')}
+                  value={channel.notify ?? 'all'}
+                  disabled={archived}
+                  options={NOTIFY_OPTIONS.map(v => ({ value: v, label: tr(`channels.notify.level.${v}`) }))}
+                  onChange={v =>
+                    void channelActions
+                      .updateChannel(channel.id, { notify: v })
+                      .catch(e =>
+                        toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) })),
+                      )
+                  }
+                  className="h-7 w-full"
+                />
+              </dd>
+            </>
+          )}
+          {channel.notes && (
+            <>
+              <dt className="text-fg-faint">{tr('channels.members.notes')}</dt>
+              <dd
+                data-channel-notes
+                className="selectable min-w-0 text-meta leading-5 break-words whitespace-pre-wrap text-fg-secondary"
+              >
+                {channel.notes}
+              </dd>
+            </>
+          )}
         </dl>
+        <PinnedList channel={channel} members={allMembers} />
         <Section
           title={
             team
@@ -390,6 +511,7 @@ export function ChannelMembers({
               live={live}
               team={team}
               canRemoveOthers={live && owner}
+              readOnly={archived}
               onPolicy={(member, policy) =>
                 policy === 'team'
                   ? setDialog({ kind: 'policy', member })
@@ -402,44 +524,56 @@ export function ChannelMembers({
           ))}
         </Section>
       </div>
-      <div className="flex shrink-0 flex-col gap-2 border-t border-line-subtle p-3">
-        {team ? (
-          <>
-            {canAddAgent(role) && (
-              <Button icon={Bot} className="w-full justify-center" onClick={() => setDialog({ kind: 'addTeamAgent' })}>
-                {tr('team.panel.addMine')}
-              </Button>
-            )}
-            {owner && (
-              <Button
-                icon={UserPlus}
-                variant="ghost"
-                className="w-full justify-center"
-                onClick={() => setDialog({ kind: 'invite' })}
-              >
-                {tr('team.panel.invite')}
-              </Button>
-            )}
-          </>
-        ) : (
-          <Button
-            icon={Bot}
-            className="w-full justify-center"
-            onClick={() =>
-              live ? setDialog({ kind: 'agent', editing: null }) : comingSoon(tr('channels.members.addAgent'))
-            }
-          >
-            {tr('channels.members.addAgent')}
-          </Button>
-        )}
-      </div>
+      {/* 归档的频道：输入框的位置有「恢复频道」，这里不再放按钮 */}
+      {!archived && (
+        <div className="flex shrink-0 flex-col gap-2 border-t border-line-subtle p-3">
+          {team ? (
+            <>
+              {canAddAgent(role) && (
+                <Button
+                  icon={Bot}
+                  className="w-full justify-center"
+                  onClick={() => setDialog({ kind: 'addTeamAgent' })}
+                >
+                  {tr('team.panel.addMine')}
+                </Button>
+              )}
+              {owner && (
+                <Button
+                  icon={UserPlus}
+                  variant="ghost"
+                  className="w-full justify-center"
+                  onClick={() => setDialog({ kind: 'invite' })}
+                >
+                  {tr('team.panel.invite')}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Button
+              icon={Bot}
+              className="w-full justify-center"
+              onClick={() =>
+                live ? setDialog({ kind: 'agent', editing: null }) : comingSoon(tr('channels.members.addAgent'))
+              }
+            >
+              {tr('channels.members.addAgent')}
+            </Button>
+          )}
+        </div>
+      )}
       {channelMenu && (
         <ActionMenu
           x={channelMenu.x}
           y={channelMenu.y}
           label={tr('channels.members.channelMenu')}
           actions={[
-            { label: tr('channels.channel.edit'), icon: Pencil, run: () => setDialog({ kind: 'channel' }) },
+            ...(archived
+              ? [{ label: tr('channels.channel.restore'), icon: ArchiveRestore, run: () => setArchived(false) }]
+              : [{ label: tr('channels.channel.edit'), icon: Pencil, run: () => setDialog({ kind: 'channel' }) }]),
+            ...(!team && !archived
+              ? [{ label: tr('channels.channel.archive'), icon: Archive, run: () => setArchived(true) }]
+              : []),
             {
               label: tr('channels.channel.delete'),
               icon: Trash2,

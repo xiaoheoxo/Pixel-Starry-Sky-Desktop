@@ -129,7 +129,7 @@ export function Screen({
   footerBg?: string
 }) {
   return (
-    <div className="flex h-dvh min-w-0 flex-1 flex-col bg-app text-fg">
+    <div className="flex h-app min-w-0 flex-1 flex-col bg-app text-fg">
       <header
         className={cn(
           'flex shrink-0 items-center gap-1 bg-app/95 px-1 pt-[env(safe-area-inset-top)] backdrop-blur',

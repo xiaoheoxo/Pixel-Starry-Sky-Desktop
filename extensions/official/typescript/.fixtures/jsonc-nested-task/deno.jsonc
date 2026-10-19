@@ -1,0 +1,11 @@
+{
+  // Deno 配置
+  "compilerOptions": { "strict": true },
+  "tasks": {
+    // "legacy": "deno run old.ts",
+    "start": "deno run -A main.ts",
+    "check": { "command": "deno check main.ts", "description": "类型检查" },
+    "ci": { "dependencies": ["check", "start"] }
+  },
+  "lint": { "rules": { "tags": ["recommended"] } }
+}

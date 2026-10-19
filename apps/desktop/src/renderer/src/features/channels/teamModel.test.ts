@@ -64,6 +64,16 @@ describe('groupChannels', () => {
     })
     expect(sections.map(s => s.id)).toEqual(['t1'])
   })
+  it('归档的频道收进最后一段「已归档」；没有归档的频道时没有这一段', () => {
+    const archived = { ...channel('z', 'local'), archivedAt: 5 }
+    const sections = groupChannels([...channels, archived], [team('t1')])
+    expect(sections.map(s => [s.id, s.channels.map(c => c.id)])).toEqual([
+      ['local', ['a']],
+      ['t1', ['b', 'd']],
+      ['archived', ['z']],
+    ])
+    expect(groupChannels([archived], [], { searching: true }).map(s => s.id)).toEqual(['archived'])
+  })
 })
 
 describe('折叠状态', () => {

@@ -1,4 +1,4 @@
-// 我的：配对过的电脑（切换、在手机上删掉）、主题、关于
+// 我的：配对过的电脑（切换、在手机上删掉）、锁屏提醒、主题、关于
 import type { ReactNode } from 'react'
 import { Check, Laptop, Plus, ShieldCheck, SquarePlus, Trash2 } from 'lucide-react'
 import { connections, phoneFingerprint } from '@/connection'
@@ -6,6 +6,7 @@ import { useConnections } from '@/data/hooks'
 import { linkStateText } from '@/i18n/zh'
 import { promptInstall, useInstallEntry } from '@/platform/pwa'
 import { Dot, Row, Screen, Section, Segmented } from '@/ui'
+import { PushRow } from './PushRow'
 import { THEMES, useThemePreference } from './theme'
 
 export function MeScreen({ menu, onAdd, onInstall }: { menu: ReactNode; onAdd: () => void; onInstall: () => void }) {
@@ -62,6 +63,8 @@ export function MeScreen({ menu, onAdd, onInstall }: { menu: ReactNode; onAdd: (
             />
           </Section>
         )}
+
+        {list.length > 0 && <PushRow onInstall={onInstall} />}
 
         {active && (
           <Section title="安全">

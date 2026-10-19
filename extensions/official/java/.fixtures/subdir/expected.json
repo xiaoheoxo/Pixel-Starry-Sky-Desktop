@@ -1,0 +1,128 @@
+[
+  {
+    "template": "maven",
+    "file": "pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "./mvnw clean",
+        "windows": "& .\\mvnw.cmd clean"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "./mvnw compile",
+        "windows": "& .\\mvnw.cmd compile"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "./mvnw test",
+        "windows": "& .\\mvnw.cmd test"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "./mvnw package",
+        "windows": "& .\\mvnw.cmd package"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "./mvnw verify",
+        "windows": "& .\\mvnw.cmd verify"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "./mvnw install",
+        "windows": "& .\\mvnw.cmd install"
+      }
+    ]
+  },
+  {
+    "template": "maven",
+    "file": "tools/pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "cd tools && mvn clean",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { mvn clean }"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "cd tools && mvn compile",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { mvn compile }"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "cd tools && mvn test",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { mvn test }"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "cd tools && mvn package",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { mvn package }"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "cd tools && mvn verify",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { mvn verify }"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "cd tools && mvn install",
+        "windows": "Set-Location -LiteralPath tools; if ($?) { mvn install }"
+      }
+    ]
+  },
+  {
+    "template": "maven",
+    "file": "services/api/pom.xml",
+    "tasks": [
+      {
+        "name": "clean",
+        "description": "清理 target 目录",
+        "linux": "cd services/api && ./mvnw clean",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { & .\\mvnw.cmd clean }"
+      },
+      {
+        "name": "compile",
+        "description": "编译主代码",
+        "linux": "cd services/api && ./mvnw compile",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { & .\\mvnw.cmd compile }"
+      },
+      {
+        "name": "test",
+        "description": "运行单元测试",
+        "linux": "cd services/api && ./mvnw test",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { & .\\mvnw.cmd test }"
+      },
+      {
+        "name": "package",
+        "description": "打包（jar / war）",
+        "linux": "cd services/api && ./mvnw package",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { & .\\mvnw.cmd package }"
+      },
+      {
+        "name": "verify",
+        "description": "运行测试和集成检查",
+        "linux": "cd services/api && ./mvnw verify",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { & .\\mvnw.cmd verify }"
+      },
+      {
+        "name": "install",
+        "description": "打包并安装到本地仓库",
+        "linux": "cd services/api && ./mvnw install",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { & .\\mvnw.cmd install }"
+      }
+    ]
+  }
+]

@@ -69,7 +69,7 @@ cases/<NNN-名字>.expect.json  期望（用 CORPUS_UPDATE=1 生成，逐条核�
 
 ```json
 {
-  "rulesVersion": 1,
+  "rulesVersion": 2,
   "dev": { "status": "warning", "inactive": {}, "skills": [{ "name": "review", "index": 0 }], "issues": [] },
   "upload": { "pass": false, "issues": [] }
 }
@@ -86,6 +86,7 @@ cases/<NNN-名字>.expect.json  期望（用 CORPUS_UPDATE=1 生成，逐条核�
 | 代码 | 原因 |
 | --- | --- |
 | `pack.duplicateId` | 只有多个扩展并存时，服务才会产生 |
+| `pack.storeBlocked` | 只有停用名单命中文件夹扩展时，服务才会产生 |
 | `pack.validate`、`validate.internal` | 校验器自己崩溃的兜底，没有输入能触发 |
 | `grammar.hang`、`grammar.slowLine`、`grammar.slowTotal`、`grammar.perfNearLimit` | 和机器速度有关；由 `grammar.test.ts`（注入时钟）和 `bundle.test.ts`（卡死）覆盖 |
 

@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type { IPC_CONTRACT, IpcChannelName } from '@pixelsky/protocol'
+import { isPayWindow } from './payWindowRegistry'
 import { sendTo } from './rendererHealth'
 
 /** 契约里主进程推给渲染进程的通道 */
@@ -14,6 +15,8 @@ export class EventBus {
   broadcast(channel: PushChannel, ...args: unknown[]): void {
     for (const tap of this.taps) tap(channel, args)
     // 界面崩溃、重新加载还没报到时 sendTo 会丢掉并计数（app/rendererHealth.ts）
-    for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) sendTo(win.webContents, channel, ...args)
+    // 付款窗口里是第三方收银台网页，不广播给它
+    for (const win of BrowserWindow.getAllWindows())
+      if (!win.isDestroyed() && !isPayWindow(win)) sendTo(win.webContents, channel, ...args)
   }
 }

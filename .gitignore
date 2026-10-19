@@ -36,3 +36,6 @@ apps/*/scratch/
 services/cloud/pixelsky-cloud
 services/cloud/*.exe
 services/cloud/deploy/*-linux-amd64
+
+# 随包的 rg / fd（packages/cli/scripts/tools.mjs 下载，按 tools.lock.json 校验）
+packages/cli/vendor/

@@ -1,0 +1,39 @@
+[
+  {
+    "template": "nox",
+    "file": "noxfile.py",
+    "tasks": [
+      {
+        "name": "lint",
+        "linux": "nox -s lint",
+        "windows": "nox -s lint"
+      },
+      {
+        "name": "tests",
+        "linux": "nox -s tests",
+        "windows": "nox -s tests"
+      },
+      {
+        "name": "docs",
+        "linux": "nox -s docs",
+        "windows": "nox -s docs"
+      },
+      {
+        "name": "type-check",
+        "linux": "nox -s type-check",
+        "windows": "nox -s type-check"
+      }
+    ]
+  },
+  {
+    "template": "nox",
+    "file": "ci/noxfile.py",
+    "tasks": [
+      {
+        "name": "build",
+        "linux": "cd ci && nox -s build",
+        "windows": "Set-Location -LiteralPath ci; if ($?) { nox -s build }"
+      }
+    ]
+  }
+]

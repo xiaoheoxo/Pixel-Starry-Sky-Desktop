@@ -50,18 +50,20 @@ interface State {
 let state: State = { tabs: [], active: null }
 const listeners = new Set<() => void>()
 const checking = new Set<string>()
+/** 正在读 HEAD 的标签 → 读的途中又被要求重读（读完再补一次，免得拿到的是提交前的 HEAD） */
+const headChecking = new Map<string, boolean>()
 function set(next: State): void {
   state = next
   listeners.forEach(l => l())
 }
+export function subscribeFiles(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => {
+    listeners.delete(cb)
+  }
+}
 export function useFiles(): State {
-  return useSyncExternalStore(
-    cb => {
-      listeners.add(cb)
-      return () => listeners.delete(cb)
-    },
-    () => state,
-  )
+  return useSyncExternalStore(subscribeFiles, () => state)
 }
 export const getFiles = (): State => state
 /** 删除会话前把文件 API 目标改为长期存在的项目；当前标签 id 不变，保留 EditorView 与草稿。 */
@@ -99,16 +101,32 @@ export interface FileRename {
 }
 
 /**
+ * 改名 / 移动 from → to 会被顶掉、还有未保存修改的标签：from 下面已打开的文件挪过去后，id 和新路径上已有的标签撞上了。
+ * 文件树在改名前用它先问（取消就不动磁盘）；确认后把这些 id 传给 renameOpenFiles 的 discard
+ */
+export function displacedDirtyFiles(ref: WorkspaceRef, from: string, to: string): OpenFile[] {
+  const moving = (tab: OpenFile): boolean => sameRef(tab.ref, ref) && under(tab.path, from)
+  const incoming = new Set(state.tabs.filter(moving).map(tab => fileTab(tab.ref, to + tab.path.slice(from.length))))
+  return state.tabs.filter(tab => !moving(tab) && incoming.has(tab.id) && dirtyFile(tab))
+}
+
+/**
  * 文件树重命名 / 移动后，已打开的标签换成新路径和新 id（id 由路径算出），草稿、编辑器（含撤销记录）都保留。
  * 原来 id 不变、只记一笔「旧 id → 新 id」：之后在旧路径新建或打开文件会算出同一个 id，打开的是改名后的文件，
  * 保存也写进它；代码模式的标签和最近文件还记着旧 id，重启后指向旧路径（审查报告 2026-10-14）。
+ * 新路径上已经有标签（文件早已不在或被外部移走、标签还留着）：没改过的去掉，免得两个标签同一个 id；
+ * 有未保存修改的只有在 discard 里（用户确认过丢弃）才去掉，否则留着它，撞上的那个标签不挪（兜底，不丢草稿）
  */
-export function renameOpenFiles(ref: WorkspaceRef, from: string, to: string): void {
+export function renameOpenFiles(ref: WorkspaceRef, from: string, to: string, discard: readonly string[] = []): void {
+  const moving = (tab: OpenFile): boolean => sameRef(tab.ref, ref) && under(tab.path, from)
+  const held = new Map(state.tabs.filter(tab => !moving(tab)).map(tab => [tab.id, tab]))
   const moves: FileRename[] = []
   const tabs = state.tabs.map(tab => {
-    if (!sameRef(tab.ref, ref) || !under(tab.path, from)) return tab
+    if (!moving(tab)) return tab
     const path = to + tab.path.slice(from.length)
     const id = fileTab(tab.ref, path)
+    const other = held.get(id)
+    if (other && dirtyFile(other) && !discard.includes(other.id)) return tab
     if (id !== tab.id) moves.push({ from: tab.id, to: id })
     return { ...tab, id, path, name: path.split('/').pop() ?? path }
   })
@@ -116,7 +134,6 @@ export function renameOpenFiles(ref: WorkspaceRef, from: string, to: string): vo
     if (tabs.some((t, i) => t !== state.tabs[i])) set({ ...state, tabs })
     return
   }
-  // 新路径以前开过、文件早已不在、标签还留着：去掉那个旧标签，免得两个标签同一个 id
   const moved = new Set(moves.map(m => m.from))
   const taken = new Set(moves.map(m => m.to))
   const kept = tabs.filter((t, i) => !(taken.has(t.id) && !moved.has(state.tabs[i].id)))
@@ -314,6 +331,48 @@ export async function checkFile(id: string): Promise<void> {
 }
 export const checkOpenFiles = (): void => {
   for (const tab of state.tabs) void checkFile(tab.id)
+}
+
+/**
+ * 重读一个文本标签的 HEAD 版本（「变更 / 并排」的基准）：在软件里提交、切分支、终端里提交以后跟上。
+ * 内容一样不更新；只读 / 非文本的标签没有基准
+ */
+export async function refreshHead(id: string): Promise<void> {
+  const tab = state.tabs.find(t => t.id === id)
+  if (isDemo || !tab || tab.document?.kind !== 'text' || tab.document.readonly) return
+  if (headChecking.has(id)) {
+    headChecking.set(id, true)
+    return
+  }
+  headChecking.set(id, false)
+  try {
+    const head = await window.pixelsky!.files.headContent(tab.ref, tab.path).catch(() => null)
+    const now = state.tabs.find(t => t.id === id)
+    // null 既可能是「HEAD 里没有这个文件」也可能是 git 出错 / 超时：已有的基准不拿 null 盖掉（真从 HEAD 里删了的，重新打开才清）
+    if (now && now.document?.kind === 'text' && head !== null && now.head !== head) updateFile(id, { head })
+  } finally {
+    const again = headChecking.get(id)
+    headChecking.delete(id)
+    if (again) await refreshHead(id)
+  }
+}
+
+/** 同时最多几个标签在读 HEAD（每个要起两次 git；一次提交后几十个标签一起读会超时） */
+const HEAD_CONCURRENCY = 3
+
+/** 重读一批标签的 HEAD 版本（match 不给就是全部），限制并发 */
+export async function refreshHeads(match?: (tab: OpenFile) => boolean): Promise<void> {
+  const ids = state.tabs.filter(t => !match || match(t)).map(t => t.id)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < ids.length) await refreshHead(ids[next++])
+  }
+  await Promise.all(Array.from({ length: Math.min(HEAD_CONCURRENCY, ids.length) }, worker))
+}
+
+/** 窗口回到前台：只核对正在看的那个标签（每个标签都核对要起很多次 git） */
+export const refreshActiveHead = (): void => {
+  if (state.active) void refreshHead(state.active)
 }
 export async function saveFile(id: string): Promise<boolean> {
   const tab = state.tabs.find(t => t.id === id)

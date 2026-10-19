@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { access, constants, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { GradleListedTask } from '../../../shared/types/project-tools'
+import { decodeConsoleText as decodeOutput, detectOemCodePage } from '@pixelsky/engine'
 import { inside } from './common'
 import { parseGradleTaskList } from './gradle'
 
@@ -89,19 +90,6 @@ function killTree(child: ChildProcess) {
   }
 }
 
-/** Windows 中文系统上 Gradle（Java）按系统代码页输出：不是合法 UTF-8 时按 GB18030 解 */
-export function decodeOutput(bytes: Uint8Array): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    try {
-      return new TextDecoder('gb18030').decode(bytes)
-    } catch {
-      return Buffer.from(bytes).toString('utf8')
-    }
-  }
-}
-
 const lastLines = (text: string, count: number) => text.trimEnd().split(/\r?\n/).slice(-count).join('\n')
 
 export function listGradleTasks(root: string, buildDir: string): Promise<GradleListedTask[]> {
@@ -137,7 +125,8 @@ export function listGradleTasks(root: string, buildDir: string): Promise<GradleL
         resolve(tasks)
       }
       void (async () => {
-        const wrapper = await detectWrapper(dir)
+        // 顺便查好系统代码页（只查一次），结束时解码输出要用
+        const [wrapper] = await Promise.all([detectWrapper(dir), detectOemCodePage()])
         if (settled) return
         const launch = gradleLaunch(process.platform, wrapper)
         const proc = spawn(launch.command, launch.args, {
@@ -149,7 +138,7 @@ export function listGradleTasks(root: string, buildDir: string): Promise<GradleL
         })
         child = proc
         timer = setTimeout(() => fail(new Error('Gradle 超过 10 分钟没有结果，已结束')), TIMEOUT_MS)
-        // 按字节收，结束时再解码（编码见 decodeOutput）
+        // 按字节收，结束时再解码（UTF-8，Windows 上退到系统代码页，见 decodeConsoleText）
         const chunks: Buffer[] = []
         let size = 0
         let tail = Buffer.alloc(0)
@@ -164,8 +153,17 @@ export function listGradleTasks(root: string, buildDir: string): Promise<GradleL
         proc.stderr?.on('data', onData)
         proc.on('error', error => fail(new Error(`无法启动 Gradle：${error.message}`)))
         proc.on('close', code => {
-          if (code === 0) done(parseGradleTaskList(decodeOutput(Buffer.concat(chunks))))
-          else fail(new Error(`gradle tasks 失败（退出码 ${code ?? '未知'}）\n${lastLines(decodeOutput(tail), 20)}`))
+          if (code === 0) {
+            done(parseGradleTaskList(decodeOutput(Buffer.concat(chunks))))
+            return
+          }
+          // 只留了末尾一段时开头可能切在字符中间：从第一个换行之后开始解
+          const from = tail.length >= TAIL_BYTES ? tail.indexOf(0x0a) + 1 : 0
+          fail(
+            new Error(
+              `gradle tasks 失败（退出码 ${code ?? '未知'}）\n${lastLines(decodeOutput(tail.subarray(from)), 20)}`,
+            ),
+          )
         })
       })().catch((error: unknown) => fail(error instanceof Error ? error : new Error(String(error))))
     }),

@@ -22,6 +22,7 @@ import { initUpdater, runPendingInstall } from './app/updater'
 import { quitWhenAllClosed } from './app/quit'
 import { initEngine } from './engine/ipc'
 import { initExtensionPacks } from './extension-packs/ipc'
+import { initExtStore } from './extension-packs/market/ipc'
 import { EXT_SCHEME_PRIVILEGES } from './extension-packs/protocol'
 import { loadShellEnv } from './app/shell-env'
 import { initMobile } from './mobile/ipc'
@@ -45,9 +46,14 @@ import {
   watchWindow,
 } from './app/responsiveness'
 import { initMemory, memoryTick, noteLoaded } from './app/memory'
+import { startupTimeline } from './app/startup-timing'
+import { rememberTheme, startSplash } from './app/splash'
+import type { SplashController } from './app/splash-controller'
 import { loadApp as loadAppPage, REACT_CRASH, watchCrashes, type CrashWatch } from './app/crashRecovery'
 import { canSend, markReady } from './app/rendererHealth'
 import { initTray, type TrayController } from './app/tray'
+import { isPayWindow } from './app/payWindowRegistry'
+import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
 import { initFeedback } from './feedback/feedback'
 import type { Locale } from '../shared/i18n/messages'
@@ -60,6 +66,9 @@ const TITLE_BAR: Record<ResolvedTheme, { color: string; symbolColor: string }> =
   dark: { color: '#1F1F1E', symbolColor: '#ECEBE7' },
 }
 const TITLE_BAR_HEIGHT = 48
+/** 主窗口默认大小和最小大小（启动时据此恢复上次的位置，开机画面也放在这个位置正中） */
+const WINDOW_DEFAULT = { width: 1568, height: 900 }
+const WINDOW_MIN = { width: 1100, height: 700 }
 
 // 截图模式：PIXELSKY_CAPTURE=<目录> 时按参考图尺寸截浅色/深色两张图后退出（见 scripts/capture.mjs）
 const captureDir = process.env.PIXELSKY_CAPTURE
@@ -74,6 +83,8 @@ if (process.platform === 'win32' && app.isPackaged) {
     /* 换不了就保持原样 */
   }
 }
+// 启动耗时打点：攒到第一个窗口画好、页面加载完才写一条汇总（app/startup-timing.ts）
+const startup = startupTimeline(fields => log.info('启动耗时', fields))
 /** 主进程共用的状态：事件、退出任务、引擎 / SSH 机器 / 项目工具（app/context.ts） */
 const ctx = createAppContext()
 initLogging(ctx) // 本机日志，见 app/logging.ts（越早越好：后面初始化出的错也要记下来）
@@ -85,6 +96,8 @@ let quitReady = false
 let quitting = false
 /** 系统托盘（app/tray.ts）；截图模式不建 */
 let tray: TrayController | null = null
+/** 启动慢时的开机画面（app/splash.ts）；截图模式不弹 */
+let splash: SplashController | null = null
 
 // 只开一份（docs/ui/tray.md §2.4）：再次启动时唤回已有的窗口（窗口可能藏在托盘里）。
 // 锁按数据目录算，演示 / 测试用别的 --user-data-dir 时互不影响；截图模式不加锁
@@ -95,7 +108,7 @@ app.on('second-instance', () => {
   if (!app.isReady()) return
   if (tray) tray.showWindow()
   else {
-    const win = BrowserWindow.getAllWindows()[0]
+    const win = BrowserWindow.getAllWindows().find(w => !isPayWindow(w))
     if (win) {
       if (win.isMinimized()) win.restore()
       win.show()
@@ -198,6 +211,8 @@ const crashWatches = new Map<Electron.WebContents, CrashWatch>()
 
 function createWindow(): BrowserWindow {
   const initial: ResolvedTheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+  // 上次的窗口位置 / 大小，对着当前显示器校验过（app/window-state.ts）；截图模式不用
+  const restored = captureDir ? null : resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN)
   const win = new BrowserWindow({
     // 截图模式使用参考图尺寸（docs/reference/workbench-session.jpg）
     width: 1568,
@@ -226,6 +241,14 @@ function createWindow(): BrowserWindow {
     },
   })
 
+  if (restored) {
+    // setBounds 用的是外框尺寸，和保存时的 getNormalBounds 一致（构造参数里的 width / height 是内容区）
+    win.setBounds(restored.bounds)
+    // Windows 跨不同缩放比的显示器时，一次 setBounds 可能被按旧显示器的缩放比换算错（Electron 已知问题）；
+    // 窗口此时是隐藏的，再设一次没有代价
+    if (process.platform === 'win32') win.setBounds(restored.bounds)
+    trackWindowState(win, restored.maximized)
+  }
   observeWindowControls(win)
   watchWindow(win)
   // 界面崩溃后自动重新加载，反复崩溃时弹对话框（app/crashRecovery.ts）
@@ -241,9 +264,22 @@ function createWindow(): BrowserWindow {
   const wc = win.webContents
   crashWatches.set(wc, crashWatch)
   win.once('closed', () => crashWatches.delete(wc))
-  win.webContents.on('did-finish-load', () => noteLoaded(win.webContents))
+  win.webContents.on('did-finish-load', () => {
+    noteLoaded(win.webContents)
+    startup.reach('didFinishLoad')
+  })
   win.once('ready-to-show', () => {
-    if (!captureDir) win.show()
+    startup.reach('readyToShow')
+    if (captureDir) return
+    const reveal = (): void => {
+      if (win.isDestroyed()) return
+      // 最大化要等页面画好再做：在隐藏窗口上调 maximize() 会让 Electron 直接把窗口显示出来（先看到一片底色）
+      if (restored?.maximized) win.maximize()
+      win.show()
+    }
+    // 开机画面弹着时，等它停够最短时间再显示主窗口，然后它淡出
+    if (splash) splash.handOff(reveal)
+    else reveal()
   })
   win.on('close', event => {
     if (captureDir || closingAllowed.has(win) || win.webContents.isDestroyed()) return
@@ -320,6 +356,7 @@ ipc.handle('app:ready', event => markReady(event.sender), { deny: '不允许的�
 ipc.on('theme:set', (event, theme: ResolvedTheme, transparent?: boolean, background?: unknown) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!win || (theme !== 'light' && theme !== 'dark')) return
+  rememberTheme(theme) // 下次开机画面用
   // 配色主题的实色底（renderer 的 --wall-tint）；格式不对就用默认暖灰
   const base =
     typeof background === 'string' && /^#[0-9a-f]{6}$/i.test(background) ? background : TITLE_BAR[theme].color
@@ -407,15 +444,22 @@ if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.pi
 protocol.registerSchemesAsPrivileged([EXT_SCHEME_PRIVILEGES])
 
 app.whenReady().then(async () => {
+  startup.step('whenReady')
+  // 主窗口 1 秒内没画好才弹开机画面，平时看不到（app/splash.ts）
+  if (!captureDir)
+    splash = startSplash({
+      near: () => resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN).bounds,
+      log: (message, fields) => log.info(message, fields),
+    })
   // 卡顿诊断：窗口没响应、主进程卡住、内存过高时写日志（docs/ui/logging.md §4.9）
   allowCallStacks(session.defaultSession, isAppUrl)
-  watchMainLoop()
+  watchMainLoop(() => ctx.engine?.memoryStats())
   // 内存：界面每次 log.sample() 进来时取主进程这边的数；这个每分钟的定时器兼做「内存占用高」分档和界面不报时的看门狗
   initMemory({
     engine: () => ctx.engine?.memoryStats() ?? { runtimes: 0, processes: 0, running: 0 },
     check: memoryChecker(),
     rendererPid: () => {
-      const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed())
+      const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && !isPayWindow(w))
       return win ? win.webContents.getOSProcessId() : null
     },
   })
@@ -426,22 +470,41 @@ app.whenReady().then(async () => {
     setAppMenu(locale)
     tray?.refresh()
   })
+  startup.step('diagnostics') // 上面的卡顿诊断、内存监控、应用菜单、界面语言
   initWindowControls()
+  startup.step('initWindowControls')
   initNotifications() // 系统通知，见 notifications/notifications.ts
+  startup.step('initNotifications')
   initAccount() // 账号登录与额度，见 account/account.ts
+  startup.step('initAccount')
   initAppInfo() // 「关于」页的版本与运行环境，见 app/info.ts
+  startup.step('initAppInfo')
   initLogIpc() // 设置 › 日志，见 app/logging.ts
+  startup.step('initLogIpc')
   initUpdater(ctx) // 自动更新（GitHub Releases），见 app/updater.ts
+  startup.step('initUpdater')
   await loadShellEnv() // macOS / Linux 从程序坞、桌面菜单启动时补回登录 shell 的 PATH，见 app/shell-env.ts
-  initExtensionPacks(ctx) // 扩展包（语法 / 主题 / 图标 / 片段 / 任务 / 技能 / 提示词），见 extension-packs/ipc.ts
+  startup.step('loadShellEnv')
+  const packs = initExtensionPacks(ctx) // 扩展包（语法 / 主题 / 图标 / 片段 / 任务 / 技能 / 提示词），见 extension-packs/ipc.ts
+  startup.step('initExtensionPacks')
+  initExtStore(ctx, packs) // 扩展商店（发现、安装、更新、我的发布），见 extension-packs/market/ipc.ts
+  startup.step('initExtStore')
   await initEngine(ctx) // 引擎系统（Claude Code 等），见 engine/ipc.ts
+  startup.step('initEngine')
   initMobile(ctx) // 手机远程连接（默认关），见 mobile/ipc.ts
+  startup.step('initMobile')
   initSettingsSync(ctx) // 设置云同步，见 account/settings-sync.ts
+  startup.step('initSettingsSync')
   initFeedback(ctx) // 设置 › 反馈（云端工单、回复提醒），见 feedback/feedback.ts
+  startup.step('initFeedback')
   await initWorkspace(ctx)
+  startup.step('initWorkspace')
   await initProjectTools(ctx)
+  startup.step('initProjectTools')
   await initChannels(ctx) // 协作频道（本机 AI 协作），见 channels/ipc.ts
+  startup.step('initChannels')
   createWindow()
+  startup.step('createWindow')
   // 系统托盘（docs/ui/tray.md）：通知区域图标、右键菜单、关闭时隐藏到托盘
   if (!captureDir)
     tray = initTray(ctx, {

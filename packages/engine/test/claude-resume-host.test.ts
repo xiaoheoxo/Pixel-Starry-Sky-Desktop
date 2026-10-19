@@ -539,6 +539,54 @@ describe('加载更早的 / 补上', () => {
     expect(notices(host, id).some(n => n.text.includes('交接') || n.level === 'warn')).toBe(false)
   })
 
+  it('回退了还没发消息（原生记录还没截断）：check / sync 都是 0、不把回退掉的轮次当新聊的，撤销回退照样成功', async () => {
+    const { host, project, cwd } = setup()
+    const file = writeNative(cwd, SID, 3)
+    const { sessionId: id } = await importIn(host, project.id)
+    await host.rewind(id, uu(3))
+    expect(host.open(id).record.pendingRewind).toBe(uu(2))
+    expect(userIds(host, id)).toEqual([uu(1)])
+    const count = host.open(id).items.length
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
+    await expect(host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0 })
+    expect(host.open(id).items).toHaveLength(count)
+    expect(host.open(id).record.pendingRewind).toBe(uu(2))
+
+    await host.undoRewind(id)
+    expect(userIds(host, id)).toEqual([uu(1), uu(3), uu(5)])
+    expect(host.open(id).record.pendingRewind ?? null).toBeNull()
+    // 撤销以后照常查
+    appendFileSync(file, rowsOf(SID, cwd, 1, 4, uu(6)))
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 1 })
+  })
+
+  it('回退后发了新消息（截断点用掉了）：被回退掉的轮次不再算终端里新聊的', async () => {
+    const { host, project, cwd } = setup()
+    writeNative(cwd, SID, 3)
+    const { sessionId: id } = await importIn(host, project.id)
+    await host.rewind(id, uu(3))
+    await say(host, id, '改', 1)
+    expect(host.open(id).record.pendingRewind ?? null).toBeNull()
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
+    expect(notices(host, id).some(n => n.action?.kind === 'native-sync')).toBe(false)
+  })
+
+  it('对话已经换了引擎会话（回退找不到截断点、回退到第一条）：原会话里的新轮次不再算「终端里新聊的」，check / sync 都是 0', async () => {
+    const { host, project, cwd } = setup()
+    const file = writeNative(cwd, SID, 3)
+    const { sessionId: id } = await importIn(host, project.id)
+    appendFileSync(file, rowsOf(SID, cwd, 1, 4, uu(6)))
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 1 })
+    // 回退找不到截断点时宿主给对话换一个新的引擎会话 id，imported.sessionId 还是原来的；前面的用户条目都还在
+    const patch = (host as unknown as { m: { events: { patchRecord(id: string, p: Partial<SessionRecord>): void } } }).m
+    patch.events.patchRecord(id, { engineSessionId: '99999999-9999-4999-8999-999999999999' })
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
+    await expect(host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0 })
+    // 回退到第一条：新会话的 id 也不是 X
+    await host.rewind(id, uu(1))
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
+  })
+
   it('复制的对话不补上：check / sync 都是 0', async () => {
     const { host, project, cwd } = setup()
     const file = writeNative(cwd, SID, 1)

@@ -71,6 +71,24 @@ export default tseslint.config(
     },
   },
   {
+    // 检查进程（utilityProcess，本机按上传标准检查扩展）：这里才允许用 extension-cli 的 check / grammar，
+    // 但和 main 一样不得导入 renderer / preload，也不导入 main（main 反过来也不能导入它，见上面的 grammar 限制）
+    files: ['apps/desktop/src/workers/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/renderer', '**/renderer/**', '**/preload', '**/preload/**', '**/main', '**/main/**'],
+              message: '检查进程只导入 extension-cli / protocol；共享 DTO 放 src/shared',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // 远端辅助进程会打包的文件（electron.remote.config.ts <- remote-entry.ts 的 import 链）与 main/core（本机和远端共用）：禁止 electron，
     // 同时保留 main 不导入 renderer / preload 的限制（同名规则会整体覆盖，所以两条写在一起）
     files: [

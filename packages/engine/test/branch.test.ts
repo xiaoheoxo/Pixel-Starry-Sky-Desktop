@@ -197,11 +197,14 @@ describe('回退：对话 / 代码 / 两者，撤销', () => {
     expect(readFileSync(file, 'utf8')).toBe('old')
     expect(userTexts(host, record.id)).toEqual(['一'])
     expect(host.open(record.id).record.pendingRewind).toBeTruthy()
+    // 列表里的「最后一句回复」退回到保留的最后一轮
+    expect(host.open(record.id).record.lastReply).toBe('收到：一')
 
     await host.undoRewind(record.id)
     expect(readFileSync(file, 'utf8')).toBe('new')
     expect(userTexts(host, record.id)).toEqual(['一', '二', '三'])
     expect(host.open(record.id).record.pendingRewind).toBeNull()
+    expect(host.open(record.id).record.lastReply).toBe('收到：三')
     // 撤销后接着聊，上下文是完整的
     await host.send(record.id, { text: '四', clientMessageId: 'm3' })
     await waitFor(() => turnsDone(record.id) === 4)
@@ -358,6 +361,9 @@ describe('分叉', () => {
     expect(forked.record.pendingFork?.from).toBe(host.open(record.id).record.engineSessionId)
     expect(userTexts(host, forked.record.id)).toEqual(['一', '二'])
     expect(userTexts(host, record.id)).toEqual(['一', '二', '三'])
+    // 预览用截断点之前最后一轮的回复，不沿用原会话的
+    expect(forked.record.lastReply).toBe('收到：二')
+    expect(host.open(record.id).record.lastReply).toBe('收到：三')
 
     await host.send(forked.record.id, { text: '另一条路', clientMessageId: 'f1' })
     await waitFor(() => turnsDone(forked.record.id) === 1)
@@ -395,6 +401,7 @@ describe('分叉', () => {
     const forked = await host.forkSession(record.id, 'm0')
     expect(host.open(forked.record.id).items).toEqual([])
     expect(forked.record.pendingFork).toBeNull()
+    expect(forked.record.lastReply).toBeNull()
   })
 })
 

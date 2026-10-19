@@ -243,6 +243,8 @@ describe('频道状态更新', () => {
   ]
   it('标已读和追加消息都返回新对象，不改原值', () => {
     expect(unreadTotal(channels)).toBe(3)
+    // 归档的频道不算进侧栏角标
+    expect(unreadTotal([channels[0], { ...channels[1], archivedAt: 1 }])).toBe(2)
     const read = markRead(channels, 'a')
     expect(read[0]).toMatchObject({ unread: 0, mentioned: false })
     expect(channels[0].unread).toBe(2)

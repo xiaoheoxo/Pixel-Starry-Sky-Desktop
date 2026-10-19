@@ -15,6 +15,7 @@ import { openEngineDetail, useEngineDetail } from './nav'
 import { DefaultBadge, ENGINE_STATUS } from './parts'
 import { canInstall, hasNewer, installEngine, outcomeTitle, updateEngine, useEngineUpdate } from './engineUpdate'
 import { JobProgress } from './JobProgress'
+import { SystemProxySettings } from './SystemProxySettings'
 import { openAuthDialog } from '@/features/model-channels/authDialogStore'
 import { mergeContextWindows } from '../models/contextWindows'
 import { demo, isDemo } from '@/data/demo'
@@ -116,6 +117,7 @@ export function EnginesSection({ onOpenModels }: { onOpenModels?: () => void }) 
           {translateMessage(error)}
         </p>
       )}
+      {isLive && <SystemProxySettings />}
     </section>
   )
 }

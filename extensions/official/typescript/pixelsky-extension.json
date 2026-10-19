@@ -1,0 +1,125 @@
+{
+  "id": "pixelsky.typescript",
+  "name": "TypeScript / JavaScript 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "TypeScript / JavaScript 的代码片段、Deno 任务，以及写测试和补类型的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["typescript", "javascript", "react", "vitest", "deno"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "TypeScript / JavaScript Support",
+      "description": "TypeScript / JavaScript snippets, Deno tasks, plus a skill and prompts for writing tests and adding types"
+    }
+  },
+  "contributes": {
+    "snippets": [
+      {
+        "language": "typescript",
+        "path": "snippets/typescript.json"
+      },
+      {
+        "language": "typescriptreact",
+        "path": "snippets/typescriptreact.json"
+      },
+      {
+        "language": "javascript",
+        "path": "snippets/javascript.json"
+      },
+      {
+        "language": "javascriptreact",
+        "path": "snippets/javascriptreact.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "deno",
+        "label": {
+          "zh": "Deno",
+          "en": "Deno"
+        },
+        "files": ["deno.json", "deno.jsonc"],
+        "extract": [
+          {
+            "pattern": "(?<!//[^\n]*)(?:(?<=\"tasks\"\\s*:\\s*\\{[^{}]*)|(?<=\"tasks\"\\s*:\\s*\\{[^{}]*\\{[^{}]*\\}[^{}]*)|(?<=\"tasks\"\\s*:\\s*\\{[^{}]*\\{[^{}]*\\}[^{}]*\\{[^{}]*\\}[^{}]*)|(?<=\"tasks\"\\s*:\\s*\\{[^{}]*\\{[^{}]*\\}[^{}]*\\{[^{}]*\\}[^{}]*\\{[^{}]*\\}[^{}]*)|(?<=\"tasks\"\\s*:\\s*\\{[^{}]*\\{[^{}]*\\}[^{}]*\\{[^{}]*\\}[^{}]*\\{[^{}]*\\}[^{}]*\\{[^{}]*\\}[^{}]*))\"([A-Za-z0-9_][A-Za-z0-9_.:@/+=-]*)\"(?=\\s*:)",
+            "flags": "g",
+            "name": 1
+          }
+        ],
+        "command": "deno task {name}",
+        "cwd": "{dir}"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/typescript-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "typescript-write-tests",
+        "title": {
+          "zh": "为选中代码写测试",
+          "en": "Write tests for the selection"
+        },
+        "description": {
+          "zh": "按项目已有的测试框架写法补测试",
+          "en": "Add tests in the project's existing test framework style"
+        },
+        "path": "prompts/write-tests.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "typescript-add-types",
+        "title": {
+          "zh": "为选中代码补类型",
+          "en": "Add types to the selection"
+        },
+        "description": {
+          "zh": "补全或收紧类型，避免 any",
+          "en": "Add or tighten types and avoid any"
+        },
+        "path": "prompts/add-types.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "typescript-convert-to-ts",
+        "title": {
+          "zh": "把选中的 JS 改成 TS",
+          "en": "Convert the selection from JS to TS"
+        },
+        "description": {
+          "zh": "加上类型并保持行为不变",
+          "en": "Add types without changing behavior"
+        },
+        "path": "prompts/convert-to-ts.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "typescript-explain-ts-error",
+        "title": {
+          "zh": "解释 TypeScript 编译错误",
+          "en": "Explain a TypeScript compiler error"
+        },
+        "description": {
+          "zh": "粘贴报错后让 AI 解释原因并给出修法",
+          "en": "Paste an error to get the cause and a fix"
+        },
+        "path": "prompts/explain-ts-error.md",
+        "where": ["composer"]
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

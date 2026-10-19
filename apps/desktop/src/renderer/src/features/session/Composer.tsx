@@ -6,6 +6,7 @@ import { IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { attachments as initialAttachments, composer, isDemo } from '@/data'
 import {
   SOURCE_ACTION_EVENT,
+  bridge,
   takePendingSourceAction,
   useDemoSourceController,
   type ComposerController,
@@ -13,7 +14,13 @@ import {
   type SourceAction,
   type StatusBarController,
 } from '@/features/engine'
-import { MAX_FILE_BYTES, MAX_FILE_COUNT, MAX_IMAGE_COUNT, MAX_IMAGE_TOTAL } from '@pixelsky/protocol'
+import {
+  MAX_FILE_BYTES,
+  MAX_FILE_COUNT,
+  MAX_IMAGE_COUNT,
+  MAX_IMAGE_TOTAL,
+  type FileAttachment,
+} from '@pixelsky/protocol'
 import { useAccount } from '@/features/account/useAccount'
 import type { CreditSource } from '@/features/account/platform'
 import { sourceOfChannel, type ChannelChoice } from '@/features/model-channels/channelModel'
@@ -49,6 +56,7 @@ import { useResumeCommand } from '@/features/resume/useResumeCommand'
 import { parseResumeCommand } from '@/features/resume/model'
 import { openResumePicker } from '@/features/resume/store'
 import { escapeStops } from './escapeStop'
+import { compactThenRetry } from './live/errorKind'
 import { tr } from '../../i18n/core'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
@@ -140,12 +148,10 @@ export function Composer({
     listId = useId()
   // 扩展提示词跟技能命令一起出现在「/」菜单里；要选中内容的提示词只在编辑器里有选中时才列出
   const promptCommands = usePromptCommands(!!activeEditorSelection())
-  // 「/resume」是像素星空自己的命令（接着终端里的 Claude Code 会话）：执行者是 Claude Code 才有；引擎哪天也给了同名命令就丢掉它的
+  // 「/resume」是像素星空自己的命令（接着终端里的 Claude Code / Codex 会话）：执行者是 Claude Code 或 Codex 才有；引擎哪天也给了同名命令就丢掉它的
   const resumeWorkspace = composerWorkspace(live?.sessionId, status, draftKey)
-  const resumeCommand = useResumeCommand(
-    (live ?? demoSource).engine?.id,
-    resumeWorkspace?.sessionId ?? resumeWorkspace?.projectId,
-  )
+  const resumeEngineId = (live ?? demoSource).engine?.id
+  const resumeCommand = useResumeCommand(resumeEngineId, resumeWorkspace?.sessionId ?? resumeWorkspace?.projectId)
   const menuCommands = useMemo(
     () => [
       ...(resumeCommand ? commands.filter(c => !(c.name === 'resume' && c.invocation !== 'skill')) : commands),
@@ -194,14 +200,18 @@ export function Composer({
   // 选择框选中时才取输入框的设置：打开时输入框可能还没准备好（刚启动），模型目录也可能还在加载
   const liveRef = useRef(live)
   liveRef.current = live
-  /** 打开「接着 Claude Code 会话」选择框；关掉回到这个输入框，打开了新对话就清掉输入框里的 /resume */
+  const executorRef = useRef(resumeEngineId)
+  executorRef.current = resumeEngineId
+  /** 打开「接着 Claude Code / Codex 会话」选择框（列当前执行者的）；关掉回到这个输入框，打开了新对话就清掉输入框里的 /resume */
   const openResume = (parsed: { id: string | null; query: string } = { id: null, query: '' }): void => {
     setCommandDismissed(true)
     openResumePicker({
+      engine: resumeEngineId === 'codex' ? 'codex' : 'claude',
       projectId: status?.project?.id ?? (isDemo ? 'demo' : null),
       query: parsed.query,
       id: parsed.id,
       settingsFor: sessionModel => liveRef.current?.resumeSettings(sessionModel),
+      executorNow: () => executorRef.current,
       onOpened: () => setText(''),
       onClosed: () => ref.current?.focus(),
     })
@@ -288,6 +298,18 @@ export function Composer({
       void live
         .submit(tr('session.live.NoticeActions.retryMessage'))
         .catch((e: unknown) => setError((e as Error).message))
+        .finally(() => (retrying.current = false))
+    } else if (a === 'compact-retry') {
+      // 上下文超限：先把 /compact 排进队列，再发「继续」——它排在压缩后面，压缩完才轮到；压缩发不出去（引擎不支持、正忙）就不发了
+      if (!live || live.running || retrying.current || !live.sessionId) return
+      retrying.current = true
+      setError(null)
+      const id = live.sessionId
+      const b = bridge
+      void compactThenRetry(b ? () => b.compact(id) : undefined, () =>
+        live.submit(tr('session.live.NoticeActions.retryMessage')),
+      )
+        .catch((e: unknown) => setError(translateMessage((e as Error).message)))
         .finally(() => (retrying.current = false))
     } else if (a === 'open-menu') setMenuOpen(true)
     else if (a === 'use-self') requestSource('self')
@@ -382,9 +404,17 @@ export function Composer({
       setError(tr('composer.file.tooLarge', { p0: large.name }))
       return
     }
+    // 本机会话：记下原文件在磁盘上的路径，截断了的智能体可以按路径读完整文件（远程机器看不到本机路径，不带）
+    const workspace = composerWorkspace(live?.sessionId, status, draftKey)
+    const local = machineOf(workspace?.sessionId ?? workspace?.projectId) === 'local'
+    const withPath = async (file: File): Promise<FileAttachment> => {
+      const read = await readTextFile(file)
+      const path = local ? (window.pixelsky?.pathForFile(file) ?? '') : ''
+      return path ? { ...read, path } : read
+    }
     read(async () => {
       // 一个读不了不耽误别的：读成的照常加进来，读不了的说原因
-      const results = await Promise.allSettled(others.map(readTextFile))
+      const results = await Promise.allSettled(others.map(withPath))
       const loaded = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []))
       if (loaded.length) await updateFiles(key, current => [...current, ...loaded])
       const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')

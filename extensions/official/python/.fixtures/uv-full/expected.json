@@ -1,0 +1,92 @@
+[
+  {
+    "template": "uv",
+    "file": "uv.lock",
+    "tasks": [
+      {
+        "name": "sync",
+        "description": "按锁文件安装依赖",
+        "linux": "uv sync",
+        "windows": "uv sync"
+      },
+      {
+        "name": "lock",
+        "description": "更新锁文件",
+        "linux": "uv lock",
+        "windows": "uv lock"
+      }
+    ]
+  },
+  {
+    "template": "uv-run",
+    "file": "uv.lock",
+    "tasks": [
+      {
+        "name": "pytest",
+        "description": "运行测试",
+        "linux": "uv run pytest",
+        "windows": "uv run pytest"
+      }
+    ]
+  },
+  {
+    "template": "uv-mypy",
+    "file": "uv.lock",
+    "tasks": [
+      {
+        "name": "mypy",
+        "description": "mypy 类型检查",
+        "linux": "uv run mypy .",
+        "windows": "uv run mypy ."
+      }
+    ]
+  },
+  {
+    "template": "uv-ruff",
+    "file": "uv.lock",
+    "tasks": [
+      {
+        "name": "check",
+        "description": "Ruff 检查",
+        "linux": "uv run ruff check .",
+        "windows": "uv run ruff check ."
+      },
+      {
+        "name": "format",
+        "description": "Ruff 格式化",
+        "linux": "uv run ruff format .",
+        "windows": "uv run ruff format ."
+      }
+    ]
+  },
+  {
+    "template": "uv",
+    "file": "services/api/uv.lock",
+    "tasks": [
+      {
+        "name": "sync",
+        "description": "按锁文件安装依赖",
+        "linux": "cd services/api && uv sync",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { uv sync }"
+      },
+      {
+        "name": "lock",
+        "description": "更新锁文件",
+        "linux": "cd services/api && uv lock",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { uv lock }"
+      }
+    ]
+  },
+  {
+    "template": "uv-run",
+    "file": "services/api/uv.lock",
+    "tasks": [
+      {
+        "name": "pytest",
+        "description": "运行测试",
+        "linux": "cd services/api && uv run pytest",
+        "windows": "Set-Location -LiteralPath services/api; if ($?) { uv run pytest }"
+      }
+    ]
+  }
+]

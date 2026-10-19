@@ -1,16 +1,13 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '../../../i18n/core'
 // 每轮的过程收成一行「执行」（docs/ui/conversation-concise.md §3）：点开看全部；运行中露出最近 2 条
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { ChevronRight, Layers } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
-import { StatusDot } from './StatusDot'
 import { REQUEST_MS, useExpandAny } from '@/features/search/expand'
 import { formatDuration } from './agentTrace'
 import { summarize, type ProcessSummary } from './turnFold'
-import { STEP_CLOCK_MS, WAIT_CLOCK_MS, clockText, currentStep, stepText, waitingFor } from './currentStep'
-import { useSince } from './stepClock'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 
 /** 运行中收起时露出的最近几条 */
@@ -34,58 +31,33 @@ function summaryText(s: ProcessSummary, steps: number): string {
   return parts.length ? parts.join(tr('session.process.joiner')) : tr('session.process.steps', { n: steps })
 }
 
-/**
- * 运行中「执行」行写现在在干什么（docs/ui/conversation-concise.md §7），代替累计的概要：
- * 有在跑的一步就写这一步（超过 3 秒带用时，并行的写「等 N 项」）；两步之间写在等什么（超过 5 秒带已等的时间）；
- * 正在输出文字、等你批准时照旧写累计概要。结束后写最终概要
- */
-function useActivity(items: Item[], running: boolean, live: boolean): string | null {
-  const step = running ? currentStep(items) : null
-  const last = items[items.length - 1]
-  const writing = last?.kind === 'assistant' && last.status === 'running'
-  const waiting = running && live && !step && !writing ? waitingFor(items) : null
-  const key = step ? `step:${step.item.id}` : waiting ? `wait:${last?.id ?? ''}:${waiting}` : null
-  const since = useSince(key, running)
-  if (step) {
-    const parts = [stepText(step.item)]
-    if (step.more > 0) parts.push(tr('session.step.more', { n: step.more }))
-    if (since >= STEP_CLOCK_MS) parts.push(clockText(since, formatDuration))
-    return parts.join(' · ')
-  }
-  if (waiting) {
-    const text = tr(`session.wait.${waiting}`)
-    return since >= WAIT_CLOCK_MS ? `${text} · ${clockText(since, formatDuration)}` : text
-  }
-  return null
-}
-
 export function TurnProcess({
   items,
   running,
-  live = running,
   durationMs,
+  toggled,
+  onToggle,
   render,
 }: {
   items: Item[]
   running: boolean
-  /** 引擎正在干活（不是在等你批准 / 回答）：只有这时两步之间才写「正在看结果」这类等待 */
-  live?: boolean
   durationMs: number | null
+  /** 点开 / 收起的状态由外面管（运行中底部的状态行也能展开它）：null 是还没点过，按极简模式的默认 */
+  toggled: boolean | null
+  onToggle: (open: boolean) => void
   /** 显示一组过程条目（LiveTranscript 的工具行分组、思考、待办、过渡话） */
   render: (items: Item[]) => ReactNode
 }) {
   useI18n()
-  const activity = useActivity(items, running, live)
   // 极简模式（docs/ui/minimal-mode.md §3、§4）：和 Factory 一样每一步都摊开，一条一行；点过就按点的来
   const minimal = useMinimal()
-  const [toggled, setToggled] = useState<boolean | null>(null)
   const open = toggled ?? minimal
   // 对话内搜索的「展开」、全局搜索跳到里面的条目：执行块先展开，里面的条目自己再展开
   const ids = useMemo(() => items.map(i => i.id), [items])
   const requested = useExpandAny(ids)
   useEffect(() => {
-    if (requested && Date.now() - requested < REQUEST_MS) setToggled(true)
-  }, [requested])
+    if (requested && Date.now() - requested < REQUEST_MS) onToggle(true)
+  }, [requested, onToggle])
   const summary = useMemo(() => summarize(items), [items])
   // 隐藏了内容的思考（只剩「思考了 N 秒」或什么都不显示）不算步数，也不占运行中露出的那几条
   const shown = useMemo(
@@ -101,27 +73,16 @@ export function TurnProcess({
         type="button"
         aria-expanded={open}
         title={tr(open ? 'session.process.collapse' : 'session.process.expand')}
-        onClick={() => setToggled(!open)}
+        onClick={() => onToggle(!open)}
         className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-list text-fg-muted hover:bg-hover hover:text-fg-secondary"
       >
-        {running ? (
-          <StatusDot status="running" className="mr-0.5" />
-        ) : (
-          <Layers size={15} strokeWidth={1.5} className="mr-0.5 shrink-0" />
-        )}
-        <span className="shrink-0 text-fg-secondary">
-          {tr(running ? 'session.process.running' : 'session.process.title')}
-        </span>
+        {/* 运行中也只是安静的标题：在做什么写在底部的状态行上（LiveStatusLine），这里不再重复、不再闪 */}
+        <Layers size={15} strokeWidth={1.5} className="mr-0.5 shrink-0" />
+        <span className="shrink-0 text-fg-secondary">{tr('session.process.title')}</span>
         <span aria-hidden className="shrink-0 text-fg-faint">
           ·
         </span>
-        <span
-          data-activity={activity ? '' : undefined}
-          className={cn('min-w-0 truncate', activity && 'text-fg-secondary tabular-nums')}
-          title={activity ?? undefined}
-        >
-          {activity ?? summaryText(summary, shown.length)}
-        </span>
+        <span className="min-w-0 truncate">{summaryText(summary, shown.length)}</span>
         {summary.failed > 0 && (
           <span className="shrink-0 text-danger">
             <span aria-hidden className="mr-1.5 text-fg-faint">

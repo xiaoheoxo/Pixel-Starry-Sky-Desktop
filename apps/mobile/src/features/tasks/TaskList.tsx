@@ -1,15 +1,16 @@
-// 概览：当前电脑所有项目的会话，分「等你处理 / 运行中 / 最近」（docs/mobile-remote.md §8.3、§18.3）。
-// 搜索（标题在手机上筛，对话内容问电脑）、按项目筛、「最近」显示更多（§17 第 6 项）。
-// 按项目看在抽屉的「工作区」里；左上角的菜单按钮由 App 传进来。
+// 首页 = 会话列表（C3，docs/mobile-remote.md §21.3）：「等你处理」置顶，其余置顶的在前、再按时间排。
+// 每行是引擎头像（角上状态点）、标题、时间、项目名和最后一句回复（ui/SessionRow）。
+// 搜索（标题在手机上筛，对话内容问电脑）、按项目筛、显示更多（§17 第 6 项）；左上角的菜单按钮由 App 传进来。
 import { useState, type ReactNode } from 'react'
 import { CloudOff, Inbox, Laptop, Plus, SearchX, ShieldOff, WifiOff } from 'lucide-react'
-import { ENGINES, type SessionSummary } from '@pixelsky/protocol'
+import type { SessionSummary } from '@pixelsky/protocol'
 import type { Pairing } from '@/connection'
 import { useContentSearch, useDesktop } from '@/data/hooks'
-import { RECENT_STEP, ago, filterTasks, groupTasks, recentCount, taskProjects, taskTitle } from '@/data/tasks'
+import { RECENT_STEP, ago, filterTasks, sessionList, sessionStatus, taskProjects, taskTitle } from '@/data/tasks'
 import { linkStateText } from '@/i18n/zh'
-import { Badge, Banner, Button, Dot, Empty, IconButton, Screen, Section, Spinner, cn } from '@/ui'
+import { Banner, Button, Dot, Empty, IconButton, Screen, Section, Spinner } from '@/ui'
 import { Chips, ContentResults, SearchField } from '@/ui/search'
+import { SessionRow } from '@/ui/SessionRow'
 
 export function TaskList({
   pairing,
@@ -22,7 +23,7 @@ export function TaskList({
   onOpen(sessionId: string): void
   onNew(): void
 }) {
-  const { state, sessions, projects, loaded } = useDesktop(pairing.deviceId)
+  const { state, sessions, projects, loaded, cached } = useDesktop(pairing.deviceId)
   const [query, setQuery] = useState('')
   const [project, setProject] = useState('')
   const [recentLimit, setRecentLimit] = useState(RECENT_STEP)
@@ -31,8 +32,9 @@ export function TaskList({
   // 筛的项目没有任务了（被删、归档）就回到全部
   const projectId = withTasks.some(p => p.id === project) ? project : null
   const filtered = filterTasks(sessions, query, projectId, projectName)
-  const groups = groupTasks(filtered, recentLimit)
-  const moreRecent = recentCount(filtered) - groups.recent.length
+  const list = sessionList(filtered, recentLimit)
+  // 只有一个项目、或已经按项目筛了：行里不再写项目名
+  const showProject = withTasks.length > 1 && !projectId
   const searching = !!query.trim()
   const content = useContentSearch(pairing.deviceId, query, projectId)
   const ready = state === 'ready'
@@ -41,7 +43,7 @@ export function TaskList({
   return (
     <Screen
       large
-      title="概览"
+      title="会话"
       leading={menu}
       subtitle={
         <span className="inline-flex items-center gap-1.5 rounded-full bg-subtle px-2.5 py-1 text-meta text-fg-secondary">
@@ -84,7 +86,7 @@ export function TaskList({
         <div className="flex flex-col gap-5 pb-6">
           {!ready && (
             <Banner tone="warn" icon={<CloudOff size={18} />}>
-              {state ? linkStateText[state] : ''}：下面是断开前的内容，恢复后会自动更新。
+              {state ? linkStateText[state] : ''}：下面是{cached ? '上次打开时' : '断开前'}的内容，恢复后会自动更新。
             </Banner>
           )}
           {sessions.length === 0 ? (
@@ -110,21 +112,26 @@ export function TaskList({
                   />
                 )}
               </div>
-              <Group title="等你处理" tone="danger" list={groups.waiting} project={projectName} onOpen={onOpen} />
-              <Group title="运行中" tone="online" list={groups.running} project={projectName} onOpen={onOpen} />
               <Group
-                title={searching ? '标题匹配' : '最近'}
-                list={groups.recent}
-                project={projectName}
+                title="等你处理"
+                tone="danger"
+                list={list.waiting}
+                project={showProject ? projectName : undefined}
+                onOpen={onOpen}
+              />
+              <Group
+                title={searching ? '标题匹配' : list.waiting.length ? '其他会话' : undefined}
+                list={list.rest}
+                project={showProject ? projectName : undefined}
                 onOpen={onOpen}
                 more={
-                  moreRecent > 0 && (
+                  list.more > 0 && (
                     <button
                       type="button"
                       onClick={() => setRecentLimit(n => n + RECENT_STEP)}
                       className="flex min-h-12 w-full items-center justify-center border-t border-line-subtle text-meta text-accent-fg active:bg-hover"
                     >
-                      显示更多（还有 {moreRecent} 个）
+                      显示更多（还有 {list.more} 个）
                     </button>
                   )
                 }
@@ -161,10 +168,10 @@ function Group({
   onOpen,
   more,
 }: {
-  title: string
-  tone?: 'danger' | 'online'
+  title?: string
+  tone?: 'danger'
   list: SessionSummary[]
-  project(s: SessionSummary): string
+  project?(s: SessionSummary): string
   onOpen(id: string): void
   more?: ReactNode
 }) {
@@ -172,44 +179,28 @@ function Group({
   return (
     <Section
       title={
-        <>
-          {tone && <Dot tone={tone} pulse={tone === 'online'} />}
-          {title}
-          <span className="text-fg-faint">{list.length}</span>
-        </>
+        title && (
+          <>
+            {tone && <Dot tone={tone} />}
+            {title}
+            <span className="text-fg-faint">{list.length}</span>
+          </>
+        )
       }
     >
       {list.map((s, i) => (
-        <button
+        <SessionRow
           key={s.record.id}
-          type="button"
+          engine={s.record.engine}
+          title={taskTitle(s)}
+          time={ago(s.record.updatedAt)}
+          project={project?.(s)}
+          preview={s.record.lastReply}
+          status={sessionStatus(s)}
+          pinned={!!s.record.pinnedAt && s.state !== 'waiting'}
+          divider={i > 0}
           onClick={() => onOpen(s.record.id)}
-          className={cn(
-            'flex w-full items-start gap-3 px-4 py-3.5 text-left active:bg-hover',
-            i > 0 && 'border-t border-line-subtle',
-          )}
-        >
-          <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className={cn('line-clamp-2 text-ui', tone === 'danger' && 'font-medium')}>{taskTitle(s)}</span>
-            <span className="flex min-w-0 items-center gap-1.5 text-meta text-fg-muted">
-              <span className="truncate">{project(s)}</span>
-              <span className="shrink-0 text-fg-faint">·</span>
-              <span className="shrink-0">{ENGINES[s.record.engine]?.name ?? ''}</span>
-              <span className="shrink-0 text-fg-faint">·</span>
-              <span className="shrink-0">{ago(s.record.updatedAt)}</span>
-            </span>
-          </span>
-          <span className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-            {s.state === 'waiting' && <Badge tone="danger">等你处理</Badge>}
-            {(s.state === 'running' || s.state === 'starting') && (
-              <Badge tone="accent">
-                <Spinner size={10} /> 运行中
-              </Badge>
-            )}
-            {!!s.queue?.queued && <Badge>排队 {s.queue.queued}</Badge>}
-            {!!s.queue?.failed && <Badge tone="warn">失败 {s.queue.failed}</Badge>}
-          </span>
-        </button>
+        />
       ))}
       {more}
     </Section>

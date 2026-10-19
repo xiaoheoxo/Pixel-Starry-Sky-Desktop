@@ -1,9 +1,9 @@
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkInput, UsageError } from '../src/lib/check'
+import { checkInput, ToolError, UsageError } from '../src/lib/check'
 import { folderPackFiles } from '../src/lib/folder'
 import { writePackZip } from '../src/lib/zip-write'
 import { withoutTiming } from './helpers/timing'
@@ -162,4 +162,23 @@ describe('文件夹和 zip 同一个扩展', () => {
     expect(r.grammar).toBeNull()
     expect(r.verdict.pass).toBe(false)
   })
+})
+
+describe('checkInput workerUrl', () => {
+  it('runner 为 worker 时，语法 worker 跑的是传进来的 workerUrl', async () => {
+    // 这个 worker 一启动就报 fatal：只要被它拿去跑，checkInput 就抛带这句话的 ToolError
+    const file = join(tempDir(), 'fake-worker.mjs')
+    writeFileSync(
+      file,
+      "import { parentPort } from 'node:worker_threads'\nparentPort.postMessage({ type: 'fatal', error: 'custom-worker-used' })\n",
+    )
+    const err = await checkInput(DOTENV, {
+      level: 'upload',
+      grammar: 'full',
+      runner: 'worker',
+      workerUrl: pathToFileURL(file),
+    }).catch(e => e)
+    expect(err).toBeInstanceOf(ToolError)
+    expect(err.message).toContain('custom-worker-used')
+  }, 30_000)
 })

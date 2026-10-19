@@ -1,0 +1,16 @@
+[
+  {
+    "template": "cmake-preset-configure",
+    "file": "CMakePresets.json",
+    "tasks": [
+      { "name": "a-release", "linux": "cmake --preset a-release", "windows": "cmake --preset a-release" }
+    ]
+  },
+  {
+    "template": "cmake-preset-build",
+    "file": "CMakePresets.json",
+    "tasks": [
+      { "name": "b-release", "linux": "cmake --build --preset b-release", "windows": "cmake --build --preset b-release" }
+    ]
+  }
+]

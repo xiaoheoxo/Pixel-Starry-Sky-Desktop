@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { createPortal } from 'react-dom'
-import { CornerDownLeft, FolderGit2, Info, Search, X } from 'lucide-react'
+import { CornerDownLeft, FolderGit2, Info, RefreshCw, Search, X } from 'lucide-react'
 import type { NativeSessionDetail, NativeSessionSummary } from '@pixelsky/protocol'
 import { Button, IconButton, Spinner, cn } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -26,11 +26,13 @@ import {
   moveSelection,
   needsChoice,
   rowStatus,
+  unreadableText,
   type NavKey,
   type ResumeGroups,
   type ResumeRow,
 } from './model'
-import { closeResumePicker, type ResumeRequest } from './store'
+import { RESUME_ENGINE_NAMES, closeResumePicker, type ResumeEngine, type ResumeRequest } from './store'
+import { refreshResumeCounts } from './hint'
 
 /** 第二步每批补多少行（对着屏幕上能看到的行逐批补） */
 const TAIL_BATCH = 8
@@ -41,6 +43,8 @@ const NAV_KEYS: readonly string[] = ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp
 // ---------------------------------------------------------------------------
 
 export interface PickerViewProps {
+  /** 列哪个引擎的会话（标题、空状态、错误、帮助按它换文字） */
+  engine: ResumeEngine
   groups: ResumeGroups
   query: string
   selectedId: string | null
@@ -65,6 +69,7 @@ export interface PickerViewProps {
   onActivate(row: ResumeRow, how: ChooseHow): void
   onWait(row: ResumeRow): void
   onCancelImport(): void
+  /** 重试 / 重新查找：重新列一遍（不用缓存） */
   onRetry(): void
   onHelp(): void
   onClose(): void
@@ -177,7 +182,13 @@ function Row({
       )}
       {choice && (
         <div data-resume-choice className="mt-1.5 flex flex-col gap-1.5">
-          <p className="text-meta text-fg-muted">{tr(`resume.liveNote.${status!}`)}</p>
+          <p className="text-meta text-fg-muted">
+            {tr(
+              status === 'maybe' && view.engine === 'codex'
+                ? 'resume.liveNote.maybe.codex'
+                : `resume.liveNote.${status!}`,
+            )}
+          </p>
           <div className="flex flex-wrap items-center gap-1.5">
             {copyFirst ? (
               <>
@@ -237,19 +248,35 @@ function Row({
   )
 }
 
-export function ResumePickerView(view: PickerViewProps) {
-  useI18n()
-  const { groups } = view
-  const total = groups.all.length
-  const empty = !view.loading && !view.error && total === 0
-  const help = [
+const HELP_KEYS = {
+  claude: [
     'resume.help.switch',
     'resume.help.history',
     'resume.help.live',
     'resume.help.newer',
     'resume.help.context',
     'resume.help.engine',
-  ] as const
+  ],
+  codex: [
+    'resume.help.switch',
+    'resume.help.history',
+    'resume.help.codex.live',
+    'resume.help.newer',
+    'resume.help.codex.context',
+    'resume.help.codex.idle',
+    'resume.help.codex.revert',
+    'resume.help.codex.legacy',
+    'resume.help.codex.engine',
+  ],
+} as const
+
+export function ResumePickerView(view: PickerViewProps) {
+  useI18n()
+  const { groups } = view
+  const total = groups.all.length
+  const empty = !view.loading && !view.error && total === 0
+  const help = HELP_KEYS[view.engine]
+  const engineName = RESUME_ENGINE_NAMES[view.engine]
   const indexOf = (row: ResumeRow): number => groups.all.indexOf(row)
   return (
     <div
@@ -264,7 +291,7 @@ export function ResumePickerView(view: PickerViewProps) {
           id="resume-title"
           className="flex min-w-0 flex-1 items-baseline gap-3 text-ui font-medium text-fg-secondary"
         >
-          <span className="shrink-0">{tr('resume.title')}</span>
+          <span className="shrink-0">{tr('resume.title', { engine: engineName })}</span>
           {view.projectPath && (
             <span className="min-w-0 truncate text-label font-normal text-fg-faint" title={view.projectPath}>
               {view.projectPath}
@@ -277,6 +304,15 @@ export function ResumePickerView(view: PickerViewProps) {
             {tr('resume.reading')}
           </span>
         )}
+        <IconButton
+          icon={RefreshCw}
+          label={tr('resume.hint.recheck')}
+          data-resume-action="recheck"
+          size={24}
+          iconSize={14}
+          disabled={view.noProject || view.loading}
+          onClick={view.onRetry}
+        />
         <IconButton
           icon={Info}
           label={tr('resume.help')}
@@ -359,15 +395,24 @@ export function ResumePickerView(view: PickerViewProps) {
             data-resume-error
             className="flex flex-col items-center gap-3 px-4 py-9 text-center text-ui text-fg-muted"
           >
-            <span>{tr('resume.unreadable', { error: translateMessage(view.error) })}</span>
+            <span>{unreadableText(view.engine, view.error)}</span>
             <Button data-resume-action="retry" onClick={view.onRetry}>
               {tr('resume.retry')}
             </Button>
           </div>
         )}
         {empty && !view.noProject && (
-          <div role="status" data-resume-empty className="px-4 py-9 text-center text-ui text-fg-muted">
-            {view.query.trim() ? tr('resume.noMatch') : tr('resume.empty')}
+          <div
+            role="status"
+            data-resume-empty
+            className="flex flex-col items-center gap-3 px-4 py-9 text-center text-ui text-fg-muted"
+          >
+            <span>{view.query.trim() ? tr('resume.noMatch') : tr('resume.empty', { engine: engineName })}</span>
+            {!view.query.trim() && (
+              <Button data-resume-action="recheck-empty" onClick={view.onRetry}>
+                {tr('resume.hint.recheck')}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -407,6 +452,7 @@ function focusNewComposer(id: string, left = 30): void {
 export function ResumePicker({ request }: { request: ResumeRequest }) {
   useI18n()
   const projectId = request.projectId
+  const engine = request.engine
   const project = useEngineState(s => s.projects.find(p => p.id === projectId) ?? null)
   const [rows, setRows] = useState<NativeSessionSummary[] | null>(null)
   const [details, setDetails] = useState<ReadonlyMap<string, NativeSessionDetail>>(() => new Map())
@@ -437,13 +483,13 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
     let dead = false
     setError(null)
     requested.current = new Set()
-    listNativeSessions(projectId, { subfolders: true })
+    listNativeSessions(projectId, { engine, subfolders: true })
       .then(list => !dead && setRows(list))
       .catch((e: unknown) => !dead && (setRows([]), setError((e as Error).message)))
     return () => {
       dead = true
     }
-  }, [projectId, attempt])
+  }, [projectId, attempt, engine])
 
   // 第二步：按显示顺序逐批补尾部（最后一句、标题、模型）；补上时行不跳位（排序按修改时间）
   useEffect(() => {
@@ -456,7 +502,7 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
         const ids = order.slice(i, i + TAIL_BATCH).filter(id => !requested.current.has(id))
         if (!ids.length) continue
         ids.forEach(id => requested.current.add(id))
-        const got = await nativeSessionDetails(projectId, ids).catch(() => [] as NativeSessionDetail[])
+        const got = await nativeSessionDetails(projectId, ids, engine).catch(() => [] as NativeSessionDetail[])
         if (dead) return
         setDetails(prev => new Map([...prev, ...got.map(d => [d.id, d] as const)]))
       }
@@ -465,7 +511,7 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
     return () => {
       dead = true
     }
-  }, [projectId, rows])
+  }, [projectId, rows, engine])
 
   // 关掉选择框时还没读完的导入取消，不建对话
   useEffect(
@@ -503,6 +549,9 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
 
   const activate = async (row: ResumeRow, how: ChooseHow = 'default'): Promise<void> => {
     if (busyRef.current || !projectId) return
+    // 打开之后执行者被换了（比如在别的窗口）：设置是按新执行者算的，不导入，请重新打开
+    const executor = request.executorNow?.()
+    if (executor && executor !== engine) return void setNotice(tr('resume.executorChanged'))
     // 点过「我去那边关掉再来」的行：再按 Enter 重新查一次，不开着了就原地导入，还开着就照旧给两个按钮
     if (how === 'default' && waiting.has(row.id)) how = 'inplace'
     if (row.ownerId) return void handle({ kind: 'owned', sessionId: row.ownerId }, row)
@@ -513,8 +562,8 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
     try {
       const outcome = await chooseRow(row, how, {
         token,
-        importSession: (id, opts) => importNativeSession(projectId, id, opts),
-        modelOf: async id => (await nativeSessionDetails(projectId, [id]))[0]?.model ?? null,
+        importSession: (id, opts) => importNativeSession(projectId, id, { ...opts, engine }),
+        modelOf: async id => (await nativeSessionDetails(projectId, [id], engine))[0]?.model ?? null,
         settingsFor: model => settingsWhenReady(request.settingsFor, model),
       })
       if (busyRef.current?.token !== token) return
@@ -604,6 +653,7 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
     >
       <div ref={dialog} className="contents" onKeyDown={onKeyDown}>
         <ResumePickerView
+          engine={engine}
           groups={groups}
           query={query}
           selectedId={selected?.id ?? null}
@@ -633,7 +683,10 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
           }}
           onRetry={() => {
             setRows(null)
+            setDetails(new Map())
             setAttempt(n => n + 1)
+            // 导入提示、空状态的计数跟着更新
+            if (projectId && isLive) void refreshResumeCounts(projectId)
           }}
           onHelp={() => setHelp(v => !v)}
           onClose={() => closeResumePicker()}

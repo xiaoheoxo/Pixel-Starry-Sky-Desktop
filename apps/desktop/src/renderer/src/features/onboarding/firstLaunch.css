@@ -1,0 +1,59 @@
+/* 第一次打开的欢迎页：左边的品牌区（docs/ui/first-launch-login-mockup.html）。
+   浅色主题是米白暖底、深色字；深色主题是深色暖底、米白字。右边用软件自己的颜色 */
+.first-launch-brand {
+  --fl-bg: #efe7db;
+  --fl-bg-2: #f7f2eb;
+  --fl-text: #1d1915;
+  --fl-muted: rgba(29, 25, 21, 0.6);
+  --fl-star: #d2692e;
+  --fl-pixel: 0.55;
+  --fl-glow: rgba(210, 105, 46, 0.14);
+  --fl-glow-2: rgba(45, 97, 81, 0.07);
+  position: relative;
+  overflow: hidden;
+  color: var(--fl-text);
+  background:
+    radial-gradient(120% 70% at 85% 110%, var(--fl-glow), transparent 60%),
+    radial-gradient(90% 60% at -10% -10%, var(--fl-glow-2), transparent 60%),
+    linear-gradient(170deg, var(--fl-bg-2), var(--fl-bg) 55%);
+  box-shadow: inset -1px 0 0 var(--border-layout);
+}
+:root[data-theme='dark'] .first-launch-brand {
+  --fl-bg: #15120f;
+  --fl-bg-2: #231c16;
+  --fl-text: #f3e9dc;
+  --fl-muted: rgba(243, 233, 220, 0.62);
+  --fl-star: #f0a764;
+  --fl-pixel: 1;
+  --fl-glow: rgba(240, 167, 100, 0.22);
+  --fl-glow-2: rgba(127, 196, 168, 0.1);
+}
+.first-launch-sky {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--fl-pixel);
+}
+.first-launch-sky i {
+  position: absolute;
+  background: var(--fl-text);
+}
+.first-launch-sky svg {
+  position: absolute;
+  fill: var(--fl-star);
+}
+.first-launch-brand em {
+  font-style: normal;
+  color: var(--fl-star);
+}
+.first-launch-muted {
+  color: var(--fl-muted);
+}
+/* macOS 的红绿灯在左上角，标志往下让一让 */
+:root[data-platform='darwin'] .first-launch-brand {
+  padding-top: 56px;
+}
+/* 核对码：一个字符一格 */
+.first-launch-code {
+  font-family: var(--font-mono);
+}

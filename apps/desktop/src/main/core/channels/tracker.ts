@@ -2,7 +2,7 @@
 // 纯函数：输入一项活的运行信息和一个事件，返回新的运行信息、要改的任务卡字段，以及这一轮是不是结束了。
 import { diffStat } from '@pixelsky/protocol'
 import type { ApprovalRequest, EngineEvent, Item, SessionSnapshot } from '@pixelsky/protocol'
-import type { ChannelTask } from '../../../shared/types/channels'
+import type { ChannelActivity, ChannelStep, ChannelTask } from '../../../shared/types/channels'
 
 /** 团队频道派来的活（Phase C §9.1）：任务卡在云端，状态写回云端；本机运行信息照存 runs.json */
 export interface TeamRunRef {
@@ -47,6 +47,8 @@ export interface TaskRun {
   /** 这一轮最后一条 assistant 回复 */
   reply: string | null
   progress: { done: number; total: number } | null
+  /** 这一轮「正在做什么」（任务卡上显示）；旧数据没有 */
+  activity?: ChannelActivity | null
   /** 这一轮还没做完时追加的要求，做完后接着发 */
   followUps: string[]
   /** 最后一个错误通知（对账时当失败原因） */
@@ -94,6 +96,8 @@ export interface Tracked {
 
 export const clientMessageId = (taskId: string, round: number): string => `ch-${taskId}-${round}`
 
+const STARTED = new Set<Item['kind']>(['todo', 'command', 'file_change', 'tool'])
+
 const isRunUser = (run: TaskRun, item: Item): boolean =>
   item.kind === 'user' &&
   !!run.clientMessageId &&
@@ -106,14 +110,60 @@ function progressOf(item: Extract<Item, { kind: 'todo' }>): TaskRun['progress'] 
   return { done: item.steps.filter(s => s.status === 'completed').length, total: item.steps.length }
 }
 
-/** 这一轮里的条目：更新回复、改动、进度、错误通知 */
-function absorb(run: TaskRun, item: Item): TaskRun {
+/** 任务卡上留最近几步（悬停时列出来） */
+export const ACTIVITY_STEPS = 3
+/** AI 说的那一句最多这么长（第一行；界面再按宽度省略） */
+const SAY_MAX = 200
+/** 一步的命令 / 标题最多这么长 */
+const STEP_TEXT_MAX = 300
+
+const clip = (text: string, max: number): string => (text.length > max ? text.slice(0, max) : text)
+
+/** 条目 → 任务卡上的一步；思考、待办等不算 */
+function stepOf(item: Item, at: number): ChannelStep | null {
+  if (item.kind !== 'command' && item.kind !== 'file_change' && item.kind !== 'tool') return null
+  const base = { id: item.id, at, running: item.status === 'running' }
+  if (item.kind === 'command')
+    return { ...base, kind: 'command', command: clip(item.command, STEP_TEXT_MAX), description: item.description }
+  if (item.kind === 'file_change')
+    return {
+      ...base,
+      kind: 'file_change',
+      changes: item.changes.slice(0, 20).map(c => ({ kind: c.kind, path: c.path })),
+    }
+  return { ...base, kind: 'tool', tool: item.tool, name: item.name, title: clip(item.title, STEP_TEXT_MAX) }
+}
+
+/** 记下一步：同一步（开始 → 完成）原地更新、保留第一次看到的时间；新的一步接在后面，只留最近几步 */
+function withStep(activity: ChannelActivity | null | undefined, step: ChannelStep): ChannelActivity {
+  const steps = activity?.steps ?? []
+  const i = steps.findIndex(s => s.id === step.id)
+  const next =
+    i >= 0 ? steps.map((s, j) => (j === i ? { ...step, at: s.at } : s)) : [...steps, step].slice(-ACTIVITY_STEPS)
+  return { steps: next, say: activity?.say ?? null }
+}
+
+/** 这一轮里的条目：更新回复、改动、进度、正在做什么、错误通知 */
+function absorb(run: TaskRun, item: Item, now: number): TaskRun {
+  const step = stepOf(item, now)
+  if (step) run = { ...run, activity: withStep(run.activity, step) }
   switch (item.kind) {
-    case 'assistant':
-      return item.text.trim() ? { ...run, reply: item.text } : run
+    case 'assistant': {
+      const text = item.text.trim()
+      if (!text) return run
+      const line = clip(firstLine(text) ?? '', SAY_MAX)
+      const say = run.activity?.say?.text === line ? run.activity.say : { text: line, at: now }
+      return { ...run, reply: item.text, activity: { steps: run.activity?.steps ?? [], say } }
+    }
     case 'file_change': {
-      const stat = diffStat(item.changes)
-      return { ...run, diff: { ...run.diff, [item.id]: stat } }
+      if (item.status === 'running') return run
+      // 被拒绝 / 失败的改动没有写到文件上，不算（和会话里的改动卡片一样只算完成的）
+      if (item.status !== 'completed') {
+        if (!(item.id in run.diff)) return run
+        const { [item.id]: _dropped, ...diff } = run.diff
+        return { ...run, diff }
+      }
+      return { ...run, diff: { ...run.diff, [item.id]: diffStat(item.changes) } }
     }
     case 'todo':
       return { ...run, progress: progressOf(item) }
@@ -141,7 +191,7 @@ const waitingPatch = (requests: ApprovalRequest[]): Partial<ChannelTask> =>
     : { status: 'running', request: null, waitingCount: 0 }
 
 /** 一个会话事件。只处理已经发出去的这一轮；别的轮次（用户自己在会话里发的）不管 */
-export function trackEvent(run: TaskRun, event: EngineEvent): Tracked {
+export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): Tracked {
   const none: Tracked = { run, patch: null, finish: null }
   if (run.phase !== 'sent') return none
   if (event.type === 'queue') {
@@ -162,19 +212,23 @@ export function trackEvent(run: TaskRun, event: EngineEvent): Tracked {
       diff: {},
       reply: null,
       progress: null,
+      activity: null,
       notice: null,
     }
-    return { run: next, patch: { status: 'running', request: null, progress: null }, finish: null }
+    return { run: next, patch: { status: 'running', request: null, progress: null, activity: null }, finish: null }
   }
   if (!run.started) return none
   if (event.type === 'turn_started')
     return run.turnId ? none : { run: { ...run, turnId: event.turnId }, patch: null, finish: null }
   if (event.type === 'item_completed' || event.type === 'item_started') {
-    if (event.type === 'item_started' && event.item.kind !== 'todo') return none
-    const next = absorb(run, event.item)
+    // 开始时就要记的：待办进度、正在跑的一步；其余等完成
+    if (event.type === 'item_started' && !STARTED.has(event.item.kind)) return none
+    const next = absorb(run, event.item, now)
     if (next === run) return none
-    const patch = next.progress !== run.progress ? { progress: next.progress } : null
-    return { run: next, patch, finish: null }
+    const patch: Partial<ChannelTask> = {}
+    if (next.progress !== run.progress) patch.progress = next.progress
+    if (next.activity !== run.activity) patch.activity = next.activity ?? null
+    return { run: next, patch: Object.keys(patch).length ? patch : null, finish: null }
   }
   if (event.type === 'approval_request') {
     if (run.requests.some(r => r.requestId === event.request.requestId)) return none
@@ -200,7 +254,7 @@ export function trackEvent(run: TaskRun, event: EngineEvent): Tracked {
  * 重启 / 重连后对账（§5.1）：按会话快照推算这一轮现在的状态。
  * snapshot 为 null 表示会话已经没有了。
  */
-export function reconcileRun(run: TaskRun, snapshot: SessionSnapshot | null): Tracked {
+export function reconcileRun(run: TaskRun, snapshot: SessionSnapshot | null, now = Date.now()): Tracked {
   if (run.phase !== 'sent') return { run, patch: null, finish: null }
   if (!snapshot) return { run, patch: null, finish: { status: 'failed', error: '会话已删除' } }
   let at = -1
@@ -224,6 +278,7 @@ export function reconcileRun(run: TaskRun, snapshot: SessionSnapshot | null): Tr
     diff: {},
     reply: null,
     progress: null,
+    activity: null,
     notice: null,
   }
   let last = true
@@ -233,12 +288,16 @@ export function reconcileRun(run: TaskRun, snapshot: SessionSnapshot | null): Tr
       last = false
       break
     }
-    next = absorb(next, item)
+    next = absorb(next, item, now)
   }
   const active = last && snapshot.state !== 'idle' && (!snapshot.turnId || snapshot.turnId === next.turnId)
   if (active) {
     const requests = snapshot.pending
-    return { run: { ...next, requests }, patch: { ...waitingPatch(requests), progress: next.progress }, finish: null }
+    return {
+      run: { ...next, requests },
+      patch: { ...waitingPatch(requests), progress: next.progress, activity: next.activity ?? null },
+      finish: null,
+    }
   }
   next = { ...next, requests: [] }
   const outcome = last ? snapshot.record.lastOutcome : null

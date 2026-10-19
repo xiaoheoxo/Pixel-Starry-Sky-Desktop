@@ -1,0 +1,11 @@
+[
+  {
+    "template": "deno",
+    "file": "deno.json",
+    "tasks": [
+      { "name": "dev", "linux": "deno task dev", "windows": "deno task dev" },
+      { "name": "test", "linux": "deno task test", "windows": "deno task test" },
+      { "name": "build", "linux": "deno task build", "windows": "deno task build" }
+    ]
+  }
+]

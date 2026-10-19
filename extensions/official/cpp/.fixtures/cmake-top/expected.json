@@ -1,0 +1,44 @@
+[
+  {
+    "template": "cmake-configure",
+    "file": "CMakeLists.txt",
+    "tasks": [
+      { "name": "configure", "description": "配置项目，生成到 build 目录", "linux": "cmake -S . -B build", "windows": "cmake -S . -B build" }
+    ]
+  },
+  {
+    "template": "cmake-build",
+    "file": "CMakeLists.txt",
+    "tasks": [
+      { "name": "build", "description": "构建 build 目录里已配置的项目", "linux": "cmake --build build", "windows": "cmake --build build" }
+    ]
+  },
+  {
+    "template": "cmake-test",
+    "file": "CMakeLists.txt",
+    "tasks": [
+      { "name": "test", "description": "用 CTest 运行 build 目录里的测试，失败时显示输出", "linux": "ctest --test-dir build --output-on-failure", "windows": "ctest --test-dir build --output-on-failure" }
+    ]
+  },
+  {
+    "template": "cmake-configure",
+    "file": "tools/app/CMakeLists.txt",
+    "tasks": [
+      { "name": "configure", "description": "配置项目，生成到 build 目录", "linux": "cd tools/app && cmake -S . -B build", "windows": "Set-Location -LiteralPath tools/app; if ($?) { cmake -S . -B build }" }
+    ]
+  },
+  {
+    "template": "cmake-build",
+    "file": "tools/app/CMakeLists.txt",
+    "tasks": [
+      { "name": "build", "description": "构建 build 目录里已配置的项目", "linux": "cd tools/app && cmake --build build", "windows": "Set-Location -LiteralPath tools/app; if ($?) { cmake --build build }" }
+    ]
+  },
+  {
+    "template": "cmake-test",
+    "file": "tools/app/CMakeLists.txt",
+    "tasks": [
+      { "name": "test", "description": "用 CTest 运行 build 目录里的测试，失败时显示输出", "linux": "cd tools/app && ctest --test-dir build --output-on-failure", "windows": "Set-Location -LiteralPath tools/app; if ($?) { ctest --test-dir build --output-on-failure }" }
+    ]
+  }
+]

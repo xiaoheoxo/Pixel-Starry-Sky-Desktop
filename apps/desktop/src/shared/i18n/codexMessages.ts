@@ -24,13 +24,17 @@ export const codexMessages = {
     en: 'Read-only; uses Codex native plan mode to propose a plan and asks you when a decision is needed',
   },
   'codex.fastGateway': {
-    zh: '只在 Codex 用自己的登录（ChatGPT / OpenAI Key）时可用',
-    en: 'Only available when Codex uses its own sign-in (ChatGPT / OpenAI key)',
+    zh: '接口支持 Fast 时生效，不支持的打开了也没有效果',
+    en: 'Takes effect if the endpoint supports Fast; otherwise turning it on has no effect',
+  },
+  'codex.fastUnverified': {
+    zh: '你的接口或当前模型可能不支持 Fast，打开了可能不生效',
+    en: 'Your endpoint or the current model may not support Fast; turning it on may have no effect',
   },
   'codex.targets': { zh: '适用引擎', en: 'Applies to' },
   'codex.extensionInfo': {
-    zh: 'Codex 支持独立 Skills、stdio / HTTP MCP 与命令行；Claude 插件保持专属',
-    en: 'Codex supports standalone skills, stdio / HTTP MCP and CLI tools; Claude plugins remain engine-specific',
+    zh: 'Codex 和像素星空支持独立 Skills、stdio / HTTP MCP 与命令行；Claude 插件保持专属',
+    en: 'Codex and Pixel Starry Sky support standalone skills, stdio / HTTP MCP and CLI tools; Claude plugins remain engine-specific',
   },
   'codex.nativeSettings': {
     zh: '使用本机 Codex 登录及 provider 配置；输出风格和提问开关由原生配置管理。',
@@ -120,4 +124,13 @@ export const codexMessages = {
     zh: 'Codex 版本太低（需要 0.160.0 或以上）：在终端运行 npm i -g @openai/codex@latest',
     en: 'Codex is too old (requires 0.160.0 or later). Run npm i -g @openai/codex@latest',
   },
+  // Codex 换了模型（session.ts codexRerouteNotice）：带原因的在前，免得被不带原因的模板先匹配
+  'codex.modelReroutedCyber': {
+    zh: 'Codex 把模型从 {p0} 换成了 {p1}：请求被判定为高风险网络安全活动',
+    en: 'Codex switched the model from {p0} to {p1}: the request was flagged as high-risk cybersecurity activity',
+  },
+  'codex.modelRerouted': { zh: 'Codex 把模型从 {p0} 换成了 {p1}', en: 'Codex switched the model from {p0} to {p1}' },
+  // Codex 重连状态条的原因（session.ts codexRetryState）
+  'codex.retryConnectionLost': { zh: '连接断开', en: 'Connection lost' },
+  'codex.retryWaitingForNetwork': { zh: '等待网络恢复', en: 'waiting for network' },
 } as const

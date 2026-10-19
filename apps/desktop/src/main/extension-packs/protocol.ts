@@ -3,6 +3,8 @@ import { sep } from 'node:path'
 import { protocol } from 'electron'
 import { checkSvg, EXT_ASSET_SCHEME, EXT_LIMITS } from '@pixelsky/protocol'
 import type { ExtensionPacks } from './service'
+import { storeIcons } from './market/icons'
+import type { IconStore } from './market/icons'
 
 /** pixelsky-ext://<扩展 key>/<路径>?v=<版本>：只给 <img> 用的 svg / png，必须在 app ready 之前登记 */
 export const EXT_SCHEME_PRIVILEGES: Electron.CustomScheme = {
@@ -11,6 +13,33 @@ export const EXT_SCHEME_PRIVILEGES: Electron.CustomScheme = {
 }
 
 const status = (code: number): Response => new Response(null, { status: code })
+
+/** 商店图标的主机名：pixelsky-ext://store-icon/<id>/<version> */
+export const STORE_ICON_HOST = 'store-icon'
+
+/** 商店图标：路径必须正好是 <id>/<version>，取不到的都回状态码，不泄露原因 */
+export async function storeIconResponse(url: URL, icons: IconStore = storeIcons()): Promise<Response> {
+  const parts = url.pathname.slice(1).split('/')
+  if (parts.length !== 2) return status(400)
+  let id: string
+  let version: string
+  try {
+    ;[id, version] = parts.map(decodeURIComponent)
+  } catch {
+    return status(400)
+  }
+  const r = await icons.get(id, version)
+  if (r.kind === 'ok')
+    return new Response(new Uint8Array(r.icon.bytes), {
+      headers: {
+        'content-type': r.icon.mime,
+        'cache-control': 'private, max-age=86400',
+        'x-content-type-options': 'nosniff',
+        'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+      },
+    })
+  return status(r.kind === 'missing' ? 404 : r.kind === 'bad' ? 400 : 502)
+}
 
 /** file 的真实路径必须落在 root 的真实路径里，且自己不是符号链接 */
 async function contained(root: string, file: string): Promise<boolean> {
@@ -29,6 +58,7 @@ export function registerPackProtocol(
   protocol.handle(EXT_ASSET_SCHEME, async req => {
     try {
       const url = new URL(req.url)
+      if (url.hostname === STORE_ICON_HOST) return await storeIconResponse(url)
       const key = url.hostname
       const path = decodeURIComponent(url.pathname.slice(1))
       if (!path || path.includes('\\') || path.includes('\0') || path.split('/').some(s => s === '..'))

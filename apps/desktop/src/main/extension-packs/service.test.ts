@@ -1,9 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ExtensionPacks } from './service'
+import { packKey, scanLimits } from './loader'
+import { ExtensionPacks, type ExtPacksOptions } from './service'
 import { readStateFile, writeStateFile } from './store'
-import { cleanTemp, copyFixture, FIXTURES, tempDir } from './testing'
+import { FOLDER_SCAN } from '@pixelsky/extension-cli/folder'
+import type { BlocklistFile } from './market/blocklist'
+import { cleanTemp, copyFixture, FIXTURES, installStoreFixture, tempDir } from './testing'
 
 afterEach(cleanTemp)
 
@@ -24,8 +27,8 @@ function env(builtin: string[] = []): Env {
   return { base, dataDir: join(base, 'data'), builtinDir, folders }
 }
 
-const make = (e: Env): ExtensionPacks =>
-  new ExtensionPacks({ dataDir: e.dataDir, builtinDir: e.builtinDir, appVersion: '0.4.1-beta' })
+const make = (e: Env, keyStatus?: ExtPacksOptions['keyStatus']): ExtensionPacks =>
+  new ExtensionPacks({ dataDir: e.dataDir, builtinDir: e.builtinDir, appVersion: '0.4.1-beta', keyStatus })
 
 async function started(e: Env): Promise<ExtensionPacks> {
   const svc = make(e)
@@ -106,6 +109,19 @@ describe('加载', () => {
     expect(svc.state().packs).toHaveLength(1)
   })
 
+  it('addFolder 遇到同 id 的内置时允许（文件夹生效、内置被替代），遇到同 id 的文件夹时拒绝', async () => {
+    const e = env(['pixelsky.dotenv'])
+    const svc = await started(e)
+    const info = await svc.addFolder(copyFixture('pixelsky.dotenv', e.folders, 'a'))
+    expect(info).toMatchObject({ source: 'folder', live: true })
+    expect(svc.state().packs.find(p => p.source === 'builtin')).toMatchObject({ live: false, shadowedBy: 'folder' })
+    await expect(svc.addFolder(copyFixture('pixelsky.dotenv', e.folders, 'b'))).rejects.toThrow('extpacks.duplicateId')
+    // 移除文件夹那份，内置顶上
+    await svc.remove(info.key)
+    expect(svc.state().packs[0]).toMatchObject({ live: true })
+    expect(svc.state().packs[0].shadowedBy).toBeUndefined()
+  })
+
   it('有错误的扩展照样加进来（status error），作者能看到问题', async () => {
     const e = env()
     const svc = await started(e)
@@ -115,13 +131,36 @@ describe('加载', () => {
     expect(svc.state().packs).toHaveLength(1)
   })
 
-  it('状态文件里的重复 id：后到的整个扩展报错', async () => {
+  it('状态文件里内置 + 同 id 文件夹：文件夹生效，内置标 shadowedBy，没有错误', async () => {
     const e = env(['pixelsky.dotenv'])
     const dir = copyFixture('pixelsky.dotenv', e.folders)
     writeStateFile(stateFile(e), {
       version: 1,
       folders: [{ path: dir, enabled: true, addedAt: 5, options: {} }],
       builtin: {},
+      store: {},
+    })
+    const svc = await started(e)
+    const [builtin, folder] = svc.state().packs
+    expect(builtin).toMatchObject({ source: 'builtin', status: 'ok', live: false, shadowedBy: 'folder' })
+    expect(folder).toMatchObject({ source: 'folder', live: true })
+    expect(folder.status).not.toBe('error')
+    expect(folder.shadowedBy).toBeUndefined()
+    expect(svc.state().packs.flatMap(p => p.issues.map(i => i.code))).not.toContain('pack.duplicateId')
+  })
+
+  it('状态文件里两个文件夹同 id：后到的整个扩展报错', async () => {
+    const e = env()
+    const a = copyFixture('pixelsky.dotenv', e.folders, 'a')
+    const b = copyFixture('pixelsky.dotenv', e.folders, 'b')
+    writeStateFile(stateFile(e), {
+      version: 1,
+      folders: [
+        { path: a, enabled: true, addedAt: 1, options: {} },
+        { path: b, enabled: true, addedAt: 2, options: {} },
+      ],
+      builtin: {},
+      store: {},
     })
     const svc = await started(e)
     const [first, second] = svc.state().packs
@@ -141,6 +180,7 @@ describe('加载', () => {
         { path: b, enabled: true, addedAt: 2, options: {} },
       ],
       builtin: {},
+      store: {},
     })
     const svc = await started(e)
     const [first, second] = svc.state().packs
@@ -172,6 +212,7 @@ describe('加载', () => {
       version: 1,
       folders: [{ path: dir, enabled: true, addedAt: 5, options: {} }],
       builtin: {},
+      store: {},
     })
     const svc = make(e)
     await svc.builtinReady()
@@ -398,6 +439,7 @@ describe('技能', () => {
       version: 1,
       folders: [{ path: dir, enabled: true, addedAt: 5, options: {} }],
       builtin: {},
+      store: {},
     })
 
   it('ready 之前：没有带技能的扩展 key 为空，有就是 loading，且不给目录', async () => {
@@ -535,5 +577,438 @@ describe('技能', () => {
     expect(existsSync(dir)).toBe(true)
     await svc.reload(null)
     expect(existsSync(dir)).toBe(true)
+  })
+})
+
+describe('商店扩展：加载顺序和同 id 生效', () => {
+  const SITE = 'https://auth.pixelstarrysky.xyz'
+  type Snap = Array<{ key: string; source: string; live: boolean; shadowedBy?: string }>
+  const storeDir = (e: Env): string => join(e.dataDir, 'store')
+  /** 记下每次 commit 时 state().packs 的来源和 live */
+  function recordCommits(svc: ExtensionPacks): Snap[] {
+    const seen: Snap[] = []
+    svc.onChange(() =>
+      seen.push(svc.state().packs.map(p => ({ key: p.key, source: p.source, live: p.live, shadowedBy: p.shadowedBy }))),
+    )
+    return seen
+  }
+  const writeBlocklist = (e: Env, id: string, versions: '*' | string[], site: string = SITE): void => {
+    mkdirSync(e.dataDir, { recursive: true })
+    writeFileSync(
+      join(e.dataDir, 'blocklist.json'),
+      JSON.stringify({
+        version: 1,
+        sites: {
+          [site]: {
+            fetchedAt: '2026-10-16T00:00:00.000Z',
+            updatedAt: '',
+            items: [{ id, versions, reason: '含恶意代码' }],
+          },
+        },
+      }),
+    )
+  }
+
+  it('商店扩展启动后在列表里，loadFolders 不会把它丢掉；顺序是内置、商店、文件夹', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill', { version: '2.0.0' })
+    const dir = copyFixture('with-tasks', e.folders)
+    writeStateFile(stateFile(e), {
+      version: 1,
+      folders: [{ path: dir, enabled: true, addedAt: 5, options: {} }],
+      builtin: {},
+      store: {},
+    })
+    const svc = make(e)
+    await svc.builtinReady()
+    // builtinReady 返回时商店扩展已经在列表里，文件夹扩展还没加载
+    expect(svc.state().loading).toBe(true)
+    expect(svc.state().packs.map(p => p.source)).toEqual(['builtin', 'store'])
+    await svc.ready()
+    const packs = svc.state().packs
+    expect(packs.map(p => p.source)).toEqual(['builtin', 'store', 'folder'])
+    expect(packs[1]).toMatchObject({
+      key: 's-pixelsky.with-skill',
+      id: 'pixelsky.with-skill',
+      live: true,
+      addedAt: 1000,
+      store: { version: '2.0.0', installedAt: 1000, keyId: '8273f03a', site: SITE },
+    })
+  })
+
+  it('第一次 commit 就有商店扩展，没有只含内置的那一次；第二份加上文件夹', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill')
+    const dir = copyFixture('with-tasks', e.folders)
+    writeStateFile(stateFile(e), {
+      version: 1,
+      folders: [{ path: dir, enabled: true, addedAt: 5, options: {} }],
+      builtin: {},
+      store: {},
+    })
+    const svc = make(e)
+    const seen = recordCommits(svc)
+    await svc.ready()
+    expect(seen.map(c => c.map(p => p.source))).toEqual([
+      ['builtin', 'store'],
+      ['builtin', 'store', 'folder'],
+    ])
+  })
+
+  it('商店版 + 同 id 内置：第一次 commit 时内置那份已经是 shadowedBy（不闪）', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    const svc = make(e)
+    const seen = recordCommits(svc)
+    await svc.ready()
+    expect(seen[0]).toEqual([
+      { key: 'b-pixelsky.dotenv', source: 'builtin', live: false, shadowedBy: 'store' },
+      { key: 's-pixelsky.dotenv', source: 'store', live: true, shadowedBy: undefined },
+    ])
+    expect(svc.state().packs.flatMap(p => p.issues.map(i => i.code))).not.toContain('pack.duplicateId')
+  })
+
+  it('文件夹 > 商店 > 内置：三份同 id 时只有文件夹生效，两份被它替代；移除文件夹后商店顶上', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    const svc = await started(e)
+    const info = await svc.addFolder(copyFixture('pixelsky.dotenv', e.folders))
+    const by = Object.fromEntries(svc.state().packs.map(p => [p.source, p]))
+    expect(by.folder).toMatchObject({ live: true })
+    expect(by.store).toMatchObject({ live: false, shadowedBy: 'folder' })
+    expect(by.builtin).toMatchObject({ live: false, shadowedBy: 'folder' })
+    await svc.remove(info.key)
+    const after = Object.fromEntries(svc.state().packs.map(p => [p.source, p]))
+    expect(after.store).toMatchObject({ live: true })
+    expect(after.builtin).toMatchObject({ live: false, shadowedBy: 'store' })
+  })
+
+  it('被替代的那份点启用：enabled 变 true、live 仍是 false、shadowedBy 不变；生效的关掉后它顶上', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    writeStateFile(stateFile(e), {
+      version: 1,
+      folders: [],
+      builtin: { 'pixelsky.dotenv': { enabled: false, options: {} } },
+      store: {},
+    })
+    const svc = await started(e)
+    // 内置关着，商店生效：内置被替代
+    expect(svc.state().packs[0]).toMatchObject({ enabled: false, live: false, shadowedBy: 'store' })
+    await svc.setEnabled('b-pixelsky.dotenv', true)
+    expect(svc.state().packs[0]).toMatchObject({ enabled: true, live: false, shadowedBy: 'store' })
+    expect(readStateFile(stateFile(e)).builtin['pixelsky.dotenv'].enabled).toBe(true)
+    await svc.setEnabled('s-pixelsky.dotenv', false)
+    expect(svc.state().packs[0]).toMatchObject({ live: true })
+    expect(svc.state().packs[0].shadowedBy).toBeUndefined()
+    expect(svc.state().packs[1]).toMatchObject({ enabled: false, live: false })
+  })
+
+  it('商店扩展的开关和选项写进 state.json 的 store，换一个实例还在', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill')
+    const svc = await started(e)
+    await svc.setEnabled('s-pixelsky.with-skill', false)
+    await svc.setOptions('s-pixelsky.with-skill', { overrideBuiltin: ['x'] })
+    expect(readStateFile(stateFile(e)).store).toEqual({
+      'pixelsky.with-skill': { enabled: false, options: { overrideBuiltin: ['x'] } },
+    })
+    expect(readStateFile(stateFile(e)).builtin).toEqual({})
+    const again = await started(e)
+    expect(again.state().packs[0]).toMatchObject({ enabled: false, live: false, options: { overrideBuiltin: ['x'] } })
+  })
+
+  it('钥匙已作废的显示为被停用（blocked、live 为 false），preReadKey 不算它', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill')
+    const keyStatus = vi.fn(() => 'revoked' as const)
+    const svc = make(e, keyStatus)
+    svc.start()
+    expect(svc.skillLaunch('claude').key).toBe('')
+    await svc.ready()
+    expect(keyStatus).toHaveBeenCalledWith('8273f03a', SITE)
+    expect(svc.state().packs[0]).toMatchObject({ live: false, enabled: true, blocked: { reason: '签名钥匙已作废' } })
+    // 对照：钥匙正常时 preReadKey 算它
+    const ok = make(e, () => 'active')
+    ok.start()
+    expect(ok.skillLaunch('claude').key).toBe('loading')
+    await ok.ready()
+    expect(ok.state().packs[0]).toMatchObject({ live: true })
+    expect(ok.state().packs[0].blocked).toBeUndefined()
+  })
+
+  it('上次存的停用名单在第一次 commit 时就生效，同 id 的内置顶上；版本对不上或别的站点的名单不命中', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv', { version: '1.5.0' })
+    writeBlocklist(e, 'pixelsky.dotenv', ['1.5.0'])
+    const svc = make(e)
+    const seen = recordCommits(svc)
+    await svc.ready()
+    expect(seen[0]).toEqual([
+      { key: 'b-pixelsky.dotenv', source: 'builtin', live: true, shadowedBy: undefined },
+      { key: 's-pixelsky.dotenv', source: 'store', live: false, shadowedBy: 'builtin' }, // 被停用的那份也算「其他几份」
+    ])
+    expect(svc.state().packs[1].blocked).toEqual({ reason: '含恶意代码', at: '2026-10-16T00:00:00.000Z' })
+
+    const e2 = env()
+    installStoreFixture(storeDir(e2), 'pixelsky.dotenv', 'pixelsky.dotenv', { version: '1.6.0' })
+    writeBlocklist(e2, 'pixelsky.dotenv', ['1.5.0'])
+    expect((await started(e2)).state().packs[0].live).toBe(true)
+
+    const e3 = env()
+    installStoreFixture(storeDir(e3), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    writeBlocklist(e3, 'pixelsky.dotenv', '*', 'http://127.0.0.1:8080')
+    expect((await started(e3)).state().packs[0].live).toBe(true)
+  })
+
+  it('preReadKey：名单命中的、关着的商店扩展都不算带技能', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill')
+    writeBlocklist(e, 'pixelsky.with-skill', '*')
+    const a = make(e)
+    a.start()
+    expect(a.skillLaunch('claude').key).toBe('')
+    await a.ready()
+
+    const e2 = env()
+    installStoreFixture(storeDir(e2), 'with-skill', 'pixelsky.with-skill')
+    writeStateFile(stateFile(e2), {
+      version: 1,
+      folders: [],
+      builtin: {},
+      store: { 'pixelsky.with-skill': { enabled: false, options: {} } },
+    })
+    const b = make(e2)
+    b.start()
+    expect(b.skillLaunch('claude').key).toBe('')
+    await b.ready()
+  })
+
+  it('install.json 坏了、目录缺失的跳过并写日志，不影响别的商店扩展；.tmp 不是扩展', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill')
+    mkdirSync(join(storeDir(e), 'acme.bad'), { recursive: true })
+    writeFileSync(join(storeDir(e), 'acme.bad', 'install.json'), '{ oops')
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'acme.gone')
+    rmSync(join(storeDir(e), 'acme.gone', 'aaaaaaaaaaaaaaaa'), { recursive: true })
+    mkdirSync(join(storeDir(e), '.tmp', 'x'), { recursive: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const svc = await started(e)
+    expect(svc.state().packs.map(p => p.key)).toEqual(['s-pixelsky.with-skill'])
+    expect(warn).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('商店扩展的扫描上限是 FOLDER_SCAN（记下当前值，Material 搬家时再定）', () => {
+    expect(FOLDER_SCAN).toEqual({ limitFiles: 5000, limitBytes: 50 * 1024 * 1024 })
+    expect(scanLimits('store')).toBe(FOLDER_SCAN)
+    expect(scanLimits('folder')).toBe(FOLDER_SCAN)
+    expect(scanLimits('builtin')).not.toBe(FOLDER_SCAN)
+  })
+
+  it('packKey 的 store 分支：s-<小写 id>', () => {
+    expect(packKey('store', 'Acme.X')).toBe('s-acme.x')
+  })
+
+  it('商店扩展启动时不扫 SVG 内容，同一份放在文件夹里会扫出问题', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'unsafe-svg', 'pixelsky.unsafe-svg')
+    const store = (await started(e)).state().packs[0]
+    const e2 = env()
+    const svc = await started(e2)
+    const folder = await svc.addFolder(copyFixture('unsafe-svg', e2.folders))
+    expect(folder.issues.length).toBeGreaterThan(store.issues.length)
+  })
+})
+
+describe('商店扩展：卸载', () => {
+  const storeDir = (e: Env): string => join(e.dataDir, 'store')
+
+  it('卸载后 state.json 里没有 store[id]；重新装同 id 按第一次装处理，不沿用卸载前的开关', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    writeStateFile(stateFile(e), {
+      version: 1,
+      folders: [],
+      builtin: {},
+      store: { 'pixelsky.dotenv': { enabled: false, options: { overrideBuiltin: ['x'] } } },
+    })
+    const svc = await started(e)
+    expect(pack(svc, 'pixelsky.dotenv')).toMatchObject({ source: 'store', enabled: false })
+    await svc.remove('s-pixelsky.dotenv')
+    expect(svc.state().packs).toEqual([])
+    expect(readStateFile(stateFile(e)).store).toEqual({})
+    expect(JSON.parse(readFileSync(stateFile(e), 'utf8')).store).toEqual({})
+    // 同 id 重新装：state.json 里没有 → 默认开着
+    const record = installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    const info = await svc.runExclusive(() =>
+      svc.replaceStorePack(record, join(storeDir(e), 'pixelsky.dotenv', record.dir)),
+    )
+    expect(info).toMatchObject({ enabled: true, live: true, options: {} })
+    expect(readStateFile(stateFile(e)).store['pixelsky.dotenv']).toEqual({ enabled: true, options: {} })
+  })
+
+  it('先 commit 再删文件：commit 时 install.json 还在，但状态里已经没有这个扩展，同 id 的内置版顶上', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    const svc = await started(e)
+    expect(svc.state().packs.map(p => [p.source, p.live])).toEqual([
+      ['builtin', false],
+      ['store', true],
+    ])
+    const seen: Array<{ installJson: boolean; packs: Array<[string, boolean, string | undefined]> }> = []
+    svc.onChange(() =>
+      seen.push({
+        installJson: existsSync(join(storeDir(e), 'pixelsky.dotenv', 'install.json')),
+        packs: svc.state().packs.map(p => [p.source, p.live, p.shadowedBy]),
+      }),
+    )
+    await svc.remove('s-pixelsky.dotenv')
+    expect(seen).toEqual([{ installJson: true, packs: [['builtin', true, undefined]] }])
+    expect(existsSync(join(storeDir(e), 'pixelsky.dotenv'))).toBe(false)
+  })
+
+  it('有任务时先调 cancel(id)，再卸载；没挂 installer 时跳过', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    const svc = await started(e)
+    const order: string[] = []
+    svc.attachStoreTasks({
+      cancel: async id => {
+        order.push(`cancel:${id}`)
+        // 取消返回时还没卸载
+        order.push(`still:${svc.state().packs.length}`)
+      },
+    })
+    svc.onChange(() => order.push('commit'))
+    await svc.remove('s-pixelsky.dotenv')
+    expect(order).toEqual(['cancel:pixelsky.dotenv', 'still:1', 'commit'])
+    // 文件夹扩展不调 cancel
+    const info = await svc.addFolder(copyFixture('pixelsky.dotenv', e.folders))
+    order.length = 0
+    await svc.remove(info.key)
+    expect(order).toEqual(['commit'])
+  })
+
+  it('卸载时删图标缓存；内置扩展仍不能卸载', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(storeDir(e), 'with-skill', 'pixelsky.with-skill')
+    const removed: string[] = []
+    const svc = new ExtensionPacks({
+      dataDir: e.dataDir,
+      builtinDir: e.builtinDir,
+      appVersion: '0.4.1-beta',
+      removeIcons: async id => void removed.push(id),
+    })
+    svc.start()
+    await svc.ready()
+    await expect(svc.remove('b-pixelsky.dotenv')).rejects.toThrow('extpacks.builtinRemove')
+    await svc.remove('s-pixelsky.with-skill')
+    expect(removed).toEqual(['pixelsky.with-skill'])
+  })
+
+  it('启动时 cleanStoreDir 在 loadStore 之前跑：.tmp、没有回执的目录、多余版本目录都清掉', async () => {
+    const e = env()
+    installStoreFixture(storeDir(e), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    mkdirSync(join(storeDir(e), '.tmp', 'half'), { recursive: true })
+    mkdirSync(join(storeDir(e), 'acme.orphan', 'aaaaaaaaaaaaaaaa'), { recursive: true })
+    mkdirSync(join(storeDir(e), 'pixelsky.dotenv', 'cccccccccccccccc'))
+    const svc = await started(e)
+    expect(svc.state().packs.map(p => p.id)).toEqual(['pixelsky.dotenv'])
+    expect(readdirSync(storeDir(e)).sort()).toEqual(['pixelsky.dotenv'])
+    expect(readdirSync(join(storeDir(e), 'pixelsky.dotenv')).sort()).toEqual(['aaaaaaaaaaaaaaaa', 'install.json'])
+  })
+})
+
+describe('停用名单：applyBlocklist 和 setEnabled', () => {
+  const SITE = 'https://auth.pixelstarrysky.xyz'
+  const OTHER = 'http://127.0.0.1:8080'
+  type Item = { id: string; versions: '*' | string[] }
+  const siteOf = (items: Item[]): BlocklistFile['sites'][string] => ({
+    fetchedAt: '2026-10-17T00:00:00.000Z',
+    updatedAt: '',
+    items: items.map(i => ({ ...i, reason: '含恶意代码' })),
+  })
+  const listOf = (items: Item[], site: string = SITE): BlocklistFile => ({
+    version: 1,
+    sites: { [site]: siteOf(items) },
+  })
+  const id = 'pixelsky.with-skill'
+  const key = 's-pixelsky.with-skill'
+  const storeEnv = async (): Promise<{ e: Env; svc: ExtensionPacks }> => {
+    const e = env()
+    installStoreFixture(join(e.dataDir, 'store'), 'with-skill', id)
+    return { e, svc: await started(e) }
+  }
+
+  it('命中：设 blocked、live 为 false 并 commit；解除后清掉，开关没动过所以回到原来的开着', async () => {
+    const { svc } = await storeEnv()
+    const seen: boolean[] = []
+    svc.onChange(() => seen.push(pack(svc, id).live))
+    expect(pack(svc, id).live).toBe(true)
+    await svc.applyBlocklist(listOf([{ id, versions: ['1.0.0'] }]))
+    expect(pack(svc, id)).toMatchObject({ live: false, enabled: true, blocked: { reason: '含恶意代码' } })
+    await svc.applyBlocklist(listOf([]))
+    expect(pack(svc, id)).toMatchObject({ live: true, enabled: true })
+    expect(pack(svc, id).blocked).toBeUndefined()
+    expect(seen).toEqual([false, true])
+  })
+
+  it('版本对不上不命中；多站点：只看回执里 site 的那份，换站点后别的站点的空名单也不会放出它', async () => {
+    const { svc } = await storeEnv()
+    await svc.applyBlocklist(listOf([{ id, versions: ['9.9.9'] }]))
+    expect(pack(svc, id).live).toBe(true)
+    await svc.applyBlocklist(listOf([{ id, versions: '*' }], OTHER))
+    expect(pack(svc, id).live).toBe(true)
+    await svc.applyBlocklist({ version: 1, sites: { [SITE]: siteOf([{ id, versions: '*' }]), [OTHER]: siteOf([]) } })
+    expect(pack(svc, id).blocked).toBeDefined()
+    await svc.applyBlocklist({ version: 1, sites: { [SITE]: siteOf([{ id, versions: '*' }]) } })
+    expect(pack(svc, id).blocked).toBeDefined()
+  })
+
+  it('命中后 setEnabled(key, true) 被拒（extpacks.blocked），state.json 里的 enabled 不变；关掉照常成功', async () => {
+    const { e, svc } = await storeEnv()
+    await svc.setEnabled(key, false)
+    await svc.applyBlocklist(listOf([{ id, versions: '*' }]))
+    await expect(svc.setEnabled(key, true)).rejects.toThrow('extpacks.blocked')
+    expect(pack(svc, id).enabled).toBe(false)
+    expect(readStateFile(stateFile(e)).store[id].enabled).toBe(false)
+    await svc.applyBlocklist(listOf([]))
+    await svc.setEnabled(key, true)
+    expect(pack(svc, id).live).toBe(true)
+    await svc.applyBlocklist(listOf([{ id, versions: '*' }]))
+    await svc.setEnabled(key, false)
+    expect(pack(svc, id)).toMatchObject({ enabled: false, live: false })
+    expect(readStateFile(stateFile(e)).store[id].enabled).toBe(false)
+  })
+
+  it('被停用的商店版不挡同 id 的内置版：内置顶上，解除后商店版又盖过内置', async () => {
+    const e = env(['pixelsky.dotenv'])
+    installStoreFixture(join(e.dataDir, 'store'), 'pixelsky.dotenv', 'pixelsky.dotenv')
+    const svc = await started(e)
+    const builtin = (): ReturnType<typeof pack> => svc.state().packs.find(p => p.source === 'builtin')!
+    expect(builtin().shadowedBy).toBe('store')
+    await svc.applyBlocklist(listOf([{ id: 'pixelsky.dotenv', versions: '*' }]))
+    expect(builtin().live).toBe(true)
+    expect(builtin().shadowedBy).toBeUndefined()
+    await svc.applyBlocklist(listOf([]))
+    expect(builtin().shadowedBy).toBe('store')
+  })
+
+  it('文件夹扩展同 id 同版本命中：加一条 pack.storeBlocked 警告、live 不变；名单去掉后警告消失', async () => {
+    const e = env()
+    const svc = await started(e)
+    const info = await svc.addFolder(copyFixture('with-skill', e.folders))
+    const warnings = (): number => pack(svc, id).issues.filter(i => i.code === 'pack.storeBlocked').length
+    await svc.applyBlocklist(listOf([{ id, versions: ['1.0.0'] }]))
+    expect(warnings()).toBe(1)
+    expect(pack(svc, id).live).toBe(info.live)
+    expect(pack(svc, id).live).toBe(true)
+    expect(pack(svc, id).blocked).toBeUndefined()
+    await svc.applyBlocklist(listOf([{ id, versions: ['1.0.0'] }]))
+    expect(warnings()).toBe(1)
+    await svc.applyBlocklist(listOf([{ id, versions: ['2.0.0'] }]))
+    expect(warnings()).toBe(0)
+    expect(pack(svc, id).status).toBe(info.status)
   })
 })

@@ -99,6 +99,12 @@ class FakeSession implements EngineSession {
       error: outcome === 'failed' ? 'invalid request' : null,
     })
   }
+  /** 这一轮只报错、没有任何输出（消息还没送到引擎就断了） */
+  drop(error: string): void {
+    const turnId = this.active
+    this.active = null
+    if (turnId) this.ctx.emit({ type: 'turn_completed', turnId, outcome: 'failed', error })
+  }
   async interrupt(): Promise<void> {
     const turnId = this.active
     this.active = null
@@ -167,6 +173,17 @@ class FakeAdapter implements EngineAdapter {
     earliestShownUuid: NATIVE_USER,
     hasEarlier: false,
     compacted: false,
+  })
+  /** 终端里又聊了几轮（newerNativeTurns 报多少轮新的） */
+  newerTurns = 0
+  newerNativeTurns = async (_cwd: string, _id: string, after: string) => ({
+    items: [],
+    turns: this.newerTurns,
+    shown: this.newerTurns,
+    gap: 0,
+    leafUuid: null,
+    at: 'newer-at',
+    base: after,
   })
   /** 回退时的截断点：返回 null 表示记录里找不到 */
   anchor: ((ids: string[]) => { at: string | null } | null) | null = (ids: string[]) => ({ at: `at-${ids[0]}` })
@@ -367,6 +384,32 @@ describe('跨引擎接力：换引擎', () => {
     },
   )
 
+  it.each([false, true])(
+    '换引擎后的首轮没送达就断线：自动原样重发，交接材料不含这条消息自己，对话里也只有一条（聊天回放：%s）',
+    async seeds => {
+      const { host, codex, record, say, snap, users } = setup({ reconnectDelays: [0] }, seeds)
+      await say('第一句')
+      await host.update(record.id, { engine: 'codex' })
+      codex.auto = false
+      await host.send(record.id, { text: '第二句', clientMessageId: 'second' })
+      await until(() => codex.sessions[0]?.inputs.length === 1)
+      const session = codex.sessions[0]
+      session.drop('stream disconnected before completion')
+      await until(() => session.inputs.length === 2)
+      expect(snap().queue[0]).toMatchObject({ id: 'second', messageUuid: 'second', delivered: false })
+      expect(users().filter(u => u.text === '第二句')).toHaveLength(1)
+      // 游标没动（失败的一轮），重发时带的交接是第一句，不含刚写进对话的这一条
+      if (seeds) expect(session.seeds[1]?.turns.map(t => t.user)).toEqual(['第一句'])
+      else {
+        expect(session.inputs[1]).toContain('用户：第一句')
+        expect(session.inputs[1]).not.toContain('用户：第二句')
+        expect(session.inputs[1].endsWith('第二句')).toBe(true)
+      }
+      session.finish()
+      await until(() => snap().state === 'idle' && snap().queue.length === 0)
+    },
+  )
+
   it('historyTool 为真时交接里点名历史工具，并按记录判断；为假或没给时不提', async () => {
     const seen: SessionRecord[] = []
     const { host, codex, record, say } = setup({
@@ -388,14 +431,12 @@ describe('跨引擎接力：换引擎', () => {
     expect(plain.codex.sessions[0].inputs[0]).not.toContain('pixelsky_history')
   })
 
-  it('historyItems 返回会话的全部条目（副本），会话不存在时报错', async () => {
+  it('historyItems 返回会话的全部条目（已有运行时直接用内存里的），会话不存在时报错', async () => {
     const { host, record, say, snap } = setup()
     await say('第一句')
-    const items = host.historyItems(record.id)
+    const items = await host.historyItems(record.id)
     expect(items.map(i => i.id)).toEqual(snap().items.map(i => i.id))
-    items.pop()
-    expect(host.historyItems(record.id)).toHaveLength(snap().items.length)
-    expect(() => host.historyItems('nope')).toThrow()
+    await expect(host.historyItems('nope')).rejects.toThrow()
   })
 
   it('换回来：恢复原来的会话 id，交接只含另一个引擎期间的内容', async () => {
@@ -1086,6 +1127,55 @@ describe('接着引擎自己的会话（docs/ui/claude-resume.md）', () => {
     expect(snap().items.some(i => i.kind === 'notice' && i.level === 'warn')).toBe(false)
   })
 
+  it('换了引擎后 check / sync 仍按导入的那个引擎判断：终端里新聊的能发现、能补上；换引擎后回退找不到截断点则是 0', async () => {
+    const { host, claude, id, snap, say } = await imported()
+    await host.update(id, { engine: 'codex' })
+    await say('给 Codex')
+    // 当前引擎是 Codex，它的会话 id 不是原会话的；原会话 id 记在 engineSessions.claude 里
+    expect(snap().record.engineSessionId).not.toBe(NATIVE)
+    expect(snap().record.engineSessions?.claude?.id).toBe(NATIVE)
+    claude.newerTurns = 2
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 2 })
+    await expect(host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 2 })
+    expect(snap().record.imported).toMatchObject({ turns: 3 })
+    // 原引擎那边还有待执行的回退：和回退了还没发消息一样，不算新聊的
+    const claudeEntry = snap().record.engineSessions!.claude!
+    const patch = (host as unknown as { m: { events: { patchRecord(id: string, p: Partial<SessionRecord>): void } } }).m
+    patch.events.patchRecord(id, {
+      engineSessions: { ...snap().record.engineSessions, claude: { ...claudeEntry, pendingRewind: 'p' } },
+    })
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
+    // 原引擎换了新线程（回退找不到截断点）：同样是 0
+    patch.events.patchRecord(id, {
+      engineSessions: { ...snap().record.engineSessions, claude: { ...claudeEntry, id: null } },
+    })
+    await expect(host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
+    await expect(host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0 })
+  })
+
+  it('复制一份只对现在还接着原会话的对话：换了引擎、或原引擎的线程 id 变了都拒绝，回到原引擎且 id 没变则放行', async () => {
+    const { host, id, snap, say } = await imported()
+    await host.update(id, { engine: 'codex' })
+    await say('给 Codex')
+    await expect(host.nativeSessionAction(id, 'copy')).rejects.toThrow(NATIVE_TEXT.notFollowing)
+    // 回到 Claude，线程 id 还是原来的：放行（分叉点用导入时的最后位置）
+    await host.update(id, { engine: 'claude' })
+    expect(snap().record.engineSessionId).toBe(NATIVE)
+    await expect(host.nativeSessionAction(id, 'copy')).resolves.toEqual({ added: 0 })
+    expect(snap().record.imported).toMatchObject({ forked: true })
+    expect(snap().record.pendingFork).toMatchObject({ from: NATIVE })
+  })
+
+  it('原地导入的对话回退换了新线程后也不能再复制一份', async () => {
+    const { host, claude, id, snap, say } = await imported()
+    await say('一句')
+    claude.anchor = null
+    await host.rewind(id, 'n1')
+    expect(snap().record.engineSessionId).not.toBe(NATIVE)
+    await expect(host.nativeSessionAction(id, 'copy')).rejects.toThrow(NATIVE_TEXT.notFollowing)
+    expect(snap().record.imported?.forked).toBeUndefined()
+  })
+
   it('原生会话记录没了：整段聊天当没看过，回放给适配器，单独一条带详情的 warn 提示；之后游标照常推进', async () => {
     const { host, claude, id, snap, say } = await imported()
     claude.exists = false
@@ -1095,12 +1185,28 @@ describe('接着引擎自己的会话（docs/ui/claude-resume.md）', () => {
     const warn = snap().items.find(i => i.kind === 'notice' && i.level === 'warn')
     expect(warn).toMatchObject({ kind: 'notice', text: NATIVE_TEXT.recreated(1) })
     expect(warn?.kind === 'notice' && warn.detail).toContain('导入的话')
+    // 回放带着「记录没了」的标记，引擎据此不再重复报「没能恢复」；之后正常轮次的回放没有这个标记
+    expect(session.seeds[0]!.recreated).toBe(true)
     // 记录又有了（接力已经写进去）：不再重复
     claude.exists = true
     await say('再来')
     expect(session.seeds[1]).toBeUndefined()
     expect(snap().items.filter(i => i.kind === 'notice' && i.level === 'warn')).toHaveLength(1)
     expect(host.record(id)?.engineSessions?.claude?.seen).toBe(snap().items.at(-1)!.id)
+  })
+
+  it('Codex 的线程记录没了：提示带 Codex 的名字，回放带 recreated；平常换引擎的回放没有这个标记', async () => {
+    const { host, codex, id, snap, say } = await imported()
+    await host.update(id, { engine: 'codex' })
+    await say('给 Codex')
+    expect(codex.sessions[0].seeds[0]!.turns.map(t => t.user)).toEqual(['导入的话'])
+    expect(codex.sessions[0].seeds[0]!.recreated).toBeUndefined()
+    codex.exists = false
+    await say('还在吗')
+    const seed = codex.sessions[0].seeds[1]!
+    expect(seed.recreated).toBe(true)
+    const warn = snap().items.findLast(i => i.kind === 'notice' && i.level === 'warn')
+    expect(warn).toMatchObject({ kind: 'notice', text: NATIVE_TEXT.recreated(2, 'Codex') })
   })
 
   it('还没启动的分叉（复制一份接着聊）本来就没有文件：不触发「记录没了」', async () => {

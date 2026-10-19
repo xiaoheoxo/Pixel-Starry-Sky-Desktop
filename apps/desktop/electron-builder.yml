@@ -25,6 +25,10 @@ extraResources:
   # 随包的扩展（Material 图标等），主进程从 resources/builtin-extensions 读；目录由 WP3 建，没有它时加载器什么都不读
   - from: resources/builtin-extensions
     to: builtin-extensions
+  # 像素星空命令行（packages/cli/scripts/bundle.mjs 生成）：Electron 自带 node 直接跑磁盘上的文件，wasm / worker 按路径读，不能进 asar
+  - from: ../../packages/cli/dist/pixel-cli
+    to: pixel-cli
+    filter: ['**/*']
 # node-pty 用自带的 N-API 预编译文件（win32-x64、darwin-x64 / arm64），N-API 不分 Electron 版本，不用重编译；
 # 本机构建工具未安装 Spectre 缓解库，强制重编译会失败。Electron 44 已通过实际 PTY 输入 / resize / 退出验证。
 # Linux 没有预编译文件：pnpm install 时按 Node 编译出 build/Release/pty.node（N-API，Electron 一样能用）
@@ -65,7 +69,8 @@ mac:
     - target: zip
       arch: [x64, arm64]
   category: public.app-category.developer-tools
-  icon: build/icon.png
+  # macOS 的图标四周要留白（1024 画布里方块占 824），和系统里别的图标一样大；scripts/make-brand-icons.mjs 生成
+  icon: build/icon-mac.png
   # 暂不签名、不公证：只做 ad-hoc 签名（Apple 芯片上不签名根本打不开）。
   # 第一次打开系统会拦，要在「系统设置 › 隐私与安全性」里点「仍要打开」；也不能自动更新（只提示去下载）
   identity: '-'
@@ -101,6 +106,10 @@ linux:
   extraResources:
     - from: build/icon.png
       to: icon.png
+    # Linux 的 extraResources 会覆盖顶层的，命令行要再写一遍
+    - from: ../../packages/cli/dist/pixel-cli
+      to: pixel-cli
+      filter: ['**/*']
 deb:
   packageName: pixelsky
   # 用到的系统库（Electron 的常规依赖，Ubuntu / Debian 桌面版都有）

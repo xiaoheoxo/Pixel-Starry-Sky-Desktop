@@ -1,0 +1,95 @@
+{
+  "rulesVersion": 2,
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs./a.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/c.txt.",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/d.txt ",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "notes /b.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.type",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/c.txt.",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.type",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/d.txt ",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs./a.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/c.txt.",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/d.txt ",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "notes /b.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "grammar.regexUnchecked",
+        "severity": "warning",
+        "scope": "pack",
+        "upload": "hint",
+        "outcome": "hint"
+      }
+    ]
+  }
+}

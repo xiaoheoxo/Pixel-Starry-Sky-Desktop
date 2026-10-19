@@ -2,7 +2,7 @@
 // 宽屏（≥ 900px）常驻左边；再宽（≥ 1280px）时在会话旁边打开的工具放在右边一栏。
 // 主区的页面：概览、会话、新建会话、工具、加项目、我的；配对、添加电脑和扫码是整页。打开 #pair=… 的链接时先进配对页。
 // 用浏览器历史做返回：手机上的返回手势 / 返回键能回到上一页（抽屉开着时先关抽屉）。
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Plus, Smartphone } from 'lucide-react'
 import type { ProjectRecord } from '@pixelsky/protocol'
 import { connections, parseOffer, readOffer, type Offer } from '@/connection'
@@ -12,23 +12,50 @@ import type { ToolId } from '@/data/tools'
 import { currentProject, rememberProject, rememberedProject } from '@/data/workspace'
 import { Composer } from '@/features/composer/Composer'
 import { Drawer } from '@/features/drawer/Drawer'
-import { AddToHome } from '@/features/me/AddToHome'
 import { MeScreen } from '@/features/me/MeScreen'
-import { AddComputer } from '@/features/pairing/AddComputer'
-import { PairScreen } from '@/features/pairing/PairScreen'
-import { ScanScreen } from '@/features/pairing/ScanScreen'
-import { AddProject } from '@/features/projects/AddProject'
 import { SessionScreen } from '@/features/session/SessionScreen'
 import { NewTask } from '@/features/tasks/NewTask'
 import { TaskList } from '@/features/tasks/TaskList'
-import { ArtifactsScreen } from '@/features/tools/ArtifactsScreen'
-import { FilesScreen } from '@/features/tools/FilesScreen'
-import { GitScreen } from '@/features/tools/GitScreen'
-import { TodoScreen } from '@/features/tools/TodoScreen'
 import type { ToolProps } from '@/features/tools/common'
 import { onBackButton } from '@/platform'
-import { Button, Empty, MenuButton, Screen, WIDE, WIDER, useMedia } from '@/ui'
+import { setBadge, useNotifyOpen } from '@/platform/notifyOpen'
+import { loadPage } from '@/platform/version'
+import { Button, Empty, MenuButton, Screen, Spinner, WIDE, WIDER, useMedia } from '@/ui'
+import { PageBoundary } from '@/ui/PageBoundary'
+import { UpdateBanner } from './UpdateBanner'
 import { useReminders } from './reminders'
+
+// 不是每次打开都用到的页面按需加载（扫码用相机和二维码库，工具页有 Git / 文件 / 产物 / 任务），主包小一些
+const AddComputer = lazy(() =>
+  loadPage(() => import('@/features/pairing/AddComputer')).then(m => ({ default: m.AddComputer })),
+)
+const PairScreen = lazy(() =>
+  loadPage(() => import('@/features/pairing/PairScreen')).then(m => ({ default: m.PairScreen })),
+)
+const ScanScreen = lazy(() =>
+  loadPage(() => import('@/features/pairing/ScanScreen')).then(m => ({ default: m.ScanScreen })),
+)
+const AddProject = lazy(() =>
+  loadPage(() => import('@/features/projects/AddProject')).then(m => ({ default: m.AddProject })),
+)
+const AddToHome = lazy(() => loadPage(() => import('@/features/me/AddToHome')).then(m => ({ default: m.AddToHome })))
+const ArtifactsScreen = lazy(() =>
+  loadPage(() => import('@/features/tools/ArtifactsScreen')).then(m => ({ default: m.ArtifactsScreen })),
+)
+const FilesScreen = lazy(() =>
+  loadPage(() => import('@/features/tools/FilesScreen')).then(m => ({ default: m.FilesScreen })),
+)
+const GitScreen = lazy(() => loadPage(() => import('@/features/tools/GitScreen')).then(m => ({ default: m.GitScreen })))
+const TodoScreen = lazy(() =>
+  loadPage(() => import('@/features/tools/TodoScreen')).then(m => ({ default: m.TodoScreen })),
+)
+
+/** 按需加载的页面还没下完时：占满主区的转圈 */
+const pageLoading = (
+  <div className="flex h-app min-w-0 flex-1 items-center justify-center bg-app text-fg-muted">
+    <Spinner size={22} />
+  </div>
+)
 
 type Route =
   | { page: 'home' }
@@ -65,6 +92,20 @@ function initialPair(): { offer: Offer | null; error: string | null } | null {
   }
 }
 
+/** 演示模式（只在 vite dev 里）：?open=会话 id / ?page=me|new|addProject / ?tool=git&project=p1 直接打开那一页，截图用 */
+function demoStart(): Route | null {
+  if (!import.meta.env.DEV) return null
+  const q = new URLSearchParams(location.search)
+  if (!q.has('demo')) return null
+  const open = q.get('open'),
+    page = q.get('page'),
+    tool = q.get('tool') as ToolId | null
+  if (open) return { page: 'session', id: open }
+  if (tool) return { page: 'tool', tool, projectId: q.get('project') ?? 'p1' }
+  if (page === 'me' || page === 'new' || page === 'addProject' || page === 'install') return { page }
+  return null
+}
+
 /** 文件夹的上一级（加项目时从最近那个项目的上一级开始） */
 const parentDir = (path: string): string | null => {
   const clean = path.replace(/[\\/]+$/, '')
@@ -75,14 +116,14 @@ const parentDir = (path: string): string | null => {
 export function App() {
   const [initial] = useState(initialPair)
   const [pair, setPair] = useState(initial)
-  const [route, setRoute] = useState<Route>(pair ? { page: 'pair' } : { page: 'home' })
+  const [route, setRoute] = useState<Route>(() => (pair ? { page: 'pair' } : (demoStart() ?? { page: 'home' })))
   const [drawer, setDrawer] = useState(false)
   const [panel, setPanel] = useState<Panel | null>(null)
   const wide = useMedia(WIDE)
   const wider = useMedia(WIDER)
   const { active } = useConnections()
   const deviceId = active?.deviceId
-  const { link, state, sessions, projects } = useDesktop(deviceId)
+  const { link, state, sessions, projects, cached } = useDesktop(deviceId)
   const waiting = groupTasks(sessions).waiting.length
   const canAct = state === 'ready' && link?.hello?.access === 'act'
 
@@ -132,11 +173,25 @@ export function App() {
     (route.page === 'tool' ? projects.find(p => p.id === route.projectId) : null) ??
     currentProject(projects, sessions, openSession, chosen)
 
-  // 点通知：切到那台电脑、打开那个会话
-  useReminders((device, sessionId) => {
-    connections.select(device)
-    go({ page: 'session', id: sessionId })
-  })
+  // 点通知：切到那台电脑、打开那个会话（没有会话就回概览）。先记下电脑，免得上面「换了电脑回概览」把会话页又换掉
+  const openFrom = (device: string, sessionId: string | null) => {
+    if (!connections.list().some(p => p.deviceId === device)) return
+    if (device !== deviceId) {
+      lastDevice.current = device
+      setPanel(null)
+      connections.select(device)
+    }
+    if (sessionId) go({ page: 'session', id: sessionId })
+    else replace({ page: 'home' })
+  }
+  useReminders(openFrom)
+  useNotifyOpen(t => openFrom(t.device, t.session))
+  // 主屏幕图标上的数字：这台电脑上等你处理的个数（页面在后台时由推送更新，sw.js）
+  // 没连上、或还是本机缓存的旧列表时不动它（不然刚打开先被清零、或写上过期的数）
+  const fresh = state === 'ready' && !cached
+  useEffect(() => {
+    if (fresh) setBadge(waiting)
+  }, [fresh, waiting])
   // 安卓返回键：抽屉开着先关；二级页面返回；一级页面退到后台
   const routeRef = useRef(route)
   routeRef.current = route
@@ -191,13 +246,40 @@ export function App() {
 
   if (route.page === 'pair')
     return (
-      <PairScreen offer={pair?.offer ?? null} error={pair?.error ?? null} onDone={() => replace({ page: 'home' })} />
+      <PageBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={pageLoading}>
+          <PairScreen
+            offer={pair?.offer ?? null}
+            error={pair?.error ?? null}
+            onDone={() => replace({ page: 'home' })}
+          />
+        </Suspense>
+      </PageBoundary>
     )
   if (route.page === 'scan')
-    return <ScanScreen onBack={back} onResult={scanned} onPaste={() => replace({ page: 'add' })} />
+    return (
+      <PageBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={pageLoading}>
+          <ScanScreen onBack={back} onResult={scanned} onPaste={() => replace({ page: 'add' })} />
+        </Suspense>
+      </PageBoundary>
+    )
   if (route.page === 'add')
-    return <AddComputer onBack={back} onScan={() => replace({ page: 'scan' })} onOffer={offered} />
-  if (route.page === 'install') return <AddToHome onBack={back} />
+    return (
+      <PageBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={pageLoading}>
+          <AddComputer onBack={back} onScan={() => replace({ page: 'scan' })} onOffer={offered} />
+        </Suspense>
+      </PageBoundary>
+    )
+  if (route.page === 'install')
+    return (
+      <PageBoundary resetKey={JSON.stringify(route)}>
+        <Suspense fallback={pageLoading}>
+          <AddToHome onBack={back} />
+        </Suspense>
+      </PageBoundary>
+    )
 
   const menu = <MenuButton badge={waiting} onClick={() => setDrawer(true)} />
 
@@ -259,7 +341,17 @@ export function App() {
       />
     )
   else if (route.page === 'session')
-    main = <Session key={route.id} deviceId={active.deviceId} sessionId={route.id} leading={menu} />
+    main = (
+      <Session
+        key={route.id}
+        deviceId={active.deviceId}
+        sessionId={route.id}
+        leading={menu}
+        onNew={projectId => newSession(projectId)}
+        onTool={tool}
+        onArchived={() => replace({ page: 'home' })}
+      />
+    )
   else if (route.page === 'addProject')
     main = (
       <AddProject
@@ -321,19 +413,28 @@ export function App() {
   )
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-app text-fg">
+    <div className="flex h-app overflow-hidden bg-app text-fg">
+      <UpdateBanner />
       {wide && <aside className="flex w-75 shrink-0 flex-col border-r border-line-layout">{nav}</aside>}
-      <div className="flex min-w-0 flex-1">{main}</div>
+      <div className="flex min-w-0 flex-1">
+        <PageBoundary resetKey={JSON.stringify(route)}>
+          <Suspense fallback={pageLoading}>{main}</Suspense>
+        </PageBoundary>
+      </div>
       {panelProject && PanelTool && panel && (
         <aside className="flex w-105 shrink-0 border-l border-line-layout">
-          <PanelTool
-            key={panel.tool + panel.projectId}
-            {...toolProps(panelProject, panel.subs.at(-1) ?? null, {
-              onSub: sub => setPanel({ ...panel, subs: [...panel.subs, sub] }),
-              onBack: () => setPanel({ ...panel, subs: panel.subs.slice(0, -1) }),
-              onClose: () => setPanel(null),
-            })}
-          />
+          <PageBoundary resetKey={panel.tool + panel.projectId}>
+            <Suspense fallback={pageLoading}>
+              <PanelTool
+                key={panel.tool + panel.projectId}
+                {...toolProps(panelProject, panel.subs.at(-1) ?? null, {
+                  onSub: sub => setPanel({ ...panel, subs: [...panel.subs, sub] }),
+                  onBack: () => setPanel({ ...panel, subs: panel.subs.slice(0, -1) }),
+                  onClose: () => setPanel(null),
+                })}
+              />
+            </Suspense>
+          </PageBoundary>
         </aside>
       )}
       {!wide && drawer && (
@@ -352,7 +453,21 @@ export function App() {
 }
 
 /** 会话页 + 输入框（两个功能在这里拼起来） */
-function Session({ deviceId, sessionId, leading }: { deviceId: string; sessionId: string; leading: ReactNode }) {
+function Session({
+  deviceId,
+  sessionId,
+  leading,
+  onNew,
+  onTool,
+  onArchived,
+}: {
+  deviceId: string
+  sessionId: string
+  leading: ReactNode
+  onNew(projectId: string): void
+  onTool(tool: ToolId, projectId: string): void
+  onArchived(): void
+}) {
   const pairing = connections.list().find(p => p.deviceId === deviceId)!
   const { link, state, sessions } = useDesktop(deviceId)
   const canAct = state === 'ready' && link?.hello?.access === 'act'
@@ -365,13 +480,17 @@ function Session({ deviceId, sessionId, leading }: { deviceId: string; sessionId
       sessionId={sessionId}
       leading={leading}
       onRecall={text => setDraft(d => (d.trim() ? d.trimEnd() + '\n' + text : text))}
-      composer={running => (
+      onNew={onNew}
+      onTool={onTool}
+      onArchived={onArchived}
+      composer={(running, suggest) => (
         <Composer
           link={link}
           sessionId={sessionId}
           engine={s?.record.engine ?? 'claude'}
           canAct={canAct}
           running={running}
+          suggest={suggest}
           draft={draft}
           onDraft={setDraft}
         />

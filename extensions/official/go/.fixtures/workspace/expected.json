@@ -1,0 +1,98 @@
+[
+  {
+    "template": "go-work",
+    "file": "go.work",
+    "tasks": [
+      {
+        "name": "sync",
+        "description": "把工作区的依赖同步回各模块",
+        "linux": "go work sync",
+        "windows": "go work sync"
+      }
+    ]
+  },
+  {
+    "template": "go-pkgs",
+    "file": "svc/go.mod",
+    "tasks": [
+      {
+        "name": "build",
+        "description": "编译所有包",
+        "linux": "cd svc && go build ./...",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go build ./... }"
+      },
+      {
+        "name": "test",
+        "description": "运行所有测试",
+        "linux": "cd svc && go test ./...",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go test ./... }"
+      },
+      {
+        "name": "vet",
+        "description": "静态检查（go vet）",
+        "linux": "cd svc && go vet ./...",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go vet ./... }"
+      },
+      {
+        "name": "fmt",
+        "description": "格式化所有包（go fmt）",
+        "linux": "cd svc && go fmt ./...",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go fmt ./... }"
+      },
+      {
+        "name": "generate",
+        "description": "运行 //go:generate 指令",
+        "linux": "cd svc && go generate ./...",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go generate ./... }"
+      }
+    ]
+  },
+  {
+    "template": "go-mod",
+    "file": "svc/go.mod",
+    "tasks": [
+      {
+        "name": "tidy",
+        "description": "整理 go.mod 和 go.sum",
+        "linux": "cd svc && go mod tidy",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go mod tidy }"
+      },
+      {
+        "name": "download",
+        "description": "下载依赖到本机缓存",
+        "linux": "cd svc && go mod download",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go mod download }"
+      },
+      {
+        "name": "verify",
+        "description": "校验依赖没被改过",
+        "linux": "cd svc && go mod verify",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go mod verify }"
+      }
+    ]
+  },
+  {
+    "template": "go-run",
+    "file": "svc/go.mod",
+    "tasks": [
+      {
+        "name": "run",
+        "description": "运行当前文件夹的 main 包",
+        "linux": "cd svc && go run .",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { go run . }"
+      }
+    ]
+  },
+  {
+    "template": "golangci-yaml",
+    "file": "svc/go.mod",
+    "tasks": [
+      {
+        "name": "lint",
+        "description": "用 golangci-lint 检查所有包",
+        "linux": "cd svc && golangci-lint run ./...",
+        "windows": "Set-Location -LiteralPath svc; if ($?) { golangci-lint run ./... }"
+      }
+    ]
+  }
+]

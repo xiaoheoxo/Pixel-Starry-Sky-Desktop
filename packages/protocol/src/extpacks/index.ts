@@ -45,6 +45,8 @@ export {
 export { EXT_ENGINE_CODES, EXT_ISSUE_CODES, EXT_ZIP_CODES, EXT_ZIP_FATAL, grammarIssue, zipIssue } from './codes'
 export { checkPack, dedupeIssues, readerFromFiles } from './check'
 export { extPackSkipped } from './skip'
+export { computeLive } from './live'
+export { compareExtVersion } from './semver'
 export { checkVerdict, issueOutcome } from './verdict'
 export { locateJsonPointer } from './locate'
 export {
@@ -58,8 +60,14 @@ export {
   resolvePackPath,
 } from './match'
 export {
+  EXT_ALLOWED_FILE_RE,
+  EXT_LICENSE_FILE_RE,
+  EXT_WINDOWS_RESERVED_RE,
   forSource,
   inactiveContributions,
+  isExtId,
+  isExtVersion,
+  isPublisherName,
   loaderIssue,
   packStatus,
   validateContributions,

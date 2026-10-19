@@ -109,3 +109,74 @@ describe('改名 / 移动后的标签', () => {
     )
   })
 })
+
+// 目标文件被外部程序移走、标签还开着且没保存，再把别的文件改名 / 移动到那个路径：
+// 以前直接把目标标签和编辑器去掉，草稿没了也撤销不回来；现在文件树先问（displacedDirtyFiles），没确认就不丢
+describe('改名 / 移动到开着未保存标签的路径', () => {
+  async function openBoth() {
+    disk.set('source.js', 'S')
+    disk.set('target.js', 'T')
+    const source = (await store.openFile(ref, 'source.js'))!
+    const target = (await store.openFile(ref, 'target.js'))!
+    store.updateFile(target, { draft: 'T edited, unsaved' })
+    store.activateFile(target)
+    // 外部程序把磁盘上的 target.js 移走，文件树把 source.js 改名成 target.js
+    disk.set('target-on-disk-backup.js', disk.get('target.js')!)
+    disk.set('target.js', disk.get('source.js')!)
+    disk.delete('source.js')
+    return { source, target }
+  }
+
+  it('displacedDirtyFiles 找出会被顶掉的未保存标签；没改过的、源文件没打开的不算', async () => {
+    const { source, target } = await openBoth()
+    expect(store.displacedDirtyFiles(ref, 'source.js', 'target.js').map(t => t.id)).toEqual([target])
+    // 源文件没打开：挪不过去，也就顶不掉
+    store.removeFile(source)
+    expect(store.displacedDirtyFiles(ref, 'source.js', 'target.js')).toEqual([])
+    // 没改过的不用问
+    disk.set('source.js', 'S')
+    await store.openFile(ref, 'source.js')
+    store.updateFile(target, { draft: 'T' })
+    expect(store.displacedDirtyFiles(ref, 'source.js', 'target.js')).toEqual([])
+    // 别的工作区的同名标签不算
+    expect(store.displacedDirtyFiles({ projectId: 'p2' }, 'source.js', 'target.js')).toEqual([])
+  })
+
+  it('没确认丢弃：目标标签和草稿都留着，源标签不挪、不发改名事件（编辑器和撤销记录不动）', async () => {
+    const { source, target } = await openBoth()
+    const moved: unknown[] = []
+    const listen = (e: Event) => moved.push((e as CustomEvent).detail)
+    window.addEventListener(store.FILE_RENAMED_EVENT, listen)
+    store.renameOpenFiles(ref, 'source.js', 'target.js')
+    window.removeEventListener(store.FILE_RENAMED_EVENT, listen)
+    expect(tab(target)).toMatchObject({ path: 'target.js', draft: 'T edited, unsaved' })
+    expect(store.dirtyFile(tab(target)!)).toBe(true)
+    expect(tab(source)).toMatchObject({ path: 'source.js' })
+    expect(store.getFiles().active).toBe(target)
+    expect(moved).toEqual([])
+  })
+
+  it('确认丢弃后：目标标签换成改名过来的文件', async () => {
+    const { source, target } = await openBoth()
+    store.renameOpenFiles(ref, 'source.js', 'target.js', [target])
+    expect(store.getFiles().tabs.filter(t => t.id === target)).toHaveLength(1)
+    expect(tab(target)).toMatchObject({ path: 'target.js', draft: 'S' })
+    expect(tab(source)).toBeUndefined()
+  })
+
+  it('文件夹移动：里面撞上的未保存标签同样留着，没撞上的照常挪', async () => {
+    disk.set('a/x.js', 'x')
+    disk.set('a/y.js', 'y')
+    disk.set('b/a/x.js', 'old x')
+    const x = (await store.openFile(ref, 'a/x.js'))!
+    const y = (await store.openFile(ref, 'a/y.js'))!
+    const stale = (await store.openFile(ref, 'b/a/x.js'))!
+    store.updateFile(stale, { draft: 'old x, unsaved' })
+    expect(store.displacedDirtyFiles(ref, 'a', 'b/a').map(t => t.id)).toEqual([stale])
+    store.renameOpenFiles(ref, 'a', 'b/a')
+    expect(tab(stale)).toMatchObject({ path: 'b/a/x.js', draft: 'old x, unsaved' })
+    expect(tab(x)).toMatchObject({ path: 'a/x.js' })
+    expect(tab(y)).toBeUndefined()
+    expect(tab(fileTab(ref, 'b/a/y.js'))).toMatchObject({ path: 'b/a/y.js', draft: 'y' })
+  })
+})

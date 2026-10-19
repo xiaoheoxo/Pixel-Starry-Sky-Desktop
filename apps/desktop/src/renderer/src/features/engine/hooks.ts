@@ -16,6 +16,7 @@ import {
   type ImageAttachment,
   type PermissionMode,
   type QueuedMessage,
+  type QueueMove,
   type QueueSettings,
   type SessionSettings,
   type SessionSnapshot,
@@ -30,10 +31,11 @@ import {
   type RecentItem,
   type SessionStatus,
 } from '@/data'
-import { engineAccent, fastBlockedText, relativeTime, selfModelOptions } from './labels'
+import { engineAccent, fastBlockedText, fastHintText, relativeTime, selfModelOptions } from './labels'
 import { resumeModel } from '@/features/resume/model'
 import { effortDefaultsFor } from './effortDefaults'
 import { sidebarData, demoSidebarData, type PinnedSession } from './sidebarData'
+import { useSidebarFreeze } from './sidebarFreeze'
 import { useAccount } from '@/features/account/useAccount'
 import {
   getPlatformState,
@@ -128,6 +130,8 @@ export function useSidebarData(): SidebarData {
   const projects = useEngineState(s => s.projects)
   const sessions = useEngineState(s => s.sessions)
   const unread = useEngineState(s => s.unread)
+  // 鼠标在侧栏里时冻结按最近活动的自动排序（docs/ui/motion-proposal.html ①）；用户操作不受影响
+  const frozen = useSidebarFreeze()
   // 每分钟刷新一次，让「刚刚 / 5分钟」跟着变
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -148,8 +152,9 @@ export function useSidebarData(): SidebarData {
       sessions.filter(s => machineOf(s.record.id) === machines.currentId),
       unread,
       stamp => relativeTime(stamp, now),
+      frozen,
     )
-  }, [projects, sessions, unread, now, locale, demoChanges, machines.currentId])
+  }, [projects, sessions, unread, now, locale, demoChanges, machines.currentId, frozen])
 }
 
 export { addProject }
@@ -310,7 +315,8 @@ export interface ComposerController {
   cancelQueued(id: string): Promise<string>
   /** 发送失败的不重发也不撤回：从队列拿掉，对话里那条标「未送达」 */
   dismissQueued(id: string): Promise<void>
-  moveQueued(id: string, index: number): Promise<void>
+  /** to：{ before } 排到某条前面（null = 最后）；队列变了会被拒绝 */
+  moveQueued(id: string, to: QueueMove): Promise<void>
   runQueuedNow(id: string): Promise<void>
   steerQueued(id: string): Promise<void>
   resumeQueue(): Promise<void>
@@ -375,6 +381,8 @@ export interface ComposerController {
   fastAvailable: boolean | null
   /** 开不了的原因（给用户看的一句话） */
   fastBlocked: string | null
+  /** 能开但拿不准生不生效时的提示（Codex 不设门禁：如「接口支持 Fast 时生效，不支持的打开了也没有效果」） */
+  fastHint: string | null
   fast: boolean
   setFast(on: boolean): void
   /** 显示思考摘要 */
@@ -781,8 +789,8 @@ export function useComposerController(
       record ? b.cancelQueued(record.id, id) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
     dismissQueued: id =>
       record ? b.dismissQueued(record.id, id) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
-    moveQueued: (id, index) =>
-      record ? b.moveQueued(record.id, id, index) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
+    moveQueued: (id, to) =>
+      record ? b.moveQueued(record.id, id, to) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
     runQueuedNow: id =>
       record ? b.runQueuedNow(record.id, id) : Promise.reject(new Error(tr('engine.hooks.conversationNotFound'))),
     steerQueued: id =>
@@ -859,6 +867,8 @@ export function useComposerController(
     fastAvailable: snap?.flags.fastAvailable ?? null,
     fastBlocked:
       snap?.flags.fastBlocked && snap.flags.fastAvailable === false ? fastBlockedText(snap.flags.fastBlocked) : null,
+    fastHint:
+      snap?.flags.fastBlocked && snap.flags.fastAvailable !== false ? fastHintText(snap.flags.fastBlocked) : null,
     fast: record ? record.fast : base.fast,
     setFast: fast => patch({ fast }),
     thinkingSupported: engine?.caps.thinkingSummaries ?? false,

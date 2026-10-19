@@ -1,0 +1,24 @@
+{
+  "title": "某一段以 . 或空格结尾（Windows 会把结尾去掉）",
+  "expectCodes": ["files.path"],
+  "input": "zip",
+  "base": "pixelsky.dotenv",
+  "zipEntries": [
+    {
+      "name": "docs./a.txt",
+      "text": "x"
+    },
+    {
+      "name": "notes /b.txt",
+      "text": "y"
+    },
+    {
+      "name": "docs/c.txt.",
+      "text": "z"
+    },
+    {
+      "name": "docs/d.txt ",
+      "text": "w"
+    }
+  ]
+}

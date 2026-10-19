@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { setCurrentLocale } from '../../../i18n/core'
 import type { GitFileChange, GitStatus } from '../../../../../shared/types/project-tools'
-import { ago, diffMode, gitSections, needsCommitAll, neighbour, splitPath, syncState } from './gitModel'
+import { ago, diffMode, gitSections, needsCommitAll, neighbour, sameGitDiff, splitPath, syncState } from './gitModel'
 
 afterEach(() => setCurrentLocale('zh-CN'))
 const f = (path: string, code: GitFileChange['code'] = 'M'): GitFileChange => ({
@@ -73,5 +73,15 @@ describe('输入框上方的拉取 / 推送（composer-git）', () => {
     expect(syncState(status({ remotes: ['origin'] }))).toEqual({ ahead: 0, behind: 0, unpublished: true })
     expect(syncState(status({ remotes: ['origin'], detached: true, branch: null }))).toBeNull()
     expect(syncState(status({ remotes: ['origin'], initial: true }))).toBeNull()
+  })
+})
+
+describe('sameGitDiff', () => {
+  const d = { path: 'staged.js', original: 'a', modified: 'OLD', binary: false, tooLarge: false }
+  it('内容一样才算同一份（状态刷新后重读：一样就不替换）', () => {
+    expect(sameGitDiff(d, { ...d })).toBe(true)
+    expect(sameGitDiff(d, { ...d, modified: 'NEW' })).toBe(false)
+    expect(sameGitDiff(d, { ...d, original: null })).toBe(false)
+    expect(sameGitDiff(d, { ...d, tooLarge: true })).toBe(false)
   })
 })

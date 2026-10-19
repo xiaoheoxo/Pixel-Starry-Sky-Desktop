@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunTask, RunTaskExt, RunTaskGroup } from '../../../../../shared/types/project-tools'
-import { extTaskCommand } from './extCommand'
+import { extTaskCommand, TaskCommandError } from './extCommand'
 import { taskCommand } from './model'
 
 const task = (name: string): RunTask => ({ name, detail: '', line: null })
@@ -80,5 +80,48 @@ describe('extTaskCommand', () => {
 
   it('taskCommand 对 ext 组走这里', () => {
     expect(taskCommand(group({}), task('x'), 'bash')).toBe('just x')
+  })
+
+  it('不知道终端时和内置任务一样：单引号，含单引号按 PowerShell 双写', () => {
+    const g = group({ command: 'run {name} {dir}' }, 'cash$box')
+    expect(extTaskCommand(g, task("a'b"))).toBe(`cd 'cash$box' && run "a'b" 'cash$box'`)
+    expect(extTaskCommand(g, task('x;y'), undefined)).toBe("cd 'cash$box' && run 'x;y' 'cash$box'")
+  })
+
+  it('各种特殊字符的任务名和目录', () => {
+    for (const shell of ['pwsh', 'bash', undefined])
+      for (const name of ['a`b', 'a&b', 'f(1)', '100%', '中文', 'my app'])
+        expect(extTaskCommand(group({ cwd: '.' }), task(name), shell)).toBe(`just '${name}'`)
+    expect(extTaskCommand(group({ cwd: '.' }), task('f(1)'), 'cmd')).toBe('just "f(1)"')
+  })
+
+  it('cmd 下任务名、目录、工作目录含 % 拒绝', () => {
+    expect(() => extTaskCommand(group({}), task('50%'), 'cmd')).toThrow(TaskCommandError)
+    expect(() => extTaskCommand(group({ command: 'just' }, '100%'), task('x'), 'cmd')).toThrow(TaskCommandError)
+    expect(() => extTaskCommand(group({ command: 'just', cwd: '{dir}' }, 'a%b'), task('x'), 'cmd')).toThrow(
+      TaskCommandError,
+    )
+    expect(extTaskCommand(group({}), task('50%'), 'pwsh')).toBe("just '50%'")
+  })
+})
+
+describe('扩展任务：.cmd / .bat 运行器在 PowerShell 下', () => {
+  const bat = (name: string) => group({ runner: name, runnerLocal: true, command: '{runner} {name}' }, 'a&b')
+  it('名字、目录含 & 等被拒；普通值照常', () => {
+    for (const shell of ['pwsh', 'powershell']) {
+      expect(() => extTaskCommand(bat('mvnw.cmd'), task('package'), shell)).toThrow(TaskCommandError)
+      expect(() =>
+        extTaskCommand(
+          group({ runner: 'mvnw.cmd', runnerLocal: true, command: '{runner} {name}' }),
+          task('a|b'),
+          shell,
+        ),
+      ).toThrow(TaskCommandError)
+    }
+    // 没有 .cmd / .bat 扩展名的运行器、别的终端不受影响
+    expect(extTaskCommand(bat('mvnw'), task('package'), 'pwsh')).toBe(
+      "Set-Location -LiteralPath 'a&b'; if ($?) { & .\\mvnw package }",
+    )
+    expect(() => extTaskCommand(bat('mvnw.cmd'), task('package'), 'bash')).not.toThrow()
   })
 })

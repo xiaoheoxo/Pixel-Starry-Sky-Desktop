@@ -1,0 +1,119 @@
+{
+  "rulesVersion": 2,
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/COM¹.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/a*b.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/a|b.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/café.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/conin$.txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.path",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/nul .txt",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/COM¹.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/a*b.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/a|b.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/café.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/café.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/conin$.txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "docs/nul .txt",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "grammar.regexUnchecked",
+        "severity": "warning",
+        "scope": "pack",
+        "upload": "hint",
+        "outcome": "hint"
+      }
+    ]
+  }
+}

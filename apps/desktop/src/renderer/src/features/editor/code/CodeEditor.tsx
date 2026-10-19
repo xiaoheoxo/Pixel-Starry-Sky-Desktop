@@ -35,6 +35,7 @@ import {
 import { motionEnabled } from '@/features/panes/motion'
 import { appendComposerDraft } from '@/features/engine/drafts'
 import { QUOTE_SELECTION } from '@/features/layout/shortcuts'
+import { notifyEditorBlur } from '@/features/editor/autoSaveModel'
 import { composerTarget, focusComposer } from '@/features/session/composerTarget'
 import {
   QUOTE_MAX_CHARS,
@@ -76,6 +77,8 @@ type Runtime = {
   flashTimer?: number
   revealSeq: number
   changed: number
+  /** 这个实例当前所属的标签 id：改名 / 移动后换成新 id，编辑器里的回调都从这里取，不用创建时的旧 id */
+  owner: { id: string }
 }
 const runtimes = new Map<string, Runtime>()
 const EMPTY: readonly Extension[] = []
@@ -105,6 +108,7 @@ window.addEventListener(FILE_RENAMED_EVENT, e => {
     }
     runtimes.delete(from)
     runtimes.set(to, runtime)
+    runtime.owner.id = to
   }
   // 改名可能改了扩展名：重新认语言（标签 id 已经是新的）
   for (const { to } of (e as CustomEvent<FileRename[]>).detail) refreshRuntime(to)
@@ -258,6 +262,7 @@ export function CodeEditor({
     if (!host.current) return
     let runtime = runtimes.get(tab.id)
     if (!runtime) {
+      const owner = { id: tab.id }
       const language = new Compartment(),
         packs = new Compartment(),
         readonly = new Compartment(),
@@ -285,9 +290,15 @@ export function CodeEditor({
                 keydown(e) {
                   if (!QUOTE_SELECTION.match(e)) return false
                   e.preventDefault()
-                  const error = quoteSelection(tab.id)
+                  const error = quoteSelection(owner.id)
                   if (error) toast(error)
                   return true
+                },
+                // 自动保存「编辑器失去焦点时」：焦点挪到编辑器自己的搜索框等内部元素不算
+                blur(e, view) {
+                  if (!(e.relatedTarget instanceof Node && view.dom.contains(e.relatedTarget)))
+                    notifyEditorBlur(owner.id)
+                  return false
                 },
               }),
             ),
@@ -309,7 +320,7 @@ export function CodeEditor({
               {
                 key: 'Mod-s',
                 run: () => {
-                  void saveFile(tab.id)
+                  void saveFile(owner.id)
                   return true
                 },
               },
@@ -327,17 +338,17 @@ export function CodeEditor({
             ]),
             EditorView.updateListener.of(update => {
               if (update.docChanged) {
-                updateFile(tab.id, { draft: update.state.doc.toString() })
-                const current = runtimes.get(tab.id)
+                updateFile(owner.id, { draft: update.state.doc.toString() })
+                const current = runtimes.get(owner.id)
                 if (current) {
                   window.clearTimeout(current.timer)
-                  current.timer = window.setTimeout(() => recalc(tab.id, current), 180)
+                  current.timer = window.setTimeout(() => recalc(owner.id, current), 180)
                 }
               }
               if (update.selectionSet || update.docChanged) {
                 const pos = update.state.selection.main.head,
                   line = update.state.doc.lineAt(pos)
-                updateFile(tab.id, { cursor: { line: line.number, column: pos - line.from + 1 } })
+                updateFile(owner.id, { cursor: { line: line.number, column: pos - line.from + 1 } })
               }
             }),
           ],
@@ -356,6 +367,7 @@ export function CodeEditor({
         languageSeq: 0,
         revealSeq: -1,
         changed: tab.changed,
+        owner,
       }
       runtimes.set(tab.id, runtime)
       if (!(tab.document?.kind === 'text' && tab.document.readonly)) {

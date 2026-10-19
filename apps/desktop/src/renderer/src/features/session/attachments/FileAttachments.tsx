@@ -86,6 +86,8 @@ function FileCard({ file, onRemove }: { file: FileAttachment; onRemove?: (id: st
   useI18n()
   const [open, setOpen] = useState(false)
   const truncated = file.tail !== undefined
+  // 本机文本文件截断了也不要紧：智能体可以按路径读省略的部分（文档按路径读到的是原文件，照旧算截断）
+  const byPath = truncated && !!file.path && !file.source
   const shown = fileShownLines(file)
   // 只在输入框里提醒；已经发出去的不再标
   const secret = !!onRemove && looksSecret(file.name)
@@ -118,6 +120,9 @@ function FileCard({ file, onRemove }: { file: FileAttachment; onRemove?: (id: st
           file.name,
           file.source && tr('composer.file.textOnlyHint', { p0: sourceName(file.source) }),
           hint,
+          byPath
+            ? tr('composer.file.byPathHint', { p0: file.path! })
+            : file.path && tr('composer.file.path', { p0: file.path }),
           secret && tr('composer.file.secretHint'),
         ]
           .filter(Boolean)
@@ -130,7 +135,13 @@ function FileCard({ file, onRemove }: { file: FileAttachment; onRemove?: (id: st
           <span className="flex min-w-0 items-center gap-1.5 text-label text-fg-muted">
             <span className="truncate">{meta.join(' · ')}</span>
             {file.source && <span className="shrink-0">{tr('composer.file.textOnly')}</span>}
-            {truncated && <span className="shrink-0 text-warn">{tr('composer.file.truncated')}</span>}
+            {byPath ? (
+              <span data-file-by-path className="shrink-0">
+                {tr('composer.file.byPath')}
+              </span>
+            ) : (
+              truncated && <span className="shrink-0 text-warn">{tr('composer.file.truncated')}</span>
+            )}
             {secret && <span className="shrink-0 text-warn">{tr('composer.file.secret')}</span>}
           </span>
         </span>

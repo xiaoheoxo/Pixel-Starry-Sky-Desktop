@@ -42,6 +42,31 @@ const LOCAL_ID_RE = /^[a-z0-9][a-z0-9-]*$/
 const LANGUAGE_RE = /^[a-z0-9][a-z0-9+#.-]*$/
 const SCOPE_NAME_RE = /^[a-z0-9][a-z0-9.+-]*$/
 
+/** 扩展 id：发布者.名字（和云端一样，总长另由正则限定） */
+export function isExtId(s: unknown): s is string {
+  return typeof s === 'string' && ID_RE.test(s)
+}
+/** 扩展版本号：主.次.修订，可带预发布后缀；总长不超过 64 个字符 */
+export function isExtVersion(s: unknown): s is string {
+  return typeof s === 'string' && s.length <= 64 && VERSION_RE.test(s)
+}
+/** 发布者名：3–32 个字符，首尾不能是 - */
+export function isPublisherName(s: unknown): s is string {
+  return typeof s === 'string' && PUBLISHER_RE.test(s)
+}
+
+/** F1：允许的文件名（samples/ 下不限）。商店安装时解压前用它再查一遍 */
+export const EXT_ALLOWED_FILE_RE = /\.(json|md|png|svg|txt)$/i
+/** F1：LICENSE 开头的文件名（LICENSE、LICENSE.txt、LICENSE-MIT …） */
+export const EXT_LICENSE_FILE_RE = /^license/i
+/**
+ * F4：Windows 保留设备名（带不带扩展名都是；按路径的每一段查）。
+ * 含上标数字的 COM¹²³ / LPT¹²³、CONIN$ / CONOUT$；Windows 先去扩展名再去结尾空格，所以 "nul .json" 也算
+ */
+export const EXT_WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[\d¹²³]|lpt[\d¹²³]|conin\$|conout\$) *(\..*)?$/i
+/** F4：Windows 文件名里不能出现的字符（冒号单独处理，因为它在 NTFS 上是备用数据流） */
+const EXT_WINDOWS_BAD_CHARS_RE = /[*?"<>|]/
+
 /** 各层允许的字段；其余（除 x- 开头和 $schema）都算未知字段 */
 const KEYS = {
   manifest: [
@@ -482,23 +507,60 @@ export function validatePackFiles(
     } else if (p.includes('\\')) {
       warn('files.path', `路径里只能用 /：${p}`, `Paths may only use /: ${p}`, p)
     }
-    const lower = p.toLowerCase()
+    // NFC 归一后再比：macOS APFS 把 NFC / NFD 写法当同一个文件
+    const lower = p.normalize('NFC').toLowerCase()
     const prev = seen.get(lower)
     if (prev !== undefined && prev !== p) {
       warn(
         'files.path',
-        `只有大小写不同的两个文件：${prev} 和 ${p}`,
-        `Two files differ only in case: ${prev} and ${p}`,
+        `只有大小写（或 Unicode 写法）不同的两个文件：${prev} 和 ${p}`,
+        `Two files differ only in case or Unicode form: ${prev} and ${p}`,
         p,
       )
     }
     seen.set(lower, p)
+    if (p.includes(':')) {
+      warn(
+        'files.path',
+        `路径里不能有冒号（Windows 上会变成备用数据流）：${p}`,
+        `Paths may not contain ":" (it becomes an alternate data stream on Windows): ${p}`,
+        p,
+      )
+    }
+    if (EXT_WINDOWS_BAD_CHARS_RE.test(p)) {
+      warn(
+        'files.path',
+        `路径里不能有 * ? " < > | （Windows 文件名不允许）：${p}`,
+        `Paths may not contain any of * ? " < > | (not allowed in Windows file names): ${p}`,
+        p,
+      )
+    }
+    const segs = p.split('/')
+    const reserved = segs.find(seg => EXT_WINDOWS_RESERVED_RE.test(seg))
+    if (reserved !== undefined) {
+      warn(
+        'files.path',
+        `路径里有 Windows 保留名「${reserved}」：${p}`,
+        `Path contains the Windows reserved name "${reserved}": ${p}`,
+        p,
+      )
+    }
+    // "." / ".." 段由来源层拒绝（zip.entryName），这里只查真正的名字
+    const trailing = segs.find(seg => seg !== '.' && seg !== '..' && /[. ]$/.test(seg))
+    if (trailing !== undefined) {
+      warn(
+        'files.path',
+        `路径的每一段都不能以 . 或空格结尾（Windows 会把它去掉）：${p}`,
+        `No path segment may end with "." or a space (Windows strips it): ${p}`,
+        p,
+      )
+    }
     // F2
     if (!inSamples && p.split('/').some(seg => seg.startsWith('.'))) {
       warn('files.hidden', `不要放隐藏文件：${p}`, `Hidden files are not allowed: ${p}`, p)
     }
     // F1
-    const allowed = inSamples || /\.(json|md|png|svg|txt)$/i.test(base) || /^license/i.test(base)
+    const allowed = inSamples || EXT_ALLOWED_FILE_RE.test(base) || EXT_LICENSE_FILE_RE.test(base)
     if (!allowed) {
       warn(
         'files.type',
@@ -1466,11 +1528,18 @@ export function packStatus(issues: ExtPackIssue[]): ExtPackInfo['status'] {
 
 /** 加载器 / 服务自己产生的问题 */
 export function loaderIssue(
-  code: 'manifest.missing' | 'files.scanLimit' | 'pack.duplicateId' | 'svg.unsafe' | 'files.symlink',
-  params?: { path?: string; id?: string },
+  code:
+    | 'manifest.missing'
+    | 'files.scanLimit'
+    | 'pack.duplicateId'
+    | 'pack.storeBlocked'
+    | 'svg.unsafe'
+    | 'files.symlink',
+  params?: { path?: string; id?: string; reason?: string },
 ): ExtPackIssue {
   const path = params?.path
   const id = params?.id ?? ''
+  const reason = params?.reason ?? ''
   const where = path ? `：${path}` : ''
   const whereEn = path ? `: ${path}` : ''
   switch (code) {
@@ -1500,6 +1569,15 @@ export function loaderIssue(
         `已经有另一个扩展用了 id「${id}」，这个没有加载`,
         `Another extension already uses the id "${id}"; this one is not loaded`,
         { path, upload: 'reject' },
+      )
+    case 'pack.storeBlocked':
+      // 只在本机产生（停用名单命中文件夹扩展），不带 upload
+      return mk(
+        'warning',
+        'pack',
+        code,
+        `这个版本在商店里已被平台停用：${reason}`,
+        `This version has been disabled by the platform in the store: ${reason}`,
       )
     case 'svg.unsafe':
       return mk(

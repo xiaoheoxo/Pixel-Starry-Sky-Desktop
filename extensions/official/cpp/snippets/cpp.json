@@ -1,0 +1,197 @@
+{
+  "main 函数": {
+    "prefix": "main",
+    "body": [
+      "#include <iostream>",
+      "",
+      "int main() {",
+      "    ${1:std::cout << \"Hello\\n\";}",
+      "    return 0;",
+      "}",
+      ""
+    ],
+    "description": "C++ 的 main 函数"
+  },
+  "带参数的 main": {
+    "prefix": "mainargs",
+    "body": [
+      "#include <string_view>",
+      "#include <vector>",
+      "",
+      "int main(int argc, char* argv[]) {",
+      "    const std::vector<std::string_view> args(argv + 1, argv + argc);",
+      "    $0",
+      "    return 0;",
+      "}",
+      ""
+    ],
+    "description": "把命令行参数收进 vector<string_view>"
+  },
+  "#pragma once 头文件保护": {
+    "prefix": "once",
+    "body": ["#pragma once", "", "$0"],
+    "description": "头文件保护"
+  },
+  "包含头文件": {
+    "prefix": "inc",
+    "body": "#include <${1|iostream,string,string_view,vector,map,unordered_map,set,memory,optional,algorithm,utility,filesystem,span,format|}>$0",
+    "description": "#include <...> 常用标准头文件"
+  },
+  "类（零法则）": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "public:",
+      "    // 成员都用 RAII 类型，不必手写析构和拷贝 / 移动函数",
+      "    $0",
+      "",
+      "private:",
+      "    ${2:int value_ = 0;}",
+      "};"
+    ],
+    "description": "遵循 rule of zero 的类骨架"
+  },
+  "结构体": {
+    "prefix": "struct",
+    "body": ["struct ${1:Name} {", "    ${2:int value = 0;}", "};", "$0"],
+    "description": "简单的聚合类型"
+  },
+  "接口类": {
+    "prefix": "iface",
+    "body": [
+      "class ${1:Interface} {",
+      "public:",
+      "    virtual ~${1:Interface}() = default;",
+      "",
+      "    virtual ${2:void} ${3:run}(${4}) const = 0;",
+      "};",
+      "$0"
+    ],
+    "description": "带虚析构函数的抽象基类"
+  },
+  "五法则": {
+    "prefix": "rule5",
+    "body": [
+      "${1:Name}() = default;",
+      "~${1:Name}();",
+      "${1:Name}(const ${1:Name}&) = ${2|default,delete|};",
+      "${1:Name}& operator=(const ${1:Name}&) = ${2|default,delete|};",
+      "${1:Name}(${1:Name}&&) noexcept = ${3|default,delete|};",
+      "${1:Name}& operator=(${1:Name}&&) noexcept = ${3|default,delete|};",
+      "$0"
+    ],
+    "description": "显式声明特殊成员函数（拥有资源的类才需要）"
+  },
+  "命名空间": {
+    "prefix": "ns",
+    "body": ["namespace ${1:name} {", "", "$0", "", "}  // namespace ${1:name}"],
+    "description": "namespace，结尾带注释"
+  },
+  "匿名命名空间": {
+    "prefix": "nsanon",
+    "body": ["namespace {", "", "$0", "", "}  // namespace"],
+    "description": "文件内部可见的匿名 namespace"
+  },
+  "枚举类": {
+    "prefix": "enumc",
+    "body": ["enum class ${1:Name} {", "    ${2:A},", "    ${3:B},", "};", "$0"],
+    "description": "强类型枚举 enum class"
+  },
+  "独占指针 unique_ptr": {
+    "prefix": "uptr",
+    "body": "auto ${1:ptr} = std::make_unique<${2:Type}>(${3});$0",
+    "description": "std::make_unique（需要 <memory>）"
+  },
+  "共享指针 shared_ptr": {
+    "prefix": "sptr",
+    "body": "auto ${1:ptr} = std::make_shared<${2:Type}>(${3});$0",
+    "description": "std::make_shared（需要 <memory>）"
+  },
+  "范围 for": {
+    "prefix": "rfor",
+    "body": ["for (${1|const auto&,auto&,auto&&,auto|} ${2:item} : ${3:container}) {", "    $0", "}"],
+    "description": "范围 for 循环"
+  },
+  "下标 for": {
+    "prefix": "fori",
+    "body": ["for (std::size_t ${1:i} = 0; ${1:i} < ${2:n}; ++${1:i}) {", "    $0", "}"],
+    "description": "按 size_t 下标遍历"
+  },
+  "lambda 表达式": {
+    "prefix": "lambda",
+    "body": ["[${1:&}](${2:const auto& x}) {", "    $0", "}"],
+    "description": "lambda 表达式"
+  },
+  "返回 optional 的函数": {
+    "prefix": "opt",
+    "body": [
+      "std::optional<${1:int}> ${2:find}(${3}) {",
+      "    if (${4:found}) {",
+      "        return ${5:value};",
+      "    }",
+      "    return std::nullopt;",
+      "}"
+    ],
+    "description": "返回 optional 的函数（需要 <optional>）"
+  },
+  "结构化绑定": {
+    "prefix": "sbind",
+    "body": "const auto& [${1:key}, ${2:value}] = ${3:pair};$0",
+    "description": "结构化绑定（C++17）"
+  },
+  "带初始化的 if": {
+    "prefix": "ifinit",
+    "body": ["if (auto it = ${1:map}.find(${2:key}); it != ${1:map}.end()) {", "    $0", "}"],
+    "description": "C++17 if 初始化语句，查找 map"
+  },
+  "函数模板": {
+    "prefix": "tmpl",
+    "body": ["template <typename ${1:T}>", "${2:auto} ${3:name}(const ${1:T}& ${4:value}) {", "    $0", "}"],
+    "description": "函数模板"
+  },
+  "concept 约束": {
+    "prefix": "concept",
+    "body": ["template <typename ${1:T}>", "concept ${2:Name} = requires(${1:T} v) {", "    v.size();", "};", "$0"],
+    "description": "C++20 concept 约束"
+  },
+  "捕获异常": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "    $0",
+      "} catch (const ${1:std::exception}& e) {",
+      "    ${2:std::cerr << e.what() << '\\n';}",
+      "}"
+    ],
+    "description": "按 const 引用捕获异常"
+  },
+  "std::format 输出": {
+    "prefix": "fmt",
+    "body": "std::cout << std::format(\"${1:{\\}}\\n\", ${2:value});$0",
+    "description": "C++20 std::format（需要 <format>）"
+  },
+  "GoogleTest 测试": {
+    "prefix": "gtest",
+    "body": [
+      "#include <gtest/gtest.h>",
+      "",
+      "TEST(${1:SuiteName}, ${2:CaseName}) {",
+      "    ${3:EXPECT_EQ(1 + 1, 2);}",
+      "}",
+      ""
+    ],
+    "description": "GoogleTest 的测试用例（项目里要有 GoogleTest）"
+  },
+  "Catch2 测试": {
+    "prefix": "catch2",
+    "body": [
+      "#include <catch2/catch_test_macros.hpp>",
+      "",
+      "TEST_CASE(\"${1:description}\", \"[${2:tag}]\") {",
+      "    ${3:REQUIRE(1 + 1 == 2);}",
+      "}",
+      ""
+    ],
+    "description": "Catch2 v3 的测试用例（项目里要有 Catch2）"
+  }
+}

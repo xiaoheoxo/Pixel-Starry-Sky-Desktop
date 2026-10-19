@@ -262,3 +262,35 @@ describe('historySearch', () => {
     expect(text).toContain('#2 [助手]')
   })
 })
+
+describe('emoji 和落单的代理项', () => {
+  const emoji = String.fromCharCode(0xd83d, 0xde00)
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
+  it('read 超长截断、search 片段：不劈开 emoji', () => {
+    const items = [
+      user(`问${emoji.repeat(15_000)}`, 'claude'),
+      assistant(`答${emoji.repeat(15_000)}关键词${emoji.repeat(100)}`),
+    ]
+    const read = historyRead(items, { turn: 1 })
+    expect(read).toContain('已截断')
+    expect(lone.test(read)).toBe(false)
+    expect(read).not.toContain('�')
+    const found = historySearch(items, { query: '关键词' })
+    expect(lone.test(found)).toBe(false)
+    expect(found).not.toContain('�')
+  })
+
+  it('上游原文里本来就有的半个代理项：三个工具的输出都换成 U+FFFD', () => {
+    const half = String.fromCharCode(0xd83d)
+    const items = [user(`坏${half}字 关键词`, 'claude'), assistant(`回复${half}`)]
+    for (const out of [
+      historyOutline(items),
+      historyRead(items, { turn: 1 }),
+      historySearch(items, { query: '关键词' }),
+    ]) {
+      expect(lone.test(out)).toBe(false)
+      expect(out).toContain('�')
+    }
+  })
+})

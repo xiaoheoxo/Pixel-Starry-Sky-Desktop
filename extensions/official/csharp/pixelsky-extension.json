@@ -1,0 +1,232 @@
+{
+  "id": "pixelsky.csharp",
+  "name": "C# 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "C# 的可选语法高亮、代码片段、dotnet 任务，以及写测试和处理 nullable 警告的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["csharp", "dotnet", "xunit", "nunit", "linq"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "C# Support",
+      "description": "C# optional syntax highlighting, snippets, dotnet tasks, plus a skill and prompts for writing tests and nullable warnings"
+    }
+  },
+  "contributes": {
+    "grammars": [
+      {
+        "language": "csharp",
+        "aliases": ["C#", "csharp"],
+        "extensions": [".cs", ".csx"],
+        "scopeName": "source.cs",
+        "path": "syntaxes/csharp.tmLanguage.json",
+        "configuration": "language-configuration.json",
+        "samples": ["samples/Example.cs"]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "csharp",
+        "path": "snippets/csharp.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "dotnet",
+        "label": {
+          "zh": ".NET",
+          "en": ".NET"
+        },
+        "files": ["global.json"],
+        "tasks": [
+          {
+            "name": "build",
+            "description": {
+              "zh": "编译（目录里要恰好有一个解决方案或项目文件）",
+              "en": "Build (the folder must contain exactly one solution or project file)"
+            }
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "运行测试",
+              "en": "Run tests"
+            }
+          },
+          {
+            "name": "restore",
+            "description": {
+              "zh": "还原 NuGet 包",
+              "en": "Restore NuGet packages"
+            }
+          },
+          {
+            "name": "format",
+            "description": {
+              "zh": "按 .editorconfig 格式化代码",
+              "en": "Format code according to .editorconfig"
+            }
+          }
+        ],
+        "command": "dotnet {name}"
+      },
+      {
+        "id": "dotnet-props",
+        "label": {
+          "zh": ".NET",
+          "en": ".NET"
+        },
+        "files": ["Directory.Build.props"],
+        "tasks": [
+          {
+            "name": "build",
+            "description": {
+              "zh": "编译（目录里要恰好有一个解决方案或项目文件）",
+              "en": "Build (the folder must contain exactly one solution or project file)"
+            },
+            "when": "!exists:global.json"
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "运行测试",
+              "en": "Run tests"
+            },
+            "when": "!exists:global.json"
+          },
+          {
+            "name": "restore",
+            "description": {
+              "zh": "还原 NuGet 包",
+              "en": "Restore NuGet packages"
+            },
+            "when": "!exists:global.json"
+          },
+          {
+            "name": "format",
+            "description": {
+              "zh": "按 .editorconfig 格式化代码",
+              "en": "Format code according to .editorconfig"
+            },
+            "when": "!exists:global.json"
+          }
+        ],
+        "command": "dotnet {name}"
+      },
+      {
+        "id": "dotnet-packages",
+        "label": {
+          "zh": ".NET",
+          "en": ".NET"
+        },
+        "files": ["Directory.Packages.props"],
+        "tasks": [
+          {
+            "name": "build",
+            "description": {
+              "zh": "编译（目录里要恰好有一个解决方案或项目文件）",
+              "en": "Build (the folder must contain exactly one solution or project file)"
+            },
+            "when": "!exists:Directory.Build.props"
+          },
+          {
+            "name": "test",
+            "description": {
+              "zh": "运行测试",
+              "en": "Run tests"
+            },
+            "when": "!exists:Directory.Build.props"
+          },
+          {
+            "name": "restore",
+            "description": {
+              "zh": "还原 NuGet 包",
+              "en": "Restore NuGet packages"
+            },
+            "when": "!exists:Directory.Build.props"
+          },
+          {
+            "name": "format",
+            "description": {
+              "zh": "按 .editorconfig 格式化代码",
+              "en": "Format code according to .editorconfig"
+            },
+            "when": "!exists:Directory.Build.props"
+          }
+        ],
+        "command": "dotnet {name}"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/csharp-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "csharp-write-tests",
+        "title": {
+          "zh": "为选中代码写单元测试",
+          "en": "Write unit tests for the selection"
+        },
+        "description": {
+          "zh": "沿用项目现有的测试框架写测试",
+          "en": "Write tests with the project's existing test framework"
+        },
+        "path": "prompts/write-tests.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "csharp-fix-nullable",
+        "title": {
+          "zh": "处理 nullable 警告",
+          "en": "Resolve nullable warnings"
+        },
+        "description": {
+          "zh": "不靠 ! 压警告，从根上修",
+          "en": "Fix the root cause instead of suppressing with !"
+        },
+        "path": "prompts/fix-nullable.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      },
+      {
+        "id": "csharp-explain-exception",
+        "title": {
+          "zh": "解释异常和堆栈",
+          "en": "Explain an exception and stack trace"
+        },
+        "description": {
+          "zh": "粘贴异常后分析原因并定位",
+          "en": "Analyze the cause and locate the failing code"
+        },
+        "path": "prompts/explain-exception.md",
+        "where": ["composer"]
+      },
+      {
+        "id": "csharp-to-async",
+        "title": {
+          "zh": "改成 async/await",
+          "en": "Convert to async/await"
+        },
+        "description": {
+          "zh": "把同步或回调写法改成 Task 异步，并带上 CancellationToken",
+          "en": "Convert synchronous or callback code to Task-based async"
+        },
+        "path": "prompts/to-async.md",
+        "where": ["composer", "editor"],
+        "requires": "selection"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

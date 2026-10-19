@@ -1,6 +1,6 @@
 // 消息队列（docs/mobile-remote.md §17 第 2 项，规则同桌面 QueuedMessages）：输入框上面列出排着的消息，
 // 点一条弹出能做的事：插队 / 重试、引导、上移、下移、撤回（撤回的文字放回输入框）、关掉；
-// 断线自动重连中的那条：立即重连、停止。
+// 断线自动重连中的那条：立即重连、停止（队列暂停时是继续重连、停止）。
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, CornerDownRight, ImageIcon, Pause } from 'lucide-react'
 import type { QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
@@ -11,8 +11,10 @@ import {
   isPending,
   isReconnecting,
   isSendFailure,
+  queueErrorText,
   queueItems,
   queueLabel,
+  queueMoveArg,
   queueTitle,
 } from '@/data/queue'
 import { Button, Spinner, cn } from '@/ui'
@@ -51,20 +53,24 @@ export function QueuePanel({
       const result = await link.call(method, sessionId, ...args)
       if (method === 'engine:cancelQueued' && typeof result === 'string') onRecall(result)
     } catch (e) {
-      setError((e as Error).message === 'MOBILE_FORBIDDEN' ? '这部手机是「只看」。' : (e as Error).message)
+      setError(
+        (e as Error).message === 'MOBILE_FORBIDDEN' ? '这部手机是「只看」。' : queueErrorText((e as Error).message),
+      )
     } finally {
       setBusy(null)
     }
   }
 
   const actionsFor = (q: QueuedMessage): SheetAction[] => {
-    const index = snapshot.queue.indexOf(q)
+    const before = link?.hello?.queueMoveBefore === true
+    const up = queueMoveArg(snapshot.queue, items, q.id, -1, before)
+    const down = queueMoveArg(snapshot.queue, items, q.id, 1, before)
     const list: SheetAction[] = []
     if (isReconnecting(q))
       return [
         {
-          label: '立即重连',
-          hint: '不等倒计时，现在就连',
+          label: snapshot.queuePaused ? '继续重连' : '立即重连',
+          hint: snapshot.queuePaused ? '自动重连已暂停，现在接着连' : '不等倒计时，现在就连',
           disabled: q.status === 'dispatching',
           onSelect: () => void run(q.id, 'engine:runQueuedNow', q.id),
         },
@@ -97,11 +103,11 @@ export function QueuePanel({
       })
     if (q.status === 'queued') {
       list.push(
-        { label: '上移', disabled: index <= 0, onSelect: () => void run(q.id, 'engine:moveQueued', q.id, index - 1) },
+        { label: '上移', disabled: up === null, onSelect: () => void run(q.id, 'engine:moveQueued', q.id, up) },
         {
           label: '下移',
-          disabled: index >= snapshot.queue.length - 1,
-          onSelect: () => void run(q.id, 'engine:moveQueued', q.id, index + 1),
+          disabled: down === null,
+          onSelect: () => void run(q.id, 'engine:moveQueued', q.id, down),
         },
       )
     }
@@ -151,7 +157,12 @@ export function QueuePanel({
           </button>
         )}
       </div>
-      <div className={cn('flex flex-col gap-1.5 pb-1', open && 'max-h-[35dvh] overflow-y-auto')}>
+      <div
+        className={cn(
+          'flex flex-col gap-1.5 pb-1',
+          open && 'max-h-[calc(var(--app-height,100dvh)*0.35)] overflow-y-auto',
+        )}
+      >
         {shown.map(q => (
           <button
             key={q.id}
@@ -166,7 +177,9 @@ export function QueuePanel({
               ) : (
                 <span className={cn('size-1.5 rounded-full', q.error ? 'bg-warn' : 'bg-fg-faint')} />
               )}
-              <span className={q.error || isSendFailure(q) ? 'text-warn' : 'text-fg-muted'}>{queueLabel(q)}</span>
+              <span className={q.error || isSendFailure(q) ? 'text-warn' : 'text-fg-muted'}>
+                {queueLabel(q, snapshot.queuePaused)}
+              </span>
               {!!q.attachments?.length && (
                 <span className="flex items-center gap-0.5 text-fg-faint">
                   <ImageIcon size={12} /> {q.attachments.length}

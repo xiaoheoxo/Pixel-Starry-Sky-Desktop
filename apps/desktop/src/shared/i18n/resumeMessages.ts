@@ -1,13 +1,15 @@
-// 接着终端里的 Claude Code 会话（docs/ui/claude-resume.md）：斜杠菜单、选择框、对话里的按钮
+// 接着终端里的 Claude Code / Codex 会话（docs/ui/claude-resume.md、codex-resume.md；{engine} 是引擎名）：斜杠菜单、选择框、对话里的按钮
 export const resumeMessages = {
   'resume.chip': { zh: '像素星空', en: 'Pixel Starry Sky' },
   'resume.command.description': {
-    zh: '接着这个文件夹里以前的 Claude Code 会话（新开一个对话）',
-    en: 'Continue an earlier Claude Code session from this folder (opens a new conversation)',
+    zh: '接着这个文件夹里以前的 {engine} 会话（新开一个对话）',
+    en: 'Continue an earlier {engine} session from this folder (opens a new conversation)',
   },
-  'resume.palette': { zh: '接着 Claude Code 会话…', en: 'Continue a Claude Code session…' },
+  'resume.open.claude': { zh: '接着 Claude Code 会话…', en: 'Continue a Claude Code session…' },
+  'resume.open.codex': { zh: '接着 Codex 会话…', en: 'Continue a Codex session…' },
+  'resume.open.codexMissing': { zh: 'Codex 没装好', en: 'Codex isn’t set up' },
   'resume.remote': { zh: '远程机器上暂不支持', en: 'Not supported on remote machines yet' },
-  'resume.title': { zh: '接着 Claude Code 会话', en: 'Continue a Claude Code session' },
+  'resume.title': { zh: '接着 {engine} 会话', en: 'Continue a {engine} session' },
   'resume.search': { zh: '搜索标题、最后一句或 id', en: 'Search titles, last prompts or ids' },
   'resume.searchLabel': { zh: '搜索会话', en: 'Search sessions' },
   'resume.list': { zh: '可以接着聊的会话', en: 'Sessions you can continue' },
@@ -37,6 +39,14 @@ export const resumeMessages = {
     zh: '这个会话最近几分钟内被写过，可能还开着。',
     en: 'This session was written to in the last few minutes and may still be open.',
   },
+  'resume.liveNote.maybe.codex': {
+    zh: '这个会话的写入锁还在，可能还开着。',
+    en: 'This session’s write lock is still there, so it may still be open.',
+  },
+  'resume.executorChanged': {
+    zh: '执行者在打开之后换了，请关掉再重新打开',
+    en: 'The engine changed after this was opened. Close it and open it again.',
+  },
   'resume.stillLive': {
     zh: '这个会话还开着。关掉后再试，或者复制一份接着聊。',
     en: 'This session is still open. Close it and try again, or continue in a copy.',
@@ -46,14 +56,18 @@ export const resumeMessages = {
   'resume.importingPercent': { zh: '正在读取 {percent}%', en: 'Reading {percent}%' },
   'resume.cancel': { zh: '取消', en: 'Cancel' },
   'resume.empty': {
-    zh: '这个文件夹还没有 Claude Code 会话记录',
-    en: 'This folder has no Claude Code session records yet',
+    zh: '这个文件夹还没有 {engine} 会话记录',
+    en: 'This folder has no {engine} session records yet',
   },
   'resume.noMatch': { zh: '没有匹配的会话', en: 'No matching sessions' },
   'resume.loading': { zh: '正在读取会话…', en: 'Reading sessions…' },
   'resume.unreadable': {
     zh: '读不到 Claude Code 的会话目录：{error}',
     en: 'Can’t read the Claude Code sessions folder: {error}',
+  },
+  'resume.unreadable.codex': {
+    zh: '读不到 Codex 的会话：{error}',
+    en: 'Can’t read the Codex sessions: {error}',
   },
   'resume.retry': { zh: '重试', en: 'Retry' },
   'resume.gone': { zh: '这个会话的记录已经不在了', en: 'The record of this session is gone' },
@@ -66,7 +80,7 @@ export const resumeMessages = {
   'resume.keySelect': { zh: '↑↓ 选择', en: '↑↓ select' },
   'resume.keyOpen': { zh: 'Enter 打开', en: 'Enter open' },
   'resume.keyClose': { zh: 'Esc 关闭', en: 'Esc close' },
-  'resume.starting': { zh: '正在加载 Claude Code 会话…', en: 'Loading the Claude Code session…' },
+  'resume.starting': { zh: '正在加载 {engine} 会话…', en: 'Loading the {engine} session…' },
   'resume.earlier': { zh: '加载更早的', en: 'Load earlier' },
   'resume.sync': { zh: '补上终端里新聊的 {count} 轮', en: 'Add the {count} new turns from the terminal' },
   'resume.help.title': { zh: '和终端里的 /resume 有什么不同', en: 'How this differs from /resume in the terminal' },
@@ -94,4 +108,104 @@ export const resumeMessages = {
     zh: '可以在模型菜单换到 Codex 接着聊（Codex 拿到的是聊天回放，不含工具和压缩摘要）。换回 Claude 时，Codex 期间的聊天会写进终端那份记录。',
     en: 'You can switch to Codex from the model menu (Codex gets a chat replay without tools or compaction summaries). Switching back writes the Codex-era chat into the terminal’s session record.',
   },
+  'resume.help.codex.live': {
+    zh: '会话在终端里正开着时，Codex 不让两个程序同时写一个会话：只能「复制一份接着聊」（原会话不动），或者关掉终端再来。',
+    en: 'Codex doesn’t let two programs write to one session. If it is open in the terminal, use “Continue in a copy” (the original is untouched) or close the terminal first.',
+  },
+  'resume.help.codex.context': {
+    zh: '模型上下文和终端里完全一样，是同一个会话（thread/resume）。',
+    en: 'The model context is exactly the same as in the terminal: it is the same session (thread/resume).',
+  },
+  'resume.help.codex.idle': {
+    zh: '像素星空刚用过这个会话时，要空闲 2 分钟才放开它，这之前终端里 codex resume 会提示正被占用。',
+    en: 'After Pixel Starry Sky uses a session, it releases it after 2 idle minutes; until then codex resume in the terminal reports it as in use.',
+  },
+  'resume.help.codex.revert': {
+    zh: '直接接着聊的对话回退会改写这个会话的历史，之后终端里看到的也是回退后的；不想动原会话就用「复制一份接着聊」。',
+    en: 'Rewinding a conversation continued directly rewrites the session history, so the terminal sees the rewound version too. Use “Continue in a copy” to leave the original alone.',
+  },
+  'resume.help.codex.legacy': {
+    zh: '旧格式的会话一律复制成新会话接着聊。',
+    en: 'Sessions in the old format are always continued in a copy.',
+  },
+  'resume.help.codex.engine': {
+    zh: '可以在模型菜单换到 Claude Code 接着聊（拿到的是聊天回放，不含工具和压缩摘要）。',
+    en: 'You can switch to Claude Code from the model menu (it gets a chat replay without tools or compaction summaries).',
+  },
+  'resume.hint.claude': {
+    zh: '这个项目有 {n} 个 Claude Code 会话可以接着聊',
+    en: '{n} Claude Code session(s) in this project to continue',
+  },
+  'resume.hint.codex': {
+    zh: '这个项目有 {n} 个 Codex 会话可以接着聊',
+    en: '{n} Codex session(s) in this project to continue',
+  },
+  'resume.hint.both': {
+    zh: '这个项目有 {claude} 个 Claude Code、{codex} 个 Codex 会话可以接着聊',
+    en: '{claude} Claude Code and {codex} Codex session(s) in this project to continue',
+  },
+  'resume.hint.sep.dot': { zh: ' · ', en: ' · ' },
+  'resume.hint.sep.comma': { zh: '，', en: ', ' },
+  'resume.hint.action': { zh: '接着聊', en: 'Continue' },
+  'resume.hint.checking': { zh: '正在查找终端里原来的会话…', en: 'Looking for earlier terminal sessions…' },
+  'resume.hint.none': {
+    zh: '没找到终端里原来的 Claude Code / Codex 会话',
+    en: 'No earlier Claude Code / Codex sessions found',
+  },
+  'resume.hint.failed': { zh: '查找 {engines} 会话时出错', en: 'Couldn’t look up {engines} sessions' },
+  'resume.hint.failedDetail': { zh: '{engine}：{error}', en: '{engine}: {error}' },
+  'resume.hint.recheck': { zh: '重新查找', en: 'Search again' },
+  'resume.hint.toastMany': {
+    zh: '其中 {n} 个项目有原来的 AI 会话，进项目输入 /resume 就能接着聊',
+    en: '{n} of these projects have earlier AI sessions; type /resume in a project to continue',
+  },
+  // 设置 › 项目「原来的 AI 会话」：手动扫描全部项目（docs/ui/resume-scan-mockup.html）
+  'resume.scan.title': { zh: '原来的 AI 会话', en: 'Earlier AI sessions' },
+  'resume.scan.intro': {
+    zh: '找出各项目里 Claude Code 和 Codex 留下、还没在像素星空里打开过的会话，点「接着聊」继续。只读会话记录，不改任何文件。',
+    en: 'Find sessions that Claude Code and Codex left in your projects and that you haven’t opened in Pixel Starry Sky yet, then continue them. Only session records are read; no files are changed.',
+  },
+  'resume.scan.start': { zh: '扫描全部项目', en: 'Scan all projects' },
+  'resume.scan.again': { zh: '重新扫描全部', en: 'Rescan all' },
+  'resume.scan.stop': { zh: '停止', en: 'Stop' },
+  'resume.scan.stopping': { zh: '正在停止…', en: 'Stopping…' },
+  'resume.scan.onlyWith': { zh: '只看有会话的', en: 'Only projects with sessions' },
+  'resume.scan.progress': {
+    zh: '正在扫描 {done} / {total} 个项目 · 已找到 {found} 个项目有会话',
+    en: 'Scanning {done} / {total} projects · {found} with sessions so far',
+  },
+  'resume.scan.finished': {
+    zh: '扫描了 {total} 个项目，{found} 个有会话 · {time}',
+    en: 'Scanned {total} projects, {found} with sessions · {time}',
+  },
+  'resume.scan.stopped': {
+    zh: '已停止：扫了 {done} / {total} 个项目，{found} 个有会话',
+    en: 'Stopped: scanned {done} / {total} projects, {found} with sessions',
+  },
+  'resume.scan.noProjects': { zh: '侧栏里还没有项目', en: 'No projects in the sidebar yet' },
+  'resume.scan.noneFound': {
+    zh: '没有找到可以接着聊的会话',
+    en: 'No sessions to continue were found',
+  },
+  'resume.scan.col.project': { zh: '项目', en: 'Project' },
+  'resume.scan.col.latest': { zh: '最近', en: 'Latest' },
+  'resume.scan.live': { zh: '{n} 个正开着', en: 'open: {n}' },
+  'resume.scan.unreadable': { zh: '读不到', en: 'Unavailable' },
+  'resume.scan.scanning': { zh: '扫描中…', en: 'Scanning…' },
+  'resume.scan.waiting': { zh: '排队中', en: 'Queued' },
+  'resume.scan.skipped': { zh: '没扫', en: 'Not scanned' },
+  'resume.scan.continue': { zh: '接着聊', en: 'Continue' },
+  'resume.scan.continueEngine': { zh: '接着 {engine} 会话（{n}）', en: 'Continue a {engine} session ({n})' },
+  'resume.scan.rescanOne': { zh: '重新扫描这个项目', en: 'Rescan this project' },
+  'resume.scan.hiddenNone': { zh: '另有 {n} 个项目没有找到会话', en: 'No sessions in other projects: {n}' },
+  'resume.scan.hiddenRemote': { zh: '{n} 个远程项目暂不支持', en: 'Remote projects (not supported): {n}' },
+  'resume.scan.hiddenSkipped': { zh: '{n} 个没扫', en: 'Not scanned: {n}' },
+  'resume.scan.showAll': { zh: '显示全部', en: 'Show all' },
+  'resume.scan.remoteRow': { zh: '远程机器上暂不支持', en: 'Not supported on remote machines' },
+  'resume.scan.remoteTitle': { zh: '远程机器上暂不支持', en: 'Not supported on remote machines' },
+  'resume.scan.remoteBody': {
+    zh: '现在连着 {machine}。查找会话要读那台机器上 Claude Code 和 Codex 的会话记录，这一版只支持本机的项目。',
+    en: 'You’re connected to {machine}. Finding sessions means reading the Claude Code and Codex records on that machine; this version only supports local projects.',
+  },
+  'resume.scan.switchLocal': { zh: '切换到本机', en: 'Switch to this computer' },
 } as const satisfies Record<string, { zh: string; en: string }>

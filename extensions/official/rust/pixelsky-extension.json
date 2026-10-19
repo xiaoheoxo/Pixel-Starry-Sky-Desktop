@@ -1,0 +1,204 @@
+{
+  "id": "pixelsky.rust",
+  "name": "Rust 支持",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Rust 的代码片段、clippy / fmt / doc 任务，以及用 cargo 验证改动、修借用报错的技能与提示词",
+  "icon": "icon.png",
+  "keywords": ["rust", "cargo", "clippy", "rustfmt"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.4.10"
+  },
+  "l10n": {
+    "en": {
+      "name": "Rust Support",
+      "description": "Rust snippets, clippy / fmt / doc tasks, plus a skill and prompts for cargo workflows and borrow checker errors"
+    }
+  },
+  "contributes": {
+    "snippets": [
+      {
+        "language": "rust",
+        "path": "snippets/rust.json"
+      }
+    ],
+    "taskTemplates": [
+      {
+        "id": "cargo-clippy",
+        "label": {
+          "zh": "Cargo clippy",
+          "en": "Cargo clippy"
+        },
+        "files": ["Cargo.lock"],
+        "tasks": [
+          {
+            "name": "clippy",
+            "description": {
+              "zh": "运行 clippy 静态检查",
+              "en": "Run clippy lints"
+            }
+          }
+        ],
+        "command": "cargo clippy"
+      },
+      {
+        "id": "cargo-doc",
+        "label": {
+          "zh": "Cargo doc",
+          "en": "Cargo doc"
+        },
+        "files": ["Cargo.lock"],
+        "tasks": [
+          {
+            "name": "doc",
+            "description": {
+              "zh": "生成本项目的文档（不含依赖）",
+              "en": "Build this project's docs (no dependencies)"
+            }
+          }
+        ],
+        "command": "cargo doc --no-deps"
+      },
+      {
+        "id": "cargo-clippy-strict",
+        "label": {
+          "zh": "Cargo clippy（严格）",
+          "en": "Cargo clippy (strict)"
+        },
+        "files": ["Cargo.lock"],
+        "tasks": [
+          {
+            "name": "clippy-strict",
+            "description": {
+              "zh": "clippy 检查全部目标，警告当作错误",
+              "en": "clippy on all targets, warnings as errors"
+            }
+          }
+        ],
+        "command": "cargo clippy --all-targets -- -D warnings"
+      },
+      {
+        "id": "cargo-fmt",
+        "label": {
+          "zh": "Cargo fmt",
+          "en": "Cargo fmt"
+        },
+        "files": ["Cargo.lock"],
+        "tasks": [
+          {
+            "name": "fmt",
+            "description": {
+              "zh": "格式化整个工作区",
+              "en": "Format the whole workspace"
+            }
+          }
+        ],
+        "command": "cargo fmt --all"
+      },
+      {
+        "id": "cargo-fmt-check",
+        "label": {
+          "zh": "Cargo fmt 检查",
+          "en": "Cargo fmt check"
+        },
+        "files": ["Cargo.lock"],
+        "tasks": [
+          {
+            "name": "fmt-check",
+            "description": {
+              "zh": "只检查格式，不改文件",
+              "en": "Check formatting without changing files"
+            }
+          }
+        ],
+        "command": "cargo fmt --all --check"
+      },
+      {
+        "id": "rust-toolchain",
+        "label": {
+          "zh": "Rust 工具链",
+          "en": "Rust toolchain"
+        },
+        "files": ["rust-toolchain.toml", "rust-toolchain"],
+        "tasks": [
+          {
+            "name": "toolchain",
+            "description": {
+              "zh": "显示项目实际使用的工具链",
+              "en": "Show the toolchain this project uses"
+            }
+          }
+        ],
+        "command": "rustup show"
+      }
+    ],
+    "skills": [
+      {
+        "path": "skills/rust-project"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "rust-write-tests",
+        "title": {
+          "zh": "为选中代码写 Rust 测试",
+          "en": "Write Rust tests for the selection"
+        },
+        "description": {
+          "zh": "按项目已有风格写单元测试",
+          "en": "Unit tests following the project's style"
+        },
+        "path": "prompts/rust-write-tests.md",
+        "requires": "selection",
+        "where": ["composer", "editor"]
+      },
+      {
+        "id": "rust-explain-borrow-error",
+        "title": {
+          "zh": "解释借用检查器报错",
+          "en": "Explain a borrow checker error"
+        },
+        "description": {
+          "zh": "解释选中的编译器报错并给出修法",
+          "en": "Explain the selected compiler error and fix it"
+        },
+        "path": "prompts/rust-explain-borrow-error.md",
+        "requires": "selection",
+        "where": ["composer", "editor"]
+      },
+      {
+        "id": "rust-idiomatic",
+        "title": {
+          "zh": "改写成地道的 Rust",
+          "en": "Make the selection idiomatic Rust"
+        },
+        "description": {
+          "zh": "按 clippy 的建议去掉多余的 clone 和 unwrap",
+          "en": "Remove needless clones and unwraps"
+        },
+        "path": "prompts/rust-idiomatic.md",
+        "requires": "selection",
+        "where": ["composer", "editor"]
+      },
+      {
+        "id": "rust-fix-clippy",
+        "title": {
+          "zh": "清掉 clippy 警告",
+          "en": "Fix clippy warnings"
+        },
+        "description": {
+          "zh": "跑 clippy 并逐条处理",
+          "en": "Run clippy and address each warning"
+        },
+        "path": "prompts/rust-fix-clippy.md",
+        "where": ["composer"]
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

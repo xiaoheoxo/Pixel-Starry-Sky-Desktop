@@ -10,6 +10,14 @@ import type { RemoteHello, RemoteLink, ShellChannel } from './link'
 import { PROBE_SCRIPT, parseProbe, pickNode, probeArgs, readyToConnect, wslCheckItems } from './wslProbe'
 import type { CheckItem, WslProbe } from './wslProbe'
 import { decodeWslOutput } from './wslList'
+import {
+  REMOTE_CLI_INSTALL_TIMEOUT,
+  isRemoteCliEntry,
+  remoteCliCheckScript,
+  remoteCliInstallScript,
+  remoteCliSupported,
+} from './remote-cli'
+import { remoteCliArchive, type RemoteCliProvider } from './remote-cli-source'
 
 // 绝不执行 wsl --shutdown / --terminate：会把 Docker Desktop 等其他发行版一起关掉。关闭只结束我们自己起的进程。
 
@@ -66,12 +74,14 @@ export const helperArgs = (
   helperPath: string,
   namespace: string,
   utf8Fix: boolean,
+  cliPath?: string,
 ): string[] => [
   ...base(distro),
   ...(utf8Fix ? ['env', 'LANG=C.UTF-8', 'LC_ALL=C.UTF-8'] : []),
   node,
   helperPath,
   namespace,
+  ...(cliPath ? [cliPath] : []),
 ]
 
 export const shellArgs = (distro: string, cwd: string, shell: string): string[] => [...base(distro, cwd), shell, '-l']
@@ -83,6 +93,8 @@ export interface WslConnectOptions {
   requireLinux?: boolean
   /** 测试用：关闭后多久强杀 wsl.exe */
   killDelay?: number
+  /** 测试用：命令行包的来源 */
+  cliArchive?: RemoteCliProvider
 }
 interface Captured {
   stdout: Buffer
@@ -147,8 +159,9 @@ export class WslConnection implements RemoteLink {
     if (!remotePath.startsWith(home + '/.local/share/pixelsky/remote/' + REMOTE_DIR + '/helper-'))
       throw new Error('SSH_HELPER_PATH_INVALID')
 
+    const cliPath = await this.installCli(distro, node, probe, opts.cliArchive ?? remoteCliArchive)
     const utf8Fix = !/^utf-?8$/i.test(probe.charmap ?? '')
-    const child = this.spawn(this.exe, helperArgs(distro, node, remotePath, id, utf8Fix), {
+    const child = this.spawn(this.exe, helperArgs(distro, node, remotePath, id, utf8Fix, cliPath ?? undefined), {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
       env: { ...process.env, WSL_UTF8: '1' },
@@ -185,6 +198,31 @@ export class WslConnection implements RemoteLink {
     }
     ready = true
     return { hello: this.hello, probe, items }
+  }
+
+  /** 把像素星空命令行装进发行版（已装好的不重传）。node 不够新（Pi 要 22.19）或架构不认识就跳过；失败一律吞掉，不影响连接 */
+  private async installCli(
+    distro: string,
+    node: string,
+    probe: WslProbe,
+    provider: RemoteCliProvider,
+  ): Promise<string | null> {
+    try {
+      const version = probe.nodes.find(n => n.path === node)?.version
+      if (!probe.home || !remoteCliSupported(version, probe.arch)) return null
+      const archive = await provider(probe.arch!)
+      if (!archive) return null
+      const run = async (script: string, input: Buffer, timeout: number) => {
+        const out = await this.capture([...base(distro), node, '-e', script], input, timeout)
+        return out.code ? '' : out.stdout.toString('utf8').trim()
+      }
+      const path =
+        (await run(remoteCliCheckScript(archive.hash), Buffer.alloc(0), INSTALL_TIMEOUT)) ||
+        (await run(remoteCliInstallScript(archive.hash), archive.data, REMOTE_CLI_INSTALL_TIMEOUT))
+      return isRemoteCliEntry(path, probe.home, archive.hash) ? path : null
+    } catch {
+      return null
+    }
   }
 
   /** 只探测：不上传、不起后台。启动失败也返回（probe 为 null，items 里有 start 项） */
