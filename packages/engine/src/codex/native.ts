@@ -580,6 +580,8 @@ async function readTurns(
 // ---------- 条目怎么转 ----------
 
 export interface CodexItemsOptions {
+  /** 图片相对路径按原线程的工作目录读取；绝对路径可以在项目外。 */
+  cwd?: string
   /** 会话正开着：末尾还没结束的一轮不转（readCodexThread 已经在取段时去掉，这里再兜一次） */
   live?: boolean
   /** 压缩条目前面放「模型只看到压缩摘要」，默认放；加载更早的由宿主放，补上不需要，传 false */
@@ -624,7 +626,7 @@ export function codexItems(turns: readonly CodexTurn[], opts: CodexItemsOptions 
     const turnId = string(turn.id),
       startedAt = (secondsOf(turn.startedAt) ?? 0) * 1000,
       unfinished = turn.status === 'inProgress'
-    const translator = new CodexTranslator(() => {})
+    const translator = new CodexTranslator(() => {}, undefined, undefined, opts.cwd)
     const emitted = new Set<string>()
     let users = 0
     for (const raw of array(turn.items).map(object)) {
@@ -709,7 +711,7 @@ export async function readCodexThread(
 
   const raw = await readTurns(reader, id, refs, start, end, signal)
   signal?.throwIfAborted()
-  const fitted = fit(codexItems(raw, { summaryNote: !opts.before }), maxItems)
+  const fitted = fit(codexItems(raw, { summaryNote: !opts.before, cwd: string(thread.cwd) || projectCwd }), maxItems)
   const earliest = fitted.items.find(i => i.kind === 'user')?.id ?? null
   const hidden = promptIndexes(refs, 0, start).length + fitted.dropped
   const historyMode = string(thread.historyMode)
@@ -741,7 +743,7 @@ export async function readCodexThread(
  */
 export async function newerCodexTurns(
   reader: CodexRpc,
-  _cwd: string,
+  cwd: string,
   id: string,
   after: string,
   opts: Pick<ReadOptions, 'turns' | 'maxItems' | 'signal' | 'live'> = {},
@@ -770,7 +772,10 @@ export async function newerCodexTurns(
 
   const raw = await readTurns(reader, id, refs, begin, last, signal)
   signal?.throwIfAborted()
-  const items = fit(codexItems(raw, { summaryNote: false }), opts.maxItems ?? 1000).items
+  const items = fit(
+    codexItems(raw, { summaryNote: false, cwd: string(thread.cwd) || cwd }),
+    opts.maxItems ?? 1000,
+  ).items
   if (gap > 0) items.unshift(notice(NATIVE_TEXT.gap(gap)))
   return {
     items,

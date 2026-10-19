@@ -25,7 +25,7 @@ import { outputTail, run, runInteractive, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { customCodex, discoverCodex, toolEnvironment } from './discover'
 import { codexAnchor, readCodexTurns } from './branch'
-import { CodexProcess, object } from './process'
+import { CodexProcess, object, string } from './process'
 import { codexCatalog } from './catalog'
 import { CodexSession, reservedCodexArg, type CodexLaunchOptions } from './session'
 import { CodexReader } from './reader'
@@ -34,6 +34,7 @@ import { CodexTranslator, interruptedAgent } from './translate'
 import { loadCodexRuns } from './runs'
 import { CODEX_NPM_PACKAGE, installCodexWithNpm, updateCodexWithNpm } from './update'
 import { array } from './process'
+import { codexViewedImage } from './images'
 
 export interface CodexAdapterOptions {
   /** 用户在设置里替换的命令（绝对路径或 PATH 上的命令名，docs/ui/engine-launch.md） */
@@ -218,7 +219,12 @@ export class CodexAdapter implements EngineAdapter {
     try {
       await proc.initialize()
       const result = await proc.request('thread/read', { threadId: agentId, includeTurns: true })
-      const translator = new CodexTranslator(() => {})
+      const translator = new CodexTranslator(
+        () => {},
+        undefined,
+        undefined,
+        string(object(result.thread).cwd) || record.cwd,
+      )
       for (const turn of array(object(result.thread).turns))
         for (const item of array(object(turn).items)) translator.item(object(item), true, false)
       return [...translator.items.values()]
@@ -264,6 +270,12 @@ export class CodexAdapter implements EngineAdapter {
       Object.assign(env, this.opts.sessionEnv?.(record) ?? {})
     }
     return env
+  }
+  restoreItem(record: SessionRecord, item: Item): Item {
+    if (item.kind !== 'tool' || item.name !== 'imageView' || item.status !== 'completed' || item.images?.length)
+      return item
+    const image = codexViewedImage(item.title, item.id, record.cwd)
+    return image ? { ...item, images: [image] } : item
   }
   createSession(ctx: SessionContext): EngineSession {
     const result = this.cached

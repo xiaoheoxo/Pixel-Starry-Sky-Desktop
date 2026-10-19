@@ -773,6 +773,30 @@ describe('codexThreadExists', () => {
 // ---------- 导入 ----------
 
 describe('readCodexThread', () => {
+  it('导入和补上历史时按原线程工作目录保存图片附件，支持项目外图片', async () => {
+    const cwd = join(proj, 'subdir')
+    mkdirSync(cwd)
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgaPj/HwAEggJ/59habAAAAABJRU5ErkJggg==',
+      'base64',
+    )
+    writeFileSync(join(cwd, 'relative.png'), png)
+    const outside = join(root, 'outside.png')
+    writeFileSync(outside, png)
+    const rpc = new FakeRpc().add(thread(tid(1), { cwd }), [
+      simple(1),
+      turn('turn-2', [
+        user('u2', '看图'),
+        { type: 'imageView', id: 'relative', path: 'relative.png' },
+        { type: 'imageView', id: 'outside', path: outside },
+      ]),
+    ])
+    for (const read of [await readCodexThread(rpc, proj, tid(1)), await newerCodexTurns(rpc, proj, tid(1), 'turn-1')]) {
+      const images = read!.items.flatMap(i => (i.kind === 'tool' ? (i.images ?? []) : []))
+      expect(images.map(i => i.name)).toEqual(['relative.png', 'outside.png'])
+      expect(images.every(i => i.dataBase64 === png.toString('base64'))).toBe(true)
+    }
+  })
   it('线程不在了返回 null', async () => {
     expect(await readCodexThread(new FakeRpc(), proj, tid(9))).toBeNull()
   })
