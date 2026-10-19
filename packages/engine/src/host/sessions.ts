@@ -97,6 +97,13 @@ export class HostSessions {
     const record = ctx.records.get(id)
     if (!record) throw new Error('会话不存在')
     const snapshot = emptySnapshot(record, ctx.store.loadItems(id))
+    const adapter = ctx.adapters[record.engine]
+    if (adapter?.restoreItem)
+      snapshot.items = snapshot.items.map(item => {
+        const restored = adapter.restoreItem!(record, item)
+        if (restored !== item) ctx.store.appendItem(id, restored)
+        return restored
+      })
     if (record.platform)
       snapshot.items = snapshot.items.map(item =>
         item.kind === 'turn_stats' && !item.usage.settlement
