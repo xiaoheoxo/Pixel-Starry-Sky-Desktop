@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
-import { formatTokens, parseTokens } from './tokenCount'
+import { formatTokens, isTokenDraftDirty, parseTokens } from './tokenCount'
 
 /**
  * 上下文长度：可以写 1m、200k、200000；离开时显示成 1M / 200K。
@@ -15,12 +15,15 @@ export function ContextWindowInput({
   commit = 'change',
   onChange,
   onValidity,
+  onDraftDirty,
 }: {
   value: number | null
   label?: string
   commit?: 'change' | 'blur'
   onChange(value: number | null): void
   onValidity?(ok: boolean): void
+  /** 输入中就报告：输入框里的文字和当前值对不上（含认不出的）；打字时不标红，只给外面判断关闭前要不要确认 */
+  onDraftDirty?(dirty: boolean): void
 }) {
   useI18n()
   const [draft, setDraft] = useState(value === null ? '' : formatTokens(value))
@@ -45,6 +48,7 @@ export function ContextWindowInput({
       }}
       onChange={e => {
         setDraft(e.target.value)
+        onDraftDirty?.(isTokenDraftDirty(e.target.value, value))
         const next = parseTokens(e.target.value)
         if (commit === 'change' && next !== undefined) onChange(next)
       }}
@@ -57,6 +61,7 @@ export function ContextWindowInput({
         // 读输入框当前的值：打完字马上离开时，这次渲染里的 draft 可能还是旧的
         const next = parseTokens(e.currentTarget.value)
         onValidity?.(next !== undefined)
+        onDraftDirty?.(next === undefined)
         if (next === undefined) return
         setDraft(next === null ? '' : formatTokens(next))
         if (commit === 'blur' && next !== value) onChange(next)

@@ -26,7 +26,7 @@ import type {
 } from '../../../../../shared/types/providers'
 import { FIELD } from '../engines/parts'
 import { ContextWindowInput } from './ContextWindowInput'
-import { isProviderDraftDirty, type ProviderDraft } from './providerDraft'
+import { shouldConfirmClose, type ProviderDraft } from './providerDraft'
 
 /** 打码的请求头值，和主进程 MASKED_SECRET 一致 */
 const MASKED = '••••••••'
@@ -181,6 +181,8 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
   const [models, setModels] = useState<ProviderModel[]>(provider?.models ?? [])
   // 上下文长度填得不对的模型：有的话不能保存
   const [badContext, setBadContext] = useState<ReadonlySet<string>>(new Set())
+  // 上下文长度输入框里文字和当前值对不上的模型（打字中就记，Esc 不离开输入框也能拦住）
+  const [dirtyContext, setDirtyContext] = useState<ReadonlySet<string>>(new Set())
   const [newModel, setNewModel] = useState('')
   const [smallModel, setSmallModel] = useState<string | null>(provider?.smallModel ?? null)
   const [fallback, setFallback] = useState(provider?.modelFallback ?? true)
@@ -203,13 +205,16 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
     fallback,
     headersText,
   }
+  const contextInvalid = models.some(m => badContext.has(m.id))
   const initialDraft = useRef(draft)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   // 点空白处要 mousedown 和 click 都落在背景上才关，避免在输入框里拖选文字时松手在外面误关
   const backdropDown = useRef(false)
   const requestClose = (): void => {
-    // 「新增模型」输入框里还有没添加的字也算没存的改动
-    if (isProviderDraftDirty(initialDraft.current, draft) || newModel.trim() !== '') setConfirmDiscard(true)
+    // 「新增模型」输入框里还有没添加的字、认不出的上下文长度也算没存的改动
+    const contextDirty = models.some(m => dirtyContext.has(m.id))
+    if (shouldConfirmClose({ initial: initialDraft.current, current: draft, newModel, contextInvalid, contextDirty }))
+      setConfirmDiscard(true)
     else close()
   }
 
@@ -285,7 +290,6 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
 
   const title = provider ? tr('customApi.titleEdit') : tr('customApi.titleAdd')
   const locked = busy !== null
-  const contextInvalid = models.some(m => badContext.has(m.id))
   return createPortal(
     <div
       role="dialog"
@@ -471,6 +475,15 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
                       <ContextWindowInput
                         value={m.contextWindow ?? null}
                         onChange={contextWindow => patchModel(m.id, { contextWindow })}
+                        onDraftDirty={dirty =>
+                          setDirtyContext(prev => {
+                            if (prev.has(m.id) === dirty) return prev
+                            const next = new Set(prev)
+                            if (dirty) next.add(m.id)
+                            else next.delete(m.id)
+                            return next
+                          })
+                        }
                         onValidity={ok =>
                           setBadContext(prev => {
                             const next = new Set(prev)

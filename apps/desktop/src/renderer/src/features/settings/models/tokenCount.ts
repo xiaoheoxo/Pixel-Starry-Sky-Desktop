@@ -18,6 +18,11 @@ export function parseTokens(input: string): number | null | undefined {
   return n >= MIN_TOKENS && n <= MAX_TOKENS ? n : undefined
 }
 
+/** 输入框里的文字和当前值是否对不上（认不出的文字也算）：用来判断关闭前有没有没交出去的草稿 */
+export function isTokenDraftDirty(text: string, value: number | null): boolean {
+  return parseTokens(text) !== value
+}
+
 /** 显示：整百万写 1M、整千写 200K，其他原样 */
 export function formatTokens(n: number): string {
   if (n % 1_000_000 === 0) return `${n / 1_000_000}M`

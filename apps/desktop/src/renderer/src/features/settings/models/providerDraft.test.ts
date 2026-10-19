@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isProviderDraftDirty, type ProviderDraft } from './providerDraft'
+import { isProviderDraftDirty, shouldConfirmClose, type ProviderDraft } from './providerDraft'
 
 const base = (): ProviderDraft => ({
   template: 'custom',
@@ -38,5 +38,32 @@ describe('自定义 API 对话框的改动检测', () => {
     }
     expect(isProviderDraftDirty(base(), nulled)).toBe(false)
     expect(isProviderDraftDirty(nulled, base())).toBe(false)
+  })
+})
+
+describe('shouldConfirmClose', () => {
+  const run = (o: Partial<Parameters<typeof shouldConfirmClose>[0]> = {}) =>
+    shouldConfirmClose({
+      initial: base(),
+      current: base(),
+      newModel: '',
+      contextInvalid: false,
+      contextDirty: false,
+      ...o,
+    })
+  it('什么都没改：直接关', () => {
+    expect(run()).toBe(false)
+  })
+  it('上下文长度改成无效的 200x 并离开输入框：要确认', () => {
+    expect(run({ contextInvalid: true })).toBe(true)
+  })
+  it('打完 200x 还没离开输入框（Esc）：要确认', () => {
+    expect(run({ contextDirty: true })).toBe(true)
+  })
+  it('上下文长度改成有效的 1M：要确认', () => {
+    expect(run({ current: { ...base(), models: [{ id: 'm1', contextWindow: 1_000_000 }] } })).toBe(true)
+  })
+  it('「新增模型」框里有字：要确认', () => {
+    expect(run({ newModel: 'm2' })).toBe(true)
   })
 })
