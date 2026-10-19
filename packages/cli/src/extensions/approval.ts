@@ -32,7 +32,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 /**
  * 无副作用的内部工具（待办、按需加载工具、交计划）：任何模式都放行。
  * 子智能体（task）和 codemode 脚本本身也放行：子进程里、脚本里的每个工具调用照样走这里逐个问
- * （codemode 跑在没有文件、网络的沙箱里，只能调工具，Pi 文档 docs/codemode.md）
+ * （codemode 跑在没有文件、网络的沙箱里，只能调工具，见 Pi 包自带文档里的 codemode.md）
  */
 export const SAFE_INTERNAL_TOOLS: ReadonlySet<string> = new Set([
   'todo_write',

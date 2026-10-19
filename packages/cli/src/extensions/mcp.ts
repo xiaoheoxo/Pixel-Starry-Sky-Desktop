@@ -1,6 +1,6 @@
 // 桌面端管理的 MCP 服务器（设置 › 插件）：适配器把这次会话生效的服务器写进一个临时文件，路径放在 PIXELSKY_MCP_FILE。
 // 文件格式和 Claude Code 的 --mcp-config 一样：{ mcpServers: { 名字: { type, command, args, env, url, headers } } }，
-// 值都是桌面端展开过的原文。这里用 pi.registerMcpServer() 交给 Pi 自带的 MCP 支持（Pi 文档 docs/mcp.md）；
+// 值都是桌面端展开过的原文。这里用 pi.registerMcpServer() 交给 Pi 自带的 MCP 支持（见 Pi 包自带文档里的 mcp.md）；
 // 用户自己的 ~/.pixelsky-cli/agent/mcp.json 照常生效，同名时以它为准（Pi 的规则）。
 // 连接状态：Pi 的 MCP 扩展（我们的补丁）在状态变化时发 pixelsky:mcp-status，这里转成 setStatus('pixelsky-mcp', JSON)
 // 交给桌面端右侧「连接器」；桌面端发 /pixelsky-mcp <status|reconnect|enable|disable|login> [名字] 做操作（docs/ui/connectors.md）。
