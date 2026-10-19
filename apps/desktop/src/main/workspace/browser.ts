@@ -386,12 +386,23 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     broadcast(scope)
     return state(scope)
   })
-  handle('viewport', (e, scope, raw) => {
+  handle('viewport', async (e, scope, raw, opts) => {
     const win = BrowserWindow.fromWebContents(e.sender)!
+    // 被弹出层挡住要藏（docs/ui/browser-overlay-settings-window.md §A.2）：先给正在显示的网页截一张图，界面拿它顶替，看起来网页没动
+    let snapshot: string | null = null
+    if (raw === null && (opts as { freeze?: unknown } | undefined)?.freeze === true) {
+      const b = bounds.get(win.id)
+      const shown =
+        b && [...views.values()].find(v => v.owner === win && v.scope === b.scope && state(v.scope).activeId === v.id)
+      if (shown && !shown.view.webContents.isDestroyed()) {
+        const image = await shown.view.webContents.capturePage().catch(() => null)
+        if (image && !image.isEmpty()) snapshot = `data:image/jpeg;base64,${image.toJPEG(85).toString('base64')}`
+      }
+    }
     hide(win)
     if (raw === null) {
       bounds.delete(win.id)
-      return
+      return { snapshot }
     }
     const r = raw as Electron.Rectangle,
       [width, height] = win.getContentSize(),

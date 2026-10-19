@@ -2,6 +2,7 @@ import { tr } from '../../i18n/core'
 import { useEffect, useRef, useState } from 'react'
 import type { WindowSnapLayout, WindowState } from '../../../../shared/types/window'
 import { useI18n } from '@/i18n/I18nProvider'
+import { notifyOverlayChange } from '@/ui/overlayEvents'
 
 interface SnapSpec {
   id: WindowSnapLayout
@@ -83,6 +84,8 @@ export function WindowControls() {
   const { text } = useI18n()
   const [state, setState] = useState<WindowState>({ maximized: false, focused: true, snapped: false })
   const [snapOpen, setSnapOpen] = useState(false)
+  // 布局弹层渲染在原地（不在 body 下）：开关时让内置浏览器马上重新判断
+  useEffect(notifyOverlayChange, [snapOpen])
   const [options, setOptions] = useState<Partial<Record<WindowSnapLayout, boolean[]>>>({})
   const [error, setError] = useState('')
   const timer = useRef<number | null>(null)

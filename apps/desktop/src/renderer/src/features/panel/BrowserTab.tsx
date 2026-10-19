@@ -16,7 +16,7 @@ import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { useComposerController } from '@/features/engine'
-import { collectOverlays, overlayHidesBrowser } from './browserOverlay'
+import { OVERLAY_EVENT, collectOverlays, overlayHidesBrowser, pointShowsPlaceholder } from './browserOverlay'
 import { PreviewViewport } from './PreviewViewport'
 import { useProjectContext } from './projectContext'
 import { FIELD, NoProject, ToolError, useOperation } from './ToolsUi'
@@ -65,6 +65,8 @@ function BrowserBody({
     [notesOpen, setNotesOpen] = useState(false)
   const [send, setSend] = useState<{ sessionId: string; text: string } | null>(null)
   const controller = useComposerController(send?.sessionId ?? target.sessionId ?? null)
+  /** 被弹出层挡住、视图藏起来时铺在占位框里的截图（定格画面）；没有时 null */
+  const [snapshot, setSnapshot] = useState<string | null>(null)
   const viewport = useRef<HTMLDivElement>(null),
     scope = useRef(''),
     requestedSeq = useRef(0)
@@ -146,23 +148,41 @@ function BrowserBody({
           r,
           overlays.map(o => o.candidate),
         )
-      const visible =
+      const placeable =
         !!r &&
         r.width > 40 &&
         r.height > 40 &&
-        !covered &&
         !document.hidden &&
         r.right <= innerWidth + 1 &&
-        r.bottom <= innerHeight + 1 &&
-        !!element?.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+        r.bottom <= innerHeight + 1
+      const visible =
+        placeable && !covered && !!element && pointShowsPlaceholder(element, r.x + r.width / 2, r.y + r.height / 2)
       const rect = visible && r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null
-      const hash = JSON.stringify(rect) + ':' + page.id
-      if (hash !== prior) {
-        prior = hash
-        void window.pixelsky!.projectBrowser.viewport(target, rect).catch(e => {
-          if (!stopped) setError(e.message)
-        })
+      // 只是被挡住（认得出的弹出层，或中心点被别的元素盖着）：藏之前截一张图顶替（定格画面），挡的东西没了再放回真网页
+      const freeze = !rect && placeable
+      const hash = JSON.stringify(rect) + ':' + freeze + ':' + page.id
+      if (hash === prior) return
+      prior = hash
+      const fail = (e: Error) => {
+        if (!stopped) setError(e.message)
       }
+      if (freeze) {
+        void window
+          .pixelsky!.projectBrowser.viewport(target, null, { freeze: true })
+          .then(result => {
+            if (!stopped && prior === hash) setSnapshot(result?.snapshot ?? null)
+          })
+          .catch(fail)
+        return
+      }
+      void window
+        .pixelsky!.projectBrowser.viewport(target, rect)
+        .then(() => {
+          // 真网页放回去之后再撤掉截图，中间不闪
+          if (rect) requestAnimationFrame(() => !stopped && prior === hash && setSnapshot(null))
+        })
+        .catch(fail)
+      if (!rect) setSnapshot(null)
     }
     const loop = () => {
       sync()
@@ -196,6 +216,8 @@ function BrowserBody({
       [document, 'transitionend', once],
       [document, 'animationstart', transition],
       [document, 'animationend', once],
+      // 弹出层开关（Popover、Toast、窗口布局……，browserOverlay.ts 的 notifyOverlayChange）：下一帧就量，不等兜底轮询
+      [window, OVERLAY_EVENT, once],
     ]
     for (const [t, name, fn] of events) t.addEventListener(name, fn, { capture: true, passive: true })
     const fallback = window.setInterval(sync, 500)
@@ -213,6 +235,7 @@ function BrowserBody({
       resize.disconnect()
       portals.disconnect()
       for (const [t, name, fn] of events) t.removeEventListener(name, fn, { capture: true })
+      setSnapshot(null)
       void window.pixelsky?.projectBrowser.viewport(target, null).catch(() => {})
     }
   }, [page?.id, demo])
@@ -349,6 +372,16 @@ function BrowserBody({
         data-browser-viewport
         className="relative flex min-h-24 flex-1 flex-col overflow-hidden rounded-lg border border-line-card bg-surface"
       >
+        {snapshot && (
+          <img
+            src={snapshot}
+            alt=""
+            aria-hidden
+            data-browser-snapshot
+            draggable={false}
+            className="pointer-events-none absolute inset-0 z-[1] size-full select-none"
+          />
+        )}
         {demo && page ? (
           <PreviewViewport />
         ) : (
