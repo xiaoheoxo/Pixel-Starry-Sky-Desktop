@@ -18,6 +18,8 @@ const users = new Map<string, { ref: WorkspaceRef; count: number }>()
 const loading = new Map<string, Promise<void>>()
 /** 读的过程中又有人要求重读：这一轮读完后再读一次 */
 const again = new Set<string>()
+/** 下一轮要重新确认仓库根（手动刷新） */
+const rechecks = new Set<string>()
 const errors = new Map<string, string>()
 const listeners = new Set<() => void>()
 let version = 0
@@ -52,12 +54,13 @@ export function applyDemoGit(action: string, arg?: unknown): void {
 
 /**
  * 读一次状态。正在读时：rerun 为 true（事件、手动刷新）会在这一轮后再读一次，保证看到的不早于调用时；
- * 为 false（刚挂上监听、页面切回来）直接共用正在读的这一轮。
+ * 为 false（刚挂上监听、页面切回来）直接共用正在读的这一轮。recheck 让主进程重新确认仓库根（不用缓存）。
  */
-function load(ref: WorkspaceRef, rerun: boolean): Promise<void> {
+function load(ref: WorkspaceRef, rerun: boolean, recheck = false): Promise<void> {
   const api = window.pixelsky?.projectTools
   const key = refKey(ref)
   if (!api) return Promise.resolve()
+  if (recheck) rechecks.add(key)
   const running = loading.get(key)
   if (running) {
     if (rerun) again.add(key)
@@ -66,8 +69,9 @@ function load(ref: WorkspaceRef, rerun: boolean): Promise<void> {
   const job = (async () => {
     do {
       again.delete(key)
+      const recheck = rechecks.delete(key)
       try {
-        publishGitStatus(ref, await api.gitStatus(ref))
+        publishGitStatus(ref, await api.gitStatus(ref, recheck ? { recheck } : undefined))
       } catch (e) {
         // 读不到（不是 Git 仓库、远端断开）：保留上次的状态；Git 页还没有状态时显示原因
         const message = (e as Error).message
@@ -82,9 +86,12 @@ function load(ref: WorkspaceRef, rerun: boolean): Promise<void> {
   return job
 }
 
-/** 立刻重读这个工作区的状态（Git 页的刷新按钮、15 秒兜底轮询）；soft 为 true 时正在读就不再多读一次 */
-export function refreshGitStatus(ref: WorkspaceRef, soft = false): Promise<void> {
-  return load(ref, !soft)
+/**
+ * 立刻重读这个工作区的状态（Git 页的刷新按钮、15 秒兜底轮询）；soft 为 true 时正在读就不再多读一次。
+ * recheck 为 true（刷新按钮）时主进程不用缓存的仓库根，重新问 git
+ */
+export function refreshGitStatus(ref: WorkspaceRef, soft = false, recheck = false): Promise<void> {
+  return load(ref, !soft || recheck, recheck)
 }
 
 let timer = 0

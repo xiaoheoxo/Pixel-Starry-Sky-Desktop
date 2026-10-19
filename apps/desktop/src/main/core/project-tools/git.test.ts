@@ -236,6 +236,46 @@ describe('Git 面板：状态缓存与合并', { timeout: 30_000 }, () => {
     expect((await inner.status(ref)).root).toBe(resolve(project, 'web'))
     expect(await g.status(ref)).toMatchObject({ repo: true })
   })
+
+  it('工作区和仓库根之间的目录新建了仓库：刷新、提交都换到新仓库，外层不动', async () => {
+    await init()
+    await git(project, ['switch', '-q', '-c', 'outer-review'])
+    const workspace = join(project, 'middle', 'app')
+    await mkdir(workspace, { recursive: true })
+    await writeFile(join(project, 'outer.txt'), 'outer')
+    await commitAll('outer base')
+    await writeFile(join(project, 'outer.txt'), 'outer changed')
+    await git(project, ['add', 'outer.txt'])
+    const outerHead = (await git(project, ['rev-parse', 'HEAD'])).trim()
+    const g = new GitTools({ ...host, resolve: () => ({ projectId: 'p', name: 'app', path: workspace }) }, () => {}, {
+      statusReuseMs: 0,
+    })
+    expect(await g.status(ref)).toMatchObject({ root: resolve(project), branch: 'outer-review' })
+
+    await init(join(project, 'middle'))
+    await writeFile(join(workspace, 'inner.txt'), 'inner')
+    await git(join(project, 'middle'), ['add', '-A'])
+    const now = await g.status(ref)
+    expect(now).toMatchObject({ root: resolve(project, 'middle'), branch: 'main' })
+    expect(now.staged.map(f => f.path)).toEqual(['app/inner.txt'])
+    expect(await g.commit(ref, { message: 'inner' })).toMatchObject({ ok: true })
+    expect((await git(project, ['rev-parse', 'HEAD'])).trim()).toBe(outerHead)
+    expect((await git(join(project, 'middle'), ['log', '-1', '--format=%s'])).trim()).toBe('inner')
+  })
+
+  it('写操作前、手动刷新时重新确认仓库根，平时的读状态用缓存', async () => {
+    await init()
+    await writeFile(join(project, 'a.txt'), 'x')
+    const g = tools()
+    await g.status(ref)
+    vi.mocked(spawn).mockClear()
+    await g.status(ref)
+    expect(spawned('--show-toplevel')).toBe(0)
+    await g.status(ref, false, true)
+    expect(spawned('--show-toplevel')).toBe(1)
+    await g.stage(ref, ['a.txt'])
+    expect(spawned('--show-toplevel')).toBe(2)
+  })
 })
 
 describe('Git 面板：撤销', () => {

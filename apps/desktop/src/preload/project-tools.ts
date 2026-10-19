@@ -67,7 +67,8 @@ export interface ProjectToolsBridge {
   openPath(ref: WorkspaceRef): Promise<void>
   revealCopy(id: string): Promise<void>
   openExternal(url: string): Promise<void>
-  gitStatus(ref: WorkspaceRef): Promise<GitStatus>
+  /** recheck：重新确认仓库根再读（Git 页的刷新按钮） */
+  gitStatus(ref: WorkspaceRef, opts?: { recheck?: boolean }): Promise<GitStatus>
   gitDiff(ref: WorkspaceRef, input: GitDiffInput): Promise<GitDiff>
   gitBranches(ref: WorkspaceRef): Promise<GitBranch[]>
   gitStage(ref: WorkspaceRef, paths: GitPaths): Promise<GitResult>

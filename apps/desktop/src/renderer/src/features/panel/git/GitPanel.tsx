@@ -639,7 +639,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
             iconSize={14}
             disabled={busy}
             onClick={() => {
-              void refreshGitStatus(target)
+              void refreshGitStatus(target, false, true)
               void refreshHeads(inGitWorkspace(workspaceKey))
               if (view === 'history') setHistoryKey(k => k + 1)
             }}

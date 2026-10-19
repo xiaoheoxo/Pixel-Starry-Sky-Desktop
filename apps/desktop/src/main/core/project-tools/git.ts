@@ -2,7 +2,7 @@
 // SSH 辅助进程注入数据目录下的 trash/（core/project-tools/trash.ts）；都不注入时用 git clean。所有命令以参数数组执行，路径前一律加 `--`。
 import { spawn } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import type { WorkspaceRef } from '../../../shared/types/workspace'
 import type {
   GitAction,
@@ -266,21 +266,24 @@ export class GitTools {
   }
 
   /**
-   * 工作区所在的仓库。仓库根按工作区缓存：每次只用 stat 核对 .git 还在（根目录有、工作区自己没有新建的 .git），
+   * 工作区所在的仓库。仓库根按工作区缓存：每次只用 stat 核对 .git（根目录还有，工作区到根目录之间没有新建的），
    * 每 60 秒或核对不过再问一次 git；不是仓库、没装 git 不缓存。同一时刻的多次查询共用一次 rev-parse。
+   * `recheck` 不用缓存、重新问 git（写操作前、手动刷新）
    */
-  private async repo(ref: WorkspaceRef): Promise<Repo | 'missing' | null> {
+  private async repo(ref: WorkspaceRef, recheck = false): Promise<Repo | 'missing' | null> {
     const workspace = this.host.resolve(ref).path
     const key = pathKey(resolve(workspace))
     const hit = this.repos.get(key)
     if (hit) {
-      if (Date.now() - hit.at < REPO_RECHECK_MS && (await this.repoIntact(hit.repo))) return hit.repo
+      if (!recheck && Date.now() - hit.at < REPO_RECHECK_MS && (await this.repoIntact(hit.repo))) return hit.repo
       this.repos.delete(key)
     }
-    let job = this.resolving.get(key)
+    let job = recheck ? undefined : this.resolving.get(key)
     if (!job) {
-      job = this.lookup(workspace, key).finally(() => this.resolving.delete(key))
-      this.resolving.set(key, job)
+      const own: Promise<Repo | 'missing' | null> = this.lookup(workspace, key).finally(() => {
+        if (this.resolving.get(key) === own) this.resolving.delete(key)
+      })
+      this.resolving.set(key, (job = own))
     }
     return job
   }
@@ -297,15 +300,26 @@ export class GitTools {
     return repo
   }
 
+  /** 缓存的仓库根还对：根目录的 .git 还在，工作区和中间各级目录都没有新建 .git（新建了，仓库根就换成了它） */
   private async repoIntact(repo: Repo): Promise<boolean> {
     const exists = (dir: string) =>
       stat(join(dir, '.git')).then(
         () => true,
         () => false,
       )
-    const nested = samePath(repo.workspace, repo.root) ? Promise.resolve(false) : exists(repo.workspace)
-    const [own, inner] = await Promise.all([exists(repo.root), nested])
-    return own && !inner
+    const inner: string[] = []
+    for (let dir = resolve(repo.workspace); !samePath(dir, repo.root); ) {
+      inner.push(dir)
+      const up = dirname(dir)
+      // 工作区不在仓库根下面（符号链接等）：只查工作区自己
+      if (up === dir) {
+        inner.splice(1)
+        break
+      }
+      dir = up
+    }
+    const [own, ...nested] = await Promise.all([exists(repo.root), ...inner.map(exists)])
+    return own && !nested.some(Boolean)
   }
 
   private async exec(
@@ -355,10 +369,11 @@ export class GitTools {
 
   /**
    * 工作区的 Git 状态。同一仓库同时到的请求共用一轮 git status，结果再复用 0.5 秒；写操作完成后作废。
-   * `fresh` 要求读一轮在此之后才开始的（写操作前后、需要准确判断的地方用）。
+   * `fresh` 要求读一轮在此之后才开始的（写操作前后、需要准确判断的地方用）；`recheck` 还要重新确认仓库根（手动刷新）。
    */
-  async status(ref: WorkspaceRef, fresh = false): Promise<GitStatus> {
-    const repo = await this.repo(ref)
+  async status(ref: WorkspaceRef, fresh = false, recheck = false): Promise<GitStatus> {
+    const repo = await this.repo(ref, recheck)
+    if (recheck) fresh = true
     if (repo === 'missing') return { ...EMPTY_STATUS, missing: true }
     if (!repo) return EMPTY_STATUS
     const status = await this.sharedStatus(repo, fresh)
@@ -1011,7 +1026,8 @@ export class GitTools {
     fn: (repo: Repo, status: GitStatus) => Promise<void>,
     guard = false,
   ): Promise<GitResult> {
-    const repo = await this.repo(ref)
+    // 改动仓库前重新确认仓库根：缓存没发现的变化（.git 换了、外面套了新仓库）不能让写操作落到别的仓库
+    const repo = await this.repo(ref, true)
     if (repo === 'missing')
       return { ok: false, failure: { kind: 'missing', action, detail: '', remedies: [] }, status: null }
     if (!repo) return { ok: false, failure: { kind: 'notRepo', action, detail: '', remedies: [] }, status: null }
