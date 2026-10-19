@@ -66,6 +66,11 @@ function BoxView({ model }: { model: BoxModel }) {
       {model.agents !== null && (
         <span className="shrink-0 text-meta text-fg-muted">{tr('subagent.box.agents', { n: model.agents })}</span>
       )}
+      {model.typeLabel && (
+        <span data-box-type className="shrink-0 rounded bg-accent-soft px-1.5 text-meta text-accent-fg">
+          {model.typeLabel}
+        </span>
+      )}
       {model.model && (
         <span className="shrink-0 text-meta text-fg-muted" title={model.fullModel}>
           {model.model}

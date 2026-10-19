@@ -7,7 +7,15 @@ import type { Server } from 'node:http'
 import type { SessionRecord } from '@pixelsky/protocol'
 import { platformGateway } from './gateway'
 import { chatUsage, withUsageOption } from './chat-usage'
-import { chatCompat, engineProviderProtocols, groupEngines, pixelApi, pixelBaseUrl, pixelGatewayEnv } from './pixel-env'
+import {
+  chatCompat,
+  engineProviderProtocols,
+  groupEngines,
+  pixelApi,
+  pixelBaseUrl,
+  pixelGatewayEnv,
+  pixelSubagentRoute,
+} from './pixel-env'
 import { oneShotBody, parseReply } from '../core/ai/oneshot'
 import { testProvider, upstreamUrl } from '../core/providers/upstream'
 import { ProviderStore, normalizeBaseUrl, type ResolvedProvider } from '../core/providers/store'
@@ -111,6 +119,26 @@ describe('像素星空的 OpenAI 协议：环境变量', () => {
       'PIXELSKY_PIXEL_MODELS',
     )
     expect(chatCompat('https://openrouter.ai/api/v1')).not.toHaveProperty('thinkingFormat')
+  })
+
+  it('子智能体类型单独的站点：只有一个模型，Chat 带 compat，带上站点名和放密钥的变量名', () => {
+    const route = pixelSubagentRoute({
+      api: 'openai-completions',
+      model: 'deepseek-chat',
+      contextWindow: 64000,
+      upstreamBaseUrl: 'https://api.deepseek.com',
+      label: 'DeepSeek',
+      token: 'PIXELSKY_PIXEL_SUB_TOKEN_2',
+    })
+    expect(route).toMatchObject({ api: 'openai-completions', label: 'DeepSeek', token: 'PIXELSKY_PIXEL_SUB_TOKEN_2' })
+    expect(route.model).toMatchObject({
+      id: 'deepseek-chat',
+      contextWindow: 64000,
+      input: ['text'],
+      compat: { thinkingFormat: 'deepseek' },
+    })
+    const anthropic = pixelSubagentRoute({ api: 'anthropic-messages', model: 'm', label: 'L', token: 'T' })
+    expect(anthropic.model).toEqual({ id: 'm' })
   })
 })
 

@@ -37,6 +37,7 @@ describe('派发小框', () => {
       label: '拆分存储层接口',
       model: 'haiku-4-5',
       fullModel: 'claude-haiku-4-5',
+      typeLabel: '',
       state: 'running',
       startedAt: 1_000,
       target: { toolUseId: 't1' },

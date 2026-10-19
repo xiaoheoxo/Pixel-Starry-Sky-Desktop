@@ -72,6 +72,33 @@ export function pixelGatewayEnv(options: {
   }
 }
 
+/**
+ * 子智能体一个类型单独的站点（设置 › 子智能体，docs/ui/subagent-routing.md）：写进 PIXELSKY_SUBAGENT_TYPES 的 route，
+ * 结构对应命令行 packages/cli/src/tools/subagent.ts 的 SubagentRoute；密钥另放在 token 指的环境变量里
+ */
+export function pixelSubagentRoute(options: {
+  api: PixelApi
+  model: string
+  /** 自定义接口里这个模型的上下文窗口 */
+  contextWindow?: number | null
+  upstreamBaseUrl?: string | null
+  /** 站点名，显示在子智能体卡片上 */
+  label: string
+  token: string
+}): { api: PixelApi; model: Record<string, unknown>; label: string; token: string } {
+  const compat = options.api === 'openai-completions' ? chatCompat(options.upstreamBaseUrl ?? null) : null
+  return {
+    api: options.api,
+    model: {
+      id: options.model,
+      ...(options.contextWindow ? { contextWindow: options.contextWindow } : {}),
+      ...(compat ? { compat, input: ['text'] } : {}),
+    },
+    label: options.label,
+    token: options.token,
+  }
+}
+
 /** 引擎能用哪些接口协议：像素星空三种都行，Claude Code 只要 Anthropic，Codex 只要 Responses */
 export function engineProviderProtocols(engine: string): ProviderProtocol[] {
   return engine === 'codex' ? ['responses'] : engine === 'pixel' ? ['anthropic', 'responses', 'chat'] : ['anthropic']

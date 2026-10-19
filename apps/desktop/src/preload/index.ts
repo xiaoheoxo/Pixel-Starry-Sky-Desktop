@@ -547,6 +547,18 @@ contextBridge.exposeInMainWorld('pixelsky', {
       return () => ipcRenderer.removeListener('providers:changed', listener)
     },
   } satisfies import('./providers').ProvidersBridge,
+  subagents: {
+    get: () => call('subagents:get'),
+    set: settings => call('subagents:set', settings),
+    onChange: callback => {
+      const listener = (
+        _e: Electron.IpcRendererEvent,
+        settings: import('../shared/types/subagents').SubagentSettings,
+      ) => callback(settings)
+      on('subagents:changed', listener)
+      return () => ipcRenderer.removeListener('subagents:changed', listener)
+    },
+  } satisfies import('../shared/types/subagents').SubagentsBridge,
   sessionStatus: {
     get: () => call('sessionStatus:get'),
     refresh: sessionId => call('sessionStatus:refresh', sessionId),

@@ -48,6 +48,8 @@ export interface PixelskyBridge {
   /** 自定义 API 的接口配置（docs/ui/custom-api.md） */
   providers: ProvidersBridge
   sessionStatus: import('../shared/types/session-status').SessionStatusBridge
+  /** 设置 › 子智能体（docs/ui/subagent-routing.md） */
+  subagents: import('../shared/types/subagents').SubagentsBridge
   /** 账号额度（docs/ui/account-quota.md） */
   quota: import('../shared/types/quota').QuotaBridge
   /** AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2） */

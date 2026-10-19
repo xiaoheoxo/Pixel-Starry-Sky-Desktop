@@ -203,6 +203,33 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     keywords: '默认模型 默认线路 接着上次 固定 新任务 新对话 default model new task',
   },
   { section: 'models', title: '平台', keywords: '线路 分组 倍率 余额计费 订阅额度 刷新' },
+  {
+    section: 'subagents',
+    get title() {
+      return tr('subagentRoute.types')
+    },
+    get keywords() {
+      return tr('subagentRoute.searchKeywords')
+    },
+  },
+  {
+    section: 'subagents',
+    get title() {
+      return tr('subagentRoute.fallback')
+    },
+    get keywords() {
+      return tr('subagentRoute.searchKeywords')
+    },
+  },
+  {
+    section: 'subagents',
+    get title() {
+      return tr('subagentRoute.concurrency')
+    },
+    get keywords() {
+      return tr('subagentRoute.searchKeywords')
+    },
+  },
   { section: 'models', title: '菜单里显示的模型', keywords: '隐藏模型 管理模型 模型列表 显示' },
   { section: 'models', title: '请求重试', keywords: '重试 失败 临时错误 自动重试' },
   { section: 'models', title: '自定义 API', keywords: 'byok key 地址 openai anthropic 兼容' },

@@ -659,3 +659,76 @@ it('压缩请求：转发时报出接通、首字、输出的 token 和结束；
   expect(last.report.firstTokenAt).not.toBeNull()
   expect(new Set(reports.map(r => r.report.requestId)).size).toBe(1)
 })
+
+describe('像素星空子智能体单独的站点（docs/ui/subagent-routing.md）', () => {
+  it('子智能体的密钥按设置的站点转发：主会话走平台线路，子智能体走自定义接口的 Chat Completions', async () => {
+    const record = {
+      id: 's',
+      engine: 'pixel',
+      model: 'claude-sonnet-5-5',
+      platform: { groupId: '7', account: 'a@b.c' },
+      provider: null,
+    } as SessionRecord
+    const relay: ResolvedProvider = {
+      id: 'ds',
+      name: 'DeepSeek',
+      template: 'custom',
+      protocol: 'chat',
+      baseUrl: 'https://api.deepseek.com/v1',
+      auth: 'bearer',
+      models: [{ id: 'deepseek-chat' }],
+      smallModel: null,
+      modelFallback: false,
+      headerNames: [],
+      createdAt: 0,
+      updatedAt: 0,
+      apiKey: 'sk-ds',
+      headers: {},
+    }
+    let current: ResolvedProvider | null = relay
+    const custom: string[] = []
+    const platform: string[] = []
+    server = platformGateway({
+      sessions: new Map([
+        ['s', { recordId: 's', secret: 'main-secret' }],
+        [
+          's#subagent',
+          {
+            recordId: 's',
+            secret: 'sub-secret',
+            target: { kind: 'custom', providerId: 'ds', model: 'deepseek-chat' },
+          },
+        ],
+      ]),
+      record: () => record,
+      account: () => 'a@b.c',
+      fetch: async path => {
+        platform.push(path)
+        return new Response('event: message_stop\ndata: {}\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
+      },
+      provider: id => (id === 'ds' ? current : null),
+      upstream: async url => {
+        custom.push(url)
+        return new Response('data: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
+      },
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const base = 'http://127.0.0.1:' + (server.address() as { port: number }).port
+    const post = (path: string, token: string, model: string) =>
+      fetch(base + path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify({ model, max_tokens: 5 }),
+      })
+    expect((await post('/v1/chat/completions', 'sub-secret', 'deepseek-chat')).status).toBe(200)
+    expect(custom).toEqual(['https://api.deepseek.com/v1/chat/completions'])
+    expect((await post('/v1/messages', 'main-secret', 'claude-sonnet-5-5')).status).toBe(200)
+    expect(platform).toEqual(['/v1/platform/messages'])
+    // 子智能体的密钥不能拿来走主会话的线路（协议对不上），接口删了时 401
+    expect((await post('/v1/messages', 'sub-secret', 'claude-sonnet-5-5')).status).toBe(403)
+    current = null
+    expect((await post('/v1/chat/completions', 'sub-secret', 'deepseek-chat')).status).toBe(401)
+    expect(platform).toHaveLength(1)
+  })
+})

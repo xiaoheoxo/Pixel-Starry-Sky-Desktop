@@ -29,6 +29,8 @@ export interface BoxModel {
   /** 模型短名；没有为空 */
   model: string
   fullModel: string
+  /** 子智能体的类型名（像素星空，设置 › 子智能体）；没有为空 */
+  typeLabel: string
   state: BoxState
   /** 开始时间（毫秒时间戳，0：不知道）和已报告的时长，运行中用 now 往前走 */
   startedAt: number
@@ -90,6 +92,7 @@ export function dispatchBox(item: ToolItem, runs: AgentRuns = NONE, approval = f
     label: item.title,
     model: agent?.model ? shortModel(agent.model) : '',
     fullModel: agent?.model ?? '',
+    typeLabel: agent?.typeLabel ?? '',
     state: approval && state === 'running' ? 'approval' : state,
     startedAt: run?.startedAt ?? 0,
     durationMs: run?.durationMs ?? 0,
@@ -119,6 +122,7 @@ export function completionBox(task: NoticeTask, runs: AgentRuns = NONE): BoxMode
     label: task.label || agent?.label || workflow?.name || '',
     model: agent?.model ? shortModel(agent.model) : '',
     fullModel: agent?.model ?? '',
+    typeLabel: agent?.typeLabel ?? '',
     state: task.status === 'completed' ? 'done' : task.status === 'failed' ? 'failed' : 'stopped',
     startedAt: 0,
     // 结束了：只用报告的时长，不再往前走

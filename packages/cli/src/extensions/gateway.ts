@@ -3,6 +3,13 @@
 // mcp.json、技能、扩展、bin/ 全都看不到；现在改成扩展里 pi.registerProvider()，配置目录始终是用户自己的。
 // 只用可擦除的 TS 语法。
 import type { ExtensionAPI, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import {
+  SUBAGENT_ENV,
+  SUBAGENT_PROVIDER,
+  SUBAGENT_TYPE_ENV,
+  subagentProviderConfig,
+  subagentTypes,
+} from '../tools/subagent.ts'
 
 /** 桌面端适配器给的 provider 配置（JSON，结构同 models.json 的 providers，不含密钥：apiKey 写 $PIXELSKY_PIXEL_TOKEN） */
 export const PROVIDERS_ENV = 'PIXELSKY_PIXEL_PROVIDERS'
@@ -54,8 +61,19 @@ export function gatewayProviders(env: NodeJS.ProcessEnv): { providers: Array<[st
   return { providers }
 }
 
+/** 子智能体这个类型单独的站点（桌面端设置 › 子智能体）：只在子智能体的子进程里注册，主会话的模型列表里看不到 */
+export function subagentProvider(env: NodeJS.ProcessEnv): [string, Json] | null {
+  if (env[SUBAGENT_ENV] !== '1') return null
+  const type = subagentTypes(env).find(t => t.id === env[SUBAGENT_TYPE_ENV])
+  const config = type ? subagentProviderConfig(type, env) : null
+  if (!config) return null
+  return [SUBAGENT_PROVIDER, { ...config, models: (config.models as Json[]).map(m => modelDefaults(m)) }]
+}
+
 export const gatewayExtension: ExtensionFactory = (pi: ExtensionAPI) => {
   const { providers, warning } = gatewayProviders(process.env)
   if (warning) console.error(warning)
   for (const [name, config] of providers) pi.registerProvider(name, config as never)
+  const sub = subagentProvider(process.env)
+  if (sub) pi.registerProvider(sub[0], sub[1] as never)
 }

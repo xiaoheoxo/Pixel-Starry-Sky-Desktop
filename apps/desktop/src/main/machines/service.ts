@@ -329,7 +329,12 @@ export class Machines {
         const provider = record.engine === 'claude' ? checkProvider(record, this.providers()) : null
         const windows = provider ? compactWindows(provider.models) : null
         if (windows) env[MODEL_SETTINGS_ENV] = JSON.stringify(windows)
-        for (const key of ['ANTHROPIC_BASE_URL', 'PIXELSKY_CODEX_BASE_URL', 'PIXELSKY_PIXEL_BASE_URL'])
+        for (const key of [
+          'ANTHROPIC_BASE_URL',
+          'PIXELSKY_CODEX_BASE_URL',
+          'PIXELSKY_PIXEL_BASE_URL',
+          'PIXELSKY_PIXEL_SUB_BASE_URL',
+        ])
           if (env[key]) {
             const url = new URL(env[key]!),
               remotePort = await link.forwardGateway(Number(url.port))

@@ -50,6 +50,7 @@ import { pathClickMessages } from '../../../shared/i18n/pathClickMessages'
 import { contextMenuMessages } from '../../../shared/i18n/contextMenuMessages'
 import { subagentMessages } from '../../../shared/i18n/subagentMessages'
 import { subagentStopMessages } from '../../../shared/i18n/subagentStopMessages'
+import { subagentRouteMessages } from '../../../shared/i18n/subagentRouteMessages'
 import { progressLineMessages } from '../../../shared/i18n/progressLineMessages'
 import { traceHistoryMessages } from '../../../shared/i18n/traceHistoryMessages'
 import { extensionCenterMessages } from '../../../shared/i18n/extensionCenterMessages'
@@ -117,6 +118,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   contextMenuMessages,
   subagentMessages,
   subagentStopMessages,
+  subagentRouteMessages,
   progressLineMessages,
   traceHistoryMessages,
   extensionCenterMessages,

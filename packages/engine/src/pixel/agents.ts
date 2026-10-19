@@ -51,7 +51,9 @@ export function subagentRun(details: Message, toolCallId: string): AgentRun {
   return {
     id: string(details.agentId) || toolCallId,
     label: string(details.label) || 'Subagent',
-    type: 'subagent',
+    // 设置 › 子智能体的类型；老的记录没有，仍是 subagent
+    type: string(details.type) || 'subagent',
+    ...(string(details.typeName) ? { typeLabel: string(details.typeName) } : {}),
     model: string(details.model),
     state: string(details.state) || 'running',
     startedAt: number(details.startedAt),

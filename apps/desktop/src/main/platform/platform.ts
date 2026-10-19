@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { platformGateway } from './gateway'
-import { engineProviderProtocols, groupEngines, pixelApi, pixelGatewayEnv } from './pixel-env'
+import { platformGateway, type GatewaySession } from './gateway'
+import { engineProviderProtocols, groupEngines, pixelApi, pixelGatewayEnv, pixelSubagentRoute } from './pixel-env'
 import { compactWindows, longContextModels } from './compact-window'
 import { once } from 'node:events'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
@@ -10,6 +10,7 @@ import type { SessionRecord } from '@pixelsky/protocol'
 import {
   CLAUDE_COMPACT_MARKER,
   CODEX_WINDOW_ENV,
+  logger,
   LONG_CONTEXT_ENV,
   claudeModelName,
   rewriteCompaction,
@@ -21,6 +22,9 @@ import { platformFetch, signedInEmail } from '../account/account'
 import * as ipc from '../ipc/guard'
 import type { ProviderStore, ResolvedProvider } from '../core/providers/store'
 import { smallModelOf } from '../core/providers/upstream'
+import { DEFAULT_SUBAGENT_SETTINGS, type SubagentSettings, type SubagentTarget } from '../../shared/types/subagents'
+
+const log = logger('subagents')
 
 async function jsonRequest(path: string, method = 'GET'): Promise<unknown> {
   const res = await platformFetch(path, { method, signal: AbortSignal.timeout(30_000) })
@@ -31,6 +35,8 @@ async function jsonRequest(path: string, method = 'GET'): Promise<unknown> {
 
 /** 最近读到的分组 → platform（openai / anthropic …）；像素星空按它选 Responses 还是 Messages */
 const groupPlatforms = new Map<string, string>()
+/** 最近读到的分组名：子智能体卡片上写站点名用 */
+const groupNames = new Map<string, string>()
 
 export async function platformGroups(): Promise<PlatformGroupInfo[]> {
   const data = await jsonRequest('/v1/platform/groups')
@@ -47,7 +53,10 @@ export async function platformGroups(): Promise<PlatformGroupInfo[]> {
       Array.isArray(g.models) &&
       g.models.every((m: unknown) => typeof m === 'string'),
   )
-  for (const g of groups) groupPlatforms.set(g.id, g.platform)
+  for (const g of groups) {
+    groupPlatforms.set(g.id, g.platform)
+    groupNames.set(g.id, g.name)
+  }
   return groups
 }
 
@@ -59,6 +68,25 @@ export function checkProvider(record: SessionRecord, providers: ProviderStore | 
   if (!engineProviderProtocols(record.engine).includes(p.protocol)) throw new Error('接口协议与当前引擎不兼容')
   if (!p.apiKey) throw new Error(`自定义接口「${p.name}」还没有 Key，请在设置里填写`)
   return p
+}
+
+/** 子智能体单独走的站点现在能不能用；不能用时返回原因（这时子智能体跟随主会话） */
+export function checkSubagentTarget(
+  target: SubagentTarget,
+  providers: ProviderStore | null,
+  account: string | null,
+): { ok: true; provider: ResolvedProvider | null } | { ok: false; reason: string } {
+  if (target.kind === 'custom') {
+    const p = providers?.resolve(target.providerId)
+    if (!p) return { ok: false, reason: '选的自定义接口已删除' }
+    if (!engineProviderProtocols('pixel').includes(p.protocol)) return { ok: false, reason: '接口协议不支持' }
+    if (!p.apiKey) return { ok: false, reason: `自定义接口「${p.name}」还没有 Key` }
+    if (!p.models.some(m => m.id === target.model)) return { ok: false, reason: `接口里已经没有模型 ${target.model}` }
+    return { ok: true, provider: p }
+  }
+  if (account !== target.account) return { ok: false, reason: '平台账号已退出或切换' }
+  if (!platformModelSupportsEngine(target.model, 'pixel')) return { ok: false, reason: '线路协议不支持' }
+  return { ok: true, provider: null }
 }
 
 /** 排队任务执行前核对身份、当前目录权限与模型；实际请求还会重新检查。 */
@@ -106,6 +134,8 @@ export async function initPlatform(
   providers: ProviderStore | null = null,
   /** Claude Code 压缩请求的实时进度，报给会话所在的宿主 */
   compaction?: (record: SessionRecord, report: CompactionRequestReport) => void,
+  /** 设置 › 子智能体（只管像素星空引擎的会话） */
+  subagents: () => SubagentSettings = () => DEFAULT_SUBAGENT_SETTINGS,
 ): Promise<(record: SessionRecord) => NodeJS.ProcessEnv> {
   ipc.handle('platform:groups', () => platformGroups())
   ipc.handle(
@@ -119,7 +149,7 @@ export async function initPlatform(
     { deny: '无效的分组' },
   )
 
-  const sessions = new Map<string, { secret: string; recordId: string }>()
+  const sessions = new Map<string, GatewaySession>()
   const settingsFiles = new Set<string>()
   const server = platformGateway({
     sessions,
@@ -147,7 +177,67 @@ export async function initPlatform(
     server.close()
     for (const file of settingsFiles) rmSync(file, { force: true })
   })
-  return record => {
+  /**
+   * 像素星空会话的子智能体（设置 › 子智能体）：启用的类型写进 PIXELSKY_SUBAGENT_TYPES；指定了站点且能用的类型各登记一把密钥
+   * （sessions 里 `<会话 id>#subagent:<类型>`），不能用的跟随主会话。进程启动时取一次，改了设置在新开或重新连上的会话生效
+   */
+  const subagentEnv = (record: SessionRecord): Record<string, string> => {
+    const settings = subagents()
+    const prefix = `${record.id}#subagent:`
+    const used = new Set<string>()
+    const env: Record<string, string> = {
+      PIXELSKY_SUBAGENT_FALLBACK: settings.fallback ? '1' : '0',
+      PIXELSKY_SUBAGENT_MAX_CONCURRENT: String(settings.maxConcurrent),
+    }
+    const types = settings.types
+      .filter(t => t.enabled)
+      .map((type, i) => {
+        let route: ReturnType<typeof pixelSubagentRoute> | null = null
+        const check = type.target ? checkSubagentTarget(type.target, providers, signedInEmail()) : null
+        if (type.target && check?.ok) {
+          const target = type.target
+          const key = prefix + type.id
+          used.add(key)
+          let entry = sessions.get(key)
+          if (!entry) {
+            entry = { recordId: record.id, secret: randomBytes(32).toString('hex') }
+            sessions.set(key, entry)
+          }
+          entry.target = target
+          const token = `PIXELSKY_PIXEL_SUB_TOKEN_${i + 1}`
+          env[token] = entry.secret
+          const provider = check.provider
+          route = pixelSubagentRoute({
+            api: pixelApi({
+              protocol: provider?.protocol,
+              groupPlatform: target.kind === 'platform' ? (groupPlatforms.get(target.groupId) ?? null) : null,
+              model: target.model,
+            }),
+            model: target.model,
+            contextWindow: provider?.models.find(m => m.id === target.model)?.contextWindow ?? null,
+            upstreamBaseUrl: provider?.baseUrl ?? null,
+            label: provider?.name ?? (target.kind === 'platform' ? (groupNames.get(target.groupId) ?? '平台线路') : ''),
+            token,
+          })
+        } else if (check && !check.ok)
+          log.info('子智能体的站点不能用，跟随主会话', { sessionId: record.id, type: type.id, reason: check.reason })
+        return {
+          id: type.id,
+          name: type.name,
+          description: type.description,
+          tools: type.tools,
+          maxMs: type.maxMinutes * 60_000,
+          instructions: type.instructions,
+          route,
+        }
+      })
+    // 设置里关掉、删掉或站点不能用了的类型：旧密钥作废
+    for (const key of [...sessions.keys()]) if (key.startsWith(prefix) && !used.has(key)) sessions.delete(key)
+    env.PIXELSKY_SUBAGENT_TYPES = JSON.stringify(types)
+    if (used.size) env.PIXELSKY_PIXEL_SUB_BASE_URL = `http://127.0.0.1:${address.port}`
+    return env
+  }
+  const sessionEnv = (record: SessionRecord): NodeJS.ProcessEnv => {
     const provider = checkProvider(record, providers)
     if (!record.platform && !provider) return {}
     if (record.platform && !platformModelSupportsEngine(record.model, record.engine))
@@ -222,4 +312,5 @@ export async function initPlatform(
     settingsFiles.add(file)
     return { ...env, PIXELSKY_GATEWAY_SETTINGS: file }
   }
+  return record => (record.engine === 'pixel' ? { ...sessionEnv(record), ...subagentEnv(record) } : sessionEnv(record))
 }

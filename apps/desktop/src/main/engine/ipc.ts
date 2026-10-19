@@ -30,6 +30,7 @@ import { closePayWindow, openPayWindow } from '../account/pay-window'
 import { logger } from '@pixelsky/engine'
 import { initPlatform, validateQueuedInput } from '../platform/platform'
 import { initProviders } from '../providers/providers'
+import { initSubagents } from '../subagents/ipc'
 import { initAi } from '../ai/ipc'
 import { Extensions } from '../extensions/ipc'
 import { historyEnabled, historyServer } from './history-mcp'
@@ -53,6 +54,7 @@ import { initSessionStatus } from '../session-status'
 
 export async function initEngine(ctx: AppContext): Promise<void> {
   ctx.providers = initProviders(ctx)
+  const subagents = initSubagents(ctx)
   initAi(ctx)
   const sessionEnv = await initPlatform(
     id =>
@@ -74,6 +76,7 @@ export async function initEngine(ctx: AppContext): Promise<void> {
       if (machine === 'local') ctx.engine?.compactionRequest(record.id, report)
       else void ctx.machines?.call(machine, 'platform:compaction', [record.id, report]).catch(() => {})
     },
+    () => subagents.get(),
   )
   // 对话历史 MCP 服务：第一次有换过引擎的对话要派发消息时才启动
   const history = historyServer(ctx)

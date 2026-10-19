@@ -15,6 +15,7 @@ import {
   ScrollText,
   Smartphone,
   Moon,
+  Network,
   Palette,
   Puzzle,
   Route,
@@ -72,10 +73,13 @@ import { FeedbackSection } from '../feedback/FeedbackSection'
 import { useFeedbackUnread } from '../feedback/store'
 import { MobileSection } from '../mobile/settings/MobileSection'
 import { ProjectsSection } from './projects/ProjectsSection'
+import { SubagentsSection } from './SubagentsSection'
 
 export type SectionId =
   | 'account'
   | 'models'
+  /** 像素星空引擎的子智能体走哪个站点（docs/ui/subagent-routing.md） */
+  | 'subagents'
   | 'engines'
   | 'usage'
   | 'appearance'
@@ -189,6 +193,13 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
     icon: Route,
   },
   {
+    id: 'subagents',
+    get label() {
+      return tr('subagentRoute.title')
+    },
+    icon: Network,
+  },
+  {
     id: 'usage',
     get label() {
       return tr('nav.TopNav.usage')
@@ -247,7 +258,7 @@ const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
     get label() {
       return tr('session.ModelSourceMenu.model')
     },
-    ids: ['models', 'usage'],
+    ids: ['models', 'subagents', 'usage'],
   },
   {
     get label() {
@@ -561,6 +572,8 @@ export function SettingsDialog({
               <ProjectsSection />
             ) : section === 'models' ? (
               <ModelsSection />
+            ) : section === 'subagents' ? (
+              <SubagentsSection openChannels={() => setSection('models')} />
             ) : section === 'extensions' || section === 'plugins' ? (
               <ExtensionsSection key={section} initialGroup={section === 'plugins' ? 'ai' : 'all'} />
             ) : section === 'machines' ? (

@@ -9,6 +9,7 @@ import { chatUsage, withUsageOption } from './chat-usage'
 import { CacheUsageFix } from './usageFix'
 import { compactionTap, type CompactionTap } from './compaction-tap'
 import { platformModelApi } from '../../shared/platform-models'
+import type { SubagentTarget } from '../../shared/types/subagents'
 
 const log = logger('gateway')
 
@@ -31,6 +32,18 @@ const COUNT_TOKENS_RECHECK_MS = 60 * 60_000
 export interface GatewaySession {
   secret: string
   recordId: string
+  /** 像素星空子智能体单独走的站点（设置 › 子智能体）：这把密钥的请求按它选上游，其余照会话记录 */
+  target?: SubagentTarget
+}
+
+/** 子智能体的请求：会话记录换成子智能体的站点和模型（计费、日志仍记在这个会话上） */
+export function subagentRecord(record: SessionRecord, target: SubagentTarget): SessionRecord {
+  return {
+    ...record,
+    platform: target.kind === 'platform' ? { groupId: target.groupId, account: target.account } : null,
+    provider: target.kind === 'custom' ? { id: target.providerId } : null,
+    model: target.model,
+  }
 }
 
 /**
@@ -278,7 +291,8 @@ export function platformGateway(options: {
       }
       const token = req.headers.authorization?.replace(/^Bearer /i, '') ?? req.headers['x-api-key']
       const session = [...options.sessions.values()].find(entry => entry.secret === token)
-      const record = session ? await options.record(session.recordId) : null
+      const current = session ? await options.record(session.recordId) : null
+      const record = current && session?.target ? subagentRecord(current, session.target) : current
       sessionId = record?.id ?? null
       let provider: ResolvedProvider | null = null
       if (record?.provider && !record.platform) {

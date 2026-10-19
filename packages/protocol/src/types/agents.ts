@@ -38,6 +38,8 @@ export interface AgentRun {
   label: string
   /** 子智能体类型（general-purpose 等），编排智能体没有 */
   type: string
+  /** 类型的显示名（像素星空子智能体的类型，设置 › 子智能体）；子智能体小框上显示 */
+  typeLabel?: string
   model: string
   /** 原始状态词，界面统一归成 运行中 / 已完成 / 失败 / 已停止 / 排队中 */
   state: string

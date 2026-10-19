@@ -44,6 +44,7 @@ import { pathClickMessages } from './pathClickMessages'
 import { contextMenuMessages } from './contextMenuMessages'
 import { subagentMessages } from './subagentMessages'
 import { subagentStopMessages } from './subagentStopMessages'
+import { subagentRouteMessages } from './subagentRouteMessages'
 import { progressLineMessages } from './progressLineMessages'
 import { traceHistoryMessages } from './traceHistoryMessages'
 import { wslMessages } from './wslMessages'
@@ -113,6 +114,7 @@ export const allMessages = {
   ...contextMenuMessages,
   ...subagentMessages,
   ...subagentStopMessages,
+  ...subagentRouteMessages,
   ...progressLineMessages,
   ...traceHistoryMessages,
   ...extensionCenterMessages,
