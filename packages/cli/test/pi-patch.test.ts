@@ -146,3 +146,16 @@ describe('Pi 补丁：cli/args.js 的 --help', () => {
     for (const kept of ['list', 'config', 'auth', 'mcp']) expect(commands).toContain(kept)
   })
 })
+
+describe('Pi 补丁：extensions/mcp/index.js 把连接状态交给桌面端', () => {
+  it('状态变化时发 pixelsky:mcp-status，并接 pixelsky:mcp-op（重新连接 / 只在这个会话启用、停用 / 登录）', () => {
+    const text = distText('extensions/mcp/index.js')
+    expect(text).toContain('pi.events.emit("pixelsky:mcp-status", pixelskyStatus())')
+    expect(text).toContain('pi.events.on("pixelsky:mcp-op"')
+    // 停用只在这个会话：临时当成扩展注册的服务器，saveConfig 就不写 mcp.json
+    expect(text).toContain('server.entry = { ...server.entry, scope: "extension" };')
+    // 登录：授权链接交回桌面端，不让用户粘贴回调地址
+    expect(text).toContain('showAuthorizationUrl: (authorizationUrl) => resolve({ url: authorizationUrl.href })')
+    expect(text).toContain('done?.(failure, url);')
+  })
+})

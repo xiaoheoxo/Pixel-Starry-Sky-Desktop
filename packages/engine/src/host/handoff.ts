@@ -146,6 +146,7 @@ export class HostHandoff {
     if (rt.snapshot.tasks.length) m.events.apply(id, { type: 'tasks', tasks: [] })
     if (rt.snapshot.subagents.length) m.events.apply(id, { type: 'subagents', subagents: [] })
     if (rt.snapshot.commands?.length) m.events.apply(id, { type: 'commands', commands: [] })
+    if (rt.snapshot.mcp) m.events.apply(id, { type: 'mcp', report: null })
     if (rt.snapshot.background) m.events.apply(id, { type: 'background', count: 0 })
     let runs = { workflows: [], agents: [] } as typeof rt.snapshot.runs
     try {

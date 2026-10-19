@@ -159,6 +159,7 @@ const engine: EngineBridge = {
   setSessionPinned: (id, pinned) => call('engine:setSessionPinned', id, pinned),
   stopTask: (id, taskId) => call('engine:stopTask', id, taskId),
   taskOutput: (id, taskId) => call('engine:taskOutput', id, taskId),
+  mcp: (id, op) => call('engine:mcp', id, op),
   subagentTranscript: (id, agentId) => call('engine:subagentTranscript', id, agentId),
   usageSummary: q => call('engine:usageSummary', q),
   usageList: q => call('engine:usageList', q),

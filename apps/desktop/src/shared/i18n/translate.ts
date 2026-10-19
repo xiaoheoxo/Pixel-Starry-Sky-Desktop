@@ -45,6 +45,7 @@ import { contextMenuMessages } from './contextMenuMessages'
 import { subagentMessages } from './subagentMessages'
 import { subagentStopMessages } from './subagentStopMessages'
 import { subagentRouteMessages } from './subagentRouteMessages'
+import { connectorsMessages } from './connectorsMessages'
 import { progressLineMessages } from './progressLineMessages'
 import { traceHistoryMessages } from './traceHistoryMessages'
 import { wslMessages } from './wslMessages'
@@ -115,6 +116,7 @@ export const allMessages = {
   ...subagentMessages,
   ...subagentStopMessages,
   ...subagentRouteMessages,
+  ...connectorsMessages,
   ...progressLineMessages,
   ...traceHistoryMessages,
   ...extensionCenterMessages,

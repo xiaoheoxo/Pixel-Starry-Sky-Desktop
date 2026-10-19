@@ -84,6 +84,9 @@ describe('桌面端的 MCP 配置 → Pi', () => {
         registered[name] = config
       },
       on: (_name: string, h: (event: unknown, ctx: unknown) => Promise<void>) => handlers.push(h),
+      // 连接状态的转发（statusBridge）：这里不测
+      events: { on: () => () => {}, emit: () => {} },
+      registerCommand: () => {},
     }
     mcpExtension(pi as never)
     expect(registered).toEqual({
@@ -95,7 +98,8 @@ describe('桌面端的 MCP 配置 → Pi', () => {
     mcpExtension(pi as never)
     expect(Object.keys(registered)).toEqual(['pixelsky_history'])
     const notes: string[] = []
-    await handlers[0]({}, { ui: { notify: (m: string) => notes.push(m) } })
+    // 每次加载扩展先登记状态转发（statusBridge），再登记提示：第一次加载的提示是 handlers[1]
+    await handlers[1]!({}, { ui: { notify: (m: string) => notes.push(m), setStatus: () => {} } })
     expect(notes).toHaveLength(1)
     expect(notes[0]).toContain('bad')
   })

@@ -74,3 +74,4 @@ export type {
 export type { ApprovalDecision, ApprovalRequest, Question, QuestionOption } from './approval'
 export type { AgentRun, AgentRuns, BackgroundTask, SubagentStatus, TaskOutput, WorkflowRun } from './agents'
 export type { EngineEvent, HostEvent, OpenedSession, SessionFlags, SessionSnapshot } from './events'
+export type { McpOp, McpOpKind, McpOpResult, McpReport, McpServerState, McpServerStatus, McpServerTool } from './mcp'

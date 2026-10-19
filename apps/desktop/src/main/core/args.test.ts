@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { artifactRef, engineConfigPatch, engineId, int, str, usageListQuery, usageQuery, value } from './args'
+import { artifactRef, engineConfigPatch, engineId, int, mcpOp, str, usageListQuery, usageQuery, value } from './args'
 
 describe('shared argument checks', () => {
   it('accepts only non-empty strings as ids', () => {
@@ -86,5 +86,19 @@ describe('shared argument checks', () => {
     expect(engineConfigPatch({ args: ['--x', 1] })).toEqual({})
     expect(engineConfigPatch({ args: '--debug' })).toEqual({})
     expect(engineConfigPatch(undefined)).toEqual({})
+  })
+
+  it('accepts only known connector actions with a plain server name', () => {
+    expect(mcpOp({ kind: 'refresh', name: 'x y' })).toEqual({ kind: 'refresh' })
+    expect(mcpOp({ kind: 'reconnect', name: 'gpt-sovits', extra: 1 })).toEqual({
+      kind: 'reconnect',
+      name: 'gpt-sovits',
+    })
+    expect(mcpOp({ kind: 'toggle', name: 'a', enabled: false })).toEqual({ kind: 'toggle', name: 'a', enabled: false })
+    expect(() => mcpOp({ kind: 'toggle', name: 'a' })).toThrow('未知的连接器操作')
+    expect(() => mcpOp({ kind: 'reconnect', name: 'a\n/pixelsky-mode bypass' })).toThrow('连接器名字不对')
+    expect(() => mcpOp({ kind: 'login', name: '' })).toThrow('连接器名字不对')
+    expect(() => mcpOp({ kind: 'delete', name: 'a' })).toThrow('未知的连接器操作')
+    expect(() => mcpOp(null)).toThrow()
   })
 })

@@ -90,7 +90,17 @@ export interface DemoCheckout {
 }
 
 /** 全部演示数据。新增演示内容先在这里加字段，再在 mock/index.ts 填上 */
+/** 右侧「连接器」的演示数据（docs/ui/connectors.md）：一个会话的引擎报告、设置 › 扩展的条目和本会话调用 */
+export interface DemoConnectors {
+  engine: import('@pixelsky/protocol').EngineId
+  cwd: string
+  report: import('@pixelsky/protocol').McpReport
+  entries: import('@pixelsky/protocol').ExtensionEntry[]
+  calls: Record<string, Record<string, number>>
+}
+
 export interface DemoSource {
+  connectors: DemoConnectors
   /** 侧边栏、对话、输入框等界面数据（与 data/empty.ts 同形） */
   appData: AppData
   account: AccountInfo

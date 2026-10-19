@@ -44,6 +44,8 @@ import type {
   SessionSettings,
   SessionSnapshot,
   SessionSummary,
+  McpOp,
+  McpOpResult,
   TaskOutput,
   UsagePage,
   UsageSummary,
@@ -465,6 +467,10 @@ export class EngineHost {
   /** 停止一个后台任务 */
   async stopTask(id: string, taskId: string): Promise<void> {
     return this.m.turn.stopTask(id, taskId)
+  }
+
+  async mcp(id: string, op: McpOp): Promise<McpOpResult> {
+    return this.m.turn.mcp(id, op)
   }
 
   /** 读一个后台任务的输出 */

@@ -5,6 +5,8 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
   ImageAttachment,
+  McpOp,
+  McpOpResult,
   PermissionMode,
   SessionSettings,
   SkillCommand,
@@ -13,6 +15,7 @@ import type {
 import { EMPTY_FLAGS } from '@pixelsky/protocol'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { ChatSeed } from '../chat-log'
+import { McpReporter, pixelMcpServers } from '../mcp'
 import { findModel, piThinkingLevel } from './catalog'
 import {
   APPROVAL_CONTEXT_STATUS,
@@ -40,6 +43,11 @@ import {
 const MODE_COMMAND = 'pixelsky-mode'
 /** 批准扩展报当前权限模式的状态键（approval.ts 的 MODE_STATUS），例如计划确认后它自己退出了计划模式 */
 const MODE_STATUS = 'pixelsky-mode'
+/** 连接器（docs/ui/connectors.md）：命令行 MCP 扩展的命令、报状态和操作结果的状态键（packages/cli/src/extensions/mcp.ts） */
+const MCP_COMMAND = 'pixelsky-mcp'
+const MCP_STATUS = 'pixelsky-mcp'
+const MCP_RESULT_STATUS = 'pixelsky-mcp-result'
+const MCP_OP_TIMEOUT_MS = 95_000
 
 /** 我们的权限模式 → 批准扩展的 --permission-mode */
 export const PIXEL_MODES: Record<PermissionMode, string> = {
@@ -170,6 +178,10 @@ export class PixelSession implements EngineSession {
   private promptUserSeen = false
   private translator: PixelTranslator
   private turnWaiters: Array<() => void> = []
+  /** 会话里的 MCP 服务器：命令行状态变了自己推（setStatus），不用轮询 */
+  private readonly mcpReporter: McpReporter
+  /** 等 /pixelsky-mcp 操作结果的（按发送顺序），值是报错，成功为空 */
+  private mcpWaiters: Array<(result: { error: string; url?: string }) => void> = []
 
   constructor(
     private readonly launcher: Launcher,
@@ -178,6 +190,7 @@ export class PixelSession implements EngineSession {
     private readonly options: PixelLaunchOptions = {},
   ) {
     this.settings = { ...ctx.record() }
+    this.mcpReporter = new McpReporter(e => ctx.emit(e), ['reconnect', 'toggle', 'login'])
     this.translator = new PixelTranslator(event => this.ctx.emit(event), {
       cwd: ctx.record().cwd,
       userMessage: () => this.userMessage(),
@@ -227,6 +240,8 @@ export class PixelSession implements EngineSession {
         if (this.proc !== proc) return
         this.ready = false
         this.rejectApprovals()
+        this.mcpReporter.stale()
+        for (const w of this.mcpWaiters.splice(0)) w({ error: '引擎进程已退出' })
         if (!this.closed && this.active) this.finish('failed', tail.trim() || 'Pixel process exited')
       },
     })
@@ -494,6 +509,19 @@ export class PixelSession implements EngineSession {
       const key = string(raw.statusKey)
       if (key === MODE_STATUS) this.syncMode(string(raw.statusText))
       else if (key === APPROVAL_CONTEXT_STATUS) this.approvalContext = subagentApproval(string(raw.statusText))
+      else if (key === MCP_STATUS) {
+        const servers = pixelMcpServers(string(raw.statusText))
+        if (servers) this.mcpReporter.set(servers)
+      } else if (key === MCP_RESULT_STATUS) {
+        let result: { error: string; url?: string } = { error: '' }
+        try {
+          const r = object(JSON.parse(string(raw.statusText)))
+          result = { error: string(r.error), ...(/^https?:\/\//i.test(string(r.url)) ? { url: string(r.url) } : {}) }
+        } catch {
+          // 格式不对当作成功，状态以推来的为准
+        }
+        this.mcpWaiters.shift()?.(result)
+      }
       return
     }
     if (method !== 'confirm' && method !== 'select' && method !== 'input' && method !== 'editor') return
@@ -737,8 +765,46 @@ export class PixelSession implements EngineSession {
     }
   }
 
+  async mcp(op: McpOp): Promise<McpOpResult> {
+    const proc = this.proc
+    if (!proc?.alive || !this.ready) {
+      if (op.kind === 'refresh') return { report: this.mcpReporter.report }
+      throw new Error('引擎没有在运行')
+    }
+    const action =
+      op.kind === 'refresh'
+        ? 'status'
+        : op.kind === 'reconnect' || op.kind === 'login'
+          ? `${op.kind} ${op.name}`
+          : `${op.enabled ? 'enable' : 'disable'} ${op.name}`
+    let resolve!: (result: { error: string; url?: string }) => void
+    const result = new Promise<{ error: string; url?: string }>(r => (resolve = r))
+    let url: string | undefined
+    this.mcpWaiters.push(resolve)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      // 扩展命令立即执行、不进模型（disposition: handled）；结果从 pixelsky-mcp-result 状态回来
+      const response = await proc.request('prompt', { message: `/${MCP_COMMAND} ${action}` })
+      if (string(response.data.disposition) !== 'handled') throw new Error('Pixel did not run the MCP command')
+      // 登录：拿到授权链接就回来，由桌面端在浏览器里打开；命令行在本机端口等回调，登录完自己重新连接
+      const done = await Promise.race([
+        result,
+        new Promise<{ error: string }>(
+          r => (timer = setTimeout(() => r({ error: '等命令行回应超时' }), MCP_OP_TIMEOUT_MS)),
+        ),
+      ])
+      if (done.error) throw new Error(done.error)
+      url = 'url' in done ? done.url : undefined
+    } finally {
+      clearTimeout(timer)
+      this.mcpWaiters = this.mcpWaiters.filter(w => w !== resolve)
+    }
+    return url ? { report: this.mcpReporter.report, url } : { report: this.mcpReporter.report }
+  }
+
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    this.mcpReporter.dispose()
     await this.interrupt()
     this.rejectApprovals()
     await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)

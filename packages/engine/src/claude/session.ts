@@ -14,6 +14,8 @@ import {
   type PermissionMode,
   type SessionFlags,
   type SessionSettings,
+  type McpOp,
+  type McpOpResult,
   type TaskOutput,
   parseCodedError,
   viaGateway,
@@ -22,6 +24,7 @@ import { queueSettings } from '../queue'
 import { NO_REPLY, seedTurns, type ChatSeed } from '../chat-log'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { QuotaReading } from '../quota'
+import { claudeMcpServers, McpReporter } from '../mcp'
 import { ClaudeProcess, ownClaudePids, type ControlRequestFromCli } from './process'
 import { parseClaudeRateLimitEvent, parseClaudeUsage, unknownControl } from './quota'
 import { liveClaudeSession } from './native'
@@ -254,6 +257,8 @@ export class ClaudeSession implements EngineSession {
   /** 这一轮发出去的用户消息 id，等 CLI 回显（--replay-user-messages）确认收到；回显到了或没有这一轮时为 null，每轮只确认一次 */
   private ackPending: string | null = null
   private proc: ClaudeProcess | null = null
+  /** 会话里的 MCP 服务器（控制请求 mcp_status），docs/ui/connectors.md */
+  private readonly mcpReporter: McpReporter
   /** 当前进程启动时是不是走本机网关：额度的来源按它判断，不读当前记录（换通道要等下一条消息才换进程） */
   private procViaGateway = false
   private starting: Promise<ClaudeProcess> | null = null
@@ -271,6 +276,14 @@ export class ClaudeSession implements EngineSession {
     private readonly ctx: SessionContext,
     private readonly deps: ClaudeSessionDeps,
   ) {
+    this.mcpReporter = new McpReporter(
+      e => ctx.emit(e),
+      ['reconnect', 'toggle', 'login'],
+      async () => {
+        const proc = this.proc
+        return proc?.alive ? claudeMcpServers(await proc.request('mcp_status', {}, 10_000)) : null
+      },
+    )
     this.translator = new ClaudeTranslator(ctx.record().cwd, {
       emit: e => ctx.emit(e),
       sessionId: id => {
@@ -287,6 +300,7 @@ export class ClaudeSession implements EngineSession {
         for (const w of waiters) w()
         // 每轮结束顺手取一次明细（summary 不调接口），弹窗打开就有 MCP / Skills 等分类
         if (this.proc?.alive && this.usageRequest) void this.usage(this.proc, 'summary').catch(() => undefined)
+        void this.mcpReporter.refresh().catch(() => undefined)
       },
     })
   }
@@ -638,6 +652,8 @@ export class ClaudeSession implements EngineSession {
     // 启动就取一次明细：确认这个版本能不能用 get_context_usage，也让第一轮之前就有系统提示 / 工具 / Skills 的分类
     this.usageRequest = null
     void this.usage(proc, 'summary').catch(() => undefined)
+    // 连接器状态：服务器在后台连，还在连的由 McpReporter 过一会儿再取
+    void this.mcpReporter.refresh().catch(() => undefined)
     return proc
   }
 
@@ -691,6 +707,7 @@ export class ClaudeSession implements EngineSession {
     }
     // 启动失败的进程由 spawn() 处理
     this.proc = null
+    this.mcpReporter.stale()
     this.setFlags({ steerAvailable: false })
     for (const id of this.guidance.keys()) this.ctx.emit({ type: 'input_ack', id, state: 'uncertain' })
     this.guidance.clear()
@@ -937,8 +954,29 @@ export class ClaudeSession implements EngineSession {
     return { output: str(r.output), truncated: r.truncated === true }
   }
 
+  async mcp(op: McpOp): Promise<McpOpResult> {
+    const proc = this.proc
+    if (!proc?.alive) {
+      if (op.kind === 'refresh') return { report: this.mcpReporter.report }
+      throw new Error('引擎没有在运行')
+    }
+    let url: string | undefined
+    if (op.kind === 'reconnect') await proc.request('mcp_reconnect', { serverName: op.name }, 60_000)
+    else if (op.kind === 'toggle')
+      await proc.request('mcp_toggle', { serverName: op.name, enabled: op.enabled }, 30_000)
+    else if (op.kind === 'login') {
+      // CLI 在本机端口等授权回调，浏览器里登录完自己接上；之后的状态靠刷新取
+      const r = await proc.request('mcp_authenticate', { serverName: op.name }, 30_000)
+      url = str(r.authUrl) || undefined
+      if (!url && r.requiresUserAction !== false) throw new Error('这个连接器不支持登录')
+    }
+    const report = await this.mcpReporter.refresh()
+    return url ? { report, url } : { report }
+  }
+
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    this.mcpReporter.dispose()
     const starting = this.starting
     if (starting) await starting.catch(() => null)
     try {

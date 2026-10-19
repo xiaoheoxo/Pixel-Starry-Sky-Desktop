@@ -11,7 +11,7 @@ import type {
   SideTurn,
 } from '@pixelsky/protocol'
 import type { SessionPatch } from '../../../shared/types/engine'
-import { artifactRef, engineConfigPatch, engineId, int, str, usageListQuery, usageQuery, value } from '../args'
+import { artifactRef, engineConfigPatch, engineId, int, mcpOp, str, usageListQuery, usageQuery, value } from '../args'
 import type { OpTable } from '../ops'
 import type { ToolsHost } from '../project-tools/common'
 import type { SearchRegistry } from '../search-registry'
@@ -246,6 +246,8 @@ export const ENGINE_OPS = {
     return c.host.archiveSession(str(id, 'id'), archived, stopRunning === true)
   },
   'engine:stopTask': (c, id, taskId) => c.host.stopTask(str(id, 'id'), str(taskId, 'taskId')),
+  // 右侧「连接器」（docs/ui/connectors.md）
+  'engine:mcp': (c, id, op) => c.host.mcp(str(id, 'id'), mcpOp(op)),
   'engine:taskOutput': (c, id, taskId) => c.host.taskOutput(str(id, 'id'), str(taskId, 'taskId')),
   'engine:subagentTranscript': (c, id, agentId) => c.host.subagentTranscript(str(id, 'id'), str(agentId, 'agentId')),
   // 用量与调用记录（docs/ui/usage.md §6.3）

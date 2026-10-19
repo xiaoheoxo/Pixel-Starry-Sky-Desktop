@@ -9,6 +9,7 @@ import {
   Globe,
   ListChecks,
   Package,
+  Plug,
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ export const TOOLS: readonly ToolMeta[] = [
   { id: 'sandbox', icon: Box, group: 'run' },
   { id: 'tasks', icon: ListChecks, group: 'project' },
   { id: 'copies', icon: Copy, group: 'project' },
+  { id: 'connectors', icon: Plug, group: 'project' },
 ]
 
 export const TOOL_GROUPS: readonly ToolGroup[] = ['code', 'run', 'project']

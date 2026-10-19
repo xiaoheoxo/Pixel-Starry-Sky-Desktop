@@ -18,6 +18,7 @@ import { DEMO_EDITOR_STATE, DEMO_FILES, demoDirectory, demoDocument } from './fi
 import { demoGitBranches, demoGitDiff, demoGitHistory, demoGitStatus } from './git'
 import { demoExtStore } from './extStore'
 import { demoInbox } from './inbox'
+import { demoConnectors } from './connectors'
 import { statusDemoInbox, statusDemoSessionState } from './statusDemo'
 import { demoMachines, demoMachineProjects, demoMachineWorkspaces } from './machines'
 import { demoBoardTasks } from './board'
@@ -67,6 +68,7 @@ export const demoSource: DemoSource = {
   machineProjects: demoMachineProjects,
   machineWorkspaces: demoMachineWorkspaces,
   boardTasks: demoBoardTasks,
+  connectors: demoConnectors,
   projectTools: {
     tasks: demoToolTasks,
     runTasks: demoToolRunTasks,

@@ -8,6 +8,8 @@ import type {
   InterruptOptions,
   Item,
   SendReceipt,
+  McpOp,
+  McpOpResult,
   TaskOutput,
 } from '@pixelsky/protocol'
 import { sourceKey, viaGateway } from '@pixelsky/protocol'
@@ -376,6 +378,16 @@ export class HostTurn {
     if (!s) throw new Error('引擎没有在运行')
     if (!s.stopTask) throw new Error('这个引擎没有后台任务')
     await s.stopTask(taskId)
+  }
+
+  /** 会话里的 MCP 服务器（docs/ui/connectors.md）：进程没在跑时刷新返回空，操作报错 */
+  async mcp(id: string, op: McpOp): Promise<McpOpResult> {
+    const s = this.ctx.runtimes.get(id)?.session
+    if (!s?.mcp) {
+      if (op.kind === 'refresh') return { report: null }
+      throw new Error(s ? '这个引擎不报告连接器状态' : '会话没在运行，发一条消息后再试')
+    }
+    return s.mcp(op)
   }
 
   async taskOutput(id: string, taskId: string): Promise<TaskOutput> {

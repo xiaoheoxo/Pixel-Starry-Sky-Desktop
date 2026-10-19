@@ -2,7 +2,7 @@
 import { isAbsolute } from 'node:path'
 import type { UsageQuery } from '@pixelsky/engine'
 import { COST_MISSING, COST_STATES } from '@pixelsky/protocol'
-import type { EngineConfigPatch, EngineId, UsageDimension, UsageFilter, UsageRangeId } from '@pixelsky/protocol'
+import type { EngineConfigPatch, EngineId, McpOp, UsageDimension, UsageFilter, UsageRangeId } from '@pixelsky/protocol'
 
 export { value } from './project-tools/common'
 
@@ -20,6 +20,20 @@ export function int(v: unknown, fallback: number, max: number): number {
 export function engineId(v: unknown): EngineId {
   if (v !== 'claude' && v !== 'codex' && v !== 'pixel') throw new Error('未知引擎')
   return v
+}
+
+/**
+ * 连接器操作（docs/ui/connectors.md）：服务器名要原样交给引擎（像素星空拼进 /pixelsky-mcp 命令），
+ * 不能有空白和换行
+ */
+export function mcpOp(v: unknown): McpOp {
+  const op = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  if (op.kind === 'refresh') return { kind: 'refresh' }
+  const name = op.name
+  if (typeof name !== 'string' || !/^\S{1,200}$/.test(name)) throw new Error('连接器名字不对')
+  if (op.kind === 'reconnect' || op.kind === 'login') return { kind: op.kind, name }
+  if (op.kind === 'toggle' && typeof op.enabled === 'boolean') return { kind: 'toggle', name, enabled: op.enabled }
+  throw new Error('未知的连接器操作')
 }
 
 const RANGES: readonly UsageRangeId[] = ['today', '7d', '30d', '90d']

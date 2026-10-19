@@ -5,6 +5,8 @@ import type {
   ImageAttachment,
   InterruptOptions,
   Item,
+  McpOp,
+  McpOpResult,
   TaskOutput,
   EngineCatalog,
   EngineEvent,
@@ -114,6 +116,11 @@ export interface EngineSession {
    * （宿主改用适配器的临时读取），绝不为它起会话进程
    */
   accountQuota?(): Promise<QuotaReading> | null
+  /**
+   * 会话里的 MCP 服务器：取最新状态或做一个操作（docs/ui/connectors.md），同时发 mcp 事件更新快照。
+   * 不支持的操作抛出原因；引擎不报告 MCP 状态时不实现
+   */
+  mcp?(op: McpOp): Promise<McpOpResult>
   /** quick：应用正在退出（包括更新重启），只给进程很短的时间自己退，不等它收尾（docs/release-update.md §11） */
   close(opts?: CloseOptions): Promise<void>
 }

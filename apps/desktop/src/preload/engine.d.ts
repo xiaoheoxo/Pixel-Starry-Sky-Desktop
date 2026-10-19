@@ -23,6 +23,8 @@ import type {
   SessionRecord,
   SessionSettings,
   SessionSummary,
+  McpOp,
+  McpOpResult,
   TaskOutput,
   UsagePage,
   UsageSummary,
@@ -169,6 +171,8 @@ export interface EngineBridge {
   stopTask(id: string, taskId: string): Promise<void>
   /** 读一个后台任务的输出（最后一段） */
   taskOutput(id: string, taskId: string): Promise<TaskOutput>
+  /** 会话里的 MCP 服务器：取状态或做操作（docs/ui/connectors.md）；会话进程没在跑时刷新返回 report: null 或上次的状态 */
+  mcp(id: string, op: McpOp): Promise<McpOpResult>
   /** 智能体追踪：读一个子智能体的对话（只读） */
   subagentTranscript(id: string, agentId: string): Promise<Item[]>
   /** 用量汇总（docs/ui/usage.md §6.3）；tzOffset 目前没用到，按主进程本地时区计算 */

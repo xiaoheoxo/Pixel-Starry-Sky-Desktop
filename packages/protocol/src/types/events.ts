@@ -53,6 +53,8 @@ export type EngineEvent =
   /** 整个条目列表换掉（接着引擎自己的会话时加载更早的 / 补上，docs/ui/claude-resume.md §4.8） */
   | { type: 'items_reset'; items: Item[] }
   | { type: 'commands'; commands: import('../extensions').SkillCommand[] }
+  /** 会话里 MCP 服务器的状态（docs/ui/connectors.md）；null 表示清掉（换引擎） */
+  | { type: 'mcp'; report: import('./mcp').McpReport | null }
   | { type: 'queue'; items: QueuedMessage[]; paused: boolean }
   | { type: 'input_ack'; id: string; state: 'consumed' | 'cancelled' | 'uncertain'; mode?: 'normal' | 'guidance' }
   /** usage：这一轮的用量（引擎报告了才有，docs/ui/usage.md §6.1）；background：结束时还在后台跑的（见 background 事件） */
@@ -85,6 +87,8 @@ export interface SessionFlags {
 /** 一个会话在界面上需要的全部状态 */
 export interface SessionSnapshot {
   commands?: import('../extensions').SkillCommand[]
+  /** 会话里 MCP 服务器的状态；引擎还没报告时省略或为 null */
+  mcp?: import('./mcp').McpReport | null
   /** 最近主请求 / 引擎诊断，独立于计费累计用量。旧快照无此字段时为未知。 */
   context?: import('../context').ContextWindow | null
   /** 当前模型请求的重试等待，完成/成功响应后清空，不落盘。 */

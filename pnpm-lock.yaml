@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@earendil-works/pi-coding-agent@1.3.0': c7ca472d1cdf3dc94dfacf04c24609dba68c1dd22fbfa1eb937e0fa6334b7779
+  '@earendil-works/pi-coding-agent@1.3.0': 90ad202fe2f3b7dfb26022a2c45cd6594017d3fc50cafc851409be3b1221bf89
 
 importers:
 
@@ -300,7 +300,7 @@ importers:
     dependencies:
       '@earendil-works/pi-coding-agent':
         specifier: 1.3.0
-        version: 1.3.0(patch_hash=c7ca472d1cdf3dc94dfacf04c24609dba68c1dd22fbfa1eb937e0fa6334b7779)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.5)
+        version: 1.3.0(patch_hash=90ad202fe2f3b7dfb26022a2c45cd6594017d3fc50cafc851409be3b1221bf89)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.5)
       typebox:
         specifier: 1.3.27
         version: 1.3.27
@@ -4890,7 +4890,7 @@ snapshots:
     dependencies:
       quickjs-wasi: 3.6.2
 
-  '@earendil-works/pi-coding-agent@1.3.0(patch_hash=c7ca472d1cdf3dc94dfacf04c24609dba68c1dd22fbfa1eb937e0fa6334b7779)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.5)':
+  '@earendil-works/pi-coding-agent@1.3.0(patch_hash=90ad202fe2f3b7dfb26022a2c45cd6594017d3fc50cafc851409be3b1221bf89)(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@earendil-works/pi-agent-core': 1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)
       '@earendil-works/pi-ai': 1.3.0(@aws-sdk/credential-provider-node@3.972.86)(@modelcontextprotocol/sdk@1.32.1(zod@4.6.5))(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)

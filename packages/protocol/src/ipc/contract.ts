@@ -415,6 +415,7 @@ export const IPC_CONTRACT = {
     mobile: 'act',
     trust: 'sender',
   },
+  'engine:mcp': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:mcp', trust: 'sender' },
   'engine:stopTask': { kind: 'invoke', route: 'resource', ids: [0, 1], remote: 'engine:stopTask', trust: 'sender' },
   'engine:subagentTranscript': {
     kind: 'invoke',

@@ -2,11 +2,21 @@
 // 文件格式和 Claude Code 的 --mcp-config 一样：{ mcpServers: { 名字: { type, command, args, env, url, headers } } }，
 // 值都是桌面端展开过的原文。这里用 pi.registerMcpServer() 交给 Pi 自带的 MCP 支持（Pi 文档 docs/mcp.md）；
 // 用户自己的 ~/.pixelsky-cli/agent/mcp.json 照常生效，同名时以它为准（Pi 的规则）。
+// 连接状态：Pi 的 MCP 扩展（我们的补丁）在状态变化时发 pixelsky:mcp-status，这里转成 setStatus('pixelsky-mcp', JSON)
+// 交给桌面端右侧「连接器」；桌面端发 /pixelsky-mcp <status|reconnect|enable|disable|login> [名字] 做操作（docs/ui/connectors.md）。
+// login 回的是授权链接（桌面端在浏览器里打开），本机回调端口由 Pi 等着，登录完自己重新连接。
 // 只用可擦除的 TS 语法。
 import { readFileSync } from 'node:fs'
-import type { ExtensionAPI, McpServerConfig } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI, ExtensionContext, McpServerConfig } from '@earendil-works/pi-coding-agent'
 
 export const MCP_FILE_ENV = 'PIXELSKY_MCP_FILE'
+/** 状态键和命令名（packages/engine/src/pixel/session.ts 的 MCP_STATUS / MCP_COMMAND） */
+export const MCP_STATUS = 'pixelsky-mcp'
+export const MCP_COMMAND = 'pixelsky-mcp'
+/** 操作结果的状态键：{ op, name, error } */
+export const MCP_RESULT_STATUS = 'pixelsky-mcp-result'
+const MCP_OPS = ['status', 'reconnect', 'enable', 'disable', 'login']
+const OP_TIMEOUT_MS = 90_000
 
 type Json = Record<string, unknown>
 const object = (v: unknown): Json => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : {})
@@ -71,7 +81,51 @@ export function mcpChildEnv(): Record<string, string> {
   return mcpFile ? { [MCP_FILE_ENV]: mcpFile } : {}
 }
 
+/** 把 Pi MCP 扩展的连接状态转给桌面端，接桌面端的操作命令 */
+function statusBridge(pi: ExtensionAPI): void {
+  let ui: ExtensionContext['ui'] | null = null
+  let latest = '[]'
+  const push = (): void => ui?.setStatus(MCP_STATUS, latest)
+  pi.events.on('pixelsky:mcp-status', data => {
+    latest = JSON.stringify(Array.isArray(data) ? data : [])
+    push()
+  })
+  pi.on('session_start', async (_event, ctx) => {
+    ui = ctx.ui
+    push()
+  })
+  pi.registerCommand(MCP_COMMAND, {
+    description: 'Desktop app: MCP server status and actions (status | reconnect | enable | disable | login <server>)',
+    handler: async (args, ctx) => {
+      ui = ctx.ui
+      const [op = 'status', name] = args.trim().split(/\s+/).filter(Boolean)
+      if (!MCP_OPS.includes(op)) {
+        ctx.ui.notify(`未知的操作 "${op}" / Unknown action "${op}".`, 'error')
+        return
+      }
+      // 结果走状态键交回桌面端（不进对话）；Pi 的 MCP 扩展没加载时不会回应，过一会儿当作没有连接器
+      const { failure, url } = await Promise.race([
+        new Promise<{ failure?: string; url?: string }>(resolve =>
+          pi.events.emit('pixelsky:mcp-op', {
+            op,
+            name,
+            done: (failure?: string, url?: string) => resolve({ failure, url }),
+          }),
+        ),
+        new Promise<{ failure?: string; url?: string }>(resolve =>
+          setTimeout(() => resolve({}), OP_TIMEOUT_MS).unref?.(),
+        ),
+      ])
+      ctx.ui.setStatus(
+        MCP_RESULT_STATUS,
+        JSON.stringify({ op, name: name ?? '', error: failure ?? '', ...(url ? { url } : {}) }),
+      )
+    },
+  })
+}
+
 export function mcpExtension(pi: ExtensionAPI): void {
+  statusBridge(pi)
   mcpFile ??= process.env[MCP_FILE_ENV]?.trim() || undefined
   delete process.env[MCP_FILE_ENV]
   const file = mcpFile

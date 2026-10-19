@@ -1,6 +1,16 @@
 /** Persist only references to existing resources. File drafts and PTYs have one owner. */
 import { isFileTab } from '../panes/tree'
-export const TOOL_IDS = ['files', 'git', 'artifacts', 'terminal', 'browser', 'tasks', 'sandbox', 'copies'] as const
+export const TOOL_IDS = [
+  'files',
+  'git',
+  'artifacts',
+  'terminal',
+  'browser',
+  'tasks',
+  'sandbox',
+  'copies',
+  'connectors',
+] as const
 export type ToolId = (typeof TOOL_IDS)[number]
 export interface PanelLayout {
   tabs: string[]

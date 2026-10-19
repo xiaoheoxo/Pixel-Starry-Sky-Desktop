@@ -47,6 +47,76 @@ index 25cc1c504fc52f91dae19cabf27221e3c459e46d..af863e6296ba4b4252bf6717943f767c
      { name: "logout", description: "Remove provider authentication" },
      { name: "new", description: "Start a new session" },
      { name: "compact", description: "Manually compact the session context" },
+diff --git a/dist/extensions/mcp/index.js b/dist/extensions/mcp/index.js
+index 8ebc6df8ab912f6af3ebb1a4446dcb1e285af77f..0457a94ba68ab8fb47fe6f1ea12c4cac59c58a57 100644
+--- a/dist/extensions/mcp/index.js
++++ b/dist/extensions/mcp/index.js
+@@ -244,6 +244,65 @@ export function createMcpExtension(options = {}) {
+         };
+         const connections = () => servers.flatMap((server) => (server.connection ? [server.connection] : []));
+         const findServer = (name) => servers.find((server) => server.entry.name === name);
++        // pixelsky: 把连接状态交给像素星空的扩展（桌面端右侧「连接器」），接受重新连接 / 只在这个会话启用、停用 / 登录
++        // （packages/cli/src/extensions/mcp.ts）。停用不写 mcp.json；登录把授权链接交给桌面端在浏览器里打开，
++        // 本机回调端口照常等着，登录完 signIn 自己重新连接，状态跟着推回去
++        const pixelskyStatus = () => servers.map((server) => ({
++            name: server.entry.name,
++            enabled: isEnabled(server),
++            state: !isEnabled(server) ? "disabled" : (server.connection?.state ?? "starting"),
++            error: server.connection?.state === "connected" ? undefined : server.connection?.error,
++            source: server.entry.scope === "extension" ? undefined : server.entry.source,
++            transport: describeTransport(server.entry),
++            tools: server.connection?.state === "connected"
++                ? server.connection.tools.map((tool) => ({ name: tool.name, description: tool.description, annotations: tool.annotations }))
++                : [],
++        }));
++        let pixelskyTimer;
++        listeners.add(() => {
++            clearTimeout(pixelskyTimer);
++            pixelskyTimer = setTimeout(() => pi.events.emit("pixelsky:mcp-status", pixelskyStatus()), 50);
++        });
++        pi.events.on("pixelsky:mcp-op", async ({ op, name, done }) => {
++            let failure;
++            let url;
++            try {
++                const server = name ? servers.find((candidate) => candidate.entry.name === name) : undefined;
++                if (op === "reconnect" && server)
++                    failure = await reconnect(server);
++                else if ((op === "enable" || op === "disable") && server) {
++                    const scope = server.entry.scope;
++                    server.entry = { ...server.entry, scope: "extension" };
++                    try {
++                        failure = await setEnabled(server, op === "enable");
++                    }
++                    finally {
++                        server.entry = { ...server.entry, scope };
++                    }
++                }
++                else if (op === "login" && server) {
++                    // 拿到授权链接就先回桌面端；没走到浏览器这一步（令牌刷新就好了，或者出错）时等 signIn 的结果
++                    const outcome = await new Promise((resolve) => {
++                        signIn(server, {
++                            showAuthorizationUrl: (authorizationUrl) => resolve({ url: authorizationUrl.href }),
++                            // 不让用户粘贴回调地址：只等本机回调，会话结束时取消
++                            promptForRedirectUrl: (signal) => new Promise((_resolve, reject) => {
++                                signal.addEventListener("abort", () => reject(new Error("Sign-in cancelled.")), { once: true });
++                            }),
++                        }).then((result) => resolve({ failure: result }), (error) => resolve({ failure: errorMessage(error) }));
++                    });
++                    url = outcome.url;
++                    failure = outcome.failure;
++                }
++                else if (op !== "status")
++                    failure = `Unknown MCP server "${name ?? ""}"`;
++            }
++            catch (error) {
++                failure = errorMessage(error);
++            }
++            pi.events.emit("pixelsky:mcp-status", pixelskyStatus());
++            done?.(failure, url);
++        });
+         /** Servers extensions registered, except names `mcp.json` defines, which take precedence. */
+         const registeredServers = () => {
+             const registered = [];
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
 index d2343a5bb53c9d9ab8060e0a242f561da2cbfd3a..285cbec1726f59dc7775acb12792a7171f51a358 100644
 --- a/dist/modes/interactive/interactive-mode.js

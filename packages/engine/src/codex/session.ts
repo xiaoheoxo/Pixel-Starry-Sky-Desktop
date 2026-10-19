@@ -6,6 +6,8 @@ import type {
   ContextWindows,
   EngineCatalog,
   ImageAttachment,
+  McpOp,
+  McpOpResult,
   RequestRetryState,
   NoticeError,
   SessionSettings,
@@ -17,6 +19,7 @@ import { EMPTY_FLAGS, codedError, isQuietWarning, noticeErrorOf, viaGateway } fr
 import { versionAtLeast } from '../exec'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { QuotaReading } from '../quota'
+import { codexMcpServers, McpReporter } from '../mcp'
 import { NO_REPLY, seedImageCount, seedTurns, type ChatSeed, type ChatTurn } from '../chat-log'
 import { CodexProcess, array, object, string, type Message } from './process'
 import { readCodexTurns, revertTarget } from './branch'
@@ -217,6 +220,11 @@ export function tomlValue(value: unknown): string {
 }
 export class CodexSession implements EngineSession {
   private proc: CodexProcess | null = null
+  /** 会话里的 MCP 服务器（mcpServerStatus/list），docs/ui/connectors.md；构造时建 */
+  private mcpReporter!: McpReporter
+  /** 启动状态推送（mcpServer/startupStatus/updated）记下的每个服务器的状态 */
+  private readonly mcpStartup = new Map<string, { status: string; error?: string }>()
+  private mcpTimer: ReturnType<typeof setTimeout> | null = null
   /** 当前进程启动时是不是走本机网关：额度的来源按它判断，不读当前记录（换通道要等下一条消息才换进程） */
   private procViaGateway = false
   private opening: Promise<void> | null = null
@@ -290,6 +298,11 @@ export class CodexSession implements EngineSession {
     private readonly options: CodexLaunchOptions,
   ) {
     this.settings = { ...ctx.record() }
+    this.mcpReporter = new McpReporter(
+      e => ctx.emit(e),
+      ['reconnect', 'login'],
+      () => this.listMcp(),
+    )
     try {
       for (const agent of options.savedAgents?.() ?? []) this.agents.set(agent.id, agent)
     } catch {
@@ -397,6 +410,8 @@ export class CodexSession implements EngineSession {
         if (this.proc !== proc || (askFlag && this.startup === 'pending')) return
         if (!this.closed && this.active) this.finish('failed', tail || 'Codex process exited')
         this.threadId = null
+        this.mcpStartup.clear()
+        this.mcpReporter.stale()
         this.own(null)
       },
     })
@@ -495,6 +510,7 @@ export class CodexSession implements EngineSession {
       this.ctx.setEngineSessionId(this.threadId)
       this.own(this.threadId)
       this.syncThreadName()
+      this.refreshMcpSoon(0)
       // 接不上原来的线程：记下原因；下一轮开始时（run()）请宿主把整段聊天注进新线程，注不了才发这里的提示
       if (lost) {
         log.warn('接不上原来的 Codex 线程，改开了新线程', { threadId: record.engineSessionId ?? null, reason: lost })
@@ -948,7 +964,78 @@ export class CodexSession implements EngineSession {
         throw error
       })
   }
+  /** 过一会儿取一次连接器状态：启动推送常常一连串到，合成一次 */
+  private refreshMcpSoon(delay = 300): void {
+    if (this.mcpTimer) clearTimeout(this.mcpTimer)
+    this.mcpTimer = setTimeout(() => {
+      this.mcpTimer = null
+      void this.mcpReporter.refresh().catch(() => undefined)
+    }, delay)
+    this.mcpTimer.unref?.()
+  }
+
+  private async listMcp(): Promise<ReturnType<typeof codexMcpServers> | null> {
+    const proc = this.proc
+    if (this.closed || !proc?.alive || this.startup !== 'done') return null
+    const data: unknown[] = []
+    let cursor = ''
+    for (let page = 0; page < 20; page++) {
+      const r = await proc.request(
+        'mcpServerStatus/list',
+        {
+          detail: 'toolsAndAuthOnly',
+          ...(this.threadId ? { threadId: this.threadId } : {}),
+          ...(cursor ? { cursor } : {}),
+        },
+        20_000,
+      )
+      data.push(...array(r.data))
+      cursor = string(r.nextCursor)
+      if (!cursor) break
+    }
+    return codexMcpServers(data, this.mcpStartup)
+  }
+
+  async mcp(op: McpOp): Promise<McpOpResult> {
+    const proc = this.proc
+    if (!proc?.alive || this.startup !== 'done') {
+      if (op.kind === 'refresh') return { report: this.mcpReporter.report }
+      throw new Error('引擎没有在运行')
+    }
+    let url: string | undefined
+    if (op.kind === 'toggle') throw new Error('Codex 不支持只在这个会话停用连接器')
+    if (op.kind === 'reconnect') {
+      // Codex 只能整份重新加载 MCP 配置
+      this.mcpStartup.delete(op.name)
+      await proc.request('config/mcpServer/reload', {}, 60_000)
+    } else if (op.kind === 'login') {
+      const r = await proc.request(
+        'mcpServer/oauth/login',
+        { name: op.name, ...(this.threadId ? { threadId: this.threadId } : {}) },
+        30_000,
+      )
+      url = string(r.authorizationUrl) || undefined
+      if (!url) throw new Error('Codex 没有给出登录链接')
+    }
+    const report = await this.mcpReporter.refresh()
+    return url ? { report, url } : { report }
+  }
+
   private notification(method: string, params: Message): void {
+    // 连接器的启动状态在 thread/start 前后、没有进行中的轮次时到，先于 active 判断
+    if (method === 'mcpServer/startupStatus/updated' || method === 'mcpServer/oauthLogin/completed') {
+      const thread = string(params.threadId)
+      if (thread && this.threadId && thread !== this.threadId) return
+      const name = string(params.name)
+      if (name && method === 'mcpServer/startupStatus/updated')
+        this.mcpStartup.set(name, {
+          status: string(params.status),
+          ...(string(params.error) ? { error: string(params.error) } : {}),
+        })
+      if (name && method === 'mcpServer/oauthLogin/completed') this.mcpStartup.delete(name)
+      this.refreshMcpSoon()
+      return
+    }
     // 账号额度的滚动更新不带 threadId，空闲时也会到，必须先于线程过滤和 active 判断；
     // 平台 / 自定义接口经本机网关，这里的数据不是用户自己的账号
     if (method === 'account/rateLimits/updated') {
@@ -1319,6 +1406,7 @@ export class CodexSession implements EngineSession {
     const waiters = this.turnWaiters
     this.turnWaiters = []
     for (const w of waiters) w()
+    this.refreshMcpSoon()
   }
   private markFinished(turnId: string): void {
     this.finishedTurns.add(turnId)
@@ -1363,6 +1451,8 @@ export class CodexSession implements EngineSession {
   }
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    if (this.mcpTimer) clearTimeout(this.mcpTimer)
+    this.mcpReporter.dispose()
     this.own(null)
     await this.interrupt()
     await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)

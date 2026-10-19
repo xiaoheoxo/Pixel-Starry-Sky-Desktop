@@ -5,6 +5,7 @@ import { BrowserTab } from './BrowserTab'
 import { TasksPanel } from './TasksPanel'
 import { EnvironmentPanel, OPEN_BROWSER } from './EnvironmentPanel'
 import { CopiesPanel } from './CopiesPanel'
+import { ConnectorsPanel } from './connectors/ConnectorsPanel'
 import { GitPanel } from './git/GitPanel'
 import { ArtifactsPanel } from './artifacts/ArtifactsPanel'
 import { FileTree } from '@/features/files/FileTree'
@@ -201,7 +202,7 @@ export function RightPanel({ maximized = false, visible = true }: { maximized?: 
           />
         </div>
         <TerminalPanel embedded visible={visible && layout.active === 'terminal'} />
-        {(['git', 'artifacts', 'tasks', 'sandbox', 'copies', 'browser'] as const).map(
+        {(['git', 'artifacts', 'tasks', 'sandbox', 'copies', 'connectors', 'browser'] as const).map(
           kind =>
             (visited.has(kind) || layout.active === kind) && (
               <div
@@ -219,6 +220,8 @@ export function RightPanel({ maximized = false, visible = true }: { maximized?: 
                   <EnvironmentPanel />
                 ) : kind === 'copies' ? (
                   <CopiesPanel />
+                ) : kind === 'connectors' ? (
+                  <ConnectorsPanel active={visible && layout.active === 'connectors'} />
                 ) : (
                   <BrowserTab
                     requested={browserRequest}
