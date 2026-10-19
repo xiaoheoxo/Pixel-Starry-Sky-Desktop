@@ -37,6 +37,7 @@ import { attachmentMessages } from '../../../shared/i18n/attachmentMessages'
 import { boardMessages } from '../../../shared/i18n/boardMessages'
 import { aiMessages } from '../../../shared/i18n/aiMessages'
 import { contextMessages } from '../../../shared/i18n/contextMessages'
+import { accountUsageMessages } from '../../../shared/i18n/accountUsageMessages'
 import { costMessages } from '../../../shared/i18n/costMessages'
 import { longConversationMessages } from '../../../shared/i18n/longConversationMessages'
 import { tabMenuMessages } from '../../../shared/i18n/tabMenuMessages'
@@ -104,6 +105,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   boardMessages,
   aiMessages,
   contextMessages,
+  accountUsageMessages,
   costMessages,
   longConversationMessages,
   tabMenuMessages,
