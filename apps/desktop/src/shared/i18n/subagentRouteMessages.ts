@@ -129,6 +129,68 @@ export const subagentRouteMessages = {
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
   'subagentRoute.hour': { zh: '1 小时', en: '1 hour' },
   'subagentRoute.saveFailed': { zh: '没有保存：{error}', en: 'Not saved: {error}' },
+  // 改版（docs/ui/subagent-settings-v2-mockup.html）：两栏、从模板新建、主会话看到的类型说明
+  'subagentRoute.scopeShort': { zh: '只对像素星空引擎生效', en: 'Pixel Starry Sky engine only' },
+  'subagentRoute.count': { zh: '{n} / {max}', en: '{n} / {max}' },
+  'subagentRoute.templates': { zh: '从模板新建', en: 'Start from a template' },
+  'subagentRoute.templatesHint': { zh: '点一下建好，展开再改', en: 'One click creates it; adjust before saving' },
+  'subagentRoute.templateMeta': { zh: '{tools} · 最长 {time}', en: '{tools} · up to {time}' },
+  'subagentRoute.templateUsed': { zh: '已经有这个类型了', en: 'You already have this type' },
+  'subagentRoute.preview': { zh: '主会话看到的类型说明', en: 'What the main session sees' },
+  'subagentRoute.previewTool': { zh: 'task 工具', en: 'task tool' },
+  'subagentRoute.previewSingle': {
+    zh: '只开着一种类型：task 工具不列类型，主会话直接用它。',
+    en: 'Only one type is on, so the task tool lists no types and the main session just uses it.',
+  },
+  'subagentRoute.previewHint': {
+    zh: '「什么时候用」写得越具体，主会话越会挑对。没保存的改动不算。',
+    en: 'The more specific “When to use” is, the better the main session picks. Unsaved edits aren’t shown.',
+  },
+  'subagentTemplate.review.name': { zh: '代码审查', en: 'Code review' },
+  'subagentTemplate.review.description': {
+    zh: '审查一处改动或一个模块：找出 bug、遗漏的边界情况和可以简化的地方。只读，不改文件。',
+    en: 'Review a change or a module: find bugs, missed edge cases and things that could be simpler. Read-only; changes no files.',
+  },
+  'subagentTemplate.review.instructions': {
+    zh: '按严重程度排序，每条写清文件:行号、问题和建议的改法。',
+    en: 'Order findings by severity; give file:line, the problem and a suggested fix for each.',
+  },
+  'subagentTemplate.tests.name': { zh: '写测试', en: 'Write tests' },
+  'subagentTemplate.tests.description': {
+    zh: '给指定的函数或模块补单元测试并跑通。只动测试文件。',
+    en: 'Add unit tests for a given function or module and make them pass. Touches test files only.',
+  },
+  'subagentTemplate.tests.instructions': {
+    zh: '沿用项目现有的测试框架和写法；跑通后报告新增了哪些用例。',
+    en: 'Follow the project’s existing test framework and style; when they pass, list the cases you added.',
+  },
+  'subagentTemplate.research.name': { zh: '网页调研', en: 'Web research' },
+  'subagentTemplate.research.description': {
+    zh: '上网查资料、读文档和 issue，回答某个库怎么用、某个报错是什么原因。不碰项目文件。',
+    en: 'Search the web, read docs and issues, and answer how a library works or what causes an error. Leaves project files alone.',
+  },
+  'subagentTemplate.research.instructions': {
+    zh: '附上来源链接；拿不准的写明。',
+    en: 'Include source links; say so when you are unsure.',
+  },
+  'subagentTemplate.batch.name': { zh: '批量修改', en: 'Batch edit' },
+  'subagentTemplate.batch.description': {
+    zh: '按给定的规则批量改一批文件（改名、换写法、加参数），改完跑类型检查。',
+    en: 'Apply a given rule across many files (renames, rewrites, new parameters), then run the type checker.',
+  },
+  'subagentTemplate.batch.instructions': {
+    zh: '先列出要改的文件再动手；改完汇报改了哪些、哪些跳过了。',
+    en: 'List the files before editing; afterwards report what changed and what was skipped.',
+  },
+  'subagentTemplate.docs.name': { zh: '写文档', en: 'Write docs' },
+  'subagentTemplate.docs.description': {
+    zh: '根据代码写或更新 README、注释和使用说明。只改文档文件和注释。',
+    en: 'Write or update READMEs, comments and usage notes from the code. Changes docs and comments only.',
+  },
+  'subagentTemplate.docs.instructions': {
+    zh: '写给第一次看的人：先说是什么、怎么用，再说细节。',
+    en: 'Write for a first-time reader: what it is and how to use it first, details after.',
+  },
   'subagentRoute.searchKeywords': {
     zh: '子智能体 子代理 子任务 类型 站点 模型 只读 探索 便宜 并发 subagent task type route model site explore',
     en: 'subagent task type route model site explore read-only concurrency 子智能体 子代理 类型',

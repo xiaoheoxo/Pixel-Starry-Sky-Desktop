@@ -1,7 +1,21 @@
 // 设置 › 子智能体的一个类型（样式稿 docs/ui/subagent-types-mockup.html）：摘要卡片（图标、名称、说明、站点 / 权限 / 时长），
 // 点开在原地编辑；改的是草稿，点保存才写进设置
 import { useState, type ReactNode } from 'react'
-import { Bot, ChevronDown, Clock, Globe, Lock, Search, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
+import {
+  Bot,
+  ChevronDown,
+  Clock,
+  FileText,
+  FlaskConical,
+  Globe,
+  ListChecks,
+  Lock,
+  Replace,
+  Search,
+  TriangleAlert,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Button, Segmented, Select, Switch, cn } from '@/ui'
@@ -35,7 +49,16 @@ const TILES = [
   'bg-[color-mix(in_srgb,var(--ultracode)_14%,transparent)] text-[var(--ultracode)]',
   'bg-[color-mix(in_srgb,var(--warn)_16%,transparent)] text-warn',
 ]
-const ICONS: Record<string, LucideIcon> = { [GENERAL_TYPE]: Bot, [EXPLORE_TYPE]: Search }
+/** 内置类型和模板建出来的类型（标识没改时）各有图标，其余用扳手 */
+export const TYPE_ICONS: Record<string, LucideIcon> = {
+  [GENERAL_TYPE]: Bot,
+  [EXPLORE_TYPE]: Search,
+  review: ListChecks,
+  tests: FlaskConical,
+  research: Globe,
+  batch: Replace,
+  docs: FileText,
+}
 
 export interface SiteContext {
   providers: readonly ProviderView[]
@@ -108,7 +131,7 @@ export function SubagentTypeCard({
   openChannels: () => void
 }) {
   useI18n()
-  const Icon = ICONS[type.id] ?? Wrench
+  const Icon = TYPE_ICONS[type.id] ?? Wrench
   const tile = type.id === GENERAL_TYPE ? TILES[0] : type.id === EXPLORE_TYPE ? TILES[1] : TILES[2 + (index % 2)]
   const problem = type.target ? targetProblem(type.target, sites.providers, sites.platform) : null
   const site = type.target ? siteName(type.target, sites) : null
@@ -204,7 +227,7 @@ const inputClass =
 
 function Field({ label, hint, full, children }: { label: string; hint?: string; full?: boolean; children: ReactNode }) {
   return (
-    <div className={full ? 'col-span-2' : undefined}>
+    <div className={cn('min-w-0', full && 'col-span-full')}>
       <div className="mb-1.5 flex justify-between gap-3 text-meta">
         <span className="font-medium text-fg-secondary">{label}</span>
         {hint && <span className="text-fg-faint">{hint}</span>}
@@ -293,7 +316,8 @@ function TypeEditor({
 
   return (
     <div className="border-t border-line-subtle px-4 pt-4 pb-4 pl-[66px]">
-      <div className="grid grid-cols-2 gap-x-3.5 gap-y-4">
+      {/* 放不下两列（窄窗口）时自动变一列 */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-x-3.5 gap-y-4">
         <Field label={tr('subagentRoute.field.name')}>
           <input
             className={cn(inputClass, 'h-8')}
