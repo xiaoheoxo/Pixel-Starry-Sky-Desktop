@@ -13,4 +13,21 @@ export const imageViewerMessages = {
   'imageViewer.copied': { zh: '已复制图片', en: 'Image copied' },
   'imageViewer.copyFailed': { zh: '复制图片失败：{error}', en: "Couldn't copy the image: {error}" },
   'imageViewer.close': { zh: '关闭（Esc）', en: 'Close (Esc)' },
+  // 放大时按像素显示、网格、背景；代码页的图片预览（features/editor/ImagePreview.tsx）
+  'imageViewer.pixelated': { zh: '像素', en: 'Pixels' },
+  'imageViewer.pixelatedTitle': {
+    zh: '放大时按像素显示，不做平滑',
+    en: 'Show sharp pixels when zoomed in instead of smoothing',
+  },
+  'imageViewer.grid': { zh: '网格', en: 'Grid' },
+  'imageViewer.gridTitle': { zh: '放大到 800% 以上时画像素网格', en: 'Draw a pixel grid at 800% and above' },
+  'imageViewer.background': { zh: '背景：{name}（点击切换）', en: 'Background: {name} (click to switch)' },
+  'imageViewer.bgChecker': { zh: '棋盘格', en: 'Checkerboard' },
+  'imageViewer.bgPlain': { zh: '纯色', en: 'Plain' },
+  'imageViewer.bgInverse': { zh: '反色', en: 'Inverse' },
+  'imageViewer.zoomMenu': { zh: '缩放比例', en: 'Zoom level' },
+  'imageViewer.fitShort': { zh: '适应', en: 'Fit' },
+  'imageViewer.fitted': { zh: '适应窗口 · {percent}', en: 'Fit · {percent}' },
+  'imageViewer.fittedUp': { zh: '适应窗口 · 自动放大 {percent}', en: 'Fit · enlarged to {percent}' },
+  'imageViewer.transparent': { zh: '透明', en: 'Transparent' },
 } as const

@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { clampPan, fitScale, fitView, MAX_SCALE, MIN_SCALE, wheelFactor, zoomAt } from './imageZoom'
+import { clampPan, fitScale, fitView, MAX_SCALE, MIN_SCALE, pixelAt, stepScale, wheelFactor, zoomAt } from './imageZoom'
 
 const viewport = { width: 800, height: 600 }
 
 describe('看图缩放', () => {
-  it('适应窗口：大图等比缩小，小图不放大', () => {
+  it('适应窗口：大图等比缩小；小图放大到占约一半的整数倍，本来合适的按原始大小', () => {
     expect(fitScale({ width: 1600, height: 600 }, viewport)).toBe(0.5)
     expect(fitScale({ width: 400, height: 1200 }, viewport)).toBe(0.5)
-    expect(fitScale({ width: 200, height: 100 }, viewport)).toBe(1)
+    expect(fitScale({ width: 300, height: 200 }, viewport)).toBe(1)
+    expect(fitScale({ width: 200, height: 100 }, viewport)).toBe(2)
+    // 16×16：一半是 400×300 → 18 倍
+    expect(fitScale({ width: 16, height: 16 }, viewport)).toBe(18)
+    expect(fitScale({ width: 1, height: 1 }, viewport)).toBe(MAX_SCALE)
     expect(fitScale({ width: 0, height: 0 }, viewport)).toBe(1)
     expect(fitView({ width: 1600, height: 1200 }, viewport)).toEqual({ scale: 0.5, x: 0, y: 0 })
   })
@@ -22,7 +26,26 @@ describe('看图缩放', () => {
     expect((point.y - after.y) / after.scale).toBeCloseTo((point.y - before.y) / before.scale)
   })
 
-  it('缩放范围 10%–800%', () => {
+  it('档位：按档跳，不在档上的跳到相邻的档，两头停住', () => {
+    expect(stepScale(1, 1)).toBe(1.5)
+    expect(stepScale(1, -1)).toBe(0.75)
+    expect(stepScale(14, 1)).toBe(16)
+    expect(stepScale(14, -1)).toBe(12)
+    expect(stepScale(MAX_SCALE, 1)).toBe(MAX_SCALE)
+    expect(stepScale(MIN_SCALE, -1)).toBe(MIN_SCALE)
+  })
+
+  it('鼠标下的像素：以视口中心为原点换算，图外是 null', () => {
+    const image = { width: 16, height: 16 }
+    const view = { scale: 10, x: 0, y: 0 }
+    expect(pixelAt(view, { x: 0, y: 0 }, image)).toEqual({ x: 8, y: 8 })
+    expect(pixelAt(view, { x: -80, y: -80 }, image)).toEqual({ x: 0, y: 0 })
+    expect(pixelAt(view, { x: 79.9, y: -1 }, image)).toEqual({ x: 15, y: 7 })
+    expect(pixelAt(view, { x: 80, y: 0 }, image)).toBeNull()
+    expect(pixelAt({ scale: 10, x: 50, y: 0 }, { x: 0, y: 0 }, image)).toEqual({ x: 3, y: 8 })
+  })
+
+  it('缩放范围 10%–3200%', () => {
     const image = { width: 100, height: 100 }
     expect(zoomAt({ scale: 1, x: 0, y: 0 }, 100, { x: 0, y: 0 }, image, viewport).scale).toBe(MAX_SCALE)
     expect(zoomAt({ scale: 1, x: 0, y: 0 }, 0.001, { x: 0, y: 0 }, image, viewport).scale).toBe(MIN_SCALE)

@@ -1,22 +1,17 @@
 // 双击图片放大查看（docs/ui/image-viewer.md）：盖住整个窗口的浮层，滚轮以鼠标为中心缩放、拖动平移、
-// 双击在「适应窗口」和「原始大小」之间切换；+ / - / 0 / 1 键，Esc 或点空白处关闭，焦点还给打开前的元素
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+// 双击在「适应窗口」和上次的缩放之间切换；+ / - / 0 / 1 键，Esc 或点空白处关闭，焦点还给打开前的元素。
+// 缩放、像素显示、网格和代码页的图片预览共用 ./ImageStage
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Minus, Plus, X } from 'lucide-react'
+import { Copy, Grid3x3, Minus, Plus, X } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { cn } from './cn'
 import { useToast } from './ComingSoon'
-import { clampPan, fitScale, fitView, STEP, wheelFactor, zoomAt, type Size, type View } from './imageZoom'
+import { ImageStageView, useImageStage } from './ImageStage'
+import { setImagePrefs, useImagePrefs } from './imagePrefs'
 
-/** 适应窗口时四周留的边（看得出哪里是空白，点空白处能关） */
-const MARGIN = 24
-const room = (viewport: Size): Size => ({
-  width: Math.max(1, viewport.width - MARGIN * 2),
-  height: Math.max(1, viewport.height - MARGIN * 2),
-})
-
-const sizeText = (bytes: number): string =>
+export const sizeText = (bytes: number): string =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`
 
 /** 把图片转成 PNG 放进剪贴板（剪贴板只认 PNG） */
@@ -47,19 +42,12 @@ export function ImageViewer({
 }) {
   useI18n()
   const toast = useToast()
-  const dialog = useRef<HTMLDivElement>(null),
-    stage = useRef<HTMLDivElement>(null),
-    img = useRef<HTMLImageElement>(null)
-  const [natural, setNatural] = useState<Size | null>(null)
-  const [viewport, setViewport] = useState<Size>({ width: 0, height: 0 })
-  const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 })
-  const [dragging, setDragging] = useState(false)
-  /** 刚拖动过：松开时的 click 不算点空白处 */
-  const moved = useRef(false)
-  const latest = useRef({ view, natural, viewport })
-  latest.current = { view, natural, viewport }
+  const prefs = useImagePrefs()
+  const dialog = useRef<HTMLDivElement>(null)
+  const stage = useImageStage({ inline: false })
   const close = useRef(onClose)
   close.current = onClose
+  const vector = src.startsWith('data:image/svg')
 
   // 焦点进浮层，关掉时还回去；Esc 抢在别的快捷键（窗格、输入框）前面
   useEffect(() => {
@@ -78,73 +66,23 @@ export function ImageViewer({
     }
   }, [])
 
-  // 视口大小
-  useLayoutEffect(() => {
-    const el = stage.current
-    if (!el) return
-    const measure = () => setViewport({ width: el.clientWidth, height: el.clientHeight })
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
-  // 图读进来、窗口变了：还没动过就一直适应窗口
-  const touched = useRef(false)
-  useLayoutEffect(() => {
-    if (natural && viewport.width && !touched.current) setView(fitView(natural, room(viewport)))
-    else if (natural && viewport.width) setView(v => clampPan(v, natural, viewport))
-  }, [natural, viewport.width, viewport.height])
-
-  /** 相对视口中心的坐标 */
-  const pointOf = (clientX: number, clientY: number): { x: number; y: number } => {
-    const rect = stage.current!.getBoundingClientRect()
-    return { x: clientX - rect.left - rect.width / 2, y: clientY - rect.top - rect.height / 2 }
-  }
-  /** scale 是新的倍数，或者按当前倍数算新倍数（连着滚几格时每格都在上一格的结果上算） */
-  const zoomTo = (scale: number | ((current: number) => number), point = { x: 0, y: 0 }): void => {
-    const { natural: n, viewport: vp } = latest.current
-    if (!n) return
-    touched.current = true
-    setView(v => zoomAt(v, typeof scale === 'function' ? scale(v.scale) : scale, point, n, vp))
-  }
-  const fit = (): void => {
-    const { natural: n, viewport: vp } = latest.current
-    if (!n) return
-    touched.current = false
-    setView(fitView(n, room(vp)))
-  }
-
-  // 滚轮要 preventDefault，React 的 onWheel 是 passive 的
-  useEffect(() => {
-    const el = stage.current
-    if (!el) return
-    const wheel = (e: WheelEvent): void => {
-      e.preventDefault()
-      zoomTo(current => current * wheelFactor(e.deltaY), pointOf(e.clientX, e.clientY))
-    }
-    el.addEventListener('wheel', wheel, { passive: false })
-    return () => el.removeEventListener('wheel', wheel)
-  }, [])
-
   const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === '+' || e.key === '=') zoomTo(current => current * STEP)
-    else if (e.key === '-' || e.key === '_') zoomTo(current => current / STEP)
-    else if (e.key === '0') fit()
-    else if (e.key === '1') zoomTo(1)
-    else if (e.key === 'Tab') {
-      // 焦点留在浮层里
-      const items = [...dialog.current!.querySelectorAll<HTMLElement>('button:not(:disabled)')]
-      if (!items.length) return
-      const i = items.indexOf(document.activeElement as HTMLElement)
-      e.preventDefault()
-      items[(i + (e.shiftKey ? -1 : 1) + items.length + (i < 0 && e.shiftKey ? 1 : 0)) % items.length].focus()
-    } else return
+    if (stage.onKey(e)) {
+      e.stopPropagation()
+      return
+    }
+    if (e.key !== 'Tab') return
+    // 焦点留在浮层里
+    const items = [...dialog.current!.querySelectorAll<HTMLElement>('button:not(:disabled)')]
+    if (!items.length) return
+    const i = items.indexOf(document.activeElement as HTMLElement)
+    e.preventDefault()
     e.stopPropagation()
+    items[(i + (e.shiftKey ? -1 : 1) + items.length + (i < 0 && e.shiftKey ? 1 : 0)) % items.length].focus()
   }
 
-  const drag = useRef<{ id: number; x: number; y: number; start: View } | null>(null)
-  const percent = Math.round(view.scale * 100)
+  const { natural } = stage
+  const percent = Math.round(stage.view.scale * 100)
   const tool =
     'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-meta text-fg-secondary hover:bg-hover hover:text-fg disabled:opacity-40'
 
@@ -170,7 +108,7 @@ export function ImageViewer({
           className={tool}
           title={tr('imageViewer.zoomOut')}
           aria-label={tr('imageViewer.zoomOut')}
-          onClick={() => zoomTo(current => current / STEP)}
+          onClick={() => stage.step(-1)}
         >
           <Minus size={15} />
         </button>
@@ -179,7 +117,7 @@ export function ImageViewer({
           data-image-viewer-zoom=""
           className={cn(tool, 'w-14 tabular-nums')}
           title={tr('imageViewer.zoomLevel')}
-          onClick={fit}
+          onClick={stage.fit}
         >
           {percent}%
         </button>
@@ -188,23 +126,24 @@ export function ImageViewer({
           className={tool}
           title={tr('imageViewer.zoomIn')}
           aria-label={tr('imageViewer.zoomIn')}
-          onClick={() => zoomTo(current => current * STEP)}
+          onClick={() => stage.step(1)}
         >
           <Plus size={15} />
         </button>
         <span className="mx-1 h-4 border-l border-line" />
-        <button type="button" className={tool} title={tr('imageViewer.fitTitle')} onClick={fit}>
+        <button type="button" className={tool} title={tr('imageViewer.fitTitle')} onClick={stage.fit}>
           {tr('imageViewer.fit')}
         </button>
-        <button type="button" className={tool} title={tr('imageViewer.actualTitle')} onClick={() => zoomTo(1)}>
+        <button type="button" className={tool} title={tr('imageViewer.actualTitle')} onClick={() => stage.zoomTo(1)}>
           {tr('imageViewer.actual')}
         </button>
+        {!vector && <PixelToggles tool={tool} pixelated={prefs.pixelated} grid={prefs.grid} />}
         <button
           type="button"
           className={tool}
           disabled={!natural}
           onClick={() =>
-            void copyImage(img.current!)
+            void copyImage(stage.img.current!)
               .then(() => toast(tr('imageViewer.copied')))
               .catch((e: Error) => toast(tr('imageViewer.copyFailed', { error: e.message })))
           }
@@ -224,64 +163,73 @@ export function ImageViewer({
           <X size={16} />
         </button>
       </div>
-      <div
-        ref={stage}
-        className={cn('relative min-h-0 flex-1 overflow-hidden', dragging ? 'cursor-grabbing' : 'cursor-grab')}
-        onPointerDown={e => {
-          if (e.button !== 0) return
-          moved.current = false
-          drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, start: view }
-          e.currentTarget.setPointerCapture(e.pointerId)
-        }}
-        onPointerMove={e => {
-          const d = drag.current
-          if (!d || d.id !== e.pointerId || !natural) return
-          const dx = e.clientX - d.x,
-            dy = e.clientY - d.y
-          if (!moved.current && Math.hypot(dx, dy) < 3) return
-          moved.current = true
-          setDragging(true)
-          touched.current = true
-          setView(clampPan({ ...d.start, x: d.start.x + dx, y: d.start.y + dy }, natural, viewport))
-        }}
-        onPointerUp={e => {
-          if (drag.current?.id === e.pointerId) drag.current = null
-          setDragging(false)
-        }}
+      <ImageStageView
+        stage={stage}
+        src={src}
+        alt={name}
+        vector={vector}
         onClick={e => {
           // 点在图片外面的空白处才关；拖完松手不算
-          if (moved.current || e.target !== e.currentTarget) return
+          if (stage.moved.current || stage.onImage(e.clientX, e.clientY)) return
           close.current()
         }}
-      >
-        <img
-          ref={img}
-          src={src}
-          alt={name}
-          draggable={false}
-          onLoad={e => setNatural({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })}
-          onDoubleClick={e => {
-            const point = pointOf(e.clientX, e.clientY)
-            const atActual = Math.abs(view.scale - 1) < 0.01
-            // 小图「适应窗口」就是原始大小：双击放到 2 倍
-            if (atActual && natural && fitScale(natural, room(viewport)) < 0.99) fit()
-            else zoomTo(atActual ? 2 : 1, point)
-          }}
-          className={cn('absolute top-1/2 left-1/2 max-w-none select-none', !natural && 'invisible')}
-          style={
-            natural
-              ? {
-                  width: natural.width,
-                  height: natural.height,
-                  transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-                  imageRendering: view.scale >= 2 ? 'pixelated' : undefined,
-                }
-              : undefined
-          }
-        />
-      </div>
+      />
     </div>,
     document.body,
+  )
+}
+
+/** 「像素」「网格」两个开关（看图浮层和代码页的图片预览都用） */
+export function PixelToggles({
+  tool,
+  pixelated,
+  grid,
+  compact = false,
+}: {
+  /** 按钮的样式类；打开时再加 bg-hover text-fg */
+  tool: string
+  pixelated: boolean
+  grid: boolean
+  /** 只显示图标 */
+  compact?: boolean
+}) {
+  useI18n()
+  return (
+    <>
+      <button
+        type="button"
+        aria-pressed={pixelated}
+        data-image-pixelated=""
+        className={cn(tool, pixelated && 'bg-hover text-fg')}
+        title={tr('imageViewer.pixelatedTitle')}
+        aria-label={tr('imageViewer.pixelated')}
+        onClick={() => setImagePrefs({ pixelated: !pixelated })}
+      >
+        <PixelIcon />
+        {!compact && tr('imageViewer.pixelated')}
+      </button>
+      <button
+        type="button"
+        aria-pressed={grid}
+        data-image-grid=""
+        className={cn(tool, grid && 'bg-hover text-fg')}
+        title={tr('imageViewer.gridTitle')}
+        aria-label={tr('imageViewer.grid')}
+        onClick={() => setImagePrefs({ grid: !grid })}
+      >
+        <Grid3x3 size={14} />
+        {!compact && tr('imageViewer.grid')}
+      </button>
+    </>
+  )
+}
+
+/** 四个方块：按像素显示 */
+export function PixelIcon() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+      <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+    </svg>
   )
 }
 

@@ -21,7 +21,7 @@ import { CodeEditor } from './code/CodeEditor'
 import { fileLanguage } from './code/languages'
 import { fileIndent } from './code/positions'
 import { MarkdownPreview } from './MarkdownPreview'
-import { ZoomableImage } from '@/ui/ImageViewer'
+import { ImagePreview } from './ImagePreview'
 import { ExternalFileButton } from './ExternalFileButton'
 import { FileBreadcrumbs } from './FileBreadcrumbs'
 import { isDemo } from '@/data'
@@ -283,14 +283,7 @@ export function FileEditor({
               )}
             </>
           ) : doc?.kind === 'image' ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-              <ZoomableImage
-                alt={tab.name}
-                src={doc.dataUrl}
-                bytes={doc.bytes}
-                className="max-h-full max-w-full object-contain"
-              />
-            </div>
+            <ImagePreview key={id} id={id} name={tab.name} src={doc.dataUrl} bytes={doc.bytes} />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-ui text-fg-muted">
               <FileText size={24} />
