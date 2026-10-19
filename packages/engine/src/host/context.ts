@@ -28,6 +28,7 @@ import type { HostQueue } from './queue'
 import type { HostSessions } from './sessions'
 import type { HostSettings } from './settings'
 import type { HostTurn } from './turn'
+import type { HostSubagents } from './subagents'
 import type { HostUsage } from './usage'
 
 export interface EngineHostOptions {
@@ -55,6 +56,9 @@ export interface EngineHostOptions {
   adapters?: Partial<Record<EngineId, EngineAdapter>>
   /** 平台认证 / 路由预检；排队时只保存身份，执行前重新验证。 */
   validateInput?: (record: SessionRecord) => Promise<void>
+  /** 已保存的子代理路由预检；不得向模型暴露上游凭据。 */
+  validateSubagent?: (parent: SessionRecord) => Promise<void>
+  subagentSite?: (record: SessionRecord) => string
   /** 自定义 API 会话：这个模型的计价参照（官方模型名）；不给就按模型名自动对（docs/ui/custom-api.md §4.3） */
   priceRef?: (record: SessionRecord, model: string) => string | null | undefined
   /** npm 包的最新版本号（桌面端用系统代理查 registry）；不给就不提示引擎有新版本（docs/ui/engine-update.md） */
@@ -110,6 +114,7 @@ export interface Runtime {
 }
 
 export interface HostModules {
+  subagents: HostSubagents
   guard: HostGuard
   settings: HostSettings
   projects: HostProjects

@@ -6,7 +6,7 @@ import { once } from 'node:events'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { SessionRecord } from '@pixelsky/protocol'
+import { subagentTarget, type SessionRecord } from '@pixelsky/protocol'
 import {
   CLAUDE_COMPACT_MARKER,
   CODEX_WINDOW_ENV,
@@ -60,9 +60,19 @@ export function checkProvider(record: SessionRecord, providers: ProviderStore | 
   return p
 }
 
+export async function validateSubagentInput(parent: SessionRecord, providers: ProviderStore | null): Promise<void> {
+  if (!parent.subagent) return
+  const target = { ...parent, ...subagentTarget(parent, parent.subagent), subagent: null }
+  const p = checkProvider(target, providers)
+  if (p && !p.models.some(m => m.id === target.model)) throw new Error('子代理模型已从站点删除，请重新选择')
+  await validateQueuedInput(target, providers)
+}
+
 /** 排队任务执行前核对身份、当前目录权限与模型；实际请求还会重新检查。 */
 export async function validateQueuedInput(record: SessionRecord, providers: ProviderStore | null): Promise<void> {
-  checkProvider(record, providers)
+  const provider = checkProvider(record, providers)
+  if (record.subagentParentId && provider && (!record.model || !provider.models.some(m => m.id === record.model)))
+    throw new Error('子代理模型已从站点删除，请重新选择')
   const p = record.platform
   if (!p) return
   if (!platformModelSupportsEngine(record.model, record.engine)) throw new Error('线路协议与当前引擎不兼容')

@@ -529,6 +529,11 @@ export class ClaudeSession implements EngineSession {
     // 上下文超过 200K 的自定义模型带 [1m] 启动（docs/ui/custom-api.md §10）
     const model = rec.model ? claudeModelName(rec.model, this.deps.env) : rec.model
     const args = claudeArgs({ ...rec, model }, sid, resume, this.deps.launch, rewindAt, fork)
+    if (this.deps.extensions?.env?.PIXELSKY_MANAGED_SUBAGENTS === '1') {
+      const denied = args.indexOf('--disallowedTools')
+      if (denied < 0) args.push('--disallowedTools', 'Agent', 'Task')
+      else args.splice(denied + 1, 0, 'Agent', 'Task')
+    }
     // 项目的附加文件夹（docs/ui/multi-root-projects.md §3.3）：Claude Code 能读写，也会告诉模型
     for (const dir of rec.extraDirs ?? []) args.push('--add-dir', dir)
     for (const path of this.deps.extensions?.pluginDirs ?? []) args.push('--plugin-dir', path)
@@ -550,7 +555,8 @@ export class ClaudeSession implements EngineSession {
     if (gateway && settingsArg && settingsArg !== gateway) this.retrySettingsFile = settingsArg
     if (settingsArg) args.push('--settings', settingsArg)
     args.push(...(this.deps.launch?.args ?? []))
-    const proc: ClaudeProcess = new ClaudeProcess(this.deps.launcher, args, rec.cwd, this.deps.env, {
+    const environment = { ...this.deps.env, ...this.deps.extensions?.env }
+    const proc: ClaudeProcess = new ClaudeProcess(this.deps.launcher, args, rec.cwd, environment, {
       onMessage: m => {
         if (this.proc === proc) {
           if (m.type === 'rate_limit_event') {

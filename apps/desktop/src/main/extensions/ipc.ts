@@ -10,6 +10,7 @@ import { ExtensionService } from './service'
 import { selectedMachine, type AppContext } from '../app/context'
 import { resolveWorkspace } from '../workspace/resolve'
 import { HISTORY_SERVER_NAME, type HistoryServer } from '../engine/history-mcp'
+import { SUBAGENT_SERVER_NAME } from '../engine/subagent-mcp'
 
 /**
  * 扩展（MCP / 插件 / 技能 / 命令行）的主进程一侧：服务实现在 extensions/service.ts。
@@ -21,6 +22,7 @@ export class Extensions {
   constructor(
     private readonly ctx: AppContext,
     private readonly history: HistoryServer | null = null,
+    private readonly subagents: HistoryServer | null = null,
   ) {}
 
   private env(engine: 'claude' | 'codex' | 'pixel' = 'claude'): Record<string, string> | undefined {
@@ -39,12 +41,10 @@ export class Extensions {
   /** 会话启动前：给引擎准备这个工作目录生效的扩展 */
   async prepare(record: SessionRecord): Promise<ExtensionLaunch> {
     // 换过引擎的对话：额外挂一个只读的对话历史 MCP 服务器，新引擎可以按需查更早的部分
-    const history = await this.history?.entry(record)
-    const base = this.get().launch(
-      record.cwd,
-      record.engine,
-      this.env(record.engine),
-      history
+    const history = record.subagentParentId ? null : await this.history?.entry(record)
+    const subagents = record.subagentParentId ? null : await this.subagents?.entry(record)
+    const base = this.get().launch(record.cwd, record.engine, this.env(record.engine), {
+      ...(history
         ? {
             [HISTORY_SERVER_NAME]: {
               type: 'http',
@@ -52,10 +52,36 @@ export class Extensions {
               headers: { Authorization: `Bearer ${history.token}` },
             },
           }
-        : {},
-    )
+        : {}),
+      ...(subagents
+        ? {
+            [SUBAGENT_SERVER_NAME]: {
+              type: 'http',
+              url: subagents.url,
+              headers: { Authorization: `Bearer ${subagents.token}` },
+            },
+          }
+        : {}),
+    })
+    if (subagents && base.codexConfig) {
+      const key = `mcp_servers.${JSON.stringify(SUBAGENT_SERVER_NAME)}`
+      base.codexConfig[key] = { ...(base.codexConfig[key] as Record<string, unknown>), tool_timeout_sec: 1860 }
+    }
     // 历史工具只读，不用每次查都等用户批准
-    const launch = history ? { ...base, allowTools: [`mcp__${HISTORY_SERVER_NAME}`] } : base
+    const launch = {
+      ...base,
+      ...(history ? { allowTools: [...(base.allowTools ?? []), `mcp__${HISTORY_SERVER_NAME}`] } : {}),
+      ...(subagents || record.subagentParentId
+        ? {
+            env: {
+              ...base.env,
+              PIXELSKY_MANAGED_SUBAGENTS: '1',
+              MCP_TOOL_TIMEOUT: '1860000',
+              ...(record.subagentParentId ? { PIXELSKY_SUBAGENT: '1' } : {}),
+            },
+          }
+        : {}),
+    }
     // 扩展包里的技能：Claude 走生成的插件目录，Codex 走技能目录；没有时 key 和原来一字不差
     const packs = this.ctx.extPacks?.skillLaunch(record.engine)
     if (!packs) return launch

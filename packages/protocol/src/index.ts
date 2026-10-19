@@ -1,3 +1,5 @@
+export { subagentConfig, subagentTarget } from './subagent'
+export type { SubagentConfig } from './subagent'
 export type { AccountUsageWindow, AccountUsageTarget, EngineAccountUsage } from './account-usage'
 
 export type {

@@ -29,6 +29,7 @@ import { useSettings } from '@/features/settings/SettingsProvider'
 import { AttachmentChip } from './AttachmentChip'
 import { EffortMenu, PermissionMenu } from './ComposerMenus'
 import { ModelSourceMenu } from './ModelSourceMenu'
+import { SubagentMenu } from './SubagentMenu'
 import { SourceHintBar } from './SourceHintBar'
 import { FullAccessStrip } from './FullAccessStrip'
 import { ResizeHandle } from '@/ui/ResizeHandle'
@@ -941,6 +942,7 @@ export function Composer({
             </button>
           )}
 
+          <SubagentMenu live={live} />
           <div className="flex-1" />
 
           {live ? (

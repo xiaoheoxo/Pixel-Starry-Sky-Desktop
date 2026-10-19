@@ -1,5 +1,56 @@
 // 模型通道（docs/ui/model-channels.md）：四条通道、谁来执行、授权弹窗、设置页
 export const modelChannelMessages = {
+  'subagentSettings.title': { zh: '子代理设置', en: 'Subagent settings' },
+  'subagentSettings.trigger': { zh: '子代理：{value}', en: 'Subagents: {value}' },
+  'subagentSettings.follow': { zh: '跟随主会话', en: 'Follow main session' },
+  'subagentSettings.independent': { zh: '独立指定', en: 'Choose independently' },
+  'subagentSettings.mode': { zh: '子代理配置方式', en: 'Subagent configuration mode' },
+  'subagentSettings.subtitle': {
+    zh: '为新启动的子代理选择站点与模型',
+    en: 'Choose a site and model for new subagents',
+  },
+  'subagentSettings.close': { zh: '关闭子代理设置', en: 'Close subagent settings' },
+  'subagentSettings.site': { zh: '站点', en: 'Site' },
+  'subagentSettings.model': { zh: '模型', en: 'Model' },
+  'subagentSettings.chooseSite': { zh: '选择站点', en: 'Choose a site' },
+  'subagentSettings.chooseModel': { zh: '选择模型', en: 'Choose a model' },
+  'subagentSettings.unavailable': { zh: '不可用', en: 'Unavailable' },
+  'subagentSettings.noSites': {
+    zh: '还没有可用站点，请先在设置中添加接口或登录平台。',
+    en: 'No sites available. Add an API endpoint in Settings or sign in to PixelSky.',
+  },
+  'subagentSettings.siteUnavailable': {
+    zh: '站点已删除、缺少 Key 或线路不可用，请重新选择。',
+    en: 'The site was deleted, has no API key, or is unavailable. Choose another site.',
+  },
+  'subagentSettings.modelUnavailable': {
+    zh: '该站点的模型已不可用，请重新选择。',
+    en: 'This model is no longer available at this site. Choose another model.',
+  },
+  'subagentSettings.engineUnavailable': {
+    zh: '子代理执行引擎不可用，请在设置中检查像素星空引擎。',
+    en: 'The subagent runner is unavailable. Check the PixelSky engine in Settings.',
+  },
+  'subagentSettings.remote': {
+    zh: '独立子代理配置暂仅支持本机会话。',
+    en: 'Independent subagent configuration is currently available for local sessions.',
+  },
+  'subagentSettings.inherit': { zh: '沿用主会话的站点与模型', en: 'Use the main session site and model' },
+  'subagentSettings.engineDefault': { zh: '引擎默认模型', en: 'Engine default model' },
+  'subagentSettings.nextOnly': {
+    zh: '只影响之后启动的子代理。运行中的任务继续使用原站点和模型。',
+    en: 'Applies to newly started subagents. Running tasks keep their original site and model.',
+  },
+  'subagentSettings.followHint': {
+    zh: '主会话切换站点或模型时，新启动的子代理也会跟随。',
+    en: 'New subagents follow the main session when its site or model changes.',
+  },
+  'subagentSettings.asDefault': { zh: '同时设为新会话的默认配置', en: 'Also use as the default for new sessions' },
+  'subagentSettings.scope': { zh: '应用于当前会话', en: 'Apply to this session' },
+  'subagentSettings.cancel': { zh: '取消', en: 'Cancel' },
+  'subagentSettings.save': { zh: '保存设置', en: 'Save settings' },
+  'subagentSettings.saving': { zh: '保存中…', en: 'Saving\u2026' },
+  'subagentSettings.saved': { zh: '子代理设置已保存', en: 'Subagent settings saved' },
   'modelChannels.title': { zh: '模型通道', en: 'Model channels' },
   'modelChannels.channel.platform': { zh: '像素星空账号', en: 'PixelSky account' },
   'modelChannels.channel.claude': { zh: 'Claude 授权', en: 'Claude sign-in' },

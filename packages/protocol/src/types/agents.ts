@@ -39,6 +39,8 @@ export interface AgentRun {
   /** 子智能体类型（general-purpose 等），编排智能体没有 */
   type: string
   model: string
+  /** 子任务启动时固定的站点名称。 */
+  site?: string
   /** 原始状态词，界面统一归成 运行中 / 已完成 / 失败 / 已停止 / 排队中 */
   state: string
   /** 毫秒时间戳；不知道时为 0 */

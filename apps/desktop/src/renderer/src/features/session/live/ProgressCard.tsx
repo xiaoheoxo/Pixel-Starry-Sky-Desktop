@@ -219,10 +219,10 @@ function Agents({
                     <span className="min-w-0 truncate text-fg">{a.label}</span>
                     {a.model && (
                       <span
-                        title={a.model}
+                        title={[a.site, a.model].filter(Boolean).join(' · ')}
                         className="max-w-[35%] min-w-[3em] shrink-[10] truncate text-meta text-fg-faint"
                       >
-                        {shortModel(a.model)}
+                        {[a.site, shortModel(a.model)].filter(Boolean).join(' · ')}
                       </span>
                     )}
                     {a.type && (

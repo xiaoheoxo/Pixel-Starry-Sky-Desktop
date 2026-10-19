@@ -47,7 +47,12 @@ export function piMcpServers(raw: unknown): { servers: Record<string, McpServerC
       continue
     }
     const key = piServerName(name)
-    if (text(c.url)) servers[key] = { url: text(c.url), headers: literalMap(c.headers) }
+    if (text(c.url))
+      servers[key] = {
+        url: text(c.url),
+        headers: literalMap(c.headers),
+        ...(key === 'pixelsky_subagents' ? { timeout: 1860 } : {}),
+      }
     else if (text(c.command))
       servers[key] = {
         command: text(c.command),
