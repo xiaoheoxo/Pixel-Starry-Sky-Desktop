@@ -134,8 +134,10 @@ describe.skipIf(SHELLS.length === 0)('PowerShell 提示符标记（真实 ConPTY
       it('Ctrl+C 中止整行（命令 + exit 后缀）：shell 不退出，但收到命令结束', async () => {
         session = new Session(shell.command)
         await session.until(() => session!.marks.length > 0, '第一个提示符')
-        session.child.write('Start-Sleep -Seconds 60' + SUFFIX + '\r')
-        await new Promise(r => setTimeout(r, 800))
+        // 先打印一个标记再睡：等标记出现（命令真的开始跑了）再按 Ctrl+C。原来固定等 800ms，
+        // 机器忙时命令还没开始，Ctrl+C 落在提示符上，等不到命令结束。标记拼出来，免得回显的命令行先匹配上
+        session.child.write("Write-Host ('RUN' + 'NING'); Start-Sleep -Seconds 60" + SUFFIX + '\r')
+        await session.until(() => session!.text.includes('RUNNING'), '命令开始执行')
         const before = session.marks.length
         session.child.write('\x03')
         await session.until(() => session!.marks.length >= before + 2, 'Ctrl+C 之后的命令结束 + 提示符')
@@ -258,8 +260,15 @@ describe.skipIf(!PWSH)('经过 TerminalManager（真实 pwsh）', () => {
       }
       await until(() => prompts().length >= 1, '第一个提示符')
       expect(prompts()[0]).toMatchObject({ ran: false, exitCode: null })
-      manager.write(1, created.id, created.generation, 'Start-Sleep -Seconds 60' + SUFFIX + '\r')
-      await new Promise(r => setTimeout(r, 1000))
+      // 和上面一样：等命令真的开始跑了再按 Ctrl+C，不靠固定等待
+      const shownText = () => events.flatMap(e => (e.type === 'data' ? [e.data] : [])).join('')
+      manager.write(
+        1,
+        created.id,
+        created.generation,
+        "Write-Host ('RUN' + 'NING'); Start-Sleep -Seconds 60" + SUFFIX + '\r',
+      )
+      await until(() => shownText().includes('RUNNING'), '命令开始执行')
       manager.write(1, created.id, created.generation, '\x03')
       await until(() => prompts().length >= 2, 'Ctrl+C 之后的提示符')
       expect(prompts()[1]).toMatchObject({ ran: true })
