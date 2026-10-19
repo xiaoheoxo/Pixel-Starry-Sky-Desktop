@@ -16,4 +16,4 @@ allowBuilds:
 
 patchedDependencies:
   # 补丁的每一处改动都有金丝雀测试：packages/cli/test/pi-patch.test.ts（重做补丁漏了哪一块、或某块不再起作用，对应那条会变红）
-  '@earendil-works/pi-coding-agent@1.2.0': patches/@earendil-works__pi-coding-agent@1.2.0.patch
+  '@earendil-works/pi-coding-agent@1.3.0': patches/@earendil-works__pi-coding-agent@1.3.0.patch

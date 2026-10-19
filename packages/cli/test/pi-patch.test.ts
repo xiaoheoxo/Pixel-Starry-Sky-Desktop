@@ -1,4 +1,4 @@
-// 金丝雀：patches/@earendil-works__pi-coding-agent@1.2.0.patch 的每一处改动各一条断言。
+// 金丝雀：patches/@earendil-works__pi-coding-agent@1.3.0.patch 的每一处改动各一条断言。
 // 断言的是「当前装好的、打过补丁的 Pi」。补丁整个打不上时 pnpm 自己会报错；这里防的是为新版本重做补丁时漏了某一块，
 // 或者上游改写后补丁虽然打上了、却不再起作用。
 // 补丁项与测试的对应表见 docs/own-cli.md §5.1。

@@ -20,7 +20,7 @@ index ec17d54377ea8ff8d27a338069809cc9f91e46d2..7bf4829fc8f0633a7f15a973e4e83cd9
  ${chalk.bold("Options:")}
    --provider <name>              Provider to search for --model (requires --model)
 diff --git a/dist/core/slash-commands.js b/dist/core/slash-commands.js
-index 170a066f29382e76a92c9fbef580a320cb571e08..af863e6296ba4b4252bf6717943f767c7e391be2 100644
+index 25cc1c504fc52f91dae19cabf27221e3c459e46d..af863e6296ba4b4252bf6717943f767c7e391be2 100644
 --- a/dist/core/slash-commands.js
 +++ b/dist/core/slash-commands.js
 @@ -1,4 +1,5 @@
@@ -33,7 +33,7 @@ index 170a066f29382e76a92c9fbef580a320cb571e08..af863e6296ba4b4252bf6717943f767c
      { name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
      { name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
      { name: "import", description: "Import and resume a session from a JSONL file" },
--    { name: "share", description: "Share session as a secret GitHub gist" },
+-    { name: "share", description: "Share session via a Radius artifact or a GitHub gist" },
 -    { name: "bug", description: "Report a bug to the Pi developers", argumentHint: "<description>" },
      { name: "copy", description: "Copy last agent message to clipboard" },
      { name: "name", description: "Set session display name" },
@@ -48,7 +48,7 @@ index 170a066f29382e76a92c9fbef580a320cb571e08..af863e6296ba4b4252bf6717943f767c
      { name: "new", description: "Start a new session" },
      { name: "compact", description: "Manually compact the session context" },
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 6a5b925cbdcfbefc916ae80fc460425f4954d364..de646ddeb8741606554499e67f8aadf8a472a5bc 100644
+index d2343a5bb53c9d9ab8060e0a242f561da2cbfd3a..285cbec1726f59dc7775acb12792a7171f51a358 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
 @@ -658,7 +658,7 @@ export class InteractiveMode {
@@ -60,7 +60,7 @@ index 6a5b925cbdcfbefc916ae80fc460425f4954d364..de646ddeb8741606554499e67f8aadf8
          if (this.session.scopedModels.length > 0 && this.shouldShowStartupDetails()) {
              const modelList = this.session.scopedModels
                  .map((sm) => {
-@@ -2542,6 +2542,17 @@ export class InteractiveMode {
+@@ -2544,6 +2544,17 @@ export class InteractiveMode {
              text = text.trim();
              if (!text)
                  return;
@@ -95,7 +95,7 @@ index 39b1f1ae3357925c68127b580340208c5d557ed9..77e24475735e8ead0ed997a8e1cebd18
          onStatus?.({ type: "warning", message: `${config.name} not found. Offline mode enabled, skipping download.` });
          return undefined;
 diff --git a/package.json b/package.json
-index e6daaaeea17c25b443213b522bec619495c5563a..d803bddee98a5f1523ee31cf220ff75ab81b5700 100644
+index a23911cbf3c88f6c73aecdbb14251a9071e5a472..c5d6629053530cbd02b16ab8db66d26a33e00c66 100644
 --- a/package.json
 +++ b/package.json
 @@ -4,7 +4,8 @@
