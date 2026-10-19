@@ -6,6 +6,8 @@ import type { EngineId } from '@pixelsky/protocol'
 let detail: EngineId | null = null
 const listeners = new Set<() => void>()
 
+export const getEngineDetail = (): EngineId | null => detail
+
 export function openEngineDetail(id: EngineId | null): void {
   if (detail === id) return
   detail = id

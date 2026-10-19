@@ -15,12 +15,22 @@ export function parseRecovered(search: string): Recovered | null {
   return { reason: reason.slice(0, 40), n: Number.isFinite(n) && n > 0 ? n : 1 }
 }
 
+/** 去掉 recovered、n，其余参数留着（设置独立窗口靠 ?view=settings 认出自己，手动刷新后还得是设置窗口） */
+export function withoutRecovered(search: string): string {
+  const params = new URLSearchParams(search)
+  params.delete('recovered')
+  params.delete('n')
+  const rest = params.toString()
+  return rest ? '?' + rest : ''
+}
+
 function readOnce(): Recovered | null {
   if (typeof location === 'undefined') return null
   const found = parseRecovered(location.search)
   // 去掉参数：不然用户手动刷新又会进轻量模式、又弹提示
-  if (location.search && typeof history !== 'undefined')
-    history.replaceState(null, '', location.pathname + location.hash)
+  const search = withoutRecovered(location.search)
+  if (search !== location.search && typeof history !== 'undefined')
+    history.replaceState(null, '', location.pathname + search + location.hash)
   return found
 }
 

@@ -12,6 +12,7 @@ import {
   protocol,
   session,
   shell,
+  type BrowserWindowConstructorOptions,
   type MenuItemConstructorOptions,
 } from 'electron'
 import { logger } from '@pixelsky/engine'
@@ -53,6 +54,8 @@ import { loadApp as loadAppPage, REACT_CRASH, watchCrashes, type CrashWatch } fr
 import { canSend, markReady } from './app/rendererHealth'
 import { initTray, type TrayController } from './app/tray'
 import { isPayWindow } from './app/payWindowRegistry'
+import { isSettingsWindow } from './app/settingsWindowRegistry'
+import { initSettingsWindow, type SettingsWindowController } from './app/settings-window'
 import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
 import { initFeedback } from './feedback/feedback'
@@ -98,6 +101,8 @@ let quitting = false
 let tray: TrayController | null = null
 /** 启动慢时的开机画面（app/splash.ts）；截图模式不弹 */
 let splash: SplashController | null = null
+/** 设置独立窗口（app/settings-window.ts） */
+let settingsWindow: SettingsWindowController | null = null
 
 // 只开一份（docs/ui/tray.md §2.4）：再次启动时唤回已有的窗口（窗口可能藏在托盘里）。
 // 锁按数据目录算，演示 / 测试用别的 --user-data-dir 时互不影响；截图模式不加锁
@@ -108,7 +113,7 @@ app.on('second-instance', () => {
   if (!app.isReady()) return
   if (tray) tray.showWindow()
   else {
-    const win = BrowserWindow.getAllWindows().find(w => !isPayWindow(w))
+    const win = BrowserWindow.getAllWindows().find(w => !isPayWindow(w) && !isSettingsWindow(w))
     if (win) {
       if (win.isMinimized()) win.restore()
       win.show()
@@ -209,18 +214,10 @@ const log = logger('app')
 /** 各窗口的崩溃监听，log:uncaught 按发送方找到对应的那个 */
 const crashWatches = new Map<Electron.WebContents, CrashWatch>()
 
-function createWindow(): BrowserWindow {
+/** 界面窗口（主窗口、设置窗口）共用的选项：图标、底色、标题栏、预加载脚本；大小和位置由调用方给 */
+function windowOptions(): BrowserWindowConstructorOptions {
   const initial: ResolvedTheme = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-  // 上次的窗口位置 / 大小，对着当前显示器校验过（app/window-state.ts）；截图模式不用
-  const restored = captureDir ? null : resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN)
-  const win = new BrowserWindow({
-    // 截图模式使用参考图尺寸（docs/reference/workbench-session.jpg）
-    width: 1568,
-    height: captureDir ? 765 : 900,
-    useContentSize: true,
-    minWidth: 1100,
-    minHeight: 700,
-    show: false,
+  return {
     title: '像素星空',
     // 打包后 Windows、macOS 用程序自带的图标，Linux 用 resources/icon.png（electron-builder.yml）；开发模式用 build/icon.png
     ...(!app.isPackaged
@@ -239,21 +236,16 @@ function createWindow(): BrowserWindow {
       // 截图模式窗口停在屏幕外，不能让它被当成后台窗口而暂停渲染
       backgroundThrottling: !captureDir,
     },
-  })
-
-  if (restored) {
-    // setBounds 用的是外框尺寸，和保存时的 getNormalBounds 一致（构造参数里的 width / height 是内容区）
-    win.setBounds(restored.bounds)
-    // Windows 跨不同缩放比的显示器时，一次 setBounds 可能被按旧显示器的缩放比换算错（Electron 已知问题）；
-    // 窗口此时是隐藏的，再设一次没有代价
-    if (process.platform === 'win32') win.setBounds(restored.bounds)
-    trackWindowState(win, restored.maximized)
   }
+}
+
+/** 界面窗口共用的监听：窗口按钮状态、卡顿诊断、崩溃恢复、右键菜单、外链、导航限制；query 是崩溃恢复重新加载时要保留的参数 */
+function attachWindow(win: BrowserWindow, query: Record<string, string> = {}): void {
   observeWindowControls(win)
   watchWindow(win)
   // 界面崩溃后自动重新加载，反复崩溃时弹对话框（app/crashRecovery.ts）
   const crashWatch = watchCrashes(win, {
-    load: (target, query) => loadApp(target, query),
+    load: (target, recovery) => loadApp(target, { ...query, ...recovery }),
     openLogs: async () => {
       const dir = logService()?.files.dir
       if (dir) await shell.openPath(dir)
@@ -264,10 +256,48 @@ function createWindow(): BrowserWindow {
   const wc = win.webContents
   crashWatches.set(wc, crashWatch)
   win.once('closed', () => crashWatches.delete(wc))
-  win.webContents.on('did-finish-load', () => {
-    noteLoaded(win.webContents)
-    startup.reach('didFinishLoad')
+  wc.on('did-finish-load', () => noteLoaded(wc))
+  // 普通输入框右键：系统原生的剪切 / 复制 / 粘贴菜单（app/editMenu.ts）
+  watchEditMenu(win)
+  // 外部链接用系统浏览器打开
+  // 只放行 http(s)，不把 file:、自定义协议等交给系统去处理
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isWebUrl(url)) void shell.openExternal(url)
+    return { action: 'deny' }
   })
+  // 窗口不能被导航到应用以外的页面（否则那个页面也能用上预加载暴露的接口）
+  wc.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    if (isWebUrl(url)) void shell.openExternal(url)
+  })
+}
+
+function createWindow(): BrowserWindow {
+  // 上次的窗口位置 / 大小，对着当前显示器校验过（app/window-state.ts）；截图模式不用
+  const restored = captureDir ? null : resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN)
+  const win = new BrowserWindow({
+    // 截图模式使用参考图尺寸（docs/reference/workbench-session.jpg）
+    width: 1568,
+    height: captureDir ? 765 : 900,
+    useContentSize: true,
+    minWidth: 1100,
+    minHeight: 700,
+    show: false,
+    ...windowOptions(),
+  })
+
+  if (restored) {
+    // setBounds 用的是外框尺寸，和保存时的 getNormalBounds 一致（构造参数里的 width / height 是内容区）
+    win.setBounds(restored.bounds)
+    // Windows 跨不同缩放比的显示器时，一次 setBounds 可能被按旧显示器的缩放比换算错（Electron 已知问题）；
+    // 窗口此时是隐藏的，再设一次没有代价
+    if (process.platform === 'win32') win.setBounds(restored.bounds)
+    trackWindowState(win, restored.maximized)
+  }
+  attachWindow(win)
+  settingsWindow?.attachMain(win)
+  win.webContents.on('did-finish-load', () => startup.reach('didFinishLoad'))
   win.once('ready-to-show', () => {
     startup.reach('readyToShow')
     if (captureDir) return
@@ -310,22 +340,6 @@ function createWindow(): BrowserWindow {
       cancelId: 0,
     })
     if (choice === 1) event.preventDefault()
-  })
-
-  // 普通输入框右键：系统原生的剪切 / 复制 / 粘贴菜单（app/editMenu.ts）
-  watchEditMenu(win)
-
-  // 外部链接用系统浏览器打开
-  // 只放行 http(s)，不把 file:、自定义协议等交给系统去处理
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isWebUrl(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
-  // 窗口不能被导航到应用以外的页面（否则那个页面也能用上预加载暴露的接口）
-  win.webContents.on('will-navigate', (event, url) => {
-    if (isAppUrl(url)) return
-    event.preventDefault()
-    if (isWebUrl(url)) void shell.openExternal(url)
   })
 
   void loadApp(win)
@@ -459,7 +473,7 @@ app.whenReady().then(async () => {
     engine: () => ctx.engine?.memoryStats() ?? { runtimes: 0, processes: 0, running: 0 },
     check: memoryChecker(),
     rendererPid: () => {
-      const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && !isPayWindow(w))
+      const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && !isPayWindow(w) && !isSettingsWindow(w))
       return win ? win.webContents.getOSProcessId() : null
     },
   })
@@ -503,6 +517,12 @@ app.whenReady().then(async () => {
   startup.step('initProjectTools')
   await initChannels(ctx) // 协作频道（本机 AI 协作），见 channels/ipc.ts
   startup.step('initChannels')
+  // 设置独立窗口：要在 createWindow 之前，主窗口建好时登记给它（关闭、隐藏到托盘时一起关）
+  settingsWindow = initSettingsWindow(ctx, {
+    options: windowOptions,
+    setup: attachWindow,
+    load: (win, query) => loadApp(win, query),
+  })
   createWindow()
   startup.step('createWindow')
   // 系统托盘（docs/ui/tray.md）：通知区域图标、右键菜单、关闭时隐藏到托盘

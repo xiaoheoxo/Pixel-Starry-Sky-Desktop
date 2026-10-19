@@ -40,6 +40,15 @@ export function setIconThemeChoice(v: IconThemeChoice): void {
   for (const l of [...choiceListeners]) l()
 }
 
+/**
+ * 另一个窗口（比如独立的设置窗口）改了选项：浏览器只在别的窗口发 storage 事件（云同步写回时自己补一个），
+ * 收到就当本窗口也改了一次，重新解析、通知订阅者
+ */
+export function onIconThemeStorage(event: Pick<StorageEvent, 'key' | 'storageArea'>): void {
+  if (event.storageArea !== localStorage || (event.key !== ICON_THEME_KEY && event.key !== null)) return
+  for (const l of [...choiceListeners]) l()
+}
+
 interface ThemeSource {
   pack: ExtPackInfo
   /** 主题 JSON 在扩展里的路径 */
@@ -199,6 +208,7 @@ function start(): void {
   subscribePacks(reload)
   onUiThemeChange(reload)
   choiceListeners.add(reload)
+  watchStorage()
   reload()
 }
 
@@ -219,16 +229,22 @@ export function useFileIconResolver(): FileIconResolver | null {
   )
 }
 
+let storageWatched = false
+function watchStorage(): void {
+  if (storageWatched || typeof window === 'undefined') return
+  storageWatched = true
+  window.addEventListener('storage', onIconThemeStorage)
+}
+
+export function subscribeIconThemeChoice(l: () => void): () => void {
+  watchStorage()
+  choiceListeners.add(l)
+  return () => {
+    choiceListeners.delete(l)
+  }
+}
+
 /** 选项变化时重画（设置页用） */
 export function useIconThemeChoice(): IconThemeChoice {
-  return useSyncExternalStore(
-    l => {
-      choiceListeners.add(l)
-      return () => {
-        choiceListeners.delete(l)
-      }
-    },
-    getIconThemeChoice,
-    () => 'material',
-  )
+  return useSyncExternalStore(subscribeIconThemeChoice, getIconThemeChoice, () => 'material')
 }

@@ -47,6 +47,8 @@ export interface EditorBridge {
   }): Promise<EditorState>
   choose(kind: EditorKind, name?: string, mode?: 'code' | 'folder'): Promise<EditorState | null>
   remove(id: string): Promise<EditorState>
+  /** 别的窗口改了默认打开方式、外部编辑器：重新取一次状态 */
+  onChanged(callback: () => void): () => void
   open(
     ref: WorkspaceRef,
     editorId?: string,

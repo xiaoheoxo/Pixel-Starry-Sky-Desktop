@@ -15,6 +15,12 @@ export function requestLogFocus(sessionId: string, from: number): void {
   window.dispatchEvent(new Event(EVENT))
 }
 
+/** 把另一个窗口里记下的请求原样放回来（开设置独立窗口时随打开请求带过来的，docs/ui/settings-window.md） */
+export function restoreLogFocus(focus: LogFocus): void {
+  pending = focus
+  window.dispatchEvent(new Event(EVENT))
+}
+
 export function takeLogFocus(): LogFocus | null {
   const focus = pending
   pending = null

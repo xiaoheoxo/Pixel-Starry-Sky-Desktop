@@ -4,6 +4,7 @@ import { IconButton } from '@/ui'
 import { EmptyState, PanelCard } from './PanelSurface'
 import { tr, translateMessage } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
+import { onStoredChange, readStoredJson } from '@/features/settings/storedValue'
 export const FIELD =
   'h-8 w-full min-w-0 rounded-md border border-line bg-surface px-2.5 text-list text-fg outline-none focus-visible:border-accent'
 export const CARD = 'shrink-0 rounded-lg border border-line-card bg-surface p-3 shadow-sm'
@@ -88,13 +89,10 @@ export function useOperation() {
   return { busy, error, setError, run }
 }
 export function useRemember<T>(key: string, initial: T): [T, (next: T) => void] {
-  const [state, setState] = useState<T>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(key) ?? 'null') ?? initial
-    } catch {
-      return initial
-    }
-  })
+  const [state, setState] = useState<T>(() => readStoredJson(key, initial))
+  // 另一个窗口或云同步改了这个键：重新读（storedValue.ts）
+  const initialRef = useRef(initial)
+  useEffect(() => onStoredChange(key, () => setState(readStoredJson(key, initialRef.current))), [key])
   return [
     state,
     next => {

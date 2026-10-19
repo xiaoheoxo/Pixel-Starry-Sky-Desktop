@@ -74,6 +74,8 @@ export interface PixelskyBridge {
   feedback: import('./feedback').FeedbackBridge
   /** 系统托盘（docs/ui/tray.md） */
   tray: import('./tray').TrayBridge
+  /** 设置独立窗口（docs/ui/settings-window.md） */
+  settingsWindow: import('./settings-window').SettingsWindowBridge
   /** 手机远程连接（docs/mobile-remote.md） */
   mobile: import('./mobile').MobileBridge
   /** 协作频道（docs/ui/channels-phase-b.md） */

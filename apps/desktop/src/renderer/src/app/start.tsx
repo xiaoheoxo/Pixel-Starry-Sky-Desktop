@@ -25,6 +25,8 @@ import { installLongTaskLog } from '../features/logs/longTasks'
 import { installMemorySampler } from '../features/logs/memorySampler'
 import { RecoveredNotice } from '../features/recovery/RecoveredNotice'
 import { SettingsSyncRunner } from '../features/settings/sync/RestoreNotice'
+import { MainActionHost } from '../features/settings/MainActionHost'
+import { WorkspaceReporter } from '../features/settings/WorkspaceReporter'
 import { AuthDialogHost } from '../features/model-channels/AuthDialog'
 import { startWindowActivity } from '../features/layout/windowActivity'
 import { startAutoSave } from '../features/editor/autoSave'
@@ -63,6 +65,8 @@ createRoot(document.getElementById('root')!, reactRootErrorOptions).render(
                     <ResumeHintHost />
                     <RecoveredNotice />
                     <ExtStoreToastHost />
+                    <MainActionHost />
+                    <WorkspaceReporter />
                   </CommandPaletteProvider>
                 </TerminalProvider>
               </SessionActionsProvider>

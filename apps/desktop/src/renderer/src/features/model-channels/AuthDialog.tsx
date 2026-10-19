@@ -9,7 +9,8 @@ import { ENGINES } from '@pixelsky/protocol'
 import { Button, CopyButton, EngineIcon, Spinner } from '@/ui'
 import { translateMessage } from '../../i18n/core'
 import { useSettings } from '@/features/settings/SettingsProvider'
-import { useTerminalUi } from '@/features/terminal/TerminalProvider'
+import { useOptionalTerminalUi } from '@/features/terminal/TerminalProvider'
+import { runMainAction } from '@/features/settings/windowBridge'
 import { AUTH_ENGINE, type AuthChannel } from './channelModel'
 import { closeAuthDialog, useAuthDialog } from './authDialogStore'
 import { cancelLogin, clearLogin, sendLoginCode, startLogin, useChannelEngines, useEngineLogin } from './loginStore'
@@ -35,7 +36,8 @@ function AuthDialog({ channel }: { channel: AuthChannel }) {
   const login = useEngineLogin(engine)
   const info = useChannelEngines().find(e => e.id === engine)
   const settings = useSettings()
-  const terminal = useTerminalUi()
+  // 设置独立窗口里没有终端界面：「在终端里授权」交给主窗口去跑
+  const terminal = useOptionalTerminalUi()
   const [code, setCode] = useState('')
   const [codeError, setCodeError] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -57,14 +59,17 @@ function AuthDialog({ channel }: { channel: AuthChannel }) {
   }
   const closeRef = useRef(close)
   closeRef.current = close
+  // Esc 和点背景一样：正在登录（等授权码、验证中）时不关，免得取消登录、丢掉粘贴的授权码；要退出点「取消」
+  const runningRef = useRef(running)
+  runningRef.current = running
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     ref.current?.focus({ preventScroll: true })
     const key = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || e.isComposing) return
       e.preventDefault()
       e.stopPropagation()
-      closeRef.current()
+      if (!runningRef.current) closeRef.current()
     }
     document.addEventListener('keydown', key, true)
     return () => {
@@ -78,9 +83,9 @@ function AuthDialog({ channel }: { channel: AuthChannel }) {
     clearLogin(engine)
     closeAuthDialog()
     settings.closeSettings()
-    void terminal
-      .runScript(tr('modelChannels.auth.terminalTitle', { p0: name }), LOGIN_COMMAND[engine])
-      .then(() => terminal.reveal(true))
+    const title = tr('modelChannels.auth.terminalTitle', { p0: name })
+    if (terminal) void terminal.runScript(title, LOGIN_COMMAND[engine]).then(() => terminal.reveal(true))
+    else runMainAction({ kind: 'terminalScript', name: title, command: LOGIN_COMMAND[engine] })
   }
   const submitCode = (): void => {
     const text = code.trim()

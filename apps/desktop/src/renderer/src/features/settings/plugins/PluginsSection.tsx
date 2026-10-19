@@ -21,7 +21,7 @@ import {
   type ExtensionState,
 } from '@pixelsky/protocol'
 import { Button, cn, IconButton, Popover, Switch } from '@/ui'
-import { useActiveWorkspace } from '@/features/editor/target'
+import { useSettingsWorkspace } from '../useSettingsWorkspace'
 import { usePluginText } from './text'
 import { ExtensionForm, type FormTarget } from './ExtensionForm'
 import { extensionTemplates } from '@/data/extensionTemplates'
@@ -36,7 +36,7 @@ interface Row {
 }
 export function PluginsSection() {
   const t = usePluginText(),
-    workspace = useActiveWorkspace(),
+    workspace = useSettingsWorkspace(),
     bridge = window.pixelsky?.extensions
   const [state, setState] = useState<ExtensionState | null>(null),
     [tab, setTab] = useState<ExtensionKind>('plugin'),

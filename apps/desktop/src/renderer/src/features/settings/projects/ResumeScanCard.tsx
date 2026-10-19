@@ -13,6 +13,7 @@ import { relativeTime } from '@/features/engine/labels'
 import { machineOf, selectMachine, useMachines } from '@/features/machines/store'
 import { openResumeFor, type HintEngine } from '@/features/resume/hint'
 import { RESUME_ENGINE_NAMES } from '@/features/resume/store'
+import { isSettingsWindowView, runMainAction } from '../windowBridge'
 import {
   rescanProject,
   rowEngines,
@@ -59,7 +60,9 @@ function ContinueButton({ row, onOpened }: { row: ScanRow; onOpened: () => void 
   if (!engines.length) return null
   const open = (engine: HintEngine): void => {
     setMenu(false)
-    openResumeFor(row.projectId, engine, onOpened)
+    // 独立窗口里选会话的对话框在主窗口：交给主窗口去开（选好后主窗口自己处理，设置窗口不关）
+    if (isSettingsWindowView) runMainAction({ kind: 'openResume', projectId: row.projectId, engine })
+    else openResumeFor(row.projectId, engine, onOpened)
   }
   return (
     <span ref={anchor} className="inline-flex">
@@ -119,7 +122,11 @@ export function ResumeScanCard({ onOpened }: { onOpened: () => void }) {
           </div>
           <Button
             className="h-7 shrink-0 px-2.5 text-meta"
-            onClick={() => void selectMachine('local').catch((e: Error) => toast(e.message))}
+            onClick={() => {
+              // 切机器要连带主窗口的窗格一起切：独立窗口里交给主窗口
+              if (isSettingsWindowView) runMainAction({ kind: 'selectLocalMachine' })
+              else void selectMachine('local').catch((e: Error) => toast(e.message))
+            }}
           >
             {tr('resume.scan.switchLocal')}
           </Button>

@@ -2,6 +2,8 @@ import { BrowserWindow } from 'electron'
 import * as ipc from '../ipc/guard'
 import type { Locale } from '../../shared/i18n/messages'
 import { translateMessage } from '../../shared/i18n/translate'
+import { isSettingsWindow } from './settingsWindowRegistry'
+import { settingsWindowTitle } from './settings-window-state'
 
 const languages = new WeakMap<BrowserWindow, Locale>()
 let lastLanguage: Locale = 'zh-CN'
@@ -20,7 +22,9 @@ export function initUiLanguage(onChange: (language: Locale) => void): void {
       if (!win || win.isDestroyed()) return
       lastLanguage = language
       languages.set(win, language)
-      win.setTitle(language === 'en-US' ? 'Pixel Starry Sky' : '像素星空')
+      win.setTitle(
+        isSettingsWindow(win) ? settingsWindowTitle(language) : language === 'en-US' ? 'Pixel Starry Sky' : '像素星空',
+      )
       onChange(language)
     },
     { deny: '不允许的调用方' },

@@ -28,6 +28,10 @@ import { isDemo } from '@/data'
 import { isHtmlPath, previewHtml } from '@/features/files/htmlPreview'
 import { machineOf } from '@/features/machines/store'
 import { usePacksRevision } from '@/features/extpacks/store'
+import { onStoredChange, readStoredFlag } from '@/features/settings/storedValue'
+
+/** 自动换行开关（设置云同步也会写它，desktop.editorWrap） */
+const WRAP_KEY = 'pixelsky.editor.wrap'
 
 export function FileEditor({
   id,
@@ -62,7 +66,9 @@ export function FileEditor({
     [drawerOpen, setDrawerOpen] = useState(false)
   const container = useRef<HTMLElement>(null)
   const treeVisible = treeOpen && (!narrow || drawerOpen)
-  const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('pixelsky.editor.wrap') === 'true')
+  const [wordWrap, setWordWrap] = useState(() => readStoredFlag(WRAP_KEY))
+  // 另一个窗口或云同步改了自动换行：跟着变
+  useEffect(() => onStoredChange(WRAP_KEY, () => setWordWrap(readStoredFlag(WRAP_KEY))), [])
   const files = useFiles(),
     tab = files.tabs.find(t => t.id === id),
     // 不受控时预览开没开记在标签上（没设过时 Markdown 默认开）；打开时指名了行会被设成关（files/store openFile）
@@ -169,7 +175,7 @@ export function FileEditor({
               aria-pressed={wordWrap}
               onClick={() => {
                 setWordWrap(v => !v)
-                localStorage.setItem('pixelsky.editor.wrap', String(!wordWrap))
+                localStorage.setItem(WRAP_KEY, String(!wordWrap))
               }}
             />
           )}

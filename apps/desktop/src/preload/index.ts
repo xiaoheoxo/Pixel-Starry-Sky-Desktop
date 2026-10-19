@@ -25,6 +25,8 @@ import type { SettingsSyncBridge } from './settings-sync'
 import type { FeedbackBridge } from './feedback'
 import type { FeedbackChange } from '../shared/types/feedback'
 import type { TrayCommand } from '../shared/types/tray'
+import type { SettingsWindowBridge } from './settings-window'
+import type { MainWindowAction, SettingsTarget, SettingsWindowState } from '../shared/types/settings-window'
 import type { ChannelsBridge } from './channels'
 import type { ChannelMessagePush, ChannelsSnapshot } from '../shared/types/channels'
 
@@ -256,6 +258,11 @@ const editor: EditorBridge = {
   preferences: patch => call('editor:preferences', patch),
   choose: (kind, name, mode) => call('editor:choose', kind, name, mode),
   remove: id => call('editor:remove', id),
+  onChanged: cb => {
+    const listener = (): void => cb()
+    on('editor:changed', listener)
+    return () => ipcRenderer.removeListener('editor:changed', listener)
+  },
   open: (ref, id, path, line, col) => call('editor:open', ref, id, path, line, col),
   openMemory: (sessionId, path, action) => call('editor:openMemory', sessionId, path, action),
   statOutside: path => call('editor:statOutside', path),
@@ -337,7 +344,7 @@ const projectBrowser: import('./project-browser').BrowserBridge = {
   navigate: (ref, id, url) => call('projectBrowser:navigate', ref, id, url),
   select: (ref, id) => call('projectBrowser:select', ref, id),
   action: (ref, id, action) => call('projectBrowser:action', ref, id, action),
-  viewport: (ref, bounds) => call('projectBrowser:viewport', ref, bounds),
+  viewport: (ref, bounds, opts) => call('projectBrowser:viewport', ref, bounds, opts),
   annotate: (ref, id, text) => call('projectBrowser:annotate', ref, id, text),
   removeAnnotation: (ref, id, annotationId) => call('projectBrowser:removeAnnotation', ref, id, annotationId),
   onChange: cb => {
@@ -352,6 +359,7 @@ const projectBrowser: import('./project-browser').BrowserBridge = {
 const terminal: TerminalBridge = {
   state: force => call('terminal:state', force),
   setDefaultProfile: id => call('terminal:setDefaultProfile', id),
+  setEncoding: encoding => call('terminal:setEncoding', encoding),
   saveProfile: profile => call('terminal:saveProfile', profile),
   removeProfile: id => call('terminal:removeProfile', id),
   resetProfiles: () => call('terminal:resetProfiles'),
@@ -404,6 +412,35 @@ const tray: TrayBridge = {
   reportDnd: until => send('tray:dnd', until),
   prefs: () => call('tray:prefs'),
   setPrefs: patch => call('tray:setPrefs', patch),
+}
+// 设置独立窗口（docs/ui/settings-window.md）
+const settingsWindow: SettingsWindowBridge = {
+  open: (section, row, hints) => call('settingsWindow:open', section, row, hints),
+  dock: section => call('settingsWindow:dock', section),
+  setPinned: on => call('settingsWindow:setPinned', on),
+  state: () => call('settingsWindow:state'),
+  reportWorkspace: workspace => send('settingsWindow:reportWorkspace', workspace),
+  runInMain: action => call('mainWindow:run', action),
+  onChange: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, value: SettingsWindowState): void => cb(value)
+    on('settingsWindow:changed', listener)
+    return () => ipcRenderer.removeListener('settingsWindow:changed', listener)
+  },
+  onNavigate: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, value: SettingsTarget): void => cb(value)
+    on('settingsWindow:navigate', listener)
+    return () => ipcRenderer.removeListener('settingsWindow:navigate', listener)
+  },
+  onOpenDialog: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, value: SettingsTarget): void => cb(value)
+    on('settings:openDialog', listener)
+    return () => ipcRenderer.removeListener('settings:openDialog', listener)
+  },
+  onMainAction: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, value: MainWindowAction): void => cb(value)
+    on('mainWindow:action', listener)
+    return () => ipcRenderer.removeListener('mainWindow:action', listener)
+  },
 }
 // 协作频道（docs/ui/channels-phase-b.md §11）
 const channels: ChannelsBridge = {
@@ -488,6 +525,7 @@ const feedback: FeedbackBridge = {
 }
 contextBridge.exposeInMainWorld('pixelsky', {
   tray,
+  settingsWindow,
   feedback,
   channels,
   mobile,

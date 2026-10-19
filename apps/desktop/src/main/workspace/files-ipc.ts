@@ -8,7 +8,7 @@ import type { AppContext } from '../app/context'
 import { resolveWorkspace } from './resolve'
 import { FILE_OPS } from '../core/workspace/ops'
 import { opEntries } from '../core/ops'
-import type { EditorKind } from '../../shared/types/workspace'
+import type { EditorKind, EditorState } from '../../shared/types/workspace'
 import { nativeText } from '../app/ui-language'
 import { memoryFile } from '../core/memory-files'
 import { machineOf } from '../machines/identity'
@@ -53,10 +53,15 @@ export async function initWorkspace(ctx: AppContext): Promise<void> {
     clipboard.writeText(await workspacePath(at.root, at.rel))
   })
   handle('editor:state', (_e, force) => editors.state(force === true))
-  handle('editor:preferences', (_e, patch) => editors.preferences(patch))
-  handle('editor:remove', (_e, id) => {
+  // 默认打开方式、外部编辑器改了：告诉所有窗口重新取一次（设置可以开在独立窗口里，docs/ui/settings-window.md §4）
+  const changed = (state: EditorState): EditorState => {
+    ctx.events.broadcast('editor:changed')
+    return state
+  }
+  handle('editor:preferences', async (_e, patch) => changed(await editors.preferences(patch)))
+  handle('editor:remove', async (_e, id) => {
     if (typeof id !== 'string') throw new Error('编辑器 ID 不正确')
-    return editors.remove(id)
+    return changed(await editors.remove(id))
   })
   handle('editor:choose', async (e, kind: EditorKind, name?: string, mode?: 'code' | 'folder') => {
     if (!['vscode', 'cursor', 'windsurf', 'trae-cn', 'trae', 'jetbrains', 'custom'].includes(kind))
@@ -72,7 +77,7 @@ export async function initWorkspace(ctx: AppContext): Promise<void> {
     }
     const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (result.canceled || !result.filePaths[0]) return null
-    return editors.configure(kind, result.filePaths[0], name, mode)
+    return changed(await editors.configure(kind, result.filePaths[0], name, mode))
   })
   handle('editor:open', (_e, ref, id, path, line, col) => editors.open(workspaceRef(ref), id, path, line, col))
   // 上下文明细里项目外的记忆文件（docs/ui/context-window.md §7）：只开本机会话诊断里列出的文件；

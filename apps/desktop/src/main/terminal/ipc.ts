@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, shell, webContents, type IpcMainInvokeEvent } from 'electron'
 import * as ipc from '../ipc/guard'
-import type { TerminalProfileInput } from '../../shared/types/terminal'
+import type { TerminalProfileInput, TerminalState } from '../../shared/types/terminal'
 import type { WorkspaceRef } from '../../shared/types/workspace'
 import { TerminalManager, type TerminalTarget } from './manager'
 import { nativeText } from '../app/ui-language'
@@ -92,7 +92,14 @@ export async function initTerminalIpc(
           }
           if (
             active !== 'local' &&
-            ['setDefaultProfile', 'saveProfile', 'removeProfile', 'resetProfiles', 'chooseProgram'].includes(name)
+            [
+              'setDefaultProfile',
+              'saveProfile',
+              'removeProfile',
+              'resetProfiles',
+              'setEncoding',
+              'chooseProgram',
+            ].includes(name)
           )
             throw new Error('SSH_SHELL_MANAGED_REMOTELY')
         }
@@ -102,10 +109,23 @@ export async function initTerminalIpc(
     )
   }
   handle('state', e => service.state(e.sender.id))
-  handle('setDefaultProfile', (e, value) => service.setDefault(e.sender.id, id(value)))
-  handle('saveProfile', (e, input: TerminalProfileInput) => service.saveProfile(e.sender.id, input))
-  handle('removeProfile', (e, value) => service.removeProfile(e.sender.id, id(value)))
-  handle('resetProfiles', e => service.removeProfile(e.sender.id))
+  // 默认 Shell、自定义 Shell 改了：让别的窗口（设置可以开在独立窗口里）也重新取一次状态
+  const profilesChanged = async (e: IpcMainInvokeEvent, task: Promise<TerminalState>): Promise<TerminalState> => {
+    const state = await task
+    for (const owner of observed) {
+      const target = owner === e.sender.id ? null : webContents.fromId(owner)
+      if (target) sendTo(target, 'terminal:event', { type: 'profiles' })
+    }
+    return state
+  }
+  handle('setDefaultProfile', (e, value) => profilesChanged(e, service.setDefault(e.sender.id, id(value))))
+  handle('saveProfile', (e, input: TerminalProfileInput) => profilesChanged(e, service.saveProfile(e.sender.id, input)))
+  handle('removeProfile', (e, value) => profilesChanged(e, service.removeProfile(e.sender.id, id(value))))
+  handle('resetProfiles', e => profilesChanged(e, service.removeProfile(e.sender.id)))
+  handle('setEncoding', (e, value) => {
+    if (value !== 'utf8' && value !== 'system') throw new Error('不支持的终端编码')
+    return profilesChanged(e, service.setEncoding(e.sender.id, value))
+  })
   handle('chooseProgram', async e => {
     const win = BrowserWindow.fromWebContents(e.sender)!
     const result = await dialog.showOpenDialog(win, {

@@ -560,6 +560,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     </Context.Provider>
   )
 }
+/** 没有 TerminalProvider 的窗口（设置独立窗口）里返回 null */
+export function useOptionalTerminalUi(): TerminalUi | null {
+  return useContext(Context)
+}
 export function useTerminalUi(): TerminalUi {
   const value = useContext(Context)
   if (!value) throw new Error('TerminalProvider missing')
