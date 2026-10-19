@@ -3,6 +3,7 @@ import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
 import { codexCommandParts } from './command'
+import { codexViewedImage } from './images'
 
 export function codexChanges(value: unknown): FileChange[] {
   return array(value)
@@ -53,6 +54,7 @@ export class CodexTranslator {
     private readonly contextTokens: () => number | null = () => null,
     /** 子智能体按线程 id 记；会话传入同一个，跨轮保留（结束常在后面的轮次才到） */
     readonly agents = new Map<string, AgentRun>(),
+    private readonly cwd?: string,
   ) {}
   /** timed：是否算思考用时。冷读的历史（子智能体记录）一次性全倒进来，算出来都是 0，不算，界面按没有用时显示 */
   item(raw: Message, complete: boolean, timed = true): void {
@@ -122,6 +124,11 @@ export class CodexTranslator {
               : type === 'imageView'
                 ? 'read'
                 : 'other'
+      const image =
+        type === 'imageView' && complete && status === 'completed'
+          ? (prior?.kind === 'tool' ? prior.images?.[0] : null) ||
+            codexViewedImage(string(raw.path) || (prior?.kind === 'tool' ? prior.title : ''), id, this.cwd)
+          : null
       item = {
         kind: 'tool',
         id,
@@ -132,6 +139,7 @@ export class CodexTranslator {
           raw.error ? JSON.stringify(raw.error) : raw.result ? JSON.stringify(raw.result) : string(raw.output),
         ),
         status,
+        ...(image ? { images: [image] } : {}),
       }
     }
     if (!item) return

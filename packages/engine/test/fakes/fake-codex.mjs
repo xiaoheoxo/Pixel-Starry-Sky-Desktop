@@ -450,6 +450,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       // 缓停：收到 turn/interrupt 后约 1 秒才回 interrupted，且不会自己结束
       turn = { id, item: 'msg-' + next, text: '收到：' + text, timer: null, slow: text.includes('缓停') }
       emit('turn/started', { threadId: thread, turn: { id, status: 'inProgress' } })
+      if (process.env.FAKE_CODEX_IMAGE_PATH) {
+        const item = { type: 'imageView', id: 'view-image-' + next, path: process.env.FAKE_CODEX_IMAGE_PATH }
+        emit('item/started', { threadId: thread, turnId: id, item })
+        emit('item/completed', { threadId: thread, turnId: id, item })
+      }
       emit('item/started', {
         threadId: thread,
         turnId: id,

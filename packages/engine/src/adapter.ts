@@ -150,6 +150,8 @@ export interface EngineAdapter {
    */
   checkLaunch?(command: string | null, args: readonly string[]): void
   createSession(ctx: SessionContext): EngineSession
+  /** 重开会话时补齐旧条目的本地资源；不需要修改时返回原对象，补齐结果由宿主保存。 */
+  restoreItem?(record: SessionRecord, item: Item): Item
   /** 智能体追踪：从引擎保存的文件读出这个会话以前的编排和子智能体（不需要进程在跑） */
   loadRuns?(record: SessionRecord): AgentRuns
   /** 智能体追踪：读一个子智能体的对话（只读） */
