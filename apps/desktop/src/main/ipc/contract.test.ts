@@ -153,7 +153,7 @@ describe('IPC contract shape', () => {
     expect(readFileSync(contractFile, 'utf8')).not.toMatch(/^\s*import\s/m)
   })
   it('exports the remote protocol version', () => {
-    expect(REMOTE_PROTOCOL).toBe(6)
+    expect(REMOTE_PROTOCOL).toBe(7)
     const runtime = readFileSync(join(mainDir, 'machines/remote-runtime.ts'), 'utf8')
     expect(runtime).not.toMatch(/export const REMOTE_PROTOCOL/)
     expect(runtime).toMatch(/protocol: REMOTE_PROTOCOL/)

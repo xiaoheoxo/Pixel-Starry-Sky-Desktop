@@ -119,6 +119,12 @@ export interface OpenedSession {
 
 /** 主进程广播给所有窗口的事件 */
 export type HostEvent =
+  | {
+      kind: 'account_usage'
+      engine: import('./base').EngineId
+      usage: import('../account-usage').EngineAccountUsage
+      machine?: string
+    }
   | { kind: 'retry_settings'; settings: { maxRetries: number | null } }
   /** 设置 › 本机引擎改了（输入框的引擎菜单按 hidden 过滤） */
   | { kind: 'engine_config'; config: EngineConfig }

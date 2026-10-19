@@ -1,5 +1,5 @@
 // 只读用的 Codex app-server（docs/ui/codex-resume.md §3.5）：列线程、读线程的元数据和轮次。
-// 只发 thread/list、thread/read、thread/turns/list，绝不 thread/resume（不拿线程的写入锁，不会挡住终端里的 codex）。
+// 只发 thread/list、thread/read、thread/turns/list 和账号额度只读查询，绝不 thread/resume（不拿线程的写入锁，不会挡住终端里的 codex）。
 // 按需起一个进程，空闲 60 秒自己关；请求排队一个一个发；signal 触发时不等回包。
 // 每次请求前核对启动配置（程序、参数、环境变量含 CODEX_HOME、工作目录），变了就换一个进程，不会接着读旧目录。
 import { QUICK_CLOSE_MS, type Launcher } from '../adapter'

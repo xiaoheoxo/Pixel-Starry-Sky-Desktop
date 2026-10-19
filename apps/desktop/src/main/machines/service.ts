@@ -367,6 +367,7 @@ export class Machines {
       const event = remoteIds(raw, id, true)
       if (channel === 'engine:event') {
         const message = event as HostEvent
+        if (message.kind === 'account_usage') message.machine = id
         if (message.kind === 'projects') {
           state.projects = message.projects
           this.hostEvent(message)

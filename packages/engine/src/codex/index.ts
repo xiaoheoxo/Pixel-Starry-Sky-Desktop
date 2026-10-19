@@ -14,6 +14,7 @@ import {
   type AgentRuns,
   codedError,
   type EngineCatalog,
+  type EngineAccountUsage,
   type EngineInfo,
   type EngineUpdateResult,
   type Item,
@@ -34,9 +35,12 @@ import { CodexTranslator, interruptedAgent } from './translate'
 import { loadCodexRuns } from './runs'
 import { CODEX_NPM_PACKAGE, installCodexWithNpm, updateCodexWithNpm } from './update'
 import { array } from './process'
+import { AccountUsageCache, accountUsageKey, usageFailure } from '../account-usage'
+import { codexAccountUsage } from './account-usage'
 import { codexViewedImage } from './images'
 
 export interface CodexAdapterOptions {
+  onAccountUsage?: (usage: EngineAccountUsage) => void
   /** 用户在设置里替换的命令（绝对路径或 PATH 上的命令名，docs/ui/engine-launch.md） */
   overridePath?: () => string | null
   env?: NodeJS.ProcessEnv
@@ -48,6 +52,7 @@ export interface CodexAdapterOptions {
   launchOptions?: () => CodexLaunchOptions
 }
 export class CodexAdapter implements EngineAdapter {
+  private readonly accountUsageCache = new AccountUsageCache(value => this.opts.onAccountUsage?.(value))
   private cached: { info: EngineInfo; launcher: Launcher | null } | null = null
   private detecting: Promise<EngineInfo> | null = null
   private catalogCache: EngineCatalog | null = null
@@ -135,6 +140,7 @@ export class CodexAdapter implements EngineAdapter {
     return result
   }
   async info(force = false): Promise<EngineInfo> {
+    if (force) this.accountUsageCache.reset()
     if (this.cached && !force) return this.cached.info
     if (this.detecting) return this.detecting
     this.detecting = this.detect().finally(() => {
@@ -206,6 +212,40 @@ export class CodexAdapter implements EngineAdapter {
   async catalog(force = false): Promise<EngineCatalog> {
     await this.info(force)
     return this.catalogCache ?? { outputStyles: [], currentOutputStyle: null }
+  }
+  private usageKey(): string {
+    return accountUsageKey(
+      [this.cached?.launcher, this.cached?.info.account, this.cached?.info.auth],
+      this.launchArgs(),
+      this.env(),
+    )
+  }
+  async accountUsage(force = false): Promise<EngineAccountUsage> {
+    await this.info()
+    return this.accountUsageCache.read(
+      this.usageKey(),
+      async () => {
+        if (!this.cached?.launcher)
+          return { status: 'unavailable', reason: 'missing', windows: [], observedAt: Date.now() }
+        try {
+          const auth = await this.reader.request('account/read', { refreshToken: false })
+          const account = object(auth.account)
+          if (!account.type && auth.requiresOpenaiAuth !== false)
+            return { status: 'unavailable', reason: 'signed_out', windows: [], observedAt: Date.now() }
+          if (auth.requiresOpenaiAuth === false || account.type !== 'chatgpt')
+            return { status: 'unavailable', reason: 'api_key', windows: [], observedAt: Date.now() }
+          const usage = codexAccountUsage(await this.reader.request('account/rateLimits/read', {}))
+          return {
+            ...usage,
+            ...(typeof account.email === 'string' ? { account: account.email } : {}),
+            ...(typeof account.planType === 'string' ? { plan: account.planType } : {}),
+          }
+        } catch (error) {
+          return usageFailure(error)
+        }
+      },
+      force,
+    )
   }
   async subagentTranscript(record: SessionRecord, agentId: string): Promise<Item[]> {
     if (!this.cached?.launcher || !/^[A-Za-z0-9-]{1,100}$/.test(agentId)) throw new Error('Invalid Codex subagent')
@@ -285,7 +325,15 @@ export class CodexAdapter implements EngineAdapter {
     )
       throw new Error(result?.info.message ?? 'Codex is unavailable')
     const env = this.sessionEnvironment(result.launcher, ctx.record())
+    const usageKey = this.usageKey()
+    const nativeAccount = !viaGateway(ctx.record())
     return new CodexSession(result.launcher, env, ctx, {
+      onAccountUsage: raw => {
+        if (nativeAccount && !viaGateway(ctx.record()) && usageKey === this.usageKey()) {
+          const value = codexAccountUsage(raw, this.accountUsageCache.peek(usageKey))
+          if (value.status === 'ready') this.accountUsageCache.push(usageKey, value)
+        }
+      },
       version: result.info.version,
       askRejected: () => this.askRejected,
       rejectAsk: () => (this.askRejected = true),

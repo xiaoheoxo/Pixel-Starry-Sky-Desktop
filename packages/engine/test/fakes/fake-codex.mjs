@@ -242,6 +242,16 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     return
   }
   switch (m.method) {
+    case 'account/rateLimits/read':
+      if (process.env.FAKE_CODEX_USAGE_UNSUPPORTED) rpcError(m, 'Unknown method: account/rateLimits/read')
+      else
+        response(
+          m,
+          process.env.FAKE_CODEX_USAGE_FILE
+            ? JSON.parse(readFileSync(process.env.FAKE_CODEX_USAGE_FILE, 'utf8'))
+            : { rateLimits: null },
+        )
+      break
     case 'account/read':
       response(
         m,
@@ -406,6 +416,8 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       break
     }
     case 'turn/start': {
+      if (process.env.FAKE_CODEX_USAGE_EVENT)
+        emit('account/rateLimits/updated', JSON.parse(process.env.FAKE_CODEX_USAGE_EVENT))
       // 测试创建这个文件让下一次 turn/start 被拒绝（一次性）：模拟 Codex 回错，这一轮没开成
       if (process.env.FAKE_CODEX_TURN_FAIL_FILE && existsSync(process.env.FAKE_CODEX_TURN_FAIL_FILE)) {
         rmSync(process.env.FAKE_CODEX_TURN_FAIL_FILE)

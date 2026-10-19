@@ -142,6 +142,7 @@ export function claudeArgs(
 }
 
 export interface ClaudeSessionDeps {
+  onAccountUsage?: (info: unknown) => void
   extensions?: import('@pixelsky/protocol').ExtensionLaunch
   maxRetries?: number | null
   /** 引擎级选项（输出风格、允许提问） */
@@ -552,6 +553,10 @@ export class ClaudeSession implements EngineSession {
     const proc: ClaudeProcess = new ClaudeProcess(this.deps.launcher, args, rec.cwd, this.deps.env, {
       onMessage: m => {
         if (this.proc === proc) {
+          if (m.type === 'rate_limit_event') {
+            this.deps.onAccountUsage?.(m.rate_limit_info)
+            return
+          }
           if (this.contextFrame(m)) return
           this.onInputFrame(m)
           this.translator.handle(m)

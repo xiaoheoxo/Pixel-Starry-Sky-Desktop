@@ -25,6 +25,7 @@ import { codexChanges, CodexTranslator, tokenCounts } from './translate'
 import { CODEX_WINDOW_ENV, codexContextConfig } from './context-config'
 
 export interface CodexLaunchOptions {
+  onAccountUsage?: (raw: unknown) => void
   askQuestions: boolean
   steeringValidated?: boolean
   /** 用户追加的启动参数，放在 app-server --listen stdio:// 后面、像素星空自己的 -c 前面（docs/ui/engine-launch.md §3） */
@@ -400,6 +401,7 @@ export class CodexSession implements EngineSession {
       this.startup = 'done'
       if (ext?.skillRoots?.length) await proc.request('skills/extraRoots/set', { extraRoots: ext.skillRoots })
       this.catalog = await codexCatalog(proc)
+      if (this.catalog.rateLimits) this.options.onAccountUsage?.(this.catalog.rateLimits)
       // 用户自己的 config.toml 也开了同一个功能：警告是他们的，不替他们去掉
       if (this.ownAskFlag && (await this.userEnabledAsk(proc))) this.ownAskFlag = false
       const requirements = await proc.request('configRequirements/read').catch(() => ({}))
@@ -875,6 +877,10 @@ export class CodexSession implements EngineSession {
     if (this.guidance.delete(id)) this.ctx.emit({ type: 'input_ack', id, state: 'consumed', mode: 'guidance' })
   }
   private notification(method: string, params: Message): void {
+    if (method === 'account/rateLimits/updated') {
+      this.options.onAccountUsage?.(params)
+      return
+    }
     // 子智能体的审批也在这里结束，先于按线程过滤
     if (method === 'serverRequest/resolved') {
       const id = String(params.requestId)

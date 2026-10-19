@@ -1,5 +1,7 @@
 // Claude Code 适配器
 import { homedir } from 'node:os'
+import { AccountUsageCache, accountUsageKey, usageFailure } from '../account-usage'
+import { claudeAccountUsage, claudeUsageEvent } from './account-usage'
 import { delimiter, dirname } from 'node:path'
 import {
   EFFORTS,
@@ -8,6 +10,7 @@ import {
   type ContextWindows,
   type Effort,
   type EngineCatalog,
+  type EngineAccountUsage,
   type EngineInfo,
   type EngineModel,
   type EngineUpdateResult,
@@ -15,7 +18,7 @@ import {
   type SessionRecord,
   viaGateway,
 } from '@pixelsky/protocol'
-import type { EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
+import type { CloseOptions, EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
 import { engineEnv, systemProxyEnv } from '../env'
 import { outputTail, run, runInteractive, runStream, startupReason } from '../exec'
 import { engineBase } from '../registry'
@@ -48,6 +51,7 @@ import {
 import { LONG_CONTEXT_ENV, claudeModelName, windowSettings } from './long-context'
 
 export interface ClaudeAdapterOptions {
+  onAccountUsage?: (usage: EngineAccountUsage) => void
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   /** 用户在设置里替换的命令（绝对路径或 PATH 上的命令名，docs/ui/engine-launch.md） */
   overridePath?: () => string | null
@@ -106,6 +110,8 @@ export function claudeModels(raw: unknown): EngineModel[] {
 export const PLATFORM_MAX_RETRIES = 3
 
 export class ClaudeAdapter implements EngineAdapter {
+  private readonly accountUsageCache = new AccountUsageCache(value => this.opts.onAccountUsage?.(value))
+  private readonly usageProcesses = new Set<ClaudeProcess>()
   private cached: ClaudeDiscovery | null = null
   private detecting: Promise<ClaudeDiscovery> | null = null
   private catalogCache: { at: number; value: EngineCatalog } | null = null
@@ -128,6 +134,7 @@ export class ClaudeAdapter implements EngineAdapter {
   }
 
   private discover(force: boolean): Promise<ClaudeDiscovery> {
+    if (force) this.accountUsageCache.reset()
     if (this.cached && !force) return Promise.resolve(this.cached)
     // 重新检测时命令或参数可能变了，输出风格列表也要重新握手
     if (force) this.dropCatalog()
@@ -168,6 +175,61 @@ export class ClaudeAdapter implements EngineAdapter {
   /** 用户追加的启动参数 */
   private launchArgs(): string[] {
     return this.opts.launchOptions?.().args ?? []
+  }
+  private usageKey(): string {
+    return accountUsageKey(
+      [this.cached?.launcher, this.cached?.info.account, this.cached?.info.auth],
+      this.launchArgs(),
+      this.env(),
+    )
+  }
+  async accountUsage(force = false): Promise<EngineAccountUsage> {
+    const found = await this.discover(false)
+    return this.accountUsageCache.read(
+      this.usageKey(),
+      async () => {
+        if (!found.launcher) return { status: 'unavailable', reason: 'missing', windows: [], observedAt: Date.now() }
+        if (found.info.status === 'unauthenticated')
+          return { status: 'unavailable', reason: 'signed_out', windows: [], observedAt: Date.now() }
+        const proc = new ClaudeProcess(
+          found.launcher,
+          [
+            '-p',
+            '--input-format',
+            'stream-json',
+            '--output-format',
+            'stream-json',
+            '--verbose',
+            '--no-session-persistence',
+            ...this.launchArgs(),
+          ],
+          homedir(),
+          this.env(),
+          {
+            onMessage() {},
+            onControlCancel() {},
+            onControlRequest: r => proc.respondError(r.requestId, 'Read-only account usage'),
+            onExit() {},
+          },
+        )
+        this.usageProcesses.add(proc)
+        try {
+          await proc.request('initialize', {}, 30_000)
+          return claudeAccountUsage(await proc.request('get_usage', { skip_behaviors: true }, 20_000))
+        } catch (error) {
+          return usageFailure(error)
+        } finally {
+          this.usageProcesses.delete(proc)
+          await proc.close(1000)
+        }
+      },
+      force,
+    )
+  }
+  async close(_opts?: CloseOptions): Promise<void> {
+    this.accountUsageCache.reset()
+    for (const proc of this.usageProcesses) proc.kill()
+    this.usageProcesses.clear()
   }
 
   async info(force = false): Promise<EngineInfo> {
@@ -312,7 +374,14 @@ export class ClaudeAdapter implements EngineAdapter {
     const maxRetries = ctx.maxRetries ?? (ctx.record().platform ? PLATFORM_MAX_RETRIES : null)
     const env = this.launchEnv(ctx.record(), maxRetries, ctx.extensions?.pathDirs)
     const launch = this.opts.launchOptions?.()
+    const usageKey = this.usageKey()
+    const nativeAccount = !viaGateway(ctx.record())
     return new ClaudeSession(ctx, {
+      onAccountUsage: raw => {
+        if (!nativeAccount || viaGateway(ctx.record()) || usageKey !== this.usageKey()) return
+        const value = claudeUsageEvent(raw, this.accountUsageCache.peek(usageKey))
+        if (value) this.accountUsageCache.push(usageKey, value)
+      },
       maxRetries,
       launch: launch
         ? {

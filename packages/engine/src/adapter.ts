@@ -7,6 +7,7 @@ import type {
   Item,
   TaskOutput,
   EngineCatalog,
+  EngineAccountUsage,
   EngineEvent,
   EngineInfo,
   EngineUpdateResult,
@@ -133,6 +134,8 @@ export interface EngineAdapter {
   subagentTranscript?(record: SessionRecord, agentId: string): Item[] | Promise<Item[]>
   /** 引擎实际报上来的可选项（输出风格等）；不发消息、不花钱，force 时不用缓存 */
   catalog?(force?: boolean): Promise<EngineCatalog>
+  /** 当前原生登录账号的套餐额度；不发送用户消息、不调用模型。 */
+  accountUsage?(force?: boolean): Promise<EngineAccountUsage>
   /** 检查更新并安装（Claude Code：claude update；Codex：npm install -g）；宿主随后重新检测。onLine 收每一行输出 */
   update?(onLine?: (line: string) => void): Promise<EngineUpdateResult>
   /**

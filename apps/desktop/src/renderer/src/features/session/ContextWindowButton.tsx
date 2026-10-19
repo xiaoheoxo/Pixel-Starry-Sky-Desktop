@@ -25,6 +25,7 @@ import { displayMemoryPath, splitFileName, type MemoryPathBase } from './memoryP
 import { demo } from '@/data/demo'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { openContextSettings } from '@/features/settings/models/contextWindows'
+import { AccountUsagePanel } from './AccountUsagePanel'
 
 /** 刷新图标转一圈的时长；明细通常几十毫秒就回来，至少转完一圈（docs/ui/context-window.md §7） */
 const SPIN_MS = 700
@@ -56,7 +57,15 @@ function demoRefreshed(context: ContextWindow, n: number): ContextWindow {
   }
 }
 
-export function ContextWindowButton({ sessionId, engine }: { sessionId: string | null; engine: EngineId }) {
+export function ContextWindowButton({
+  sessionId,
+  engine,
+  nativeAccount = true,
+}: {
+  sessionId: string | null
+  engine: EngineId
+  nativeAccount?: boolean
+}) {
   useI18n()
   const toast = useToast()
   const settings = useSettings()
@@ -571,6 +580,9 @@ export function ContextWindowButton({ sessionId, engine }: { sessionId: string |
                 {tr('contextWindow.settings')}
               </button>
             </div>
+            {nativeAccount && (engine === 'claude' || engine === 'codex') && (
+              <AccountUsagePanel engine={engine} sessionId={sessionId} />
+            )}
           </div>,
           document.body,
         )}

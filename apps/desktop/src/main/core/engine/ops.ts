@@ -148,6 +148,17 @@ export const ENGINE_OPS = {
   'engine:setConfig': (c, engine, patch) => c.host.setEngineConfig(engineId(engine), engineConfigPatch(patch)),
   'engine:setDefaultEngine': (c, engine) => c.host.setDefaultEngine(engineId(engine)),
   'engine:catalog': (c, engine, force) => c.host.engineCatalog(engineId(engine), force === true),
+  'engine:accountUsage': (c, raw, force) => {
+    if (!raw || typeof raw !== 'object') throw new Error('额度查询参数不对')
+    const target = raw as { engine?: unknown; sessionId?: unknown }
+    return c.host.engineAccountUsage(
+      {
+        engine: engineId(target.engine),
+        ...(target.sessionId === undefined ? {} : { sessionId: str(target.sessionId, 'sessionId') }),
+      },
+      force === true,
+    )
+  },
   'engine:update': (c, engine) => c.host.updateEngine(engineId(engine)),
   'engine:install': (c, engine) => c.host.installEngine(engineId(engine)),
   'engine:login': (c, engine, method) => {

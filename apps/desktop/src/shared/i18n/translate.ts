@@ -31,6 +31,7 @@ import { attachmentMessages } from './attachmentMessages'
 import { boardMessages } from './boardMessages'
 import { aiMessages } from './aiMessages'
 import { contextMessages } from './contextMessages'
+import { accountUsageMessages } from './accountUsageMessages'
 import { costMessages } from './costMessages'
 import { longConversationMessages } from './longConversationMessages'
 import { tabMenuMessages } from './tabMenuMessages'
@@ -100,6 +101,7 @@ export const allMessages = {
   ...boardMessages,
   ...aiMessages,
   ...contextMessages,
+  ...accountUsageMessages,
   ...costMessages,
   ...longConversationMessages,
   ...tabMenuMessages,

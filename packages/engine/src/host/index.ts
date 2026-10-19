@@ -13,6 +13,8 @@ import type {
   ContextDetailLevel,
   ContextDiagnostic,
   EngineCatalog,
+  EngineAccountUsage,
+  AccountUsageTarget,
   EngineConfig,
   EngineConfigPatch,
   EngineDefaults,
@@ -98,6 +100,7 @@ export class EngineHost {
     const settings = new HostSettings(ctx)
     ctx.adapters = opts.adapters ?? {
       claude: new ClaudeAdapter({
+        onAccountUsage: usage => opts.emit({ kind: 'account_usage', engine: 'claude', usage }),
         overridePath: () => settings.file.paths.claude ?? null,
         extraEnv: () => settings.file.env.claude ?? {},
         systemProxy: () => opts.systemProxy?.('claude') ?? null,
@@ -105,6 +108,7 @@ export class EngineHost {
         sessionEnv: opts.sessionEnv,
       }),
       codex: new CodexAdapter({
+        onAccountUsage: usage => opts.emit({ kind: 'account_usage', engine: 'codex', usage }),
         overridePath: () => settings.file.paths.codex ?? null,
         extraEnv: () => settings.file.env.codex ?? {},
         systemProxy: () => opts.systemProxy?.('codex') ?? null,
@@ -209,6 +213,16 @@ export class EngineHost {
   /** 引擎实际报上来的可选项（输出风格）；不发消息、不花钱 */
   async engineCatalog(engine: EngineId, force = false): Promise<EngineCatalog> {
     return this.m.settings.engineCatalog(engine, force)
+  }
+  async engineAccountUsage(target: AccountUsageTarget, force = false): Promise<EngineAccountUsage> {
+    if (target.sessionId) {
+      const record = this.ctx.records.get(target.sessionId)
+      if (!record) throw new Error('会话不存在')
+    }
+    const adapter = this.ctx.adapters[target.engine]
+    return adapter?.accountUsage
+      ? adapter.accountUsage(force)
+      : { status: 'unsupported', windows: [], observedAt: Date.now() }
   }
 
   /** 检查更新：交给引擎自己的更新命令，结束后重新检测并广播 */

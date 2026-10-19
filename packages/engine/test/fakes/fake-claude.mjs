@@ -251,6 +251,13 @@ function ask(toolUseId, input) {
 }
 
 async function runTurn(text) {
+  if (process.env.FAKE_CLAUDE_USAGE_EVENT)
+    out({
+      type: 'rate_limit_event',
+      rate_limit_info: JSON.parse(process.env.FAKE_CLAUDE_USAGE_EVENT),
+      uuid: randomUUID(),
+      session_id: sessionId,
+    })
   turn = { aborted: false }
   touchTranscript()
   out({
@@ -746,6 +753,21 @@ function handle(msg) {
     if (process.env.FAKE_CLAUDE_LOG)
       appendFileSync(process.env.FAKE_CLAUDE_LOG.replace(/\.log$/, '.control.log'), `${r.subtype}\n`)
     switch (r.subtype) {
+      case 'get_usage':
+        if (process.env.FAKE_CLAUDE_USAGE_UNSUPPORTED) {
+          out({
+            type: 'control_response',
+            response: { subtype: 'error', request_id: msg.request_id, error: 'Unknown request subtype: get_usage' },
+          })
+        } else {
+          if (process.env.FAKE_CLAUDE_USAGE_LOG)
+            appendFileSync(process.env.FAKE_CLAUDE_USAGE_LOG, JSON.stringify(r) + '\n')
+          const raw = process.env.FAKE_CLAUDE_USAGE_FILE
+            ? JSON.parse(readFileSync(process.env.FAKE_CLAUDE_USAGE_FILE, 'utf8'))
+            : { rate_limits_available: false, subscription_type: null, rate_limits: null }
+          respond(msg.request_id, raw)
+        }
+        return
       case 'initialize':
         const initialized = {
           models: [

@@ -3,6 +3,8 @@
 import type {
   ApprovalDecision,
   EngineCatalog,
+  EngineAccountUsage,
+  AccountUsageTarget,
   EngineConfig,
   EngineConfigPatch,
   EngineDefaults,
@@ -41,6 +43,7 @@ export interface EngineBridge {
   setDefaultEngine(engine: EngineId): Promise<EngineDefaults>
   /** 引擎实际报上来的可选项（输出风格）；不发消息 */
   catalog(engine: EngineId, force?: boolean): Promise<EngineCatalog>
+  accountUsage(target: AccountUsageTarget, force?: boolean): Promise<EngineAccountUsage>
   /** 检查更新（Claude Code：claude update），结束后重新检测 */
   updateEngine(engine: EngineId): Promise<EngineUpdateResult>
   /** 一键安装（只在 EngineInfo.installable 时可用）；过程看 engine:event 的 engine_job */
