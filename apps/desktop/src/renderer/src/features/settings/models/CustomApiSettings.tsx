@@ -26,7 +26,8 @@ import type {
 } from '../../../../../shared/types/providers'
 import { FIELD } from '../engines/parts'
 import { ContextWindowInput } from './ContextWindowInput'
-import { shouldConfirmClose, type ProviderDraft } from './providerDraft'
+import { mergeLatest, shouldConfirmClose, type ProviderDraft } from './providerDraft'
+import { useUnsavedCheck } from '../unsavedEdits'
 
 /** 打码的请求头值，和主进程 MASKED_SECRET 一致 */
 const MASKED = '••••••••'
@@ -170,8 +171,23 @@ function Field({ label, hint, children }: { label: string; hint?: ReactNode; chi
   )
 }
 
+/** 已存接口在对话框里的样子（和对话框打开时的初始值一致） */
+const draftOf = (p: ProviderView): ProviderDraft => ({
+  template: p.template,
+  name: p.name,
+  protocol: p.protocol,
+  baseUrl: p.baseUrl,
+  apiKey: '',
+  auth: p.auth,
+  models: p.models,
+  smallModel: p.smallModel,
+  fallback: p.modelFallback,
+  headersText: p.headerNames.map(n => `${n}: ${MASKED}`).join('\n'),
+})
+
 function ProviderDialog({ provider, close }: { provider: ProviderView | null; close(): void }) {
   useI18n()
+  const providers = useProviders()
   const [template, setTemplate] = useState<ProviderTemplate>(provider?.template ?? 'anthropic')
   const [name, setName] = useState(provider?.name ?? '')
   const [protocol, setProtocol] = useState<ProviderProtocol>(provider?.protocol ?? 'anthropic')
@@ -210,6 +226,16 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   // 点空白处要 mousedown 和 click 都落在背景上才关，避免在输入框里拖选文字时松手在外面误关
   const backdropDown = useRef(false)
+  // 关设置、切分区也问（unsavedEdits.tsx）
+  useUnsavedCheck(() =>
+    shouldConfirmClose({
+      initial: initialDraft.current,
+      current: draft,
+      newModel,
+      contextInvalid,
+      contextDirty: models.some(m => dirtyContext.has(m.id)),
+    }),
+  )
   const requestClose = (): void => {
     // 「新增模型」输入框里还有没添加的字、认不出的上下文长度也算没存的改动
     const contextDirty = models.some(m => dirtyContext.has(m.id))
@@ -235,30 +261,37 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
     if (!name.trim()) setName(t === 'anthropic' ? 'Anthropic' : 'OpenAI')
   }
 
-  const input = (): ProviderInput | null => {
-    const parsed = parseHeaderLines(headersText)
+  const input = (d: ProviderDraft = draft): ProviderInput | null => {
+    const parsed = parseHeaderLines(d.headersText)
     if (parsed.bad) {
       setError(tr('customApi.headersBad', { p0: parsed.bad }))
       return null
     }
     return {
       ...(provider ? { id: provider.id } : {}),
-      name,
-      template,
-      protocol,
-      baseUrl,
-      auth,
-      models,
+      name: d.name,
+      template: d.template,
+      protocol: d.protocol,
+      baseUrl: d.baseUrl,
+      auth: d.auth,
+      models: d.models,
       // 只发还在模型列表里的后台小模型
-      smallModel: protocol === 'anthropic' && smallModel && models.some(m => m.id === smallModel) ? smallModel : null,
-      modelFallback: fallback,
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      smallModel:
+        d.protocol === 'anthropic' && d.smallModel && d.models.some(m => m.id === d.smallModel) ? d.smallModel : null,
+      modelFallback: d.fallback,
+      ...(d.apiKey.trim() ? { apiKey: d.apiKey.trim() } : {}),
       headers: parsed.headers,
     }
   }
 
   const run = async (kind: 'save' | 'test' | 'models'): Promise<void> => {
-    const data = input()
+    // 对话框开着时这个接口在别处（另一个设置窗口）改过：保存时这边没动的字段用最新的
+    const latest = provider && providers.providers.find(p => p.id === provider.id)
+    const data = input(
+      kind === 'save' && latest && latest.updatedAt !== provider.updatedAt
+        ? mergeLatest(initialDraft.current, draft, draftOf(latest))
+        : draft,
+    )
     if (!data) return
     setBusy(kind)
     setError(null)
@@ -513,6 +546,10 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
                         label={tr('customApi.removeModel', { p0: m.id })}
                         onClick={() => {
                           setModels(models.filter(x => x.id !== m.id))
+                          // 一并去掉这个模型的「填错 / 改过」标记：再加回同名模型时不会残留，保存一直灰着
+                          const without = (prev: ReadonlySet<string>) => new Set([...prev].filter(id => id !== m.id))
+                          setBadContext(without)
+                          setDirtyContext(without)
                           // 删的是后台小模型：回到「默认」，别让下拉框显示空、保存时还带着删掉的模型
                           if (smallModel === m.id) setSmallModel(null)
                         }}

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Check, Circle, Copy, ListChecks, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { Button, IconButton, Select } from '@/ui'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { useEngineState } from '@/features/engine'
@@ -12,6 +13,8 @@ import { TaskInbox } from './inbox/TaskInbox'
 import type { ManualTask, TaskState } from '../../../../shared/types/project-tools'
 import { demo as demoData } from '@/data/demo'
 import { TASK_DRAG_TYPE, pinTask, startTaskDrag, usePinnedTasks } from './pinnedTasks'
+import { changedTaskFields, type TaskForm } from '@/features/board/taskPatch'
+import { ListInput } from './ListInput'
 const EMPTY: TaskState = { tasks: [], plans: [] }
 const blank = {
   title: '',
@@ -21,6 +24,8 @@ const blank = {
   due: '',
   tags: [] as string[],
 }
+/** 没保存的任务表单按项目暂存（切换项目会整块重建任务面板），只在内存里，重启不留 */
+const drafts = new Map<string, { editing: string | null; form: typeof blank; origin: TaskForm }>()
 const statusKey = {
   pending: 'projectTools.pending',
   in_progress: 'projectTools.inProgress',
@@ -72,9 +77,35 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
     })
     return () => cancelAnimationFrame(frame)
   }, [location?.seq, data.tasks])
-  const [editing, setEditing] = useState<string | null>(null),
-    [form, setForm] = useState(blank),
-    [showForm, setShowForm] = useState(false)
+  // 切走项目、关掉右栏时暂存的表单：回来接着填
+  const kept = drafts.get(projectId)
+  const [editing, setEditing] = useState<string | null>(kept?.editing ?? null),
+    [form, setForm] = useState(kept?.form ?? blank),
+    // 打开编辑时的样子：保存时只发改过的字段（changedTaskFields）
+    origin = useRef<TaskForm>(kept?.origin ?? blank),
+    [showForm, setShowForm] = useState(!!kept),
+    // 表单有没保存的改动时，换去编辑别的（添加、另一个任务的铅笔、转成待办）先问一句
+    [pendingOpen, setPendingOpen] = useState<(() => void) | null>(null)
+  const openForm = (id: string | null, next: TaskForm): void => {
+    const open = (): void => {
+      setEditing(id)
+      setForm({ ...blank, ...next })
+      origin.current = next
+      setShowForm(true)
+    }
+    if (showForm && Object.keys(changedTaskFields(origin.current, form)).length > 0) setPendingOpen(() => open)
+    else open()
+  }
+  const latest = useRef({ editing, form, showForm })
+  latest.current = { editing, form, showForm }
+  useEffect(() => {
+    drafts.delete(projectId)
+    return () => {
+      const l = latest.current
+      if (l.showForm && Object.keys(changedTaskFields(origin.current, l.form)).length > 0)
+        drafts.set(projectId, { editing: l.editing, form: l.form, origin: origin.current })
+    }
+  }, [])
   const { busy, error, setError, run } = useOperation()
   // 固定到左侧栏（docs/ui/files-search-terminal-pins.md §5）
   const pins = usePinnedTasks()
@@ -143,7 +174,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
         setData(d => ({
           ...d,
           tasks: editing
-            ? d.tasks.map(t => (t.id === editing ? { ...t, ...form } : t))
+            ? d.tasks.map(t => (t.id === editing ? { ...t, ...changedTaskFields(origin.current, form) } : t))
             : [
                 ...d.tasks,
                 {
@@ -157,8 +188,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
               ],
         }))
       else {
-        if (editing)
-          await window.pixelsky!.projectTools.updateTask(editing, { ...form, tags: form.tags.filter(Boolean) })
+        if (editing) await window.pixelsky!.projectTools.updateTask(editing, changedTaskFields(origin.current, form))
         else await window.pixelsky!.projectTools.createTask(projectId, { ...form, tags: form.tags.filter(Boolean) })
         await reload()
       }
@@ -227,15 +257,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
           ]}
           onChange={setSource}
         />
-        <Button
-          onClick={() => {
-            setEditing(null)
-            setForm(blank)
-            setShowForm(true)
-          }}
-        >
-          {tr('projectTools.addTask')}
-        </Button>
+        <Button onClick={() => openForm(null, blank)}>{tr('projectTools.addTask')}</Button>
       </div>
       <input
         aria-label={tr('projectTools.searchTasks')}
@@ -296,11 +318,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
             />
           </Field>
           <Field label={tr('projectTools.tags')}>
-            <input
-              value={form.tags.join(', ')}
-              onChange={e => setForm({ ...form, tags: e.target.value.split(',').map(s => s.trim()) })}
-              className={FIELD}
-            />
+            <ListInput value={form.tags} onChange={tags => setForm({ ...form, tags })} className={FIELD} />
           </Field>
           <div className="flex gap-2">
             <Button type="submit" variant="primary" disabled={busy || !form.title.trim()}>
@@ -340,11 +358,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
                 <IconButton
                   icon={Copy}
                   label={tr('projectTools.copyToTask')}
-                  onClick={() => {
-                    setEditing(null)
-                    setForm({ ...blank, title: step.text })
-                    setShowForm(true)
-                  }}
+                  onClick={() => openForm(null, { ...blank, title: step.text })}
                 />
               </li>
             ))}
@@ -420,11 +434,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
                 icon={Pencil}
                 label={tr('projectTools.edit')}
                 disabled={busy}
-                onClick={() => {
-                  setEditing(task.id)
-                  setForm(task)
-                  setShowForm(true)
-                }}
+                onClick={() => openForm(task.id, task)}
               />
               <IconButton
                 icon={Trash2}
@@ -439,6 +449,21 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
         <p className="py-8 text-center text-list text-fg-muted">
           {loaded ? tr('projectTools.noTasks') : tr('projectTools.loading')}
         </p>
+      )}
+      {pendingOpen && (
+        <ConfirmDialog
+          title={tr('customApi.discardTitle')}
+          description={tr('ui.ConfirmDialog.unsaved')}
+          confirmLabel={tr('ui.ConfirmDialog.discard')}
+          cancelLabel={tr('ui.ConfirmDialog.keepEditing')}
+          busy={false}
+          danger
+          onConfirm={() => {
+            pendingOpen()
+            setPendingOpen(null)
+          }}
+          onCancel={() => setPendingOpen(null)}
+        />
       )}
     </div>
   )

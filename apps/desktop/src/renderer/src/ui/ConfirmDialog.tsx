@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from './cn'
+import { DiscardBar } from './DiscardBar'
 export function ConfirmDialog({
   title,
   description,
@@ -13,6 +14,7 @@ export function ConfirmDialog({
   focusInput,
   confirmDisabled,
   extra,
+  dirty,
   onConfirm,
   onCancel,
 }: {
@@ -29,6 +31,8 @@ export function ConfirmDialog({
   confirmDisabled?: boolean
   /** 取消和确认之间的第三个按钮（比如「打开 Git 面板」） */
   extra?: { label: string; onClick: () => void }
+  /** 弹窗里是表单且有没保存的改动：取消 / Esc / 点背景先在弹窗里问一句「放弃改动？」，不直接关 */
+  dirty?: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -36,8 +40,14 @@ export function ConfirmDialog({
     cancel = useRef<HTMLButtonElement>(null),
     titleId = useId(),
     descriptionId = useId(),
-    callbacks = useRef({ onCancel, busy })
-  callbacks.current = { onCancel, busy }
+    [asking, setAsking] = useState(false)
+  const requestCancel = (): void => {
+    if (busy) return
+    if (dirty && !asking) setAsking(true)
+    else onCancel()
+  }
+  const callbacks = useRef({ requestCancel, asking })
+  callbacks.current = { requestCancel, asking }
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const input = focusInput ? ref.current?.querySelector<HTMLInputElement>('input') : null
@@ -47,9 +57,14 @@ export function ConfirmDialog({
     } else cancel.current?.focus({ preventScroll: true })
     const key = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        // 输入法候选框里的 Esc、弹窗里展开着的下拉菜单的 Esc 交给它们自己（只收起菜单），不关整个弹窗
+        const target = event.target as HTMLElement | null
+        if (event.isComposing || target?.closest?.('[aria-haspopup][aria-expanded="true"],[role="listbox"]')) return
         event.preventDefault()
         event.stopPropagation()
-        if (!callbacks.current.busy) callbacks.current.onCancel()
+        // 正在问「放弃改动？」时 Esc 是回去继续编辑
+        if (callbacks.current.asking) setAsking(false)
+        else callbacks.current.requestCancel()
       }
       if (event.key === 'Tab') {
         const items = [
@@ -86,7 +101,7 @@ export function ConfirmDialog({
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-4"
       onMouseDown={event => {
-        if (event.target === event.currentTarget && !busy) onCancel()
+        if (event.target === event.currentTarget) requestCancel()
       }}
     >
       <div
@@ -110,11 +125,12 @@ export function ConfirmDialog({
             {error}
           </p>
         )}
+        {asking && <DiscardBar onKeep={() => setAsking(false)} onDiscard={onCancel} />}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button
             ref={cancel}
             disabled={busy}
-            onClick={onCancel}
+            onClick={requestCancel}
             className="press rounded-md border border-line px-3 py-2 text-ui hover:bg-hover disabled:opacity-50"
           >
             {cancelLabel}

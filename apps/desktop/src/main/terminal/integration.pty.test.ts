@@ -8,6 +8,8 @@ import * as pty from 'node-pty'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { POWERSHELL_SCRIPT, shellIntegration, writeIntegrationFiles } from './integration'
+import { writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { TerminalManager } from './manager'
 import type { TerminalEvent } from '../../shared/types/terminal'
 import { createMarkParser, type ShellMark } from './shellMarks'
@@ -267,6 +269,41 @@ describe.skipIf(!PWSH)('经过 TerminalManager（真实 pwsh）', () => {
     } finally {
       await manager.shutdown().catch(() => {})
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// 中文 Windows 默认 GBK：UTF-8 文件用 type 读出来会是「涓枃」。选 UTF-8 后应该原样显示
+describe.skipIf(!SHELLS.length)('终端编码选 UTF-8：UTF-8 文件里的中文不乱码', () => {
+  it.each(SHELLS)('$name', async ({ command }) => {
+    // 临时目录放仓库根目录的 scratch/（AGENTS.md §2）
+    const dir = mkdtempSync(fileURLToPath(new URL('../../../../../scratch/pty-utf8-', import.meta.url)))
+    try {
+      writeFileSync(join(dir, 'u8.txt'), '中文编码测试', 'utf8')
+      const env = terminalEnvironment({ ...process.env, NoDefaultCurrentDirectoryInExePath: undefined })
+      const integration = shellIntegration({ command, args: ['-NoLogo', '-NoProfile'] }, null, env, 'win32', true)!
+      const child = pty.spawn(command, integration.args, { cols: 120, rows: 30, cwd: dir, env, useConpty: true })
+      let text = ''
+      child.onData(d => (text += d))
+      const exited = new Promise<void>(r => child.onExit(() => r()))
+      try {
+        const end = Date.now() + 30000
+        let sent = false
+        while (!text.includes('中文编码测试')) {
+          if (Date.now() > end) throw new Error('等不到中文：' + JSON.stringify(text.slice(-300)))
+          if (!sent && text.includes(']633;A')) {
+            child.write('cmd /c type u8.txt\r')
+            sent = true
+          }
+          await new Promise(r => setTimeout(r, 100))
+        }
+      } finally {
+        child.kill()
+        // shell 的工作目录就是 dir：退出后才删得掉
+        await Promise.race([exited, new Promise(r => setTimeout(r, 5000))])
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
     }
   })
 })

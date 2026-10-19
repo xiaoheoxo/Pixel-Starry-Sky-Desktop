@@ -12,6 +12,7 @@ import { channelActions, selfIdIn, useChannels } from './store'
 import { formatLastSeen } from './format'
 import { PresenceDot, PresenceAvatar, roleLabel, roleOptions } from './TeamParts'
 import { canManageTeam, inviteDaysLeft, isValidEmail, normalizeEmail, sortTeamMembers } from './teamModel'
+import { useFollowedDraft } from '@/ui/useFollowedDraft'
 
 const INPUT =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg outline-none focus:border-accent-line focus:ring-2 focus:ring-composer-ring disabled:opacity-60'
@@ -145,11 +146,15 @@ function TeamSettings({
   const [email, setEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<Exclude<TeamRole, 'owner'>>('member')
   const [inviteError, setInviteError] = useState<string | null>(null)
-  const [teamName, setTeamName] = useState(team.name)
-  const [displayName, setDisplayName] = useState(self?.name ?? '')
+  // 打开时成员可能还没加载完、团队名可能在别处改了：没动过的框跟着最新值
+  const [teamName, setTeamName] = useFollowedDraft(team.name)
+  const [displayName, setDisplayName] = useFollowedDraft(self?.name ?? '')
   const [confirm, setConfirm] = useState<Confirm>(null)
   const [typed, setTyped] = useState('')
   confirming.current = confirm !== null
+  // Esc 和点背景一样：保存 / 邀请进行中不关
+  const busyRef = useRef(busy)
+  busyRef.current = busy
   const now = Date.now()
   const sorted = useMemo(() => sortTeamMembers(team.members, names), [team.members, names])
 
@@ -158,7 +163,7 @@ function TeamSettings({
     if (focusInvite) inviteInput.current?.focus()
     else box.current?.focus()
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !confirming.current) {
+      if (event.key === 'Escape' && !event.isComposing && !confirming.current && !busyRef.current) {
         event.preventDefault()
         event.stopPropagation()
         onClose()

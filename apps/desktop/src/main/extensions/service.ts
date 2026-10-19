@@ -185,7 +185,7 @@ export class ExtensionService {
       name: data.name,
       description: data.description ?? '',
       scope: data.scope,
-      enabled: data.enabled !== false,
+      enabled: data.enabled ?? existing?.enabled ?? true,
       origin: 'managed',
       source: existing?.source ?? { kind: 'created', location: '' },
       sourceDigest: existing?.sourceDigest,

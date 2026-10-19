@@ -80,7 +80,8 @@ export function input(v: unknown): ExtensionInput {
     name: extensionName(o.name),
     scope: scope(o.scope),
     description: typeof o.description === 'string' ? o.description.slice(0, 4000) : '',
-    enabled: o.enabled !== false,
+    // 没传就留空：编辑已有项时沿用已存的开关（列表里的开关可能在表单开着时单独改过）
+    ...(o.enabled === undefined ? {} : { enabled: o.enabled !== false }),
   }
   if (o.engines !== undefined) {
     if (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isProviderDraftDirty, shouldConfirmClose, type ProviderDraft } from './providerDraft'
+import { isProviderDraftDirty, mergeLatest, shouldConfirmClose, type ProviderDraft } from './providerDraft'
 
 const base = (): ProviderDraft => ({
   template: 'custom',
@@ -65,5 +65,22 @@ describe('shouldConfirmClose', () => {
   })
   it('「新增模型」框里有字：要确认', () => {
     expect(run({ newModel: 'm2' })).toBe(true)
+  })
+})
+
+describe('mergeLatest：保存前合上别处的改动', () => {
+  it('这边没动的字段用最新的，动过的用这边的', () => {
+    const initial = base()
+    const latest = { ...base(), name: '别处改的名字', fallback: !initial.fallback }
+    const current = { ...base(), baseUrl: 'https://example.com/v1' }
+    expect(mergeLatest(initial, current, latest)).toEqual({ ...latest, baseUrl: 'https://example.com/v1' })
+  })
+  it('模型列表：这边没动就用最新的；Key 只看这边填的', () => {
+    const initial = base()
+    const latest = { ...base(), models: [{ id: 'new-model' }], apiKey: '' }
+    const current = { ...base(), apiKey: 'sk-new' }
+    const merged = mergeLatest(initial, current, latest)
+    expect(merged.models).toEqual([{ id: 'new-model' }])
+    expect(merged.apiKey).toBe('sk-new')
   })
 })

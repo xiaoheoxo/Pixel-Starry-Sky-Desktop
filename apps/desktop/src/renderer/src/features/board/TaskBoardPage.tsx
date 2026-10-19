@@ -18,6 +18,8 @@ import { pinTask } from '@/features/panel/pinnedTasks'
 import { resolveDemoInbox } from '@/features/panel/inbox/useInbox'
 import { FIELD, Field, useOperation, useRemember } from '@/features/panel/ToolsUi'
 import type { ManualTask } from '../../../../shared/types/project-tools'
+import { changedTaskFields } from './taskPatch'
+import { ListInput } from '@/features/panel/ListInput'
 import { AiCard, TaskCard } from './BoardCards'
 import { STATUS_OF, buildColumns, type BoardKind, type ColumnId } from './boardModel'
 import { createBoardTask, deleteBoardTask, markDemoPinned, updateBoardTask, useBoardTasks } from './boardTasks'
@@ -174,7 +176,8 @@ export function TaskBoardPage() {
     if (!editing || !editing.form.title.trim()) return
     const { task, form } = editing
     void run(async () => {
-      await updateBoardTask(task.id, { ...form, title: form.title.trim(), tags: form.tags.filter(Boolean) })
+      // 只发改过的字段：弹窗开着时状态可能已在别处（右栏、侧栏固定项、手机）改过
+      await updateBoardTask(task.id, changedTaskFields(formOf(task), form))
       setEditing(null)
     })
   }
@@ -536,14 +539,9 @@ export function TaskBoardPage() {
                 />
               </Field>
               <Field label={tr('projectTools.tags')}>
-                <input
-                  value={editing.form.tags.join(', ')}
-                  onChange={e =>
-                    setEditing({
-                      ...editing,
-                      form: { ...editing.form, tags: e.target.value.split(',').map(s => s.trim()) },
-                    })
-                  }
+                <ListInput
+                  value={editing.form.tags}
+                  onChange={tags => setEditing({ ...editing, form: { ...editing.form, tags } })}
                   className={FIELD}
                 />
               </Field>

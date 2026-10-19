@@ -4,6 +4,7 @@ import {
   DEFAULT_SUBAGENT_SETTINGS,
   type SubagentSettings,
   type SubagentTarget,
+  type SubagentType,
 } from '../../../../shared/types/subagents'
 import type { ProviderView } from '../../../../shared/types/providers'
 import type { PlatformGroup } from '@/features/account/platform'
@@ -79,4 +80,18 @@ export function targetProblem(
   const group = platform.groups.find(g => g.id === target.groupId)
   if (!group) return 'routeGone'
   return group.models.length && !group.models.includes(target.model) ? 'modelGone' : null
+}
+
+/**
+ * 编辑区「保存」后的类型列表：新建的追加在最后；已有的整个换成编辑结果，但启用状态只认卡片开关
+ * （编辑期间开关可能已单独保存过，草稿里的是打开编辑区时的旧值）
+ */
+export function savedTypes(
+  types: readonly SubagentType[],
+  id: string,
+  next: SubagentType,
+  isNew: boolean,
+): SubagentType[] {
+  if (isNew) return [...types, next]
+  return types.map(t => (t.id === id ? { ...next, enabled: t.enabled } : t))
 }

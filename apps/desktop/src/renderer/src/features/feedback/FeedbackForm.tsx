@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { Button, cn } from '@/ui'
+import { DiscardBar } from '@/ui/DiscardBar'
 import {
   FEEDBACK_LIMITS,
   type FeedbackDetail,
@@ -99,6 +100,8 @@ export function FeedbackForm({
   const [includeError, setIncludeError] = useState(true)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  // 文字有本地草稿兜底，粘贴 / 拖进来的图片没有：带着图片取消先问一句
+  const [asking, setAsking] = useState(false)
   // 第一次点提交以后才在对应框下面显示红字，之后实时更新
   const [attempted, setAttempted] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -334,7 +337,7 @@ export function FeedbackForm({
               {reasonText(reason)}
             </span>
           )}
-          <Button onClick={onCancel} disabled={busy}>
+          <Button onClick={() => (images.images.length ? setAsking(true) : onCancel())} disabled={busy}>
             {tr('feedback.form.cancel')}
           </Button>
           <Button variant="primary" type="submit" disabled={busy || reason?.code === 'previewing'}>
@@ -342,6 +345,7 @@ export function FeedbackForm({
             {!busy && <span className="ml-1.5 font-mono text-label opacity-70">{SEND_HINT}</span>}
           </Button>
         </div>
+        {asking && <DiscardBar onKeep={() => setAsking(false)} onDiscard={onCancel} />}
       </div>
     </form>
   )

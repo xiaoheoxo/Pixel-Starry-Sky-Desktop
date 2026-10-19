@@ -1,6 +1,6 @@
 // 设置 › 子智能体的一个类型（样式稿 docs/ui/subagent-types-mockup.html）：摘要卡片（图标、名称、说明、站点 / 权限 / 时长），
 // 点开在原地编辑；改的是草稿，点保存才写进设置
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
   Bot,
   ChevronDown,
@@ -113,6 +113,7 @@ export function SubagentTypeCard({
   onCancel,
   onDelete,
   onCopy,
+  onDirty,
   openChannels,
 }: {
   type: SubagentType
@@ -127,7 +128,10 @@ export function SubagentTypeCard({
   onSave: (next: SubagentType) => void
   onCancel: () => void
   onDelete: () => void
-  onCopy: () => void
+  /** 复制：带上编辑区里当前的内容（还没保存的改动也算） */
+  onCopy: (from: SubagentType) => void
+  /** 编辑区有没有没保存的改动（切到别的卡片、新建前要先问） */
+  onDirty?: (dirty: boolean) => void
   openChannels: () => void
 }) {
   useI18n()
@@ -215,6 +219,7 @@ export function SubagentTypeCard({
           onCancel={onCancel}
           onDelete={onDelete}
           onCopy={onCopy}
+          onDirty={onDirty}
           openChannels={openChannels}
         />
       )}
@@ -246,6 +251,7 @@ function TypeEditor({
   onCancel,
   onDelete,
   onCopy,
+  onDirty,
   openChannels,
 }: {
   type: SubagentType
@@ -255,7 +261,8 @@ function TypeEditor({
   onSave: (next: SubagentType) => void
   onCancel: () => void
   onDelete: () => void
-  onCopy: () => void
+  onCopy: (from: SubagentType) => void
+  onDirty?: (dirty: boolean) => void
   openChannels: () => void
 }) {
   const builtin = isBuiltinSubagentType(type.id)
@@ -264,6 +271,12 @@ function TypeEditor({
   const [routing, setRouting] = useState(!!type.target)
   const [error, setError] = useState<string | null>(null)
   const set = (patch: Partial<SubagentType>) => setDraft(d => ({ ...d, ...patch }))
+  // 和打开时比（启用状态只认卡片开关，不算）；关掉编辑区时清掉
+  const dirty =
+    JSON.stringify({ ...draft, enabled: true }) !== JSON.stringify({ ...type, enabled: true }) ||
+    routing !== !!type.target
+  useEffect(() => onDirty?.(dirty), [dirty, onDirty])
+  useEffect(() => () => onDirty?.(false), [onDirty])
   const { providers, groups } = sites
   const target = draft.target
 
@@ -477,7 +490,7 @@ function TypeEditor({
             >
               {tr('subagentRoute.delete')}
             </button>
-            <Button variant="ghost" onClick={onCopy}>
+            <Button variant="ghost" onClick={() => onCopy(draft)}>
               {tr('subagentRoute.copy')}
             </Button>
           </>
@@ -487,7 +500,7 @@ function TypeEditor({
             variant="ghost"
             onClick={() => {
               const d = BUILTIN_SUBAGENT_TYPES.find(t => t.id === type.id)!
-              setDraft({ ...d, enabled: draft.enabled })
+              setDraft({ ...d, enabled: type.enabled })
               setRouting(false)
             }}
           >

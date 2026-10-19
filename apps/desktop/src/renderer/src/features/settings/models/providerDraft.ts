@@ -55,3 +55,20 @@ export function isProviderDraftDirty(initial: ProviderDraft, current: ProviderDr
   for (const key of Object.keys(restA) as (keyof typeof restA)[]) if (restA[key] !== restB[key]) return true
   return normalizeModels(a) !== normalizeModels(b)
 }
+
+/**
+ * 保存前合上别处的改动：对话框开着时，同一个接口可能在另一个设置窗口里改过并保存了。
+ * 这边没动过的字段换成最新的，动过的照用这边的，免得整份发出去把别处刚存的冲回旧值
+ */
+export function mergeLatest(initial: ProviderDraft, current: ProviderDraft, latest: ProviderDraft): ProviderDraft {
+  const merged = { ...current }
+  for (const key of Object.keys(current) as (keyof ProviderDraft)[]) {
+    if (key === 'apiKey') continue
+    const same =
+      key === 'models'
+        ? normalizeModels(initial.models) === normalizeModels(current.models)
+        : initial[key] === current[key]
+    if (same) Object.assign(merged, { [key]: latest[key] })
+  }
+  return merged
+}

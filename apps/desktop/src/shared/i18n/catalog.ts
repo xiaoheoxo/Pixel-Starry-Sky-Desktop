@@ -1952,6 +1952,18 @@ export const catalog = {
     "zh": "收起侧边栏",
     "en": "Collapse sidebar"
   },
+  "ui.ConfirmDialog.unsaved": {
+    "zh": "刚填的内容还没保存，关掉会丢失。",
+    "en": "What you entered is not saved and will be lost if you close."
+  },
+  "ui.ConfirmDialog.keepEditing": {
+    "zh": "继续编辑",
+    "en": "Keep editing"
+  },
+  "ui.ConfirmDialog.discard": {
+    "zh": "放弃改动",
+    "en": "Discard changes"
+  },
   "ui.Chip.remove": {
     "zh": "移除",
     "en": "Remove"

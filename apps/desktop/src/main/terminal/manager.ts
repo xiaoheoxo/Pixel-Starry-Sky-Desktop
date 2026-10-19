@@ -7,6 +7,7 @@ import type {
   TerminalEvent,
   TerminalProfile,
   TerminalProfileInput,
+  TerminalEncoding,
   TerminalRecord,
   TerminalState,
 } from '../../shared/types/terminal'
@@ -90,6 +91,8 @@ export class TerminalManager {
   /** 用户存在 terminals.json 里的默认 Shell；检测完重算 defaultId 时优先采用 */
   private storedDefault: string | null = null
   private defaultId = ''
+  /** 控制台编码（只对 Windows 的 PowerShell / cmd 生效），存在 terminals.json */
+  private encoding: TerminalEncoding = 'utf8'
   /** 正在跑的后台检测；没在跑为 null */
   private detecting: Promise<void> | null = null
   private profileListeners = new Set<() => void>()
@@ -130,6 +133,7 @@ export class TerminalManager {
       this.builtinKnown = builtin.length > 0
       this.profiles = [...builtin, ...custom]
       if (typeof data.defaultProfileId === 'string' && data.defaultProfileId) this.storedDefault = data.defaultProfileId
+      if (data.encoding === 'system') this.encoding = 'system'
       const ids = new Set<string>()
       for (const raw of Array.isArray(data.terminals) ? data.terminals.slice(0, 12) : []) {
         if (
@@ -236,6 +240,7 @@ export class TerminalManager {
         version: 1,
         // 没存过用户选择时不写计算出来的默认值，这样之后装了 PowerShell 7 之类能自动换成更好的
         defaultProfileId: this.storedDefault ?? undefined,
+        encoding: this.encoding === 'utf8' ? undefined : this.encoding,
         profileCache: this.builtinKnown
           ? this.profiles.map(p => ({
               id: p.id,
@@ -274,7 +279,14 @@ export class TerminalManager {
       terminals: this.records
         .filter(r => !this.owners.has(r.id) || this.owners.get(r.id) === owner)
         .map(r => ({ ...r })),
+      ...(process.platform === 'win32' ? { encoding: this.encoding } : {}),
     }
+  }
+  /** 改控制台编码：新开（含重启）的终端才生效，已开着的不动 */
+  async setEncoding(owner: number, encoding: TerminalEncoding): Promise<TerminalState> {
+    this.encoding = encoding
+    await this.save()
+    return this.state(owner)
   }
   private record(owner: number, id: string): TerminalRecord {
     const r = this.records.find(r => r.id === id)
@@ -376,7 +388,7 @@ export class TerminalManager {
       const env = terminalEnvironment(process.env)
       let integration: ShellIntegration | null = null
       try {
-        integration = shellIntegration(profile, this.integrationDir, env)
+        integration = shellIntegration(profile, this.integrationDir, env, process.platform, this.encoding === 'utf8')
       } catch {
         /* 注入出错就当没有，shell 照常启动 */
       }

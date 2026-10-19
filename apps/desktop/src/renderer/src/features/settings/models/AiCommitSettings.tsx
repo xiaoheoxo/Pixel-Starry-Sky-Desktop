@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Segmented, Select } from '@/ui'
+import { useUnmountFlush } from '@/ui/useUnmountFlush'
 import { formatMultiplier, groupsForModel, platformModels, usePlatform } from '@/features/account/platform'
 import { useProviders } from '@/features/account/providers'
 import {
@@ -32,6 +33,11 @@ export function AiCommitSettings() {
   // 额外要求：边打边存会频繁写 localStorage，离开输入框再存
   const [instructions, setInstructions] = useState(writing.instructions)
   useEffect(() => setInstructions(writing.instructions), [writing.instructions])
+  const saveInstructions = (): void => {
+    unsaved.current = false
+    if (instructions !== writing.instructions) setAiCommitWriting({ instructions })
+  }
+  const unsaved = useUnmountFlush(saveInstructions)
 
   return (
     <div>
@@ -134,8 +140,11 @@ export function AiCommitSettings() {
           rows={2}
           aria-label={tr('aiCommit.settings.instructions')}
           placeholder={tr('aiCommit.settings.instructionsPlaceholder')}
-          onChange={e => setInstructions(e.target.value)}
-          onBlur={() => instructions !== writing.instructions && setAiCommitWriting({ instructions })}
+          onChange={e => {
+            setInstructions(e.target.value)
+            unsaved.current = true
+          }}
+          onBlur={saveInstructions}
           className="block max-h-40 min-h-14 w-full max-w-xl resize-y rounded-md border border-line bg-surface px-2.5 py-2 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent"
         />
       </SettingRow>

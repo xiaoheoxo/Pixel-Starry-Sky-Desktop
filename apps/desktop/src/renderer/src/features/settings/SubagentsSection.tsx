@@ -1,15 +1,17 @@
 // 设置 › 子智能体（docs/ui/subagent-routing.md，样式稿 docs/ui/subagent-types-mockup.html、subagent-settings-v2-mockup.html）：
 // 像素星空引擎的子智能体分类型，每个类型单独选站点和模型、工具权限。宽时两栏：左边类型和「从模板新建」，
 // 右边所有类型通用的设置和主会话看到的类型说明；窄时叠成一栏
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Info, Network, Plus } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Button, Segmented, Switch } from '@/ui'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { usePlatform } from '@/features/account/platform'
 import { useProviders } from '@/features/account/providers'
-import { setSubagentSettings, useSubagentSettings } from './subagents'
+import { savedTypes, setSubagentSettings, useSubagentSettings } from './subagents'
 import { SubagentTypeCard, TYPE_ICONS, minutesLabel, typeName, type SiteContext } from './SubagentTypeCard'
+import { useUnsavedCheck } from './unsavedEdits'
 import {
   SUBAGENT_TEMPLATES,
   TASK_TYPES_HEADER,
@@ -49,6 +51,18 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
   /** 新建 / 复制出来、还没保存的类型 */
   const [draft, setDraft] = useState<SubagentType | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // 正在编辑的卡片有没有没保存的改动；切到别的卡片、新建、复制前先问，不静默丢掉
+  const dirty = useRef(false)
+  const markDirty = useCallback((d: boolean) => {
+    dirty.current = d
+  }, [])
+  const [pending, setPending] = useState<(() => void) | null>(null)
+  // 关设置、切分区时也问（unsavedEdits.tsx）
+  useUnsavedCheck(() => dirty.current)
+  const guard = (action: () => void): void => {
+    if (dirty.current) setPending(() => action)
+    else action()
+  }
   const save = (patch: Partial<SubagentSettings>): Promise<boolean> => {
     setError(null)
     return setSubagentSettings(patch).then(
@@ -86,7 +100,12 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
     )
     setOpen(NEW_ID)
   }
-  const cards = [...settings.types, ...(draft ? [draft] : [])]
+  // 正在编辑的类型在别处（另一个窗口、手机）被删了：卡片留着、编辑内容不丢，保存时当新类型重新建出来
+  const editingType = useRef<SubagentType | null>(null)
+  const current = open && open !== NEW_ID ? settings.types.find(t => t.id === open) : undefined
+  if (current) editingType.current = current
+  const gone = open && open !== NEW_ID && !current && editingType.current?.id === open ? editingType.current : null
+  const cards = [...settings.types, ...(gone ? [gone] : []), ...(draft ? [draft] : [])]
 
   const lines = taskTypeLines(settings.types)
 
@@ -125,14 +144,19 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
               </h4>
               <p className="mt-0.5 text-meta text-fg-muted">{tr('subagentRoute.typesHint')}</p>
             </div>
-            <Button icon={Plus} variant="primary" disabled={!!draft} onClick={() => startNew()}>
+            <Button icon={Plus} variant="primary" disabled={!!draft} onClick={() => guard(() => startNew())}>
               {tr('subagentRoute.addType')}
             </Button>
           </div>
+          {gone && (
+            <p role="alert" className="mb-2 rounded-lg bg-warn/10 px-3 py-2 text-meta text-fg-secondary">
+              {tr('subagentRoute.deletedElsewhere', { name: typeName(gone) })}
+            </p>
+          )}
           <div className="flex flex-col gap-2">
             {cards.map((type, index) => {
-              const isNew = draft === type
-              const key = isNew ? NEW_ID : type.id
+              const isNew = draft === type || gone === type
+              const key = draft === type ? NEW_ID : type.id
               return (
                 <SubagentTypeCard
                   key={key}
@@ -144,15 +168,17 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
                   takenIds={isNew ? ids : ids.filter(id => id !== type.id)}
                   onToggle={() => {
                     if (isNew) return
-                    setDraft(null)
-                    setOpen(open === key ? null : key)
+                    guard(() => {
+                      setDraft(null)
+                      setOpen(open === key ? null : key)
+                    })
                   }}
                   onEnable={enabled =>
                     void save({ types: settings.types.map(t => (t.id === type.id ? { ...t, enabled } : t)) })
                   }
                   onSave={next =>
                     void save({
-                      types: isNew ? [...settings.types, next] : settings.types.map(t => (t.id === type.id ? next : t)),
+                      types: savedTypes(settings.types, type.id, next, isNew),
                     }).then(ok => {
                       if (!ok) return
                       setDraft(null)
@@ -167,7 +193,8 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
                     setOpen(null)
                     void save({ types: settings.types.filter(t => t.id !== type.id) })
                   }}
-                  onCopy={() => startNew(type)}
+                  onCopy={from => guard(() => startNew(from))}
+                  onDirty={open === key ? markDirty : undefined}
                   openChannels={openChannels}
                 />
               )
@@ -191,7 +218,7 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
                   data-subagent-template={t.id}
                   disabled={used || !!draft}
                   title={used ? tr('subagentRoute.templateUsed') : undefined}
-                  onClick={() => startNew(undefined, t)}
+                  onClick={() => guard(() => startNew(undefined, t))}
                   className="flex items-start gap-2.5 rounded-lg border border-dashed border-line-card px-3 py-2.5 text-left hover:border-solid hover:bg-surface disabled:pointer-events-none disabled:opacity-45"
                 >
                   <span className="grid size-[26px] shrink-0 place-items-center rounded-md bg-subtle text-fg-secondary">
@@ -281,6 +308,23 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
         <p role="alert" className="mt-3 text-meta text-danger">
           {error}
         </p>
+      )}
+      {pending && (
+        <ConfirmDialog
+          title={tr('customApi.discardTitle')}
+          description={tr('subagentRoute.discardBody')}
+          confirmLabel={tr('customApi.discard')}
+          cancelLabel={tr('customApi.keepEditing')}
+          busy={false}
+          danger
+          onConfirm={() => {
+            const action = pending
+            setPending(null)
+            dirty.current = false
+            action()
+          }}
+          onCancel={() => setPending(null)}
+        />
       )}
     </div>
   )

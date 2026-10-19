@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ExtStoreReportInput, ExtStoreReportReason } from '@pixelsky/protocol'
 import { Button, cn } from '@/ui'
+import { DiscardBar } from '@/ui/DiscardBar'
 import { useI18n } from '@/i18n/I18nProvider'
 import { translateMessage } from '@/i18n/core'
 import { REPORT_DETAIL_MAX, REPORT_REASONS, reportInputOf, reportProblem, type ReportDraft } from './detailActions'
@@ -166,13 +167,21 @@ export function ReportDialog(props: ReportDialogProps) {
       alive.current = false
     }
   }, [])
-  const closeRef = useRef({ busy, onClose })
-  closeRef.current = { busy, onClose }
+  // 写了说明还没提交：Esc / 点背景 / 取消先问一句；正在问时 Esc 是回去继续写
+  const [asking, setAsking] = useState(false)
+  const requestClose = (): void => {
+    if (busy) return
+    if (!done && draft.detail.trim() && !asking) setAsking(true)
+    else onClose()
+  }
+  const closeRef = useRef({ requestClose, asking })
+  closeRef.current = { requestClose, asking }
   useEffect(() => {
     const key = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || event.isComposing) return
       event.stopPropagation()
-      if (!closeRef.current.busy) closeRef.current.onClose()
+      if (closeRef.current.asking) setAsking(false)
+      else closeRef.current.requestClose()
     }
     document.addEventListener('keydown', key, true)
     return () => document.removeEventListener('keydown', key, true)
@@ -196,7 +205,7 @@ export function ReportDialog(props: ReportDialogProps) {
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-4"
       onMouseDown={event => {
-        if (event.target === event.currentTarget && !busy) onClose()
+        if (event.target === event.currentTarget) requestClose()
       }}
     >
       <div
@@ -219,8 +228,9 @@ export function ReportDialog(props: ReportDialogProps) {
           onChange={setDraft}
           onSubmit={() => void submit()}
           onLogin={onLogin}
-          onClose={onClose}
+          onClose={requestClose}
         />
+        {asking && <DiscardBar onKeep={() => setAsking(false)} onDiscard={onClose} />}
       </div>
     </div>,
     document.body,

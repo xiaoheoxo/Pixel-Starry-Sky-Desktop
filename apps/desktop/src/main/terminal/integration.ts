@@ -154,6 +154,14 @@ const inDir = (dir: string, name: string, platform: NodeJS.Platform): string =>
   platform === 'win32' ? win32.join(dir, name).replaceAll('\\', '/') : posix.join(dir, name)
 
 /**
+ * 终端编码选 UTF-8 时（Windows 默认）：中文系统的控制台默认是 GBK（代码页 936），读 UTF-8 文件、
+ * 跑直接输出 UTF-8 的程序时中文会变成「涓枃」。PowerShell 把控制台输入输出和管道都换成 UTF-8；cmd 先 chcp 65001
+ */
+export const POWERSHELL_UTF8 =
+  'try { [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $global:OutputEncoding = [Console]::OutputEncoding } catch {}\n'
+export const CMD_UTF8 = 'chcp 65001>nul'
+
+/**
  * 这个终端该怎么注入；不支持（或 bash / zsh 的脚本没写成，dir 为 null）返回 null。
  * env 是将要传给 shell 的环境变量（取用户原有的 PROMPT、ZDOTDIR 用）
  */
@@ -162,6 +170,8 @@ export function shellIntegration(
   dir: string | null,
   env: Readonly<Record<string, string>>,
   platform: NodeJS.Platform = process.platform,
+  /** 控制台换成 UTF-8（只管 PowerShell 和 cmd，见 POWERSHELL_UTF8） */
+  utf8 = false,
 ): ShellIntegration | null {
   const kind = integrationKind(profile)
   if (kind === 'powershell')
@@ -171,7 +181,7 @@ export function shellIntegration(
         ...profile.args,
         '-NoExit',
         '-EncodedCommand',
-        Buffer.from(POWERSHELL_SCRIPT, 'utf16le').toString('base64'),
+        Buffer.from((utf8 ? POWERSHELL_UTF8 : '') + POWERSHELL_SCRIPT, 'utf16le').toString('base64'),
       ],
       env: {},
       exitCodes: true,
@@ -182,9 +192,11 @@ export function shellIntegration(
     const own = '\u001b]633;A\u0007'
     const key = Object.keys(env).find(k => k.toLowerCase() === 'prompt')
     const base = (key && env[key]) || '$P$G'
+    // 自己带了 /c、/k 的不再加 /k
+    const runs = profile.args.some(a => /^\/[ck]$/i.test(a))
     return {
       kind,
-      args: profile.args,
+      args: utf8 && !runs ? [...profile.args, '/k', CMD_UTF8] : profile.args,
       env: { PROMPT: base.includes(own) ? base : '$E]633;A\u0007' + base },
       exitCodes: false,
     }

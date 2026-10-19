@@ -129,6 +129,14 @@ export const subagentRouteMessages = {
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
   'subagentRoute.hour': { zh: '1 小时', en: '1 hour' },
   'subagentRoute.saveFailed': { zh: '没有保存：{error}', en: 'Not saved: {error}' },
+  'subagentRoute.deletedElsewhere': {
+    zh: '正在编辑的「{name}」已在别处删除。点保存会把它重新建出来，点取消就放弃。',
+    en: '"{name}" was deleted elsewhere while you were editing it. Save to create it again, or cancel to discard.',
+  },
+  'subagentRoute.discardBody': {
+    zh: '正在编辑的类型还没保存，离开后刚改的内容会丢失。',
+    en: 'The type you are editing is not saved. Leaving will lose your changes.',
+  },
   // 改版（docs/ui/subagent-settings-v2-mockup.html）：两栏、从模板新建、主会话看到的类型说明
   'subagentRoute.scopeShort': { zh: '只对像素星空引擎生效', en: 'Pixel Starry Sky engine only' },
   'subagentRoute.count': { zh: '{n} / {max}', en: '{n} / {max}' },

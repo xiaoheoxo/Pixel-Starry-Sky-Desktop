@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   BASH_SCRIPT,
+  CMD_UTF8,
   integrationKind,
+  POWERSHELL_UTF8,
   POWERSHELL_SCRIPT,
   shellIntegration,
   writeIntegrationFiles,
@@ -51,6 +53,29 @@ describe('PowerShell 注入', () => {
     expect(POWERSHELL_SCRIPT).toContain("ExecutionStatus -eq 'Stopped'")
     expect(POWERSHELL_SCRIPT).toContain("Write-Error 'failure' -ErrorAction Ignore")
     expect(POWERSHELL_SCRIPT).not.toMatch(/\$(global:)?LASTEXITCODE\s*=[^=]/)
+  })
+})
+
+describe('终端编码选 UTF-8', () => {
+  it('PowerShell：先换控制台编码再包 prompt；不选不加', () => {
+    const on = shellIntegration(profile('pwsh.exe', ['-NoLogo']), null, {}, 'win32', true)!
+    expect(Buffer.from(on.args[3], 'base64').toString('utf16le')).toBe(POWERSHELL_UTF8 + POWERSHELL_SCRIPT)
+    expect(POWERSHELL_UTF8).toContain('[Console]::OutputEncoding')
+    expect(POWERSHELL_UTF8).toContain('$global:OutputEncoding')
+    const off = shellIntegration(profile('pwsh.exe', ['-NoLogo']), null, {}, 'win32', false)!
+    expect(Buffer.from(off.args[3], 'base64').toString('utf16le')).toBe(POWERSHELL_SCRIPT)
+  })
+  it('cmd：启动时 /k chcp 65001；自己带了 /c、/k 的不加', () => {
+    expect(shellIntegration(profile('cmd.exe', ['/d']), null, {}, 'win32', true)!.args).toEqual(['/d', '/k', CMD_UTF8])
+    expect(shellIntegration(profile('cmd.exe', ['/d', '/K', 'init.bat']), null, {}, 'win32', true)!.args).toEqual([
+      '/d',
+      '/K',
+      'init.bat',
+    ])
+  })
+  it('bash / zsh 不受影响', () => {
+    const bash = shellIntegration(profile('/bin/bash', ['-l']), '/data/integration', {}, 'darwin', true)!
+    expect(bash.args).toEqual(shellIntegration(profile('/bin/bash', ['-l']), '/data/integration', {}, 'darwin')!.args)
   })
 })
 

@@ -34,10 +34,14 @@ export type TerminalEvent =
   | { type: 'prompt'; terminalId: string; generation: number; ran: boolean | null; exitCode: number | null }
   /** 后台检测完 Shell 列表（或默认 Shell）有变化：界面重新取一次终端状态 */
   | { type: 'profiles' }
+/** Windows 上 PowerShell / cmd 的控制台编码：utf8 = 启动时换成 UTF-8（默认）；system = 跟随系统（中文系统是 GBK） */
+export type TerminalEncoding = 'utf8' | 'system'
 export interface TerminalState {
   profiles: TerminalProfile[]
   defaultProfileId: string
   terminals: TerminalRecord[]
+  /** 只有本机 Windows 有（SSH 机器、macOS / Linux 不给，界面不显示这一项） */
+  encoding?: TerminalEncoding
 }
 export interface TerminalProfileInput {
   id?: string

@@ -4,7 +4,7 @@ import { tr } from '../../../i18n/core'
 // 设置 › 本机引擎 › 一个引擎的详情（docs/ui/engine-settings-redesign.md §3.2、§5，参考 Mirasim 设置 › 智能体 › Claude Code）：
 // 头部（版本、路径、重新检测、检查更新、设为默认）→ 新会话默认值 → 对话 → 上下文 → 高级。
 // 改了立刻保存。除「新会话默认值」外，对已开始的会话也生效：下一条消息开始前用新设置重启引擎进程并接上原对话。
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, CircleCheck, Download, RefreshCw } from 'lucide-react'
 import {
   AUTO_COMPACT_PCTS,
@@ -18,6 +18,7 @@ import {
 } from '@pixelsky/protocol'
 import { Button, CopyButton, EngineIcon, Select, Switch, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
+import { useUnmountFlush } from '@/ui/useUnmountFlush'
 import { platformModels, usePlatform } from '@/features/account/platform'
 import { EFFORT_LABEL, PERMISSION_INFO, bridge, isLive, redetectEngines } from '@/features/engine'
 import { envLines, parseEnvLines } from './envLines'
@@ -627,7 +628,17 @@ function LaunchRows({
   const [error, setError] = useState<string | null>(null)
   const [migrating, setMigrating] = useState(false)
   const [migrated, setMigrated] = useState<string | null>(null)
-  useEffect(() => setEnv(envLines(config.env)), [config.env])
+  // 只在已存的内容真变了、且输入框没被改过时才跟着换：引擎配置每次广播都是新对象，按对象比会把正在写 / 没存进去（格式不对）的内容冲掉
+  const saved = envLines(config.env)
+  const shown = useRef(saved)
+  useEffect(() => {
+    // 输入框和上次已存的一致（写法不同但解析结果相同也算）才换成新的
+    setEnv(current => {
+      const parsed = parseEnvLines(current)
+      return !parsed.bad && envLines(parsed.env) === shown.current ? saved : current
+    })
+    shown.current = saved
+  }, [saved])
   const legacy = providerEnvKeys(config.env)
   const migrate = (): void => {
     setMigrating(true)
@@ -643,6 +654,7 @@ function LaunchRows({
     onSave(patch).catch((err: unknown) => setError((err as Error).message))
   }
   const saveEnv = (): void => {
+    unsavedEnv.current = false
     const { env: parsed, bad } = parseEnvLines(env)
     if (bad) {
       setError(tr('settings.engines.EngineDetail.thisLineIsNot', { p0: bad }))
@@ -650,6 +662,8 @@ function LaunchRows({
     }
     if (envLines(parsed) !== envLines(config.env)) save({ env: parsed })
   }
+  // 改了还没离开输入框就关掉设置 / 切走：补存一次（格式不对的照旧不存）
+  const unsavedEnv = useUnmountFlush(saveEnv)
 
   return (
     <>
@@ -660,7 +674,10 @@ function LaunchRows({
       >
         <textarea
           value={env}
-          onChange={ev => setEnv(ev.target.value)}
+          onChange={ev => {
+            setEnv(ev.target.value)
+            unsavedEnv.current = true
+          }}
           onBlur={saveEnv}
           rows={4}
           placeholder="HTTPS_PROXY=http://127.0.0.1:7890"

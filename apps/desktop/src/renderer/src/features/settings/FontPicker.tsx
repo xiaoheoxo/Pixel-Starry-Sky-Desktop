@@ -3,6 +3,7 @@ import { tr } from '../../i18n/core'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
 import { Popover, cn } from '@/ui'
+import { useUnmountFlush } from '@/ui/useUnmountFlush'
 import { listLocalFonts } from '@/features/appearance/fonts'
 
 interface FontPickerProps {
@@ -53,8 +54,11 @@ export function FontPicker({ label, value, onChange, placeholder, sample }: Font
   }
 
   const commit = () => {
+    unsaved.current = false
     if (draft.trim() !== value) onChange(draft.trim())
   }
+  // 打了字还没离开输入框就关掉设置：补存一次
+  const unsaved = useUnmountFlush(commit)
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -70,7 +74,10 @@ export function FontPicker({ label, value, onChange, placeholder, sample }: Font
           value={draft}
           placeholder={placeholder}
           spellCheck={false}
-          onChange={e => setDraft(e.target.value)}
+          onChange={e => {
+            setDraft(e.target.value)
+            unsaved.current = true
+          }}
           onBlur={commit}
           onKeyDown={e => {
             if (e.key === 'Enter') commit()

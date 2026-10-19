@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Folder, Monitor, Plus, Server, X } from 'lucide-react'
 import { Button, IconButton, Select } from '@/ui'
@@ -15,6 +15,7 @@ import { isDemo } from '@/data'
 import { demo } from '@/data/demo'
 import { getFiles } from '@/features/files/store'
 import { confirmFiles } from '@/features/files/FileConfirm'
+import { useUnsavedCheck } from '@/features/settings/unsavedEdits'
 
 const FIELD =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg outline-none focus:border-accent-line'
@@ -33,6 +34,19 @@ export function MachineDialogs() {
     [query, setQuery] = useState('')
   const [trust, setTrust] = useState<{ id: string; fingerprint: string; changed?: boolean } | null>(null)
   const [confirm, setConfirm] = useState<{ id: string; action: 'disconnect' | 'remove' } | null>(null)
+  // 添加 / 编辑机器的表单：打开时的样子。改过再关弹窗、或去编辑另一台，先问一句（主机、用户名、密码不静默丢）
+  const formOrigin = useRef('')
+  const openForm = (next: MachineInput | null): void => {
+    formOrigin.current = next ? JSON.stringify(next) : ''
+    setForm(next)
+  }
+  const [discard, setDiscard] = useState<(() => void) | null>(null)
+  // 在设置里打开时，关设置、切分区也问（settings/unsavedEdits.tsx）
+  useUnsavedCheck(() => !!form && JSON.stringify(form) !== formOrigin.current)
+  const leaveForm = (action: () => void): void => {
+    if (form && JSON.stringify(form) !== formOrigin.current) setDiscard(() => action)
+    else action()
+  }
   const [workspaces, setWorkspaces] = useState<WorkspaceChoice[]>([]),
     [loading, setLoading] = useState(false)
   const [revision, setRevision] = useState(0)
@@ -66,7 +80,7 @@ export function MachineDialogs() {
     const machines = (e: Event) => {
       setView('machines')
       setError('')
-      setForm((e as CustomEvent<{ add?: boolean } | null>).detail?.add && !isDemo ? { ...fresh } : null)
+      openForm((e as CustomEvent<{ add?: boolean } | null>).detail?.add && !isDemo ? { ...fresh } : null)
       setDirectory(null)
       setQuery('')
     }
@@ -147,7 +161,7 @@ export function MachineDialogs() {
         )}
         busy={busy}
         close={() => {
-          if (!trust && !confirm) setView(null)
+          if (!trust && !confirm && !discard) leaveForm(() => setView(null))
         }}
       >
         {error && (
@@ -212,15 +226,17 @@ export function MachineDialogs() {
                           <Button
                             disabled={busy}
                             onClick={() => {
-                              setForm({
-                                id: machine.id,
-                                name: machine.name,
-                                host: machine.host,
-                                port: machine.port,
-                                username: machine.username,
-                                auth: machine.auth as MachineInput['auth'],
-                                privateKeyPath: machine.privateKeyPath,
-                              })
+                              leaveForm(() =>
+                                openForm({
+                                  id: machine.id,
+                                  name: machine.name,
+                                  host: machine.host,
+                                  port: machine.port,
+                                  username: machine.username,
+                                  auth: machine.auth as MachineInput['auth'],
+                                  privateKeyPath: machine.privateKeyPath,
+                                }),
+                              )
                               setError('')
                             }}
                           >
@@ -236,7 +252,7 @@ export function MachineDialogs() {
                 </div>
               ))}
             {!form ? (
-              <Button icon={Plus} disabled={busy || isDemo} onClick={() => setForm({ ...fresh })}>
+              <Button icon={Plus} disabled={busy || isDemo} onClick={() => openForm({ ...fresh })}>
                 {t('machines.add')}
               </Button>
             ) : (
@@ -533,6 +549,23 @@ export function MachineDialogs() {
           </>
         )}
       </MachineModal>
+      {discard && (
+        <ConfirmDialog
+          title={t('customApi.discardTitle')}
+          description={t('ui.ConfirmDialog.unsaved')}
+          busy={false}
+          danger
+          confirmLabel={t('ui.ConfirmDialog.discard')}
+          cancelLabel={t('ui.ConfirmDialog.keepEditing')}
+          onConfirm={() => {
+            const action = discard
+            setDiscard(null)
+            setForm(null)
+            action()
+          }}
+          onCancel={() => setDiscard(null)}
+        />
+      )}
       {trust && (
         <ConfirmDialog
           title={t('machines.fingerprintTitle')}

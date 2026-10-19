@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useUnsavedCheck } from '../unsavedEdits'
 import {
   ENGINES,
   type ExtensionEntry,
@@ -74,12 +75,23 @@ export function ExtensionForm({
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null)
   const [engines, setEngines] = useState<Array<'claude' | 'codex' | 'pixel'>>(e?.engines ?? ['claude'])
+  // 关设置、切分区前比较打开时的样子，有改动先问（unsavedEdits.tsx）；技能正文读进来后以读到的为准
+  const snapshot = JSON.stringify({ name, description, type, command, args, env, headers, url, location, subdir, json })
+  const origin = useRef({ snapshot, source, engines: engines.join() })
+  useUnsavedCheck(
+    () =>
+      !busy &&
+      (snapshot !== origin.current.snapshot ||
+        source !== origin.current.source ||
+        engines.join() !== origin.current.engines),
+  )
   useEffect(() => {
     if (e?.kind === 'skill' && bridge) {
       setBusy(true)
       bridge
         .skillText(e.id, refTarget)
         .then(value => {
+          origin.current.source = value.text
           setSource(value.text)
           setVersion(value.version)
         })
@@ -133,7 +145,8 @@ export function ExtensionForm({
           name,
           description,
           scope: e?.scope ?? scope,
-          enabled: e?.enabled ?? true,
+          // 编辑已有项不传开关：表单开着时列表里的开关可能已单独改过，由主进程沿用已存的值
+          ...(e ? {} : { enabled: true }),
           engines,
           ...(target.kind === 'mcp'
             ? {

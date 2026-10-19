@@ -27,6 +27,14 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 describe('管理配置与凭据', () => {
+  it('编辑已有项没传开关：沿用已存的（表单开着时列表里关掉的不会被重新启用）；新建默认启用', () => {
+    const cli = { kind: 'cli' as const, name: 'my-cli', scope: global, command: process.execPath, args: [] }
+    const e = service.upsert(cli)
+    expect(e.enabled).toBe(true)
+    service.toggle(e.id, false)
+    expect(service.upsert({ ...cli, id: e.id, description: '改了说明' }).enabled).toBe(false)
+    expect(service.upsert({ ...cli, id: e.id, enabled: true }).enabled).toBe(true)
+  })
   it('Codex 扩展与旧 Claude 配置分流，MCP 使用原生配置，技能使用真实目录', () => {
     service.upsert({
       kind: 'mcp',

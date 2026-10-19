@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type {
+  TerminalEncoding,
   TerminalEvent,
   TerminalRecord,
   TerminalState,
@@ -91,7 +92,12 @@ function event(value: TerminalEvent): void {
 export function initTerminalStore(): Promise<void> {
   return (init ??= (async () => {
     if (isDemo) {
-      set({ profiles: demo().terminal.profiles, defaultProfileId: demo().terminal.profiles[0].id, ready: true })
+      set({
+        profiles: demo().terminal.profiles,
+        defaultProfileId: demo().terminal.profiles[0].id,
+        encoding: 'utf8',
+        ready: true,
+      })
       return
     }
     window.pixelsky?.terminal.onEvent(event)
@@ -128,6 +134,10 @@ export function consumeTerminal(id: string, sink: (e: DataEvent) => void): () =>
 }
 export async function refreshTerminals(force = false): Promise<void> {
   if (!isDemo) set(await window.pixelsky!.terminal.state(force))
+}
+export async function terminalSetEncoding(encoding: TerminalEncoding): Promise<void> {
+  if (isDemo) set({ encoding })
+  else set(await window.pixelsky!.terminal.setEncoding(encoding))
 }
 export async function terminalSetDefault(id: string): Promise<void> {
   if (isDemo) set({ defaultProfileId: id })

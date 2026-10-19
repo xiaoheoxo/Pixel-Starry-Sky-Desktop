@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { siteKey, targetProblem } from './subagents'
+import { savedTypes, siteKey, targetProblem } from './subagents'
+import { BUILTIN_SUBAGENT_TYPES } from '../../../../shared/types/subagents'
 import type { ProviderView } from '../../../../shared/types/providers'
 import type { PlatformGroup } from '@/features/account/platform'
 
@@ -45,5 +46,20 @@ describe('设置 › 子智能体：选的站点能不能用', () => {
   it('下拉框的值', () => {
     expect(siteKey(custom)).toBe('custom:ds')
     expect(siteKey(route)).toBe('platform:7')
+  })
+})
+
+describe('savedTypes：编辑区保存', () => {
+  const explore = { ...BUILTIN_SUBAGENT_TYPES[0], enabled: true }
+  it('编辑期间关了卡片开关：保存说明的修改，启用状态仍是关', () => {
+    const latest = [{ ...explore, enabled: false }]
+    const draft = { ...explore, description: '新的说明' }
+    const out = savedTypes(latest, explore.id, draft, false)
+    expect(out[0].enabled).toBe(false)
+    expect(out[0].description).toBe('新的说明')
+  })
+  it('新建的类型照草稿追加', () => {
+    const next = { ...explore, id: 'mine', enabled: true }
+    expect(savedTypes([explore], 'mine', next, true).map(t => t.id)).toEqual([explore.id, 'mine'])
   })
 })

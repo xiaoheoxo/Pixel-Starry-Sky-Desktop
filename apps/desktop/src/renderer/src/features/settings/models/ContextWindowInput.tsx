@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/ui'
+import { useUnmountFlush } from '@/ui/useUnmountFlush'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { formatTokens, isTokenDraftDirty, parseTokens } from './tokenCount'
@@ -33,6 +34,11 @@ export function ContextWindowInput({
   useEffect(() => {
     if (!editingRef.current) setDraft(value === null ? '' : formatTokens(value))
   }, [value])
+  // 改了还没离开输入框就被卸载（关掉设置、切走分区）：补交一次，认不出的照旧不交
+  const unsaved = useUnmountFlush(() => {
+    const next = parseTokens(draft)
+    if (commit === 'blur' && next !== undefined && next !== value) onChange(next)
+  })
   const parsed = parseTokens(draft)
   const invalid = !editing && parsed === undefined
   return (
@@ -48,6 +54,7 @@ export function ContextWindowInput({
       }}
       onChange={e => {
         setDraft(e.target.value)
+        unsaved.current = true
         onDraftDirty?.(isTokenDraftDirty(e.target.value, value))
         const next = parseTokens(e.target.value)
         if (commit === 'change' && next !== undefined) onChange(next)
@@ -57,6 +64,7 @@ export function ContextWindowInput({
       }}
       onBlur={e => {
         editingRef.current = false
+        unsaved.current = false
         setEditing(false)
         // 读输入框当前的值：打完字马上离开时，这次渲染里的 draft 可能还是旧的
         const next = parseTokens(e.currentTarget.value)

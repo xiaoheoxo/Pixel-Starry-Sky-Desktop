@@ -10,6 +10,9 @@ import { CARD, FIELD, Field, NoProject, ToolError, ToolsHeader, useOperation } f
 import type { EnvironmentState, ServiceDefinition, ServiceInput } from '../../../../shared/types/project-tools'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { demo as demoData } from '@/data/demo'
+import { ListInput } from './ListInput'
+
+const EMPTY_NAMES: readonly string[] = []
 export const OPEN_BROWSER = 'pixelsky:open-browser'
 const blank: ServiceInput = {
   name: '',
@@ -321,17 +324,9 @@ function EnvironmentBody({ target, demo }: { target: WorkspaceRef; demo: boolean
                   />
                 </Field>
                 <Field label={tr('projectTools.envNames')}>
-                  <input
-                    value={form.envNames?.join(', ') ?? ''}
-                    onChange={e =>
-                      setForm({
-                        ...form,
-                        envNames: e.target.value
-                          .split(',')
-                          .map(s => s.trim())
-                          .filter(Boolean),
-                      })
-                    }
+                  <ListInput
+                    value={form.envNames ?? EMPTY_NAMES}
+                    onChange={envNames => setForm({ ...form, envNames })}
                     className={FIELD}
                   />
                 </Field>

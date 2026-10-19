@@ -94,6 +94,12 @@ export function ChannelDialog({
   const [members, setMembers] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 名称、主题、说明是自己打的字：改过就先问再关（取消 / Esc / 点背景）
+  const dirty =
+    name !== (channel?.name ?? '') ||
+    topic !== (channel?.topic ?? '') ||
+    notes !== (channel?.notes ?? '') ||
+    members.length > 0
   const submit = () => {
     if (!name.trim() || busy) return
     setBusy(true)
@@ -120,6 +126,7 @@ export function ChannelDialog({
       error={error}
       focusInput
       confirmDisabled={!name.trim()}
+      dirty={dirty}
       onConfirm={submit}
       onCancel={onClose}
       description={
@@ -250,6 +257,8 @@ export function AgentDialog({
   const [permission, setPermission] = useState<PermissionMode | ''>(editing?.settings.permissionMode ?? '')
   const [instructions, setInstructions] = useState(editing?.instructions ?? '')
   const [mode, setMode] = useState<AgentConfig['mode']>(editing?.mode ?? 'per-task')
+  // 名字和职责说明（最长 2000 字）是自己打的字：改过就先问再关
+  const dirty = name !== (editing?.name ?? '') || instructions !== (editing?.instructions ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const copies = useCopies(projectId)
@@ -322,6 +331,10 @@ export function AgentDialog({
         copyId: copyId || null,
         settings: {
           ...settingsForSource(engine, source, model, sourceCtx),
+          // 界面上没有推理强度选项：编辑时沿用原来的（同一引擎才沿用，换了引擎档位不一定通用）
+          ...(editing?.settings.effort !== undefined && editing.engine === engine
+            ? { effort: editing.settings.effort }
+            : {}),
           ...(permission ? { permissionMode: permission } : {}),
         },
         instructions,
@@ -339,6 +352,7 @@ export function AgentDialog({
       error={error}
       focusInput={!!editing || others.length === 0}
       confirmDisabled={!canSave}
+      dirty={dirty}
       onConfirm={submit}
       onCancel={onClose}
       description={
