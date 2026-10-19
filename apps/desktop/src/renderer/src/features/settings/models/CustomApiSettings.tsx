@@ -249,7 +249,8 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
       baseUrl,
       auth,
       models,
-      smallModel: protocol === 'anthropic' ? smallModel : null,
+      // 只发还在模型列表里的后台小模型
+      smallModel: protocol === 'anthropic' && smallModel && models.some(m => m.id === smallModel) ? smallModel : null,
       modelFallback: fallback,
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       headers: parsed.headers,
@@ -510,7 +511,11 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
                       <IconButton
                         icon={X}
                         label={tr('customApi.removeModel', { p0: m.id })}
-                        onClick={() => setModels(models.filter(x => x.id !== m.id))}
+                        onClick={() => {
+                          setModels(models.filter(x => x.id !== m.id))
+                          // 删的是后台小模型：回到「默认」，别让下拉框显示空、保存时还带着删掉的模型
+                          if (smallModel === m.id) setSmallModel(null)
+                        }}
                       />
                     </div>
                   )

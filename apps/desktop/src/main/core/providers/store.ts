@@ -108,6 +108,11 @@ export function normalizeBaseUrl(raw: unknown, protocol: ProviderProtocol): stri
   return url.origin + path
 }
 
+/** 后台小模型必须还在模型列表里，不然存成 null（用列表第一个）；读旧配置时也这样纠正 */
+function keptSmallModel(value: unknown, models: ProviderModel[]): string | null {
+  return typeof value === 'string' && value && models.some(m => m.id === value) ? value : null
+}
+
 function parseModels(value: unknown): ProviderModel[] {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value) || value.length > MAX_MODELS) throw new Error(`模型最多 ${MAX_MODELS} 个`)
@@ -175,7 +180,7 @@ export class ProviderStore {
           baseUrl: normalizeBaseUrl(p.baseUrl, protocol),
           auth: p.auth === 'bearer' ? 'bearer' : 'x-api-key',
           models: parseModels(p.models),
-          smallModel: typeof p.smallModel === 'string' && p.smallModel ? p.smallModel : null,
+          smallModel: keptSmallModel(p.smallModel, parseModels(p.models)),
           modelFallback: p.modelFallback !== false,
           headerNames: Array.isArray(p.headerNames)
             ? p.headerNames.filter(h => typeof h === 'string' && HEADER_NAME.test(h))
@@ -306,7 +311,8 @@ export class ProviderStore {
       baseUrl: normalizeBaseUrl(input.baseUrl, protocol),
       auth,
       models,
-      smallModel: protocol === 'anthropic' && small ? small : null,
+      // 后台小模型已经不在模型列表里（列表里删掉了）：存成 null，用列表第一个
+      smallModel: protocol === 'anthropic' ? keptSmallModel(small, models) : null,
       modelFallback:
         input.modelFallback !== undefined ? input.modelFallback !== false : (existing?.modelFallback ?? true),
       headerNames,

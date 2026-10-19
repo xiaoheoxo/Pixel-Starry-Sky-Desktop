@@ -4,7 +4,15 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MASKED_SECRET } from '@pixelsky/engine'
 import { normalizeBaseUrl, ProviderStore } from './store'
-import { classifyStatus, fetchModels, providerHeaders, testProvider, upstreamUrl, type Fetch } from './upstream'
+import {
+  classifyStatus,
+  fetchModels,
+  providerHeaders,
+  smallModelOf,
+  testProvider,
+  upstreamUrl,
+  type Fetch,
+} from './upstream'
 
 const KEY = 'sk-test-secret-a1b2'
 const cipher = (available = true) => ({
@@ -50,6 +58,38 @@ describe('自定义 API 配置存储（docs/ui/custom-api.md §4.2）', () => {
     // 重启后读回，网关能拿到真实值
     const again = new ProviderStore(dir, cipher())
     expect(again.resolve(view.id)).toMatchObject({ apiKey: KEY, headers: { 'X-Org': 'org-secret-9' } })
+  })
+
+  it('后台小模型从列表里删掉后：保存成 null；旧配置里存着删掉的模型名，读回时也纠正', () => {
+    const store = new ProviderStore(dir, cipher())
+    const models = [{ id: 'review-main' }, { id: 'claude-haiku-retired' }]
+    const saved = store.save({ ...input, models, smallModel: 'claude-haiku-retired' })
+    expect(saved.smallModel).toBe('claude-haiku-retired')
+    const edited = store.save({
+      ...input,
+      id: saved.id,
+      models: [{ id: 'review-main' }],
+      smallModel: 'claude-haiku-retired',
+    })
+    expect(edited.smallModel).toBeNull()
+    expect(readFileSync(join(dir, 'providers.json'), 'utf8')).not.toContain('claude-haiku-retired')
+    // 只改别的字段（不传 models / smallModel）时同样纠正
+    expect(store.save({ ...input, id: saved.id, models: undefined, smallModel: undefined }).smallModel).toBeNull()
+
+    // 旧版本存下来的坏配置
+    const file = join(dir, 'providers.json')
+    const raw = JSON.parse(readFileSync(file, 'utf8'))
+    raw.providers[0].smallModel = 'claude-haiku-retired'
+    writeFileSync(file, JSON.stringify(raw))
+    expect(new ProviderStore(dir, cipher()).resolve(saved.id)?.smallModel).toBeNull()
+  })
+
+  it('后台小模型只认列表里还有的，不然用列表第一个', () => {
+    const models = [{ id: 'review-main' }, { id: 'lite' }]
+    expect(smallModelOf({ models, smallModel: 'lite' })).toBe('lite')
+    expect(smallModelOf({ models, smallModel: 'claude-haiku-retired' })).toBe('review-main')
+    expect(smallModelOf({ models, smallModel: null })).toBe('review-main')
+    expect(smallModelOf({ models: [], smallModel: 'x' })).toBeNull()
   })
 
   it('测试连接 / 读取模型用的草稿不要求名称；保存仍然要名称', () => {

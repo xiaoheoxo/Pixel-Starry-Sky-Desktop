@@ -410,6 +410,15 @@ describe('自定义 API 经本机网关（docs/ui/custom-api.md §4.1）', () =>
     expect((await send('deepseek-chat', '/v1/messages/count_tokens')).status).toBe(200)
     expect(calls[3].url).toBe('https://relay.example.com/anthropic/v1/messages/count_tokens')
 
+    // 后台小模型已经从列表里删掉（旧配置）：兜底换成列表里的模型，不再转发给删掉的那个
+    current = provider({ models: [{ id: 'review-main' }], smallModel: 'claude-haiku-retired' })
+    record = { ...record, model: 'review-main' }
+    await send('claude-haiku-retired')
+    await send('claude-haiku-4-5')
+    const stale = calls.splice(4) // 后面的断言按下标数，拿走这两次
+    expect(stale.map(c => JSON.parse(String(c.init.body)).model)).toEqual(['review-main', 'review-main'])
+    record = { ...record, model: 'deepseek-chat' }
+
     // 兜底关掉：原样转发
     current = provider({ modelFallback: false })
     await send('claude-sonnet-4-5')

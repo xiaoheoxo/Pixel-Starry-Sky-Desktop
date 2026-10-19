@@ -12,6 +12,15 @@ export const PROTOCOL_PATH = {
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
 /**
+ * 后台小模型：只认还在模型列表里的；没选、或者选的模型已经从列表里删掉了，用列表第一个（列表空时 null）。
+ * 旧配置里可能还存着删掉的模型名，启动 Claude 和网关兜底都要经过这里，免得把请求发给已经下线的模型
+ */
+export function smallModelOf(p: Pick<ResolvedProvider, 'models' | 'smallModel'>): string | null {
+  const ids = p.models.map(m => m.id)
+  return p.smallModel && ids.includes(p.smallModel) ? p.smallModel : (ids[0] ?? null)
+}
+
+/**
  * 本机网关收到的路径换成接口地址：
  * - Anthropic 协议：接口地址不带 /v1（https://api.anthropic.com），Claude Code 发 /v1/messages，原样拼上；
  * - Responses 协议：接口地址带 /v1（https://api.openai.com/v1），Codex 发到网关的 /v1/responses，去掉 /v1 再拼。

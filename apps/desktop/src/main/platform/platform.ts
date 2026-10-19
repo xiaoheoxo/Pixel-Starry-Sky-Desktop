@@ -20,6 +20,7 @@ import { platformModelSupportsEngine } from '../../shared/platform-models'
 import { platformFetch, signedInEmail } from '../account/account'
 import * as ipc from '../ipc/guard'
 import type { ProviderStore, ResolvedProvider } from '../core/providers/store'
+import { smallModelOf } from '../core/providers/upstream'
 
 async function jsonRequest(path: string, method = 'GET'): Promise<unknown> {
   const res = await platformFetch(path, { method, signal: AbortSignal.timeout(30_000) })
@@ -201,7 +202,7 @@ export async function initPlatform(
       const long = longContextModels(provider.models)
       if (long.length) env[LONG_CONTEXT_ENV] = JSON.stringify(long)
       const main = claudeModelName(record.model && ids.includes(record.model) ? record.model : ids[0], env)
-      const small = claudeModelName(provider.smallModel ?? ids[0], env)
+      const small = claudeModelName(smallModelOf(provider) ?? ids[0], env)
       Object.assign(env, {
         ANTHROPIC_MODEL: main,
         ANTHROPIC_DEFAULT_OPUS_MODEL: main,

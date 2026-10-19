@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { describeError, logger, type CompactionRequestReport } from '@pixelsky/engine'
 import type { SessionRecord } from '@pixelsky/protocol'
 import type { ResolvedProvider } from '../core/providers/store'
-import { classifyError, providerHeaders, upstreamUrl, type Fetch } from '../core/providers/upstream'
+import { classifyError, providerHeaders, smallModelOf, upstreamUrl, type Fetch } from '../core/providers/upstream'
 import { chatUsage, withUsageOption } from './chat-usage'
 import { CacheUsageFix } from './usageFix'
 import { compactionTap, type CompactionTap } from './compaction-tap'
@@ -211,7 +211,8 @@ export function platformGateway(options: {
       const ids = p.models.map(m => m.id)
       const requested = typeof parsed.model === 'string' ? parsed.model : null
       if (p.modelFallback && ids.length && (!requested || !ids.includes(requested))) {
-        const small = requested && /haiku/i.test(requested) ? (p.smallModel ?? ids[0]) : null
+        // 后台小模型只用还在列表里的，保证兜底换成的一定是列表里有的模型
+        const small = requested && /haiku/i.test(requested) ? smallModelOf(p) : null
         const current = record.model && ids.includes(record.model) ? record.model : ids[0]
         body = JSON.stringify({ ...parsed, model: small ?? current })
       }
