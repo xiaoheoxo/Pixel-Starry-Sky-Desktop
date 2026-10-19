@@ -151,6 +151,18 @@ export class HostTurn {
               userItemId,
               sees,
             ),
+          forgetSeen: () => {
+            rt.holdCursor = rt.turn?.turnId
+            const latest = m.sessions.runtime(id).snapshot.record
+            const engine = rt.execution?.engine ?? latest.engine
+            const entry = latest.engineSessions?.[engine]
+            m.events.patchRecord(id, {
+              engineSessions: {
+                ...latest.engineSessions,
+                [engine]: { ...entry, id: entry?.id ?? latest.engineSessionId, seen: null },
+              },
+            })
+          },
           reportConfigWarning: text => m.settings.reportConfigWarning(info.id, text),
           reportQuota: patch => m.quota.observe(id, patch),
         })

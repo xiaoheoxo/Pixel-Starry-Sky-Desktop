@@ -830,6 +830,14 @@ export const systemMessages = {
     zh: '没能接上原来的 Codex 会话，已改开新的引擎会话，并把像素星空里的聊天（{p0} 轮）带了过去（工具调用和文件改动没有带过去）',
     en: 'Couldn’t continue the original Codex session, so a new engine session was started and the chat from Pixel Starry Sky ({p0} turns) was carried over (tool calls and file changes were not)',
   },
+  'system.nativeCompactSkipped': {
+    zh: '没能接上原来的 Claude Code 会话，之前的聊天也没能放进新的引擎会话，这次没有压缩；下一条消息会把像素星空里的聊天带过去',
+    en: 'Couldn’t continue the original Claude Code session, and the earlier chat couldn’t be added to the new engine session, so nothing was compacted this time. Your next message will carry the chat from Pixel Starry Sky over',
+  },
+  'system.nativeCompactSkippedCodex': {
+    zh: '没能接上原来的 Codex 会话，之前的聊天也没能放进新的引擎会话，这次没有压缩；下一条消息会把像素星空里的聊天带过去',
+    en: 'Couldn’t continue the original Codex session, and the earlier chat couldn’t be added to the new engine session, so nothing was compacted this time. Your next message will carry the chat from Pixel Starry Sky over',
+  },
   'system.nativeCodexTerminal': {
     zh: '接着终端里的 Codex 会话 · {p0} 轮',
     en: 'Continuing the Codex session from the terminal · {p0} turns',

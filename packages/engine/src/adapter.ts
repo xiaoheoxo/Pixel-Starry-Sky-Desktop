@@ -63,6 +63,11 @@ export interface SessionContext {
    * （userItemId 是这一轮自己的用户消息，不算在内），连同要显示的提示一起给适配器注进新会话；没有可带的返回 null
    */
   lostSeed?(userItemId: string, sees: boolean): { seed: ChatSeed; notice: Item } | null
+  /**
+   * 回放没能送进新会话（例如 /compact 时注入失败、这次没压缩）：当前引擎的游标清空、这一轮结束时也不推进，
+   * 下一条普通消息把整段聊天当交接带过去（进程重启了也一样）
+   */
+  forgetSeen?(): void
   /** 引擎报了配置类警告（用户 config.toml 引起、不影响使用）：不进对话，交给宿主放进引擎信息 */
   reportConfigWarning?(text: string): void
   /** 对话里顺带收到了账号额度（Claude rate_limit_event、Codex account/rateLimits/updated）；宿主核对来源后合并 */

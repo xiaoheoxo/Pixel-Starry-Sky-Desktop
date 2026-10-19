@@ -11,6 +11,7 @@ import type {
   SessionSettings,
   SkillCommand,
   TurnOutcome,
+  Item,
 } from '@pixelsky/protocol'
 import { EMPTY_FLAGS, codedError, isQuietWarning, noticeErrorOf, viaGateway } from '@pixelsky/protocol'
 import { versionAtLeast } from '../exec'
@@ -22,6 +23,7 @@ import { readCodexTurns, revertTarget } from './branch'
 import { codexCatalog } from './catalog'
 import { codexThreadName } from './native'
 import { describeError, logger } from '../log'
+import { NATIVE_TEXT } from '../native/text'
 import { codexCommandParts } from './command'
 import { codexQuotaPatch, parseCodexRateLimits } from './quota'
 import { codexChanges, CodexTranslator, tokenCounts } from './translate'
@@ -649,29 +651,52 @@ export class CodexSession implements EngineSession {
     this.active.baseline = { ...this.totals }
     const sees = !!selected?.inputModalities.includes('image')
     // 原来的线程接不上、新线程是空的：请宿主把这一轮之前的整段聊天做成回放（包含这一轮原本的 seed），注进新线程
-    if (this.lost !== null) {
-      const reason = this.lost
-      this.lost = null
+    // 「已带过去」的提示等真的送进去（或改成文字交接）时才发；/compact 注不进去时不发，this.lost 留着下一轮再补
+    let lostNotice: Item | null = null
+    const reason = this.lost
+    if (reason !== null) {
       // 记录文件没了时宿主已经把整段聊天放进 given（recreated）并提示过，不用再要一遍
       const recovered = given?.recreated ? null : this.ctx.lostSeed?.(userItemId, sees)
       if (recovered) {
         replay = { ...recovered.seed, recreated: true }
         this.resumeNotice = null
         const notice = recovered.notice
-        this.ctx.emit({
-          type: 'item_completed',
-          item:
-            notice.kind === 'notice'
-              ? { ...notice, detail: [reason, notice.detail].filter(Boolean).join('\n\n') }
-              : notice,
-        })
-      }
+        lostNotice =
+          notice.kind === 'notice'
+            ? { ...notice, detail: [reason, notice.detail].filter(Boolean).join('\n\n') }
+            : notice
+      } else this.lost = null
+    }
+    const carried = (): void => {
+      this.lost = null
+      if (lostNotice) this.ctx.emit({ type: 'item_completed', item: lostNotice })
+      lostNotice = null
     }
     if (attachments.length && !sees) throw new Error('This Codex model does not support images')
     if (this.settings.effort && selected && !selected.efforts.includes(this.settings.effort))
       throw new Error('This Codex model does not support the selected effort')
     this.active.model = this.settings.model ?? this.catalog?.currentModel ?? 'Codex'
     if (text === '/compact') {
+      // 原来的线程接不上、新线程是空的：先把之前的聊天注进去再压缩，压缩出的摘要才有内容
+      if (lostNotice && replay) {
+        if (!(await this.injectSeed(replay, sees, true))) {
+          // 注不进去，/compact 又不能在前面加文字交接：这次不压缩，游标清空，下一条普通消息把聊天带过去
+          this.ctx.forgetSeen?.()
+          this.ctx.emit({
+            type: 'item_completed',
+            item: {
+              kind: 'notice',
+              id: `cx-resume-${Date.now()}-${++this.noticeSeq}`,
+              level: 'warn',
+              text: NATIVE_TEXT.compactSkipped('Codex'),
+              detail: reason,
+            },
+          })
+          if (this.active === active) this.finish('completed', null)
+          return
+        }
+        carried()
+      }
       this.compacting = true
       this.ctx.emit({
         type: 'context',
@@ -695,6 +720,7 @@ export class CodexSession implements EngineSession {
       await this.proc!.request('thread/compact/start', { threadId: this.threadId })
     } else {
       // 跨引擎接力：别的引擎期间的聊天先注入线程；注入不了就把交接材料加在消息前面
+      carried()
       const seed = replay
       const injected = !seed || (await this.injectSeed(seed, sees))
       // 线程记录没了、宿主已经把整段聊天写进新线程并说过一句：不再重复报「没能恢复」；注入失败照旧报
@@ -858,7 +884,8 @@ export class CodexSession implements EngineSession {
     })
   }
   /** 把聊天作为原始 Responses 消息追加进线程的模型历史（thread/inject_items）；旧版 Codex 没有这个方法时返回 false */
-  private async injectSeed(seed: ChatSeed, sees: boolean): Promise<boolean> {
+  /** quiet：失败时不发「改成文字交接」的提示（/compact 没法带文字交接，调用方自己说明） */
+  private async injectSeed(seed: ChatSeed, sees: boolean, quiet = false): Promise<boolean> {
     const message = (role: 'user' | 'assistant', text: string, images: readonly ImageAttachment[] = []): Message => ({
       type: 'message',
       role,
@@ -883,6 +910,7 @@ export class CodexSession implements EngineSession {
       return true
     } catch (error) {
       if (!this.proc?.alive) throw error
+      if (quiet) return false
       this.ctx.emit({
         type: 'item_completed',
         item: {

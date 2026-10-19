@@ -51,4 +51,7 @@ export const NATIVE_TEXT = {
   /** 原生会话接不上了（恢复 / 回退 / 分叉失败），改开了新会话，把像素星空里的聊天带了过去 */
   resumeLost: (turns: number, engine = 'Claude Code') =>
     `没能接上原来的 ${engine} 会话，已改开新的引擎会话，并把像素星空里的聊天（${turns} 轮）带了过去（工具调用和文件改动没有带过去）`,
+  /** 原生会话接不上、发的是 /compact，之前的聊天又注不进新会话：这次不压缩，下一条普通消息再带过去 */
+  compactSkipped: (engine = 'Claude Code') =>
+    `没能接上原来的 ${engine} 会话，之前的聊天也没能放进新的引擎会话，这次没有压缩；下一条消息会把像素星空里的聊天带过去`,
 } as const
