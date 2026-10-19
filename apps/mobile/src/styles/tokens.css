@@ -34,6 +34,8 @@
   --composer-focus-ring: color-mix(in srgb, var(--ink) 4%, transparent);
 
   --text: #20211f;
+  /* 新标志四角星的橙色（引擎头像里像素星空的星，同桌面端 --logo-word-star） */
+  --logo-word-star: #d2692e;
   --text-secondary: #4a4c47;
   --text-muted: #777872;
   --text-faint: #a3a39b;
@@ -143,6 +145,7 @@
   --composer-focus-ring: color-mix(in srgb, var(--ink) 5%, transparent);
 
   --text: #ecebe7;
+  --logo-word-star: #f0a764;
   --text-secondary: #c2c0b6;
   --text-muted: #9c9a92;
   --text-faint: #6e6c66;
