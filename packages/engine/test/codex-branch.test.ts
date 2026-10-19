@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { HostEvent } from '@pixelsky/protocol'
 import { CodexAdapter, EngineHost } from '../src'
 import { codexAnchor, revertTarget, turnInfo, type CodexTurnInfo } from '../src/codex/branch'
+import { NATIVE_TEXT } from '../src/native/text'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
 const turn = (id: string, ...clientIds: string[]): CodexTurnInfo => ({ id, clientIds })
@@ -257,7 +258,7 @@ describe('Codex 回退', { timeout: 20_000 }, () => {
     expect(host!.open(session.id).record.engineSessionId).toBeTruthy()
   })
 
-  it('启动时 thread/revert 失败（截断点已不在记录里）：改开新线程并提示', async () => {
+  it('启动时 thread/revert 失败（截断点已不在记录里）：改开新线程，把回退后的聊天注进去并提示', async () => {
     const { session, say, conversation } = setup()
     await conversation(['一', '二', '三'])
     await host!.rewind(session.id, 'm1')
@@ -266,9 +267,8 @@ describe('Codex 回退', { timeout: 20_000 }, () => {
     data['fake-thread'] = data['fake-thread'].filter(t => t.id !== 'turn-1')
     writeFileSync(stateFile(), JSON.stringify(data))
     await say(session.id, '新的', 'n0')
-    expect(notices(session.id)).toEqual([
-      'Could not rewind the Codex thread to this message; started a new thread (previous context was not carried over)',
-    ])
+    // 回退到 m1 之前：留下的只有第一轮
+    expect(notices(session.id)).toEqual([NATIVE_TEXT.resumeLost(1, 'Codex')])
     expect(host!.open(session.id).record.pendingRewind ?? null).toBeNull()
     expect(host!.open(session.id).record.engineSessionId).not.toBe('fake-thread')
   })
@@ -393,7 +393,7 @@ describe('Codex 分叉', { timeout: 20_000 }, () => {
     ])
   })
 
-  it('分叉时原线程已经没了：改开新线程并提示，清掉 pendingFork', async () => {
+  it('分叉时原线程已经没了：改开新线程，把分叉点之前的聊天注进去并提示，清掉 pendingFork', async () => {
     const { session, say, conversation } = setup()
     await conversation(['一', '二', '三'])
     const forked = await host!.forkSession(session.id, 'm2')
@@ -401,9 +401,8 @@ describe('Codex 分叉', { timeout: 20_000 }, () => {
     delete data['fake-thread']
     writeFileSync(stateFile(), JSON.stringify(data))
     await say(forked.record.id, '另一条路', 'f0')
-    expect(notices(forked.record.id)).toEqual([
-      'Could not fork the Codex thread; started a new thread (previous context was not carried over)',
-    ])
+    // 从 m2 分叉：带过去的是前两轮
+    expect(notices(forked.record.id)).toEqual([NATIVE_TEXT.resumeLost(2, 'Codex')])
     const after = host!.open(forked.record.id).record
     expect(after.pendingFork ?? null).toBeNull()
     expect(after.engineSessionId).toBeTruthy()

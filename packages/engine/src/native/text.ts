@@ -48,4 +48,7 @@ export const NATIVE_TEXT = {
   /** 原生记录不在了，接力把像素星空里的聊天写进新的引擎会话 */
   recreated: (turns: number, engine = 'Claude Code') =>
     `${engine} 的会话记录不在了，已把像素星空里的聊天（${turns} 轮）写进新的引擎会话（工具调用和文件改动没有带过去）`,
+  /** 原生会话接不上了（恢复 / 回退 / 分叉失败），改开了新会话，把像素星空里的聊天带了过去 */
+  resumeLost: (turns: number, engine = 'Claude Code') =>
+    `没能接上原来的 ${engine} 会话，已改开新的引擎会话，并把像素星空里的聊天（${turns} 轮）带了过去（工具调用和文件改动没有带过去）`,
 } as const

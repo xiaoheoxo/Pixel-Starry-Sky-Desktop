@@ -822,6 +822,14 @@ export const systemMessages = {
     zh: 'Codex 的会话记录不在了，已把像素星空里的聊天（{p0} 轮）写进新的引擎会话（工具调用和文件改动没有带过去）',
     en: 'The Codex session record is gone. The chat from Pixel Starry Sky ({p0} turns) was written into a new engine session (tool calls and file changes were not carried over)',
   },
+  'system.nativeResumeLost': {
+    zh: '没能接上原来的 Claude Code 会话，已改开新的引擎会话，并把像素星空里的聊天（{p0} 轮）带了过去（工具调用和文件改动没有带过去）',
+    en: 'Couldn’t continue the original Claude Code session, so a new engine session was started and the chat from Pixel Starry Sky ({p0} turns) was carried over (tool calls and file changes were not)',
+  },
+  'system.nativeResumeLostCodex': {
+    zh: '没能接上原来的 Codex 会话，已改开新的引擎会话，并把像素星空里的聊天（{p0} 轮）带了过去（工具调用和文件改动没有带过去）',
+    en: 'Couldn’t continue the original Codex session, so a new engine session was started and the chat from Pixel Starry Sky ({p0} turns) was carried over (tool calls and file changes were not)',
+  },
   'system.nativeCodexTerminal': {
     zh: '接着终端里的 Codex 会话 · {p0} 轮',
     en: 'Continuing the Codex session from the terminal · {p0} turns',

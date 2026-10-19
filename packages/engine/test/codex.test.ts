@@ -27,6 +27,7 @@ import { CODEX_MIN_VERSION, codexVersionStatus } from '../src/codex/discover'
 import { CodexTranslator, tokenCounts } from '../src/codex/translate'
 import { loadCodexRuns } from '../src/codex/runs'
 import { makeTmp, removeTmp } from './helpers/tmp'
+import { NATIVE_TEXT } from '../src/native/text'
 let root: string, host: EngineHost | undefined
 beforeEach(() => {
   root = makeTmp('codex-test')
@@ -449,7 +450,7 @@ describe('Codex app-server adapter', () => {
     const { session } = setup()
     await expect(host!.compactContext(session.id)).rejects.toThrow('当前引擎不支持原生压缩')
   })
-  it('恢复线程失败时新开线程并提示，换掉记录里的线程 id，之后的消息正常完成', async () => {
+  it('恢复线程失败（记录还在）：新开线程，把之前的聊天注进去并提示（详情里有 Codex 报的原因），换掉线程 id，之后的消息正常完成', async () => {
     const { session, messages } = setup()
     const failFile = join(root, 'resume-fail')
     await host!.send(session.id, 'first')
@@ -460,13 +461,19 @@ describe('Codex app-server adapter', () => {
     await host!.send(session.id, 'second')
     await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
     expect(messages().some(m => m.method === 'thread/resume')).toBe(true)
-    expect(host!.open(session.id).items.filter(i => i.kind === 'notice')).toEqual([
-      expect.objectContaining({
-        kind: 'notice',
-        level: 'warn',
-        text: 'Could not resume the Codex thread; started a new thread (previous context was not carried over)',
-      }),
+    const notices = host!.open(session.id).items.filter(i => i.kind === 'notice')
+    expect(notices).toEqual([
+      expect.objectContaining({ kind: 'notice', level: 'warn', text: NATIVE_TEXT.resumeLost(1, 'Codex') }),
     ])
+    const detail = notices[0].kind === 'notice' ? (notices[0].detail ?? '') : ''
+    expect(detail.startsWith('thread/resume: ')).toBe(true)
+    expect(detail).toContain('first')
+    // 之前那一轮注进了新线程，这一轮自己的话不在回放里
+    const injected = messages().filter(m => m.method === 'thread/inject_items')
+    expect(injected).toHaveLength(1)
+    expect(JSON.stringify(injected[0].params)).toContain('first')
+    expect(JSON.stringify(injected[0].params)).not.toContain('second')
+    expect(host!.open(session.id).items.some(i => i.kind === 'notice' && /Could not resume/.test(i.text))).toBe(false)
     expect(host!.open(session.id).record.engineSessionId).toBeTruthy()
     expect(host!.open(session.id).record.engineSessionId).not.toBe(oldId)
     rmSync(failFile)

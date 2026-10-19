@@ -135,6 +135,10 @@ describe('中英文词典', () => {
         'Codex 的会话记录不在了，已把像素星空里的聊天（2 轮）写进新的引擎会话（工具调用和文件改动没有带过去）',
         'The Codex session record is gone. The chat from Pixel Starry Sky (2 turns) was written into a new engine session (tool calls and file changes were not carried over)',
       ],
+      [
+        '没能接上原来的 Codex 会话，已改开新的引擎会话，并把像素星空里的聊天（3 轮）带了过去（工具调用和文件改动没有带过去）',
+        'Couldn’t continue the original Codex session, so a new engine session was started and the chat from Pixel Starry Sky (3 turns) was carried over (tool calls and file changes were not)',
+      ],
       ['Codex 没装好，读不到它的会话：spawn ENOENT', 'Codex isn’t set up, so its sessions can’t be read: spawn ENOENT'],
       ['这一轮带着编辑器的上下文', 'This turn carried context from the editor'],
       ['这个会话还没有聊完的一轮，没法复制', 'This session has no finished turn yet, so it can’t be copied'],

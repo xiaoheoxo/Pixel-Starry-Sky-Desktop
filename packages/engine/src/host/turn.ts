@@ -144,6 +144,13 @@ export class HostTurn {
             if (rt.execution) rt.execution.pendingFork = null
             m.events.patchRecord(id, { pendingFork: null })
           },
+          lostSeed: (userItemId, sees) =>
+            m.handoff.recover(
+              id,
+              { ...m.sessions.runtime(id).snapshot.record, ...(m.sessions.runtime(id).execution ?? {}) },
+              userItemId,
+              sees,
+            ),
           reportConfigWarning: text => m.settings.reportConfigWarning(info.id, text),
           reportQuota: patch => m.quota.observe(id, patch),
         })

@@ -189,22 +189,25 @@ export class HostHandoff {
     sees: boolean = !!ENGINES[record.engine].caps.imageInput,
     /** 这条消息是自动重连原样重发的：对话里已经有它的用户消息条目（这个 id），交接里不能再带一遍 */
     replacing?: string,
+    /** 引擎那边的会话接不上了（恢复 / 回退 / 分叉失败，已改开新会话）：不管游标，整段聊天都要带 */
+    lost = false,
   ): HandoffPlan {
     const rt = this.ctx.m.sessions.runtime(id)
     const body = messageWithFiles(text, files)
     const plain: HandoffPlan = { text: body, notice: null, hold: false }
-    if (!record.engineSessions) return plain
+    if (!record.engineSessions && !lost) return plain
     const full = rt.snapshot.items
     // 游标照原样在完整对话里找；交接材料和「上一条用户消息」里排除要被原样重发的这一条
     const prior = replacing ? full.filter(item => item.id !== replacing) : full
     // 引擎那边的原生会话记录没了（终端里删了、换了机器）：当没看过，下面的接力把整段聊天写进同一个 id 的新记录。
     // 待执行的回退 / 分叉本来就不在这个 id 的记录里，不算
     const recreate =
-      !!record.engineSessions[record.engine]?.seen &&
-      !record.pendingRewind &&
-      !record.pendingFork &&
-      this.ctx.adapters[record.engine]?.hasNativeSession?.(record) === false
-    const seen = recreate ? null : (record.engineSessions[record.engine]?.seen ?? null)
+      lost ||
+      (!!record.engineSessions?.[record.engine]?.seen &&
+        !record.pendingRewind &&
+        !record.pendingFork &&
+        this.ctx.adapters[record.engine]?.hasNativeSession?.(record) === false)
+    const seen = recreate ? null : (record.engineSessions?.[record.engine]?.seen ?? null)
     const at = seen === null ? -1 : full.findIndex(item => item.id === seen)
     const delta = (at >= 0 ? full.slice(at + 1) : full).filter(item => item.id !== replacing)
     const mode = at >= 0 ? 'delta' : 'full'
@@ -264,7 +267,9 @@ export class HostHandoff {
               kind: 'notice',
               id: randomUUID(),
               level: 'warn',
-              text: NATIVE_TEXT.recreated(seed.turns.length, name),
+              text: lost
+                ? NATIVE_TEXT.resumeLost(seed.turns.length, name)
+                : NATIVE_TEXT.recreated(seed.turns.length, name),
               detail: renderSeed(seed),
             }
           : showNotice
@@ -281,6 +286,7 @@ export class HostHandoff {
             : null,
       }
     }
+    if (lost) return plain
     const parts = imageParts(carry.length, all.length - carry.length)
     return {
       text: `${built.text}\n\n${body}`,
@@ -299,5 +305,19 @@ export class HostHandoff {
           }
         : null,
     }
+  }
+
+  /**
+   * 引擎那边的会话接不上了（恢复 / 回退 / 分叉失败，适配器已改开新会话）：把这一轮之前的整段聊天做成回放，
+   * 注进新会话，免得记忆丢掉。exclude 是这一轮自己的用户消息条目；没有可带的聊天或适配器不收回放时返回 null
+   */
+  recover(
+    id: string,
+    record: SessionRecord,
+    exclude: string,
+    sees: boolean,
+  ): { seed: NonNullable<HandoffPlan['seed']>; notice: NonNullable<HandoffPlan['notice']> } | null {
+    const plan = this.plan(id, record, '', undefined, [], sees, exclude, true)
+    return plan.seed && plan.notice ? { seed: plan.seed, notice: plan.notice } : null
   }
 }
