@@ -57,7 +57,7 @@ if (intercepted.action === 'run') {
       approval,
       todoExtension,
       webExtension,
-      ...(subagent
+      ...(subagent || process.env.PIXELSKY_MANAGED_SUBAGENTS === '1'
         ? []
         : [
             createSubagentExtension({

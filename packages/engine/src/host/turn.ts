@@ -226,7 +226,12 @@ export class HostTurn {
       if (rt.snapshot.suggestion) m.events.apply(id, { type: 'suggestion', text: null })
       m.events.apply(id, { type: 'status', state: 'running' })
       m.events.apply(id, { type: 'turn_started', turnId, execution: queueSettings(rt.execution) })
-      rt.session.send(handoff.text, turnId, userItemId, attachments, handoff.seed, handoff.attachments)
+      const delegatedText =
+        extensions?.env?.PIXELSKY_MANAGED_SUBAGENTS === '1'
+          ? 'For any delegated work, use the pixelsky_subagents MCP task tool. The host applies the user-selected site and model; do not use native delegation or shell-launched agent processes.\n\n' +
+            handoff.text
+          : handoff.text
+      rt.session.send(delegatedText, turnId, userItemId, attachments, handoff.seed, handoff.attachments)
     } catch (err) {
       if (ctx.runtimes.get(id) !== rt) return
       const error = (err as Error).message
@@ -329,6 +334,7 @@ export class HostTurn {
     if (rt.stopping) return
     rt.stopping = true
     try {
+      await m.subagents.stopParent(id)
       await rt.session?.interrupt(opts)
     } finally {
       rt.stopping = false
@@ -347,12 +353,14 @@ export class HostTurn {
   }
 
   answer(id: string, requestId: string, decision: ApprovalDecision): void {
+    if (this.ctx.m.subagents.answer(id, requestId, decision)) return
     const rt = this.ctx.runtimes.get(id)
     if (!rt?.session) return
     rt.session.answer(requestId, decision)
   }
 
   async stopTask(id: string, taskId: string): Promise<void> {
+    if (await this.ctx.m.subagents.stop(id, taskId)) return
     const s = this.ctx.runtimes.get(id)?.session
     if (!s) throw new Error('引擎没有在运行')
     if (!s.stopTask) throw new Error('这个引擎没有后台任务')
@@ -367,6 +375,8 @@ export class HostTurn {
   }
 
   subagentTranscript(id: string, agentId: string): Item[] | Promise<Item[]> {
+    const managed = this.ctx.m.subagents.transcript(id, agentId)
+    if (managed) return managed
     const sessions = this.ctx.m.sessions
     const record = sessions.runtime(id).snapshot.record
     const adapter = this.ctx.adapters[record.engine]

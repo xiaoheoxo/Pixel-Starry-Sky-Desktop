@@ -70,6 +70,7 @@ import { HostQuota } from './quota'
 import { HostSessions } from './sessions'
 import { HostSettings, type SyncableEngineSettings } from './settings'
 import { HostTurn } from './turn'
+import { HostSubagents } from './subagents'
 import { HostUsage } from './usage'
 
 export type { EngineHostOptions } from './context'
@@ -135,6 +136,7 @@ export class EngineHost {
     }
     const projects = new HostProjects(ctx)
     ctx.m = {
+      subagents: new HostSubagents(ctx),
       guard: new HostGuard(ctx),
       settings,
       projects,
@@ -168,6 +170,10 @@ export class EngineHost {
   /** 本机网关转发压缩请求时报来的进度（压缩上下文的实时进度） */
   compactionRequest(id: string, report: CompactionRequestReport): void {
     this.m.compaction.report(id, report)
+  }
+
+  delegate(id: string, task: { description: string; prompt: string }, signal?: AbortSignal): Promise<string> {
+    return this.m.subagents.run(id, task, signal)
   }
 
   executionRecord(id: string): SessionRecord | null {
@@ -592,6 +598,7 @@ export class EngineHost {
     }
     // 退出时不等引擎收尾：最多等 1 秒就强制结束（原来 Claude 等满 5 秒，更新重启时白等）
     await Promise.all([
+      this.m.subagents.close(),
       ...all.map(rt => rt.session?.close({ quick: true }).catch(() => undefined)),
       ...Object.values(this.ctx.adapters).map(adapter => adapter?.close?.({ quick: true }).catch(() => undefined)),
     ])

@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   EFFORT_PANEL_KEYS,
+  subagentConfig,
   emptySnapshot,
   normalizeSessionTitle,
   PROVIDER_ID,
@@ -24,6 +25,7 @@ export class HostSessions {
   sessions(): SessionSummary[] {
     const { ctx } = this
     return [...ctx.records.values()]
+      .filter(record => !record.subagentParentId)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map(record => {
         const queue = ctx.m.queue.queueSummary(record.id)
@@ -62,6 +64,7 @@ export class HostSessions {
       engineSessionId: null,
       title: NEW_TITLE,
       model: opts.model !== undefined ? opts.model : d.model,
+      subagent: subagentConfig(opts.subagent),
       platform: opts.platform ?? null,
       provider: opts.provider ? { id: opts.provider.id } : null,
       effort: opts.effort !== undefined ? opts.effort : d.effort,
@@ -146,6 +149,7 @@ export class HostSessions {
       sessionMaxRetries: undefined,
     }
     ctx.runtimes.set(id, rt)
+    ctx.m.subagents.restore(id)
     // The original account and request IDs are persisted, never inferred from the current route.
     queueMicrotask(() => {
       ctx.m.usage.resumeSettlements(id, snapshot.items)
@@ -241,6 +245,10 @@ export class HostSessions {
       running &&
       ((inUse !== undefined && inUse !== sourceKey({ platform, provider })) ||
         (nextEngine ?? current.engine) !== (rt.execution?.engine ?? current.engine))
+    if (patch.subagent !== undefined) {
+      next.subagent = subagentConfig(patch.subagent)
+      await ctx.opts.validateSubagent?.({ ...current, ...next })
+    }
     const record = m.events.patchRecord(id, next)
     if (rt.execution) {
       const applied = { ...next }
@@ -260,6 +268,7 @@ export class HostSessions {
         delete applied.permissionMode
       rt.execution = { ...rt.execution, ...applied }
     }
+    if (patch.permissionMode !== undefined) await m.subagents.syncPermissions(id)
     if (rt.execution) m.events.apply(id, { type: 'execution', settings: queueSettings(rt.execution) })
     const settings: Partial<SessionSettings> = {}
     if (patch.model !== undefined) settings.model = patch.model
@@ -398,6 +407,7 @@ export class HostSessions {
         ctx.runtimes.delete(id)
         await rt.session?.close()
       }
+      await m.subagents.forget(id)
       ctx.records.delete(id)
       m.queue.forget(id)
       ctx.store.deleteSession(id)

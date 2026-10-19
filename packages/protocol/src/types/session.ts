@@ -28,6 +28,8 @@ export interface AddProjectsResult {
 export type TurnOutcome = 'completed' | 'interrupted' | 'failed'
 
 export interface SessionSettings {
+  /** 独立子代理路由；null / 旧记录缺省为跟随主会话。 */
+  subagent?: import('../subagent').SubagentConfig | null
   /** null/缺省为自有认证；平台记录分组与账号，避免跨账号扣费。 */
   platform?: { groupId: string; account: string } | null
   /** 自定义 API 的接口（docs/ui/custom-api.md）；模型仍在 model 里。和 platform 不能同时有 */
@@ -171,6 +173,8 @@ export interface SendReceipt {
 }
 
 export interface SessionRecord extends SessionSettings {
+  /** 宿主管理的独立子会话，不进入主会话列表。 */
+  subagentParentId?: string
   /** 持久化的列表置底偏好，旧记录为 null。 */
   bottomedAt?: number | null
   /** 置顶的时间：置顶的会话显示在侧栏最上面的「置顶」分组（和置底互斥），旧记录为 null。 */

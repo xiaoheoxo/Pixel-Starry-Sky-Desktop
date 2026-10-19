@@ -14,6 +14,7 @@ export interface ProgressAgent {
   label: string
   state: RunState
   model: string
+  site?: string
   type: string
   message: string | null
   startedAt: number
@@ -66,6 +67,7 @@ export function progressAgents(
       label: a.label || run?.label || a.id.slice(0, 8),
       state: runState(a.status),
       model: run?.model ?? '',
+      ...(run?.site ? { site: run.site } : {}),
       type: run?.type ?? '',
       message: a.message,
       startedAt: run?.startedAt ?? 0,

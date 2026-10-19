@@ -47,6 +47,7 @@ export class HostEvents {
     if (event.type !== 'item_delta') this.flushDelta(id)
     const rt = ctx.runtimes.get(id)
     if (!rt) return
+    if (event.type === 'runs' || event.type === 'subagents') event = ctx.m.subagents.merge(id, event)
     const before = rt.snapshot.items
     rt.snapshot = reduce(rt.snapshot, event)
     rt.seq++
@@ -190,6 +191,7 @@ export class HostEvents {
         if (rt.snapshot.turnId && rt.snapshot.pending.length === 0) this.apply(id, { type: 'status', state: 'running' })
         break
       case 'turn_completed': {
+        void m.subagents.stopParent(id)
         if (event.usage || m.usage.hasPlatformRequests(id, event.turnId))
           m.usage.recordUsage(id, event.turnId, event.outcome, event.usage ?? { models: {}, durationMs: 0 })
         // 这一轮结束：执行它的引擎看到了对话到现在为止的全部（没带交接的斜杠命令除外，交接留给下一条普通消息；

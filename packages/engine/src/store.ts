@@ -25,6 +25,7 @@ import type {
   ProjectRecord,
   QueueSummary,
   SessionDefaults,
+  AgentRun,
   SessionRecord,
 } from '@pixelsky/protocol'
 import { isQuietWarning } from '@pixelsky/protocol'
@@ -155,6 +156,28 @@ export class Store {
 
   saveSettings(settings: EngineSettingsFile): void {
     writeJson(join(this.dir, 'engine-settings.json'), { version: VERSION, ...settings })
+  }
+
+  loadDelegated(id: string): Array<{ run: AgentRun; record: SessionRecord }> {
+    const data = readJson<Array<{ run: AgentRun; record: SessionRecord }>>(join(this.sessionDir(id), 'subagents.json'))
+    return Array.isArray(data)
+      ? data.filter(
+          e =>
+            typeof e?.run?.id === 'string' &&
+            e.run.id.startsWith('delegated-') &&
+            e.record?.id === e.run.id &&
+            e.record.subagentParentId === id,
+        )
+      : []
+  }
+
+  saveDelegated(id: string, entries: Array<{ run: AgentRun; record: SessionRecord }>): void {
+    const dir = this.sessionDir(id)
+    mkdirSync(dir, { recursive: true })
+    writeJson(
+      join(dir, 'subagents.json'),
+      entries.map(({ run, record }) => ({ run, record })),
+    )
   }
 
   loadRecords(): SessionRecord[] {

@@ -141,6 +141,7 @@ function AgentRow({
   const meta = [
     files > 0 && tr(files === 1 ? 'session.changes.agentFile' : 'session.changes.agentFiles', { n: files }),
     a.type,
+    a.site,
     showModel && shortModel(a.model),
   ]
     .filter(Boolean)

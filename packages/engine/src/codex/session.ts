@@ -333,6 +333,7 @@ export class CodexSession implements EngineSession {
     const config = (key: string, value: unknown): void => {
       args.push('-c', `${key}=${tomlValue(value)}`)
     }
+    if (this.ctx.extensions?.env?.PIXELSKY_MANAGED_SUBAGENTS === '1') config('features.multi_agent', false)
     // 平台和自定义 API 都经本机网关；provider 名分开，Codex 按 provider 存的状态互不串
     const gatewayProvider = record.platform ? 'pixelsky' : record.provider ? 'pixelsky-custom' : null
     this.procViaGateway = !!gatewayProvider

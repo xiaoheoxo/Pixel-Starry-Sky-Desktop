@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer, type Ser
 import type { AddressInfo } from 'node:net'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { historyOutline, historyRead, historySearch } from '@pixelsky/engine'
 import type { Item, SessionRecord } from '@pixelsky/protocol'
 import { machineOf } from '../machines/identity'
@@ -41,13 +41,13 @@ export function historyEnabled(record: SessionRecord): boolean {
   )
 }
 
-const TOOLS = [
+const HISTORY_TOOLS: Tool[] = [
   {
     name: 'outline',
     description:
       '查看当前像素星空对话的目录：共多少轮，每轮一行（编号、处理该轮的 AI 引擎、用户说了什么、助手最后答了什么）。这段对话更早的部分可能是别的 AI 引擎处理的，你的上下文里没有；想知道之前发生过什么，先看目录。每页 50 轮，用 page 翻页。',
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: { page: { type: 'integer', minimum: 1, description: '页码，从 1 开始，默认 1' } },
     },
   },
@@ -56,7 +56,7 @@ const TOOLS = [
     description:
       '读取当前像素星空对话中某几轮的原文（用户消息、助手回复、命令及输出、工具调用、文件改动、待办）。轮次编号来自 outline 或 search 的结果。从 turn 起最多读 count 轮（默认 1，最多 5），总长有上限。',
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         turn: { type: 'integer', minimum: 0, description: '起始轮次编号' },
         count: { type: 'integer', minimum: 1, maximum: 5, description: '读几轮，默认 1，最多 5' },
@@ -69,7 +69,7 @@ const TOOLS = [
     description:
       '在当前像素星空对话里按关键词搜索（不分大小写的子串匹配，范围含用户消息、助手回复、命令及输出、工具调用、改动的文件），返回命中的轮次和片段。找到后可用 read 读那一轮原文。',
     inputSchema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         query: { type: 'string', minLength: 1, description: '关键词' },
         limit: { type: 'integer', minimum: 1, maximum: 50, description: '最多返回几处，默认 20，最多 50' },
@@ -77,7 +77,8 @@ const TOOLS = [
       required: ['query'],
     },
   },
-].map(tool => ({
+]
+const TOOLS = HISTORY_TOOLS.map(tool => ({
   ...tool,
   annotations: {
     title: tool.name,
@@ -119,23 +120,44 @@ function run(name: string, args: Args, items: readonly Item[]): string {
   throw new Error(`没有这个工具：${name}`)
 }
 
-/** 给一个对话建 MCP 服务器；工具只能查 sessionId 这一个对话，每次调用都取最新的条目 */
-function mcpServer(ctx: HistoryContext, sessionId: string): Server {
+/** Shared, session-scoped loopback transport; route and credentials never come from tool arguments. */
+export interface SessionMcpOptions {
+  name: string
+  instructions: string
+  tools: Tool[]
+  enabled(record: SessionRecord): boolean
+  call(sessionId: string, name: string, args: Args, signal: AbortSignal): Promise<string>
+}
+
+function mcpServer(options: SessionMcpOptions, sessionId: string): Server {
   const server = new Server(
-    { name: HISTORY_SERVER_NAME, version: '1.0.0' },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    { name: options.name, version: '1.0.0' },
+    { capabilities: { tools: {} }, instructions: options.instructions },
   )
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
-  server.setRequestHandler(CallToolRequestSchema, async request => {
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: options.tools }))
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     try {
-      if (!ctx.engine) return text('引擎还没有就绪，稍后再试。', true)
-      const items = await ctx.engine.historyItems(sessionId)
-      return text(run(request.params.name, (request.params.arguments ?? {}) as Args, items))
+      return text(
+        await options.call(sessionId, request.params.name, (request.params.arguments ?? {}) as Args, extra.signal),
+      )
     } catch (error) {
       return text(error instanceof Error ? error.message : String(error), true)
     }
   })
   return server
+}
+
+export function historyServer(ctx: HistoryContext): HistoryServer {
+  return sessionMcpServer({
+    name: HISTORY_SERVER_NAME,
+    instructions: INSTRUCTIONS,
+    tools: TOOLS,
+    enabled: historyEnabled,
+    async call(id, name, args) {
+      if (!ctx.engine) throw new Error('引擎还没有就绪，稍后再试。')
+      return run(name, args, await ctx.engine.historyItems(id))
+    },
+  })
 }
 
 function reply(res: ServerResponse, status: number, message: string, headers: Record<string, string> = {}): void {
@@ -160,7 +182,7 @@ function readBody(req: IncomingMessage): Promise<string | null> {
   })
 }
 
-export function historyServer(ctx: HistoryContext): HistoryServer {
+export function sessionMcpServer(options: SessionMcpOptions): HistoryServer {
   const byToken = new Map<string, string>()
   const byId = new Map<string, string>()
   let http: HttpServer | null = null
@@ -185,7 +207,7 @@ export function historyServer(ctx: HistoryContext): HistoryServer {
     } catch {
       return reply(res, 400, '请求不是有效的 JSON')
     }
-    const server = mcpServer(ctx, sessionId)
+    const server = mcpServer(options, sessionId)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => {
       void transport.close()
@@ -217,7 +239,7 @@ export function historyServer(ctx: HistoryContext): HistoryServer {
 
   return {
     async entry(record) {
-      if (closed || !historyEnabled(record)) return null
+      if (closed || !options.enabled(record)) return null
       const port = await start()
       if (closed) return null
       let token = byId.get(record.id)

@@ -1,4 +1,5 @@
 import { tr } from '../../i18n/core'
+import { useSubagentDefault } from './subagentPrefs'
 import { useI18n } from '@/i18n/I18nProvider'
 // 给组件用的钩子：演示模式返回 mock 数据（或 undefined 让组件走演示逻辑），否则返回引擎的真实数据
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
@@ -19,6 +20,7 @@ import {
   type QueueMove,
   type QueueSettings,
   type SessionSettings,
+  type SubagentConfig,
   type SessionSnapshot,
   sourceKey,
 } from '@pixelsky/protocol'
@@ -306,6 +308,8 @@ export interface PendingEngine {
 }
 
 export interface ComposerController {
+  subagent: SubagentConfig | null
+  setSubagent(config: SubagentConfig | null): Promise<void>
   queue: QueuedMessage[]
   queuePaused: boolean
   execution: QueueSettings | null
@@ -425,6 +429,7 @@ export interface ComposerController {
 }
 
 interface Draft {
+  subagent?: SubagentConfig | null
   engine: EngineId
   effort: Effort | null
   permissionMode: PermissionMode
@@ -443,6 +448,8 @@ export function useComposerController(
   draftKey?: string,
 ): ComposerController | undefined {
   const account = useAccount()
+  const defaultSubagent = useSubagentDefault()
+  const subagentMachine = useMachines().currentId
   const engines = useEngineState(s => s.engines)
   const defaults = useEngineState(s => s.defaults)
   const config = useEngineState(s => s.config)
@@ -465,6 +472,7 @@ export function useComposerController(
   const panelDefaults = (id: EngineId): EffortPanelDefaults => effortDefaultsFor(config, defaults, id)
   const baseEngine = defaults?.engine ?? 'claude'
   const base: Draft = draft ?? {
+    subagent: subagentMachine === 'local' ? defaultSubagent : null,
     engine: baseEngine,
     permissionMode: defaults?.permissionMode ?? 'edits',
     ...panelDefaults(baseEngine),
@@ -778,6 +786,13 @@ export function useComposerController(
   }
 
   return {
+    subagent: record ? (record.subagent ?? null) : (base.subagent ?? null),
+    setSubagent: async subagent => {
+      if (subagent && (record ? machineOf(record.id) : subagentMachine) !== 'local')
+        throw new Error(tr('subagentSettings.remote'))
+      if (record) await b.updateSession(record.id, { subagent })
+      else setDraft({ ...base, subagent })
+    },
     sessionId: record?.id ?? null,
     queue: snap?.queue ?? [],
     queuePaused: snap?.queuePaused ?? false,
@@ -923,6 +938,7 @@ export function useComposerController(
         ],
       })
       const panel = {
+        subagent: record ? (record.subagent ?? null) : (base.subagent ?? null),
         effort: record ? record.effort : base.effort,
         permissionMode: record ? record.permissionMode : base.permissionMode,
         ultracode: record ? record.ultracode : base.ultracode,
@@ -988,6 +1004,7 @@ export function useComposerController(
       const workspace = draftKey ? draftWorkspace(draftKey) : null
       const projectId = workspace?.projectId ?? getEngineState().currentProjectId ?? (await addProject())
       if (!projectId) throw new Error(tr('engine.hooks.chooseProjectFolderFirst'))
+      if (base.subagent && subagentMachine !== 'local') throw new Error(tr('subagentSettings.remote'))
       const created = await b.createSession({
         projectId,
         copyId: workspace?.copyId,

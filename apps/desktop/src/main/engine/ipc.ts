@@ -28,11 +28,12 @@ import {
 } from '../account/checkout'
 import { closePayWindow, openPayWindow } from '../account/pay-window'
 import { logger } from '@pixelsky/engine'
-import { initPlatform, validateQueuedInput } from '../platform/platform'
+import { initPlatform, validateQueuedInput, validateSubagentInput } from '../platform/platform'
 import { initProviders } from '../providers/providers'
 import { initAi } from '../ai/ipc'
 import { Extensions } from '../extensions/ipc'
 import { historyEnabled, historyServer } from './history-mcp'
+import { subagentServer } from './subagent-mcp'
 import { bundledPixelCli } from './pixel-cli'
 import { registerQuotaIpc } from './quota-ipc'
 import { initTerminalIpc } from '../terminal/ipc'
@@ -78,7 +79,9 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   // 对话历史 MCP 服务：第一次有换过引擎的对话要派发消息时才启动
   const history = historyServer(ctx)
   app.on('will-quit', () => history.close())
-  const extensions = new Extensions(ctx, history)
+  const subagents = subagentServer(ctx)
+  app.on('will-quit', () => subagents.close())
+  const extensions = new Extensions(ctx, history, subagents)
   // 系统代理补给本机引擎（Claude Code / Codex 只认环境变量）；远程机器的宿主不传
   const proxyLog = logger('proxy')
   const systemProxy = new SystemProxy({
@@ -109,6 +112,13 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     },
     sessionEnv,
     validateInput: record => validateQueuedInput(record, ctx.providers),
+    validateSubagent: record => validateSubagentInput(record, ctx.providers),
+    subagentSite: record =>
+      record.provider
+        ? (ctx.providers?.get(record.provider.id)?.name ?? '已删除的站点')
+        : record.platform
+          ? '像素星空'
+          : record.engine,
     priceRef: (record, model) =>
       // 上下文超过 200K 的自定义模型在 Claude Code 里叫「模型名[1m]」（docs/ui/custom-api.md §10）
       record.provider

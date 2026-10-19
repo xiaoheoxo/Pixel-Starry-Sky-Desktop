@@ -22,6 +22,7 @@ export class HostGuard {
     ctx.lockedWorkspaces.add(key)
     try {
       for (const record of ctx.records.values()) {
+        if (record.subagentParentId) continue
         if (this.workspaceKey(record.cwd) !== key) continue
         const rt = ctx.m.sessions.runtime(record.id)
         await ctx.m.turn.interrupt(record.id)

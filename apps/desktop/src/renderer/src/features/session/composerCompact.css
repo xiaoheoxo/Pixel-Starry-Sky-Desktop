@@ -66,6 +66,9 @@
   .composer-area [data-model-name] {
     max-width: 7em;
   }
+  .composer-area [data-composer-subagent] [data-subagent-label] {
+    display: none;
+  }
   .composer-area [data-context-percent] {
     display: none;
   }

@@ -23,6 +23,7 @@ export type BoxIcon = 'bot' | 'workflow' | 'terminal'
 export type BoxState = RunState | 'approval'
 
 export interface BoxModel {
+  site?: string
   icon: BoxIcon
   /** 任务名；为空时界面写默认名 */
   label: string
@@ -86,6 +87,7 @@ export function dispatchBox(item: ToolItem, runs: AgentRuns = NONE, approval = f
           ? runState(workflow ? workflow.status : agent!.state)
           : 'running'
   return {
+    ...(agent?.site ? { site: agent.site } : {}),
     icon: item.name === 'Workflow' ? 'workflow' : 'bot',
     label: item.title,
     model: agent?.model ? shortModel(agent.model) : '',
@@ -115,6 +117,7 @@ export function completionBox(task: NoticeTask, runs: AgentRuns = NONE): BoxMode
   const run = workflow ?? agent
   const traceable = !!id && (task.kind === 'agent' || task.kind === 'workflow' || task.kind === 'remote_agent')
   return {
+    ...(agent?.site ? { site: agent.site } : {}),
     icon: TASK_ICON[task.kind],
     label: task.label || agent?.label || workflow?.name || '',
     model: agent?.model ? shortModel(agent.model) : '',
