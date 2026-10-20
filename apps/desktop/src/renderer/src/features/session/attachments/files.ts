@@ -161,6 +161,7 @@ export function estimateTokens(text: string): number {
 }
 
 export function fileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
   return `${Math.max(1, Math.ceil(bytes / 1024))} KB`
 }

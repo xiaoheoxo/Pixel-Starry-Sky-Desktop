@@ -253,6 +253,7 @@ const files: FilesBridge = {
   read: (ref, path) => call('files:read', ref, path),
   headContent: (ref, path) => call('files:headContent', ref, path),
   save: (ref, path, text, version) => call('files:save', ref, path, text, version),
+  stage: (ref, request) => call('files:stage', ref, request),
   reveal: (ref, path) => call('files:reveal', ref, path),
   copyPath: (ref, path) => call('files:copyPath', ref, path),
   onBeforeClose: cb => {

@@ -3,6 +3,8 @@ import type {
   WorkspaceTarget,
   DirectoryListing,
   FileDocument,
+  FileStageRequest,
+  FileStageResult,
   GrepResult,
   EditorKind,
   EditorState,
@@ -31,6 +33,7 @@ export interface FilesBridge {
     content: string,
     version: string,
   ): Promise<Extract<FileDocument, { kind: 'text' }>>
+  stage(ref: WorkspaceRef, request: FileStageRequest): Promise<FileStageResult>
   reveal(ref: WorkspaceRef, path?: string): Promise<void>
   copyPath(ref: WorkspaceRef, path?: string): Promise<void>
   onBeforeClose(cb: () => void): () => void

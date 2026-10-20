@@ -1,15 +1,22 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, readdir, realpath, stat, open, rename, unlink } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { lstat, mkdir, readdir, realpath, stat, open, rename, unlink, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep, extname } from 'node:path'
-import { codedError, parseCodedError } from '@pixelsky/protocol'
+import {
+  FILE_STAGE_CHUNK_BYTES,
+  MAX_STAGED_FILE_BYTES,
+  STAGED_FILE_TTL_MS,
+  codedError,
+  parseCodedError,
+} from '@pixelsky/protocol'
 import { grepWorkspace } from './workspace-grep'
 import { IGNORED_STATUS } from '../../shared/types/workspace'
 import type {
   DirectoryListing,
   FileDocument,
   GrepResult,
+  FileStageRequest,
   WorkspaceRef,
   WorkspaceTarget,
 } from '../../shared/types/workspace'
@@ -204,16 +211,127 @@ function decode(path: string, bytes: Buffer): Extract<FileDocument, { kind: 'tex
 export interface WorkspaceFilesOptions {
   /** 删除时移到回收站：本机是系统回收站，远端是数据目录里的回收目录；不提供时拒绝删除 */
   trash?: (absolute: string, relative: string) => Promise<void>
+  /** 智能体可按路径读取的私有临时文件目录 */
+  attachmentDir?: string
+}
+
+interface StagedUpload {
+  dir: string
+  part: string
+  path: string
+  bytes: number
+  written: number
+}
+
+const safeStageName = (name: string): string => {
+  const safe = basename(name.replaceAll('\\', '/'))
+    .replace(/[<>:"|?*\u0000-\u001f]/g, '_')
+    .slice(0, 240)
+  return safe && safe !== '.' && safe !== '..' ? safe : 'attachment'
 }
 
 export class WorkspaceFiles {
   private saves = new Map<string, Promise<unknown>>()
+  private stagedUploads = new Map<string, StagedUpload>()
   constructor(
     private resolveTarget: TargetResolver,
     private options: WorkspaceFilesOptions = {},
   ) {}
   target(value: unknown): WorkspaceTarget {
     return this.resolveTarget(workspaceRef(value))
+  }
+
+  private stageRoot(): string {
+    return this.options.attachmentDir ?? join(tmpdir(), 'pixelsky-file-references')
+  }
+
+  /** 清理超过保留期限的临时附件。 */
+  async cleanExpiredStages(): Promise<void> {
+    const root = this.stageRoot()
+    await mkdir(root, { recursive: true, mode: 0o700 })
+    const cutoff = Date.now() - STAGED_FILE_TTL_MS
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const dir = join(root, entry.name)
+      const info = await stat(dir).catch(() => null)
+      if (info && info.mtimeMs < cutoff) await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  /** 将文件分块写入当前工作区所属机器的私有临时目录。 */
+  async stage(ref: WorkspaceRef, raw: unknown): Promise<{ path?: string }> {
+    this.target(ref)
+    if (!raw || typeof raw !== 'object') throw new Error('文件引用请求不正确')
+    const request = raw as FileStageRequest
+    if (typeof request.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(request.id)) throw new Error('文件引用编号不正确')
+    if (request.action === 'begin') {
+      if (
+        typeof request.name !== 'string' ||
+        !request.name ||
+        request.name.length > 512 ||
+        /[\u0000-\u001f\u007f]/.test(request.name) ||
+        !Number.isSafeInteger(request.bytes) ||
+        request.bytes < 0 ||
+        request.bytes > MAX_STAGED_FILE_BYTES
+      )
+        throw new Error('文件引用参数不正确或文件超过 1 GB')
+      if (this.stagedUploads.has(request.id)) throw new Error('文件引用编号已使用')
+      const dir = join(this.stageRoot(), request.id)
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      const part = join(dir, 'payload.part')
+      const handle = await open(part, 'wx', 0o600)
+      await handle.close()
+      this.stagedUploads.set(request.id, {
+        dir,
+        part,
+        path: join(dir, `file-${safeStageName(request.name)}`),
+        bytes: request.bytes,
+        written: 0,
+      })
+      return {}
+    }
+    if (request.action === 'cancel') {
+      const upload = this.stagedUploads.get(request.id)
+      this.stagedUploads.delete(request.id)
+      if (upload) await rm(upload.dir, { recursive: true, force: true })
+      return {}
+    }
+    const upload = this.stagedUploads.get(request.id)
+    if (!upload) throw new Error('文件引用上传已过期，请重试')
+    if (request.action === 'chunk') {
+      if (
+        !Number.isSafeInteger(request.offset) ||
+        request.offset !== upload.written ||
+        typeof request.dataBase64 !== 'string' ||
+        request.dataBase64.length > Math.ceil((FILE_STAGE_CHUNK_BYTES + 2) / 3) * 4
+      )
+        throw new Error('文件引用数据块不正确')
+      const bytes = Buffer.from(request.dataBase64, 'base64')
+      if (
+        !bytes.length ||
+        bytes.length > FILE_STAGE_CHUNK_BYTES ||
+        bytes.toString('base64') !== request.dataBase64 ||
+        upload.written + bytes.length > upload.bytes
+      )
+        throw new Error('文件引用数据块不正确')
+      const handle = await open(upload.part, 'r+')
+      try {
+        const result = await handle.write(bytes, 0, bytes.length, upload.written)
+        if (result.bytesWritten !== bytes.length) throw new Error('文件引用写入不完整')
+        upload.written += result.bytesWritten
+      } finally {
+        await handle.close()
+      }
+      return {}
+    }
+    if (request.action === 'finish') {
+      if (upload.written !== upload.bytes || (await stat(upload.part)).size !== upload.bytes)
+        throw new Error('文件引用大小不匹配，请重试')
+      await rename(upload.part, upload.path)
+      this.stagedUploads.delete(request.id)
+      return { path: upload.path }
+    }
+    throw new Error('文件引用操作不支持')
   }
 
   /** 新建空文件或文件夹（docs/ui/files-search-terminal-pins.md §3）；返回相对项目的路径 */
@@ -508,6 +626,8 @@ export function parseIgnoredOutput(out: string): string[] {
  * （docs/perf-audit-2026-10-18.md B5）
  */
 const quietGit = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' })
+// 与项目 Git 面板的只读查询保持一致，给 Windows 慢机器上的 Git 启动留出时间。
+const GIT_READ_TIMEOUT = 15_000
 
 /**
  * 被 .gitignore 等规则忽略的路径（相对 cwd）。不能加 --no-empty-directory：它会丢掉「没被忽略的未跟踪目录」里的被忽略文件。
@@ -531,7 +651,7 @@ function gitIgnored(cwd: string): Promise<string[]> {
         '--',
         '.',
       ],
-      { windowsHide: true, timeout: 4000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: quietGit() },
+      { windowsHide: true, timeout: GIT_READ_TIMEOUT, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: quietGit() },
       (err, output) => resolveIgnored(err ? [] : parseIgnoredOutput(output)),
     )
   })
@@ -553,7 +673,7 @@ function gitStatus(cwd: string): Promise<Record<string, string>> {
         '--',
         '.',
       ],
-      { windowsHide: true, timeout: 4000, maxBuffer: 1024 * 1024, encoding: 'utf8', env: quietGit() },
+      { windowsHide: true, timeout: GIT_READ_TIMEOUT, maxBuffer: 1024 * 1024, encoding: 'utf8', env: quietGit() },
       async (err, output) => {
         if (err) {
           resolveStatus({})
@@ -563,7 +683,7 @@ function gitStatus(cwd: string): Promise<Record<string, string>> {
         execFile(
           'git',
           ['-C', cwd, 'rev-parse', '--show-prefix'],
-          { windowsHide: true, timeout: 2000, encoding: 'utf8' },
+          { windowsHide: true, timeout: GIT_READ_TIMEOUT, encoding: 'utf8', env: quietGit() },
           (prefixError, prefixText) => {
             if (prefixError) {
               resolveStatus({})

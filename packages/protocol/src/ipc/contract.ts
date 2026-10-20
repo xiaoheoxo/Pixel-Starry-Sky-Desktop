@@ -47,8 +47,9 @@ export interface IpcChannelSpec {
  * 5（2026-10-14）：RPC 隧道和内存统计（tunnel:*、stats，docs/ui/wsl-mode.md 第 3 步）。
  * 6（2026-10-14）：项目的附加文件夹（engine:setProjectFolders，会话带 extraDirs，docs/ui/multi-root-projects.md §3.5）。
  * 7（2026-10-20）：按需取图片原图（engine:image）；桌面界面的快照和事件里不再带图片数据（docs/perf-audit-2026-10-18.md B1）。
+ * 8（2026-10-20）：新增 files:stage，在 SSH / WSL 工作区暂存文件引用。
  */
-export const REMOTE_PROTOCOL = 7
+export const REMOTE_PROTOCOL = 8
 
 export const IPC_CONTRACT = {
   'projectImport:scan': { kind: 'invoke', route: 'local', trust: 'sender' },
@@ -566,6 +567,7 @@ export const IPC_CONTRACT = {
   'files:reveal': { kind: 'invoke', route: 'selected', picker: true, trust: 'sender' },
   'files:save': { kind: 'invoke', route: 'selected', ids: [0], remote: 'files:save', trust: 'sender' },
   'files:search': { kind: 'invoke', route: 'selected', ids: [0], remote: 'files:search', trust: 'sender' },
+  'files:stage': { kind: 'invoke', route: 'selected', ids: [0], remote: 'files:stage', trust: 'sender' },
   'files:status': { kind: 'invoke', route: 'selected', ids: [0], remote: 'files:status', trust: 'sender' },
   'files:target': {
     kind: 'invoke',
