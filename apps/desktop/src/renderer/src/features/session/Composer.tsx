@@ -64,8 +64,8 @@ import { ImageAttachments } from '@/features/session/attachments/ImageAttachment
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import { readImage } from '@/features/session/attachments/images'
 import { needsConversion } from '@/features/session/attachments/convertImage'
-import { isImageFile, readTextFile } from '@/features/session/attachments/files'
-import { stageFile } from '@/features/session/attachments/stage'
+import { fileSize, isImageFile, readTextFile } from '@/features/session/attachments/files'
+import { discardStaged, stageFile } from '@/features/session/attachments/stage'
 import { updateFiles, updateImages, useFileDraft, useImageDraft } from '@/features/session/attachments/drafts'
 import { Popover, PopoverItem } from '@/ui'
 import { ComposerInput, type ComposerInputHandle } from './composerInput/ComposerInput'
@@ -124,6 +124,11 @@ export function Composer({
   const fileDraft = useFileDraft(key)
   const textFiles = fileDraft.files
   const [reading, setReading] = useState(0)
+  // 正在往目标机器传的文件（远程会话、没有本机路径的文件），显示进度、可以取消
+  const [upload, setUpload] = useState<{ name: string; sent: number; total: number } | null>(null)
+  const uploadAbort = useRef<AbortController | null>(null)
+  // 上传一个一个来（远端按块顺序写）；读文本照样并行
+  const uploads = useRef<Promise<unknown>>(Promise.resolve())
   const adding = useRef(Promise.resolve())
   const pendingReads = useRef(0)
   const [draggingImages, setDraggingImages] = useState(false)
@@ -408,10 +413,28 @@ export function Composer({
     }
     const workspace = composerWorkspace(live?.sessionId, status, draftKey)
     const local = machineOf(workspace?.sessionId ?? workspace?.projectId) === 'local'
+    const controller = new AbortController()
+    /** 把文件传到目标机器的暂存目录；排队，一次只传一个，界面显示当前这个的进度 */
+    const send = (file: File): Promise<string> => {
+      if (!workspace) return Promise.reject(new Error(tr('composer.file.stageUnavailable')))
+      const run = async (): Promise<string> => {
+        setUpload({ name: file.name || 'attachment', sent: 0, total: file.size })
+        try {
+          return await stageFile(file, workspace, {
+            signal: controller.signal,
+            onProgress: sent => setUpload({ name: file.name || 'attachment', sent, total: file.size }),
+          })
+        } finally {
+          setUpload(null)
+        }
+      }
+      const next = uploads.current.then(run, run)
+      uploads.current = next.catch(() => undefined)
+      return next
+    }
     const reference = async (file: File, path: string): Promise<FileAttachment> => {
       const staged = !path
-      const targetPath = path || (workspace ? await stageFile(file, workspace) : '')
-      if (!targetPath) throw new Error(tr('composer.file.stageUnavailable'))
+      const targetPath = path || (await send(file))
       return {
         id: crypto.randomUUID(),
         name: file.name || 'attachment',
@@ -427,28 +450,37 @@ export function Composer({
     const withPath = async (file: File): Promise<FileAttachment> => {
       const path = local ? (window.pixelsky?.pathForFile(file) ?? '') : ''
       if (file.size > MAX_FILE_BYTES) return reference(file, path)
+      let doc: FileAttachment
       try {
-        const read = await readTextFile(file)
-        if (path) return { ...read, path }
-        if (read.tail !== undefined || read.omitted !== undefined) return reference(file, '')
-        return read
+        doc = await readTextFile(file)
       } catch {
         return reference(file, path)
       }
+      if (path) return { ...doc, path }
+      if (doc.tail === undefined && doc.omitted === undefined) return doc
+      // 远程会话（或没有本机路径）的大文本：照旧内联开头和结尾，另外把全文暂存到目标机器，智能体按路径读省略的部分；
+      // 传不上去时退回只带开头结尾（取消照样算取消）
+      try {
+        return { ...doc, path: await send(file), staged: true }
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') throw error
+        return doc
+      }
     }
     read(async () => {
-      // 远程文件分块上传需顺序发送；一个失败不耽误剩余文件。
-      const loaded: FileAttachment[] = []
-      let failed: unknown
-      for (const file of others) {
-        try {
-          loaded.push(await withPath(file))
-        } catch (error) {
-          failed ??= error
-        }
+      uploadAbort.current = controller
+      try {
+        // 读文本并行；上传在 send 里排队。一个失败不耽误别的：成的照常加进来，失败的说原因（只是取消的不算错）
+        const results = await Promise.allSettled(others.map(withPath))
+        const loaded = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []))
+        if (loaded.length) await updateFiles(key, current => [...current, ...loaded])
+        const failed = results.find(
+          (r): r is PromiseRejectedResult => r.status === 'rejected' && (r.reason as Error)?.name !== 'AbortError',
+        )
+        if (failed) throw failed.reason
+      } finally {
+        if (uploadAbort.current === controller) uploadAbort.current = null
       }
-      if (loaded.length) await updateFiles(key, current => [...current, ...loaded])
-      if (failed) throw failed
     })
   }
 
@@ -810,6 +842,10 @@ export function Composer({
               <FileAttachments
                 files={textFiles}
                 onRemove={id => {
+                  // 暂存到目标机器的副本跟着删（还没发出去，不会再有人读）
+                  const removed = textFiles.find(file => file.id === id)
+                  if (removed?.staged && removed.path)
+                    void discardStaged(removed.path, composerWorkspace(live?.sessionId, status, draftKey))
                   void fileDraft
                     .update(current => current.filter(file => file.id !== id))
                     .catch(error => setError((error as Error).message))
@@ -818,8 +854,26 @@ export function Composer({
             </div>
           )}
           {!!reading && (
-            <p role="status" className="px-4 pt-2 text-meta text-fg-muted">
-              {tr('composer.attachment.loading')}
+            <p role="status" className="flex min-w-0 items-center gap-2 px-4 pt-2 text-meta text-fg-muted">
+              <span className="min-w-0 truncate">
+                {upload
+                  ? tr('composer.file.uploading', {
+                      p0: upload.name,
+                      p1: upload.total ? Math.floor((upload.sent / upload.total) * 100) : 100,
+                      p2: fileSize(upload.sent),
+                      p3: fileSize(upload.total),
+                    })
+                  : tr('composer.attachment.loading')}
+              </span>
+              {upload && (
+                <button
+                  type="button"
+                  className="press shrink-0 rounded px-1 text-fg-secondary hover:bg-hover hover:text-fg"
+                  onClick={() => uploadAbort.current?.abort()}
+                >
+                  {tr('composer.file.cancelUpload')}
+                </button>
+              )}
             </p>
           )}
           {(imageDraft.error || fileDraft.error) && (

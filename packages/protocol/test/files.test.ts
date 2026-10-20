@@ -89,3 +89,50 @@ describe('发给引擎的样子', () => {
     expect(messageWithFiles('  ', [small()])).toMatch(/^<attached_file /)
   })
 })
+
+describe('路径引用（不内联内容）', () => {
+  const ref = (patch: Partial<FileAttachment> = {}): FileAttachment => ({
+    id: 'file-3',
+    name: 'build.zip',
+    bytes: 3 * 1024 * 1024 * 1024,
+    lines: 0,
+    encoding: 'utf-8',
+    text: '',
+    path: '/home/me/build.zip',
+    pathOnly: true,
+    ...patch,
+  })
+  it('只发路径：必须有路径，不能带正文、开头结尾、文档来源；大小不受 50 MB 限制', () => {
+    expect(validateFiles([ref()])).toEqual([ref()])
+    expect(() => validateFiles([ref({ path: undefined })])).toThrow('格式不正确')
+    expect(() => validateFiles([ref({ text: 'x' })])).toThrow('格式不正确')
+    expect(() => validateFiles([ref({ lines: 3 })])).toThrow('格式不正确')
+    expect(() => validateFiles([ref({ tail: 'y', omitted: 1 })])).toThrow('格式不正确')
+    expect(() => validateFiles([ref({ source: 'pdf' })])).toThrow('格式不正确')
+    expect(() => validateFiles([ref({ pathOnly: 'yes' as unknown as boolean })])).toThrow('格式不正确')
+    // 不是路径引用的照旧按 50 MB 算
+    expect(() => validateFiles([small({ bytes: 3 * 1024 * 1024 * 1024 })])).toThrow()
+  })
+  it('暂存副本：要有路径；可以是只发路径，也可以是内联开头结尾 + 全文在暂存路径', () => {
+    expect(validateFiles([ref({ staged: true })])[0]).toMatchObject({ staged: true, pathOnly: true })
+    const truncated = { ...big(), path: '/data/attachments/x/file-big.log', staged: true }
+    expect(validateFiles([truncated])).toEqual([truncated])
+    expect(() => validateFiles([{ ...big(), staged: true }])).toThrow('格式不正确')
+  })
+  it('发给引擎：写路径和大小（GB），说明内容没带、按路径读；暂存的注明 30 天后删除', () => {
+    const block = fileAttachmentBlock(ref())
+    expect(block).toContain('name="build.zip" path="/home/me/build.zip" size="3.0 GB" reference="path"')
+    expect(block).toContain('The file contents are not included in this message')
+    expect(block).not.toContain('30 days')
+    expect(fileAttachmentBlock(ref({ staged: true }))).toContain('automatically removed after 30 days')
+    // 路径里的引号转义
+    expect(fileAttachmentBlock(ref({ path: '/a/"b".zip' }))).toContain('path="/a/&quot;b&quot;.zip"')
+  })
+  it('截断的大文本带暂存路径：省略说明里写明全文是临时副本', () => {
+    const block = fileAttachmentBlock({ ...big(), path: '/data/attachments/x/file-big.log', staged: true })
+    expect(block).toContain('the full file is at the path above (a temporary copy removed after 30 days)')
+    expect(fileAttachmentBlock({ ...big(), path: '/home/me/big.log' })).toContain(
+      'the full file is at the path above, read it',
+    )
+  })
+})

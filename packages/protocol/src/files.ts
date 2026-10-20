@@ -43,6 +43,10 @@ export const MAX_FILE_COUNT = 10
 export const MAX_STAGED_FILE_BYTES = 1024 * 1024 * 1024
 export const FILE_STAGE_CHUNK_BYTES = 8 * 1024 * 1024
 export const STAGED_FILE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+/** 一台机器上所有暂存副本合计的上限：超过时新的拒收（不悄悄删还在保留期里、可能还会被读的旧副本） */
+export const MAX_STAGED_TOTAL_BYTES = 5 * 1024 * 1024 * 1024
+/** 上传到一半没有动静（界面刷新、窗口关掉）这么久就当放弃，删掉半截文件 */
+export const STAGE_IDLE_MS = 10 * 60 * 1000
 /** 路径引用不读取文件内容，因此按安全整数范围校验原文件大小 */
 export const MAX_PATH_REFERENCE_BYTES = Number.MAX_SAFE_INTEGER
 /** 一条消息里所有文件带上的文字合计（字符） */
@@ -88,7 +92,8 @@ export function validateFiles(value: unknown): FileAttachment[] {
           file.tail !== undefined ||
           file.omitted !== undefined ||
           file.source !== undefined)) ||
-      (file.staged === true && !pathOnly) ||
+      // staged：path 指向应用暂存的临时副本（只发路径，或远程的大文本文件内联开头结尾、全文在这个路径）
+      (file.staged === true && !file.path) ||
       (file.source !== undefined && !FILE_SOURCES.includes(file.source)) ||
       (file.path !== undefined &&
         (typeof file.path !== 'string' ||
@@ -166,7 +171,10 @@ export function fileAttachmentBlock(file: FileAttachment): string {
   const end = (text: string): string => (text.endsWith('\n') ? '' : '\n')
   if (file.tail === undefined) return `${head}>\n${body(file.text)}${end(file.text)}</attached_file>`
   const shown = fileShownLines(file)
-  const readable = file.path && !file.source ? '; the full file is at the path above, read it for these lines' : ''
+  const readable =
+    file.path && !file.source
+      ? `; the full file is at the path above${file.staged ? ' (a temporary copy removed after 30 days)' : ''}, read it for these lines`
+      : ''
   // 只留开头（文档）：后面省略了多少行
   if (!file.tail)
     return (

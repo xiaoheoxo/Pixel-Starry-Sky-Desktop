@@ -10,6 +10,8 @@ export type FileStageRequest =
   | { action: 'chunk'; id: string; offset: number; dataBase64: string }
   | { action: 'finish'; id: string }
   | { action: 'cancel'; id: string }
+  /** 从输入框移除附件时删掉它的暂存副本；path 是 finish 返回的路径 */
+  | { action: 'remove'; path: string }
 export interface FileStageResult {
   path?: string
 }

@@ -6,6 +6,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep, extname } 
 import {
   FILE_STAGE_CHUNK_BYTES,
   MAX_STAGED_FILE_BYTES,
+  MAX_STAGED_TOTAL_BYTES,
+  STAGE_IDLE_MS,
   STAGED_FILE_TTL_MS,
   codedError,
   parseCodedError,
@@ -221,7 +223,12 @@ interface StagedUpload {
   path: string
   bytes: number
   written: number
+  /** 最后一次收到这次上传的请求；闲置太久当放弃 */
+  touchedAt: number
 }
+
+const PART_FILE = 'payload.part'
+const UUID = /^[0-9a-f-]{36}$/i
 
 const safeStageName = (name: string): string => {
   const safe = basename(name.replaceAll('\\', '/'))
@@ -245,17 +252,51 @@ export class WorkspaceFiles {
     return this.options.attachmentDir ?? join(tmpdir(), 'pixelsky-file-references')
   }
 
-  /** 清理超过保留期限的临时附件。 */
+  /**
+   * 启动时清理：超过保留期的暂存副本，以及上次进程留下的半截上传（只有 payload.part、闲置超过 STAGE_IDLE_MS；
+   * 这个进程里正在传的不动）
+   */
   async cleanExpiredStages(): Promise<void> {
     const root = this.stageRoot()
     await mkdir(root, { recursive: true, mode: 0o700 })
-    const cutoff = Date.now() - STAGED_FILE_TTL_MS
+    const now = Date.now()
+    const live = new Set([...this.stagedUploads.values()].map(u => u.dir))
     for (const entry of await readdir(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
       const dir = join(root, entry.name)
+      if (live.has(dir)) continue
       const info = await stat(dir).catch(() => null)
-      if (info && info.mtimeMs < cutoff) await rm(dir, { recursive: true, force: true })
+      if (!info) continue
+      const names = await readdir(dir).catch(() => [] as string[])
+      const abandoned = names.includes(PART_FILE) && now - info.mtimeMs > STAGE_IDLE_MS
+      if (now - info.mtimeMs > STAGED_FILE_TTL_MS || abandoned) await rm(dir, { recursive: true, force: true })
     }
+  }
+
+  /** 上传到一半没有动静超过 STAGE_IDLE_MS（界面刷新、窗口关掉）：当放弃，删掉半截文件 */
+  private async dropIdleUploads(now = Date.now()): Promise<void> {
+    for (const [id, upload] of this.stagedUploads) {
+      if (now - upload.touchedAt <= STAGE_IDLE_MS) continue
+      this.stagedUploads.delete(id)
+      await rm(upload.dir, { recursive: true, force: true })
+    }
+  }
+
+  /** 暂存目录里已经占了多少：做完的副本按文件大小，正在传的按声明的大小 */
+  private async stagedBytes(): Promise<number> {
+    const root = this.stageRoot()
+    let total = 0
+    for (const upload of this.stagedUploads.values()) total += upload.bytes
+    const live = new Set([...this.stagedUploads.values()].map(u => u.dir))
+    for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+      const dir = join(root, entry.name)
+      if (!entry.isDirectory() || live.has(dir)) continue
+      for (const name of await readdir(dir).catch(() => [] as string[])) {
+        const info = await stat(join(dir, name)).catch(() => null)
+        if (info?.isFile()) total += info.size
+      }
+    }
+    return total
   }
 
   /** 将文件分块写入当前工作区所属机器的私有临时目录。 */
@@ -263,7 +304,9 @@ export class WorkspaceFiles {
     this.target(ref)
     if (!raw || typeof raw !== 'object') throw new Error('文件引用请求不正确')
     const request = raw as FileStageRequest
-    if (typeof request.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(request.id)) throw new Error('文件引用编号不正确')
+    await this.dropIdleUploads()
+    if (request.action === 'remove') return this.removeStaged(request.path)
+    if (typeof request.id !== 'string' || !UUID.test(request.id)) throw new Error('文件引用编号不正确')
     if (request.action === 'begin') {
       if (
         typeof request.name !== 'string' ||
@@ -276,9 +319,15 @@ export class WorkspaceFiles {
       )
         throw new Error('文件引用参数不正确或文件超过 1 GB')
       if (this.stagedUploads.has(request.id)) throw new Error('文件引用编号已使用')
+      if ((await this.stagedBytes()) + request.bytes > MAX_STAGED_TOTAL_BYTES) {
+        // 先清掉过期的再算一次；还超就拒收，不删保留期里的旧副本（之前的对话可能还要读）
+        await this.cleanExpiredStages()
+        if ((await this.stagedBytes()) + request.bytes > MAX_STAGED_TOTAL_BYTES)
+          throw new Error('临时文件引用合计超过 5 GB，请先移除不用的附件，或等旧的临时副本过期（30 天）')
+      }
       const dir = join(this.stageRoot(), request.id)
       await mkdir(dir, { recursive: true, mode: 0o700 })
-      const part = join(dir, 'payload.part')
+      const part = join(dir, PART_FILE)
       const handle = await open(part, 'wx', 0o600)
       await handle.close()
       this.stagedUploads.set(request.id, {
@@ -287,6 +336,7 @@ export class WorkspaceFiles {
         path: join(dir, `file-${safeStageName(request.name)}`),
         bytes: request.bytes,
         written: 0,
+        touchedAt: Date.now(),
       })
       return {}
     }
@@ -298,6 +348,7 @@ export class WorkspaceFiles {
     }
     const upload = this.stagedUploads.get(request.id)
     if (!upload) throw new Error('文件引用上传已过期，请重试')
+    upload.touchedAt = Date.now()
     if (request.action === 'chunk') {
       if (
         !Number.isSafeInteger(request.offset) ||
@@ -332,6 +383,25 @@ export class WorkspaceFiles {
       return { path: upload.path }
     }
     throw new Error('文件引用操作不支持')
+  }
+
+  /** 删一个做完的暂存副本：只认 暂存目录/<uuid>/file-* 这种路径，删掉它所在的 <uuid> 目录；不在暂存目录里的一律不动 */
+  private async removeStaged(path: unknown): Promise<{ path?: string }> {
+    if (typeof path !== 'string' || !path || !isAbsolute(path)) throw new Error('文件引用路径不正确')
+    const root = resolve(this.stageRoot())
+    const target = resolve(path)
+    const rel = relative(root, target)
+    const parts = rel.split(sep)
+    if (
+      rel.startsWith('..') ||
+      isAbsolute(rel) ||
+      parts.length !== 2 ||
+      !UUID.test(parts[0]) ||
+      !parts[1].startsWith('file-')
+    )
+      throw new Error('只能删除应用暂存的文件引用')
+    await rm(join(root, parts[0]), { recursive: true, force: true })
+    return {}
   }
 
   /** 新建空文件或文件夹（docs/ui/files-search-terminal-pins.md §3）；返回相对项目的路径 */

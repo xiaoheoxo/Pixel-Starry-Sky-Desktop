@@ -10,6 +10,12 @@ export const attachmentMessages = {
     zh: '{p0} 超过临时文件引用上限 1 GB',
     en: '{p0} exceeds the 1 GB limit for staged file references',
   },
+  'composer.file.uploading': {
+    zh: '正在上传 {p0}：{p1}%（{p2} / {p3}）',
+    en: 'Uploading {p0}: {p1}% ({p2} / {p3})',
+  },
+  'composer.file.cancelUpload': { zh: '取消上传', en: 'Cancel upload' },
+  'composer.file.uploadCancelled': { zh: '已取消上传', en: 'Upload cancelled' },
   'composer.file.stageUnavailable': {
     zh: '当前会话无法保存文件引用；请先选择一个项目或会话工作区',
     en: 'File references need an active project or session workspace',
