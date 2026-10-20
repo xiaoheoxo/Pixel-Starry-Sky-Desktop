@@ -111,6 +111,23 @@ describe('像素星空子智能体 → 智能体追踪', () => {
     expect(ended.item).toMatchObject({ id: subagentItemId('c2'), status: 'failed' })
   })
 
+  it('子智能体被停止：工具不算出错，条目也记成中断（卡片不写「已完成」）', () => {
+    const events: EngineEvent[] = []
+    const t = new PixelTranslator(e => events.push(e), { cwd: '/proj' })
+    t.beginTurn()
+    t.event({ type: 'tool_execution_start', toolCallId: 'c3', toolName: 'task', args: { description: 'd' } })
+    t.event({
+      type: 'tool_execution_end',
+      toolCallId: 'c3',
+      toolName: 'task',
+      result: { content: [{ type: 'text', text: 'Subagent was stopped.' }], details: progress({ state: 'stopped' }) },
+      isError: false,
+    })
+    expect(events.filter(e => e.type === 'item_completed').pop()).toMatchObject({
+      item: { id: subagentItemId('c3'), status: 'interrupted' },
+    })
+  })
+
   it('重新打开：从主会话文件读子智能体（同一个调用取最后一条），读子智能体的对话', () => {
     const child = join(root, 'child.jsonl')
     writeFileSync(

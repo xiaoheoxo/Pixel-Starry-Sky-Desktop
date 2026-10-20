@@ -8,17 +8,20 @@ const handlers = new Map<string, (...args: never[]) => unknown>()
 const sends: Array<{ target: string; channel: string; args: unknown[] }> = []
 const store: Record<string, unknown> = {}
 
+const dialogChoice = vi.fn((..._args: unknown[]) => 0)
+
 class FakeWindow {
   static all: FakeWindow[] = []
   listeners = new Map<string, Array<() => void>>()
   destroyed = false
   minimized = false
   parent: FakeWindow | null
-  webContents: { name: string }
+  webContents: { name: string; on: (event: string, fn: (e: { preventDefault(): void }) => void) => void }
+  webListeners = new Map<string, (e: { preventDefault(): void }) => void>()
   calls: string[] = []
   constructor(public options: Record<string, unknown>) {
     this.parent = (options.parent as FakeWindow | undefined) ?? null
-    this.webContents = { name: `win${FakeWindow.all.length}` }
+    this.webContents = { name: `win${FakeWindow.all.length}`, on: (event, fn) => void this.webListeners.set(event, fn) }
     FakeWindow.all.push(this)
   }
   on(event: string, fn: () => void): this {
@@ -46,7 +49,7 @@ class FakeWindow {
     this.destroyed = true
     this.emit('closed')
   }
-  static fromWebContents(wc: { name: string }): FakeWindow | undefined {
+  static fromWebContents(wc: unknown): FakeWindow | undefined {
     return FakeWindow.all.find(w => w.webContents === wc)
   }
 }
@@ -54,6 +57,7 @@ class FakeWindow {
 vi.mock('electron', () => ({
   app: { getPath: () => 'ud' },
   BrowserWindow: FakeWindow,
+  dialog: { showMessageBoxSync: (...args: unknown[]) => dialogChoice(...args) },
   screen: {
     getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }],
     getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }),
@@ -72,7 +76,7 @@ vi.mock('./windowFile', () => ({
   readWindowFile: () => ({ ...store }),
   mergeWindowFile: (_file: string, patch: Record<string, unknown>) => void Object.assign(store, patch),
 }))
-vi.mock('./ui-language', () => ({ windowLocale: () => 'zh-CN' }))
+vi.mock('./ui-language', () => ({ windowLocale: () => 'zh-CN', nativeText: (_w: unknown, v: string) => v }))
 
 const { initSettingsWindow } = await import('./settings-window')
 const { isSettingsWindow } = await import('./settingsWindowRegistry')
@@ -244,6 +248,22 @@ describe('跟着主窗口', () => {
     main.emit('closed')
     controller.open()
     expect(settingsWindows()[0].options.parent).toBeUndefined()
+  })
+})
+
+describe('没保存的修改', () => {
+  it('界面拦下关窗时问一句：选「返回」不关，选「放弃修改并关闭」放行', () => {
+    const { controller } = start()
+    controller.open()
+    const unload = settingsWindows()[0].webListeners.get('will-prevent-unload')!
+    const preventDefault = vi.fn()
+    dialogChoice.mockReturnValueOnce(0)
+    unload({ preventDefault })
+    expect(preventDefault).not.toHaveBeenCalled()
+    dialogChoice.mockReturnValueOnce(1)
+    unload({ preventDefault })
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(dialogChoice.mock.calls[0][1]).toMatchObject({ buttons: ['返回', '放弃修改并关闭'], cancelId: 0 })
   })
 })
 

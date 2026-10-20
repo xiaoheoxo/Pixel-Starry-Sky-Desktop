@@ -593,16 +593,22 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
             settled()
           }
           signal?.addEventListener('abort', abort, { once: true })
+          // 起进程前主会话就停了（监听加上之前），addEventListener 不会再触发
+          if (signal?.aborted) abort()
           const timer = setTimeout(abort, type.maxMs)
+          // 启动的每一步都要等子进程回应，期间可能被停止：停了就不再往下发，尤其不能再发 prompt 去调模型
+          const live = () => progress.state === 'running'
           try {
             const state = await child.request('get_state')
             progress.sessionFile = text(state.sessionFile) || null
             progress.agentId = text(state.sessionId) || toolCallId
-            if (model) await child.request('set_model', { provider: model.provider, modelId: model.id })
-            await child.request('set_thinking_level', { level: pi.getThinkingLevel() }).catch(() => {})
+            if (live() && model) await child.request('set_model', { provider: model.provider, modelId: model.id })
+            if (live()) await child.request('set_thinking_level', { level: pi.getThinkingLevel() }).catch(() => {})
             report()
-            await child.request('prompt', { message: params.prompt })
-            await Promise.race([done, child.untilExit()])
+            if (live()) {
+              await child.request('prompt', { message: params.prompt })
+              await Promise.race([done, child.untilExit()])
+            }
             if (child.exited && progress.state === 'running') throw child.exited
             if (failure && progress.state === 'running') throw new Error(failure)
             if (progress.state === 'running') progress.state = 'completed'

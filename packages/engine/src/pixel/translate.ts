@@ -650,7 +650,10 @@ export class PixelTranslator {
       // 展开看的是计划正文；用户选了继续完善算「已拒绝」（和 Claude 的 ExitPlanMode 一样）
       item = { ...prior, status: !isError && /keep refining/i.test(text) ? 'declined' : status }
     } else if (prior.kind === 'tool') {
-      item = { ...prior, output: text, status }
+      // 子智能体被停止时工具不算出错，条目要跟着运行记录记成中断，卡片才不会写「已完成」
+      const stopped =
+        string(raw.toolName) === SUBAGENT_TOOL && this.agents.get(string(raw.toolCallId))?.state === 'stopped'
+      item = { ...prior, output: text, status: stopped && status === 'completed' ? 'interrupted' : status }
     }
     this.put(item, true)
   }

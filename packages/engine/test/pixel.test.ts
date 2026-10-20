@@ -6,7 +6,7 @@ import { EngineHost, PixelAdapter } from '../src'
 import type { EngineInfo, HostEvent } from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, SessionContext } from '../src/adapter'
 import { ENGINES } from '../src/registry'
-import { PIXEL_MODES, pixelModelsConfig, reservedPixelArg, searchToolArgs } from '../src/pixel/session'
+import { PIXEL_MODES, pixelModelsConfig, reservedPixelArg, mcpWaiterFor, searchToolArgs } from '../src/pixel/session'
 import { modelEfforts } from '../src/pixel/catalog'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
@@ -527,5 +527,23 @@ describe('Pixel 接手带图片的聊天', () => {
     expect(notices.some(text => text.includes('含 1 张图片'))).toBe(false)
     expect(snap(session.id).items.some(i => i.kind === 'notice' && i.level === 'error')).toBe(false)
     expect(snap(session.id).items.filter(i => i.kind === 'user')).toHaveLength(2)
+  })
+})
+
+describe('MCP 操作结果对号', () => {
+  const waiters = [
+    { req: '1', op: 'reconnect', name: 'alpha' },
+    { req: '2', op: 'status', name: '' },
+  ]
+  it('带请求号：按请求号找，先完成的刷新不会被交给重连', () => {
+    expect(mcpWaiterFor(waiters, '2', 'status', '')).toBe(waiters[1])
+    expect(mcpWaiterFor(waiters, '1', 'reconnect', 'alpha')).toBe(waiters[0])
+  })
+  it('请求号对不上（已超时撤掉）就丢掉，不给别的操作', () => {
+    expect(mcpWaiterFor(waiters, '9', 'status', '')).toBeUndefined()
+  })
+  it('旧版命令行不带请求号：按操作 + 名字找，都对不上才给最早的', () => {
+    expect(mcpWaiterFor(waiters, '', 'status', '')).toBe(waiters[1])
+    expect(mcpWaiterFor(waiters, '', 'login', 'x')).toBe(waiters[0])
   })
 })

@@ -6,7 +6,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import type { WindowState } from '../../../../shared/types/window'
 import { SettingsContent, type SectionId } from './SettingsContent'
 import { useSettingsWindowState } from './windowBridge'
-import { leaveSettings } from './unsavedEdits'
+import { leaveSettings, useBlockUnloadWhenUnsaved } from './unsavedEdits'
 
 /** Windows 自绘的最小化 / 最大化 / 关闭（和主窗口同一套样式，没有窗口布局弹层） */
 function WindowButtons() {
@@ -103,6 +103,7 @@ export function SettingsWindow({
   const { pinned } = useSettingsWindowState()
   const bridge = window.pixelsky?.settingsWindow
   const platform = window.pixelsky?.platform
+  useBlockUnloadWhenUnsaved()
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

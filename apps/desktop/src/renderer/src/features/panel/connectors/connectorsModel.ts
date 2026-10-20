@@ -180,7 +180,10 @@ export function buildConnectors(
   })
   const list: Connector[] = report
     ? report.servers.map(s => {
-        const c = known.find(k => matches(s.name, k))
+        // 名字一样的优先；只能按换算后的名字认时，要只对上一条才算（alpha.beta 和 alpha_beta 都换成 alpha_beta，
+        // 认不清就不挂配置，免得详情里显示另一个服务的命令）
+        const loose = known.filter(k => matches(s.name, k))
+        const c = known.find(k => k.name === s.name) ?? (loose.length === 1 ? loose[0] : undefined)
         if (c) return fromConfig(c, s)
         const builtin = normalize(s.name) === HISTORY_SERVER
         return {

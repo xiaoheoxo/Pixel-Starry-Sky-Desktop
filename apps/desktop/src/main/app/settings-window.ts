@@ -3,7 +3,7 @@
 // 置顶不用 setAlwaysOnTop（会盖住所有软件），而是做成主窗口的子窗口（parent）：总在主窗口上面，任务栏里和主窗口合在一起。
 // 主窗口关闭、隐藏到托盘时设置窗口跟着关；设置窗口请主窗口做的事（打开会话、管理机器…）经 mainWindow:run 转过去。
 import { join } from 'node:path'
-import { app, BrowserWindow, screen, type BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, dialog, screen, type BrowserWindowConstructorOptions } from 'electron'
 import * as ipc from '../ipc/guard'
 import type { MainWindowAction, SettingsTarget, SettingsWindowState } from '../../shared/types/settings-window'
 import type { AppContext } from './context'
@@ -18,7 +18,7 @@ import {
   resolveSettingsBounds,
   settingsWindowTitle,
 } from './settings-window-state'
-import { windowLocale } from './ui-language'
+import { nativeText, windowLocale } from './ui-language'
 import { mergeWindowFile, readWindowFile } from './windowFile'
 import type { Rect } from './window-bounds'
 
@@ -107,6 +107,19 @@ export function initSettingsWindow(ctx: AppContext, deps: SettingsWindowDeps): S
     created.once('closed', () => {
       if (win === created) win = null
       publish()
+    })
+    // 设置里有没保存的修改（子智能体说明、插件表单……）时界面的 beforeunload 会拦下关窗：
+    // 窗口按钮、Ctrl+W、Alt+F4、主窗口关闭 / 隐藏到托盘、退出软件都走这里，问一句再关（和主窗口的未保存文件一样）
+    created.webContents.on('will-prevent-unload', event => {
+      const choice = dialog.showMessageBoxSync(created, {
+        type: 'question',
+        title: nativeText(created, '设置尚未保存'),
+        message: nativeText(created, '设置里有没保存的修改，仍然关闭吗？'),
+        buttons: [nativeText(created, '返回'), nativeText(created, '放弃修改并关闭')],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      if (choice === 1) event.preventDefault()
     })
     void deps.load(created, query)
   }

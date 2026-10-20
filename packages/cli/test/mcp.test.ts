@@ -64,6 +64,20 @@ describe('桌面端的 MCP 配置 → Pi', () => {
     expect(piMcpServers(null)).toEqual({ servers: {}, skipped: [] })
   })
 
+  it('换名后重名（alpha.beta 和 alpha_beta）：两个都跳过并说明，不让后一个悄悄盖掉前一个', () => {
+    const { servers, skipped } = piMcpServers({
+      mcpServers: {
+        'alpha.beta': { command: 'a' },
+        alpha_beta: { command: 'b' },
+        other: { command: 'c' },
+      },
+    })
+    expect(Object.keys(servers)).toEqual(['other'])
+    expect(skipped).toHaveLength(2)
+    expect(skipped[0]).toContain('alpha.beta')
+    expect(skipped[0]).toContain('alpha_beta')
+  })
+
   it('扩展：注册文件里的服务器，路径从进程环境里拿掉（子智能体另外带上）；注册失败的会话开始时提示', async () => {
     const file = join(root, 'mcp.json')
     writeFileSync(

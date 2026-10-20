@@ -16,6 +16,7 @@ export const MCP_COMMAND = 'pixelsky-mcp'
 /** 操作结果的状态键：{ op, name, error } */
 export const MCP_RESULT_STATUS = 'pixelsky-mcp-result'
 const MCP_OPS = ['status', 'reconnect', 'enable', 'disable', 'login']
+const REQ_FLAG = '--req='
 const OP_TIMEOUT_MS = 90_000
 
 type Json = Record<string, unknown>
@@ -48,7 +49,18 @@ export function piServerName(name: string): string {
 export function piMcpServers(raw: unknown): { servers: Record<string, McpServerConfig>; skipped: string[] } {
   const servers: Record<string, McpServerConfig> = {}
   const skipped: string[] = []
-  for (const [name, value] of Object.entries(object(object(raw).mcpServers))) {
+  const entries = Object.entries(object(object(raw).mcpServers))
+  // 换名后撞在一起的（alpha.beta 和 alpha_beta）两个都不启动并说清楚，不让后一个悄悄盖掉前一个
+  const owners = new Map<string, string[]>()
+  for (const [name] of entries) owners.set(piServerName(name), [...(owners.get(piServerName(name)) ?? []), name])
+  for (const [name, value] of entries) {
+    const clash = owners.get(piServerName(name))!
+    if (clash.length > 1) {
+      skipped.push(
+        `MCP 服务器 ${name} 和 ${clash.filter(n => n !== name).join('、')} 换成命令行的名字后重名（${piServerName(name)}），已跳过，请在设置 › 扩展里改名 / MCP server ${name} has the same CLI name (${piServerName(name)}) as ${clash.filter(n => n !== name).join(', ')}; skipped. Rename one in Settings › Extensions.`,
+      )
+      continue
+    }
     const c = object(value)
     if (c.type === 'sse') {
       skipped.push(
@@ -98,7 +110,10 @@ function statusBridge(pi: ExtensionAPI): void {
     description: 'Desktop app: MCP server status and actions (status | reconnect | enable | disable | login <server>)',
     handler: async (args, ctx) => {
       ui = ctx.ui
-      const [op = 'status', name] = args.trim().split(/\s+/).filter(Boolean)
+      // 桌面端在末尾带「--req=请求号」，结果原样带回，几个操作同时在跑时按它对号
+      const words = args.trim().split(/\s+/).filter(Boolean)
+      const req = words.find(w => w.startsWith(REQ_FLAG))?.slice(REQ_FLAG.length) ?? ''
+      const [op = 'status', name] = words.filter(w => !w.startsWith(REQ_FLAG))
       if (!MCP_OPS.includes(op)) {
         ctx.ui.notify(`未知的操作 "${op}" / Unknown action "${op}".`, 'error')
         return
@@ -118,7 +133,7 @@ function statusBridge(pi: ExtensionAPI): void {
       ])
       ctx.ui.setStatus(
         MCP_RESULT_STATUS,
-        JSON.stringify({ op, name: name ?? '', error: failure ?? '', ...(url ? { url } : {}) }),
+        JSON.stringify({ op, name: name ?? '', req, error: failure ?? '', ...(url ? { url } : {}) }),
       )
     },
   })

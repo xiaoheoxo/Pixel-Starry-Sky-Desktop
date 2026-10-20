@@ -23,14 +23,21 @@ import {
 type Json = Record<string, unknown>
 type Behave = (child: FakeChild) => void | Promise<void>
 
+/** 下一个假子进程先不回哪个请求 */
+let holdNext: string | null = null
+
 /** 假的子进程：回所有请求；prompt 之后按 behave 发消息再 agent_settled */
 class FakeChild extends EventEmitter {
   readonly stdout = new PassThrough()
   readonly stderr = new PassThrough()
   readonly received: Json[] = []
   readonly stdin: Writable
+  /** 这个请求先不回，测试里调 held() 再回 */
+  readonly hold = holdNext
+  held: (() => void) | null = null
   constructor(behave: Behave) {
     super()
+    holdNext = null
     let buf = ''
     this.stdin = new Writable({
       write: (chunk, _enc, done) => {
@@ -41,6 +48,10 @@ class FakeChild extends EventEmitter {
           buf = buf.slice(i + 1)
           this.received.push(m)
           if (m.type === 'abort') continue
+          if (m.type === this.hold) {
+            this.held = () => this.send({ type: 'response', id: m.id, command: m.type, success: true, data: {} })
+            continue
+          }
           this.send({ type: 'response', id: m.id, command: m.type, success: true, data: {} })
           if (m.type === 'prompt') void Promise.resolve(behave(this)).then(() => this.send({ type: 'agent_settled' }))
         }
@@ -234,6 +245,22 @@ describe('子智能体类型', () => {
     const b = setup({ ...ENV, [SUBAGENT_FALLBACK_ENV]: '0' }, [c => c.send(failed('401 invalid key'))])
     await expect(b.call({ type: 'explore' })).rejects.toThrow('401 invalid key')
     expect(b.children).toHaveLength(1)
+  })
+
+  it('启动时（等子进程回 get_state）停下：不再发 set_model / prompt，不会调模型', async () => {
+    const r = setup(ENV, [c => c.send(reply('不该跑'))])
+    const stop = new AbortController()
+    holdNext = 'get_state'
+    const task = r.call({}, stop.signal)
+    while (!r.children[0]?.held) await new Promise(res => setTimeout(res, 5))
+    stop.abort()
+    r.children[0].held!()
+    await task
+    const sent = r.children[0].received.map(m => m.type)
+    expect(sent).toContain('abort')
+    expect(sent).not.toContain('set_model')
+    expect(sent).not.toContain('prompt')
+    expect(r.entries.pop()).toMatchObject({ state: 'stopped' })
   })
 
   it('同时运行上限：多出来的排队，前一个结束才起；排队时停下就不起子进程', async () => {

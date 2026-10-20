@@ -48,6 +48,29 @@ const MCP_COMMAND = 'pixelsky-mcp'
 const MCP_STATUS = 'pixelsky-mcp'
 const MCP_RESULT_STATUS = 'pixelsky-mcp-result'
 const MCP_OP_TIMEOUT_MS = 95_000
+/** 命令末尾带上的请求号，命令行原样放回结果里（packages/cli/src/extensions/mcp.ts） */
+const MCP_REQ_FLAG = '--req='
+
+interface McpWaiter {
+  req: string
+  op: string
+  name: string
+  resolve: (result: { error: string; url?: string }) => void
+}
+
+/**
+ * 结果交给谁：带请求号的按请求号找；旧版命令行不带请求号，按操作 + 服务器名找最早的一个，都对不上才给最早发出的。
+ * 请求号对不上任何等待者（已超时撤掉）就丢掉，不能顺手给别的操作
+ */
+export function mcpWaiterFor<W extends Omit<McpWaiter, 'resolve'>>(
+  waiters: readonly W[],
+  req: string,
+  op: string,
+  name: string,
+): W | undefined {
+  if (req) return waiters.find(w => w.req === req)
+  return waiters.find(w => w.op === op && w.name === name) ?? waiters[0]
+}
 
 /** 我们的权限模式 → 批准扩展的 --permission-mode */
 export const PIXEL_MODES: Record<PermissionMode, string> = {
@@ -181,7 +204,9 @@ export class PixelSession implements EngineSession {
   /** 会话里的 MCP 服务器：命令行状态变了自己推（setStatus），不用轮询 */
   private readonly mcpReporter: McpReporter
   /** 等 /pixelsky-mcp 操作结果的（按发送顺序），值是报错，成功为空 */
-  private mcpWaiters: Array<(result: { error: string; url?: string }) => void> = []
+  /** 等命令行回传的 MCP 操作；按请求号对号（几个操作可以同时在跑，完成顺序和发出顺序不一定一样） */
+  private mcpWaiters: McpWaiter[] = []
+  private mcpSeq = 0
 
   constructor(
     private readonly launcher: Launcher,
@@ -241,7 +266,7 @@ export class PixelSession implements EngineSession {
         this.ready = false
         this.rejectApprovals()
         this.mcpReporter.stale()
-        for (const w of this.mcpWaiters.splice(0)) w({ error: '引擎进程已退出' })
+        for (const w of this.mcpWaiters.splice(0)) w.resolve({ error: '引擎进程已退出' })
         if (!this.closed && this.active) this.finish('failed', tail.trim() || 'Pixel process exited')
       },
     })
@@ -514,13 +539,18 @@ export class PixelSession implements EngineSession {
         if (servers) this.mcpReporter.set(servers)
       } else if (key === MCP_RESULT_STATUS) {
         let result: { error: string; url?: string } = { error: '' }
+        let r: Record<string, unknown> = {}
         try {
-          const r = object(JSON.parse(string(raw.statusText)))
+          r = object(JSON.parse(string(raw.statusText)))
           result = { error: string(r.error), ...(/^https?:\/\//i.test(string(r.url)) ? { url: string(r.url) } : {}) }
         } catch {
           // 格式不对当作成功，状态以推来的为准
         }
-        this.mcpWaiters.shift()?.(result)
+        const waiter = mcpWaiterFor(this.mcpWaiters, string(r.req), string(r.op), string(r.name))
+        if (waiter) {
+          this.mcpWaiters = this.mcpWaiters.filter(w => w !== waiter)
+          waiter.resolve(result)
+        }
       }
       return
     }
@@ -780,11 +810,13 @@ export class PixelSession implements EngineSession {
     let resolve!: (result: { error: string; url?: string }) => void
     const result = new Promise<{ error: string; url?: string }>(r => (resolve = r))
     let url: string | undefined
-    this.mcpWaiters.push(resolve)
+    const req = String(++this.mcpSeq)
+    const waiter: McpWaiter = { req, op: action.split(' ')[0], name: op.kind === 'refresh' ? '' : op.name, resolve }
+    this.mcpWaiters.push(waiter)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      // 扩展命令立即执行、不进模型（disposition: handled）；结果从 pixelsky-mcp-result 状态回来
-      const response = await proc.request('prompt', { message: `/${MCP_COMMAND} ${action}` })
+      // 扩展命令立即执行、不进模型（disposition: handled）；结果从 pixelsky-mcp-result 状态回来，带着请求号
+      const response = await proc.request('prompt', { message: `/${MCP_COMMAND} ${action} ${MCP_REQ_FLAG}${req}` })
       if (string(response.data.disposition) !== 'handled') throw new Error('Pixel did not run the MCP command')
       // 登录：拿到授权链接就回来，由桌面端在浏览器里打开；命令行在本机端口等回调，登录完自己重新连接
       const done = await Promise.race([
@@ -797,7 +829,7 @@ export class PixelSession implements EngineSession {
       url = 'url' in done ? done.url : undefined
     } finally {
       clearTimeout(timer)
-      this.mcpWaiters = this.mcpWaiters.filter(w => w !== resolve)
+      this.mcpWaiters = this.mcpWaiters.filter(w => w !== waiter)
     }
     return url ? { report: this.mcpReporter.report, url } : { report: this.mcpReporter.report }
   }

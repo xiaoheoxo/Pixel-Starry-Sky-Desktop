@@ -54,6 +54,9 @@ interface Config {
   revision: number
   entries: ExtensionEntry[]
 }
+/** 像素星空命令行里的 MCP 服务器名（和 packages/cli/src/extensions/mcp.ts 的 piServerName 一致），比较时不分大小写 */
+const mcpServerKey = (name: string): string => name.replace(/[^A-Za-z0-9_-]/g, '_').toLowerCase()
+
 export class ExtensionService {
   private config: Config = { version: 1, revision: 0, entries: [] }
   private readonly secrets: Secrets
@@ -157,6 +160,22 @@ export class ExtensionService {
       e.id !== exclude && e.kind === kind && e.name.toLowerCase() === name.toLowerCase()
     if (this.config.entries.some(e => same(e) && JSON.stringify(e.scope) === JSON.stringify(s)))
       throw new Error('该范围已有同名配置，请修改名称')
+    // 像素星空命令行把 MCP 服务器名里字母、数字、_、- 以外的字符换成 _（packages/cli/src/extensions/mcp.ts 的 piServerName），
+    // alpha.beta 和 alpha_beta 到那边就是同一个，后一个会盖掉前一个；保存时就拦下
+    if (kind === 'mcp') {
+      const key = mcpServerKey(name)
+      const clash = this.config.entries.find(
+        e =>
+          e.id !== exclude &&
+          e.kind === 'mcp' &&
+          e.name.toLowerCase() !== name.toLowerCase() &&
+          mcpServerKey(e.name) === key &&
+          // 全局的和任何项目的会一起传给引擎；不同项目的不会同时出现
+          (e.scope.kind === 'global' || s.kind === 'global' || JSON.stringify(e.scope) === JSON.stringify(s)),
+      )
+      if (clash)
+        throw new Error(`和已有的 MCP 服务器「${clash.name}」只差符号，像素星空引擎会把它们当成同一个，请修改名称`)
+    }
     const native = this.native(s.kind === 'project' ? s.path : null).entries
     if (native.some(same)) throw new Error('Claude Code 原生安装已有同名内容，请修改应用副本名称')
   }

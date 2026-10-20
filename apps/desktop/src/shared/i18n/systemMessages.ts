@@ -305,6 +305,22 @@ export const systemMessages = {
     zh: '放弃修改并退出',
     en: 'Discard changes and quit',
   },
+  'system.unsavedSettings': {
+    zh: '设置尚未保存',
+    en: 'Unsaved settings',
+  },
+  'system.settingsHaveUnsaved': {
+    zh: '设置里有没保存的修改，仍然关闭吗？',
+    en: 'Some settings have unsaved changes. Close anyway?',
+  },
+  'system.backToSettings': {
+    zh: '返回',
+    en: 'Back',
+  },
+  'system.discardChangesAndClose': {
+    zh: '放弃修改并关闭',
+    en: 'Discard changes and close',
+  },
   'system.captureCouldNotSwitch': {
     zh: '[capture] 切换到 {p0} 主题失败（当前 {p1}）',
     en: '[capture] Could not switch to {p0} theme (current: {p1})',

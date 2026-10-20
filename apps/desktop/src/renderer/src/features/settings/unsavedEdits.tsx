@@ -13,6 +13,25 @@ const listeners = new Set<() => void>()
 const emit = (): void => listeners.forEach(fn => fn())
 
 export const hasUnsavedEdits = (): boolean => [...checks].some(c => c.current())
+/** 刚在确认框里选了放弃：这之后一小会儿关窗（收回到主窗口）不再拦，免得再问一次 */
+let discardedAt = 0
+const DISCARD_GRACE_MS = 3_000
+
+/**
+ * 独立设置窗口：有没保存的改动时拦下关窗（窗口按钮、Ctrl+W、Alt+F4、主窗口带着关、退出软件），
+ * 主进程收到 will-prevent-unload 后弹系统确认框（main/app/settings-window.ts）
+ */
+export function useBlockUnloadWhenUnsaved(): void {
+  useEffect(() => {
+    const before = (e: BeforeUnloadEvent): void => {
+      if (!hasUnsavedEdits() || Date.now() - discardedAt < DISCARD_GRACE_MS) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', before)
+    return () => window.removeEventListener('beforeunload', before)
+  }, [])
+}
 
 /** 有没保存的改动先问；没有就直接做 */
 export function leaveSettings(action: () => void): void {
@@ -56,6 +75,7 @@ export function UnsavedLeaveDialog() {
       danger
       onConfirm={() => {
         clear()
+        discardedAt = Date.now()
         action()
       }}
       onCancel={clear}

@@ -35,6 +35,21 @@ describe('管理配置与凭据', () => {
     expect(service.upsert({ ...cli, id: e.id, description: '改了说明' }).enabled).toBe(false)
     expect(service.upsert({ ...cli, id: e.id, enabled: true }).enabled).toBe(true)
   })
+  it('MCP 名字只差符号（像素星空命令行会当成同一个）：保存时拦下；不同项目的不算', () => {
+    const mcp = { type: 'stdio' as const, command: process.execPath, args: [] }
+    for (const dir of ['a', 'b']) mkdirSync(join(root, dir))
+    service.upsert({ kind: 'mcp', name: 'alpha.beta', scope: global, mcp })
+    expect(() => service.upsert({ kind: 'mcp', name: 'alpha_beta', scope: global, mcp })).toThrow('alpha.beta')
+    expect(() =>
+      service.upsert({ kind: 'mcp', name: 'Alpha_Beta', scope: { kind: 'project', path: root }, mcp }),
+    ).toThrow('只差符号')
+    const a = service.upsert({ kind: 'mcp', name: 'x.y', scope: { kind: 'project', path: join(root, 'a') }, mcp })
+    expect(
+      service.upsert({ kind: 'mcp', name: 'x_y', scope: { kind: 'project', path: join(root, 'b') }, mcp }).name,
+    ).toBe('x_y')
+    // 编辑自己不算冲突
+    expect(service.upsert({ ...a, kind: 'mcp', mcp, description: '改说明' }).name).toBe('x.y')
+  })
   it('Codex 扩展与旧 Claude 配置分流，MCP 使用原生配置，技能使用真实目录', () => {
     service.upsert({
       kind: 'mcp',

@@ -15,6 +15,7 @@ import { SettingsWindow } from './SettingsWindow'
 import { requestSettingsRow } from './settingsJump'
 import { applySettingsHints } from './windowHints'
 import { startSettingsWindowSync } from './windowBridge'
+import { leaveSettings } from './unsavedEdits'
 
 /** 打开窗口时主进程把要跳到哪放在地址的 target 参数里（JSON）；读不出来就当没有 */
 function initialTarget(): SettingsTarget {
@@ -40,6 +41,8 @@ export function SettingsWindowApp() {
   const [section, setSection] = useState<SectionId>(() => takeTarget(initialTarget()) ?? 'appearance')
   // 已经开着时又要跳到某一行：数字变一次，内容里再取一次 takeSettingsRow
   const [jumpToken, setJumpToken] = useState(0)
+  const sectionRef = useRef(section)
+  sectionRef.current = section
 
   useEffect(() => {
     startSettingsWindowSync()
@@ -51,9 +54,15 @@ export function SettingsWindowApp() {
   useEffect(
     () =>
       window.pixelsky?.settingsWindow.onNavigate(target => {
-        const next = takeTarget(target)
-        if (next) setSection(next)
-        setJumpToken(n => n + 1)
+        const go = (): void => {
+          const next = takeTarget(target)
+          if (next) setSection(next)
+          setJumpToken(n => n + 1)
+        }
+        const next = isSectionId(target.section) ? target.section : null
+        // 要换到别的分区：有没保存的改动先问（和侧栏切分区一样），不直接卸掉编辑区
+        if (next && next !== sectionRef.current) leaveSettings(go)
+        else go()
       }),
     [],
   )

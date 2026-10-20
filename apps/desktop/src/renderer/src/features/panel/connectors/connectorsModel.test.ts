@@ -122,6 +122,22 @@ describe('connectors model', () => {
     expect(summarize(list)).toEqual({ connected: 2, attention: 2, tools: 3, calls: 1 })
   })
 
+  it('名字只差符号（alpha.beta / alpha_beta）：同名的优先，认不清就不挂配置', () => {
+    const entries = [
+      entry({ id: 'd', name: 'alpha.beta', engines: ['pixel'], mcp: { type: 'stdio', command: 'dotted' } }),
+      entry({ id: 'u', name: 'alpha_beta', engines: ['pixel'], mcp: { type: 'stdio', command: 'underscored' } }),
+    ]
+    const report: McpReport = {
+      ops: ['reconnect'],
+      at: 1,
+      live: true,
+      servers: [{ name: 'alpha_beta', status: 'connected', tools: [] }],
+    }
+    expect(buildConnectors('pixel', report, entries, {})[0]!.config).toMatchObject({ entryId: 'u' })
+    const loose = { ...report, servers: [{ name: 'Alpha-Beta', status: 'connected' as const, tools: [] }] }
+    expect(buildConnectors('pixel', loose, entries, {})[0]!.config).toBeNull()
+  })
+
   it('shows the configured servers as not started when the engine has not reported yet', () => {
     const list = buildConnectors('codex', null, ENTRIES, {})
     expect(list.map(c => [c.name, c.status])).toEqual([['github', 'idle']])
