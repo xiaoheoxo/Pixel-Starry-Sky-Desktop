@@ -1,4 +1,5 @@
-// 订阅账号多开（docs/ui/engine-accounts.md）：账号目录接回原目录、宿主的添加 / 切换 / 移除、额度用完自动换账号
+// 订阅账号多开（docs/ui/engine-accounts.md、engine-accounts-claude.md）：账号目录接回原目录、宿主的添加 / 切换 / 移除、
+// 额度用完自动换账号（Codex、Claude 同一套）、提示条的字段、额度恢复后换回
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -91,8 +92,16 @@ describe('账号文件', () => {
   })
 })
 
-/** 假 Codex：每个账号目录一个邮箱；会话按创建次序决定这一轮是额度用完还是正常完成 */
-function setup(opts: { limited?: (session: number) => boolean } = {}) {
+/** 假引擎：每个账号目录一个邮箱；会话按创建次序决定这一轮是额度用完还是正常完成 */
+function setup(
+  opts: {
+    limited?: (session: number) => boolean
+    engine?: 'codex' | 'claude'
+    /** 额度用完时顺带报的恢复时间（会话的额度事件，宿主按原账号记下） */
+    resetsAt?: () => number
+  } = {},
+) {
+  const engine = opts.engine ?? 'codex'
   const root = tmp('accounts-host')
   const events: HostEvent[] = []
   const emails = new Map<string | null, string>([[null, 'me@example.com']])
@@ -108,10 +117,10 @@ function setup(opts: { limited?: (session: number) => boolean } = {}) {
   const adapter: EngineAdapter = {
     info: async () =>
       ({
-        ...ENGINES.codex,
+        ...ENGINES[engine],
         status: 'ready',
         version: 'test',
-        path: 'codex',
+        path: engine,
         message: null,
         account: { email: 'me@example.com', plan: 'plus' },
       }) as EngineInfo,
@@ -151,6 +160,13 @@ function setup(opts: { limited?: (session: number) => boolean } = {}) {
           sends.push({ session: n, text })
           setTimeout(() => {
             if (opts.limited?.(n)) {
+              if (opts.resetsAt)
+                ctx.reportQuota?.({
+                  windows: [
+                    { id: 'five_hour', durationMins: 300, usedPercent: 100, resetsAt: opts.resetsAt(), rejected: true },
+                  ],
+                  observedAt: Date.now(),
+                })
               ctx.emit({
                 type: 'item_completed',
                 item: {
@@ -178,17 +194,21 @@ function setup(opts: { limited?: (session: number) => boolean } = {}) {
       }
     },
   }
-  const host = new EngineHost({ dataDir: join(root, 'data'), adapters: { codex: adapter }, emit: e => events.push(e) })
+  const host = new EngineHost({
+    dataDir: join(root, 'data'),
+    adapters: { [engine]: adapter },
+    emit: e => events.push(e),
+  })
   hosts.push(host)
   const accountsEvents = (): EngineAccounts[] => events.flatMap(e => (e.kind === 'engine_accounts' ? [e.accounts] : []))
   const addAccount = async (email: string): Promise<EngineAccounts> => {
     nextEmail = email
     const before = accountsEvents().length
-    host.addAccount('codex')
+    host.addAccount(engine)
     await vi.waitFor(() => expect(accountsEvents().length).toBeGreaterThan(before))
     return accountsEvents().at(-1)!
   }
-  return { root, host, events, addAccount, loggedOut, sends, sessions: () => sessions, accountsEvents }
+  return { root, host, engine, events, addAccount, loggedOut, sends, sessions: () => sessions, accountsEvents }
 }
 
 describe('宿主的账号列表', () => {
@@ -238,7 +258,7 @@ describe('宿主的账号列表', () => {
 describe('额度用完自动换账号', () => {
   async function send(env: ReturnType<typeof setup>) {
     const project = env.host.addProject(env.root)
-    const record = env.host.createSession({ projectId: project.id, engine: 'codex' })
+    const record = env.host.createSession({ projectId: project.id, engine: env.engine })
     await env.host.send(record.id, '改一下按钮颜色')
     return record.id
   }
@@ -263,6 +283,54 @@ describe('额度用完自动换账号', () => {
     expect(env.sends.map(s => s.session)).toEqual([1, 2])
     const notice = env.host.open(id).items.find(i => i.kind === 'notice' && i.id.startsWith('account-switch-'))
     expect(notice && notice.kind === 'notice' && notice.text).toMatch(/work@example\.com/)
+    // 提示条的字段：界面按它拼文字、给「换回去」「关闭自动切换」
+    expect(notice && notice.kind === 'notice' && notice.account).toEqual({
+      engine: 'codex',
+      from: 'default',
+      to: list.accounts[1].id,
+      fromName: 'me@example.com',
+      toName: 'work@example.com',
+      window: null,
+      resetsAt: null,
+    })
+    expect(env.host.open(id).queue).toEqual([])
+  })
+
+  it('Claude 会话也一样：额度事件里的恢复时间带进提示条；到了恢复时间、下一轮结束时换回原账号', async () => {
+    let resetsAt = 0
+    const env = setup({
+      engine: 'claude',
+      limited: n => n === 1,
+      resetsAt: () => (resetsAt = Date.now() + 30),
+    })
+    const list = await env.addAccount('work@example.com')
+    env.host.setAccountAuto('claude', { enabled: true })
+    const id = await send(env)
+    await vi.waitFor(() => expect(env.sends).toHaveLength(2))
+    await vi.waitFor(() => expect(env.host.open(id).state).toBe('idle'))
+    const notice = env.host.open(id).items.find(i => i.kind === 'notice' && i.id.startsWith('account-switch-'))
+    expect(notice && notice.kind === 'notice' && notice.account).toMatchObject({
+      engine: 'claude',
+      to: list.accounts[1].id,
+      window: 'five_hour',
+      resetsAt,
+    })
+    // 换到的账号上再聊一轮：这时已过恢复时间，结束后去看原账号，恢复了就换回去
+    await new Promise(r => setTimeout(r, 40))
+    await env.host.send(id, '接着改')
+    await vi.waitFor(async () => expect((await env.host.accounts('claude')).current).toBe('default'))
+    await vi.waitFor(() => expect(env.host.open(id).state).toBe('idle'))
+    await vi.waitFor(() => expect(env.host.open(id).queue).toEqual([]))
+  })
+
+  it('重连次数设成 0（关闭）：换了账号的那条照样重新发送', async () => {
+    const env = setup({ limited: n => n === 1 })
+    await env.addAccount('work@example.com')
+    env.host.setRetrySettings(0)
+    env.host.setAccountAuto('codex', { enabled: true })
+    const id = await send(env)
+    await vi.waitFor(() => expect(env.sends).toHaveLength(2))
+    await vi.waitFor(() => expect(env.host.open(id).state).toBe('idle'))
     expect(env.host.open(id).queue).toEqual([])
   })
 

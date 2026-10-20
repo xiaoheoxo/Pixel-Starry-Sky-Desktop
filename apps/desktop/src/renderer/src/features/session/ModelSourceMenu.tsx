@@ -156,8 +156,9 @@ export function ModelSourceMenu({
   const trigger = useRef<HTMLButtonElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const [fit, setFit] = useState({ height: 420, cols: true })
-  // ChatGPT 账号行的「切换账号」：存了的账号列成子菜单（docs/ui/engine-accounts.md §6）；远程机器上为 null，还是去设置
-  const codexAccounts = useAccounts('codex')
+  // Claude / ChatGPT 账号行的「切换账号」：存了的账号列成子菜单（docs/ui/engine-accounts.md §6、engine-accounts-claude.md）；
+  // 远程机器上为 null，还是去设置
+  const accountLists = { claude: useAccounts('claude'), chatgpt: useAccounts('codex') }
   const [accountMenu, setAccountMenu] = useState(false)
   const accountAnchor = useRef<HTMLButtonElement>(null)
   // 菜单向上弹出，最高只到裁剪它的容器（窗格）顶部，不能按窗口顶部算：
@@ -465,7 +466,7 @@ export function ModelSourceMenu({
             </>
           )}
         </span>
-        {c === 'chatgpt' && codexAccounts ? (
+        {(c === 'chatgpt' || c === 'claude') && accountLists[c] ? (
           <>
             <button
               ref={accountAnchor}
@@ -493,11 +494,11 @@ export function ModelSourceMenu({
               role="menu"
             >
               <AccountPickList
-                engine="codex"
+                engine={c === 'claude' ? 'claude' : 'codex'}
                 onDone={() => setAccountMenu(false)}
                 onManage={() => {
                   setAccountMenu(false)
-                  openAccountsPage('chatgpt')
+                  openAccountsPage(c)
                   openChannels()
                 }}
                 footer={<p className="px-2 pt-1.5 pb-1 text-label text-fg-faint">{tr('accounts.menuHint')}</p>}

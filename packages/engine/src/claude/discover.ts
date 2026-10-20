@@ -205,29 +205,12 @@ export async function discoverClaude(
   }
 
   // 登录状态：老版本没有 auth status，查不到就当作已登录，真正出错时会在对话里提示
-  let loggedIn = true
-  let projectsDir: string | null = null
-  let account: EngineInfo['account']
-  const auth = await run(launcher, ['auth', 'status', '--json'], env)
-  try {
-    const o = JSON.parse(auth.stdout) as {
-      loggedIn?: boolean
-      projectsDirectory?: string
-      email?: unknown
-      subscriptionType?: unknown
-      orgName?: unknown
-    }
-    if (typeof o.loggedIn === 'boolean') loggedIn = o.loggedIn
-    if (o.loggedIn === true) {
-      const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
-      const found = { email: text(o.email), plan: text(o.subscriptionType), org: text(o.orgName) }
-      const filled = Object.fromEntries(Object.entries(found).filter(([, v]) => v))
-      if (Object.keys(filled).length) account = filled
-    }
-    if (typeof o.projectsDirectory === 'string') projectsDir = o.projectsDirectory
-  } catch {
-    // 忽略
-  }
+  const status = parseAuthStatus((await run(launcher, ['auth', 'status', '--json'], env)).stdout)
+  const loggedIn = status?.loggedIn ?? true
+  const projectsDir = status?.projectsDir ?? null
+  const account = status?.account
+  // 订阅登录（claude.ai）才能多开账号（docs/ui/engine-accounts-claude.md §2.4）；Console / API Key 不填
+  const auth: EngineInfo['auth'] = status?.loggedIn && status.method === 'claude.ai' ? { kind: 'login' } : undefined
   // 用环境变量配置了 Key 或中转的用户，auth status 可能显示未登录，但实际能用
   if (!loggedIn && !env.ANTHROPIC_API_KEY && !env.ANTHROPIC_AUTH_TOKEN) {
     return {
@@ -245,6 +228,48 @@ export async function discoverClaude(
   return {
     launcher,
     projectsDir,
-    info: { ...base(launch), status: 'ready', version, path, message: null, ...(account ? { account } : {}) },
+    info: {
+      ...base(launch),
+      status: 'ready',
+      version,
+      path,
+      message: null,
+      ...(account ? { account } : {}),
+      ...(auth ? { auth } : {}),
+    },
+  }
+}
+
+/** claude auth status --json 的结果；不是 JSON（老版本没有这个命令）为 null */
+export interface ClaudeAuthStatus {
+  loggedIn: boolean
+  /** claude.ai（订阅）、console 等，原样 */
+  method: string | null
+  account: EngineInfo['account']
+  projectsDir: string | null
+}
+
+export function parseAuthStatus(stdout: string): ClaudeAuthStatus | null {
+  let o: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(stdout)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    o = parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+  const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+  const loggedIn = typeof o.loggedIn === 'boolean' ? o.loggedIn : true
+  let account: EngineInfo['account']
+  if (o.loggedIn === true) {
+    const found = { email: text(o.email), plan: text(o.subscriptionType), org: text(o.orgName) }
+    const filled = Object.fromEntries(Object.entries(found).filter(([, v]) => v))
+    if (Object.keys(filled).length) account = filled
+  }
+  return {
+    loggedIn,
+    method: text(o.authMethod) ?? null,
+    account,
+    projectsDir: typeof o.projectsDirectory === 'string' ? o.projectsDirectory : null,
   }
 }

@@ -88,6 +88,7 @@ export type {
   TaskOutput,
   TodoStep,
   ToolKind,
+  NoticeAccountSwitch,
   NoticeError,
   NoticeErrorKind,
   NoticeTask,

@@ -1,6 +1,6 @@
-// 订阅账号多开（docs/ui/engine-accounts.md）：账号列表、切换、添加 / 重新登录 / 移除、各账号额度、额度用完自动换账号。
-// 先做 Codex。当前账号是全局的：适配器启动 Codex 时按 currentDir() 换 CODEX_HOME，launchKey 带上账号 id，
-// 切换后正在跑的这一轮不受影响，下一条消息前换进程接上原对话。
+// 订阅账号多开（docs/ui/engine-accounts.md、engine-accounts-claude.md）：账号列表、切换、添加 / 重新登录 / 移除、
+// 各账号额度、额度用完自动换账号。Codex 和 Claude Code。当前账号是全局的：适配器启动引擎时按 currentDir() 换
+// CODEX_HOME / CLAUDE_CONFIG_DIR，launchKey 带上账号 id，切换后正在跑的这一轮不受影响，下一条消息前换进程接上原对话。
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import {
@@ -14,6 +14,10 @@ import {
   type EngineAccounts,
   type EngineId,
   type EngineLogin,
+  type AccountQuota,
+  type EngineQuotaProvider,
+  type QuotaWindow,
+  type NoticeAccountSwitch,
 } from '@pixelsky/protocol'
 import type { AccountProbe } from '../adapter'
 import { logger } from '../log'
@@ -21,7 +25,11 @@ import type { HostContext } from './context'
 
 const log = logger('engine.accounts')
 
-const ENGINES: readonly AccountEngine[] = ['codex']
+const ENGINES: readonly AccountEngine[] = ['codex', 'claude']
+/** 账号额度在 HostQuota 里的 provider */
+const QUOTA_PROVIDER: Record<AccountEngine, EngineQuotaProvider> = { codex: 'chatgpt', claude: 'claude' }
+/** 自动换过账号后，每轮结束最多隔多久去看一次原账号恢复没有（没有恢复时间时） */
+const SWITCH_BACK_CHECK_MS = 10 * 60_000
 const ACCOUNT_ID = /^a_[a-f0-9]{12}$/
 const LABEL_MAX = 40
 /** 各账号额度缓存多久 */
@@ -35,6 +43,8 @@ interface EngineState {
   auto: AccountAutoSwitch
   /** 自动换账号之前用的那个：额度恢复后换回去（auto.switchBack） */
   switchedFrom: string | null
+  /** 原账号的恢复时间（毫秒）：到了才去读它的额度；不知道为 null */
+  switchedFromResetsAt: number | null
 }
 
 const text = (v: unknown, max = 200): string | null =>
@@ -82,6 +92,10 @@ export function readAccountsFile(raw: unknown): Partial<Record<AccountEngine, En
       accounts,
       auto: readAuto(e.auto),
       switchedFrom: known(e.switchedFrom) ? e.switchedFrom : null,
+      switchedFromResetsAt:
+        known(e.switchedFrom) && typeof e.switchedFromResetsAt === 'number' && Number.isFinite(e.switchedFromResetsAt)
+          ? e.switchedFromResetsAt
+          : null,
     }
   }
   return out
@@ -109,6 +123,9 @@ export class HostAccounts {
   private readonly reading = new Map<AccountEngine, Promise<EngineAccountQuota[]>>()
   /** 自动换过账号的队列项：同一条消息只换一次，所有账号都用完时不来回换 */
   private readonly autoSwitched = new Set<string>()
+  /** 每轮结束看原账号恢复没有：上次去读的时间、正在读的 */
+  private readonly backCheckedAt = new Map<AccountEngine, number>()
+  private readonly backChecking = new Set<AccountEngine>()
 
   constructor(private readonly ctx: HostContext) {
     this.state = readAccountsFile(ctx.store.loadAccounts())
@@ -120,6 +137,7 @@ export class HostAccounts {
       accounts: [],
       auto: { ...DEFAULT_AUTO },
       switchedFrom: null,
+      switchedFromResetsAt: null,
     })
   }
 
@@ -291,6 +309,7 @@ export class HostAccounts {
       s.current = id
       // 手动换过就不再自动换回去
       s.switchedFrom = null
+      s.switchedFromResetsAt = null
       this.changed(e, true)
     }
     return this.snapshot(e)
@@ -307,7 +326,10 @@ export class HostAccounts {
       .accountLogout(this.dir(e, id))
       .catch(() => undefined)
     s.accounts = s.accounts.filter(a => a.id !== id)
-    if (s.switchedFrom === id) s.switchedFrom = null
+    if (s.switchedFrom === id) {
+      s.switchedFrom = null
+      s.switchedFromResetsAt = null
+    }
     this.quotas.delete(`${e}:${id}`)
     // 只剩原来的账号时清空列表，界面回到单账号
     if (s.accounts.length === 1 && s.accounts[0].id === DEFAULT_ACCOUNT) s.accounts = []
@@ -345,7 +367,10 @@ export class HostAccounts {
       next.order = patch.order
     }
     s.auto = next
-    if (!next.enabled || !next.switchBack) s.switchedFrom = null
+    if (!next.enabled || !next.switchBack) {
+      s.switchedFrom = null
+      s.switchedFromResetsAt = null
+    }
     this.changed(e, false)
     return this.snapshot(e)
   }
@@ -397,7 +422,43 @@ export class HostAccounts {
     if (!row || row.status !== 'ok' || used === null || used >= 100) return false
     s.current = from
     s.switchedFrom = null
+    s.switchedFromResetsAt = null
+    log.info('switched back account', { engine })
     return true
+  }
+
+  /**
+   * 一轮结束：自动换过账号、开着「额度恢复后换回」时，看原账号恢复没有，恢复了就换回去（从下一条消息起）。
+   * 只读原账号这一个；知道恢复时间时到了才读，不知道时最多 10 分钟读一次（docs/ui/engine-accounts-claude.md §7）
+   */
+  afterTurn(engine: EngineId): void {
+    if (!(ENGINES as readonly string[]).includes(engine)) return
+    const e = engine as AccountEngine
+    const s = this.engineState(e)
+    const from = s.switchedFrom
+    if (!s.auto.enabled || !s.auto.switchBack || !from || from === this.currentId(e) || this.backChecking.has(e)) return
+    const now = Date.now()
+    const due =
+      s.switchedFromResetsAt !== null
+        ? now >= s.switchedFromResetsAt
+        : now - (this.backCheckedAt.get(e) ?? 0) >= SWITCH_BACK_CHECK_MS
+    if (!due) return
+    const row = s.accounts.find(a => a.id === from)
+    if (!row) return
+    this.backChecking.add(e)
+    this.backCheckedAt.set(e, now)
+    void (async () => {
+      try {
+        this.applyProbe(e, row, await this.adapter(e).accountProbe(this.dir(e, from)))
+        if (this.switchBack(e)) this.changed(e, true)
+        // 读到了还没恢复：按新的恢复时间再等（不知道就按 10 分钟）
+        else if (s.switchedFrom === from) s.switchedFromResetsAt = resetOf(this.quotas.get(`${e}:${from}`))
+      } catch (error) {
+        log.warn('check switch back failed', { engine: e, error: (error as Error).message })
+      } finally {
+        this.backChecking.delete(e)
+      }
+    })()
   }
 
   /** 下一个还有额度的账号：跳过当前的、登录失效的、上次读到已用完的 */
@@ -420,18 +481,25 @@ export class HostAccounts {
   }
 
   /**
-   * 一轮因为额度用完失败（Codex usageLimitExceeded）：开了自动切换、会话走的是自己的订阅时换到下一个账号。
-   * 返回换到的账号；没换返回 null。同一条消息只换一次
+   * 一轮因为额度用完失败（usageLimitExceeded：Codex 报的、Claude 收到 rejected 额度事件）：开了自动切换、会话走的是
+   * 自己的订阅时换到下一个账号。返回提示条要用的信息；没换返回 null。同一条消息只换一次
    */
-  autoSwitch(sessionId: string, queueId: string): EngineAccount | null {
+  autoSwitch(sessionId: string, queueId: string): NoticeAccountSwitch | null {
     const rt = this.ctx.runtimes.get(sessionId)
     if (!rt) return null
     const record = rt.execution ?? rt.snapshot.record
-    if (record.engine !== 'codex' || viaGateway(record)) return null
-    const e: AccountEngine = 'codex'
+    if (!(ENGINES as readonly string[]).includes(record.engine) || viaGateway(record)) return null
+    const e = record.engine as AccountEngine
     const s = this.engineState(e)
     if (!s.auto.enabled || s.accounts.length < 2 || this.autoSwitched.has(queueId)) return null
     const from = this.currentId(e)
+    const fromRow = s.accounts.find(a => a.id === from)
+    // 用完的是哪个窗口、几点恢复：换之前按原账号的邮箱取（换完再取就是新账号的了）
+    const fromEvent = usedWindow(this.ctx.m.quota.lastEvent(sessionId))
+    const used =
+      fromEvent.resetsAt !== null || fromEvent.window !== null
+        ? fromEvent
+        : usedWindow(this.ctx.m.quota.peek(QUOTA_PROVIDER[e], fromRow?.email ?? null))
     // 当前账号记成用完，「剩余最多」和换回去都按它算
     const prev = this.quotas.get(`${e}:${from}`)
     this.quotas.set(`${e}:${from}`, {
@@ -444,15 +512,51 @@ export class HostAccounts {
     if (!next) return null
     this.autoSwitched.add(queueId)
     if (this.autoSwitched.size > 500) this.autoSwitched.delete(this.autoSwitched.values().next().value!)
-    s.switchedFrom ??= from
+    if (s.switchedFrom === null) {
+      s.switchedFrom = from
+      s.switchedFromResetsAt = used.resetsAt
+    }
+    // 刚用完：不知道恢复时间时也先等 10 分钟再去看
+    this.backCheckedAt.set(e, Date.now())
     s.current = next.id
     log.info('auto switched account', { engine: e, sessionId })
     this.changed(e, true)
-    return next
+    return {
+      engine: e,
+      from,
+      to: next.id,
+      fromName: nameOf(fromRow) ?? '原来的账号',
+      toName: nameOf(next) ?? '另一个账号',
+      window: used.window,
+      resetsAt: used.resetsAt,
+    }
   }
 
   /** 自动换了账号要不要在对话里提示 */
   noticeOn(engine: AccountEngine): boolean {
     return this.engineState(engine).auto.notice
   }
+}
+
+/** 提示条里的账号名：邮箱优先（和样式稿一样），没有邮箱用备注 */
+const nameOf = (a: EngineAccount | undefined): string | null => a?.email || a?.label || null
+
+/** 账号额度（快照或一次事件）里用完的窗口和恢复时间：先认明确拒绝 / 用满的 5 小时、本周窗口，再看整体被拒的 */
+export function usedWindow(
+  q: Pick<AccountQuota, 'windows' | 'blocked'> | { windows?: QuotaWindow[]; blocked?: AccountQuota['blocked'] } | null,
+): Pick<NoticeAccountSwitch, 'window' | 'resetsAt'> {
+  if (!q) return { window: null, resetsAt: null }
+  const full = (q.windows ?? []).filter(w => w.rejected || w.usedPercent >= 100)
+  // 两个都满了：要等更晚恢复的那个
+  full.sort((a, b) => (b.resetsAt ?? 0) - (a.resetsAt ?? 0))
+  const w = full.find(x => x.id === 'five_hour' || x.id === 'seven_day') ?? full[0]
+  if (w) return { window: w.id === 'five_hour' || w.id === 'seven_day' ? w.id : null, resetsAt: w.resetsAt }
+  return { window: null, resetsAt: q.blocked?.resetsAt ?? null }
+}
+
+/** 账号表里的额度什么时候恢复（用满的窗口里最晚的）；没用满、不知道为 null */
+function resetOf(q: EngineAccountQuota | undefined): number | null {
+  if (!q) return null
+  const times = q.windows.filter(w => w.rejected || w.usedPercent >= 100).flatMap(w => (w.resetsAt ? [w.resetsAt] : []))
+  return times.length ? Math.max(...times) : null
 }

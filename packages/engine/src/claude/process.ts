@@ -10,6 +10,7 @@ import { IS_WINDOWS, killTree } from '../exec'
 import { TailBuffer, readJsonLines } from '../jsonl'
 import { logger } from '../log'
 import { logProcess } from '../process-log'
+import { holdConfigDir } from './accounts'
 import type { ImageAttachment } from '@pixelsky/protocol'
 
 const log = logger('engine.claude')
@@ -61,6 +62,8 @@ export class ClaudeProcess {
       detached: !IS_WINDOWS,
     })
     if (this.child.pid !== undefined) ownClaudePids.add(this.child.pid)
+    // 订阅账号的目录有进程在用：期间不同步那个目录里的设置（claude/accounts.ts）
+    const release = holdConfigDir(env.CLAUDE_CONFIG_DIR)
     this.child.stdin.on('error', () => {}) // 进程已退出时写入会报 EPIPE，退出事件里统一处理
     this.child.stderr.on('data', (d: Buffer) => this.stderr.push(d.toString('utf8')))
     logProcess(
@@ -83,6 +86,7 @@ export class ClaudeProcess {
       const done = (code: number | null): void => {
         if (this.exited) return
         this.exited = true
+        release()
         if (this.child.pid !== undefined) ownClaudePids.delete(this.child.pid)
         for (const p of this.pending.values()) {
           clearTimeout(p.timer)

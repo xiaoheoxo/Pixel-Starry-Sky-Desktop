@@ -74,8 +74,9 @@ export class CodexAdapter implements EngineAdapter {
     return {
       launcher: found.launcher,
       args: this.launchArgs(),
-      // 读取进程不带网关变量；CODEX_HOME 和 codexHome() 是同一份
-      env: { ...toolEnvironment(found.launcher, this.env()), CODEX_HOME: this.codexHome() },
+      // 读取进程不带网关变量，跟着当前订阅账号走（CODEX_HOME 是账号目录；sessions 等联接回原目录，sqlite 用原目录）：
+      // 输入框底栏读当前账号的额度靠它，不能固定成原来的目录
+      env: toolEnvironment(found.launcher, this.env()),
       cwd: homedir(),
     }
   })
@@ -395,7 +396,7 @@ export class CodexAdapter implements EngineAdapter {
       },
     })
   }
-  /** Codex 的数据目录：读取进程、会话进程和这里是同一份（env.CODEX_HOME，没有就是 ~/.codex） */
+  /** Codex 的数据目录（env.CODEX_HOME，没有就是 ~/.codex）；用了订阅账号时是原来的目录（账号目录里的 sessions 等联接回这里） */
   codexHome(record?: SessionRecord): string {
     // 订阅账号的目录里 sessions 等是接回原目录的，扫描、找线程都用原目录
     const env = record && viaGateway(record) ? { ...this.baseEnv(), ...this.opts.sessionEnv?.(record) } : this.baseEnv()

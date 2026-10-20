@@ -7,7 +7,7 @@ import { cn, Spinner, useToast } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { planLabel } from './channelLabels'
-import { cancelLogin, clearLogin, loginRunning, startLogin, useEngineLogin } from './loginStore'
+import { cancelLogin, clearLogin, loginRunning, sendLoginCode, startLogin, useEngineLogin } from './loginStore'
 import {
   accountName,
   loadAccountsQuota,
@@ -185,11 +185,16 @@ export function AccountPickList({
   )
 }
 
-/** 添加 / 重新登录账号的进度（账号表最后一行）；没有在登录、也没有刚失败的不显示 */
+/**
+ * 添加 / 重新登录账号的进度（账号表最后一行）；没有在登录、也没有刚失败的不显示。
+ * Claude 登录有时要把网页上的授权码粘回来（没有设备码登录），下面多一个粘贴框（engine-accounts-claude.md §1）
+ */
 export function AccountLoginRow({ engine, names }: { engine: AccountEngine; names: Record<string, string> }) {
   useI18n()
   const login = useEngineLogin(engine)
   const [copied, setCopied] = useState(false)
+  const [code, setCode] = useState('')
+  const [codeError, setCodeError] = useState<string | null>(null)
   if (!login?.target) return null
   const running = loginRunning(login)
   if (!running && login.phase !== 'failed') return null
@@ -197,47 +202,91 @@ export function AccountLoginRow({ engine, names }: { engine: AccountEngine; name
     login.target === 'add'
       ? tr('accounts.adding')
       : tr('accounts.reloggingIn', { name: names[login.target] ?? login.target })
+  const submitCode = (): void => {
+    const text = code.trim()
+    if (!text) return
+    setCode('')
+    setCodeError(null)
+    // 命令已经结束时写不进去：把码放回输入框，写原因
+    sendLoginCode(engine, text).catch((e: unknown) => {
+      setCode(text)
+      setCodeError((e as Error).message)
+    })
+  }
+  const pasteCode = running && engine === 'claude' && login.phase !== 'verify'
   return (
     <div
       data-account-login={login.target}
-      className={cn(
-        'flex items-center gap-3 border-t border-line-subtle px-4 py-3 text-meta',
-        running ? 'bg-accent/10' : 'bg-danger/10',
-      )}
+      className={cn('border-t border-line-subtle px-4 py-3 text-meta', running ? 'bg-accent/10' : 'bg-danger/10')}
     >
-      {running && <Spinner />}
-      <span className="min-w-0 flex-1 text-fg-secondary">
-        {running ? (
-          <>
-            <span className="font-medium text-fg">{title}</span>
-            {' · '}
-            {login.userCode ? tr('accounts.deviceCode', { code: login.userCode }) : tr('accounts.addingHint')}
-            {login.url && (
-              <button
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(login.url!)
-                  setCopied(true)
-                }}
-                className="ml-2 text-accent-fg hover:underline"
-              >
-                {copied ? tr('accounts.linkCopied') : tr('accounts.copyLink')}
-              </button>
-            )}
-          </>
-        ) : (
-          <span className="text-danger">
-            {tr('accounts.addFailed', { error: translateMessage(login.error ?? '') })}
-          </span>
-        )}
-      </span>
-      <button
-        type="button"
-        onClick={() => (running ? void cancelLogin(engine) : clearLogin(engine))}
-        className="shrink-0 rounded px-2 py-1 text-fg-secondary hover:bg-hover hover:text-fg"
-      >
-        {tr('accounts.cancel')}
-      </button>
+      <div className="flex items-center gap-3">
+        {running && <Spinner />}
+        <span className="min-w-0 flex-1 text-fg-secondary">
+          {running ? (
+            <>
+              <span className="font-medium text-fg">{title}</span>
+              {' · '}
+              {login.userCode ? tr('accounts.deviceCode', { code: login.userCode }) : tr('accounts.addingHint')}
+              {login.url && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(login.url!)
+                    setCopied(true)
+                  }}
+                  className="ml-2 text-accent-fg hover:underline"
+                >
+                  {copied ? tr('accounts.linkCopied') : tr('accounts.copyLink')}
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="text-danger">
+              {tr('accounts.addFailed', { error: translateMessage(login.error ?? '') })}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={() => (running ? void cancelLogin(engine) : clearLogin(engine))}
+          className="shrink-0 rounded px-2 py-1 text-fg-secondary hover:bg-hover hover:text-fg"
+        >
+          {tr('accounts.cancel')}
+        </button>
+      </div>
+      {pasteCode && (
+        <form
+          data-account-code
+          className="mt-2 flex items-center gap-2 pl-7"
+          onSubmit={e => {
+            e.preventDefault()
+            submitCode()
+          }}
+        >
+          <span className="shrink-0 text-fg-muted">{tr('accounts.pasteCodeHint')}</span>
+          <input
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            spellCheck={false}
+            autoComplete="off"
+            aria-label={tr('modelChannels.auth.codePlaceholder')}
+            placeholder={tr('modelChannels.auth.codePlaceholder')}
+            className="h-7 min-w-0 flex-1 rounded-md border border-line bg-surface px-2 font-mono text-meta text-fg outline-none placeholder:font-sans placeholder:text-fg-faint focus:border-line-strong"
+          />
+          <button
+            type="submit"
+            disabled={!code.trim()}
+            className="shrink-0 rounded px-2 py-1 text-accent-fg hover:bg-selected disabled:cursor-default disabled:text-fg-faint disabled:hover:bg-transparent"
+          >
+            {tr('accounts.pasteCode')}
+          </button>
+        </form>
+      )}
+      {codeError && (
+        <p role="alert" className="mt-1 pl-7 text-danger">
+          {translateMessage(codeError)}
+        </p>
+      )}
     </div>
   )
 }

@@ -84,7 +84,7 @@ function demoFlow(engine: EngineId, method: EngineLogin['method'], target?: stri
     }),
     step(6800, () => {
       if (logins[engine]?.phase !== 'verify') return
-      if (target === 'add' && engine === 'codex') demoAddAccount('codex')
+      if (target === 'add' && (engine === 'codex' || engine === 'claude')) demoAddAccount(engine)
       else if (!target) {
         demoAuth = { ...demoAuth, [engine]: true }
         demoEngines = null

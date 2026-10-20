@@ -26,7 +26,7 @@ import {
   useAccountsQuota,
 } from './accountsStore'
 
-const ENGINE_NAME: Record<AccountEngine, string> = { codex: 'Codex' }
+const ENGINE_NAME: Record<AccountEngine, string> = { codex: 'Codex', claude: 'Claude Code' }
 
 export function AccountsPage({ channel }: { channel: AuthChannel }) {
   useI18n()
@@ -53,7 +53,9 @@ export function AccountsPage({ channel }: { channel: AuthChannel }) {
           {tr('accounts.pageTitle', { channel: tr(`modelChannels.tab.${channel}`) })}
         </span>
       </SectionTitle>
-      <p className="-mt-2 mb-5 text-meta text-fg-muted">{tr('accounts.pageDesc', { engine: ENGINE_NAME[engine] })}</p>
+      <p className="-mt-2 mb-5 text-meta text-fg-muted">
+        {tr(engine === 'claude' ? 'accounts.pageDescClaude' : 'accounts.pageDesc', { engine: ENGINE_NAME[engine] })}
+      </p>
       {list ? <AccountsTable engine={engine} /> : <Spinner />}
       {list && <AutoSwitchCard engine={engine} />}
     </section>

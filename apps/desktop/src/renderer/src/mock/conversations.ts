@@ -908,6 +908,32 @@ const errors = snapshot(
     updatedAt: T0 - 4 * MIN,
   }),
   [
+    // 额度用完自动换了账号（docs/ui/engine-accounts-claude.md §3）：按钮跟着演示账号的当前状态变
+    user('d-u0', '把登录页的按钮颜色改成设计变量里的主色', 20),
+    {
+      kind: 'notice',
+      id: 'd-n0',
+      level: 'error',
+      text: 'Claude 订阅的额度用完了',
+      detail: "You've hit your limit · resets 4:45pm",
+      error: { kind: 'balance', code: 'usageLimitExceeded' },
+    },
+    {
+      kind: 'notice',
+      id: 'account-switch-demo',
+      level: 'info',
+      text: 'linxia@example.com 的额度用完了，已自动换到 work@company.com 并重新发送这条消息',
+      account: {
+        engine: 'claude',
+        from: 'default',
+        to: 'a_0d3f9a1c2b7e',
+        fromName: 'linxia@example.com',
+        toName: 'work@company.com',
+        window: 'five_hour',
+        resetsAt: T0 + 2 * 60 * MIN,
+      },
+    },
+    assistant('d-a0', '好的，我把 `LoginForm.tsx` 里写死的颜色换成 `--accent`，悬停色用它的混色。'),
     user('d-u1', '跑一下测试', 14),
     {
       kind: 'notice',

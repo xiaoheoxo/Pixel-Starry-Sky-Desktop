@@ -1,4 +1,4 @@
-// 订阅账号多开（docs/ui/engine-accounts.md，样式稿 docs/ui/multi-account-mockup.html）
+// 订阅账号多开（docs/ui/engine-accounts.md、engine-accounts-claude.md，样式稿 docs/ui/multi-account-mockup.html）
 export const accountMessages = {
   'accounts.count': { zh: '共 {n} 个账号', en: '{n} accounts' },
   'accounts.switch': { zh: '切换账号', en: 'Switch account' },
@@ -26,6 +26,10 @@ export const accountMessages = {
   'accounts.pageDesc': {
     zh: '每个账号只登录一次，之后点「切换」马上生效。对话记录、插件、MCP 设置所有账号共用；登录凭据由 {engine} 自己保存，像素星空不读取。',
     en: 'Sign in to each account once, then switch instantly. Conversations, plugins and MCP settings are shared; credentials are stored by {engine} itself and never read by PixelSky.',
+  },
+  'accounts.pageDescClaude': {
+    zh: '每个账号只登录一次，之后点「切换」马上生效。对话记录、技能、插件、MCP 服务器所有账号共用；在添加的账号下改的设置只对那个账号有效。登录凭据由 {engine} 自己保存，像素星空不读取。',
+    en: 'Sign in to each account once, then switch instantly. Conversations, skills, plugins and MCP servers are shared; settings changed while on an added account apply to that account only. Credentials are stored by {engine} itself and never read by PixelSky.',
   },
   'accounts.list': { zh: '已登录的账号', en: 'Signed-in accounts' },
   'accounts.colAccount': { zh: '账号', en: 'Account' },
@@ -70,4 +74,59 @@ export const accountMessages = {
     en: 'This conversation uses the new account from the next message; history is kept.',
   },
   'accounts.back': { zh: '返回模型通道', en: 'Back to model channels' },
+  'accounts.pasteCodeHint': { zh: '页面给了授权码？', en: 'Got a code on the page?' },
+  'accounts.pasteCode': { zh: '粘贴代码', en: 'Submit code' },
+  // 自动换了账号的提示条（docs/ui/engine-accounts-claude.md §3）
+  'accounts.notice.switched': {
+    zh: '{from} 的额度用完了，已换到 {to} 并重新发送这条消息。',
+    en: '{from} hit its usage limit. Switched to {to} and resent this message.',
+  },
+  'accounts.notice.switchedWindow': {
+    zh: '{from} 的{window}额度用完了，已换到 {to} 并重新发送这条消息。',
+    en: '{from} hit its {window} limit. Switched to {to} and resent this message.',
+  },
+  'accounts.notice.withReset': { zh: '{text}{reset}', en: '{text} {reset}' },
+  'accounts.notice.fiveHour': { zh: ' 5 小时', en: '5-hour' },
+  'accounts.notice.week': { zh: '本周', en: 'weekly' },
+  'accounts.notice.switchBack': { zh: '换回去', en: 'Switch back' },
+  'accounts.notice.switchBackWait': {
+    zh: '原账号 {time} 恢复，之后才能换回去',
+    en: 'The original account resets at {time}; you can switch back after that',
+  },
+  'accounts.notice.switchedBack': { zh: '已换回 {name}', en: 'Switched back to {name}' },
+  'accounts.notice.autoOff': { zh: '关闭自动切换', en: 'Turn off auto-switch' },
+  'accounts.notice.autoIsOff': { zh: '已关闭自动切换', en: 'Auto-switch is off' },
+  'accounts.notice.settings': { zh: '设置', en: 'Settings' },
+  // 引擎报的原文（主进程中文，界面 translateMessage）
+  'accounts.err.fallbackNotice': {
+    zh: '{from} 的额度用完了，已自动换到 {to} 并重新发送这条消息',
+    en: '{from} hit its usage limit. Switched to {to} and resent this message',
+  },
+  'accounts.err.claudeUsageLimit': {
+    zh: 'Claude 订阅的额度用完了',
+    en: 'Your Claude subscription usage limit is reached',
+  },
+  'accounts.err.expired': {
+    zh: '这个账号的登录已失效，请先重新登录',
+    en: 'This account is signed out. Sign in again first',
+  },
+  'accounts.err.inUse': {
+    zh: '正在用这个账号，先切换到别的账号再移除',
+    en: 'This account is in use. Switch to another account before removing it',
+  },
+  'accounts.err.original': {
+    zh: '原来的账号不能在这里移除，切换到它之后可以在模型通道里取消授权',
+    en: 'The original account can’t be removed here. Switch to it, then sign out in Model channels',
+  },
+  'accounts.err.unsupported': { zh: '这个引擎还不支持多账号', en: 'This engine doesn’t support multiple accounts yet' },
+  'accounts.err.missing': { zh: '没有这个账号', en: 'No such account' },
+  'accounts.err.notSignedIn': {
+    zh: '登录命令结束了，但还没有登录成功',
+    en: 'The sign-in command finished, but you are not signed in',
+  },
+  'accounts.err.duplicate': { zh: '{email} 已经在列表里了', en: '{email} is already in the list' },
+  'accounts.err.wrongAccount': {
+    zh: '登录的是 {got}，不是 {want}。要添加新账号请用「添加账号」',
+    en: 'You signed in as {got}, not {want}. Use “Add account” to add a new one',
+  },
 }

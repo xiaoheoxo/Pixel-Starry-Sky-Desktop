@@ -1,4 +1,4 @@
-// 订阅账号多开（docs/ui/engine-accounts.md）：账号列表、各账号额度、子页面开在哪条通道。
+// 订阅账号多开（docs/ui/engine-accounts.md、engine-accounts-claude.md）：账号列表、各账号额度、子页面开在哪条通道。
 // 真实模式经 bridge 取、听 engine_accounts 推送；演示模式用 demo().accounts，改动只在内存里
 import { useEffect, useSyncExternalStore } from 'react'
 import {
@@ -17,8 +17,8 @@ import { bridge } from '@/features/engine/store'
 import { useMachines } from '@/features/machines/store'
 import type { AuthChannel } from './channelModel'
 
-/** 多账号支持的通道 → 引擎；Claude 以后再做 */
-export const ACCOUNT_ENGINE: Partial<Record<AuthChannel, AccountEngine>> = { chatgpt: 'codex' }
+/** 多账号支持的通道 → 引擎 */
+export const ACCOUNT_ENGINE: Partial<Record<AuthChannel, AccountEngine>> = { chatgpt: 'codex', claude: 'claude' }
 
 interface State {
   accounts: Partial<Record<AccountEngine, EngineAccounts>>
@@ -48,14 +48,15 @@ function listen(): void {
   listening = true
   bridge.onEvent(e => {
     if (e.kind === 'engine_accounts') putAccounts(e.accounts)
-    // 换了机器、重新检测后邮箱可能变了：列表重新取
-    if (e.kind === 'engines') void loadAccounts('codex')
+    // 换了机器、重新检测后邮箱可能变了：取过的列表重新取
+    if (e.kind === 'engines')
+      for (const engine of Object.keys(state.accounts) as AccountEngine[]) void loadAccounts(engine)
   })
 }
 
 export async function loadAccounts(engine: AccountEngine): Promise<void> {
   if (isDemo) {
-    if (!state.accounts[engine]) putAccounts(structuredClone(demo().accounts.list))
+    if (!state.accounts[engine]) putAccounts(structuredClone(demo().accounts[engine].list))
     return
   }
   if (!bridge) return
@@ -70,7 +71,7 @@ export async function loadAccounts(engine: AccountEngine): Promise<void> {
 /** 各账号额度：打开账号下拉 / 子菜单 / 子页面时取（主进程缓存 60 秒） */
 export async function loadAccountsQuota(engine: AccountEngine, force = false): Promise<void> {
   if (isDemo) {
-    set({ quota: { ...state.quota, [engine]: demo().accounts.quota } })
+    set({ quota: { ...state.quota, [engine]: demo().accounts[engine].quota } })
     return
   }
   if (!bridge) return
@@ -110,7 +111,7 @@ export function useAccountsPage(): AuthChannel | null {
 // ---------- 操作：真实模式返回新列表，演示模式改内存 ----------
 
 function demoChange(engine: AccountEngine, fn: (list: EngineAccounts) => void): void {
-  const list = structuredClone(state.accounts[engine] ?? demo().accounts.list)
+  const list = structuredClone(state.accounts[engine] ?? demo().accounts[engine].list)
   fn(list)
   putAccounts(list)
 }

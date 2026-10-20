@@ -31,6 +31,9 @@ import { ContextReader } from './context'
 import { obj, num, str } from './shape'
 import { ERROR_TEXT, apiNoticeError, friendlyApiError } from './apiError'
 
+/** 订阅额度用完（5 小时 / 本周 / 分模型），英文原文放「详情」 */
+export const USAGE_LIMIT_TEXT = 'Claude 订阅的额度用完了'
+
 type Msg = Record<string, unknown>
 type CompactionItem = Extract<Item, { kind: 'compaction' }>
 
@@ -137,6 +140,8 @@ export class ClaudeTranslator {
   private retry: RequestRetryState | null = null
   /** 这一轮收到的合成报错消息（代码和英文原文），等结果一起出一条提示 */
   private apiError: { code: string; raw: string } | null = null
+  /** 这一轮收到过「订阅额度用完」（rate_limit_event status: rejected）：失败时报错带 usageLimitExceeded */
+  private usageLimited = false
   private retrySignature = ''
   private seq = 0
   /**
@@ -204,12 +209,18 @@ export class ClaudeTranslator {
     this.cb.emit({ type: 'turn_started', turnId })
   }
 
+  /** 收到订阅额度用完的事件（ClaudeSession.onRateLimit，只认自己账号的进程） */
+  markUsageLimit(): void {
+    this.usageLimited = true
+  }
+
   startTurn(turnId: string): void {
     this.requestCache.begin(turnId)
     this.turnId = turnId
     this.halted = false
     this.retry = null
     this.apiError = null
+    this.usageLimited = false
     this.retrySignature = ''
     this.turnRequests.clear()
     this.turnTokens.clear()
@@ -873,15 +884,21 @@ export class ClaudeTranslator {
     let error: string | null = null
     const apiError = this.apiError
     this.apiError = null
+    const usageLimited = this.usageLimited
+    this.usageLimited = false
     if (outcome === 'failed') {
       const errors = Array.isArray(msg.errors) ? (msg.errors as unknown[]).map(String).filter(Boolean) : []
       const raw = errors.join('\n') || str(msg.result) || apiError?.raw || terminal || '这一轮失败了'
       // 一次报错只出一条提示：第一行说人话，英文原文放「详情」；认不出的照原文（docs/ui/conversation-ux-2.md §2.1）
-      const friendly = friendlyApiError(apiError?.code ?? null, raw)
+      const friendly = usageLimited ? USAGE_LIMIT_TEXT : friendlyApiError(apiError?.code ?? null, raw)
       error = friendly ?? raw
       if (this.retry?.attempt !== null && this.retry?.attempt !== undefined)
         error += `\n本次请求已重试 ${this.retry.attempt} 次${this.retry.maxRetries !== null && this.retry.attempt >= this.retry.maxRetries ? '，达到重试上限' : ''}。`
-      this.notice('error', error, friendly ? raw : null, undefined, apiNoticeError(apiError?.code ?? null, raw))
+      // 订阅额度用完：和 Codex 的 usageLimitExceeded 一样归到「额度」，宿主据此自动换账号（engine-accounts-claude.md §2.6）
+      const noticeError = usageLimited
+        ? { kind: 'balance' as const, code: 'usageLimitExceeded' }
+        : apiNoticeError(apiError?.code ?? null, raw)
+      this.notice('error', error, friendly ? raw : null, undefined, noticeError)
     } else if (apiError) {
       // 收到报错消息、这一轮却没算失败：也只提示一次
       const friendly = friendlyApiError(apiError.code, apiError.raw)

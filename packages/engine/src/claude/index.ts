@@ -1,6 +1,6 @@
 // Claude Code 适配器
 import { homedir } from 'node:os'
-import { delimiter, dirname } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import {
   EFFORTS,
   codedError,
@@ -16,13 +16,22 @@ import {
   viaGateway,
 } from '@pixelsky/protocol'
 import { QUICK_CLOSE_MS } from '../adapter'
-import type { CloseOptions, EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
+import type {
+  AccountProbe,
+  CloseOptions,
+  EngineAdapter,
+  EngineSession,
+  Launcher,
+  LoginProcess,
+  SessionContext,
+} from '../adapter'
 import type { QuotaReading } from '../quota'
 import { engineEnv, systemProxyEnv } from '../env'
 import { globalNpm, npmForInstall, npmInstallGlobal, withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, runStream, startupReason } from '../exec'
 import { engineBase } from '../registry'
-import { claudeInstaller, customClaude, discoverClaude, type ClaudeDiscovery } from './discover'
+import { ClaudeUserRules, claudeAccountEnv, holdConfigDir, nativeMcpServers, prepareClaudeAccount } from './accounts'
+import { claudeInstaller, customClaude, discoverClaude, parseAuthStatus, type ClaudeDiscovery } from './discover'
 import { rewindFilesOnce, sideQuestionOnce, type HelperTarget, type RewindFilesReply } from './helper'
 import { ClaudeProcess, ownClaudePids } from './process'
 import { parseClaudeUsage, unknownControl } from './quota'
@@ -72,6 +81,10 @@ export interface ClaudeAdapterOptions {
   projectsDir?: string
   /** 明确通过真实追加输入验证后由宿主开放；桌面正式配置当前不设置。 */
   steeringValidated?: boolean
+  /** 当前订阅账号的目录（docs/ui/engine-accounts-claude.md）；null 是原来的配置目录 */
+  account?: () => string | null
+  /** 引擎数据目录：「始终允许（所有项目）」在添加的账号下记在这里（claude-user-rules.json） */
+  dataDir?: string
 }
 
 /** 输出风格 / 模型列表的缓存时间；过期后先返回旧值、后台刷新（每次刷新都要起一个 claude.exe 握手） */
@@ -120,7 +133,8 @@ export class ClaudeAdapter implements EngineAdapter {
   private probingForce = false
   /** 额度的临时进程（没有会话进程时问 get_usage 用，问完就关）：同一时间最多一个；应用退出时 close() 杀掉 */
   private quotaProbe: { account: string; promise: Promise<QuotaReading> } | null = null
-  private quotaProc: ClaudeProcess | null = null
+  /** 额度临时进程（当前账号的、账号表里别的账号的）：应用退出时杀掉 */
+  private readonly quotaProcs = new Set<ClaudeProcess>()
   /** close() 之后（应用退出）不再起任何额度临时进程 */
   private closedForQuota = false
   /** 这个版本认不认识 get_usage；null 还没试过。dropCatalog()（重新检测 / 更新 / 安装）时清回 null，升级后重新试 */
@@ -132,9 +146,15 @@ export class ClaudeAdapter implements EngineAdapter {
   /** 跨引擎接力：别的引擎期间的聊天直接写进 Claude Code 的会话记录（chat-log.ts） */
   readonly seedsHistory = true
 
-  constructor(private readonly opts: ClaudeAdapterOptions = {}) {}
+  /** 「始终允许（所有项目）」在添加的账号下由像素星空记（所有账号的会话启动时带上） */
+  private readonly userRules: ClaudeUserRules | null
 
-  private env(): NodeJS.ProcessEnv {
+  constructor(private readonly opts: ClaudeAdapterOptions = {}) {
+    this.userRules = opts.dataDir ? new ClaudeUserRules(join(opts.dataDir, 'claude-user-rules.json')) : null
+  }
+
+  /** 不带订阅账号的环境：配置目录是用户原来的 */
+  private baseEnv(): NodeJS.ProcessEnv {
     const base = engineEnv(this.opts.env ?? process.env)
     const extra = this.opts.extraEnv?.() ?? {}
     // 补的代理变量放最后：只在用户没设代理时才有，NO_PROXY 已经并进了用户原有的
@@ -142,6 +162,31 @@ export class ClaudeAdapter implements EngineAdapter {
       { ...base, ...extra, ...systemProxyEnv(base, extra, this.opts.systemProxy?.() ?? null) },
       this.opts.nodeRuntime?.paths() ?? [],
     )
+  }
+
+  /** 启动 Claude Code 用的环境：选了别的订阅账号时 CLAUDE_CONFIG_DIR 换成那个账号的目录（先准备好目录） */
+  private env(dir: string | null | undefined = this.opts.account?.()): NodeJS.ProcessEnv {
+    const env = this.baseEnv()
+    if (!dir) return env
+    this.prepareAccount(env, dir)
+    return claudeAccountEnv(env, dir)
+  }
+
+  /** 账号目录接回原目录、空闲时同步设置：同一个目录 2 秒内只做一次（env() 调得很频繁）；有进程在用时跳过、下次再做 */
+  private readonly prepared = new Map<string, number>()
+  private prepareAccount(env: NodeJS.ProcessEnv, dir: string): void {
+    if (Date.now() - (this.prepared.get(dir) ?? 0) < 2000) return
+    if (prepareClaudeAccount(env, dir)) this.prepared.set(dir, Date.now())
+  }
+
+  /** 用这个环境跑一段（子进程）：期间登记这个配置目录在用 */
+  private async holding<T>(env: NodeJS.ProcessEnv, fn: () => Promise<T>): Promise<T> {
+    const release = holdConfigDir(env.CLAUDE_CONFIG_DIR)
+    try {
+      return await fn()
+    } finally {
+      release()
+    }
   }
 
   private discover(force: boolean): Promise<ClaudeDiscovery> {
@@ -171,7 +216,7 @@ export class ClaudeAdapter implements EngineAdapter {
           launcher: this.opts.launcher,
           projectsDir: this.opts.projectsDir ?? null,
         }
-      : await discoverClaude(this.opts.overridePath?.() ?? null, this.env())
+      : await this.detectWith(this.env())
     // 没有 PowerShell / curl 也能一键安装：改用 npm（没装 Node.js 时桌面端先装私有的）；用户替换了命令的不给装
     if (d.info.status === 'missing' && d.info.launch === 'stock' && this.opts.nodeRuntime)
       d.info = { ...d.info, installable: true }
@@ -183,6 +228,10 @@ export class ClaudeAdapter implements EngineAdapter {
       else if (r) this.catalogCache = { at: Date.now(), value: r.catalog }
     }
     return d
+  }
+
+  private detectWith(env: NodeJS.ProcessEnv): Promise<ClaudeDiscovery> {
+    return this.holding(env, () => discoverClaude(this.opts.overridePath?.() ?? null, env))
   }
 
   /** 用户追加的启动参数 */
@@ -203,8 +252,14 @@ export class ClaudeAdapter implements EngineAdapter {
     if (reserved) throw codedError('launch.reserved', { arg: reserved })
   }
 
+  /**
+   * 对话记录目录：固定用原目录的（docs/ui/engine-accounts-claude.md §2.5）。账号目录里的 projects 是联接回来的，
+   * 内容一样，但路径换了会让缓存、「同一个会话」的判断对不上
+   */
   private projectsDir(): string {
-    return this.opts.projectsDir ?? this.cached?.projectsDir ?? defaultProjectsDir(this.env())
+    if (this.opts.projectsDir) return this.opts.projectsDir
+    if (this.opts.account?.()) return defaultProjectsDir(this.baseEnv())
+    return this.cached?.projectsDir ?? defaultProjectsDir(this.baseEnv())
   }
 
   private sessionDir(record: SessionRecord): string | null {
@@ -264,7 +319,8 @@ export class ClaudeAdapter implements EngineAdapter {
     maxRetries: number | null,
     pathDirs: readonly string[] = [],
   ): NodeJS.ProcessEnv {
-    const env = this.env()
+    // 走网关的会话（像素星空平台、自定义接口）不用订阅账号，配置目录是原来的
+    const env = viaGateway(record) ? this.baseEnv() : this.env()
     const platformEnv = this.opts.sessionEnv?.(record)
     if (viaGateway(record)) {
       if (!platformEnv?.PIXELSKY_GATEWAY_SETTINGS) throw new Error('本机网关不可用，请重启应用')
@@ -332,7 +388,12 @@ export class ClaudeAdapter implements EngineAdapter {
     const maxRetries = ctx.maxRetries ?? (ctx.record().platform ? PLATFORM_MAX_RETRIES : null)
     const env = this.launchEnv(ctx.record(), maxRetries, ctx.extensions?.pathDirs)
     const launch = this.opts.launchOptions?.()
+    // 添加的订阅账号（走网关的会话不用账号目录）：原文件里的 MCP 服务器每次启动现读，「所有项目」的规则像素星空自己记
+    const accountDir = viaGateway(ctx.record()) ? null : (this.opts.account?.() ?? null)
+    const base = this.baseEnv()
     return new ClaudeSession(ctx, {
+      account: accountDir ? { dir: accountDir, mcpServers: cwd => nativeMcpServers(base, cwd) } : undefined,
+      userRules: this.userRules ?? undefined,
       maxRetries,
       launch: launch
         ? {
@@ -344,7 +405,8 @@ export class ClaudeAdapter implements EngineAdapter {
         : undefined,
       launcher,
       env,
-      projectsDir: this.opts.projectsDir ?? d.projectsDir ?? defaultProjectsDir(env),
+      projectsDir:
+        this.opts.projectsDir ?? (accountDir ? defaultProjectsDir(base) : (d.projectsDir ?? defaultProjectsDir(env))),
       steeringValidated: this.opts.steeringValidated,
       extensions: ctx.extensions,
       // 本机账号的会话自己的 initialize 回包里有模型列表，顺手更新缓存，省得过期后再起进程握手；
@@ -442,54 +504,58 @@ export class ClaudeAdapter implements EngineAdapter {
       await running.promise.catch(() => undefined)
     }
     if (this.closedForQuota) throw new Error('Claude Code unavailable: 应用正在退出')
-    const promise = this.probeQuota(d.launcher).finally(() => {
+    const promise = this.probeQuota(d.launcher, this.env(), true).finally(() => {
       if (this.quotaProbe?.promise === promise) this.quotaProbe = null
     })
     this.quotaProbe = { account, promise }
     return promise
   }
 
-  /** 和握手一样在主目录、用自己的账号环境（不带网关变量）；initialize 30 秒、get_usage 20 秒；无论成败都杀掉进程 */
-  private async probeQuota(launcher: Launcher): Promise<QuotaReading> {
+  /**
+   * 和握手一样在主目录、用自己的账号环境（不带网关变量）；initialize 30 秒、get_usage 20 秒；无论成败都杀掉进程。
+   * current 为假是读别的订阅账号（账号表）：模型列表和「认不认识 get_usage」不记进缓存
+   */
+  private async probeQuota(launcher: Launcher, env: NodeJS.ProcessEnv, current: boolean): Promise<QuotaReading> {
+    if (this.closedForQuota) throw new Error('Claude Code unavailable: 应用正在退出')
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
-    const proc = new ClaudeProcess(launcher, [...args, ...this.launchArgs()], homedir(), this.env(), {
+    const proc = new ClaudeProcess(launcher, [...args, ...this.launchArgs()], homedir(), env, {
       onMessage: () => undefined,
       onControlRequest: () => undefined,
       onControlCancel: () => undefined,
       onExit: () => undefined,
     })
-    this.quotaProc = proc
+    this.quotaProcs.add(proc)
     try {
       const init = await proc.request('initialize', {}, 30_000)
-      this.refreshModels(init.models)
+      if (current) this.refreshModels(init.models)
       const email = str(obj(init.account).email) || null
       let raw: Record<string, unknown>
       try {
         raw = await proc.request('get_usage', { skip_behaviors: true }, 20_000)
       } catch (err) {
         if (!unknownControl(err)) throw err
-        this.usageRequest = false
+        if (current) this.usageRequest = false
         return { kind: 'no-request' }
       }
       const reading = parseClaudeUsage(raw, Date.now())
-      this.usageRequest = reading.kind !== 'no-request'
+      if (current) this.usageRequest = reading.kind !== 'no-request'
       return reading.kind === 'ok' ? { ...reading, account: email } : reading
     } finally {
       proc.kill()
-      if (this.quotaProc === proc) this.quotaProc = null
+      this.quotaProcs.delete(proc)
     }
   }
 
   /** 应用退出：杀掉还在问额度的临时进程 */
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closedForQuota = true
-    const proc = this.quotaProc
-    this.quotaProc = null
-    if (!proc) return
-    proc.kill()
+    const procs = [...this.quotaProcs]
+    this.quotaProcs.clear()
+    if (!procs.length) return
+    for (const proc of procs) proc.kill()
     let timer: NodeJS.Timeout | undefined
     await Promise.race([
-      proc.exitPromise,
+      Promise.all(procs.map(p => p.exitPromise)),
       new Promise<void>(resolve => {
         timer = setTimeout(resolve, opts.quick ? QUICK_CLOSE_MS : 5_000)
       }),
@@ -574,7 +640,8 @@ export class ClaudeAdapter implements EngineAdapter {
   async update(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
     const d = await this.discover(false)
     if (!d.launcher) throw new Error(d.info.message ?? '没找到 Claude Code')
-    const r = await runStream(d.launcher, ['update'], this.env(), 5 * 60_000, onLine)
+    const env = this.env()
+    const r = await this.holding(env, () => runStream(d.launcher!, ['update'], env, 5 * 60_000, onLine))
     this.dropCatalog()
     // 版本由宿主重新检测后填上（重新检测会广播给界面）
     return { ok: r.ok, output: outputTail(r), version: null }
@@ -582,18 +649,67 @@ export class ClaudeAdapter implements EngineAdapter {
 
   /** 授权登录：claude auth login（浏览器登录；命令自己会打开浏览器，粘贴授权码从 stdin 写入） */
   async login(method: 'browser' | 'device', onLine: (line: string) => void): Promise<LoginProcess> {
-    if (method !== 'browser') throw new Error('Claude Code 不支持设备码登录')
-    const d = await this.discover(false)
-    if (!d.launcher) throw new Error(d.info.message ?? '没找到 Claude Code')
-    return runInteractive(d.launcher, ['auth', 'login'], this.env(), onLine)
+    return this.accountLogin(undefined, method, onLine)
   }
 
   /** 取消授权：claude auth logout */
   async logout(): Promise<EngineUpdateResult> {
+    return this.accountLogout(undefined)
+  }
+
+  /** 登录到某个订阅账号的目录（添加账号、重新登录）；dir 为 null 是原来的目录，不传是当前账号 */
+  async accountLogin(
+    dir: string | null | undefined,
+    method: 'browser' | 'device',
+    onLine: (line: string) => void,
+  ): Promise<LoginProcess> {
+    if (method !== 'browser') throw new Error('Claude Code 不支持设备码登录')
+    const launcher = await this.loginLauncher()
+    const env = this.env(dir)
+    const release = holdConfigDir(env.CLAUDE_CONFIG_DIR)
+    const proc = runInteractive(launcher, ['auth', 'login'], env, onLine)
+    void proc.done.finally(release).catch(() => undefined)
+    return proc
+  }
+
+  /** 退出某个订阅账号（移除账号）；dir 为 null 是原来的目录，不传是当前账号 */
+  async accountLogout(dir: string | null | undefined): Promise<EngineUpdateResult> {
+    const launcher = await this.loginLauncher()
+    const env = this.env(dir)
+    const r = await this.holding(env, () => run(launcher, ['auth', 'logout'], env))
+    return { ok: r.ok, output: outputTail(r), version: null }
+  }
+
+  /**
+   * 临时读一个账号（docs/ui/engine-accounts-claude.md §2.4）：claude auth status 拿登录状态、邮箱、套餐（不调用模型）；
+   * 是订阅登录时再起额度临时进程问 get_usage（不发消息，问完就关）
+   */
+  async accountProbe(dir: string | null): Promise<AccountProbe> {
+    const launcher = await this.loginLauncher()
+    const env = this.env(dir)
+    const r = await this.holding(env, () => run(launcher, ['auth', 'status', '--json'], env))
+    const status = parseAuthStatus(r.stdout)
+    if (!status) throw new Error(outputTail(r) || '读不到 Claude Code 的登录状态')
+    const email = status.account?.email ?? null
+    const plan = status.account?.plan ?? null
+    if (!status.loggedIn) return { signedIn: false, email, plan, quota: null }
+    if (status.method !== 'claude.ai') return { signedIn: true, email, plan, quota: null }
+    let quota: QuotaReading | null = null
+    try {
+      quota = await this.probeQuota(launcher, env, false)
+    } catch (error) {
+      // 登录失效：读额度时才发现
+      if (/401|unauthori[sz]ed|authentication|log ?in/i.test((error as Error).message))
+        return { signedIn: false, email, plan, quota: null }
+      throw error
+    }
+    return { signedIn: true, email, plan, quota }
+  }
+
+  private async loginLauncher(): Promise<Launcher> {
     const d = await this.discover(false)
     if (!d.launcher) throw new Error(d.info.message ?? '没找到 Claude Code')
-    const r = await run(d.launcher, ['auth', 'logout'], this.env())
-    return { ok: r.ok, output: outputTail(r), version: null }
+    return d.launcher
   }
 
   /**
@@ -608,7 +724,7 @@ export class ClaudeAdapter implements EngineAdapter {
     if (!installer && !canNpm) throw new Error('没找到 PowerShell / curl，请按提示在终端安装 Claude Code')
     let official: EngineUpdateResult | null = null
     if (installer) {
-      const r = await runStream(installer, [], env, 10 * 60_000, onLine)
+      const r = await this.holding(env, () => runStream(installer, [], env, 10 * 60_000, onLine))
       official = { ok: r.ok, output: outputTail(r), version: null }
     }
     if (!official?.ok && canNpm) {

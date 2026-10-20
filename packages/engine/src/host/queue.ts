@@ -257,9 +257,10 @@ export class HostQueue {
   reconnectPlan(id: string, item: QueuedMessage): ReconnectPlan {
     if (!item.reconnect) return { kind: 'normal' }
     const max = reconnectLimit(this.ctx.m.settings.file.maxRetries)
+    // 换了订阅账号再发的不是连接问题，不受重连次数（包括设成 0 关闭）的限制
     if (
-      (!item.reconnect.account && item.reconnect.attempt > max) ||
-      reconnectTotal(item.reconnect) > max * RECONNECT_TOTAL_FACTOR
+      !item.reconnect.account &&
+      (item.reconnect.attempt > max || reconnectTotal(item.reconnect) > max * RECONNECT_TOTAL_FACTOR)
     )
       return { kind: 'fail', error: item.reconnect.reason || '连接中断' }
     const original = item.messageUuid

@@ -45,6 +45,8 @@ export const demoEngineStatus: EngineLite[] = [
     latestVersion: '2.1.300',
     message: null,
     account: { email: 'linxia@example.com', plan: 'max' },
+    // 订阅登录（claude.ai）：授权卡显示多账号（docs/ui/engine-accounts-claude.md）
+    auth: { kind: 'login' },
     path: 'C:\\Users\\linxia\\.local\\bin\\claude.exe',
     caps: {
       permissionModes: ['ask', 'edits', 'plan', 'full'],

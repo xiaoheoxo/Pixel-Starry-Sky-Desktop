@@ -51,6 +51,25 @@ export interface NoticeTask {
   summary?: string
 }
 
+/**
+ * 额度用完自动换了账号（docs/ui/engine-accounts-claude.md §3）：界面按它拼文字、给「换回去」「关闭自动切换」按钮；
+ * text 里仍有一句完整的中文，给旧版本、手机端、搜索和引擎接力用
+ */
+export interface NoticeAccountSwitch {
+  engine: 'codex' | 'claude'
+  /** 原账号 id */
+  from: string
+  /** 换到的账号 id */
+  to: string
+  /** 邮箱或备注；账号被移除后也能显示 */
+  fromName: string
+  toName: string
+  /** 用完的是哪个窗口；不知道为 null */
+  window: 'five_hour' | 'seven_day' | null
+  /** 原账号恢复时间（毫秒）；不知道为 null */
+  resetsAt: number | null
+}
+
 export type Item =
   | {
       kind: 'user'
@@ -135,6 +154,8 @@ export type Item =
       error?: NoticeError
       /** 提示右边的按钮（接着引擎自己的会话：加载更早的 / 补上终端里新聊的 N 轮）；count 是轮数 */
       action?: { kind: 'native-earlier' | 'native-sync'; count: number }
+      /** 额度用完自动换了账号 */
+      account?: NoticeAccountSwitch
     }
   /**
    * 压缩上下文（docs/ui/compaction.md）：进行中显示动画和计时，结束后显示「压缩前 → 压缩后」和用时。

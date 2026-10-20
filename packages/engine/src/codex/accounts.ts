@@ -1,22 +1,9 @@
 // Codex 多账号的目录（docs/ui/engine-accounts.md §2）：每个添加的账号一个 CODEX_HOME，只有登录凭据是它自己的；
 // 对话记录、插件、技能、MCP 设置等接回原来的目录（文件夹用目录联接 / 符号链接，文件用硬链接），
 // sqlite 用 CODEX_SQLITE_HOME 指回原目录。凭据由 codex login 自己写进去，这里不读不碰。
-import {
-  copyFileSync,
-  cpSync,
-  existsSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readlinkSync,
-  renameSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-  type BigIntStats,
-} from 'node:fs'
-import { join, resolve } from 'node:path'
+import { copyFileSync, existsSync, linkSync, mkdirSync, rmSync, statSync, symlinkSync, type BigIntStats } from 'node:fs'
+import { join } from 'node:path'
+import { linkDir, linkedTo, lstat } from '../accounts-home'
 import { logger } from '../log'
 
 const log = logger('engine.codex.accounts')
@@ -44,13 +31,6 @@ export function accountEnv(realHome: string, dir: string, env: NodeJS.ProcessEnv
   return { CODEX_HOME: dir, CODEX_SQLITE_HOME: env.CODEX_SQLITE_HOME || realHome }
 }
 
-const lstat = (p: string): BigIntStats | null => {
-  try {
-    return lstatSync(p, { bigint: true })
-  } catch {
-    return null
-  }
-}
 const stat = (p: string): BigIntStats | null => {
   try {
     return statSync(p, { bigint: true })
@@ -59,45 +39,6 @@ const stat = (p: string): BigIntStats | null => {
   }
 }
 const sameFile = (a: BigIntStats, b: BigIntStats): boolean => a.ino === b.ino && a.dev === b.dev && a.ino !== 0n
-
-/** 文件夹已经链到 target 了没有 */
-function linkedTo(path: string, target: string): boolean {
-  try {
-    return resolve(readlinkSync(path)).toLowerCase() === resolve(target).toLowerCase()
-  } catch {
-    return false
-  }
-}
-
-/** 把 from 里的内容并进 to（to 里已有的同名项保留原目录的），然后删掉 from */
-function mergeInto(from: string, to: string): void {
-  for (const name of readdirSync(from)) {
-    const src = join(from, name),
-      dst = join(to, name)
-    if (existsSync(dst)) continue
-    try {
-      renameSync(src, dst)
-    } catch {
-      cpSync(src, dst, { recursive: true })
-    }
-  }
-  rmSync(from, { recursive: true, force: true })
-}
-
-function linkDir(real: string, dir: string, name: string): void {
-  const target = join(real, name),
-    path = join(dir, name)
-  mkdirSync(target, { recursive: true })
-  const st = lstat(path)
-  if (st?.isSymbolicLink()) {
-    if (linkedTo(path, target)) return
-    rmSync(path, { force: true })
-  } else if (st?.isDirectory()) {
-    // Codex 在链上之前自己建了这个文件夹（或者上次链失败了）：里面的东西挪回原目录
-    mergeInto(path, target)
-  } else if (st) rmSync(path, { force: true })
-  symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir')
-}
 
 /** 硬链接 → 符号链接 → 复制（跨盘时）；复制的按修改时间双向同步 */
 function linkFile(real: string, dir: string, name: string): void {

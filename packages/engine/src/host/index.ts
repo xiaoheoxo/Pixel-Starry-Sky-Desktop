@@ -115,6 +115,9 @@ export class EngineHost {
         nodeRuntime: opts.nodeRuntime,
         launchOptions: () => settings.launchOptions('claude'),
         sessionEnv: opts.sessionEnv,
+        // 当前订阅账号的目录（docs/ui/engine-accounts-claude.md）；模块装好之前（构造时不会启动进程）用原来的
+        account: () => ctx.m?.accounts.currentDir('claude') ?? null,
+        dataDir: opts.dataDir,
       }),
       codex: new CodexAdapter({
         overridePath: () => settings.file.paths.codex ?? null,

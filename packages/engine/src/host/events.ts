@@ -231,18 +231,18 @@ export class HostEvents {
           if (item && event.outcome === 'failed') {
             // 额度用完、开了自动换账号：换到下一个账号，这条马上重新派发（下一条消息前按新账号换进程）
             const switched = rt.turn?.usageLimited ? m.accounts.autoSwitch(id, item.id) : null
-            if (switched && m.accounts.noticeOn('codex')) {
-              const name = switched.label || switched.email || switched.id
+            // 提示条：界面按 account 字段拼文字、给「换回去」「关闭自动切换」（docs/ui/engine-accounts-claude.md §3）
+            if (switched && m.accounts.noticeOn(switched.engine))
               this.apply(id, {
                 type: 'item_completed',
                 item: {
                   kind: 'notice',
                   id: `account-switch-${randomUUID()}`,
                   level: 'info',
-                  text: `额度用完了，已自动换到 ${name} 并重新发送`,
+                  text: `${switched.fromName} 的额度用完了，已自动换到 ${switched.toName} 并重新发送这条消息`,
+                  account: switched,
                 },
               })
-            }
             reconnecting = switched
               ? m.queue.reconnect(id, item.id, event.error ?? null, undefined, { account: true })
               : m.queue.reconnect(id, item.id, event.error ?? null)
@@ -257,6 +257,7 @@ export class HostEvents {
           rt.activeId = null
         }
         rt.turn = undefined
+        const turnEngine = (rt.execution ?? rt.snapshot.record).engine
         const awaitingGuidance = rt.snapshot.queue.some(q => q.status === 'delivering')
         if (!awaitingGuidance) rt.execution = null
         if (event.outcome !== 'completed' && !reconnecting) rt.snapshot = { ...rt.snapshot, queuePaused: true }
@@ -269,6 +270,8 @@ export class HostEvents {
         if (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0) this.armIdle(id)
         // 账号额度：有人看过、超过 5 分钟没取，借这个会话还活着的进程补取一次（分模型 / 额外用量 / 点数）
         m.quota.afterTurn(id)
+        // 自动换过订阅账号：原账号恢复了就换回去（从下一条消息起）
+        m.accounts.afterTurn(turnEngine)
         break
       }
       case 'background':

@@ -65,6 +65,7 @@ export type {
   Item,
   ItemKind,
   ItemStatus,
+  NoticeAccountSwitch,
   NoticeError,
   NoticeErrorKind,
   NoticeTask,

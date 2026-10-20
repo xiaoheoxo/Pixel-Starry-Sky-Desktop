@@ -25,6 +25,7 @@ import { NO_REPLY, seedTurns, type ChatSeed } from '../chat-log'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { QuotaReading } from '../quota'
 import { claudeMcpServers, McpReporter } from '../mcp'
+import { allowRuleStrings, writeAccountMcpFile, type ClaudeUserRules } from './accounts'
 import { ClaudeProcess, ownClaudePids, type ControlRequestFromCli } from './process'
 import { parseClaudeRateLimitEvent, parseClaudeUsage, unknownControl } from './quota'
 import { liveClaudeSession } from './native'
@@ -157,6 +158,13 @@ export interface ClaudeSessionDeps {
   steeringValidated?: boolean
   /** initialize 回包到了（宿主拿去更新模型目录缓存） */
   onInitialize?: (init: Record<string, unknown>) => void
+  /**
+   * 用的是添加的订阅账号（docs/ui/engine-accounts-claude.md §2.3）：账号目录；原文件里这个目录能用的 MCP 服务器
+   * （账号的 .claude.json 里不放，每次启动现读，和扩展的合成一个 --mcp-config 文件放在账号目录里）
+   */
+  account?: { dir: string; mcpServers: (cwd: string) => Record<string, unknown> }
+  /** 「始终允许（所有项目）」在添加的账号下记在这里；所有会话启动时经 --settings 带上 */
+  userRules?: ClaudeUserRules
 }
 
 /** 进程在回应 initialize 之前就退出了 */
@@ -249,6 +257,8 @@ export class ClaudeSession implements EngineSession {
     timer: ReturnType<typeof setTimeout>
   } | null = null
   private retrySettingsFile: string | null = null
+  /** 添加的账号的会话：合并后的 MCP 配置文件（进程换掉或会话关闭时删掉） */
+  private accountMcpFile: string | null = null
   /** 控制请求 get_context_usage 能不能用；null 是还没试过（旧版 CLI 不认识它，退回 /context） */
   private usageRequest: boolean | null = null
   /** 仅显式引导进入 CLI 的队列；普通消息一直留在 EngineHost。 */
@@ -411,6 +421,35 @@ export class ClaudeSession implements EngineSession {
     if (this.procViaGateway) return
     const patch = parseClaudeRateLimitEvent(msg.rate_limit_info, Date.now())
     if (patch) this.ctx.reportQuota?.(patch)
+    // 订阅额度用完（status: rejected）：这一轮失败时报错带 usageLimitExceeded，宿主据此自动换账号（engine-accounts-claude.md §2.6）
+    const info = obj(msg.rate_limit_info)
+    if (str(info.status) === 'rejected') this.translator.markUsageLimit()
+  }
+
+  /** --mcp-config：添加的账号把原文件里的 MCP 服务器和扩展的合成一份；原来的账号直接用扩展的 */
+  private mcpConfigFile(cwd: string): string | null {
+    const account = this.deps.account
+    if (!account) return this.deps.extensions?.mcpFile ?? null
+    try {
+      this.accountMcpFile = writeAccountMcpFile(account.dir, account.mcpServers(cwd), this.deps.extensions?.mcpFile)
+    } catch {
+      // 写不了就只带扩展的：原文件里的 MCP 这次没有，比起不来好
+      this.accountMcpFile = null
+      return this.deps.extensions?.mcpFile ?? null
+    }
+    return this.accountMcpFile
+  }
+
+  /** 上一个进程的临时文件（网关合并的设置、账号合并的 MCP 配置） */
+  private dropTempFiles(): void {
+    if (this.retrySettingsFile) {
+      rmSync(this.retrySettingsFile, { force: true })
+      this.retrySettingsFile = null
+    }
+    if (this.accountMcpFile) {
+      rmSync(this.accountMcpFile, { force: true })
+      this.accountMcpFile = null
+    }
   }
 
   private markUsage(ok: boolean): void {
@@ -569,18 +608,18 @@ export class ClaudeSession implements EngineSession {
     // 项目的附加文件夹（docs/ui/multi-root-projects.md §3.3）：Claude Code 能读写，也会告诉模型
     for (const dir of rec.extraDirs ?? []) args.push('--add-dir', dir)
     for (const path of this.deps.extensions?.pluginDirs ?? []) args.push('--plugin-dir', path)
-    if (this.deps.extensions?.mcpFile) args.push('--mcp-config', this.deps.extensions.mcpFile)
-    if (this.retrySettingsFile) {
-      rmSync(this.retrySettingsFile, { force: true })
-      this.retrySettingsFile = null
-    }
+    this.dropTempFiles()
+    const mcpFile = this.mcpConfigFile(rec.cwd)
+    if (mcpFile) args.push('--mcp-config', mcpFile)
     const gateway = viaGateway(rec) ? this.deps.env.PIXELSKY_GATEWAY_SETTINGS : undefined
     // 网关模式下凭证只在网关里：没有网关设置文件就不能启动，否则会落到引擎自己的登录上
     if (viaGateway(rec) && !gateway) throw new Error('本机网关不可用，请重启应用')
+    // 允许规则：扩展的 + 在添加的账号下点的「始终允许（所有项目）」（所有账号都算）
+    const allow = [...new Set([...(this.deps.extensions?.allowTools ?? []), ...(this.deps.userRules?.list() ?? [])])]
     const extra = {
       ...(this.deps.launch?.outputStyle ? { outputStyle: this.deps.launch.outputStyle } : {}),
       ...(this.deps.launch?.modelSettings ? { modelSettings: this.deps.launch.modelSettings } : {}),
-      ...(this.deps.extensions?.allowTools?.length ? { permissions: { allow: this.deps.extensions.allowTools } } : {}),
+      ...(allow.length ? { permissions: { allow } } : {}),
     }
     const settingsArg = claudeSettingsArgument(gateway, this.deps.maxRetries ?? null, extra)
     // 合并网关配置时写了临时文件，进程换掉或退出时删掉
@@ -765,15 +804,16 @@ export class ClaudeSession implements EngineSession {
       case 'allow':
         response = { behavior: 'allow', updatedInput: a.input, toolUseID }
         break
-      case 'allow_always':
-        // 「始终允许」：本会话 / 本项目（.claude/settings.local.json）/ 所有项目（~/.claude/settings.json）
-        response = {
-          behavior: 'allow',
-          updatedInput: a.input,
-          updatedPermissions: alwaysPermissions(a.toolName, a.suggestions, decision.scope),
-          toolUseID,
-        }
+      case 'allow_always': {
+        // 「始终允许」：本会话 / 本项目（.claude/settings.local.json）/ 所有项目（~/.claude/settings.json）。
+        // 添加的订阅账号下「所有项目」不写账号目录里的设置（不同步回原目录）：本会话先放行，规则像素星空自己记，
+        // 之后所有账号的会话启动时带上（engine-accounts-claude.md §2.3）
+        const redirect = decision.scope === 'user' && !!this.deps.account && !!this.deps.userRules
+        const updatedPermissions = alwaysPermissions(a.toolName, a.suggestions, redirect ? 'session' : decision.scope)
+        if (redirect) this.deps.userRules!.add(allowRuleStrings(updatedPermissions))
+        response = { behavior: 'allow', updatedInput: a.input, updatedPermissions, toolUseID }
         break
+      }
       case 'answer':
         response = { behavior: 'allow', updatedInput: { ...a.input, answers: decision.answers }, toolUseID }
         break
@@ -982,10 +1022,7 @@ export class ClaudeSession implements EngineSession {
     try {
       await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
     } finally {
-      if (this.retrySettingsFile) {
-        rmSync(this.retrySettingsFile, { force: true })
-        this.retrySettingsFile = null
-      }
+      this.dropTempFiles()
       this.deps.extensions?.dispose?.()
     }
   }

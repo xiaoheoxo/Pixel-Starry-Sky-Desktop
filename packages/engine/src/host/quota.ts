@@ -85,6 +85,8 @@ export class HostQuota {
   private readonly alias = new Map<string, string>()
   /** 为哪个对不上的组合重新检测过（EngineInfo 的键 → 回包账号）：同一组合只检测一次，免得每次刷新都起检测进程 */
   private readonly redetected = new Map<string, string>()
+  /** 各会话最近一次额度事件（自动换账号时取用完的窗口和恢复时间） */
+  private readonly lastEvents = new Map<string, AccountQuotaPatch>()
 
   constructor(private readonly ctx: HostContext) {}
 
@@ -98,6 +100,23 @@ export class HostQuota {
     }
   }
 
+  /** 这个会话最近一次额度事件；没有为 null */
+  lastEvent(sessionId: string): AccountQuotaPatch | null {
+    return this.lastEvents.get(sessionId) ?? null
+  }
+
+  /** 按邮箱同步取某个账号的快照（自动换账号前取原账号用完的窗口，docs/ui/engine-accounts-claude.md §3.2）；没有为 null */
+  peek(provider: EngineQuotaProvider, email: string | null): AccountQuota | null {
+    if (!email) return null
+    const infoKey = `${provider}:${email}`
+    const direct = this.entries.get(this.alias.get(infoKey) ?? infoKey)
+    if (direct) return direct.quota
+    // 邮箱大小写不一样
+    const lower = infoKey.toLowerCase()
+    for (const [key, entry] of this.entries) if (key.toLowerCase() === lower) return entry.quota
+    return null
+  }
+
   /** 按需读取（见 §4.2）；不抛错：失败时返回 status 'error' 的快照 */
   async refresh(provider: EngineQuotaProvider, opts: QuotaRefreshOptions = {}): Promise<AccountQuota> {
     this.watched.add(provider)
@@ -108,6 +127,10 @@ export class HostQuota {
   observe(sessionId: string, patch: AccountQuotaPatch): void {
     const provider = this.processProvider(sessionId)
     if (!provider) return
+    // 同步记一份：额度用完的事件和这一轮的失败常在同一块输出里，自动换账号时合并可能还没做完
+    this.lastEvents.delete(sessionId)
+    this.lastEvents.set(sessionId, patch)
+    if (this.lastEvents.size > 200) this.lastEvents.delete(this.lastEvents.keys().next().value!)
     void this.merge(provider, patch).catch(error =>
       log.warn('合并额度事件失败', { provider, error: describeError(error) }),
     )

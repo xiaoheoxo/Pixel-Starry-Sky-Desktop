@@ -58,6 +58,7 @@ import { STEP_CLOCK_MS, baseName, clockText } from './currentStep'
 import { useSince } from './stepClock'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { NativeNoticeAction } from '@/features/resume/NativeNoticeAction'
+import { AccountNoticeActions, accountNoticeText } from '@/features/model-channels/AccountNoticeActions'
 import { clipOutput, OUTPUT_ALL_MAX } from './outputClip'
 
 type ItemOf<K extends Item['kind']> = Extract<Item, { kind: K }>
@@ -914,8 +915,12 @@ export function NoticeRow({ item, sessionId }: { item: ItemOf<'notice'>; session
   // 接着终端里的会话时提示右边的按钮：加载更早的 / 补上终端里新聊的 N 轮（docs/ui/claude-resume.md §4.8）
   const [actionError, setActionError] = useState<string | null>(null)
   const Icon = item.level === 'error' ? CircleAlert : item.level === 'warn' ? TriangleAlert : Info
-  // 后台任务结束的提示带结构化信息时按界面语言重新拼（引擎的 text 是中文）
-  const text = item.task ? taskNoticeText(item.task) : translateMessage(item.text)
+  // 后台任务结束、自动换了账号的提示带结构化信息时按界面语言重新拼（引擎的 text 是中文）
+  const text = item.task
+    ? taskNoticeText(item.task)
+    : item.account
+      ? accountNoticeText(item.account, Date.now())
+      : translateMessage(item.text)
   // 引擎给了原始报错详情（附加说明、错误类型、HTTP 状态码）时可展开查看和复制
   const detail = item.detail?.trim() || null
   // 很长的提示（子智能体带回的整份报告）只显示前几行，展开后按 Markdown 显示（docs/ui/minimal-mode.md §7）
@@ -963,6 +968,12 @@ export function NoticeRow({ item, sessionId }: { item: ItemOf<'notice'>; session
           </button>
         )}
       </div>
+      {/* 自动换了账号：换回去 / 关闭自动切换放在文字下面一行（文字长，放右边会把它挤成一窄条） */}
+      {item.account && (
+        <div className="mt-1 ml-[23px]">
+          <AccountNoticeActions account={item.account} onError={setActionError} />
+        </div>
+      )}
       {actionError && (
         <p role="alert" className="mt-1 ml-[23px] text-meta text-danger">
           {translateMessage(actionError)}

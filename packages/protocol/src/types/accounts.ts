@@ -1,10 +1,10 @@
-// 订阅账号多开（docs/ui/engine-accounts.md）：同一个引擎登录多个账号，点一下切换。先做 Codex
+// 订阅账号多开（docs/ui/engine-accounts.md、engine-accounts-claude.md）：同一个引擎登录多个账号，点一下切换
 import type { QuotaWindow } from '../quota'
 
 /** 支持多账号的引擎 */
-export type AccountEngine = 'codex'
+export type AccountEngine = 'codex' | 'claude'
 
-/** 原来的账号（用户本来的 CODEX_HOME）的 id */
+/** 原来的账号（用户本来的 CODEX_HOME / Claude Code 配置目录）的 id */
 export const DEFAULT_ACCOUNT = 'default'
 
 export interface EngineAccount {

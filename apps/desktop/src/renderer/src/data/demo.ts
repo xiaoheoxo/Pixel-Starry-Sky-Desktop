@@ -99,11 +99,14 @@ export interface DemoConnectors {
   calls: Record<string, Record<string, number>>
 }
 
-/** 订阅账号多开的演示数据（docs/ui/engine-accounts.md）：ChatGPT 授权下的几个账号和各自额度 */
-export interface DemoAccounts {
-  list: import('@pixelsky/protocol').EngineAccounts
-  quota: import('@pixelsky/protocol').EngineAccountQuota[]
-}
+/** 订阅账号多开的演示数据（docs/ui/engine-accounts.md、engine-accounts-claude.md）：各引擎授权下的几个账号和各自额度 */
+export type DemoAccounts = Record<
+  import('@pixelsky/protocol').AccountEngine,
+  {
+    list: import('@pixelsky/protocol').EngineAccounts
+    quota: import('@pixelsky/protocol').EngineAccountQuota[]
+  }
+>
 
 export interface DemoSource {
   connectors: DemoConnectors

@@ -6,6 +6,7 @@ import type { Launcher, RewindFilesReply } from '../adapter'
 export type { RewindFilesReply }
 import { IS_WINDOWS, killTree } from '../exec'
 import { logger } from '../log'
+import { holdConfigDir } from './accounts'
 import { ClaudeProcess, ownClaudePids } from './process'
 
 const log = logger('engine.claude')
@@ -142,6 +143,7 @@ export function sideQuestionOnce(
     }
     const pid = child.pid
     if (pid !== undefined) ownClaudePids.add(pid)
+    const release = holdConfigDir(target.env.CLAUDE_CONFIG_DIR)
     signal.addEventListener('abort', onAbort, { once: true })
     const timer = setTimeout(() => {
       kill()
@@ -154,12 +156,14 @@ export function sideQuestionOnce(
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
       if (pid !== undefined) ownClaudePids.delete(pid)
+      release()
       reject(e)
     })
     child.on('close', () => {
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
       if (pid !== undefined) ownClaudePids.delete(pid)
+      release()
       if (signal.aborted) return
       try {
         resolve(parseSideAnswer(out))
