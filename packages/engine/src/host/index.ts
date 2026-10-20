@@ -107,6 +107,7 @@ export class EngineHost {
         overridePath: () => settings.file.paths.claude ?? null,
         extraEnv: () => settings.file.env.claude ?? {},
         systemProxy: () => opts.systemProxy?.('claude') ?? null,
+        nodeRuntime: opts.nodeRuntime,
         launchOptions: () => settings.launchOptions('claude'),
         sessionEnv: opts.sessionEnv,
       }),
@@ -114,6 +115,7 @@ export class EngineHost {
         overridePath: () => settings.file.paths.codex ?? null,
         extraEnv: () => settings.file.env.codex ?? {},
         systemProxy: () => opts.systemProxy?.('codex') ?? null,
+        nodeRuntime: opts.nodeRuntime,
         sessionEnv: opts.sessionEnv,
         launchOptions: () => {
           const o = settings.launchOptions('codex')

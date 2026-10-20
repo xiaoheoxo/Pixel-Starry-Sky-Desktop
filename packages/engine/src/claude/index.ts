@@ -19,6 +19,7 @@ import { QUICK_CLOSE_MS } from '../adapter'
 import type { CloseOptions, EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
 import type { QuotaReading } from '../quota'
 import { engineEnv, systemProxyEnv } from '../env'
+import { globalNpm, npmForInstall, npmInstallGlobal, withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, runStream, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { claudeInstaller, customClaude, discoverClaude, type ClaudeDiscovery } from './discover'
@@ -63,6 +64,8 @@ export interface ClaudeAdapterOptions {
   systemProxy?: () => string | null
   /** 设置 › 本机引擎里的引擎级选项（输出风格、允许提问、自动压缩触发点、追加参数），每次启动进程时读 */
   launchOptions?: () => ClaudeLaunchOptions & { autoCompactPct: number | null; contextWindows?: ContextWindows }
+  /** 桌面端的私有 Node.js：官方安装器装不上时改用 npm，没装 Node.js 就先装它；补在 PATH 最后（docs/ui/engine-update.md §7） */
+  nodeRuntime?: NodeRuntime
   /** 测试用：直接指定要启动的程序，跳过查找和检测 */
   launcher?: Launcher
   /** 测试用：Claude 会话记录目录 */
@@ -135,7 +138,10 @@ export class ClaudeAdapter implements EngineAdapter {
     const base = engineEnv(this.opts.env ?? process.env)
     const extra = this.opts.extraEnv?.() ?? {}
     // 补的代理变量放最后：只在用户没设代理时才有，NO_PROXY 已经并进了用户原有的
-    return { ...base, ...extra, ...systemProxyEnv(base, extra, this.opts.systemProxy?.() ?? null) }
+    return withPath(
+      { ...base, ...extra, ...systemProxyEnv(base, extra, this.opts.systemProxy?.() ?? null) },
+      this.opts.nodeRuntime?.paths() ?? [],
+    )
   }
 
   private discover(force: boolean): Promise<ClaudeDiscovery> {
@@ -166,6 +172,9 @@ export class ClaudeAdapter implements EngineAdapter {
           projectsDir: this.opts.projectsDir ?? null,
         }
       : await discoverClaude(this.opts.overridePath?.() ?? null, this.env())
+    // 没有 PowerShell / curl 也能一键安装：改用 npm（没装 Node.js 时桌面端先装私有的）；用户替换了命令的不给装
+    if (d.info.status === 'missing' && d.info.launch === 'stock' && this.opts.nodeRuntime)
+      d.info = { ...d.info, installable: true }
     // 追加了参数：再握手一次。--version 不检查其它参数，写错的参数要以会话的方式启动才报（docs/ui/engine-launch.md §9.2）。
     // 失败只记原因、不标为不可用：这里在主目录启动，相对路径的参数在项目目录里可能是对的
     if (d.launcher && this.launchArgs().length && (d.info.status === 'ready' || d.info.status === 'unauthenticated')) {
@@ -587,12 +596,31 @@ export class ClaudeAdapter implements EngineAdapter {
     return { ok: r.ok, output: outputTail(r), version: null }
   }
 
-  /** 一键安装：跑官方安装器（最多 10 分钟），装到 ~/.local/bin，检测本来就会找那里 */
+  /**
+   * 一键安装：先跑官方安装器（最多 10 分钟），装到 ~/.local/bin，检测本来就会找那里；
+   * 没有安装器或没装成（常见是连不上 claude.ai）时改用 npm 装 @anthropic-ai/claude-code，
+   * 没装 Node.js 就用桌面端给的私有那份（docs/ui/engine-update.md §7）
+   */
   async install(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
-    const installer = claudeInstaller(this.env())
-    if (!installer) throw new Error('没找到 PowerShell / curl，请按提示在终端安装 Claude Code')
-    const r = await runStream(installer, [], this.env(), 10 * 60_000, onLine)
+    const env = this.env()
+    const installer = claudeInstaller(env)
+    const canNpm = !!this.opts.nodeRuntime || !!globalNpm(env)
+    if (!installer && !canNpm) throw new Error('没找到 PowerShell / curl，请按提示在终端安装 Claude Code')
+    let official: EngineUpdateResult | null = null
+    if (installer) {
+      const r = await runStream(installer, [], env, 10 * 60_000, onLine)
+      official = { ok: r.ok, output: outputTail(r), version: null }
+    }
+    if (!official?.ok && canNpm) {
+      if (official) onLine('官方安装器没装成，改用 npm 安装 Claude Code')
+      const npm = await npmForInstall(env, this.opts.nodeRuntime, onLine)
+      if (npm) {
+        const r = await npmInstallGlobal(npm, this.npmPackage, env, onLine, 10 * 60_000)
+        // 两种都没装成：把官方安装器的输出也带上，方便看是哪一步出的错
+        official = r.ok || !official ? r : { ...r, output: `${official.output}\n${r.output}`.trim() }
+      }
+    }
     this.dropCatalog()
-    return { ok: r.ok, output: outputTail(r), version: null }
+    return official!
   }
 }

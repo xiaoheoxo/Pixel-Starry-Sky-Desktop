@@ -31,10 +31,13 @@ import type { HostSessions } from './sessions'
 import type { HostSettings } from './settings'
 import type { HostTurn } from './turn'
 import type { HostUsage } from './usage'
+import type { NodeRuntime } from '../npm'
 
 export interface EngineHostOptions {
   /** 本机的系统代理（http://主机:端口）：补给引擎进程（env.ts systemProxyEnv）；远程机器上不传 */
   systemProxy?: (engine: EngineId) => string | null
+  /** 本机的私有 Node.js：没装 Node.js 时一键安装 Codex / Claude Code 先装它（npm.ts）；远程机器上不传 */
+  nodeRuntime?: NodeRuntime
   platformCharges?: (settlement: PlatformSettlement, signal: AbortSignal) => Promise<PlatformCharge[]>
   settlementDelays?: number[]
   /** 这个账号在这段时间的全部调用（旧记录按时间补录实扣用，docs/ui/usage.md §11.2）；账号已切换时抛错 */

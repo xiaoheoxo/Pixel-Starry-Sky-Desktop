@@ -481,6 +481,14 @@ export const systemMessages = {
     zh: '没找到 Claude Code。安装：在 PowerShell 运行 irm https://claude.ai/install.ps1 | iex',
     en: 'Claude Code not found. Install it in PowerShell: irm https://claude.ai/install.ps1 | iex',
   },
+  'system.nodeMissingForCodex': {
+    zh: '没找到 node / npm，请先安装 Node.js，再在终端运行 npm i -g @openai/codex@latest',
+    en: 'node / npm not found. Install Node.js first, then run npm i -g @openai/codex@latest in a terminal',
+  },
+  'system.codexNotFoundInstall': {
+    zh: '没找到 Codex。安装：在终端运行 npm i -g @openai/codex@latest（需要先装 Node.js），或在下面指定 Codex 的位置',
+    en: 'Codex not found. Install it in a terminal: npm i -g @openai/codex@latest (requires Node.js), or set its location below',
+  },
   'system.claudeCodeNotFound2': {
     zh: '没找到 Claude Code。安装：在终端运行 curl -fsSL https://claude.ai/install.sh | bash',
     en: 'Claude Code not found. Install it in a terminal: curl -fsSL https://claude.ai/install.sh | bash',

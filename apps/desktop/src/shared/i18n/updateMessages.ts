@@ -7,6 +7,14 @@ export const updateMessages = {
     zh: '点「安装」会运行官方安装方式，装好后自动检测，不用自己输命令。',
     en: 'Install runs the official installer and re-detects when it finishes — no commands needed.',
   },
+  'engineJob.installHintClaude': {
+    zh: '点「安装」会运行官方安装器；装不上时（比如连不上 claude.ai）改用 npm 安装，没有 Node.js 就先下载一份只给像素星空用的。装好后自动检测，不用自己输命令。',
+    en: 'Install runs the official installer. If that fails (for example, claude.ai is unreachable), it installs with npm instead, downloading a private Node.js for PixelSky if needed. Re-detects when done — no commands needed.',
+  },
+  'engineJob.installHintCodex': {
+    zh: '点「安装」会用 npm 安装；没有 Node.js 时先下载一份只给像素星空用的（不改系统设置），官方源慢或连不上时自动换国内镜像。装好后自动检测，不用自己输命令。',
+    en: 'Install uses npm. Without Node.js, it first downloads a private copy for PixelSky (system settings untouched), switching to a mirror if the official source is slow or unreachable. Re-detects when done — no commands needed.',
+  },
   'engineJob.copyCommand': { zh: '复制安装命令', en: 'Copy install command' },
   'engineJob.installing': { zh: '安装中', en: 'Installing' },
   'engineJob.updating': { zh: '更新中', en: 'Updating' },

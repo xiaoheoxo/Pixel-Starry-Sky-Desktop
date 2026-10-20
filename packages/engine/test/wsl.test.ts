@@ -140,7 +140,7 @@ describe('WSL 里的候选顺序', () => {
     const win = put('win', process.platform === 'win32' ? 'codex.exe' : 'codex')
     const r = await discoverCodex(null, pathOf('win'), { platform: 'linux', deps: allWin })
     expect(r.info.status).toBe('missing')
-    expect(r.info.message).toContain(` (只找到 Windows 程序：${win})`)
+    expect(r.info.message).toContain(`（只找到 Windows 程序：${win}）`)
     expect(codexVersionStatus(null).status).toBe('error')
   })
 })

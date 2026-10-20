@@ -419,7 +419,17 @@ function Header({
       {!ready && e.message && !(updating && action === 'install') && (
         <div className="selectable mt-3 rounded-lg border border-line px-3 py-2 text-meta">
           <InstallMessage message={translateMessage(e.message)} />
-          {installable && <p className="mt-1 text-fg-secondary">{tr('engineJob.installHint')}</p>}
+          {installable && (
+            <p className="mt-1 text-fg-secondary">
+              {tr(
+                e.id === 'claude'
+                  ? 'engineJob.installHintClaude'
+                  : e.id === 'codex'
+                    ? 'engineJob.installHintCodex'
+                    : 'engineJob.installHint',
+              )}
+            </p>
+          )}
         </div>
       )}
       {newer && !updating && !result && (

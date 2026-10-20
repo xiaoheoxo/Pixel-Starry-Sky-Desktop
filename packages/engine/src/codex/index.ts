@@ -22,6 +22,7 @@ import {
   viaGateway,
 } from '@pixelsky/protocol'
 import { engineEnv, systemProxyEnv } from '../env'
+import { withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { customCodex, discoverCodex, toolEnvironment } from './discover'
@@ -48,6 +49,8 @@ export interface CodexAdapterOptions {
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   launcher?: Launcher
   launchOptions?: () => CodexLaunchOptions
+  /** 桌面端的私有 Node.js：没装 Node.js 时一键安装先装它；它和装在里面的 Codex 补在 PATH 最后（docs/ui/engine-update.md §7） */
+  nodeRuntime?: NodeRuntime
 }
 export class CodexAdapter implements EngineAdapter {
   private cached: { info: EngineInfo; launcher: Launcher | null } | null = null
@@ -85,7 +88,10 @@ export class CodexAdapter implements EngineAdapter {
     const base = engineEnv(this.opts.env ?? process.env)
     const extra = this.opts.extraEnv?.() ?? {}
     // 补的代理变量放最后：只在用户没设代理时才有，NO_PROXY 已经并进了用户原有的
-    return { ...base, ...extra, ...systemProxyEnv(base, extra, this.opts.systemProxy?.() ?? null) }
+    return withPath(
+      { ...base, ...extra, ...systemProxyEnv(base, extra, this.opts.systemProxy?.() ?? null) },
+      this.opts.nodeRuntime?.paths() ?? [],
+    )
   }
   constructor(private readonly opts: CodexAdapterOptions = {}) {}
   checkLaunch(command: string | null, args: readonly string[]): void {
@@ -135,10 +141,10 @@ export class CodexAdapter implements EngineAdapter {
     if (!launcher) throw new Error(this.cached?.info.message ?? '没找到 Codex')
     return launcher
   }
-  /** 一键安装：npm install -g（找得到 npm 时 info.installable 才为真） */
+  /** 一键安装：npm install -g（找得到 npm、或桌面端能给私有 Node.js 时 info.installable 才为真） */
   async install(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
     await this.reader.close()
-    const result = await installCodexWithNpm(this.env(), onLine)
+    const result = await installCodexWithNpm(this.env(), onLine, this.opts.nodeRuntime)
     this.catalogCache = null
     return result
   }
@@ -165,6 +171,9 @@ export class CodexAdapter implements EngineAdapter {
           launcher: this.opts.launcher,
         }
       : await discoverCodex(this.opts.overridePath?.() ?? null, this.env())
+    // 没装 Node.js 也能一键安装：桌面端先装一份私有的（用户替换了命令的不给装）
+    if (result.info.status === 'missing' && result.info.launch === 'stock' && this.opts.nodeRuntime)
+      result.info = { ...result.info, installable: true }
     this.cached = result
     // Codex 换了位置（用户在设置里换了命令、重装）：读取进程还是旧程序，马上关掉，不占着旧的 codex.exe。
     // 参数、环境变量（CODEX_HOME）变了由读取进程自己在下次请求前核对、换进程（reader.ts readerLaunchKey）

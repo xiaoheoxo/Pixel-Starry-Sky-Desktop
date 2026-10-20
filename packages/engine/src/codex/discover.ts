@@ -4,7 +4,7 @@ import { dirname, join, delimiter } from 'node:path'
 import { codedError, type EngineInfo } from '@pixelsky/protocol'
 import type { Launcher } from '../adapter'
 import { isFile, resolveCommand, run, versionAtLeast } from '../exec'
-import { globalNpm } from './update'
+import { globalNpm } from '../npm'
 import { engineBase } from '../registry'
 import { keepInWsl, windowsOnlyNote, type WslOpts } from '../wsl'
 
@@ -120,7 +120,9 @@ export async function discoverCodex(
         version: null,
         path: null,
         installable: !override && globalNpm(env) !== null,
-        message: 'Codex executable not found. Install Codex CLI or choose its path.' + (note ? ` (${note})` : ''),
+        message:
+          '没找到 Codex。安装：在终端运行 npm i -g @openai/codex@latest（需要先装 Node.js），或在下面指定 Codex 的位置' +
+          (note ? `（${note}）` : ''),
       },
       launcher: null,
     }

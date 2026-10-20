@@ -7,7 +7,7 @@
 // 同时按原顺序带起依赖引擎的模块：平台额度、SSH 机器、扩展、终端、产物面板的本机操作。
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, dialog, session, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, net, session, type IpcMainInvokeEvent } from 'electron'
 import * as ipc from '../ipc/guard'
 import { nativeText, windowLocale } from '../app/ui-language'
 import { EngineHost } from '@pixelsky/engine'
@@ -50,6 +50,7 @@ import { npmLatest, scheduleEngineUpdateChecks } from './npm-latest'
 import { logHostEvent } from '../core/log/host-events'
 import { initProjectImport } from './project-import-ipc'
 import { SystemProxy } from './systemProxy'
+import { createNodeRuntime } from './node-runtime'
 import { initSessionStatus } from '../session-status'
 
 export async function initEngine(ctx: AppContext): Promise<void> {
@@ -101,6 +102,11 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   })
   const h = new EngineHost({
     systemProxy: engine => systemProxy.forEngine(engine),
+    // 没装 Node.js 时一键安装 Codex / Claude Code 先装一份私有的（docs/ui/engine-update.md §7）；net.fetch 走系统代理
+    nodeRuntime: createNodeRuntime({
+      root: join(app.getPath('userData'), 'runtime'),
+      fetch: (url, init) => net.fetch(url, init),
+    }),
     dataDir: join(app.getPath('userData'), 'engine'),
     pixelCli: bundledPixelCli(),
     // 有 SSH 机器时由它合并本机与远端的项目 / 会话再广播
