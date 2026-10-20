@@ -97,7 +97,15 @@ export function mcpChildEnv(): Record<string, string> {
 function statusBridge(pi: ExtensionAPI): void {
   let ui: ExtensionContext['ui'] | null = null
   let latest = '[]'
-  const push = (): void => ui?.setStatus(MCP_STATUS, latest)
+  // 会话被替换 / 重新加载后旧的 ctx 失效，setStatus 会抛 "extension ctx is stale"：吞掉，新会话的扩展自己会上报
+  const setStatus = (target: ExtensionContext['ui'] | null, key: string, text: string): void => {
+    try {
+      target?.setStatus(key, text)
+    } catch {
+      /* 旧会话已结束 */
+    }
+  }
+  const push = (): void => setStatus(ui, MCP_STATUS, latest)
   pi.events.on('pixelsky:mcp-status', data => {
     latest = JSON.stringify(Array.isArray(data) ? data : [])
     push()
@@ -131,7 +139,8 @@ function statusBridge(pi: ExtensionAPI): void {
           setTimeout(() => resolve({}), OP_TIMEOUT_MS).unref?.(),
         ),
       ])
-      ctx.ui.setStatus(
+      setStatus(
+        ctx.ui,
         MCP_RESULT_STATUS,
         JSON.stringify({ op, name: name ?? '', req, error: failure ?? '', ...(url ? { url } : {}) }),
       )

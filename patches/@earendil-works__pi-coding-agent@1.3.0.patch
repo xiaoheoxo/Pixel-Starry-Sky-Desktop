@@ -51,7 +51,7 @@ diff --git a/dist/extensions/mcp/index.js b/dist/extensions/mcp/index.js
 index 8ebc6df8ab912f6af3ebb1a4446dcb1e285af77f..0457a94ba68ab8fb47fe6f1ea12c4cac59c58a57 100644
 --- a/dist/extensions/mcp/index.js
 +++ b/dist/extensions/mcp/index.js
-@@ -244,6 +244,65 @@ export function createMcpExtension(options = {}) {
+@@ -244,6 +244,76 @@ export function createMcpExtension(options = {}) {
          };
          const connections = () => servers.flatMap((server) => (server.connection ? [server.connection] : []));
          const findServer = (name) => servers.find((server) => server.entry.name === name);
@@ -69,10 +69,21 @@ index 8ebc6df8ab912f6af3ebb1a4446dcb1e285af77f..0457a94ba68ab8fb47fe6f1ea12c4cac
 +                ? server.connection.tools.map((tool) => ({ name: tool.name, description: tool.description, annotations: tool.annotations }))
 +                : [],
 +        }));
++        // 会话被替换 / 重新加载（switch_session、/new、/reload）后这一份扩展的 pi 就失效了，再 emit 会抛
++        // "extension ctx is stale"；定时器里抛出来没人接，整个进程退出。会话结束后（session.signal 已中止）不再上报
 +        let pixelskyTimer;
++        const pixelskyPush = () => {
++            if (session.signal.aborted)
++                return;
++            try {
++                pi.events.emit("pixelsky:mcp-status", pixelskyStatus());
++            }
++            catch { }
++        };
 +        listeners.add(() => {
 +            clearTimeout(pixelskyTimer);
-+            pixelskyTimer = setTimeout(() => pi.events.emit("pixelsky:mcp-status", pixelskyStatus()), 50);
++            if (!session.signal.aborted)
++                pixelskyTimer = setTimeout(pixelskyPush, 50);
 +        });
 +        pi.events.on("pixelsky:mcp-op", async ({ op, name, done }) => {
 +            let failure;
@@ -111,7 +122,7 @@ index 8ebc6df8ab912f6af3ebb1a4446dcb1e285af77f..0457a94ba68ab8fb47fe6f1ea12c4cac
 +            catch (error) {
 +                failure = errorMessage(error);
 +            }
-+            pi.events.emit("pixelsky:mcp-status", pixelskyStatus());
++            pixelskyPush();
 +            done?.(failure, url);
 +        });
          /** Servers extensions registered, except names `mcp.json` defines, which take precedence. */

@@ -148,9 +148,46 @@ describe('Pi 补丁：cli/args.js 的 --help', () => {
 })
 
 describe('Pi 补丁：extensions/mcp/index.js 把连接状态交给桌面端', () => {
+  it('会话结束（switch_session / reload）后不再上报：旧的 pi 失效时定时器不 emit，进程不会被 stale ctx 打崩', async () => {
+    const { createMcpExtension } = (await import(distUrl('extensions/mcp/index.js'))) as {
+      createMcpExtension: (o: unknown) => (pi: unknown) => void
+    }
+    const handlers = new Map<string, Array<(e: unknown, ctx: unknown) => unknown>>()
+    let stale = false
+    const emitted: string[] = []
+    const fail = (): never => {
+      throw new Error('This extension ctx is stale after session replacement or reload.')
+    }
+    // 只给扩展用到的部分；别的方法一律当空函数
+    const pi = new Proxy(
+      {
+        on: (event: string, fn: (e: unknown, ctx: unknown) => unknown) =>
+          handlers.set(event, [...(handlers.get(event) ?? []), fn]),
+        events: {
+          emit: (channel: string) => (stale ? fail() : emitted.push(channel)),
+          on: () => () => undefined,
+        },
+        getMcpServers: () => [],
+      } as Record<string, unknown>,
+      { get: (t, k: string) => (k in t ? t[k] : () => undefined) },
+    )
+    createMcpExtension({ loadConfig: () => ({ servers: [], errors: [] }) })(pi)
+    const ui = new Proxy({}, { get: () => () => undefined })
+    const ctx = { cwd: tmp, ui, modelRegistry: {}, hasUI: false }
+    for (const fn of handlers.get('session_start') ?? []) await fn({}, ctx)
+    await new Promise(r => setTimeout(r, 80))
+    expect(emitted).toContain('pixelsky:mcp-status')
+    emitted.length = 0
+    for (const fn of handlers.get('session_shutdown') ?? []) await fn({}, ctx)
+    stale = true
+    await new Promise(r => setTimeout(r, 80))
+    expect(emitted).toEqual([])
+  })
+
   it('状态变化时发 pixelsky:mcp-status，并接 pixelsky:mcp-op（重新连接 / 只在这个会话启用、停用 / 登录）', () => {
     const text = distText('extensions/mcp/index.js')
     expect(text).toContain('pi.events.emit("pixelsky:mcp-status", pixelskyStatus())')
+    expect(text).toContain('pixelskyPush();')
     expect(text).toContain('pi.events.on("pixelsky:mcp-op"')
     // 停用只在这个会话：临时当成扩展注册的服务器，saveConfig 就不写 mcp.json
     expect(text).toContain('server.entry = { ...server.entry, scope: "extension" };')

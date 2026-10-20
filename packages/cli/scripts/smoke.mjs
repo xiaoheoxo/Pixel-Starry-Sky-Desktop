@@ -2,7 +2,7 @@
 // 检查版本、品牌、RPC 模式能起来、自带扩展已打进去。发布流程里 build 之后、electron-builder 之前跑。
 //   node scripts/smoke.mjs [--exe <可执行文件>] [--entry <pixel.mjs>]
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -129,6 +129,73 @@ const lc = spawnSync(exe, ['--input-type=module', '-e', loadCheck], {
 stderrAll += lc.stderr ?? ''
 if (lc.status !== 0 || !lc.stdout.includes('wasm-ok')) fail('quickjs / photon 的 wasm 在产物目录里加载失败')
 console.log('ok quickjs / photon wasm 可加载')
+
+// 5. 续接旧对话：桌面端打开旧对话时先起进程再 switch_session。切换会结束旧会话，旧会话的扩展要是还在用失效的 pi / ctx
+//    （"extension ctx is stale"，0.5.9–0.5.11 的 MCP 状态上报定时器），进程会在切换后几十毫秒内退出
+const sessionDir = join(agentDir, 'sessions')
+mkdirSync(sessionDir, { recursive: true })
+const oldSession = join(sessionDir, 'old.jsonl')
+writeFileSync(
+  oldSession,
+  JSON.stringify({ type: 'session', version: 3, id: 'smoke-old', timestamp: new Date().toISOString(), cwd: agentDir }) +
+    '\n',
+)
+const switched = await new Promise(resolveP => {
+  const child = spawn(exe, [entry, '--mode', 'rpc', '--session-dir', sessionDir], {
+    env,
+    cwd: agentDir,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  let buf = ''
+  let stderr = ''
+  let exited = null
+  let finished = false
+  const finish = result => {
+    if (finished) return
+    finished = true
+    clearTimeout(timer)
+    child.stdin.end()
+    // 等进程真的退出再返回：它的当前目录在临时目录里，没退出时 Windows 删不掉
+    if (exited !== null) return resolveP({ ...result, stderr })
+    child.once('exit', () => resolveP({ ...result, stderr }))
+    child.kill()
+  }
+  const timer = setTimeout(() => finish({ error: 'switch_session 超时没有响应' }), 30000)
+  child.stderr.on('data', d => {
+    stderr += d
+    stderrAll += d
+  })
+  child.on('exit', code => {
+    exited = code
+  })
+  child.stdout.on('data', d => {
+    buf += d
+    let i
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).replace(/\r$/, '')
+      buf = buf.slice(i + 1)
+      let msg
+      try {
+        msg = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (msg.type !== 'response' || msg.id !== 'w') continue
+      if (msg.success !== true || msg.data?.cancelled)
+        return finish({ error: `switch_session 失败：${JSON.stringify(msg)}` })
+      // 切换后等一会儿（旧会话的定时器 50ms），进程还要活着
+      setTimeout(
+        () => finish(exited === null ? {} : { error: `switch_session 之后进程退出了，退出码 ${exited}` }),
+        1000,
+      )
+    }
+  })
+  child.stdin.write(JSON.stringify({ id: 's', type: 'get_state' }) + '\n')
+  child.stdin.write(JSON.stringify({ id: 'w', type: 'switch_session', sessionPath: oldSession }) + '\n')
+})
+if (switched.error) fail(switched.error)
+if (/ctx is stale/i.test(switched.stderr)) fail('switch_session 之后报 "extension ctx is stale"')
+console.log('ok RPC switch_session 续接旧对话，进程不退出')
 
 rmSync(agentDir, { recursive: true, force: true })
 console.log('冒烟通过')
