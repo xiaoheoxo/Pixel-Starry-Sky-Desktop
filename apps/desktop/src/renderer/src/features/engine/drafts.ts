@@ -24,7 +24,8 @@ function flush(): void {
 function persist(): void {
   if (!timer) timer = setTimeout(flush, 400)
 }
-if (typeof window !== 'undefined') {
+// 测试里可能只有 window 没有 document（别的测试文件挂了个假的 window）
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   window.addEventListener('pagehide', () => timer && flush())
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && timer && flush())
 }
