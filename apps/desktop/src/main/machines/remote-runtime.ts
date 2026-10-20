@@ -78,7 +78,9 @@ export async function createRemoteRuntime(
     trash: async (absolute, relative) => {
       await moveToTrash(join(dataDir, 'trash'), [{ absolute, relative }])
     },
+    attachmentDir: join(dataDir, 'attachments'),
   })
+  await files.cleanExpiredStages().catch(() => {})
   // Git 面板：远端没有回收站，放弃的未跟踪文件移到数据目录的 trash/（docs/ui/git-panel.md §2.4）
   const projectTools = new ProjectTools(join(dataDir, 'tools'), tools, changed, {
     outputChanged,

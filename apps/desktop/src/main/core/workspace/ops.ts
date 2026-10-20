@@ -19,6 +19,7 @@ export const FILE_OPS = {
   'files:headContent': (c, ref, path) => c.files.headContent(workspaceRef(ref), path as string),
   'files:save': (c, ref, path, text, version) =>
     c.files.save(workspaceRef(ref), path as string, text as string, version as string),
+  'files:stage': (c, ref, request) => c.files.stage(workspaceRef(ref), request),
   'files:grep': (c, ref, query) => c.files.grep(workspaceRef(ref), query),
   'files:create': (c, ref, path, kind) => c.files.create(workspaceRef(ref), path, kind),
   'files:rename': (c, ref, from, to) => c.files.rename(workspaceRef(ref), from, to),

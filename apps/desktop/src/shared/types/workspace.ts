@@ -5,6 +5,14 @@
 export type WorkspaceRef =
   | { sessionId: string; projectId?: never; folder?: number }
   | { projectId: string; sessionId?: never; folder?: number }
+export type FileStageRequest =
+  | { action: 'begin'; id: string; name: string; bytes: number }
+  | { action: 'chunk'; id: string; offset: number; dataBase64: string }
+  | { action: 'finish'; id: string }
+  | { action: 'cancel'; id: string }
+export interface FileStageResult {
+  path?: string
+}
 export interface WorkspaceTarget {
   ref: WorkspaceRef
   name: string

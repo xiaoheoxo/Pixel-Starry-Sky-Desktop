@@ -78,8 +78,7 @@ export interface ImageAttachment {
 }
 
 /**
- * 用户添加的文本文件（日志、文本、代码、配置，docs/ui/composer-file-attachments.md）：已解码成文字。
- * 不超过 100 KB 的整个带上；更大的 text 是开头（以换行结束），tail 是结尾，omitted 是中间省略的行数。
+ * 用户添加的文字文件，或只发送机器可访问路径的文件引用。文字附件超过 100 KB 时只带开头和结尾；路径引用不内联内容。
  * 发给引擎时接在消息后面（messageWithFiles），对话里显示成文件卡片。
  */
 export interface FileAttachment {
@@ -98,10 +97,14 @@ export interface FileAttachment {
   /** 不是纯文本、是从这种文件里提取的文字（docs/ui/composer-file-attachments.md §7）；没有就是文本文件 */
   source?: FileSource
   /**
-   * 原文件在本机磁盘上的路径：本机会话里拖进来 / 从「+」选的文件才有（远程机器、粘贴的截图和文字没有）。
-   * 发给引擎时写在 <attached_file> 上，截断了的智能体可以按路径读完整文件
+   * agent 所在机器可访问的路径：本机文件可以直接引用，远程 / 无本机路径时会暂存到目标机器。
+   * 发给引擎时写在 <attached_file> 上；截断或仅路径引用的文件可由智能体按路径读取。
    */
   path?: string
+  /** 只发送路径引用，不把文件内容内联到消息。 */
+  pathOnly?: boolean
+  /** 路径指向应用临时副本，30 天后清理。 */
+  staged?: boolean
 }
 
 export type FileSource = 'docx' | 'xlsx' | 'pptx' | 'odt' | 'ods' | 'odp' | 'pdf' | 'rtf' | 'epub' | 'html' | 'ipynb'

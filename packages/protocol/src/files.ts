@@ -39,6 +39,12 @@ export const FILE_INLINE_BYTES = 100 * 1024
 export const FILE_HEAD_BYTES = 10 * 1024
 export const FILE_TAIL_BYTES = 90 * 1024
 export const MAX_FILE_COUNT = 10
+/** 远程或无本机路径时，单个临时引用允许传输的最大大小 */
+export const MAX_STAGED_FILE_BYTES = 1024 * 1024 * 1024
+export const FILE_STAGE_CHUNK_BYTES = 8 * 1024 * 1024
+export const STAGED_FILE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+/** 路径引用不读取文件内容，因此按安全整数范围校验原文件大小 */
+export const MAX_PATH_REFERENCE_BYTES = Number.MAX_SAFE_INTEGER
 /** 一条消息里所有文件带上的文字合计（字符） */
 export const MAX_FILE_TEXT_TOTAL = 300 * 1024
 /** 一个文件带上的文字（字符）：解码后的字符数不会超过读的字节数 */
@@ -57,6 +63,7 @@ export function validateFiles(value: unknown): FileAttachment[] {
     if (!raw || typeof raw !== 'object') throw new Error('文件附件格式不正确')
     const file = raw as FileAttachment
     const truncated = file.tail !== undefined || file.omitted !== undefined
+    const pathOnly = file.pathOnly === true
     if (
       typeof file.id !== 'string' ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(file.id) ||
@@ -67,11 +74,21 @@ export function validateFiles(value: unknown): FileAttachment[] {
       !FILE_ENCODINGS.includes(file.encoding) ||
       !Number.isInteger(file.bytes) ||
       file.bytes < 0 ||
-      file.bytes > MAX_FILE_BYTES ||
+      file.bytes > (pathOnly ? MAX_PATH_REFERENCE_BYTES : MAX_FILE_BYTES) ||
       !Number.isInteger(file.lines) ||
       file.lines < 0 ||
       typeof file.text !== 'string' ||
       file.text.length > MAX_FILE_TEXT ||
+      (file.pathOnly !== undefined && typeof file.pathOnly !== 'boolean') ||
+      (file.staged !== undefined && typeof file.staged !== 'boolean') ||
+      (pathOnly &&
+        (!file.path ||
+          file.lines !== 0 ||
+          file.text !== '' ||
+          file.tail !== undefined ||
+          file.omitted !== undefined ||
+          file.source !== undefined)) ||
+      (file.staged === true && !pathOnly) ||
       (file.source !== undefined && !FILE_SOURCES.includes(file.source)) ||
       (file.path !== undefined &&
         (typeof file.path !== 'string' ||
@@ -99,6 +116,8 @@ export function validateFiles(value: unknown): FileAttachment[] {
       ...(truncated ? { tail: file.tail, omitted: file.omitted } : {}),
       ...(file.source ? { source: file.source } : {}),
       ...(file.path ? { path: file.path } : {}),
+      ...(pathOnly ? { pathOnly: true } : {}),
+      ...(file.staged ? { staged: true } : {}),
     }
   })
 }
@@ -125,7 +144,20 @@ const body = (text: string): string => text.replace(/<\/attached_file/gi, '<\\/a
  */
 export function fileAttachmentBlock(file: FileAttachment): string {
   const size =
-    file.bytes >= 1024 * 1024 ? `${(file.bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(file.bytes / 1024)} KB`
+    file.bytes >= 1024 * 1024 * 1024
+      ? `${(file.bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+      : file.bytes >= 1024 * 1024
+        ? `${(file.bytes / 1024 / 1024).toFixed(1)} MB`
+        : `${Math.ceil(file.bytes / 1024)} KB`
+  if (file.pathOnly) {
+    const path = file.path ? ` path="${attr(file.path)}"` : ''
+    const expiry = file.staged ? ' This temporary copy is automatically removed after 30 days.' : ''
+    return (
+      `<attached_file name="${attr(file.name)}"${path} size="${size}" reference="path">\n` +
+      `The file contents are not included in this message. Use tools available in this session to inspect the file at the path above; for archives, inspect the entry list and read only relevant members.${expiry}\n` +
+      '</attached_file>'
+    )
+  }
   const source = file.source
     ? ` source="${SOURCE_NOTE[file.source]}" note="text extracted by the app; images and layout are not included"`
     : ''

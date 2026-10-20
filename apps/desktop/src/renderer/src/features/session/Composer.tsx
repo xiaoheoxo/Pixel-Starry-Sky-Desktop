@@ -17,6 +17,7 @@ import {
 import {
   MAX_FILE_BYTES,
   MAX_FILE_COUNT,
+  MAX_IMAGE_BYTES,
   MAX_IMAGE_COUNT,
   MAX_IMAGE_TOTAL,
   type FileAttachment,
@@ -64,6 +65,7 @@ import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import { readImage } from '@/features/session/attachments/images'
 import { needsConversion } from '@/features/session/attachments/convertImage'
 import { isImageFile, readTextFile } from '@/features/session/attachments/files'
+import { stageFile } from '@/features/session/attachments/stage'
 import { updateFiles, updateImages, useFileDraft, useImageDraft } from '@/features/session/attachments/drafts'
 import { Popover, PopoverItem } from '@/ui'
 import { ComposerInput, type ComposerInputHandle } from './composerInput/ComposerInput'
@@ -389,37 +391,64 @@ export function Composer({
     void adding.current
   }
 
-  /** 拖进来、粘贴、从「+」选的文件：图片走图片附件，其余按文本文件读（docs/ui/composer-file-attachments.md） */
+  /** 拖进来、粘贴、从「+」选的文件：可解析的文字照常附上，其余用目标机器可读的路径引用 */
   const addFiles = (files: FileList | File[]): void => {
     const list = [...files]
-    const pictures = list.filter(isImageFile),
-      others = list.filter(file => !isImageFile(file))
+    const imageFiles = list.filter(isImageFile)
+    const pathImages = imageFiles.filter(
+      file => file.size > MAX_FILE_BYTES || (!needsConversion(file) && file.size > MAX_IMAGE_BYTES),
+    )
+    const pictures = imageFiles.filter(file => !pathImages.includes(file))
+    const others = [...list.filter(file => !isImageFile(file)), ...pathImages]
     if (pictures.length) addImages(pictures)
     if (!others.length) return
     if (textFiles.length + others.length > MAX_FILE_COUNT) {
       setError(tr('composer.file.tooMany'))
       return
     }
-    const large = others.find(file => file.size > MAX_FILE_BYTES)
-    if (large) {
-      setError(tr('composer.file.tooLarge', { p0: large.name }))
-      return
-    }
-    // 本机会话：记下原文件在磁盘上的路径，截断了的智能体可以按路径读完整文件（远程机器看不到本机路径，不带）
     const workspace = composerWorkspace(live?.sessionId, status, draftKey)
     const local = machineOf(workspace?.sessionId ?? workspace?.projectId) === 'local'
+    const reference = async (file: File, path: string): Promise<FileAttachment> => {
+      const staged = !path
+      const targetPath = path || (workspace ? await stageFile(file, workspace) : '')
+      if (!targetPath) throw new Error(tr('composer.file.stageUnavailable'))
+      return {
+        id: crypto.randomUUID(),
+        name: file.name || 'attachment',
+        bytes: file.size,
+        lines: 0,
+        encoding: 'utf-8',
+        text: '',
+        path: targetPath,
+        pathOnly: true,
+        ...(staged ? { staged: true } : {}),
+      }
+    }
     const withPath = async (file: File): Promise<FileAttachment> => {
-      const read = await readTextFile(file)
       const path = local ? (window.pixelsky?.pathForFile(file) ?? '') : ''
-      return path ? { ...read, path } : read
+      if (file.size > MAX_FILE_BYTES) return reference(file, path)
+      try {
+        const read = await readTextFile(file)
+        if (path) return { ...read, path }
+        if (read.tail !== undefined || read.omitted !== undefined) return reference(file, '')
+        return read
+      } catch {
+        return reference(file, path)
+      }
     }
     read(async () => {
-      // 一个读不了不耽误别的：读成的照常加进来，读不了的说原因
-      const results = await Promise.allSettled(others.map(withPath))
-      const loaded = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []))
+      // 远程文件分块上传需顺序发送；一个失败不耽误剩余文件。
+      const loaded: FileAttachment[] = []
+      let failed: unknown
+      for (const file of others) {
+        try {
+          loaded.push(await withPath(file))
+        } catch (error) {
+          failed ??= error
+        }
+      }
       if (loaded.length) await updateFiles(key, current => [...current, ...loaded])
-      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
-      if (failed) throw failed.reason
+      if (failed) throw failed
     })
   }
 

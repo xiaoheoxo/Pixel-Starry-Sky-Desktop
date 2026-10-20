@@ -6,6 +6,14 @@ export const attachmentMessages = {
     zh: '{p0} 太大，文件不能超过 50 MB',
     en: '{p0} is too large. Files must be 50 MB or smaller',
   },
+  'composer.file.remoteTooLarge': {
+    zh: '{p0} 超过临时文件引用上限 1 GB',
+    en: '{p0} exceeds the 1 GB limit for staged file references',
+  },
+  'composer.file.stageUnavailable': {
+    zh: '当前会话无法保存文件引用；请先选择一个项目或会话工作区',
+    en: 'File references need an active project or session workspace',
+  },
   'composer.file.binary': {
     zh: '{p0} 不能直接发给智能体（支持文本、日志、代码、配置文件，以及 Word、Excel、PPT、PDF、OpenDocument、RTF、EPUB 文档）',
     en: '{p0} can’t be sent to the agent (text, logs, code, config files and Word, Excel, PowerPoint, PDF, OpenDocument, RTF and EPUB documents are supported)',
@@ -101,6 +109,20 @@ export const attachmentMessages = {
     en: 'Large file: only the first {p0} and last {p1} lines are sent; {p2} lines in between are left out',
   },
   'composer.file.byPath': { zh: '可按路径读全文', en: 'Full file via path' },
+  'composer.file.pathOnly': { zh: '路径引用', en: 'Path reference' },
+  'composer.file.staged': { zh: '临时引用 · 30 天后清理', en: 'Temporary · removed after 30 days' },
+  'composer.file.referencePreviewHint': {
+    zh: '发送文件路径，不内联文件内容',
+    en: 'Sends a file path without inlining its contents',
+  },
+  'composer.file.referencePreview': {
+    zh: '文件内容未复制到消息中，智能体会从此路径读取：{p0}',
+    en: 'The file contents are not copied into the message. The agent will read this path: {p0}',
+  },
+  'composer.file.referenceHint': {
+    zh: '文件内容未内联；智能体会按路径读取：{p0}',
+    en: 'Contents are not inlined; the agent will read the file at: {p0}',
+  },
   'composer.file.byPathHint': {
     zh: '中间省略的部分智能体可以按路径读完整文件：{p0}',
     en: 'The agent can read the omitted part from the full file: {p0}',
