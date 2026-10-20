@@ -135,6 +135,16 @@ describe('一键安装', () => {
       env: {
         PATH: tmp(),
         SystemRoot: process.env.SystemRoot,
+        // PowerShell 缺了这些（临时目录、用户目录）在 GitHub 的 Windows 机器上启动很慢，测试超时
+        ...(windows
+          ? {
+              TEMP: process.env.TEMP,
+              TMP: process.env.TMP,
+              USERPROFILE: process.env.USERPROFILE,
+              LOCALAPPDATA: process.env.LOCALAPPDATA,
+              APPDATA: process.env.APPDATA,
+            }
+          : {}),
         PIXELSKY_CLAUDE_INSTALLER: installer,
         ...(windows ? {} : { HOME: dir }),
       },
@@ -146,5 +156,6 @@ describe('一键安装', () => {
     expect(ensured()).toBe(1)
     expect(lines).toContain('官方安装器没装成，改用 npm 安装 Claude Code')
     expect(npm.calls()[0]).toEqual(expect.arrayContaining(['@anthropic-ai/claude-code@latest']))
-  })
+    // 真起 PowerShell：GitHub 的机器上冷启动要十几秒
+  }, 60_000)
 })
