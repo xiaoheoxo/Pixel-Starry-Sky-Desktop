@@ -434,8 +434,14 @@ export class Editors {
     if (path !== undefined && typeof path !== 'string') throw new Error('文件路径不正确')
     // 附加文件夹里的文件（「::N/…」）：编辑器按那个文件夹打开（docs/ui/multi-root-projects.md §3.4）
     const at = locateFolder(this.target(ref), path ?? '')
-    const root = await workspacePath(at.root, '', 'directory')
-    const file = path ? await workspacePath(root, at.rel, 'file') : undefined
+    const project = await workspacePath(at.root, '', 'directory')
+    // 文件树里对文件夹点「用外部编辑器打开」：把这个文件夹当作要打开的目录，不当文件
+    let file = path ? await workspacePath(project, at.rel) : undefined
+    let root = project
+    if (file && (await stat(file)).isDirectory()) {
+      root = file
+      file = undefined
+    } else if (file && !(await stat(file)).isFile()) throw new Error('目标不是普通文件')
     const state = await this.current()
     // 文件资源管理器、Git Bash、终端：只能打开整个文件夹（GitHub #12）
     const tool = !file ? state.tools.find(t => t.id === editorId) : undefined

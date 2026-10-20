@@ -91,9 +91,12 @@ export function OpenInButton({ placement }: { placement: SidebarPlacement | 'com
     }
     setBusy(true)
     try {
-      await window.pixelsky!.editor.open(ref, choiceId(choice))
+      const opened = await window.pixelsky!.editor.open(ref, choiceId(choice))
       setMenu(false)
       closeMenu?.()
+      // 资源管理器、终端常常开在别的位置或被挡住：说一句打开了什么（编辑器自己会到前台）
+      if (choice.kind === 'tool')
+        toast(tr('openWith.openedIn', { tool: choiceName(choice), name: opened.target.split(/[\\/]/).pop() ?? '' }))
     } catch (e) {
       toast(translateMessage((e as Error).message))
     } finally {

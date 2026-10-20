@@ -27,6 +27,7 @@ export const editorMessages = {
   'openWith.editors': { zh: '编辑器', en: 'Editors' },
   'openWith.tools': { zh: '文件夹和终端', en: 'Folder and terminals' },
   'openWith.explorer': { zh: '文件资源管理器', en: 'File Explorer' },
+  'openWith.openedIn': { zh: '已在{tool}中打开 {name}', en: 'Opened {name} in {tool}' },
   'openWith.finder': { zh: '访达', en: 'Finder' },
   'openWith.files': { zh: '文件管理器', en: 'Files' },
   'openWith.terminal': { zh: '终端', en: 'Terminal' },

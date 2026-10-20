@@ -11,6 +11,7 @@ import {
   linuxTerminalArgs,
   toolboxInstallLocation,
   toolCommand,
+  launchOptions,
 } from './open-tools'
 
 /** 临时目录里放几个假的程序，快捷方式指着它们 */
@@ -173,5 +174,13 @@ describe('macOS / Linux', () => {
     expect(linuxTerminalArgs('/usr/bin/gnome-terminal', '/p')).toEqual(['--working-directory=/p'])
     expect(linuxTerminalArgs('/usr/bin/konsole', '/p')).toEqual(['--workdir', '/p'])
     expect(linuxTerminalArgs('/usr/bin/x-terminal-emulator', '/p')).toEqual([])
+  })
+})
+
+describe('launching folder and terminal tools', () => {
+  it('never hides the window (Explorer opened invisibly with windowsHide)', () => {
+    const opts = launchOptions('/work/p', {})
+    expect(opts.windowsHide).toBe(false)
+    expect(opts).toMatchObject({ cwd: '/work/p', shell: false, detached: true, stdio: 'ignore' })
   })
 })

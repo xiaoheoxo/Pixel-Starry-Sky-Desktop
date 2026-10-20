@@ -19,6 +19,7 @@ import {
   MessageSquareShare,
   Scissors,
   ClipboardPaste,
+  AlertCircle,
 } from 'lucide-react'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
@@ -47,6 +48,7 @@ import { cutPasteKeys, dropTarget, hasFileDrag, join2, movedPath, parentOf, refK
 import type { DragOver, DragSource } from './treeDrag'
 import { REVEAL_FOLDER_EVENT, takeFolderReveal } from './treeReveal'
 import { FileIcon } from './icons/FileIcon'
+import { nameIndent, noteIndent, rememberExpanded, rememberedExpanded, rowIndent } from './treeLayout'
 import { isHidingIgnored, isIgnoredPath, setHideIgnored, splitStatuses, useHideIgnoredMap } from './ignored'
 const pathKey = (path: string): string => {
   const p = path.replaceAll('\\', '/').replace(/\/$/, '')
@@ -258,7 +260,7 @@ function NameInput({ initial, depth, folder }: { initial: string; depth: number;
     }
   }
   return (
-    <div style={{ paddingLeft: 10 + Math.min(depth, 20) * 12 }} className="pr-2">
+    <div style={{ paddingLeft: rowIndent(depth) }} className="pr-2">
       <div className="flex min-h-7 items-center gap-1.5">
         <ChevronRight size={12} className="invisible shrink-0" />
         <FileIcon name={initial} kind={folder ? 'directory' : 'file'} />
@@ -1192,9 +1194,16 @@ function Directory({
   const ignoredInfo = useContext(TreeIgnored)
   const [list, setList] = useState<DirectoryListing | null>(null),
     [error, setError] = useState('')
+  // 换了文件夹才清空；同一个文件夹刷新（窗口重新获得焦点、AI 一轮结束）时留着旧内容，读完再换，
+  // 里面的行不卸载，展开的子文件夹和滚动位置都不动
+  const loaded = useRef('')
+  const loadKey = refKey(refTarget) + '\n' + path
   useEffect(() => {
     let cancelled = false
-    setList(null)
+    if (loaded.current !== loadKey) {
+      loaded.current = loadKey
+      setList(null)
+    }
     setError('')
     const result = isDemo ? Promise.resolve(demo().files.directory(path)) : window.pixelsky!.files.list(refTarget, path)
     void result.then(
@@ -1211,13 +1220,18 @@ function Directory({
   }, [path, revision, refTarget.projectId, refTarget.sessionId])
   if (error)
     return (
-      <p role="status" className="px-4 py-2 text-meta text-danger">
+      <p
+        role="status"
+        style={{ paddingLeft: noteIndent(depth) }}
+        className="flex items-start gap-1.5 break-words py-1 pr-2 text-meta text-danger"
+      >
+        <AlertCircle size={12} className="mt-[3px] shrink-0" />
         {translateMessage(error)}
       </p>
     )
   if (!list)
     return (
-      <p className="flex items-center gap-2 px-4 py-2 text-meta text-fg-muted">
+      <p style={{ paddingLeft: noteIndent(depth) }} className="flex items-center gap-1.5 py-1 text-meta text-fg-muted">
         <Spinner size={12} />
         {tr('editor.FileEditor.loadingFile')}
       </p>
@@ -1238,10 +1252,14 @@ function Directory({
         />
       ))}
       {!visible.length && !creating && (
-        <p className="px-4 py-1 text-meta text-fg-faint">{tr('files.FileTree.emptyFolder')}</p>
+        <p style={{ paddingLeft: noteIndent(depth) }} className="py-1 text-meta text-fg-faint">
+          {tr('files.FileTree.emptyFolder')}
+        </p>
       )}
       {list.truncated && (
-        <p className="px-4 py-1 text-meta text-fg-muted">{tr('files.FileTree.largeDirectoryShowingFirst')}</p>
+        <p style={{ paddingLeft: noteIndent(depth) }} className="py-1 pr-2 text-meta text-fg-muted">
+          {tr('files.FileTree.largeDirectoryShowingFirst')}
+        </p>
       )}
     </div>
   )
@@ -1266,12 +1284,19 @@ function FileRow({
   const expansion = useContext(TreeExpansion)
   const vscode = useContext(TreeColors) === 'vscode'
   const dim = isIgnoredPath(entry.path, useContext(TreeIgnored).ignored)
-  const [expanded, setExpanded] = useState(
-      () =>
-        (expansion.expanded && entry.kind === 'directory' && !entry.linked && depth < 20) ||
-        (entry.kind === 'directory' && takePendingExpand(refTarget, entry.path)),
-    ),
+  // 展开状态记在 treeLayout 里：行重新挂载（刷新后条目变了、切走左栏再回来）时照样展开；定位请求优先
+  const [expanded, setExpandedState] = useState(() => {
+      if (entry.kind !== 'directory') return false
+      if (takePendingExpand(refTarget, entry.path)) return true
+      return rememberedExpanded(refTarget, entry.path) ?? (expansion.expanded && !entry.linked && depth < 20)
+    }),
     [error, setError] = useState('')
+  const setExpanded = (next: boolean | ((prev: boolean) => boolean)): void =>
+    setExpandedState(prev => {
+      const value = typeof next === 'function' ? next(prev) : next
+      if (entry.kind === 'directory' && value !== prev) rememberExpanded(refTarget, entry.path, value)
+      return value
+    })
   const [menu, setMenu] = useState<{ x: number; y: number; trigger: HTMLElement } | null>(null)
   useEffect(() => {
     if (expansion.version) setExpanded(expansion.expanded && entry.kind === 'directory' && !entry.linked && depth < 20)
@@ -1387,7 +1412,7 @@ function FileRow({
             (dragged || cutting) && 'opacity-50',
             entry.kind === 'directory' && ops.dropKey === dropKeyOf(refTarget, entry.path) && DROP_ROW,
           )}
-          style={{ paddingLeft: 10 + Math.min(depth, 20) * 12 }}
+          style={{ paddingLeft: rowIndent(depth) }}
         >
           <button
             type="button"
@@ -1452,7 +1477,12 @@ function FileRow({
         </div>
       )}
       {error && (
-        <p role="status" className="px-4 text-label text-danger">
+        <p
+          role="status"
+          style={{ paddingLeft: nameIndent(depth) }}
+          className="flex items-start gap-1.5 break-words pb-1 pr-2 text-label text-danger"
+        >
+          <AlertCircle size={12} className="mt-px shrink-0" />
           {translateMessage(error)}
         </p>
       )}

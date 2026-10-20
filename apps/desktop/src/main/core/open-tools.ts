@@ -314,18 +314,19 @@ export function toolCommand(tool: OpenTool, root: string): { file: string; args:
   return ids[tool.id]()
 }
 
+/**
+ * 启动这些程序的参数。它们都要弹出自己的窗口，不能带 windowsHide：带了资源管理器会打开一个看不见的窗口
+ * （2026-10-20 实测，Shell 窗口列表里 visible = False），Git Bash、Windows Terminal 同理；
+ * PowerShell 是控制台程序，detached 才会有自己的窗口
+ */
+export function launchOptions(root: string, env: NodeJS.ProcessEnv) {
+  return { cwd: root, shell: false, windowsHide: false, detached: true, stdio: 'ignore' as const, env }
+}
+
 export function launchTool(tool: OpenTool, root: string, env: NodeJS.ProcessEnv): Promise<void> {
-  const { file, args, console } = toolCommand(tool, root)
+  const { file, args } = toolCommand(tool, root)
   return new Promise((done, fail) => {
-    // PowerShell 是控制台程序：detached 才会有自己的窗口，不能藏起来
-    const child = spawn(file, args, {
-      cwd: root,
-      shell: false,
-      windowsHide: !console,
-      detached: true,
-      stdio: 'ignore',
-      env,
-    })
+    const child = spawn(file, args, launchOptions(root, env))
     child.once('error', e => fail(new Error(`${tool.name} 启动失败：${e.message}`)))
     child.once('spawn', () => {
       child.unref()
