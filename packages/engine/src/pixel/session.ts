@@ -16,6 +16,7 @@ import { EMPTY_FLAGS } from '@pixelsky/protocol'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { ChatSeed } from '../chat-log'
 import { McpReporter, pixelMcpServers } from '../mcp'
+import { crashReason } from '../exec'
 import { findModel, piThinkingLevel } from './catalog'
 import {
   APPROVAL_CONTEXT_STATUS,
@@ -267,7 +268,8 @@ export class PixelSession implements EngineSession {
         this.rejectApprovals()
         this.mcpReporter.stale()
         for (const w of this.mcpWaiters.splice(0)) w.resolve({ error: '引擎进程已退出' })
-        if (!this.closed && this.active) this.finish('failed', tail.trim() || 'Pixel process exited')
+        // 界面只显示「Error: …」那句，不显示 Node 印出来的压缩源码和调用栈（完整的 stderr 在进程日志里）
+        if (!this.closed && this.active) this.finish('failed', crashReason(tail) || 'Pixel process exited')
       },
     })
     this.proc = proc

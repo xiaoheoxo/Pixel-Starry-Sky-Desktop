@@ -354,6 +354,8 @@ export function runInteractive(
  * 命令行报错带颜色（\x1b[...m），界面上只要文字（docs/ui/engine-launch.md §9.2）
  */
 export function startupReason(stderr: string): string {
+  // 启动时就抛了未捕获的异常（Node 会先印出错的源码行）：和跑到一半崩的一样只取报错那句
+  if (/^\s*at\s/m.test(stderr) && /^Node\.js v\d/m.test(stderr)) return crashReason(stderr)
   return (
     stderr
       // eslint-disable-next-line no-control-regex -- 就是要去掉颜色控制序列
@@ -364,6 +366,40 @@ export function startupReason(stderr: string): string {
       .slice(0, 2)
       .join('\n')
   )
+}
+
+const ERROR_LINE = /^(?:Uncaught )?(?:[A-Za-z_$][\w$]*)?(?:Error|Exception)\b(?: \[[^\]]*\])?:?/
+const STACK_LINE = /^at\s|^Node\.js v\d/
+/** 一行最多显示这么多字；Node 报错时会把出错的那行源码印出来，打包压缩过的源码一行就有几十 KB */
+const CRASH_LINE_MAX = 500
+
+/**
+ * 进程跑到一半崩了（Node 未捕获的异常）时给用户看的原因：只要「Error: …」那句和它的续行，
+ * 不要 Node 印出来的出错源码（打包压缩后一行几十 KB）、^ 标记和调用栈。认不出来时去掉源码和调用栈，取最后几行。
+ * 完整的 stderr 照旧写进进程日志
+ */
+export function crashReason(stderr: string): string {
+  const lines = stderr
+    // eslint-disable-next-line no-control-regex -- 就是要去掉颜色控制序列
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .split(/\r?\n/)
+    .map(l => l.trim())
+  const clip = (l: string): string => (l.length > CRASH_LINE_MAX ? l.slice(0, CRASH_LINE_MAX) + '…' : l)
+  let at = -1
+  for (let i = lines.length - 1; i >= 0; i--) if (ERROR_LINE.test(lines[i])) at = i
+  // 取第一个报错行（后面的往往是 cause / 重复），带上紧跟着的说明行，到调用栈为止
+  if (at >= 0) {
+    const out: string[] = []
+    for (let i = at; i < lines.length && out.length < 3; i++) {
+      if (!lines[i] || STACK_LINE.test(lines[i])) break
+      out.push(clip(lines[i]))
+    }
+    return out.join('\n')
+  }
+  return lines
+    .filter(l => l && l.length <= CRASH_LINE_MAX && !STACK_LINE.test(l) && l !== '^' && !/^\^+$/.test(l))
+    .slice(-3)
+    .join('\n')
 }
 
 /** 比较版本号 a 是否 >= b（只看数字部分） */
