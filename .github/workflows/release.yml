@@ -1,4 +1,4 @@
-# 发版：推 v* 标签（如 v0.1.0-beta.1）→ 在 Windows 上检查、建草稿 Release → Windows、macOS、Linux 各自打包，上传到同一个草稿。
+# 发版：推 v* 标签（如 v0.1.0-beta.1）→ 在 Windows 上检查、建草稿 Release → macOS、Linux 各自打包，上传到同一个草稿；Windows 安装包在本机打包后手动上传。
 # 在 GitHub 的 Releases 页检查草稿、写好更新说明后点发布，用户那边才会收到更新（版本号带 - 的测试版自动标成预发布）。
 # 试打包：Actions 页手动运行（workflow_dispatch），三个系统照样检查、打包，安装包放在这次运行的 Artifacts 里，不建 Release。
 name: release
@@ -61,10 +61,8 @@ jobs:
       # 一个系统打包失败不影响其他系统的上传，草稿里少了的到 Actions 页重跑那一个
       fail-fast: false
       matrix:
+        # Windows 安装包由我们在本机打包后上传（docs/ROADMAP.md 发版流程）；这里只打 macOS 和 Linux
         include:
-          # 安装版 + latest.yml
-          - os: windows-latest
-            args: --win
           # Intel 和 Apple 芯片一起打：分开打的话两边各传一份 latest-mac.yml，后传的会盖掉先传的
           - os: macos-latest
             args: --mac --x64 --arm64
