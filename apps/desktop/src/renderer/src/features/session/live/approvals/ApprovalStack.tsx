@@ -324,7 +324,6 @@ export function ApprovalList({
   const [batch, setBatch] = useState<{ kind: 'allow' | 'deny'; total: number; done: number } | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [focusWithin, setFocusWithin] = useState(false)
   const [confirmingAll, setConfirmingAll] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -492,10 +491,6 @@ export function ApprovalList({
       data-approval-list
       aria-label={tr('approvals.list')}
       className="@container pop-in flex min-h-0 shrink flex-col overflow-hidden rounded-xl border border-line-strong bg-surface shadow-menu"
-      onFocus={() => setFocusWithin(true)}
-      onBlur={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusWithin(false)
-      }}
     >
       <header className="flex shrink-0 items-center gap-2 py-2 pr-2 pl-4 text-ui font-medium text-fg">
         {allFailed ? (
@@ -664,23 +659,13 @@ export function ApprovalList({
           }}
           className="shrink-0 border-t border-line-subtle bg-hover px-4 pt-2.5 pb-2.5"
         />
-      ) : (
-        focusWithin && (
-          <footer
-            data-approval-keys
-            className="flex shrink-0 flex-wrap gap-x-3 border-t border-line-subtle bg-wall-tint px-4 py-1 text-label text-fg-faint"
-          >
-            <Keys keys={['↑', '↓']} label={tr('approvals.keys.select')} />
-            <Keys keys={['Enter']} label={tr('approvals.keys.expand')} />
-            <Keys keys={['Ctrl', 'Enter']} label={tr('approvals.keys.allow')} />
-            <Keys keys={['Ctrl', '⌫']} label={tr('approvals.keys.deny')} />
-            <Keys keys={['Esc']} label={tr('approvals.keys.back')} />
-          </footer>
-        )
-      )}
+      ) : null}
     </section>
   )
 }
+
+/** 按钮的悬停提示带上快捷键（docs/ui/approval-keys-mockup.html 方案 B：不再有按焦点出现的提示行） */
+const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
 
 function MenuButton({
   children,
@@ -703,22 +688,6 @@ function MenuButton({
     >
       {children}
     </button>
-  )
-}
-
-function Keys({ keys, label }: { keys: string[]; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      {keys.map(k => (
-        <kbd
-          key={k}
-          className="rounded-sm border border-line border-b-2 bg-surface px-1 font-mono text-[10.5px] leading-[15px] text-fg-muted"
-        >
-          {k}
-        </kbd>
-      ))}
-      {label}
-    </span>
   )
 }
 
@@ -1002,7 +971,7 @@ function RowActions({
           variant="ghost"
           className="h-7 px-2 text-meta font-normal"
           disabled={disabled}
-          title={tr('approvals.deny')}
+          title={`${tr('approvals.deny')} · ${MOD}+⌫`}
           aria-label={tr('approvals.deny')}
           data-approval-deny
           onClick={() => onAnswer({ type: 'deny' })}
@@ -1017,7 +986,7 @@ function RowActions({
             variant="outline"
             className={cn('h-7 px-2.5 text-meta', scopes.length > 0 && 'rounded-r-none')}
             disabled={disabled}
-            title={tr('approvals.allow')}
+            title={`${tr('approvals.allow')} · ${MOD}+Enter`}
             aria-label={tr('approvals.allow')}
             data-approval-allow
             onClick={() => onAnswer({ type: 'allow' })}

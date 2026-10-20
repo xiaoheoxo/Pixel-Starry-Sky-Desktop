@@ -13,7 +13,7 @@ import {
 } from './questionModel'
 import { tr, translateMessage } from '../../../i18n/core'
 // 审批卡片：引擎等你决定时固定显示在输入框上方（docs/engines.md §5.5）
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import {
   ChevronDown,
   FilePen,
@@ -74,10 +74,15 @@ export const SCOPE_INFO: Record<AlwaysScope, { label: string; desc: string }> = 
 /** 「始终允许…」：只有一个范围时直接是按钮，多个时弹出范围菜单 */
 function AlwaysAllowButton({
   scopes,
+  keyScope,
+  shortcut,
   disabled,
   onPick,
 }: {
   scopes: AlwaysScope[]
+  /** 快捷键（Ctrl+Shift+Enter）对应的范围，写进悬停提示；没有为 null */
+  keyScope: AlwaysScope | null
+  shortcut: string[]
   disabled: boolean
   onPick: (s: AlwaysScope) => void
 }) {
@@ -85,7 +90,16 @@ function AlwaysAllowButton({
   const [open, setOpen] = useState(false)
   if (scopes.length === 1) {
     return (
-      <Button variant="outline" disabled={disabled} onClick={() => onPick(scopes[0])}>
+      <Button
+        variant="outline"
+        disabled={disabled}
+        title={
+          keyScope === scopes[0]
+            ? withKeys(`${SCOPE_INFO[keyScope].label}${tr('session.live.ApprovalCard.alwaysAllow')}`, shortcut)
+            : undefined
+        }
+        onClick={() => onPick(scopes[0])}
+      >
         {SCOPE_INFO[scopes[0]].label}
         {tr('session.live.ApprovalCard.alwaysAllow')}{' '}
       </Button>
@@ -96,6 +110,11 @@ function AlwaysAllowButton({
       <Button
         variant="outline"
         disabled={disabled}
+        title={
+          keyScope
+            ? withKeys(`${SCOPE_INFO[keyScope].label}${tr('session.live.ApprovalCard.alwaysAllow')}`, shortcut)
+            : undefined
+        }
         onClick={() => setOpen(v => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -230,29 +249,8 @@ export function ApprovalBody({
   return null
 }
 
-/** 卡片底部的按键提示，样式和列表卡的一致 */
-function KeyHints({ items }: { items: { keys: string[]; label: string }[] }) {
-  return (
-    <div
-      data-approval-keys
-      className="flex flex-wrap gap-x-3 border-t border-line-subtle bg-wall-tint px-4 py-1 text-label text-fg-faint"
-    >
-      {items.map(({ keys, label }) => (
-        <span key={label} className="inline-flex items-center gap-1">
-          {keys.map(k => (
-            <kbd
-              key={k}
-              className="rounded-sm border border-line border-b-2 bg-surface px-1 font-mono text-[10.5px] leading-[15px] text-fg-muted"
-            >
-              {k}
-            </kbd>
-          ))}
-          {label}
-        </span>
-      ))}
-    </div>
-  )
-}
+/** 按钮的悬停提示带上快捷键：「允许一次 · Ctrl+Enter」（docs/ui/approval-keys-mockup.html 方案 B） */
+const withKeys = (label: string, keys: string[]): string => `${label} · ${keys.join('+')}`
 
 export function ApprovalCard({
   request,
@@ -273,9 +271,6 @@ export function ApprovalCard({
   const [formText, setFormText] = useState('{}')
   // 「本会话后续不再询问」会切成完全放行：先在卡片底部就地确认，AI 继续等
   const [confirmingAll, setConfirmingAll] = useState(false)
-  const [focusWithin, setFocusWithin] = useState(false)
-  // 焦点在底部按钮上：Enter 是点按钮、数字不选题，提示里不再写
-  const [onFooter, setOnFooter] = useState(false)
   let formContent: Record<string, unknown> | null = null
   try {
     const value: unknown = JSON.parse(formText)
@@ -379,60 +374,12 @@ export function ApprovalCard({
     else answer({ type: 'deny' })
   }
 
-  let hints: ReactNode = null
-  if (focusWithin && !confirmingAll) {
-    if (request.kind === 'question')
-      hints = (
-        <KeyHints
-          items={[
-            ...(onFooter ? [] : [{ keys: ['1–9'], label: tr('approvals.keys.pick') }]),
-            ...(onFooter ? [] : [{ keys: ['Enter'], label: tr('approvals.keys.nextQuestion') }]),
-            { keys: [mod, 'Enter'], label: tr('approvals.keys.submit') },
-          ]}
-        />
-      )
-    else {
-      const plan = request.kind === 'plan'
-      hints = (
-        <KeyHints
-          items={[
-            ...(canAllow
-              ? [
-                  {
-                    keys: [mod, 'Enter'],
-                    label: tr(plan ? 'approvals.keys.startPlan' : 'approvals.keys.allowOnce'),
-                  },
-                ]
-              : []),
-            ...(alwaysScope && canAllow && !plan
-              ? [
-                  {
-                    keys: [mod, 'Shift', 'Enter'],
-                    label: `${SCOPE_INFO[alwaysScope].label}${tr('session.live.ApprovalCard.alwaysAllow')}`,
-                  },
-                ]
-              : []),
-            { keys: [mod, '⌫'], label: tr(plan ? 'approvals.keys.refinePlan' : 'approvals.keys.deny') },
-            { keys: ['Esc'], label: tr('approvals.keys.back') },
-          ]}
-        />
-      )
-    }
-  }
-
   return (
     <section
       className="pop-in shrink-0 rounded-xl border border-line-strong bg-surface shadow-menu outline-none"
       aria-live="polite"
       aria-keyshortcuts={shortcutsAttr}
       onKeyDown={onKeyDown}
-      onFocus={e => {
-        setFocusWithin(true)
-        setOnFooter(!!(e.target as HTMLElement).closest('footer'))
-      }}
-      onBlur={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusWithin(false)
-      }}
       data-approval-card
       data-approval-request={request.requestId}
     >
@@ -578,6 +525,7 @@ export function ApprovalCard({
                 disabled={!answers || sent}
                 className="disabled:opacity-50"
                 data-question-submit
+                title={withKeys(tr('approvals.keys.submit'), [mod, 'Enter'])}
                 onClick={() => answers && answer({ type: 'answer', answers })}
               >
                 {tr('session.live.ApprovalCard.submitAnswers')}{' '}
@@ -612,10 +560,20 @@ export function ApprovalCard({
             </>
           ) : request.kind === 'plan' ? (
             <>
-              <Button variant="primary" disabled={sent} onClick={() => answer({ type: 'allow' })}>
+              <Button
+                variant="primary"
+                disabled={sent}
+                title={withKeys(tr('approvals.keys.startPlan'), [mod, 'Enter'])}
+                onClick={() => answer({ type: 'allow' })}
+              >
                 {tr('session.live.ApprovalCard.startExecution')}{' '}
               </Button>
-              <Button variant="ghost" disabled={sent} onClick={() => answer({ type: 'deny' })}>
+              <Button
+                variant="ghost"
+                disabled={sent}
+                title={withKeys(tr('approvals.keys.refinePlan'), [mod, '⌫'])}
+                onClick={() => answer({ type: 'deny' })}
+              >
                 {tr('session.live.ApprovalCard.refinePlan')}{' '}
               </Button>
             </>
@@ -624,6 +582,7 @@ export function ApprovalCard({
               <Button
                 variant="primary"
                 disabled={sent || request.canAllow === false || (request.formSchema !== undefined && !formContent)}
+                title={withKeys(tr('approvals.keys.allowOnce'), [mod, 'Enter'])}
                 onClick={() =>
                   answer(request.formSchema !== undefined ? { type: 'form', content: formContent! } : { type: 'allow' })
                 }
@@ -633,11 +592,18 @@ export function ApprovalCard({
               {request.alwaysScopes.length > 0 && (
                 <AlwaysAllowButton
                   scopes={request.alwaysScopes}
+                  keyScope={alwaysScope}
+                  shortcut={[mod, 'Shift', 'Enter']}
                   disabled={sent}
                   onPick={scope => answer({ type: 'allow_always', scope })}
                 />
               )}
-              <Button variant="ghost" disabled={sent} onClick={() => answer({ type: 'deny' })}>
+              <Button
+                variant="ghost"
+                disabled={sent}
+                title={withKeys(tr('approvals.keys.deny'), [mod, '⌫'])}
+                onClick={() => answer({ type: 'deny' })}
+              >
                 {tr('session.live.ApprovalCard.deny')}{' '}
               </Button>
               {request.canAllowAll && (
@@ -655,7 +621,6 @@ export function ApprovalCard({
           )}
         </footer>
       )}
-      {hints}
     </section>
   )
 }
