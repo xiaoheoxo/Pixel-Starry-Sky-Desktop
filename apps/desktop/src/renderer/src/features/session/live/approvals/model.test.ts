@@ -9,6 +9,7 @@ import {
   commonScopes,
   denyOnce,
   isSolo,
+  keepPending,
   layoutApprovals,
   outsideOf,
   toolLabel,
@@ -233,5 +234,16 @@ describe('批量', () => {
       ['b', { type: 'allow_all' }],
       ['c', { type: 'allow' }],
     ])
+  })
+})
+
+describe('keepPending', () => {
+  it('发送失败后在别处处理掉的请求从失败记录里删掉；没有要删的返回原来那个', () => {
+    const failed = new Map([
+      ['a', 'x'],
+      ['b', 'y'],
+    ])
+    expect([...keepPending(failed, id => id === 'b')]).toEqual([['b', 'y']])
+    expect(keepPending(failed, () => true)).toBe(failed)
   })
 })

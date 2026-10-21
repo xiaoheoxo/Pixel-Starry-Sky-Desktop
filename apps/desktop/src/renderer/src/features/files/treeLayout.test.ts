@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { forgetExpanded, nameIndent, noteIndent, rememberExpanded, rememberedExpanded, rowIndent } from './treeLayout'
+import {
+  forgetExpanded,
+  forgetExpandedIn,
+  nameIndent,
+  noteIndent,
+  rememberExpanded,
+  rememberedExpanded,
+  rowIndent,
+} from './treeLayout'
 
 afterEach(forgetExpanded)
 
@@ -23,6 +31,19 @@ describe('file tree layout', () => {
     expect(rememberedExpanded(a, 'saves/1.21')).toBe(true)
     expect(rememberedExpanded(a, 'logs')).toBe(false)
     expect(rememberedExpanded(b, 'saves')).toBeUndefined()
+  })
+
+  it('expand / collapse all forgets what was remembered in those projects only', () => {
+    const a = { projectId: 'a' },
+      b = { projectId: 'b' },
+      ab = { projectId: 'ab' }
+    rememberExpanded(a, 'src', true)
+    rememberExpanded(ab, 'src', true)
+    rememberExpanded(b, 'src', false)
+    forgetExpandedIn([a])
+    expect(rememberedExpanded(a, 'src')).toBeUndefined()
+    expect(rememberedExpanded(ab, 'src')).toBe(true)
+    expect(rememberedExpanded(b, 'src')).toBe(false)
   })
 
   it('drops the oldest entries past the limit', () => {

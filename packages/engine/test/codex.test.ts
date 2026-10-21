@@ -431,6 +431,19 @@ describe('Codex app-server adapter', () => {
     await wait(() => host!.open(session.id).state === 'idle')
     expect(host!.open(session.id).context?.compacting).toBe(false)
   })
+  it('压缩发出去、还没开始就停止：本地立即结束，压缩那一轮开始时补发 turn/interrupt', async () => {
+    const { session, messages } = setup(60_000, { env: { FAKE_CODEX_COMPACT_DELAY: '300' } })
+    await host!.send(session.id, 'hello')
+    await wait(() => host!.open(session.id).state === 'idle' && host!.open(session.id).flags.compactAvailable === true)
+    await host!.compactContext(session.id)
+    await wait(() => messages().some(m => m.method === 'thread/compact/start'))
+    await host!.interrupt(session.id)
+    expect(host!.open(session.id).state).toBe('idle')
+    await wait(() =>
+      messages().some(m => m.method === 'turn/interrupt' && String(m.params?.turnId).startsWith('compact-')),
+    )
+    expect(host!.open(session.id).context?.compacting).toBe(false)
+  })
   it('空闲超时关掉引擎进程后点压缩：不报错，重新拉起会话再压缩', async () => {
     const { session, messages, launches } = setup(50)
     await host!.send(session.id, 'hello')

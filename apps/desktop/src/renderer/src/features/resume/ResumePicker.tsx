@@ -494,23 +494,34 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
 
   // 第二步：按显示顺序逐批补尾部（最后一句、标题、模型）；补上时行不跳位（排序按修改时间）
   useEffect(() => {
-    if (!projectId || !rows?.length) return
+    // 列表清空重读（重试）、没有行：上一轮的「正在读取」也收起来
+    if (!projectId || !rows?.length) {
+      setReading(false)
+      return
+    }
     let dead = false
+    const asked = requested.current
+    /** 正在读的这批：effect 重跑时这批结果会丢掉，先从 requested 拿掉，新一轮重新读 */
+    let pending: string[] = []
     const order = groupRows(mergeRows(rows, new Map())).all.map(r => r.id)
     void (async () => {
       setReading(true)
       for (let i = 0; i < order.length && !dead; i += TAIL_BATCH) {
-        const ids = order.slice(i, i + TAIL_BATCH).filter(id => !requested.current.has(id))
+        const ids = order.slice(i, i + TAIL_BATCH).filter(id => !asked.has(id))
         if (!ids.length) continue
-        ids.forEach(id => requested.current.add(id))
+        ids.forEach(id => asked.add(id))
+        pending = ids
         const got = await nativeSessionDetails(projectId, ids, engine).catch(() => [] as NativeSessionDetail[])
         if (dead) return
+        pending = []
         setDetails(prev => new Map([...prev, ...got.map(d => [d.id, d] as const)]))
       }
       if (!dead) setReading(false)
     })()
     return () => {
       dead = true
+      pending.forEach(id => asked.delete(id))
+      setReading(false)
     }
   }, [projectId, rows, engine])
 

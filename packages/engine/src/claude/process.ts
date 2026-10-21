@@ -33,6 +33,9 @@ interface Pending {
   timer: NodeJS.Timeout
 }
 
+/** 进程退出后等 stdio 读完的最长时间（见 exitPromise） */
+const STDIO_DRAIN_MS = 1_000
+
 /** 像素星空自己起的 Claude Code 进程的 pid（会话进程、回退 / 旁聊的辅助进程）：判断终端里有没有开着同一个会话时要排除 */
 export const ownClaudePids = new Set<number>()
 
@@ -96,7 +99,10 @@ export class ClaudeProcess {
         this.h.onExit(code, this.stderr.toString())
         resolve()
       }
-      this.child.on('exit', code => done(code))
+      // 在 close（stdout / stderr 都读完）时收尾：exit 先到时 stdio 可能还没读完，stderr 结尾（"already in use"、
+      // 崩溃原因）和最后几帧会丢。后代进程占着管道不放时 close 不来，exit 后最多再等 STDIO_DRAIN_MS
+      this.child.once('exit', code => setTimeout(() => done(code), STDIO_DRAIN_MS).unref())
+      this.child.once('close', code => done(code))
       this.child.on('error', err => {
         this.stderr.push(`\n${err.message}`)
         done(null)

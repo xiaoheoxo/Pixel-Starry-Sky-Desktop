@@ -236,6 +236,41 @@ describe('消息队列：调度与恢复', () => {
     expect(() => host.moveQueued(record.id, 'zzz', 0)).toThrow('只有排队中的消息可以调序')
   })
 
+  it('一轮结束时引导还没被采纳（启动中），之后引擎回「已取消」：回到空闲，这条按普通消息接着发', async () => {
+    const { host, adapter, record, send } = setup()
+    await send('a')
+    await until(() => !!adapter.sessions[0]?.active)
+    await send('b')
+    const session = adapter.sessions[0]
+    session.steer = async () => {}
+    const snapshot = host.open(record.id)
+    session.ctx.emit({ type: 'flags', flags: { ...snapshot.flags, steerAvailable: true } })
+    await host.steerQueued(record.id, 'b', snapshot.turnId!)
+    session.finish()
+    expect(host.open(record.id).state).toBe('starting')
+    session.ctx.emit({ type: 'input_ack', id: 'b', state: 'cancelled' })
+    await until(() => session.inputs.length === 2)
+    expect(session.inputs[1].text).toBe('b')
+    expect(host.open(record.id).queue.find(q => q.id === 'b')?.mode).toBe('normal')
+  })
+  it('同上，引擎回「未确认」：回到空闲，这条留着待核对，队列暂停', async () => {
+    const { host, adapter, record, send } = setup()
+    await send('a')
+    await until(() => !!adapter.sessions[0]?.active)
+    await send('b')
+    const session = adapter.sessions[0]
+    session.steer = async () => {}
+    const snapshot = host.open(record.id)
+    session.ctx.emit({ type: 'flags', flags: { ...snapshot.flags, steerAvailable: true } })
+    await host.steerQueued(record.id, 'b', snapshot.turnId!)
+    session.finish()
+    session.ctx.emit({ type: 'input_ack', id: 'b', state: 'uncertain' })
+    const after = host.open(record.id)
+    expect(after.state).toBe('idle')
+    expect(after.queue.find(q => q.id === 'b')?.status).toBe('uncertain')
+    expect(after.queuePaused).toBe(true)
+  })
+
   it('锚点已在交付（delivering）也拒绝；排完位置没变不发布队列事件', async () => {
     const { host, adapter, record, send, events } = setup()
     await send('a')

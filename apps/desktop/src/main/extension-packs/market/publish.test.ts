@@ -398,6 +398,21 @@ describe('token', () => {
     pub.forget(99) // 没有记录的窗口：不报错
   })
 
+  it('选包 / 本机检查期间窗口关了：选完不存字节、不发 token；同一窗口再选照常', async () => {
+    let finish!: (report: ExtStoreCheckReport) => void
+    const { pub, runCheck, api } = setup()
+    runCheck.mockImplementationOnce(() => new Promise<ExtStoreCheckReport>(r => (finish = r)))
+    const picking = pickOk(pub, 1)
+    await vi.waitFor(() => expect(runCheck).toHaveBeenCalled())
+    pub.forget(1)
+    finish(okReport)
+    expect((await picking)?.token).toBe('')
+    expect(await code(pub.upload('tok1', 1))).toBe('extstore.badRequest')
+    expect((await pickOk(pub, 1))?.token).toBe('tok1')
+    await pub.upload('tok1', 1)
+    expect(api.upload).toHaveBeenCalledTimes(1)
+  })
+
   it('上传的是选包时读到的那份字节，不再读文件', async () => {
     const zip = manifestZip()
     const mem = memFs({ '/a.zip': zip })

@@ -662,16 +662,33 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     }
     case 'thread/inject_items':
       // FAKE_CODEX_INJECT_FAIL：模拟旧版 Codex 没有这个方法，接力退回文字交接
+      // FAKE_CODEX_INJECT_DELAY：过这么多毫秒才回应（测注入期间停止）
       if (process.env.FAKE_CODEX_INJECT_FAIL) out({ id: m.id, error: { code: -32601, message: 'Unknown method' } })
+      else if (process.env.FAKE_CODEX_INJECT_DELAY)
+        setTimeout(() => response(m, {}), Number(process.env.FAKE_CODEX_INJECT_DELAY))
       else response(m, {})
       break
-    case 'thread/compact/start':
-      turn = { id: 'compact-' + ++next, item: 'compact-item-' + next, text: 'Compacted', timer: null }
-      emit('turn/started', { threadId: thread, turn: { id: turn.id, status: 'inProgress' } })
-      emit('item/started', { threadId: thread, turnId: turn.id, item: { type: 'contextCompaction', id: turn.item } })
-      response(m, {})
-      setTimeout(() => finish(), 50)
+    case 'thread/compact/start': {
+      const start = () => {
+        turn = { id: 'compact-' + ++next, item: 'compact-item-' + next, text: 'Compacted', timer: null }
+        emit('turn/started', { threadId: thread, turn: { id: turn.id, status: 'inProgress' } })
+        emit('item/started', { threadId: thread, turnId: turn.id, item: { type: 'contextCompaction', id: turn.item } })
+      }
+      // FAKE_CODEX_COMPACT_DELAY：先回应，过这么多毫秒才开始（turn/started 晚到）
+      const delay = Number(process.env.FAKE_CODEX_COMPACT_DELAY) || 0
+      if (delay) {
+        response(m, {})
+        setTimeout(() => {
+          start()
+          setTimeout(() => finish(), 50)
+        }, delay)
+      } else {
+        start()
+        response(m, {})
+        setTimeout(() => finish(), 50)
+      }
       break
+    }
     default:
       out({ id: m.id, error: { code: -32601, message: 'Unknown method ' + m.method } })
   }

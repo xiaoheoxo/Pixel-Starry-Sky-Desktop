@@ -3,7 +3,7 @@ import { platformGateway, type GatewaySession } from './gateway'
 import { engineProviderProtocols, groupEngines, pixelApi, pixelGatewayEnv, pixelSubagentRoute } from './pixel-env'
 import { compactWindows, longContextModels } from './compact-window'
 import { once } from 'node:events'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { SessionRecord } from '@pixelsky/protocol'
@@ -119,6 +119,29 @@ function routeModels(groupId: string): Promise<string[]> {
   return models
 }
 
+/** 网关给 Claude Code 写的设置文件名：24 位十六进制 + .json（见 sessionEnv） */
+const GATEWAY_SETTINGS = /^[0-9a-f]{24}\.json$/
+
+/**
+ * 删掉上次没走到 will-quit（崩溃、强制结束）留下的网关设置文件：里面有本机网关的会话密钥。
+ * 只删自己起的那种文件名；启动时还没有会话在用它们
+ */
+export function clearGatewaySettings(dir: string): void {
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return
+  }
+  for (const name of names)
+    if (GATEWAY_SETTINGS.test(name))
+      try {
+        rmSync(join(dir, name), { force: true })
+      } catch {
+        // 删不掉（被占用）就留着，下次启动再试
+      }
+}
+
 /**
  * 平台代理。引擎只拿到本机短期凭据；账号访问令牌留在主进程。getRecord 读会话的当前记录：每个请求都按当前记录取分组和账号，
  * 所以会话中途换分组下一个请求就生效；会话改回自有后，旧进程的请求一律拒绝（docs/ui/source-switch.md §3.4）。
@@ -137,6 +160,7 @@ export async function initPlatform(
   /** 设置 › 子智能体（只管像素星空引擎的会话） */
   subagents: () => SubagentSettings = () => DEFAULT_SUBAGENT_SETTINGS,
 ): Promise<(record: SessionRecord) => NodeJS.ProcessEnv> {
+  clearGatewaySettings(join(app.getPath('userData'), 'gateway'))
   ipc.handle('platform:groups', () => platformGroups())
   ipc.handle(
     'platform:models',

@@ -148,9 +148,10 @@ export function Popover({
       onClose()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      // 里面又开着一层（「更多工具」里的打开方式）时交给里层
-      else if (!e.defaultPrevented && ref.current && kids.current === 0 && !isTypingTarget(document.activeElement))
+      // 里面又开着一层（「更多工具」里的打开方式）时 Esc 和数字键都交给里层：Esc 只关最里面那层
+      if (e.key === 'Escape') {
+        if (kids.current === 0) onClose()
+      } else if (!e.defaultPrevented && ref.current && kids.current === 0 && !isTypingTarget(document.activeElement))
         pickByDigit(e, [...ref.current.querySelectorAll<HTMLElement>('[data-menu-item]:not(:disabled)')])
     }
     document.addEventListener('mousedown', reset, true)

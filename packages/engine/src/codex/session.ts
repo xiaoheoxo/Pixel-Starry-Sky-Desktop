@@ -265,6 +265,8 @@ export class CodexSession implements EngineSession {
   private last = tokenCounts({})
   private contextWindow: number | null = null
   private compacting = false
+  /** 压缩发出去、turn/started 还没到时停止了：等它开始时补发 turn/interrupt */
+  private stoppedCompaction = false
   private translator: CodexTranslator
   /** 派出过的子智能体：每轮换新翻译器也要保留 */
   private readonly agents = new Map<string, AgentRun>()
@@ -659,6 +661,8 @@ export class CodexSession implements EngineSession {
     this.nativeTurnId = null
     this.reportedError = null
     this.retryShown = false
+    // 上次停掉的压缩一直没报 turn/started：不能把这一轮的当成它去中断
+    this.stoppedCompaction = false
     const active = this.active
     void this.run(text, userItemId, attachments, seed).catch(error => {
       if (this.active === active) this.finish('failed', (error as Error).message)
@@ -718,6 +722,8 @@ export class CodexSession implements EngineSession {
           return
         }
         carried()
+        // 注入期间已经停止（本地已结束）：不再开始压缩
+        if (this.active !== active || this.closed) return
       }
       this.compacting = true
       this.ctx.emit({
@@ -739,7 +745,13 @@ export class CodexSession implements EngineSession {
         },
       })
       this.flushResumeNotice()
-      await this.proc!.request('thread/compact/start', { threadId: this.threadId })
+      try {
+        await this.proc!.request('thread/compact/start', { threadId: this.threadId })
+      } catch (error) {
+        // 没开始压缩：停止时记下的补发中断用不上了
+        this.stoppedCompaction = false
+        throw error
+      }
     } else {
       // 跨引擎接力：别的引擎期间的聊天先注入线程；注入不了就把交接材料加在消息前面
       carried()
@@ -1058,6 +1070,16 @@ export class CodexSession implements EngineSession {
     // 子智能体线程的事件只记进追踪（工具次数、token）
     if (eventThread && this.agents.has(eventThread)) return this.translator.child(eventThread, method, params)
     if (eventThread && this.threadId && eventThread !== this.threadId) return
+    // 压缩发出去后、开始前就停止了（本地已结束）：它开始时补发中断，并丢弃它之后的事件
+    if (this.stoppedCompaction && !this.active && method === 'turn/started') {
+      this.stoppedCompaction = false
+      const turnId = string(object(params.turn).id)
+      if (turnId) {
+        this.markFinished(turnId)
+        this.proc?.request('turn/interrupt', { threadId: this.threadId, turnId }).catch(() => {})
+      }
+      return
+    }
     // 子智能体可能在主轮结束后才跑完：没有进行中的轮次也要更新追踪
     if (!this.active && method === 'item/completed' && object(params.item).type === 'subAgentActivity')
       return this.translator.subagent(object(params.item), true)
@@ -1437,7 +1459,9 @@ export class CodexSession implements EngineSession {
     if (this.opening) await this.opening.catch(() => {})
     if (!this.active) return
     if (!this.nativeTurnId) {
-      // turn/start 还没返回：本地先结束，返回后 run() 会补发 turn/interrupt
+      // turn/start 还没返回：本地先结束，返回后 run() 会补发 turn/interrupt。
+      // 压缩已经发出去、turn/started 还没到：记下来，压缩那一轮开始时补发 turn/interrupt
+      if (this.compacting) this.stoppedCompaction = true
       this.finish('interrupted', null)
       return
     }

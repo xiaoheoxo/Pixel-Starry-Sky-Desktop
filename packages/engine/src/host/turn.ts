@@ -251,14 +251,21 @@ export class HostTurn {
     } catch (err) {
       if (ctx.runtimes.get(id) !== rt) return
       const error = (err as Error).message
+      // 设上 activeId 之后、发给引擎之前的同步步骤（写盘等）抛错：这一轮没在跑，清掉 activeId / turn，
+      // 不然会话一直不空闲；下面的判断仍按「走到了这一步」算
+      const started = rt.activeId === item.id
+      if (started) {
+        rt.activeId = null
+        rt.turn = undefined
+      }
       // 引擎没启动起来、消息没发出去：连接问题的也自动重连，到时原样重发
-      if (rt.activeId !== item.id && m.queue.reconnect(id, item.id, error, generation)) {
+      if (!started && m.queue.reconnect(id, item.id, error, generation)) {
         m.events.apply(id, { type: 'status', state: 'idle' })
         return
       }
       // 用户在派发中点了停止：已经结算成发送失败（queue.ts stopReconnect），这里的报错不改它的原因
       const settled = rt.snapshot.queue.find(q => q.id === item.id)
-      if (item.reconnect && rt.activeId !== item.id && settled?.status === 'failed' && !settled.reconnect) {
+      if (item.reconnect && !started && settled?.status === 'failed' && !settled.reconnect) {
         m.events.apply(id, { type: 'status', state: 'idle' })
         return
       }
@@ -267,7 +274,7 @@ export class HostTurn {
         error,
         reconnect: undefined,
         // 这一轮真发出去过才算上；还没发出去（派发前校验失败）就不算
-        ...(item.reconnect ? { reconnected: reconnectedCount(item.reconnect, rt.activeId === item.id) } : {}),
+        ...(item.reconnect ? { reconnected: reconnectedCount(item.reconnect, started) } : {}),
       })
       rt.snapshot = { ...rt.snapshot, queuePaused: true }
       m.queue.publishQueue(id)
@@ -277,7 +284,8 @@ export class HostTurn {
       rt.pumping = false
       rt.pumpFinished = null
       finishPump()
-      if (!rt.activeId) {
+      // 派发中会话被删掉（deleteSession 不等 pumpFinished）：不再按 id 改队列，免得从磁盘重建出幽灵运行时
+      if (!rt.activeId && ctx.runtimes.get(id) === rt) {
         rt.execution = null
         if (rt.snapshot.queue.find(q => q.id === item.id)?.status === 'dispatching')
           m.queue.changeQueue(id, item.id, { status: 'queued', direct: false })

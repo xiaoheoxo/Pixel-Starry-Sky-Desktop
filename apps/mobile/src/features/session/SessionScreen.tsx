@@ -6,8 +6,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ArrowDown, Square } from 'lucide-react'
 import { foldTurns, type ApprovalDecision } from '@pixelsky/protocol'
 import type { Pairing } from '@/connection'
-import type { ToolId } from '@/data/tools'
 import { useDesktop, useSession } from '@/data/hooks'
+import { attemptFor, sendKey, type SendAttempt } from '@/data/retry'
+import { toolError, type ToolId } from '@/data/tools'
 import { RETRY_MESSAGE, retryNoticeId, timeDividers } from '@/data/turns'
 import { linkStateText } from '@/i18n/zh'
 import { Banner, Screen, Spinner, cn } from '@/ui'
@@ -101,17 +102,32 @@ export function SessionScreen({
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
   const retryId = canAct && snapshot ? retryNoticeId(snapshot.items, running, snapshot.queue.length) : null
+  // 同一条错误再点「重试」沿用上次的 ID（上次可能已进电脑的队列、只是回应丢了，data/retry.ts）；换了一条错误才换新的
+  const retryAttempt = useRef<SendAttempt | null>(null)
   const retry = useCallback(() => {
-    if (!link || retrying) return
+    if (!link || retrying || !retryId) return
     setRetrying(true)
     setRetryError(null)
+    const current = attemptFor(retryAttempt.current, sendKey(`${sessionId}/${retryId}`, RETRY_MESSAGE, []), () =>
+      crypto.randomUUID(),
+    )
+    retryAttempt.current = current
     link
-      .call('engine:send', sessionId, { text: RETRY_MESSAGE, clientMessageId: crypto.randomUUID() })
+      .call('engine:send', sessionId, { text: RETRY_MESSAGE, clientMessageId: current.id })
+      .then(() => {
+        if (retryAttempt.current === current) retryAttempt.current = null
+      })
       .catch((e: Error) => setRetryError(e.message))
       .finally(() => setRetrying(false))
-  }, [link, retrying, sessionId])
+  }, [link, retrying, retryId, sessionId])
   const actions: TurnActions = { sessionId, image, view: setViewing, retryId, retrying, retry }
   const [menuError, setMenuError] = useState<string | null>(null)
+  // 加载更早的消息、查看完整内容失败：和菜单的错误一样放在输入框上面
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const load = (what: string, run: () => Promise<void>) => {
+    setLoadError(null)
+    run().catch(e => setLoadError(`${what}失败：${toolError(e)}`))
+  }
   // 快捷回复：答完了（最后一条不是你的）、没在跑、没排队、没有「重试」
   const suggest =
     canAct && !!snapshot && !running && !pending && !retryId && !snapshot.queue.length && !!last && last.kind !== 'user'
@@ -146,6 +162,7 @@ export function SessionScreen({
         <div className="mx-auto w-full max-w-3xl">
           {/* 「⋯」里置顶、归档的错误：放在输入框上面，对话滚到哪都看得见 */}
           {menuError && <p className="px-4 pt-1.5 pb-1 text-meta text-danger">{menuError}</p>}
+          {loadError && <p className="px-4 pt-1.5 pb-1 text-meta text-danger">{loadError}</p>}
           {pending ? (
             <>
               <ApprovalCard
@@ -205,7 +222,7 @@ export function SessionScreen({
             {view.before && (
               <button
                 type="button"
-                onClick={() => void loadOlder()}
+                onClick={() => load('加载更早的消息', loadOlder)}
                 className="self-center rounded-full bg-subtle px-3 py-1.5 text-meta text-fg-secondary"
               >
                 加载更早的消息
@@ -226,7 +243,7 @@ export function SessionScreen({
                     last={i === entries.length - 1}
                     waiting={!!pending}
                     truncated={view.truncated}
-                    onDetail={id => void detail(id)}
+                    onDetail={id => load('查看完整内容', () => detail(id))}
                     actions={actions}
                   />
                 </div>

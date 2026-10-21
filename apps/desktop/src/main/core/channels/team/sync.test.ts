@@ -255,6 +255,36 @@ describe('TeamSync', () => {
     expect(t.sync.channels()).toHaveLength(1)
   })
 
+  it('云端没部署后，排着的重拉 / 操作触发的重拉又成功了：重新开实时通道，不假装 online', async () => {
+    const t = setup()
+    await t.online()
+    expect(t.realtime.start).toHaveBeenCalledTimes(1)
+    t.cloud.deployed = false
+    await t.sync.reload('plain')
+    expect(t.sync.connection()).toBe('unavailable')
+    expect(t.realtime.stop).toHaveBeenCalled()
+    t.cloud.deployed = true
+    await t.sync.reload('plain')
+    expect(t.realtime.start).toHaveBeenCalledTimes(2)
+    expect(t.sync.connection()).toBe('connecting')
+    t.status('online')
+    await until(() => t.sync.connection() === 'online')
+    expect(t.sync.channels()).toHaveLength(1)
+    t.sync.stop()
+  })
+
+  it('正在拉总览时又要重拉（比如改动之后）：等的是拉完再拉的那一次，拿到改动后的数据', async () => {
+    const t = setup()
+    await t.online()
+    const first = t.sync.reload('plain')
+    // 正在拉的那次已经发出，之后云端才改名
+    t.cloud.channels[0].name = '新名字'
+    await t.sync.reload('plain')
+    expect(t.sync.channels()[0].name).toBe('新名字')
+    await first
+    t.sync.stop()
+  })
+
   it('连不上云端：offline，缓存的数据还在；恢复后自动重试', async () => {
     const t = setup()
     await t.online()

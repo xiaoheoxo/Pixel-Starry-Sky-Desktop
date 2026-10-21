@@ -4,8 +4,24 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Writable } from 'node:stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createNodeRuntime, nodeTarget, pickRelease, runtimeLayout, shasumOf } from './node-runtime'
+
+/** 打开后写盘失败（模拟磁盘满）：只在 failWrites 为真时换掉 createWriteStream */
+const disk = vi.hoisted(() => ({ failWrites: false }))
+vi.mock('node:fs', async original => {
+  const fs = await original<typeof import('node:fs')>()
+  return {
+    ...fs,
+    createWriteStream: ((...args: Parameters<typeof fs.createWriteStream>) =>
+      disk.failWrites
+        ? new Writable({
+            write: (_chunk, _encoding, callback) => callback(new Error('ENOSPC: no space left on device')),
+          })
+        : fs.createWriteStream(...args)) as typeof fs.createWriteStream,
+  }
+})
 
 describe('选哪个包', () => {
   it('各平台的包名', () => {
@@ -116,6 +132,52 @@ describe.skipIf(!nodeTarget())('下载、校验、解压', () => {
     })
     await expect(runtime.ensure(() => undefined)).rejects.toThrow(/官方源：.*校验不对.*国内镜像：.*校验不对/)
     expect(existsSync(runtimeLayout(root).node)).toBe(false)
+    expect(readdirSync(root)).toEqual([])
+  })
+
+  it('上次留下的下载临时目录：下载前清掉，别的目录不动', async () => {
+    const release = fakeRelease('v24.9.0')
+    const root = temp()
+    mkdirSync(join(root, '.download-1700000000000', 'half'), { recursive: true })
+    mkdirSync(join(root, '.download-mine'))
+    const runtime = createNodeRuntime({
+      root,
+      fetch: async url => {
+        if (url.endsWith('/index.json')) return Response.json(release.index)
+        if (url.endsWith('/SHASUMS256.txt')) return new Response(release.sums)
+        return new Response(release.archive)
+      },
+    })
+    await runtime.ensure(() => undefined)
+    expect(readdirSync(root).sort()).toEqual(['.download-mine', 'node', 'npm-global'])
+  })
+
+  it('写盘出错（磁盘满）：网络流跟着关掉，不挂到超时', async () => {
+    const release = fakeRelease('v24.9.0')
+    const root = temp()
+    let cancelled = 0
+    const runtime = createNodeRuntime({
+      root,
+      fetch: async url => {
+        if (url.endsWith('/index.json')) return Response.json(release.index)
+        if (url.endsWith('/SHASUMS256.txt')) return new Response(release.sums)
+        // 一直有数据、永远不结束的下载
+        const body = new ReadableStream<Uint8Array>({
+          pull: controller => controller.enqueue(new Uint8Array(1024)),
+          cancel: () => {
+            cancelled++
+          },
+        })
+        return new Response(body)
+      },
+    })
+    disk.failWrites = true
+    try {
+      await expect(runtime.ensure(() => undefined)).rejects.toThrow(/ENOSPC/)
+    } finally {
+      disk.failWrites = false
+    }
+    expect(cancelled).toBe(2)
     expect(readdirSync(root)).toEqual([])
   })
 })

@@ -216,10 +216,21 @@ function menuActions(tabId: string, view: EditorView, toast: (message: string) =
       separator: true,
       disabled: readonly || !text,
       run: () => {
-        void clipboardWrite(text).then(() => view.dispatch(state.replaceSelection(''), { userEvent: 'delete.cut' }))
+        void clipboardWrite(text).then(
+          () => {
+            // 写剪贴板是异步的：期间文档改过（打开菜单时的选区可能已对不上）就不删，只当复制
+            if (view.state.doc === state.doc) view.dispatch(state.replaceSelection(''), { userEvent: 'delete.cut' })
+          },
+          () => toast(tr('ctxmenu.copyFailed')),
+        )
       },
     },
-    { label: tr('editor.menu.copy'), icon: Copy, disabled: !text, run: () => void clipboardWrite(text) },
+    {
+      label: tr('editor.menu.copy'),
+      icon: Copy,
+      disabled: !text,
+      run: () => void clipboardWrite(text).catch(() => toast(tr('ctxmenu.copyFailed'))),
+    },
     {
       label: tr('editor.menu.paste'),
       icon: ClipboardPaste,

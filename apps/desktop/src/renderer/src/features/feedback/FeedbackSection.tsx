@@ -74,7 +74,7 @@ export function FeedbackSection() {
           />
         </section>
       )}
-      {view.kind === 'thread' && <FeedbackThread id={view.id} onBack={toList} onFailed={onFailed} />}
+      {view.kind === 'thread' && <FeedbackThread key={view.id} id={view.id} onBack={toList} onFailed={onFailed} />}
     </div>
   )
 }

@@ -4,10 +4,10 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
-import { mkdir, rename, rm } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { finished } from 'node:stream/promises'
+import { pipeline } from 'node:stream/promises'
 import type { NodeRuntime, NpmTool } from '@pixelsky/engine'
 
 export const NODE_SOURCES = [
@@ -109,6 +109,14 @@ export function createNodeRuntime(opts: { root: string; fetch: Fetch; target?: N
   const tool = (): NpmTool => ({ node: layout.exe, cli: layout.cli, prefix: layout.prefix })
   let installing: Promise<NpmTool> | null = null
 
+  /** 上次下载到一半退出 / 崩溃留下的临时目录（只认自己起的 .download-<时间> 名字） */
+  const clearStale = async (): Promise<void> => {
+    const names = await readdir(opts.root).catch(() => [] as string[])
+    for (const name of names)
+      if (/^\.download-\d+$/.test(name))
+        await rm(join(opts.root, name), { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined)
+  }
+
   const get = async (url: string, ms: number): Promise<Response> => {
     const r = await opts.fetch(url, { signal: AbortSignal.timeout(ms) })
     if (!r.ok) {
@@ -149,7 +157,8 @@ export function createNodeRuntime(opts: { root: string; fetch: Fetch; target?: N
             : `下载 Node.js ${(got / MB).toFixed(1)} MB`,
         )
       })
-      await finished(body.pipe(out))
+      // pipeline：写盘出错（磁盘满）时连网络流一起销毁，不让连接挂到超时
+      await pipeline(body, out)
       if (hash.digest('hex') !== expected) throw new Error('下载的 Node.js 校验不对（可能下载不完整），请重试')
       onLine(`正在解压 Node.js ${version}`)
       await tar(archive, tmp, target.ext)
@@ -169,6 +178,7 @@ export function createNodeRuntime(opts: { root: string; fetch: Fetch; target?: N
     ensure(onLine) {
       if (ready()) return Promise.resolve(tool())
       installing ??= (async () => {
+        await clearStale()
         const errors: string[] = []
         for (const source of NODE_SOURCES) {
           try {

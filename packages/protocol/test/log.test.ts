@@ -31,6 +31,26 @@ describe('日志行', () => {
     expect(parseLogLine(line)).toEqual({ ts, level: 'info', scope: 'a_b', message: 'hi' })
   })
 
+  it('没有字段、消息结尾是 JSON 时读回不截断、不多出字段', () => {
+    for (const message of ['收到配置 {"sessionId":"x"}', '{"a":1}', 'config {}', '{}', 'a } b {c}']) {
+      const entry: LogEntry = { ts, level: 'info', scope: 'engine', message }
+      expect(parseLogLine(formatLogLine(entry))).toEqual(entry)
+      // 有字段时照旧
+      const withFields: LogEntry = { ...entry, fields: { sessionId: 's1' } }
+      expect(parseLogLine(formatLogLine(withFields))).toEqual(withFields)
+    }
+  })
+
+  it('旧格式的行照旧解析：行尾 JSON 是字段', () => {
+    expect(parseLogLine(`${logTime(ts)} INFO engine 收到 {"sessionId":"x"}`)).toEqual({
+      ts,
+      level: 'info',
+      scope: 'engine',
+      message: '收到',
+      fields: { sessionId: 'x' },
+    })
+  })
+
   it('空行为 null；格式不对的行整行当消息', () => {
     expect(parseLogLine('  ')).toBeNull()
     expect(parseLogLine('garbage line')).toEqual({ ts: 0, level: 'info', scope: '-', message: 'garbage line' })

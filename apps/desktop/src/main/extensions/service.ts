@@ -74,9 +74,20 @@ export class ExtensionService {
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 'config.json')
     if (existsSync(file)) {
-      const c = jsonFile(file)
-      if (c.version !== 1 || !Array.isArray(c.entries)) throw new Error('扩展配置版本不正确')
-      this.config = c as unknown as Config
+      // 读不了（断电写坏成空文件、版本不对）时不抛：抛了每轮对话前的 prepare 都会失败、消息全发不出去。
+      // 原文件留成 config.json.bad-<时间>，从空配置开始，扩展页显示提示
+      let c: Record<string, unknown> | null = null
+      try {
+        c = jsonFile(file)
+      } catch {
+        c = null
+      }
+      if (c && c.version === 1 && Array.isArray(c.entries)) this.config = c as unknown as Config
+      else {
+        const backup = `${file}.bad-${now()}`
+        renameSync(file, backup)
+        this.warnings.push(`扩展配置读不了，已改为从空配置开始；原文件留在 ${backup}`)
+      }
     }
     this.secrets = new Secrets(dir, cipher)
     // 只清理由本服务创建的运行配置，遗留包由条目引用关系决定。
@@ -222,6 +233,8 @@ export class ExtensionService {
           ? existing.check
           : undefined
     }
+    // 技能改写成新包：保存成功后旧包才进待删列表；保存失败删掉新包，旧包原样留着（配置回滚后还指向它）
+    let created: string | undefined
     if (data.kind === 'skill') {
       const old = existing?.components.find(c => c.kind === 'skill')?.path
       if (old && data.expectedVersion !== contentVersion(readFileSync(old, 'utf8')))
@@ -245,7 +258,7 @@ export class ExtensionService {
         rmSync(inside(this.dir, root), { recursive: true, force: true })
         throw error
       }
-      if (existing?.path) this.retired.push(existing.path)
+      created = root
     }
     const before = this.config.entries
     this.config.entries = [...before.filter(x => x.id !== e.id), e]
@@ -253,8 +266,10 @@ export class ExtensionService {
       this.save()
     } catch (error) {
       this.config.entries = before
+      if (created) rmSync(inside(this.dir, created), { recursive: true, force: true })
       throw error
     }
+    if (created && existing?.path) this.retired.push(existing.path)
     return e
   }
   skillText(id: string, project: string | null): { text: string; version: string; readOnly: boolean } {
@@ -356,7 +371,20 @@ export class ExtensionService {
     }
     if (data.subdir && (/^[\\/]/.test(data.subdir) || data.subdir.split(/[\\/]/).includes('..')))
       throw new Error('子目录必须位于来源目录内')
+    // 先校验再建包目录：校验失败不留空目录
+    let engines: Array<'claude' | 'codex' | 'pixel'> | undefined
+    if (o.engines !== undefined) {
+      if (
+        !Array.isArray(o.engines) ||
+        !o.engines.length ||
+        o.engines.some(engine => engine !== 'claude' && engine !== 'codex' && engine !== 'pixel')
+      )
+        throw new Error('适用引擎不正确')
+      engines = kind === 'plugin' ? ['claude'] : (o.engines as Array<'claude' | 'codex' | 'pixel'>)
+    }
     const root = this.packageDir()
+    /** 技能另建的包：后面出错（含保存配置失败）时连它一起删，不留孤儿目录 */
+    let pack: string | undefined
     try {
       const revision = await this.fetch(source, data.location, data.subdir ?? '', root)
       const sourceDigest = digest(root)
@@ -389,8 +417,8 @@ export class ExtensionService {
         const c = skillFile(path),
           name = data.name ?? c.name
         this.conflict(name, kind, data.scope)
-        const pack = this.packageDir(),
-          skillDir = join(pack, 'skills', name)
+        pack = this.packageDir()
+        const skillDir = join(pack, 'skills', name)
         this.copy(root, skillDir)
         mkdirSync(join(pack, '.claude-plugin'), { recursive: true })
         writeFileSync(join(pack, '.claude-plugin/plugin.json'), JSON.stringify({ name }))
@@ -410,21 +438,20 @@ export class ExtensionService {
         }
         rmSync(inside(join(this.dir, 'packages'), root), { recursive: true, force: true })
       }
-      if (o.engines !== undefined) {
-        if (
-          !Array.isArray(o.engines) ||
-          !o.engines.length ||
-          o.engines.some(engine => engine !== 'claude' && engine !== 'codex' && engine !== 'pixel')
-        )
-          throw new Error('适用引擎不正确')
-        e.engines = kind === 'plugin' ? ['claude'] : (o.engines as Array<'claude' | 'codex' | 'pixel'>)
-      }
+      if (engines) e.engines = engines
       e.sourceDigest = sourceDigest
-      this.config.entries.push(e)
-      this.save()
+      const before = this.config.entries
+      this.config.entries = [...before, e]
+      try {
+        this.save()
+      } catch (error) {
+        this.config.entries = before
+        throw error
+      }
       return e
     } catch (error) {
-      if (existsSync(root)) rmSync(inside(join(this.dir, 'packages'), root), { recursive: true, force: true })
+      for (const dir of [root, pack])
+        if (dir && existsSync(dir)) rmSync(inside(join(this.dir, 'packages'), dir), { recursive: true, force: true })
       throw error
     }
   }
@@ -636,8 +663,13 @@ export class ExtensionService {
     return { ...env, PATH: [...new Set(dirs), env.PATH ?? env.Path ?? ''].join(delimiter) }
   }
   close(): void {
+    // 退出时（will-quit）调用：Windows 上旧包被占用删不掉时不抛，后面的旧包照样删
     for (const path of this.retired)
-      if (existsSync(path)) rmSync(inside(join(this.dir, 'packages'), path), { recursive: true, force: true })
+      try {
+        if (existsSync(path)) rmSync(inside(join(this.dir, 'packages'), path), { recursive: true, force: true })
+      } catch {
+        // 删不掉的留着（配置里已不引用它，不影响使用），不能让退出流程因为它中断
+      }
   }
 }
 

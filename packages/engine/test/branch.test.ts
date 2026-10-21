@@ -247,6 +247,17 @@ describe('回退：对话 / 代码 / 两者，撤销', () => {
     expect(existsSync(file)).toBe(false)
   })
 
+  it('删除会话时放掉它的撤销记录', async () => {
+    const file = join(root, 'c.txt')
+    const host = makeHost({ FAKE_CLAUDE_REWIND: JSON.stringify({ file, content: 'restored' }) })
+    const { record } = await conversation(host, ['一', '二'])
+    await host.rewind(record.id, 'm1', { conversation: true, code: true })
+    const undo = (host as unknown as { m: { branch: { undo: Map<string, unknown> } } }).m.branch.undo
+    expect(undo.has(record.id)).toBe(true)
+    await host.deleteSession(record.id)
+    expect(undo.has(record.id)).toBe(false)
+  })
+
   it('没有检查点：预览说明原因；只恢复代码时报错且什么都不改，同时回退对话时对话照样回退（GitHub #82）', async () => {
     const host = makeHost()
     const { record } = await conversation(host, ['一', '二'])

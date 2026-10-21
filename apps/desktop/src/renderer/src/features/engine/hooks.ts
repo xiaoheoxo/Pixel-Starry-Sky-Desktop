@@ -738,8 +738,8 @@ export function useComposerController(
     if (last) rememberNewTask(c)
   }
 
-  /** 新任务发出去以后：固定模式恢复成固定的那个；接着上次时确认默认引擎就是这次的 */
-  const afterNewTask = (): void => {
+  /** 新任务发出去以后：固定模式恢复成固定的那个；接着上次时确认默认引擎就是这次的。effort 是这次实际发送用的强度 */
+  const afterNewTask = (effort: Effort | null): void => {
     const newTask = getChannelPrefs().newTask
     if (newTask.mode === 'fixed') {
       rememberNewTask(newTask.choice)
@@ -747,8 +747,9 @@ export function useComposerController(
     }
     if (engineId !== defaults?.engine) void b.setDefaultEngine(engineId).catch(() => undefined)
     // 推理强度也接着上次：这次新任务用的强度记成这个引擎新会话的默认（§2.6）
-    if (base.effort !== panelDefaults(engineId).effort)
-      void b.setConfig(engineId, { defaults: { effort: base.effort } }).catch(() => undefined)
+    // 会话记录已存在（工作区里打开、还没发过）时 base 是默认引擎的出厂草稿，要用记录里的强度
+    if (effort !== panelDefaults(engineId).effort)
+      void b.setConfig(engineId, { defaults: { effort } }).catch(() => undefined)
   }
 
   const setModel = async (m: string | null): Promise<void> => {
@@ -978,7 +979,7 @@ export function useComposerController(
         await b.updateSession(record.id, sourcePatch)
         await b.send(record.id, input)
         // 工作区选择里打开、还没发过的会话也算新任务
-        afterNewTask()
+        afterNewTask(record.effort)
         return
       }
       // 欢迎页：先确认引擎可用、有项目，再创建会话
@@ -1002,7 +1003,7 @@ export function useComposerController(
         throw err
       }
       setDraft(null)
-      afterNewTask()
+      afterNewTask(base.effort)
       onOpenSession?.(created.id)
     },
   }

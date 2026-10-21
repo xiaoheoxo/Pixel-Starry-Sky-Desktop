@@ -17,14 +17,25 @@ const NONE: ServiceDefinition[] = []
  */
 export function useServices(ref: WorkspaceRef | null): ServicesState {
   const key = ref ? JSON.stringify(ref) : ''
-  const [state, setState] = useState<ServicesState>({ services: NONE, loading: !isDemo && !!ref, error: null })
+  // forKey：这份列表是哪个项目的；换项目后新列表回来前不拿上一个项目的服务给界面（点停止会停错项目）
+  const [state, setState] = useState<ServicesState & { forKey: string }>({
+    services: NONE,
+    loading: !isDemo && !!ref,
+    error: null,
+    forKey: key,
+  })
   useEffect(() => {
     if (isDemo) {
-      setState({ services: ref ? demo().projectTools.environment.services : NONE, loading: false, error: null })
+      setState({
+        services: ref ? demo().projectTools.environment.services : NONE,
+        loading: false,
+        error: null,
+        forKey: key,
+      })
       return
     }
     if (!ref) {
-      setState({ services: NONE, loading: false, error: null })
+      setState({ services: NONE, loading: false, error: null, forKey: key })
       return
     }
     let gone = false
@@ -32,13 +43,15 @@ export function useServices(ref: WorkspaceRef | null): ServicesState {
       void window
         .pixelsky!.projectTools.services(ref)
         .then(services => {
-          if (!gone) setState({ services, loading: false, error: null })
+          if (!gone) setState({ services, loading: false, error: null, forKey: key })
         })
         .catch((e: Error) => {
           if (!gone) setState(s => ({ ...s, loading: false, error: e.message }))
         })
     }
-    setState(s => ({ ...s, loading: true }))
+    setState(s =>
+      s.forKey === key ? { ...s, loading: true } : { services: NONE, loading: true, error: null, forKey: key },
+    )
     read()
     const off = window.pixelsky!.projectTools.onChange(read)
     return () => {
@@ -48,5 +61,7 @@ export function useServices(ref: WorkspaceRef | null): ServicesState {
     // ref 只在 key 变化时才会变（key 由 ref 序列化而来）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
+  // 换项目那一帧 effect 还没跑：state 仍是上一个项目的，按「正在读」交出去
+  if (state.forKey !== key) return { services: NONE, loading: !isDemo && !!ref, error: null }
   return state
 }

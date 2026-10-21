@@ -39,6 +39,9 @@ describe('pairing', () => {
     expect(decodeOffer(encodeOffer(offer))).toEqual(offer)
     expect(() => decodeOffer('https://example.com')).toThrow('LINK_BAD_OFFER')
     expect(() => decodeOffer('pixelsky://pair?d=' + toBase64Url(utf8('{"v":2}')))).toThrow('LINK_BAD_OFFER')
+    // 解出来不是对象（null、数字、数组）：同样是 LINK_BAD_OFFER，不是 TypeError
+    for (const json of ['null', '1', '[]', '"x"'])
+      expect(() => decodeOffer('pixelsky://pair?d=' + toBase64Url(utf8(json)))).toThrow('LINK_BAD_OFFER')
   })
 
   it('accepts a request made with the QR secret only', () => {

@@ -104,6 +104,30 @@ it('worktree sessions keep their own cwd and directory maintenance blocks new wr
   expect(host.createSession({ projectId: project.id }, copy).cwd).toBe(copy)
 })
 
+it('directory maintenance also stops and blocks sessions in its subfolders, not sibling folders', async () => {
+  const host = makeHost()
+  const project = host.addProject(root)
+  const copy = join(root, 'copy-workspace'),
+    sub = join(copy, 'packages', 'app'),
+    sibling = join(root, 'copy-workspace-2')
+  mkdirSync(sub, { recursive: true })
+  mkdirSync(sibling)
+  const inner = host.createSession({ projectId: project.id }, sub)
+  const other = host.createSession({ projectId: project.id }, sibling)
+  const lockPath = process.platform === 'win32' ? copy.toUpperCase() : copy
+  await host.withWorkspaceStopped(lockPath, async () => {
+    await expect(host.send(inner.id, 'blocked')).rejects.toThrow('维护')
+    expect(host.open(inner.id).queuePaused).toBe(true)
+    expect(() => host.createSession({ projectId: project.id }, join(sub, 'deeper'))).toThrow('维护')
+    // 已经在维护的目录下面或上面再加锁都要等
+    await expect(host.withWorkspaceStopped(sub, async () => {})).rejects.toThrow('维护')
+    await expect(host.withWorkspaceStopped(root, async () => {})).rejects.toThrow('维护')
+    expect(host.open(other.id).queuePaused).toBe(false)
+    expect(host.createSession({ projectId: project.id }, sibling).cwd).toBe(sibling)
+  })
+  expect(host.createSession({ projectId: project.id }, sub).cwd).toBe(sub)
+})
+
 function setup(host: EngineHost, ultracode = false) {
   const projectDir = mkdtempSync(join(root, 'proj-'))
   const project = host.addProject(projectDir)

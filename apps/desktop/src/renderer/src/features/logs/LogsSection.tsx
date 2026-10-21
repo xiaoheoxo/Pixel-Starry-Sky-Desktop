@@ -138,8 +138,10 @@ export function LogsSection() {
     })
   }, [])
 
+  // 每次操作都换掉上一次的结果：之前失败的红字不能一直盖住这次的提示
   const run = (action: () => Promise<void>) => {
     setNotice(null)
+    setError(null)
     action().catch((e: unknown) => setError(String((e as Error)?.message ?? e)))
   }
 

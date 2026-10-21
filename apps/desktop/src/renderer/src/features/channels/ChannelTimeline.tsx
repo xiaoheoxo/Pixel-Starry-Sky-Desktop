@@ -1,8 +1,8 @@
 import { useI18n } from '@/i18n/I18nProvider'
-import { tr } from '../../i18n/core'
+import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Hash, Info, UserMinus, UserPlus, Users } from 'lucide-react'
-import { Spinner } from '@/ui'
+import { Spinner, useToast } from '@/ui'
 import type { Channel, ChannelEvent, ChannelMember, ChannelMessage } from '@/data/types'
 import { buildTimeline } from './model'
 import { formatDay } from './format'
@@ -88,19 +88,35 @@ export function ChannelTimeline({
     () => new Map(messages.filter((m): m is Quotable => m.kind !== 'event').map(m => [m.id, m])),
     [messages],
   )
+  const toast = useToast()
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // 组件不按频道重建：读更早消息的请求记下是哪个频道的，换了频道就不再管它
+  const channelId = useRef(channel.id)
+  channelId.current = channel.id
   const loadOlder = () => {
     const el = scroller.current
     if (!onLoadOlder || !el || loadingOlder) return
     const from = el.scrollHeight - el.scrollTop
+    const id = channel.id
     setLoadingOlder(true)
-    void onLoadOlder().finally(() => {
-      setLoadingOlder(false)
-      // 读进更早的消息后保持原来看到的位置
-      requestAnimationFrame(() => {
-        if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight - from
+    void onLoadOlder()
+      .then(
+        () =>
+          // 读进更早的消息后保持原来看到的位置
+          requestAnimationFrame(() => {
+            if (scroller.current && channelId.current === id)
+              scroller.current.scrollTop = scroller.current.scrollHeight - from
+          }),
+        error => {
+          if (channelId.current === id)
+            toast(
+              tr('channels.loadOlderFailed', { error: translateMessage((error as Error)?.message ?? String(error)) }),
+            )
+        },
+      )
+      .finally(() => {
+        if (channelId.current === id) setLoadingOlder(false)
       })
-    })
   }
   const name = (id: string | null | undefined) => (id ? membersById.get(id)?.name : undefined) ?? '?'
   const working = channelMembers.filter(m => m.kind === 'agent' && m.status === 'running')
@@ -114,6 +130,7 @@ export function ChannelTimeline({
     el.scrollTop = divider ? Math.max(0, divider.offsetTop - 24) : el.scrollHeight
     nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_PX
     setHighlight(null)
+    setLoadingOlder(false)
   }, [channel.id])
 
   // 新消息：原本就在底部附近，或是自己刚发的，就跟到底部。

@@ -97,6 +97,18 @@ let quitRequested = false
 let quitReady = false
 /** 正在退出整个应用（菜单、托盘、自动更新）：这时 × 不再隐藏到托盘 */
 let quitting = false
+/** 在退出流程里发起关闭的窗口：确认框（文件尚未保存、终端仍在运行）晚于复位计时才点退出时，要重新算作退出 */
+const quitClosing = new WeakSet<BrowserWindow>()
+let quitResetTimer: NodeJS.Timeout | null = null
+/** 窗口里选了「返回保存」时界面不会告诉主进程：过一会儿恢复成平时的 ×（真正退出时窗口已经一个个关掉，不受影响） */
+function armQuitReset(): void {
+  if (quitResetTimer) clearTimeout(quitResetTimer)
+  quitResetTimer = setTimeout(() => {
+    quitting = false
+    quitResetTimer = null
+  }, 10_000)
+  quitResetTimer.unref()
+}
 /** 系统托盘（app/tray.ts）；截图模式不建 */
 let tray: TrayController | null = null
 /** 启动慢时的开机画面（app/splash.ts）；截图模式不弹 */
@@ -130,6 +142,11 @@ async function finishWindowClose(win: BrowserWindow): Promise<void> {
       quitting = false
       return
     }
+    // 确认框可能开了不止 10 秒，quitting 已被复位：这个窗口是退出流程里关的，就重新算作退出（macOS 关完要接着退）
+    if (quitClosing.has(win)) {
+      quitting = true
+      armQuitReset()
+    }
     await closeWindowTerminals(win)
     if (!win.isDestroyed()) {
       closingAllowed.add(win)
@@ -160,10 +177,7 @@ app.on('before-quit', event => {
       if (!win.isVisible()) win.show()
       win.close()
     }
-    // 窗口里选了「返回保存」时界面不会告诉主进程：过一会儿恢复成平时的 ×（真正退出时窗口已经一个个关掉，不受影响）
-    setTimeout(() => {
-      quitting = false
-    }, 10_000).unref()
+    armQuitReset()
     quitRequested = false
     return
   }
@@ -319,6 +333,9 @@ function createWindow(): BrowserWindow {
       tray.hide(win)
       return
     }
+    // 记下这次关闭是不是退出流程发起的（之后平时点 × 会改回来）
+    if (quitting) quitClosing.add(win)
+    else quitClosing.delete(win)
     // 界面不可用（崩溃、重新加载还没报到）时收不到 files:beforeClose，直接走关闭流程
     if (!canSend(win.webContents)) {
       void finishWindowClose(win)

@@ -117,17 +117,22 @@ export class RemoteTerminals {
   private async start(owner: number, record: TerminalRecord): Promise<TerminalRecord> {
     const connection = this.machines.connection(machineOf(record.id)),
       shell = connection.hello?.shell || '/bin/sh'
-    record.generation++
+    const generation = ++record.generation
     record.status = 'starting'
     record.error = undefined
     this.emit(owner, { type: 'record', record: { ...record } })
     try {
       const channel = await connection.openShell(record.cwd, shell, { cols: 100, rows: 24 })
+      // 打开期间终端被关掉了、或又重启了一次：这个 shell 没人要，关掉，不然一直挂在远端
+      if (!this.records.includes(record) || record.generation !== generation) {
+        channel.kill()
+        return { ...record }
+      }
       const run: Run = {
         channel,
         owner,
         seq: 0,
-        generation: record.generation,
+        generation,
         inflight: new Map(),
         bytes: 0,
         decoder: new StringDecoder('utf8'),
@@ -208,7 +213,8 @@ export class RemoteTerminals {
     this.changing.add(id)
     try {
       if (run) await this.stop(run)
-      if (restart) return this.start(owner, record)
+      // 等 shell 开好再放开 changing：连点两次重启不会多开一个
+      if (restart) return await this.start(owner, record)
       this.records = this.records.filter(r => r.id !== id)
       await this.save()
     } finally {
@@ -229,15 +235,21 @@ export class RemoteTerminals {
     return [...this.runs.values()].some(r => owner === undefined || r.owner === owner)
   }
   async shutdown(owner?: number): Promise<void> {
-    for (const [id, run] of [...this.runs])
-      if (owner === undefined || owner === run.owner) {
-        await this.stop(run)
+    const runs = [...this.runs].filter(([, run]) => owner === undefined || owner === run.owner)
+    await Promise.all(
+      runs.map(async ([id, run]) => {
+        // 网络静默断开（休眠唤醒、换 Wi-Fi）时远端的 close 回不来：等满 5 秒就当它已经断了、不再记着，
+        // 不能让关窗口 / 退出卡在这里，后面的终端也照常停
+        await this.stop(run).catch(() => {
+          if (this.runs.get(id) === run) this.runs.delete(id)
+        })
         const record = this.records.find(r => r.id === id)
         if (record) {
           record.status = 'stopped'
           this.emit(run.owner, { type: 'record', record: { ...record } })
         }
-      }
+      }),
+    )
     await this.save()
   }
 }

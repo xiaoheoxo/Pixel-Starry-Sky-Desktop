@@ -120,17 +120,20 @@ export function PluginsSection() {
     setCatalog(false)
     setError(null)
   }
+  // 技能正文请求序号：连点两个技能时，先点的晚到不覆盖后点的
+  const skillRequest = useRef(0)
   const select = (row: Row): void => {
     setForm(null)
     setDetail(row.entry.id)
     setConfirm(null)
     setUpdate(null)
     setNativeSkill('')
+    const n = ++skillRequest.current
     if (row.entry.kind === 'skill')
       void bridge
         ?.skillText(row.entry.id, workspace.ref)
-        .then(v => setNativeSkill(v.text))
-        .catch(error => setError(error.message))
+        .then(v => n === skillRequest.current && setNativeSkill(v.text))
+        .catch(error => n === skillRequest.current && setError(error.message))
   }
   const switchTab = (kind: ExtensionKind): void => {
     setTab(kind)

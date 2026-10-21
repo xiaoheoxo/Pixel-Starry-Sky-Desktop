@@ -18,7 +18,7 @@ export interface TeamRunRef {
   /** 最近一次已处理的追加要求（消息 id） */
   follow?: string | null
   /** 这一轮的收尾（任务卡字段 + 结果消息）还没写回云端时留着，重连后补发 */
-  final?: { patch: Record<string, unknown>; result?: { text: string; mentions: string[] } }
+  final?: { patch: Record<string, unknown>; result?: { text: string; mentions: string[]; round?: number } }
 }
 
 /** 一项活这一轮的运行信息，存在 runs.json，重启后用来对账 */
@@ -53,6 +53,11 @@ export interface TaskRun {
   followUps: string[]
   /** 最后一个错误通知（对账时当失败原因） */
   notice: string | null
+  /**
+   * 这一轮报了失败、还没定：引擎断线自动重连 / 额度用完换账号时会先发 failed 再把这条留在队首续做，
+   * 等紧跟着的队列事件——这条还在队列里就接着等续做那一轮，不在了（或标了失败）才按失败收尾。值是失败原因
+   */
+  failing?: string | null
   /** 团队频道派来的活（本机频道的活没有） */
   team?: TeamRunRef
   /** 这一轮要带上哪些消息的附件（发的时候再读，runs.json 里不存图片） */
@@ -101,7 +106,9 @@ const STARTED = new Set<Item['kind']>(['todo', 'command', 'file_change', 'tool']
 const isRunUser = (run: TaskRun, item: Item): boolean =>
   item.kind === 'user' &&
   !!run.clientMessageId &&
-  (item.id === run.clientMessageId || item.id.startsWith(`${run.clientMessageId}-retry-`))
+  (item.id === run.clientMessageId ||
+    item.id.startsWith(`${run.clientMessageId}-retry-`) ||
+    item.id.startsWith(`${run.clientMessageId}-reconnect-`))
 
 const firstLine = (text: string | null | undefined): string | null => text?.split('\n')[0]?.trim() || null
 
@@ -195,6 +202,14 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
   const none: Tracked = { run, patch: null, finish: null }
   if (run.phase !== 'sent') return none
   if (event.type === 'queue') {
+    if (run.failing !== undefined) {
+      const item = event.items.find(q => q.id === run.clientMessageId)
+      // 还在队列里、没标失败：引擎要接着做（自动重连 / 换账号重发），等续做那一轮的 user 条目
+      if (item && item.status !== 'failed')
+        return { run: { ...run, failing: undefined, turnId: null }, patch: null, finish: null }
+      const error = run.failing ?? firstLine(item?.error)
+      return { run: { ...run, failing: undefined }, patch: null, finish: { status: 'failed', error } }
+    }
     if (run.started) return none
     const item = event.items.find(q => q.id === run.clientMessageId)
     if (item?.status === 'failed')
@@ -245,7 +260,8 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
     const next = { ...run, requests: [] }
     if (event.outcome === 'completed') return { run: next, patch: null, finish: { status: 'done' } }
     if (event.outcome === 'interrupted') return { run: next, patch: null, finish: { status: 'stopped' } }
-    return { run: next, patch: null, finish: { status: 'failed', error: firstLine(event.error ?? run.notice) } }
+    // 先不收尾，等紧跟着的队列事件（宿主每轮结束都会发）看引擎会不会续做
+    return { run: { ...next, failing: firstLine(event.error ?? run.notice) }, patch: null, finish: null }
   }
   return none
 }

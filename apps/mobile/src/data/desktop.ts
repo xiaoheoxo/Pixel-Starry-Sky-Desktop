@@ -23,6 +23,8 @@ class Lists {
   private readonly cache = new ListCache(browserStorage())
   /** 已经试过读缓存的电脑（没有缓存的也只试一次） */
   private readonly tried = new Set<string>()
+  /** 每台电脑收到过几次会话 / 项目列表的推送：取列表期间推来过，回来的结果不比推送新，不拿它覆盖 */
+  private readonly pushes = new Map<string, { sessions: number; projects: number }>()
   private deviceIds: string | null = null
   private started = false
 
@@ -52,11 +54,28 @@ class Lists {
   async refresh(deviceId: string): Promise<void> {
     const link = connections.link(deviceId)
     if (!link || connections.state(deviceId) !== 'ready') return
+    const before = this.pushCount(deviceId)
     const [sessions, projects] = await Promise.all([
       link.call<SessionSummary[]>('engine:sessions'),
       link.call<ProjectRecord[]>('engine:projects'),
     ])
-    this.set(deviceId, { sessions, projects, loaded: true, cached: false })
+    const now = this.pushCount(deviceId)
+    this.set(deviceId, {
+      ...(now.sessions === before.sessions ? { sessions } : {}),
+      ...(now.projects === before.projects ? { projects } : {}),
+      loaded: true,
+      cached: false,
+    })
+  }
+
+  private pushCount(deviceId: string): { sessions: number; projects: number } {
+    return { ...(this.pushes.get(deviceId) ?? { sessions: 0, projects: 0 }) }
+  }
+
+  private pushed(deviceId: string, list: 'sessions' | 'projects'): void {
+    const count = this.pushCount(deviceId)
+    count[list]++
+    this.pushes.set(deviceId, count)
   }
 
   private set(deviceId: string, patch: Partial<DesktopLists>): void {
@@ -77,8 +96,13 @@ class Lists {
       document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && this.cache.flush())
     connections.eventListeners.add((deviceId, data) => {
       const event = data as HostEvent
-      if (event?.kind === 'sessions') this.set(deviceId, { sessions: event.sessions })
-      else if (event?.kind === 'projects') this.set(deviceId, { projects: event.projects })
+      if (event?.kind === 'sessions') {
+        this.pushed(deviceId, 'sessions')
+        this.set(deviceId, { sessions: event.sessions })
+      } else if (event?.kind === 'projects') {
+        this.pushed(deviceId, 'projects')
+        this.set(deviceId, { projects: event.projects })
+      }
     })
     this.check()
   }
@@ -95,6 +119,7 @@ class Lists {
       for (const id of [...this.data.keys()]) if (!keep.has(id)) this.data.delete(id)
       for (const id of [...this.states.keys()]) if (!keep.has(id)) this.states.delete(id)
       for (const id of [...this.tried]) if (!keep.has(id)) this.tried.delete(id)
+      for (const id of [...this.pushes.keys()]) if (!keep.has(id)) this.pushes.delete(id)
     }
     for (const p of connections.list()) {
       const state = connections.state(p.deviceId)

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { HostEvent } from '@pixelsky/protocol'
 import { CodexAdapter, EngineHost } from '../src'
-import { codexAnchor, revertTarget, turnInfo, type CodexTurnInfo } from '../src/codex/branch'
+import { codexAnchor, readCodexTurns, revertTarget, turnInfo, type CodexTurnInfo } from '../src/codex/branch'
 import { NATIVE_TEXT } from '../src/native/text'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
@@ -34,6 +34,28 @@ describe('Codex 截断点（纯函数）', () => {
   it('没有 clientId（老会话）或读不到轮次：找不到', () => {
     expect(codexAnchor([turn('t1'), turn('t2')], ['m0'])).toBeNull()
     expect(codexAnchor([], ['m0'])).toBeNull()
+  })
+  it('读轮次：full 视图每页带 limit 翻完（不带时长线程单帧能超过协议上限）', async () => {
+    const all = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      items: [{ type: 'userMessage', clientId: `m${i}` }],
+    }))
+    const calls: Record<string, unknown>[] = []
+    const proc = {
+      request: async (_method: string, params: Record<string, unknown>) => {
+        calls.push(params)
+        const start = Number(params.cursor) || 0
+        const size = Number(params.limit) || all.length
+        return {
+          data: all.slice(start, start + size),
+          nextCursor: start + size < all.length ? String(start + size) : null,
+        }
+      },
+    }
+    const turns = await readCodexTurns(proc as never, 'th')
+    expect(turns.map(t => t.clientIds[0])).toEqual(all.map((_, i) => `m${i}`))
+    expect(calls.length).toBeGreaterThan(1)
+    for (const params of calls) expect(params).toMatchObject({ itemsView: 'full', limit: expect.any(Number) })
   })
   describe('按 turn id 对位（从终端导入的线程，docs/ui/codex-resume.md §4.7）', () => {
     // 终端里发的消息没有 clientId：用户条目 id 就是 turn id

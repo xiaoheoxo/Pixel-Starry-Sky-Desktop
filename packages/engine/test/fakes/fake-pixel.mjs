@@ -22,6 +22,11 @@ if (process.argv.includes('--version')) {
   process.stdout.write('1.2.0\n')
   process.exit(0)
 }
+// FAKE_PIXEL_START_FAIL：起不来（报错退出），用来测启动错误
+if (process.env.FAKE_PIXEL_START_FAIL) {
+  process.stderr.write('Error: ' + process.env.FAKE_PIXEL_START_FAIL + '\n')
+  process.exit(1)
+}
 const dir = process.env.FAKE_PIXEL_DIR ?? process.cwd()
 mkdirSync(dir, { recursive: true })
 const out = value => process.stdout.write(JSON.stringify(value) + '\n')
@@ -379,6 +384,9 @@ readline
           pendingMessageCount: 0,
         })
       case 'get_available_models':
+        // FAKE_PIXEL_SLOW_START：连接时这一步慢（毫秒），用来测启动期间的停止
+        if (process.env.FAKE_PIXEL_SLOW_START)
+          return void setTimeout(() => response(m, { models }), Number(process.env.FAKE_PIXEL_SLOW_START))
         return response(m, { models })
       case 'set_model': {
         const found = models.find(x => x.provider === m.provider && x.id === m.modelId)

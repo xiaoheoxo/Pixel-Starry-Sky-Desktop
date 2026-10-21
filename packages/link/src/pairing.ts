@@ -118,12 +118,15 @@ export function decodeOffer(text: string): PairingOffer {
     /^pixelsky:\/\/pair\?d=([A-Za-z0-9_-]+)$/.exec(text.trim()) ??
     /^https?:\/\/[^#\s]*#pair=([A-Za-z0-9_-]+)$/.exec(text.trim())
   if (!m) throw new Error('LINK_BAD_OFFER')
-  let o: Record<string, unknown>
+  let parsed: unknown
   try {
-    o = JSON.parse(fromUtf8(fromBase64Url(m[1])))
+    parsed = JSON.parse(fromUtf8(fromBase64Url(m[1])))
   } catch {
     throw new Error('LINK_BAD_OFFER')
   }
+  // 解出来是 null、数字、数组等：不是配对数据（不能让 o.v 抛 TypeError）
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('LINK_BAD_OFFER')
+  const o = parsed as Record<string, unknown>
   const ok =
     o.v === LINK_VERSION &&
     typeof o.relay === 'string' &&

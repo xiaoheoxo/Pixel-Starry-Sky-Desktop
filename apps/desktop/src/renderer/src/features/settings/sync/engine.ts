@@ -171,8 +171,11 @@ function watchLocalChanges(): void {
     if (e.storageArea === localStorage && e.key && STORAGE_KEYS.has(e.key) && !applying && e.isTrusted)
       schedule(PUSH_DELAY)
     if (e.key === PREFS_KEY) {
+      const was = prefs.enabled
       prefs = parseSyncPrefs(loadJson(PREFS_KEY))
       emit()
+      // 在别的窗口里开启同步（那边不是负责同步的窗口，schedule 不做事）：由这里马上同步一次
+      if (!was && prefs.enabled) schedule(0)
     }
   })
   // 引擎设置在主进程改：收到配置变化就同步

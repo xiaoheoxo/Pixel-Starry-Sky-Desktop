@@ -363,6 +363,8 @@ export class TerminalManager {
     this.records.push(record)
     this.owners.set(record.id, owner)
     await this.save()
+    // 保存期间窗口关了 / 刷新了（shutdown(owner) 已清掉归属）或终端被关掉：不再为它启动进程，否则一直留到退出
+    if (this.owners.get(record.id) !== owner) return { ...record }
     return this.start(owner, record)
   }
   private checkDirectory(cwd: string): void {
@@ -593,7 +595,14 @@ export class TerminalManager {
   async shutdown(owner?: number): Promise<void> {
     if (owner === undefined) this.stopping = true
     const runs = [...this.running.values()].filter(r => owner === undefined || r.owner === owner)
-    await Promise.all(runs.map(run => this.stop(run)))
+    // 某个进程 5 秒还没退出：不再记着它，关窗口 / 退出不能因为它失败
+    await Promise.all(
+      runs.map(run =>
+        this.stop(run).catch(() => {
+          if (this.running.get(run.record.id) === run) this.running.delete(run.record.id)
+        }),
+      ),
+    )
     for (const [id, owning] of this.owners) if (owner === undefined || owning === owner) this.owners.delete(id)
     await this.save()
   }

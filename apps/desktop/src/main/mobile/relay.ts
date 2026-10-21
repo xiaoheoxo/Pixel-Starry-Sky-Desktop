@@ -33,6 +33,8 @@ export const DEAD_AFTER = 60_000
 
 export function relayUrl(base: string, desktopId: string): string {
   const url = new URL(base)
+  // WebSocket 地址不能带 # 片段（new WebSocket 会同步抛 SyntaxError）；旧版本存下的这种地址按地址不对处理
+  if (base.includes('#')) throw new Error('MOBILE_BAD_RELAY')
   url.searchParams.set('role', 'desktop')
   url.searchParams.set('id', desktopId)
   return url.toString()
@@ -117,7 +119,15 @@ export class RelayLink {
       return
     }
     const protocols = bridgeProtocols(token)
-    const ws = this.o.socket ? this.o.socket(url, protocols) : new WebSocket(url, protocols)
+    let ws: WebSocket
+    try {
+      ws = this.o.socket ? this.o.socket(url, protocols) : new WebSocket(url, protocols)
+    } catch {
+      // 地址、协议名不合要求时同步抛错：当作这次没连上，按退避重试（不然 void connect() 的异常没人接）
+      this.o.onStatus('error', 'MOBILE_RELAY_OFFLINE')
+      this.retry()
+      return
+    }
     ws.binaryType = 'arraybuffer'
     this.ws = ws
     // 中转先接受连接再核对令牌：连上 10 秒没被关才算稳定，才把退避清零（不然令牌一直不对时会飞快重连）

@@ -82,4 +82,15 @@ describe('扩展解析与范围', () => {
         .sort(),
     ).toEqual(['a', 'b', 'c'])
   })
+  it('plugin.json 里内联写的 mcpServers 对象也读出 MCP；数组形式照旧读文件', () => {
+    mkdirSync(join(root, '.claude-plugin'))
+    writeFileSync(
+      join(root, '.claude-plugin/plugin.json'),
+      JSON.stringify({ name: 'tools', mcpServers: { inline: { command: 'node', args: ['s.js'] } } }),
+    )
+    expect(pluginDirectory(root).components).toMatchObject([{ kind: 'mcp', name: 'inline' }])
+    writeFileSync(join(root, 'a.json'), JSON.stringify({ mcpServers: { fromFile: { command: 'node' } } }))
+    writeFileSync(join(root, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'tools', mcpServers: ['a.json'] }))
+    expect(pluginDirectory(root).components).toMatchObject([{ kind: 'mcp', name: 'fromFile' }])
+  })
 })

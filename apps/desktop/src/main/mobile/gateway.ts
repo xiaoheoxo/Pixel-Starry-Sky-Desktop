@@ -391,6 +391,12 @@ export function sanitize(method: string, args: unknown[]): unknown[] {
         },
       ]
     }
+    case 'engine:answer': {
+      // 手机不能把会话切成完全放行（docs/mobile-remote.md）：allow_all 一律拒绝
+      const decision = (args[2] ?? {}) as { type?: unknown }
+      if (decision.type === 'allow_all') throw new Error('MOBILE_FORBIDDEN')
+      return args
+    }
     default:
       return args
   }

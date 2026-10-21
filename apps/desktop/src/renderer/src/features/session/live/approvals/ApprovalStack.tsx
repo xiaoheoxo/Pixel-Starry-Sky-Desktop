@@ -42,6 +42,7 @@ import {
   decisionResult,
   denyOnce,
   isSolo,
+  keepPending,
   layoutApprovals,
   toolLabel,
   type ApprovalEntry,
@@ -323,6 +324,13 @@ export function ApprovalList({
   const [queued, setQueued] = useState<ReadonlySet<string>>(new Set())
   const [failed, setFailed] = useState<ReadonlyMap<string, { message: string; decision: ApprovalDecision }>>(new Map())
   const [batch, setBatch] = useState<{ kind: 'allow' | 'deny'; total: number; done: number } | null>(null)
+  // 已经交给某次发送（排队或在发）的请求：单行允许 / 拒绝发送中点「全部允许 / 全部拒绝」时跳过它们，免得同一项答两次。
+  // 用 ref 同步记，不等 queued / sending 的状态更新
+  const inFlight = useRef(new Set<string>())
+  // 发送失败后在别处处理掉了（超时、手机上点的）：不再算失败，列表才能变回单张卡
+  useEffect(() => {
+    setFailed(m => keepPending(m, id => pendingById.has(id)))
+  }, [pendingById])
   const [expanded, setExpanded] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [confirmingAll, setConfirmingAll] = useState(false)
@@ -354,11 +362,15 @@ export function ApprovalList({
     decide: (r: ApprovalRequest, i: number) => ApprovalDecision | null,
     kind: 'allow' | 'deny' | null,
   ): Promise<void> => {
-    const live = targets.filter(r => pendingById.has(r.requestId) && !doneHere.has(r.requestId))
-    const total = live.filter(r => decide(r, 0) !== null).length
+    const live = targets.filter(
+      r => pendingById.has(r.requestId) && !doneHere.has(r.requestId) && !inFlight.current.has(r.requestId),
+    )
+    const ids = live.filter(r => decide(r, 0) !== null).map(r => r.requestId)
+    const total = ids.length
     if (total === 0) return
+    for (const id of ids) inFlight.current.add(id)
     if (kind) setBatch({ kind, total, done: 0 })
-    setQueued(q => addTo(q, ...live.filter(r => decide(r, 0) !== null).map(r => r.requestId)))
+    setQueued(q => addTo(q, ...ids))
     const decisions = new Map<string, ApprovalDecision>()
     const result = await answerInOrder(
       live,
@@ -369,6 +381,7 @@ export function ApprovalList({
       },
       (r, d) => onAnswer(r, d),
       (id, state) => {
+        if (state !== 'sending') inFlight.current.delete(id)
         setQueued(q => removeFrom(q, id))
         if (state === 'sending') setSending(s => addTo(s, id))
         else setSending(s => removeFrom(s, id))
@@ -380,6 +393,7 @@ export function ApprovalList({
         }
       },
     )
+    for (const id of ids) inFlight.current.delete(id)
     if (result.failed.length)
       setFailed(m => {
         const next = new Map(m)

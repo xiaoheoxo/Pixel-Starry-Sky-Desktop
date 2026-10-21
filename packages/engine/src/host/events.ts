@@ -313,6 +313,22 @@ export class HostEvents {
             rt.snapshot = { ...rt.snapshot, queuePaused: true }
             m.queue.changeQueue(id, input.id, { status: 'uncertain', error: '引擎退出前未确认是否采纳，请核对后重试' })
           }
+          // 上一轮结束时还在等这条引导被采纳（状态停在「启动中」）：没被采纳、也没别的在等，回到空闲接着派发
+          if (
+            event.state !== 'consumed' &&
+            !rt.turn &&
+            !rt.pumping &&
+            !rt.activeId &&
+            rt.snapshot.state === 'starting' &&
+            !rt.snapshot.queue.some(q => q.status === 'delivering')
+          ) {
+            rt.execution = null
+            this.apply(id, { type: 'status', state: 'idle' })
+            queueMicrotask(() => {
+              void m.turn.pump(id)
+            })
+            if (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0) this.armIdle(id)
+          }
         }
         break
       }

@@ -133,7 +133,8 @@ export class MobileStore {
     if (typeof patch.keepAwake === 'boolean') next.keepAwake = patch.keepAwake
     if (typeof patch.relay === 'string') {
       const relay = patch.relay.trim()
-      if (relay && !/^wss?:\/\/[^\s]+$/.test(relay)) throw new Error('MOBILE_BAD_RELAY')
+      // 不收 # 片段：WebSocket 地址带片段时 new WebSocket 直接抛错
+      if (relay && !/^wss?:\/\/[^\s#]+$/.test(relay)) throw new Error('MOBILE_BAD_RELAY')
       next.relay = relay
     }
     this.prefs = next

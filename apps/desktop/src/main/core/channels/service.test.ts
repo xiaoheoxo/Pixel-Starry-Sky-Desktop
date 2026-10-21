@@ -653,6 +653,8 @@ describe('协作频道：失败、停止、重试', () => {
     c.hostEvent(
       ev('ssh-ab~s1', { type: 'turn_completed', turnId: 'k', outcome: 'failed', error: '502 Bad Gateway\nmore' }),
     )
+    // 宿主每轮结束都紧跟一个队列事件；这条不在队列里（没有自动重连）才算失败
+    c.hostEvent(ev('ssh-ab~s1', { type: 'queue', items: [], paused: true }))
     expect(tasks(c, channelId)[0]).toMatchObject({ status: 'failed', error: '502 Bad Gateway' })
     await c.taskAction(task.id, 'retry')
     await settle()

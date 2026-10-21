@@ -81,6 +81,8 @@ export function DiscoverTab() {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(initial.scrollTop)
   const requestId = useRef(0)
+  // pages 是第几次「取第一页」的结果；和 requestId 不等说明新条件的第一页还在路上，这时不翻页（翻的是旧条件的下一页）
+  const loadedId = useRef(0)
   // 从详情回来时已经有页了，第一次不重新取
   const skipFirstLoad = useRef(initial.pages.length > 0)
   const latest = useRef({ loaded, pages })
@@ -105,12 +107,14 @@ export function DiscoverTab() {
     fetchCatalog(catalogQueryOf(filter))
       .then(page => {
         if (id !== requestId.current) return
+        loadedId.current = id
         setPages([page])
         setLoaded(filter)
         setStatus('ready')
       })
       .catch(() => {
         if (id !== requestId.current) return
+        loadedId.current = id
         setPages([])
         setLoaded(filter)
         setStatus('error')
@@ -120,7 +124,7 @@ export function DiscoverTab() {
   const nextBefore = nextBeforeOf(pages)
   const loadMore = (): void => {
     const before = nextBeforeOf(latest.current.pages)
-    if (!before || more === 'loading') return
+    if (!before || more === 'loading' || loadedId.current !== requestId.current) return
     const id = requestId.current
     setMore('loading')
     fetchCatalog(catalogQueryOf(latest.current.loaded, before))

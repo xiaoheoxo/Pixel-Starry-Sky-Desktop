@@ -443,16 +443,23 @@ export const paneActions = {
     if (state.closing[leafId]) return
     const all = T.leaves(state.layout.root)
     if (!all.some(l => l.id === leafId)) return
-    fileTabs.forEach(removeFile)
+    // 文件条目等布局里没了这些标签再删：收拢动画期间窗格还在布局里，先删的话 FileLifecycle 会按布局把条目重建，
+    // 留下没有标签引用、永远不清理的条目。动画期间标签可能被拖到别的窗格，只删布局里已经不在的
+    const dropFiles = (): void => {
+      const left = new Set(T.leaves(state.layout.root).flatMap(l => l.tabs))
+      fileTabs.filter(tab => !left.has(tab)).forEach(removeFile)
+    }
     if (all.length === 1) {
       // 只剩一个窗格：清空标签，保留窗格
       setLayout(T.removeLeaf(state.layout, leafId, newId('p')))
+      dropFiles()
       return
     }
     const remove = (): void => {
       const { [leafId]: _done, ...closing } = state.closing
       state = { ...state, closing }
       setLayout(T.removeLeaf(state.layout, leafId, newId('p')))
+      dropFiles()
     }
     if (!motionEnabled()) {
       remove()

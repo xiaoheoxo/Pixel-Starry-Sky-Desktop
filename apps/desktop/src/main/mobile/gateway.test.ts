@@ -842,6 +842,9 @@ describe('helpers', () => {
     expect(sanitize('engine:moveQueued', ['s', 'q1', { before: 'q2' }])).toEqual(['s', 'q1', { before: 'q2' }])
     expect(sanitize('engine:moveQueued', ['s', 'q1', { before: null }])).toEqual(['s', 'q1', { before: null }])
     expect(sanitize('engine:moveQueued', ['s', 'q1', 2])).toEqual(['s', 'q1', 2])
+    // 审批：手机不能借「允许并完全放行」把会话切成 full，别的答复原样放行
+    expect(() => sanitize('engine:answer', ['s', 'r1', { type: 'allow_all' }])).toThrow('MOBILE_FORBIDDEN')
+    expect(sanitize('engine:answer', ['s', 'r1', { type: 'allow' }])).toEqual(['s', 'r1', { type: 'allow' }])
   })
 })
 

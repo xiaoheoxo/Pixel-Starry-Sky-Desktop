@@ -283,3 +283,9 @@ export async function answerInOrder(
 
 /** 决定的结果给已处理的行写字：允许 / 拒绝 */
 export const decisionResult = (d: ApprovalDecision): 'allow' | 'deny' => (d.type === 'deny' ? 'deny' : 'allow')
+
+/** 只留还在等的请求：发送失败后又在别处处理掉的（超时、手机上点的）不再算失败。没有要删的返回原来那个，不触发重渲染 */
+export function keepPending<V>(map: ReadonlyMap<string, V>, pending: (id: string) => boolean): ReadonlyMap<string, V> {
+  if ([...map.keys()].every(pending)) return map
+  return new Map([...map].filter(([id]) => pending(id)))
+}

@@ -497,7 +497,19 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     },
     setHeight: height => setUi(v => ({ ...v, height })),
     selectProject: id => {
-      setUi(v => ({ ...v, projectId: id, activeId: state.terminals.find(r => r.projectId === id)?.id ?? null }))
+      // 选回当前工作区的项目时只列这个工作目录（副本）里的终端：按项目随便取第一个，可能取到主目录的终端，
+      // 它不在列表里，终端区就显示「没有终端」
+      const items = workspaceTerminals(
+        state.terminals,
+        id,
+        projectOf(workspace.ref) === id ? workspace.path : '',
+        window.pixelsky?.platform === 'win32',
+      )
+      setUi(v => ({
+        ...v,
+        projectId: id,
+        activeId: items.some(r => r.id === v.activeId) ? v.activeId : (items[0]?.id ?? null),
+      }))
     },
   }
   return (

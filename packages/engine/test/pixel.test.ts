@@ -111,6 +111,16 @@ describe('Pixel 引擎适配器', () => {
       'max',
     ])
   })
+  it('目录：起不来时记下启动错误，之后起得来就清掉', async () => {
+    let fail = 'catalog boom'
+    const { adapter } = setup(50, { extraEnv: () => (fail ? { FAKE_PIXEL_START_FAIL: fail } : {}) })
+    const info = await adapter.info()
+    expect((await adapter.catalog()).models).toBeUndefined()
+    expect(info.launchError).toContain('catalog boom')
+    fail = ''
+    expect((await adapter.catalog()).models?.length).toBe(2)
+    expect((await adapter.info()).launchError).toBeUndefined()
+  })
   it('一轮：文字、思考、命令、改文件、待办、用量，并带上启动参数和模型强度', async () => {
     const { session, messages, argvs } = setup()
     await host!.send(session.id, '工具')
@@ -311,6 +321,22 @@ describe('Pixel 引擎适配器', () => {
         .filter(m => m.type === 'extension_ui_response')
         .pop(),
     ).toMatchObject({ cancelled: true })
+  })
+  it('停止：进程还在连接时立即结束这一轮，不等连接完，之后也不再把提示发出去', async () => {
+    const { session, messages, events } = setup(60_000, { extraEnv: () => ({ FAKE_PIXEL_SLOW_START: '1500' }) })
+    await host!.send(session.id, 'hello')
+    await wait(() => messages().some(m => m.type === 'get_available_models'))
+    const started = Date.now()
+    await host!.interrupt(session.id)
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(idle(session.id)).toBe(true)
+    expect(
+      events.flatMap(e => (e.kind === 'session' && e.event.type === 'turn_completed' ? [e.event.outcome] : [])),
+    ).toEqual(['interrupted'])
+    // 连接在后台做完（set_thinking_level 是 get_available_models 之后的一步），提示不发
+    await wait(() => messages().some(m => m.type === 'set_thinking_level'))
+    await new Promise(r => setTimeout(r, 100))
+    expect(messages().some(m => m.type === 'prompt')).toBe(false)
   })
   it('引导：steer 命令，交付后确认；排队消息变成对话里的用户消息', async () => {
     const { session, messages } = setup()

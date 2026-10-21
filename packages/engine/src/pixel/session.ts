@@ -737,11 +737,11 @@ export class PixelSession implements EngineSession {
   }
 
   async interrupt(): Promise<void> {
-    if (this.opening) await this.opening.catch(() => {})
     const active = this.active
     if (!active) return
     if (!active.promptSent || !this.proc?.alive) {
-      // 提示还没发出去（进程在启动）：本地直接结束，run() 发现已结束就不发了
+      // 提示还没发出去（进程在启动、连接要发好几个请求）：不等连接完，本地直接结束；run() 发现已结束就不发了，
+      // 连接在后台照常做完，进程留给下一轮（close() 会直接关掉它，连接中的请求跟着失败）
       this.finish('interrupted', null)
       return
     }

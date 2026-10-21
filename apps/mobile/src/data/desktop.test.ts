@@ -100,4 +100,26 @@ describe('desktopLists with the local cache', () => {
     expect(store.has(KEY)).toBe(false)
     expect(desktopLists.get('d1').loaded).toBe(false)
   })
+
+  it('does not overwrite a session list pushed while refreshing', async () => {
+    let answer: (v: unknown) => void = () => {}
+    mock.reply['engine:sessions'] = new Promise(r => (answer = r))
+    const { desktopLists } = await import('./desktop')
+    desktopLists.subscribe(() => {})
+    mock.states.set('d1', 'ready')
+    mock.listeners.forEach(l => l())
+    // 取列表期间电脑推来了更新的会话列表，之后旧的回应才到
+    mock.eventListeners.forEach(l => l('d1', { kind: 'sessions', sessions: [session('pushed')] }))
+    answer([session('stale')])
+    await flush()
+    const now = desktopLists.get('d1')
+    expect(now).toMatchObject({ loaded: true, cached: false })
+    expect(now.sessions.map(s => s.record.id)).toEqual(['pushed'])
+    expect(now.projects.map(p => p.id)).toEqual(['p1'])
+
+    // 没有推送打岔时照常用取到的
+    mock.reply['engine:sessions'] = [session('fresh')]
+    await desktopLists.refresh('d1')
+    expect(desktopLists.get('d1').sessions.map(s => s.record.id)).toEqual(['fresh'])
+  })
 })

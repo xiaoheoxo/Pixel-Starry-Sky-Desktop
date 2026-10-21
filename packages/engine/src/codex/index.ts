@@ -114,8 +114,8 @@ export class CodexAdapter implements EngineAdapter {
     const key = `${real}|${dir}`
     const at = this.prepared.get(key) ?? 0
     if (Date.now() - at < 2000) return
-    this.prepared.set(key, Date.now())
-    prepareAccountHome(real, dir)
+    // 准备失败（账号目录建不起来）不记时间：下一次照样再试
+    if (prepareAccountHome(real, dir)) this.prepared.set(key, Date.now())
   }
   constructor(private readonly opts: CodexAdapterOptions = {}) {}
   checkLaunch(command: string | null, args: readonly string[]): void {

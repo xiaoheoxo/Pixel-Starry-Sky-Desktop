@@ -57,6 +57,7 @@ export const codingTasksMessages = {
     zh: 'Windows PowerShell 5.1 无法安全传递含 " 的路径或任务名，请换 PowerShell 7',
     en: 'Windows PowerShell 5.1 cannot safely pass a path or task name containing "; switch to PowerShell 7',
   },
+  'coding.tasks.runFailed': { zh: '运行失败：{error}', en: 'Could not run: {error}' },
   'coding.tasks.copied': { zh: '已复制命令', en: 'Command copied' },
   // Gradle（§9）
   'coding.tasks.gradle.properties': { zh: '属性', en: 'Properties' },

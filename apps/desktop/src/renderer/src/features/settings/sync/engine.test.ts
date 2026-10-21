@@ -148,3 +148,47 @@ describe('两台电脑之间同步设置', () => {
     expect(cloud.settings['desktop.keybindings']?.value).toBe('{"x":1}')
   })
 })
+
+describe('在别的窗口里开启同步', () => {
+  it('负责同步的窗口收到「开启」后马上同步一次，不等下一次定时拉取', async () => {
+    const cloud = fakeCloud()
+    const FakeStorage = storageClass()
+    const storage = new FakeStorage()
+    storage.setItem('pixelsky.theme', 'dark')
+    storage.setItem('pixelsky.settings-sync', JSON.stringify({ enabled: false, off: [] }))
+    const listeners: Record<string, ((e: unknown) => void)[]> = {}
+    vi.stubGlobal('Storage', FakeStorage)
+    vi.stubGlobal('StorageEvent', FakeStorageEvent)
+    vi.stubGlobal('localStorage', storage)
+    vi.stubGlobal('navigator', {})
+    vi.stubGlobal('window', {
+      addEventListener(type: string, fn: (e: unknown) => void) {
+        ;(listeners[type] ??= []).push(fn)
+      },
+      dispatchEvent() {},
+      pixelsky: {
+        demo: false,
+        settingsSync: { pull: cloud.pull, push: cloud.push, engine: async () => null, applyEngine: async () => null },
+        account: {
+          getState: async () => ({ status: 'signed-in', account: { email: 'alice@example.com' } }),
+          onChange: () => () => {},
+        },
+        engine: { onEvent: () => () => {} },
+        editor: { state: async () => ({ window: 'reuse' }), preferences: async () => ({}) },
+      },
+    })
+    vi.resetModules()
+    const sync = await import('./engine')
+    sync.startSettingsSync()
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    // 启动时的那次：同步关着，什么都不传
+    await vi.advanceTimersByTimeAsync(10)
+    expect(cloud.settings['desktop.theme']).toBeUndefined()
+
+    // 另一个窗口把同步打开了：这个窗口只收到 storage 事件
+    storage.setItem('pixelsky.settings-sync', JSON.stringify({ enabled: true, off: [] }))
+    for (const fn of listeners.storage ?? [])
+      fn(new FakeStorageEvent('storage', { key: 'pixelsky.settings-sync', storageArea: storage, isTrusted: true }))
+    await vi.waitFor(() => expect(cloud.settings['desktop.theme']?.value).toBe('dark'))
+  })
+})

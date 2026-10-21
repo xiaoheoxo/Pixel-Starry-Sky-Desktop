@@ -59,7 +59,13 @@ export function logTime(ts: number): string {
 export function formatLogLine(entry: LogEntry): string {
   const scope = entry.scope.replace(/\s+/g, '_') || '-'
   const message = entry.message.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/\r/g, '\\r')
-  const fields = entry.fields && Object.keys(entry.fields).length ? ` ${JSON.stringify(entry.fields)}` : ''
+  // 没有字段但消息以 } 结尾（例如「收到配置 {"sessionId":"x"}」）时补一个空的 {}，读回时不把消息结尾当字段
+  const fields =
+    entry.fields && Object.keys(entry.fields).length
+      ? ` ${JSON.stringify(entry.fields)}`
+      : message.endsWith('}')
+        ? ' {}'
+        : ''
   return `${logTime(entry.ts)} ${LABEL[entry.level]} ${scope} ${message}${fields}`
 }
 
@@ -99,6 +105,8 @@ export function parseLogLine(line: string): LogEntry | null {
       // 消息本身以 { 开头
     }
   }
+  // 空的 {} 是写入时补的「没有字段」标记
+  if (fields && !Object.keys(fields).length) fields = undefined
   return { ts, level: FROM_LABEL[match[2]], scope: match[3], message: unescape(message), ...(fields ? { fields } : {}) }
 }
 

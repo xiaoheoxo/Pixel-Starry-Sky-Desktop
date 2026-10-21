@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
-import { tr } from '../../i18n/core'
-import { Segmented } from '@/ui'
+import { tr, translateMessage } from '../../i18n/core'
+import { Segmented, useToast } from '@/ui'
 import { SettingRow } from './SettingRow'
 
 type CloseAction = 'hide' | 'quit'
@@ -10,7 +10,10 @@ type CloseAction = 'hide' | 'quit'
 export function CloseActionSettings() {
   useI18n()
   const tray = window.pixelsky?.tray
+  const toast = useToast()
   const [value, setValue] = useState<CloseAction | null>(null)
+  // 连点两次时只认最后一次的结果（先点的晚到失败不把后点的回滚掉）
+  const request = useRef(0)
   useEffect(() => {
     if (!tray) return
     let alive = true
@@ -33,11 +36,18 @@ export function CloseActionSettings() {
         ]}
         value={value}
         onChange={next => {
+          const prev = value
+          const n = ++request.current
           setValue(next)
           void tray
             .setPrefs({ closeToTray: next === 'hide' })
-            .then(p => setValue(p.closeToTray ? 'hide' : 'quit'))
-            .catch(() => undefined)
+            .then(p => n === request.current && setValue(p.closeToTray ? 'hide' : 'quit'))
+            .catch((e: Error) => {
+              if (n !== request.current) return
+              // 没存上：退回原来的选项，免得界面和实际行为对不上
+              setValue(prev)
+              toast(tr('tray.closeActionFailed', { error: translateMessage(e?.message ?? String(e)) }))
+            })
         }}
       />
     </SettingRow>

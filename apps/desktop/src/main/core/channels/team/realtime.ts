@@ -78,6 +78,8 @@ export class TeamRealtime {
   private stopped = true
   /** 上次被云端以「令牌失效」关闭：下次连之前先刷新令牌 */
   private refresh = false
+  /** 连接代号：stop() / restart() 时加一，等令牌期间被换掉的 connect() 回来后自己放弃 */
+  private gen = 0
 
   constructor(private readonly o: RealtimeOptions) {}
 
@@ -102,6 +104,7 @@ export class TeamRealtime {
   }
 
   private drop(): void {
+    this.gen++
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     const ws = this.ws
@@ -123,11 +126,13 @@ export class TeamRealtime {
   }
 
   private async connect(): Promise<void> {
+    const gen = this.gen
     this.o.onStatus('connecting')
     const force = this.refresh
     this.refresh = false
     const token = await this.o.token(force).catch(() => null)
-    if (this.stopped) return
+    // 等令牌期间 stop() 了，或 stop() 后又 start() / restart() 开了新的一次：这次作废
+    if (this.stopped || gen !== this.gen) return
     if (!token) {
       this.o.onStatus('offline')
       this.retry()
@@ -143,6 +148,12 @@ export class TeamRealtime {
       this.o.onStatus('offline')
       this.retry()
       return
+    }
+    // 兜底：万一还挂着别的连接，先关掉，免得两条同时收帧
+    if (this.ws && this.ws !== ws) {
+      const old = this.ws
+      old.onopen = old.onmessage = old.onclose = old.onerror = null
+      old.close()
     }
     this.ws = ws
     // 云端先接受连接再核对令牌：连上 10 秒没被关才算稳定，才把退避清零
@@ -163,11 +174,14 @@ export class TeamRealtime {
       this.retry()
     }, DEAD_AFTER / 4)
     ws.onopen = () => {
+      if (this.ws !== ws) return
       lastSeen = Date.now()
       stable = setTimeout(() => (this.delay = MIN_DELAY), 10_000)
       this.o.onStatus('online')
     }
     ws.onmessage = event => {
+      // 已被换掉的旧连接上迟到的帧不再往外传
+      if (this.ws !== ws) return
       lastSeen = Date.now()
       if (typeof event.data !== 'string') return
       let raw: unknown

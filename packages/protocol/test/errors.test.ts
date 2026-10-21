@@ -19,4 +19,15 @@ describe('coded host errors', () => {
     )
     expect(replaceCodedErrors('没有代码', () => 'x')).toBe('没有代码')
   })
+  it('params containing } followed by whitespace or punctuation still decode', () => {
+    const render = ({ code, params }: { code: string; params: Record<string, string | number> }): string =>
+      `${code}/${params.path}`
+    for (const path of ['src/{id}.ts', 'D:/x/{a} b.txt', '{a}，{b}']) {
+      const message = '打开失败：' + codedError('files.notFound', { path }).message + '。重试'
+      expect(replaceCodedErrors(message, render)).toBe(`打开失败：files.notFound/${path}。重试`)
+    }
+    const two = `${codedError('a.b', { path: 'x/{1} y' }).message} 然后 ${codedError('c.d', { path: 'z' }).message}`
+    expect(replaceCodedErrors(two, render)).toBe('a.b/x/{1} y 然后 c.d/z')
+    expect(replaceCodedErrors('前缀 PIXELSKY_ERR:{oops} 后缀', render)).toBe('前缀 PIXELSKY_ERR:{oops} 后缀')
+  })
 })

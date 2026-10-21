@@ -272,6 +272,8 @@ export class ClaudeSession implements EngineSession {
   /** 当前进程启动时是不是走本机网关：额度的来源按它判断，不读当前记录（换通道要等下一条消息才换进程） */
   private procViaGateway = false
   private starting: Promise<ClaudeProcess> | null = null
+  /** 启动期间（还没有 proc）改的设置：launch 用的是开头读的记录，进程就绪后补上 */
+  private lateSettings: Partial<SessionSettings> | null = null
   /** 跨引擎接力还没注入的聊天：启动进程时写进会话记录；进程已经在跑或写不进去时，发消息时退回文字交接 */
   private seed: ChatSeed | null = null
   private readonly translator: ClaudeTranslator
@@ -300,6 +302,8 @@ export class ClaudeSession implements EngineSession {
         if (id !== ctx.record().engineSessionId) ctx.setEngineSessionId(id)
       },
       permissionMode: mode => {
+        // 启动期间用户新选的模式还没补给进程：进程报的是启动时的旧模式，不能写回去盖掉
+        if (this.lateSettings?.permissionMode) return
         if (mode !== ctx.record().permissionMode) ctx.setPermissionMode(mode)
       },
       fastState: (state, blocked) => this.onFastState(state, blocked),
@@ -600,6 +604,8 @@ export class ClaudeSession implements EngineSession {
     fork?: { from: string; at: string } | null,
   ): Promise<ClaudeProcess> {
     const rec = this.ctx.record()
+    // 这之前的改动已经在 rec 里
+    this.lateSettings = null
     // 新进程的 modelUsage 重新累计，算每轮用量的基线也要清零；--resume 时 Claude Code 可能恢复旧的累计值（docs/ui/usage.md §6.1）
     this.translator.resetUsageBaseline(resume || !!fork)
     // 上下文超过 200K 的自定义模型带 [1m] 启动（docs/ui/custom-api.md §10）
@@ -688,6 +694,12 @@ export class ClaudeSession implements EngineSession {
     if (rec.fast) await this.applyFast(proc, true)
     await this.applyThinking(proc, rec.thinkingSummaries)
     await this.syncSettings(proc)
+    // 启动期间用户又改了设置（模型、权限模式等）：在发第一条消息之前补上
+    const late = this.lateSettings
+    if (late) {
+      await this.update(late)
+      if (this.lateSettings === late) this.lateSettings = null
+    }
     // 启动就取一次明细：确认这个版本能不能用 get_context_usage，也让第一轮之前就有系统提示 / 工具 / Skills 的分类
     this.usageRequest = null
     void this.usage(proc, 'summary').catch(() => undefined)
@@ -907,7 +919,11 @@ export class ClaudeSession implements EngineSession {
 
   async update(patch: Partial<SessionSettings>, strict = false): Promise<void> {
     const proc = this.proc
-    if (!proc?.alive) return // 下次启动时按新设置启动
+    if (!proc?.alive) {
+      // 正在启动：launch 已经按开头读的记录在起进程，这次的改动记下来，进程就绪后再应用；没在启动就下次按新设置启动
+      if (this.starting) this.lateSettings = { ...this.lateSettings, ...patch }
+      return
+    }
     if ('model' in patch || 'platform' in patch) this.translator.context.reset(false, true)
     try {
       if ('model' in patch)

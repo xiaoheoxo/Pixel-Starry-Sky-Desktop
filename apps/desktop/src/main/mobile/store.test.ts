@@ -68,6 +68,7 @@ describe('MobileStore', () => {
   it('validates prefs, access and the device limit', () => {
     const store = new MobileStore(dir, cipher(), defaults)
     expect(() => store.setPrefs({ relay: 'http://example.com' })).toThrow('MOBILE_BAD_RELAY')
+    expect(() => store.setPrefs({ relay: 'wss://relay.example/ws#x' })).toThrow('MOBILE_BAD_RELAY')
     for (let i = 0; i < MAX_DEVICES; i++) store.addDevice(device('p' + i))
     expect(() => store.addDevice(device('extra'))).toThrow('MOBILE_TOO_MANY_DEVICES')
     store.addDevice(device('p0'))

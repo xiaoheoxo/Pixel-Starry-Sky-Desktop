@@ -292,6 +292,22 @@ describe('TeamExecutor 写回云端', () => {
     expect(list.at(-1)).toMatchObject({ author: agent.id, task_id: id, format: 'markdown' })
   })
 
+  it('结果消息的 clientId 用产生它的那一轮：发出去之前已经开了下一轮也不和下一轮撞号', async () => {
+    const t = setup()
+    const { agent, id } = queued(t)
+    t.cloud.task(id).claimed_by = DEVICE
+    t.cloud.task(id).status = 'waiting'
+    await t.online()
+    const run = { ...runFor(id, agent.id as string), round: 1 }
+    t.runs.set(id, run)
+    t.exec.send(run, { status: 'done' }, { text: '第一轮', mentions: [] })
+    // 追加要求：同步开了第二轮（service.ts 里 patchTeam 之后马上 nextRound）
+    t.runs.set(id, { ...run, round: 2 })
+    await until(() => t.cloud.task(id).status === 'done')
+    const post = t.cloud.calls.find(c => c.method === 'POST' && c.path.endsWith('/messages'))!
+    expect((post.body as { client_id?: string }).client_id).toBe(`res-${id}-1`)
+  })
+
   it('没连上云端时留着，连上后补发；收尾记录重启后也能补发', async () => {
     const t = setup()
     const { agent, id } = queued(t)
@@ -315,6 +331,31 @@ describe('TeamExecutor 写回云端', () => {
     expect(t.cloud.task(id).summary).toBe('好了')
     expect(t.cloud.messages.get('tc_1')!.some(m => m.text === '结果')).toBe(true)
     await until(() => t.finals.at(-1) === undefined)
+  })
+
+  it('实时通道没断、只是重拉总览失败被标离线：之后重拉成功（不触发 ready）也补发', async () => {
+    const t = setup()
+    const { agent, id } = queued(t)
+    t.cloud.task(id).claimed_by = DEVICE
+    t.cloud.task(id).status = 'waiting'
+    await t.online()
+    const run = runFor(id, agent.id as string)
+    t.runs.set(id, run)
+    const ready = vi.fn()
+    t.sync.subscribe({ ready })
+    t.cloud.failures['GET /v1/teams'] = 500
+    await t.sync.reload('plain')
+    expect(t.sync.connection()).toBe('offline')
+    t.exec.send(run, { status: 'done', summary: '好了' }, { text: '结果', mentions: [] })
+    await new Promise(r => setTimeout(r, 20))
+    expect(t.patches()).toHaveLength(0)
+    delete t.cloud.failures['GET /v1/teams']
+    await t.sync.reload('plain')
+    expect(t.sync.connection()).toBe('online')
+    await until(() => t.cloud.task(id).status === 'done')
+    expect(ready).not.toHaveBeenCalled()
+    await until(() => t.finals.at(-1) === undefined)
+    t.sync.stop()
   })
 
   it('网络出错会重试；云端不认（409 / 404）就放弃', async () => {

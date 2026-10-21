@@ -142,6 +142,8 @@ export class TeamSync {
 
   private loading: Promise<void> | null = null
   private again: ReadyReason | 'plain' | null = null
+  /** 正在拉时又来的请求：等「拉完再拉的那一次」 */
+  private againDone: { promise: Promise<void>; resolve: () => void } | null = null
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private retryDelay = RELOAD_RETRY_MIN
   private reloadTimer: ReturnType<typeof setTimeout> | null = null
@@ -253,18 +255,33 @@ export class TeamSync {
   // 拉总览
   // -------------------------------------------------------------------------
 
-  /** 合并同时到来的请求：正在拉时只记一笔「拉完再拉一次」 */
+  /**
+   * 合并同时到来的请求：正在拉时只记一笔「拉完再拉一次」，返回的是再拉的那一次——
+   * 正在拉的那次可能在云端改动之前就发出了，等它拿到的是旧数据
+   */
   reload(reason: ReadyReason | 'plain'): Promise<void> {
     if (this.stopped) return Promise.resolve()
     if (this.loading) {
       if (!this.again || this.again === 'plain') this.again = reason
-      return this.loading
+      if (!this.againDone) {
+        let resolve!: () => void
+        const promise = new Promise<void>(r => (resolve = r))
+        this.againDone = { promise, resolve }
+      }
+      return this.againDone.promise
     }
     const loading = this.doReload(reason).finally(() => {
       if (this.loading === loading) this.loading = null
       const next = this.again
+      const waiting = this.againDone
       this.again = null
-      if (next && !this.stopped) void this.reload(next)
+      this.againDone = null
+      if (next && !this.stopped)
+        void this.reload(next).then(
+          () => waiting?.resolve(),
+          () => waiting?.resolve(),
+        )
+      else waiting?.resolve()
     })
     this.loading = loading
     return loading
@@ -289,6 +306,11 @@ export class TeamSync {
       if (error instanceof TeamError && error.code === 'NOT_DEPLOYED') {
         this.unavailable = true
         this.realtime.stop()
+        this.ws = 'connecting'
+        // 已经排着的重拉也不要了：否则它成功后显示 online，实时通道却没开
+        for (const t of [this.retryTimer, this.reloadTimer]) if (t) clearTimeout(t)
+        this.retryTimer = this.reloadTimer = null
+        this.again = null
         this.clearData()
         this.emitChanged()
         return
@@ -307,7 +329,12 @@ export class TeamSync {
     this.retryDelay = RELOAD_RETRY_MIN
     if (this.retryTimer) clearTimeout(this.retryTimer)
     this.retryTimer = null
-    this.unavailable = false
+    if (this.unavailable) {
+      // 之前当作云端没部署、停了实时通道（比如操作触发的重拉这回成功了）：重新开
+      this.unavailable = false
+      this.ws = 'connecting'
+      this.realtime.start()
+    }
     this.restOk = true
     this.restFailed = false
     this.apply(ov)

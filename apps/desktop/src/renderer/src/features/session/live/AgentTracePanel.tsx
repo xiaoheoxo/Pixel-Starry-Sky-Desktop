@@ -827,6 +827,7 @@ export function AgentTracePanel({ sessionId, runs, focus, onFocus, onClose, belo
 
   // Esc 关闭：在捕获阶段先拿到并标记已处理，输入框就不会再用这次 Esc 停止回复（docs/ui/conversation-ux.md §2.5）
   // 拖动窗口时 Esc 只撤回这次拖动；停靠宽度把手拖动中由把手自己处理（它在 data-layout-resize 期间接管 Esc）
+  // 只管自己所在的会话：面板在后台标签 / 被隐藏的窗格里（inert）不处理；Esc 发生在别的会话或别处也不处理（焦点不在任何元素上时照旧关）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
@@ -835,6 +836,11 @@ export function AgentTracePanel({ sessionId, runs, focus, onFocus, onClose, belo
         e.stopPropagation()
         return
       }
+      const root = rootRef.current
+      if (!root || root.closest('[inert],[aria-hidden="true"]')) return
+      const target = e.target instanceof Node ? e.target : null
+      const idle = !target || target === document.body || target === document.documentElement
+      if (!idle && !(root.parentElement ?? root).contains(target)) return
       if (document.documentElement.dataset.layoutResize) return
       e.preventDefault()
       onClose()

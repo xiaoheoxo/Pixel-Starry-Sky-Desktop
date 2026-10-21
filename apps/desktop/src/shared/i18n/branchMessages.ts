@@ -70,6 +70,10 @@ export const branchMessages = {
   'rewind.undo': { zh: '撤销', en: 'Undo' },
   'rewind.undone': { zh: '已撤销回退', en: 'Rewind undone' },
   'rewind.dismiss': { zh: '关闭', en: 'Dismiss' },
+  'rewind.attachmentsDropped': {
+    zh: '原消息有 {n} 个附件没有放回输入框：加上输入框里已有的会超过附件上限',
+    en: '{n} attachments from the original message were not put back: the input box would go over the attachment limit',
+  },
 
   // 分叉
   'fork.action': { zh: '分叉', en: 'Fork' },
@@ -96,6 +100,10 @@ export const branchMessages = {
   'side.close': { zh: '关闭旁聊', en: 'Close side chat' },
   'side.empty': { zh: '还没有问题。', en: 'No questions yet.' },
   'side.needMessage': { zh: '先在主对话里发一条消息', en: 'Send a message in the conversation first' },
+  'side.busy': {
+    zh: '上一个旁聊问题还在回答，答完再问',
+    en: 'The previous side chat question is still being answered; ask again when it finishes',
+  },
   'side.unsupported': { zh: '当前引擎暂不支持旁聊', en: 'The current engine does not support side chat yet' },
   'side.copy': { zh: '复制回答', en: 'Copy answer' },
   'side.note': { zh: '只保存在这个窗口里，关掉就没了。', en: 'Kept in this window only; gone when you close it.' },

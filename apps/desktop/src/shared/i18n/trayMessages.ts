@@ -33,4 +33,5 @@ export const trayMessages = {
   },
   'tray.closeHide': { zh: '隐藏到托盘', en: 'Hide to tray' },
   'tray.closeQuit': { zh: '退出', en: 'Quit' },
+  'tray.closeActionFailed': { zh: '没有保存：{error}', en: 'Not saved: {error}' },
 }

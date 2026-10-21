@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TerminalRecord } from '../../../../../shared/types/terminal'
 import type { RunTask, RunTaskGroup } from '../../../../../shared/types/project-tools'
+import type { WorkspaceRef } from '../../../../../shared/types/workspace'
 import { applyPrompt, type PromptEvent } from '@/features/terminal/marks'
 
 const fake = vi.hoisted(() => ({
@@ -34,7 +35,8 @@ vi.stubGlobal('window', {
   },
 })
 
-const { getTaskStatus, runTaskIn, stopTaskIn, STOPPING_TIMEOUT_MS } = await import('./store')
+const { getRunTasks, getTaskStatus, loadTasks, runFailureText, runTaskIn, stopTaskIn, STOPPING_TIMEOUT_MS } =
+  await import('./store')
 
 // 任务 → 终端的对应存在模块里，每个用例换一个工作区根，互不影响
 let ROOT = 'D:/proj'
@@ -397,5 +399,60 @@ describe('cmd 下含 % 的路径', () => {
     })
     await expect(runTaskIn({ runTask, select: vi.fn() }, ROOT, bad, task)).rejects.toBeInstanceOf(TaskCommandError)
     expect(getTaskStatus(ROOT, bad, task).kind).toBe('idle')
+  })
+})
+
+describe('运行失败的提示', () => {
+  it('命令拼不出来用对应文案；其它错误（建终端失败等）带上原因，不再往外抛', async () => {
+    const { TaskCommandError } = await import('./extCommand')
+    expect(runFailureText(new TaskCommandError('100%'))).toContain('%')
+    expect(runFailureText(new Error('ENOENT pwsh.exe'))).toBe('运行失败：ENOENT pwsh.exe')
+    expect(runFailureText('boom')).toContain('boom')
+  })
+})
+
+describe('读任务', () => {
+  const state = (root: string) => ({ root, groups: [], truncated: false })
+  let pending: Array<(value: unknown) => void> = []
+  beforeEach(() => {
+    pending = []
+    ;(window.pixelsky as unknown as Record<string, unknown>).projectTools = {
+      runTasks: () => new Promise(resolve => pending.push(resolve)),
+    }
+  })
+
+  it('正在读时又要求重读：读完补读一次，最后是新读到的', async () => {
+    const ref = { projectId: `reread${counter}` } as WorkspaceRef
+    const first = loadTasks(ref)
+    void loadTasks(ref)
+    expect(pending).toHaveLength(1)
+    pending[0](state('old'))
+    await first
+    expect(pending).toHaveLength(2)
+    pending[1](state('new'))
+    await vi.waitFor(() => expect(getRunTasks(ref).state?.root).toBe('new'))
+    expect(getRunTasks(ref).loading).toBe(false)
+    expect(pending).toHaveLength(2)
+  })
+
+  it('读失败了也补读；只要「maxAge 内读过就行」的不补读', async () => {
+    const ref = { projectId: `reread-fail${counter}` } as WorkspaceRef
+    ;(window.pixelsky as unknown as { projectTools: unknown }).projectTools = {
+      runTasks: () =>
+        new Promise((resolve, reject) => pending.push(pending.length === 0 ? () => reject(new Error('x')) : resolve)),
+    }
+    const first = loadTasks(ref)
+    void loadTasks(ref)
+    pending[0](null)
+    await first
+    expect(pending).toHaveLength(2)
+    pending[1](state('ok'))
+    await vi.waitFor(() => expect(getRunTasks(ref).state?.root).toBe('ok'))
+
+    const again = loadTasks(ref)
+    void loadTasks(ref, 60_000)
+    pending[2](state('ok2'))
+    await again
+    expect(pending).toHaveLength(3)
   })
 })

@@ -74,7 +74,8 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [panelMaximized, setPanelMaximized] = useState(false)
   // 没拖过时按窗口宽度自动算（docs/ui/workbench-ux-3.md §2.3）
-  const preferredPanelWidth = useLayoutSize('rightWorkspace') ?? autoPanelWidth(windowWidth, preferredSidebarWidth)
+  const savedPanelWidth = useLayoutSize('rightWorkspace')
+  const preferredPanelWidth = savedPanelWidth ?? autoPanelWidth(windowWidth, preferredSidebarWidth)
   const panelMax = Math.max(360, windowWidth - (sidebarOpen ? preferredSidebarWidth : 0) - SESSION_MIN_WIDTH)
   const panelWidth = Math.min(preferredPanelWidth, panelMax)
   const [panelOpen, setPanelOpen] = useState(
@@ -346,6 +347,8 @@ export function App() {
                       max={panelMax}
                       onChange={v => setLayoutSize('rightWorkspace', v)}
                       onCommit={v => setLayoutSize('rightWorkspace', v, true)}
+                      // Esc 撤回：回到拖动前（没拖过的仍按窗口宽度自动算），不存盘
+                      onCancel={() => setLayoutSize('rightWorkspace', savedPanelWidth)}
                       onReset={() => setLayoutSize('rightWorkspace', null, true)}
                     />
                   )}

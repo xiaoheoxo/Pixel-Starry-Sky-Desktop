@@ -210,6 +210,8 @@ export function createPublisher(deps: PublisherDeps): Publisher {
   const newToken = deps.randomToken ?? ((): string => randomBytes(16).toString('hex'))
   /** 每个窗口只留一份没用过的 token，新的顶掉旧的 */
   const pending = new Map<PublishOwner, Pending>()
+  /** 每个窗口一个标记，关窗口（forget）时删掉：选包、本机检查期间窗口关了，选完对不上就不再存字节 */
+  const alive = new Map<PublishOwner, object>()
 
   const requireSignedIn = (): void => {
     if (!deps.signedIn()) throw codedError('extstore.notSignedIn')
@@ -306,6 +308,8 @@ export function createPublisher(deps: PublisherDeps): Publisher {
 
     async pickUpload(input, owner) {
       requireSignedIn()
+      let mark = alive.get(owner)
+      if (!mark) alive.set(owner, (mark = {}))
       const zip = await zipBytes(input, owner)
       if (zip === null) return null
       const manifest = manifestOf(zip)
@@ -335,7 +339,8 @@ export function createPublisher(deps: PublisherDeps): Publisher {
       // 核对没过、或本机检查有要改的问题时不发 token（token 为空串）：界面看到就知道不能提交，也不会白占上传额度
       const blocked = !checks.prefixOk || !checks.versionNewer || (!report.incomplete && (report.blocking ?? 0) > 0)
       let token = ''
-      if (blocked) pending.delete(owner)
+      // 窗口在选包 / 检查期间关了：forget 已经执行过，这时再存就没人来删了
+      if (blocked || alive.get(owner) !== mark) pending.delete(owner)
       else {
         token = newToken()
         // 顺手清掉所有窗口里已过期的（关窗口的 destroyed 事件之外的兜底）
@@ -417,6 +422,7 @@ export function createPublisher(deps: PublisherDeps): Publisher {
 
     forget(owner) {
       pending.delete(owner)
+      alive.delete(owner)
     },
   }
 }

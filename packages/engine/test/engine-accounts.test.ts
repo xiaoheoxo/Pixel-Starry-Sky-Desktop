@@ -75,6 +75,17 @@ describe('账号目录接回原目录', () => {
     expect(readFileSync(join(real, 'skills', 'mine.md'), 'utf8')).toBe('m')
     expect(readFileSync(join(dir, 'skills', 'mine.md'), 'utf8')).toBe('m')
   })
+
+  it('账号目录建不起来：不抛错，返回 false 让调用方下次再试；建得起来返回 true', () => {
+    const root = tmp('accounts-home')
+    const real = join(root, 'codex'),
+      blocker = join(root, 'blocker')
+    // 父路径是个文件：mkdir 失败
+    writeFileSync(blocker, '')
+    expect(prepareAccountHome(real, join(blocker, 'acc'))).toBe(false)
+    rmSync(blocker)
+    expect(prepareAccountHome(real, join(blocker, 'acc'))).toBe(true)
+  })
 })
 
 describe('账号文件', () => {

@@ -30,6 +30,7 @@ import { MessageActionsContext } from './live/MessageActions'
 import { useBranchActions } from './useBranchActions'
 import { RewindUndoBar, ReviewCommentsBar } from './ComposerNotices'
 import { SideChatPanel } from './sidechat/SideChatPanel'
+import { sideRefusal } from './sidechat/store'
 import { clearReviewComments, reviewMessage, useReviewComments } from './reviewComments'
 import { DiffCommentsContext } from '@/ui/code/diffComments'
 import { paneActions } from '@/features/panes/store'
@@ -384,7 +385,15 @@ function LiveSessionView({
                     status={status}
                     draftKey={draftKey}
                     autoFocus
-                    onSideQuestion={branch.sideChat ? q => openSide(q) : undefined}
+                    onSideQuestion={
+                      branch.sideChat
+                        ? q => {
+                            const refused = sideRefusal(sessionId, branch.sideChat!.disabledReason)
+                            if (!refused) openSide(q)
+                            return refused
+                          }
+                        : undefined
+                    }
                     statusExtra={
                       branch.sideChat && (
                         <button

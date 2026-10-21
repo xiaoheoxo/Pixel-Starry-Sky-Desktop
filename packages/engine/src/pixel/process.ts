@@ -11,6 +11,9 @@ import { killTree } from '../exec'
 export { redact }
 const log = logger('engine.pixel')
 
+/** 进程退出后等 stdio 读完的最长时间（见 exitPromise） */
+const STDIO_DRAIN_MS = 1_000
+
 export type Message = Record<string, unknown>
 export const object = (v: unknown): Message => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Message) : {})
 export const string = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -111,7 +114,10 @@ export class PixelProcess {
         handlers.exit(code, this.stderr.toString())
         resolve()
       }
-      this.child.once('exit', finish)
+      // 在 close（stdout / stderr 都读完）时收尾：exit 先到时 stdio 可能还没读完，stderr 结尾（崩溃原因）和最后几帧会丢。
+      // 后代进程占着管道不放时 close 不来，exit 后最多再等 STDIO_DRAIN_MS
+      this.child.once('exit', code => setTimeout(() => finish(code), STDIO_DRAIN_MS).unref())
+      this.child.once('close', finish)
       this.child.once('error', error => {
         this.stderr.push(redact(error.message))
         finish(null)

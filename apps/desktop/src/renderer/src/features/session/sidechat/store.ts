@@ -1,7 +1,7 @@
 // 旁聊（docs/ui/rewind-fork-sidechat.md §3）：每个会话一串问答，只在内存里；问的时候带上前面已经答完的几问
 import { useSyncExternalStore } from 'react'
 import type { SideTurn } from '@pixelsky/protocol'
-import { translateMessage } from '@/i18n/core'
+import { tr, translateMessage } from '@/i18n/core'
 import { SESSION_REMOVED_EVENT } from '@/features/engine/sessionLifecycle'
 
 export interface SideEntry {
@@ -57,6 +57,12 @@ export function useSideChat(sessionId: string): SideEntry[] {
     },
     () => sideEntries(sessionId),
   )
+}
+
+/** 现在不能问的原因（还没发过消息、上一个问题还在答）；null 表示可以。输入框的 /btw 先看这个再清空 */
+export function sideRefusal(sessionId: string, disabledReason: string | null): string | null {
+  if (disabledReason) return disabledReason
+  return sideEntries(sessionId).some(e => e.pending) ? tr('side.busy') : null
 }
 
 /** 问一个问题；同一时间只有一个在答 */

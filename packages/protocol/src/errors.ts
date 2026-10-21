@@ -16,7 +16,8 @@ export function codedError(code: string, params?: ErrorParams): Error {
   return new Error(ERROR_PREFIX + JSON.stringify(params ? { code, params } : { code }))
 }
 
-const CODED = /PIXELSKY_ERR:(\{[^\n]*?\})(?=$|\s|[,.;:，。；：）)])/g
+// 片段结束处：行尾、空白或标点
+const FRAGMENT_END = /^$|^[\s,.;:，。；：）)]/
 
 function decode(json: string): CodedErrorInfo | null {
   try {
@@ -42,8 +43,23 @@ export function parseCodedError(message: string | null | undefined): CodedErrorI
 /** 把消息里所有带代码的错误片段换成 render 的结果（例如外层又拼了「启动失败：」前缀） */
 export function replaceCodedErrors(message: string, render: (info: CodedErrorInfo) => string): string {
   if (!message.includes(ERROR_PREFIX)) return message
-  return message.replace(CODED, (whole, json: string) => {
-    const info = decode(json)
-    return info ? render(info) : whole
-  })
+  let result = '',
+    from = 0
+  for (let at = message.indexOf(ERROR_PREFIX); at >= 0; at = message.indexOf(ERROR_PREFIX, at + 1)) {
+    if (at < from) continue
+    const start = at + ERROR_PREFIX.length
+    if (message[start] !== '{') continue
+    const lineEnd = message.indexOf('\n', start)
+    const stop = lineEnd < 0 ? message.length : lineEnd
+    // 参数里可能有「}」紧跟空白或标点（例如 src/{id}.ts），从近到远逐个试候选结束位置，第一个能解析的就是
+    for (let close = message.indexOf('}', start); close >= 0 && close < stop; close = message.indexOf('}', close + 1)) {
+      if (!FRAGMENT_END.test(message.slice(close + 1, close + 2))) continue
+      const info = decode(message.slice(start, close + 1))
+      if (!info) continue
+      result += message.slice(from, at) + render(info)
+      from = close + 1
+      break
+    }
+  }
+  return result + message.slice(from)
 }

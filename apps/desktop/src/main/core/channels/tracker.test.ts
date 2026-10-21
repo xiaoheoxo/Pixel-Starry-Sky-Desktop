@@ -178,14 +178,42 @@ describe('任务状态跟踪（§5.1）', () => {
   it('重试的 user 条目（id 带 -retry-）也算；失败取错误第一行；中断算已停止', () => {
     const started = feed(run(), [{ type: 'item_completed', item: user('ch-t1-1-retry-abc', 'turn2') }]).run
     expect(started.turnId).toBe('turn2')
-    expect(
-      trackEvent(started, { type: 'turn_completed', turnId: 'turn2', outcome: 'failed', error: '502\n详情' }).finish,
-    ).toEqual({ status: 'failed', error: '502' })
+    // 失败先不收尾，等紧跟着的队列事件：这条不在队列里了才算失败
+    const failed = trackEvent(started, {
+      type: 'turn_completed',
+      turnId: 'turn2',
+      outcome: 'failed',
+      error: '502\n详情',
+    })
+    expect(failed.finish).toBeNull()
+    expect(trackEvent(failed.run, { type: 'queue', items: [], paused: true }).finish).toEqual({
+      status: 'failed',
+      error: '502',
+    })
     expect(
       trackEvent(started, { type: 'turn_completed', turnId: 'turn2', outcome: 'interrupted', error: null }).finish,
     ).toEqual({
       status: 'stopped',
     })
+  })
+
+  it('断线自动重连：这一轮报失败后这条还留在队列里，接着等续做那一轮（-reconnect- 条目），做完算完成', () => {
+    const queued = { id: 'ch-t1-1', text: '', createdAt: 0, status: 'queued' } as never
+    const r = feed(run(), [
+      { type: 'item_completed', item: user('ch-t1-1', 'turn1') },
+      { type: 'turn_completed', turnId: 'turn1', outcome: 'failed', error: 'ECONNRESET' },
+      { type: 'queue', items: [queued], paused: false },
+      { type: 'item_completed', item: user('ch-t1-1-reconnect-abc', 'turn2') },
+      { type: 'turn_completed', turnId: 'turn2', outcome: 'completed', error: null },
+    ])
+    expect(r.finish).toEqual({ status: 'done' })
+    // 重连后这条被标失败（次数用完）：按失败收尾
+    const gaveUp = feed(run(), [
+      { type: 'item_completed', item: user('ch-t1-1', 'turn1') },
+      { type: 'turn_completed', turnId: 'turn1', outcome: 'failed', error: 'ECONNRESET' },
+      { type: 'queue', items: [{ ...(queued as object), status: 'failed', error: '断开' } as never], paused: true },
+    ])
+    expect(gaveUp.finish).toEqual({ status: 'failed', error: 'ECONNRESET' })
   })
 
   it('还没开始：队列项失败 → 失败；从队列里消失 → 已停止（取消）', () => {

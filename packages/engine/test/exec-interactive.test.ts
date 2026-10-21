@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { runInteractive } from '../src/exec'
+import { run, runInteractive } from '../src/exec'
 
 const fake = fileURLToPath(new URL('./fakes/fake-login.mjs', import.meta.url))
 const node = { command: process.execPath, args: [fake] }
@@ -43,5 +43,26 @@ describe('runInteractive', () => {
   it('程序起不来：started 为 false', async () => {
     const p = runInteractive({ command: 'definitely-not-a-command-xyz', args: [] }, [], process.env, () => undefined)
     expect((await p.done).started).toBe(false)
+  })
+})
+
+describe('run', () => {
+  it('输出超过上限报「输出过大」，不当成超时', async () => {
+    const r = await run(
+      { command: process.execPath, args: [] },
+      ['-e', "process.stdout.write('x'.repeat(5 * 1024 * 1024))"],
+      process.env,
+    )
+    expect(r).toMatchObject({ ok: false, started: true, error: '输出过大' })
+  })
+
+  it('超时照旧报「超时」', async () => {
+    const r = await run(
+      { command: process.execPath, args: [] },
+      ['-e', 'setTimeout(() => {}, 10000)'],
+      process.env,
+      200,
+    )
+    expect(r).toMatchObject({ ok: false, started: true, error: '超时' })
   })
 })

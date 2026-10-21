@@ -368,6 +368,8 @@ interface ForwardState {
   rules?: SubagentOptions['rules']
   /** 主会话当前的权限模式 */
   mode: () => string
+  /** 子智能体结束（完成、停止、超时）时触发：转发到主界面、还没答的对话框跟着撤掉 */
+  signal: AbortSignal
 }
 
 /** 按主会话当前的模式，子进程要批准的这个工具该放行 / 拒绝 / 问用户 */
@@ -381,7 +383,7 @@ async function forwardUi(child: RpcChild, raw: Json, ctx: ExtensionContext, stat
   const id = text(raw.id),
     method = text(raw.method),
     title = text(raw.title)
-  const options = { ...(typeof raw.timeout === 'number' ? { timeout: raw.timeout } : {}) }
+  const options = { ...(typeof raw.timeout === 'number' ? { timeout: raw.timeout } : {}), signal: state.signal }
   try {
     if (method === 'select') {
       const choices = (Array.isArray(raw.options) ? raw.options : []).map(text)
@@ -554,11 +556,13 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
           // 自动重试、压缩后接着跑成功时后面的消息会清掉它
           let failure = ''
           const calls = new Map<string, ChildCall>()
+          const dialogs = new AbortController()
           const forward: ForwardState = {
             calls,
             context: () => ({ toolCallId, agentId: progress.agentId, label: progress.label }),
             rules: options.rules,
             mode: options.mode,
+            signal: dialogs.signal,
           }
           const child = new RpcChild(proc, m => {
             const type = text(m.type)
@@ -628,6 +632,8 @@ ${progress.result}`
             unsubscribe()
             clearTimeout(timer)
             signal?.removeEventListener('abort', abort)
+            // 子智能体结束了：还挂在主界面上的审批 / 提问撤掉（按取消回给子进程）
+            dialogs.abort()
             await child.close()
           }
         }

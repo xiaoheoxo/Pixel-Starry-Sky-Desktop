@@ -157,12 +157,17 @@ function readLater(id: string): void {
 
 /** 频道 id → 正在读的那一页：同一个频道同时只读一页，这时再要求的等它读完 */
 const loading = new Map<string, Promise<void>>()
+/** 频道 id → 第一次读消息期间推过来的（这时 state.messages 里还没有这个频道），读完一起并进去 */
+const pushedWhileLoading = new Map<string, ChannelMessage[]>()
 /** 读一页消息；第一次进频道时顺便定「新消息」分隔线（unread：进入前的未读数），和消息一起更新，时间线只滚一次 */
 function loadMessages(id: string, older = false, unread = 0): Promise<void> {
   if (!channelsBridge) return Promise.resolve()
   const running = loading.get(id)
   if (running) return running
-  const job = readPage(channelsBridge, id, older, unread).finally(() => loading.delete(id))
+  const job = readPage(channelsBridge, id, older, unread).finally(() => {
+    loading.delete(id)
+    pushedWhileLoading.delete(id)
+  })
   loading.set(id, job)
   return job
 }
@@ -179,7 +184,10 @@ async function readPage(
   const current = older ? (state.messages[id] ?? []) : []
   let list = [...page.messages, ...current]
   // 读的同时推过来的消息不能丢
-  if (!older) for (const m of state.messages[id] ?? []) list = upsertMessage(list, m)
+  if (!older) {
+    const pushed = [...(state.messages[id] ?? []), ...(pushedWhileLoading.get(id) ?? [])]
+    for (const m of pushed) list = upsertMessage(list, m)
+  }
   const self = selfIdIn(state, state.channels.find(c => c.id === id)?.memberIds)
   const newFrom = unread > 0 ? { ...state.newFrom, [id]: firstUnreadAt(list, unread, self) } : state.newFrom
   set({ messages: { ...state.messages, [id]: list }, more: { ...state.more, [id]: page.more }, newFrom })
@@ -192,8 +200,12 @@ if (channelsBridge) {
   channelsBridge.onChange(applySnapshot)
   channelsBridge.onMessage(({ channelId, message }) => {
     const list = state.messages[channelId]
-    // 还没读过这个频道的消息：等进入时一起读
-    if (!list) return
+    // 还没读过这个频道的消息：等进入时一起读；正在第一次读的先记下，读完并进去
+    if (!list) {
+      if (loading.has(channelId))
+        pushedWhileLoading.set(channelId, upsertMessage(pushedWhileLoading.get(channelId) ?? [], message))
+      return
+    }
     set({ messages: { ...state.messages, [channelId]: upsertMessage(list, message) } })
   })
   void channelsBridge.state().then(applySnapshot, () => set({ ready: true }))

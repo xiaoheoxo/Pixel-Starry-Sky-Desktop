@@ -166,8 +166,9 @@ export function useCheckout(
           if (!fresh) {
             if (old) next.push(old) // 查不到就先留着，下次再查
           } else if (fresh.status === 'paid') next.push({ order: plain(fresh), at: Date.now() })
-          else if (fresh.status === 'completed' && !flow.getState().open) {
-            // 弹窗关着的时候到的账：刷新账号让余额 / 套餐跟上，并提示一下（这笔已经提示过就不再提示）
+          else if (fresh.status === 'completed' && flow.getState().order?.orderId !== id) {
+            // 不在弹窗里的单到的账：刷新账号让余额 / 套餐跟上，并提示一下（这笔已经提示过就不再提示）。
+            // 查询期间可能打开了别的单的付款弹窗，照样提示；弹窗里正显示的这一笔由弹窗自己提示（带余额变化）
             void refreshRef.current().catch(() => undefined)
             if (takeNotice(notifiedRef.current, id)) toastRef.current(tr('settings.account.Checkout.toast.completed'))
           }

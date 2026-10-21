@@ -40,6 +40,16 @@ interface TaskUpdate {
 
 const ID = /^[A-Za-z0-9-]{1,64}$/
 
+/** 任务卡上只在内存里、不写盘的字段：进度、待确认请求、正在做什么（追加和整理压缩一致） */
+const MEMORY_ONLY = ['progress', 'request', 'activity'] as const
+
+/** 去掉只在内存里的字段（追加 task_update 和整理压缩共用） */
+function persisted<T extends Partial<ChannelTask>>(task: T): T {
+  const saved = { ...task }
+  for (const key of MEMORY_ONLY) delete saved[key]
+  return saved
+}
+
 /** jsonl 的一行 → 合并进消息列表；坏行跳过（写到一半断电） */
 function mergeLine(list: ChannelMessage[], index: Map<string, number>, line: string): void {
   let row: ChannelMessage | TaskUpdate
@@ -179,8 +189,8 @@ export class ChannelStore {
     if (!list || i === undefined || list[i].kind !== 'task') return null
     const task = { ...list[i], ...patch } as ChannelTask
     list[i] = task
-    // 进度、待确认请求、正在做什么只在内存里，不写盘
-    const { progress: _p, request: _r, activity: _a, ...saved } = patch
+    // 只在内存里的字段不写盘
+    const saved = persisted(patch)
     if (Object.keys(saved).length)
       void this.appendLine(channelId, { kind: 'task_update', id, patch: saved }).catch(() => {})
     return task
@@ -222,9 +232,9 @@ export class ChannelStore {
     this.lines.set(channelId, lines)
     const list = this.messages.get(channelId) ?? []
     if (lines > list.length * 2 + 50) {
-      // 整理：只留合并后的消息
+      // 整理：只留合并后的消息；任务卡同样去掉只在内存里的字段
       this.lines.set(channelId, list.length)
-      const text = list.map(m => JSON.stringify(m) + '\n').join('')
+      const text = list.map(m => JSON.stringify(m.kind === 'task' ? persisted(m) : m) + '\n').join('')
       return this.atomic(file, text)
     }
     return this.write(() => appendFile(file, JSON.stringify(row) + '\n', 'utf8'))

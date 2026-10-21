@@ -81,4 +81,18 @@ describe('引擎设置的云同步', () => {
     await b.applySyncableSetting('desktop.engine.defaults', null)
     expect(b.syncableSettings()['desktop.engine.defaults'].engines.codex?.defaults.effort).toBe('high')
   })
+
+  it('一个引擎的选项里有一项不合法：只跳过那一项，其他选项照样写回', async () => {
+    const host = setup()
+    // 本机默认引擎是 claude，云端要把它隐藏：hidden 跳过，输出风格和自动压缩照样生效
+    await host.applySyncableSetting('desktop.engine.options', {
+      engines: { claude: { hidden: true, outputStyle: 'Explanatory', autoCompactPct: 80, rememberChoices: true } },
+    })
+    expect(host.syncableSettings()['desktop.engine.options'].engines.claude).toMatchObject({
+      hidden: false,
+      outputStyle: 'Explanatory',
+      autoCompactPct: 80,
+      rememberChoices: true,
+    })
+  })
 })

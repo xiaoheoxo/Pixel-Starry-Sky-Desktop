@@ -103,13 +103,20 @@ export class PixelAdapter implements EngineAdapter {
     )
     try {
       this.catalogCache = (await pixelCatalog(proc)).catalog
+      // 这次起得来：清掉以前失败时记下的启动错误（info 是缓存的那份）
+      delete info.launchError
       return this.catalogCache
     } catch (error) {
       info.launchError = startupReason(tail) || (error as Error).message
       return empty
     } finally {
       await proc.close()
-      rmSync(cwd, { recursive: true, force: true })
+      // Windows 上目录可能还被占着（EBUSY / EPERM）：删不掉就留给系统清，不能盖掉已经拿到的结果
+      try {
+        rmSync(cwd, { recursive: true, force: true })
+      } catch {
+        // 留下的空临时目录无害
+      }
     }
   }
   /** 智能体追踪：子智能体记在 Pi 主会话文件里（引擎会话 id 就是会话文件路径） */

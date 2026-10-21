@@ -27,8 +27,14 @@ class Session implements EngineSession {
   inputs: string[] = []
   closed = false
   stopping: (() => Promise<void>) | null = null
+  failSend: string | null = null
   constructor(readonly ctx: SessionContext) {}
   send(text: string, turnId: string): void {
+    if (this.failSend) {
+      const message = this.failSend
+      this.failSend = null
+      throw new Error(message)
+    }
     this.active = turnId
     this.inputs.push(text)
   }
@@ -282,5 +288,43 @@ describe('归档与删除生命周期', () => {
     await until(() => host.open(record.id).state === 'idle')
     expect(adapter.sessions).toHaveLength(0)
     expect(host.open(record.id).queuePaused).toBe(true)
+  })
+  it('新会话刚发第一条就删掉：派发收尾不再按 id 改队列，不重建运行时、没有未处理的拒绝', async () => {
+    const { host, adapter, record } = setup()
+    let release!: () => void
+    adapter.delayed = () =>
+      new Promise<void>(r => {
+        release = r
+      })
+    const rejections: unknown[] = []
+    const onRejection = (err: unknown) => rejections.push(err)
+    process.on('unhandledRejection', onRejection)
+    try {
+      await host.send(record.id, '第一条')
+      await until(() => !!release)
+      await host.deleteSession(record.id)
+      release()
+      await new Promise(r => setTimeout(r, 20))
+      expect(rejections).toEqual([])
+      expect(host.record(record.id)).toBeNull()
+      expect(adapter.sessions).toHaveLength(0)
+    } finally {
+      process.off('unhandledRejection', onRejection)
+    }
+  })
+  it('发给引擎前抛错：这一轮标失败，会话回到空闲，下一条照常发出', async () => {
+    const { host, adapter, record } = setup()
+    await host.send(record.id, '第一条')
+    await until(() => !!adapter.sessions[0]?.active)
+    adapter.sessions[0].finish()
+    await until(() => host.open(record.id).state === 'idle' && host.open(record.id).queue.length === 0)
+    adapter.sessions[0].failSend = '写入失败'
+    await host.send(record.id, '第二条')
+    await until(() => host.open(record.id).queue.some(q => q.status === 'failed'))
+    expect(host.open(record.id)).toMatchObject({ state: 'idle', queuePaused: true })
+    expect(host.open(record.id).queue[0]).toMatchObject({ status: 'failed', error: '写入失败' })
+    await host.send(record.id, '第三条')
+    // 第二条已写进对话但引擎没收到，第三条前面带着交接材料
+    await until(() => adapter.sessions[0].inputs.some(t => t.endsWith('第三条')))
   })
 })

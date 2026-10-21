@@ -949,6 +949,22 @@ describe('线程记录不在了', { timeout: 20_000 }, () => {
     expect(JSON.stringify(called('turn/start').at(-1)?.params)).not.toContain('问题 1')
   })
 
+  it('同上、注入期间停止：这一轮本地结束，注入完成后也不再开始压缩', async () => {
+    const failFile = join(root, 'resume-fail')
+    const t = setup({ env: { FAKE_CODEX_RESUME_FAIL_FILE: failFile, FAKE_CODEX_INJECT_DELAY: '300' } })
+    const x = addThread(1, t.cwd, 1)
+    writeRollout(x)
+    const { sessionId: id } = await importIn(t, x)
+    writeFileSync(failFile, '')
+    await t.host.send(id, { text: '/compact', clientMessageId: 'msg-1' })
+    await waitFor(() => called('thread/inject_items').length > 0)
+    await t.host.interrupt(id)
+    expect(t.host.open(id).state).toBe('idle')
+    await new Promise(r => setTimeout(r, 600))
+    expect(called('thread/compact/start')).toHaveLength(0)
+    expect(t.host.open(id).context?.compacting ?? false).toBe(false)
+  })
+
   it('同上、注入失败：这次不压缩，不说「已带过去」，游标清空；下一条普通消息把导入的聊天带过去', async () => {
     const failFile = join(root, 'resume-fail')
     const t = setup({ env: { FAKE_CODEX_RESUME_FAIL_FILE: failFile, FAKE_CODEX_INJECT_FAIL: '1' } })

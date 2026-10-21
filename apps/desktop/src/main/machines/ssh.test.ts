@@ -229,6 +229,53 @@ describe('SSH trust and loopback transport', () => {
     ).rejects.toThrow()
     expect(target.stats().executed).toBe(0)
   }, 15_000)
+  it('握手中途被断开（发了 banner 就关）：connect 报连接已断开，不一直挂着', async () => {
+    const sockets = new Set<import('node:net').Socket>()
+    const half = createServer(socket => {
+      sockets.add(socket)
+      socket.on('error', () => {})
+      socket.write('SSH-2.0-Fake_1.0\r\n')
+      setTimeout(() => socket.destroy(), 50)
+    })
+    await new Promise<void>(r => half.listen(0, '127.0.0.1', r))
+    cleanup.push(() => {
+      for (const s of sockets) s.destroy()
+      half.close()
+    })
+    const link = new SshConnection()
+    cleanup.push(() => link.close())
+    const input: MachineInput = {
+      name: 'half',
+      host: '127.0.0.1',
+      port: (half.address() as { port: number }).port,
+      username: 'u',
+      auth: 'password',
+      password: 'p',
+    } as MachineInput
+    await expect(link.connect(input, null, undefined, '', () => {})).rejects.toThrow()
+  }, 10_000)
+  it('本机转发端口：同一远程端口并发只开一个；关闭后不再开，开监听期间关闭的也关掉', async () => {
+    const link = new SshConnection()
+    const listening = (port: number) =>
+      new Promise<boolean>(resolve => {
+        const socket = connect(port, '127.0.0.1')
+        socket.on('connect', () => {
+          socket.destroy()
+          resolve(true)
+        })
+        socket.on('error', () => resolve(false))
+      })
+    const [a, b] = await Promise.all([link.forwardPort(4321), link.forwardPort(4321)])
+    expect(a).toBe(b)
+    const inner = link as unknown as { localForwards: Map<number, Promise<Server>> }
+    expect(inner.localForwards.size).toBe(1)
+    const racing = link.forwardPort(4322)
+    link.close()
+    await expect(racing).rejects.toThrow('SSH_CONNECTION_CLOSED')
+    await expect(link.forwardPort(4323)).rejects.toThrow('SSH_CONNECTION_CLOSED')
+    await new Promise(r => setTimeout(r, 20))
+    expect(await listening(a)).toBe(false)
+  })
 })
 
 describe('SSH 下发像素星空命令行', () => {

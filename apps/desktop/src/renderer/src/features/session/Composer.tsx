@@ -103,8 +103,8 @@ export function Composer({
   status?: StatusBarController
   autoFocus?: boolean
   draftKey?: string
-  /** 「/btw 问题」：交给旁聊，不发进主对话（docs/ui/rewind-fork-sidechat.md §3） */
-  onSideQuestion?: (question: string) => void
+  /** 「/btw 问题」：交给旁聊，不发进主对话（docs/ui/rewind-fork-sidechat.md §3）；现在不能问时返回原因，输入框保留原文 */
+  onSideQuestion?: (question: string) => string | null
   /** 输入框上方那一行右边的按钮（旁聊） */
   statusExtra?: ReactNode
   /** 欢迎页（新任务）的输入框：模型按钮旁边写「接着上次」（docs/ui/model-channels.md §2.6） */
@@ -558,8 +558,9 @@ export function Composer({
   const submit = async (): Promise<void> => {
     const side = onSideQuestion ? /^\/btw\s+([\s\S]+)$/.exec(text.trim()) : null
     if (side) {
-      onSideQuestion!(side[1].trim())
-      setText('')
+      const refused = onSideQuestion!(side[1].trim())
+      if (refused) setError(refused)
+      else setText('')
       return
     }
     // 手打 /resume [关键词 | 完整 id] 回车：打开选择框，不发给 Claude
@@ -628,12 +629,13 @@ export function Composer({
         setMentionDismissed(true)
         return
       }
+      // 列表还是上一次查询的结果（新的正在找）时，Enter / Tab 先不选，免得选中旧结果
       if (mentions.entries.length && ['ArrowDown', 'ArrowUp', 'Tab', 'Enter'].includes(e.key) && !e.shiftKey) {
         e.preventDefault()
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           const n = mentions.entries.length
           setMentionIndex(index => (Math.min(index, n - 1) + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
-        } else chooseMention(activeMentionIndex)
+        } else if (!mentions.loading) chooseMention(activeMentionIndex)
         return
       }
     }

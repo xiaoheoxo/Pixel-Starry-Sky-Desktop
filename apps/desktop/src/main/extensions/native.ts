@@ -4,6 +4,16 @@ import { join, resolve } from 'node:path'
 import { jsonFile, object, pluginDirectory, skillFile, mcpConfig, MASKED_SECRET } from '@pixelsky/engine'
 import type { ExtensionEntry, ExtensionScope, McpConfig } from '@pixelsky/protocol'
 
+/**
+ * `~/.claude.json` 里 projects 下指向这个项目的键。Windows 上旧版 Claude Code 用 `D:\PixelSky`，
+ * 新版用 `D:/PixelSky`，盘符大小写也可能不同：都算同一个项目，正斜杠的（新版写的）排前面，同名 MCP 以它为准
+ */
+export function projectKeys(keys: string[], project: string): string[] {
+  if (!/^[a-zA-Z]:[\\/]/.test(project)) return keys.includes(project) ? [project] : []
+  const norm = (path: string): string => path.replace(/\\/g, '/').toLowerCase(),
+    target = norm(project)
+  return keys.filter(key => norm(key) === target).sort((a, b) => Number(a.includes('\\')) - Number(b.includes('\\')))
+}
 export function nativeEntries(
   project: string | null,
   env: NodeJS.ProcessEnv,
@@ -165,7 +175,11 @@ export function nativeEntries(
     if (existsSync(file)) {
       const data = jsonFile(file)
       mcp(data.mcpServers, file, scope)
-      if (project) mcp(object(object(data.projects)[project]).mcpServers, file, { kind: 'project', path: project })
+      if (project) {
+        const projects = object(data.projects)
+        for (const key of projectKeys(Object.keys(projects), project))
+          mcp(object(projects[key]).mcpServers, file, { kind: 'project', path: project })
+      }
     }
   } catch (e) {
     warnings.push('原生 MCP：' + (e as Error).message)

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ALLOW_OPTION,
   ALWAYS_OPTION,
@@ -74,6 +74,8 @@ interface HarnessOptions {
   onSelect?: () => void
   /** 子进程开始要批准之前等它 */
   gate?: Promise<void>
+  /** 弹框一直不答，等对话框的 signal 撤掉；收到的 signal 记在这里 */
+  hang?: { signal?: AbortSignal }
 }
 
 function harness(
@@ -128,15 +130,21 @@ function harness(
     sessionManager: { getSessionFile: () => undefined },
     ui: {
       setStatus: (key: string, text: string) => events.push(`status ${key} ${text}`),
-      select: async (title: string) => {
+      select: async (title: string, _choices: string[], dialog?: { signal?: AbortSignal }) => {
         events.push(`select ${title.split('\n')[0]}`)
         opts.onSelect?.()
+        const hang = opts.hang
+        if (hang) {
+          hang.signal = dialog?.signal
+          return new Promise<undefined>(resolve => dialog?.signal?.addEventListener('abort', () => resolve(undefined)))
+        }
         return answer
       },
       notify: () => {},
     },
   }
-  const run = () => tool!.execute('t1', { description: '写文件', prompt: 'write a.txt' }, undefined, undefined, ctx)
+  const run = (signal?: AbortSignal) =>
+    tool!.execute('t1', { description: '写文件', prompt: 'write a.txt' }, signal, undefined, ctx)
   return { run, events, remembered, writeArgs, child: () => child! }
 }
 
@@ -171,6 +179,18 @@ describe('子智能体：转过来的审批', () => {
     expect(h.events).toContain(`child got ${ALWAYS_OPTION}`)
     expect(h.remembered).toEqual(['write'])
     expect(SUBAGENT_TOOL).toBe('task')
+  })
+
+  it('子智能体被停止：转到主界面、还没答的审批跟着撤掉', async () => {
+    const hang: { signal?: AbortSignal } = {}
+    const h = harness(undefined, () => false, { hang })
+    const stop = new AbortController()
+    const running = h.run(stop.signal)
+    await vi.waitFor(() => expect(h.events).toContain('select 允许工具 write？ / Allow tool write?'))
+    expect(hang.signal?.aborted).toBe(false)
+    stop.abort()
+    expect((await running).content[0].text).toContain('Subagent was stopped')
+    expect(hang.signal?.aborted).toBe(true)
   })
 
   it('主会话已经「不再询问」的：直接允许，不弹框', async () => {

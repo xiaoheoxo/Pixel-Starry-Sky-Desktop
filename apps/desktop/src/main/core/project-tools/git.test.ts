@@ -1,12 +1,12 @@
 // Git 面板的真实 git 测试（docs/ui/git-panel.md §7）：在 scratch 下建仓库和裸远端，不访问网络。
-import { mkdtemp, mkdir, readFile, writeFile, rm, access } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitResult, GitStatus } from '../../../shared/types/project-tools'
 import { git, type ToolsHost } from './common'
-import { GitTools } from './git'
+import { GitTools, pathBatches } from './git'
 
 // 数 git 进程：真起进程，只是记下调用
 vi.mock('node:child_process', async importOriginal => {
@@ -293,6 +293,20 @@ describe('Git 面板：撤销', () => {
     expect(trashed).toEqual([join(project, '-rf')])
     expect(s.untracked.map(f => f.path)).toEqual(['keep.txt'])
   })
+  it('未跟踪的符号链接：放弃的是链接本身，指向的已跟踪文件不动', async () => {
+    await init()
+    await writeFile(join(project, 'main.ts'), 'source')
+    await commitAll('base')
+    try {
+      await symlink(join(project, 'main.ts'), join(project, 'link'), 'file')
+    } catch {
+      return // Windows 没开开发者模式不能建符号链接
+    }
+    const s = ok(await tools().discard(ref, { paths: [], untracked: ['link'] }))
+    expect(trashed).toEqual([join(project, 'link')])
+    expect(await readFile(join(project, 'main.ts'), 'utf8')).toBe('source')
+    expect(s.untracked).toEqual([])
+  })
   it('没有回收站时（SSH 机器）用 git clean', async () => {
     await init()
     await writeFile(join(project, 'a.txt'), 'base')
@@ -300,6 +314,27 @@ describe('Git 面板：撤销', () => {
     await writeFile(join(project, 'tmp.txt'), 'x')
     ok(await tools({}).discard(ref, 'all'))
     await expect(access(join(project, 'tmp.txt'))).rejects.toThrow()
+  })
+  it('放弃全部的文件很多（路径合起来超过 Windows 命令行上限）：分批还原、分批 git clean', async () => {
+    await init()
+    const names = Array.from({ length: 400 }, (_, i) => `${String(i).padStart(4, '0')}-${'x'.repeat(96)}.txt`)
+    for (const n of names) await writeFile(join(project, n), 'base')
+    await commitAll('base')
+    for (const n of names) await writeFile(join(project, n), 'changed')
+    for (const n of names) await writeFile(join(project, 'new-' + n), 'x')
+    const checkouts = spawned('checkout'),
+      cleans = spawned('clean')
+    const s = ok(await tools({}).discard(ref, 'all'))
+    expect(s.unstaged).toEqual([])
+    expect(s.untracked).toEqual([])
+    expect(await readFile(join(project, names[399]), 'utf8')).toBe('base')
+    expect(spawned('checkout') - checkouts).toBeGreaterThan(1)
+    expect(spawned('clean') - cleans).toBeGreaterThan(1)
+  }, 30_000)
+  it('pathBatches：每批总长不超过上限，顺序不变，单个超长的自成一批', () => {
+    expect(pathBatches([], 10)).toEqual([])
+    expect(pathBatches(['aa', 'bb', 'cc'], 10)).toEqual([['aa', 'bb'], ['cc']])
+    expect(pathBatches(['a'.repeat(20), 'b'], 10)).toEqual([['a'.repeat(20)], ['b']])
   })
 })
 

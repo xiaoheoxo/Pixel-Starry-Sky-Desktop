@@ -171,6 +171,42 @@ describe('TeamRealtime', () => {
     t.rt.stop()
   })
 
+  it('等令牌期间 stop 又 start：只连一条，旧的那次作废', async () => {
+    const pending: ((t: string) => void)[] = []
+    const t = setup(() => new Promise<string>(resolve => pending.push(resolve)))
+    t.rt.start()
+    t.rt.stop()
+    t.rt.start()
+    expect(pending).toHaveLength(2)
+    // 新的那次先拿到令牌，旧的后到
+    pending[1]('new')
+    await flush()
+    pending[0]('old')
+    await flush()
+    expect(t.sockets).toHaveLength(1)
+    expect(t.sockets[0].protocols[1]).toBe('bearer.new')
+    t.sockets[0].open()
+    t.sockets[0].send({ type: 'invites' })
+    expect(t.frames).toHaveLength(1)
+    t.rt.stop()
+  })
+
+  it('restart 换掉的旧连接：迟到的帧不往外传', async () => {
+    const t = setup()
+    t.rt.start()
+    await flush()
+    const old = t.sockets[0]
+    const onmessage = old.onmessage
+    old.open()
+    t.rt.restart()
+    await flush()
+    expect(old.closed).toBe(true)
+    expect(t.sockets).toHaveLength(2)
+    onmessage?.({ data: JSON.stringify({ type: 'invites' }) })
+    expect(t.frames).toHaveLength(0)
+    t.rt.stop()
+  })
+
   it('parseFrame 逐字段防御', () => {
     expect(parseFrame(null)).toBeNull()
     expect(parseFrame({ type: 'message', team: 'tm_1', channel: 'tc_1', message: { id: 'tg_1', n: 1 } })).toMatchObject(

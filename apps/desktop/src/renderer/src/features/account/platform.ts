@@ -306,6 +306,22 @@ export function formatMultiplier(rate: number): string {
 // 目录读取
 // ---------------------------------------------------------------------------
 
+/**
+ * 重读目录后 Claude Code 默认的（分组，模型）：只在 Claude Code 能用的分组里对齐；
+ * 有分组读模型失败（比如余额 ≤ 0 时按余额计费的分组读不出模型）就不改已存的选择，免得充值后回不去。
+ */
+export function refreshedSelection(
+  groups: PlatformGroup[],
+  groupId: string | null,
+  model: string | null,
+): { groupId?: string | null; model?: string | null } {
+  const own = platformModelsForEngine(
+    groups.filter(g => groupSupportsEngine(g, 'claude')),
+    'claude',
+  )
+  return own.some(g => g.modelsError) ? {} : resolvePlatform(own, groupId, model)
+}
+
 export async function refreshPlatform(): Promise<void> {
   const api = window.pixelsky?.platformCatalog
   // 演示模式用假目录，不请求真实服务
@@ -328,7 +344,10 @@ export async function refreshPlatform(): Promise<void> {
       groups.length > 0 && !anyModel
         ? (groups.find(g => g.modelsError)?.modelsError ?? tr('account.platform.noModelsAvailableIn'))
         : null
-    set({ groups, loaded: true, loading: false, error, ...resolvePlatform(groups, state.groupId, state.model) }, true)
+    set(
+      { groups, loaded: true, loading: false, error, ...refreshedSelection(groups, state.groupId, state.model) },
+      true,
+    )
   } catch (e) {
     if (gen === generation) set({ groups: [], loaded: true, loading: false, error: (e as Error).message })
   }

@@ -115,11 +115,11 @@ export function resolveCommand(command: string, env: NodeJS.ProcessEnv = process
 
 export interface ExecResult {
   ok: boolean
-  /** 进程起来了（退出码非 0、超时也算）；false 是程序根本启动不了 */
+  /** 进程起来了（退出码非 0、超时、输出过大也算）；false 是程序根本启动不了 */
   started: boolean
   stdout: string
   stderr: string
-  /** 启动失败或超时时的错误说明 */
+  /** 启动失败、超时或输出过大时的错误说明 */
   error: string | null
 }
 
@@ -137,15 +137,19 @@ export function run(
         [...launcher.args, ...args],
         { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'buffer' },
         (err, stdout, stderr) => {
+          // 输出超过 maxBuffer 时 Node 也会结束进程（有的版本还标 killed），和超时分开报
+          const tooLarge = (err as NodeJS.ErrnoException | null)?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
           resolve({
             ok: !err,
-            started: !err || err.killed || typeof (err as { code?: unknown }).code === 'number',
+            started: !err || err.killed || tooLarge || typeof (err as { code?: unknown }).code === 'number',
             stdout: decodeConsoleText(stdout ?? new Uint8Array()),
             stderr: decodeConsoleText(stderr ?? new Uint8Array()),
             error: err
-              ? (err as NodeJS.ErrnoException).code === 'ETIMEDOUT' || err.killed
-                ? '超时'
-                : err.message
+              ? tooLarge
+                ? '输出过大'
+                : (err as NodeJS.ErrnoException).code === 'ETIMEDOUT' || err.killed
+                  ? '超时'
+                  : err.message
               : null,
           })
         },

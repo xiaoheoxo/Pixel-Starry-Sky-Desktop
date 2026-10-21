@@ -9,6 +9,7 @@ import {
   resolvePlatform,
   visibleModels,
   groupSupportsEngine,
+  refreshedSelection,
   type PlatformGroup,
 } from './platform'
 
@@ -60,6 +61,23 @@ describe('平台目录：先选模型、再选线路（docs/ui/source-switch.md 
     expect(resolvePlatform(groups, '2', 'gone')).toEqual({ groupId: '2', model: 'sonnet' })
     expect(resolvePlatform(groups, '4', null)).toEqual({ groupId: '1', model: 'opus' })
     expect(resolvePlatform([], '1', 'opus')).toEqual({ groupId: null, model: null })
+  })
+
+  it('重读目录：只在 Claude Code 能用的分组里对齐，不会换到只有 Codex 能用的分组', () => {
+    const codex = { ...group('5', 0.1, ['gpt-6-astra']), platform: 'openai' }
+    expect(refreshedSelection([codex, group('2', 1, ['claude-sonnet'])], '9', 'gone')).toEqual({
+      groupId: '2',
+      model: 'claude-sonnet',
+    })
+    expect(refreshedSelection([codex], '1', 'claude-opus')).toEqual({ groupId: null, model: null })
+  })
+
+  it('重读目录：有分组读模型失败（余额 ≤ 0 时读不出）就不改已存的选择', () => {
+    const blocked = { ...group('1', 1, []), modelsError: '无法读取该分组的模型' }
+    expect(refreshedSelection([blocked, group('3', 0, []), group('2', 1, ['claude-x'])], '1', 'claude-opus')).toEqual(
+      {},
+    )
+    expect(refreshedSelection([blocked], '1', 'claude-opus')).toEqual({})
   })
 
   it('倍率显示最多三位小数', () => {

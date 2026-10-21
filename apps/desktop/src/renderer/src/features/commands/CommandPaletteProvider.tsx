@@ -38,16 +38,23 @@ import { terminalState } from '@/features/terminal/store'
 import { useActiveWorkspace } from '@/features/editor/target'
 import { cn, Kbd, useToast } from '@/ui'
 import {
+  CLOSE_TAB,
   COMMAND_PALETTE,
+  NEW_TERMINAL,
   OPEN_SEARCH,
+  OPEN_SETTINGS,
   QUOTE_SELECTION,
   SHORTCUTS_HELP,
   SPLIT_DOWN,
   SPLIT_RIGHT,
+  TOGGLE_BOTTOM_PANEL,
   TOGGLE_PANEL,
   TOGGLE_SIDEBAR,
+  TOGGLE_TERMINAL,
   ZOOM_PANE,
 } from '@/features/layout/shortcuts'
+import { isMac } from '@/features/layout/keybindings'
+import { formatBinding } from '@/features/layout/keybindingModel'
 import { getPaneState, paneActions } from '@/features/panes/store'
 import { SHORTCUTS_HELP_EVENT } from '@/features/layout/ShortcutsHelp'
 import { getPage, setPage, showWorkbench } from '@/features/layout/page'
@@ -353,7 +360,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         if (tab) await paneActions.closeTab(pane, tab)
         return !findLeaf(getPaneState().layout.root, pane)?.tabs.includes(tab ?? '')
       },
-      'Ctrl+W',
+      CLOSE_TAB.label,
       () => workbenchPane() && !!tab,
     )
     add(
@@ -362,7 +369,8 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       'palette.panes',
       PanelRight,
       () => paneActions.cycleFocus(1),
-      'Ctrl+Alt+→',
+      // 固定键（CYCLE_PANE 的「下一个」）：macOS ⌥⌘→
+      formatBinding({ code: 'ArrowRight', mod: true, alt: true, shift: false }, isMac),
       workbenchPane,
     )
     add(
@@ -371,7 +379,8 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       'palette.files',
       File,
       () => saveFile(file!.id),
-      'Ctrl+S',
+      // 编辑器自己的保存键，不能自定义：macOS ⌘S
+      formatBinding({ code: 'KeyS', mod: true, alt: false, shift: false }, isMac),
       () => hasFile() && file?.document?.kind === 'text' && !file.document.readonly,
       t('palette.noFile'),
     )
@@ -474,7 +483,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       'terminal.categoryTerminal',
       TerminalSquare,
       terminal.toggle,
-      'Ctrl+`',
+      TOGGLE_TERMINAL.label,
     )
     add('terminal.focus', 'terminal.focus', 'terminal.categoryTerminal', TerminalSquare, terminal.focus)
     add(
@@ -483,7 +492,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       'terminal.categoryTerminal',
       TerminalSquare,
       () => terminal.create(ref),
-      'Ctrl+Shift+`',
+      NEW_TERMINAL.label,
       hasProject,
       t('terminal.chooseProject'),
     )
@@ -536,7 +545,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       'terminal.categorySettings',
       Settings,
       () => settings.openSettings(),
-      'Ctrl+,',
+      OPEN_SETTINGS.label,
     )
     // 勿扰（docs/ui/notifications.md §2）
     add('notifications.dndHour', 'notifications.palette.dndHour', 'terminal.categorySettings', Bell, () =>
@@ -579,7 +588,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         cat,
         TerminalSquare,
         () => codingLayout.toggle('bottom'),
-        'Ctrl+J',
+        TOGGLE_BOTTOM_PANEL.label,
       )
       add('coding.viewFiles', 'coding.shell.cmd.viewFiles', cat, FolderOpen, () => codingLayout.showLeft('files'))
       add('coding.viewSearch', 'coding.shell.cmd.viewSearch', cat, Search, () => codingLayout.showLeft('search'))

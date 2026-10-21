@@ -60,7 +60,8 @@ export interface ExecutorDeps {
 interface Outbox {
   team: TeamRunRef
   body: TaskPatch
-  result?: { text: string; mentions: string[] }
+  /** round：产生这个结果的那一轮（结果消息的 clientId 用它，不能等发送时再读——那时可能已经开了下一轮） */
+  result?: { text: string; mentions: string[]; round?: number }
   final: boolean
   attempts: number
 }
@@ -83,6 +84,8 @@ export class TeamExecutor {
   private readonly lastSent = new Map<string, number>()
   private readonly reported = new Map<string, string>()
   private statusTimer: ReturnType<typeof setTimeout> | null = null
+  /** 上次看到的连接是不是 online（从别的状态恢复 online 时补发 outbox） */
+  private wasOnline = false
   private readonly progressMs: number
   private readonly statusMs: number
 
@@ -94,6 +97,7 @@ export class TeamExecutor {
     this.progressMs = deps.progressMs ?? PROGRESS_THROTTLE_MS
     this.statusMs = deps.statusMs ?? STATUS_DELAY_MS
     this.sync.subscribe({
+      changed: () => this.onConnection(),
       card: (_t, _c, tm) => this.onCard(tm.id),
       ready: () => void this.onReady().catch(e => this.deps.log?.('团队待办同步失败', e)),
     })
@@ -405,10 +409,10 @@ export class TeamExecutor {
     if (patch.endedAt !== undefined) local.endedAt = patch.endedAt
     if (!Object.keys(body).length && !result) return
     this.sync.patchCard(team.messageId, local)
-    this.enqueue(team, body, result)
+    this.enqueue(team, body, result && { ...result, round: run.round })
   }
 
-  private enqueue(team: TeamRunRef, body: TaskPatch, result?: { text: string; mentions: string[] }): void {
+  private enqueue(team: TeamRunRef, body: TaskPatch, result?: Outbox['result']): void {
     const id = team.messageId
     const entry: Outbox = this.outbox.get(id) ?? { team, body: {}, final: false, attempts: 0 }
     entry.team = team
@@ -452,7 +456,7 @@ export class TeamExecutor {
     const { team } = entry
     try {
       if (entry.result) {
-        const round = this.host.run(id)?.round ?? 0
+        const round = entry.result.round ?? this.host.run(id)?.round ?? 0
         const res = await this.sync.api.postMessage(team.teamId, team.channelId, {
           clientId: `res-${id}-${round}`,
           text: entry.result.text,
@@ -489,6 +493,16 @@ export class TeamExecutor {
   // -------------------------------------------------------------------------
   // 连上云端：补拉待办、补发收尾、上报成员状态
   // -------------------------------------------------------------------------
+
+  /**
+   * 连接恢复 online：把 outbox 里留着的补发。实时通道没断、只是一次 REST 失败被标 offline 时，
+   * 之后的重拉成功不会触发 ready，只靠 ready 补发的话收尾会一直留在本机
+   */
+  private onConnection(): void {
+    const online = this.sync.connection() === 'online'
+    if (online && !this.wasOnline) for (const id of [...this.outbox.keys()]) this.schedule(id, 0)
+    this.wasOnline = online
+  }
 
   private async onReady(): Promise<void> {
     this.reported.clear()

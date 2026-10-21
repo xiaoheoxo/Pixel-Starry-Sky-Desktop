@@ -3,7 +3,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { PERMISSION_MODES, type EngineId, type PermissionMode } from '@pixelsky/protocol'
-import { Button, cn, EngineIcon, Segmented, Select, type SelectOption } from '@/ui'
+import { Button, cn, EngineIcon, Segmented, Select, useToast, type SelectOption } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useEngineState, PERMISSION_INFO } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
@@ -94,6 +94,7 @@ export function ChannelDialog({
   const [members, setMembers] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const toast = useToast()
   // 名称、主题、说明是自己打的字：改过就先问再关（取消 / Esc / 点背景）
   const dirty =
     name !== (channel?.name ?? '') ||
@@ -105,13 +106,20 @@ export function ChannelDialog({
     setBusy(true)
     setError(null)
     const input = { name, topic: topic.trim() || null, projectId: inTeam ? null : projectId || null }
-    // 频道说明只有本机频道有；新建时建好再存（建频道的接口不带它）
+    // 频道说明只有本机频道有；新建时建好再存（建频道的接口不带它）。
+    // 说明没存上时频道已经建好（也切过去了）：照样关掉对话框，提示一声，免得再点又建一个同名的
     const note = notes.trim() || null
     const done = channel
       ? channelActions.updateChannel(channel.id, inTeam ? { name, topic: input.topic } : { ...input, notes: note })
       : channelActions
           .createChannel(teamId ? { ...input, teamId } : { ...input, memberIds: members })
-          .then(id => (note && !teamId ? channelActions.updateChannel(id, { notes: note }) : undefined))
+          .then(id =>
+            note && !teamId
+              ? channelActions
+                  .updateChannel(id, { notes: note })
+                  .catch(e => toast(tr('channels.dialog.notesFailed', { error: errorText(e) })))
+              : undefined,
+          )
     done.then(onClose, e => {
       setError(errorText(e))
       setBusy(false)

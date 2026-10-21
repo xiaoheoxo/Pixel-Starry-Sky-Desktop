@@ -91,6 +91,8 @@ export function useSession(deviceId: string, sessionId: string): SessionData {
   useEffect(() => {
     if (state !== 'ready' || !link) return
     let alive = true
+    // 重新取时清掉上次的错误（重连后不再挂着旧的红条，也不挡「正在加载…」）
+    setError(null)
     setView(v => ({ ...emptyView(), buffer: v.snapshot ? [] : v.buffer }))
     link.call<Tail>('engine:openSessionTail', sessionId).then(
       tail => alive && setView(v => applyTail(v, tail)),

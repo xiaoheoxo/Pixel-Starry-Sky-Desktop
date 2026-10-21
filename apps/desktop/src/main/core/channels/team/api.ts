@@ -332,7 +332,11 @@ function parseTask(v: unknown): TeamTaskData | null {
   if (!isObj(v)) return null
   const diff = isObj(v.diff) ? { added: int(v.diff.added), removed: int(v.diff.removed) } : null
   const progress = isObj(v.progress) ? { done: int(v.progress.done), total: int(v.progress.total) } : null
-  const action = oneOf(v.pending_action, ['cancel', 'stop', 'retry'] as const, 'cancel')
+  // 不认识的请求（云端以后新加的）当作没有：不能回退成取消，否则旧版本会把活停掉
+  const action =
+    v.pending_action === 'cancel' || v.pending_action === 'stop' || v.pending_action === 'retry'
+      ? v.pending_action
+      : null
   return {
     assignee: str(v.assignee),
     owner: str(v.owner),
@@ -346,7 +350,7 @@ function parseTask(v: unknown): TeamTaskData | null {
     decision: strOrNull(v.decision),
     progress: progress && progress.total ? progress : null,
     claimedBy: strOrNull(v.claimed_by),
-    pendingAction: typeof v.pending_action === 'string' && v.pending_action ? action : null,
+    pendingAction: action,
     sourceMessage: strOrNull(v.source_message),
     followupMessage: strOrNull(v.followup_message),
     endedAt: time(v.ended_at) || null,

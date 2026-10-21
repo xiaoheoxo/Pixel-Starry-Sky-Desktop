@@ -83,7 +83,15 @@ export function usePublish(active: boolean): PublishData {
     state,
     loadError,
     refresh,
-    register: name => b?.register(name) ?? missing(),
+    // 注册好了：先用返回的发布者翻到发布页，再拉一次完整状态
+    register: name =>
+      b
+        ? b.register(name).then(publisher => {
+            if (alive.current) setState(s => (s ? { ...s, publisher } : s))
+            refresh()
+            return publisher
+          })
+        : missing(),
     withdraw: (id, v) => b?.withdraw(id, v) ?? missing(),
     delist: id => b?.delist(id) ?? missing(),
     relist: id => b?.relist(id) ?? missing(),

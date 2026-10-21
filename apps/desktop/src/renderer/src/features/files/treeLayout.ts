@@ -32,6 +32,12 @@ export function rememberExpanded(ref: WorkspaceRef, path: string, expanded: bool
   if (expandedDirs.size > MAX_REMEMBERED) expandedDirs.delete(expandedDirs.keys().next().value!)
 }
 
+/** 「全部展开 / 折叠」：这些项目里记过的都作废，还没挂载的文件夹以后也按全局状态显示 */
+export function forgetExpandedIn(refs: WorkspaceRef[]): void {
+  const prefixes = refs.map(ref => dirKey(ref, ''))
+  for (const key of [...expandedDirs.keys()]) if (prefixes.some(p => key.startsWith(p))) expandedDirs.delete(key)
+}
+
 /** 测试用 */
 export function forgetExpanded(): void {
   expandedDirs.clear()

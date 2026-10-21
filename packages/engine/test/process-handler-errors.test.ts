@@ -81,3 +81,39 @@ describe('子进程输出的处理器抛错', () => {
     expect(uncaught).toEqual([])
   })
 })
+
+/** 一次写出几行、stderr 写一大段，然后马上退出（不等 stdin） */
+const exitAt = (lines: unknown[]) => ({
+  command: process.execPath,
+  args: [
+    '-e',
+    `process.stderr.write('x'.repeat(300000) + ${JSON.stringify('\nError: session id already in use\n')}); process.stdout.write(${JSON.stringify(lines.map(l => JSON.stringify(l)).join('\n') + '\n')}); process.exit(3)`,
+  ],
+})
+
+describe('子进程退出时 stdio 读完再收尾', () => {
+  it('Claude：退出回调拿到 stderr 结尾，最后几帧都先交给处理器', async () => {
+    const seen: string[] = []
+    let exit: { code: number | null; tail: string; seen: string[] } | null = null
+    const proc = new ClaudeProcess(exitAt([{ type: 'a' }, { type: 'b' }]), [], process.cwd(), process.env, {
+      onMessage: m => seen.push(String(m.type)),
+      onControlRequest: () => {},
+      onControlCancel: () => {},
+      onExit: (code, tail) => (exit = { code, tail, seen: [...seen] }),
+    })
+    await proc.exitPromise
+    expect(exit).toMatchObject({ code: 3, seen: ['a', 'b'] })
+    expect(exit!.tail).toContain('already in use')
+  })
+  it('Pixel：退出回调拿到 stderr 结尾，最后几帧都先交给处理器', async () => {
+    const seen: string[] = []
+    let exit: { code: number | null; tail: string; seen: string[] } | null = null
+    const proc = new PixelProcess(exitAt([{ type: 'a' }, { type: 'b' }]), [], process.cwd(), process.env, {
+      event: e => seen.push(String(e.type)),
+      exit: (code, tail) => (exit = { code, tail, seen: [...seen] }),
+    })
+    await proc.exitPromise
+    expect(exit).toMatchObject({ code: 3, seen: ['a', 'b'] })
+    expect(exit!.tail).toContain('already in use')
+  })
+})

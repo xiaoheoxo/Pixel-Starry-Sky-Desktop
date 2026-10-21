@@ -19,7 +19,9 @@ export function SearchView({ visible }: { visible: boolean }) {
   const { ref, key } = useCodingWorkspace()
   const [text, setText] = useState('')
   const [scope, setScope] = useState<SearchScope>('name')
-  const [result, setResult] = useState<FileHits | null>(null)
+  // 结果记下是哪个项目搜的：换项目后旧结果不再显示（点开会拿新项目去开旧项目的路径）
+  const [found, setFound] = useState<{ key: string; hits: FileHits } | null>(null)
+  const result = found && found.key === key ? found.hits : null
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
   const input = useRef<HTMLInputElement>(null)
@@ -31,7 +33,7 @@ export function SearchView({ visible }: { visible: boolean }) {
     setError('')
     const needle = text.trim()
     if (!needle || !ref) {
-      setResult(null)
+      setFound(null)
       setSearching(false)
       return
     }
@@ -43,11 +45,12 @@ export function SearchView({ visible }: { visible: boolean }) {
       void run.then(
         r => {
           if (cancelled) return
-          setResult(r)
+          setFound({ key, hits: r })
           setSearching(false)
         },
         (e: Error) => {
           if (cancelled) return
+          setFound(null)
           setError(e.message)
           setSearching(false)
         },

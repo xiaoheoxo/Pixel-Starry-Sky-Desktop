@@ -69,11 +69,21 @@ function linkFile(real: string, dir: string, name: string): void {
 
 /**
  * 准备账号目录：建目录、接上共享的文件夹和文件。每次启动 Codex 前都调，已经接好的不动。
- * 出错只记日志（例如原目录在只读盘上）：Codex 照样能起，只是那一项不共享
+ * 出错只记日志（例如原目录在只读盘上）：Codex 照样能起，只是那一项不共享。
+ * 账号目录本身建不起来时返回 false（调用方下次再试）
  */
-export function prepareAccountHome(realHome: string, dir: string): void {
-  mkdirSync(dir, { recursive: true })
-  mkdirSync(realHome, { recursive: true })
+export function prepareAccountHome(realHome: string, dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true })
+  } catch (error) {
+    log.warn('create account home failed', { error: (error as Error).message })
+    return false
+  }
+  try {
+    mkdirSync(realHome, { recursive: true })
+  } catch (error) {
+    log.warn('create real home failed', { error: (error as Error).message })
+  }
   for (const name of SHARED_DIRS)
     try {
       linkDir(realHome, dir, name)
@@ -86,4 +96,5 @@ export function prepareAccountHome(realHome: string, dir: string): void {
     } catch (error) {
       log.warn('link file failed', { name, error: (error as Error).message })
     }
+  return true
 }

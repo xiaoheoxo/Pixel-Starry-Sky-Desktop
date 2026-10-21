@@ -1,6 +1,7 @@
 // Codex 的回退 / 分叉截断点（docs/ui/rewind-fork-sidechat.md、docs/codex-engine.md）：
 // 像素星空发消息时把自己的消息 id 当作 clientUserMessageId 传给 Codex，轮次列表里用户消息带 clientId，据此定位。
 // 截断点 at = 最后保留的那一轮的 turn id；null = 一轮都不保留。
+import { FULL_PAGE } from './native'
 import { array, object, string, type CodexProcess } from './process'
 
 /** 一轮：turn id + 这一轮里用户消息的 clientId（按出现顺序） */
@@ -84,16 +85,20 @@ export function revertTarget(turns: readonly CodexTurnInfo[], at: string): strin
   return turns[index + 1]?.id ?? null
 }
 
-/** 翻页读完整个线程的轮次（升序）。冷读：不需要先 resume，不会把线程加载进来 */
+/**
+ * 翻页读完整个线程的轮次（升序）。冷读：不需要先 resume，不会把线程加载进来。
+ * full 视图每页只取 FULL_PAGE 轮：不带 limit 时长线程一页能超过协议帧上限（process.ts），进程会被结束
+ */
 export async function readCodexTurns(proc: CodexProcess, threadId: string): Promise<CodexTurnInfo[]> {
   const turns: CodexTurnInfo[] = []
   let cursor: string | null = null
   // 页数上限只是防止异常的游标死循环
-  for (let page = 0; page < 1000; page++) {
+  for (let page = 0; page < 20_000; page++) {
     const reply: Record<string, unknown> = await proc.request('thread/turns/list', {
       threadId,
       sortDirection: 'asc',
       itemsView: 'full',
+      limit: FULL_PAGE,
       ...(cursor ? { cursor } : {}),
     })
     for (const raw of array(reply.data)) turns.push(turnInfo(raw))

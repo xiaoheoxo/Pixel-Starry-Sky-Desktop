@@ -201,10 +201,9 @@ export function pluginDirectory(root: string): {
   if (existsSync(local('.mcp.json'))) configs.push(jsonFile(local('.mcp.json')))
   const mcp = manifest.mcpServers
   if (typeof mcp === 'string' && existsSync(local(mcp))) configs.push(jsonFile(local(mcp)))
-  else if (Array.isArray(mcp))
-    for (const file of mcp)
-      if (typeof file === 'string' && existsSync(local(file))) configs.push(jsonFile(local(file)))
-      else if (mcp && !Array.isArray(mcp) && typeof mcp === 'object') configs.push(mcp)
+  else if (Array.isArray(mcp)) {
+    for (const file of mcp) if (typeof file === 'string' && existsSync(local(file))) configs.push(jsonFile(local(file)))
+  } else if (mcp && typeof mcp === 'object') configs.push(mcp)
   for (const raw of configs) {
     const c = object(raw),
       servers = object(c.mcpServers ?? c)

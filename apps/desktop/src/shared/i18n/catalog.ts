@@ -5256,6 +5256,18 @@ export const catalog = {
     "zh": "正在读取账号调用…",
     "en": "Loading account requests…"
   },
+  "settings.usage.UsageSection.loadFailed": {
+    "zh": "用量记录没读出来：{p0}",
+    "en": "Couldn't load usage records: {p0}"
+  },
+  "settings.usage.UsageSection.exportFailed": {
+    "zh": "CSV 没导出来：{p0}",
+    "en": "Couldn't export CSV: {p0}"
+  },
+  "settings.usage.UsageSection.clearFailed": {
+    "zh": "没有清空，记录都还在：{p0}",
+    "en": "Records weren't cleared: {p0}"
+  },
   "settings.usage.UsageSection.noRecordsMatchThese": {
     "zh": "没有符合筛选条件的记录",
     "en": "No records match these filters"

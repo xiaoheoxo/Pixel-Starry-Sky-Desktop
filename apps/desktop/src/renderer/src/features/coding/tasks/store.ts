@@ -10,7 +10,7 @@ import { endSince, hasIntegration, weakSince } from '@/features/terminal/marks'
 import { terminalState, useTerminalStore } from '@/features/terminal/store'
 import { useTerminalUi } from '@/features/terminal/TerminalProvider'
 import { useToast } from '@/ui/ComingSoon'
-import { tr } from '@/i18n/core'
+import { tr, translateMessage } from '@/i18n/core'
 import {
   gradleBuildKey,
   IDLE,
@@ -73,11 +73,17 @@ function watchPacks(): void {
   })
 }
 
-/** 读任务；maxAge 内读过就不再读（0 = 总是读）。同一工作区同时只读一次 */
+/** 正在读时又要求重读（总是读）的工作区：这次读完补读一次，免得读到的是改动之前的文件 */
+const rereads = new Set<string>()
+
+/** 读任务；maxAge 内读过就不再读（0 = 总是读）。同一工作区同时只读一次，期间再要求重读的读完补一次 */
 export async function loadTasks(ref: WorkspaceRef, maxAge = 0): Promise<void> {
   const key = refKey(ref)
   const current = entries.get(key)
-  if (current?.loading) return
+  if (current?.loading) {
+    if (maxAge <= 0) rereads.add(key)
+    return
+  }
   if (current?.state && maxAge > 0 && Date.now() - current.at < maxAge) return
   refs.set(key, ref)
   watchPacks()
@@ -86,17 +92,19 @@ export async function loadTasks(ref: WorkspaceRef, maxAge = 0): Promise<void> {
     return
   }
   patch(key, { loading: true, error: null })
+  rereads.delete(key)
+  let used = ''
   try {
     const templates = activeTaskTemplates()
-    const used = JSON.stringify(templates)
+    used = JSON.stringify(templates)
     templatesSig = used
     const state = await window.pixelsky!.projectTools.runTasks(ref, templates)
     patch(key, { state, loading: false, error: null, at: Date.now() })
-    // 读的时候扩展又变了（读的过程中重读会被跳过）：补读一次
-    if (JSON.stringify(activeTaskTemplates()) !== used) void loadTasks(ref)
   } catch (cause) {
     patch(key, { loading: false, error: cause instanceof Error ? cause.message : String(cause) })
   }
+  // 读的过程中又要求重读，或扩展又变了：补读一次
+  if (rereads.delete(key) || (used && JSON.stringify(activeTaskTemplates()) !== used)) void loadTasks(ref)
 }
 
 // ---- Gradle 完整任务列表（docs/ui/coding-tasks.md §9.2）：按构建记在 localStorage ----
@@ -414,6 +422,13 @@ export function stopTaskIn(root: string, group: RunTaskGroup, task: RunTask): vo
   }, STOPPING_TIMEOUT_MS)
 }
 
+/** 运行失败的提示：命令拼不出来（cmd 下含 % 等）用对应文案，其它错误（建终端失败等）带上原因 */
+export function runFailureText(cause: unknown): string {
+  if (cause instanceof TaskCommandError) return tr(`coding.tasks.${cause.code}`)
+  const message = cause instanceof Error ? cause.message : String(cause)
+  return tr('coding.tasks.runFailed', { error: translateMessage(message) })
+}
+
 /** 跑 / 停 / 跳转；用 TerminalProvider 的 runTask 建终端（复用、改名、发命令） */
 export function useTaskRunner(state: RunTaskState | null): TaskRunner {
   const ui = useTerminalUi()
@@ -426,10 +441,9 @@ export function useTaskRunner(state: RunTaskState | null): TaskRunner {
   )
   const run = useCallback(
     (group: RunTaskGroup, task: RunTask, fresh = false, args = ''): Promise<void> =>
-      // 命令拼不出来（cmd 下含 %）时 runTaskIn 还没记下运行，任务保持空闲，只给一条提示
+      // 出错时 runTaskIn 还没记下运行，任务保持空闲，只给一条提示（调用方都是 void run(...)，这里不再往外抛）
       runTaskIn({ runTask, select }, root, group, task, fresh, args).catch((cause: unknown) => {
-        if (!(cause instanceof TaskCommandError)) throw cause
-        toast(tr(`coding.tasks.${cause.code}`))
+        toast(runFailureText(cause))
       }),
     [root, runTask, select, toast],
   )

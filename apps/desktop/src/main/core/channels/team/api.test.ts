@@ -126,6 +126,9 @@ describe('parseOverview / parseMessage', () => {
       error: null,
     })
     expect(parseMessage({ id: 'x', kind: 'weird' })?.kind).toBe('message')
+    // 不认识的 pending_action 当作没有，不回退成取消
+    const later = parseMessage({ id: 'tg_2', kind: 'task', task: { status: 'running', pending_action: 'pause' } })!
+    expect(later.task?.pendingAction).toBeNull()
     expect(parseMessage({})).toBeNull()
   })
 })

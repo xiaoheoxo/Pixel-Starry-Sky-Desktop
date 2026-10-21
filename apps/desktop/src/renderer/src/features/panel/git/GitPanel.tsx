@@ -240,7 +240,9 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
         (status.fetchedAt && Date.now() - status.fetchedAt < AUTO_FETCH_MS)
       )
         return
+      // 和手动操作一样亮出忙碌状态：按钮灰掉、显示转圈，不然这时点拉取 / 推送会被 perform 静默丢掉
       busyRef.current = true
+      setBusy(true)
       void api
         .gitFetch(target)
         .then(
@@ -252,6 +254,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
         )
         .finally(() => {
           busyRef.current = false
+          setBusy(false)
         })
     }, 60_000)
     return () => window.clearInterval(tick)

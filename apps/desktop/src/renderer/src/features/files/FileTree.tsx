@@ -49,7 +49,7 @@ import { cutPasteKeys, dropTarget, hasFileDrag, join2, movedPath, parentOf, refK
 import type { DragOver, DragSource } from './treeDrag'
 import { REVEAL_FOLDER_EVENT, takeFolderReveal } from './treeReveal'
 import { FileIcon } from './icons/FileIcon'
-import { nameIndent, noteIndent, rememberExpanded, rememberedExpanded, rowIndent } from './treeLayout'
+import { forgetExpandedIn, nameIndent, noteIndent, rememberExpanded, rememberedExpanded, rowIndent } from './treeLayout'
 import { isHidingIgnored, isIgnoredPath, setHideIgnored, splitStatuses, useHideIgnoredMap } from './ignored'
 const pathKey = (path: string): string => {
   const p = path.replaceAll('\\', '/').replace(/\/$/, '')
@@ -680,6 +680,7 @@ export function FileTree({
         iconSize={14}
         label={tr(expandAll ? 'workspace.collapseAll' : 'workspace.expandAll')}
         onClick={() => {
+          forgetExpandedIn(roots.map(rootRef))
           setExpandAll(v => !v)
           setCollapsed(n => n + 1)
         }}
@@ -1360,7 +1361,7 @@ function FileRow({
     const scroll = (): void => {
       if (pendingScroll !== refKey(refTarget) + '\n' + entry.path) return
       pendingScroll = null
-      row.current?.scrollIntoView({ block: 'nearest' })
+      scrollInPane(row.current, 'nearest')
     }
     scroll()
     window.addEventListener(EXPAND_FOLDER_EVENT, scroll)

@@ -73,7 +73,9 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
   const [accountOffset, setAccountOffset] = useState(0)
   const [confirmClear, setConfirmClear] = useState(false)
   const [busy, setBusy] = useState(false)
-  const { summary, page } = useUsage({ range, filter }, offset)
+  /** 导出 / 清空没做成的原因（清空失败时记录还在，不能看起来像清掉了） */
+  const [actionError, setActionError] = useState<string | null>(null)
+  const { summary, page, error } = useUsage({ range, filter }, offset)
   const { exportCsv, clear } = useUsageActions()
   const acc = useAccount()
   const signedIn = acc.status === 'signed-in' || (acc.status === 'signing-in' && acc.user !== null)
@@ -124,8 +126,11 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
             disabled={busy || empty || mode !== 'local'}
             onClick={async () => {
               setBusy(true)
+              setActionError(null)
               try {
                 await exportCsv({ range, filter })
+              } catch (e) {
+                setActionError(tr('settings.usage.UsageSection.exportFailed', { p0: errorText(e) }))
               } finally {
                 setBusy(false)
               }
@@ -144,7 +149,10 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
                 className="bg-danger!"
                 onClick={async () => {
                   setConfirmClear(false)
-                  await clear()
+                  setActionError(null)
+                  await clear().catch((e: unknown) =>
+                    setActionError(tr('settings.usage.UsageSection.clearFailed', { p0: errorText(e) })),
+                  )
                 }}
               >
                 {tr('files.FileTree.clear')}{' '}
@@ -192,6 +200,11 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
           </button>
         )}
       </div>
+
+      {actionError && <ErrorLine>{actionError}</ErrorLine>}
+      {mode === 'local' && error && (
+        <ErrorLine>{tr('settings.usage.UsageSection.loadFailed', { p0: translateMessage(error) })}</ErrorLine>
+      )}
 
       {mode === 'account' ? (
         <AccountModeBody
@@ -276,18 +289,13 @@ function AccountModeBody({
   useI18n()
   if (!signedIn) return <RemoteCallsSignInPlaceholder onSignIn={onSignIn} />
   if (!available) return <RemoteCallsPlaceholder onBack={onBack} />
+  // 出错时 page 也是 null：先判断出错，再判断读取中
+  if (rm.status === 'error') return <ErrorLine>{translateMessage(rm.error)}</ErrorLine>
   if (rm.status === 'loading' || rm.page === null) {
     return (
       <div className="overflow-hidden rounded-lg border border-line bg-surface p-4 text-meta text-fg-muted tabular-nums">
         {tr('settings.usage.UsageSection.loadingAccountRequests')}
       </div>
-    )
-  }
-  if (rm.status === 'error') {
-    return (
-      <p className="rounded-md border border-line bg-surface px-3 py-2 text-meta text-danger">
-        {translateMessage(rm.error)}
-      </p>
     )
   }
   if (empty) {
@@ -329,6 +337,12 @@ function AccountModeBody({
       <p className="text-meta text-fg-faint">{tr('settings.usage.UsageSection.accountRecordsNote')}</p>
     </div>
   )
+}
+
+const errorText = (e: unknown): string => translateMessage((e as Error)?.message ?? String(e))
+
+function ErrorLine({ children }: { children: React.ReactNode }) {
+  return <p className="mb-4 rounded-md border border-line bg-surface px-3 py-2 text-meta text-danger">{children}</p>
 }
 
 function Panel({ children }: { children: React.ReactNode }) {

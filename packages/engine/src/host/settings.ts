@@ -484,10 +484,17 @@ export class HostSettings {
       const engines = obj(obj(value).engines)
       for (const id of ENGINE_ORDER) {
         if (!this.ctx.adapters[id]) continue
+        const patch = patchOf(obj(engines[id]), id)
         try {
-          await this.setEngineConfig(id, patchOf(obj(engines[id]), id))
+          await this.setEngineConfig(id, patch)
         } catch {
-          /* 这台电脑上不合法（例如默认引擎不能隐藏）：保留本机的 */
+          // 整份写不进去：逐项再写一遍，只跳过出错的那一项
+          for (const [field, v] of Object.entries(patch))
+            try {
+              await this.setEngineConfig(id, { [field]: v } as EngineConfigPatch)
+            } catch {
+              /* 这台电脑上不合法（例如默认引擎不能隐藏）：保留本机的 */
+            }
         }
       }
     }

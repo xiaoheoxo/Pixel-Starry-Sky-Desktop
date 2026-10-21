@@ -15,6 +15,7 @@ import {
   toggleOther,
   type QuestionDraft,
 } from '@/data/questions'
+import { toolError } from '@/data/tools'
 import { Button, DiffView, cn } from '@/ui'
 import { MarkdownText } from '@/ui/Markdown'
 
@@ -43,10 +44,15 @@ export function ApprovalCard({
   const [busy, setBusy] = useState(false)
   const [confirmAlways, setConfirmAlways] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({})
+  // 没送到电脑（断线、超时、只看）：卡片还在，写明没处理成，可以再点一次
+  const [error, setError] = useState<string | null>(null)
   const answer = async (d: ApprovalDecision) => {
     setBusy(true)
+    setError(null)
     try {
       await onAnswer(d)
+    } catch (e) {
+      setError(`没有送到电脑：${toolError(e)}`)
     } finally {
       setBusy(false)
     }
@@ -205,6 +211,11 @@ export function ApprovalCard({
               </Button>
             )}
           </div>
+        )}
+        {error && (
+          <p role="alert" className="text-center text-meta text-danger">
+            {error}
+          </p>
         )}
         {!canAct && <p className="text-center text-meta text-fg-muted">这部手机是「只看」，要在电脑上处理。</p>}
       </div>

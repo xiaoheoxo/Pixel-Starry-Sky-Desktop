@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RelayLink, type RelayNotice } from './relay'
+import { RelayLink, relayUrl, type RelayNotice } from './relay'
 
 class FakeSocket {
   readyState = 1
@@ -19,18 +19,21 @@ class FakeSocket {
   }
 }
 
-function setup() {
+function setup(url = 'wss://relay.example/v1/bridge/ws', failFirst = false) {
   const sockets: FakeSocket[] = [],
     statuses: string[] = [],
     notices: RelayNotice[] = []
+  let attempts = 0
   const link = new RelayLink({
-    url: 'wss://relay.example/v1/bridge/ws',
+    url,
     desktopId: 'desk-1',
     onFrame: () => {},
     onNotice: n => notices.push(n),
     onStatus: s => statuses.push(s),
     token: async () => 'token',
     socket: () => {
+      // 和 new WebSocket 一样同步抛 SyntaxError
+      if (failFirst && attempts++ === 0) throw new SyntaxError('bad url')
       const s = new FakeSocket()
       sockets.push(s)
       return s as unknown as WebSocket
@@ -68,6 +71,30 @@ describe('RelayLink heartbeat', () => {
     sockets[0].onopen?.()
     await vi.advanceTimersByTimeAsync(300_000)
     expect(sockets[0].closed).toBe(false)
+    link.stop()
+  })
+})
+
+describe('RelayLink 地址', () => {
+  it('带 # 片段的中转地址：报地址不对，不去连', async () => {
+    expect(() => relayUrl('wss://relay.example/ws#x', 'd')).toThrow('MOBILE_BAD_RELAY')
+    expect(() => relayUrl('wss://relay.example/ws#', 'd')).toThrow('MOBILE_BAD_RELAY')
+    const { link, sockets, statuses } = setup('wss://relay.example/ws#x')
+    link.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(0)
+    expect(statuses.at(-1)).toBe('error')
+    link.stop()
+  })
+
+  it('建连接时同步抛错：当作没连上，按退避重试', async () => {
+    const { link, sockets, statuses } = setup(undefined, true)
+    link.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sockets).toHaveLength(0)
+    expect(statuses.at(-1)).toBe('error')
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(sockets).toHaveLength(1)
     link.stop()
   })
 })

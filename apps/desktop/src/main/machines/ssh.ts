@@ -34,7 +34,8 @@ export class SshConnection implements RemoteLink {
   fingerprint = ''
   private closing = false
   private remoteForwards = new Map<number, number>()
-  private localForwards = new Map<number, Server>()
+  /** 远程端口 → 本机监听；存进行中的 Promise，同一端口并发请求复用同一个，不会多开一个关不到的 */
+  private localForwards = new Map<number, Promise<Server>>()
   onClose: (message: string) => void = () => {}
   /** 命令行包的来源；测试里换掉 */
   cliArchive: RemoteCliProvider = remoteCliArchive
@@ -76,6 +77,8 @@ export class SshConnection implements RemoteLink {
         )
       })
       this.client.once('close', () => {
+        // 收到 banner 后、ready 前断开（或连接中途被 disconnect）只有 close 没有 error：不结束握手的话 connect 永远挂着
+        reject(new Error('SSH_CONNECTION_CLOSED'))
         if (!this.closing) {
           this.peer?.close()
           this.onClose('SSH_CONNECTION_CLOSED')
@@ -233,8 +236,20 @@ export class SshConnection implements RemoteLink {
     return port
   }
   async forwardPort(remotePort: number): Promise<number> {
-    const prior = this.localForwards.get(remotePort)?.address()
-    if (prior && typeof prior === 'object') return prior.port
+    if (this.closing) throw new Error('SSH_CONNECTION_CLOSED')
+    let pending = this.localForwards.get(remotePort)
+    if (!pending) {
+      const created = this.listenLocal(remotePort)
+      this.localForwards.set(remotePort, created)
+      // 没开成：不记着，下次重试
+      created.catch(() => {
+        if (this.localForwards.get(remotePort) === created) this.localForwards.delete(remotePort)
+      })
+      pending = created
+    }
+    return ((await pending).address() as { port: number }).port
+  }
+  private async listenLocal(remotePort: number): Promise<Server> {
     const server = createServer(socket => {
       this.client.forwardOut('127.0.0.1', socket.localPort ?? 0, '127.0.0.1', remotePort, (error, channel) => {
         if (error) {
@@ -252,15 +267,23 @@ export class SshConnection implements RemoteLink {
       server.once('error', reject)
       server.listen(0, '127.0.0.1', resolve)
     })
-    this.localForwards.set(remotePort, server)
-    return (server.address() as { port: number }).port
+    // 开监听期间连接关了：close() 关不到它，这里关掉
+    if (this.closing) {
+      server.close()
+      throw new Error('SSH_CONNECTION_CLOSED')
+    }
+    return server
   }
   close(): void {
     if (this.closing) return
     this.closing = true
     this.peer?.close()
     this.client.end()
-    for (const server of this.localForwards.values()) server.close()
+    for (const pending of this.localForwards.values())
+      pending.then(
+        server => server.close(),
+        () => {},
+      )
     this.localForwards.clear()
     this.remoteForwards.clear()
   }

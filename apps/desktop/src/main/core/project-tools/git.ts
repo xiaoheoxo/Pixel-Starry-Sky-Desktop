@@ -1,7 +1,7 @@
 // Git 面板的主进程实现（docs/ui/git-panel.md）。不依赖 Electron：本机由 workspace/project-tools-ipc.ts 注入回收站，
 // SSH 辅助进程注入数据目录下的 trash/（core/project-tools/trash.ts）；都不注入时用 git clean。所有命令以参数数组执行，路径前一律加 `--`。
 import { spawn } from 'node:child_process'
-import { readFile, stat } from 'node:fs/promises'
+import { lstat, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { WorkspaceRef } from '../../../shared/types/workspace'
 import type {
@@ -25,7 +25,7 @@ import type {
   GitResult,
   GitStatus,
 } from '../../../shared/types/project-tools'
-import { workspacePath } from '../workspace-files'
+import { workspaceEntry, workspacePath } from '../workspace-files'
 import { samePath, value, type ToolsHost } from './common'
 import {
   classifyGitError,
@@ -163,6 +163,27 @@ function pathList(input: unknown): string[] {
   return input.map(p => value(p, 4096, true).replace(/\\/g, '/'))
 }
 const paths = (input: unknown): GitPaths => (input === 'all' ? 'all' : pathList(input))
+
+/** 一条 git 命令里路径参数的总长上限：Windows 命令行最长 32767 字符，留出 git 路径、其余参数和引号的余量 */
+export const ARGS_BUDGET = 24_000
+/** 路径很多时分成几批，每批总长不超过 ARGS_BUDGET（单个超长的自成一批） */
+export function pathBatches(list: string[], budget = ARGS_BUDGET): string[][] {
+  const out: string[][] = []
+  let batch: string[] = [],
+    size = 0
+  for (const p of list) {
+    const cost = p.length + 3
+    if (batch.length && size + cost > budget) {
+      out.push(batch)
+      batch = []
+      size = 0
+    }
+    batch.push(p)
+    size += cost
+  }
+  if (batch.length) out.push(batch)
+  return out
+}
 
 class GitError extends Error {
   constructor(readonly failure: GitFailure) {
@@ -1097,14 +1118,21 @@ export class GitTools {
       const listed = new Set(status.untracked.map(f => f.path))
       const remove = all ? [...listed] : untracked.filter(p => listed.has(p))
       if (!all && remove.length !== untracked.length) throw new Error('文件状态已变化，请刷新后重试')
-      if (restore.length) await this.exec(repo, 'discard', ['checkout', '--', ...restore], 'stage')
+      // 「放弃全部」可能有几千个文件：分批，免得命令行超长起不来
+      for (const batch of pathBatches(restore)) await this.exec(repo, 'discard', ['checkout', '--', ...batch], 'stage')
       if (!remove.length) return
       if (this.opts.trash) {
         const files: TrashFile[] = []
-        for (const path of remove)
-          files.push({ absolute: await workspacePath(repo.root, path, 'file'), relative: path })
+        for (const path of remove) {
+          // 不跟随链接：未跟踪的符号链接放弃的是链接本身，不能把它指向的（已跟踪）文件送进回收站
+          const { path: absolute } = await workspaceEntry(repo.root, path)
+          if ((await lstat(absolute)).isDirectory()) throw new Error('目标不是普通文件')
+          files.push({ absolute, relative: path })
+        }
         await this.opts.trash(files)
-      } else await this.exec(repo, 'discard', ['clean', '-f', '-q', '--', ...remove], 'stage')
+      } else
+        for (const batch of pathBatches(remove))
+          await this.exec(repo, 'discard', ['clean', '-f', '-q', '--', ...batch], 'stage')
     })
   }
 

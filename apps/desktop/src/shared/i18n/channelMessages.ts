@@ -101,6 +101,7 @@ export const channelMessages = {
   'channels.showMore': { zh: '展开', en: 'Show more' },
   'channels.showLess': { zh: '收起', en: 'Show less' },
   'channels.loadOlder': { zh: '显示更早的消息', en: 'Show earlier messages' },
+  'channels.loadOlderFailed': { zh: '更早的消息没读出来：{error}', en: 'Couldn’t load earlier messages: {error}' },
   'channels.thisComputer': { zh: '这台电脑', en: 'This computer' },
   'channels.composer.placeholderNoAgents': {
     zh: '在 #{name} 里发消息；添加 AI 成员后可以 @ 它派活',
@@ -180,6 +181,10 @@ export const channelMessages = {
   'channels.dialog.create': { zh: '新建', en: 'Create' },
   'channels.dialog.save': { zh: '保存', en: 'Save' },
   'channels.dialog.cancel': { zh: '取消', en: 'Cancel' },
+  'channels.dialog.notesFailed': {
+    zh: '频道已创建，说明没保存：{error}。可以在编辑频道里再存一次',
+    en: 'Channel created, but its guidelines weren’t saved: {error}. Save them again from Edit channel.',
+  },
   'channels.agent.addTitle': { zh: '添加 AI 成员', en: 'Add AI member' },
   'channels.agent.editTitle': { zh: '编辑 {name}', en: 'Edit {name}' },
   'channels.agent.existing': { zh: '从已有成员添加', en: 'Add an existing member' },

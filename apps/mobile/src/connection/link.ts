@@ -126,7 +126,11 @@ export class DesktopLink {
       if (this.timer) clearTimeout(this.timer)
       this.delay = 1000
       this.open()
-    } else if (this.state === 'ready') this.call('hello', HELLO).catch(() => this.ws?.close())
+    } else if (this.state === 'ready') {
+      // 探活失败才断开重连；探的期间已经换了加密会话（重新握手）就别关正在用的新连接
+      const rpc = this.rpc
+      this.call('hello', HELLO).catch(() => this.rpc === rpc && this.ws?.close())
+    }
   }
 
   /** 页面切到后台 / 回到前台：告诉电脑，后台时它照样推送提醒（旧版电脑不认，不管报错） */
@@ -229,6 +233,8 @@ export class DesktopLink {
       type = JSON.parse(text).type
     } catch {}
     if (type === 'desktop_offline') {
+      // 排着的重试握手、握手超时也作废：不然电脑不在线时还会去握手 / 断开重连，状态来回闪
+      this.unguard()
       this.reset()
       this.set('desktop_offline')
     } else if (type === 'desktop_online') {
@@ -337,7 +343,8 @@ export class DesktopLink {
         // 在后台时连上的（系统短暂唤醒）：电脑要知道
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') this.away(true)
       },
-      () => this.ws?.close(),
+      // 这条加密会话已经换掉了（重新握手时 reset 关掉旧的 rpc 也会走到这里）：别把正在新握手的连接关掉
+      () => this.rpc === rpc && this.ws?.close(),
     )
   }
 }

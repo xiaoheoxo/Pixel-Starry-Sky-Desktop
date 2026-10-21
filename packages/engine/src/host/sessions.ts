@@ -389,6 +389,7 @@ export class HostSessions {
     try {
       m.cache.forget(id)
       m.compaction.forget(id)
+      m.branch.forget(id)
       const rt = ctx.runtimes.get(id)
       if (rt) {
         await m.turn.interrupt(id)

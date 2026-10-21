@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { codexMcp, ExtensionService } from './service'
@@ -241,6 +241,68 @@ describe('管理配置与凭据', () => {
     writeFileSync(path, '外部修改')
     expect(() => service.upsert({ ...next, text: value.text, expectedVersion: value.version })).toThrow('外部修改')
     await expect(service.update(next.id, true)).rejects.toThrow('本地编辑')
+  })
+  it('编辑技能时保存配置失败：新包删掉，旧包不进待删列表，退出后技能正文还在', async () => {
+    const src = join(root, 'skill')
+    mkdirSync(src)
+    writeFileSync(join(src, 'SKILL.md'), '---\nname: run\ndescription: test\n---\n执行测试\n')
+    const e = await service.import({ kind: 'skill', source: 'local', location: src, scope: global }),
+      value = service.skillText(e.id, null),
+      oldPath = e.components[0].path!
+    // 临时文件位置被一个文件夹占着：写配置失败
+    mkdirSync(join(root, 'extensions', 'config.json.tmp'))
+    expect(() =>
+      service.upsert({ ...e, text: value.text.replace('执行测试', '新的步骤'), expectedVersion: value.version }),
+    ).toThrow()
+    rmSync(join(root, 'extensions', 'config.json.tmp'), { recursive: true })
+    service.close()
+    expect(readFileSync(oldPath, 'utf8')).toContain('执行测试')
+    const packages = readdirSync(join(root, 'extensions', 'packages'))
+    expect(packages).toHaveLength(1)
+  })
+  it('导入技能：引擎不对、保存配置失败时不留包目录，配置不多出条目', async () => {
+    const src = join(root, 'skill')
+    mkdirSync(src)
+    writeFileSync(join(src, 'SKILL.md'), '---\nname: run\ndescription: test\n---\n执行测试\n')
+    const packages = join(root, 'extensions', 'packages'),
+      count = () => (existsSync(packages) ? readdirSync(packages).length : 0)
+    await expect(
+      service.import({ kind: 'skill', source: 'local', location: src, scope: global, engines: ['nope'] }),
+    ).rejects.toThrow('适用引擎不正确')
+    expect(count()).toBe(0)
+    mkdirSync(join(root, 'extensions', 'config.json.tmp'))
+    await expect(service.import({ kind: 'skill', source: 'local', location: src, scope: global })).rejects.toThrow()
+    rmSync(join(root, 'extensions', 'config.json.tmp'), { recursive: true })
+    expect(count()).toBe(0)
+    expect(service.state(null).entries).toHaveLength(0)
+    // 回滚后可以再导入同名技能（不会被残留条目判成重名）
+    await service.import({ kind: 'skill', source: 'local', location: src, scope: global })
+    expect(count()).toBe(1)
+  })
+  it('关闭时某个旧包删不掉：不抛，后面的旧包照样删', async () => {
+    const src = join(root, 'skill')
+    mkdirSync(src)
+    writeFileSync(join(src, 'SKILL.md'), '---\nname: run\ndescription: test\n---\n执行测试\n')
+    const e = await service.import({ kind: 'skill', source: 'local', location: src, scope: global })
+    service.remove(e.id)
+    // 管理目录外的路径（inside 会抛），模拟删不掉的那个
+    ;(service as unknown as { retired: string[] }).retired.unshift(project)
+    expect(() => service.close()).not.toThrow()
+    expect(existsSync(e.path!)).toBe(false)
+    expect(existsSync(project)).toBe(true)
+  })
+  it('config.json 损坏（空文件 / 版本不对）：留一份 .bad- 备份，从空配置开始并提示，不再每次都抛错', () => {
+    service.close()
+    const dir = join(root, 'extensions')
+    writeFileSync(join(dir, 'config.json'), '')
+    const broken = new ExtensionService(dir, cipher)
+    expect(broken.state(null).warnings.join('')).toContain('扩展配置读不了')
+    expect(readdirSync(dir).some(n => n.startsWith('config.json.bad-'))).toBe(true)
+    broken.close()
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ version: 9, revision: 1, entries: [] }))
+    new ExtensionService(dir, cipher).close()
+    expect(readdirSync(dir).filter(n => n.startsWith('config.json.bad-')).length).toBeGreaterThanOrEqual(1)
+    expect(existsSync(join(dir, 'config.json'))).toBe(false)
   })
   it('本地插件组件投影与更新，停用移除不删除原始目录', async () => {
     const src = join(root, 'plugin')

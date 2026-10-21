@@ -200,6 +200,10 @@ export function GitHistory({
   const list = useRef<HTMLDivElement>(null)
   const commitsRef = useRef(commits)
   commitsRef.current = commits
+  const openRef = useRef(open)
+  openRef.current = open
+  /** 每个详情 key 最近一次请求的序号：晚到的旧结果不覆盖新的（重新加载、改选比较对象） */
+  const detailSeq = useRef<Record<string, number>>({})
   const hoverTimer = useRef(0)
   // 看完差异回来时回到原来的滚动位置
   const scrollBack = useRef(0)
@@ -229,6 +233,28 @@ export function GitHistory({
     return () => window.clearTimeout(t)
   }, [search])
 
+  /** 读一项详情：先显示加载中，只收最近一次请求的结果 */
+  const fetchDetail = useCallback((key: string, fetch: () => Promise<Detail>) => {
+    const id = (detailSeq.current[key] = (detailSeq.current[key] ?? 0) + 1)
+    setDetails(d => ({ ...d, [key]: { state: 'loading' } }))
+    fetch().then(
+      detail => {
+        if (detailSeq.current[key] === id) setDetails(d => ({ ...d, [key]: detail }))
+      },
+      e => {
+        if (detailSeq.current[key] === id) setDetails(d => ({ ...d, [key]: { state: 'error', message: errorText(e) } }))
+      },
+    )
+  }, [])
+  const fetchCompare = useCallback(
+    (kind: GitCompareKind) =>
+      fetchDetail('@' + kind, async () => {
+        const r = await api.compare(kind)
+        return { state: 'ready', data: r, commits: r.commits }
+      }),
+    [api, fetchDetail],
+  )
+
   const load = useCallback(
     async (reset: boolean) => {
       const id = ++token.current
@@ -252,8 +278,10 @@ export function GitHistory({
         if (id !== token.current) return
         if (reset) {
           setCommits(page.commits)
-          // 未拉取 / 未推送 / 相对基础分支的改动跟着刷新
+          // 未拉取 / 未推送 / 相对基础分支的改动跟着刷新：收起的删掉（还在路上的旧请求作废），展开着的重新读
+          for (const k of Object.keys(detailSeq.current)) if (k.startsWith('@')) detailSeq.current[k]++
           setDetails(d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('@'))))
+          for (const k of openRef.current) if (k.startsWith('@')) fetchCompare(k.slice(1) as GitCompareKind)
         } else
           setCommits(prev => {
             const seen = new Set(prev.map(c => c.hash))
@@ -269,7 +297,7 @@ export function GitHistory({
         if (id === token.current) setLoading(null)
       }
     },
-    [api, scope, query, file],
+    [api, scope, query, file, fetchCompare],
   )
 
   // 打开、换范围 / 搜索、点顶部刷新：重新加载第一页
@@ -339,7 +367,7 @@ export function GitHistory({
     if (!loading && !diff) onScroll()
   }, [loading, commits.length, diff])
 
-  const toggle = (key: string, fetch: () => Promise<Detail>) => {
+  const toggle = (key: string, fetch: () => void) => {
     setOpen(prev => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -347,26 +375,19 @@ export function GitHistory({
       return next
     })
     if (open.has(key) || details[key]?.state === 'ready') return
-    setDetails(d => ({ ...d, [key]: { state: 'loading' } }))
-    fetch().then(
-      detail => setDetails(d => ({ ...d, [key]: detail })),
-      e => setDetails(d => ({ ...d, [key]: { state: 'error', message: errorText(e) } })),
-    )
+    fetch()
   }
-  const toggleCommit = (c: GitCommit) => toggle(c.hash, async () => ({ state: 'ready', data: await api.show(c.hash) }))
-  const toggleCompare = (kind: GitCompareKind) =>
-    toggle('@' + kind, async () => {
-      const r = await api.compare(kind)
-      return { state: 'ready', data: r, commits: r.commits }
-    })
+  const toggleCommit = (c: GitCommit) =>
+    toggle(c.hash, () => fetchDetail(c.hash, async () => ({ state: 'ready', data: await api.show(c.hash) })))
+  const toggleCompare = (kind: GitCompareKind) => toggle('@' + kind, () => fetchCompare(kind))
 
   const startCompare = (from: string, to: GitCommit) => {
     setComparison({ from, to: to.hash })
-    setDetails(d => ({ ...d, cmp: { state: 'loading' } }))
-    api.compare({ from, to: to.hash }).then(
-      r => setDetails(d => ({ ...d, cmp: { state: 'ready', data: r, commits: r.commits } })),
-      e => setDetails(d => ({ ...d, cmp: { state: 'error', message: errorText(e) } })),
-    )
+    // 先选 A 再改选 B：A 晚到时按序号丢掉
+    fetchDetail('cmp', async () => {
+      const r = await api.compare({ from, to: to.hash })
+      return { state: 'ready', data: r, commits: r.commits }
+    })
     list.current?.scrollTo({ top: 0 })
   }
 

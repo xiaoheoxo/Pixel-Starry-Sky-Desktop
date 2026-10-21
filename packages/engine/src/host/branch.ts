@@ -476,6 +476,11 @@ export class HostBranch {
     this.sideQuestions.get(id)?.abort()
     this.sideQuestions.delete(id)
   }
+
+  /** 会话删掉了：放掉它的撤销记录（可能有 20 MB 的文件内容） */
+  forget(id: string): void {
+    this.undo.delete(id)
+  }
 }
 
 /** 第 index 条之后压缩过上下文（Claude Code 只保留最近一次压缩之后的代码检查点，GitHub #82） */

@@ -24,7 +24,7 @@ import { connections } from '@/connection'
 import { desktopLists } from '@/data/desktop'
 import { useConnections, useContentSearch, useDesktop } from '@/data/hooks'
 import { ago, filterTasks, groupTasks, sessionList, sessionStatus, taskTitle } from '@/data/tasks'
-import { TOOL_NAMES, type ToolId } from '@/data/tools'
+import { TOOL_NAMES, toolError, type ToolId } from '@/data/tools'
 import { linkStateText } from '@/i18n/zh'
 import { Dot, Spinner, cn } from '@/ui'
 import { ContentResults, SearchField } from '@/ui/search'
@@ -199,11 +199,16 @@ function MoreSheet({
 }: DrawerProps & { canAct: boolean; onClose(): void }) {
   const { link, state, projects } = useDesktop(deviceId)
   const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
   const ready = state === 'ready'
   const tools = ready && !!link?.hello?.tools
   const refresh = () => {
     setRefreshing(true)
-    void desktopLists.refresh(deviceId).finally(() => setRefreshing(false))
+    setRefreshError(null)
+    void desktopLists
+      .refresh(deviceId)
+      .catch(e => setRefreshError(`刷新失败：${toolError(e)}`))
+      .finally(() => setRefreshing(false))
   }
   return (
     <Sheet title="更多" onClose={onClose}>
@@ -279,6 +284,7 @@ function MoreSheet({
           <RefreshCw size={16} className={cn(refreshing && 'animate-spin')} />
           刷新列表
         </button>
+        {refreshError && <p className="-mt-3 px-4 text-meta text-danger">{refreshError}</p>}
       </div>
     </Sheet>
   )

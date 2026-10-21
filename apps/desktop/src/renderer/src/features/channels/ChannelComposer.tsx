@@ -15,7 +15,7 @@ import {
 import { ArrowUp, CornerUpLeft, Paperclip, TriangleAlert, X } from 'lucide-react'
 import { cn, IconButton, useToast } from '@/ui'
 import { CARD_STYLE } from '@/features/session/Composer'
-import { useComposerDraft } from '@/features/engine/drafts'
+import { composerDraft, useComposerDraft } from '@/features/engine/drafts'
 import { isDemo } from '@/data'
 import type { Channel, ChannelMember } from '@/data/types'
 import type { ChannelAttachments, TeamRole } from '../../../../shared/types/channels'
@@ -147,11 +147,17 @@ export function ChannelComposer({
     if (!canSend) return
     setSending(true)
     const sent = hasAttachments ? { images: attach.images, files: attach.files } : { images: [], files: [] }
-    onSend(value, sent)
+    const text = value
+    onSend(text, sent)
       .then(() => {
-        setValue('')
-        setCaret(0)
-        setDismissed(null)
+        // 发送期间又打的字留着：没动过就清空，接在后面打的只去掉发出去的那段，改过前面的整段保留
+        const current = composerDraft(draftKey)
+        if (current.startsWith(text)) {
+          const rest = current.slice(text.length).trimStart()
+          setValue(rest)
+          setCaret(rest.length)
+          if (!rest) setDismissed(null)
+        }
         if (hasAttachments) void attach.clear(sent).catch(() => {})
       })
       .catch(error => toast(tr('channels.composer.sendFailed', { error: translateMessage((error as Error).message) })))

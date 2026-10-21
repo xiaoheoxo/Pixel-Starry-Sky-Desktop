@@ -145,11 +145,15 @@ function Body({
   useEffect(() => {
     if (demo || !window.pixelsky) return
     let gone = false
-    const load = () =>
-      window
+    // 扩展连着变几次时只收最后一次读的结果，旧的晚到不覆盖新的
+    let seq = 0
+    const load = () => {
+      const n = ++seq
+      return window
         .pixelsky!.extensions.state({ sessionId: view.id })
-        .then(s => !gone && setEntries(s.entries))
-        .catch(() => !gone && setEntries([]))
+        .then(s => !gone && n === seq && setEntries(s.entries))
+        .catch(() => !gone && n === seq && setEntries([]))
+    }
     void load()
     const off = window.pixelsky.extensions.onChange(() => void load())
     return () => {

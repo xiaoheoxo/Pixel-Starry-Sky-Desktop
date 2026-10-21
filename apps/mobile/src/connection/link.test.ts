@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   FrameType,
   LINK_VERSION,
+  PROLOGUE,
+  Responder,
   decodeFrame,
   encodeFrame,
   encodeJson,
@@ -39,6 +41,10 @@ class FakeSocket {
   }
   result(body: object): void {
     const frame = encodeFrame(FrameType.PairResult, encodeJson(body))
+    this.onmessage?.({ data: frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) })
+  }
+  frame(type: (typeof FrameType)[keyof typeof FrameType], body: Uint8Array): void {
+    const frame = encodeFrame(type, body)
     this.onmessage?.({ data: frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) })
   }
   types(): number[] {
@@ -150,6 +156,54 @@ describe('DesktopLink', () => {
     const { link } = setup()
     vi.advanceTimersByTime(300_000)
     expect(link.state).toBe('connecting')
+    link.stop()
+  })
+
+  it('电脑下线：排着的重试握手作废，不再去握手', () => {
+    const { link, ws } = setup()
+    ws.text('{"type":"desktop_online"}')
+    ws.result({ status: 'unavailable' })
+    ws.text('{"type":"desktop_offline"}')
+    expect(link.state).toBe('desktop_offline')
+    vi.advanceTimersByTime(60_000)
+    expect(link.state).toBe('desktop_offline')
+    expect(ws.types().filter(t => t === FrameType.Handshake1)).toHaveLength(1)
+    link.stop()
+  })
+
+  it('电脑下线：握手超时也作废，不断开重连', () => {
+    const { link, ws, states } = setup()
+    ws.text('{"type":"desktop_online"}')
+    ws.text('{"type":"desktop_offline"}')
+    vi.advanceTimersByTime(30_000)
+    expect(ws.readyState).toBe(FakeSocket.OPEN)
+    expect(link.state).toBe('desktop_offline')
+    expect(states).not.toContain('offline')
+    link.stop()
+  })
+
+  it('握手后 hello 还没回就重新握手：旧 rpc 的失败不关掉正在新握手的连接', async () => {
+    const desktop = generateKeypair(),
+      phone = generateKeypair()
+    const link = new DesktopLink(
+      {
+        ...pairing(),
+        desktopKey: toBase64Url(desktop.publicKey),
+        phoneKey: toBase64Url(phone.privateKey),
+      },
+      { onState: () => {}, onEvent: () => {}, onPairing: () => {} },
+    )
+    link.start()
+    const ws = FakeSocket.all.at(-1)!
+    ws.text('{"type":"desktop_online"}')
+    const responder = new Responder({ local: desktop, remote: phone.publicKey, prologue: PROLOGUE })
+    responder.readMessage1(decodeFrame(ws.sent.at(-1)!).body)
+    ws.frame(FrameType.Handshake2, responder.writeMessage2().message)
+    // hello 还在等回音时电脑重新上线：重新握手，旧 rpc 被关掉、hello 失败
+    ws.text('{"type":"desktop_online"}')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ws.readyState).toBe(FakeSocket.OPEN)
+    expect(link.state).toBe('handshaking')
     link.stop()
   })
 
