@@ -9,6 +9,8 @@ export const IMPORT_TOOLS: ReadonlyArray<{ id: ProjectImportTool; name: string }
   { id: 'codex', name: 'Codex' },
   { id: 'zcode', name: 'Z Code' },
   { id: 'kimi', name: 'Kimi Code' },
+  { id: 'cursor', name: 'Cursor' },
+  { id: 'dsh', name: 'DeepSeek Harness' },
 ]
 
 const TOOL_NAMES = new Set(IMPORT_TOOLS.map(t => t.name))

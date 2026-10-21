@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -190,5 +191,90 @@ describe('read-only discovery', () => {
     const broken = await discoverToolProjects([], root, env)
     expect(broken.candidates.map(c => c.path)).toEqual([project])
     expect(broken.warnings).toHaveLength(1)
+  })
+})
+
+describe('Cursor 和 DeepSeek Harness', () => {
+  const fileUrl = (p: string): string => pathToFileURL(p).href
+
+  it('Cursor：读 workspaceStorage 每个子目录的 workspace.json，跳过远程、多根工作区、空窗口和坏文件', async () => {
+    const a = await folder('cursor-a')
+    const b = await folder('cursor-b')
+    const files = toolImportFiles(root, { APPDATA: join(root, 'appdata') }, 'win32')
+    const storage = files.cursor[0]
+    expect(storage).toBe(join(root, 'appdata', 'Cursor', 'User', 'workspaceStorage'))
+    await json(join(storage, 'h1', 'workspace.json'), { folder: fileUrl(a) })
+    await json(join(storage, 'h2', 'workspace.json'), { folder: fileUrl(b) })
+    await json(join(storage, 'h3', 'workspace.json'), { folder: 'vscode-remote://ssh-remote%2Bbox/home/me/x' })
+    await json(join(storage, 'h4', 'workspace.json'), { workspace: fileUrl(join(root, 'multi.code-workspace')) })
+    await mkdir(join(storage, 'h5'), { recursive: true }) // 空窗口：没有 workspace.json
+    await mkdir(join(storage, 'h6'), { recursive: true })
+    await writeFile(join(storage, 'h6', 'workspace.json'), '{broken')
+    const r = await readToolProjects('cursor', storage)
+    expect(r.paths.map(p => p.source)).toEqual(['Cursor', 'Cursor'])
+    const batch = await inspectProjectPaths(r.paths, [])
+    expect(batch.candidates.map(c => c.path).sort()).toEqual([a, b].sort())
+  })
+
+  it('Cursor：手动选上级目录（User、Cursor 数据目录）或某个项目的哈希目录都能读', async () => {
+    const a = await folder('cursor-pick')
+    const user = join(root, 'Cursor', 'User')
+    await json(join(user, 'workspaceStorage', 'h1', 'workspace.json'), { folder: fileUrl(a) })
+    for (const dir of [
+      join(root, 'Cursor'),
+      user,
+      join(user, 'workspaceStorage'),
+      join(user, 'workspaceStorage', 'h1'),
+    ])
+      expect((await readToolProjects('cursor', dir)).paths.length).toBe(1)
+    expect(toolImportFiles('/home/me', {}, 'darwin').cursor[0]).toBe(
+      join('/home/me', 'Library', 'Application Support', 'Cursor', 'User', 'workspaceStorage'),
+    )
+    expect(toolImportFiles('/home/me', { XDG_CONFIG_HOME: '/cfg' }, 'linux').cursor[0]).toBe(
+      join('/cfg', 'Cursor', 'User', 'workspaceStorage'),
+    )
+  })
+
+  it('DeepSeek Harness：单文件 workspace.json 按 workspaceIds 排序，只取 path', async () => {
+    const a = await folder('dsh-a')
+    const b = await folder('dsh-b')
+    const storages = toolImportFiles(root, { DSH_HOME: join(root, 'dsh') }).dsh[0]
+    expect(storages).toBe(join(root, 'dsh', 'storages'))
+    await json(join(storages, 'workspace.json'), {
+      unit: { name: 'workspace', version: 2 },
+      global: { initialized: true, workspaceIds: ['w2', 'w1'], archivedSessionIds: [], pinnedSessionIds: [] },
+      tables: {
+        workspaces: {
+          w1: { path: a, title: 'a', sessionIds: ['s1'], createdAt: 't', updatedAt: 't' },
+          w2: { path: b, title: 'b', sessionIds: [], createdAt: 't', updatedAt: 't' },
+          w3: { title: 'no path' },
+        },
+      },
+    })
+    const r = await readToolProjects('dsh', storages)
+    expect(r.paths).toEqual([
+      { path: b, source: 'DeepSeek Harness' },
+      { path: a, source: 'DeepSeek Harness' },
+    ])
+    // 手动选单文件
+    expect((await readToolProjects('dsh', join(storages, 'workspace.json'))).paths.map(p => p.path)).toEqual([b, a])
+  })
+
+  it('DeepSeek Harness：逐条格式有内容时以它为准，不读旧的单文件', async () => {
+    const a = await folder('dsh-new')
+    const old = await folder('dsh-deleted')
+    const storages = join(root, '.dsh', 'storages')
+    await json(join(storages, 'workspace.json'), { tables: { workspaces: { w0: { path: old } } } })
+    await json(join(storages, 'workspace', 'global.json'), { version: 2, record: { workspaceIds: ['w1'] } })
+    await json(join(storages, 'workspace', 'workspaces', 'w1.json'), { version: 2, record: { path: a, title: 'a' } })
+    const r = await readToolProjects('dsh', toolImportFiles(root, {}).dsh[0])
+    expect(r.paths.map(p => p.path)).toEqual([a])
+  })
+
+  it('DSH_HOME 空白当没设、~ 开头展开；没装的工具自动扫描时不报错', async () => {
+    expect(toolImportFiles(root, { DSH_HOME: '  ' }).dsh[0]).toBe(join(root, '.dsh', 'storages'))
+    expect(toolImportFiles(root, { DSH_HOME: '~/x' }).dsh[0]).toBe(join(root, 'x', 'storages'))
+    const batch = await discoverToolProjects([], root, { APPDATA: join(root, 'none') })
+    expect(batch.warnings).toEqual([])
   })
 })

@@ -1,4 +1,4 @@
-export type ProjectImportTool = 'claude' | 'codex' | 'zcode' | 'kimi'
+export type ProjectImportTool = 'claude' | 'codex' | 'zcode' | 'kimi' | 'cursor' | 'dsh'
 export type ProjectImportPicker = ProjectImportTool | 'folders' | 'parent' | 'paths'
 
 export interface ProjectImportCandidate {

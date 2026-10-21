@@ -36,15 +36,30 @@ export function initProjectImport(ctx: AppContext, host: EngineHost): void {
   })
   ipc.handle('projectImport:choose', async (event, raw: unknown) => {
     known()
-    const kinds: ProjectImportPicker[] = ['folders', 'parent', 'paths', 'claude', 'codex', 'zcode', 'kimi']
+    const kinds: ProjectImportPicker[] = [
+      'folders',
+      'parent',
+      'paths',
+      'claude',
+      'codex',
+      'zcode',
+      'kimi',
+      'cursor',
+      'dsh',
+    ]
     if (!kinds.includes(raw as ProjectImportPicker)) throw new Error('项目清单来源不正确')
     const kind = raw as ProjectImportPicker
     const folders = kind === 'folders' || kind === 'parent'
+    // Cursor 每个项目一个文件，选 workspaceStorage 文件夹（或它的上级）
+    const cursor = kind === 'cursor'
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
-      title: nativeText(win, folders ? '选择项目文件夹' : '手动选择清单'),
-      properties: folders ? ['openDirectory', 'multiSelections'] : ['openFile'],
-      ...(folders
+      title: nativeText(
+        win,
+        folders ? '选择项目文件夹' : cursor ? '选择 Cursor 的 workspaceStorage 文件夹' : '手动选择清单',
+      ),
+      properties: folders ? ['openDirectory', 'multiSelections'] : cursor ? ['openDirectory'] : ['openFile'],
+      ...(folders || cursor
         ? {}
         : {
             filters: [

@@ -1,8 +1,8 @@
 export const projectMessages = {
   'projects.title': { zh: '项目', en: 'Projects' },
   'projects.keywords': {
-    zh: '项目 导入 批量 文件夹 分区 Claude Code Codex Z Code Kimi Code 路径',
-    en: 'projects import bulk folders sections Claude Code Codex Z Code Kimi Code paths',
+    zh: '项目 导入 批量 文件夹 分区 Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness 路径',
+    en: 'projects import bulk folders sections Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness paths',
   },
   'projectImport.settingsIntro': {
     zh: '把其他 AI 编程工具里用过的项目加到侧栏。只登记文件夹路径，文件保留在原处。',
@@ -107,6 +107,10 @@ export const projectMessages = {
   'projectImport.unreadableList': {
     zh: '{tool}：项目清单无法读取，可手动选择清单或项目文件夹',
     en: '{tool}: Unable to read the project list. Choose a list or project folders manually.',
+  },
+  'projectImport.pickCursor': {
+    zh: '选择 Cursor 的 workspaceStorage 文件夹',
+    en: 'Choose the Cursor workspaceStorage folder',
   },
   'projectImport.unreadableIndex': {
     zh: 'Z Code：任务索引无法读取，已保留设置中的项目',

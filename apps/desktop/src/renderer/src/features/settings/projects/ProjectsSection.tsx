@@ -59,11 +59,14 @@ const sourceLabel = (source: string): string =>
         ? source
         : folderName(source)
 
+/** 没有图标的工具用首字母方块 */
+const TOOL_LETTER: Record<string, string> = { zcode: 'Z', kimi: 'K', cursor: 'C', dsh: 'D' }
+
 function ToolMark({ id }: { id: string }) {
   if (id === 'claude' || id === 'codex') return <EngineIcon engine={id} size={18} />
   return (
     <span className="grid size-[18px] shrink-0 place-items-center rounded bg-fg-secondary text-[10px] font-bold text-surface">
-      {id === 'zcode' ? 'Z' : 'K'}
+      {TOOL_LETTER[id] ?? id[0].toUpperCase()}
     </span>
   )
 }

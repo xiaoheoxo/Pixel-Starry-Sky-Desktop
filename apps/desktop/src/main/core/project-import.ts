@@ -1,5 +1,5 @@
 // 只提取各工具明确保存的本机项目路径，不扫描聊天正文、不执行来源工具。
-import { access, open, realpath, stat } from 'node:fs/promises'
+import { access, open, readdir, realpath, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -93,6 +93,12 @@ export function toolProjectPaths(tool: ProjectImportTool, value: unknown): strin
             : []
         }),
       ]
+    case 'cursor': {
+      const folder = vscodeWorkspaceFolder(data)
+      return folder ? [folder] : []
+    }
+    case 'dsh':
+      return dshWorkspacePaths(data)
     case 'kimi': {
       const deleted = new Set(strings(data.deleted_workspace_ids))
       return [
@@ -107,6 +113,80 @@ export function toolProjectPaths(tool: ProjectImportTool, value: unknown): strin
       ]
     }
   }
+}
+
+/**
+ * Cursor（VS Code 系）的 workspaceStorage/<哈希>/workspace.json：{ folder: 'file:///d%3A/proj' }。
+ * 只认本机 file: 地址；远程（vscode-remote://）、多根工作区（workspace 字段指向 .code-workspace）跳过
+ */
+export function vscodeWorkspaceFolder(value: unknown): string | null {
+  const folder = object(value).folder
+  return typeof folder === 'string' && folder.startsWith('file:') ? folder : null
+}
+
+/**
+ * DeepSeek Harness 的工作区注册（$DSH_HOME/storages/workspace.json，storage-json 单文件格式）：
+ * tables.workspaces.<id>.path 是规范化后的绝对路径，global.workspaceIds 是界面里的顺序
+ */
+export function dshWorkspacePaths(value: unknown): string[] {
+  const doc = object(value)
+  const records = object(object(doc.tables).workspaces)
+  const order = strings(object(doc.global).workspaceIds)
+  const ids = [...order.filter(id => id in records), ...Object.keys(records).filter(id => !order.includes(id))]
+  return ids.flatMap(id => {
+    const path = object(records[id]).path
+    return typeof path === 'string' ? [path] : []
+  })
+}
+
+/** Cursor：读 workspaceStorage 下每个子目录的 workspace.json；单个坏文件跳过，不影响其它项目 */
+async function cursorStoragePaths(dir: string): Promise<string[]> {
+  const out: string[] = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    if (out.length > MAX_IMPORT_PATHS) break
+    try {
+      const folder = vscodeWorkspaceFolder(await json(join(dir, entry.name, 'workspace.json')))
+      if (folder) out.push(folder)
+    } catch {
+      /* 没有 workspace.json（空窗口）或读坏了：跳过 */
+    }
+  }
+  return out
+}
+
+/**
+ * 手动选的 Cursor 文件夹：workspaceStorage 本身、它的上级（User、Cursor 数据目录）都认，
+ * 选到某个 <哈希> 目录时只读那一个
+ */
+async function cursorStorageDir(dir: string): Promise<string> {
+  for (const sub of ['workspaceStorage', join('User', 'workspaceStorage')]) {
+    const candidate = join(dir, sub)
+    if ((await stat(candidate).catch(() => null))?.isDirectory()) return candidate
+  }
+  return dir
+}
+
+/**
+ * DeepSeek Harness 的 storages 目录：新的逐条格式（workspace/workspaces/<id>.json，{ version, record }）有内容时以它为准
+ * （它接管后旧的单文件不再更新，读旧的会把删掉的工作区带回来），否则读单文件 workspace.json
+ */
+async function dshStoragePaths(storages: string): Promise<string[]> {
+  const unit = join(storages, 'workspace')
+  const files = await readdir(join(unit, 'workspaces')).catch(() => [] as string[])
+  const records: Record<string, unknown> = {}
+  for (const name of files.filter(f => f.endsWith('.json')).slice(0, MAX_IMPORT_PATHS + 1)) {
+    try {
+      records[name.slice(0, -5)] = object(await json(join(unit, 'workspaces', name))).record
+    } catch {
+      /* 单条读坏了跳过 */
+    }
+  }
+  if (Object.keys(records).length) {
+    const global = await json(join(unit, 'global.json')).catch(() => ({}) as Record<string, unknown>)
+    return dshWorkspacePaths({ global: object(global).record, tables: { workspaces: records } })
+  }
+  return dshWorkspacePaths(await json(join(storages, 'workspace.json')))
 }
 
 export interface ImportPath {
@@ -173,12 +253,33 @@ export async function inspectProjectPaths(
   return { candidates: [...candidates.values()], warnings: [] }
 }
 
+/** 系统的应用数据目录（Cursor 等 Electron 应用的 userData 在它下面） */
+function appDataDir(home: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
+  if (platform === 'win32') return env.APPDATA || join(home, 'AppData', 'Roaming')
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support')
+  return env.XDG_CONFIG_HOME || join(home, '.config')
+}
+
+/** DeepSeek Harness 的数据根目录：$DSH_HOME（空白当没设，~ 开头展开）> ~/.dsh */
+function dshHome(home: string, env: NodeJS.ProcessEnv): string {
+  const configured = env.DSH_HOME?.trim()
+  if (!configured) return join(home, '.dsh')
+  return /^~(?=$|[\\/])/.test(configured) ? join(home, configured.slice(1)) : resolve(configured)
+}
+
+/**
+ * 每个工具自动读取的位置。多数是一个清单文件；Cursor 是 workspaceStorage 文件夹（每个项目一个子目录），
+ * DeepSeek Harness 是 storages 文件夹（单文件和逐条两种格式都在里面，见 dshStoragePaths）
+ */
 export function toolImportFiles(
   home = homedir(),
   env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
 ): Record<ProjectImportTool, string[]> {
   const zhome = env.ZCODE_DESKTOP_HOME_DIR || env.HOME || home
   return {
+    cursor: [join(appDataDir(home, env, platform), 'Cursor', 'User', 'workspaceStorage')],
+    dsh: [join(dshHome(home, env), 'storages')],
     claude: [env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(home, '.claude.json')],
     codex: [join(env.CODEX_HOME || join(home, '.codex'), '.codex-global-state.json')],
     zcode: [join(zhome, '.zcode', 'v2', 'setting.json')],
@@ -213,6 +314,16 @@ function zcodeIndexFile(file: string, data: Record<string, unknown>, env: NodeJS
   return base ? join(base, '.zcode', 'v2', 'tasks-index.sqlite') : join(dirname(file), 'tasks-index.sqlite')
 }
 
+/** 写进候选 sources 的工具名，和界面 IMPORT_TOOLS 的 name 一致 */
+const TOOL_SOURCE: Record<ProjectImportTool, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  zcode: 'Z Code',
+  kimi: 'Kimi Code',
+  cursor: 'Cursor',
+  dsh: 'DeepSeek Harness',
+}
+
 export async function readToolProjects(
   tool: ProjectImportTool,
   file: string,
@@ -221,8 +332,20 @@ export async function readToolProjects(
   const warnings: string[] = []
   if (tool === 'zcode' && /\.(sqlite|db)$/i.test(file))
     return { paths: zcodeIndexPaths(file).map(path => ({ path, source: 'Z Code' })), warnings }
+  const source = TOOL_SOURCE[tool]
+  // Cursor、DeepSeek Harness 读的是文件夹（自动读取的位置，或手动选的文件夹）
+  if ((tool === 'cursor' || tool === 'dsh') && (await stat(file)).isDirectory()) {
+    let found: string[]
+    if (tool === 'dsh') found = await dshStoragePaths(file)
+    else {
+      // 选到某个项目的 <哈希> 目录：只读那一个
+      const single = await json(join(file, 'workspace.json')).catch(() => null)
+      const folder = single && vscodeWorkspaceFolder(single)
+      found = folder ? [folder] : await cursorStoragePaths(await cursorStorageDir(file))
+    }
+    return { paths: found.map(path => ({ path, source })), warnings }
+  }
   const data = await json(file)
-  const source = { claude: 'Claude Code', codex: 'Codex', zcode: 'Z Code', kimi: 'Kimi Code' }[tool]
   const paths = toolProjectPaths(tool, data).map(path => ({ path, source }))
   if (tool === 'zcode') {
     const index = zcodeIndexFile(file, data, env)
@@ -251,7 +374,7 @@ export async function discoverToolProjects(
         warnings.push(...result.warnings)
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT')
-          warnings.push(`${tool}：项目清单无法读取，可手动选择清单或项目文件夹`)
+          warnings.push(`${TOOL_SOURCE[tool]}：项目清单无法读取，可手动选择清单或项目文件夹`)
         // 设置缺失或损坏时仍尝试独立的任务索引；不创建、迁移或修复来源文件。
         if (tool === 'zcode') {
           try {
