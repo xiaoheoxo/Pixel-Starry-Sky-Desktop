@@ -62,6 +62,19 @@ function groups(): { title: string; rows: Row[] }[] {
       ],
     },
     {
+      // 审批卡、提问卡上的按键（session/live/approvals/cardKeys.ts）
+      title: tr('shortcuts.help.groupApprovals'),
+      rows: [
+        fixedRow('shortcuts.help.approvalAllow', isMac ? `⌘${enter}` : `Ctrl+${enter}`),
+        fixedRow('shortcuts.help.approvalAlways', isMac ? `⇧⌘${enter}` : `Ctrl+Shift+${enter}`),
+        fixedRow('shortcuts.help.approvalDeny', isMac ? '⌘⌫' : 'Ctrl+Backspace'),
+        fixedRow('shortcuts.help.approvalBack', 'Esc'),
+        fixedRow('shortcuts.help.questionPick', '1–9'),
+        fixedRow('shortcuts.help.questionNext', enter),
+        fixedRow('shortcuts.help.questionSubmit', isMac ? `⌘${enter}` : `Ctrl+${enter}`),
+      ],
+    },
+    {
       title: tr('shortcuts.help.groupBoard'),
       rows: [fixedRow('shortcuts.help.boardNew', isMac ? '⌘N' : 'Ctrl+N'), fixedRow('shortcuts.help.boardSearch', '/')],
     },

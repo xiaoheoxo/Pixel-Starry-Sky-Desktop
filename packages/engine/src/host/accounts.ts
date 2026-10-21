@@ -321,6 +321,10 @@ export class HostAccounts {
     this.find(e, id)
     if (id === this.currentId(e)) throw new Error('正在用这个账号，先切换到别的账号再移除')
     if (id === DEFAULT_ACCOUNT) throw new Error('原来的账号不能在这里移除，切换到它之后可以在模型通道里取消授权')
+    // 换账号之前开的对话可能还在用这个账号：退出登录会让它们下一轮失败，先不让移除
+    const dir = this.dir(e, id)
+    if (dir && this.adapter(e).accountInUse?.(dir))
+      throw new Error('还有对话在用这个账号（换账号之前开的）。等这些对话空闲结束、或者关掉它们之后再移除')
     // 只退出登录、移出列表，目录骨架留着：Codex 的线程索引里记着这个目录下的路径
     await this.adapter(e)
       .accountLogout(this.dir(e, id))

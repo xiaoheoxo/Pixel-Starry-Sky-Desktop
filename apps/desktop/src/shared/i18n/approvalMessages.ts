@@ -46,6 +46,18 @@ export const approvalMessages = {
   'approvals.keys.startPlan': { zh: '开始执行', en: 'Start' },
   'approvals.keys.refinePlan': { zh: '继续完善计划', en: 'Keep refining' },
   'approvals.keys.submit': { zh: '提交', en: 'Submit' },
+  // 快捷键一览（Ctrl+/）里的「审批与提问」一组
+  'shortcuts.help.groupApprovals': { zh: '审批与提问', en: 'Approvals and questions' },
+  'shortcuts.help.approvalAllow': { zh: '允许一次（计划：开始执行）', en: 'Allow once (plan: start)' },
+  'shortcuts.help.approvalAlways': {
+    zh: '始终允许（优先本会话，范围见按钮提示）',
+    en: 'Always allow (this session first; scope shown on the button)',
+  },
+  'shortcuts.help.approvalDeny': { zh: '拒绝（计划：继续完善）', en: 'Deny (plan: keep refining)' },
+  'shortcuts.help.approvalBack': { zh: '回到输入框（不拒绝）', en: 'Back to the composer (does not deny)' },
+  'shortcuts.help.questionPick': { zh: '提问：选当前题的第 N 个选项', en: 'Question: pick option N' },
+  'shortcuts.help.questionNext': { zh: '提问：下一题', en: 'Question: next question' },
+  'shortcuts.help.questionSubmit': { zh: '提问：提交回答', en: 'Question: submit answers' },
   'approvals.answeredCount': { zh: '已回答 {n}/{m}', en: 'Answered {n}/{m}' },
   'approvals.locate': { zh: '点一下跳到下面等你决定的那一项', en: 'Jump to this request below' },
   'approvals.composerHint': {

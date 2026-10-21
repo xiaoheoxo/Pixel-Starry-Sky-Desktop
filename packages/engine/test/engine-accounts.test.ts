@@ -99,6 +99,8 @@ function setup(
     engine?: 'codex' | 'claude'
     /** 额度用完时顺带报的恢复时间（会话的额度事件，宿主按原账号记下） */
     resetsAt?: () => number
+    /** 适配器报某个账号目录还有进程在用 */
+    inUse?: (dir: string) => boolean
   } = {},
 ) {
   const engine = opts.engine ?? 'codex'
@@ -125,6 +127,7 @@ function setup(
         account: { email: 'me@example.com', plan: 'plus' },
       }) as EngineInfo,
     login: async () => done(),
+    ...(opts.inUse ? { accountInUse: opts.inUse } : {}),
     accountLogin: async dir => {
       emails.set(dir, nextEmail)
       return done()
@@ -245,6 +248,18 @@ describe('宿主的账号列表', () => {
     const after = await host.removeAccount('codex', work)
     expect(after.accounts).toEqual([])
     expect(after.current).toBe('default')
+  })
+
+  it('不是当前账号、但还有对话的进程在用（换账号之前开的）：不能移除，也不退出登录；进程没了就能移除', async () => {
+    let busy = true
+    const env = setup({ inUse: () => busy })
+    const list = await env.addAccount('work@example.com')
+    const work = list.accounts[1].id
+    await expect(env.host.removeAccount('codex', work)).rejects.toThrow(/还有对话在用这个账号/)
+    expect(env.loggedOut).toEqual([])
+    busy = false
+    expect((await env.host.removeAccount('codex', work)).accounts).toEqual([])
+    expect(env.loggedOut).toHaveLength(1)
   })
 
   it('额度：每个账号读一次，60 秒内用缓存', async () => {

@@ -30,7 +30,14 @@ import { engineEnv, systemProxyEnv } from '../env'
 import { globalNpm, npmForInstall, npmInstallGlobal, withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, runStream, startupReason } from '../exec'
 import { engineBase } from '../registry'
-import { ClaudeUserRules, claudeAccountEnv, holdConfigDir, nativeMcpServers, prepareClaudeAccount } from './accounts'
+import {
+  ClaudeUserRules,
+  claudeAccountEnv,
+  configDirBusy,
+  holdConfigDir,
+  nativeMcpServers,
+  prepareClaudeAccount,
+} from './accounts'
 import { claudeInstaller, customClaude, discoverClaude, parseAuthStatus, type ClaudeDiscovery } from './discover'
 import { claudePlanFor } from './tier'
 import { rewindFilesOnce, sideQuestionOnce, type HelperTarget, type RewindFilesReply } from './helper'
@@ -679,6 +686,11 @@ export class ClaudeAdapter implements EngineAdapter {
     const env = this.env(dir)
     const r = await this.holding(env, () => run(launcher, ['auth', 'logout'], env))
     return { ok: r.ok, output: outputTail(r), version: null }
+  }
+
+  /** 所有 Claude Code 进程（会话、额度临时进程、登录等）都在登记处记着用哪个配置目录 */
+  accountInUse(dir: string): boolean {
+    return configDirBusy(dir)
   }
 
   /**

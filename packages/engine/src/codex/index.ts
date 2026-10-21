@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type {
   AccountProbe,
   CloseOptions,
@@ -176,6 +176,14 @@ export class CodexAdapter implements EngineAdapter {
     await this.reader.close()
     return { ok: r.ok, output: outputTail(r), version: null }
   }
+  /** 会话的 CODEX_HOME 在创建时定好（换账号后重建）：还有进程活着、用的是这个目录就算在用 */
+  private readonly liveSessions = new Set<{ home: string; alive: () => boolean }>()
+  accountInUse(dir: string): boolean {
+    const want = resolve(dir).toLowerCase()
+    for (const s of this.liveSessions) if (s.home && resolve(s.home).toLowerCase() === want && s.alive()) return true
+    return false
+  }
+
   /**
    * 临时起一个 app-server 读某个账号：登录了没有、邮箱、套餐、额度（docs/ui/engine-accounts.md §3）。
    * 不复用读取进程：它跟着当前账号走
@@ -377,7 +385,7 @@ export class CodexAdapter implements EngineAdapter {
     )
       throw new Error(result?.info.message ?? 'Codex is unavailable')
     const env = this.sessionEnvironment(result.launcher, ctx.record())
-    return new CodexSession(result.launcher, env, ctx, {
+    const session = new CodexSession(result.launcher, env, ctx, {
       version: result.info.version,
       askRejected: () => this.askRejected,
       rejectAsk: () => (this.askRejected = true),
@@ -395,6 +403,15 @@ export class CodexAdapter implements EngineAdapter {
         else this.ownThreads.delete(id)
       },
     })
+    // 记下活着的会话和它的 CODEX_HOME（移除账号前查 accountInUse）；关掉时撤掉
+    const entry = { home: env.CODEX_HOME ?? '', alive: () => session.processAlive }
+    this.liveSessions.add(entry)
+    const close = session.close.bind(session)
+    session.close = async opts => {
+      this.liveSessions.delete(entry)
+      return close(opts)
+    }
+    return session
   }
   /** Codex 的数据目录（env.CODEX_HOME，没有就是 ~/.codex）；用了订阅账号时是原来的目录（账号目录里的 sessions 等联接回这里） */
   codexHome(record?: SessionRecord): string {

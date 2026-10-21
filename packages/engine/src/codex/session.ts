@@ -220,6 +220,10 @@ export function tomlValue(value: unknown): string {
 }
 export class CodexSession implements EngineSession {
   private proc: CodexProcess | null = null
+  /** 进程还活着（宿主查某个账号目录还有没有人在用） */
+  get processAlive(): boolean {
+    return !!this.proc?.alive
+  }
   /** 会话里的 MCP 服务器（mcpServerStatus/list），docs/ui/connectors.md；构造时建 */
   private mcpReporter!: McpReporter
   /** 启动状态推送（mcpServer/startupStatus/updated）记下的每个服务器的状态 */
