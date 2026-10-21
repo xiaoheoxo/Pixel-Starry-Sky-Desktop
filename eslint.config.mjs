@@ -10,6 +10,7 @@ const files = [
   'packages/*/test/**/*.ts',
   'scripts/**/*.{js,mjs}',
   'packages/*/scripts/**/*.mjs',
+  'apps/website/**/*.{js,mjs}',
 ]
 
 // 同一文件命中多个配置块时，同名规则由后者整体覆盖（不合并选项），
@@ -62,6 +63,11 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-hooks/rules-of-hooks': 'error',
     },
+  },
+  {
+    // 官网页面脚本：在浏览器里跑（构建和测试脚本仍是 node）
+    files: ['apps/website/src/**/*.js'],
+    languageOptions: { globals: { ...globals.browser } },
   },
   {
     // main 不导入 renderer / preload（与下面的远端 electron 规则合并在同一个 no-restricted-imports 里）

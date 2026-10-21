@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN" data-base="{{base}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i="title.help">帮助 · 像素星空</title>
+    <meta name="description" content="像素星空怎么安装、怎么开始用，以及常见问题。" />
+    <!-- @head -->
+  </head>
+  <body data-page="help">
+    <!-- @nav -->
+    <main>
+      <div class="page-h">
+        <canvas class="stars" data-density="6000"></canvas>
+        <div class="wrap">
+          <span class="eyebrow enter" data-i="ph.k">帮助</span>
+          <h1 class="enter" style="--d: 1" data-i="ph.title">几分钟就能用起来</h1>
+          <p class="lead enter" style="--d: 2" data-i="ph.lead">三步开始、常见问题，还有找到我们的方式。</p>
+        </div>
+        <div class="fade"></div>
+      </div>
+
+      <section style="padding-top: 24px">
+        <div class="wrap">
+          <div class="sec-h rv">
+            <span class="eyebrow" data-i="start.k">上手</span>
+            <h2 data-i="start.title">三步开始</h2>
+            <p data-i="start.lead">没装 Node.js、Claude Code 或 Codex 也没关系，应用里一键安装。</p>
+          </div>
+          <div class="steps stagger">
+            <div class="step glow" style="--i: 0">
+              <div class="n">
+                <svg class="ico"><use href="#box" /></svg>
+              </div>
+              <h4 data-i="s1.t">下载安装</h4>
+              <p data-i="s1.d">Windows、macOS（Apple 芯片 / Intel）、Linux 都有安装包，装好后自动更新。</p>
+            </div>
+            <div class="step glow" style="--i: 1">
+              <div class="n">
+                <svg class="ico"><use href="#key" /></svg>
+              </div>
+              <h4 data-i="s2.t">选一条通道</h4>
+              <p data-i="s2.d">登录像素星空账号用平台额度，或授权自己的 Claude / ChatGPT 订阅，或填自己的接口。</p>
+            </div>
+            <div class="step glow" style="--i: 2">
+              <div class="n">
+                <svg class="ico"><use href="#chat" /></svg>
+              </div>
+              <h4 data-i="s3.t">打开项目，开始对话</h4>
+              <p data-i="s3.d">选一个文件夹，告诉 AI 要做什么。改动、命令、审批都在眼前。</p>
+            </div>
+          </div>
+          <div class="center rv" style="margin-top: 36px">
+            <div class="dl">
+              <a class="btn-main dl-btn" href="#"
+                ><svg><use href="#win" /></svg><span class="lbl">下载 Windows 版</span
+                ><svg class="ico go"><use href="#dlarrow" /></svg
+              ></a>
+              <div class="dl-meta dl-meta-link"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="alt">
+        <div class="narrow">
+          <div class="sec-h rv">
+            <span class="eyebrow" data-i="faq.k">常见问题</span>
+            <h2 data-i="faq.title">大家常问的</h2>
+          </div>
+          <div class="faq stagger" id="faq-list"></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="narrow">
+          <div class="sec-h rv" style="margin-bottom: 36px">
+            <span class="eyebrow" data-i="contact.k">联系</span>
+            <h2 data-i="contact.title">还没解决？</h2>
+          </div>
+          <div class="contact stagger">
+            <div class="glow" style="--i: 0">
+              <div class="n">
+                <svg class="ico"><use href="#chat" /></svg>
+              </div>
+              <div>
+                <b data-i="c1.t">应用内反馈</b
+                ><span data-i="c1.d">设置 › 反馈，可以附上日志和截图，回复会出现在应用里。</span>
+              </div>
+            </div>
+            <a
+              class="glow"
+              style="--i: 1"
+              href="https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop/issues"
+              target="_blank"
+              rel="noopener"
+              ><div class="n">
+                <svg class="ico"><use href="#bug" /></svg>
+              </div>
+              <div><b data-i="c2.t">GitHub issue</b><span data-i="c2.d">公开提交问题或功能建议。</span></div></a
+            >
+          </div>
+        </div>
+      </section>
+    </main>
+    <!-- @foot -->
+  </body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN" data-base="{{base}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i="title.changelog">更新说明 · 像素星空</title>
+    <meta name="description" content="像素星空每个版本的更新说明和 Windows、macOS、Linux 安装包。" />
+    <!-- @head -->
+  </head>
+  <body data-page="changelog">
+    <!-- @nav -->
+    <main>
+      <div class="page-h">
+        <canvas class="stars" data-density="6000"></canvas>
+        <div class="wrap">
+          <span class="eyebrow enter" data-i="pc.k">更新</span>
+          <h1 class="enter" style="--d: 1" data-i="pc.title">更新说明</h1>
+          <p class="lead enter" style="--d: 2" data-i="pc.lead">
+            每一版的更新说明和各系统安装包。应用会自动更新，只有想装旧版本时才需要来这里。
+          </p>
+        </div>
+        <div class="fade"></div>
+      </div>
+
+      <section style="padding-top: 24px">
+        <div class="narrow">
+          <div class="notes rv">
+            <div class="top">
+              <b data-ver>{{tag}}</b><span class="tag" data-i="pc.latest">最新</span
+              ><span id="notes-date">{{date}}</span>
+            </div>
+            <div class="files" id="notes-files"></div>
+            <div class="md" id="notes-body"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="alt" id="old-wrap">
+        <div class="narrow">
+          <div class="sec-h rv" style="margin-bottom: 36px"><h2 data-i="pc.old">历史版本</h2></div>
+          <div class="versions stagger" id="ver-list"></div>
+          <div class="center">
+            <button class="soft-btn" id="ver-more" hidden>
+              <span></span><svg class="ico"><use href="#down" /></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <!-- @foot -->
+  </body>
+</html>

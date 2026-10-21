@@ -1,0 +1,13 @@
+{
+  "name": "@pixelsky/website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "客户端下载官网（纯静态，无依赖；上线在 https://pixelstarrysky.xyz/download/，docs/website.md）",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/preview.mjs",
+    "test": "node --test test/site.test.mjs"
+  },
+  "author": "xiao_hei"
+}

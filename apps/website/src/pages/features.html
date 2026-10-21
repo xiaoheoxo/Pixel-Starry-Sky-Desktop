@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN" data-base="{{base}}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i="title.features">功能 · 像素星空</title>
+    <meta name="description" content="像素星空的五个主要功能：任务看板、模型菜单、账号多开、代码页、扩展中心。" />
+    <!-- @head -->
+  </head>
+  <body data-page="features">
+    <!-- @nav -->
+    <main>
+      <div class="page-h">
+        <canvas class="stars" data-density="6000"></canvas>
+        <div class="wrap">
+          <span class="eyebrow enter" data-i="pf.k">功能</span>
+          <h1 class="enter" style="--d: 1" data-i="pf.title">给 AI 编程助手一个桌面工作台</h1>
+          <p class="lead enter" style="--d: 2" data-i="pf.lead">
+            在 Claude Code 和 Codex 之上，像素星空多做了这五件事。
+          </p>
+          <div class="jump enter" style="--d: 3">
+            <a href="#f1"><i>01</i><span data-i="f1.k">任务看板</span></a>
+            <a href="#f2"><i>02</i><span data-i="f2.k">模型菜单</span></a>
+            <a href="#f3"><i>03</i><span data-i="f3.k">账号多开</span></a>
+            <a href="#f4"><i>04</i><span data-i="f4.k">代码页</span></a>
+            <a href="#f5"><i>05</i><span data-i="f5.k">扩展中心</span></a>
+          </div>
+        </div>
+        <div class="fade"></div>
+      </div>
+
+      <section style="padding-top: 40px">
+        <div class="wrap">
+          <div class="feat" id="f1">
+            <div class="txt rv">
+              <div class="k"><i>01</i><span data-i="f1.k">任务看板</span></div>
+              <h3 data-i="f1.t">多个任务同时跑，一张看板全掌握</h3>
+              <p data-i="f1.d">每个会话独立运行，侧栏和看板显示谁在跑、谁在等你、谁出错了。</p>
+              <ul class="checks">
+                <li data-i="f1.a">等你审批的命令直接在看板上允许或拒绝</li>
+                <li data-i="f1.b">出错的任务一键重试，不用翻回对话</li>
+                <li data-i="f1.c">完成时系统通知，切走也不会错过</li>
+              </ul>
+            </div>
+            <div class="media rv zoom" style="--d: 1">
+              <div class="pic tilt"><img src="{{base}}assets/board.jpg" alt="" /></div>
+            </div>
+          </div>
+
+          <div class="feat" id="f2">
+            <div class="txt rv">
+              <div class="k"><i>02</i><span data-i="f2.k">模型菜单</span></div>
+              <h3 data-i="f2.t">一个菜单换模型、换线路</h3>
+              <p data-i="f2.d">Claude Code、Codex、像素星空三种引擎，模型菜单里随时切换，对话接着聊。</p>
+              <ul class="checks">
+                <li data-i="f2.a">用像素星空余额、自己的订阅或自定义接口</li>
+                <li data-i="f2.b">额度、上下文用量在输入框下面实时显示</li>
+                <li data-i="f2.c">换引擎时自动交接之前的对话</li>
+              </ul>
+            </div>
+            <div class="media rv zoom" style="--d: 1">
+              <div class="pic tilt"><img src="{{base}}assets/menu.jpg" alt="" loading="lazy" /></div>
+            </div>
+          </div>
+
+          <div class="feat" id="f3">
+            <div class="txt rv">
+              <div class="k"><i>03</i><span data-i="f3.k">账号多开</span></div>
+              <h3 data-i="f3.t">多个订阅账号，点一下就换</h3>
+              <p data-i="f3.d">Claude 和 ChatGPT 都能登录多个账号，各自的 5 小时、本周额度一目了然。</p>
+              <ul class="checks">
+                <li data-i="f3.a">切换不用重新登录，对话记录、插件、MCP 共用</li>
+                <li data-i="f3.b">额度用完可以自动换到下一个账号（默认关闭）</li>
+                <li data-i="f3.c">登录凭据由命令行自己保存，像素星空不读取</li>
+              </ul>
+            </div>
+            <div class="media rv zoom" style="--d: 1">
+              <div class="pic tilt"><img src="{{base}}assets/accounts.jpg" alt="" loading="lazy" /></div>
+            </div>
+          </div>
+
+          <div class="feat" id="f4">
+            <div class="txt rv">
+              <div class="k"><i>04</i><span data-i="f4.k">代码页</span></div>
+              <h3 data-i="f4.t">代码、Git、终端，都在旁边</h3>
+              <p data-i="f4.d">代码页把文件树、编辑器、AI 的改动、终端和对话放在一起。</p>
+              <ul class="checks">
+                <li data-i="f4.a">「AI 这一轮改的」单独列出，逐个审查</li>
+                <li data-i="f4.b">Git 改动、历史、分支，不用切到别的软件</li>
+                <li data-i="f4.c">AI 跑的命令能在终端里接着看</li>
+              </ul>
+            </div>
+            <div class="media rv zoom" style="--d: 1">
+              <div class="pic tilt"><img src="{{base}}assets/code.jpg" alt="" loading="lazy" /></div>
+            </div>
+          </div>
+
+          <div class="feat" id="f5">
+            <div class="txt rv">
+              <div class="k"><i>05</i><span data-i="f5.k">扩展中心</span></div>
+              <h3 data-i="f5.t">主题、技能、插件，装好就能用</h3>
+              <p data-i="f5.d">语法高亮、主题、代码片段、技能、提示词，装好立刻生效；插件和 MCP 连接器统一管理。</p>
+              <ul class="checks">
+                <li data-i="f5.a">商店里的扩展都经过审核</li>
+                <li data-i="f5.b">Claude Code / Codex 原有的插件和 MCP 照样能用</li>
+              </ul>
+            </div>
+            <div class="media rv zoom" style="--d: 1">
+              <div class="pic tilt"><img src="{{base}}assets/ext.jpg" alt="" loading="lazy" /></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style="padding-top: 0">
+        <div class="wrap">
+          <div class="cta-card glow rv zoom">
+            <canvas class="stars" data-density="7000"></canvas>
+            <h2 data-i="cta.title">现在就试试</h2>
+            <p data-i="cta.lead">免费下载，用你已有的订阅就能开始。</p>
+            <a class="btn-main dl-btn" href="#"
+              ><svg><use href="#win" /></svg><span class="lbl">下载 Windows 版</span
+              ><svg class="ico go"><use href="#dlarrow" /></svg
+            ></a>
+            <div class="dl-meta dl-meta-link"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <!-- @foot -->
+  </body>
+</html>

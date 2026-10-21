@@ -1,0 +1,146 @@
+// 官网文案：中文写在各页面的 HTML 里（data-i / data-i-html），这里只放英文和常见问题。
+// 新加 data-i 的元素时，这里要补同名的英文（test/site.test.mjs 会查）。
+;(root => {
+  const EN = {
+    brand: 'PixelSky',
+    'title.home': 'PixelSky · A desktop workspace for Claude Code and Codex',
+    'title.features': 'Features · PixelSky',
+    'title.changelog': "What's new · PixelSky",
+    'title.help': 'Help · PixelSky',
+    'nav.home': 'Home',
+    'nav.features': 'Features',
+    'nav.changelog': "What's new",
+    'nav.help': 'Help',
+    'hero.title': 'Claude Code and Codex,<br />in one <span class="hl">desktop workspace</span>',
+    'hero.lead':
+      'Run many sessions side by side, track them on a board, switch models and accounts any time. See every file changed and command run — and undo in one click.',
+    'dl.for': 'Available for',
+    'fl.a': 'Approved <b>npm test</b>',
+    'fl.b': '<b>ChatGPT</b> · 5-hour limit',
+    'fl.c': '<b>3</b> sessions running',
+    'feat.eyebrow': 'Why PixelSky',
+    'feat.title': 'Everything the terminal does — just easier to see',
+    'feat.lead': 'Use your own Claude / ChatGPT subscription, PixelSky credits, or your own API endpoint.',
+    more: 'Learn more',
+    'more.all': 'See all features',
+    'f1.k': 'Task board',
+    'f1.t': 'Many tasks at once, one board for all',
+    'f1.d': 'Each session runs on its own. The sidebar and board show what is running, waiting for you or failed.',
+    'f1.a': 'Approve or deny commands right on the board',
+    'f1.b': 'Retry failed tasks without digging through chats',
+    'f1.c': 'System notifications when work is done',
+    'f2.k': 'Model menu',
+    'f2.t': 'One menu for models and routes',
+    'f2.d': 'Claude Code, Codex and the PixelSky engine — switch any time and keep the conversation.',
+    'f2.a': 'PixelSky credits, your subscription, or a custom API',
+    'f2.b': 'Quota and context usage shown live under the input',
+    'f2.c': 'Conversation handed over when you switch engines',
+    'f3.k': 'Accounts',
+    'f3.t': 'Several subscriptions, one click to switch',
+    'f3.d': 'Sign in to multiple Claude and ChatGPT accounts and see each 5-hour and weekly limit.',
+    'f3.a': 'No re-login; history, plugins and MCP are shared',
+    'f3.b': 'Optionally switch automatically when a limit is hit (off by default)',
+    'f3.c': 'Credentials stay with the CLI; PixelSky never reads them',
+    'f4.k': 'Code view',
+    'f4.t': 'Code, Git and terminal right beside you',
+    'f4.d': 'The code view puts the file tree, editor, AI changes, terminal and chat together.',
+    'f4.a': '"Changed this turn" listed separately for review',
+    'f4.b': 'Git changes, history and branches built in',
+    'f4.c': 'Follow AI commands in the terminal',
+    'f5.k': 'Extensions',
+    'f5.t': 'Themes, skills and plugins that just work',
+    'f5.d':
+      'Syntax highlighting, themes, snippets, skills and prompts take effect instantly; plugins and MCP connectors in one place.',
+    'f5.a': 'Every store extension is reviewed',
+    'f5.b': 'Your existing Claude Code / Codex plugins and MCP keep working',
+    'pf.k': 'Features',
+    'pf.title': 'A desktop home for your AI coding agents',
+    'pf.lead': 'Five things PixelSky adds on top of Claude Code and Codex.',
+    'pc.k': 'Changelog',
+    'pc.title': "What's new",
+    'pc.lead':
+      'Release notes and installers for every version. The app updates itself — you only need this page for older versions.',
+    'pc.latest': 'Latest',
+    'pc.old': 'Earlier versions',
+    'ph.k': 'Help',
+    'ph.title': 'Up and running in minutes',
+    'ph.lead': 'Three steps to start, answers to common questions, and how to reach us.',
+    'start.k': 'Get started',
+    'start.title': 'Start in three steps',
+    'start.lead': 'No Node.js, Claude Code or Codex yet? Install them from inside the app.',
+    's1.t': 'Download and install',
+    's1.d': 'Installers for Windows, macOS (Apple silicon / Intel) and Linux, with automatic updates.',
+    's2.t': 'Pick a channel',
+    's2.d': 'Sign in to PixelSky for credits, authorize your own Claude / ChatGPT subscription, or add your own API.',
+    's3.t': 'Open a project and chat',
+    's3.d': 'Choose a folder and tell the AI what to do. Changes, commands and approvals are all in view.',
+    'faq.k': 'FAQ',
+    'faq.title': 'Common questions',
+    'contact.k': 'Contact',
+    'contact.title': 'Still stuck?',
+    'c1.t': 'In-app feedback',
+    'c1.d': 'Settings › Feedback — logs and screenshots can be attached, and replies show up in the app.',
+    'c2.t': 'GitHub issues',
+    'c2.d': 'Report bugs or suggest features in public.',
+    'cta.title': 'Try it now',
+    'cta.lead': 'Free to download — start with the subscription you already have.',
+    'foot.hint': 'Or use Settings › Feedback in the app',
+  }
+
+  const FAQ = {
+    zh: [
+      [
+        '要先装 Node.js、Claude Code 或 Codex 吗？',
+        '不用。第一次打开时应用会检查，缺什么点一下就装：没有 Node.js 会下载一份只给像素星空用的，不改系统设置。',
+      ],
+      [
+        'Windows 提示「Windows 已保护你的电脑」怎么办？',
+        '安装包还没有代码签名证书，点「更多信息」→「仍要运行」即可。安装包都在 GitHub 上公开发布。',
+      ],
+      [
+        'macOS 提示「无法验证开发者」怎么打开？',
+        '在「访达」里右键点像素星空 →「打开」，再点一次「打开」；或到「系统设置 › 隐私与安全性」里点「仍要打开」。不知道是哪种芯片：左上角  →「关于本机」，写着 Apple M 的是 Apple 芯片。',
+      ],
+      [
+        '能用我自己的 Claude / ChatGPT 订阅或 API Key 吗？',
+        '能。设置 › 模型通道里授权自己的订阅（可以登录多个账号），或在「自定义接口」里填地址和 Key；也可以登录像素星空账号用平台额度。',
+      ],
+      [
+        '我的代码和对话会上传吗？',
+        '不会经过像素星空的服务器：对话直接由 Claude Code / Codex 发给你选的模型服务。只有选「像素星空」通道时，请求经平台转发到模型服务。',
+      ],
+      [
+        '怎么更新？',
+        '安装版会自动检查更新，下载好后提示重启。也可以在「更新说明」页下载新版覆盖安装，设置和对话都会保留。',
+      ],
+    ],
+    en: [
+      [
+        'Do I need Node.js, Claude Code or Codex first?',
+        'No. On first launch the app checks and installs what is missing with one click — including a private copy of Node.js that does not touch your system.',
+      ],
+      [
+        'Windows says "Windows protected your PC".',
+        'The installer is not code-signed yet. Click "More info" → "Run anyway". All installers are published openly on GitHub.',
+      ],
+      [
+        'macOS says the developer cannot be verified.',
+        'Right-click PixelSky in Finder → Open, then Open again; or allow it in System Settings › Privacy & Security. Not sure which chip? Apple menu → About This Mac: "Apple M…" means Apple silicon.',
+      ],
+      [
+        'Can I use my own Claude / ChatGPT subscription or API key?',
+        'Yes. Authorize your subscriptions in Settings › Model channels (multiple accounts supported), or add an endpoint and key under Custom API — or sign in to PixelSky to use platform credits.',
+      ],
+      [
+        'Is my code or chat uploaded?',
+        'Not through PixelSky servers: Claude Code / Codex talk to the model provider you chose directly. Only the PixelSky channel routes requests through the platform.',
+      ],
+      [
+        'How do updates work?',
+        "The installed app checks for updates and asks you to restart when ready. You can also download a newer version from the What's new page and install over it — settings and chats are kept.",
+      ],
+    ],
+  }
+
+  root.PSText = { EN, FAQ }
+})(globalThis)

@@ -20,6 +20,7 @@ const extcli = join(root, 'packages', 'extension-cli')
 const cli = join(root, 'packages', 'cli')
 const link = join(root, 'packages', 'link')
 const mobile = join(root, 'apps', 'mobile')
+const website = join(root, 'apps', 'website')
 const tsc = (cwd, project) => ({
   cwd,
   script: join(cwd, 'node_modules', 'typescript', 'bin', 'tsc'),
@@ -66,6 +67,8 @@ const steps = [
   { name: 'test:cli', group: 'test', ...vitest(cli) },
   { name: 'test:link', group: 'test', ...vitest(link) },
   { name: 'test:mobile', group: 'test', ...vitest(mobile) },
+  // 官网：node:test，无依赖（apps/website/test/site.test.mjs 直接运行就会跑测试）
+  { name: 'test:website', group: 'test', cwd: website, script: join(website, 'test', 'site.test.mjs'), args: [] },
   { name: 'docs', group: 'docs', cwd: root, script: join(root, 'scripts', 'check-docs.mjs'), args: [] },
   {
     name: 'eslint',
