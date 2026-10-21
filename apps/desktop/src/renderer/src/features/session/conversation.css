@@ -56,6 +56,10 @@
   contain-intrinsic-block-size: auto 30px;
   overflow-clip-margin: 8px;
 }
+/* 每轮末尾的统计行（TurnStats）是一行小字，约 24px；一轮一条，长对话里按 30 估会一路累积偏差 */
+[data-conversation-stream] > [data-turn-stats] {
+  contain-intrinsic-block-size: auto 24px;
+}
 .conversation-message {
   width: 100%;
   min-width: 0;

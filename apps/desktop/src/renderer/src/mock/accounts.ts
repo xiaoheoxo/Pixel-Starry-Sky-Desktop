@@ -64,6 +64,6 @@ function accounts(
 }
 
 export const demoAccounts: DemoAccounts = {
-  codex: accounts('codex', ['plus', 'team', 'pro']),
-  claude: accounts('claude', ['max', 'team', 'pro']),
+  codex: accounts('codex', ['plus', 'self_serve_business_prolite', 'promax']),
+  claude: accounts('claude', ['max_20x', 'max_5x', 'pro']),
 }

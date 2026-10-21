@@ -20,7 +20,7 @@ export function demoQuota(now: number = Date.now()): Record<EngineQuotaProvider,
     claude: {
       ...base,
       provider: 'claude',
-      plan: 'max',
+      plan: 'max_20x',
       account: 'linxia@example.com',
       windows: [
         { id: 'five_hour', durationMins: 300, usedPercent: 42, resetsAt: now + 2 * HOUR + 13 * MIN },

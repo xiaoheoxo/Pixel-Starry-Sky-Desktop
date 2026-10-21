@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { CornerDownLeft, FolderGit2, Info, RefreshCw, Search, X } from 'lucide-react'
@@ -599,9 +600,7 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
   }, [])
   useEffect(() => {
     if (!selected) return
-    dialog.current
-      ?.querySelector<HTMLElement>(`[data-resume-row="${selected.id}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+    scrollInPane(dialog.current?.querySelector(`[data-resume-row="${selected.id}"]`), 'nearest')
   }, [selected?.id])
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {

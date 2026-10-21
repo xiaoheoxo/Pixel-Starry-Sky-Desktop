@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Check, Circle, Copy, ListChecks, Pencil, Pin, PinOff, Trash2 } from 'lucide-react'
 import { Button, IconButton, Select } from '@/ui'
@@ -73,7 +74,7 @@ function TasksBody({ projectId, name, demo }: { projectId: string; name: string;
     if (location?.projectId !== projectId || !data.tasks.some(task => task.id === location.taskId)) return
     const frame = requestAnimationFrame(() => {
       const row = document.querySelector<HTMLElement>('[data-tool-task="' + location.taskId + '"]')
-      row?.scrollIntoView({ block: 'nearest' })
+      scrollInPane(row, 'nearest')
       row?.focus({ preventScroll: true })
     })
     return () => cancelAnimationFrame(frame)

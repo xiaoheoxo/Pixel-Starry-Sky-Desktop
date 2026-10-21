@@ -127,7 +127,7 @@ function AuthDialog({ channel }: { channel: AuthChannel }) {
       </p>
     )
   } else if (login.phase === 'done') {
-    const account = accountText(info?.account)
+    const account = accountText(info?.account, channel)
     body = (
       <p className="flex items-center gap-2 text-fg">
         <CircleCheck size={16} className="shrink-0 text-success" />

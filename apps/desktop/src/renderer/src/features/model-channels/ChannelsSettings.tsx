@@ -203,7 +203,7 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
   let secondary: ReactNode = null
   if (state.kind === 'loading') status = <Spinner />
   else if (state.kind === 'ready') {
-    const signedIn = accountText(info?.account)
+    const signedIn = accountText(info?.account, channel)
     status = (
       <>
         <span className="text-fg">

@@ -32,6 +32,7 @@ import { outputTail, run, runInteractive, runStream, startupReason } from '../ex
 import { engineBase } from '../registry'
 import { ClaudeUserRules, claudeAccountEnv, holdConfigDir, nativeMcpServers, prepareClaudeAccount } from './accounts'
 import { claudeInstaller, customClaude, discoverClaude, parseAuthStatus, type ClaudeDiscovery } from './discover'
+import { claudePlanFor } from './tier'
 import { rewindFilesOnce, sideQuestionOnce, type HelperTarget, type RewindFilesReply } from './helper'
 import { ClaudeProcess, ownClaudePids } from './process'
 import { parseClaudeUsage, unknownControl } from './quota'
@@ -539,7 +540,7 @@ export class ClaudeAdapter implements EngineAdapter {
       }
       const reading = parseClaudeUsage(raw, Date.now())
       if (current) this.usageRequest = reading.kind !== 'no-request'
-      return reading.kind === 'ok' ? { ...reading, account: email } : reading
+      return reading.kind === 'ok' ? { ...reading, account: email, plan: claudePlanFor(reading.plan, env) } : reading
     } finally {
       proc.kill()
       this.quotaProcs.delete(proc)
@@ -691,7 +692,7 @@ export class ClaudeAdapter implements EngineAdapter {
     const status = parseAuthStatus(r.stdout)
     if (!status) throw new Error(outputTail(r) || '读不到 Claude Code 的登录状态')
     const email = status.account?.email ?? null
-    const plan = status.account?.plan ?? null
+    const plan = claudePlanFor(status.account?.plan, env)
     if (!status.loggedIn) return { signedIn: false, email, plan, quota: null }
     if (status.method !== 'claude.ai') return { signedIn: true, email, plan, quota: null }
     let quota: QuotaReading | null = null

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FolderPlus, RefreshCw } from 'lucide-react'
 import type { ExtPackInfo } from '@pixelsky/protocol'
 import { Button } from '@/ui'
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { useMachines } from '@/features/machines/store'
@@ -36,7 +37,7 @@ export function InstalledPage({ initialGroup }: { initialGroup?: PackGroup }) {
   // 从旧入口（输入框 / 、侧栏插件、命令面板）进来时直接滚到 AI 引擎
   useEffect(() => {
     if (initialGroup !== 'ai') return
-    const id = window.setTimeout(() => aiRef.current?.scrollIntoView({ block: 'start' }), 0)
+    const id = window.setTimeout(() => aiRef.current && scrollInPane(aiRef.current, 'start'), 0)
     return () => window.clearTimeout(id)
   }, [initialGroup])
 

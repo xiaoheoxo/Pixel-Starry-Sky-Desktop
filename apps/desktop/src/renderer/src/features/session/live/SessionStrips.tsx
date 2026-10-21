@@ -52,7 +52,10 @@ export function TaskStrip({ sessionId, tasks }: { sessionId: string; tasks: Back
   }
 
   return (
-    <div className="flex max-h-[30vh] flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface px-3 py-2 shadow-sm">
+    <div
+      data-task-strip
+      className="flex max-h-[30vh] flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface px-3 py-2 shadow-sm"
+    >
       {tasks.map(t => {
         const out = outputs[t.id]
         return (

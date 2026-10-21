@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
@@ -79,9 +80,7 @@ export function ProjectFilter({
 
   useEffect(() => {
     if (!open) return
-    menu.current
-      ?.querySelector<HTMLElement>(`[data-project-index="${activeIndex}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+    scrollInPane(menu.current?.querySelector(`[data-project-index="${activeIndex}"]`), 'nearest')
   }, [open, activeIndex])
 
   useEffect(() => {

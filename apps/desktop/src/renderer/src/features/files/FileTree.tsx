@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { translateMessage } from '../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
@@ -1298,8 +1299,11 @@ function FileRow({
       return value
     })
   const [menu, setMenu] = useState<{ x: number; y: number; trigger: HTMLElement } | null>(null)
+  // 只在挂载以后又点了「全部展开 / 折叠」时套用：挂载时的状态已经按定位请求、记住的展开和全局状态算过了
+  const mountedVersion = useRef(expansion.version)
   useEffect(() => {
-    if (expansion.version) setExpanded(expansion.expanded && entry.kind === 'directory' && !entry.linked && depth < 20)
+    if (expansion.version !== mountedVersion.current)
+      setExpanded(expansion.expanded && entry.kind === 'directory' && !entry.linked && depth < 20)
   }, [expansion.version])
   const ops = useContext(TreeOps),
     mine = !!ops.editing && refKey(ops.editing.ref) === refKey(refTarget)

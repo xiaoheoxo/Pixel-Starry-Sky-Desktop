@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { ENGINES, searchSnippet, searchTerms } from '@pixelsky/protocol'
 import { openTask } from '@/features/panel/openTask'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -294,9 +295,7 @@ export function SearchDialog({
     }
   }, [text, scope, projectId, composing, fileRefKey])
   useEffect(() => {
-    dialog.current
-      ?.querySelector<HTMLElement>(`[data-result-index="${selected}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+    scrollInPane(dialog.current?.querySelector(`[data-result-index="${selected}"]`), 'nearest')
   }, [selected, response, fileHits, channelHits])
 
   return (

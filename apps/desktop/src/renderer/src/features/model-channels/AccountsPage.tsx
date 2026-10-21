@@ -217,7 +217,7 @@ function AccountRow({
             <span className={cn('truncate', expired ? 'text-fg-muted' : 'text-fg')} title={a.email ?? undefined}>
               {a.email ?? accountName(a)}
             </span>
-            <PlanTag plan={a.plan} />
+            <PlanTag engine={engine} plan={a.plan} />
             {current && (
               <span className="shrink-0 rounded-full bg-accent/15 px-1.5 text-label leading-[18px] text-accent-fg">
                 {tr('accounts.current')}

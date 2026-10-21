@@ -204,6 +204,7 @@ export function ApprovalBody({
         {request.description && <p className="mb-1.5 text-list text-fg-muted">{request.description}</p>}
         {hasWrapperExtra(request.wrapper) && <WrapperWarn wrapper={request.wrapper} />}
         <pre
+          data-approval-code
           className={cn(
             className,
             'rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-[length:calc(12.5px*var(--font-scale,1))] leading-[1.6] whitespace-pre-wrap text-fg',
@@ -237,6 +238,7 @@ export function ApprovalBody({
           <p className="mb-1.5 truncate text-list text-fg-muted">{request.description}</p>
         )}
         <pre
+          data-approval-code
           className={cn(
             className,
             'rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-meta leading-[1.6] whitespace-pre-wrap text-fg-secondary',
@@ -405,7 +407,7 @@ export function ApprovalCard({
         <ApprovalBody request={request} />
 
         {request.kind === 'plan' && (
-          <div className={cn(BODY, 'rounded-lg border border-line bg-wall-tint px-4 py-3')}>
+          <div data-approval-plan className={cn(BODY, 'rounded-lg border border-line bg-wall-tint px-4 py-3')}>
             <Markdown text={request.plan || tr('session.live.ApprovalCard.noPlanContent')} />
           </div>
         )}
@@ -435,6 +437,7 @@ export function ApprovalCard({
                         key={o.label}
                         type="button"
                         aria-pressed={on}
+                        data-question-option
                         onClick={() => update(q, d => pickOption(q, d, o.label))}
                         className={cn(
                           'rounded-lg border px-3 py-2 text-left hover:bg-hover',
@@ -461,6 +464,7 @@ export function ApprovalCard({
                     <button
                       type="button"
                       aria-pressed={draft(q).other}
+                      data-question-option
                       data-question-other
                       onClick={() => update(q, d => toggleOther(q, d))}
                       className={cn(

@@ -122,6 +122,175 @@
   border-radius: 4px;
 }
 
+/* 输入框上方的附件 / 技能标签（§10 A7）：22 高、4px 圆角、字小一号；文件和模式两排并成一排，放不下再折行 */
+:root[data-minimal='on'] .composer-card div:has(> div > [data-chip]) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+}
+:root[data-minimal='on'] .composer-card div:has(> [data-chip]) {
+  display: contents;
+}
+:root[data-minimal='on'] .composer-card [data-chip] {
+  height: 22px;
+  gap: 4px;
+  padding-left: 6px;
+  border-radius: 4px;
+  font-size: var(--text-meta);
+}
+:root[data-minimal='on'] .composer-card [data-chip] svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 审批卡片、计划确认卡、审批列表（§10 A1 A2）：8px 细线框、不要投影；按钮 24 高（列表行里 22），次要按钮一圈细框 */
+:root[data-minimal='on'] [data-approval-card],
+:root[data-minimal='on'] [data-approval-list] {
+  border-color: var(--border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+:root[data-minimal='on'] [data-approval-card] > header {
+  padding-top: 8px;
+  padding-bottom: 4px;
+}
+:root[data-minimal='on'] [data-approval-card] > footer {
+  gap: 6px;
+  padding-block: 6px;
+  border-radius: 0 0 8px 8px;
+  background: transparent;
+}
+:root[data-minimal='on'] [data-approval-card] > footer > button,
+:root[data-minimal='on'] [data-approval-card] > footer > span > button,
+:root[data-minimal='on'] [data-approval-deny-all],
+:root[data-minimal='on'] [data-approval-allow-all] {
+  height: 24px;
+  padding-inline: 8px;
+  border-radius: 4px;
+  font-size: var(--text-meta);
+}
+:root[data-minimal='on'] [data-approval-card] > footer > button:not(:first-child) {
+  border: 1px solid var(--border);
+}
+/* 计划正文不再套一层框，左边一道细线 */
+:root[data-minimal='on'] [data-approval-plan] {
+  padding: 0 0 0 10px;
+  border: 0;
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+:root[data-minimal='on'] [data-approval-code] {
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+:root[data-minimal='on'] [data-approval-list] > header {
+  padding-block: 4px;
+}
+:root[data-minimal='on'] [data-approval-row] > div {
+  min-height: 28px;
+}
+:root[data-minimal='on'] [data-approval-row] > div > button {
+  min-height: 24px;
+}
+:root[data-minimal='on'] [data-approval-deny],
+:root[data-minimal='on'] [data-approval-allow],
+:root[data-minimal='on'] [data-approval-always],
+:root[data-minimal='on'] [data-approval-group-always] {
+  height: 22px;
+  padding-inline: 8px;
+  font-size: var(--text-meta);
+}
+:root[data-minimal='on'] [data-approval-deny] {
+  border-radius: 4px;
+}
+:root[data-minimal='on'] [data-approval-allow] {
+  border-radius: 4px 0 0 4px;
+}
+:root[data-minimal='on'] [data-approval-always] {
+  padding-inline: 4px;
+  border-radius: 0 4px 4px 0;
+}
+:root[data-minimal='on'] [data-approval-group-always] {
+  border-radius: 4px;
+}
+:root[data-minimal='on'] [data-approval-group-head] {
+  min-height: 28px;
+  padding-block: 0;
+  background: transparent;
+}
+
+/* 提问卡（§10 A3）：选项不要卡片，一行一个；选中左边一道主色线、浅底 */
+:root[data-minimal='on'] div:has(> [data-question-option]) {
+  gap: 0;
+}
+:root[data-minimal='on'] [data-question-option] {
+  padding: 4px 10px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+}
+:root[data-minimal='on'] [data-question-option][aria-pressed='true'] {
+  border-left-color: var(--accent);
+}
+
+/* 执行块里等审批的那一行（§10 A6）：「等你决定」去底色，只留小字；点了照旧跳到下面那一项 */
+:root[data-minimal='on'] [data-approval-wait] {
+  padding: 0;
+  background: transparent;
+}
+
+/* 报错（§10 A4）：一行红字，不要框和底色；下面的「重试」「改用平台继续」等按钮 24 高 */
+:root[data-minimal='on'] [data-notice-level='error'] {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+}
+:root[data-minimal='on'] [data-notice-actions] {
+  margin-top: 2px;
+  gap: 4px;
+}
+:root[data-minimal='on'] [data-notice-actions] > button {
+  height: 24px;
+  padding-inline: 8px;
+  border-radius: 4px;
+  font-size: var(--text-meta);
+}
+
+/* 「HTTP 529，正在重试」（§10 A5）：一行灰字，右边「停止」 */
+:root[data-minimal='on'] [data-retry-status] {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+}
+:root[data-minimal='on'] [data-retry-status] button {
+  height: 22px;
+}
+
+/* 顶上的后台任务条（后台命令、监视任务，§10 A5）：不要圆角框和投影，一行一个任务；底色留着（它盖在对话上面） */
+:root[data-minimal='on'] [data-task-strip] {
+  gap: 0;
+  padding: 2px 12px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+:root[data-minimal='on'] [data-task-strip] > div > div:first-child {
+  min-height: 24px;
+}
+
+/* 改动卡片（§10 A8）：不要投影；「撤销」「审查」24 高、4px 圆角（「审查」原来是圆的） */
+:root[data-minimal='on'] [data-changes-card] {
+  box-shadow: none;
+}
+:root[data-minimal='on'] [data-changes-head] > button {
+  height: 24px;
+  padding-inline: 8px;
+  border-radius: 4px;
+  font-size: var(--text-meta);
+}
+
 /* ================= 共用部件（两种模式都有，改一次两边都生效，§9 A） ================= */
 
 /* 顶栏「本机 / 云端」只留图标，和窗格窄时一样（两个按钮都有 title） */
@@ -322,4 +491,13 @@
 }
 :root[data-minimal='on'] [data-coding-status] [data-status-item='machine'] {
   display: none;
+}
+
+/* 空编辑器的「查看第一个改动」（§10 A8）：不要整宽的大按钮，24 高、4px 圆角 */
+:root[data-minimal='on'] [data-open-first-change] {
+  align-self: center;
+  height: 24px;
+  padding-inline: 10px;
+  border-radius: 4px;
+  font-size: var(--text-meta);
 }

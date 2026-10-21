@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useEffect, useRef, useState } from 'react'
 import { Smartphone } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -225,9 +226,8 @@ function Pairing({
   const { resolved } = useTheme()
   const box = useRef<HTMLDivElement>(null)
   // 二维码 / 确认框在页面下方：出现时滚到能看见
-  // 注意要用花括号：新版 Chromium 的 scrollIntoView 返回 Promise，直接当返回值会被 React 当成清理函数调用而崩溃
   useEffect(() => {
-    void box.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    scrollInPane(box.current, 'nearest', { behavior: 'smooth' })
   }, [pairing.status])
   const left = Math.max(0, Math.ceil((pairing.expires - now) / 1000))
   const expired = pairing.status === 'expired' || (pairing.status === 'waiting' && left === 0)

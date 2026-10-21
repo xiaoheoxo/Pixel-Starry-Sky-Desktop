@@ -2,6 +2,7 @@
 import { tr } from '../../i18n/core'
 import { ENGINES, type EngineId } from '@pixelsky/protocol'
 import { AUTH_ENGINE, type ChannelId, type ChannelState } from './channelModel'
+import { planInfo, type PlanProvider } from './plans'
 
 export const CHANNEL_NUMBER: Record<ChannelId, string> = { platform: '①', claude: '②', chatgpt: '③', custom: '④' }
 /** 小方块里的编号（菜单分组标题、设置卡片） */
@@ -16,8 +17,9 @@ export const executorName = (e: EngineId): string =>
 
 export const executorDesc = (e: EngineId): string => tr(`modelChannels.executor.desc.${e}`)
 
-/** 套餐名首字母大写：max → Max */
-export const planLabel = (plan: string | undefined): string => (plan ? plan[0].toUpperCase() + plan.slice(1) : '')
+/** 套餐显示名：max_20x → Max 20x，ChatGPT 的 prolite → Pro 5x（plans.ts）；没有为空串 */
+export const planLabel = (provider: PlanProvider, plan: string | undefined): string =>
+  planInfo(provider, plan)?.label ?? ''
 
 /** 菜单里的邮箱只露第一个字（共享屏幕时不整个露出来），悬停看完整的 */
 export function maskEmail(email: string): string {
@@ -25,10 +27,13 @@ export function maskEmail(email: string): string {
   return at > 1 ? `${email[0]}•••${email.slice(at)}` : email
 }
 
-/** 已授权的账号：邮箱 · 套餐（max → Max）；都没有时为空 */
-export function accountText(account: { email?: string; plan?: string; org?: string } | undefined): string {
+/** 已授权的账号：邮箱 · 套餐（Max 20x）；都没有时为空 */
+export function accountText(
+  account: { email?: string; plan?: string; org?: string } | undefined,
+  provider: PlanProvider,
+): string {
   if (!account) return ''
-  const plan = planLabel(account.plan)
+  const plan = planLabel(provider, account.plan)
   return [account.email, plan].filter(Boolean).join(' · ')
 }
 

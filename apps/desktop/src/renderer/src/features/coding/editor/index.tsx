@@ -115,6 +115,7 @@ function EmptyState({ scope, turn, target }: { scope: string; turn: TurnChanges 
           )}
           <Button
             variant="primary"
+            data-open-first-change
             className="mt-2 justify-center"
             onClick={() => void openCodeDiff(target, first.path)}
           >

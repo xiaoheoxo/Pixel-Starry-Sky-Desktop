@@ -44,7 +44,7 @@ export const demoEngineStatus: EngineLite[] = [
     // 演示「有新版本」提示（docs/ui/engine-update.md）
     latestVersion: '2.1.300',
     message: null,
-    account: { email: 'linxia@example.com', plan: 'max' },
+    account: { email: 'linxia@example.com', plan: 'max_20x' },
     // 订阅登录（claude.ai）：授权卡显示多账号（docs/ui/engine-accounts-claude.md）
     auth: { kind: 'login' },
     path: 'C:\\Users\\linxia\\.local\\bin\\claude.exe',

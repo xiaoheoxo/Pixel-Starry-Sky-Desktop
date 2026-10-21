@@ -17,6 +17,7 @@ export function Chip({ icon: Icon, tone = 'neutral', onRemove, className, childr
   useI18n()
   return (
     <span
+      data-chip
       className={cn(
         'inline-flex h-7 max-w-full items-center gap-1.5 rounded-md pr-1 pl-2.5 text-list',
         tone === 'neutral' ? 'border border-line bg-surface text-fg-secondary' : 'bg-accent-soft text-accent-fg',

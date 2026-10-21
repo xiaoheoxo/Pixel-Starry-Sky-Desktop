@@ -25,6 +25,7 @@ import {
 import { Button, cn, IconButton, Popover, Spinner, useToast } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { demo as demoData } from '@/data/demo'
@@ -439,7 +440,7 @@ export function GitHistory({
   const jumpTo = (hash: string) => {
     const el = list.current?.querySelector<HTMLElement>(`[data-commit="${hash}"]`)
     if (!el) return
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    scrollInPane(el, 'center', { behavior: 'smooth' })
     el.querySelector<HTMLElement>('[role="button"]')?.focus({ preventScroll: true })
     setFlash(hash)
     window.setTimeout(() => setFlash(f => (f === hash ? null : f)), 1200)

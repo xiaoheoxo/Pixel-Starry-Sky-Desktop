@@ -1,3 +1,4 @@
+import { scrollInPane } from './scrollInPane'
 import { useI18n } from '@/i18n/I18nProvider'
 // 主题下拉框：替代原生 <select>（原生弹出层由系统绘制，不跟随浅色 / 深色主题和设计变量）。
 // 写法同 features/search/ProjectFilter.tsx：焦点留在触发按钮上，方向键 / Home / End / Enter / Esc / 首字母跳转，
@@ -145,8 +146,7 @@ export function Select<V extends string>({
   }, [open, options, fitContent])
 
   useEffect(() => {
-    if (open)
-      menu.current?.querySelector<HTMLElement>(`[data-index="${activeIndex}"]`)?.scrollIntoView({ block: 'nearest' })
+    if (open) scrollInPane(menu.current?.querySelector(`[data-index="${activeIndex}"]`), 'nearest')
   }, [open, activeIndex])
 
   useEffect(() => {

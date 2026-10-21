@@ -151,7 +151,7 @@ ${path}${ref && !isRemoteRef(ref) ? `\n${tr('path.hintDiff')}` : ''}`
       style={style}
     >
       {/* 一行标题（docs/ui/conversation-concise.md §3 E） */}
-      <div className="flex min-h-10 items-center gap-2 px-4 pt-1.5 pb-0.5">
+      <div data-changes-head className="flex min-h-10 items-center gap-2 px-4 pt-1.5 pb-0.5">
         <FileDiff size={15} strokeWidth={1.5} className="shrink-0 text-fg-muted" />
         <span data-changes-title className="min-w-[5.5em] shrink truncate text-list font-medium text-fg">
           {tr(

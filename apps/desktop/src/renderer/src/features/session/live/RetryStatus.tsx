@@ -50,6 +50,7 @@ export function RetryStatus({ sessionId, retry }: { sessionId: string; retry: Re
   return (
     <div
       role="status"
+      data-retry-status
       aria-label={tr('session.live.RetryStatus.requestRetryProgress')}
       className="mb-2 rounded-lg border border-line-card bg-popover px-3 py-2.5"
     >

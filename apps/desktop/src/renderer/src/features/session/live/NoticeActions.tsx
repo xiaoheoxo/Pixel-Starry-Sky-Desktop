@@ -77,7 +77,7 @@ export function NoticeActions({
     settings.openSettings('feedback')
   }
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1.5 pl-[27px]">
+    <div data-notice-actions className="mt-1.5 flex flex-wrap gap-1.5 pl-[27px]">
       {actions.map(a => (
         <button
           key={a}

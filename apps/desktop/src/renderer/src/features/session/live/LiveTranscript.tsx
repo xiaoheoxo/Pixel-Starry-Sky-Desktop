@@ -70,7 +70,7 @@ import {
 } from './scrollFollow'
 import { glideToEnd } from './glide'
 import { motionEnabled } from '@/features/panes/motion'
-import { changesHeight, itemHeight, toolsHeight } from './blockHeight'
+import { changesHeight, errorNoticeHeight, itemHeight, processHeight, SUBAGENT_BOX, toolsHeight } from './blockHeight'
 import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
@@ -218,8 +218,12 @@ const ProcessBlock = memo(
     render: (items: Item[]) => ReactNode
   }) {
     const toggle = useCallback((open: boolean) => onToggle(foldKey, open), [onToggle, foldKey])
+    // 没画过时的占位高度要按展开 / 收起算：极简模式默认展开，按收起的一行估会让滚动时总高度不停变、滑块乱跳
+    const minimal = useMinimal()
+    const open = toggled ?? minimal
+    const style = useMemo(() => placeholder(processHeight(items, open, running)), [items, open, running])
     return (
-      <div className="conversation-message" style={placeholder(34)}>
+      <div className="conversation-message" style={style}>
         <TurnProcess
           items={items}
           running={running}
@@ -679,6 +683,7 @@ export function LiveTranscript({
         <div
           key={item.id}
           data-search-item={item.id}
+          style={placeholder(errorNoticeHeight(item.id === actionNoticeId))}
           className={['conversation-message', highlight === item.id ? 'search-hit' : ''].join(' ')}
         >
           <NoticeRow item={text === item.text ? item : { ...item, text }} />
@@ -703,7 +708,7 @@ export function LiveTranscript({
         <div
           key={item.id}
           data-search-item={item.id}
-          style={placeholder(minimal ? 28 : 36)}
+          style={placeholder(SUBAGENT_BOX)}
           className={['conversation-message', highlight === item.id ? 'search-hit' : ''].join(' ')}
         >
           {item.kind === 'tool' && (

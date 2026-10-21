@@ -1,5 +1,6 @@
 // 等你决定的审批（docs/ui/approval-stack.md）：输入框上方，最多占对话区一半。
 // 1 项是完整的单张卡；2 项以上的命令、改文件、工具合并成一张列表卡；提问、计划、要填表单的单独成卡
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../../i18n/core'
 import {
@@ -141,7 +142,7 @@ export function ApprovalStack({
         `[data-approval-card][data-approval-request="${locate.requestId}"]`,
       )
       if (!card) return
-      card.scrollIntoView({ block: 'nearest' })
+      scrollInPane(card, 'nearest')
       card.querySelector<HTMLElement>('button:not(:disabled)')?.focus({ preventScroll: true })
     })
     // 只在点的时候跳
@@ -397,9 +398,7 @@ export function ApprovalList({
     setSelected(locate.requestId)
     setExpanded(locate.requestId)
     requestAnimationFrame(() => {
-      listRef.current
-        ?.querySelector<HTMLElement>(`[data-approval-row="${locate.requestId}"]`)
-        ?.scrollIntoView({ block: 'nearest' })
+      scrollInPane(listRef.current?.querySelector(`[data-approval-row="${locate.requestId}"]`), 'nearest')
       listRef.current?.focus({ preventScroll: true })
     })
     // 只在点的时候跳
@@ -435,7 +434,7 @@ export function ApprovalList({
     const at = selected ? selectable.indexOf(selected) : -1
     const next = selectable[Math.max(0, Math.min(selectable.length - 1, at + delta))] ?? selectable[0]
     setSelected(next)
-    listRef.current?.querySelector(`[data-approval-row="${next}"]`)?.scrollIntoView({ block: 'nearest' })
+    scrollInPane(listRef.current?.querySelector(`[data-approval-row="${next}"]`), 'nearest')
   }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.nativeEvent.isComposing) return
@@ -773,7 +772,10 @@ function GroupHeader({
   const scopes = commonScopes(live)
   const allowable = live.some(r => r.canAllow !== false)
   return (
-    <div className="flex min-h-8 items-center gap-2 border-b border-line-subtle bg-wall-tint py-1 pr-2 pl-4 text-meta text-fg-muted">
+    <div
+      data-approval-group-head
+      className="flex min-h-8 items-center gap-2 border-b border-line-subtle bg-wall-tint py-1 pr-2 pl-4 text-meta text-fg-muted"
+    >
       <span className="min-w-0 flex-1 truncate">
         <span className="font-medium text-fg-secondary">{entry.label}</span> × {live.length || entry.requests.length}
       </span>

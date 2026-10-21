@@ -24,7 +24,7 @@ describe('演示数据', () => {
     return [v.short, v.value].filter(Boolean).join(' ')
   }
   it('Claude：5 小时 42%、本周 18%、本周 Opus 61%、额外用量 $12.40 / $50；按钮「周 61%」', () => {
-    expect(claude).toMatchObject({ plan: 'max', account: 'linxia@example.com', source: 'demo' })
+    expect(claude).toMatchObject({ plan: 'max_20x', account: 'linxia@example.com', source: 'demo' })
     expect(claude.windows.map(w => [w.durationMins, w.usedPercent])).toEqual([
       [300, 42],
       [10_080, 18],

@@ -34,6 +34,7 @@ import { ReplyStatsSettings } from './ReplyStatsSettings'
 import { ComposerStyleSettings } from './ComposerStyleSettings'
 import { QuotaDisplaySettings } from './QuotaDisplaySettings'
 import { takeSettingsRow } from './settingsJump'
+import { scrollInPane } from '@/ui/scrollInPane'
 import { runMainAction } from './windowBridge'
 import { AccentSettings } from './AccentSettings'
 import { PaletteSettings } from './PaletteSettings'
@@ -328,7 +329,7 @@ export function SettingsContent({
         e => text(e.dataset.settingTitle ?? '') === text(jump.title),
       )
       const target = el ?? root?.querySelector<HTMLElement>('section')
-      target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (target) scrollInPane(target, 'center', { behavior: 'smooth' })
       el?.animate([{ boxShadow: '0 0 0 2px var(--color-accent)' }, { boxShadow: '0 0 0 2px transparent' }], {
         duration: 1600,
         easing: 'ease-out',

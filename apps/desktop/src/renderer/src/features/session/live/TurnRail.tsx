@@ -14,6 +14,7 @@ import { motionEnabled, onPaneSettled, paneMoving, settledResizeObserver } from 
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { cn } from '@/ui'
+import { scrollInPane } from '@/ui/scrollInPane'
 import { clampIndex, currentTurn, placeTicks, sameMeasured, thumbOf, tickAt, topsFor, type Turn } from './turnRailModel'
 
 /** 滑轨上下留的空 */
@@ -409,7 +410,8 @@ function TurnList({
   const box = useRef<HTMLDivElement>(null)
   // 打开时把当前轮滚到列表中间
   useLayoutEffect(() => {
-    box.current?.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' })
+    const cur = box.current?.querySelector<HTMLElement>('[aria-current]')
+    if (cur) scrollInPane(cur, 'center', { pane: box.current })
   }, [])
   return (
     <div ref={box} className="min-h-0 overflow-y-auto px-1.5 pb-1.5">

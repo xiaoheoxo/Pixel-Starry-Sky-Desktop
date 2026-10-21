@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import { Check, Plus, Users } from 'lucide-react'
 import type { AccountEngine, EngineAccount, EngineAccountQuota } from '@pixelsky/protocol'
-import { cn, Spinner, useToast } from '@/ui'
+import { cn, PlanBadge, Spinner, useToast } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
-import { planLabel } from './channelLabels'
+import { planInfo, planProviderOf } from './plans'
 import { cancelLogin, clearLogin, loginRunning, sendLoginCode, startLogin, useEngineLogin } from './loginStore'
 import {
   accountName,
@@ -46,13 +46,10 @@ export function QuotaBar({ percent }: { percent: number }) {
   )
 }
 
-export function PlanTag({ plan }: { plan: string | null }) {
-  if (!plan) return null
-  return (
-    <span className="shrink-0 rounded bg-subtle px-1.5 text-label leading-[17px] font-medium text-fg-secondary">
-      {planLabel(plan)}
-    </span>
-  )
+/** 账号的套餐档位（Max 20x、Pro 5x…，docs/ui/plan-tier-badges.md） */
+export function PlanTag({ engine, plan }: { engine: AccountEngine; plan: string | null }) {
+  const info = planInfo(planProviderOf(engine), plan)
+  return info ? <PlanBadge label={info.label} tone={info.tone} /> : null
 }
 
 /** 一行额度简写「5 小时 39% · 周 61%」；读不到为 null */
@@ -127,7 +124,7 @@ export function AccountPickList({
               <span className="min-w-0 flex-1">
                 <span className={cn('flex items-center gap-1.5 text-ui', expired ? 'text-fg-muted' : 'text-fg')}>
                   <span className="truncate">{a.email ?? accountName(a)}</span>
-                  <PlanTag plan={a.plan} />
+                  <PlanTag engine={engine} plan={a.plan} />
                   {a.label && a.email && <span className="shrink-0 text-label text-fg-muted">{a.label}</span>}
                 </span>
                 <span className="flex items-center gap-1.5 text-label text-fg-muted tabular-nums">

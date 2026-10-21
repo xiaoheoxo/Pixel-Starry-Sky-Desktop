@@ -1,6 +1,7 @@
 import { tr } from '../../i18n/core'
 import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { useToast } from '@/ui'
+import { scrollInPane } from '@/ui/scrollInPane'
 import { expandItems } from './expand'
 import { finishItemNavigation, useItemNavigation, type ItemNavigation } from './navigation'
 import { findRanges, setMarks } from './termMarks'
@@ -54,7 +55,7 @@ export function useItemLocation(
         )
       if (el && el.getBoundingClientRect().height > 0 && !el.closest('[inert],[aria-hidden="true"]')) {
         latestLocate.current?.()
-        el.scrollIntoView({ block: 'center', behavior: 'instant' })
+        scrollInPane(el, 'center', { pane: root, behavior: 'instant' })
         setHighlight(target.itemId)
         if (target.terms.length) setMarked({ el, terms: target.terms })
         finishItemNavigation(target.token)

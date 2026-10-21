@@ -7,6 +7,7 @@ import type { Launcher } from '../adapter'
 import { engineBase } from '../registry'
 import { allOnPath, inWsl, keepInWsl, windowsOnlyNote, type WslOpts } from '../wsl'
 import { IS_WINDOWS, dirsOnPath, findOnPath, isFile, resolveCommand, run, versionAtLeast } from '../exec'
+import { claudePlanFor } from './tier'
 
 /** 用到的参数（--permission-prompt-tool stdio、--effort、control 协议的 apply_flag_settings 等）在这个版本之后都有 */
 export const CLAUDE_MIN_VERSION = '2.1.0'
@@ -208,7 +209,10 @@ export async function discoverClaude(
   const status = parseAuthStatus((await run(launcher, ['auth', 'status', '--json'], env)).stdout)
   const loggedIn = status?.loggedIn ?? true
   const projectsDir = status?.projectsDir ?? null
-  const account = status?.account
+  // 套餐带上倍数（Max 20x 等，只从凭据文件取档位字段，tier.ts）
+  const account = status?.account?.plan
+    ? { ...status.account, plan: claudePlanFor(status.account.plan, env) ?? undefined }
+    : status?.account
   // 订阅登录（claude.ai）才能多开账号（docs/ui/engine-accounts-claude.md §2.4）；Console / API Key 不填
   const auth: EngineInfo['auth'] = status?.loggedIn && status.method === 'claude.ai' ? { kind: 'login' } : undefined
   // 用环境变量配置了 Key 或中转的用户，auth status 可能显示未登录，但实际能用

@@ -5,6 +5,7 @@ import { QUOTA_WINDOW_MINS } from '@pixelsky/protocol'
 import { getLocale, tr } from '@/i18n/core'
 import { formatAmount, formatBalance } from '@/features/account/format'
 import type { ChannelId } from '@/features/model-channels/channelModel'
+import { planInfo, type PlanInfo } from '@/features/model-channels/plans'
 import type { QuotaShowWhen } from '@/features/settings/quotaDisplay'
 
 /** 到橙色的百分比 */
@@ -148,22 +149,15 @@ function exhaustedWindow(mins: number | null): string {
 // 套餐名、账号
 // ---------------------------------------------------------------------------
 
-const capital = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
-
-/** 套餐显示名：Claude pro / max / team / enterprise，ChatGPT 的 PlanType，平台直接用套餐名；不认识的首字母大写；unknown 不显示 */
-export function planName(provider: QuotaProvider, plan: string | null | undefined): string {
-  const raw = plan?.trim()
-  if (!raw) return ''
-  if (provider === 'platform') return raw
-  const p = raw.toLowerCase()
-  if (p === 'unknown') return ''
-  if (p === 'prolite') return 'Pro Lite'
-  if (p === 'promax') return 'Pro Max'
-  if (p === 'business' || p.startsWith('self_serve_business')) return 'Business'
-  if (p === 'ent26' || p.startsWith('enterprise')) return 'Enterprise'
-  if (p.startsWith('edu')) return 'Edu'
-  return capital(p)
+/** 套餐的显示名和档位（Max 20x、Pro 5x…，plans.ts）；平台直接用套餐名、不上色；没有为 null */
+export function planBadge(provider: QuotaProvider, plan: string | null | undefined): PlanInfo | null {
+  if (provider === 'platform') return plan?.trim() ? { label: plan.trim(), tone: 'std' } : null
+  return planInfo(provider, plan)
 }
+
+/** 套餐显示名（提示、读屏用）；没有为空串 */
+export const planName = (provider: QuotaProvider, plan: string | null | undefined): string =>
+  planBadge(provider, plan)?.label ?? ''
 
 /** 邮箱只露第一个字（同模型通道菜单的 maskEmail）；平台的显示名原样 */
 export function maskAccount(account: string | null | undefined): string {

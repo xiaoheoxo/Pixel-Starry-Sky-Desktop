@@ -47,3 +47,29 @@ export function Dot({ tone = 'accent', size = 7, className }: { tone?: DotTone; 
     />
   )
 }
+
+/** 套餐档位：free 灰、std 墨绿、high 琥珀、top 琥珀渐变（最高档）、team 蓝灰（docs/ui/plan-tier-badges.md） */
+export type PlanBadgeTone = 'free' | 'std' | 'high' | 'top' | 'team'
+const PLAN_TONES: Record<PlanBadgeTone, string> = {
+  free: 'bg-selected text-fg-secondary',
+  std: 'bg-accent-soft text-accent-fg',
+  high: 'bg-warn/15 text-warn-fg',
+  top: 'bg-[linear-gradient(100deg,var(--warn),color-mix(in_srgb,var(--warn)_72%,var(--danger)))] text-surface',
+  team: 'bg-status-seen/12 text-status-seen',
+}
+
+/** 套餐标签（Max 20x、Pro 5x…）：一个胶囊，按档位上色 */
+export function PlanBadge({ label, tone, className }: { label: string; tone: PlanBadgeTone; className?: string }) {
+  return (
+    <span
+      data-plan-tone={tone}
+      className={cn(
+        'shrink-0 rounded-[5px] px-1.5 text-label leading-[18px] font-medium whitespace-nowrap tabular-nums',
+        PLAN_TONES[tone],
+        className,
+      )}
+    >
+      {label}
+    </span>
+  )
+}

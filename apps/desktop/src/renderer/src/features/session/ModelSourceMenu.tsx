@@ -1,3 +1,4 @@
+import { scrollInPane } from '@/ui/scrollInPane'
 import { translateMessage } from '../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
@@ -20,7 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import type { EngineId } from '@pixelsky/protocol'
-import { EngineIcon, Kbd, Popover, Spinner, cn } from '@/ui'
+import { EngineIcon, Kbd, PlanBadge, Popover, Spinner, cn } from '@/ui'
 import { useAccount } from '@/features/account/useAccount'
 import { useProviders } from '@/features/account/providers'
 import {
@@ -60,6 +61,7 @@ import {
   executorName,
 } from '@/features/model-channels/channelLabels'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
+import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
   COLS_MENU_WIDTH,
   MENU_ROW,
@@ -192,7 +194,7 @@ export function ModelSourceMenu({
   }, [open])
 
   useEffect(() => {
-    if (open) list.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' })
+    if (open) scrollInPane(list.current?.querySelector('[data-active]'), 'nearest')
   }, [open, active])
 
   const selection: ModelTarget = { channel: live.channel, model: live.model, providerId: live.providerId }
@@ -342,7 +344,10 @@ export function ModelSourceMenu({
     const text = stateText(g)
     if (text) return text
     const a = authAccount(g.channel)
-    if (a?.email || a?.plan) return [a.email && maskEmail(a.email), planLabel(a.plan)].filter(Boolean).join(' · ')
+    if (a?.email || a?.plan)
+      return [a.email && maskEmail(a.email), planLabel(g.channel === 'chatgpt' ? 'chatgpt' : 'claude', a.plan)]
+        .filter(Boolean)
+        .join(' · ')
     const count = tr('modelChannels.menu.usable', { p0: g.rows.length })
     return g.channel === 'platform' && account.balanceText ? `${account.balanceText} · ${count}` : count
   }
@@ -460,7 +465,7 @@ export function ModelSourceMenu({
             <span className="truncate">{providers.providers.map(p => p.name).join('、')}</span>
           ) : (
             <>
-              <AccountTag account={a} />
+              <AccountTag account={a} provider={c === 'chatgpt' ? 'chatgpt' : 'claude'} />
               {/* Claude / ChatGPT 授权账号后面的额度简写；平台那一列已经显示余额，不加 */}
               <QuotaInline provider={c === 'claude' ? 'claude' : 'chatgpt'} />
             </>
@@ -1136,16 +1141,19 @@ function Mark({ text, query }: { text: string; query: string }) {
 }
 
 /** 授权通道的信息行：打码的邮箱 + 套餐小标签，悬停看完整邮箱 */
-function AccountTag({ account }: { account: { email?: string; plan?: string } | undefined }) {
+function AccountTag({
+  account,
+  provider,
+}: {
+  account: { email?: string; plan?: string } | undefined
+  provider: PlanProvider
+}) {
   if (!account?.email && !account?.plan) return null
+  const plan = planInfo(provider, account.plan)
   return (
     <span className="flex min-w-0 items-center gap-1.5" title={account.email}>
       {account.email && <span className="truncate">{maskEmail(account.email)}</span>}
-      {account.plan && (
-        <span className="shrink-0 rounded bg-subtle px-1.5 leading-[17px] font-medium text-fg-secondary">
-          {planLabel(account.plan)}
-        </span>
-      )}
+      {plan && <PlanBadge label={plan.label} tone={plan.tone} />}
     </span>
   )
 }

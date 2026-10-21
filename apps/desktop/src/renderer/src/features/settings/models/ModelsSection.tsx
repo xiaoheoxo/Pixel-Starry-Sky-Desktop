@@ -30,6 +30,7 @@ import { openAccountsPage, useAccountsPage } from '@/features/model-channels/acc
 import { AiCommitSettings } from './AiCommitSettings'
 import { ContextWindowInput } from './ContextWindowInput'
 import { setContextWindow, useContextWindows } from './contextWindows'
+import { scrollInPane } from '@/ui/scrollInPane'
 
 export function ModelsSection() {
   useI18n()
@@ -59,7 +60,7 @@ export function ModelsSection() {
   const visibilityRef = useRef<HTMLDivElement>(null)
   const [modelQuery, setModelQuery] = useState('')
   useEffect(() => {
-    if (takeModelsScroll()) visibilityRef.current?.scrollIntoView({ block: 'start' })
+    if (takeModelsScroll() && visibilityRef.current) scrollInPane(visibilityRef.current, 'start')
   }, [])
 
   // 子页面「模型通道 › ChatGPT 账号」（docs/ui/engine-accounts.md §6）

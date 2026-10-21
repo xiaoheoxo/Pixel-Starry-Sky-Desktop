@@ -3,12 +3,12 @@ import { Check, ExternalLink, RefreshCw, Settings, X } from 'lucide-react'
 import type { AccountQuota, QuotaProvider } from '@pixelsky/protocol'
 import { translateMessage, tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
-import { cn } from '@/ui'
+import { cn, PlanBadge } from '@/ui'
 import {
   QUOTA_LINKS,
   clockText,
   maskAccount,
-  planName,
+  planBadge,
   providerTitle,
   quotaLayout,
   type PlanLimit,
@@ -71,7 +71,7 @@ export function QuotaPanel({
   const hasData = !!layout && (layout.cards.length > 0 || layout.rows.length > 0)
   const failed = quota?.status === 'error'
   const waiting = !hasData && loading
-  const plan = quota ? planName(provider, quota.plan) : ''
+  const plan = quota ? planBadge(provider, quota.plan) : null
   const notRefreshable = quota?.refreshable === false
   const refreshing = loading && hasData
   const updated = quota?.observedAt != null ? tr('quota.updatedAt', { p0: clockText(quota.observedAt) }) : ''
@@ -91,11 +91,7 @@ export function QuotaPanel({
     >
       <div className="flex items-center gap-1.5 pl-0.5">
         <h2 className="text-ui font-medium">{title}</h2>
-        {plan && (
-          <span className="rounded-[5px] bg-accent-soft px-1.5 text-label leading-[18px] font-medium text-accent-fg">
-            {plan}
-          </span>
-        )}
+        {plan && <PlanBadge label={plan.label} tone={plan.tone} />}
         <span className="flex-1" />
         {!waiting && (
           <button

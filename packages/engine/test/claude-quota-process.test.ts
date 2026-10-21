@@ -23,7 +23,13 @@ function adapterFor(env: NodeJS.ProcessEnv = {}, sessionEnv?: (record: SessionRe
     launcher: { command: process.execPath, args: [FAKE] },
     projectsDir: join(root, 'claude-projects'),
     sessionEnv,
-    env: { ...process.env, FAKE_CLAUDE_LOG: join(root, 'argv.log'), ...env },
+    // 配置目录指到临时目录：不读本机真实的 ~/.claude（套餐倍数从那里的凭据文件取，tier.ts）
+    env: {
+      ...process.env,
+      CLAUDE_CONFIG_DIR: join(root, 'claude-config'),
+      FAKE_CLAUDE_LOG: join(root, 'argv.log'),
+      ...env,
+    },
   })
 }
 

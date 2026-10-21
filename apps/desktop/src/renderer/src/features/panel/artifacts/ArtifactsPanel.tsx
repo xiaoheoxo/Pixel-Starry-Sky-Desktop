@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn, DiffStat, EngineIcon, IconButton, Segmented, Spinner, useToast } from '@/ui'
 import { DiffView } from '@/ui/code/DiffView'
+import { scrollInPane } from '@/ui/scrollInPane'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { OPEN_SESSION_EVENT } from '@/features/engine/openRequests'
@@ -309,7 +310,7 @@ function TurnBlock({
   useI18n()
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (focusToken) ref.current?.scrollIntoView({ block: 'start', behavior: motionEnabled() ? 'smooth' : 'auto' })
+    if (focusToken && ref.current) scrollInPane(ref.current, 'start', { behavior: motionEnabled() ? 'smooth' : 'auto' })
   }, [focusToken])
   return (
     <div

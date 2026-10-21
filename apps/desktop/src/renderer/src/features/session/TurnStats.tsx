@@ -23,9 +23,14 @@ export function TurnStats({
   const parts = available.filter(part => selected.includes(part.key))
   // 统计全部关闭时只留回复操作；两者都没有时不产生 DOM
   if (!parts.length)
-    return leading ? <div className={`group/message flex items-center ${className ?? ''}`}>{leading}</div> : null
+    return leading ? (
+      <div data-turn-stats className={`group/message flex items-center ${className ?? ''}`}>
+        {leading}
+      </div>
+    ) : null
   return (
     <div
+      data-turn-stats
       className={`group/message flex flex-wrap items-center gap-x-1.5 gap-y-1 text-meta text-fg-faint tabular-nums ${className ?? ''}`}
       title={detail}
       aria-label={tr('session.TurnStats.replyStatistics')}
