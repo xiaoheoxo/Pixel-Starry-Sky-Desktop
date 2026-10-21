@@ -809,7 +809,12 @@ export class ClaudeSession implements EngineSession {
         // 添加的订阅账号下「所有项目」不写账号目录里的设置（不同步回原目录）：本会话先放行，规则像素星空自己记，
         // 之后所有账号的会话启动时带上（engine-accounts-claude.md §2.3）
         const redirect = decision.scope === 'user' && !!this.deps.account && !!this.deps.userRules
-        const updatedPermissions = alwaysPermissions(a.toolName, a.suggestions, redirect ? 'session' : decision.scope)
+        const updatedPermissions = alwaysPermissions(
+          a.toolName,
+          a.suggestions,
+          redirect ? 'session' : decision.scope,
+          a.input,
+        )
         if (redirect) this.deps.userRules!.add(allowRuleStrings(updatedPermissions))
         response = { behavior: 'allow', updatedInput: a.input, updatedPermissions, toolUseID }
         break

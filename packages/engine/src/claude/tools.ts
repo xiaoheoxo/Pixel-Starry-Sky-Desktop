@@ -280,15 +280,30 @@ const DESTINATION: Record<AlwaysScope, string> = { session: 'session', project: 
 
 /**
  * 「始终允许」要回传的权限规则（参考 JuCode always_permissions）：
- * 取 CLI 建议里「添加允许规则」的那些，把保存位置换成所选范围；没有就允许整个工具。
+ * 取 CLI 建议里「添加允许规则」的那些，把保存位置换成所选范围；没有建议时：
+ * - 命令（Bash / PowerShell）只放行这一条完全相同的命令。CLI 不给建议的多半是复合命令、重定向这类它故意不归纳的，
+ *   退回成只有工具名的规则等于以后所有命令都不再询问；命令为空就只放行这一次，不存规则
+ * - 其他工具允许整个工具（写文件、某个 MCP 工具这类，工具名本身就是合适的粒度）
  */
-export function alwaysPermissions(toolName: string, suggestions: unknown[], scope: AlwaysScope): unknown[] {
+export function alwaysPermissions(
+  toolName: string,
+  suggestions: unknown[],
+  scope: AlwaysScope,
+  input: Input = {},
+): unknown[] {
   const destination = DESTINATION[scope]
   const rules = suggestions
     .map(x => (x && typeof x === 'object' ? (x as Input) : {}))
     .filter(x => x.type === 'addRules' && x.behavior === 'allow' && Array.isArray(x.rules))
     .map(x => ({ ...x, destination }))
-  return rules.length > 0 ? rules : [{ type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination }]
+  if (rules.length > 0) return rules
+  if (COMMAND_TOOLS.has(toolName)) {
+    const command = str(input.command).trim()
+    return command
+      ? [{ type: 'addRules', rules: [{ toolName, ruleContent: command }], behavior: 'allow', destination }]
+      : []
+  }
+  return [{ type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination }]
 }
 
 /** can_use_tool 审批请求 → 统一审批卡片 */
