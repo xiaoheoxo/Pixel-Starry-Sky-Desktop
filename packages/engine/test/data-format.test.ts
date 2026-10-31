@@ -1,11 +1,11 @@
 // 磁盘格式兼容：test/fixtures/data-v1 是按当前格式手写的最小数据目录，改格式时这里先报警。
 // 夹具只读：每个用例先复制到临时目录再用（EngineHost 构造时会整理用量文件）。
-import { cpSync } from 'node:fs'
+import { cpSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EngineHost } from '../src/host'
-import { Store } from '../src/store'
+import { eachLine, Store } from '../src/store'
 import { UsageStore } from '../src/usage'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
@@ -83,6 +83,17 @@ describe('Store 读取 data-v1', () => {
       usage: { durationMs: 1200, models: { 'fixture-model': { input: 10, output: 5 } } },
     })
     expect(store.loadItems(S2)).toEqual([])
+  })
+
+  it('按行读：一块一块读，行和中文跨块也完整；空行、结尾没换行、比一块还长的行都照常', () => {
+    const file = join(data(), 'lines.txt')
+    const lines = ['第一行', '', 'abc对话条目xyz', '很长'.repeat(20), '最后一行没换行']
+    writeFileSync(file, lines.join('\n'))
+    for (const chunk of [1, 2, 3, 5, 7, 64]) {
+      const got: string[] = []
+      eachLine(file, l => got.push(l), chunk)
+      expect(got).toEqual(lines)
+    }
   })
 
   it('对话条目：开始时写的位置为准；没等到完成的（包括后台子智能体的）读出时标成已中断', () => {

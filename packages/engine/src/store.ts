@@ -366,15 +366,15 @@ export class Store {
     const file = join(this.sessionDir(sessionId), 'items.jsonl')
     if (!existsSync(file)) return []
     const byId = new Map<string, Item>()
-    for (const line of readFileSync(file, 'utf8').split('\n')) {
-      if (!line.trim()) continue
+    eachLine(file, line => {
+      if (!line.trim()) return
       try {
         const item = JSON.parse(line) as Item
         if (item && typeof item.id === 'string') byId.set(item.id, item)
       } catch {
         // 跳过写坏的行（例如写到一半断电）
       }
-    }
+    })
     // 没等到完成的条目（进程退出、应用关闭，包括后台子智能体的）：标成已中断。
     // 以前存下的配置类警告（docs/ui/ai-commit-codex-warnings-history.md §3）现在不进对话：去掉
     const items: Item[] = []
@@ -404,5 +404,32 @@ export class Store {
     const dir = this.sessionDir(id)
     mkdirSync(dir, { recursive: true })
     writeJson(join(dir, 'checkpoints.json'), data)
+  }
+}
+
+/**
+ * 按行读文件：一块一块读、按换行切，不把整个文件读成一个字符串
+ * （V8 单个字符串上限约 512 MB，跑了很久的对话 items.jsonl 会超过，整份读会报 ERR_STRING_TOO_LONG 打不开）
+ */
+export function eachLine(file: string, fn: (line: string) => void, chunk = 16 << 20): void {
+  const fd = openSync(file, 'r')
+  try {
+    const buf = Buffer.alloc(chunk)
+    let parts: Buffer[] = []
+    for (let n: number; (n = readSync(fd, buf, 0, chunk, null)) > 0; ) {
+      let start = 0
+      // 换行符 0x0A 不会出现在 UTF-8 多字节字符中间，按字节切安全
+      for (let i = buf.indexOf(10); i !== -1 && i < n; i = buf.indexOf(10, start)) {
+        parts.push(buf.subarray(start, i))
+        fn(Buffer.concat(parts).toString('utf8'))
+        parts = []
+        start = i + 1
+      }
+      // 下一块会复用 buf：没切完的那段拷出来
+      if (start < n) parts.push(Buffer.from(buf.subarray(start, n)))
+    }
+    if (parts.length) fn(Buffer.concat(parts).toString('utf8'))
+  } finally {
+    closeSync(fd)
   }
 }
