@@ -2779,6 +2779,8 @@ export class Channels {
     if (open.length) done.open = open
     if (!ref.stepId) {
       if (flow.status !== 'planning') throw new Error('流程已经不在拆分中了')
+      // 换了人拟计划：旧的那一项交回也不算数，别回「已交回」
+      if (flow.planner?.taskId !== run.taskId) throw new Error('已经换别的成员拟计划了，这一轮不用再交回')
       Object.assign(done, this.planDelivery(c, flow, args))
     } else if (step?.kind === 'review') {
       if (args.verdict !== 'pass' && args.verdict !== 'reject')
@@ -3511,7 +3513,8 @@ export class Channels {
           format: 'plain',
           mentions: [],
         }
-        await this.store.append(reply)
+        // 不等写盘：等的期间可能丢弃了草稿、换了拟计划的成员，写完再按旧的流程发就发错了
+        void this.store.append(reply).catch(e => this.deps.log?.('保存频道消息失败', e))
         this.pushMessage(reply)
         this.updateFlow(channelId, messageId, x => ({
           ...x,
@@ -3543,9 +3546,9 @@ export class Channels {
           this.store.runs.set(old, { ...oldRun, followUps: [], inbox: [] })
           await this.runAction(old, 'stop').catch(e => this.deps.log?.('停止拟计划失败', e))
         }
-        // 停的期间可能又补充了：按最新的流程交接
+        // 停的期间可能又补充了：按最新的流程交接；期间丢弃了、开工了、或已经换过人就不再派
         const now = this.flowMessage(channelId, messageId)?.flow
-        if (!now?.planner) break
+        if (!now?.planner || (now.status !== 'draft' && now.status !== 'planning') || now.planner.taskId !== old) break
         const local = new Set(c.memberIds.filter(id => this.flowMemberCheck(c)(id)?.local).map(this.nameOf))
         const handover = this.planHandover(now)
         const prompt = flowPlanPrompt({
@@ -3597,12 +3600,9 @@ export class Channels {
           },
           ...(x.since ? { since: { ...x.since, at: this.now() } } : {}),
         }))
-        await this.threadNote(c.id, step.taskId, SELF_ID, text)
-        // 写讨论串期间这一轮可能结束了：按最新的运行记录判断、写回（旧拷贝会把 ended 改回去，回答就发不出去）
-        const now = this.store.runs.get(step.taskId)
-        if (!now) break
-        if (now.phase !== 'ended') {
-          this.store.runs.set(step.taskId, { ...now, answer: { from: SELF_ID, text } })
+        // 先发再写讨论串：写的期间这一轮可能结束、流程可能被停掉，写完再按旧的判断会发错或发不出去
+        if (run.phase !== 'ended') {
+          this.store.runs.set(step.taskId, { ...run, answer: { from: SELF_ID, text } })
           this.saveRuns()
         } else {
           this.updateFlow(channelId, messageId, x => withStep(x, step.id, { status: 'running' }))
@@ -3612,6 +3612,7 @@ export class Channels {
             reminded: false,
           })
         }
+        await this.threadNote(c.id, step.taskId, SELF_ID, text)
         break
       }
       case 'pause':

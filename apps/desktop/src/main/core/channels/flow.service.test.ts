@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EngineEvent, HostEvent, ProjectRecord, SessionSummary, UsageRecord } from '@pixelsky/protocol'
-import type { AgentInput, ChannelFlow, ChannelTask, ChannelTextMessage } from '../../../shared/types/channels'
+import type {
+  AgentInput,
+  ChannelFlow,
+  ChannelMessage,
+  ChannelTask,
+  ChannelTextMessage,
+} from '../../../shared/types/channels'
 import { ChannelStore } from './store'
 import { Channels, SELF_ID, type ChannelsDeps } from './service'
 
@@ -19,6 +25,8 @@ let sessions: SessionSummary[]
 let usage: UsageRecord[]
 /** 设了就让 engine:createSession 等它（模拟建会话很慢） */
 let slowCreate: Promise<void> | null
+/** 设了就让 engine:cancelQueued 等它（模拟停止很慢） */
+let slowCancel: Promise<void> | null
 
 const settle = async () => {
   for (let i = 0; i < 10; i++) {
@@ -41,6 +49,7 @@ async function open(extra: Partial<ChannelsDeps> = {}): Promise<Channels> {
         sessions.push({ record: { id, projectId: 'p1' }, state: 'idle' } as SessionSummary)
         return { id }
       }
+      if (channel === 'engine:cancelQueued' && slowCancel) await slowCancel
       if (channel === 'engine:send')
         return { queueId: (args[1] as { clientMessageId: string }).clientMessageId, status: 'queued' }
       if (channel === 'engine:usageList') {
@@ -92,6 +101,23 @@ const stepOf = (c: Channels, ch: string, id: string) => flowOf(c, ch).steps.find
 const sessionOf = (c: Channels, ch: string, stepId: string) =>
   tasks(c, ch).find(t => t.flow?.stepId === stepId)!.sessionId!
 const ev = (sessionId: string, event: EngineEvent): HostEvent => ({ kind: 'session', sessionId, seq: 0, event })
+const storeOf = (c: Channels) => (c as unknown as { store: ChannelStore }).store
+const gate = () => {
+  let release!: () => void
+  const wait = new Promise<void>(resolve => (release = resolve))
+  return { wait, release }
+}
+/** 符合条件的消息写盘卡住，直到 release（模拟写盘慢） */
+function holdAppend(c: Channels, which: (m: ChannelMessage) => boolean): () => void {
+  const store = storeOf(c)
+  const g = gate()
+  const append = store.append.bind(store)
+  vi.spyOn(store, 'append').mockImplementation(async m => {
+    if (which(m)) await g.wait
+    return append(m)
+  })
+  return g.release
+}
 
 /** 这个会话最后收到的那条消息这一轮做完，回复 reply */
 async function endTurn(c: Channels, s: string, reply: string): Promise<void> {
@@ -127,6 +153,7 @@ beforeEach(async () => {
   sessions = []
   usage = []
   slowCreate = null
+  slowCancel = null
 })
 afterEach(async () => {
   for (const c of opened) await c.dispose()
@@ -1164,6 +1191,29 @@ describe('分工提案和问用户', () => {
     expect(stepOf(c, ch, 's1')).toMatchObject({ status: 'running', question: null })
     expect(lastTo(s1).text).toContain('8 秒')
   })
+
+  it('回归：回答写进讨论串期间停止了流程：之后不再发新一轮，停止能取消它', async () => {
+    const { c, a, ch } = await setup()
+    const { messageId } = await c.flowAction(ch, {
+      type: 'create',
+      title: '问用户',
+      steps: [{ id: 's1', title: '做法术', memberId: a, deps: [], kind: 'work' }],
+    })
+    await c.flowAction(ch, { type: 'start', messageId })
+    await settle()
+    const s1 = sessionOf(c, ch, 's1')
+    await c.toolUserAsk(s1, '持续时间多少？')
+    await endTurn(c, s1, '等你回答')
+    const release = holdAppend(c, m => m.kind === 'message' && !!m.threadId)
+    const answering = c.flowAction(ch, { type: 'answer', messageId, stepId: 's1', text: '8 秒' })
+    await c.flowAction(ch, { type: 'stop', messageId })
+    release()
+    await answering
+    await settle()
+    expect(flowOf(c, ch).status).toBe('stopped')
+    expect(stepOf(c, ch, 's1').status).toBe('stopped')
+    expect(storeOf(c).runs.get(tasks(c, ch)[0].id)?.phase).toBe('ended')
+  })
 })
 
 describe('@ 派活先出计划', () => {
@@ -1388,6 +1438,79 @@ describe('@ 派活先出计划', () => {
     const text = lastTo(tasks(c, ch).at(-1)!.sessionId!).text
     expect(text).toContain('先设计一个界面')
     expect(text).toContain('必须支持离线运行，数据不能上传到服务器')
+  })
+
+  /** @画师 拟计划，交回一个问题后流程是草稿 */
+  async function asked() {
+    const x = await setup({ planFirst: true })
+    await x.c.post(x.ch, { text: '@画师 帮我设计一个数据中心', clientId: 'p1' })
+    await settle()
+    const messageId = x.c.messages(x.ch).messages.find(m => m.kind === 'message' && m.flow)!.id
+    const first = tasks(x.c, x.ch)[0]
+    x.c.toolDone(first.sessionId!, { summary: '问', questions: [{ q: '哪种数据中心？' }] })
+    await endTurn(x.c, first.sessionId!, '问')
+    expect(flowOf(x.c, x.ch).status).toBe('draft')
+    // 你的回答那条消息写盘卡住
+    const release = holdAppend(x.c, m => m.kind === 'message' && m.authorId === SELF_ID && !m.flow)
+    return { ...x, messageId, first, release }
+  }
+
+  it('回归：计划问题的回答写盘期间丢弃了草稿：流程还是停止，不再发给拟计划的成员', async () => {
+    const { c, ch, messageId, first, release } = await asked()
+    const answering = c.flowAction(ch, { type: 'answers', messageId, answers: ['管理软件'] })
+    await c.flowAction(ch, { type: 'discard', messageId })
+    release()
+    await answering
+    await settle()
+    expect(flowOf(c, ch).status).toBe('stopped')
+    expect(storeOf(c).runs.get(first.id)?.phase).toBe('ended')
+  })
+
+  it('回归：计划问题的回答写盘期间换了拟计划的成员：新成员拿到回答，旧成员不再开', async () => {
+    const { c, b, ch, messageId, first, release } = await asked()
+    const answering = c.flowAction(ch, { type: 'answers', messageId, answers: ['管理软件'] })
+    await c.flowAction(ch, { type: 'replan', messageId, memberId: b })
+    release()
+    await answering
+    await settle()
+    const next = tasks(c, ch).at(-1)!
+    expect(next.assigneeId).toBe(b)
+    expect(flowOf(c, ch).planner?.taskId).toBe(next.id)
+    expect(lastTo(next.sessionId!).text).toContain('哪种数据中心？：管理软件')
+    expect(storeOf(c).runs.get(first.id)?.phase).toBe('ended')
+  })
+
+  it('回归：换拟计划的成员、停旧的那一轮期间丢弃了草稿：不再派新的', async () => {
+    const { c, b, ch } = await setup({ planFirst: true })
+    await c.post(ch, { text: '@画师 帮我设计一个数据中心', clientId: 'p1' })
+    await settle()
+    const messageId = c.messages(ch).messages.find(m => m.kind === 'message' && m.flow)!.id
+    const g = gate()
+    slowCancel = g.wait
+    const replanning = c.flowAction(ch, { type: 'replan', messageId, memberId: b })
+    const discarding = c.flowAction(ch, { type: 'discard', messageId })
+    g.release()
+    await Promise.all([replanning, discarding])
+    await settle()
+    expect(flowOf(c, ch).status).toBe('stopped')
+    expect(tasks(c, ch)).toHaveLength(1)
+  })
+
+  it('换了人拟计划：旧的那一项还在跑时交回，报错而不是回「已交回」', async () => {
+    const { c, b, ch } = await setup({ planFirst: true })
+    await c.post(ch, { text: '@画师 帮我设计一个数据中心', clientId: 'p1' })
+    await settle()
+    const messageId = c.messages(ch).messages.find(m => m.kind === 'message' && m.flow)!.id
+    const first = tasks(c, ch)[0]
+    // 旧的那一轮已经开始：中断发出去了，引擎回「结束」之前它还在跑
+    const store = storeOf(c)
+    store.runs.set(first.id, { ...store.runs.get(first.id)!, started: true, turnId: 't1' })
+    await c.flowAction(ch, { type: 'replan', messageId, memberId: b })
+    await settle()
+    expect(store.runs.get(first.id)?.phase).toBe('sent')
+    expect(() => c.toolDone(first.sessionId!, { summary: 'x', steps: [{ title: 'x', member: '画师' }] })).toThrow(
+      '已经换别的成员拟计划了',
+    )
   })
 
   it('不先出计划的情况：频道关了、@ 了两个；只是问题时它直接回答，流程不留', async () => {

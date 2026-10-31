@@ -1,5 +1,5 @@
 // 项目列表的重命名与移除：只改显示名 / 列表，不碰磁盘上的文件夹
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -151,4 +151,28 @@ it('删对话：分叉共用文件夹，删原对话时留着，最后一个删�
   await host.deleteSession(fork.id)
   expect(existsSync(a.cwd)).toBe(false)
   expect(trash).not.toHaveBeenCalled()
+})
+
+it('回归：原对话和分叉同时删，两边都去回收同一个文件夹：两个都删掉，不放回指向不在的文件夹的会话', async () => {
+  const bin = join(root, 'bin')
+  let release!: () => void
+  const gate = new Promise<void>(resolve => (release = resolve))
+  // 两个删除都走到回收这一步再放行：先到的移走文件夹，后到的 ENOENT
+  const trash = vi.fn(async (path: string) => {
+    await gate
+    renameSync(path, bin)
+  })
+  const host = makeHost(trash)
+  const a = host.createSession({ projectId: CHAT_PROJECT_ID })
+  const fork = (await host.forkSession(a.id, null)).record
+  writeFileSync(join(a.cwd, 'note.md'), 'x')
+  host.open(a.id)
+  host.open(fork.id)
+  const both = Promise.all([host.deleteSession(a.id), host.deleteSession(fork.id)])
+  await vi.waitFor(() => expect(trash).toHaveBeenCalledTimes(2))
+  release()
+  await both
+  expect(host.sessions()).toEqual([])
+  expect(makeHost().sessions()).toEqual([])
+  expect(existsSync(join(bin, 'note.md'))).toBe(true)
 })

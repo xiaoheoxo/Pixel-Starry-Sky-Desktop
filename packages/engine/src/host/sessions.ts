@@ -1,6 +1,6 @@
 // 会话：创建、打开（懒创建运行时）、改设置、改名、置底、回退、归档、删除
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   CHAT_PROJECT_ID,
@@ -444,7 +444,11 @@ export class HostSessions {
       const trash = full ? ctx.opts.trash : undefined
       try {
         // 有文件先回收：回收失败就报错、会话放回列表（对话框说的是移到回收站，不能留下找不到的文件夹）
-        if (trash) await trash(folder!)
+        if (trash)
+          await trash(folder!).catch(error => {
+            // 原对话和分叉同时删：另一边已经把文件夹移走了，这边也算删成
+            if (existsSync(folder!)) throw error
+          })
         ctx.store.deleteSession(id)
       } catch (error) {
         // 目录没删掉（被别的程序占着之类）：会话放回列表，可以再删一次，不会变成「会话已不存在」
