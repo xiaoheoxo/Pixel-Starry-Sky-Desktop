@@ -37,8 +37,15 @@ export function remoteCliSupported(version: string | null | undefined, arch: unk
   return major > REMOTE_CLI_NODE_MIN[0] || (major === REMOTE_CLI_NODE_MIN[0] && minor >= REMOTE_CLI_NODE_MIN[1])
 }
 
-/** 远程上命令行入口应有的路径：<home>/.local/share/pixelsky/remote/cli-<64 位哈希>/pixel.mjs；hash 不给就只要求是 64 位十六进制 */
-export function isRemoteCliEntry(path: string, home: string, hash?: string): boolean {
+/**
+ * 远程上命令行入口应有的路径：<home>/.local/share/pixelsky/remote/cli-<64 位哈希>/pixel.mjs；hash 不给就只要求是 64 位十六进制。
+ * windows：远程是 Windows，路径分隔符是反斜杠（只在这时把反斜杠当分隔符，其他系统上反斜杠是文件名的一部分）
+ */
+export function isRemoteCliEntry(path: string, home: string, hash?: string, windows = false): boolean {
+  if (windows) {
+    path = path.replaceAll('\\', '/')
+    home = home.replaceAll('\\', '/')
+  }
   const prefix = home + ROOT
   if (!path.startsWith(prefix) || !path.endsWith('/pixel.mjs')) return false
   const mid = path.slice(prefix.length, -'/pixel.mjs'.length)

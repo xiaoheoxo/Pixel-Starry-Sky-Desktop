@@ -6,14 +6,24 @@ import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { REMOTE_PROTOCOL } from '@pixelsky/protocol'
 import { RpcPeer } from './rpc'
-import { SshConnection, FingerprintRequired, quoteSh } from './ssh'
+import { SshConnection, FingerprintRequired, quoteSh, nodeScript, windowsShellCommand } from './ssh'
 import type { MachineInput } from '../../shared/types/machines'
+
+/** nodeScript 包出来的命令还原成脚本；不是这种格式的命令原样返回 */
+const decodeNodeScript = (command: string): string => {
+  const m = /^node -e "eval\(Buffer\.from\('([A-Za-z0-9+/=]*)','base64'\)\.toString\(\)\)"$/.exec(command)
+  return m ? Buffer.from(m[1], 'base64').toString('utf8') : command
+}
 
 const cleanup: Array<() => void | Promise<void>> = []
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close()
 })
-async function server(probe: { version?: string; arch?: string } = {}) {
+async function server(probe: { version?: string; arch?: string; platform?: string } = {}) {
+  const platform = probe.platform ?? 'linux',
+    home = platform === 'win32' ? 'C:\\Users\\test home' : '/test home'
+  const at = (...parts: string[]) =>
+    [home, '.local', 'share', 'pixelsky', 'remote', ...parts].join(platform === 'win32' ? '\\' : '/')
   await mkdir(resolve('../../scratch'), { recursive: true })
   const dir = await mkdtemp(join(resolve('../../scratch'), 'ssh-transport-'))
   cleanup.push(() => rm(dir, { recursive: true, force: true }))
@@ -74,12 +84,13 @@ async function server(probe: { version?: string; arch?: string } = {}) {
         accept().on('exec', (accept, _reject, info) => {
           executed++
           commands.push(info.command)
+          const command = decodeNodeScript(info.command)
           const stream = accept()
-          if (info.command.includes('process.stdout.write(JSON.stringify')) {
+          if (command.includes('process.stdout.write(JSON.stringify')) {
             stream.write(
               JSON.stringify({
-                home: '/test home',
-                platform: 'linux',
+                home,
+                platform,
                 version: probe.version ?? '22.0.0',
                 arch: probe.arch,
               }),
@@ -89,12 +100,9 @@ async function server(probe: { version?: string; arch?: string } = {}) {
             return
           }
           // 命令行包：检查脚本带 .complete，安装脚本多一个 gunzipSync；这里假装远程的 node 照做
-          if (info.command.includes('.complete')) {
-            const entry =
-              '/test home/.local/share/pixelsky/remote/cli-' +
-              /cli-([a-f0-9]{64})/.exec(info.command)![1] +
-              '/pixel.mjs'
-            if (!info.command.includes('gunzipSync')) {
+          if (command.includes('.complete')) {
+            const entry = at('cli-' + /cli-([a-f0-9]{64})/.exec(command)![1], 'pixel.mjs')
+            if (!command.includes('gunzipSync')) {
               cliCalls.push('check')
               if (cliInstalled) stream.write(entry)
               stream.exit(0)
@@ -112,14 +120,14 @@ async function server(probe: { version?: string; arch?: string } = {}) {
             })
             return
           }
-          if (info.command.includes('Buffer.concat')) {
+          if (command.includes('Buffer.concat')) {
             const chunks: Buffer[] = []
             stream.on('data', (chunk: Buffer) => chunks.push(chunk))
             stream.on('end', () => {
               const data = Buffer.concat(chunks)
               uploaded = data.toString()
               const hash = createHash('sha256').update(data).digest('hex')
-              stream.write('/test home/.local/share/pixelsky/remote/v' + REMOTE_PROTOCOL + '/helper-' + hash + '.cjs')
+              stream.write(at('v' + REMOTE_PROTOCOL, 'helper-' + hash + '.cjs'))
               stream.exit(0)
               stream.end()
             })
@@ -129,12 +137,12 @@ async function server(probe: { version?: string; arch?: string } = {}) {
             if (method !== 'hello') throw new Error('Unsupported')
             return {
               protocol: REMOTE_PROTOCOL,
-              platform: 'linux',
-              home: '/test home',
+              platform,
+              home,
               arch: 'x64',
               hostname: 'test',
               node: '22.0.0',
-              shell: '/bin/sh',
+              shell: platform === 'win32' ? 'powershell.exe' : '/bin/sh',
             }
           })
           peers.add(peer)
@@ -207,6 +215,69 @@ describe('SSH trust and loopback transport', () => {
   it('quotes remote paths without interpreting shell substitutions', () => {
     expect(quoteSh("/tmp/a'b $(touch bad)")).toBe("'/tmp/a'\\''b $(touch bad)'")
   })
+  it('node 脚本编码成 base64：命令里没有 sh / cmd / PowerShell 会展开的字符', () => {
+    const script = `process.stdout.write("a'b $HOME %PATH% \`x\` \\\\")`
+    const command = nodeScript(script)
+    expect(command).not.toMatch(/[$%`\\]/)
+    expect(decodeNodeScript(command)).toBe(script)
+  })
+  it('Windows 终端：PowerShell 用 -EncodedCommand 进目录，cmd 也由 PowerShell 进目录后再起', () => {
+    const ps = windowsShellCommand("C:\\Users\\a'b\\proj", 'powershell.exe')
+    const encoded = /-EncodedCommand (\S+)$/.exec(ps)![1]
+    expect(ps.startsWith('powershell.exe -NoLogo -NoExit ')).toBe(true)
+    expect(Buffer.from(encoded, 'base64').toString('utf16le')).toBe("Set-Location -LiteralPath 'C:\\Users\\a''b\\proj'")
+    expect(windowsShellCommand('C:\\proj', 'C:\\Program Files\\PowerShell\\7\\pwsh.exe').startsWith('pwsh.exe ')).toBe(
+      true,
+    )
+    // 路径里的 % 不能被 cmd 当成变量：整段编码交给 PowerShell，命令行里只有 base64
+    const cmd = windowsShellCommand("C:\\my %PATH% a'b", 'C:\\Windows\\system32\\cmd.exe')
+    expect(cmd.startsWith('powershell.exe -NoLogo -NoProfile -EncodedCommand ')).toBe(true)
+    expect(cmd).not.toContain('%')
+    expect(Buffer.from(/-EncodedCommand (\S+)$/.exec(cmd)![1], 'base64').toString('utf16le')).toBe(
+      "Set-Location -LiteralPath 'C:\\my %PATH% a''b'; & cmd.exe /d; exit $LASTEXITCODE",
+    )
+  })
+  it('连 Windows 远端：上传 helper、装命令行，helper 用 node -e 设好参数再加载', async () => {
+    const target = await server({ platform: 'win32', version: '22.19.0', arch: 'x64' })
+    const probe = new SshConnection()
+    cleanup.push(() => probe.close())
+    const fingerprint = await probe
+      .connect(target.config, null, undefined, target.helper, () => {})
+      .then(
+        () => '',
+        (error: FingerprintRequired) => error.fingerprint,
+      )
+    probe.close()
+    const link = new SshConnection()
+    cleanup.push(() => link.close())
+    const archive = { data: Buffer.from('archive-bytes'), hash: createHash('sha256').update('x').digest('hex') }
+    const platforms: Array<string | undefined> = []
+    link.cliArchive = async (_arch, platform) => {
+      platforms.push(platform)
+      return archive
+    }
+    const hello = await link.connect(target.config, fingerprint, undefined, target.helper, () => {})
+    expect(hello.platform).toBe('win32')
+    expect(platforms).toEqual(['win32'])
+    const base = 'C:\\Users\\test home\\.local\\share\\pixelsky\\remote\\'
+    const launch = decodeNodeScript(target.stats().commands.at(-1)!)
+    expect(launch).toBe(
+      'process.argv=[process.execPath,...' +
+        JSON.stringify([
+          base +
+            'v' +
+            REMOTE_PROTOCOL +
+            '\\helper-' +
+            createHash('sha256').update('// helper test').digest('hex') +
+            '.cjs',
+          'default',
+          base + 'cli-' + archive.hash + '\\pixel.mjs',
+        ]) +
+        '];require(process.argv[1])',
+    )
+    // 每条命令都是编码过的 node 脚本，不依赖远端 shell 是 sh 还是 cmd / PowerShell
+    for (const command of target.stats().commands) expect(command.startsWith('node -e "eval(')).toBe(true)
+  }, 15_000)
   it('blocks changed host keys and wrong credentials before upload', async () => {
     const target = await server(),
       changed = new SshConnection()

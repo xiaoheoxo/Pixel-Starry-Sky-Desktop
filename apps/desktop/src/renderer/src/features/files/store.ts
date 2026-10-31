@@ -1,4 +1,4 @@
-import { machineOf } from '@/features/machines/store'
+import { isWindowsMachine, machineOf } from '@/features/machines/store'
 import { tr } from '../../i18n/core'
 import { useSyncExternalStore } from 'react'
 import type { FileDocument, WorkspaceRef } from '../../../../shared/types/workspace'
@@ -260,7 +260,7 @@ export async function openFile(
     ? { name: demoProject?.name ?? '', path: demoProject?.id ?? ref.projectId ?? ref.sessionId ?? '' }
     : await window.pixelsky!.files.target(ref)
   const machine = machineOf(ref.projectId ?? ref.sessionId),
-    windows = machine === 'local' && window.pixelsky?.platform === 'win32'
+    windows = isWindowsMachine(machine)
   const root = target.path.replaceAll('\\', '/'),
     key = windows ? root.toLowerCase() : root
   // 绝对路径（AI 改了附加文件夹里的文件，改动卡片给的是完整路径）：换成主文件夹的相对路径或「::N/…」

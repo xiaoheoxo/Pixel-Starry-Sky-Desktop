@@ -1,4 +1,4 @@
-import { machineOf, useMachines } from '@/features/machines/store'
+import { isWindowsMachine, machineOf, useMachines } from '@/features/machines/store'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { BrowserTab } from './BrowserTab'
@@ -44,7 +44,7 @@ export function RightPanel({ maximized = false, visible = true }: { maximized?: 
   const machineState = useMachines(),
     machine = workspace.ref ? machineOf(workspace.ref.projectId ?? workspace.ref.sessionId) : machineState.currentId
   const localScope = normalizedPath
-    ? machine === 'local' && window.pixelsky?.platform === 'win32'
+    ? isWindowsMachine(machine)
       ? normalizedPath.toLowerCase()
       : normalizedPath
     : workspace.key

@@ -1,5 +1,5 @@
 import { app, clipboard, dialog, safeStorage } from 'electron'
-import { join, isAbsolute, posix } from 'node:path'
+import { join, isAbsolute, posix, win32 } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { hostname, homedir } from 'node:os'
 import { spawn } from 'node:child_process'
@@ -595,8 +595,11 @@ export class Machines {
       case 'local':
         return fallback()
       case 'copyPath': {
-        const target = this.target(args[0] as WorkspaceRef)!
-        clipboard.writeText(posix.join(target.path, String(args[1] ?? '')))
+        const ref = args[0] as WorkspaceRef
+        const target = this.target(ref)!
+        // 按远端系统拼路径：Windows 远端用反斜杠，不然会拼出 \ 和 / 混着的路径
+        const windows = this.states.get(machineOf(ref.projectId ?? ref.sessionId))?.info.platform === 'win32'
+        clipboard.writeText((windows ? win32 : posix).join(target.path, String(args[1] ?? '')))
         return
       }
       case 'target':

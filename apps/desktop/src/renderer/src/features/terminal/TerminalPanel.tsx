@@ -1,4 +1,4 @@
-import { machineOf, useMachines } from '@/features/machines/store'
+import { isWindowsMachine, machineOf, useMachines } from '@/features/machines/store'
 import {
   ArrowDown,
   ArrowUp,
@@ -101,7 +101,7 @@ export function TerminalPanel({
     state.terminals,
     ui.projectId,
     ui.workspacePath,
-    machines.currentId === 'local' && window.pixelsky?.platform === 'win32',
+    isWindowsMachine(machines.currentId),
   )
   const active = items.find(r => r.id === ui.activeId) ?? null
   // 分屏（docs/ui/files-search-terminal-pins.md §4.1）：两边都是当前项目的终端时才显示

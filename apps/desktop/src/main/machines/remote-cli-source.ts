@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { packRemoteCli, type RemoteArch, type RemoteCliArchive } from './remote-cli'
 
-// 找远程要装的命令行文件并打包（打包逻辑在 remote-cli.ts）。远程机器永远是 Linux：
+// 找远程要装的命令行文件并打包（打包逻辑在 remote-cli.ts）。命令行 JS 不分系统，rg / fd 只给 Linux 远程：
 // - 命令行 JS：打包后 resources/pixel-cli，开发时 packages/cli/dist/pixel-cli（pnpm build 生成）；它的 bin/ 是宿主平台的，不用
 // - Linux 版 rg / fd：打包后 resources/pixel-cli-linux/<架构>（after-pack.cjs 拷），开发时 packages/cli/vendor/linux-<架构>
 
@@ -24,19 +24,23 @@ export async function bundledRemoteCliSources(): Promise<RemoteCliSources> {
   return { cliDir: join(cli, 'dist', 'pixel-cli'), toolsDir: arch => join(cli, 'vendor', 'linux-' + arch) }
 }
 
-/** 一个进程只打一次包（每个架构各一份）；没有命令行文件（开发时没 build）返回 null，失败的结果不缓存 */
+/**
+ * 一个进程只打一次包（每个系统 + 架构各一份）；没有命令行文件（开发时没 build）返回 null，失败的结果不缓存。
+ * 随包的 rg / fd 只有 Linux 版：远程是 Windows / macOS 时包里不带，命令行用远程自己 PATH 里的
+ */
 export function createRemoteCliCache(sources: () => Promise<RemoteCliSources> = bundledRemoteCliSources) {
-  const cache = new Map<RemoteArch, Promise<RemoteCliArchive>>()
-  return async (arch: RemoteArch): Promise<RemoteCliArchive | null> => {
+  const cache = new Map<string, Promise<RemoteCliArchive>>()
+  return async (arch: RemoteArch, platform = 'linux'): Promise<RemoteCliArchive | null> => {
     try {
       const { cliDir, toolsDir } = await sources()
       if (!existsSync(join(cliDir, 'pixel.mjs'))) return null
-      let packed = cache.get(arch)
+      const key = platform === 'linux' ? arch : 'other-' + arch
+      let packed = cache.get(key)
       if (!packed) {
-        const tools = toolsDir(arch)
-        packed = packRemoteCli(cliDir, existsSync(tools) ? tools : null)
-        cache.set(arch, packed)
-        packed.catch(() => cache.delete(arch))
+        const tools = platform === 'linux' ? toolsDir(arch) : null
+        packed = packRemoteCli(cliDir, tools && existsSync(tools) ? tools : null)
+        cache.set(key, packed)
+        packed.catch(() => cache.delete(key))
       }
       return await packed
     } catch {
@@ -46,4 +50,4 @@ export function createRemoteCliCache(sources: () => Promise<RemoteCliSources> = 
 }
 
 export const remoteCliArchive = createRemoteCliCache()
-export type RemoteCliProvider = (arch: RemoteArch) => Promise<RemoteCliArchive | null>
+export type RemoteCliProvider = (arch: RemoteArch, platform?: string) => Promise<RemoteCliArchive | null>

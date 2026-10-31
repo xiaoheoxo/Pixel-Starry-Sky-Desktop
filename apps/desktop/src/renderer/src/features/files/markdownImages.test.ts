@@ -3,6 +3,7 @@ import type { FileDocument, WorkspaceRef } from '../../../../shared/types/worksp
 
 vi.mock('@/features/machines/store', () => ({
   machineOf: (id?: string) => (id?.startsWith('wsl-') ? 'wsl-a' : 'local'),
+  isWindowsMachine: (id: string) => id === 'local' && window.pixelsky?.platform === 'win32',
 }))
 
 const image = { kind: 'image' as const, path: 'screen.png', dataUrl: 'data:image/png;base64,iVBORw==', bytes: 4 }

@@ -1,6 +1,7 @@
 import { Client, type ClientChannel, type ConnectConfig } from 'ssh2'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { posix, win32 } from 'node:path'
 import { connect as connectTcp, createServer, type Server } from 'node:net'
 import { REMOTE_PROTOCOL } from '@pixelsky/protocol'
 import { RpcPeer, type RpcHandler } from './rpc'
@@ -18,6 +19,16 @@ import { remoteCliArchive, type RemoteCliProvider } from './remote-cli-source'
 /** Upload directory of the helper on the remote machine; changes together with the protocol version. */
 const REMOTE_DIR = 'v' + REMOTE_PROTOCOL
 export const quoteSh = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'"
+/**
+ * 让远端 node 跑一段脚本。远端的默认 shell 可能是 sh / bash（Linux、macOS），也可能是 cmd / PowerShell（Windows 的 OpenSSH）：
+ * 脚本 base64 后只剩字母数字和 +/=，外面一层双引号、里面单引号，几种 shell 都原样交给 node，不会被展开或转义
+ */
+export const nodeScript = (script: string): string =>
+  `node -e "eval(Buffer.from('${Buffer.from(script, 'utf8').toString('base64')}','base64').toString())"`
+/** 能连的远端系统：helper 和引擎都是纯 Node，这几个平台本机也都支持 */
+const SUPPORTED_PLATFORMS = new Set(['linux', 'darwin', 'win32'])
+/** 远端路径用远端系统的规则拼（Windows 是反斜杠） */
+export const remotePath = (platform: string) => (platform === 'win32' ? win32 : posix)
 /** 命令输出的最后一个非空行：远端 shell 的启动文件（.bashrc 等）可能在前面打印东西，我们的脚本只输出一行 */
 export const lastLine = (output: string): string =>
   output
@@ -108,10 +119,9 @@ export class SshConnection implements RemoteLink {
       socket.pipe(channel).pipe(socket)
     })
     const probe = await this.exec(
-      'node -e ' +
-        quoteSh(
-          "process.stdout.write(JSON.stringify({home:require('node:os').homedir(),platform:process.platform,version:process.versions.node,arch:process.arch}))",
-        ),
+      nodeScript(
+        "process.stdout.write(JSON.stringify({home:require('node:os').homedir(),platform:process.platform,version:process.versions.node,arch:process.arch}))",
+      ),
     )
     let info: { home: string; platform: string; version: string; arch?: string }
     try {
@@ -119,20 +129,26 @@ export class SshConnection implements RemoteLink {
     } catch {
       throw new Error('SSH_NODE_REQUIRED')
     }
-    if (info.platform !== 'linux') throw new Error('SSH_LINUX_REQUIRED')
+    if (!SUPPORTED_PLATFORMS.has(info.platform)) throw new Error('SSH_PLATFORM_UNSUPPORTED')
+    const path = remotePath(info.platform)
     if (Number(info.version.split('.')[0]) < 22) throw new Error('SSH_NODE_REQUIRED')
     const helper = await readFile(helperPath),
       hash = createHash('sha256').update(helper).digest('hex')
     // Upload through stdin; paths/data never become shell fragments.
     const install = `const fs=require('node:fs'),p=require('node:path'),c=require('node:crypto');const b=[];process.stdin.on('data',x=>b.push(x));process.stdin.on('end',()=>{const data=Buffer.concat(b);if(c.createHash('sha256').update(data).digest('hex')!==${JSON.stringify(hash)})process.exit(2);const dir=p.join(require('node:os').homedir(),'.local','share','pixelsky','remote',${JSON.stringify(REMOTE_DIR)});fs.mkdirSync(dir,{recursive:true,mode:448});const file=p.join(dir,${JSON.stringify('helper-' + hash + '.cjs')});fs.writeFileSync(file,data,{mode:384});process.stdout.write(file)})`
-    const remotePath = lastLine(await this.exec('node -e ' + quoteSh(install), helper))
-    if (!remotePath.startsWith(info.home + '/.local/share/pixelsky/remote/' + REMOTE_DIR + '/helper-'))
+    const helperFile = lastLine(await this.exec(nodeScript(install), helper))
+    if (helperFile !== path.join(info.home, '.local', 'share', 'pixelsky', 'remote', REMOTE_DIR, `helper-${hash}.cjs`))
       throw new Error('SSH_HELPER_PATH_INVALID')
     const namespace = input.id ?? 'default'
     if (!/^((ssh|wsl)-[a-f0-9-]+|default)$/.test(namespace)) throw new Error('SSH_INVALID_CONFIG')
     const cliPath = await this.installCli(info)
+    const args = [helperFile, namespace, ...(cliPath ? [cliPath] : [])]
+    // Windows 上路径交给 cmd / PowerShell 转义不可靠：改由 node -e 设好 argv 再加载 helper（Windows 没有 /proc，
+    // remote-entry 也不靠命令行认旧进程）；其他系统照旧直接跑，命令行里带 helper 路径
     const channel = await this.channel(
-      'node ' + quoteSh(remotePath) + ' ' + quoteSh(namespace) + (cliPath ? ' ' + quoteSh(cliPath) : ''),
+      info.platform === 'win32'
+        ? nodeScript(`process.argv=[process.execPath,...${JSON.stringify(args)}];require(process.argv[1])`)
+        : 'node ' + args.map(quoteSh).join(' '),
     )
     let diagnostic = ''
     channel.stderr.on('data', (data: Buffer) => {
@@ -151,27 +167,29 @@ export class SshConnection implements RemoteLink {
       if (diagnostic.includes('SSH_ALREADY_CONNECTED')) throw new Error('SSH_ALREADY_CONNECTED')
       throw error
     }
-    if (this.hello.protocol !== REMOTE_PROTOCOL || this.hello.platform !== 'linux')
+    if (this.hello.protocol !== REMOTE_PROTOCOL || this.hello.platform !== info.platform)
       throw new Error('SSH_PROTOCOL_MISMATCH')
     return this.hello
   }
   /** 把像素星空命令行装到远程（已装好的不重传）。失败一律吞掉：没有命令行不影响连接，只是远程用不了像素星空引擎 */
-  private async installCli(info: { home: string; version: string; arch?: string }): Promise<string | null> {
+  private async installCli(info: {
+    home: string
+    platform: string
+    version: string
+    arch?: string
+  }): Promise<string | null> {
     try {
       if (!remoteCliSupported(info.version, info.arch)) return null
-      const archive = await this.cliArchive(info.arch as 'x64' | 'arm64')
+      const archive = await this.cliArchive(info.arch as 'x64' | 'arm64', info.platform)
       if (!archive) return null
       // 只认最后一行、而且得是装好的入口：.bashrc 打印的横幅不能被当成「已装好」
-      const valid = (path: string): string | null => (isRemoteCliEntry(path, info.home, archive.hash) ? path : null)
-      const found = valid(lastLine(await this.exec('node -e ' + quoteSh(remoteCliCheckScript(archive.hash)))))
+      const valid = (path: string): string | null =>
+        isRemoteCliEntry(path, info.home, archive.hash, info.platform === 'win32') ? path : null
+      const found = valid(lastLine(await this.exec(nodeScript(remoteCliCheckScript(archive.hash)))))
       if (found) return found
       return valid(
         lastLine(
-          await this.exec(
-            'node -e ' + quoteSh(remoteCliInstallScript(archive.hash)),
-            archive.data,
-            REMOTE_CLI_INSTALL_TIMEOUT,
-          ),
+          await this.exec(nodeScript(remoteCliInstallScript(archive.hash)), archive.data, REMOTE_CLI_INSTALL_TIMEOUT),
         ),
       )
     } catch {
@@ -186,7 +204,12 @@ export class SshConnection implements RemoteLink {
     )
   }
   async openShell(cwd: string, shell: string, size: { cols: number; rows: number }): Promise<ShellChannel> {
-    const channel = await this.channel('cd -- ' + quoteSh(cwd) + ' && exec ' + quoteSh(shell) + ' -l', size)
+    const channel = await this.channel(
+      this.hello?.platform === 'win32'
+        ? windowsShellCommand(cwd, shell)
+        : 'cd -- ' + quoteSh(cwd) + ' && exec ' + quoteSh(shell) + ' -l',
+      size,
+    )
     return {
       write: data => void channel.write(data),
       resize: (cols, rows) => void channel.setWindow(rows, cols, 0, 0),
@@ -296,4 +319,20 @@ export class SshConnection implements RemoteLink {
     this.localForwards.clear()
     this.remoteForwards.clear()
   }
+}
+
+/**
+ * Windows 远端的终端命令：OpenSSH 默认用 cmd 或 PowerShell 执行，没有 `cd -- … && exec`。
+ * 都用 PowerShell 的 -EncodedCommand 进目录（UTF-16LE base64，不经任何 shell 转义，路径里的 `'`、`%`、`$` 都原样）。
+ * 要 cmd 时由 PowerShell 进目录后再起 cmd（PowerShell 起外部程序时把当前目录交给它），cmd 退出 PowerShell 也跟着退出；
+ * 不用 `cmd /k cd /d "…"`，那样路径里的 % 会被 cmd 当成变量展开
+ */
+export function windowsShellCommand(cwd: string, shell: string): string {
+  const name = win32.basename(shell).toLowerCase()
+  const enter = "Set-Location -LiteralPath '" + cwd.replaceAll("'", "''") + "'"
+  const encode = (script: string) => Buffer.from(script, 'utf16le').toString('base64')
+  if (name === 'cmd.exe' || name === 'cmd')
+    return `powershell.exe -NoLogo -NoProfile -EncodedCommand ${encode(enter + '; & cmd.exe /d; exit $LASTEXITCODE')}`
+  const exe = name === 'pwsh.exe' || name === 'pwsh' ? 'pwsh.exe' : 'powershell.exe'
+  return `${exe} -NoLogo -NoExit -EncodedCommand ${encode(enter)}`
 }

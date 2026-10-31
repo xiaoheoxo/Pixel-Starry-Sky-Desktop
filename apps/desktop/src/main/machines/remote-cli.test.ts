@@ -283,6 +283,15 @@ describe('版本与路径校验', () => {
     expect(isRemoteCliEntry(entry('/home/x') + '/../../x/pixel.mjs', '/home/x')).toBe(false)
     expect(isRemoteCliEntry('', '/home/x')).toBe(false)
   })
+  it('Windows 远端：反斜杠当分隔符；其他系统上反斜杠不算', () => {
+    const win = 'C:\\Users\\x\\.local\\share\\pixelsky\\remote\\cli-' + hash + '\\pixel.mjs'
+    expect(isRemoteCliEntry(win, 'C:\\Users\\x', hash, true)).toBe(true)
+    expect(isRemoteCliEntry(win, 'C:\\Users\\y', hash, true)).toBe(false)
+    expect(
+      isRemoteCliEntry(win.replace('cli-' + hash, 'cli-' + hash + '\\..\\..'), 'C:\\Users\\x', undefined, true),
+    ).toBe(false)
+    expect(isRemoteCliEntry(win, 'C:\\Users\\x', hash)).toBe(false)
+  })
 })
 
 describe('createRemoteCliCache', () => {
@@ -298,6 +307,11 @@ describe('createRemoteCliCache', () => {
     const noTools = createRemoteCliCache(async () => ({ cliDir: cli, toolsDir: () => join(root, 'nope') }))
     const bare = await noTools('arm64')
     expect((await unpackRemoteCli(bare!.data)).some(e => e.path.startsWith('bin/'))).toBe(false)
+    // Windows / macOS 远端不带 Linux 版 rg / fd，和 Linux 的包分开缓存
+    expect((await unpackRemoteCli(a!.data)).some(e => e.path.startsWith('bin/'))).toBe(true)
+    const windows = await get('x64', 'win32')
+    expect(windows).not.toBe(a)
+    expect((await unpackRemoteCli(windows!.data)).some(e => e.path.startsWith('bin/'))).toBe(false)
     const missing = createRemoteCliCache(async () => ({ cliDir: join(root, 'nope'), toolsDir: () => tools }))
     expect(await missing('x64')).toBeNull()
     const broken = createRemoteCliCache(async () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // remote 开头的会话 / 项目在远程机器上，其余在本机
 vi.mock('@/features/machines/store', () => ({
   machineOf: (id?: string) => (id?.startsWith('remote') ? 'ssh-1' : 'local'),
+  isWindowsMachine: (id: string) => id === 'local' && window.pixelsky?.platform === 'win32',
 }))
 
 // 项目根目录 D:/repo（会话的工作目录也是它）：文件 src/a.ts、README.md、build/reports/index.html、my dir/x.md；

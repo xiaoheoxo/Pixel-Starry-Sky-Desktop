@@ -46,8 +46,8 @@ export const machineMessages = {
   'machines.disconnected': { zh: '未连接', en: 'Disconnected' },
   'machines.error': { zh: '连接失败', en: 'Connection failed' },
   'machines.requirements': {
-    zh: '连接 Linux 主机；需要 Node.js 22+，AI 对话使用远端已安装的 Claude Code / Codex。连接会在远端用户目录准备 PixelSky 辅助程序。',
-    en: 'Connect a Linux host with Node.js 22+. AI sessions use Claude Code / Codex installed there. Connecting prepares a PixelSky helper in the remote user directory.',
+    zh: '连接 Linux、Windows 或 macOS 主机（Windows 需开启 OpenSSH 服务器）；需要 Node.js 22+，AI 对话使用远端已安装的 Claude Code / Codex。连接会在远端用户目录准备 PixelSky 辅助程序。',
+    en: 'Connect a Linux, Windows or macOS host (Windows needs OpenSSH Server enabled) with Node.js 22+. AI sessions use Claude Code / Codex installed there. Connecting prepares a PixelSky helper in the remote user directory.',
   },
   'machines.searchMachines': { zh: '搜索机器名称或地址…', en: 'Search machine names or addresses…' },
   'machines.unknownRunState': {
@@ -161,10 +161,13 @@ export const machineErrors = {
     en: 'The remote machine needs Node.js 22+ accessible as node over SSH.',
   },
   SSH_EXTENSIONS_REMOTE: { zh: '远端扩展请在远端 CLI 中管理。', en: 'Manage remote extensions in the remote CLI.' },
-  SSH_LINUX_REQUIRED: { zh: '第一期 SSH 连接支持 Linux 主机。', en: 'SSH connections currently support Linux hosts.' },
+  SSH_PLATFORM_UNSUPPORTED: {
+    zh: 'SSH 连接支持 Linux、Windows 和 macOS 主机。',
+    en: 'SSH connections support Linux, Windows and macOS hosts.',
+  },
   SSH_PROTOCOL_MISMATCH: {
-    zh: '远端辅助进程的协议版本与本机不一致，请重新连接；若仍失败，请确认远端是 Linux 主机。',
-    en: 'The remote helper protocol version does not match this app. Reconnect; if it still fails, make sure the remote is a Linux host.',
+    zh: '远端辅助进程的协议版本与本机不一致，请重新连接。',
+    en: 'The remote helper protocol version does not match this app. Reconnect.',
   },
   SSH_DISCONNECT_BEFORE_EDIT: { zh: '请先断开连接再修改配置。', en: 'Disconnect before editing the configuration.' },
   SSH_USE_WORKSPACE_PICKER: {

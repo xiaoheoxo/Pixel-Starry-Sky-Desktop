@@ -50,6 +50,9 @@ export function useMachines(): MachineState {
   )
 }
 export const getMachines = (): MachineState => state
+/** 这台机器（本机或 SSH 连上的远端）是不是 Windows：路径不分大小写 */
+export const isWindowsMachine = (id: string): boolean =>
+  (id === 'local' ? window.pixelsky?.platform : state.machines.find(m => m.id === id)?.platform) === 'win32'
 const set = (value: MachineState) => {
   const reconnected = value.machines.filter(
     m => m.status === 'connected' && state.machines.find(old => old.id === m.id)?.status !== 'connected',

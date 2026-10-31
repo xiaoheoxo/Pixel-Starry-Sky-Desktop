@@ -163,7 +163,8 @@ export async function createRemoteRuntime(
       hostname: hostname(),
       home: homedir(),
       node: process.versions.node,
-      shell: process.env.SHELL || '/bin/sh',
+      // Windows 没有 SHELL：终端开 PowerShell（ssh.ts 的 windowsShellCommand 按它拼命令）
+      shell: process.env.SHELL || (process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'),
     }),
     'platform:request': (id, requestId, model, chargeId) => {
       const record = host.executionRecord(id)

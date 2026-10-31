@@ -1,6 +1,6 @@
 // 文字里的路径 → 项目内确实存在的文件（终端 docs/ui/files-search-terminal-pins.md §4.2，对话 docs/ui/content-highlight.md §2 A）。
 // 项目 / 会话的根目录（含附加文件夹）缓存 30 秒，目录列表缓存几秒：鼠标划过同一屏输出、一条回复里有很多路径时不会反复读盘。
-import { machineOf } from '@/features/machines/store'
+import { isWindowsMachine, machineOf } from '@/features/machines/store'
 import type { WorkspaceRef, WorkspaceTarget } from '../../../../shared/types/workspace'
 import { linkPathText, type LinkTarget } from '@/ui/markdown/pathLinks'
 import { findPathMatches, projectPath } from './pathMatch'
@@ -51,7 +51,7 @@ function entriesIn(ref: WorkspaceRef, dir: string, windows: boolean): Promise<En
  */
 export async function workspaceRelativePath(ref: WorkspaceRef, raw: string, cwd?: string): Promise<string | null> {
   if (!window.pixelsky) return null
-  const windows = machineOf(ref.projectId ?? ref.sessionId) === 'local' && window.pixelsky.platform === 'win32'
+  const windows = isWindowsMachine(machineOf(ref.projectId ?? ref.sessionId))
   const target = await workspaceTarget(ref)
   if (!target) return null
   const root = target.path
@@ -80,7 +80,7 @@ export async function workspacePathOrOutside(ref: WorkspaceRef, raw: string): Pr
 export async function workspaceFilePath(ref: WorkspaceRef, raw: string, cwd?: string): Promise<string | null> {
   const relative = await workspaceRelativePath(ref, raw, cwd)
   if (!relative) return null
-  const windows = machineOf(ref.projectId ?? ref.sessionId) === 'local' && window.pixelsky!.platform === 'win32'
+  const windows = isWindowsMachine(machineOf(ref.projectId ?? ref.sessionId))
   return (await entryKind(ref, relative, windows)) === 'file' ? relative : null
 }
 
@@ -112,7 +112,7 @@ export async function linkTarget(ref: WorkspaceRef, text: string): Promise<LinkT
   const { path: raw, line, column } = splitLine(text.trim())
   if (!raw) return null
   const local = machineOf(ref.projectId ?? ref.sessionId) === 'local'
-  const windows = local && window.pixelsky.platform === 'win32'
+  const windows = isWindowsMachine(machineOf(ref.projectId ?? ref.sessionId))
   if (!(await workspaceRoot(ref))) return null
   // 主文件夹和附加文件夹（「::N/…」）里的都算项目里的（#86）
   const relative = await workspaceRelativePath(ref, raw)

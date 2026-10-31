@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/data', () => ({ isDemo: false, projects: [] }))
 vi.mock('@/data/demo', () => ({ demo: () => ({}) }))
-vi.mock('@/features/machines/store', () => ({ machineOf: () => 'local', getMachines: () => ({ currentId: 'local' }) }))
+vi.mock('@/features/machines/store', () => ({
+  machineOf: () => 'local',
+  isWindowsMachine: (id: string) => id === 'local' && window.pixelsky?.platform === 'win32',
+  getMachines: () => ({ currentId: 'local' }),
+}))
 vi.mock('@/features/engine/store', () => ({ getEngineState: () => ({ sessions: [] }) }))
 const replaced: [string, string][] = []
 vi.mock('@/features/panes/store', () => ({
