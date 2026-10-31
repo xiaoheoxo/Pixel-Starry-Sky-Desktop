@@ -40,6 +40,7 @@ import { aiMessages } from '../../../shared/i18n/aiMessages'
 import { contextMessages } from '../../../shared/i18n/contextMessages'
 import { costMessages } from '../../../shared/i18n/costMessages'
 import { longConversationMessages } from '../../../shared/i18n/longConversationMessages'
+import { storageMessages } from '../../../shared/i18n/storageMessages'
 import { tabMenuMessages } from '../../../shared/i18n/tabMenuMessages'
 import { minimalModeMessages } from '../../../shared/i18n/minimalModeMessages'
 import { imageViewerMessages } from '../../../shared/i18n/imageViewerMessages'
@@ -116,6 +117,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   contextMessages,
   costMessages,
   longConversationMessages,
+  storageMessages,
   tabMenuMessages,
   minimalModeMessages,
   imageViewerMessages,

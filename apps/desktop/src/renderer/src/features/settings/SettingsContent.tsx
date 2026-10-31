@@ -7,6 +7,7 @@ import {
   CodeXml,
   Cpu,
   FolderOpen,
+  HardDrive,
   Info,
   Keyboard,
   MessageSquareText,
@@ -74,6 +75,7 @@ import { FeedbackSection } from '../feedback/FeedbackSection'
 import { useFeedbackUnread } from '../feedback/store'
 import { MobileSection } from '../mobile/settings/MobileSection'
 import { ProjectsSection } from './projects/ProjectsSection'
+import { StorageSection } from '../storage/StorageSection'
 import { SubagentsSection } from './SubagentsSection'
 import { leaveSettings, UnsavedLeaveDialog } from './unsavedEdits'
 import type { SectionId } from './sectionId'
@@ -166,6 +168,13 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
     icon: FolderOpen,
   },
   {
+    id: 'storage',
+    get label() {
+      return tr('storage.title')
+    },
+    icon: HardDrive,
+  },
+  {
     id: 'models',
     get label() {
       return tr('modelChannels.title')
@@ -231,6 +240,7 @@ const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
       'notifications',
       'editor',
       'projects',
+      'storage',
       'extensions',
       'shortcuts',
       'machines',
@@ -445,6 +455,13 @@ export function SettingsContent({
           <EditorSection />
         ) : section === 'projects' ? (
           <ProjectsSection />
+        ) : section === 'storage' ? (
+          <StorageSection
+            onOpenSession={sessionId => {
+              runMainAction({ kind: 'openSession', sessionId })
+              if (!standalone) onClose()
+            }}
+          />
         ) : section === 'models' ? (
           <ModelsSection />
         ) : section === 'subagents' ? (

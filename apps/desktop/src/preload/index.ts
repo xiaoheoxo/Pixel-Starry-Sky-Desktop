@@ -691,6 +691,13 @@ contextBridge.exposeInMainWorld('pixelsky', {
       return () => ipcRenderer.removeListener('sessionStatus:changed', listener)
     },
   } satisfies import('../shared/types/session-status').SessionStatusBridge,
+  storage: {
+    usage: force => call('storage:usage', force === true),
+    open: () => call('storage:open'),
+    clearCache: () => call('storage:clearCache'),
+    deleteSessions: ids => call('storage:deleteSessions', ids),
+    restoreSession: id => call('storage:restoreSession', id),
+  } satisfies import('../shared/types/storage').StorageBridge,
   quota: {
     get: provider => call('quota:get', provider),
     refresh: (provider, opts) => call('quota:refresh', provider, opts),

@@ -20,6 +20,8 @@ export type SectionId =
   | 'logs'
   | 'feedback'
   | 'mobile'
+  /** 本机数据目录的占用和清理 */
+  | 'storage'
 
 const IDS: ReadonlySet<string> = new Set<SectionId>([
   'account',
@@ -40,6 +42,7 @@ const IDS: ReadonlySet<string> = new Set<SectionId>([
   'logs',
   'feedback',
   'mobile',
+  'storage',
 ])
 
 /** 是不是设置的分区名（独立窗口从地址、主进程推送里收到的是字符串） */

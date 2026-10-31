@@ -746,6 +746,12 @@ export const IPC_CONTRACT = {
   'sessionStatus:changed': { kind: 'push', route: 'push', trust: 'none' },
   'sessionStatus:get': { kind: 'invoke', route: 'local', trust: 'sender' },
   'sessionStatus:refresh': { kind: 'invoke', route: 'local', trust: 'sender' },
+  // 设置 › 存储：本机数据目录的占用、清理旧会话 / 已归档的会话、清除缓存。只看本机，不跟随选中的机器
+  'storage:clearCache': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'storage:deleteSessions': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'storage:open': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'storage:restoreSession': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'storage:usage': { kind: 'invoke', route: 'local', trust: 'sender' },
   'projectBrowser:action': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:annotate': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:changed': { kind: 'push', route: 'push', trust: 'none' },

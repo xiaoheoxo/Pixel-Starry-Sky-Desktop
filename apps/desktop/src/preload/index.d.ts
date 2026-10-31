@@ -60,6 +60,8 @@ export interface PixelskyBridge {
   app: AppInfoBridge
   /** 本机日志（docs/ui/logging.md） */
   log: LogBridge
+  /** 设置 › 存储：本机数据目录的占用和清理 */
+  storage: import('../shared/types/storage').StorageBridge
   /** 自动更新（docs/release-update.md §7） */
   update: UpdateBridge
   files: FilesBridge

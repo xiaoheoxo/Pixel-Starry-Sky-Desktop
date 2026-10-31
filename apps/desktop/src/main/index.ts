@@ -62,6 +62,7 @@ import { initSettingsWindow, type SettingsWindowController } from './app/setting
 import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
 import { initFeedback } from './feedback/feedback'
+import { initStorage } from './storage'
 import type { Locale } from '../shared/i18n/messages'
 
 type ResolvedTheme = 'light' | 'dark'
@@ -546,6 +547,7 @@ app.whenReady().then(async () => {
   startup.step('initWorkspace')
   await initProjectTools(ctx)
   startup.step('initProjectTools')
+  initStorage(ctx) // 设置 › 存储（本机数据目录的占用和清理），见 storage/index.ts
   await initChannels(ctx) // 协作频道（本机 AI 协作），见 channels/ipc.ts
   startup.step('initChannels')
   initSchedule(ctx) // 看板的定时任务，见 workspace/schedule-ipc.ts

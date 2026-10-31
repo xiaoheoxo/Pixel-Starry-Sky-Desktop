@@ -34,6 +34,7 @@ import { aiMessages } from './aiMessages'
 import { contextMessages } from './contextMessages'
 import { costMessages } from './costMessages'
 import { longConversationMessages } from './longConversationMessages'
+import { storageMessages } from './storageMessages'
 import { tabMenuMessages } from './tabMenuMessages'
 import { minimalModeMessages } from './minimalModeMessages'
 import { imageViewerMessages } from './imageViewerMessages'
@@ -112,6 +113,7 @@ export const allMessages = {
   ...contextMessages,
   ...costMessages,
   ...longConversationMessages,
+  ...storageMessages,
   ...tabMenuMessages,
   ...minimalModeMessages,
   ...imageViewerMessages,
