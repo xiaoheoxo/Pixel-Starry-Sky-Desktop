@@ -71,7 +71,7 @@ function Card({
   channel: ChannelId
   status: ReactNode
   sub?: ReactNode
-  /** 右边按钮区分三列：图标、主按钮、次按钮，宽度固定，几张卡的按钮上下对齐（按钮自己用 w-full） */
+  /** 右边按钮区分三列：图标、主按钮、次按钮，宽度至少这么宽，几张卡的按钮上下对齐（按钮自己用 w-full）；字大、英文长时跟着变宽，不换行 */
   icon?: ReactNode
   primary?: ReactNode
   secondary?: ReactNode
@@ -98,12 +98,12 @@ function Card({
             <span className="flex w-4 justify-center">{icon}</span>
             {secondary ? (
               <>
-                <span className="flex w-28">{primary}</span>
-                <span className="flex w-24">{secondary}</span>
+                <span className="flex min-w-28">{primary}</span>
+                <span className="flex min-w-24">{secondary}</span>
               </>
             ) : (
               // 只有一个按钮（登录、授权、修复）：占两列，靠右
-              <span className="flex w-[13.5rem] justify-end">{primary}</span>
+              <span className="flex min-w-[13.5rem] justify-end">{primary}</span>
             )}
           </span>
         )}
