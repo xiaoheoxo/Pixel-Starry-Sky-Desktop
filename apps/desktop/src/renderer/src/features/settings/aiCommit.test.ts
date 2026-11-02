@@ -64,7 +64,13 @@ describe('读设置', () => {
       JSON.stringify({ enabled: 'yes', language: 'fr', style: 'subject', instructions: 'x'.repeat(1200) }),
     )
     localStorage.setItem(AI_COMMIT_MODEL_KEY, JSON.stringify({ source: 'custom', groupId: '../x', model: 7 }))
-    expect(readWriting()).toEqual({ enabled: true, language: 'auto', style: 'subject', instructions: 'x'.repeat(1000) })
+    expect(readWriting()).toEqual({
+      enabled: true,
+      promptButton: true,
+      language: 'auto',
+      style: 'subject',
+      instructions: 'x'.repeat(1000),
+    })
     expect(readModel()).toMatchObject({ source: 'custom', groupId: null, model: 'claude-opus-5-5' })
     localStorage.setItem(AI_COMMIT_MODEL_KEY, '{not json')
     expect(readModel()).toEqual(DEFAULT_MODEL)

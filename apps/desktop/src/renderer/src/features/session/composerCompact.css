@@ -31,7 +31,8 @@
     flex-wrap: nowrap;
     overflow: hidden;
   }
-  .composer-area [data-composer-machine-label] {
+  .composer-area [data-composer-machine-label],
+  .composer-area [data-composer-label] {
     display: none;
   }
   .composer-area [data-composer-git] {

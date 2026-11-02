@@ -64,6 +64,7 @@ export const aiMessages = {
     en: '{channel} is not signed in or the sign-in has expired',
   },
   'aiCommit.problem.usageLimit': { zh: '订阅额度用完了', en: 'Subscription quota used up' },
+  'aiCommit.problem.tooLong': { zh: '内容太长，AI 没写完', en: 'Too long, AI could not finish' },
   'aiCommit.problemDetail': { zh: '{text}：{detail}', en: '{text}: {detail}' },
   'aiCommit.install': { zh: '去安装', en: 'Install' },
   'aiCommit.authorize': { zh: '去授权', en: 'Sign in' },
@@ -71,7 +72,25 @@ export const aiMessages = {
   'aiCommit.signIn': { zh: '登录', en: 'Sign in' },
   'aiCommit.openSettings': { zh: '设置', en: 'Settings' },
 
-  'aiCommit.settings.title': { zh: 'AI 写提交信息', en: 'AI commit messages' },
+  'aiCommit.settings.title': { zh: 'AI 写提交信息、优化提示词', en: 'AI commit messages and prompt rewriting' },
+  // 优化提示词（docs/ui/prompt-optimize.md）：对话输入框工具栏的按钮，通道和提交信息共用
+  'promptOptimize.settings.enabled': {
+    zh: '在对话输入框显示「优化」按钮',
+    en: 'Show the Improve button in the message box',
+  },
+  'promptOptimize.settings.enabledHint': {
+    zh: '把输入框里的话交给 AI 改写得更清楚，用下面同一条通道。只在点按钮时发送原文、项目名和最近几轮对话的摘录。',
+    en: 'AI rewrites your message to be clearer, using the channel below. Only when you click it, the message, project name and an excerpt of the last few turns are sent.',
+  },
+  'promptOptimize.button': { zh: '优化', en: 'Improve' },
+  'promptOptimize.buttonVia': { zh: '优化提示词（Ctrl+Shift+E）· {via}', en: 'Improve prompt (Ctrl+Shift+E) · {via}' },
+  'promptOptimize.stop': { zh: '停止优化（Esc）', en: 'Stop (Esc)' },
+  'promptOptimize.running': { zh: '优化中…', en: 'Improving…' },
+  'promptOptimize.done': { zh: '已优化，直接发送或继续改', en: 'Improved. Send it or keep editing' },
+  'promptOptimize.undo': { zh: '撤回', en: 'Undo' },
+  'promptOptimize.undoHint': { zh: '换回原来写的', en: 'Restore what you wrote' },
+  'promptOptimize.retry': { zh: '重试', en: 'Retry' },
+  'promptOptimize.failed': { zh: '没改成，原文没动：{text}', en: 'Not rewritten, your text is unchanged: {text}' },
   'aiCommit.settings.enabled': { zh: '在提交栏显示 AI 按钮', en: 'Show the AI button in the commit box' },
   'aiCommit.settings.enabledHint': {
     zh: '只在点按钮时把这次要提交的改动发给 AI。锁文件只列名字，可能有密钥的文件（.env、私钥等）不发内容。',

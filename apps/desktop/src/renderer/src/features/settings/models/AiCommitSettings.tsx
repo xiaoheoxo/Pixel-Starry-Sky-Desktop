@@ -78,6 +78,17 @@ export function AiCommitSettings() {
           />
         }
       />
+      <SettingRow
+        title={tr('promptOptimize.settings.enabled')}
+        description={tr('promptOptimize.settings.enabledHint')}
+        control={
+          <Toggle
+            label={tr('promptOptimize.settings.enabled')}
+            checked={writing.promptButton}
+            onChange={promptButton => setAiCommitWriting({ promptButton })}
+          />
+        }
+      />
       <SettingRow title={tr('aiCommit.settings.source')} description={tr('aiCommit.settings.sourceHint')}>
         <div
           role="radiogroup"

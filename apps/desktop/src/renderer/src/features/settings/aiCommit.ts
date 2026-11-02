@@ -12,6 +12,8 @@ import { channelState, type ChannelId, type ChannelState } from '@/features/mode
 export interface AiCommitWriting {
   /** 在提交栏显示 AI 按钮 */
   enabled: boolean
+  /** 在对话输入框显示「优化提示词」按钮（docs/ui/prompt-optimize.md），和提交信息共用通道 */
+  promptButton: boolean
   language: AiCommitLanguage
   style: AiCommitStyle
   /** 额外要求，最多 INSTRUCTIONS_LIMIT 字 */
@@ -45,7 +47,13 @@ export const COMMIT_ORDER: readonly AiSource[] = ['claude', 'platform', 'codex',
 /** 线路拒绝时最多换几条 */
 const MAX_GROUPS = 3
 
-export const DEFAULT_WRITING: AiCommitWriting = { enabled: true, language: 'auto', style: 'body', instructions: '' }
+export const DEFAULT_WRITING: AiCommitWriting = {
+  enabled: true,
+  promptButton: true,
+  language: 'auto',
+  style: 'body',
+  instructions: '',
+}
 export const DEFAULT_MODEL: AiCommitModel = {
   source: null,
   model: AI_COMMIT_DEFAULT_MODEL,
@@ -71,6 +79,7 @@ export function readWriting(): AiCommitWriting {
   const v = parse(AI_COMMIT_WRITING_KEY)
   return {
     enabled: typeof v.enabled === 'boolean' ? v.enabled : DEFAULT_WRITING.enabled,
+    promptButton: typeof v.promptButton === 'boolean' ? v.promptButton : DEFAULT_WRITING.promptButton,
     language:
       v.language === 'zh' || v.language === 'en' || v.language === 'auto' ? v.language : DEFAULT_WRITING.language,
     style: v.style === 'subject' || v.style === 'body' ? v.style : DEFAULT_WRITING.style,

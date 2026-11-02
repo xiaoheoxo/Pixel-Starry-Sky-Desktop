@@ -3,7 +3,7 @@
 // 只在点按钮时发请求；写好直接填进输入框，不自动提交
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, Sparkles, Square } from 'lucide-react'
-import type { AiCommitRequest, AiProblem, AiSource } from '../../../../../shared/types/ai'
+import type { AiChannelRequest, AiCommitRequest, AiProblem, AiSource } from '../../../../../shared/types/ai'
 import type { GitCommitScope } from '../../../../../shared/types/project-tools'
 import type { WorkspaceRef } from '../../../../../shared/types/workspace'
 import { cn, Popover, Spinner } from '@/ui'
@@ -23,6 +23,7 @@ import {
   estimateUsd,
   fallbackSource,
   useAiCommitSettings,
+  type AiCommitModel,
 } from '@/features/settings/aiCommit'
 import { CommitChannelIcon } from '@/features/settings/models/AiCommitSettings'
 import { useCommitChannels } from '@/features/settings/models/useCommitChannels'
@@ -56,6 +57,47 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 /** 换一条通道能解决的问题 */
 const SWITCHABLE: readonly AiProblem[] = ['usageLimit', 'notInstalled', 'notAuthorized']
+
+/** 按选的通道拼请求的通道部分（AI 写提交信息、优化提示词共用）；还没法发时给出原因 */
+export async function channelRequest(
+  using: AiSource,
+  model: AiCommitModel,
+  channels: ReturnType<typeof useCommitChannels>,
+): Promise<
+  | { request: Omit<AiChannelRequest, 'requestId'>; multiplier: number; priceRef: string | null }
+  | { problem: AiProblem; detail: string }
+> {
+  if (using === 'platform') {
+    let platform = getPlatformState('claude')
+    if (!platform.email) return { problem: 'signedOut', detail: '' }
+    if (!platform.loaded) {
+      await refreshPlatform()
+      platform = getPlatformState('claude')
+    }
+    const groups = commitGroups(platform.groups, model.model, model.groupId, platform.groupId)
+    if (!groups.length) return { problem: 'model', detail: '' }
+    const multiplier = platform.groups.find(g => g.id === groups[0])?.rate_multiplier ?? 1
+    return { request: { source: 'platform', groups, providerId: null, model: model.model }, multiplier, priceRef: null }
+  }
+  if (using === 'claude' || using === 'codex') {
+    // 模型留空：跟随引擎自己的设置
+    const engineModel =
+      using === 'claude' ? model.claudeModel : commitCodexModel(model.codexModel, channels.codexModels)
+    return {
+      request: { source: using, groups: [], providerId: null, model: engineModel ?? '' },
+      multiplier: 1,
+      priceRef: null,
+    }
+  }
+  const chosen = commitProvider(channels.providers, model)
+  if (!chosen) return { problem: 'provider', detail: 'missing' }
+  if (!chosen.provider.keyHint) return { problem: 'provider', detail: 'noKey' }
+  return {
+    request: { source: 'custom', groups: [], providerId: chosen.provider.id, model: chosen.model },
+    multiplier: chosen.provider.costMultiplier ?? 1,
+    priceRef: chosen.provider.models.find(m => m.id === chosen.model)?.priceRef ?? null,
+  }
+}
 
 /** 输入框留给右上角按钮的位置 */
 export const AI_COMMIT_PAD = 'pr-12'
@@ -135,33 +177,11 @@ export function useAiCommit({
         style: writing.style,
         instructions: writing.instructions,
       } satisfies Partial<AiCommitRequest>
-      let request: AiCommitRequest
-      let multiplier = 1
-      let priceRef: string | null = null
-      if (using === 'platform') {
-        let platform = getPlatformState('claude')
-        if (!platform.email) return fail('signedOut')
-        if (!platform.loaded) {
-          await refreshPlatform()
-          platform = getPlatformState('claude')
-        }
-        const groups = commitGroups(platform.groups, model.model, model.groupId, platform.groupId)
-        if (!groups.length) return fail('model')
-        multiplier = platform.groups.find(g => g.id === groups[0])?.rate_multiplier ?? 1
-        request = { ...base, source: 'platform', groups, providerId: null, model: model.model }
-      } else if (using === 'claude' || using === 'codex') {
-        // 模型留空：跟随引擎自己的设置
-        const engineModel =
-          using === 'claude' ? model.claudeModel : commitCodexModel(model.codexModel, channels.codexModels)
-        request = { ...base, source: using, groups: [], providerId: null, model: engineModel ?? '' }
-      } else {
-        const chosen = commitProvider(channels.providers, model)
-        if (!chosen) return fail('provider', 'missing')
-        if (!chosen.provider.keyHint) return fail('provider', 'noKey')
-        priceRef = chosen.provider.models.find(m => m.id === chosen.model)?.priceRef ?? null
-        multiplier = chosen.provider.costMultiplier ?? 1
-        request = { ...base, source: 'custom', groups: [], providerId: chosen.provider.id, model: chosen.model }
-      }
+      const channel = await channelRequest(using, model, channels)
+      if ('problem' in channel) return fail(channel.problem, channel.detail)
+      const request: AiCommitRequest = { ...base, ...channel.request }
+      let multiplier = channel.multiplier
+      const priceRef = channel.priceRef
       const result = await api.commitMessage(request)
       if (!live.current) return
       if (!result.ok) {
@@ -355,11 +375,15 @@ const PROBLEM_TEXT: Record<
   nothing: 'aiCommit.problem.nothing',
   failed: 'aiCommit.problem.failed',
   usageLimit: 'aiCommit.problem.usageLimit',
+  tooLong: 'aiCommit.problem.tooLong',
 }
 
 const engineName = (s: AiSource): string => ENGINES[s === 'codex' ? 'codex' : 'claude'].name
 
-function problemText(n: Extract<Note, { kind: 'error' }>, channelName: string): string {
+export function problemText(
+  n: Pick<Extract<Note, { kind: 'error' }>, 'problem' | 'detail' | 'model' | 'source'>,
+  channelName: string,
+): string {
   if (n.problem === 'provider')
     return n.detail === 'missing'
       ? tr('aiCommit.problem.noEndpoint')

@@ -4,11 +4,19 @@
 import { OneShotError } from '@pixelsky/engine'
 import { randomUUID } from 'node:crypto'
 import type { PlatformCharge, PlatformSettlement } from '@pixelsky/protocol'
-import type { AiCommitRequest, AiCommitResult } from '../../shared/types/ai'
+import {
+  PROMPT_CONTEXT_LIMIT,
+  PROMPT_TEXT_LIMIT,
+  type AiChannelRequest,
+  type AiCommitRequest,
+  type AiCommitResult,
+  type AiPromptRequest,
+} from '../../shared/types/ai'
 import type { GitCommitContext } from '../../shared/types/project-tools'
 import type { AppContext } from '../app/context'
 import { platformFetch, signedInEmail } from '../account/account'
-import { writeCommitMessage } from '../core/ai/commit-message'
+import { writeCommitMessage, type ModelDeps } from '../core/ai/commit-message'
+import { optimizePrompt } from '../core/ai/prompt-optimize'
 import { workspaceRef } from '../core/workspace-files'
 import * as ipc from '../ipc/guard'
 import { platformCharges } from '../platform/billing'
@@ -23,9 +31,8 @@ function oneOf<T extends string>(value: unknown, options: readonly T[]): T {
   return value as T
 }
 
-/** 渲染层传来的请求：逐项检查，不信任 */
-export function aiCommitRequest(input: unknown): AiCommitRequest {
-  const v = (input ?? {}) as Record<string, unknown>
+/** 通道那几项：逐项检查，不信任 */
+function aiChannelRequest(v: Record<string, unknown>): AiChannelRequest {
   if (typeof v.requestId !== 'string' || !ID.test(v.requestId)) throw new Error('参数不正确')
   const groups = v.groups
   if (!Array.isArray(groups) || groups.length > 3 || !groups.every(g => typeof g === 'string' && /^\d{1,20}$/.test(g)))
@@ -36,20 +43,31 @@ export function aiCommitRequest(input: unknown): AiCommitRequest {
   // Claude / ChatGPT 授权的模型可以留空：跟随引擎自己的设置
   const engine = source === 'claude' || source === 'codex'
   if (typeof v.model !== 'string' || (!engine && !v.model.trim()) || v.model.length > 200) throw new Error('参数不正确')
+  return { requestId: v.requestId, source, groups: groups as string[], providerId: v.providerId, model: v.model.trim() }
+}
+
+/** 渲染层传来的请求：逐项检查，不信任 */
+export function aiCommitRequest(input: unknown): AiCommitRequest {
+  const v = (input ?? {}) as Record<string, unknown>
+  const channel = aiChannelRequest(v)
   if (typeof v.instructions !== 'string' || v.instructions.length > 1000) throw new Error('参数不正确')
   return {
-    requestId: v.requestId,
+    ...channel,
     ref: workspaceRef(v.ref),
     scope: oneOf(v.scope, ['staged', 'all']),
-    source,
-    groups: groups as string[],
-    providerId: v.providerId,
-    model: v.model.trim(),
     language: oneOf(v.language, ['auto', 'zh', 'en']),
     uiLanguage: oneOf(v.uiLanguage, ['zh', 'en']),
     style: oneOf(v.style, ['subject', 'body']),
     instructions: v.instructions,
   }
+}
+
+export function aiPromptRequest(input: unknown): AiPromptRequest {
+  const v = (input ?? {}) as Record<string, unknown>
+  const channel = aiChannelRequest(v)
+  if (typeof v.text !== 'string' || !v.text.trim() || v.text.length > PROMPT_TEXT_LIMIT) throw new Error('参数不正确')
+  if (typeof v.context !== 'string' || v.context.length > PROMPT_CONTEXT_LIMIT) throw new Error('参数不正确')
+  return { ...channel, text: v.text, context: v.context }
 }
 
 export function initAi(ctx: AppContext): void {
@@ -67,8 +85,11 @@ export function initAi(ctx: AppContext): void {
     ) as Promise<GitCommitContext>
   }
 
-  ipc.handle('ai:commitMessage', async (_e, input: unknown): Promise<AiCommitResult> => {
-    const req = aiCommitRequest(input)
+  /** 问一次模型：可以按 requestId 停止；云端请求记下计费 ID，之后 ai:commitCharge 按它查实际扣费 */
+  const run = async (
+    req: AiChannelRequest,
+    task: (deps: ModelDeps, signal: AbortSignal) => Promise<AiCommitResult & { chargeId?: string }>,
+  ): Promise<AiCommitResult> => {
     running.get(req.requestId)?.abort()
     const abort = new AbortController()
     running.set(req.requestId, abort)
@@ -76,9 +97,8 @@ export function initAi(ctx: AppContext): void {
     const startedAt = Date.now()
     let sent: { id: string; groupId: string } | null = null
     try {
-      const outcome = await writeCommitMessage(
+      const outcome = await task(
         {
-          context,
           platform: (body, groupId, signal) => {
             sent = { id: `pixelsky-${randomUUID()}`, groupId }
             return platformFetch('/v1/platform/messages', {
@@ -101,7 +121,6 @@ export function initAi(ctx: AppContext): void {
               ? ctx.engine.oneShot(engine, request, signal)
               : Promise.reject(new OneShotError('failed', '引擎还没准备好')),
         },
-        req,
         abort.signal,
       )
       if (!outcome.ok) return outcome
@@ -127,6 +146,16 @@ export function initAi(ctx: AppContext): void {
     } finally {
       if (running.get(req.requestId) === abort) running.delete(req.requestId)
     }
+  }
+
+  ipc.handle('ai:commitMessage', (_e, input: unknown) => {
+    const req = aiCommitRequest(input)
+    return run(req, (deps, signal) => writeCommitMessage({ ...deps, context }, req, signal))
+  })
+
+  ipc.handle('ai:optimizePrompt', (_e, input: unknown) => {
+    const req = aiPromptRequest(input)
+    return run(req, (deps, signal) => optimizePrompt(deps, req, signal))
   })
 
   ipc.handle('ai:cancel', (_e, id: unknown) => {

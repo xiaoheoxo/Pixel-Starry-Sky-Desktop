@@ -81,6 +81,7 @@ import {
 import { isSlashCommand } from '@/features/panel/annotationText'
 import { Popover, PopoverItem } from '@/ui'
 import { ComposerInput, type ComposerInputHandle } from './composerInput/ComposerInput'
+import { PromptOptimizeButton, PromptOptimizeNote, usePromptOptimize } from './PromptOptimize'
 
 /** text-prose 是 14px / 1.7，行高取整成 24px，增高计算和样式共用 */
 const LINE_HEIGHT = 24
@@ -158,6 +159,7 @@ export function Composer({
   const [draggingImages, setDraggingImages] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const [text, setText] = useComposerDraft(key)
+  const optimizer = usePromptOptimize({ text, setText, sessionId: live?.sessionId ?? null })
   const submission = useRef<{ text: string; images: string; id: string } | null>(null)
   const submitting = useRef(false)
   const [busy, setBusy] = useState(false)
@@ -681,6 +683,17 @@ export function Composer({
   // 输入框是 CodeMirror（composerInput/ComposerInput.tsx），这里拿到的是原生键盘事件，先于编辑器自己的按键处理
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.isComposing) return
+    // 优化提示词（docs/ui/prompt-optimize.md）：Ctrl+Shift+E 开始，改写中 Esc 停下
+    if (live && optimizer.enabled && (e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyE') {
+      e.preventDefault()
+      optimizer.start()
+      return
+    }
+    if (optimizer.running && e.key === 'Escape') {
+      e.preventDefault()
+      optimizer.stop()
+      return
+    }
     if (commandQuery !== undefined && !commandDismissed) {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -1025,6 +1038,7 @@ export function Composer({
           {error && (
             <div className="px-4 pb-1.5 text-meta whitespace-pre-wrap text-danger">{translateMessage(error)}</div>
           )}
+          <PromptOptimizeNote po={optimizer} />
         </div>
 
         <div
@@ -1119,6 +1133,8 @@ export function Composer({
               <ShieldOff size={16} strokeWidth={1.5} />
             </button>
           )}
+
+          {live && optimizer.enabled && <PromptOptimizeButton po={optimizer} text={text} />}
 
           <div className="flex-1" />
 

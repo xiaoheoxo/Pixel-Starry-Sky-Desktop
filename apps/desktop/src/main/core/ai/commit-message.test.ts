@@ -11,6 +11,7 @@ import {
   type CommitMessageDeps,
 } from './commit-message'
 import { oneShotBody, parseReply } from './oneshot'
+import { optimizePrompt } from './prompt-optimize'
 
 const context: GitCommitContext = {
   scope: 'staged',
@@ -160,8 +161,13 @@ describe('oneShot', () => {
         output: [{ type: 'reasoning' }, { type: 'message', content: [{ type: 'output_text', text: 'hi' }] }],
         usage: { input_tokens: 100, output_tokens: 5, input_tokens_details: { cached_tokens: 40 } },
       }),
-    ).toEqual({ text: 'hi', usage: { input: 60, output: 5, cacheRead: 40, cacheWrite: 0 } })
-    expect(parseReply('anthropic', { nope: 1 })).toEqual({ text: '', usage: null })
+    ).toEqual({ text: 'hi', truncated: false, usage: { input: 60, output: 5, cacheRead: 40, cacheWrite: 0 } })
+    expect(parseReply('anthropic', { nope: 1 })).toEqual({ text: '', truncated: false, usage: null })
+    expect(parseReply('anthropic', { content: [], stop_reason: 'max_tokens' }).truncated).toBe(true)
+    expect(parseReply('chat', { choices: [{ message: { content: 'a' }, finish_reason: 'length' }] }).truncated).toBe(
+      true,
+    )
+    expect(parseReply('responses', { output_text: 'a', status: 'incomplete' }).truncated).toBe(true)
   })
 })
 
@@ -340,5 +346,56 @@ describe('writeCommitMessage', () => {
     expect(
       await writeCommitMessage(deps({ engine: async () => ({ text: ' ', model: null, usage: null }) }), claude, never),
     ).toMatchObject({ problem: 'empty' })
+  })
+})
+
+describe('optimizePrompt', () => {
+  const never = new AbortController().signal
+  const req = {
+    requestId: 'r2',
+    source: 'platform' as const,
+    groups: ['7'],
+    providerId: null,
+    model: 'claude-opus-5-5',
+  }
+
+  it('带上下文和原文发一次，返回改写后的全文；不带改动、不取 git', async () => {
+    let sent: { system?: string; messages?: Array<{ content: string }> } = {}
+    const d = deps({
+      context: async () => Promise.reject(new Error('不该取改动')),
+      platform: async body => {
+        sent = JSON.parse(body)
+        return anthropicReply('"把登录页的报错改成中文"')
+      },
+    })
+    const out = await optimizePrompt(d, { ...req, text: '登录报错改中文', context: '项目：web' }, never)
+    expect(out).toMatchObject({ ok: true, message: '把登录页的报错改成中文', partial: 0, groupId: '7' })
+    expect(sent.system).toContain('rewrite')
+    expect(sent.messages?.[0].content).toBe(
+      'Context (for reference only, do not repeat it):\n项目：web\n\nMessage to rewrite:\n登录报错改中文',
+    )
+  })
+
+  it('写到上限被截断：不换进去，报太长', async () => {
+    const cut = new Response(
+      JSON.stringify({ content: [{ type: 'text', text: '写到一半' }], stop_reason: 'max_tokens' }),
+    )
+    expect(
+      await optimizePrompt(deps({ platform: async () => cut }), { ...req, text: 'x', context: '' }, never),
+    ).toEqual({ ok: false, problem: 'tooLong', detail: '' })
+  })
+
+  it('没写出东西、出错照原因报', async () => {
+    expect(
+      await optimizePrompt(
+        deps({ platform: async () => anthropicReply(' ') }),
+        { ...req, text: 'x', context: '' },
+        never,
+      ),
+    ).toMatchObject({ ok: false, problem: 'empty' })
+    expect(await optimizePrompt(deps(), { ...req, groups: [], text: 'x', context: '' }, never)).toMatchObject({
+      ok: false,
+      problem: 'model',
+    })
   })
 })

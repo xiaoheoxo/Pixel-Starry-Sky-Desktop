@@ -15,6 +15,8 @@ export interface OneShotRequest {
 export interface OneShotReply {
   text: string
   usage: AiUsage | null
+  /** 写到输出上限被截断（stop_reason max_tokens / finish_reason length / status incomplete） */
+  truncated: boolean
 }
 
 export function oneShotBody(r: OneShotRequest): Record<string, unknown> {
@@ -50,6 +52,7 @@ export function parseReply(protocol: OneShotProtocol, body: unknown): OneShotRep
       .join('')
     return {
       text,
+      truncated: json.stop_reason === 'max_tokens',
       usage: json.usage
         ? {
             input: count(u.input_tokens),
@@ -61,10 +64,12 @@ export function parseReply(protocol: OneShotProtocol, body: unknown): OneShotRep
     }
   }
   if (protocol === 'chat') {
-    const message = record(record(list(json.choices)[0]).message)
+    const choice = record(list(json.choices)[0])
+    const message = record(choice.message)
     const cached = count(record(u.prompt_tokens_details).cached_tokens)
     return {
       text: typeof message.content === 'string' ? message.content : '',
+      truncated: choice.finish_reason === 'length',
       usage: json.usage
         ? {
             input: Math.max(0, count(u.prompt_tokens) - cached),
@@ -88,6 +93,7 @@ export function parseReply(protocol: OneShotProtocol, body: unknown): OneShotRep
   const cached = count(record(u.input_tokens_details).cached_tokens)
   return {
     text,
+    truncated: json.status === 'incomplete',
     usage: json.usage
       ? {
           input: Math.max(0, count(u.input_tokens) - cached),

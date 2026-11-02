@@ -711,6 +711,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
   } satisfies import('../shared/types/quota').QuotaBridge,
   ai: {
     commitMessage: request => call('ai:commitMessage', request),
+    optimizePrompt: request => call('ai:optimizePrompt', request),
     cancel: requestId => call('ai:cancel', requestId),
     commitCharge: requestId => call('ai:commitCharge', requestId),
   } satisfies import('./ai').AiBridge,
