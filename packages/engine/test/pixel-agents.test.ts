@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { EngineEvent } from '@pixelsky/protocol'
 import { PixelAdapter } from '../src'
-import { runsFromSession, subagentItemId, subagentTotals } from '../src/pixel/agents'
+import { entries, runsFromSession, subagentItemId, subagentTotals } from '../src/pixel/agents'
+import { LINE_MAX } from '../src/jsonl'
 import { PixelTranslator } from '../src/pixel/translate'
 import { transcriptItems } from '../src/pixel/transcript'
 
@@ -298,5 +299,32 @@ describe('子智能体的用量算进这一轮（docs/own-cli.md §15）', () =>
     const sum = subagentTotals(rows)
     expect(sum).toMatchObject({ input: 35, output: 8, cacheRead: 0, cacheWrite: 0 })
     expect(sum.cost).toBeCloseTo(0.35)
+  })
+})
+
+describe('读 Pi 的会话文件（长会话的文件可能超过 512 MB）', () => {
+  it('按块读、按行切：跨块的行、跨块的中文、超长行、没写完的最后一行', () => {
+    const file = join(root, 'big.jsonl')
+    const pad = 'x'.repeat(1024 * 1024 - 20)
+    const rows = [
+      JSON.stringify({ type: 'session', id: 's' }),
+      // 刚好跨过 1 MB 的块边界，中文落在边界上
+      JSON.stringify({ type: 'message', id: 'm1', text: pad + '中文跨块' }),
+      JSON.stringify({ type: 'custom', customType: 'pixelsky-subagent', data: { toolCallId: 'c1', text: '子' } }),
+      '',
+      '{"type":"message","id":"half"',
+    ]
+    writeFileSync(file, rows.join('\n'))
+    const all = entries(file)
+    expect(all.map(e => e.id ?? e.customType)).toEqual(['s', 'm1', 'pixelsky-subagent'])
+    expect(String(all[1].text).endsWith('中文跨块')).toBe(true)
+    expect(entries(file, 'pixelsky-subagent')).toEqual([JSON.parse(rows[2])])
+    expect(entries(join(root, 'missing.jsonl'))).toEqual([])
+  })
+
+  it('超过 LINE_MAX 的一行整行跳过，后面的行照常读', () => {
+    const file = join(root, 'huge-line.jsonl')
+    writeFileSync(file, `{"type":"message","text":"${'y'.repeat(LINE_MAX + 10)}"}\n{"type":"custom","id":"after"}`)
+    expect(entries(file).map(e => e.id)).toEqual(['after'])
   })
 })

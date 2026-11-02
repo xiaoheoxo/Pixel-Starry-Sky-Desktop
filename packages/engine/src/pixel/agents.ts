@@ -1,8 +1,9 @@
 // 像素星空的子智能体（命令行的 task 工具，packages/cli/src/tools/subagent.ts）→ 智能体追踪。
 // 运行中：task 工具的 tool_execution_update / end 带 details（SubagentProgress），变成 AgentRun；
 // 重新打开会话：从 Pi 主会话文件里的 pixelsky-subagent 条目读回来；子智能体的对话见 transcript.ts。
-import { existsSync, readFileSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readSync } from 'node:fs'
 import type { AgentRun, SubagentStatus } from '@pixelsky/protocol'
+import { LINE_MAX } from '../jsonl'
 import { number, object, string, type Message } from './process'
 
 export const SUBAGENT_TOOL = 'task'
@@ -129,25 +130,61 @@ export function subagentStatus(run: AgentRun, lastTool: string | null): Subagent
   }
 }
 
-/** 读 Pi 的会话文件（JSONL）；写到一半的最后一行跳过 */
-export function entries(file: string): Message[] {
+const READ_CHUNK = 1024 * 1024
+
+/**
+ * 读 Pi 的会话文件（JSONL）：按块读、按行切，不把整个文件变成一个字符串（长会话的文件会超过 V8 字符串上限 512 MB）。
+ * 给了 keep 就只解析含这段文字的行；写到一半的最后一行、超过 LINE_MAX 的行跳过
+ */
+export function entries(file: string, keep?: string): Message[] {
   if (!file || !existsSync(file)) return []
   const out: Message[] = []
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
-    if (!line.trim()) continue
+  const mark = keep ? Buffer.from(keep) : null
+  let parts: Buffer[] = []
+  let size = 0
+  const take = (part: Buffer): void => {
+    size += part.length
+    if (size <= LINE_MAX) parts.push(part)
+    else parts = []
+  }
+  const end = (): void => {
+    const line = size <= LINE_MAX ? Buffer.concat(parts, size) : null
+    parts = []
+    size = 0
+    if (!line || (mark && !line.includes(mark))) return
     try {
-      out.push(object(JSON.parse(line)))
+      out.push(object(JSON.parse(line.toString('utf8'))))
     } catch {
-      // 写到一半的最后一行
+      // 空行、写到一半的最后一行
     }
   }
+  const fd = openSync(file, 'r')
+  try {
+    for (;;) {
+      // 每块新分配：take 留着的是这块的切片
+      const chunk = Buffer.allocUnsafe(READ_CHUNK)
+      const n = readSync(fd, chunk, 0, READ_CHUNK, null)
+      if (!n) break
+      const data = chunk.subarray(0, n)
+      let from = 0
+      for (let i = data.indexOf(10); i !== -1; i = data.indexOf(10, from)) {
+        take(data.subarray(from, i))
+        end()
+        from = i + 1
+      }
+      if (from < n) take(data.subarray(from))
+    }
+  } finally {
+    closeSync(fd)
+  }
+  if (size) end()
   return out
 }
 
 /** 主会话文件里记下的子智能体（同一个工具调用以最后一条为准） */
 export function runsFromSession(
   file: string,
-  list: Message[] = entries(file),
+  list: Message[] = entries(file, SUBAGENT_ENTRY),
 ): Array<AgentRun & { sessionFile: string | null }> {
   const byCall = new Map<string, AgentRun & { sessionFile: string | null }>()
   for (const e of list) {

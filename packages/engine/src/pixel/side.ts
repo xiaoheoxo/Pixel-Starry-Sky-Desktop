@@ -2,7 +2,7 @@
 // Pi 的引擎会话 id 就是会话文件路径：复制一份到临时目录，`-p --session <副本> --no-tools --no-skills` 从 stdin 读问题、
 // 回答印在 stdout，问完把副本删掉。主会话可能正在写这个文件，复制时截到最后一个完整的行。
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, ftruncateSync, mkdtempSync, openSync, readSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { viaGateway, type SessionRecord } from '@pixelsky/protocol'
@@ -13,10 +13,32 @@ import { GATEWAY_PROVIDER } from './session'
 /** 旁聊最长等多久（和 Claude 的一样） */
 export const SIDE_TIMEOUT_MS = 5 * 60_000
 
-/** Pi 会话文件的完整行（去掉最后一行没写完的部分）；没有一行完整的返回 null */
-export function completeLines(text: string): string | null {
-  const end = text.lastIndexOf('\n')
-  return end < 0 ? null : text.slice(0, end + 1)
+/**
+ * 把会话文件复制成 dest，截到最后一个完整的行；一个完整的行都没有时返回 false。
+ * 按字节分块复制，不读成字符串（长会话的文件会超过 V8 字符串上限 512 MB）；
+ * 不用 copyFileSync：Windows 上它复制期间独占源文件，主会话这时追加会 EBUSY、丢条目
+ */
+export function copyCompleteLines(src: string, dest: string): boolean {
+  const from = openSync(src, 'r')
+  try {
+    const to = openSync(dest, 'w')
+    try {
+      const chunk = Buffer.allocUnsafe(1024 * 1024)
+      let size = 0,
+        complete = 0
+      for (let n; (n = readSync(from, chunk, 0, chunk.length, null)) > 0; size += n) {
+        writeSync(to, chunk, 0, n)
+        const at = chunk.subarray(0, n).lastIndexOf(10)
+        if (at >= 0) complete = size + at + 1
+      }
+      ftruncateSync(to, complete)
+      return complete > 0
+    } finally {
+      closeSync(to)
+    }
+  } finally {
+    closeSync(from)
+  }
 }
 
 /**
@@ -83,16 +105,8 @@ export function pixelSideQuestion(opts: {
 }): Promise<string> {
   const { signal } = opts
   if (signal.aborted) return Promise.reject(new Error('已停止'))
-  let text: string | null
-  try {
-    text = completeLines(readFileSync(opts.sessionFile, 'utf8'))
-  } catch {
-    return Promise.reject(new Error('找不到这个对话的会话文件，先在主对话里发一条消息'))
-  }
-  if (!text) return Promise.reject(new Error('先在主对话里发一条消息'))
   const dir = mkdtempSync(join(tmpdir(), 'pixelsky-pixel-side-'))
   const copy = join(dir, 'session.jsonl')
-  writeFileSync(copy, text, 'utf8')
   const cleanup = (): void => {
     // Windows 上进程刚退出时文件可能还被占着：删不掉就留给系统清
     try {
@@ -100,6 +114,23 @@ export function pixelSideQuestion(opts: {
     } catch {
       // 留下的临时副本无害
     }
+  }
+  let complete: boolean
+  try {
+    complete = copyCompleteLines(opts.sessionFile, copy)
+  } catch (error) {
+    cleanup()
+    return Promise.reject(
+      new Error(
+        (error as NodeJS.ErrnoException).code === 'ENOENT'
+          ? '找不到这个对话的会话文件，先在主对话里发一条消息'
+          : `复制会话文件失败：${(error as Error).message}`,
+      ),
+    )
+  }
+  if (!complete) {
+    cleanup()
+    return Promise.reject(new Error('先在主对话里发一条消息'))
   }
   return new Promise<string>((resolve, reject) => {
     const child = spawn(

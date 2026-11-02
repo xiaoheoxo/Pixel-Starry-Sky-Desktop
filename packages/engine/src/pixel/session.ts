@@ -24,6 +24,7 @@ import { effortOfLevel, effortsFromLevels, findModel, modelEfforts, piThinkingLe
 import { pixelWindow } from './context-window'
 import {
   APPROVAL_CONTEXT_STATUS,
+  SUBAGENT_ENTRY,
   entries,
   runsFromSession,
   subagentTotals,
@@ -415,7 +416,8 @@ export class PixelSession implements EngineSession {
       await this.syncEfforts(proc, string(state.thinkingLevel))
       this.ctx.setEngineSessionId(string(state.sessionFile) || string(state.sessionId))
       // 以前的子智能体：之后的 runs 事件是整份替换，要带上它们
-      const saved = entries(string(state.sessionFile))
+      // 只要子智能体的条目：主会话文件可能有几百 MB，其余的行不解析
+      const saved = entries(string(state.sessionFile), SUBAGENT_ENTRY)
       this.translator.seedRuns(
         runsFromSession(string(state.sessionFile), saved).map(({ sessionFile: _, ...run }) => run),
       )

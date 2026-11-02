@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -10,7 +11,7 @@ import { PIXEL_MODES, pixelModelsConfig, reservedPixelArg, mcpWaiterFor, searchT
 import { effortsFromLevels, findModel, modelEfforts } from '../src/pixel/catalog'
 import { gitBashDir, pixelShell, windowsBash } from '../src/pixel/discover'
 import { makeTmp, removeTmp } from './helpers/tmp'
-import { answerOf, completeLines, pixelSideArgs, pixelSideModel, sideUserArgs } from '../src/pixel/side'
+import { answerOf, copyCompleteLines, pixelSideArgs, pixelSideModel, sideUserArgs } from '../src/pixel/side'
 
 const NL = String.fromCharCode(10)
 
@@ -167,8 +168,23 @@ describe('Pixel 引擎适配器', () => {
     expect(answerOf(' 回答 ', '')).toBe('回答')
     const stderr = ['', 'No API key found for the selected model.', '', 'Use /login…', '  docs/providers.md'].join(NL)
     expect(() => answerOf('', stderr)).toThrow(/^No API key found for the selected model\.$/)
-    expect(completeLines('{"a":1}' + NL + '{"b"')).toBe('{"a":1}' + NL)
-    expect(completeLines('{"b"')).toBeNull()
+    // 复制会话文件截到最后一个完整的行；最后一行超过 1 MB 时换行在更前面的块里
+    const dir = mkdtempSync(join(tmpdir(), 'pixel-side-copy-'))
+    try {
+      const src = join(dir, 'src.jsonl'),
+        copy = join(dir, 'copy.jsonl')
+      const tail = '{"b":"' + 'x'.repeat(1024 * 1024 + 7)
+      writeFileSync(src, '{"a":"中"}' + NL + tail)
+      expect(copyCompleteLines(src, copy)).toBe(true)
+      expect(readFileSync(copy, 'utf8')).toBe('{"a":"中"}' + NL)
+      writeFileSync(src, '{"b"')
+      expect(copyCompleteLines(src, copy)).toBe(false)
+      writeFileSync(src, '')
+      expect(copyCompleteLines(src, copy)).toBe(false)
+      expect(() => copyCompleteLines(join(dir, 'missing.jsonl'), copy)).toThrow(/ENOENT/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
   it('目录：起不来时记下启动错误，之后起得来就清掉', async () => {
     let fail = 'catalog boom'

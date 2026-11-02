@@ -79,4 +79,8 @@ export const pixelMessages = {
     zh: '找不到这个对话的会话文件，先在主对话里发一条消息',
     en: 'Could not find the session file for this conversation. Send a message in the main conversation first.',
   },
+  'engine.pixel.side.copyFailed': {
+    zh: '复制会话文件失败：{p0}',
+    en: 'Could not copy the session file: {p0}',
+  },
 } as const
