@@ -350,7 +350,7 @@ describe('Chat Completions：用量与一次性调用', () => {
         choices: [{ message: { content: 'fix: x' } }],
         usage: { prompt_tokens: 20, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 5 } },
       }),
-    ).toEqual({ text: 'fix: x', usage: { input: 15, output: 3, cacheRead: 5, cacheWrite: 0 } })
+    ).toEqual({ text: 'fix: x', truncated: false, usage: { input: 15, output: 3, cacheRead: 5, cacheWrite: 0 } })
   })
 })
 
