@@ -23,7 +23,8 @@ describe('dirSize', () => {
     write(join(base, 'x', 'b.bin'), 20)
     write(join(base, 'x', 'y', 'c.bin'), 30)
     expect(await dirSize(base)).toBe(60)
-    expect(await dirSize(base, p => p.endsWith('y'))).toBe(30)
+    // 只跳过 x/y 本身：临时目录名是随机的，可能也以 y 结尾
+    expect(await dirSize(base, p => p === join(base, 'x', 'y'))).toBe(30)
     expect(await dirSize(join(base, 'missing'))).toBe(0)
     expect(await dirSize(join(base, 'a.bin'))).toBe(10)
   })
