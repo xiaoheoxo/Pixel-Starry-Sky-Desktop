@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { useEffect, useRef, useState } from 'react'
 import type { TerminalRecord } from '../../../../shared/types/terminal'
-import { consumeTerminal, demoWrite, terminalError } from './store'
+import { consumeTerminal, demoWrite, terminalError, terminalState } from './store'
 import { screens } from './screens'
 import { isDemo } from '@/data'
 import { openFile } from '@/features/files/store'
@@ -21,6 +21,19 @@ import { projectOf } from './projectOf'
 import { machineOf } from '@/features/machines/store'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
+import { useToast } from '@/ui'
+import { QUOTE_MAX_CHARS, QUOTE_MAX_LINES } from '@/features/session/quote'
+import {
+  errorQuote,
+  failedTail,
+  isErrorLine,
+  promptCommand,
+  quoteCard,
+  selectionQuote,
+  type LatestEnd,
+  type Rows,
+} from './errorLines'
+import { FixButton, SelectionBar, sendTerminalQuote } from './AskAi'
 
 const ansi = [
   'black',
@@ -40,6 +53,41 @@ const ansi = [
   'brightCyan',
   'brightWhite',
 ] as const
+
+/** xterm 当前缓冲区按行读（报错行识别用） */
+function bufferRows(term: Terminal): Rows {
+  const buffer = term.buffer.active
+  return {
+    length: buffer.length,
+    text: row => buffer.getLine(row)?.translateToString(true) ?? '',
+    wrapped: row => !!buffer.getLine(row)?.isWrapped,
+  }
+}
+/** 最近结束的那条命令：进程退出了用它的退出码；shell 集成报过、光标已回到提示符行上时用最后一次的退出码 */
+function lastEnd(term: Terminal, record: TerminalRecord, rows: Rows): LatestEnd | null {
+  const buffer = term.buffer.active,
+    cursor = buffer.baseY + buffer.cursorY
+  if (record.status === 'exited' && record.exitCode !== undefined) return { row: cursor + 1, code: record.exitCode }
+  const marks = terminalState().marks[record.id]
+  const code = marks?.generation === record.generation ? (marks.codes.at(-1) ?? null) : null
+  return code !== null && promptCommand(rows.text(cursor)) !== null ? { row: cursor, code } : null
+}
+/** 字符格大小，和屏幕相对外层容器的位置（浮条定位用）；还没画出来时为 null */
+function geometry(term: Terminal, el: HTMLElement) {
+  const screen = el.querySelector('.xterm-screen'),
+    wrap = el.parentElement
+  if (!screen || !wrap || !term.cols || !term.rows) return null
+  const s = screen.getBoundingClientRect(),
+    w = wrap.getBoundingClientRect()
+  return {
+    screen: s,
+    left: s.left - w.left,
+    top: s.top - w.top,
+    cellW: s.width / term.cols,
+    cellH: s.height / term.rows,
+  }
+}
+
 export function TerminalView({
   record,
   visible,
@@ -54,6 +102,7 @@ export function TerminalView({
   onCycle: (delta: number) => void
 }) {
   const { t } = useI18n()
+  const toast = useToast()
   const host = useRef<HTMLDivElement>(null),
     instance = useRef<Terminal | null>(null),
     refit = useRef<() => void>(() => {}),
@@ -61,7 +110,11 @@ export function TerminalView({
   const latest = useRef({ record, visible, onPaste, onFind, onCycle })
   latest.current = { record, visible, onPaste, onFind, onCycle }
   const [away, setAway] = useState(false),
-    [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+    [menu, setMenu] = useState<{ x: number; y: number } | null>(null),
+    [bar, setBar] = useState<{ x: number; y: number } | null>(null),
+    [fix, setFix] = useState<{ x: number; y: number; row: number } | null>(null)
+  /** 鼠标停在缓冲区的哪一行（同一行不重复识别） */
+  const hoverRow = useRef(-1)
   useEffect(() => {
     const el = host.current!
     // 回滚行数、读屏支持是本机设置（prefs.ts），下面的 effect 改了马上换
@@ -141,7 +194,32 @@ export function TerminalView({
       seen = event.seq
       term.write(event.data, ack)
     })
-    const scroll = term.onScroll(() => setAway(term.buffer.active.viewportY < term.buffer.active.baseY))
+    // 选中文字后选区上方（顶上放不下就放下方）浮出「问 AI · 引用到对话 · 复制」
+    const placeBar = (): void => {
+      const pos = term.getSelectionPosition(),
+        g = geometry(term, el)
+      if (!pos || !g || !term.getSelection().trim()) return setBar(null)
+      const viewport = term.buffer.active.viewportY,
+        above = g.top + (pos.start.y - viewport) * g.cellH - 30
+      const y = above >= 0 ? above : g.top + (pos.end.y - viewport + 1) * g.cellH + 4
+      setBar({
+        x: Math.max(0, Math.min(g.left + pos.start.x * g.cellW, g.left + g.screen.width - 230)),
+        y: Math.max(0, Math.min(y, el.clientHeight - 30)),
+      })
+    }
+    // 滚动、改大小后行的位置变了：「交给 AI 修」收起，浮条跟着选区重新放。
+    // 屏幕满了以后每来一行输出都会触发 onScroll，所以浮条不能直接收起
+    const moved = (): void => {
+      hoverRow.current = -1
+      setFix(null)
+      placeBar()
+    }
+    const scroll = term.onScroll(() => {
+      setAway(term.buffer.active.viewportY < term.buffer.active.baseY)
+      moved()
+    })
+    const resize = term.onResize(moved)
+    const selection = term.onSelectionChange(placeBar)
     const paste = (event: ClipboardEvent): void => {
       const text = event.clipboardData?.getData('text/plain')
       if (text === undefined) return
@@ -278,6 +356,8 @@ export function TerminalView({
       },
       clear: () => {
         term.clear()
+        term.clearSelection()
+        moved()
       },
       find: (query: string, backwards = false) => (backwards ? search.findPrevious(query) : search.findNext(query)),
       endSearch: () => search.clearDecorations(),
@@ -299,6 +379,8 @@ export function TerminalView({
       mutation.disconnect()
       input.dispose()
       scroll.dispose()
+      resize.dispose()
+      selection.dispose()
       links.dispose()
       el.removeEventListener('paste', paste, true)
       el.removeEventListener('dragover', dragOver)
@@ -322,6 +404,65 @@ export function TerminalView({
   useEffect(() => {
     if (instance.current) restyle.current()
   }, [prefs.fontSize])
+  // 报错行：鼠标停上去时行尾出现「交给 AI 修」
+  const hover = (event: React.MouseEvent): void => {
+    const term = instance.current,
+      el = host.current
+    if (!term || !el || (event.target as Element).closest('[data-terminal-float]')) return
+    const g = geometry(term, el)
+    const view = g ? Math.floor((event.clientY - g.screen.top) / g.cellH) : -1,
+      row = term.buffer.active.viewportY + view
+    if (row === hoverRow.current) return
+    hoverRow.current = row
+    if (!g || view < 0 || view >= term.rows) return setFix(null)
+    const rows = bufferRows(term),
+      text = rows.text(row)
+    if (!isErrorLine(text) && failedTail(rows, lastEnd(term, latest.current.record, rows)) !== row) return setFix(null)
+    // shortcut: 按字符数算行尾，中文这类双宽字符多的行会偏左；要准再按单元格宽度算
+    setFix({
+      x: Math.min(g.left + (text.length + 1) * g.cellW, g.left + g.screen.width - 110),
+      y: g.top + (view + 0.5) * g.cellH,
+      row,
+    })
+  }
+  /** 会话 TUI 终端（这时右栏没有输入框）直接粘进 TUI 自己的输入框，走粘贴那套（多行先确认）；别的放进右栏输入框 */
+  const deliver = (card: string, prompt: string | null): string | null => {
+    const now = latest.current.record
+    if (!now.sessionId) return sendTerminalQuote(card, prompt)
+    latest.current.onPaste(now.id, prompt ? `${card}\n${prompt}` : card)
+    instance.current?.focus()
+    return null
+  }
+  const fixError = (row: number): void => {
+    const term = instance.current
+    setFix(null)
+    if (!term) return
+    const rows = bufferRows(term),
+      quote = errorQuote(rows, row, lastEnd(term, latest.current.record, rows))
+    const failed = deliver(quoteCard(quote), tr('terminal.ask.fixPrompt'))
+    if (failed) toast(failed)
+  }
+  /** 选中的文字引用到对话；prompt 是「问 AI」顺手填的那句 */
+  const quoteSelected = (prompt: string | null): void => {
+    const term = instance.current,
+      pos = term?.getSelectionPosition()
+    if (!term || !pos) return
+    const text = term.getSelection()
+    // 拖到下一行行首时那一行不算
+    const end = pos.end.x === 0 && pos.end.y > pos.start.y ? pos.end.y - 1 : pos.end.y,
+      lines = end - pos.start.y + 1
+    if (lines > QUOTE_MAX_LINES || text.length > QUOTE_MAX_CHARS) {
+      toast(
+        tr('terminal.ask.tooLong', { lines, chars: text.length, maxLines: QUOTE_MAX_LINES, maxChars: QUOTE_MAX_CHARS }),
+      )
+      return
+    }
+    const rows = bufferRows(term),
+      quote = selectionQuote(rows, pos.start.y, end, text, lastEnd(term, latest.current.record, rows))
+    const failed = deliver(quoteCard(quote), prompt)
+    if (failed) toast(failed)
+    else term.clearSelection()
+  }
   useEffect(() => {
     if (!menu) return
     const dismiss = () => setMenu(null)
@@ -329,7 +470,15 @@ export function TerminalView({
     return () => window.removeEventListener('pointerdown', dismiss)
   }, [menu])
   return (
-    <div className={visible ? 'relative flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'} inert={!visible}>
+    <div
+      className={visible ? 'relative flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
+      inert={!visible}
+      onMouseMove={hover}
+      onMouseLeave={() => {
+        hoverRow.current = -1
+        setFix(null)
+      }}
+    >
       <div
         ref={host}
         data-terminal-input={record.id}
@@ -339,6 +488,16 @@ export function TerminalView({
         }}
         className="terminal-xterm min-h-0 flex-1 font-mono text-list"
       />
+      {bar && (
+        <SelectionBar
+          x={bar.x}
+          y={bar.y}
+          onAsk={() => quoteSelected(tr('terminal.ask.aiPrompt'))}
+          onQuote={() => quoteSelected(null)}
+          onCopy={() => void screens.get(record.id)?.copy().catch(terminalError)}
+        />
+      )}
+      {fix && <FixButton x={fix.x} y={fix.y} onClick={() => fixError(fix.row)} />}
       {away && (
         <button
           onClick={() => screens.get(record.id)?.bottom()}

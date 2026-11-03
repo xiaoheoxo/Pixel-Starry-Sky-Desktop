@@ -1,10 +1,12 @@
-// 代码透镜：在每个声明行上方显示「✦ AI 解释 · ✦ 让 AI 改」（块级 widget）
+// 代码透镜：在每个声明行上方显示「✦ AI 解释 · ✦ 让 AI 改 · ✦ 行内改写」（块级 widget）
 import { StateField, type Extension } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view'
 import { tr } from '@/i18n/core'
 import { quoteSelection, getEditorView } from '@/features/editor/code/CodeEditor'
 import { appendComposerDraft } from '@/features/engine/drafts'
 import { composerTarget } from '@/features/session/composerTarget'
+import { startInlineEdit } from '@/features/editor/code/inlineEdit/extension'
+import { isMac } from '@/features/layout/keybindings'
 import { declarations } from './symbolsModel'
 
 /** 超过这个行数不启用（每次改动都要重新找声明） */
@@ -15,6 +17,7 @@ type Notify = (message: string) => void
 class LensWidget extends WidgetType {
   constructor(
     readonly tabId: string,
+    readonly path: string,
     readonly name: string,
     readonly from: number,
     readonly to: number,
@@ -23,7 +26,13 @@ class LensWidget extends WidgetType {
     super()
   }
   eq(other: LensWidget): boolean {
-    return other.tabId === this.tabId && other.name === this.name && other.from === this.from && other.to === this.to
+    return (
+      other.tabId === this.tabId &&
+      other.path === this.path &&
+      other.name === this.name &&
+      other.from === this.from &&
+      other.to === this.to
+    )
   }
   /** 选中整个声明，再把选区引用进会话输入框；失败时把原因提示出来 */
   private act(explain: boolean): void {
@@ -43,7 +52,7 @@ class LensWidget extends WidgetType {
   toDOM(): HTMLElement {
     const root = document.createElement('div')
     root.className = 'cm-code-lens'
-    const button = (label: string, explain: boolean): HTMLButtonElement => {
+    const button = (label: string, run: () => void): HTMLButtonElement => {
       const el = document.createElement('button')
       el.type = 'button'
       el.className = 'cm-code-lens-btn'
@@ -52,17 +61,27 @@ class LensWidget extends WidgetType {
       el.addEventListener('mousedown', e => e.preventDefault())
       el.addEventListener('click', e => {
         e.preventDefault()
-        this.act(explain)
+        run()
       })
       return el
     }
-    const sep = document.createElement('span')
-    sep.className = 'cm-code-lens-sep'
-    sep.textContent = '·'
+    const sep = (): HTMLSpanElement => {
+      const el = document.createElement('span')
+      el.className = 'cm-code-lens-sep'
+      el.textContent = '·'
+      return el
+    }
+    // 行内改写：只改这个声明，在原位出红绿行（docs/ui/coding-tier2.md §6）
+    const inline = (): void => {
+      const view = getEditorView(this.tabId)
+      if (view) startInlineEdit(view, this.path, this.notify, { from: this.from, to: this.to })
+    }
     root.append(
-      button(tr('coding.editor.extras.lensExplain'), true),
-      sep,
-      button(tr('coding.editor.extras.lensEdit'), false),
+      button(tr('coding.editor.extras.lensExplain'), () => this.act(true)),
+      sep(),
+      button(tr('coding.editor.extras.lensEdit'), () => this.act(false)),
+      sep(),
+      button(`${tr('editor.inline.action')} ${isMac ? '⌘K' : 'Ctrl+K'}`, inline),
     )
     return root
   }
@@ -99,7 +118,7 @@ export function codeLens(tabId: string, path: string, notify: Notify): Extension
   const build = (text: string): DecorationSet => {
     const items = declarations(text, path).map(d =>
       Decoration.widget({
-        widget: new LensWidget(tabId, d.name, d.from, d.to, notify),
+        widget: new LensWidget(tabId, path, d.name, d.from, d.to, notify),
         block: true,
         side: -1,
       }).range(d.from),

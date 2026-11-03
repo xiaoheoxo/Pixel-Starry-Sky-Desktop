@@ -132,6 +132,12 @@ describe('syncValue', () => {
     expect(next?.selection.main.head).toBe(7)
   })
 
+  it('空输入框被填入带 \\r\\n 的草稿（终端里选中的文字）：不越界，换行统一成 \\n', () => {
+    const next = apply('', 0, '终端 · pnpm build\r\n✗ Build failed\r\nerror during build:\r\n')
+    expect(next?.doc.toString()).toBe('终端 · pnpm build\n✗ Build failed\nerror during build:\n')
+    expect(next?.selection.main.head).toBe(next?.doc.length)
+  })
+
   it('一样就不发改动', () => {
     expect(syncValue(EditorState.create({ doc: 'abc' }), 'abc')).toBeNull()
   })

@@ -94,3 +94,23 @@ export type AiCommitResult =
       chargeable: boolean
     }
   | { ok: false; problem: AiProblem; detail: string }
+
+/**
+ * 编辑器内行内改写（docs/ui/coding-tier2.md §6）：只改选中的那段，结果的 message 是改写后的代码（替换 code）。
+ * before / after 是选区前后各最多 INLINE_EDIT_CONTEXT_LINES 行，只给模型看上下文
+ */
+export interface AiInlineEditRequest extends AiChannelRequest {
+  /** 显示用的文件路径（相对项目） */
+  path: string
+  /** 语言名（ts、python…）；认不出时为空 */
+  language: string
+  before: string
+  code: string
+  after: string
+  /** 用户的要求（最多 INLINE_EDIT_INSTRUCTION_LIMIT 字） */
+  instruction: string
+}
+export const INLINE_EDIT_MAX_LINES = 400
+export const INLINE_EDIT_MAX_CHARS = 40_000
+export const INLINE_EDIT_CONTEXT_LINES = 60
+export const INLINE_EDIT_INSTRUCTION_LIMIT = 2000

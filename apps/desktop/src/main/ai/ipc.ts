@@ -5,17 +5,23 @@ import { OneShotError } from '@pixelsky/engine'
 import { randomUUID } from 'node:crypto'
 import type { PlatformCharge, PlatformSettlement } from '@pixelsky/protocol'
 import {
+  INLINE_EDIT_CONTEXT_LINES,
+  INLINE_EDIT_INSTRUCTION_LIMIT,
+  INLINE_EDIT_MAX_CHARS,
+  INLINE_EDIT_MAX_LINES,
   PROMPT_CONTEXT_LIMIT,
   PROMPT_TEXT_LIMIT,
   type AiChannelRequest,
   type AiCommitRequest,
   type AiCommitResult,
+  type AiInlineEditRequest,
   type AiPromptRequest,
 } from '../../shared/types/ai'
 import type { GitCommitContext } from '../../shared/types/project-tools'
 import type { AppContext } from '../app/context'
 import { platformFetch, signedInEmail } from '../account/account'
 import { writeCommitMessage, type ModelDeps } from '../core/ai/commit-message'
+import { inlineEdit } from '../core/ai/inline-edit'
 import { optimizePrompt } from '../core/ai/prompt-optimize'
 import { workspaceRef } from '../core/workspace-files'
 import * as ipc from '../ipc/guard'
@@ -68,6 +74,29 @@ export function aiPromptRequest(input: unknown): AiPromptRequest {
   if (typeof v.text !== 'string' || !v.text.trim() || v.text.length > PROMPT_TEXT_LIMIT) throw new Error('参数不正确')
   if (typeof v.context !== 'string' || v.context.length > PROMPT_CONTEXT_LIMIT) throw new Error('参数不正确')
   return { ...channel, text: v.text, context: v.context }
+}
+
+const lineCount = (s: string): number => s.split('\n').length
+
+/** 行内改写：选区最多 INLINE_EDIT_MAX_LINES 行 / INLINE_EDIT_MAX_CHARS 字，前后文各最多 INLINE_EDIT_CONTEXT_LINES 行 */
+export function aiInlineEditRequest(input: unknown): AiInlineEditRequest {
+  const v = (input ?? {}) as Record<string, unknown>
+  const channel = aiChannelRequest(v)
+  const text = (x: unknown, max: number, lines: number): string => {
+    if (typeof x !== 'string' || x.length > max || lineCount(x) > lines) throw new Error('参数不正确')
+    return x
+  }
+  const instruction = text(v.instruction, INLINE_EDIT_INSTRUCTION_LIMIT, Infinity)
+  if (!instruction.trim()) throw new Error('参数不正确')
+  return {
+    ...channel,
+    path: text(v.path, 1000, 1),
+    language: text(v.language, 100, 1),
+    before: text(v.before, INLINE_EDIT_MAX_CHARS, INLINE_EDIT_CONTEXT_LINES),
+    code: text(v.code, INLINE_EDIT_MAX_CHARS, INLINE_EDIT_MAX_LINES),
+    after: text(v.after, INLINE_EDIT_MAX_CHARS, INLINE_EDIT_CONTEXT_LINES),
+    instruction,
+  }
 }
 
 export function initAi(ctx: AppContext): void {
@@ -156,6 +185,11 @@ export function initAi(ctx: AppContext): void {
   ipc.handle('ai:optimizePrompt', (_e, input: unknown) => {
     const req = aiPromptRequest(input)
     return run(req, (deps, signal) => optimizePrompt(deps, req, signal))
+  })
+
+  ipc.handle('ai:inlineEdit', (_e, input: unknown) => {
+    const req = aiInlineEditRequest(input)
+    return run(req, (deps, signal) => inlineEdit(deps, req, signal))
   })
 
   ipc.handle('ai:cancel', (_e, id: unknown) => {

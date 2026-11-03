@@ -22,7 +22,7 @@ import {
   searchKeymap,
   selectNextOccurrence,
 } from '@codemirror/search'
-import { ClipboardPaste, Copy, MessageSquareQuote, Scissors, TextSelect } from 'lucide-react'
+import { ClipboardPaste, Copy, MessageSquareQuote, Scissors, Sparkles, TextSelect } from 'lucide-react'
 import {
   FILE_CLOSED_EVENT,
   FILE_RENAMED_EVENT,
@@ -58,6 +58,8 @@ import { editorPackExtensions } from './packs'
 import { onWordCompleteChange } from './snippets/words'
 import { promptMenuActions } from '@/features/extpacks/prompts/editorMenu'
 import { fileIndent, linePosition } from './positions'
+import { inlineEditExtension, startInlineEdit } from './inlineEdit/extension'
+import { InlineEdit } from './inlineEdit/InlineEditBox'
 
 type Runtime = {
   view: EditorView
@@ -213,6 +215,12 @@ function menuActions(tabId: string, view: EditorView, toast: (message: string) =
         if (error) toast(error)
       },
     },
+    {
+      label: tr('editor.inline.action'),
+      icon: Sparkles,
+      disabled: readonly,
+      run: () => void startInlineEdit(view, tabPath, toast),
+    },
     ...promptMenuActions({ tabId, path: tabPath, view, toast }),
     {
       label: tr('editor.menu.cut'),
@@ -273,6 +281,8 @@ export function CodeEditor({
   const toast = useToast()
   const host = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  /** 挂上后的 EditorView：行内改写的输入框要它（runtime 在 layout effect 里才建） */
+  const [mounted, setMounted] = useState<EditorView | null>(null)
   useLayoutEffect(() => {
     if (!host.current) return
     let runtime = runtimes.get(tab.id)
@@ -325,6 +335,11 @@ export function CodeEditor({
             highlightSelectionMatches(),
             search({ top: true }),
             changeGutter,
+            // 行内改写（Ctrl+K，docs/ui/coding-tier2.md §6）
+            inlineEditExtension(
+              () => getFiles().tabs.find(t => t.id === owner.id)?.path ?? '',
+              message => toast(message),
+            ),
             extra.of(EMPTY),
             packs.of(editorPackExtensions(tab.path, firstLineOf(tab.draft))),
             indentUnit.of(fileIndent(tab.draft).unit),
@@ -390,6 +405,7 @@ export function CodeEditor({
       }
     } else host.current.appendChild(runtime.view.dom)
     runtime.view.requestMeasure()
+    setMounted(runtime.view)
     return () => {
       runtime.view.dom.remove()
     }
@@ -464,6 +480,7 @@ export function CodeEditor({
           setMenu({ x: e.clientX, y: e.clientY })
         }}
       />
+      {mounted && <InlineEdit view={mounted} path={tab.path} />}
       {menu && runtime && (
         <ActionMenu
           x={menu.x}

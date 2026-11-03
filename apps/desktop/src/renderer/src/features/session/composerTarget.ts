@@ -4,6 +4,7 @@ import { isLive } from '@/features/engine'
 import { getEngineState } from '@/features/engine/store'
 import { getPaneState } from '@/features/panes/store'
 import { focusedTab, isFileTab, visibleTabs } from '@/features/panes/tree'
+import { tuiModeOf } from './tuiMode'
 
 export interface ComposerTarget {
   /** 输入框的草稿键（appendComposerDraft 用） */
@@ -16,9 +17,12 @@ export interface ComposerTarget {
 export function composerTarget(): ComposerTarget | null {
   const layout = getPaneState().layout
   const focused = focusedTab(layout)
-  const tab = focused && !isFileTab(focused) ? focused : visibleTabs(layout).find(t => !isFileTab(t))
+  const recordOf = (id: string) => getEngineState().sessions.find(s => s.record.id === id)?.record
+  // 终端（TUI）模式的会话不挂输入框，放进去的草稿用户看不到
+  const usable = (id: string): boolean => !isFileTab(id) && tuiModeOf(recordOf(id)) !== 'terminal'
+  const tab = focused && usable(focused) ? focused : visibleTabs(layout).find(usable)
   if (!tab) return null
-  const record = getEngineState().sessions.find(s => s.record.id === tab)?.record
+  const record = recordOf(tab)
   return { key: isLive ? tab : `demo:${tab}`, cwd: record?.cwd ?? null }
 }
 

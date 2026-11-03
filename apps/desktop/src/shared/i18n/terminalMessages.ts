@@ -182,4 +182,18 @@ export const terminalMessages = {
   'terminal.scripts': { zh: '运行项目脚本', en: 'Run project script' },
   'terminal.scriptsHint': { zh: '在新终端里运行', en: 'Runs in a new terminal' },
   'terminal.noScripts': { zh: '没有找到 package.json 脚本', en: 'No package.json scripts found' },
+  'terminal.ask.ai': { zh: '问 AI', en: 'Ask AI' },
+  'terminal.ask.quote': { zh: '引用到对话', en: 'Quote in chat' },
+  'terminal.ask.copy': { zh: '复制', en: 'Copy' },
+  'terminal.ask.fix': { zh: '交给 AI 修', en: 'Fix with AI' },
+  'terminal.ask.aiPrompt': { zh: '帮我看看这个报错', en: 'Take a look at this error for me' },
+  'terminal.ask.fixPrompt': { zh: '帮我修好这个报错', en: 'Fix this error for me' },
+  'terminal.ask.tooLong': {
+    zh: '选中的内容太长（{lines} 行、{chars} 字），最多 {maxLines} 行、{maxChars} 字，缩小一点再引用',
+    en: 'Selection is too long ({lines} lines, {chars} characters); the limit is {maxLines} lines and {maxChars} characters. Select less.',
+  },
+  'terminal.quote.title': { zh: '终端', en: 'Terminal' },
+  'terminal.quote.exitCode': { zh: '退出码 {code}', en: 'exit code {code}' },
+  'terminal.quote.line': { zh: '第 {line} 行', en: 'line {line}' },
+  'terminal.quote.lines': { zh: '第 {start}–{end} 行', en: 'lines {start}–{end}' },
 } as const

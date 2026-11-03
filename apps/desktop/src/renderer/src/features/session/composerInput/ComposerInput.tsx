@@ -80,11 +80,13 @@ export function minimalChange(from: string, to: string): { from: number; to: num
  * 光标放到末尾，能接着写；否则不给 selection，光标跟着改动自己映射
  */
 export function syncValue(state: EditorState, value: string): TransactionSpec | null {
-  const change = minimalChange(state.doc.toString(), value)
+  // 编辑器里的换行都是 \n：草稿带 \r\n（终端里选中的文字）时先统一，不然长度对不上、光标越界
+  const text = value.replace(/\r\n?/g, '\n')
+  const change = minimalChange(state.doc.toString(), text)
   if (!change) return null
   return {
     changes: change,
-    ...(state.doc.length === 0 ? { selection: { anchor: value.length } } : {}),
+    ...(state.doc.length === 0 ? { selection: { anchor: text.length } } : {}),
     annotations: Transaction.addToHistory.of(false),
   }
 }
