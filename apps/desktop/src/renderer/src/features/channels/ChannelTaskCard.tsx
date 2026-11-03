@@ -1,6 +1,6 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage, type TranslationKey } from '../../i18n/core'
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import {
   ChevronDown,
   CircleCheck,
@@ -9,12 +9,13 @@ import {
   Clock,
   Hand,
   ShieldAlert,
+  Shuffle,
   SquareKanban,
   Unplug,
   type LucideIcon,
 } from 'lucide-react'
 import { setPage } from '@/features/layout/page'
-import { Button, cn, DiffStat, Spinner, useToast } from '@/ui'
+import { Button, cn, DiffStat, Popover, PopoverItem, Spinner, useToast } from '@/ui'
 import { canAnswerInline } from '@/features/panel/inbox/inboxModel'
 import type { ChannelMember, ChannelTask, ChannelTaskStatus } from '@/data/types'
 import { RELAY_PRESETS, relayRulesOf, type ChannelTaskAction } from '../../../../shared/types/channels'
@@ -51,7 +52,7 @@ const STATUS_ICON: Record<Exclude<ChannelTaskStatus, 'running'>, { icon: LucideI
 export interface TaskCardActions {
   onOpenSession: (sessionId: string) => void
   /** 正式模式才有：取消 / 停止 / 重试 */
-  onAction?: (taskId: string, action: ChannelTaskAction) => Promise<void>
+  onAction?: (taskId: string, action: ChannelTaskAction, memberId?: string) => Promise<void>
   /** 等你确认：允许 / 拒绝（engine:answer） */
   onAnswer?: (task: ChannelTask, allow: boolean) => Promise<void>
   /** 追加要求：放一条引用这张卡的引用条 */
@@ -242,6 +243,25 @@ export function ChannelTaskCard({
           <SquareKanban size={12} strokeWidth={1.75} className="shrink-0" />
           <span className="truncate">{tr('board.issue.chip', { title: task.issue.title })}</span>
         </button>
+      )}
+      {task.routedBy && (
+        <RoutedLine
+          task={task}
+          membersById={membersById}
+          memberIds={channel?.memberIds ?? []}
+          // 结束了的不能改派：改派走的旧卡会停下，留着按钮会把同一件事再派一份（失败、停下的用「重试」）
+          canMove={
+            live &&
+            control &&
+            !pending &&
+            task.status !== 'done' &&
+            task.status !== 'failed' &&
+            task.status !== 'stopped' &&
+            channel?.scope === 'local'
+          }
+          busy={busy}
+          onMove={memberId => run(() => onAction!(task.id, 'reassign', memberId))}
+        />
       )}
       {task.summary && !resultShown && <p className="mt-1 text-list break-words text-fg-secondary">{task.summary}</p>}
       {activity && (
@@ -546,4 +566,77 @@ function pillTone(task: ChannelTask, held: boolean): string {
   if (task.status === 'failed') return 'bg-danger/15 text-danger'
   if (task.status === 'running') return 'bg-accent-soft text-accent-fg'
   return 'bg-subtle text-fg-muted'
+}
+
+/** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、为什么；没做完前能改派给别人 */
+function RoutedLine({
+  task,
+  membersById,
+  memberIds,
+  canMove,
+  busy,
+  onMove,
+}: {
+  task: ChannelTask
+  membersById: ReadonlyMap<string, ChannelMember>
+  memberIds: readonly string[]
+  canMove: boolean
+  busy: boolean
+  onMove: (memberId: string) => void
+}) {
+  const [menu, setMenu] = useState(false)
+  const anchor = useRef<HTMLButtonElement>(null)
+  const routed = task.routedBy!
+  const lead = membersById.get(routed.memberId)?.name ?? '?'
+  const others = memberIds
+    .map(id => membersById.get(id))
+    .filter((m): m is ChannelMember => m?.kind === 'agent' && m.id !== task.assigneeId)
+  return (
+    <div data-task-routed className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
+      <Shuffle size={12} strokeWidth={1.75} className="shrink-0 text-accent-fg" />
+      <span className="min-w-0 truncate" title={routed.note}>
+        {routed.moved
+          ? tr('channels.task.routedMoved')
+          : routed.note
+            ? tr('channels.task.routedWhy', { name: lead, why: routed.note })
+            : tr('channels.task.routed', { name: lead })}
+      </span>
+      {canMove && others.length > 0 && (
+        <>
+          <button
+            ref={anchor}
+            type="button"
+            disabled={busy}
+            aria-haspopup="menu"
+            aria-expanded={menu}
+            onClick={() => setMenu(v => !v)}
+            className="press shrink-0 rounded px-1 text-accent-fg hover:bg-hover disabled:opacity-40"
+          >
+            {tr('channels.task.reassign')}
+          </button>
+          <Popover
+            open={menu}
+            onClose={() => setMenu(false)}
+            anchor={anchor}
+            side="bottom"
+            align="start"
+            className="w-64"
+          >
+            {others.map(m => (
+              <PopoverItem
+                key={m.id}
+                icon={<MemberAvatar member={m} size={18} />}
+                onClick={() => {
+                  setMenu(false)
+                  onMove(m.id)
+                }}
+              >
+                {m.name}
+              </PopoverItem>
+            ))}
+          </Popover>
+        </>
+      )}
+    </div>
+  )
 }

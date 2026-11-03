@@ -531,8 +531,10 @@ export function flowPlanPrompt(input: {
   channel: string
   request: string
   members: { name: string; role: string }[]
-  /** 牵头成员按用户不带 @ 的消息自动拆的：只是问题、一步能做完时直接回答 */
+  /** 牵头成员按用户不带 @ 的消息自动拆的：只是问题时直接回答 */
   auto?: boolean
+  /** 牵头分派（docs/ui/channels-auto-route.md）：一个成员一次能做完的，只给一步、交给职责最合适的那个，软件直接派活 */
+  route?: boolean
   /** 用户 @ 它派的活：先出计划，一个人能做完的计划可以只有一步给它自己 */
   mention?: boolean
   /** 换人接手时：前一个成员拆到哪了、用户答过什么 */
@@ -549,9 +551,11 @@ export function flowPlanPrompt(input: {
       'Ask first, all at once: if something changes the result and cannot be inferred, call task_done once with summary and questions (at most 6, each {q, options}: 2-4 short options where possible) and no steps. The answers will be sent to you. Ask only what really matters; if nothing, skip this.',
       'Then deliver the complete plan in one go, without asking again: steps (each may also have effort: "low" | "medium" | "high" | "xhigh", the reasoning effort that step needs; think hard on interfaces and reviews, less on mechanical work) and brief: goal (one line), facts (what was decided, {k, v}; things you decided for the user get suggested: true, e.g. acceptance criteria or tech stack nobody named). Leave open empty. Also give title: a short name for the plan (at most 20 characters), not a copy of the request. Nobody starts yet: the user can edit it or ask for changes, and starts it when ready.',
       'If the task_done tool is not available to you, put exactly the same JSON (summary, title, questions or steps and brief) in a ```json block at the end of your reply instead; the app reads it from there.',
-      input.auto
-        ? 'You are the lead of this channel and the user did not name anyone. If this is just a question, or one member can finish it in one go, do not call task_done: answer directly in your reply.'
-        : '',
+      input.auto && input.route
+        ? 'You are the lead of this channel and the user did not name anyone. If this is just a question, do not call task_done: answer directly in your reply. If one member can finish it in one go, deliver exactly one step assigned to the member whose role fits best (when two fit equally, prefer the one marked less busy; it may be you); its title says what to do and, briefly, why that member. The app assigns it right away, no draft. Use several steps only when it really needs several members.'
+        : input.auto
+          ? 'You are the lead of this channel and the user did not name anyone. If this is just a question, or one member can finish it in one go, do not call task_done: answer directly in your reply.'
+          : '',
       input.mention
         ? 'The user named you for this. Plan it before doing anything; if you can do it alone, a one-step plan assigned to yourself is fine. If it is only a question that needs no changes, answer directly and do not call task_done.'
         : '',
@@ -569,9 +573,11 @@ export function flowPlanPrompt(input: {
     '先问、一次问完：有影响结果、又推不出来的事要用户定时，先只调用一次 task_done，写 summary 和 questions（最多 6 个，每个 {q, options}，尽量给 2–4 个简短选项），不写 steps。用户答完会发给你。只问真正要紧的，没有就跳过这一步。',
     '然后一次交出完整计划，不要再追问：steps（每一步可以带 effort："low" | "medium" | "high" | "xhigh"，这一步需要的推理强度；定接口、审查要想得深，照着写的活用低一些）和 brief：goal（一句话目标）、facts（定下来的，{k, v}；你替用户定的标 suggested: true，比如没人提的验收标准、技术栈），open 留空。再写 title：给计划起个短名字（20 字以内），不要照抄用户的原话。现在不会开工：用户可以直接改、或说要改哪里，确认后才开始。',
     '如果你这边没有 task_done 工具，就把一模一样的 JSON（summary、title、questions 或 steps 和 brief）放在回复最后的 ```json 代码块里，软件会从那里读取。',
-    input.auto
-      ? '你是这个频道的牵头成员，用户没有点名交给谁。如果这只是个问题，或者一个成员一次就能做完，不要调用 task_done，直接在回复里回答。'
-      : '',
+    input.auto && input.route
+      ? '你是这个频道的牵头成员，用户没有点名交给谁。如果这只是个问题，不要调用 task_done，直接在回复里回答。如果一个成员一次就能做完，只交一步，交给职责最合适的那个成员（两个一样合适时挑标着手上活少的；也可以是你自己），这一步的 title 写做什么、再简短说为什么交给他。软件会直接派活，不出草稿。真要几个人分工时才拆成几步。'
+      : input.auto
+        ? '你是这个频道的牵头成员，用户没有点名交给谁。如果这只是个问题，或者一个成员一次就能做完，不要调用 task_done，直接在回复里回答。'
+        : '',
     input.mention
       ? '用户点名把这件事交给你。先拟计划，不要动手；你一个人能做完的，计划可以只有一步、交给你自己。如果只是个问题、不用改东西，直接在回复里回答，不要调用 task_done。'
       : '',

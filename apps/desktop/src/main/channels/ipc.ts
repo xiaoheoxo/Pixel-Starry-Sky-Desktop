@@ -35,7 +35,7 @@ const str = (value: unknown, what: string): string => {
   if (typeof value !== 'string' || !value) throw new Error(`${what}不正确`)
   return value
 }
-const ACTIONS = new Set<ChannelTaskAction>(['cancel', 'stop', 'retry', 'continue', 'unlimit', 'fix'])
+const ACTIONS = new Set<ChannelTaskAction>(['cancel', 'stop', 'retry', 'continue', 'unlimit', 'fix', 'reassign'])
 const ALERT_ACTIONS = new Set<ChannelAlertAction>(['hold', 'continue', 'open', 'stop', 'reassign', 'cancel', 'dismiss'])
 const INVITE_ROLES = new Set<Exclude<TeamRole, 'owner'>>(['member', 'observer'])
 const POLICIES = new Set<AgentPolicy>(['approve', 'team'])
@@ -254,9 +254,13 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   ipc.handle('channels:leaveSession', (_e, sessionId, channelId) =>
     channels.leaveSession(str(sessionId, '会话'), str(channelId, '频道')),
   )
-  ipc.handle('channels:task', (_e, taskId, action) => {
+  ipc.handle('channels:task', (_e, taskId, action, memberId) => {
     if (!ACTIONS.has(action as ChannelTaskAction)) throw new Error('不支持的操作')
-    return channels.taskAction(str(taskId, '任务'), action as ChannelTaskAction)
+    return channels.taskAction(
+      str(taskId, '任务'),
+      action as ChannelTaskAction,
+      action === 'reassign' ? str(memberId, '成员') : undefined,
+    )
   })
 
   ipc.handle('channels:approveTask', (_e, taskId, approve) =>

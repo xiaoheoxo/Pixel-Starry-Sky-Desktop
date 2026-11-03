@@ -85,7 +85,8 @@ export interface ChannelsBridge {
   joinSession(input: JoinSessionInput): Promise<{ channelId: string; memberId: string }>
   /** 会话退出频道（绑着它的成员不在任何频道里了就删掉，会话不动） */
   leaveSession(sessionId: string, channelId: string): Promise<void>
-  task(taskId: string, action: ChannelTaskAction): Promise<void>
+  /** memberId：reassign 时改派给谁 */
+  task(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void>
   // ── Phase C：多人团队（docs/ui/channels-phase-c.md §9.2） ──
   /** 等主人同意的活（approval）：同意 / 拒绝 */
   approveTask(taskId: string, approve: boolean): Promise<void>

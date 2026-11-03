@@ -8,6 +8,8 @@ vi.hoisted(() => {
 import type { PlatformGroup } from '@/features/account/platform'
 import type { ProviderView } from '../../../../shared/types/providers'
 import {
+  applyDraft,
+  memberDraftContext,
   modelChoices,
   modelForSource,
   pickRoute,
@@ -17,6 +19,7 @@ import {
   settingsForSource,
   sourceKeyOf,
   sourceOptions,
+  type DraftContext,
   type SourceContext,
 } from './agentSource'
 
@@ -139,5 +142,122 @@ describe('平台线路', () => {
     expect(settingsForSource('claude', 'platform', 'claude-sonnet-5-5', ctx, 'g-claude').platform?.groupId).toBe(
       'g-claude',
     )
+  })
+})
+
+describe('一句话建成员：对到表单上', () => {
+  const draftCtx: DraftContext = {
+    ready: [
+      { id: 'claude', name: 'Claude Code' },
+      { id: 'codex', name: 'Codex', caps: { efforts: ['low', 'high'], fast: true, ultracode: false } },
+    ],
+    engine: 'claude',
+    source: 'self',
+    model: '',
+    groupId: null,
+    ownModels: own,
+    sourceCtx: ctx,
+    names: ['审查', 'Reviewer 2'],
+  }
+
+  it('引擎、来源、模型都能用：原样采纳，平台线路按模型挑', () => {
+    const r = applyDraft(
+      {
+        engine: 'claude',
+        source: 'platform',
+        model: 'claude-opus-5-5',
+        effort: 'high',
+        reasons: { model: '要强一点' },
+      },
+      draftCtx,
+    )
+    expect(r.values).toEqual({ source: 'platform', model: 'claude-opus-5-5', groupId: 'g-claude' })
+    expect(r.fields).toEqual({ engine: '', source: '', model: '要强一点' })
+  })
+
+  it('引擎没就绪、来源用不了、模型不在列表：退回去，不标「AI 填的」', () => {
+    const r = applyDraft({ engine: 'pixel', source: 'custom:anth', model: 'nope', reasons: {} }, draftCtx)
+    // pixel 没就绪留在 claude；anth 是 anthropic 协议 claude 能用，模型不在接口里换成接口的
+    expect(r.values).toMatchObject({ source: 'custom:anth', model: 'my-claude' })
+    expect(r.fields).toEqual({ source: '' })
+    // 换到 codex：claude 的自有模型 opus 不认（codex 目录没加载），回到默认
+    const s = applyDraft({ engine: 'codex', source: 'custom:anth', model: 'opus', reasons: {} }, draftCtx)
+    expect(s.values).toMatchObject({ engine: 'codex', source: 'self', model: '', groupId: null })
+    expect(s.fields).toEqual({ engine: '' })
+  })
+
+  it('模型不在列表里：表单原来的来源、模型、线路都不动', () => {
+    const onPlatform = { ...draftCtx, source: 'platform' as const, model: 'claude-sonnet-5-5', groupId: 'g-claude' }
+    const r = applyDraft({ name: '新人', model: 'gpt-5', reasons: {} }, onPlatform)
+    expect(r.values).toEqual({ name: '新人' })
+    // 来源换了但模型不对：模型按新来源取，不标「AI 填的」
+    const s = applyDraft({ source: 'custom:anth', model: 'gpt-5', reasons: {} }, onPlatform)
+    expect(s.values).toMatchObject({ source: 'custom:anth', model: 'my-claude', groupId: null })
+    expect(s.fields).toEqual({ source: '' })
+  })
+
+  it('AI 要的是全权限：压成自动编辑，理由后面提示自己选', () => {
+    const r = applyDraft({ permission: 'edits', fullAsked: true, reasons: { permission: '要跑命令' } }, draftCtx)
+    expect(r.values.permission).toBe('edits')
+    expect(r.fields.permission).toMatch(/^要跑命令 · /)
+  })
+
+  it('引擎用不了的推理强度、Fast、Ultracode 不认；没就绪的引擎不标', () => {
+    const onCodex = { ...draftCtx, engine: 'codex' as const }
+    const r = applyDraft({ effort: 'max', fast: true, ultracode: true, reasons: {} }, onCodex)
+    expect(r.values).toEqual({ fast: true })
+    expect(r.fields).toEqual({ fast: '' })
+    // claude 的能力表没加载：表单不显示这几项，也不认
+    expect(applyDraft({ effort: 'max', fast: true, reasons: {} }, draftCtx).fields).toEqual({})
+    // 没有就绪的引擎：表单默认 claude，草稿也写 claude，不算 AI 填的
+    expect(applyDraft({ engine: 'claude', reasons: {} }, { ...draftCtx, ready: [] }).fields).toEqual({})
+  })
+
+  it('没登录平台：平台来源不认，表单的来源不动', () => {
+    const r = applyDraft({ source: 'platform', reasons: {} }, { ...draftCtx, sourceCtx: { ...ctx, email: null } })
+    expect(r.values.source).toBeUndefined()
+    expect(r.fields).toEqual({})
+  })
+
+  it('重名加数字后缀，不分大小写，不超过 40 字', () => {
+    expect(applyDraft({ name: '审查', reasons: {} }, draftCtx).values.name).toBe('审查 2')
+    expect(applyDraft({ name: 'reviewer', reasons: {} }, { ...draftCtx, names: ['Reviewer'] }).values.name).toBe(
+      'reviewer 2',
+    )
+    const long = 'x'.repeat(40)
+    expect(applyDraft({ name: long, reasons: {} }, { ...draftCtx, names: [long] }).values.name).toBe(
+      `${'x'.repeat(38)} 2`,
+    )
+  })
+})
+
+describe('一句话建成员：给模型的可选项', () => {
+  const draftCtx: DraftContext = {
+    ready: [
+      { id: 'claude', name: 'Claude Code' },
+      { id: 'codex', name: 'Codex' },
+    ],
+    engine: 'claude',
+    source: 'self',
+    model: '',
+    groupId: null,
+    ownModels: own,
+    sourceCtx: ctx,
+    names: ['审查'],
+  }
+
+  it('每个模型只列一次，写明哪些来源能用', () => {
+    const text = memberDraftContext(draftCtx, 8000)
+    expect(text).toContain('- claude-sonnet-5-5: platform/claude')
+    expect(text).toContain('- opus: self/claude')
+    expect(text).toContain('- custom:resp: "接口 resp" (engines: codex)')
+    expect(text).toContain('Existing member names (do not reuse): 审查')
+    expect(text.match(/claude-sonnet-5-5/g)).toHaveLength(1)
+  })
+
+  it('超过预算截掉，写明还有几行', () => {
+    const text = memberDraftContext(draftCtx, 200)
+    expect(text.length).toBeLessThanOrEqual(200)
+    expect(text).toMatch(/\(\d+ more not listed\)$/)
   })
 })

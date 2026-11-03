@@ -711,12 +711,18 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
     expect(flows()).toHaveLength(1)
     expect(tasks(c, ch).at(-1)?.assigneeId).toBe(b)
 
-    // 再来一条需求：这次拆成步骤，变成草稿等你确认
+    // 再来一条需求：这次拆成几步，变成草稿等你确认（只拆出一步的直接派活，见下一个用例）
     await c.post(ch, { text: '做一个新的设置页并且审查一遍', clientId: 'p6' })
     await settle()
     const planning = tasks(c, ch).at(-1)!
     expect(planning.assigneeId).toBe(a)
-    c.toolDone(planning.sessionId!, { summary: '拆好了', steps: [{ title: '写设置页', member: '程序员' }] })
+    c.toolDone(planning.sessionId!, {
+      summary: '拆好了',
+      steps: [
+        { title: '写设置页', member: '程序员' },
+        { title: '审查', member: '审查员', deps: [1] },
+      ],
+    })
     await endTurn(c, planning.sessionId!, '拆好了')
     expect(flows().at(-1)?.flow?.status).toBe('draft')
 
@@ -728,6 +734,48 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
     // 牵头被移出频道：设置清掉
     await c.removeMember(ch, a)
     expect(c.state().channels.find(x => x.id === ch)?.lead).toBeNull()
+  })
+
+  it('牵头分派（docs/ui/channels-auto-route.md）：只拆出一步就直接派给那个成员；能改派；关掉这一档照旧出草稿', async () => {
+    const { c, a, b, r, ch } = await setup()
+    await c.update(ch, { lead: a })
+    expect(c.state().channels.find(x => x.id === ch)?.leadRoute).toBe(true)
+    await c.post(ch, { text: '登录页按钮在深色模式下看不清', clientId: 'q1' })
+    await settle()
+    const lead = tasks(c, ch).at(-1)!
+    expect(lastTo(lead.sessionId!).text).toContain('只交一步')
+    c.toolDone(lead.sessionId!, {
+      summary: '样式问题',
+      steps: [{ title: '改按钮对比度：样式归程序员', member: '程序员' }],
+    })
+    await endTurn(c, lead.sessionId!, '交给程序员')
+    const flows = () => c.messages(ch).messages.filter((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)
+    expect(flows().at(-1)?.flow?.status).toBe('stopped')
+    const routed = tasks(c, ch).at(-1)!
+    expect(routed).toMatchObject({ assigneeId: b, routedBy: { memberId: a, note: '改按钮对比度：样式归程序员' } })
+    const source = c.messages(ch).messages.find(m => m.kind === 'message' && m.text === '登录页按钮在深色模式下看不清')
+    expect(routed.sourceMessageId).toBe(source?.id)
+
+    // 改派：原来的卡停下 / 取消，原消息交给审查员，新卡标「你改派的」
+    await settle()
+    await c.taskAction(routed.id, 'reassign', r)
+    await settle()
+    expect(tasks(c, ch).find(t => t.id === routed.id)?.status).toBe('stopped')
+    expect(tasks(c, ch).at(-1)).toMatchObject({ assigneeId: r, routedBy: { memberId: a, moved: true } })
+    await expect(c.taskAction(routed.id, 'reassign', 'nobody')).rejects.toThrow('不在频道里')
+    // 改派走的旧卡已经停下：不能再改派（不然同一件事派出两份）
+    await expect(c.taskAction(routed.id, 'reassign', a)).rejects.toThrow('已经结束')
+
+    // 关掉这一档：只拆出一步也出草稿
+    await c.update(ch, { leadRoute: false })
+    await c.post(ch, { text: '注册页按钮也一样看不清', clientId: 'q2' })
+    await settle()
+    const lead2 = tasks(c, ch).at(-1)!
+    expect(lead2.assigneeId).toBe(a)
+    expect(lastTo(lead2.sessionId!).text).not.toContain('只交一步')
+    c.toolDone(lead2.sessionId!, { summary: '样式', steps: [{ title: '改注册页按钮', member: '程序员' }] })
+    await endTurn(c, lead2.sessionId!, '拆好了')
+    expect(flows().at(-1)?.flow?.status).toBe('draft')
   })
 })
 

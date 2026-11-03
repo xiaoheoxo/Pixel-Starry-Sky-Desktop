@@ -1,4 +1,4 @@
-import type { AiCommitRequest, AiCommitResult, AiPromptRequest } from '../shared/types/ai'
+import type { AiCommitRequest, AiCommitResult, AiMemberDraftResult, AiPromptRequest } from '../shared/types/ai'
 import type { AiInlineEditRequest } from '../shared/types/ai'
 
 /** AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2） */
@@ -8,6 +8,8 @@ export interface AiBridge {
   optimizePrompt(request: AiPromptRequest): Promise<AiCommitResult>
   /** 行内改写（docs/ui/coding-tier2.md §6）：结果的 message 是替换选区的代码 */
   inlineEdit(request: AiInlineEditRequest): Promise<AiCommitResult>
+  /** 一句话建成员（docs/ui/channels-member-quickstart-memory.md §A）：text 是那句话，context 是可选项 */
+  memberDraft(request: AiPromptRequest): Promise<AiMemberDraftResult>
   /** 停止这次生成 */
   cancel(requestId: string): Promise<void>
   /** 云端这次实际扣了多少（美元）；还查不到时为 null */

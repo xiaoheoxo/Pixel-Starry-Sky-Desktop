@@ -495,6 +495,8 @@ export const channelActions = {
       lead?: string | null
       /** @ 一个 AI 派新活时先出计划 */
       planFirst?: boolean
+      /** 不带 @ 的简单活由牵头直接派（docs/ui/channels-auto-route.md） */
+      leadRoute?: boolean
       /** 每天定时运行的流程（§10.3）：整份列表，主进程按 id 保留运行时字段 */
       schedules?: FlowScheduleInput[]
     },
@@ -589,8 +591,8 @@ export const channelActions = {
     if (channelsBridge) return (await channelsBridge.flow(channelId, action)).messageId
     return demo.flow(channelId, action)
   },
-  task(taskId: string, action: ChannelTaskAction): Promise<void> {
-    return channelsBridge ? channelsBridge.task(taskId, action) : demo.task(taskId, action)
+  task(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void> {
+    return channelsBridge ? channelsBridge.task(taskId, action, memberId) : demo.task(taskId, action)
   },
   // ── Phase C：团队。正式模式走主进程（返回后再拉一次快照，不等推送）；演示模式只改内存 ──
   /** 等 AI 成员的主人同意的活：同意 / 拒绝 */

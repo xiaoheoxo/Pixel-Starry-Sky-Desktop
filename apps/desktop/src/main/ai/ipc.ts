@@ -11,10 +11,12 @@ import {
   INLINE_EDIT_MAX_LINES,
   PROMPT_CONTEXT_LIMIT,
   PROMPT_TEXT_LIMIT,
+  MEMBER_DRAFT_TEXT_LIMIT,
   type AiChannelRequest,
   type AiCommitRequest,
   type AiCommitResult,
   type AiInlineEditRequest,
+  type AiMemberDraftResult,
   type AiPromptRequest,
 } from '../../shared/types/ai'
 import type { GitCommitContext } from '../../shared/types/project-tools'
@@ -22,6 +24,7 @@ import type { AppContext } from '../app/context'
 import { platformFetch, signedInEmail } from '../account/account'
 import { writeCommitMessage, type ModelDeps } from '../core/ai/commit-message'
 import { inlineEdit } from '../core/ai/inline-edit'
+import { memberDraft } from '../core/ai/member-draft'
 import { optimizePrompt } from '../core/ai/prompt-optimize'
 import { workspaceRef } from '../core/workspace-files'
 import * as ipc from '../ipc/guard'
@@ -115,10 +118,10 @@ export function initAi(ctx: AppContext): void {
   }
 
   /** 问一次模型：可以按 requestId 停止；云端请求记下计费 ID，之后 ai:commitCharge 按它查实际扣费 */
-  const run = async (
+  const run = async <R extends AiCommitResult | AiMemberDraftResult>(
     req: AiChannelRequest,
-    task: (deps: ModelDeps, signal: AbortSignal) => Promise<AiCommitResult & { chargeId?: string }>,
-  ): Promise<AiCommitResult> => {
+    task: (deps: ModelDeps, signal: AbortSignal) => Promise<R & { chargeId?: string }>,
+  ): Promise<R> => {
     running.get(req.requestId)?.abort()
     const abort = new AbortController()
     running.set(req.requestId, abort)
@@ -155,7 +158,7 @@ export function initAi(ctx: AppContext): void {
       if (!outcome.ok) return outcome
       const { chargeId, ...result } = outcome
       const request = sent as { id: string; groupId: string } | null
-      if (result.chargeable && account && request) {
+      if (outcome.chargeable && account && request) {
         settlements.set(req.requestId, {
           account,
           requests: [
@@ -171,7 +174,7 @@ export function initAi(ctx: AppContext): void {
         })
         while (settlements.size > KEEP_CHARGES) settlements.delete(settlements.keys().next().value!)
       }
-      return { ...result, chargeable: settlements.has(req.requestId) }
+      return { ...result, chargeable: settlements.has(req.requestId) } as R
     } finally {
       if (running.get(req.requestId) === abort) running.delete(req.requestId)
     }
@@ -190,6 +193,12 @@ export function initAi(ctx: AppContext): void {
   ipc.handle('ai:inlineEdit', (_e, input: unknown) => {
     const req = aiInlineEditRequest(input)
     return run(req, (deps, signal) => inlineEdit(deps, req, signal))
+  })
+
+  ipc.handle('ai:memberDraft', (_e, input: unknown) => {
+    const req = aiPromptRequest(input)
+    if (req.text.length > MEMBER_DRAFT_TEXT_LIMIT) throw new Error('参数不正确')
+    return run(req, (deps, signal) => memberDraft(deps, req, signal))
   })
 
   ipc.handle('ai:cancel', (_e, id: unknown) => {

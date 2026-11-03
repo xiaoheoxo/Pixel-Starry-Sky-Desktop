@@ -35,6 +35,8 @@ export interface StoredChannel {
   relayRules?: RelayRules
   /** 牵头成员（docs/ui/channels-pipeline.md §8.3）；旧数据没有（= 不启用） */
   lead?: string | null
+  /** 不带 @ 的简单活由牵头直接派（docs/ui/channels-auto-route.md）；旧数据没有（= 开） */
+  leadRoute?: boolean
   /** @ 一个 AI 派新活时先出计划；旧数据没有（= 按默认，开） */
   planFirst?: boolean
   /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）；旧数据没有 */

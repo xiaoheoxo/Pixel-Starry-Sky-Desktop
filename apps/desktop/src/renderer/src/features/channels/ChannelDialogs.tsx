@@ -21,10 +21,14 @@ import { RelayRulesEditor } from './RelayRules'
 import { AlertRulesEditor } from './AlertRules'
 import { DIGEST_HOUR, alertRulesOf, type ChannelAlertRules } from '../../../../shared/channels/alerts'
 import { MemberTools } from './MemberTools'
+import { AiFilled, MemberQuickFill } from './MemberQuickFill'
+import { PROMPT_CONTEXT_LIMIT, type AiMemberDraft, type MemberDraftField } from '../../../../shared/types/ai'
 import { formatMultiplier, groupProblem, usePlatformCatalog } from '@/features/account/platform'
 import { useProviders } from '@/features/account/providers'
 import { channelLabel } from '@/features/model-channels/channelLabels'
 import {
+  applyDraft,
+  memberDraftContext,
   modelChoices,
   modelForSource,
   pickRoute,
@@ -34,6 +38,7 @@ import {
   settingsForSource,
   sourceKeyOf,
   sourceOptions,
+  type DraftContext,
   type SourceContext,
   type SourceKey,
 } from './agentSource'
@@ -174,6 +179,7 @@ export function ChannelDialog({
   const [relay, setRelay] = useState(channel?.relay === true)
   const [lead, setLead] = useState(channel?.lead ?? '')
   const [planFirst, setPlanFirst] = useState(channel?.planFirst !== false)
+  const [leadRoute, setLeadRoute] = useState(channel?.leadRoute !== false)
   const channelMembers = useChannels(s => s.members)
   const leadOptions = channelMembers.filter(
     m => m.kind === 'agent' && m.machineId === 'local' && channel?.memberIds.includes(m.id),
@@ -195,6 +201,7 @@ export function ChannelDialog({
     relay !== (channel?.relay === true) ||
     lead !== (channel?.lead ?? '') ||
     planFirst !== (channel?.planFirst !== false) ||
+    leadRoute !== (channel?.leadRoute !== false) ||
     JSON.stringify(rules) !== JSON.stringify(savedRules) ||
     JSON.stringify(alerts) !== JSON.stringify(savedAlerts) ||
     digestHour !== (channel?.digestHour ?? DIGEST_HOUR) ||
@@ -221,6 +228,7 @@ export function ChannelDialog({
                 digestHour,
                 ...(lead !== (channel.lead ?? '') ? { lead: lead || null } : {}),
                 ...(planFirst !== (channel.planFirst !== false) ? { planFirst } : {}),
+                ...(leadRoute !== (channel.leadRoute !== false) ? { leadRoute } : {}),
               },
         )
       : channelActions.createChannel(teamId ? { ...input, teamId } : { ...input, memberIds: members }).then(id =>
@@ -323,6 +331,21 @@ export function ChannelDialog({
                 ]}
                 onChange={setLead}
               />
+              {lead && (
+                <label className="mt-1.5 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    data-channel-lead-route
+                    className="mt-0.5"
+                    checked={leadRoute}
+                    onChange={e => setLeadRoute(e.target.checked)}
+                  />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-list text-fg">{tr('channels.dialog.leadRoute')}</span>
+                    <span className="text-meta text-fg-muted">{tr('channels.dialog.leadRouteHint')}</span>
+                  </span>
+                </label>
+              )}
             </Field>
           )}
           {!inTeam && channel && <ScheduleList channelId={channel.id} />}
@@ -484,8 +507,21 @@ export function AgentDialog({
   const [instructions, setInstructions] = useState(editing?.instructions ?? '')
   const [mode, setMode] = useState<AgentConfig['mode']>(editing?.mode ?? 'per-task')
   const [tools, setTools] = useState<AgentConfig['tools']>(editing?.tools ?? null)
-  // 名字和职责说明（最长 2000 字）是自己打的字：改过就先问再关
-  const dirty = name !== (editing?.name ?? '') || instructions !== (editing?.instructions ?? '')
+  // 一句话建成员（docs/ui/channels-member-quickstart-memory.md §A）：AI 填过的字段 → 为什么；用户改了这个字段就去掉
+  const [ai, setAi] = useState<Partial<Record<MemberDraftField, string>>>({})
+  const [drafted, setDrafted] = useState(false)
+  const [quick, setQuick] = useState({ typed: false, running: false })
+  const unmark = (...keys: MemberDraftField[]) =>
+    setAi(a => {
+      if (!keys.some(k => k in a)) return a
+      const next = { ...a }
+      for (const k of keys) delete next[k]
+      return next
+    })
+  const allMembers = useChannels(s => s.members)
+  // 名字和职责说明（最长 2000 字）是自己打的字、AI 填过表：改过就先问再关
+  const dirty =
+    drafted || quick.typed || name !== (editing?.name ?? '') || instructions !== (editing?.instructions ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const copies = useCopies(projectId)
@@ -527,6 +563,7 @@ export function AgentDialog({
           ...(model && !choices.some(m => m.id === model) ? [{ value: model, label: model }] : []),
         ]
   const pickSource = (key: SourceKey): void => {
+    unmark('source', 'model')
     setSource(key)
     setModel(modelForSource(engine, key, model, sourceCtx, ownModels))
   }
@@ -550,6 +587,7 @@ export function AgentDialog({
   const pickGroup = (id: string): void => {
     const next = pickRoute(engine, platform.groups, id, model)
     if (!next) return
+    if (next.model !== model) unmark('model')
     setSwap(next.model !== model ? { groupId: routeId, model, to: next.model } : null)
     setGroupId(next.groupId)
     setModel(next.model)
@@ -578,6 +616,44 @@ export function AgentDialog({
     { value: 'on', label: tr('channels.agent.on') },
     { value: 'off', label: tr('channels.agent.off') },
   ]
+  const draftCtx = (): DraftContext => ({
+    ready: ready.map(e => ({ id: e.id, name: e.name, caps: e.caps })),
+    engine,
+    source,
+    model,
+    groupId,
+    ownModels,
+    sourceCtx,
+    names: allMembers.filter(m => m.kind === 'agent' && m.mine !== false && !m.teamAgentId).map(m => m.name),
+  })
+  const applyAi = (draft: AiMemberDraft): number => {
+    const { values: v, fields } = applyDraft(draft, draftCtx())
+    if (!Object.keys(fields).length) return 0
+    if (v.name !== undefined) setName(v.name)
+    if (v.engine) setEngine(v.engine)
+    if (v.source) {
+      setSource(v.source)
+      setModel(v.model ?? '')
+      setGroupId(v.groupId ?? null)
+      setSwap(null)
+    }
+    if (v.permission) setPermission(v.permission)
+    if (v.effort) setEffort(v.effort)
+    if (v.fast !== undefined) setFast(v.fast ? 'on' : 'off')
+    if (v.ultracode !== undefined) setUltracode(v.ultracode ? 'on' : 'off')
+    if (v.instructions) setInstructions(v.instructions)
+    if (v.mode) setMode(v.mode)
+    const count = Object.keys(fields).length
+    // 合进原来的标记：这次没碰的字段还是上次 AI 填的；来源、模型被换掉但这次没标的，旧标记去掉
+    setAi(a => {
+      const next = { ...a, ...fields }
+      if (v.source && !('source' in fields)) delete next.source
+      if (v.source && !('model' in fields)) delete next.model
+      return next
+    })
+    setDrafted(true)
+    return count
+  }
   const canSave =
     !!name.trim() && !!projectId && (ready.some(e => e.id === engine) || !!editing) && (source === 'self' || !!model)
 
@@ -622,7 +698,7 @@ export function AgentDialog({
       busy={busy}
       error={error}
       focusInput={!!editing || others.length === 0}
-      confirmDisabled={!canSave}
+      confirmDisabled={!canSave || quick.running}
       dirty={dirty}
       onConfirm={submit}
       onCancel={onClose}
@@ -650,16 +726,33 @@ export function AgentDialog({
               </h4>
             </section>
           )}
+          {!editing && (
+            <MemberQuickFill
+              context={() => memberDraftContext(draftCtx(), PROMPT_CONTEXT_LIMIT)}
+              apply={applyAi}
+              onState={setQuick}
+            />
+          )}
           <form
-            className="flex flex-col gap-3"
+            inert={quick.running}
+            className={cn('flex flex-col gap-3', quick.running && 'opacity-60')}
             onSubmit={e => {
               e.preventDefault()
               submit()
             }}
           >
             <Field label={tr('channels.agent.name')}>
-              <input value={name} maxLength={40} onChange={e => setName(e.target.value)} className={INPUT} />
+              <input
+                value={name}
+                maxLength={40}
+                onChange={e => {
+                  setName(e.target.value)
+                  unmark('name')
+                }}
+                className={INPUT}
+              />
             </Field>
+            <AiFilled field={tr('channels.agent.name')} reason={ai.name} />
             <div className="flex flex-col gap-1.5">
               <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.engine')}</span>
               {ready.length ? (
@@ -668,6 +761,7 @@ export function AgentDialog({
                   value={engine}
                   options={ready.map(e => ({ value: e.id, label: e.version ? `${e.name} ${e.version}` : e.name }))}
                   onChange={v => {
+                    unmark('engine', 'source', 'model')
                     setEngine(v)
                     // 换了引擎：来源这个引擎用不了（接口协议不对、平台没线路）就回到自有账号
                     const keep = sourceOptions(v, sourceCtx).some(o => o.value === source && !o.disabled)
@@ -678,6 +772,7 @@ export function AgentDialog({
               ) : (
                 <p className="text-meta text-warn">{tr('channels.agent.noEngine')}</p>
               )}
+              <AiFilled field={tr('channels.agent.engine')} reason={ai.engine} />
             </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.project')}</span>
@@ -725,7 +820,10 @@ export function AgentDialog({
                     label={tr('channels.agent.model')}
                     value={model}
                     options={modelOptions}
-                    onChange={setModel}
+                    onChange={v => {
+                      setModel(v)
+                      unmark('model')
+                    }}
                     mono
                   />
                 ) : (
@@ -733,6 +831,8 @@ export function AgentDialog({
                 )}
               </div>
             </div>
+            <AiFilled field={tr('channels.agent.source')} reason={ai.source} />
+            <AiFilled field={tr('channels.agent.model')} reason={ai.model} />
             {source === 'platform' && routeOptions.length > 0 && (
               <div className="flex min-w-0 flex-col gap-1.5">
                 <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.route')}</span>
@@ -778,7 +878,10 @@ export function AgentDialog({
                   label={tr('channels.agent.permission')}
                   value={permission}
                   options={permissionOptions}
-                  onChange={setPermission}
+                  onChange={v => {
+                    setPermission(v)
+                    unmark('permission')
+                  }}
                 />
               </div>
               {efforts.length > 0 && (
@@ -788,7 +891,10 @@ export function AgentDialog({
                     label={tr('channels.agent.effort')}
                     value={effortValue}
                     options={effortOptions}
-                    onChange={setEffort}
+                    onChange={v => {
+                      setEffort(v)
+                      unmark('effort')
+                    }}
                   />
                 </div>
               )}
@@ -802,7 +908,10 @@ export function AgentDialog({
                       label={tr('channels.agent.fast')}
                       value={fast}
                       options={toggleOptions(panelDefaults.fast)}
-                      onChange={setFast}
+                      onChange={v => {
+                        setFast(v)
+                        unmark('fast')
+                      }}
                     />
                   </div>
                 )}
@@ -813,11 +922,20 @@ export function AgentDialog({
                       label={tr('channels.agent.ultracode')}
                       value={ultracode}
                       options={toggleOptions(panelDefaults.ultracode)}
-                      onChange={setUltracode}
+                      onChange={v => {
+                        setUltracode(v)
+                        unmark('ultracode')
+                      }}
                     />
                   </div>
                 )}
               </div>
+            )}
+            <AiFilled field={tr('channels.agent.permission')} reason={ai.permission} />
+            {effortValue && <AiFilled field={tr('channels.agent.effort')} reason={ai.effort} />}
+            {hasFast && caps?.fast && <AiFilled field={tr('channels.agent.fast')} reason={ai.fast} />}
+            {hasUltracode && caps?.ultracode && (
+              <AiFilled field={tr('channels.agent.ultracode')} reason={ai.ultracode} />
             )}
             {permission === 'full' && <p className="-mt-1 text-meta text-warn">{tr('channels.agent.fullWarning')}</p>}
             <div className="flex flex-col gap-1.5">
@@ -828,7 +946,10 @@ export function AgentDialog({
                   value={'' as string}
                   placeholder={tr('channels.agent.template')}
                   options={TEMPLATES.map(([label, text]) => ({ value: text, label: tr(label) }))}
-                  onChange={key => setInstructions(tr(key as (typeof TEMPLATES)[number][1]))}
+                  onChange={key => {
+                    setInstructions(tr(key as (typeof TEMPLATES)[number][1]))
+                    unmark('instructions')
+                  }}
                   className="h-7 w-auto"
                   fitContent
                 />
@@ -837,9 +958,13 @@ export function AgentDialog({
                 value={instructions}
                 maxLength={2000}
                 rows={3}
-                onChange={e => setInstructions(e.target.value)}
+                onChange={e => {
+                  setInstructions(e.target.value)
+                  unmark('instructions')
+                }}
                 className={cn(INPUT, 'resize-none')}
               />
+              <AiFilled field={tr('channels.agent.instructions')} reason={ai.instructions} />
             </div>
             <div className="flex flex-col gap-1.5">
               <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.mode')}</span>
@@ -850,8 +975,12 @@ export function AgentDialog({
                   { value: 'per-task', label: tr('channels.agent.mode.perTask') },
                   { value: 'shared', label: tr('channels.agent.mode.shared') },
                 ]}
-                onChange={setMode}
+                onChange={v => {
+                  setMode(v)
+                  unmark('mode')
+                }}
               />
+              <AiFilled field={tr('channels.agent.mode')} reason={ai.mode} />
             </div>
             {!editing?.bound && (
               <MemberTools engine={engine} projectId={projectId} value={tools ?? null} onChange={setTools} />

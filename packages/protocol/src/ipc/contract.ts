@@ -734,6 +734,7 @@ export const IPC_CONTRACT = {
   'ai:commitCharge': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:commitMessage': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:inlineEdit': { kind: 'invoke', route: 'local', trust: 'window' },
+  'ai:memberDraft': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:optimizePrompt': { kind: 'invoke', route: 'local', trust: 'window' },
   'providers:billing': { kind: 'invoke', route: 'local', trust: 'sender' },
   'providers:changed': { kind: 'push', route: 'push', trust: 'none' },

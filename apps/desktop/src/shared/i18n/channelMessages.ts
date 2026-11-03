@@ -107,6 +107,11 @@ export const channelMessages = {
     en: 'The machine is disconnected. Tracking resumes when it reconnects.',
   },
   'channels.task.cancel': { zh: '取消', en: 'Cancel' },
+  // 牵头按职责分派（docs/ui/channels-auto-route.md）
+  'channels.task.routed': { zh: '{name} 分派的', en: 'Assigned by {name}' },
+  'channels.task.routedWhy': { zh: '{name} 分派：{why}', en: '{name} assigned it: {why}' },
+  'channels.task.routedMoved': { zh: '你改派的', en: 'You reassigned it' },
+  'channels.task.reassign': { zh: '改派给…', en: 'Reassign…' },
   'channels.task.stop': { zh: '停止', en: 'Stop' },
   'channels.task.retry': { zh: '重试', en: 'Retry' },
   'channels.task.followUp': { zh: '追加要求', en: 'Follow up' },
@@ -201,6 +206,14 @@ export const channelMessages = {
   },
   'channels.dialog.lead': { zh: '牵头成员', en: 'Lead member' },
   'channels.dialog.leadNone': { zh: '不启用', en: 'Off' },
+  'channels.dialog.leadRoute': {
+    zh: '简单的活直接派给最合适的人',
+    en: 'Assign simple requests to the best-fit member',
+  },
+  'channels.dialog.leadRouteHint': {
+    zh: '一个人就能做完的，牵头按各成员的职责和忙闲挑一个直接派过去，卡上能改派、撤回；关掉时都先出流程草稿',
+    en: 'If one member can finish it, the lead picks the best fit by role and workload and assigns it right away; you can reassign or cancel it on the card. Off: everything becomes a flow draft first',
+  },
   'channels.dialog.leadHint': {
     zh: '不写 @ 的需求会交给牵头成员拆成流程草稿，你确认后才开始；只是问题时它直接回答',
     en: 'Requests without an @ go to the lead member, who splits them into a flow draft; nothing starts until you confirm. If it is only a question, the lead just answers.',
@@ -254,6 +267,34 @@ export const channelMessages = {
   'channels.agent.existing': { zh: '从已有成员添加', en: 'Add an existing member' },
   'channels.agent.add': { zh: '添加', en: 'Add' },
   'channels.agent.new': { zh: '新建成员', en: 'New member' },
+  'channels.agent.quick.title': { zh: '用一句话描述', en: 'Describe it in one sentence' },
+  'channels.agent.quick.placeholder': {
+    zh: '比如：帮我审 PR，只提意见不改代码，用便宜点的模型',
+    en: 'e.g. Review my PRs, comment only, no code changes, use a cheaper model',
+  },
+  'channels.agent.quick.fill': { zh: '填好', en: 'Fill in' },
+  'channels.agent.quick.stop': { zh: '停止', en: 'Stop' },
+  'channels.agent.quick.example1': {
+    zh: '前端开发，改 React 组件和样式，可以直接改文件',
+    en: 'Frontend dev: edits React components and styles directly',
+  },
+  'channels.agent.quick.example2': {
+    zh: '代码审查，只看不改，挑 bug 和安全问题',
+    en: 'Code reviewer: read-only, looks for bugs and security issues',
+  },
+  'channels.agent.quick.example3': {
+    zh: '写文档和更新日志，一直用同一个会话',
+    en: 'Writes docs and changelogs, keeps one long session',
+  },
+  'channels.agent.quick.done': {
+    zh: '填好了 {n} 项，看一眼再点「添加」；不满意换个说法再填',
+    en: 'Filled {n} fields. Check them, then click Add, or rephrase and fill again',
+  },
+  'channels.agent.quick.failed': { zh: '没填成，表单没动：{text}', en: 'Not filled, the form is unchanged: {text}' },
+  'channels.agent.quick.via': { zh: '用 {via}（设置 › 模型）', en: 'Using {via} (Settings › Models)' },
+  'channels.agent.quick.noFull': { zh: '全权限要你自己选', en: 'Choose full access yourself if you need it' },
+  'channels.agent.quick.filled': { zh: '{field}是 AI 填的', en: '{field} filled by AI' },
+  'channels.agent.quick.reason': { zh: '{field}是 AI 填的：{reason}', en: '{field} filled by AI: {reason}' },
   'channels.agent.name': { zh: '名字', en: 'Name' },
   'channels.agent.engine': { zh: '引擎', en: 'Engine' },
   'channels.agent.noEngine': {
@@ -714,6 +755,14 @@ export const channelMessages = {
   'channels.hint.noLead': {
     zh: '@ 成员直接派活。在频道设置里设一个牵头成员，不 @ 的需求就会先出分工提案、商量好再开工',
     en: '@ a member to assign work. Set a lead in channel settings and requests without @ get a plan proposal first',
+  },
+  'channels.hint.planLeadRoute': {
+    zh: '@ 谁就由谁先出计划 · 不 @：{name} 把简单的活直接派给合适的人，几步的先出分工提案',
+    en: '@ a member: they plan first · No @: {name} assigns simple requests to the right member and drafts a plan for bigger ones',
+  },
+  'channels.hint.leadRoute': {
+    zh: '不 @：{name} 把简单的活直接派给合适的人，几步的先出分工提案 · @ 成员：直接派给他',
+    en: 'No @: {name} assigns simple requests to the right member and drafts a plan for bigger ones · @ a member: assign it directly',
   },
   'channels.hint.planLead': {
     zh: '@ 谁就由谁先出计划，你确认开工才动手 · 不 @：先和 {name} 商量出分工提案',

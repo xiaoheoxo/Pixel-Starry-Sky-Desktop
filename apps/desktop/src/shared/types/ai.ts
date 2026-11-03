@@ -1,4 +1,5 @@
 // AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2）：渲染层和主进程之间的数据
+import type { Effort, EngineId, PermissionMode } from '@pixelsky/protocol'
 import type { GitCommitScope } from './project-tools'
 import type { WorkspaceRef } from './workspace'
 
@@ -94,6 +95,39 @@ export type AiCommitResult =
       chargeable: boolean
     }
   | { ok: false; problem: AiProblem; detail: string }
+
+/**
+ * 一句话建成员（docs/ui/channels-member-quickstart-memory.md §A）：请求用 AiPromptRequest（text 是那句话、最多
+ * MEMBER_DRAFT_TEXT_LIMIT 字；context 是渲染层列的可选项）。字段都可选：没提到的不填；主进程只按格式收，
+ * 能不能用（引擎就绪、模型在列表里）由渲染层的 applyDraft 对
+ */
+export interface AiMemberDraft {
+  name?: string
+  engine?: EngineId
+  /** 'self' / 'platform' / 'custom:<接口 id>'（和添加成员的来源下拉一样） */
+  source?: string
+  model?: string
+  /** 最多到 edits：AI 写了 full 也压成 edits */
+  permission?: Exclude<PermissionMode, 'full'>
+  /** AI 写的是 full、被压成了 edits：界面在理由后面提示全权限要自己选 */
+  fullAsked?: true
+  effort?: Effort
+  fast?: boolean
+  ultracode?: boolean
+  instructions?: string
+  mode?: 'per-task' | 'shared'
+  /** 每个填了的字段为什么这么填（一句话） */
+  reasons: Partial<Record<MemberDraftField, string>>
+}
+export type MemberDraftField = Exclude<keyof AiMemberDraft, 'reasons' | 'fullAsked'>
+export const MEMBER_DRAFT_TEXT_LIMIT = 1000
+
+export type AiMemberDraftResult =
+  | ({ ok: true; draft: AiMemberDraft } & Pick<
+      Extract<AiCommitResult, { ok: true }>,
+      'model' | 'groupId' | 'usage' | 'chargeable'
+    >)
+  | Extract<AiCommitResult, { ok: false }>
 
 /**
  * 编辑器内行内改写（docs/ui/coding-tier2.md §6）：只改选中的那段，结果的 message 是改写后的代码（替换 code）。

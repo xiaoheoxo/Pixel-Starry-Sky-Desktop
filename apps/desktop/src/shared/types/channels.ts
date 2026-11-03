@@ -211,6 +211,11 @@ export interface Channel {
   relayRules?: RelayRules
   /** 牵头成员（docs/ui/channels-pipeline.md §8.3）：不带 @ 的需求交给它拆成流程；null / 没写是不启用 */
   lead?: string | null
+  /**
+   * 不带 @ 的消息里一件简单的活，牵头直接派给职责最合适的成员（docs/ui/channels-auto-route.md）；
+   * false：都拆成流程草稿（原来的做法）。没写按开
+   */
+  leadRoute?: boolean
   /** @ 一个 AI 派新活时先让它出计划，商量好、点开工才动手；没写按默认（开） */
   planFirst?: boolean
   /** 每天定时运行的流程（§10.3），只有本机频道 */
@@ -391,6 +396,8 @@ export interface ChannelFlow {
     auto?: boolean
     /** 你 @ 它派的活：先出计划（planFirst） */
     mention?: boolean
+    /** 牵头自动处理的那条消息（只拆出一步时按它直接派活） */
+    sourceId?: string
     /** 拟计划这一轮用的模型、推理强度（在流程卡上换的）；不写跟随成员 */
     settings?: FlowStepSettings | null
     /** 拟计划期间你接着补充的原话（换人拟计划时交给新成员） */
@@ -520,9 +527,11 @@ export interface ChannelTask extends ChannelMessageBase {
   /** Phase C：AI 成员的主人（owner key）；只有主人能同意、回答、打开会话 */
   ownerId?: string
   /** Phase C：派活的人或主人点了取消 / 停止 / 重试，等主人那台电脑执行 */
-  pendingAction?: Exclude<ChannelTaskAction, 'continue' | 'unlimit' | 'fix'> | null
+  pendingAction?: Exclude<ChannelTaskAction, 'continue' | 'unlimit' | 'fix' | 'reassign'> | null
   /** Phase C：主人的电脑不在线（queued 时显示「上线后开始」） */
   ownerOffline?: boolean
+  /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
+  routedBy?: { memberId: string; note: string; moved?: boolean } | null
   /** AI 成员互相派活的一跳（authorId 是交活的成员）；held：超了防刷规则，停下等你点「继续」 */
   relay?: ChannelRelay | null
   /** 做完后的产出检查（docs/ui/channels-collab-v2.md §8）：running 时还在跑；项目关了频道检查时没有 */
@@ -787,4 +796,5 @@ export interface PostInput {
 
 /** continue：放行被防刷规则拦下的那一跳 */
 /** continue：放行被拦下的接力（计数重新算）；unlimit：放行并且这条接力以后不再拦；fix：把产出检查没过的部分发回去让它修 */
-export type ChannelTaskAction = 'cancel' | 'stop' | 'retry' | 'continue' | 'unlimit' | 'fix'
+/** reassign：改派给另一个成员（第三个参数是成员 id），只有本机频道 */
+export type ChannelTaskAction = 'cancel' | 'stop' | 'retry' | 'continue' | 'unlimit' | 'fix' | 'reassign'

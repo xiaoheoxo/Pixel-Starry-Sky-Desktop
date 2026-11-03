@@ -69,6 +69,7 @@ import {
 import { ChannelStore, type StoredChannel } from './store'
 import { addUsage, emptyUsage, knownCost, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
+import { jsonObjects } from '../json-reply'
 import {
   DIGEST_HOUR,
   STALLED_MINUTES,
@@ -528,6 +529,7 @@ export class Channels {
         relay: c.relay === true,
         relayRules: relayRulesOf(c),
         lead: c.lead ?? null,
+        leadRoute: c.leadRoute !== false,
         planFirst: c.planFirst ?? this.deps.planFirst ?? true,
         schedules: c.schedules ?? [],
         alerts: alertRulesOf(c),
@@ -841,6 +843,8 @@ export class Channels {
       lead?: string | null
       /** @ 一个 AI 派新活时先出计划（只有本机频道） */
       planFirst?: boolean
+      /** 不带 @ 的简单活由牵头直接派（只有本机频道） */
+      leadRoute?: boolean
       /** 每天定时运行的流程（只有本机频道，§10.3）：整个列表一起存 */
       schedules?: unknown[]
       /** 主动提醒的规则开关、每日简报几点发（只有本机频道） */
@@ -910,6 +914,7 @@ export class Channels {
       c.lead = patch.lead
     }
     if (patch.planFirst !== undefined) c.planFirst = patch.planFirst === true
+    if (patch.leadRoute !== undefined) c.leadRoute = patch.leadRoute === true
     if (patch.schedules !== undefined) c.schedules = this.cleanSchedules(c, patch.schedules)
     if (patch.alerts !== undefined) c.alerts = cleanAlertRules(patch.alerts)
     if (patch.digestHour !== undefined) c.digestHour = cleanDigestHour(patch.digestHour)
@@ -1362,16 +1367,23 @@ export class Channels {
   }
 
   /** 频道允许 AI 互相派活时，告诉 AI 还有哪些成员能交活（名字和职责的第一行） */
-  private relayPeers(c: StoredChannel, selfId: string): { name: string; role: string }[] {
+  /** busy：牵头分派时带上各人手上还有几项活（一样合适时挑闲的） */
+  private relayPeers(c: StoredChannel, selfId: string, busy = false): { name: string; role: string }[] {
+    const load = new Map<string, number>()
+    if (busy)
+      for (const r of this.store.runs.values())
+        if (r.phase !== 'ended') load.set(r.memberId, (load.get(r.memberId) ?? 0) + 1)
     return c.memberIds.flatMap(id => {
       const m = id === selfId ? undefined : this.member(id)
       if (!m) return []
-      const role =
+      const line =
         m.instructions
           .split(/\r?\n/)
           .find(line => line.trim())
           ?.trim() ?? ''
-      return [{ name: m.name, role: role.length > 80 ? `${role.slice(0, 80)}…` : role }]
+      const role = line.length > 80 ? `${line.slice(0, 80)}…` : line
+      const n = load.get(id) ?? 0
+      return [{ name: m.name, role: n ? `${role}${role ? ' ' : ''}(${n} busy)` : role }]
     })
   }
 
@@ -2591,6 +2603,7 @@ export class Channels {
       // 牵头自动拆、头一回就没交回步骤：它直接回答了（回复照常发在卡片下），流程不留草稿；
       // 已经有提案时（接着商量）没交回就是这次不用改，提案留着
       const questions = done?.questions
+      if (this.leadRoutes(run, m, finish, steps, questions, more)) return
       if (
         (m.flow.planner.auto || m.flow.planner.mention) &&
         finish.status === 'done' &&
@@ -2833,17 +2846,8 @@ export class Channels {
   private planFromReply(run: TaskRun, flow: ChannelFlow): NonNullable<TaskRun['done']> | null {
     const reply = run.reply?.trim()
     if (!reply) return null
-    const fenced = [...reply.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m => m[1].trim())
-    const bare = reply.slice(reply.indexOf('{'), reply.lastIndexOf('}') + 1)
-    for (const text of [...fenced.reverse(), bare]) {
-      if (!text.startsWith('{')) continue
-      let args: Record<string, unknown>
-      try {
-        args = JSON.parse(text) as Record<string, unknown>
-      } catch {
-        continue
-      }
-      if (!args || typeof args !== 'object' || (args.steps === undefined && args.questions === undefined)) continue
+    for (const args of jsonObjects(reply)) {
+      if (args.steps === undefined && args.questions === undefined) continue
       const c = this.store.channels.get(run.channelId)
       if (!c) return null
       try {
@@ -3341,6 +3345,34 @@ export class Channels {
     return out
   }
 
+  /**
+   * 牵头自动处理、头一回就只拆出一步（docs/ui/channels-auto-route.md）：不留草稿，按原来那条消息直接派给这一步的成员，
+   * 卡上标「牵头分派」和一句为什么。频道关了这一档、成员不在了、找不到原消息时照旧出草稿
+   */
+  private leadRoutes(
+    run: TaskRun,
+    m: ChannelTextMessage & { flow: ChannelFlow },
+    finish: Finish,
+    steps: FlowStep[] | undefined,
+    questions: unknown[] | undefined,
+    more: boolean,
+  ): boolean {
+    const planner = m.flow.planner
+    const c = this.store.channels.get(run.channelId)
+    if (!c || c.leadRoute === false || !planner?.auto || !planner.sourceId) return false
+    if (finish.status !== 'done' || steps?.length !== 1 || questions?.length || m.flow.steps.length || more)
+      return false
+    const step = steps[0]
+    if (!c.memberIds.includes(step.memberId) || !this.member(step.memberId)) return false
+    const source = this.store.messages.get(c.id)?.find(x => x.id === planner.sourceId)
+    if (source?.kind !== 'message') return false
+    this.updateFlow(run.channelId, m.id, f => ({ ...f, status: 'stopped' }))
+    const id = this.newTask(c, source, step.memberId, null)
+    this.patch(c.id, id, { routedBy: { memberId: planner.memberId, note: step.title.slice(0, 200) } })
+    void this.pump(step.memberId)
+    return true
+  }
+
   /** 牵头成员拆这条需求：和「让成员拆」同一条路，拆出的是草稿，你确认后才开始；只是问题时它直接回答 */
   private async leadPlan(c: StoredChannel, m: ChannelTextMessage): Promise<void> {
     this.leading.add(c.id)
@@ -3395,6 +3427,7 @@ export class Channels {
           request,
           taskId: null,
           ...(auto ? { auto: true } : {}),
+          ...(auto && source ? { sourceId: source.id } : {}),
           ...(mention ? { mention: true } : {}),
         }
       }
@@ -3421,12 +3454,14 @@ export class Channels {
       this.pushMessage(message)
       if (planner) {
         const local = new Set(c.memberIds.filter(id => this.flowMemberCheck(c)(id)?.local).map(this.nameOf))
+        const route = auto && c.leadRoute !== false
         const prompt = flowPlanPrompt({
           locale,
           channel: c.name,
           request: planner.request,
-          members: this.relayPeers(c, '').filter(x => local.has(x.name)),
+          members: this.relayPeers(c, '', route).filter(x => local.has(x.name)),
           auto,
+          route,
           mention,
         })
         const name = this.plannerTaskName(title, auto, mention)
@@ -3960,15 +3995,33 @@ export class Channels {
   // 卡片上的操作
   // -------------------------------------------------------------------------
 
-  async taskAction(taskId: string, action: ChannelTaskAction): Promise<void> {
+  async taskAction(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void> {
     // 团队卡：请求记在云端卡片上，由主人的电脑执行
     if (this.team?.card(taskId)) {
-      // 团队频道没有 AI 互相派活，也就没有被拦下的接力
-      if (action === 'continue' || action === 'unlimit' || action === 'fix') return
+      // 团队频道没有 AI 互相派活，也就没有被拦下的接力；也没有牵头分派
+      if (action === 'continue' || action === 'unlimit' || action === 'fix' || action === 'reassign') return
       await this.team.taskCall(taskId, teamId => this.team!.api.action(teamId, taskId, action))
       return
     }
+    if (action === 'reassign') return this.reassign(taskId, memberId ?? '')
     return this.runAction(taskId, action)
+  }
+
+  /** 改派（docs/ui/channels-auto-route.md）：排队的取消、在做的停下，原来那条消息交给另一个成员，新卡沿用牵头分派的标记 */
+  private async reassign(taskId: string, memberId: string): Promise<void> {
+    const task = this.store.task(taskId)
+    if (!task) throw new Error('任务不存在')
+    const c = this.writable(task.channelId)
+    if (memberId === task.assigneeId) return
+    if (!c.memberIds.includes(memberId) || !this.member(memberId)) throw new Error('这个成员不在频道里')
+    const source = this.store.messages.get(c.id)?.find(m => m.id === task.sourceMessageId)
+    if (source?.kind !== 'message') throw new Error('找不到原来那条消息')
+    // 结束了的不改派（改派走的旧卡已经停下，再派就是同一件事两份）；失败、停下的用重试
+    if (terminal(task.status)) throw new Error('这项活已经结束了，不能改派')
+    await this.runAction(taskId, task.status === 'queued' ? 'cancel' : 'stop')
+    const id = this.newTask(c, source, memberId, null)
+    this.patch(c.id, id, { routedBy: { memberId: task.routedBy?.memberId ?? SELF_ID, note: '', moved: true } })
+    void this.pump(memberId)
   }
 
   /** 本机执行 Phase B 的取消 / 停止 / 重试（本机频道直接调，团队卡由执行端收到请求后调） */
