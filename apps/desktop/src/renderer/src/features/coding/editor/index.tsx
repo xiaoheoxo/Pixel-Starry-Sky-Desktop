@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, type KeyboardEvent, type ReactNode } from 'react'
 import { FileText } from 'lucide-react'
 import type { Extension } from '@codemirror/state'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Button, DiffStat, cn } from '@/ui'
 import { FileEditor } from '@/features/editor/FileEditor'
+import { MarkdownPreview } from '@/features/editor/MarkdownPreview'
 import { isDemo } from '@/data'
 import { fileLanguage } from '@/features/editor/code/languages'
 import {
@@ -33,17 +34,19 @@ import {
   activateCodeTab,
   closeCodeTab,
   cycleCodeTab,
-  getCodeTabs,
+  focusCodeGroup,
   openCodeTab,
   setCodeProject,
   setCodeView,
+  splitCodeRight,
   useCodeTabs,
 } from './codeTabs'
-import { baseName, isGitDiffId, pathKey } from './codeTabsModel'
+import { baseName, isGitDiffId, pathKey, type CodeTabGroup } from './codeTabsModel'
 import { diffTag } from './gitDiffModel'
 import { emptyTurnList } from './emptyModel'
 import { CodeTabs, type TabItem } from './TabBar'
 import { DiffPane } from './DiffPane'
+import { MirrorView } from './MirrorView'
 import { GitDiffTab } from './GitDiffTab'
 import { GitWorkBar } from './GitWorkBar'
 import { getGitDiffTab, useGitDiffRev } from './gitDiffTabs'
@@ -150,12 +153,14 @@ function EmptyState({ scope, turn, target }: { scope: string; turn: TurnChanges 
   )
 }
 
-/** 中栏：文件标签 + 代码 / 变更 / 并排 三种视图 */
+/** 分屏要放下两组：每组至少 320（按中栏最小宽度 420 算的话，右栏对话开着时一般就分不了屏） */
+const SPLIT_GROUPS_MIN_WIDTH = 640
+
+/** 中栏：一组标签，向右分屏后左右两组（docs/ui/coding-tier1.md §5） */
 export function EditorArea({ visible, width }: { visible: boolean; width: number }) {
   useI18n()
   const workspace = useCodingWorkspace()
-  const { group, views } = useCodeTabs()
-  const files = useFiles()
+  const { pane, group } = useCodeTabs()
   const turn = useTurnChanges(useCodingSessionId())
   useGitDiffRev()
 
@@ -167,10 +172,75 @@ export function EditorArea({ visible, width }: { visible: boolean; width: number
     setCodeProject(workspace.key)
   }, [workspace.key])
 
+  const aiPaths = useMemo(() => new Set((turn?.files ?? []).map(f => pathKey(f.path, caseInsensitive))), [turn])
+  const splitted = pane.groups.length > 1
+  const narrow = width < SPLIT_GROUPS_MIN_WIDTH
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const native = e.nativeEvent
+    const delta = CYCLE_TAB.delta(native)
+    if (CLOSE_TAB.match(native) && group.active) {
+      e.preventDefault()
+      void closeCodeTab(group.active, pane.focus)
+    } else if (delta) {
+      e.preventDefault()
+      cycleCodeTab(delta > 0 ? 1 : -1)
+    }
+  }
+
+  return (
+    <div data-coding-editor className="flex min-h-0 min-w-0 flex-1 bg-app" onKeyDownCapture={onKeyDown}>
+      {pane.groups.map((g, index) => (
+        <EditorGroup
+          key={index}
+          index={index}
+          group={g}
+          focused={!splitted || index === pane.focus}
+          // 另一组正挂着同一个文件的编辑器：这组先显示只读副本（MirrorView）
+          mirror={splitted && index !== pane.focus && g.active === group.active}
+          visible={visible}
+          width={width / pane.groups.length}
+          split={
+            splitted
+              ? undefined
+              : { disabled: !g.active || narrow, hint: narrow ? tr('coding.editor.splitNarrow') : undefined }
+          }
+          aiPaths={aiPaths}
+          empty={<EmptyState scope={workspace.key} turn={turn} target={workspace.ref} />}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** 一组标签：标签栏 + 代码 / 变更 / 并排 三种视图 */
+function EditorGroup({
+  index,
+  group,
+  focused,
+  mirror,
+  visible,
+  width,
+  split,
+  aiPaths,
+  empty,
+}: {
+  index: number
+  group: CodeTabGroup
+  focused: boolean
+  mirror: boolean
+  visible: boolean
+  width: number
+  split?: { disabled: boolean; hint?: string }
+  aiPaths: ReadonlySet<string>
+  empty: ReactNode
+}) {
+  useI18n()
+  const files = useFiles()
+
   const active = group.active
   const tab = (active && files.tabs.find(t => t.id === active)) || null
 
-  const aiPaths = useMemo(() => new Set((turn?.files ?? []).map(f => pathKey(f.path, caseInsensitive))), [turn])
   const items: TabItem[] = group.tabs.map(id => {
     const git = isGitDiffId(id) ? getGitDiffTab(id) : undefined
     if (git) {
@@ -219,25 +289,24 @@ export function EditorArea({ visible, width }: { visible: boolean; width: number
         : null,
     [tab, turnBaseline, width],
   )
-  const saved = active ? views[active] : undefined
+  const saved = active ? group.views?.[active] : undefined
   const mode = avail ? effectiveMode(saved?.mode ?? defaultMode(avail), avail) : 'code'
   const base = avail ? effectiveBase(saved?.base ?? 'head', avail) : 'head'
   // 打开时指名了行（搜索结果、路径链接）：files/store 把标签的 preview 设成 false，这里切到「代码」并把这个请求用掉
   const leavePreview = tab?.preview === false && mode === 'preview'
   useEffect(() => {
     if (!leavePreview || !active) return
-    setCodeView(active, 'code')
+    setCodeView(active, 'code', undefined, index)
     updateFile(active, { preview: undefined })
-  }, [leavePreview, active])
+  }, [leavePreview, active, index])
 
   const menu = useCallback((): MenuAction[] => {
-    const current = getCodeTabs().group.active
-    const file = current ? files.tabs.find(t => t.id === current) : undefined
+    const file = active ? files.tabs.find(t => t.id === active) : undefined
     const closeAll = async (keep: string | null): Promise<void> => {
-      for (const id of [...getCodeTabs().group.tabs]) if (id !== keep) await closeCodeTab(id)
+      for (const id of [...group.tabs]) if (id !== keep) await closeCodeTab(id, index)
     }
     return [
-      { label: tr('coding.editor.closeOthers'), disabled: group.tabs.length < 2, run: () => void closeAll(current) },
+      { label: tr('coding.editor.closeOthers'), disabled: group.tabs.length < 2, run: () => void closeAll(active) },
       { label: tr('coding.editor.closeAll'), run: () => void closeAll(null) },
       {
         label: tr('coding.editor.copyPath'),
@@ -257,48 +326,52 @@ export function EditorArea({ visible, width }: { visible: boolean; width: number
       },
       { label: tr('coding.editor.reveal'), disabled: !file, run: () => codingLayout.showLeft('files') },
     ]
-  }, [files.tabs, group.tabs.length])
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    const native = e.nativeEvent
-    const delta = CYCLE_TAB.delta(native)
-    if (CLOSE_TAB.match(native) && active) {
-      e.preventDefault()
-      void closeCodeTab(active)
-    } else if (delta) {
-      e.preventDefault()
-      cycleCodeTab(delta > 0 ? 1 : -1)
-    }
-  }
+  }, [files.tabs, group.tabs, active, index])
 
   return (
-    <div data-coding-editor className="flex min-h-0 min-w-0 flex-1 flex-col bg-app" onKeyDownCapture={onKeyDown}>
+    <div
+      data-coding-editor-group={index}
+      data-focused={focused || undefined}
+      className={cn('flex min-h-0 min-w-0 flex-1 flex-col', index > 0 && 'border-l border-line-layout')}
+      // 点到这组里任何地方（标签栏、编辑器、只读副本）这组就成为当前
+      onMouseDownCapture={() => focusCodeGroup(index)}
+    >
       <CodeTabs
         tabs={items}
         active={active}
+        focused={focused}
         mode={mode}
         avail={avail}
-        onActivate={activateCodeTab}
-        onClose={id => void closeCodeTab(id)}
-        onMode={next => active && setCodeView(active, next)}
+        split={split}
+        onActivate={id => activateCodeTab(id, index)}
+        onClose={id => void closeCodeTab(id, index)}
+        onMode={next => active && setCodeView(active, next, undefined, index)}
+        onSplit={splitCodeRight}
         menu={menu()}
       />
       {!active ? (
-        <EmptyState scope={workspace.key} turn={turn} target={workspace.ref} />
+        empty
       ) : isGitDiffId(active) ? (
         <GitDiffTab key={active} id={active} />
       ) : (
         <>
           {tab && <GitWorkBar tab={tab} />}
-          {mode === 'code' || mode === 'preview' || !tab ? (
+          {mirror && tab?.document?.kind === 'text' && (mode === 'code' || mode === 'preview') ? (
+            mode === 'preview' ? (
+              // 双击跳行交给成为当前之后的那个编辑器：按下鼠标时这组就已经成为当前
+              <MarkdownPreview text={tab.draft} onJump={() => {}} />
+            ) : (
+              <MirrorView tab={tab} />
+            )
+          ) : mode === 'code' || mode === 'preview' || !tab ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <FileEditor
                 key={active}
                 id={active}
-                active={visible}
+                active={visible && focused}
                 preview={mode === 'preview'}
                 onExitPreview={line => {
-                  setCodeView(active, 'code')
+                  setCodeView(active, 'code', undefined, index)
                   updateFile(active, {
                     reveal: {
                       line,
@@ -321,7 +394,7 @@ export function EditorArea({ visible, width }: { visible: boolean; width: number
               base={base}
               turnBaseline={turnBaseline}
               fellBack={(saved?.base ?? 'head') === 'turn' && base === 'head'}
-              onBase={next => setCodeView(active, mode, next)}
+              onBase={next => setCodeView(active, mode, next, index)}
             />
           )}
         </>

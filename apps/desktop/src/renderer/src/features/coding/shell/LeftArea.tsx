@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { cn } from '@/ui'
 import { FilesView } from '../left/files'
+import { OutlineView } from '../left/outline'
 import { SearchView } from '../left/search'
 import { GitView } from '../left/git'
 import { TasksView } from '../left/tasks'
@@ -10,13 +11,14 @@ import type { LeftView } from '../types'
 
 const VIEWS: Record<LeftView, (props: { visible: boolean }) => React.JSX.Element> = {
   files: FilesView,
+  outline: OutlineView,
   search: SearchView,
   git: GitView,
   tasks: TasksView,
   conversations: ConversationsView,
 }
 
-/** 左栏：五个视图第一次打开后保持挂载，用 hidden + inert 切换（参照 RightPanel 的 visited 写法） */
+/** 左栏：各视图第一次打开后保持挂载，用 hidden + inert 切换（参照 RightPanel 的 visited 写法） */
 export function LeftArea({ view, visible }: { view: LeftView; visible: boolean }) {
   useI18n()
   const [visited, setVisited] = useState<ReadonlySet<LeftView>>(() => new Set([view]))

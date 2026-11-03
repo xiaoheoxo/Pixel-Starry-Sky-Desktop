@@ -136,7 +136,7 @@ export function BottomPanel({
           {tab === 'aiCommands' && <AiCommandsTab sessionId={sessionId} commands={commands} />}
           {tab === 'output' && <OutputTab workspace={workspace} commands={commands} sessionId={sessionId} />}
         </ImageSessionContext.Provider>
-        {tab === 'problems' && <ProblemsTab />}
+        {tab === 'problems' && <ProblemsTab workspace={workspace} problems={problems} />}
         {tab === 'ports' && <PortsTab workspace={workspace} ports={ports} />}
       </div>
     </div>

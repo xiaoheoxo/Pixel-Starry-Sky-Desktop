@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { declarations, enclosingSymbol, maskSource } from './symbolsModel'
+import { declarations, enclosingSymbol, maskSource, nestDepths, symbolsSupported } from './symbolsModel'
 
 const lineOf = (text: string, needle: string): number => text.slice(0, text.indexOf(needle)).split('\n').length
 
@@ -87,7 +87,22 @@ describe('declarations / enclosingSymbol (ts)', () => {
     const text = ['class A {', '  run() {', '    foo(1)', '    if (x) {', '    }', '  }', '}'].join('\n')
     expect(declarations(text, 'a.ts').map(d => d.name)).toEqual(['A', 'run'])
   })
+  it('嵌套层数按范围算', () => {
+    expect(nestDepths(declarations(src, 'a.tsx'))).toEqual([0, 0, 0, 0, 1, 2, 1])
+  })
+  it('没分号的括号表达式变量不算函数，也不吞后面的声明', () => {
+    const text = ['const total = (a + b) * 2', 'function foo() {}', 'const bar = () => 2'].join('\n')
+    const list = declarations(text, 'a.ts')
+    expect(list.map(d => d.name)).toEqual(['foo', 'bar'])
+    expect(nestDepths(list)).toEqual([0, 0])
+  })
+  it('交叠范围里已结束的父级不算层数', () => {
+    const d = (from: number, to: number) => ({ name: 'x', kind: 'function' as const, line: 1, from, to })
+    expect(nestDepths([d(0, 10), d(2, 50), d(20, 30)])).toEqual([0, 1, 1])
+  })
   it('不认识的语言返回空', () => {
+    expect(symbolsSupported('a.go')).toBe(false)
+    expect(symbolsSupported('a.mts')).toBe(true)
     expect(declarations('func main() {}', 'a.go')).toEqual([])
     expect(enclosingSymbol('func main() {}', 1, 'a.go')).toBeNull()
   })
@@ -128,5 +143,8 @@ describe('python', () => {
     expect(enclosingSymbol(src, 14, 'a.py')?.name).toBe('put')
     expect(enclosingSymbol(src, 17, 'a.py')?.name).toBe('main')
     expect(enclosingSymbol(src, 1, 'a.py')).toBeNull()
+  })
+  it('嵌套层数', () => {
+    expect(nestDepths(declarations(src, 'a.py'))).toEqual([0, 1, 1, 2, 0])
   })
 })

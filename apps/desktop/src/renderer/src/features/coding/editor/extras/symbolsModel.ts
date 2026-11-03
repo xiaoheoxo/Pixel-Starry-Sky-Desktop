@@ -148,7 +148,8 @@ function findEnd(masked: string, start: number, mode: Scan, viaFunction: boolean
         return matchBrace(masked, i)
       }
       if (mode === 'arrow') {
-        if (c === ';') return null
+        // 括号外换行还没见到 =>：只是普通变量（semi: false 的写法没有分号可停）
+        if (c === ';' || (c === '\n' && !viaFunction)) return null
         if (c === '=' && masked[i + 1] === '>') {
           let j = i + 2
           while (j < masked.length && /\s/.test(masked[j])) j++
@@ -261,6 +262,9 @@ function pyDeclarations(text: string): Declaration[] {
   return found
 }
 
+/** 这种文件认不认得出符号（ts / js / py） */
+export const symbolsSupported = (path: string): boolean => JS_EXT.test(path) || PY_EXT.test(path)
+
 /** 文件里每个声明的行号和范围；不认识的语言返回空数组 */
 export function declarations(text: string, path: string): Declaration[] {
   if (JS_EXT.test(path)) return jsDeclarations(text)
@@ -268,9 +272,19 @@ export function declarations(text: string, path: string): Declaration[] {
   return []
 }
 
-/** 光标（line，1 起）所在位置最里面那个声明；不在任何声明里返回 null */
-export function enclosingSymbol(text: string, line: number, path: string): EnclosingSymbol | null {
-  const list = declarations(text, path)
+/** 大纲的缩进层数：被几个声明的范围包住就是几层（list 按起始位置排好） */
+export function nestDepths(list: readonly Declaration[]): number[] {
+  let open: Declaration[] = []
+  return list.map(d => {
+    // 范围可能交叠（识别有误时），已结束的全部去掉，不只看栈顶
+    open = open.filter(o => o.to > d.from)
+    open.push(d)
+    return open.length - 1
+  })
+}
+
+/** list 里光标（line，1 起）所在位置最里面那个声明；不在任何声明里返回 null */
+export function enclosingDeclaration(list: readonly Declaration[], text: string, line: number): Declaration | null {
   if (!list.length) return null
   const starts = lineStartsOf(text)
   let best: Declaration | null = null
@@ -279,5 +293,11 @@ export function enclosingSymbol(text: string, line: number, path: string): Enclo
     if (line < d.line || line > endLine) continue
     if (!best || d.from >= best.from) best = d
   }
+  return best
+}
+
+/** 光标（line，1 起）所在位置最里面那个声明；不在任何声明里返回 null */
+export function enclosingSymbol(text: string, line: number, path: string): EnclosingSymbol | null {
+  const best = enclosingDeclaration(declarations(text, path), text, line)
   return best ? { name: best.name, kind: best.kind, from: best.from, to: best.to } : null
 }

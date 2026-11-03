@@ -18,7 +18,7 @@ export const DEFAULT_CODING_LAYOUT: CodingLayoutPrefs = {
   bottom: { open: true, size: PANEL_LIMITS.bottom.initial, tab: 'terminal', maximized: false },
 }
 
-const LEFT_VIEWS: readonly LeftView[] = ['files', 'search', 'git', 'tasks', 'conversations']
+const LEFT_VIEWS: readonly LeftView[] = ['files', 'outline', 'search', 'git', 'tasks', 'conversations']
 const RIGHT_VIEWS: readonly RightView[] = [
   'chat',
   'browser',

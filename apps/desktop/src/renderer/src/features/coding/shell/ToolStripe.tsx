@@ -7,6 +7,7 @@ import {
   GitBranch,
   Globe,
   ListChecks,
+  ListTree,
   MessageSquare,
   MessagesSquare,
   Puzzle,
@@ -69,6 +70,7 @@ function StripeButton({
 
 const LEFT_ITEMS: Array<{ view: LeftView; icon: LucideIcon; label: TranslationKey }> = [
   { view: 'files', icon: Files, label: 'coding.shell.files' },
+  { view: 'outline', icon: ListTree, label: 'coding.shell.outline' },
   { view: 'search', icon: Search, label: 'coding.shell.search' },
   { view: 'git', icon: GitBranch, label: 'coding.shell.git' },
   { view: 'tasks', icon: ListChecks, label: 'coding.shell.tasks' },

@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Columns2, Ellipsis, GitCompare, Sparkles, X } from 'lucide-react'
 import { FileIcon } from '@/features/files/icons/FileIcon'
-import { IconButton, SEGMENT_TRACK, cn, segmentItem, useComingSoon } from '@/ui'
+import { IconButton, SEGMENT_TRACK, cn, segmentItem } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
@@ -70,29 +70,36 @@ function ViewSwitch({
   )
 }
 
-/** 中栏顶部：文件标签、视图切换、向右分屏（桩）、更多菜单 */
+/** 中栏顶部（分屏时每组一条）：文件标签、视图切换、向右分屏、更多菜单 */
 export function CodeTabs({
   tabs,
   active,
+  focused,
   mode,
   avail,
+  split,
   onActivate,
   onClose,
   onMode,
+  onSplit,
   menu,
 }: {
   tabs: TabItem[]
   active: string | null
+  /** 是当前那组：当前标签顶上画主色线（只有一组时总是 true） */
+  focused: boolean
   mode: EditorViewMode
   avail: ViewAvailability | null
+  /** 「向右分屏」按钮；已经分屏时不传（最多两组），hint 是置灰的原因 */
+  split?: { disabled: boolean; hint?: string }
   onActivate(id: string): void
   onClose(id: string): void
   onMode(mode: EditorViewMode): void
+  onSplit(): void
   /** 「⋯」菜单里的动作；没有标签时不显示按钮 */
   menu: MenuAction[]
 }): ReactNode {
   useI18n()
-  const comingSoon = useComingSoon()
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const list = useRef<HTMLDivElement>(null)
   // 滚轮横向滚、空白处拖动平移、当前标签滚进可视区、两头淡出和翻页箭头（与会话标签栏共用，tabScroll.ts）
@@ -121,7 +128,10 @@ export function CodeTabs({
               className={cn(
                 'group/tab press relative flex h-full max-w-48 min-w-0 shrink-0 cursor-default items-center gap-1.5 border-r border-line-layout pr-1 pl-3 text-ui select-none',
                 tab.id === active
-                  ? 'bg-app text-fg after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-accent'
+                  ? cn(
+                      'bg-app text-fg',
+                      focused && 'after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-accent',
+                    )
                   : 'text-fg-muted hover:bg-hover hover:text-fg',
               )}
               onMouseDown={e => {
@@ -191,13 +201,19 @@ export function CodeTabs({
         <TabStripArrows strip={list} />
       </div>
       {avail && <ViewSwitch mode={mode} avail={avail} onChange={onMode} />}
-      <IconButton
-        icon={Columns2}
-        size={28}
-        iconSize={15}
-        label={tr('coding.editor.splitRight')}
-        onClick={() => comingSoon(tr('coding.editor.splitRight'))}
-      />
+      {split && (
+        // 置灰的按钮不接鼠标事件（pointer-events-none），悬停提示挂在外面这层
+        <span title={split.disabled ? split.hint : undefined} className="flex shrink-0">
+          <IconButton
+            icon={Columns2}
+            size={28}
+            iconSize={15}
+            label={tr('coding.editor.splitRight')}
+            disabled={split.disabled}
+            onClick={onSplit}
+          />
+        </span>
+      )}
       {tabs.length > 0 && (
         <IconButton
           icon={Ellipsis}

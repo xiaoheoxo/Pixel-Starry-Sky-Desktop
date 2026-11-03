@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseQuery } from './commandCenterModel'
+import { matchSymbols, parseQuery } from './commandCenterModel'
 
 describe('parseQuery', () => {
   it('没有前缀就是文件', () => {
@@ -32,5 +32,19 @@ describe('parseQuery', () => {
   it('文件名里中间的前缀字符不是前缀', () => {
     expect(parseQuery('a>b').kind).toBe('file')
     expect(parseQuery('a:12').kind).toBe('file')
+  })
+})
+
+describe('matchSymbols', () => {
+  const items = [{ name: 'submit' }, { name: 'onSideSubmit' }, { name: 'onDrop' }]
+  it('子串匹配、不分大小写，记下命中位置', () => {
+    expect(matchSymbols(items, 'SUB')).toEqual([
+      { item: items[0], at: 0 },
+      { item: items[1], at: 6 },
+    ])
+  })
+  it('空词全列，没命中返回空', () => {
+    expect(matchSymbols(items, '')).toHaveLength(3)
+    expect(matchSymbols(items, 'zzz')).toEqual([])
   })
 })

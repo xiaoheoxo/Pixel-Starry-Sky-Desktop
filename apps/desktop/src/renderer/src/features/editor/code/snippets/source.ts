@@ -1,4 +1,10 @@
-import { snippet, type Completion, type CompletionContext, type CompletionSource } from '@codemirror/autocomplete'
+import {
+  snippet,
+  type Completion,
+  type CompletionContext,
+  type CompletionSection,
+  type CompletionSource,
+} from '@codemirror/autocomplete'
 import type { EditorView } from '@codemirror/view'
 import { getFiles } from '@/features/files/store'
 import { contributionsOf, packByKey, readPackJson } from '@/features/extpacks/store'
@@ -82,7 +88,8 @@ function applySnippet(body: string) {
   }
 }
 
-export function snippetSource(languageId: string): CompletionSource {
+/** section：和单词补全放在同一个列表时分组（片段在前） */
+export function snippetSource(languageId: string, section?: CompletionSection): CompletionSource {
   return async (context: CompletionContext) => {
     const word = context.matchBefore(WORD)
     if (!word && !context.explicit) return null
@@ -98,6 +105,7 @@ export function snippetSource(languageId: string): CompletionSource {
           info: s.description || undefined,
           type: 'snippet',
           apply: applySnippet(s.body),
+          section,
         })
       }
     }

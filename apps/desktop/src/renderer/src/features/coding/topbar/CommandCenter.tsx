@@ -26,7 +26,8 @@ import { FileIcon as FileTypeIcon } from '@/features/files/icons/FileIcon'
 import { isIgnoredPath, partitionIgnored, useIgnoredSet } from '@/features/files/ignored'
 import { useActiveCodeTab } from '../editor'
 import { useCodingWorkspace } from '../workspace'
-import { parseQuery } from './commandCenterModel'
+import { SYMBOLS_NOTE, fileSymbols } from '../left/outline/outlineModel'
+import { matchSymbols, parseQuery } from './commandCenterModel'
 
 /** 顶栏命令中心：输入框在入口原位展开；挂载时接管 Ctrl+P。 */
 export function CommandCenterButton({ compact = false }: { compact?: boolean }) {
@@ -90,6 +91,13 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
   )
   const q = parseQuery(text)
   const term = q.kind === 'file' ? q.term : ''
+  // @ 符号：只搜当前编辑器文件
+  const symbols = useMemo(() => (q.kind === 'symbol' ? fileSymbols(codeTab) : null), [q.kind, codeTab])
+  const symbolHits = useMemo(
+    () => (symbols?.kind === 'ready' ? matchSymbols(symbols.items, q.term) : []),
+    [symbols, q.term],
+  )
+  const count = q.kind === 'file' ? hits.length : q.kind === 'symbol' ? symbolHits.length : 0
 
   useLayoutEffect(() => {
     const button = anchor.current
@@ -145,6 +153,11 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
     }
   }, [term, ref])
 
+  // 方向键移出可视区时跟着滚（@ 列表不限条数）
+  useEffect(() => {
+    document.getElementById(`command-center-result-${selected}`)?.scrollIntoView({ block: 'nearest' })
+  }, [selected, count])
+
   const pick = useCallback(
     (hit: FileHit): void => {
       onClose()
@@ -152,6 +165,11 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
     },
     [onClose],
   )
+  const jumpTo = (line: number): void => {
+    if (!codeTab) return
+    onClose()
+    void openFile(codeTab.ref, codeTab.path, line)
+  }
   const submit = (): void => {
     if (q.kind === 'file') {
       const hit = hits[selected]
@@ -167,6 +185,9 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
     } else if (q.kind === 'line' && q.line !== null && codeTab) {
       onClose()
       void openFile(codeTab.ref, codeTab.path, q.line)
+    } else if (q.kind === 'symbol') {
+      const hit = symbolHits[selected]
+      if (hit) jumpTo(hit.item.line)
     }
   }
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -180,8 +201,7 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
       submit()
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      const n = hits.length
-      if (q.kind === 'file' && n) setSelected(s => (s + (e.key === 'ArrowDown' ? 1 : n - 1)) % n)
+      if (count) setSelected(s => (s + (e.key === 'ArrowDown' ? 1 : count - 1)) % count)
     } else if (e.key === 'Tab') {
       e.preventDefault()
       input.current?.focus()
@@ -233,8 +253,51 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
       )
   } else if (q.kind === 'command') body = <Note>{tr('coding.top.cc.commandHint')}</Note>
   else if (q.kind === 'chat') body = <Note>{tr('coding.top.cc.chatHint')}</Note>
-  else if (q.kind === 'symbol') body = <Note>{tr('coding.top.cc.symbolStub')}</Note>
-  else if (q.line === null) body = <Note>{tr('coding.top.cc.lineBad')}</Note>
+  else if (q.kind === 'symbol') {
+    if (!symbols || symbols.kind === 'noFile') body = <Note>{tr('coding.top.cc.symbolNoFile')}</Note>
+    else if (symbols.kind !== 'ready') body = <Note>{tr(SYMBOLS_NOTE[symbols.kind])}</Note>
+    else if (!symbolHits.length) body = <Note>{tr('coding.top.cc.noSymbols')}</Note>
+    else
+      body = (
+        <>
+          <ul id="command-center-results" role="listbox" className="max-h-80 overflow-auto p-1">
+            {symbolHits.map(({ item, at }, i) => (
+              <li
+                key={item.from}
+                id={`command-center-result-${i}`}
+                role="option"
+                aria-selected={i === selected}
+                onMouseEnter={() => setSelected(i)}
+                onClick={() => jumpTo(item.line)}
+                className={cn(
+                  'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-list text-fg',
+                  i === selected && 'bg-accent-soft',
+                )}
+              >
+                <span aria-hidden className="w-3 shrink-0 text-center font-mono text-accent">
+                  {item.kind === 'class' ? 'C' : 'ƒ'}
+                </span>
+                <span className="min-w-0 truncate">
+                  {item.name.slice(0, at)}
+                  {q.term ? (
+                    <mark className="rounded-sm bg-warn/25 px-px text-inherit">
+                      {item.name.slice(at, at + q.term.length)}
+                    </mark>
+                  ) : null}
+                  {item.name.slice(at + q.term.length)}
+                </span>
+                <span className="ml-auto shrink-0 pl-2 text-meta text-fg-faint tabular-nums">
+                  {tr('coding.top.cc.symbolLine', { p0: item.line })}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="border-t border-line-subtle px-3 py-1.5 text-label text-fg-faint">
+            {tr('coding.top.cc.symbolFooter')}
+          </p>
+        </>
+      )
+  } else if (q.line === null) body = <Note>{tr('coding.top.cc.lineBad')}</Note>
   else if (!codeTab) body = <Note>{tr('coding.top.cc.lineNoFile')}</Note>
   else body = <Note>{tr('coding.top.cc.lineGo', { p0: q.line })}</Note>
 
@@ -262,15 +325,16 @@ function CommandCenter({ anchor, onClose }: { anchor: RefObject<HTMLButtonElemen
           <input
             ref={input}
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={e => {
+              setText(e.target.value)
+              setSelected(0)
+            }}
             onKeyDown={onKeyDown}
             aria-label={tr('coding.top.cc.input')}
             role="combobox"
-            aria-expanded={q.kind === 'file' && hits.length > 0}
-            aria-controls={q.kind === 'file' && hits.length > 0 ? 'command-center-results' : undefined}
-            aria-activedescendant={
-              q.kind === 'file' && hits[selected] ? `command-center-result-${selected}` : undefined
-            }
+            aria-expanded={count > 0}
+            aria-controls={count > 0 ? 'command-center-results' : undefined}
+            aria-activedescendant={selected < count ? `command-center-result-${selected}` : undefined}
             autoComplete="off"
             placeholder={tr('coding.top.cc.placeholder')}
             className="h-full min-w-0 flex-1 bg-transparent text-list text-fg outline-none placeholder:text-fg-faint"

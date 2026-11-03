@@ -74,7 +74,9 @@ describe('replaceInGroup / persistable', () => {
   })
   it('持久化不含对比标签，只剩对比标签的项目不存', () => {
     const d = `${GIT_DIFF_PREFIX}p:1:staged:..:a`
-    expect(persistable({ p: g(['file:a', d], d), q: g([d], d) })).toEqual({ p: g(['file:a'], 'file:a') })
+    expect(
+      persistable({ p: { groups: [g(['file:a', d], d)], focus: 0 }, q: { groups: [g([d], d)], focus: 0 } }),
+    ).toEqual({ p: g(['file:a'], 'file:a') })
   })
 })
 

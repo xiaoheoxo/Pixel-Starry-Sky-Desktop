@@ -71,4 +71,16 @@ export const editorMessages = {
     zh: '自动保存 保存 失去焦点 延迟 auto save autosave focus delay',
     en: 'auto save autosave focus delay save 自动保存 保存 失去焦点',
   },
+  // 单词补全（docs/ui/coding-tier1.md §1）
+  'editor.complete.title': { zh: '输入时显示单词补全', en: 'Suggest words while typing' },
+  'editor.complete.description': {
+    zh: '敲到第 2 个字符起，列出本文件里出现过的单词和扩展带的代码片段；Tab / Enter 接受，Esc 关闭',
+    en: 'From the second character, suggest words used in this file and snippets from extensions. Tab / Enter accepts, Esc closes.',
+  },
+  'editor.complete.keywords': {
+    zh: '单词补全 自动补全 补全 提示 代码片段 编辑器',
+    en: 'word completion autocomplete suggestions snippets editor',
+  },
+  'editor.complete.snippets': { zh: '代码片段', en: 'Snippets' },
+  'editor.complete.words': { zh: '本文件的单词', en: 'Words in this file' },
 }

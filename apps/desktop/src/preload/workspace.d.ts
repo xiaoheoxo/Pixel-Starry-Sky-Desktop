@@ -19,7 +19,10 @@ export interface FilesBridge {
   listExisting(ref: WorkspaceRef, path: string): Promise<DirectoryListing | null>
   search(ref: WorkspaceRef, name: string): Promise<DirectoryListing>
   /** 内容搜索（docs/ui/files-search-terminal-pins.md §2） */
-  grep(ref: WorkspaceRef, query: string): Promise<GrepResult>
+  grep(
+    ref: WorkspaceRef,
+    query: string | { text: string; caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean },
+  ): Promise<GrepResult>
   /** 新建空文件 / 文件夹，返回相对项目的路径 */
   create(ref: WorkspaceRef, path: string, kind: 'file' | 'folder'): Promise<{ path: string }>
   /** 项目内重命名或移动，返回新的相对路径 */

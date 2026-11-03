@@ -2,11 +2,14 @@ import type { Extension } from '@codemirror/state'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useEffect, useMemo, useRef, type JSX } from 'react'
 import { tr } from '@/i18n/core'
-import type { OpenFile } from '@/features/files/store'
+import { openFile, type OpenFile } from '@/features/files/store'
 import { useToast } from '@/ui'
 import { PROBLEMS_READY, useProblems } from '../../problems'
+import { useCodingWorkspace } from '../../workspace'
+import { stepProblem, type Problem } from '../../problemsModel'
 import { codeLens, LENS_MAX_LINES } from './codeLens'
 import { overviewRuler } from './overviewRuler'
+import { problemsLint } from './problemsLint'
 import { useTaskGutter } from './taskGutter'
 import { enclosingSymbol } from './symbolsModel'
 
@@ -22,7 +25,18 @@ function overLines(text: string, limit: number): boolean {
   return false
 }
 
-/** 代码透镜 + 概览标尺 + package.json 的运行 ▶；返回值 memo */
+const NO_PROBLEMS: readonly Problem[] = []
+/** 这个文件的问题（useProblems 没新结果时同一个数组）；按代码模式的工作区取，tab.ref 是换成项目后的，跟任务列表的缓存对不上 */
+function useFileProblems(tab: OpenFile | null): readonly Problem[] {
+  const problems = useProblems(useCodingWorkspace().ref)
+  const path = tab?.path ?? ''
+  return useMemo(() => {
+    const list = problems.items.filter(p => p.path === path)
+    return list.length ? list : NO_PROBLEMS
+  }, [problems, path])
+}
+
+/** 代码透镜 + 概览标尺 + package.json 的运行 ▶ + 问题波浪线；返回值 memo */
 export function useEditorExtras(tab: OpenFile | null): readonly Extension[] {
   const toast = useToast()
   const toastRef = useRef(toast)
@@ -35,18 +49,21 @@ export function useEditorExtras(tab: OpenFile | null): readonly Extension[] {
   const text = tab?.document?.kind === 'text'
   const big = text && tab ? overLines(tab.draft, LENS_MAX_LINES) : false
   const tasks = useTaskGutter(tab)
+  const problems = useFileProblems(tab)
   return useMemo(() => {
     if (!id || !text) return NONE
     const list: Extension[] = [...tasks]
     if (!big) list.push(codeLens(id, path, message => toastRef.current(message)))
     list.push(overviewRuler(head))
+    if (problems.length) list.push(problemsLint(problems))
     return list
-  }, [id, path, head, text, big, tasks])
+  }, [id, path, head, text, big, tasks, problems])
 }
 
 /** 面包屑后面的「› ƒ 名字」和问题计数 */
 export function SymbolCrumb({ tab }: { tab: OpenFile }): JSX.Element | null {
-  const problems = useProblems(tab.ref)
+  const problems = useFileProblems(tab)
+  const errors = problems.filter(p => p.severity === 'error').length
   const line = tab.cursor.line
   const draft = tab.draft
   const isText = tab.document?.kind === 'text'
@@ -55,7 +72,27 @@ export function SymbolCrumb({ tab }: { tab: OpenFile }): JSX.Element | null {
     [isText, draft, line, tab.path],
   )
   if (!isText || (!symbol && !PROBLEMS_READY)) return null
-  const pending = tr('coding.editor.extras.prevProblem')
+  // 上一个 / 下一个问题：从光标处往前 / 往后找，到头绕回去
+  const step = (dir: 1 | -1): void => {
+    const p = stepProblem(problems, line, tab.cursor.column, dir)
+    if (p) void openFile(tab.ref, tab.path, p.line, p.column, undefined, { target: 'code' })
+  }
+  const arrow = (dir: 1 | -1): JSX.Element => {
+    const label = tr(dir === 1 ? 'coding.bottom.problems.next' : 'coding.bottom.problems.prev')
+    const Icon = dir === 1 ? ChevronDown : ChevronUp
+    return (
+      <button
+        type="button"
+        disabled={!problems.length}
+        title={label}
+        aria-label={label}
+        onClick={() => step(dir)}
+        className="rounded-sm hover:bg-hover hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <Icon size={14} strokeWidth={1.5} className="shrink-0" />
+      </button>
+    )
+  }
   return (
     <span className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-2 text-xs text-fg-muted" data-symbol-crumb>
       {symbol && (
@@ -74,31 +111,17 @@ export function SymbolCrumb({ tab }: { tab: OpenFile }): JSX.Element | null {
       )}
       {PROBLEMS_READY && (
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          <span
-            className={problems.errors ? 'text-danger' : undefined}
-            title={tr('coding.editor.extras.errors', { n: problems.errors })}
-          >
-            {problems.errors}E
+          <span className={errors ? 'text-danger' : undefined} title={tr('coding.editor.extras.errors', { n: errors })}>
+            {errors}E
           </span>
           <span
-            className={problems.warnings ? 'text-warn' : undefined}
-            title={tr('coding.editor.extras.warnings', { n: problems.warnings })}
+            className={problems.length - errors ? 'text-warn' : undefined}
+            title={tr('coding.editor.extras.warnings', { n: problems.length - errors })}
           >
-            {problems.warnings}W
+            {problems.length - errors}W
           </span>
-          {/* 问题检查还没接入，上下箭头先不能点 */}
-          <button type="button" disabled title={pending} aria-label={pending} className="opacity-40">
-            <ChevronUp size={14} strokeWidth={1.5} className="shrink-0" />
-          </button>
-          <button
-            type="button"
-            disabled
-            title={tr('coding.editor.extras.nextProblem')}
-            aria-label={tr('coding.editor.extras.nextProblem')}
-            className="opacity-40"
-          >
-            <ChevronDown size={14} strokeWidth={1.5} className="shrink-0" />
-          </button>
+          {arrow(-1)}
+          {arrow(1)}
         </span>
       )}
     </span>

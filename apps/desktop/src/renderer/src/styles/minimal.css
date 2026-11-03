@@ -364,6 +364,10 @@
 :root[data-minimal='on'] [data-code-tab]::after {
   content: none;
 }
+/* 分屏时当前那组的当前标签用主色线，另一组照旧 */
+:root[data-minimal='on'] [data-coding-editor-group][data-focused] [data-code-tab][aria-selected='true'] {
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
 
 /* ================= 对话模式外壳 ================= */
 

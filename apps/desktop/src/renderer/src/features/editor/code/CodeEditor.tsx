@@ -55,6 +55,7 @@ import { editorChrome, editorPhrases } from './theme'
 import { firstLineOf, languageKeyForPath } from './languageIds'
 import { onEditorPacksChanged } from './packEvents'
 import { editorPackExtensions } from './packs'
+import { onWordCompleteChange } from './snippets/words'
 import { promptMenuActions } from '@/features/extpacks/prompts/editorMenu'
 import { fileIndent, linePosition } from './positions'
 
@@ -62,7 +63,7 @@ type Runtime = {
   view: EditorView
   readonly: Compartment
   language: Compartment
-  /** 扩展提供的颜色主题和代码片段 */
+  /** 扩展提供的颜色主题、代码片段，和单词补全 */
   packs: Compartment
   phrases: Compartment
   wrap: Compartment
@@ -145,12 +146,15 @@ function refreshRuntime(id: string): void {
   if (!rt.large && languageKeyForPath(tab.path, firstLine) !== rt.languageKey) reloadLanguage(rt, tab.path, rt.view)
 }
 let packsTimer: number | undefined
-onEditorPacksChanged(() => {
+const refreshAll = (): void => {
   window.clearTimeout(packsTimer)
   packsTimer = window.setTimeout(() => {
     for (const id of [...runtimes.keys()]) refreshRuntime(id)
   }, 50)
-})
+}
+onEditorPacksChanged(refreshAll)
+// 补全装在 packs 隔间里（snippets/index.ts），开关变了一样重配
+onWordCompleteChange(refreshAll)
 
 function recalc(id: string, runtime: Runtime): void {
   const tab = getFiles().tabs.find(t => t.id === id)

@@ -61,6 +61,17 @@ export const codingBottomMessages = {
   },
   'coding.bottom.ports.open': { zh: '在浏览器打开', en: 'Open in browser' },
   'coding.bottom.ports.port': { zh: '端口 {port}', en: 'Port {port}' },
-  'coding.bottom.problems.soon': { zh: '问题检查制作中', en: 'Problem checking is coming soon' },
+  'coding.bottom.problems.empty': {
+    zh: '跑一次 tsc / eslint 任务后，这里列出报错',
+    en: 'Run a tsc / eslint task and its errors show up here',
+  },
+  'coding.bottom.problems.goTasks': { zh: '去任务', en: 'Go to tasks' },
+  'coding.bottom.problems.none': { zh: '上次检查没有发现问题', en: 'No problems in the last check' },
+  'coding.bottom.problems.error': { zh: '错误', en: 'Error' },
+  'coding.bottom.problems.warning': { zh: '警告', en: 'Warning' },
+  'coding.bottom.problems.askAi': { zh: '交给 AI 修', en: 'Fix with AI' },
+  'coding.bottom.problems.fixPrompt': { zh: '修好这个报错：\n{problem}', en: 'Fix this error:\n{problem}' },
+  'coding.bottom.problems.prev': { zh: '上一个问题', en: 'Previous problem' },
+  'coding.bottom.problems.next': { zh: '下一个问题', en: 'Next problem' },
   // ---- B1 的段落：coding.bottom.term.*（只在这一段追加）----
 }

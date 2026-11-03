@@ -1,6 +1,6 @@
 export type AppMode = 'chat' | 'code'
 export type CodingPanel = 'left' | 'right' | 'bottom'
-export type LeftView = 'files' | 'search' | 'git' | 'tasks' | 'conversations'
+export type LeftView = 'files' | 'outline' | 'search' | 'git' | 'tasks' | 'conversations'
 /** tasks / sandbox / copies 没有工具条按钮，只能通过事件、命令面板或运行组件打开 */
 export type RightView = 'chat' | 'browser' | 'artifacts' | 'notifications' | 'tasks' | 'sandbox' | 'copies'
 export type BottomTab = 'terminal' | 'aiCommands' | 'output' | 'problems' | 'ports'

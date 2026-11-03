@@ -28,3 +28,15 @@ export function parseQuery(text: string): ParsedQuery {
       return { kind: 'file', term: s.trim(), line: null }
   }
 }
+
+/** @ 符号：名字里含 term（不分大小写）的，at 是命中位置（标高亮用）；term 为空时全列 */
+export function matchSymbols<T extends { name: string }>(
+  items: readonly T[],
+  term: string,
+): Array<{ item: T; at: number }> {
+  const needle = term.toLowerCase()
+  return items.flatMap(item => {
+    const at = item.name.toLowerCase().indexOf(needle)
+    return at < 0 ? [] : [{ item, at }]
+  })
+}

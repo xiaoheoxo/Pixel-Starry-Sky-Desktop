@@ -58,3 +58,15 @@ export function defaultMode(avail: ViewAvailability): EditorViewMode {
 export function effectiveBase(base: DiffBase, avail: ViewAvailability): DiffBase {
   return base === 'turn' && !avail.turn ? 'head' : base
 }
+
+/**
+ * 只读副本跟上草稿时只换变了的那一段（去掉相同的头尾）：整篇替换会把滚动锚点映射到开头，副本每打一个字就跳回第 1 行
+ */
+export function changedRange(from: string, to: string): { from: number; to: number; insert: string } {
+  const max = Math.min(from.length, to.length)
+  let head = 0
+  while (head < max && from[head] === to[head]) head++
+  let tail = 0
+  while (tail < max - head && from[from.length - 1 - tail] === to[to.length - 1 - tail]) tail++
+  return { from: head, to: from.length - tail, insert: to.slice(head, to.length - tail) }
+}

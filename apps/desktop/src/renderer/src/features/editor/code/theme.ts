@@ -45,6 +45,32 @@ export const editorChrome = [
       backgroundColor: 'var(--bg-popover)',
       borderColor: 'var(--border)',
     },
+    // 补全弹窗：和应用里其他弹出菜单一样的底色、边框和阴影；选中项的自带底色（亮蓝 / 深蓝）选择器更具体，多写一层才盖得住
+    '.cm-tooltip.cm-tooltip-autocomplete': {
+      borderColor: 'var(--border-card)',
+      borderRadius: 'var(--radius-md)',
+      boxShadow: 'var(--shadow-popover)',
+    },
+    // 圆角裁在列表上：弹窗本身不能 overflow: hidden，片段说明面板挂在弹窗外侧
+    '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--text-meta)',
+      borderRadius: 'inherit',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '2px 10px', lineHeight: '1.6' },
+    '&.cm-editor .cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected]': {
+      color: 'var(--text)',
+      background: 'var(--accent-soft)',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': {
+      padding: '4px 10px 2px',
+      fontFamily: 'var(--font-sans)',
+      color: 'var(--text-faint)',
+      borderBottom: '1px solid var(--border-subtle)',
+      opacity: '1',
+    },
+    '.cm-completionMatchedText': { textDecoration: 'none', fontWeight: '600' },
+    '.cm-completionDetail': { marginLeft: '14px', fontStyle: 'normal', color: 'var(--text-faint)' },
     '.cm-panel.cm-search': { padding: '8px', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-meta)' },
     '.cm-dialog': { padding: '8px', fontFamily: 'var(--font-sans)', fontSize: 'var(--text-meta)' },
     '.cm-dialog input, .cm-dialog button': {

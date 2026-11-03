@@ -3,17 +3,19 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { Button, Segmented } from '@/ui'
+import { Button, Segmented, Switch } from '@/ui'
 import { GroupTitle, SectionTitle, SettingRow } from '../../settings/SettingRow'
 import { refreshEditors, setEditors, useEditors } from '@/features/editor/store'
 import { isDemo } from '@/data'
 import type { EditorKind } from '../../../../../shared/types/workspace'
 import { EditorIcon, editorLabel, editorSource } from '@/features/editor/EditorIcon'
 import { AutoSaveSetting } from './AutoSaveSetting'
+import { setWordComplete, useWordComplete } from '../code/snippets/words'
 
 export function EditorSection() {
   useI18n()
   const state = useEditors(),
+    wordComplete = useWordComplete(),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false)
   const [name, setName] = useState(tr('settings.editor.EditorSection.customEditor')),
@@ -49,6 +51,11 @@ export function EditorSection() {
         </p>
       )}
       <AutoSaveSetting />
+      <SettingRow
+        title={tr('editor.complete.title')}
+        description={tr('editor.complete.description')}
+        control={<Switch checked={wordComplete} label={tr('editor.complete.title')} onChange={setWordComplete} />}
+      />
       <SettingRow
         title={tr('settings.editor.EditorSection.defaultOpeningMethod')}
         description={tr('settings.editor.EditorSection.toolbarOpensBuiltIn')}

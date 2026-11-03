@@ -63,6 +63,9 @@ describe('parseCodingLayout', () => {
     expect(p.right).toEqual({ open: true, size: 500, view: 'browser' })
     expect(p.bottom).toEqual({ open: true, size: 260, tab: 'problems', maximized: true })
   })
+  it('左栏认「大纲」视图', () => {
+    expect(parseCodingLayout({ left: { view: 'outline' } }).left.view).toBe('outline')
+  })
   it('接受 JSON 字符串', () => {
     expect(parseCodingLayout(JSON.stringify(prefs({ l: 300 }))).left.size).toBe(300)
   })

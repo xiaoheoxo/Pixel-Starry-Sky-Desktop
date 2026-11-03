@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultMode, effectiveBase, effectiveMode, viewAvailability, type ViewInput } from './viewModel'
+import { changedRange, defaultMode, effectiveBase, effectiveMode, viewAvailability, type ViewInput } from './viewModel'
 
 const base: ViewInput = {
   head: 'a',
@@ -65,5 +65,27 @@ describe('effectiveMode / effectiveBase', () => {
     expect(effectiveBase('turn', viewAvailability(base))).toBe('head')
     expect(effectiveBase('turn', viewAvailability({ ...base, turnBaseline: 'x' }))).toBe('turn')
     expect(effectiveBase('head', viewAvailability(base))).toBe('head')
+  })
+})
+
+describe('changedRange', () => {
+  const apply = (a: string, b: string) => {
+    const c = changedRange(a, b)
+    return a.slice(0, c.from) + c.insert + a.slice(c.to)
+  }
+  it('只换中间变了的一段，前面的位置不动', () => {
+    expect(changedRange('line1\nline2\nline3', 'line1\nlineX2\nline3')).toEqual({ from: 10, to: 10, insert: 'X' })
+    expect(changedRange('abc', 'abc')).toEqual({ from: 3, to: 3, insert: '' })
+  })
+  it('增删、重复字符、全换都能还原成新文本', () => {
+    for (const [a, b] of [
+      ['aaa', 'aa'],
+      ['aa', 'aaa'],
+      ['', 'x'],
+      ['x', ''],
+      ['abc', 'xyz'],
+      ['abba', 'aba'],
+    ] as const)
+      expect(apply(a, b)).toBe(b)
   })
 })

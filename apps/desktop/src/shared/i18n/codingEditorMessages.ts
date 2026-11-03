@@ -12,6 +12,11 @@ export const codingEditorMessages = {
   'coding.editor.copyRelPath': { zh: '复制相对路径', en: 'Copy relative path' },
   'coding.editor.reveal': { zh: '在文件树里定位', en: 'Reveal in file tree' },
   'coding.editor.splitRight': { zh: '向右分屏', en: 'Split right' },
+  'coding.editor.splitNarrow': { zh: '中栏太窄，放不下左右两栏', en: 'The editor is too narrow for two groups' },
+  'coding.editor.mirror': {
+    zh: '另一栏正在编辑这个文件，点一下在这边编辑',
+    en: 'This file is being edited in the other group. Click to edit it here',
+  },
   'coding.editor.view': { zh: '视图', en: 'View' },
   'coding.editor.view.preview': { zh: '预览', en: 'Preview' },
   'coding.editor.view.code': { zh: '代码', en: 'Code' },
@@ -46,11 +51,6 @@ export const codingEditorMessages = {
   'coding.editor.extras.symbol': { zh: '光标所在：{name}', en: 'Cursor in: {name}' },
   'coding.editor.extras.errors': { zh: '{n} 个错误', en: '{n} errors' },
   'coding.editor.extras.warnings': { zh: '{n} 个警告', en: '{n} warnings' },
-  'coding.editor.extras.prevProblem': {
-    zh: '上一个问题（问题检查还没接入）',
-    en: 'Previous problem (not connected yet)',
-  },
-  'coding.editor.extras.nextProblem': { zh: '下一个问题（问题检查还没接入）', en: 'Next problem (not connected yet)' },
   // ---- 中栏「Git 对比」标签（docs/ui/coding-mode.md）----
   'coding.gitDiff.tag.work': { zh: '更改', en: 'Changes' },
   'coding.gitDiff.tag.staged': { zh: '暂存', en: 'Staged' },
