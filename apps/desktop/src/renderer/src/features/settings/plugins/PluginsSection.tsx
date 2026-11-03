@@ -262,7 +262,7 @@ export function PluginsSection() {
                   setImporting(true)
                 }}
               >
-                {t('从其他软件导入…')}
+                {tr('plugins.import.open')}
               </Button>
             )}
             {(tab === 'plugin' || tab === 'skill') && (
