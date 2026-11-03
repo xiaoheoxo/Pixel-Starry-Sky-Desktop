@@ -1,13 +1,5 @@
 // 连接层的入口：配对（扫码 → 用配对码换设备令牌）和每台电脑一条连接。界面只通过这里接触 packages/link。
-import {
-  bridgeApiBase,
-  fingerprint,
-  fromBase64Url,
-  generateKeypair,
-  keypairFrom,
-  pairRequest,
-  toBase64Url,
-} from '@pixelsky/link'
+import { fingerprint, fromBase64Url, generateKeypair, keypairFrom, pairRequest, toBase64Url } from '@pixelsky/link'
 import { type Offer } from './offer'
 import { pickNode } from './nodes'
 import { DesktopLink, type LinkHooks, type LinkState } from './link'
@@ -47,10 +39,10 @@ export async function pairWithOffer(offer: Offer, phoneName: string): Promise<Pa
   let res: Response
   let node: string | null = null
   try {
-    // 二维码里的中转是主站列出的节点（优质节点）就配对、连接都发到那个节点，否则用页面的来源
+    // 配对码在电脑申请它的主站进程内存里，所以总在页面的来源（主站）兑换；
+    // 二维码里的中转是主站列出的节点（优质节点）就记下来，之后的实时连接走那个节点
     node = await pickNode(offer.raw.relay, location.origin)
-    const api = node ? bridgeApiBase(node) : location.origin
-    res = await fetch(api + '/v1/bridge/pair', {
+    res = await fetch(location.origin + '/v1/bridge/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: offer.raw.code, name: phoneName }),
