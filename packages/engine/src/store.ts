@@ -65,6 +65,8 @@ export interface EngineOptions {
   outputStyle?: string
   /** 只存 false（关掉提问） */
   askQuestions?: boolean
+  /** 只存 false（关掉自动列计划，docs/ui/progress-card.md §10） */
+  autoPlan?: boolean
   autoCompactPct?: number
   /** 每个模型的上下文窗口，按额度来源分开（GitHub #20）；只存填了的 */
   contextWindows?: { platform?: Record<string, number>; self?: Record<string, number> }

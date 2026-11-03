@@ -183,6 +183,7 @@ export class HostSettings {
   launchOptions(engine: EngineId): {
     outputStyle: string | null
     askQuestions: boolean
+    autoPlan: boolean
     autoCompactPct: number | null
     contextWindows: ContextWindows
     args: string[]
@@ -193,6 +194,7 @@ export class HostSettings {
     return {
       outputStyle: o.outputStyle ?? null,
       askQuestions: o.askQuestions !== false,
+      autoPlan: o.autoPlan !== false,
       autoCompactPct: o.autoCompactPct ?? null,
       contextWindows: readContextWindows(o.contextWindows),
       // 设置文件是用户可改的 JSON，读出来再过一遍
@@ -296,6 +298,11 @@ export class HostSettings {
       if (typeof patch.askQuestions !== 'boolean') throw new Error('「允许中途向我提问」的值不对')
       if (patch.askQuestions) delete options.askQuestions
       else options.askQuestions = false
+    }
+    if (patch.autoPlan !== undefined) {
+      if (typeof patch.autoPlan !== 'boolean') throw new Error('「多步任务自动列计划」的值不对')
+      if (patch.autoPlan) delete options.autoPlan
+      else options.autoPlan = false
     }
     if (patch.autoCompactPct !== undefined) {
       const pct = patch.autoCompactPct
@@ -480,6 +487,7 @@ export class HostSettings {
           return {
             outputStyle: o.outputStyle ?? null,
             askQuestions: o.askQuestions !== false,
+            autoPlan: o.autoPlan !== false,
             autoCompactPct: o.autoCompactPct ?? null,
             contextWindows: readContextWindows(o.contextWindows),
             hidden: o.hidden === true,
@@ -532,6 +540,7 @@ export class HostSettings {
       await each((raw, id) => ({
         outputStyle: typeof raw.outputStyle === 'string' ? raw.outputStyle : null,
         askQuestions: raw.askQuestions !== false,
+        autoPlan: raw.autoPlan !== false,
         autoCompactPct: typeof raw.autoCompactPct === 'number' ? raw.autoCompactPct : null,
         contextWindows: replaceContextWindows(
           readContextWindows(this.file.options[id]?.contextWindows),
@@ -621,6 +630,7 @@ export interface SyncableEngineSettings {
         {
           outputStyle: string | null
           askQuestions: boolean
+          autoPlan: boolean
           autoCompactPct: number | null
           contextWindows: ContextWindows
           hidden: boolean

@@ -84,6 +84,7 @@ import {
   type ReadOptions,
 } from './native'
 import { LONG_CONTEXT_ENV, claudeModelName, windowSettings } from './long-context'
+import { autoPlanFile } from './auto-plan'
 
 export interface ClaudeAdapterOptions {
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
@@ -96,7 +97,12 @@ export interface ClaudeAdapterOptions {
   /** 系统代理（http://主机:端口）；没开代理、开关关了时为 null。用户自己设了代理变量时不用（env.ts systemProxyEnv） */
   systemProxy?: () => string | null
   /** 设置 › 本机引擎里的引擎级选项（输出风格、允许提问、自动压缩触发点、追加参数、接收其他会话的消息），每次启动进程时读 */
-  launchOptions?: () => ClaudeLaunchOptions & { autoCompactPct: number | null; contextWindows?: ContextWindows }
+  launchOptions?: () => ClaudeLaunchOptions & {
+    autoCompactPct: number | null
+    contextWindows?: ContextWindows
+    /** 多步任务自动列计划（docs/ui/progress-card.md §10）；没给时开 */
+    autoPlan?: boolean
+  }
   /** 桌面端的私有 Node.js：官方安装器装不上时改用 npm，没装 Node.js 就先装它；补在 PATH 最后（docs/ui/engine-update.md §7） */
   nodeRuntime?: NodeRuntime
   /** 测试用：直接指定要启动的程序，跳过查找和检测 */
@@ -516,6 +522,8 @@ export class ClaudeAdapter implements EngineAdapter {
             args: launch.args,
             peerMessages: launch.peerMessages,
             modelSettings: this.windows(ctx.record())?.modelSettings ?? null,
+            // 终端模式不加：Claude Code 自己的界面本来就显示任务清单，进度卡片只在界面模式里
+            planPromptFile: autoPlanFile(launch.autoPlan !== false, env, this.opts.dataDir),
           }
         : undefined,
       launcher,

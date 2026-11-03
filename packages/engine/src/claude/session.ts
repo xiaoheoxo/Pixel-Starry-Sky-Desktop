@@ -135,6 +135,8 @@ export interface ClaudeLaunchOptions {
    * 界面看不到消息原文（docs/ui/import-collab.md 第 5 项④，2026-10-21 实测 2.1.303）
    */
   peerMessages?: boolean
+  /** 自动列计划的说明文件（--append-system-prompt-file，docs/ui/progress-card.md §10）；null / 没有时不加 */
+  planPromptFile?: string | null
 }
 
 export function claudeArgs(
@@ -149,6 +151,7 @@ export function claudeArgs(
   if (settings.model) args.push('--model', settings.model)
   if (settings.effort) args.push('--effort', settings.effort)
   if (launch && !launch.askQuestions) args.push('--disallowedTools', 'AskUserQuestion')
+  if (launch?.planPromptFile) args.push('--append-system-prompt-file', launch.planPromptFile)
   // 分叉：从原会话的截断点复制出一份，用新的 id 保存（docs/ui/rewind-fork-sidechat.md §2）
   if (!resume && fork)
     args.push('--resume', fork.from, '--fork-session', '--session-id', sessionId, `--resume-session-at=${fork.at}`)

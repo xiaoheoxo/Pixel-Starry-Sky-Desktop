@@ -184,6 +184,7 @@ const demoLocal = (): EngineLocalConfig => ({
   outputStyle: null,
   contextWindows: { platform: {}, self: {} },
   askQuestions: true,
+  autoPlan: true,
   autoCompactPct: null,
   hidden: false,
   rememberChoices: false,

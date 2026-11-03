@@ -157,17 +157,25 @@ describe('本机引擎详情设置', () => {
 
   it('引擎级选项传给 Claude Code：输出风格、禁用提问、压缩触发点', async () => {
     const host = makeHost()
-    await host.setEngineConfig('claude', { outputStyle: 'Explanatory', askQuestions: false, autoCompactPct: 70 })
+    await host.setEngineConfig('claude', {
+      outputStyle: 'Explanatory',
+      askQuestions: false,
+      autoCompactPct: 70,
+      autoPlan: false,
+    })
     expect(host.engineConfig().claude).toMatchObject({
       outputStyle: 'Explanatory',
       askQuestions: false,
       autoCompactPct: 70,
+      autoPlan: false,
     })
     const s = host.createSession({ projectId: project(host).id })
     await host.send(s.id, '你好')
     await waitFor(() => turnsDone(s.id) === 1)
     const args = spawnArgs().at(-1)!
     expect(args.join(' ')).toContain('--disallowedTools AskUserQuestion')
+    // 关掉了自动列计划：不追加说明
+    expect(args).not.toContain('--append-system-prompt-file')
     const settings = args[args.indexOf('--settings') + 1]
     expect(JSON.parse(settings)).toMatchObject({ outputStyle: 'Explanatory' })
     expect(envLog().autoCompact).toBe('70')
@@ -181,6 +189,7 @@ describe('本机引擎详情设置', () => {
     expect(host.engineConfig().claude).toMatchObject({
       outputStyle: null,
       askQuestions: true,
+      autoPlan: true,
       autoCompactPct: null,
       hidden: false,
       peerMessages: false,
@@ -191,6 +200,8 @@ describe('本机引擎详情设置', () => {
     await waitFor(() => turnsDone(s.id) === 1)
     const args = spawnArgs().at(-1)!
     expect(args).not.toContain('--disallowedTools')
+    // 默认自动列计划：带上说明文件
+    expect(args).toContain('--append-system-prompt-file')
     // 只有跨会话消息的收件设置（docs/ui/import-collab.md 第 5 项④）
     expect(JSON.parse(args[args.indexOf('--settings') + 1])).toEqual({ crossSessionInbound: 'refuse' })
     expect(envLog().autoCompact).toBeUndefined()

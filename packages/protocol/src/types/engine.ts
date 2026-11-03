@@ -132,6 +132,8 @@ export type SessionDefaults = Pick<
  * - defaults：新会话的默认值
  * - outputStyle：输出风格；null 表示跟随引擎自己的设置
  * - askQuestions：允许中途向用户提问（Claude 的 AskUserQuestion）；关掉时禁用这个工具
+ * - autoPlan：多步任务自动列计划（Claude：启动时追加一段说明，让它不用点名也建任务清单，进度卡片才出得来；
+ *   docs/ui/progress-card.md §10）。默认开
  * - autoCompactPct：上下文用到窗口的这个百分比时自动压缩；null 表示引擎内置阈值
  * - contextWindows：每个模型的上下文窗口，按额度来源分开（GitHub #20，docs/ui/context-settings-branch-switch.md §2）
  * - hidden：不在输入框的引擎菜单里显示（默认引擎不能隐藏）
@@ -151,6 +153,7 @@ export interface EngineLocalConfig {
   defaults: SessionDefaults
   outputStyle: string | null
   askQuestions: boolean
+  autoPlan: boolean
   autoCompactPct: number | null
   contextWindows: ContextWindows
   hidden: boolean

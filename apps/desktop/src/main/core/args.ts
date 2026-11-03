@@ -146,6 +146,7 @@ export function engineConfigPatch(patch: unknown): EngineConfigPatch {
   if (p.defaults && typeof p.defaults === 'object') out.defaults = p.defaults as EngineConfigPatch['defaults']
   if (p.outputStyle === null || typeof p.outputStyle === 'string') out.outputStyle = p.outputStyle
   if (typeof p.askQuestions === 'boolean') out.askQuestions = p.askQuestions
+  if (typeof p.autoPlan === 'boolean') out.autoPlan = p.autoPlan
   if (typeof p.peerMessages === 'boolean') out.peerMessages = p.peerMessages
   if (p.peekSessions === 'off' || p.peekSessions === 'project' || p.peekSessions === 'all')
     out.peekSessions = p.peekSessions

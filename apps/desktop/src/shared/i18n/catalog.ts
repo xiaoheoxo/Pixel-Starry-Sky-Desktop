@@ -3772,6 +3772,18 @@ export const catalog = {
     zh: '开：遇到该你定的选择会停下来问你；关：自己拿主意，并在回复里说明做了哪些假设。',
     en: 'On: pause to ask when you need to decide. Off: make decisions and explain assumptions in the reply.',
   },
+  'settings.engines.EngineDetail.autoPlan': {
+    zh: '多步任务自动列计划',
+    en: 'Plan multi-step tasks automatically',
+  },
+  'settings.engines.EngineDetail.autoPlanHint': {
+    zh: '开：3 步以上的活，Claude 先列出任务清单、边做边勾，对话区右上角的进度卡片能看到做到哪了；简单问答和一两步的活不列。会多几次工具调用（费用略高）。只对新对话生效；已有的对话要等下次压缩上下文后才跟着变。',
+    en: 'On: for work with 3 or more steps, Claude lists the tasks first and checks them off as it goes, so the progress card at the top right shows where it is. Questions and one- or two-step requests get no list. Adds a few tool calls (slightly higher cost). Applies to new conversations; existing ones follow after their next context compaction.',
+  },
+  'settings.engines.EngineDetail.autoPlanKeywords': {
+    zh: '计划 任务清单 待办 进度 进度卡片 todo task plan',
+    en: 'plan task list todo progress progress card tasks',
+  },
   'settings.engines.EngineDetail.peerMessages': {
     zh: '接收其他 Claude Code 会话发来的消息',
     en: 'Accept messages from other Claude Code sessions',

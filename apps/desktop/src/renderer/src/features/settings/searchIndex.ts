@@ -283,6 +283,16 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   {
     section: 'engines',
     get title() {
+      return tr('settings.engines.EngineDetail.autoPlan')
+    },
+    get keywords() {
+      return tr('settings.engines.EngineDetail.autoPlanKeywords')
+    },
+    engine: 'claude',
+  },
+  {
+    section: 'engines',
+    get title() {
       return tr('settings.engines.EngineDetail.peerMessages')
     },
     get keywords() {

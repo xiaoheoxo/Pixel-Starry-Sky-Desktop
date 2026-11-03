@@ -265,6 +265,19 @@ export function EngineDetail({
               />
             }
           />
+          {e.id === 'claude' && (
+            <Row
+              title={tr('settings.engines.EngineDetail.autoPlan')}
+              description={tr('settings.engines.EngineDetail.autoPlanHint')}
+              control={
+                <Switch
+                  checked={config.autoPlan}
+                  label={tr('settings.engines.EngineDetail.autoPlan')}
+                  onChange={on => run({ autoPlan: on })}
+                />
+              }
+            />
+          )}
         </Group>
       )}
 
