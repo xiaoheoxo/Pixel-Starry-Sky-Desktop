@@ -297,9 +297,12 @@ export class HostUsage {
       }
       const updated = { ...item, usage }
       const id = turn.rows[0].sessionId
-      if (ctx.runtimes.get(id)?.snapshot.items.some(i => i.id === item.id))
-        ctx.m.events.apply(id, { type: 'item_completed', item: updated })
-      else if (ctx.records.has(id)) ctx.store.appendItem(id, updated)
+      const rt = ctx.runtimes.get(id)
+      // 会话开着：只改内存里还在的。等网络期间这一轮被回退掉了就不管，不能再追加到磁盘（重启后会多出一张费用卡片）
+      if (rt) {
+        if (rt.snapshot.items.some(i => i.id === item.id))
+          ctx.m.events.apply(id, { type: 'item_completed', item: updated })
+      } else if (ctx.records.has(id)) ctx.store.appendItem(id, updated)
     }
     ctx.usage.append(rows)
     ctx.opts.emit({ kind: 'usage_recorded' })

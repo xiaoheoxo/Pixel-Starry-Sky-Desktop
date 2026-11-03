@@ -218,4 +218,58 @@ describe('EngineHost.backfillPlatformCosts', () => {
       await host.shutdown()
     }
   })
+
+  it('等网络期间这一轮被回退掉了：不把统计条目重新追加到磁盘', async () => {
+    root = mkdtempSync(join(tmpdir(), 'pixelsky-backfill-'))
+    const dataDir = join(root, 'data')
+    const first = new EngineHost({ dataDir, emit() {} })
+    const record = first.createSession({ projectId: first.addProject(root).id, model: 'claude-opus-5-5' })
+    await first.shutdown()
+    const start = Date.now() - 2 * 60 * 60_000
+    new UsageStore(dataDir).append([
+      row({
+        sessionId: record.id,
+        id: `${record.id}:t1:claude-opus-5-5`,
+        turnId: 't1',
+        startedAt: start,
+        durationMs: 60_000,
+      }),
+    ])
+    const model = {
+      input: 0,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      costUsd: null,
+      costSource: 'unavailable' as const,
+    }
+    new Store(dataDir).appendItem(record.id, {
+      kind: 'turn_stats',
+      id: 'stats-t1',
+      turnId: 't1',
+      outcome: 'completed',
+      usage: { durationMs: 60_000, models: { 'claude-opus-5-5': model } },
+    })
+    type Internals = { ctx: { runtimes: Map<string, { snapshot: { items: unknown[] } }> } }
+    const host: EngineHost = new EngineHost({
+      dataDir,
+      emit() {},
+      platformCalls: async () => {
+        // 模拟回退：会话开着，这一轮已经不在内存里
+        ;(host as unknown as Internals).ctx.runtimes.get(record.id)!.snapshot.items = []
+        return [call({ createdAt: start + 30_000, durationMs: 10_000, costUsd: 0.25 })]
+      },
+    })
+    try {
+      host.open(record.id)
+      expect(await host.backfillPlatformCosts('alice', new AbortController().signal)).toBe(1)
+    } finally {
+      await host.shutdown()
+    }
+    const disk = await new Store(dataDir).loadTurnStats(record.id)
+    expect(disk.filter(i => i.id === 'stats-t1')).toHaveLength(1)
+    expect(disk.find(i => i.id === 'stats-t1')).toMatchObject({
+      usage: { models: { 'claude-opus-5-5': { costSource: 'unavailable' } } },
+    })
+  })
 })
