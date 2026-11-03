@@ -8,7 +8,7 @@ import { grammarBuiltinConflicts, grammarOverrideKey } from '@/features/editor/c
 export type PackGroup = 'all' | 'code' | 'ai'
 
 const CODE_KINDS: ExtPackContributionKind[] = ['grammars', 'themes', 'snippets', 'iconThemes', 'taskTemplates']
-const AI_KINDS: ExtPackContributionKind[] = ['skills', 'prompts']
+const AI_KINDS: ExtPackContributionKind[] = ['skills', 'prompts', 'mcpServers']
 /** 「包含什么」里的显示顺序 */
 export const KIND_ORDER: ExtPackContributionKind[] = [...CODE_KINDS, ...AI_KINDS]
 
@@ -45,6 +45,8 @@ function contributionLabel(p: ExtPackInfo, kind: ExtPackContributionKind, index:
       const t = c?.prompts?.[index]
       return t ? extText(t.title, locale) : ''
     }
+    case 'mcpServers':
+      return c?.mcpServers?.[index]?.name ?? ''
   }
 }
 

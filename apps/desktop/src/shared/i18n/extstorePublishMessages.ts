@@ -115,4 +115,5 @@ export const extstorePublishMessages = {
   'extstore.publish.kind.taskTemplates': { zh: '任务模板', en: 'Task templates' },
   'extstore.publish.kind.skills': { zh: '技能', en: 'Skills' },
   'extstore.publish.kind.prompts': { zh: '提示词', en: 'Prompts' },
+  'extstore.publish.kind.mcpServers': { zh: 'MCP 连接器', en: 'MCP servers' },
 } as const satisfies Record<string, { zh: string; en: string }>

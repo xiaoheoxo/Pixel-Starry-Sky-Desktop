@@ -15,8 +15,8 @@ apps/desktop/src/shared/i18n/systemMessages.ts
 services/cloud/testdata/contract
 services/cloud/web
 
-# 扩展中心：随包的 Material 图标（逐字节拷贝，一行 444 KB 的 JSON）和从作者示例拷来的共享用例底板和生成的期望，保持原样
-apps/desktop/resources/builtin-extensions/
+# 扩展中心：官方 Material 图标扩展（逐字节拷贝，一行 444 KB 的 JSON）和从作者示例拷来的共享用例底板和生成的期望，保持原样
+extensions/official/material-icons/
 packages/protocol/corpus/extpacks/bases/
 packages/protocol/corpus/extpacks/cases/*.expect.json
 

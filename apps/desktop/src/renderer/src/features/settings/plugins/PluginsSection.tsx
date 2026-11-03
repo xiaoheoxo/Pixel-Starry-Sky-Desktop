@@ -25,6 +25,7 @@ import { useSettingsWorkspace } from '../useSettingsWorkspace'
 import { usePluginText } from './text'
 import { HookList, HookWarning, needsHookAsk } from './hooks'
 import { ExtensionForm, type FormTarget } from './ExtensionForm'
+import { ImportApps } from './ImportApps'
 import { extensionTemplates } from '@/data/extensionTemplates'
 const ICONS: Record<ExtensionKind, LucideIcon> = { plugin: Puzzle, mcp: Plug, cli: Terminal, skill: Star }
 const NAMES: Record<ExtensionKind, string> = { plugin: '插件', mcp: '连接器', cli: '命令行', skill: '技能' }
@@ -49,7 +50,8 @@ export function PluginsSection() {
     [catalog, setCatalog] = useState(false),
     [adding, setAdding] = useState(false),
     [confirm, setConfirm] = useState<string | null>(null),
-    [hookAsk, setHookAsk] = useState<string | null>(null)
+    [hookAsk, setHookAsk] = useState<string | null>(null),
+    [importing, setImporting] = useState(false)
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(''),
     [error, setError] = useState<string | null>(null),
@@ -116,6 +118,7 @@ export function PluginsSection() {
     }
   }
   const open = (target: FormTarget): void => {
+    setImporting(false)
     setForm(target)
     setDetail(null)
     setAdding(false)
@@ -247,6 +250,21 @@ export function PluginsSection() {
                 {t('导入 MCP JSON')}
               </Button>
             )}
+            {(tab === 'mcp' || tab === 'skill') && (
+              <Button
+                variant="ghost"
+                data-open-import-apps
+                onClick={() => {
+                  setForm(null)
+                  setDetail(null)
+                  setAdding(false)
+                  setCatalog(false)
+                  setImporting(true)
+                }}
+              >
+                {t('从其他软件导入…')}
+              </Button>
+            )}
             {(tab === 'plugin' || tab === 'skill') && (
               <>
                 <Button variant="ghost" onClick={() => open({ kind: tab, mode: 'local' })}>
@@ -314,6 +332,19 @@ export function PluginsSection() {
             </div>
           ))}
         </div>
+      )}
+      {importing && (
+        <ImportApps
+          refTarget={workspace.ref}
+          projectName={workspace.path ? workspace.name || workspace.path : null}
+          projectPath={workspace.path ?? null}
+          onDone={note => {
+            setImporting(false)
+            setMessage(note)
+            void refresh()
+          }}
+          onCancel={() => setImporting(false)}
+        />
       )}
       {form && (
         <ExtensionForm

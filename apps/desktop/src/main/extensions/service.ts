@@ -46,6 +46,7 @@ import type {
 } from '@pixelsky/protocol'
 import { checkMcp, launcher, program, runProgram } from './check'
 import { nativeEntries } from './native'
+import type { ImportFull } from './import-apps'
 import { Secrets, type Cipher } from './secrets'
 
 /** 原生扩展扫描结果的缓存时长：扫描要同步遍历磁盘，输入框 / 设置页会连着请求；窗口重新获得焦点、增删改时会提前作废 */
@@ -171,7 +172,14 @@ export class ExtensionService {
       headers: Object.fromEntries(Object.keys(c.headers ?? {}).map(k => [k, MASKED_SECRET])),
     }
   }
-  private conflict(name: string, kind: ExtensionEntry['kind'], s: ExtensionScope, exclude?: string): void {
+  private conflict(
+    name: string,
+    kind: ExtensionEntry['kind'],
+    s: ExtensionScope,
+    exclude?: string,
+    /** 这一项给哪些引擎；不给 Claude 的不会和 Claude Code 原生的重复，不比原生 */
+    engines: readonly string[] = ['claude'],
+  ): void {
     const same = (e: ExtensionEntry): boolean =>
       e.id !== exclude && e.kind === kind && e.name.toLowerCase() === name.toLowerCase()
     if (this.config.entries.some(e => same(e) && JSON.stringify(e.scope) === JSON.stringify(s)))
@@ -192,6 +200,7 @@ export class ExtensionService {
       if (clash)
         throw new Error(`和已有的 MCP 服务器「${clash.name}」只差符号，像素星空引擎会把它们当成同一个，请修改名称`)
     }
+    if (!engines.includes('claude')) return
     const native = this.native(s.kind === 'project' ? s.path : null).entries
     if (native.some(same)) throw new Error('Claude Code 原生安装已有同名内容，请修改应用副本名称')
   }
@@ -213,7 +222,7 @@ export class ExtensionService {
     const data = input(raw),
       existing = data.id ? this.entry(data.id) : null
     if (existing && existing.kind !== data.kind) throw new Error('不能修改配置类型')
-    this.conflict(data.name, data.kind, data.scope, data.id)
+    this.conflict(data.name, data.kind, data.scope, data.id, data.engines ?? existing?.engines ?? ['claude'])
     const e: ExtensionEntry = {
       id: existing?.id ?? randomUUID(),
       kind: data.kind,
@@ -425,7 +434,7 @@ export class ExtensionService {
         if (!existsSync(path)) throw new Error('选择含 SKILL.md 的目录，可填写仓库内子目录')
         const c = skillFile(path),
           name = data.name ?? c.name
-        this.conflict(name, kind, data.scope)
+        this.conflict(name, kind, data.scope, undefined, engines ?? ['claude'])
         pack = this.packageDir()
         const skillDir = join(pack, 'skills', name)
         this.copy(root, skillDir)
@@ -524,6 +533,74 @@ export class ExtensionService {
       if (this.config.entries.every(e => e.path !== stage) && existsSync(stage)) removeTree(inside(this.dir, stage))
     }
   }
+  /** 同范围里没人用的名字：原名不行就 -2、-3…；别的软件的名字可能有空格等，先换成 - */
+  private freeName(raw: string, kind: ExtensionEntry['kind'], s: ExtensionScope, engines: readonly string[]): string {
+    const base =
+      raw
+        .replace(/[^a-zA-Z0-9_.-]+/g, '-')
+        .replace(/^[^a-zA-Z0-9]+/, '')
+        .slice(0, 90) || kind
+    let last: unknown
+    // 有上限：conflict 自己出错（读原生配置失败等）时每个名字都会抛，不能一直试下去
+    for (let i = 1; i <= 50; i++) {
+      const name = i === 1 ? base : `${base}-${i}`
+      try {
+        this.conflict(name, kind, s, undefined, engines)
+        return name
+      } catch (e) {
+        last = e
+      }
+    }
+    throw last
+  }
+  /**
+   * 从别的软件导入（import-apps.ts 扫出来、主进程里带原值的那几项）：同名自动改名，一项失败不影响别的。
+   * 从 Claude Code 导入的 MCP 只给 Codex / 像素星空（Claude Code 自己本来就有）
+   */
+  async importFromApp(
+    items: ImportFull[],
+    s: ExtensionScope,
+    app: { name: string; isClaudeCode: boolean },
+  ): Promise<{ imported: number; failed: Array<{ name: string; error: string }> }> {
+    let imported = 0
+    const failed: Array<{ name: string; error: string }> = []
+    const engines: Array<'claude' | 'codex' | 'pixel'> = app.isClaudeCode
+      ? ['codex', 'pixel']
+      : ['claude', 'codex', 'pixel']
+    for (const item of items) {
+      try {
+        const name = this.freeName(item.name, item.kind, s, engines)
+        if (item.kind === 'mcp')
+          this.upsert({
+            kind: 'mcp',
+            name,
+            scope: s,
+            mcp: item.config,
+            enabled: item.enabled,
+            description: `从 ${app.name} 导入`,
+            engines,
+          })
+        else
+          await this.import({
+            kind: 'skill',
+            source: 'local',
+            location: item.dir,
+            scope: s,
+            name,
+            engines,
+          })
+        imported++
+      } catch (e) {
+        failed.push({ name: item.name, error: (e as Error).message })
+      }
+    }
+    return { imported, failed }
+  }
+  /** 插件配置里（含 Claude Code 原生的）有没有同名的这一类（不分范围，给扫描结果打「已有同名」）；forClaude=false 时不比原生 */
+  hasName(name: string, kind: ExtensionEntry['kind'], project: string | null, forClaude: boolean): boolean {
+    const same = (e: ExtensionEntry): boolean => e.kind === kind && e.name.toLowerCase() === name.toLowerCase()
+    return this.config.entries.some(same) || (forClaude && this.native(project).entries.some(same))
+  }
   importMcp(raw: string, s: ExtensionScope): number {
     const data = object(JSON.parse(raw)),
       servers = object(data.mcpServers ?? data),
@@ -588,6 +665,8 @@ export class ExtensionService {
     extraServers: Record<string, McpConfig> = {},
     /** 频道成员「只用这些」（docs/ui/channels-collab-v2.md §5）：MCP、技能、插件只留这些 id；命令行不受影响 */
     only?: ReadonlySet<string>,
+    /** 扩展里用户同意过的 MCP 连接器（extension-packs/mcp.ts）：插件配置里同名的盖过它；有 only 时不给 */
+    packServers: Record<string, McpConfig> = {},
   ): ExtensionLaunch {
     project = realpathSync(project)
     const env = { ...this.runtimeEnv(project), ...extraEnv }
@@ -604,6 +683,21 @@ export class ExtensionService {
       pathDirs: string[] = [],
       servers: Record<string, McpConfig> = {},
       skillRoots: string[] = []
+    if (!only)
+      for (const [name, c] of Object.entries(structuredClone(packServers))) {
+        if (c.type === 'stdio') {
+          // 本机没装 uvx / docker 等：只少这一个连接器，不能让所有会话都启动不了
+          try {
+            const l = launcher(c.command!, c.args ?? [], { ...env, ...c.env })
+            c.command = l.command
+            c.args = l.args
+          } catch (e) {
+            console.warn('[extensions] 扩展的 MCP 连接器启动不了', name, (e as Error).message)
+            continue
+          }
+        }
+        servers[name] = c
+      }
     for (const e of entries) {
       if (e.path && (e.kind === 'plugin' || e.kind === 'skill')) {
         if (engine === 'claude') pluginDirs.push(e.path)
@@ -616,13 +710,19 @@ export class ExtensionService {
           )
       }
       if (e.kind === 'mcp') {
-        const c = expandedMcp(this.secrets.resolve(e.id, e.mcp!), env)
-        if (c.type === 'stdio') {
-          const l = launcher(c.command!, c.args ?? [], { ...env, ...c.env })
-          c.command = l.command
-          c.args = l.args
+        // 凭据丢了照旧报错（提示用户重新填写）；缺环境变量、找不到程序只少这一个，不能让会话都启动不了，检测连接时会报原因
+        const resolved = this.secrets.resolve(e.id, e.mcp!)
+        try {
+          const c = expandedMcp(resolved, env)
+          if (c.type === 'stdio') {
+            const l = launcher(c.command!, c.args ?? [], { ...env, ...c.env })
+            c.command = l.command
+            c.args = l.args
+          }
+          servers[e.name] = c
+        } catch (error) {
+          console.warn('[extensions] MCP 连接器启动不了', e.name, (error as Error).message)
         }
-        servers[e.name] = c
       }
       if (e.kind === 'cli' && e.check?.status === 'ready') pathDirs.push(dirname(program(e.command!, this.env())))
       for (const c of e.components.filter(c => c.kind === 'cli' && c.path)) pathDirs.push(c.path!)

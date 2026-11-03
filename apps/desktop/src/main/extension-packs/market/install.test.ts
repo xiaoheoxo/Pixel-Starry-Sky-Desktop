@@ -13,7 +13,7 @@ vi.mock('../../account/account', () => ({ baseUrl: () => 'http://127.0.0.1:9', e
 const { ExtensionPacks } = await import('../service')
 const { StoreError } = await import('./api')
 const { cleanStoreDir } = await import('./cleanup')
-const { createInstaller, nodeFs } = await import('./install')
+const { BOOTSTRAP_PACKS, createInstaller, nodeFs } = await import('./install')
 const { keyIdOf, keyStatus } = await import('./keys')
 const { readStateFile, writeStateFile } = await import('../store')
 const { signedText } = await import('./verify')
@@ -245,6 +245,8 @@ async function rig(e: Env, cloud: Cloud = new Cloud(), over: Partial<InstallerDe
       storeDir: svc.storeDir,
       ready: () => svc.ready(),
       packs: () => svc.state().packs,
+      bootstrapped: id => svc.bootstrapped(id),
+      markBootstrapped: id => svc.markBootstrapped(id),
     },
     api: cloud.api,
     net: cloud.net,
@@ -958,7 +960,11 @@ describe('cleanStoreDir', () => {
 })
 
 describe('bootstrap：BOOTSTRAP_PACKS', () => {
-  it('默认空列表：不发任何请求，host.ready 和 host.packs 都没被调', async () => {
+  it('默认装 Material 图标（0.6.12 起不随软件发）', () => {
+    expect(BOOTSTRAP_PACKS).toEqual(['pixelsky.material-icons'])
+  })
+
+  it('空列表：不发任何请求，host.ready 和 host.packs 都没被调', async () => {
     const e = env()
     const cloud = new Cloud()
     const calls: string[] = []
@@ -975,18 +981,21 @@ describe('bootstrap：BOOTSTRAP_PACKS', () => {
           calls.push('packs')
           return []
         },
+        bootstrapped: () => false,
+        markBootstrapped: () => undefined,
       },
       api: cloud.api,
       net: cloud.net,
       site: () => SITE,
       blocked: () => null,
+      bootstrapPacks: [],
     })
     await installer.bootstrap()
     expect(calls).toEqual([])
     expect(cloud.api.detail).not.toHaveBeenCalled()
   })
 
-  function bootstrapRig(packs: Partial<ExtPackInfo>[], ready: Promise<void>) {
+  function bootstrapRig(packs: Partial<ExtPackInfo>[], ready: Promise<void>, done = new Set<string>()) {
     const e = env()
     const cloud = new Cloud()
     cloud.publish('acme.aa', '1.0.0')
@@ -1012,6 +1021,8 @@ describe('bootstrap：BOOTSTRAP_PACKS', () => {
           order.push('packs')
           return packs as ExtPackInfo[]
         },
+        bootstrapped: id => done.has(id),
+        markBootstrapped: id => void done.add(id),
       },
       api: cloud.api,
       net: cloud.net,
@@ -1021,8 +1032,26 @@ describe('bootstrap：BOOTSTRAP_PACKS', () => {
       bootstrapPacks: ['acme.aa', 'acme.bb'],
       log: () => undefined,
     })
-    return { installer, order, cloud }
+    return { installer, order, cloud, done }
   }
+
+  it('每个只装一次：装上了、或本来就有商店版的都记下；记过的（用户卸了）不再装', async () => {
+    const first = bootstrapRig([{ id: 'acme.bb', source: 'store' }], Promise.resolve())
+    await first.installer.bootstrap()
+    expect([...first.done].sort()).toEqual(['acme.aa', 'acme.bb'])
+    const again = bootstrapRig([], Promise.resolve(), first.done)
+    await again.installer.bootstrap()
+    expect(again.cloud.downloads).toEqual([])
+  })
+
+  it('装失败（商店还没上架）不记，下次启动再试', async () => {
+    const r = bootstrapRig([], Promise.resolve())
+    r.cloud.api.detail = vi.fn(async () => {
+      throw Object.assign(new Error('not found'), { status: 404 })
+    })
+    await r.installer.bootstrap()
+    expect(r.done.size).toBe(0)
+  })
 
   it('等 ready 才取列表、取详情；ready 没好之前 api.detail 是 0 次', async () => {
     let open!: () => void

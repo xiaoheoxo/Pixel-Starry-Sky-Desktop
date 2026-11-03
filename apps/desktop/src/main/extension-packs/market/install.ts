@@ -14,8 +14,12 @@ import { verifyError, verifyPackage } from './verify'
 // 下载、校验、解压、换上（docs/ui/extension-store-client.md §3.5）。
 // 只 import type service：要改 service 状态时走构造时传进来的 host（StoreHost），见 market/types.ts。
 
-/** 启动时对其中没装商店版的扩展静默安装；默认空，什么都不装（§11 第 4 条）。以后「首次从商店装 Material」往里加 id */
-export const BOOTSTRAP_PACKS: string[] = []
+/**
+ * 启动时对其中没装商店版的扩展静默安装，每个只装一次（装上或本来就有了就记下，用户卸了不再装回来）。
+ * Material 图标 0.6.12 起不随软件发（docs/ui/extension-remaining-plan.md §D）：老用户升级后、新用户第一次启动都从商店装上；
+ * 第一次装时继承原来内置版的开关（replaceStorePack）。商店连不上、还没上架时下次启动再试
+ */
+export const BOOTSTRAP_PACKS: string[] = ['pixelsky.material-icons']
 
 /** 目录改名遇到这些错误码时按 50 / 100 / 200 / 400 ms 退避重试（杀毒软件刚扫过新写的文件时常见） */
 const RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
@@ -332,10 +336,15 @@ export function createInstaller(deps: InstallerDeps): Installer {
         .map(p => p.id),
     )
     for (const id of wanted) {
-      if (have.has(id)) continue
+      if (host.bootstrapped(id)) continue
+      if (have.has(id)) {
+        host.markBootstrapped(id)
+        continue
+      }
       try {
         const detail = await api.detail(id, { fresh: true })
         await install(id, detail.extension.version, { silent: true })
+        host.markBootstrapped(id)
       } catch (e) {
         log(`bootstrap ${id} failed: ${(e as Error).message}`)
       }

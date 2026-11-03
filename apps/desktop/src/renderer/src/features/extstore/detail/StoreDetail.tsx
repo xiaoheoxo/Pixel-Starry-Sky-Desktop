@@ -18,6 +18,7 @@ import { PackBadge } from '@/features/settings/extensions/PackBadge'
 import { StoreReadme, isWebUrl } from './StoreReadme'
 import { contributionGroupsOf } from './contributionRows'
 import { ReportDialog } from './ReportDialog'
+import { McpServers } from '@/features/extpacks/McpServers'
 import {
   defaultReportVersion,
   detailActions,
@@ -38,6 +39,7 @@ const KIND_LABELS = {
   taskTemplates: 'extensions.kind.taskTemplates',
   skills: 'extensions.kind.skills',
   prompts: 'extensions.kind.prompts',
+  mcpServers: 'extensions.kind.mcpServers',
 } as const satisfies Record<ExtPackContributionKind, string>
 
 const kindLabel = (kind: string): string =>
@@ -382,6 +384,18 @@ export function StoreDetail(props: StoreDetailProps) {
               ))}
           </div>
 
+          {/* 装在本机的那份能在这里同意、填值；没装只显示要运行的程序 */}
+          {/* 同意的是本机这份：装了就显示它的命令（商店最新版可能改过），没装才显示商店的 */}
+          {localPack?.manifest?.contributes.mcpServers?.length ? (
+            <McpServers
+              servers={localPack.manifest.contributes.mcpServers}
+              status={localPack.mcp}
+              packKey={localPack.key}
+            />
+          ) : (
+            <McpServers servers={manifest?.contributes.mcpServers} />
+          )}
+
           <div className="mt-4 flex flex-col gap-6 md:flex-row">
             <div className="min-w-0 flex-1">
               {detail ? (
@@ -444,7 +458,11 @@ export function StoreDetail(props: StoreDetailProps) {
               )}
 
               <SideTitle>{t('extstoreDetail.permissions')}</SideTitle>
-              <PackBadge>{t('extstoreDetail.noPermissions')}</PackBadge>
+              {manifest?.contributes.mcpServers?.length ? (
+                <PackBadge tone="danger">{t('extstoreDetail.runsPrograms')}</PackBadge>
+              ) : (
+                <PackBadge>{t('extstoreDetail.noPermissions')}</PackBadge>
+              )}
 
               <SideTitle>{t('extstoreDetail.info')}</SideTitle>
               <div className="space-y-0.5 text-meta text-fg-muted">

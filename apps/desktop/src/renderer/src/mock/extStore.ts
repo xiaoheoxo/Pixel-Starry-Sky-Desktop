@@ -319,6 +319,7 @@ const CONTRIBUTION_COUNT: Record<ExtPackContributionKind, number> = {
   taskTemplates: 1,
   skills: 1,
   prompts: 2,
+  mcpServers: 0,
 }
 
 const nth = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1)

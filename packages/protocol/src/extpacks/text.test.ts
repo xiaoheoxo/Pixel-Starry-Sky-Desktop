@@ -59,7 +59,7 @@ describe('checkSvg', () => {
     // @ts-expect-error 协议包没有 node 类型
     const path = await import('node:path')
     // @ts-expect-error 协议包没有 node 类型
-    const dir = path.resolve(process.cwd(), '../../apps/desktop/resources/builtin-extensions')
+    const dir = path.resolve(process.cwd(), '../../extensions/official/material-icons')
     if (!fs.existsSync(dir)) return
     const files: string[] = []
     const walk = (d: string) => {

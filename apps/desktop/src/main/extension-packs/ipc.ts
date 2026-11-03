@@ -11,6 +11,7 @@ import type { AppContext } from '../app/context'
 import { ExtensionPacks } from './service'
 import { registerPackProtocol } from './protocol'
 import { storeIcons } from './market/icons'
+import { systemCipher } from '../app/system-cipher'
 
 let wasm: Uint8Array | null = null
 
@@ -55,6 +56,7 @@ export function initExtensionPacks(ctx: AppContext): ExtensionPacks {
       : join(__dirname, '../../resources/builtin-extensions'),
     appVersion: app.getVersion(),
     removeIcons: id => storeIcons().remove(id),
+    cipher: systemCipher,
   })
   ctx.extPacks = service
   service.onChange(() => ctx.events.broadcast('extpacks:changed'))
@@ -93,6 +95,15 @@ export function initExtensionPacks(ctx: AppContext): ExtensionPacks {
   })
   ipc.handle('extpacks:setOptions', async (_e, key: unknown, patch: unknown) => {
     await service.setOptions(text(key, 'key'), optionsPatch(patch))
+  })
+  ipc.handle('extpacks:setMcp', async (_e, key: unknown, name: unknown, approved: unknown, raw: unknown) => {
+    if (typeof approved !== 'boolean') throw codedError('extpacks.badRequest')
+    const values: Record<string, string | null> = {}
+    for (const [k, v] of Object.entries(object(raw))) {
+      if (v !== null && (typeof v !== 'string' || v.length > 4096)) throw codedError('extpacks.badRequest')
+      values[k] = v
+    }
+    await service.setMcp(text(key, 'key'), text(name, 'name'), approved, values)
   })
   ipc.handle('extpacks:readJson', (_e, key: unknown, path: unknown) =>
     service.readJson(text(key, 'key'), text(path, 'path')),

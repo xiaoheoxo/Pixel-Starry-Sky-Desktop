@@ -23,6 +23,7 @@ export const INSTALLED_KINDS: ExtPackContributionKind[] = [
   'taskTemplates',
   'skills',
   'prompts',
+  'mcpServers',
 ]
 
 const SOURCE_RANK: Record<ExtPackSource, number> = { builtin: 0, store: 1, folder: 2 }

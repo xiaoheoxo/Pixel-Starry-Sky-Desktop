@@ -108,3 +108,40 @@ export interface SkillCommand {
   /** Claude initialize 的原生标记；不能仅凭命令名称判定，用户技能可能同名。 */
   builtin?: boolean
 }
+
+// 从本机其他软件导入（apps/desktop/src/main/extensions/import-apps.ts，docs/ui/extension-remaining-plan.md §H）
+export const IMPORT_APPS = ['claude-code', 'claude-desktop', 'cursor', 'codex', 'vscode', 'windsurf'] as const
+export type ImportApp = (typeof IMPORT_APPS)[number]
+
+export const IMPORT_APP_NAMES: Record<ImportApp, string> = {
+  'claude-code': 'Claude Code',
+  'claude-desktop': 'Claude Desktop',
+  cursor: 'Cursor',
+  codex: 'Codex',
+  vscode: 'VS Code',
+  windsurf: 'Windsurf',
+}
+
+/** 界面上的一项：密钥只给名字 */
+export interface ImportItem {
+  key: string
+  kind: 'mcp' | 'skill'
+  name: string
+  /** 命令行 / 地址 / 技能目录 */
+  detail: string
+  secrets: string[]
+  /** 来自项目里的配置（.mcp.json、.cursor/mcp.json…） */
+  project: boolean
+  /** 有导入后要自己填的值（VS Code 的 ${input:…}） */
+  needsInput: boolean
+  /** 插件配置里已有同名的（界面默认不勾，导入时自动改名） */
+  exists?: boolean
+}
+export interface ImportAppScan {
+  app: ImportApp
+  name: string
+  /** 读的位置（给人看的） */
+  places: string[]
+  items: ImportItem[]
+  errors: string[]
+}

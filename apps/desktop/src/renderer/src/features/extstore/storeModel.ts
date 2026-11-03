@@ -38,7 +38,7 @@ export type StoreCategoryId =
   | 'commands'
   | 'skills'
   | 'prompts'
-  | 'mcp'
+  | 'mcpServers'
   | 'plugins'
 
 export interface StoreCategory {
@@ -61,7 +61,7 @@ export const STORE_CATEGORIES: readonly StoreCategory[] = [
   { id: 'commands', label: 'extstore.category.commands', group: 'code', phase: 2 },
   { id: 'skills', label: 'extstore.category.skills', group: 'ai' },
   { id: 'prompts', label: 'extstore.category.prompts', group: 'ai' },
-  { id: 'mcp', label: 'extstore.category.mcp', group: 'ai', phase: 3 },
+  { id: 'mcpServers', label: 'extstore.category.mcp', group: 'ai' },
   { id: 'plugins', label: 'extstore.category.plugins', group: 'ai', phase: 3 },
 ]
 

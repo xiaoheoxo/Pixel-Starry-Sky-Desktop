@@ -3,7 +3,9 @@ import { realpathSync } from 'node:fs'
 import { app, dialog, shell } from 'electron'
 import { systemCipher } from '../app/system-cipher'
 import { object, scope, text } from '@pixelsky/engine'
-import type { ExtensionLaunch, ExtensionScope, SessionRecord } from '@pixelsky/protocol'
+import { IMPORT_APPS, IMPORT_APP_NAMES } from '@pixelsky/protocol'
+import type { ExtensionLaunch, ExtensionScope, ImportApp, SessionRecord } from '@pixelsky/protocol'
+import { defaultWhere, publicScan, scanApp } from './import-apps'
 import type { WorkspaceRef } from '../../shared/types/workspace'
 import * as ipc from '../ipc/guard'
 import { ExtensionService } from './service'
@@ -59,7 +61,17 @@ export class Extensions {
       ),
     )
     const only = channel?.tools ? new Set(channel.tools.ids) : undefined
-    const base = this.get().launch(record.cwd, record.engine, this.env(record.engine), servers, only)
+    const packMcp = this.ctx.extPacks?.mcpLaunch() ?? { key: '', servers: {} }
+    const launched = this.get().launch(
+      record.cwd,
+      record.engine,
+      this.env(record.engine),
+      servers,
+      only,
+      packMcp.servers,
+    )
+    // 扩展的连接器变了（同意、改值、停用、更新）要换进程；key 只有哈希
+    const base = packMcp.key && !only ? { ...launched, key: launched.key + '|packmcp:' + packMcp.key } : launched
     // 这些工具只读（频道工具只在频道里留记录），不用每次都等用户批准
     const allow = Object.keys(servers).map(name => `mcp__${name}`)
     const launch = allow.length ? { ...base, allowTools: allow } : base
@@ -140,6 +152,32 @@ export class Extensions {
     handle('importMcp', (json, s) =>
       mutate(() => service().importMcp(text(json, 'JSON', 2 * 1024 * 1024), checkedScope(s))),
     )
+    // 从本机其他软件导入（§H）：扫描只给名字和命令，导入时主进程按 key 重新读原文件
+    // CLAUDE_CONFIG_DIR / CODEX_HOME 可能只写在各自引擎的设置里
+    const where = (ref: unknown) =>
+      defaultWhere({ ...process.env, ...this.env('claude'), ...this.env('codex') }, project(ref))
+    handle('scanApps', ref => {
+      const w = where(ref)
+      return IMPORT_APPS.map(app =>
+        publicScan(app, scanApp(app, w), item =>
+          // 从 Claude Code 导入的只给 Codex / 像素星空，不和 Claude Code 原生的比
+          service().hasName(item.name, item.kind, w.project, app !== 'claude-code'),
+        ),
+      )
+    })
+    handle('importApp', (ref, app, keys, s) => {
+      if (!IMPORT_APPS.includes(app as ImportApp)) throw new Error('不认识的软件')
+      if (!Array.isArray(keys) || !keys.length || keys.length > 100 || keys.some(k => typeof k !== 'string'))
+        throw new Error('先勾选要导入的项')
+      const wanted = new Set(keys as string[])
+      return mutate(async () => {
+        const items = scanApp(app as ImportApp, where(ref)).items.filter(i => wanted.has(i.key))
+        return service().importFromApp(items, checkedScope(s), {
+          name: IMPORT_APP_NAMES[app as ImportApp],
+          isClaudeCode: app === 'claude-code',
+        })
+      })
+    })
     handle('toggle', (id, enabled) => {
       if (typeof enabled !== 'boolean') throw new Error('开关值不正确')
       return mutate(() => service().toggle(text(id, 'id'), enabled))

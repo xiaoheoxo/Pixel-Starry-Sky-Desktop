@@ -135,6 +135,99 @@ describe('管理配置与凭据', () => {
     all.dispose?.()
     only.dispose?.()
   })
+  it('扩展的 MCP 连接器：并进启动配置，插件配置里同名的盖过它，「只用这些」时不给', () => {
+    const pack = {
+      shared: { type: 'http' as const, url: 'https://pack.dev/mcp' },
+      packonly: { type: 'http' as const, url: 'https://pack.dev/other' },
+    }
+    service.upsert({ kind: 'mcp', name: 'shared', scope: global, mcp: { type: 'http', url: 'https://mine.dev/mcp' } })
+    const all = service.launch(project, 'claude', {}, {}, undefined, pack)
+    const servers = JSON.parse(readFileSync(all.mcpFile!, 'utf8')).mcpServers
+    expect(servers.shared.url).toBe('https://mine.dev/mcp')
+    expect(servers.packonly.url).toBe('https://pack.dev/other')
+    const only = service.launch(project, 'claude', {}, {}, new Set(), pack)
+    expect(only.mcpFile).toBeUndefined()
+    all.dispose?.()
+  })
+  it('扩展的 stdio 连接器找不到程序（没装 uvx）：只少这一个，会话照样能启动', () => {
+    const pack = {
+      missing: { type: 'stdio' as const, command: 'pixelsky-no-such-program', args: [] },
+      ok: { type: 'http' as const, url: 'https://pack.dev/mcp' },
+    }
+    const r = service.launch(project, 'claude', {}, {}, undefined, pack)
+    expect(Object.keys(JSON.parse(readFileSync(r.mcpFile!, 'utf8')).mcpServers)).toEqual(['ok'])
+    r.dispose?.()
+  })
+  it('从别的软件导入：同名自动改名、名字里的空格换掉、密钥能用、按来源给引擎；一项失败不影响别的', async () => {
+    service.upsert({ kind: 'mcp', name: 'gh', scope: global, mcp: { type: 'http', url: 'https://mine.dev/mcp' } })
+    const base = { secrets: [], project: false, needsInput: false, enabled: true, detail: '' }
+    const r = await service.importFromApp(
+      [
+        {
+          ...base,
+          key: '1',
+          kind: 'mcp',
+          name: 'gh',
+          config: { type: 'stdio', command: process.execPath, args: [], env: { GITHUB_TOKEN: 'ghp_real' } },
+        },
+        { ...base, key: '2', kind: 'mcp', name: 'brave search', config: { type: 'http', url: 'https://b.dev/mcp' } },
+        { ...base, key: '3', kind: 'skill', name: 'missing', dir: join(root, 'nope') },
+      ],
+      global,
+      { name: 'Cursor', isClaudeCode: false },
+    )
+    expect(r.imported).toBe(2)
+    expect(r.failed.map(f => f.name)).toEqual(['missing'])
+    const entries = service.state(null).entries.filter(e => e.origin === 'managed')
+    const gh2 = entries.find(e => e.name === 'gh-2')!
+    expect(gh2.engines).toEqual(['claude', 'codex', 'pixel'])
+    expect(gh2.description).toBe('从 Cursor 导入')
+    expect(entries.some(e => e.name === 'brave-search')).toBe(true)
+    const launch = service.launch(project, 'pixel')
+    expect(JSON.parse(readFileSync(launch.mcpFile!, 'utf8')).mcpServers['gh-2'].env).toEqual({
+      GITHUB_TOKEN: 'ghp_real',
+    })
+    launch.dispose?.()
+    const fromClaude = await service.importFromApp(
+      [{ ...base, key: '4', kind: 'mcp', name: 'cc', config: { type: 'http', url: 'https://c.dev/mcp' } }],
+      global,
+      { name: 'Claude Code', isClaudeCode: true },
+    )
+    expect(fromClaude.imported).toBe(1)
+    expect(service.state(null).entries.find(e => e.name === 'cc')!.engines).toEqual(['codex', 'pixel'])
+  })
+  it('从 Claude Code 导入：只给 Codex / 像素星空，不因为和原生的同名而改名', async () => {
+    mkdirSync(join(root, 'native'), { recursive: true })
+    writeFileSync(
+      join(root, 'native', '.claude.json'),
+      JSON.stringify({ mcpServers: { cc: { type: 'http', url: 'https://c.dev/mcp' } } }),
+    )
+    service.invalidateNative()
+    const base = { secrets: [], project: false, needsInput: false, enabled: true, detail: '' }
+    const r = await service.importFromApp(
+      [{ ...base, key: '1', kind: 'mcp', name: 'cc', config: { type: 'http', url: 'https://c.dev/mcp' } }],
+      global,
+      { name: 'Claude Code', isClaudeCode: true },
+    )
+    expect(r).toEqual({ imported: 1, failed: [] })
+    expect(service.state(null).entries.find(e => e.origin === 'managed' && e.name === 'cc')?.engines).toEqual([
+      'codex',
+      'pixel',
+    ])
+    expect(service.hasName('cc', 'mcp', null, true)).toBe(true)
+  })
+  it('启动时一个 MCP 缺环境变量：只少它一个，会话照样能启动', () => {
+    service.upsert({
+      kind: 'mcp',
+      name: 'needs-env',
+      scope: global,
+      mcp: { type: 'http', url: 'https://x.dev/${NOPE_VAR_X}' },
+    })
+    service.upsert({ kind: 'mcp', name: 'fine', scope: global, mcp: { type: 'http', url: 'https://ok.dev/mcp' } })
+    const r = service.launch(project, 'claude')
+    expect(Object.keys(JSON.parse(readFileSync(r.mcpFile!, 'utf8')).mcpServers)).toEqual(['fine'])
+    r.dispose?.()
+  })
   it('凭据无法解密时仍能显示其他配置，重新填写前保留原加密文件', () => {
     const dir = join(root, 'broken')
     mkdirSync(dir)

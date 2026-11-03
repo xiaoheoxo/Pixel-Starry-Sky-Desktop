@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
-import type { ExtPackInfo, ExtPackOptions, ExtPackState, SkillCommand } from '@pixelsky/protocol'
+import type { ExtPackInfo, ExtPackOptions, ExtPackState, McpConfig, SkillCommand } from '@pixelsky/protocol'
 import {
   codedError,
   computeLive,
@@ -28,6 +28,8 @@ import type { StoreInstallRecord, StoreTasks } from './market/types'
 import { applyWinners } from './market/winner'
 import { ensureClaudeWrappers, gcClaudeWrappers, packSkillCommands, packSkillLaunch } from './skills'
 import { readStateFile, writeStateFile, emptyState, type PackStateFile } from './store'
+import { PackMcp } from './mcp'
+import type { Cipher } from '../core/secure-store'
 
 export interface ExtPacksOptions {
   dataDir: string
@@ -37,7 +39,11 @@ export interface ExtPacksOptions {
   keyStatus?: (keyId: string, site: string) => StoreKeyStatus | 'unknown'
   /** 卸载商店扩展时删它的图标缓存（cache/icons/<id>@*）；不传就不删。market 的 storeIcons().remove 由 initExtensionPacks 传进来 */
   removeIcons?: (id: string) => Promise<void>
+  /** MCP 连接器的同意记录和填的值用它加密；不传（测试）只放内存 */
+  cipher?: Cipher
 }
+
+const NO_CIPHER: Cipher = { available: () => false, encrypt: () => '', decrypt: () => '' }
 
 type Engine = 'claude' | 'codex' | 'pixel'
 
@@ -99,7 +105,11 @@ export class ExtensionPacks {
   private chain: Promise<unknown> = Promise.resolve()
   private readonly listeners = new Set<() => void>()
 
-  constructor(readonly opts: ExtPacksOptions) {}
+  private readonly mcp: PackMcp
+
+  constructor(readonly opts: ExtPacksOptions) {
+    this.mcp = new PackMcp(join(opts.dataDir, 'mcp.json'), opts.cipher ?? NO_CIPHER)
+  }
 
   private get stateFile(): string {
     return join(this.opts.dataDir, 'state.json')
@@ -154,7 +164,14 @@ export class ExtensionPacks {
   }
 
   state(): ExtPackState {
-    return { revision: this.revision, loading: this.loading, packs: this.packs.map(p => p.info) }
+    return {
+      revision: this.revision,
+      loading: this.loading,
+      packs: this.packs.map(p => {
+        const mcp = this.mcp.status(p.info)
+        return mcp ? { ...p.info, mcp } : p.info
+      }),
+    }
   }
 
   // ---------- 加载 ----------
@@ -335,6 +352,7 @@ export class ExtensionPacks {
     this.packs = this.packs.filter(p => !(p.info.source === 'store' && p.info.key === packKey('store', id)))
     delete this.data.store[id]
     this.save()
+    this.forgetMcp(id)
     applyWinners(this.packs)
     await this.refreshWrappers()
     this.commit()
@@ -432,6 +450,7 @@ export class ExtensionPacks {
       this.data.folders = this.data.folders.filter(f => packKey('folder', resolve(f.path)) !== key)
       this.save()
       this.packs = this.packs.filter(p => p !== pack)
+      if (pack.info.id) this.forgetMcp(pack.info.id)
       applyWinners(this.packs)
       await this.refreshWrappers()
       this.commit()
@@ -595,6 +614,43 @@ export class ExtensionPacks {
 
   location(key: string): string {
     return this.find(key).root
+  }
+
+  // ---------- 启动时自动装的（market/install.ts BOOTSTRAP_PACKS） ----------
+
+  bootstrapped(id: string): boolean {
+    // state.json 这次读不出来（被占用等）：当作装过，免得把用户卸掉的装回来；下次启动读得出来再说
+    return this.data.unreadable === true || (this.data.bootstrapped?.includes(id) ?? false)
+  }
+
+  markBootstrapped(id: string): void {
+    if (this.bootstrapped(id)) return
+    this.data.bootstrapped = [...(this.data.bootstrapped ?? []), id]
+    this.save()
+  }
+
+  // ---------- MCP 连接器 ----------
+
+  /** 同 id 的扩展一个都不剩了才删：同意记录和填的值跟着扩展 id 走（更新、换来源都保留） */
+  private forgetMcp(id: string): void {
+    if (!this.packs.some(p => p.info.id === id)) this.mcp.forget(id)
+  }
+
+  /** 同意 / 撤销扩展里的一条连接器，并改填的值（null = 不动，'' = 清掉） */
+  setMcp(key: string, name: string, approved: boolean, values: Record<string, string | null>): Promise<void> {
+    return this.mutate(async () => {
+      const pack = this.find(key)
+      const server = pack.info.manifest?.contributes.mcpServers?.find(s => s.name === name)
+      if (!pack.info.id || !server) throw codedError('extpacks.badRequest')
+      this.mcp.set(pack.info.id, server, approved, values)
+      this.commit()
+    })
+  }
+
+  /** 会话启动时给引擎的连接器（shortcut: 扩展还没加载完时启动的会话拿不到，要等下一次重启会话） */
+  mcpLaunch(): { key: string; servers: Record<string, McpConfig> } {
+    if (!this.ready_) return { key: '', servers: {} }
+    return this.mcp.launch(this.packs.filter(p => p.info.live))
   }
 
   // ---------- 技能 ----------

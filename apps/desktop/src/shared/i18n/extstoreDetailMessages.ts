@@ -59,6 +59,7 @@ export const extstoreDetailMessages = {
   'extstoreDetail.contentRowPlain': { zh: '{n} 个{kind}', en: '{n} {kind}' },
   'extstoreDetail.permissions': { zh: '需要的权限', en: 'Permissions' },
   'extstoreDetail.noPermissions': { zh: '不运行代码，不需要权限', en: 'Runs no code, needs no permissions' },
+  'extstoreDetail.runsPrograms': { zh: '会在你的电脑上运行程序', en: 'Runs programs on your computer' },
   'extstoreDetail.info': { zh: '信息', en: 'Info' },
   'extstoreDetail.license': { zh: '许可证 {value}', en: 'License {value}' },
   'extstoreDetail.source': { zh: '源码', en: 'Source' },

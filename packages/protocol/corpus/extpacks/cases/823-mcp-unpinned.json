@@ -1,0 +1,39 @@
+{
+  "title": "npx 的包没写版本",
+  "expectCodes": ["mcp.unpinned"],
+  "input": "folder",
+  "base": "pixelsky.dotenv",
+  "appVersion": "0.6.12",
+  "remove": ["syntaxes", "snippets", "language-configuration.json", "samples"],
+  "files": {
+    "pixelsky-extension.json": {
+      "merge": {
+        "engines": {
+          "pixelsky": ">=0.6.12"
+        },
+        "contributes": {
+          "grammars": null,
+          "snippets": null,
+          "mcpServers": [
+            {
+              "name": "github",
+              "description": "GitHub 仓库、议题和拉取请求",
+              "type": "stdio",
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-github"],
+              "inputs": [
+                {
+                  "name": "GITHUB_TOKEN",
+                  "description": "GitHub 个人令牌（Settings › Developer settings）",
+                  "secret": true,
+                  "required": true
+                }
+              ],
+              "source": "https://github.com/modelcontextprotocol/servers"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

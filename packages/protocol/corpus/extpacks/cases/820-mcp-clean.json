@@ -1,0 +1,54 @@
+{
+  "title": "MCP 连接器：npx 写死版本 + https，合格",
+  "expectCodes": [],
+  "input": "folder",
+  "base": "pixelsky.dotenv",
+  "appVersion": "0.6.12",
+  "remove": ["syntaxes", "snippets", "language-configuration.json", "samples"],
+  "files": {
+    "pixelsky-extension.json": {
+      "merge": {
+        "engines": {
+          "pixelsky": ">=0.6.12"
+        },
+        "contributes": {
+          "grammars": null,
+          "snippets": null,
+          "mcpServers": [
+            {
+              "name": "github",
+              "description": "GitHub 仓库、议题和拉取请求",
+              "type": "stdio",
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-github@2025.4.8"],
+              "inputs": [
+                {
+                  "name": "GITHUB_TOKEN",
+                  "description": "GitHub 个人令牌（Settings › Developer settings）",
+                  "secret": true,
+                  "required": true
+                }
+              ],
+              "source": "https://github.com/modelcontextprotocol/servers"
+            },
+            {
+              "name": "context7",
+              "type": "http",
+              "url": "https://mcp.context7.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${API_KEY}"
+              },
+              "inputs": [
+                {
+                  "name": "API_KEY",
+                  "description": "Context7 密钥"
+                }
+              ],
+              "source": "https://github.com/upstash/context7"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

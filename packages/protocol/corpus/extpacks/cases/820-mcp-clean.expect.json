@@ -1,0 +1,13 @@
+{
+  "rulesVersion": 4,
+  "dev": {
+    "status": "ok",
+    "inactive": {},
+    "skills": [],
+    "issues": []
+  },
+  "upload": {
+    "pass": true,
+    "issues": []
+  }
+}

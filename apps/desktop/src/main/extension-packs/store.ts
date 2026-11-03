@@ -9,11 +9,13 @@ export interface PackStateFile {
   builtin: Record<string, { enabled: boolean; options: ExtPackOptions }>
   /** 商店扩展（store/<id>/install.json 记装了哪些，这里只存开关和选项）；旧文件没有这个字段，读成空 */
   store: Record<string, { enabled: boolean; options: ExtPackOptions }>
+  /** 启动时自动装过的扩展 id（BOOTSTRAP_PACKS）：每个只装一次，用户卸了不再装回来；旧文件没有，读成空 */
+  bootstrapped?: string[]
   /** 只在内存里：state.json 存在但读不出来（被占用等），本次运行不写回，免得拿空状态盖掉真文件 */
   unreadable?: true
 }
 
-export const emptyState = (): PackStateFile => ({ version: 1, folders: [], builtin: {}, store: {} })
+export const emptyState = (): PackStateFile => ({ version: 1, folders: [], builtin: {}, store: {}, bootstrapped: [] })
 
 function options(raw: unknown): ExtPackOptions {
   const o: ExtPackOptions = {}
@@ -50,6 +52,8 @@ function normalize(raw: unknown): PackStateFile | null {
   }
   readEntries(data.builtin, state.builtin)
   readEntries(data.store, state.store)
+  if (Array.isArray(data.bootstrapped))
+    state.bootstrapped = data.bootstrapped.filter((v): v is string => typeof v === 'string')
   return state
 }
 

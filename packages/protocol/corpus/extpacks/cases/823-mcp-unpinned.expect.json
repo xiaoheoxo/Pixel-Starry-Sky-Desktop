@@ -1,0 +1,42 @@
+{
+  "rulesVersion": 4,
+  "dev": {
+    "status": "warning",
+    "inactive": {
+      "mcpServers": [
+        0
+      ]
+    },
+    "skills": [],
+    "issues": [
+      {
+        "code": "mcp.unpinned",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "args[1]",
+        "contribution": {
+          "kind": "mcpServers",
+          "index": 0
+        },
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "mcp.unpinned",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "args[1]",
+        "contribution": {
+          "kind": "mcpServers",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

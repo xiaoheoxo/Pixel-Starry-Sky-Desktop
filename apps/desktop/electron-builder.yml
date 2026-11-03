@@ -22,9 +22,6 @@ afterPack: build/after-pack.cjs
 extraResources:
   - from: build/tray
     to: tray
-  # 随包的扩展（Material 图标等），主进程从 resources/builtin-extensions 读；目录由 WP3 建，没有它时加载器什么都不读
-  - from: resources/builtin-extensions
-    to: builtin-extensions
   # 像素星空命令行（packages/cli/scripts/bundle.mjs 生成）：Electron 自带 node 直接跑磁盘上的文件，wasm / worker 按路径读，不能进 asar
   - from: ../../packages/cli/dist/pixel-cli
     to: pixel-cli

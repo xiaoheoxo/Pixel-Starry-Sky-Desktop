@@ -11,6 +11,8 @@ export interface ExtPacksBridge {
   remove(key: string): Promise<void>
   reload(key?: string | null): Promise<void>
   setOptions(key: string, patch: ExtPackOptions): Promise<void>
+  /** 同意 / 撤销扩展里的一条 MCP 连接器，并改填的值（null = 不动，'' = 清掉） */
+  setMcp(key: string, name: string, approved: boolean, values: Record<string, string | null>): Promise<void>
   readJson(key: string, path: string): Promise<unknown>
   readText(key: string, path: string): Promise<string>
   reveal(key: string): Promise<void>

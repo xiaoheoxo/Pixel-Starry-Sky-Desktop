@@ -4,7 +4,7 @@
 import type { ExtIssueCode } from './codes'
 import { manifestJsoncIssue, mk } from './issue'
 import { EXT_FIRST_LINE_MAX, packDir, resolvePackPath } from './match'
-import { EXT_BUILTIN_SCOPES, EXT_LIMITS, EXT_MANIFEST } from './types'
+import { EXT_BUILTIN_SCOPES, EXT_LIMITS, EXT_MANIFEST, EXT_MCP_MIN_APP } from './types'
 import type {
   ExtPackContributionKind,
   ExtPackFileEntry,
@@ -17,6 +17,7 @@ import type {
   ExtPackSource,
 } from './types'
 import { hasAmbiguousQuantifiers, hasNestedQuantifier, hasQuantifiedAlternation, validateTaskTemplate } from './tasks'
+import { MCP_KEYS, mcpServerProblems } from './mcp'
 import { contrastRatio, parseHexColor, parseJsonc, satisfiesEngine } from './text'
 
 type Rec = Record<string, unknown>
@@ -32,6 +33,7 @@ const CONTRIBUTION_KINDS: readonly ExtPackContributionKind[] = [
   'taskTemplates',
   'skills',
   'prompts',
+  'mcpServers',
 ]
 
 const ID_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])\.[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])$/
@@ -116,6 +118,7 @@ const KEYS = {
   taskRunner: ['windows', 'default', 'fallback', 'when'],
   skills: ['path', 'engines'],
   prompts: ['id', 'title', 'description', 'path', 'where', 'requires'],
+  mcpServers: MCP_KEYS,
 } as const
 
 /** 语言设置文件第一期生效的字段（§4.3） */
@@ -124,6 +127,8 @@ const CONFIG_KEYS = ['comments', 'brackets', 'autoClosingPairs', 'surroundingPai
 const TEXT_EXTS = /\.(json|md|txt)$/i
 const SKILL_FILE_EXTS = /\.(md|png|jpe?g|gif|webp|svg)$/i
 const MAX_PER_CODE = 20
+/** EXT_MCP_MIN_APP 之前的最后一个版本 */
+const PREV_APP = '0.6.11'
 
 function isRec(v: unknown): v is Rec {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -1427,6 +1432,28 @@ export function validateContributions(
           raw.path,
         )
     })
+
+    // ---- MCP 连接器（会运行程序，§G）----
+    const mcpNames = new Set<string>()
+    const mcpList = listOf('mcpServers')
+    mcpList.forEach((raw, i) => {
+      const it = forItem('mcpServers', i)
+      if (isRec(raw)) it.unknown(raw, KEYS.mcpServers)
+      for (const p of mcpServerProblems(raw, mcpNames)) it.err(p.code, p.zh, p.en, p.path)
+    })
+    // 旧版软件不认 mcpServers（只有它时整个扩展装不上，和别的贡献一起时悄悄少一块）：engines 要排除旧版
+    const range = isRec(m.engines) && isStr(m.engines.pixelsky) ? m.engines.pixelsky : null
+    if (mcpList.length > 0 && range !== null && satisfiesEngine(range, PREV_APP) === true)
+      issues.push(
+        mk(
+          'warning',
+          'pack',
+          'mcp.engines',
+          `带 MCP 连接器的扩展 engines.pixelsky 要写 >=${EXT_MCP_MIN_APP}`,
+          `Extensions with MCP servers must set engines.pixelsky to >=${EXT_MCP_MIN_APP}`,
+          { path: 'engines.pixelsky', upload: 'reject' },
+        ),
+      )
 
     // ---- F11 编码 / F10 未使用的文件 ----
     const all = reader.list('')

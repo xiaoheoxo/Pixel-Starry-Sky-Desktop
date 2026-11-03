@@ -160,13 +160,11 @@ describe('分类栏', () => {
   const button = (id: string): string =>
     html.match(new RegExp(`<button[^>]*data-store-category="${id}"[^>]*>.*?</button>`))![0]
 
-  it('「命令」旁有「第二期」、「MCP」「插件」旁有「第三期」，且是禁用的', () => {
+  it('「命令」旁有「第二期」、「插件」旁有「第三期」，且是禁用的', () => {
     expect(button('commands')).toContain('第二期')
     expect(button('commands')).toContain('disabled')
-    for (const id of ['mcp', 'plugins']) {
-      expect(button(id)).toContain('第三期')
-      expect(button(id)).toContain('disabled')
-    }
+    expect(button('plugins')).toContain('第三期')
+    expect(button('plugins')).toContain('disabled')
   })
   it('其余分类能点，也不显示数量', () => {
     for (const id of [
@@ -180,6 +178,7 @@ describe('分类栏', () => {
       'taskTemplates',
       'skills',
       'prompts',
+      'mcpServers',
     ])
       expect(button(id)).not.toContain('disabled')
     expect(button('grammars').replace(/<[^>]*>/g, '')).toBe('语法高亮')

@@ -33,6 +33,9 @@ export interface StoreHost {
   ready(): Promise<void>
   /** 就是 () => service.state().packs */
   packs(): ExtPackInfo[]
+  /** 启动时自动装过这个 id 没有（记在 state.json，每个只装一次） */
+  bootstrapped(id: string): boolean
+  markBootstrapped(id: string): void
 }
 
 /** service 要调的 installer 能力（service.attachStoreTasks 收它） */

@@ -110,6 +110,8 @@ export function initExtStore(ctx: AppContext, service: ExtensionPacks): void {
     storeDir: service.storeDir,
     ready: () => service.ready(),
     packs: () => service.state().packs,
+    bootstrapped: id => service.bootstrapped(id),
+    markBootstrapped: id => service.markBootstrapped(id),
   }
   const blocked = (s: string, id: string, version: string) => service.storeBlocked(s, id, version)
   const installer = createInstaller({
@@ -129,7 +131,7 @@ export function initExtStore(ctx: AppContext, service: ExtensionPacks): void {
     blocked,
     onChange: changed,
   })
-  // 启动时静默安装 BOOTSTRAP_PACKS（默认空，什么都不做）；不 await，失败只写日志
+  // 启动时静默安装 BOOTSTRAP_PACKS（Material 图标，每个只装一次）；不 await，失败只写日志
   void installer.bootstrap().catch(e => console.warn('[extension-store] bootstrap failed', e))
 
   // 停用名单：启动 15 秒后读一次、之后每 6 小时；读到后交给 service 重算 blocked。文件就是 service 启动时同步读的那一份

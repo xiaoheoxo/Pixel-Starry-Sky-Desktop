@@ -74,6 +74,30 @@ export interface ExtPrompt {
   where?: Array<'composer' | 'editor'>
   requires?: 'selection'
 }
+/** MCP 连接器要用户填的值：stdio 时作为同名环境变量传给进程，args / url / headers 里写 ${NAME} 引用 */
+export interface ExtMcpInput {
+  name: string
+  description: ExtText
+  /** 密钥：输入框遮住，加密保存 */
+  secret?: boolean
+  /** 没填时这个连接器不启动 */
+  required?: boolean
+}
+/** 会在用户电脑上运行程序的 MCP 连接器（第三期，docs/ui/extension-remaining-plan.md §G）：包里不带程序，只写怎么启动、从哪来 */
+export interface ExtMcpServer {
+  name: string
+  description?: ExtText
+  type: 'stdio' | 'http' | 'sse'
+  /** stdio：只能是 EXT_MCP_COMMANDS 里的，包的版本必须写死 */
+  command?: string
+  args?: string[]
+  /** http / sse：https，或者本机的 http */
+  url?: string
+  headers?: Record<string, string>
+  inputs?: ExtMcpInput[]
+  /** 公开的源码地址（https），审核核对它 */
+  source: string
+}
 export interface ExtPackContributes {
   grammars?: ExtGrammar[]
   themes?: ExtTheme[]
@@ -82,6 +106,7 @@ export interface ExtPackContributes {
   taskTemplates?: ExtTaskTemplate[]
   skills?: ExtSkill[]
   prompts?: ExtPrompt[]
+  mcpServers?: ExtMcpServer[]
 }
 export type ExtPackContributionKind = keyof ExtPackContributes
 export interface ExtPackManifest {
@@ -149,8 +174,16 @@ export interface ExtPackInfo {
   store?: { version: string; installedAt: number; sha256: string; keyId: string; site: string }
   /** 被平台停用（停用名单命中）：不生效，不能打开；reason 是名单里的原因，at 是读到名单的时间 */
   blocked?: { reason: string; at: string }
+  /** 带 MCP 连接器时每条的状态（同意过当前这一份没有、必填缺哪些、填过哪些；值不出主进程） */
+  mcp?: ExtPackMcpStatus[]
   /** 同 id 有更优先的来源在用（开发中的文件夹 > 商店 > 内置）：值是生效那一份的来源；不算错误，灰显 */
   shadowedBy?: ExtPackSource
+}
+export interface ExtPackMcpStatus {
+  name: string
+  approved: boolean
+  missing: string[]
+  filled: string[]
 }
 export interface ExtPackState {
   revision: number
@@ -245,7 +278,12 @@ export const EXT_LIMITS = {
 } as const
 
 /** 规则语义变化时加一；写进命令行的 JSON 和共享用例的期望 */
-export const EXT_RULES_VERSION = 3
+export const EXT_RULES_VERSION = 4
+
+/** MCP 连接器能用的启动命令：都是从公开仓库按写死的版本拉包（npm / PyPI / 镜像摘要） */
+export const EXT_MCP_COMMANDS: readonly string[] = ['npx', 'uvx', 'docker']
+/** 认 mcpServers 的第一个软件版本：engines.pixelsky 要排除比它旧的 */
+export const EXT_MCP_MIN_APP = '0.6.12'
 
 /** 软件内置的 26 个语言 id（authoring-spec §4.5） */
 export const EXT_BUILTIN_LANGUAGE_IDS: readonly string[] = [

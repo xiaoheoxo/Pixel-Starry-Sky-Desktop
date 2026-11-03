@@ -14,6 +14,7 @@ const KIND_KEY = {
   taskTemplates: 'extstore.publish.kind.taskTemplates',
   skills: 'extstore.publish.kind.skills',
   prompts: 'extstore.publish.kind.prompts',
+  mcpServers: 'extstore.publish.kind.mcpServers',
 } as const
 
 function CheckLine({ ok, children }: { ok: boolean; children: string }) {

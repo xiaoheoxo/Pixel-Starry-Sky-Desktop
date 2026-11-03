@@ -11,6 +11,7 @@ import { SourceBadge } from '@/features/extstore/installed/InstalledBadges'
 import { StoreReadme } from '@/features/extstore/detail/StoreReadme'
 import { PackBadge } from './PackBadge'
 import { PackIcon, PackStatus } from './PackList'
+import { McpServers } from '@/features/extpacks/McpServers'
 
 const KIND_LABELS = {
   grammars: 'extensions.kind.grammars',
@@ -20,6 +21,7 @@ const KIND_LABELS = {
   taskTemplates: 'extensions.kind.taskTemplates',
   skills: 'extensions.kind.skills',
   prompts: 'extensions.kind.prompts',
+  mcpServers: 'extensions.kind.mcpServers',
 } as const
 
 const errorText = (e: unknown): string => translateMessage((e as Error)?.message ?? String(e))
@@ -219,6 +221,8 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
       ) : (
         <p className="text-ui text-fg-faint">{t('extensions.detail.contentsEmpty')}</p>
       )}
+
+      <McpServers servers={pack.manifest?.contributes.mcpServers} status={pack.mcp} packKey={pack.key} />
 
       {conflicts.length > 0 && (
         <>
