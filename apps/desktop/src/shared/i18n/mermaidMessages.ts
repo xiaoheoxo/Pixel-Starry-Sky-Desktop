@@ -17,4 +17,13 @@ export const mermaidMessages = {
     en: 'Large diagram; not drawn automatically (drawing may freeze the app for a few seconds)',
   },
   'mermaid.renderAnyway': { zh: '仍然画图', en: 'Draw anyway' },
+  // 回复里的 ```svg 代码块（ui/markdown/SvgBlock.tsx），工具按钮和 Mermaid 共用
+  'svg.imageLabel': { zh: 'SVG 图', en: 'SVG image' },
+  'svg.failed': { zh: 'SVG 画不出来，已显示源码：{reason}', en: "Couldn't draw the SVG; showing the source: {reason}" },
+  'svg.notSvg': { zh: '最外层不是 <svg>', en: 'the outermost element is not <svg>' },
+  'svg.cannotDraw': { zh: '浏览器画不出这张图', en: "the browser couldn't draw it" },
+  'svg.backdrop': { zh: '底色', en: 'Background' },
+  'svg.backdrop.check': { zh: '棋盘格（看得出透明部分）', en: 'Checkerboard (shows transparency)' },
+  'svg.backdrop.white': { zh: '白底', en: 'White' },
+  'svg.backdrop.black': { zh: '黑底', en: 'Black' },
 } as const

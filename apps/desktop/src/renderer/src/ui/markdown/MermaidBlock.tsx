@@ -1,6 +1,6 @@
 // 回复里的 mermaid 代码块（docs/ui/mermaid.md）：默认画成图，可切回源码、复制源码、放大；
 // 回复还在输出时先显示源码，写完再画；渲染失败退回源码并提示原因
-import { createContext, memo, useContext, useEffect, useState } from 'react'
+import { createContext, memo, useContext, useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle, Maximize2 } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
@@ -56,6 +56,62 @@ function useDiagram(code: string, enabled: boolean, attempt: number) {
 const iconButton =
   'press no-drag inline-flex h-6 w-6 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-muted'
 
+/** 图块右上角：「图 / 源码」切换 + 放大（Mermaid、SVG 共用）；before 放在切换前面（SVG 的底色） */
+export function DiagramTools({
+  enabled,
+  diagram,
+  onSource,
+  onZoom,
+  before,
+}: {
+  enabled: boolean
+  diagram: boolean
+  onSource(source: boolean): void
+  onZoom(): void
+  before?: ReactNode
+}) {
+  return (
+    <>
+      {before}
+      <span
+        role="group"
+        aria-label={tr('mermaid.switch')}
+        className={cn('inline-flex rounded-md bg-subtle p-px text-meta', !enabled && 'opacity-50')}
+      >
+        {[false, true].map(source => {
+          const on = source ? !diagram : diagram
+          return (
+            <button
+              key={String(source)}
+              type="button"
+              disabled={!enabled}
+              aria-pressed={on}
+              onClick={() => onSource(source)}
+              className={cn(
+                'rounded-[5px] px-2 leading-5',
+                on ? 'border border-line-card bg-surface text-fg' : 'text-fg-muted hover:text-fg',
+                !enabled && 'cursor-default',
+              )}
+            >
+              {source ? tr('mermaid.source') : tr('mermaid.view')}
+            </button>
+          )
+        })}
+      </span>
+      <button
+        type="button"
+        className={iconButton}
+        disabled={!enabled}
+        title={tr('mermaid.zoom')}
+        aria-label={tr('mermaid.zoom')}
+        onClick={onZoom}
+      >
+        <Maximize2 size={13} strokeWidth={1.5} />
+      </button>
+    </>
+  )
+}
+
 export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
   useI18n()
   const streaming = useContext(StreamingContext)
@@ -75,43 +131,7 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 
   const diagram = !!svg && !showSource
   const tools = (
-    <>
-      <span
-        role="group"
-        aria-label={tr('mermaid.switch')}
-        className={cn('inline-flex rounded-md bg-subtle p-px text-meta', !svg && 'opacity-50')}
-      >
-        {[false, true].map(source => {
-          const on = source ? !diagram : diagram
-          return (
-            <button
-              key={String(source)}
-              type="button"
-              disabled={!svg}
-              aria-pressed={on}
-              onClick={() => setShowSource(source)}
-              className={cn(
-                'rounded-[5px] px-2 leading-5',
-                on ? 'border border-line-card bg-surface text-fg' : 'text-fg-muted hover:text-fg',
-                !svg && 'cursor-default',
-              )}
-            >
-              {source ? tr('mermaid.source') : tr('mermaid.view')}
-            </button>
-          )
-        })}
-      </span>
-      <button
-        type="button"
-        className={iconButton}
-        disabled={!svg}
-        title={tr('mermaid.zoom')}
-        aria-label={tr('mermaid.zoom')}
-        onClick={() => setZoomed(true)}
-      >
-        <Maximize2 size={13} strokeWidth={1.5} />
-      </button>
-    </>
+    <DiagramTools enabled={!!svg} diagram={diagram} onSource={setShowSource} onZoom={() => setZoomed(true)} />
   )
   const notice = held ? (
     <div className="flex items-start gap-1.5 border-b border-line-subtle bg-subtle px-3 py-1.5 text-meta text-fg-muted">

@@ -10,6 +10,7 @@ import { InlineCode, MarkdownLink, PathLinksContext, citationLink, keepLocalPath
 import { MarkdownImage } from './MarkdownImage'
 import { Callout, isAlertKind, remarkAlerts } from './alerts'
 import { hasMath, normalizeMath, useMathPlugins, type PluggableList } from './math'
+import { SvgBlock } from './SvgBlock'
 import { MermaidBlock, StreamingContext } from './MermaidBlock'
 import { createStreamSplitter, type StreamBlocks } from './streamBlocks'
 import { createTailThrottle, type TailThrottle } from './tailThrottle'
@@ -70,8 +71,15 @@ const components: Components = {
     const { code, lang } = fencedCode(node)
     const line = lineOf(node)
     // mermaid 代码块画成图（docs/ui/mermaid.md）；文件预览（文档模式）不画
+    // ```svg 也画成图（ui/markdown/SvgBlock.tsx）
     const block =
-      lang === 'mermaid' && line === undefined ? <MermaidBlock code={code} /> : <CodeBlock code={code} lang={lang} />
+      lang === 'mermaid' && line === undefined ? (
+        <MermaidBlock code={code} />
+      ) : lang === 'svg' && line === undefined ? (
+        <SvgBlock code={code} />
+      ) : (
+        <CodeBlock code={code} lang={lang} />
+      )
     return line === undefined ? block : <div data-line={line}>{block}</div>
   },
 }

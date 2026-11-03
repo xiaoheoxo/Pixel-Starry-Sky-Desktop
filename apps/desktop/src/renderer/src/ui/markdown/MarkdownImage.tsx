@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { tr } from '@/i18n/core'
 import { ZoomableImage } from '@/ui/ImageViewer'
 import { linkPathText } from './pathLinks'
+import { cn } from '@/ui/cn'
+import { SVG_BACKDROP } from './svg'
 
 export interface MarkdownImageSource {
   src: string
@@ -49,7 +51,11 @@ function WorkspaceImage({ path, alt, reader }: { path: string; alt: string; read
       src={current.image.src}
       alt={alt}
       bytes={current.image.bytes}
-      className="inline-block max-h-96 max-w-full rounded-md object-contain align-middle"
+      className={cn(
+        'inline-block max-h-96 max-w-full rounded-md object-contain align-middle',
+        // 透明底的 SVG 垫棋盘格：深色主题里黑线条也看得见
+        current.image.src.startsWith('data:image/svg+xml') && SVG_BACKDROP.check,
+      )}
     />
   )
 }
