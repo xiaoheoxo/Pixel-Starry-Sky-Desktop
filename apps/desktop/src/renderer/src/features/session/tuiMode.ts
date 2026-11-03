@@ -15,7 +15,7 @@ export function tuiModeOf(record: SessionRecord | null | undefined): TuiMode {
   return tuiActive(record) ? 'terminal' : 'ui'
 }
 
-/** 顶栏要不要画开关：Claude 显示（Codex 二期也画但灰着）；pixel / 无记录不画 */
+/** 顶栏要不要画开关：Claude、Codex 显示；pixel / 无记录不画 */
 export function tuiToggleVisible(record: SessionRecord | null | undefined): boolean {
   if (!record) return false
   return record.engine === 'claude' || record.engine === 'codex'
@@ -25,18 +25,22 @@ export function tuiToggleVisible(record: SessionRecord | null | undefined): bool
 export function tuiDisabledReason(snapshot: SessionSnapshot | null | undefined): TranslationKey | null {
   if (!snapshot) return 'session.tui.disabledBusy'
   const { record, state, queue, pending } = snapshot
-  if (record.engine !== 'claude') return 'session.tui.disabledEngine' // Codex 二期
+  if (record.engine !== 'claude' && record.engine !== 'codex') return 'session.tui.disabledEngine'
   if (record.tui) return null // 已在终端：不因自己的 TUI 变灰
+  // Codex 不能预先指定线程 id，界面进程也不能 warm（切之前落实不了回退 / 分叉）：先在界面里发一条消息
+  if (record.engine === 'codex' && (!record.engineSessionId || record.pendingRewind || record.pendingFork))
+    return 'session.tui.disabledFresh'
   // 后台子智能体还在跑也不行：切过去要关界面进程，会把它们一起停掉
   if (state !== 'idle' || queue.length > 0 || (pending?.length ?? 0) > 0 || stopTargets(snapshot).length > 0)
     return 'session.tui.disabledBusy'
-  // pendingRewind/Fork：切终端时由 prepareTui 起一次进程落实，不在这里灰掉
+  // Claude 的 pendingRewind/Fork：切终端时由 prepareTui 起一次进程落实，不在这里灰掉
   return null
 }
 
 /** 主进程 tuiCheck 返回的原因代码（engine/host 的 TuiBlock）→ 文字；不认识的代码当能切 */
 const BLOCK_KEY: Record<string, TranslationKey> = {
   engine: 'session.tui.disabledEngine',
+  fresh: 'session.tui.disabledFresh',
   busy: 'session.tui.disabledBusy',
   liveTerminal: 'session.tui.disabledLiveTerminal',
   liveOther: 'session.tui.disabledLiveOther',

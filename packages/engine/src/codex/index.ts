@@ -9,6 +9,7 @@ import type {
   LoginProcess,
   RewindAnchor,
   SessionContext,
+  TuiLaunch,
 } from '../adapter'
 import type { QuotaReading } from '../quota'
 import type { ListOptions, LiveState, NativeRead, NativeSessionList, NewerTurns, ReadOptions } from '../native/types'
@@ -34,7 +35,7 @@ import { CodexProcess, object, string } from './process'
 import { parseCodexRateLimits } from './quota'
 import { codexCatalog } from './catalog'
 import { CodexCatalog } from './model-catalog'
-import { CodexSession, reservedCodexArg, type CodexLaunchOptions } from './session'
+import { CodexSession, codexLaunchConfig, reservedCodexArg, tomlValue, type CodexLaunchOptions } from './session'
 import { CodexReader } from './reader'
 import { codexThreadExists, liveCodexThreads, listCodexThreads, newerCodexTurns, readCodexThread } from './native'
 import { CodexTranslator, interruptedAgent } from './translate'
@@ -371,6 +372,65 @@ export class CodexAdapter implements EngineAdapter {
       await proc?.close()
     }
   }
+  /** 界面进程和终端模式共用的启动选项（用户追加参数、上下文窗口、模型目录等） */
+  private sessionOptions(launcher: Launcher, version: string | null): CodexLaunchOptions {
+    return {
+      version,
+      askRejected: () => this.askRejected,
+      rejectAsk: () => (this.askRejected = true),
+      ...(this.opts.launchOptions?.() ?? { askQuestions: true }),
+      defaultModel: () => this.catalogCache?.currentModel ?? null,
+      knownWindows: this.knownWindows,
+      modelCatalog: (model, window, auto) =>
+        this.modelCatalog.file(launcher, version, toolEnvironment(launcher, this.baseEnv()), model, window, auto),
+    }
+  }
+  /**
+   * 终端（TUI）模式启动参数（docs/ui/tui-toggle.md §5.2）：codex resume <线程>，配置和界面进程一样（codexLaunchConfig），
+   * 权限、模型、推理强度按对话的设置给。Codex 不能预先指定线程 id，还没有线程的新对话由宿主先拦下（tuiBlock 的 fresh）
+   */
+  async tuiLaunch(
+    record: SessionRecord,
+    extensions?: import('@pixelsky/protocol').ExtensionLaunch,
+  ): Promise<TuiLaunch> {
+    if (record.engine !== 'codex') throw new Error('不是 Codex 对话')
+    const thread = record.engineSessionId
+    if (!thread) throw new Error('Codex 新对话先在界面里聊一句，再切到终端')
+    await this.info()
+    const result = this.cached
+    if (
+      !result?.launcher ||
+      (result.info.status !== 'ready' && !(viaGateway(record) && result.info.status === 'unauthenticated'))
+    )
+      throw new Error(result?.info.message ?? 'Codex is unavailable')
+    // shortcut: 扩展的技能根（skills/extraRoots/set）只能经 app-server 设置，终端里没有；要的话得等 Codex 命令行支持
+    const launched = await codexLaunchConfig(
+      record,
+      this.sessionEnvironment(result.launcher, record),
+      { maxRetries: null, extensions },
+      this.sessionOptions(result.launcher, result.info.version ?? null),
+      false,
+    )
+    const mode = record.permissionMode
+    const sandbox = mode === 'full' ? 'danger-full-access' : mode === 'plan' ? 'read-only' : 'workspace-write'
+    const args = [
+      ...result.launcher.args,
+      'resume',
+      thread,
+      ...launched.args,
+      '-C',
+      record.cwd,
+      // 命令行的 -a 只认 on-request / never（0.164 起 untrusted 连配置项也不认了）：询问档在终端里按 on-request
+      '-a',
+      mode === 'full' ? 'never' : 'on-request',
+      '-s',
+      sandbox,
+      ...(record.model ? ['-m', record.model] : []),
+      ...(record.effort ? ['-c', `model_reasoning_effort=${tomlValue(record.effort)}`] : []),
+      ...(record.extraDirs ?? []).flatMap(dir => ['--add-dir', dir]),
+    ]
+    return { command: result.launcher.command, args, env: launched.env, cwd: record.cwd, engineSessionId: thread }
+  }
   /** 会话和读历史的临时进程共用的环境：平台 / 自定义接口会话去掉 OpenAI 登录变量，带上网关变量 */
   private sessionEnvironment(launcher: Launcher, record: SessionRecord): NodeJS.ProcessEnv {
     const env = toolEnvironment(launcher, this.env())
@@ -396,21 +456,7 @@ export class CodexAdapter implements EngineAdapter {
       throw new Error(result?.info.message ?? 'Codex is unavailable')
     const env = this.sessionEnvironment(result.launcher, ctx.record())
     const session = new CodexSession(result.launcher, env, ctx, {
-      version: result.info.version,
-      askRejected: () => this.askRejected,
-      rejectAsk: () => (this.askRejected = true),
-      ...(this.opts.launchOptions?.() ?? { askQuestions: true }),
-      defaultModel: () => this.catalogCache?.currentModel ?? null,
-      knownWindows: this.knownWindows,
-      modelCatalog: (model, window, auto) =>
-        this.modelCatalog.file(
-          result.launcher!,
-          result.info.version,
-          toolEnvironment(result.launcher!, this.baseEnv()),
-          model,
-          window,
-          auto,
-        ),
+      ...this.sessionOptions(result.launcher, result.info.version ?? null),
       // 宿主的运行时里已经有（打开会话时从 rollout 读过，之后实时更新）：直接用，不再整读一遍 rollout。
       // 没有进程可接着跑了，还停在 running 的标成已中断（与 loadCodexRuns 一致）
       savedAgents: () =>

@@ -11,7 +11,7 @@ import { app, BrowserWindow, dialog, net, powerMonitor, session, shell, type Ipc
 import * as ipc from '../ipc/guard'
 import { nativeText, windowLocale } from '../app/ui-language'
 import { EngineHost } from '@pixelsky/engine'
-import { isChatProject, type HostEvent, type SessionRecord } from '@pixelsky/protocol'
+import { ENGINES, isChatProject, type HostEvent, type SessionRecord } from '@pixelsky/protocol'
 import type { AppContext } from '../app/context'
 import { platformCalls, platformCharges, accountCalls, accountSummary } from '../platform/billing'
 import { onAccountChange, signedInEmail } from '../account/account'
@@ -226,7 +226,7 @@ export async function initEngine(ctx: AppContext): Promise<void> {
       command: launch.command,
       args: launch.args,
       env: launch.env,
-      label: 'Claude Code',
+      label: ENGINES[record.engine].name,
       sessionId,
       projectId: record.projectId,
       projectName: project?.name ?? (isChatProject(record.projectId) ? chatName() : record.projectId),

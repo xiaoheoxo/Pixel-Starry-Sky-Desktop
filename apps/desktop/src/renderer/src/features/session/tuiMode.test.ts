@@ -64,6 +64,17 @@ describe('tuiMode helpers', () => {
     expect(tuiBlockKey(null)).toBeNull()
   })
 
+  it('Codex：有线程才能切；没聊过的新对话、待落实的回退 / 分叉灰掉（Codex 切之前落实不了）', () => {
+    expect(tuiDisabledReason(snap({ engine: 'codex', engineSessionId: 'th-1' }))).toBeNull()
+    expect(tuiDisabledReason(snap({ engine: 'codex', engineSessionId: null }))).toBe('session.tui.disabledFresh')
+    expect(tuiDisabledReason(snap({ engine: 'codex', pendingRewind: 'u1' }))).toBe('session.tui.disabledFresh')
+    expect(
+      tuiDisabledReason(snap({ engine: 'codex', engineSessionId: null, pendingFork: { from: 'a', at: 'b' } })),
+    ).toBe('session.tui.disabledFresh')
+    expect(tuiDisabledReason(snap({ engine: 'pixel' }))).toBe('session.tui.disabledEngine')
+    expect(tuiBlockKey('fresh')).toBe('session.tui.disabledFresh')
+  })
+
   it('后台子智能体还在跑时灰掉（切过去会把它们停掉）', () => {
     const s = snap({ engine: 'claude' })
     const running = { ...s, subagents: [{ id: 'a', name: '甲', status: 'running', background: true }] }

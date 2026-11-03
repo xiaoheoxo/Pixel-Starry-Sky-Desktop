@@ -290,7 +290,8 @@ export interface EngineAdapter {
   loginTimes?(): Record<string, unknown>
   /**
    * 终端（TUI）模式：拼交互式启动命令与 env（docs/ui/tui-toggle.md §5.2）。
-   * 已有 engineSessionId 用 --resume；没有则分配并返回 engineSessionId（宿主写入记录）。一期 Claude；Codex 二期
+   * Claude：已有记录用 --resume，没有则用 --session-id 开新的并返回 engineSessionId（宿主写入记录）。
+   * Codex：codex resume <线程>，必须已有线程（宿主的 tuiBlock 先拦下没有线程的新对话）
    */
   tuiLaunch?(
     record: SessionRecord,

@@ -11,6 +11,7 @@ import type {
   McpOpResult,
   RequestRetryState,
   NoticeError,
+  SessionRecord,
   SessionSettings,
   SkillCommand,
   TurnOutcome,
@@ -247,6 +248,95 @@ export function tomlValue(value: unknown): string {
     )
   return JSON.stringify(value)
 }
+/**
+ * 起 Codex 时像素星空自己加的配置（界面进程和终端模式共用，docs/ui/tui-toggle.md §5.2）：
+ * args 是用户追加的参数加上 -c 列表（不含子命令），env 是改好的环境（不改入参）
+ */
+export async function codexLaunchConfig(
+  record: SessionRecord,
+  baseEnv: NodeJS.ProcessEnv,
+  ctx: Pick<SessionContext, 'maxRetries' | 'extensions'>,
+  options: Pick<
+    CodexLaunchOptions,
+    'args' | 'defaultModel' | 'contextWindows' | 'autoCompactPct' | 'knownWindows' | 'modelCatalog'
+  >,
+  askFlag: boolean,
+): Promise<{
+  args: string[]
+  env: NodeJS.ProcessEnv
+  /** 经本机网关时的 provider 名（pixelsky / pixelsky-custom），不经网关为 null */
+  gatewayProvider: string | null
+  ownAskFlag: boolean
+  windowOverridden: boolean
+}> {
+  const environment = { ...baseEnv },
+    // 用户追加的参数放在像素星空自己的 -c 前面：同一个配置项写两次时后写的生效
+    args = [...(options.args ?? [])]
+  const config = (key: string, value: unknown): void => {
+    args.push('-c', `${key}=${tomlValue(value)}`)
+  }
+  // 平台和自定义 API 都经本机网关；provider 名分开，Codex 按 provider 存的状态互不串
+  const gatewayProvider = record.platform ? 'pixelsky' : record.provider ? 'pixelsky-custom' : null
+  if (gatewayProvider) {
+    const base = environment.PIXELSKY_CODEX_BASE_URL
+    if (!base || !environment.PIXELSKY_CODEX_TOKEN) throw new Error('Codex gateway is unavailable')
+    const p = `model_providers.${gatewayProvider}`
+    config('model_provider', gatewayProvider)
+    config(`${p}.name`, record.platform ? 'Pixel Starry Sky' : 'Custom API')
+    config(`${p}.base_url`, base)
+    config(`${p}.wire_api`, 'responses')
+    config(`${p}.env_key`, 'PIXELSKY_CODEX_TOKEN')
+    config(`${p}.requires_openai_auth`, false)
+    config(`${p}.supports_websockets`, false)
+  }
+  if (ctx.maxRetries !== null && ctx.maxRetries !== undefined) {
+    const provider = gatewayProvider ?? string(environment.PIXELSKY_CODEX_PROVIDER)
+    // 两层同时使用 N 会放大为 (N+1)² 次请求。自定义仅控制 HTTP
+    // 请求层，禁用整条流重新发起；null 保留原生两层策略。
+    if (provider) {
+      config(`model_providers.${provider}.request_max_retries`, ctx.maxRetries)
+      config(`model_providers.${provider}.stream_max_retries`, 0)
+    }
+  }
+  Object.assign(environment, ctx.extensions?.env)
+  if (ctx.extensions?.pathDirs.length) {
+    const key = Object.keys(environment).find(k => k.toLowerCase() === 'path') ?? 'PATH'
+    environment[key] = [...ctx.extensions.pathDirs, environment[key] ?? ''].join(delimiter)
+  }
+  const ext = ctx.extensions
+  for (const [key, value] of Object.entries(ext?.codexConfig ?? {})) config(key, value)
+  if (askFlag) config(`features.${DEFAULT_MODE_ASK}`, true)
+  // 用户追加的参数 / 配置也开了同一个功能时警告不是我们的；config.toml 要等 config/read 才知道，警告可能先到，先按我们的算
+  const ownAskFlag =
+    askFlag &&
+    !(options.args ?? []).some(arg => arg.includes(DEFAULT_MODE_ASK)) &&
+    !JSON.stringify(ext?.codexConfig ?? {}).includes(DEFAULT_MODE_ASK)
+  // 上下文窗口和自动压缩（GitHub #20）：放在用户追加的参数后面，同一项以设置为准
+  const model = record.model ?? options.defaultModel?.() ?? null
+  const context = codexContextConfig({
+    record,
+    model,
+    windows: options.contextWindows,
+    autoCompactPct: options.autoCompactPct,
+    providerWindow: environment[CODEX_WINDOW_ENV],
+    known: model ? options.knownWindows?.get(model) : null,
+  })
+  delete environment[CODEX_WINDOW_ENV]
+  if (context.window) config('model_context_window', context.window)
+  // 经网关（云端线路、自定义 API）：Codex 把窗口限制在模型资料的上限内，没有资料的模型只有 272K。用户自己写了目录时不管
+  if (
+    gatewayProvider &&
+    model &&
+    options.modelCatalog &&
+    !(options.args ?? []).some(arg => arg.includes('model_catalog_json'))
+  ) {
+    const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model)).catch(() => null)
+    if (file) config('model_catalog_json', file)
+  }
+  if (context.limit) config('model_auto_compact_token_limit', context.limit)
+  return { args, env: environment, gatewayProvider, ownAskFlag, windowOverridden: !!context.window }
+}
+
 export class CodexSession implements EngineSession {
   private proc: CodexProcess | null = null
   /** 进程还活着（宿主查某个账号目录还有没有人在用） */
@@ -394,74 +484,15 @@ export class CodexSession implements EngineSession {
   private async launch(askFlag: boolean): Promise<void> {
     this.askFlag = askFlag
     this.startup = 'pending'
-    const record = this.ctx.record(),
-      environment = { ...this.env },
-      // 用户追加的参数放在像素星空自己的 -c 前面：同一个配置项写两次时后写的生效
-      args = ['app-server', '--listen', 'stdio://', ...(this.options.args ?? [])]
-    const config = (key: string, value: unknown): void => {
-      args.push('-c', `${key}=${tomlValue(value)}`)
-    }
-    // 平台和自定义 API 都经本机网关；provider 名分开，Codex 按 provider 存的状态互不串
-    const gatewayProvider = record.platform ? 'pixelsky' : record.provider ? 'pixelsky-custom' : null
+    const record = this.ctx.record()
+    const launched = await codexLaunchConfig(record, this.env, this.ctx, this.options, askFlag)
+    const environment = launched.env,
+      args = ['app-server', '--listen', 'stdio://', ...launched.args]
+    const ext = this.ctx.extensions,
+      gatewayProvider = launched.gatewayProvider
     this.procViaGateway = !!gatewayProvider
-    if (gatewayProvider) {
-      const base = environment.PIXELSKY_CODEX_BASE_URL
-      if (!base || !environment.PIXELSKY_CODEX_TOKEN) throw new Error('Codex gateway is unavailable')
-      const p = `model_providers.${gatewayProvider}`
-      config('model_provider', gatewayProvider)
-      config(`${p}.name`, record.platform ? 'Pixel Starry Sky' : 'Custom API')
-      config(`${p}.base_url`, base)
-      config(`${p}.wire_api`, 'responses')
-      config(`${p}.env_key`, 'PIXELSKY_CODEX_TOKEN')
-      config(`${p}.requires_openai_auth`, false)
-      config(`${p}.supports_websockets`, false)
-    }
-    if (this.ctx.maxRetries !== null && this.ctx.maxRetries !== undefined) {
-      const provider = gatewayProvider ?? string(environment.PIXELSKY_CODEX_PROVIDER)
-      // 两层同时使用 N 会放大为 (N+1)² 次请求。自定义仅控制 HTTP
-      // 请求层，禁用整条流重新发起；null 保留原生两层策略。
-      if (provider) {
-        config(`model_providers.${provider}.request_max_retries`, this.ctx.maxRetries)
-        config(`model_providers.${provider}.stream_max_retries`, 0)
-      }
-    }
-    Object.assign(environment, this.ctx.extensions?.env)
-    if (this.ctx.extensions?.pathDirs.length) {
-      const key = Object.keys(environment).find(k => k.toLowerCase() === 'path') ?? 'PATH'
-      environment[key] = [...this.ctx.extensions.pathDirs, environment[key] ?? ''].join(delimiter)
-    }
-    const ext = this.ctx.extensions
-    for (const [key, value] of Object.entries(ext?.codexConfig ?? {})) config(key, value)
-    if (askFlag) config(`features.${DEFAULT_MODE_ASK}`, true)
-    // 用户追加的参数 / 配置也开了同一个功能时警告不是我们的；config.toml 要等 config/read 才知道，警告可能先到，先按我们的算
-    this.ownAskFlag =
-      askFlag &&
-      !(this.options.args ?? []).some(arg => arg.includes(DEFAULT_MODE_ASK)) &&
-      !JSON.stringify(ext?.codexConfig ?? {}).includes(DEFAULT_MODE_ASK)
-    // 上下文窗口和自动压缩（GitHub #20）：放在用户追加的参数后面，同一项以设置为准
-    const model = record.model ?? this.options.defaultModel?.() ?? null
-    const context = codexContextConfig({
-      record,
-      model,
-      windows: this.options.contextWindows,
-      autoCompactPct: this.options.autoCompactPct,
-      providerWindow: environment[CODEX_WINDOW_ENV],
-      known: model ? this.options.knownWindows?.get(model) : null,
-    })
-    delete environment[CODEX_WINDOW_ENV]
-    if (context.window) config('model_context_window', context.window)
-    // 经网关（云端线路、自定义 API）：Codex 把窗口限制在模型资料的上限内，没有资料的模型只有 272K。用户自己写了目录时不管
-    if (
-      gatewayProvider &&
-      model &&
-      this.options.modelCatalog &&
-      !(this.options.args ?? []).some(arg => arg.includes('model_catalog_json'))
-    ) {
-      const file = await this.options.modelCatalog(model, context.window, pixelAutoWindow(model)).catch(() => null)
-      if (file) config('model_catalog_json', file)
-    }
-    if (context.limit) config('model_auto_compact_token_limit', context.limit)
-    this.windowOverridden = !!context.window
+    this.ownAskFlag = launched.ownAskFlag
+    this.windowOverridden = launched.windowOverridden
     const proc = new CodexProcess(this.launcher, args, record.cwd, environment, {
       notification: (method, params) => this.notification(method, params),
       request: (id, method, params) => this.request(id, method, params),

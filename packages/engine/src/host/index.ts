@@ -88,11 +88,16 @@ export type { EngineHostOptions, PlatformRouteResult } from './context'
 export type { SyncableEngineSettings } from './settings'
 
 /** 不能切到终端的原因代码（tuiBlock）：界面按代码显示文字 */
-export type TuiBlock = 'engine' | 'busy' | 'liveTerminal' | 'liveOther'
+/**
+ * fresh：Codex 对话还没有线程（不能预先指定线程 id），或有待落实的回退 / 分叉（Codex 的界面进程不能 warm，切之前落实不了）：
+ * 先在界面里发一条消息
+ */
+export type TuiBlock = 'engine' | 'fresh' | 'busy' | 'liveTerminal' | 'liveOther'
 
 /** 切换时直接报错用的文字（和界面 session.tui.disabled* 的中文一致，界面能翻译） */
 const TUI_BLOCK_TEXT: Record<TuiBlock, string> = {
   engine: '当前引擎不支持终端模式',
+  fresh: 'Codex 对话先在界面里发一条消息，再切到终端',
   busy: '请先停止当前任务再切换',
   liveTerminal: '外部终端正开着这个会话',
   liveOther: '其他程序正开着这个会话',
@@ -711,8 +716,10 @@ export class EngineHost {
     const ctx = this.ctx
     const rt = this.m.sessions.runtime(id)
     const record = rt.snapshot.record
-    if (record.engine !== 'claude') return 'engine'
+    if (record.engine !== 'claude' && record.engine !== 'codex') return 'engine'
     if (record.tui) return null
+    if (record.engine === 'codex' && (!record.engineSessionId || record.pendingRewind || record.pendingFork))
+      return 'fresh'
     if (
       ctx.closing ||
       ctx.changingSessions.has(id) ||
@@ -734,10 +741,11 @@ export class EngineHost {
   private tuiLiveBlock(record: SessionRecord): TuiBlock | null {
     const sid = record.engineSessionId
     const live = sid
-      ? (this.ctx.adapters.claude?.nativeLive?.([{ id: sid, mtimeMs: Date.now() }]).get(sid) ?? null)
+      ? (this.ctx.adapters[record.engine]?.nativeLive?.([{ id: sid, mtimeMs: Date.now() }]).get(sid) ?? null)
       : null
     if (live === 'terminal') return 'liveTerminal'
-    if (live === 'other' || live === 'maybe') return 'liveOther'
+    // Codex 的 maybe 是非 Windows 上锁文件还在：进程退出后也不删，自己的界面进程、上次的终端都会留下，不能当占用
+    if (live === 'other' || (live === 'maybe' && record.engine !== 'codex')) return 'liveOther'
     return null
   }
 

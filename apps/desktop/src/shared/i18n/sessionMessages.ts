@@ -495,6 +495,10 @@ export const sessionMessages = {
     en: 'The terminal session no longer matches this chat; nothing was synced',
   },
   'session.tui.disabledBusy': { zh: '请先停止当前任务再切换', en: 'Stop the current task before switching' },
+  'session.tui.disabledFresh': {
+    zh: 'Codex 对话先在界面里发一条消息，再切到终端',
+    en: 'Send a message in this Codex chat before switching to the terminal',
+  },
   'session.tui.disabledLiveTerminal': {
     zh: '外部终端正开着这个会话',
     en: 'An external terminal is using this session',
