@@ -58,7 +58,7 @@ const PLAN_TONES: Record<PlanBadgeTone, string> = {
   team: 'bg-status-seen/12 text-status-seen',
 }
 
-/** 套餐标签（Max 20x、Pro 5x…）：一个胶囊，按档位上色 */
+/** 套餐标签（Ultra、Pro 10x…）：一个胶囊，按档位上色 */
 export function PlanBadge({ label, tone, className }: { label: string; tone: PlanBadgeTone; className?: string }) {
   return (
     <span

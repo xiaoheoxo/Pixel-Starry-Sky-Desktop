@@ -17,7 +17,7 @@ export const executorName = (e: EngineId): string =>
 
 export const executorDesc = (e: EngineId): string => tr(`modelChannels.executor.desc.${e}`)
 
-/** 套餐显示名：max_20x → Max 20x，ChatGPT 的 prolite → Pro 5x（plans.ts）；没有为空串 */
+/** 套餐显示名：max_20x → Ultra，ChatGPT 的 prolite → Pro 10x（plans.ts）；没有为空串 */
 export const planLabel = (provider: PlanProvider, plan: string | undefined): string =>
   planInfo(provider, plan)?.label ?? ''
 
@@ -27,7 +27,7 @@ export function maskEmail(email: string): string {
   return at > 1 ? `${email[0]}•••${email.slice(at)}` : email
 }
 
-/** 已授权的账号：邮箱 · 套餐（Max 20x）；都没有时为空 */
+/** 已授权的账号：邮箱 · 套餐（Ultra）；都没有时为空 */
 export function accountText(
   account: { email?: string; plan?: string; org?: string } | undefined,
   provider: PlanProvider,

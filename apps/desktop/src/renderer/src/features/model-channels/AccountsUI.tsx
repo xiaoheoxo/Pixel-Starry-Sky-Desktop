@@ -46,7 +46,7 @@ export function QuotaBar({ percent }: { percent: number }) {
   )
 }
 
-/** 账号的套餐档位（Max 20x、Pro 5x…，docs/ui/plan-tier-badges.md） */
+/** 账号的套餐档位（Ultra、Pro 10x…，docs/ui/plan-tier-badges.md） */
 export function PlanTag({ engine, plan }: { engine: AccountEngine; plan: string | null }) {
   const info = planInfo(planProviderOf(engine), plan)
   return info ? <PlanBadge label={info.label} tone={info.tone} /> : null

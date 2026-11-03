@@ -149,7 +149,7 @@ function exhaustedWindow(mins: number | null): string {
 // 套餐名、账号
 // ---------------------------------------------------------------------------
 
-/** 套餐的显示名和档位（Max 20x、Pro 5x…，plans.ts）；平台直接用套餐名、不上色；没有为 null */
+/** 套餐的显示名和档位（Ultra、Pro 10x…，plans.ts）；平台直接用套餐名、不上色；没有为 null */
 export function planBadge(provider: QuotaProvider, plan: string | null | undefined): PlanInfo | null {
   if (provider === 'platform') return plan?.trim() ? { label: plan.trim(), tone: 'std' } : null
   return planInfo(provider, plan)

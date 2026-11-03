@@ -3,8 +3,8 @@ import { planInfo, planProviderOf } from './plans'
 
 describe('planInfo', () => {
   it('Claude：倍数由引擎并进套餐值，20x 是最高档', () => {
-    expect(planInfo('claude', 'max_20x')).toEqual({ label: 'Max 20x', tone: 'top' })
-    expect(planInfo('claude', 'max_5x')).toEqual({ label: 'Max 5x', tone: 'high' })
+    expect(planInfo('claude', 'max_20x')).toEqual({ label: 'Ultra', tone: 'top' })
+    expect(planInfo('claude', 'max_5x')).toEqual({ label: 'Max', tone: 'high' })
     expect(planInfo('claude', 'max')).toEqual({ label: 'Max', tone: 'high' })
     expect(planInfo('claude', 'team_5x')).toEqual({ label: 'Team 5x', tone: 'team' })
     expect(planInfo('claude', 'team')).toEqual({ label: 'Team', tone: 'team' })
@@ -19,11 +19,11 @@ describe('planInfo', () => {
       ['free', 'Free', 'free'],
       ['go', 'Go', 'free'],
       ['plus', 'Plus', 'std'],
-      ['prolite', 'Pro 5x', 'high'],
-      ['pro', 'Pro 10x', 'high'],
-      ['promax', 'Pro 25x', 'top'],
+      ['prolite', 'Pro 10x', 'high'],
+      ['pro', 'Pro 20x', 'high'],
+      ['promax', 'Pro 50x', 'top'],
       ['team', 'Team', 'team'],
-      ['self_serve_business_prolite', 'Team 5x', 'team'],
+      ['self_serve_business_prolite', 'Team 10x', 'team'],
       ['self_serve_business_usage_based', 'Business', 'team'],
       ['business', 'Business', 'team'],
       ['ent26', 'Enterprise', 'team'],
@@ -33,9 +33,9 @@ describe('planInfo', () => {
     for (const [plan, label, tone] of cases) expect(planInfo('chatgpt', plan)).toEqual({ label, tone })
   })
 
-  it('同一个 pro：Claude 是标准档，ChatGPT 是 Pro 10x', () => {
+  it('同一个 pro：Claude 是标准档，ChatGPT 是 Pro 20x', () => {
     expect(planInfo('claude', 'pro')?.label).toBe('Pro')
-    expect(planInfo('chatgpt', 'pro')?.label).toBe('Pro 10x')
+    expect(planInfo('chatgpt', 'pro')?.label).toBe('Pro 20x')
   })
 
   it('没有、unknown 不显示；认不出的首字母大写', () => {
