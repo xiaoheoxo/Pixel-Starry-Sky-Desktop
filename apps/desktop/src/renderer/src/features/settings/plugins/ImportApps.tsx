@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ExtensionScope, ImportApp, ImportAppScan, ImportItem } from '@pixelsky/protocol'
 import type { WorkspaceRef } from '../../../../../shared/types/workspace'
 import { Button, cn } from '@/ui'
-import { usePluginText } from './text'
+import { tr } from '@/i18n/core'
 
 // 从本机其他软件导入（docs/ui/extension-remaining-plan.md §H，示意图 docs/ui/import-from-apps-mockup.html）：
 // 第 1 步选软件（没找到配置的灰着），第 2 步勾选、选范围。已有同名的默认不勾，勾了导入后自动改名。
@@ -23,7 +23,6 @@ export function ImportApps({
   onDone(note: string): void
   onCancel(): void
 }) {
-  const t = usePluginText()
   const bridge = window.pixelsky?.extensions
   const [scans, setScans] = useState<ImportAppScan[] | null>(null)
   const [app, setApp] = useState<ImportApp | null>(null)
@@ -65,15 +64,17 @@ export function ImportApps({
       const scope: ExtensionScope =
         toProject && projectPath ? { kind: 'project', path: projectPath } : { kind: 'global' }
       const r = await bridge!.importApp(refTarget, current.app, [...picked], scope)
-      const note = t('已从 {app} 导入 {n} 项，下一轮生效。')
-        .replace('{app}', current.name)
-        .replace('{n}', String(r.imported))
+      const note = tr('plugins.import.done').replace('{app}', current.name).replace('{n}', String(r.imported))
       if (!r.failed.length) return onDone(note)
       // 有失败的：面板留着显示原因，只留下没导入成功的勾（列表经 extensions:changed 自己刷新）
       const failed = new Set(r.failed.map(f => f.name))
       setPicked(new Set(current.items.filter(i => picked.has(i.key) && failed.has(i.name)).map(i => i.key)))
       setError(
-        [r.imported ? note : '', t('这些没导入：'), ...r.failed.map(f => `${f.name}：${f.error}`)]
+        [
+          r.imported ? note : '',
+          tr('plugins.import.failed'),
+          ...r.failed.map(f => tr('plugins.import.failedItem', { name: f.name, error: f.error })),
+        ]
           .filter(Boolean)
           .join('\n'),
       )
@@ -88,20 +89,20 @@ export function ImportApps({
     <div data-import-apps className="flex flex-col gap-3 rounded-xl border border-line-card bg-surface p-4">
       <div>
         <h4 className="text-section font-semibold">
-          {current ? t('从 {app} 导入').replace('{app}', current.name) : t('从其他软件导入')}
+          {current ? tr('plugins.import.titleApp').replace('{app}', current.name) : tr('plugins.import.title')}
         </h4>
         <p className="text-meta text-fg-muted">
           {current ? (
             <button type="button" className="press no-drag text-accent-fg" onClick={() => setApp(null)}>
-              ‹ {t('换一个软件')}
+              ‹ {tr('plugins.import.back')}
             </button>
           ) : (
-            t('选一个软件，列出它配置好的 MCP 和技能。只读取，不会改动那个软件的设置。')
+            tr('plugins.import.intro')
           )}
         </p>
       </div>
 
-      {!scans && !error && <p className="text-meta text-fg-muted">{t('加载中…')}</p>}
+      {!scans && !error && <p className="text-meta text-fg-muted">{tr('plugins.import.loading')}</p>}
 
       {scans && !current && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -109,11 +110,11 @@ export function ImportApps({
             const mcp = s.items.filter(i => i.kind === 'mcp').length
             const skill = s.items.filter(i => i.kind === 'skill').length
             const found = [
-              mcp && t('{n} 个 MCP').replace('{n}', String(mcp)),
-              skill && t('{n} 个技能').replace('{n}', String(skill)),
+              mcp && tr('plugins.import.mcpCount').replace('{n}', String(mcp)),
+              skill && tr('plugins.import.skillCount').replace('{n}', String(skill)),
             ]
               .filter(Boolean)
-              .join('、')
+              .join(tr('plugins.hooks.separator'))
             const off = !s.items.length
             return (
               <button
@@ -129,9 +130,15 @@ export function ImportApps({
               >
                 <span className="text-list font-medium text-fg">{s.name}</span>
                 <span className="text-meta text-fg-muted">
-                  {off ? (s.errors.length ? t('读不了配置') : t('没有找到配置')) : t('找到 {x}').replace('{x}', found)}
+                  {off
+                    ? s.errors.length
+                      ? tr('plugins.import.unreadable')
+                      : tr('plugins.import.none')
+                    : tr('plugins.import.found').replace('{x}', found)}
                 </span>
-                <span className="text-meta break-all text-fg-faint">{s.places.join('、')}</span>
+                <span className="text-meta break-all text-fg-faint">
+                  {s.places.join(tr('plugins.hooks.separator'))}
+                </span>
               </button>
             )
           })}
@@ -145,13 +152,13 @@ export function ImportApps({
             return (
               <div key={kind} className="flex flex-col gap-1">
                 <div className="flex items-center gap-2 text-meta text-fg-muted">
-                  <span>{kind === 'mcp' ? t('MCP 连接器') : t('技能')}</span>
+                  <span>{kind === 'mcp' ? tr('plugins.import.mcp') : tr('plugins.import.skills')}</span>
                   <button
                     type="button"
                     className="press no-drag text-accent-fg"
                     onClick={() => setPicked(new Set([...picked, ...items.map(i => i.key)]))}
                   >
-                    {t('全选')}
+                    {tr('plugins.import.selectAll')}
                   </button>
                 </div>
                 {items.map(i => (
@@ -171,7 +178,11 @@ export function ImportApps({
                     <span className="min-w-0 flex-1">
                       <span className="block text-list font-medium text-fg">
                         {i.name}
-                        {i.project && <span className="ml-2 text-meta font-normal text-fg-faint">{t('项目')}</span>}
+                        {i.project && (
+                          <span className="ml-2 text-meta font-normal text-fg-faint">
+                            {tr('plugins.import.project')}
+                          </span>
+                        )}
                       </span>
                       <span className="block truncate font-mono text-meta text-fg-muted" title={i.detail}>
                         {i.detail}
@@ -181,13 +192,13 @@ export function ImportApps({
                       <span
                         key={s}
                         className="rounded bg-subtle px-1.5 text-meta text-fg-muted"
-                        title={t('密钥加密保存，不显示原文')}
+                        title={tr('plugins.import.secret')}
                       >
                         {s} ••••
                       </span>
                     ))}
-                    {i.needsInput && <span className="text-meta text-warn">{t('导入后要自己填 ${input:…}')}</span>}
-                    {i.exists && <span className="text-meta text-warn">{t('已有同名，导入后自动改名')}</span>}
+                    {i.needsInput && <span className="text-meta text-warn">{tr('plugins.import.needsInput')}</span>}
+                    {i.exists && <span className="text-meta text-warn">{tr('plugins.import.exists')}</span>}
                   </label>
                 ))}
               </div>
@@ -195,20 +206,20 @@ export function ImportApps({
           })}
           {current.errors.length > 0 && (
             <p className="text-meta whitespace-pre-wrap text-warn">
-              {t('有些没读出来：')}
+              {tr('plugins.import.partial')}
               {'\n' + current.errors.join('\n')}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-4 text-list text-fg-secondary">
-            <span>{t('装到：')}</span>
+            <span>{tr('plugins.import.scope')}</span>
             <label className="flex items-center gap-1">
               <input type="radio" checked={!toProject} onChange={() => setToProject(false)} />
-              {t('全局')}
+              {tr('plugins.import.global')}
             </label>
             <label className={cn('flex items-center gap-1', !projectName && 'opacity-50')}>
               <input type="radio" disabled={!projectName} checked={toProject} onChange={() => setToProject(true)} />
-              {t('当前项目')}
-              {projectName ? `（${projectName}）` : ''}
+              {tr('plugins.import.currentProject')}
+              {projectName ? tr('plugins.import.projectName', { name: projectName }) : ''}
             </label>
           </div>
         </>
@@ -221,13 +232,13 @@ export function ImportApps({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="flex-1 text-meta text-fg-muted">{t('导入的是副本，之后那个软件里的改动不会同步过来。')}</span>
+        <span className="flex-1 text-meta text-fg-muted">{tr('plugins.import.copyNote')}</span>
         <Button variant="ghost" onClick={onCancel}>
-          {t('取消')}
+          {tr('plugins.import.cancel')}
         </Button>
         {current && (
           <Button data-import-go variant="primary" disabled={busy || !picked.size} onClick={() => void submit()}>
-            {t('导入 {n} 项').replace('{n}', String(picked.size))}
+            {tr('plugins.import.submit').replace('{n}', String(picked.size))}
           </Button>
         )}
       </div>

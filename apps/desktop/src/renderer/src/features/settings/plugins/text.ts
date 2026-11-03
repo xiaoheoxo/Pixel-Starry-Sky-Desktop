@@ -94,30 +94,6 @@ const EN: Record<string, string> = {
   创建或导入技能: 'Create or import a skill',
   插件目录: 'Plugin directory',
   技能目录: 'Skill directory',
-  // 从其他软件导入（ImportApps.tsx）
-  '从其他软件导入…': 'Import from other apps…',
-  从其他软件导入: 'Import from other apps',
-  '从 {app} 导入': 'Import from {app}',
-  换一个软件: 'Pick another app',
-  '选一个软件，列出它配置好的 MCP 和技能。只读取，不会改动那个软件的设置。':
-    'Pick an app to list the MCP servers and skills it has set up. Its settings are only read, never changed.',
-  '{n} 个 MCP': '{n} MCP',
-  '{n} 个技能': '{n} skills',
-  '找到 {x}': 'Found {x}',
-  没有找到配置: 'No settings found',
-  读不了配置: 'Could not read settings',
-  'MCP 连接器': 'MCP servers',
-  全选: 'Select all',
-  项目: 'Project',
-  '密钥加密保存，不显示原文': 'Secrets are stored encrypted and never shown',
-  '导入后要自己填 ${input:…}': 'Fill in ${input:…} after import',
-  '已有同名，导入后自动改名': 'Name taken; renamed on import',
-  '有些没读出来：': 'Some entries could not be read:',
-  '这些没导入：': 'Not imported:',
-  '装到：': 'Install to:',
-  '导入的是副本，之后那个软件里的改动不会同步过来。': "Imports are copies; later changes in that app won't sync.",
-  '导入 {n} 项': 'Import {n}',
-  '已从 {app} 导入 {n} 项，下一轮生效。': 'Imported {n} from {app}. Applies next turn.',
 }
 export function usePluginText(): (value: string) => string {
   const { locale } = useI18n()
