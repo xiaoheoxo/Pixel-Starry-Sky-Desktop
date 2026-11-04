@@ -1,0 +1,51 @@
+{
+  "title": "快捷键：字母不带修饰键、不认识的键",
+  "expectCodes": ["command.keybinding"],
+  "input": "folder",
+  "base": "pixelsky.dotenv",
+  "appVersion": "0.7.1",
+  "remove": ["syntaxes", "snippets", "language-configuration.json", "samples"],
+  "files": {
+    "dist/main.js": "pixelsky.commands.register('formatJson', async () => {\n  const context = await pixelsky.editor.getContext()\n  return context.selection.text\n})\n",
+    "pixelsky-extension.json": {
+      "merge": {
+        "engines": {
+          "pixelsky": ">=0.7.1"
+        },
+        "main": "dist/main.js",
+        "permissions": ["editor.read", "editor.write"],
+        "contributes": {
+          "grammars": null,
+          "snippets": null,
+          "commands": [
+            {
+              "id": "formatJson",
+              "title": {
+                "zh": "排版 JSON",
+                "en": "Format JSON"
+              },
+              "where": ["palette", "editor"],
+              "requires": "selection",
+              "keybinding": {
+                "code": "KeyJ"
+              }
+            },
+            {
+              "id": "two",
+              "title": {
+                "zh": "排版 JSON",
+                "en": "Format JSON"
+              },
+              "where": ["palette", "editor"],
+              "requires": "selection",
+              "keybinding": {
+                "code": "Nope",
+                "mod": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

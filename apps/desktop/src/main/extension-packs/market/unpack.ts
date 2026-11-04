@@ -29,8 +29,9 @@ export function badPathReason(path: string): string | null {
 }
 
 /** 要写到磁盘的文件：不是 samples/，类型在白名单里（json / md / png / svg / txt / LICENSE*） */
-function shouldWrite(path: string): boolean {
+function shouldWrite(path: string, script: string | null): boolean {
   if (path.startsWith('samples/')) return false
+  if (path === script) return true
   const base = path.slice(path.lastIndexOf('/') + 1)
   return EXT_ALLOWED_FILE_RE.test(base) || EXT_LICENSE_FILE_RE.test(base)
 }
@@ -48,7 +49,7 @@ export interface Unpacked {
  * 符号链接条目一律不写、不读；samples/ 和白名单外的类型不写；读不到文件内容整包失败。
  * 失败时临时目录已删掉；成功后由调用方改名换上（或自己删掉）。
  */
-export async function unpackPack(src: ExtPackFiles, storeDir: string): Promise<Unpacked> {
+export async function unpackPack(src: ExtPackFiles, storeDir: string, script: string | null = null): Promise<Unpacked> {
   const files = src.entries.filter(e => e.kind === 'file')
   const bad: string[] = []
   const seen = new Map<string, string>()
@@ -67,7 +68,7 @@ export async function unpackPack(src: ExtPackFiles, storeDir: string): Promise<U
   try {
     await mkdir(dir, { recursive: true })
     for (const f of files) {
-      if (!shouldWrite(f.path)) continue
+      if (!shouldWrite(f.path, script)) continue
       const target = resolve(root, f.path)
       if (!target.startsWith(root + sep)) throw codedError('extstore.badFiles', { files: f.path })
       const data = src.read(f.path, EXT_LIMITS.fileBytes)

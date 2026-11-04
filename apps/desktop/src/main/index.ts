@@ -25,6 +25,8 @@ import { initEngine } from './engine/ipc'
 import { initExtensionPacks } from './extension-packs/ipc'
 import { initExtStore } from './extension-packs/market/ipc'
 import { EXT_SCHEME_PRIVILEGES } from './extension-packs/protocol'
+import { EXT_HOST_SCHEME_PRIVILEGES } from './extension-packs/scripts/host'
+import { initExtCommands } from './extension-packs/scripts/ipc'
 import { loadShellEnv } from './app/shell-env'
 import { initMobile } from './mobile/ipc'
 import { initWorkspace } from './workspace/files-ipc'
@@ -486,7 +488,7 @@ function setAppMenu(locale: Locale = 'zh-CN'): void {
 if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.pixelsky.desktop' : process.execPath)
 
 // 扩展包的资源协议 pixelsky-ext:// 必须在 ready 之前登记
-protocol.registerSchemesAsPrivileged([EXT_SCHEME_PRIVILEGES])
+protocol.registerSchemesAsPrivileged([EXT_SCHEME_PRIVILEGES, EXT_HOST_SCHEME_PRIVILEGES])
 
 app.whenReady().then(async () => {
   startup.step('whenReady')
@@ -533,6 +535,7 @@ app.whenReady().then(async () => {
   startup.step('loadShellEnv')
   const packs = initExtensionPacks(ctx) // 扩展包（语法 / 主题 / 图标 / 片段 / 任务 / 技能 / 提示词），见 extension-packs/ipc.ts
   startup.step('initExtensionPacks')
+  initExtCommands(packs) // 脚本扩展的命令，见 extension-packs/scripts/
   initExtStore(ctx, packs) // 扩展商店（发现、安装、更新、我的发布），见 extension-packs/market/ipc.ts
   startup.step('initExtStore')
   await initEngine(ctx) // 引擎系统（Claude Code 等），见 engine/ipc.ts

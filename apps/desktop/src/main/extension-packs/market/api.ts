@@ -83,6 +83,7 @@ const BY_ENDPOINT: Record<string, string> = {
   'upload:check_timeout': 'extstore.api.checkTimeout',
   'upload:no_publisher': 'extstore.api.noPublisher',
   'upload:not_your_publisher': 'extstore.api.notYourPublisher',
+  'upload:scripts_not_open': 'extstore.api.scriptsNotOpen',
   'upload:version_not_newer': 'extstore.api.versionProblem',
   'upload:version_used': 'extstore.api.versionProblem',
   'upload:version_pending': 'extstore.api.versionProblem',

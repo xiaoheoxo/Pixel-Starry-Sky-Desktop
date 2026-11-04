@@ -13,6 +13,7 @@ export const CONTRIBUTION_KIND_ORDER: readonly ExtPackContributionKind[] = [
   'skills',
   'prompts',
   'mcpServers',
+  'commands',
 ]
 
 export interface ManifestContributionRow {
@@ -51,6 +52,10 @@ function labelOf(manifest: ExtPackManifest, kind: ExtPackContributionKind, index
     }
     case 'mcpServers':
       return c.mcpServers?.[index]?.name ?? ''
+    case 'commands': {
+      const t = c?.commands?.[index]
+      return t ? extText(t.title, locale) : ''
+    }
   }
 }
 

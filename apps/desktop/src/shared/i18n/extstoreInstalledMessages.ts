@@ -22,6 +22,7 @@ export const extstoreInstalledMessages = {
   'extstore.installed.category.skills': { zh: '技能', en: 'Skills' },
   'extstore.installed.category.prompts': { zh: '提示词', en: 'Prompts' },
   'extstore.installed.category.mcpServers': { zh: 'MCP 连接器', en: 'MCP servers' },
+  'extstore.installed.category.commands': { zh: '命令', en: 'Commands' },
   'extstore.installed.empty': { zh: '没有符合条件的扩展', en: 'No matching extensions' },
   'extstore.installed.badge.store': { zh: '商店', en: 'Store' },
   'extstore.installed.badge.builtin': { zh: '内置', en: 'Built-in' },

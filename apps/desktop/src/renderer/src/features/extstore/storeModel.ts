@@ -58,7 +58,7 @@ export const STORE_CATEGORIES: readonly StoreCategory[] = [
   { id: 'snippets', label: 'extstore.category.snippets', group: 'code' },
   { id: 'iconThemes', label: 'extstore.category.iconThemes', group: 'code' },
   { id: 'taskTemplates', label: 'extstore.category.taskTemplates', group: 'code' },
-  { id: 'commands', label: 'extstore.category.commands', group: 'code', phase: 2 },
+  { id: 'commands', label: 'extstore.category.commands', group: 'code' },
   { id: 'skills', label: 'extstore.category.skills', group: 'ai' },
   { id: 'prompts', label: 'extstore.category.prompts', group: 'ai' },
   { id: 'mcpServers', label: 'extstore.category.mcp', group: 'ai' },

@@ -6,7 +6,7 @@
   "files": {
     "pixelsky-extension.json": {
       "merge": {
-        "main": "index.js"
+        "main": "index.py"
       }
     }
   }

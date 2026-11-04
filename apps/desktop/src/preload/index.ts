@@ -12,6 +12,8 @@ import type { WindowState } from '../shared/types/window'
 import type { WindowBridge } from './window'
 import type { ExtensionsBridge } from './extensions'
 import type { ExtPacksBridge } from './extpacks'
+import type { ExtCommandsBridge } from './extcommands'
+import type { ExtCommandApiCall } from '../shared/types/ext-commands'
 import type { ExtStoreBridge } from './extstore'
 import type { TerminalBridge } from './terminal'
 import type { ProjectToolsBridge } from './project-tools'
@@ -751,6 +753,26 @@ contextBridge.exposeInMainWorld('pixelsky', {
       return () => ipcRenderer.removeListener('extensions:changed', listener)
     },
   } satisfies ExtensionsBridge,
+  extCommands: {
+    run: (key, commandId, token) => call('extCommands:run', key, commandId, token),
+    apiReply: (callId, reply) => call('extCommands:apiReply', callId, reply),
+    grant: (key, permissions) => call('extCommands:grant', key, permissions),
+    revoke: (key, permission) => call('extCommands:revoke', key, permission),
+    onApi: callback => {
+      const listener = (_e: Electron.IpcRendererEvent, c: ExtCommandApiCall): void => callback(c)
+      on('extCommands:api', listener)
+      return () => {
+        ipcRenderer.removeListener('extCommands:api', listener)
+      }
+    },
+    onFinished: callback => {
+      const listener = (_e: Electron.IpcRendererEvent, token: string): void => callback(token)
+      on('extCommands:finished', listener)
+      return () => {
+        ipcRenderer.removeListener('extCommands:finished', listener)
+      }
+    },
+  } satisfies ExtCommandsBridge,
   extpacks: {
     state: () => call('extpacks:state'),
     addFolder: path => call('extpacks:addFolder', path ?? null),

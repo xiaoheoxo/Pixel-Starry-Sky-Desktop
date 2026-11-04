@@ -4,6 +4,9 @@ import { mk } from './issue'
 import type { ExtPackIssue } from './types'
 
 export const EXT_ISSUE_CODES = [
+  'command.engines',
+  'command.fields',
+  'command.keybinding',
   'files.count',
   'files.encoding',
   'files.hidden',
@@ -71,6 +74,9 @@ export const EXT_ISSUE_CODES = [
   'pack.validate',
   'prompt.body',
   'prompt.fields',
+  'script.minified',
+  'script.missing',
+  'script.pairing',
   'skill.engines',
   'skill.files',
   'skill.frontmatter',

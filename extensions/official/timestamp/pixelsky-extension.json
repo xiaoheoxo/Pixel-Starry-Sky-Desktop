@@ -1,0 +1,46 @@
+{
+  "id": "pixelsky.timestamp",
+  "name": "插入时间戳",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "在光标处插入当前时间；有选中时替换选中内容",
+  "icon": "icon.png",
+  "keywords": ["timestamp", "date", "时间"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.1"
+  },
+  "l10n": {
+    "en": {
+      "name": "Insert Timestamp",
+      "description": "Inserts the current local time at the cursor"
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "local",
+        "title": {
+          "zh": "插入当前时间",
+          "en": "Insert current time"
+        },
+        "where": ["palette", "editor"],
+        "requires": "editor"
+      },
+      {
+        "id": "iso",
+        "title": {
+          "zh": "插入当前时间（ISO 8601）",
+          "en": "Insert current time (ISO 8601)"
+        },
+        "where": ["palette", "editor"],
+        "requires": "editor"
+      }
+    ]
+  },
+  "main": "main.js",
+  "permissions": ["editor.read", "editor.write"],
+  "price": null
+}

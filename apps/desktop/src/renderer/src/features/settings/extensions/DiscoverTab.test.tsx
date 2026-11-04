@@ -160,9 +160,8 @@ describe('分类栏', () => {
   const button = (id: string): string =>
     html.match(new RegExp(`<button[^>]*data-store-category="${id}"[^>]*>.*?</button>`))![0]
 
-  it('「命令」旁有「第二期」、「插件」旁有「第三期」，且是禁用的', () => {
-    expect(button('commands')).toContain('第二期')
-    expect(button('commands')).toContain('disabled')
+  it('「命令」能点；「插件」旁有「第三期」，且是禁用的', () => {
+    expect(button('commands')).not.toContain('disabled')
     expect(button('plugins')).toContain('第三期')
     expect(button('plugins')).toContain('disabled')
   })

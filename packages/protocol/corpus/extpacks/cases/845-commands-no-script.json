@@ -1,0 +1,39 @@
+{
+  "title": "有命令没有 main",
+  "expectCodes": ["manifest.main", "manifest.permissions", "script.pairing"],
+  "input": "folder",
+  "base": "pixelsky.dotenv",
+  "appVersion": "0.7.1",
+  "remove": ["syntaxes", "snippets", "language-configuration.json", "samples"],
+  "files": {
+    "pixelsky-extension.json": {
+      "merge": {
+        "engines": {
+          "pixelsky": ">=0.7.1"
+        },
+        "main": null,
+        "permissions": ["editor.read", "editor.write"],
+        "contributes": {
+          "grammars": null,
+          "snippets": null,
+          "commands": [
+            {
+              "id": "formatJson",
+              "title": {
+                "zh": "排版 JSON",
+                "en": "Format JSON"
+              },
+              "where": ["palette", "editor"],
+              "requires": "selection",
+              "keybinding": {
+                "code": "KeyJ",
+                "mod": true,
+                "alt": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

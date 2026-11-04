@@ -57,6 +57,7 @@ import { onEditorPacksChanged } from './packEvents'
 import { editorPackExtensions } from './packs'
 import { onWordCompleteChange } from './snippets/words'
 import { promptMenuActions } from '@/features/extpacks/prompts/editorMenu'
+import { commandMenuActions } from '@/features/extpacks/commands/editorMenu'
 import { fileIndent, linePosition } from './positions'
 import { inlineEditExtension, startInlineEdit } from './inlineEdit/extension'
 import { InlineEdit } from './inlineEdit/InlineEditBox'
@@ -87,6 +88,11 @@ const runtimes = new Map<string, Runtime>()
 const EMPTY: readonly Extension[] = []
 /** 取某个文件标签的 EditorView（代码模式的审查、状态栏用）；没有时 null */
 export const getEditorView = (tabId: string): EditorView | null => runtimes.get(tabId)?.view ?? null
+let lastFocusedTab: string | null = null
+/** 最后获得焦点、现在还在页面上的编辑器标签（命令面板会抢走焦点，所以不能看 activeElement） */
+export function focusedEditorTab(): string | null {
+  return lastFocusedTab && runtimes.get(lastFocusedTab)?.view.dom.isConnected ? lastFocusedTab : null
+}
 /** 释放编辑器实例；还挂在界面上（dom 已连接）时什么都不做 */
 export function releaseEditor(tabId: string): void {
   const runtime = runtimes.get(tabId)
@@ -221,6 +227,7 @@ function menuActions(tabId: string, view: EditorView, toast: (message: string) =
       disabled: readonly,
       run: () => void startInlineEdit(view, tabPath, toast),
     },
+    ...commandMenuActions(tabId, view),
     ...promptMenuActions({ tabId, path: tabPath, view, toast }),
     {
       label: tr('editor.menu.cut'),
@@ -406,7 +413,13 @@ export function CodeEditor({
     } else host.current.appendChild(runtime.view.dom)
     runtime.view.requestMeasure()
     setMounted(runtime.view)
+    const noteFocus = (): void => {
+      lastFocusedTab = tab.id
+    }
+    runtime.view.dom.addEventListener('focusin', noteFocus)
+    if (runtime.view.hasFocus) noteFocus()
     return () => {
+      runtime.view.dom.removeEventListener('focusin', noteFocus)
       runtime.view.dom.remove()
     }
   }, [tab.id])

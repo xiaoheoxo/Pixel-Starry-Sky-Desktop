@@ -1,5 +1,5 @@
 {
-  "rulesVersion": 4,
+  "rulesVersion": 5,
   "dev": {
     "status": "warning",
     "inactive": {},
@@ -15,7 +15,7 @@
         "code": "manifest.unknownField",
         "severity": "warning",
         "scope": "pack",
-        "path": "contributes.commands",
+        "path": "contributes.statusBarItems",
         "upload": "reject"
       }
     ]
@@ -34,7 +34,7 @@
         "code": "manifest.unknownField",
         "severity": "warning",
         "scope": "pack",
-        "path": "contributes.commands",
+        "path": "contributes.statusBarItems",
         "upload": "reject",
         "outcome": "reject"
       }

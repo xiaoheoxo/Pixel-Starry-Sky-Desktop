@@ -15,6 +15,7 @@ const KIND_KEY = {
   skills: 'extstore.publish.kind.skills',
   prompts: 'extstore.publish.kind.prompts',
   mcpServers: 'extstore.publish.kind.mcpServers',
+  commands: 'extstore.publish.kind.commands',
 } as const
 
 function CheckLine({ ok, children }: { ok: boolean; children: string }) {

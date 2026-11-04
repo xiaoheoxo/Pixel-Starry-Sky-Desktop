@@ -173,7 +173,7 @@ describe('JSON', () => {
       'output',
     ])
     expect(j.schema).toBe(1)
-    expect(j.tool).toMatchObject({ name: 'pixelsky-ext', rulesVersion: 4 })
+    expect(j.tool).toMatchObject({ name: 'pixelsky-ext', rulesVersion: 5 })
     expect(j.command).toBe('validate')
     expect(j.input).toEqual({ kind: 'folder', path: dotenv(), bytes: null })
     expect(j.options).toEqual({ level: 'upload', grammar: 'full', appVersion: null, strict: false })
@@ -296,8 +296,8 @@ describe('help / version', () => {
   it('--version 一行，规则版本和软件版本都在', async () => {
     const r = await run(['--version'])
     expect(r.code).toBe(0)
-    expect(r.out).toMatch(/^pixelsky-ext \d+\.\d+\.\d+（规则 v4，同像素星空 .+）\n$/)
-    expect((await run(['--version', '--lang', 'en'])).out).toMatch(/\(rules v4, matches PixelSky /)
+    expect(r.out).toMatch(/^pixelsky-ext \d+\.\d+\.\d+（规则 v5，同像素星空 .+）\n$/)
+    expect((await run(['--version', '--lang', 'en'])).out).toMatch(/\(rules v5, matches PixelSky /)
   })
 
   it('help / --help / -h，可带命令名', async () => {

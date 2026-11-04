@@ -1,12 +1,20 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
-import type { ExtPackInfo, ExtPackOptions, ExtPackState, McpConfig, SkillCommand } from '@pixelsky/protocol'
+import type {
+  ExtPackInfo,
+  ExtPackOptions,
+  ExtPackScriptStatus,
+  ExtPackState,
+  McpConfig,
+  SkillCommand,
+} from '@pixelsky/protocol'
 import {
   codedError,
   computeLive,
   EXT_LIMITS,
   EXT_MANIFEST,
+  EXT_SCRIPT_PUBLISHERS,
   loaderIssue,
   packStatus,
   parseJsonc,
@@ -29,6 +37,7 @@ import { applyWinners } from './market/winner'
 import { ensureClaudeWrappers, gcClaudeWrappers, packSkillCommands, packSkillLaunch } from './skills'
 import { readStateFile, writeStateFile, emptyState, type PackStateFile } from './store'
 import { PackMcp } from './mcp'
+import { ScriptConsent } from './scripts/consent'
 import type { Cipher } from '../core/secure-store'
 
 export interface ExtPacksOptions {
@@ -106,9 +115,12 @@ export class ExtensionPacks {
   private readonly listeners = new Set<() => void>()
 
   private readonly mcp: PackMcp
+  private readonly consent: ScriptConsent
+  private readonly forgetScriptListeners = new Set<(id: string) => void>()
 
   constructor(readonly opts: ExtPacksOptions) {
     this.mcp = new PackMcp(join(opts.dataDir, 'mcp.json'), opts.cipher ?? NO_CIPHER)
+    this.consent = new ScriptConsent(join(opts.dataDir, 'scripts.json'))
   }
 
   private get stateFile(): string {
@@ -169,7 +181,8 @@ export class ExtensionPacks {
       loading: this.loading,
       packs: this.packs.map(p => {
         const mcp = this.mcp.status(p.info)
-        return mcp ? { ...p.info, mcp } : p.info
+        const script = this.scriptStatus(p.info)
+        return mcp || script ? { ...p.info, ...(mcp && { mcp }), ...(script && { script }) } : p.info
       }),
     }
   }
@@ -633,7 +646,10 @@ export class ExtensionPacks {
 
   /** 同 id 的扩展一个都不剩了才删：同意记录和填的值跟着扩展 id 走（更新、换来源都保留） */
   private forgetMcp(id: string): void {
-    if (!this.packs.some(p => p.info.id === id)) this.mcp.forget(id)
+    if (this.packs.some(p => p.info.id === id)) return
+    this.mcp.forget(id)
+    this.consent.forget(id)
+    for (const listener of this.forgetScriptListeners) listener(id)
   }
 
   /** 同意 / 撤销扩展里的一条连接器，并改填的值（null = 不动，'' = 清掉） */
@@ -651,6 +667,77 @@ export class ExtensionPacks {
   mcpLaunch(): { key: string; servers: Record<string, McpConfig> } {
     if (!this.ready_) return { key: '', servers: {} }
     return this.mcp.launch(this.packs.filter(p => p.info.live))
+  }
+
+  // ---------- 脚本和命令（docs/ui/extension-commands-plan.md）----------
+
+  private scriptStatus(info: ExtPackInfo): ExtPackScriptStatus | undefined {
+    const manifest = info.manifest
+    if (!info.id || !manifest?.main) return undefined
+    const granted = this.consent.granted(info.id)
+    const asked = manifest.permissions as string[]
+    return {
+      granted: asked.filter(p => granted.includes(p)),
+      missing: asked.filter(p => !granted.includes(p)),
+      blocked: info.source === 'store' && !EXT_SCRIPT_PUBLISHERS.includes(manifest.publisher),
+    }
+  }
+
+  /** 能运行时的信息：扩展生效、有脚本、不是被拦下的发布者；否则 null */
+  scriptTarget(key: string): {
+    id: string
+    revision: number
+    permissions: string[]
+    granted: string[]
+    commandIds: string[]
+  } | null {
+    const pack = this.packs.find(p => p.info.key === key)
+    if (!pack?.info.live || !pack.info.id) return null
+    const status = this.scriptStatus(pack.info)
+    if (!status || status.blocked) return null
+    const inactive = new Set(pack.info.inactive.commands ?? [])
+    return {
+      id: pack.info.id,
+      revision: pack.info.revision,
+      permissions: pack.info.manifest!.permissions as string[],
+      granted: status.granted,
+      commandIds: (pack.info.manifest!.contributes.commands ?? []).filter((_, i) => !inactive.has(i)).map(c => c.id),
+    }
+  }
+
+  /** 读脚本正文：路径来自校验过的清单，真实路径还要落在扩展目录里 */
+  async readScript(key: string): Promise<string> {
+    const pack = this.find(key)
+    const main = pack.info.manifest?.main
+    if (!main) throw codedError('extpacks.badRequest')
+    await this.ready()
+    const hit = await this.locate(key, main)
+    if (!hit || (hit.pack.files.get(hit.rel) ?? 0) > EXT_LIMITS.scriptBytes) throw codedError('extpacks.badPath')
+    return new TextDecoder('utf-8').decode(await readFile(hit.file))
+  }
+
+  /** 同意用户在确认框里看到的那几项：期间扩展更新多要的权限不会被一起同意 */
+  grantScript(key: string, permissions: readonly string[]): void {
+    const pack = this.find(key)
+    if (!pack.info.id || !pack.info.manifest?.main) throw codedError('extpacks.badRequest')
+    const asked = pack.info.manifest.permissions as string[]
+    this.consent.grant(
+      pack.info.id,
+      permissions.filter(p => asked.includes(p)),
+    )
+    this.commit()
+  }
+
+  revokeScript(key: string, permission: string): void {
+    const pack = this.find(key)
+    if (!pack.info.id) throw codedError('extpacks.badRequest')
+    this.consent.revoke(pack.info.id, permission)
+    this.commit()
+  }
+
+  /** 扩展彻底卸载时清掉它的存储 */
+  onForgetScript(listener: (id: string) => void): void {
+    this.forgetScriptListeners.add(listener)
   }
 
   // ---------- 技能 ----------

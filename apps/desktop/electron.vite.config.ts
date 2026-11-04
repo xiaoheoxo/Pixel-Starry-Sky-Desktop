@@ -46,7 +46,17 @@ export default defineConfig({
       },
     },
   },
-  preload: {},
+  preload: {
+    build: {
+      // ext-host：脚本扩展宿主页面的 preload（只转端口，不暴露能力）
+      lib: {
+        entry: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          'ext-host': resolve(__dirname, 'src/preload/ext-host.ts'),
+        },
+      },
+    },
+  },
   renderer: {
     resolve: {
       alias: { '@': resolve(__dirname, 'src/renderer/src') },

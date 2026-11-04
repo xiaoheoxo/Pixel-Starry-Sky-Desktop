@@ -1,0 +1,45 @@
+{
+  "rulesVersion": 5,
+  "dev": {
+    "status": "warning",
+    "inactive": {},
+    "skills": [],
+    "issues": [
+      {
+        "code": "files.type",
+        "severity": "warning",
+        "scope": "file",
+        "path": "dist/other.js",
+        "upload": "reject"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "dist/other.js",
+        "upload": "hint"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "files.type",
+        "severity": "warning",
+        "scope": "file",
+        "path": "dist/other.js",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "dist/other.js",
+        "upload": "hint",
+        "outcome": "hint"
+      }
+    ]
+  }
+}

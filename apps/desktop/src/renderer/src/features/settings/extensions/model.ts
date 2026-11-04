@@ -47,6 +47,10 @@ function contributionLabel(p: ExtPackInfo, kind: ExtPackContributionKind, index:
     }
     case 'mcpServers':
       return c?.mcpServers?.[index]?.name ?? ''
+    case 'commands': {
+      const t = c?.commands?.[index]
+      return t ? extText(t.title, locale) : ''
+    }
   }
 }
 

@@ -19,6 +19,7 @@ import { StoreReadme, isWebUrl } from './StoreReadme'
 import { contributionGroupsOf } from './contributionRows'
 import { ReportDialog } from './ReportDialog'
 import { McpServers } from '@/features/extpacks/McpServers'
+import { ScriptPermissions } from '@/features/extpacks/commands/ScriptPermissions'
 import {
   defaultReportVersion,
   detailActions,
@@ -40,6 +41,7 @@ const KIND_LABELS = {
   skills: 'extensions.kind.skills',
   prompts: 'extensions.kind.prompts',
   mcpServers: 'extensions.kind.mcpServers',
+  commands: 'extensions.kind.commands',
 } as const satisfies Record<ExtPackContributionKind, string>
 
 const kindLabel = (kind: string): string =>
@@ -394,6 +396,17 @@ export function StoreDetail(props: StoreDetailProps) {
             />
           ) : (
             <McpServers servers={manifest?.contributes.mcpServers} />
+          )}
+          {/* 权限也一样：装了看本机这份，没装看商店最新版 */}
+          {localPack?.manifest?.contributes.commands?.length ? (
+            <ScriptPermissions
+              commands={localPack.manifest.contributes.commands}
+              permissions={localPack.manifest.permissions}
+              status={localPack.script}
+              packKey={localPack.key}
+            />
+          ) : (
+            <ScriptPermissions commands={manifest?.contributes.commands} permissions={manifest?.permissions} />
           )}
 
           <div className="mt-4 flex flex-col gap-6 md:flex-row">

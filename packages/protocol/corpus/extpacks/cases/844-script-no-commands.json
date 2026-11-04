@@ -1,0 +1,32 @@
+{
+  "title": "有 main 没有命令",
+  "expectCodes": ["script.pairing"],
+  "input": "folder",
+  "base": "pixelsky.dotenv",
+  "appVersion": "0.7.1",
+  "remove": ["syntaxes", "snippets", "language-configuration.json", "samples"],
+  "files": {
+    "dist/main.js": "pixelsky.commands.register('formatJson', async () => {\n  const context = await pixelsky.editor.getContext()\n  return context.selection.text\n})\n",
+    "snippets.json": "{}",
+    "pixelsky-extension.json": {
+      "merge": {
+        "engines": {
+          "pixelsky": ">=0.7.1"
+        },
+        "main": "dist/main.js",
+        "permissions": ["editor.read", "editor.write"],
+        "contributes": {
+          "grammars": null,
+          "snippets": [
+            {
+              "language": "dotenv",
+              "path": "snippets.json"
+            }
+          ],
+          "commands": null,
+          "prompts": []
+        }
+      }
+    }
+  }
+}

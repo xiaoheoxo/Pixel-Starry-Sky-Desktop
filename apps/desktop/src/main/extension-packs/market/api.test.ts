@@ -378,6 +378,7 @@ describe('按「接口 + code」映射错误', () => {
     ['upload', 422, 'check_timeout', 'extstore.api.checkTimeout'],
     ['upload', 403, 'no_publisher', 'extstore.api.noPublisher'],
     ['upload', 403, 'not_your_publisher', 'extstore.api.notYourPublisher'],
+    ['upload', 403, 'scripts_not_open', 'extstore.api.scriptsNotOpen'],
     ['upload', 409, 'version_not_newer', 'extstore.api.versionProblem'],
     ['upload', 409, 'version_used', 'extstore.api.versionProblem'],
     ['upload', 409, 'version_pending', 'extstore.api.versionProblem'],

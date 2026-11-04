@@ -45,7 +45,7 @@
               "path": "snippets/dotenv.json"
             }
           ],
-          "commands": [],
+          "statusBarItems": [],
           "x-extra": []
         },
         "main": null,

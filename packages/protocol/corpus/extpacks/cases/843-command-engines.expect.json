@@ -1,0 +1,30 @@
+{
+  "rulesVersion": 5,
+  "dev": {
+    "status": "warning",
+    "inactive": {},
+    "skills": [],
+    "issues": [
+      {
+        "code": "command.engines",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "engines.pixelsky",
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "command.engines",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "engines.pixelsky",
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

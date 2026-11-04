@@ -1,0 +1,135 @@
+{
+  "rulesVersion": 5,
+  "dev": {
+    "status": "warning",
+    "inactive": {
+      "commands": [
+        0,
+        2
+      ]
+    },
+    "skills": [],
+    "issues": [
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "commands",
+          "index": 2
+        },
+        "upload": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "requires",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "title",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "where",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "commands",
+          "index": 2
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "requires",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "title",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "command.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "where",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

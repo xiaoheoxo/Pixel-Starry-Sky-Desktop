@@ -24,6 +24,7 @@ export const INSTALLED_KINDS: ExtPackContributionKind[] = [
   'skills',
   'prompts',
   'mcpServers',
+  'commands',
 ]
 
 const SOURCE_RANK: Record<ExtPackSource, number> = { builtin: 0, store: 1, folder: 2 }

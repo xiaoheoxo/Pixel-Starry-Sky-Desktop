@@ -320,6 +320,7 @@ const CONTRIBUTION_COUNT: Record<ExtPackContributionKind, number> = {
   skills: 1,
   prompts: 2,
   mcpServers: 0,
+  commands: 0,
 }
 
 const nth = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1)

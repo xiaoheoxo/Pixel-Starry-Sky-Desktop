@@ -1,0 +1,30 @@
+{
+  "rulesVersion": 5,
+  "dev": {
+    "status": "error",
+    "inactive": {},
+    "skills": [],
+    "issues": [
+      {
+        "code": "script.missing",
+        "severity": "error",
+        "scope": "pack",
+        "path": "dist/main.js",
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "script.missing",
+        "severity": "error",
+        "scope": "pack",
+        "path": "dist/main.js",
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

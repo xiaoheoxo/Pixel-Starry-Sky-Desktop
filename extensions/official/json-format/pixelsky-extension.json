@@ -1,0 +1,42 @@
+{
+  "id": "pixelsky.json-format",
+  "name": "JSON 排版",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "排版选中的 JSON；没有选中时排版整个文件",
+  "icon": "icon.png",
+  "keywords": ["json", "format", "排版"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.1"
+  },
+  "l10n": {
+    "en": {
+      "name": "JSON Formatter",
+      "description": "Formats the selected JSON, or the whole file when nothing is selected"
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "format",
+        "title": {
+          "zh": "排版 JSON",
+          "en": "Format JSON"
+        },
+        "where": ["palette", "editor"],
+        "requires": "editor",
+        "keybinding": {
+          "code": "KeyJ",
+          "mod": true,
+          "alt": true
+        }
+      }
+    ]
+  },
+  "main": "main.js",
+  "permissions": ["editor.read", "editor.write"],
+  "price": null
+}

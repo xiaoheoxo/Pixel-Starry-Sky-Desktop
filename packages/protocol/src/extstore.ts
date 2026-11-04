@@ -30,6 +30,7 @@ export const EXTSTORE_ERROR_CODES = [
   'extstore.api.checkTimeout',
   'extstore.api.noPublisher',
   'extstore.api.notYourPublisher',
+  'extstore.api.scriptsNotOpen',
   'extstore.api.versionProblem',
   'extstore.api.tooManyPending',
   'extstore.api.uploadRateLimited',

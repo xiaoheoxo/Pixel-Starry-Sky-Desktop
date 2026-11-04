@@ -98,6 +98,12 @@ extensions/official/python/
 - `samples/` 下每个语法至少一个 ≥ 30 行的示例（自己写，覆盖注释、字符串、数字、关键字、函数、类型…），合计 ≤ 200 KB；必须过测速（单行 ≤ 30 ms、5000 行 ≤ 1 s）。过不了就不放这个语法，在 README 里说明。
 - `language-configuration.json` 实际生效的只有 `comments`、`autoClosingPairs`（只认 `open`/`close`）、`indentationRules`；`brackets` `surroundingPairs` `wordPattern` 照常写上，以后会生效。
 
+### 3.6 脚本命令 `commands`
+
+- 规则见规范 §13，类型声明在 `extensions/official/pixelsky.d.ts`，例子看 `word-count`、`json-format`、`timestamp`。
+- `main` 写 `main.js`（只有这一个 `.js` 进包），`engines.pixelsky` 写 `>=0.7.1`，`permissions` 只写真正用到的。
+- 不压缩、不混淆，别人审得动；README 里写明每项权限拿来做什么。
+
 ## 4. README 结构（中文）
 
 ```

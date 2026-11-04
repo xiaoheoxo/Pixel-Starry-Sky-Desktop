@@ -81,6 +81,82 @@ export const extensionCenterMessages = {
   'extstore.kind.skills': { zh: '技能', en: 'Skill' },
   'extstore.kind.prompts': { zh: '提示词', en: 'Prompts' },
   'extstore.kind.mcpServers': { zh: 'MCP 连接器', en: 'MCP servers' },
+  'extstore.kind.commands': { zh: '命令', en: 'Commands' },
+  // 脚本扩展的命令（docs/ui/extension-commands-plan.md）
+  'extCommands.label': { zh: '{name}：{title}', en: '{name}: {title}' },
+  'extCommands.category': { zh: '扩展', en: 'Extensions' },
+  'extCommands.message': { zh: '{name}：{text}', en: '{name}: {text}' },
+  'extCommands.from': { zh: '来自扩展「{name}」', en: 'From the extension "{name}"' },
+  'extCommands.ok': { zh: '确定', en: 'OK' },
+  'extCommands.cancel': { zh: '取消', en: 'Cancel' },
+  'extCommands.needsEditor': { zh: '要先打开一个文件', en: 'Open a file first' },
+  'extCommands.needsSelection': { zh: '要先选中一段内容', en: 'Select some text first' },
+  'extCommands.consent.title': { zh: '允许「{name}」运行？', en: 'Allow "{name}" to run?' },
+  'extCommands.consent.body': {
+    zh: '这个扩展带脚本，运行在沙箱里，不能联网，也读不了别的文件。它要这些权限：',
+    en: 'This extension includes a script. It runs in a sandbox with no network or other file access. It asks for:',
+  },
+  'extCommands.consent.allow': { zh: '允许并运行', en: 'Allow and run' },
+  'extCommands.permission.editorRead': {
+    zh: '读取运行命令时打开的文件：路径、内容和选区',
+    en: 'Read the file open when you run a command: its path, content and selection',
+  },
+  'extCommands.permission.editorWrite': {
+    zh: '修改运行命令时打开的文件（只改编辑器里的内容，可以撤销，不会自动保存）',
+    en: 'Change the file open when you run a command (editor content only, can be undone, not saved automatically)',
+  },
+  'extCommands.permission.uiNotify': {
+    zh: '弹出提示、让你选一项或输入文字',
+    en: 'Show messages and ask you to pick an item or enter text',
+  },
+  'extCommands.permission.storage': {
+    zh: '在本机保存自己的设置（最多 5 MB）',
+    en: 'Save its own settings on this computer (up to 5 MB)',
+  },
+  'extCommands.failed.timeout': {
+    zh: '扩展「{name}」没有响应，已停止',
+    en: 'The extension "{name}" stopped responding and was stopped',
+  },
+  'extCommands.failed.memory': {
+    zh: '扩展「{name}」占用内存太多，已停止',
+    en: 'The extension "{name}" used too much memory and was stopped',
+  },
+  'extCommands.failed.crashed': { zh: '扩展「{name}」崩溃了', en: 'The extension "{name}" crashed' },
+  'extCommands.failed.loadFailed': {
+    zh: '扩展「{name}」的脚本起不来 {detail}',
+    en: 'The script of "{name}" could not start {detail}',
+  },
+  'extCommands.failed.thrown': { zh: '扩展「{name}」出错：{detail}', en: 'The extension "{name}" failed: {detail}' },
+  'extCommands.failed.badCall': {
+    zh: '扩展「{name}」的调用不合规，已停止',
+    en: 'The extension "{name}" made an invalid call and was stopped',
+  },
+  'extCommands.failed.busy': {
+    zh: '扩展「{name}」的上一条命令还在运行',
+    en: 'The previous command of "{name}" is still running',
+  },
+  'extCommands.failed.unavailable': {
+    zh: '扩展「{name}」现在不能用',
+    en: 'The extension "{name}" is not available right now',
+  },
+  'extCommands.failed.stopped': {
+    zh: '扩展「{name}」被停用或更新，命令已停止',
+    en: 'The extension "{name}" was disabled or updated, so the command stopped',
+  },
+  'extCommands.detail.commands': { zh: '命令', en: 'Commands' },
+  'extCommands.detail.permissions': { zh: '脚本的权限', en: 'Script permissions' },
+  'extCommands.detail.noPermissions': { zh: '不需要任何权限', en: 'No permissions needed' },
+  'extCommands.detail.granted': { zh: '已允许', en: 'Allowed' },
+  'extCommands.detail.notGranted': { zh: '第一次运行时询问', en: 'Asked on first run' },
+  'extCommands.detail.revoke': { zh: '撤销', en: 'Revoke' },
+  'extCommands.detail.blocked': {
+    zh: '现阶段只运行官方发布的脚本，这个扩展的命令不会出现',
+    en: 'Only official scripts run for now, so the commands of this extension are not shown',
+  },
+  'extCommands.detail.footnote': {
+    zh: '脚本运行在沙箱里，不能联网，也读不了别的文件。',
+    en: 'Scripts run in a sandbox with no network or other file access.',
+  },
   'extstore.downloads': { zh: '{n} 次下载', en: '{n} downloads' },
   'extstore.action.install': { zh: '安装', en: 'Install' },
   'extstore.action.installed': { zh: '已安装', en: 'Installed' },
@@ -145,6 +221,7 @@ export const extensionCenterMessages = {
   'extensions.kind.skills': { zh: '技能', en: 'Skill' },
   'extensions.kind.prompts': { zh: '提示词', en: 'Prompt' },
   'extensions.kind.mcpServers': { zh: 'MCP 连接器', en: 'MCP server' },
+  'extensions.kind.commands': { zh: '命令', en: 'Command' },
   // 扩展里的 MCP 连接器（features/extpacks/McpServers.tsx）
   'extensions.mcp.title': { zh: '会运行的程序', en: 'Programs it runs' },
   'extensions.mcp.warning': {
@@ -267,6 +344,10 @@ export const extensionCenterMessages = {
   'errors.extstore.api.notYourPublisher': {
     zh: '清单里的 publisher 和 id 前缀必须是你注册的发布者名',
     en: 'The manifest publisher and id prefix must be your registered publisher name',
+  },
+  'errors.extstore.api.scriptsNotOpen': {
+    zh: '带脚本的扩展目前只开放给官方发布者',
+    en: 'Extensions with scripts are currently limited to official publishers',
   },
   'errors.extstore.api.versionProblem': { zh: '{message}', en: '{message}' },
   'errors.extstore.api.tooManyPending': {

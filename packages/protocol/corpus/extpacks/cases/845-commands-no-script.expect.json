@@ -1,0 +1,60 @@
+{
+  "rulesVersion": 5,
+  "dev": {
+    "status": "error",
+    "inactive": {},
+    "skills": [],
+    "issues": [
+      {
+        "code": "manifest.main",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "main",
+        "upload": "reject"
+      },
+      {
+        "code": "manifest.permissions",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "permissions",
+        "upload": "reject"
+      },
+      {
+        "code": "script.pairing",
+        "severity": "error",
+        "scope": "pack",
+        "path": "contributes.commands",
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "manifest.main",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "main",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "manifest.permissions",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "permissions",
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "script.pairing",
+        "severity": "error",
+        "scope": "pack",
+        "path": "contributes.commands",
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

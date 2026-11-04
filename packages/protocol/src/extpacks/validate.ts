@@ -4,7 +4,7 @@
 import type { ExtIssueCode } from './codes'
 import { manifestJsoncIssue, mk } from './issue'
 import { EXT_FIRST_LINE_MAX, packDir, resolvePackPath } from './match'
-import { EXT_BUILTIN_SCOPES, EXT_LIMITS, EXT_MANIFEST, EXT_MCP_MIN_APP } from './types'
+import { EXT_BUILTIN_SCOPES, EXT_LIMITS, EXT_MANIFEST, EXT_MCP_MIN_APP, EXT_SCRIPT_MIN_APP } from './types'
 import type {
   ExtPackContributionKind,
   ExtPackFileEntry,
@@ -18,6 +18,7 @@ import type {
 } from './types'
 import { hasAmbiguousQuantifiers, hasNestedQuantifier, hasQuantifiedAlternation, validateTaskTemplate } from './tasks'
 import { MCP_KEYS, mcpServerProblems } from './mcp'
+import { COMMAND_KEYBINDING_KEYS, COMMAND_KEYS, commandProblems, permissionProblems, scriptProblems } from './commands'
 import { contrastRatio, parseHexColor, parseJsonc, satisfiesEngine } from './text'
 
 type Rec = Record<string, unknown>
@@ -34,6 +35,7 @@ const CONTRIBUTION_KINDS: readonly ExtPackContributionKind[] = [
   'skills',
   'prompts',
   'mcpServers',
+  'commands',
 ]
 
 const ID_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])\.[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])$/
@@ -119,16 +121,20 @@ const KEYS = {
   skills: ['path', 'engines'],
   prompts: ['id', 'title', 'description', 'path', 'where', 'requires'],
   mcpServers: MCP_KEYS,
+  commands: COMMAND_KEYS,
+  commandKeybinding: COMMAND_KEYBINDING_KEYS,
 } as const
 
 /** 语言设置文件第一期生效的字段（§4.3） */
 const CONFIG_KEYS = ['comments', 'brackets', 'autoClosingPairs', 'surroundingPairs', 'indentationRules', 'wordPattern']
 
-const TEXT_EXTS = /\.(json|md|txt)$/i
+const TEXT_EXTS = /\.(json|md|txt|js)$/i
 const SKILL_FILE_EXTS = /\.(md|png|jpe?g|gif|webp|svg)$/i
 const MAX_PER_CODE = 20
 /** EXT_MCP_MIN_APP 之前的最后一个版本 */
 const PREV_APP = '0.6.11'
+/** EXT_SCRIPT_MIN_APP 之前的最后一个版本 */
+const PREV_SCRIPT_APP = '0.7.0'
 
 function isRec(v: unknown): v is Rec {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -423,16 +429,26 @@ export function validateManifest(
   // M15
   if (m.main !== null) {
     if (m.main === undefined) warn('manifest.main', 'main 必须写成 null', 'main must be written as null', 'main')
-    else
+    else if (!validPath(m.main) || !m.main.endsWith('.js'))
       fatal(
         'manifest.main',
-        '第一期扩展不能带代码，main 必须是 null',
-        'Phase-1 extensions cannot contain code; main must be null',
+        'main 必须是 null，或者包内的一个 .js 文件',
+        'main must be null or a .js file inside the pack',
         'main',
       )
   }
-  if (!Array.isArray(m.permissions) || m.permissions.length > 0) {
-    warn('manifest.permissions', 'permissions 第一期必须是 []', 'permissions must be [] in phase 1', 'permissions')
+  // 带脚本时权限决定它能做什么：不认识的不能只是警告
+  if (isStr(m.main)) {
+    if (!Array.isArray(m.permissions))
+      fatal('manifest.permissions', 'permissions 必须是数组', 'permissions must be an array', 'permissions')
+    else for (const p of permissionProblems(m.permissions)) fatal(p.code, p.zh, p.en, p.path)
+  } else if (!Array.isArray(m.permissions) || m.permissions.length > 0) {
+    warn(
+      'manifest.permissions',
+      '没有脚本时 permissions 必须是 []',
+      'permissions must be [] without a script',
+      'permissions',
+    )
   }
   if (m.price !== null) warn('manifest.price', 'price 第一期必须是 null', 'price must be null in phase 1', 'price')
 
@@ -564,8 +580,9 @@ export function validatePackFiles(
     if (!inSamples && p.split('/').some(seg => seg.startsWith('.'))) {
       warn('files.hidden', `不要放隐藏文件：${p}`, `Hidden files are not allowed: ${p}`, p)
     }
-    // F1
-    const allowed = inSamples || EXT_ALLOWED_FILE_RE.test(base) || EXT_LICENSE_FILE_RE.test(base)
+    // F1（.js 只放行 main 指向的那一个）
+    const allowed =
+      inSamples || EXT_ALLOWED_FILE_RE.test(base) || EXT_LICENSE_FILE_RE.test(base) || p === manifest?.main
     if (!allowed) {
       warn(
         'files.type',
@@ -1451,6 +1468,75 @@ export function validateContributions(
           'mcp.engines',
           `带 MCP 连接器的扩展 engines.pixelsky 要写 >=${EXT_MCP_MIN_APP}`,
           `Extensions with MCP servers must set engines.pixelsky to >=${EXT_MCP_MIN_APP}`,
+          { path: 'engines.pixelsky', upload: 'reject' },
+        ),
+      )
+
+    // ---- 命令和脚本（docs/ui/extension-commands-plan.md §5.1）----
+    const commandIds = new Set<string>()
+    const commandList = listOf('commands')
+    commandList.forEach((raw, i) => {
+      const it = forItem('commands', i)
+      if (i >= EXT_LIMITS.commands)
+        return it.err(
+          'command.fields',
+          `一个扩展最多 ${EXT_LIMITS.commands} 条命令`,
+          `At most ${EXT_LIMITS.commands} commands per extension`,
+        )
+      if (isRec(raw)) {
+        it.unknown(raw, KEYS.commands)
+        if (isRec(raw.keybinding)) it.unknown(raw.keybinding, KEYS.commandKeybinding, 'keybinding')
+      }
+      for (const p of commandProblems(raw, commandIds, validText)) it.err(p.code, p.zh, p.en, p.path)
+    })
+    const scriptPath = isStr(m.main) ? m.main : null
+    const scriptError = (code: ExtIssueCode, zh: string, en: string, path: string): void => {
+      issues.push(mk('error', 'pack', code, zh, en, { path, upload: 'reject' }))
+    }
+    if ((scriptPath === null) !== (commandList.length === 0))
+      scriptError(
+        'script.pairing',
+        scriptPath === null ? '有 commands 就要有 main 指向的脚本' : '有 main 就要有至少一条 commands',
+        scriptPath === null ? 'commands need a script in main' : 'main needs at least one entry in commands',
+        scriptPath === null ? 'contributes.commands' : 'main',
+      )
+    if (scriptPath !== null) {
+      refs.add(scriptPath)
+      const size = reader.size(scriptPath)
+      const text =
+        reader.exists(scriptPath) && size !== null && size <= EXT_LIMITS.scriptBytes
+          ? reader.readText(scriptPath)
+          : null
+      if (!reader.exists(scriptPath))
+        scriptError('script.missing', `脚本不存在：${scriptPath}`, `Script not found: ${scriptPath}`, scriptPath)
+      else if (size === null || size > EXT_LIMITS.scriptBytes)
+        scriptError(
+          'script.missing',
+          `脚本超过 1 MB：${scriptPath}`,
+          `Script larger than 1 MB: ${scriptPath}`,
+          scriptPath,
+        )
+      else if (text === null)
+        scriptError(
+          'script.missing',
+          `读不了脚本（不是 UTF-8？）：${scriptPath}`,
+          `Cannot read script (not UTF-8?): ${scriptPath}`,
+          scriptPath,
+        )
+      else for (const p of scriptProblems(scriptPath, text)) scriptError(p.code, p.zh, p.en, scriptPath)
+    }
+    if (
+      (commandList.length > 0 || scriptPath !== null) &&
+      range !== null &&
+      satisfiesEngine(range, PREV_SCRIPT_APP) === true
+    )
+      issues.push(
+        mk(
+          'warning',
+          'pack',
+          'command.engines',
+          `带脚本的扩展 engines.pixelsky 要写 >=${EXT_SCRIPT_MIN_APP}`,
+          `Extensions with scripts must set engines.pixelsky to >=${EXT_SCRIPT_MIN_APP}`,
           { path: 'engines.pixelsky', upload: 'reject' },
         ),
       )

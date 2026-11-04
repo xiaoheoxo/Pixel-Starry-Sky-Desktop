@@ -1,0 +1,66 @@
+{
+  "rulesVersion": 5,
+  "dev": {
+    "status": "warning",
+    "inactive": {
+      "commands": [
+        0,
+        1
+      ]
+    },
+    "skills": [],
+    "issues": [
+      {
+        "code": "command.keybinding",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "keybinding",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject"
+      },
+      {
+        "code": "command.keybinding",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "keybinding",
+        "contribution": {
+          "kind": "commands",
+          "index": 1
+        },
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "command.keybinding",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "keybinding",
+        "contribution": {
+          "kind": "commands",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      },
+      {
+        "code": "command.keybinding",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "keybinding",
+        "contribution": {
+          "kind": "commands",
+          "index": 1
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

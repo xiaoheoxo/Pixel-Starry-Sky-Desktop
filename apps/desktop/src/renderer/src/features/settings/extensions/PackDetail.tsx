@@ -12,6 +12,7 @@ import { StoreReadme } from '@/features/extstore/detail/StoreReadme'
 import { PackBadge } from './PackBadge'
 import { PackIcon, PackStatus } from './PackList'
 import { McpServers } from '@/features/extpacks/McpServers'
+import { ScriptPermissions } from '@/features/extpacks/commands/ScriptPermissions'
 
 const KIND_LABELS = {
   grammars: 'extensions.kind.grammars',
@@ -22,6 +23,7 @@ const KIND_LABELS = {
   skills: 'extensions.kind.skills',
   prompts: 'extensions.kind.prompts',
   mcpServers: 'extensions.kind.mcpServers',
+  commands: 'extensions.kind.commands',
 } as const
 
 const errorText = (e: unknown): string => translateMessage((e as Error)?.message ?? String(e))
@@ -215,14 +217,26 @@ export function PackDetail({ pack, all, onClose }: { pack: ExtPackInfo; all: Ext
         </>
       )}
 
-      <SubTitle>{t('extensions.detail.contents')}</SubTitle>
-      {rows.length ? (
-        <ul className="space-y-1">{rows.map(row)}</ul>
-      ) : (
-        <p className="text-ui text-fg-faint">{t('extensions.detail.contentsEmpty')}</p>
+      {/* 连接器和命令有自己的小节：只有它们时这里不写「没有任何贡献」 */}
+      {(rows.length > 0 ||
+        !(pack.manifest?.contributes.mcpServers?.length || pack.manifest?.contributes.commands?.length)) && (
+        <>
+          <SubTitle>{t('extensions.detail.contents')}</SubTitle>
+          {rows.length ? (
+            <ul className="space-y-1">{rows.map(row)}</ul>
+          ) : (
+            <p className="text-ui text-fg-faint">{t('extensions.detail.contentsEmpty')}</p>
+          )}
+        </>
       )}
 
       <McpServers servers={pack.manifest?.contributes.mcpServers} status={pack.mcp} packKey={pack.key} />
+      <ScriptPermissions
+        commands={pack.manifest?.contributes.commands}
+        permissions={pack.manifest?.permissions}
+        status={pack.script}
+        packKey={pack.key}
+      />
 
       {conflicts.length > 0 && (
         <>

@@ -98,6 +98,18 @@ export interface ExtMcpServer {
   /** 公开的源码地址（https），审核核对它 */
   source: string
 }
+/** 脚本实现的命令（docs/ui/extension-commands-plan.md）：名字写在清单里，命令面板不用启动脚本就能列出来 */
+export interface ExtCommand {
+  id: string
+  title: ExtText
+  description?: ExtText
+  /** 出现在哪；没写时只在命令面板 */
+  where?: Array<'palette' | 'editor'>
+  /** editor：要有打开的编辑器；selection：还要有选区 */
+  requires?: 'editor' | 'selection'
+  /** 默认快捷键，mod 是 Ctrl（macOS 上是 ⌘）；和软件自带的冲突时不生效 */
+  keybinding?: { code: string; mod?: boolean; shift?: boolean; alt?: boolean }
+}
 export interface ExtPackContributes {
   grammars?: ExtGrammar[]
   themes?: ExtTheme[]
@@ -107,6 +119,7 @@ export interface ExtPackContributes {
   skills?: ExtSkill[]
   prompts?: ExtPrompt[]
   mcpServers?: ExtMcpServer[]
+  commands?: ExtCommand[]
 }
 export type ExtPackContributionKind = keyof ExtPackContributes
 export interface ExtPackManifest {
@@ -123,7 +136,8 @@ export interface ExtPackManifest {
   engines: { pixelsky: string }
   l10n?: { en?: { name?: string; description?: string } }
   contributes: ExtPackContributes
-  main: null
+  /** 脚本文件（包内的一个 .js）；没有脚本时是 null */
+  main: string | null
   permissions: unknown[]
   price: null
 }
@@ -176,8 +190,15 @@ export interface ExtPackInfo {
   blocked?: { reason: string; at: string }
   /** 带 MCP 连接器时每条的状态（同意过当前这一份没有、必填缺哪些、填过哪些；值不出主进程） */
   mcp?: ExtPackMcpStatus[]
+  /** 带脚本时：已同意的权限、还要同意的权限；blocked 是商店里非官方发布者的脚本，现阶段不运行 */
+  script?: ExtPackScriptStatus
   /** 同 id 有更优先的来源在用（开发中的文件夹 > 商店 > 内置）：值是生效那一份的来源；不算错误，灰显 */
   shadowedBy?: ExtPackSource
+}
+export interface ExtPackScriptStatus {
+  granted: string[]
+  missing: string[]
+  blocked: boolean
 }
 export interface ExtPackMcpStatus {
   name: string
@@ -249,6 +270,10 @@ export interface ExtPackReader {
 export const EXT_MANIFEST = 'pixelsky-extension.json'
 export const EXT_ASSET_SCHEME = 'pixelsky-ext'
 export const EXT_LIMITS = {
+  scriptBytes: 1024 * 1024,
+  scriptLineChars: 2000,
+  scriptAverageLineChars: 200,
+  commands: 50,
   fileBytes: 2 * 1024 * 1024,
   packBytes: 10 * 1024 * 1024,
   files: 500,
@@ -278,12 +303,18 @@ export const EXT_LIMITS = {
 } as const
 
 /** 规则语义变化时加一；写进命令行的 JSON 和共享用例的期望 */
-export const EXT_RULES_VERSION = 4
+export const EXT_RULES_VERSION = 5
 
 /** MCP 连接器能用的启动命令：都是从公开仓库按写死的版本拉包（npm / PyPI / 镜像摘要） */
 export const EXT_MCP_COMMANDS: readonly string[] = ['npx', 'uvx', 'docker']
 /** 认 mcpServers 的第一个软件版本：engines.pixelsky 要排除比它旧的 */
 export const EXT_MCP_MIN_APP = '0.6.12'
+/** 认脚本和命令的第一个软件版本：engines.pixelsky 要排除比它旧的 */
+export const EXT_SCRIPT_MIN_APP = '0.7.1'
+/** 脚本能申请的权限（docs/ui/extension-commands-plan.md §1.1） */
+export const EXT_SCRIPT_PERMISSIONS: readonly string[] = ['editor.read', 'editor.write', 'ui.notify', 'storage']
+/** 现阶段只运行这些发布者从商店发的脚本（§10 问题 5）；文件夹扩展是用户自己放的，不受限 */
+export const EXT_SCRIPT_PUBLISHERS: readonly string[] = ['pixelsky']
 
 /** 软件内置的 26 个语言 id（authoring-spec §4.5） */
 export const EXT_BUILTIN_LANGUAGE_IDS: readonly string[] = [

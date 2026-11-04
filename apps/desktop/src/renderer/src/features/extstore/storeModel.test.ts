@@ -39,11 +39,10 @@ describe('clampQuery', () => {
 })
 
 describe('分类', () => {
-  it('「命令」第二期、「插件」第三期，都不能选', () => {
+  it('「插件」第三期，不能选', () => {
     const phase = Object.fromEntries(STORE_CATEGORIES.map(c => [c.id, c.phase]))
-    expect(phase.commands).toBe(2)
     expect(phase.plugins).toBe(3)
-    for (const id of ['commands', 'plugins']) expect(isCategorySelectable(id)).toBe(false)
+    for (const id of ['plugins']) expect(isCategorySelectable(id)).toBe(false)
   })
   it('其余分类和两个组标题都能选', () => {
     for (const id of [
@@ -69,13 +68,14 @@ describe('分类', () => {
     expect(categoryParam('mcpServers')).toBe('mcpServers')
     expect(categoryParam('plugins')).toBeUndefined()
   })
-  it('代码模式五种 + AI 引擎三种；分类没有数量字段', () => {
+  it('代码模式六种 + AI 引擎三种；分类没有数量字段', () => {
     expect(STORE_CATEGORIES.filter(c => c.group === 'code' && !c.phase).map(c => c.id)).toEqual([
       'grammars',
       'themes',
       'snippets',
       'iconThemes',
       'taskTemplates',
+      'commands',
     ])
     expect(STORE_CATEGORIES.filter(c => c.group === 'ai' && !c.phase).map(c => c.id)).toEqual([
       'skills',

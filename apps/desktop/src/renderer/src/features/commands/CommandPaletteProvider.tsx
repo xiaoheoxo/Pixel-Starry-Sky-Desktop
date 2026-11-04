@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Package,
+  Puzzle,
   MessageSquare,
   MessageSquareQuote,
   PanelLeft,
@@ -63,12 +64,15 @@ import { getPaneState, paneActions } from '@/features/panes/store'
 import { SHORTCUTS_HELP_EVENT } from '@/features/layout/ShortcutsHelp'
 import { getPage, setPage, showWorkbench } from '@/features/layout/page'
 import { extStoreCommands } from '@/features/extstore/commands'
+import { getPackState } from '@/features/extpacks/store'
+import { commandBlock, packCommands } from '@/features/extpacks/commands/model'
+import { editorSnapshot, runPackCommand } from '@/features/extpacks/commands/ExtCommandHost'
 import { checkExtUpdates } from '@/features/extstore/store'
 import { getNotificationPrefs, setNotificationPrefs } from '@/features/settings/notifications'
 import { requestGitAction } from '@/features/panel/git/GitPanel'
 import { focusedTab, isFileTab, isNewTab, findLeaf } from '@/features/panes/tree'
 import { useTheme } from '@/features/appearance/ThemeProvider'
-import { allMessages, tr, translateMessage, type TranslationKey } from '@/i18n/core'
+import { allMessages, getLocale, tr, translateMessage, type TranslationKey } from '@/i18n/core'
 import { useSessionActions, type SessionTarget } from '@/features/sidebar/SessionActions'
 import { getEngineState } from '@/features/engine/store'
 import { getPanelLayout, getPanelScope, openRightTab } from '@/features/panel/workspaceStore'
@@ -553,6 +557,26 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       add('settings.' + section, key, 'terminal.categorySettings', Settings, () =>
         settings.openSettings(section as SectionId),
       )
+    // 扩展的命令（docs/ui/extension-commands-plan.md §5.2）
+    for (const c of packCommands(getPackState(), getLocale())) {
+      if (!c.where.includes('palette')) continue
+      const label = tr('extCommands.label', { name: c.packName, title: c.title })
+      const block = () => commandBlock(c, editorSnapshot())
+      const blocked = block()
+      items.push({
+        id: `ext:${c.packKey}:${c.id}`,
+        label,
+        keywords: `${label} ${c.description ?? ''}`,
+        category: tr('extCommands.category'),
+        icon: Puzzle,
+        shortcut: c.binding ? formatBinding(c.binding, isMac) : undefined,
+        valid: () => !block(),
+        reason: blocked
+          ? tr(blocked === 'editor' ? 'extCommands.needsEditor' : 'extCommands.needsSelection')
+          : undefined,
+        run: () => runPackCommand(c),
+      })
+    }
     for (const c of extStoreCommands({ openSettings: s => settings.openSettings(s), checkUpdates: checkExtUpdates }))
       add(c.id, c.key, 'terminal.categorySettings', Settings, c.run)
     add(

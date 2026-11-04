@@ -206,12 +206,12 @@ describe('validateManifest', () => {
         scope: 'pack',
       })
     }
-    const unknown = manifestIssues(base({ contributes: { snippets: [{}], commands: [] } }))
+    const unknown = manifestIssues(base({ contributes: { snippets: [{}], statusBarItems: [] } }))
     expect(find(unknown, 'manifest.unknownField')[0].severity).toBe('warning')
     expect(find(unknown, 'manifest.contributes')).toEqual([])
   })
   it('M15 main 非 null 是 pack 错误；permissions / price 是警告', () => {
-    expect(find(manifestIssues(base({ main: 'x.js' })), 'manifest.main')[0]).toMatchObject({
+    expect(find(manifestIssues(base({ main: 'x.py' })), 'manifest.main')[0]).toMatchObject({
       severity: 'error',
       scope: 'pack',
     })

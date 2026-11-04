@@ -24,6 +24,9 @@ const LABELS = {
   powershell: 'PS',
   vue: 'Vue',
   svelte: 'Sv',
+  'word-count': '字',
+  'json-format': '{}',
+  timestamp: '时',
 }
 const SIZE = 256
 

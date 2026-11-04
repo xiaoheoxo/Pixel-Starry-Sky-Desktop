@@ -270,7 +270,7 @@ export function createInstaller(deps: InstallerDeps): Installer {
       // 启动时的 cleanStoreDir 会清空 store/.tmp：等它跑完再建临时目录（下载和校验不用等）
       await host.ready()
       checkAlive()
-      tmpDir = (await unpackPack(src, host.storeDir)).dir
+      tmpDir = (await unpackPack(src, host.storeDir, manifest.main)).dir
       checkAlive()
 
       // 7. 换上（排进 service 的串行队列，再查一遍）

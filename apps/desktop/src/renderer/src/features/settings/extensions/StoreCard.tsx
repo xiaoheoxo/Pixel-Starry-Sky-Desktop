@@ -19,6 +19,7 @@ const KIND_KEYS = {
   skills: 'extstore.kind.skills',
   prompts: 'extstore.kind.prompts',
   mcpServers: 'extstore.kind.mcpServers',
+  commands: 'extstore.kind.commands',
 } as const satisfies Record<ExtPackContributionKind, TranslationKey>
 
 /** 一项上的动作要用到的状态，由 DiscoverTab 算好传下来 */
