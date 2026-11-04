@@ -198,6 +198,8 @@ type ItemVariant =
       kind: 'todo'
       id: string
       steps: TodoStep[]
+      /** 上一轮没做完、这一轮开了新清单的步骤：不算进这一轮的进度（docs/ui/progress-card.md §11） */
+      carried?: TodoStep[]
       status: ItemStatus
       /** 这一轮里清单改了几次（同一轮的多次更新合成一行时才有，至少 2） */
       updates?: number

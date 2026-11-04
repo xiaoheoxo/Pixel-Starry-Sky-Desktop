@@ -211,6 +211,7 @@ export class HostTurn {
       merge = resume || text.trimStart().startsWith('/') ? null : (rt.snapshot.record.pendingMerge ?? null)
       if (merge) m.events.patchRecord(id, { pendingMerge: null })
       const sent = merge ? `${mergeContext(merge)}\n\n${handoff.text}` : handoff.text
+      if (!resume) rt.session.newRound?.()
       rt.session.send(sent, turnId, userItemId, attachments, handoff.seed, handoff.attachments)
     } catch (err) {
       if (ctx.runtimes.get(id) !== rt) return

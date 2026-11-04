@@ -374,6 +374,10 @@ export class ClaudeSession implements EngineSession {
     if (dir) this.translator.runs.seed(loadSavedRuns(dir))
   }
 
+  newRound(): void {
+    this.translator.newRound()
+  }
+
   send(text: string, turnId: string, userItemId: string, attachments?: ImageAttachment[], seed?: ChatSeed): void {
     this.translator.startTurn(turnId)
     this.ackPending = userItemId

@@ -156,3 +156,106 @@ describe('旧的 TodoWrite 同一轮合成一行（C16）', () => {
     expect(todos().at(-1)?.updates).toBeUndefined()
   })
 })
+
+describe('任务清单按轮次（docs/ui/progress-card.md §11）', () => {
+  const board = () => {
+    const b = new TaskBoard()
+    const create = (id: string, subject: string) => {
+      b.apply(`c${id}`, 'TaskCreate', { subject })
+      b.resolve(`c${id}`, '', false, { task: { id } })
+    }
+    const set = (id: string, status: string) => b.apply(`u${id}${status}`, 'TaskUpdate', { taskId: id, status })
+    return { b, create, set }
+  }
+
+  it('上一轮全做完，新一轮建任务：只剩新的', () => {
+    const { b, create, set } = board()
+    create('1', 'old')
+    set('1', 'completed')
+    b.newRound()
+    create('2', 'new')
+    expect(b.steps()).toEqual([{ text: 'new', status: 'pending' }])
+    expect(b.carried()).toEqual([])
+  })
+
+  it('没做完就开新清单：没做完的单独放、不算进度，只留一轮', () => {
+    const { b, create, set } = board()
+    create('1', 'done')
+    create('2', 'left')
+    set('1', 'completed')
+    b.newRound()
+    create('3', 'new')
+    create('4', 'new2')
+    expect(b.steps().map(s => s.text)).toEqual(['new', 'new2'])
+    expect(b.carried()).toEqual([{ text: 'left', status: 'pending' }])
+    b.newRound()
+    create('5', 'third')
+    expect(b.steps().map(s => s.text)).toEqual(['third'])
+    expect(b.carried().map(s => s.text)).toEqual(['new', 'new2'])
+  })
+
+  it('说「继续」：先改状态是接着做，整份清单不动；之后再加一步也不清', () => {
+    const { b, create, set } = board()
+    create('1', 'done')
+    create('2', 'left')
+    set('1', 'completed')
+    b.newRound()
+    set('2', 'in_progress')
+    create('3', 'extra')
+    expect(b.steps().map(s => s.text)).toEqual(['done', 'left', 'extra'])
+    expect(b.carried()).toEqual([])
+  })
+
+  it('没调 newRound（断线重连自动发的「继续」、同一轮）：不清', () => {
+    const { b, create, set } = board()
+    create('1', 'done')
+    set('1', 'completed')
+    create('2', 'more')
+    expect(b.steps().map(s => s.text)).toEqual(['done', 'more'])
+  })
+
+  it('新一轮先删旧任务再建新的：也算新清单，做完的不留着', () => {
+    const { b, create, set } = board()
+    create('1', 'done')
+    create('2', 'left')
+    set('1', 'completed')
+    b.newRound()
+    set('2', 'deleted')
+    create('3', 'new')
+    expect(b.steps().map(s => s.text)).toEqual(['new'])
+    expect(b.carried()).toEqual([])
+  })
+
+  it('上一轮建到一半没等到结果（进程断了）：新清单不带着它', () => {
+    const { b, create } = board()
+    b.apply('lost', 'TaskCreate', { subject: 'never-resolved' })
+    b.newRound()
+    create('1', 'new')
+    expect(b.steps().map(s => s.text)).toEqual(['new'])
+  })
+
+  it('上一轮没做完的又被做了：回到这一轮的清单', () => {
+    const { b, create } = board()
+    create('1', 'left')
+    b.newRound()
+    create('2', 'new')
+    b.apply('u', 'TaskUpdate', { taskId: '1', status: 'in_progress' })
+    expect(b.carried()).toEqual([])
+    expect(b.steps()).toContainEqual({ text: 'left', status: 'in_progress' })
+  })
+
+  it('待办条目带上 carried；每轮的条目是当时那一份', () => {
+    const { t, todos } = translator()
+    use(t, 'c1', 'TaskCreate', { subject: 'left' })
+    result(t, 'c1', 'Task #1 created', { task: { id: '1' } })
+    t.newRound()
+    t.startTurn('turn-2')
+    use(t, 'c2', 'TaskCreate', { subject: 'new' })
+    result(t, 'c2', 'Task #2 created', { task: { id: '2' } })
+    const last = todos().at(-1)!
+    expect(last.id).toBe('c2')
+    expect(last.steps).toEqual([{ text: 'new', status: 'pending' }])
+    expect(last.carried).toEqual([{ text: 'left', status: 'pending' }])
+    expect(todos()[0].steps).toEqual([{ text: 'left', status: 'pending' }])
+  })
+})

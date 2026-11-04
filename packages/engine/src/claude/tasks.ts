@@ -11,6 +11,8 @@ type Input = Record<string, unknown>
 interface Task {
   text: string
   status: TodoStep['status']
+  /** 上一轮没做完的（docs/ui/progress-card.md §11） */
+  carried?: boolean
 }
 
 const STATUSES = new Set(['pending', 'in_progress', 'completed'])
@@ -20,15 +22,40 @@ export class TaskBoard {
   private tasks = new Map<string, Task>()
   /** 还没拿到编号的新建：key = tool_use.id */
   private pending = new Map<string, Task>()
+  /** 用户发了新一轮，这一轮还没动过任务 */
+  private fresh = false
+
+  /** 用户发了新的一轮（断线重连自动发的「继续」不算） */
+  newRound(): void {
+    this.fresh = true
+  }
+
+  /**
+   * 新一轮第一个任务调用是新建：这是一份新清单，之前做完的清掉，没做完的留一轮、不算进度。
+   * 第一个调用是改状态：接着做原来的清单（说「继续」），什么都不动
+   */
+  private startList(): void {
+    this.fresh = false
+    // 上一轮建了没等到结果的（进程断了）：不会再有结果，留着就一直挂在清单里
+    this.pending.clear()
+    for (const [id, task] of this.tasks)
+      if (task.status === 'completed' || task.carried) this.tasks.delete(id)
+      else task.carried = true
+  }
 
   /** 处理一次 TaskCreate / TaskUpdate 调用，返回调用之后的整份清单；别的工具返回 null */
   apply(toolUseId: string, name: string, input: Input): TodoStep[] | null {
     if (name === TASK_CREATE) {
       const text = str(input.subject) || str(input.activeForm)
-      if (text) this.pending.set(toolUseId, { text, status: 'pending' })
+      if (text) {
+        if (this.fresh) this.startList()
+        this.pending.set(toolUseId, { text, status: 'pending' })
+      }
       return this.steps()
     }
     if (name !== TASK_UPDATE) return null
+    // 删任务是在清旧的，不代表接着做原来的清单
+    if (input.status !== 'deleted') this.fresh = false
     const id = str(input.taskId)
     if (input.status === 'deleted') this.tasks.delete(id)
     else {
@@ -58,8 +85,15 @@ export class TaskBoard {
     if (id) this.tasks.set(id, task)
   }
 
-  /** 现在的整份清单 */
+  /** 现在的整份清单（不含上一轮没做完的） */
   steps(): TodoStep[] {
-    return [...this.tasks.values(), ...this.pending.values()].map(t => ({ text: t.text, status: t.status }))
+    return [...this.tasks.values(), ...this.pending.values()]
+      .filter(t => !t.carried)
+      .map(t => ({ text: t.text, status: t.status }))
+  }
+
+  /** 上一轮没做完的 */
+  carried(): TodoStep[] {
+    return [...this.tasks.values()].filter(t => t.carried).map(t => ({ text: t.text, status: t.status }))
   }
 }

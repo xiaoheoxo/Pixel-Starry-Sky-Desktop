@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRun, Item, TodoStep } from '@pixelsky/protocol'
-import { activeStep, currentPlan, progressAgents, turnKey } from './progressData'
+import { activeStep, canFoldDone, currentPlan, planResult, progressAgents, turnKey } from './progressData'
 
 const user = (id: string, mode?: 'guidance'): Item => ({ kind: 'user', id, text: id, createdAt: 0, mode })
 const steps = (...s: TodoStep['status'][]): TodoStep[] => s.map((status, i) => ({ text: `step ${i}`, status }))
@@ -127,5 +127,37 @@ describe('activeStep', () => {
   it('进行中的第一个步骤', () => {
     expect(activeStep(steps('completed', 'in_progress', 'pending'))).toBe(1)
     expect(activeStep(steps('completed', 'pending'))).toBe(-1)
+  })
+})
+
+describe('按轮次的进度（docs/ui/progress-card.md §11）', () => {
+  const todo = (statuses: TodoStep['status'][], carried?: TodoStep[]): Item => ({
+    kind: 'todo',
+    id: 't',
+    status: 'running',
+    steps: statuses.map((status, i) => ({ text: `s${i}`, status })),
+    ...(carried ? { carried } : {}),
+  })
+
+  it('上一轮没做完的不算进度，跟着计划带给卡片', () => {
+    const left = [{ text: 'old', status: 'pending' as const }]
+    const plan = currentPlan([todo(['completed', 'pending'], left)], true)
+    expect(plan).toMatchObject({ done: 1, carried: left })
+    expect(plan?.steps).toHaveLength(2)
+  })
+
+  it('做完两步起能收成一行；全做完时列全', () => {
+    const fold = (statuses: TodoStep['status'][]) => canFoldDone(currentPlan([todo(statuses)], true)!)
+    expect(fold(['completed', 'pending'])).toBe(false)
+    expect(fold(['completed', 'completed', 'in_progress'])).toBe(true)
+    expect(fold(['completed', 'completed'])).toBe(false)
+  })
+
+  it('执行那一行：取这一轮最后一份计划；没做完写停在哪一步', () => {
+    expect(planResult([])).toBeNull()
+    expect(planResult([todo(['completed', 'completed'])])).toEqual({ done: 2, total: 2, stoppedAt: null })
+    expect(planResult([todo(['completed', 'in_progress', 'pending'])])).toEqual({ done: 1, total: 3, stoppedAt: 's1' })
+    expect(planResult([todo(['completed', 'pending'])])).toEqual({ done: 1, total: 2, stoppedAt: 's1' })
+    expect(planResult([todo(['pending']), todo(['completed'])])).toEqual({ done: 1, total: 1, stoppedAt: null })
   })
 })

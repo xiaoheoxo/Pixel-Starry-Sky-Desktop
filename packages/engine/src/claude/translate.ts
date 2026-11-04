@@ -7,6 +7,7 @@
 // - 子 agent（Task 工具）的消息带 parent_tool_use_id，v1 不展开，只显示那一行工具调用；
 // - result 每轮正好一条，是一轮结束的标志；里面的花费和 modelUsage 是进程内累计值。
 import type {
+  TodoStep,
   BackgroundAgentRef,
   BackgroundTask,
   EngineEvent,
@@ -219,6 +220,17 @@ export class ClaudeTranslator {
   /** 收到订阅额度用完的事件（ClaudeSession.onRateLimit，只认自己账号的进程） */
   markUsageLimit(): void {
     this.usageLimited = true
+  }
+
+  /** 用户发了新的一轮（docs/ui/progress-card.md §11） */
+  newRound(): void {
+    this.taskBoard.newRound()
+  }
+
+  /** 任务工具拼出的清单里，上一轮没做完的那部分 */
+  private carriedSteps(): { carried?: TodoStep[] } {
+    const carried = this.taskBoard.carried()
+    return carried.length ? { carried } : {}
   }
 
   startTurn(turnId: string): void {
@@ -777,7 +789,7 @@ export class ClaudeTranslator {
         const steps = this.taskBoard.apply(id, name, obj(block.input))
         if (steps) this.taskItemId ??= id
         let item: Item = steps
-          ? { kind: 'todo', id: this.taskItemId ?? id, steps, status: 'running' }
+          ? { kind: 'todo', id: this.taskItemId ?? id, steps, ...this.carriedSteps(), status: 'running' }
           : toolItem(id, name, obj(block.input), this.cwd)
         if (!steps && item.kind === 'todo') {
           const prev = this.todo
@@ -842,7 +854,7 @@ export class ClaudeTranslator {
           done.kind !== 'todo'
             ? done
             : this.taskItemId === done.id
-              ? { ...done, steps: this.taskBoard.steps() }
+              ? { ...done, steps: this.taskBoard.steps(), ...this.carriedSteps() }
               : this.todo?.id === done.id
                 ? { ...this.todo, status: done.status }
                 : done,

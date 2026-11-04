@@ -7,6 +7,8 @@ export interface Plan {
   id: string
   steps: TodoStep[]
   done: number
+  /** 上一轮没做完的，不算进度（docs/ui/progress-card.md §11） */
+  carried?: TodoStep[]
 }
 
 export interface ProgressAgent {
@@ -49,7 +51,7 @@ export function currentPlan(items: Item[], running: boolean): Plan | null {
     const done = item.steps.filter(s => s.status === 'completed').length
     const later = items.slice(i + 1).filter(isTurnStart).length
     if (later === 0 || (running && later === 1 && done < item.steps.length))
-      return { id: item.id, steps: item.steps, done }
+      return { id: item.id, steps: item.steps, done, ...(item.carried?.length ? { carried: item.carried } : {}) }
     return null
   }
   return null
@@ -83,6 +85,24 @@ export function progressAgents(
       steps: (call && steps.get(call)) || [],
     }
   })
+}
+
+/** 做完几步起收成一行：只做完一步时收起来也是一行，不如直接写是哪一步 */
+const FOLD_DONE_FROM = 2
+
+/** 已完成的步骤能不能收成一行：全做完时列全，看得到做了什么 */
+export const canFoldDone = (plan: Plan): boolean => plan.done >= FOLD_DONE_FROM && plan.done < plan.steps.length
+
+/** 这一轮计划的结果（写在执行那一行上，docs/ui/progress-card.md §11）：stoppedAt 是没做完时停在哪一步 */
+export function planResult(items: readonly Item[]): { done: number; total: number; stoppedAt: string | null } | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind !== 'todo' || item.steps.length === 0) continue
+    const done = item.steps.filter(s => s.status === 'completed').length
+    const at = item.steps.find(s => s.status === 'in_progress') ?? item.steps.find(s => s.status !== 'completed')
+    return { done, total: item.steps.length, stoppedAt: at?.text ?? null }
+  }
+  return null
 }
 
 /** 当前步骤（进行中的第一个）的下标；没有时 -1 */

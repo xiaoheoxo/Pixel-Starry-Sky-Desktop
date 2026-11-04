@@ -7,7 +7,15 @@ import { settledResizeObserver } from '@/features/panes/motion'
 import type { SessionSnapshot, TodoStep } from '@pixelsky/protocol'
 import { IconButton, Spinner, cn } from '@/ui'
 import { elapsed, formatDuration, RUN_STATE_LABEL, shortModel, type RunState } from './agentTrace'
-import { activeStep, currentPlan, progressAgents, turnKey, type Plan, type ProgressAgent } from './progressData'
+import {
+  activeStep,
+  canFoldDone,
+  currentPlan,
+  progressAgents,
+  turnKey,
+  type Plan,
+  type ProgressAgent,
+} from './progressData'
 import { activityTooltip, agentActivity, agoText } from './agentActivity'
 import { useFirstSeen } from './useFirstSeen'
 import { useOpenTrace } from './trace'
@@ -15,6 +23,8 @@ import { useOpenTrace } from './trace'
 const COLLAPSED_KEY = 'pixelsky.progress.collapsed'
 /** 对话区比这窄时默认折叠 */
 const NARROW_PX = 640
+/** 全部勾完后停多久自动折叠（docs/ui/progress-card.md §11） */
+const ALL_DONE_FOLD_MS = 2000
 
 function readCollapsed(): boolean {
   try {
@@ -112,9 +122,14 @@ function useNow(active: boolean): number {
   return now
 }
 
-function summary(plan: Plan | null, agents: ProgressAgent[]): string {
+function summary(plan: Plan | null, agents: ProgressAgent[], finished: boolean): string {
   const parts: string[] = []
-  if (plan) parts.push(tr('session.progress.steps', { done: plan.done, total: plan.steps.length }))
+  if (plan)
+    parts.push(
+      finished
+        ? tr('session.progress.allDone', { total: plan.steps.length })
+        : tr('session.progress.steps', { done: plan.done, total: plan.steps.length }),
+    )
   const running = agents.filter(a => a.state === 'running').length
   if (running > 0) parts.push(tr('session.progress.agentsRunning', { n: running }))
   else if (agents.length > 0) parts.push(tr('session.progress.agents', { n: agents.length }))
@@ -123,37 +138,75 @@ function summary(plan: Plan | null, agents: ProgressAgent[]): string {
   return parts.join(' · ')
 }
 
-function Steps({ steps, working }: { steps: TodoStep[]; working: boolean }) {
+function Steps({ plan, working }: { plan: Plan; working: boolean }) {
+  const { steps } = plan
   const list = useRef<HTMLOListElement>(null)
   const active = activeStep(steps)
+  const [doneOpen, setDoneOpen] = useState(false)
+  const foldable = canFoldDone(plan)
+  const folded = foldable && !doneOpen
   // 当前步骤变了：只滚动步骤列表本身，不带动对话流
   useLayoutEffect(() => {
     const el = list.current
-    const row = active >= 0 ? (el?.children[active] as HTMLElement | undefined) : undefined
+    const row = el?.querySelector<HTMLElement>('[aria-current="step"]')
     if (!el || !row) return
     if (row.offsetTop < el.scrollTop || row.offsetTop + row.offsetHeight > el.scrollTop + el.clientHeight)
       el.scrollTop = row.offsetTop - (el.clientHeight - row.offsetHeight) / 2
-  }, [active, steps.length])
+  }, [active, steps.length, folded])
   return (
     <ol ref={list} className="relative flex max-h-[15.5rem] flex-col overflow-y-auto px-1.5">
-      {steps.map((s, i) => (
-        <li
-          key={i}
-          aria-current={i === active ? 'step' : undefined}
-          className={cn(
-            'flex items-start gap-2 rounded-md px-1.5 py-[3px] text-list',
-            i === active && 'bg-accent-soft',
-          )}
-        >
-          <StepMark status={s.status} live={working} />
-          <span
+      {foldable && (
+        <li>
+          <button
+            type="button"
+            aria-expanded={doneOpen}
+            title={tr(doneOpen ? 'session.progress.doneHide' : 'session.progress.doneShow')}
+            onClick={() => setDoneOpen(!doneOpen)}
+            className="press flex w-full items-start gap-2 rounded-md px-1.5 py-[3px] text-left text-list text-fg-muted hover:bg-hover"
+          >
+            <StepMark status="completed" />
+            <span className="min-w-0 flex-1">{tr('session.progress.doneFolded', { n: plan.done })}</span>
+            {doneOpen ? (
+              <ChevronUp size={14} strokeWidth={1.5} className="mt-[3px] shrink-0" />
+            ) : (
+              <ChevronDown size={14} strokeWidth={1.5} className="mt-[3px] shrink-0" />
+            )}
+          </button>
+        </li>
+      )}
+      {steps.map((s, i) => {
+        if (folded && s.status === 'completed') return null
+        return (
+          <li
+            key={i}
+            aria-current={i === active ? 'step' : undefined}
             className={cn(
-              'min-w-0 break-words',
-              s.status === 'completed' ? 'text-fg-muted' : 'text-fg',
-              i === active && 'font-medium',
+              'flex items-start gap-2 rounded-md px-1.5 py-[3px] text-list',
+              i === active && 'bg-accent-soft',
             )}
           >
+            <StepMark status={s.status} live={working} />
+            <span
+              className={cn(
+                'min-w-0 break-words',
+                s.status === 'completed' ? 'text-fg-muted' : 'text-fg',
+                i === active && 'font-medium',
+              )}
+            >
+              {s.text}
+            </span>
+          </li>
+        )
+      })}
+      {plan.carried?.map((s, i) => (
+        <li key={`carried-${i}`} className="flex items-start gap-2 rounded-md px-1.5 py-[3px] text-list">
+          {/* 停下时可能还是进行中：这里不再标，免得看着像正在做 */}
+          <StepMark status="pending" />
+          <span className="min-w-0 break-words text-fg-muted">
             {s.text}
+            <span className="ml-1.5 rounded-sm bg-warn/12 px-1 text-meta whitespace-nowrap text-warn">
+              {tr('session.progress.carried')}
+            </span>
           </span>
         </li>
       ))}
@@ -318,15 +371,42 @@ export function ProgressCard({
     ro.observe(box)
     return () => ro.disconnect()
   }, [])
+  const { plan, agents } = progress
+  // 全部勾完、它还在写总结：停一会儿自动折叠，不存成偏好；这份计划手动动过卡片就不管了；换一份计划自然展开
+  const allDone = !!plan && plan.done === plan.steps.length
+  const agentRunning = agents.some(a => a.state === 'running')
+  const planId = plan?.id ?? null
+  const [foldedPlan, setFoldedPlan] = useState<string | null>(null)
+  const keptOpen = useRef<string | null>(null)
+  const autoFolded = allDone && !agentRunning && foldedPlan === planId
   useEffect(() => {
-    if (expandToken) setUserCollapsed(false)
+    if (!allDone || agentRunning || keptOpen.current === planId) return
+    const timer = window.setTimeout(() => {
+      // 等的这 2 秒里手动动过卡片：听用户的
+      if (keptOpen.current !== planId) setFoldedPlan(planId)
+    }, ALL_DONE_FOLD_MS)
+    return () => window.clearTimeout(timer)
+  }, [allDone, agentRunning, planId])
+  useEffect(() => {
+    if (!expandToken) return
+    setUserCollapsed(false)
+    setFoldedPlan(null)
+    keptOpen.current = planId
+    // 只在「查看」时：换计划不算
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandToken])
-  const collapsed = userCollapsed ?? (stored || narrow)
+  const preferCollapsed = userCollapsed ?? (stored || narrow)
+  const collapsed = autoFolded || preferCollapsed
   const toggle = (): void => {
+    keptOpen.current = planId
+    setFoldedPlan(null)
+    // 只是自动折叠的：去掉就展开了，不动偏好。本来就想折叠（存过、窗口窄）时往下走，一次点击就展开
+    if (autoFolded && !preferCollapsed) return
     setUserCollapsed(!collapsed)
     saveCollapsed(!collapsed)
   }
-  const { plan, agents } = progress
+  const finished = collapsed && allDone
+  const current = collapsed && plan ? plan.steps[activeStep(plan.steps)] : undefined
   return (
     <section
       ref={card}
@@ -368,10 +448,20 @@ export function ProgressCard({
           onClick={progress.dismiss}
         />
       </div>
-      <div className="px-3 pb-1 text-meta text-fg-muted tabular-nums">{summary(plan, agents)}</div>
+      <div className={cn('px-3 pb-1 text-meta tabular-nums', finished ? 'text-success' : 'text-fg-muted')}>
+        {summary(plan, agents, finished)}
+      </div>
+      {current && (
+        <div className="mx-1.5 flex items-start gap-2 rounded-md bg-accent-soft px-1.5 py-[3px] text-list font-medium text-fg">
+          <StepMark status="in_progress" live={progress.working} />
+          <span title={current.text} className="min-w-0 truncate">
+            {current.text}
+          </span>
+        </div>
+      )}
       {!collapsed && (
         <div className="flex min-h-0 flex-col overflow-y-auto">
-          {plan && <Steps steps={plan.steps} working={progress.working} />}
+          {plan && <Steps key={plan.id} plan={plan} working={progress.working} />}
           {agents.length > 0 && <Agents agents={agents} divided={!!plan} onStop={onStopAgents} />}
         </div>
       )}

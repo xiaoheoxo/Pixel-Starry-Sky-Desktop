@@ -109,6 +109,8 @@ export interface EngineSession {
     seed?: ChatSeed,
     handoffImages?: ImageAttachment[],
   ): void
+  /** 用户发了新的一轮，send 之前调（断线重连自动发的「继续」不调）；清单按轮次的引擎才实现 */
+  newRound?(): void
   /** opts.background：连同后台子智能体一起停；没有后台任务的引擎忽略 */
   interrupt(opts?: InterruptOptions): Promise<void>
   answer(requestId: string, decision: ApprovalDecision): void

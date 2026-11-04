@@ -7,6 +7,7 @@ import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
 import { REQUEST_MS, useExpandAny } from '@/features/search/expand'
 import { formatDuration } from './agentTrace'
+import { planResult } from './progressData'
 import { summarize, type ProcessSummary } from './turnFold'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 
@@ -59,6 +60,7 @@ export function TurnProcess({
     if (requested && Date.now() - requested < REQUEST_MS) onToggle(true)
   }, [requested, onToggle])
   const summary = useMemo(() => summarize(items), [items])
+  const plan = useMemo(() => (running ? null : planResult(items)), [items, running])
   // 隐藏了内容的思考（只剩「思考了 N 秒」或什么都不显示）不算步数，也不占运行中露出的那几条
   const shown = useMemo(
     () => items.filter(i => !(i.kind === 'reasoning' && i.status !== 'running' && !i.text.trim())),
@@ -83,6 +85,16 @@ export function TurnProcess({
           ·
         </span>
         <span className="min-w-0 truncate">{summaryText(summary, shown.length)}</span>
+        {plan && (
+          <span className={cn('min-w-0 truncate', plan.stoppedAt ? 'text-warn' : 'text-success')}>
+            <span aria-hidden className="mr-1.5 text-fg-faint">
+              ·
+            </span>
+            {plan.stoppedAt
+              ? tr('session.process.planStopped', { total: plan.total, done: plan.done, step: plan.stoppedAt })
+              : tr('session.process.planDone', { total: plan.total })}
+          </span>
+        )}
         {summary.failed > 0 && (
           <span className="shrink-0 text-danger">
             <span aria-hidden className="mr-1.5 text-fg-faint">
