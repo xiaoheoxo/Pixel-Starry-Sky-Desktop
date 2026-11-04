@@ -16,6 +16,7 @@ import {
   mentionAt,
   mentionsAll,
   parseMentions,
+  remoteAgents,
   sharedDirAgents,
   splitMentions,
   stripPlanJson,
@@ -409,6 +410,17 @@ describe('@提及', () => {
     ).toEqual(['前端助手', '前端'])
     expect(sharedDirAgents([{ ...fe, sharesDirWith: ['别的频道的'] }, fe2])).toEqual([])
     expect(sharedDirAgents([fe, fe2])).toEqual([])
+  })
+  it('读不到本机路径的提示：只算这条会派给的 SSH 成员（@ 到的、@全体、被追加要求的）', () => {
+    const local = agentOf(members[1])
+    const remote = { ...agentOf(members[2]), machineId: 'ssh-ab', machine: 'dev-box' }
+    const list = [members[0], local, remote]
+    const names = (text: string, assignee?: string) => remoteAgents(text, list, assignee).map(m => m.name)
+    expect(names('看下这个')).toEqual([])
+    expect(names(`@${local.name} 看下`)).toEqual([])
+    expect(names(`@${remote.name} 看下`)).toEqual([remote.name])
+    expect(names('@全体 看下')).toEqual([remote.name])
+    expect(names('再看下', remote.id)).toEqual([remote.name])
   })
   it('@ 菜单默认选第一个成员；只有在输入「全」「全体」「al」「all」时默认选「全体」', () => {
     expect(defaultMentionIndex('', true, 2)).toBe(1)

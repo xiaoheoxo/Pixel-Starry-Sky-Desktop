@@ -966,6 +966,33 @@ describe('协作频道：附件（本机频道）', () => {
     expect(tasks(c, channelId)[0]).toMatchObject({ status: 'stopped', note: 'cancelled' })
   })
 
+  it('路径引用：本机成员带路径；SSH 成员不带、提示词说一声，内联内容的只去掉路径', async () => {
+    machines.push({ id: 'ssh-ab', name: 'dev-box', connected: true })
+    const c = await open()
+    const here = await c.saveMember(null, agent('本机助手'))
+    const there = await c.saveMember(null, agent('远端助手', { projectId: 'ssh-ab~p2' }))
+    const channelId = await c.create({ name: 'ch', memberIds: [here, there] })
+    const reference = {
+      id: 'jar',
+      name: 'mod.jar',
+      bytes: 9,
+      lines: 0,
+      encoding: 'utf-8' as const,
+      text: '',
+      path: 'E:\\mods\\mod.jar',
+      pathOnly: true,
+    }
+    const log = { ...file('err'), path: 'E:\\mods\\err.log' }
+    await c.post(channelId, { text: '@本机助手 @远端助手 看下', clientId: 'p1', files: [reference, log] })
+    await settle()
+    const sends = sentWith() as { text: string; files?: { id: string; path?: string }[] }[]
+    expect(sends).toHaveLength(2)
+    const remote = sends.find(s => s.text.includes('附件 mod.jar 在发送人的电脑上'))!
+    const local = sends.find(s => s !== remote)!
+    expect(local.files?.map(f => f.path)).toEqual([reference.path, log.path])
+    expect(remote.files?.map(f => [f.id, f.path])).toEqual([['err', undefined]])
+  })
+
   it('格式不对的附件不收；团队频道不支持附件', async () => {
     const c = await open()
     const channelId = await c.create({ name: 'ch', memberIds: [] })

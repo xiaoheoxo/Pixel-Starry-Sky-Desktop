@@ -1,11 +1,11 @@
-// 频道输入框的附件（本机频道）：粘贴、拖进来、点回形针选的图片和文本文件，规则照会话输入框
+// 频道输入框的附件（本机频道）：粘贴、拖进来、点回形针选的图片和文件，规则照会话输入框
 // （features/session/Composer.tsx 的 addFiles / addImages）；草稿按频道存在 IndexedDB
 import { useRef, useState } from 'react'
-import { MAX_FILE_BYTES, MAX_FILE_COUNT, MAX_IMAGE_COUNT, MAX_IMAGE_TOTAL } from '@pixelsky/protocol'
+import { MAX_FILE_COUNT, MAX_IMAGE_COUNT, MAX_IMAGE_TOTAL, type FileAttachment } from '@pixelsky/protocol'
 import { tr } from '@/i18n/core'
 import { readImage } from '@/features/session/attachments/images'
 import { needsConversion } from '@/features/session/attachments/convertImage'
-import { isImageFile, readTextFile } from '@/features/session/attachments/files'
+import { isImageFile, isOversizeImage, pathReference, readOrReference } from '@/features/session/attachments/files'
 import { updateFiles, updateImages, useFileDraft, useImageDraft } from '@/features/session/attachments/drafts'
 
 /** 剪贴板 / 拖进来的东西里的文件；文件夹不收（频道不支持 @路径） */
@@ -18,12 +18,26 @@ export function transferFiles(transfer: DataTransfer): File[] {
   })
 }
 
+/** 读不了内容（压缩包、二进制、太大、读太久）就按路径引用；没有本机路径（复制来的内容）才报原因 */
+export async function readChannelFile(file: File, path: string): Promise<FileAttachment> {
+  const doc = await readOrReference(file, reason => {
+    if (!path) throw reason
+    return pathReference(file, path)
+  })
+  return path ? { ...doc, path } : doc
+}
+
+const pathOf = (file: File): string => window.pixelsky?.pathForFile(file) ?? ''
+
 export function useChannelAttachments(key: string) {
   const imageDraft = useImageDraft(key),
     fileDraft = useFileDraft(key)
   const { images } = imageDraft,
     { files } = fileDraft
   const [error, setError] = useState<string | null>(null)
+  /** 关掉的草稿读写错误（它存在草稿里，只能在这里记着不再显示） */
+  const [dismissedDraftError, setDismissedDraftError] = useState<string | null>(null)
+  const draftError = imageDraft.error ?? fileDraft.error
   const [reading, setReading] = useState(0)
   const queue = useRef(Promise.resolve())
 
@@ -65,23 +79,20 @@ export function useChannelAttachments(key: string) {
     })
   }
 
-  /** 图片走图片附件，其余按文本文件读 */
+  /** 图片走图片附件（太大又有本机路径的按路径引用），其余读成文字或按路径引用 */
   const add = (list: FileList | File[]): void => {
     const all = [...list]
-    addImages(all.filter(isImageFile))
-    const others = all.filter(file => !isImageFile(file))
+    const imageFiles = all.filter(isImageFile)
+    const pathImages = imageFiles.filter(file => isOversizeImage(file) && pathOf(file))
+    addImages(imageFiles.filter(file => !pathImages.includes(file)))
+    const others = [...all.filter(file => !isImageFile(file)), ...pathImages]
     if (!others.length) return
     if (files.length + others.length > MAX_FILE_COUNT) {
       setError(tr('composer.file.tooMany'))
       return
     }
-    const large = others.find(file => file.size > MAX_FILE_BYTES)
-    if (large) {
-      setError(tr('composer.file.tooLarge', { p0: large.name }))
-      return
-    }
     read(async () => {
-      const results = await Promise.allSettled(others.map(readTextFile))
+      const results = await Promise.allSettled(others.map(file => readChannelFile(file, pathOf(file))))
       const loaded = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []))
       if (loaded.length) await updateFiles(key, current => [...current, ...loaded])
       const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
@@ -92,7 +103,7 @@ export function useChannelAttachments(key: string) {
   return {
     images,
     files,
-    error: error ?? imageDraft.error ?? fileDraft.error,
+    error: error ?? (draftError !== dismissedDraftError ? draftError : null),
     busy: reading > 0 || imageDraft.loading || fileDraft.loading,
     add,
     removeImage: (id: string) => void updateImages(key, list => list.filter(i => i.id !== id)).catch(() => {}),
@@ -109,6 +120,9 @@ export function useChannelAttachments(key: string) {
       ])
       setError(null)
     },
-    dismissError: () => setError(null),
+    dismissError: () => {
+      setError(null)
+      setDismissedDraftError(draftError)
+    },
   }
 }

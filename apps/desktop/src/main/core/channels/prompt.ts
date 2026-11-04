@@ -122,6 +122,14 @@ export function droppedNote(images: number, files: number, locale: Locale): stri
   return `（频道里还有 ${parts.filter(Boolean).join('、')} 超过一条消息的上限，这次没带上）`
 }
 
+/** 按路径引用的附件在发送人的电脑上，SSH 成员读不到、这一轮没带上的；都带上了时空串 */
+export function unreachableNote(names: readonly string[], locale: Locale): string {
+  if (!names.length) return ''
+  return en(locale)
+    ? `(Attachment ${names.join(', ')} is on the sender's computer. This machine can't read it, so it was not included)`
+    : `（附件 ${names.join('、')} 在发送人的电脑上，你这台机器读不到，这次没带上）`
+}
+
 /** 历史里的一行；事件和只在讨论串里的消息不带（null） */
 export function historyLine(m: ChannelMessage, nameOf: (id: string) => string, locale: Locale): string | null {
   const colon = en(locale) ? ': ' : '：'

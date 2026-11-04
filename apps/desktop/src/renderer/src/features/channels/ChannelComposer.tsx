@@ -33,6 +33,7 @@ import {
   mentionAllOption,
   mentionAt,
   mentionsAll,
+  remoteAgents,
   sharedDirAgents,
 } from './model'
 import { MENTION_ALL } from '../../../../shared/channels/mentions'
@@ -44,6 +45,34 @@ export { channelDraftKey } from './draftKey'
 
 const LINE_HEIGHT = 24
 const MAX_ROWS = 8
+
+/** 附件读不了的原因：一行能关，第一行之后的（压缩包的文件列表）默认收起 */
+function AttachError({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  const [open, setOpen] = useState(false)
+  const lineEnd = message.indexOf('\n')
+  const details = lineEnd < 0 ? '' : message.slice(lineEnd + 1)
+  return (
+    <div data-attach-error="" className="flex min-w-0 items-start gap-1 pt-1.5 pr-1.5 pl-4 text-meta">
+      <div className="min-w-0 flex-1 pt-0.5">
+        <span className="text-danger">{lineEnd < 0 ? message : message.slice(0, lineEnd)}</span>
+        {details && (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(o => !o)}
+            className="ml-2 text-fg-muted underline hover:text-fg"
+          >
+            {tr(open ? 'channels.attach.hideDetails' : 'channels.attach.showDetails')}
+          </button>
+        )}
+        {open && (
+          <div className="mt-1 max-h-32 overflow-auto break-all whitespace-pre-wrap text-fg-muted">{details}</div>
+        )}
+      </div>
+      <IconButton icon={X} label={tr('channels.attach.dismissError')} size={22} iconSize={13} onClick={onDismiss} />
+    </div>
+  )
+}
 
 /** 频道输入框（docs/ui/channels.md §6）：文本、附件（本机频道，可粘贴 / 拖进来）和发送；@ 菜单、引用条、按频道保存草稿 */
 export function ChannelComposer({
@@ -120,6 +149,9 @@ export function ChannelComposer({
   const hasAttachments = !team && (attach.images.length > 0 || attach.files.length > 0)
   const canSend = (value.trim().length > 0 || hasAttachments) && !sending && !offline && !attach.busy
   const hasAgents = members.some(m => m.kind === 'agent')
+  /** 带了路径引用，这条又会派给 SSH 成员：对方读不到，先说一声 */
+  const unreachable =
+    hasAttachments && attach.files.some(f => f.pathOnly) ? remoteAgents(value, members, continuing?.assigneeId) : []
 
   // 自动增高，最多 8 行
   useLayoutEffect(() => {
@@ -301,6 +333,21 @@ export function ChannelComposer({
               </span>
             </div>
           )}
+          {unreachable.length > 0 && (
+            <div
+              data-attach-unreachable=""
+              className="flex min-w-0 items-center gap-2 border-b border-line-subtle px-3 py-1.5 text-meta text-fg-muted"
+            >
+              <TriangleAlert size={13} strokeWidth={1.5} className="shrink-0 text-warn" />
+              <span className="min-w-0 flex-1">
+                {tr('channels.composer.attachUnreachable', {
+                  names: unreachable
+                    .map(m => tr('channels.composer.memberAt', { name: m.name, machine: m.machine }))
+                    .join(tr('channels.composer.nameSep')),
+                })}
+              </span>
+            </div>
+          )}
           {hasAttachments && (
             <div data-channel-composer-attachments="" className="flex flex-col gap-2 px-3 pt-3">
               {attach.images.length > 0 && (
@@ -314,7 +361,7 @@ export function ChannelComposer({
             </div>
           )}
           {attach.error && !team && (
-            <div className="px-4 pt-2 text-meta whitespace-pre-wrap text-danger">{translateMessage(attach.error)}</div>
+            <AttachError key={attach.error} message={translateMessage(attach.error)} onDismiss={attach.dismissError} />
           )}
           <div className={cn('flex items-end gap-2 py-2 pr-2', team ? 'pl-4' : 'pl-1.5')}>
             {!team && (

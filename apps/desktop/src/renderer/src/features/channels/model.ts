@@ -324,6 +324,13 @@ export function sharedDirAgents(members: readonly ChannelMember[]): string[] {
   return shared.length >= 2 ? shared : []
 }
 
+/** 这条消息会派给的 SSH 成员（@ 到的，或被追加要求的）：读不到本机路径 */
+export function remoteAgents(text: string, members: readonly ChannelMember[], assigneeId?: string): AgentMember[] {
+  const ids = new Set(parseMentions(text, members))
+  if (assigneeId) ids.add(assigneeId)
+  return members.filter((m): m is AgentMember => m.kind === 'agent' && m.machineId !== 'local' && ids.has(m.id))
+}
+
 // ---------------------------------------------------------------------------
 // 状态更新（都返回新对象，不改原值）
 // ---------------------------------------------------------------------------

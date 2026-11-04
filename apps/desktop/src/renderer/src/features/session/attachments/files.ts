@@ -6,6 +6,7 @@ import {
   FILE_TAIL_BYTES,
   IMAGE_MEDIA_TYPES,
   MAX_FILE_BYTES,
+  MAX_IMAGE_BYTES,
   imageMediaType,
   type FileAttachment,
 } from '@pixelsky/protocol'
@@ -151,6 +152,44 @@ export async function readTextFile(file: File): Promise<FileAttachment> {
   const headLines = lineCount(text),
     tailLines = lineCount(rest)
   return { ...base, encoding, lines, text, tail: rest, omitted: Math.max(0, lines - headLines - tailLines) }
+}
+
+/** 提取文字（Word、PDF 这类）最多等这么久：再久就按路径引用，智能体自己去读，输入框不一直卡在「读取中」 */
+const EXTRACT_TIMEOUT_MS = 30_000
+
+function withinTime<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('timeout')), ms)))
+  return Promise.race([work, late]).finally(() => clearTimeout(timer))
+}
+
+/** 太大、放不进图片附件的图片：只能按路径引用 */
+export const isOversizeImage = (file: File): boolean =>
+  file.size > MAX_FILE_BYTES || (!needsConversion(file) && file.size > MAX_IMAGE_BYTES)
+
+/** 只发路径、不带内容的附件；staged：路径指向应用暂存的临时副本 */
+export const pathReference = (file: File, path: string, staged = false): FileAttachment => ({
+  id: crypto.randomUUID(),
+  name: file.name || 'attachment',
+  bytes: file.size,
+  lines: 0,
+  encoding: 'utf-8',
+  text: '',
+  path,
+  pathOnly: true,
+  ...(staged ? { staged: true } : {}),
+})
+
+/** 能读成文字就读；太大、压缩包、二进制、读太久的交给 fallback 决定怎么办（按路径引用，或者报 reason） */
+export async function readOrReference(
+  file: File,
+  fallback: (reason: Error) => FileAttachment | Promise<FileAttachment>,
+): Promise<FileAttachment> {
+  try {
+    return await withinTime(readTextFile(file), EXTRACT_TIMEOUT_MS)
+  } catch (error) {
+    return fallback(error as Error)
+  }
 }
 
 /** 大致的 token 数：英文约 4 个字符一个，中文约一个字一个 */

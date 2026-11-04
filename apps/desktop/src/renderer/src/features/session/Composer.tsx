@@ -15,9 +15,7 @@ import {
   type StatusBarController,
 } from '@/features/engine'
 import {
-  MAX_FILE_BYTES,
   MAX_FILE_COUNT,
-  MAX_IMAGE_BYTES,
   MAX_IMAGE_COUNT,
   MAX_IMAGE_TOTAL,
   isChatProject,
@@ -68,7 +66,13 @@ import { ImageAttachments } from '@/features/session/attachments/ImageAttachment
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import { readImage } from '@/features/session/attachments/images'
 import { needsConversion } from '@/features/session/attachments/convertImage'
-import { fileSize, isImageFile, readTextFile } from '@/features/session/attachments/files'
+import {
+  fileSize,
+  isImageFile,
+  isOversizeImage,
+  pathReference,
+  readOrReference,
+} from '@/features/session/attachments/files'
 import { discardStaged, releaseStaged, stageFile } from '@/features/session/attachments/stage'
 import { updateFiles, updateImages, useFileDraft, useImageDraft } from '@/features/session/attachments/drafts'
 import { AnnotationCard } from '@/features/session/attachments/AnnotationCard'
@@ -86,14 +90,6 @@ import { PromptOptimizeButton, PromptOptimizeNote, usePromptOptimize } from './P
 /** text-prose 是 14px / 1.7，行高取整成 24px，增高计算和样式共用 */
 const LINE_HEIGHT = 24
 const MAX_ROWS = 8
-/** 提取文字（Word、PDF 这类）最多等这么久：再久就按路径引用，智能体自己去读，输入框不一直卡在「读取中」 */
-const EXTRACT_TIMEOUT_MS = 30_000
-
-function withinTime<T>(work: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('timeout')), ms)))
-  return Promise.race([work, late]).finally(() => clearTimeout(timer))
-}
 /** 输入区上下内边距（pt-3.5 + pb-3.5） */
 export const CARD_STYLE =
   'composer-card rounded-2xl border border-line-composer bg-surface shadow-composer transition-[border-color,box-shadow] duration-(--dur-base) ease-(--ease-out) focus-within:border-line-composer-focus focus-within:ring-2 focus-within:ring-composer-ring'
@@ -441,9 +437,7 @@ export function Composer({
   const addFiles = (files: FileList | File[]): void => {
     const list = [...files]
     const imageFiles = list.filter(isImageFile)
-    const pathImages = imageFiles.filter(
-      file => file.size > MAX_FILE_BYTES || (!needsConversion(file) && file.size > MAX_IMAGE_BYTES),
-    )
+    const pathImages = imageFiles.filter(isOversizeImage)
     const pictures = imageFiles.filter(file => !pathImages.includes(file))
     const others = [...list.filter(file => !isImageFile(file)), ...pathImages]
     if (pictures.length) addImages(pictures)
@@ -473,30 +467,12 @@ export function Composer({
       uploads.current = next.catch(() => undefined)
       return next
     }
-    const reference = async (file: File, path: string): Promise<FileAttachment> => {
-      const staged = !path
-      const targetPath = path || (await send(file))
-      return {
-        id: crypto.randomUUID(),
-        name: file.name || 'attachment',
-        bytes: file.size,
-        lines: 0,
-        encoding: 'utf-8',
-        text: '',
-        path: targetPath,
-        pathOnly: true,
-        ...(staged ? { staged: true } : {}),
-      }
-    }
+    const reference = async (file: File, path: string): Promise<FileAttachment> =>
+      pathReference(file, path || (await send(file)), !path)
     const withPath = async (file: File): Promise<FileAttachment> => {
       const path = local ? (window.pixelsky?.pathForFile(file) ?? '') : ''
-      if (file.size > MAX_FILE_BYTES) return reference(file, path)
-      let doc: FileAttachment
-      try {
-        doc = await withinTime(readTextFile(file), EXTRACT_TIMEOUT_MS)
-      } catch {
-        return reference(file, path)
-      }
+      const doc = await readOrReference(file, () => reference(file, path))
+      if (doc.pathOnly) return doc
       if (path) return { ...doc, path }
       if (doc.tail === undefined && doc.omitted === undefined) return doc
       // 远程会话（或没有本机路径）的大文本：照旧内联开头和结尾，另外把全文暂存到目标机器，智能体按路径读省略的部分；

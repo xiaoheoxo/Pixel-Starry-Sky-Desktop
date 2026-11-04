@@ -89,6 +89,7 @@ import {
   decisionOf,
   dispatchPrompt,
   droppedNote,
+  unreachableNote,
   followUpPrompt,
   HISTORY_WITH_TOOLS,
   historyLine,
@@ -1269,13 +1270,20 @@ export class Channels {
     return this.store.readAttachments(channelId, messageId)
   }
 
-  /** 这一轮要带上的附件：几条消息的合在一起，超过一条消息的上限时后面的图片不带；引擎不收图片时只带文件 */
+  /**
+   * 这一轮要带上的附件：几条消息的合在一起，超过一条消息的上限时后面的图片不带；引擎不收图片时只带文件。
+   * SSH 成员读不到发送人电脑上的路径：路径引用不带（unreachable 是文件名），内联了内容的只去掉路径
+   */
   private async attachmentsFor(
     run: TaskRun,
     member: AgentConfig,
-  ): Promise<{ input: Pick<MessageInput, 'attachments' | 'files'>; dropped: { images: number; files: number } }> {
+  ): Promise<{
+    input: Pick<MessageInput, 'attachments' | 'files'>
+    dropped: { images: number; files: number }
+    unreachable: string[]
+  }> {
     const dropped = { images: 0, files: 0 }
-    if (!run.attach?.length) return { input: {}, dropped }
+    if (!run.attach?.length) return { input: {}, dropped, unreachable: [] }
     const images: ChannelAttachments['images'] = [],
       files: ChannelAttachments['files'] = []
     let total = 0
@@ -1290,7 +1298,10 @@ export class Channels {
     }
     const takesImages = ENGINE_INFO[member.engine]?.caps.imageInput === true
     if (!takesImages) dropped.images += images.length
-    const kept = { attachments: takesImages ? images : [], files: files.slice(0, 10) }
+    const remote = member.machineId !== 'local'
+    const unreachable = remote ? files.filter(f => f.pathOnly).map(f => f.name) : []
+    const readable = remote ? files.filter(f => !f.pathOnly).map(({ path: _path, ...f }) => f) : files
+    const kept = { attachments: takesImages ? images : [], files: readable.slice(0, 10) }
     // 文件全文合计超了就一个个往回减，直到能发
     while (kept.files.length) {
       try {
@@ -1300,13 +1311,14 @@ export class Channels {
         kept.files = kept.files.slice(0, -1)
       }
     }
-    dropped.files = files.length - kept.files.length
+    dropped.files = readable.length - kept.files.length
     return {
       input: {
         ...(kept.attachments.length ? { attachments: kept.attachments } : {}),
         ...(kept.files.length ? { files: kept.files } : {}),
       },
       dropped,
+      unreachable,
     }
   }
 
@@ -1855,8 +1867,14 @@ export class Channels {
       // 读附件期间可能被取消、停止：再核对一次，取消了就不发
       const now = this.store.runs.get(run.taskId)
       if (!now || now.phase !== 'sent' || now.clientMessageId !== cmid) return
-      // 几条消息的附件合在一起超过一条消息的上限、带不上的，告诉 AI 一声
-      const lost = droppedNote(extra.dropped.images, extra.dropped.files, this.deps.locale())
+      // 带不上的（超过一条消息的上限、SSH 成员读不到路径）告诉 AI 一声
+      const locale = this.deps.locale()
+      const lost = [
+        droppedNote(extra.dropped.images, extra.dropped.files, locale),
+        unreachableNote(extra.unreachable, locale),
+      ]
+        .filter(Boolean)
+        .join('\n')
       await this.deps.call('engine:send', [
         sessionId,
         { text: lost ? `${text}\n\n${lost}` : text, clientMessageId: cmid, ...extra.input },
