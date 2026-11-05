@@ -1,0 +1,140 @@
+// 消息通道（docs/ui/one-click-connectors.md）：设置 › 消息通道，以及机器人在聊天里说的话
+export const imMessages = {
+  'im.title': { zh: '消息通道', en: 'Chat channels' },
+  'im.intro': {
+    zh: '在 QQ、微信里给这台电脑上的 AI 发消息。消息由这台电脑接收，关机或断网时不响应。',
+    en: 'Message the AI on this computer from QQ or WeChat. This computer receives the messages, so nothing responds while it is off or offline.',
+  },
+  'im.project': { zh: '消息进哪个项目', en: 'Project for new conversations' },
+  'im.projectHint': {
+    zh: '第一条消息会在这个项目下开新对话，固定询问模式，只在这台电脑上。',
+    en: 'The first message starts a new conversation in this project, always in Ask mode, on this computer only.',
+  },
+  'im.projectNone': { zh: '选择项目', en: 'Choose a project' },
+  'im.rules': {
+    zh: '只认绑定的人，别人发的消息不回复也不转给 AI。改文件和有风险的命令要在聊天里回复确认；只读命令按引擎自己的规则，可能不问。在聊天里可以发 /新对话、/停止、/状态。',
+    en: 'Only the bound person is accepted; messages from anyone else are dropped. File edits and risky commands must be approved in the chat; read-only commands follow the engine\u2019s own rules and may not ask. Chat commands: /new, /stop, /status.',
+  },
+  'im.qq.name': { zh: 'QQ', en: 'QQ' },
+  'im.qq.desc': {
+    zh: '用你自己申请的 QQ 机器人，只支持私聊。',
+    en: 'Uses your own QQ bot. Direct messages only.',
+  },
+  'im.qq.help': {
+    zh: '在 QQ 开放平台（q.qq.com）创建机器人，开启单聊消息，把这台电脑的公网 IP 加进 IP 白名单；新建的机器人还要在沙箱配置里加上你的 QQ。再填下面两项。',
+    en: 'Create a bot on the QQ Open Platform (q.qq.com), enable direct messages and add this computer’s public IP to the IP allowlist. For a new bot, also add your QQ account in the sandbox settings. Then fill in the two fields below.',
+  },
+  'im.qq.appId': { zh: 'AppID', en: 'AppID' },
+  'im.qq.appSecret': { zh: 'AppSecret', en: 'AppSecret' },
+  'im.qq.keep': { zh: '已保存（不改就留空）', en: 'Saved (leave blank to keep)' },
+  'im.wechat.name': { zh: '微信', en: 'WeChat' },
+  'im.wechat.desc': {
+    zh: '扫码连接 ClawBot 通道，只支持私聊。',
+    en: 'Scan a QR code to connect through ClawBot. Direct messages only.',
+  },
+  'im.wechat.scan': {
+    zh: '用微信扫这个码，并在手机上确认',
+    en: 'Scan this code with WeChat and confirm on your phone',
+  },
+  'im.experimental': { zh: '实验性', en: 'Experimental' },
+  'im.privacy': {
+    zh: '你发的消息和 AI 的回复（包括要确认的命令和文件名）会经过腾讯的服务器。',
+    en: 'Your messages and the AI’s replies, including commands and file names awaiting approval, pass through Tencent’s servers.',
+  },
+  'im.wechat.risk': {
+    zh: '腾讯没有公开这个接口的文档，也没有明确允许第三方软件接入。腾讯可以限制或终止连接，也可能暂停这个微信账号的服务。建议先用不常用的账号试。',
+    en: 'Tencent has not published documentation for this interface or explicitly allowed third-party apps to use it. Tencent may limit or end the connection, and may suspend this WeChat account. Try it with a spare account first.',
+  },
+  'im.accept': { zh: '我了解上面的内容', en: 'I understand the above' },
+  'im.connect': { zh: '连接', en: 'Connect' },
+  'im.disconnect': { zh: '断开', en: 'Disconnect' },
+  'im.forget': { zh: '清除凭据', en: 'Remove credentials' },
+  'im.pair': { zh: '开始配对', en: 'Start pairing' },
+  'im.pairCancel': { zh: '取消配对', en: 'Cancel pairing' },
+  'im.pairHint': {
+    zh: '把这串配对码发给机器人，绑定你自己（{minutes} 分钟内有效，只能用一次）：',
+    en: 'Send this code to the bot to bind yourself (valid for {minutes} minutes, single use):',
+  },
+  'im.unbind': { zh: '解除绑定', en: 'Unbind' },
+  'im.status.off': { zh: '未连接', en: 'Not connected' },
+  'im.status.connecting': { zh: '连接中', en: 'Connecting' },
+  'im.status.scan': { zh: '等待扫码', en: 'Waiting for scan' },
+  'im.status.online': { zh: '已连接', en: 'Connected' },
+  'im.status.bound': { zh: '已绑定', en: 'Bound' },
+  'im.status.error': { zh: '连接失败', en: 'Connection failed' },
+  'im.ignored': { zh: '已丢弃 {n} 条其他人发来的消息', en: 'Dropped {n} messages from other people' },
+  'errors.im.noCipher': {
+    zh: '系统加密不可用，不能保存凭据，所以没有连接。',
+    en: 'System encryption is unavailable, so credentials can’t be saved and nothing was connected.',
+  },
+  'errors.im.notAccepted': { zh: '要先确认上面的说明。', en: 'Please confirm the notice above first.' },
+  'errors.im.missing': { zh: '请填写 AppID 和 AppSecret。', en: 'Enter the AppID and AppSecret.' },
+  'errors.im.noProject': { zh: '这个项目不存在了。', en: 'This project no longer exists.' },
+  'im.error.qqIp': {
+    zh: '这台电脑的 IP 不在机器人的 IP 白名单里。到 QQ 开放平台 › 开发设置 › IP 白名单加上它。',
+    en: 'This computer’s IP isn’t on the bot’s allowlist. Add it under QQ Open Platform › Development settings › IP allowlist.',
+  },
+  'im.error.qqIpValue': {
+    zh: '当前公网 IP：{ip}（宽带重新拨号后可能会变）',
+    en: 'Current public IP: {ip} (it may change when your connection redials)',
+  },
+  'im.error.qqClosed': {
+    zh: 'QQ 断开了连接（代码 {code}），正在重试。到 QQ 开放平台确认开了单聊消息权限、机器人状态正常。',
+    en: 'QQ closed the connection (code {code}). Retrying. On the QQ Open Platform, check that direct messages are enabled and the bot is in good standing.',
+  },
+  'im.error.qqAuth': { zh: 'AppID 或 AppSecret 不对。', en: 'The AppID or AppSecret is incorrect.' },
+  'im.error.wechatExpired': {
+    zh: '微信的登录已失效，重新扫码才能继续。',
+    en: 'The WeChat login has expired. Scan again to continue.',
+  },
+  'im.error.wechatQr': {
+    zh: '二维码过期了，重新连接换一个。',
+    en: 'The QR code expired. Connect again for a new one.',
+  },
+  'im.error.network': { zh: '连不上服务器，正在重试。', en: 'Can’t reach the server. Retrying.' },
+  'im.chat.paired': {
+    zh: '绑定成功。直接发消息给 AI；可以发 /新对话、/停止、/状态。改文件和有风险的命令会来这里问你。',
+    en: 'Bound. Message the AI directly. You can send /new, /stop or /status. File edits and risky commands will be confirmed here.',
+  },
+  'im.chat.rejected': {
+    zh: '有一条消息被平台拒收了（可能带了网址），内容到电脑上看。',
+    en: 'The platform rejected a message (it may contain a link). See the computer for the content.',
+  },
+  'im.chat.textOnly': { zh: '现在只支持文字消息。', en: 'Only text messages are supported for now.' },
+  'im.chat.newSession': { zh: '下一条消息会开新对话。', en: 'Your next message starts a new conversation.' },
+  'im.chat.noSession': { zh: '现在没有对话。', en: 'There is no conversation right now.' },
+  'im.chat.status': {
+    zh: '当前对话：{title}\n待确认：{pending} 项',
+    en: 'Conversation: {title}\nAwaiting approval: {pending}',
+  },
+  'im.chat.noProject': {
+    zh: '还没选项目。到电脑上的 设置 › 消息通道 选一个。',
+    en: 'No project is selected. Choose one under Settings › Chat channels on the computer.',
+  },
+  'im.chat.modeChanged': {
+    zh: '这个对话在电脑上改成了别的权限模式，聊天里不能接着发。发 /新对话 开新的。',
+    en: 'This conversation was switched to another permission mode on the computer, so it can’t continue from chat. Send /new to start a new one.',
+  },
+  'im.chat.failed': { zh: '出错了：{error}', en: 'Something went wrong: {error}' },
+  'im.chat.expired': { zh: '编号 {n} 已经失效。', en: 'Number {n} is no longer valid.' },
+  'im.chat.useAnswer': {
+    zh: '这是问题，回复「回答 {n} 选项序号」。',
+    en: 'This is a question. Reply "answer {n} <option number>".',
+  },
+  'im.chat.badAnswer': {
+    zh: '没看懂。回复「回答 {n} 序号」，有几个问题就写几个序号，用空格隔开。',
+    en: 'Couldn’t read that. Reply "answer {n} <number>", with one option number per question, separated by spaces.',
+  },
+  'im.chat.onDesktop': { zh: '这一项要在电脑上处理。', en: 'This one has to be handled on the computer.' },
+  'im.chat.approvalHead': { zh: '需要确认 #{n}：{title}', en: 'Approval #{n}: {title}' },
+  'im.chat.approvalHow': { zh: '回复「同意 {n}」或「拒绝 {n}」', en: 'Reply "allow {n}" or "deny {n}"' },
+  'im.chat.questionHead': { zh: 'AI 在问 #{n}：', en: 'The AI is asking #{n}:' },
+  'im.chat.questionHow': {
+    zh: '回复「回答 {n} 序号」，有几个问题就写几个序号',
+    en: 'Reply "answer {n} <number>", with one option number per question',
+  },
+  'im.chat.stopped': { zh: '已停止。', en: 'Stopped.' },
+  'im.chat.done': { zh: '做完了。', en: 'Done.' },
+  'im.chat.background': { zh: '后台还有 {n} 个任务在跑。', en: '{n} background tasks are still running.' },
+  'im.chat.truncated': { zh: '（太长了，完整内容在电脑上）', en: '(Too long. See the computer for the full text.)' },
+} as const

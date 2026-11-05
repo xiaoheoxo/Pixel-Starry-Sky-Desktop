@@ -3,7 +3,7 @@
 // （它们会带 data-setting-title），点搜索结果时按标题找到那一行、滚过去并高亮。改设置页时同步改这里。
 import { ENGINES, type EngineId } from '@pixelsky/protocol'
 import type { SectionId } from './SettingsDialog'
-import { tr, translateText } from '../../i18n/core'
+import { allMessages, tr, translateText } from '../../i18n/core'
 import { getPackState } from '@/features/extpacks/store'
 import { iconThemesAvailable } from '@/features/files/icons/store'
 import { editorThemesAvailable } from '@/features/editor/code/colorTheme/store'
@@ -23,6 +23,11 @@ export interface SearchEntry {
 
 export const SETTINGS_INDEX: SearchEntry[] = [
   { section: 'notifications', title: '通知', keywords: '通知 提醒 系统通知 notification notify alert' },
+  {
+    section: 'im',
+    title: allMessages['im.title'].zh,
+    keywords: `${allMessages['im.title'].zh} ${allMessages['im.wechat.name'].zh} ${allMessages['im.pair'].zh} QQ wechat clawbot bot chat channel pair`,
+  },
   { section: 'mobile', title: '手机', keywords: '手机 远程 扫码 配对 中转 mobile phone remote pair qr relay' },
   { section: 'mobile', title: '允许手机远程连接', keywords: '手机 远程 连接 开关 mobile phone remote enable' },
   { section: 'mobile', title: '有任务运行时不让电脑睡眠', keywords: '手机 睡眠 休眠 唤醒 sleep awake' },

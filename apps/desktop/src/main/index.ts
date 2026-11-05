@@ -29,6 +29,7 @@ import { EXT_HOST_SCHEME_PRIVILEGES } from './extension-packs/scripts/host'
 import { initExtCommands } from './extension-packs/scripts/ipc'
 import { loadShellEnv } from './app/shell-env'
 import { initMobile } from './mobile/ipc'
+import { initIm } from './im/ipc'
 import { initWorkspace } from './workspace/files-ipc'
 import { initWindowControls, observeWindowControls } from './app/window-controls'
 import { initExport } from './export/ipc'
@@ -542,6 +543,8 @@ app.whenReady().then(async () => {
   startup.step('initEngine')
   initMobile(ctx) // 手机远程连接（默认关），见 mobile/ipc.ts
   startup.step('initMobile')
+  initIm(ctx) // 消息通道（QQ、微信，默认关），见 im/ipc.ts
+  startup.step('initIm')
   initSettingsSync(ctx) // 设置云同步，见 account/settings-sync.ts
   startup.step('initSettingsSync')
   initFeedback(ctx) // 设置 › 反馈（云端工单、回复提醒），见 feedback/feedback.ts

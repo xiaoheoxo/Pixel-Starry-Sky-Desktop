@@ -11,6 +11,7 @@ import {
   Info,
   Keyboard,
   MessageSquareText,
+  MessagesSquare,
   Monitor,
   ScrollText,
   Smartphone,
@@ -74,6 +75,7 @@ import { LogsSection } from '../logs/LogsSection'
 import { FeedbackSection } from '../feedback/FeedbackSection'
 import { useFeedbackUnread } from '../feedback/store'
 import { MobileSection } from '../mobile/settings/MobileSection'
+import { ImSection } from '../im/ImSection'
 import { ProjectsSection } from './projects/ProjectsSection'
 import { StorageSection } from '../storage/StorageSection'
 import { SubagentsSection } from './SubagentsSection'
@@ -100,6 +102,13 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
       return tr('mobile.title')
     },
     icon: Smartphone,
+  },
+  {
+    id: 'im',
+    get label() {
+      return tr('im.title')
+    },
+    icon: MessagesSquare,
   },
   {
     id: 'extensions',
@@ -245,6 +254,7 @@ const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
       'shortcuts',
       'machines',
       'mobile',
+      'im',
     ],
   },
   {
@@ -483,6 +493,8 @@ export function SettingsContent({
           </section>
         ) : section === 'mobile' ? (
           <MobileSection />
+        ) : section === 'im' ? (
+          <ImSection />
         ) : section === 'terminal' ? (
           <TerminalSection />
         ) : section === 'engines' ? (

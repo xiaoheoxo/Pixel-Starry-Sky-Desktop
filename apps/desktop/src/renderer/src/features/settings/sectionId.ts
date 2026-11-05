@@ -20,6 +20,8 @@ export type SectionId =
   | 'logs'
   | 'feedback'
   | 'mobile'
+  /** 消息通道：在 QQ、微信里指挥 AI */
+  | 'im'
   /** 本机数据目录的占用和清理 */
   | 'storage'
 
@@ -42,6 +44,7 @@ const IDS: ReadonlySet<string> = new Set<SectionId>([
   'logs',
   'feedback',
   'mobile',
+  'im',
   'storage',
 ])
 

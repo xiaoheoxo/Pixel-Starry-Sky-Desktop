@@ -26,6 +26,7 @@ import { logMessages } from './logMessages'
 import { feedbackMessages } from './feedbackMessages'
 import { trayMessages } from './trayMessages'
 import { mobileMessages } from './mobileMessages'
+import { imMessages } from './imMessages'
 import { editorMessages } from './editorMessages'
 import { codingMessages } from './codingMessages'
 import { attachmentMessages } from './attachmentMessages'
@@ -105,6 +106,7 @@ export const allMessages = {
   ...feedbackMessages,
   ...trayMessages,
   ...mobileMessages,
+  ...imMessages,
   ...editorMessages,
   ...codingMessages,
   ...attachmentMessages,

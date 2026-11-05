@@ -84,6 +84,8 @@ export interface PixelskyBridge {
   settingsWindow: import('./settings-window').SettingsWindowBridge
   /** 手机远程连接（docs/mobile-remote.md） */
   mobile: import('./mobile').MobileBridge
+  /** 消息通道（docs/ui/one-click-connectors.md） */
+  im: import('./im').ImBridgeApi
   /** 协作频道（docs/ui/channels-phase-b.md） */
   channels: import('./channels').ChannelsBridge
   /** 产物面板（docs/ui/artifacts-panel.md） */

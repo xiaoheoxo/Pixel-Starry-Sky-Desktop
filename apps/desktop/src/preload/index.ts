@@ -25,6 +25,8 @@ import type { LogBridge } from './log'
 import type { TrayBridge } from './tray'
 import type { MobileBridge } from './mobile'
 import type { MobileState } from '../shared/types/mobile'
+import type { ImBridgeApi } from './im'
+import type { ImState } from '../shared/types/im'
 import type { SettingsSyncBridge } from './settings-sync'
 import type { FeedbackBridge } from './feedback'
 import type { FeedbackChange } from '../shared/types/feedback'
@@ -577,6 +579,22 @@ const mobile: MobileBridge = {
     return () => ipcRenderer.removeListener('mobile:changed', listener)
   },
 }
+// 消息通道：设置 › 消息通道（docs/ui/one-click-connectors.md）
+const im: ImBridgeApi = {
+  state: () => call('im:state'),
+  connect: (platform, input) => call('im:connect', platform, input),
+  disconnect: platform => call('im:disconnect', platform),
+  forget: platform => call('im:forget', platform),
+  pairStart: platform => call('im:pairStart', platform),
+  pairCancel: platform => call('im:pairCancel', platform),
+  unbind: platform => call('im:unbind', platform),
+  setProject: projectId => call('im:setProject', projectId),
+  onChange: cb => {
+    const listener = (_event: Electron.IpcRendererEvent, value: ImState): void => cb(value)
+    on('im:changed', listener)
+    return () => ipcRenderer.removeListener('im:changed', listener)
+  },
+}
 // 设置云同步（docs/ui/settings-sync.md §5.1）
 const settingsSync: SettingsSyncBridge = {
   pull: () => call('settings:pull'),
@@ -610,6 +628,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
   feedback,
   channels,
   mobile,
+  im,
   settingsSync,
   machines: {
     state: () => call('machines:state'),
