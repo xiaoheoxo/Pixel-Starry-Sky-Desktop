@@ -1,0 +1,38 @@
+{
+  "id": "pixelsky.canva",
+  "name": "Canva 连接器",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "让 AI 用你的账号搜索、生成和导出 Canva 设计",
+  "icon": "icon.png",
+  "keywords": ["canva", "design", "mcp"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.0"
+  },
+  "l10n": {
+    "en": {
+      "name": "Canva Connector",
+      "description": "Lets AI search, create and export Canva designs with your account"
+    }
+  },
+  "contributes": {
+    "mcpServers": [
+      {
+        "name": "canva",
+        "description": {
+          "zh": "Canva 提供的远程 MCP 服务",
+          "en": "Remote MCP server hosted by Canva"
+        },
+        "type": "http",
+        "url": "https://mcp.canva.com/mcp",
+        "source": "https://www.canva.dev/docs/apps/mcp/"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

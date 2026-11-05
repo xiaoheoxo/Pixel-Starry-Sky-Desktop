@@ -10,6 +10,7 @@ vi.hoisted(() => {
 import { I18nProvider } from '@/i18n/I18nProvider'
 import { saveDiscoverView } from '@/features/extstore/store'
 import { fakeStoreItem } from '@/features/extstore/testing'
+import { ConnectServices } from './ConnectServices'
 import { CategoryRail, DiscoverTab, OfflineNotice } from './DiscoverTab'
 import { StoreFeaturedCard, StoreRow } from './StoreCard'
 
@@ -181,5 +182,24 @@ describe('分类栏', () => {
     ])
       expect(button(id)).not.toContain('disabled')
     expect(button('grammars').replace(/<[^>]*>/g, '')).toBe('语法高亮')
+  })
+})
+
+describe('连接常用服务', () => {
+  const linear = fakeStoreItem({
+    id: 'pixelsky.linear',
+    name: 'Linear 连接器',
+    publisher: { name: 'pixelsky', official: true },
+    kinds: ['mcpServers'],
+  })
+  it('有连接器时显示标题和「连接」，没装的不写「已启用」', () => {
+    const html = wrap(<ConnectServices items={[linear]} />)
+    expect(html).toContain('连接常用服务')
+    expect(html).toContain('Linear 连接器')
+    expect(html).toContain('data-connect-on="pixelsky.linear"')
+    expect(html).not.toContain('已启用')
+  })
+  it('商店里还没有连接器：整块不显示', () => {
+    expect(wrap(<ConnectServices items={[]} />)).toBe('')
   })
 })

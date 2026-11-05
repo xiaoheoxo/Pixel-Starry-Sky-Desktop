@@ -39,8 +39,9 @@ export function launcher(command: string, args: string[], env: NodeJS.ProcessEnv
   const path = program(command, env)
   if (/\.(cmd|bat)$/i.test(path)) {
     // npm 标准垫片可直接用 Node 启动；任意批处理必须显式配置解释器。
+    // 取最后一个脚本：npm 自带的 npx.cmd 前面还有 npm-prefix.js（只打印目录就退出），真正运行的 npx-cli.js 在后面
     const source = requireRead(path)
-    const match = /["']?%(?:~dp0|dp0%)[\\/]([^"'\r\n]+?\.(?:js|cjs|mjs))["']/i.exec(source)
+    const match = [...source.matchAll(/["']?%(?:~dp0|dp0%)[\\/]([^"'\r\n]+?\.(?:js|cjs|mjs))["']/gi)].at(-1)
     const node = program('node', env)
     const script = match ? join(dirname(path), match[1]) : null
     if (!script || !existsSync(script)) throw new Error('批处理程序请填写明确的解释器与参数，例如 node 和脚本路径')

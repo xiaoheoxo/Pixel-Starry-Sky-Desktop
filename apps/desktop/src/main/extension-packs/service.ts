@@ -50,6 +50,8 @@ export interface ExtPacksOptions {
   removeIcons?: (id: string) => Promise<void>
   /** MCP 连接器的同意记录和填的值用它加密；不传（测试）只放内存 */
   cipher?: Cipher
+  /** 这个连接器命令在这台电脑上启动得了吗（状态里给用户看）；不传当启动得了 */
+  canRun?: (command: string) => boolean
 }
 
 const NO_CIPHER: Cipher = { available: () => false, encrypt: () => '', decrypt: () => '' }
@@ -180,7 +182,7 @@ export class ExtensionPacks {
       revision: this.revision,
       loading: this.loading,
       packs: this.packs.map(p => {
-        const mcp = this.mcp.status(p.info)
+        const mcp = this.mcp.status(p.info, this.opts.canRun)
         const script = this.scriptStatus(p.info)
         return mcp || script ? { ...p.info, ...(mcp && { mcp }), ...(script && { script }) } : p.info
       }),

@@ -3,13 +3,17 @@ import type { ExtLocale, ExtMcpServer, ExtPackMcpStatus } from '@pixelsky/protoc
 import { extText } from '@pixelsky/protocol'
 import { Button } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
-import { translateMessage } from '@/i18n/core'
+import { tr, translateMessage } from '@/i18n/core'
 import { FIELD } from '@/features/settings/engines/parts'
 import { PackBadge } from '@/features/settings/extensions/PackBadge'
 import { refreshPacks } from './store'
 
 // 扩展里的 MCP 连接器（docs/ui/extension-remaining-plan.md §G.2）：它会在用户电脑上运行的程序、来源；
 // 装在本机时（packKey）可以填值、同意启用、停用。同意记的是当前这一份，更新改了命令要重新同意（主进程 extension-packs/mcp.ts）
+
+/** 这台电脑启动不了连接器的说明；npx 是 Node.js 带的，直接说要装什么 */
+export const noProgramText = (command: string): string =>
+  tr(command === 'npx' ? 'extensions.mcp.noNode' : 'extensions.mcp.noProgram', { command })
 
 /** 给人看的启动方式：stdio 是整条命令，http / sse 是地址 */
 export function mcpCommandLine(s: ExtMcpServer): string {
@@ -60,7 +64,9 @@ function ServerRow({
         <span className="text-meta text-fg-faint">{server.type}</span>
         {status &&
           (status.approved ? (
-            status.missing.length ? (
+            status.noProgram ? (
+              <PackBadge tone="warn">{t('extstore.connect.cantStart')}</PackBadge>
+            ) : status.missing.length ? (
               <PackBadge tone="warn">{t('extensions.mcp.needsValues')}</PackBadge>
             ) : (
               <PackBadge tone="info">{t('extensions.mcp.on')}</PackBadge>
@@ -81,6 +87,12 @@ function ServerRow({
           {server.source}
         </a>
       </div>
+
+      {status?.noProgram && (
+        <p role="alert" className="mt-2 text-meta text-danger">
+          {noProgramText(status.noProgram)}
+        </p>
+      )}
 
       {packKey && inputs.length > 0 && (
         <div className="mt-3 space-y-2">

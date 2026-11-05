@@ -4,6 +4,7 @@ import type {
   ExtPackContributes,
   ExtPackContributionKind,
   ExtPackIssue,
+  ExtMcpServer,
   ExtPackManifest,
   ExtStoreCatalogPage,
   ExtStoreCheckReport,
@@ -63,8 +64,74 @@ function item(
   }
 }
 
+/** 官方连接器（发现页最上面的「连接常用服务」）；地址和 extensions/official 里的一样 */
+const DEMO_CONNECTORS: Record<string, ExtMcpServer> = {
+  'pixelsky.linear': {
+    name: 'linear',
+    type: 'http',
+    url: 'https://mcp.linear.app/mcp',
+    source: 'https://linear.app/docs/mcp',
+  },
+  'pixelsky.notion': {
+    name: 'notion',
+    type: 'http',
+    url: 'https://mcp.notion.com/mcp',
+    source: 'https://developers.notion.com/docs/mcp',
+  },
+  'pixelsky.feishu': {
+    name: 'feishu',
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', '@larksuiteoapi/lark-mcp@0.5.1', 'mcp'],
+    inputs: [
+      { name: 'APP_ID', description: '飞书开放平台里企业自建应用的 App ID', required: true },
+      { name: 'APP_SECRET', description: '同一个应用的 App Secret', secret: true, required: true },
+    ],
+    source: 'https://github.com/larksuite/lark-openapi-mcp',
+  },
+}
+
 /** 按「推荐」排序的顺序：前 3 个是首屏的大卡片 */
 const ITEMS: ExtStoreItem[] = [
+  item(
+    'pixelsky.linear',
+    'Linear 连接器',
+    'pixelsky',
+    true,
+    '让 AI 用你的账号查和改 Linear 里的问题、项目和迭代',
+    ['mcpServers'],
+    1200,
+    '1.0.0',
+    '2026-11-05T08:00:00Z',
+    'Li',
+    '#1d1915',
+  ),
+  item(
+    'pixelsky.notion',
+    'Notion 连接器',
+    'pixelsky',
+    true,
+    '让 AI 用你的账号搜索、读取和编辑 Notion 页面与数据库',
+    ['mcpServers'],
+    980,
+    '1.0.0',
+    '2026-11-05T08:00:00Z',
+    'No',
+    '#1d1915',
+  ),
+  item(
+    'pixelsky.feishu',
+    '飞书连接器',
+    'pixelsky',
+    true,
+    '让 AI 用飞书应用的身份读写文档、多维表格、日历和消息',
+    ['mcpServers'],
+    640,
+    '1.0.0',
+    '2026-11-05T08:00:00Z',
+    '飞',
+    '#1d1915',
+  ),
   item(
     'pixelsky.swift',
     'Swift 支持',
@@ -382,7 +449,7 @@ function demoDetail(id: string): ExtStoreDetail | null {
     repository: `https://github.com/${extension.publisher.name}/${slug}`,
     homepage: null,
     engines: { pixelsky: '>=0.4.0' },
-    contributes: demoContributes(extension.kinds),
+    contributes: DEMO_CONNECTORS[id] ? { mcpServers: [DEMO_CONNECTORS[id]] } : demoContributes(extension.kinds),
     main: null,
     permissions: [],
     price: null,

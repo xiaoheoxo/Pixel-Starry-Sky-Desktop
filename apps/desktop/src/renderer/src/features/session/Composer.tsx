@@ -55,6 +55,7 @@ import { getFiles } from '@/features/files/store'
 import { MentionMenu, useMentionEntries } from './MentionMenu'
 import { applyMention, folderMention, insertAt, insertMention, mentionAt } from './mention'
 import { machineOf } from '@/features/machines/store'
+import { McpLoginNotice } from '@/features/panel/connectors/McpLoginNotice'
 import { composerWorkspace, folderWorkspace } from './composerWorkspace'
 import { useResumeCommand } from '@/features/resume/useResumeCommand'
 import { parseResumeCommand } from '@/features/resume/model'
@@ -806,6 +807,7 @@ export function Composer({
           }}
         />
       )}
+      {live?.sessionId && <McpLoginNotice key={live.sessionId} sessionId={live.sessionId} />}
       <ComposerStatusBar
         live={status}
         extra={statusExtra}

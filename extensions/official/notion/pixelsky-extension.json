@@ -1,0 +1,38 @@
+{
+  "id": "pixelsky.notion",
+  "name": "Notion 连接器",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "让 AI 用你的账号搜索、读取和编辑 Notion 页面与数据库",
+  "icon": "icon.png",
+  "keywords": ["notion", "docs", "mcp"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.0"
+  },
+  "l10n": {
+    "en": {
+      "name": "Notion Connector",
+      "description": "Lets AI search, read and edit Notion pages and databases with your account"
+    }
+  },
+  "contributes": {
+    "mcpServers": [
+      {
+        "name": "notion",
+        "description": {
+          "zh": "Notion 提供的远程 MCP 服务",
+          "en": "Remote MCP server hosted by Notion"
+        },
+        "type": "http",
+        "url": "https://mcp.notion.com/mcp",
+        "source": "https://developers.notion.com/docs/mcp"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

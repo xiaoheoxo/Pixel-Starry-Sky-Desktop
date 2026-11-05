@@ -52,6 +52,19 @@ function pack(servers: ExtMcpServer[], extra: Partial<ExtPackInfo> = {}): Loaded
 }
 
 describe('PackMcp', () => {
+  it('启动不了的命令写进状态（只查 stdio）；启动得了时不多字段', () => {
+    const { mcp } = store()
+    const seen: string[] = []
+    const none = (command: string): boolean => {
+      seen.push(command)
+      return false
+    }
+    expect(mcp.status(pack([github]).info, none)?.[0].noProgram).toBe('npx')
+    expect(mcp.status(pack([docs]).info, none)?.[0]).not.toHaveProperty('noProgram')
+    expect(seen).toEqual(['npx'])
+    expect(mcp.status(pack([github]).info, () => true)?.[0]).not.toHaveProperty('noProgram')
+  })
+
   it('没同意不给；同意 + 填了必填才给，值换进参数 / 环境变量', () => {
     const { mcp } = store()
     const p = pack([github])

@@ -27,6 +27,11 @@ const LABELS = {
   'word-count': '字',
   'json-format': '{}',
   timestamp: '时',
+  linear: 'Li',
+  notion: 'No',
+  atlassian: 'At',
+  canva: 'Ca',
+  feishu: '飞',
 }
 const SIZE = 256
 

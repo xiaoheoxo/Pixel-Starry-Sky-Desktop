@@ -1,0 +1,38 @@
+{
+  "id": "pixelsky.atlassian",
+  "name": "Atlassian 连接器",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "让 AI 用你的账号查和改 Jira 工单、Confluence 页面",
+  "icon": "icon.png",
+  "keywords": ["atlassian", "jira", "confluence", "mcp"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.0"
+  },
+  "l10n": {
+    "en": {
+      "name": "Atlassian Connector",
+      "description": "Lets AI read and update Jira issues and Confluence pages with your account"
+    }
+  },
+  "contributes": {
+    "mcpServers": [
+      {
+        "name": "atlassian",
+        "description": {
+          "zh": "Atlassian 提供的远程 MCP 服务（Rovo）",
+          "en": "Remote MCP server hosted by Atlassian (Rovo)"
+        },
+        "type": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+        "source": "https://github.com/atlassian/atlassian-mcp-server"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

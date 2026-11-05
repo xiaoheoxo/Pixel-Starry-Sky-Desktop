@@ -73,6 +73,49 @@ export const extensionCenterMessages = {
   'extstore.phase.2': { zh: '第二期', en: 'Phase 2' },
   'extstore.phase.3': { zh: '第三期', en: 'Phase 3' },
   'extstore.official': { zh: '官方', en: 'Official' },
+  // 发现页最上面的「连接常用服务」（settings/extensions/ConnectServices.tsx）
+  'extstore.connect.title': { zh: '连接常用服务', en: 'Connect your services' },
+  'extstore.connect.hint': {
+    zh: '让 AI 查和改这些服务里的内容',
+    en: 'Let AI read and update your content in these services',
+  },
+  'extstore.connect.action': { zh: '连接', en: 'Connect' },
+  'extstore.connect.busy': { zh: '连接中…', en: 'Connecting…' },
+  'extstore.connect.nextLogin': {
+    zh: '新开对话，发第一条消息后就能登录。',
+    en: 'Start a new conversation. You can sign in after your first message.',
+  },
+  'extstore.connect.nextReady': { zh: '新开对话后就能用。', en: 'Available in new conversations.' },
+  'extstore.connect.url': {
+    zh: '连接到（服务由对方提供，扩展里没有程序）',
+    en: 'Connects to (hosted by the service; the extension contains no program)',
+  },
+  'extstore.connect.run': { zh: '要运行', en: 'Runs' },
+  'extstore.connect.can': { zh: 'AI 能做什么', en: 'What AI can do' },
+  'extstore.connect.canAccount': {
+    zh: '用你登录的账号读取和修改这个服务里的内容。要不要先问你，由会话的权限模式决定。',
+    en: 'Read and change content in this service with the account you sign in with. Whether it asks you first depends on the session’s permission mode.',
+  },
+  'extstore.connect.canApp': {
+    zh: '用你填的应用身份读写内容，范围取决于应用申请的权限。要不要先问你，由会话的权限模式决定。',
+    en: 'Read and write content as the app you enter below, within the permissions that app has. Whether it asks you first depends on the session’s permission mode.',
+  },
+  'extstore.connect.login': { zh: '怎么登录', en: 'How to sign in' },
+  'extstore.connect.loginText': {
+    zh: '新开对话、发第一条消息后点「登录」，到浏览器里授权。登录记录由引擎保存，每个引擎第一次用要登录一次。',
+    en: 'Start a new conversation, send a message, then choose Sign in and authorize in your browser. Each engine keeps its own sign-in, so you sign in once per engine.',
+  },
+  'extstore.connect.scope': { zh: '在哪里生效', en: 'Where it applies' },
+  'extstore.connect.scopeText': {
+    zh: '新开的本机会话。SSH 机器上的会话不会加载。',
+    en: 'New local conversations. Sessions on SSH machines don’t load it.',
+  },
+  'extstore.connect.changed': {
+    zh: '装上的内容和刚才显示的不一样，没有启用。请重新点「连接」看一遍。',
+    en: 'What was installed differs from what was shown, so it wasn’t turned on. Choose Connect again to review it.',
+  },
+  'extstore.connect.cantStart': { zh: '启动不了', en: "Can't start" },
+  'extstore.connect.failed': { zh: '连接失败，请重试', en: 'Couldn’t connect. Please try again' },
   'extstore.kind.grammars': { zh: '语法', en: 'Grammar' },
   'extstore.kind.themes': { zh: '主题', en: 'Theme' },
   'extstore.kind.snippets': { zh: '片段', en: 'Snippets' },
@@ -237,6 +280,14 @@ export const extensionCenterMessages = {
   'extensions.mcp.revoke': { zh: '停用', en: 'Turn off' },
   'extensions.mcp.keep': { zh: '已填（不改就留空）', en: 'Saved (leave empty to keep)' },
   'extensions.mcp.fillFirst': { zh: '先填 {names}', en: 'Fill in {names} first' },
+  'extensions.mcp.noProgram': {
+    zh: '这台电脑找不到 {command}，这个连接器启动不了。装好后重启像素星空。',
+    en: "{command} wasn't found on this computer, so this connector can't start. Install it, then restart PixelSky.",
+  },
+  'extensions.mcp.noNode': {
+    zh: '这台电脑找不到 npx，这个连接器启动不了。先安装 Node.js，再重启像素星空。',
+    en: "npx wasn't found on this computer, so this connector can't start. Install Node.js, then restart PixelSky.",
+  },
   'extensions.mcp.footnote': {
     zh: '填的值加密保存在本机。扩展更新后命令、参数或来源变了，要重新同意才会启用；改动在新开的会话里生效。',
     en: 'Values are stored encrypted on this computer. If an update changes the command, arguments or source, you need to approve it again. Changes apply to new sessions.',

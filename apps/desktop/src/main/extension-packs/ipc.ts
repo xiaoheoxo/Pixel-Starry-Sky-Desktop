@@ -12,6 +12,7 @@ import { ExtensionPacks } from './service'
 import { registerPackProtocol } from './protocol'
 import { storeIcons } from './market/icons'
 import { systemCipher } from '../app/system-cipher'
+import { launcher } from '../extensions/check'
 
 let wasm: Uint8Array | null = null
 
@@ -57,6 +58,16 @@ export function initExtensionPacks(ctx: AppContext): ExtensionPacks {
     appVersion: app.getVersion(),
     removeIcons: id => storeIcons().remove(id),
     cipher: systemCipher,
+    // 和真正启动时同一个判断（extensions/service.ts 的 launch）。
+    // shortcut: 不算「插件配置」里命令行工具加进 PATH 的目录，靠那些目录才找得到命令时会误报，有人这样用再把 runtimeEnv 接过来
+    canRun: command => {
+      try {
+        launcher(command, [], { ...process.env, ...ctx.engine?.engineConfig().claude.env })
+        return true
+      } catch {
+        return false
+      }
+    },
   })
   ctx.extPacks = service
   service.onChange(() => ctx.events.broadcast('extpacks:changed'))

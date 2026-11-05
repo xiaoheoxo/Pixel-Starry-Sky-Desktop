@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Download } from 'lucide-react'
 import type { ExtPackContributionKind, ExtStoreItem } from '@pixelsky/protocol'
 import { cn } from '@/ui'
@@ -99,10 +100,13 @@ export function StoreFeaturedCard({
   item,
   state,
   handlers,
+  footer,
 }: {
   item: ExtStoreItem
   state: CardState
   handlers: CardHandlers
+  /** 换掉下面的种类标签和安装按钮（「连接常用服务」用） */
+  footer?: ReactNode
 }) {
   const f = cardFields(item)
   const action = cardAction(state)
@@ -124,16 +128,20 @@ export function StoreFeaturedCard({
         <span className="line-clamp-2 min-h-[2.8em] text-meta text-fg-muted">{f.description}</span>
       </button>
       <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
-        <span className="flex min-w-0 flex-wrap items-center gap-1">
-          <KindTags kinds={f.kinds} />
-        </span>
-        <InstallButton
-          id={item.id}
-          version={item.version}
-          action={action}
-          onInstall={v => handlers.onInstall(item, v)}
-          onCancel={handlers.onCancel}
-        />
+        {footer ?? (
+          <>
+            <span className="flex min-w-0 flex-wrap items-center gap-1">
+              <KindTags kinds={f.kinds} />
+            </span>
+            <InstallButton
+              id={item.id}
+              version={item.version}
+              action={action}
+              onInstall={v => handlers.onInstall(item, v)}
+              onCancel={handlers.onCancel}
+            />
+          </>
+        )}
       </div>
       {state.error && <p className="text-meta text-danger">{state.error}</p>}
     </li>

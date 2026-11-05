@@ -6,6 +6,7 @@ import { Button, cn, Segmented, Spinner } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { usePackState } from '@/features/extpacks/store'
 import { debounced } from '@/features/extstore/debounce'
+import { isConnector } from '@/features/extstore/connectors'
 import { consumeExtSearchFocus, openExtDetail, subscribeExtNav } from '@/features/extstore/nav'
 import {
   cancelInstall,
@@ -33,6 +34,7 @@ import {
   type DiscoverFilter,
   type StoreCategory,
 } from '@/features/extstore/storeModel'
+import { ConnectServices, useConnectors } from './ConnectServices'
 import { StoreFeaturedCard, StoreRow, type CardHandlers, type CardState } from './StoreCard'
 
 // 「发现」页（docs/ui/extension-store-client.md §2.1，示意图 mock-store.png）：搜索 + 排序，左边卡片和列表，右边分类。
@@ -170,7 +172,12 @@ export function DiscoverTab() {
     }
   }, [initial.scrollTop])
 
-  const items = useMemo(() => mergePages(pages), [pages])
+  const connectors = useConnectors()
+  // 已经放在最上面「连接常用服务」里的不在下面再列一遍；搜索和分类里照常出现
+  const items = useMemo(() => {
+    const all = mergePages(pages)
+    return showsFeatured(loaded) ? all.filter(item => !isConnector(item)) : all
+  }, [pages, loaded])
   const installedIds = useMemo(() => {
     const ids = installedIdsOf(packs)
     if (isDemo) for (const id of demo().extStore.installed) ids.add(id)
@@ -231,6 +238,7 @@ export function DiscoverTab() {
           />
         </div>
 
+        {status !== 'error' && showsFeatured(filter) && <ConnectServices items={connectors} />}
         {status === 'error' ? (
           <OfflineNotice onRetry={() => setReloadKey(k => k + 1)} />
         ) : status === 'loading' && items.length === 0 ? (

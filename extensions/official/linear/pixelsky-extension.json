@@ -1,0 +1,38 @@
+{
+  "id": "pixelsky.linear",
+  "name": "Linear 连接器",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "让 AI 用你的账号查和改 Linear 里的问题、项目和迭代",
+  "icon": "icon.png",
+  "keywords": ["linear", "issue", "mcp"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.0"
+  },
+  "l10n": {
+    "en": {
+      "name": "Linear Connector",
+      "description": "Lets AI read and update Linear issues, projects and cycles with your account"
+    }
+  },
+  "contributes": {
+    "mcpServers": [
+      {
+        "name": "linear",
+        "description": {
+          "zh": "Linear 提供的远程 MCP 服务",
+          "en": "Remote MCP server hosted by Linear"
+        },
+        "type": "http",
+        "url": "https://mcp.linear.app/mcp",
+        "source": "https://linear.app/docs/mcp"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

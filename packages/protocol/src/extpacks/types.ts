@@ -205,6 +205,8 @@ export interface ExtPackMcpStatus {
   approved: boolean
   missing: string[]
   filled: string[]
+  /** 这台电脑上启动不了（比如没装 Node.js 找不到 npx）：值是找不到的命令；同意了也不会加载 */
+  noProgram?: string
 }
 export interface ExtPackState {
   revision: number

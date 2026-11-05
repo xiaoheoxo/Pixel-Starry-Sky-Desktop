@@ -61,8 +61,8 @@ export class PackMcp {
     )
   }
 
-  /** 这个扩展每条连接器的状态；没有连接器时 undefined（不往状态里加字段） */
-  status(info: ExtPackInfo): ExtPackMcpStatus[] | undefined {
+  /** 这个扩展每条连接器的状态；没有连接器时 undefined（不往状态里加字段）。canRun：这个命令在这台电脑上启动得了吗 */
+  status(info: ExtPackInfo, canRun: (command: string) => boolean = () => true): ExtPackMcpStatus[] | undefined {
     const list = info.manifest?.contributes.mcpServers
     if (!info.id || !list?.length) return undefined
     const saved = this.saved(info.id)
@@ -73,6 +73,7 @@ export class PackMcp {
         approved: saved[OK + s.name] === mcpFingerprint(s),
         missing: (s.inputs ?? []).filter(i => i.required && !values[i.name]).map(i => i.name),
         filled: (s.inputs ?? []).filter(i => values[i.name]).map(i => i.name),
+        ...(s.type === 'stdio' && s.command && !canRun(s.command) ? { noProgram: s.command } : {}),
       }
     })
   }

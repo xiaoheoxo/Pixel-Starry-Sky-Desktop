@@ -1,0 +1,58 @@
+{
+  "id": "pixelsky.feishu",
+  "name": "飞书连接器",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "让 AI 用飞书应用的身份读写文档、多维表格、日历和消息",
+  "icon": "icon.png",
+  "keywords": ["feishu", "lark", "飞书", "mcp"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.2"
+  },
+  "l10n": {
+    "en": {
+      "name": "Feishu Connector",
+      "description": "Lets AI read and write Feishu docs, Base, calendars and messages as your app"
+    }
+  },
+  "contributes": {
+    "mcpServers": [
+      {
+        "name": "feishu",
+        "description": {
+          "zh": "飞书官方的 MCP 程序，在你的电脑上运行",
+          "en": "The official Feishu MCP program, running on your computer"
+        },
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@larksuiteoapi/lark-mcp@0.5.1", "mcp"],
+        "inputs": [
+          {
+            "name": "APP_ID",
+            "description": {
+              "zh": "飞书开放平台里企业自建应用的 App ID",
+              "en": "App ID of your custom app on the Feishu Open Platform"
+            },
+            "required": true
+          },
+          {
+            "name": "APP_SECRET",
+            "description": {
+              "zh": "同一个应用的 App Secret",
+              "en": "App Secret of the same app"
+            },
+            "secret": true,
+            "required": true
+          }
+        ],
+        "source": "https://github.com/larksuite/lark-openapi-mcp"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

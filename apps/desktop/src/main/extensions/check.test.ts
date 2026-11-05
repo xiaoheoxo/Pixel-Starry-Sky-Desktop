@@ -2,7 +2,7 @@ import { createServer, type ServerResponse } from 'node:http'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { checkMcp } from './check'
+import { checkMcp, launcher } from './check'
 let root: string
 beforeEach(() => {
   const scratch = resolve('../../scratch')
@@ -121,5 +121,41 @@ describe('MCP 只做初始化与工具列表', () => {
     const check = await checkMcp({ type: 'stdio', command: process.execPath, args: [fixture] }, root, 250)
     expect(check.status).toBe('error')
     expect(check.message).toContain('超时')
+  })
+})
+
+describe.runIf(process.platform === 'win32')('Windows 批处理垫片', () => {
+  const shim = (name: string, lines: string[], scripts: string[]): string => {
+    for (const script of scripts) {
+      mkdirSync(join(root, 'node_modules', 'npm', 'bin'), { recursive: true })
+      writeFileSync(join(root, 'node_modules', 'npm', 'bin', script), '')
+    }
+    const file = join(root, name)
+    writeFileSync(file, lines.join('\r\n'))
+    return file
+  }
+  const script = (name: string): string => join(root, 'node_modules', 'npm', 'bin', name)
+
+  it('npm 自带的 npx.cmd：运行 npx-cli.js，不是前面只打印目录的 npm-prefix.js', () => {
+    const file = shim(
+      'npx.cmd',
+      [
+        String.raw`SET "NPM_PREFIX_JS=%~dp0\node_modules\npm\bin\npm-prefix.js"`,
+        String.raw`SET "NPX_CLI_JS=%~dp0\node_modules\npm\bin\npx-cli.js"`,
+        '"%NODE_EXE%" "%NPX_CLI_JS%" %*',
+      ],
+      ['npm-prefix.js', 'npx-cli.js'],
+    )
+    expect(launcher(file, ['-y', 'x@1.0.0'], process.env).args).toEqual([script('npx-cli.js'), '-y', 'x@1.0.0'])
+  })
+
+  it('全局包的垫片只有一个脚本：照旧', () => {
+    const file = shim('tool.cmd', [String.raw`"%_prog%" "%dp0%\node_modules\npm\bin\cli.js" %*`], ['cli.js'])
+    expect(launcher(file, ['a'], process.env).args).toEqual([script('cli.js'), 'a'])
+  })
+
+  it('任意批处理：没有脚本就报错，要用户写明解释器', () => {
+    const file = shim('run.bat', ['echo hi'], [])
+    expect(() => launcher(file, [], process.env)).toThrow('解释器')
   })
 })

@@ -25,6 +25,14 @@ export const connectorsMessages = {
   'connectors.toolCount': { zh: '{count} 个工具', en: '{count} tools' },
   'connectors.used': { zh: '用过 {count} 次', en: 'Used {count}×' },
   'connectors.login': { zh: '登录', en: 'Sign in' },
+  'connectors.loginOpenedNotice': {
+    zh: '已在浏览器里打开登录页，授权后回到这里就行',
+    en: 'Opened the sign-in page in your browser. Come back here once you’ve authorized.',
+  },
+  'connectors.loginNotice': {
+    zh: '{names} 还没登录，这一轮用不上。登录后下一条消息就能用。',
+    en: "{names} isn't signed in, so it can't be used this turn. Sign in and your next message can use it.",
+  },
   'connectors.retry': { zh: '重试', en: 'Retry' },
   'connectors.reconnect': { zh: '重新连接', en: 'Reconnect' },
   'connectors.disable': { zh: '这个会话停用', en: 'Turn off in this session' },
