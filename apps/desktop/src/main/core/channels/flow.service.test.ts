@@ -736,6 +736,60 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
     expect(c.state().channels.find(x => x.id === ch)?.lead).toBeNull()
   })
 
+  it('聊天里 @ 一个成员：流程卡和拟计划的卡都带来源，开工后每一步也带', async () => {
+    const { c, ch } = await setup({ planFirst: true, defaultMode: () => 'ask' })
+    const { message, root } = await c.post(ch, { text: '@画师 帮我设计一个数据中心', clientId: 'p1' }, undefined, 'qq')
+    expect(root).toBe(message.id)
+    await settle()
+    const f = c.messages(ch).messages.find((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)!
+    expect(f.chat).toEqual({ via: 'qq', root: message.id })
+    const planner = tasks(c, ch)[0]
+    expect(planner.chat?.root).toBe(message.id)
+    c.toolDone(planner.sessionId!, { summary: '拆好了', steps: [{ title: '做', member: '程序员' }] })
+    await endTurn(c, planner.sessionId!, '好了')
+    await c.flowAction(ch, { type: 'start', messageId: f.id })
+    await settle()
+    expect(tasks(c, ch).at(-1)).toMatchObject({ flow: { messageId: f.id }, chat: { root: message.id } })
+  })
+
+  it('聊天里的需求：牵头只拆出一步、那个成员不是询问模式，不直接派，留成草稿', async () => {
+    const { c, a, ch } = await setup({ defaultMode: () => 'full' })
+    await c.update(ch, { lead: a })
+    const { message, root } = await c.post(
+      ch,
+      { text: '登录页按钮在深色模式下看不清', clientId: 'q1' },
+      undefined,
+      'qq',
+    )
+    expect(root).toBe(message.id)
+    await settle()
+    const lead = tasks(c, ch).at(-1)!
+    c.toolDone(lead.sessionId!, { summary: '样式问题', steps: [{ title: '改按钮', member: '程序员' }] })
+    await endTurn(c, lead.sessionId!, '交给程序员')
+    expect(flowOf(c, ch)).toMatchObject({ status: 'draft' })
+    expect(tasks(c, ch).filter(t => !t.flow)).toHaveLength(0)
+  })
+
+  it('电脑上开的提案在聊天里接着说：提案也算聊天的，root 是这条消息', async () => {
+    const { c, a, ch } = await setup({ defaultMode: () => 'ask' })
+    await c.update(ch, { lead: a })
+    await c.post(ch, { text: '登录页按钮在深色模式下看不清，要重新设计', clientId: 'q1' })
+    await settle()
+    const lead = tasks(c, ch).at(-1)!
+    c.toolDone(lead.sessionId!, {
+      summary: '拆好了',
+      steps: [
+        { title: '一', member: '程序员' },
+        { title: '二', member: '程序员' },
+      ],
+    })
+    await endTurn(c, lead.sessionId!, '好了')
+    const { message, root } = await c.post(ch, { text: '第二步先不做了吧', clientId: 'q2' }, undefined, 'wechat')
+    expect(root).toBe(message.id)
+    const f = c.messages(ch).messages.find((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)!
+    expect(f.chat).toEqual({ via: 'wechat', root: message.id })
+  })
+
   it('牵头分派（docs/ui/channels-auto-route.md）：只拆出一步就直接派给那个成员；能改派；关掉这一档照旧出草稿', async () => {
     const { c, a, b, r, ch } = await setup()
     await c.update(ch, { lead: a })

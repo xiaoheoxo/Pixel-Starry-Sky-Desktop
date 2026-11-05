@@ -3,6 +3,7 @@
 import { randomInt } from 'node:crypto'
 import type { ApprovalDecision, ApprovalRequest, EngineEvent, SessionRecord } from '@pixelsky/protocol'
 import type { TranslationKey } from '../../shared/i18n/translate'
+import { ChannelRoute, type BridgeChannels, type FlowAsk, type RootMemory } from './route'
 
 export const PAIR_TTL = 5 * 60_000
 const PAIR_ATTEMPTS = 5
@@ -12,6 +13,8 @@ const SEEN_MAX = 200
 const MAX_CHUNKS = 2
 const DETAIL_MAX = 500
 const USER_TEXT_MAX = 20_000
+/** 频道的卡片一会儿变好几次（进度、状态）：攒一下再看要不要发 */
+const SYNC_DELAY = 200
 
 export interface ImInbound {
   /** 平台的消息 id：同一条可能推送多次，靠它去重 */
@@ -48,6 +51,9 @@ export interface BridgeMemory {
   reply: string | null
   outbox: string[]
   nextApproval: number
+  /** 频道模式：聊天发进去、还没收尾的消息 */
+  roots: RootMemory[]
+  asks: Record<string, FlowAsk>
 }
 
 export const emptyMemory = (): BridgeMemory => ({
@@ -56,12 +62,18 @@ export const emptyMemory = (): BridgeMemory => ({
   reply: null,
   outbox: [],
   nextApproval: 1,
+  roots: [],
+  asks: {},
 })
 
 export interface BridgeDeps {
   sender: ImSender
   engine: BridgeEngine
   projectId(): string | null
+  /** 频道模式下选的频道（没选是空字符串）；null 是新对话模式 */
+  channelTarget(): string | null
+  /** 频道服务；启动早期还没就绪时 null */
+  channels(): BridgeChannels | null
   memory(): BridgeMemory
   save(patch: Partial<BridgeMemory>): void
   say(key: TranslationKey, values?: Record<string, string | number>): string
@@ -117,8 +129,40 @@ export class ImBridge {
   private readonly reportedQueue = new Set<string>()
   /** 没绑定的人发来、被丢掉的消息数（设置页显示） */
   ignored = 0
+  private readonly route: ChannelRoute
+  private syncTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private readonly d: BridgeDeps) {}
+  constructor(private readonly d: BridgeDeps) {
+    this.route = new ChannelRoute({
+      channels: () => d.channels(),
+      memory: () => d.memory(),
+      save: patch => d.save(patch),
+      say: (key, values) => d.say(key, values),
+      enqueue: text => this.enqueue(text),
+      number: () => this.nextNumber(),
+      approval: (sessionId, request, who) => this.onApproval(sessionId, request, who),
+    })
+  }
+
+  /** 频道里聊天派的卡片变了 */
+  channelChanged(): void {
+    if (this.syncTimer) return
+    this.syncTimer = setTimeout(() => {
+      this.syncTimer = null
+      void this.syncChannels()
+    }, SYNC_DELAY)
+    this.syncTimer.unref?.()
+  }
+
+  syncChannels(): Promise<void> {
+    return this.run(() => this.route.sync())
+  }
+
+  private nextNumber(): number {
+    const n = this.d.memory().nextApproval
+    this.d.save({ nextApproval: n + 1 })
+    return n
+  }
 
   private now(): number {
     return this.d.now?.() ?? Date.now()
@@ -157,7 +201,7 @@ export class ImBridge {
     this.pending.clear()
     this.endTurn()
     this.ignored = 0
-    this.d.save({ bound: null, sessionId: null, reply: null, outbox: [] })
+    this.d.save({ bound: null, sessionId: null, reply: null, outbox: [], roots: [], asks: {} })
     this.d.changed()
   }
 
@@ -181,7 +225,7 @@ export class ImBridge {
       return
     }
     this.pairing = null
-    this.d.save({ bound: m.from, reply: m.reply, outbox: [], sessionId: null })
+    this.d.save({ bound: m.from, reply: m.reply, outbox: [], sessionId: null, roots: [], asks: {} })
     this.d.changed()
     return this.enqueue(this.d.say('im.chat.paired'))
   }
@@ -210,20 +254,28 @@ export class ImBridge {
     // 新消息带来新的回复窗口：先补发之前没发出去的
     await this.flush()
     if (this.d.memory().bound !== bound) return
+    // 关着的时候频道里可能有了结果：断线重启后第一条消息时补上
+    await this.route.sync()
+    if (this.d.memory().bound !== bound) return
 
+    const channel = this.d.channelTarget()
     if (!text) return this.enqueue(this.d.say('im.chat.textOnly'))
     if (/^\/(新对话|new)$/i.test(text)) {
+      if (channel !== null) {
+        const name = this.d.channels()?.info(channel)?.name
+        return this.enqueue(name ? this.d.say('im.chat.inChannel', { channel: name }) : this.d.say('im.chat.noChannel'))
+      }
       this.d.save({ sessionId: null })
       this.endTurn()
       return this.enqueue(this.d.say('im.chat.newSession'))
     }
-    if (/^\/(停止|stop)$/i.test(text)) return this.stop()
-    if (/^\/(状态|status)$/i.test(text)) return this.status()
+    if (/^\/(停止|stop)$/i.test(text)) return channel !== null ? this.route.stop() : this.stop()
+    if (/^\/(状态|status)$/i.test(text)) return channel !== null ? this.route.status() : this.status()
     const decide = /^(同意|拒绝|allow|deny)\s*#?(\d+)$/i.exec(text)
     if (decide) return this.decide(Number(decide[2]), /^(同意|allow)$/i.test(decide[1]))
     const answer = /^(?:回答|answer)\s*#?(\d+)\s+(.+)$/is.exec(text)
     if (answer) return this.answer(Number(answer[1]), answer[2])
-    return this.forward(text)
+    return channel !== null ? this.route.send(channel, text.slice(0, USER_TEXT_MAX), m.id) : this.forward(text)
   }
 
   private async stop(): Promise<void> {
@@ -271,6 +323,7 @@ export class ImBridge {
 
   /** 只给 allow / deny：allow_all、allow_always 不能从聊天里给，和手机网页版同一条 */
   private async decide(n: number, allow: boolean): Promise<void> {
+    if (await this.route.decide(n, allow)) return
     const p = this.pending.get(n)
     if (!p) return this.enqueue(this.d.say('im.chat.expired', { n }))
     const { request } = p
@@ -283,6 +336,7 @@ export class ImBridge {
 
   /** 「回答 3 2 1」：每个问题一个选项序号 */
   private async answer(n: number, raw: string): Promise<void> {
+    if (await this.route.answer(n, raw)) return
     const p = this.pending.get(n)
     if (!p) return this.enqueue(this.d.say('im.chat.expired', { n }))
     const questions = p.request.questions ?? []
@@ -307,7 +361,7 @@ export class ImBridge {
     }
   }
 
-  private approvalText(n: number, r: ApprovalRequest): string {
+  private approvalText(n: number, r: ApprovalRequest, who?: string): string {
     const detail =
       r.kind === 'plan'
         ? r.plan
@@ -318,25 +372,30 @@ export class ImBridge {
             : r.input !== undefined
               ? JSON.stringify(r.input)
               : r.description
-    const head = this.d.say('im.chat.approvalHead', { n, title: r.title })
+    const head = who
+      ? this.d.say('im.chat.approvalHeadWho', { n, who, title: r.title })
+      : this.d.say('im.chat.approvalHead', { n, title: r.title })
     return [head, detail && cut(detail, DETAIL_MAX), this.d.say('im.chat.approvalHow', { n })]
       .filter(Boolean)
       .join('\n')
   }
 
-  private questionText(n: number, r: ApprovalRequest): string {
+  private questionText(n: number, r: ApprovalRequest, who?: string): string {
     const lines = (r.questions ?? []).flatMap(q => [q.question, ...q.options.map((o, i) => `${i + 1}. ${o.label}`)])
-    return [this.d.say('im.chat.questionHead', { n }), ...lines, this.d.say('im.chat.questionHow', { n })].join('\n')
+    const head = who ? this.d.say('im.chat.questionHeadWho', { n, who }) : this.d.say('im.chat.questionHead', { n })
+    return [head, ...lines, this.d.say('im.chat.questionHow', { n })].join('\n')
   }
 
-  private onApproval(sessionId: string, r: ApprovalRequest): Promise<void> {
+  private onApproval(sessionId: string, r: ApprovalRequest, who?: string): Promise<void> {
     // 表单、要填密码的问题不能经聊天软件传
     const desktopOnly = r.formSchema !== undefined || r.questions?.some(q => q.secret || !q.options.length)
-    if (desktopOnly) return this.enqueue(this.d.say('im.chat.onDesktop'))
-    const n = this.d.memory().nextApproval
-    this.d.save({ nextApproval: n + 1 })
+    if (desktopOnly)
+      return this.enqueue(
+        who ? this.d.say('im.chat.memberWaiting', { who, title: r.title }) : this.d.say('im.chat.onDesktop'),
+      )
+    const n = this.nextNumber()
     this.pending.set(n, { sessionId, request: r })
-    return this.enqueue(r.kind === 'question' ? this.questionText(n, r) : this.approvalText(n, r))
+    return this.enqueue(r.kind === 'question' ? this.questionText(n, r, who) : this.approvalText(n, r, who))
   }
 
   // ---- 引擎事件 ----
@@ -438,6 +497,9 @@ export class ImBridge {
 
   /** 连接恢复时补发 */
   retry(): Promise<void> {
-    return this.run(() => this.flush())
+    return this.run(async () => {
+      await this.flush()
+      await this.route.sync()
+    })
   }
 }

@@ -26,11 +26,33 @@ export interface ImChannelState {
   ignored: number
 }
 
+/** 聊天能不能派活给这个成员（显示用；真正的拦截在主进程） */
+export interface ImChannelMember {
+  id: string
+  name: string
+  allowed: boolean
+  local: boolean
+  lead: boolean
+}
+
+export interface ImTargetChannel {
+  id: string
+  name: string
+  members: ImChannelMember[]
+}
+
+export type ImTarget = 'session' | 'channel'
+
 export interface ImState {
   /** 系统加密可用；不可用时不能保存凭据，不让连接 */
   cipher: boolean
   projectId: string | null
   projects: Array<{ id: string; name: string }>
+  /** 消息进新对话还是频道 */
+  target: ImTarget
+  channelId: string | null
+  /** 能选的频道：本机的、没归档的 */
+  targets: ImTargetChannel[]
   channels: ImChannelState[]
 }
 

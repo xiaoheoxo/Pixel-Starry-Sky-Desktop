@@ -756,6 +756,134 @@ describe('协作频道：AI 互相派活（docs/ui/import-collab.md 第 5 项①
   })
 })
 
+describe('协作频道：聊天派的活（消息通道）', () => {
+  const setup = async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('小明'))
+    const loose = await c.saveMember(null, agent('阿强', { settings: { permissionMode: 'full' } }))
+    const ch = await c.create({ name: 'ch', memberIds: [a, loose] })
+    await c.update(ch, { relay: true, relayRules: RELAY_PRESETS.long })
+    return { c, a, loose, ch }
+  }
+
+  it('消息和任务都带上来源；接力的下一跳跟着带', async () => {
+    const { c, a, ch } = await setup()
+    const b = await c.saveMember(ch, agent('小红'))
+    const { message, root } = await c.post(ch, { text: '@小明 改按钮', clientId: '1' }, undefined, 'qq')
+    expect(root).toBe(message.id)
+    expect(message.chat).toEqual({ via: 'qq', root: message.id })
+    await settle()
+    expect(tasks(c, ch)[0]).toMatchObject({ assigneeId: a, chat: { via: 'qq', root: message.id } })
+    await finishLast(c, '改好了。\n\n@小红 看一下')
+    expect(tasks(c, ch)[1]).toMatchObject({ assigneeId: b, chat: { root: message.id }, relay: { held: null } })
+  })
+
+  it('接力给放宽模式的成员：拦下，「不再限制」也绕不过；电脑上点继续才放行', async () => {
+    const { c, loose, ch } = await setup()
+    await c.post(ch, { text: '@小明 改按钮', clientId: '1' }, undefined, 'wechat')
+    await settle()
+    const sent = () => engine.sends().length
+    await finishLast(c, '改好了。\n\n@阿强 接着做')
+    const before = sent()
+    const held = tasks(c, ch)[1]
+    expect(held).toMatchObject({ assigneeId: loose, status: 'queued', relay: { held: 'chat' } })
+    await settle()
+    expect(sent()).toBe(before)
+    // 改规则会重新算一遍被拦下的，聊天这条不放
+    await c.update(ch, { relayRules: RELAY_PRESETS.standard })
+    await settle()
+    expect(tasks(c, ch)[1]).toMatchObject({ relay: { held: 'chat' } })
+    // 电脑上放行，并且记成「不再限制」：这一跳走了，再交回放宽的成员还是拦
+    await c.taskAction(held.id, 'unlimit')
+    await settle()
+    expect(sent()).toBe(before + 1)
+    await finishLast(c, '好了。\n\n@小明 再看看')
+    await settle()
+    await finishLast(c, '看了。\n\n@阿强 收尾')
+    expect(tasks(c, ch).at(-1)).toMatchObject({ assigneeId: loose, relay: { held: 'chat' } })
+  })
+
+  it('电脑上派的活接力给放宽模式的成员：不拦', async () => {
+    const { c, loose, ch } = await setup()
+    await c.post(ch, { text: '@小明 改按钮', clientId: '1' })
+    await settle()
+    await finishLast(c, '改好了。\n\n@阿强 接着做')
+    expect(tasks(c, ch)[0].chat).toBeUndefined()
+    expect(tasks(c, ch)[1]).toMatchObject({ assigneeId: loose, relay: { held: null } })
+  })
+
+  it('能不能派：看成员设置；没设、SSH 上查不到默认值的当不能派', async () => {
+    const { c, a, loose } = await setup()
+    expect(c.chatAccess(a)).toEqual({ name: '小明', allowed: true, local: true })
+    expect(c.chatAccess(loose)).toMatchObject({ allowed: false })
+    const unset = await c.saveMember(null, agent('没设', { settings: {} }))
+    expect(c.chatAccess(unset)).toMatchObject({ allowed: false })
+    const remote = await c.saveMember(
+      null,
+      agent('老周', { projectId: 'ssh-ab~p2', settings: { permissionMode: 'ask' } }),
+    )
+    expect(c.chatAccess(remote)).toMatchObject({ allowed: true, local: false })
+    expect(c.chatAccess('nobody')).toMatchObject({ allowed: false, local: false })
+  })
+
+  it('共用会话的成员：会话实际的模式和成员设置（流程里的步骤按它开会话）都要是询问或计划', async () => {
+    const { c, ch } = await setup()
+    const id = await c.saveMember(ch, agent('共用', { mode: 'shared' }))
+    await c.post(ch, { text: '@共用 看看', clientId: '1' })
+    await settle()
+    const record = engine.sessions.at(-1)!.record
+    record.permissionMode = 'ask'
+    expect(c.chatAccess(id).allowed).toBe(true)
+    record.permissionMode = 'full'
+    expect(c.chatAccess(id).allowed).toBe(false)
+    record.permissionMode = 'ask'
+    await c.saveMember(ch, { ...agent('共用', { mode: 'shared', settings: { permissionMode: 'edits' } }), id } as never)
+    expect(c.chatAccess(id).allowed).toBe(false)
+  })
+
+  it('聊天能选的频道不含归档的；提到的成员不含自己', async () => {
+    const { c, a, ch } = await setup()
+    expect(c.chatTargets().map(x => x.id)).toEqual([ch])
+    expect(c.chatMentions(ch, '@小明 看看')).toEqual([a])
+    await c.update(ch, { archived: true })
+    expect(c.chatTargets()).toEqual([])
+  })
+
+  it('聊天里发言不算看过电脑上的频道：未读留着；电脑上发言照旧清掉', async () => {
+    const { c, ch } = await setup()
+    await c.post(ch, { text: '@小明 改按钮', clientId: '1' })
+    await settle()
+    await finishLast(c, '改好了。')
+    expect(c.state().channels[0].unread).toBe(1)
+    await c.post(ch, { text: '手机上发一句', clientId: '2' }, undefined, 'qq')
+    await settle()
+    expect(c.state().channels[0].unread).toBe(1)
+    await c.post(ch, { text: '电脑上发一句', clientId: '3' })
+    await settle()
+    expect(c.state().channels[0].unread).toBe(0)
+  })
+
+  it('接力来的卡在电脑上改派：新卡沿用来源，结果才回得到聊天', async () => {
+    const { c, ch } = await setup()
+    const b = await c.saveMember(ch, agent('小红'))
+    const d = await c.saveMember(ch, agent('老王'))
+    const { message } = await c.post(ch, { text: '@小明 改按钮', clientId: '1' }, undefined, 'qq')
+    await settle()
+    await finishLast(c, '改好了。\n\n@小红 看一下')
+    const relayed = tasks(c, ch)[1]
+    expect(relayed).toMatchObject({ assigneeId: b, chat: { root: message.id } })
+    await c.taskAction(relayed.id, 'reassign', d)
+    expect(tasks(c, ch).at(-1)).toMatchObject({ assigneeId: d, chat: { via: 'qq', root: message.id } })
+  })
+
+  it('没 @、没牵头：root 是 null（没人接），消息照样进频道', async () => {
+    const { c, ch } = await setup()
+    const { message, root } = await c.post(ch, { text: '大家看一下这个问题', clientId: '1' }, undefined, 'qq')
+    expect(root).toBeNull()
+    expect(c.chatItems(ch).some(m => m.id === message.id)).toBe(true)
+  })
+})
+
 describe('协作频道：已有会话加入频道（docs/ui/import-collab.md 第 5 项②）', () => {
   /** 假引擎里放一个自己开的会话 */
   const own = (id: string, patch: Record<string, unknown> = {}) =>

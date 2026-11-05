@@ -231,6 +231,11 @@ export class EngineHost {
     return this.m.settings.defaults()
   }
 
+  /** 这个引擎的新会话默认值 */
+  engineDefaults(engine: EngineId): ReturnType<HostSettings['engineDefaults']> {
+    return this.m.settings.engineDefaults(engine)
+  }
+
   /** 设置 › 本机引擎里的引擎级选项，启动引擎进程时读（自带的适配器自动接上；测试里自己建的适配器也可以接它） */
   launchOptions(engine: EngineId): ReturnType<HostSettings['launchOptions']> {
     return this.m.settings.launchOptions(engine)

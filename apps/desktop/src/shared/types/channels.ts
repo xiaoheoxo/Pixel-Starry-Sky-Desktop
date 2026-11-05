@@ -245,8 +245,15 @@ interface ChannelMessageBase {
   at: number
 }
 
+/** 从消息通道（QQ、微信）发进来的（docs/ui/one-click-connectors.md）：哪个平台、最初那条消息的 id；由它引出的流程和任务都带着 */
+export interface ChannelChatOrigin {
+  via: 'qq' | 'wechat'
+  root: string
+}
+
 export interface ChannelTextMessage extends ChannelMessageBase {
   kind: 'message'
+  chat?: ChannelChatOrigin
   authorId: string
   text: string
   format: 'plain' | 'markdown'
@@ -490,6 +497,8 @@ export interface ChannelAttachments {
 /** 派给 AI 成员的一项活；状态变化时原地更新，不追加新消息 */
 export interface ChannelTask extends ChannelMessageBase {
   kind: 'task'
+  /** 聊天里派的（消息通道）：要确认的事和结果回到聊天 */
+  chat?: ChannelChatOrigin
   authorId: string
   assigneeId: string
   title: string
@@ -560,7 +569,8 @@ export interface IssueDispatch {
 export interface ChannelRelay {
   chain: string
   hop: number
-  held?: 'hops' | 'pair' | 'duration' | null
+  /** chat：这条链是聊天里派的，接手的成员不是询问模式（不会回聊天里问你），放行只能在电脑上 */
+  held?: 'hops' | 'pair' | 'duration' | 'chat' | null
   limit?: number
 }
 

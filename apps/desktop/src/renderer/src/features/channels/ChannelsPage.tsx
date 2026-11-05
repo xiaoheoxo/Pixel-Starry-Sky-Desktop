@@ -2,6 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive } from 'lucide-react'
+import { ImLinkedHint } from '@/features/im/ImLinkedHint'
 import { Button, CollapsibleSlot, useToast } from '@/ui'
 import { OPEN_SESSION_EVENT, bridge as engineBridge } from '@/features/engine'
 import type { AgentMember, Channel, ChannelTask } from '@/data/types'
@@ -188,6 +189,7 @@ export function ChannelsPage({
           ) : (
             <>
               {channel.scope === 'local' && <LeadHint channel={channel} members={channelMembers} />}
+              {channel.scope === 'local' && <ImLinkedHint channelId={channel.id} />}
               <ChannelComposer
                 key={channel.id}
                 channel={channel}

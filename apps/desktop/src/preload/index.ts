@@ -589,6 +589,7 @@ const im: ImBridgeApi = {
   pairCancel: platform => call('im:pairCancel', platform),
   unbind: platform => call('im:unbind', platform),
   setProject: projectId => call('im:setProject', projectId),
+  setTarget: (target, channelId) => call('im:setTarget', target, channelId),
   onChange: cb => {
     const listener = (_event: Electron.IpcRendererEvent, value: ImState): void => cb(value)
     on('im:changed', listener)

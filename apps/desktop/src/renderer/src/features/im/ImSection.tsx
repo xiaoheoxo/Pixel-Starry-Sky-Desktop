@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Select } from '@/ui'
+import { Button, cn, Select } from '@/ui'
 import { QrCode } from '@/ui/QrCode'
 import { useI18n } from '@/i18n/I18nProvider'
 import { translateMessage, type TranslationKey } from '@/i18n/core'
@@ -7,11 +7,15 @@ import { useTheme } from '@/features/appearance/ThemeProvider'
 import { FIELD } from '@/features/settings/engines/parts'
 import { SectionTitle } from '@/features/settings/SettingRow'
 import { PackBadge } from '@/features/settings/extensions/PackBadge'
-import type { ImChannelState, ImConnectInput, ImState } from '../../../../shared/types/im'
+import type { ImChannelState, ImConnectInput, ImState, ImTarget, ImTargetChannel } from '../../../../shared/types/im'
 
 // 设置 › 消息通道（docs/ui/one-click-connectors.md）：在 QQ、微信里指挥这台电脑上的 AI
 
 const PAIR_MINUTES = 5
+const DESTINATIONS: { value: ImTarget; title: TranslationKey; desc: TranslationKey }[] = [
+  { value: 'session', title: 'im.dest.session', desc: 'im.dest.sessionDesc' },
+  { value: 'channel', title: 'im.dest.channel', desc: 'im.dest.channelDesc' },
+]
 
 const errorText = (e: unknown): string => translateMessage((e as Error)?.message ?? String(e))
 
@@ -184,6 +188,32 @@ function ChannelCard({
   )
 }
 
+/** 频道里每个成员在聊天里能不能派活 */
+function MemberList({ channel }: { channel: ImTargetChannel }) {
+  const { t } = useI18n()
+  return (
+    <div className="mt-3">
+      <div className="text-ui font-medium text-fg">{t('im.members')}</div>
+      <p className="mt-1 mb-2 text-meta text-fg-muted">{t('im.membersHint')}</p>
+      {channel.members.length === 0 && <p className="text-meta text-fg-faint">{t('im.membersNone')}</p>}
+      <ul className="grid gap-1.5">
+        {channel.members.map(m => (
+          <li key={m.id} data-im-member={m.id} className="flex flex-wrap items-center gap-2 text-meta text-fg">
+            <span>{m.name}</span>
+            {!m.allowed ? (
+              <PackBadge tone="warn">{t('im.member.blocked')}</PackBadge>
+            ) : m.local ? (
+              <PackBadge tone="info">{t('im.member.ok')}</PackBadge>
+            ) : (
+              <PackBadge tone="warn">{t('im.member.remote')}</PackBadge>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function ImSection() {
   const { t } = useI18n()
   const bridge = window.pixelsky?.im
@@ -216,6 +246,8 @@ export function ImSection() {
     }
   }
 
+  const selected = state?.targets.find(c => c.id === state.channelId)
+
   return (
     <section data-im-section>
       <SectionTitle>{t('im.title')}</SectionTitle>
@@ -225,17 +257,56 @@ export function ImSection() {
       {state && (
         <>
           <div className="mb-4">
-            <div className="text-ui font-medium text-fg">{t('im.project')}</div>
-            <p className="mt-1 mb-2 text-meta text-fg-muted">{t('im.projectHint')}</p>
-            <Select
-              label={t('im.project')}
-              value={state.projectId ?? ''}
-              placeholder={t('im.projectNone')}
-              options={state.projects.map(p => ({ value: p.id, label: p.name }))}
-              onChange={id => void act(() => bridge?.setProject(id))}
-            />
+            <div className="text-ui font-medium text-fg">{t('im.dest')}</div>
+            <div role="radiogroup" aria-label={t('im.dest')} className="mt-2 grid gap-2 sm:grid-cols-2">
+              {DESTINATIONS.map(d => (
+                <button
+                  key={d.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={state.target === d.value}
+                  data-im-dest={d.value}
+                  className={cn(
+                    'rounded-md border p-3 text-left hover:bg-hover',
+                    state.target === d.value ? 'border-accent-line bg-subtle' : 'border-line',
+                  )}
+                  onClick={() => void act(() => bridge?.setTarget(d.value, null))}
+                >
+                  <span className="block text-ui font-medium text-fg">{t(d.title)}</span>
+                  <span className="mt-0.5 block text-meta text-fg-muted">{t(d.desc)}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="mb-4 text-meta text-fg-muted">{t('im.rules')}</p>
+          {state.target === 'session' ? (
+            <div className="mb-4">
+              <div className="text-ui font-medium text-fg">{t('im.project')}</div>
+              <p className="mt-1 mb-2 text-meta text-fg-muted">{t('im.projectHint')}</p>
+              <Select
+                label={t('im.project')}
+                value={state.projectId ?? ''}
+                placeholder={t('im.projectNone')}
+                options={state.projects.map(p => ({ value: p.id, label: p.name }))}
+                onChange={id => void act(() => bridge?.setProject(id))}
+              />
+            </div>
+          ) : (
+            <div className="mb-4">
+              <div className="text-ui font-medium text-fg">{t('im.channel')}</div>
+              <p className="mt-1 mb-2 text-meta text-fg-muted">{t('im.channelHint')}</p>
+              <Select
+                label={t('im.channel')}
+                value={state.channelId ?? ''}
+                placeholder={t('im.channelNone')}
+                options={state.targets.map(c => ({ value: c.id, label: `# ${c.name}` }))}
+                onChange={id => void act(() => bridge?.setTarget('channel', id))}
+              />
+              {selected && <MemberList channel={selected} />}
+            </div>
+          )}
+          <p className="mb-4 text-meta text-fg-muted">
+            {t(state.target === 'channel' ? 'im.rulesChannel' : 'im.rules')}
+          </p>
           {error && (
             <p role="alert" className="mb-4 text-meta text-danger">
               {error}

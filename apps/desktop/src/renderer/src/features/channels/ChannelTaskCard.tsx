@@ -296,16 +296,18 @@ export function ChannelTaskCard({
       )}
       {held && (
         <p data-relay-held={held} className="mt-1.5 text-meta break-words text-warn">
-          {held === 'hops'
-            ? tr('channels.task.heldHops', { count: limit })
-            : held === 'duration'
-              ? tr('channels.task.heldDuration', { time: relayDuration(limit) })
-              : tr('channels.task.heldPair', {
-                  a: author?.name ?? '?',
-                  b: assignee?.name ?? '?',
-                  count: limit,
-                  window,
-                })}
+          {held === 'chat'
+            ? tr('channels.task.heldChat', { name: assignee?.name ?? '?' })
+            : held === 'hops'
+              ? tr('channels.task.heldHops', { count: limit })
+              : held === 'duration'
+                ? tr('channels.task.heldDuration', { time: relayDuration(limit) })
+                : tr('channels.task.heldPair', {
+                    a: author?.name ?? '?',
+                    b: assignee?.name ?? '?',
+                    count: limit,
+                    window,
+                  })}
         </p>
       )}
       {task.decision && (
@@ -384,13 +386,15 @@ export function ChannelTaskCard({
                     ? tr('channels.task.continueDuration', { time: relayDuration(limit) })
                     : tr('channels.task.continue')}
               </Button>
-              <Button
-                className="h-7 px-2.5 text-meta"
-                disabled={busy}
-                onClick={() => run(() => onAction!(task.id, 'unlimit'))}
-              >
-                {tr('channels.task.unlimit')}
-              </Button>
+              {held !== 'chat' && (
+                <Button
+                  className="h-7 px-2.5 text-meta"
+                  disabled={busy}
+                  onClick={() => run(() => onAction!(task.id, 'unlimit'))}
+                >
+                  {tr('channels.task.unlimit')}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 className="h-7 px-2.5 text-meta"

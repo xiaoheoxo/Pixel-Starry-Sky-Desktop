@@ -94,6 +94,10 @@ export const channelMessages = {
     zh: '这条接力已经运行了 {time}，等你决定要不要继续',
     en: 'This relay has been running for {time}. Decide whether to continue.',
   },
+  'channels.task.heldChat': {
+    zh: '这条接力是从聊天里派的，{name} 不是询问模式，不会回聊天里问你。要放行就点继续',
+    en: 'This relay started from chat and {name} is not in Ask mode, so it won\u2019t ask you in chat. Continue to let it through.',
+  },
   'channels.task.continueHops': { zh: '继续（再 {count} 跳）', en: 'Continue ({count} more hops)' },
   'channels.task.continueDuration': { zh: '继续（再 {time}）', en: 'Continue ({time} more)' },
   'channels.task.unlimit': { zh: '这条接力不再限制', en: 'No limits for this relay' },

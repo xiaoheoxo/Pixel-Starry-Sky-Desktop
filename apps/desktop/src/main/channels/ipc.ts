@@ -114,6 +114,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     deviceId,
     machineName: () => hostname() || '这台电脑',
     channelTools: true,
+    defaultMode: engine => ctx.engine?.engineDefaults(engine).permissionMode,
     // 产出检查走项目工具的操作表，和窗口一样按会话路由到所在的机器（docs/ui/channels-collab-v2.md §8）
     runChecks: async (sessionId, files) => {
       const op = ctx.toolOps.get('projectTools:runChecks')
@@ -158,6 +159,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   })
   // 频道工具（pixelsky_channel）：频道派活的本机会话发消息前由扩展准备挂上（docs/ui/channels-collab-v2.md §1）
   ctx.dispatchIssue = (channelId, issue) => channels.dispatchIssue(channelId, issue)
+  ctx.channels = channels
   const tools = channelToolsServer(() => channels)
   ctx.channelTools = tools
   app.on('will-quit', () => tools.close())

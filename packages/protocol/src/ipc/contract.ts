@@ -739,6 +739,7 @@ export const IPC_CONTRACT = {
   'im:pairCancel': { kind: 'invoke', route: 'local', trust: 'sender' },
   'im:pairStart': { kind: 'invoke', route: 'local', trust: 'sender' },
   'im:setProject': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'im:setTarget': { kind: 'invoke', route: 'local', trust: 'sender' },
   'im:state': { kind: 'invoke', route: 'local', trust: 'sender' },
   'im:unbind': { kind: 'invoke', route: 'local', trust: 'sender' },
   'notify:clicked': { kind: 'push', route: 'push', trust: 'none' },

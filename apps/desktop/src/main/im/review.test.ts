@@ -31,6 +31,8 @@ function setup(over: { mode?: string } = {}) {
     sender,
     engine,
     projectId: () => 'p1',
+    channelTarget: () => null,
+    channels: () => null,
     memory: () => memory,
     save: patch => {
       memory = { ...memory, ...patch }

@@ -5,6 +5,7 @@ import type { ExtensionPacks } from '../extension-packs/service'
 import type { Machines } from '../machines/service'
 import type { ProviderStore } from '../core/providers/store'
 import type { ChannelToolsServer } from '../channels/channel-mcp'
+import type { Channels } from '../core/channels/service'
 import { EventBus } from './events'
 import { Lifecycle } from './lifecycle'
 
@@ -31,6 +32,8 @@ export interface AppContext {
   dispatchIssue: ((channelId: string, issue: unknown) => Promise<{ taskId: string }>) | null
   /** 频道工具 MCP 和成员的扩展设置（channels/ipc.ts 的 initChannels；docs/ui/channels-collab-v2.md §1、§5） */
   channelTools: ChannelToolsServer | null
+  /** 协作频道服务（channels/ipc.ts 的 initChannels）：消息通道发进频道、跟进卡片时用；比 initIm 晚就绪 */
+  channels: Channels | null
   /**
    * 不经过窗口调用引擎操作表（engine/ipc.ts 的 initEngine）：和窗口的调用走同一层路由（含 SSH 机器），
    * owner 是搜索 / 产物扫描的分桶。手机端（main/mobile/）用它
@@ -57,6 +60,7 @@ export function createAppContext(): AppContext {
     extPacks: null,
     dispatchIssue: null,
     channelTools: null,
+    channels: null,
     engineCall: null,
     toolOps: new Map(),
   }

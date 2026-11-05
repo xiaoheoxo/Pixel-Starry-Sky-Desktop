@@ -534,6 +534,11 @@ export function MessageGroup({
               )}
               {m.alert && <AlertButtons message={m} readOnly={proposalsReadOnly} />}
               {m.attached && <MessageAttachments message={m} />}
+              {m.chat && !m.flow && (
+                <span data-chat-origin className="mt-0.5 px-1 text-meta text-fg-faint">
+                  {tr(m.chat.via === 'qq' ? 'im.from.qq' : 'im.from.wechat')}
+                </span>
+              )}
               {renderBelow?.(m)}
               {threads && onThread && (
                 <ThreadRow rootId={m.id} stats={threads} membersById={membersById} onOpen={onThread} />

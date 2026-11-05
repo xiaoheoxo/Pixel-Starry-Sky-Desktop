@@ -30,6 +30,8 @@ function setup(over: { window?: boolean; mode?: string; bound?: string | null; p
     sender,
     engine,
     projectId: () => (over.project === undefined ? 'p1' : over.project),
+    channelTarget: () => null,
+    channels: () => null,
     memory: () => memory,
     save: patch => {
       memory = { ...memory, ...patch }

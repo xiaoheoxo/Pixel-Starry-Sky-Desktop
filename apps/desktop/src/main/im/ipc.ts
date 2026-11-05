@@ -10,7 +10,16 @@ import { windowLocale } from '../app/ui-language'
 import { systemCipher } from '../app/system-cipher'
 import { SecureStore } from '../core/secure-store'
 import { allMessages, type TranslationKey } from '../../shared/i18n/translate'
-import { IM_PLATFORMS, type ImChannelState, type ImPlatform, type ImState, type ImStatus } from '../../shared/types/im'
+import type { ChannelMessage } from '../../shared/types/channels'
+import {
+  IM_PLATFORMS,
+  type ImChannelState,
+  type ImPlatform,
+  type ImState,
+  type ImStatus,
+  type ImTarget,
+} from '../../shared/types/im'
+import type { BridgeChannels } from './route'
 import { emptyMemory, ImBridge, type BridgeEngine, type BridgeMemory, type ImInbound, type ImSender } from './bridge'
 import { QqLink } from './qq'
 import { WechatLink } from './wechat'
@@ -48,6 +57,8 @@ class ImChannel {
     private readonly store: SecureStore,
     engine: BridgeEngine,
     projectId: () => string | null,
+    channelTarget: () => string | null,
+    channels: (platform: ImPlatform) => BridgeChannels | null,
     private readonly changed: () => void,
   ) {
     this.bridge = new ImBridge({
@@ -61,6 +72,8 @@ class ImChannel {
       },
       engine,
       projectId,
+      channelTarget,
+      channels: () => channels(platform),
       memory: () => this.memory(),
       save: patch => this.saveMemory(patch),
       say,
@@ -234,16 +247,52 @@ export function initIm(ctx: AppContext): void {
     const id = prefs().projectId
     return id && ctx.engine?.projects().some(p => p.id === id) ? id : null
   }
+  const targets = (): ImState['targets'] => {
+    const service = ctx.channels
+    return (service?.chatTargets() ?? []).map(c => ({
+      id: c.id,
+      name: c.name,
+      members: c.memberIds.map(id => {
+        const { name, allowed, local } = service!.chatAccess(id)
+        return { id, name, allowed, local, lead: c.lead === id }
+      }),
+    }))
+  }
+  const target = (): ImTarget => (prefs().target === 'channel' ? 'channel' : 'session')
+  const channelTarget = (): string | null => (target() === 'channel' ? (prefs().channelId ?? '') : null)
+  const channelPort = (platform: ImPlatform): BridgeChannels | null => {
+    const service = ctx.channels
+    if (!service) return null
+    const access = (id: string): ReturnType<BridgeChannels['access']> => service.chatAccess(id)
+    return {
+      info: id => {
+        const c = service.chatTargets().find(x => x.id === id)
+        return c ? { name: c.name, members: c.memberIds.map(access) } : null
+      },
+      access,
+      mentions: (id, message) => service.chatMentions(id, message),
+      post: async (id, message, clientId) => {
+        const { root } = await service.post(id, { text: message, clientId: `im:${clientId}` }, undefined, platform)
+        return { root: root ?? null }
+      },
+      items: id => service.chatItems(id),
+      stopTask: (id, action) => service.taskAction(id, action),
+      flow: (id, action) => service.flowAction(id, action),
+    }
+  }
   const state = (): ImState => ({
     cipher: store.persistent,
     projectId: projectId(),
     projects: (ctx.engine?.projects() ?? []).map(p => ({ id: p.id, name: p.name })),
+    target: target(),
+    channelId: prefs().channelId ?? null,
+    targets: targets(),
     channels: IM_PLATFORMS.map(platform => channels[platform].state()),
   })
   const changed = (): void => ctx.events.broadcast('im:changed', state())
   const channels: Record<ImPlatform, ImChannel> = {
-    qq: new ImChannel('qq', store, engine, projectId, changed),
-    wechat: new ImChannel('wechat', store, engine, projectId, changed),
+    qq: new ImChannel('qq', store, engine, projectId, channelTarget, channelPort, changed),
+    wechat: new ImChannel('wechat', store, engine, projectId, channelTarget, channelPort, changed),
   }
   const channelOf = (raw: unknown): ImChannel => {
     if (!IM_PLATFORMS.includes(raw as ImPlatform)) throw codedError('im.missing')
@@ -258,6 +307,14 @@ export function initIm(ctx: AppContext): void {
   ctx.hostListeners.add(event => {
     if (event.kind !== 'session') return
     for (const platform of IM_PLATFORMS) void channels[platform].bridge.onEvent(event.sessionId, event.event)
+  })
+
+  // 聊天派的卡片、流程变了：只叫醒发出它的那个平台，发不发由 sync 按现状判断
+  ctx.events.taps.add((channel, args) => {
+    if (channel !== 'channels:message') return
+    const { message } = args[0] as { message: ChannelMessage }
+    if ((message.kind === 'task' || message.kind === 'message') && message.chat)
+      channels[message.chat.via].bridge.channelChanged()
   })
 
   ipc.handle('im:state', () => state())
@@ -288,6 +345,18 @@ export function initIm(ctx: AppContext): void {
   })
   ipc.handle('im:unbind', (_e, platform: unknown) => {
     channelOf(platform).bridge.unbind()
+    return state()
+  })
+  ipc.handle('im:setTarget', (_e, rawTarget: unknown, rawChannel: unknown) => {
+    if (rawTarget === 'session') store.set('prefs', { ...prefs(), target: 'session' })
+    else if (rawTarget === 'channel') {
+      const channelId = rawChannel === null ? (prefs().channelId ?? '') : text(rawChannel, 'channelId')
+      // 只能是本机频道：团队频道不在 chatTargets 里
+      if (channelId && !ctx.channels?.chatTargets().some(c => c.id === channelId)) throw codedError('im.noChannel')
+      store.set('prefs', { ...prefs(), target: 'channel', channelId })
+    } else throw codedError('im.noChannel')
+    // 频道页上的「QQ 已连接」跟着变
+    changed()
     return state()
   })
   ipc.handle('im:setProject', (_e, raw: unknown) => {

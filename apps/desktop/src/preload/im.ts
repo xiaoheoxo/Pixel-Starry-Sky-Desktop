@@ -1,4 +1,4 @@
-import type { ImConnectInput, ImPlatform, ImState } from '../shared/types/im'
+import type { ImConnectInput, ImPlatform, ImState, ImTarget } from '../shared/types/im'
 
 /** 设置 › 消息通道（docs/ui/one-click-connectors.md） */
 export interface ImBridgeApi {
@@ -11,5 +11,6 @@ export interface ImBridgeApi {
   pairCancel(platform: ImPlatform): Promise<ImState>
   unbind(platform: ImPlatform): Promise<ImState>
   setProject(projectId: string): Promise<ImState>
+  setTarget(target: ImTarget, channelId: string | null): Promise<ImState>
   onChange(callback: (state: ImState) => void): () => void
 }

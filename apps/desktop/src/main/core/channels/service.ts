@@ -15,6 +15,7 @@ import {
   type HostEvent,
   type MessageInput,
   type OpenedSession,
+  type EngineId,
   type PermissionMode,
   type ProjectRecord,
   type SessionRecord,
@@ -38,6 +39,7 @@ import type {
   NeedGone,
   NeedMark,
   ChannelRelay,
+  ChannelChatOrigin,
   ChannelTask,
   ChannelTaskAction,
   ChannelTextMessage,
@@ -221,6 +223,8 @@ export interface ChannelsDeps {
   teamTiming?: { progressMs?: number; statusMs?: number }
   /** 本机会话挂了频道工具（main/channels/channel-mcp.ts）：派活提示词只带最近几条、说明怎么用工具 */
   channelTools?: boolean
+  /** 新会话的默认权限模式（本机）：成员没单独设时，聊天派活按它判断（消息通道） */
+  defaultMode?: (engine: EngineId) => PermissionMode | undefined
   /** 频道没设 planFirst 时的默认：@ 一个 AI 派新活先出计划（默认开；测试里关掉沿用直接派活） */
   planFirst?: boolean
   /** 产出检查（docs/ui/channels-collab-v2.md §8）：在会话的工作目录跑；项目关了频道检查时返回 null */
@@ -1196,7 +1200,9 @@ export class Channels {
     channelId: string,
     input: PostInput,
     only?: string,
-  ): Promise<{ message: ChannelTextMessage; tasks: string[] }> {
+    /** 消息通道发进来的：不放在 PostInput 里，窗口传不了 */
+    via?: ChannelChatOrigin['via'],
+  ): Promise<{ message: ChannelTextMessage; tasks: string[]; root?: string | null }> {
     if (this.isTeam(channelId)) return this.postTeam(channelId, input)
     const c = this.writable(channelId)
     const text = typeof input?.text === 'string' ? input.text.trim() : ''
@@ -1216,14 +1222,16 @@ export class Channels {
         : null
     const threadId = this.threadRoot(channelId, input.threadId)
     const now = this.now()
+    const id = randomUUID()
     const message: ChannelTextMessage = {
       kind: 'message',
-      id: randomUUID(),
+      id,
       channelId,
       at: now,
       authorId: SELF_ID,
       text,
       format: 'plain',
+      ...(via ? { chat: { via, root: id } } : {}),
       replyToId,
       ...(threadId ? { threadId } : {}),
       mentions: only ? [only] : parseMentions(text, members).filter(id => id !== SELF_ID),
@@ -1240,7 +1248,8 @@ export class Channels {
     await this.store.append(message)
     // 发消息就算看过了；AI 互相派活的防刷计数也从这里重新算。写附件期间频道可能被改、被删：按最新那份写，删了就不写
     const latest = this.store.channels.get(channelId)
-    if (latest) await this.store.saveChannel({ ...latest, readAt: now, relayResetAt: now })
+    // 聊天里发的不算看过：人不在电脑前，这之前的新消息还要提示
+    if (latest) await this.store.saveChannel({ ...latest, relayResetAt: now, ...(via ? {} : { readAt: now }) })
     this.pushMessage(message)
     const agents = (message.mentions ?? []).filter(id => this.member(id))
     // 讨论串里：@ 同一个成员 = 追加要求，不 @ 只是留言（docs/ui/channels-collab-v2.md §3）；引用卡片照旧，不 @ 也算追加要求
@@ -1257,10 +1266,55 @@ export class Channels {
     } else for (const id of agents) tasks.push(this.newTask(c, message, id, replyToId ?? threadId))
     // 没派给任何人的需求：交给牵头成员（docs/ui/channels-pipeline.md §8.3）
     // 有份提案在商量：不带 @ 的话（或回复提案卡）交给拆它的成员接着改，不另开、不派活
-    if (!tasks.length && !planning && !this.refineTakes(c, message) && this.leadTakes(c, message))
-      void this.leadPlan(c, message)
+    let root: string | null = tasks.length || planning ? id : null
+    if (!tasks.length && !planning) {
+      const refined = this.refineTakes(c, message)
+      if (refined) root = refined.chat?.root ?? null
+      else if (this.leadTakes(c, message)) {
+        root = id
+        void this.leadPlan(c, message)
+      }
+    }
     this.changed()
-    return { message, tasks }
+    return { message, tasks, root }
+  }
+
+  // ---- 消息通道（docs/ui/one-click-connectors.md「配合频道」） ----
+
+  /**
+   * 成员能不能接聊天派的活：要确认的操作才能回到聊天，所以只认询问、计划模式。
+   * 共用会话、加入频道的会话平时在原会话里做，流程里的步骤按成员设置新开会话：两边都要满足。
+   * SSH 成员没写模式时这边查不到默认值，当不能派
+   */
+  chatAccess(memberId: string): { name: string; allowed: boolean; local: boolean } {
+    const m = this.member(memberId)
+    if (!m) return { name: '?', allowed: false, local: false }
+    const local = m.machineId === 'local'
+    const session = m.sharedSessionId ? this.deps.sessions().find(s => s.record.id === m.sharedSessionId) : undefined
+    const own = m.settings.permissionMode ?? (local ? this.deps.defaultMode?.(m.engine) : undefined)
+    const safe = (mode: PermissionMode | undefined): boolean => mode === 'ask' || mode === 'plan'
+    return { name: m.name, allowed: safe(own) && (!session || safe(session.record.permissionMode)), local }
+  }
+
+  /** 聊天能发进去的频道：本机的、没归档的（团队频道里别人的发言不能经腾讯的服务器） */
+  chatTargets(): { id: string; name: string; lead: string | null; memberIds: string[] }[] {
+    return [...this.store.channels.values()]
+      .filter(c => !c.archivedAt && !this.isTeam(c.id))
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        lead: c.lead ?? null,
+        memberIds: c.memberIds.filter(id => this.member(id)),
+      }))
+  }
+
+  chatMentions(channelId: string, text: string): string[] {
+    const c = this.store.channels.get(channelId)
+    return c ? parseMentions(text, this.channelMembers(c)).filter(id => id !== SELF_ID) : []
+  }
+
+  chatItems(channelId: string): readonly ChannelMessage[] {
+    return this.store.messages.get(channelId) ?? []
   }
 
   /** 一条消息带的图片和文件全文（团队频道没有附件） */
@@ -1448,7 +1502,9 @@ export class Channels {
     from: string,
     to: string,
     extra = 0,
-  ): { held: 'hops' | 'pair' | 'duration'; limit: number } | null {
+  ): { held: NonNullable<ChannelRelay['held']>; limit: number } | null {
+    // 排在「不再限制」前面：聊天派的活只交给会回聊天里问你的成员，不查这一步接力就绕过了
+    if (this.store.task(chain)?.chat && !this.chatAccess(to).allowed) return { held: 'chat', limit: 0 }
     if (c.relayFree?.includes(chain)) return null
     const rules = relayRulesOf(c)
     if (rules.hops !== null && this.chainHops(c, chain) + extra >= rules.hops)
@@ -1555,6 +1611,9 @@ export class Channels {
       round: 1,
       ...(relay ? { relay: relay.relay } : {}),
     }
+    // 接力的来源消息是上一个成员的回复：来源记在这条接力最早那张卡上
+    const chat = relay ? this.store.task(relay.relay.chain)?.chat : source.chat
+    if (chat) task.chat = chat
     void this.store.append(task).catch(e => this.deps.log?.('保存频道消息失败', e))
     this.pushMessage(task)
     const prompt = this.freshPrompt(c, source, member, replyToId, member.mode === 'shared', relay)
@@ -2285,12 +2344,13 @@ export class Channels {
     channelId: string,
     messageId: string,
     change: (f: ChannelFlow) => ChannelFlow,
+    chat?: ChannelChatOrigin,
   ): ChannelFlow | null {
     const m = this.flowMessage(channelId, messageId)
     if (!m) return null
     const flow = change(m.flow)
     if (flow === m.flow) return flow
-    const next: ChannelTextMessage = { ...m, text: flow.title, flow }
+    const next: ChannelTextMessage = { ...m, ...(chat ? { chat } : {}), text: flow.title, flow }
     void this.store.append(next).catch(e => this.deps.log?.('保存流程失败', e))
     this.pushMessage(next)
     this.changed()
@@ -2408,6 +2468,7 @@ export class Channels {
       sourceMessageId: m.id,
       round: 1,
       flow,
+      ...(m.chat ? { chat: m.chat } : {}),
     }
     void this.store.append(task).catch(e => this.deps.log?.('保存频道消息失败', e))
     this.pushMessage(task)
@@ -3271,8 +3332,8 @@ export class Channels {
    * 草稿期间接着说（补充细节、改主意、回答提案里的问题）：交给拆这份提案的成员改，改完还是草稿，点开始才派活。
    * 只认不带 @、不在讨论串里的话；回复别的消息不算，回复提案卡算
    */
-  private refineTakes(c: StoredChannel, m: ChannelTextMessage): boolean {
-    if (m.mentions?.length || m.threadId || m.text.trim().startsWith('/')) return false
+  private refineTakes(c: StoredChannel, m: ChannelTextMessage): ChannelTextMessage | null {
+    if (m.mentions?.length || m.threadId || m.text.trim().startsWith('/')) return null
     const draft = [...(this.store.messages.get(c.id) ?? [])]
       .reverse()
       .find(
@@ -3281,17 +3342,24 @@ export class Channels {
           !!x.flow?.planner?.taskId &&
           (x.flow.status === 'draft' || x.flow.status === 'planning'),
       )
-    if (!draft || (m.replyToId && m.replyToId !== draft.id)) return false
+    if (!draft || (m.replyToId && m.replyToId !== draft.id)) return null
     const planner = draft.flow.planner!
-    if (!this.flowMemberCheck(c)(planner.memberId)?.local) return false
+    if (!this.flowMemberCheck(c)(planner.memberId)?.local) return null
     const f = draft.flow
     // 记下原话：排着的补充是拼好的提示词，换人拟计划时会清掉，交接靠这份
     const note = { from: this.nameOf(m.authorId), text: m.text }
-    this.updateFlow(c.id, draft.id, x => ({
-      ...x,
-      status: x.status === 'draft' ? 'planning' : x.status,
-      planner: x.planner ? { ...x.planner, notes: [...(x.planner.notes ?? []), note].slice(-20) } : x.planner,
-    }))
+    // 电脑上开的提案在聊天里接着商量：改好的计划也回到聊天
+    const chat = draft.chat ?? m.chat
+    this.updateFlow(
+      c.id,
+      draft.id,
+      x => ({
+        ...x,
+        status: x.status === 'draft' ? 'planning' : x.status,
+        planner: x.planner ? { ...x.planner, notes: [...(x.planner.notes ?? []), note].slice(-20) } : x.planner,
+      }),
+      chat,
+    )
     this.flowRound(
       planner.taskId!,
       flowRefinePrompt({
@@ -3308,7 +3376,7 @@ export class Channels {
         attached: !!(m.attached?.images.length || m.attached?.files.length),
       }),
     )
-    return true
+    return { ...draft, chat }
   }
 
   private plannerTaskName(title: string, auto?: boolean, mention?: boolean): string {
@@ -3384,6 +3452,8 @@ export class Channels {
     if (!c.memberIds.includes(step.memberId) || !this.member(step.memberId)) return false
     const source = this.store.messages.get(c.id)?.find(x => x.id === planner.sourceId)
     if (source?.kind !== 'message') return false
+    // 聊天里的需求不直接派给不会问你的成员：留成草稿，计划发到聊天里写明
+    if (m.chat && !this.chatAccess(step.memberId).allowed) return false
     this.updateFlow(run.channelId, m.id, f => ({ ...f, status: 'stopped' }))
     const id = this.newTask(c, source, step.memberId, null)
     this.patch(c.id, id, { routedBy: { memberId: planner.memberId, note: step.title.slice(0, 200) } })
@@ -3458,6 +3528,7 @@ export class Channels {
         text: title,
         format: 'plain',
         mentions: [],
+        ...(source?.chat ? { chat: source.chat } : {}),
         flow: {
           title,
           status: planner ? 'planning' : 'draft',
@@ -4038,7 +4109,11 @@ export class Channels {
     if (terminal(task.status)) throw new Error('这项活已经结束了，不能改派')
     await this.runAction(taskId, task.status === 'queued' ? 'cancel' : 'stop')
     const id = this.newTask(c, source, memberId, null)
-    this.patch(c.id, id, { routedBy: { memberId: task.routedBy?.memberId ?? SELF_ID, note: '', moved: true } })
+    this.patch(c.id, id, {
+      routedBy: { memberId: task.routedBy?.memberId ?? SELF_ID, note: '', moved: true },
+      // 接力来的卡，来源消息是上一个成员的回复、没有 chat：沿用，结果才回得到聊天
+      ...(task.chat ? { chat: task.chat } : {}),
+    })
     void this.pump(memberId)
   }
 
