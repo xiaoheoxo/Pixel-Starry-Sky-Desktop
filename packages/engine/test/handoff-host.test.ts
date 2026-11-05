@@ -115,7 +115,10 @@ class FakeSession implements EngineSession {
     await this.interrupt()
   }
   answer(): void {}
-  async update(_patch: Partial<SessionSettings>): Promise<void> {}
+  updates: Partial<SessionSettings>[] = []
+  async update(patch: Partial<SessionSettings>): Promise<void> {
+    this.updates.push(patch)
+  }
   async stopTask(): Promise<void> {}
   async taskOutput() {
     return { output: '', truncated: false }
@@ -498,6 +501,20 @@ describe('跨引擎接力：换引擎', () => {
     expect(claude.sessions[0].closed).toBe(true)
     expect(codex.sessions[0].inputs[0].startsWith('<pixelsky-handoff')).toBe(true)
     expect(codex.sessions[0].inputs[0].endsWith('\n\n换 codex')).toBe(true)
+  })
+
+  it('已选下一轮的引擎时，Fast 是给它选的，不发给还在跑的引擎', async () => {
+    const { host, claude, record, snap } = setup()
+    claude.auto = false
+    await host.send(record.id, { text: '先做', clientMessageId: 'a' })
+    await until(() => !!claude.sessions[0]?.active)
+    await host.update(record.id, { fast: true })
+    expect(claude.sessions[0].updates.at(-1)).toEqual({ fast: true })
+    await host.update(record.id, { engine: 'codex' })
+    const sent = claude.sessions[0].updates.length
+    await host.update(record.id, { fast: false })
+    expect(snap().record.fast).toBe(false)
+    expect(claude.sessions[0].updates.length).toBe(sent)
   })
 
   it('运行中改回当前引擎会清掉 nextEngine', async () => {

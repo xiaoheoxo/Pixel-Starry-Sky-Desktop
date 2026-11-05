@@ -19,13 +19,22 @@ export const codexMessages = {
     zh: '只读，用 Codex 原生计划模式先出方案；需要你拿主意时会弹出问题',
     en: 'Read-only; uses Codex native plan mode to propose a plan and asks you when a decision is needed',
   },
-  'codex.fastGateway': {
-    zh: '接口支持 Fast 时生效，不支持的打开了也没有效果',
-    en: 'Takes effect if the endpoint supports Fast; otherwise turning it on has no effect',
+  'codex.fastNoTier': {
+    zh: '当前模型没有 Fast 档位，打开了也不会生效',
+    en: 'This model has no Fast tier, so turning it on has no effect',
   },
   'codex.fastUnverified': {
-    zh: '你的接口或当前模型可能不支持 Fast，打开了可能不生效',
-    en: 'Your endpoint or the current model may not support Fast; turning it on may have no effect',
+    zh: '是否生效、怎么计费取决于你的接口或线路',
+    en: 'Whether it takes effect and how it is billed depend on your endpoint or route',
+  },
+  'codex.fastPending': { zh: '下一轮生效', en: 'Next turn' },
+  'codex.fastNextOn': {
+    zh: '这一轮按普通速度跑完，下一轮起打开',
+    en: 'This turn finishes at normal speed; on from the next turn',
+  },
+  'codex.fastNextOff': {
+    zh: '这一轮还按 Fast 跑完，下一轮起关闭',
+    en: 'This turn finishes in Fast; off from the next turn',
   },
   'codex.targets': { zh: '适用引擎', en: 'Applies to' },
   'codex.extensionInfo': {

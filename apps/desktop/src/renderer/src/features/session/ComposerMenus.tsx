@@ -7,6 +7,7 @@ import {
   Brain,
   Check,
   ChevronDown,
+  Clock,
   ListChecks,
   RotateCcw,
   Shield,
@@ -82,6 +83,7 @@ function SwitchRow({
   icon,
   label,
   desc,
+  pending,
   checked,
   disabled,
   tone,
@@ -90,6 +92,8 @@ function SwitchRow({
   icon?: ReactNode
   label: string
   desc: string
+  /** 改了但还没生效：标签旁的小字，说明前加时钟 */
+  pending?: string
   checked: boolean
   disabled?: boolean
   tone?: 'ultracode'
@@ -102,8 +106,20 @@ function SwitchRow({
         <span className="flex items-center gap-1.5 text-ui text-fg">
           {icon}
           <span className={cn(tone === 'ultracode' && checked && 'effort-max ultracode-glow')}>{label}</span>
+          {pending && (
+            <span className="rounded-sm bg-subtle px-1.5 text-label leading-5 whitespace-nowrap text-fg-muted">
+              {pending}
+            </span>
+          )}
         </span>
-        <span className="mt-0.5 block text-meta text-fg-muted">{desc}</span>
+        {pending ? (
+          <span className="mt-0.5 flex items-start gap-1 text-meta text-fg-secondary">
+            <Clock size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warn" />
+            {desc}
+          </span>
+        ) : (
+          <span className="mt-0.5 block text-meta text-fg-muted">{desc}</span>
+        )}
       </span>
       <Switch checked={checked} disabled={disabled} label={label} size="sm" tone={tone} onChange={onChange} />
     </div>
@@ -144,6 +160,8 @@ export function EffortMenu({ live }: { live: ComposerController }) {
   const hasSwitches = ultracodeSupported || live.fastSupported || live.thinkingSupported || canCheck
   // 开启的会话开关同步显示在按钮上，都用图标：Ultracode 紫色 ✦，Fast / 思考摘要 / 做完自动检查强调色；名字在悬停提示里。
   const fastOn = live.fastSupported && live.fast
+  // 跑着的这一轮和开关不一致：图标变橙色，说明还没生效
+  const fastPending = live.fastSupported && live.fastPending
   const thinkingOn = live.thinkingSupported && live.thinkingSummaries
   const checkOn = canCheck && autoCheck
   const modes = [
@@ -174,10 +192,10 @@ export function EffortMenu({ live }: { live: ComposerController }) {
         <span key={effort ?? ''} className={cn(top && 'effort-max')} style={accentStyle}>
           {effortLabel(effort)}
         </span>
-        {(ultracode || fastOn || thinkingOn || checkOn) && (
+        {(ultracode || fastOn || fastPending || thinkingOn || checkOn) && (
           <span className="flex items-center gap-0.5 text-accent" aria-hidden>
             {ultracode && <Sparkles size={13} strokeWidth={1.75} className="text-ultracode" />}
-            {fastOn && <Zap size={13} strokeWidth={1.75} />}
+            {(fastOn || fastPending) && <Zap size={13} strokeWidth={1.75} className={cn(fastPending && 'text-warn')} />}
             {thinkingOn && <Brain size={13} strokeWidth={1.75} />}
             {checkOn && <ListChecks size={13} strokeWidth={1.75} data-auto-check-on />}
           </span>
@@ -249,12 +267,21 @@ export function EffortMenu({ live }: { live: ComposerController }) {
             )}
             {live.fastSupported && (
               <SwitchRow
-                icon={<Zap size={14} strokeWidth={1.75} className={live.fast ? 'text-accent' : 'text-fg-muted'} />}
+                icon={
+                  <Zap
+                    size={14}
+                    strokeWidth={1.75}
+                    className={fastPending ? 'text-warn' : live.fast ? 'text-accent' : 'text-fg-muted'}
+                  />
+                }
                 label={tr('session.ComposerMenus.fastMode')}
+                pending={fastPending ? tr('codex.fastPending') : undefined}
                 desc={
-                  fastUnavailable
-                    ? tr('session.ComposerMenus.temporarilyUnavailable', { p0: live.fastBlocked ?? '原因未知' })
-                    : (live.fastHint ?? tr('session.ComposerMenus.fasterOutputAtHigher'))
+                  fastPending
+                    ? tr(live.fast ? 'codex.fastNextOn' : 'codex.fastNextOff')
+                    : fastUnavailable
+                      ? tr('session.ComposerMenus.temporarilyUnavailable', { p0: live.fastBlocked ?? '原因未知' })
+                      : (live.fastHint ?? tr('session.ComposerMenus.fasterOutputAtHigher'))
                 }
                 checked={live.fast}
                 disabled={fastUnavailable && !live.fast}

@@ -66,8 +66,8 @@ export function fastBlockedText(reason: string): string {
 
 /** Fast 能开、但可能不生效时的提示（Codex 不设门禁，docs/codex-engine.md §3.5）；不认识的原因不提示 */
 const FAST_HINT: Record<string, string> = {
-  get codex_gateway() {
-    return tr('codex.fastGateway')
+  get codex_no_tier() {
+    return tr('codex.fastNoTier')
   },
   get codex_unverified() {
     return tr('codex.fastUnverified')

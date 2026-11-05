@@ -379,6 +379,8 @@ export class HostSessions {
         delete live.model
         delete live.effort
       }
+      // 已选下一轮的引擎时，Fast 是给它选的：现在的引擎不支持的话（如第三方接口的 Claude）会写回关闭
+      if (record.nextEngine && record.nextEngine !== record.engine) delete live.fast
       if (Object.keys(live).length > 0) await rt.session?.update(live)
     }
     return record

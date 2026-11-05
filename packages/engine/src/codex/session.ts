@@ -381,6 +381,8 @@ export class CodexSession implements EngineSession {
   private goalSupported: boolean | null = null
   /** turn/start 发出去了还没回：这时到的 turn/started 是自己发起的，不当成 Codex 自己开的 */
   private startInFlight = false
+  /** 跑着的这一轮里改了 Fast：下一轮才生效的值；没改或改回去了是 null */
+  private fastNext: boolean | null = null
   /** 发消息时 Codex 自己开的一轮还在跑：这条消息接管它（这是那一轮的原生 id），run() 用 turn/steer 把消息送进去 */
   private adopting: string | null = null
   private settings: SessionSettings
@@ -532,6 +534,8 @@ export class CodexSession implements EngineSession {
         // 附加文件夹：Codex 只靠可写目录不知道它们在哪，开线程时说一声
         ...(record.extraDirs?.length ? { developerInstructions: extraDirsNote(record.extraDirs) } : {}),
         ...(record.model ? { model: record.model } : {}),
+        // 线程记着上次的档位：接上旧线程就要盖掉，不然压缩、目标模式的自动轮次还按旧的走
+        ...this.serviceTier(),
         approvalPolicy: policy.approvalPolicy,
         sandbox:
           this.settings.permissionMode === 'full'
@@ -913,6 +917,13 @@ export class CodexSession implements EngineSession {
       if (seed && !sees) this.droppedImages(injected ? seedImageCount(seed) : (seed.fallbackImages?.length ?? 0))
       if (!this.active || this.active !== active || this.closed) return
       const collab = this.collaboration()
+      const tier = this.serviceTier()
+      log.info('Codex 这一轮的服务档位', {
+        threadId: this.threadId,
+        model: this.settings.model,
+        fast: this.settings.fast,
+        ...tier,
+      })
       this.startInFlight = true
       const result = await this.proc!.request('turn/start', {
         threadId: this.threadId,
@@ -923,7 +934,7 @@ export class CodexSession implements EngineSession {
         ...(this.settings.effort ? { effort: this.settings.effort } : {}),
         summary: this.settings.thinkingSummaries ? 'concise' : 'none',
         ...collab.params,
-        ...this.serviceTier(),
+        ...tier,
       }).finally(() => {
         this.startInFlight = false
       })
@@ -955,8 +966,19 @@ export class CodexSession implements EngineSession {
     )
   }
   async update(patch: Partial<SessionSettings>): Promise<void> {
-    if (this.active) return
+    const fastChanged = patch.fast !== undefined && patch.fast !== (this.fastNext ?? this.settings.fast)
+    if (this.active) {
+      // 跑着的这一轮改不了档位：记下来告诉界面，下一轮才生效
+      if (patch.fast !== undefined) {
+        this.fastNext = patch.fast === this.settings.fast ? null : patch.fast
+        if (this.catalog) this.emitFlags()
+        if (fastChanged) this.syncTier(patch.fast)
+      }
+      return
+    }
+    this.fastNext = null
     this.settings = { ...this.settings, ...patch }
+    if (fastChanged) this.syncTier(patch.fast!)
     // 换模型、换线路后 Fast 能不能开跟着变；目录还没读到时等 open() 再报
     if (
       this.catalog &&
@@ -975,13 +997,13 @@ export class CodexSession implements EngineSession {
   /**
    * Fast 不设门禁（docs/codex-engine.md §3.5，2026-10-17 用户要求）：开关什么时候都能开，拿不准支不支持时只提示原因
    * （fastBlocked 带原因、fastAvailable 仍是 true）；确认支持（自己的 openai 登录、模型有 Fast 档位）时 null。
-   * - codex_gateway：走平台 / 像素星空接口（用户要求照样带档位：接口支持就生效，不支持的开了也没效果）
-   * - codex_unverified：provider 不是 openai 或目录里这个模型没有 Fast 档位
-   * 两种都是开着照样带 priority，接口支持就生效
+   * - codex_no_tier：目录里这个模型没有 Fast 档位（实测 Codex 不会发给接口，开了也没效果）
+   * - codex_unverified：走平台、自定义接口或自己配的 provider：档位会发出去，生不生效、怎么计费看上游
    */
   private fastHint(): string | null {
-    if (viaGateway(this.ctx.record())) return 'codex_gateway'
-    if ((this.catalog?.currentProvider ?? 'openai') !== 'openai' || !this.fastTier()) return 'codex_unverified'
+    if (!this.fastTier()) return 'codex_no_tier'
+    if (viaGateway(this.ctx.record()) || (this.catalog?.currentProvider ?? 'openai') !== 'openai')
+      return 'codex_unverified'
     return null
   }
   private emitFlags(): void {
@@ -996,6 +1018,7 @@ export class CodexSession implements EngineSession {
         fastAvailable: true,
         fastState: this.settings.fast ? 'on' : 'off',
         fastBlocked: hint,
+        fastPending: this.fastNext !== null,
         ultracodeAvailable: false,
       },
     })
@@ -1039,12 +1062,18 @@ export class CodexSession implements EngineSession {
     }
   }
   /**
-   * Fast：开着时每轮带档位；关着时只在确认支持时写明 default（盖过 config.toml 里的档位），
-   * 拿不准时不带，用 Codex 自己的配置
+   * Fast：每轮都写明档位。Codex 会把档位记在线程上（重启恢复后还在），也会读 config.toml 里的档位，
+   * 关着时不写 default 就继续走 priority（docs/codex-engine.md §3.5）
    */
-  private serviceTier(): Message {
-    if (this.settings.fast) return { serviceTier: this.fastTier() ?? 'priority' }
-    return this.fastHint() ? {} : { serviceTier: 'default' }
+  private serviceTier(fast = this.settings.fast): { serviceTier: string } {
+    return { serviceTier: fast ? (this.fastTier() ?? 'priority') : 'default' }
+  }
+  /** 手动压缩、目标模式自动开的轮次不经过 turn/start，改开关时直接改线程记着的档位（下一轮起生效） */
+  private syncTier(fast: boolean): void {
+    if (!this.threadId || !this.proc?.alive) return
+    void this.proc
+      .request('thread/settings/update', { threadId: this.threadId, ...this.serviceTier(fast) })
+      .catch(error => log.info('线程的服务档位没改成', { error: describeError(error) }))
   }
   async steer(text: string, id: string, attachments: ImageAttachment[] = []): Promise<void> {
     if (!this.active || !this.nativeTurnId || !this.options.steeringValidated)
@@ -1583,6 +1612,13 @@ export class CodexSession implements EngineSession {
     this.adopting = null
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
+    if (this.fastNext !== null) {
+      this.settings = { ...this.settings, fast: this.fastNext }
+      this.fastNext = null
+      if (this.catalog) this.emitFlags()
+      // 改开关时 turn/start 可能还没发出，它带的旧档位会盖掉刚才那次，这里再写一次
+      this.syncTier(this.settings.fast)
+    }
     // 状态条由 turn_completed 一起清掉
     this.retryShown = false
     // 第一轮开始时标题才从第一句话定下来；用户改了标题也在这里跟上

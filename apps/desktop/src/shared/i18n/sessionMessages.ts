@@ -371,6 +371,7 @@ export const sessionMessages = {
     en: 'Use this effort and these switches for new {p0} sessions',
   },
   'effortDefaults.isDefault': { zh: '已是默认', en: 'Already the default' },
+  'session.settingUpdateFailed': { zh: '设置没改成：{p0}', en: "Couldn't change the setting: {p0}" },
   'effortDefaults.saveFailed': { zh: '没有设成默认：{p0}', en: 'Could not set as default: {p0}' },
   'engineDefaults.note': {
     zh: '对之后新建的会话生效。会话里改模型、权限会记到这里；推理强度、Ultracode、Fast、思考摘要在会话里改只影响那个会话，要在输入框的推理强度菜单里点「设为默认」。',

@@ -1,4 +1,5 @@
-import { tr } from '../../i18n/core'
+import { tr, translateMessage } from '../../i18n/core'
+import { cleanIpcError } from '@/features/account/useStore'
 import { useI18n } from '@/i18n/I18nProvider'
 // 给组件用的钩子：演示模式返回 mock 数据（或 undefined 让组件走演示逻辑），否则返回引擎的真实数据
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
@@ -386,8 +387,10 @@ export interface ComposerController {
   fastAvailable: boolean | null
   /** 开不了的原因（给用户看的一句话） */
   fastBlocked: string | null
-  /** 能开但拿不准生不生效时的提示（Codex 不设门禁：如「接口支持 Fast 时生效，不支持的打开了也没有效果」） */
+  /** 能开但拿不准生不生效时的提示（Codex 不设门禁：如「当前模型没有 Fast 档位，打开了也不会生效」） */
   fastHint: string | null
+  /** 这一轮跑着时改了开关，下一轮才生效（Codex） */
+  fastPending: boolean
   fast: boolean
   setFast(on: boolean): void
   /** 显示思考摘要 */
@@ -485,10 +488,14 @@ export function useComposerController(
   const engine = engines.find(e => e.id === engineId) ?? null
   const canSwitchEngine = true
 
+  const updateFailed = (e: unknown): void =>
+    notify(tr('session.settingUpdateFailed', { p0: translateMessage(cleanIpcError(e, '')) }))
   const patch = (p: Partial<Draft>): void => {
-    if (record) void b.updateSession(record.id, p).catch(() => undefined)
+    if (record) void b.updateSession(record.id, p).catch(updateFailed)
     else setDraft({ ...base, ...p })
   }
+  // 已选下一轮的引擎时，现在进程报的能力不算数（docs/codex-engine.md §3.5）
+  const liveFlags = !record || engineId === record.engine ? snap?.flags : undefined
 
   // ---- 额度来源（docs/ui/source-switch.md §3.3）：已开始的会话用自己的记录，否则用全局默认 ----
   const started = !!record && ((snap?.items.length ?? 0) > 0 || (snap?.queue.length ?? 0) > 0 || snap?.state !== 'idle')
@@ -890,15 +897,15 @@ export function useComposerController(
       engine?.caps.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max'],
     setEffort: effort => patch({ effort }),
     ultracodeSupported: engine?.caps.ultracode ?? false,
-    ultracodeAvailable: snap?.flags.ultracodeAvailable ?? null,
+    ultracodeAvailable: liveFlags?.ultracodeAvailable ?? null,
     ultracode: record ? record.ultracode : base.ultracode,
     setUltracode: ultracode => patch({ ultracode }),
     fastSupported: engine?.caps.fast ?? false,
-    fastAvailable: snap?.flags.fastAvailable ?? null,
+    fastAvailable: liveFlags?.fastAvailable ?? null,
     fastBlocked:
-      snap?.flags.fastBlocked && snap.flags.fastAvailable === false ? fastBlockedText(snap.flags.fastBlocked) : null,
-    fastHint:
-      snap?.flags.fastBlocked && snap.flags.fastAvailable !== false ? fastHintText(snap.flags.fastBlocked) : null,
+      liveFlags?.fastBlocked && liveFlags.fastAvailable === false ? fastBlockedText(liveFlags.fastBlocked) : null,
+    fastHint: liveFlags?.fastBlocked && liveFlags.fastAvailable !== false ? fastHintText(liveFlags.fastBlocked) : null,
+    fastPending: liveFlags?.fastPending === true,
     fast: record ? record.fast : base.fast,
     setFast: fast => patch({ fast }),
     thinkingSupported: engine?.caps.thinkingSummaries ?? false,
@@ -926,7 +933,7 @@ export function useComposerController(
       (defaults?.engine === engineId ? defaults.permissionMode : null) ??
       'edits',
     setPermissionMode: permissionMode => {
-      if (record) void b.updateSession(record.id, { permissionMode }).catch(() => undefined)
+      if (record) void b.updateSession(record.id, { permissionMode }).catch(updateFailed)
       else setDraft({ ...base, permissionMode })
     },
     running: !!snap && snap.state !== 'idle',
