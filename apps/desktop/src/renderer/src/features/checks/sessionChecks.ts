@@ -40,8 +40,19 @@ export function useSessionCheck(sessionId: string | null): CheckRun | null {
   )
 }
 
-/** 「做完自动检查」开关：读到之前是 false；改的时候先改界面，失败再改回去 */
-export function useSessionCheckSwitch(sessionId: string | null): [boolean, (on: boolean) => void, boolean] {
+/** 新任务的会话建好、发第一条消息之前打开自动检查 */
+export async function enableSessionChecks(sessionId: string): Promise<void> {
+  await bridge?.setSessionChecks({ sessionId }, true)
+}
+
+/**
+ * 「做完自动检查」开关：读到之前是 false；改的时候先改界面，失败再改回去。
+ * 新任务还没有会话：改 draft，建好会话时由 enableSessionChecks 写入
+ */
+export function useSessionCheckSwitch(
+  sessionId: string | null,
+  draft: { on: boolean; set: (on: boolean) => void },
+): [boolean, (on: boolean) => void, boolean] {
   const [on, setOn] = useState(false)
   useEffect(() => {
     setOn(false)
@@ -60,5 +71,5 @@ export function useSessionCheckSwitch(sessionId: string | null): [boolean, (on: 
     setOn(next)
     void bridge.setSessionChecks({ sessionId }, next).catch(() => setOn(!next))
   }
-  return [on, set, !!sessionId && !!bridge]
+  return sessionId ? [on, set, !!bridge] : [draft.on, draft.set, !!bridge]
 }

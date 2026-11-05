@@ -32,6 +32,30 @@ export function engineAccent(engine: EngineId): string {
   return ENGINES[engine].accent ?? ''
 }
 
+export interface EffortLook {
+  /** 强度名的特效类名；没有特效是空字符串 */
+  className: string
+  /** 强调色（CSS 值）；空字符串用正文色 */
+  accent: string
+  /** 滑块和强度名流动 */
+  top: boolean
+  /** 彩虹流光（Codex 的 Ultra） */
+  ultra: boolean
+}
+
+/**
+ * 某一档的特效：最高档用引擎品牌色流动；Codex 没有品牌色，Ultra 用彩虹，Max 不管是不是最高档都和 Claude 同色
+ * （docs/engines.md §15.7）
+ */
+export function effortLook(effort: Effort | null, efforts: readonly Effort[], engine: EngineId): EffortLook {
+  if (engine === 'codex' && effort === 'ultra')
+    return { className: 'effort-ultra', accent: '', top: false, ultra: true }
+  if (engine === 'codex' && effort === 'max')
+    return { className: 'effort-max', accent: 'var(--engine-claude)', top: true, ultra: false }
+  const top = !!effort && efforts.length > 1 && efforts.indexOf(effort) === efforts.length - 1
+  return { className: top ? 'effort-max' : '', accent: engineAccent(engine), top, ultra: false }
+}
+
 /** Fast 模式开不了的原因（CLI 的 fast_mode_disabled_reason） */
 const FAST_BLOCKED: Record<string, string> = {
   get free() {

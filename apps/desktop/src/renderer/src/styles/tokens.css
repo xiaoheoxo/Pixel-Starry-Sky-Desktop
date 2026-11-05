@@ -78,6 +78,13 @@
   /* 引擎（模型）品牌色：推理强度滑块、强度名的强调色（和 JuCode 一致，见 design-tokens.md） */
   --engine-claude: #d97757;
   --ultracode: #7c3aed;
+  /* Codex 的 Ultra 档彩虹流光（design-tokens.md §1.5）：和底色的对比度按主题分开调 */
+  --ultra-1: #d6336c;
+  --ultra-2: #d9622b;
+  --ultra-3: #b7860b;
+  --ultra-4: #2b9a66;
+  --ultra-5: #1c7ed6;
+  --ultra-6: #7c3aed;
   --avatar-bg: #f0e2d6;
   --avatar-text: #7a5a43;
 
@@ -227,6 +234,12 @@
   --engine-chip-text: #1a1a19;
   --engine-claude: #d97757;
   --ultracode: #c4a7ff;
+  --ultra-1: #ff7aa8;
+  --ultra-2: #ff9f6b;
+  --ultra-3: #f2cc60;
+  --ultra-4: #6fdca3;
+  --ultra-5: #74b9ff;
+  --ultra-6: #c4a7ff;
   --avatar-bg: #3a332d;
   --avatar-text: #e8d9cb;
 

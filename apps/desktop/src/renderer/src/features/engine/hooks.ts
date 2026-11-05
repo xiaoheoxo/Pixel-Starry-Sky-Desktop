@@ -39,7 +39,8 @@ import {
   type Session,
   type SessionStatus,
 } from '@/data'
-import { engineAccent, fastBlockedText, fastHintText, relativeTime, selfModelOptions } from './labels'
+import { enableSessionChecks } from '@/features/checks/sessionChecks'
+import { fastBlockedText, fastHintText, relativeTime, selfModelOptions } from './labels'
 import { resumeModel } from '@/features/resume/model'
 import { effortDefaultsFor } from './effortDefaults'
 import { sidebarData, demoSidebarData, type PinnedSession } from './sidebarData'
@@ -401,8 +402,11 @@ export interface ComposerController {
   effortDefaults: EffortPanelDefaults
   /** 把当前这几项设为这个引擎新会话的默认值 */
   saveEffortDefaults(): Promise<void>
-  /** 推理强度的强调色（引擎品牌色的 CSS 值）；没有品牌色时为空字符串 */
-  accent: string
+  /** 强度的颜色和特效跟着哪个引擎（effortLook）；选了下一轮的引擎时是它 */
+  effortEngine: EngineId
+  /** 新任务还没有会话时的「做完自动检查」：默认关，不记住，建好会话时写入 */
+  draftAutoCheck: boolean
+  setDraftAutoCheck(on: boolean): void
   /** 输入建议（输入框为空时显示，Tab 填入） */
   suggestion: string | null
   permissionMode: PermissionMode
@@ -461,6 +465,8 @@ export function useComposerController(
   const config = useEngineState(s => s.config)
   const snap = useEngineState(s => (sessionId ? (s.snapshots[sessionId] ?? null) : null))
   const [draft, setDraft] = useState<Draft | null>(null)
+  // 不放进 Draft：Draft 的字段都是会话设置，建会话时整个传过去
+  const [draftAutoCheck, setDraftAutoCheck] = useState(false)
   const selectedEngineId =
     (snap ? (snap.record.nextEngine ?? snap.record.engine) : null) ?? draft?.engine ?? defaults?.engine ?? 'claude'
   const platform = usePlatform(selectedEngineId)
@@ -924,7 +930,9 @@ export function useComposerController(
         },
       })
     },
-    accent: engineAccent(engineId),
+    effortEngine: engineId,
+    draftAutoCheck,
+    setDraftAutoCheck,
     suggestion: snap?.suggestion ?? null,
     permissionMode: record ? record.permissionMode : base.permissionMode,
     permissionModes: engine?.caps.permissionModes ?? ['ask', 'edits', 'plan', 'full'],
@@ -1043,6 +1051,8 @@ export function useComposerController(
         ...base,
         ...sourcePatch,
       })
+      // 检查开不了不拦这条消息：说一声，会话照常开始
+      if (draftAutoCheck) await enableSessionChecks(created.id).catch(updateFailed)
       try {
         await b.send(created.id, input)
       } catch (err) {
@@ -1050,6 +1060,7 @@ export function useComposerController(
         throw err
       }
       setDraft(null)
+      setDraftAutoCheck(false)
       afterNewTask(base.effort)
       onOpenSession?.(created.id)
     },

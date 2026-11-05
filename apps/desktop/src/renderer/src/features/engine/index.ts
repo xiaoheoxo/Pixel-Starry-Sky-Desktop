@@ -46,6 +46,7 @@ export {
   selfModelLabel,
   selfModelOptions,
   engineAccent,
+  effortLook,
   relativeTime,
   taskKindLabel,
   toChangedFiles,

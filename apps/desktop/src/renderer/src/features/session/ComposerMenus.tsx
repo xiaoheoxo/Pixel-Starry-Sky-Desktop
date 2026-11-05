@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import type { PermissionMode } from '@pixelsky/protocol'
 import { IconButton, Popover, Switch, cn, useToast } from '@/ui'
-import { PERMISSION_HINTS, PERMISSION_INFO, effortLabel, type ComposerController } from '@/features/engine'
+import { PERMISSION_HINTS, PERMISSION_INFO, effortLabel, effortLook, type ComposerController } from '@/features/engine'
 import { EffortSlider } from './EffortSlider'
 import { useSessionCheckSwitch } from '@/features/checks/sessionChecks'
 import { effortDiff } from '@/features/engine/effortDefaults'
@@ -133,11 +133,11 @@ function SwitchRow({
 export function EffortMenu({ live }: { live: ComposerController }) {
   useI18n()
   const [open, setOpen] = useState(false)
-  const { effort, efforts, ultracode, ultracodeSupported, ultracodeAvailable, accent } = live
-  const top = !!effort && efforts.length > 1 && efforts.indexOf(effort) === efforts.length - 1
+  const { effort, efforts, ultracode, ultracodeSupported, ultracodeAvailable, effortEngine } = live
+  const look = effortLook(effort, efforts, effortEngine)
   const ultraUnavailable = ultracodeAvailable === false
   const fastUnavailable = live.fastAvailable === false
-  const accentStyle = { '--effort-accent': accent || 'var(--text)' } as CSSProperties
+  const accentStyle = { '--effort-accent': look.accent || 'var(--text)' } as CSSProperties
   const toast = useToast()
   const [saving, setSaving] = useState(false)
   // 和这个引擎新会话的默认值比：只比引擎支持的那几项
@@ -156,7 +156,10 @@ export function EffortMenu({ live }: { live: ComposerController }) {
     if (diff.includes('thinkingSummaries')) live.setThinkingSummaries(d.thinkingSummaries)
   }
   // 做完自动检查（docs/ui/channels-collab-v2.md §8）：会话开出来以后才有
-  const [autoCheck, setAutoCheck, canCheck] = useSessionCheckSwitch(live.sessionId)
+  const [autoCheck, setAutoCheck, canCheck] = useSessionCheckSwitch(live.sessionId, {
+    on: live.draftAutoCheck,
+    set: live.setDraftAutoCheck,
+  })
   const hasSwitches = ultracodeSupported || live.fastSupported || live.thinkingSupported || canCheck
   // 开启的会话开关同步显示在按钮上，都用图标：Ultracode 紫色 ✦，Fast / 思考摘要 / 做完自动检查强调色；名字在悬停提示里。
   const fastOn = live.fastSupported && live.fast
@@ -189,7 +192,7 @@ export function EffortMenu({ live }: { live: ComposerController }) {
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <span key={effort ?? ''} className={cn(top && 'effort-max')} style={accentStyle}>
+        <span key={effort ?? ''} className={look.className} style={accentStyle}>
           {effortLabel(effort)}
         </span>
         {(ultracode || fastOn || fastPending || thinkingOn || checkOn) && (
@@ -209,7 +212,7 @@ export function EffortMenu({ live }: { live: ComposerController }) {
           </span>
           <span
             key={effort ?? ''}
-            className={cn('shrink-0 text-ui font-semibold whitespace-nowrap text-fg', top && 'effort-max')}
+            className={cn('shrink-0 text-ui font-semibold whitespace-nowrap text-fg', look.className)}
             style={accentStyle}
           >
             {effortLabel(effort)}
@@ -240,7 +243,7 @@ export function EffortMenu({ live }: { live: ComposerController }) {
             efforts={efforts}
             effort={effort}
             onChange={live.setEffort}
-            accent={accent}
+            engine={effortEngine}
             defaultEffort={d.effort}
           />
         ) : (

@@ -713,12 +713,58 @@
   --effort-accent: var(--ultracode);
   --effort-shine: color-mix(in oklab, var(--ultracode) 75%, var(--bg-popover));
 }
-:root[data-motion='off'] :is(.effort-slider *, .effort-max) {
+/* Codex 的 Ultra 档：彩虹流光。色带铺两遍占 200% 宽，任何时刻都看得到全部颜色，循环也接得上 */
+.effort-ultra {
+  --ultra-band:
+    var(--ultra-1), var(--ultra-2), var(--ultra-3), var(--ultra-4), var(--ultra-5), var(--ultra-6), var(--ultra-1),
+    var(--ultra-2), var(--ultra-3), var(--ultra-4), var(--ultra-5), var(--ultra-6), var(--ultra-1);
+  background: linear-gradient(90deg, var(--ultra-band));
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  animation: effort-sweep 3.2s linear infinite;
+}
+.effort-slider[data-ultra] {
+  --ultra-mix: 58%;
+}
+:root[data-theme='dark'] .effort-slider[data-ultra] {
+  --ultra-mix: 72%;
+}
+:root[data-theme='dark'] .effort-slider[data-ultra] .effort-fill,
+.effort-slider[data-ultra] .effort-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--ultra-1) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-2) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-3) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-4) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-5) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-6) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-1) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-2) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-3) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-4) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-5) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-6) var(--ultra-mix), transparent),
+    color-mix(in oklab, var(--ultra-1) var(--ultra-mix), transparent)
+  );
+  background-size: 200% 100%;
+  animation: effort-sweep 2.4s linear infinite;
+}
+.effort-slider[data-ultra] .effort-thumb {
+  box-shadow:
+    var(--shadow-popover),
+    0 0 0 3px color-mix(in oklab, var(--ultra-6) 34%, transparent),
+    -6px 0 16px color-mix(in oklab, var(--ultra-1) 50%, transparent),
+    6px 0 16px color-mix(in oklab, var(--ultra-5) 50%, transparent);
+}
+:root[data-motion='off'] :is(.effort-slider *, .effort-max, .effort-ultra) {
   transition: none;
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-motion='system'] :is(.effort-slider *, .effort-max) {
+  :root[data-motion='system'] :is(.effort-slider *, .effort-max, .effort-ultra) {
     transition: none;
     animation: none;
   }
@@ -1225,7 +1271,9 @@
     .animate-spin,
     .animate-pulse,
     .effort-max,
+    .effort-ultra,
     .effort-slider[data-top] .effort-fill,
+    .effort-slider[data-ultra] .effort-fill,
     .compaction-icon,
     .compaction-text,
     .compaction-squeeze,

@@ -3,9 +3,9 @@ import { tr } from '../../i18n/core'
 // 推理强度滑块（参考 JuCode 桌面版）：引擎支持几档就有几个停靠点，档位名写在下面。
 // 拖动时圆点跟手，松手才提交（拖过几档也只改一次）；方向键 / Home / End 也能调。样式在 globals.css 的 .effort-*
 import { useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import type { Effort } from '@pixelsky/protocol'
+import type { Effort, EngineId } from '@pixelsky/protocol'
 import { cn } from '@/ui'
-import { EFFORT_LABEL } from '@/features/engine'
+import { EFFORT_LABEL, effortLook } from '@/features/engine'
 
 /** 指针位置最近的停靠点 */
 function stopAt(x: number, left: number, width: number, count: number): number {
@@ -36,7 +36,7 @@ export function EffortSlider({
   effort,
   onChange,
   disabled = false,
-  accent = '',
+  engine,
   defaultEffort = null,
 }: {
   efforts: readonly Effort[]
@@ -44,8 +44,8 @@ export function EffortSlider({
   effort: Effort | null
   onChange: (e: Effort) => void
   disabled?: boolean
-  /** 引擎品牌色（CSS 值），空字符串时用正文色（和 JuCode 一致） */
-  accent?: string
+  /** 哪个引擎：决定各档的颜色和特效（effortLook） */
+  engine: EngineId
   /** 新会话的默认档位：在它的档位名下面写一行小字「默认」（不在档位里时不写） */
   defaultEffort?: Effort | null
 }) {
@@ -57,7 +57,8 @@ export function EffortSlider({
   const shown = drag ?? idx
   const last = Math.max(1, count - 1)
   const pct = (i: number) => (count > 1 ? (i / last) * 100 : 0)
-  const top = count > 1 && shown === count - 1
+  // 拖动时按手上这一档显示
+  const { accent, top, ultra } = effortLook(efforts[shown] ?? null, efforts, engine)
   const defaultIdx = defaultEffort ? efforts.indexOf(defaultEffort) : -1
 
   const commit = (i: number) => {
@@ -76,6 +77,7 @@ export function EffortSlider({
         style={accent ? ({ '--effort-accent': accent } as CSSProperties) : undefined}
         data-tinted={accent ? true : undefined}
         data-top={top || undefined}
+        data-ultra={ultra || undefined}
         data-dragging={drag !== null || undefined}
         role="slider"
         tabIndex={disabled ? -1 : 0}
