@@ -177,6 +177,8 @@ export class HostHandoff {
       // 目标引擎没有的开关和强度档位清掉
       ...(!caps.ultracode && record.ultracode ? { ultracode: false } : {}),
       ...(!caps.fast && record.fast ? { fast: false } : {}),
+      // 换过引擎再换回来不悄悄恢复 8 倍扣费
+      ...(record.ultrafast ? { ultrafast: false } : {}),
       ...(!caps.thinkingSummaries && record.thinkingSummaries ? { thinkingSummaries: false } : {}),
       ...(record.effort && !caps.efforts.includes(record.effort) ? { effort: null } : {}),
     })

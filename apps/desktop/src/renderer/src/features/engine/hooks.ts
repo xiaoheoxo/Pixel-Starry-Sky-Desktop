@@ -28,6 +28,7 @@ import {
   type SessionSettings,
   type SessionSnapshot,
   sourceKey,
+  ultrafastEligible,
 } from '@pixelsky/protocol'
 import {
   isDemo,
@@ -394,6 +395,10 @@ export interface ComposerController {
   fastPending: boolean
   fast: boolean
   setFast(on: boolean): void
+  /** 官方登录、当前模型能开 Ultrafast（新任务也算，只看模型目录）；否则界面还是 Fast 开关 */
+  ultrafastAvailable: boolean
+  ultrafast: boolean
+  setUltrafast(): void
   /** 显示思考摘要 */
   thinkingSupported: boolean
   thinkingSummaries: boolean
@@ -447,6 +452,7 @@ interface Draft {
   permissionMode: PermissionMode
   ultracode: boolean
   fast: boolean
+  ultrafast?: boolean
   thinkingSummaries: boolean
 }
 
@@ -704,6 +710,9 @@ export function useComposerController(
       (key.includes('/') ? undefined : catalog?.models?.find(model => model.id.endsWith(`/${key}`)))
     )
   }
+  const ultrafastAvailable =
+    engineId === 'codex' && selectedEngineId === engineId && source === 'self' && ultrafastEligible(catalog, model)
+  const ultrafast = ultrafastAvailable && (record ? record.ultrafast : base.ultrafast) === true
   /** 换模型后推理强度不在新模型的档位里时，改成新模型的默认档 */
   const effortPatchFor = (m: string | null): { effort?: Effort | null } => {
     const selected = catalogModel(m)
@@ -913,7 +922,10 @@ export function useComposerController(
     fastHint: liveFlags?.fastBlocked && liveFlags.fastAvailable !== false ? fastHintText(liveFlags.fastBlocked) : null,
     fastPending: liveFlags?.fastPending === true,
     fast: record ? record.fast : base.fast,
-    setFast: fast => patch({ fast }),
+    setFast: fast => patch({ fast, ultrafast: false }),
+    ultrafastAvailable,
+    ultrafast,
+    setUltrafast: () => patch({ fast: true, ultrafast: true }),
     thinkingSupported: engine?.caps.thinkingSummaries ?? false,
     thinkingSummaries: record ? record.thinkingSummaries : base.thinkingSummaries,
     setThinkingSummaries: thinkingSummaries => patch({ thinkingSummaries }),
@@ -1049,6 +1061,7 @@ export function useComposerController(
         copyId: workspace?.copyId,
         workspaceSessionId: workspace?.sessionId,
         ...base,
+        ultrafast,
         ...sourcePatch,
       })
       // 检查开不了不拦这条消息：说一声，会话照常开始

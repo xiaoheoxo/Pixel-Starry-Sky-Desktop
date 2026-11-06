@@ -473,6 +473,7 @@ export class HostBranch {
     const record: SessionRecord = {
       ...source,
       id: randomUUID(),
+      ultrafast: false,
       engineSessionId,
       engineSessions: {
         [source.engine]: {

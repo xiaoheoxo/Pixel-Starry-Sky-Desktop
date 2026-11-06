@@ -311,6 +311,10 @@ export class HostTurn {
         if (rt.execution) rt.execution.fast = fast
         m.events.patchRecord(id, { fast })
       },
+      setUltrafast: ultrafast => {
+        if (rt.execution) rt.execution.ultrafast = ultrafast
+        m.events.patchRecord(id, { ultrafast })
+      },
       setEffort: effort => {
         if (rt.execution) rt.execution.effort = effort
         m.events.patchRecord(id, { effort })

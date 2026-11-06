@@ -42,6 +42,8 @@ export interface SessionSettings {
   ultracode: boolean
   /** Fast 模式（更快、更贵） */
   fast: boolean
+  /** Ultrafast（只有官方登录、模型目录列了的才生效）：fast 为真时才算数，只对这个会话，不进默认值 */
+  ultrafast?: boolean
   /** 显示思考摘要 */
   thinkingSummaries: boolean
 }

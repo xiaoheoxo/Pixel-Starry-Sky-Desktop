@@ -24,6 +24,8 @@ import {
   isQuietWarning,
   noticeErrorOf,
   parseGoalCommand,
+  ULTRAFAST_DROPPED,
+  ultrafastEligible,
   viaGateway,
 } from '@pixelsky/protocol'
 import type { GoalAction, SessionGoal } from '@pixelsky/protocol'
@@ -337,6 +339,10 @@ export async function codexLaunchConfig(
   return { args, env: environment, gatewayProvider, ownAskFlag, windowOverridden: !!context.window }
 }
 
+type Speed = 'off' | 'fast' | 'ultrafast'
+const speedOf = (s: Pick<SessionSettings, 'fast' | 'ultrafast'>): Speed =>
+  !s.fast ? 'off' : s.ultrafast ? 'ultrafast' : 'fast'
+
 export class CodexSession implements EngineSession {
   private proc: CodexProcess | null = null
   /** 进程还活着（宿主查某个账号目录还有没有人在用） */
@@ -381,8 +387,8 @@ export class CodexSession implements EngineSession {
   private goalSupported: boolean | null = null
   /** turn/start 发出去了还没回：这时到的 turn/started 是自己发起的，不当成 Codex 自己开的 */
   private startInFlight = false
-  /** 跑着的这一轮里改了 Fast：下一轮才生效的值；没改或改回去了是 null */
-  private fastNext: boolean | null = null
+  /** 跑着的这一轮里改了速度：下一轮才生效的值；没改或改回去了是 null */
+  private speedNext: Speed | null = null
   /** 发消息时 Codex 自己开的一轮还在跑：这条消息接管它（这是那一轮的原生 id），run() 用 turn/steer 把消息送进去 */
   private adopting: string | null = null
   private settings: SessionSettings
@@ -966,26 +972,27 @@ export class CodexSession implements EngineSession {
     )
   }
   async update(patch: Partial<SessionSettings>): Promise<void> {
-    const fastChanged = patch.fast !== undefined && patch.fast !== (this.fastNext ?? this.settings.fast)
+    const before = this.speedNext ?? speedOf(this.settings)
+    const speedPatched = patch.fast !== undefined || patch.ultrafast !== undefined
+    const speed = speedPatched
+      ? speedOf({ fast: patch.fast ?? before !== 'off', ultrafast: patch.ultrafast ?? before === 'ultrafast' })
+      : before
     if (this.active) {
       // 跑着的这一轮改不了档位：记下来告诉界面，下一轮才生效
-      if (patch.fast !== undefined) {
-        this.fastNext = patch.fast === this.settings.fast ? null : patch.fast
+      if (speedPatched) {
+        this.speedNext = speed === speedOf(this.settings) ? null : speed
+        if (speed !== before) this.syncTier(speed)
         if (this.catalog) this.emitFlags()
-        if (fastChanged) this.syncTier(patch.fast)
       }
       return
     }
-    this.fastNext = null
+    this.speedNext = null
     this.settings = { ...this.settings, ...patch }
-    if (fastChanged) this.syncTier(patch.fast!)
+    if (speed !== before) this.syncTier(speed)
     // 换模型、换线路后 Fast 能不能开跟着变；目录还没读到时等 open() 再报
     if (
       this.catalog &&
-      (patch.model !== undefined ||
-        patch.fast !== undefined ||
-        patch.platform !== undefined ||
-        patch.provider !== undefined)
+      (patch.model !== undefined || speedPatched || patch.platform !== undefined || patch.provider !== undefined)
     )
       this.emitFlags()
   }
@@ -1000,6 +1007,30 @@ export class CodexSession implements EngineSession {
    * - codex_no_tier：目录里这个模型没有 Fast 档位（实测 Codex 不会发给接口，开了也没效果）
    * - codex_unverified：走平台、自定义接口或自己配的 provider：档位会发出去，生不生效、怎么计费看上游
    */
+  private ultrafastOk(): boolean {
+    const id = this.settings.model ?? this.catalog?.currentModel ?? this.threadModel ?? null
+    return !viaGateway(this.ctx.record()) && ultrafastEligible(this.catalog, id)
+  }
+  /** 换模型或线路后用不了 Ultrafast：退回 Fast 并说一声，换回来不悄悄恢复 8 倍扣费 */
+  private dropUltrafast(): void {
+    if (!this.catalog || this.ultrafastOk()) return
+    const wanted = this.speedNext === 'ultrafast'
+    if (!wanted && !this.settings.ultrafast) return
+    if (wanted) this.speedNext = speedOf(this.settings) === 'fast' ? null : 'fast'
+    this.settings = { ...this.settings, ultrafast: false }
+    this.ctx.setUltrafast?.(false)
+    this.syncTier(this.speedNext ?? speedOf(this.settings))
+    this.ctx.emit({
+      type: 'item_completed',
+      item: {
+        kind: 'notice',
+        id: `cx-ultrafast-${Date.now()}-${++this.noticeSeq}`,
+        level: 'warn',
+        text: ULTRAFAST_DROPPED,
+        detail: null,
+      },
+    })
+  }
   private fastHint(): string | null {
     if (!this.fastTier()) return 'codex_no_tier'
     if (viaGateway(this.ctx.record()) || (this.catalog?.currentProvider ?? 'openai') !== 'openai')
@@ -1007,6 +1038,7 @@ export class CodexSession implements EngineSession {
     return null
   }
   private emitFlags(): void {
+    this.dropUltrafast()
     const hint = this.fastHint()
     this.ctx.emit({
       type: 'flags',
@@ -1018,7 +1050,7 @@ export class CodexSession implements EngineSession {
         fastAvailable: true,
         fastState: this.settings.fast ? 'on' : 'off',
         fastBlocked: hint,
-        fastPending: this.fastNext !== null,
+        fastPending: this.speedNext !== null,
         ultracodeAvailable: false,
       },
     })
@@ -1065,14 +1097,16 @@ export class CodexSession implements EngineSession {
    * Fast：每轮都写明档位。Codex 会把档位记在线程上（重启恢复后还在），也会读 config.toml 里的档位，
    * 关着时不写 default 就继续走 priority（docs/codex-engine.md §3.5）
    */
-  private serviceTier(fast = this.settings.fast): { serviceTier: string } {
-    return { serviceTier: fast ? (this.fastTier() ?? 'priority') : 'default' }
+  private serviceTier(speed = speedOf(this.settings)): { serviceTier: string } {
+    if (speed === 'off') return { serviceTier: 'default' }
+    if (speed === 'ultrafast' && this.ultrafastOk()) return { serviceTier: 'ultrafast' }
+    return { serviceTier: this.fastTier() ?? 'priority' }
   }
   /** 手动压缩、目标模式自动开的轮次不经过 turn/start，改开关时直接改线程记着的档位（下一轮起生效） */
-  private syncTier(fast: boolean): void {
+  private syncTier(speed: Speed): void {
     if (!this.threadId || !this.proc?.alive) return
     void this.proc
-      .request('thread/settings/update', { threadId: this.threadId, ...this.serviceTier(fast) })
+      .request('thread/settings/update', { threadId: this.threadId, ...this.serviceTier(speed) })
       .catch(error => log.info('线程的服务档位没改成', { error: describeError(error) }))
   }
   async steer(text: string, id: string, attachments: ImageAttachment[] = []): Promise<void> {
@@ -1612,12 +1646,16 @@ export class CodexSession implements EngineSession {
     this.adopting = null
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
-    if (this.fastNext !== null) {
-      this.settings = { ...this.settings, fast: this.fastNext }
-      this.fastNext = null
+    if (this.speedNext !== null) {
+      this.settings = {
+        ...this.settings,
+        fast: this.speedNext !== 'off',
+        ultrafast: this.speedNext === 'ultrafast',
+      }
+      this.speedNext = null
       if (this.catalog) this.emitFlags()
       // 改开关时 turn/start 可能还没发出，它带的旧档位会盖掉刚才那次，这里再写一次
-      this.syncTier(this.settings.fast)
+      this.syncTier(speedOf(this.settings))
     }
     // 状态条由 turn_completed 一起清掉
     this.retryShown = false

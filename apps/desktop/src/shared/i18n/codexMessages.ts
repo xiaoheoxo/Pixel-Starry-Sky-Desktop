@@ -27,6 +27,36 @@ export const codexMessages = {
     zh: '是否生效、怎么计费取决于你的接口或线路',
     en: 'Whether it takes effect and how it is billed depend on your endpoint or route',
   },
+  'codex.ultrafastDropped': {
+    zh: '当前模型或线路没有 Ultrafast，已改成 Fast',
+    en: 'This model or route has no Ultrafast, so it was changed to Fast',
+  },
+  'speed.title': { zh: '速度', en: 'Speed' },
+  'speed.off': { zh: '普通', en: 'Normal' },
+  'speed.offDesc': { zh: '按普通速度和用量计费。', en: 'Normal speed and usage. ' },
+  'speed.fastDesc': {
+    zh: '更快的输出速度，订阅额度按 2.5 倍扣，credits 按 2 倍。',
+    en: 'Faster output. Subscription limits count 2.5x, credits 2x. ',
+  },
+  'speed.ultrafastDesc': {
+    zh: '最快的速度。订阅额度按 8 倍扣，credits 按 6 倍',
+    en: 'The fastest speed. Subscription limits count 8x, credits 6x',
+  },
+  'speed.holdHint': { zh: 'Ultrafast 要按住才能开启', en: 'Hold to turn on Ultrafast' },
+  'speed.holding': {
+    zh: '继续按住开启：订阅额度按 8 倍扣',
+    en: 'Keep holding to turn on. Subscription limits count 8x',
+  },
+  'speed.tooShort': {
+    zh: '要按住不放才能开启，这样不会误点。订阅额度按 8 倍扣',
+    en: "Press and hold to turn it on, so it can't happen by accident. Subscription limits count 8x",
+  },
+  'speed.holdLabel': { zh: 'Ultrafast，按住开启', en: 'Ultrafast, press and hold to turn on' },
+  'speed.next': {
+    zh: '这一轮按原来的速度跑完，下一轮起改成 {p0}',
+    en: 'This turn finishes at its current speed; {p0} from the next turn',
+  },
+  'speed.sessionOnly': { zh: 'Ultrafast 只对这个会话生效', en: 'Ultrafast applies to this session only' },
   'codex.fastPending': { zh: '下一轮生效', en: 'Next turn' },
   'codex.fastNextOn': {
     zh: '这一轮按普通速度跑完，下一轮起打开',

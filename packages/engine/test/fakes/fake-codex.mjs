@@ -210,7 +210,10 @@ const models = [
     defaultReasoningEffort: 'high',
     inputModalities: ['text', 'image'],
     isDefault: true,
-    serviceTiers: [{ id: 'priority', name: 'Fast', description: '2x speed, increased usage' }],
+    serviceTiers: [
+      { id: 'priority', name: 'Fast', description: '2x speed, increased usage' },
+      ...(process.env.FAKE_CODEX_ULTRAFAST ? [{ id: 'ultrafast', name: 'Ultrafast', description: '8x usage' }] : []),
+    ],
   },
   {
     id: 'fake-plain',

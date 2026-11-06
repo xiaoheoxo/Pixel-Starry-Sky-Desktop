@@ -1,4 +1,4 @@
-import type { Effort, FileChange, PermissionMode, SessionDefaults } from './types'
+import type { Effort, EngineCatalog, FileChange, PermissionMode, SessionDefaults } from './types'
 
 /** 权限模式，按菜单里的顺序 */
 export const PERMISSION_MODES: readonly PermissionMode[] = ['ask', 'edits', 'plan', 'full']
@@ -33,3 +33,13 @@ export const EFFORT_PANEL_FACTORY: EffortPanelDefaults = {
   fast: false,
   thinkingSummaries: true,
 }
+
+/** Ultrafast 只给官方登录（ChatGPT 账号 + openai），模型目录要列了这一档；走平台、自定义接口由调用方另外排除 */
+export function ultrafastEligible(catalog: EngineCatalog | null | undefined, model: string | null): boolean {
+  if (catalog?.authType !== 'chatgpt' || (catalog.currentProvider ?? 'openai') !== 'openai') return false
+  // 跟随默认、config.toml 也没写模型时，实际用的是目录标的默认模型
+  const id = model ?? catalog.currentModel
+  return catalog.models?.find(m => (id ? m.id === id : m.isDefault))?.ultrafast === true
+}
+/** 退回 Fast 时留在会话里的提示（界面按 codex.ultrafastDropped 翻译） */
+export const ULTRAFAST_DROPPED = 'This model or route has no Ultrafast, so it was changed to Fast'

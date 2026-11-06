@@ -17,6 +17,9 @@ import {
   type SessionSettings,
   type SessionSnapshot,
   type SessionSummary,
+  ULTRAFAST_DROPPED,
+  ultrafastEligible,
+  viaGateway,
 } from '@pixelsky/protocol'
 import { queueSettings } from '../queue'
 import { ENGINES } from '../registry'
@@ -87,6 +90,7 @@ export class HostSessions {
       permissionMode: opts.permissionMode ?? d.permissionMode,
       ultracode: opts.ultracode ?? d.ultracode,
       fast: opts.fast ?? d.fast,
+      ...(opts.ultrafast ? { ultrafast: true } : {}),
       thinkingSummaries: opts.thinkingSummaries ?? d.thinkingSummaries,
       createdAt: now,
       updatedAt: now,
@@ -316,6 +320,9 @@ export class HostSessions {
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode
     if (patch.ultracode !== undefined) next.ultracode = patch.ultracode
     if (patch.fast !== undefined) next.fast = patch.fast
+    if (patch.ultrafast !== undefined) next.ultrafast = patch.ultrafast
+    // 关 Fast 就是连 Ultrafast 一起关（手机、频道、恢复默认只认 fast）
+    if (patch.fast === false && current.ultrafast) next.ultrafast = false
     if (patch.thinkingSummaries !== undefined) next.thinkingSummaries = patch.thinkingSummaries
     // 运行中且新来源（或新引擎）和正在用的不同（这次换的，或之前换了还没生效）：model / effort 属于新来源，
     // 不动执行设置，也不发给还在用旧来源的进程
@@ -354,6 +361,7 @@ export class HostSessions {
     if (patch.permissionMode !== undefined) settings.permissionMode = patch.permissionMode
     if (patch.ultracode !== undefined) settings.ultracode = patch.ultracode
     if (patch.fast !== undefined) settings.fast = patch.fast
+    if (next.ultrafast !== undefined) settings.ultrafast = next.ultrafast
     if (patch.thinkingSummaries !== undefined) settings.thinkingSummaries = patch.thinkingSummaries
     if (restart && rt.session) {
       if (rt.idleTimer) {
@@ -368,6 +376,8 @@ export class HostSessions {
       // 模型和权限记住用户的选择，作为以后新会话的默认值；推理强度那几项只影响这个会话，
       // 要「设为默认」才改默认值，除非这个引擎打开了「记住会话里的选择」（GitHub #6）
       const remembered: Partial<SessionSettings> = { ...settings }
+      // Ultrafast 只对这个会话，什么设置都不记成默认
+      delete remembered.ultrafast
       // 记在目标引擎名下（运行中选了别的引擎还没生效时，也算它的）
       const target = record.nextEngine ?? record.engine
       if (!m.settings.remembersChoices(target)) for (const k of EFFORT_PANEL_KEYS) delete remembered[k]
@@ -380,9 +390,34 @@ export class HostSessions {
         delete live.effort
       }
       // 已选下一轮的引擎时，Fast 是给它选的：现在的引擎不支持的话（如第三方接口的 Claude）会写回关闭
-      if (record.nextEngine && record.nextEngine !== record.engine) delete live.fast
+      if (record.nextEngine && record.nextEngine !== record.engine) {
+        delete live.fast
+        delete live.ultrafast
+      }
       if (Object.keys(live).length > 0) await rt.session?.update(live)
     }
+    if (record.ultrafast && (patch.model !== undefined || changed)) return this.dropUltrafast(id)
+    return record
+  }
+
+  /**
+   * 换了模型或线路后用不了 Ultrafast：退回 Fast 并说一声。进程空闲关掉、这一轮还在跑时引擎自己管不到，
+   * 不在这里退回的话换回来就悄悄恢复 8 倍扣费
+   */
+  private async dropUltrafast(id: string): Promise<SessionRecord> {
+    const m = this.ctx.m
+    const rt = this.runtime(id)
+    const engine = rt.snapshot.record.engine
+    const catalog = await this.ctx.adapters[engine]?.catalog?.().catch(() => null)
+    // await 期间记录可能又变了（docs 里「反复出现的缺陷」）：按最新的判断
+    const fresh = rt.snapshot.record
+    // 目录还没读到时不动，进程起来后引擎会再判断
+    if (!fresh.ultrafast || !catalog?.models || (!viaGateway(fresh) && ultrafastEligible(catalog, fresh.model)))
+      return fresh
+    const record = m.events.patchRecord(id, { ultrafast: false })
+    if (rt.execution) rt.execution.ultrafast = false
+    await rt.session?.update({ ultrafast: false })
+    this.addNotice(id, 'warn', ULTRAFAST_DROPPED)
     return record
   }
 

@@ -32,6 +32,7 @@ export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
         inputModalities: array(model.inputModalities ?? ['text', 'image']).map(string),
         isDefault: model.isDefault === true,
         ...(fastTier ? { fastTier } : {}),
+        ...(tiers.includes('ultrafast') ? { ultrafast: true } : {}),
       })
     }
     cursor = string(page.nextCursor) || null

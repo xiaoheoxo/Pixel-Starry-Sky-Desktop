@@ -67,6 +67,8 @@ export interface SessionContext {
   setUltracode(on: boolean): void
   /** Fast 模式开不了（账号或接口不支持），把记录里的开关关掉 */
   setFast(on: boolean): void
+  /** Ultrafast 用不了了（换了模型或线路），记录退回 Fast */
+  setUltrafast?(on: boolean): void
   /** 引擎把推理强度夹到了当前模型支持的档位（像素星空：选的档位这个模型没有），记录跟着改成实际用的 */
   setEffort?(effort: Effort): void
   /** 回退截断点已在新进程生效 */

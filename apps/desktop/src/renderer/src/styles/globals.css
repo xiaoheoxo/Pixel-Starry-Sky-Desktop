@@ -1303,3 +1303,87 @@
     transition: none;
   }
 }
+
+/* Ultrafast 长按（docs/codex-engine.md §3.5）：按住铺满，按满起飞。进度说明还要按多久，关闭动画时也照走 */
+.speed-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: color-mix(in oklab, var(--warn) 42%, transparent);
+  animation: speed-fill 600ms linear forwards;
+}
+.speed-trail {
+  position: absolute;
+  left: 2px;
+  top: -2px;
+  width: 3px;
+  height: 18px;
+  border-radius: 3px;
+  opacity: 0;
+  background: linear-gradient(to top, transparent, var(--warn));
+  transform: rotate(45deg);
+}
+.speed-launch {
+  animation: speed-glow 620ms ease-out;
+}
+.speed-launch .speed-rocket {
+  animation: speed-launch 620ms cubic-bezier(0.3, 0.1, 0.3, 1);
+}
+.speed-launch .speed-trail {
+  animation: speed-trail 620ms ease-out;
+}
+@keyframes speed-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes speed-glow {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--warn) 65%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 14px transparent;
+  }
+}
+@keyframes speed-launch {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  45% {
+    transform: translate(22px, -22px) scale(0.8);
+    opacity: 0;
+  }
+  46% {
+    transform: translate(-14px, 14px) scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes speed-trail {
+  0% {
+    opacity: 0;
+    transform: rotate(45deg) translateY(4px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(45deg) translateY(-16px);
+  }
+}
+:root[data-motion='off'] :is(.speed-launch, .speed-launch .speed-rocket, .speed-launch .speed-trail) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion='system'] :is(.speed-launch, .speed-launch .speed-rocket, .speed-launch .speed-trail) {
+    animation: none;
+  }
+}

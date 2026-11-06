@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Clock,
   ListChecks,
+  Rocket,
   RotateCcw,
   Shield,
   ShieldCheck,
@@ -21,6 +22,7 @@ import type { PermissionMode } from '@pixelsky/protocol'
 import { IconButton, Popover, Switch, cn, useToast } from '@/ui'
 import { PERMISSION_HINTS, PERMISSION_INFO, effortLabel, effortLook, type ComposerController } from '@/features/engine'
 import { EffortSlider } from './EffortSlider'
+import { SpeedRow } from './SpeedRow'
 import { useSessionCheckSwitch } from '@/features/checks/sessionChecks'
 import { effortDiff } from '@/features/engine/effortDefaults'
 import { needsFullConfirm, saferMode } from './fullAccess'
@@ -148,11 +150,11 @@ export function EffortMenu({ live }: { live: ComposerController }) {
     fast: live.fastSupported,
     thinkingSummaries: live.thinkingSupported,
   })
-  const differs = diff.length > 0
+  const differs = diff.length > 0 || live.ultrafast
   const resetToDefaults = (): void => {
     if (diff.includes('effort') && d.effort) live.setEffort(d.effort)
     if (diff.includes('ultracode')) live.setUltracode(d.ultracode)
-    if (diff.includes('fast')) live.setFast(d.fast)
+    if (diff.includes('fast') || live.ultrafast) live.setFast(d.fast)
     if (diff.includes('thinkingSummaries')) live.setThinkingSummaries(d.thinkingSummaries)
   }
   // 做完自动检查（docs/ui/channels-collab-v2.md §8）：会话开出来以后才有
@@ -169,7 +171,7 @@ export function EffortMenu({ live }: { live: ComposerController }) {
   const checkOn = canCheck && autoCheck
   const modes = [
     ultracode && 'Ultracode',
-    fastOn && tr('session.ComposerMenus.fastMode'),
+    fastOn && (live.ultrafast ? 'Ultrafast' : tr('session.ComposerMenus.fastMode')),
     thinkingOn && tr('session.ComposerMenus.showThinkingSummaries'),
     checkOn && tr('checks.auto'),
   ]
@@ -198,7 +200,12 @@ export function EffortMenu({ live }: { live: ComposerController }) {
         {(ultracode || fastOn || fastPending || thinkingOn || checkOn) && (
           <span className="flex items-center gap-0.5 text-accent" aria-hidden>
             {ultracode && <Sparkles size={13} strokeWidth={1.75} className="text-ultracode" />}
-            {(fastOn || fastPending) && <Zap size={13} strokeWidth={1.75} className={cn(fastPending && 'text-warn')} />}
+            {(fastOn || fastPending) &&
+              (live.ultrafast ? (
+                <Rocket size={13} strokeWidth={1.75} className={cn(fastPending && 'text-warn')} data-ultrafast-on />
+              ) : (
+                <Zap size={13} strokeWidth={1.75} className={cn(fastPending && 'text-warn')} />
+              ))}
             {thinkingOn && <Brain size={13} strokeWidth={1.75} />}
             {checkOn && <ListChecks size={13} strokeWidth={1.75} data-auto-check-on />}
           </span>
@@ -268,7 +275,14 @@ export function EffortMenu({ live }: { live: ComposerController }) {
                 onChange={live.setUltracode}
               />
             )}
-            {live.fastSupported && (
+            {live.fastSupported && live.ultrafastAvailable && (
+              <SpeedRow
+                speed={live.ultrafast ? 'ultrafast' : live.fast ? 'fast' : 'off'}
+                pending={fastPending}
+                onChange={speed => (speed === 'ultrafast' ? live.setUltrafast() : live.setFast(speed === 'fast'))}
+              />
+            )}
+            {live.fastSupported && !live.ultrafastAvailable && (
               <SwitchRow
                 icon={
                   <Zap
@@ -321,24 +335,28 @@ export function EffortMenu({ live }: { live: ComposerController }) {
         )}
         {/* 会话里调整只影响这个会话；要改新会话的默认值点这里（GitHub #6） */}
         <div className="mt-2 flex items-center justify-end border-t border-line-subtle pt-2">
-          <button
-            type="button"
-            data-effort-save-default
-            disabled={!differs || saving}
-            title={tr('effortDefaults.saveHint', { p0: live.engine?.name ?? '' })}
-            onClick={() => {
-              setSaving(true)
-              live
-                .saveEffortDefaults()
-                .catch((e: unknown) =>
-                  toast(tr('effortDefaults.saveFailed', { p0: translateMessage((e as Error).message) })),
-                )
-                .finally(() => setSaving(false))
-            }}
-            className="rounded-md px-2 py-1 text-meta text-fg-secondary hover:bg-hover hover:text-fg disabled:text-fg-faint disabled:hover:bg-transparent"
-          >
-            {tr(differs ? 'effortDefaults.save' : 'effortDefaults.isDefault')}
-          </button>
+          {live.ultrafast ? (
+            <span className="px-2 py-1 text-meta text-fg-muted">{tr('speed.sessionOnly')}</span>
+          ) : (
+            <button
+              type="button"
+              data-effort-save-default
+              disabled={!differs || saving}
+              title={tr('effortDefaults.saveHint', { p0: live.engine?.name ?? '' })}
+              onClick={() => {
+                setSaving(true)
+                live
+                  .saveEffortDefaults()
+                  .catch((e: unknown) =>
+                    toast(tr('effortDefaults.saveFailed', { p0: translateMessage((e as Error).message) })),
+                  )
+                  .finally(() => setSaving(false))
+              }}
+              className="rounded-md px-2 py-1 text-meta text-fg-secondary hover:bg-hover hover:text-fg disabled:text-fg-faint disabled:hover:bg-transparent"
+            >
+              {tr(differs ? 'effortDefaults.save' : 'effortDefaults.isDefault')}
+            </button>
+          )}
         </div>
       </Popover>
     </div>
