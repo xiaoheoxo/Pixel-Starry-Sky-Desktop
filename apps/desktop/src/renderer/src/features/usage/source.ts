@@ -3,8 +3,8 @@
 // - 真实模式：引擎层提供 usage* 接口后从主进程读取；接口还没有时显示空状态。
 import { useCallback, useEffect, useState } from 'react'
 import { isDemo } from '@/data'
-import { listRecords, summarize, toCsv } from './aggregate'
-import type { UsageFilter, UsagePage, UsageRangeId, UsageRecord, UsageSummary } from './types'
+import { groupByDay, heatmapDays, listRecords, summarize, toCsv } from './aggregate'
+import type { UsageBucket, UsageFilter, UsagePage, UsageRangeId, UsageRecord, UsageSummary, UsageTotals } from './types'
 import { demo } from '@/data/demo'
 
 export interface UsageQuery {
@@ -16,6 +16,8 @@ export interface UsageQuery {
 interface UsageBridge {
   usageSummary?: (q: UsageQuery & { now: number; tzOffset: number }) => Promise<UsageSummary>
   usageList?: (q: UsageQuery & { now: number; offset: number; limit: number }) => Promise<UsagePage>
+  /** 旧版远端辅助进程没有这个通道：调用会报错，页面不显示热力图 */
+  usageDaily?: (q: { filter: UsageFilter; now: number }) => Promise<UsageBucket[]>
   usageExport?: (q: UsageQuery & { now: number }) => Promise<boolean>
   usageClear?: () => Promise<void>
   /** 主进程事件；写入新记录或清空后是 { kind: 'usage_recorded' } */
@@ -85,6 +87,63 @@ export function useUsage(query: UsageQuery, offset: number) {
   }, [range, filterKey, offset, version])
 
   return { summary, page, error }
+}
+
+/** 热力图：最近 53 周每天的合计；读不到时为 null，页面不显示这一块 */
+export function useUsageDaily(filter: UsageFilter, enabled: boolean): UsageBucket[] | null {
+  const [days, setDays] = useState<UsageBucket[] | null>(null)
+  const [version, setVersion] = useState(0)
+  const filterKey = JSON.stringify(filter)
+
+  useEffect(() => {
+    if (!enabled) return
+    const bump = () => setVersion(v => v + 1)
+    listeners.add(bump)
+    const off = bridge()?.onEvent?.(e => {
+      if (e.kind === 'usage_recorded') bump()
+    })
+    return () => {
+      listeners.delete(bump)
+      off?.()
+    }
+  }, [enabled])
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    const now = Date.now()
+    const b = bridge()
+    if (!b) {
+      setDays(heatmapDays(groupByDay(localRecords, filter), now))
+      return
+    }
+    if (!b.usageDaily) {
+      setDays(null)
+      return
+    }
+    b.usageDaily({ filter, now })
+      .then(d => !cancelled && setDays(d))
+      .catch(() => !cancelled && setDays(null))
+    return () => {
+      cancelled = true
+    }
+    // filterKey 代替 filter 对象做依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, filterKey, version])
+
+  return days
+}
+
+/** 今天的合计（悬停用量图标时读一次）；读不到时为 null */
+export async function readTodayUsage(): Promise<UsageTotals | null> {
+  const now = Date.now()
+  const b = bridge()
+  try {
+    if (!b?.usageSummary) return summarize(localRecords, 'today', {}, now).totals
+    return (await b.usageSummary({ range: 'today', filter: {}, now, tzOffset: new Date().getTimezoneOffset() })).totals
+  } catch {
+    return null
+  }
 }
 
 /** 导出当前筛选范围的全部记录为 CSV */

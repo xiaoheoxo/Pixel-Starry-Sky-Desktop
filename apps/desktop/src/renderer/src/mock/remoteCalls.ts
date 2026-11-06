@@ -47,11 +47,11 @@ export function demoRemoteCalls(now: number): RemoteCall[] {
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
 
-  for (let day = 89; day >= 0; day--) {
+  for (let day = 370; day >= 0; day--) {
     const date = today.getTime() - day * DAY
     const weekday = new Date(date).getDay()
     const weekend = weekday === 0 || weekday === 6
-    const n = Math.max(0, Math.round((weekend ? 6 : 16) * (0.5 + 0.5 * (1 - day / 90)) + int(-3, 3)))
+    const n = Math.max(0, Math.round((weekend ? 6 : 16) * (0.3 + 0.7 * (1 - day / 371)) + int(-3, 3)))
     for (let k = 0; k < n; k++) {
       const createdAt = date + int(8, 23) * 3600_000 + int(0, 3599_000)
       if (createdAt > now) continue

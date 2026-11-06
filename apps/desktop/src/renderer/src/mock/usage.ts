@@ -1,4 +1,4 @@
-// 演示模式的用量记录：按固定种子生成近 90 天的数据（每次打开都一样），只在 pnpm dev:demo 时使用。
+// 演示模式的用量记录：按固定种子生成近一年的数据（每次打开都一样），只在 pnpm dev:demo 时使用。
 import type { UsageRecord } from '@/features/usage/types'
 
 /** 固定种子的伪随机数（mulberry32） */
@@ -62,6 +62,9 @@ function spike(start: number): UsageRecord[] {
       output,
       costUsd: (input * p.input + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite + output * p.output) / 1_000_000,
       outcome: 'completed',
+      genMs: 34_000,
+      genOutput: output,
+      firstTokenMs: 1400,
     }
   })
 }
@@ -73,12 +76,12 @@ export function demoUsageRecords(now: number): UsageRecord[] {
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
 
-  for (let day = 89; day >= 0; day--) {
+  for (let day = 370; day >= 0; day--) {
     const date = today.getTime() - day * DAY
     const weekday = new Date(date).getDay()
     const weekend = weekday === 0 || weekday === 6
     // 越近的日子用得越多，周末少一些
-    const turns = Math.max(0, Math.round((weekend ? 3 : 9) * (0.4 + 0.6 * (1 - day / 90)) + int(-3, 4)))
+    const turns = Math.max(0, Math.round((weekend ? 3 : 9) * (0.3 + 0.7 * (1 - day / 371)) + int(-3, 4)))
     // 两天前有一次长任务：缓存读特别多，其他天在同一纵轴上几乎贴底（docs/ui/usage-chart-style.md §5）
     if (day === 2) records.push(...spike(date + 15 * 3600_000))
     for (let k = 0; k < turns; k++) {
@@ -124,6 +127,10 @@ export function demoUsageRecords(now: number): UsageRecord[] {
           output,
           costUsd,
           outcome,
+          ...(day < 60 && !codex
+            ? { genMs: Math.round((output / int(sub ? 120 : 45, sub ? 190 : 110)) * 1000), genOutput: output }
+            : {}),
+          ...(day < 60 && model === models[0] ? { firstTokenMs: int(700, 6000) } : {}),
         })
       }
     }

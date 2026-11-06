@@ -32,10 +32,13 @@ const bucket = (input: number, cacheRead: number, output: number, cacheWrite = 0
 
 describe('用量图表样式的设置', () => {
   it('默认折线、全部显示；损坏的值回到默认', () => {
-    expect(DEFAULT_CHART).toEqual({ style: 'line', hidden: [] })
+    expect(DEFAULT_CHART).toEqual({ style: 'line', hidden: [], metric: 'tokens' })
     for (const value of [undefined, null, 'line', 1, [], { style: 'pie' }])
       expect(parseChartPrefs(value)).toEqual(DEFAULT_CHART)
-    expect(parseChartPrefs({ style: 'bar', hidden: ['cache', 'nope', 3] })).toEqual({ style: 'bar', hidden: ['cache'] })
+    expect(parseChartPrefs({ style: 'bar', hidden: ['cache', 'nope', 3] })).toMatchObject({
+      style: 'bar',
+      hidden: ['cache'],
+    })
   })
 
   it('三个系列全关了当作全部显示', () => {
@@ -53,7 +56,7 @@ describe('用量图表样式的设置', () => {
     m.toggleSeries('cache')
     m.toggleSeries('input')
     m.toggleSeries('output')
-    expect(JSON.parse(store.get(CHART_KEY)!)).toEqual({ style: 'line', hidden: ['input', 'cache'] })
+    expect(JSON.parse(store.get(CHART_KEY)!)).toMatchObject({ style: 'line', hidden: ['input', 'cache'] })
     m.setChartStyle('bar')
     expect(JSON.parse(store.get(CHART_KEY)!).style).toBe('bar')
     m.toggleSeries('cache')

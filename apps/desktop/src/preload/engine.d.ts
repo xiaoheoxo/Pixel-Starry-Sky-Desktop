@@ -235,6 +235,8 @@ export interface EngineBridge {
   subagentTranscript(id: string, agentId: string): Promise<Item[]>
   /** 用量汇总（docs/ui/usage.md §6.3）；tzOffset 目前没用到，按主进程本地时区计算 */
   usageSummary(q: UsageQuery & { now: number; tzOffset?: number }): Promise<UsageSummary>
+  /** 热力图：最近 53 周每天的合计（docs/ui/usage-learn.md §2） */
+  usageDaily(q: { filter: UsageQuery['filter']; now: number }): Promise<import('@pixelsky/protocol').UsageBucket[]>
   /** 用量明细，最新在前，分页 */
   usageList(q: UsageQuery & { now: number; offset: number; limit: number }): Promise<UsagePage>
   /** 弹出保存对话框导出 CSV；取消时返回 false */

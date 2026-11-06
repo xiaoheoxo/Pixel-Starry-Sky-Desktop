@@ -1,14 +1,18 @@
 // 用量与调用记录（docs/ui/usage.md §2、§6.2）
 //
-// <dataDir>/usage/usage-YYYY-MM.jsonl：每一轮 × 每个模型一条记录，按月分文件、只追加，保留 90 天。
+// <dataDir>/usage/usage-YYYY-MM.jsonl：每一轮 × 每个模型一条记录，按月分文件、只追加，保留 400 天（够一年热力图）。
 // 汇总、分页、CSV 都用 @pixelsky/protocol 里的纯函数，和界面演示模式的规则一致。
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  groupByDay,
+  heatmapDays,
+  heatmapStart,
   listRecords,
   rangeWindow,
   summarize,
   toCsv,
+  type UsageBucket,
   type UsageFilter,
   type UsagePage,
   type UsageRangeId,
@@ -17,7 +21,7 @@ import {
 } from '@pixelsky/protocol'
 
 /** 保留天数 */
-export const USAGE_RETENTION_DAYS = 90
+export const USAGE_RETENTION_DAYS = 400
 const DAY = 24 * 60 * 60 * 1000
 const FILE = /^usage-(\d{4})-(\d{2})\.jsonl$/
 
@@ -33,8 +37,13 @@ function monthKey(t: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+/** 按天合计的缓存最多留多少份（文件 × 筛选条件） */
+const DAILY_CACHE_MAX = 128
+
 export class UsageStore {
   readonly dir: string
+  /** 一年的记录不能每次都读一遍：文件没变就用上次的按天合计（主进程，读文件是同步的） */
+  private dailyCache = new Map<string, { stamp: string; days: UsageBucket[] }>()
 
   constructor(dataDir: string) {
     this.dir = join(dataDir, 'usage')
@@ -72,27 +81,61 @@ export class UsageStore {
     const byId = new Map<string, UsageRecord>()
     for (const f of this.files()) {
       if (f.year * 12 + (f.month - 1) < startKey) continue
-      let text: string
+      this.readInto(f.name, from, byId)
+    }
+    return [...byId.values()]
+  }
+
+  private readInto(name: string, from: number, byId: Map<string, UsageRecord>): void {
+    let text: string
+    try {
+      text = readFileSync(join(this.dir, name), 'utf8')
+    } catch {
+      return
+    }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
       try {
-        text = readFileSync(join(this.dir, f.name), 'utf8')
+        const r = JSON.parse(line) as UsageRecord
+        if (r && typeof r.id === 'string' && r.endedAt >= from)
+          byId.set(
+            r.id,
+            r.route === 'pixelsky' && !r.costSource ? { ...r, costUsd: null, costSource: 'unavailable' } : r,
+          )
+      } catch {
+        // 跳过写坏的行
+      }
+    }
+  }
+
+  /** 热力图：最近 53 周每天的合计 */
+  daily(q: { filter: UsageFilter; now: number }): UsageBucket[] {
+    const from = heatmapStart(q.now)
+    const start = new Date(from)
+    const startKey = start.getFullYear() * 12 + start.getMonth()
+    const filterKey = JSON.stringify(q.filter)
+    const parts: UsageBucket[] = []
+    for (const f of this.files()) {
+      if (f.year * 12 + (f.month - 1) < startKey) continue
+      let stamp: string
+      try {
+        const s = statSync(join(this.dir, f.name))
+        stamp = `${s.mtimeMs}:${s.size}`
       } catch {
         continue
       }
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue
-        try {
-          const r = JSON.parse(line) as UsageRecord
-          if (r && typeof r.id === 'string' && r.endedAt >= from)
-            byId.set(
-              r.id,
-              r.route === 'pixelsky' && !r.costSource ? { ...r, costUsd: null, costSource: 'unavailable' } : r,
-            )
-        } catch {
-          // 跳过写坏的行
-        }
+      const key = `${f.name}\n${filterKey}`
+      let cached = this.dailyCache.get(key)
+      if (cached?.stamp !== stamp) {
+        const byId = new Map<string, UsageRecord>()
+        this.readInto(f.name, 0, byId)
+        if (this.dailyCache.size >= DAILY_CACHE_MAX) this.dailyCache.clear()
+        cached = { stamp, days: groupByDay([...byId.values()], q.filter) }
+        this.dailyCache.set(key, cached)
       }
+      parts.push(...cached.days)
     }
-    return [...byId.values()]
+    return heatmapDays(parts, q.now)
   }
 
   summary(q: UsageQuery): UsageSummary {
@@ -111,6 +154,7 @@ export class UsageStore {
   }
 
   clear(): void {
+    this.dailyCache.clear()
     for (const f of this.files()) rmSync(join(this.dir, f.name), { force: true })
   }
 

@@ -1,4 +1,5 @@
 // Pi（像素星空命令行）的 RPC 事件 → 统一条目和事件（docs/own-cli.md §4.1）。事件形状见 Pi 文档的 JSON Event Stream。
+import { GenTimer } from '../genTimer'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
@@ -358,6 +359,7 @@ export class PixelTranslator {
   /** 最近一次请求的输入 / 缓存 / 输出（上下文明细用）；压缩后、刚接上会话时不知道 */
   private lastRequest: { input: number; cacheRead: number; cacheWrite: number; output: number } | null = null
   private turnModels: Record<string, ModelTurnUsage> = {}
+  private gen = new GenTimer()
   private assistantError: string | null = null
   private compaction: { id: string; startedAt: number; preTokens: number | null } | null = null
   constructor(
@@ -375,10 +377,12 @@ export class PixelTranslator {
     this.toolNames.clear()
     this.toolSummaries.clear()
     this.turnModels = {}
+    this.gen.reset()
     this.assistantError = null
   }
   /** 本轮的用量；一个请求都没有时没有 models */
   turnUsage(durationMs: number): TurnUsage {
+    this.gen.apply(this.turnModels, Date.now() - durationMs)
     return { durationMs, models: this.turnModels }
   }
   /** 最后一条助手消息是错误结束时的说明（agent_settled 时判断这一轮是否失败） */
@@ -461,6 +465,7 @@ export class PixelTranslator {
   private messageStart(message: Message): void {
     if (message.role === 'assistant') {
       this.messageSeq++
+      this.gen.begin()
       this.assistantError = null
     } else if (message.role === 'user') {
       const content = message.content
@@ -475,6 +480,7 @@ export class PixelTranslator {
   }
 
   private messageUpdate(update: Message): void {
+    this.gen.first()
     const kind = string(update.type)
     const index = number(update.contentIndex)
     const id = this.blockId(index)
@@ -529,6 +535,8 @@ export class PixelTranslator {
     }
     if (!counts.input && !counts.output && !counts.cacheRead && !counts.cacheWrite && !cost) return
     this.lastModel = string(message.responseModel) || string(message.model) || 'Pixel'
+    this.gen.update(this.lastModel, counts.output)
+    this.gen.flush()
     this.addUsage(this.lastModel, counts, cost)
     this.lastContext = number(usage.totalTokens) || counts.input + counts.output + counts.cacheRead + counts.cacheWrite
     this.lastRequest = counts

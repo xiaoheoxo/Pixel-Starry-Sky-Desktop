@@ -1,4 +1,4 @@
-import { rangeWindow } from '@pixelsky/protocol'
+import { heatmapStart, rangeWindow } from '@pixelsky/protocol'
 import type {
   PlatformCharge,
   PlatformSettlement,
@@ -107,12 +107,11 @@ export async function accountSummary(value: unknown): Promise<RemoteUsageSummary
   const q = value as RemoteUsageQuery
   if (
     !q ||
-    !['today', '7d', '30d', '90d'].includes(q.range) ||
+    !['today', '7d', '30d', '90d', 'year'].includes(q.range) ||
     !Number.isFinite(q.now) ||
     (q.model !== null && (typeof q.model !== 'string' || q.model.length > 200))
   )
     throw new Error('无效的调用记录查询')
-  const w = rangeWindow(q.range, q.now)
   const params = (from: number, to: number, granularity: 'hour' | 'day') => {
     const p = new URLSearchParams({
       start_date: localDate(from),
@@ -136,6 +135,11 @@ export async function accountSummary(value: unknown): Promise<RemoteUsageSummary
       throw new Error('平台费用数据不可用')
     return data as Omit<RemoteUsageSummary, 'prevTotal'>
   }
+  if (q.range === 'year') {
+    const year = await read(params(heatmapStart(q.now), q.now, 'day'))
+    return { buckets: year.buckets, models: year.models, total: year.total, prevTotal: year.total }
+  }
+  const w = rangeWindow(q.range, q.now)
   const [current, prev] = await Promise.all([
     read(params(w.from, q.now, w.bucket)),
     read(params(w.prevFrom, w.from - 1, 'day')),

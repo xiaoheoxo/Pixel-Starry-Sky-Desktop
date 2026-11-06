@@ -1,5 +1,25 @@
 // 用量图表两种样式共用的纯函数：系列、纵轴取整、横向位置、节点收起（docs/ui/usage-chart-style.md §3）。
+import { cacheHitRate, outputSpeed, totalTokens } from './aggregate'
 import type { UsageBucket } from './types'
+
+/** 图表和热力图看什么（docs/ui/usage-learn.md §1）；speed 账号调用没有按天的数据 */
+export const USAGE_METRICS = ['tokens', 'turns', 'cost', 'hit', 'speed'] as const
+export type UsageMetric = (typeof USAGE_METRICS)[number]
+
+/** 一格的数值；这一格没有这个数（不知道，不是 0）时为 null */
+export function metricValue(metric: UsageMetric, b: UsageBucket): number | null {
+  if (metric === 'tokens') return totalTokens(b)
+  if (metric === 'turns') return b.turns
+  if (metric === 'cost') return b.records > 0 && b.costKnown === 0 ? null : b.costUsd
+  return metric === 'hit' ? cacheHitRate(b) : outputSpeed(b)
+}
+
+/** 画一条线（或柱子的一段）要的东西 */
+export interface PlotSeries {
+  key: string
+  color: string
+  value: (b: UsageBucket) => number | null
+}
 
 /** 三个系列（颜色已用 dataviz 校验脚本验证，见 tokens.css --chart-*）。输入含缓存写 */
 export const SERIES_KEYS = ['input', 'cache', 'output'] as const

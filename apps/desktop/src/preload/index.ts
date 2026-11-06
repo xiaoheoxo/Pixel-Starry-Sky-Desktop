@@ -196,6 +196,7 @@ const engine: EngineBridge = {
   subagentTranscript: (id, agentId) => call('engine:subagentTranscript', id, agentId),
   usageSummary: q => call('engine:usageSummary', q),
   usageList: q => call('engine:usageList', q),
+  usageDaily: q => call('engine:usageDaily', q),
   usageExport: q => call('engine:usageExport', q),
   usageClear: () => call('engine:usageClear'),
   onEvent: cb => {

@@ -6,8 +6,9 @@ import { useEffect, useState } from 'react'
 import { isDemo } from '@/data'
 import type { RemoteCallPage } from './remote-types'
 import type { RemoteUsageQuery, RemoteUsageSummary } from '@pixelsky/protocol'
-import { summarizeCalls, toUsageSummary } from './remoteSummary'
-import type { UsageSummary } from './types'
+import { callTiming, remoteDays, statTotals, summarizeCalls, toUsageSummary, type CallTiming } from './remoteSummary'
+import { heatmapDays, mergeTotals, emptyTotals } from './aggregate'
+import type { UsageBucket, UsageSummary } from './types'
 import type { UsageRangeId } from './types'
 import { demo } from '@/data/demo'
 
@@ -142,6 +143,93 @@ export function useRemoteSummary(query: { range: UsageRangeId; model: string | n
   }, [key])
 
   return result
+}
+
+/** 账号调用的热力图：最近 53 周每天；读不到（云端查不了这么久）时为 null，页面不显示这一块 */
+export function useRemoteDaily(model: string | null, enabled: boolean): UsageBucket[] | null {
+  const [days, setDays] = useState<UsageBucket[] | null>(null)
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    const now = Date.now()
+    if (isDemo) {
+      const parts = demo()
+        .remoteCalls(now)
+        .filter(c => model === null || c.model === model)
+        .map(c => {
+          const t = emptyTotals()
+          mergeTotals(
+            t,
+            statTotals({
+              requests: 1,
+              input: c.input,
+              output: c.output,
+              cacheRead: c.cacheRead,
+              cacheWrite: c.cacheWrite,
+              costUsd: c.costUsd ?? 0,
+            }),
+          )
+          return { ...t, start: c.createdAt }
+        })
+      setDays(heatmapDays(parts, now))
+      return
+    }
+    const summary = bridge()?.summary
+    if (!summary) {
+      setDays(null)
+      return
+    }
+    summary({ range: 'year', model, now })
+      .then(s => !cancelled && setDays(remoteDays(s, now)))
+      .catch(() => !cancelled && setDays(null))
+    return () => {
+      cancelled = true
+    }
+  }, [model, enabled])
+
+  return days
+}
+
+/** 速度和首字按最近这么多次调用算；一页最多 100 条 */
+const TIMING_PAGES = 10
+
+/** 账号调用的速度和首字（云端没有合计，docs/ui/usage-learn.md §1.3）；读不到时为 null，这两列显示「—」 */
+export function useRemoteCallTiming(
+  query: { range: UsageRangeId; model: string | null },
+  enabled: boolean,
+): { total: CallTiming; models: Map<string, CallTiming> } | null {
+  const [timing, setTiming] = useState<ReturnType<typeof callTiming> | null>(null)
+  const key = JSON.stringify(query)
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    const now = Date.now()
+    // 新范围读完之前不显示上一个范围的数字
+    setTiming(null)
+    const read = async () => {
+      const calls: RemoteCallPage['calls'] = []
+      for (let i = 0; i < TIMING_PAGES && !cancelled; i++) {
+        const q = { ...query, offset: i * 100, limit: 100 }
+        const page = isDemo ? queryLocal(q, now) : await bridge()!.listCalls!({ ...q, now })
+        calls.push(...page.calls)
+        if (page.calls.length < 100) break
+      }
+      return callTiming(calls)
+    }
+    if (!isDemo && !bridge()) return
+    read()
+      .then(t => !cancelled && setTiming(t))
+      .catch(() => !cancelled && setTiming(null))
+    return () => {
+      cancelled = true
+    }
+    // key 代替 query 对象做依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, enabled])
+
+  return timing
 }
 
 export type { CallClient, CallStatus, RemoteCall, RemoteCallPage } from './remote-types'

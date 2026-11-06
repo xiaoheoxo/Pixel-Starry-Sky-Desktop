@@ -1,6 +1,8 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
-import { cacheHitRate, totalTokens } from '@/features/usage/aggregate'
+import { useState } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
+import { cacheHitRate, outputSpeed, totalTokens } from '@/features/usage/aggregate'
 import {
   costSubtitle,
   formatCardCost,
@@ -36,68 +38,100 @@ export function KpiCards({
   const hitDelta = hit !== null && prevHit !== null ? Math.round((hit - prevHit) * 100) : null
   const missingCost = totals.records - totals.costKnown
   const costSub = costSubtitle(totals, routes)
+  const [more, setMore] = useState(false)
+  const speed = outputSpeed(totals)
+  const MoreIcon = more ? ChevronUp : ChevronDown
 
   return (
-    <div className="grid grid-cols-4 gap-3 @max-[700px]:grid-cols-2">
-      {account ? (
+    <div>
+      <div className="grid grid-cols-4 gap-3 @max-[700px]:grid-cols-2">
+        {account ? (
+          <Card
+            label={tr('settings.usage.KpiCards.accountRequests')}
+            value={`${totals.requests}`}
+            unit={tr('settings.usage.KpiCards.callsUnit')}
+            sub={tr('settings.usage.KpiCards.models', { p0: account.models })}
+            delta={formatDelta(totals.requests, prev.requests)}
+          />
+        ) : (
+          <Card
+            label={tr('settings.usage.KpiCards.conversationTurns')}
+            value={`${totals.turns}`}
+            unit={tr('settings.usage.KpiCards.turns')}
+            sub={tr('settings.usage.KpiCards.requests', { p0: totals.requests })}
+            delta={formatDelta(totals.turns, prev.turns)}
+          />
+        )}
         <Card
-          label={tr('settings.usage.KpiCards.accountRequests')}
-          value={`${totals.requests}`}
-          unit={tr('settings.usage.KpiCards.callsUnit')}
-          sub={tr('settings.usage.KpiCards.models', { p0: account.models })}
-          delta={formatDelta(totals.requests, prev.requests)}
+          label="Token"
+          value={formatTokens(totalTokens(totals))}
+          sub={tr('settings.usage.KpiCards.inputOutput', {
+            p0: formatTokens(totals.input + totals.cacheRead + totals.cacheWrite),
+            p1: formatTokens(totals.output),
+          })}
+          delta={formatDelta(totalTokens(totals), totalTokens(prev))}
         />
-      ) : (
         <Card
-          label={tr('settings.usage.KpiCards.conversationTurns')}
-          value={`${totals.turns}`}
-          unit={tr('settings.usage.KpiCards.turns')}
-          sub={tr('settings.usage.KpiCards.requests', { p0: totals.requests })}
-          delta={formatDelta(totals.turns, prev.turns)}
+          label={tr('settings.usage.KpiCards.cacheHit')}
+          value={formatPercent(hit)}
+          sub={tr('settings.usage.KpiCards.cacheRead', { p0: formatTokens(totals.cacheRead) })}
+          delta={
+            hitDelta === null
+              ? null
+              : {
+                  text:
+                    hitDelta === 0
+                      ? tr('settings.usage.KpiCards.unchanged')
+                      : `${hitDelta > 0 ? '▲' : '▼'}${Math.abs(hitDelta)}pt`,
+                  up: hitDelta >= 0,
+                }
+          }
         />
+        <Card
+          label={tr('settings.replyStats.cost')}
+          value={formatCardCost(totals)}
+          valueTitle={formatTotalCost(totals)}
+          sub={
+            costSub === 'missing'
+              ? tr('settings.usage.KpiCards.missingCost', { p0: missingCost })
+              : costSub === 'actual'
+                ? tr('billing.actual')
+                : costSub === 'official'
+                  ? tr('customApi.costEstimateShort')
+                  : tr('settings.usage.KpiCards.estimateReportedByEngine')
+          }
+          onSub={costSub === 'missing' ? onShowMissing : undefined}
+          subTitle={tr('usageCost.kpiMissingTitle')}
+          delta={totals.costKnown > 0 && prev.costKnown > 0 ? formatDelta(totals.costUsd, prev.costUsd) : null}
+        />
+      </div>
+      <div className="mt-1.5 flex justify-end">
+        <button
+          type="button"
+          aria-expanded={more}
+          onClick={() => setMore(v => !v)}
+          className="inline-flex items-center gap-0.5 text-meta text-fg-muted hover:text-fg"
+        >
+          {tr(more ? 'usageColumns.less' : 'usageColumns.more')}
+          <MoreIcon size={12} strokeWidth={1.5} aria-hidden />
+        </button>
+      </div>
+      {more && (
+        <div className="mt-1.5 grid grid-cols-5 gap-3 rounded-lg border border-line bg-surface px-3.5 py-2.5 @max-[700px]:grid-cols-3">
+          {[
+            [tr('usageColumns.freshInput'), formatTokens(totals.input)],
+            [tr('session.live.SessionStrips.output'), formatTokens(totals.output)],
+            [tr('session.turnStatsData.cacheWrite'), formatTokens(totals.cacheWrite)],
+            [tr('session.turnStatsData.cacheRead'), formatTokens(totals.cacheRead)],
+            [tr('usageColumns.tokenSpeed'), speed === null ? '—' : `${Math.round(speed)} tok/s`],
+          ].map(([name, value]) => (
+            <div key={name} className="min-w-0 text-meta text-fg-muted">
+              <div className="truncate">{name}</div>
+              <div className="mt-0.5 truncate text-ui font-medium text-fg tabular-nums">{value}</div>
+            </div>
+          ))}
+        </div>
       )}
-      <Card
-        label="Token"
-        value={formatTokens(totalTokens(totals))}
-        sub={tr('settings.usage.KpiCards.inputOutput', {
-          p0: formatTokens(totals.input + totals.cacheRead + totals.cacheWrite),
-          p1: formatTokens(totals.output),
-        })}
-        delta={formatDelta(totalTokens(totals), totalTokens(prev))}
-      />
-      <Card
-        label={tr('settings.usage.KpiCards.cacheHit')}
-        value={formatPercent(hit)}
-        sub={tr('settings.usage.KpiCards.cacheRead', { p0: formatTokens(totals.cacheRead) })}
-        delta={
-          hitDelta === null
-            ? null
-            : {
-                text:
-                  hitDelta === 0
-                    ? tr('settings.usage.KpiCards.unchanged')
-                    : `${hitDelta > 0 ? '▲' : '▼'}${Math.abs(hitDelta)}pt`,
-                up: hitDelta >= 0,
-              }
-        }
-      />
-      <Card
-        label={tr('settings.replyStats.cost')}
-        value={formatCardCost(totals)}
-        valueTitle={formatTotalCost(totals)}
-        sub={
-          costSub === 'missing'
-            ? tr('settings.usage.KpiCards.missingCost', { p0: missingCost })
-            : costSub === 'actual'
-              ? tr('billing.actual')
-              : costSub === 'official'
-                ? tr('customApi.costEstimateShort')
-                : tr('settings.usage.KpiCards.estimateReportedByEngine')
-        }
-        onSub={costSub === 'missing' ? onShowMissing : undefined}
-        subTitle={tr('usageCost.kpiMissingTitle')}
-        delta={totals.costKnown > 0 && prev.costKnown > 0 ? formatDelta(totals.costUsd, prev.costUsd) : null}
-      />
     </div>
   )
 }

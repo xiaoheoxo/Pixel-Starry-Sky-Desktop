@@ -40,8 +40,20 @@ describe('accountSummary', () => {
     expect(prev.get('granularity')).toBe('day')
   })
 
+  it('year（热力图）只读一次，按天，从 52 周前的周一开始', async () => {
+    reply = () => ({ buckets: [], models: [], total: stat(1) })
+    await accountSummary({ range: 'year', model: null, now })
+    expect(fetched).toHaveLength(1)
+    const params = new URLSearchParams(String(fetched[0]).split('?')[1])
+    expect(params.get('granularity')).toBe('day')
+    const days = (now - new Date(`${params.get('start_date')}T00:00:00`).getTime()) / 86400000
+    expect(days).toBeGreaterThan(52 * 7 - 1)
+    expect(days).toBeLessThan(53 * 7 + 1)
+    fetched.length = 0
+  })
+
   it('rejects bad queries and malformed replies', async () => {
-    await expect(accountSummary({ range: 'year', model: null, now })).rejects.toThrow('无效')
+    await expect(accountSummary({ range: 'forever', model: null, now })).rejects.toThrow('无效')
     expect(fetched).toEqual([])
     reply = () => ({ buckets: [{ requests: 'x' }], models: [], total: stat(1) })
     await expect(accountSummary({ range: '7d', model: null, now })).rejects.toThrow('不可用')

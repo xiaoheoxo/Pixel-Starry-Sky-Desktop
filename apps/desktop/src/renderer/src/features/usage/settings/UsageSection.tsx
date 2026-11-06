@@ -5,13 +5,23 @@ import { useState } from 'react'
 import { ChartColumn, Download, Trash2, X } from 'lucide-react'
 import { Button, Segmented, type SegmentedOption } from '@/ui'
 import { useAccount } from '@/features/account'
-import { PAGE_SIZE, useUsage, useUsageActions } from '@/features/usage/source'
-import { remoteCallsAvailable, useRemoteCalls, useRemoteSummary } from '@/features/usage/remote'
+import { PAGE_SIZE, useUsage, useUsageActions, useUsageDaily } from '@/features/usage/source'
+import {
+  remoteCallsAvailable,
+  useRemoteCallTiming,
+  useRemoteCalls,
+  useRemoteDaily,
+  useRemoteSummary,
+} from '@/features/usage/remote'
+import { withCallTiming } from '@/features/usage/remoteSummary'
+import { USAGE_METRICS, type UsageMetric } from '@/features/usage/chartGeometry'
+import { setChartMetric, useChartPrefs } from '@/features/usage/chartStyle'
 import { COST_MISSING } from '@pixelsky/protocol'
 import { DIMENSION_LABEL, dimLabel } from '@/features/usage/format'
-import type { UsageDimension, UsageFilter, UsageRangeId } from '@/features/usage/types'
+import type { UsageBucket, UsageDimension, UsageFilter, UsageRangeId } from '@/features/usage/types'
 import { SectionTitle } from '../../settings/SettingRow'
-import { UsageChart } from './UsageChart'
+import { UsageChart, metricLabel } from './UsageChart'
+import { UsageHeatmap } from './UsageHeatmap'
 import { Distribution } from './Distribution'
 import { KpiCards } from './KpiCards'
 import { RecordsTable } from './RecordsTable'
@@ -83,6 +93,15 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
   // mode === 'local' 时也传同一个查询形，hook 内部自己判断要不要读，避免条件调用 hook
   const rm = useRemoteCalls(remoteQuery)
   const rs = useRemoteSummary({ range, model: filter.model ?? null })
+  const localDays = useUsageDaily(filter, mode === 'local')
+  const accountDays = useRemoteDaily(filter.model ?? null, mode === 'account')
+  const timing = useRemoteCallTiming({ range, model: filter.model ?? null }, mode === 'account')
+  const { metric: savedMetric } = useChartPrefs()
+  // 账号调用没有按天的速度：看不了这一项时不改保存的选择，切回本机记录还在
+  const metric: UsageMetric = mode === 'account' && savedMetric === 'speed' ? 'tokens' : savedMetric
+  const metricOptions: Array<SegmentedOption<UsageMetric>> = USAGE_METRICS.filter(
+    m => mode === 'local' || m !== 'speed',
+  ).map(m => ({ value: m, label: metricLabel(m, mode === 'account') }))
 
   const changeRange = (r: UsageRangeId) => {
     setRange(r)
@@ -200,6 +219,14 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
             {tr('settings.usage.UsageSection.clearFilters')}{' '}
           </button>
         )}
+        <div className="ml-auto">
+          <Segmented
+            label={tr('usageColumns.metric')}
+            options={metricOptions}
+            value={metric}
+            onChange={setChartMetric}
+          />
+        </div>
       </div>
 
       {actionError && <ErrorLine>{actionError}</ErrorLine>}
@@ -211,6 +238,9 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
         <AccountModeBody
           rm={rm}
           rs={rs}
+          metric={metric}
+          days={accountDays}
+          timing={timing}
           model={filter.model}
           onPickModel={model => changeFilter({ ...filter, model })}
           empty={accountEmpty}
@@ -241,8 +271,13 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
                   : undefined
               }
             />
+            {localDays && (
+              <Panel>
+                <UsageHeatmap days={localDays} metric={metric} />
+              </Panel>
+            )}
             <Panel>
-              <UsageChart buckets={summary.buckets} bucket={summary.bucket} />
+              <UsageChart buckets={summary.buckets} bucket={summary.bucket} metric={metric} />
             </Panel>
             <Panel>
               <Distribution
@@ -267,6 +302,9 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
 function AccountModeBody({
   rm,
   rs,
+  metric,
+  days,
+  timing,
   model,
   onPickModel,
   empty,
@@ -278,6 +316,9 @@ function AccountModeBody({
 }: {
   rm: ReturnType<typeof useRemoteCalls>
   rs: ReturnType<typeof useRemoteSummary>
+  metric: UsageMetric
+  days: UsageBucket[] | null
+  timing: ReturnType<typeof useRemoteCallTiming>
   model: string | undefined
   onPickModel: (model: string) => void
   empty: boolean
@@ -303,7 +344,7 @@ function AccountModeBody({
     return <EmptyState filtered={false} />
   }
   // 和本机记录同样的卡片、图表、分布表；合计读不到时只显示明细
-  const summary = rs.summary
+  const summary = rs.summary && timing ? withCallTiming(rs.summary, timing) : rs.summary
   return (
     <div className="flex flex-col gap-4">
       {summary ? (
@@ -313,8 +354,13 @@ function AccountModeBody({
             prev={summary.prevTotals}
             account={{ models: summary.groups.model.length }}
           />
+          {days && (
+            <Panel>
+              <UsageHeatmap days={days} metric={metric} account />
+            </Panel>
+          )}
           <Panel>
-            <UsageChart buckets={summary.buckets} bucket={summary.bucket} />
+            <UsageChart buckets={summary.buckets} bucket={summary.bucket} metric={metric} account />
           </Panel>
           <Panel>
             <Distribution

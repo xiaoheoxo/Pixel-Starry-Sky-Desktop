@@ -57,7 +57,7 @@ describe('billing labels', () => {
     expect(formatRecordCost(r({ route: 'pixelsky', costSource: 'pending' }))).toBe('费用结算中…')
     // 补录对过没对上的 pending 行不再显示结算中
     expect(formatRecordCost(r({ route: 'pixelsky', costSource: 'pending', costMatch: 'none' }))).toBe('—')
-    expect(formatRecordCost(r({ route: 'api-key', costSource: 'estimate' }))).toBe('—')
+    expect(formatRecordCost(r({ route: 'api-key', costSource: 'estimate' }))).toBe('未定价')
     expect(formatRecordCost(r({ costUsd: 0.17 }))).toBe('≈ $0.17')
     expect(dimLabel('cost', 'no-price')).toBe('对不上官方价格')
     expect(dimLabel('cost', 'missing')).toBe('没有费用')

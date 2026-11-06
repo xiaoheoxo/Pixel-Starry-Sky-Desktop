@@ -1,5 +1,5 @@
 import type { UsageBucket } from '@/features/usage/types'
-import { BAR_COLOR, SERIES_VALUE, barGeometry, type SeriesKey } from '@/features/usage/chartGeometry'
+import { barGeometry, type PlotSeries } from '@/features/usage/chartGeometry'
 
 /**
  * 堆叠柱状图（docs/ui/usage-chart-style.md §8）：参考 Claude 用量页——同一冷色系三档明暗，段与段之间不留缝，
@@ -8,14 +8,14 @@ import { BAR_COLOR, SERIES_VALUE, barGeometry, type SeriesKey } from '@/features
  */
 export function BarPlot({
   buckets,
-  keys,
+  series,
   scale,
   width,
   height,
   hover,
 }: {
   buckets: UsageBucket[]
-  keys: readonly SeriesKey[]
+  series: readonly PlotSeries[]
   scale: number
   width: number
   height: number
@@ -26,7 +26,7 @@ export function BarPlot({
   return (
     <div aria-hidden className="absolute inset-0">
       {buckets.map((b, i) => {
-        const values = keys.map(k => SERIES_VALUE[k](b))
+        const values = series.map(s => s.value(b) ?? 0)
         const total = values.reduce((sum, v) => sum + v, 0)
         if (!(scale > 0) || total <= 0) return null
         const full = (total / scale) * height
@@ -44,10 +44,10 @@ export function BarPlot({
             {values.map((v, j) =>
               v > 0 ? (
                 <div
-                  key={keys[j]}
+                  key={series[j].key}
                   className="w-full shrink-0"
                   // 很小的一段也至少 1px，免得完全看不见
-                  style={{ background: BAR_COLOR[keys[j]], height: Math.max(1, (v / total) * full) }}
+                  style={{ background: series[j].color, height: Math.max(1, (v / total) * full) }}
                 />
               ) : null,
             )}

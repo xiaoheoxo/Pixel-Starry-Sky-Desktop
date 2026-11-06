@@ -11,6 +11,20 @@ export function formatTokens(n: number): string {
   return `${trim(n / 1_000_000_000)}B`
 }
 
+/** 明细和分布表：534、1,017、48K、175K、30.7M、1.1B（docs/ui/usage-learn.md §1.2） */
+export function formatCount(n: number): string {
+  const v = Math.round(n)
+  if (v < 10_000) return v.toLocaleString('en-US')
+  if (v < 1_000_000) return `${Math.round(v / 1000)}K`
+  if (v < 1_000_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  return `${(v / 1_000_000_000).toFixed(1)}B`
+}
+
+/** 首字：毫秒 → 11.7s；没有时「—」 */
+export function formatFirstToken(ms: number | null | undefined): string {
+  return ms === null || ms === undefined ? '—' : `${(ms / 1000).toFixed(1)}s`
+}
+
 function trim(x: number): string {
   return x >= 100 ? Math.round(x).toString() : x.toFixed(1).replace(/\.0$/, '')
 }
@@ -34,6 +48,7 @@ export function formatCost(
 export function formatRecordCost(r: UsageRecord): string {
   const state = costState(r)
   if (state === 'pending') return tr('billing.pending')
+  if (state === 'no-price') return tr('usageColumns.unpriced')
   if (state !== 'known') return '—'
   return formatCost(r.costUsd, r.costSource, r.billing)
 }
@@ -89,6 +104,12 @@ export function formatTotalCost(t: CostTotals): string {
  */
 export function formatCardCost(t: CostTotals): string {
   if (t.costKnown === 0 || t.costUsd < 1) return formatTotalCost(t)
+  return `${costPrefix(t)}$${t.costUsd.toFixed(2)}`
+}
+
+/** 分布表、今天的费用：放不下 6 位小数，满 1 美分留 2 位；完整金额放悬停提示 */
+export function formatShortCost(t: CostTotals): string {
+  if (t.costKnown === 0 || t.costUsd < 0.01) return formatTotalCost(t)
   return `${costPrefix(t)}$${t.costUsd.toFixed(2)}`
 }
 

@@ -85,7 +85,8 @@ export interface RemoteUsageSummary {
   prevTotal: RemoteUsageStat
 }
 export interface RemoteUsageQuery {
-  range: 'today' | '7d' | '30d' | '90d'
+  /** 'year'：热力图用，只要按天的格子（docs/ui/usage-learn.md §1.3） */
+  range: 'today' | '7d' | '30d' | '90d' | 'year'
   model: string | null
   now: number
 }

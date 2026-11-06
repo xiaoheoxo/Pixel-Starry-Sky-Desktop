@@ -575,6 +575,7 @@ export const IPC_CONTRACT = {
     trust: 'sender',
   },
   'engine:usageClear': { kind: 'invoke', route: 'selected', ids: [0], remote: 'engine:usageClear', trust: 'sender' },
+  'engine:usageDaily': { kind: 'invoke', route: 'selected', ids: [0], remote: 'engine:usageDaily', trust: 'sender' },
   'engine:usageExport': {
     kind: 'invoke',
     route: 'selected',

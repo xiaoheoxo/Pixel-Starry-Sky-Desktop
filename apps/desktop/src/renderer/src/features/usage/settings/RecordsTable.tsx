@@ -2,18 +2,28 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 import { ExternalLink } from 'lucide-react'
 import { Button } from '@/ui'
-import { cacheHitRate, costState } from '@/features/usage/aggregate'
+import { cacheHitRate, costState, outputSpeed } from '@/features/usage/aggregate'
 import {
   costHint,
   dimLabel,
+  formatCount,
   formatDuration,
+  formatFirstToken,
   formatPercent,
   formatRecordCost,
   formatTime,
   formatTokens,
 } from '@/features/usage/format'
 import type { UsagePage, UsageRecord } from '@/features/usage/types'
-import { ModelCell, TIME_COL_WIDTH, TimeCell, UsageDetailCard, UsageTable, type UsageColumn } from './UsageTable'
+import {
+  ModelCell,
+  SpeedCell,
+  TIME_COL_WIDTH,
+  TimeCell,
+  UsageDetailCard,
+  UsageTable,
+  type UsageColumn,
+} from './UsageTable'
 
 const OUTCOME: Record<UsageRecord['outcome'], { text: string; cls: string }> = {
   completed: {
@@ -37,11 +47,10 @@ const OUTCOME: Record<UsageRecord['outcome'], { text: string; cls: string }> = {
 }
 
 /**
- * 和账号调用表同样的列顺序、宽度、隐藏规则（模板见 RemoteCallsTable）：
- * 时间 · 模型 · 会话 · 输入 · 缓存读 · 输出 · 费用 · 请求 · 耗时 · 结果。
- * 「客户端」位置换成「会话」，「首字」位置换成「请求次数」（本机记录没有首字延迟）。
+ * 和账号调用表同样的列（docs/ui/usage-learn.md §6）：时间 · 模型和会话 · 新增输入 · 输出 · 缓存命中 · 费用 · 速度 · 首字 · 耗时 · 结果。
+ * 窄时隐藏的新增输入、缓存命中、速度、首字在点开的详情里还有；耗时和结果一直显示，详情里就不重复了。
  */
-const COLUMNS: Array<UsageColumn<UsageRecord>> = [
+export const COLUMNS: Array<UsageColumn<UsageRecord>> = [
   {
     key: 'time',
     get label() {
@@ -55,70 +64,84 @@ const COLUMNS: Array<UsageColumn<UsageRecord>> = [
   {
     key: 'model',
     get label() {
-      return tr('session.ModelSourceMenu.model')
+      return `${tr('session.ModelSourceMenu.model')} · ${tr('settings.usage.RecordsTable.conversation')}`
     },
-    render: r => <ModelCell model={r.model} />,
-    title: r => r.model,
-    cellClass: () => 'font-mono text-meta text-fg-secondary',
-  },
-  {
-    key: 'source',
-    get label() {
-      return tr('settings.usage.RecordsTable.conversation')
-    },
-    hideBelow: 760,
-    render: r => r.sessionTitle || tr('settings.usage.RecordsTable.untitledConversation'),
-    title: r => r.sessionTitle,
-    cellClass: () => 'text-fg',
+    render: r => (
+      <ModelCell model={r.model} source={r.sessionTitle || tr('settings.usage.RecordsTable.untitledConversation')} />
+    ),
   },
   {
     key: 'input',
     get label() {
-      return tr('session.turnStatsData.input')
+      return tr('usageColumns.freshInput')
     },
-    width: 'w-[4em]',
-    align: 'right',
-    render: r => formatTokens(r.input + r.cacheWrite),
-  },
-  {
-    key: 'cache',
-    get label() {
-      return tr('session.turnStatsData.cacheRead')
+    get help() {
+      return tr('usageColumns.freshInputHelp')
     },
-    width: 'w-[4.4em]',
+    width: 'w-[5.9em]',
     align: 'right',
-    hideBelow: 680,
-    render: r => formatTokens(r.cacheRead),
+    hideBelow: 33,
+    render: r => formatCount(r.input),
   },
   {
     key: 'output',
     get label() {
       return tr('session.live.SessionStrips.output')
     },
-    width: 'w-[4em]',
+    width: 'w-[3.6em]',
     align: 'right',
-    render: r => formatTokens(r.output),
+    render: r => formatCount(r.output),
+  },
+  {
+    key: 'cache',
+    get label() {
+      return tr('usageColumns.cacheHit')
+    },
+    get help() {
+      return tr('usageColumns.cacheHitHelp')
+    },
+    width: 'w-[5.9em]',
+    align: 'right',
+    hideBelow: 50,
+    render: r => formatCount(r.cacheRead),
+    title: r => tr('usageColumns.hitRate', { p0: formatPercent(cacheHitRate(r)) }),
   },
   {
     key: 'cost',
     get label() {
       return tr('settings.replyStats.cost')
     },
-    width: 'w-[5.6em]',
+    width: 'w-[4.8em]',
     align: 'right',
     render: r => formatRecordCost(r),
     // 没有费用时悬停说明原因（GitHub #22）
     title: r => (r.costUsd === null ? costHint(costState(r)) : undefined),
   },
   {
-    key: 'requests',
+    key: 'speed',
     get label() {
-      return tr('settings.usage.RecordsTable.requests')
+      return tr('usageColumns.speed')
     },
-    width: 'w-[3.4em]',
+    get help() {
+      return tr('usageColumns.speedHelpLocal')
+    },
+    width: 'w-[5.8em]',
     align: 'right',
-    hideBelow: 840,
-    render: r => `${r.requests}`,
+    hideBelow: 44,
+    render: r => <SpeedCell speed={outputSpeed(r)} />,
+  },
+  {
+    key: 'first',
+    get label() {
+      return tr('settings.usage.RemoteCallsTable.firstToken')
+    },
+    get help() {
+      return tr('usageColumns.firstTokenHelpLocal')
+    },
+    width: 'w-[3.9em]',
+    align: 'right',
+    hideBelow: 54,
+    render: r => formatFirstToken(r.firstTokenMs),
     cellClass: () => 'text-fg-muted',
   },
   {
@@ -126,20 +149,24 @@ const COLUMNS: Array<UsageColumn<UsageRecord>> = [
     get label() {
       return tr('session.live.AgentTracePanel.duration')
     },
+    get help() {
+      return tr('usageColumns.durationHelpLocal')
+    },
     width: 'w-[4.8em]',
     align: 'right',
-    hideBelow: 600,
     render: r => formatDuration(r.durationMs),
+    title: r => formatDuration(r.durationMs),
     cellClass: () => 'text-fg-muted',
   },
   {
-    key: 'status',
+    key: 'result',
     get label() {
       return tr('settings.usage.RecordsTable.outcome')
     },
-    width: 'w-[3.2em]',
+    width: 'w-[3.8em]',
     align: 'right',
     render: r => OUTCOME[r.outcome].text,
+    title: r => OUTCOME[r.outcome].text,
     cellClass: r => OUTCOME[r.outcome].cls,
   },
 ]
@@ -185,7 +212,6 @@ function RecordDetail({ r, onOpenSession }: { r: UsageRecord; onOpenSession: (id
         [tr('session.ModelSourceMenu.engine'), dimLabel('engine', r.engine)],
         [tr('session.ModelSourceMenu.route'), dimLabel('route', r.route)],
         [tr('settings.usage.RecordsTable.requestCount'), String(r.requests)],
-        [tr('settings.usage.RecordsTable.outcome'), OUTCOME[r.outcome].text],
         [tr('settings.usage.RecordsTable.inputCacheMisses'), formatTokens(r.input)],
         [tr('session.turnStatsData.cacheWrite'), formatTokens(r.cacheWrite)],
         [tr('session.turnStatsData.cacheRead'), formatTokens(r.cacheRead)],
@@ -193,7 +219,8 @@ function RecordDetail({ r, onOpenSession }: { r: UsageRecord; onOpenSession: (id
         [tr('settings.replyStats.cost'), formatRecordCost(r)],
         ...(r.costUsd === null ? [[tr('usageCost.reason'), costHint(costState(r))] as [string, string]] : []),
         [tr('settings.usage.KpiCards.cacheHit'), formatPercent(cacheHitRate(r))],
-        [tr('session.live.AgentTracePanel.duration'), formatDuration(r.durationMs)],
+        [tr('usageColumns.tokenSpeed'), outputSpeed(r) === null ? '—' : `${Math.round(outputSpeed(r) ?? 0)} tok/s`],
+        [tr('settings.usage.RemoteCallsTable.firstToken'), formatFirstToken(r.firstTokenMs)],
         [tr('settings.usage.RecordsTable.started'), new Date(r.startedAt).toLocaleString('zh-CN')],
         [tr('settings.usage.RecordsTable.ended'), new Date(r.endedAt).toLocaleString('zh-CN')],
       ]}

@@ -5049,8 +5049,8 @@ export const catalog = {
     en: 'Clear filters',
   },
   'settings.usage.UsageSection.recordsStayOnThis': {
-    zh: '记录只保存在这台电脑上，保留 90 天，只有时间、模型、token 数、费用和耗时，不含对话内容。费用是引擎报告的估算值，可能和实际账单不同。',
-    en: 'Records stay on this computer for 90 days. They include time, model, token counts, cost and duration, but no conversation content. Costs are engine estimates and may differ from actual bills.',
+    zh: '记录只保存在这台电脑上，保留 400 天，只有时间、模型、token 数、费用和耗时，不含对话内容。费用是引擎报告的估算值，可能和实际账单不同。',
+    en: 'Records stay on this computer for 400 days. They include time, model, token counts, cost and duration, but no conversation content. Costs are engine estimates and may differ from actual bills.',
   },
   'settings.usage.KpiCards.accountRequests': {
     zh: '调用次数',

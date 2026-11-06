@@ -6,6 +6,7 @@
 //   随后每个内容块各来一条 assistant 消息（带完整内容）。用 message.id + 块序号对应，不能按消息个数；
 // - 子 agent（Task 工具）的消息带 parent_tool_use_id，v1 不展开，只显示那一行工具调用；
 // - result 每轮正好一条，是一轮结束的标志；里面的花费和 modelUsage 是进程内累计值。
+import { GenTimer } from '../genTimer'
 import type {
   TodoStep,
   BackgroundAgentRef,
@@ -170,6 +171,9 @@ export class ClaudeTranslator {
   private lastMessageId = ''
   /** 这一轮每个模型的请求次数（数 message_start，包括子智能体的请求） */
   private turnRequests = new Map<string, number>()
+  /** 主线请求的输出时间：子智能体的请求可能同时跑，分不清哪段是谁的，不算（docs/ui/usage-learn.md §1.1） */
+  private gen = new GenTimer()
+  private genModel = ''
   private turnStartedAt = 0
   /** 主智能体调用过的工具的参数（子智能体的工具行用父工具的 description 当名字） */
   private toolInputs = new Map<string, Msg>()
@@ -245,6 +249,7 @@ export class ClaudeTranslator {
     this.retrySignature = ''
     this.turnRequests.clear()
     this.turnTokens.clear()
+    this.gen.reset()
     this.turnStartedAt = Date.now()
     // 新的一轮：子智能体条只留还在跑的
     const running = this.subagentList.filter(a => a.status === 'running')
@@ -392,6 +397,7 @@ export class ClaudeTranslator {
     if (!msg.parent_tool_use_id && msg.type === 'stream_event' && obj(msg.event).type === 'message_start')
       this.clearRetry()
     if (!msg.parent_tool_use_id && msg.type === 'assistant' && !msg.error) this.clearRetry()
+    if (msg.type === 'stream_event' && !msg.parent_tool_use_id) this.timeOutput(obj(msg.event))
     if (msg.type === 'stream_event') {
       const ev = obj(msg.event)
       if (ev.type === 'message_start') {
@@ -702,6 +708,19 @@ export class ClaudeTranslator {
         return
       }
     }
+  }
+
+  /**
+   * 从 message_start 量到最后一个 message_delta：隐藏思考的模型思考时没有内容事件，但输出量里算了它，
+   * 从第一个内容事件量起会算快很多
+   */
+  private timeOutput(ev: Msg): void {
+    if (ev.type === 'message_start') {
+      this.gen.begin()
+      this.genModel = str(obj(ev.message).model)
+    } else if (ev.type === 'content_block_delta') this.gen.first()
+    else if (ev.type === 'message_delta') this.gen.update(this.genModel, num(obj(ev.usage).output_tokens))
+    else if (ev.type === 'message_stop') this.gen.flush()
   }
 
   private onStreamEvent(ev: Msg): void {
@@ -1049,6 +1068,7 @@ export class ClaudeTranslator {
     }
     if (Object.keys(models).length === 0) return null
     const durationMs = this.turnStartedAt ? Date.now() - this.turnStartedAt : num(msg.duration_ms)
+    this.gen.apply(models, Date.now() - durationMs)
     return { models, durationMs }
   }
 

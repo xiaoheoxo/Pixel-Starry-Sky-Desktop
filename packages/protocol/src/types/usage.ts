@@ -23,6 +23,11 @@ export interface ModelTurnUsage {
   costUsd: number | null
   /** 这一轮这个模型的请求次数 */
   requests?: number
+  /** 量到的输出时间（毫秒）和这段时间的输出量；量不准的引擎和旧记录没有（docs/ui/usage-learn.md §1.1） */
+  genMs?: number
+  genOutput?: number
+  /** 这一轮从开始到第一次收到内容（毫秒）；只记在第一个请求的模型上 */
+  firstTokenMs?: number
 }
 
 /** 一轮的用量（docs/ui/usage.md §6.1） */

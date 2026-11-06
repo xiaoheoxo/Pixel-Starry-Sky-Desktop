@@ -3,8 +3,14 @@ import { tr, getLocale } from '../../../i18n/core'
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ChartColumn, ChartLine } from 'lucide-react'
 import { cn } from '@/ui'
-import { cacheHitRate } from '@/features/usage/aggregate'
-import { formatPercent, formatTokens, formatTotalCost } from '@/features/usage/format'
+import { averageFirstToken, cacheHitRate, outputSpeed } from '@/features/usage/aggregate'
+import {
+  formatFirstToken,
+  formatPercent,
+  formatShortCost,
+  formatTokens,
+  formatTotalCost,
+} from '@/features/usage/format'
 import type { UsageBucket } from '@/features/usage/types'
 import {
   BAR_COLOR,
@@ -14,10 +20,13 @@ import {
   axisTicks,
   columnCenter,
   lineMax,
+  metricValue,
   nearestColumn,
   niceMax,
   stackMax,
+  type PlotSeries,
   type SeriesKey,
+  type UsageMetric,
 } from '@/features/usage/chartGeometry'
 import { setChartStyle, toggleSeries, useChartPrefs, type ChartStyle } from '@/features/usage/chartStyle'
 import { LinePlot } from './LineChart'
@@ -35,6 +44,31 @@ const STYLES: Array<{ value: ChartStyle; icon: typeof ChartLine; label: () => st
 ]
 
 const HEIGHT = 140
+export function metricLabel(metric: UsageMetric, account = false): string {
+  if (metric === 'tokens') return 'Token'
+  if (metric === 'turns')
+    return tr(account ? 'settings.usage.Distribution.requests' : 'settings.usage.Distribution.turns')
+  if (metric === 'cost') return tr('settings.replyStats.cost')
+  return tr(metric === 'hit' ? 'settings.usage.KpiCards.cacheHit' : 'usageColumns.tokenSpeed')
+}
+
+/** 一格的数值写成字；null 是「—」 */
+export function formatMetric(metric: UsageMetric, b: UsageBucket): string {
+  const v = metricValue(metric, b)
+  if (v === null) return '—'
+  if (metric === 'tokens') return formatTokens(v)
+  if (metric === 'turns') return String(v)
+  if (metric === 'cost') return formatShortCost(b)
+  return metric === 'hit' ? formatPercent(v) : `${Math.round(v)} tok/s`
+}
+
+function formatAxis(metric: UsageMetric, v: number): string {
+  if (metric === 'tokens') return formatTokens(v)
+  if (metric === 'cost') return `$${v >= 100 ? Math.round(v) : v}`
+  if (metric === 'hit') return formatPercent(v)
+  return String(Math.round(v))
+}
+
 /** 设置搜索按这个标题找到图表（searchIndex.ts） */
 export const CHART_SETTING_TITLE = '用量图表样式'
 
@@ -63,7 +97,17 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] 
  * 用量图表（docs/ui/usage-chart-style.md）：折线节点图（默认）或堆叠柱状图，右上角切换；
  * 图例可以关掉系列，纵轴按剩下的重新取整；悬停 / 键盘 ← → 显示浮动明细。只有一条纵轴。
  */
-export function UsageChart({ buckets, bucket }: { buckets: UsageBucket[]; bucket: 'hour' | 'day' }) {
+export function UsageChart({
+  buckets,
+  bucket,
+  metric = 'tokens',
+  account = false,
+}: {
+  buckets: UsageBucket[]
+  bucket: 'hour' | 'day'
+  metric?: UsageMetric
+  account?: boolean
+}) {
   useI18n()
   const { style, hidden } = useChartPrefs()
   const keys = SERIES_KEYS.filter(k => !hidden.includes(k))
@@ -72,13 +116,26 @@ export function UsageChart({ buckets, bucket }: { buckets: UsageBucket[]; bucket
   const n = buckets.length
   const last = n - 1
 
-  const totals = buckets.map(b => keys.reduce((sum, k) => sum + SERIES_VALUE[k](b), 0))
+  const stacked = metric === 'tokens'
+  const totals = buckets.map(b =>
+    stacked ? keys.reduce((sum, k) => sum + SERIES_VALUE[k](b), 0) : (metricValue(metric, b) ?? 0),
+  )
   const peak = totals.indexOf(Math.max(0, ...totals))
-  const scale = niceMax(style === 'line' ? lineMax(buckets, keys) : stackMax(buckets, keys))
+  // 命中率的纵轴固定到 100%，不然 90% 和 95% 差得像翻了一倍
+  const scale =
+    metric === 'hit'
+      ? 1
+      : stacked
+        ? niceMax(style === 'line' ? lineMax(buckets, keys) : stackMax(buckets, keys))
+        : niceMax(Math.max(0, ...totals))
   const label = (i: number) => bucketLabel(buckets[i].start, bucket)
   const ticks = axisTicks(n, width, bucket)
   // 柱状图用同一色系的三档（参考图），折线图三个系列颜色分得开；图例、浮动明细跟着当前样式
   const colors = style === 'bar' ? BAR_COLOR : SERIES_COLOR
+  const series: PlotSeries[] = stacked
+    ? keys.map(k => ({ key: k, color: colors[k], value: SERIES_VALUE[k] }))
+    : [{ key: metric, color: 'var(--chart-output)', value: b => metricValue(metric, b) }]
+  const peakText = stacked ? formatTokens(totals[peak] ?? 0) : buckets[peak] ? formatMetric(metric, buckets[peak]) : ''
   const period =
     bucket === 'hour' ? tr('settings.usage.DailyChart.todayByHour') : tr('settings.account.PlanStore.daily')
 
@@ -101,12 +158,18 @@ export function UsageChart({ buckets, bucket }: { buckets: UsageBucket[]; bucket
     <div data-setting-title={CHART_SETTING_TITLE} className="rounded-md">
       <div className="mb-3 flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2 text-meta">
         <span className="text-fg-muted tabular-nums">
+          {!stacked && `${metricLabel(metric, account)} · `}
           {totals[peak] > 0
-            ? tr('settings.usage.DailyChart.peak', { p0: formatTokens(totals[peak]), p1: label(peak) })
+            ? tr('settings.usage.DailyChart.peak', { p0: peakText, p1: label(peak) })
             : tr('settings.usage.DailyChart.noUsageInThis')}
         </span>
         <div className="flex shrink-0 items-center gap-3">
-          <div className="flex items-center gap-1" aria-label={tr('settings.usage.DailyChart.legend')} role="group">
+          {/* 只有 Token 有三条线；其余一条线，上面已经写了名字 */}
+          <div
+            className={cn('flex items-center gap-1', !stacked && 'hidden')}
+            aria-label={tr('settings.usage.DailyChart.legend')}
+            role="group"
+          >
             {SERIES_KEYS.map(k => {
               const on = !hidden.includes(k)
               const locked = on && keys.length === 1
@@ -164,7 +227,7 @@ export function UsageChart({ buckets, bucket }: { buckets: UsageBucket[]; bucket
 
       {/* 纵轴只在右上角写最大值（参考图），不占左边的宽度 */}
       <div aria-hidden className="h-4 text-right text-label text-fg-faint tabular-nums">
-        {scale > 0 && formatTokens(scale)}
+        {scale > 0 && formatAxis(metric, scale)}
       </div>
       <div>
         <div
@@ -173,7 +236,7 @@ export function UsageChart({ buckets, bucket }: { buckets: UsageBucket[]; bucket
           tabIndex={0}
           aria-label={tr(
             style === 'line' ? 'settings.usage.UsageChart.lineAria' : 'settings.usage.DailyChart.usageChartPeak',
-            { p0: period, p1: formatTokens(totals[peak] ?? 0) },
+            { p0: period, p1: peakText },
           )}
           aria-description={tr('settings.usage.UsageChart.keyboardHint')}
           className="relative min-w-0 flex-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-accent-line"
@@ -196,13 +259,14 @@ export function UsageChart({ buckets, bucket }: { buckets: UsageBucket[]; bucket
           )}
           <span aria-hidden className="absolute inset-x-0 bottom-0 border-t border-line" />
           {style === 'line' ? (
-            <LinePlot buckets={buckets} keys={keys} scale={scale} width={width} height={HEIGHT} hover={hover} />
+            <LinePlot buckets={buckets} series={series} scale={scale} width={width} height={HEIGHT} hover={hover} />
           ) : (
-            <BarPlot buckets={buckets} keys={keys} scale={scale} width={width} height={HEIGHT} hover={hover} />
+            <BarPlot buckets={buckets} series={series} scale={scale} width={width} height={HEIGHT} hover={hover} />
           )}
           {hover !== null && width > 0 && buckets[hover] && (
             <Tooltip
               colors={colors}
+              account={account}
               bucket={buckets[hover]}
               title={label(hover)}
               current={hover === last}
@@ -256,6 +320,7 @@ function summary(b: UsageBucket, title: string, current: boolean): string {
 /** 浮动明细：数值用正文色，系列只靠左边的色块区分；靠右半边时翻到左侧 */
 function Tooltip({
   colors,
+  account,
   bucket: b,
   title,
   current,
@@ -263,6 +328,7 @@ function Tooltip({
   flip,
 }: {
   colors: Record<SeriesKey, string>
+  account: boolean
   bucket: UsageBucket
   title: string
   current: boolean
@@ -298,8 +364,12 @@ function Tooltip({
           [tr('settings.usage.DailyChart.total'), formatTokens(b.input + b.cacheRead + b.cacheWrite + b.output)],
           [tr('settings.usage.UsageChart.cacheWriteIncluded'), formatTokens(b.cacheWrite)],
           [tr('settings.usage.KpiCards.cacheHit'), formatPercent(cacheHitRate(b))],
-          [tr('settings.replyStats.cost'), formatTotalCost(b)],
-          [tr('settings.usage.Distribution.turns'), String(b.turns)],
+          [tr('settings.replyStats.cost'), formatShortCost(b)],
+          [metricLabel('turns', account), String(b.turns)],
+          ...(outputSpeed(b) === null ? [] : [[tr('usageColumns.tokenSpeed'), formatMetric('speed', b)]]),
+          ...(averageFirstToken(b) === null
+            ? []
+            : [[tr('settings.usage.RemoteCallsTable.firstToken'), formatFirstToken(averageFirstToken(b))]]),
         ].map(([name, value]) => (
           <div key={name} className="flex justify-between gap-2">
             <span className="text-fg-muted">{name}</span>

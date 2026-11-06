@@ -8,6 +8,7 @@ import type {
   TurnUsage,
   UsagePage,
   UsageRecord,
+  UsageBucket,
   UsageSummary,
 } from '@pixelsky/protocol'
 import { CHAT_PROJECT_ID, estimateCost, officialPrice } from '@pixelsky/protocol'
@@ -107,6 +108,9 @@ export class HostUsage {
       costSource: m.costSource ?? 'estimate',
       billing: m.billing,
       outcome,
+      genMs: m.genMs,
+      genOutput: m.genOutput,
+      firstTokenMs: m.firstTokenMs,
     }))
     try {
       ctx.usage.append(rows)
@@ -320,6 +324,10 @@ export class HostUsage {
 
   usageList(q: UsageQuery & { offset: number; limit: number }): UsagePage {
     return this.ctx.usage.list(q)
+  }
+
+  usageDaily(q: UsageQuery): UsageBucket[] {
+    return this.ctx.usage.daily(q)
   }
 
   usageCsv(q: UsageQuery): string {

@@ -2,9 +2,26 @@ import { formatCost } from '../format'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 import { CloudOff } from 'lucide-react'
-import { formatDuration, formatTime, formatTokens } from '@/features/usage/format'
+import { cacheHitRate } from '@/features/usage/aggregate'
+import { callSpeed } from '@/features/usage/remoteSummary'
+import {
+  formatCount,
+  formatDuration,
+  formatFirstToken,
+  formatPercent,
+  formatTime,
+  formatTokens,
+} from '@/features/usage/format'
 import type { RemoteCall, RemoteCallPage } from '@/features/usage/remote-types'
-import { ModelCell, TIME_COL_WIDTH, TimeCell, UsageDetailCard, UsageTable, type UsageColumn } from './UsageTable'
+import {
+  ModelCell,
+  SpeedCell,
+  TIME_COL_WIDTH,
+  TimeCell,
+  UsageDetailCard,
+  UsageTable,
+  type UsageColumn,
+} from './UsageTable'
 
 const STATUS: Record<RemoteCall['status'], { text: string; cls: string }> = {
   success: {
@@ -47,10 +64,10 @@ function cost(c: RemoteCall): string {
 }
 
 /**
- * 两张表共用的列顺序（以账号调用为模板）：时间 · 模型 · 来源 · 输入 · 缓存读 · 输出 · 费用 · 首字 · 耗时 · 结果。
- * 窗口变窄时依次隐藏：首字 → 来源 → 缓存读 → 耗时，最窄时只剩 时间 · 模型 · 输入 · 输出 · 费用 · 结果。
+ * 两张表同样的列（docs/ui/usage-learn.md §6）：时间 · 模型和客户端 · 新增输入 · 输出 · 缓存命中 · 扣费 · 速度 · 首字 · 耗时 · 结果。
+ * 窄时隐藏的新增输入、缓存命中、速度、首字在点开的详情里还有；耗时和结果一直显示，详情里就不重复了。
  */
-const COLUMNS: Array<UsageColumn<RemoteCall>> = [
+export const COLUMNS: Array<UsageColumn<RemoteCall>> = [
   {
     key: 'time',
     get label() {
@@ -64,47 +81,45 @@ const COLUMNS: Array<UsageColumn<RemoteCall>> = [
   {
     key: 'model',
     get label() {
-      return tr('session.ModelSourceMenu.model')
+      return `${tr('session.ModelSourceMenu.model')} · ${tr('settings.usage.RemoteCallsTable.client')}`
     },
-    render: c => <ModelCell model={c.model} />,
-    title: c => c.model,
-    cellClass: () => 'font-mono text-meta text-fg-secondary',
-  },
-  {
-    key: 'source',
-    get label() {
-      return tr('settings.usage.RemoteCallsTable.client')
-    },
-    hideBelow: 760,
-    render: c => CLIENT_LABEL[c.client],
+    render: c => <ModelCell model={c.model} source={CLIENT_LABEL[c.client]} />,
   },
   {
     key: 'input',
     get label() {
-      return tr('session.turnStatsData.input')
+      return tr('usageColumns.freshInput')
     },
-    width: 'w-[4em]',
-    align: 'right',
-    render: c => formatTokens(c.input + c.cacheWrite),
-  },
-  {
-    key: 'cache',
-    get label() {
-      return tr('session.turnStatsData.cacheRead')
+    get help() {
+      return tr('usageColumns.freshInputHelp')
     },
-    width: 'w-[4.4em]',
+    width: 'w-[5.9em]',
     align: 'right',
-    hideBelow: 680,
-    render: c => formatTokens(c.cacheRead),
+    hideBelow: 33,
+    render: c => formatCount(c.input),
   },
   {
     key: 'output',
     get label() {
       return tr('session.live.SessionStrips.output')
     },
-    width: 'w-[4em]',
+    width: 'w-[3.6em]',
     align: 'right',
-    render: c => formatTokens(c.output),
+    render: c => formatCount(c.output),
+  },
+  {
+    key: 'cache',
+    get label() {
+      return tr('usageColumns.cacheHit')
+    },
+    get help() {
+      return tr('usageColumns.cacheHitHelp')
+    },
+    width: 'w-[5.9em]',
+    align: 'right',
+    hideBelow: 50,
+    render: c => formatCount(c.cacheRead),
+    title: c => tr('usageColumns.hitRate', { p0: formatPercent(cacheHitRate(c)) }),
   },
   {
     key: 'cost',
@@ -116,14 +131,30 @@ const COLUMNS: Array<UsageColumn<RemoteCall>> = [
     render: cost,
   },
   {
+    key: 'speed',
+    get label() {
+      return tr('usageColumns.speed')
+    },
+    get help() {
+      return tr('usageColumns.speedHelp')
+    },
+    width: 'w-[5.8em]',
+    align: 'right',
+    hideBelow: 44,
+    render: c => <SpeedCell speed={callSpeed(c)} />,
+  },
+  {
     key: 'ttft',
     get label() {
       return tr('settings.usage.RemoteCallsTable.firstToken')
     },
-    width: 'w-[3.6em]',
+    get help() {
+      return tr('usageColumns.firstTokenHelp')
+    },
+    width: 'w-[3.9em]',
     align: 'right',
-    hideBelow: 840,
-    render: c => (c.firstTokenMs === null ? '—' : `${(c.firstTokenMs / 1000).toFixed(1)}s`),
+    hideBelow: 54,
+    render: c => formatFirstToken(c.firstTokenMs),
     cellClass: () => 'text-fg-muted',
   },
   {
@@ -131,20 +162,24 @@ const COLUMNS: Array<UsageColumn<RemoteCall>> = [
     get label() {
       return tr('session.live.AgentTracePanel.duration')
     },
+    get help() {
+      return tr('usageColumns.durationHelp')
+    },
     width: 'w-[4.8em]',
     align: 'right',
-    hideBelow: 600,
     render: c => formatDuration(c.durationMs),
+    title: c => formatDuration(c.durationMs),
     cellClass: () => 'text-fg-muted',
   },
   {
-    key: 'status',
+    key: 'result',
     get label() {
       return tr('settings.usage.RecordsTable.outcome')
     },
-    width: 'w-[3.2em]',
+    width: 'w-[3.8em]',
     align: 'right',
     render: c => STATUS[c.status].text,
+    title: c => STATUS[c.status].text,
     cellClass: c => STATUS[c.status].cls,
   },
 ]
@@ -190,7 +225,6 @@ function CallDetail({ c }: { c: RemoteCall }) {
             : tr('settings.usage.RemoteCallsTable.nonStreaming'),
         ],
         ['HTTP', `${c.httpStatus}`],
-        [tr('settings.usage.RecordsTable.outcome'), STATUS[c.status].text],
         [tr('settings.usage.RecordsTable.inputCacheMisses'), formatTokens(c.input)],
         [tr('session.turnStatsData.cacheWrite'), formatTokens(c.cacheWrite)],
         [tr('session.turnStatsData.cacheRead'), formatTokens(c.cacheRead)],
@@ -200,7 +234,7 @@ function CallDetail({ c }: { c: RemoteCall }) {
           tr('settings.usage.RemoteCallsTable.timeToFirstToken'),
           c.firstTokenMs === null ? '—' : `${c.firstTokenMs} ms`,
         ],
-        [tr('session.live.AgentTracePanel.duration'), formatDuration(c.durationMs)],
+        [tr('usageColumns.tokenSpeed'), callSpeed(c) === null ? '—' : `${Math.round(callSpeed(c) ?? 0)} tok/s`],
         [tr('settings.usage.RemoteCallsTable.relatedTurn'), c.turnId ?? '—'],
         [tr('settings.usage.RemoteCallsTable.requestedAt'), new Date(c.createdAt).toLocaleString('zh-CN')],
       ]}

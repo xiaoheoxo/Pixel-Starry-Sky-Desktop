@@ -36,6 +36,11 @@ export interface UsageRecord {
    */
   costMatch?: 'time' | 'none'
   outcome: UsageOutcome
+  /** 量到的输出时间（毫秒）和这段时间的输出量；旧记录和量不准的引擎没有（docs/ui/usage-learn.md §1.1） */
+  genMs?: number
+  genOutput?: number
+  /** 这一轮从开始到第一次收到内容（毫秒） */
+  firstTokenMs?: number
 }
 
 export type UsageRangeId = 'today' | '7d' | '30d' | '90d'
@@ -83,6 +88,14 @@ export interface UsageTotals {
   /** 轮次数（同一轮的多个模型算一轮） */
   turns: number
   requests: number
+  /** 失败的记录条数；旧版远端和账号调用没有这个字段（不是 0） */
+  failed?: number
+  /** 有输出时间的部分：合计算速度用，旧记录不算进来 */
+  genMs?: number
+  genOutput?: number
+  /** 有首字的条数和首字合计，算平均用 */
+  firstTokenMs?: number
+  firstTokens?: number
 }
 
 export interface UsageBucket extends UsageTotals {
@@ -158,7 +171,43 @@ export function emptyTotals(): UsageTotals {
     records: 0,
     turns: 0,
     requests: 0,
+    failed: 0,
   }
+}
+
+const OPTIONAL_SUMS = ['costActual', 'failed', 'genMs', 'genOutput', 'firstTokenMs', 'firstTokens'] as const
+
+/** 把 s 加进 t；可选字段两边都没有时还是没有 */
+export function mergeTotals(t: UsageTotals, s: UsageTotals): void {
+  t.input += s.input
+  t.cacheRead += s.cacheRead
+  t.cacheWrite += s.cacheWrite
+  t.output += s.output
+  t.costUsd += s.costUsd
+  t.costKnown += s.costKnown
+  t.records += s.records
+  t.turns += s.turns
+  t.requests += s.requests
+  for (const k of OPTIONAL_SUMS) if (s[k] !== undefined) t[k] = (t[k] ?? 0) + s[k]
+}
+
+/** 单条输出少于这么多 token 时不算速度：太短算出来不准 */
+export const SPEED_MIN_OUTPUT = 100
+
+/** 每秒输出多少 token；没有量到时为 null */
+export function outputSpeed(t: { genMs?: number; genOutput?: number }): number | null {
+  if (!t.genMs || !t.genOutput || t.genOutput < SPEED_MIN_OUTPUT) return null
+  return (t.genOutput / t.genMs) * 1000
+}
+
+/** 平均首字（毫秒）；没有时为 null */
+export function averageFirstToken(t: Pick<UsageTotals, 'firstTokenMs' | 'firstTokens'>): number | null {
+  return t.firstTokens ? (t.firstTokenMs ?? 0) / t.firstTokens : null
+}
+
+/** 成功率：中断的不算失败；旧版远端没有 failed 时为 null */
+export function successRate(t: Pick<UsageTotals, 'failed' | 'records'>): number | null {
+  return t.failed === undefined || t.records === 0 ? null : 1 - t.failed / t.records
 }
 
 function add(t: UsageTotals, r: UsageRecord, turns: Set<string>): void {
@@ -168,6 +217,15 @@ function add(t: UsageTotals, r: UsageRecord, turns: Set<string>): void {
   t.output += r.output
   t.requests += r.requests ?? 0
   t.records += 1
+  if (r.outcome === 'failed') t.failed = (t.failed ?? 0) + 1
+  if (r.genMs && r.genOutput) {
+    t.genMs = (t.genMs ?? 0) + r.genMs
+    t.genOutput = (t.genOutput ?? 0) + r.genOutput
+  }
+  if (r.firstTokenMs !== undefined) {
+    t.firstTokenMs = (t.firstTokenMs ?? 0) + r.firstTokenMs
+    t.firstTokens = (t.firstTokens ?? 0) + 1
+  }
   if (r.costUsd !== null) {
     t.costUsd += r.costUsd
     t.costKnown += 1
@@ -280,29 +338,52 @@ export function summarize(records: UsageRecord[], range: UsageRangeId, filter: U
   }
 }
 
-const SUM_KEYS = [
-  'input',
-  'cacheRead',
-  'cacheWrite',
-  'output',
-  'costUsd',
-  'costKnown',
-  'records',
-  'turns',
-  'requests',
-] as const
-
 /** 按会话：费用从高到低（没费用的按 token），只留前 SESSION_ROWS_MAX 个，其余合成一行（§13） */
 function sessionRows(m: Map<string, { row: UsageGroupRow }>): UsageGroupRow[] {
   const all = [...m.values()].map(g => g.row).sort((a, b) => b.costUsd - a.costUsd || totalTokens(b) - totalTokens(a))
   if (all.length <= SESSION_ROWS_MAX) return all
   const rest = all.slice(SESSION_ROWS_MAX)
   const others: UsageGroupRow = { ...emptyTotals(), key: SESSION_OTHERS_KEY, others: rest.length }
-  for (const r of rest) {
-    for (const k of SUM_KEYS) others[k] += r[k]
-    if (r.costActual) others.costActual = (others.costActual ?? 0) + r.costActual
-  }
+  for (const r of rest) mergeTotals(others, r)
   return [...all.slice(0, SESSION_ROWS_MAX), others]
+}
+
+/** 热力图的周数：今天所在的一周算最后一列 */
+export const HEATMAP_WEEKS = 53
+
+/** 热力图第一天：52 周前那一周的周一（周一开头，和界面一列 7 格对齐） */
+export function heatmapStart(now: number): number {
+  const today = startOfDay(now)
+  const weekday = (new Date(today).getDay() + 6) % 7
+  return startOfDay(today - (52 * 7 + weekday) * DAY + HOUR)
+}
+
+/** 按本地日期合计；只有有记录的日子。同一轮跨模型算一轮 */
+export function groupByDay(records: UsageRecord[], filter: UsageFilter): UsageBucket[] {
+  const days = new Map<number, { bucket: UsageBucket; turns: Set<string> }>()
+  for (const r of records) {
+    if (!matches(r, filter)) continue
+    const start = startOfDay(r.endedAt)
+    let d = days.get(start)
+    if (!d) days.set(start, (d = { bucket: { ...emptyTotals(), start }, turns: new Set() }))
+    add(d.bucket, r, d.turns)
+  }
+  return [...days.values()].map(d => d.bucket)
+}
+
+/** 热力图的每一天（第一天到今天，没记录的补 0）；parts 可以来自多个文件或云端，同一天的合起来 */
+export function heatmapDays(parts: UsageBucket[], now: number): UsageBucket[] {
+  const out: UsageBucket[] = []
+  const index = new Map<number, number>()
+  for (let t = heatmapStart(now); t <= now; t = startOfDay(t + DAY + HOUR)) {
+    index.set(t, out.length)
+    out.push({ ...emptyTotals(), start: t })
+  }
+  for (const p of parts) {
+    const i = index.get(startOfDay(p.start))
+    if (i !== undefined) mergeTotals(out[i], p)
+  }
+  return out
 }
 
 /** 明细：最新在前，分页 */

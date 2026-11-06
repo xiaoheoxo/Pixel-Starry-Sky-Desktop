@@ -54,6 +54,7 @@ import type {
   SessionGoal,
   TaskOutput,
   UsagePage,
+  UsageBucket,
   UsageSummary,
 } from '@pixelsky/protocol'
 import { backgroundAgents } from '@pixelsky/protocol'
@@ -905,6 +906,10 @@ export class EngineHost {
 
   usageSummary(q: UsageQuery): UsageSummary {
     return this.m.usage.usageSummary(q)
+  }
+
+  usageDaily(q: UsageQuery): UsageBucket[] {
+    return this.m.usage.usageDaily(q)
   }
 
   /** 旧的云端记录按时间补录实扣（docs/ui/usage.md §11.2）；返回补上的轮次数 */

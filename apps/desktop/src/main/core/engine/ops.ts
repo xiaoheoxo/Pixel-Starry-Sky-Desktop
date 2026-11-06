@@ -344,6 +344,7 @@ export const ENGINE_OPS = {
   // 用量与调用记录（docs/ui/usage.md §6.3）
   'engine:usageSummary': (c, q) => c.host.usageSummary(usageQuery(q)),
   'engine:usageList': (c, q) => c.host.usageList(usageListQuery(q)),
+  'engine:usageDaily': (c, q) => c.host.usageDaily(usageQuery(q)),
   'engine:usageClear': c => c.host.usageClear(),
 } satisfies OpTable<EngineOpContext>
 

@@ -1,3 +1,4 @@
+import { GenTimer } from '../genTimer'
 import { randomUUID } from 'node:crypto'
 import { delimiter } from 'node:path'
 import type {
@@ -16,6 +17,7 @@ import type {
   SkillCommand,
   TurnOutcome,
   Item,
+  ModelTurnUsage,
 } from '@pixelsky/protocol'
 import {
   EMPTY_FLAGS,
@@ -385,6 +387,7 @@ export class CodexSession implements EngineSession {
   private goalState: SessionGoal | null = null
   /** 这个 Codex 有没有目标模式（thread/goal/*）；null 是还没问过 */
   private goalSupported: boolean | null = null
+  private gen = new GenTimer()
   /** turn/start 发出去了还没回：这时到的 turn/started 是自己发起的，不当成 Codex 自己开的 */
   private startInFlight = false
   /** 跑着的这一轮里改了速度：下一轮才生效的值；没改或改回去了是 null */
@@ -776,7 +779,16 @@ export class CodexSession implements EngineSession {
     })
   }
   /** 开一轮（自己发的、Codex 自己开的都走这里）：新的翻译器、用量起点 */
+  /**
+   * 输出时间（docs/ui/usage-learn.md §1.1）：从开始思考或说话量到这次请求的用量报告。
+   * 命令执行的条目不起表，不然算上跑工具的时间
+   */
+  private startGen(): void {
+    if (!this.gen.running) this.gen.begin()
+  }
+
   private startActive(turnId: string): void {
+    this.gen.reset()
     this.active = {
       id: turnId,
       started: Date.now(),
@@ -1358,6 +1370,7 @@ export class CodexSession implements EngineSession {
       } else {
         this.active.activity = true
         this.clearRetry()
+        if (method === 'item/started' && (item.type === 'reasoning' || item.type === 'agentMessage')) this.startGen()
         this.translator.item(item, method === 'item/completed')
       }
     } else if (
@@ -1366,12 +1379,20 @@ export class CodexSession implements EngineSession {
       )
     ) {
       this.clearRetry()
+      if (!method.startsWith('item/commandExecution')) {
+        this.startGen()
+        this.gen.first()
+      }
       this.translator.delta(method, params)
     } else if (method === 'turn/plan/updated') this.translator.plan(params)
     else if (method === 'thread/tokenUsage/updated') {
       const usage = object(params.tokenUsage)
       this.totals = tokenCounts(usage.total)
       this.last = tokenCounts(usage.last)
+      if (this.gen.running) {
+        this.gen.update(this.active.model || 'Codex', this.last.output)
+        this.gen.flush()
+      }
       this.translator.usage(this.last.total)
       if (!this.active.activity) {
         this.active.baseline = { ...this.totals }
@@ -1703,23 +1724,22 @@ export class CodexSession implements EngineSession {
     this.earlyConsumed.clear()
     const difference = (key: 'input' | 'cacheRead' | 'cacheWrite' | 'output'): number =>
       Math.max(0, this.totals[key] - active.baseline[key])
+    const models: Record<string, ModelTurnUsage> = {
+      [active.model || 'Codex']: {
+        input: difference('input'),
+        cacheRead: difference('cacheRead'),
+        cacheWrite: difference('cacheWrite'),
+        output: difference('output'),
+        costUsd: null,
+      },
+    }
+    this.gen.apply(models, active.started)
     this.ctx.emit({
       type: 'turn_completed',
       turnId: active.id,
       outcome,
       error,
-      usage: {
-        durationMs: Date.now() - active.started,
-        models: {
-          [active.model || 'Codex']: {
-            input: difference('input'),
-            cacheRead: difference('cacheRead'),
-            cacheWrite: difference('cacheWrite'),
-            output: difference('output'),
-            costUsd: null,
-          },
-        },
-      },
+      usage: { durationMs: Date.now() - active.started, models },
     })
     this.nativeTurnId = null
     const waiters = this.turnWaiters

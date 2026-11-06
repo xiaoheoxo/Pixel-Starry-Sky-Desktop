@@ -1,4 +1,5 @@
 import type { ModelTurnUsage, PlatformCharge, TurnUsage } from '@pixelsky/protocol'
+import { usageOfModel } from './genTimer'
 
 /** Exact request matching, group checks, and idempotent aggregation across polls. */
 export function settleUsage(original: TurnUsage, charges: PlatformCharge[], final: boolean): TurnUsage {
@@ -40,7 +41,7 @@ export function settleUsage(original: TurnUsage, charges: PlatformCharge[], fina
   }
   for (const [name, m] of Object.entries(models))
     if (m.costSource !== 'platform') {
-      const reported = original.models[name]
+      const reported = usageOfModel(original.models, name)
       if (reported) {
         m.input = reported.input
         m.output = reported.output
@@ -49,6 +50,10 @@ export function settleUsage(original: TurnUsage, charges: PlatformCharge[], fina
       }
       m.costUsd = null
     }
+  for (const [name, m] of Object.entries(models)) {
+    const { genMs, genOutput, firstTokenMs } = usageOfModel(original.models, name) ?? {}
+    Object.assign(m, genMs !== undefined && { genMs, genOutput }, firstTokenMs !== undefined && { firstTokenMs })
+  }
   if (!settlement.requests.length) {
     for (const [name, m] of Object.entries(original.models))
       models[name] = { ...m, costUsd: null, costSource: 'unavailable' }
