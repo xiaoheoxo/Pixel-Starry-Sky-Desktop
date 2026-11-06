@@ -11,6 +11,7 @@ import {
   ListChecks,
   Lock,
   Replace,
+  Route,
   Search,
   TriangleAlert,
   Wrench,
@@ -21,6 +22,8 @@ import { tr } from '@/i18n/core'
 import { Button, Segmented, Select, Switch, cn } from '@/ui'
 import { formatMultiplier, type PlatformGroup } from '@/features/account/platform'
 import { siteKey, targetProblem, type SiteKey } from './subagents'
+import { SubagentDispatchEditor } from './SubagentDispatchEditor'
+import { sameSite, siteOfTarget } from '../../../../shared/subagent-dispatch'
 import {
   BUILTIN_SUBAGENT_TYPES,
   EXPLORE_TYPE,
@@ -29,6 +32,7 @@ import {
   SUBAGENT_MAX_MINUTES,
   SUBAGENT_TYPE_ID,
   isBuiltinSubagentType,
+  type SubagentDispatch,
   type SubagentMaxMinutes,
   type SubagentTarget,
   type SubagentTools,
@@ -139,6 +143,14 @@ export function SubagentTypeCard({
   const tile = type.id === GENERAL_TYPE ? TILES[0] : type.id === EXPLORE_TYPE ? TILES[1] : TILES[2 + (index % 2)]
   const problem = type.target ? targetProblem(type.target, sites.providers, sites.platform) : null
   const site = type.target ? siteName(type.target, sites) : null
+  // 分组外没打开时，写在规则里的分组外模型不生效，不算
+  const dispatchModels = new Set(
+    type.dispatch?.rules.flatMap(r =>
+      r.candidates
+        .filter(c => type.dispatch?.outsideGroup || sameSite(siteOfTarget(c.target), r.main.site))
+        .map(c => c.target.model),
+    ),
+  ).size
   return (
     <div
       data-subagent-type={type.id}
@@ -174,7 +186,18 @@ export function SubagentTypeCard({
               {type.description || tr('subagentRoute.noDescription')}
             </span>
             <span className="mt-2 flex flex-wrap gap-1.5">
-              {!type.target ? (
+              {type.dispatch ? (
+                <>
+                  <Chip icon={Route} tone="route">
+                    {dispatchModels
+                      ? tr('subagentRoute.dispatch.chip', { n: dispatchModels })
+                      : tr('subagentRoute.dispatch.title')}
+                  </Chip>
+                  {type.dispatch.outsideGroup && (
+                    <Chip icon={TriangleAlert}>{tr('subagentRoute.dispatch.outsideChip')}</Chip>
+                  )}
+                </>
+              ) : !type.target ? (
                 <Chip icon={Globe}>{tr('subagentRoute.follow')}</Chip>
               ) : problem ? (
                 <Chip icon={TriangleAlert} tone="bad">
@@ -227,6 +250,9 @@ export function SubagentTypeCard({
   )
 }
 
+type RouteMode = 'follow' | 'route' | 'dispatch'
+const EMPTY_DISPATCH: SubagentDispatch = { rules: [], outsideGroup: false, unruled: 'cheaper' }
+
 const inputClass =
   'block w-full rounded-md border border-line bg-app px-2.5 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent disabled:bg-subtle disabled:text-fg-muted'
 
@@ -267,14 +293,15 @@ function TypeEditor({
 }) {
   const builtin = isBuiltinSubagentType(type.id)
   const [draft, setDraft] = useState<SubagentType>(type)
-  // 选了「指定」但还没选站点（草稿里 target 仍是 null）
-  const [routing, setRouting] = useState(!!type.target)
+  const savedMode: RouteMode = type.dispatch ? 'dispatch' : type.target ? 'route' : 'follow'
+  // 选了「指定」但还没选站点时草稿里 target 仍是 null，所以单独记
+  const [mode, setMode] = useState<RouteMode>(savedMode)
+  const routing = mode === 'route'
   const [error, setError] = useState<string | null>(null)
   const set = (patch: Partial<SubagentType>) => setDraft(d => ({ ...d, ...patch }))
   // 和打开时比（启用状态只认卡片开关，不算）；关掉编辑区时清掉
   const dirty =
-    JSON.stringify({ ...draft, enabled: true }) !== JSON.stringify({ ...type, enabled: true }) ||
-    routing !== !!type.target
+    JSON.stringify({ ...draft, enabled: true }) !== JSON.stringify({ ...type, enabled: true }) || mode !== savedMode
   useEffect(() => onDirty?.(dirty), [dirty, onDirty])
   useEffect(() => () => onDirty?.(false), [onDirty])
   const { providers, groups } = sites
@@ -309,14 +336,23 @@ function TypeEditor({
   const models = target && !modelOptions.includes(target.model) ? [target.model, ...modelOptions] : modelOptions
   const problem = target ? targetProblem(target, providers, sites.platform) : null
 
+  /** 编辑区现在的内容：站点和模型只留选中的那种方式（保存、复制都用它） */
+  const edited = (): SubagentType => {
+    const { dispatch, ...rest } = draft
+    return {
+      ...rest,
+      target: routing ? draft.target : null,
+      ...(mode === 'dispatch' ? { dispatch: dispatch ?? EMPTY_DISPATCH } : {}),
+    }
+  }
+
   const save = () => {
     const next: SubagentType = {
-      ...draft,
+      ...edited(),
       name: draft.name.trim(),
       id: draft.id.trim(),
       description: draft.description.trim(),
       instructions: draft.instructions.trim(),
-      target: routing ? draft.target : null,
     }
     if (!builtin && !next.name) return setError(tr('subagentRoute.error.name'))
     if (!SUBAGENT_TYPE_ID.test(next.id)) return setError(tr('subagentRoute.error.id'))
@@ -362,22 +398,27 @@ function TypeEditor({
           />
         </Field>
         <Field full label={tr('subagentRoute.field.route')}>
-          <div role="radiogroup" aria-label={tr('subagentRoute.field.route')} className="grid grid-cols-2 gap-2">
+          <div
+            role="radiogroup"
+            aria-label={tr('subagentRoute.field.route')}
+            className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-2"
+          >
             {(
               [
-                [false, 'subagentRoute.follow', 'subagentRoute.followHint'],
-                [true, 'subagentRoute.route', 'subagentRoute.routeHint'],
+                ['follow', 'subagentRoute.follow', 'subagentRoute.followHint'],
+                ['route', 'subagentRoute.route', 'subagentRoute.routeHint'],
+                ['dispatch', 'subagentRoute.dispatch.title', 'subagentRoute.dispatch.hint'],
               ] as const
             ).map(([value, title, hint]) => (
               <button
                 key={title}
                 type="button"
                 role="radio"
-                aria-checked={routing === value}
-                onClick={() => setRouting(value)}
+                aria-checked={mode === value}
+                onClick={() => setMode(value)}
                 className={cn(
                   'flex gap-2.5 rounded-lg border px-3 py-2.5 text-left',
-                  routing === value
+                  mode === value
                     ? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_5%,var(--color-surface))]'
                     : 'border-line bg-app hover:bg-hover',
                 )}
@@ -385,7 +426,7 @@ function TypeEditor({
                 <span
                   className={cn(
                     'mt-0.5 size-3.5 shrink-0 rounded-full',
-                    routing === value ? 'border-[4.5px] border-accent' : 'border-[1.5px] border-fg-faint',
+                    mode === value ? 'border-[4.5px] border-accent' : 'border-[1.5px] border-fg-faint',
                   )}
                 />
                 <span>
@@ -441,6 +482,14 @@ function TypeEditor({
                 )}
               </>
             ))}
+          {mode === 'dispatch' && (
+            <SubagentDispatchEditor
+              value={draft.dispatch ?? EMPTY_DISPATCH}
+              onChange={dispatch => set({ dispatch })}
+              sites={sites}
+              openChannels={openChannels}
+            />
+          )}
         </Field>
         <Field label={tr('subagentRoute.field.tools')}>
           <Segmented<SubagentTools>
@@ -490,7 +539,7 @@ function TypeEditor({
             >
               {tr('subagentRoute.delete')}
             </button>
-            <Button variant="ghost" onClick={() => onCopy(draft)}>
+            <Button variant="ghost" onClick={() => onCopy(edited())}>
               {tr('subagentRoute.copy')}
             </Button>
           </>
@@ -501,7 +550,7 @@ function TypeEditor({
             onClick={() => {
               const d = BUILTIN_SUBAGENT_TYPES.find(t => t.id === type.id)!
               setDraft({ ...d, enabled: type.enabled })
-              setRouting(false)
+              setMode('follow')
             }}
           >
             {tr('subagentRoute.reset')}

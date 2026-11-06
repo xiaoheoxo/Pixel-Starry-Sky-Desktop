@@ -1,8 +1,11 @@
 // 设置 › 子智能体（docs/ui/subagent-routing.md）：设置存在主进程，这里读、改并跟随其他窗口的修改
 import { useEffect, useSyncExternalStore } from 'react'
+import { officialPrice } from '@pixelsky/protocol'
+import type { DispatchCatalog } from '../../../../shared/subagent-dispatch'
 import {
   DEFAULT_SUBAGENT_SETTINGS,
   type SubagentSettings,
+  type SubagentSite,
   type SubagentTarget,
   type SubagentType,
 } from '../../../../shared/types/subagents'
@@ -60,8 +63,28 @@ export async function setSubagentSettings(patch: Partial<SubagentSettings>): Pro
 /** 站点下拉框的值：custom:<接口 id> / platform:<线路 id> */
 export type SiteKey = `custom:${string}` | `platform:${string}`
 
-export const siteKey = (target: SubagentTarget): SiteKey =>
+export const siteKey = (target: SubagentSite): SiteKey =>
   target.kind === 'custom' ? `custom:${target.providerId}` : `platform:${target.groupId}`
+
+/**
+ * 主模型调度预览用的数据（主进程派活时按同样的规则算，platform.ts 的 dispatchCatalog）。
+ * 线路没读到时，规则里写的照常算能用，没写规则的只有主模型自己
+ */
+export function dispatchCatalog(
+  site: SubagentSite,
+  sites: {
+    providers: readonly ProviderView[]
+    platform: { email: string | null; loaded: boolean; groups: readonly PlatformGroup[] }
+  },
+): DispatchCatalog {
+  const provider = site.kind === 'custom' ? sites.providers.find(p => p.id === site.providerId) : undefined
+  const group = site.kind === 'platform' ? sites.platform.groups.find(g => g.id === site.groupId) : undefined
+  return {
+    siteModels: provider ? provider.models.map(m => m.id) : (group?.models ?? []),
+    price: model => officialPrice(model, provider?.models.find(m => m.id === model)?.priceRef),
+    problem: target => targetProblem(target, sites.providers, sites.platform),
+  }
+}
 
 /** 选的站点现在能不能用；不能用时写原因（主进程按同样的规则判断，这时子智能体跟随主会话） */
 export function targetProblem(

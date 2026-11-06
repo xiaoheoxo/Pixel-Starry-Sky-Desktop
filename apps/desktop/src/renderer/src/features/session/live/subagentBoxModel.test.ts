@@ -31,6 +31,17 @@ const run = (patch: Partial<AgentRun> = {}): AgentRun => ({
 const runs = (...agents: AgentRun[]): AgentRuns => ({ workflows: [], agents })
 
 describe('派发小框', () => {
+  it('主模型调度：主模型选的、分组外才有标记，用默认的和老记录没有', () => {
+    expect(dispatchBox(call('running'), runs(run({ modelSource: 'chosen', outsideGroup: true })))).toMatchObject({
+      chosen: true,
+      outsideGroup: true,
+    })
+    const plain = dispatchBox(call('running'), runs(run({ modelSource: 'default' })))
+    expect(plain.chosen).toBeUndefined()
+    expect(plain.outsideGroup).toBeUndefined()
+    expect(dispatchBox(call('running'), runs(run())).chosen).toBeUndefined()
+  })
+
   it('任务名、模型短名、状态来自条目和追踪里的运行记录；点开定位到这次调用', () => {
     expect(dispatchBox(call('running'), runs(run()))).toMatchObject({
       icon: 'bot',

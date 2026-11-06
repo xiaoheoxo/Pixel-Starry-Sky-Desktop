@@ -14,6 +14,8 @@ export const subagentMessages = {
   'subagent.box.untitled': { zh: '子任务', en: 'Subagent' },
   'subagent.box.workflow': { zh: '多智能体编排', en: 'Multi-agent workflow' },
   'subagent.box.agents': { zh: '{n} 个智能体', en: '{n} agents' },
+  'subagent.box.chosen': { zh: '主模型选的', en: 'Picked by main model' },
+  'subagent.box.outsideGroup': { zh: '分组外', en: 'Outside group' },
   'subagent.box.approval': { zh: '等你批准', en: 'Needs approval' },
   'subagent.box.bash': { zh: '后台命令', en: 'Background command' },
   'subagent.box.monitor': { zh: '监视任务', en: 'Monitor' },

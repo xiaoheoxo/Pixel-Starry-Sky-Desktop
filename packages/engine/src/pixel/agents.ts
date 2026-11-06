@@ -56,6 +56,10 @@ export function subagentRun(details: Message, toolCallId: string): AgentRun {
     type: string(details.type) || 'subagent',
     ...(string(details.typeName) ? { typeLabel: string(details.typeName) } : {}),
     model: string(details.model),
+    ...(details.modelSource === 'chosen' || details.modelSource === 'default'
+      ? { modelSource: details.modelSource }
+      : {}),
+    ...(details.outsideGroup === true ? { outsideGroup: true } : {}),
     state: string(details.state) || 'running',
     startedAt: number(details.startedAt),
     durationMs: number(details.durationMs),

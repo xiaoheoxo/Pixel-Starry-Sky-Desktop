@@ -61,6 +61,15 @@ export const SUBAGENT_FALLBACK_ENV = 'PIXELSKY_SUBAGENT_FALLBACK'
 /** 一个会话同时运行的子智能体上限（1–16）；没给时不限 */
 export const SUBAGENT_MAX_CONCURRENT_ENV = 'PIXELSKY_SUBAGENT_MAX_CONCURRENT'
 export const GENERAL_TYPE = 'general'
+/** 主模型调度（docs/ui/subagent-model-dispatch.md）：只能向本机网关查候选模型的密钥 */
+export const SUBAGENT_OPTIONS_TOKEN_ENV = 'PIXELSKY_SUBAGENT_OPTIONS_TOKEN'
+const SUBAGENT_OPTIONS_PATH = '/pixelsky/subagent-options'
+/** 主模型选中的路线（JSON，SubagentRoute）：子进程的网关扩展优先用它 */
+export const SUBAGENT_ROUTE_ENV = 'PIXELSKY_SUBAGENT_ROUTE'
+/** 告诉主模型当前能选哪些模型的隐藏消息 */
+export const SUBAGENT_MODELS_CONTEXT = 'pixelsky-subagent-models'
+/** 每轮开始都要查一次，不能久等；通常是本机查缓存 */
+const OPTIONS_TIMEOUT_MS = 5_000
 /** 只读类型能用的工具；MCP 工具一律不给（可能会写东西） */
 export const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls', 'web_fetch', 'web_search', 'todo_write']
 
@@ -85,10 +94,37 @@ export interface SubagentTypeDef {
   maxMs: number
   instructions: string
   route: SubagentRoute | null
+  /** 主模型调度：模型派活时向网关查，主模型可以传 model */
+  dispatch?: boolean
 }
 
 const TYPE_ID = /^[a-z][a-z0-9-]{0,31}$/
 const TOKEN_ENV = /^PIXELSKY_PIXEL_SUB_TOKEN_\d{1,3}$/
+
+function parseRoute(raw: unknown): SubagentRoute | null {
+  const r = object(raw)
+  const model = object(r.model)
+  return text(r.api) && text(model.id) && TOKEN_ENV.test(text(r.token))
+    ? {
+        api: text(r.api),
+        model,
+        label: text(r.label) || text(model.id),
+        token: text(r.token),
+        ...(Array.isArray(r.inferred)
+          ? { inferred: r.inferred.filter((f): f is string => typeof f === 'string') }
+          : {}),
+      }
+    : null
+}
+
+/** 主模型给这个子进程选的路线；没选或不对时 null */
+export function chosenRoute(env: NodeJS.ProcessEnv): SubagentRoute | null {
+  try {
+    return parseRoute(JSON.parse(env[SUBAGENT_ROUTE_ENV] ?? 'null'))
+  } catch {
+    return null
+  }
+}
 
 /** 桌面端给的类型；没给或不对时只有跟随主会话的 general */
 export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
@@ -113,20 +149,6 @@ export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
     const id = text(o.id)
     if (!TYPE_ID.test(id) || types.some(t => t.id === id)) continue
     const ms = Number(o.maxMs)
-    const r = object(o.route)
-    const model = object(r.model)
-    const route =
-      text(r.api) && text(model.id) && TOKEN_ENV.test(text(r.token))
-        ? {
-            api: text(r.api),
-            model,
-            label: text(r.label) || text(model.id),
-            token: text(r.token),
-            ...(Array.isArray(r.inferred)
-              ? { inferred: r.inferred.filter((f): f is string => typeof f === 'string') }
-              : {}),
-          }
-        : null
     types.push({
       id,
       name: text(o.name) || id,
@@ -134,12 +156,98 @@ export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
       tools: o.tools === 'read' ? 'read' : 'all',
       maxMs: Number.isFinite(ms) && ms >= 60_000 && ms <= 24 * 3600_000 ? ms : MAX_MS,
       instructions: text(o.instructions),
-      route,
+      route: parseRoute(o.route),
+      ...(o.dispatch === true ? { dispatch: true } : {}),
     })
   }
   if (!types.some(t => t.id === GENERAL_TYPE)) types.unshift(general)
   return types
 }
+
+/** 网关回的候选（桌面端 main/platform/subagent-options.ts） */
+export interface DispatchReply {
+  currentModel: string
+  options: Array<{ model: string; note: string; outside: boolean }>
+  defaultModel: string | null
+  pick?:
+    | { outcome: 'self' }
+    | { outcome: 'rejected' }
+    | { outcome: 'route'; route: SubagentRoute; secret: string; source: 'chosen' | 'default'; outside: boolean }
+}
+
+/** 问本机网关现在能选哪些模型；pick 为真时顺便拿到选中模型的路线。回应不对就抛错 */
+export async function querySubagentOptions(
+  env: NodeJS.ProcessEnv,
+  request: { type: string; mainModel?: string; model?: string; pick?: boolean },
+  signal: AbortSignal | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<DispatchReply> {
+  const root = env[SUB_BASE_URL_ENV]?.trim().replace(/\/+$/, '')
+  const token = env[SUBAGENT_OPTIONS_TOKEN_ENV]
+  if (!root || !token) throw new Error('the desktop app did not provide the model list')
+  const timeout = AbortSignal.timeout(OPTIONS_TIMEOUT_MS)
+  const res = await fetcher(`${root}${SUBAGENT_OPTIONS_PATH}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(request),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const o = object(await res.json())
+  const options = (Array.isArray(o.options) ? o.options : []).map(object).map(x => ({
+    model: text(x.model),
+    note: text(x.note),
+    outside: x.outside === true,
+  }))
+  const p = object(o.pick)
+  const route = parseRoute(p.route)
+  const pick: DispatchReply['pick'] =
+    p.outcome === 'route' && route && text(p.secret)
+      ? {
+          outcome: 'route',
+          route,
+          secret: text(p.secret),
+          source: p.source === 'chosen' ? 'chosen' : 'default',
+          outside: p.outside === true,
+        }
+      : p.outcome === 'self'
+        ? { outcome: 'self' }
+        : p.outcome === 'rejected' || p.outcome === 'route'
+          ? { outcome: 'rejected' }
+          : undefined
+  return {
+    currentModel: text(o.currentModel),
+    options: options.filter(x => x.model),
+    defaultModel: text(o.defaultModel) || null,
+    ...(pick ? { pick } : {}),
+  }
+}
+
+/** 选了不允许的模型时的报错：带上现在能选的，主模型能自己改对 */
+export function rejectedModelMessage(typeId: string, model: string, reply: DispatchReply): string {
+  const allowed = reply.options.map(o => o.model).join(', ')
+  const fallback = reply.defaultModel ?? reply.currentModel
+  return `Model "${model}" is not allowed for subagent type "${typeId}" right now. ${
+    allowed ? `Allowed: ${allowed}.` : 'No other model can be chosen.'
+  } Omit \`model\` to use ${fallback || 'the default'}.`
+}
+
+/** 隐藏消息的内容：有候选的类型和它们的模型；都没有时空字符串 */
+export function subagentModelsNote(replies: ReadonlyArray<{ type: string; reply: DispatchReply }>): string {
+  const lines: string[] = []
+  for (const { type, reply } of replies) {
+    if (!reply.options.length) continue
+    lines.push(`- ${type}: default ${reply.defaultModel ?? `${reply.currentModel} (your current model)`}`)
+    for (const o of reply.options) lines.push(`  - ${o.model}${o.note ? `: ${o.note}` : ''}`)
+  }
+  if (!lines.length) return ''
+  const main = replies[0]?.reply.currentModel
+  return `Models you can pick for subagents${main ? ` while your model is ${main}` : ''}. This replaces any earlier list. Pass one as \`model\` in the ${SUBAGENT_TOOL} tool when the task suits it; omit \`model\` for the default.
+${lines.join('\n')}`
+}
+
+/** 之前告诉过主模型有的选，现在没有了 */
+const NO_SUBAGENT_MODELS = `There are no models to pick for subagents right now; this replaces any earlier list. Omit \`model\` in the ${SUBAGENT_TOOL} tool.`
 
 /**
  * 子进程里注册的 provider：这个类型单独的站点（地址按协议补 /v1，和桌面端 pixelBaseUrl 一样）。
@@ -207,6 +315,10 @@ export interface SubagentProgress {
   typeName?: string
   /** 在排队等空位（同时运行上限） */
   queued?: boolean
+  /** 主模型调度：chosen 主模型自己选的；default 用规则标的默认。出错改走主会话时清掉 */
+  modelSource?: 'chosen' | 'default'
+  /** 走的是主模型分组以外的模型 */
+  outsideGroup?: boolean
 }
 
 /** 子智能体在一个模型上的累计用量（字段和 Pi 助手消息的 usage 一样，cost 是美元） */
@@ -402,6 +514,8 @@ export interface SubagentOptions {
   spawnChild?: (args: string[], env: NodeJS.ProcessEnv, cwd: string) => ChildProcess
   /** 测试用：替换 process.env（读子智能体的类型、同时运行上限） */
   env?: NodeJS.ProcessEnv
+  /** 测试用：替换向本机网关查候选的 fetch */
+  fetch?: typeof fetch
 }
 
 /** 子进程里开始了、还没结束的工具调用（按开始顺序） */
@@ -529,6 +643,43 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
       running--
       queue.shift()?.()
     }
+    const dispatchTypes = types.filter(t => t.dispatch)
+    if (dispatchTypes.length) {
+      // 工具说明进程启动时就定了，换模型后会过时，所以每轮查一次，变了才告诉主模型。
+      // 旧消息不从上下文删（删了提示词缓存就废了），新的写明以它为准；压缩会把消息压掉，新会话、恢复会话、
+      // 终端里用 /tree 切到别的分支也可能没有，都重发一次
+      let told: string | null = null
+      const forget = () => {
+        told = null
+      }
+      pi.on('session_start', forget)
+      pi.on('session_compact', forget)
+      pi.on('session_tree', forget)
+      pi.on('before_agent_start', async (event, ctx) => {
+        if (event.messageType !== 'user') return undefined
+        let note: string
+        try {
+          const replies = await Promise.all(
+            dispatchTypes.map(async t => ({
+              type: t.id,
+              reply: await querySubagentOptions(
+                env,
+                { type: t.id, ...(ctx.model ? { mainModel: ctx.model.id } : {}) },
+                undefined,
+                options.fetch,
+              ),
+            })),
+          )
+          note = subagentModelsNote(replies)
+        } catch {
+          // 查不到就先不说，派活时还会再查一次，选错了工具报错时带着当前的列表
+          return undefined
+        }
+        if (note === told || (!note && told === null)) return undefined
+        told = note
+        return { message: { customType: SUBAGENT_MODELS_CONTEXT, content: note || NO_SUBAGENT_MODELS, display: false } }
+      })
+    }
     pi.registerTool({
       name: SUBAGENT_TOOL,
       label: 'Subagent',
@@ -549,10 +700,19 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
               ),
             }
           : {}),
+        ...(dispatchTypes.length
+          ? {
+              model: Type.Optional(
+                Type.String({
+                  description: `Model for the subagent, from the latest "Models you can pick for subagents" message (types: ${dispatchTypes.map(t => t.id).join(', ')}). Omit to use the default.`,
+                }),
+              ),
+            }
+          : {}),
       }),
       async execute(
         toolCallId: string,
-        params: { description: string; prompt: string; type?: string },
+        params: { description: string; prompt: string; type?: string; model?: string },
         signal: AbortSignal | undefined,
         onUpdate:
           | ((partial: { content: Array<{ type: 'text'; text: string }>; details: SubagentProgress }) => void)
@@ -562,8 +722,46 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
         const type = types.find(t => t.id === (params.type?.trim() || GENERAL_TYPE))
         if (!type)
           throw new Error(`Unknown subagent type "${params.type}". Available types: ${types.map(t => t.id).join(', ')}`)
-        const routed = type.route
         const parent = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : null
+        const requested = params.model?.trim()
+        if (requested && !type.dispatch)
+          throw new Error(`Subagent type "${type.id}" has a fixed model. Do not pass \`model\` for it.`)
+        let routed = type.route
+        /** 主模型调度选中的路线的密钥（固定站点的类型在启动环境里就有） */
+        let routeSecret: string | null = null
+        let chosen: { modelSource: 'chosen' | 'default'; outsideGroup?: boolean } | null = null
+        if (type.dispatch) {
+          let reply: DispatchReply | null = null
+          try {
+            reply = await querySubagentOptions(
+              env,
+              {
+                type: type.id,
+                pick: true,
+                ...(requested ? { model: requested } : {}),
+                ...(parent ? { mainModel: parent.id } : {}),
+              },
+              signal,
+              options.fetch,
+            )
+          } catch (error) {
+            // 没指定模型时查不到就用主模型自己；指定了不能悄悄换。主会话停了：下面等空位时按停止收尾
+            if (requested && !signal?.aborted)
+              throw new Error(
+                `Could not check whether model "${requested}" is allowed: ${(error as Error).message}. Retry, or omit \`model\` to use your current model.`,
+              )
+          }
+          if (reply?.pick?.outcome === 'rejected')
+            throw new Error(rejectedModelMessage(type.id, requested ?? reply.defaultModel ?? '', reply))
+          if (reply?.pick?.outcome === 'route') {
+            routed = reply.pick.route
+            routeSecret = reply.pick.secret
+            chosen = {
+              modelSource: reply.pick.source,
+              ...(reply.pick.outside ? { outsideGroup: true } : {}),
+            }
+          }
+        }
         const parentFile = ctx.sessionManager.getSessionFile()
         const sessionDir = parentFile ? join(dirname(parentFile), 'subagents') : null
         const progress: SubagentProgress = {
@@ -581,6 +779,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
           lastTool: null,
           sessionFile: null,
           result: '',
+          ...chosen,
         }
         const report = () => {
           progress.durationMs = Date.now() - progress.startedAt
@@ -607,6 +806,9 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
             ...(readOnly ? {} : mcpChildEnv()),
             [SUBAGENT_ENV]: '1',
             [SUBAGENT_TYPE_ENV]: type.id,
+            ...(routed && routeSecret
+              ? { [SUBAGENT_ROUTE_ENV]: JSON.stringify(routed), [routed.token]: routeSecret }
+              : {}),
           }
           const proc = options.spawnChild
             ? options.spawnChild(args, childEnv, ctx.cwd)
@@ -730,6 +932,8 @@ ${progress.result}`
               model: `${parent.provider}/${parent.id}`,
               result: '',
               lastTool: null,
+              modelSource: undefined,
+              outsideGroup: undefined,
             })
             report()
             await attempt(parent)

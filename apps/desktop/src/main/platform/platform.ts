@@ -14,7 +14,7 @@ import { once } from 'node:events'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { EngineId, SessionRecord } from '@pixelsky/protocol'
+import { officialPrice, type EngineId, type SessionRecord } from '@pixelsky/protocol'
 import {
   CLAUDE_COMPACT_MARKER,
   CODEX_WINDOW_ENV,
@@ -33,7 +33,14 @@ import { initKeyMode } from './key-mode'
 import * as ipc from '../ipc/guard'
 import type { ProviderStore, ResolvedProvider } from '../core/providers/store'
 import { smallModelOf } from '../core/providers/upstream'
-import { DEFAULT_SUBAGENT_SETTINGS, type SubagentSettings, type SubagentTarget } from '../../shared/types/subagents'
+import {
+  DEFAULT_SUBAGENT_SETTINGS,
+  type SubagentSettings,
+  type SubagentSite,
+  type SubagentTarget,
+} from '../../shared/types/subagents'
+import type { DispatchCatalog } from '../../shared/subagent-dispatch'
+import { DISPATCH_TOKEN_ENV, answerSubagentOptions, staleSubagentKey } from './subagent-options'
 
 const log = logger('subagents')
 const groupLog = logger('platform')
@@ -342,6 +349,53 @@ export async function initPlatform(
 
   const sessions = new Map<string, GatewaySession>()
   const settingsFiles = new Set<string>()
+  /** 会话 id → 只能查子智能体候选模型的密钥（不进 sessions，发不了模型请求；用自己登录的会话也有） */
+  const optionSecrets = new Map<string, string>()
+
+  /** 子智能体一个站点的路线（写进 PIXELSKY_SUBAGENT_TYPES，或派活时回给命令行） */
+  const subagentRoute = (target: SubagentTarget, provider: ResolvedProvider | null, token: string) =>
+    pixelSubagentRoute({
+      api:
+        target.kind === 'platform'
+          ? platformPixelApi(target.groupId, target.model)
+          : pixelApi({ protocol: provider?.protocol, model: target.model }),
+      model: target.model,
+      // 自定义接口里写的；云端线路用设置 › 模型通道里给这个模型填的
+      contextWindow: provider
+        ? (provider.models.find(m => m.id === target.model)?.contextWindow ?? null)
+        : (pixelPlatformWindows()[target.model] ?? null),
+      images: provider?.models.find(m => m.id === target.model)?.images ?? null,
+      autoContextWindow: pixelAutoWindow(target.model),
+      upstreamBaseUrl: provider?.baseUrl ?? null,
+      label: provider?.name ?? (target.kind === 'platform' ? groupBrief(target.groupId)?.name || '平台线路' : ''),
+      token,
+    })
+
+  /** 主模型调度：现在的分组、账号、线路数据 */
+  const dispatchCatalog = async (site: SubagentSite | null): Promise<DispatchCatalog> => {
+    const provider = site?.kind === 'custom' ? (providers?.resolve(site.providerId) ?? null) : null
+    const known = site?.kind === 'platform' ? groupModels.get(site.groupId) : undefined
+    const siteModels =
+      site?.kind === 'platform'
+        ? known?.length
+          ? known
+          : await routeModels(site.groupId)
+        : (provider?.models.map(m => m.id) ?? [])
+    return {
+      siteModels,
+      price: model => officialPrice(model, provider?.models.find(m => m.id === model)?.priceRef),
+      problem: target => {
+        const check = checkSubagentTarget(target, providers, signedInEmail())
+        if (!check.ok) return check.reason
+        if (target.kind === 'custom') return null
+        // 线路数据读到过才判断：读不到时照常给，真出错时走「改用主会话的站点」
+        const models = groupModels.get(target.groupId)
+        if (groupModels.size && !models) return '平台线路已经不在了'
+        return models?.length && !models.includes(target.model) ? `线路里已经没有模型 ${target.model}` : null
+      },
+    }
+  }
+
   const server = platformGateway({
     sessions,
     record: getRecord,
@@ -357,6 +411,32 @@ export async function initPlatform(
         ? (rewriteCompaction(body, model, await models()) ?? body)
         : body
     },
+    subagentOptions: async (token, request) => {
+      const recordId = token ? [...optionSecrets].find(([, secret]) => secret === token)?.[0] : undefined
+      const record = recordId ? await getRecord(recordId) : null
+      if (!record) return null
+      return answerSubagentOptions({
+        settings: subagents(),
+        record,
+        request,
+        catalog: dispatchCatalog,
+        issue: (typeId, target) => {
+          const check = checkSubagentTarget(target, providers, signedInEmail())
+          if (!check.ok) return null
+          // 一个目标一把密钥，通向哪里由 target 定，主模型传什么模型名都改不了（key 的格式见 staleSubagentKey）
+          // 用登记时的 id（远端会话带机器前缀，查记录认它）
+          const key = `${recordId}#subagent:${typeId}@${target.kind === 'custom' ? target.providerId : target.groupId}/${target.model}`
+          let entry = sessions.get(key)
+          if (!entry) {
+            entry = { recordId: recordId!, secret: randomBytes(32).toString('hex') }
+            sessions.set(key, entry)
+          }
+          entry.target = target
+          log.info('子智能体走主模型选的模型', { sessionId: recordId, type: typeId, model: target.model })
+          return { route: subagentRoute(target, check.provider, DISPATCH_TOKEN_ENV), secret: entry.secret }
+        },
+      })
+    },
   })
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
@@ -370,7 +450,8 @@ export async function initPlatform(
   })
   /**
    * 像素星空会话的子智能体（设置 › 子智能体）：启用的类型写进 PIXELSKY_SUBAGENT_TYPES；指定了站点且能用的类型各登记一把密钥
-   * （sessions 里 `<会话 id>#subagent:<类型>`），不能用的跟随主会话。进程启动时取一次，改了设置在新开或重新连上的会话生效
+   * （sessions 里 `<会话 id>#subagent:<类型>`），不能用的跟随主会话。进程启动时取一次，改了设置在新开或重新连上的会话生效。
+   * 主模型调度的类型只给一把查候选的密钥（PIXELSKY_SUBAGENT_OPTIONS_TOKEN），规则和模型派活时现算
    */
   const subagentEnv = (record: SessionRecord): Record<string, string> => {
     const settings = subagents()
@@ -384,9 +465,11 @@ export async function initPlatform(
       .filter(t => t.enabled)
       .map((type, i) => {
         let route: ReturnType<typeof pixelSubagentRoute> | null = null
-        const check = type.target ? checkSubagentTarget(type.target, providers, signedInEmail()) : null
-        if (type.target && check?.ok) {
-          const target = type.target
+        // 主模型调度：候选派活时由网关现算（subagentOptions），这里只标一下
+        const fixed = type.dispatch ? null : type.target
+        const check = fixed ? checkSubagentTarget(fixed, providers, signedInEmail()) : null
+        if (fixed && check?.ok) {
+          const target = fixed
           const key = prefix + type.id
           used.add(key)
           let entry = sessions.get(key)
@@ -397,23 +480,7 @@ export async function initPlatform(
           entry.target = target
           const token = `PIXELSKY_PIXEL_SUB_TOKEN_${i + 1}`
           env[token] = entry.secret
-          const provider = check.provider
-          route = pixelSubagentRoute({
-            api:
-              target.kind === 'platform'
-                ? platformPixelApi(target.groupId, target.model)
-                : pixelApi({ protocol: provider?.protocol, model: target.model }),
-            model: target.model,
-            // 自定义接口里写的；云端线路用设置 › 模型通道里给这个模型填的
-            contextWindow: provider
-              ? (provider.models.find(m => m.id === target.model)?.contextWindow ?? null)
-              : (pixelPlatformWindows()[target.model] ?? null),
-            images: provider?.models.find(m => m.id === target.model)?.images ?? null,
-            autoContextWindow: pixelAutoWindow(target.model),
-            upstreamBaseUrl: provider?.baseUrl ?? null,
-            label: provider?.name ?? (target.kind === 'platform' ? groupBrief(target.groupId)?.name || '平台线路' : ''),
-            token,
-          })
+          route = subagentRoute(target, check.provider, token)
         } else if (check && !check.ok)
           log.info('子智能体的站点不能用，跟随主会话', { sessionId: record.id, type: type.id, reason: check.reason })
         return {
@@ -424,12 +491,19 @@ export async function initPlatform(
           maxMs: type.maxMinutes * 60_000,
           instructions: type.instructions,
           route,
+          ...(type.dispatch ? { dispatch: true } : {}),
         }
       })
     // 设置里关掉、删掉或站点不能用了的类型：旧密钥作废
-    for (const key of [...sessions.keys()]) if (key.startsWith(prefix) && !used.has(key)) sessions.delete(key)
+    for (const key of [...sessions.keys()]) if (staleSubagentKey(key, prefix, used)) sessions.delete(key)
     env.PIXELSKY_SUBAGENT_TYPES = JSON.stringify(types)
-    if (used.size) env.PIXELSKY_PIXEL_SUB_BASE_URL = `http://127.0.0.1:${address.port}`
+    const dispatching = types.some(t => t.dispatch)
+    if (dispatching) {
+      const secret = optionSecrets.get(record.id) ?? randomBytes(32).toString('hex')
+      optionSecrets.set(record.id, secret)
+      env.PIXELSKY_SUBAGENT_OPTIONS_TOKEN = secret
+    }
+    if (used.size || dispatching) env.PIXELSKY_PIXEL_SUB_BASE_URL = `http://127.0.0.1:${address.port}`
     return env
   }
   const sessionEnv = (record: SessionRecord): NodeJS.ProcessEnv => {

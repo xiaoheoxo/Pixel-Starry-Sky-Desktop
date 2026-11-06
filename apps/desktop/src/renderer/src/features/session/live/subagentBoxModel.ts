@@ -31,6 +31,9 @@ export interface BoxModel {
   fullModel: string
   /** 子智能体的类型名（像素星空，设置 › 子智能体）；没有为空 */
   typeLabel: string
+  /** 主模型调度：模型是主模型自己选的 / 在主模型的分组以外 */
+  chosen?: boolean
+  outsideGroup?: boolean
   state: BoxState
   /** 开始时间（毫秒时间戳，0：不知道）和已报告的时长，运行中用 now 往前走 */
   startedAt: number
@@ -60,6 +63,11 @@ function itemState(status: ItemStatus): RunState {
 }
 
 const NONE: AgentRuns = { workflows: [], agents: [] }
+
+const dispatchFlags = (agent: AgentRun | undefined): Pick<BoxModel, 'chosen' | 'outsideGroup'> => ({
+  ...(agent?.modelSource === 'chosen' ? { chosen: true } : {}),
+  ...(agent?.outsideGroup ? { outsideGroup: true } : {}),
+})
 
 /** 小框上的用时：运行中从开始时间走到现在；没有时间时为 0（不显示） */
 export const boxElapsed = (model: Pick<BoxModel, 'startedAt' | 'durationMs' | 'state'>, now: number): number =>
@@ -93,6 +101,7 @@ export function dispatchBox(item: ToolItem, runs: AgentRuns = NONE, approval = f
     model: agent?.model ? shortModel(agent.model) : '',
     fullModel: agent?.model ?? '',
     typeLabel: agent?.typeLabel ?? '',
+    ...dispatchFlags(agent),
     state: approval && state === 'running' ? 'approval' : state,
     startedAt: run?.startedAt ?? 0,
     durationMs: run?.durationMs ?? 0,
@@ -123,6 +132,7 @@ export function completionBox(task: NoticeTask, runs: AgentRuns = NONE): BoxMode
     model: agent?.model ? shortModel(agent.model) : '',
     fullModel: agent?.model ?? '',
     typeLabel: agent?.typeLabel ?? '',
+    ...dispatchFlags(agent),
     state: task.status === 'completed' ? 'done' : task.status === 'failed' ? 'failed' : 'stopped',
     startedAt: 0,
     // 结束了：只用报告的时长，不再往前走

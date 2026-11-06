@@ -13,7 +13,10 @@ import {
   SUBAGENT_ENV,
   SUBAGENT_FALLBACK_ENV,
   SUBAGENT_MAX_CONCURRENT_ENV,
+  SUBAGENT_MODELS_CONTEXT,
+  SUBAGENT_OPTIONS_TOKEN_ENV,
   SUBAGENT_PROVIDER,
+  SUBAGENT_ROUTE_ENV,
   SUBAGENT_TYPES_ENV,
   SUBAGENT_TYPE_ENV,
   SUB_BASE_URL_ENV,
@@ -118,15 +121,17 @@ interface Tool {
   execute: (...args: unknown[]) => Promise<{ content: Array<{ text: string }>; details: Json }>
 }
 
-function setup(env: NodeJS.ProcessEnv, behaviours: Behave[]) {
+function setup(env: NodeJS.ProcessEnv, behaviours: Behave[], fetcher?: typeof fetch) {
   const children: FakeChild[] = []
   const spawned: Array<{ args: string[]; env: NodeJS.ProcessEnv }> = []
   const entries: Json[] = []
+  const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {}
   let tool: Tool | null = null
   let seq = 0
   createSubagentExtension({
     mode: () => 'default',
     env,
+    ...(fetcher ? { fetch: fetcher } : {}),
     spawnChild: (args, childEnv) => {
       expect(childEnv[SUBAGENT_ENV]).toBe('1')
       spawned.push({ args, env: childEnv })
@@ -136,6 +141,7 @@ function setup(env: NodeJS.ProcessEnv, behaviours: Behave[]) {
     },
   })({
     registerTool: (t: Tool) => (tool = t),
+    on: (name: string, fn: (event: unknown, ctx: unknown) => unknown) => (handlers[name] = fn),
     getThinkingLevel: () => 'off',
     appendEntry: (_type: string, data: Json) => entries.push(data),
   } as never)
@@ -149,7 +155,7 @@ function setup(env: NodeJS.ProcessEnv, behaviours: Behave[]) {
   const call = (params: Json, signal?: AbortSignal) =>
     tool!.execute(`t${++seq}`, { description: '查接口', prompt: 'find it', ...params }, signal, undefined, ctx)
   const models = () => children.map(c => c.received.find(m => m.type === 'set_model'))
-  return { tool: () => tool!, call, children, spawned, entries, models }
+  return { tool: () => tool!, call, children, spawned, entries, models, handlers, ctx }
 }
 
 describe('子智能体类型', () => {
@@ -358,5 +364,197 @@ describe('子智能体类型', () => {
     expect((await first).content[0]!.text).toBe('first')
     expect((await second).content[0]!.text).toBe('second')
     expect(r.children).toHaveLength(2)
+  })
+})
+
+describe('主模型调度（docs/ui/subagent-model-dispatch.md）', () => {
+  const DISPATCH_TYPES = [
+    { id: 'general', name: '通用', description: 'x', tools: 'all', maxMs: 1_800_000, instructions: '', route: null },
+    {
+      id: 'explore',
+      name: '探索',
+      description: 'x',
+      tools: 'read',
+      maxMs: 600_000,
+      instructions: '',
+      route: null,
+      dispatch: true,
+    },
+    { ...EXPLORE, id: 'fixed' },
+  ]
+  const DENV = {
+    [SUBAGENT_TYPES_ENV]: JSON.stringify(DISPATCH_TYPES),
+    [SUB_BASE_URL_ENV]: 'http://127.0.0.1:9',
+    [SUBAGENT_OPTIONS_TOKEN_ENV]: 'options-secret',
+  }
+  const LUNA_ROUTE = {
+    api: 'openai-responses',
+    model: { id: 'gpt-6-luna' },
+    label: 'GPT Pro',
+    token: 'PIXELSKY_PIXEL_SUB_TOKEN_0',
+  }
+  const LIST = {
+    currentModel: 'gpt-6.1-sol',
+    options: [
+      { model: 'gpt-6-luna', note: '最便宜', outside: false },
+      { model: 'deepseek-chat', note: '', outside: true },
+    ],
+    defaultModel: 'gpt-6-luna',
+  }
+  /** 假网关：记下请求，按 answer 回 */
+  const gateway = (answer: (body: Json) => Json) => {
+    const calls: Array<{ url: string; auth: string; body: Json }> = []
+    const fetcher = (async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Json
+      calls.push({ url, auth: new Headers(init.headers).get('authorization') ?? '', body })
+      return new Response(JSON.stringify(answer(body)))
+    }) as unknown as typeof fetch
+    return { calls, fetcher }
+  }
+  const picked = (pick: Json) => gateway(() => ({ ...LIST, pick }))
+  const ROUTE_PICK = { outcome: 'route', route: LUNA_ROUTE, secret: 'route-secret', source: 'chosen', outside: false }
+
+  it('有这种类型时 task 才多 model 参数', () => {
+    expect(setup(ENV, []).tool().parameters.properties).not.toHaveProperty('model')
+    expect(setup(DENV, []).tool().parameters.properties).toHaveProperty('model')
+    expect(subagentTypes(DENV).map(t => !!t.dispatch)).toEqual([false, true, false])
+  })
+
+  it('选了模型：带密钥问网关，子进程走回来的路线，密钥只进这个子进程', async () => {
+    const g = picked(ROUTE_PICK)
+    const r = setup(DENV, [c => c.send(reply('done'))], g.fetcher)
+    const out = await r.call({ type: 'explore', model: 'gpt-6-luna' })
+    expect(g.calls[0]).toMatchObject({
+      url: 'http://127.0.0.1:9/pixelsky/subagent-options',
+      auth: 'Bearer options-secret',
+      body: { type: 'explore', model: 'gpt-6-luna', pick: true, mainModel: 'claude-sonnet-5-5' },
+    })
+    const env = r.spawned[0]!.env
+    expect(env.PIXELSKY_PIXEL_SUB_TOKEN_0).toBe('route-secret')
+    expect(JSON.parse(env[SUBAGENT_ROUTE_ENV]!)).toEqual(LUNA_ROUTE)
+    expect(r.models()[0]).toMatchObject({ provider: SUBAGENT_PROVIDER, modelId: 'gpt-6-luna' })
+    expect(out.details).toMatchObject({ model: 'GPT Pro · gpt-6-luna', modelSource: 'chosen' })
+    expect(out.details.outsideGroup).toBeUndefined()
+  })
+
+  it('子进程按选中的路线注册 provider，优先于类型自己的', () => {
+    const child = { ...DENV, [SUBAGENT_ENV]: '1', [SUBAGENT_TYPE_ENV]: 'explore' }
+    const sub = subagentProvider({ ...child, [SUBAGENT_ROUTE_ENV]: JSON.stringify(LUNA_ROUTE) })
+    expect(sub?.[1]).toMatchObject({ api: 'openai-responses', apiKey: '$PIXELSKY_PIXEL_SUB_TOKEN_0' })
+    expect((sub?.[1].models as Json[])[0]).toMatchObject({ id: 'gpt-6-luna' })
+    // 令牌名不能指向别的环境变量：路线不对就不注册（子进程 set_model 失败，走出错改用主会话）
+    const bad = JSON.stringify({ ...LUNA_ROUTE, token: 'HOME' })
+    expect(subagentProvider({ ...child, [SUBAGENT_ROUTE_ENV]: bad })).toBeNull()
+  })
+
+  it('不填 model 用默认，分组外的标上；用主模型自己时不带路线', async () => {
+    const g = picked({ ...ROUTE_PICK, source: 'default', outside: true })
+    const r = setup(DENV, [c => c.send(reply('done'))], g.fetcher)
+    const out = await r.call({ type: 'explore' })
+    expect(g.calls[0]!.body).not.toHaveProperty('model')
+    expect(out.details).toMatchObject({ modelSource: 'default', outsideGroup: true })
+
+    const self = setup(DENV, [c => c.send(reply('done'))], picked({ outcome: 'self' }).fetcher)
+    const own = await self.call({ type: 'explore' })
+    expect(self.spawned[0]!.env).not.toHaveProperty(SUBAGENT_ROUTE_ENV)
+    expect(self.models()[0]).toMatchObject({ provider: 'pixelsky', modelId: 'claude-sonnet-5-5' })
+    expect(own.details.modelSource).toBeUndefined()
+  })
+
+  it('选了不允许的：报错并列出能选的，不起子进程，不悄悄换', async () => {
+    const r = setup(DENV, [], picked({ outcome: 'rejected' }).fetcher)
+    await expect(r.call({ type: 'explore', model: 'gpt-6-astra' })).rejects.toThrow(
+      /"gpt-6-astra" is not allowed.*Allowed: gpt-6-luna, deepseek-chat\..*gpt-6-luna/,
+    )
+    expect(r.spawned).toHaveLength(0)
+  })
+
+  it('固定模型的类型传 model：报错', async () => {
+    const r = setup(DENV, [], picked(ROUTE_PICK).fetcher)
+    await expect(r.call({ type: 'fixed', model: 'gpt-6-luna' })).rejects.toThrow('has a fixed model')
+    expect(r.spawned).toHaveLength(0)
+  })
+
+  it('网关查不到：指定了模型报错；没指定用主模型自己', async () => {
+    const down = (async () => {
+      throw new Error('connection refused')
+    }) as unknown as typeof fetch
+    const named = setup(DENV, [], down)
+    await expect(named.call({ type: 'explore', model: 'gpt-6-luna' })).rejects.toThrow('connection refused')
+    expect(named.spawned).toHaveLength(0)
+    const r = setup(DENV, [c => c.send(reply('done'))], down)
+    expect((await r.call({ type: 'explore' })).content[0]!.text).toBe('done')
+    expect(r.models()[0]).toMatchObject({ provider: 'pixelsky' })
+  })
+
+  it('查候选时主会话停了：按停止收尾，不报查不到', async () => {
+    const stop = new AbortController()
+    const fetcher = (async () => {
+      stop.abort()
+      throw new Error('aborted')
+    }) as unknown as typeof fetch
+    const r = setup(DENV, [], fetcher)
+    const out = await r.call({ type: 'explore', model: 'gpt-6-luna' }, stop.signal)
+    expect(out.content[0]!.text).toBe('Subagent was stopped before it started.')
+    expect(r.spawned).toHaveLength(0)
+  })
+
+  it('选的模型出错、还没动手：改走主会话的模型，标记清掉', async () => {
+    const r = setup(DENV, [c => c.send(failed('401')), c => c.send(reply('saved'))], picked(ROUTE_PICK).fetcher)
+    const out = await r.call({ type: 'explore', model: 'gpt-6-luna' })
+    expect(r.models()[1]).toMatchObject({ provider: 'pixelsky', modelId: 'claude-sonnet-5-5' })
+    expect(out.content[0]!.text).toContain('The subagent site "GPT Pro" failed')
+    expect(out.details.modelSource).toBeUndefined()
+    expect(out.details.model).toBe('pixelsky/claude-sonnet-5-5')
+  })
+
+  describe('隐藏消息', () => {
+    const turn = (r: ReturnType<typeof setup>, messageType = 'user') =>
+      r.handlers.before_agent_start!({ messageType }, r.ctx) as Promise<{ message: Json } | undefined>
+
+    it('有候选时告诉主模型；没变不重发；变了发新的；压缩、新会话后重发', async () => {
+      let answer: Json = LIST
+      const r = setup(DENV, [], gateway(() => answer).fetcher)
+      const first = await turn(r)
+      expect(first?.message).toMatchObject({ customType: SUBAGENT_MODELS_CONTEXT, display: false })
+      expect(first?.message.content).toContain('while your model is gpt-6.1-sol')
+      expect(first?.message.content).toContain(
+        '- explore: default gpt-6-luna\n  - gpt-6-luna: 最便宜\n  - deepseek-chat',
+      )
+      expect(await turn(r)).toBeUndefined()
+      expect(await turn(r, 'custom')).toBeUndefined()
+      await r.handlers.session_compact!({}, r.ctx)
+      expect((await turn(r))?.message.content).toBe(first?.message.content)
+      await r.handlers.session_start!({}, r.ctx)
+      expect((await turn(r))?.message.content).toBe(first?.message.content)
+      await r.handlers.session_tree!({}, r.ctx)
+      expect((await turn(r))?.message.content).toBe(first?.message.content)
+      answer = { ...LIST, currentModel: 'gpt-6-sol', defaultModel: null }
+      expect((await turn(r))?.message.content).toContain('default gpt-6-sol (your current model)')
+    })
+
+    it('一开始就没候选：不发；发过之后没了：说一声', async () => {
+      const empty = { currentModel: 'm', options: [], defaultModel: null }
+      let answer: Json = empty
+      const r = setup(DENV, [], gateway(() => answer).fetcher)
+      expect(await turn(r)).toBeUndefined()
+      answer = LIST
+      expect(await turn(r)).toBeDefined()
+      answer = empty
+      expect((await turn(r))?.message.content).toContain('no models to pick')
+      expect(await turn(r)).toBeUndefined()
+    })
+
+    it('查不到：这轮不发，不影响下一轮', async () => {
+      let up = false
+      const fetcher = (async () => {
+        if (!up) throw new Error('down')
+        return new Response(JSON.stringify(LIST))
+      }) as unknown as typeof fetch
+      const r = setup(DENV, [], fetcher)
+      expect(await turn(r)).toBeUndefined()
+      up = true
+      expect(await turn(r)).toBeDefined()
+    })
   })
 })

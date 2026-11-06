@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { EngineEvent } from '@pixelsky/protocol'
 import { PixelAdapter } from '../src'
-import { entries, runsFromSession, subagentItemId, subagentTotals } from '../src/pixel/agents'
+import { entries, runsFromSession, subagentItemId, subagentRun, subagentTotals } from '../src/pixel/agents'
 import { LINE_MAX } from '../src/jsonl'
 import { PixelTranslator } from '../src/pixel/translate'
 import { transcriptItems } from '../src/pixel/transcript'
@@ -127,6 +127,17 @@ describe('像素星空子智能体 → 智能体追踪', () => {
     expect(events.filter(e => e.type === 'item_completed').pop()).toMatchObject({
       item: { id: subagentItemId('c3'), status: 'interrupted' },
     })
+  })
+
+  it('主模型调度的标记带到运行记录；老记录和认不出的值没有', () => {
+    const runOf = (extra: Record<string, unknown>) => subagentRun({ agentId: 'a', model: 'm', ...extra }, 't')
+    expect(runOf({ modelSource: 'chosen', outsideGroup: true })).toMatchObject({
+      modelSource: 'chosen',
+      outsideGroup: true,
+    })
+    const old = runOf({ modelSource: 'nope', outsideGroup: 'yes' })
+    expect(old).not.toHaveProperty('modelSource')
+    expect(old).not.toHaveProperty('outsideGroup')
   })
 
   it('重新打开：从主会话文件读子智能体（同一个调用取最后一条），读子智能体的对话', () => {

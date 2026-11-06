@@ -6,6 +6,30 @@ export type SubagentTarget =
   | { kind: 'custom'; providerId: string; model: string }
   | { kind: 'platform'; groupId: string; account: string; model: string }
 
+/** 分组：平台的一条线路，或一个自定义接口 */
+export type SubagentSite = { kind: 'custom'; providerId: string } | { kind: 'platform'; groupId: string }
+
+/** 主模型调度（docs/ui/subagent-model-dispatch.md）：规则里一个可选的模型 */
+export interface SubagentDispatchCandidate {
+  target: SubagentTarget
+  /** 给主模型看的「什么时候选它」 */
+  note: string
+  /** 主模型不填 model 时用它 */
+  isDefault?: boolean
+}
+/** 主模型是某个分组的某个模型时，这个类型能选哪些模型（模型名不重复：主模型只按模型名选） */
+export interface SubagentDispatchRule {
+  main: { site: SubagentSite; model: string }
+  candidates: SubagentDispatchCandidate[]
+}
+export interface SubagentDispatch {
+  rules: SubagentDispatchRule[]
+  /** 允许调度分组以外的模型（还要逐个加进规则才生效） */
+  outsideGroup: boolean
+  /** 没写规则的主模型：cheaper 同分组不比它贵的；self 用它自己 */
+  unruled: 'cheaper' | 'self'
+}
+
 export const SUBAGENT_MAX_MINUTES = [10, 30, 60] as const
 export type SubagentMaxMinutes = (typeof SUBAGENT_MAX_MINUTES)[number]
 export const SUBAGENT_CONCURRENCY = [1, 2, 4, 8] as const
@@ -21,6 +45,8 @@ export interface SubagentType {
   description: string
   /** null：跟随主会话 */
   target: SubagentTarget | null
+  /** 主模型调度：有它时 target 不起作用（和 target 互斥）；老版本的设置没有 */
+  dispatch?: SubagentDispatch | null
   tools: SubagentTools
   maxMinutes: SubagentMaxMinutes
   /** 追加在它的系统提示后面 */
@@ -40,7 +66,14 @@ export const GENERAL_TYPE = 'general'
 export const EXPLORE_TYPE = 'explore'
 export const SUBAGENT_TYPE_ID = /^[a-z][a-z0-9-]{0,31}$/
 export const MAX_SUBAGENT_TYPES = 20
-export const SUBAGENT_LIMITS = { name: 30, description: 500, instructions: 2000 } as const
+export const SUBAGENT_LIMITS = {
+  name: 30,
+  description: 500,
+  instructions: 2000,
+  dispatchRules: 20,
+  dispatchCandidates: 10,
+  dispatchNote: 200,
+} as const
 
 /** 内置类型的默认值（「恢复默认」回到这里）；通用不能关、不能删 */
 export const BUILTIN_SUBAGENT_TYPES: readonly SubagentType[] = [
@@ -124,12 +157,14 @@ function parseType(raw: unknown): SubagentType | null {
   const builtin = BUILTIN_SUBAGENT_TYPES.find(b => b.id === typeId)
   const name = clean(t.name, SUBAGENT_LIMITS.name).trim()
   const description = clean(t.description, SUBAGENT_LIMITS.description).trim()
+  const dispatch = parseDispatch(t.dispatch)
   return {
     id: typeId,
     // 内置类型的名字不能改
     name: builtin?.name ?? (name || typeId),
     description: description || builtin?.description || '',
-    target: parseTarget(t.target),
+    target: dispatch ? null : parseTarget(t.target),
+    ...(dispatch ? { dispatch } : {}),
     tools: pick<SubagentTools>(['all', 'read'], t.tools, builtin?.tools ?? 'all'),
     maxMinutes: pick(SUBAGENT_MAX_MINUTES, t.maxMinutes, builtin?.maxMinutes ?? 30),
     instructions:
@@ -155,6 +190,57 @@ function parseTarget(raw: unknown): SubagentTarget | null {
     return groupId && account ? { kind: 'platform', groupId, account, model } : null
   }
   return null
+}
+
+function parseSite(raw: unknown): SubagentSite | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  if (s.kind === 'custom') {
+    const providerId = id(s.providerId, PROVIDER)
+    return providerId ? { kind: 'custom', providerId } : null
+  }
+  if (s.kind === 'platform') {
+    const groupId = id(s.groupId, GROUP)
+    return groupId ? { kind: 'platform', groupId } : null
+  }
+  return null
+}
+
+function parseCandidates(raw: unknown): SubagentDispatchCandidate[] {
+  const out: SubagentDispatchCandidate[] = []
+  for (const item of Array.isArray(raw) ? raw : []) {
+    if (out.length >= SUBAGENT_LIMITS.dispatchCandidates) break
+    const c = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+    const target = parseTarget(c.target)
+    if (!target || out.some(x => x.target.model === target.model)) continue
+    // 说明会进提示词：压成一行
+    const note = clean(c.note, SUBAGENT_LIMITS.dispatchNote).replace(/\s+/g, ' ').trim()
+    const isDefault = c.isDefault === true && !out.some(x => x.isDefault)
+    out.push({ target, note, ...(isDefault ? { isDefault } : {}) })
+  }
+  return out
+}
+
+function parseDispatch(raw: unknown): SubagentDispatch | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const d = raw as Record<string, unknown>
+  const rules: SubagentDispatchRule[] = []
+  for (const item of Array.isArray(d.rules) ? d.rules : []) {
+    if (rules.length >= SUBAGENT_LIMITS.dispatchRules) break
+    const r = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+    const m = (r.main && typeof r.main === 'object' ? r.main : {}) as Record<string, unknown>
+    const site = parseSite(m.site)
+    const model = id(m.model, MODEL)
+    if (!site || !model) continue
+    const main = { site, model }
+    if (rules.some(x => x.main.model === model && JSON.stringify(x.main.site) === JSON.stringify(site))) continue
+    rules.push({ main, candidates: parseCandidates(r.candidates) })
+  }
+  return {
+    rules,
+    outsideGroup: d.outsideGroup === true,
+    unruled: d.unruled === 'self' ? 'self' : 'cheaper',
+  }
 }
 
 /** preload 的 window.pixelsky.subagents */

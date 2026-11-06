@@ -8,6 +8,7 @@ import {
   SUBAGENT_ENV,
   SUBAGENT_PROVIDER,
   SUBAGENT_TYPE_ENV,
+  chosenRoute,
   subagentProviderConfig,
   subagentTypes,
 } from '../tools/subagent.ts'
@@ -81,11 +82,13 @@ export function gatewayProviders(
 export function subagentProvider(env: NodeJS.ProcessEnv, all?: readonly Json[]): [string, Json] | null {
   if (env[SUBAGENT_ENV] !== '1') return null
   const type = subagentTypes(env).find(t => t.id === env[SUBAGENT_TYPE_ENV])
-  const config = type ? subagentProviderConfig(type, env) : null
-  if (!type?.route || !config) return null
+  // 主模型调度：主模型选的路线优先
+  const route = chosenRoute(env) ?? type?.route
+  const config = type && route ? subagentProviderConfig({ ...type, route }, env) : null
+  if (!route || !config) return null
   const api = String(config.api ?? '')
   // 推理开关、图片是 subagentProviderConfig 猜的（站点没写明图片时），再加上桌面端标的
-  const inferred = ['reasoning', ...('input' in type.route.model ? [] : ['input']), ...(type.route.inferred ?? [])]
+  const inferred = ['reasoning', ...('input' in route.model ? [] : ['input']), ...(route.inferred ?? [])]
   const models = (config.models as Json[]).map(m =>
     all ? enrichModel(m, api, findBuiltin(String(m.id ?? ''), api, all), inferred) : m,
   )

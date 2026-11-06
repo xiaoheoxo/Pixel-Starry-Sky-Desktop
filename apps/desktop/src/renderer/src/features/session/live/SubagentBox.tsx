@@ -76,6 +76,16 @@ function BoxView({ model }: { model: BoxModel }) {
           {model.model}
         </span>
       )}
+      {model.chosen && (
+        <span data-box-chosen className="shrink-0 text-meta text-fg-faint">
+          {tr('subagent.box.chosen')}
+        </span>
+      )}
+      {model.outsideGroup && (
+        <span data-box-outside className="shrink-0 rounded bg-warn/10 px-1.5 text-meta text-warn">
+          {tr('subagent.box.outsideGroup')}
+        </span>
+      )}
       <span
         className={cn(
           'flex shrink-0 items-center gap-1 text-meta tabular-nums',

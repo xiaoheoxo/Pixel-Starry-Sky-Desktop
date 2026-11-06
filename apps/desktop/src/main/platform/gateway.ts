@@ -22,6 +22,7 @@ import { compactionTap, type CompactionTap } from './compaction-tap'
 import { platformModelApi } from '../../shared/platform-models'
 import { vendorFallbackModel } from './vendor-models'
 import type { SubagentTarget } from '../../shared/types/subagents'
+import { SUBAGENT_OPTIONS_PATH } from './subagent-options'
 
 const log = logger('gateway')
 
@@ -58,6 +59,7 @@ const responsesFailed = (code = 'stream_interrupted', message = MID_STREAM_TEXT)
 
 /** 本机网关收的请求体上限 */
 export const BODY_LIMIT = 32 * 1024 * 1024
+const OPTIONS_BODY_LIMIT = 64 * 1024
 /** Codex 超过上限时的说明（Codex 按错误代码显示它自己的「上下文窗口不够」，这句只进日志和原始事件） */
 const TOO_LARGE_TEXT = 'Request exceeds size limit (32 MB): compact the conversation'
 
@@ -178,6 +180,8 @@ export function platformGateway(options: {
   compaction?: (record: SessionRecord, report: CompactionRequestReport) => void
   /** 在途预留冲突的等待（测试时缩短）：最近断开过的时间窗口、重发前等多久 */
   reservationRetry?: { windowMs: number; delayMs: number }
+  /** 主模型调度：命令行问现在能选哪些模型；密钥不对时返回 null（这把密钥不在 sessions 里，发不了模型请求） */
+  subagentOptions?: (token: string, request: unknown) => Promise<unknown | null>
 }): Server {
   /** 没有计数接口的自定义接口地址 → 发现的时间；过一小时再试一次（接口可能补上了） */
   const noCountTokens = new Map<string, number>()
@@ -463,6 +467,27 @@ export function platformGateway(options: {
     }
 
     try {
+      if (req.method === 'POST' && path === SUBAGENT_OPTIONS_PATH && options.subagentOptions) {
+        const chunks: Buffer[] = []
+        let size = 0
+        for await (const chunk of req) {
+          size += chunk.length
+          if (size <= OPTIONS_BODY_LIMIT) chunks.push(Buffer.from(chunk))
+        }
+        if (size > OPTIONS_BODY_LIMIT) return fail(413, 'Request exceeds size limit')
+        let request: unknown = null
+        try {
+          request = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        } catch {
+          return fail(400, 'Invalid JSON request')
+        }
+        const token = req.headers.authorization?.replace(/^Bearer /i, '') ?? ''
+        const reply = await options.subagentOptions(token, request)
+        if (!reply) return fail(401, 'Invalid token')
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+        res.end(JSON.stringify(reply))
+        return
+      }
       if (req.method !== 'POST' || (!responses && !chat && !countTokens && path !== '/v1/messages')) {
         fail(404, 'Unsupported gateway endpoint')
         return

@@ -142,6 +142,8 @@ function AgentRow({
     files > 0 && tr(files === 1 ? 'session.changes.agentFile' : 'session.changes.agentFiles', { n: files }),
     a.type,
     showModel && shortModel(a.model),
+    a.modelSource === 'chosen' && tr('subagent.box.chosen'),
+    a.outsideGroup && tr('subagent.box.outsideGroup'),
   ]
     .filter(Boolean)
     .join(' · ')
@@ -675,7 +677,14 @@ function AgentFocus({
           {run && <span>{run.name || run.description}</span>}
           {[agent.type, shortModel(agent.model)].filter(Boolean).length > 0 && (
             <span title={agent.model || undefined}>
-              {[agent.type, shortModel(agent.model)].filter(Boolean).join(' · ')}
+              {[
+                agent.type,
+                shortModel(agent.model),
+                agent.modelSource === 'chosen' && tr('subagent.box.chosen'),
+                agent.outsideGroup && tr('subagent.box.outsideGroup'),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
           )}
           <span>{RUN_STATE_LABEL[s]}</span>

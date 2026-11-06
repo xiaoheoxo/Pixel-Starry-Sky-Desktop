@@ -41,6 +41,10 @@ export interface AgentRun {
   /** 类型的显示名（像素星空子智能体的类型，设置 › 子智能体）；子智能体小框上显示 */
   typeLabel?: string
   model: string
+  /** 主模型调度（像素星空）：chosen 主模型自己选的，default 用规则标的默认；老记录、其他情况没有 */
+  modelSource?: 'chosen' | 'default'
+  /** 走的是主模型分组以外的模型 */
+  outsideGroup?: boolean
   /** 原始状态词，界面统一归成 运行中 / 已完成 / 失败 / 已停止 / 排队中 */
   state: string
   /** 毫秒时间戳；不知道时为 0 */

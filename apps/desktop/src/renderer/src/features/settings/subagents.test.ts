@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { savedTypes, siteKey, targetProblem } from './subagents'
+import { dispatchCatalog, savedTypes, siteKey, targetProblem } from './subagents'
 import { BUILTIN_SUBAGENT_TYPES } from '../../../../shared/types/subagents'
 import type { ProviderView } from '../../../../shared/types/providers'
 import type { PlatformGroup } from '@/features/account/platform'
@@ -46,6 +46,30 @@ describe('设置 › 子智能体：选的站点能不能用', () => {
   it('下拉框的值', () => {
     expect(siteKey(custom)).toBe('custom:ds')
     expect(siteKey(route)).toBe('platform:7')
+  })
+})
+
+describe('主模型调度的预览数据', () => {
+  const sites = {
+    providers: [provider({ models: [{ id: 'relay-model', priceRef: 'gpt-6-luna' }, { id: 'deepseek-chat' }] })],
+    platform: { email: 'a@b.c', loaded: true, groups: [group] },
+  }
+
+  it('线路：列出线路的模型；模型没了算不能用', () => {
+    const c = dispatchCatalog({ kind: 'platform', groupId: '7' }, sites)
+    expect(c.siteModels).toEqual(['gpt-5-mini'])
+    expect(c.problem({ kind: 'platform', groupId: '7', account: 'a@b.c', model: 'gone' })).toBe('modelGone')
+  })
+
+  it('自定义接口：计价参照算数，查不到价格时 null', () => {
+    const c = dispatchCatalog({ kind: 'custom', providerId: 'ds' }, sites)
+    expect(c.siteModels).toEqual(['relay-model', 'deepseek-chat'])
+    expect(c.price('relay-model')).toMatchObject({ input: 0.1, output: 0.5 })
+    expect(c.price('no-such-model')).toBeNull()
+  })
+
+  it('分组没了：没有模型', () => {
+    expect(dispatchCatalog({ kind: 'platform', groupId: '9' }, sites).siteModels).toEqual([])
   })
 })
 
