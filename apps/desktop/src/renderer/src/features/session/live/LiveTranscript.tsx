@@ -503,7 +503,22 @@ export function LiveTranscript({
     return null
   }, [blocks])
   const liveOpen = liveProcess !== null && (folds[liveProcess] ?? minimal)
-  const liveFold = liveProcess !== null ? { open: liveOpen, toggle: () => setFold(liveProcess, !liveOpen) } : null
+  const liveFold =
+    liveProcess !== null
+      ? {
+          open: liveOpen,
+          toggle: () => {
+            // 状态行在最下面，展开的内容在它上面：要跟到底，不然它被推出屏幕。点击算刚操作过，不清掉就不跟（followResize）
+            if (!liveOpen) {
+              stick.current = true
+              released.current = false
+              detached.current = false
+              lastInteract.current = 0
+            }
+            setFold(liveProcess, !liveOpen)
+          },
+        }
+      : null
   // 空闲时直接发送的消息在引擎启动期间先显示在对话里（不是排队），开始执行后由正式的用户消息替换
   const starting = snapshot ? snapshot.queue.filter(q => isStarting(q, snapshot.queuePaused)) : []
 
