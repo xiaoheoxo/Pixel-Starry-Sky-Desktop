@@ -1304,26 +1304,31 @@
   }
 }
 
-/* Ultrafast 长按（docs/codex-engine.md §3.5）：按住铺满，按满起飞。进度说明还要按多久，关闭动画时也照走 */
+/* Ultrafast 长按（docs/codex-engine.md §3.5）：按住时开关铺满、圆点滑过去，按满起飞。进度说明还要按多久，关闭动画时也照走。
+   时长 300ms = SpeedRow 的 HOLD_MS - CLICK_MS */
 .speed-fill {
   position: absolute;
   inset: 0;
   transform-origin: left;
-  background: color-mix(in oklab, var(--warn) 42%, transparent);
-  animation: speed-fill 600ms linear forwards;
+  background: var(--warn);
+  animation: speed-fill 300ms linear forwards;
+}
+.speed-holding[aria-checked='false'] > .ui-switch-knob {
+  animation: speed-knob 300ms linear forwards;
 }
 .speed-trail {
   position: absolute;
   left: 2px;
   top: -2px;
   width: 3px;
-  height: 18px;
+  height: 16px;
   border-radius: 3px;
   opacity: 0;
   background: linear-gradient(to top, transparent, var(--warn));
   transform: rotate(45deg);
+  pointer-events: none;
 }
-.speed-launch {
+.speed-glow {
   animation: speed-glow 620ms ease-out;
 }
 .speed-launch .speed-rocket {
@@ -1331,6 +1336,9 @@
 }
 .speed-launch .speed-trail {
   animation: speed-trail 620ms ease-out;
+}
+.speed-nudge {
+  animation: speed-nudge 280ms ease-out;
 }
 @keyframes speed-fill {
   from {
@@ -1340,12 +1348,17 @@
     transform: scaleX(1);
   }
 }
+@keyframes speed-knob {
+  to {
+    translate: 14px;
+  }
+}
 @keyframes speed-glow {
   from {
     box-shadow: 0 0 0 0 color-mix(in oklab, var(--warn) 65%, transparent);
   }
   to {
-    box-shadow: 0 0 0 14px transparent;
+    box-shadow: 0 0 0 10px transparent;
   }
 }
 @keyframes speed-launch {
@@ -1354,11 +1367,11 @@
     opacity: 1;
   }
   45% {
-    transform: translate(22px, -22px) scale(0.8);
+    transform: translate(18px, -18px) scale(0.8);
     opacity: 0;
   }
   46% {
-    transform: translate(-14px, 14px) scale(0.8);
+    transform: translate(-12px, 12px) scale(0.8);
     opacity: 0;
   }
   100% {
@@ -1376,14 +1389,26 @@
   }
   100% {
     opacity: 0;
-    transform: rotate(45deg) translateY(-16px);
+    transform: rotate(45deg) translateY(-14px);
   }
 }
-:root[data-motion='off'] :is(.speed-launch, .speed-launch .speed-rocket, .speed-launch .speed-trail) {
+@keyframes speed-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-3px);
+  }
+  70% {
+    transform: translateX(3px);
+  }
+}
+:root[data-motion='off'] :is(.speed-glow, .speed-launch .speed-rocket, .speed-launch .speed-trail, .speed-nudge) {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-motion='system'] :is(.speed-launch, .speed-launch .speed-rocket, .speed-launch .speed-trail) {
+  :root[data-motion='system'] :is(.speed-glow, .speed-launch .speed-rocket, .speed-launch .speed-trail, .speed-nudge) {
     animation: none;
   }
 }

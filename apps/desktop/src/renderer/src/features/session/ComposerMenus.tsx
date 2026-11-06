@@ -7,7 +7,6 @@ import {
   Brain,
   Check,
   ChevronDown,
-  Clock,
   ListChecks,
   Rocket,
   RotateCcw,
@@ -19,10 +18,11 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { PermissionMode } from '@pixelsky/protocol'
-import { IconButton, Popover, Switch, cn, useToast } from '@/ui'
+import { IconButton, Popover, cn, useToast } from '@/ui'
 import { PERMISSION_HINTS, PERMISSION_INFO, effortLabel, effortLook, type ComposerController } from '@/features/engine'
 import { EffortSlider } from './EffortSlider'
 import { SpeedRow } from './SpeedRow'
+import { SwitchRow } from './SwitchRow'
 import { useSessionCheckSwitch } from '@/features/checks/sessionChecks'
 import { effortDiff } from '@/features/engine/effortDefaults'
 import { needsFullConfirm, saferMode } from './fullAccess'
@@ -79,54 +79,6 @@ export function MenuRow({
 
 export const TRIGGER =
   'press no-drag inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-list text-fg-secondary hover:bg-hover hover:text-fg'
-
-/** 开关一行：名字 + 说明 + 开关 */
-function SwitchRow({
-  icon,
-  label,
-  desc,
-  pending,
-  checked,
-  disabled,
-  tone,
-  onChange,
-}: {
-  icon?: ReactNode
-  label: string
-  desc: string
-  /** 改了但还没生效：标签旁的小字，说明前加时钟 */
-  pending?: string
-  checked: boolean
-  disabled?: boolean
-  tone?: 'ultracode'
-  onChange: (on: boolean) => void
-}) {
-  useI18n()
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-ui text-fg">
-          {icon}
-          <span className={cn(tone === 'ultracode' && checked && 'effort-max ultracode-glow')}>{label}</span>
-          {pending && (
-            <span className="rounded-sm bg-subtle px-1.5 text-label leading-5 whitespace-nowrap text-fg-muted">
-              {pending}
-            </span>
-          )}
-        </span>
-        {pending ? (
-          <span className="mt-0.5 flex items-start gap-1 text-meta text-fg-secondary">
-            <Clock size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warn" />
-            {desc}
-          </span>
-        ) : (
-          <span className="mt-0.5 block text-meta text-fg-muted">{desc}</span>
-        )}
-      </span>
-      <Switch checked={checked} disabled={disabled} label={label} size="sm" tone={tone} onChange={onChange} />
-    </div>
-  )
-}
 
 /**
  * 推理强度：滑块 + 下面的会话开关（Ultracode、Fast 模式、显示思考摘要，引擎支持时才出现）。

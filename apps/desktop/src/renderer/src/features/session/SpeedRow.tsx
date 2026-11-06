@@ -1,26 +1,23 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
-// 官方登录能开 Ultrafast 时，Fast 开关换成这一行（docs/codex-engine.md §3.5）：
-// 普通、Fast 点一下；Ultrafast 按 8 倍扣，要按住 0.6 秒才开，提前松手或移开就取消
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { Clock, Rocket, Zap } from 'lucide-react'
+// 官方登录能开 Ultrafast 时的 Fast 行（docs/codex-engine.md §3.5）：和其它开关一样点一下开关 Fast，
+// 按住 0.6 秒升成 Ultrafast（8 倍扣费，防误点），中途松手或移开就取消；开着 Ultrafast 时点一下关掉
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { Rocket, Zap } from 'lucide-react'
 import { cn } from '@/ui'
+import { SwitchRow } from './SwitchRow'
 
 export type Speed = 'off' | 'fast' | 'ultrafast'
 
 const HOLD_MS = 600
+/** 短于这个算点一下，之后才开始显示进度（globals.css 的 speed-fill 时长是两者之差） */
+const CLICK_MS = 300
 /** 起飞动画的时长，和 globals.css 的 speed-launch 一致 */
 const LAUNCH_MS = 620
-/** 移出按钮多远算放弃（手抖不算） */
+/** 「要按满」的提示留多久：不能一直盖着说明和「下一轮生效」 */
+const HINT_MS = 3000
+/** 移出开关多远算放弃（手抖不算） */
 const SLOP = 8
-
-const segment = (selected: boolean): string =>
-  cn(
-    'relative flex h-8 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-md border text-ui whitespace-nowrap select-none',
-    selected
-      ? 'border-line bg-surface font-medium text-fg shadow-sm'
-      : 'border-transparent text-fg-muted hover:text-fg',
-  )
 
 export function SpeedRow({
   speed,
@@ -36,166 +33,171 @@ export function SpeedRow({
   const [holding, setHolding] = useState(false)
   const [tooShort, setTooShort] = useState(false)
   const [launching, setLaunching] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const launchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const startedAt = useRef(0)
+  const keyDown = useRef(false)
+  // 这次按下已经有结果（按满或取消），松手后跟来的 click 不再算点一下
+  const handled = useRef(false)
 
-  const stopTimer = (): boolean => {
-    const was = timer.current !== null
-    if (timer.current !== null) clearTimeout(timer.current)
-    timer.current = null
-    return was
-  }
-  const start = (): void => {
-    if (speed === 'ultrafast' || timer.current !== null) return
-    setTooShort(false)
-    setHolding(true)
-    timer.current = setTimeout(() => {
-      timer.current = null
-      setHolding(false)
-      setLaunching(true)
-      launchTimer.current = setTimeout(() => setLaunching(false), LAUNCH_MS)
-      onChange('ultrafast')
-    }, HOLD_MS)
-  }
-  const cancel = (): void => {
-    if (!stopTimer()) return
+  const stop = (): void => {
+    if (holdTimer.current !== null) clearTimeout(holdTimer.current)
+    if (showTimer.current !== null) clearTimeout(showTimer.current)
+    holdTimer.current = showTimer.current = null
     setHolding(false)
-    setTooShort(true)
-  }
-  // 菜单在按住时关掉不算按满；切走窗口收不到松手事件，当作取消
-  useEffect(
-    () => () => {
-      stopTimer()
-      if (launchTimer.current !== null) clearTimeout(launchTimer.current)
-    },
-    [],
-  )
-  useEffect(() => {
-    if (!holding) return
-    window.addEventListener('blur', cancel)
-    return () => window.removeEventListener('blur', cancel)
-  })
-
-  const onPointerMove = (e: PointerEvent<HTMLButtonElement>): void => {
-    if (timer.current === null) return
-    const r = e.currentTarget.getBoundingClientRect()
-    if (
-      e.clientX < r.left - SLOP ||
-      e.clientX > r.right + SLOP ||
-      e.clientY < r.top - SLOP ||
-      e.clientY > r.bottom + SLOP
-    )
-      cancel()
   }
   const pick = (next: Speed): void => {
     setTooShort(false)
     onChange(next)
   }
+  const toggle = (): void => pick(speed === 'off' ? 'fast' : 'off')
+  const begin = (): void => {
+    startedAt.current = performance.now()
+    handled.current = false
+    setTooShort(false)
+    if (speed === 'ultrafast') return
+    showTimer.current = setTimeout(() => setHolding(true), CLICK_MS)
+    holdTimer.current = setTimeout(() => {
+      stop()
+      handled.current = true
+      setLaunching(true)
+      launchTimer.current = setTimeout(() => setLaunching(false), LAUNCH_MS)
+      pick('ultrafast')
+    }, HOLD_MS)
+  }
+  /** 按着的时候放弃：什么都不改，说一声要按满 */
+  const abort = (): void => {
+    handled.current = true
+    if (holdTimer.current === null) return
+    stop()
+    setTooShort(true)
+  }
+  /** 松手：够快是点一下（返回 true），否则算没按满 */
+  const release = (): boolean => {
+    if (holdTimer.current === null) return !handled.current
+    if (performance.now() - startedAt.current >= CLICK_MS) {
+      abort()
+      return false
+    }
+    stop()
+    return true
+  }
+  // 菜单在按住时关掉不算按满；切走窗口收不到松手事件，当作放弃
+  useEffect(
+    () => () => {
+      if (holdTimer.current !== null) clearTimeout(holdTimer.current)
+      if (showTimer.current !== null) clearTimeout(showTimer.current)
+      if (launchTimer.current !== null) clearTimeout(launchTimer.current)
+    },
+    [],
+  )
+  useEffect(() => {
+    if (!tooShort) return
+    const timer = setTimeout(() => setTooShort(false), HINT_MS)
+    return () => clearTimeout(timer)
+  }, [tooShort])
+  useEffect(() => {
+    if (!holding) return
+    window.addEventListener('blur', abort)
+    return () => window.removeEventListener('blur', abort)
+  })
 
-  const speedName = (s: Speed): string => (s === 'off' ? tr('speed.off') : s === 'fast' ? 'Fast' : 'Ultrafast')
-  const hint: ReactNode = holding
-    ? tr('speed.holding')
-    : tooShort
-      ? tr('speed.tooShort')
-      : pending
-        ? tr('speed.next', { p0: speedName(speed) })
-        : speed === 'ultrafast'
-          ? tr('speed.ultrafastDesc')
-          : `${tr(speed === 'fast' ? 'speed.fastDesc' : 'speed.offDesc')}${tr('speed.holdHint')}`
+  const onPointerMove = (e: PointerEvent<HTMLButtonElement>): void => {
+    const r = e.currentTarget.getBoundingClientRect()
+    if (
+      e.buttons !== 0 &&
+      (e.clientX < r.left - SLOP ||
+        e.clientX > r.right + SLOP ||
+        e.clientY < r.top - SLOP ||
+        e.clientY > r.bottom + SLOP)
+    )
+      abort()
+  }
+
+  const ultrafast = speed === 'ultrafast'
   const on = speed !== 'off'
-  const Icon = speed === 'ultrafast' ? Rocket : Zap
-
+  const Icon = ultrafast ? Rocket : Zap
+  const speedName = speed === 'off' ? tr('speed.off') : ultrafast ? 'Ultrafast' : 'Fast'
   return (
-    <div className="py-2">
-      <span className="flex items-center gap-1.5 text-ui text-fg">
-        <Icon size={14} strokeWidth={1.75} className={pending ? 'text-warn' : on ? 'text-accent' : 'text-fg-muted'} />
-        {tr('speed.title')}
-        {pending && (
-          <span className="rounded-sm bg-subtle px-1.5 text-label leading-5 whitespace-nowrap text-fg-muted">
-            {tr('codex.fastPending')}
-          </span>
-        )}
-      </span>
-      <div
-        role="radiogroup"
-        aria-label={tr('speed.title')}
-        className="mt-1.5 grid grid-cols-[1fr_1fr_1.35fr] rounded-lg bg-subtle p-0.5"
-      >
+    <SwitchRow
+      icon={
+        <span className={cn('relative flex', launching && 'speed-launch')}>
+          <span className="speed-trail" aria-hidden />
+          <Icon
+            size={14}
+            strokeWidth={1.75}
+            className={cn('speed-rocket', pending ? 'text-warn' : on ? 'text-accent' : 'text-fg-muted')}
+          />
+        </span>
+      }
+      label={ultrafast ? 'Ultrafast' : tr('session.ComposerMenus.fastMode')}
+      pending={pending && !holding && !tooShort ? tr('codex.fastPending') : undefined}
+      desc={
+        holding
+          ? tr('speed.holding')
+          : tooShort
+            ? tr('speed.tooShort')
+            : pending
+              ? tr('speed.next', { p0: speedName })
+              : ultrafast
+                ? tr('speed.ultrafastDesc')
+                : tr('speed.holdHint')
+      }
+      descClass={holding ? 'font-medium text-warn-fg' : tooShort ? 'speed-nudge text-fg-secondary' : undefined}
+      control={
         <button
           type="button"
-          role="radio"
-          aria-checked={speed === 'off'}
-          className={segment(speed === 'off')}
-          onClick={() => pick('off')}
-        >
-          {tr('speed.off')}
-        </button>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={speed === 'fast'}
-          className={segment(speed === 'fast')}
-          onClick={() => pick('fast')}
-        >
-          <Zap size={13} strokeWidth={1.75} className="shrink-0" />
-          Fast
-        </button>
-        <button
-          type="button"
-          role="radio"
-          aria-checked={speed === 'ultrafast'}
-          aria-label={tr('speed.holdLabel')}
-          data-speed-ultrafast
+          role="switch"
+          aria-checked={on}
+          aria-label={ultrafast ? 'Ultrafast' : tr('speed.holdLabel')}
+          data-speed-switch={speed}
           className={cn(
-            segment(speed === 'ultrafast'),
-            'touch-none',
-            holding && 'text-fg',
-            launching && 'speed-launch',
+            'ui-switch no-drag relative inline-flex h-5 w-[34px] shrink-0 touch-none items-center overflow-hidden rounded-full px-0.5 select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+            holding && 'speed-holding',
+            launching && 'speed-glow',
           )}
-          // 读屏软件激活控件只发一次点击（没有指针和按键），按不住：这时已经读过「按住开启」和扣费，直接开
+          // 读屏软件激活只发一次点击，按不住：依次走 普通 → Fast → Ultrafast → 普通，名字和状态都会读出来
           onClick={e => {
-            if (e.detail === 0 && speed !== 'ultrafast') pick('ultrafast')
+            if (handled.current) {
+              handled.current = false
+              return
+            }
+            if (e.detail === 0) pick(speed === 'off' ? 'fast' : speed === 'fast' ? 'ultrafast' : 'off')
+            else toggle()
           }}
           onPointerDown={e => {
             if (e.button !== 0) return
             e.currentTarget.setPointerCapture(e.pointerId)
-            start()
+            begin()
           }}
           onPointerMove={onPointerMove}
-          onPointerUp={cancel}
-          onPointerCancel={cancel}
-          onLostPointerCapture={cancel}
+          onPointerUp={release}
+          onPointerCancel={abort}
+          onLostPointerCapture={() => holdTimer.current !== null && abort()}
+          onBlur={() => holdTimer.current !== null && abort()}
           onKeyDown={e => {
             if (e.key !== ' ' && e.key !== 'Enter') return
             e.preventDefault()
-            if (!e.repeat) start()
+            if (e.repeat) return
+            keyDown.current = true
+            begin()
           }}
           onKeyUp={e => {
-            if (e.key === ' ' || e.key === 'Enter') cancel()
+            if ((e.key !== ' ' && e.key !== 'Enter') || !keyDown.current) return
+            keyDown.current = false
+            if (release()) toggle()
+            handled.current = false
           }}
         >
-          {holding && <span className="speed-fill" data-speed-fill aria-hidden />}
-          <span className="relative z-10 flex items-center gap-1.5">
-            <span className="relative flex">
-              <span className="speed-trail" aria-hidden />
-              <Rocket size={13} strokeWidth={1.75} className="speed-rocket shrink-0" />
-            </span>
-            Ultrafast
-          </span>
+          {/* 不用 span：全局的 [role='switch'] > span 动画是给圆点的 */}
+          {holding && <i className="speed-fill" data-speed-fill aria-hidden />}
+          <span
+            aria-hidden
+            className={cn('ui-switch-knob relative z-10 inline-block size-4 rounded-full', on && 'translate-x-[14px]')}
+          />
         </button>
-      </div>
-      <span
-        data-speed-hint
-        className={cn(
-          'mt-1.5 flex items-start gap-1 text-meta',
-          holding ? 'font-medium text-warn-fg' : pending ? 'text-fg-secondary' : 'text-fg-muted',
-        )}
-      >
-        {pending && !holding && !tooShort && (
-          <Clock size={12} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warn" />
-        )}
-        {hint}
-      </span>
-    </div>
+      }
+    />
   )
 }
