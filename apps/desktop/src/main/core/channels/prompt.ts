@@ -236,10 +236,25 @@ export interface DispatchInput {
   tools?: { relay: boolean } | null
 }
 
+/** 看图走工具：没这句模型会自己开电脑控制去截屏 */
+function attachmentHint(locale: Locale): string {
+  return en(locale)
+    ? 'To see images or files in this channel use the attachment_read tool (no id: the ones on this task; with an id: that message or task card). Do not use computer control or screenshots for this.'
+    : '要看频道里的图片或文件，用 attachment_read 工具（不填 id 读这项活带的，填 id 读那条消息或任务卡的），不要开电脑控制、截屏去看。'
+}
+
+/** 工具列表里找不到 task_done 时怎么交付（flowRoundEnded 认回复里带 task_done: true 的 JSON） */
+function deliveryFallback(locale: Locale): string {
+  return en(locale)
+    ? 'If task_done is not in your tool list, first look it up with ToolSearch (mcp__pixelsky_channel__task_done) if you have that tool. If it really is unavailable, deliver by ending your reply with a fenced json block: {"task_done": true, "summary": "...", "files": ["..."]} (review steps also add "verdict" and "issues").'
+    : '工具列表里找不到 task_done 时，有 ToolSearch 就先搜 mcp__pixelsky_channel__task_done；确实没有这个工具，就在回复最后写一个 json 代码块交付：{"task_done": true, "summary": "…", "files": ["…"]}（审查步骤另外写 verdict 和 issues）。'
+}
+
 function toolsText(tools: { relay: boolean }, locale: Locale): string {
   if (en(locale))
     return [
       "You have the channel tools (MCP server pixelsky_channel): channel_read reads earlier messages in this channel (only the last few are above), thread_read reads the discussion thread of a task card, channel_reply posts a short note in this task's thread (progress, questions; it does not interrupt anyone), and task_propose suggests giving a task to another AI member (the user decides whether to send it).",
+      attachmentHint(locale),
       tools.relay
         ? 'This channel lets AI members hand work to each other: task_handover gives part of the work to another member right away. For the same handoff use either task_handover or "@name" in your final reply, not both.'
         : '',
@@ -248,6 +263,7 @@ function toolsText(tools: { relay: boolean }, locale: Locale): string {
       .join('\n')
   return [
     '你有频道工具（MCP 服务 pixelsky_channel）：channel_read 读这个频道更早的消息（上面只带了最近几条），thread_read 读某张任务卡的讨论串，channel_reply 在这项活的串里写一句（进展、问题，不会打断别人），task_propose 提议把一项活交给别的 AI 成员（由用户决定派不派）。',
+    attachmentHint(locale),
     tools.relay
       ? '这个频道允许 AI 成员互相派活：task_handover 可以直接把一部分活交给别的成员。同一次交接用 task_handover 或在最后的回复里写「@名字」二选一，不要两样都用。'
       : '',
@@ -497,6 +513,8 @@ export function flowStepPrompt(input: FlowStepPromptInput): string {
         : '',
       `Your step: ${step.no} ${step.title}`,
       `When you are really done, call the task_done tool (summary, files you changed); the flow moves on only after task_done. If you need something from another member${peers ? ` (${peers})` : ''}, call member_ask and then end your turn; the answer will be sent to you as a new message. If something only the user can decide is missing (it changes the result and you cannot infer it), call user_ask and end your turn instead of guessing or stopping; keep doing the parts that do not depend on it.`,
+      deliveryFallback(locale),
+      attachmentHint(locale),
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -528,6 +546,8 @@ export function flowStepPrompt(input: FlowStepPromptInput): string {
       : '',
     `你这一步：${step.no} ${step.title}`,
     `确实做完了再调用 task_done 工具交付（摘要、你改的文件）；流程只在 task_done 之后往下走。需要别的成员${peers ? `（${peers}）` : ''}提供东西时，调用 member_ask，然后结束这一轮，回答会作为新消息发给你。缺了只有用户能定的信息（影响结果、又推不出来）时，调用 user_ask 问用户再结束这一轮，不要瞎猜，也不要直接停下；不依赖它的部分先做。`,
+    deliveryFallback(locale),
+    attachmentHint(locale),
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -620,7 +640,7 @@ export function flowRefinePrompt(input: {
     return [
       `${input.from} said in the channel, about the proposal you made (nothing has started yet):\n${quote(input.text)}`,
       input.attached
-        ? '(They also attached images or files, which you cannot see here; ask in your reply if you need them.)'
+        ? '(They also attached images or files; read them with the attachment_read tool if you need them.)'
         : '',
       `Current steps:\n${steps || '(none)'}`,
       brief ? `Current ${brief}` : '',
@@ -630,7 +650,7 @@ export function flowRefinePrompt(input: {
       .join('\n\n')
   return [
     `${input.from} 在频道里接着说（关于你拆的提案，现在还没开工）：\n${quote(input.text)}`,
-    input.attached ? '（还带了图片或文件，这里看不到；需要的话在回复里说）' : '',
+    input.attached ? '（还带了图片或文件；需要的话用 attachment_read 工具读）' : '',
     `现在的步骤：\n${steps || '（还没有）'}`,
     brief ? `现在的${brief}` : '',
     '如果这是在补充细节或要你改，就更新计划：再调用一次 task_done，交回完整的 steps 和 brief（刚定下的写进 facts）。只改用户要改的，其余照旧，包括用户在卡上改过的分工；不要再提新问题。然后在回复里用一两句说改了什么。如果和计划无关（闲聊、提问），只在回复里回答，不要调用 task_done。不要开始干活。',
@@ -664,8 +684,8 @@ export function flowAnswerPrompt(locale: Locale, from: string, answer: string): 
 /** 一轮做完了却没交付：提醒一次 */
 export function flowRemindPrompt(locale: Locale): string {
   return en(locale)
-    ? 'Your turn ended without task_done, so the flow is still waiting on this step. If it is done, call task_done now (summary, files). If not, keep going, or say exactly what is missing.'
-    : '你这一轮结束了，但还没有调用 task_done，流程还在等这一步。做完了就现在调用 task_done（摘要、文件）；没做完就接着做，或者写清楚还差什么。'
+    ? `Your turn ended without task_done, so the flow is still waiting on this step. If it is done, call task_done now (summary, files). If not, keep going, or say exactly what is missing. ${deliveryFallback(locale)}`
+    : `你这一轮结束了，但还没有调用 task_done，流程还在等这一步。做完了就现在调用 task_done（摘要、文件）；没做完就接着做，或者写清楚还差什么。${deliveryFallback(locale)}`
 }
 
 /** 被审查打回：问题清单 */

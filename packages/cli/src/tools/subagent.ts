@@ -267,6 +267,9 @@ export function addModelUsage(
 }
 
 /** 子进程的启动参数 */
+/** 频道流程按会话认人：子代理调了就算主代理这一步交付或提问，所以只留给主代理 */
+const PARENT_ONLY_TOOLS = ['task_done', 'member_ask', 'user_ask'].map(name => `mcp__pixelsky_channel__${name}`)
+
 export function childArgs(options: {
   entry: string
   mode: string
@@ -285,7 +288,9 @@ export function childArgs(options: {
     'rpc',
     '--permission-mode',
     options.mode,
-    ...(options.readOnly ? ['--tools', READ_ONLY_TOOLS.join(','), '--no-mcp'] : ['--tools', '+grep,+find,+ls']),
+    ...(options.readOnly
+      ? ['--tools', READ_ONLY_TOOLS.join(','), '--no-mcp']
+      : ['--tools', '+grep,+find,+ls', '--exclude-tools', PARENT_ONLY_TOOLS.join(',')]),
     // 前面加一行标题：Pi 把能找到的路径当文件读，带换行的文字不会被当成路径
     ...(options.instructions?.trim()
       ? [

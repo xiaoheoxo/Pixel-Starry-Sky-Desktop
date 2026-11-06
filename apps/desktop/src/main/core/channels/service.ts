@@ -13,6 +13,8 @@ import {
   validateFiles,
   validateImages,
   type HostEvent,
+  type ImageAttachment,
+  type Item,
   type MessageInput,
   type OpenedSession,
   type EngineId,
@@ -26,6 +28,7 @@ import {
 import type { Locale } from '../../../shared/i18n/messages'
 import type {
   AgentConfig,
+  ChannelAttachedMeta,
   AgentInput,
   AgentMember,
   Channel,
@@ -141,6 +144,7 @@ import {
 import {
   changedFiles,
   clientMessageId,
+  isChannelSent,
   diffTotal,
   reconcileRun,
   trackEvent,
@@ -173,6 +177,10 @@ export const PIN_MAX = 10
  * 这里是一条回复最多交给几个成员、记几条「不再限制」的接力
  */
 const RELAY_TARGETS = 3
+/** 主对话交活时往回找带图的用户消息，最多看这么多条：再早的多半和这次交的活无关 */
+const SESSION_IMAGE_MESSAGES = 5
+/** 一页只回看 128 KB，模型跑了很多命令时用户那条在更前面；翻这么多页还没找到就不带 */
+const SESSION_IMAGE_PAGES = 10
 const RELAY_FREE_MAX = 50
 /** 交接时带上的上一项活的回复最多这么多字；派活要求（回复里 @ 到对方的那几段）最多这么多字 */
 const HANDOFF_CHARS = 4000
@@ -1343,11 +1351,14 @@ export class Channels {
     let total = 0
     for (const id of run.attach) {
       const data = await this.store.readAttachments(run.channelId, id)
-      for (const image of data.images)
+      for (const image of data.images) {
+        // 同一张图可能在两条消息上（主对话带过一次，又接力回来）：引擎不收重复 id
+        if (images.some(i => i.id === image.id)) continue
         if (images.length < MAX_IMAGE_COUNT && total + image.bytes <= MAX_IMAGE_TOTAL) {
           images.push(image)
           total += image.bytes
         } else dropped.images++
+      }
       files.push(...data.files)
     }
     const takesImages = ENGINE_INFO[member.engine]?.caps.imageInput === true
@@ -1586,6 +1597,8 @@ export class Channels {
     replyToId: string | null,
     /** 别的 AI 成员交过来的一跳：交活的成员、接力信息、要求和交接内容 */
     relay?: RelayInput & { from: string; relay: ChannelRelay },
+    /** 除了来源消息自己的，还要带上哪些消息的附件（交活的成员手上那项活带的） */
+    inherit: string[] = [],
   ): string {
     const member = this.member(memberId)!
     const now = this.now()
@@ -1610,6 +1623,7 @@ export class Channels {
       sourceMessageId: source.id,
       round: 1,
       ...(relay ? { relay: relay.relay } : {}),
+      ...(inherit.length ? { attach: inherit } : {}),
     }
     // 接力的来源消息是上一个成员的回复：来源记在这条接力最早那张卡上
     const chat = relay ? this.store.task(relay.relay.chain)?.chat : source.chat
@@ -1617,6 +1631,7 @@ export class Channels {
     void this.store.append(task).catch(e => this.deps.log?.('保存频道消息失败', e))
     this.pushMessage(task)
     const prompt = this.freshPrompt(c, source, member, replyToId, member.mode === 'shared', relay)
+    const attach = [...new Set([...(source.attached ? [source.id] : []), ...inherit])]
     const run: TaskRun = {
       taskId: task.id,
       channelId: c.id,
@@ -1637,7 +1652,7 @@ export class Channels {
       progress: null,
       followUps: [],
       notice: null,
-      ...(source.attached ? { attach: [source.id] } : {}),
+      ...(attach.length ? { attach } : {}),
     }
     this.store.runs.set(task.id, run)
     this.saveRuns()
@@ -1661,6 +1676,7 @@ export class Channels {
     })
     const run = this.store.runs.get(task.id)
     const attach = source.attached ? [source.id] : []
+    if (attach.length) this.patch(c.id, task.id, { attach: [...(task.attach ?? []), ...attach] })
     if (run && run.phase !== 'ended') {
       this.store.runs.set(task.id, {
         ...run,
@@ -2040,14 +2056,22 @@ export class Channels {
               reply: reply.length > HANDOFF_CHARS ? `${reply.slice(0, HANDOFF_CHARS)}…` : reply,
               files: changedFiles(run),
             }
+            const inherit = this.attachIds(task, run)
             for (const r of relays)
-              this.newTask(c, result, r.target, null, {
-                from: run.memberId,
-                author: handoff.from,
-                request: r.request,
-                handoff,
-                relay: r.relay,
-              })
+              this.newTask(
+                c,
+                result,
+                r.target,
+                null,
+                {
+                  from: run.memberId,
+                  author: handoff.from,
+                  request: r.request,
+                  handoff,
+                  relay: r.relay,
+                },
+                inherit,
+              )
           }
         }
       }
@@ -2240,14 +2264,22 @@ export class Channels {
 
   /** task_propose：发一张提议卡，你点「派出去」才派 */
   async toolPropose(sessionId: string, memberName: string, raw: string): Promise<string> {
+    const before = this.callerOf(sessionId)
+    if (before.c.archivedAt) throw new Error('频道已归档，不能再派活')
+    this.peerByName(before.c, before.member, memberName)
+    const id = randomUUID()
+    const attached = await this.carrySessionImages(sessionId, id)
+    // 读图、存图期间状态可能变了：下面都按最新的来
     const { c, task, run, member } = this.callerOf(sessionId)
     if (c.archivedAt) throw new Error('频道已归档，不能再派活')
     const peer = this.peerByName(c, member, memberName)
     const request = this.toolRequest(raw)
     this.countTool(run, 'proposals', TOOL_PROPOSALS_MAX)
+    // 绑定的会话早做完的那张卡（toolCaller 的兜底）带的图和现在这件事无关
+    const inherit = task && run?.phase === 'sent' ? this.attachIds(task, run) : []
     const message: ChannelTextMessage = {
       kind: 'message',
-      id: randomUUID(),
+      id,
       channelId: c.id,
       at: this.now(),
       authorId: member.id,
@@ -2256,7 +2288,8 @@ export class Channels {
       replyToId: task?.id ?? null,
       // 等你决定：算 @你
       mentions: [SELF_ID],
-      proposal: { assigneeId: peer.id, request, state: 'open' },
+      proposal: { assigneeId: peer.id, request, state: 'open', ...(inherit.length ? { attach: inherit } : {}) },
+      ...(attached ? { attached } : {}),
     }
     await this.store.append(message)
     this.pushMessage(message)
@@ -2264,12 +2297,123 @@ export class Channels {
     return `已提议把这项活交给 ${peer.name}，等用户决定派不派。不用等结果，接着做你自己的活。`
   }
 
-  /** task_handover：频道允许互相派活时直接交给别的成员，照接力规则计数，超了就停下等你放行 */
-  async toolHandover(sessionId: string, memberName: string, raw: string): Promise<string> {
+  private handoverCaller(sessionId: string) {
     const { c, task, run, member } = this.callerOf(sessionId)
     if (!c.relay) throw new Error('这个频道没有打开「允许 AI 成员互相派活」，用 task_propose 提议，由用户决定')
     if (c.archivedAt) throw new Error('频道已归档，不能再派活')
     if (!task || !run) throw new Error('你现在没有在做这个频道的活，不能交接')
+    return { c, task, run, member }
+  }
+
+  /** 这项活带的附件在哪些消息上：这一轮带的、卡上记的、来源消息、所在流程的（只留真有附件的） */
+  private attachIds(task: ChannelTask, run: TaskRun | null): string[] {
+    const flow = task.flow && this.flowMessage(task.channelId, task.flow.messageId)?.flow
+    const ids = [...(run?.attach ?? []), ...(task.attach ?? []), task.sourceMessageId, ...(flow?.attach ?? [])]
+    const list = this.store.messages.get(task.channelId) ?? []
+    return [...new Set(ids)].filter((id): id is string =>
+      list.some(m => m.id === id && m.kind === 'message' && !!m.attached),
+    )
+  }
+
+  /** 主对话里最近几条用户消息中最新那条带图的；频道发进来的不算（attachIds 已经按原消息带了，再算就成两份） */
+  private async sessionImageMessage(sessionId: string): Promise<Extract<Item, { kind: 'user' }> | null> {
+    let before: string | null = null
+    let seen = 0
+    for (let page = 0; page < SESSION_IMAGE_PAGES; page++) {
+      const tail = (await this.deps.call('engine:openSessionTail', [sessionId, { limit: 200, before }])) as {
+        snapshot?: { items?: Item[] }
+        before?: string | null
+      } | null
+      const users = (tail?.snapshot?.items ?? [])
+        .filter((i): i is Extract<Item, { kind: 'user' }> => i.kind === 'user' && !i.reconnect && !isChannelSent(i.id))
+        .reverse()
+      for (const item of users) {
+        if (++seen > SESSION_IMAGE_MESSAGES) return null
+        if (item.attachments?.length) return item
+      }
+      before = tail?.before ?? null
+      if (!before) return null
+    }
+    return null
+  }
+
+  /**
+   * 主对话（绑定进频道的会话）交活时带上用户发的图：最近几条用户消息里最新那条带图的。
+   * 存在新消息 id 名下，别的成员不用读整段主对话。读不到就不带，不挡交接
+   */
+  private async carrySessionImages(sessionId: string, messageId: string): Promise<ChannelAttachedMeta | undefined> {
+    const { c, member } = this.callerOf(sessionId)
+    if (!member.bound || member.sharedSessionId !== sessionId) return undefined
+    try {
+      const item = await this.sessionImageMessage(sessionId)
+      if (!item) return undefined
+      const read = await Promise.all(
+        item.attachments!.map(a => this.deps.call('engine:image', [sessionId, item.id, a.id])),
+      )
+      const images = validateImages(read.filter(Boolean))
+      if (!images.length) return undefined
+      // shortcut: 存完后交接又被拦下（接力规则之外的校验）会留下一个没人用的附件文件，删频道时一起清
+      await this.store.saveAttachments(c.id, messageId, { images, files: [] })
+      return { images: images.map(({ dataBase64: _d, ...meta }) => meta), files: [] }
+    } catch (e) {
+      this.deps.log?.('读主对话的图片失败', e)
+      return undefined
+    }
+  }
+
+  /** attachment_read：这项活带的，或频道里某条消息、任务卡的图片和文件 */
+  async toolAttachments(sessionId: string, id?: string): Promise<{ text: string; images: ImageAttachment[] }> {
+    const { c, task, run, member } = this.callerOf(sessionId)
+    let ids: string[]
+    if (id) {
+      const m = this.store.messages.get(c.id)?.find(x => x.id === id)
+      if (!m || m.kind === 'event') throw new Error(`频道里没有 id 为 ${id} 的消息或任务卡`)
+      ids =
+        m.kind === 'task'
+          ? this.attachIds(m, this.store.runs.get(m.id) ?? null)
+          : [...(m.attached ? [m.id] : []), ...(m.proposal?.attach ?? [])]
+    } else {
+      if (!task) throw new Error('你还没有在这个频道里接过活，给出消息或任务卡的 id')
+      ids = this.attachIds(task, run)
+    }
+    const takesImages = ENGINE_INFO[member.engine]?.caps.imageInput === true
+    const images: ImageAttachment[] = []
+    const lines: string[] = []
+    let total = 0
+    let skipped = 0
+    for (const messageId of ids) {
+      const data = await this.store.readAttachments(c.id, messageId)
+      for (const image of data.images) {
+        if (images.some(i => i.id === image.id)) continue
+        if (takesImages && images.length < MAX_IMAGE_COUNT && total + image.bytes <= MAX_IMAGE_TOTAL) {
+          images.push(image)
+          total += image.bytes
+        } else skipped++
+      }
+      for (const f of data.files)
+        lines.push(
+          `文件 ${f.name}${f.path ? `（${f.path}）` : ''}：\n${f.text}${f.tail ? `\n…（中间省略）…\n${f.tail}` : ''}`,
+        )
+    }
+    if (!images.length && !skipped && !lines.length) return { text: '这里没有图片或文件附件。', images: [] }
+    if (images.length) lines.unshift(`${images.length} 张图片：${images.map(i => i.name).join('、')}`)
+    if (skipped)
+      lines.push(
+        takesImages
+          ? `还有 ${skipped} 张图片超过一次能读的上限；给 id 分开读。`
+          : `有 ${skipped} 张图片，但这个引擎不能看图：告诉用户，不要开电脑控制去看。`,
+      )
+    return { text: lines.join('\n\n'), images }
+  }
+
+  /** task_handover：频道允许互相派活时直接交给别的成员，照接力规则计数，超了就停下等你放行 */
+  async toolHandover(sessionId: string, memberName: string, raw: string): Promise<string> {
+    const before = this.handoverCaller(sessionId)
+    this.peerByName(before.c, before.member, memberName)
+    const id = randomUUID()
+    const attached = await this.carrySessionImages(sessionId, id)
+    // 读图、存图期间状态可能变了：下面都按最新的来（从这里到开卡是同一段同步代码）
+    const { c, task, run, member } = this.handoverCaller(sessionId)
     const peer = this.peerByName(c, member, memberName)
     const request = this.toolRequest(raw)
     const used = run.tools ?? { replies: 0, proposals: 0, handover: [] }
@@ -2285,7 +2429,7 @@ export class Channels {
     }
     const source: ChannelTextMessage = {
       kind: 'message',
-      id: randomUUID(),
+      id,
       channelId: c.id,
       at: this.now(),
       authorId: member.id,
@@ -2293,13 +2437,21 @@ export class Channels {
       format: 'plain',
       threadId: task.id,
       mentions: [peer.id, ...(stop && relayRulesOf(c).notify ? [SELF_ID] : [])],
+      ...(attached ? { attached } : {}),
     }
     // 不等写盘：检查到开卡是同一段同步代码，并发的另一次交接看得到这次的记录和卡片
     void this.store.append(source).catch(e => this.deps.log?.('保存频道消息失败', e))
     this.pushMessage(source)
     this.store.runs.set(run.taskId, { ...run, tools: { ...used, handover: [...used.handover, peer.id] } })
     const handoff: Handoff = { from: member.name, title: task.title, reply: '', files: changedFiles(run) }
-    this.newTask(c, source, peer.id, null, { from: member.id, author: member.name, request, handoff, relay })
+    this.newTask(
+      c,
+      source,
+      peer.id,
+      null,
+      { from: member.id, author: member.name, request, handoff, relay },
+      run.phase === 'sent' ? this.attachIds(task, run) : [],
+    )
     this.changed()
     return stop
       ? `已交给 ${peer.name}，但按频道的接力规则停下了，等用户放行后才开始。`
@@ -2316,7 +2468,14 @@ export class Channels {
     if (accept) {
       const target = this.member(m.proposal.assigneeId)
       if (!target || !c.memberIds.includes(target.id)) throw new Error('成员已经不在这个频道里了')
-      taskId = this.newTask(c, { ...m, authorId: SELF_ID, text: m.proposal.request }, target.id, m.replyToId ?? null)
+      taskId = this.newTask(
+        c,
+        { ...m, authorId: SELF_ID, text: m.proposal.request },
+        target.id,
+        m.replyToId ?? null,
+        undefined,
+        m.proposal.attach,
+      )
     }
     const next: ChannelTextMessage = {
       ...m,
@@ -2662,7 +2821,16 @@ export class Channels {
         continue
       }
       const plan = copyPlan(flow, messageId, id, starting)
-      const taskId = this.flowTask(c, m, member.id, step.title, id, this.stepPrompt(c, flow, step, plan), plan)
+      const taskId = this.flowTask(
+        c,
+        m,
+        member.id,
+        step.title,
+        id,
+        this.stepPrompt(c, flow, step, plan),
+        plan,
+        flow.attach,
+      )
       this.updateFlow(channelId, messageId, f => withStep(f, id, { status: 'running', taskId }))
       void this.pump(member.id)
     }
@@ -2725,6 +2893,11 @@ export class Channels {
       this.pauseFlow(run.channelId, messageId, finish.error === DIRTY_ERROR ? 'dirty' : 'failed', stepId)
     } else if (run.done) this.deliver(run, step)
     else if (run.ask) this.updateFlow(run.channelId, messageId, f => withStep(f, stepId, { status: 'asking' }))
+    else {
+      // 模型拿不到 task_done 工具时写在回复里的交付
+      const done = this.deliveryFromReply(run, step)
+      if (done) this.deliver({ ...run, done }, step)
+    }
     if (more) return this.advance(run.channelId, messageId)
     // 这张卡接着来一轮：先答排着的问题，再发等到的回答，最后提醒交付
     const r = this.store.runs.get(run.taskId) ?? run
@@ -2856,6 +3029,26 @@ export class Channels {
     if (run.answering) throw new Error('这一轮是在回答别的成员的问题：直接在回复里写回答，不用 task_done')
     if (step?.status === 'delivered' || step?.status === 'gated')
       throw new Error('这一步已经交付过了，这一轮只用回复说明')
+    const { done, dropped } = this.deliveryOf(run, step, args)
+    if (!ref.stepId) {
+      if (flow.status !== 'planning') throw new Error('流程已经不在拆分中了')
+      // 换了人拟计划：旧的那一项交回也不算数，别回「已交回」
+      if (flow.planner?.taskId !== run.taskId) throw new Error('已经换别的成员拟计划了，这一轮不用再交回')
+      Object.assign(done, this.planDelivery(c, flow, args))
+    }
+    this.store.runs.set(run.taskId, { ...run, done })
+    this.saveRuns()
+    const note = dropped.length ? `（这些路径不在工作区里，没有记下：${dropped.join('、')}）` : ''
+    if (!ref.stepId && done.questions) return '问题已交给用户，答完会发给你。可以结束这一轮了。'
+    return ref.stepId ? `已交付，可以结束这一轮了。${note}` : '拆好的流程已交回，等用户确认后开始。可以结束这一轮了。'
+  }
+
+  /** 交付内容（task_done 的参数，或写在回复里的同样 JSON）；不合格时抛错，错误信息给模型看 */
+  private deliveryOf(
+    run: TaskRun,
+    step: FlowStep | null | undefined,
+    args: Record<string, unknown>,
+  ): { done: NonNullable<TaskRun['done']>; dropped: string[] } {
     const summary = typeof args.summary === 'string' ? args.summary.trim() : ''
     if (!summary) throw new Error('summary 不能为空')
     const list = (v: unknown, max: number, chars: number): string[] =>
@@ -2865,16 +3058,11 @@ export class Channels {
             .slice(0, max)
             .map(x => x.trim().slice(0, chars))
         : []
-    const { files, dropped } = this.workFiles(run, step, list(args.files, 50, 300))
+    const { files, dropped } = this.workFiles(run, step ?? null, list(args.files, 50, 300))
     const done: NonNullable<TaskRun['done']> = { summary: summary.slice(0, 2000), files }
     const open = list(args.open, 10, 300)
     if (open.length) done.open = open
-    if (!ref.stepId) {
-      if (flow.status !== 'planning') throw new Error('流程已经不在拆分中了')
-      // 换了人拟计划：旧的那一项交回也不算数，别回「已交回」
-      if (flow.planner?.taskId !== run.taskId) throw new Error('已经换别的成员拟计划了，这一轮不用再交回')
-      Object.assign(done, this.planDelivery(c, flow, args))
-    } else if (step?.kind === 'review') {
+    if (step?.kind === 'review') {
       if (args.verdict !== 'pass' && args.verdict !== 'reject')
         throw new Error('审查步骤要写 verdict：pass（通过）或 reject（打回）')
       done.verdict = args.verdict
@@ -2883,11 +3071,27 @@ export class Channels {
         if (!done.issues.length) throw new Error('打回时 issues 至少写一个问题')
       }
     }
-    this.store.runs.set(run.taskId, { ...run, done })
-    this.saveRuns()
-    const note = dropped.length ? `（这些路径不在工作区里，没有记下：${dropped.join('、')}）` : ''
-    if (!ref.stepId && done.questions) return '问题已交给用户，答完会发给你。可以结束这一轮了。'
-    return ref.stepId ? `已交付，可以结束这一轮了。${note}` : '拆好的流程已交回，等用户确认后开始。可以结束这一轮了。'
+    return { done, dropped }
+  }
+
+  /** 回复里的交付：要有 task_done: true，普通回复里碰巧有的 JSON 不算；不合格就当没交，走提醒 */
+  private deliveryFromReply(run: TaskRun, step: FlowStep): NonNullable<TaskRun['done']> | null {
+    const reply = run.reply?.trim()
+    if (!reply) return null
+    for (const args of jsonObjects(reply)) {
+      if (args.task_done !== true) continue
+      // 照抄提示词里的示例（「做完后我会写 …」）不算交付
+      const placeholder = (v: unknown): boolean => typeof v === 'string' && /^[.…。\s]+$/.test(v)
+      if (placeholder(args.summary)) return null
+      try {
+        const files = Array.isArray(args.files) ? args.files.filter(f => !placeholder(f)) : args.files
+        return this.deliveryOf(run, step, { ...args, files }).done
+      } catch (e) {
+        this.deps.log?.('回复里的交付不合格', e)
+        return null
+      }
+    }
+    return null
   }
 
   /** 拟计划的成员交回的（task_done，或写在回复里的同样 JSON）：先问就只有 questions，否则是步骤、要点和短标题；不合格抛错 */
@@ -3357,6 +3561,8 @@ export class Channels {
         ...x,
         status: x.status === 'draft' ? 'planning' : x.status,
         planner: x.planner ? { ...x.planner, notes: [...(x.planner.notes ?? []), note].slice(-20) } : x.planner,
+        // 提示词让它用 attachment_read 读这张图；开工后每一步也要带上
+        ...(m.attached ? { attach: [...(x.attach ?? []), m.id] } : {}),
       }),
       chat,
     )
@@ -3535,6 +3741,7 @@ export class Channels {
           steps,
           maxRejects: FLOW_MAX_REJECTS,
           planner,
+          ...(source?.attached ? { attach: [source.id] } : {}),
           ...(limits ? { limits } : {}),
           ...(a.isolate === false ? { isolate: false } : {}),
         },
@@ -3695,7 +3902,8 @@ export class Channels {
           '',
           prompt,
           undefined,
-          oldRun?.attach,
+          // 第一轮之后 run.attach 就空了；flow.attach 还有改计划时补的。旧流程没有 flow.attach，两边都看
+          [...new Set([...(oldRun?.attach ?? []), ...(now.attach ?? [])])],
         )
         this.updateFlow(channelId, messageId, x => ({ ...x, planner: { ...x.planner!, taskId } }))
         void this.pump(memberId)

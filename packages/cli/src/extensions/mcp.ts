@@ -15,6 +15,8 @@ export const MCP_STATUS = 'pixelsky-mcp'
 export const MCP_COMMAND = 'pixelsky-mcp'
 /** 操作结果的状态键：{ op, name, error } */
 export const MCP_RESULT_STATUS = 'pixelsky-mcp-result'
+/** 桌面端的频道工具服务（apps/desktop/src/main/channels/channel-mcp.ts 的 CHANNEL_SERVER_NAME） */
+const CHANNEL_SERVER = 'pixelsky_channel'
 const MCP_OPS = ['status', 'reconnect', 'enable', 'disable', 'login']
 const REQ_FLAG = '--req='
 const OP_TIMEOUT_MS = 90_000
@@ -69,7 +71,13 @@ export function piMcpServers(raw: unknown): { servers: Record<string, McpServerC
       continue
     }
     const key = piServerName(name)
-    if (text(c.url)) servers[key] = { url: text(c.url), headers: literalMap(c.headers) }
+    if (text(c.url))
+      servers[key] = {
+        url: text(c.url),
+        headers: literalMap(c.headers),
+        // 流程靠 task_done 往下走：Pi 默认把 MCP 工具藏在 codemode 后面，模型会以为没有这个工具
+        ...(key === CHANNEL_SERVER ? { exposure: 'direct' as const } : {}),
+      }
     else if (text(c.command))
       servers[key] = {
         command: text(c.command),

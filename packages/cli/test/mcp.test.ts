@@ -64,6 +64,17 @@ describe('桌面端的 MCP 配置 → Pi', () => {
     expect(piMcpServers(null)).toEqual({ servers: {}, skipped: [] })
   })
 
+  it('频道工具直接声明给模型（流程靠 task_done 往下走），别的服务器不变', () => {
+    const { servers } = piMcpServers({
+      mcpServers: {
+        pixelsky_channel: { type: 'http', url: 'http://127.0.0.1:1/mcp' },
+        docs: { type: 'http', url: 'https://example.com/mcp' },
+      },
+    })
+    expect(servers.pixelsky_channel.exposure).toBe('direct')
+    expect(servers.docs.exposure).toBeUndefined()
+  })
+
   it('换名后重名（alpha.beta 和 alpha_beta）：两个都跳过并说明，不让后一个悄悄盖掉前一个', () => {
     const { servers, skipped } = piMcpServers({
       mcpServers: {

@@ -21,6 +21,7 @@ function fakeChannels(calls: unknown[][]): Channels {
     toolThread: (...args: unknown[]) => (calls.push(['thread', ...args]), '串'),
     toolReply: async (...args: unknown[]) => (calls.push(['reply', ...args]), '已发'),
     toolPropose: async (...args: unknown[]) => (calls.push(['propose', ...args]), '已提议'),
+    toolAttachments: async () => ({ text: '1 张图片', images: [{ dataBase64: 'QUJD', mediaType: 'image/png' }] }),
     toolHandover: async () => {
       throw new Error('没有打开互相派活')
     },
@@ -54,8 +55,17 @@ describe('频道工具 MCP（docs/ui/channels-collab-v2.md §1）', () => {
       'task_done',
       'member_ask',
       'user_ask',
+      'attachment_read',
     ])
+    // Claude 靠这个把工具直接声明给模型，不藏进 ToolSearch
+    expect(tools.every(t => t._meta?.['anthropic/alwaysLoad'] === true)).toBe(true)
     expect(tools.find(t => t.name === 'channel_read')?.annotations?.readOnlyHint).toBe(true)
+    expect(await client.callTool({ name: 'attachment_read', arguments: { id: 'm1' } })).toMatchObject({
+      content: [
+        { type: 'text', text: '1 张图片' },
+        { type: 'image', data: 'QUJD', mimeType: 'image/png' },
+      ],
+    })
     const text = (r: unknown) => (r as { content: { text: string }[] }).content[0].text
     expect(text(await client.callTool({ name: 'channel_read', arguments: { before: 'm9', limit: 5 } }))).toBe('读到了')
     expect(text(await client.callTool({ name: 'channel_reply', arguments: { text: '进展' } }))).toBe('已发')

@@ -193,6 +193,10 @@ describe('子智能体类型', () => {
     )
     const plain = childArgs({ entry: 'cli', mode: 'default', sessionDir: null })
     expect(plain).toContain('+grep,+find,+ls')
+    // 频道流程按会话认人：子代理不能替主代理交付、提问
+    expect(plain[plain.indexOf('--exclude-tools') + 1]).toBe(
+      'mcp__pixelsky_channel__task_done,mcp__pixelsky_channel__member_ask,mcp__pixelsky_channel__user_ask',
+    )
     expect(plain).not.toContain('--no-mcp')
     expect(plain).not.toContain('--append-system-prompt')
   })

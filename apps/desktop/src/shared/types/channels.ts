@@ -395,6 +395,8 @@ export interface ChannelFlow {
   steps: FlowStep[]
   /** 审查最多打回几次，超了停下 */
   maxRejects: number
+  /** 发起这个流程的那条消息带的附件（消息 id）：每一步开工时都带上 */
+  attach?: string[]
   /** 拆流程的成员和要求（status 是 planning 时）；auto：牵头成员按你不带 @ 的消息自动拆的（§8.3） */
   planner?: {
     memberId: string
@@ -480,6 +482,8 @@ export interface ChannelProposal {
   request: string
   state: 'open' | 'sent' | 'dismissed'
   taskId?: string | null
+  /** 提议的成员手上那项活带的附件（消息 id）：派出去时一起带上 */
+  attach?: string[]
 }
 
 /** 消息带的附件说明（本机频道；团队频道不支持） */
@@ -497,6 +501,8 @@ export interface ChannelAttachments {
 /** 派给 AI 成员的一项活；状态变化时原地更新，不追加新消息 */
 export interface ChannelTask extends ChannelMessageBase {
   kind: 'task'
+  /** 这项活还带着哪些消息的附件：交活的成员手上的、追加要求带的（run.attach 只管当前这一轮发什么） */
+  attach?: string[]
   /** 聊天里派的（消息通道）：要确认的事和结果回到聊天 */
   chat?: ChannelChatOrigin
   authorId: string

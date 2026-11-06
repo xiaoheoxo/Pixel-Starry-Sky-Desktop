@@ -197,12 +197,28 @@ const TOOLS = [
     },
     annotations: RECORD,
   },
-].map(tool => ({ ...tool, annotations: { title: tool.name, ...tool.annotations } }))
+  {
+    name: 'attachment_read',
+    description:
+      '读频道里的图片和文件附件：不给 id 时读你现在这项活带的（包括你收到的要求和原始需求里的）；给 id 读那条消息或任务卡的。要看图一律用它，不要开电脑控制、截屏或打开窗口去看。',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: '消息或任务卡的 id（channel_read 给出的），可不填' } },
+    },
+    annotations: READ_ONLY,
+  },
+].map(tool => ({
+  ...tool,
+  annotations: { title: tool.name, ...tool.annotations },
+  // Claude 默认把 MCP 工具藏在 ToolSearch 后面，模型会以为没有 task_done（已对 2.1.319 实测）
+  _meta: { 'anthropic/alwaysLoad': true },
+}))
 
 const INSTRUCTIONS =
   '你是像素星空协作频道里的 AI 成员。channel_read / thread_read 查频道记录；channel_reply 在你这项活的串里写进展；' +
   'task_propose 提议给别的成员派活（用户决定）；频道允许时 task_handover 直接交接。' +
-  '流程里的一步：做完调用 task_done 交付，需要别的成员提供东西用 member_ask，要用户拍板的用 user_ask。不能删消息、改频道设置、给别的频道发消息。'
+  '流程里的一步：做完调用 task_done 交付，需要别的成员提供东西用 member_ask，要用户拍板的用 user_ask。' +
+  '要看频道里的图片和附件用 attachment_read，不要开电脑控制、截屏去看。不能删消息、改频道设置、给别的频道发消息。'
 
 const str = (args: ToolArgs, key: string, required = false): string | undefined => {
   const value = args[key]
@@ -242,6 +258,15 @@ function mcpServer(channels: () => Channels | null, sessionId: string): Server {
           return text(await c.toolAsk(sessionId, str(args, 'member', true)!, str(args, 'question', true)!))
         case 'user_ask':
           return text(await c.toolUserAsk(sessionId, str(args, 'question', true)!))
+        case 'attachment_read': {
+          const read = await c.toolAttachments(sessionId, str(args, 'id'))
+          return {
+            content: [
+              { type: 'text' as const, text: read.text },
+              ...read.images.map(i => ({ type: 'image' as const, data: i.dataBase64, mimeType: i.mediaType })),
+            ],
+          }
+        }
         default:
           return text(`没有这个工具：${request.params.name}`, true)
       }

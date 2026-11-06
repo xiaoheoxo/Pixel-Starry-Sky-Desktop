@@ -143,6 +143,8 @@ export interface Tracked {
 }
 
 export const clientMessageId = (taskId: string, round: number): string => `ch-${taskId}-${round}`
+/** 这条用户消息是频道发进会话的（包括它的 -retry-、-reconnect-），不是用户在会话里说的 */
+export const isChannelSent = (itemId: string): boolean => itemId.startsWith('ch-')
 
 const STARTED = new Set<Item['kind']>(['todo', 'command', 'file_change', 'tool'])
 
