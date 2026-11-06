@@ -1,5 +1,6 @@
 // 会话里的 MCP 服务器状态（docs/ui/connectors.md）：三家引擎各自的格式换成 McpServerState，
 // McpReporter 负责发 mcp 事件、连接中时隔一会儿再取、进程关了标成「上次的状态」。
+import { CODEX_MCP_SUFFIX } from '@pixelsky/protocol'
 import type {
   EngineEvent,
   McpOpKind,
@@ -90,6 +91,10 @@ const CODEX_STARTUP: Record<string, McpServerStatus> = {
   cancelled: 'failed',
 }
 
+/** 应用传给 Codex 时加的后缀去掉（protocol 的 codexMcpName） */
+export const plainCodexMcpName = (name: string): string =>
+  name.endsWith(CODEX_MCP_SUFFIX) ? name.slice(0, -CODEX_MCP_SUFFIX.length) : name
+
 /**
  * Codex app-server mcpServerStatus/list 的 data；startup 是启动状态推送（mcpServer/startupStatus/updated）记下的
  * 状态和报错：列表还没有运行状态时以推送为准
@@ -98,6 +103,7 @@ export function codexMcpServers(
   data: unknown[],
   startup: ReadonlyMap<string, { status: string; error?: string }> = new Map(),
 ): McpServerState[] {
+  const reported = new Set(data.map(raw => obj(raw).name))
   return data.flatMap(raw => {
     const s = obj(raw)
     const name = str(s.name)
@@ -109,9 +115,11 @@ export function codexMcpServers(
     const list = tools(s.tools)
     if (status === 'pending' && !pushed && list.length) status = 'connected'
     const error = str(s.toolsError) ?? (status === 'connected' ? undefined : pushed?.error)
+    const plain = plainCodexMcpName(name)
     return [
       {
-        name,
+        // 用户 config.toml 里有同名的时留着后缀，两个才分得开
+        name: reported.has(plain) ? name : plain,
         status,
         ...(error ? { error } : {}),
         ...(str(s.pluginId) ? { source: `plugin ${str(s.pluginId)}` } : {}),

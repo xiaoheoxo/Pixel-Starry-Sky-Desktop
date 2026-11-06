@@ -69,7 +69,7 @@ describe('管理配置与凭据', () => {
       cc = service.launch(project, 'claude')
     expect(cx.pluginDirs).toEqual([])
     expect(cx.skillRoots).toHaveLength(1)
-    expect(cx.codexConfig?.['mcp_servers."codex-tools"']).toMatchObject({
+    expect(cx.codexConfig?.['mcp_servers.codex-tools_pixelsky']).toMatchObject({
       command: process.execPath,
       env: {},
       env_vars: ['TOKEN'],
@@ -288,7 +288,7 @@ describe('管理配置与凭据', () => {
     expect(existsSync(cc.mcpFile!)).toBe(false)
 
     const cx = service.launch(project, 'codex', {}, history(5001))
-    expect(cx.codexConfig?.['mcp_servers."pixelsky_history"']).toMatchObject({
+    expect(cx.codexConfig?.['mcp_servers.pixelsky_history']).toMatchObject({
       url: 'http://127.0.0.1:5001/mcp',
       env_http_headers: { Authorization: expect.stringMatching(/^PIXELSKY_MCP_SECRET_\d+$/) },
     })
@@ -643,14 +643,16 @@ describe('codexMcp', () => {
       },
       { HOME_X: 'theirs' },
     )
-    expect(r.codexConfig['mcp_servers."a"']).toEqual({
+    // 键里不能有引号（Codex 会算进服务名、校验不过），也不能是一整张表（会盖掉用户自己的 -c mcp_servers.x）
+    expect(Object.keys(r.codexConfig)).toEqual(['mcp_servers.a', 'mcp_servers.b', 'mcp_servers.h'])
+    expect(r.codexConfig['mcp_servers.a']).toEqual({
       command: 'a',
       args: [],
       env: { SHARED: '1', HOME_X: 'mine' },
       env_vars: ['ONLY_A'],
     })
-    expect(r.codexConfig['mcp_servers."b"']).toEqual({ command: 'b', args: [], env: { SHARED: '2' } })
-    expect(r.codexConfig['mcp_servers."h"']).toEqual({
+    expect(r.codexConfig['mcp_servers.b']).toEqual({ command: 'b', args: [], env: { SHARED: '2' } })
+    expect(r.codexConfig['mcp_servers.h']).toEqual({
       url: 'https://m.example/mcp',
       env_http_headers: { Authorization: 'PIXELSKY_MCP_SECRET_0' },
     })

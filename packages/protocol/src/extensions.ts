@@ -86,6 +86,13 @@ export interface ExtensionImport {
   scope: ExtensionScope
   name?: string
 }
+/**
+ * 应用传给 Codex 的 MCP 服务器名的后缀：-c 的配置会和用户 config.toml 里的同名服务合并，一个 stdio 一个 HTTP 时
+ * Codex 整份配置都加载不了、会话开不起来，所以不能和用户的重名。名字里也只能有 Codex 认的字符；上报时引擎去掉后缀
+ */
+export const CODEX_MCP_SUFFIX = '_pixelsky'
+export const codexMcpName = (name: string): string => name.replace(/[^A-Za-z0-9_-]/g, '_') + CODEX_MCP_SUFFIX
+
 export interface ExtensionLaunch {
   codexConfig?: Record<string, unknown>
   /** 只加进引擎进程环境的变量（MCP 凭据），配置里按名字引用，不进命令行 */

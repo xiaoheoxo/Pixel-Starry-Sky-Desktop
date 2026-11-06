@@ -267,7 +267,7 @@ export type {
   McpConfig,
   SkillCommand,
 } from './extensions'
-export { IMPORT_APPS, IMPORT_APP_NAMES } from './extensions'
+export { CODEX_MCP_SUFFIX, IMPORT_APPS, IMPORT_APP_NAMES, codexMcpName } from './extensions'
 export {
   SESSION_TITLE_LIMIT,
   sessionTitle as normalizeSessionTitle,

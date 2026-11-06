@@ -1,6 +1,6 @@
 // 接力解析前去掉代码（withoutCode）：围栏按 Markdown 的规则认，和界面显示一致
 import { describe, expect, it } from 'vitest'
-import { flowPlanPrompt, withoutCode } from './prompt'
+import { flowPlanPrompt, flowRemindPrompt, withoutCode } from './prompt'
 
 describe('withoutCode', () => {
   it('代码里的字符串含同样的围栏字符：不提前结束，后面的 @ 仍在代码里', () => {
@@ -43,5 +43,18 @@ describe('拆流程的提示词（docs/ui/channels-pipeline.md §12 第 2 条）
     expect(zh).toContain('先安排一步定共用的接口和类型')
     expect(zh).toContain('同时做的步骤不要改同一批文件')
     expect(flowPlanPrompt({ ...input, locale: 'en-US' })).toContain('should not change the same files')
+  })
+})
+
+// Codex 不把 MCP 工具直接列给模型：gpt-5 系列要 tool_search，gpt-6 系列在代码模式的 exec 里
+describe('频道工具怎么找', () => {
+  it('出计划和交付的提示词都教了，中英文都有', () => {
+    for (const locale of ['zh-CN', 'en-US'] as const) {
+      const plan = flowPlanPrompt({ locale, channel: 'web', request: '改按钮', members: [] })
+      for (const text of [plan, flowRemindPrompt(locale)]) {
+        expect(text).toContain('tool_search')
+        expect(text).toContain('tools.mcp__pixelsky_channel__')
+      }
+    }
   })
 })

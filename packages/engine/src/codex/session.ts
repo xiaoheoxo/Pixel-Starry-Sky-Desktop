@@ -20,6 +20,7 @@ import type {
   ModelTurnUsage,
 } from '@pixelsky/protocol'
 import {
+  CODEX_MCP_SUFFIX,
   EMPTY_FLAGS,
   GOAL_NO_PROCESS,
   codedError,
@@ -356,6 +357,8 @@ export class CodexSession implements EngineSession {
   /** 启动状态推送（mcpServer/startupStatus/updated）记下的每个服务器的状态 */
   private readonly mcpStartup = new Map<string, { status: string; error?: string }>()
   private mcpTimer: ReturnType<typeof setTimeout> | null = null
+  /** mcpServerStatus/list 上次报的名字（Codex 里的，没去后缀） */
+  private mcpNames = new Set<string>()
   /** 当前进程启动时是不是走本机网关：额度的来源按它判断，不读当前记录（换通道要等下一条消息才换进程） */
   private procViaGateway = false
   private opening: Promise<void> | null = null
@@ -1250,7 +1253,13 @@ export class CodexSession implements EngineSession {
       cursor = string(r.nextCursor)
       if (!cursor) break
     }
+    this.mcpNames = new Set(data.map(raw => string(object(raw).name)))
     return codexMcpServers(data, this.mcpStartup)
+  }
+
+  /** 界面上的名字换回 Codex 里的：应用传的服务器上报时去掉了后缀 */
+  private mcpRawName(name: string): string {
+    return this.mcpNames.has(name) ? name : name + CODEX_MCP_SUFFIX
   }
 
   async mcp(op: McpOp): Promise<McpOpResult> {
@@ -1263,12 +1272,12 @@ export class CodexSession implements EngineSession {
     if (op.kind === 'toggle') throw new Error('Codex 不支持只在这个会话停用连接器')
     if (op.kind === 'reconnect') {
       // Codex 只能整份重新加载 MCP 配置
-      this.mcpStartup.delete(op.name)
+      this.mcpStartup.delete(this.mcpRawName(op.name))
       await proc.request('config/mcpServer/reload', {}, 60_000)
     } else if (op.kind === 'login') {
       const r = await proc.request(
         'mcpServer/oauth/login',
-        { name: op.name, ...(this.threadId ? { threadId: this.threadId } : {}) },
+        { name: this.mcpRawName(op.name), ...(this.threadId ? { threadId: this.threadId } : {}) },
         30_000,
       )
       url = string(r.authorizationUrl) || undefined

@@ -1,3 +1,4 @@
+import { plainCodexMcpName } from '../mcp'
 import type { AgentRun, EngineEvent, FileChange, Item, ItemStatus } from '@pixelsky/protocol'
 import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
@@ -142,7 +143,12 @@ export class CodexTranslator {
         kind: 'tool',
         id,
         tool,
-        name: type === 'mcpToolCall' ? `${string(raw.server)} / ${string(raw.tool)}` : spawns ? 'spawn_agent' : type,
+        name:
+          type === 'mcpToolCall'
+            ? `${plainCodexMcpName(string(raw.server))} / ${string(raw.tool)}`
+            : spawns
+              ? 'spawn_agent'
+              : type,
         title: string(raw.command || raw.query || raw.prompt || raw.path || raw.tool || raw.name) || type,
         output: clip(
           raw.error ? JSON.stringify(raw.error) : raw.result ? JSON.stringify(raw.result) : string(raw.output),

@@ -243,17 +243,25 @@ function attachmentHint(locale: Locale): string {
     : '要看频道里的图片或文件，用 attachment_read 工具（不填 id 读这项活带的，填 id 读那条消息或任务卡的），不要开电脑控制、截屏去看。'
 }
 
+/** Codex 不把 MCP 工具直接列给模型：gpt-5 系列要 tool_search，gpt-6 系列在代码模式的 exec 里（Claude 也可能藏在 ToolSearch 后面） */
+function toolLookup(locale: Locale): string {
+  return en(locale)
+    ? 'Channel tools (task_done, member_ask, user_ask and the rest) may not be listed in your tools directly. Before deciding one is missing, look for it: with tool_search or ToolSearch, search for its name; in the exec tool that runs JavaScript, it is tools.mcp__pixelsky_channel__<name>.'
+    : '频道工具（task_done、member_ask、user_ask 等）不一定直接列在你的工具列表里。认定没有之前先找：有 tool_search 或 ToolSearch 就搜工具名；能跑 JavaScript 的 exec 工具里，它是 tools.mcp__pixelsky_channel__<工具名>。'
+}
+
 /** 工具列表里找不到 task_done 时怎么交付（flowRoundEnded 认回复里带 task_done: true 的 JSON） */
 function deliveryFallback(locale: Locale): string {
   return en(locale)
-    ? 'If task_done is not in your tool list, first look it up with ToolSearch (mcp__pixelsky_channel__task_done) if you have that tool. If it really is unavailable, deliver by ending your reply with a fenced json block: {"task_done": true, "summary": "...", "files": ["..."]} (review steps also add "verdict" and "issues").'
-    : '工具列表里找不到 task_done 时，有 ToolSearch 就先搜 mcp__pixelsky_channel__task_done；确实没有这个工具，就在回复最后写一个 json 代码块交付：{"task_done": true, "summary": "…", "files": ["…"]}（审查步骤另外写 verdict 和 issues）。'
+    ? `${toolLookup(locale)} If task_done really is unavailable, deliver by ending your reply with a fenced json block: {"task_done": true, "summary": "...", "files": ["..."]} (review steps also add "verdict" and "issues").`
+    : `${toolLookup(locale)}确实没有 task_done，就在回复最后写一个 json 代码块交付：{"task_done": true, "summary": "…", "files": ["…"]}（审查步骤另外写 verdict 和 issues）。`
 }
 
 function toolsText(tools: { relay: boolean }, locale: Locale): string {
   if (en(locale))
     return [
       "You have the channel tools (MCP server pixelsky_channel): channel_read reads earlier messages in this channel (only the last few are above), thread_read reads the discussion thread of a task card, channel_reply posts a short note in this task's thread (progress, questions; it does not interrupt anyone), and task_propose suggests giving a task to another AI member (the user decides whether to send it).",
+      toolLookup(locale),
       attachmentHint(locale),
       tools.relay
         ? 'This channel lets AI members hand work to each other: task_handover gives part of the work to another member right away. For the same handoff use either task_handover or "@name" in your final reply, not both.'
@@ -263,6 +271,7 @@ function toolsText(tools: { relay: boolean }, locale: Locale): string {
       .join('\n')
   return [
     '你有频道工具（MCP 服务 pixelsky_channel）：channel_read 读这个频道更早的消息（上面只带了最近几条），thread_read 读某张任务卡的讨论串，channel_reply 在这项活的串里写一句（进展、问题，不会打断别人），task_propose 提议把一项活交给别的 AI 成员（由用户决定派不派）。',
+    toolLookup(locale),
     attachmentHint(locale),
     tools.relay
       ? '这个频道允许 AI 成员互相派活：task_handover 可以直接把一部分活交给别的成员。同一次交接用 task_handover 或在最后的回复里写「@名字」二选一，不要两样都用。'
@@ -578,6 +587,7 @@ export function flowPlanPrompt(input: {
       'Split it into at most 9 steps. Each step: title (what to do), member (exact name), deps (numbers of the steps that must be delivered first, counting from 1), kind ("work"; "review" with target = the step number it reviews; or "summary" for the final wrap-up). Steps that do not depend on each other run in parallel. If the work spans several layers (say the main process and the UI), first add a step that defines the shared interfaces and types, and make the others depend on it. Steps that run at the same time should not change the same files; put anything they share into that earlier step. Do not do the work yourself.',
       'Ask first, all at once: if something changes the result and cannot be inferred, call task_done once with summary and questions (at most 6, each {q, options}: 2-4 short options where possible) and no steps. The answers will be sent to you. Ask only what really matters; if nothing, skip this.',
       'Then deliver the complete plan in one go, without asking again: steps (each may also have effort: "low" | "medium" | "high" | "xhigh", the reasoning effort that step needs; think hard on interfaces and reviews, less on mechanical work) and brief: goal (one line), facts (what was decided, {k, v}; things you decided for the user get suggested: true, e.g. acceptance criteria or tech stack nobody named). Leave open empty. Also give title: a short name for the plan (at most 20 characters), not a copy of the request. Nobody starts yet: the user can edit it or ask for changes, and starts it when ready.',
+      toolLookup(input.locale),
       'If the task_done tool is not available to you, put exactly the same JSON (summary, title, questions or steps and brief) in a ```json block at the end of your reply instead; the app reads it from there.',
       input.auto && input.route
         ? 'You are the lead of this channel and the user did not name anyone. If this is just a question, do not call task_done: answer directly in your reply. If one member can finish it in one go, deliver exactly one step assigned to the member whose role fits best (when two fit equally, prefer the one marked less busy; it may be you); its title says what to do and, briefly, why that member. The app assigns it right away, no draft. Use several steps only when it really needs several members.'
@@ -600,6 +610,7 @@ export function flowPlanPrompt(input: {
     '把它拆成最多 9 步。每一步写：title（做什么）、member（成员名字，原样写）、deps（要先交付的步骤序号，从 1 数）、kind（"work" 干活；"review" 审查，target 写审第几步；"summary" 最后汇总）。互相不依赖的步骤会同时做。跨好几层的活（比如主进程和界面都要改），先安排一步定共用的接口和类型，其余步骤依赖它；同时做的步骤不要改同一批文件，要共用的东西放进前面那一步。不要自己动手做这件事。',
     '先问、一次问完：有影响结果、又推不出来的事要用户定时，先只调用一次 task_done，写 summary 和 questions（最多 6 个，每个 {q, options}，尽量给 2–4 个简短选项），不写 steps。用户答完会发给你。只问真正要紧的，没有就跳过这一步。',
     '然后一次交出完整计划，不要再追问：steps（每一步可以带 effort："low" | "medium" | "high" | "xhigh"，这一步需要的推理强度；定接口、审查要想得深，照着写的活用低一些）和 brief：goal（一句话目标）、facts（定下来的，{k, v}；你替用户定的标 suggested: true，比如没人提的验收标准、技术栈），open 留空。再写 title：给计划起个短名字（20 字以内），不要照抄用户的原话。现在不会开工：用户可以直接改、或说要改哪里，确认后才开始。',
+    toolLookup(input.locale),
     '如果你这边没有 task_done 工具，就把一模一样的 JSON（summary、title、questions 或 steps 和 brief）放在回复最后的 ```json 代码块里，软件会从那里读取。',
     input.auto && input.route
       ? '你是这个频道的牵头成员，用户没有点名交给谁。如果这只是个问题，不要调用 task_done，直接在回复里回答。如果一个成员一次就能做完，只交一步，交给职责最合适的那个成员（两个一样合适时挑标着手上活少的；也可以是你自己），这一步的 title 写做什么、再简短说为什么交给他。软件会直接派活，不出草稿。真要几个人分工时才拆成几步。'

@@ -6,6 +6,12 @@ import { claudeMcpServers, codexMcpServers, McpReporter, pixelMcpServers } from 
 afterEach(() => vi.useRealTimers())
 
 describe('MCP status parsing', () => {
+  it('Codex：应用传的服务器上报时去掉后缀；用户配置里有同名的留着，两个才分得开', () => {
+    const names = (...list: string[]) => codexMcpServers(list.map(name => ({ name, tools: {} }))).map(s => s.name)
+    expect(names('github_pixelsky', 'mine')).toEqual(['github', 'mine'])
+    expect(names('github', 'github_pixelsky')).toEqual(['github', 'github_pixelsky'])
+  })
+
   it('reads Claude Code mcp_status', () => {
     expect(
       claudeMcpServers({

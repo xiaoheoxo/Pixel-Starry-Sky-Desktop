@@ -44,6 +44,7 @@ import type {
   McpConfig,
   SkillCommand,
 } from '@pixelsky/protocol'
+import { codexMcpName } from '@pixelsky/protocol'
 import { checkMcp, launcher, program, runProgram } from './check'
 import { nativeEntries } from './native'
 import type { ImportFull } from './import-apps'
@@ -734,7 +735,12 @@ export class ExtensionService {
       .join('')
     let file: string | undefined
     if (engine === 'codex') {
-      const { codexConfig, env: secretEnv } = codexMcp(servers, env)
+      // 应用自己的服务器（pixelsky_*）名字写死在提示词和审批规则里，不改名
+      const named = Object.entries(servers).map(([name, c]) => [
+        Object.hasOwn(extraServers, name) ? name : codexMcpName(name),
+        c,
+      ])
+      const { codexConfig, env: secretEnv } = codexMcp(Object.fromEntries(named), env)
       return {
         key:
           JSON.stringify(entries.map(e => [e.id, e.revision, e.digest, e.enabled, e.mcp, e.command, e.args])) +
@@ -803,6 +809,8 @@ export class ExtensionService {
  * Codex 的 MCP 配置经 `-c` 进命令行，进程列表、崩溃报告都看得到；凭据（stdio 的 env、HTTP 的请求头）
  * 改成放进 Codex 进程的环境，配置里只写变量名（`env_vars` / `env_http_headers`）。
  * stdio 的变量名必须和服务要的一致：和别的服务或已有环境同名不同值时，这一个仍写在配置里，不去改别人看到的值。
+ * 键是 mcp_servers.名字：-c 的键按 . 切开、不认引号（写成 mcp_servers."x" 时引号算进服务名，Codex 校验不过、服务起不来），
+ * 所以名字里不能有 .，launch 先用 codexMcpName 转过。不写成一张 mcp_servers 表：那样会盖掉用户自己追加的 -c mcp_servers.x。
  */
 export function codexMcp(
   servers: Record<string, McpConfig>,
@@ -836,7 +844,7 @@ export function codexMcp(
           forwarded.push(k)
         } else inline[k] = v
       }
-      codexConfig[`mcp_servers.${JSON.stringify(name)}`] = {
+      codexConfig[`mcp_servers.${name}`] = {
         command: c.command,
         args: c.args ?? [],
         env: inline,
@@ -850,7 +858,7 @@ export function codexMcp(
         env[variable] = v
         headers[k] = variable
       }
-      codexConfig[`mcp_servers.${JSON.stringify(name)}`] = {
+      codexConfig[`mcp_servers.${name}`] = {
         url: c.url,
         ...(Object.keys(headers).length ? { env_http_headers: headers } : {}),
       }
