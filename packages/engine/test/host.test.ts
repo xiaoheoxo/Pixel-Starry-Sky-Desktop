@@ -302,6 +302,20 @@ describe('EngineHost + Claude（假引擎）', () => {
     expect(again.open(record.id).items.map(i => i.kind)).toEqual(snap.items.map(i => i.kind))
   }, 15_000)
 
+  it('计划每一步的起点写进记录：重开会话还能分步（docs/ui/auto-fold.md §3）', async () => {
+    const host = makeHost()
+    const { record } = setup(host)
+    await host.send(record.id, '计划')
+    await waitFor(() => turnsDone(record.id) === 1)
+    const marks = [{ step: '实现功能', afterItemId: expect.any(String) }]
+    expect(host.open(record.id).items.find(i => i.kind === 'todo')).toMatchObject({ stepMarks: marks })
+    expect(
+      makeHost()
+        .open(record.id)
+        .items.find(i => i.kind === 'todo'),
+    ).toMatchObject({ stepMarks: marks })
+  })
+
   it('这一轮说完了、后台子智能体还在跑：轮结束带上个数，会话列表标出来，空闲定时器不关进程；跑完接着的那一轮正常收尾', async () => {
     const host = makeHost(60, { FAKE_CLAUDE_AGENT_MS: '400' })
     const { record } = setup(host)

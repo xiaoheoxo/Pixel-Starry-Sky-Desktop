@@ -3,6 +3,21 @@ import { argumentMachine, machineOf, remoteIds, remoteArguments } from './identi
 const machine = 'ssh-11111111-1111-4111-8111-111111111111'
 const id = '22222222-2222-4222-8222-222222222222'
 describe('machine resource ownership', () => {
+  it('计划每一步的起点跟着条目 id 加前缀，开头的 null 不动', () => {
+    const marks = {
+      stepMarks: [
+        { step: '查', afterItemId: id },
+        { step: '改', afterItemId: null },
+      ],
+    }
+    expect(remoteIds(marks, machine, true)).toEqual({
+      stepMarks: [
+        { step: '查', afterItemId: machine + '~' + id },
+        { step: '改', afterItemId: null },
+      ],
+    })
+    expect(remoteIds(remoteIds(marks, machine, true), machine, false)).toEqual(marks)
+  })
   it('encodes wsl resource ids both ways and keeps them apart from ssh', () => {
     const wsl = 'wsl-33333333-3333-4333-8333-333333333333'
     expect(remoteIds({ id }, wsl, true)).toEqual({ id: wsl + '~' + id })

@@ -223,6 +223,23 @@ export const sessionMessages = {
   'session.progress.doneShow': { zh: '展开已完成的步骤', en: 'Show completed steps' },
   'session.progress.doneHide': { zh: '收起已完成的步骤', en: 'Hide completed steps' },
   'session.progress.carried': { zh: '上一轮没做完', en: 'Left from last round' },
+  'session.fold.setting.title': {
+    zh: '只显示最近 2 轮，更早的合成一行',
+    en: 'Only show the last 2 turns, combine earlier ones',
+  },
+  'session.fold.setting.desc': {
+    zh: '新一轮开始时，更早的对话连同你的消息收成一行，点开能看；轮次条里还能找到每一轮。压缩上下文后的收起不受影响',
+    en: 'When a new turn starts, earlier turns collapse into one row, including your messages. Click to expand, or find any turn in the turn rail. Collapsing after compaction is not affected',
+  },
+  'session.fold.setting.keywords': {
+    zh: '收起 折叠 合并 旧轮次 最近 2 轮 更早 历史消息 自动收起 fold collapse',
+    en: 'collapse fold combine earlier turns history auto',
+  },
+  'session.fold.older': { zh: '更早的 {n} 轮', en: 'Earlier turns: {n}' },
+  'session.fold.compacted': { zh: '压缩前的 {n} 轮', en: 'Before compaction: {n} turns' },
+  'session.fold.compactedHint': { zh: '模型现在只记得摘要', en: 'the model only remembers a summary now' },
+  'session.fold.expand': { zh: '展开', en: 'Expand' },
+  'session.fold.collapse': { zh: '收起', en: 'Collapse' },
   'session.process.planDone': { zh: '{total} 步都完成了', en: 'all {total} steps done' },
   'session.process.planStopped': {
     zh: '{total} 步完成 {done} 步，停在「{step}」',

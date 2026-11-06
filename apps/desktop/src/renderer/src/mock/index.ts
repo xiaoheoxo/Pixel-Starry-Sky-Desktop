@@ -6,6 +6,7 @@ import { demoContext } from './context'
 import { demoQuota } from './quota'
 import {
   animateCompaction,
+  animateAutoFold,
   animateSteps,
   showcaseSnapshots,
   showcaseSubagentTranscript,
@@ -104,6 +105,7 @@ export const demoSource: DemoSource = {
     animate: update => {
       animateCompaction(update)
       animateSteps(update)
+      animateAutoFold(update)
     },
   },
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptySnapshot, reduce, type EngineEvent, type SessionRecord, type SessionSnapshot } from '../src'
+import { emptySnapshot, reduce, type EngineEvent, type Item, type SessionRecord, type SessionSnapshot } from '../src'
 
 const record: SessionRecord = {
   id: 's1',
@@ -152,5 +152,63 @@ describe('reduce', () => {
     expect(
       run([{ type: 'turn_completed', turnId: 't1', outcome: 'completed', error: null }], started).compaction,
     ).toBeNull()
+  })
+})
+
+describe('计划每一步的起点（docs/ui/auto-fold.md §3）', () => {
+  const todo = (id: string, doing: string | null, status: 'running' | 'completed' = 'running'): Item => ({
+    kind: 'todo',
+    id,
+    status,
+    steps: ['查', '改'].map(text => ({
+      text,
+      status: text === doing ? ('in_progress' as const) : ('pending' as const),
+    })),
+  })
+  const run = (id: string): Item => ({
+    kind: 'command',
+    id,
+    command: id,
+    description: null,
+    output: '',
+    exitCode: 0,
+    status: 'completed',
+  })
+  const user = (id: string): Item => ({ kind: 'user', id, text: id, createdAt: 0 })
+  const apply = (items: Item[]): Item[] =>
+    items.reduce((s, item) => reduce(s, { type: 'item_completed', item }), emptySnapshot(record)).items
+
+  it('合成一行的清单：进行中的那一步变了才记，状态更新不重复记', () => {
+    const items = apply([
+      user('u'),
+      todo('p', '查'),
+      run('a'),
+      todo('p', '查', 'completed'),
+      run('b'),
+      todo('p', '改'),
+      run('c'),
+      todo('p', null),
+    ])
+    expect(items.find(i => i.kind === 'todo')).toMatchObject({
+      stepMarks: [
+        { step: '查', afterItemId: 'u' },
+        { step: '改', afterItemId: 'b' },
+        { step: null, afterItemId: 'c' },
+      ],
+    })
+  })
+
+  it('一轮里每次一条的清单（像素星空）：接着上一条记；新一轮从头记', () => {
+    const items = apply([user('u'), todo('p1', '查'), run('a'), todo('p2', '改'), user('v'), todo('p3', '改')])
+    const marks = items.filter(i => i.kind === 'todo').map(i => (i.kind === 'todo' ? i.stepMarks : null))
+    expect(marks[1]).toEqual([
+      { step: '查', afterItemId: 'u' },
+      { step: '改', afterItemId: 'a' },
+    ])
+    expect(marks[2]).toEqual([{ step: '改', afterItemId: 'v' }])
+  })
+
+  it('还没开始做的清单不记', () => {
+    expect(apply([user('u'), todo('p', null)])[1]).not.toHaveProperty('stepMarks')
   })
 })

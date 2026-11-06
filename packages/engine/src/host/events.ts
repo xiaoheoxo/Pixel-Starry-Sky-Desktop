@@ -93,6 +93,11 @@ export class HostEvents {
           ? { ...event, items: event.items.map(cutItem) }
           : event,
     )
+    // 清单写 reduce 记下每一步起点之后的那一份（stepMarks，docs/ui/auto-fold.md §3），不然重开就没了
+    if ((event.type === 'item_completed' || event.type === 'item_started') && event.item.kind === 'todo') {
+      const stored = rt.snapshot.items.findLast(item => item.id === event.item.id)
+      if (stored) ctx.store.appendItem(id, stored)
+    }
     rt.seq++
     // 一轮结束时收尾的条目（还在跑的标成完成 / 中断 / 失败）也要落盘，不然重开后状态不一致；落盘后再截
     if (event.type === 'turn_completed' && rt.snapshot.items !== before) {

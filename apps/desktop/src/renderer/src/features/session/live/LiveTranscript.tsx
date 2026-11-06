@@ -64,7 +64,7 @@ import { TurnCommentButton, TurnCommentList, TurnCommentsContext } from '../Turn
 import { platformNoticeText } from './errorKind'
 import { useItemLocation } from '@/features/search/useItemLocation'
 import { ExpandScope } from '@/features/search/expand'
-import { DETACH_EVENT, useItemNavigation } from '@/features/search/navigation'
+import { DETACH_EVENT, navigateToItem, useItemNavigation } from '@/features/search/navigation'
 import { JumpToLatest } from './JumpToLatest'
 import {
   afterGlideCancel,
@@ -83,6 +83,9 @@ import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
 import { TurnProcess } from './TurnProcess'
+import { AutoFoldRow } from './AutoFoldRow'
+import { foldBlocks, foldPoint, samePoint, type FoldEntry, type FoldPoint } from './autoFold'
+import { useOlderFoldOff } from './olderFoldSwitch'
 import { SubagentCompletionBox, SubagentDispatchBox } from './SubagentBox'
 import { approvalWaiting } from './subagentBoxModel'
 import { LiveStatusLine } from './LiveStatusLine'
@@ -232,6 +235,7 @@ const ProcessBlock = memo(
     foldKey,
     items,
     running,
+    latest,
     durationMs,
     toggled,
     onToggle,
@@ -240,6 +244,7 @@ const ProcessBlock = memo(
     foldKey: string
     items: Item[]
     running: boolean
+    latest: boolean
     durationMs: number | null
     /** 「执行」展开状态（null：没点过）；放在外面是因为运行中底部的状态行也能展开它 */
     toggled: boolean | null
@@ -257,6 +262,7 @@ const ProcessBlock = memo(
         <TurnProcess
           items={items}
           running={running}
+          latest={latest}
           durationMs={durationMs}
           toggled={toggled}
           onToggle={toggle}
@@ -267,6 +273,7 @@ const ProcessBlock = memo(
   },
   (a, b) =>
     a.running === b.running &&
+    a.latest === b.latest &&
     a.toggled === b.toggled &&
     a.onToggle === b.onToggle &&
     a.durationMs === b.durationMs &&
@@ -275,6 +282,16 @@ const ProcessBlock = memo(
 )
 
 const NO_ITEMS: readonly Item[] = []
+const NO_FOLD: FoldPoint = { before: null, compaction: null }
+// 带会话 id：切换会话时这个组件不一定重新挂载，上一个会话点开的不能带到这个会话
+const foldKeyOf = (sessionId: string | null, e: Extract<FoldEntry, { type: 'fold' }>): string =>
+  `auto-${sessionId}-${e.kind}`
+
+/** 自动收起点开的：新一轮开始时全部收（只去掉「点开过」，极简模式回到它默认的摊开）；压缩完成时只收合成的那几行 */
+function closeFolds(folds: Record<string, boolean>, all: boolean): Record<string, boolean> {
+  const kept = Object.entries(folds).filter(([key, open]) => !open || !(all || key.startsWith('auto-')))
+  return kept.length === Object.keys(folds).length ? folds : Object.fromEntries(kept)
+}
 
 export function LiveTranscript({
   snapshot,
@@ -385,6 +402,17 @@ export function LiveTranscript({
     () => (firstShown > 0 && snapshot ? snapshot.items.slice(firstShown) : (snapshot?.items ?? [])),
     [snapshot, firstShown],
   )
+  // 旧的轮次、压缩前的对话收成一行（docs/ui/auto-fold.md §4、§5）：收到哪里只在下面的 effect 里挪，用户往上翻着时不动
+  const wantedFold = useMemo(() => foldPoint(shownItems), [shownItems])
+  const [foldAt, setFoldAt] = useState<{ sessionId: string | null; point: FoldPoint } | null>(null)
+  if (snapshot && snapshot.items.length > 0 && foldAt?.sessionId !== sessionId)
+    setFoldAt({ sessionId, point: wantedFold })
+  const olderOff = useOlderFoldOff()
+  const foldPointNow = foldAt?.sessionId === sessionId ? foldAt.point : NO_FOLD
+  const foldedPoint = useMemo(
+    () => (olderOff ? { ...foldPointNow, before: null } : foldPointNow),
+    [olderOff, foldPointNow],
+  )
   // 轮次只取决于用户消息，流式输出时每个快照都重新算一份；(id, n, preview) 没变就沿用上一份的引用，
   // TurnRail 里依赖 turns 的 effect 才不会每帧重跑（A6）
   const lastTurns = useRef<Turn[]>([])
@@ -453,6 +481,20 @@ export function LiveTranscript({
     (key: string, open: boolean) => setFolds(prev => (prev[key] === open ? prev : { ...prev, [key]: open })),
     [],
   )
+  const entries = useMemo(() => foldBlocks(blocks, foldedPoint), [blocks, foldedPoint])
+  // 最后一轮从哪个块开始：它的执行块按计划分步时直接列出每一步（TurnProcess 的 latest）
+  const latestFrom = useMemo(
+    () =>
+      blocks.findLastIndex(
+        b =>
+          b.type === 'item' && b.item.kind === 'user' && b.item.mode !== 'guidance' && b.item.reconnect === undefined,
+      ),
+    [blocks],
+  )
+  const closedFolds = useMemo(
+    () => entries.flatMap(e => (e.type === 'fold' && !folds[foldKeyOf(sessionId, e)] ? [e] : [])),
+    [entries, folds, sessionId],
+  )
   const liveProcess = useMemo(() => {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const b = blocks[i]
@@ -492,7 +534,7 @@ export function LiveTranscript({
     const el = scroller.current
     // 「回到最新」滑动期间不在这里直接贴到底：那会把滑动变成一步到位，glide 还会把它当外部写入；让 glide 每帧追
     if (el && stick.current && !jumping.current) el.scrollTop = el.scrollHeight
-  }, [blocks, showLive, starting.length])
+  }, [blocks, entries, showLive, starting.length])
 
   // 显示更早的一批：补出来的内容在上面，屏幕上正在看的位置不动。
   // 记下补之前最上面那条可见条目的位置，补完在布局阶段把滚动位置加上它挪动的距离（不依赖浏览器自己的滚动锚定）
@@ -513,6 +555,8 @@ export function LiveTranscript({
     // 先不贴底：补出来的内容会让对话流变高，不能被当成新内容又拽回底部
     detachForSearch()
     setWin({ sessionId, hidden: next })
+    // 补出来的轮次会并进收起的那一行：一起点开，不然点了像没反应
+    closedFolds.forEach(e => setFold(foldKeyOf(sessionId, e), true))
   }
   useLayoutEffect(() => {
     const place = keepPlace.current
@@ -572,18 +616,28 @@ export function LiveTranscript({
   // 新一轮开始、用户停在底部时把窗口收回（A7，D121）：点过「显示全部 / 显示更早的」、搜索跳转展开过的部分不会一直挂在 DOM 上。
   // 只在轮数增加的那一次判断，不用计时器：用户往上翻（released）、搜索跳转 / 回到最新的滑动中、对话内搜索开着时绝不收回，
   // 错过了就等下一轮。收回的是上面很远处的内容，用户在底部，位置不受影响（对话流变矮不算往上滚，见 scrolledUp）
-  const startsSeen = useRef<{ sessionId: string | null; count: number }>({ sessionId: null, count: 0 })
+  // 自动收起（docs/ui/auto-fold.md §2、§4、§5）走同一个判断：新一轮开始时收起点开的、挪收起点；压缩完成时只挪收起点。错过了同样等下一轮
+  const startsSeen = useRef<{ sessionId: string | null; count: number; compaction: string | null }>({
+    sessionId: null,
+    count: 0,
+    compaction: null,
+  })
   useLayoutEffect(() => {
     const seen = startsSeen.current
-    startsSeen.current = { sessionId, count: starts.length }
-    if (!opened || seen.sessionId !== sessionId || starts.length <= seen.count) return
+    startsSeen.current = { sessionId, count: starts.length, compaction: wantedFold.compaction }
+    if (!opened || seen.sessionId !== sessionId) return
+    const newTurn = starts.length > seen.count
+    if (!newTurn && wantedFold.compaction === seen.compaction) return
     if (!stick.current || released.current || detached.current || jumping.current || navigation) return
     if (scroller.current?.closest('.conversation-view')?.querySelector('[data-conversation-find]')) return
+    setFolds(prev => closeFolds(prev, newTurn))
+    setFoldAt(prev => (prev && samePoint(prev.point, wantedFold) ? prev : { sessionId, point: wantedFold }))
+    if (!newTurn) return
     const next = reclaimHidden(starts.length, hidden, windowSize)
     if (next === null) return
     placeRef.current.hidden = next
     setWin({ sessionId, hidden: next })
-  }, [starts.length, opened, sessionId, hidden, windowSize, navigation])
+  }, [starts.length, wantedFold, opened, sessionId, hidden, windowSize, navigation])
 
   // 卸载时把最后记下的位置写进去；挂着期间登记给内存遥测
   useEffect(() => {
@@ -685,6 +739,7 @@ export function LiveTranscript({
           foldKey={b.key}
           items={b.items}
           running={b.running}
+          latest={blocks.indexOf(b) > latestFrom}
           durationMs={b.durationMs}
           toggled={folds[b.key] ?? null}
           onToggle={setFold}
@@ -790,6 +845,16 @@ export function LiveTranscript({
     )
   }
 
+  const renderTop = (b: Block, i: number): ReactNode =>
+    divider && b.type === 'item' && b.item.id === divider.beforeItemId ? (
+      <Fragment key={`divider-${b.item.id}`}>
+        {divider.node}
+        {renderBlock(b, i)}
+      </Fragment>
+    ) : (
+      renderBlock(b, i)
+    )
+
   return (
     <ExpandScope.Provider value={snapshot?.record.id ?? null}>
       <CompactionLiveContext.Provider value={compactionLive}>
@@ -881,14 +946,19 @@ export function LiveTranscript({
                     </span>
                   </div>
                 )}
-                {blocks.map((b, i) =>
-                  divider && b.type === 'item' && b.item.id === divider.beforeItemId ? (
-                    <Fragment key={`divider-${b.item.id}`}>
-                      {divider.node}
-                      {renderBlock(b, i)}
-                    </Fragment>
+                {entries.map(e =>
+                  e.type === 'fold' ? (
+                    <AutoFoldRow
+                      key={foldKeyOf(sessionId, e)}
+                      fold={e}
+                      open={!!folds[foldKeyOf(sessionId, e)]}
+                      onToggle={setFold}
+                      foldKey={foldKeyOf(sessionId, e)}
+                    >
+                      {() => e.blocks.map((b, i) => renderTop(b, i))}
+                    </AutoFoldRow>
                   ) : (
-                    renderBlock(b, i)
+                    renderTop(e.block, e.index)
                   ),
                 )}
                 <PortTip />
@@ -930,6 +1000,7 @@ export function LiveTranscript({
                 onGrab={cancelGlide}
                 hiddenTurns={hiddenTurns}
                 onShowEarlier={windowSize !== null ? () => showEarlier(windowSize) : undefined}
+                onJumpFolded={id => sessionId && navigateToItem(sessionId, id)}
               />
             )}
           </div>

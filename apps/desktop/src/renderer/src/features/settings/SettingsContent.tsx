@@ -51,6 +51,7 @@ import { GitOpenStyleSettings } from './GitOpenStyleSettings'
 import { MessageActionsSettings } from './MessageActionsSettings'
 import { FullAccessStripSettings } from './FullAccessStripSettings'
 import { PortTipSettings } from './PortTipSettings'
+import { OlderFoldSettings } from './OlderFoldSettings'
 import { CacheMissSettings } from './CacheMissSettings'
 import { WallpaperSettings } from './WallpaperSettings'
 import type { PaneFocusMotion } from '@/features/appearance/paneFocusMotion'
@@ -685,6 +686,7 @@ function AppearanceSection() {
       <FullAccessStripSettings />
       <CacheMissSettings />
       <PortTipSettings />
+      <OlderFoldSettings />
 
       <GroupTitle>{tr('settings.SettingsDialog.fonts')}</GroupTitle>
       <FontSettings />

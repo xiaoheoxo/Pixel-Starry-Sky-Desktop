@@ -427,6 +427,15 @@ export const SETTINGS_INDEX: SearchEntry[] = [
       return tr('portTip.setting.keywords')
     },
   },
+  {
+    section: 'appearance',
+    get title() {
+      return tr('session.fold.setting.title')
+    },
+    get keywords() {
+      return tr('session.fold.setting.keywords')
+    },
+  },
   { section: 'appearance', title: '界面字体', keywords: '字体 font' },
   { section: 'appearance', title: '代码字体', keywords: '等宽 字体 mono' },
   { section: 'appearance', title: '字号', keywords: '文字大小 放大 缩小 字体大小' },

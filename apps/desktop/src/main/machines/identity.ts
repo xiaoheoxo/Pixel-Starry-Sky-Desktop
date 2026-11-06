@@ -27,6 +27,8 @@ const fields = new Set([
   'scheduleTaskId',
   // 分支会话 record.branch.startAfter 指向快照里的条目 id（条目 id 会加前缀，它也要跟着加，分隔线才对得上）
   'startAfter',
+  // 计划每一步的起点（item.stepMarks，docs/ui/auto-fold.md §3）指向条目 id
+  'afterItemId',
   // 原生 Claude / Codex 会话已经属于哪个像素星空对话（engine/host/native.ts）：续接选择器按它打开那个对话
   'ownerId',
 ])

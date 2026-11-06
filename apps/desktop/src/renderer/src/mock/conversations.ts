@@ -30,6 +30,7 @@ export const SHOWCASE_SESSIONS = [
   { id: 'demo-claude-running', title: '运行中：进度卡片、后台任务、重试' },
   { id: 'demo-claude-compacting', title: '运行中：压缩上下文（循环播放）' },
   { id: 'demo-claude-steps', title: '运行中：当前步骤（循环播放）' },
+  { id: 'demo-claude-autofold', title: '自动收起：分步、旧轮次、压缩（循环播放）' },
   { id: 'demo-claude-compactions', title: '压缩上下文：各种结果' },
   { id: 'demo-claude-starting', title: '正在启动引擎' },
   { id: 'demo-claude-approve-command', title: '审批：运行命令' },
@@ -542,10 +543,16 @@ const tools = snapshot(
       kind: 'todo',
       id: 'b-todo1',
       steps: [
-        { text: '抽出 useDraft，按会话存草稿', status: 'in_progress' },
-        { text: 'Composer 改用 useDraft', status: 'pending' },
-        { text: '补测试', status: 'pending' },
-        { text: '跑测试和 lint', status: 'pending' },
+        { text: '抽出 useDraft，按会话存草稿', status: 'completed' },
+        { text: 'Composer 改用 useDraft', status: 'completed' },
+        { text: '补测试', status: 'completed' },
+        { text: '跑测试和 lint', status: 'completed' },
+      ],
+      stepMarks: [
+        { step: '抽出 useDraft，按会话存草稿', afterItemId: 'b-a2' },
+        { step: 'Composer 改用 useDraft', afterItemId: 'b-f1' },
+        { step: '补测试', afterItemId: 'b-f3' },
+        { step: '跑测试和 lint', afterItemId: 'b-f4' },
       ],
       status: 'completed',
     },
@@ -1469,6 +1476,81 @@ export function animateSteps(update: DemoUpdate): void {
   cycle()
 }
 
+const AUTOFOLD_ID = 'demo-claude-autofold'
+const autofold = snapshot(record(AUTOFOLD_ID, { lastOutcome: 'completed', updatedAt: T0 }), [], { state: 'running' })
+
+/** 开着这个会话时由 animateAutoFold 一步步往下放（docs/ui/auto-fold.md）：第 1 轮按计划分步 → 第 2～4 轮，旧的合成一行 → 压缩 → 第 5 轮，停一会儿重来 */
+export function animateAutoFold(update: DemoUpdate): void {
+  const run = (id: string, command: string): Item => ({
+    kind: 'command',
+    id,
+    command,
+    description: null,
+    output: '',
+    exitCode: 0,
+    status: 'completed',
+  })
+  const STEPS = ['定位问题', '修复会话判空', '补测试并验证']
+  const plan = (doing: number, stepMarks: { step: string | null; afterItemId: string | null }[]): Item => ({
+    kind: 'todo',
+    id: 'af-plan',
+    steps: STEPS.map((text, i) => ({
+      text,
+      status: i < doing ? 'completed' : i === doing ? 'in_progress' : 'pending',
+    })),
+    stepMarks,
+    status: 'running',
+  })
+  const put = (...items: Item[]): void =>
+    update(AUTOFOLD_ID, list => [
+      ...list.map(old => items.find(item => item.id === old.id) ?? old),
+      ...items.filter(item => !list.some(old => old.id === item.id)),
+    ])
+  const turn = (n: number, text: string, extra?: Item): Item[] => [
+    user(`af-u${n}`, text, 0, { turnId: `af-t${n}` }),
+    run(`af-c${n}a`, 'pnpm test'),
+    run(`af-c${n}b`, 'pnpm lint'),
+    ...(extra ? [extra] : []),
+    assistant(`af-a${n}`, `第 ${n} 轮做完了。`),
+    stats(`af-s${n}`, 'completed', { durationMs: 42_000, models: { 'claude-opus-5-5': opus(42_000, 2_100, 0.38, 6) } }),
+  ]
+  const m1 = { step: STEPS[0], afterItemId: 'af-u1' }
+  const m2 = { step: STEPS[1], afterItemId: 'af-p2' }
+  const m3 = { step: STEPS[2], afterItemId: 'af-p4' }
+  const STAGES: (() => void)[] = [
+    () =>
+      update(AUTOFOLD_ID, () => [user('af-u1', '登录页报 500，查清楚修好，并补上测试', 0, { turnId: 'af-t1' })], {
+        state: 'running',
+      }),
+    () => put(plan(0, [m1]), run('af-p1', 'rg sessionStore src'), run('af-p2', 'pnpm test login')),
+    () => put(plan(1, [m1, m2]), run('af-p3', 'pnpm exec tsc --noEmit'), run('af-p4', 'git diff')),
+    () => put(plan(2, [m1, m2, m3]), run('af-p5', 'pnpm test')),
+    () => {
+      put(
+        plan(3, [m1, m2, m3, { step: null, afterItemId: 'af-p5' }]),
+        assistant('af-a1', '修好了：会话过期后没判空，测试也补上了。'),
+        stats('af-s1', 'completed', {
+          durationMs: 96_000,
+          models: { 'claude-opus-5-5': opus(52_000, 2_100, 0.38, 6) },
+        }),
+      )
+      update(AUTOFOLD_ID, list => list, { state: 'idle' })
+    },
+    () => put(...turn(2, '顺便看下注册页有没有同样的问题')),
+    () => put(...turn(3, '把重试次数改成可配置')),
+    () => put(...turn(4, '再跑一遍全量测试')),
+    () => put(compactionItem('af-cp', { status: 'running', durationMs: null, preTokens: 168_000, postTokens: null })),
+    () => put(compactionItem('af-cp', { trigger: 'auto', durationMs: 14_000, preTokens: 168_000, postTokens: 31_000 })),
+    () => put(...turn(5, '那提交吧')),
+  ]
+  const STEP_MS = 3_000
+  const cycle = (): void => {
+    STAGES.forEach((stage, i) => window.setTimeout(stage, i * STEP_MS))
+    window.setTimeout(cycle, (STAGES.length + 3) * STEP_MS)
+  }
+  cycle()
+}
+
 /** 各种结果放在一起对照样式 */
 const compactions = snapshot(record('demo-claude-compactions', { lastOutcome: 'completed', updatedAt: T0 - 2 * MIN }), [
   user('cq-u1', '/compact', 30, { turnId: 'cq-t1' }),
@@ -2226,6 +2308,7 @@ export const showcaseSnapshots: Record<string, SessionSnapshot> = Object.fromEnt
     running,
     compacting,
     steps,
+    autofold,
     compactions,
     starting,
     approveCommand,

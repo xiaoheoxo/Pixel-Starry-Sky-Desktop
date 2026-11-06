@@ -203,6 +203,11 @@ type ItemVariant =
       status: ItemStatus
       /** 这一轮里清单改了几次（同一轮的多次更新合成一行时才有，至少 2） */
       updates?: number
+      /**
+       * 每一步从哪里开始（reduce 按更新先后记下，docs/ui/auto-fold.md §3）：step 是进行中的那一步，null 表示没有进行中的；
+       * afterItemId 是它开始时最后一条条目的 id。清单合成一行后没有别的办法知道工具调用属于哪一步
+       */
+      stepMarks?: { step: string | null; afterItemId: string | null }[]
     }
   /** detail：引擎给出的原始报错详情（附加说明、错误类型、HTTP 状态码等），界面默认折叠 */
   /**

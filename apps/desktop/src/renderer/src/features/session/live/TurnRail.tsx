@@ -63,6 +63,7 @@ export function TurnRail({
   onGrab,
   hiddenTurns = 0,
   onShowEarlier,
+  onJumpFolded,
 }: {
   turns: Turn[]
   scroller: RefObject<HTMLDivElement | null>
@@ -76,6 +77,8 @@ export function TurnRail({
   hiddenTurns?: number
   /** 点标记或列表第一行：显示更早的一批 */
   onShowEarlier?: () => void
+  /** 要跳到的那一轮收在一行里、不在页面上（docs/ui/auto-fold.md §8）：展开并定位 */
+  onJumpFolded?: (turnId: string) => void
 }) {
   useI18n()
   const rail = useRef<HTMLElement>(null)
@@ -166,6 +169,7 @@ export function TurnRail({
     const el = scroller.current
     const turn = turns[clampIndex(index, turns.length)]
     const row = turn && elementOf(turn.id)
+    if (turn && !row) onJumpFolded?.(turn.id)
     if (!el || !row) return
     onBeforeJump()
     setCurrent(clampIndex(index, turns.length))

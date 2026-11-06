@@ -1,5 +1,6 @@
 // 把事件折叠成会话快照。主进程（保存、给新打开的窗口）和界面（实时显示）用同一个函数，结果一定一致。
 // 纯函数：不修改传入的快照，返回新对象（React 靠引用变化判断要不要重画）。
+import { isSubagentWork } from './turnFold'
 import type { EngineEvent, Item, ItemStatus, SessionFlags, SessionRecord, SessionSnapshot } from './types'
 
 export const EMPTY_FLAGS: SessionFlags = {
@@ -46,11 +47,35 @@ function indexOfId(items: readonly Item[], id: string): number {
   return items.findLastIndex(x => x.id === id)
 }
 
+type TodoItem = Extract<Item, { kind: 'todo' }>
+
+/** 这一轮之前记下的计划：同一行（Claude、Codex 合成一行），或这一轮更早的清单（像素星空每次一条） */
+function earlierTodo(items: Item[], at: number): TodoItem | null {
+  const same = items[at]
+  if (same?.kind === 'todo') return same
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind === 'todo') return item
+    if (item.kind === 'user' && item.mode !== 'guidance' && item.reconnect === undefined) return null
+  }
+  return null
+}
+
+/** 进行中的那一步变了就记一笔（docs/ui/auto-fold.md §3） */
+function withStepMarks(items: Item[], todo: TodoItem, at: number): TodoItem {
+  const marks = earlierTodo(items, at)?.stepMarks ?? []
+  const step = todo.steps.find(s => s.status === 'in_progress')?.text ?? null
+  if (step === (marks.at(-1)?.step ?? null)) return marks.length ? { ...todo, stepMarks: marks } : todo
+  const last = items.findLast(item => item.kind !== 'todo' && !isSubagentWork(item))
+  return { ...todo, stepMarks: [...marks, { step, afterItemId: last?.id ?? null }] }
+}
+
 function upsert(items: Item[], item: Item): Item[] {
   const i = indexOfId(items, item.id)
-  if (i < 0) return [...items, item]
+  const stored = item.kind === 'todo' ? withStepMarks(items, item, i) : item
+  if (i < 0) return [...items, stored]
   const next = items.slice()
-  next[i] = item
+  next[i] = stored
   return next
 }
 
