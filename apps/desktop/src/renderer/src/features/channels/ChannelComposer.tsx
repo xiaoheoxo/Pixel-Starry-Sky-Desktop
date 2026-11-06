@@ -14,6 +14,8 @@ import {
 } from 'react'
 import { ArrowUp, CornerUpLeft, Paperclip, TriangleAlert, X } from 'lucide-react'
 import { cn, IconButton, useToast } from '@/ui'
+import { useTheme } from '@/features/appearance/ThemeProvider'
+import { useThemeArtStyle } from '@/features/appearance/customTheme'
 import { CARD_STYLE } from '@/features/session/Composer'
 import { composerDraft, useComposerDraft } from '@/features/engine/drafts'
 import { isDemo } from '@/data'
@@ -111,6 +113,7 @@ export function ChannelComposer({
   placeholder?: string
 }) {
   useI18n()
+  const artStyle = useThemeArtStyle(useTheme().resolved)
   const menuId = useId()
   const team = channel.scope === 'team'
   const draftKey = channelDraftKey(channel.id, threadId)
@@ -292,6 +295,7 @@ export function ChannelComposer({
             if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false)
           }}
           onDrop={onDrop}
+          style={artStyle}
           className={cn(CARD_STYLE, 'relative overflow-hidden', dragging && !team && 'ring-2 ring-accent')}
         >
           {dragging && !team && (

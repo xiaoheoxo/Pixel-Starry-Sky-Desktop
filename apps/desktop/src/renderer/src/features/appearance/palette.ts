@@ -3,19 +3,9 @@
 // 设置写成 <html data-palette>，改完立刻生效；保存在 localStorage，多窗口同步。
 import { useSyncExternalStore } from 'react'
 
-export const PALETTES = [
-  'default',
-  'midnight',
-  'github',
-  'solarized',
-  'nord',
-  'catppuccin',
-  'gruvbox',
-  'tokyonight',
-  'rosepine',
-] as const
-export type Palette = (typeof PALETTES)[number]
-export const DEFAULT_PALETTE: Palette = 'default'
+import { DEFAULT_PALETTE, PALETTES, type Palette } from './palettes'
+
+export { DEFAULT_PALETTE, PALETTES, type Palette }
 export const PALETTE_KEY = 'pixelsky.palette'
 
 export function parsePalette(value: unknown): Palette {
@@ -44,6 +34,13 @@ function apply(next: Palette): void {
   if (next === DEFAULT_PALETTE) delete document.documentElement.dataset.palette
   else document.documentElement.dataset.palette = next
 }
+
+/** 只改 <html> 上的属性，不存盘：自建主题生效时属性写它的基础配色（customTheme.ts） */
+export const applyPaletteAttr = (next: Palette): void => {
+  if (typeof document !== 'undefined' && (document.documentElement.dataset.palette ?? DEFAULT_PALETTE) !== next)
+    apply(next)
+}
+export const currentPalette = (): Palette => palette
 
 let palette = read()
 apply(palette)

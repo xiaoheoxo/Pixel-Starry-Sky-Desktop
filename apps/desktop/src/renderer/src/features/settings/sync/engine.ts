@@ -90,7 +90,8 @@ async function syncOnce(): Promise<void> {
     const pulled = await bridge.pull()
     if (pulled.account !== account) return
     const state = parseSyncState(loadJson(stateKey(account)))
-    const result = merge({ state, keys, local, cloud: pulled.settings })
+    const conflict = Object.fromEntries(entries.flatMap(e => (e.conflict ? [[e.key, e.conflict]] : [])))
+    const result = merge({ state, keys, local, cloud: pulled.settings, conflict })
     const before: Record<string, unknown> = {}
     applying = true
     try {

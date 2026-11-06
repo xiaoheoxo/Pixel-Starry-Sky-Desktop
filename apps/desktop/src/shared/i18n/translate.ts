@@ -38,6 +38,7 @@ import { longConversationMessages } from './longConversationMessages'
 import { storageMessages } from './storageMessages'
 import { tabMenuMessages } from './tabMenuMessages'
 import { minimalModeMessages } from './minimalModeMessages'
+import { customThemeMessages } from './customThemeMessages'
 import { imageViewerMessages } from './imageViewerMessages'
 import { exportMessages } from './exportMessages'
 import { mermaidMessages } from './mermaidMessages'
@@ -118,6 +119,7 @@ export const allMessages = {
   ...storageMessages,
   ...tabMenuMessages,
   ...minimalModeMessages,
+  ...customThemeMessages,
   ...imageViewerMessages,
   ...exportMessages,
   ...mermaidMessages,
@@ -171,7 +173,8 @@ const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g
 // 固定文字太少的模板（如「{action}: {icon}」）同样几乎能匹配任何文本，也不参与。
 const literalChars = (text: string): number => text.replace(/\{\w+\}/g, '').match(/[\p{L}\p{N}]/gu)?.length ?? 0
 const patterns = Object.entries(allMessages)
-  .filter(([key]) => !(key in catalog))
+  // customTheme：「{name} 副本」这类只有界面自己用，拿去匹配引擎原文会把 Failed to copy 改成 Failed to 副本
+  .filter(([key]) => !(key in catalog) && !key.startsWith('customTheme.'))
   .map(([, message]) => message)
   .flatMap(message => {
     if (!/\{\w+\}/.test(message.zh)) return []

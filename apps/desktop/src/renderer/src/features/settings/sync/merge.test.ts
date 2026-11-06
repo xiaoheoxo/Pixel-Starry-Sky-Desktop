@@ -8,6 +8,41 @@ const synced = (keys: Record<string, [number | null, unknown]>): SyncState => ({
   keys: Object.fromEntries(Object.entries(keys).map(([k, [cloudAt, local]]) => [k, { cloudAt, local: json(local) }])),
 })
 
+describe('两边都改时的合并函数', () => {
+  const k = 'desktop.customThemes'
+  const at = (value: unknown, updatedAt: number) => ({ value, updatedAt })
+  const conflict = { [k]: (mine: unknown, theirs: unknown) => `${mine}+${theirs}` }
+  const state = { v: 1 as const, keys: { [k]: { cloudAt: 1, local: JSON.stringify('old') } } }
+
+  it('两边都改：写到本机也上传合并结果', () => {
+    const r = merge({ state, keys: [k], local: { [k]: 'mine' }, cloud: { [k]: at('cloud', 2) }, conflict })
+    expect(r.apply[k]).toBe('mine+cloud')
+    expect(r.push[k]).toBe('mine+cloud')
+  })
+
+  it('只有一边改：不合并', () => {
+    const onlyLocal = merge({ state, keys: [k], local: { [k]: 'mine' }, cloud: { [k]: at('old', 1) }, conflict })
+    expect(onlyLocal.push[k]).toBe('mine')
+    expect(onlyLocal.apply).toEqual({})
+    const onlyCloud = merge({ state, keys: [k], local: { [k]: 'old' }, cloud: { [k]: at('cloud', 2) }, conflict })
+    expect(onlyCloud.apply[k]).toBe('cloud')
+    expect(onlyCloud.push).toEqual({})
+  })
+
+  it('第一次同步：本机已有的不被云端整份盖掉', () => {
+    const r = merge({ state: null, keys: [k], local: { [k]: 'mine' }, cloud: { [k]: at('cloud', 2) }, conflict })
+    expect(r.apply[k]).toBe('mine+cloud')
+    expect(r.push[k]).toBe('mine+cloud')
+    expect(r.restored).toBe(true)
+  })
+
+  it('没传合并函数的键：照旧本机覆盖云端', () => {
+    const r = merge({ state, keys: [k], local: { [k]: 'mine' }, cloud: { [k]: at('cloud', 2) } })
+    expect(r.push[k]).toBe('mine')
+    expect(r.apply).toEqual({})
+  })
+})
+
 describe('设置云同步：对账（docs/ui/settings-sync.md §4）', () => {
   it('第一次、云端什么都没有：上传本机改过的（没有的不传）', () => {
     const r = merge({ state: null, keys, local: { 'desktop.theme': 'dark' }, cloud: {} })

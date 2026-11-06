@@ -947,7 +947,7 @@
   --accent-text: #3d3f3a;
   --accent-border: #a3a39b;
 }
-:root[data-theme='dark'] :root[data-theme='dark'][data-accent='blue'],
+:root[data-theme='dark'][data-accent='blue'],
 :root[data-theme='dark'] [data-accent-swatch='blue'] {
   --accent: #86aee6;
   --accent-on: #10213a;

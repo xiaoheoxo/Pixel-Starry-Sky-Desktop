@@ -20,6 +20,8 @@ export interface MergeInput {
   /** 本机现在的值；undefined 表示没有（默认值） */
   local: Record<string, unknown>
   cloud: CloudSettings
+  /** 两边都改了时怎么合并（默认：本机覆盖云端）。整份覆盖会丢用户做的东西的键才用 */
+  conflict?: Record<string, (mine: unknown, theirs: unknown) => unknown>
 }
 
 export interface MergeResult {
@@ -34,7 +36,7 @@ export interface MergeResult {
 export const json = (value: unknown): string | null =>
   value === undefined || value === null ? null : JSON.stringify(value)
 
-export function merge({ state, keys, local, cloud }: MergeInput): MergeResult {
+export function merge({ state, keys, local, cloud, conflict }: MergeInput): MergeResult {
   const apply: Record<string, unknown> = {}
   const push: Record<string, unknown> = {}
   let restored = false
@@ -46,10 +48,12 @@ export function merge({ state, keys, local, cloud }: MergeInput): MergeResult {
       const mine = json(local[k])
       const theirs = cloud[k]
       if (theirs && cloudHasAny) {
-        if (json(theirs.value) !== mine) {
-          apply[k] = theirs.value
+        const value = conflict?.[k] && mine !== null ? conflict[k](local[k], theirs.value) : theirs.value
+        if (json(value) !== mine) {
+          apply[k] = value
           restored = true
         }
+        if (json(value) !== json(theirs.value)) push[k] = value
       } else if (mine !== null) push[k] = local[k]
     }
     return { apply, push, restored }
@@ -61,7 +65,11 @@ export function merge({ state, keys, local, cloud }: MergeInput): MergeResult {
     const theirs = cloud[k]
     const localChanged = mine !== before.local
     const cloudChanged = (theirs?.updatedAt ?? null) !== before.cloudAt
-    if (localChanged) {
+    if (localChanged && cloudChanged && theirs && mine !== null && conflict?.[k]) {
+      const value = conflict[k](local[k], theirs.value)
+      if (json(value) !== mine) apply[k] = value
+      if (json(value) !== json(theirs.value)) push[k] = value
+    } else if (localChanged) {
       // 本机改了：上传，最后一个到达服务端的为准（两边都改了也一样，偏好设置不做合并界面）
       if (mine !== null) push[k] = local[k]
       else if (theirs) push[k] = null

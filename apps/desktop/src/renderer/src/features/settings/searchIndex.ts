@@ -344,7 +344,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     section: 'appearance',
     title: '配色主题',
     keywords:
-      '配色 主题 皮肤 颜色 暖灰 极夜 纯黑 midnight black factory github solarized nord catppuccin gruvbox tokyo night rose pine rosé palette color scheme skin',
+      '自定义主题 我的主题 新建主题 贴图 遮罩 对比度 导入主题 导出主题 custom theme 配色 主题 皮肤 颜色 暖灰 极夜 纯黑 midnight black factory github solarized nord catppuccin gruvbox tokyo night rose pine rosé palette color scheme skin',
   },
   {
     section: 'appearance',

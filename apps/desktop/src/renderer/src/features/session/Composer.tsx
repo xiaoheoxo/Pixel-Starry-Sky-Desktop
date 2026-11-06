@@ -3,6 +3,8 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Drag
 import { ArrowUp, AtSign, ChevronDown, Mic, Paperclip, Plus, ShieldOff, Square, SquareSlash } from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import { IconButton, cn, useComingSoon, useToast } from '@/ui'
+import { useTheme } from '@/features/appearance/ThemeProvider'
+import { useThemeArtStyle } from '@/features/appearance/customTheme'
 import { attachments as initialAttachments, composer, isDemo } from '@/data'
 import {
   SOURCE_ACTION_EVENT,
@@ -129,6 +131,7 @@ export function Composer({
   newTask?: boolean
 }) {
   useI18n()
+  const artStyle = useThemeArtStyle(useTheme().resolved)
   const comingSoon = useComingSoon()
   const toast = useToast()
   const { text: translate } = useI18n()
@@ -813,7 +816,11 @@ export function Composer({
         extra={statusExtra}
         git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
       />
-      <div data-composer-style={style} className={cn('composer-shell relative', chatgpt && CARD_STYLE)}>
+      <div
+        data-composer-style={style}
+        style={chatgpt ? artStyle : undefined}
+        className={cn('composer-shell relative', chatgpt && CARD_STYLE)}
+      >
         <div
           ref={cardRef}
           onDragEnter={e => {
@@ -829,6 +836,7 @@ export function Composer({
             if (!e.currentTarget.contains(e.relatedTarget as Node)) setDraggingImages(false)
           }}
           onDrop={onDrop}
+          style={chatgpt ? undefined : artStyle}
           className={cn('composer-core relative', !chatgpt && CARD_STYLE, draggingImages && 'ring-2 ring-accent')}
         >
           {draggingImages && (

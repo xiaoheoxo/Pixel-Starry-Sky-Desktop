@@ -1,6 +1,8 @@
 // 设置云同步的白名单（docs/ui/settings-sync.md §3）：只同步这里列出的键，不把 localStorage 整个传上去。
 // localStorage 里的设置按原样的文本同步（值是字符串），写回本机后由各设置模块自己的读取函数校验，不合法的回到默认值；
 // 引擎设置和外部编辑器的窗口方式在主进程，经 settingsSync / editor 桥接读写。
+import { mergeThemeLists } from '@/features/appearance/customThemeCore'
+
 export type SyncCategory = 'appearance' | 'display' | 'notifications' | 'keybindings' | 'platform' | 'engine'
 export const SYNC_CATEGORIES: readonly SyncCategory[] = [
   'appearance',
@@ -20,6 +22,8 @@ export interface SyncEntry {
   read(): Promise<unknown>
   /** 写回本机；null 表示恢复默认 */
   write(value: unknown): Promise<void>
+  /** 本机和云端都改了时怎么合并（merge.ts）；默认本机覆盖云端 */
+  conflict?(mine: unknown, theirs: unknown): unknown
 }
 
 /** 一个值最多 64 KB（和云端的防护一致） */
@@ -101,6 +105,9 @@ export const SYNC_ENTRIES: readonly SyncEntry[] = [
   // 外观
   storageEntry('desktop.theme', 'appearance', 'pixelsky.theme'),
   storageEntry('desktop.palette', 'appearance', 'pixelsky.palette'),
+  // 自定义主题：颜色同步，贴图只在本机（docs/ui/custom-theme.md）
+  { ...storageEntry('desktop.customThemes', 'appearance', 'pixelsky.customThemes'), conflict: mergeThemeLists },
+  storageEntry('desktop.customTheme', 'appearance', 'pixelsky.customTheme'),
   storageEntry('desktop.accent', 'appearance', 'pixelsky.accent'),
   storageEntry('desktop.motion', 'appearance', 'pixelsky.motion'),
   storageEntry('desktop.paneFocusMotion', 'appearance', 'pixelsky.paneFocusMotion'),
