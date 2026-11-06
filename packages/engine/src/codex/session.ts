@@ -100,6 +100,9 @@ export function reservedCodexArg(args: readonly string[]): string | null {
 const log = logger('engine.codex')
 /** 「允许中途向我提问」时打开的 Codex 开发中功能：Default 模式（非计划）下模型也有 request_user_input */
 const DEFAULT_MODE_ASK = 'default_mode_request_user_input'
+/** Codex 启动时连 ChatGPT 超时的原文（只有英文，界面翻不了）；重试后还超时就换成词典里的 ROUTING_TIMEOUT_TEXT */
+const ROUTING_TIMEOUT = /workspace routing discovery timed out/i
+const ROUTING_TIMEOUT_TEXT = 'Timed out connecting to ChatGPT. Check your network or proxy and try again'
 /** 这个开关最早出现的版本（0.110.0 的 features.rs 里已有，更早的没核实），比 CODEX_MIN_VERSION 低 */
 export const DEFAULT_MODE_ASK_MIN_VERSION = '0.110.0'
 /** 这个版本的 Codex 认不认得开关；版本读不到时照常带，不认得的老版本靠「启动失败重试」和警告过滤兜底 */
@@ -478,6 +481,19 @@ export class CodexSession implements EngineSession {
     return this.opening
   }
   private async connect(): Promise<void> {
+    try {
+      return await this.connectOnce()
+    } catch (error) {
+      if (!ROUTING_TIMEOUT.test(describeError(error))) throw error
+      // 这个进程还没发过消息，重来没有副作用
+      log.warn('连接 ChatGPT 超时，重新启动 Codex 再试一次', { error: describeError(error) })
+      if (this.closed) throw error
+      return this.connectOnce().catch(retryError => {
+        throw ROUTING_TIMEOUT.test(describeError(retryError)) ? new Error(ROUTING_TIMEOUT_TEXT) : retryError
+      })
+    }
+  }
+  private async connectOnce(): Promise<void> {
     const ask =
       this.options.askQuestions &&
       !this.askFlagRejected &&
@@ -1028,7 +1044,8 @@ export class CodexSession implements EngineSession {
   }
   /** 换模型或线路后用不了 Ultrafast：退回 Fast 并说一声，换回来不悄悄恢复 8 倍扣费 */
   private dropUltrafast(): void {
-    if (!this.catalog || this.ultrafastOk()) return
+    // 账号类型没读到（authType 是 undefined）：这次按 Fast 发，但不改用户的设置
+    if (!this.catalog || this.catalog.authType === undefined || this.ultrafastOk()) return
     const wanted = this.speedNext === 'ultrafast'
     if (!wanted && !this.settings.ultrafast) return
     if (wanted) this.speedNext = speedOf(this.settings) === 'fast' ? null : 'fast'

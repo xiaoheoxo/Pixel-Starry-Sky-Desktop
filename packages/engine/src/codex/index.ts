@@ -285,19 +285,21 @@ export class CodexAdapter implements EngineAdapter {
     try {
       await proc.initialize()
       this.catalogCache = await codexCatalog(proc)
-      const auth = await proc.request('account/read', { refreshToken: false })
+      // 目录那边已经读账号失败（连 ChatGPT 超时）：不再等第二次；引擎照常算可用，不然消息发不出去
+      const auth =
+        this.catalogCache.authType === undefined ? null : await proc.request('account/read', { refreshToken: false })
       // 已授权的账号（ChatGPT 登录有邮箱和套餐；API Key 登录没有）
-      const account = object(auth.account)
+      const account = object(auth?.account)
       const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
       const found = { email: text(account.email), plan: text(account.planType) }
       const filled = Object.fromEntries(Object.entries(found).filter(([, v]) => v))
       if (Object.keys(filled).length) result.info.account = filled
-      if (auth.requiresOpenaiAuth === false) {
+      if (auth?.requiresOpenaiAuth === false) {
         // config.toml 里配了自己的接口：不用登录也能跑，codex logout 取消不掉它
         result.info.auth = { kind: 'provider', provider: this.catalogCache.currentProvider ?? undefined }
       } else if (account.type === 'apiKey') result.info.auth = { kind: 'apiKey' }
       else if (Object.keys(account).length) result.info.auth = { kind: 'login' }
-      else if (auth.requiresOpenaiAuth === true) {
+      else if (auth?.requiresOpenaiAuth === true) {
         result.info.status = 'unauthenticated'
         result.info.message = 'Codex is not signed in. Run codex login.'
       }

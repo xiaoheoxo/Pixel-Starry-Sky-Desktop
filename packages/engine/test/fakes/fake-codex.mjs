@@ -134,6 +134,8 @@ function recordTurn(clientId, content) {
   return id
 }
 const rpcError = (m, message) => out({ id: m.id, error: { code: -32000, message } })
+const readEnvFile = name =>
+  process.env[name] && existsSync(process.env[name]) ? readFileSync(process.env[name], 'utf8') : ''
 let initialized = false,
   thread = 'fake-thread',
   turn = null,
@@ -313,6 +315,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         )
       break
     case 'account/read':
+      // FAKE_CODEX_ACCOUNT_ERROR：读账号报错（连 ChatGPT 超时）
+      if (process.env.FAKE_CODEX_ACCOUNT_ERROR) {
+        rpcError(m, process.env.FAKE_CODEX_ACCOUNT_ERROR)
+        break
+      }
       response(
         m,
         process.env.FAKE_CODEX_ACCOUNT
@@ -366,6 +373,15 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       break
     case 'thread/start':
     case 'thread/resume':
+      // FAKE_CODEX_ROUTING_FAIL_FILE：文件里的数字是还要报几次路由超时，新进程也接着数
+      if (m.method === 'thread/start' && Number(readEnvFile('FAKE_CODEX_ROUTING_FAIL_FILE')) > 0) {
+        writeFileSync(
+          process.env.FAKE_CODEX_ROUTING_FAIL_FILE,
+          String(Number(readEnvFile('FAKE_CODEX_ROUTING_FAIL_FILE')) - 1),
+        )
+        rpcError(m, 'workspace routing discovery timed out')
+        break
+      }
       // FAKE_CODEX_LOCKED：另一个进程正写着这个线程（终端里的 codex）。逗号分隔的线程 id；'1' 或 '*' 是所有线程
       if (m.method === 'thread/resume' && lockedThread(p.threadId)) {
         out({ id: m.id, error: { code: -32000, message: 'thread ' + p.threadId + ' already has an active writer' } })

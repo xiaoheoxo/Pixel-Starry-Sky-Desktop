@@ -109,6 +109,10 @@ export const codexMessages = {
   'codex.subagentQuestion': { zh: 'Codex 子智能体 {agent} 提问', en: 'Codex subagent {agent} question' },
   'codex.subagentMcpApproval': { zh: 'MCP 输入请求（子智能体 {agent}）', en: 'MCP input request (subagent {agent})' },
   'codex.processExit': { zh: 'Codex 进程已退出', en: 'Codex process exited' },
+  'codex.routingTimeout': {
+    zh: '连接 ChatGPT 超时，检查网络或代理后重试',
+    en: 'Timed out connecting to ChatGPT. Check your network or proxy and try again',
+  },
   'codex.imageUnsupported': { zh: '此 Codex 模型不支持图片', en: 'This Codex model does not support images' },
   'codex.effortUnsupported': {
     zh: '此 Codex 模型不支持当前强度',
