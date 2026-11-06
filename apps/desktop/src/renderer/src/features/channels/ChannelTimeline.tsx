@@ -19,6 +19,7 @@ import { ChannelTaskCard, type TaskCardActions } from './ChannelTaskCard'
 import { ChannelFlowCard } from './ChannelFlowCard'
 import { PlannerHandoff, PlannerRow } from './PlannerRow'
 import { channelActions, useChannels } from './store'
+import { useFollowBottom } from './useFollowBottom'
 
 /** 离底部这么近时，新消息到来自动跟到底部 */
 const STICK_PX = 80
@@ -105,6 +106,7 @@ export function ChannelTimeline({
   useI18n()
   const scroller = useRef<HTMLDivElement>(null)
   const nearBottom = useRef(true)
+  const follow = useFollowBottom(scroller, nearBottom)
   const [highlight, setHighlight] = useState<string | null>(null)
   const rows = useMemo(() => buildTimeline(messages, { newFrom }), [messages, newFrom])
   const threads = useMemo(() => threadStats(messages), [messages])
@@ -185,6 +187,7 @@ export function ChannelTimeline({
     const divider = first ? el.querySelector<HTMLElement>('[data-new-divider]') : null
     if (divider) {
       el.scrollTop = Math.max(0, divider.offsetTop - 24)
+      nearBottom.current = false
       return
     }
     const author = last?.kind === 'message' ? membersById.get(last.authorId) : undefined
@@ -262,10 +265,7 @@ export function ChannelTimeline({
       ref={scroller}
       role="log"
       aria-label={`# ${channel.name}`}
-      onScroll={e => {
-        const el = e.currentTarget
-        nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_PX
-      }}
+      {...follow}
       className="conversation-scroller selectable relative min-h-0 flex-1 overflow-y-auto"
     >
       <div className="conversation-inset conversation-reading flex flex-col pt-6 pb-4">

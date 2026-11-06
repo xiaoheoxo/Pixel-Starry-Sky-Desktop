@@ -9,6 +9,7 @@ import { MessageGroup, type Quotable } from './ChannelMessage'
 import { ChannelTaskCard, type TaskCardActions } from './ChannelTaskCard'
 import { ChannelComposer } from './ChannelComposer'
 import { channelActions } from './store'
+import { useFollowBottom } from './useFollowBottom'
 
 /**
  * 右侧的讨论串（docs/ui/channels-collab-v2.md §3）：和成员面板共用位置。
@@ -51,9 +52,13 @@ export function ThreadPanel({
   const assignee = root?.kind === 'task' ? membersById.get(root.assigneeId) : undefined
 
   // 打开串、来了新回复：到底部
+  const nearBottom = useRef(true)
+  const follow = useFollowBottom(scroller, nearBottom)
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+    nearBottom.current = true
   }, [rootId, items.length])
 
   // 串里的引用块点了：在主时间线里跳过去
@@ -71,35 +76,25 @@ export function ThreadPanel({
       </div>
       <div
         ref={scroller}
-        className="selectable flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-3 [scrollbar-width:thin]"
+        {...follow}
+        className="selectable min-h-0 flex-1 overflow-y-auto px-3 pb-3 [scrollbar-width:thin]"
       >
-        {!root ? (
-          <p className="px-1 pt-2 text-meta text-fg-faint">{tr('channels.thread.missing')}</p>
-        ) : root.kind === 'task' ? (
-          // 任务卡在主时间线里左边留了头像的位置，串里不用
-          <div className="[&>[data-channel-message]]:mt-1 [&>[data-channel-message]]:pl-0">
-            <ChannelTaskCard task={root as ChannelTask} membersById={membersById} highlight={false} {...taskActions} />
-          </div>
-        ) : (
-          <MessageGroup
-            items={[root]}
-            membersById={membersById}
-            channelMembers={channelMembers}
-            messagesById={messagesById}
-            highlight={null}
-            onJump={jump}
-            proposalsReadOnly={readOnly}
-            selfId={selfId}
-          />
-        )}
-        <div role="separator" className="my-3 h-px shrink-0 bg-line-subtle" />
-        {items.length === 0 ? (
-          <p className="px-1 text-meta text-fg-faint">{tr('channels.thread.empty')}</p>
-        ) : (
-          items.map(m => (
+        <div className="flex flex-col">
+          {!root ? (
+            <p className="px-1 pt-2 text-meta text-fg-faint">{tr('channels.thread.missing')}</p>
+          ) : root.kind === 'task' ? (
+            // 任务卡在主时间线里左边留了头像的位置，串里不用
+            <div className="[&>[data-channel-message]]:mt-1 [&>[data-channel-message]]:pl-0">
+              <ChannelTaskCard
+                task={root as ChannelTask}
+                membersById={membersById}
+                highlight={false}
+                {...taskActions}
+              />
+            </div>
+          ) : (
             <MessageGroup
-              key={m.id}
-              items={[m]}
+              items={[root]}
               membersById={membersById}
               channelMembers={channelMembers}
               messagesById={messagesById}
@@ -108,8 +103,26 @@ export function ThreadPanel({
               proposalsReadOnly={readOnly}
               selfId={selfId}
             />
-          ))
-        )}
+          )}
+          <div role="separator" className="my-3 h-px shrink-0 bg-line-subtle" />
+          {items.length === 0 ? (
+            <p className="px-1 text-meta text-fg-faint">{tr('channels.thread.empty')}</p>
+          ) : (
+            items.map(m => (
+              <MessageGroup
+                key={m.id}
+                items={[m]}
+                membersById={membersById}
+                channelMembers={channelMembers}
+                messagesById={messagesById}
+                highlight={null}
+                onJump={jump}
+                proposalsReadOnly={readOnly}
+                selfId={selfId}
+              />
+            ))
+          )}
+        </div>
       </div>
       {!readOnly && root && (
         <ChannelComposer

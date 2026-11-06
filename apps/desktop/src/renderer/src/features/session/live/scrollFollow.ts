@@ -32,6 +32,13 @@ export interface ScrollPos {
 export const scrolledUp = (prev: ScrollPos | null, now: ScrollPos): boolean =>
   !!prev && now.top < prev.top - 1 && now.height >= prev.height
 
+/**
+ * 滚动事件之后还跟不跟底部：回到底部附近就跟，用户往上滚了才不跟，其余不变。
+ * 不能只看离底多远：刚滚到底、滚动事件还没到时内容又长高了，事件里算出来离底很远，其实用户没动
+ */
+export const followAfterScroll = (following: boolean, prev: ScrollPos | null, now: ScrollPos, near: boolean): boolean =>
+  near || (following && !scrolledUp(prev, now))
+
 const UP_KEYS = new Set(['ArrowUp', 'PageUp', 'Home'])
 
 /** 往上滚的按键：↑、PageUp、Home、Shift+空格 */

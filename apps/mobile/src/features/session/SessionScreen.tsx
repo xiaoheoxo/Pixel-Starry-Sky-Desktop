@@ -23,6 +23,7 @@ import { ApprovalCard, TriageProgress } from './ApprovalCard'
 import { EntryView, ThinkingRow, type TurnActions } from './ItemView'
 import { ModeChip } from './ModeChip'
 import { QueuePanel } from './QueuePanel'
+import { INTERACT_MS, stickAfterScroll, type ScrollPos } from './stickToBottom'
 import { SessionMenu } from './SessionMenu'
 
 export function SessionScreen({
@@ -94,13 +95,36 @@ export function SessionScreen({
   useEffect(() => {
     const el = scroller.current
     if (!el) return
-    const onScroll = () => {
-      const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-      stick.current = bottom
-      setAtBottom(bottom)
+    const near = () => el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    let pos: ScrollPos | null = null
+    let touched = 0
+    const onPointerDown = () => {
+      touched = performance.now()
     }
+    const onScroll = () => {
+      const now = { top: el.scrollTop, height: el.scrollHeight }
+      stick.current = stickAfterScroll(stick.current, pos, now, near())
+      pos = now
+      setAtBottom(near())
+    }
+    // 高度变了不一定多一条（键盘弹出、输入框变高、图片解码）：在底部就跟到底
+    const observer = new ResizeObserver(() => {
+      if (stick.current && performance.now() - touched >= INTERACT_MS) {
+        el.scrollTop = el.scrollHeight
+        return
+      }
+      stick.current = near()
+      setAtBottom(stick.current)
+    })
+    observer.observe(el)
+    if (el.firstElementChild) observer.observe(el.firstElementChild)
+    el.addEventListener('pointerdown', onPointerDown, { passive: true })
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
   const toBottom = () => {
     const el = scroller.current

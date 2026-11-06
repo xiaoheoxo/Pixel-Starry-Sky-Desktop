@@ -5,6 +5,7 @@ import {
   STICK_PX,
   afterGlideCancel,
   afterResize,
+  followAfterScroll,
   contentMark,
   followResize,
   innerCanScrollUp,
@@ -29,6 +30,20 @@ describe('followResize', () => {
     expect(followResize(true, 0, INTERACT_MS)).toBe(true)
     expect(followResize(true, 1000, 1000 + INTERACT_MS - 1)).toBe(false)
     expect(followResize(false, 0, 10_000)).toBe(false)
+  })
+})
+
+describe('followAfterScroll', () => {
+  const at = (top: number, height: number) => ({ top, height })
+  it('内容长高、离底很远但用户没往上滚：还跟着', () => {
+    expect(followAfterScroll(true, at(1000, 1600), at(1000, 2600), false)).toBe(true)
+  })
+  it('用户往上滚、离开底部：不跟了', () => {
+    expect(followAfterScroll(true, at(1000, 1600), at(500, 1600), false)).toBe(false)
+  })
+  it('回到底部附近：又跟了；没跟着时往下滚但没到底：还是不跟', () => {
+    expect(followAfterScroll(false, at(500, 1600), at(1000, 1600), true)).toBe(true)
+    expect(followAfterScroll(false, at(100, 1600), at(500, 1600), false)).toBe(false)
   })
 })
 
