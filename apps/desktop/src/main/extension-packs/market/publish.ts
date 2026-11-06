@@ -145,6 +145,7 @@ const CONTRIBUTION_KINDS = {
   prompts: true,
   mcpServers: true,
   commands: true,
+  uiThemes: true,
 } satisfies Record<ExtPackContributionKind, true>
 
 /** zip 是用户选的、不可信：只留已知的贡献种类，且值是数组的；一个都没有也回一个空对象 */

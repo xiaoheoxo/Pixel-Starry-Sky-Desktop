@@ -1,0 +1,42 @@
+{
+  "rulesVersion": 6,
+  "dev": {
+    "status": "warning",
+    "inactive": {
+      "uiThemes": [
+        1
+      ]
+    },
+    "skills": [],
+    "issues": [
+      {
+        "code": "uiTheme.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "uiThemes",
+          "index": 1
+        },
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "uiTheme.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "uiThemes",
+          "index": 1
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

@@ -1,7 +1,17 @@
 // 自定义主题（docs/ui/custom-theme.md）
 export const customThemeMessages = {
   'customTheme.mine': { zh: '我的主题', en: 'My themes' },
-  'customTheme.builtin': { zh: '内置', en: 'Built-in' },
+  'customTheme.themes': { zh: '可选主题', en: 'Available themes' },
+  'customTheme.uninstall': { zh: '卸载「{name}」', en: 'Uninstall "{name}"' },
+  'customTheme.uninstalled': { zh: '已卸载「{name}」', en: 'Uninstalled "{name}"' },
+  'customTheme.uninstalledFell': {
+    zh: '已卸载「{name}」，现在用回暖灰',
+    en: 'Uninstalled "{name}". Back to Warm gray',
+  },
+  'customTheme.uninstallFailed': { zh: '卸载没成功，再试一次', en: 'Could not uninstall. Try again.' },
+  'customTheme.uninstalledList': { zh: '已卸载 {n} 个：', en: '{n} uninstalled:' },
+  'customTheme.undo': { zh: '撤销', en: 'Undo' },
+  'customTheme.restore': { zh: '恢复', en: 'Restore' },
   'customTheme.new': { zh: '新建主题', en: 'New theme' },
   'customTheme.newHint': { zh: '基于当前选中的主题复制一份', en: 'Copies the theme selected now' },
   'customTheme.limit': { zh: '最多 {n} 个主题，先删掉一些', en: 'Up to {n} themes. Delete some first.' },

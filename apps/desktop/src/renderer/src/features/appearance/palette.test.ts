@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PALETTE, PALETTES, parsePalette } from './palette'
+import { uiThemeProblems } from '@pixelsky/protocol'
+import { DEFAULT_PALETTE, PALETTES } from './palettes'
 import { searchSettings } from '../settings/searchIndex'
 
 const tokens = readFileSync(fileURLToPath(new URL('../../styles/tokens.css', import.meta.url)), 'utf8')
@@ -13,8 +14,19 @@ function block(selector: string): Record<string, string> {
   const body = tokens.slice(tokens.indexOf('{', start) + 1, tokens.indexOf('}', start))
   return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]))
 }
-const light = (p: string) => block(`[data-palette-preview='${p}'] {`)
-const dark = (p: string) => block(`:root[data-theme='dark'] [data-palette-preview='${p}'] {`)
+
+/** 预装主题的文件；键加上 -- 和 tokens.css 同一个写法 */
+function preset(id: string): { raw: unknown; light: Record<string, string>; dark: Record<string, string> } {
+  const url = new URL(`../../../../../../../extensions/builtin/pixelsky.${id}/themes/${id}.json`, import.meta.url)
+  const raw = JSON.parse(readFileSync(fileURLToPath(url), 'utf8')) as Record<'light' | 'dark', Record<string, string>>
+  const named = (vars: Record<string, string>) =>
+    Object.fromEntries(Object.entries(vars).map(([k, v]) => [`--${k}`, v]))
+  return { raw, light: named(raw.light), dark: named(raw.dark) }
+}
+const PRESETS = PALETTES.filter(p => p !== DEFAULT_PALETTE)
+const light = (p: string) => (p === DEFAULT_PALETTE ? block("[data-palette-preview='default'] {") : preset(p).light)
+const dark = (p: string) =>
+  p === DEFAULT_PALETTE ? block(":root[data-theme='dark'] [data-palette-preview='default'] {") : preset(p).dark
 
 function luminance(hex: string): number {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
@@ -64,20 +76,19 @@ const REQUIRED = [
   '--terminal-selection',
 ].sort()
 
-describe('配色主题', () => {
-  it('缺失、旧值或损坏类型回到默认暖灰，有效值原样保留', () => {
-    for (const value of [undefined, null, '', 'dracula', {}, 1]) expect(parsePalette(value)).toBe(DEFAULT_PALETTE)
-    for (const value of PALETTES) expect(parsePalette(value)).toBe(value)
-  })
-
-  it('每套配色的浅色和深色都定义了同一组变量，且两份不一样', () => {
-    for (const p of PALETTES.filter(p => p !== DEFAULT_PALETTE)) {
-      expect(Object.keys(light(p)).sort(), `${p} 浅色`).toEqual(REQUIRED)
-      expect(Object.keys(dark(p)).sort(), `${p} 深色`).toEqual(REQUIRED)
-      expect(light(p), p).not.toEqual(dark(p))
+describe('配色', () => {
+  it('预装主题的文件合格，浅色和深色都写全了，且两份不一样', () => {
+    for (const p of PRESETS) {
+      const file = preset(p)
+      expect(uiThemeProblems(file.raw), p).toEqual([])
+      for (const name of REQUIRED) {
+        expect(file.light, `${p} 浅色`).toHaveProperty(name)
+        expect(file.dark, `${p} 深色`).toHaveProperty(name)
+      }
+      expect(file.light, p).not.toEqual(file.dark)
     }
     // 默认暖灰的基础块也要有这些变量
-    for (const vars of [light('default'), dark('default')])
+    for (const vars of [light(DEFAULT_PALETTE), dark(DEFAULT_PALETTE)])
       for (const name of REQUIRED) expect(vars).toHaveProperty(name)
   })
 
@@ -103,11 +114,6 @@ describe('配色主题', () => {
         for (const [fg, bg] of pairs)
           expect(contrast(v[fg], v[bg]), `${p} ${variant} ${fg} / ${bg}`).toBeGreaterThanOrEqual(4.5)
       }
-  })
-
-  it('壁纸的透明底压得过深色配色（选择器更具体，且写在配色后面）', () => {
-    const wallpaper = tokens.indexOf(':root[data-wallpaper][data-theme] {')
-    expect(wallpaper).toBeGreaterThan(tokens.lastIndexOf('[data-palette-preview='))
   })
 
   it('设置搜索能按配色名找到配色主题', () => {

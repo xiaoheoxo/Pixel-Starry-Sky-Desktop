@@ -78,6 +78,7 @@ const MESSAGES: Record<string, Msg> = {
   'kind.taskTemplates': { zh: '任务模板', en: 'task templates' },
   'kind.skills': { zh: '技能', en: 'skills' },
   'kind.prompts': { zh: '提示词', en: 'prompts' },
+  'kind.uiThemes': { zh: '界面主题', en: 'UI themes' },
   noIssues: { zh: '没有问题。', en: 'No issues.' },
   'group.reject': { zh: '会被拒绝', en: 'Will be rejected' },
   'group.hint': { zh: '提示', en: 'Hints' },

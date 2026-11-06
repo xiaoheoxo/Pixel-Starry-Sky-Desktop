@@ -26,6 +26,7 @@ const KIND_ORDER: Array<keyof ExtPackContributes> = [
   'taskTemplates',
   'skills',
   'prompts',
+  'uiThemes',
 ]
 
 /** 显示宽度：CJK 和全角算 2 */

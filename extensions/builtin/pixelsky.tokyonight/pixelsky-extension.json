@@ -1,0 +1,36 @@
+{
+  "id": "pixelsky.tokyonight",
+  "name": "Tokyo Night",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Tokyo Night 配色，浅色和深色都有。",
+  "icon": "icon.png",
+  "keywords": ["theme", "主题", "配色", "tokyonight"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.5"
+  },
+  "l10n": {
+    "en": {
+      "name": "Tokyo Night",
+      "description": "Tokyo Night colors for light and dark mode."
+    }
+  },
+  "contributes": {
+    "uiThemes": [
+      {
+        "id": "tokyonight",
+        "label": {
+          "zh": "Tokyo Night",
+          "en": "Tokyo Night"
+        },
+        "path": "themes/tokyonight.json"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

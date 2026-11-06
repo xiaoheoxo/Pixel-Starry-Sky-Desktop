@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fakePack } from '@/features/extpacks/testing'
 import { BASE_COLORS } from './customThemeBase'
 
 // 测试环境没有 DOM：只模拟模块用到的那几样
@@ -48,13 +49,122 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
+describe('扩展主题', () => {
+  const GLASS = {
+    transparency: { dark: 60, light: 40 },
+    blur: 20,
+    saturate: 160,
+    brightness: { dark: 70, light: 110 },
+    grain: 2,
+    rim: 35,
+  }
+  const ID = 'ext:a.b/night'
+  const file = { pixelskyTheme: 1, base: 'default', dark: { text: '#e8ecf8' }, glass: GLASS }
+  const flush = () => new Promise(r => setTimeout(r, 0))
+
+  /** 假的扩展状态：changed() 让模块重新读一遍 */
+  function fakePacks(initial: unknown) {
+    let state = { revision: 1, loading: false, packs: packsOf() }
+    let onChange = () => {}
+    vi.stubGlobal('window', {
+      addEventListener: (_: string, l: Listener) => listeners.push(l),
+      pixelsky: {
+        extpacks: {
+          state: () => Promise.resolve(state),
+          readJson: () => Promise.resolve(initial),
+          onChange: (l: () => void) => {
+            onChange = l
+          },
+        },
+      },
+    })
+    return {
+      remove() {
+        state = { revision: 2, loading: false, packs: [] }
+        onChange()
+      },
+    }
+  }
+  function packsOf() {
+    return [
+      fakePack({
+        id: 'a.b',
+        contributes: { uiThemes: [{ id: 'night', label: { zh: '夜空', en: 'Night' }, path: 'night.json' }] },
+      }),
+    ]
+  }
+
+  it('选中：写进 customTheme，基础配色和颜色生效，存一份启动缓存', async () => {
+    fakePacks(file)
+    const m = await load()
+    await flush()
+    m.setActiveTheme(ID)
+    expect(localStorage.getItem(m.ACTIVE_THEME_KEY)).toBe(ID)
+    expect(root().dataset.customTheme).toBe(ID)
+    expect(styleText()).toContain('#e8ecf8')
+    expect(m.getActiveExtTheme()?.glass).toEqual(GLASS)
+    expect(JSON.parse(localStorage.getItem(m.EXT_THEME_CACHE_KEY)!).id).toBe(ID)
+  })
+
+  it('只写了玻璃：不注入样式，颜色就是基础配色', async () => {
+    fakePacks({ pixelskyTheme: 1, glass: GLASS })
+    const m = await load()
+    await flush()
+    m.setActiveTheme(ID)
+    expect(root().dataset.customTheme).toBe(ID)
+    expect(styleText()).toBeNull()
+    expect(m.getActiveExtTheme()?.glass).toEqual(GLASS)
+  })
+
+  it('文件不合格：不出现在列表里，也选不中', async () => {
+    fakePacks({ pixelskyTheme: 1, glass: { ...GLASS, blur: 999 } })
+    const m = await load()
+    await flush()
+    m.setActiveTheme(ID)
+    expect(m.getActiveExtTheme()).toBeNull()
+    expect(localStorage.getItem(m.ACTIVE_THEME_KEY)).toBeNull()
+  })
+
+  it('下次启动：扩展读到之前缓存先生效；扩展没了撤掉，选中项和缓存也清干净', async () => {
+    const packs = fakePacks(file)
+    let m = await load()
+    await flush()
+    m.setActiveTheme(ID)
+
+    // 读扩展的结果还没回来：缓存已经生效
+    m = await load()
+    expect(m.getActiveExtTheme()?.id).toBe(ID)
+    expect(root().dataset.customTheme).toBe(ID)
+    await flush()
+    expect(m.getActiveExtTheme()?.id).toBe(ID)
+
+    packs.remove()
+    await flush()
+    await flush()
+    expect(m.getActiveExtTheme()).toBeNull()
+    expect(root().dataset.customTheme).toBeUndefined()
+    expect(styleText()).toBeNull()
+    expect(localStorage.getItem(m.EXT_THEME_CACHE_KEY)).toBeNull()
+    // 选中项留着：扩展重新启用后能回来
+    expect(localStorage.getItem(m.ACTIVE_THEME_KEY)).toBe(ID)
+  })
+
+  it('缓存被手改成坏数据：当它不存在', async () => {
+    values.set('pixelsky.customTheme', ID)
+    values.set(
+      'pixelsky.extThemeCache',
+      JSON.stringify({ id: ID, label: 'x', file: { pixelskyTheme: 1, dark: { text: 'red}' } } }),
+    )
+    const m = await load()
+    expect(m.getActiveExtTheme()).toBeNull()
+  })
+})
+
 describe('自定义主题', () => {
-  it('新建：选中、基础配色写到 data-palette、变量注入；回到内置后撤掉', async () => {
+  it('新建：选中、变量注入；回到暖灰后撤掉', async () => {
     const m = await load()
     const id = m.forkTheme(null, 'nord', 'A')!
     expect(root().dataset.customTheme).toBe(id)
-    expect(root().dataset.palette).toBe('nord')
-    expect(localStorage.getItem('pixelsky.palette')).toBe('nord')
     expect(localStorage.getItem(m.ACTIVE_THEME_KEY)).toBe(id)
     expect(styleText()).toContain(`--bg-app:${BASE_COLORS.nord.dark['bg-app']}`)
 
@@ -94,7 +204,6 @@ describe('自定义主题', () => {
     const id = m.forkTheme(null, 'nord', 'A')!
     m.removeTheme(id)
     expect(root().dataset.customTheme).toBeUndefined()
-    expect(root().dataset.palette).toBe('nord')
     expect(localStorage.getItem(m.ACTIVE_THEME_KEY)).toBeNull()
   })
 
@@ -126,17 +235,41 @@ describe('自定义主题', () => {
     expect(root().dataset.customTheme).toBe(id)
   })
 
-  it('存着的配色和主题的基础配色不一致：属性以主题为准，不改存着的值；选回内置时恢复', async () => {
+  it('老版本选的配色：换成对应的预装主题，只迁移一次', async () => {
+    values.set('pixelsky.palette', 'nord')
     const m = await load()
-    m.forkTheme(null, 'nord', 'A')
-    values.set('pixelsky.palette', 'github')
-    // palette.ts 先把属性写成 github，自定义主题再摆正
-    rootEl.dataset.palette = 'github'
-    storageEvent('pixelsky.palette')
-    expect(root().dataset.palette).toBe('nord')
-    expect(values.get('pixelsky.palette')).toBe('github')
+    expect(values.get(m.ACTIVE_THEME_KEY)).toBe('ext:pixelsky.nord/nord')
+    expect(values.get('pixelsky.palette')).toBe('default')
+    // 之后选回暖灰，重开不会又变回 Nord
     m.setActiveTheme(null)
-    expect(root().dataset.palette).toBe('github')
+    const again = await load()
+    expect(values.get(again.ACTIVE_THEME_KEY)).toBeUndefined()
+  })
+
+  it('老版本已经在用我的主题：不换主题，只清掉老值', async () => {
+    const first = await load()
+    const id = first.forkTheme(null, 'nord', 'A')!
+    values.set('pixelsky.palette', 'nord')
+    const m = await load()
+    expect(values.get(m.ACTIVE_THEME_KEY)).toBe(id)
+    expect(values.get('pixelsky.palette')).toBe('default')
+  })
+
+  it('不认识的老值不迁移', async () => {
+    values.set('pixelsky.palette', 'dracula')
+    const m = await load()
+    expect(values.get(m.ACTIVE_THEME_KEY)).toBeUndefined()
+  })
+
+  it('旧版本的电脑同步来老配色：没选主题就跟着换，选了主题不动', async () => {
+    const m = await load()
+    values.set('pixelsky.palette', 'github')
+    storageEvent('pixelsky.palette')
+    expect(values.get(m.ACTIVE_THEME_KEY)).toBe('ext:pixelsky.github/github')
+    expect(values.get('pixelsky.palette')).toBe('default')
+    values.set('pixelsky.palette', 'nord')
+    storageEvent('pixelsky.palette')
+    expect(values.get(m.ACTIVE_THEME_KEY)).toBe('ext:pixelsky.github/github')
   })
 
   it('改颜色只在颜色真的变了时动 <html>，且不碰 data-theme', async () => {

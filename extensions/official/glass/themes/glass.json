@@ -1,0 +1,12 @@
+{
+  "pixelskyTheme": 1,
+  "base": "default",
+  "glass": {
+    "transparency": { "dark": 65, "light": 50 },
+    "blur": 14,
+    "saturate": 170,
+    "brightness": { "dark": 62, "light": 120 },
+    "grain": 0,
+    "rim": 45
+  }
+}

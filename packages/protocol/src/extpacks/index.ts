@@ -1,3 +1,12 @@
+export {
+  isUiThemeExtraValue,
+  UI_THEME_BASES,
+  UI_THEME_COLOR_KEYS,
+  UI_THEME_EXTRA_KEYS,
+  UI_THEME_GLASS_RANGES,
+  uiThemeProblems,
+} from './uiTheme'
+export type { UiThemeFile, UiThemeGlass, UiThemeProblem, UiThemeVarKey } from './uiTheme'
 export type { ExtEngineCode, ExtIssueCode, ExtZipCode, GrammarIssueParams } from './codes'
 export type { ExtCheckVerdict } from './verdict'
 export type {
@@ -7,6 +16,7 @@ export type {
   ExtIconTheme,
   ExtLocale,
   ExtCommand,
+  ExtUiTheme,
   ExtMcpInput,
   ExtMcpServer,
   ExtIssueOutcome,
@@ -46,6 +56,7 @@ export {
   EXT_MCP_COMMANDS,
   EXT_MCP_MIN_APP,
   EXT_SCRIPT_MIN_APP,
+  EXT_UI_THEME_MIN_APP,
   EXT_SCRIPT_PERMISSIONS,
   EXT_SCRIPT_PUBLISHERS,
   EXT_RESERVED_TASK_FILES,

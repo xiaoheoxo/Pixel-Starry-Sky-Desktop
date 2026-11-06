@@ -1218,6 +1218,8 @@ export const IPC_CONTRACT = {
   'update:state': { kind: 'invoke', route: 'local', trust: 'sender' },
   'window:close': { kind: 'invoke', route: 'local', trust: 'window' },
   'window:getState': { kind: 'invoke', route: 'local', trust: 'window' },
+  'window:glassMaterials': { kind: 'invoke', route: 'local', trust: 'window' },
+  'window:setGlass': { kind: 'invoke', route: 'local', trust: 'window' },
   'window:minimize': { kind: 'invoke', route: 'local', trust: 'window' },
   'window:restoreSnap': { kind: 'invoke', route: 'local', trust: 'window' },
   'window:snap': { kind: 'invoke', route: 'local', trust: 'window' },

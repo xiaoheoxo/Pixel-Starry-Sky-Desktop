@@ -1,20 +1,31 @@
 // 自定义主题的存取和生效（docs/ui/custom-theme.md）。主题列表和当前 id 在 localStorage（会同步），贴图在 IndexedDB（只在本机）。
-// 选中时 <html data-palette> 写基础配色、data-custom-theme 写 id，再注入一段 <style> 盖掉变量。
+// 选中时 <html data-custom-theme> 写 id，再注入一段 <style> 盖掉变量。
+// 扩展带的主题也走这里：id 是 ext:<扩展>/<主题>，选中后同样写进 pixelsky.customTheme；扩展没了就退回基础配色
 import { useMemo, useSyncExternalStore, type CSSProperties } from 'react'
-import { PALETTE_KEY, applyPaletteAttr, currentPalette, setPalette, type Palette } from './palette'
+import { contributionsFrom, EMPTY_PACK_STATE } from '@/features/extpacks/model'
+import { getPackState, readPackJson, subscribePacks } from '@/features/extpacks/store'
+import { PALETTE_KEY } from './palette'
+import { DEFAULT_PALETTE, PALETTES, type Palette } from './palettes'
 import { BASE_COLORS, type ThemeColorKey } from './customThemeBase'
 import {
   DEFAULT_ART_MASK,
   MAX_THEMES,
   THEME_NAME_MAX,
+  extThemeId,
+  legacyThemeId,
+  parseExtTheme,
   parseThemes,
+  sortExtThemes,
   themeCss,
   type CustomTheme,
+  type ExtThemeEntry,
   type ThemeMode,
 } from './customThemeCore'
 
 export const THEMES_KEY = 'pixelsky.customThemes'
 export const ACTIVE_THEME_KEY = 'pixelsky.customTheme'
+/** 正在用的扩展主题：扩展是异步读的，存一份让第一屏就是对的。只在本机，不同步 */
+export const EXT_THEME_CACHE_KEY = 'pixelsky.extThemeCache'
 export const MAX_ART_BYTES = 20 * 1024 * 1024
 export const ART_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
 
@@ -23,6 +34,8 @@ const STYLE_ID = 'pixelsky-custom-theme'
 
 export interface CustomThemeState {
   themes: readonly CustomTheme[]
+  /** 生效的扩展带的主题 */
+  extThemes: readonly ExtThemeEntry[]
   activeId: string | null
   /** 当前主题贴图的 blob: 地址；没有贴图、这台电脑上没有这张图时为 null */
   artUrl: string | null
@@ -36,22 +49,63 @@ function load(key: string): string | null {
   }
 }
 
+/**
+ * 老版本选的是配色（pixelsky.palette）：换成对应的预装主题，只做一次。自己选了主题的不动。
+ * 旧版本的电脑还可能同步来老值，所以收到同步时也要走一遍
+ */
+function migrateLegacyPalette(): void {
+  const old = load(PALETTE_KEY)
+  if (!old || old === DEFAULT_PALETTE || !PALETTES.includes(old as Palette)) return
+  try {
+    if (!load(ACTIVE_THEME_KEY)) localStorage.setItem(ACTIVE_THEME_KEY, legacyThemeId(old as Palette))
+    localStorage.setItem(PALETTE_KEY, DEFAULT_PALETTE)
+  } catch {
+    /* 存不下：这次用暖灰，下次启动再迁移 */
+  }
+}
+migrateLegacyPalette()
+
 let themesRaw = load(THEMES_KEY)
 let activeRaw = load(ACTIVE_THEME_KEY)
-let state: CustomThemeState = { themes: parseThemes(themesRaw), activeId: activeRaw || null, artUrl: null }
+
+/** 只信当前选中的那一条；文件再校验一遍，缓存可能被手改 */
+function loadExtCache(): ExtThemeEntry[] {
+  try {
+    const raw = JSON.parse(load(EXT_THEME_CACHE_KEY) ?? 'null') as Pick<ExtThemeEntry, 'id' | 'label' | 'file'> | null
+    const theme = raw && raw.id === activeRaw ? parseExtTheme(raw.id, raw.label, raw.file) : null
+    return theme ? [theme] : []
+  } catch {
+    return []
+  }
+}
+
+let state: CustomThemeState = {
+  themes: parseThemes(themesRaw),
+  extThemes: loadExtCache(),
+  activeId: activeRaw || null,
+  artUrl: null,
+}
 const listeners = new Set<() => void>()
 
-const activeTheme = (): CustomTheme | null => state.themes.find(t => t.id === state.activeId) ?? null
+const activeTheme = (): CustomTheme | ExtThemeEntry | null =>
+  state.themes.find(t => t.id === state.activeId) ?? state.extThemes.find(t => t.id === state.activeId) ?? null
+
+/** 正在用的扩展主题；用的不是扩展主题时是 null */
+export const getActiveExtTheme = (): ExtThemeEntry | null => state.extThemes.find(t => t.id === state.activeId) ?? null
 
 function applyRoot(): void {
   if (typeof document === 'undefined') return
   const theme = activeTheme()
   const root = document.documentElement
-  // 两台电脑各选各的时，存着的配色可能不是当前主题的基础配色：属性以主题为准，不改存着的值（免得同步来回覆盖）
-  applyPaletteAttr(theme ? theme.base : currentPalette())
   let style = document.getElementById(STYLE_ID)
   if (!theme) {
     delete root.dataset.customTheme
+    style?.remove()
+    return
+  }
+  if (root.dataset.customTheme !== theme.id) root.dataset.customTheme = theme.id
+  // 只写了玻璃的扩展主题就是基础配色本身，不注入，颜色和内置配色完全一样
+  if ('colored' in theme && !theme.colored) {
     style?.remove()
     return
   }
@@ -66,7 +120,6 @@ function applyRoot(): void {
     // 只换 <style> 时 <html> 没有变化；Mermaid 靠监听 <html> 的属性重读颜色。终端只听 data-theme 等几个，不受影响
     root.dataset.customThemeRev = String((Number(root.dataset.customThemeRev) || 0) + 1)
   }
-  if (root.dataset.customTheme !== theme.id) root.dataset.customTheme = theme.id
 }
 
 function emit(next: Partial<CustomThemeState>): void {
@@ -93,6 +146,34 @@ function saveActive(id: string | null): void {
   } catch {
     /* 同上 */
   }
+}
+
+function saveExtCache(): void {
+  const theme = getActiveExtTheme()
+  try {
+    if (theme)
+      localStorage.setItem(EXT_THEME_CACHE_KEY, JSON.stringify({ id: theme.id, label: theme.label, file: theme.file }))
+    else localStorage.removeItem(EXT_THEME_CACHE_KEY)
+  } catch {
+    /* 存不下只是下次启动晚一点变色 */
+  }
+}
+
+/* ---------- 扩展主题 ---------- */
+
+let extSeq = 0
+
+async function loadExtThemes(): Promise<void> {
+  const seq = ++extSeq
+  const refs = contributionsFrom(getPackState(), 'uiThemes')
+  const files = await Promise.all(refs.map(r => readPackJson(r.pack.key, r.item.path).catch(() => null)))
+  if (seq !== extSeq) return
+  const list = refs.flatMap((r, i) => {
+    const theme = parseExtTheme(extThemeId(r.pack.id ?? r.pack.key, r.item.id), r.item.label, files[i])
+    return theme ? [theme] : []
+  })
+  emit({ extThemes: sortExtThemes(list) })
+  saveExtCache()
 }
 
 /* ---------- 贴图 ---------- */
@@ -186,10 +267,10 @@ function update(id: string, patch: Partial<Omit<CustomTheme, 'id'>>): void {
 
 /** 选中主题；null 是回到内置配色（调用方另外 setPalette） */
 export function setActiveTheme(id: string | null): void {
-  const theme = state.themes.find(t => t.id === id) ?? null
+  const theme = state.themes.find(t => t.id === id) ?? state.extThemes.find(t => t.id === id) ?? null
   saveActive(theme?.id ?? null)
-  if (theme) setPalette(theme.base)
   emit({ activeId: theme?.id ?? null })
+  saveExtCache()
 }
 
 /** 新增一个主题并选中；到上限返回 null */
@@ -203,7 +284,7 @@ export function addTheme(theme: Omit<CustomTheme, 'id' | 'art'>): string | null 
   return id
 }
 
-/** 基于当前主题（自建的或内置的）复制一份；贴图不复制 */
+/** 基于当前主题（自建的、扩展的或暖灰）复制一份；贴图和玻璃不复制 */
 export function forkTheme(from: CustomTheme | null, palette: Palette, name: string): string | null {
   const base = from?.base ?? palette
   return addTheme({
@@ -211,6 +292,7 @@ export function forkTheme(from: CustomTheme | null, palette: Palette, name: stri
     base,
     light: { ...(from?.light ?? BASE_COLORS[base].light) },
     dark: { ...(from?.dark ?? BASE_COLORS[base].dark) },
+    ...(from?.vars ? { vars: from.vars } : {}),
   })
 }
 
@@ -226,7 +308,12 @@ export function setThemeColor(id: string, mode: ThemeMode, key: ThemeColorKey, v
 
 export function resetTheme(id: string): void {
   const theme = state.themes.find(t => t.id === id)
-  if (theme) update(id, { light: { ...BASE_COLORS[theme.base].light }, dark: { ...BASE_COLORS[theme.base].dark } })
+  if (theme)
+    update(id, {
+      light: { ...BASE_COLORS[theme.base].light },
+      dark: { ...BASE_COLORS[theme.base].dark },
+      vars: undefined,
+    })
 }
 
 export function removeTheme(id: string): void {
@@ -241,9 +328,9 @@ export function removeTheme(id: string): void {
 
 function onStorage(event: StorageEvent): void {
   if (event.storageArea !== localStorage) return
-  // palette.ts 先收到（它先注册），刚把属性写成存着的值：这里按当前主题再摆正
-  if (event.key === PALETTE_KEY) return applyRoot()
-  if (event.key !== THEMES_KEY && event.key !== ACTIVE_THEME_KEY && event.key !== null) return
+  if (event.key === PALETTE_KEY || event.key === null) migrateLegacyPalette()
+  if (event.key !== THEMES_KEY && event.key !== ACTIVE_THEME_KEY && event.key !== PALETTE_KEY && event.key !== null)
+    return
   const nextThemes = load(THEMES_KEY)
   const nextActive = load(ACTIVE_THEME_KEY)
   if (nextThemes === themesRaw && nextActive === activeRaw) return applyRoot()
@@ -256,12 +343,17 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', onStorage)
   applyRoot()
   syncArt()
+  // 取到扩展状态之前不动启动缓存：空状态不代表扩展没了
+  subscribePacks(() => void loadExtThemes())
+  if (getPackState() !== EMPTY_PACK_STATE) void loadExtThemes()
 }
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
+
+export const subscribeCustomThemes = subscribe
 
 export function useCustomThemes(): CustomThemeState {
   return useSyncExternalStore(

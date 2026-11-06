@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BASE_COLORS, THEME_COLOR_KEYS } from './customThemeBase'
+import { BASE_COLORS, BASE_EXTRAS, THEME_COLOR_KEYS } from './customThemeBase'
 import {
   MAX_THEMES,
   contrast,
@@ -11,8 +11,11 @@ import {
   mix,
   modeMismatch,
   parseImport,
+  parseExtTheme,
   parseThemes,
+  sortExtThemes,
   themeCss,
+  themeVars,
   type CustomTheme,
 } from './customThemeCore'
 import { PALETTES } from './palettes'
@@ -33,24 +36,70 @@ const theme = (patch: Partial<CustomTheme> = {}): CustomTheme => ({
 })
 
 describe('基础配色表', () => {
-  it('和 tokens.css 一致（改了配色要重新生成这张表）', () => {
+  const presetFile = (id: string) =>
+    JSON.parse(
+      readFileSync(join(__dirname, `../../../../../../../extensions/builtin/pixelsky.${id}/themes/${id}.json`), 'utf8'),
+    ) as Record<'light' | 'dark', Record<string, string>>
+
+  it('暖灰和 tokens.css 一致；其余和预装主题的文件一致（老的「我的主题」靠它，改了文件不用改这张表，这里锁住首版）', () => {
     const defaults = {
       light: blocks.find(b => b.sel.includes("[data-palette-preview='default']") && !b.sel.includes('dark'))!.vars,
       dark: blocks.find(b => b.sel.includes("[data-theme='dark'] [data-palette-preview='default']"))!.vars,
     }
     for (const id of PALETTES) {
-      const own = {
-        light:
-          id === 'default'
-            ? {}
-            : blocks.find(b => b.sel.includes(`[data-palette='${id}']`) && !b.sel.includes('dark'))?.vars,
-        dark:
-          id === 'default' ? {} : blocks.find(b => b.sel.includes(`[data-theme='dark'][data-palette='${id}']`))?.vars,
-      }
-      for (const mode of ['light', 'dark'] as const)
+      const file = id === 'default' ? defaults : presetFile(id)
+      for (const mode of ['light', 'dark'] as const) {
         for (const key of THEME_COLOR_KEYS)
-          expect(BASE_COLORS[id][mode][key], `${id} ${mode} ${key}`).toBe(own[mode]?.[key] ?? defaults[mode][key])
+          expect(BASE_COLORS[id][mode][key], `${id} ${mode} ${key}`).toBe(file[mode][key])
+        if (id === 'default') continue
+        for (const [key, value] of Object.entries(BASE_EXTRAS[id]![mode]))
+          expect(value, `${id} ${mode} ${key}`).toBe(file[mode][key])
+      }
     }
+  })
+})
+
+describe('扩展主题的变量', () => {
+  it('预装主题：写在文件里的值原样生效，不靠推算', () => {
+    const file = JSON.parse(
+      readFileSync(join(__dirname, '../../../../../../../extensions/builtin/pixelsky.nord/themes/nord.json'), 'utf8'),
+    ) as Record<'light' | 'dark', Record<string, string>>
+    const entry = parseExtTheme('ext:pixelsky.nord/nord', 'Nord', { pixelskyTheme: 1, ...file })!
+    for (const mode of ['light', 'dark'] as const) {
+      const vars = themeVars(entry, mode)
+      for (const [key, value] of Object.entries(file[mode])) expect(vars[`--${key}`], `${mode} ${key}`).toBe(value)
+    }
+  })
+
+  it('不合格的值写不进样式表', () => {
+    const bad = { pixelskyTheme: 1, dark: { 'terminal-bg': 'red;}body{display:none' } }
+    expect(parseExtTheme('x', 'x', bad)).toBeNull()
+    const [t] = parseThemes(
+      JSON.stringify([
+        { id: 'a', name: 'n', vars: { dark: { 'terminal-bg': 'red;}', 'terminal-fg': '#111111', evil: '#000000' } } },
+      ]),
+    )
+    expect(t.vars?.dark).toEqual({ 'terminal-fg': '#111111' })
+  })
+
+  it('基于老配色的我的主题：终端颜色还是那份配色的，不漏出暖灰', () => {
+    expect(themeCss(theme())).toContain(`--terminal-bg:${BASE_EXTRAS.nord!.dark['terminal-bg']}`)
+    expect(themeCss(theme())).toContain(`--chart-input:${BASE_EXTRAS.nord!.dark['chart-input']}`)
+  })
+
+  it('排序：预装的按固定顺序在前，第三方在后', () => {
+    const make = (id: string) => parseExtTheme(id, id, { pixelskyTheme: 1, dark: { text: '#ffffff' } })!
+    const ids = sortExtThemes(
+      ['ext:lin.moss/moss', 'ext:pixelsky.nord/nord', 'ext:pixelsky.glass/glass', 'ext:pixelsky.github/github'].map(
+        make,
+      ),
+    ).map(t => t.id)
+    expect(ids).toEqual([
+      'ext:pixelsky.glass/glass',
+      'ext:pixelsky.github/github',
+      'ext:pixelsky.nord/nord',
+      'ext:lin.moss/moss',
+    ])
   })
 })
 

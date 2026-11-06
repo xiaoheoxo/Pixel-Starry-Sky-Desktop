@@ -4,6 +4,7 @@
 import { ENGINES, type EngineId } from '@pixelsky/protocol'
 import type { SectionId } from './SettingsDialog'
 import { allMessages, tr, translateText } from '../../i18n/core'
+import { getActiveExtTheme } from '@/features/appearance/customTheme'
 import { getPackState } from '@/features/extpacks/store'
 import { iconThemesAvailable } from '@/features/files/icons/store'
 import { editorThemesAvailable } from '@/features/editor/code/colorTheme/store'
@@ -115,6 +116,16 @@ export const SETTINGS_INDEX: SearchEntry[] = [
       return tr('extensions.appearance.fileIconsKeywords')
     },
     available: () => iconThemesAvailable(getPackState()),
+  },
+  {
+    section: 'appearance',
+    get title() {
+      return tr('glass.title')
+    },
+    get keywords() {
+      return tr('glass.keywords')
+    },
+    available: () => !!getActiveExtTheme()?.glass,
   },
   {
     section: 'appearance',

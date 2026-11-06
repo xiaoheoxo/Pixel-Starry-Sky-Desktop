@@ -32,6 +32,7 @@ import { initMobile } from './mobile/ipc'
 import { initIm } from './im/ipc'
 import { initWorkspace } from './workspace/files-ipc'
 import { initWindowControls, observeWindowControls } from './app/window-controls'
+import { hasGlass, initGlass } from './app/glass'
 import { initExport } from './export/ipc'
 import { initUiLanguage, nativeText } from './app/ui-language'
 import { watchEditMenu } from './app/editMenu'
@@ -408,7 +409,8 @@ ipc.on('theme:set', (event, theme: ResolvedTheme, transparent?: boolean, backgro
   // 配色主题的实色底（renderer 的 --wall-tint）；格式不对就用默认暖灰
   const base =
     typeof background === 'string' && /^#[0-9a-f]{6}$/i.test(background) ? background : TITLE_BAR[theme].color
-  win.setBackgroundColor(base)
+  // 开着毛玻璃时窗口底色要透明；关掉时界面会把当前底色带过来
+  if (!hasGlass(win)) win.setBackgroundColor(base)
   if (process.platform !== 'darwin' && process.platform !== 'win32') {
     // 有壁纸时按钮区透明，按钮直接画在壁纸上（docs/ui/settings.md §6）
     const color = transparent === true ? '#00000000' : base
@@ -520,6 +522,7 @@ app.whenReady().then(async () => {
   })
   startup.step('diagnostics') // 上面的卡顿诊断、内存监控、应用菜单、界面语言
   initWindowControls()
+  initGlass()
   startup.step('initWindowControls')
   initExport() // 导出对话的保存对话框，见 export/ipc.ts
   initNotifications() // 系统通知，见 notifications/notifications.ts

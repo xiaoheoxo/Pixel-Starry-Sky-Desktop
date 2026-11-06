@@ -332,6 +332,8 @@ const windowControls: WindowBridge = {
   snapOptions: () => call('window:snapOptions'),
   restoreSnap: () => call('window:restoreSnap'),
   close: () => call('window:close'),
+  glassMaterials: () => call('window:glassMaterials'),
+  setGlass: (material, base) => call('window:setGlass', material, base),
   onState: cb => {
     const listener = (_event: Electron.IpcRendererEvent, state: WindowState): void => cb(state)
     on('window:state', listener)

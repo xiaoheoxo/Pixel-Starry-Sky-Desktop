@@ -4,7 +4,15 @@
 import type { ExtIssueCode } from './codes'
 import { manifestJsoncIssue, mk } from './issue'
 import { EXT_FIRST_LINE_MAX, packDir, resolvePackPath } from './match'
-import { EXT_BUILTIN_SCOPES, EXT_LIMITS, EXT_MANIFEST, EXT_MCP_MIN_APP, EXT_SCRIPT_MIN_APP } from './types'
+import { uiThemeProblems } from './uiTheme'
+import {
+  EXT_BUILTIN_SCOPES,
+  EXT_LIMITS,
+  EXT_MANIFEST,
+  EXT_MCP_MIN_APP,
+  EXT_SCRIPT_MIN_APP,
+  EXT_UI_THEME_MIN_APP,
+} from './types'
 import type {
   ExtPackContributionKind,
   ExtPackFileEntry,
@@ -36,6 +44,7 @@ const CONTRIBUTION_KINDS: readonly ExtPackContributionKind[] = [
   'prompts',
   'mcpServers',
   'commands',
+  'uiThemes',
 ]
 
 const ID_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])\.[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])$/
@@ -123,6 +132,7 @@ const KEYS = {
   mcpServers: MCP_KEYS,
   commands: COMMAND_KEYS,
   commandKeybinding: COMMAND_KEYBINDING_KEYS,
+  uiThemes: ['id', 'label', 'path'],
 } as const
 
 /** 语言设置文件第一期生效的字段（§4.3） */
@@ -135,6 +145,8 @@ const MAX_PER_CODE = 20
 const PREV_APP = '0.6.11'
 /** EXT_SCRIPT_MIN_APP 之前的最后一个版本 */
 const PREV_SCRIPT_APP = '0.7.0'
+/** EXT_UI_THEME_MIN_APP 之前的最后一个版本 */
+const PREV_UI_THEME_APP = '0.7.4'
 
 function isRec(v: unknown): v is Rec {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -320,7 +332,8 @@ export function validateManifest(
       warn('manifest.unknownField', `engines 里不认识的字段「${k}」`, `Unknown field "${k}" in engines`, `engines.${k}`)
     }
     // 没给 appVersion（上传级别）只查写法，不判断软件版本够不够
-    const ok = satisfiesEngine(engines.pixelsky, opts.appVersion ?? '0.0.0')
+    // 内置扩展随安装包发布，一定和这个安装包匹配，不查版本
+    const ok = opts.source === 'builtin' ? true : satisfiesEngine(engines.pixelsky, opts.appVersion ?? '0.0.0')
     if (ok === null) {
       warn(
         'manifest.engineRange',
@@ -1468,6 +1481,55 @@ export function validateContributions(
           'mcp.engines',
           `带 MCP 连接器的扩展 engines.pixelsky 要写 >=${EXT_MCP_MIN_APP}`,
           `Extensions with MCP servers must set engines.pixelsky to >=${EXT_MCP_MIN_APP}`,
+          { path: 'engines.pixelsky', upload: 'reject' },
+        ),
+      )
+
+    // ---- 界面主题：主题文件是纯数据，生效的代码在软件里 ----
+    const uiThemeIds = new Set<string>()
+    const themeList = listOf('uiThemes')
+    themeList.forEach((raw, i) => {
+      const it = forItem('uiThemes', i)
+      if (!isRec(raw)) return it.err('uiTheme.fields', '界面主题必须是对象', 'A UI theme must be an object')
+      it.unknown(raw, KEYS.uiThemes)
+      if (!isStr(raw.id) || raw.id.length > 48 || !LOCAL_ID_RE.test(raw.id))
+        return it.err(
+          'uiTheme.fields',
+          'id 只能用小写字母、数字和 -',
+          'id may only use lowercase letters, digits and -',
+          'id',
+        )
+      if (uiThemeIds.has(raw.id))
+        return it.err('uiTheme.fields', `界面主题 id 重复：${raw.id}`, `Duplicate UI theme id: ${raw.id}`, 'id')
+      uiThemeIds.add(raw.id)
+      if (!validText(raw.label))
+        return it.err(
+          'uiTheme.fields',
+          'label 必须是非空文字或 { zh, en }',
+          'label must be non-empty text or { zh, en }',
+          'label',
+        )
+      if (!validPath(raw.path) || !raw.path.endsWith('.json'))
+        return it.err(
+          'uiTheme.fields',
+          'path 必须是包内的 .json 文件',
+          'path must be a .json file inside the pack',
+          'path',
+        )
+      refs.add(raw.path)
+      const file = readJsonFile(raw.path, true)
+      if ('error' in file) return it.err('uiTheme.file', file.error.zh, file.error.en, raw.path)
+      for (const p of uiThemeProblems(file.value).slice(0, MAX_PER_CODE))
+        it.err('uiTheme.file', p.zh, p.en, p.path ? `${raw.path}#${p.path}` : raw.path)
+    })
+    if (themeList.length > 0 && range !== null && satisfiesEngine(range, PREV_UI_THEME_APP) === true)
+      issues.push(
+        mk(
+          'warning',
+          'pack',
+          'uiTheme.engines',
+          `带界面主题的扩展 engines.pixelsky 要写 >=${EXT_UI_THEME_MIN_APP}`,
+          `Extensions with UI themes must set engines.pixelsky to >=${EXT_UI_THEME_MIN_APP}`,
           { path: 'engines.pixelsky', upload: 'reject' },
         ),
       )

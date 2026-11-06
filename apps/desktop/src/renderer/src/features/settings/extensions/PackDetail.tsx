@@ -24,6 +24,7 @@ const KIND_LABELS = {
   prompts: 'extensions.kind.prompts',
   mcpServers: 'extensions.kind.mcpServers',
   commands: 'extensions.kind.commands',
+  uiThemes: 'extensions.kind.uiThemes',
 } as const
 
 const errorText = (e: unknown): string => translateMessage((e as Error)?.message ?? String(e))

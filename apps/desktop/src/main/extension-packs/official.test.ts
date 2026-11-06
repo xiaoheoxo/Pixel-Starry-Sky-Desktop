@@ -13,7 +13,11 @@ import { readExtTaskGroups } from '../core/project-tools/ext-tasks'
 import { extTaskCommand } from '../../renderer/src/features/coding/tasks/extCommand'
 import { loadPack } from './loader'
 
-const ROOT = resolve(__dirname, '../../../../../extensions/official')
+const ROOTS = [
+  resolve(__dirname, '../../../../../extensions/official'),
+  // 预装扩展：目录名就是扩展 id
+  resolve(__dirname, '../../../../../extensions/builtin'),
+]
 // 按「下一版」加载：仓库里的代码就是下一版，官方扩展可以要求下一版才有的能力（如 0.6.2 起任务模板 files 能写 *.csproj）
 const RELEASED = JSON.parse(readFileSync(resolve(__dirname, '../../../package.json'), 'utf8')).version as string
 const APP_VERSION = RELEASED.replace(
@@ -22,12 +26,13 @@ const APP_VERSION = RELEASED.replace(
 )
 const only = process.env.OFFICIAL_EXT
 
-const packs = existsSync(ROOT)
-  ? readdirSync(ROOT, { withFileTypes: true })
-      .filter(d => d.isDirectory() && existsSync(join(ROOT, d.name, 'pixelsky-extension.json')))
-      .map(d => d.name)
-      .filter(name => !only || name === only)
-  : []
+const packs = ROOTS.filter(root => existsSync(root))
+  .flatMap(root =>
+    readdirSync(root, { withFileTypes: true })
+      .filter(d => d.isDirectory() && existsSync(join(root, d.name, 'pixelsky-extension.json')))
+      .map(d => ({ name: d.name, dir: join(root, d.name) })),
+  )
+  .filter(p => !only || p.name === only)
 
 interface ExpectedTask {
   name: string
@@ -95,9 +100,8 @@ describe('官方语言扩展', () => {
     expect(packs.length).toBeGreaterThan(0)
   })
 
-  for (const name of packs) {
+  for (const { name, dir } of packs) {
     describe(name, () => {
-      const dir = join(ROOT, name)
       const manifest = JSON.parse(readFileSync(join(dir, 'pixelsky-extension.json'), 'utf8'))
 
       it('按文件夹加载：零错误零警告、生效', async () => {
@@ -117,7 +121,7 @@ describe('官方语言扩展', () => {
         expect(problems).toEqual([])
         expect(pack.info.status).not.toBe('error')
         expect(pack.info.live).toBe(true)
-        expect(manifest.id).toBe(`pixelsky.${name}`)
+        expect(manifest.id).toBe(name.startsWith('pixelsky.') ? name : `pixelsky.${name}`)
       })
 
       const templates = (manifest.contributes?.taskTemplates ?? []) as ExtTaskTemplateWire['template'][]

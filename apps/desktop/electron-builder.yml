@@ -22,6 +22,9 @@ afterPack: build/after-pack.cjs
 extraResources:
   - from: build/tray
     to: tray
+  # 预装扩展（预装主题、毛玻璃）
+  - from: ../../extensions/builtin
+    to: builtin-extensions
   # 像素星空命令行（packages/cli/scripts/bundle.mjs 生成）：Electron 自带 node 直接跑磁盘上的文件，wasm / worker 按路径读，不能进 asar
   - from: ../../packages/cli/dist/pixel-cli
     to: pixel-cli
@@ -103,10 +106,12 @@ linux:
   extraResources:
     - from: build/icon.png
       to: icon.png
-    # Linux 的 extraResources 会覆盖顶层的，命令行要再写一遍
+    # Linux 的 extraResources 会覆盖顶层的，命令行和预装扩展要再写一遍
     - from: ../../packages/cli/dist/pixel-cli
       to: pixel-cli
       filter: ['**/*']
+    - from: ../../extensions/builtin
+      to: builtin-extensions
 deb:
   packageName: pixelsky
   # 用到的系统库（Electron 的常规依赖，Ubuntu / Debian 桌面版都有）

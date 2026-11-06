@@ -1045,6 +1045,53 @@
   backdrop-filter: blur(18px) saturate(1.15);
 }
 
+/* ---------- 毛玻璃（docs/ui/glass-effect.md）：变量在 tokens.css ---------- */
+:root[data-glass] :is(main, [data-coding-center]) {
+  background-color: color-mix(in srgb, var(--glass-tint-main) var(--glass-main), transparent);
+}
+:root[data-glass] [data-code-block] {
+  background-color: color-mix(in srgb, var(--wall-tint) var(--glass-code), transparent);
+}
+/* 系统材质糊的是窗口外面，窗口里的内容要靠这里糊：卡片盖在别的卡片上、菜单和对话框盖在文字上，否则下面的字会透上来 */
+:root[data-glass] .bg-surface {
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+:root[data-glass] :is(.bg-popover, [role='dialog'].bg-surface) {
+  background-color: color-mix(in srgb, var(--glass-tint-card) var(--glass-menu), transparent);
+  backdrop-filter: blur(24px) saturate(1.4);
+}
+:root[data-glass] .bg-surface:is(.rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl) {
+  border-radius: var(--glass-radius);
+}
+/* 噪点在所有内容下面，亮边在所有内容上面 */
+:root[data-glass] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--glass-noise);
+}
+:root[data-glass] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, var(--glass-rim)),
+    inset 0 0 0 1px rgba(255, 255, 255, calc(var(--glass-rim) / 3));
+}
+:root[data-theme='dark'][data-glass-shadow] body {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+:root[data-theme='light'][data-glass-shadow] body {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+:root[data-glass-shadow] :is(pre, code, .cm-editor, .xterm) {
+  text-shadow: none;
+}
+
 /* 开关（ui/Switch.tsx，设置页和推理强度弹窗共用）：
    关：淡底 + 细边，圆点是卡片底色；开：强调色，和勾选框、主按钮一致（D138，修订 D105 的中性色）。
    只有 Ultracode 开着是紫色，和它的星芒、名称流光一致 */

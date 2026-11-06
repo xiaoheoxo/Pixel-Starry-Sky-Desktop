@@ -36,6 +36,7 @@ export type StoreCategoryId =
   | 'iconThemes'
   | 'taskTemplates'
   | 'commands'
+  | 'uiThemes'
   | 'skills'
   | 'prompts'
   | 'mcpServers'
@@ -59,6 +60,7 @@ export const STORE_CATEGORIES: readonly StoreCategory[] = [
   { id: 'iconThemes', label: 'extstore.category.iconThemes', group: 'code' },
   { id: 'taskTemplates', label: 'extstore.category.taskTemplates', group: 'code' },
   { id: 'commands', label: 'extstore.category.commands', group: 'code' },
+  { id: 'uiThemes', label: 'extstore.category.uiThemes', group: 'code' },
   { id: 'skills', label: 'extstore.category.skills', group: 'ai' },
   { id: 'prompts', label: 'extstore.category.prompts', group: 'ai' },
   { id: 'mcpServers', label: 'extstore.category.mcp', group: 'ai' },
@@ -141,6 +143,7 @@ const KIND_ORDER: ExtPackContributionKind[] = [
   'taskTemplates',
   'skills',
   'prompts',
+  'uiThemes',
 ]
 
 export interface CardFields {

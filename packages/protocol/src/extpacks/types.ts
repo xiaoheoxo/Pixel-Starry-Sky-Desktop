@@ -110,6 +110,13 @@ export interface ExtCommand {
   /** 默认快捷键，mod 是 Ctrl（macOS 上是 ⌘）；和软件自带的冲突时不生效 */
   keybinding?: { code: string; mod?: boolean; shift?: boolean; alt?: boolean }
 }
+/** 界面主题（docs/ui/ui-themes-extension.md）：扩展只带数据，出现在设置页的主题列表里 */
+export interface ExtUiTheme {
+  id: string
+  label: ExtText
+  /** 主题文件（.json），格式见 uiTheme.ts */
+  path: string
+}
 export interface ExtPackContributes {
   grammars?: ExtGrammar[]
   themes?: ExtTheme[]
@@ -120,6 +127,7 @@ export interface ExtPackContributes {
   prompts?: ExtPrompt[]
   mcpServers?: ExtMcpServer[]
   commands?: ExtCommand[]
+  uiThemes?: ExtUiTheme[]
 }
 export type ExtPackContributionKind = keyof ExtPackContributes
 export interface ExtPackManifest {
@@ -305,7 +313,7 @@ export const EXT_LIMITS = {
 } as const
 
 /** 规则语义变化时加一；写进命令行的 JSON 和共享用例的期望 */
-export const EXT_RULES_VERSION = 5
+export const EXT_RULES_VERSION = 6
 
 /** MCP 连接器能用的启动命令：都是从公开仓库按写死的版本拉包（npm / PyPI / 镜像摘要） */
 export const EXT_MCP_COMMANDS: readonly string[] = ['npx', 'uvx', 'docker']
@@ -313,6 +321,8 @@ export const EXT_MCP_COMMANDS: readonly string[] = ['npx', 'uvx', 'docker']
 export const EXT_MCP_MIN_APP = '0.6.12'
 /** 认脚本和命令的第一个软件版本：engines.pixelsky 要排除比它旧的 */
 export const EXT_SCRIPT_MIN_APP = '0.7.1'
+/** 认界面主题的第一个软件版本：engines.pixelsky 要排除比它旧的 */
+export const EXT_UI_THEME_MIN_APP = '0.7.5'
 /** 脚本能申请的权限（docs/ui/extension-commands-plan.md §1.1） */
 export const EXT_SCRIPT_PERMISSIONS: readonly string[] = ['editor.read', 'editor.write', 'ui.notify', 'storage']
 /** 现阶段只运行这些发布者从商店发的脚本（§10 问题 5）；文件夹扩展是用户自己放的，不受限 */

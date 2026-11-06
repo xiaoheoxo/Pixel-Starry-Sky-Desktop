@@ -133,6 +133,7 @@ export const CONTENT_KIND_ORDER: ExtPackContributionKind[] = [
   'taskTemplates',
   'skills',
   'prompts',
+  'uiThemes',
 ]
 
 export interface ContentRow {

@@ -1,0 +1,36 @@
+{
+  "id": "pixelsky.midnight",
+  "name": "极夜",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "极夜配色：深色是纯黑底、近乎看不见的边框，浅色是纯白底配中性灰。",
+  "icon": "icon.png",
+  "keywords": ["theme", "主题", "配色", "midnight"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.5"
+  },
+  "l10n": {
+    "en": {
+      "name": "Midnight",
+      "description": "Midnight colors: pure black with near-invisible borders in dark mode, pure white with neutral grays in light mode."
+    }
+  },
+  "contributes": {
+    "uiThemes": [
+      {
+        "id": "midnight",
+        "label": {
+          "zh": "极夜",
+          "en": "Midnight"
+        },
+        "path": "themes/midnight.json"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

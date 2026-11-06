@@ -1,0 +1,42 @@
+{
+  "rulesVersion": 6,
+  "dev": {
+    "status": "warning",
+    "inactive": {
+      "uiThemes": [
+        0
+      ]
+    },
+    "skills": [],
+    "issues": [
+      {
+        "code": "uiTheme.file",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "themes/glass.json",
+        "contribution": {
+          "kind": "uiThemes",
+          "index": 0
+        },
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "uiTheme.file",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "themes/glass.json",
+        "contribution": {
+          "kind": "uiThemes",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "title": "主题文件不存在",
+  "expectCodes": ["uiTheme.file"],
+  "input": "folder",
+  "base": "pixelsky.dotenv",
+  "appVersion": "0.7.5",
+  "remove": ["syntaxes", "snippets", "language-configuration.json", "samples"],
+  "files": {
+    "pixelsky-extension.json": {
+      "merge": {
+        "engines": {
+          "pixelsky": ">=0.7.5"
+        },
+        "contributes": {
+          "grammars": null,
+          "snippets": null,
+          "uiThemes": [
+            {
+              "id": "glass",
+              "label": {
+                "zh": "毛玻璃",
+                "en": "Glass"
+              },
+              "path": "themes/glass.json"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "pixelsky.solarized",
+  "name": "Solarized",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "Solarized 配色，浅色和深色都有。",
+  "icon": "icon.png",
+  "keywords": ["theme", "主题", "配色", "solarized"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.5"
+  },
+  "l10n": {
+    "en": {
+      "name": "Solarized",
+      "description": "Solarized colors for light and dark mode."
+    }
+  },
+  "contributes": {
+    "uiThemes": [
+      {
+        "id": "solarized",
+        "label": {
+          "zh": "Solarized",
+          "en": "Solarized"
+        },
+        "path": "themes/solarized.json"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

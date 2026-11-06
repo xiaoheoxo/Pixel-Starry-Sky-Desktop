@@ -11,8 +11,9 @@ import { ComingSoonProvider } from '../ui'
 // 字体、强调色和配色设置在第一次渲染前就写到 <html> 上，避免启动时先闪一下默认字体
 import '../features/appearance/fonts'
 import '../features/appearance/accent'
-import '../features/appearance/palette'
+import '../features/appearance/customTheme'
 import { WallpaperLayer } from '../features/appearance/WallpaperLayer'
+import { startGlass } from '../features/appearance/glass'
 import { SearchProvider } from '../features/search/SearchProvider'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { SessionActionsProvider } from '../features/sidebar/SessionActions'
@@ -53,6 +54,8 @@ startAutoSave()
 startLoopClock()
 // 动画档位：插电、不卡时转圈平滑转，用电池或刚卡过时省电（docs/ui/performance.md §5.3）
 startPerfTier()
+// 毛玻璃：当前主题带玻璃才生效（docs/ui/glass-effect.md）
+startGlass()
 // 记最近一次点击、按键：切换对话慢时记日志用（docs/ui/performance.md §5.2 B1）
 installInputClock()
 

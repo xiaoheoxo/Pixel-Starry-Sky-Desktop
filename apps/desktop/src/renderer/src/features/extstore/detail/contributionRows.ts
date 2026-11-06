@@ -14,6 +14,7 @@ export const CONTRIBUTION_KIND_ORDER: readonly ExtPackContributionKind[] = [
   'prompts',
   'mcpServers',
   'commands',
+  'uiThemes',
 ]
 
 export interface ManifestContributionRow {
@@ -55,6 +56,10 @@ function labelOf(manifest: ExtPackManifest, kind: ExtPackContributionKind, index
     case 'commands': {
       const t = c?.commands?.[index]
       return t ? extText(t.title, locale) : ''
+    }
+    case 'uiThemes': {
+      const t = c.uiThemes?.[index]
+      return t ? extText(t.label, locale) : ''
     }
   }
 }

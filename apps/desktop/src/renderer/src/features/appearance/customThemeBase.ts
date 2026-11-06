@@ -1,24 +1,130 @@
 // 内置配色的 13 个可改颜色（docs/ui/custom-theme.md）：新建主题、导入时补缺用。
 // 渲染用的值在 styles/tokens.css，这里是它的副本（新建时另一个模式的值从 CSS 读不到）；customThemeCore.test.ts 核对两边一致
+import { UI_THEME_COLOR_KEYS } from '@pixelsky/protocol'
 import type { Palette } from './palettes'
 
-export const THEME_COLOR_KEYS = [
-  'bg-sidebar',
-  'bg-app',
-  'bg-workbench',
-  'bg-surface',
-  'border',
-  'text',
-  'text-secondary',
-  'text-muted',
-  'theme-accent',
-  'btn-primary-bg',
-  'success',
-  'warn',
-  'danger',
-] as const
+export const THEME_COLOR_KEYS = UI_THEME_COLOR_KEYS
 export type ThemeColorKey = (typeof THEME_COLOR_KEYS)[number]
 export type ThemeColors = Record<ThemeColorKey, string>
+
+/** 基于老配色的「我的主题」要用的终端、图表颜色：只存了 13 个颜色，这些以前来自配色块。卸载对应的预装主题也不受影响 */
+export const BASE_EXTRAS: Partial<Record<Palette, Record<'light' | 'dark', Record<string, string>>>> = {
+  midnight: {
+    light: {
+      'terminal-bg': '#ffffff',
+      'terminal-fg': '#111111',
+      'terminal-cursor': '#2d6151',
+      'terminal-selection': 'rgba(143, 208, 180, 0.28)',
+    },
+    dark: {
+      'terminal-bg': '#000000',
+      'terminal-fg': '#ededed',
+      'terminal-cursor': '#8fd0b4',
+      'terminal-selection': 'rgba(143, 208, 180, 0.3)',
+    },
+  },
+  github: {
+    light: {
+      'terminal-bg': '#ffffff',
+      'terminal-fg': '#1f2328',
+      'terminal-cursor': '#0969da',
+      'terminal-selection': 'rgba(84, 174, 255, 0.25)',
+    },
+    dark: {
+      'terminal-bg': '#0d1117',
+      'terminal-fg': '#e6edf3',
+      'terminal-cursor': '#58a6ff',
+      'terminal-selection': 'rgba(56, 139, 253, 0.3)',
+    },
+  },
+  solarized: {
+    light: {
+      'terminal-bg': '#fdf6e3',
+      'terminal-fg': '#073642',
+      'terminal-cursor': '#268bd2',
+      'terminal-selection': 'rgba(38, 139, 210, 0.2)',
+    },
+    dark: {
+      'terminal-bg': '#002b36',
+      'terminal-fg': '#c1c9c3',
+      'terminal-cursor': '#268bd2',
+      'terminal-selection': 'rgba(38, 139, 210, 0.3)',
+    },
+  },
+  nord: {
+    light: {
+      'terminal-bg': '#f8f9fb',
+      'terminal-fg': '#2e3440',
+      'terminal-cursor': '#5e81ac',
+      'terminal-selection': 'rgba(94, 129, 172, 0.25)',
+    },
+    dark: {
+      'terminal-bg': '#2e3440',
+      'terminal-fg': '#d8dee9',
+      'terminal-cursor': '#88c0d0',
+      'terminal-selection': 'rgba(136, 192, 208, 0.25)',
+      'chart-input': '#cd7f28',
+      'chart-cache': '#6591e4',
+      'chart-output': '#23a776',
+    },
+  },
+  catppuccin: {
+    light: {
+      'terminal-bg': '#eff1f5',
+      'terminal-fg': '#4c4f69',
+      'terminal-cursor': '#7c2fe0',
+      'terminal-selection': 'rgba(136, 57, 239, 0.18)',
+    },
+    dark: {
+      'terminal-bg': '#1e1e2e',
+      'terminal-fg': '#cdd6f4',
+      'terminal-cursor': '#cba6f7',
+      'terminal-selection': 'rgba(203, 166, 247, 0.25)',
+    },
+  },
+  gruvbox: {
+    light: {
+      'terminal-bg': '#f9f5d7',
+      'terminal-fg': '#3c3836',
+      'terminal-cursor': '#af3a03',
+      'terminal-selection': 'rgba(214, 93, 14, 0.2)',
+    },
+    dark: {
+      'terminal-bg': '#282828',
+      'terminal-fg': '#ebdbb2',
+      'terminal-cursor': '#fe8019',
+      'terminal-selection': 'rgba(254, 128, 25, 0.25)',
+    },
+  },
+  tokyonight: {
+    light: {
+      'terminal-bg': '#eceef3',
+      'terminal-fg': '#343b58',
+      'terminal-cursor': '#2e7de9',
+      'terminal-selection': 'rgba(46, 125, 233, 0.2)',
+    },
+    dark: {
+      'terminal-bg': '#1a1b26',
+      'terminal-fg': '#c0caf5',
+      'terminal-cursor': '#7aa2f7',
+      'terminal-selection': 'rgba(122, 162, 247, 0.25)',
+    },
+  },
+  rosepine: {
+    light: {
+      'terminal-bg': '#fffaf3',
+      'terminal-fg': '#575279',
+      'terminal-cursor': '#d7827e',
+      'terminal-selection': 'rgba(215, 130, 126, 0.22)',
+    },
+    dark: {
+      'terminal-bg': '#191724',
+      'terminal-fg': '#e0def4',
+      'terminal-cursor': '#ebbcba',
+      'terminal-selection': 'rgba(235, 188, 186, 0.22)',
+    },
+  },
+}
 
 export const BASE_COLORS: Record<Palette, { light: ThemeColors; dark: ThemeColors }> = {
   default: {

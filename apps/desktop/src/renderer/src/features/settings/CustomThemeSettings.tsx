@@ -5,7 +5,7 @@ import { tr } from '../../i18n/core'
 import { Button, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useAccent } from '@/features/appearance/accent'
-import { usePalette } from '@/features/appearance/palette'
+import { DEFAULT_PALETTE } from '@/features/appearance/palettes'
 import { useTheme } from '@/features/appearance/ThemeProvider'
 import {
   ART_ACCEPT,
@@ -79,19 +79,18 @@ const GROUPS = [
 /** 「我的主题」：自建主题的卡片、新建、导入 */
 export function MyThemes() {
   useI18n()
-  const { themes, activeId } = useCustomThemes()
+  const { themes, extThemes, activeId } = useCustomThemes()
   const { resolved } = useTheme()
-  const palette = usePalette()
   const [importing, setImporting] = useState(false)
   const full = themes.length >= MAX_THEMES
   const create = (): void => {
-    const from = themes.find(t => t.id === activeId) ?? null
+    const from = themes.find(t => t.id === activeId) ?? extThemes.find(t => t.id === activeId) ?? null
     forkTheme(
       from,
-      palette,
+      DEFAULT_PALETTE,
       from
         ? tr('customTheme.forkMine', { name: from.name })
-        : tr('customTheme.forkBuiltin', { name: paletteName(palette) }),
+        : tr('customTheme.forkBuiltin', { name: paletteName(DEFAULT_PALETTE) }),
     )
   }
   return (

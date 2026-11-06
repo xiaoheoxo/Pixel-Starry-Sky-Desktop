@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { isDemo } from '@/data'
 import { PANE_FOCUS_MOTION_KEY, readPaneFocusMotion, type PaneFocusMotion } from './paneFocusMotion'
 import { MINIMAL_MODE_KEY, readMinimalMode, type MinimalMode } from './minimalMode'
-import { usePalette, windowBackground } from './palette'
+import { windowBackground } from './palette'
 import { useCustomThemes } from './customTheme'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
@@ -117,20 +117,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const resolved: ResolvedTheme = preference === 'system' ? system : preference
-  const palette = usePalette()
   const custom = useCustomThemes()
 
-  const activeBg = custom.themes.find(t => t.id === custom.activeId)?.[resolved]['bg-app']
+  const activeTheme = [...custom.themes, ...custom.extThemes].find(t => t.id === custom.activeId)
+  const activeBg = activeTheme?.[resolved]['bg-app']
+  // 扩展主题是异步读到的：读到时 id 没变，也要让终端重读颜色
+  const themeLoaded = !!activeTheme
 
   // 写 data-theme 会让每个终端重设样式、重算尺寸：只在模式、配色、选中的主题变时写，拖颜色时不写
   useEffect(() => {
     document.documentElement.dataset.theme = resolved
-  }, [resolved, palette, custom.activeId])
+  }, [resolved, custom.activeId, themeLoaded])
 
   // 窗口底色按配色主题的实际底色（换配色也要重新同步）
   useEffect(() => {
     window.pixelsky?.setTheme(resolved, hasWallpaper(), windowBackground())
-  }, [resolved, palette, custom.activeId, activeBg])
+  }, [resolved, custom.activeId, activeBg])
 
   // 截图模式（src/main/index.ts）通过这个钩子切换主题
   useEffect(() => {

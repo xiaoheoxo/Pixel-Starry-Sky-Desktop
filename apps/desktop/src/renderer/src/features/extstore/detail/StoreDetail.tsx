@@ -42,6 +42,7 @@ const KIND_LABELS = {
   prompts: 'extensions.kind.prompts',
   mcpServers: 'extensions.kind.mcpServers',
   commands: 'extensions.kind.commands',
+  uiThemes: 'extensions.kind.uiThemes',
 } as const satisfies Record<ExtPackContributionKind, string>
 
 const kindLabel = (kind: string): string =>

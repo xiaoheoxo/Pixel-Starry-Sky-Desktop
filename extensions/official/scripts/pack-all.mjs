@@ -12,25 +12,25 @@ const cli = join(root, 'packages', 'extension-cli')
 const out = join(official, 'dist')
 
 const wanted = process.argv.slice(2)
-const packs = readdirSync(official, { withFileTypes: true })
-  .filter(d => d.isDirectory() && existsSync(join(official, d.name, 'pixelsky-extension.json')))
-  .map(d => d.name)
-  .filter(name => !wanted.length || wanted.includes(name))
+// 预装扩展（extensions/builtin）也能传到商店，用来单独更新
+const packs = [official, join(root, 'extensions', 'builtin')]
+  .flatMap(dir =>
+    readdirSync(dir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && existsSync(join(dir, d.name, 'pixelsky-extension.json')))
+      .map(d => ({ name: d.name, dir: join(dir, d.name) })),
+  )
+  .filter(p => !wanted.length || wanted.includes(p.name))
 
 const build = spawnSync(process.execPath, [join(cli, 'scripts', 'build.mjs')], { stdio: 'inherit' })
 if (build.status !== 0) process.exit(1)
 mkdirSync(out, { recursive: true })
 
 let failed = 0
-for (const name of packs) {
+for (const { dir } of packs) {
   // pack 自己会先按上传标准检查，不通过时不写 zip、退出码 1
-  const run = spawnSync(
-    process.execPath,
-    [join(cli, 'dist', 'pixelsky-ext.mjs'), 'pack', join(official, name), '-o', out],
-    {
-      stdio: 'inherit',
-    },
-  )
+  const run = spawnSync(process.execPath, [join(cli, 'dist', 'pixelsky-ext.mjs'), 'pack', dir, '-o', out], {
+    stdio: 'inherit',
+  })
   if (run.status !== 0) failed++
 }
 console.log(failed ? `失败 ${failed} 个` : `全部打好，在 ${out}`)

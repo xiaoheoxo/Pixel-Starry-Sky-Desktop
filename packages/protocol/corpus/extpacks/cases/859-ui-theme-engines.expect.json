@@ -1,0 +1,30 @@
+{
+  "rulesVersion": 6,
+  "dev": {
+    "status": "warning",
+    "inactive": {},
+    "skills": [],
+    "issues": [
+      {
+        "code": "uiTheme.engines",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "engines.pixelsky",
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "uiTheme.engines",
+        "severity": "warning",
+        "scope": "pack",
+        "path": "engines.pixelsky",
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

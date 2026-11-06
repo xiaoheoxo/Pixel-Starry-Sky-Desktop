@@ -25,6 +25,15 @@ const LABELS = {
   vue: 'Vue',
   svelte: 'Sv',
   'word-count': '字',
+  glass: '璃',
+  'pixelsky.midnight': '极',
+  'pixelsky.github': 'GH',
+  'pixelsky.solarized': 'So',
+  'pixelsky.nord': 'Nd',
+  'pixelsky.catppuccin': 'Cp',
+  'pixelsky.gruvbox': 'Gb',
+  'pixelsky.tokyonight': 'TN',
+  'pixelsky.rosepine': 'RP',
   'json-format': '{}',
   timestamp: '时',
   linear: 'Li',
@@ -73,9 +82,11 @@ app
   .then(async () => {
     const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } })
     await win.loadURL('about:blank')
-    const jobs = Object.entries(LABELS).filter(([name]) => existsSync(join(root, name)))
+    // 名字带 pixelsky. 的在 extensions/builtin
+    const dirOf = name => (name.startsWith('pixelsky.') ? join(root, '..', 'builtin', name) : join(root, name))
+    const jobs = Object.entries(LABELS).filter(([name]) => existsSync(dirOf(name)))
     const pngs = await win.webContents.executeJavaScript(`${draw}(${JSON.stringify(jobs)})`)
-    for (const [name] of jobs) writeFileSync(join(root, name, 'icon.png'), Buffer.from(pngs[name], 'base64'))
+    for (const [name] of jobs) writeFileSync(join(dirOf(name), 'icon.png'), Buffer.from(pngs[name], 'base64'))
     console.log(`写好了 ${jobs.length} 个图标`)
     win.destroy()
     app.quit()

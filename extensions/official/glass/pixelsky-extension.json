@@ -1,0 +1,25 @@
+{
+  "id": "pixelsky.glass",
+  "name": "毛玻璃",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "毛玻璃主题：窗口变透明，能透出桌面或壁纸。透出、模糊、亮度、底色、亮边都能调",
+  "icon": "icon.png",
+  "keywords": ["glass", "acrylic", "mica", "vibrancy", "毛玻璃", "透明"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": { "pixelsky": ">=0.7.5" },
+  "l10n": {
+    "en": {
+      "name": "Frosted Glass",
+      "description": "A frosted glass theme: the window turns see-through and shows the desktop or wallpaper. Transparency, blur, brightness, tint and edges are all adjustable"
+    }
+  },
+  "contributes": {
+    "uiThemes": [{ "id": "glass", "label": { "zh": "毛玻璃", "en": "Frosted glass" }, "path": "themes/glass.json" }]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

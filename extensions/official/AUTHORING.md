@@ -104,6 +104,14 @@ extensions/official/python/
 - `main` 写 `main.js`（只有这一个 `.js` 进包），`engines.pixelsky` 写 `>=0.7.1`，`permissions` 只写真正用到的。
 - 不压缩、不混淆，别人审得动；README 里写明每项权限拿来做什么。
 
+### 3.7 界面主题 `uiThemes`
+
+主题文件放 `themes/*.json`。`engines.pixelsky` 写 `>=0.7.5`；字段见 `docs/extensions/authoring-spec.md` §14。
+
+`glass/themes/glass.json` 的数值要和软件的默认值一致（`glassCore.test.ts` 比对）。
+
+随软件预装的扩展（8 套配色）放在 `extensions/builtin/<扩展 id>/`，目录名是完整 id，其余约定和这里一样。
+
 ## 4. README 结构（中文）
 
 ```

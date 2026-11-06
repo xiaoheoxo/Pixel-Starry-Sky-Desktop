@@ -66,6 +66,7 @@ export const extensionCenterMessages = {
   'extstore.category.iconThemes': { zh: '文件图标', en: 'File icons' },
   'extstore.category.taskTemplates': { zh: '任务', en: 'Tasks' },
   'extstore.category.commands': { zh: '命令', en: 'Commands' },
+  'extstore.category.uiThemes': { zh: '界面主题', en: 'UI themes' },
   'extstore.category.skills': { zh: '技能', en: 'Skills' },
   'extstore.category.prompts': { zh: '提示词', en: 'Prompts' },
   'extstore.category.mcp': { zh: 'MCP 连接器', en: 'MCP connectors' },
@@ -125,6 +126,7 @@ export const extensionCenterMessages = {
   'extstore.kind.prompts': { zh: '提示词', en: 'Prompts' },
   'extstore.kind.mcpServers': { zh: 'MCP 连接器', en: 'MCP servers' },
   'extstore.kind.commands': { zh: '命令', en: 'Commands' },
+  'extstore.kind.uiThemes': { zh: '界面主题', en: 'UI themes' },
   // 脚本扩展的命令（docs/ui/extension-commands-plan.md）
   'extCommands.label': { zh: '{name}：{title}', en: '{name}: {title}' },
   'extCommands.category': { zh: '扩展', en: 'Extensions' },
@@ -265,6 +267,7 @@ export const extensionCenterMessages = {
   'extensions.kind.prompts': { zh: '提示词', en: 'Prompt' },
   'extensions.kind.mcpServers': { zh: 'MCP 连接器', en: 'MCP server' },
   'extensions.kind.commands': { zh: '命令', en: 'Command' },
+  'extensions.kind.uiThemes': { zh: '界面主题', en: 'UI theme' },
   // 扩展里的 MCP 连接器（features/extpacks/McpServers.tsx）
   'extensions.mcp.title': { zh: '会运行的程序', en: 'Programs it runs' },
   'extensions.mcp.warning': {

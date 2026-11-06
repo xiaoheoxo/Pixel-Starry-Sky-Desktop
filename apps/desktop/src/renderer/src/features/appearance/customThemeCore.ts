@@ -1,5 +1,13 @@
 // 自定义主题（docs/ui/custom-theme.md）的纯逻辑：校验、算派生变量、拼 CSS、导入导出。存取在 customTheme.ts
-import { BASE_COLORS, THEME_COLOR_KEYS, type ThemeColorKey, type ThemeColors } from './customThemeBase'
+import {
+  isUiThemeExtraValue,
+  UI_THEME_EXTRA_KEYS,
+  uiThemeProblems,
+  type ExtText,
+  type UiThemeFile,
+  type UiThemeGlass,
+} from '@pixelsky/protocol'
+import { BASE_COLORS, BASE_EXTRAS, THEME_COLOR_KEYS, type ThemeColorKey, type ThemeColors } from './customThemeBase'
 import { DEFAULT_PALETTE, PALETTES, type Palette } from './palettes'
 
 export type ThemeMode = 'light' | 'dark'
@@ -11,12 +19,16 @@ export interface ThemeArt {
   mask: Record<ThemeMode, number>
 }
 
+export type ThemeExtraVars = Record<ThemeMode, Record<string, string>>
+
 export interface CustomTheme {
   id: string
   name: string
   base: Palette
   light: ThemeColors
   dark: ThemeColors
+  /** 13 个颜色算不出来、要照原样用的变量（终端颜色等），键不带 -- */
+  vars?: ThemeExtraVars
   art?: ThemeArt
 }
 
@@ -36,6 +48,13 @@ function parseColors(raw: unknown, base: ThemeColors): ThemeColors {
   const source = isRecord(raw) ? raw : {}
   const out = { ...base }
   for (const key of THEME_COLOR_KEYS) if (isHex(source[key])) out[key] = (source[key] as string).toLowerCase()
+  return out
+}
+
+function parseExtras(raw: unknown): Record<string, string> {
+  const source = isRecord(raw) ? raw : {}
+  const out: Record<string, string> = {}
+  for (const key of UI_THEME_EXTRA_KEYS) if (isUiThemeExtraValue(source[key])) out[key] = source[key]
   return out
 }
 
@@ -76,10 +95,57 @@ export function parseThemes(raw: string | null): CustomTheme[] {
       base,
       light: parseColors(item.light, BASE_COLORS[base].light),
       dark: parseColors(item.dark, BASE_COLORS[base].dark),
+      ...(isRecord(item.vars)
+        ? { vars: { light: parseExtras(item.vars.light), dark: parseExtras(item.vars.dark) } }
+        : {}),
       ...(art ? { art } : {}),
     })
   }
   return out
+}
+
+/** 扩展带的界面主题（docs/ui/ui-themes-extension.md）：只读，不进「我的主题」列表 */
+export interface ExtThemeEntry extends CustomTheme {
+  label: ExtText
+  /** 文件写了颜色才注入样式；只写了玻璃的就是基础配色本身 */
+  colored: boolean
+  glass: UiThemeGlass | null
+  /** 原始主题文件：存进启动缓存，读回来再校验一遍 */
+  file: unknown
+}
+
+export const extThemeId = (packId: string, themeId: string): string => `ext:${packId}/${themeId}`
+
+/** 老版本选的配色对应哪个预装主题 */
+export const legacyThemeId = (palette: Palette): string => extThemeId(`pixelsky.${palette}`, palette)
+
+/** 官方主题排在前面，顺序固定（毛玻璃紧跟暖灰，配色按原来内置的顺序）；其余的按原顺序排在后面 */
+const PRESET_ORDER = ['pixelsky.glass', ...PALETTES.slice(1).map(p => `pixelsky.${p}`)]
+export function sortExtThemes(list: readonly ExtThemeEntry[]): ExtThemeEntry[] {
+  const rank = (t: ExtThemeEntry): number => {
+    const at = PRESET_ORDER.findIndex(id => t.id.startsWith(`ext:${id}/`))
+    return at < 0 ? PRESET_ORDER.length : at
+  }
+  return [...list].sort((a, b) => rank(a) - rank(b))
+}
+
+/** 文件不合格返回 null（校验器已经报过，这里不再说） */
+export function parseExtTheme(id: string, label: ExtText, file: unknown): ExtThemeEntry | null {
+  if (uiThemeProblems(file).length > 0) return null
+  const f = file as UiThemeFile
+  const base = parseBase(f.base)
+  return {
+    id,
+    name: typeof label === 'string' ? label : label.zh,
+    base,
+    light: parseColors(f.light, BASE_COLORS[base].light),
+    dark: parseColors(f.dark, BASE_COLORS[base].dark),
+    vars: { light: parseExtras(f.light), dark: parseExtras(f.dark) },
+    label,
+    colored: !!(f.light || f.dark),
+    glass: f.glass ?? null,
+    file,
+  }
 }
 
 function channels(hex: string): [number, number, number] {
@@ -179,8 +245,17 @@ const WALLPAPER_OWNED = new Set([
   '--bg-workbench',
 ])
 
+/** 主题实际用的全部变量：13 个颜色算出来的，再盖上它自己写的（老配色的取 BASE_EXTRAS） */
+export function themeVars(theme: CustomTheme, mode: ThemeMode): Record<string, string> {
+  const own = theme.vars?.[mode] ?? BASE_EXTRAS[theme.base]?.[mode] ?? {}
+  return {
+    ...deriveVars(theme[mode], mode),
+    ...Object.fromEntries(Object.entries(own).map(([k, v]) => [`--${k}`, v])),
+  }
+}
+
 function modeCss(theme: CustomTheme, mode: ThemeMode): string {
-  const vars = Object.entries(deriveVars(theme[mode], mode))
+  const vars = Object.entries(themeVars(theme, mode))
   const body = (list: typeof vars): string => list.map(([k, v]) => `${k}:${v};`).join('')
   // 重复属性抬高优先级：要压过内置配色块（同是 :root + 两个属性），不依赖样式表先后
   const root = `:root[data-theme='${mode}'][data-custom-theme][data-custom-theme]`

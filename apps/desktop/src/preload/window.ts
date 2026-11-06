@@ -10,4 +10,8 @@ export interface WindowBridge {
   restoreSnap: () => Promise<void>
   close: () => Promise<void>
   onState: (cb: (state: WindowState) => void) => () => void
+  /** 这台电脑能透桌面的系统材质，空数组表示不能（docs/ui/glass-effect.md） */
+  glassMaterials: () => Promise<string[]>
+  /** 打开或关掉系统材质；base 是关掉后恢复的窗口底色 */
+  setGlass: (material: string | null, base?: string) => Promise<void>
 }

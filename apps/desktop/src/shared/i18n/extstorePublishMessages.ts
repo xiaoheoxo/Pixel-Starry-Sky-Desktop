@@ -117,4 +117,5 @@ export const extstorePublishMessages = {
   'extstore.publish.kind.prompts': { zh: '提示词', en: 'Prompts' },
   'extstore.publish.kind.mcpServers': { zh: 'MCP 连接器', en: 'MCP servers' },
   'extstore.publish.kind.commands': { zh: '命令', en: 'Commands' },
+  'extstore.publish.kind.uiThemes': { zh: '界面主题', en: 'UI themes' },
 } as const satisfies Record<string, { zh: string; en: string }>

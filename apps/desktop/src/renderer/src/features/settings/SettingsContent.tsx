@@ -54,6 +54,7 @@ import { PortTipSettings } from './PortTipSettings'
 import { OlderFoldSettings } from './OlderFoldSettings'
 import { CacheMissSettings } from './CacheMissSettings'
 import { WallpaperSettings } from './WallpaperSettings'
+import { GlassSettings } from './GlassSettings'
 import type { PaneFocusMotion } from '@/features/appearance/paneFocusMotion'
 import { UsageSection } from '../usage/settings/UsageSection'
 import { ModelsSection } from './models/ModelsSection'
@@ -615,6 +616,7 @@ function AppearanceSection() {
         />
       </SettingRow>
       <PaletteSettings />
+      <GlassSettings />
       <AccentSettings />
       <MinimalModeSettings />
       <FileIconThemeSettings />

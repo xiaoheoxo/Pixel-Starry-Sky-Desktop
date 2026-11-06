@@ -10,7 +10,7 @@ export type PackGroup = 'all' | 'code' | 'ai'
 const CODE_KINDS: ExtPackContributionKind[] = ['grammars', 'themes', 'snippets', 'iconThemes', 'taskTemplates']
 const AI_KINDS: ExtPackContributionKind[] = ['skills', 'prompts', 'mcpServers']
 /** 「包含什么」里的显示顺序 */
-export const KIND_ORDER: ExtPackContributionKind[] = [...CODE_KINDS, ...AI_KINDS]
+export const KIND_ORDER: ExtPackContributionKind[] = [...CODE_KINDS, ...AI_KINDS, 'uiThemes']
 
 /** 列表里显示的名字：清单名（按语言），读不到清单就退回 id / 路径末段 */
 export function packTitle(p: ExtPackInfo, locale: ExtLocale): string {
@@ -50,6 +50,10 @@ function contributionLabel(p: ExtPackInfo, kind: ExtPackContributionKind, index:
     case 'commands': {
       const t = c?.commands?.[index]
       return t ? extText(t.title, locale) : ''
+    }
+    case 'uiThemes': {
+      const t = c?.uiThemes?.[index]
+      return t ? extText(t.label, locale) : ''
     }
   }
 }

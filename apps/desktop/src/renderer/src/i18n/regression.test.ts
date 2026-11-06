@@ -63,6 +63,7 @@ import { accountMessages } from '../../../shared/i18n/accountMessages'
 import { progressLineMessages } from '../../../shared/i18n/progressLineMessages'
 import { traceHistoryMessages } from '../../../shared/i18n/traceHistoryMessages'
 import { extensionCenterMessages } from '../../../shared/i18n/extensionCenterMessages'
+import { glassMessages } from '../../../shared/i18n/glassMessages'
 import { extstoreInstalledMessages } from '../../../shared/i18n/extstoreInstalledMessages'
 import { extstorePublishMessages } from '../../../shared/i18n/extstorePublishMessages'
 import { fileIconMessages } from '../../../shared/i18n/fileIconMessages'
@@ -142,6 +143,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   progressLineMessages,
   traceHistoryMessages,
   extensionCenterMessages,
+  glassMessages,
   extstoreInstalledMessages,
   extstorePublishMessages,
   fileIconMessages,

@@ -1,0 +1,36 @@
+{
+  "id": "pixelsky.github",
+  "name": "GitHub",
+  "version": "1.0.0",
+  "publisher": "pixelsky",
+  "description": "GitHub 风格的配色，浅色和深色都有。",
+  "icon": "icon.png",
+  "keywords": ["theme", "主题", "配色", "github"],
+  "license": "MIT",
+  "repository": "https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop",
+  "homepage": null,
+  "engines": {
+    "pixelsky": ">=0.7.5"
+  },
+  "l10n": {
+    "en": {
+      "name": "GitHub",
+      "description": "GitHub-style colors for light and dark mode."
+    }
+  },
+  "contributes": {
+    "uiThemes": [
+      {
+        "id": "github",
+        "label": {
+          "zh": "GitHub",
+          "en": "GitHub"
+        },
+        "path": "themes/github.json"
+      }
+    ]
+  },
+  "main": null,
+  "permissions": [],
+  "price": null
+}

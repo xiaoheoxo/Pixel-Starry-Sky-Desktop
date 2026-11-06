@@ -115,6 +115,20 @@ describe('loadPack', () => {
     expect(pack.info.issues.every(i => i.severity === 'error')).toBe(true)
   })
 
+  it('内置扩展随安装包发布，不查版本；文件夹扩展版本不够不加载', async () => {
+    const root = copyFixture('with-tasks', tempDir())
+    const file = join(root, 'pixelsky-extension.json')
+    const { readFileSync: read } = await import('node:fs')
+    const manifest = JSON.parse(read(file, 'utf8')) as { engines: { pixelsky: string } }
+    manifest.engines.pixelsky = '>=99.0.0'
+    writeFileSync(file, JSON.stringify(manifest))
+    const builtin = await loadPack(input(root, { source: 'builtin', key: 'b-x' }))
+    expect(builtin.info.live).toBe(true)
+    const folder = await loadPack(input(root))
+    expect(folder.info.issues.map(i => i.code)).toContain('manifest.engineUnmet')
+    expect(folder.info.live).toBe(false)
+  })
+
   it('符号链接：不进文件表，记 files.symlink（error / file）', async () => {
     const dir = tempDir()
     const root = copyFixture('pixelsky.dotenv', dir)

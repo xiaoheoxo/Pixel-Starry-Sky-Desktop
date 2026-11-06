@@ -203,11 +203,11 @@ export function setWallpaperPrefs(patch: Partial<Pick<WallpaperPrefs, 'show' | '
   })
 }
 
-function subscribe(listener: () => void): () => void {
+export function subscribeWallpaper(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
 
 export function useWallpaper(): WallpaperState {
-  return useSyncExternalStore(subscribe, getWallpaper)
+  return useSyncExternalStore(subscribeWallpaper, getWallpaper)
 }

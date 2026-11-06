@@ -7,14 +7,17 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const official = join(root, 'extensions', 'official')
+const roots = [join(root, 'extensions', 'official'), join(root, 'extensions', 'builtin')]
 const cli = join(root, 'packages', 'extension-cli')
 
 const wanted = process.argv.slice(2)
-const packs = readdirSync(official, { withFileTypes: true })
-  .filter(d => d.isDirectory() && existsSync(join(official, d.name, 'pixelsky-extension.json')))
-  .map(d => d.name)
-  .filter(name => !wanted.length || wanted.includes(name))
+const packs = roots
+  .flatMap(dir =>
+    readdirSync(dir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && existsSync(join(dir, d.name, 'pixelsky-extension.json')))
+      .map(d => ({ name: d.name, dir: join(dir, d.name) })),
+  )
+  .filter(p => !wanted.length || wanted.includes(p.name))
 if (!packs.length) {
   console.error('extensions/official 下没有扩展')
   process.exit(1)
@@ -27,15 +30,11 @@ if (build.status !== 0) {
 }
 
 let failed = 0
-for (const name of packs) {
-  const run = spawnSync(
-    process.execPath,
-    [join(cli, 'dist', 'pixelsky-ext.mjs'), 'validate', join(official, name), '--json'],
-    {
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  )
+for (const { name, dir } of packs) {
+  const run = spawnSync(process.execPath, [join(cli, 'dist', 'pixelsky-ext.mjs'), 'validate', dir, '--json'], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
   let report
   try {
     report = JSON.parse(run.stdout)

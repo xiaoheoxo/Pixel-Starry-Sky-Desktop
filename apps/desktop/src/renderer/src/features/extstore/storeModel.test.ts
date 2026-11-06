@@ -76,6 +76,7 @@ describe('分类', () => {
       'iconThemes',
       'taskTemplates',
       'commands',
+      'uiThemes',
     ])
     expect(STORE_CATEGORIES.filter(c => c.group === 'ai' && !c.phase).map(c => c.id)).toEqual([
       'skills',

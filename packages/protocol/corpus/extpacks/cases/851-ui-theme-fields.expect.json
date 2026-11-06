@@ -1,0 +1,57 @@
+{
+  "rulesVersion": 6,
+  "dev": {
+    "status": "warning",
+    "inactive": {
+      "uiThemes": [
+        0
+      ]
+    },
+    "skills": [],
+    "issues": [
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "themes/glass.json",
+        "upload": "hint"
+      },
+      {
+        "code": "uiTheme.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "uiThemes",
+          "index": 0
+        },
+        "upload": "reject"
+      }
+    ]
+  },
+  "upload": {
+    "pass": false,
+    "issues": [
+      {
+        "code": "files.unused",
+        "severity": "warning",
+        "scope": "file",
+        "path": "themes/glass.json",
+        "upload": "hint",
+        "outcome": "hint"
+      },
+      {
+        "code": "uiTheme.fields",
+        "severity": "error",
+        "scope": "contribution",
+        "path": "id",
+        "contribution": {
+          "kind": "uiThemes",
+          "index": 0
+        },
+        "upload": "reject",
+        "outcome": "reject"
+      }
+    ]
+  }
+}

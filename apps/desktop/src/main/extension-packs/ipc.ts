@@ -54,7 +54,7 @@ export function initExtensionPacks(ctx: AppContext): ExtensionPacks {
     dataDir: join(app.getPath('userData'), 'extension-packs'),
     builtinDir: app.isPackaged
       ? join(process.resourcesPath, 'builtin-extensions')
-      : join(__dirname, '../../resources/builtin-extensions'),
+      : join(__dirname, '../../../../extensions/builtin'),
     appVersion: app.getVersion(),
     removeIcons: id => storeIcons().remove(id),
     cipher: systemCipher,
