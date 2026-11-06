@@ -179,17 +179,6 @@ export function MobileSection() {
         </form>
       </SettingRow>
 
-      <SettingRow
-        title={tr('mobile.keepAwake')}
-        description={tr('mobile.keepAwakeDesc')}
-        control={
-          <Toggle
-            label={t('mobile.keepAwake')}
-            checked={state.prefs.keepAwake}
-            onChange={keepAwake => run(bridge.setPrefs({ keepAwake }))}
-          />
-        }
-      />
       {shown && <p className="mb-4 text-meta text-danger">{shown}</p>}
 
       {seats?.available && (

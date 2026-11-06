@@ -3,6 +3,7 @@ import { tr } from '../../i18n/core'
 import { useEffect, useState } from 'react'
 import { Button, cn } from '@/ui'
 import { GroupTitle, SectionTitle, SettingRow, Toggle } from './SettingRow'
+import { KeepAwakeSettings } from './KeepAwakeSettings'
 import { setNotificationPrefs, useNotificationPrefs } from './notifications'
 import { inSchedule, nextMorning, type NotificationPrefs } from '../notifications/policy'
 
@@ -162,6 +163,7 @@ export function NotificationsSection() {
           </Button>
         }
       />
+      <KeepAwakeSettings />
     </section>
   )
 }

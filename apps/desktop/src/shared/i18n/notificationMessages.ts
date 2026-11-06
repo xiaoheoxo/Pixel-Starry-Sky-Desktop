@@ -44,6 +44,15 @@ export const notificationMessages = {
   'notifications.schedule.from': { zh: '开始时间', en: 'Start time' },
   'notifications.schedule.to': { zh: '结束时间', en: 'End time' },
   'notifications.schedule.active': { zh: '现在处于定时勿扰时段', en: 'Scheduled quiet hours are active now' },
+  'notifications.keepAwake.group': { zh: '电脑睡眠', en: 'Computer sleep' },
+  'notifications.keepAwake.title': {
+    zh: '对话运行时不让电脑睡眠',
+    en: 'Keep the computer awake while conversations run',
+  },
+  'notifications.keepAwake.desc': {
+    zh: '本机有对话或后台任务在运行时，阻止电脑自动睡眠；等你审批时最多保持 30 分钟。屏幕仍会按系统设置熄灭。',
+    en: 'Stops the computer from going to sleep while a conversation or background task runs on this machine, and for up to 30 minutes while waiting for your approval. The screen can still turn off.',
+  },
   'notifications.test.title': { zh: '发送测试通知', en: 'Send a test notification' },
   'notifications.test.desc': {
     zh: '立即弹出一条通知，确认系统没有屏蔽。',

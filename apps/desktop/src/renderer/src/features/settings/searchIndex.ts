@@ -30,7 +30,13 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   },
   { section: 'mobile', title: '手机', keywords: '手机 远程 扫码 配对 中转 mobile phone remote pair qr relay' },
   { section: 'mobile', title: '允许手机远程连接', keywords: '手机 远程 连接 开关 mobile phone remote enable' },
-  { section: 'mobile', title: '有任务运行时不让电脑睡眠', keywords: '手机 睡眠 休眠 唤醒 sleep awake' },
+  {
+    section: 'notifications',
+    get title() {
+      return tr('notifications.keepAwake.title')
+    },
+    keywords: '手机 睡眠 休眠 待机 唤醒 sleep awake keep',
+  },
   { section: 'notifications', title: '回复完成', keywords: '通知 完成 回复 done finished notification' },
   { section: 'notifications', title: '回复出错', keywords: '通知 出错 失败 错误 error failed notification' },
   { section: 'notifications', title: '等你处理', keywords: '通知 审批 批准 提问 等待 approval waiting notification' },

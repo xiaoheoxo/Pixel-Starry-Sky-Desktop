@@ -11,7 +11,8 @@ import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
 import { shrinkImage } from '../app/images'
 import { systemCipher } from '../app/system-cipher'
-import { trayStatus } from '../app/tray'
+import { AwakeTracker } from './keepAwake'
+import type { SessionSummary } from '@pixelsky/protocol'
 import type { MobileLinkStatus, MobilePrefs, MobileSeats, MobileState } from '../../shared/types/mobile'
 import { listDirectories } from '../core/directories'
 import { addProjectPath } from '../core/engine/ops'
@@ -206,21 +207,32 @@ export function initMobile(ctx: AppContext): void {
     shrinkImage,
   })
 
-  // 有任务在运行时不让电脑睡眠（只看本机会话，和托盘一样）
-  let running = 0,
+  // 对话运行时不让电脑睡眠（设置 › 通知，和手机开关无关；只看本机会话）
+  const awakeTracker = new AwakeTracker()
+  let sessions: readonly SessionSummary[] = [],
+    awake = false,
+    awakeRecheck: NodeJS.Timeout | undefined,
     blocker: number | null = null
   const keepAwake = (): void => {
-    const want = store.prefs.enabled && store.prefs.keepAwake && running > 0
+    const want = store.prefs.keepAwake && awake
     if (want && blocker === null) blocker = powerSaveBlocker.start('prevent-app-suspension')
     else if (!want && blocker !== null) {
       powerSaveBlocker.stop(blocker)
       blocker = null
     }
   }
+  const updateAwake = (): void => {
+    clearTimeout(awakeRecheck)
+    const now = Date.now()
+    const { awake: next, recheckAt } = awakeTracker.update(sessions, now)
+    awake = next
+    if (recheckAt !== null) awakeRecheck = setTimeout(updateAwake, recheckAt - now).unref()
+    keepAwake()
+  }
   ctx.hostListeners.add(event => {
     if (event.kind !== 'sessions') return
-    running = trayStatus(event.sessions).running.length
-    keepAwake()
+    sessions = event.sessions
+    updateAwake()
   })
 
   const stopLink = (): void => {
@@ -354,7 +366,8 @@ export function initMobile(ctx: AppContext): void {
   ctx.lifecycle.onShutdown(() => {
     stopLink()
     gateway.close()
-    running = 0
+    clearTimeout(awakeRecheck)
+    awake = false
     keepAwake()
   })
   apply()

@@ -22,7 +22,7 @@ export interface MobilePrefs {
   enabled: boolean
   /** 中转地址；空的时候用云端服务（MobileState.relayDefault） */
   relay: string
-  /** 有任务在运行时不让电脑睡眠 */
+  /** 有任务在运行时不让电脑睡眠（设置 › 通知，和 enabled 无关） */
   keepAwake: boolean
 }
 

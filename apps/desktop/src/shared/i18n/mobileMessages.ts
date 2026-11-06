@@ -20,11 +20,6 @@ export const mobileMessages = {
     en: 'Leave empty to use the cloud relay (the same service you sign in to). Only needed for local testing.',
   },
   'mobile.relaySave': { zh: '保存', en: 'Save' },
-  'mobile.keepAwake': { zh: '有任务运行时不让电脑睡眠', en: 'Keep the computer awake while tasks run' },
-  'mobile.keepAwakeDesc': {
-    zh: '电脑睡眠后手机就连不上了。只在有任务运行时生效。',
-    en: 'Phones cannot reach a sleeping computer. Only applies while a task is running.',
-  },
   'mobile.status.off': { zh: '未开启', en: 'Off' },
   'mobile.status.connecting': { zh: '正在连接中转…', en: 'Connecting to the relay…' },
   'mobile.status.online': { zh: '已连上中转，手机可以连接', en: 'Connected to the relay. Phones can connect.' },
