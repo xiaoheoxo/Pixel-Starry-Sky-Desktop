@@ -1,5 +1,8 @@
 import { EFFORTS, type EngineCatalog, type EngineModel, type Effort } from '@pixelsky/protocol'
+import { describeError, logger } from '../log'
 import { CodexProcess, array, object, string } from './process'
+
+const log = logger('engine.codex')
 
 export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
   const models: EngineModel[] = []
@@ -40,10 +43,15 @@ export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
     if (cursor) seen.add(cursor)
   } while (cursor && seen.size < 20)
   const [auth, config] = await Promise.all([
-    proc.request('account/read', { refreshToken: false }),
+    // 读账号要连 ChatGPT，网络慢时会超时（workspace routing discovery）；发消息不靠它，不能拖垮启动
+    proc.request('account/read', { refreshToken: false }).catch(error => {
+      log.warn('读不到 Codex 账号，账号类型暂时未知', { error: describeError(error) })
+      return null
+    }),
     proc.request('config/read', { includeLayers: false }),
   ])
-  const authType = string(object(auth.account).type) || null
+  // undefined 是没读到，null 是读到了但没登录
+  const authType = auth ? string(object(auth.account).type) || null : undefined
   const rateLimits =
     authType === 'chatgpt' ? await proc.request('account/rateLimits/read', {}, 8000).catch(() => null) : null
   return {

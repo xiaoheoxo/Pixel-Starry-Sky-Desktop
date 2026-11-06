@@ -1341,6 +1341,54 @@ describe('Codex app-server adapter', () => {
     expect(shown.record).toMatchObject({ fast: true, ultrafast: false })
     expect(notices(session.id)).toHaveLength(1)
   })
+  it('读账号超时：对话照常发出，Ultrafast 这次按 Fast 发，设置不动', async () => {
+    const { FAKE_CODEX_ACCOUNT: _account, ...rest } = ULTRA
+    const { session, messages, log } = setup(50, {
+      env: { ...rest, FAKE_CODEX_ACCOUNT_ERROR: 'workspace routing discovery timed out' },
+    })
+    await host!.update(session.id, { fast: true, ultrafast: true })
+    await host!.send(session.id, '开线程')
+    await wait(() => existsSync(log) && messages().some(m => m.method === 'turn/start'))
+    await wait(() => host!.open(session.id).state === 'idle')
+    // 检测和启动各读一次，检测里读失败不再读第二次
+    expect(messages().filter(m => m.method === 'account/read')).toHaveLength(2)
+    expect(messages().find(m => m.method === 'turn/start')?.params.serviceTier).toBe('priority')
+    const shown = host!.open(session.id)
+    expect(shown.record).toMatchObject({ fast: true, ultrafast: true })
+    expect(notices(session.id)).toHaveLength(0)
+    expect(shown.items.some(i => i.kind === 'notice' && i.level === 'error')).toBe(false)
+  })
+  it('启动时路由超时：重启进程重试一次就能发出；还超时才报错，换成看得懂的提示', async () => {
+    const fails = join(root, 'routing-fail')
+    writeFileSync(fails, '1')
+    const once = setup(50, { env: { FAKE_CODEX_ROUTING_FAIL_FILE: fails } })
+    await host!.send(once.session.id, '第一条')
+    await wait(
+      () =>
+        existsSync(once.log) &&
+        readFileSync(fails, 'utf8') === '0' &&
+        once.messages().some(m => m.method === 'turn/start'),
+    )
+    await wait(() => host!.open(once.session.id).state === 'idle')
+    expect(once.messages().filter(m => m.method === 'thread/start')).toHaveLength(2)
+    expect(once.messages().filter(m => m.method === 'turn/start')).toHaveLength(1)
+    expect(host!.open(once.session.id).items.some(i => i.kind === 'notice' && i.level === 'error')).toBe(false)
+    writeFileSync(fails, '5')
+    const twice = host!.createSession({
+      projectId: once.session.projectId,
+      engine: 'codex',
+      model: 'fake-codex',
+      effort: 'high',
+      permissionMode: 'ask',
+    })
+    await host!.send(twice.id, '第二条')
+    const errors = () => host!.open(twice.id).items.filter(i => i.kind === 'notice' && i.level === 'error')
+    await wait(() => errors().length > 0)
+    expect(readFileSync(fails, 'utf8')).toBe('3')
+    expect(errors().map(i => (i as { text: string }).text)).toEqual([
+      'Timed out connecting to ChatGPT. Check your network or proxy and try again',
+    ])
+  })
   it('Ultrafast：换到没有这一档的模型退回 Fast，换回来不悄悄恢复', async () => {
     const { session, messages } = setup(50, { env: ULTRA })
     const start = () => messages().filter(m => m.method === 'turn/start')
