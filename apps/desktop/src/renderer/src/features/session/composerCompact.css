@@ -1,4 +1,4 @@
-/* 输入框窄宽（< 520px，如代码模式右栏、分屏窄窗格）时收紧：状态行和工具行不换行，次要文字藏起（docs/ui/composer-git.md） */
+/* 输入框窄宽（< 560px，如代码模式右栏、分屏窄窗格）时收紧：次要文字藏起，工具行不换行（docs/ui/composer-git.md） */
 .composer-area {
   container: composer / inline-size;
 }
@@ -25,19 +25,20 @@
     row-gap: 4px;
   }
 }
-@container composer (width < 520px) {
+/* 状态行右边的检查点、旁聊只留图标，给分支名腾地方 */
+@container composer (width < 720px) {
+  .composer-area [data-composer-extra-label] {
+    display: none;
+  }
+}
+@container composer (width < 560px) {
   /* 机器只留图标，项目、分支截断 */
   .composer-area [data-composer-workspace] {
-    flex-wrap: nowrap;
     overflow: hidden;
   }
   .composer-area [data-composer-machine-label],
   .composer-area [data-composer-label] {
     display: none;
-  }
-  .composer-area [data-composer-git] {
-    flex-wrap: nowrap;
-    min-width: 0;
   }
   /* ↑↓ 和「提交…」藏起；菜单正开着时不藏，免得弹层跟着消失 */
   .composer-area [data-composer-sync-wrap]:not(:has([aria-expanded='true'])),

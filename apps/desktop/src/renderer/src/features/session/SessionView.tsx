@@ -626,6 +626,7 @@ function LiveSessionView({
                                 type="button"
                                 data-checkpoint-toggle
                                 aria-pressed={checkpointOpen}
+                                aria-label={tr('checkpoint.button')}
                                 title={tr('checkpoint.hint')}
                                 onClick={() => setCheckpointOpen(v => !v)}
                                 className={cn(
@@ -634,7 +635,7 @@ function LiveSessionView({
                                 )}
                               >
                                 <History size={13} strokeWidth={1.5} />
-                                {tr('checkpoint.button')}
+                                <span data-composer-extra-label>{tr('checkpoint.button')}</span>
                               </button>
                             )}
                             {branch.sideChat && (
@@ -642,6 +643,7 @@ function LiveSessionView({
                                 type="button"
                                 data-side-chat-toggle
                                 aria-pressed={side !== null}
+                                aria-label={tr('side.title')}
                                 title={tr('side.hint')}
                                 onClick={() => (side ? setSide(null) : openSide())}
                                 className={cn(
@@ -650,7 +652,7 @@ function LiveSessionView({
                                 )}
                               >
                                 <MessagesSquare size={13} strokeWidth={1.5} />
-                                {tr('side.title')}
+                                <span data-composer-extra-label>{tr('side.title')}</span>
                               </button>
                             )}
                           </>
