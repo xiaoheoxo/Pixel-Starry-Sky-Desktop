@@ -14,33 +14,39 @@ import {
 } from '@/features/usage/format'
 import type { RemoteCall, RemoteCallPage } from '@/features/usage/remote-types'
 import {
+  COST_CELL_CLASS,
+  CostCell,
+  GROUP_GAP_WITHOUT_SPEED,
   ModelCell,
+  ResultCell,
   SpeedCell,
-  TIME_COL_WIDTH,
   TimeCell,
   UsageDetailCard,
   UsageTable,
   type UsageColumn,
 } from './UsageTable'
 
-const STATUS: Record<RemoteCall['status'], { text: string; cls: string }> = {
+const STATUS: Record<RemoteCall['status'], { text: string; cls: string; dot: string }> = {
   success: {
     get text() {
       return tr('settings.usage.RemoteCallsTable.succeeded')
     },
     cls: 'text-fg-muted',
+    dot: 'bg-success',
   },
   error: {
     get text() {
       return tr('session.live.agentTrace.failed')
     },
     cls: 'text-danger',
+    dot: 'bg-danger',
   },
   rate_limited: {
     get text() {
       return tr('settings.usage.RemoteCallsTable.rateLimited')
     },
     cls: 'text-warn',
+    dot: 'bg-warn',
   },
 }
 
@@ -65,7 +71,7 @@ function cost(c: RemoteCall): string {
 
 /**
  * 两张表同样的列（docs/ui/usage-learn.md §6）：时间 · 模型和客户端 · 新增输入 · 输出 · 缓存命中 · 扣费 · 速度 · 首字 · 耗时 · 结果。
- * 窄时隐藏的新增输入、缓存命中、速度、首字在点开的详情里还有；耗时和结果一直显示，详情里就不重复了。
+ * 窄时隐藏的时间、新增输入、缓存命中、速度、首字在点开的详情里还有；耗时和结果一直显示，详情里就不重复了。
  */
 export const COLUMNS: Array<UsageColumn<RemoteCall>> = [
   {
@@ -73,13 +79,14 @@ export const COLUMNS: Array<UsageColumn<RemoteCall>> = [
     get label() {
       return tr('settings.usage.RecordsTable.time')
     },
-    width: TIME_COL_WIDTH,
+    hideBelow: 44,
     render: c => <TimeCell text={formatTime(c.createdAt)} />,
     title: c => new Date(c.createdAt).toLocaleString('zh-CN'),
     cellClass: () => 'text-fg-muted',
   },
   {
     key: 'model',
+    fill: true,
     get label() {
       return `${tr('session.ModelSourceMenu.model')} · ${tr('settings.usage.RemoteCallsTable.client')}`
     },
@@ -87,86 +94,100 @@ export const COLUMNS: Array<UsageColumn<RemoteCall>> = [
   },
   {
     key: 'input',
+    get group() {
+      return tr('usageColumns.groupTokens')
+    },
     get label() {
       return tr('usageColumns.freshInput')
     },
     get help() {
       return tr('usageColumns.freshInputHelp')
     },
-    width: 'w-[5.9em]',
     align: 'right',
-    hideBelow: 33,
+    hideBelow: 50,
     render: c => formatCount(c.input),
   },
   {
     key: 'output',
+    get group() {
+      return tr('usageColumns.groupTokens')
+    },
     get label() {
       return tr('session.live.SessionStrips.output')
     },
-    width: 'w-[3.6em]',
     align: 'right',
     render: c => formatCount(c.output),
   },
   {
     key: 'cache',
+    get group() {
+      return tr('usageColumns.groupTokens')
+    },
     get label() {
       return tr('usageColumns.cacheHit')
     },
     get help() {
       return tr('usageColumns.cacheHitHelp')
     },
-    width: 'w-[5.9em]',
     align: 'right',
-    hideBelow: 50,
+    hideBelow: 64,
     render: c => formatCount(c.cacheRead),
     title: c => tr('usageColumns.hitRate', { p0: formatPercent(cacheHitRate(c)) }),
   },
   {
     key: 'cost',
+    group: '',
     get label() {
       return tr('settings.usage.RemoteCallsTable.charge')
     },
-    width: 'w-[5.6em]',
     align: 'right',
-    render: cost,
+    render: c => <CostCell text={cost(c)} />,
+    cellClass: () => COST_CELL_CLASS,
   },
   {
     key: 'speed',
+    get group() {
+      return tr('usageColumns.groupPerformance')
+    },
     get label() {
       return tr('usageColumns.speed')
     },
     get help() {
       return tr('usageColumns.speedHelp')
     },
-    width: 'w-[5.8em]',
     align: 'right',
-    hideBelow: 44,
+    hideBelow: 56,
     render: c => <SpeedCell speed={callSpeed(c)} />,
   },
   {
     key: 'ttft',
+    get group() {
+      return tr('usageColumns.groupPerformance')
+    },
     get label() {
       return tr('settings.usage.RemoteCallsTable.firstToken')
     },
     get help() {
       return tr('usageColumns.firstTokenHelp')
     },
-    width: 'w-[3.9em]',
     align: 'right',
-    hideBelow: 54,
+    hideBelow: 70,
     render: c => formatFirstToken(c.firstTokenMs),
     cellClass: () => 'text-fg-muted',
   },
   {
     key: 'duration',
+    get group() {
+      return tr('usageColumns.groupPerformance')
+    },
     get label() {
       return tr('session.live.AgentTracePanel.duration')
     },
     get help() {
       return tr('usageColumns.durationHelp')
     },
-    width: 'w-[4.8em]',
     align: 'right',
+    className: GROUP_GAP_WITHOUT_SPEED,
     render: c => formatDuration(c.durationMs),
     title: c => formatDuration(c.durationMs),
     cellClass: () => 'text-fg-muted',
@@ -176,9 +197,8 @@ export const COLUMNS: Array<UsageColumn<RemoteCall>> = [
     get label() {
       return tr('settings.usage.RecordsTable.outcome')
     },
-    width: 'w-[3.8em]',
     align: 'right',
-    render: c => STATUS[c.status].text,
+    render: c => <ResultCell text={STATUS[c.status].text} dot={STATUS[c.status].dot} />,
     title: c => STATUS[c.status].text,
     cellClass: c => STATUS[c.status].cls,
   },

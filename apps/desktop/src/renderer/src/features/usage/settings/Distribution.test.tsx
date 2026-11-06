@@ -78,9 +78,9 @@ describe('分布表 › 会话', () => {
     const html = await render([live, others], { isLive: true, sessions: [{}], exists: [live.sessionId!] })
     expect(html).toContain('其余 3 个会话')
     const row = html.split('<tr').find(r => r.includes('其余 3 个会话'))!
-    expect(row).not.toContain('hover:bg-hover')
+    expect(row).not.toContain('hover:bg-selected')
     expect(row).not.toContain('title="点击')
     expect(row).not.toContain('text-fg-faint')
-    expect(html.split('<tr').find(r => r.includes('重构登录'))).toContain('hover:bg-hover')
+    expect(html.split('<tr').find(r => r.includes('重构登录'))).toContain('hover:bg-selected')
   })
 })

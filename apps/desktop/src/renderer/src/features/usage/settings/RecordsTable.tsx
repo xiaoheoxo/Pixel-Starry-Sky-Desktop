@@ -16,39 +16,45 @@ import {
 } from '@/features/usage/format'
 import type { UsagePage, UsageRecord } from '@/features/usage/types'
 import {
+  COST_CELL_CLASS,
+  CostCell,
+  GROUP_GAP_WITHOUT_SPEED,
   ModelCell,
+  ResultCell,
   SpeedCell,
-  TIME_COL_WIDTH,
   TimeCell,
   UsageDetailCard,
   UsageTable,
   type UsageColumn,
 } from './UsageTable'
 
-const OUTCOME: Record<UsageRecord['outcome'], { text: string; cls: string }> = {
+const OUTCOME: Record<UsageRecord['outcome'], { text: string; cls: string; dot: string }> = {
   completed: {
     get text() {
       return tr('settings.usage.RecordsTable.completed')
     },
     cls: 'text-fg-muted',
+    dot: 'bg-success',
   },
   interrupted: {
     get text() {
       return tr('settings.usage.RecordsTable.interrupted')
     },
     cls: 'text-warn',
+    dot: 'bg-warn',
   },
   failed: {
     get text() {
       return tr('session.live.agentTrace.failed')
     },
     cls: 'text-danger',
+    dot: 'bg-danger',
   },
 }
 
 /**
  * 和账号调用表同样的列（docs/ui/usage-learn.md §6）：时间 · 模型和会话 · 新增输入 · 输出 · 缓存命中 · 费用 · 速度 · 首字 · 耗时 · 结果。
- * 窄时隐藏的新增输入、缓存命中、速度、首字在点开的详情里还有；耗时和结果一直显示，详情里就不重复了。
+ * 窄时隐藏的时间、新增输入、缓存命中、速度、首字在点开的详情里还有；耗时和结果一直显示，详情里就不重复了。
  */
 export const COLUMNS: Array<UsageColumn<UsageRecord>> = [
   {
@@ -56,13 +62,14 @@ export const COLUMNS: Array<UsageColumn<UsageRecord>> = [
     get label() {
       return tr('settings.usage.RecordsTable.time')
     },
-    width: TIME_COL_WIDTH,
+    hideBelow: 44,
     render: r => <TimeCell text={formatTime(r.endedAt)} />,
     title: r => new Date(r.endedAt).toLocaleString('zh-CN'),
     cellClass: () => 'text-fg-muted',
   },
   {
     key: 'model',
+    fill: true,
     get label() {
       return `${tr('session.ModelSourceMenu.model')} · ${tr('settings.usage.RecordsTable.conversation')}`
     },
@@ -72,88 +79,102 @@ export const COLUMNS: Array<UsageColumn<UsageRecord>> = [
   },
   {
     key: 'input',
+    get group() {
+      return tr('usageColumns.groupTokens')
+    },
     get label() {
       return tr('usageColumns.freshInput')
     },
     get help() {
       return tr('usageColumns.freshInputHelp')
     },
-    width: 'w-[5.9em]',
     align: 'right',
-    hideBelow: 33,
+    hideBelow: 50,
     render: r => formatCount(r.input),
   },
   {
     key: 'output',
+    get group() {
+      return tr('usageColumns.groupTokens')
+    },
     get label() {
       return tr('session.live.SessionStrips.output')
     },
-    width: 'w-[3.6em]',
     align: 'right',
     render: r => formatCount(r.output),
   },
   {
     key: 'cache',
+    get group() {
+      return tr('usageColumns.groupTokens')
+    },
     get label() {
       return tr('usageColumns.cacheHit')
     },
     get help() {
       return tr('usageColumns.cacheHitHelp')
     },
-    width: 'w-[5.9em]',
     align: 'right',
-    hideBelow: 50,
+    hideBelow: 64,
     render: r => formatCount(r.cacheRead),
     title: r => tr('usageColumns.hitRate', { p0: formatPercent(cacheHitRate(r)) }),
   },
   {
     key: 'cost',
+    group: '',
     get label() {
       return tr('settings.replyStats.cost')
     },
-    width: 'w-[4.8em]',
     align: 'right',
-    render: r => formatRecordCost(r),
+    render: r => <CostCell text={formatRecordCost(r)} />,
+    cellClass: () => COST_CELL_CLASS,
     // 没有费用时悬停说明原因（GitHub #22）
     title: r => (r.costUsd === null ? costHint(costState(r)) : undefined),
   },
   {
     key: 'speed',
+    get group() {
+      return tr('usageColumns.groupPerformance')
+    },
     get label() {
       return tr('usageColumns.speed')
     },
     get help() {
       return tr('usageColumns.speedHelpLocal')
     },
-    width: 'w-[5.8em]',
     align: 'right',
-    hideBelow: 44,
+    hideBelow: 56,
     render: r => <SpeedCell speed={outputSpeed(r)} />,
   },
   {
     key: 'first',
+    get group() {
+      return tr('usageColumns.groupPerformance')
+    },
     get label() {
       return tr('settings.usage.RemoteCallsTable.firstToken')
     },
     get help() {
       return tr('usageColumns.firstTokenHelpLocal')
     },
-    width: 'w-[3.9em]',
     align: 'right',
-    hideBelow: 54,
+    hideBelow: 70,
     render: r => formatFirstToken(r.firstTokenMs),
     cellClass: () => 'text-fg-muted',
   },
   {
     key: 'duration',
+    get group() {
+      return tr('usageColumns.groupPerformance')
+    },
     get label() {
       return tr('session.live.AgentTracePanel.duration')
     },
     get help() {
       return tr('usageColumns.durationHelpLocal')
     },
-    width: 'w-[4.8em]',
     align: 'right',
+    className: GROUP_GAP_WITHOUT_SPEED,
     render: r => formatDuration(r.durationMs),
     title: r => formatDuration(r.durationMs),
     cellClass: () => 'text-fg-muted',
@@ -163,9 +184,8 @@ export const COLUMNS: Array<UsageColumn<UsageRecord>> = [
     get label() {
       return tr('settings.usage.RecordsTable.outcome')
     },
-    width: 'w-[3.8em]',
     align: 'right',
-    render: r => OUTCOME[r.outcome].text,
+    render: r => <ResultCell text={OUTCOME[r.outcome].text} dot={OUTCOME[r.outcome].dot} />,
     title: r => OUTCOME[r.outcome].text,
     cellClass: r => OUTCOME[r.outcome].cls,
   },

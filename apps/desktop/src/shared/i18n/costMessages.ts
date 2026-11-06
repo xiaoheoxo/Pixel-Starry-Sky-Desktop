@@ -1,5 +1,8 @@
 // 用量里没有费用的记录按原因分开（GitHub #22，docs/ui/usage.md §12）；带 {p0} 的计数标签放在 catalog，不参与动态匹配
 export const costMessages = {
+  'usageColumns.groupTokens': { zh: 'Token', en: 'Tokens' },
+  'usageColumns.groupCost': { zh: '费用和调用', en: 'Cost and calls' },
+  'usageColumns.groupPerformance': { zh: '性能', en: 'Performance' },
   'usageColumns.freshInput': { zh: '新增输入', en: 'New input' },
   'usageColumns.freshInputHelp': { zh: '不含缓存的输入 token', en: 'Input tokens not served from or written to cache' },
   'usageColumns.cacheHit': { zh: '缓存命中', en: 'Cache hits' },
