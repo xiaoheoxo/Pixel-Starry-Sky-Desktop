@@ -1,4 +1,4 @@
-// 金丝雀：patches/@earendil-works__pi-coding-agent@1.4.0.patch 的每一处改动各一条断言。
+// 金丝雀：patches/@earendil-works__pi-coding-agent@1.5.0.patch 的每一处改动各一条断言。
 // 断言的是「当前装好的、打过补丁的 Pi」。补丁整个打不上时 pnpm 自己会报错；这里防的是为新版本重做补丁时漏了某一块，
 // 或者上游改写后补丁虽然打上了、却不再起作用。
 // 补丁项与测试的对应表见 docs/own-cli.md §5.1。
@@ -53,9 +53,9 @@ describe('Pi 补丁：interactive-mode.js', () => {
 
   it('输入 /share /bug /changelog /login 时拦下并提示不可用（interactive-mode.js 的 pixelskyDisabled 块）', () => {
     expect(text).toContain('["share", "bug", "changelog", "login"]')
-    expect(text).toContain('在像素星空命令行中不可用')
+    expect(text).toContain('在 Pixel 命令行中不可用')
     // 拦截必须在 /settings 等正常命令分发之前，否则 /share 仍可能走到 Pi 自己的处理
-    expect(text.indexOf('在像素星空命令行中不可用')).toBeLessThan(text.indexOf('text === "/settings"'))
+    expect(text.indexOf('在 Pixel 命令行中不可用')).toBeLessThan(text.indexOf('text === "/settings"'))
   })
 
   it('启动时不显示 Pi 的更新日志（interactive-mode.js 里 changelogMarkdown 直接置 undefined）', () => {

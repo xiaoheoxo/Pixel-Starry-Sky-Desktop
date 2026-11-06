@@ -1,5 +1,5 @@
 diff --git a/dist/cli/args.js b/dist/cli/args.js
-index ec17d54..7bf4829 100644
+index 730b43c..09339d7 100644
 --- a/dist/cli/args.js
 +++ b/dist/cli/args.js
 @@ -280,15 +280,11 @@ ${chalk.bold("Usage:")}
@@ -13,17 +13,17 @@ index ec17d54..7bf4829 100644
    ${APP_NAME} list                      List installed extensions from settings
    ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
    ${APP_NAME} auth <command>            Print credentials or check provider readiness
-   ${APP_NAME} mcp <command>             Check MCP servers, sign in to or out of OAuth servers
+   ${APP_NAME} mcp <command>             Manage MCP servers
 -  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp
 +  ${APP_NAME} <command> --help          Show help for list/config/auth/mcp
  
  ${chalk.bold("Options:")}
    --provider <name>              Provider to search for --model (requires --model)
 diff --git a/dist/core/compaction/compaction.js b/dist/core/compaction/compaction.js
-index 9b1a409..a3bd1ed 100644
+index 9b1a409..d46ac41 100644
 --- a/dist/core/compaction/compaction.js
 +++ b/dist/core/compaction/compaction.js
-@@ -173,20 +173,35 @@ export function shouldCompact(contextTokens, contextWindow, settings) {
+@@ -173,20 +173,35 @@ export function estimateProjectedContextTokens(projection, branchEntries) {
  export function shouldCompact(contextTokens, contextWindow, settings) {
      if (!settings.enabled)
          return false;
@@ -131,7 +131,7 @@ index 9b1a409..a3bd1ed 100644
      }
      return 0;
 diff --git a/dist/core/slash-commands.js b/dist/core/slash-commands.js
-index 25cc1c5..af863e6 100644
+index 6ca9ad3..9ebc456 100644
 --- a/dist/core/slash-commands.js
 +++ b/dist/core/slash-commands.js
 @@ -1,4 +1,5 @@
@@ -143,7 +143,7 @@ index 25cc1c5..af863e6 100644
 @@ -7,17 +8,13 @@ export const BUILTIN_SLASH_COMMANDS = [
      { name: "scoped-models", description: "Enable/disable models for Ctrl+P cycling" },
      { name: "export", description: "Export session (HTML default, or specify path: .html/.jsonl)" },
-     { name: "import", description: "Import and resume a session from a JSONL file" },
+     { name: "import", description: "Import a JSONL session, preserving its ID and working directory" },
 -    { name: "share", description: "Share session via a Radius artifact or a GitHub gist" },
 -    { name: "bug", description: "Report a bug to the Pi developers", argumentHint: "<description>" },
      { name: "copy", description: "Copy last agent message to clipboard" },
@@ -240,19 +240,19 @@ index 8ebc6df..aea3773 100644
          const registeredServers = () => {
              const registered = [];
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 5303aad..e69be78 100644
+index 615a6ba..f3ce1aa 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -658,7 +658,7 @@ export class InteractiveMode {
+@@ -681,7 +681,7 @@ export class InteractiveMode {
              return;
          this.registerSignalHandlers();
-         // Load changelog (only show new entries, skip for resumed sessions)
+         // Load changelogs (only show new entries, skip for resumed sessions)
 -        this.changelogMarkdown = this.getChangelogForDisplay();
 +        this.changelogMarkdown = undefined; // pixelsky: 不显示 Pi 的更新日志
-         if (this.session.scopedModels.length > 0 && this.shouldShowStartupDetails()) {
-             const modelList = this.session.scopedModels
-                 .map((sm) => {
-@@ -2503,6 +2503,17 @@ export class InteractiveMode {
+         this.extensionChangelogUpdates = this.getExtensionChangelogUpdates();
+         // Fullscreen renders on the alternate screen, so text printed to stdout here would stay in the shell
+         // after exit. Fullscreen shows the notice in the header instead (#11508).
+@@ -2596,6 +2596,17 @@ export class InteractiveMode {
              text = text.trim();
              if (!text)
                  return;
@@ -262,7 +262,7 @@ index 5303aad..e69be78 100644
 +                const pixelskyDisabled = pixelskyDisabledName ? [text, pixelskyDisabledName] : undefined;
 +                if (pixelskyDisabled) {
 +                    this.editor.setText("");
-+                    this.showWarning(`/${pixelskyDisabled[1]} 在像素星空命令行中不可用 / /${pixelskyDisabled[1]} is not available in the PixelSky CLI.` +
++                    this.showWarning(`/${pixelskyDisabled[1]} 在 Pixel 命令行中不可用 / /${pixelskyDisabled[1]} is not available in the Pixel CLI.` +
 +                        (pixelskyDisabled[1] === "login" ? " 请用环境变量或 auth.json 配置 API 密钥 / Configure API keys via environment variables or auth.json." : ""));
 +                    return;
 +                }
@@ -271,23 +271,23 @@ index 5303aad..e69be78 100644
              if (text === "/settings") {
                  this.showSettingsSelector();
 diff --git a/dist/utils/tools-manager.js b/dist/utils/tools-manager.js
-index fdb4a12..4d21d0b 100644
+index 32b7d63..049631f 100644
 --- a/dist/utils/tools-manager.js
 +++ b/dist/utils/tools-manager.js
-@@ -306,6 +306,11 @@ export async function ensureTool(tool, onStatus) {
+@@ -293,6 +293,11 @@ export async function ensureTool(tool, onStatus) {
      const config = TOOLS[tool];
      if (!config)
          return undefined;
 +    // pixelsky: 不自动下载可执行文件；只用 PATH 上的（以后随安装包自带）。PIXELSKY_ALLOW_TOOL_DOWNLOAD=1 可恢复下载
 +    if (process.env.PIXELSKY_ALLOW_TOOL_DOWNLOAD !== "1") {
-+        onStatus?.({ type: "warning", message: `${config.name} not found on PATH; auto-download is disabled in PixelSky CLI.` });
++        onStatus?.({ type: "warning", message: `${config.name} not found on PATH; auto-download is disabled in Pixel CLI.` });
 +        return undefined;
 +    }
      if (isOfflineModeEnabled()) {
          onStatus?.({ type: "warning", message: `${config.name} not found. Offline mode enabled, skipping download.` });
          return undefined;
 diff --git a/package.json b/package.json
-index e0955b0..dc6f824 100644
+index 705be3d..4833711 100644
 --- a/package.json
 +++ b/package.json
 @@ -4,7 +4,8 @@
