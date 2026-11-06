@@ -1196,6 +1196,41 @@ describe('协作频道：失败、停止、重试', () => {
     expect(tasks(c, channelId)[2]).toMatchObject({ status: 'failed', error: '会话已删除' })
   })
 
+  it('排队控制：上移 / 下移 / 先做这个；进行中不可调；撤回仍走 cancel', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('前端助手'))
+    const channelId = await c.create({ name: 'ch', memberIds: [a] })
+    await c.post(channelId, { text: '@前端助手 一', clientId: 'q1' })
+    await c.post(channelId, { text: '@前端助手 二', clientId: 'q2' })
+    await c.post(channelId, { text: '@前端助手 三', clientId: 'q3' })
+    await c.post(channelId, { text: '@前端助手 四', clientId: 'q4' })
+    await settle()
+    const cards = () => tasks(c, channelId)
+    // 已经发出去的那项也还是 queued 状态，靠 sessionId / ahead 区分；排队里的还没开会话
+    const active = cards().find(t => t.sessionId)
+    const waiting = () =>
+      cards()
+        .filter(t => t.status === 'queued' && !t.sessionId)
+        .sort((a, b) => (a.ahead ?? 0) - (b.ahead ?? 0))
+    expect(active).toBeTruthy()
+    expect(waiting().map(t => t.ahead)).toEqual([1, 2, 3])
+    const [b, c3, d] = waiting()
+
+    await c.queueControl(d.id, 'first')
+    expect(waiting().map(t => t.id)).toEqual([d.id, b.id, c3.id])
+    expect(waiting()[0].ahead).toBe(1)
+
+    await c.queueControl(c3.id, 'up')
+    expect(waiting().map(t => t.id)).toEqual([d.id, c3.id, b.id])
+
+    await c.queueControl(d.id, 'down')
+    expect(waiting().map(t => t.id)).toEqual([c3.id, d.id, b.id])
+
+    await expect(c.queueControl(active!.id, 'first')).rejects.toThrow(/排队/)
+    await c.taskAction(b.id, 'cancel')
+    expect(cards().find(t => t.id === b.id)).toMatchObject({ status: 'stopped', note: 'cancelled' })
+    expect(waiting().map(t => t.ahead)).toEqual([1, 2])
+  })
   it('会话发送失败时卡片显示失败原因', async () => {
     const c = await open()
     const a = await c.saveMember(null, agent('前端助手'))

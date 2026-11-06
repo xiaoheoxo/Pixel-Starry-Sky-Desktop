@@ -542,6 +542,7 @@ const channels: ChannelsBridge = {
   joinSession: input => call('channels:joinSession', input),
   leaveSession: (sessionId, channelId) => call('channels:leaveSession', sessionId, channelId),
   task: (taskId, action, memberId) => call('channels:task', taskId, action, memberId),
+  queueControl: (taskId, action) => call('channels:queueControl', taskId, action),
   approveTask: (taskId, approve) => call('channels:approveTask', taskId, approve),
   setAgentPolicy: (channelId, memberId, policy) => call('channels:agentPolicy', channelId, memberId, policy),
   createTeam: name => call('teams:create', name),

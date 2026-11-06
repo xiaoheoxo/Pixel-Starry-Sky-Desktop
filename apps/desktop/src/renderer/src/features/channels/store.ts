@@ -14,6 +14,7 @@ import type {
   ChannelNotify,
   ChannelsSnapshot,
   ChannelTaskAction,
+  ChannelQueueAction,
   ChannelFlow,
   FlowStep,
   FlowAction,
@@ -594,6 +595,9 @@ export const channelActions = {
   task(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void> {
     return channelsBridge ? channelsBridge.task(taskId, action, memberId) : demo.task(taskId, action)
   },
+  queueControl(taskId: string, action: ChannelQueueAction): Promise<void> {
+    return channelsBridge ? channelsBridge.queueControl(taskId, action) : demo.queueControl(taskId, action)
+  },
   // ── Phase C：团队。正式模式走主进程（返回后再拉一次快照，不等推送）；演示模式只改内存 ──
   /** 等 AI 成员的主人同意的活：同意 / 拒绝 */
   async approveTask(taskId: string, approve: boolean): Promise<void> {
@@ -910,6 +914,35 @@ const demo = {
         break
     }
     return action.messageId
+  },
+  queueControl(taskId: string, action: ChannelQueueAction): Promise<void> {
+    const task = Object.values(state.messages)
+      .flat()
+      .find((m): m is ChannelTask => m.kind === 'task' && m.id === taskId)
+    if (!task || task.status !== 'queued' || task.relay?.held) return Promise.resolve()
+    const list = state.messages[task.channelId] ?? []
+    const queued = list.filter(
+      (m): m is ChannelTask =>
+        m.kind === 'task' && m.assigneeId === task.assigneeId && m.status === 'queued' && !m.relay?.held,
+    )
+    const i = queued.findIndex(t => t.id === taskId)
+    if (i < 0) return Promise.resolve()
+    let order = queued.slice()
+    if (action === 'up') {
+      if (i === 0) return Promise.resolve()
+      ;[order[i - 1], order[i]] = [order[i], order[i - 1]]
+    } else if (action === 'down') {
+      if (i >= order.length - 1) return Promise.resolve()
+      ;[order[i], order[i + 1]] = [order[i + 1], order[i]]
+    } else if (action === 'first') {
+      if (i === 0) return Promise.resolve()
+      order = [queued[i], ...queued.filter((_, k) => k !== i)]
+    } else return Promise.resolve()
+    const busy = state.members.some(
+      m => m.kind === 'agent' && m.id === task.assigneeId && (!!m.task || m.status === 'running'),
+    )
+    order.forEach((t, idx) => demo.patchTask(t.id, x => ({ ...x, ahead: idx + (busy ? 1 : 0) })))
+    return Promise.resolve()
   },
   task(taskId: string, action: ChannelTaskAction): Promise<void> {
     if (action === 'cancel')

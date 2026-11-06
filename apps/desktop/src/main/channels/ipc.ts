@@ -26,6 +26,7 @@ import type {
   ChannelInput,
   JoinSessionInput,
   ChannelTaskAction,
+  ChannelQueueAction,
   NeedMark,
   PostInput,
   TeamRole,
@@ -36,6 +37,7 @@ const str = (value: unknown, what: string): string => {
   return value
 }
 const ACTIONS = new Set<ChannelTaskAction>(['cancel', 'stop', 'retry', 'continue', 'unlimit', 'fix', 'reassign'])
+const QUEUE_ACTIONS = new Set<ChannelQueueAction>(['up', 'down', 'first'])
 const ALERT_ACTIONS = new Set<ChannelAlertAction>(['hold', 'continue', 'open', 'stop', 'reassign', 'cancel', 'dismiss'])
 const INVITE_ROLES = new Set<Exclude<TeamRole, 'owner'>>(['member', 'observer'])
 const POLICIES = new Set<AgentPolicy>(['approve', 'team'])
@@ -263,6 +265,11 @@ export async function initChannels(ctx: AppContext): Promise<void> {
       action as ChannelTaskAction,
       action === 'reassign' ? str(memberId, '成员') : undefined,
     )
+  })
+
+  ipc.handle('channels:queueControl', (_e, taskId, action) => {
+    if (!QUEUE_ACTIONS.has(action as ChannelQueueAction)) throw new Error('不支持的操作')
+    return channels.queueControl(str(taskId, '任务'), action as ChannelQueueAction)
   })
 
   ipc.handle('channels:approveTask', (_e, taskId, approve) =>

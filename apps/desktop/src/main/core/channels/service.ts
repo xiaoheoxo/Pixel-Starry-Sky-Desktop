@@ -45,6 +45,7 @@ import type {
   ChannelChatOrigin,
   ChannelTask,
   ChannelTaskAction,
+  ChannelQueueAction,
   ChannelTextMessage,
   HumanMember,
   JoinSessionInput,
@@ -4291,6 +4292,41 @@ export class Channels {
   // -------------------------------------------------------------------------
   // 卡片上的操作
   // -------------------------------------------------------------------------
+
+  /** 排队控制（docs/ui/channels-local-ai.md #5）：排队中的活上移 / 下移 / 先做这个；进行中不可调 */
+  async queueControl(taskId: string, action: ChannelQueueAction): Promise<void> {
+    const run = this.store.runs.get(taskId)
+    if (!run || run.phase !== 'waiting') throw new Error('只能调整排队中的活')
+    const task = this.taskOf(run)
+    if (!task || task.status !== 'queued' || task.relay?.held) throw new Error('只能调整排队中的活')
+    if (!run.team) this.writable(run.channelId)
+    const waiting = [...this.store.runs.values()]
+      .filter(r => r.memberId === run.memberId && r.phase === 'waiting' && !this.taskOf(r)?.relay?.held)
+      .sort((a, b) => a.queuedAt - b.queuedAt || a.taskId.localeCompare(b.taskId))
+    const i = waiting.findIndex(r => r.taskId === taskId)
+    if (i < 0) throw new Error('只能调整排队中的活')
+    let next = waiting.slice()
+    if (action === 'up') {
+      if (i === 0) return
+      ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
+    } else if (action === 'down') {
+      if (i >= next.length - 1) return
+      ;[next[i], next[i + 1]] = [next[i + 1], next[i]]
+    } else if (action === 'first') {
+      if (i === 0) return
+      next = [waiting[i], ...waiting.filter((_, k) => k !== i)]
+    } else {
+      throw new Error('不支持的操作')
+    }
+    // 按新顺序重写 queuedAt，保证 pump 按序开工并刷新「前面还有 N 项」
+    const base = Math.min(...waiting.map(r => r.queuedAt))
+    for (let k = 0; k < next.length; k++) {
+      const cur = this.store.runs.get(next[k].taskId)
+      if (cur) this.store.runs.set(cur.taskId, { ...cur, queuedAt: base + k })
+    }
+    this.saveRuns()
+    await this.pump(run.memberId)
+  }
 
   async taskAction(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void> {
     // 团队卡：请求记在云端卡片上，由主人的电脑执行

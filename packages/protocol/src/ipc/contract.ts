@@ -112,6 +112,7 @@ export const IPC_CONTRACT = {
   'checks:last': { kind: 'invoke', route: 'local', trust: 'sender' },
   'checks:session': { kind: 'push', route: 'push', trust: 'none' },
   'channels:post': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:queueControl': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:removeMember': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:saveMember': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:search': { kind: 'invoke', route: 'local', trust: 'sender' },

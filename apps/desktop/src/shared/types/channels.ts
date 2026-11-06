@@ -837,3 +837,6 @@ export interface PostInput {
 /** continue：放行被拦下的接力（计数重新算）；unlimit：放行并且这条接力以后不再拦；fix：把产出检查没过的部分发回去让它修 */
 /** reassign：改派给另一个成员（第三个参数是成员 id），只有本机频道 */
 export type ChannelTaskAction = 'cancel' | 'stop' | 'retry' | 'continue' | 'unlimit' | 'fix' | 'reassign'
+
+/** 成员面板排队控制（docs/ui/channels-local-ai.md #5）：上移 / 下移 / 先做这个 */
+export type ChannelQueueAction = 'up' | 'down' | 'first'

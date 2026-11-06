@@ -10,6 +10,7 @@ import type {
   AgentPolicy,
   JoinSessionInput,
   ChannelTaskAction,
+  ChannelQueueAction,
   NeedMark,
   FlowAction,
   ChannelTextMessage,
@@ -87,6 +88,8 @@ export interface ChannelsBridge {
   leaveSession(sessionId: string, channelId: string): Promise<void>
   /** memberId：reassign 时改派给谁 */
   task(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void>
+  /** 排队控制（docs/ui/channels-local-ai.md #5）：上移 / 下移 / 先做这个 */
+  queueControl(taskId: string, action: ChannelQueueAction): Promise<void>
   // ── Phase C：多人团队（docs/ui/channels-phase-c.md §9.2） ──
   /** 等主人同意的活（approval）：同意 / 拒绝 */
   approveTask(taskId: string, approve: boolean): Promise<void>

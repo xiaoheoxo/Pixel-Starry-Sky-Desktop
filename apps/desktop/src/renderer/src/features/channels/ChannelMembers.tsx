@@ -29,6 +29,7 @@ import { channelActions, channelsLive, useChannels } from './store'
 import { AddTeamAgentDialog, TeamSettingsDialog } from './TeamDialog'
 import { PresenceAvatar, roleLabel } from './TeamParts'
 import { formatLastSeen } from './format'
+import { AgentQueue, memberQueueTasks } from './AgentQueue'
 import { canAddAgent, canManageTeam, myRole, onlineCount } from './teamModel'
 
 const STATUS_LABEL: Record<ChannelAgentStatus, TranslationKey> = {
@@ -185,6 +186,7 @@ function AgentDetails({ member }: { member: AgentMember }) {
 
 function AgentRow({
   member,
+  channelId,
   live,
   team,
   canRemoveOthers,
@@ -195,12 +197,11 @@ function AgentRow({
   onPolicy,
 }: {
   member: AgentMember
+  channelId: string
   live: boolean
   /** 团队频道 */
   team: boolean
-  /** 归档的频道：不能移出成员（成员是全局的，照常能改） */
   readOnly?: boolean
-  /** 所有者能把别人的 AI 成员移出频道 */
   canRemoveOthers: boolean
   onOpenSession: (id: string) => void
   onEdit: (config: AgentConfig) => void
@@ -208,6 +209,7 @@ function AgentRow({
   onPolicy: (member: AgentMember, policy: AgentPolicy) => void
 }) {
   useI18n()
+  const messages = useChannels(s => s.messages[channelId])
   const [open, setOpen] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const line = agentLine(member, Date.now())
@@ -261,7 +263,7 @@ function AgentRow({
         )}
       </span>
       <div className="min-w-0 flex-1">
-        {live && member.config && !foreign ? (
+        {!foreign ? (
           <button
             type="button"
             aria-expanded={open}
@@ -333,7 +335,18 @@ function AgentRow({
             />
           </div>
         )}
-        {open && <AgentDetails member={member} />}
+        {open && (
+          <>
+            <AgentDetails member={member} />
+            {!foreign && (
+              <AgentQueue
+                member={member}
+                tasks={memberQueueTasks(messages, member.id)}
+                onFocus={id => void channelActions.focusMessage(channelId, id)}
+              />
+            )}
+          </>
+        )}
       </div>
       {foreign && !canRemoveOthers ? null : live ? (
         <IconButton
@@ -547,6 +560,7 @@ export function ChannelMembers({
             <AgentRow
               key={m.id}
               member={m}
+              channelId={channel.id}
               live={live}
               team={team}
               canRemoveOthers={live && owner}
