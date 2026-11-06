@@ -15,8 +15,8 @@ export const fullAccessMessages = {
     en: 'Codex turns off its sandbox and can read, write and use the network anywhere',
   },
   'fullAccess.confirm.pixel': {
-    zh: '像素星空 agent 会跳过所有权限检查',
-    en: 'The PixelSky agent skips every permission check',
+    zh: 'Pixel agent 会跳过所有权限检查',
+    en: 'The Pixel agent skips every permission check',
   },
   'fullAccess.confirm.scope': {
     zh: '只管这个对话，新任务还是「{p0}」',

@@ -35,7 +35,7 @@ export const demoPlatformGroups: PlatformGroupInfo[] = [
 ]
 
 /** 演示用户在网站上自己建过 Key 的线路（Pro 月卡没建过） */
-const DEMO_OWN_KEYS: Record<string, string> = { '11': '工作用', '13': 'Pixel Starry Sky CLI · default' }
+const DEMO_OWN_KEYS: Record<string, string> = { '11': '工作用', '13': 'Pixel CLI · default' }
 
 /**
  * 每条线路按「扣费用的 Key」会记在哪把 Key 上（docs/ui/platform-key-mode.md）：

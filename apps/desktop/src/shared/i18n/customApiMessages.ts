@@ -2,8 +2,8 @@
 export const customApiMessages = {
   'customApi.source': { zh: '自定义', en: 'Custom' },
   'customApi.intro': {
-    zh: '用自己的接口地址和 API Key 跑 Claude Code / Codex / 像素星空，费用记在你自己的账号上（Chat Completions 兼容接口只有像素星空能用）。Key 用系统加密保存，不会交给引擎进程。',
-    en: 'Run Claude Code / Codex / Pixel Starry Sky against your own endpoint and API key, billed to your own account (Chat Completions–compatible endpoints work with Pixel Starry Sky only). Keys are stored with system encryption and never handed to the engine process.',
+    zh: '用自己的接口地址和 API Key 跑 Claude Code / Codex / Pixel，费用记在你自己的账号上（Chat Completions 兼容接口只有 Pixel 能用）。Key 用系统加密保存，不会交给引擎进程。',
+    en: 'Run Claude Code / Codex / Pixel against your own endpoint and API key, billed to your own account (Chat Completions–compatible endpoints work with Pixel only). Keys are stored with system encryption and never handed to the engine process.',
   },
   'customApi.add': { zh: '添加接口', en: 'Add endpoint' },
   'customApi.empty': { zh: '还没有接口。', en: 'No endpoints yet.' },
@@ -100,8 +100,8 @@ export const customApiMessages = {
   'customApi.imagesCan': { zh: '能看图', en: 'images allowed' },
   'customApi.imagesCannot': { zh: '只收文字', en: 'text only' },
   'customApi.imagesNote': {
-    zh: '「看图」只对像素星空引擎生效；引擎目前只支持文字和图片两种输入。',
-    en: '"Images" only applies to the PixelSky engine, which currently accepts text and images only.',
+    zh: '「看图」只对 Pixel 引擎生效；引擎目前只支持文字和图片两种输入。',
+    en: '"Images" only applies to the Pixel engine, which currently accepts text and images only.',
   },
   'pixel.imageUnsupported': {
     zh: '这个模型不支持图片。如果它其实能看图，可以在 设置 › 模型通道 › 自定义接口 里把这个模型的「看图」改成「支持」',

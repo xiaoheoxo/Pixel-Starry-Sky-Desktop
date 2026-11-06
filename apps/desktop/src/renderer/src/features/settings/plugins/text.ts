@@ -14,8 +14,8 @@ const EN: Record<string, string> = {
   技能: 'Skills',
   全局: 'Global',
   当前项目: 'Current project',
-  '配置插件、MCP、命令行工具与技能，供会话中的 Claude Code、Codex 和像素星空使用。':
-    'Configure plugins, MCP servers, CLI tools and skills for Claude Code, Codex and Pixel Starry Sky sessions.',
+  '配置插件、MCP、命令行工具与技能，供会话中的 Claude Code、Codex 和 Pixel 使用。':
+    'Configure plugins, MCP servers, CLI tools and skills for Claude Code, Codex and Pixel sessions.',
   像素星空管理: 'Managed by Pixel Starry Sky',
   智能体自带: 'Agent native',
   全部: 'All',

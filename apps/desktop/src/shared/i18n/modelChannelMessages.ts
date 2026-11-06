@@ -29,7 +29,7 @@ export const modelChannelMessages = {
 
   // 谁来执行（§2.5）
   'modelChannels.executor.title': { zh: '谁来执行', en: 'Run with' },
-  'modelChannels.executor.pixel': { zh: '像素星空 agent', en: 'PixelSky agent' },
+  'modelChannels.executor.pixel': { zh: 'Pixel agent', en: 'Pixel agent' },
   'modelChannels.executor.recommended': { zh: '推荐', en: 'Recommended' },
   'modelChannels.executor.desc.claude': {
     zh: 'Anthropic 官方的工具，对 Claude 模型最熟',
@@ -45,8 +45,8 @@ export const modelChannelMessages = {
   },
   // 像素星空 agent 用自有、但命令行没配 Key（输入框上方的提示条，session/SourceHintBar.tsx）
   'modelChannels.pixelSelf.missing': {
-    zh: '像素星空 agent 没有配自己的 API Key：登录像素星空账号用账号额度，或添加一个自定义接口。',
-    en: 'The PixelSky agent has no API key of its own. Sign in to use your PixelSky credits, or add a custom endpoint.',
+    zh: 'Pixel agent 没有配自己的 API Key：登录像素星空账号用账号额度，或添加一个自定义接口。',
+    en: 'The Pixel agent has no API key of its own. Sign in to use your PixelSky credits, or add a custom endpoint.',
   },
   'modelChannels.executor.notInstalled': { zh: '没装', en: 'Not installed' },
   'modelChannels.executor.unavailable': { zh: '暂时不可用', en: 'Unavailable' },
@@ -217,16 +217,16 @@ export const modelChannelMessages = {
   },
   // 添加接口的协议卡（§2.2）
   'modelChannels.protocol.anthropic': {
-    zh: 'Claude 官方、Claude 中转站 → Claude Code 执行（也可以换像素星空 agent）',
-    en: 'Anthropic API and Claude relays → runs with Claude Code (or the PixelSky agent)',
+    zh: 'Claude 官方、Claude 中转站 → Claude Code 执行（也可以换 Pixel agent）',
+    en: 'Anthropic API and Claude relays → runs with Claude Code (or the Pixel agent)',
   },
   'modelChannels.protocol.responses': {
-    zh: 'OpenAI 官方、新一点的中转站 → Codex 执行（也可以换像素星空 agent）',
-    en: 'OpenAI API and newer relays → runs with Codex (or the PixelSky agent)',
+    zh: 'OpenAI 官方、新一点的中转站 → Codex 执行（也可以换 Pixel agent）',
+    en: 'OpenAI API and newer relays → runs with Codex (or the Pixel agent)',
   },
   'modelChannels.protocol.chat': {
-    zh: 'DeepSeek、通义、Kimi、本地 Ollama 等兼容接口 → 像素星空 agent 执行',
-    en: 'DeepSeek, Qwen, Kimi, local Ollama and other compatible APIs → runs with the PixelSky agent',
+    zh: 'DeepSeek、通义、Kimi、本地 Ollama 等兼容接口 → Pixel agent 执行',
+    en: 'DeepSeek, Qwen, Kimi, local Ollama and other compatible APIs → runs with the Pixel agent',
   },
   // 扣费用的 Key（docs/ui/platform-key-mode.md）
   'platformKey.title': { zh: '扣费用的 Key', en: 'Key used for billing' },

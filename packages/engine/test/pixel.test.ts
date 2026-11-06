@@ -457,7 +457,7 @@ describe('Pixel 引擎适配器', () => {
     await host!.send(session.id, 'second')
     await wait(() => snap(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
     expect(snap(session.id).items.filter(i => i.kind === 'notice')).toEqual([
-      expect.objectContaining({ level: 'warn', text: expect.stringContaining('像素星空 的会话记录不在了') }),
+      expect.objectContaining({ level: 'warn', text: expect.stringContaining('Pixel 的会话记录不在了') }),
     ])
     const prompt = messages().findLast(m => m.type === 'prompt')
     expect(prompt.message).toContain('first')
@@ -476,7 +476,7 @@ describe('Pixel 引擎适配器', () => {
     await wait(() => snap(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
     const notices = snap(session.id).items.filter(i => i.kind === 'notice')
     expect(notices).toEqual([
-      expect.objectContaining({ level: 'warn', text: expect.stringContaining('没能接上原来的 像素星空 会话') }),
+      expect.objectContaining({ level: 'warn', text: expect.stringContaining('没能接上原来的 Pixel 会话') }),
     ])
     expect(notices[0].kind === 'notice' && notices[0].detail).toContain('Session file is corrupt')
     const prompt = messages().findLast(m => m.type === 'prompt')
@@ -677,7 +677,7 @@ describe('Pixel 接手带图片的聊天', () => {
     const { session, prompt } = await handoff('fake/fake-small')
     expect(prompt.images).toBeUndefined()
     const notices = snap(session.id).items.flatMap(i => (i.kind === 'notice' ? [i.text] : []))
-    expect(notices).toContain('已把之前的对话交接给 像素星空（1 条，1 张图片未带上）')
+    expect(notices).toContain('已把之前的对话交接给 Pixel（1 条，1 张图片未带上）')
     expect(notices.some(text => text.includes('当前模型不能看图') || text.includes("can't view images"))).toBe(false)
     expect(notices.some(text => text.includes('含 1 张图片'))).toBe(false)
     expect(snap(session.id).items.some(i => i.kind === 'notice' && i.level === 'error')).toBe(false)

@@ -85,9 +85,7 @@ export function Composer({
   // 运行中且没字：右边键是停止；有字（或带图）仍是发送，消息进队列
   const stopping = running && !draft.trim() && images.images.length === 0
   const name =
-    ({ claude: 'Claude', codex: 'Codex', pixel: L('像素星空', 'PixelSky') } as Partial<Record<EngineId, string>>)[
-      engine
-    ] ?? ENGINES[engine]?.name
+    ({ claude: 'Claude', codex: 'Codex' } as Partial<Record<EngineId, string>>)[engine] ?? ENGINES[engine]?.name
   const shownError = error ?? images.error
   return (
     <div className="mx-auto w-full max-w-3xl px-3 pt-1 pb-3">

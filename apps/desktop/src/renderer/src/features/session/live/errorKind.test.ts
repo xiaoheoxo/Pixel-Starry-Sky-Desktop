@@ -204,7 +204,7 @@ describe('loginActions（自己订阅的登录失效，docs/ui/claude-login-reco
     expect(loginActions('auth', own, 'claude', allExpired)).toEqual([{ kind: 'relogin', target: 'a_1' }])
   })
 
-  it('不是登录失效、平台 / 自定义接口的会话、像素星空引擎：不给', () => {
+  it('不是登录失效、平台 / 自定义接口的会话、Pixel 引擎：不给', () => {
     expect(loginActions('busy', own, 'claude', null)).toEqual([])
     expect(
       loginActions('auth', { platform: { groupId: '1', account: 'a@b.c' }, provider: null }, 'claude', null),

@@ -71,7 +71,7 @@ export async function discoverPixel(
     return missing(
       bundledCli
         ? `没有找到像素星空自带的命令行（${bundledCli}），安装可能不完整：请重新安装像素星空`
-        : '没有找到像素星空命令行：设置环境变量 PIXELSKY_CLI_BIN 指向命令行入口，或把 pixelsky 装到 PATH 上',
+        : '没有找到 Pixel 命令行：设置环境变量 PIXELSKY_CLI_BIN 指向命令行入口，或把 pixelsky 装到 PATH 上',
     )
   const result = await run(found.launcher, ['--version'], pixelEnvironment(found.launcher, env), 12_000)
   const version = result.stdout.match(/\d+\.\d+\.\d+/)?.[0] ?? null
@@ -85,7 +85,7 @@ export async function discoverPixel(
       path: found.path,
       message: ok
         ? null
-        : `像素星空命令行启动不了${why ? `：${why}` : ''}${
+        : `Pixel 命令行启动不了${why ? `：${why}` : ''}${
             !override && bundledCli && found.path === bundledCli ? '。请重新安装像素星空' : ''
           }`,
     },
@@ -168,6 +168,6 @@ export function pixelShell(
   return {
     warning: bash
       ? `没有找到 Git Bash，只找到了 WSL 的 bash（${bash}）：命令会在 Linux 子系统里运行，Windows 的路径和工具用不了。${install}`
-      : `没有找到 Git Bash：像素星空在 Windows 上用它运行命令，现在运行命令会失败。${install}`,
+      : `没有找到 Git Bash：Pixel 在 Windows 上用它运行命令，现在运行命令会失败。${install}`,
   }
 }

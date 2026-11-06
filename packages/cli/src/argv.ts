@@ -32,8 +32,8 @@ function unavailable([zh, en]: readonly [string, string]): ArgvResult {
     action: 'blocked',
     exitCode: 1,
     message:
-      `${zh}在像素星空命令行中不可用（更新随桌面端进行；扩展、技能请放进用户目录 ~/.pixelsky-cli/agent/；账号请用环境变量或 auth.json 里的 API 密钥）。\n` +
-      `${en} is not available in the PixelSky CLI (updates ship with the desktop app; put extensions/skills under ~/.pixelsky-cli/agent/; use API keys via environment variables or auth.json).`,
+      `${zh}在 Pixel 命令行中不可用（更新随桌面端进行；扩展、技能请放进用户目录 ~/.pixelsky-cli/agent/；账号请用环境变量或 auth.json 里的 API 密钥）。\n` +
+      `${en} is not available in the Pixel CLI (updates ship with the desktop app; put extensions/skills under ~/.pixelsky-cli/agent/; use API keys via environment variables or auth.json).`,
   }
 }
 

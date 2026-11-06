@@ -17,8 +17,8 @@ const skipped: string[] = []
 
 export function missingPackageMessage(source: string): string {
   return (
-    `已跳过没装的扩展包 ${source}：像素星空命令行不会自动下载安装扩展包（settings.json 的 packages）。\n` +
-    `Skipped missing package ${source}: the PixelSky CLI does not install packages automatically.`
+    `已跳过没装的扩展包 ${source}：Pixel 命令行不会自动下载安装扩展包（settings.json 的 packages）。\n` +
+    `Skipped missing package ${source}: the Pixel CLI does not install packages automatically.`
   )
 }
 

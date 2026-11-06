@@ -127,7 +127,7 @@ describe('historyOutline', () => {
       fallbackEngine: 'pixel',
     })
     expect(text).toContain('（附：a.txt）')
-    expect(text).toContain('[像素星空')
+    expect(text).toContain('[Pixel')
   })
 })
 

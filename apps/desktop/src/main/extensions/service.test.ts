@@ -35,7 +35,7 @@ describe('管理配置与凭据', () => {
     expect(service.upsert({ ...cli, id: e.id, description: '改了说明' }).enabled).toBe(false)
     expect(service.upsert({ ...cli, id: e.id, enabled: true }).enabled).toBe(true)
   })
-  it('MCP 名字只差符号（像素星空命令行会当成同一个）：保存时拦下；不同项目的不算', () => {
+  it('MCP 名字只差符号（Pixel 命令行会当成同一个）：保存时拦下；不同项目的不算', () => {
     const mcp = { type: 'stdio' as const, command: process.execPath, args: [] }
     for (const dir of ['a', 'b']) mkdirSync(join(root, dir))
     service.upsert({ kind: 'mcp', name: 'alpha.beta', scope: global, mcp })
@@ -196,7 +196,7 @@ describe('管理配置与凭据', () => {
     expect(fromClaude.imported).toBe(1)
     expect(service.state(null).entries.find(e => e.name === 'cc')!.engines).toEqual(['codex', 'pixel'])
   })
-  it('从 Claude Code 导入：只给 Codex / 像素星空，不因为和原生的同名而改名', async () => {
+  it('从 Claude Code 导入：只给 Codex / Pixel，不因为和原生的同名而改名', async () => {
     mkdirSync(join(root, 'native'), { recursive: true })
     writeFileSync(
       join(root, 'native', '.claude.json'),

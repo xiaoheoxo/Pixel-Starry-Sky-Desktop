@@ -161,7 +161,7 @@ export function PluginsSection() {
       <div>
         <h3 className="text-section font-semibold">{t('插件配置')}</h3>
         <p className="mt-2 text-list text-fg-muted">
-          {t('配置插件、MCP、命令行工具与技能，供会话中的 Claude Code、Codex 和像素星空使用。')}
+          {t('配置插件、MCP、命令行工具与技能，供会话中的 Claude Code、Codex 和 Pixel 使用。')}
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">

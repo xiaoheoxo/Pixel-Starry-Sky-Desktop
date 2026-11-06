@@ -20,7 +20,7 @@ describe('模型列表', () => {
     expect(windowEngines('deepseek-v4', lists)).toEqual(['pixel'])
   })
 
-  it('图标：Claude Code 能跑的不画，只有 Codex / 像素星空能跑的画那个引擎', () => {
+  it('图标：Claude Code 能跑的不画，只有 Codex / Pixel 能跑的画那个引擎', () => {
     expect(modelBadge('claude-opus-5-5', lists)).toBeNull()
     expect(modelBadge('gpt-6.1', lists)).toBe('codex')
     expect(modelBadge('deepseek-v4', lists)).toBe('pixel')

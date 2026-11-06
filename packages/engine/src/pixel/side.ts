@@ -89,7 +89,7 @@ export function answerOf(stdout: string, stderr: string): string {
   const text = stdout.trim()
   if (text) return text
   const first = stderr.split(/\r?\n/).find(l => l.trim())
-  throw new Error(first?.trim().replace(/^Error:\s*/, '') || '像素星空没有回答')
+  throw new Error(first?.trim().replace(/^Error:\s*/, '') || 'Pixel 没有回答')
 }
 
 export function pixelSideQuestion(opts: {

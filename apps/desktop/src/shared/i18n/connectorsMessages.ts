@@ -69,8 +69,8 @@ export const connectorsMessages = {
   'connectors.none': { zh: '无', en: 'None' },
   'connectors.secretsHidden': { zh: '值已隐藏', en: 'Values hidden' },
   'connectors.noConfig': {
-    zh: '它不在设置 › 扩展里，是引擎按自己的配置加载的（例如 Codex 的 config.toml、像素星空命令行的 mcp.json）。',
-    en: 'It isn’t in Settings › Extensions; the engine loads it from its own config (such as Codex’s config.toml or the Pixel Starry Sky CLI’s mcp.json).',
+    zh: '它不在设置 › 扩展里，是引擎按自己的配置加载的（例如 Codex 的 config.toml、Pixel 命令行的 mcp.json）。',
+    en: 'It isn’t in Settings › Extensions; the engine loads it from its own config (such as Codex’s config.toml or the Pixel CLI’s mcp.json).',
   },
   'connectors.reportedTransport': { zh: '引擎报告的地址', en: 'Reported by the engine' },
   'connectors.failedTitle': {

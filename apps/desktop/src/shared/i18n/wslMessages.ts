@@ -62,7 +62,7 @@ export const wslMessages = {
   'wsl.item.node': { zh: 'node 22 以上（Linux 版）', en: 'node 22+ (Linux build)' },
   'wsl.item.claude': { zh: 'Claude Code', en: 'Claude Code' },
   'wsl.item.codex': { zh: 'Codex', en: 'Codex' },
-  'wsl.item.pixel': { zh: '像素星空引擎（自带）', en: 'Pixel Starry Sky engine (built in)' },
+  'wsl.item.pixel': { zh: 'Pixel 引擎（自带）', en: 'Pixel engine (built in)' },
   'wsl.item.login': { zh: '登录', en: 'Login' },
   'wsl.login.none': { zh: '还没登录', en: 'Not signed in' },
   'wsl.login.some': { zh: '已登录：{who}', en: 'Signed in: {who}' },
@@ -112,12 +112,12 @@ export const wslMessages = {
   'wsl.reason.CODEX_MISSING': OPTIONAL,
   'wsl.reason.CODEX_WINDOWS': { zh: WINDOWS_PATH, en: WINDOWS_PATH_EN },
   'wsl.reason.PIXEL_NODE_OLD': {
-    zh: '自带的像素星空引擎要 node 22.19 以上，现在的版本用不了它（别的照常能用）。在 WSL 里装新版：',
-    en: 'The built-in Pixel Starry Sky engine needs node 22.19 or newer, so it isn’t available with this version (everything else still works). Install a newer one in WSL:',
+    zh: '自带的 Pixel 引擎要 node 22.19 以上，现在的版本用不了它（别的照常能用）。在 WSL 里装新版：',
+    en: 'The built-in Pixel engine needs node 22.19 or newer, so it isn’t available with this version (everything else still works). Install a newer one in WSL:',
   },
   'wsl.reason.PIXEL_ARCH': {
-    zh: '自带的像素星空引擎只支持 x64 和 arm64，这个发行版里用不了它（别的照常能用）。',
-    en: 'The built-in Pixel Starry Sky engine supports only x64 and arm64, so it isn’t available in this distro (everything else still works).',
+    zh: '自带的 Pixel 引擎只支持 x64 和 arm64，这个发行版里用不了它（别的照常能用）。',
+    en: 'The built-in Pixel engine supports only x64 and arm64, so it isn’t available in this distro (everything else still works).',
   },
   'wsl.reason.login': {
     zh: '用平台额度不用登录；用自有额度要在 WSL 终端里运行 claude / codex login 单独登录（Windows 上的登录带不进 WSL）。',

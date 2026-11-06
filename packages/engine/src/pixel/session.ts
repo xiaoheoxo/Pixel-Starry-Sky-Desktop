@@ -632,7 +632,7 @@ export class PixelSession implements EngineSession {
     } finally {
       clearTimeout(timer)
     }
-    const reason = `像素星空 ${Math.round(limit / 1000)} 秒没有开始处理这条消息，已让它停下`
+    const reason = `Pixel ${Math.round(limit / 1000)} 秒没有开始处理这条消息，已让它停下`
     // 停下后 Pi 会报 agent_settled（aborted）：按失败结束、带上原因，不当作用户停的（event 里看 active.failure）
     active.failure = reason
     try {
@@ -662,7 +662,7 @@ export class PixelSession implements EngineSession {
       this.ctx.forgetSeen?.()
       this.translator.notice(
         'warn',
-        '没能接上原来的像素星空会话，已改开新会话；下一条消息会把之前的聊天一起带过去',
+        '没能接上原来的 Pixel 会话，已改开新会话；下一条消息会把之前的聊天一起带过去',
         failure.reason,
       )
       return null
@@ -672,7 +672,7 @@ export class PixelSession implements EngineSession {
     if (!recovered) {
       this.translator.notice(
         'warn',
-        '没能接上原来的像素星空会话，已改开新会话（之前的上下文没有带过去）',
+        '没能接上原来的 Pixel 会话，已改开新会话（之前的上下文没有带过去）',
         failure.reason,
       )
       return null

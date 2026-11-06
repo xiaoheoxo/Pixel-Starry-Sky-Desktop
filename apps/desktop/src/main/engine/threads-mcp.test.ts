@@ -128,7 +128,7 @@ const call = async (client: Client, name: string, args: Record<string, unknown> 
 }
 
 describe('threadsScope', () => {
-  it('按调用方引擎的设置；SSH、像素星空引擎、没有设置时关闭', () => {
+  it('按调用方引擎的设置；SSH、Pixel 引擎、没有设置时关闭', () => {
     expect(threadsScope(record(ME), config('project'))).toBe('project')
     expect(threadsScope(record(ME), config('all'))).toBe('all')
     expect(threadsScope(record(ME), config('off', 'all'))).toBe('off')

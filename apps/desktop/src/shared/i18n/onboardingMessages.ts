@@ -4,8 +4,8 @@ export const onboardingMessages = {
   'onboarding.brandLine2': { zh: '写代码、', en: 'write code and ' },
   'onboarding.brandEmphasis': { zh: '做任务', en: 'get things done' },
   'onboarding.brandSub': {
-    zh: 'Claude Code、Codex 和像素星空引擎，\n在一个窗口里用。',
-    en: 'Claude Code, Codex and the Pixel Starry Sky engine, all in one window.',
+    zh: 'Claude Code、Codex 和 Pixel 引擎，\n在一个窗口里用。',
+    en: 'Claude Code, Codex and the Pixel engine, all in one window.',
   },
   'onboarding.welcomeTitle': { zh: '欢迎使用像素星空', en: 'Welcome to Pixel Starry Sky' },
   'onboarding.welcomeSub': {
@@ -20,8 +20,8 @@ export const onboardingMessages = {
   'onboarding.found': { zh: '已找到 {names}，可以直接用', en: 'Found {names}, ready to use' },
   'onboarding.notFound': { zh: '没找到 Claude Code 或 Codex', en: 'Claude Code and Codex weren’t found' },
   'onboarding.pixelReady': {
-    zh: '没找到 Claude Code 或 Codex，可以先用自带的像素星空引擎',
-    en: 'Claude Code and Codex weren’t found. You can start with the built-in Pixel Starry Sky engine',
+    zh: '没找到 Claude Code 或 Codex，可以先用自带的 Pixel 引擎',
+    en: 'Claude Code and Codex weren’t found. You can start with the built-in Pixel engine',
   },
   'onboarding.install': { zh: '安装', en: 'Install' },
   'onboarding.orWord': { zh: '或', en: 'or' },

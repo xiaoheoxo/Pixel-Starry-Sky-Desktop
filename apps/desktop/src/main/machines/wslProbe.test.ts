@@ -75,7 +75,7 @@ describe('wslCheckItems', () => {
     expect(readyToConnect(items)).toBe(true)
     expect(find(items, 'login').detail).toBe('claude')
   })
-  it('像素星空引擎：node 22.19 以上、x64 / arm64 才能用；不够只是 warn，说清楚原因', () => {
+  it('Pixel 引擎：node 22.19 以上、x64 / arm64 才能用；不够只是 warn，说清楚原因', () => {
     expect(find(wslCheckItems(probe({ nodes: [node({ version: '22.19.0' })] })), 'pixel')).toMatchObject({
       status: 'ok',
       required: false,

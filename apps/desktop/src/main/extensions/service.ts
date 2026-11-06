@@ -198,7 +198,7 @@ export class ExtensionService {
           (e.scope.kind === 'global' || s.kind === 'global' || JSON.stringify(e.scope) === JSON.stringify(s)),
       )
       if (clash)
-        throw new Error(`和已有的 MCP 服务器「${clash.name}」只差符号，像素星空引擎会把它们当成同一个，请修改名称`)
+        throw new Error(`和已有的 MCP 服务器「${clash.name}」只差符号，Pixel 引擎会把它们当成同一个，请修改名称`)
     }
     if (!engines.includes('claude')) return
     const native = this.native(s.kind === 'project' ? s.path : null).entries

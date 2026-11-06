@@ -45,7 +45,7 @@ describe('providersFromEnv', () => {
     const list = providersFromEnv('pixel', { OPENAI_API_KEY: 'sk-o', OPENAI_BASE_URL: 'https://relay.example/v1' })
     expect(list).toHaveLength(1)
     expect(list[0].input).toMatchObject({
-      name: '像素星空 环境变量（OpenAI）',
+      name: 'Pixel 环境变量（OpenAI）',
       protocol: 'responses',
       template: 'custom',
       baseUrl: 'https://relay.example/v1',
@@ -57,8 +57,8 @@ describe('providersFromEnv', () => {
   it('像素星空两种都有：每个厂商一个接口，Anthropic 在前', () => {
     const list = providersFromEnv('pixel', { anthropic_auth_token: 't', OPENAI_API_KEY: 'sk-o' })
     expect(list.map(p => [p.vendor, p.input.name, p.input.protocol])).toEqual([
-      ['anthropic', '像素星空 环境变量（Anthropic）', 'anthropic'],
-      ['openai', '像素星空 环境变量（OpenAI）', 'responses'],
+      ['anthropic', 'Pixel 环境变量（Anthropic）', 'anthropic'],
+      ['openai', 'Pixel 环境变量（OpenAI）', 'responses'],
     ])
     // ANTHROPIC_AUTH_TOKEN 是 Bearer；变量名大小写不敏感，删的时候用原名
     expect(list[0].input.auth).toBe('bearer')
@@ -86,7 +86,7 @@ describe('migrateEnv', () => {
     expect(saved.map(p => p.protocol)).toEqual(['anthropic', 'responses'])
     expect(saveConfig).toHaveBeenCalledWith({ env: { HTTPS_PROXY: 'http://127.0.0.1:7890' } })
     expect(setDefaultCustom).toHaveBeenCalledWith('p1', null, 'pixel')
-    expect(result?.name).toBe('像素星空 环境变量（Anthropic） / 像素星空 环境变量（OpenAI）')
+    expect(result?.name).toBe('Pixel 环境变量（Anthropic） / Pixel 环境变量（OpenAI）')
   })
 
   it('有一个接口没建成：它的变量留在环境变量里，Key 不丢', async () => {

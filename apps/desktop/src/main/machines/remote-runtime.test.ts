@@ -197,7 +197,7 @@ describe('remote runtime follows the local behavior', () => {
   })
 })
 
-describe('远程的像素星空引擎为什么不可用', () => {
+describe('远程的 Pixel 引擎为什么不可用', () => {
   const pixel = (status: EngineInfo['status'], launch?: 'stock' | 'custom') =>
     ({ id: 'pixel', name: '像素星空', status, message: 'Pixel CLI not found.', launch }) as EngineInfo
   const codeOf = (message: string) => parseCodedError(message)

@@ -14,7 +14,7 @@ describe('引擎能用哪些自定义接口', () => {
     expect(providersFor(list, 'codex').map(p => p.id)).toEqual(['r'])
     expect(providersFor(list, 'pixel').map(p => p.id)).toEqual(['a', 'r', 'c'])
   })
-  it('平台线路：openai 线路给 Codex 和像素星空，anthropic 线路给 Claude Code 和像素星空', () => {
+  it('平台线路：openai 线路给 Codex 和 Pixel，anthropic 线路给 Claude Code 和 Pixel', () => {
     const openai = group({ platform: 'openai' }),
       anthropic = group({ platform: 'anthropic' })
     expect(['claude', 'codex', 'pixel'].filter(e => groupSupportsEngine(openai, e as never))).toEqual([

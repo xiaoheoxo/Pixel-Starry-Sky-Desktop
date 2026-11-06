@@ -48,16 +48,16 @@ export const errorMessages = {
   'errors.engine.goalNoEngine': { zh: '这个引擎没有目标模式', en: 'This engine doesn’t support goals' },
   // 远程机器（SSH / WSL）上的像素星空引擎：桌面端没把命令行装上去的原因（machines/remote-runtime.ts）
   'errors.remote.pixelNode': {
-    zh: '像素星空引擎要 Node {min} 以上，这台机器上是 {version}：升级 Node 后重新连接',
-    en: 'The Pixel Starry Sky engine needs Node {min} or newer; this machine has {version}. Upgrade Node and reconnect',
+    zh: 'Pixel 引擎要 Node {min} 以上，这台机器上是 {version}：升级 Node 后重新连接',
+    en: 'The Pixel engine needs Node {min} or newer; this machine has {version}. Upgrade Node and reconnect',
   },
   'errors.remote.pixelArch': {
-    zh: '像素星空引擎只支持 x64 和 arm64，这台机器是 {arch}',
-    en: 'The Pixel Starry Sky engine supports only x64 and arm64; this machine is {arch}',
+    zh: 'Pixel 引擎只支持 x64 和 arm64，这台机器是 {arch}',
+    en: 'The Pixel engine supports only x64 and arm64; this machine is {arch}',
   },
   'errors.remote.pixelInstall': {
-    zh: '像素星空引擎没能装到这台机器上：重新连接再试一次',
-    en: 'The Pixel Starry Sky engine couldn’t be installed on this machine. Reconnect to try again',
+    zh: 'Pixel 引擎没能装到这台机器上：重新连接再试一次',
+    en: 'The Pixel engine couldn’t be installed on this machine. Reconnect to try again',
   },
   // 引擎启动方式（docs/ui/engine-launch.md §3）
   'errors.launch.notFound': {

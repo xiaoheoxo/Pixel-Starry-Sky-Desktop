@@ -66,7 +66,7 @@ export function piMcpServers(raw: unknown): { servers: Record<string, McpServerC
     const c = object(value)
     if (c.type === 'sse') {
       skipped.push(
-        `MCP 服务器 ${name} 用的是 SSE，像素星空命令行只支持 stdio 和 HTTP，已跳过 / MCP server ${name} uses SSE, which the PixelSky CLI does not support; skipped.`,
+        `MCP 服务器 ${name} 用的是 SSE，Pixel 命令行只支持 stdio 和 HTTP，已跳过 / MCP server ${name} uses SSE, which the Pixel CLI does not support; skipped.`,
       )
       continue
     }

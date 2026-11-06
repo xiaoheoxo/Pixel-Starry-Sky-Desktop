@@ -240,7 +240,7 @@ describe('WslConnection（假 wsl.exe）', () => {
     60_000,
   )
 
-  describe('像素星空命令行下发', () => {
+  describe('Pixel 命令行下发', () => {
     // 一个很小的假命令行目录，打成真正的包
     async function miniArchive() {
       const cli = join(work, 'mini-cli' + Math.random().toString(36).slice(2))

@@ -2,8 +2,8 @@
 export const systemProxyMessages = {
   'systemProxy.title': { zh: '使用系统代理', en: 'Use system proxy' },
   'systemProxy.description': {
-    zh: 'Claude Code、Codex 和像素星空引擎只认 HTTPS_PROXY 这类环境变量，不读系统代理。打开后，系统开着代理时自动传给它们；新开的会话生效，已经开着的会话重开后生效。',
-    en: 'Claude Code, Codex and the Pixel Starry Sky engine only read proxy environment variables like HTTPS_PROXY, not the system proxy. When on, the system proxy is passed to them. Applies to new sessions; reopen running ones.',
+    zh: 'Claude Code、Codex 和 Pixel 引擎只认 HTTPS_PROXY 这类环境变量，不读系统代理。打开后，系统开着代理时自动传给它们；新开的会话生效，已经开着的会话重开后生效。',
+    en: 'Claude Code, Codex and the Pixel engine only read proxy environment variables like HTTPS_PROXY, not the system proxy. When on, the system proxy is passed to them. Applies to new sessions; reopen running ones.',
   },
   'systemProxy.using': {
     zh: '检测到系统代理 {proxy}，本机引擎会通过它连网。',

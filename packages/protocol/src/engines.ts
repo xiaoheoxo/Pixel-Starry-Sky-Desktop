@@ -96,7 +96,7 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
   // 旁聊复制 Pi 会话文件单独问一次（engine pixel/side.ts）
   pixel: {
     id: 'pixel',
-    name: '像素星空',
+    name: 'Pixel',
     short: 'Px',
     caps: {
       imageInput: true,

@@ -111,14 +111,14 @@ describe('wslStatusLine', () => {
       needsPrep: false,
     })
   })
-  it('已连接：Codex 和自带的像素星空引擎能用也列出来；路径里的数字不当版本', () => {
+  it('已连接：Codex 和自带的 Pixel 引擎能用也列出来；路径里的数字不当版本', () => {
     const items = [
       ...passing,
       item('codex', 'ok', false, { detail: 'codex-cli 0.163.0 (/usr/local/bin/codex)' }),
       item('pixel', 'ok', false, { detail: 'node 22.19.0' }),
     ]
     expect(wslStatusLine(distro('connected', 'running', items)).params).toEqual({
-      version: 'Claude Code 2.1 · Codex 0.163 · 像素星空',
+      version: 'Claude Code 2.1 · Codex 0.163 · Pixel',
     })
     const noVersion = [
       item('start', 'ok', true),

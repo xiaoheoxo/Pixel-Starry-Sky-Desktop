@@ -65,8 +65,8 @@ export const codexMessages = {
   },
   'codex.targets': { zh: '适用引擎', en: 'Applies to' },
   'codex.extensionInfo': {
-    zh: 'Codex 和像素星空支持独立 Skills、stdio / HTTP MCP 与命令行；Claude 插件保持专属',
-    en: 'Codex and Pixel Starry Sky support standalone skills, stdio / HTTP MCP and CLI tools; Claude plugins remain engine-specific',
+    zh: 'Codex 和 Pixel 支持独立 Skills、stdio / HTTP MCP 与命令行；Claude 插件保持专属',
+    en: 'Codex and Pixel support standalone skills, stdio / HTTP MCP and CLI tools; Claude plugins remain engine-specific',
   },
   'codex.nativeSettings': {
     zh: '使用本机 Codex 登录及 provider 配置；输出风格和提问开关由原生配置管理。',

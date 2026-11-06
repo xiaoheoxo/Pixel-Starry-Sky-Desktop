@@ -349,7 +349,7 @@ describe('SSH trust and loopback transport', () => {
   })
 })
 
-describe('SSH 下发像素星空命令行', () => {
+describe('SSH 下发 Pixel 命令行', () => {
   const archive = {
     data: Buffer.from('archive-bytes'),
     hash: createHash('sha256').update('archive-bytes').digest('hex'),

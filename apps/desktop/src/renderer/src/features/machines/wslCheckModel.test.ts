@@ -51,7 +51,7 @@ describe('itemView', () => {
       fix: 'fnm install 22',
     })
   })
-  it('像素星空引擎：排在 Codex 后面；node 不够新时短说明带版本，原因和命令', () => {
+  it('Pixel 引擎：排在 Codex 后面；node 不够新时短说明带版本，原因和命令', () => {
     const input = [item('login', 'info', false), item('pixel', 'ok', false), item('codex', 'warn', false)]
     expect(sortCheckItems(input).map(i => i.key)).toEqual(['codex', 'pixel', 'login'])
     expect(
