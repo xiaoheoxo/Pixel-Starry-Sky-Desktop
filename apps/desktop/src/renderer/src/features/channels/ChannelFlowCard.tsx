@@ -19,7 +19,9 @@ import type {
 } from '../../../../shared/types/channels'
 import { MemberAvatar } from './ChannelMessage'
 import { PlannerSwitch, plannerSummary, QuestionsForm } from './PlanParts'
-import { taskActivity } from './taskActivity'
+import { activityView, taskActivity, taskElapsed } from './taskActivity'
+import { ActivityLines } from './ActivityLines'
+import { durText } from './format'
 import { agentActivity, RECENT_STEPS } from '@/features/session/live/agentActivity'
 import { GateActions } from './GateActions'
 import { StartDialog } from './StartDialog'
@@ -171,15 +173,6 @@ function StepSettings({
 }
 
 /** 时长的文字：1 分钟内秒、1 小时内分秒、再长小时 + 分 */
-const durText = (ms: number): string => {
-  const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return tr('channels.flow.dur.s', { s })
-  const m = Math.floor(s / 60)
-  return m < 60
-    ? tr('channels.flow.dur.ms', { m, s: s % 60 })
-    : tr('channels.flow.dur.hm', { h: Math.floor(m / 60), m: m % 60 })
-}
-
 /** 一步的耗时行：「3 分 12 秒 · 2 轮 · 打回 1 次」（§8.2）；没有的部分不显示 */
 function stepStats(step: FlowStep, task: ChannelTask | undefined, now: number): string {
   if (!task) return ''
@@ -1201,42 +1194,46 @@ export function ChannelFlowCard({
         {flow.steps.map((s, i) => {
           const st = stepStatus(flow, s, membersById)
           const member = membersById.get(s.memberId)
+          const task = s.taskId ? taskOf.get(s.taskId) : undefined
+          // 模型在做什么（docs/ui/channels-live-activity.md）：有了这几行，耗时放进状态标签，耗时和用量改成悬停看
+          const view = task && (s.status === 'running' || s.status === 'failed') ? activityView(task) : null
+          const stats = stepStats(s, task, now)
+          const usage = usageText(s.usage)
+          const statsLine = [stats, usage?.text].filter(Boolean).join(' · ')
+          // 第二轮起不写：startedAt 只记第一轮，打回重做会把等审查的时间算进去
+          const elapsed = view && task && s.status === 'running' ? taskElapsed(task, now) : null
           return (
             <li key={s.id}>
               <button
                 type="button"
                 disabled={!s.taskId}
                 aria-label={tr('channels.flow.step.open', { n: i + 1 })}
+                title={view ? statsLine || undefined : undefined}
                 onClick={() => s.taskId && void channelActions.focusMessage(message.channelId, s.taskId)}
                 className="flex w-full min-w-0 flex-col gap-0.5 rounded-md px-1.5 py-1.5 text-left enabled:hover:bg-hover"
               >
                 <span className="flex w-full min-w-0 items-center gap-2">
                   <span className="w-5 shrink-0 text-center text-ui text-fg-muted">{num(i)}</span>
-                  <span className="min-w-0 flex-1 truncate text-ui text-fg">{s.title}</span>
+                  <span className="min-w-[4em] flex-1 truncate text-ui text-fg">{s.title}</span>
                   <MemberAvatar member={member} size={18} />
                   <span className="max-w-24 shrink-0 truncate text-meta text-fg-muted">{member?.name ?? '?'}</span>
                   <span
                     className={cn(
-                      'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-meta',
+                      // 窄时标签让位，步骤名至少留几个字
+                      'inline-flex min-w-0 items-center gap-1 overflow-hidden rounded-md px-1.5 py-0.5 text-meta whitespace-nowrap',
                       STEP_TONE[s.status],
                     )}
                   >
                     {st.running && <Spinner size={10} />}
                     {st.text}
+                    {elapsed !== null && <span className="tabular-nums">· {durText(elapsed)}</span>}
                   </span>
                 </span>
-                {(() => {
-                  const stats = stepStats(s, s.taskId ? taskOf.get(s.taskId) : undefined, now)
-                  const usage = usageText(s.usage)
-                  const line = [stats, usage?.text].filter(Boolean).join(' · ')
-                  return (
-                    line && (
-                      <span className="truncate pl-7 text-meta text-fg-faint" title={usage?.title || undefined}>
-                        {line}
-                      </span>
-                    )
-                  )
-                })()}
+                {statsLine && !view && (
+                  <span className="truncate pl-7 text-meta text-fg-faint" title={usage?.title || undefined}>
+                    {statsLine}
+                  </span>
+                )}
                 {s.copy && (
                   <span className="truncate pl-7 text-meta text-fg-faint">
                     {tr('channels.flow.copy', { branch: s.copy.branch })}
@@ -1261,6 +1258,7 @@ export function ChannelFlowCard({
                   </span>
                 )}
               </button>
+              {view && <ActivityLines view={view} className="pr-1.5 pb-1 pl-[34px]" />}
               {s.question && !readOnly && (flow.status === 'running' || flow.status === 'paused') && (
                 <AnswerBox
                   question={s.question.text}

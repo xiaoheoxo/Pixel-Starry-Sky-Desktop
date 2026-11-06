@@ -18,20 +18,43 @@ export type ChannelAgentStatus = 'idle' | 'running' | 'waiting' | 'offline'
 /** 频道的提醒级别（docs/ui/channels-local-ai.md §3.1 #13） */
 export type ChannelNotify = 'all' | 'important' | 'mute'
 
-/**
- * 任务卡上「正在做什么」的一步（docs/ui/channels-local-ai.md §3.1 #2）：只留显示要用的字段（和对话里工具行的说法一样），
- * at 是主进程第一次看到这一步的时间（条目本身不带时间）
- */
-export type ChannelStep = { id: string; at: number; running: boolean } & (
-  | Pick<Extract<Item, { kind: 'command' }>, 'kind' | 'command' | 'description'>
-  | { kind: 'file_change'; changes: Array<Pick<FileChange, 'kind' | 'path'>> }
+/** 一步做的事：只留显示要用的字段（和对话里工具行的说法一样） */
+export type ChannelStepBody =
+  | (Pick<Extract<Item, { kind: 'command' }>, 'kind' | 'command' | 'description'> & {
+      /** 非 0 退出的退出码 */
+      exitCode?: number
+    })
+  | { kind: 'file_change'; changes: Array<Pick<FileChange, 'kind' | 'path' | 'added' | 'removed'>> }
   | Pick<Extract<Item, { kind: 'tool' }>, 'kind' | 'tool' | 'name' | 'title'>
-)
+
+/**
+ * 任务卡上「正在做什么」的一步（docs/ui/channels-live-activity.md）。
+ * at 是主进程第一次看到这一步的时间（条目本身不带时间），endedAt 是第一次看到做完的时间
+ */
+export type ChannelStep = {
+  id: string
+  at: number
+  running: boolean
+  /** 失败或被拒绝 */
+  failed?: boolean
+  /** 没做完就断了（被打断、断线重连）：不算失败，也不算做完 */
+  stopped?: boolean
+  endedAt?: number
+  /** 子智能体这一步：它最近在做什么（它自己的工具调用不单独算一步） */
+  inner?: ChannelStepBody
+} & ChannelStepBody
+
+/** 两步之间在等什么：看结果、准备下一步、思考（和对话状态行的 waitingFor 同一套） */
+export type ChannelWait = 'result' | 'next' | 'thinking'
 
 /** 进行中的任务在做什么：最近几步（先后顺序）、AI 最近说的一句 */
 export interface ChannelActivity {
   steps: ChannelStep[]
   say: { text: string; at: number } | null
+  /** 计划当前这一步的文字 */
+  plan?: string | null
+  /** 两步之间在等什么、从什么时候开始；有步骤在跑时不看它 */
+  wait?: { kind: ChannelWait; at: number } | null
 }
 
 // ── Phase C：多人团队（docs/ui/channels-phase-c.md §5.3） ──

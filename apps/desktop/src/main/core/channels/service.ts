@@ -144,6 +144,7 @@ import {
 import {
   changedFiles,
   clientMessageId,
+  CHANNEL_TOOLS,
   isChannelSent,
   diffTotal,
   reconcileRun,
@@ -159,9 +160,6 @@ import { TeamExecutor } from './team/executor'
 import type { AgentRegistration, TeamMessage } from './team/api'
 
 export const SELF_ID = 'you'
-
-/** 频道工具 MCP 服务的名字（main/channels/channel-mcp.ts 的 CHANNEL_SERVER_NAME；core 不反向依赖那边） */
-const CHANNEL_TOOLS = 'pixelsky_channel'
 
 /** 审批请求是不是在用频道自己的工具（Claude 叫 mcp__pixelsky_channel__task_done，别的引擎名字里也带服务名） */
 const channelToolRequest = (r: { kind: string; toolName?: string; title?: string }): boolean =>
@@ -1757,6 +1755,7 @@ export class Channels {
       decision: null,
       request: null,
       progress: null,
+      activity: null,
       endedAt: null,
       checks: null,
     })
@@ -2006,7 +2005,8 @@ export class Channels {
         note: finish.note ?? null,
         request: null,
         progress: null,
-        activity: null,
+        // 失败的活留着最后几步，不用切到对话就能看（只在内存里，重试时清）
+        activity: finish.status === 'failed' ? (task.activity ?? null) : null,
         ahead: 0,
         disconnected: false,
         endedAt: now,

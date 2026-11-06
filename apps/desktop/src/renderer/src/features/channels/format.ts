@@ -25,6 +25,16 @@ export function formatDay(at: number, now = Date.now()): string {
   return `${otherYear ? `${d.getFullYear()}年` : ''}${d.getMonth() + 1}月${d.getDate()}日 星期${WEEKDAYS[d.getDay()]}`
 }
 
+/** 用时：12 秒、2 分 40 秒、1 小时 5 分 */
+export function durText(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return tr('channels.flow.dur.s', { s })
+  const m = Math.floor(s / 60)
+  return m < 60
+    ? tr('channels.flow.dur.ms', { m, s: s % 60 })
+    : tr('channels.flow.dur.hm', { h: Math.floor(m / 60), m: m % 60 })
+}
+
 /** 消息时间：中文 09:05，英文 9:05 AM */
 export function formatClock(at: number): string {
   const d = new Date(at)

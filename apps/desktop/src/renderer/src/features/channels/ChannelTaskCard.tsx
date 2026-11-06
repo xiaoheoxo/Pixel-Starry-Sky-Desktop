@@ -26,9 +26,8 @@ import { formatClock } from './format'
 import { agentPlace, MemberAvatar } from './ChannelMessage'
 import { canApprove, canControlTask, canWithdraw, isMyTask } from './teamModel'
 import { approvalSummary } from '@/features/session/live/approvals/model'
-import { activityTooltip, agoText } from '@/features/session/live/agentActivity'
-import { useNow } from '@/features/session/live/stepClock'
-import { taskActivity } from './taskActivity'
+import { activityView } from './taskActivity'
+import { ActivityLines, TaskElapsed } from './ActivityLines'
 import { CheckSummary } from '@/features/checks/CheckSummary'
 
 export const STATUS_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
@@ -157,9 +156,8 @@ export function ChannelTaskCard({
   const pending = task.pendingAction ?? null
   const live = !!onAction
   const inline = task.status === 'waiting' && mine && canAnswerInline(task.request ?? null)
-  // 进行中：正在做什么（「几秒前」每秒刷新）
-  const activity = taskActivity(task)
-  const now = useNow(!!activity)
+  // 进行中、失败：模型在做什么（docs/ui/channels-live-activity.md）
+  const view = activityView(task)
   const run = (fn: () => Promise<void>) => {
     if (busy) return
     setBusy(true)
@@ -185,6 +183,10 @@ export function ChannelTaskCard({
   const flagged = attention || task.status === 'failed' || !!task.decision
   // AI 交给 AI、派活那句不在主时间线上（task_handover 发在串里）：淡化成居中的一行
   const relayLine = compact && !attached && !!task.relay && !attention
+  // 状态条下面的动态；点开时放进卡片；流程里的活写在流程卡上，不重复
+  const block = compact && !expanded && !task.flow && view
+  // 交接的活平时居中；有动态时靠左，和别的活对齐
+  const centered = relayLine && !block
   const article = (header: boolean) => (
     <article
       aria-label={`${statusText(task, ownerName, mine)}：${task.title}`}
@@ -264,17 +266,9 @@ export function ChannelTaskCard({
         />
       )}
       {task.summary && !resultShown && <p className="mt-1 text-list break-words text-fg-secondary">{task.summary}</p>}
-      {activity && (
-        <p
-          data-task-activity={activity.line.kind}
-          title={activityTooltip(activity.line, activity.steps, activity.seen, now)}
-          className="mt-1 truncate text-meta text-fg-muted"
-        >
-          {activity.line.text}
-          {activity.line.kind === 'step' && activity.line.stepId && (
-            <span className="text-fg-faint tabular-nums"> · {agoText(now - activity.seen(activity.line.stepId))}</span>
-          )}
-        </p>
+      {view && (
+        // 错误下面单独写一行，这里不重复
+        <ActivityLines view={view.head?.kind === 'error' ? { ...view, head: null } : view} className="mt-1" />
       )}
       {task.status === 'failed' && task.error && (
         <p className="mt-1 line-clamp-3 text-meta break-words text-danger" title={translateMessage(task.error)}>
@@ -506,7 +500,8 @@ export function ChannelTaskCard({
       )}
     >
       <MemberAvatar member={assignee} size={18} className="rounded-full" />
-      <span className="shrink-0">
+      {/* 窄时先省略后面的标题，再省略名字；不然加上用时后状态条会被裁掉 */}
+      <span className="min-w-[3em] truncate">
         {!attached
           ? `${author?.name ?? '?'} → ${assignee?.name ?? '?'}`
           : tr('channels.task.chipTo', { name: assignee?.name ?? '?' })}
@@ -520,11 +515,9 @@ export function ChannelTaskCard({
         {status ? <status.icon size={11} strokeWidth={2} className="shrink-0" /> : <Spinner size={9} />}
         {statusText(task, ownerName, mine)}
         {detail && <span className="font-normal opacity-80">· {detail}</span>}
+        <TaskElapsed task={task} />
       </span>
-      {!attached && <span className="min-w-0 truncate text-fg-faint">{task.title}</span>}
-      {attached && activity && !expanded && (
-        <span className="min-w-0 truncate text-fg-faint">{activity.line.text}</span>
-      )}
+      {!attached && <span className="min-w-0 shrink-[99] truncate text-fg-faint">{task.title}</span>}
       {task.diff && task.status === 'done' && (
         <DiffStat added={task.diff.added} removed={task.diff.removed} className="shrink-0" />
       )}
@@ -541,23 +534,56 @@ export function ChannelTaskCard({
       data-task-chip={task.status}
       className={cn(
         'group/thread flex max-w-full min-w-0 flex-col gap-1',
-        relayLine ? 'conversation-message mt-2 items-center' : align === 'end' ? 'items-end' : 'items-start',
-        !attached && !relayLine && 'conversation-message mt-2',
-        !attached && !relayLine && align === 'start' && 'pl-[38px]',
+        centered ? 'conversation-message mt-2 items-center' : align === 'end' ? 'items-end' : 'items-start',
+        !attached && !centered && 'conversation-message mt-2',
+        !attached && !centered && align === 'start' && 'pl-[38px]',
         attached && 'mt-1',
       )}
     >
       {dialog}
       <div
-        className={cn(
-          'flex max-w-full min-w-0 items-center gap-1',
-          align === 'end' && !relayLine && 'flex-row-reverse',
-        )}
+        className={cn('flex max-w-full min-w-0 items-center gap-1', align === 'end' && !centered && 'flex-row-reverse')}
       >
         {chip}
         {/* 讨论串入口不让状态条挤窄（不然「在串里讨论」会一个字一行竖着排），长的是状态条自己截断 */}
         {thread && <div className="max-w-[45%] shrink-0 whitespace-nowrap">{thread}</div>}
       </div>
+      {block && (
+        <ActivityLines
+          view={block}
+          // 从状态条的头像往下一条细线，把这几行和状态条连起来；不加框
+          className={cn(
+            'ml-[11px] border-l border-line pl-3',
+            align === 'end' ? 'w-fit max-w-full min-w-[min(100%,20rem)]' : 'w-[calc(100%-11px)] max-w-[640px]',
+          )}
+        >
+          {task.status === 'failed' && (
+            <div className="flex items-center gap-3">
+              {live && control && !pending && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => run(() => onAction!(task.id, 'retry'))}
+                  className="press text-fg-muted hover:text-fg hover:underline disabled:opacity-50"
+                >
+                  {tr('channels.task.retry')}
+                </button>
+              )}
+              {open && (
+                <button type="button" onClick={open} className="press text-fg-muted hover:text-fg hover:underline">
+                  {tr('channels.openSession')}
+                </button>
+              )}
+            </div>
+          )}
+          {task.disconnected && (
+            <p className="flex items-center gap-1.5 text-fg-muted">
+              <Unplug size={12} strokeWidth={1.75} className="shrink-0" />
+              {tr('channels.task.disconnected')}
+            </p>
+          )}
+        </ActivityLines>
+      )}
       {expanded && article(false)}
     </div>
   )

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ApprovalRequest, EngineEvent, Item, SessionSnapshot } from '@pixelsky/protocol'
 import type { ChannelMessage } from '../../../shared/types/channels'
-import { reconcileRun, trackEvent, diffTotal, type TaskRun } from './tracker'
+import { ACTIVITY_STEPS, reconcileRun, trackEvent, diffTotal, type TaskRun } from './tracker'
 import {
   HISTORY_CHARS,
   HISTORY_MESSAGES,
@@ -106,7 +106,7 @@ describe('任务状态跟踪（§5.1）', () => {
     expect(diffTotal(r.run)).toBeNull()
   })
 
-  it('正在做什么：命令 / 改文件 / 工具开始和完成都记，同一步原地更新、保留第一次看到的时间，只留最近 3 步；AI 说的话记第一行', () => {
+  it('正在做什么：命令 / 改文件 / 工具开始和完成都记，同一步原地更新、保留第一次看到的时间；AI 说的话记第一行', () => {
     const cmd = (id: string, status: 'running' | 'completed'): Item => ({
       kind: 'command',
       id,
@@ -141,15 +141,15 @@ describe('任务状态跟踪（§5.1）', () => {
       },
     ])
     const activity = r.run.activity!
-    expect(activity.steps.map(s => s.id)).toEqual(['t1', 'f1', 'c2'])
-    expect(activity.steps[1]).toEqual({
+    expect(activity.steps.map(s => s.id)).toEqual(['c1', 't1', 'f1', 'c2'])
+    expect(activity.steps[2]).toEqual({
       id: 'f1',
       at: 1005,
       running: true,
       kind: 'file_change',
-      changes: [{ kind: 'update', path: 'src/b.ts' }],
+      changes: [{ kind: 'update', path: 'src/b.ts', added: 1, removed: 1 }],
     })
-    expect(activity.steps[2]).toMatchObject({
+    expect(activity.steps[3]).toMatchObject({
       kind: 'command',
       command: 'pnpm test c2\n第二行',
       running: true,
@@ -163,16 +163,231 @@ describe('任务状态跟踪（§5.1）', () => {
       { type: 'item_completed', item: cmd('c1', 'completed') },
     ]).run.activity!.steps
     expect(c1).toEqual([
-      { id: 'c1', at: 1001, running: false, kind: 'command', command: 'pnpm test c1\n第二行', description: null },
+      {
+        id: 'c1',
+        at: 1001,
+        endedAt: 1002,
+        running: false,
+        kind: 'command',
+        command: 'pnpm test c1\n第二行',
+        description: null,
+      },
     ])
     // 每次变化都给任务卡一个 activity 更新；下一轮开始清空
-    expect(r.patches.filter(p => 'activity' in p && p.activity).length).toBe(6)
+    expect(r.patches.filter(p => 'activity' in p && p.activity).length).toBe(7)
     const next = trackEvent(
       { ...r.run, clientMessageId: 'ch-t1-2' },
       { type: 'item_completed', item: user('ch-t1-2', 'turn2') },
     )
     expect(next.run.activity).toBeNull()
     expect(next.patch).toMatchObject({ activity: null })
+  })
+
+  describe('频道动态（docs/ui/channels-live-activity.md）', () => {
+    const begin: EngineEvent = { type: 'item_completed', item: user('ch-t1-1', 'turn1') }
+    const tool = (
+      id: string,
+      patch: Partial<Extract<Item, { kind: 'tool' }>> = {},
+    ): Extract<Item, { kind: 'tool' }> => ({
+      kind: 'tool',
+      id,
+      tool: 'read',
+      name: 'Read',
+      title: `${id}.ts`,
+      output: '',
+      status: 'completed',
+      ...patch,
+    })
+    const started = (item: Item): EngineEvent => ({ type: 'item_started', item })
+    const completed = (item: Item): EngineEvent => ({ type: 'item_completed', item })
+
+    it('失败：命令非 0 退出带退出码，被拒绝也算；0 退出和被打断不算', () => {
+      const cmd = (id: string, status: 'completed' | 'failed' | 'interrupted', exitCode: number | null): Item => ({
+        kind: 'command',
+        id,
+        command: 'x',
+        description: null,
+        output: '',
+        exitCode,
+        status,
+      })
+      const steps = feed(run(), [
+        begin,
+        completed(cmd('ok', 'completed', 0)),
+        completed(cmd('bad', 'failed', 2)),
+        completed(cmd('silent', 'completed', 1)),
+        completed(cmd('stopped', 'interrupted', null)),
+        completed(tool('denied', { status: 'declined' })),
+      ]).run.activity!.steps
+      expect(steps.map(s => [s.id, !!s.failed])).toEqual([
+        ['ok', false],
+        ['bad', true],
+        ['silent', true],
+        ['stopped', false],
+        ['denied', true],
+      ])
+      expect(steps[1]).toMatchObject({ exitCode: 2 })
+      expect(steps[0]).not.toHaveProperty('exitCode')
+    })
+
+    it('做完的时间：只记第一次，用时不会被重复的完成事件拉长', () => {
+      const steps = feed(run(), [
+        begin,
+        started(tool('a', { status: 'running' })),
+        completed(tool('a')),
+        completed(tool('a')),
+      ]).run.activity!.steps
+      expect(steps[0]).toMatchObject({ at: 1001, endedAt: 1002, running: false })
+    })
+
+    it('子智能体只占一行：它的工具调用记到派出它的那一步上，不单独算一步，改动统计照算', () => {
+      const agent = tool('ag1', { tool: 'task', name: 'Agent', title: '审查代码', status: 'running' })
+      const r = feed(run(), [
+        begin,
+        started(agent),
+        started(tool('t1', { status: 'running', subagent: 'C1', subagentCall: 'ag1' })),
+        completed({
+          kind: 'file_change',
+          id: 'f1',
+          status: 'completed',
+          subagent: 'C1',
+          subagentCall: 'ag1',
+          changes: [{ path: 'b.ts', kind: 'update', diff: '', added: 3, removed: 1 }],
+        }),
+        // 派出它的那一步不在列表里：不记，也不单独算一步
+        completed(tool('t2', { subagent: 'C2', subagentCall: 'gone' })),
+        completed({ ...agent, status: 'completed' }),
+      ])
+      const steps = r.run.activity!.steps
+      expect(steps.map(s => s.id)).toEqual(['ag1'])
+      // 这一步开始 → 完成时 inner 留着；最后记的是改文件
+      expect(steps[0].inner).toEqual({
+        kind: 'file_change',
+        changes: [{ kind: 'update', path: 'b.ts', added: 3, removed: 1 }],
+      })
+      expect(diffTotal(r.run)).toEqual({ added: 3, removed: 1 })
+    })
+
+    it('频道工具不算一步，不管名字在哪、哪个引擎', () => {
+      const steps = feed(run(), [
+        begin,
+        completed(tool('c1', { tool: 'mcp', name: 'mcp__pixelsky_channel__task_done', title: 'task_done' })),
+        completed(tool('c2', { tool: 'mcp', name: 'pixelsky_channel / task_done', title: 'task_done' })),
+        completed(tool('t1')),
+      ]).run.activity!.steps
+      expect(steps.map(s => s.id)).toEqual(['t1'])
+    })
+
+    it('标题里带频道服务名的普通步骤不过滤：可能是用户的路径、搜索词', () => {
+      const steps = feed(run(), [
+        begin,
+        completed(tool('grep', { tool: 'search', name: 'Grep', title: 'pixelsky_channel' })),
+        completed(tool('read', { title: 'docs/pixelsky_channel-notes.md' })),
+      ]).run.activity!.steps
+      expect(steps.map(s => s.id)).toEqual(['grep', 'read'])
+    })
+
+    it('被打断的一步不算做完，也不算失败', () => {
+      const [step] = feed(run(), [begin, completed(tool('a', { status: 'interrupted' }))]).run.activity!.steps
+      expect(step).toMatchObject({ running: false, stopped: true })
+      expect(step).not.toHaveProperty('failed')
+    })
+
+    it('断线重连：步骤留着，还在跑的标成没做完，等待从重连算起；重试是重新做，清空', () => {
+      const before = feed(run(), [begin, completed(tool('a')), started(tool('b', { status: 'running' }))]).run
+      const reconnect = trackEvent(before, completed(user('ch-t1-1-reconnect-1', 'turn2')), 5000)
+      expect(reconnect.run.activity?.steps.map(s => [s.id, s.running, !!s.stopped])).toEqual([
+        ['a', false, false],
+        ['b', false, true],
+      ])
+      expect(reconnect.run.activity?.steps[1].endedAt).toBe(5000)
+      expect(reconnect.run.activity?.wait).toEqual({ kind: 'thinking', at: 5000 })
+      expect(reconnect.patch).toMatchObject({ activity: reconnect.run.activity })
+      const retry = trackEvent(before, completed(user('ch-t1-1-retry-1', 'turn2')), 5000)
+      expect(retry.run.activity).toBeNull()
+      expect(retry.patch).toMatchObject({ activity: null })
+    })
+
+    it('对账：重连前的步骤也留着', () => {
+      const snapshot = {
+        items: [
+          user('ch-t1-1', 'turn1'),
+          tool('a'),
+          tool('b', { status: 'running' }),
+          user('ch-t1-1-reconnect-1', 'turn2'),
+          tool('c'),
+        ],
+        queue: [],
+        pending: [],
+        state: 'running',
+        turnId: 'turn2',
+        queuePaused: false,
+        record: { lastOutcome: null },
+      } as unknown as SessionSnapshot
+      const steps = reconcileRun(run({ started: true }), snapshot, 5000).run.activity!.steps
+      expect(steps.map(s => [s.id, !!s.stopped])).toEqual([
+        ['a', false],
+        ['b', true],
+        ['c', false],
+      ])
+    })
+
+    it('两步之间在等什么：工具做完看结果，说完话准备下一步，想的时候思考', () => {
+      const wait = (...events: EngineEvent[]) => feed(run(), [begin, ...events]).run.activity?.wait
+      expect(wait(started(tool('a', { status: 'running' })))).toBeUndefined()
+      expect(wait(completed(tool('a')))).toEqual({ kind: 'result', at: 1001 })
+      expect(wait(started({ kind: 'reasoning', id: 'r', text: '', status: 'running' }))).toEqual({
+        kind: 'thinking',
+        at: 1001,
+      })
+      expect(wait(completed({ kind: 'assistant', id: 'a', text: '好', status: 'completed' }))).toEqual({
+        kind: 'next',
+        at: 1001,
+      })
+    })
+
+    it('计划当前这一步的文字；进度不变；没有进行中的步骤时清空', () => {
+      const todo = (status: 'in_progress' | 'completed'): Item => ({
+        kind: 'todo',
+        id: 'td',
+        status: 'running',
+        steps: [
+          { text: '第一步', status: 'completed' },
+          { text: '第二步', status },
+        ],
+      })
+      const r = feed(run(), [begin, started(todo('in_progress'))]).run
+      expect(r.activity?.plan).toBe('第二步')
+      expect(r.progress).toEqual({ done: 1, total: 2 })
+      expect(feed(r, [completed(todo('completed'))]).run.activity?.plan).toBeNull()
+    })
+
+    it('只留最近 ACTIVITY_STEPS 步', () => {
+      const events = Array.from({ length: ACTIVITY_STEPS + 3 }, (_, i) => completed(tool(`t${i}`)))
+      const steps = feed(run(), [begin, ...events]).run.activity!.steps
+      expect(steps).toHaveLength(ACTIVITY_STEPS)
+      expect(steps.at(-1)?.id).toBe(`t${ACTIVITY_STEPS + 2}`)
+    })
+
+    it('对账时也按同样的规则算（子智能体、频道工具不算一步）', () => {
+      const snapshot = {
+        items: [
+          user('ch-t1-1', 'turn1'),
+          tool('ag1', { tool: 'task', name: 'Agent', title: '审查', status: 'running' }),
+          tool('t1', { subagent: 'C1', subagentCall: 'ag1' }),
+          tool('c1', { tool: 'mcp', name: 'mcp__pixelsky_channel__channel_read', title: 'x' }),
+        ],
+        queue: [],
+        pending: [],
+        state: 'running',
+        turnId: 'turn1',
+        queuePaused: false,
+        record: { lastOutcome: null },
+      } as unknown as SessionSnapshot
+      const t = reconcileRun(run({ started: true, turnId: 'turn1' }), snapshot, 5000)
+      expect(t.run.activity?.steps.map(s => s.id)).toEqual(['ag1'])
+      expect(t.run.activity?.steps[0].inner).toMatchObject({ kind: 'tool', title: 't1.ts' })
+    })
   })
 
   it('重试的 user 条目（id 带 -retry-）也算；失败取错误第一行；中断算已停止', () => {
@@ -260,7 +475,7 @@ describe('任务状态跟踪（§5.1）', () => {
         },
       },
     ])
-    expect(r.patches).toEqual([{ progress: { done: 1, total: 2 } }])
+    expect(r.patches).toMatchObject([{ progress: { done: 1, total: 2 } }])
   })
 })
 

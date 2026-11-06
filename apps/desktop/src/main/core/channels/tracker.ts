@@ -5,7 +5,9 @@ import type { ApprovalRequest, EngineEvent, Item, SessionSnapshot } from '@pixel
 import type {
   ChannelActivity,
   ChannelStep,
+  ChannelStepBody,
   ChannelTask,
+  ChannelWait,
   FlowBrief,
   FlowResult,
   FlowStep,
@@ -146,7 +148,7 @@ export const clientMessageId = (taskId: string, round: number): string => `ch-${
 /** 这条用户消息是频道发进会话的（包括它的 -retry-、-reconnect-），不是用户在会话里说的 */
 export const isChannelSent = (itemId: string): boolean => itemId.startsWith('ch-')
 
-const STARTED = new Set<Item['kind']>(['todo', 'command', 'file_change', 'tool'])
+const STARTED = new Set<Item['kind']>(['todo', 'command', 'file_change', 'tool', 'reasoning'])
 
 const isRunUser = (run: TaskRun, item: Item): boolean =>
   item.kind === 'user' &&
@@ -164,8 +166,11 @@ function progressOf(item: Extract<Item, { kind: 'todo' }>): TaskRun['progress'] 
   return { done: item.steps.filter(s => s.status === 'completed').length, total: item.steps.length }
 }
 
-/** 任务卡上留最近几步（悬停时列出来） */
-export const ACTIVITY_STEPS = 3
+/** 频道工具 MCP 服务的名字（main/channels/channel-mcp.ts 的 CHANNEL_SERVER_NAME；core 不反向依赖那边） */
+export const CHANNEL_TOOLS = 'pixelsky_channel'
+
+/** 任务卡上留最近几步：显示 3 行，但连续读文件要合成一行，得多留一些（docs/ui/channels-live-activity.md） */
+export const ACTIVITY_STEPS = 12
 /** AI 说的那一句最多这么长（第一行；界面再按宽度省略） */
 const SAY_MAX = 200
 /** 一步的命令 / 标题最多这么长 */
@@ -173,19 +178,42 @@ const STEP_TEXT_MAX = 300
 
 const clip = (text: string, max: number): string => (text.length > max ? text.slice(0, max) : text)
 
-/** 条目 → 任务卡上的一步；思考、待办等不算 */
-function stepOf(item: Item, at: number): ChannelStep | null {
-  if (item.kind !== 'command' && item.kind !== 'file_change' && item.kind !== 'tool') return null
-  const base = { id: item.id, at, running: item.status === 'running' }
+type StepItem = Extract<Item, { kind: 'command' | 'file_change' | 'tool' }>
+
+const isStepItem = (item: Item): item is StepItem =>
+  item.kind === 'command' || item.kind === 'file_change' || item.kind === 'tool'
+
+/** 一步做的事；输出、diff 不进任务卡 */
+function bodyOf(item: StepItem): ChannelStepBody {
   if (item.kind === 'command')
-    return { ...base, kind: 'command', command: clip(item.command, STEP_TEXT_MAX), description: item.description }
+    return {
+      kind: 'command',
+      command: clip(item.command, STEP_TEXT_MAX),
+      description: item.description,
+      ...(item.exitCode ? { exitCode: item.exitCode } : {}),
+    }
   if (item.kind === 'file_change')
     return {
-      ...base,
       kind: 'file_change',
-      changes: item.changes.slice(0, 20).map(c => ({ kind: c.kind, path: c.path })),
+      changes: item.changes.slice(0, 20).map(c => ({ kind: c.kind, path: c.path, added: c.added, removed: c.removed })),
     }
-  return { ...base, kind: 'tool', tool: item.tool, name: item.name, title: clip(item.title, STEP_TEXT_MAX) }
+  return { kind: 'tool', tool: item.tool, name: item.name, title: clip(item.title, STEP_TEXT_MAX) }
+}
+
+/** 条目 → 任务卡上的一步 */
+function stepOf(item: StepItem, at: number): ChannelStep {
+  const running = item.status === 'running'
+  const failed =
+    item.status === 'failed' || item.status === 'declined' || (item.kind === 'command' && !running && !!item.exitCode)
+  return {
+    id: item.id,
+    at,
+    running,
+    ...(failed ? { failed } : {}),
+    ...(item.status === 'interrupted' ? { stopped: true } : {}),
+    ...(running ? {} : { endedAt: at }),
+    ...bodyOf(item),
+  }
 }
 
 /** 记下一步：同一步（开始 → 完成）原地更新、保留第一次看到的时间；新的一步接在后面，只留最近几步 */
@@ -193,21 +221,69 @@ function withStep(activity: ChannelActivity | null | undefined, step: ChannelSte
   const steps = activity?.steps ?? []
   const i = steps.findIndex(s => s.id === step.id)
   const next =
-    i >= 0 ? steps.map((s, j) => (j === i ? { ...step, at: s.at } : s)) : [...steps, step].slice(-ACTIVITY_STEPS)
-  return { steps: next, say: activity?.say ?? null }
+    i >= 0
+      ? steps.map((s, j) =>
+          j === i
+            ? {
+                ...step,
+                at: s.at,
+                ...(s.endedAt ? { endedAt: s.endedAt } : {}),
+                ...(s.inner ? { inner: s.inner } : {}),
+              }
+            : s,
+        )
+      : [...steps, step].slice(-ACTIVITY_STEPS)
+  return { ...activity, steps: next, say: activity?.say ?? null }
+}
+
+/** 子智能体的工具调用：记到派出它的那一步上（那一步已经滚出去了就不记） */
+function withInner(activity: ChannelActivity | null | undefined, item: StepItem): ChannelActivity | null | undefined {
+  const parent = activity?.steps.find(s => s.id === item.subagentCall)
+  if (!activity || !parent) return activity
+  return { ...activity, steps: activity.steps.map(s => (s === parent ? { ...s, inner: bodyOf(item) } : s)) }
+}
+
+const withWait = (run: TaskRun, kind: ChannelWait, at: number): TaskRun => ({
+  ...run,
+  activity: { steps: [], say: null, ...run.activity, wait: { kind, at } },
+})
+
+/**
+ * 频道自己的工具（task_done 等）不算一步。Claude、Pixel 叫 mcp__pixelsky_channel__task_done，Codex 叫 pixelsky_channel / task_done；
+ * 只看名字：标题可能是用户的文件路径、搜索词
+ */
+const isChannelTool = (item: StepItem): boolean => item.kind === 'tool' && item.name.includes(CHANNEL_TOOLS)
+
+/** 断线重连接着做：做过的步骤留着（AGENTS.md：重连不算新的一轮），断线时还在跑的那几步不会再有结果，不能一直转 */
+function resumedActivity(activity: ChannelActivity | null | undefined, now: number): ChannelActivity | null {
+  if (!activity) return null
+  return {
+    ...activity,
+    steps: activity.steps.map(s => (s.running ? { ...s, running: false, stopped: true, endedAt: now } : s)),
+    wait: { kind: 'thinking', at: now },
+  }
+}
+
+/** 这一轮里的条目更新「正在做什么」（docs/ui/channels-live-activity.md） */
+function absorbStep(run: TaskRun, item: StepItem, now: number): TaskRun {
+  // 子智能体的 subagent 只有名字、没有 subagentCall 时（旧数据、别的引擎）也不单独算一步
+  if (item.subagent || item.subagentCall) return { ...run, activity: withInner(run.activity, item) }
+  const next = isChannelTool(item) ? run : { ...run, activity: withStep(run.activity, stepOf(item, now)) }
+  return item.status === 'running' ? next : withWait(next, 'result', now)
 }
 
 /** 这一轮里的条目：更新回复、改动、进度、正在做什么、错误通知 */
 function absorb(run: TaskRun, item: Item, now: number): TaskRun {
-  const step = stepOf(item, now)
-  if (step) run = { ...run, activity: withStep(run.activity, step) }
+  if (isStepItem(item)) run = absorbStep(run, item, now)
   switch (item.kind) {
+    case 'reasoning':
+      return withWait(run, 'thinking', now)
     case 'assistant': {
       const text = item.text.trim()
       if (!text) return run
       const line = clip(firstLine(codexPlainText(text)) ?? '', SAY_MAX)
       const say = run.activity?.say?.text === line ? run.activity.say : { text: line, at: now }
-      return { ...run, reply: item.text, activity: { steps: run.activity?.steps ?? [], say } }
+      return withWait({ ...run, reply: item.text, activity: { steps: [], ...run.activity, say } }, 'next', now)
     }
     case 'file_change': {
       if (item.status === 'running') return run
@@ -224,8 +300,10 @@ function absorb(run: TaskRun, item: Item, now: number): TaskRun {
         files: { ...run.files, [item.id]: item.changes.slice(0, 50).map(c => c.path) },
       }
     }
-    case 'todo':
-      return { ...run, progress: progressOf(item) }
+    case 'todo': {
+      const plan = item.steps.find(s => s.status === 'in_progress')?.text ?? null
+      return { ...run, progress: progressOf(item), activity: { steps: [], say: null, ...run.activity, plan } }
+    }
     case 'notice':
       return item.level === 'error' ? { ...run, notice: item.text } : run
     default:
@@ -286,7 +364,7 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
       diff: resumed ? run.diff : {},
       reply: null,
       progress: resumed ? run.progress : null,
-      activity: null,
+      activity: resumed ? resumedActivity(run.activity, now) : null,
       notice: null,
     }
     // 第一轮真正开始的时间（不含排队）：卡片和流程算耗时用（docs/ui/channels-pipeline.md §8.2）
@@ -294,7 +372,13 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
     const startedAt = run.round === 1 && event.item.id === run.clientMessageId ? { startedAt: now } : {}
     return {
       run: next,
-      patch: { status: 'running', request: null, progress: next.progress, activity: null, ...startedAt },
+      patch: {
+        status: 'running',
+        request: null,
+        progress: next.progress,
+        activity: next.activity ?? null,
+        ...startedAt,
+      },
       finish: null,
     }
   }
@@ -371,7 +455,13 @@ export function reconcileRun(run: TaskRun, snapshot: SessionSnapshot | null, now
   for (const item of snapshot.items.slice(at + 1)) {
     // 断线重连的「继续」：同一轮接着做，换成它的轮次编号
     if (item.kind === 'user' && isReconnect(run, item)) {
-      next = { ...next, turnId: item.turnId ?? next.turnId, reply: null, activity: null, notice: null }
+      next = {
+        ...next,
+        turnId: item.turnId ?? next.turnId,
+        reply: null,
+        activity: resumedActivity(next.activity, now),
+        notice: null,
+      }
       continue
     }
     // 下一条不是这一轮的 user 条目：这一轮已经过去了

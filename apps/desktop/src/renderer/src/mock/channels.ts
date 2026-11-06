@@ -304,7 +304,8 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       sessionId: 's-settings-form',
       summary: null,
       diff: null,
-      // 正在做什么（docs/ui/channels-local-ai.md §3.1 #2）：时间相对打开演示的那一刻
+      startedAt: NOW - 252_000,
+      // 正在做什么（docs/ui/channels-live-activity.md）：时间相对打开演示的那一刻
       activity: {
         steps: [
           {
@@ -321,7 +322,8 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
             at: NOW - 40_000,
             running: false,
             kind: 'file_change',
-            changes: [{ kind: 'update', path: 'src/settings/AccountPage.tsx' }],
+            endedAt: NOW - 38_000,
+            changes: [{ kind: 'update', path: 'src/settings/AccountPage.tsx', added: 42, removed: 18 }],
           },
           {
             id: 'web-t2-s3',
@@ -544,9 +546,56 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       sessionId: null,
       summary: null,
       diff: null,
-      startedAt: at(TODAY, '10:26', 8),
+      startedAt: NOW - 165_000,
       round: 1,
       flow: { messageId: 'web-flow1', stepId: 'f2' },
+      activity: {
+        say: null,
+        plan: '按钮接上三种状态的贴图',
+        steps: [
+          {
+            id: 'web-ft2-s1',
+            at: NOW - 80_000,
+            endedAt: NOW - 78_000,
+            running: false,
+            kind: 'tool',
+            tool: 'read',
+            name: 'Read',
+            title: 'src/login/LoginButton.tsx',
+          },
+          {
+            id: 'web-ft2-s2',
+            at: NOW - 70_000,
+            endedAt: NOW - 69_000,
+            running: false,
+            kind: 'tool',
+            tool: 'read',
+            name: 'Read',
+            title: 'src/login/assets.ts',
+          },
+          {
+            id: 'web-ft2-s3',
+            at: NOW - 50_000,
+            endedAt: NOW - 11_000,
+            running: false,
+            failed: true,
+            kind: 'command',
+            command: 'pnpm --filter @pixelsky/web exec vitest run src/login/LoginButton.test.tsx --reporter=verbose',
+            description: null,
+            exitCode: 1,
+          },
+          {
+            id: 'web-ft2-s4',
+            at: NOW - 6_000,
+            running: true,
+            kind: 'tool',
+            tool: 'task',
+            name: 'Agent',
+            title: '查按钮状态的用法',
+            inner: { kind: 'tool', tool: 'search', name: 'Grep', title: 'LoginButton' },
+          },
+        ],
+      },
     },
   ],
   'c-release': [
@@ -588,6 +637,31 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       sessionId: null,
       summary: '签名证书已过期，打包在签名步骤中断。',
       diff: null,
+      error: '签名证书已过期，打包在签名步骤中断。',
+      activity: {
+        say: null,
+        steps: [
+          {
+            id: 'rel-t1-s1',
+            at: NOW - 400_000,
+            endedAt: NOW - 398_000,
+            running: false,
+            kind: 'file_change',
+            changes: [{ kind: 'update', path: 'build/sign.config.json', added: 2, removed: 1 }],
+          },
+          {
+            id: 'rel-t1-s2',
+            at: NOW - 390_000,
+            endedAt: NOW - 330_000,
+            running: false,
+            failed: true,
+            kind: 'command',
+            command: 'pnpm dist:portable',
+            description: null,
+            exitCode: 1,
+          },
+        ],
+      },
     },
     {
       kind: 'message',
