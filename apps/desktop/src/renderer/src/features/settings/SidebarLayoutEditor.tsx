@@ -10,6 +10,7 @@ import {
   canPlace,
   moveSidebarActionInLayout,
   resetSidebarLayout,
+  rowLimit,
   setSidebarLayout,
   useSidebarPrefs,
   type LayoutAction,
@@ -41,7 +42,7 @@ const neighbour = (row: SidebarPlacement, step: -1 | 1): SidebarPlacement | unde
 function refusal(row: SidebarPlacement, action: LayoutAction): string {
   return row === 'hidden' && action === 'settings'
     ? tr('sidebar.layout.settingsRequired')
-    : tr('sidebar.layout.full', { row: tr(`sidebar.layout.${row}`) })
+    : tr('sidebar.layout.full', { row: tr(`sidebar.layout.${row}`), n: rowLimit(row) })
 }
 
 export function SidebarLayoutEditor() {

@@ -2,7 +2,9 @@ import { useSyncExternalStore } from 'react'
 import {
   DEFAULT_SIDEBAR_ICONS,
   LAYOUT_ACTIONS,
+  PAGE_ACTIONS,
   SIDEBAR_ACTIONS,
+  TOOL_ACTIONS,
   isSidebarIcon,
   type LayoutAction,
   type SidebarAction,
@@ -53,10 +55,14 @@ export const RECENT_AUTO_COLLAPSE_HEIGHT = 900
 export const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
   header: ['openIn'],
   bottom: ['usage', 'plugins', 'settings'],
-  hidden: ['git'],
+  hidden: ['git', ...TOOL_ACTIONS, ...PAGE_ACTIONS],
 }
-/** 侧栏最窄 240px 时底部一排放得下的可移动图标（账号还占一格）；顶栏和「不显示」不限 */
+/** 侧栏最窄 240px 时底部一排放得下的可移动图标（账号还占一格） */
 export const SIDEBAR_ROW_LIMIT = 5
+/** 顶栏最多几个：入口多了不能把标题挤没；「不显示」不限 */
+export const HEADER_ROW_LIMIT = 8
+export const rowLimit = (row: SidebarPlacement): number =>
+  row === 'bottom' ? SIDEBAR_ROW_LIMIT : row === 'header' ? HEADER_ROW_LIMIT : Number.POSITIVE_INFINITY
 
 export const LAYOUT_PLACEMENTS: readonly SidebarPlacement[] = ['header', 'bottom', 'hidden']
 
@@ -80,7 +86,7 @@ function isLayoutAction(value: unknown): value is LayoutAction {
 }
 
 export function isRowFull(layout: SidebarLayout, row: SidebarPlacement, moving?: LayoutAction): boolean {
-  return row === 'bottom' && layout[row].filter(item => item !== moving).length >= SIDEBAR_ROW_LIMIT
+  return layout[row].filter(item => item !== moving).length >= rowLimit(row)
 }
 
 /** 能不能把入口放进这一排：「设置」不能进「不显示」（它是改回来的入口），底部排满也不行。落点判断、移动、读取都只调它 */
@@ -95,12 +101,12 @@ export function recentOpen(p: Pick<SidebarPrefs, 'recentExpanded' | 'recentChose
   return !short
 }
 
-/** 先保留各排已有的合法顺序，再把缺失入口补回默认排；放不下的先试底部、再溢出到顶栏。 */
+/** 先保留各排已有的合法顺序，再把缺失入口补回默认排；放不下的先试底部，再试顶栏，最后不显示。 */
 function parseSidebarLayout(value: unknown): SidebarLayout {
   const result: SidebarLayout = { header: [], bottom: [], hidden: [] }
   const seen = new Set<LayoutAction>()
   const place = (row: SidebarPlacement, action: LayoutAction): void => {
-    const target = ([row, 'bottom', 'header'] as const).find(r => canPlace(result, r, action)) ?? 'header'
+    const target = ([row, 'bottom', 'header', 'hidden'] as const).find(r => canPlace(result, r, action)) ?? 'header'
     result[target].push(action)
     seen.add(action)
   }

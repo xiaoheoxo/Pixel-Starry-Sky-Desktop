@@ -17,7 +17,10 @@ import {
   Search,
   SquareKanban,
   TextSearch,
+  Server,
+  Smartphone,
   SquareArrowOutUpRight,
+  Store,
   PenLine,
   Plug,
   Plus,
@@ -27,6 +30,7 @@ import {
   SquarePen,
   type LucideIcon,
 } from 'lucide-react'
+import { toolIcon } from '@/features/panel/tools'
 
 /** 可替换图标的侧栏动作，按侧栏从上到下排（设置页照这个顺序列，docs/ui/layout-v2.md §17） */
 export const SIDEBAR_ACTIONS = [
@@ -54,14 +58,41 @@ export type FooterAction = (typeof FOOTER_ACTIONS)[number]
 export const HEADER_ACTIONS = ['git', 'openIn'] as const
 export type HeaderAction = (typeof HEADER_ACTIONS)[number]
 
+/**
+ * 右侧工作区的工具（features/panel/tools.ts）：点了打开那一页，再点收起，和 Git 一样（docs/ui/layout-v2.md §19）。
+ * 名字带前缀：早先删掉的入口也叫 terminal、machines，旧偏好里可能还留着，不能让它们复活
+ */
+export const TOOL_ACTIONS = [
+  'tool:browser',
+  'tool:connectors',
+  'tool:terminal',
+  'tool:files',
+  'tool:artifacts',
+  'tool:comments',
+  'tool:sandbox',
+  'tool:tasks',
+  'tool:copies',
+] as const
+export type ToolAction = (typeof TOOL_ACTIONS)[number]
+
+/** 设置里的页面：点了打开设置那一页 */
+export const PAGE_ACTIONS = ['page:mobile', 'page:machines', 'page:extensions'] as const
+export type PageAction = (typeof PAGE_ACTIONS)[number]
+
 /** 图标位置编辑器里可移动的全部入口 */
-export const LAYOUT_ACTIONS = [...FOOTER_ACTIONS, ...HEADER_ACTIONS] as const
+export const LAYOUT_ACTIONS = [...FOOTER_ACTIONS, ...HEADER_ACTIONS, ...TOOL_ACTIONS, ...PAGE_ACTIONS] as const
 export type LayoutAction = (typeof LAYOUT_ACTIONS)[number]
 
-const HEADER_ICONS: Record<HeaderAction, LucideIcon> = {
+const FIXED_ICONS: Record<HeaderAction | PageAction, LucideIcon> = {
   git: GitBranch,
   openIn: SquareArrowOutUpRight,
+  'page:mobile': Smartphone,
+  'page:machines': Server,
+  'page:extensions': Store,
 }
+
+export const isToolAction = (action: LayoutAction): action is ToolAction => action.startsWith('tool:')
+export const isPageAction = (action: LayoutAction): action is PageAction => action.startsWith('page:')
 
 export function isFooterAction(action: LayoutAction): action is FooterAction {
   return (FOOTER_ACTIONS as readonly string[]).includes(action)
@@ -129,7 +160,8 @@ export function getSidebarIcon(action: SidebarAction, icons: SidebarIcons): Luci
   return ICONS[id]
 }
 
-/** 任意入口的当前图标：侧栏动作按用户选择，顶栏工具固定 */
+/** 任意入口的当前图标：侧栏动作按用户选择，其余固定 */
 export function getLayoutIcon(action: LayoutAction, icons: SidebarIcons): LucideIcon {
-  return isFooterAction(action) ? getSidebarIcon(action, icons) : HEADER_ICONS[action]
+  if (isFooterAction(action)) return getSidebarIcon(action, icons)
+  return isToolAction(action) ? (toolIcon(action.slice(5)) ?? Plug) : FIXED_ICONS[action]
 }

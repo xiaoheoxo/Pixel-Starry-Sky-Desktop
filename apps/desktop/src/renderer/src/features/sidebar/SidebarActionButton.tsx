@@ -28,7 +28,7 @@ export function SidebarActionButton({ action, compact = false }: { action: Foote
   const active =
     settings.open &&
     (action === 'settings'
-      ? settings.section !== 'plugins' && settings.section !== 'usage'
+      ? !['plugins', 'usage', 'mobile', 'machines', 'extensions'].includes(settings.section)
       : settings.section === section)
 
   const button = (
