@@ -27,6 +27,7 @@ import {
   membersElsewhere,
   planPresetMembers,
   presetFromChannel,
+  projectAfterSwitch,
   refreshSource,
   sameForm,
   usePresets,
@@ -226,6 +227,7 @@ export function ChannelDialog({
   const [name, setName] = useState(channel?.name ?? '')
   const [topic, setTopic] = useState(channel?.topic ?? '')
   const [notes, setNotes] = useState(base.notes)
+  const [openedProject] = useState(currentProject ?? '')
   const [projectId, setProjectId] = useState<string>(
     channel ? (channel.projectId ?? '') : (projectOf(source?.preset) ?? currentProject ?? ''),
   )
@@ -261,8 +263,7 @@ export function ChannelDialog({
     setNotify(values.notify)
     setAlerts(values.alerts)
     setDigestHour(values.digestHour)
-    const project = projectOf(next?.preset)
-    if (project !== undefined) setProjectId(project)
+    setProjectId(projectAfterSwitch(projectId, projectOf(source?.preset), projectOf(next?.preset), openedProject))
     setExpanded(false)
     setCopying(false)
     setPending(undefined)

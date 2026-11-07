@@ -72,6 +72,8 @@ type Runtime = {
   wrap: Compartment
   /** 代码模式的审查、透镜等扩展；对话模式挂载时清回 EMPTY */
   extra: Compartment
+  /** 装 history()：外面整篇换内容时清空撤销记录（replaceDoc） */
+  history: Compartment
   large: boolean
   /** 当前语言的识别结果（languageKeyForPath）：变了才重新加载语言 */
   languageKey: string
@@ -86,6 +88,20 @@ type Runtime = {
 }
 const runtimes = new Map<string, Runtime>()
 const EMPTY: readonly Extension[] = []
+
+/**
+ * 外面整篇换了内容（重新加载、AI 改了文件）：不算用户的编辑，光标留在原来的位置；
+ * 撤销记录一起清掉（slot 里装着 history()），不然 Ctrl+Z 会把旧的编辑映射到新内容上重放
+ */
+export function replaceDoc(view: EditorView, slot: Compartment, doc: string): void {
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: doc },
+    selection: { anchor: Math.min(view.state.selection.main.head, doc.length) },
+    annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
+    effects: slot.reconfigure([]),
+  })
+  view.dispatch({ effects: slot.reconfigure(history()) })
+}
 /** 取某个文件标签的 EditorView（代码模式的审查、状态栏用）；没有时 null */
 export const getEditorView = (tabId: string): EditorView | null => runtimes.get(tabId)?.view ?? null
 let lastFocusedTab: string | null = null
@@ -300,7 +316,8 @@ export function CodeEditor({
         readonly = new Compartment(),
         phrases = new Compartment(),
         wrap = new Compartment(),
-        extra = new Compartment()
+        extra = new Compartment(),
+        historySlot = new Compartment()
       const view = new EditorView({
         parent: host.current,
         state: EditorState.create({
@@ -334,7 +351,7 @@ export function CodeEditor({
                 },
               }),
             ),
-            history(),
+            historySlot.of(history()),
             indentOnInput(),
             bracketMatching(),
             closeBrackets(),
@@ -399,6 +416,7 @@ export function CodeEditor({
         phrases,
         wrap,
         extra,
+        history: historySlot,
         large: !!(tab.document?.kind === 'text' && tab.document.readonly),
         languageKey: languageKeyForPath(tab.path, firstLineOf(tab.draft)),
         languageSeq: 0,
@@ -443,12 +461,7 @@ export function CodeEditor({
     const { view } = runtime,
       previous = view.state.doc.toString()
     if (previous !== tab.draft) {
-      const selection = Math.min(view.state.selection.main.head, tab.draft.length)
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: tab.draft },
-        selection: { anchor: selection },
-        annotations: Transaction.addToHistory.of(false),
-      })
+      replaceDoc(view, runtime.history, tab.draft)
       if (tab.changed !== runtime.changed && motionEnabled()) {
         view.dispatch({ effects: setExternalLines.of(changedLines(previous, tab.draft).map(c => c.line)) })
         window.clearTimeout(runtime.flashTimer)

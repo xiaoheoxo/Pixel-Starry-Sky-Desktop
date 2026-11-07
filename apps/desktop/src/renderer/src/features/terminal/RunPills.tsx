@@ -44,7 +44,7 @@ const statusText = (pill: RunPill, port: number | null): string =>
         ? tr('terminal.pills.runningPort', { port })
         : tr('terminal.pills.running')
 
-const portKey = (pill: RunPill): string => `${pill.id}:${pill.afterSeq}`
+const portKey = (pill: RunPill): string => `${pill.id}:${pill.generation}:${pill.afterSeq}`
 
 /** 这条命令开始之后输出里的第一个本机端口。只在输出变化时扫（渲染里扫的话流式输出时会一直重复），找到就不再扫 */
 function usePorts(pills: RunPill[]): ReadonlyMap<string, number> {

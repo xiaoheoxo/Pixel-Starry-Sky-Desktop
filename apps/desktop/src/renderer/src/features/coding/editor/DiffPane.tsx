@@ -20,6 +20,7 @@ import { aiBusyFor, notifyEditorBlur } from '@/features/editor/autoSaveModel'
 import { getEngineState, subscribeEngine } from '@/features/engine/store'
 import { isMac } from '@/features/layout/keybindings'
 import { saveFile, updateFile, type OpenFile } from '@/features/files/store'
+import { replaceDoc } from '@/features/editor/code/CodeEditor'
 import type { DiffBase } from '../types'
 
 const COLLAPSE = { margin: 3, minSize: 4 }
@@ -57,6 +58,7 @@ function DiffEditor({
   const latest = useRef({ modified, readOnly })
   latest.current = { modified, readOnly }
   const editable = useRef(new Compartment())
+  const undo = useRef(new Compartment())
   /** 重建前的光标和滚动位置：保存后基准会变，不能把正在改的地方弄丢 */
   const place = useRef<{ path: string; anchor: number; head: number; top: number; focused: boolean } | null>(null)
   useEffect(() => {
@@ -71,7 +73,7 @@ function DiffEditor({
         ...base,
         editable.current.of(editableState(latest.current.readOnly)),
         indentUnit.of(fileIndent(latest.current.modified || original).unit),
-        history(),
+        undo.current.of(history()),
         keymap.of([
           {
             key: 'Mod-s',
@@ -108,7 +110,7 @@ function DiffEditor({
           a: { doc: original, extensions: [...base, editableState(true)] },
           b: { doc: latest.current.modified, extensions: current },
           parent,
-          collapseUnchanged: COLLAPSE,
+          collapseUnchanged: original === latest.current.modified ? undefined : COLLAPSE, // 没有差异时会整篇折成一条
           gutter: true,
           diffConfig: lineDiffConfig,
         })
@@ -125,7 +127,7 @@ function DiffEditor({
               unifiedMergeView({
                 original,
                 mergeControls: false,
-                collapseUnchanged: COLLAPSE,
+                collapseUnchanged: original === latest.current.modified ? undefined : COLLAPSE, // 没有差异时会整篇折成一条
                 gutter: true,
                 diffConfig: lineDiffConfig,
               }),
@@ -156,15 +158,10 @@ function DiffEditor({
       destroy()
     }
   }, [tabId, path, original, mode, navRef, packsTick])
-  // 外面改了草稿：换内容，不算用户的编辑（不写回、不进撤销）
+  // 外面改了草稿：换内容，不算用户的编辑（不写回、清空撤销）
   useEffect(() => {
     const view = navRef.current
-    if (!view || view.state.doc.toString() === modified) return
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: modified },
-      selection: { anchor: Math.min(view.state.selection.main.head, modified.length) },
-      annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
-    })
+    if (view && view.state.doc.toString() !== modified) replaceDoc(view, undo.current, modified)
   }, [modified, navRef])
   useEffect(() => {
     navRef.current?.dispatch({ effects: editable.current.reconfigure(editableState(readOnly)) })

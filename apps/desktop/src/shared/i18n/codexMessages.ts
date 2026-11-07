@@ -42,8 +42,8 @@ export const codexMessages = {
   },
   'codex.review.overridden': { zh: '已同意，让模型重试', en: 'Approved. Asked the model to retry' },
   'codex.review.retryMessage': {
-    zh: '我确认要执行刚才被拦下的操作，请重试。',
-    en: 'I approve the action that was just blocked. Please retry it.',
+    zh: '我确认要执行被拦下的这一项：{action}。请只重试这一项。',
+    en: 'I approve this blocked action: {action}. Please retry only this one.',
   },
   'codex.review.tooMany': {
     zh: AUTO_REVIEW_TEXT.tooMany,

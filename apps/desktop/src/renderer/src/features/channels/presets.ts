@@ -270,6 +270,20 @@ export interface PresetSource {
 }
 export const COPY_SOURCE = 'copy'
 
+/**
+ * 换来源后的项目（undefined 是来源不带项目）：新来源带就用它；上一个带了、新的不带，
+ * 项目还是上一个来源给的（没手动改过）就回到打开弹窗时的项目；其余不动
+ */
+export function projectAfterSwitch(
+  current: string,
+  prev: string | undefined,
+  next: string | undefined,
+  opened: string,
+): string {
+  if (next !== undefined) return next
+  return prev !== undefined && current === prev ? opened : current
+}
+
 /** 按现在的预设列表更新来源：改名了跟着改，删除了返回 null（照着频道复制的不受影响） */
 export function refreshSource(source: PresetSource, items: readonly ChannelPreset[]): PresetSource | null {
   if (source.id === COPY_SOURCE) return source
@@ -299,7 +313,11 @@ export async function createFromForm(
       alerts: form.alerts,
       digestHour: form.digestHour,
       // 下面这些没写时就是默认值，和现在的新建一样不写进频道
-      ...(form.relay ? { relay: true, relayRules: form.rules } : {}),
+      ...(form.relay ? { relay: true } : {}),
+      // 互派关着也存：之后打开互派时用的是预设里调好的规则
+      ...((Object.keys(DEFAULT_RELAY_RULES) as (keyof RelayRules)[]).some(k => form.rules[k] !== DEFAULT_RELAY_RULES[k])
+        ? { relayRules: form.rules }
+        : {}),
       ...(form.planFirst ? {} : { planFirst: false }),
       ...(form.leadRoute ? {} : { leadRoute: false }),
       ...(form.notify === 'all' ? {} : { notify: form.notify }),

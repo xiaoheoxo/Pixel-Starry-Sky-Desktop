@@ -190,6 +190,12 @@ describe('执行行的概要', () => {
       ]),
     ).toMatchObject({ commands: 2, reads: 1, edits: 2, failed: 1 })
   })
+
+  it('审查超时、被拦下的没执行，不算失败', () => {
+    const timedOut: Item = { ...run('c1', 'failed'), review: { status: 'timedOut' } } as Item
+    const denied: Item = { ...run('c2', 'failed'), review: { status: 'denied' } } as Item
+    expect(summarizeProcess([timedOut, denied, run('c3', 'failed')])).toMatchObject({ commands: 3, failed: 1 })
+  })
 })
 
 // 子智能体显示成小框（docs/ui/subagent-box.md §4）

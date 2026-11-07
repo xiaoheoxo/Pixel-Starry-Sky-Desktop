@@ -4048,7 +4048,7 @@ export class Channels {
 
   /**
    * 可能删掉别人没提交的改动：同一个目录里另一项活还在做，这项活要跑会丢改动的 git 命令，或要改对方改过的文件。
-   * 要审批的：请求本身就停着，提醒你决定；全权限（不审批）的成员开始跑这种命令时先中断这一轮
+   * 要审批的：请求本身就停着，提醒你决定；全权限、自动审核（不问你）的成员开始跑这种命令时先中断这一轮
    */
   private conflictCheck(run: TaskRun, event: HostEvent): void {
     if (event.kind !== 'session') return
@@ -4060,7 +4060,9 @@ export class Channels {
     const en = this.deps.locale() === 'en-US'
     const e = event.event
     if (e.type === 'item_started' && e.item.kind === 'command' && dangerousCommand(e.item.command)) {
-      if (this.member(run.memberId)?.settings.permissionMode !== 'full' || !run.sessionId || !run.turnId) return
+      // 自动审核和全权限一样不发审批请求，命令开始了才看得到
+      const mode = this.member(run.memberId)?.settings.permissionMode
+      if ((mode !== 'full' && mode !== 'auto') || !run.sessionId || !run.turnId) return
       void this.deps.call('engine:interruptTurn', [run.sessionId, run.turnId]).catch(() => undefined)
       const other = `${this.nameOf(others[0].memberId)} · ${this.taskOf(others[0])?.title ?? '?'}`
       void this.postAlert(

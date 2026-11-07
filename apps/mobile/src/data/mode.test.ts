@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fastStatus, modeChip, modelLabel } from './mode'
+import { fastStatus, modeChip, modelLabel, permissionOptions } from './mode'
 
 describe('modeChip', () => {
   it('names the four permission modes', () => {
@@ -30,6 +30,20 @@ describe('modeChip', () => {
     const e = (effort: 'low' | 'high' | 'xhigh' | 'max') =>
       modeChip({ permissionMode: 'ask', model: null, effort }).effort
     expect([e('low'), e('high'), e('xhigh'), e('max')]).toEqual(['低', '高', '超高', '最高'])
+  })
+})
+
+describe('permissionOptions', () => {
+  it('lists the current full / auto mode as disabled so the sheet has a selected row', () => {
+    for (const current of ['full', 'auto'] as const) {
+      expect(permissionOptions('codex', current).at(-1)).toEqual({
+        value: current,
+        label: current === 'full' ? '完全放行' : '自动审核',
+        hint: '只能在电脑上打开',
+        disabled: true,
+      })
+    }
+    expect(permissionOptions('codex', 'ask').some(o => o.disabled)).toBe(false)
   })
 })
 

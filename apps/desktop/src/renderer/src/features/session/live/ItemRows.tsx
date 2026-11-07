@@ -58,7 +58,7 @@ import { Markdown } from '@/ui/markdown/Markdown'
 import { MarkdownImage } from '@/ui/markdown/MarkdownImage'
 import { useMessageActionsPosition } from '@/features/settings/messageActions'
 import { formatDuration } from './agentTrace'
-import { STEP_CLOCK_MS, baseName, clockText } from './currentStep'
+import { STEP_CLOCK_MS, baseName, clockText, reviewRetryMessage } from './currentStep'
 import { useSince } from './stepClock'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { NativeNoticeAction } from '@/features/resume/NativeNoticeAction'
@@ -340,12 +340,14 @@ function ReviewMark({ review }: { review: ItemReview }) {
 }
 
 /** 被拦下的原因和「仍要执行」：模型会接着换办法，所以不打断，写在命令下面 */
-function ReviewNote({ itemId, review }: { itemId: string; review: ItemReview }) {
+function ReviewNote({ item, review }: { item: ItemOf<'command' | 'file_change' | 'tool'>; review: ItemReview }) {
   useI18n()
   const toast = useToast()
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
-  const done = sent || review.overridden
+  // 同意记下了但消息没发出去：按钮留着能再点（不认 overridden）
+  const [failed, setFailed] = useState(false)
+  const done = sent || (review.overridden && !failed)
   const retry = async (button: HTMLElement): Promise<void> => {
     const sessionId = button.closest<HTMLElement>('[data-search-session]')?.dataset.searchSession
     const engine = window.pixelsky?.engine
@@ -353,10 +355,11 @@ function ReviewNote({ itemId, review }: { itemId: string; review: ItemReview }) 
     setBusy(true)
     try {
       // 宿主记不下同意也继续（旧版远端没有这个通道）：下面这条消息本身就写明了用户同意
-      await engine.approveReview(sessionId, itemId).catch(() => {})
-      await engine.send(sessionId, tr('codex.review.retryMessage'))
+      await engine.approveReview(sessionId, item.id).catch(() => {})
+      await engine.send(sessionId, reviewRetryMessage(item))
       setSent(true)
     } catch (e) {
+      setFailed(true)
       toast(translateMessage((e as Error).message))
     } finally {
       setBusy(false)
@@ -759,7 +762,7 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
   return (
     <>
       <ToolRowBody item={item} />
-      {item.review?.status === 'denied' && !item.subagent && <ReviewNote itemId={item.id} review={item.review} />}
+      {item.review?.status === 'denied' && !item.subagent && <ReviewNote item={item} review={item.review} />}
     </>
   )
 })
@@ -814,7 +817,7 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
 
   if (item.kind === 'command') {
     const verb =
-      item.review?.status === 'denied'
+      item.review?.status === 'denied' || item.review?.status === 'timedOut'
         ? tr('codex.review.notRun')
         : item.status !== 'running'
           ? tr('session.live.ItemRows.ran')

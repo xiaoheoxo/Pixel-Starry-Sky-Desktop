@@ -83,6 +83,17 @@ export function stepText(item: StepItem): string {
   }
 }
 
+/** 「仍要执行」发的话写明是哪一项（被拦过好几次时模型才不会理解成最近那个）：命令第一行、文件路径或工具名，截短 */
+export function reviewRetryMessage(item: Exclude<StepItem, { kind: 'reasoning' }>): string {
+  const action =
+    item.kind === 'command'
+      ? firstLine(item.command)
+      : item.kind === 'file_change'
+        ? item.changes.map(c => c.path).join(', ')
+        : item.name
+  return tr('codex.review.retryMessage', { action: action.length > 120 ? `${action.slice(0, 119)}…` : action })
+}
+
 /** 正在跑的一步、等待的时长：一分钟内写整秒（12s），再长按 formatDuration（1m 05s） */
 export function clockText(ms: number, long: (ms: number) => string): string {
   return ms < 60_000 ? tr('session.step.seconds', { n: Math.floor(ms / 1000) }) : long(ms)

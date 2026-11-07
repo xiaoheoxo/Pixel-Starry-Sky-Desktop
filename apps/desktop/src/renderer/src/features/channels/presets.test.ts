@@ -10,6 +10,7 @@ import {
   parsePresets,
   planPresetMembers,
   presetFromChannel,
+  projectAfterSwitch,
   refreshSource,
   sameForm,
   withPreset,
@@ -164,6 +165,15 @@ describe('refreshSource', () => {
   })
 })
 
+describe('projectAfterSwitch', () => {
+  it('新来源带项目就用它，带项目切到不带回到打开时的项目，手动改过的不动', () => {
+    expect(projectAfterSwitch('p1', undefined, 'p2', 'p0')).toBe('p2')
+    expect(projectAfterSwitch('p1', 'p1', undefined, 'p0')).toBe('p0')
+    expect(projectAfterSwitch('p3', 'p1', undefined, 'p0')).toBe('p3')
+    expect(projectAfterSwitch('p3', undefined, undefined, 'p0')).toBe('p3')
+  })
+})
+
 describe('createFromForm', () => {
   const form = () => ({
     ...formFromPreset(null, []),
@@ -201,6 +211,17 @@ describe('createFromForm', () => {
     const patch = (actions.calls[1] as unknown[])[2] as object
     expect(Object.keys(patch).sort()).toEqual(['alerts', 'digestHour', 'notes'])
     expect(actions.calls).toHaveLength(2)
+  })
+  it('互派关着时自定义规则也写，默认规则不写', async () => {
+    const rules = { ...formFromPreset(null, []).rules, hops: 5 }
+    const actions = fake()
+    await createFromForm(actions, { name: 'n' }, { ...formFromPreset(null, []), rules })
+    const patch = (actions.calls[1] as unknown[])[2] as Record<string, unknown>
+    expect(patch.relayRules).toEqual(rules)
+    expect(patch).not.toHaveProperty('relay')
+    const withDefault = fake()
+    await createFromForm(withDefault, { name: 'n' }, { ...formFromPreset(null, []), relay: true })
+    expect((withDefault.calls[1] as unknown[])[2]).not.toHaveProperty('relayRules')
   })
   it('建频道失败时什么都不写', async () => {
     const actions = fake()

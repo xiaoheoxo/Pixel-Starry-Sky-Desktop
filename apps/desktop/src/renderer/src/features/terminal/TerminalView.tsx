@@ -188,7 +188,9 @@ export function TerminalView({
       if (now.status !== 'running') return
       if (isDemo) demoWrite(now.id, data)
       else {
-        if (data.includes('\r')) noteTerminalEnter(now.id, now.generation, commandAtCursor(term))
+        // 括号粘贴（多行粘贴）里的换行只进输入行，不执行
+        if (data.includes('\r') && !data.startsWith('\x1b[200~'))
+          noteTerminalEnter(now.id, now.generation, commandAtCursor(term))
         void window.pixelsky!.terminal.write(now.id, now.generation, data).catch(terminalError)
       }
     })

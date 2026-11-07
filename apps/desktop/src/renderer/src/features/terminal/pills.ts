@@ -1,6 +1,8 @@
 // 运行胶囊的状态（docs/ui/panel-pill.md §4）：shell 集成只报告「命令结束」和「提示符回来」，
 // 没有「命令开始」，所以「在跑」靠「提示符之后发过回车，而且还没等到下一个提示符」判断。
 // shortcut: 多行输入停在续行提示符时会误判成在跑；用户反馈多再给集成加 OSC 633 C（命令开始）。
+// shortcut: 集成中途丢了（`. $PROFILE` 覆盖 prompt、exec 进没集成的 shell）提示符不再上报，胶囊停在「运行中」，
+// 关掉终端才清掉（「停止」只发 Ctrl+C，分不清程序没退还是集成丢了）；`exec ` 开头的命令先不记。加 OSC 633 C 后按「命令开始」标记判断再去掉这两处。
 import type { TerminalRecord } from '../../../../shared/types/terminal'
 import { promptCommand } from './errorLines'
 import { hasIntegration, type PromptMarks } from './marks'
@@ -31,12 +33,13 @@ export type TerminalRun =
 const marksOf = (marks: PromptMarks | undefined, generation: number): PromptMarks | undefined =>
   marks?.generation === generation ? marks : undefined
 
-/** 输入里有回车：记下一条命令开始；在跑的程序收到回车不算新命令 */
+/** 输入里有回车：记下一条命令开始；在跑的程序收到回车、exec 换掉 shell 不算新命令 */
 export function startRun(
   run: TerminalRun | undefined,
   marks: PromptMarks | undefined,
   input: { generation: number; now: number; command: string | null; afterSeq: number },
-): TerminalRun {
+): TerminalRun | undefined {
+  if (input.command && /^exec\s/.test(input.command.trimStart())) return run
   const current = marksOf(marks, input.generation)
   const prompts = current?.prompts ?? 0
   if (run?.phase === 'running' && run.generation === input.generation && run.prompts === prompts) return run

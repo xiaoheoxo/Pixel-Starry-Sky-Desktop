@@ -476,6 +476,19 @@ describe('Codex app-server adapter', () => {
       expect(items(session.id).find(i => i.kind === 'user')).not.toMatchObject({ dismissed: true })
     })
 
+    it('连续被拦下的一轮算收到：交接游标前进，下一条不把这一轮再注入线程', async () => {
+      const { session, messages } = setup(5000, { permissionMode: 'auto' })
+      await host!.send(session.id, '你好')
+      await wait(() => host!.open(session.id).state === 'idle')
+      await host!.send(session.id, '连续拦下')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(host!.open(session.id).record.lastError).toBe(AUTO_REVIEW_TEXT.tooMany)
+      await host!.send(session.id, '请重试')
+      await wait(() => items(session.id).filter(i => i.kind === 'user').length === 3)
+      await wait(() => host!.open(session.id).state === 'idle' && host!.open(session.id).queue.length === 0)
+      expect(messages().filter(m => m.method === 'thread/inject_items')).toHaveLength(0)
+    })
+
     it('进程回收后点「仍要执行」：不报错，条目照样标上同意，后面还能接着发', async () => {
       const { session, messages } = setup(50, { permissionMode: 'auto' })
       await host!.send(session.id, '会被拦下')

@@ -531,43 +531,46 @@ describe('主动提醒（§6）', () => {
     expect(alerts(c, ch)[0].alert?.state).toBe('done')
   })
 
-  it('全权限成员直接跑会丢改动的命令：中断这一轮并提醒；关了这条规则就不管', async () => {
-    const c = await open()
-    const a = await c.saveMember(null, agent('前端', { settings: { permissionMode: 'full' } }))
-    const b = await c.saveMember(null, agent('审查员'))
-    const ch = await c.create({ name: 'web', memberIds: [a, b] })
-    await c.post(ch, { text: '@前端 改按钮', clientId: '1' })
-    await c.post(ch, { text: '@审查员 看看', clientId: '2' })
-    await settle()
-    const fa = sends()[0]
-    c.hostEvent(
-      ev(fa.sessionId, {
-        type: 'item_completed',
-        item: { kind: 'user', id: fa.clientMessageId, text: '', createdAt: 0, turnId: 'tt' },
-      }),
-    )
-    const started = (id: string) =>
-      ev(fa.sessionId, {
-        type: 'item_started',
-        item: {
-          kind: 'command',
-          id,
-          command: 'git reset --hard',
-          description: null,
-          output: '',
-          exitCode: null,
-          status: 'in_progress',
-        },
-      } as never)
-    c.hostEvent(started('c1'))
-    await settle()
-    expect(calls.find(x => x.channel === 'engine:interruptTurn')?.args).toEqual([fa.sessionId, 'tt'])
-    expect(alerts(c, ch)[0].alert).toMatchObject({ rule: 'conflict', sig: 'c1' })
-    await c.update(ch, { alerts: { conflict: false } })
-    c.hostEvent(started('c2'))
-    await settle()
-    expect(alerts(c, ch)).toHaveLength(1)
-  })
+  it.each(['full', 'auto'] as const)(
+    '%s 权限的成员直接跑会丢改动的命令：中断这一轮并提醒；关了这条规则就不管',
+    async mode => {
+      const c = await open()
+      const a = await c.saveMember(null, agent('前端', { settings: { permissionMode: mode } }))
+      const b = await c.saveMember(null, agent('审查员'))
+      const ch = await c.create({ name: 'web', memberIds: [a, b] })
+      await c.post(ch, { text: '@前端 改按钮', clientId: '1' })
+      await c.post(ch, { text: '@审查员 看看', clientId: '2' })
+      await settle()
+      const fa = sends()[0]
+      c.hostEvent(
+        ev(fa.sessionId, {
+          type: 'item_completed',
+          item: { kind: 'user', id: fa.clientMessageId, text: '', createdAt: 0, turnId: 'tt' },
+        }),
+      )
+      const started = (id: string) =>
+        ev(fa.sessionId, {
+          type: 'item_started',
+          item: {
+            kind: 'command',
+            id,
+            command: 'git reset --hard',
+            description: null,
+            output: '',
+            exitCode: null,
+            status: 'in_progress',
+          },
+        } as never)
+      c.hostEvent(started('c1'))
+      await settle()
+      expect(calls.find(x => x.channel === 'engine:interruptTurn')?.args).toEqual([fa.sessionId, 'tt'])
+      expect(alerts(c, ch)[0].alert).toMatchObject({ rule: 'conflict', sig: 'c1' })
+      await c.update(ch, { alerts: { conflict: false } })
+      c.hostEvent(started('c2'))
+      await settle()
+      expect(alerts(c, ch)).toHaveLength(1)
+    },
+  )
 
   it('@ 了没人接（规则打开时）：排队超过 10 分钟提醒，「换人」取消这项活并给出草稿；每日简报到点发一次', async () => {
     // 简报按本地钟点算：从某天上午 10 点开始

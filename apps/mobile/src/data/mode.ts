@@ -72,7 +72,7 @@ export interface ModeOption {
   disabled?: boolean
 }
 
-/** 手机能切的三档（从严到宽）；完全放行只能在电脑上开 */
+/** 手机能切的三档（从严到宽）；自动审核、完全放行只能在电脑上开 */
 const PHONE_MODES: PermissionMode[] = ['plan', 'ask', 'edits']
 const RANK: Record<PermissionMode, number> = { plan: 0, ask: 1, edits: 2, auto: 3, full: 4 }
 const PERMISSION_HINT = (): Partial<Record<PermissionMode, string>> => ({
@@ -93,11 +93,11 @@ export function permissionOptions(engine: EngineId, current: PermissionMode | nu
     label: labels[m],
     hint: hints[m],
   }))
-  // 电脑上已经是完全放行：显示出来但选不了，只能往下降
-  if (current === 'full')
+  // 电脑上已经是完全放行 / 自动审核：显示出来但选不了，只能往下降
+  if (current === 'full' || current === 'auto')
     out.push({
-      value: 'full',
-      label: labels.full,
+      value: current,
+      label: labels[current],
       hint: L('只能在电脑上打开', 'Can only be turned on on the computer'),
       disabled: true,
     })

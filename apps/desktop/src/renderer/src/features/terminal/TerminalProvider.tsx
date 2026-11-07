@@ -449,7 +449,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       select(record.id)
       await terminalRename(record.id, name).catch(() => undefined)
       const id = record.id
-      terminalRunWhenReady(id, isDemo ? line : line + exitSuffix(program), () => onSent?.(id))
+      terminalRunWhenReady(id, isDemo ? line : line + exitSuffix(program), () => onSent?.(id), line)
       return id
     } catch (cause) {
       if (cause instanceof TaskCommandError) throw cause

@@ -289,8 +289,9 @@ export async function terminalRestart(id: string, force = false): Promise<void> 
  * 新建的终端出现第一段输出（shell 就绪）后写入一条命令；最多等 4 秒。
  * 只在用户点击时调用，命令不进任何保存的记录（D051：不自动重跑命令）。
  * onSent：命令写进终端之后调用（任务面板在这里记下「从这一刻起的提示符才算命令结束」）。
+ * name：运行胶囊显示的命令（任务面板传不带退出后缀的原命令）。
  */
-export function terminalRunWhenReady(id: string, command: string, onSent?: () => void): void {
+export function terminalRunWhenReady(id: string, command: string, onSent?: () => void, name = command): void {
   if (isDemo) {
     demoWrite(id, '\r\n$ ' + command + '\r\n')
     return
@@ -302,7 +303,7 @@ export function terminalRunWhenReady(id: string, command: string, onSent?: () =>
     readyWaiters.delete(id)
     const record = state.terminals.find(r => r.id === id)
     if (record && (record.status === 'running' || record.status === 'starting')) {
-      noteTerminalEnter(id, record.generation, command)
+      noteTerminalEnter(id, record.generation, name)
       void window
         .pixelsky!.terminal.write(id, record.generation, command + '\r')
         .then(() => onSent?.())

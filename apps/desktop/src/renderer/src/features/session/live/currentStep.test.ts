@@ -7,6 +7,7 @@ import {
   currentStep,
   liveStatus,
   liveStep,
+  reviewRetryMessage,
   stepText,
   turnElapsed,
   turnWindow,
@@ -194,5 +195,19 @@ describe('这一轮与本轮用时', () => {
     expect(turnElapsed(10_000, 10_000 + TURN_CLOCK_MS)).toBe(TURN_CLOCK_MS)
     expect(turnElapsed(10_000, 10_000 + 68_000)).toBe(68_000)
     expect(turnElapsed(10_000, 4_000)).toBeNull()
+  })
+})
+
+describe('「仍要执行」发的话写明是哪一项', () => {
+  it('命令取第一行并截短，文件写路径，工具写名字', () => {
+    const long = { ...run('c'), command: `rm -rf ${'x'.repeat(200)}\necho done` } as Extract<Item, { kind: 'command' }>
+    const cmd = reviewRetryMessage(long)
+    expect(cmd).toContain('rm -rf x')
+    expect(cmd).toContain('…')
+    expect(cmd).not.toContain('echo done')
+    expect(reviewRetryMessage(edit('f', ['src/a.ts']) as Extract<Item, { kind: 'file_change' }>)).toBe(
+      '我确认要执行被拦下的这一项：src/a.ts。请只重试这一项。',
+    )
+    expect(reviewRetryMessage(tool('t', 'other') as Extract<Item, { kind: 'tool' }>)).toContain('Skill')
   })
 })

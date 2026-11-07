@@ -26,7 +26,7 @@ const record = (over: Partial<TerminalRecord> = {}): TerminalRecord => ({
   ...over,
 })
 const start = (now = 0, command: string | null = 'pnpm build'): TerminalRun =>
-  startRun(undefined, marks(), { generation: 1, now, command, afterSeq: 5 })
+  startRun(undefined, marks(), { generation: 1, now, command, afterSeq: 5 }) as TerminalRun
 const ended = (code: number | null): PromptMarks => marks({ prompts: 2, ends: 1, codes: [code] })
 
 describe('一条命令的开始和结束', () => {
@@ -35,6 +35,14 @@ describe('一条命令的开始和结束', () => {
     expect(startRun(run, marks(), { generation: 1, now: 50, command: 'y', afterSeq: 9 })).toBe(run)
     const after = startRun(run, marks({ prompts: 2 }), { generation: 1, now: 50, command: 'y', afterSeq: 9 })
     expect(after).toMatchObject({ phase: 'running', at: 50, command: 'y', prompts: 2 })
+  })
+  it('exec 换掉 shell 不算新命令：新 shell 可能没有集成，胶囊会清不掉', () => {
+    expect(startRun(undefined, marks(), { generation: 1, now: 0, command: '  exec bash', afterSeq: 1 })).toBeUndefined()
+    const run = start()
+    expect(startRun(run, marks({ prompts: 2 }), { generation: 1, now: 0, command: 'exec zsh -l', afterSeq: 1 })).toBe(
+      run,
+    )
+    expect(start(0, 'executor run')).toMatchObject({ phase: 'running', command: 'executor run' })
   })
   it('失败的留下；中止、未知退出码、空回车不留', () => {
     expect(endRun(start(), ended(1), 100, false)).toMatchObject({ phase: 'done', code: 1 })

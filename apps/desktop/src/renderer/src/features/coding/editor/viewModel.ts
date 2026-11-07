@@ -41,11 +41,12 @@ export function viewAvailability(input: ViewInput): ViewAvailability {
   return { code: true, preview: input.text && input.markdown, diff, split: diff && !narrow, turn, reason, narrow }
 }
 
-/** 保存的视图在当前条件下不可用时退回「代码」 */
+/** 保存的视图在当前条件下不可用时退回「代码」；没有改动只是不能点进来，已经在看的留着（差异里改回和 HEAD 一样时不换掉编辑器） */
 export function effectiveMode(mode: EditorViewMode, avail: ViewAvailability): EditorViewMode {
+  const diff = avail.diff || avail.reason === 'noChange'
   if (mode === 'preview') return avail.preview ? 'preview' : 'code'
-  if (mode === 'diff') return avail.diff ? 'diff' : 'code'
-  if (mode === 'split') return avail.split ? 'split' : avail.diff ? 'diff' : 'code'
+  if (mode === 'diff') return diff ? 'diff' : 'code'
+  if (mode === 'split') return diff && !avail.narrow ? 'split' : diff ? 'diff' : 'code'
   return 'code'
 }
 

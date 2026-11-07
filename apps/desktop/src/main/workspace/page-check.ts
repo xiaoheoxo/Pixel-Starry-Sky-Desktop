@@ -1,6 +1,6 @@
 // 「做完自动检查」的页面检查（docs/ui/desktop-parity.md）：在后台打开本机页面，收控制台错误和失败的请求，截一张图。
 // 离屏视图挂在不显示的 BaseWindow 上：不挂窗口截不到图，隐藏的 BrowserWindow 又会进 getAllWindows、收广播；独立的内存会话，不带用户的登录状态
-import { BaseWindow, WebContentsView, session, type Session } from 'electron'
+import { BaseWindow, WebContentsView, app, session, type Session } from 'electron'
 import { pageCheckUrl, type CheckPageResult } from '../../shared/types/checks'
 import { redact } from '../core/project-tools/services'
 
@@ -87,6 +87,12 @@ async function open(url: string): Promise<CheckPageResult> {
     if (d.webContentsId !== wc.id || d.resourceType === 'mainFrame' || d.error === 'net::ERR_ABORTED') return
     add(requests, `${d.error} ${d.url}`)
   })
+  // 退出时马上关掉：不显示的窗口也算进 window-all-closed，不关就要等检查跑完才能退（macOS 上超过 10 秒就退不了）
+  const close = (): void => {
+    if (!wc.isDestroyed()) wc.close()
+    if (!host.isDestroyed()) host.destroy()
+  }
+  app.once('before-quit', close)
   let skipped = false
   let shot: string | null = null
   try {
@@ -121,10 +127,10 @@ async function open(url: string): Promise<CheckPageResult> {
         shot = `data:image/jpeg;base64,${image.resize({ width: SHOT_WIDTH }).toJPEG(60).toString('base64')}`
     }
   } finally {
+    app.off('before-quit', close)
     ses.webRequest.onCompleted(null)
     ses.webRequest.onErrorOccurred(null)
-    if (!wc.isDestroyed()) wc.close()
-    host.destroy()
+    close()
     await ses.clearStorageData().catch(() => {})
   }
   const ms = Date.now() - started

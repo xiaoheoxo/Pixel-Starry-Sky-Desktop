@@ -181,7 +181,13 @@ export function summarizeProcess(items: readonly Item[]): ProcessSummary {
       )[item.tool]
       s[key]++
     }
-    if ((item.kind === 'command' || item.kind === 'tool' || item.kind === 'file_change') && item.status === 'failed')
+    // 自动审核拦下、审查超时的没执行，不算失败
+    if (
+      (item.kind === 'command' || item.kind === 'tool' || item.kind === 'file_change') &&
+      item.status === 'failed' &&
+      item.review?.status !== 'denied' &&
+      item.review?.status !== 'timedOut'
+    )
       s.failed++
   }
   s.blocked = items.filter(

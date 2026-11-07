@@ -287,7 +287,10 @@ export class HostEvents {
         const done = rt.snapshot.record
         const engine = rt.execution?.engine ?? done.engine
         const entry = done.engineSessions?.[engine]
-        const held = rt.holdCursor === event.turnId || (event.outcome === 'failed' && !!done.engineSessions)
+        // 连续被自动审核拦下的一轮引擎收到了（同下面队列的处理），游标照常前进
+        const held =
+          rt.holdCursor === event.turnId ||
+          (event.outcome === 'failed' && event.error !== AUTO_REVIEW_TEXT.tooMany && !!done.engineSessions)
         rt.holdCursor = undefined
         const reply = lastTurnReply(rt.snapshot.items)
         this.patchRecord(id, {

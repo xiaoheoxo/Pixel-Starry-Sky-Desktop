@@ -58,6 +58,13 @@ describe('effectiveMode / effectiveBase', () => {
     expect(effectiveMode('diff', none)).toBe('code')
     expect(effectiveMode('split', none)).toBe('code')
   })
+  it('改回和 HEAD 一样时留在变更 / 并排（按钮不能点，但不换掉正在改的编辑器）', () => {
+    const same = viewAvailability({ ...base, draft: 'a' })
+    expect(same).toMatchObject({ diff: false, split: false, reason: 'noChange' })
+    expect(effectiveMode('diff', same)).toBe('diff')
+    expect(effectiveMode('split', same)).toBe('split')
+    expect(effectiveMode('split', viewAvailability({ ...base, draft: 'a', width: 300 }))).toBe('diff')
+  })
   it('太窄的并排退回变更', () => {
     expect(effectiveMode('split', viewAvailability({ ...base, width: 300 }))).toBe('diff')
   })

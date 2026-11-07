@@ -459,6 +459,7 @@ export function ManagePresetsDialog({ onClose }: { onClose: () => void }) {
                       onChange={e => setRenaming({ id: p.id, name: e.target.value })}
                       onBlur={commitRename}
                       onKeyDown={e => {
+                        if (e.nativeEvent.isComposing) return
                         if (e.key === 'Enter') commitRename()
                         if (e.key === 'Escape') {
                           renameCancelled.current = true
