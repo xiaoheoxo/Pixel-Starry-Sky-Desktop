@@ -158,12 +158,14 @@ export function InstalledTab(p: InstalledTabProps) {
                 aria-current={category === value || undefined}
                 onClick={() => setCategory(value)}
                 className={cn(
-                  'press no-drag flex h-8 w-full items-center justify-between rounded-md px-2.5 text-ui',
+                  'press no-drag flex h-8 w-full items-center justify-between gap-2 rounded-md px-2.5 text-left text-ui',
                   category === value ? 'bg-selected text-fg' : 'text-fg-muted hover:bg-hover',
                 )}
               >
-                <span>{label}</span>
-                <span className="text-meta text-fg-faint">{n}</span>
+                <span className="min-w-0 truncate" title={label}>
+                  {label}
+                </span>
+                <span className="shrink-0 text-meta text-fg-faint">{n}</span>
               </button>
             </li>
           ))}

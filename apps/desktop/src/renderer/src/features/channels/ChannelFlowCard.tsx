@@ -1220,13 +1220,19 @@ export function ChannelFlowCard({
                   <span
                     className={cn(
                       // 窄时标签让位，步骤名至少留几个字
-                      'inline-flex min-w-0 items-center gap-1 overflow-hidden rounded-md px-1.5 py-0.5 text-meta whitespace-nowrap',
+                      'inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-meta',
                       STEP_TONE[s.status],
                     )}
                   >
-                    {st.running && <Spinner size={10} />}
-                    {st.text}
-                    {elapsed !== null && <span className="tabular-nums">· {durText(elapsed)}</span>}
+                    {st.running && (
+                      <span className="flex shrink-0">
+                        <Spinner size={10} />
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate">
+                      {st.text}
+                      {elapsed !== null && <span className="tabular-nums"> · {durText(elapsed)}</span>}
+                    </span>
                   </span>
                 </span>
                 {statsLine && !view && (
