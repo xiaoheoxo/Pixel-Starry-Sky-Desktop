@@ -34,7 +34,7 @@
   --text-secondary: #4a4c47;
   --text-muted: #777872;
   --text-faint: #a3a39b;
-  --text-body: #20211f;
+  --text-body: #3d3e3a;
 
   /* 配色自带的主色；强调色选「跟随配色」时 --accent* 就取这一组 */
   --theme-accent: #2d6151;

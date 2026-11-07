@@ -870,7 +870,7 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
         >
           <code
             data-tool-arg
-            className="truncate rounded-sm bg-subtle px-1.5 py-0.5 font-mono text-[length:calc(12.5px*var(--font-scale,1))] text-fg"
+            className="truncate rounded-sm bg-subtle px-1.5 py-0.5 font-mono text-[length:calc(12.5px*var(--font-scale,1))] text-fg-secondary"
             title={
               item.description ??
               (item.wrapper ? tr('approvals.fullCommandTip', { line: item.wrapper.line }) : item.command)

@@ -91,7 +91,7 @@ const PROSE = [
   '[&_p]:my-2.5',
   '[&_ul]:my-2.5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2.5 [&_ol]:list-decimal [&_ol]:pl-6',
   '[&_li]:my-1 [&_li]:pl-1 [&_li]:marker:text-fg-faint',
-  '[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-section [&_h1]:font-semibold [&_h1]:text-fg',
+  '[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-[1.2857em] [&_h1]:leading-[1.4] [&_h1]:font-semibold [&_h1]:text-fg',
   '[&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-section [&_h2]:font-semibold [&_h2]:text-fg',
   '[&_h3]:mt-4 [&_h3]:mb-1.5 [&_h3]:font-semibold [&_h3]:text-fg',
   '[&_strong]:font-semibold [&_strong]:text-fg',
