@@ -148,6 +148,48 @@ export function turnBaseline(
   return text
 }
 
+interface BaselineEntry {
+  version: string
+  diffs: readonly string[]
+  kind: TurnFile['kind']
+  isNew: boolean
+  baseline: string | null
+  /** 这次真的从内容倒推出来了 */
+  exact: boolean
+}
+/** 按 scope 缓存；算不出来时（例如撤销后已经存盘）退回上一次算出来的基准 */
+const baselines = new Map<string, BaselineEntry>()
+const lastGood = new Map<string, string>()
+
+/**
+ * 这一轮开始前的内容，这一轮的 diff 没变就不再变：之后磁盘上的改动（用户保存、撤销）不是这一轮的，不能算进基准。
+ * 没能倒推出来时可能只是内容还没读到最新，内容一变就再算。
+ * shortcut: 只在内存里记，重启应用后从当时的内容倒推，已保存的改动会算进基准；要跨重启得把基准存盘
+ */
+export function baselineFor(
+  scope: string,
+  content: string,
+  version: string,
+  file: Pick<TurnFile, 'diffs' | 'kind'>,
+  isNew: boolean,
+): string | null {
+  const hit = baselines.get(scope)
+  if (
+    hit &&
+    hit.kind === file.kind &&
+    hit.isNew === isNew &&
+    (hit.exact || hit.version === version) &&
+    hit.diffs.length === file.diffs.length &&
+    hit.diffs.every((d, i) => d === file.diffs[i])
+  )
+    return hit.baseline
+  const computed = turnBaseline(content, file.diffs, file.kind, isNew)
+  if (computed !== null) lastGood.set(scope, computed)
+  const baseline = computed ?? lastGood.get(scope) ?? null
+  baselines.set(scope, { version, diffs: file.diffs, kind: file.kind, isNew, baseline, exact: computed !== null })
+  return baseline
+}
+
 export interface ReviewHunk {
   key: string
   /** 基准文档里这一块的范围（整行；toA 不含行尾换行） */

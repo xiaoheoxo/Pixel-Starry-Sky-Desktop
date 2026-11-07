@@ -45,13 +45,19 @@ describe('识别检查命令', () => {
       commands: ['pnpm test', 'make lint'],
       text: true,
       channel: true,
+      page: '',
     })
     expect(cleanCheckConfig({ commands: null, text: false, channel: false })).toEqual({
       commands: null,
       text: false,
       channel: false,
+      page: '',
     })
     expect(() => cleanCheckConfig({ commands: Array(7).fill('x') })).toThrow('最多 6 条')
+  })
+  it('设置：页面地址只收这台电脑上的', () => {
+    expect(cleanCheckConfig({ page: ' localhost:5173 ' }).page).toBe('localhost:5173')
+    expect(() => cleanCheckConfig({ page: 'https://example.com' })).toThrow('这台电脑')
   })
 })
 

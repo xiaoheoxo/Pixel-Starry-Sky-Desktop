@@ -2,6 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useToast } from '@/ui'
 import { bridge } from '@/features/engine'
+import { getActiveWorkspace } from '@/features/editor/target'
 import { fixRequest } from '../../../../shared/types/checks'
 import { CheckSummary } from './CheckSummary'
 import { useSessionCheck } from './sessionChecks'
@@ -20,7 +21,18 @@ export function SessionCheckBar({ sessionId }: { sessionId: string | null }) {
   }
   return (
     <section data-session-check="" className="mb-2 rounded-lg border border-line-card bg-surface px-3 py-1.5">
-      <CheckSummary run={run} onFix={fix} />
+      <CheckSummary
+        run={run}
+        onFix={fix}
+        onOpenPage={url =>
+          // 和 PortTip 一样：浏览器标签跟着右侧面板当前的工作区走
+          window.dispatchEvent(
+            new CustomEvent('pixelsky:open-browser', {
+              detail: { ref: getActiveWorkspace().ref ?? { sessionId }, url },
+            }),
+          )
+        }
+      />
     </section>
   )
 }

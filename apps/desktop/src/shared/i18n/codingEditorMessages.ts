@@ -39,7 +39,11 @@ export const codingEditorMessages = {
   'coding.editor.empty.title': { zh: '从左边的文件树打开文件', en: 'Open a file from the tree on the left' },
   'coding.editor.empty.recent': { zh: '最近打开', en: 'Recent files' },
   'coding.editor.empty.openFirst': { zh: '查看第一个改动', en: 'View first change' },
-  'coding.editor.empty.more': { zh: '还有 {n} 个', en: '{n} more' },
+  'coding.editor.empty.turn': { zh: 'AI 这一轮改了 {n} 个文件', en: 'AI changed {n} files this turn' },
+  // 差异视图里直接改（docs/ui/desktop-parity.md）
+  'coding.editor.diff.editable': { zh: '可以直接改 · {keys} 保存', en: 'Editable · {keys} to save' },
+  'coding.editor.diff.aiRunning': { zh: 'AI 运行中，暂时只读', en: 'Read-only while AI is running' },
+  'coding.editor.diff.showCode': { zh: '去代码视图处理', en: 'Handle in code view' },
   'coding.editor.diff.loading': { zh: '正在读取…', en: 'Loading…' },
   // ---- E1b 的段落：coding.editor.extras.*（只在这一段追加）----
   'coding.editor.extras.explainPrompt': {

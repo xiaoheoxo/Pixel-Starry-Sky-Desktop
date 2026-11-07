@@ -3,7 +3,7 @@ import { FileText } from 'lucide-react'
 import type { Extension } from '@codemirror/state'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
-import { Button, DiffStat, cn } from '@/ui'
+import { Button, cn } from '@/ui'
 import { FileEditor } from '@/features/editor/FileEditor'
 import { MarkdownPreview } from '@/features/editor/MarkdownPreview'
 import { isDemo } from '@/data'
@@ -25,7 +25,6 @@ import { parseFileTab } from '@/features/panes/tree'
 import type { WorkspaceRef } from '../../../../../shared/types/workspace'
 import type { TurnChanges } from '../ai/turnChangesModel'
 import { useTurnChanges } from '../ai/useTurnChanges'
-import { kindTone } from '../left/files/filesModel'
 import { codingLayout } from '../layoutStore'
 import { AiReviewBar, useAiReviewExtensions, useTurnBaseline } from '../review'
 import { SymbolCrumb, useEditorExtras } from './extras'
@@ -43,7 +42,7 @@ import {
 } from './codeTabs'
 import { baseName, isGitDiffId, pathKey, type CodeTabGroup } from './codeTabsModel'
 import { diffTag } from './gitDiffModel'
-import { emptyTurnList } from './emptyModel'
+import { emptyTurnSummary } from './emptyModel'
 import { CodeTabs, type TabItem } from './TabBar'
 import { DiffPane } from './DiffPane'
 import { MirrorView } from './MirrorView'
@@ -73,8 +72,7 @@ export async function openCodeDiff(ref: WorkspaceRef, path: string): Promise<voi
 function EmptyState({ scope, turn, target }: { scope: string; turn: TurnChanges | null; target: WorkspaceRef | null }) {
   useI18n()
   const recent = useRecentFiles(scope)
-  const list = emptyTurnList(turn?.files)
-  const first = list.first
+  const { count, first } = emptyTurnSummary(turn?.files)
   return (
     <div
       data-coding-editor-empty
@@ -83,45 +81,18 @@ function EmptyState({ scope, turn, target }: { scope: string; turn: TurnChanges 
       <FileText size={24} strokeWidth={1.5} />
       <p>{tr('coding.editor.empty.title')}</p>
       {target && first && (
-        <div data-coding-empty-turn className="flex w-full max-w-72 flex-col gap-0.5 text-left">
-          <p className="flex items-center gap-2 px-2 pb-1 text-label text-fg-muted">
-            <span>{tr('coding.files.aiTurn')}</span>
+        // 文件列表在左栏，这里不再列一遍；左栏切到搜索等页时这个按钮照样能用
+        <div data-coding-empty-turn className="flex flex-col items-center gap-2">
+          <p className="flex items-center gap-2 text-meta text-fg-muted">
+            <span>{tr('coding.editor.empty.turn', { n: count })}</span>
             {turn?.running && (
-              <span className="flex items-center gap-1 font-normal">
+              <span className="flex items-center gap-1">
                 <span aria-hidden className="size-1.5 rounded-full bg-active" />
                 {tr('coding.files.aiTurnRunning')}
               </span>
             )}
           </p>
-          {list.shown.map(f => (
-            <button
-              key={f.path}
-              type="button"
-              title={f.path}
-              aria-label={tr('coding.files.aiTurnOpen', { name: f.name })}
-              className="press flex min-h-7 min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 text-meta hover:bg-hover"
-              onClick={() => void openCodeDiff(target, f.path)}
-            >
-              <span className={cn('min-w-[4em] truncate', kindTone(f.kind))}>{f.name}</span>
-              <span className="min-w-0 flex-[1_1_0] truncate text-fg-muted">{f.dir}</span>
-              <DiffStat added={f.added} removed={f.removed} className="text-label" />
-            </button>
-          ))}
-          {list.more > 0 && (
-            <button
-              type="button"
-              className="press flex min-h-7 items-center rounded-md px-2 text-meta text-fg-muted hover:bg-hover"
-              onClick={() => codingLayout.showLeft('files')}
-            >
-              {tr('coding.editor.empty.more', { n: list.more })}
-            </button>
-          )}
-          <Button
-            variant="primary"
-            data-open-first-change
-            className="mt-2 justify-center"
-            onClick={() => void openCodeDiff(target, first.path)}
-          >
+          <Button variant="primary" data-open-first-change onClick={() => void openCodeDiff(target, first.path)}>
             {tr('coding.editor.empty.openFirst')}
           </Button>
         </div>
@@ -206,6 +177,7 @@ export function EditorArea({ visible, width }: { visible: boolean; width: number
               : { disabled: !g.active || narrow, hint: narrow ? tr('coding.editor.splitNarrow') : undefined }
           }
           aiPaths={aiPaths}
+          aiRunning={!!turn?.running}
           empty={<EmptyState scope={workspace.key} turn={turn} target={workspace.ref} />}
         />
       ))}
@@ -223,6 +195,7 @@ function EditorGroup({
   width,
   split,
   aiPaths,
+  aiRunning,
   empty,
 }: {
   index: number
@@ -233,6 +206,7 @@ function EditorGroup({
   width: number
   split?: { disabled: boolean; hint?: string }
   aiPaths: ReadonlySet<string>
+  aiRunning: boolean
   empty: ReactNode
 }) {
   useI18n()
@@ -394,7 +368,9 @@ function EditorGroup({
               base={base}
               turnBaseline={turnBaseline}
               fellBack={(saved?.base ?? 'head') === 'turn' && base === 'head'}
+              aiRunning={aiRunning}
               onBase={next => setCodeView(active, mode, next, index)}
+              onShowCode={() => setCodeView(active, 'code', undefined, index)}
             />
           )}
         </>

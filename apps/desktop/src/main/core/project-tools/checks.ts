@@ -11,6 +11,7 @@ import {
   CHECK_COMMAND_CHARS,
   CHECK_TIMEOUT_MS,
   DEFAULT_CHECK_CONFIG,
+  pageCheckUrl,
   type CheckCommand,
   type CheckCommandResult,
   type CheckConfig,
@@ -107,10 +108,13 @@ export function cleanCheckConfig(raw: unknown): CheckConfig {
     if (commands.length > CHECK_COMMANDS_MAX) throw new Error(`检查命令最多 ${CHECK_COMMANDS_MAX} 条`)
     if (commands.some(c => c.length > CHECK_COMMAND_CHARS)) throw new Error(`每条命令最多 ${CHECK_COMMAND_CHARS} 个字`)
   }
+  const page = typeof r.page === 'string' ? r.page.trim() : ''
+  if (page && !pageCheckUrl(page)) throw new Error('页面地址只能填这台电脑上的，比如 localhost:5173')
   return {
     commands,
     text: r.text === undefined ? DEFAULT_CHECK_CONFIG.text : r.text === true,
     channel: r.channel === undefined ? DEFAULT_CHECK_CONFIG.channel : r.channel === true,
+    page,
   }
 }
 
@@ -324,7 +328,8 @@ export class Checks {
 
   async plan(ref: WorkspaceRef): Promise<CheckPlan> {
     const target = this.host.resolve(ref)
-    const config = this.store.data.projects[target.projectId] ?? DEFAULT_CHECK_CONFIG
+    // 旧版存的设置没有 page
+    const config = { ...DEFAULT_CHECK_CONFIG, ...this.store.data.projects[target.projectId] }
     const detected = await detectChecks(target.path)
     const commands = config.commands
       ? config.commands.map(command => ({ label: command.split(/\s+/).slice(-1)[0] ?? command, command }))

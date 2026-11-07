@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { Button, Segmented, Select, Switch, cn, useToast } from '@/ui'
 import { useEngineState } from '@/features/engine'
+import { machineOf } from '@/features/machines/store'
 import { CheckSummary } from '@/features/checks/CheckSummary'
 import type { CheckConfig, CheckPlan, CheckRun } from '../../../../../shared/types/checks'
 
@@ -161,6 +162,20 @@ export function ProjectChecksCard() {
                   onChange={v => setDraft({ ...draft, channel: v })}
                 />
               </label>
+              {/* 页面检查由这台电脑打开页面：远程项目不显示 */}
+              {machineOf(current.id) === 'local' && (
+                <label className="flex flex-col gap-1 text-list text-fg">
+                  {tr('checks.settings.page')}
+                  <input
+                    data-check-page
+                    value={draft.page}
+                    placeholder="localhost:5173"
+                    onChange={e => setDraft({ ...draft, page: e.target.value })}
+                    className={INPUT}
+                  />
+                  <span className="text-meta text-fg-faint">{tr('checks.settings.pageHint')}</span>
+                </label>
+              )}
               <div className="flex items-center justify-end gap-2">
                 <Button className="h-7 px-2.5 text-meta" disabled={busy || dirty} onClick={() => void runNow()}>
                   {tr('checks.settings.runNow')}

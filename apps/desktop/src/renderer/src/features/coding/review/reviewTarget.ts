@@ -4,7 +4,7 @@ import type { OpenFile } from '@/features/files/store'
 import { useCodingSessionId } from '../workspace'
 import { useTurnChanges } from '../ai/useTurnChanges'
 import { relativePath, type TurnFile } from '../ai/turnChangesModel'
-import { turnBaseline } from './hunksModel'
+import { baselineFor } from './hunksModel'
 import { OUTSIDE_PREFIX } from '@/features/files/extraFolderPaths'
 
 const caseInsensitive = typeof window !== 'undefined' && window.pixelsky?.platform === 'win32'
@@ -20,28 +20,6 @@ export interface ReviewTarget {
   baseline: string | null
 }
 const NONE: ReviewTarget = { file: null, scope: null, revision: '', running: false, baseline: null }
-
-interface CacheEntry {
-  version: string
-  diffs: readonly string[]
-  kind: TurnFile['kind']
-  isNew: boolean
-  baseline: string | null
-}
-/** 按 scope 缓存；算不出来时（例如撤销后已经存盘）退回上一次算出来的基准 */
-const cache = new Map<string, CacheEntry>()
-const lastGood = new Map<string, string>()
-
-function baselineFor(scope: string, content: string, version: string, file: TurnFile, isNew: boolean): string | null {
-  const hit = cache.get(scope)
-  if (hit && hit.version === version && hit.diffs === file.diffs && hit.kind === file.kind && hit.isNew === isNew)
-    return hit.baseline
-  let baseline = turnBaseline(content, file.diffs, file.kind, isNew)
-  if (baseline !== null) lastGood.set(scope, baseline)
-  else baseline = lastGood.get(scope) ?? null
-  cache.set(scope, { version, diffs: file.diffs, kind: file.kind, isNew, baseline })
-  return baseline
-}
 
 export function useReviewTarget(tab: OpenFile | null): ReviewTarget {
   const sessionId = useCodingSessionId()

@@ -1,9 +1,9 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, CircleCheck, CircleX, TriangleAlert, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleCheck, CircleX, Globe, TriangleAlert, Wrench } from 'lucide-react'
 import { Button, Spinner, cn } from '@/ui'
-import { checkProblems, type CheckItem, type CheckRun } from '../../../../shared/types/checks'
+import { checkProblems, type CheckItem, type CheckPageResult, type CheckRun } from '../../../../shared/types/checks'
 
 const RULE_KEY = {
   todo: 'checks.rule.todo',
@@ -11,8 +11,58 @@ const RULE_KEY = {
   link: 'checks.rule.link',
 } as const
 
+/** 打不开算一处，再加控制台错误和失败的请求 */
+const pageProblemCount = (p: CheckPageResult): number => p.errors.length + p.requests.length + (p.reason ? 1 : 0)
+
+function PageDetail({ item, onOpen }: { item: CheckPageResult; onOpen?: (url: string) => void }) {
+  useI18n()
+  const reason = item.reason ? tr(`checks.pageReason.${item.reason}`, { detail: item.detail ?? '' }) : null
+  return (
+    <div data-check-page-detail className="flex min-w-0 gap-2.5">
+      {item.shot && (
+        <img
+          src={item.shot}
+          alt={tr('checks.pageShot')}
+          className="h-24 w-40 shrink-0 rounded border border-line-card object-cover object-top"
+        />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate font-mono text-fg" title={item.url}>
+            {item.url}
+          </span>
+          <span className="shrink-0 text-fg-faint tabular-nums">{(item.ms / 1000).toFixed(1)}s</span>
+          {onOpen && item.status !== 'skipped' && (
+            <Button className="ml-auto h-6 shrink-0 px-2 text-meta" icon={Globe} onClick={() => onOpen(item.url)}>
+              {tr('checks.pageOpen')}
+            </Button>
+          )}
+        </div>
+        {reason && <span className={item.status === 'skipped' ? 'text-fg-faint' : 'text-danger'}>{reason}</span>}
+        {item.status === 'pass' && <span className="text-fg-faint">{tr('checks.pageOk')}</span>}
+        {[...item.errors, ...item.requests].map((line, i) => (
+          <span key={i} className="min-w-0 truncate font-mono text-danger" title={line}>
+            {line}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ItemChip({ item }: { item: CheckItem }) {
   useI18n()
+  if (item.kind === 'page') {
+    if (item.status === 'skipped') return <span className="text-fg-faint">{tr('checks.pageUnreachable')}</span>
+    const ok = item.status === 'pass'
+    const Icon = ok ? CircleCheck : CircleX
+    return (
+      <span className={cn('inline-flex items-center gap-1', ok ? 'text-success' : 'text-danger')}>
+        <Icon size={13} strokeWidth={1.75} />
+        {ok ? tr('checks.page') : tr('checks.pageProblems', { n: pageProblemCount(item) })}
+      </span>
+    )
+  }
   if (item.kind === 'command') {
     const ok = item.status === 'pass'
     const Icon = ok ? CircleCheck : CircleX
@@ -47,10 +97,13 @@ function ItemChip({ item }: { item: CheckItem }) {
 export function CheckSummary({
   run,
   onFix,
+  onOpenPage,
   className,
 }: {
   run: CheckRun
   onFix?: () => Promise<void> | void
+  /** 给了就在页面检查的详情里带「看页面」 */
+  onOpenPage?: (url: string) => void
   className?: string
 }) {
   useI18n()
@@ -63,8 +116,8 @@ export function CheckSummary({
         {tr('checks.running')}
       </div>
     )
-  const { failed, findings } = checkProblems(run)
-  const problems = failed.length > 0 || findings.length > 0
+  const { failed, findings, pages } = checkProblems(run)
+  const problems = failed.length > 0 || findings.length > 0 || pages.length > 0
   const shown = run.items.filter(i => !(i.kind === 'text' && i.status === 'skipped'))
   const fix = async () => {
     if (!onFix) return
@@ -101,7 +154,9 @@ export function CheckSummary({
       {open && (
         <div className="flex flex-col gap-2 rounded-md border border-line-card bg-subtle p-2 text-meta">
           {run.items.map((item, i) =>
-            item.kind === 'command' ? (
+            item.kind === 'page' ? (
+              <PageDetail key={i} item={item} onOpen={onOpenPage} />
+            ) : item.kind === 'command' ? (
               <div key={i} className="flex min-w-0 flex-col gap-1">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="min-w-0 truncate font-mono text-fg">{item.command}</span>

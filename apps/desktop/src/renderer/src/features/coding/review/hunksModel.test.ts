@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ChangeSet, Text } from '@codemirror/state'
-import { hunkKey, parseDiffBody, reverseApply, reviewHunks, turnBaseline } from './hunksModel'
+import { baselineFor, hunkKey, parseDiffBody, reverseApply, reviewHunks, turnBaseline } from './hunksModel'
 
 // 复制自 mock/coding.ts 的 before / after 和 unifiedDiff（测试里不能 import mock，评审 b-17）
 const HEADER_BEFORE = [
@@ -314,5 +314,35 @@ describe('reviewHunks', () => {
     expect(hunkKey('a', 'b')).toBe(hunkKey('a', 'b'))
     expect(hunkKey('a', 'b')).not.toBe(hunkKey('a', 'c'))
     expect(hunkKey('ab', '')).not.toBe(hunkKey('a', 'b'))
+  })
+})
+
+describe('baselineFor', () => {
+  const diffs = ['@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n']
+  const file = { diffs, kind: 'update' as const }
+  const afterAi = 'a\nB\nc\nd\ne\nf\ng\n'
+  const start = 'a\nb\nc\nd\ne\nf\ng\n'
+
+  it('用户保存后基准不变，diff 换了新数组也一样', () => {
+    expect(baselineFor('s1', afterAi, 'v1', file, false)).toBe(start)
+    const saved = afterAi.replace('f', 'USER')
+    expect(baselineFor('s1', saved, 'v2', file, false)).toBe(start)
+    expect(baselineFor('s1', saved, 'v3', { ...file, diffs: [...diffs] }, false)).toBe(start)
+  })
+
+  it('这一轮又改了同一个文件：重新算', () => {
+    baselineFor('s2', afterAi, 'v1', file, false)
+    const more = { ...file, diffs: [...diffs, '@@ -5,1 +5,1 @@\n-e\n+E\n'] }
+    expect(baselineFor('s2', afterAi.replace('e', 'E'), 'v2', more, false)).toBe(start)
+  })
+
+  it('内容还没读到最新时倒推不出来：内容变了再算', () => {
+    expect(baselineFor('s3', start, 'v0', file, false)).toBeNull()
+    expect(baselineFor('s3', afterAi, 'v1', file, false)).toBe(start)
+  })
+
+  it('diff 读不出来时退回上一次的基准', () => {
+    baselineFor('s4', afterAi, 'v1', file, false)
+    expect(baselineFor('s4', start, 'v2', { ...file, diffs: [...diffs, ''] }, false)).toBe(start)
   })
 })
