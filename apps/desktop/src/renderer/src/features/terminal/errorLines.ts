@@ -16,7 +16,7 @@ export interface LatestEnd {
 }
 
 export interface TerminalQuote {
-  /** 引用的首行、末行（含） */
+  /** 引用的首行、末行（含）；start 为 -1：不知道行号（运行胶囊引用的是历史文本），标题不写 */
   start: number
   end: number
   text: string
@@ -175,9 +175,11 @@ export function quoteTitle(quote: TerminalQuote): string {
     tr('terminal.quote.title'),
     command,
     quote.exitCode === null ? null : tr('terminal.quote.exitCode', { code: quote.exitCode }),
-    quote.start === quote.end
-      ? tr('terminal.quote.line', { line: quote.start + 1 })
-      : tr('terminal.quote.lines', { start: quote.start + 1, end: quote.end + 1 }),
+    quote.start < 0
+      ? null
+      : quote.start === quote.end
+        ? tr('terminal.quote.line', { line: quote.start + 1 })
+        : tr('terminal.quote.lines', { start: quote.start + 1, end: quote.end + 1 }),
   ]
     .filter(Boolean)
     .join(' · ')

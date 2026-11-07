@@ -10,16 +10,27 @@ import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { isDemo, projects } from '@/data'
 import { translateMessage, tr } from '@/i18n/core'
 import { demo } from '@/data/demo'
-import { createHistory, HISTORY_LIMIT_BYTES, type DataEvent, type TerminalHistory } from './history'
+import { createHistory, HISTORY_LIMIT_BYTES, stripAnsi, type DataEvent, type TerminalHistory } from './history'
 import { applyPrompt, type PromptMarks } from './marks'
+import { endRun, startRun, type TerminalRun } from './pills'
 
 interface State extends TerminalState {
   ready: boolean
   error: string | null
   /** 各终端的提示符记录（shell 集成）；只在收到 prompt 事件时换新对象 */
   marks: Record<string, PromptMarks>
+  /** 各终端最近一条命令（运行胶囊，docs/ui/panel-pill.md §4） */
+  runs: Record<string, TerminalRun>
 }
-let state: State = { profiles: [], defaultProfileId: '', terminals: [], ready: false, error: null, marks: {} }
+let state: State = {
+  profiles: [],
+  defaultProfileId: '',
+  terminals: [],
+  ready: false,
+  error: null,
+  marks: {},
+  runs: {},
+}
 const listeners = new Set<() => void>()
 let init: Promise<void> | null = null
 const sinks = new Map<string, (event: DataEvent) => void>()
@@ -40,6 +51,51 @@ function recordHistory(value: DataEvent): void {
   if (!history) histories.set(value.terminalId, (history = createHistory(HISTORY_LIMIT_BYTES)))
   history.push(value)
   notifyHistory()
+}
+function withRun(id: string, run: TerminalRun | undefined): Record<string, TerminalRun> {
+  if (run === state.runs[id]) return state.runs
+  const { [id]: _old, ...rest } = state.runs
+  return run ? { ...rest, [id]: run } : rest
+}
+/** 这个终端现在是否真的显示在屏幕上（面板收起时宽度是 0，别的标签时不占位） */
+function terminalOnScreen(id: string): boolean {
+  const el = document.querySelector(`[data-terminal-input="${CSS.escape(id)}"]`)
+  return !!el && el.getBoundingClientRect().width > 0
+}
+/** 回车了：记下一条命令开始（只记名字给胶囊显示，不存别的输入）。command：屏幕上的命令，读不到为 null */
+export function noteTerminalEnter(id: string, generation: number, command: string | null): void {
+  const events = histories.get(id)?.events() ?? []
+  const run = startRun(state.runs[id], state.marks[id], {
+    generation,
+    now: Date.now(),
+    command,
+    afterSeq: events[events.length - 1]?.seq ?? 0,
+  })
+  if (run !== state.runs[id]) set({ runs: withRun(id, run) })
+}
+/** 胶囊结束的状态看过了 */
+export function dismissTerminalRun(id: string): void {
+  if (state.runs[id]) set({ runs: withRun(id, undefined) })
+}
+/** 这条命令开始之后的输出（已去转义） */
+export function terminalTextSince(id: string, afterSeq: number): string {
+  return stripAnsi(
+    (histories.get(id)?.events() ?? [])
+      .filter(e => e.seq > afterSeq)
+      .map(e => e.data)
+      .join(''),
+  )
+}
+const PORT_SCAN_CHARS = 64 * 1024
+/** 这条命令开始之后最前面的一段输出：找端口用，服务的地址都在开头，输出再多也只扫这么多 */
+export function terminalHeadSince(id: string, afterSeq: number): string {
+  let text = ''
+  for (const e of histories.get(id)?.events() ?? []) {
+    if (e.seq <= afterSeq) continue
+    text += e.data
+    if (text.length >= PORT_SCAN_CHARS) break
+  }
+  return stripAnsi(text)
 }
 function set(patch: Partial<State>): void {
   state = { ...state, ...patch }
@@ -70,7 +126,10 @@ function event(value: TerminalEvent): void {
   }
   if (value.type === 'prompt') {
     const next = applyPrompt(state.marks[value.terminalId], value)
-    if (next && next !== state.marks[value.terminalId]) set({ marks: { ...state.marks, [value.terminalId]: next } })
+    if (next && next !== state.marks[value.terminalId]) {
+      const run = endRun(state.runs[value.terminalId], next, Date.now(), terminalOnScreen(value.terminalId))
+      set({ marks: { ...state.marks, [value.terminalId]: next }, runs: withRun(value.terminalId, run) })
+    }
     return
   }
   seenOutput.add(value.terminalId)
@@ -212,7 +271,7 @@ export function forgetTerminal(id: string): void {
   readyWaiters.delete(id)
   const marks = { ...state.marks }
   delete marks[id]
-  set({ terminals: state.terminals.filter(r => r.id !== id), marks })
+  set({ terminals: state.terminals.filter(r => r.id !== id), marks, runs: withRun(id, undefined) })
 }
 export async function terminalRestart(id: string, force = false): Promise<void> {
   const record = state.terminals.find(r => r.id === id)
@@ -242,11 +301,13 @@ export function terminalRunWhenReady(id: string, command: string, onSent?: () =>
     sent = true
     readyWaiters.delete(id)
     const record = state.terminals.find(r => r.id === id)
-    if (record && (record.status === 'running' || record.status === 'starting'))
+    if (record && (record.status === 'running' || record.status === 'starting')) {
+      noteTerminalEnter(id, record.generation, command)
       void window
         .pixelsky!.terminal.write(id, record.generation, command + '\r')
         .then(() => onSent?.())
         .catch(terminalError)
+    }
   }
   // 稍等一下让提示符画完，避免命令和提示符交错
   const soon = (): void => void setTimeout(send, 150)

@@ -25,6 +25,37 @@
     row-gap: 4px;
   }
 }
+/* 运行胶囊（docs/ui/panel-pill.md §6）：宽时写全，窄时短名字，再窄合并成一个 */
+.composer-area [data-run-pill-short],
+.composer-area [data-run-pills-merged] {
+  display: none;
+}
+@container composer (width < 720px) {
+  .composer-area [data-run-pill-long] {
+    display: none;
+  }
+  .composer-area [data-run-pill-short] {
+    display: inline;
+  }
+}
+/* 有胶囊时左边让路：先藏 ↑↓ 和「提交…」，放不下的分支信息裁掉，不盖到胶囊下面；菜单开着时不动，免得弹层跟着消失 */
+@container composer (width < 900px) {
+  .composer-area:has([data-run-pills]) [data-composer-sync-wrap]:not(:has([aria-expanded='true'])),
+  .composer-area:has([data-run-pills]) [data-composer-commit-wrap]:not(:has([aria-expanded='true'])) {
+    display: none;
+  }
+}
+.composer-area:has([data-run-pills]) [data-composer-git]:not(:has([aria-expanded='true'])) {
+  overflow: hidden;
+}
+@container composer (width < 560px) {
+  .composer-area [data-run-pills-list] {
+    display: none;
+  }
+  .composer-area [data-run-pills-merged] {
+    display: inline-flex;
+  }
+}
 /* 状态行右边的检查点、旁聊只留图标，给分支名腾地方 */
 @container composer (width < 720px) {
   .composer-area [data-composer-extra-label] {

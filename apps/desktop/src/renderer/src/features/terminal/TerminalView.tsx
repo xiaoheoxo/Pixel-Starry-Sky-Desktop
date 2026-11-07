@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { useEffect, useRef, useState } from 'react'
 import type { TerminalRecord } from '../../../../shared/types/terminal'
-import { consumeTerminal, demoWrite, terminalError, terminalState } from './store'
+import { consumeTerminal, demoWrite, noteTerminalEnter, terminalError, terminalState } from './store'
 import { screens } from './screens'
 import { isDemo } from '@/data'
 import { openFile } from '@/features/files/store'
@@ -62,6 +62,17 @@ function bufferRows(term: Terminal): Rows {
     text: row => buffer.getLine(row)?.translateToString(true) ?? '',
     wrapped: row => !!buffer.getLine(row)?.isWrapped,
   }
+}
+/** 光标所在的提示符行写的命令（折行的接起来）；不从输出流读：PSReadLine 打字时会重画这一行 */
+function commandAtCursor(term: Terminal): string | null {
+  const rows = bufferRows(term),
+    buffer = term.buffer.active,
+    cursor = buffer.baseY + buffer.cursorY
+  let top = cursor
+  while (top > 0 && rows.wrapped(top)) top--
+  let text = ''
+  for (let row = top; row <= cursor; row++) text += rows.text(row)
+  return promptCommand(text.trimEnd()) || null
 }
 /** 最近结束的那条命令：进程退出了用它的退出码；shell 集成报过、光标已回到提示符行上时用最后一次的退出码 */
 function lastEnd(term: Terminal, record: TerminalRecord, rows: Rows): LatestEnd | null {
@@ -176,7 +187,10 @@ export function TerminalView({
       const now = latest.current.record
       if (now.status !== 'running') return
       if (isDemo) demoWrite(now.id, data)
-      else void window.pixelsky!.terminal.write(now.id, now.generation, data).catch(terminalError)
+      else {
+        if (data.includes('\r')) noteTerminalEnter(now.id, now.generation, commandAtCursor(term))
+        void window.pixelsky!.terminal.write(now.id, now.generation, data).catch(terminalError)
+      }
     })
     const stop = consumeTerminal(record.id, event => {
       const ack = () => {

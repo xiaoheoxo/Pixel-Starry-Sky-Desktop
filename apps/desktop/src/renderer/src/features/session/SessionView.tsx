@@ -6,6 +6,7 @@ import { SessionHeader } from './SessionHeader'
 import { TerminalView } from '@/features/terminal/TerminalView'
 import { useTerminalStore } from '@/features/terminal/store'
 import { useOptionalTerminalUi } from '@/features/terminal/TerminalProvider'
+import { RunPills } from '@/features/terminal/RunPills'
 import { isDemoTuiTerminal } from './tuiMode'
 import { useTuiToggle } from './tuiToggle'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
@@ -285,6 +286,8 @@ function LiveSessionView({
 
   // 回退（含代码、撤销）、分叉、旁聊（docs/ui/rewind-fork-sidechat.md）
   const composerKey = draftKey ?? sessionId ?? ''
+  // 给运行胶囊：对象要稳定，流式输出时 SessionView 一直重画，胶囊不跟着
+  const pillRef = useMemo(() => (sessionId ? { sessionId } : null), [sessionId])
   // 对话检查点：改动卡片按文件撤回、检查点面板（docs/ui/undo-changes.md）
   const checkpoints = useCheckpointsState(sessionId, snapshot)
   const branch = useBranchActions(sessionId, snapshot, composerKey, checkpoints)
@@ -640,6 +643,14 @@ function LiveSessionView({
                         }
                         statusExtra={
                           <>
+                            {snapshot && (
+                              <RunPills
+                                projectId={snapshot.record.projectId}
+                                cwd={snapshot.record.cwd}
+                                panelOpen={panelOpen}
+                                browserRef={pillRef}
+                              />
+                            )}
                             {checkpoints && snapshot && (
                               <button
                                 ref={checkpointAnchor}

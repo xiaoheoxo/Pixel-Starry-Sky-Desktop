@@ -141,6 +141,9 @@ it('selectionQuote 按选区所在的命令找命令和退出码', () => {
 })
 
 describe('卡片', () => {
+  it('不知道行号时标题不写行号', () => {
+    expect(quoteTitle({ start: -1, end: -1, text: '', command: 'pnpm build', exitCode: 1 })).not.toMatch(/行|line/)
+  })
   it('标题：不知道的部分不写', () => {
     expect(quoteTitle({ start: 2, end: 6, text: '', command: 'pnpm build', exitCode: 1 })).toBe(
       '终端 · pnpm build · 退出码 1 · 第 3–7 行',
