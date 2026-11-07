@@ -9,6 +9,7 @@ import { parseFileTab } from '@/features/panes/tree'
 import { panelCloseTargets, TOOL_IDS, type PanelLayout, type ToolId } from './workspaceState'
 import { GROUP_KEY, TOOLS, toolIcon } from './tools'
 import { displayPath } from '@/features/files/extraFolders'
+import { OverviewMenuButton } from './overview/OverviewMenuButton'
 export function WorkspaceTabs({
   layout,
   maximized,
@@ -187,6 +188,7 @@ export function WorkspaceTabs({
           setMenu(menu ? null : { id: null, x: r.left, y: r.bottom, trigger: e.currentTarget })
         }}
       />
+      {layout.active === 'overview' && <OverviewMenuButton />}
       <IconButton
         icon={maximized ? Minimize2 : Maximize2}
         label={t(maximized ? 'workspace.restore' : 'workspace.maximize')}

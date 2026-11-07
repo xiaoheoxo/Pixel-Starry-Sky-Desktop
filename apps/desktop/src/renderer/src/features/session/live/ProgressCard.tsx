@@ -1,8 +1,8 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
-// 进度卡片：浮在对话区右上角，显示当前计划和子智能体（docs/ui/progress-card.md，参考 Claude 桌面版）
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Check, ChevronDown, ChevronUp, CircleSlash, Square, X } from 'lucide-react'
+// 进度卡片：显示当前计划和子智能体，按对话区宽度浮着或收成顶部一条，概况开着时停靠进右栏（docs/ui/progress-card.md §4，参考 Claude 桌面版）
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Bot, Check, ChevronDown, ChevronUp, CircleSlash, PanelRight, Square, X } from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import type { SessionSnapshot, TodoStep } from '@pixelsky/protocol'
 import { IconButton, Spinner, cn } from '@/ui'
@@ -10,7 +10,9 @@ import { elapsed, formatDuration, RUN_STATE_LABEL, shortModel, type RunState } f
 import {
   activeStep,
   canFoldDone,
+  cardPlacement,
   currentPlan,
+  NARROW_PX,
   progressAgents,
   turnKey,
   type Plan,
@@ -21,8 +23,8 @@ import { useFirstSeen } from './useFirstSeen'
 import { useOpenTrace } from './trace'
 
 const COLLAPSED_KEY = 'pixelsky.progress.collapsed'
-/** 对话区比这窄时默认折叠 */
-const NARROW_PX = 640
+/** 顶部那一条占的高度：上边距 12 + 条高 36 */
+const STRIP_PX = 48
 /** 全部勾完后停多久自动折叠（docs/ui/progress-card.md §11） */
 const ALL_DONE_FOLD_MS = 2000
 
@@ -56,7 +58,7 @@ export interface Progress {
 }
 
 /** 当前计划、子智能体和是否显示；「关闭」只在这一轮里有效 */
-export function useProgress(snapshot: SessionSnapshot | null): Progress {
+export function useProgress(snapshot: SessionSnapshot | null, docked = false): Progress {
   const items = snapshot?.items
   const running = !!snapshot && snapshot.state !== 'idle'
   // 这一轮说完了但后台子智能体还在跑：卡片留着显示它们（docs/ui/notifications.md §7）
@@ -76,7 +78,10 @@ export function useProgress(snapshot: SessionSnapshot | null): Progress {
     agents,
     background: background && !running,
     working: snapshot?.state === 'running',
-    visible: dismissed !== key && ((running && (!!plan || agents.length > 0)) || (background && agents.length > 0)),
+    // 停靠的卡片没有 ✕：这一轮关掉过的到概况里也看得到，离开概况还是关着
+    visible:
+      (docked || dismissed !== key) &&
+      ((running && (!!plan || agents.length > 0)) || (background && agents.length > 0)),
     dismiss,
     reveal,
   }
@@ -344,6 +349,9 @@ export function ProgressCard({
   onOpenTrace,
   onStopAgents,
   expandToken,
+  expandSeen,
+  docked = false,
+  onDock,
 }: {
   progress: Progress
   /** 对话内搜索条打开着：卡片挪到搜索条下面 */
@@ -355,22 +363,37 @@ export function ProgressCard({
   onStopAgents?: (ids: string[]) => Promise<string[]>
   /** 变一次就把卡片展开（保留模式的「查看」） */
   expandToken?: number
+  /** 用过的 expandToken：卡片每轮重新挂载，记在外层，旧的不会再展开一次 */
+  expandSeen?: RefObject<number>
+  /** 停靠在概况里（portal 进右栏）：不量宽度、不浮着，没有 ✕ 和停靠按钮，收起不存偏好 */
+  docked?: boolean
+  /** 点了去概况；不传时不显示按钮（代码模式没有概况） */
+  onDock?: () => void
 }) {
   useI18n()
+  const probe = useRef<HTMLSpanElement>(null)
   const card = useRef<HTMLElement>(null)
+  const stripBox = useRef<HTMLDivElement>(null)
   const [narrow, setNarrow] = useState(false)
+  const [peek, setPeek] = useState(false)
+  // 变宽了就不再是临时盖住：不留着，免得下次变窄时自己弹出来
+  if (peek && !narrow) setPeek(false)
   const [userCollapsed, setUserCollapsed] = useState<boolean | null>(null)
   const [stored] = useState(readCollapsed)
-  // 量对话区（卡片的定位容器）的宽度：窄窗格默认折叠
+  // 量对话区（卡片的定位容器）的宽度。条和卡片都可能不在，量的是总在的 probe 的父元素
   useLayoutEffect(() => {
-    const box = card.current?.parentElement
-    if (!box) return
-    const measure = (): void => setNarrow(box.clientWidth < NARROW_PX)
+    const box = probe.current?.parentElement
+    // 停靠时父元素是右栏，比阈值窄是常态，不能算窄。进出停靠都会重新挂载，narrow 从 false 开始
+    if (!box || docked) return
+    const measure = (): void => {
+      // 隐藏的标签、右栏最大化时可能量到 0：留着上一次的
+      if (box.clientWidth > 0) setNarrow(box.clientWidth < NARROW_PX)
+    }
     measure()
     const ro = settledResizeObserver(measure)
     ro.observe(box)
     return () => ro.disconnect()
-  }, [])
+  }, [docked])
   const { plan, agents } = progress
   // 全部勾完、它还在写总结：停一会儿自动折叠，不存成偏好；这份计划手动动过卡片就不管了；换一份计划自然展开
   const allDone = !!plan && plan.done === plan.steps.length
@@ -388,83 +411,157 @@ export function ProgressCard({
     return () => window.clearTimeout(timer)
   }, [allDone, agentRunning, planId])
   useEffect(() => {
-    if (!expandToken) return
+    if (!expandToken || !expandSeen || expandSeen.current === expandToken) return
+    expandSeen.current = expandToken
     setUserCollapsed(false)
     setFoldedPlan(null)
     keptOpen.current = planId
+    setPeek(true)
     // 只在「查看」时：换计划不算
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandToken])
-  const preferCollapsed = userCollapsed ?? (stored || narrow)
+  // 存的偏好管的是对话区里的卡片；概况本来就是来看它的，停靠时默认展开
+  const preferCollapsed = userCollapsed ?? (!docked && stored)
   const collapsed = autoFolded || preferCollapsed
+  const { strip, card: placed } = cardPlacement({ docked, narrow, collapsed, peek })
+  const over = placed === 'over'
+  // 临时盖住的卡片点别处收回。条要算在里面，不然点条上的按钮会先收回、再被 click 打开。不接 Esc：输入框里 Esc 是停止这一轮
+  useEffect(() => {
+    if (!over) return
+    const down = (e: PointerEvent): void => {
+      const target = e.target as Node
+      if (!card.current?.contains(target) && !stripBox.current?.contains(target)) setPeek(false)
+    }
+    document.addEventListener('pointerdown', down, true)
+    return () => document.removeEventListener('pointerdown', down, true)
+  }, [over])
   const toggle = (): void => {
     keptOpen.current = planId
     setFoldedPlan(null)
-    // 只是自动折叠的：去掉就展开了，不动偏好。本来就想折叠（存过、窗口窄）时往下走，一次点击就展开
+    // 窄的时候只是临时看一眼，不动偏好
+    if (narrow) {
+      setPeek(!peek)
+      return
+    }
+    // 只是自动折叠的：去掉就展开了，不动偏好。本来就想折叠（存过）时往下走，一次点击就展开
     if (autoFolded && !preferCollapsed) return
     setUserCollapsed(!collapsed)
-    saveCollapsed(!collapsed)
+    if (!docked) saveCollapsed(!collapsed)
   }
-  const finished = collapsed && allDone
-  const current = collapsed && plan ? plan.steps[activeStep(plan.steps)] : undefined
+  const open = over || (placed !== null && !collapsed)
+  const finished = !open && allDone
+  const step = plan ? plan.steps[activeStep(plan.steps)] : undefined
+  const current = open ? undefined : step
+  const chevron = (
+    <IconButton
+      icon={open ? ChevronUp : ChevronDown}
+      label={tr(open ? 'session.progress.collapse' : 'session.progress.expand')}
+      aria-expanded={open}
+      size={24}
+      iconSize={14}
+      onClick={toggle}
+    />
+  )
+  const dismiss = !docked && (
+    <IconButton icon={X} label={tr('session.progress.dismiss')} size={24} iconSize={14} onClick={progress.dismiss} />
+  )
+  const dock = !docked && onDock && (
+    <IconButton icon={PanelRight} label={tr('overview.dock')} size={24} iconSize={14} onClick={onDock} />
+  )
   return (
-    <section
-      ref={card}
-      aria-label={tr('session.progress.title')}
-      style={{ top: (belowFind ? 56 : 12) + offset }}
-      className={cn(
-        'pop-in absolute right-5 z-20',
-        'flex max-h-[60%] w-[min(22rem,calc(100%-2rem))] flex-col rounded-xl border border-line bg-popover py-2 shadow-popover',
-      )}
-    >
-      <div className="flex items-center gap-1 pr-1.5 pl-3">
-        <span className="text-list font-medium text-fg">{tr('session.progress.title')}</span>
-        {progress.background && (
-          <span className="ml-1 truncate text-meta text-fg-muted">{tr('session.progress.background')}</span>
-        )}
-        <span className="flex-1" />
-        {onOpenTrace && (
-          <IconButton
-            icon={Bot}
-            label={tr('session.live.AgentTracePanel.agentActivity')}
-            size={24}
-            iconSize={14}
-            onClick={onOpenTrace}
-          />
-        )}
-        <IconButton
-          icon={collapsed ? ChevronDown : ChevronUp}
-          label={tr(collapsed ? 'session.progress.expand' : 'session.progress.collapse')}
-          aria-expanded={!collapsed}
-          size={24}
-          iconSize={14}
-          onClick={toggle}
-        />
-        <IconButton
-          icon={X}
-          label={tr('session.progress.dismiss')}
-          size={24}
-          iconSize={14}
-          onClick={progress.dismiss}
-        />
-      </div>
-      <div className={cn('px-3 pb-1 text-meta tabular-nums', finished ? 'text-success' : 'text-fg-muted')}>
-        {summary(plan, agents, finished)}
-      </div>
-      {current && (
-        <div className="mx-1.5 flex items-start gap-2 rounded-md bg-accent-soft px-1.5 py-[3px] text-list font-medium text-fg">
-          <StepMark status="in_progress" live={progress.working} />
-          <span title={current.text} className="min-w-0 truncate">
-            {current.text}
-          </span>
+    <>
+      <span ref={probe} hidden />
+      {strip && (
+        <div
+          ref={stripBox}
+          data-progress-strip
+          className="conversation-inset conversation-reading conversation-reading-strips shrink-0 pt-3"
+        >
+          <div className="conversation-message flex h-9 items-center gap-2 rounded-lg border border-line bg-popover pr-1.5 pl-3 whitespace-nowrap">
+            <span className="text-list font-medium text-fg">{tr('session.progress.title')}</span>
+            {/* 有当前步骤时，特别窄就让给它（conversation.css）；没有时这一句是唯一的信息，一直留着 */}
+            <span
+              data-progress-sum={step ? '' : undefined}
+              className={cn('min-w-0 truncate text-meta tabular-nums', allDone ? 'text-success' : 'text-fg-muted')}
+            >
+              {summary(plan, agents, allDone)}
+            </span>
+            {step ? (
+              <div className="flex min-w-0 flex-1 items-start gap-1.5 rounded-sm bg-accent-soft px-1.5 py-px text-list font-medium text-fg">
+                <StepMark status="in_progress" live={progress.working} />
+                <span title={step.text} className="min-w-0 truncate">
+                  {step.text}
+                </span>
+              </div>
+            ) : (
+              <span className="flex-1" />
+            )}
+            <span className="flex shrink-0 items-center gap-1">
+              {dock}
+              {chevron}
+              {dismiss}
+            </span>
+          </div>
         </div>
       )}
-      {!collapsed && (
-        <div className="flex min-h-0 flex-col overflow-y-auto">
-          {plan && <Steps key={plan.id} plan={plan} working={progress.working} />}
-          {agents.length > 0 && <Agents agents={agents} divided={!!plan} onStop={onStopAgents} />}
-        </div>
+      {placed && (
+        <section
+          ref={card}
+          data-progress-float={placed === 'float' ? '' : undefined}
+          aria-label={tr('session.progress.title')}
+          style={
+            docked
+              ? undefined
+              : { top: over ? STRIP_PX + offset + (belowFind ? 52 : 8) : (belowFind ? 56 : 12) + offset }
+          }
+          className={cn(
+            'flex flex-col py-2',
+            docked
+              ? 'rounded-lg border border-line-card bg-surface'
+              : cn(
+                  'pop-in absolute z-20 max-h-[60%] w-[min(22rem,calc(100%-2rem))] rounded-xl border border-line bg-popover shadow-popover',
+                  over ? 'right-4' : 'right-5',
+                ),
+          )}
+        >
+          <div className="flex items-center gap-1 pr-1.5 pl-3">
+            <span className="text-list font-medium text-fg">{tr('session.progress.title')}</span>
+            {progress.background && (
+              <span className="ml-1 truncate text-meta text-fg-muted">{tr('session.progress.background')}</span>
+            )}
+            <span className="flex-1" />
+            {dock}
+            {onOpenTrace && (
+              <IconButton
+                icon={Bot}
+                label={tr('session.live.AgentTracePanel.agentActivity')}
+                size={24}
+                iconSize={14}
+                onClick={onOpenTrace}
+              />
+            )}
+            {chevron}
+            {dismiss}
+          </div>
+          <div className={cn('px-3 pb-1 text-meta tabular-nums', finished ? 'text-success' : 'text-fg-muted')}>
+            {summary(plan, agents, finished)}
+          </div>
+          {current && (
+            <div className="mx-1.5 flex items-start gap-2 rounded-md bg-accent-soft px-1.5 py-[3px] text-list font-medium text-fg">
+              <StepMark status="in_progress" live={progress.working} />
+              <span title={current.text} className="min-w-0 truncate">
+                {current.text}
+              </span>
+            </div>
+          )}
+          {open && (
+            <div className="flex min-h-0 flex-col overflow-y-auto">
+              {plan && <Steps key={plan.id} plan={plan} working={progress.working} />}
+              {agents.length > 0 && <Agents agents={agents} divided={!!plan} onStop={onStopAgents} />}
+            </div>
+          )}
+        </section>
       )}
-    </section>
+    </>
   )
 }

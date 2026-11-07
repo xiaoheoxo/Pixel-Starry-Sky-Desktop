@@ -25,6 +25,11 @@ export interface SessionPr {
   unknown?: boolean
 }
 
+/** 「让它修」PR 冲突时发给会话的话：和 checks.ts 的 fixRequest 一样是给 AI 看的，不走界面词典 */
+export function prConflictRequest(pr: Pick<SessionPr, 'url' | 'head' | 'base'>): string {
+  return `这个 PR 和 ${pr.base} 有合并冲突，请解决：${pr.url}\n把最新的 ${pr.base} 合并进 ${pr.head}，处理冲突，跑一遍检查，没问题就推送到 ${pr.head}（不要强推）。`
+}
+
 export interface SessionStatusState {
   /** 工作文件夹找不到了的对话（只查本机对话） */
   missingFolders: Record<string, true>

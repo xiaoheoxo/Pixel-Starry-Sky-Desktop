@@ -37,7 +37,7 @@ export function relativePath(root: string, path: string, caseInsensitive: boolea
   return p.replace(/^\.\//, '')
 }
 
-const isTurnUser = (item: Item): boolean =>
+export const isTurnUser = (item: Item): boolean =>
   item.kind === 'user' && item.mode !== 'guidance' && item.reconnect === undefined
 const completedChange = (item: Item): item is FileChangeItem =>
   item.kind === 'file_change' && item.status === 'completed'

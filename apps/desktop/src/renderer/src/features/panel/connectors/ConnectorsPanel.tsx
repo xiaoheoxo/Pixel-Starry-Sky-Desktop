@@ -1,6 +1,6 @@
 // 右侧工作区 › 连接器（docs/ui/connectors.md，样式稿 docs/ui/connectors-mockup.html）：
 // 当前会话的 MCP 服务器、实时状态、工具和本会话调用次数；重新连接、这个会话停用 / 启用、登录
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ChevronLeft,
@@ -17,28 +17,22 @@ import {
   Settings2,
   Wrench,
 } from 'lucide-react'
-import type { EngineId, ExtensionEntry, McpOp, McpReport } from '@pixelsky/protocol'
-import { Button, cn, EngineIcon, IconButton, useToast } from '@/ui'
+import type { EngineId } from '@pixelsky/protocol'
+import { Button, cn, EngineIcon, IconButton } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
-import { useEngineState } from '@/features/engine'
 import { usePaneState } from '@/features/panes/store'
 import { focusedTab, isNewTab, parseFileTab } from '@/features/panes/tree'
-import { useSettings } from '@/features/settings/SettingsProvider'
-import { isDemo, demo as demoData } from '@/data/demo'
 import { EmptyState, PanelCard } from '../PanelSurface'
 import { ToolError } from '../ToolsUi'
+import { displayName, initials, summarize, tint, type Connector, type ConnectorStatus } from './connectorsModel'
 import {
-  buildConnectors,
-  countCalls,
-  displayName,
-  initials,
-  summarize,
-  tint,
-  type Connector,
-  type ConnectorStatus,
-} from './connectorsModel'
+  useConnectors,
+  useConnectorView,
+  type ConnectorActions as Actions,
+  type ConnectorSessionView as SessionView,
+} from './useConnectors'
 
 const ENGINE_NAME: Record<EngineId, () => string> = {
   claude: () => 'Claude Code',
@@ -55,7 +49,7 @@ const TILES = [
   'bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger',
 ]
 
-const DOT: Record<ConnectorStatus, string> = {
+export const DOT: Record<ConnectorStatus, string> = {
   connected: 'bg-success',
   pending: 'bg-status-working',
   auth: 'bg-warn',
@@ -64,7 +58,7 @@ const DOT: Record<ConnectorStatus, string> = {
   idle: 'bg-fg-faint',
 }
 
-const STATUS_KEY = {
+export const STATUS_KEY = {
   connected: 'connectors.statusConnected',
   pending: 'connectors.statusPending',
   auth: 'connectors.statusAuth',
@@ -73,47 +67,14 @@ const STATUS_KEY = {
   idle: 'connectors.statusIdle',
 } as const
 
-interface SessionView {
-  id: string
-  engine: EngineId
-  cwd: string
-  report: McpReport | null
-  calls: Record<string, Record<string, number>>
-}
-
-const sessionTab = (tab: string | null): string | null => (tab && !isNewTab(tab) && !parseFileTab(tab) ? tab : null)
+export const sessionTab = (tab: string | null): string | null =>
+  tab && !isNewTab(tab) && !parseFileTab(tab) ? tab : null
 
 export function ConnectorsPanel({ active }: { active: boolean }) {
   useI18n()
   const tab = usePaneState(s => focusedTab(s.layout))
-  const id = sessionTab(tab)
-  // 只取用得到的：流式输出时快照每来一个字都变，结果没变就不重新渲染
-  const json = useEngineState(s => {
-    if (!active || !id || isDemo) return ''
-    const snap = s.snapshots[id]
-    const record = snap?.record ?? s.sessions.find(x => x.record.id === id)?.record
-    if (!record) return ''
-    const view: SessionView = {
-      id,
-      engine: record.engine,
-      cwd: record.cwd,
-      report: snap?.mcp ?? null,
-      calls: snap ? countCalls(record.engine, snap.items) : {},
-    }
-    return JSON.stringify(view)
-  })
-  const live = useMemo(() => (json ? (JSON.parse(json) as SessionView) : null), [json])
-  if (isDemo) {
-    const d = demoData().connectors
-    return (
-      <Body
-        key="demo"
-        view={{ id: 'demo', engine: d.engine, cwd: d.cwd, report: d.report, calls: d.calls }}
-        demoEntries={d.entries}
-      />
-    )
-  }
-  if (!live)
+  const view = useConnectorView(sessionTab(tab), active)
+  if (!view)
     return (
       <div className="flex min-h-0 flex-1 p-3">
         <PanelCard>
@@ -121,84 +82,12 @@ export function ConnectorsPanel({ active }: { active: boolean }) {
         </PanelCard>
       </div>
     )
-  return <Body key={live.id} view={live} active={active} />
+  return <Body key={view.id} view={view} active={active} />
 }
 
-function Body({
-  view,
-  active = true,
-  demoEntries,
-}: {
-  view: SessionView
-  active?: boolean
-  demoEntries?: ExtensionEntry[]
-}) {
-  const demo = !!demoEntries
-  const settings = useSettings()
-  const toast = useToast()
-  const [entries, setEntries] = useState<ExtensionEntry[]>(demoEntries ?? [])
+function Body({ view, active }: { view: SessionView; active: boolean }) {
   const [selected, setSelected] = useState<string | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState('')
-
-  // 配置：设置 › 扩展的数据（SSH 机器上的会话读不到，只显示引擎报告的）
-  useEffect(() => {
-    if (demo || !window.pixelsky) return
-    let gone = false
-    // 扩展连着变几次时只收最后一次读的结果，旧的晚到不覆盖新的
-    let seq = 0
-    const load = () => {
-      const n = ++seq
-      return window
-        .pixelsky!.extensions.state({ sessionId: view.id })
-        .then(s => !gone && n === seq && setEntries(s.entries))
-        .catch(() => !gone && n === seq && setEntries([]))
-    }
-    void load()
-    const off = window.pixelsky.extensions.onChange(() => void load())
-    return () => {
-      gone = true
-      off()
-    }
-  }, [view.id, demo])
-
-  // 打开时取一次最新状态（结果经会话事件进快照）
-  useEffect(() => {
-    if (demo || !active || !window.pixelsky) return
-    void window.pixelsky.engine.mcp(view.id, { kind: 'refresh' }).catch(() => undefined)
-  }, [view.id, active, demo])
-
-  const list = useMemo(
-    () => buildConnectors(view.engine, view.report, entries, view.calls),
-    [view.engine, view.report, entries, view.calls],
-  )
-  const ops = view.report?.ops ?? []
-
-  const run = async (key: string, op: McpOp) => {
-    if (demo || !window.pixelsky) return
-    setBusy(key)
-    setError('')
-    try {
-      const result = await window.pixelsky.engine.mcp(view.id, op)
-      if (result.url) {
-        await window.pixelsky.projectTools.openExternal(result.url)
-        toast(tr('connectors.loginOpened'))
-      }
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setBusy(null)
-    }
-  }
-  const actions: Actions = {
-    busy,
-    ops,
-    refresh: () => run('refresh', { kind: 'refresh' }),
-    reconnect: name => run('reconnect:' + name, { kind: 'reconnect', name }),
-    toggle: (name, enabled) => run('toggle:' + name, { kind: 'toggle', name, enabled }),
-    login: name => run('login:' + name, { kind: 'login', name }),
-    settings: () => settings.openSettings('extensions'),
-  }
+  const { list, actions, error } = useConnectors(view, active)
 
   const current = selected ? list.find(c => c.name === selected) : undefined
   return (
@@ -211,16 +100,6 @@ function Body({
       <ToolError error={error} />
     </div>
   )
-}
-
-interface Actions {
-  busy: string | null
-  ops: McpReport['ops']
-  refresh(): void
-  reconnect(name: string): void
-  toggle(name: string, enabled: boolean): void
-  login(name: string): void
-  settings(): void
 }
 
 function Avatar({ name, size = 'md' }: { name: string; size?: 'md' | 'lg' }) {
@@ -237,7 +116,7 @@ function Avatar({ name, size = 'md' }: { name: string; size?: 'md' | 'lg' }) {
   )
 }
 
-function sourceLabel(c: Connector): string {
+export function sourceLabel(c: Connector): string {
   switch (c.source) {
     case 'user':
       return tr('connectors.sourceUser')

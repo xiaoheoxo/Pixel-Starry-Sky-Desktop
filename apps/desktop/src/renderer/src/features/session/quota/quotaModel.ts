@@ -498,8 +498,8 @@ export interface QuotaTargetInput {
   enabled: boolean
   /** 对话所在的机器；不是 'local' 不显示 */
   machine: string
-  /** 对话实际用的通道（输入框控制器的 channel） */
-  channel: ChannelId
+  /** 对话实际用的通道（输入框控制器的 channel）；null 是还不知道，不显示 */
+  channel: ChannelId | null
   engines: ReadonlyArray<{ id: EngineId; status: string; auth?: { kind: string } }>
   /** 平台账号已登录，且换算出来的窗口数 */
   platformSignedIn: boolean

@@ -48,6 +48,28 @@
     display: none;
   }
 }
+/* 进度卡片浮着时不挡字（docs/ui/progress-card.md §4）。两边空白放得下卡片才保持居中：
+   1768 = 1024 + 2 × (卡片 352 + 边距 20)；更窄时阅读列靠左收窄，380 = 卡片 352 + 右边距 20 + 间隔 8。
+   只看 data-progress-float：窄时点开、临时盖住的卡片不带它，不重排文字 */
+@container conversation-body (width < 1768px) {
+  .conversation-body:has(> [data-progress-float]) .conversation-reading {
+    max-width: min(1024px, calc(100cqw - 380px));
+    margin-inline: 0 auto;
+  }
+  /* 对话流左边有滚动条占位（both-edges），这一层没有，要自己补上才对齐 */
+  .conversation-body:has(> [data-progress-float]) .conversation-reading-strips {
+    margin-inline-start: var(--conversation-scrollbar-width);
+  }
+}
+/* 顶部那一条：特别窄时概要让给当前步骤（只有当前步骤在时才带 data-progress-sum）；搜索条放到它下面，不盖按钮 */
+@container conversation-body (width < 640px) {
+  [data-progress-sum] {
+    display: none;
+  }
+}
+.conversation-body:has(> [data-progress-strip]) [data-conversation-find] {
+  top: 56px;
+}
 /* 长会话（docs/ui/conversation-ux.md §2.7）：看不见的块跳过排版和绘制。
    auto 记住渲染过的真实高度；没渲染过的按 LiveTranscript 给的估计（blockHeight.ts），没给的按一行估；
    它带绘制裁剪，overflow-clip-margin 给块边缘的焦点框、搜索命中的描边留出位置 */

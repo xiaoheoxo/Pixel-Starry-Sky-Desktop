@@ -12,8 +12,10 @@ import { openFile } from '@/features/files/store'
 import { workspaceFilePath, workspaceRoot } from '@/features/files/pathLinks'
 import { machineOf, useMachines } from '@/features/machines/store'
 import { motionEnabled } from '@/features/panes/motion'
+import { onContextDetails } from './contextFocus'
 import {
   changedRows,
+  compactBlock,
   contextLabel,
   contextNumber,
   contextPercentage,
@@ -76,13 +78,7 @@ export function ContextWindowButton({ sessionId, engine }: { sessionId: string |
   const live = !!snapshot?.flags.contextLive
   const idle = snapshot?.state === 'idle' && !snapshot.queue.length
   const canInspect = !isDemo && !!sessionId && !busy && (live || (!!snapshot?.flags.contextAvailable && idle))
-  const canCompact =
-    !isDemo &&
-    !!sessionId &&
-    !!snapshot?.flags.compactAvailable &&
-    snapshot.state === 'idle' &&
-    !snapshot.queue.length &&
-    !busy
+  const canCompact = !isDemo && !!sessionId && !compactBlock(snapshot) && !busy
   const diagnostic = context?.diagnostic
   const compactLimit =
     diagnostic && !context?.diagnosticStale
@@ -100,6 +96,16 @@ export function ContextWindowButton({ sessionId, engine }: { sessionId: string |
     setConfirm(false)
     setError('')
   }, [sessionId, snapshot?.record.model, snapshot?.record.platform?.groupId])
+  // 概况里点「明细」
+  useEffect(
+    () =>
+      onContextDetails(id => {
+        if (id !== sessionId) return
+        setOpen(true)
+        setDetails(true)
+      }),
+    [sessionId],
+  )
   const close = (): void => {
     setOpen(false)
     setConfirm(false)

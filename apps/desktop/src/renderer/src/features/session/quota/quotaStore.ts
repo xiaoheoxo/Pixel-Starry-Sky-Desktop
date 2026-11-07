@@ -197,7 +197,8 @@ export interface QuotaSource {
 }
 
 /** 三种账号的额度来源：Claude / ChatGPT 走 bridge，平台走账号模块；accountKey 变了（换了账号）重新读 */
-export function useQuotaSource(provider: QuotaProvider, accountKey: string | null): QuotaSource {
+/** provider 为 null（这个通道没有额度）：quota 是 null，什么也不读 */
+export function useQuotaSource(provider: QuotaProvider | null, accountKey: string | null): QuotaSource {
   const engine = provider === 'platform' ? null : provider
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -205,8 +206,12 @@ export function useQuotaSource(provider: QuotaProvider, accountKey: string | nul
     () => EMPTY,
   )
   const account = useAccount()
-  const platform = useMemo(() => (engine ? null : platformQuota(account.account)), [engine, account.account])
-  const planLimits = useMemo(() => (engine ? [] : platformPlanLimits(account.account)), [engine, account.account])
+  const onPlatform = provider === 'platform'
+  const platform = useMemo(() => (onPlatform ? platformQuota(account.account) : null), [onPlatform, account.account])
+  const planLimits = useMemo(
+    () => (onPlatform ? platformPlanLimits(account.account) : []),
+    [onPlatform, account.account],
+  )
   useEffect(() => {
     if (engine) void ensureQuota(engine, accountKey)
   }, [engine, accountKey])

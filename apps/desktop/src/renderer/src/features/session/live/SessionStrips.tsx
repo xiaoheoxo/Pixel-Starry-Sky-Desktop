@@ -3,9 +3,11 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 // 对话流上方的后台任务条（docs/engines.md §15.3，参考 JuCode TaskStrip）；子智能体在进度卡片里（docs/ui/progress-card.md）
 import { useState } from 'react'
+import { Globe } from 'lucide-react'
 import type { BackgroundTask, TaskOutput } from '@pixelsky/protocol'
 import { Spinner, cn } from '@/ui'
 import { AnsiText } from '@/ui/code/AnsiText'
+import { findPorts } from '@/features/coding/bottom/portsModel'
 import { bridge, taskKindLabel } from '@/features/engine'
 import { isDemo } from '@/data'
 import { demo } from '@/data/demo'
@@ -17,7 +19,19 @@ const LINK = 'shrink-0 rounded px-1.5 py-0.5 text-meta text-fg-muted hover:bg-ho
 const hasOutput = (kind: string) => kind.startsWith('local_bash') || kind.startsWith('monitor')
 
 /** 后台任务条：每个任务可以停止；后台命令能看输出；多智能体编排能打开追踪 */
-export function TaskStrip({ sessionId, tasks }: { sessionId: string; tasks: BackgroundTask[] }) {
+export function TaskStrip({
+  sessionId,
+  tasks,
+  bare,
+  onOpenPort,
+}: {
+  sessionId: string
+  tasks: BackgroundTask[]
+  /** 放在概况的分组里：不要自己的卡片框 */
+  bare?: boolean
+  /** 给了就在进度里写着本机地址的任务上带打开按钮 */
+  onOpenPort?: (port: number) => void
+}) {
   useI18n()
   const openTrace = useOpenTrace()
   const [open, setOpen] = useState<string | null>(null)
@@ -54,10 +68,15 @@ export function TaskStrip({ sessionId, tasks }: { sessionId: string; tasks: Back
   return (
     <div
       data-task-strip
-      className="flex max-h-[30vh] flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface px-3 py-2 shadow-sm"
+      className={
+        bare
+          ? 'flex flex-col gap-1'
+          : 'flex max-h-[30vh] flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface px-3 py-2 shadow-sm'
+      }
     >
       {tasks.map(t => {
         const out = outputs[t.id]
+        const port = onOpenPort && findPorts(t.message ?? '')[0]
         return (
           <div key={t.id} className="min-w-0">
             <div className="flex min-w-0 items-center gap-2 text-meta">
@@ -72,6 +91,16 @@ export function TaskStrip({ sessionId, tasks }: { sessionId: string; tasks: Back
                 </span>
               )}
               <span className="flex-1" />
+              {port && (
+                <button
+                  type="button"
+                  className={cn(LINK, 'inline-flex items-center gap-1 font-mono')}
+                  title={tr('portTip.open')}
+                  onClick={() => onOpenPort?.(port)}
+                >
+                  <Globe size={12} strokeWidth={1.6} />:{port}
+                </button>
+              )}
               {openTrace && t.kind.startsWith('local_workflow') && (
                 <button type="button" className={LINK} onClick={() => openTrace()}>
                   {tr('session.live.ItemRows.viewActivity')}{' '}

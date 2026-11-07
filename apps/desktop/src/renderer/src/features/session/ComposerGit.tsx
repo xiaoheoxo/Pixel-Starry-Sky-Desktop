@@ -48,7 +48,7 @@ export function ComposerGit({ target }: { target: WorkspaceRef }) {
   )
 }
 
-function openChanges(): void {
+export function openChanges(): void {
   openRightTab('git')
   requestGitAction('changes')
 }
@@ -102,8 +102,16 @@ function FailureNote({ failure, onClose }: { failure: GitFailure; onClose(): voi
   )
 }
 
-/** ↑2 ↓1：点开拉取 / 推送 / 检查远端；没有远端或都同步了就不显示 */
-function SyncButton({ target, status }: { target: WorkspaceRef; status: GitStatus }) {
+/** ↑2 ↓1：点开拉取 / 推送 / 检查远端；没有远端或都同步了就不显示。chip 换按钮的样子（概况里） */
+export function SyncButton({
+  target,
+  status,
+  chip = CHIP,
+}: {
+  target: WorkspaceRef
+  status: GitStatus
+  chip?: string
+}) {
   const api = window.pixelsky?.projectTools
   const [open, setOpen] = useState(false)
   const git = useGitRun(target)
@@ -144,7 +152,7 @@ function SyncButton({ target, status }: { target: WorkspaceRef; status: GitStatu
         }
         onMouseDown={e => open && e.stopPropagation()}
         onClick={() => (open ? close() : setOpen(true))}
-        className={cn(CHIP, 'font-mono', (open || git.busy) && 'bg-hover text-fg')}
+        className={cn(chip, 'font-mono', (open || git.busy) && 'bg-hover text-fg')}
       >
         {label}
       </button>
@@ -179,8 +187,16 @@ function SyncButton({ target, status }: { target: WorkspaceRef; status: GitStatu
   )
 }
 
-/** 提交…：弹出提交框；有冲突时灰掉 */
-function CommitButton({ target, status }: { target: WorkspaceRef; status: GitStatus }) {
+/** 提交…：弹出提交框；有冲突时灰掉。chip 换按钮的样子（概况里） */
+export function CommitButton({
+  target,
+  status,
+  chip = cn(CHIP, 'text-fg-muted'),
+}: {
+  target: WorkspaceRef
+  status: GitStatus
+  chip?: string
+}) {
   const [open, setOpen] = useState(false)
   const conflicts = status.conflicted.length > 0
   return (
@@ -194,11 +210,7 @@ function CommitButton({ target, status }: { target: WorkspaceRef; status: GitSta
         title={conflicts ? tr('git.composer.conflicts') : undefined}
         onMouseDown={e => open && e.stopPropagation()}
         onClick={() => setOpen(v => !v)}
-        className={cn(
-          CHIP,
-          'text-fg-muted disabled:opacity-40 disabled:hover:bg-transparent',
-          open && 'bg-hover text-fg',
-        )}
+        className={cn(chip, 'disabled:opacity-40 disabled:hover:bg-transparent', open && 'bg-hover text-fg')}
       >
         <GitCommitHorizontal size={13} strokeWidth={1.5} />
         {tr('git.composer.commit')}

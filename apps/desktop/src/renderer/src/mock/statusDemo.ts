@@ -138,6 +138,22 @@ export const statusDemoSessionState: SessionStatusState = {
       ),
     ],
     ...Object.fromEntries(PRS.map(p => [p.id, [full(p.pr, `feat/${p.id.slice(5)}`)]])),
+    // 有快照的对话：概况的 PR 分组和「要处理」里的冲突（docs/ui/session-overview-mockup.html）
+    'demo-claude-running': [
+      full(
+        {
+          number: 128,
+          title: '草稿存储：写满时提示并保留内容',
+          state: 'open',
+          ci: null,
+          ciFailed: 0,
+          conflict: true,
+          additions: 128,
+          deletions: 34,
+        },
+        'feat/drafts',
+      ),
+    ],
     // 出问题的对话也有 PR：问题卡下面附一行，点「查看 PR」切过去
     's-st-busy': [
       full(

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRun, Item, TodoStep } from '@pixelsky/protocol'
-import { activeStep, canFoldDone, currentPlan, planResult, progressAgents, turnKey } from './progressData'
+import {
+  activeStep,
+  canFoldDone,
+  cardPlacement,
+  currentPlan,
+  NARROW_PX,
+  planResult,
+  progressAgents,
+  turnKey,
+} from './progressData'
 
 const user = (id: string, mode?: 'guidance'): Item => ({ kind: 'user', id, text: id, createdAt: 0, mode })
 const steps = (...s: TodoStep['status'][]): TodoStep[] => s.map((status, i) => ({ text: `step ${i}`, status }))
@@ -127,6 +136,34 @@ describe('activeStep', () => {
   it('进行中的第一个步骤', () => {
     expect(activeStep(steps('completed', 'in_progress', 'pending'))).toBe(1)
     expect(activeStep(steps('completed', 'pending'))).toBe(-1)
+  })
+})
+
+describe('cardPlacement', () => {
+  const place = (o: Partial<Parameters<typeof cardPlacement>[0]>) =>
+    cardPlacement({ docked: false, narrow: false, collapsed: false, peek: false, ...o })
+
+  it('够宽：展开时浮着，收起时一律收成一条（包括自动折叠）', () => {
+    expect(place({})).toEqual({ strip: false, card: 'float' })
+    expect(place({ collapsed: true })).toEqual({ strip: true, card: null })
+    // 变宽前留下的 peek 不算
+    expect(place({ collapsed: true, peek: true })).toEqual({ strip: true, card: null })
+  })
+
+  it('窄：不管折叠偏好都是一条，点开才临时盖住', () => {
+    for (const collapsed of [false, true]) {
+      expect(place({ narrow: true, collapsed })).toEqual({ strip: true, card: null })
+      expect(place({ narrow: true, collapsed, peek: true })).toEqual({ strip: true, card: 'over' })
+    }
+  })
+
+  it('停靠进概况时不看宽度和折叠，也没有那一条', () => {
+    expect(place({ docked: true, narrow: true, collapsed: true, peek: true })).toEqual({ strip: false, card: 'docked' })
+  })
+
+  it('窄不窄的分界是 1032：放下 640 的阅读列和 352 的卡片', () => {
+    expect(1031 < NARROW_PX).toBe(true)
+    expect(1032 < NARROW_PX).toBe(false)
   })
 })
 

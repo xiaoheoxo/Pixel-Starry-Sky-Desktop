@@ -1,5 +1,6 @@
 // 会话的「做完自动检查」（docs/ui/channels-collab-v2.md §8）：开关存在会话所在机器上，结果由主进程推过来
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { demo, isDemo } from '@/data/demo'
 import type { CheckRun } from '../../../../shared/types/checks'
 
 const bridge = typeof window !== 'undefined' ? window.pixelsky?.projectTools : undefined
@@ -9,9 +10,10 @@ const listeners = new Set<() => void>()
 let subscribed = false
 
 function ensure(): void {
-  if (subscribed || !bridge) return
+  if (subscribed) return
   subscribed = true
-  bridge.onSessionCheck(({ sessionId, run }) => {
+  if (isDemo) for (const [id, run] of Object.entries(demo().sessionChecks)) runs.set(id, run)
+  bridge?.onSessionCheck(({ sessionId, run }) => {
     runs.set(sessionId, run)
     for (const l of listeners) l()
   })

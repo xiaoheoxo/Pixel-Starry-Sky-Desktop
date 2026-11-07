@@ -7,6 +7,7 @@ import { CommentsPanel } from './CommentsPanel'
 import { EnvironmentPanel, OPEN_BROWSER } from './EnvironmentPanel'
 import { CopiesPanel } from './CopiesPanel'
 import { ConnectorsPanel } from './connectors/ConnectorsPanel'
+import { OverviewPanel } from './overview/OverviewPanel'
 import { GitPanel } from './git/GitPanel'
 import { ArtifactsPanel } from './artifacts/ArtifactsPanel'
 import { FileTree } from '@/features/files/FileTree'
@@ -205,7 +206,9 @@ export function RightPanel({ maximized = false, visible = true }: { maximized?: 
           />
         </div>
         <TerminalPanel embedded visible={visible && layout.active === 'terminal'} />
-        {(['git', 'artifacts', 'comments', 'tasks', 'sandbox', 'copies', 'connectors', 'browser'] as const).map(
+        {(
+          ['overview', 'git', 'artifacts', 'comments', 'tasks', 'sandbox', 'copies', 'connectors', 'browser'] as const
+        ).map(
           kind =>
             (visited.has(kind) || layout.active === kind) && (
               <div
@@ -213,7 +216,9 @@ export function RightPanel({ maximized = false, visible = true }: { maximized?: 
                 className={layout.active === kind ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
                 inert={layout.active !== kind}
               >
-                {kind === 'git' ? (
+                {kind === 'overview' ? (
+                  <OverviewPanel active={visible && layout.active === 'overview'} />
+                ) : kind === 'git' ? (
                   <GitPanel active={visible && layout.active === 'git'} />
                 ) : kind === 'artifacts' ? (
                   <ArtifactsPanel active={visible && layout.active === 'artifacts'} />

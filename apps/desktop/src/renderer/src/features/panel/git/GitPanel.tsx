@@ -85,6 +85,13 @@ export function requestGitAction(action: GitPaletteAction): void {
   window.dispatchEvent(new Event(GIT_ACTION_EVENT))
 }
 
+/** 概况里点改动的文件：Git 页读到状态后打开它的差异。path 相对仓库根（GitFileChange.path） */
+let pendingFile: string | null = null
+export function requestGitFile(path: string): void {
+  pendingFile = path
+  window.dispatchEvent(new Event(GIT_ACTION_EVENT))
+}
+
 /** 面板宽度低于它就用紧凑样式（图标按钮、竖排提交、短占位符、隐藏目录） */
 const COMPACT_MAX = 280
 const POLL_MS = 15_000
@@ -290,6 +297,17 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
   useEffect(() => {
     if (!active || !status?.repo) return
     const consume = () => {
+      if (pendingFile) {
+        const path = pendingFile
+        pendingFile = null
+        for (const section of sections) {
+          const file = section.files.find(f => f.path === path)
+          if (file) {
+            openDiff(section.area, file)
+            break
+          }
+        }
+      }
       const action = pendingAction
       if (!action) return
       pendingAction = null

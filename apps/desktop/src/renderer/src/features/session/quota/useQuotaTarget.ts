@@ -13,7 +13,7 @@ import { quotaTarget } from './quotaModel'
  * sessionId 为 null（还没开始的对话、模型通道菜单）按输入框当前选的机器。
  */
 export function useQuotaTarget(
-  channel: ChannelId,
+  channel: ChannelId | null,
   sessionId: string | null,
 ): { provider: QuotaProvider | null; accountKey: string | null } {
   const display = useQuotaDisplay()
@@ -34,8 +34,9 @@ export function useQuotaTarget(
     platformSignedIn: account.status === 'signed-in',
     platformWindows,
   })
-  const accountKey = isAuthChannel(channel)
-    ? (enginesOfMachine.find(e => e.id === AUTH_ENGINE[channel])?.account?.email ?? null)
-    : null
+  const accountKey =
+    channel && isAuthChannel(channel)
+      ? (enginesOfMachine.find(e => e.id === AUTH_ENGINE[channel])?.account?.email ?? null)
+      : null
   return { provider, accountKey }
 }

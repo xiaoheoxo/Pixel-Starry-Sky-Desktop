@@ -79,6 +79,7 @@ import { approvalMessages } from '../../../shared/i18n/approvalMessages'
 import { extstoreDetailMessages } from '../../../shared/i18n/extstoreDetailMessages'
 import { settingsWindowMessages } from '../../../shared/i18n/settingsWindowMessages'
 import { goalMessages } from '../../../shared/i18n/goalMessages'
+import { overviewMessages } from '../../../shared/i18n/overviewMessages'
 
 // 与 shared/i18n/translate.ts 的 allMessages 合并顺序一致
 const dictionaries: Record<string, Record<string, unknown>> = {
@@ -159,6 +160,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   extstoreDetailMessages,
   settingsWindowMessages,
   goalMessages,
+  overviewMessages,
 }
 
 /** 中英文值不同、需要保持现状的重复 key（当前为空；新增重复必须先说明原因）。 */

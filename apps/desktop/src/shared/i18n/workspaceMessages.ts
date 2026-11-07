@@ -19,6 +19,7 @@ export const workspaceMessages = {
   'workspace.collapseAll': { zh: '折叠全部目录', en: 'Collapse all folders' },
   'workspace.terminalSearch': { zh: '搜索终端输出…', en: 'Search terminal output…' },
   'workspace.removeTerminal': { zh: '关闭终端并删除标签', en: 'Close terminal and remove tab' },
+  'workspace.overview': { zh: '概况', en: 'Overview' },
   'workspace.files': { zh: '文件', en: 'Files' },
   'workspace.terminal': { zh: '终端', en: 'Terminal' },
   'workspace.browser': { zh: '浏览器', en: 'Browser' },
@@ -29,6 +30,10 @@ export const workspaceMessages = {
   'workspace.comments': { zh: '评论', en: 'Comments' },
   'workspace.git': { zh: 'Git', en: 'Git' },
   'workspace.artifacts': { zh: '产物', en: 'Artifacts' },
+  'workspace.overviewHint': {
+    zh: '这个会话的进度、改动和环境',
+    en: 'Progress, changes and environment of this session',
+  },
   'workspace.filesHint': { zh: '浏览和编辑项目文件', en: 'Browse and edit project files' },
   'workspace.gitHint': { zh: '查看改动、提交和分支', en: 'Changes, commits and branches' },
   'workspace.artifactsHint': { zh: '会话改过和交付的文件', en: 'Files changed and delivered in sessions' },

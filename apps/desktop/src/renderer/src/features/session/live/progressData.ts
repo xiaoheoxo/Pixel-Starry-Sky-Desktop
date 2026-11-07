@@ -107,3 +107,19 @@ export function planResult(items: readonly Item[]): { done: number; total: numbe
 
 /** 当前步骤（进行中的第一个）的下标；没有时 -1 */
 export const activeStep = (steps: TodoStep[]): number => steps.findIndex(s => s.status === 'in_progress')
+
+/** 阅读列最窄 640 + 卡片 352 + 两边各 20：对话区比这窄，浮着的卡片一定会挡字 */
+export const NARROW_PX = 640 + 352 + 20 + 20
+
+/**
+ * 卡片放在哪（docs/ui/progress-card.md §4）：strip 是对话顶部那一条；card 的 over 是窄时点开、临时盖住内容。
+ * 这里只分窄不窄；够宽时浮在空白里还是让阅读列收窄，由 conversation.css 按宽度决定
+ */
+export function cardPlacement(o: { docked: boolean; narrow: boolean; collapsed: boolean; peek: boolean }): {
+  strip: boolean
+  card: 'float' | 'over' | 'docked' | null
+} {
+  if (o.docked) return { strip: false, card: 'docked' }
+  if (o.narrow) return { strip: true, card: o.peek ? 'over' : null }
+  return o.collapsed ? { strip: true, card: null } : { strip: false, card: 'float' }
+}

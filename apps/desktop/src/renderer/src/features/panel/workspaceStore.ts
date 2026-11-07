@@ -4,19 +4,18 @@ import { getAppMode } from '@/features/coding/mode'
 import {
   activatePanelTab,
   emptyPanel,
-  parsePanel,
   removePanelTabs,
+  restorePanels,
   type PanelLayout,
   type ToolId,
 } from './workspaceState'
 
-const KEY = isDemo ? 'pixelsky.right-workspace.demo.v1' : 'pixelsky.right-workspace.v1'
+const KEY = isDemo ? 'pixelsky.right-workspace.demo.v2' : 'pixelsky.right-workspace.v2'
+const KEY_V1 = isDemo ? 'pixelsky.right-workspace.demo.v1' : 'pixelsky.right-workspace.v1'
 export const OPEN_RIGHT_WORKSPACE = 'pixelsky:open-right-workspace'
 let contexts: Record<string, PanelLayout> = {}
 try {
-  const value = JSON.parse(localStorage.getItem(KEY) ?? '{}')
-  if (value && typeof value === 'object' && !Array.isArray(value))
-    contexts = Object.fromEntries(Object.entries(value).map(([key, layout]) => [key, parsePanel(layout)]))
+  contexts = restorePanels(localStorage.getItem(KEY), localStorage.getItem(KEY_V1))
 } catch {
   /* Invalid persisted layout falls back to Files. */
 }

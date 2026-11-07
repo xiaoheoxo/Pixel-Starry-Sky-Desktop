@@ -74,6 +74,7 @@ import { approvalMessages } from './approvalMessages'
 import { extstoreDetailMessages } from './extstoreDetailMessages'
 import { settingsWindowMessages } from './settingsWindowMessages'
 import { goalMessages } from './goalMessages'
+import { overviewMessages } from './overviewMessages'
 import { replaceCodedErrors } from '@pixelsky/protocol'
 import type { Locale } from './messages'
 
@@ -155,6 +156,7 @@ export const allMessages = {
   ...extstoreDetailMessages,
   ...settingsWindowMessages,
   ...goalMessages,
+  ...overviewMessages,
 }
 export type TranslationKey = keyof typeof allMessages
 
@@ -175,8 +177,9 @@ const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g
 // 固定文字太少的模板（如「{action}: {icon}」）同样几乎能匹配任何文本，也不参与。
 const literalChars = (text: string): number => text.replace(/\{\w+\}/g, '').match(/[\p{L}\p{N}]/gu)?.length ?? 0
 const patterns = Object.entries(allMessages)
-  // customTheme：「{name} 副本」这类只有界面自己用，拿去匹配引擎原文会把 Failed to copy 改成 Failed to 副本
-  .filter(([key]) => !(key in catalog) && !key.startsWith('customTheme.'))
+  // customTheme：「{name} 副本」这类只有界面自己用，拿去匹配引擎原文会把 Failed to copy 改成 Failed to 副本；
+  // overview 同理：「{count} connected」会把 Server connected 改成 Server 个已连接
+  .filter(([key]) => !(key in catalog) && !key.startsWith('customTheme.') && !key.startsWith('overview.'))
   .map(([, message]) => message)
   .flatMap(message => {
     if (!/\{\w+\}/.test(message.zh)) return []

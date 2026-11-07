@@ -23,7 +23,7 @@ const blank: ServiceInput = {
   envNames: [],
   autoStart: false,
 }
-const statusKeys = {
+export const statusKeys = {
   stopped: 'projectTools.stopped',
   starting: 'projectTools.starting',
   running: 'projectTools.running',

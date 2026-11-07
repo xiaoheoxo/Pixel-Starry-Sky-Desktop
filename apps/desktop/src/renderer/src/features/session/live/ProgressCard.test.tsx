@@ -1,4 +1,4 @@
-// 进度卡片按轮次的显示（docs/ui/progress-card.md §11）：已完成收成一行、上一轮没做完的、折叠时的当前步骤
+// 进度卡片按轮次的显示（docs/ui/progress-card.md §11）：已完成收成一行、上一轮没做完的；收起时顶部那一条（§4）
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 vi.hoisted(() => {
@@ -14,7 +14,7 @@ import { ProgressCard, type Progress } from './ProgressCard'
 import type { Plan } from './progressData'
 
 const step = (text: string, status: TodoStep['status']): TodoStep => ({ text, status })
-const render = (plan: Plan): string => {
+const render = (plan: Plan, extra: { docked?: boolean; onDock?: () => void } = {}): string => {
   const progress: Progress = {
     plan,
     agents: [],
@@ -26,7 +26,7 @@ const render = (plan: Plan): string => {
   }
   return renderToStaticMarkup(
     <I18nProvider>
-      <ProgressCard progress={progress} />
+      <ProgressCard progress={progress} {...extra} />
     </I18nProvider>,
   )
 }
@@ -52,6 +52,8 @@ describe('ProgressCard', () => {
     expect(html).not.toContain('第一步')
     expect(html).toContain('第三步')
     expect(html).toContain('第四步')
+    expect(html).toContain('data-progress-float')
+    expect(html).not.toContain('data-progress-strip')
   })
 
   it('全做完时列全，不收', () => {
@@ -67,17 +69,42 @@ describe('ProgressCard', () => {
     expect(html).toContain(tr('session.progress.carried'))
   })
 
-  it('折叠时多一行当前步骤；列表不显示', () => {
+  it('折叠时收成顶部一条，写当前步骤；卡片和列表不显示', () => {
     collapsedPref()
     const html = render(plan)
+    expect(html).toContain('data-progress-strip')
+    expect(html).not.toContain('data-progress-float')
+    expect(html).not.toContain('<section')
     expect(html).toContain('第三步')
     expect(html).not.toContain('第四步')
+    // 有当前步骤：特别窄时概要让给它
+    expect(html).toContain('data-progress-sum')
   })
 
-  it('折叠且全做完：写全部完成', () => {
+  it('折叠且全做完：写全部完成，这一句在多窄都不藏', () => {
     collapsedPref()
     const html = render({ id: 'p', done: 1, steps: [step('第一步', 'completed')] })
     expect(html).toContain(tr('session.progress.allDone', { total: 1 }))
     expect(html).not.toContain('第一步')
+    expect(html).not.toContain('data-progress-sum')
+  })
+
+  it('去概况的按钮：浮着和收成一条时都有，没传 onDock（代码模式）就没有', () => {
+    const onDock = () => {}
+    expect(render(plan)).not.toContain(tr('overview.dock'))
+    expect(render(plan, { onDock })).toContain(tr('overview.dock'))
+    collapsedPref()
+    expect(render(plan, { onDock })).toContain(tr('overview.dock'))
+  })
+
+  it('停靠：不浮着、没有条，没有 ✕ 和停靠按钮；存过的折叠偏好不管用', () => {
+    collapsedPref()
+    const html = render(plan, { docked: true, onDock: () => {} })
+    expect(html).not.toContain('data-progress-float')
+    expect(html).not.toContain('data-progress-strip')
+    expect(html).not.toContain('absolute')
+    expect(html).not.toContain(tr('session.progress.dismiss'))
+    expect(html).not.toContain(tr('overview.dock'))
+    expect(html).toContain('第四步')
   })
 })

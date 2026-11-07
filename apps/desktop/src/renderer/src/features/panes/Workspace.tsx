@@ -228,8 +228,10 @@ export function Workspace(props: WorkspaceProps) {
       const cycleTab = CYCLE_TAB.delta(e)
       if (SPLIT_RIGHT.match(e)) paneActions.split('row', areaSize())
       else if (SPLIT_DOWN.match(e)) paneActions.split('col', areaSize())
-      else if (CLOSE_TAB.match(e)) paneActions.closeCurrent()
-      else if (ZOOM_PANE.match(e)) paneActions.toggleMaximize()
+      else if (CLOSE_TAB.match(e)) {
+        // 停靠在概况里的进度卡片是 portal，右栏的 onKeyDown 收不到它的按键：不能把对话标签关了
+        if (!(e.target instanceof Element && e.target.closest('[data-right-workspace]'))) paneActions.closeCurrent()
+      } else if (ZOOM_PANE.match(e)) paneActions.toggleMaximize()
       else if (jump >= 0) paneActions.focusIndex(jump)
       else if (cyclePane) paneActions.cycleFocus(cyclePane)
       else if (cycleTab) paneActions.cycleTab(cycleTab)

@@ -9,19 +9,12 @@ import { relativeTime } from '@/features/engine/labels'
 import type { SessionPr } from '../../../../shared/types/session-status'
 import { DONE_DAYS, prDisplay, usePrDisplay, type OpenMode } from './prDisplay'
 import { prIcon } from './SessionMarks'
-import { prIconHidden } from './sessionStatusModel'
+import { PR_STATE, prIconHidden } from './sessionStatusModel'
 
 /** 一次列几个 PR，其余点「还有 N 个」展开 */
 export const PR_CARD_LIMIT = 3
 
 const CI_TONE = { pass: 'text-success', fail: 'text-danger', pending: 'text-fg-muted' } as const
-
-const PR_STATE = {
-  open: 'sidebar.status.pr.open',
-  draft: 'sidebar.status.pr.draft',
-  merged: 'sidebar.status.pr.merged',
-  closed: 'sidebar.status.pr.closed',
-} as const satisfies Record<SessionPr['state'], Parameters<typeof tr>[0]>
 
 const HIDDEN_TAG = {
   hidden: 'sidebar.status.pr.hiddenTag',
@@ -33,6 +26,55 @@ export function openUrl(url: string, toast: (message: string) => void): Promise<
   return Promise.resolve(window.pixelsky?.projectTools.openExternal(url)).then(
     () => undefined,
     (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+  )
+}
+
+export function copyPrLink(url: string, toast: (message: string) => void): void {
+  void navigator.clipboard.writeText(url).then(
+    () => toast(tr('sidebar.status.copied')),
+    (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
+  )
+}
+
+/** 一个 PR 的状态、增删、检查、冲突；查不到状态时写原因（悬停卡和概况共用） */
+export function PrFacts({ pr, gh }: { pr: SessionPr; gh: string }) {
+  if (pr.unknown)
+    return (
+      <span className="text-fg-muted">
+        {tr(
+          gh === 'signed-out'
+            ? 'sidebar.status.pr.unknownSignedOut'
+            : gh === 'missing'
+              ? 'sidebar.status.pr.unknownMissing'
+              : 'sidebar.status.pr.unknownReady',
+        )}
+      </span>
+    )
+  const closedAt = pr.closedAt ? Date.parse(pr.closedAt) : NaN
+  return (
+    <>
+      <span className="text-fg-secondary">
+        {tr(PR_STATE[pr.state])}
+        {(pr.state === 'merged' || pr.state === 'closed') && !Number.isNaN(closedAt) && (
+          <> · {tr('sidebar.status.pr.ago', { time: relativeTime(closedAt, Date.now()) })}</>
+        )}
+      </span>
+      <span className="tabular-nums">
+        <span className="text-success">+{pr.additions}</span> <span className="text-danger">−{pr.deletions}</span>
+      </span>
+      {pr.ci && (
+        <span className={CI_TONE[pr.ci]}>
+          {pr.ci === 'pass'
+            ? tr('sidebar.status.pr.ciPass')
+            : pr.ci === 'pending'
+              ? tr('sidebar.status.pr.ciPending')
+              : pr.ciFailed > 0
+                ? tr('sidebar.status.pr.ciFail', { count: pr.ciFailed })
+                : tr('sidebar.status.pr.ciFailAny')}
+        </span>
+      )}
+      {pr.conflict && <span className="text-warn">{tr('sidebar.status.pr.conflict')}</span>}
+    </>
   )
 }
 
@@ -117,11 +159,7 @@ export function PrPanel({
   const hidden = prs.filter(pr => display.hiddenPrs.includes(pr.url.toLowerCase()))
   const shown = all ? prs : prs.slice(0, PR_CARD_LIMIT)
 
-  const copy = (url: string): void =>
-    void navigator.clipboard.writeText(url).then(
-      () => toast(tr('sidebar.status.copied')),
-      (e: unknown) => toast(e instanceof Error ? e.message : String(e)),
-    )
+  const copy = (url: string): void => copyPrLink(url, toast)
   const hide = (pr: SessionPr): void => {
     prDisplay.hide([pr.url])
     toast(tr('sidebar.status.pr.hiddenToast', { number: pr.number }), {
@@ -149,7 +187,6 @@ export function PrPanel({
         const { icon: Icon, tone } = prIcon(pr)
         const why = sessionOff ? null : prIconHidden(pr, display, now)
         const isHidden = why === 'hidden'
-        const closedAt = pr.closedAt ? Date.parse(pr.closedAt) : NaN
         return (
           <div key={pr.url} data-status-pr={pr.number} className="flex min-w-0 items-start gap-2">
             <Icon size={16} strokeWidth={1.5} className={cn('mt-0.5 shrink-0', tone, isHidden && 'opacity-50')} />
@@ -166,42 +203,7 @@ export function PrPanel({
                 {pr.repo} · {pr.head} → {pr.base}
               </p>
               <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-meta">
-                {pr.unknown ? (
-                  <span className="text-fg-muted">
-                    {tr(
-                      gh === 'signed-out'
-                        ? 'sidebar.status.pr.unknownSignedOut'
-                        : gh === 'missing'
-                          ? 'sidebar.status.pr.unknownMissing'
-                          : 'sidebar.status.pr.unknownReady',
-                    )}
-                  </span>
-                ) : (
-                  <>
-                    <span className="text-fg-secondary">
-                      {tr(PR_STATE[pr.state])}
-                      {(pr.state === 'merged' || pr.state === 'closed') && !Number.isNaN(closedAt) && (
-                        <> · {tr('sidebar.status.pr.ago', { time: relativeTime(closedAt, now) })}</>
-                      )}
-                    </span>
-                    <span className="tabular-nums">
-                      <span className="text-success">+{pr.additions}</span>{' '}
-                      <span className="text-danger">−{pr.deletions}</span>
-                    </span>
-                    {pr.ci && (
-                      <span className={CI_TONE[pr.ci]}>
-                        {pr.ci === 'pass'
-                          ? tr('sidebar.status.pr.ciPass')
-                          : pr.ci === 'pending'
-                            ? tr('sidebar.status.pr.ciPending')
-                            : pr.ciFailed > 0
-                              ? tr('sidebar.status.pr.ciFail', { count: pr.ciFailed })
-                              : tr('sidebar.status.pr.ciFailAny')}
-                      </span>
-                    )}
-                    {pr.conflict && <span className="text-warn">{tr('sidebar.status.pr.conflict')}</span>}
-                  </>
-                )}
+                <PrFacts pr={pr} gh={gh} />
                 {why && (
                   <span data-pr-icon-hidden={why} className="text-fg-faint">
                     {tr(HIDDEN_TAG[why])}

@@ -99,15 +99,18 @@ export function CheckSummary({
   onFix,
   onOpenPage,
   className,
+  embedded,
 }: {
   run: CheckRun
   onFix?: () => Promise<void> | void
   /** 给了就在页面检查的详情里带「看页面」 */
   onOpenPage?: (url: string) => void
   className?: string
+  /** 放在概况的「检查」分组里：详情一开始就展开（截图在里面），标题不用再写一遍 */
+  embedded?: boolean
 }) {
   useI18n()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(!!embedded)
   const [busy, setBusy] = useState(false)
   if (run.status === 'running')
     return (
@@ -134,11 +137,12 @@ export function CheckSummary({
         <button
           type="button"
           aria-expanded={open}
+          aria-label={embedded ? tr('checks.title') : undefined}
           onClick={() => setOpen(v => !v)}
           className="inline-flex shrink-0 items-center gap-0.5 rounded text-fg-muted hover:text-fg"
         >
           {open ? <ChevronDown size={13} strokeWidth={1.5} /> : <ChevronRight size={13} strokeWidth={1.5} />}
-          {tr('checks.title')}
+          {!embedded && tr('checks.title')}
         </button>
         {shown.length === 0 ? (
           <span className="text-fg-faint">{tr('checks.nothing')}</span>

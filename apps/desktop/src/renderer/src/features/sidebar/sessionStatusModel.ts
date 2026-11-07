@@ -48,6 +48,13 @@ export const isProblem = (kind: StatusKind | null): boolean => !!kind && kind in
 export const isPrKind = (kind: StatusKind | null): kind is 'pr' | 'pr-conflict' =>
   kind === 'pr' || kind === 'pr-conflict'
 
+export const PR_STATE = {
+  open: 'sidebar.status.pr.open',
+  draft: 'sidebar.status.pr.draft',
+  merged: 'sidebar.status.pr.merged',
+  closed: 'sidebar.status.pr.closed',
+} as const satisfies Record<SessionPr['state'], TranslationKey>
+
 /** 已关闭的 PR 过了 7 天悬停卡里也不再列 */
 export const CLOSED_PR_DAYS = 7
 

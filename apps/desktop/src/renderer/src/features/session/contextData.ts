@@ -1,5 +1,13 @@
 import { tr } from '../../i18n/core'
-import type { ContextDiagnostic, ContextWindow } from '@pixelsky/protocol'
+import type { ContextDiagnostic, ContextWindow, SessionSnapshot } from '@pixelsky/protocol'
+
+/** 现在为什么不能压缩，能压时为 null：运行中或有排队时 bridge.compact 会抛错。输入框弹窗和概况共用 */
+export function compactBlock(
+  s: Pick<SessionSnapshot, 'flags' | 'state' | 'queue'> | null | undefined,
+): 'busy' | 'unsupported' | null {
+  if (!s || s.state !== 'idle' || s.queue.length) return 'busy'
+  return s.flags.compactAvailable ? null : 'unsupported'
+}
 
 /** 明细里每一行（分类、各分组的条目）→ Token 数：刷新前后对比，找出变了的行 */
 export function diagnosticValues(d: ContextDiagnostic | null | undefined): Map<string, number> {

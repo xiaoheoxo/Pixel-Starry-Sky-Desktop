@@ -682,7 +682,10 @@ export function LiveTranscript({
     const el = scroller.current,
       content = stream.current
     if (!el || !content || typeof ResizeObserver === 'undefined') return
+    let width = content.offsetWidth
     const observer = new ResizeObserver(() => {
+      const rewrapped = content.offsetWidth !== width && content.offsetWidth > 0
+      width = content.offsetWidth
       if (jumping.current) return
       const next = afterResize(
         el,
@@ -695,6 +698,9 @@ export function LiveTranscript({
         el.scrollTop = el.scrollHeight
         return
       }
+      // 列宽变了、文字重新折行（进度卡片让位又收起）：改 max-width、margin 时浏览器不做滚动锚定，往上翻着看的按记下的锚点放回原位。
+      // 没离开底部的不放：往上挪一下会被当成用户自己往上滚，不再跟到底
+      if (rewrapped && !stick.current && placeRef.current.anchor) scrollToPlace(el, placeRef.current)
       stick.current = next.stick
       setAway(next.away)
       if (!next.away) setUnseen(false)

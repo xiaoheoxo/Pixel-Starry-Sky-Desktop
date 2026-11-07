@@ -1,6 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Bot, GitBranch, History, MessagesSquare } from 'lucide-react'
 import { SessionHeader } from './SessionHeader'
 import { TerminalView } from '@/features/terminal/TerminalView'
@@ -55,7 +56,12 @@ import { clearReviewComments, reviewMessage, useReviewComments } from './reviewC
 import { DiffCommentsContext } from '@/ui/code/diffComments'
 import { TurnCommentsContext, type TurnCommentsValue } from './TurnCommentCards'
 import { openTurnComment, turnOfItem } from './turnComments'
-import { paneActions } from '@/features/panes/store'
+import { paneActions, usePaneState } from '@/features/panes/store'
+import { focusedTab } from '@/features/panes/tree'
+import { useAppMode } from '@/features/coding/mode'
+import { dockTarget } from '@/features/panel/overview/overviewModel'
+import { useOverviewSlot } from '@/features/panel/overviewSlot'
+import { openRightTab, useActivePanelTab } from '@/features/panel/workspaceStore'
 import { isDemo, sessionDiff } from '@/data'
 import { demo } from '@/data/demo'
 import { cn, useToast } from '@/ui'
@@ -246,7 +252,14 @@ function LiveSessionView({
   const hasRuns = !!runs && (runs.workflows.length > 0 || runs.agents.length > 0)
   const tasks = snapshot?.tasks ?? []
   // 计划和子智能体在右上角的进度卡片里；卡片显示时「智能体活动」也放进卡片（docs/ui/progress-card.md）
-  const fullProgress = useProgress(snapshot)
+  // 右栏选中概况时卡片停靠进去（docs/ui/desktop-parity.md §3.1），对话区不留第二份。代码模式的 panelOpen 总是 false
+  const appMode = useAppMode()
+  const panelTab = useActivePanelTab()
+  const focused = usePaneState(s => focusedTab(s.layout) === sessionId)
+  const overviewSlot = useOverviewSlot()
+  const dockTo = dockTarget({ panelOpen, focused, tab: panelTab, slot: overviewSlot })
+  const docked = !!dockTo
+  const fullProgress = useProgress(snapshot, docked)
   // 极简模式：计划写在对话末尾，浮动卡片只剩子智能体（docs/ui/minimal-mode.md §3）
   const minimal = useMinimal()
   const inlinePlan = minimal && !!snapshot && snapshot.state !== 'idle' ? fullProgress.plan : null
@@ -267,6 +280,7 @@ function LiveSessionView({
   }, [sessionId, pendingApprovals])
   const canStopAgents = !!snapshot && ENGINES[snapshot.record.engine].caps.backgroundTasks
   const [expandToken, setExpandToken] = useState(0)
+  const expandSeen = useRef(0)
   const showStrips = !!sessionId && (tasks.length > 0 || traceInStrips)
   // 后台任务条的高度：进度卡片放到它下面（docs/ui/conversation-concise.md §3 F）
   const strips = useRef<HTMLDivElement>(null)
@@ -390,6 +404,22 @@ function LiveSessionView({
     return items.slice(from).find(i => i.kind === 'user')?.id ?? null
   }, [record?.branch, items])
   const readOnly = branchReadOnly(record)
+  // 打开追踪面板时对话区的卡片让开；停靠的不在对话区，不用让
+  const progressCard =
+    sessionId && progress.visible && (docked || !trace) ? (
+      <ProgressCard
+        key={sessionId}
+        progress={progress}
+        belowFind={find !== null}
+        offset={stripsHeight}
+        onOpenTrace={hasRuns ? () => openTrace() : undefined}
+        onStopAgents={canStopAgents ? ids => stopAgents(sessionId, ids) : undefined}
+        expandToken={expandToken}
+        expandSeen={expandSeen}
+        docked={docked}
+        onDock={appMode === 'code' ? undefined : () => openRightTab('overview')}
+      />
+    ) : null
 
   return (
     <PathLinksProvider sessionId={sessionId}>
@@ -485,6 +515,9 @@ function LiveSessionView({
                 <>
                   {record?.branch && <BranchBanner record={record} />}
                   <div ref={body} className="conversation-body relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {/* 要是对话区的直接子元素，放最前：收起时那一条占布局、排在最上面；让位靠 conversation.css 的 :has(> …) */}
+                    {/* portal 保留 React 上下文：停靠后点子智能体照样走 TraceContext */}
+                    {progressCard && dockTo ? createPortal(progressCard, dockTo) : progressCard}
                     {showStrips && (
                       <div
                         ref={strips}
@@ -535,17 +568,6 @@ function LiveSessionView({
                         </MessageActionsContext.Provider>
                       </CheckpointsContext.Provider>
                     </ImageSessionContext.Provider>
-                    {progress.visible && !trace && (
-                      <ProgressCard
-                        key={sessionId}
-                        progress={progress}
-                        belowFind={find !== null}
-                        offset={stripsHeight}
-                        onOpenTrace={hasRuns ? () => openTrace() : undefined}
-                        onStopAgents={canStopAgents ? ids => stopAgents(sessionId, ids) : undefined}
-                        expandToken={expandToken}
-                      />
-                    )}
                     {find !== null && (
                       <ConversationFind
                         root={mainRef}

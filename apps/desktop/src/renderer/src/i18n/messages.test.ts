@@ -19,6 +19,10 @@ describe('中英文词典', () => {
       'Unexpected tool failure: EXTERNAL_123',
     )
   })
+  it('概况的计数模板不拿去匹配引擎原文', () => {
+    for (const text of ['Server connected', 'Build failing', 'Tests need attention'])
+      expect(translateMessage(text, 'zh-CN')).toBe(text)
+  })
   it('交接通知带图片说明时也能翻成英文', () => {
     const cases: [string, string][] = [
       ['已把之前的聊天带给 Codex（3 轮）', 'Brought the previous chat to Codex (3 turns)'],

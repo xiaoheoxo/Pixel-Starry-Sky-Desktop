@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   changedRows,
+  compactBlock,
   contextNumber,
   contextPercentage,
   contextSegments,
@@ -23,6 +24,22 @@ const base: ContextWindow = {
   diagnostic: null,
   diagnosticStale: false,
 }
+describe('compactBlock', () => {
+  const idle = { state: 'idle', queue: [], flags: { compactAvailable: true } } as unknown as Parameters<
+    typeof compactBlock
+  >[0]
+  it('空闲、没排队、引擎支持才能压', () => {
+    expect(compactBlock(idle)).toBeNull()
+  })
+  it('运行中、有排队、快照还没到：等', () => {
+    expect(compactBlock({ ...idle!, state: 'running' })).toBe('busy')
+    expect(compactBlock({ ...idle!, queue: [{}] as never })).toBe('busy')
+    expect(compactBlock(null)).toBe('busy')
+  })
+  it('引擎不支持', () => {
+    expect(compactBlock({ ...idle!, flags: { compactAvailable: false } as never })).toBe('unsupported')
+  })
+})
 describe('上下文显示', () => {
   it('展示有效零、未知、过期与超过容量的真实百分比', () => {
     expect(contextPercentage(base)).toBe(80)

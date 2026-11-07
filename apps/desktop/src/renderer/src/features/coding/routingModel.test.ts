@@ -11,9 +11,10 @@ describe('routeWorkspaceTool', () => {
     for (const id of ['artifacts', 'browser', 'tasks', 'sandbox', 'copies'])
       expect(routeWorkspaceTool(id)).toEqual({ panel: 'right', view: id })
   })
-  it('评论、连接器在代码模式没有地方放：图标位置里的按钮靠这个判断隐藏', () => {
+  it('评论、连接器、概况在代码模式没有地方放：图标位置里的按钮靠这个判断隐藏', () => {
     expect(routeWorkspaceTool('comments')).toBeNull()
     expect(routeWorkspaceTool('connectors')).toBeNull()
+    expect(routeWorkspaceTool('overview')).toBeNull()
   })
   it('文件标签和不认识的 id 返回 null', () => {
     expect(routeWorkspaceTool('file:abc')).toBeNull()
