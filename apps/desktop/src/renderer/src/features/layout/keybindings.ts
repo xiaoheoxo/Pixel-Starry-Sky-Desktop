@@ -39,6 +39,10 @@ export const ACTIONS = [
   { id: 'shortcutsHelp', label: 'shortcuts.help.action', binding: key('Slash') },
   // 会话界面 ⇄ 终端（TUI）（docs/ui/tui-toggle.md §3.1）；默认 Alt+T
   { id: 'toggleTuiMode', label: 'session.tui.toggle', binding: key('KeyT', { mod: false, alt: true }) },
+  // 高频操作（docs/ui/desktop-parity.md 第一批）
+  { id: 'toggleSideChat', label: 'shortcuts.toggleSideChat', binding: key('Semicolon') },
+  { id: 'openBrowser', label: 'shortcuts.openBrowser', binding: key('KeyB', { shift: true }) },
+  { id: 'cyclePermission', label: 'shortcuts.cyclePermission', binding: key('KeyM', { shift: true }) },
 ] as const satisfies readonly { id: string; label: TranslationKey; binding: Binding }[]
 
 export type ActionId = (typeof ACTIONS)[number]['id']

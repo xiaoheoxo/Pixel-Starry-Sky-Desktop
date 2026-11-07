@@ -36,6 +36,12 @@ export const QUOTE_SELECTION = action('quoteSelection')
 export const SHORTCUTS_HELP = action('shortcutsHelp')
 /** 会话界面 ⇄ 终端（TUI）：默认 Alt+T（docs/ui/tui-toggle.md §3.1） */
 export const TOGGLE_TUI_MODE = action('toggleTuiMode')
+/** 打开 / 关闭旁聊：默认 Ctrl+;，在当前对话区生效 */
+export const TOGGLE_SIDE_CHAT = action('toggleSideChat')
+/** 打开内置浏览器：默认 Ctrl+Shift+B */
+export const OPEN_BUILTIN_BROWSER = action('openBrowser')
+/** 切换权限模式：默认 Ctrl+Shift+M，跳过完全放行（session/fullAccess.ts） */
+export const CYCLE_PERMISSION = action('cyclePermission')
 
 const mod = (e: KeyboardEvent): boolean => (isMac ? e.metaKey : e.ctrlKey)
 

@@ -7,6 +7,12 @@ export function needsFullConfirm(from: PermissionMode, to: PermissionMode): bool
   return to === 'full' && from !== 'full'
 }
 
+/** 快捷键切到下一个模式：完全放行要先确认，快捷键不进它；从它按下去回到第一个 */
+export function nextPermissionMode(mode: PermissionMode, modes: PermissionMode[]): PermissionMode {
+  const cycle: PermissionMode[] = modes.filter(m => m !== 'full')
+  return cycle[(cycle.indexOf(mode) + 1) % cycle.length] ?? mode
+}
+
 /** 「改回」用哪个模式：新会话的默认不是完全放行就用它，否则自动编辑（引擎不支持时每次询问） */
 export function saferMode(defaultMode: PermissionMode | null | undefined, modes: PermissionMode[]): PermissionMode {
   if (defaultMode && defaultMode !== 'full' && modes.includes(defaultMode)) return defaultMode

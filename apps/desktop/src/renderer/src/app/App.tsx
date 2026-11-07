@@ -6,7 +6,13 @@ import { SidebarFollow } from './SidebarFollow'
 import { ToolbarContext } from '../features/layout/ToolbarContext'
 import { RightPanel } from '../features/panel/RightPanel'
 import { defaultPanelOpen, defaultSessionId } from '../data'
-import { NEW_TASK, TOGGLE_BOTTOM_PANEL, TOGGLE_PANEL, TOGGLE_SIDEBAR } from '../features/layout/shortcuts'
+import {
+  NEW_TASK,
+  OPEN_BUILTIN_BROWSER,
+  TOGGLE_BOTTOM_PANEL,
+  TOGGLE_PANEL,
+  TOGGLE_SIDEBAR,
+} from '../features/layout/shortcuts'
 import { cn, CollapsibleSlot, useComingSoon } from '../ui'
 import { isLive, useEngineBoot, useOpenSessionRequests } from '../features/engine'
 import { Workspace, WorkspaceHeader } from '../features/panes/Workspace'
@@ -25,7 +31,7 @@ import { FileLifecycle } from '../features/files/FileLifecycle'
 import { FileConfirm } from '../features/files/FileConfirm'
 import { WindowControls } from '../features/layout/WindowControls'
 import { FirstLaunch } from '../features/onboarding/FirstLaunch'
-import { OPEN_RIGHT_WORKSPACE } from '../features/panel/workspaceStore'
+import { OPEN_RIGHT_WORKSPACE, openRightTab } from '../features/panel/workspaceStore'
 import { LAST_OPEN_KEY, readOpenMap, saveOpenMap, withOpen } from '../features/panel/panelOpen'
 import { CodingLayout } from '../features/coding/CodingLayout'
 import { codingLayout } from '../features/coding/layoutStore'
@@ -258,7 +264,9 @@ export function App() {
             : togglePanel
           : code && TOGGLE_BOTTOM_PANEL.match(e)
             ? () => codingLayout.toggle('bottom')
-            : newTask
+            : OPEN_BUILTIN_BROWSER.match(e)
+              ? () => openRightTab('browser')
+              : newTask
       if (!action) return
       e.preventDefault()
       action()

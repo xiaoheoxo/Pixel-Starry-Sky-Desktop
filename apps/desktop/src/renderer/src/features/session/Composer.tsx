@@ -28,6 +28,9 @@ import { useAccount } from '@/features/account/useAccount'
 import type { CreditSource } from '@/features/account/platform'
 import { sourceOfChannel, type ChannelChoice } from '@/features/model-channels/channelModel'
 import type { SourceSwitch } from './SourceHintBar'
+import { nextPermissionMode } from './fullAccess'
+import { keyForConversation } from '@/features/search/ConversationFind'
+import { CYCLE_PERMISSION } from '@/features/layout/shortcuts'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { AttachmentChip } from './AttachmentChip'
 import { EffortMenu, PermissionMenu } from './ComposerMenus'
@@ -167,6 +170,17 @@ export function Composer({
   const ref = useRef<ComposerInputHandle>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!live) return
+    const onKey = (e: KeyboardEvent): void => {
+      const main = cardRef.current?.closest('main')
+      if (!main || !CYCLE_PERMISSION.match(e) || !keyForConversation(main, e)) return
+      e.preventDefault()
+      live.setPermissionMode(nextPermissionMode(live.permissionMode, live.permissionModes))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [live])
   const composerHeight = useLayoutSize('composerHeight')
   const [maxHeight, setMaxHeight] = useState(LINE_HEIGHT * MAX_ROWS + paddingY)
   /** 输入框内容的高度（含内边距），输入框报上来 */

@@ -28,7 +28,6 @@ import { IconButton, Spinner, cn, useToast } from '@/ui'
 import { useEngineState } from '@/features/engine'
 import { isDemo, projects as demoProjects } from '@/data'
 import { useActiveWorkspace } from '@/features/editor/target'
-import { useMinimal } from '@/features/appearance/ThemeProvider'
 import {
   FILE_SAVED_EVENT,
   OPEN_FILES_EVENT,
@@ -343,6 +342,9 @@ function NameInput({ initial, depth, folder }: { initial: string; depth: number;
     </div>
   )
 }
+/** 过滤框一排窄于这个宽度就把工具按钮收进「⋯」：5 个按钮约 138，过滤框至少留 120 */
+const TIGHT_ROW_WIDTH = 260
+
 export function FileTree({
   requested,
   compact = false,
@@ -370,13 +372,14 @@ export function FileTree({
   const projects = useEngineState(s => s.projects),
     active = useActiveWorkspace()
   // 极简模式下不写标题时，新建 / 刷新 / 折叠这排按钮并进过滤框那一行（docs/ui/minimal-mode.md §9）
-  const merged = useMinimal() && !heading
+  const merged = !heading
   const [query, setQuery] = useState(''),
     [revision, setRevision] = useState(0),
     [collapsed, setCollapsed] = useState(0),
     [expandAll, setExpandAll] = useState(false),
     // 标题栏「⋯」菜单（隐藏被忽略的文件）
-    [moreMenu, setMoreMenu] = useState<{ x: number; y: number; trigger: HTMLElement } | null>(null)
+    [moreMenu, setMoreMenu] = useState<{ x: number; y: number; trigger: HTMLElement } | null>(null),
+    [tight, setTight] = useState(false)
   const hideMap = useHideIgnoredMap()
   const [requestedTarget, setRequestedTarget] = useState<{ path: string; name: string } | null>(null)
   const source = isDemo ? demoProjects.map(p => ({ id: p.id, name: p.name, path: p.name })) : projects
@@ -744,45 +747,48 @@ export function FileTree({
       setDropKey(null)
     }
   }, [dragging])
+  // 工具按钮并进过滤框这一排；放不下时收进「⋯」
+  const filterRow = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const row = filterRow.current
+    if (!row || !merged) return
+    const observer = new ResizeObserver(([entry]) => setTight(entry.contentRect.width < TIGHT_ROW_WIDTH))
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [merged])
   const dirtyCount = deleting ? openFilesUnder(deleting.ref, deleting.entry.path).filter(dirtyFile).length : 0
+  const tools = [
+    ...(single
+      ? [
+          {
+            icon: FilePlus,
+            label: tr('workspace.newFile'),
+            run: () => startEdit({ mode: 'file', ref: single, parent: '' }),
+          },
+          {
+            icon: FolderPlus,
+            label: tr('workspace.newFolder'),
+            run: () => startEdit({ mode: 'folder', ref: single, parent: '' }),
+          },
+        ]
+      : []),
+    { icon: RefreshCw, label: tr('files.FileTree.refreshFilesAndGit'), run: () => setRevision(n => n + 1) },
+    {
+      icon: ChevronsDownUp,
+      label: tr(expandAll ? 'workspace.collapseAll' : 'workspace.expandAll'),
+      run: () => {
+        forgetExpandedIn(roots.map(rootRef))
+        setExpandAll(v => !v)
+        setCollapsed(n => n + 1)
+      },
+    },
+  ]
   const actions = (
     <>
-      {single && (
-        <>
-          <IconButton
-            icon={FilePlus}
-            size={26}
-            iconSize={14}
-            label={tr('workspace.newFile')}
-            onClick={() => startEdit({ mode: 'file', ref: single, parent: '' })}
-          />
-          <IconButton
-            icon={FolderPlus}
-            size={26}
-            iconSize={14}
-            label={tr('workspace.newFolder')}
-            onClick={() => startEdit({ mode: 'folder', ref: single, parent: '' })}
-          />
-        </>
-      )}
-      <IconButton
-        icon={RefreshCw}
-        size={26}
-        iconSize={14}
-        label={tr('files.FileTree.refreshFilesAndGit')}
-        onClick={() => setRevision(n => n + 1)}
-      />
-      <IconButton
-        icon={ChevronsDownUp}
-        size={26}
-        iconSize={14}
-        label={tr(expandAll ? 'workspace.collapseAll' : 'workspace.expandAll')}
-        onClick={() => {
-          forgetExpandedIn(roots.map(rootRef))
-          setExpandAll(v => !v)
-          setCollapsed(n => n + 1)
-        }}
-      />
+      {!tight &&
+        tools.map(tool => (
+          <IconButton key={tool.label} icon={tool.icon} size={26} iconSize={14} label={tool.label} onClick={tool.run} />
+        ))}
       {roots.length > 0 && (
         <IconButton
           icon={MoreHorizontal}
@@ -816,7 +822,7 @@ export function FileTree({
                 </span>
               </div>
             )}
-            <div className={cn('mx-2 mb-2 flex shrink-0 items-center gap-1', merged && 'mt-1')}>
+            <div ref={filterRow} className={cn('mx-2 mb-2 flex shrink-0 items-center gap-1', merged && 'mt-2')}>
               <label
                 data-file-tree-filter
                 className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-line bg-subtle px-2"
@@ -905,16 +911,19 @@ export function FileTree({
                 setMoreMenu(null)
                 moreMenu.trigger.focus({ preventScroll: true })
               }}
-              actions={roots.map(project => {
-                const hidden = isHidingIgnored(hideMap, project.path)
-                return {
-                  label: tr('fileIcons.hideIgnored'),
-                  checked: hidden,
-                  // 多个根时每个根一组，标题是根的名字
-                  section: roots.length > 1 ? project.name : undefined,
-                  run: () => setHideIgnored(project.path, !hidden),
-                }
-              })}
+              actions={[
+                ...(tight ? tools.map(({ label, run }) => ({ label, run })) : []),
+                ...roots.map(project => {
+                  const hidden = isHidingIgnored(hideMap, project.path)
+                  return {
+                    label: tr('fileIcons.hideIgnored'),
+                    checked: hidden,
+                    // 多个根时每个根一组，标题是根的名字
+                    section: roots.length > 1 ? project.name : undefined,
+                    run: () => setHideIgnored(project.path, !hidden),
+                  }
+                }),
+              ]}
             />
           )}
           {displacing && (

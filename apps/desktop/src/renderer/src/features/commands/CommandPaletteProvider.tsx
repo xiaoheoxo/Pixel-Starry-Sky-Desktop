@@ -14,6 +14,7 @@ import {
   History,
   FolderOpen,
   GitBranch,
+  Globe,
   Keyboard,
   LayoutDashboard,
   ListChecks,
@@ -45,7 +46,9 @@ import { cn, Kbd, useToast } from '@/ui'
 import {
   CLOSE_TAB,
   COMMAND_PALETTE,
+  NEW_TASK,
   NEW_TERMINAL,
+  OPEN_BUILTIN_BROWSER,
   OPEN_SEARCH,
   OPEN_SETTINGS,
   QUOTE_SELECTION,
@@ -79,7 +82,7 @@ import { getPanelLayout, getPanelScope, openRightTab } from '@/features/panel/wo
 import { getFiles, saveFile, showFiles } from '@/features/files/store'
 import { quoteSelection } from '@/features/editor/code/CodeEditor'
 import { isDemo, projects } from '@/data'
-import { rankCommands } from './rank'
+import { groupCommands, rankCommands } from './rank'
 import { getAppMode, setAppMode } from '@/features/coding/mode'
 import { codingLayout } from '@/features/coding/layoutStore'
 import { demoSessionChanges } from '@/data/demo'
@@ -210,7 +213,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       () => {
         paneActions.open(null)
       },
-      undefined,
+      NEW_TASK.label,
       samePane,
     )
     // 接着终端里的 Claude Code / Codex 会话（docs/ui/claude-resume.md、codex-resume.md §2.1），各一条入口：按当前项目打开选择框；远程机器上暂不支持
@@ -250,6 +253,14 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       channelActions.openNeeds(true)
     })
     add('board.open', 'board.open', 'terminal.categoryWorkbench', SquareKanban, () => setPage('board'))
+    add(
+      'browser.open',
+      'shortcuts.openBrowser',
+      'terminal.categoryWorkbench',
+      Globe,
+      () => openRightTab('browser'),
+      OPEN_BUILTIN_BROWSER.label,
+    )
     add('inbox.open', 'projectTools.inbox.palette', 'terminal.categoryWorkbench', ListChecks, () =>
       openRightTab('tasks'),
     )
@@ -716,12 +727,18 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       }
     })
   }, [settings])
-  const visible = rankCommands(commands, query, recent)
+  const groups = groupCommands(rankCommands(commands, query, recent), query, recent, t('terminal.recent'))
+  const visible = groups.flatMap(group => group.items)
   const index = Math.min(selected, Math.max(0, visible.length - 1))
   useEffect(() => {
     const container = list.current,
       row = container?.querySelector<HTMLElement>('[aria-selected="true"]')
     if (!container || !row) return
+    // 回到第一条时连分组标题一起露出来
+    if (index === 0) {
+      container.scrollTop = 0
+      return
+    }
     const a = container.getBoundingClientRect(),
       b = row.getBoundingClientRect()
     if (b.top < a.top) container.scrollTop += b.top - a.top
@@ -839,39 +856,48 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
                 {!visible.length && (
                   <p className="px-3 py-5 text-center text-meta text-fg-muted">{t('terminal.noCommands')}</p>
                 )}
-                {visible.map((item, i) => {
-                  const Icon = item.icon
-                  return (
-                    <button
-                      key={item.id}
-                      id={'app-command-' + i}
-                      tabIndex={-1}
-                      role="option"
-                      aria-selected={i === index}
-                      aria-disabled={!!item.reason}
-                      title={item.reason}
-                      data-command-id={item.id}
-                      onMouseEnter={() => setSelected(i)}
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => void execute(item)}
-                      className={cn(
-                        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left',
-                        i === index ? 'bg-selected' : 'hover:bg-hover',
-                        item.reason && 'opacity-50',
-                      )}
-                    >
-                      <Icon size={16} className="shrink-0 text-fg-muted" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-ui">{item.label}</span>
-                        <span className="block truncate text-label text-fg-faint">
-                          {item.reason ??
-                            (recent.includes(item.id) && !query ? t('terminal.recent') + ' · ' : '') + item.category}
-                        </span>
-                      </span>
-                      {item.shortcut && <Kbd>{item.shortcut}</Kbd>}
-                    </button>
-                  )
-                })}
+                {groups.map(group => (
+                  <div key={group.title ?? ''} role="group" aria-label={group.title ?? undefined}>
+                    {group.title && (
+                      <div aria-hidden className="px-2.5 pt-2 pb-0.5 text-label text-fg-faint">
+                        {group.title}
+                      </div>
+                    )}
+                    {group.items.map(item => {
+                      const Icon = item.icon
+                      const i = visible.indexOf(item)
+                      // 有分组标题时不再重复分类名；搜索结果没有标题，分类写在右边
+                      const note = item.reason ?? (group.title ? null : item.category)
+                      return (
+                        <button
+                          key={item.id}
+                          id={'app-command-' + i}
+                          tabIndex={-1}
+                          role="option"
+                          aria-selected={i === index}
+                          aria-disabled={!!item.reason}
+                          title={item.reason}
+                          data-command-id={item.id}
+                          onMouseEnter={() => setSelected(i)}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => void execute(item)}
+                          className={cn(
+                            'flex w-full items-center gap-2.5 rounded-md px-2.5 py-1 text-left',
+                            i === index ? 'bg-selected' : 'hover:bg-hover',
+                            item.reason && 'opacity-50',
+                          )}
+                        >
+                          <Icon size={14} className="shrink-0 text-fg-muted" />
+                          <span className="min-w-0 flex-1 truncate text-ui">{item.label}</span>
+                          {note && (
+                            <span className="max-w-[45%] shrink-0 truncate text-label text-fg-faint">{note}</span>
+                          )}
+                          {item.shortcut && <Kbd>{item.shortcut}</Kbd>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           </div>,

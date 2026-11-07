@@ -5156,6 +5156,18 @@ export const catalog = {
     zh: '向右拆分窗格',
     en: 'Split pane right',
   },
+  'shortcuts.toggleSideChat': {
+    zh: '打开 / 关闭旁聊',
+    en: 'Toggle side chat',
+  },
+  'shortcuts.openBrowser': {
+    zh: '打开内置浏览器',
+    en: 'Open built-in browser',
+  },
+  'shortcuts.cyclePermission': {
+    zh: '切换权限模式（跳过完全放行）',
+    en: 'Cycle permission mode (skips full access)',
+  },
   'shortcuts.splitPaneDown': {
     zh: '向下拆分窗格',
     en: 'Split pane down',

@@ -30,7 +30,13 @@ import { InlinePlan } from './live/InlinePlan'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { TraceContext, type TraceTarget } from './live/trace'
 import { PathLinksProvider } from '@/features/files/PathLinksProvider'
-import { ConversationFind, useFindShortcut, type FoldedMatches } from '@/features/search/ConversationFind'
+import {
+  ConversationFind,
+  keyForConversation,
+  useFindShortcut,
+  type FoldedMatches,
+} from '@/features/search/ConversationFind'
+import { TOGGLE_SIDE_CHAT } from '@/features/layout/shortcuts'
 import { expandItems } from '@/features/search/expand'
 import { countFull, foldedMatches } from './live/foldedText'
 import { fullItem } from './live/itemBody'
@@ -294,6 +300,20 @@ function LiveSessionView({
     setTrace(null)
     setSide(prev => ({ text, token: (prev?.token ?? 0) + 1, draft }))
   }, [])
+  const sideAvailable = !!branch.sideChat && tuiMode !== 'terminal'
+  const sideOpen = side !== null
+  useEffect(() => {
+    if (!sideAvailable) return
+    const onKey = (e: KeyboardEvent): void => {
+      const el = mainRef.current
+      if (!el || !TOGGLE_SIDE_CHAT.match(e) || !keyForConversation(el, e)) return
+      e.preventDefault()
+      if (sideOpen) setSide(null)
+      else openSide()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sideAvailable, sideOpen, openSide])
   // 对话区右键菜单挂在对话区外层
   const body = useRef<HTMLDivElement>(null)
   // 代码评论（§4）
