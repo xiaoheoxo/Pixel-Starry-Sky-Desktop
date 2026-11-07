@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react'
 import { codexPlainText } from '@pixelsky/protocol'
 import {
   Archive,
+  BookmarkPlus,
   ArchiveRestore,
   ArrowUpRight,
   Bot,
@@ -25,6 +26,7 @@ import type { AgentMember, Channel, ChannelAgentStatus, ChannelMember, HumanMemb
 import type { AgentConfig, AgentPolicy, ChannelNotify, ChannelTaskStatus } from '../../../../shared/types/channels'
 import { agentMeta, MemberAvatar } from './ChannelMessage'
 import { AgentDialog, ChannelDialog } from './ChannelDialogs'
+import { SavePresetDialog } from './ChannelPresets'
 import { channelActions, channelsLive, useChannels } from './store'
 import { AddTeamAgentDialog, TeamSettingsDialog } from './TeamDialog'
 import { PresenceAvatar, roleLabel } from './TeamParts'
@@ -407,6 +409,7 @@ export function ChannelMembers({
   const [dialog, setDialog] = useState<
     | { kind: 'agent'; editing: AgentConfig | null }
     | { kind: 'channel' }
+    | { kind: 'savePreset' }
     | { kind: 'delete' }
     | { kind: 'remove'; member: AgentMember }
     | { kind: 'policy'; member: AgentMember }
@@ -625,6 +628,15 @@ export function ChannelMembers({
               ? [{ label: tr('channels.channel.restore'), icon: ArchiveRestore, run: () => setArchived(false) }]
               : [{ label: tr('channels.channel.edit'), icon: Pencil, run: () => setDialog({ kind: 'channel' }) }]),
             ...(!team && !archived
+              ? [
+                  {
+                    label: tr('channels.channel.savePreset'),
+                    icon: BookmarkPlus,
+                    run: () => setDialog({ kind: 'savePreset' }),
+                  },
+                ]
+              : []),
+            ...(!team && !archived
               ? [{ label: tr('channels.channel.archive'), icon: Archive, run: () => setArchived(true) }]
               : []),
             {
@@ -658,6 +670,7 @@ export function ChannelMembers({
       {dialog?.kind === 'agent' && (
         <AgentDialog channel={channel} editing={dialog.editing} others={others} onClose={() => setDialog(null)} />
       )}
+      {dialog?.kind === 'savePreset' && <SavePresetDialog channel={channel} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'channel' && <ChannelDialog channel={channel} agents={[]} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'delete' && (
         <ConfirmDialog

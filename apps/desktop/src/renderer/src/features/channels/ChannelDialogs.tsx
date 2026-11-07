@@ -13,12 +13,27 @@ import { effortLabel } from '@/features/engine/labels'
 import { effortDefaultsFor } from '@/features/engine/effortDefaults'
 import { useMachines } from '@/features/machines/store'
 import type { AgentMember, Channel } from '@/data/types'
-import { DEFAULT_RELAY_RULES, relayRulesOf, type AgentConfig, type RelayRules } from '../../../../shared/types/channels'
+import { relayRulesOf, type AgentConfig, type RelayRules } from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
 import { channelActions, useChannels } from './store'
 import { matchAgents, scheduleToInput } from './model'
 import { RelayRulesEditor } from './RelayRules'
 import { AlertRulesEditor } from './AlertRules'
+import { CopyFromChannel, ManagePresetsDialog, PresetChooser, PresetSummary } from './ChannelPresets'
+import {
+  COPY_SOURCE,
+  createFromForm,
+  formFromPreset,
+  membersElsewhere,
+  planPresetMembers,
+  presetFromChannel,
+  refreshSource,
+  sameForm,
+  usePresets,
+  type ChannelPreset,
+  type PresetForm,
+  type PresetSource,
+} from './presets'
 import { DIGEST_HOUR, alertRulesOf, type ChannelAlertRules } from '../../../../shared/channels/alerts'
 import { MemberTools } from './MemberTools'
 import { AiFilled, MemberQuickFill } from './MemberQuickFill'
@@ -145,6 +160,9 @@ function useProjectOptions(): SelectOption<string>[] {
 // 频道
 // ---------------------------------------------------------------------------
 
+/** 照着频道建时不带它的默认项目：和「存为预设」的默认一样，用当前打开的项目 */
+const COPY_PARTS = ['members', 'dispatch', 'notes', 'alerts'] as const
+
 /** 新建频道时 AI 成员超过这么多个，列表上面多一个搜索框 */
 const MEMBER_SEARCH_MIN = 8
 
@@ -170,50 +188,117 @@ export function ChannelDialog({
     return id ? (s.teams.find(t => t.id === id)?.name ?? null) : null
   })
   const inTeam = !!teamId || channel?.scope === 'team'
+  const creating = !channel && !inTeam
+  // 频道预设（docs/ui/channel-presets.md）：打开新建时选中默认预设
+  const presets = usePresets()
+  const [source, setSource] = useState<PresetSource | null>(() => {
+    const preset = creating ? presets.items.find(p => p.id === presets.defaultId) : undefined
+    return preset ? { id: preset.id, name: preset.name, preset } : null
+  })
+  const [pending, setPending] = useState<PresetSource | null | undefined>(undefined)
+  const [expanded, setExpanded] = useState(false)
+  const [copying, setCopying] = useState(false)
+  const [managing, setManaging] = useState(false)
+  const copyable = useChannels(s => s.channels).filter(c => c.scope === 'local')
+  // 表单的基准：选了预设就是预设的值，只选预设不算改动
+  const [base, setBase] = useState<PresetForm>(() =>
+    channel
+      ? {
+          notes: channel.notes ?? '',
+          members: [],
+          relay: channel.relay === true,
+          rules: relayRulesOf(channel),
+          planFirst: channel.planFirst !== false,
+          leadRoute: channel.leadRoute !== false,
+          lead: channel.lead ?? '',
+          notify: channel.notify ?? 'all',
+          alerts: alertRulesOf(channel),
+          digestHour: channel.digestHour ?? DIGEST_HOUR,
+        }
+      : formFromPreset(source?.preset ?? null, agents),
+  )
+  const projectOf = (preset: ChannelPreset | undefined): string | undefined =>
+    preset?.projectId === undefined
+      ? undefined
+      : !preset.projectId || projectOptions.some(o => o.value === preset.projectId)
+        ? (preset.projectId ?? '')
+        : undefined
   const [name, setName] = useState(channel?.name ?? '')
   const [topic, setTopic] = useState(channel?.topic ?? '')
-  const [notes, setNotes] = useState(channel?.notes ?? '')
-  const [projectId, setProjectId] = useState<string>(channel ? (channel.projectId ?? '') : (currentProject ?? ''))
-  const [members, setMembers] = useState<string[]>([])
+  const [notes, setNotes] = useState(base.notes)
+  const [projectId, setProjectId] = useState<string>(
+    channel ? (channel.projectId ?? '') : (projectOf(source?.preset) ?? currentProject ?? ''),
+  )
+  const [members, setMembers] = useState<string[]>(base.members)
   const [memberQuery, setMemberQuery] = useState('')
-  const [relay, setRelay] = useState(channel?.relay === true)
-  const [lead, setLead] = useState(channel?.lead ?? '')
-  const [planFirst, setPlanFirst] = useState(channel?.planFirst !== false)
-  const [leadRoute, setLeadRoute] = useState(channel?.leadRoute !== false)
+  const [relay, setRelay] = useState(base.relay)
+  const [lead, setLead] = useState(base.lead)
+  const [planFirst, setPlanFirst] = useState(base.planFirst)
+  const [leadRoute, setLeadRoute] = useState(base.leadRoute)
   const channelMembers = useChannels(s => s.members)
   const leadOptions = channelMembers.filter(
-    m => m.kind === 'agent' && m.machineId === 'local' && channel?.memberIds.includes(m.id),
+    m => m.kind === 'agent' && m.machineId === 'local' && (channel ? channel.memberIds : members).includes(m.id),
   )
-  const savedRules = channel ? relayRulesOf(channel) : DEFAULT_RELAY_RULES
-  const [rules, setRules] = useState<RelayRules>(savedRules)
+  const [rules, setRules] = useState<RelayRules>(base.rules)
   // 主动提醒（docs/ui/channels-collab-v2.md §6）
-  const savedAlerts = alertRulesOf(channel ?? {})
-  const [alerts, setAlerts] = useState<ChannelAlertRules>(savedAlerts)
-  const [digestHour, setDigestHour] = useState(channel?.digestHour ?? DIGEST_HOUR)
+  const [alerts, setAlerts] = useState<ChannelAlertRules>(base.alerts)
+  const [digestHour, setDigestHour] = useState(base.digestHour)
+  // 表单里没有提醒级别（在成员面板改），只有预设会带
+  const [notify, setNotify] = useState(base.notify)
+  const form: PresetForm = { notes, members, relay, rules, planFirst, leadRoute, lead, notify, alerts, digestHour }
+  const changed = !sameForm(form, base)
+  const applySource = (next: PresetSource | null): void => {
+    const values = formFromPreset(next?.preset ?? null, agents)
+    setSource(next)
+    setBase(values)
+    setNotes(values.notes)
+    setMembers(values.members)
+    setRelay(values.relay)
+    setRules(values.rules)
+    setPlanFirst(values.planFirst)
+    setLeadRoute(values.leadRoute)
+    setLead(values.lead)
+    setNotify(values.notify)
+    setAlerts(values.alerts)
+    setDigestHour(values.digestHour)
+    const project = projectOf(next?.preset)
+    if (project !== undefined) setProjectId(project)
+    setExpanded(false)
+    setCopying(false)
+    setPending(undefined)
+  }
+  // 切换来源会丢掉刚才的修改：改过就先问
+  const pickSource = (next: PresetSource | null): void => {
+    if (changed) setPending(next)
+    else applySource(next)
+  }
+  const pickPreset = (id: string | null): void => {
+    const preset = id ? presets.items.find(p => p.id === id) : undefined
+    pickSource(preset ? { id: preset.id, name: preset.name, preset } : null)
+  }
+  const deletedMembers = source ? planPresetMembers(source.preset, agents).deleted : []
+  // 管理预设回来：选中的预设删除了就回到空白，改名了跟着改（表单里的修改留着）
+  const closeManage = (): void => {
+    setManaging(false)
+    if (!source) return
+    const next = refreshSource(source, presets.items)
+    if (next) setSource(next)
+    else applySource(null)
+  }
+  // 牵头被取消勾选时下拉框显示「不启用」；再勾回来还是它
+  const leadShown = leadOptions.some(m => m.id === lead) ? lead : ''
+  const showForm = !source || expanded
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const toast = useToast()
   // 名称、主题、说明是自己打的字：改过就先问再关（取消 / Esc / 点背景）
-  const dirty =
-    name !== (channel?.name ?? '') ||
-    topic !== (channel?.topic ?? '') ||
-    notes !== (channel?.notes ?? '') ||
-    relay !== (channel?.relay === true) ||
-    lead !== (channel?.lead ?? '') ||
-    planFirst !== (channel?.planFirst !== false) ||
-    leadRoute !== (channel?.leadRoute !== false) ||
-    JSON.stringify(rules) !== JSON.stringify(savedRules) ||
-    JSON.stringify(alerts) !== JSON.stringify(savedAlerts) ||
-    digestHour !== (channel?.digestHour ?? DIGEST_HOUR) ||
-    members.length > 0
+  const dirty = name !== (channel?.name ?? '') || topic !== (channel?.topic ?? '') || changed
   const submit = () => {
     if (!name.trim() || busy) return
     setBusy(true)
     setError(null)
     const input = { name, topic: topic.trim() || null, projectId: inTeam ? null : projectId || null }
-    // 频道说明只有本机频道有；新建时建好再存（建频道的接口不带它）。
-    // 说明没存上时频道已经建好（也切过去了）：照样关掉对话框，提示一声，免得再点又建一个同名的
-    const note = notes.trim() || null
+    // 频道建好后设置才存得上（建频道的接口不带它们）。没存上时频道已经建好（也切过去了）：照样关掉对话框，提示一下
     const done = channel
       ? channelActions.updateChannel(
           channel.id,
@@ -221,35 +306,30 @@ export function ChannelDialog({
             ? { name, topic: input.topic }
             : {
                 ...input,
-                notes: note,
+                notes: notes.trim() || null,
                 relay,
                 relayRules: rules,
                 alerts,
                 digestHour,
-                ...(lead !== (channel.lead ?? '') ? { lead: lead || null } : {}),
-                ...(planFirst !== (channel.planFirst !== false) ? { planFirst } : {}),
-                ...(leadRoute !== (channel.leadRoute !== false) ? { leadRoute } : {}),
+                ...(lead !== base.lead ? { lead: lead || null } : {}),
+                ...(planFirst !== base.planFirst ? { planFirst } : {}),
+                ...(leadRoute !== base.leadRoute ? { leadRoute } : {}),
               },
         )
-      : channelActions.createChannel(teamId ? { ...input, teamId } : { ...input, memberIds: members }).then(id =>
-          !teamId
-            ? channelActions
-                .updateChannel(id, {
-                  notes: note,
-                  alerts,
-                  digestHour,
-                  ...(relay ? { relay, relayRules: rules } : {}),
-                })
-                .catch(e => toast(tr('channels.dialog.notesFailed', { error: errorText(e) })))
-            : undefined,
-        )
+      : teamId
+        ? channelActions.createChannel({ ...input, teamId })
+        : createFromForm(channelActions, input, form).then(({ failed }) => {
+            for (const e of failed) toast(tr('channels.dialog.notesFailed', { error: errorText(e) }))
+          })
     done.then(onClose, e => {
       setError(errorText(e))
       setBusy(false)
     })
   }
+  if (managing) return <ManagePresetsDialog onClose={closeManage} />
   return (
     <ConfirmDialog
+      wide={creating && presets.items.length > 0}
       title={tr(channel ? 'channels.dialog.editTitle' : 'channels.dialog.newTitle')}
       confirmLabel={tr(channel ? 'channels.dialog.save' : 'channels.dialog.create')}
       cancelLabel={tr('channels.dialog.cancel')}
@@ -268,13 +348,76 @@ export function ChannelDialog({
             submit()
           }}
         >
+          {creating && (
+            <PresetChooser
+              active={source?.id ?? null}
+              canCopy={copyable.length > 0}
+              onPick={pickPreset}
+              onCopy={() => setCopying(on => !on)}
+              onManage={() => setManaging(true)}
+            />
+          )}
+          {pending !== undefined && (
+            <div
+              data-preset-switch
+              className="flex flex-wrap items-center gap-3 rounded-md bg-subtle px-2.5 py-2 text-meta"
+            >
+              <span className="min-w-0 flex-1 text-fg-secondary">{tr('channels.preset.switchAsk')}</span>
+              <button
+                type="button"
+                className="press text-accent-fg hover:underline"
+                onClick={() => setPending(undefined)}
+              >
+                {tr('channels.preset.switchNo')}
+              </button>
+              <button type="button" className="press text-danger hover:underline" onClick={() => applySource(pending)}>
+                {tr('channels.preset.switchYes')}
+              </button>
+            </div>
+          )}
           <Field label={tr('channels.dialog.name')}>
             <input value={name} maxLength={40} onChange={e => setName(e.target.value)} className={INPUT} />
           </Field>
           <Field label={tr('channels.dialog.topic')}>
             <input value={topic} maxLength={200} onChange={e => setTopic(e.target.value)} className={INPUT} />
           </Field>
-          {!inTeam && (
+          {copying && (
+            <CopyFromChannel
+              channels={copyable}
+              members={agents}
+              onCancel={() => setCopying(false)}
+              onPick={c =>
+                pickSource({
+                  id: COPY_SOURCE,
+                  name: `#${c.name}`,
+                  preset: presetFromChannel(c, agents, { id: COPY_SOURCE, name: c.name, updatedAt: 0 }, COPY_PARTS),
+                })
+              }
+            />
+          )}
+          {source && expanded && (
+            <div className="flex items-baseline justify-between gap-3 text-meta text-fg-muted">
+              <span>{tr('channels.preset.formHint')}</span>
+              <span className="flex shrink-0 gap-3">
+                <button
+                  type="button"
+                  disabled={!changed}
+                  className="press text-accent-fg hover:underline disabled:text-fg-faint disabled:no-underline"
+                  onClick={() => applySource(source)}
+                >
+                  {tr('channels.preset.reset')}
+                </button>
+                <button
+                  type="button"
+                  className="press text-accent-fg hover:underline"
+                  onClick={() => setExpanded(false)}
+                >
+                  {tr('channels.preset.collapse')}
+                </button>
+              </span>
+            </div>
+          )}
+          {!inTeam && showForm && (
             <Field label={tr('channels.dialog.notes')}>
               <textarea
                 value={notes}
@@ -286,7 +429,7 @@ export function ChannelDialog({
               />
             </Field>
           )}
-          {!inTeam && (
+          {!inTeam && showForm && (
             <label className="flex items-start gap-2">
               <input
                 type="checkbox"
@@ -301,8 +444,8 @@ export function ChannelDialog({
               </span>
             </label>
           )}
-          {!inTeam && relay && <RelayRulesEditor value={rules} onChange={setRules} />}
-          {!inTeam && channel && (
+          {!inTeam && showForm && relay && <RelayRulesEditor value={rules} onChange={setRules} />}
+          {!inTeam && (channel || (source && expanded)) && (
             <label className="flex items-start gap-2">
               <input
                 type="checkbox"
@@ -317,21 +460,21 @@ export function ChannelDialog({
               </span>
             </label>
           )}
-          {!inTeam && channel && (
+          {!inTeam && (channel || (source && expanded)) && (
             <Field
               label={tr('channels.dialog.lead')}
               hint={<span className="text-meta text-fg-muted">{tr('channels.dialog.leadHint')}</span>}
             >
               <Select
                 label={tr('channels.dialog.lead')}
-                value={lead}
+                value={leadShown}
                 options={[
                   { value: '', label: tr('channels.dialog.leadNone') },
                   ...leadOptions.map(m => ({ value: m.id, label: m.name })),
                 ]}
                 onChange={setLead}
               />
-              {lead && (
+              {leadShown && (
                 <label className="mt-1.5 flex items-start gap-2">
                   <input
                     type="checkbox"
@@ -349,7 +492,7 @@ export function ChannelDialog({
             </Field>
           )}
           {!inTeam && channel && <ScheduleList channelId={channel.id} />}
-          {!inTeam && (
+          {!inTeam && showForm && (
             <AlertRulesEditor
               value={alerts}
               digestHour={digestHour}
@@ -371,7 +514,7 @@ export function ChannelDialog({
               />
             </div>
           )}
-          {!channel && !inTeam && agents.length > 0 && (
+          {creating && showForm && agents.length > 0 && (
             <fieldset aria-label={tr('channels.dialog.members')} className="flex flex-col gap-1.5">
               {/* 成员多时不把弹窗撑开：列表在框里滚动（约 6 行），超过 8 个可以搜（docs/ui/channel-dialog-overflow-mockup.html） */}
               <div className="flex items-baseline justify-between gap-2">
@@ -427,6 +570,16 @@ export function ChannelDialog({
                 ))}
               </div>
             </fieldset>
+          )}
+          {source && !expanded && !copying && (
+            <PresetSummary
+              source={source.name}
+              form={form}
+              agents={agents}
+              deleted={deletedMembers}
+              elsewhere={membersElsewhere(members, agents, projectId)}
+              onExpand={() => setExpanded(true)}
+            />
           )}
           <button type="submit" hidden />
         </form>

@@ -16,6 +16,7 @@ export function ConfirmDialog({
   extra,
   dirty,
   wide,
+  hideConfirm,
   onConfirm,
   onCancel,
 }: {
@@ -36,6 +37,8 @@ export function ConfirmDialog({
   dirty?: boolean
   /** 内容多的表单（合并面板）：宽一些 */
   wide?: boolean
+  /** 没什么要确认的（管理列表）：只留一个关闭按钮 */
+  hideConfirm?: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -60,9 +63,13 @@ export function ConfirmDialog({
     } else cancel.current?.focus({ preventScroll: true })
     const key = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
-        // 输入法候选框里的 Esc、弹窗里展开着的下拉菜单的 Esc 交给它们自己（只收起菜单），不关整个弹窗
+        // 输入法候选框里的 Esc、弹窗里展开着的下拉菜单、标了 data-own-escape 的输入框（行内改名）的 Esc 交给它们自己，不关整个弹窗
         const target = event.target as HTMLElement | null
-        if (event.isComposing || target?.closest?.('[aria-haspopup][aria-expanded="true"],[role="listbox"]')) return
+        if (
+          event.isComposing ||
+          target?.closest?.('[aria-haspopup][aria-expanded="true"],[role="listbox"],[data-own-escape]')
+        )
+          return
         event.preventDefault()
         event.stopPropagation()
         // 正在问「放弃改动？」时 Esc 是回去继续编辑
@@ -155,16 +162,18 @@ export function ConfirmDialog({
               {extra.label}
             </button>
           )}
-          <button
-            disabled={busy || confirmDisabled}
-            onClick={onConfirm}
-            className={cn(
-              'press rounded-md px-3 py-2 text-ui font-medium disabled:opacity-50',
-              danger ? 'bg-danger text-accent-on' : warn ? 'bg-warn text-accent-on' : 'bg-primary text-primary-fg',
-            )}
-          >
-            {confirmLabel}
-          </button>
+          {!hideConfirm && (
+            <button
+              disabled={busy || confirmDisabled}
+              onClick={onConfirm}
+              className={cn(
+                'press rounded-md px-3 py-2 text-ui font-medium disabled:opacity-50',
+                danger ? 'bg-danger text-accent-on' : warn ? 'bg-warn text-accent-on' : 'bg-primary text-primary-fg',
+              )}
+            >
+              {confirmLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>,

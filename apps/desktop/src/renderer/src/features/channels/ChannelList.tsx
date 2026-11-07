@@ -3,6 +3,7 @@ import { tr, translateMessage } from '../../i18n/core'
 import { useMemo, useState } from 'react'
 import {
   Archive,
+  BookmarkPlus,
   ArchiveRestore,
   AtSign,
   ChevronDown,
@@ -27,6 +28,7 @@ import type { AgentMember, Channel } from '@/data/types'
 import type { PendingInvite, TeamInfo } from '../../../../shared/types/channels'
 import { channelActions, channelsLive, selfMember, useChannels } from './store'
 import { useNeeds } from './needs'
+import { SavePresetDialog } from './ChannelPresets'
 import { ChannelDialog } from './ChannelDialogs'
 import { CreateTeamDialog, TeamSettingsDialog } from './TeamDialog'
 import { roleLabel } from './TeamParts'
@@ -378,6 +380,7 @@ export function ChannelList({
     | { kind: 'settings'; teamId: string; tab: 'members' | 'settings'; focusInvite?: boolean }
     | { kind: 'leave'; team: TeamInfo }
     | { kind: 'editChannel'; channel: Channel }
+    | { kind: 'savePreset'; channel: Channel }
     | { kind: 'deleteChannel'; channel: Channel }
     | null
   >(null)
@@ -442,6 +445,11 @@ export function ChannelList({
               label: tr('channels.channel.edit'),
               icon: Pencil,
               run: () => setDialog({ kind: 'editChannel', channel: c }),
+            },
+            {
+              label: tr('channels.channel.savePreset'),
+              icon: BookmarkPlus,
+              run: () => setDialog({ kind: 'savePreset', channel: c }),
             },
             { label: tr('channels.channel.archive'), icon: Archive, run: () => archive(true) },
           ]),
@@ -604,6 +612,7 @@ export function ChannelList({
       {dialog?.kind === 'channel' && (
         <ChannelDialog channel={null} agents={agents} teamId={dialog.teamId} onClose={() => setDialog(null)} />
       )}
+      {dialog?.kind === 'savePreset' && <SavePresetDialog channel={dialog.channel} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'editChannel' && (
         <ChannelDialog channel={dialog.channel} agents={[]} onClose={() => setDialog(null)} />
       )}
