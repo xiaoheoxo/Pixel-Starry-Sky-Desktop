@@ -101,6 +101,25 @@ describe('该显示哪些胶囊', () => {
     })
     expect(show(start(), 5000, marks(), record({ status: 'exited', exitCode: 0 })).pills).toEqual([])
   })
+  it('从这里移除卡住的胶囊：提示符回来前再回车也不显示，回来后照常', () => {
+    const hidden = { t: { generation: 1, prompts: 1 } }
+    // 移除后 runs 里没有了，再回车记下的新运行
+    const again = startRun(undefined, marks(), { generation: 1, now: 0, command: 'ls', afterSeq: 9 }) as TerminalRun
+    expect(pillsOf([record()], { t: marks() }, { t: again }, 5000, hidden).pills).toEqual([])
+    const back = marks({ prompts: 2 })
+    const next = startRun(undefined, back, { generation: 1, now: 0, command: 'ls', afterSeq: 9 }) as TerminalRun
+    expect(pillsOf([record()], { t: back }, { t: next }, 5000, hidden).pills[0]).toMatchObject({ state: 'running' })
+    // 重启过的 shell 不受影响
+    expect(
+      pillsOf(
+        [record({ generation: 2 })],
+        { t: marks({ generation: 2 }) },
+        { t: { ...again, generation: 2 } },
+        5000,
+        hidden,
+      ).pills,
+    ).toHaveLength(1)
+  })
   it('没读到命令用终端标题；失败排最前', () => {
     expect(show(start(0, null), 5000).pills[0]).toMatchObject({ name: 'PowerShell', short: 'PowerShell' })
     expect(show(start(0, null), 5000, marks(), record({ title: 'Windows PowerShell' })).pills[0].short).toBe(

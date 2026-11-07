@@ -107,9 +107,66 @@ const PROSE = [
   '[&_hr]:my-4 [&_hr]:border-line',
 ].join(' ')
 
+/** micromark 内部的几样（库没导出类型），只用到这些字段 */
+type Code = number | null
+interface Token {
+  start: { offset: number }
+  end: { offset: number }
+  _open?: boolean
+  _close?: boolean
+}
+interface Ctx {
+  previous: Code
+  events: [string, Token][]
+  sliceSerialize(t: Token): string
+  parser: { constructs: { attentionMarkers: { null?: Code[] } } }
+}
+interface Construct {
+  tokenize(this: Ctx, effects: unknown, ok: (code: Code) => unknown, nok: unknown): unknown
+}
+/** CommonMark 的字符分类：0 其它，1 空白，2 标点 */
+const kind = (c: Code): number =>
+  c === null || c < 0 || /\s/.test(String.fromCharCode(c)) ? 1 : /[\p{P}\p{S}]/u.test(String.fromCharCode(c)) ? 2 : 0
+
+/**
+ * remark-cjk-friendly 只用于 ** 加粗：标准规则认不出 **加粗：**这样（中文标点挨着星号），星号会原样显示；
+ * 单个 * / _ 仍按 CommonMark 判断左右，免得 5*（3+2）*2、支持*.ts和*.js 被吃成斜体。手机端 apps/mobile/src/ui/Markdown.tsx 同一份
+ */
+export function remarkCjkStrong(this: { data(): object }): void {
+  remarkCjkFriendly.call(this)
+  const ext = (this.data() as { micromarkExtensions: { text: Record<number, Construct> }[] }).micromarkExtensions.at(
+    -1,
+  )!
+  const friendly = ext.text[42]!
+  const attention: Construct = {
+    ...friendly,
+    tokenize(effects, ok, nok) {
+      const previous = this.previous
+      return friendly.tokenize.call(
+        this,
+        effects,
+        code => {
+          const token = this.events.at(-1)![1]
+          if (token.end.offset - token.start.offset !== 1) return ok(code)
+          const before = kind(previous)
+          const after = kind(code)
+          const markers = this.parser.constructs.attentionMarkers.null ?? []
+          const open = !after || (after === 2 && before > 0) || markers.includes(code)
+          const close = !before || (before === 2 && after > 0) || markers.includes(previous)
+          const star = this.sliceSerialize(token) === '*'
+          token._open = star ? open : open && (before > 0 || !close)
+          token._close = star ? close : close && (after > 0 || !open)
+          return ok(code)
+        },
+        nok,
+      )
+    },
+  }
+  ext.text = { 42: attention, 95: attention }
+}
+
 /** 流式时不带公式和路径链接，插件固定不变 */
-// remark-cjk-friendly：标准规则认不出中文标点后面紧跟文字的 **加粗：**这样，星号会原样显示
-const STREAM_REMARK_PLUGINS: PluggableList = [remarkAlerts, remarkGfm, remarkCjkFriendly, remarkBreaks]
+const STREAM_REMARK_PLUGINS: PluggableList = [remarkAlerts, remarkGfm, remarkCjkStrong, remarkBreaks]
 
 /**
  * 流式时一块（空行之间的一段）超过这个长度就不解析 Markdown，按纯文字显示。
@@ -187,7 +244,7 @@ export const Markdown = memo(function Markdown({
   const source = useMemo(() => (math ? normalizeMath(text) : text), [math, text])
   // 提示块要在 remark-breaks 之前认出标记；remark-breaks：单个换行也换行（一行一个的列表、数字不会挤成一段）
   const remarkPlugins = useMemo<PluggableList>(
-    () => [remarkAlerts, remarkGfm, remarkCjkFriendly, ...(math?.remark ?? []), ...(document ? [] : [remarkBreaks])],
+    () => [remarkAlerts, remarkGfm, remarkCjkStrong, ...(math?.remark ?? []), ...(document ? [] : [remarkBreaks])],
     [math, document],
   )
   const rehypePlugins = useMemo<PluggableList | undefined>(

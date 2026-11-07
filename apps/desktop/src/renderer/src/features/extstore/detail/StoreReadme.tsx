@@ -1,6 +1,6 @@
 import { memo, type AnchorHTMLAttributes } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
-import remarkCjkFriendly from 'remark-cjk-friendly'
+import { remarkCjkStrong } from '@/ui/markdown/Markdown'
 import remarkGfm from 'remark-gfm'
 import { MarkdownImageContext } from '@/ui/markdown/MarkdownImage'
 import { PathLinksContext } from '@/ui/markdown/pathLinks'
@@ -58,7 +58,7 @@ export const StoreReadme = memo(function StoreReadme({ text }: { text: string })
       <PathLinksContext.Provider value={null}>
         <div data-store-readme className={PROSE}>
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkCjkFriendly]}
+            remarkPlugins={[remarkGfm, remarkCjkStrong]}
             components={components}
             urlTransform={defaultUrlTransform}
           >

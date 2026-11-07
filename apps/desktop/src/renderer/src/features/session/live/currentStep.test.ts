@@ -7,6 +7,8 @@ import {
   currentStep,
   liveStatus,
   liveStep,
+  noteReviewRetry,
+  reviewRetryDone,
   reviewRetryMessage,
   stepText,
   turnElapsed,
@@ -209,5 +211,18 @@ describe('「仍要执行」发的话写明是哪一项', () => {
       '我确认要执行被拦下的这一项：src/a.ts。请只重试这一项。',
     )
     expect(reviewRetryMessage(tool('t', 'other') as Extract<Item, { kind: 'tool' }>)).toContain('Skill')
+  })
+})
+
+describe('「仍要执行」发送失败后收起再展开', () => {
+  it('宿主记了同意但消息没发出去：重新挂载仍显示按钮，再点成功才算完成', () => {
+    expect(reviewRetryDone(false, true, 's1', 'c')).toBe(true)
+    noteReviewRetry('s1', 'c', false)
+    expect(reviewRetryDone(false, true, 's1', 'c')).toBe(false)
+    expect(reviewRetryDone(false, true, 's2', 'c')).toBe(true)
+    expect(reviewRetryDone(true, true, 's1', 'c')).toBe(true)
+    noteReviewRetry('s1', 'c', true)
+    expect(reviewRetryDone(false, true, 's1', 'c')).toBe(true)
+    expect(reviewRetryDone(false, false, 's1', 'c')).toBe(false)
   })
 })

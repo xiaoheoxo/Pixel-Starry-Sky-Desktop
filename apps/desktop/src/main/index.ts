@@ -40,6 +40,7 @@ import { initProjectTools } from './workspace/project-tools-ipc'
 import { initChannels } from './channels/ipc'
 import { initSchedule } from './workspace/schedule-ipc'
 import { initSessionChecks } from './workspace/session-checks'
+import { stopPageChecks } from './workspace/page-check'
 import { initNotifications } from './notifications/notifications'
 import { confirmTerminalClose, closeWindowTerminals } from './terminal/ipc'
 import { createAppContext } from './app/context'
@@ -287,7 +288,15 @@ function attachWindow(win: BrowserWindow, query: Record<string, string> = {}): v
   // 窗口销毁后不能再读 win.webContents，先存下来
   const wc = win.webContents
   crashWatches.set(wc, crashWatch)
-  win.once('closed', () => crashWatches.delete(wc))
+  win.once('closed', () => {
+    crashWatches.delete(wc)
+    // 最后一个窗口真关了、接着要退出：后台页面检查的隐藏窗口一起关，不然 window-all-closed 要等检查跑完
+    if (
+      BrowserWindow.getAllWindows().every(w => w === win || isPayWindow(w)) &&
+      quitWhenAllClosed(process.platform, quitting)
+    )
+      stopPageChecks()
+  })
   wc.on('did-finish-load', () => noteLoaded(wc))
   // 普通输入框右键：系统原生的剪切 / 复制 / 粘贴菜单（app/editMenu.ts）
   watchEditMenu(win)

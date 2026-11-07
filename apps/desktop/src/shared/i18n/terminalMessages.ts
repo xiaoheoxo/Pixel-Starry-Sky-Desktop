@@ -202,6 +202,11 @@ export const terminalMessages = {
   'terminal.pills.askAi': { zh: '让 AI 看看', en: 'Ask AI' },
   'terminal.pills.openBrowser': { zh: '在内置浏览器打开', en: 'Open in built-in browser' },
   'terminal.pills.stop': { zh: '停止', en: 'Stop' },
+  'terminal.pills.hide': { zh: '从这里移除', en: 'Hide' },
+  'terminal.pills.hideTitle': {
+    zh: '只是不在这里显示，终端里的程序不受影响',
+    en: 'Only hides it here; the program in the terminal keeps running',
+  },
   'terminal.pills.more': { zh: '还有 {n} 项', en: '{n} more' },
   'terminal.pills.items': { zh: '{n} 项', en: '{n} items' },
   'terminal.quote.lines': { zh: '第 {start}–{end} 行', en: 'lines {start}–{end}' },

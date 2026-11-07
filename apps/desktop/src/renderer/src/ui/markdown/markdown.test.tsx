@@ -41,6 +41,21 @@ describe('中文加粗', () => {
     expect(html('`**不是加粗：**到`')).toContain('**不是加粗：**到')
     expect(html('```\n**代码块：**里\n```')).toContain('**代码块：**里')
   })
+
+  it('单个星号按标准规则：乘法、通配符挨着中文标点不变成斜体', () => {
+    for (const text of [
+      '5*（3+2）*2',
+      '单价*（1-折扣）和数量*（1+税）',
+      '支持*.ts和*.js',
+      '用*号，*号',
+      '注*：见下*',
+    ]) {
+      expect(html(text)).not.toContain('<em>')
+    }
+    expect(html('中文*斜体*中文')).toContain('<em>斜体</em>')
+    expect(html('foo_bar_baz')).not.toContain('<em>')
+    expect(html('***重点：***后')).toContain('<strong>重点：</strong>')
+  })
 })
 
 describe('提示块', () => {

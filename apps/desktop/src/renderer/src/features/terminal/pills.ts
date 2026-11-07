@@ -2,7 +2,8 @@
 // 没有「命令开始」，所以「在跑」靠「提示符之后发过回车，而且还没等到下一个提示符」判断。
 // shortcut: 多行输入停在续行提示符时会误判成在跑；用户反馈多再给集成加 OSC 633 C（命令开始）。
 // shortcut: 集成中途丢了（`. $PROFILE` 覆盖 prompt、exec 进没集成的 shell）提示符不再上报，胶囊停在「运行中」，
-// 关掉终端才清掉（「停止」只发 Ctrl+C，分不清程序没退还是集成丢了）；`exec ` 开头的命令先不记。加 OSC 633 C 后按「命令开始」标记判断再去掉这两处。
+// 要用户在详情里点「从这里移除」（「停止」只发 Ctrl+C，分不清程序没退还是集成丢了），移除后直到提示符再回来都不显示运行中；
+// `exec ` 开头的命令先不记。加 OSC 633 C 后按「命令开始」标记判断再去掉这两处。
 import type { TerminalRecord } from '../../../../shared/types/terminal'
 import { promptCommand } from './errorLines'
 import { hasIntegration, type PromptMarks } from './marks'
@@ -97,12 +98,16 @@ export function shortName(name: string): string {
   return RUNNERS.has(first.replace(/\.(exe|cmd)$/i, '')) && next && /^[\w.@:/\\-]+$/.test(next) ? base(next) : first
 }
 
+/** 「从这里移除」运行中的胶囊时的提示符次数：提示符没再回来（集成丢了），之后回车记的运行也不显示 */
+export type HiddenRuns = Readonly<Record<string, { generation: number; prompts: number }>>
+
 /** 现在该显示哪些胶囊；nextAt：下一次到点变化（2 秒门槛、✓ 到期），没有为 null */
 export function pillsOf(
   records: readonly TerminalRecord[],
   allMarks: Readonly<Record<string, PromptMarks>>,
   runs: Readonly<Record<string, TerminalRun>>,
   now: number,
+  hidden: HiddenRuns = {},
 ): { pills: RunPill[]; nextAt: number | null } {
   const pills: RunPill[] = []
   let nextAt: number | null = null
@@ -135,6 +140,8 @@ export function pillsOf(
       if (code !== null && code !== 0 && !INTERRUPTED.has(code)) pills.push({ ...base, state: 'failed', code })
       continue
     }
+    const gone = hidden[record.id]
+    if (gone?.generation === record.generation && gone.prompts === marks.prompts) continue
     if (now < run.at + RUN_SHOW_AFTER_MS) wake(run.at + RUN_SHOW_AFTER_MS)
     else pills.push({ ...base, state: 'running', code: null })
   }

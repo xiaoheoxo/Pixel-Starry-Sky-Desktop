@@ -4,13 +4,9 @@ const fake = vi.hoisted(() => ({
   seen: null as Record<string, unknown> | null,
   throwOnView: true,
   hosts: [] as { destroyed: boolean }[],
-  app: null as unknown as import('node:events').EventEmitter,
 }))
-vi.mock('electron', async () => {
-  const { EventEmitter } = await import('node:events')
-  fake.app = new EventEmitter()
+vi.mock('electron', () => {
   return {
-    app: fake.app,
     BaseWindow: class {
       destroyed = false
       contentView = { addChildView() {} }
@@ -69,14 +65,21 @@ it('后台页面不弹对话框（alert 没人点会卡到超时），也拿不�
   expect(result).toMatchObject({ status: 'fail', reason: 'error', detail: 'stop here' })
 })
 
-it('退出时马上关掉正在检查的隐藏窗口，不等检查跑完', async () => {
+it('最后一个窗口关掉时马上关掉正在检查的隐藏窗口，之后的检查照常开', async () => {
   fake.throwOnView = false
-  const { probePage } = await import('./page-check')
+  const { probePage, stopPageChecks } = await import('./page-check')
   const job = probePage('http://localhost:5173/')
+  const queued = probePage('http://localhost:5173/')
   await vi.waitFor(() => expect(fake.hosts).toHaveLength(1))
-  fake.app.emit('before-quit')
+  stopPageChecks()
   expect(fake.hosts[0]!.destroyed).toBe(true)
   // 关掉之后 finally 不再重复销毁，检查照常结束成一条结果
   expect(await job).toMatchObject({ kind: 'page', status: 'fail' })
-  expect(fake.app.listenerCount('before-quit')).toBe(0)
+  // 排在后面的检查开新窗口时也能被关掉（不是只关退出那一刻的那个）
+  await vi.waitFor(() => expect(fake.hosts).toHaveLength(2))
+  stopPageChecks()
+  expect(fake.hosts[1]!.destroyed).toBe(true)
+  expect(await queued).toMatchObject({ kind: 'page', status: 'fail' })
+  // 没有检查在跑时什么也不做
+  stopPageChecks()
 })

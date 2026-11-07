@@ -12,7 +12,7 @@ import { cn, useToast } from '@/ui'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { sendTerminalQuote } from './AskAi'
 import { quoteCard } from './errorLines'
-import { lastLines, pillsOf, type RunPill } from './pills'
+import { lastLines, pillsOf, type HiddenRuns, type RunPill } from './pills'
 import {
   dismissTerminalRun,
   subscribeTerminalHistory,
@@ -28,6 +28,8 @@ const DETAIL_LINES = 6
 const QUOTE_LINES = 30
 const QUOTE_CHARS = 4096
 const DETAIL_WIDTH = 340
+/** 点过「从这里移除」的终端（模块级：状态栏重新挂载也不会让卡住的胶囊冒回来） */
+const hidden: Record<string, HiddenRuns[string]> = {}
 
 function Mark({ pill }: { pill: RunPill }) {
   if (pill.state === 'failed') return <TriangleAlert size={12} strokeWidth={1.75} className="shrink-0" />
@@ -73,12 +75,14 @@ function Detail({
   port,
   open,
   onAskAi,
+  onHide,
   browserRef,
 }: {
   pill: RunPill
   port: number | null
   open: (pill: RunPill) => void
   onAskAi: (pill: RunPill) => void
+  onHide: (pill: RunPill) => void
   browserRef: WorkspaceRef | null
 }) {
   const lines = lastLines(terminalTextSince(pill.id, pill.afterSeq), DETAIL_LINES)
@@ -130,6 +134,11 @@ function Detail({
             className={button}
           >
             {tr('terminal.pills.stop')}
+          </button>
+        )}
+        {pill.state === 'running' && (
+          <button type="button" onClick={() => onHide(pill)} title={tr('terminal.pills.hideTitle')} className={button}>
+            {tr('terminal.pills.hide')}
           </button>
         )}
       </div>
@@ -252,7 +261,7 @@ export const RunPills = memo(function RunPills({
     () => workspaceTerminals(store.terminals, projectId, cwd, window.pixelsky?.platform === 'win32'),
     [store.terminals, projectId, cwd],
   )
-  const { pills, nextAt } = pillsOf(records, store.marks, store.runs, Date.now())
+  const { pills, nextAt } = pillsOf(records, store.marks, store.runs, Date.now(), hidden)
   const ports = usePorts(pills)
   const [, tick] = useState(0)
   useEffect(() => {
@@ -290,10 +299,22 @@ export const RunPills = memo(function RunPills({
     )
     if (failed) toast(failed)
   }
+  const hide = (pill: RunPill): void => {
+    hidden[pill.id] = { generation: pill.generation, prompts: store.marks[pill.id]?.prompts ?? 0 }
+    dismissTerminalRun(pill.id)
+  }
   const portOf = (pill: RunPill): number | null => ports.get(portKey(pill)) ?? null
   const describe = (pill: RunPill): string => `${pill.name}, ${statusText(pill, portOf(pill))}`
   const renderDetail = (pill: RunPill): ReactNode => (
-    <Detail key={pill.id} pill={pill} port={portOf(pill)} open={open} onAskAi={askAi} browserRef={browserRef} />
+    <Detail
+      key={pill.id}
+      pill={pill}
+      port={portOf(pill)}
+      open={open}
+      onAskAi={askAi}
+      onHide={hide}
+      browserRef={browserRef}
+    />
   )
   const shown = pills.slice(0, 2)
   const rest = pills.slice(2)

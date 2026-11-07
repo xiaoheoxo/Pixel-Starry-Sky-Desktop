@@ -94,6 +94,25 @@ export function reviewRetryMessage(item: Exclude<StepItem, { kind: 'reasoning' }
   return tr('codex.review.retryMessage', { action: action.length > 120 ? `${action.slice(0, 119)}…` : action })
 }
 
+/** 「仍要执行」同意记下了但消息没发出去的条目：同意后执行块自动收起、ReviewNote 被卸掉，重新展开时靠这里把按钮留着 */
+const retryFailed = new Set<string>()
+const retryKey = (sessionId: string, itemId: string): string => `${sessionId}\n${itemId}`
+
+export function noteReviewRetry(sessionId: string, itemId: string, sent: boolean): void {
+  if (sent) retryFailed.delete(retryKey(sessionId, itemId))
+  else retryFailed.add(retryKey(sessionId, itemId))
+}
+
+/** 显示「已同意」而不是按钮：这次发出去了，或宿主记了同意（overridden）且上次没有发送失败 */
+export function reviewRetryDone(
+  sent: boolean,
+  overridden: boolean | undefined,
+  sessionId: string | undefined,
+  itemId: string,
+): boolean {
+  return sent || (!!overridden && !(sessionId && retryFailed.has(retryKey(sessionId, itemId))))
+}
+
 /** 正在跑的一步、等待的时长：一分钟内写整秒（12s），再长按 formatDuration（1m 05s） */
 export function clockText(ms: number, long: (ms: number) => string): string {
   return ms < 60_000 ? tr('session.step.seconds', { n: Math.floor(ms / 1000) }) : long(ms)

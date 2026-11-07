@@ -2,7 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { useApprovalWait, locateApproval, useSelectedApprovalItem } from './approvals/focus'
 import { tr, translateMessage, type TranslationKey } from '../../../i18n/core'
 // 对话流里各种条目的显示（docs/engines.md §5.3、§11）
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Ban,
   Bot,
@@ -58,7 +58,8 @@ import { Markdown } from '@/ui/markdown/Markdown'
 import { MarkdownImage } from '@/ui/markdown/MarkdownImage'
 import { useMessageActionsPosition } from '@/features/settings/messageActions'
 import { formatDuration } from './agentTrace'
-import { STEP_CLOCK_MS, baseName, clockText, reviewRetryMessage } from './currentStep'
+import { ImageSessionContext } from '../attachments/imageSource'
+import { STEP_CLOCK_MS, baseName, clockText, noteReviewRetry, reviewRetryDone, reviewRetryMessage } from './currentStep'
 import { useSince } from './stepClock'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { NativeNoticeAction } from '@/features/resume/NativeNoticeAction'
@@ -345,11 +346,10 @@ function ReviewNote({ item, review }: { item: ItemOf<'command' | 'file_change' |
   const toast = useToast()
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
-  // 同意记下了但消息没发出去：按钮留着能再点（不认 overridden）
-  const [failed, setFailed] = useState(false)
-  const done = sent || (review.overridden && !failed)
-  const retry = async (button: HTMLElement): Promise<void> => {
-    const sessionId = button.closest<HTMLElement>('[data-search-session]')?.dataset.searchSession
+  const sessionId = useContext(ImageSessionContext) ?? undefined
+  // 发送失败记在模块里（noteReviewRetry），finally 的 setBusy 触发重新渲染读到它
+  const done = reviewRetryDone(sent, review.overridden, sessionId, item.id)
+  const retry = async (): Promise<void> => {
     const engine = window.pixelsky?.engine
     if (!sessionId || !engine) return
     setBusy(true)
@@ -357,9 +357,10 @@ function ReviewNote({ item, review }: { item: ItemOf<'command' | 'file_change' |
       // 宿主记不下同意也继续（旧版远端没有这个通道）：下面这条消息本身就写明了用户同意
       await engine.approveReview(sessionId, item.id).catch(() => {})
       await engine.send(sessionId, reviewRetryMessage(item))
+      noteReviewRetry(sessionId, item.id, true)
       setSent(true)
     } catch (e) {
-      setFailed(true)
+      noteReviewRetry(sessionId, item.id, false)
       toast(translateMessage((e as Error).message))
     } finally {
       setBusy(false)
@@ -377,7 +378,7 @@ function ReviewNote({ item, review }: { item: ItemOf<'command' | 'file_change' |
               type="button"
               data-review-override
               disabled={busy}
-              onClick={e => void retry(e.currentTarget)}
+              onClick={() => void retry()}
               className="press h-6 rounded-md border border-line-strong px-2 text-fg hover:bg-hover disabled:opacity-50"
             >
               {tr('codex.review.override')}
