@@ -45,10 +45,15 @@ function loadThreads() {
     threads = {}
   }
 }
+/** 临时分叉（ephemeral）出来的线程：只在本进程里，不落盘（真 Codex 不写 rollout） */
+const ephemeral = new Set()
 function saveThreads() {
   if (!stateFile) return
   mkdirSync(process.env.FAKE_CODEX_STATE_DIR, { recursive: true })
-  writeFileSync(stateFile, JSON.stringify(threads))
+  writeFileSync(
+    stateFile,
+    JSON.stringify(Object.fromEntries(Object.entries(threads).filter(([id]) => !ephemeral.has(id)))),
+  )
 }
 /**
  * 线程的元数据（thread/list、thread/read 用）：FAKE_CODEX_STATE_DIR/meta.json，
@@ -415,7 +420,13 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         rpcError(m, 'cannot fork: ' + p.threadId + ' @ ' + p.lastTurnId)
         break
       }
+      // 真 Codex 0.166：临时分叉不带 excludeTurns 会被拒绝
+      if (p.ephemeral && !p.excludeTurns) {
+        rpcError(m, 'ephemeral paginated thread/fork requires excludeTurns: true')
+        break
+      }
       thread = 'fake-fork-' + (Object.keys(threads).length + 1)
+      if (p.ephemeral) ephemeral.add(thread)
       threads[thread] = source.slice(0, at + 1)
       saveThreads()
       response(m, { thread: { id: thread, turns: [] }, model: 'fake-codex' })

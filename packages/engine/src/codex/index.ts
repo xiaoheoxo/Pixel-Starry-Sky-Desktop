@@ -332,6 +332,42 @@ export class CodexAdapter implements EngineAdapter {
     return codexOneShot(launcher, this.launchArgs(), toolEnvironment(launcher, this.env()), req, signal)
   }
 
+  /** 旁聊：从会话的线程临时分叉、只读不审批，问一次就关（docs/ui/codex-sidechat.md）；启动配置和会话进程一样（走网关的也是） */
+  async sideQuestion(record: SessionRecord, prompt: string, signal: AbortSignal): Promise<string> {
+    if (!record.engineSessionId) throw new Error('先在主对话里发一条消息')
+    await this.info()
+    const result = this.cached
+    if (
+      !result?.launcher ||
+      (result.info.status !== 'ready' && !(viaGateway(record) && result.info.status === 'unauthenticated'))
+    )
+      throw new Error(result?.info.message ?? 'Codex is unavailable')
+    const launched = await codexLaunchConfig(
+      record,
+      this.sessionEnvironment(result.launcher, record),
+      { maxRetries: null },
+      this.sessionOptions(result.launcher, result.info.version ?? null),
+      false,
+    )
+    const reply = await codexOneShot(
+      result.launcher,
+      launched.args,
+      launched.env,
+      { prompt, model: record.model },
+      signal,
+      {
+        threadId: record.engineSessionId,
+        // 回退了还没发新消息：线程要下次启动才截断，旁聊先截到保留的最后一轮
+        lastTurnId: record.pendingRewind ?? null,
+        cwd: record.cwd,
+        effort: record.effort,
+        // 和会话进程一样显式带来源，不然沿用线程存的来源，平台会话可能绕过网关
+        modelProvider: launched.gatewayProvider ?? (launched.env.PIXELSKY_CODEX_PROVIDER || null),
+      },
+    )
+    return reply.text
+  }
+
   async subagentTranscript(record: SessionRecord, agentId: string): Promise<Item[]> {
     if (!/^[A-Za-z0-9-]{1,100}$/.test(agentId)) throw new Error('Invalid Codex subagent')
     const result = await this.reader.request('thread/read', { threadId: agentId, includeTurns: true })

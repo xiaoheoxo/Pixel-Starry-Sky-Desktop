@@ -297,6 +297,64 @@ describe('Codex 回退', { timeout: 20_000 }, () => {
 })
 
 // 每条要起几个假 Codex 进程（会话 + 读轮次的临时进程），完整检查并发跑时会超过默认的 5 秒
+describe('Codex 旁聊（docs/ui/codex-sidechat.md）', { timeout: 20_000 }, () => {
+  it('单次进程临时分叉（只读、不审批、会话目录），回答带上下文；不落盘，主对话和线程不变', async () => {
+    const { session, messages, conversation } = setup()
+    await conversation(['一', '二'])
+    const before = host!.open(session.id).items.length
+    const from = messages().length
+    const answer = await host!.sideQuestion(session.id, '刚才说了什么', [{ question: '前一问', answer: '前一答' }])
+    expect(answer).toContain('刚才说了什么')
+    expect(answer).toContain('前一问')
+    const sent = messages().slice(from)
+    expect(sent.filter(m => m.method === 'thread/fork')).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({
+          threadId: 'fake-thread',
+          ephemeral: true,
+          excludeTurns: true,
+          sandbox: 'read-only',
+          approvalPolicy: 'never',
+          cwd: root,
+        }),
+      }),
+    ])
+    expect(sent.find(m => m.method === 'thread/fork')!.params).toMatchObject({ modelProvider: expect.any(String) })
+    expect(sent.find(m => m.method === 'thread/fork')!.params).not.toHaveProperty('lastTurnId')
+    // 会话在计划模式时线程记着计划：旁聊这一轮显式切回默认
+    expect(sent.filter(m => m.method === 'turn/start')).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ collaborationMode: expect.objectContaining({ mode: 'default' }) }),
+      }),
+    ])
+    expect(Object.keys(threads())).toEqual(['fake-thread'])
+    expect(clientIds('fake-thread')).toEqual(['m0', 'm1'])
+    expect(host!.open(session.id).items.length).toBe(before)
+  })
+  it('回退了还没发新消息：分叉截到保留的最后一轮（lastTurnId），不带已撤掉的内容', async () => {
+    const { session, messages, conversation } = setup()
+    await conversation(['一', '二', '三'])
+    await host!.rewind(session.id, 'm1')
+    expect(host!.open(session.id).record.pendingRewind).toBe('turn-1')
+    const from = messages().length
+    await host!.sideQuestion(session.id, '问', [])
+    expect(
+      messages()
+        .slice(from)
+        .find(m => m.method === 'thread/fork')!.params,
+    ).toMatchObject({
+      threadId: 'fake-thread',
+      lastTurnId: 'turn-1',
+    })
+    // 截断仍等主会话下次启动才做
+    expect(clientIds('fake-thread')).toEqual(['m0', 'm1', 'm2'])
+  })
+  it('没发过消息：先在主对话里发一条', async () => {
+    const { session } = setup()
+    await expect(host!.sideQuestion(session.id, '问', [])).rejects.toThrow('先在主对话里发一条消息')
+  })
+})
+
 describe('Codex 分叉', { timeout: 20_000 }, () => {
   it('新会话第一次发送走 thread/fork(lastTurnId)，原会话不变', async () => {
     const { session, messages, say, conversation } = setup()
