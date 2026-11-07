@@ -13,6 +13,7 @@ import { L } from '@/i18n'
 const PERMISSION = (): Record<PermissionMode, string> => ({
   ask: L('每步问我', 'Ask every step'),
   edits: L('自动改文件', 'Auto-edit files'),
+  auto: L('自动审核', 'Auto-review'),
   plan: L('只规划', 'Plan only'),
   full: L('完全放行', 'Full access'),
 })
@@ -73,7 +74,7 @@ export interface ModeOption {
 
 /** 手机能切的三档（从严到宽）；完全放行只能在电脑上开 */
 const PHONE_MODES: PermissionMode[] = ['plan', 'ask', 'edits']
-const RANK: Record<PermissionMode, number> = { plan: 0, ask: 1, edits: 2, full: 3 }
+const RANK: Record<PermissionMode, number> = { plan: 0, ask: 1, edits: 2, auto: 3, full: 4 }
 const PERMISSION_HINT = (): Partial<Record<PermissionMode, string>> => ({
   plan: L('只读代码、写计划，不改文件', 'Reads code and writes a plan, no file changes'),
   ask: L('改文件、运行命令前都问你', 'Asks you before editing files or running commands'),

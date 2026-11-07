@@ -145,6 +145,13 @@ export const IPC_CONTRACT = {
     mobile: 'act',
     trust: 'sender',
   },
+  'engine:approveReview': {
+    kind: 'invoke',
+    route: 'resource',
+    ids: [0, 1],
+    remote: 'engine:approveReview',
+    trust: 'sender',
+  },
   'engine:archiveSession': {
     kind: 'invoke',
     route: 'resource',

@@ -307,6 +307,7 @@ export const ENGINE_OPS = {
   'engine:cancelSideQuestion': (c, id) => c.host.cancelSideQuestion(str(id, 'id')),
   'engine:interrupt': (c, id, opts) => c.host.interrupt(str(id, 'id'), interruptOptions(opts)),
   'engine:interruptTurn': (c, id, turnId) => c.host.interruptTurn(str(id, 'id'), str(turnId, 'turnId')),
+  'engine:approveReview': (c, id, itemId) => c.host.approveReview(str(id, 'id'), str(itemId, 'itemId')),
   'engine:answer': (c, id, requestId, decision) =>
     c.host.answer(str(id, 'id'), str(requestId, 'requestId'), decision as ApprovalDecision),
   // 第三个参数 via 可省略：'mobile' 表示是手机改的，会话里留一条看得见的记录（docs/mobile-remote.md §21.7）；

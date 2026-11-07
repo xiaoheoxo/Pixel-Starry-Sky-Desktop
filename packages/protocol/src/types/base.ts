@@ -3,8 +3,8 @@
 
 export type EngineId = 'claude' | 'codex' | 'pixel'
 
-/** 权限模式：每次询问 / 自动编辑 / 计划模式 / 完全放行（docs/engines.md §6） */
-export type PermissionMode = 'ask' | 'edits' | 'plan' | 'full'
+/** 权限模式：每次询问 / 自动编辑 / 计划模式 / 完全放行（docs/engines.md §6）；自动审核只有 Codex 有（docs/ui/codex-auto-review.md） */
+export type PermissionMode = 'ask' | 'edits' | 'auto' | 'plan' | 'full'
 
 /** 推理强度：低 / 中 / 高 / 超高 / 极限 */
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'

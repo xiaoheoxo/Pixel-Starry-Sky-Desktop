@@ -15,7 +15,7 @@ import { useMinimal } from '@/features/appearance/ThemeProvider'
 /** 运行中收起时露出的最近几条 */
 const TAIL = 2
 
-const PARTS: readonly (keyof Omit<ProcessSummary, 'failed'>)[] = [
+const PARTS: readonly (keyof Omit<ProcessSummary, 'failed' | 'blocked'>)[] = [
   'commands',
   'edits',
   'reads',
@@ -32,6 +32,10 @@ export function summaryText(s: ProcessSummary, steps: number): string {
   )
   return parts.length ? parts.join(tr('session.process.joiner')) : tr('session.process.steps', { n: steps })
 }
+
+/** 「执行」没点过时展开不展开：极简模式都展开；有被拦下的也展开，原因和「仍要执行」不用点开就能看到 */
+export const processOpenByDefault = (items: readonly Item[], minimal: boolean): boolean =>
+  minimal || summarize(items).blocked > 0
 
 const ROWS = 'mt-1 ml-[15px] flex flex-col gap-3 border-l border-line-subtle pl-3'
 
@@ -50,7 +54,7 @@ function PlanStage({
     if (requested && Date.now() - requested < REQUEST_MS) setToggled(true)
   }, [requested])
   const summary = useMemo(() => summarize(stage.items), [stage.items])
-  const open = toggled ?? (stage.active || summary.failed > 0)
+  const open = toggled ?? (stage.active || summary.failed > 0 || summary.blocked > 0)
   return (
     <div data-fold={open ? 'open' : 'closed'} data-fold-items={open ? undefined : ids.join(' ')} data-plan-stage>
       <button
@@ -78,6 +82,14 @@ function PlanStage({
               ·
             </span>
             {tr('session.process.failed', { n: summary.failed })}
+          </span>
+        )}
+        {summary.blocked > 0 && (
+          <span className="shrink-0 text-danger">
+            <span aria-hidden className="mr-1.5 text-fg-faint">
+              ·
+            </span>
+            {tr('codex.review.blockedCount', { n: summary.blocked })}
           </span>
         )}
         <ChevronRight
@@ -134,14 +146,14 @@ export function TurnProcess({
   useI18n()
   // 极简模式（docs/ui/minimal-mode.md §3、§4）：和 Factory 一样每一步都摊开，一条一行；点过就按点的来
   const minimal = useMinimal()
-  const open = toggled ?? minimal
+  const summary = useMemo(() => summarize(items), [items])
+  const open = toggled ?? processOpenByDefault(items, minimal)
   // 对话内搜索的「展开」、全局搜索跳到里面的条目：执行块先展开，里面的条目自己再展开
   const ids = useMemo(() => items.map(i => i.id), [items])
   const requested = useExpandAny(ids)
   useEffect(() => {
     if (requested && Date.now() - requested < REQUEST_MS) onToggle(true)
   }, [requested, onToggle])
-  const summary = useMemo(() => summarize(items), [items])
   const plan = useMemo(() => (running ? null : planResult(items)), [items, running])
   // 隐藏了内容的思考（只剩「思考了 N 秒」或什么都不显示）不算步数，也不占运行中露出的那几条
   const shown = useMemo(
@@ -191,6 +203,14 @@ export function TurnProcess({
               ·
             </span>
             {tr('session.process.failed', { n: summary.failed })}
+          </span>
+        )}
+        {summary.blocked > 0 && (
+          <span className="shrink-0 text-danger">
+            <span aria-hidden className="mr-1.5 text-fg-faint">
+              ·
+            </span>
+            {tr('codex.review.blockedCount', { n: summary.blocked })}
           </span>
         )}
         {!running && durationMs !== null && (

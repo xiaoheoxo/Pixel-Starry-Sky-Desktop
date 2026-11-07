@@ -82,7 +82,7 @@ import { changesHeight, errorNoticeHeight, itemHeight, processHeight, SUBAGENT_B
 import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
-import { TurnProcess } from './TurnProcess'
+import { TurnProcess, processOpenByDefault } from './TurnProcess'
 import { AutoFoldRow } from './AutoFoldRow'
 import { foldBlocks, foldPoint, samePoint, type FoldEntry, type FoldPoint } from './autoFold'
 import { useOlderFoldOff } from './olderFoldSwitch'
@@ -255,7 +255,7 @@ const ProcessBlock = memo(
     const toggle = useCallback((open: boolean) => onToggle(foldKey, open), [onToggle, foldKey])
     // 没画过时的占位高度要按展开 / 收起算：极简模式默认展开，按收起的一行估会让滚动时总高度不停变、滑块乱跳
     const minimal = useMinimal()
-    const open = toggled ?? minimal
+    const open = toggled ?? processOpenByDefault(items, minimal)
     const style = useMemo(() => placeholder(processHeight(items, open, running)), [items, open, running])
     return (
       <div className="conversation-message" style={style}>
@@ -495,14 +495,15 @@ export function LiveTranscript({
     () => entries.flatMap(e => (e.type === 'fold' && !folds[foldKeyOf(sessionId, e)] ? [e] : [])),
     [entries, folds, sessionId],
   )
-  const liveProcess = useMemo(() => {
+  const liveBlock = useMemo(() => {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const b = blocks[i]
-      if (b.type === 'process' && b.running) return b.key
+      if (b.type === 'process' && b.running) return b
     }
     return null
   }, [blocks])
-  const liveOpen = liveProcess !== null && (folds[liveProcess] ?? minimal)
+  const liveProcess = liveBlock?.key ?? null
+  const liveOpen = !!liveBlock && (folds[liveBlock.key] ?? processOpenByDefault(liveBlock.items, minimal))
   const liveFold =
     liveProcess !== null
       ? {

@@ -93,6 +93,8 @@ export const PIXEL_MODES: Record<PermissionMode, string> = {
   edits: 'acceptEdits',
   plan: 'plan',
   full: 'bypassPermissions',
+  // Pixel 没有这一档，换引擎时带过来的按每次询问（放最后：按值反查时先命中 ask）
+  auto: 'default',
 }
 
 /** 平台 / 自定义 API 会话经本机网关：宿主（sessionEnv）给的环境变量，写进每个会话自己的 models.json（不含密钥） */

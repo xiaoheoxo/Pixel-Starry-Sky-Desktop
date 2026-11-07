@@ -154,6 +154,8 @@ export interface ProcessSummary {
   agents: number
   other: number
   failed: number
+  /** 被自动审核拦下、用户还没同意重试的（docs/ui/codex-auto-review.md） */
+  blocked: number
 }
 
 export function summarizeProcess(items: readonly Item[]): ProcessSummary {
@@ -167,6 +169,7 @@ export function summarizeProcess(items: readonly Item[]): ProcessSummary {
     agents: 0,
     other: 0,
     failed: 0,
+    blocked: 0,
   }
   const files = new Set<string>()
   for (const item of items) {
@@ -181,6 +184,12 @@ export function summarizeProcess(items: readonly Item[]): ProcessSummary {
     if ((item.kind === 'command' || item.kind === 'tool' || item.kind === 'file_change') && item.status === 'failed')
       s.failed++
   }
+  s.blocked = items.filter(
+    i =>
+      (i.kind === 'command' || i.kind === 'tool' || i.kind === 'file_change') &&
+      i.review?.status === 'denied' &&
+      !i.review.overridden,
+  ).length
   s.edits = files.size
   return s
 }

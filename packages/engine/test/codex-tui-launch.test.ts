@@ -70,6 +70,9 @@ describe('CodexAdapter.tuiLaunch', () => {
     expect(ask).toEqual(expect.arrayContaining(['-a', 'on-request', '-s', 'workspace-write']))
     expect(ask).not.toContain('-m')
     expect(ask.join(' ')).not.toContain('model_reasoning_effort')
+    expect(ask.join(' ')).not.toContain('approvals_reviewer')
+    const auto = (await adapter().tuiLaunch(record({ permissionMode: 'auto' }))).args
+    expect(auto).toEqual(expect.arrayContaining(['-a', 'on-request', '-c', 'approvals_reviewer="auto_review"']))
     const plan = (await adapter().tuiLaunch(record({ permissionMode: 'plan' }))).args
     expect(plan).toEqual(expect.arrayContaining(['-a', 'on-request', '-s', 'read-only']))
   })

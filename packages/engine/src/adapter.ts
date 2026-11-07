@@ -116,6 +116,8 @@ export interface EngineSession {
   /** opts.background：连同后台子智能体一起停；没有后台任务的引擎忽略 */
   interrupt(opts?: InterruptOptions): Promise<void>
   answer(requestId: string, decision: ApprovalDecision): void
+  /** 自动审核拦下的一步，用户同意再试（只有 Codex）：下一轮重试时仍要过审查 */
+  approveReview?(itemId: string): Promise<void>
   /** 改模型 / 强度 / 权限 / 开关：进程在跑就实时生效，否则下次启动时生效 */
   update(patch: Partial<SessionSettings>, strict?: boolean): Promise<void>
   /**

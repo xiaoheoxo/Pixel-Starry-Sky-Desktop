@@ -507,7 +507,13 @@ describe('Pixel 引擎适配器', () => {
     })
     expect(log.filter(m => m.type === 'set_model').pop()).toMatchObject({ modelId: 'fake-small' })
     expect(log.filter(m => m.type === 'set_thinking_level').pop()).toMatchObject({ level: 'low' })
-    expect(PIXEL_MODES).toEqual({ ask: 'default', edits: 'acceptEdits', plan: 'plan', full: 'bypassPermissions' })
+    expect(PIXEL_MODES).toEqual({
+      ask: 'default',
+      edits: 'acceptEdits',
+      auto: 'default',
+      plan: 'plan',
+      full: 'bypassPermissions',
+    })
   })
   it('重试、压缩和手动 /compact', async () => {
     const { session, messages } = setup(60_000)

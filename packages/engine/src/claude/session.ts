@@ -53,6 +53,8 @@ type Msg = Record<string, unknown>
 
 /** 我们的权限模式 → Claude 的 --permission-mode */
 export const TO_CLAUDE_MODE: Record<PermissionMode, string> = {
+  // Claude 没有这一档，换引擎时带过来的按每次询问
+  auto: 'default',
   ask: 'default',
   edits: 'acceptEdits',
   plan: 'plan',

@@ -1,7 +1,17 @@
 import type { Effort, EngineCatalog, FileChange, PermissionMode, SessionDefaults } from './types'
 
 /** 权限模式，按菜单里的顺序 */
-export const PERMISSION_MODES: readonly PermissionMode[] = ['ask', 'edits', 'plan', 'full']
+/**
+ * 自动审核的提示（docs/ui/codex-auto-review.md）：条目里存原文，界面按原文查词典翻译（translateMessage 不认键名），
+ * 手机直接显示原文。词典的 zh 用这同一份，改不岔
+ */
+export const AUTO_REVIEW_TEXT = {
+  tooMany:
+    '连续被自动审核拦下，这一轮已停止。可以看看被拦下的操作，或换个说法继续；也可以在输入框的权限菜单里改成每次询问。',
+  networkDenied: '自动审核拦下了一次网络访问。',
+} as const
+
+export const PERMISSION_MODES: readonly PermissionMode[] = ['ask', 'edits', 'auto', 'plan', 'full']
 
 /** 推理强度，从低到高 */
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']

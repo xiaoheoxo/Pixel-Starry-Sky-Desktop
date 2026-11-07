@@ -336,6 +336,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           ...(process.env.FAKE_CODEX_NO_MODEL ? {} : { model: 'fake-codex' }),
           model_provider: process.env.FAKE_CODEX_PROVIDER ?? 'fake',
           windows: { sandbox: 'elevated' },
+          ...(process.env.FAKE_CODEX_REVIEWER ? { approvals_reviewer: process.env.FAKE_CODEX_REVIEWER } : {}),
         },
         // includeLayers 时：命令行 -c 在 sessionFlags 层；FAKE_CODEX_USER_ASK 模拟用户 config.toml 里也开了同一个功能
         ...(p.includeLayers
@@ -492,6 +493,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       response(m, { thread })
       break
     }
+    case 'thread/approveGuardianDeniedAction':
+      response(m, {})
+      break
     case 'turn/start': {
       // 测试创建这个文件让下一次 turn/start 被拒绝（一次性）：模拟 Codex 回错，这一轮没开成
       if (process.env.FAKE_CODEX_TURN_FAIL_FILE && existsSync(process.env.FAKE_CODEX_TURN_FAIL_FILE)) {
@@ -550,6 +554,39 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       emit('item/agentMessage/delta', { threadId: thread, turnId: id, itemId: turn.item, delta: turn.text })
       response(m, { turn: { id, status: 'inProgress' } })
       rateUpdate()
+      if (text.includes('拦下')) {
+        // 自动审核：和真 Codex 0.166.0 的事件顺序一样（docs/ui/codex-auto-review.md）
+        const item = { type: 'commandExecution', id: 'review-cmd', command: 'rm -rf cache', status: 'inProgress' }
+        const base = { threadId: thread, turnId: id, reviewId: 'r1', targetItemId: item.id, startedAtMs: 1 }
+        const action = { type: 'command', source: 'unifiedExec', command: item.command, cwd: 'x' }
+        emit('item/started', { threadId: thread, turnId: id, item })
+        emit('item/autoApprovalReview/started', {
+          ...base,
+          action,
+          review: { status: 'inProgress', riskLevel: null, userAuthorization: null, rationale: null },
+        })
+        emit('guardianWarning', { threadId: thread, message: 'Automatic approval review denied (risk: high)' })
+        emit('item/autoApprovalReview/completed', {
+          ...base,
+          action,
+          completedAtMs: 2,
+          decisionSource: 'agent',
+          review: { status: 'denied', riskLevel: 'high', userAuthorization: 'low', rationale: '会删掉缓存' },
+        })
+        emit('item/completed', { threadId: thread, turnId: id, item: { ...item, status: 'declined' } })
+        if (text.includes('连续')) {
+          // 连续被拒：先警告，再按 interrupted 结束（不是用户停的）
+          emit('guardianWarning', {
+            threadId: thread,
+            message:
+              'Automatic approval review rejected too many approval requests for this turn; interrupting the turn.',
+          })
+          const current = turn
+          turn = null
+          emit('turn/completed', { threadId: thread, turn: { id: current.id, status: 'interrupted', error: null } })
+          return
+        }
+      }
       if (text.includes('警告')) {
         // 用户 config.toml 引起的警告（每轮都发）和一条真正的警告；不带线程和轮次，和真 Codex 一样
         emit('warning', {

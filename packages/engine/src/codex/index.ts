@@ -427,6 +427,8 @@ export class CodexAdapter implements EngineAdapter {
       mode === 'full' ? 'never' : 'on-request',
       '-s',
       sandbox,
+      // 接管到终端也按自动审核走（docs/ui/codex-auto-review.md）
+      ...(mode === 'auto' ? ['-c', `approvals_reviewer=${tomlValue('auto_review')}`] : []),
       ...(record.model ? ['-m', record.model] : []),
       ...(record.effort ? ['-c', `model_reasoning_effort=${tomlValue(record.effort)}`] : []),
       ...(record.extraDirs ?? []).flatMap(dir => ['--add-dir', dir]),

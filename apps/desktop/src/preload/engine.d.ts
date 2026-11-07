@@ -217,6 +217,8 @@ export interface EngineBridge {
   /** 提醒专用：轮次已过期时返回 false，不中断或暂停下一轮。 */
   interruptTurn(id: string, expectedTurnId: string): Promise<boolean>
   answer(id: string, requestId: string, decision: ApprovalDecision): Promise<void>
+  /** 自动审核拦下的一步，用户同意再试（docs/ui/codex-auto-review.md） */
+  approveReview(id: string, itemId: string): Promise<void>
   updateSession(id: string, patch: SessionPatch): Promise<SessionRecord>
   deleteSession(id: string): Promise<void>
   archiveSession(id: string, archived: boolean, stopRunning?: boolean): Promise<void>

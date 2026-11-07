@@ -70,7 +70,7 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
       liveModelSwitch: false,
       livePermissionSwitch: false,
       // 计划模式用 Codex 原生的计划协作模式，Fast 用服务档位 priority（docs/codex-engine.md §3.5）
-      permissionModes: ['ask', 'edits', 'plan', 'full'],
+      permissionModes: ['ask', 'edits', 'auto', 'plan', 'full'],
       efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       ultracode: false,
       fast: true,

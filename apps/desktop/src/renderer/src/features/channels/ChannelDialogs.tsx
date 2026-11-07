@@ -748,7 +748,9 @@ export function AgentDialog({
   const swapped = swap && route && swap.to === model ? swap : null
   const permissionOptions: SelectOption<PermissionMode | ''>[] = [
     { value: '', label: tr('channels.agent.default') },
-    ...PERMISSION_MODES.map(m => ({ value: m, label: PERMISSION_INFO[m].label, hint: PERMISSION_INFO[m].hint })),
+    ...PERMISSION_MODES.filter(
+      m => engines.find(e => e.id === engine)?.caps.permissionModes.includes(m) ?? m !== 'auto',
+    ).map(m => ({ value: m, label: PERMISSION_INFO[m].label, hint: PERMISSION_INFO[m].hint })),
   ]
   // 推理强度那几项按执行者能力显示（和会话里的菜单同一套：模型目录里的档位优先，没有就用引擎能力表）
   const caps = engines.find(e => e.id === engine)?.caps
@@ -916,6 +918,9 @@ export function AgentDialog({
                   onChange={v => {
                     unmark('engine', 'source', 'model')
                     setEngine(v)
+                    // 自动审核只有部分引擎有：换到没有的引擎就退回跟随默认，不留一个选择框里没有的值
+                    if (permission && !engines.find(e => e.id === v)?.caps.permissionModes.includes(permission))
+                      setPermission('')
                     // 换了引擎：来源这个引擎用不了（接口协议不对、平台没线路）就回到自有账号
                     const keep = sourceOptions(v, sourceCtx).some(o => o.value === source && !o.disabled)
                     setSource(keep ? source : 'self')

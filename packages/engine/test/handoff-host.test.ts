@@ -236,6 +236,21 @@ describe('跨引擎接力：换引擎', () => {
     expect(snap().record.engineSessions).toBeUndefined()
   })
 
+  it('换到没有自动审核的引擎：权限模式退回每次询问（开始过的、没开始过的都一样）', async () => {
+    const started = setup()
+    await started.host.update(started.record.id, { engine: 'codex' })
+    await started.host.update(started.record.id, { permissionMode: 'auto' })
+    await started.say('第一句')
+    await started.host.update(started.record.id, { engine: 'claude' })
+    expect(started.snap().record).toMatchObject({ engine: 'claude', permissionMode: 'ask' })
+
+    const fresh = setup()
+    await fresh.host.update(fresh.record.id, { engine: 'codex' })
+    await fresh.host.update(fresh.record.id, { permissionMode: 'auto' })
+    await fresh.host.update(fresh.record.id, { engine: 'claude' })
+    expect(fresh.snap().record).toMatchObject({ engine: 'claude', permissionMode: 'ask' })
+  })
+
   it('开始过的空闲会话可以换引擎：关进程、存旧引擎的会话 id、给新引擎新会话', async () => {
     const { host, claude, record, say, snap, users } = setup()
     await say('第一句')

@@ -112,6 +112,14 @@ export interface NoticeBranchMerge {
   gitBranch: string | null
 }
 
+/** 自动审核对这一步的判断（docs/ui/codex-auto-review.md）；overridden：用户点了「仍要执行」 */
+export interface ItemReview {
+  status: 'reviewing' | 'approved' | 'denied' | 'timedOut' | 'aborted'
+  risk?: 'low' | 'medium' | 'high' | 'critical'
+  rationale?: string
+  overridden?: boolean
+}
+
 export type Item = ItemVariant & {
   /**
    * 大字段（图片数据、长输出）在内存里截掉了，要完整内容时按 id 从磁盘读回（itemCut.ts、Store.body、engine:item）。
@@ -168,6 +176,7 @@ type ItemVariant =
       subagentCall?: string
       /** 后台子智能体的工具：这一轮结束时还在跑，不跟着这一轮收尾 */
       background?: boolean
+      review?: ItemReview
     }
   | {
       kind: 'file_change'
@@ -177,6 +186,7 @@ type ItemVariant =
       subagent?: string
       subagentCall?: string
       background?: boolean
+      review?: ItemReview
     }
   | {
       kind: 'tool'
@@ -191,6 +201,7 @@ type ItemVariant =
       subagent?: string
       subagentCall?: string
       background?: boolean
+      review?: ItemReview
       /** 结果里的图片（例如 Read 了一张图片），有大小上限；超出的只在 output 里留「[图片]」 */
       images?: ImageAttachment[]
     }

@@ -275,9 +275,11 @@ export class HostSessions {
         !rt.pumping &&
         rt.snapshot.queue.length === 0 &&
         !current.nextEngine
-      )
+      ) {
         next.engine = patch.engine
-      else if (!running && !rt.stopping && !rt.activeId && rt.snapshot.queue.length === 0) {
+        // 自动审核只有部分引擎有：和开始过的会话换引擎一样退回每次询问（handoff.ts）
+        if (!ENGINES[patch.engine].caps.permissionModes.includes(current.permissionMode)) next.permissionMode = 'ask'
+      } else if (!running && !rt.stopping && !rt.activeId && rt.snapshot.queue.length === 0) {
         if (ctx.changingSessions.has(id)) throw new Error('正在处理这个会话，请稍后重试')
         ctx.changingSessions.add(id)
         try {
@@ -381,6 +383,8 @@ export class HostSessions {
       // 记在目标引擎名下（运行中选了别的引擎还没生效时，也算它的）
       const target = record.nextEngine ?? record.engine
       if (!m.settings.remembersChoices(target)) for (const k of EFFORT_PANEL_KEYS) delete remembered[k]
+      // 自动审核同样：要花额度，不能选过一次就让以后的新任务和频道成员都跟着开
+      if (remembered.permissionMode === 'auto') delete remembered.permissionMode
       // 完全放行只管这个对话，不记成新会话的默认；要默认完全放行得在设置里明确改（docs/ui/full-access-confirm.md）
       if (remembered.permissionMode === 'full') delete remembered.permissionMode
       if (Object.keys(remembered).length > 0) m.settings.setDefaults({ ...remembered, engine: target })

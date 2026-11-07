@@ -20,6 +20,7 @@ import type {
   ModelTurnUsage,
 } from '@pixelsky/protocol'
 import {
+  AUTO_REVIEW_TEXT,
   CODEX_MCP_SUFFIX,
   EMPTY_FLAGS,
   GOAL_NO_PROCESS,
@@ -46,7 +47,7 @@ import { FIREWALL_BLOCKED, isFirewallBlock } from '../retry'
 import { NATIVE_TEXT } from '../native/text'
 import { codexCommandParts } from './command'
 import { codexQuotaPatch, parseCodexRateLimits } from './quota'
-import { codexChanges, CodexTranslator, tokenCounts } from './translate'
+import { codexChanges, CodexTranslator, tokenCounts, codexReview } from './translate'
 import { CODEX_WINDOW_ENV, codexContextConfig } from './context-config'
 import { pixelAutoWindow } from '../pixel/context-window'
 import { codexGoal, goalUnsupported, sameGoal } from './goal'
@@ -223,6 +224,31 @@ export function turnNoticeError(raw: unknown, text: string): NoticeError | undef
     if (typeof http === 'number') status = http
   }
   return noticeErrorOf({ code, status, text })
+}
+
+/**
+ * 「仍要执行」要的是核心事件（snake_case，source: unified_exec），不是通知的格式（docs/ui/codex-auto-review.md）。
+ * 用 Codex 0.166.0 实测过命令这一种；其它动作按同样规则转
+ */
+export function denialEvent(params: Message): Message {
+  const snake = (text: string): string => text.replace(/[A-Z]/g, c => '_' + c.toLowerCase())
+  const review = object(params.review)
+  return {
+    id: params.reviewId,
+    target_item_id: params.targetItemId ?? null,
+    turn_id: params.turnId,
+    status: 'denied',
+    risk_level: review.riskLevel ?? null,
+    user_authorization: review.userAuthorization ?? null,
+    rationale: review.rationale ?? null,
+    decision_source: params.decisionSource ?? null,
+    action: Object.fromEntries(
+      Object.entries(object(params.action)).map(([key, value]) => [
+        snake(key),
+        (key === 'type' || key === 'source') && typeof value === 'string' ? snake(value) : value,
+      ]),
+    ),
+  }
 }
 
 /** extraDirs：项目的附加文件夹，和工作目录一样可写（docs/ui/multi-root-projects.md §3.3） */
@@ -425,6 +451,11 @@ export class CodexSession implements EngineSession {
   private retryShown = false
   /** 同一毫秒内的多条报错也要各自保留，id 不能只靠时间戳 */
   private noticeSeq = 0
+  private ownReviewer = 'user'
+  /** 这一轮因为连续被自动审核拦下要停了 */
+  private reviewStopped = false
+  /** 最近被拦下的审查（条目 id → 通知），「仍要执行」要原样带回去 */
+  private denials = new Map<string, Message>()
   /** 启动时带了 model_context_window：报上来的窗口是设置的值，不记成 Codex 自己的 */
   private windowOverridden = false
   /** 线程当前沿用的协作模式（turn/start 成功带过的或恢复时报的）；null 是还没带过，线程用的是没有模式指令的 Default */
@@ -554,8 +585,14 @@ export class CodexSession implements EngineSession {
       const policy = codexPermission(this.settings.permissionMode)
       if (allowed.length && !allowed.includes(policy.approvalPolicy))
         throw new Error('Codex managed requirements prohibit this permission mode')
+      // 用户自己在 config.toml 配的审查人：不是自动审核模式时用它，不替用户改掉
+      const own = string(
+        object(object(await proc.request('config/read', {}).catch(() => ({}))).config).approvals_reviewer,
+      )
+      this.ownReviewer = own === 'auto_review' || own === 'guardian_subagent' ? own : 'user'
       const modelProvider = gatewayProvider ?? (string(environment.PIXELSKY_CODEX_PROVIDER) || undefined)
       const threadParams = {
+        ...this.reviewer(),
         cwd: record.cwd,
         // 显式带上来源：resume / fork 不带时 Codex 沿用线程自己存的来源，平台会话接以前用别的来源开的线程会绕过网关
         ...(modelProvider ? { modelProvider } : {}),
@@ -728,6 +765,44 @@ export class CodexSession implements EngineSession {
     this.ownedThread = id
     if (id) this.options.ownThread?.(id, true)
   }
+  /** 线程会记住审查人，所以每次都明说：切回别的模式时不会留在自动审核 */
+  private reviewer(): { approvalsReviewer: string } {
+    return { approvalsReviewer: this.settings.permissionMode === 'auto' ? 'auto_review' : this.ownReviewer }
+  }
+  private warn(text: string): void {
+    this.ctx.emit({
+      type: 'item_completed',
+      item: { kind: 'notice', id: `cx-review-${Date.now()}-${++this.noticeSeq}`, level: 'warn', text },
+    })
+  }
+  /** 自动审核的通知（docs/ui/codex-auto-review.md） */
+  private autoReview(params: Message): void {
+    const review = codexReview(params.review),
+      target = string(params.targetItemId)
+    if (!review) return
+    // 网络审查没有对应的条目，被拦下时单独说一声
+    if (!target) {
+      if (review.status === 'denied') this.warn(AUTO_REVIEW_TEXT.networkDenied)
+      return
+    }
+    this.translator.review(target, review)
+    if (review.status !== 'denied') return
+    this.denials.set(target, params)
+    if (this.denials.size > 10) this.denials.delete(this.denials.keys().next().value!)
+  }
+  /** 「仍要执行」：Codex 把同意带进下一轮，不会自己开始，也不跳过审查。记录没了（进程换过）时报错，宿主照常往下走 */
+  async approveReview(itemId: string): Promise<void> {
+    const target = itemId.replace(/^cx-/, ''),
+      denial = this.denials.get(target)
+    if (!denial || !this.proc?.alive || !this.threadId) throw new Error('没有这次拦下的记录')
+    await this.proc.request('thread/approveGuardianDeniedAction', {
+      threadId: this.threadId,
+      event: denialEvent(denial),
+    })
+    this.denials.delete(target)
+    const review = codexReview(denial.review)
+    if (review) this.translator.review(target, { ...review, overridden: true })
+  }
   /** 把恢复失败的英文提示发出去（只发一次） */
   private flushResumeNotice(): void {
     const notice = this.resumeNotice
@@ -807,6 +882,7 @@ export class CodexSession implements EngineSession {
   }
 
   private startActive(turnId: string): void {
+    this.reviewStopped = false
     this.gen.reset()
     this.active = {
       id: turnId,
@@ -967,6 +1043,7 @@ export class CodexSession implements EngineSession {
         clientUserMessageId: userItemId,
         input: this.input(body, images),
         ...codexPermission(this.settings.permissionMode, this.ctx.record().cwd, this.ctx.record().extraDirs),
+        ...this.reviewer(),
         ...(this.settings.model ? { model: this.settings.model } : {}),
         ...(this.settings.effort ? { effort: this.settings.effort } : {}),
         summary: this.settings.thinkingSummaries ? 'concise' : 'none',
@@ -1371,6 +1448,8 @@ export class CodexSession implements EngineSession {
         return
       }
       const turn = object(params.turn)
+      // 不是用户点的停止：按失败收尾，会话和频道都能看到原因
+      if (this.reviewStopped && turn.status === 'interrupted') return this.finish('failed', AUTO_REVIEW_TEXT.tooMany)
       const blocked = this.blocked ?? this.firewall(string(object(turn.error).message), false)
       if (blocked)
         return this.finish('failed', FIREWALL_BLOCKED, blocked.detail, {
@@ -1410,6 +1489,11 @@ export class CodexSession implements EngineSession {
         this.gen.first()
       }
       this.translator.delta(method, params)
+    } else if (method === 'item/autoApprovalReview/started' || method === 'item/autoApprovalReview/completed')
+      this.autoReview(params)
+    else if (method === 'guardianWarning') {
+      // 每次审查都会发一条，只有这一条有用：连续被拦下，这一轮要停了（紧跟着的 interrupted 不是用户停的）
+      if (/interrupting the turn/i.test(string(params.message))) this.reviewStopped = true
     } else if (method === 'turn/plan/updated') this.translator.plan(params)
     else if (method === 'thread/tokenUsage/updated') {
       const usage = object(params.tokenUsage)

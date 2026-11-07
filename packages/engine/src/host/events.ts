@@ -1,6 +1,14 @@
 // 事件：apply 是唯一写快照的入口（先落盘再广播，seq 递增）；适配器发来的事件在这里推导运行状态
 import { randomUUID } from 'node:crypto'
-import { cutItem, reduce, replyPreview, type EngineEvent, type Item, type SessionRecord } from '@pixelsky/protocol'
+import {
+  AUTO_REVIEW_TEXT,
+  cutItem,
+  reduce,
+  replyPreview,
+  type EngineEvent,
+  type Item,
+  type SessionRecord,
+} from '@pixelsky/protocol'
 import type { HostContext, Runtime } from './context'
 import { reconnectedCount } from './queue'
 import { providerOfEngine } from './quota'
@@ -309,7 +317,8 @@ export class HostEvents {
         let reconnecting = false
         if (rt.activeId) {
           const item = rt.snapshot.queue.find(q => q.id === rt.activeId)
-          if (item && event.outcome === 'failed') {
+          // 连续被自动审核拦下：消息模型收到了也做了，不留成「发送失败」（否则接着发消息时原消息被标成未送达）
+          if (item && event.outcome === 'failed' && event.error !== AUTO_REVIEW_TEXT.tooMany) {
             // 额度用完、开了自动换账号：换到下一个账号，这条马上重新派发（下一条消息前按新账号换进程）
             const switched = rt.turn?.usageLimited ? m.accounts.autoSwitch(id, item.id) : null
             // 没换成账号（订阅账号都用完了）、开了「订阅额度都用完时改用平台」：这条先在队首等着，挑好平台线路再重发

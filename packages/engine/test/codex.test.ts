@@ -3,7 +3,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CodexAdapter, EngineHost } from '../src'
+import { connectionKind } from '../src/retry'
 import {
+  AUTO_REVIEW_TEXT,
   GOAL_NO_PROCESS,
   codedError,
   parseCodedError,
@@ -57,7 +59,7 @@ function setup(
   idleMs = 50,
   opts: {
     env?: Record<string, string>
-    permissionMode?: 'ask' | 'plan'
+    permissionMode?: 'ask' | 'plan' | 'auto'
     askQuestions?: boolean
     /** 会话记录里的模型 / 推理强度；null 是跟随引擎默认，不写就用 fake-codex / high */
     model?: string | null
@@ -386,6 +388,121 @@ describe('Codex app-server adapter', () => {
     ).toBe('on-request')
     host!.answer(session.id, 'approve', { type: 'deny' })
     await wait(() => host!.open(session.id).state === 'idle')
+  })
+  describe('自动审核', () => {
+    const items = (id: string) => host!.open(id).items
+    const started = (messages: () => Array<{ method: string; params: Record<string, unknown> }>, method: string) =>
+      messages()
+        .filter(m => m.method === method)
+        .at(-1)!.params
+
+    it('开线程和每一轮都交给审查子代理，沙箱和审批策略和自动编辑一样', async () => {
+      const { session, messages } = setup(50, { permissionMode: 'auto' })
+      await host!.send(session.id, '你好')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(started(messages, 'thread/start')).toMatchObject({
+        approvalsReviewer: 'auto_review',
+        approvalPolicy: 'on-request',
+        sandbox: 'workspace-write',
+      })
+      expect(started(messages, 'turn/start')).toMatchObject({
+        approvalsReviewer: 'auto_review',
+        approvalPolicy: 'on-request',
+        sandboxPolicy: { type: 'workspaceWrite' },
+      })
+    })
+
+    it('切回别的模式：下一轮明说交还给用户，不留在自动审核', async () => {
+      const { session, messages } = setup(50, { permissionMode: 'auto' })
+      await host!.send(session.id, '第一轮')
+      await wait(() => host!.open(session.id).state === 'idle')
+      await host!.update(session.id, { permissionMode: 'edits' })
+      await host!.send(session.id, '第二轮')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(started(messages, 'turn/start').approvalsReviewer).toBe('user')
+    })
+
+    it('用户自己在 config.toml 配了审查人：别的模式不替他改掉', async () => {
+      const { session, messages } = setup(50, { permissionMode: 'ask', env: { FAKE_CODEX_REVIEWER: 'auto_review' } })
+      await host!.send(session.id, '你好')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(started(messages, 'turn/start').approvalsReviewer).toBe('auto_review')
+    })
+
+    it('审查结果记到条目上；同意后带核心事件格式发给 Codex，同一条只发一次', async () => {
+      const { session, messages } = setup(5000, { permissionMode: 'auto' })
+      await host!.send(session.id, '会被拦下')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(items(session.id).find(i => i.id === 'cx-review-cmd')).toMatchObject({
+        kind: 'command',
+        status: 'declined',
+        review: { status: 'denied', risk: 'high', rationale: '会删掉缓存' },
+      })
+      await host!.approveReview(session.id, 'cx-review-cmd')
+      expect(started(messages, 'thread/approveGuardianDeniedAction').event).toMatchObject({
+        id: 'r1',
+        target_item_id: 'review-cmd',
+        status: 'denied',
+        risk_level: 'high',
+        action: { type: 'command', source: 'unified_exec' },
+      })
+      expect(items(session.id).find(i => i.id === 'cx-review-cmd')).toMatchObject({
+        review: { status: 'denied', overridden: true },
+      })
+      await host!.approveReview(session.id, 'cx-review-cmd')
+      expect(messages().filter(m => m.method === 'thread/approveGuardianDeniedAction')).toHaveLength(1)
+    })
+
+    it('连续被拦下：这一轮算失败并写明原因，提示是原文（界面按原文翻译，手机直接显示）', async () => {
+      const { session, events } = setup(5000, { permissionMode: 'auto' })
+      await host!.send(session.id, '连续拦下')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(connectionKind(AUTO_REVIEW_TEXT.tooMany)).toBeNull() // 不是连接问题，不自动重发
+      const notices = items(session.id).filter(i => i.kind === 'notice' && i.text === AUTO_REVIEW_TEXT.tooMany)
+      expect(notices).toHaveLength(1)
+      expect(
+        events.some(e => e.kind === 'session' && e.event.type === 'turn_completed' && e.event.outcome === 'failed'),
+      ).toBe(true)
+    })
+
+    it('连续被拦下后接着发消息：不被失败那条挡住，原消息不标未送达（Codex 收到过）', async () => {
+      const { session } = setup(5000, { permissionMode: 'auto' })
+      await host!.send(session.id, '连续拦下')
+      await wait(() => host!.open(session.id).state === 'idle')
+      expect(host!.open(session.id).queue).toEqual([])
+      await host!.send(session.id, '请重试')
+      await wait(() => items(session.id).filter(i => i.kind === 'user').length === 2)
+      await wait(() => host!.open(session.id).state === 'idle' && host!.open(session.id).queue.length === 0)
+      expect(items(session.id).find(i => i.kind === 'user')).not.toMatchObject({ dismissed: true })
+    })
+
+    it('进程回收后点「仍要执行」：不报错，条目照样标上同意，后面还能接着发', async () => {
+      const { session, messages } = setup(50, { permissionMode: 'auto' })
+      await host!.send(session.id, '会被拦下')
+      await wait(() => host!.open(session.id).state === 'idle')
+      await new Promise(r => setTimeout(r, 400))
+      await host!.approveReview(session.id, 'cx-review-cmd')
+      expect(items(session.id).find(i => i.id === 'cx-review-cmd')).toMatchObject({ review: { overridden: true } })
+      expect(messages().filter(m => m.method === 'thread/approveGuardianDeniedAction')).toHaveLength(0)
+      await host!.send(session.id, '请重试')
+      await wait(() => host!.open(session.id).state === 'idle')
+    })
+
+    it('隔了几轮再同意：标记也记得下', async () => {
+      const { session } = setup(5000, { permissionMode: 'auto' })
+      await host!.send(session.id, '会被拦下')
+      await wait(() => host!.open(session.id).state === 'idle')
+      await host!.send(session.id, '下一轮')
+      await wait(() => host!.open(session.id).state === 'idle')
+      await host!.approveReview(session.id, 'cx-review-cmd')
+      expect(items(session.id).find(i => i.id === 'cx-review-cmd')).toMatchObject({ review: { overridden: true } })
+    })
+
+    it('选过自动审核不记成新会话的默认', async () => {
+      const { session } = setup(5000, { permissionMode: 'ask' })
+      await host!.update(session.id, { permissionMode: 'auto' })
+      expect(host!.createSession({ projectId: session.projectId, engine: 'codex' }).permissionMode).toBe('edits')
+    })
   })
   it.each(['allow', 'allow_always'] as const)('%s 保留原来的审批范围，不切换为完全放行', async type => {
     const { session } = setup()

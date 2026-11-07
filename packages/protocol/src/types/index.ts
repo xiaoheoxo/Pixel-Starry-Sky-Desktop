@@ -75,6 +75,7 @@ export type {
   FileChange,
   Item,
   ItemKind,
+  ItemReview,
   ItemStatus,
   NoticeAccountSwitch,
   NoticePlatformFallback,

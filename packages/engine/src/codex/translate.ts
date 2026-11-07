@@ -1,5 +1,5 @@
 import { plainCodexMcpName } from '../mcp'
-import type { AgentRun, EngineEvent, FileChange, Item, ItemStatus } from '@pixelsky/protocol'
+import type { AgentRun, EngineEvent, FileChange, Item, ItemReview, ItemStatus } from '@pixelsky/protocol'
 import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
@@ -34,6 +34,23 @@ function looksLikeDiff(text: string): boolean {
   const lines = text.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n')
   return lines.every(l => l.startsWith('+'))
 }
+const REVIEW_STATUS: Record<string, ItemReview['status']> = {
+  inProgress: 'reviewing',
+  approved: 'approved',
+  denied: 'denied',
+  timedOut: 'timedOut',
+  aborted: 'aborted',
+}
+const REVIEW_RISKS = ['low', 'medium', 'high', 'critical'] as const
+/** 自动审核通知里的 review（schema 标着 UNSTABLE）：看不懂的状态不显示 */
+export function codexReview(raw: unknown): ItemReview | null {
+  const review = object(raw),
+    status = REVIEW_STATUS[string(review.status)]
+  if (!status) return null
+  const risk = REVIEW_RISKS.find(r => r === review.riskLevel),
+    rationale = string(review.rationale)
+  return { status, ...(risk ? { risk } : {}), ...(rationale ? { rationale } : {}) }
+}
 const statusOf = (value: unknown, complete: boolean): ItemStatus =>
   value === 'failed'
     ? 'failed'
@@ -50,6 +67,7 @@ export const interruptedAgent = (agent: AgentRun): AgentRun =>
 /** 当前 thread 的条目转换；原生用户消息由宿主负责，只用于输入确认。 */
 export class CodexTranslator {
   readonly items = new Map<string, Item>()
+  private reviews = new Map<string, ItemReview>()
   /** 压缩完了还没有压缩后的大小：等下一次用量更新补上（docs/ui/compaction.md） */
   private compactionSize: string | null = null
   /**
@@ -183,8 +201,21 @@ export class CodexTranslator {
       }
       this.emitRuns()
     }
+    const review = this.reviews.get(id)
+    if (review && 'status' in item && (item.kind === 'command' || item.kind === 'file_change' || item.kind === 'tool'))
+      item = { ...item, review }
     this.items.set(id, item)
     this.emit({ type: complete ? 'item_completed' : 'item_started', item })
+  }
+  /** 自动审核的结果记到条目上：通知可能先于条目到，先记下，条目到了再带上 */
+  review(rawId: string, review: ItemReview): void {
+    const id = 'cx-' + rawId,
+      item = this.items.get(id)
+    this.reviews.set(id, review)
+    if (item?.kind !== 'command' && item?.kind !== 'file_change' && item?.kind !== 'tool') return
+    const next = { ...item, review }
+    this.items.set(id, next)
+    this.emit({ type: item.status === 'running' ? 'item_started' : 'item_completed', item: next })
   }
   /**
    * 新版 Codex 的子智能体（collaboration 命名空间）：started 是派出（id 就是 spawn_agent 的调用 id），

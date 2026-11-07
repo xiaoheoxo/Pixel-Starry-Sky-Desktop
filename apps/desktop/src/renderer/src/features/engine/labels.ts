@@ -128,6 +128,14 @@ export const PERMISSION_INFO: Record<PermissionMode, { label: string; hint: stri
       return tr('engine.labels.editProjectFilesAutomatically')
     },
   },
+  auto: {
+    get label() {
+      return tr('engine.labels.autoReview')
+    },
+    get hint() {
+      return tr('engine.labels.autoReviewHint')
+    },
+  },
   plan: {
     get label() {
       return tr('engine.labels.planMode')
@@ -151,6 +159,7 @@ export const PERMISSION_HINTS: Partial<Record<EngineId, Partial<Record<Permissio
   codex: {
     ask: () => tr('codex.permission.ask'),
     edits: () => tr('codex.permission.edits'),
+    auto: () => tr('codex.permission.auto'),
     plan: () => tr('codex.permission.plan'),
   },
 }

@@ -1,3 +1,5 @@
+import { AUTO_REVIEW_TEXT } from '@pixelsky/protocol'
+
 export const codexMessages = {
   'session.live.ApprovalCard.allowAll': {
     zh: '本会话后续不再询问',
@@ -14,6 +16,42 @@ export const codexMessages = {
   'codex.permission.edits': {
     zh: '项目内自动操作；超出沙箱时按原生策略询问',
     en: 'Work automatically in the workspace; ask when sandbox escalation is needed',
+  },
+  'codex.permission.auto': {
+    zh: '要审批的操作先由审查模型按风险判断，危险的才拦下；审查会花额度',
+    en: 'A review model checks risky actions first and blocks dangerous ones. Reviews use your quota',
+  },
+  'codex.review.running': { zh: '正在审查', en: 'Reviewing' },
+  'codex.review.approved': { zh: '审查放行', en: 'Approved by review' },
+  'codex.review.risk.low': { zh: '低风险', en: 'Low risk' },
+  'codex.review.risk.medium': { zh: '中风险', en: 'Medium risk' },
+  'codex.review.risk.high': { zh: '高风险', en: 'High risk' },
+  'codex.review.risk.critical': { zh: '极高风险', en: 'Critical risk' },
+  'codex.review.blockedCount': { zh: '{n} 条被拦下', en: '{n} blocked' },
+  'codex.review.notRun': { zh: '没有运行', en: 'Did not run' },
+  'codex.review.denied': { zh: '已拦下', en: 'Blocked' },
+  'codex.review.timedOut': { zh: '审查超时', en: 'Review timed out' },
+  'codex.review.timedOutHint': {
+    zh: '没判断出结果，不等于危险',
+    en: 'No decision was reached, which does not mean it is dangerous',
+  },
+  'codex.review.override': { zh: '仍要执行', en: 'Run anyway' },
+  'codex.review.overrideHint': {
+    zh: '会带上你的同意再审一次，可能还是被拦下',
+    en: 'It is reviewed again with your approval and may still be blocked',
+  },
+  'codex.review.overridden': { zh: '已同意，让模型重试', en: 'Approved. Asked the model to retry' },
+  'codex.review.retryMessage': {
+    zh: '我确认要执行刚才被拦下的操作，请重试。',
+    en: 'I approve the action that was just blocked. Please retry it.',
+  },
+  'codex.review.tooMany': {
+    zh: AUTO_REVIEW_TEXT.tooMany,
+    en: 'Auto-review blocked several actions in a row, so this turn stopped. Check what was blocked or rephrase, or switch to Ask every time in the composer permission menu.',
+  },
+  'codex.review.networkDenied': {
+    zh: AUTO_REVIEW_TEXT.networkDenied,
+    en: 'Auto-review blocked a network request.',
   },
   'codex.permission.plan': {
     zh: '只读，用 Codex 原生计划模式先出方案；需要你拿主意时会弹出问题',

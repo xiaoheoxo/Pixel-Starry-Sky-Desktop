@@ -1,6 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRun, EngineEvent } from '@pixelsky/protocol'
-import { CodexTranslator } from '../src/codex/translate'
+import { CodexTranslator, codexReview } from '../src/codex/translate'
+
+describe('自动审核的审查结果', () => {
+  it('状态和风险按协议转，看不懂的不显示', () => {
+    expect(codexReview({ status: 'inProgress' })).toEqual({ status: 'reviewing' })
+    expect(codexReview({ status: 'denied', riskLevel: 'high', rationale: 'x' })).toEqual({
+      status: 'denied',
+      risk: 'high',
+      rationale: 'x',
+    })
+    expect(codexReview({ status: 'approved', riskLevel: 'bogus' })).toEqual({ status: 'approved' })
+    expect(codexReview({ status: 'somethingNew' })).toBeNull()
+    expect(codexReview(null)).toBeNull()
+  })
+
+  it('通知先于条目到：条目到了再带上', () => {
+    const events: EngineEvent[] = []
+    const t = new CodexTranslator(e => events.push(e))
+    t.review('c1', { status: 'approved', risk: 'low' })
+    expect(events).toHaveLength(0)
+    t.item({ type: 'commandExecution', id: 'c1', command: 'ls', status: 'inProgress' }, false)
+    expect(events.at(-1)).toMatchObject({ item: { id: 'cx-c1', review: { status: 'approved' } } })
+    // 后面的事件不把标记弄丢
+    t.item({ type: 'commandExecution', id: 'c1', command: 'ls', status: 'completed', exitCode: 0 }, true)
+    expect(events.at(-1)).toMatchObject({ type: 'item_completed', item: { review: { status: 'approved' } } })
+  })
+})
 
 describe('Codex 子智能体：这一轮结束时的收尾', () => {
   const spawn = (id: string, thread: string) => ({

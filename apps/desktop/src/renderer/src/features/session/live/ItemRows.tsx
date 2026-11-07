@@ -25,8 +25,11 @@ import {
   TriangleAlert,
   Wrench,
   type LucideIcon,
+  Shield,
+  ShieldCheck,
+  ShieldX,
 } from 'lucide-react'
-import type { FileChange, Item, ItemStatus, ToolKind } from '@pixelsky/protocol'
+import type { FileChange, Item, ItemReview, ItemStatus, ToolKind } from '@pixelsky/protocol'
 import { withoutShownImagePlaceholders } from '@pixelsky/protocol'
 import { CopyButton, DiffStat, IconButton, cn, useToast } from '@/ui'
 import { DiffView } from '@/ui/code/DiffView'
@@ -291,9 +294,111 @@ export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
   )
 }
 
-/** 行尾的说明：进行中、完成、失败在行首的状态点上（StatusDot），这里只写被拒绝、中断 */
-function StatusMark({ status }: { status: ItemStatus }) {
+/** 自动审核的标记（docs/ui/codex-auto-review.md）：放行低风险只留淡色盾牌，要留意的才带字 */
+function ReviewMark({ review }: { review: ItemReview }) {
+  const riskText = review.risk ? tr(`codex.review.risk.${review.risk}`) : ''
+  const chip = 'inline-flex shrink-0 items-center gap-1 rounded-sm px-1.5 text-label'
+  switch (review.status) {
+    case 'approved':
+      if (review.risk && review.risk !== 'low')
+        return (
+          <span data-review="approved" title={tr('codex.review.approved')} className={cn(chip, 'bg-warn/12 text-warn')}>
+            <Shield size={12} strokeWidth={1.75} />
+            {riskText}
+          </span>
+        )
+      return (
+        <span
+          data-review="approved"
+          title={[tr('codex.review.approved'), riskText].filter(Boolean).join(' · ')}
+          className="shrink-0 text-fg-faint"
+        >
+          <ShieldCheck size={13} strokeWidth={1.5} />
+        </span>
+      )
+    case 'denied':
+      return (
+        <span data-review="denied" className={cn(chip, 'bg-danger/12 text-danger')}>
+          <ShieldX size={12} strokeWidth={1.75} />
+          {[tr('codex.review.denied'), riskText].filter(Boolean).join(' · ')}
+        </span>
+      )
+    case 'timedOut':
+      return (
+        <span
+          data-review="timedOut"
+          title={tr('codex.review.timedOutHint')}
+          className={cn(chip, 'bg-warn/12 text-warn')}
+        >
+          <TriangleAlert size={12} strokeWidth={1.75} />
+          {tr('codex.review.timedOut')}
+        </span>
+      )
+    default:
+      return null
+  }
+}
+
+/** 被拦下的原因和「仍要执行」：模型会接着换办法，所以不打断，写在命令下面 */
+function ReviewNote({ itemId, review }: { itemId: string; review: ItemReview }) {
   useI18n()
+  const toast = useToast()
+  const [sent, setSent] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const done = sent || review.overridden
+  const retry = async (button: HTMLElement): Promise<void> => {
+    const sessionId = button.closest<HTMLElement>('[data-search-session]')?.dataset.searchSession
+    const engine = window.pixelsky?.engine
+    if (!sessionId || !engine) return
+    setBusy(true)
+    try {
+      // 宿主记不下同意也继续（旧版远端没有这个通道）：下面这条消息本身就写明了用户同意
+      await engine.approveReview(sessionId, itemId).catch(() => {})
+      await engine.send(sessionId, tr('codex.review.retryMessage'))
+      setSent(true)
+    } catch (e) {
+      toast(translateMessage((e as Error).message))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div data-review-note className="my-0.5 ml-9 border-l-2 border-danger/50 py-1 pl-2.5 text-meta text-fg-secondary">
+      {review.rationale && <p className="break-words whitespace-pre-wrap">{review.rationale}</p>}
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        {done ? (
+          <span className="text-fg-muted">{tr('codex.review.overridden')}</span>
+        ) : (
+          <>
+            <button
+              type="button"
+              data-review-override
+              disabled={busy}
+              onClick={e => void retry(e.currentTarget)}
+              className="press h-6 rounded-md border border-line-strong px-2 text-fg hover:bg-hover disabled:opacity-50"
+            >
+              {tr('codex.review.override')}
+            </button>
+            <span className="text-fg-faint">{tr('codex.review.overrideHint')}</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 行尾的说明：进行中、完成、失败在行首的状态点上（StatusDot），这里只写被拒绝、中断和审查结果 */
+function StatusMark({ status, review }: { status: ItemStatus; review?: ItemReview }) {
+  useI18n()
+  if (review?.status === 'denied') return <ReviewMark review={review} />
+  return (
+    <>
+      <StatusText status={status} />
+      {review && <ReviewMark review={review} />}
+    </>
+  )
+}
+function StatusText({ status }: { status: ItemStatus }) {
   switch (status) {
     case 'running':
     case 'completed':
@@ -601,7 +706,7 @@ function FileChangeLine({
       </div>
       {look.clock && <StepClock id={item.id} />}
       {(c.added > 0 || c.removed > 0) && <DiffStat added={c.added} removed={c.removed} className="text-meta" />}
-      <StatusMark status={item.status} />
+      <StatusMark status={item.status} review={item.review} />
       <SubagentTag name={item.subagent} />
     </>
   )
@@ -651,6 +756,15 @@ function FileChangeLine({
 
 /** 工具调用的一行：运行命令 / 编辑文件 / 读取 / 搜索 / 网页 / MCP / 子任务；点开看输出或 diff。条目没变就不重新渲染 */
 export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'> }) {
+  return (
+    <>
+      <ToolRowBody item={item} />
+      {item.review?.status === 'denied' && !item.subagent && <ReviewNote itemId={item.id} review={item.review} />}
+    </>
+  )
+})
+
+function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'> }) {
   useI18n()
   const images = item.kind === 'tool' ? (item.images ?? []) : []
   const viewedImage = item.kind === 'tool' && item.name === 'imageView' && !images.length ? item.title : null
@@ -699,7 +813,14 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
   }
 
   if (item.kind === 'command') {
-    const verb = item.status === 'running' ? tr('session.live.ItemRows.running') : tr('session.live.ItemRows.ran')
+    const verb =
+      item.review?.status === 'denied'
+        ? tr('codex.review.notRun')
+        : item.status !== 'running'
+          ? tr('session.live.ItemRows.ran')
+          : item.review?.status === 'reviewing'
+            ? tr('codex.review.running')
+            : tr('session.live.ItemRows.running')
     return (
       <div ref={row} data-fold={fold} className={rowClass}>
         <Row
@@ -732,7 +853,7 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
           }
           trailing={
             <>
-              <StatusMark status={item.status} />
+              <StatusMark status={item.status} review={item.review} />
               {hasWrapperExtra(item.wrapper) && (
                 <span className="shrink-0 rounded-sm bg-warn/12 px-1.5 py-px text-label text-warn">
                   {tr('approvals.wrapped')}
@@ -818,7 +939,7 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
         onToggle={toggle}
         trailing={
           <>
-            <StatusMark status={item.status} />
+            <StatusMark status={item.status} review={item.review} />
             {images.length > 0 && (
               <span className="shrink-0 text-meta text-fg-faint">
                 {tr('session.live.viewedImages', { n: images.length })}
@@ -873,7 +994,7 @@ export const ToolItemRow = memo(function ToolItemRow({ item }: { item: ItemOf<'c
       )}
     </div>
   )
-})
+}
 
 /** 待办清单（Claude 的 TodoWrite、Codex 的计划）：一行概要，点开看完整列表；当前计划常驻在进度卡片里（docs/ui/progress-card.md §5） */
 export function TodoCard({ item }: { item: ItemOf<'todo'> }) {

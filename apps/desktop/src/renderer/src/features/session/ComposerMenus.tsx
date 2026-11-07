@@ -16,6 +16,7 @@ import {
   Sparkles,
   Zap,
   type LucideIcon,
+  ShieldEllipsis,
 } from 'lucide-react'
 import type { PermissionMode } from '@pixelsky/protocol'
 import { IconButton, Popover, cn, useToast } from '@/ui'
@@ -31,6 +32,7 @@ import { FullAccessConfirm } from './FullAccessConfirm'
 export const PERMISSION_ICON: Record<PermissionMode, LucideIcon> = {
   ask: Shield,
   edits: ShieldCheck,
+  auto: ShieldEllipsis,
   plan: ListChecks,
   full: ShieldOff,
 }
@@ -361,7 +363,8 @@ export function PermissionMenu({
       </button>
       <Popover open={open} onClose={close} side="top" offset={8} className="w-80">
         <MenuTitle>{tr('session.Composer.permissionMode')}</MenuTitle>
-        {(['ask', 'edits', 'plan', 'full'] as const).map(m => {
+        {/* 自动审核只有部分引擎有：没有时不占一行，其它不支持的才灰着 */}
+        {(['ask', 'edits', ...(modes.includes('auto') ? (['auto'] as const) : []), 'plan', 'full'] as const).map(m => {
           const MIcon = PERMISSION_ICON[m]
           const supported = modes.includes(m)
           if (m === 'full' && confirming)

@@ -183,6 +183,7 @@ const engine: EngineBridge = {
   interrupt: (id, opts) => call('engine:interrupt', id, ...(opts ? [opts] : [])),
   interruptTurn: (id, turnId) => call('engine:interruptTurn', id, turnId),
   answer: (id, requestId, decision) => call('engine:answer', id, requestId, decision),
+  approveReview: (id, itemId) => call('engine:approveReview', id, itemId),
   updateSession: (id, patch) => call('engine:updateSession', id, patch),
   deleteSession: id => call('engine:deleteSession', id),
   archiveSession: (id, archived, stopRunning) => call('engine:archiveSession', id, archived, stopRunning),

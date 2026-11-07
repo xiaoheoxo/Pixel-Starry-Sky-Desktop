@@ -34,7 +34,7 @@ describe('像素星空：命令行和适配器的约定一致', () => {
     expect(SUBAGENT_ENTRY).toBe(subagent.SUBAGENT_ENTRY)
     expect(PROVIDERS_ENV).toBe(gateway.PROVIDERS_ENV)
     expect(approval.MODE_STATUS).toBe('pixelsky-mode')
-    expect(Object.values(PIXEL_MODES).sort()).toEqual([...approval.PERMISSION_MODES].sort())
+    expect([...new Set(Object.values(PIXEL_MODES))].sort()).toEqual([...approval.PERMISSION_MODES].sort())
     const mcp = await cli('extensions/mcp.ts')
     expect(MCP_FILE_ENV).toBe(mcp.MCP_FILE_ENV)
     expect(ALLOW_TOOLS_ENV).toBe(approval.ALLOW_TOOLS_ENV)

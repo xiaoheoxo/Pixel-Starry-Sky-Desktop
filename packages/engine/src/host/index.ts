@@ -560,6 +560,10 @@ export class EngineHost {
     this.m.turn.answer(id, requestId, decision)
   }
 
+  approveReview(id: string, itemId: string): Promise<void> {
+    return this.m.turn.approveReview(id, itemId)
+  }
+
   /** 会话记录（不创建运行时）；不存在时为 null。平台代理按请求读当前分组用 */
   record(id: string): SessionRecord | null {
     return this.m.sessions.record(id)

@@ -87,7 +87,7 @@ export const demoEngineStatus: EngineLite[] = [
     message: 'Codex is not signed in. Run codex login.',
     path: 'C:\\Users\\linxia\\AppData\\Roaming\\npm\\codex.cmd',
     caps: {
-      permissionModes: ['ask', 'edits', 'full'],
+      permissionModes: ['ask', 'edits', 'auto', 'full'],
       efforts: ['low', 'medium', 'high', 'xhigh'],
       ultracode: false,
       fast: true,

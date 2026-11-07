@@ -442,6 +442,23 @@ export class HostTurn {
     rt.session.answer(requestId, decision)
   }
 
+  async approveReview(id: string, itemId: string): Promise<void> {
+    const rt = this.ctx.runtimes.get(id)
+    // 进程回收、应用重启后 Codex 那边的记录没了：不算失败。界面接着发的消息写明了用户同意，审查子代理看得到
+    await rt?.session?.approveReview?.(itemId).catch(() => {})
+    // 标记记在宿主：每轮都换转换器，隔了几轮它就找不到这个条目了
+    const item = rt?.snapshot.items.findLast(i => i.id === itemId)
+    if (
+      (item?.kind === 'command' || item?.kind === 'file_change' || item?.kind === 'tool') &&
+      item.review?.status === 'denied' &&
+      !item.review.overridden
+    )
+      this.ctx.m.events.apply(id, {
+        type: 'item_completed',
+        item: { ...item, review: { ...item.review, overridden: true } },
+      })
+  }
+
   async stopTask(id: string, taskId: string): Promise<void> {
     const s = this.ctx.runtimes.get(id)?.session
     if (!s) throw new Error('引擎没有在运行')

@@ -157,6 +157,8 @@ export function liveStep(item: StepItem): Pick<LiveStatus, 'verb' | 'object'> {
     case 'reasoning':
       return { verb: tr('session.wait.thinking'), object: null }
     case 'command': {
+      if (item.review?.status === 'reviewing')
+        return { verb: tr('codex.review.running'), object: firstLine(item.command) }
       // 有说明就整句用说明（「运行单元测试」），没有写命令本身
       const description = item.description?.trim()
       return description ? { verb: description, object: null } : split('command', firstLine(item.command))

@@ -2136,6 +2136,14 @@ export const catalog = {
     zh: '改文件、运行命令前都先问你',
     en: 'Ask before editing files or running commands',
   },
+  'engine.labels.autoReview': {
+    zh: '自动审核',
+    en: 'Auto-review',
+  },
+  'engine.labels.autoReviewHint': {
+    zh: '要审批的操作先由审查模型按风险判断',
+    en: 'A review model checks actions that need approval',
+  },
   'engine.labels.autoEdit': {
     zh: '自动编辑',
     en: 'Auto-edit',
