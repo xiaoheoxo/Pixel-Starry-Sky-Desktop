@@ -21,6 +21,7 @@ import { focusedTab, isNewTab, isFileTab } from '../features/panes/tree'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { DEFAULT_SIDEBAR_WIDTH, setLayoutSize, useLayoutSize } from '../features/layout/sizes'
 import { autoPanelWidth } from '../features/layout/panelWidth'
+import { sidebarOnResize } from '../features/layout/sidebarAuto'
 import { CacheMissAlerts } from '../features/session/CacheMissAlerts'
 import { NotificationDispatcher } from '../features/notifications/NotificationDispatcher'
 import { FeedbackNotifier } from '../features/feedback/FeedbackNotifier'
@@ -80,6 +81,12 @@ export function App() {
   const preferredSidebarWidth = useLayoutSize('sidebar')
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  // 现在收着是因为放不下（不是用户点的）：窗口变宽放得下时展开回来
+  const sidebarAutoClosed = useRef(false)
+  const autoCloseSidebar = () => {
+    sidebarAutoClosed.current = true
+    setSidebarOpen(false)
+  }
   const [panelMaximized, setPanelMaximized] = useState(false)
   // 没拖过时按窗口宽度自动算（docs/ui/workbench-ux-3.md §2.3）
   const savedPanelWidth = useLayoutSize('rightWorkspace')
@@ -156,7 +163,7 @@ export function App() {
       if (getAppMode() === 'code') return
       showWorkbench()
       setPanelOpen(true)
-      if (!fits(sidebarOpen, true, preferredSidebarWidth, 360)) setSidebarOpen(false)
+      if (sidebarOpen && !fits(true, true, preferredSidebarWidth, 360)) autoCloseSidebar()
     }
     const close = () => {
       if (getAppMode() === 'code') return
@@ -195,21 +202,27 @@ export function App() {
     }
   })
 
-  // 窗口缩窄到放不下时自动收起右侧面板
+  // 窗口缩窄到放不下时自动收起侧栏，变宽放得下时展开回来
   useEffect(() => {
-    const onResize = () => {
+    const apply = (resized: boolean) => {
       setWindowWidth(window.innerWidth)
+      if (panelMaximized) return
+      const move = sidebarOnResize({
+        open: sidebarOpen,
+        autoClosed: sidebarAutoClosed.current,
+        panelOpen,
+        fits: fits(true, panelOpen, preferredSidebarWidth, 360),
+      })
       // 只在工作台可见时按右侧面板收侧栏；频道页的成员面板放不下时自己隐藏
-      if (
-        mode === 'chat' &&
-        onWorkbench &&
-        panelOpen &&
-        !panelMaximized &&
-        !fits(sidebarOpen, true, preferredSidebarWidth, 360)
-      )
-        setSidebarOpen(false)
+      if (move === 'close' && mode === 'chat' && onWorkbench) autoCloseSidebar()
+      // 只在窗口真的变了时展开：切对话、开合面板不带着侧栏一起动
+      else if (move === 'open' && resized) {
+        sidebarAutoClosed.current = false
+        setSidebarOpen(true)
+      }
     }
-    onResize()
+    apply(false)
+    const onResize = () => apply(true)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [mode, sidebarOpen, panelOpen, preferredSidebarWidth, panelWidth, panelMaximized, onWorkbench])
@@ -226,7 +239,7 @@ export function App() {
       return
     }
     const next = !panelOpen
-    if (next && sidebarOpen && !fits(true, true, preferredSidebarWidth, 360)) setSidebarOpen(false)
+    if (next && sidebarOpen && !fits(true, true, preferredSidebarWidth, 360)) autoCloseSidebar()
     setPanelOpen(next)
     if (!next) setPanelMaximized(false)
   }
@@ -234,6 +247,7 @@ export function App() {
   const toggleSidebar = () => {
     const next = !sidebarOpen
     if (onWorkbench && next && panelOpen && !fits(true, true, preferredSidebarWidth, panelWidth)) setPanelOpen(false)
+    sidebarAutoClosed.current = false
     setSidebarOpen(next)
   }
 

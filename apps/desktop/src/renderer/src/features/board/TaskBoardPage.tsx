@@ -128,7 +128,8 @@ export function TaskBoardPage() {
   const names = useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects])
   const [projectFilter, setProjectFilter] = useRemember<string[]>('pixelsky.board.projects', [])
   const [storedKind, setKind] = useRemember<BoardKind>('pixelsky.board.kind', 'all')
-  const [scheduleCollapsed, setScheduleCollapsed] = useRemember<boolean>('pixelsky.board.scheduleCollapsed', false)
+  // 默认收起，把位置让给「等你」；手动展开过的按记住的（docs/ui/board-schedule.md §4）
+  const [scheduleCollapsed, setScheduleCollapsed] = useRemember<boolean>('pixelsky.board.scheduleCollapsed', true)
   // 定时任务只在本机的项目上跑（docs/ui/board-schedule.md）
   const canSchedule = machine === 'local'
   const kind: BoardKind = storedKind === 'schedule' && !canSchedule ? 'all' : storedKind
@@ -415,7 +416,8 @@ export function TaskBoardPage() {
       )}
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">
         {showSchedule &&
-          (scheduleCollapsed ? (
+          // 筛选「定时」时这一列是主角（没有定时任务时还要显示模板），不收起
+          (scheduleCollapsed && kind !== 'schedule' ? (
             <section
               data-board-column="schedule"
               aria-label={tr('board.columnLabel', {
@@ -434,6 +436,7 @@ export function TaskBoardPage() {
                 <ChevronRight size={14} />
               </button>
               <Clock size={14} className="text-accent-fg" aria-hidden />
+              <span className="text-meta text-fg-muted [writing-mode:vertical-rl]">{tr('board.column.schedule')}</span>
               <span className="text-meta text-fg-faint tabular-nums">{scheduled.length + flows.length}</span>
             </section>
           ) : (
@@ -450,15 +453,17 @@ export function TaskBoardPage() {
                 <h2 className="text-ui font-medium text-fg">{tr('board.column.schedule')}</h2>
                 <span className="text-meta text-fg-faint tabular-nums">{scheduled.length + flows.length}</span>
                 <span className="flex-1" />
-                <button
-                  type="button"
-                  aria-label={tr('board.schedule.collapse')}
-                  title={tr('board.schedule.collapse')}
-                  onClick={() => setScheduleCollapsed(true)}
-                  className="flex size-6 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg"
-                >
-                  <ChevronLeft size={14} />
-                </button>
+                {kind !== 'schedule' && (
+                  <button
+                    type="button"
+                    aria-label={tr('board.schedule.collapse')}
+                    title={tr('board.schedule.collapse')}
+                    onClick={() => setScheduleCollapsed(true)}
+                    className="flex size-6 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                )}
               </header>
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]">
                 {scheduled.map(task => (
@@ -522,6 +527,7 @@ export function TaskBoardPage() {
                 title={refused ? tr('board.dropNotAllowed') : undefined}
                 className={cn(
                   'flex min-h-0 min-w-[260px] flex-1 flex-col rounded-xl border border-transparent bg-subtle/60 transition-colors',
+                  column.id === 'waiting' && count > 0 && 'border-warn/35 bg-warn/10',
                   over === column.id && accepts && 'border-accent-line bg-accent-soft/40',
                   over === column.id && refused && 'border-danger/40',
                   refused && 'opacity-60',

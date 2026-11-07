@@ -55,6 +55,7 @@ describe('任务看板分列', () => {
     const input = { tasks, sessions, filter: all, knownProjects: new Set(['p']), showOlder: false, now: NOW }
     const cols = buildColumns(input)
     expect(ids(cols)).toEqual({ todo: ['a'], doing: ['run', 'b'], review: [], waiting: ['w', 'u'], done: ['c', 'e'] })
+    expect(cols.map(c => c.id)).toEqual(['waiting', 'todo', 'doing', 'review', 'done'])
     expect(cols[4].older).toBe(1)
     expect(ids(buildColumns({ ...input, showOlder: true })).done).toEqual(['c', 'e', 'd'])
   })

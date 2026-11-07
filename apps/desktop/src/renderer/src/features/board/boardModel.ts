@@ -4,7 +4,8 @@ import { isWaiting, type SessionCard } from './sessionLanes'
 
 // review = 待验收（docs/ui/channels-collab-v2.md §9）：交给 AI 成员的事项做完了等你验收；没有时这一列不显示
 export type ColumnId = 'todo' | 'doing' | 'review' | 'waiting' | 'done'
-export const COLUMNS: ColumnId[] = ['todo', 'doing', 'review', 'waiting', 'done']
+// 「等你」放最前：最需要人处理，窗口窄时也不能被挤到屏幕外（docs/ui/desktop-parity.md）
+export const COLUMNS: ColumnId[] = ['waiting', 'todo', 'doing', 'review', 'done']
 /** 手动任务能拖进去的列（「等你」里只有会话） */
 export const STATUS_OF: Partial<Record<ColumnId, ManualTask['status']>> = {
   todo: 'pending',
@@ -89,23 +90,24 @@ export function buildColumns(input: {
         )
   const done = tasks.filter(t => t.status === 'completed').sort((a, b) => doneAt(b) - doneAt(a))
   const recent = done.filter(t => input.now - doneAt(t) <= RECENT_DONE_MS)
-  return [
-    { id: 'todo', tasks: tasks.filter(t => t.status === 'pending').sort(taskOrder), sessions: [], older: 0 },
-    {
+  const columns: Record<ColumnId, Column> = {
+    waiting: { id: 'waiting', tasks: [], sessions: sessions.filter(s => isWaiting(s.lane)), older: 0 },
+    todo: { id: 'todo', tasks: tasks.filter(t => t.status === 'pending').sort(taskOrder), sessions: [], older: 0 },
+    doing: {
       id: 'doing',
       tasks: tasks.filter(t => t.status === 'in_progress').sort(taskOrder),
       sessions: sessions.filter(s => !isWaiting(s.lane)),
       older: 0,
     },
-    { id: 'review', tasks: tasks.filter(t => t.status === 'review').sort(taskOrder), sessions: [], older: 0 },
-    { id: 'waiting', tasks: [], sessions: sessions.filter(s => isWaiting(s.lane)), older: 0 },
-    {
+    review: { id: 'review', tasks: tasks.filter(t => t.status === 'review').sort(taskOrder), sessions: [], older: 0 },
+    done: {
       id: 'done',
       tasks: input.showOlder ? done : recent,
       sessions: [],
       older: input.showOlder ? 0 : done.length - recent.length,
     },
-  ]
+  }
+  return COLUMNS.map(id => columns[id])
 }
 
 /**
