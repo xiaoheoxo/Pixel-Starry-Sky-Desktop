@@ -1,5 +1,6 @@
 import { memo, type AnchorHTMLAttributes } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
+import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import { MarkdownImageContext } from '@/ui/markdown/MarkdownImage'
 import { PathLinksContext } from '@/ui/markdown/pathLinks'
@@ -56,7 +57,11 @@ export const StoreReadme = memo(function StoreReadme({ text }: { text: string })
     <MarkdownImageContext.Provider value={null}>
       <PathLinksContext.Provider value={null}>
         <div data-store-readme className={PROSE}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={defaultUrlTransform}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkCjkFriendly]}
+            components={components}
+            urlTransform={defaultUrlTransform}
+          >
             {source}
           </ReactMarkdown>
           {truncated && <p className="text-meta text-fg-faint">{tr('extstoreDetail.readmeTruncated')}</p>}

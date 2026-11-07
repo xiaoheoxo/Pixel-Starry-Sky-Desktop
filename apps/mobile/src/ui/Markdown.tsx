@@ -3,6 +3,7 @@
 import { memo } from 'react'
 import { citationName, replaceCodexDirectives, type CodexCitation } from '@pixelsky/protocol'
 import Markdown, { type Components } from 'react-markdown'
+import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import { CodeBlock } from './code'
 
@@ -45,7 +46,7 @@ const citationText = ({ path }: CodexCitation): string => {
 export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
   return (
     <div className="markdown text-prose text-fg-body">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={[remarkGfm, remarkCjkFriendly]} components={components}>
         {replaceCodexDirectives(text, citationText)}
       </Markdown>
     </div>

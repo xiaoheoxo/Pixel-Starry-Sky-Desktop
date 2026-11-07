@@ -2,6 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
+import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/ui'
 import { CodeBlock } from '@/ui/code/CodeBlock'
@@ -107,7 +108,8 @@ const PROSE = [
 ].join(' ')
 
 /** 流式时不带公式和路径链接，插件固定不变 */
-const STREAM_REMARK_PLUGINS: PluggableList = [remarkAlerts, remarkGfm, remarkBreaks]
+// remark-cjk-friendly：标准规则认不出中文标点后面紧跟文字的 **加粗：**这样，星号会原样显示
+const STREAM_REMARK_PLUGINS: PluggableList = [remarkAlerts, remarkGfm, remarkCjkFriendly, remarkBreaks]
 
 /**
  * 流式时一块（空行之间的一段）超过这个长度就不解析 Markdown，按纯文字显示。
@@ -185,7 +187,7 @@ export const Markdown = memo(function Markdown({
   const source = useMemo(() => (math ? normalizeMath(text) : text), [math, text])
   // 提示块要在 remark-breaks 之前认出标记；remark-breaks：单个换行也换行（一行一个的列表、数字不会挤成一段）
   const remarkPlugins = useMemo<PluggableList>(
-    () => [remarkAlerts, remarkGfm, ...(math?.remark ?? []), ...(document ? [] : [remarkBreaks])],
+    () => [remarkAlerts, remarkGfm, remarkCjkFriendly, ...(math?.remark ?? []), ...(document ? [] : [remarkBreaks])],
     [math, document],
   )
   const rehypePlugins = useMemo<PluggableList | undefined>(

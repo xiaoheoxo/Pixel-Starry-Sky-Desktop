@@ -14,6 +14,35 @@ const html = (text: string): string =>
     </I18nProvider>,
   )
 
+describe('中文加粗', () => {
+  const render = (text: string, streaming: boolean): string =>
+    renderToStaticMarkup(
+      <I18nProvider>
+        <Markdown text={text} streaming={streaming} />
+      </I18nProvider>,
+    )
+
+  it.each([false, true])('中文标点后面紧跟文字也算加粗（流式 %s）', streaming => {
+    for (const [text, bold] of [
+      ['**提前刷新：**到期前换新令牌', '提前刷新：'],
+      ['这是**「重点」**内容', '「重点」'],
+      ['结果**很好。**下一步', '很好。'],
+    ]) {
+      const out = render(text, streaming)
+      expect(out).toContain(`<strong>${bold}</strong>`)
+      expect(out).not.toContain('**')
+    }
+  })
+
+  it('普通写法和不该加粗的不受影响', () => {
+    expect(html('**abc**def')).toContain('<strong>abc</strong>')
+    expect(html('2*3*4 和 a ** b')).toContain('2<em>3</em>4')
+    expect(html('a ** b')).toContain('a ** b')
+    expect(html('`**不是加粗：**到`')).toContain('**不是加粗：**到')
+    expect(html('```\n**代码块：**里\n```')).toContain('**代码块：**里')
+  })
+})
+
 describe('提示块', () => {
   it('五种标记画成提示块，标记本身不显示', () => {
     for (const kind of ['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION']) {
