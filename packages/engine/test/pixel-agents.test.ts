@@ -140,6 +140,12 @@ describe('像素星空子智能体 → 智能体追踪', () => {
     expect(old).not.toHaveProperty('outsideGroup')
   })
 
+  it('实际强度进入子任务追踪；未报告的旧记录不显示强度', () => {
+    expect(subagentRun({ effort: 'high' }, 't').effort).toBe('high')
+    expect(subagentRun({ effort: 'off' }, 't').effort).toBeNull()
+    expect(subagentRun({}, 't')).not.toHaveProperty('effort')
+  })
+
   it('重新打开：从主会话文件读子智能体（同一个调用取最后一条），读子智能体的对话', () => {
     const child = join(root, 'child.jsonl')
     writeFileSync(

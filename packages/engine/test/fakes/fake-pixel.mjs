@@ -66,6 +66,8 @@ const models = [
   },
   { provider: 'fake', id: 'fake-small', name: 'Fake Small', reasoning: false, input: ['text'], contextWindow: 32000 },
 ]
+if (process.env.FAKE_PIXEL_SPEED)
+  Object.assign(models[0], { api: 'openai-responses', serviceTiers: ['priority', 'ultrafast'] })
 // 网关扩展注册的 provider（PIXELSKY_PIXEL_PROVIDERS）也列进来，没写窗口按 Pi 的默认 128K
 for (const [provider, config] of Object.entries(
   process.env.PIXELSKY_PIXEL_PROVIDERS ? JSON.parse(process.env.PIXELSKY_PIXEL_PROVIDERS) : {},
@@ -532,6 +534,7 @@ readline
       case 'get_commands':
         return response(m, {
           commands: [
+            ...(process.env.FAKE_PIXEL_SPEED ? [{ name: 'pixelsky-speed', source: 'extension' }] : []),
             { name: 'pixelsky-mode', source: 'extension', sourceInfo: { path: '/ext/approval.ts' } },
             { name: 'pixelsky-mcp', source: 'extension', sourceInfo: { path: '/ext/mcp.ts' } },
             {
@@ -563,6 +566,21 @@ readline
         sessionFile = m.sessionPath
         return response(m, { cancelled: false })
       case 'prompt': {
+        if (m.message.startsWith('/pixelsky-speed ') && process.env.FAKE_PIXEL_SPEED) {
+          const [, speed, req] = m.message.split(' ')
+          out({
+            type: 'extension_ui_request',
+            method: 'setStatus',
+            statusKey: 'pixelsky-speed',
+            statusText: JSON.stringify({
+              version: 1,
+              req,
+              speed,
+              error: process.env.FAKE_PIXEL_SPEED_FAIL === speed ? 'Rejected speed' : '',
+            }),
+          })
+          return response(m, { disposition: 'handled' })
+        }
         if (m.message.startsWith('/pixelsky-mode ')) return response(m, { disposition: 'handled' })
         if (running) return fail(m, 'Agent is already processing')
         messages++

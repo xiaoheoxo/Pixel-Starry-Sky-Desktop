@@ -12,6 +12,7 @@ export interface Plan {
 }
 
 export interface ProgressAgent {
+  effort?: import('@pixelsky/protocol').Effort | null
   id: string
   label: string
   state: RunState
@@ -74,6 +75,7 @@ export function progressAgents(
       label: a.label || run?.label || a.id.slice(0, 8),
       state: runState(a.status),
       model: run?.model ?? '',
+      ...(run && 'effort' in run ? { effort: run.effort } : {}),
       type: run?.type ?? '',
       message: a.message,
       startedAt: run?.startedAt ?? 0,
@@ -108,12 +110,12 @@ export function planResult(items: readonly Item[]): { done: number; total: numbe
 /** 当前步骤（进行中的第一个）的下标；没有时 -1 */
 export const activeStep = (steps: TodoStep[]): number => steps.findIndex(s => s.status === 'in_progress')
 
-/** 阅读列最窄 640 + 卡片 352 + 两边各 20：对话区比这窄，浮着的卡片一定会挡字 */
-export const NARROW_PX = 640 + 352 + 20 + 20
+/** 居中的阅读列 1024 + 两侧各留卡片 352 和边距 20；留白不足时收成顶部一条，不挤压正文 */
+export const NARROW_PX = 1024 + 2 * (352 + 20)
 
 /**
  * 卡片放在哪（docs/ui/progress-card.md §4）：strip 是对话顶部那一条；card 的 over 是窄时点开、临时盖住内容。
- * 这里只分窄不窄；够宽时浮在空白里还是让阅读列收窄，由 conversation.css 按宽度决定
+ * 留白够宽才浮在右边；否则收成一条，点开临时盖住，阅读列始终保持居中和原宽
  */
 export function cardPlacement(o: { docked: boolean; narrow: boolean; collapsed: boolean; peek: boolean }): {
   strip: boolean

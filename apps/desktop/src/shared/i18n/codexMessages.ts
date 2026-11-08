@@ -1,6 +1,26 @@
 import { AUTO_REVIEW_TEXT } from '@pixelsky/protocol'
 
 export const codexMessages = {
+  'speed.pixelHold': {
+    zh: '按住 0.6 秒开启 UltraFast，仅影响本会话。',
+    en: 'Hold for 0.6 seconds for UltraFast. Applies to this session only.',
+  },
+  'speed.pixelCost': {
+    zh: '请求更快的服务档位，费用可能增加；实际档位以上游回报为准。',
+    en: 'Requests a faster service tier and may cost more. The effective tier depends on the upstream response.',
+  },
+  'speed.pixelReported': {
+    zh: '上游最近回报的服务档位：{tier}。费用以通道账单为准。',
+    en: 'Last tier reported by the upstream: {tier}. See source billing for actual costs.',
+  },
+  'speed.pixelOldCli': {
+    zh: '当前 Pixel CLI 不支持速度设置，请更新引擎后重新连接。',
+    en: 'This Pixel CLI does not support speed settings. Update the engine and reconnect.',
+  },
+  'speed.pixelUnavailable': {
+    zh: '当前模型或通道尚未确认支持加速档位。',
+    en: 'Speed tiers are not confirmed for the current model or source.',
+  },
   'session.live.ApprovalCard.allowAll': {
     zh: '本会话后续不再询问',
     en: 'Allow all for this session',

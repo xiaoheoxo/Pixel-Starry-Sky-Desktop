@@ -1,5 +1,6 @@
 // 像素星空命令行报上来的模型和思考强度（get_available_models / get_state）
 import type { Effort, EngineCatalog, EngineModel } from '@pixelsky/protocol'
+import { pixelSpeedCapability } from '@pixelsky/protocol'
 import { array, object, string, type Message, type PixelProcess } from './process'
 
 /** 模型引用：provider/id（同一个 id 可能出现在多个 provider 下） */
@@ -49,6 +50,7 @@ export const piThinkingLevel = (effort: Effort): string => (effort === 'ultra' ?
 
 export function engineModel(model: Message, current: string | null): EngineModel {
   const ref = modelRef(model)
+  const speed = pixelSpeedCapability(model)
   return {
     id: ref,
     label: string(model.name) || string(model.id),
@@ -56,6 +58,8 @@ export function engineModel(model: Message, current: string | null): EngineModel
     defaultEffort: null,
     inputModalities: array(model.input).map(string).filter(Boolean),
     isDefault: ref === current,
+    ...(speed.fast ? { fastTier: 'priority' } : {}),
+    ...(speed.ultrafast ? { ultrafast: true } : {}),
   }
 }
 

@@ -1,6 +1,6 @@
 // 主模型调度（docs/ui/subagent-model-dispatch.md §4）：命令行派活时问本机网关「现在能选哪些模型」。
 // 候选在这里现算：同账号换分组不换进程，命令行手里的启动数据会过期，只有网关知道会话现在在哪个分组。
-import type { SessionRecord } from '@pixelsky/protocol'
+import { parseSubagentOverrides, type SessionRecord, type SubagentOverride } from '@pixelsky/protocol'
 import { resolveDispatch, type DispatchCatalog } from '../../shared/subagent-dispatch'
 import type { SubagentSettings, SubagentSite, SubagentTarget } from '../../shared/types/subagents'
 import { stripLongContextSuffix } from './pixel-env'
@@ -18,6 +18,8 @@ export type SubagentOptionsPick =
   | { outcome: 'rejected' }
 
 export interface SubagentOptionsReply {
+  /** 用户的本会话覆盖；模型指定仅限主会话当前通道，路线仍由网关签发。 */
+  override?: Omit<SubagentOverride, 'type'> & { route?: unknown; secret?: string }
   currentModel: string
   options: Array<{ model: string; note: string; outside: boolean }>
   /** 不填 model 时用的；null：用主模型自己 */
@@ -32,6 +34,10 @@ export interface SubagentOptionsReply {
  */
 export const staleSubagentKey = (key: string, prefix: string, used: ReadonlySet<string>): boolean =>
   key.startsWith(prefix) && !key.slice(prefix.length).includes('@') && !used.has(key)
+
+/** 包含来源种类和账号，换来源后签发新路线不会改掉正在运行的子任务的目标。 */
+export const subagentRouteKey = (recordId: string, typeId: string, target: SubagentTarget): string =>
+  `${recordId}#subagent:${typeId}@${JSON.stringify(target)}`
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
@@ -58,15 +64,39 @@ export async function answerSubagentOptions(deps: {
   // 会话记录里没写模型时（跟随默认）才用命令行报的
   const model = stripLongContextSuffix(record.model || str(request.mainModel))
   const site = recordSite(record)
+  const reply: SubagentOptionsReply = {
+    currentModel: model,
+    options: [],
+    defaultModel: null,
+  }
+  const override =
+    request.configure === true && record.engine === 'pixel'
+      ? parseSubagentOverrides(record.subagentOverrides).find(o => o.type === typeId)
+      : undefined
+  if (override) {
+    const { type: _type, ...config } = override
+    reply.override = config
+    if (config.model && site) {
+      const available = await deps.catalog(site)
+      if (!available.siteModels.includes(config.model)) throw new Error('子智能体模型已不在当前通道，请重新选择')
+      const target: SubagentTarget =
+        site.kind === 'custom'
+          ? { ...site, model: config.model }
+          : { ...site, account: record.platform!.account, model: config.model }
+      if (available.problem(target)) throw new Error('子智能体模型的通道暂不可用')
+      const issued = deps.issue(typeId, target)
+      if (!issued) throw new Error('子智能体模型的通道暂不可用')
+      Object.assign(reply.override, issued)
+    }
+    // 用户指定模型优先于主模型的调度选择；null 表示明确跟随主会话。
+    if ('model' in config) return reply
+  }
   const result =
     dispatch && record.engine === 'pixel'
       ? resolveDispatch(dispatch, { site, account: record.platform?.account ?? null, model }, await deps.catalog(site))
       : { options: [], defaultModel: null }
-  const reply: SubagentOptionsReply = {
-    currentModel: model,
-    options: result.options.map(({ model: m, note, outside }) => ({ model: m, note, outside })),
-    defaultModel: result.defaultModel,
-  }
+  reply.options = result.options.map(({ model: m, note, outside }) => ({ model: m, note, outside }))
+  reply.defaultModel = result.defaultModel
   if (request.pick !== true) return reply
   const requested = str(request.model)
   const chosen = requested || result.defaultModel

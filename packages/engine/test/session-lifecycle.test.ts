@@ -28,6 +28,7 @@ class Session implements EngineSession {
   closed = false
   stopping: (() => Promise<void>) | null = null
   failSend: string | null = null
+  updates: Partial<SessionSettings>[] = []
   constructor(readonly ctx: SessionContext) {}
   send(text: string, turnId: string): void {
     if (this.failSend) {
@@ -53,7 +54,9 @@ class Session implements EngineSession {
     this.closed = true
     await this.interrupt()
   }
-  async update(_patch: Partial<SessionSettings>): Promise<void> {}
+  async update(patch: Partial<SessionSettings>): Promise<void> {
+    this.updates.push(patch)
+  }
   answer(): void {}
   async stopTask(): Promise<void> {}
   async taskOutput() {
@@ -82,6 +85,27 @@ function setup() {
   return { host, adapter, record, dataDir }
 }
 describe('归档与删除生命周期', () => {
+  it('子任务覆盖即时进入网关执行记录并持久化，不重启主会话或修改新会话默认值', async () => {
+    const { host, adapter, record, dataDir } = setup()
+    await host.send(record.id, '开始工作')
+    await until(() => !!adapter.sessions[0]?.active)
+    const child = adapter.sessions[0]
+    const updates = child.updates.length
+    const overrides = [{ type: 'explore', model: 'provider/model', effort: 'high' as const }]
+    await host.update(record.id, { subagentOverrides: overrides })
+    expect(host.executionRecord(record.id)?.subagentOverrides).toEqual(overrides)
+    expect(child.updates).toHaveLength(updates)
+    expect(child.active).toBeTruthy()
+    expect(child.closed).toBe(false)
+    expect(adapter.sessions).toHaveLength(1)
+    expect(host.createSession({ projectId: record.projectId }).subagentOverrides).toBeUndefined()
+    const reopened = new EngineHost({ dataDir, adapters: { claude: new Adapter() }, emit: () => {} })
+    hosts.push(reopened)
+    expect(reopened.record(record.id)?.subagentOverrides).toEqual(overrides)
+    await host.update(record.id, { subagentOverrides: [] })
+    expect(host.executionRecord(record.id)?.subagentOverrides).toEqual([])
+  })
+
   it('显式名称和置底偏好持久化，不修改会话最近时间；普通旧记录兼容', async () => {
     const { host, record, dataDir } = setup(),
       updatedAt = record.updatedAt

@@ -87,6 +87,14 @@ export interface SessionFlags {
   fastBlocked: string | null
   /** Codex：这一轮跑着时改了 Fast，下一轮才生效 */
   fastPending?: boolean
+  /** Pixel 当前进程确认的速度能力与上游回报；模型不符时不能用于开放开关。 */
+  pixelSpeed?: {
+    model: string | null
+    fast: boolean
+    ultrafast: boolean
+    requestedTier?: string
+    actualTier?: string | null
+  }
   /**
    * 引擎进程里当前模型实际支持的推理强度（像素星空：Pi 的 get_available_thinking_levels）。
    * model 是会话记录里的模型名：记录换了模型、进程还没跟上时不算数，界面改按模型目录。没报告时省略

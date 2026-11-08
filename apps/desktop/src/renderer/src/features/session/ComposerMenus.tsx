@@ -231,6 +231,11 @@ export function EffortMenu({ live }: { live: ComposerController }) {
             )}
             {live.fastSupported && live.ultrafastAvailable && (
               <SpeedRow
+                description={
+                  live.effortEngine === 'pixel'
+                    ? `${live.ultrafast ? '' : tr('speed.pixelHold') + ' '}${live.fastHint ?? tr('speed.pixelCost')}`
+                    : undefined
+                }
                 speed={live.ultrafast ? 'ultrafast' : live.fast ? 'fast' : 'off'}
                 pending={fastPending}
                 onChange={speed => (speed === 'ultrafast' ? live.setUltrafast() : live.setFast(speed === 'fast'))}

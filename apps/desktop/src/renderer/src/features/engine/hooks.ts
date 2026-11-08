@@ -710,8 +710,20 @@ export function useComposerController(
       (key.includes('/') ? undefined : catalog?.models?.find(model => model.id.endsWith(`/${key}`)))
     )
   }
+  const pixelLiveSpeed =
+    engineId === 'pixel' &&
+    liveFlags?.pixelSpeed?.model === model &&
+    (!snap?.execution ||
+      JSON.stringify([snap.execution.platform ?? null, snap.execution.provider ?? null]) ===
+        JSON.stringify([record?.platform ?? null, record?.provider ?? null]))
+      ? liveFlags.pixelSpeed
+      : undefined
+  const pixelFast = pixelLiveSpeed?.fast ?? (source === 'self' && !!catalogModel(model)?.fastTier)
   const ultrafastAvailable =
-    engineId === 'codex' && selectedEngineId === engineId && source === 'self' && ultrafastEligible(catalog, model)
+    selectedEngineId === engineId &&
+    ((engineId === 'codex' && source === 'self' && ultrafastEligible(catalog, model)) ||
+      (engineId === 'pixel' &&
+        (pixelLiveSpeed?.ultrafast ?? (source === 'self' && catalogModel(model)?.ultrafast === true))))
   const ultrafast = ultrafastAvailable && (record ? record.ultrafast : base.ultrafast) === true
   /** 换模型后推理强度不在新模型的档位里时，改成新模型的默认档 */
   const effortPatchFor = (m: string | null): { effort?: Effort | null } => {
@@ -916,10 +928,23 @@ export function useComposerController(
     ultracode: record ? record.ultracode : base.ultracode,
     setUltracode: ultracode => patch({ ultracode }),
     fastSupported: engine?.caps.fast ?? false,
-    fastAvailable: liveFlags?.fastAvailable ?? null,
+    fastAvailable: engineId === 'pixel' ? pixelFast : (liveFlags?.fastAvailable ?? null),
     fastBlocked:
-      liveFlags?.fastBlocked && liveFlags.fastAvailable === false ? fastBlockedText(liveFlags.fastBlocked) : null,
-    fastHint: liveFlags?.fastBlocked && liveFlags.fastAvailable !== false ? fastHintText(liveFlags.fastBlocked) : null,
+      engineId === 'pixel' && !pixelFast
+        ? fastBlockedText(
+            liveFlags?.fastBlocked === 'pixel_speed_old_cli' ? 'pixel_speed_old_cli' : 'pixel_speed_unavailable',
+          )
+        : liveFlags?.fastBlocked && liveFlags.fastAvailable === false
+          ? fastBlockedText(liveFlags.fastBlocked)
+          : null,
+    fastHint:
+      engineId === 'pixel'
+        ? pixelLiveSpeed?.actualTier
+          ? tr('speed.pixelReported', { tier: pixelLiveSpeed.actualTier })
+          : tr('speed.pixelCost')
+        : liveFlags?.fastBlocked && liveFlags.fastAvailable !== false
+          ? fastHintText(liveFlags.fastBlocked)
+          : null,
     fastPending: liveFlags?.fastPending === true,
     fast: record ? record.fast : base.fast,
     setFast: fast => patch({ fast, ultrafast: false }),

@@ -58,6 +58,12 @@ export function effortLook(effort: Effort | null, efforts: readonly Effort[], en
 
 /** Fast 模式开不了的原因（CLI 的 fast_mode_disabled_reason） */
 const FAST_BLOCKED: Record<string, string> = {
+  get pixel_speed_old_cli() {
+    return tr('speed.pixelOldCli')
+  },
+  get pixel_speed_unavailable() {
+    return tr('speed.pixelUnavailable')
+  },
   get free() {
     return tr('engine.labels.unavailableForFreeAccounts')
   },

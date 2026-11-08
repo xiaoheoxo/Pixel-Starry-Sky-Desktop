@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import type { AgentRun, AgentRuns, Item, WorkflowRun } from '@pixelsky/protocol'
 import { IconButton, ResizeHandle, Spinner, cn } from '@/ui'
-import { bridge, toChangedFiles, useEngineState } from '@/features/engine'
+import { bridge, effortLabel, toChangedFiles, useEngineState } from '@/features/engine'
 import { isDemo } from '@/data'
 import { demo } from '@/data/demo'
 import {
@@ -680,6 +680,7 @@ function AgentFocus({
               {[
                 agent.type,
                 shortModel(agent.model),
+                agent.effort ? effortLabel(agent.effort) : '',
                 agent.modelSource === 'chosen' && tr('subagent.box.chosen'),
                 agent.outsideGroup && tr('subagent.box.outsideGroup'),
               ]

@@ -28,6 +28,7 @@ import { KeptAgentsStrip, TaskStrip } from './live/SessionStrips'
 import { keptAgents } from './live/subagentStop'
 import { stopAgents } from './live/stopAgents'
 import { ProgressCard, useProgress } from './live/ProgressCard'
+import { SubagentSettingsDialog } from './SubagentSettingsDialog'
 import { InlinePlan } from './live/InlinePlan'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { TraceContext, type TraceTarget } from './live/trace'
@@ -405,6 +406,7 @@ function LiveSessionView({
   }, [record?.branch, items])
   const readOnly = branchReadOnly(record)
   // 打开追踪面板时对话区的卡片让开；停靠的不在对话区，不用让
+  const [subagentSettings, setSubagentSettings] = useState(false)
   const progressCard =
     sessionId && progress.visible && (docked || !trace) ? (
       <ProgressCard
@@ -417,6 +419,8 @@ function LiveSessionView({
         expandToken={expandToken}
         expandSeen={expandSeen}
         docked={docked}
+        onConfigure={snapshot?.record.engine === 'pixel' ? () => setSubagentSettings(true) : undefined}
+        overrideCount={record?.subagentOverrides?.length ?? 0}
         onDock={appMode === 'code' ? undefined : () => openRightTab('overview')}
       />
     ) : null
@@ -515,9 +519,16 @@ function LiveSessionView({
                 <>
                   {record?.branch && <BranchBanner record={record} />}
                   <div ref={body} className="conversation-body relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {/* 要是对话区的直接子元素，放最前：收起时那一条占布局、排在最上面；让位靠 conversation.css 的 :has(> …) */}
+                    {/* 要是对话区的直接子元素，放最前：收起时那一条占布局、排在最上面；搜索条靠 CSS 的 :has(> …) 避让 */}
                     {/* portal 保留 React 上下文：停靠后点子智能体照样走 TraceContext */}
                     {progressCard && dockTo ? createPortal(progressCard, dockTo) : progressCard}
+                    {subagentSettings && snapshot?.record.engine === 'pixel' && (
+                      <SubagentSettingsDialog
+                        key={snapshot.record.id}
+                        snapshot={snapshot}
+                        onClose={() => setSubagentSettings(false)}
+                      />
+                    )}
                     {showStrips && (
                       <div
                         ref={strips}

@@ -161,9 +161,14 @@ describe('cardPlacement', () => {
     expect(place({ docked: true, narrow: true, collapsed: true, peek: true })).toEqual({ strip: false, card: 'docked' })
   })
 
-  it('窄不窄的分界是 1032：放下 640 的阅读列和 352 的卡片', () => {
-    expect(1031 < NARROW_PX).toBe(true)
-    expect(1032 < NARROW_PX).toBe(false)
+  it.each([760, 1032, 1200, 1440, 1767])('%dpx 留白不足：默认收成一条，点开才显示浮层', width => {
+    const narrow = width < NARROW_PX
+    expect(place({ narrow })).toEqual({ strip: true, card: null })
+    expect(place({ narrow, peek: true })).toEqual({ strip: true, card: 'over' })
+  })
+
+  it.each([1768, 1840])('%dpx 留白足够：卡片浮在居中的阅读列右侧', width => {
+    expect(place({ narrow: width < NARROW_PX })).toEqual({ strip: false, card: 'float' })
   })
 })
 

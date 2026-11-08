@@ -1,5 +1,48 @@
 // 设置 › 子智能体（docs/ui/subagent-routing.md，样式稿 docs/ui/subagent-types-mockup.html）
 export const subagentRouteMessages = {
+  'subagentRoute.effort.title': { zh: '推理强度', en: 'Reasoning effort' },
+  'subagentRoute.effort.hint': {
+    zh: '只列出此模型支持的档位。',
+    en: 'Only levels supported by this model are listed.',
+  },
+  'subagentRoute.effort.unknown': {
+    zh: '档位由子任务启动时的模型能力确认；不支持时由引擎调整。',
+    en: 'Levels are checked against the model when the subtask starts; unsupported levels are adjusted by the engine.',
+  },
+  'subagentRoute.effort.unsupported': {
+    zh: '此模型不支持手动设置推理强度',
+    en: 'This model does not support manual reasoning effort',
+  },
+  'subagentRoute.effort.reset': {
+    zh: '此模型不支持原档位，已改为跟随主会话。',
+    en: 'The previous level is unsupported; now following the main session.',
+  },
+  'subagentRoute.session.title': { zh: '调整后续子任务', en: 'Configure future subtasks' },
+  'subagentRoute.session.hint': {
+    zh: '仅影响本会话后续创建的子任务，正在运行的任务和类型默认值保持不变。',
+    en: 'Applies only to future subtasks in this session. Running tasks and type defaults stay unchanged.',
+  },
+  'subagentRoute.session.typeDefault': { zh: '沿用类型设置', en: 'Use type settings' },
+  'subagentRoute.session.source': {
+    zh: '指定模型来自主会话当前通道。强度设置可独立覆盖类型默认值。',
+    en: 'Models come from the main session’s current source. Effort can override the type default independently.',
+  },
+  'subagentRoute.session.apply': { zh: '应用到后续任务', en: 'Apply to future tasks' },
+  'subagentRoute.session.modelMissing': {
+    zh: '当前通道已没有此模型，请重新选择。',
+    en: 'This model is no longer in the current source. Choose another model.',
+  },
+  'subagentRoute.session.sourceChanged': {
+    zh: '主会话的通道已变化，请检查模型后重试。',
+    en: 'The main session’s source has changed. Check the model and try again.',
+  },
+  'subagentRoute.session.applied': { zh: '已应用到本会话后续子任务', en: 'Applied to future subtasks in this session' },
+  'subagentRoute.session.overridden': { zh: '本会话已设置 {n} 个类型', en: '{n} types configured for this session' },
+  'subagentRoute.session.overrideEffort': { zh: '单独设置推理强度', en: 'Override reasoning effort' },
+  'subagentRoute.session.reconnect': {
+    zh: '新开或重新连接的会话支持此功能；更新前已启动的引擎需先重新连接。',
+    en: 'Available in new or reconnected sessions. Reconnect engines started before this update.',
+  },
   'subagentRoute.title': { zh: '子智能体', en: 'Subagents' },
   'subagentRoute.intro': {
     zh: '主会话可以把查资料、改一批文件这类子任务派给子智能体。按用途分成几种类型，每种可以用自己的站点、模型和工具权限。',

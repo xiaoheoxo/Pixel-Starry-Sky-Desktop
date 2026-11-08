@@ -33,6 +33,8 @@ export interface SubagentStatus {
 
 /** 智能体追踪里的一个智能体（编排里的智能体，或 Agent 工具派出的子智能体） */
 export interface AgentRun {
+  /** 子进程实际使用的推理强度；未报告时缺省，不支持推理时 null。 */
+  effort?: import('./base').Effort | null
   /** 还在排队的编排智能体可能还没有 id（空字符串） */
   id: string
   label: string

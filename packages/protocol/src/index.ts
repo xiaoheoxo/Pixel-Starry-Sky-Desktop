@@ -1,3 +1,11 @@
+export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
+export {
+  pixelSpeedCapability,
+  pixelSpeedOf,
+  pixelSpeedTier,
+  type PixelSpeed,
+  type PixelSpeedCapability,
+} from './pixel-speed'
 export type {
   AccountAutoSwitch,
   AccountEngine,

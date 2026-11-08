@@ -59,7 +59,16 @@ class FakeChild extends EventEmitter {
             this.held = () => this.send({ type: 'response', id: m.id, command: m.type, success: true, data: {} })
             continue
           }
-          this.send({ type: 'response', id: m.id, command: m.type, success: true, data: {} })
+          this.send({
+            type: 'response',
+            id: m.id,
+            command: m.type,
+            success: true,
+            data:
+              m.type === 'get_state'
+                ? { thinkingLevel: this.received.findLast(r => r.type === 'set_thinking_level')?.level ?? 'off' }
+                : {},
+          })
           if (m.type === 'prompt') void Promise.resolve(behave(this)).then(() => this.send({ type: 'agent_settled' }))
         }
         done()
@@ -159,6 +168,106 @@ function setup(env: NodeJS.ProcessEnv, behaviours: Behave[], fetcher?: typeof fe
 }
 
 describe('子智能体类型', () => {
+  it('uses the type effort, while legacy types still inherit the parent effort', async () => {
+    const run = setup({ ...ENV, [SUBAGENT_TYPES_ENV]: JSON.stringify([{ ...EXPLORE, effort: 'high' }]) }, [
+      () => {},
+      () => {},
+    ])
+    const result = await run.call({ type: 'explore' })
+    expect(result.details.effort).toBe('high')
+    await run.call({ type: 'general' })
+    expect(run.children[0]!.received.find(m => m.type === 'set_thinking_level')).toMatchObject({ level: 'high' })
+    expect(run.children[1]!.received.find(m => m.type === 'set_thinking_level')).toMatchObject({ level: 'off' })
+  })
+
+  it('reads session overrides for each new task without changing a previous child', async () => {
+    let level = 'low'
+    let release!: () => void
+    let started!: () => void
+    const active = new Promise<void>(resolve => {
+      started = resolve
+    })
+    const fetcher = (async () =>
+      new Response(
+        JSON.stringify({
+          currentModel: 'main',
+          options: [],
+          defaultModel: null,
+          override: { model: null, effort: level },
+        }),
+      )) as typeof fetch
+    const run = setup(
+      { ...ENV, PIXELSKY_SUBAGENT_LIVE_OPTIONS: '1', PIXELSKY_SUBAGENT_OPTIONS_TOKEN: 'k' },
+      [
+        () =>
+          new Promise<void>(resolve => {
+            release = resolve
+            started()
+          }),
+        () => {},
+      ],
+      fetcher,
+    )
+    const first = run.call({ type: 'explore' })
+    await active
+    level = 'high'
+    await run.call({ type: 'explore' })
+    expect(run.models().map(m => m?.modelId)).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5-5'])
+    expect(run.children.map(c => c.received.filter(m => m.type === 'set_thinking_level').map(m => m.level))).toEqual([
+      ['low'],
+      ['high'],
+    ])
+    release()
+    await first
+  })
+
+  it('effort-only override retains the fixed route and missing live settings never silently use another model', async () => {
+    const env = { ...ENV, PIXELSKY_SUBAGENT_LIVE_OPTIONS: '1', PIXELSKY_SUBAGENT_OPTIONS_TOKEN: 'k' }
+    const fetcher = (async () =>
+      new Response(
+        JSON.stringify({
+          currentModel: 'main',
+          options: [],
+          defaultModel: null,
+          pick: { outcome: 'self' },
+          override: { effort: 'medium' },
+        }),
+      )) as typeof fetch
+    const run = setup(env, [() => {}], fetcher)
+    await run.call({ type: 'explore' })
+    expect(run.models()[0]).toMatchObject({ provider: SUBAGENT_PROVIDER, modelId: 'deepseek-chat' })
+    expect(run.children[0]!.received.find(m => m.type === 'set_thinking_level')).toMatchObject({ level: 'medium' })
+    const offline = setup(env, [], (async () => {
+      throw new Error('offline')
+    }) as typeof fetch)
+    await expect(offline.call({ type: 'general' })).rejects.toThrow('Could not read')
+    expect(offline.children).toHaveLength(0)
+  })
+
+  it('explicit native model overrides use provider/model and main effort can override the type effort', async () => {
+    const fetcher = (async () =>
+      new Response(
+        JSON.stringify({
+          currentModel: 'main',
+          options: [],
+          defaultModel: null,
+          override: { model: 'other/model', effort: null },
+        }),
+      )) as typeof fetch
+    const run = setup(
+      {
+        ...ENV,
+        PIXELSKY_SUBAGENT_LIVE_OPTIONS: '1',
+        PIXELSKY_SUBAGENT_OPTIONS_TOKEN: 'k',
+        [SUBAGENT_TYPES_ENV]: JSON.stringify([{ ...EXPLORE, effort: 'high' }]),
+      },
+      [() => {}],
+      fetcher,
+    )
+    await run.call({ type: 'explore' })
+    expect(run.models()[0]).toMatchObject({ provider: 'other', modelId: 'model' })
+    expect(run.children[0]!.received.find(m => m.type === 'set_thinking_level')).toMatchObject({ level: 'off' })
+  })
   it('读桌面端给的类型；没给时只有跟随主会话的 general；route 不完整时当成跟随主会话', () => {
     expect(subagentTypes({}).map(t => t.id)).toEqual(['general'])
     expect(subagentTypes({ [SUBAGENT_TYPES_ENV]: '{bad' }).map(t => t.id)).toEqual(['general'])

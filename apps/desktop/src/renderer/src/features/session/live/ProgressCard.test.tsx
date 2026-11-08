@@ -14,7 +14,10 @@ import { ProgressCard, type Progress } from './ProgressCard'
 import type { Plan } from './progressData'
 
 const step = (text: string, status: TodoStep['status']): TodoStep => ({ text, status })
-const render = (plan: Plan, extra: { docked?: boolean; onDock?: () => void } = {}): string => {
+const render = (
+  plan: Plan,
+  extra: { docked?: boolean; onDock?: () => void; onConfigure?: () => void; overrideCount?: number } = {},
+): string => {
   const progress: Progress = {
     plan,
     agents: [],
@@ -95,6 +98,14 @@ describe('ProgressCard', () => {
     expect(render(plan, { onDock })).toContain(tr('overview.dock'))
     collapsedPref()
     expect(render(plan, { onDock })).toContain(tr('overview.dock'))
+  })
+
+  it('后续子任务设置入口只在提供编辑能力时显示，浮层和收起条都有', () => {
+    const onConfigure = () => {}
+    expect(render(plan)).not.toContain(tr('subagentRoute.session.title'))
+    expect(render(plan, { onConfigure, overrideCount: 2 })).toContain(tr('subagentRoute.session.overridden', { n: 2 }))
+    collapsedPref()
+    expect(render(plan, { onConfigure })).toContain(tr('subagentRoute.session.title'))
   })
 
   it('停靠：不浮着、没有条，没有 ✕ 和停靠按钮；存过的折叠偏好不管用', () => {

@@ -6,7 +6,7 @@ import type { SessionRecord } from '@pixelsky/protocol'
 import type { DispatchCatalog } from '../../shared/subagent-dispatch'
 import { parseSubagentSettings, type SubagentSite, type SubagentTarget } from '../../shared/types/subagents'
 import { platformGateway } from './gateway'
-import { SUBAGENT_OPTIONS_PATH, answerSubagentOptions, staleSubagentKey } from './subagent-options'
+import { SUBAGENT_OPTIONS_PATH, answerSubagentOptions, staleSubagentKey, subagentRouteKey } from './subagent-options'
 
 const target = (groupId: string, model: string): SubagentTarget => ({
   kind: 'platform',
@@ -54,6 +54,17 @@ const ask = (request: unknown, rec = record(), s = settings()) => {
 describe('staleSubagentKey', () => {
   const prefix = 's1#subagent:'
 
+  it('相同模型换账号或来源时使用不同路线，不覆盖运行中的目标', () => {
+    const targets: SubagentTarget[] = [
+      target('1', 'm'),
+      { ...target('1', 'm'), account: 'other@b.c' } as SubagentTarget,
+      { kind: 'custom', providerId: '1', model: 'm' },
+    ]
+    const keys = targets.map(t => subagentRouteKey('s1', 'explore', t))
+    expect(new Set(keys).size).toBe(3)
+    expect(keys.every(k => !staleSubagentKey(k, prefix, new Set()))).toBe(true)
+  })
+
   it('固定站点的类型：没用到才作废', () => {
     expect(staleSubagentKey(`${prefix}explore`, prefix, new Set())).toBe(true)
     expect(staleSubagentKey(`${prefix}explore`, prefix, new Set([`${prefix}explore`]))).toBe(false)
@@ -70,6 +81,41 @@ describe('staleSubagentKey', () => {
 })
 
 describe('answerSubagentOptions', () => {
+  it('明确跟随主会话不查询被覆盖的调度目录', async () => {
+    const lookup = vi.fn().mockRejectedValue(new Error('offline'))
+    const reply = await answerSubagentOptions({
+      settings: settings(),
+      record: record({ subagentOverrides: [{ type: 'explore', model: null }] }),
+      request: { type: 'explore', configure: true, pick: true },
+      catalog: lookup,
+      issue: () => null,
+    })
+    expect(reply.override).toEqual({ model: null })
+    expect(lookup).not.toHaveBeenCalled()
+  })
+  it('session model override takes precedence over dispatch, restricted to the current source', async () => {
+    const rec = record({ subagentOverrides: [{ type: 'explore', model: 'gpt-6-luna', effort: 'high' }] })
+    const { reply, issue } = ask({ type: 'explore', pick: true, configure: true, model: 'gpt-6-astra' }, rec)
+    expect((await reply).override).toMatchObject({ model: 'gpt-6-luna', effort: 'high', secret: 'k' })
+    expect(issue).toHaveBeenCalledWith('explore', target('1', 'gpt-6-luna'))
+    expect((await reply).pick).toBeUndefined()
+    await expect(
+      ask({ type: 'explore', configure: true }, record({ subagentOverrides: [{ type: 'explore', model: 'other' }] }))
+        .reply,
+    ).rejects.toThrow()
+  })
+
+  it('effort-only override preserves dispatch; explicit main-model override disables the type route', async () => {
+    const req = { type: 'explore', pick: true, configure: true }
+    const effort = await ask(req, record({ subagentOverrides: [{ type: 'explore', effort: 'low' }] })).reply
+    expect(effort.override).toEqual({ effort: 'low' })
+    expect(effort.pick).toMatchObject({ outcome: 'route' })
+    const follow = await ask(req, record({ subagentOverrides: [{ type: 'explore', model: null, effort: null }] })).reply
+    expect(follow.override).toEqual({ model: null, effort: null })
+    expect(follow.pick).toBeUndefined()
+    expect((await ask(req, record()).reply).override).toBeUndefined()
+  })
+
   it('只列候选时不发密钥', async () => {
     const { issue, reply } = ask({ type: 'explore' })
     expect(await reply).toEqual({

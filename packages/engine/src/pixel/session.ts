@@ -15,7 +15,16 @@ import type {
   SkillCommand,
   TurnOutcome,
 } from '@pixelsky/protocol'
-import { EMPTY_FLAGS, looksVisual, viaGateway, type ContextWindows, type SessionRecord } from '@pixelsky/protocol'
+import {
+  EMPTY_FLAGS,
+  looksVisual,
+  viaGateway,
+  pixelSpeedCapability,
+  pixelSpeedOf,
+  type PixelSpeed,
+  type ContextWindows,
+  type SessionRecord,
+} from '@pixelsky/protocol'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { ChatSeed } from '../chat-log'
 import { McpReporter, pixelMcpServers } from '../mcp'
@@ -53,13 +62,14 @@ const MODE_COMMAND = 'pixelsky-mode'
 const MODE_STATUS = 'pixelsky-mode'
 /** 连接器（docs/ui/connectors.md）：命令行 MCP 扩展的命令、报状态和操作结果的状态键（packages/cli/src/extensions/mcp.ts） */
 const MCP_COMMAND = 'pixelsky-mcp'
+const SPEED_COMMAND = 'pixelsky-speed'
 const MCP_STATUS = 'pixelsky-mcp'
 const MCP_RESULT_STATUS = 'pixelsky-mcp-result'
 const MCP_OP_TIMEOUT_MS = 95_000
 /** 命令末尾带上的请求号，命令行原样放回结果里（packages/cli/src/extensions/mcp.ts） */
 const MCP_REQ_FLAG = '--req='
 /** 适配器自己用的扩展命令，不进斜杠菜单（用户自己装的扩展命令照常列出） */
-const INTERNAL_COMMANDS = new Set([MODE_COMMAND, MCP_COMMAND])
+const INTERNAL_COMMANDS = new Set([MODE_COMMAND, MCP_COMMAND, SPEED_COMMAND])
 /**
  * 发出提示后等 Pi 开始处理（prompt 的回应）最多等多久没动静。Pi 回应前要做发送前的准备，可能先压缩一次上下文
  * （整段对话做一次总结请求）：压缩中、等审批时不算没动静，收到别的事件也重新计时
@@ -269,6 +279,12 @@ export class PixelSession implements EngineSession {
   /** 当前模型支持的强度（get_available_thinking_levels）；还不知道为 null */
   private efforts: Effort[] | null = null
   private flags: SessionFlags = EMPTY_FLAGS
+  private speedSupported = false
+  private speedReply: Message | null = null
+  private speedApplied: PixelSpeed = 'off'
+  private speedSeq = 0
+  private settingsRevision = 0
+  private speedQueue: Promise<void> = Promise.resolve()
   /** 自己在改模型 / 强度（期间 Pi 报的 thinking_level_changed 是中间状态，不当作被夹紧） */
   private syncing = 0
   /** 启动时没接上原来的会话文件：exists 是文件还在不在，reason 是原因；由这一轮发送前处理 */
@@ -448,14 +464,10 @@ export class PixelSession implements EngineSession {
         steerAvailable: true,
         fastAvailable: false,
         fastState: 'off',
-        fastBlocked: 'Fast mode is not supported',
+        fastBlocked: 'pixel_speed_old_cli',
         ultracodeAvailable: false,
       }
       this.emitFlags()
-      if (this.settings.fast) {
-        this.settings.fast = false
-        this.ctx.setFast(false)
-      }
       await this.emitCommands(proc)
       this.ready = true
     } catch (error) {
@@ -467,6 +479,7 @@ export class PixelSession implements EngineSession {
 
   private async emitCommands(proc: PixelProcess): Promise<void> {
     const found = await proc.request('get_commands').catch(() => ({ command: 'get_commands', data: {} as Message }))
+    this.speedSupported = array(found.data.commands).some(c => object(c).name === SPEED_COMMAND)
     const commands: SkillCommand[] = [
       {
         name: 'compact',
@@ -530,9 +543,55 @@ export class PixelSession implements EngineSession {
       type: 'flags',
       flags: {
         ...this.flags,
+        fastPending: pixelSpeedOf(this.settings) !== this.speedApplied,
         ...(this.efforts ? { efforts: { model: this.appliedModel, efforts: this.efforts } } : {}),
       },
     })
+  }
+
+  /** 串行同步，轮内修改只保留选择；run 在发送前固定本轮档位。 */
+  private syncSpeed(proc: PixelProcess, forTurn = false): Promise<void> {
+    const operation = async () => {
+      if (!forTurn && this.active?.promptSent) {
+        this.emitFlags()
+        return
+      }
+      const wanted = pixelSpeedOf(this.settings)
+      const modelInfo = this.modelInfo
+      const caps = this.speedSupported ? pixelSpeedCapability(modelInfo) : { fast: false, ultrafast: false }
+      const next: PixelSpeed =
+        wanted === 'ultrafast' && caps.ultrafast ? wanted : wanted !== 'off' && caps.fast ? 'fast' : 'off'
+      this.flags = {
+        ...this.flags,
+        fastAvailable: caps.fast,
+        fastBlocked: !this.speedSupported
+          ? 'pixel_speed_old_cli'
+          : !caps.fast
+            ? 'pixel_speed_unavailable'
+            : 'pixel_speed_cost',
+        pixelSpeed: { model: this.appliedModel, ...caps },
+      }
+      if (this.speedSupported) {
+        const req = String(++this.speedSeq)
+        const response = await proc.request('prompt', { message: `/${SPEED_COMMAND} ${next} ${req}` })
+        const reply = this.speedReply
+        if (response.data.disposition !== 'handled' || reply?.req !== req || reply.error || reply.speed !== next)
+          throw new Error(string(reply?.error) || 'Pixel did not apply the service tier')
+      }
+      this.speedApplied = next
+      // 用户在 await 期间又改了：不能拿旧决定覆盖新选择。
+      if (this.modelInfo === modelInfo && pixelSpeedOf(this.settings) === wanted && next !== wanted) {
+        this.settings = { ...this.settings, fast: next !== 'off', ultrafast: false }
+        this.ctx.setUltrafast?.(false)
+        this.ctx.setFast(next !== 'off')
+        this.translator.notice('warn', 'Pixel speed was reset because this model or route has no confirmed support')
+      }
+      this.flags.fastState = next === 'off' ? 'off' : 'on'
+      this.emitFlags()
+    }
+    const next = this.speedQueue.then(operation)
+    this.speedQueue = next.catch(() => {})
+    return next
   }
 
   // ---------------------------------------------------------------------------
@@ -570,6 +629,8 @@ export class PixelSession implements EngineSession {
     handoffImages: ImageAttachment[],
   ): Promise<void> {
     await this.open()
+    if (this.active !== active || this.closed) return
+    await this.syncSpeed(this.proc!, true)
     if (this.active !== active || this.closed) return
     const sees = array(this.modelInfo.input).includes('image')
     if (attachments.length && !sees) throw new Error('This model does not support images')
@@ -795,7 +856,27 @@ export class PixelSession implements EngineSession {
     if (method === 'setStatus') {
       const key = string(raw.statusKey)
       if (key === MODE_STATUS) this.syncMode(string(raw.statusText))
-      else if (key === APPROVAL_CONTEXT_STATUS) this.approvalContext = subagentApproval(string(raw.statusText))
+      else if (key === SPEED_COMMAND) {
+        try {
+          const value = object(JSON.parse(string(raw.statusText)))
+          if (value.version !== 1) return
+          if (value.req) this.speedReply = value
+          if (
+            typeof value.requestedTier === 'string' &&
+            value.model === `${this.modelInfo.provider}/${this.modelInfo.id}` &&
+            this.flags.pixelSpeed
+          ) {
+            this.flags.pixelSpeed = {
+              ...this.flags.pixelSpeed,
+              requestedTier: value.requestedTier,
+              actualTier: typeof value.actualTier === 'string' ? value.actualTier : null,
+            }
+            this.emitFlags()
+          }
+        } catch {
+          /* 不把扩展错误输出当成成功 */
+        }
+      } else if (key === APPROVAL_CONTEXT_STATUS) this.approvalContext = subagentApproval(string(raw.statusText))
       else if (key === MCP_STATUS) {
         const servers = pixelMcpServers(string(raw.statusText))
         if (servers) this.mcpReporter.set(servers)
@@ -1024,11 +1105,13 @@ export class PixelSession implements EngineSession {
 
   async update(patch: Partial<SessionSettings>, strict = false): Promise<void> {
     if (this.opening) await this.opening.catch(() => {})
+    const revision = ++this.settingsRevision
     const before = this.settings
     this.settings = { ...before, ...patch }
     const proc = this.proc
     if (!proc?.alive || !this.ready) return
     this.syncing++
+    const speedChanged = patch.fast !== undefined || patch.ultrafast !== undefined
     try {
       let thinking = false
       if (patch.model !== undefined && patch.model !== this.appliedModel && patch.model) {
@@ -1058,6 +1141,7 @@ export class PixelSession implements EngineSession {
         await this.syncEfforts(proc)
         this.emitFlags()
       }
+      if (speedChanged || thinking) await this.syncSpeed(proc)
       if (patch.permissionMode !== undefined && patch.permissionMode !== before.permissionMode) {
         // 批准扩展的命令：prompt 里以 / 开头的扩展命令立即执行，不进模型，回应 disposition 为 handled
         const response = await proc.request('prompt', {
@@ -1067,7 +1151,20 @@ export class PixelSession implements EngineSession {
       }
     } catch (error) {
       // 没生效：退回原值，下一轮开始前（strict）报错；宽松调用只记设置
-      this.settings = before
+      if (speedChanged) {
+        if (revision === this.settingsRevision) {
+          this.settings = {
+            ...this.settings,
+            fast: this.speedApplied !== 'off',
+            ultrafast: this.speedApplied === 'ultrafast',
+          }
+          this.ctx.setFast(this.settings.fast)
+          this.ctx.setUltrafast?.(this.settings.ultrafast === true)
+        }
+        this.emitFlags()
+        throw error
+      }
+      if (revision === this.settingsRevision) this.settings = before
       if (strict) throw error
     } finally {
       this.syncing--

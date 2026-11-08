@@ -1,6 +1,8 @@
 // 设置 › 子智能体（docs/ui/subagent-routing.md）：像素星空引擎的子智能体分类型，每个类型可以单独选站点和模型、工具权限。
 // 主进程存、渲染进程改；Claude Code / Codex 会话不受影响。
 
+import { subagentEffort, type Effort } from '@pixelsky/protocol'
+
 /** 子智能体单独走的站点：自定义接口，或像素星空平台的一条线路（account 是选的时候登录的账号） */
 export type SubagentTarget =
   | { kind: 'custom'; providerId: string; model: string }
@@ -38,6 +40,8 @@ export type SubagentConcurrency = (typeof SUBAGENT_CONCURRENCY)[number]
 export type SubagentTools = 'all' | 'read'
 
 export interface SubagentType {
+  /** 未设置或 null：启动子任务时跟随主会话的强度。 */
+  effort?: Effort | null
   /** 标识：主会话调用 task 时用；小写字母开头，字母数字和 - */
   id: string
   name: string
@@ -164,6 +168,7 @@ function parseType(raw: unknown): SubagentType | null {
     name: builtin?.name ?? (name || typeId),
     description: description || builtin?.description || '',
     target: dispatch ? null : parseTarget(t.target),
+    ...(subagentEffort(t.effort) ? { effort: subagentEffort(t.effort) } : {}),
     ...(dispatch ? { dispatch } : {}),
     tools: pick<SubagentTools>(['all', 'read'], t.tools, builtin?.tools ?? 'all'),
     maxMinutes: pick(SUBAGENT_MAX_MINUTES, t.maxMinutes, builtin?.maxMinutes ?? 30),

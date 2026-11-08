@@ -2,7 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 // 进度卡片：显示当前计划和子智能体，按对话区宽度浮着或收成顶部一条，概况开着时停靠进右栏（docs/ui/progress-card.md §4，参考 Claude 桌面版）
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Bot, Check, ChevronDown, ChevronUp, CircleSlash, PanelRight, Square, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, ChevronUp, CircleSlash, PanelRight, SlidersHorizontal, Square, X } from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import type { SessionSnapshot, TodoStep } from '@pixelsky/protocol'
 import { IconButton, Spinner, cn } from '@/ui'
@@ -21,6 +21,7 @@ import {
 import { activityTooltip, agentActivity, agoText } from './agentActivity'
 import { useFirstSeen } from './useFirstSeen'
 import { useOpenTrace } from './trace'
+import { effortLabel } from '@/features/engine/labels'
 
 const COLLAPSED_KEY = 'pixelsky.progress.collapsed'
 /** 顶部那一条占的高度：上边距 12 + 条高 36 */
@@ -281,6 +282,7 @@ function Agents({
                         className="max-w-[35%] min-w-[3em] shrink-[10] truncate text-meta text-fg-faint"
                       >
                         {shortModel(a.model)}
+                        {a.effort && ` · ${effortLabel(a.effort)}`}
                       </span>
                     )}
                     {a.type && (
@@ -352,6 +354,8 @@ export function ProgressCard({
   expandSeen,
   docked = false,
   onDock,
+  onConfigure,
+  overrideCount = 0,
 }: {
   progress: Progress
   /** 对话内搜索条打开着：卡片挪到搜索条下面 */
@@ -369,6 +373,8 @@ export function ProgressCard({
   docked?: boolean
   /** 点了去概况；不传时不显示按钮（代码模式没有概况） */
   onDock?: () => void
+  onConfigure?: () => void
+  overrideCount?: number
 }) {
   useI18n()
   const probe = useRef<HTMLSpanElement>(null)
@@ -468,6 +474,15 @@ export function ProgressCard({
   const dock = !docked && onDock && (
     <IconButton icon={PanelRight} label={tr('overview.dock')} size={24} iconSize={14} onClick={onDock} />
   )
+  const configure = onConfigure && (
+    <IconButton
+      icon={SlidersHorizontal}
+      label={tr('subagentRoute.session.title')}
+      size={24}
+      iconSize={14}
+      onClick={onConfigure}
+    />
+  )
   return (
     <>
       <span ref={probe} hidden />
@@ -497,6 +512,7 @@ export function ProgressCard({
               <span className="flex-1" />
             )}
             <span className="flex shrink-0 items-center gap-1">
+              {configure}
               {dock}
               {chevron}
               {dismiss}
@@ -531,6 +547,7 @@ export function ProgressCard({
             )}
             <span className="flex-1" />
             {dock}
+            {configure}
             {onOpenTrace && (
               <IconButton
                 icon={Bot}
@@ -559,6 +576,17 @@ export function ProgressCard({
               {plan && <Steps key={plan.id} plan={plan} working={progress.working} />}
               {agents.length > 0 && <Agents agents={agents} divided={!!plan} onStop={onStopAgents} />}
             </div>
+          )}
+          {onConfigure && open && (
+            <button
+              type="button"
+              onClick={onConfigure}
+              className="mx-3 mt-2 rounded-sm py-1 text-left text-meta text-accent-fg hover:bg-hover"
+            >
+              {tr(overrideCount ? 'subagentRoute.session.overridden' : 'subagentRoute.session.title', {
+                n: overrideCount,
+              })}
+            </button>
           )}
         </section>
       )}

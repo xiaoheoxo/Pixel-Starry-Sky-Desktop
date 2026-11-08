@@ -741,13 +741,15 @@ describe('MobileGateway session settings', () => {
     expect(mutations()).toHaveLength(1)
     // 选了下一个引擎还没生效：按下一个引擎的能力核对（像素星空没有思考摘要）
     await bad('next', { thinkingSummaries: true })
-    await bad('next', { fast: true })
     // 自定义接口的会话：模型不能从手机改（目录对不上），别的照常
     await bad('api', { model: 'opus' })
     await bad('api', { model: null })
     expect(mutations()).toHaveLength(1)
     await p.call('engine:updateSession', 'api', { permissionMode: 'plan' })
     expect(mutations()).toHaveLength(2)
+    // Pixel 支持速度设置，具体模型 / 通道由适配器核对。
+    await p.call('engine:updateSession', 'next', { fast: true })
+    expect(mutations().at(-1)).toEqual(['engine:updateSession', ['next', { fast: true }, 'mobile']])
   })
 
   it('lets a session that is full on the desktop only come down, never go back up', async () => {
@@ -866,7 +868,8 @@ describe('MobileGateway session settings', () => {
     expect(() => checkSettings(noPlan, { permissionMode: 'edits' })).not.toThrow()
     expect(() => checkSettings(ENGINES.pixel.caps, { thinkingSummaries: true })).toThrow('MOBILE_BAD_ARGUMENT')
     expect(() => checkSettings(ENGINES.claude.caps, { effort: 'ultra' })).toThrow('MOBILE_BAD_ARGUMENT')
-    expect(() => checkSettings(ENGINES.pixel.caps, { fast: true })).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(() => checkSettings(ENGINES.pixel.caps, { fast: true })).not.toThrow()
+    expect(() => checkSettings({ ...ENGINES.pixel.caps, fast: false }, { fast: true })).toThrow('MOBILE_BAD_ARGUMENT')
     expect(() => checkSettings(codex, { fast: true })).not.toThrow()
     expect(phoneSettings({ permissionMode: 'ask', fast: true, ultracode: true, engine: 'codex' })).toEqual({
       permissionMode: 'ask',

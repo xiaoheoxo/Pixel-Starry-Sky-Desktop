@@ -40,7 +40,7 @@ import {
   type SubagentTarget,
 } from '../../shared/types/subagents'
 import type { DispatchCatalog } from '../../shared/subagent-dispatch'
-import { DISPATCH_TOKEN_ENV, answerSubagentOptions, staleSubagentKey } from './subagent-options'
+import { DISPATCH_TOKEN_ENV, answerSubagentOptions, staleSubagentKey, subagentRouteKey } from './subagent-options'
 
 const log = logger('subagents')
 const groupLog = logger('platform')
@@ -425,14 +425,14 @@ export async function initPlatform(
           if (!check.ok) return null
           // 一个目标一把密钥，通向哪里由 target 定，主模型传什么模型名都改不了（key 的格式见 staleSubagentKey）
           // 用登记时的 id（远端会话带机器前缀，查记录认它）
-          const key = `${recordId}#subagent:${typeId}@${target.kind === 'custom' ? target.providerId : target.groupId}/${target.model}`
+          const key = subagentRouteKey(recordId!, typeId, target)
           let entry = sessions.get(key)
           if (!entry) {
             entry = { recordId: recordId!, secret: randomBytes(32).toString('hex') }
             sessions.set(key, entry)
           }
           entry.target = target
-          log.info('子智能体走主模型选的模型', { sessionId: recordId, type: typeId, model: target.model })
+          log.info('子智能体使用指定模型', { sessionId: recordId, type: typeId, model: target.model })
           return { route: subagentRoute(target, check.provider, DISPATCH_TOKEN_ENV), secret: entry.secret }
         },
       })
@@ -451,7 +451,7 @@ export async function initPlatform(
   /**
    * 像素星空会话的子智能体（设置 › 子智能体）：启用的类型写进 PIXELSKY_SUBAGENT_TYPES；指定了站点且能用的类型各登记一把密钥
    * （sessions 里 `<会话 id>#subagent:<类型>`），不能用的跟随主会话。进程启动时取一次，改了设置在新开或重新连上的会话生效。
-   * 主模型调度的类型只给一把查候选的密钥（PIXELSKY_SUBAGENT_OPTIONS_TOKEN），规则和模型派活时现算
+   * 每个会话另给一把查配置的密钥（PIXELSKY_SUBAGENT_OPTIONS_TOKEN），会话覆盖和调度规则派活时现算
    */
   const subagentEnv = (record: SessionRecord): Record<string, string> => {
     const settings = subagents()
@@ -490,6 +490,7 @@ export async function initPlatform(
           tools: type.tools,
           maxMs: type.maxMinutes * 60_000,
           instructions: type.instructions,
+          effort: type.effort ?? null,
           route,
           ...(type.dispatch ? { dispatch: true } : {}),
         }
@@ -497,11 +498,13 @@ export async function initPlatform(
     // 设置里关掉、删掉或站点不能用了的类型：旧密钥作废
     for (const key of [...sessions.keys()]) if (staleSubagentKey(key, prefix, used)) sessions.delete(key)
     env.PIXELSKY_SUBAGENT_TYPES = JSON.stringify(types)
-    const dispatching = types.some(t => t.dispatch)
+    // 所有类型都能在派活时读取本会话覆盖；固定类型的全局默认仍取启动时快照。
+    const dispatching = types.length > 0
     if (dispatching) {
       const secret = optionSecrets.get(record.id) ?? randomBytes(32).toString('hex')
       optionSecrets.set(record.id, secret)
       env.PIXELSKY_SUBAGENT_OPTIONS_TOKEN = secret
+      env.PIXELSKY_SUBAGENT_LIVE_OPTIONS = '1'
     }
     if (used.size || dispatching) env.PIXELSKY_PIXEL_SUB_BASE_URL = `http://127.0.0.1:${address.port}`
     return env

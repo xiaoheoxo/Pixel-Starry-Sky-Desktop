@@ -23,6 +23,8 @@ import { Button, Segmented, Select, Switch, cn } from '@/ui'
 import { formatMultiplier, type PlatformGroup } from '@/features/account/platform'
 import { siteKey, targetProblem, type SiteKey } from './subagents'
 import { SubagentDispatchEditor } from './SubagentDispatchEditor'
+import { SubagentEffortSelect } from './SubagentEffortSelect'
+import { effortLabel } from '@/features/engine/labels'
 import { sameSite, siteOfTarget } from '../../../../shared/subagent-dispatch'
 import {
   BUILTIN_SUBAGENT_TYPES,
@@ -212,6 +214,7 @@ export function SubagentTypeCard({
                 {tr(type.tools === 'read' ? 'subagentRoute.toolsRead' : 'subagentRoute.toolsAll')}
               </Chip>
               <Chip icon={Clock}>{tr('subagentRoute.maxShort', { time: minutesLabel(type.maxMinutes) })}</Chip>
+              {type.effort && <Chip icon={Bot}>{effortLabel(type.effort)}</Chip>}
             </span>
           </span>
         </button>
@@ -490,6 +493,14 @@ function TypeEditor({
               openChannels={openChannels}
             />
           )}
+        </Field>
+        <Field full label={tr('subagentRoute.effort.title')}>
+          <SubagentEffortSelect
+            model={routing ? (target?.model ?? null) : null}
+            value={draft.effort ?? null}
+            usePixelCatalog={!routing}
+            onChange={effort => set({ effort })}
+          />
         </Field>
         <Field label={tr('subagentRoute.field.tools')}>
           <Segmented<SubagentTools>

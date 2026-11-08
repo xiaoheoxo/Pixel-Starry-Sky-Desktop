@@ -87,6 +87,7 @@ export interface SubagentRoute {
 }
 
 export interface SubagentTypeDef {
+  effort?: string | null
   id: string
   name: string
   description: string
@@ -99,6 +100,8 @@ export interface SubagentTypeDef {
 }
 
 const TYPE_ID = /^[a-z][a-z0-9-]{0,31}$/
+const thinkingEffort = (v: unknown): string | null =>
+  typeof v === 'string' && ['low', 'medium', 'high', 'xhigh', 'max'].includes(v) ? v : null
 const TOKEN_ENV = /^PIXELSKY_PIXEL_SUB_TOKEN_\d{1,3}$/
 
 function parseRoute(raw: unknown): SubagentRoute | null {
@@ -157,6 +160,7 @@ export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
       maxMs: Number.isFinite(ms) && ms >= 60_000 && ms <= 24 * 3600_000 ? ms : MAX_MS,
       instructions: text(o.instructions),
       route: parseRoute(o.route),
+      effort: thinkingEffort(o.effort),
       ...(o.dispatch === true ? { dispatch: true } : {}),
     })
   }
@@ -166,6 +170,7 @@ export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
 
 /** 网关回的候选（桌面端 main/platform/subagent-options.ts） */
 export interface DispatchReply {
+  override?: { model?: string | null; effort?: string | null; route?: SubagentRoute; secret?: string }
   currentModel: string
   options: Array<{ model: string; note: string; outside: boolean }>
   defaultModel: string | null
@@ -178,7 +183,7 @@ export interface DispatchReply {
 /** 问本机网关现在能选哪些模型；pick 为真时顺便拿到选中模型的路线。回应不对就抛错 */
 export async function querySubagentOptions(
   env: NodeJS.ProcessEnv,
-  request: { type: string; mainModel?: string; model?: string; pick?: boolean },
+  request: { type: string; mainModel?: string; model?: string; pick?: boolean; configure?: boolean },
   signal: AbortSignal | undefined,
   fetcher: typeof fetch = fetch,
 ): Promise<DispatchReply> {
@@ -200,6 +205,8 @@ export async function querySubagentOptions(
     outside: x.outside === true,
   }))
   const p = object(o.pick)
+  const config = object(o.override)
+  const configRoute = parseRoute(config.route)
   const route = parseRoute(p.route)
   const pick: DispatchReply['pick'] =
     p.outcome === 'route' && route && text(p.secret)
@@ -219,6 +226,15 @@ export async function querySubagentOptions(
     currentModel: text(o.currentModel),
     options: options.filter(x => x.model),
     defaultModel: text(o.defaultModel) || null,
+    ...(o.override && typeof o.override === 'object'
+      ? {
+          override: {
+            ...('model' in config ? { model: text(config.model) || null } : {}),
+            ...('effort' in config ? { effort: thinkingEffort(config.effort) } : {}),
+            ...(configRoute && text(config.secret) ? { route: configRoute, secret: text(config.secret) } : {}),
+          },
+        }
+      : {}),
     ...(pick ? { pick } : {}),
   }
 }
@@ -293,6 +309,8 @@ export type SubagentState = 'running' | 'completed' | 'failed' | 'stopped'
 
 /** 进度和结果（tool_execution_update / end 的 details，适配器据此生成智能体追踪） */
 export interface SubagentProgress {
+  /** 子进程实际使用的强度；旧版或尚未启动时没有。 */
+  effort?: string | null
   /** 子智能体 id：子进程的会话 id（没有会话文件时用工具调用 id） */
   agentId: string
   label: string
@@ -723,6 +741,8 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
         if (!type)
           throw new Error(`Unknown subagent type "${params.type}". Available types: ${types.map(t => t.id).join(', ')}`)
         const parent = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : null
+        let selectedModel = parent
+        let effort = type.effort ?? pi.getThinkingLevel()
         const requested = params.model?.trim()
         if (requested && !type.dispatch)
           throw new Error(`Subagent type "${type.id}" has a fixed model. Do not pass \`model\` for it.`)
@@ -730,7 +750,8 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
         /** 主模型调度选中的路线的密钥（固定站点的类型在启动环境里就有） */
         let routeSecret: string | null = null
         let chosen: { modelSource: 'chosen' | 'default'; outsideGroup?: boolean } | null = null
-        if (type.dispatch) {
+        const liveOptions = env.PIXELSKY_SUBAGENT_LIVE_OPTIONS === '1'
+        if (type.dispatch || liveOptions) {
           let reply: DispatchReply | null = null
           try {
             reply = await querySubagentOptions(
@@ -738,6 +759,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
               {
                 type: type.id,
                 pick: true,
+                ...(liveOptions ? { configure: true } : {}),
                 ...(requested ? { model: requested } : {}),
                 ...(parent ? { mainModel: parent.id } : {}),
               },
@@ -745,6 +767,10 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
               options.fetch,
             )
           } catch (error) {
+            if (liveOptions && !signal?.aborted)
+              throw new Error(
+                `Could not read the session's subagent settings: ${(error as Error).message}. Retry this task.`,
+              )
             // 没指定模型时查不到就用主模型自己；指定了不能悄悄换。主会话停了：下面等空位时按停止收尾
             if (requested && !signal?.aborted)
               throw new Error(
@@ -761,6 +787,22 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
               ...(reply.pick.outside ? { outsideGroup: true } : {}),
             }
           }
+          const override = reply?.override
+          if (override && 'effort' in override) effort = override.effort ?? pi.getThinkingLevel()
+          if (override && 'model' in override) {
+            routed = override.route ?? null
+            routeSecret = override.secret ?? null
+            chosen = null
+            if (override.model && !routed) {
+              const slash = override.model.indexOf('/')
+              selectedModel =
+                slash > 0
+                  ? { provider: override.model.slice(0, slash), id: override.model.slice(slash + 1) }
+                  : parent
+                    ? { ...parent, id: override.model }
+                    : null
+            }
+          }
         }
         const parentFile = ctx.sessionManager.getSessionFile()
         const sessionDir = parentFile ? join(dirname(parentFile), 'subagents') : null
@@ -771,7 +813,11 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
           state: 'running',
           type: type.id,
           typeName: type.name,
-          model: routed ? routedModelLabel(routed) : parent ? `${parent.provider}/${parent.id}` : '',
+          model: routed
+            ? routedModelLabel(routed)
+            : selectedModel
+              ? `${selectedModel.provider}/${selectedModel.id}`
+              : '',
           startedAt: Date.now(),
           durationMs: 0,
           tokens: 0,
@@ -877,7 +923,11 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
             progress.sessionFile = text(state.sessionFile) || null
             progress.agentId = text(state.sessionId) || toolCallId
             if (live() && model) await child.request('set_model', { provider: model.provider, modelId: model.id })
-            if (live()) await child.request('set_thinking_level', { level: pi.getThinkingLevel() }).catch(() => {})
+            if (live()) await child.request('set_thinking_level', { level: effort }).catch(() => {})
+            if (live()) {
+              const actual = await child.request('get_state')
+              progress.effort = thinkingEffort(actual.thinkingLevel)
+            }
             report()
             if (live()) {
               await child.request('prompt', { message: params.prompt })
@@ -923,7 +973,7 @@ ${progress.result}`
         progress.queued = false
         progress.startedAt = Date.now()
         try {
-          await attempt(routed ? { provider: SUBAGENT_PROVIDER, id: text(routed.model.id) } : parent)
+          await attempt(routed ? { provider: SUBAGENT_PROVIDER, id: text(routed.model.id) } : selectedModel)
           // 单独的站点出错、子智能体还没动手（没有工具调用）：改走主会话的模型重来一次，结果里写明
           if (routed && fallback && parent && progress.state === 'failed' && progress.toolCalls === 0) {
             const reason = progress.result

@@ -23,6 +23,16 @@ const custom = {
 }
 
 describe('设置 › 子智能体（docs/ui/subagent-routing.md）', () => {
+  it('独立强度存盘重读；旧类型和未知档位保持跟随主会话', () => {
+    const store = new SubagentSettingsStore(dir)
+    store.set({ types: [{ ...custom, effort: 'xhigh' }] })
+    expect(new SubagentSettingsStore(dir).get().types.find(t => t.id === custom.id)?.effort).toBe('xhigh')
+    for (const effort of [undefined, null, 'ultra', 3]) {
+      const parsed = parseSubagentSettings({ types: [{ ...custom, effort }] })
+      expect(parsed.types.find(t => t.id === custom.id)?.effort).toBeUndefined()
+    }
+  })
+
   it('默认：内置通用、探索两个类型，出错改走主会话，同时 4 个', () => {
     expect(parseSubagentSettings(null)).toEqual(DEFAULT_SUBAGENT_SETTINGS)
     expect(DEFAULT_SUBAGENT_SETTINGS.types.map(t => [t.id, t.tools, t.enabled])).toEqual([

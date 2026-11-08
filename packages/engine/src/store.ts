@@ -38,7 +38,7 @@ import type {
   SessionDefaults,
   SessionRecord,
 } from '@pixelsky/protocol'
-import { cutItem, isQuietWarning, withBodies } from '@pixelsky/protocol'
+import { cutItem, isQuietWarning, parseSubagentOverrides, withBodies } from '@pixelsky/protocol'
 import { messageInput, type QueueFile } from './queue'
 import { retryLimit } from './retry'
 import { removeTree } from './exec'
@@ -262,6 +262,7 @@ export class Store {
       if (rec && rec.id === name) {
         out.push({
           ...rec,
+          ...(rec.subagentOverrides ? { subagentOverrides: parseSubagentOverrides(rec.subagentOverrides) } : {}),
           bottomedAt:
             typeof rec.bottomedAt === 'number' && Number.isFinite(rec.bottomedAt) && rec.bottomedAt > 0
               ? rec.bottomedAt

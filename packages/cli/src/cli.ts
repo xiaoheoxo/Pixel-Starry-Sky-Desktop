@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { interceptArgv } from './argv.ts'
 import { createApprovalExtension } from './extensions/approval.ts'
 import { gatewayExtension } from './extensions/gateway.ts'
+import { speedExtension } from './extensions/speed.ts'
 import { loopGuardExtension } from './extensions/loopGuard.ts'
 import { mcpExtension } from './extensions/mcp.ts'
 import { packagesExtension, skipMissingPackages } from './packages.ts'
@@ -50,6 +51,7 @@ if (intercepted.action === 'run') {
   await main(intercepted.args, {
     extensionFactories: [
       gatewayExtension,
+      speedExtension,
       packagesExtension,
       mcpExtension,
       // 在审批前面：拦下的重复调用不用再问用户

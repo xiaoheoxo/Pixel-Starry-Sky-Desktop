@@ -2,7 +2,7 @@
 // 运行中：task 工具的 tool_execution_update / end 带 details（SubagentProgress），变成 AgentRun；
 // 重新打开会话：从 Pi 主会话文件里的 pixelsky-subagent 条目读回来；子智能体的对话见 transcript.ts。
 import { closeSync, existsSync, openSync, readSync } from 'node:fs'
-import type { AgentRun, SubagentStatus } from '@pixelsky/protocol'
+import { subagentEffort, type AgentRun, type SubagentStatus } from '@pixelsky/protocol'
 import { LINE_MAX } from '../jsonl'
 import { number, object, string, type Message } from './process'
 
@@ -56,6 +56,7 @@ export function subagentRun(details: Message, toolCallId: string): AgentRun {
     type: string(details.type) || 'subagent',
     ...(string(details.typeName) ? { typeLabel: string(details.typeName) } : {}),
     model: string(details.model),
+    ...('effort' in details ? { effort: subagentEffort(details.effort) } : {}),
     ...(details.modelSource === 'chosen' || details.modelSource === 'default'
       ? { modelSource: details.modelSource }
       : {}),

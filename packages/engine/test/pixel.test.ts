@@ -80,6 +80,49 @@ const snap = (id: string) => host!.open(id)
 const idle = (id: string) => snap(id).state === 'idle'
 
 describe('Pixel 引擎适配器', () => {
+  it('速度配置被 CLI 拒绝时回退，并把错误传给界面', async () => {
+    const { session } = setup(10_000, {
+      env: { ...pixelEnv(), FAKE_PIXEL_SPEED: '1', FAKE_PIXEL_SPEED_FAIL: 'fast', FAKE_PIXEL_DIR: root },
+    })
+    await host!.send(session.id, '第一轮')
+    await wait(() => idle(session.id))
+    await expect(host!.update(session.id, { fast: true })).rejects.toThrow('Rejected speed')
+    expect(snap(session.id).record.fast).toBe(false)
+    expect(snap(session.id).flags.fastPending).toBe(false)
+  })
+
+  it('换到不支持的模型清掉 UltraFast，换回来不自动恢复', async () => {
+    const { session } = setup(10_000, { env: { ...pixelEnv(), FAKE_PIXEL_SPEED: '1', FAKE_PIXEL_DIR: root } })
+    await host!.update(session.id, { fast: true, ultrafast: true })
+    await host!.send(session.id, '第一轮')
+    await wait(() => idle(session.id))
+    await host!.update(session.id, { model: 'fake/fake-small' })
+    expect(snap(session.id).record).toMatchObject({ fast: false, ultrafast: false })
+    await host!.update(session.id, { model: 'fake/fake-pixel' })
+    expect(snap(session.id).record).toMatchObject({ fast: false, ultrafast: false })
+  })
+
+  it('速度在发送前应用，运行中更改留到下一轮，关闭后明确发送普通档', async () => {
+    const { session, messages } = setup(10_000, {
+      env: { ...pixelEnv(), FAKE_PIXEL_SPEED: '1', FAKE_PIXEL_LOG: join(root, 'rpc.jsonl'), FAKE_PIXEL_DIR: root },
+    })
+    await host!.update(session.id, { fast: true, ultrafast: true })
+    await host!.send(session.id, '慢')
+    await wait(() => messages().some(m => m.type === 'prompt' && m.message === '慢'))
+    const speedCommands = () => messages().filter(m => m.type === 'prompt' && m.message.startsWith('/pixelsky-speed '))
+    expect(speedCommands().at(-1).message).toMatch(/^\/pixelsky-speed ultrafast /)
+    await host!.update(session.id, { fast: false })
+    expect(snap(session.id).flags.fastPending).toBe(true)
+    expect(speedCommands().at(-1).message).toMatch(/^\/pixelsky-speed ultrafast /)
+    await host!.interrupt(session.id)
+    await wait(() => idle(session.id))
+    await host!.send(session.id, '第二轮')
+    await wait(() => idle(session.id))
+    expect(speedCommands().at(-1).message).toMatch(/^\/pixelsky-speed off /)
+    expect(snap(session.id).record.ultrafast).toBe(false)
+    expect(snap(session.id).flags.fastPending).toBe(false)
+  })
+
   it('发现：PIXELSKY_CLI_BIN 优先于自带入口；脚本入口用 node 启动并带 ELECTRON_RUN_AS_NODE', async () => {
     const env = { ...process.env, PIXELSKY_CLI_BIN: FAKE, FAKE_PIXEL_ARGV: join(root, 'a.jsonl') }
     const a = new PixelAdapter({ env, bundledCli: join(root, 'missing.ts') })

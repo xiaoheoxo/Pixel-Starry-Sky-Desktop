@@ -1,7 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
-// 官方登录能开 Ultrafast 时的 Fast 行（docs/codex-engine.md §3.5）：和其它开关一样点一下开关 Fast，
-// 按住 0.6 秒升成 Ultrafast（8 倍扣费，防误点），中途松手或移开就取消；开着 Ultrafast 时点一下关掉
+// 确认能开 Ultrafast 时复用这行：点一下开关 Fast，按住 0.6 秒升级，费用由各引擎说明。
+// 中途松手或移开就取消；开着 Ultrafast 时点一下关掉。
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { Rocket, Zap } from 'lucide-react'
 import { cn } from '@/ui'
@@ -23,11 +23,14 @@ export function SpeedRow({
   speed,
   pending,
   onChange,
+  description,
 }: {
   speed: Speed
   /** 这一轮跑着时改了，下一轮才生效 */
   pending: boolean
   onChange: (speed: Speed) => void
+  /** 不同引擎的费用说明；Codex 保留原倍率文案。 */
+  description?: string
 }) {
   useI18n()
   const [holding, setHolding] = useState(false)
@@ -140,9 +143,7 @@ export function SpeedRow({
             ? tr('speed.tooShort')
             : pending
               ? tr('speed.next', { p0: speedName })
-              : ultrafast
-                ? tr('speed.ultrafastDesc')
-                : tr('speed.holdHint')
+              : (description ?? (ultrafast ? tr('speed.ultrafastDesc') : tr('speed.holdHint')))
       }
       descClass={holding ? 'font-medium text-warn-fg' : tooShort ? 'speed-nudge text-fg-secondary' : undefined}
       control={

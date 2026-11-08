@@ -29,6 +29,8 @@ export interface AddProjectsResult {
 export type TurnOutcome = 'completed' | 'interrupted' | 'failed'
 
 export interface SessionSettings {
+  /** 仅像素星空：后续子任务的类型覆盖，不写入引擎默认值、不改已经启动的子进程。 */
+  subagentOverrides?: import('../subagents').SubagentOverride[]
   /** null/缺省为自有认证；平台记录分组与账号，避免跨账号扣费。 */
   platform?: { groupId: string; account: string } | null
   /** 自定义 API 的接口（docs/ui/custom-api.md）；模型仍在 model 里。和 platform 不能同时有 */

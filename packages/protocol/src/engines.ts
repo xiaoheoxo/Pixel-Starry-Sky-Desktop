@@ -113,7 +113,7 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
       permissionModes: ['ask', 'edits', 'plan', 'full'],
       efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       ultracode: false,
-      fast: false,
+      fast: true,
       thinkingSummaries: false,
       backgroundTasks: false,
       // 子智能体（命令行的 task 工具）：进度从工具的 details 来，重新打开时读 Pi 会话文件

@@ -8,6 +8,7 @@ import {
   EFFORT_PANEL_KEYS,
   emptySnapshot,
   normalizeSessionTitle,
+  parseSubagentOverrides,
   PROVIDER_ID,
   sourceKey,
   type EngineId,
@@ -319,6 +320,7 @@ export class HostSessions {
     if ((changed || (patch.model !== undefined && patch.model !== current.model)) && current.platformFallback)
       next.platformFallback = null
     if (patch.effort !== undefined) next.effort = patch.effort
+    if (patch.subagentOverrides !== undefined) next.subagentOverrides = parseSubagentOverrides(patch.subagentOverrides)
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode
     if (patch.ultracode !== undefined) next.ultracode = patch.ultracode
     if (patch.fast !== undefined) next.fast = patch.fast
@@ -412,6 +414,8 @@ export class HostSessions {
     const m = this.ctx.m
     const rt = this.runtime(id)
     const engine = rt.snapshot.record.engine
+    // Pixel 的能力由实际进程（含网关注册模型）判断，不能用自有目录替代。
+    if (engine === 'pixel') return rt.snapshot.record
     const catalog = await this.ctx.adapters[engine]?.catalog?.().catch(() => null)
     // await 期间记录可能又变了（docs 里「反复出现的缺陷」）：按最新的判断
     const fresh = rt.snapshot.record
