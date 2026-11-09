@@ -130,6 +130,7 @@ import {
   cleanSchedule,
   cleanSteps,
   copyPlan,
+  forksAt,
   defaultLimits,
   draftProblem,
   limitHit,
@@ -258,6 +259,8 @@ export interface ChannelsDeps {
      * shortcut: 起点是现在的 HEAD 不是分叉点，期间主目录有新提交会多报；只是提示，要准再换成 merge-base
      */
     changed?(projectId: string, branch: string): Promise<string[]>
+    /** 在会话所在的目录（副本）里提交全部改动；没东西可提交不算错 */
+    commit?(sessionId: string, message: string): Promise<void>
   }
 }
 
@@ -328,7 +331,7 @@ const USAGE_PAGES = 10
 /** 不带 @ 的消息至少这么长才交给牵头成员（docs/ui/channels-pipeline.md §8.3） */
 const LEAD_MIN_CHARS = 8
 
-/** 汇合步骤开始前主目录有没提交的改动（第 11 项）：这一步算失败，流程按 dirty 停下 */
+/** 汇合步骤开始前主目录有没提交的改动（第 11 项）：这一步算失败，流程按 dirty 停下；后面跟着项目路径 */
 const DIRTY_ERROR = '项目主目录有没提交的改动：先提交或暂存，再继续流程'
 
 /** 频道工具一次最多读这么多条；串里回复最多这么长、一项活最多回复 / 提议几次 */
@@ -435,6 +438,17 @@ export class Channels {
   private member(id: string): AgentConfig | undefined {
     return this.store.members.find(m => m.id === id)
   }
+
+  private projectPath(member: AgentConfig): string {
+    return this.deps.projects().find(p => p.id === member.projectId)?.path ?? member.projectId
+  }
+
+  private dirtyError(member: AgentConfig): string {
+    return `${DIRTY_ERROR}（${this.projectPath(member)}）`
+  }
+
+  /** 流程里按项目分开算副本（docs/ui/channels-pipeline.md §6.4）：成员不在了算单独一个 */
+  private readonly projectOf = (memberId: string): string => this.member(memberId)?.projectId ?? `?${memberId}`
 
   private nameOf = (id: string): string => (id === SELF_ID ? this.deps.selfName() : (this.member(id)?.name ?? '?'))
 
@@ -2598,7 +2612,7 @@ export class Channels {
       merge,
       overlap: (overlap ?? []).map(o => ({ path: o.path, steps: o.steps.map(id => this.stepNo(flow, id)) })),
       // 在主目录做、有两步以上等着它（之后会各自从主目录分出副本）
-      forks: !copy && flow.isolate !== false && flow.steps.filter(s => s.deps.includes(step.id)).length > 1,
+      forks: !copy && flow.isolate !== false && forksAt(flow, step, this.projectOf),
     })
   }
 
@@ -2738,8 +2752,13 @@ export class Channels {
     const plan: CopyPlan | undefined = step.copy ? { kind: 'reuse', copy: step.copy } : run.copyPlan
     const copies = this.deps.copies
     if (!plan || !copies) return { prompt: prompt(null) }
+    // 要用前面步骤的分支（从它分出去、合并它）：先替它把副本里没提交的提交上（它忘了提交也不丢）
+    await this.commitCopies(
+      m.flow,
+      plan.kind === 'main' ? plan.merge : plan.kind === 'new' && plan.base ? [plan.base] : [],
+    )
     if (plan.kind === 'main') {
-      if (plan.merge.length && (await copies.dirty(member.projectId))) throw new Error(DIRTY_ERROR)
+      if (plan.merge.length && (await copies.dirty(member.projectId))) throw new Error(this.dirtyError(member))
       // 要合并两个以上分支：先看它们有没有改同样的文件，提示词里和流程卡上都提醒
       const changed = copies.changed
       const overlap =
@@ -2761,9 +2780,10 @@ export class Channels {
     }
     let copy = plan.kind === 'reuse' ? plan.copy : null
     if (plan.kind === 'new') {
-      // 从主目录分出的副本基于当前提交：没提交的改动（比如前一步刚定的接口）带不过去，先停下让人提交
-      // 新建的文件也算：前一步定接口常常就是新建的类型文件
-      if (!plan.base && (await copies.dirty(member.projectId, true))) throw new Error(DIRTY_ERROR)
+      // 从主目录分出的副本基于当前提交：主目录里没提交的改动是你自己的（流程的改动都在副本里提交了），不带进副本、不停下，
+      // 流程卡上提示一次
+      if (!plan.base && !m.flow.wip && (await copies.dirty(member.projectId, true).catch(() => false)))
+        this.updateFlow(run.channelId, run.flow!.messageId, f => ({ ...f, wip: this.projectPath(member) }))
       const input = { name: plan.name, branch: plan.branch, base: plan.base ?? '' }
       try {
         copy = await copies.create(member.projectId, input)
@@ -2779,6 +2799,21 @@ export class Channels {
     if (step.copy?.id !== saved.id)
       this.updateFlow(run.channelId, run.flow!.messageId, f => withStep(f, step.id, { copy: saved }))
     return { copyId: saved.id, prompt: prompt({ kind: 'reuse', copy: saved }) }
+  }
+
+  /** ids：步骤 id 或分支名。副本里只有那一步的改动，全部提交；提交失败只记日志（合并的人会看到没提交的） */
+  private async commitCopies(flow: ChannelFlow, ids: readonly string[]): Promise<void> {
+    const commit = this.deps.copies?.commit
+    if (!commit) return
+    for (const s of flow.steps.filter(x => x.copy && (ids.includes(x.id) || ids.includes(x.copy.branch)))) {
+      const sessionId = s.taskId
+        ? (this.store.runs.get(s.taskId)?.sessionId ?? this.store.task(s.taskId)?.sessionId)
+        : null
+      if (sessionId)
+        await commit(sessionId, `${this.stepNo(flow, s.id)} ${s.title}`).catch(e =>
+          this.deps.log?.('流程副本自动提交失败', e),
+        )
+    }
   }
 
   /** 流程做完了：删掉建的副本目录（有没提交改动的留着，删不掉只记日志）；分支保留 */
@@ -2821,7 +2856,7 @@ export class Channels {
           })
         continue
       }
-      const plan = copyPlan(flow, messageId, id, starting)
+      const plan = copyPlan(flow, messageId, id, starting, this.projectOf)
       const taskId = this.flowTask(
         c,
         m,
@@ -2891,7 +2926,16 @@ export class Channels {
       this.updateFlow(run.channelId, messageId, f =>
         withStep(f, stepId, { status: finish.status === 'stopped' ? 'stopped' : 'failed' }),
       )
-      this.pauseFlow(run.channelId, messageId, finish.error === DIRTY_ERROR ? 'dirty' : 'failed', stepId)
+      {
+        const dirty = finish.error?.startsWith(DIRTY_ERROR)
+        this.pauseFlow(run.channelId, messageId, dirty ? 'dirty' : 'failed', stepId)
+        // 停下的提示写明是哪个项目（错误后面括号里的路径）
+        const path = dirty ? finish.error!.slice(DIRTY_ERROR.length + 1, -1) : ''
+        if (path)
+          this.updateFlow(run.channelId, messageId, f =>
+            f.paused?.reason === 'dirty' ? { ...f, paused: { ...f.paused, path } } : f,
+          )
+      }
     } else if (run.done) this.deliver(run, step)
     else if (run.ask) this.updateFlow(run.channelId, messageId, f => withStep(f, stepId, { status: 'asking' }))
     else {

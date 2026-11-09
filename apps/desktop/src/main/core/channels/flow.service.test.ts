@@ -562,10 +562,9 @@ describe('流程第二批（docs/ui/channels-pipeline.md §6）', () => {
     expect(removed.sort()).toEqual(['c1', 'c2'])
   })
 
-  it('前一步在主目录做完没提交（新建的文件也算）：从主目录分副本前先停下，提交后继续再分', async () => {
-    let dirty = false
-    const asked: (boolean | undefined)[] = []
+  it('先定接口再并行（同一项目）：①自己在副本里做；交付后替它提交，②③从①的分支分出去；主目录有你的改动只提示，不停下', async () => {
     const created: { name: string; branch: string; base: string }[] = []
+    const commits: string[] = []
     const { c, a, b, r, ch } = await setup({
       copies: {
         create: async (_projectId, input) => {
@@ -573,10 +572,9 @@ describe('流程第二批（docs/ui/channels-pipeline.md §6）', () => {
           return { id: `c${created.length}`, branch: input.branch, path: `D:/copies/${input.name}` }
         },
         remove: async () => {},
-        dirty: async (_projectId, untracked) => {
-          asked.push(untracked)
-          return dirty
-        },
+        // 主目录一直有你自己没提交的改动
+        dirty: async () => true,
+        commit: async sessionId => void commits.push(sessionId),
       },
     })
     const { messageId } = await c.flowAction(ch, {
@@ -590,21 +588,64 @@ describe('流程第二批（docs/ui/channels-pipeline.md §6）', () => {
     })
     await c.flowAction(ch, { type: 'start', messageId })
     await settle()
+    const tag = messageId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)
+    // ① 是分叉点：一开始就建自己的副本，基于主目录的当前提交
+    expect(created).toEqual([expect.objectContaining({ branch: `pixelsky/flow-${tag}-a`, base: '' })])
+    expect(flowOf(c, ch).wip).toBe('D:/web')
     const s1 = sessionOf(c, ch, 's1')
-    // 后面两步要从主目录分副本：提示词让它交付前提交自己改的文件
-    expect(lastTo(s1).text).toContain('提交')
+    expect(lastTo(s1).text).toContain(`分支 pixelsky/flow-${tag}-a`)
     c.toolDone(s1, { summary: '接口定好了' })
-    dirty = true
     await endTurn(c, s1, '好了')
-    expect(created).toEqual([])
-    expect(asked).toContain(true)
-    expect(flowOf(c, ch)).toMatchObject({ status: 'paused', paused: { reason: 'dirty' } })
-    dirty = false
-    await c.flowAction(ch, { type: 'resume', messageId })
-    await settle()
-    expect(created.map(x => x.base)).toEqual(['', ''])
+    // 不停下；②③从 ① 的分支分出去，分之前替 ① 提交了一次
+    expect(flowOf(c, ch).status).toBe('running')
+    expect(commits).toContain(s1)
+    expect(created.slice(1).map(x => x.base)).toEqual([`pixelsky/flow-${tag}-a`, `pixelsky/flow-${tag}-a`])
     expect(stepOf(c, ch, 's2').status).toBe('running')
     expect(stepOf(c, ch, 's3').status).toBe('running')
+  })
+
+  it('不同项目的并行步骤：不建副本、不查主目录、不让前一步提交，直接各自开工', async () => {
+    projects.push({ id: 'p2', name: 'core', path: 'D:/core' } as ProjectRecord)
+    try {
+      const created: unknown[] = []
+      let asked = 0
+      const c = await open({
+        copies: {
+          create: async (_projectId, input) => {
+            created.push(input)
+            return { id: 'x', branch: input.branch, path: 'D:/x' }
+          },
+          remove: async () => {},
+          dirty: async () => (asked++, true),
+        },
+      })
+      const a = await c.saveMember(null, agent('架构'))
+      const r = await c.saveMember(null, agent('界面'))
+      const core = await c.saveMember(null, { ...agent('Core'), projectId: 'p2' })
+      const ch = await c.create({ name: 'mods', memberIds: [a, r, core] })
+      const { messageId } = await c.flowAction(ch, {
+        type: 'create',
+        title: '跨项目',
+        steps: [
+          { id: 's1', title: '定共用接口', memberId: a, deps: [], kind: 'work' },
+          { id: 's2', title: 'Core 侧实现', memberId: core, deps: ['s1'], kind: 'work' },
+          { id: 's3', title: '界面实现', memberId: r, deps: ['s1'], kind: 'work' },
+        ],
+      })
+      await c.flowAction(ch, { type: 'start', messageId })
+      await settle()
+      const s1 = sessionOf(c, ch, 's1')
+      expect(lastTo(s1).text).not.toContain('后面的步骤会从这个目录')
+      c.toolDone(s1, { summary: '接口定好了' })
+      await endTurn(c, s1, '好了')
+      expect(flowOf(c, ch).status).toBe('running')
+      expect(stepOf(c, ch, 's2').status).toBe('running')
+      expect(stepOf(c, ch, 's3').status).toBe('running')
+      expect(created).toEqual([])
+      expect(asked).toBe(0)
+    } finally {
+      projects.pop()
+    }
   })
 
   it('汇合前算出几个分支都改了的文件；交付的「没做完」交给后面的步骤', async () => {

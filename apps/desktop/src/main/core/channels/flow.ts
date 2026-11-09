@@ -274,36 +274,49 @@ export function copyName(messageId: string, flow: ChannelFlow, stepId: string): 
   return { name, branch: `pixelsky/${name}` }
 }
 
+/** 同一个项目里有两步以上等着它：后面会从它分出去（分叉点） */
+export function forksAt(flow: ChannelFlow, step: FlowStep, projectOf: (memberId: string) => string): boolean {
+  const mine = projectOf(step.memberId)
+  return flow.steps.filter(s => s.deps.includes(step.id) && projectOf(s.memberId) === mine).length > 1
+}
+
 /**
- * 这一步在哪做。来源 = 依赖所在的地方（主目录或某个副本）：
- * 依赖分在两处以上 → 汇合，在主目录合并；同一来源下还有别的步骤在做或同时开始 → 新建副本，基于来源分支；
- * 只有自己 → 沿用来源（副本或主目录）。已经有副本的一步（重试、打回、再审）一直用它
+ * 这一步在哪做。只看同一个项目里的步骤（别的项目的依赖、并行步骤各在各的目录，互不影响）。
+ * 来源 = 同项目依赖所在的地方（主目录或某个副本）：分在两处以上 → 汇合，在主目录合并；
+ * 同一来源下还有别的步骤在做或同时开始 → 新建副本，基于来源分支；只有自己 → 沿用来源。
+ * 在主目录做、后面又要分叉的一步 → 自己先建副本（交付后别的步骤从它的分支分出去，不用等主目录干净）。
+ * 已经有副本的一步（重试、打回、再审）一直用它
  */
-export function copyPlan(flow: ChannelFlow, messageId: string, stepId: string, starting: readonly string[]): CopyPlan {
+export function copyPlan(
+  flow: ChannelFlow,
+  messageId: string,
+  stepId: string,
+  starting: readonly string[],
+  projectOf: (memberId: string) => string = () => '',
+): CopyPlan {
   const step = flow.steps.find(s => s.id === stepId)!
   if (step.copy) return { kind: 'reuse', copy: step.copy }
+  const project = projectOf(step.memberId)
   const byId = new Map(flow.steps.map(s => [s.id, s]))
-  const where = (s: FlowStep): string => s.copy?.id ?? 'main'
+  const local = (s: FlowStep): FlowStep[] =>
+    s.deps.map(d => byId.get(d)).filter((d): d is FlowStep => !!d && projectOf(d.memberId) === project)
   const source = (s: FlowStep): string | null => {
-    const set = new Set(
-      s.deps
-        .map(d => byId.get(d))
-        .filter((d): d is FlowStep => !!d)
-        .map(where),
-    )
+    const set = new Set(local(s).map(d => d.copy?.id ?? 'main'))
     return set.size > 1 ? null : ([...set][0] ?? 'main')
   }
   const mine = source(step)
-  if (mine === null) return { kind: 'main', merge: step.deps.filter(d => byId.get(d)?.copy) }
+  if (mine === null) return { kind: 'main', merge: local(step).flatMap(d => (d.copy ? [d.id] : [])) }
   if (flow.isolate === false) return { kind: 'main', merge: [] }
   const busy = flow.steps.some(
     s =>
       s.id !== stepId &&
+      projectOf(s.memberId) === project &&
       (starting.includes(s.id) || s.status === 'running' || s.status === 'asking') &&
       source(s) === mine,
   )
   const from = mine === 'main' ? null : flow.steps.find(s => s.copy?.id === mine)!.copy!
-  if (!busy) return from ? { kind: 'reuse', copy: from } : { kind: 'main', merge: [] }
+  if (!busy && from) return { kind: 'reuse', copy: from }
+  if (!busy && !forksAt(flow, step, projectOf)) return { kind: 'main', merge: [] }
   return { kind: 'new', ...copyName(messageId, flow, stepId), base: from?.branch ?? null }
 }
 

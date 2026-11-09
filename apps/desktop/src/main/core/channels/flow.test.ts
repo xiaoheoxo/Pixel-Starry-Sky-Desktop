@@ -6,6 +6,7 @@ import {
   cleanSchedule,
   cleanSteps,
   copyPlan,
+  forksAt,
   draftProblem,
   limitHit,
   planSteps,
@@ -166,8 +167,10 @@ describe('流程第二批的纯函数（docs/ui/channels-pipeline.md §6）', ()
       { id: 's4', title: 'd', memberId: 'a', deps: ['s1', 's2'], kind: 'summary' },
     ])
     const f = flowOf(steps)
-    // 只有 s1 开始：主目录
-    expect(copyPlan(f, 'abcdef12', 's1', ['s1'])).toEqual({ kind: 'main', merge: [] })
+    // 只有 s2 开始、后面只有一步等它：主目录
+    expect(copyPlan(f, 'abcdef12', 's2', ['s2'])).toEqual({ kind: 'main', merge: [] })
+    // 只有 s1 开始，但后面 s3、s4 都等它（分叉点）：自己先建副本，交付后别的步骤从它的分支分出去
+    expect(copyPlan(f, 'abcdef12', 's1', ['s1'])).toMatchObject({ kind: 'new', base: null })
     // s1、s2 同时开始：各建一个，基于主目录
     expect(copyPlan(f, 'abcdef12', 's1', ['s1', 's2'])).toEqual({
       kind: 'new',
@@ -189,5 +192,24 @@ describe('流程第二批的纯函数（docs/ui/channels-pipeline.md §6）', ()
     expect(copyPlan(done, 'abcdef12', 's4', ['s4'])).toEqual({ kind: 'main', merge: ['s1', 's2'] })
     // 开关关掉：同时开始也在主目录
     expect(copyPlan({ ...f, isolate: false }, 'abcdef12', 's1', ['s1', 's2'])).toEqual({ kind: 'main', merge: [] })
+  })
+
+  it('副本规划按项目分开：不同项目的并行步骤各在主目录做，分叉点也不建；同项目的照旧', () => {
+    const steps = cleanSteps([
+      { id: 's1', title: '定接口', memberId: 'a', kind: 'work' },
+      { id: 's2', title: 'Core 侧', memberId: 'b', deps: ['s1'], kind: 'work' },
+      { id: 's3', title: '界面', memberId: 'c', deps: ['s1'], kind: 'work' },
+      { id: 's4', title: '汇总', memberId: 'a', deps: ['s2', 's3'], kind: 'summary' },
+    ])
+    const f = flowOf(steps)
+    // b 在另一个项目：a 的项目里只有 s3 等 s1，不是分叉点
+    const cross = (m: string) => (m === 'b' ? 'p2' : 'p1')
+    expect(copyPlan(f, 'abcdef12', 's1', ['s1'], cross)).toEqual({ kind: 'main', merge: [] })
+    const done = withStep(f, 's1', { status: 'delivered' })
+    expect(copyPlan(done, 'abcdef12', 's2', ['s2', 's3'], cross)).toEqual({ kind: 'main', merge: [] })
+    expect(copyPlan(done, 'abcdef12', 's3', ['s2', 's3'], cross)).toEqual({ kind: 'main', merge: [] })
+    expect(forksAt(f, f.steps[0], cross)).toBe(false)
+    // 都在同一个项目：s1 是分叉点
+    expect(forksAt(f, f.steps[0], () => 'p1')).toBe(true)
   })
 })

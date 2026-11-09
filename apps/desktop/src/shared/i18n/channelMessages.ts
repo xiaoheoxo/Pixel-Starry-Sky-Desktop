@@ -776,8 +776,16 @@ export const channelMessages = {
   'channels.flow.pause.limit.rounds': { zh: '到了护栏上限（轮次）', en: 'Guardrail limit reached (rounds)' },
   'channels.flow.pause.limit.time': { zh: '到了护栏上限（时长）', en: 'Guardrail limit reached (time)' },
   'channels.flow.pause.dirty': {
-    zh: '主目录有没提交的改动，先提交或暂存再继续',
-    en: 'The main folder has uncommitted changes; commit or stash them, then resume',
+    zh: '要合并回主目录，但主目录有没提交的改动，先提交或暂存再继续',
+    en: 'Merging back into the main folder, but it has uncommitted changes; commit or stash them, then resume',
+  },
+  'channels.flow.pause.dirtyAt': {
+    zh: '要合并回 {path}，但它有没提交的改动（流程没动过它），先提交或暂存再继续',
+    en: 'Merging back into {path}, but it has uncommitted changes the flow did not make; commit or stash them, then resume',
+  },
+  'channels.flow.wip': {
+    zh: '{path} 有你自己没提交的改动，没带进副本；副本基于最近一次提交',
+    en: '{path} has uncommitted changes of yours; they were not copied, the copies start from the latest commit',
   },
   'channels.flow.resumeLimit': { zh: '再给一份额度继续', en: 'Resume with a fresh allowance' },
   'channels.flow.limitsRow': { zh: '最多', en: 'At most' },

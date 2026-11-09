@@ -413,8 +413,10 @@ export interface ChannelFlow {
   title: string
   /** planning：成员在拆；draft：等你确认 */
   status: 'planning' | 'draft' | 'running' | 'paused' | 'done' | 'stopped'
-  /** limit：超的是哪一项 */
-  paused?: { reason: FlowPause; stepId: string; limit?: 'rounds' | 'time' | 'cost' } | null
+  /** limit：超的是哪一项；path：dirty 时是哪个项目的主目录 */
+  paused?: { reason: FlowPause; stepId: string; limit?: 'rounds' | 'time' | 'cost'; path?: string } | null
+  /** 从主目录分副本时主目录有你自己没提交的改动（项目路径）：没带进副本，流程卡上提示一次，不停下 */
+  wip?: string | null
   steps: FlowStep[]
   /** 审查最多打回几次，超了停下 */
   maxRejects: number

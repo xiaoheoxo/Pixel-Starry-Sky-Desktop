@@ -1175,12 +1175,17 @@ export function ChannelFlowCard({
     <>
       {flow.status === 'paused' && flow.paused && (
         <p className="mb-1 text-meta text-warn">
-          {tr(
-            flow.paused.reason === 'limit' && flow.paused.limit
-              ? `channels.flow.pause.limit.${flow.paused.limit}`
-              : `channels.flow.pause.${flow.paused.reason}`,
-          )}
+          {flow.paused.reason === 'dirty' && flow.paused.path
+            ? tr('channels.flow.pause.dirtyAt', { path: flow.paused.path })
+            : tr(
+                flow.paused.reason === 'limit' && flow.paused.limit
+                  ? `channels.flow.pause.limit.${flow.paused.limit}`
+                  : `channels.flow.pause.${flow.paused.reason}`,
+              )}
         </p>
+      )}
+      {flow.wip && flow.status !== 'done' && flow.status !== 'stopped' && (
+        <p className="mb-1 text-meta text-fg-muted">{tr('channels.flow.wip', { path: flow.wip })}</p>
       )}
       {flow.brief && (
         <details className="mb-1 text-meta text-fg-muted">

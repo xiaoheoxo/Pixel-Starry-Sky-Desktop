@@ -18,7 +18,7 @@ import { ChannelStore } from '../core/channels/store'
 import { Channels, type MachineLite } from '../core/channels/service'
 import { channelToolsServer } from './channel-mcp'
 import type { CheckRun } from '../../shared/types/checks'
-import type { GitCompareResult, GitStatus, ProjectCopy } from '../../shared/types/project-tools'
+import type { GitCompareResult, GitResult, GitStatus, ProjectCopy } from '../../shared/types/project-tools'
 import type { ChannelAlertAction } from '../../shared/channels/alerts'
 import type {
   AgentInput,
@@ -156,6 +156,11 @@ export async function initChannels(ctx: AppContext): Promise<void> {
           { from: 'HEAD', to: branch },
         ])) as GitCompareResult
         return r.files.map(f => f.path)
+      },
+      commit: async (sessionId, message) => {
+        const r = (await tool('projectTools:gitCommit')([{ sessionId }, { message, all: true }])) as GitResult
+        // 没东西可提交（它自己提交过了）不算错
+        if (!r.ok && r.failure.kind !== 'nothing') throw new Error(r.failure.detail || r.failure.kind)
       },
     },
   })

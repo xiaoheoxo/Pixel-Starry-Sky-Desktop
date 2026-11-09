@@ -509,7 +509,7 @@ export function flowStepPrompt(input: FlowStepPromptInput): string {
         ? 'This is the final step: read what every step delivered, check that the pieces fit together, and write a summary for the user (what was done, which files, anything unresolved). Keep what you or a reviewer actually verified separate from what earlier steps only claimed, and list every "not done" item they handed over as is.'
         : '',
       input.copy
-        ? `You work in a separate Git copy on branch ${input.copy.branch}${input.copy.base ? ` (based on ${input.copy.base})` : ''}. Do not switch branches and do not touch the project's main folder. Before task_done, commit your changes and output files to this branch (git add -A && git commit): later steps take your work from the branch.`
+        ? `You work in a separate Git copy on branch ${input.copy.branch}${input.copy.base ? ` (based on ${input.copy.base})` : ''}. Do not switch branches and do not touch the project's main folder. Before task_done, commit your changes and output files to this branch (git add -A && git commit): later steps take your work from the branch. Anything left uncommitted is committed for you when the next step starts.`
         : '',
       input.merge?.length
         ? `Earlier steps worked on their own branches:\n${input.merge.map(m => `- ${m.no} ${m.title}: ${m.branch}`).join('\n')}\nFirst check with git status that this folder is clean, then git merge --no-ff each branch. Resolve conflicts yourself and explain them in the task_done summary; run the checks after merging, then call task_done.`
@@ -542,7 +542,7 @@ export function flowStepPrompt(input: FlowStepPromptInput): string {
       ? '这是最后一步：读每一步交上来的东西，确认它们接得上，给用户写一份总结（做了什么、改了哪些文件、还有什么没解决）。亲自验证过的（你或审查跑过的）和前面步骤只是声称的分开写；前面交上来的「没做完」原样列出。'
       : '',
     input.copy
-      ? `你在独立的 Git 副本里做这一步（分支 ${input.copy.branch}${input.copy.base ? `，基于 ${input.copy.base}` : ''}）。别切换分支，别动项目主目录。调用 task_done 之前把改动和产出的文件提交到这个分支（git add -A && git commit），后面的步骤按分支取你的东西。`
+      ? `你在独立的 Git 副本里做这一步（分支 ${input.copy.branch}${input.copy.base ? `，基于 ${input.copy.base}` : ''}）。别切换分支，别动项目主目录。调用 task_done 之前把改动和产出的文件提交到这个分支（git add -A && git commit），后面的步骤按分支取你的东西；漏了的，下一步开始时会替你提交。`
       : '',
     input.merge?.length
       ? `前面的步骤各在自己的分支上：\n${input.merge.map(m => `- ${m.no} ${m.title}：${m.branch}`).join('\n')}\n先用 git status 确认当前目录干净，再逐个 git merge --no-ff 这些分支；有冲突自己解决，并在 task_done 的摘要里说明；合并后跑一遍检查再调用 task_done。`
