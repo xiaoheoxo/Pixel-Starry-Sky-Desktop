@@ -7,10 +7,12 @@ import {
   codedError,
   PROVIDER_ENV,
   EFFORTS,
+  INPUT_PREDICTIONS,
   PEEK_SCOPES,
   PERMISSION_MODES,
   quietWarningKey,
   type ContextWindows,
+  type Effort,
   type EngineCatalog,
   type EngineConfig,
   type EngineConfigPatch,
@@ -20,6 +22,7 @@ import {
   type EngineJob,
   type EngineLocalConfig,
   type EngineUpdateResult,
+  type InputPrediction,
   type PeekScope,
   type SessionDefaults,
   type SessionRecord,
@@ -189,6 +192,9 @@ export class HostSettings {
     args: string[]
     peerMessages: boolean
     peekSessions: PeekScope
+    subagentModel: string | null
+    subagentEffort: Effort | null
+    inputPrediction: InputPrediction
   } {
     const o = this.file.options[engine] ?? {}
     return {
@@ -201,6 +207,9 @@ export class HostSettings {
       args: Array.isArray(o.args) ? o.args.filter((a): a is string => typeof a === 'string') : [],
       peerMessages: o.peerMessages === true,
       peekSessions: o.peekSessions === 'project' || o.peekSessions === 'all' ? o.peekSessions : 'off',
+      subagentModel: typeof o.subagentModel === 'string' && o.subagentModel ? o.subagentModel : null,
+      subagentEffort: EFFORTS.includes(o.subagentEffort as Effort) ? (o.subagentEffort as Effort) : null,
+      inputPrediction: o.inputPrediction === 'cheap' || o.inputPrediction === 'same' ? o.inputPrediction : 'off',
     }
   }
 
@@ -338,6 +347,25 @@ export class HostSettings {
       if (typeof patch.rememberChoices !== 'boolean') throw new Error('「记住会话里的选择」的值不对')
       if (patch.rememberChoices) options.rememberChoices = true
       else delete options.rememberChoices
+    }
+    // Codex 子智能体的模型 / 强度（docs/ui/codex-subagent-model.md）：模型名不含空白，最长 200；null 跟随主会话
+    if (patch.subagentModel !== undefined) {
+      const m = patch.subagentModel
+      if (m !== null && (typeof m !== 'string' || !m || /\s/.test(m) || m.length > 200))
+        throw new Error('子智能体模型不对')
+      if (m) options.subagentModel = m
+      else delete options.subagentModel
+    }
+    if (patch.inputPrediction !== undefined) {
+      if (!INPUT_PREDICTIONS.includes(patch.inputPrediction)) throw new Error('「输入预测」的值不对')
+      if (patch.inputPrediction === 'off') delete options.inputPrediction
+      else options.inputPrediction = patch.inputPrediction
+    }
+    if (patch.subagentEffort !== undefined) {
+      const e = patch.subagentEffort
+      if (e !== null && !EFFORTS.includes(e)) throw new Error('子智能体推理强度不对')
+      if (e) options.subagentEffort = e
+      else delete options.subagentEffort
     }
     if (Object.keys(options).length > 0) next.options[engine] = options
     else delete next.options[engine]

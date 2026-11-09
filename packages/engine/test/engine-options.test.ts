@@ -223,6 +223,17 @@ describe('本机引擎详情设置', () => {
     )
   })
 
+  it('Codex 子智能体模型 / 强度：存指定的，null 不存；带空白、不认识的档位报错', async () => {
+    const host = makeHost()
+    expect(host.engineConfig().codex).toMatchObject({ subagentModel: null, subagentEffort: null })
+    await host.setEngineConfig('codex', { subagentModel: 'gpt-6-sol', subagentEffort: 'low' })
+    expect(host.engineConfig().codex).toMatchObject({ subagentModel: 'gpt-6-sol', subagentEffort: 'low' })
+    await host.setEngineConfig('codex', { subagentModel: null, subagentEffort: null })
+    expect(host.engineConfig().codex).toMatchObject({ subagentModel: null, subagentEffort: null })
+    await expect(host.setEngineConfig('codex', { subagentModel: 'a b' })).rejects.toThrow('子智能体模型不对')
+    await expect(host.setEngineConfig('codex', { subagentEffort: 'ultra-x' as 'low' })).rejects.toThrow('推理强度不对')
+  })
+
   it('「查看本机其他会话」：存 project / all，关闭时不存；每个引擎分开，值不对时报错', async () => {
     const host = makeHost()
     await host.setEngineConfig('codex', { peekSessions: 'project' })

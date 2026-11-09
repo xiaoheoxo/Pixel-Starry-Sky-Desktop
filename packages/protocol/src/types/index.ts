@@ -59,6 +59,7 @@ export type {
   EngineLogin,
   EngineUpdateResult,
   PeekScope,
+  InputPrediction,
   SessionDefaults,
 } from './engine'
 export type {

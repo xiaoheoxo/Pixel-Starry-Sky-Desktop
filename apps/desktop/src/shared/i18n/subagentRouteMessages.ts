@@ -265,6 +265,17 @@ export const subagentRouteMessages = {
     en: 'How many can run at once in a session; the rest wait in line.',
   },
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
+  'subagentRoute.codex.title': { zh: 'Codex 子智能体', en: 'Codex subagents' },
+  'subagentRoute.codex.hint': {
+    zh: 'Codex 派出的子智能体用这个模型，主会话不变；跟随主会话时 Astra 会派出一批 Astra。只影响之后派出的；自带模型的角色（explorer）不受影响。',
+    en: 'Codex subagents use this model while the main session keeps its own; following the main session means an Astra session spawns Astra subagents. Applies to subagents spawned from now on; roles with their own model (explorer) are unaffected.',
+  },
+  'subagentRoute.codex.model': { zh: '子智能体模型', en: 'Subagent model' },
+  'subagentRoute.codex.follow': { zh: '跟随主会话', en: 'Follow main session' },
+  'subagentRoute.codex.noCatalog': {
+    zh: 'Codex 还没报上模型列表，检测好再选。',
+    en: 'Codex has not reported its models yet; pick one after detection.',
+  },
   'subagentRoute.hour': { zh: '1 小时', en: '1 hour' },
   'subagentRoute.saveFailed': { zh: '没有保存：{error}', en: 'Not saved: {error}' },
   'subagentRoute.deletedElsewhere': {
@@ -338,7 +349,7 @@ export const subagentRouteMessages = {
     en: 'Write for a first-time reader: what it is and how to use it first, details after.',
   },
   'subagentRoute.searchKeywords': {
-    zh: '子智能体 子代理 子任务 类型 站点 模型 只读 探索 便宜 并发 主模型调度 分组 subagent task type route model site explore',
-    en: 'subagent task type route model site explore read-only concurrency dispatch main model group 子智能体 子代理 类型',
+    zh: '子智能体 子代理 子任务 类型 站点 模型 只读 探索 便宜 并发 主模型调度 分组 Codex subagent task type route model site explore',
+    en: 'subagent task type route model site explore read-only concurrency dispatch main model group Codex 子智能体 子代理 类型',
   },
 } as const

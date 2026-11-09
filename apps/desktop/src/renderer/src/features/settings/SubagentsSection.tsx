@@ -10,6 +10,7 @@ import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { usePlatform } from '@/features/account/platform'
 import { useProviders } from '@/features/account/providers'
 import { savedTypes, setSubagentSettings, useSubagentSettings } from './subagents'
+import { CodexSubagentCard } from './CodexSubagentCard'
 import { SubagentTypeCard, TYPE_ICONS, minutesLabel, typeName, type SiteContext } from './SubagentTypeCard'
 import { useUnsavedCheck } from './unsavedEdits'
 import {
@@ -240,6 +241,7 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
         </section>
 
         <aside className="flex min-w-0 flex-col gap-4 @4xl:sticky @4xl:top-0">
+          <CodexSubagentCard onError={setError} />
           <div className="rounded-xl border border-line-card bg-surface">
             <h4 data-setting-title={tr('subagentRoute.shared')} className="px-4 pt-3 text-ui font-semibold text-fg">
               {tr('subagentRoute.shared')}

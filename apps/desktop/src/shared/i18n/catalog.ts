@@ -3804,6 +3804,14 @@ export const catalog = {
     zh: '多会话',
     en: 'Multiple sessions',
   },
+  'settings.engines.EngineDetail.inputPrediction': { zh: '输入预测（实验）', en: 'Input prediction (experimental)' },
+  'settings.engines.EngineDetail.inputPredictionHint': {
+    zh: '每轮结束后让 Codex 猜你下一句想说什么，显示成灰字，按 Tab 填入，不会自动发送。每轮多一次请求，会用掉额度。只对自己的 ChatGPT 登录或 API Key 生效，平台线路和自定义接口不预测。',
+    en: 'After each turn, Codex guesses what you will say next and shows it as gray text; press Tab to fill it in. It is never sent on its own. Each turn makes one extra request and uses quota. Only for your own ChatGPT login or API key; platform lines and custom APIs are not predicted.',
+  },
+  'settings.engines.EngineDetail.inputPredictionModel': { zh: '预测用的模型', en: 'Model for predictions' },
+  'settings.engines.EngineDetail.inputPredictionCheap': { zh: '便宜的模型（推荐）', en: 'A cheaper model (recommended)' },
+  'settings.engines.EngineDetail.inputPredictionSame': { zh: '和会话相同', en: 'Same as the session' },
   'settings.engines.EngineDetail.peekSessions': {
     zh: '查看本机其他会话',
     en: 'View other sessions on this computer',

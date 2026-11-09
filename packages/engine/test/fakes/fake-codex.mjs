@@ -47,6 +47,8 @@ function loadThreads() {
 }
 /** 临时分叉（ephemeral）出来的线程：只在本进程里，不落盘（真 Codex 不写 rollout） */
 const ephemeral = new Set()
+/** 输入预测分叉出的线程（不进 threads、不顶替主线程） */
+const predictForks = new Set()
 function saveThreads() {
   if (!stateFile) return
   mkdirSync(process.env.FAKE_CODEX_STATE_DIR, { recursive: true })
@@ -413,6 +415,27 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       rateUpdate()
       break
     case 'thread/fork': {
+      // 输入预测（docs/ui/codex-input-prediction.md）：和真 Codex 0.167 一样，预测模式不能带配置覆盖，
+      // 分叉出的线程不顶替主线程；FAKE_CODEX_NO_PREDICTION 模拟不认这个参数（像素星空应退回普通分叉）
+      if (
+        p.experimentalPredictionMode ||
+        (p.ephemeral && p.approvalPolicy === 'never' && process.env.FAKE_CODEX_PREDICT_LOG)
+      ) {
+        if (p.experimentalPredictionMode && process.env.FAKE_CODEX_NO_PREDICTION) {
+          rpcError(m, 'unknown field `experimentalPredictionMode`')
+          break
+        }
+        if (p.experimentalPredictionMode && (p.model || p.sandbox || p.approvalPolicy || p.cwd)) {
+          rpcError(m, '`experimentalPredictionMode` cannot be combined with configuration overrides')
+          break
+        }
+        const fork = 'fake-predict-' + ++next
+        predictForks.add(fork)
+        if (process.env.FAKE_CODEX_PREDICT_LOG)
+          appendFileSync(process.env.FAKE_CODEX_PREDICT_LOG, JSON.stringify({ fork: p }) + '\n')
+        response(m, { thread: { id: fork, turns: [] }, model: 'fake-codex' })
+        break
+      }
       loadThreads()
       const source = threads[p.threadId]
       const at = p.lastTurnId ? source?.findIndex(t => t.id === p.lastTurnId) : source ? source.length - 1 : -1
@@ -508,6 +531,29 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       response(m, {})
       break
     case 'turn/start': {
+      if (predictForks.has(p.threadId)) {
+        // 预测这一轮：回一句（FAKE_CODEX_PREDICTION，可以是空的），FAKE_CODEX_PREDICT_MS 之后结束
+        const fork = p.threadId,
+          pid = 'predict-turn-' + ++next
+        if (process.env.FAKE_CODEX_PREDICT_LOG)
+          appendFileSync(process.env.FAKE_CODEX_PREDICT_LOG, JSON.stringify({ turn: p }) + '\n')
+        response(m, { turn: { id: pid, status: 'inProgress' } })
+        emit('turn/started', { threadId: fork, turn: { id: pid, status: 'inProgress' } })
+        setTimeout(
+          () => {
+            if (!predictForks.has(fork)) return
+            const text = process.env.FAKE_CODEX_PREDICTION ?? '下一步：跑一遍测试'
+            emit('item/completed', {
+              threadId: fork,
+              turnId: pid,
+              item: { type: 'agentMessage', id: 'pm-' + pid, text },
+            })
+            emit('turn/completed', { threadId: fork, turn: { id: pid, status: 'completed', error: null } })
+          },
+          Number(process.env.FAKE_CODEX_PREDICT_MS ?? 30),
+        )
+        break
+      }
       // 测试创建这个文件让下一次 turn/start 被拒绝（一次性）：模拟 Codex 回错，这一轮没开成
       if (process.env.FAKE_CODEX_TURN_FAIL_FILE && existsSync(process.env.FAKE_CODEX_TURN_FAIL_FILE)) {
         rmSync(process.env.FAKE_CODEX_TURN_FAIL_FILE)
@@ -803,6 +849,14 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       response(m, { turnId: turn.id })
       break
     case 'turn/interrupt': {
+      if (predictForks.has(p.threadId)) {
+        // 停掉预测：不再回那一句
+        predictForks.delete(p.threadId)
+        if (process.env.FAKE_CODEX_PREDICT_LOG)
+          appendFileSync(process.env.FAKE_CODEX_PREDICT_LOG, JSON.stringify({ interrupt: p.threadId }) + '\n')
+        response(m, {})
+        break
+      }
       response(m, {})
       if (goal?.status === 'active') {
         goal.status = 'paused'
@@ -887,6 +941,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       break
     }
     case 'thread/unsubscribe':
+      predictForks.delete(p.threadId)
       response(m, { status: 'unsubscribed' })
       break
     default:

@@ -14,6 +14,7 @@ import {
   type EngineCatalog,
   type EngineConfigPatch,
   type EngineLocalConfig,
+  type InputPrediction,
   type PeekScope,
   type PermissionMode,
 } from '@pixelsky/protocol'
@@ -265,6 +266,32 @@ export function EngineDetail({
               />
             }
           />
+          {/* 输入预测（docs/ui/codex-input-prediction.md）：实验，默认关 */}
+          {e.id === 'codex' && (
+            <Row
+              title={tr('settings.engines.EngineDetail.inputPrediction')}
+              description={tr('settings.engines.EngineDetail.inputPredictionHint')}
+              control={
+                <Switch
+                  checked={config.inputPrediction !== 'off'}
+                  label={tr('settings.engines.EngineDetail.inputPrediction')}
+                  onChange={on => run({ inputPrediction: on ? 'cheap' : 'off' })}
+                />
+              }
+            >
+              {config.inputPrediction !== 'off' && (
+                <Select<Exclude<InputPrediction, 'off'>>
+                  label={tr('settings.engines.EngineDetail.inputPredictionModel')}
+                  value={config.inputPrediction}
+                  onChange={v => run({ inputPrediction: v })}
+                  options={[
+                    { value: 'cheap', label: tr('settings.engines.EngineDetail.inputPredictionCheap') },
+                    { value: 'same', label: tr('settings.engines.EngineDetail.inputPredictionSame') },
+                  ]}
+                />
+              )}
+            </Row>
+          )}
           {e.id === 'claude' && (
             <Row
               title={tr('settings.engines.EngineDetail.autoPlan')}

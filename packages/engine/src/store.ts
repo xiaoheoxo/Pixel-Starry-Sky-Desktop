@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import type {
+  Effort,
   EngineDefaults,
   EngineId,
   Item,
@@ -79,6 +80,11 @@ export interface EngineOptions {
   peerMessages?: boolean
   /** 让 AI 只读地查看本机其他会话的范围；只存 project / all */
   peekSessions?: 'project' | 'all'
+  /** Codex 子智能体的模型和推理强度（docs/ui/codex-subagent-model.md）；只存指定了的 */
+  subagentModel?: string
+  subagentEffort?: Effort
+  /** Codex 输入预测；只存 cheap / same */
+  inputPrediction?: 'cheap' | 'same'
 }
 
 export const DEFAULT_SETTINGS: EngineSettingsFile = {

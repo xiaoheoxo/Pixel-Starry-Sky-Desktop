@@ -6,6 +6,7 @@ import type {
   AgentRun,
   ApprovalRequest,
   ContextWindows,
+  Effort,
   EngineCatalog,
   ImageAttachment,
   McpOp,
@@ -62,6 +63,11 @@ export interface CodexLaunchOptions {
   autoCompactPct?: number | null
   /** 云端 / 本机模型填的上下文窗口 */
   contextWindows?: ContextWindows
+  /** 派出的子智能体用的模型 / 推理强度（docs/ui/codex-subagent-model.md）；不给跟随主会话 */
+  subagentModel?: string | null
+  subagentEffort?: Effort | null
+  /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
+  inputPrediction?: 'off' | 'cheap' | 'same'
   /** 检测到的 Codex 版本；null 是读不到（替换的命令不一定报版本） */
   version?: string | null
   /** Codex 带着 Default 模式提问开关起不来时记在适配器上：之后新开的会话不用再失败一次（重新检测后清掉） */
@@ -80,6 +86,19 @@ export interface CodexLaunchOptions {
   savedAgents?: () => AgentRun[]
   /** 这个会话占着的线程：拿到线程 id 时登记、换线程 / 进程退出 / 关闭时撤销（适配器的 ownThreads，列表上「正开着」不算它们） */
   ownThread?: (id: string, own: boolean) => void
+}
+
+/** 输入预测发给分叉的那句（docs/ui/codex-input-prediction.md §2） */
+export const PREDICTION_PROMPT =
+  'You are now the user of this conversation. Write the next message the user is most likely to send, in the language the user writes in. Output only that message, one to three sentences, with no explanation, no quotes and no tools. If you are not confident, output nothing.'
+
+/** 预测回来的话：去掉首尾引号和空白，过长截断；空的返回 null */
+export function cleanPrediction(text: string): string | null {
+  const t = text
+    .trim()
+    .replace(/^["'“”「『]+|["'“”」』]+$/g, '')
+    .trim()
+  return t ? t.slice(0, 300) : null
 }
 
 /** 用户追加的参数里第一个由像素星空控制的（docs/ui/engine-launch.md §3）：--listen，改平台线路的 -c；都允许时返回 null */
@@ -292,7 +311,14 @@ export async function codexLaunchConfig(
   ctx: Pick<SessionContext, 'maxRetries' | 'extensions'>,
   options: Pick<
     CodexLaunchOptions,
-    'args' | 'defaultModel' | 'contextWindows' | 'autoCompactPct' | 'knownWindows' | 'modelCatalog'
+    | 'args'
+    | 'defaultModel'
+    | 'contextWindows'
+    | 'autoCompactPct'
+    | 'knownWindows'
+    | 'modelCatalog'
+    | 'subagentModel'
+    | 'subagentEffort'
   >,
   askFlag: boolean,
 ): Promise<{
@@ -368,6 +394,12 @@ export async function codexLaunchConfig(
     if (file) config('model_catalog_json', file)
   }
   if (context.limit) config('model_auto_compact_token_limit', context.limit)
+  // 子智能体的默认模型 / 强度：Codex 0.166 的 agents.default_subagent_*（自带模型的角色如 explorer 不受影响）。
+  // 模型名来自自己登录的 Codex 目录，平台线路 / 自定义接口里不一定有，经网关的不带
+  if (!gatewayProvider) {
+    if (options.subagentModel) config('agents.default_subagent_model', options.subagentModel)
+    if (options.subagentEffort) config('agents.default_subagent_reasoning_effort', options.subagentEffort)
+  }
   return { args, env: environment, gatewayProvider, ownAskFlag, windowOverridden: !!context.window }
 }
 
@@ -444,6 +476,9 @@ export class CodexSession implements EngineSession {
   private translator: CodexTranslator
   /** 派出过的子智能体：每轮换新翻译器也要保留 */
   private readonly agents = new Map<string, AgentRun>()
+  /** 正在跑的输入预测（分叉出的线程）；新一轮开始、关会话时取消，结果按 gen 丢弃过期的 */
+  private prediction: { thread: string | null; turn: string | null; gen: number; text: string } | null = null
+  private predictionGen = 0
   private reportedError: string | null = null
   /** 这一轮被 Cloudflare 拦下了、已经让 Codex 停手：结束时按 FIREWALL_BLOCKED 报（宿主隔一会儿自动重发） */
   private blocked: { detail: string } | null = null
@@ -844,6 +879,7 @@ export class CodexSession implements EngineSession {
     return input
   }
   send(text: string, turnId: string, userItemId: string, attachments: ImageAttachment[] = [], seed?: ChatSeed): void {
+    this.cancelPrediction()
     if (this.active?.auto && this.nativeTurnId) {
       // 目标模式下 Codex 自己开的一轮还在跑（宿主派发这条时它刚开始）：这条消息接管那一轮，不另报它的结束
       // （宿主的「一轮结束」不分是哪一轮，会把这条当成做完）；翻译器和用量起点沿用，run() 再把消息送进那一轮
@@ -1409,6 +1445,8 @@ export class CodexSession implements EngineSession {
       return
     }
     const eventThread = string(params.threadId)
+    if (eventThread && this.prediction && eventThread === this.prediction.thread)
+      return this.predictionEvent(method, params)
     // 子智能体线程的事件只记进追踪（工具次数、token）
     if (eventThread && this.agents.has(eventThread)) return this.translator.child(eventThread, method, params)
     if (eventThread && this.threadId && eventThread !== this.threadId) return
@@ -1602,6 +1640,10 @@ export class CodexSession implements EngineSession {
     }
   }
   private request(id: string | number, method: string, params: Message): void {
+    if (this.prediction && string(params.threadId) === this.prediction.thread) {
+      this.proc?.respondError(id, 'Not available while predicting')
+      return
+    }
     // 每个会话一个 app-server 进程，里面别的线程只能是这一轮派出的子智能体：照常弹审批，标题带上是哪个
     const thread = string(params.threadId),
       subagent = !!thread && !!this.threadId && thread !== this.threadId
@@ -1856,6 +1898,96 @@ export class CodexSession implements EngineSession {
     this.turnWaiters = []
     for (const w of waiters) w()
     this.refreshMcpSoon()
+    // 自己开的一轮（目标模式接着做）不预测：用户没在等着输入
+    if (outcome === 'completed' && !active.auto) void this.predict()
+  }
+
+  /**
+   * 输入预测（docs/ui/codex-input-prediction.md）：一轮正常结束后在会话自己的进程里临时分叉（预测模式要求原线程在同一进程里加载着），
+   * 分叉上问一句「用户下一句会说什么」，回来发 suggestion。分叉只读、不审批、不落盘；预测模式不被接受时退回普通临时分叉
+   */
+  private async predict(): Promise<void> {
+    const mode = this.options.inputPrediction ?? 'off'
+    const proc = this.proc
+    // 只给自己的 ChatGPT / API Key 登录：经网关（平台线路、自定义接口）的请求在这一轮之外，记不进会话的花费
+    // shortcut: 平台和自定义接口不预测，要开得先让网关把轮次外的请求记到会话的「其他调用」
+    if (mode === 'off' || this.procViaGateway || !proc?.alive || !this.threadId || this.closed) return
+    const gen = ++this.predictionGen
+    const current = { thread: null as string | null, turn: null as string | null, gen, text: '' }
+    this.prediction = current
+    const base = { threadId: this.threadId, ephemeral: true, excludeTurns: true }
+    try {
+      const fork = await proc
+        .request('thread/fork', { ...base, experimentalPredictionMode: true })
+        .catch(() => proc.request('thread/fork', { ...base, approvalPolicy: 'never', sandbox: 'read-only' }))
+      const thread = string(object(fork.thread).id)
+      if (this.prediction !== current || !thread) return void (thread && this.dropFork(thread))
+      current.thread = thread
+      // 分叉沿用原线程的协作模式（计划模式、带提问指令的默认模式），它里面的模型 / 强度优先于外层的：
+      // 显式带默认模式，写上预测用的模型和 low，不然会按会话的模型和强度去猜
+      const model =
+        (mode === 'cheap' ? this.cheapModel() : null) ?? this.settings.model ?? this.catalog?.currentModel ?? null
+      const started = await proc.request('turn/start', {
+        threadId: thread,
+        input: [{ type: 'text', text: PREDICTION_PROMPT }],
+        effort: 'low',
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'readOnly' },
+        ...(model
+          ? {
+              model,
+              collaborationMode: {
+                mode: 'default',
+                settings: { model, reasoning_effort: 'low', developer_instructions: null },
+              },
+            }
+          : {}),
+      })
+      current.turn = string(object(started.turn).id) || null
+      if (this.prediction !== current) this.stopFork(current)
+    } catch {
+      if (this.prediction === current) this.prediction = null
+    }
+  }
+
+  private predictionEvent(method: string, params: Message): void {
+    const current = this.prediction!
+    if (method === 'item/completed') {
+      const item = object(params.item)
+      if (item.type === 'agentMessage') current.text = string(item.text)
+      return
+    }
+    if (method !== 'turn/completed') return
+    this.prediction = null
+    this.dropFork(current.thread!)
+    const text = cleanPrediction(current.text)
+    // 期间没开始新一轮、没关会话才发
+    if (text && !this.active && !this.closed && current.gen === this.predictionGen)
+      this.ctx.emit({ type: 'suggestion', text })
+  }
+
+  private cancelPrediction(): void {
+    const current = this.prediction
+    this.predictionGen++
+    this.prediction = null
+    if (current) this.stopFork(current)
+  }
+
+  private stopFork(p: { thread: string | null; turn: string | null }): void {
+    if (p.thread && p.turn) this.proc?.request('turn/interrupt', { threadId: p.thread, turnId: p.turn }).catch(() => {})
+    if (p.thread) this.dropFork(p.thread)
+  }
+
+  private dropFork(thread: string): void {
+    this.proc?.request('thread/unsubscribe', { threadId: thread }).catch(() => {})
+  }
+
+  /**
+   * 便宜的模型：目录里名字带 sol / mini 的第一个；找不到就跟会话（null）。
+   * shortcut: 按名字认，Codex 目录以后标了价格档再改成按它挑
+   */
+  private cheapModel(): string | null {
+    return this.catalog?.models?.find(m => /sol|mini/i.test(m.id))?.id ?? null
   }
   private markFinished(turnId: string): void {
     this.finishedTurns.add(turnId)
@@ -2086,6 +2218,7 @@ export class CodexSession implements EngineSession {
 
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    this.cancelPrediction()
     if (this.mcpTimer) clearTimeout(this.mcpTimer)
     this.mcpReporter.dispose()
     this.own(null)

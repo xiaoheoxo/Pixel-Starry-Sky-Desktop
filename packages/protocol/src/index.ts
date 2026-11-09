@@ -37,6 +37,7 @@ export type {
   EngineModel,
   EngineStatus,
   PeekScope,
+  InputPrediction,
   EngineJob,
   EngineLogin,
   EngineUpdateResult,
@@ -247,7 +248,7 @@ export {
 export type { CostState, TimeWindow } from './usage'
 export { EMPTY_FLAGS, emptySnapshot, reduce, settle } from './reduce'
 export { CUT_EDGE, CUT_OVER, cutItem, withBodies } from './itemCut'
-export { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, PEEK_SCOPES } from './types/engine'
+export { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, INPUT_PREDICTIONS, PEEK_SCOPES } from './types/engine'
 export {
   AUTO_COMPACT_PCTS,
   EFFORTS,

@@ -142,6 +142,9 @@ export type SessionDefaults = Pick<
  *   收到后会自己开一轮，界面看不到消息原文；docs/ui/import-collab.md 第 5 项④）
  * - peekSessions：让 AI 只读地查看本机其他会话（pixelsky_threads 的 list_threads / read_thread，docs/ui/import-collab.md
  *   第 5 项③）：off 关闭（默认），project 同一个项目里的，all 本机所有的。只对 Claude Code、Codex 生效
+ * - subagentModel / subagentEffort：Codex 派出的子智能体用的模型和推理强度（docs/ui/codex-subagent-model.md）；
+ *   null 跟随主会话。只对 Codex 生效，经 `agents.default_subagent_model` 传给它，角色自带模型的（explorer）不受影响
+ * - inputPrediction：Codex 每轮结束后预测用户下一句，显示成灰字按 Tab 填入（docs/ui/codex-input-prediction.md）。只对 Codex 生效
  *
  * 除 defaults 外，改了对已开始的会话也生效：下一条消息开始前用新设置重启引擎进程并接上原对话。
  */
@@ -160,7 +163,14 @@ export interface EngineLocalConfig {
   rememberChoices: boolean
   peerMessages: boolean
   peekSessions: PeekScope
+  subagentModel: string | null
+  subagentEffort: Effort | null
+  inputPrediction: InputPrediction
 }
+
+/** Codex 输入预测（docs/ui/codex-input-prediction.md）：off 不预测（默认）；cheap 用便宜的模型；same 用会话的模型 */
+export type InputPrediction = 'off' | 'cheap' | 'same'
+export const INPUT_PREDICTIONS: readonly InputPrediction[] = ['off', 'cheap', 'same']
 
 /** 「查看本机其他会话」的范围 */
 export type PeekScope = 'off' | 'project' | 'all'

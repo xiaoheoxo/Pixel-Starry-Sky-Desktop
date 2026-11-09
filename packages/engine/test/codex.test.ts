@@ -27,6 +27,7 @@ import {
   turnErrorDetail,
   withoutOwnFeatures,
   type CodexLaunchOptions,
+  cleanPrediction,
 } from '../src/codex/session'
 import { CODEX_MIN_VERSION, codexVersionStatus } from '../src/codex/discover'
 import { CodexTranslator, tokenCounts } from '../src/codex/translate'
@@ -1532,6 +1533,121 @@ describe('Codex app-server adapter', () => {
     await host!.send(session.id, '换回来')
     await wait(() => start().length === 2 && host!.open(session.id).state === 'idle')
     expect(start()[1].params.serviceTier).toBe('priority')
+  })
+  describe('输入预测（docs/ui/codex-input-prediction.md）', () => {
+    const predictLog = () => join(root, 'predict.jsonl')
+    const predictions = (): Record<string, any>[] =>
+      existsSync(predictLog())
+        ? readFileSync(predictLog(), 'utf8')
+            .trim()
+            .split('\n')
+            .map(line => JSON.parse(line))
+        : []
+    const suggestion = (id: string) => host!.open(id).suggestion ?? null
+
+    it('关着（默认）：一轮结束后不分叉、不预测', async () => {
+      const { session } = setup(50, { env: { FAKE_CODEX_PREDICT_LOG: predictLog() } })
+      await host!.send(session.id, '你好')
+      await wait(() => host!.open(session.id).state === 'idle')
+      await new Promise(r => setTimeout(r, 120))
+      expect(predictions()).toEqual([])
+      expect(suggestion(session.id)).toBeNull()
+    })
+
+    it('开着：一轮正常结束后在同一进程里用预测模式分叉，回来的那句成为输入建议；发新消息时清掉', async () => {
+      const { session } = setup(500, {
+        env: { FAKE_CODEX_PREDICT_LOG: predictLog(), FAKE_CODEX_PREDICTION: '「下一步：跑一遍测试」' },
+        launch: { inputPrediction: 'same' },
+      })
+      await host!.send(session.id, '你好')
+      await wait(() => suggestion(session.id) !== null)
+      expect(suggestion(session.id)).toBe('下一步：跑一遍测试')
+      const [fork, turn] = predictions()
+      // 预测模式不能带配置覆盖：只有线程、临时、不带轮次
+      expect(fork.fork).toEqual({
+        threadId: expect.any(String),
+        ephemeral: true,
+        excludeTurns: true,
+        experimentalPredictionMode: true,
+      })
+      // 分叉沿用会话的协作模式，它优先于外层的模型 / 强度：显式带默认模式，写上预测用的模型和 low
+      expect(turn.turn).toMatchObject({
+        effort: 'low',
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'readOnly' },
+        model: 'fake-codex',
+        collaborationMode: { mode: 'default', settings: { model: 'fake-codex', reasoning_effort: 'low' } },
+      })
+      await host!.send(session.id, '第二条')
+      expect(suggestion(session.id)).toBeNull()
+    })
+
+    it('预测慢、新一轮先开始了：停掉预测，晚回来的那句不显示', async () => {
+      const { session } = setup(500, {
+        env: { FAKE_CODEX_PREDICT_LOG: predictLog(), FAKE_CODEX_PREDICT_MS: '400' },
+        launch: { inputPrediction: 'same' },
+      })
+      await host!.send(session.id, '你好')
+      await wait(() => predictions().some(p => p.turn))
+      await host!.send(session.id, '第二条')
+      await wait(() => host!.open(session.id).state === 'idle' && predictions().some(p => p.interrupt))
+      // 第一次预测被停掉，它那句没显示；第二轮结束后的新预测还在跑（400ms）
+      expect(suggestion(session.id)).toBeNull()
+      await new Promise(r => setTimeout(r, 450))
+      expect(predictions().filter(p => p.interrupt)).toHaveLength(1)
+      expect(predictions().filter(p => p.turn)).toHaveLength(2)
+    })
+
+    it('Codex 不认预测模式：退回普通临时分叉（只读、不审批）；空回答不显示', async () => {
+      const { session } = setup(500, {
+        env: { FAKE_CODEX_PREDICT_LOG: predictLog(), FAKE_CODEX_NO_PREDICTION: '1', FAKE_CODEX_PREDICTION: '  ' },
+        launch: { inputPrediction: 'same' },
+      })
+      await host!.send(session.id, '你好')
+      await wait(() => predictions().some(p => p.turn))
+      expect(predictions()[0].fork).toMatchObject({ approvalPolicy: 'never', sandbox: 'read-only', ephemeral: true })
+      expect(predictions()[0].fork.experimentalPredictionMode).toBeUndefined()
+      await new Promise(r => setTimeout(r, 120))
+      expect(suggestion(session.id)).toBeNull()
+    })
+
+    it('清理预测的话：去掉首尾引号和空白，空的是 null，过长截断', () => {
+      expect(cleanPrediction('  "跑一遍测试"  ')).toBe('跑一遍测试')
+      expect(cleanPrediction(' \n ')).toBeNull()
+      expect(cleanPrediction('x'.repeat(400))).toHaveLength(300)
+    })
+  })
+
+  it('子智能体指定了模型 / 强度：启动带 agents.default_subagent_*，主会话的模型不变；没指定时不带', async () => {
+    const { session, messages, launches } = setup(50, { launch: { subagentModel: 'fake-mini', subagentEffort: 'low' } })
+    await host!.send(session.id, '派活')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(launches().at(-1)).toEqual(
+      expect.arrayContaining([
+        '-c',
+        'agents.default_subagent_model="fake-mini"',
+        '-c',
+        'agents.default_subagent_reasoning_effort="low"',
+      ]),
+    )
+    expect(messages().find(m => m.method === 'thread/start')?.params.model).toBe('fake-codex')
+    await host!.shutdown()
+    host = undefined
+    const plain = setup(50)
+    await host!.send(plain.session.id, '派活')
+    await wait(() => host!.open(plain.session.id).state === 'idle')
+    expect(plain.launches().at(-1)!.join(' ')).not.toContain('default_subagent')
+    // 经网关（自定义接口 / 平台）：模型名来自自己登录的目录，那边不一定有，不带
+    await host!.shutdown()
+    host = undefined
+    const gateway = setup(50, {
+      env: { PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1', PIXELSKY_CODEX_TOKEN: 'tok' },
+      launch: { subagentModel: 'fake-mini', subagentEffort: 'low' },
+    })
+    await host!.update(gateway.session.id, { provider: { id: 'my-api' } })
+    await host!.send(gateway.session.id, '派活')
+    await wait(() => host!.open(gateway.session.id).state === 'idle')
+    expect(gateway.launches().at(-1)!.join(' ')).not.toContain('default_subagent')
   })
   it('Ultrafast：config.toml 没写模型、会话跟随默认时按目录的默认模型算', async () => {
     const { session, messages } = setup(50, { env: { ...ULTRA, FAKE_CODEX_NO_MODEL: '1' }, model: null })

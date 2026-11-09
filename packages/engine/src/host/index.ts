@@ -156,6 +156,9 @@ export class EngineHost {
             args: o.args,
             autoCompactPct: o.autoCompactPct,
             contextWindows: o.contextWindows,
+            subagentModel: o.subagentModel,
+            subagentEffort: o.subagentEffort,
+            inputPrediction: o.inputPrediction,
             steeringValidated: true,
           }
         },
