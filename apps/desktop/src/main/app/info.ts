@@ -2,7 +2,7 @@
 import { release } from 'node:os'
 import { app, shell } from 'electron'
 import type { AppInfo, AppLink } from '../../shared/types/app-info'
-import { baseUrl } from '../account/account'
+import { baseUrl, cloudRouteInfo } from '../account/account'
 import * as ipc from '../ipc/guard'
 import { WhatsNewStore } from './whats-new'
 
@@ -29,6 +29,7 @@ export function appInfo(): AppInfo {
     os: `${OS_NAMES[process.platform] ?? process.platform} ${release()}`,
     arch: process.arch,
     authUrl: baseUrl(),
+    cloudRoute: cloudRouteInfo(),
     dataDir: app.getPath('userData'),
     repoUrl: REPO_URL,
   }

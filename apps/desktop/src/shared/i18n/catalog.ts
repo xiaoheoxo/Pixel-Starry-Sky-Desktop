@@ -2732,6 +2732,14 @@ export const catalog = {
     zh: '在浏览器中打开认证服务',
     en: 'Open authentication service in browser',
   },
+  'settings.AboutSection.cloudRoute': { zh: '云端线路', en: 'Cloud route' },
+  'settings.AboutSection.cloudRouteHint': {
+    zh: 'CDN 域名和源站直连都是 HTTPS，每 10 分钟各测一次，走快的那条；只换之后新发的请求',
+    en: 'The CDN domain and the direct origin are both HTTPS; both are timed every 10 minutes and the faster one is used for new requests',
+  },
+  'settings.AboutSection.routeCdn': { zh: 'CDN', en: 'CDN' },
+  'settings.AboutSection.routeDirect': { zh: '直连', en: 'Direct' },
+  'settings.AboutSection.routeDown': { zh: '不通', en: 'down' },
   'settings.AboutSection.dataDirectory': {
     zh: '数据目录',
     en: 'Data folder',

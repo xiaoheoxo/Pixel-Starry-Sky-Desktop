@@ -783,6 +783,16 @@ describe('panelVerifyLink 连端口一起比', () => {
   })
 })
 
+describe('panelVerifyLink 认正式站的两条线路（docs/network-direct.md §3）', () => {
+  it('云端走直连时，CDN 域名发来的确认地址照样认；反过来也认；别的子域不认', () => {
+    mocks.base = 'https://direct.pixelstarrysky.xyz'
+    expect(panelVerifyLink('https://pixelstarrysky.xyz/cli/panel-verify?t=a')).toContain('pixelstarrysky.xyz')
+    mocks.base = 'https://pixelstarrysky.xyz'
+    expect(panelVerifyLink('https://direct.pixelstarrysky.xyz/cli/panel-verify?t=a')).toContain('direct.')
+    expect(() => panelVerifyLink('https://auth.pixelstarrysky.xyz/cli/panel-verify?t=a')).toThrow('已拒绝打开')
+  })
+})
+
 describe('断网、超时和换账号（call 的包装）', () => {
   const timeout = (): Error =>
     Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })

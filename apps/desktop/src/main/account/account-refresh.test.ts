@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   app: { isPackaged: false, getPath: () => userData, getVersion: () => '9.9.9-test', on: () => undefined },
   BrowserWindow: { getAllWindows: () => [] },
+  powerMonitor: { on: () => undefined },
   net: { fetch: async () => new Response('{}', { status: 200 }) },
   safeStorage: {
     isEncryptionAvailable: () => true,

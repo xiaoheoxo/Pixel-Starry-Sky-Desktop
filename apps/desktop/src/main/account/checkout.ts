@@ -3,6 +3,7 @@
 import { app, shell } from 'electron'
 import { codedError, type ErrorParams } from '@pixelsky/protocol'
 import { accountEpoch, baseUrl, platformFetch, signedInEmail } from './account'
+import { CLOUD_ROUTES } from './cloud-route'
 import { lastStore } from './store'
 import type { CheckoutKind, CheckoutOrder, CheckoutStatus, PanelStatus, StoreCatalog } from '../../shared/types/account'
 
@@ -406,6 +407,12 @@ export async function panelStatus(): Promise<PanelStatus> {
   return parsePanel(await call('GET', PANEL_PATH))
 }
 
+/** 正式站的两条线路（CDN 域名、源站直连）的主机互认，别的一律不放宽 */
+function sameCloudRoutes(a: string, b: string): boolean {
+  const hosts = CLOUD_ROUTES.map(r => new URL(r.base).host)
+  return hosts.includes(normalizeHost(a)) && hosts.includes(normalizeHost(b))
+}
+
 /** 小写、去掉主机名结尾的点（"Panel.Example.com.:8443" → "panel.example.com:8443"）；host 带端口也行 */
 function normalizeHost(host: string): string {
   return host.toLowerCase().replace(/\.(?=:\d+$|$)/, '')
@@ -430,8 +437,9 @@ export function panelVerifyLink(raw: unknown): string {
   const loopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && (!app.isPackaged || loopback))) throw untrusted()
   if (url.username || url.password) throw untrusted()
-  // 主机和端口都要一致（url.host 带端口，默认端口会被省掉）
-  if (normalizeHost(url.host) !== normalizeHost(cloud.host)) throw untrusted()
+  // 主机和端口都要一致（url.host 带端口，默认端口会被省掉）；云端走直连时它给的确认页仍是 CDN 域名，两条正式站线路互认
+  // （docs/network-direct.md §3.2）
+  if (normalizeHost(url.host) !== normalizeHost(cloud.host) && !sameCloudRoutes(url.host, cloud.host)) throw untrusted()
   if (url.pathname !== PANEL_VERIFY_PATH) throw untrusted()
   return url.toString()
 }

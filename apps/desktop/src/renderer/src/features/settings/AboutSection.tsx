@@ -155,6 +155,13 @@ export function AboutSection({ onOpenAccount }: { onOpenAccount: () => void }) {
             />
           }
         />
+        {info?.cloudRoute.route && (
+          <Row
+            label={tr('settings.AboutSection.cloudRoute')}
+            value={routeText(info.cloudRoute)}
+            title={tr('settings.AboutSection.cloudRouteHint')}
+          />
+        )}
         <Row
           label={tr('settings.AboutSection.dataDirectory')}
           value={info?.dataDir}
@@ -332,6 +339,18 @@ function WhatsNewToggle() {
   )
 }
 
+/** 云端线路一行：「直连 · CDN 1.10 s / 直连 0.80 s」（docs/network-direct.md §3） */
+function routeText(c: AppInfo['cloudRoute']): string {
+  const name = (id: 'cdn' | 'direct'): string =>
+    tr(id === 'cdn' ? 'settings.AboutSection.routeCdn' : 'settings.AboutSection.routeDirect')
+  const probe = c.probe
+    .map(
+      p => `${name(p.id)} ${p.ms === null ? tr('settings.AboutSection.routeDown') : `${(p.ms / 1000).toFixed(2)} s`}`,
+    )
+    .join(' / ')
+  return c.route ? (probe ? `${name(c.route)} · ${probe}` : name(c.route)) : ''
+}
+
 /** 复制给别人排查问题用的一段纯文本 */
 function diagnostics(info: AppInfo): string {
   return [
@@ -339,6 +358,7 @@ function diagnostics(info: AppInfo): string {
     `Electron ${info.electron} · Chromium ${info.chrome} · Node.js ${info.node} · V8 ${info.v8}`,
     `${info.os}（${info.arch}）`,
     tr('settings.AboutSection.authenticationService2', { p0: info.authUrl }),
+    ...(info.cloudRoute.route ? [`${tr('settings.AboutSection.cloudRoute')}: ${routeText(info.cloudRoute)}`] : []),
   ].join('\n')
 }
 

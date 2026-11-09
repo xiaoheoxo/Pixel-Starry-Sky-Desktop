@@ -7,7 +7,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, release } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, net, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, net, powerMonitor, safeStorage, shell } from 'electron'
 import { codedError } from '@pixelsky/protocol'
 import { logger } from '@pixelsky/engine'
 import { nativeText, windowLocale } from '../app/ui-language'
@@ -15,6 +15,16 @@ import { isPayWindow } from '../app/payWindowRegistry'
 import { sendTo } from '../app/rendererHealth'
 import * as ipc from '../ipc/guard'
 import { requestViaIp, withIpFallback } from './ip-fallback'
+import {
+  CLOUD_ROUTES,
+  RECHECK_MS,
+  parseSavedRoute,
+  pickRoute,
+  probeRoute,
+  routeOf,
+  type CloudRoute,
+  type ProbeResult,
+} from './cloud-route'
 import type {
   AccountInfo,
   AccountPlan,
@@ -145,10 +155,62 @@ export function deviceName(): string {
   return host ? `${host} · ${os}` : os
 }
 
-/** 认证服务地址（「关于」页也显示它） */
+/** 认证服务地址（「关于」页也显示它）：没有覆盖时按测速选的那条路（docs/network-direct.md §3） */
 export function baseUrl(): string {
   const raw = (process.env.PIXELSKY_AUTH_URL ?? '').trim().replace(/\/+$/, '')
-  return raw && overrideAllowed(raw) ? raw : DEFAULT_AUTH_URL
+  if (raw && overrideAllowed(raw)) return raw
+  return route ? routeOf(route).base : DEFAULT_AUTH_URL
+}
+
+// ---------------------------------------------------------------------------
+// 云端线路择优（docs/network-direct.md §3）：CDN 域名 vs 源站直连，都是 HTTPS。
+// 上次选的存 userData/cloud-route.json，启动先用它；启动后 3 秒测一次，之后每 10 分钟、系统唤醒后再测
+// ---------------------------------------------------------------------------
+
+let route: CloudRoute['id'] | null = null
+/** 最近一次测速（「关于」页显示） */
+let lastProbe: ProbeResult[] = []
+
+const routeFile = (): string => join(app.getPath('userData'), 'cloud-route.json')
+
+/** 有环境变量覆盖（测试站、本机）时不择优 */
+const routingEnabled = (): boolean => !(process.env.PIXELSKY_AUTH_URL ?? '').trim()
+
+export function cloudRouteInfo(): { route: CloudRoute['id'] | null; probe: ProbeResult[] } {
+  return { route: routingEnabled() ? route : null, probe: lastProbe }
+}
+
+/** 测一轮并按规则换线路；只换之后新发的请求 */
+export async function probeCloudRoutes(): Promise<void> {
+  if (!routingEnabled()) return
+  const results = await Promise.all(CLOUD_ROUTES.map(r => probeRoute(r, fetch)))
+  lastProbe = results
+  const next = pickRoute(route, results)
+  const text = results.map(r => `${r.id} ${r.ms === null ? '不通' : `${r.ms} ms`}`).join(' / ')
+  if (next && next !== route) {
+    log.warn('云端线路切换', { from: route, to: next, probe: text })
+    route = next
+    try {
+      writeFileSync(routeFile(), JSON.stringify({ route: next }))
+    } catch {
+      // 记不住就下次再测
+    }
+  } else log.info('云端线路', { route, probe: text })
+}
+
+function initCloudRoute(): void {
+  if (!routingEnabled()) return
+  try {
+    route = parseSavedRoute(JSON.parse(readFileSync(routeFile(), 'utf8')))
+  } catch {
+    route = null
+  }
+  const timer = setTimeout(() => void probeCloudRoutes(), 3_000)
+  timer.unref?.()
+  const interval = setInterval(() => void probeCloudRoutes(), RECHECK_MS)
+  interval.unref?.()
+  // 睡醒、网络刚恢复时网络环境常常变了：隔 3 秒再测一次
+  powerMonitor.on('resume', () => setTimeout(() => void probeCloudRoutes(), 3_000).unref?.())
 }
 
 /** 能否安全加密落盘：Linux 上没有密钥环时 Electron 会退回固定密钥的 basic_text，等同明文 */
@@ -1077,6 +1139,7 @@ async function logout(): Promise<void> {
 export function initAccount(): void {
   if (initialized) return
   initialized = true
+  initCloudRoute()
 
   // 只响应应用自己的页面；其他来源一律当作未登录 / 忽略
   const ignore = { onUntrusted: () => undefined }

@@ -19,6 +19,8 @@ export interface AppInfo {
   arch: string
   /** 账号认证服务地址 */
   authUrl: string
+  /** 云端走哪条路（docs/network-direct.md）：cdn / direct；有环境变量覆盖时 null。probe 是最近一次测速，ms 为 null 是不通 */
+  cloudRoute: { route: 'cdn' | 'direct' | null; probe: { id: 'cdn' | 'direct'; ms: number | null }[] }
   /** 本地数据目录（设置、登录信息） */
   dataDir: string
   /** 代码仓库地址 */

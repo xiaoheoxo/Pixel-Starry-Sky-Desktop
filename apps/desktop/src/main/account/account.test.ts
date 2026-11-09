@@ -22,6 +22,7 @@ vi.mock('electron', () => ({
     on: () => undefined,
   },
   BrowserWindow: { getAllWindows: () => mocks.windows },
+  powerMonitor: { on: () => undefined },
   net: {
     fetch: async (url: string) => {
       mocks.netCalls.push(url)
