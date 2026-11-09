@@ -122,6 +122,12 @@ export function platformPixelApi(groupId: string, model: string | null): PixelAp
 /** 最近读到的分组模型：DeepSeek 这类没有 Claude 模型的线路，启动 Claude Code 时把默认模型指向它们 */
 const groupModels = new Map<string, string[]>()
 
+/**
+ * 这些平台分组的请求用 1 小时缓存（Claude Code 的 ENABLE_PROMPT_CACHING_1H、像素星空引擎 Pi 的 PI_CACHE_RETENTION=long）：
+ * 71 = Claude Kiro[正价]（×0.35）。shortcut: 写死分组 id，要多条线路可选时改成云端分组目录里的字段
+ */
+export const LONG_CACHE_GROUPS: ReadonlySet<string> = new Set(['71'])
+
 /** 线路当前扣费的 Key（docs/ui/platform-key-mode.md）：旧云端没有、格式不对都当作没有 */
 export function groupKey(value: unknown): PlatformGroupKey | null {
   if (!value || typeof value !== 'object') return null
@@ -535,14 +541,17 @@ export async function initPlatform(
       const api = record.platform
         ? platformPixelApi(record.platform.groupId, record.model)
         : pixelApi({ protocol: provider?.protocol, model: record.model })
-      return pixelGatewayEnv({
-        port: address.port,
-        secret: entry.secret,
-        api,
-        models: provider?.models,
-        model: record.model ?? null,
-        upstreamBaseUrl: provider?.baseUrl ?? null,
-      })
+      return {
+        ...pixelGatewayEnv({
+          port: address.port,
+          secret: entry.secret,
+          api,
+          models: provider?.models,
+          model: record.model ?? null,
+          upstreamBaseUrl: provider?.baseUrl ?? null,
+        }),
+        ...(record.platform && LONG_CACHE_GROUPS.has(record.platform.groupId) ? { PI_CACHE_RETENTION: 'long' } : {}),
+      }
     }
     const env: Record<string, string> = {
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${address.port}`,
@@ -553,6 +562,7 @@ export async function initPlatform(
       CLAUDE_CODE_USE_VERTEX: '0',
       CLAUDE_CODE_USE_FOUNDRY: '0',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      ...(record.platform && LONG_CACHE_GROUPS.has(record.platform.groupId) ? { ENABLE_PROMPT_CACHING_1H: '1' } : {}),
     }
     // 自定义 API：Claude Code 的默认模型、sonnet / opus 别名和后台小模型都指向这个接口里的模型，
     // 免得它去请求接口里没有的官方模型名（网关另有兜底，docs/ui/custom-api.md §4.1）

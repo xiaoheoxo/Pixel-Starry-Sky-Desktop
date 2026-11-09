@@ -13,6 +13,13 @@ afterEach(() => {
   root = undefined
 })
 
+describe('1 小时缓存的分组', () => {
+  it('只有 Claude Kiro[正价]（71）开', async () => {
+    const { LONG_CACHE_GROUPS } = await import('./platform')
+    expect([...LONG_CACHE_GROUPS]).toEqual(['71'])
+  })
+})
+
 describe('clearGatewaySettings', () => {
   it('只删网关起名的设置文件，别的文件和目录不动；目录不存在不报错', () => {
     const scratch = resolve('../../scratch')
