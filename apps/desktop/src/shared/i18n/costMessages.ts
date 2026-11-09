@@ -13,8 +13,8 @@ export const costMessages = {
   'usageColumns.hitRate': { zh: '命中率 {p0}', en: 'Hit rate {p0}' },
   'usageColumns.speed': { zh: '速度', en: 'Speed' },
   'usageColumns.speedHelp': {
-    zh: '每秒输出多少 token，不含等待和跑工具的时间；输出少于 100 token 不算',
-    en: 'Output tokens per second, excluding waiting and tool time. Not shown under 100 output tokens',
+    zh: '每秒输出多少 token，不含等待和跑工具的时间；输出少于 100 token 不算。首字几乎和结束同时到（思考不可见、上游整段返回）时量不了，显示「—」',
+    en: 'Output tokens per second, excluding waiting and tool time. Not shown under 100 output tokens, or when the first token arrives almost at the end (hidden thinking or a buffered upstream)',
   },
   'usageColumns.speedHelpLocal': {
     zh: '每秒输出多少 token，不含等待和跑工具的时间；输出少于 100 token 不算。这个版本之前的记录、量不准的引擎显示「—」',

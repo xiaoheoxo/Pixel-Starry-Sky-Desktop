@@ -14,6 +14,8 @@ export const REPLY_STAT_KEYS = [
   'cacheWrite',
   'cacheHitRate',
   'requests',
+  'speed',
+  'firstToken',
 ] as const
 export type ReplyStatKey = (typeof REPLY_STAT_KEYS)[number]
 export const REPLY_STAT_LABELS: Record<ReplyStatKey, string> = {
@@ -50,6 +52,12 @@ export const REPLY_STAT_LABELS: Record<ReplyStatKey, string> = {
   get requests() {
     return tr('settings.replyStats.modelRequestCount')
   },
+  get speed() {
+    return tr('usageColumns.speed')
+  },
+  get firstToken() {
+    return tr('settings.usage.RemoteCallsTable.firstToken')
+  },
 }
 
 /** 默认只显示用时，鼠标停上去看全部明细（docs/ui/conversation-concise.md §3 D） */
@@ -71,7 +79,7 @@ export const REPLY_STAT_GROUPS: readonly { label: string; keys: readonly ReplySt
     get label() {
       return tr('settings.replyStats.requestStatistics')
     },
-    keys: ['requests'],
+    keys: ['requests', 'speed', 'firstToken'],
   },
 ]
 

@@ -1,7 +1,8 @@
 import { tr } from '../../i18n/core'
 import type { ModelTurnUsage, TurnUsage } from '@pixelsky/protocol'
 import type { ReplyStatKey } from '../settings/replyStats'
-import { actualMoney, formatCost, formatDuration, formatTokens } from '../usage/format'
+import { outputSpeed } from '@pixelsky/protocol'
+import { actualMoney, formatCost, formatDuration, formatFirstToken, formatTokens } from '../usage/format'
 
 interface StatPart {
   key: ReplyStatKey
@@ -131,6 +132,29 @@ export function replyStatParts(usage: TurnUsage): { parts: StatPart[]; detail: s
       text: tr('session.turnStatsData.requests', { p0: requests }),
       get title() {
         return tr('session.turnStatsData.sumOfRequestCounts')
+      },
+    })
+  // 速度：各模型量到的输出合计 ÷ 生成时间合计（不含等首字和跑工具）；首字只记在第一个请求的模型上
+  const timed = entries.filter(([, m]) => known(m.genMs) && known(m.genOutput))
+  const speed = outputSpeed({
+    genMs: timed.reduce((a, [, m]) => a + m.genMs!, 0),
+    genOutput: timed.reduce((a, [, m]) => a + m.genOutput!, 0),
+  })
+  if (speed !== null)
+    parts.push({
+      key: 'speed',
+      text: `${Math.round(speed)} tok/s`,
+      get title() {
+        return tr('usageColumns.speedHelpLocal')
+      },
+    })
+  const firsts = entries.map(([, m]) => m.firstTokenMs).filter(known)
+  if (firsts.length)
+    parts.push({
+      key: 'firstToken',
+      text: `${tr('settings.usage.RemoteCallsTable.firstToken')} ${formatFirstToken(Math.min(...firsts))}`,
+      get title() {
+        return tr('usageColumns.firstTokenHelpLocal')
       },
     })
   return { parts, detail }

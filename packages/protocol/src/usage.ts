@@ -193,6 +193,8 @@ export function mergeTotals(t: UsageTotals, s: UsageTotals): void {
 
 /** 单条输出少于这么多 token 时不算速度：太短算出来不准 */
 export const SPEED_MIN_OUTPUT = 100
+/** 生成时间短过这个不算：整段缓冲后一次到的响应，算出来的速度没有意义 */
+export const SPEED_MIN_GEN_MS = 200
 
 /** 每秒输出多少 token；没有量到时为 null */
 export function outputSpeed(t: { genMs?: number; genOutput?: number }): number | null {

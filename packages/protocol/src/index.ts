@@ -228,6 +228,7 @@ export {
   SESSION_ROWS_MAX,
   COST_STATES,
   HEATMAP_WEEKS,
+  SPEED_MIN_GEN_MS,
   averageFirstToken,
   cacheHitRate,
   costState,

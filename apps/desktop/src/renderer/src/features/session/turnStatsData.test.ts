@@ -59,4 +59,26 @@ describe('每轮回复统计', () => {
     expect(values(unknown)).not.toHaveProperty('cost')
     expect(replyStatParts({ durationMs: 1000, models: {} }).parts).toEqual([])
   })
+  it('速度按量到的输出合计 ÷ 生成时间合计；输出太少、没量到不显示；首字取最早的', () => {
+    const timed: TurnUsage = {
+      durationMs: 60_000,
+      models: {
+        a: {
+          input: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          output: 300,
+          costUsd: null,
+          genMs: 2_000,
+          genOutput: 300,
+          firstTokenMs: 1_500,
+        },
+        b: { input: 1, cacheRead: 0, cacheWrite: 0, output: 900, costUsd: null, genMs: 4_000, genOutput: 300 },
+        c: { input: 1, cacheRead: 0, cacheWrite: 0, output: 50, costUsd: null },
+      },
+    }
+    expect(values(timed)).toMatchObject({ speed: '100 tok/s', firstToken: '首字 1.5s' })
+    expect(values(usage).speed).toBeUndefined()
+    expect(values(usage).firstToken).toBeUndefined()
+  })
 })

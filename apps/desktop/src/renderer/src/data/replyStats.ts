@@ -4,6 +4,16 @@ import type { TurnUsage } from '@pixelsky/protocol'
 export const replyStatsPreview: TurnUsage = {
   durationMs: 10_000,
   models: {
-    'claude-opus-5-5': { input: 1800, cacheRead: 37_000, cacheWrite: 1200, output: 318, costUsd: 0.19, requests: 3 },
+    'claude-opus-5-5': {
+      input: 1800,
+      cacheRead: 37_000,
+      cacheWrite: 1200,
+      output: 318,
+      costUsd: 0.19,
+      requests: 3,
+      genMs: 3_700,
+      genOutput: 318,
+      firstTokenMs: 1_200,
+    },
   },
 }

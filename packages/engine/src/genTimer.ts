@@ -1,9 +1,6 @@
 // Token 速度和首字（docs/ui/usage-learn.md §1.1）：只量模型真正在输出的时间，不含等待和跑工具。
 // 一轮里可能有很多次请求，每次请求一段；同一个模型的累加起来。
-import type { ModelTurnUsage } from '@pixelsky/protocol'
-
-/** 短过这个的不算：整段缓冲后一次到的响应，算出来的速度没有意义 */
-const MIN_SPAN_MS = 200
+import { SPEED_MIN_GEN_MS, type ModelTurnUsage } from '@pixelsky/protocol'
 
 const baseModel = (model: string): string => model.replace(/\[[^\]]*\]$/, '')
 
@@ -58,7 +55,7 @@ export class GenTimer {
     this.open = null
     if (!span || span.output <= 0 || !span.model) return
     const ms = span.lastAt - span.startedAt
-    if (ms < MIN_SPAN_MS) return
+    if (ms < SPEED_MIN_GEN_MS) return
     const sum = this.spans.get(span.model) ?? { ms: 0, output: 0 }
     sum.ms += ms
     sum.output += span.output

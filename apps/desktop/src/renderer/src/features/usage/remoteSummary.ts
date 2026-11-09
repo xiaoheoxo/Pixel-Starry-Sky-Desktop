@@ -1,6 +1,6 @@
 // 账号调用的合计换成本机记录同样的 UsageSummary（docs/ui/usage.md §9.4），卡片、图表、分布表直接复用。
 // 账号调用没有「轮次」：每次请求算一条记录、一轮；金额都是实扣，所以 costKnown = costActual = 请求数。
-import type { RemoteCall, RemoteUsageStat, RemoteUsageSummary } from '@pixelsky/protocol'
+import { SPEED_MIN_GEN_MS, type RemoteCall, type RemoteUsageStat, type RemoteUsageSummary } from '@pixelsky/protocol'
 import { emptyTotals, heatmapDays, mergeTotals, outputSpeed, rangeWindow, summarize, totalTokens } from './aggregate'
 import type { UsageBucket, UsageGroupRow, UsageRangeId, UsageSummary, UsageTotals } from './types'
 
@@ -49,11 +49,14 @@ export function remoteDays(remote: RemoteUsageSummary, now: number): UsageBucket
   )
 }
 
-/** 一次调用的输出时间：从首字到结束；非流式、没有首字、失败的量不了 */
+/** 首字晚于耗时的这个比例：输出大多在首字前就生成了（思考不可见、上游整段返回），首字后的时间不代表生成时间 */
+const LATE_FIRST_TOKEN = 0.8
+
+/** 一次调用的输出时间：从首字到结束；非流式、没有首字、失败的，以及首字后太短的量不了（docs/ui/usage-learn.md §7） */
 function callGenMs(c: RemoteCall): number | null {
   if (!c.stream || c.status !== 'success' || c.firstTokenMs === null) return null
   const ms = c.durationMs - c.firstTokenMs
-  return ms > 0 ? ms : null
+  return ms >= SPEED_MIN_GEN_MS && c.firstTokenMs <= c.durationMs * LATE_FIRST_TOKEN ? ms : null
 }
 
 /** 一次调用的速度；输出太少时没有 */

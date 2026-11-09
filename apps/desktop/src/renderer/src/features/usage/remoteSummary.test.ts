@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RemoteCall, RemoteUsageSummary } from '@pixelsky/protocol'
 import { formatTotalCost } from './format'
-import { summarizeCalls, toUsageSummary } from './remoteSummary'
+import { callSpeed, callTiming, summarizeCalls, toUsageSummary } from './remoteSummary'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -102,5 +102,36 @@ describe('account usage summary', () => {
       ['b', 1],
     ])
     expect(summarizeCalls(calls, '7d', 'b', now).total.requests).toBe(1)
+  })
+})
+
+describe('账号调用的速度（docs/ui/usage-learn.md §7）', () => {
+  const call = (output: number, firstTokenMs: number | null, durationMs: number): RemoteCall => ({
+    id: '1',
+    createdAt: 0,
+    model: 'm',
+    client: 'pixelsky-desktop',
+    device: null,
+    keyName: null,
+    stream: true,
+    status: 'success',
+    httpStatus: 200,
+    input: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    output,
+    costUsd: null,
+    firstTokenMs,
+    durationMs,
+    turnId: null,
+  })
+  it('正常流式：输出 ÷（耗时 − 首字）', () => {
+    expect(callSpeed(call(1436, 862, 17_207))).toBeCloseTo(87.9, 1)
+  })
+  it('首字后只剩几毫秒、首字晚于耗时 80%：量不了，也不进合计', () => {
+    expect(callSpeed(call(1641, 21_055, 21_064))).toBeNull()
+    expect(callSpeed(call(2386, 29_270, 35_605))).toBeNull()
+    const t = callTiming([call(1641, 21_055, 21_064), call(1436, 862, 17_207)])
+    expect(t.total).toMatchObject({ genMs: 16_345, genOutput: 1436 })
   })
 })
