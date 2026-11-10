@@ -1,10 +1,19 @@
 export const sidebarMessages = {
   'sidebar.layout.title': { zh: '图标位置', en: 'Icon positions' },
   'sidebar.layout.description': {
-    zh: '拖动下方图标调整左右顺序，或在右上角顶栏、侧栏底部和「不显示」之间移动。松开后立即生效。Git 默认不显示，需要时仍可在输入框上方、右侧面板和命令面板里用。',
-    en: 'Drag icons to reorder them or move them between the top bar, the sidebar bottom and Hidden. Drop to apply. Git is hidden by default; it is still available above the composer, in the right panel and in the command palette.',
+    zh: '拖动下方图标调整左右顺序，或在右上角顶栏、侧栏底部和「不显示」之间移动。松开后立即生效；右键图标可以换样式（侧栏顶部一排，以及设置、插件配置、用量）。Git 默认不显示，需要时仍可在输入框上方、右侧面板和命令面板里用。',
+    en: 'Drag icons to reorder them or move them between the top bar, the sidebar bottom and Hidden. Drop to apply. Right-click an icon to change its style (the sidebar top row, plus Settings, Plugins and Usage). Git is hidden by default; it is still available above the composer, in the right panel and in the command palette.',
   },
   'sidebar.layout.preview': { zh: '调整顶栏和侧边栏图标位置', en: 'Arrange top bar and sidebar icons' },
+  'sidebar.layout.top': { zh: '侧栏顶部（位置固定）', en: 'Sidebar top (fixed)' },
+  'sidebar.layout.fixedIcon': {
+    zh: '「{action}」位置固定，点击或右键换图标',
+    en: '{action} stays here. Click or right-click to change its icon',
+  },
+  'sidebar.layout.dragIcon': {
+    zh: '拖动调整「{action}」的位置，右键换图标',
+    en: 'Drag to move {action}, right-click to change its icon',
+  },
   'sidebar.layout.header': { zh: '右上角顶栏', en: 'Top bar' },
   'sidebar.layout.bottom': { zh: '侧栏底部', en: 'Sidebar bottom' },
   'sidebar.layout.hidden': { zh: '不显示', en: 'Hidden' },
@@ -71,13 +80,7 @@ export const sidebarMessages = {
     zh: '在侧边栏显示最近任务（来自两个以上项目时才显示，否则和项目列表重复）；关闭后仍可通过搜索找到会话。',
     en: 'Show recent tasks in the sidebar (only when they come from more than one project; otherwise they repeat the project list). Sessions remain available in search when hidden.',
   },
-  'sidebar.settings.icons': { zh: '侧边栏图标', en: 'Sidebar icons' },
-  'sidebar.settings.iconsDescription': {
-    zh: '选择常用按钮的图标，立即应用并保存在本机。',
-    en: 'Choose icons for sidebar actions. Changes apply immediately and are saved on this device.',
-  },
   'sidebar.settings.reset': { zh: '恢复默认图标', en: 'Reset icons to defaults' },
-  'sidebar.settings.chooseIcon': { zh: '{action}：{icon}', en: '{action}: {icon}' },
   'sidebar.icon.square-pen': { zh: '方框铅笔', en: 'Square pen' },
   'sidebar.icon.pen-line': { zh: '铅笔', en: 'Pen' },
   'sidebar.icon.plus': { zh: '加号', en: 'Plus' },

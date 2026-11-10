@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState, type PointerEvent, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Monitor, PanelRight, RotateCcw, UserRound } from 'lucide-react'
-import { Button, IconButton, cn } from '@/ui'
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Check,
+  Monitor,
+  PanelRight,
+  RotateCcw,
+  UserRound,
+} from 'lucide-react'
+import { Button, IconButton, Popover, PopoverItem, cn } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import {
@@ -9,15 +19,28 @@ import {
   LAYOUT_PLACEMENTS,
   canPlace,
   moveSidebarActionInLayout,
+  resetSidebarIcons,
   resetSidebarLayout,
   rowLimit,
+  setSidebarIcon,
   setSidebarLayout,
   useSidebarPrefs,
   type LayoutAction,
   type SidebarLayout,
   type SidebarPlacement,
 } from '@/features/appearance/sidebar'
-import { getLayoutIcon } from '@/features/appearance/sidebarIcons'
+import {
+  DEFAULT_SIDEBAR_ICONS,
+  SIDEBAR_ACTIONS,
+  SIDEBAR_ICON_OPTIONS,
+  getLayoutIcon,
+  getSidebarIcon,
+  isFooterAction,
+  type SidebarAction,
+} from '@/features/appearance/sidebarIcons'
+
+/** 侧栏顶部的入口：位置固定，只能换图标 */
+const TOP_ACTIONS = ['newTask', 'search', 'board', 'channels', 'addProject'] as const satisfies readonly SidebarAction[]
 
 /** full：落点放不下（底部排满，或设置不能进「不显示」） */
 type Drop = { row: SidebarPlacement; index: number; x: number; y: number; height: number; full: boolean }
@@ -36,8 +59,6 @@ const rowOf = (layout: SidebarLayout, action: LayoutAction): SidebarPlacement =>
 const neighbour = (row: SidebarPlacement, step: -1 | 1): SidebarPlacement | undefined =>
   LAYOUT_PLACEMENTS[LAYOUT_PLACEMENTS.indexOf(row) + step]
 
-/** 顶栏 / 侧栏底部 / 不显示三排的布局编辑；只在松开有效落点时提交，预览按钮不会执行真实动作。 */
-
 /** 落点放不下时的提示：设置不能隐藏，其余是这一排满了 */
 function refusal(row: SidebarPlacement, action: LayoutAction): string {
   return row === 'hidden' && action === 'settings'
@@ -45,6 +66,8 @@ function refusal(row: SidebarPlacement, action: LayoutAction): string {
     : tr('sidebar.layout.full', { row: tr(`sidebar.layout.${row}`), n: rowLimit(row) })
 }
 
+/** 顶栏 / 侧栏底部 / 不显示三排的布局编辑；只在松开有效落点时提交，预览按钮不会执行真实动作。
+ *  能换样式的图标（侧栏顶部一排和设置、插件、用量）右键换图标；键盘用菜单键或 Shift+F10。 */
 export function SidebarLayoutEditor() {
   useI18n()
   const prefs = useSidebarPrefs()
@@ -54,6 +77,25 @@ export function SidebarLayoutEditor() {
   const [selected, setSelected] = useState<LayoutAction>('settings')
   const [drag, setDrag] = useState<{ action: LayoutAction; x: number; y: number; drop: Drop | null } | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  const [iconMenu, setIconMenu] = useState<SidebarAction | null>(null)
+  const menuAnchor = useRef<HTMLElement | null>(null)
+  const iconsDefault = SIDEBAR_ACTIONS.every(a => prefs.icons[a] === DEFAULT_SIDEBAR_ICONS[a])
+  // Esc 只关菜单，不连设置一起关（和 FontPicker 一样在捕获阶段拦）
+  useEffect(() => {
+    if (!iconMenu) return
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return
+      e.stopPropagation()
+      setIconMenu(null)
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [iconMenu])
+  function openIconMenu(event: MouseEvent<HTMLElement>, action: SidebarAction) {
+    event.preventDefault()
+    menuAnchor.current = event.currentTarget
+    setIconMenu(action)
+  }
   const row = rowOf(prefs.layout, selected)
   const index = prefs.layout[row].indexOf(selected)
   const prev = neighbour(row, -1),
@@ -193,6 +235,28 @@ export function SidebarLayoutEditor() {
         role="group"
         aria-label={tr('sidebar.layout.preview')}
       >
+        <div>
+          <div className="px-1 text-meta text-fg-muted">{tr('sidebar.layout.top')}</div>
+          <div className="flex min-h-12 items-center gap-1 px-1">
+            {TOP_ACTIONS.map(action => {
+              const Icon = getSidebarIcon(action, prefs.icons)
+              return (
+                <button
+                  type="button"
+                  key={action}
+                  aria-label={tr(`sidebar.action.${action}`)}
+                  aria-haspopup="menu"
+                  title={tr('sidebar.layout.fixedIcon', { action: tr(`sidebar.action.${action}`) })}
+                  onClick={event => openIconMenu(event, action)}
+                  onContextMenu={event => openIconMenu(event, action)}
+                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-fg-faint hover:bg-hover hover:text-fg-muted"
+                >
+                  <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
+                </button>
+              )
+            })}
+          </div>
+        </div>
         {LAYOUT_PLACEMENTS.map(placement => (
           <div key={placement}>
             <div className="px-1 text-meta text-fg-muted">{tr(`sidebar.layout.${placement}`)}</div>
@@ -238,7 +302,10 @@ export function SidebarLayoutEditor() {
                       data-layout-action={action}
                       aria-label={tr(`sidebar.action.${action}`)}
                       aria-pressed={selected === action}
-                      title={tr('sidebar.layout.drag', { action: tr(`sidebar.action.${action}`) })}
+                      title={tr(isFooterAction(action) ? 'sidebar.layout.dragIcon' : 'sidebar.layout.drag', {
+                        action: tr(`sidebar.action.${action}`),
+                      })}
+                      onContextMenu={isFooterAction(action) ? event => openIconMenu(event, action) : undefined}
                       onFocus={() => setSelected(action)}
                       onClick={() => {
                         if (suppressClick.current) {
@@ -324,6 +391,50 @@ export function SidebarLayoutEditor() {
       >
         {tr('sidebar.layout.reset')}
       </Button>
+      <Button variant="ghost" icon={RotateCcw} className="mt-2" disabled={iconsDefault} onClick={resetSidebarIcons}>
+        {tr('sidebar.settings.reset')}
+      </Button>
+      <Popover
+        open={!!iconMenu}
+        onClose={() => setIconMenu(null)}
+        anchor={menuAnchor}
+        role="menu"
+        aria-label={iconMenu ? tr(`sidebar.action.${iconMenu}`) : undefined}
+      >
+        {iconMenu && (
+          <div
+            ref={el => el?.querySelector<HTMLElement>('[aria-checked=true]')?.focus()}
+            onKeyDown={e => {
+              if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+              e.preventDefault()
+              const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-menu-item]')]
+              const i = items.indexOf(document.activeElement as HTMLElement)
+              items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+            }}
+          >
+            {SIDEBAR_ICON_OPTIONS[iconMenu].map(id => {
+              const Icon = getSidebarIcon(iconMenu, { ...prefs.icons, [iconMenu]: id })
+              const checked = prefs.icons[iconMenu] === id
+              return (
+                <PopoverItem
+                  key={id}
+                  role="menuitemradio"
+                  checked={checked}
+                  selected={checked}
+                  icon={<Icon size={16} strokeWidth={1.5} aria-hidden="true" className="shrink-0 text-fg-muted" />}
+                  hint={checked ? <Check size={14} aria-hidden="true" className="text-accent" /> : undefined}
+                  onClick={() => {
+                    setSidebarIcon(iconMenu, id)
+                    setIconMenu(null)
+                  }}
+                >
+                  {tr(`sidebar.icon.${id}`)}
+                </PopoverItem>
+              )
+            })}
+          </div>
+        )}
+      </Popover>
       <span className="sr-only" role="status" aria-live="polite">
         {announcement}
       </span>

@@ -688,9 +688,7 @@ describe('侧边栏外观偏好', () => {
         expect(searchSettings(query, s => s).some(e => e.section === 'appearance' && e.title === '图标位置')).toBe(true)
       }
       for (const query of ['图标', '自定义', '替换', 'icons', 'customize', 'reset']) {
-        expect(searchSettings(query, s => s).some(e => e.section === 'appearance' && e.title === '侧边栏图标')).toBe(
-          true,
-        )
+        expect(searchSettings(query, s => s).some(e => e.section === 'appearance' && e.title === '图标位置')).toBe(true)
       }
     }
   })
