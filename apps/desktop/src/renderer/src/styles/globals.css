@@ -1044,6 +1044,18 @@
 :root[data-wallpaper] .bg-surface {
   backdrop-filter: blur(18px) saturate(1.15);
 }
+/* 终端（docs/ui/settings.md §6「终端」）：容器半透明加模糊，xterm 的视口改透明。--terminal-bg 本身不动，
+   xterm 的主题要实色（它不认 color-mix，半透明会报错），反色文字也按它算 */
+:root:is([data-wallpaper], [data-glass]) .bg-terminal {
+  background-color: color-mix(in srgb, var(--terminal-bg) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+:root[data-glass] .bg-terminal {
+  background-color: color-mix(in srgb, var(--terminal-bg) var(--glass-code), transparent);
+}
+:root:is([data-wallpaper], [data-glass]) .terminal-xterm .xterm-viewport {
+  background: transparent !important;
+}
 
 /* ---------- 毛玻璃（docs/ui/glass-effect.md）：变量在 tokens.css ---------- */
 :root[data-glass] :is(main, [data-coding-center]) {
