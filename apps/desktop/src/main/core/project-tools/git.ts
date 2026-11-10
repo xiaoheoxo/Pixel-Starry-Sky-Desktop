@@ -26,6 +26,7 @@ import type {
   GitPullMode,
   GitRefs,
   GitResult,
+  GitSquashResult,
   GitFileChange,
   GitStatus,
 } from '../../../shared/types/project-tools'
@@ -224,6 +225,16 @@ class GitError extends Error {
   }
 }
 
+/** 退出码不对（或超时、没装 git）的一次运行 → 分类后的失败 */
+const runFailure = (run: GitRun, action: GitAction): GitError =>
+  new GitError(
+    classifyGitError(run.stderr || text(run.stdout), { action, timedOut: run.timedOut, missing: run.missing }),
+  )
+
+/** merge 拒绝覆盖没跟踪的文件时 git 列出的文件（每行一个，以 Tab 开头） */
+const UNTRACKED_BLOCKING =
+  /untracked working tree files would be (?:overwritten|removed) by merge:\n((?:\t.*(?:\n|$))+)/
+
 interface Repo {
   root: string
   prefix: string
@@ -386,10 +397,7 @@ export class GitTools {
     input?: string,
   ): Promise<string> {
     const run = await runGit(repo.root, args, { timeout: this.timeout(kind), input })
-    if (run.code !== 0 || run.timedOut)
-      throw new GitError(
-        classifyGitError(run.stderr || text(run.stdout), { action, timedOut: run.timedOut, missing: run.missing }),
-      )
+    if (run.code !== 0 || run.timedOut) throw runFailure(run, action)
     return text(run.stdout)
   }
 
@@ -1403,6 +1411,76 @@ export class GitTools {
     await this.exec(repo, 'create', ['check-ref-format', '--branch', name], 'read').catch(() => {
       throw new GitError({ kind: 'invalid', action: 'create', detail: '分支名不符合 Git 规则', remedies: [] })
     })
+  }
+
+  /**
+   * 把分支压成一个提交合并进当前分支（频道任务卡，docs/ui/channels-local-rest.md §3.1）。
+   * 先用 merge-tree 预判冲突（不碰工作区）；主目录有已跟踪的改动时拒绝；提交失败撤回
+   */
+  async squashMerge(ref: WorkspaceRef, input: { branch: string; message: string }): Promise<GitSquashResult> {
+    const branch = value(input.branch, 300)
+    const message = value(input.message, 20_000, true)
+    const fail = (kind: GitFailure['kind'], detail = '', files?: string[]): GitError =>
+      new GitError({ kind, action: 'merge', detail, remedies: [], ...(files ? { files } : {}) })
+    let commit = '',
+      merged = false
+    const result = await this.mutate(
+      ref,
+      'merge',
+      async (repo, status) => {
+        const [major = 0, minor = 0] = await this.version()
+        if (major < 2 || (major === 2 && minor < 38))
+          throw fail('invalid', '合并需要 Git 2.38 或更新的版本，请先升级 Git')
+        if (branch.startsWith('-')) throw fail('invalid', '分支名不正确')
+        if (status.operation) throw fail('unmerged')
+        if (status.staged.length || status.unstaged.length) throw fail('dirty')
+        const pre = await runGit(
+          repo.root,
+          ['merge-tree', '--write-tree', '--name-only', '--no-messages', 'HEAD', branch],
+          {
+            timeout: this.timeout('commit'),
+          },
+        )
+        const lines = text(pre.stdout).split(/\r?\n/).filter(Boolean)
+        if (pre.code === 1) throw fail('conflict', '', [...new Set(lines.slice(1))])
+        if (pre.code !== 0 || pre.timedOut) throw runFailure(pre, 'merge')
+        const head = (await this.exec(repo, 'merge', ['rev-parse', 'HEAD', 'HEAD^{tree}'], 'read')).split(/\r?\n/)
+        // 分支的改动主目录里都有了：不再提交
+        if (lines[0] === head[1]?.trim()) {
+          commit = head[0].trim()
+          return
+        }
+        // --ff：用户配了 merge.ff=false 时 git 拒绝 --squash
+        const squash = await runGit(repo.root, ['merge', '--squash', '--ff', '--no-progress', branch], {
+          timeout: this.timeout('commit'),
+        })
+        if (squash.code !== 0 || squash.timedOut) {
+          await runGit(repo.root, ['reset', '--merge'], { timeout: this.timeout('commit') })
+          const blocking = UNTRACKED_BLOCKING.exec(squash.stderr)
+          if (blocking)
+            throw fail(
+              'dirty',
+              squash.stderr,
+              blocking[1]
+                .split(/\r?\n/)
+                .map(l => l.trim())
+                .filter(Boolean),
+            )
+          throw runFailure(squash, 'merge')
+        }
+        try {
+          await this.exec(repo, 'merge', ['commit', '-q', '-F', '-'], 'commit', message)
+        } catch (error) {
+          await runGit(repo.root, ['reset', '--merge'], { timeout: this.timeout('commit') })
+          await this.hookFailure(repo, error, ['pre-commit', 'prepare-commit-msg', 'commit-msg'])
+        }
+        commit = (await this.exec(repo, 'merge', ['rev-parse', 'HEAD'], 'read')).trim()
+        merged = true
+      },
+      // 合并会改主目录的文件：主目录里有会话在跑时不动
+      true,
+    )
+    return result.ok ? { ...result, commit, merged } : result
   }
 
   operation(ref: WorkspaceRef, action: unknown): Promise<GitResult> {

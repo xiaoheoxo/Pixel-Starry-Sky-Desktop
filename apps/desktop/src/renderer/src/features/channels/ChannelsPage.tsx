@@ -18,6 +18,9 @@ import { ChannelsEmpty } from './ChannelsEmpty'
 import { ThreadPanel } from './ThreadPanel'
 import { NeedsView } from './NeedsView'
 import { myRole } from './teamModel'
+import { ChannelDialog } from './ChannelDialogs'
+import { pinTarget, SLASH_IDS, type SlashId } from './slash'
+import { useAppMode } from '@/features/coding/mode'
 
 const MEMBERS_WIDTH = 300
 /** 讨论串面板宽一些：放得下任务卡和输入框 */
@@ -72,6 +75,8 @@ export function ChannelsPage({
 }) {
   useI18n()
   const composer = useRef<HTMLTextAreaElement>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const appMode = useAppMode()
   const channels = useChannels(s => s.channels)
   const members = useChannels(s => s.members)
   const messageMap = useChannels(s => s.messages)
@@ -161,6 +166,25 @@ export function ChannelsPage({
     channelActions.openThread(channel.id, null)
     composer.current?.focus()
   }
+  // 斜杠命令（docs/ui/channels-local-rest.md §3.3 a）：只给本机频道的主输入框
+  const lead = channel.lead ? channelMembers.find(m => m.id === channel.lead) : undefined
+  // 代码模式里频道页没有成员面板：不列 /成员
+  const slashAvailable = SLASH_IDS.filter(id => (id !== 'digest' || !!lead) && (id !== 'members' || appMode !== 'code'))
+  const runSlash = async (id: SlashId, arg: string): Promise<void> => {
+    if (id === 'flow')
+      await channelActions.flow(channel.id, { type: 'create', title: arg || tr('channels.slash.flowTitle') })
+    else if (id === 'archive') await channelActions.updateChannel(channel.id, { archived: true })
+    else if (id === 'pin') {
+      const target = pinTarget(messages, replyTo)
+      if (!target) throw new Error(tr('channels.slash.nothingToPin'))
+      if (channel.pinned?.includes(target)) throw new Error(tr('channels.slash.pinned'))
+      await channelActions.pin(channel.id, target, true)
+    } else if (id === 'notify') setSettingsOpen(true)
+    else if (id === 'members') {
+      if (!membersShown) onToggleMembers()
+    } else if (id === 'digest' && lead)
+      await channelActions.send(channel.id, tr('channels.slash.digestRequest', { name: lead.name }))
+  }
   const closeMembers = () => {
     onToggleMembers()
     composer.current?.focus()
@@ -207,6 +231,7 @@ export function ChannelsPage({
                 onSend={(text, extra) => channelActions.send(channel.id, text, extra)}
                 onCancelReply={() => channelActions.setReplyTo(channel.id, null)}
                 inputRef={composer}
+                slash={channel.scope === 'local' ? { available: slashAvailable, run: runSlash } : undefined}
               />
             </>
           )}
@@ -240,6 +265,7 @@ export function ChannelsPage({
           />
         )}
       </CollapsibleSlot>
+      {settingsOpen && <ChannelDialog channel={channel} agents={[]} onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

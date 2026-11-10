@@ -235,6 +235,15 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   },
   { section: 'models', title: '平台', keywords: '线路 分组 倍率 余额计费 订阅额度 刷新' },
   {
+    section: 'agents',
+    get title() {
+      return tr('agentsSettings.title')
+    },
+    get keywords() {
+      return tr('agentsSettings.searchKeywords')
+    },
+  },
+  {
     section: 'subagents',
     get title() {
       return tr('subagentRoute.types')

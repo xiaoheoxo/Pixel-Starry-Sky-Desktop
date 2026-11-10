@@ -32,6 +32,22 @@ export function cleanAlertRules(raw: unknown): Partial<ChannelAlertRules> {
   return Object.fromEntries(ALERT_RULES.filter(k => typeof r[k] === 'boolean').map(k => [k, r[k] as boolean]))
 }
 
+/** 审查打回上限（docs/ui/channels-local-rest.md §3.3 d）：默认 3，可以改成 1–10 */
+export const DEFAULT_MAX_REJECTS = 3
+export const MAX_REJECTS_RANGE = [1, 10] as const
+/** 「没进展」提醒可选的分钟数 */
+export const STALLED_CHOICES = [5, 10, 15, 20, 30, 45, 60, 90, 120] as const
+
+export function cleanMaxRejects(raw: unknown): number {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= MAX_REJECTS_RANGE[0] && raw <= MAX_REJECTS_RANGE[1]
+    ? raw
+    : DEFAULT_MAX_REJECTS
+}
+
+export function cleanStalledMinutes(raw: unknown): number {
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 5 && raw <= 120 ? raw : STALLED_MINUTES
+}
+
 export function cleanDigestHour(raw: unknown): number {
   return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 23 ? raw : DIGEST_HOUR
 }

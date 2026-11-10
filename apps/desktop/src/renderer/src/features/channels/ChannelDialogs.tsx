@@ -11,7 +11,7 @@ import { useEngineState, PERMISSION_INFO } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { effortLabel } from '@/features/engine/labels'
 import { effortDefaultsFor } from '@/features/engine/effortDefaults'
-import { useMachines } from '@/features/machines/store'
+import { machineOf, useMachines } from '@/features/machines/store'
 import type { AgentMember, Channel } from '@/data/types'
 import { relayRulesOf, type AgentConfig, type RelayRules } from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
@@ -35,7 +35,14 @@ import {
   type PresetForm,
   type PresetSource,
 } from './presets'
-import { DIGEST_HOUR, alertRulesOf, type ChannelAlertRules } from '../../../../shared/channels/alerts'
+import {
+  DEFAULT_MAX_REJECTS,
+  DIGEST_HOUR,
+  MAX_REJECTS_RANGE,
+  STALLED_MINUTES,
+  alertRulesOf,
+  type ChannelAlertRules,
+} from '../../../../shared/channels/alerts'
 import { MemberTools } from './MemberTools'
 import { AiFilled, MemberQuickFill } from './MemberQuickFill'
 import { PROMPT_CONTEXT_LIMIT, type AiMemberDraft, type MemberDraftField } from '../../../../shared/types/ai'
@@ -215,6 +222,8 @@ export function ChannelDialog({
           notify: channel.notify ?? 'all',
           alerts: alertRulesOf(channel),
           digestHour: channel.digestHour ?? DIGEST_HOUR,
+          maxRejects: channel.maxRejects ?? DEFAULT_MAX_REJECTS,
+          stalledMinutes: channel.stalledMinutes ?? STALLED_MINUTES,
         }
       : formFromPreset(source?.preset ?? null, agents),
   )
@@ -245,9 +254,24 @@ export function ChannelDialog({
   // 主动提醒（docs/ui/channels-collab-v2.md §6）
   const [alerts, setAlerts] = useState<ChannelAlertRules>(base.alerts)
   const [digestHour, setDigestHour] = useState(base.digestHour)
+  const [maxRejects, setMaxRejects] = useState(base.maxRejects)
+  const [stalledMinutes, setStalledMinutes] = useState(base.stalledMinutes)
   // 表单里没有提醒级别（在成员面板改），只有预设会带
   const [notify, setNotify] = useState(base.notify)
-  const form: PresetForm = { notes, members, relay, rules, planFirst, leadRoute, lead, notify, alerts, digestHour }
+  const form: PresetForm = {
+    notes,
+    members,
+    relay,
+    rules,
+    planFirst,
+    leadRoute,
+    lead,
+    notify,
+    alerts,
+    digestHour,
+    maxRejects,
+    stalledMinutes,
+  }
   const changed = !sameForm(form, base)
   const applySource = (next: PresetSource | null): void => {
     const values = formFromPreset(next?.preset ?? null, agents)
@@ -263,6 +287,8 @@ export function ChannelDialog({
     setNotify(values.notify)
     setAlerts(values.alerts)
     setDigestHour(values.digestHour)
+    setMaxRejects(values.maxRejects)
+    setStalledMinutes(values.stalledMinutes)
     setProjectId(projectAfterSwitch(projectId, projectOf(source?.preset), projectOf(next?.preset), openedProject))
     setExpanded(false)
     setCopying(false)
@@ -312,6 +338,8 @@ export function ChannelDialog({
                 relayRules: rules,
                 alerts,
                 digestHour,
+                maxRejects,
+                stalledMinutes,
                 ...(lead !== base.lead ? { lead: lead || null } : {}),
                 ...(planFirst !== base.planFirst ? { planFirst } : {}),
                 ...(leadRoute !== base.leadRoute ? { leadRoute } : {}),
@@ -492,6 +520,22 @@ export function ChannelDialog({
               )}
             </Field>
           )}
+          {!inTeam && showForm && (
+            <Field
+              label={tr('channels.limits.maxRejects')}
+              hint={<span className="text-meta text-fg-muted">{tr('channels.limits.maxRejectsHint')}</span>}
+            >
+              <Select
+                label={tr('channels.limits.maxRejects')}
+                value={String(maxRejects)}
+                options={Array.from({ length: MAX_REJECTS_RANGE[1] - MAX_REJECTS_RANGE[0] + 1 }, (_, i) => {
+                  const n = MAX_REJECTS_RANGE[0] + i
+                  return { value: String(n), label: tr('channels.limits.rejectTimes', { n }) }
+                })}
+                onChange={v => setMaxRejects(Number(v))}
+              />
+            </Field>
+          )}
           {!inTeam && channel && <ScheduleList channelId={channel.id} />}
           {!inTeam && showForm && (
             <AlertRulesEditor
@@ -499,6 +543,8 @@ export function ChannelDialog({
               digestHour={digestHour}
               onChange={setAlerts}
               onDigestHour={setDigestHour}
+              stalledMinutes={stalledMinutes}
+              onStalledMinutes={setStalledMinutes}
             />
           )}
           {inTeam ? (
@@ -646,6 +692,7 @@ export function AgentDialog({
   const firstProject = channel.projectId ?? currentProject ?? projectOptions.find(o => !o.disabled)?.value ?? ''
   const [projectId, setProjectId] = useState(editing?.projectId ?? firstProject)
   const [copyId, setCopyId] = useState<string>(editing?.copyId ?? '')
+  const [copyPerTask, setCopyPerTask] = useState(editing?.copyPerTask === true)
   const [model, setModel] = useState<string>(editing?.settings.model ?? '')
   const [source, setSource] = useState<SourceKey>(sourceKeyOf(editing?.settings))
   // 平台线路：记的是用户选的那条，实际用哪条按模型对齐（resolveRoute）；swap 是换线路时顺手换掉的模型，可以撤销
@@ -842,6 +889,9 @@ export function AgentDialog({
         instructions,
         mode,
         tools,
+        ...(copyPerTask && mode === 'per-task' && !copyId && machineOf(projectId) === 'local'
+          ? { copyPerTask: true }
+          : {}),
       }),
     )
   }
@@ -1141,6 +1191,20 @@ export function AgentDialog({
               />
               <AiFilled field={tr('channels.agent.mode')} reason={ai.mode} />
             </div>
+            {mode === 'per-task' && !copyId && machineOf(projectId) === 'local' && (
+              <label className="flex items-start gap-3">
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-list text-fg">{tr('channels.land.copyPerTask')}</span>
+                  <span className="text-meta text-fg-muted">{tr('channels.land.copyPerTaskHint')}</span>
+                </span>
+                <Switch
+                  size="sm"
+                  checked={copyPerTask}
+                  label={tr('channels.land.copyPerTask')}
+                  onChange={setCopyPerTask}
+                />
+              </label>
+            )}
             {!editing?.bound && (
               <MemberTools engine={engine} projectId={projectId} value={tools ?? null} onChange={setTools} />
             )}

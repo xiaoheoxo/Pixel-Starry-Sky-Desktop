@@ -8,9 +8,10 @@ import { channelDraftKey } from './draftKey'
 import { SYSTEM_AUTHOR } from '../../../../shared/types/channels'
 import { alertActions } from '../../../../shared/channels/alerts'
 import { Markdown } from '@/ui/markdown/Markdown'
+import { PathLinksProvider } from '@/features/files/PathLinksProvider'
 import type { ChannelMember, ChannelTask, ChannelTextMessage } from '@/data/types'
 import { excerpt, splitMentions } from './model'
-import { formatClock } from './format'
+import { formatClock, messageWorkspace } from './format'
 import { channelActions } from './store'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
@@ -77,6 +78,26 @@ export function agentMeta(member: ChannelMember | undefined): string | null {
 export function agentPlace(member: ChannelMember | undefined): string {
   if (member?.kind !== 'agent') return ''
   return [member.project, machineLabel(member)].filter(Boolean).join(' · ')
+}
+
+/** Markdown 气泡里的路径可点（docs/ui/channels-local-rest.md §3.3 b）：按消息对应的会话或成员项目认 */
+function MarkdownBubble({
+  where,
+  text,
+  fade,
+}: {
+  where: { sessionId: string | null; projectId: string | null } | null
+  text: string
+  fade: string
+}) {
+  const body = <Folded text={text} fade={fade} />
+  return where ? (
+    <PathLinksProvider sessionId={where.sessionId} projectId={where.projectId}>
+      {body}
+    </PathLinksProvider>
+  ) : (
+    body
+  )
 }
 
 /** 可以被引用的消息：普通消息和任务卡 */
@@ -477,7 +498,11 @@ export function MessageGroup({
             )}
           >
             {m.format === 'markdown' ? (
-              <Folded text={m.text} fade={mine ? 'from-accent-soft' : 'from-subtle'} />
+              <MarkdownBubble
+                where={messageWorkspace(m, messagesById, membersById)}
+                text={m.text}
+                fade={mine ? 'from-accent-soft' : 'from-subtle'}
+              />
             ) : (
               <MentionText text={m.text} members={channelMembers} mine={strong} />
             )}

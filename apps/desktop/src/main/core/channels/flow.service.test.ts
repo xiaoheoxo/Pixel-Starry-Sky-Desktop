@@ -8,6 +8,7 @@ import type {
   AgentInput,
   ChannelFlow,
   ChannelMessage,
+  AgentMember,
   ChannelTask,
   ChannelTextMessage,
 } from '../../../shared/types/channels'
@@ -54,7 +55,7 @@ async function open(extra: Partial<ChannelsDeps> = {}): Promise<Channels> {
         return { queueId: (args[1] as { clientMessageId: string }).clientMessageId, status: 'queued' }
       if (channel === 'engine:usageList') {
         const q = args[0] as { filter: { session: string }; offset: number; limit: number }
-        const all = usage.filter(r => r.sessionId === q.filter.session)
+        const all = usage.filter(r => !q.filter.session || r.sessionId === q.filter.session)
         return { records: all.slice(q.offset, q.offset + q.limit), total: all.length, offset: q.offset }
       }
       return null
@@ -69,6 +70,7 @@ async function open(extra: Partial<ChannelsDeps> = {}): Promise<Channels> {
     now: () => ++now,
     channelTools: true,
     alertTimer: false,
+    usageRecords: async () => usage,
     // @ 派活先出计划另有测试打开；这里沿用直接派活
     planFirst: false,
     ...extra,
@@ -329,6 +331,36 @@ describe('流程调度', () => {
     ])
     await expect(c.flowAction(ch, { type: 'discard', messageId })).resolves.toEqual({ messageId })
     expect(flowOf(c, ch).status).toBe('stopped')
+  })
+
+  it('频道把打回上限设成 1：打回一次照常发回，第二次停下；改设置不影响已经建好的流程', async () => {
+    const { c, a, r, ch } = await setup()
+    const steps = [
+      { id: 's1', title: '写代码', memberId: a, deps: [], kind: 'work' as const },
+      { id: 's2', title: '审查', memberId: r, deps: [], kind: 'review' as const, target: 's1' },
+    ]
+    const old = await c.flowAction(ch, { type: 'create', title: '旧流程', steps })
+    await c.update(ch, { maxRejects: 1 })
+    const oldFlow = c.messages(ch).messages.find(m => m.id === old.messageId)
+    expect(oldFlow?.kind === 'message' && oldFlow.flow?.maxRejects).toBe(3)
+    const { messageId } = await c.flowAction(ch, { type: 'create', title: '新流程', steps })
+    await c.flowAction(ch, { type: 'start', messageId })
+    await settle()
+    // 上限 1：第一次打回照常发回去，第二次停下
+    const s1 = sessionOf(c, ch, 's1')
+    for (let i = 0; i < 2; i++) {
+      c.toolDone(s1, { summary: `第 ${i + 1} 版` })
+      await endTurn(c, s1, '写好了')
+      const s2 = sessionOf(c, ch, 's2')
+      c.toolDone(s2, { summary: '不行', verdict: 'reject', issues: ['不对'] })
+      await endTurn(c, s2, '打回')
+    }
+    const fresh = c.messages(ch).messages.find(m => m.id === messageId)
+    expect(fresh?.kind === 'message' && fresh.flow).toMatchObject({
+      maxRejects: 1,
+      status: 'paused',
+      paused: { reason: 'reject-limit', stepId: 's2' },
+    })
   })
 
   it('打回到上限时你已经点了暂停：照样记成「打回到上限」，继续后再打回一次；交付后卡上的追加要求不改交付', async () => {
@@ -934,6 +966,55 @@ describe('流程第四批（docs/ui/channels-pipeline.md §10）', () => {
     usage = []
     await c.refreshUsage()
     expect(stepOf(c, ch, 's1').usage).toMatchObject({ costUsd: 0.25, records: 2 })
+  })
+
+  it('成员和频道的用量：按任务卡记下的轮次汇总，别的会话的记录不算；档案带今天一格的走势', async () => {
+    const { c, a, b, ch } = await setup()
+    const { messageId } = await c.flowAction(ch, {
+      type: 'create',
+      title: '用量',
+      steps: [{ id: 's1', title: '画贴图', memberId: a, deps: [], kind: 'work' }],
+    })
+    await c.flowAction(ch, { type: 'start', messageId })
+    await settle()
+    const s1 = sessionOf(c, ch, 's1')
+    usage.push({ ...record(s1, 0.5), endedAt: now, durationMs: 1200 } as UsageRecord)
+    usage.push({ ...record(s1, 9), id: 'other:t:m', sessionId: 'other', turnId: 't', endedAt: now } as UsageRecord)
+    c.toolDone(s1, { summary: '好了' })
+    await endTurn(c, s1, '好了')
+    expect(tasks(c, ch)[0].turns).toHaveLength(1)
+    await c.refreshMemberUsage()
+    const view = (id: string) => c.state().members.find(m => m.id === id) as AgentMember
+    expect(view(a).usage).toMatchObject({ ms: 1200, month: { costUsd: 0.5, records: 1 }, today: { costUsd: 0.5 } })
+    expect(view(b).usage).toBeNull()
+    expect(view(a).stats?.days).toHaveLength(30)
+    expect(view(a).stats?.days?.at(-1)).toBe(1)
+    expect(c.state().channels.find(x => x.id === ch)?.usage).toMatchObject({ costUsd: 0.5 })
+  })
+
+  it('成员用量读一次失败：之后照常刷新，不会一直卡住', async () => {
+    let fail = true
+    const { c, a, ch } = await setup({
+      usageRecords: async () => {
+        if (fail) throw new Error('读不到')
+        return usage
+      },
+    })
+    const { messageId } = await c.flowAction(ch, {
+      type: 'create',
+      title: '用量',
+      steps: [{ id: 's1', title: '画贴图', memberId: a, deps: [], kind: 'work' }],
+    })
+    await c.flowAction(ch, { type: 'start', messageId })
+    await settle()
+    const s1 = sessionOf(c, ch, 's1')
+    usage.push({ ...record(s1, 0.5), endedAt: now } as UsageRecord)
+    c.toolDone(s1, { summary: '好了' })
+    await endTurn(c, s1, '好了')
+    await expect(c.refreshMemberUsage()).rejects.toThrow('读不到')
+    fail = false
+    await c.refreshMemberUsage()
+    expect((c.state().members.find(m => m.id === a) as AgentMember).usage).toMatchObject({ month: { costUsd: 0.5 } })
   })
 
   it('花费上限：已知花费到了就停下；继续后从当时的花费再给一整份', async () => {
@@ -1678,5 +1759,67 @@ describe('@ 派活先出计划', () => {
     await settle()
     expect(flows()).toHaveLength(1)
     expect(tasks(c, ch).at(-1)?.title).toContain('直接改一下')
+  })
+})
+
+describe('单张任务卡合并（docs/ui/channels-local-rest.md §3.1）', () => {
+  it('开了每项活一个副本：建副本、做完提交；合并按顺序删副本删分支写结果，之后不能追加；冲突不删副本', async () => {
+    const log: string[] = []
+    let conflict = false
+    const c = await open({
+      copies: {
+        create: async (_p, input) => {
+          log.push(`create ${input.branch}`)
+          return { id: 'cp1', branch: input.branch, path: 'D:/copies/t' }
+        },
+        remove: async id => void log.push(`remove ${id}`),
+        dirty: async () => false,
+        commit: async () => void log.push('commit'),
+        head: async () => ({ branch: 'main', head: 'abc' }),
+        squashMerge: async (_p, branch) => {
+          log.push(`merge ${branch}`)
+          return conflict
+            ? {
+                ok: false,
+                failure: { kind: 'conflict', action: 'merge', detail: '', remedies: [], files: ['a.txt'] },
+                status: null,
+              }
+            : { ok: true, commit: 'def', merged: true, status: null as never }
+        },
+        deleteBranch: async (_p, b) => void log.push(`delete ${b}`),
+      },
+    })
+    const a = await c.saveMember(null, { ...agent('画师'), copyPerTask: true })
+    const ch = await c.create({ name: 'web', memberIds: [a] })
+    await c.post(ch, { text: '@画师 画个图', clientId: 'x' })
+    await settle()
+    const card = () => tasks(c, ch)[0]
+    expect(card().copy).toMatchObject({ id: 'cp1', baseBranch: 'main', baseCommit: 'abc' })
+    const created = calls.find(x => x.channel === 'engine:createSession')!.args[0] as { copyId?: string }
+    expect(created.copyId).toBe('cp1')
+    await endTurn(c, card().sessionId!, '画好了')
+    expect(card().status).toBe('done')
+    conflict = true
+    await c.taskAction(card().id, 'merge')
+    expect(card().land).toMatchObject({ kind: 'conflict', files: ['a.txt'] })
+    expect(log).not.toContain('remove cp1')
+    conflict = false
+    log.length = 0
+    await c.taskAction(card().id, 'merge')
+    expect(log).toEqual([
+      'commit',
+      'merge pixelsky/task-' +
+        card()
+          .id.replace(/[^a-zA-Z0-9]/g, '')
+          .slice(0, 6),
+      'remove cp1',
+      'delete ' + card().copy!.branch,
+    ])
+    expect(card()).toMatchObject({ land: { kind: 'merged', commit: 'def', base: 'main' }, copyRemoved: true })
+    await expect(c.taskAction(card().id, 'retry')).rejects.toThrow('合并回去')
+    // 回复已合并的卡：写进频道之前就拦下，不留一条没人接的消息
+    const before = c.messages(ch).messages.length
+    await expect(c.post(ch, { text: '再改一下', replyToId: card().id, clientId: 'late' })).rejects.toThrow('合并回去')
+    expect(c.messages(ch).messages).toHaveLength(before)
   })
 })

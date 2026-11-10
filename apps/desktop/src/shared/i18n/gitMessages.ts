@@ -184,6 +184,7 @@ export const gitMessages = {
   'git.action.create': { zh: '新建分支失败', en: 'Create branch failed' },
   'git.action.operation': { zh: '操作失败', en: 'Operation failed' },
   'git.action.history': { zh: '提交历史里的操作失败', en: 'History operation failed' },
+  'git.action.merge': { zh: '合并失败', en: 'Merge failed' },
   'git.history.loadFailed': { zh: '读取历史失败', en: 'Failed to read history' },
   'git.remedy.retry': { zh: '重试', en: 'Retry' },
   'git.remedy.pullRebase': { zh: '拉取（变基）', en: 'Pull (rebase)' },

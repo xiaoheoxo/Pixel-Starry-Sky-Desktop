@@ -29,6 +29,8 @@ import { approvalSummary } from '@/features/session/live/approvals/model'
 import { activityView } from './taskActivity'
 import { ActivityLines, TaskElapsed } from './ActivityLines'
 import { CheckSummary } from '@/features/checks/CheckSummary'
+import { landView } from './taskLand'
+import { TaskChanges } from './TaskChanges'
 
 export const STATUS_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
   queued: 'channels.task.queued',
@@ -166,6 +168,9 @@ export function ChannelTaskCard({
       .finally(() => setBusy(false))
   }
   const open = task.sessionId && mine ? () => onOpenSession(task.sessionId!) : null
+  // 单卡副本的合并 / PR（docs/ui/channels-local-rest.md §3.1）
+  const land = landView(task, live && control)
+  const [changes, setChanges] = useState(false)
   const meta = [
     task.relay ? tr('channels.task.hop', { count: task.relay.hop }) : '',
     task.round && task.round > 1 ? tr('channels.task.round', { count: task.round }) : '',
@@ -327,6 +332,72 @@ export function ChannelTaskCard({
           }
         />
       )}
+      {land.branch && (
+        <div data-task-land="" className="mt-1.5 flex flex-col gap-1 text-meta">
+          <span className="selectable min-w-0 truncate font-mono text-fg-muted">
+            {tr('channels.land.branch', { branch: land.branch, base: task.copy?.baseBranch ?? '—' })}
+          </span>
+          {task.land?.kind === 'merged' && (
+            <span className="text-success">
+              {tr('channels.land.merged', { base: task.land.base, commit: task.land.commit.slice(0, 7) })}
+            </span>
+          )}
+          {task.land?.kind === 'conflict' && (
+            <span className="break-words text-warn">
+              {tr('channels.land.conflict', { files: task.land.files.slice(0, 5).join(', ') || '—' })}
+            </span>
+          )}
+          {task.land?.kind === 'pr' && (
+            <button
+              type="button"
+              className="w-fit text-left text-accent-fg hover:underline"
+              onClick={() =>
+                void globalThis.window.pixelsky?.projectTools.openExternal((task.land as { url: string }).url)
+              }
+            >
+              {tr('channels.land.pr', { url: task.land.url })}
+            </button>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {task.copy && !task.copyRemoved && task.sessionId && (
+              <Button variant="ghost" className="h-7 px-2.5 text-meta" onClick={() => setChanges(true)}>
+                {tr('channels.land.changes')}
+              </Button>
+            )}
+            {land.canMerge && (
+              <Button
+                variant="primary"
+                className="h-7 px-2.5 text-meta"
+                disabled={busy}
+                onClick={() => run(() => onAction!(task.id, 'merge'))}
+              >
+                {tr('channels.land.merge', { base: task.copy?.baseBranch ?? '—' })}
+              </Button>
+            )}
+            {land.canPr && (
+              <Button
+                className="h-7 px-2.5 text-meta"
+                disabled={busy}
+                onClick={() => run(() => onAction!(task.id, 'pr'))}
+              >
+                {tr('channels.land.openPr')}
+              </Button>
+            )}
+            {land.canResolve && (
+              <Button
+                className="h-7 px-2.5 text-meta"
+                disabled={busy}
+                onClick={() => run(() => onAction!(task.id, 'resolve'))}
+              >
+                {tr('channels.land.resolve')}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {changes && task.sessionId && task.copy && (
+        <TaskChanges sessionId={task.sessionId} base={task.copy.baseCommit} onClose={() => setChanges(false)} />
+      )}
       {task.disconnected && (
         <p className="mt-1 flex items-center gap-1.5 text-meta text-fg-muted">
           <Unplug size={12} strokeWidth={1.75} className="shrink-0" />
@@ -450,7 +521,7 @@ export function ChannelTaskCard({
               {tr('channels.task.answer')}
             </Button>
           )}
-          {live && (task.status === 'failed' || task.status === 'stopped') && control && !pending && (
+          {live && (task.status === 'failed' || task.status === 'stopped') && control && !pending && !land.locked && (
             <Button
               className="h-7 px-2.5 text-meta"
               disabled={busy}
@@ -459,7 +530,7 @@ export function ChannelTaskCard({
               {tr('channels.task.retry')}
             </Button>
           )}
-          {live && task.status === 'done' && onFollowUp && (
+          {live && task.status === 'done' && onFollowUp && !land.locked && (
             <Button variant="ghost" className="h-7 px-2.5 text-meta" onClick={() => onFollowUp(task.id)}>
               {tr('channels.task.followUp')}
             </Button>

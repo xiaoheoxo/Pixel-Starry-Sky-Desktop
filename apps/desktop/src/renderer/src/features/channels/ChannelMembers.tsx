@@ -30,7 +30,8 @@ import { SavePresetDialog } from './ChannelPresets'
 import { channelActions, channelsLive, useChannels } from './store'
 import { AddTeamAgentDialog, TeamSettingsDialog } from './TeamDialog'
 import { PresenceAvatar, roleLabel } from './TeamParts'
-import { formatLastSeen } from './format'
+import { costCell, durText, formatLastSeen, usageText } from './format'
+import { formatTokens } from '@/features/usage/format'
 import { AgentQueue, memberQueueTasks } from './AgentQueue'
 import { canAddAgent, canManageTeam, myRole, onlineCount } from './teamModel'
 
@@ -164,6 +165,56 @@ function agentLine(member: AgentMember, now: number): string {
   return tr(STATUS_LABEL[member.status])
 }
 
+/** 档案里的用量四格：耗时、token、30 天费用、今天（docs/ui/channels-local-rest.md §3.2） */
+function UsageCells({ usage }: { usage: NonNullable<AgentMember['usage']> }) {
+  const m = usage.month
+  const month = costCell(m)
+  const today = costCell(usage.today, true)
+  const cells: [string, string, string][] = [
+    [tr('channels.usage.time'), usage.ms > 0 ? durText(usage.ms) : '—', ''],
+    [
+      tr('channels.usage.tokens'),
+      m.records > 0 ? formatTokens(m.input + m.cacheRead + m.cacheWrite + m.output) : '—',
+      '',
+    ],
+    [tr('channels.usage.cost'), month.text, month.title],
+    [tr('channels.usage.today'), today.text, today.title],
+  ]
+  return (
+    <dd data-member-usage="" className="col-span-2 grid grid-cols-4 gap-1">
+      {cells.map(([label, value, title]) => (
+        <span key={label} className="flex min-w-0 flex-col rounded bg-surface px-1.5 py-1" title={title || undefined}>
+          <span className="truncate text-fg-faint">{label}</span>
+          <span className="truncate text-fg">{value}</span>
+        </span>
+      ))}
+    </dd>
+  )
+}
+
+/** 30 天每天做了几项的走势条，最后一根是今天 */
+function DayBars({ days }: { days: number[] }) {
+  const max = Math.max(...days, 1)
+  return (
+    <dd className="col-span-2">
+      <div aria-hidden className="flex h-10 items-end gap-px">
+        {days.map((n, i) => (
+          <i
+            key={i}
+            title={tr('channels.usage.dayTasks', { n })}
+            className={cn('flex-1 rounded-t-sm', n ? 'bg-accent opacity-75' : 'bg-line-subtle')}
+            style={{ height: n ? 4 + (n / max) * 36 : 2 }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-fg-faint">
+        <span>{tr('channels.usage.daysAgo')}</span>
+        <span>{tr('channels.usage.today')}</span>
+      </div>
+    </dd>
+  )
+}
+
 /** 档案（docs/ui/channels-phase-b.md §8）：职责、工作方式、最近 30 天、目录 */
 function AgentDetails({ member }: { member: AgentMember }) {
   useI18n()
@@ -181,7 +232,17 @@ function AgentDetails({ member }: { member: AgentMember }) {
       <dd className="text-fg-secondary">
         {tr(config.mode === 'shared' ? 'channels.agent.mode.shared' : 'channels.agent.mode.perTask')}
       </dd>
-      {member.stats && <dd className="col-span-2 text-fg-muted">{tr('channels.members.stats', member.stats)}</dd>}
+      {member.stats && (
+        <dd className="col-span-2 text-fg-muted">
+          {tr('channels.members.stats', {
+            total: member.stats.total,
+            done: member.stats.done,
+            failed: member.stats.failed,
+          })}
+        </dd>
+      )}
+      {member.usage && <UsageCells usage={member.usage} />}
+      {!!member.stats?.days?.some(n => n > 0) && <DayBars days={member.stats.days} />}
     </dl>
   )
 }
@@ -290,7 +351,13 @@ function AgentRow({
           </div>
         )}
         <div className="truncate text-meta text-fg-faint">
-          {[agentMeta(member), member.project].filter(Boolean).join(' · ')}
+          {[
+            agentMeta(member),
+            member.project,
+            member.usage ? tr('channels.usage.todayCost', { cost: costCell(member.usage.today, true).text }) : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </div>
         <div
           className={cn(
@@ -527,6 +594,15 @@ export function ChannelMembers({
                 </span>
               </dd>
             </>
+          )}
+          {channel.scope === 'local' && usageText(channel.usage) && (
+            <dd
+              data-channel-usage=""
+              className="col-span-2 text-meta text-fg-muted"
+              title={usageText(channel.usage)!.title || undefined}
+            >
+              {tr('channels.usage.channel', { usage: usageText(channel.usage)!.text })}
+            </dd>
           )}
           {channel.notes && (
             <>

@@ -13,7 +13,16 @@ import {
   type ChannelNotify,
   type RelayRules,
 } from '../../../../shared/types/channels'
-import { DIGEST_HOUR, alertRulesOf, cleanAlertRules, cleanDigestHour } from '../../../../shared/channels/alerts'
+import {
+  DEFAULT_MAX_REJECTS,
+  DIGEST_HOUR,
+  STALLED_MINUTES,
+  alertRulesOf,
+  cleanAlertRules,
+  cleanDigestHour,
+  cleanMaxRejects,
+  cleanStalledMinutes,
+} from '../../../../shared/channels/alerts'
 
 const KEY = 'pixelsky.channels.presets'
 export const PRESET_MAX = 30
@@ -41,6 +50,8 @@ export interface ChannelPreset {
   notify?: ChannelNotify
   alerts?: Partial<Record<ChannelAlertRule, boolean>>
   digestHour?: number
+  maxRejects?: number
+  stalledMinutes?: number
 }
 
 export interface PresetState {
@@ -95,6 +106,8 @@ function parsePreset(raw: unknown): ChannelPreset | null {
   if (p.notify === 'all' || p.notify === 'important' || p.notify === 'mute') preset.notify = p.notify
   if (p.alerts !== undefined) preset.alerts = cleanAlertRules(p.alerts)
   if (p.digestHour !== undefined) preset.digestHour = cleanDigestHour(p.digestHour)
+  if (p.maxRejects !== undefined) preset.maxRejects = cleanMaxRejects(p.maxRejects)
+  if (p.stalledMinutes !== undefined) preset.stalledMinutes = cleanStalledMinutes(p.stalledMinutes)
   return preset
 }
 
@@ -191,6 +204,8 @@ export function presetFromChannel(
     preset.notify = channel.notify ?? 'all'
     preset.alerts = alertRulesOf(channel)
     preset.digestHour = channel.digestHour ?? DIGEST_HOUR
+    preset.maxRejects = channel.maxRejects ?? DEFAULT_MAX_REJECTS
+    preset.stalledMinutes = channel.stalledMinutes ?? STALLED_MINUTES
   }
   if (parts.includes('project')) preset.projectId = channel.projectId ?? null
   return preset
@@ -208,6 +223,8 @@ export interface PresetForm {
   notify: ChannelNotify
   alerts: ReturnType<typeof alertRulesOf>
   digestHour: number
+  maxRejects: number
+  stalledMinutes: number
 }
 
 /** 表单有没有改动：成员只看选了谁，不看先后 */
@@ -259,6 +276,8 @@ export function formFromPreset(preset: ChannelPreset | null, agents: readonly Ag
     notify: preset?.notify ?? 'all',
     alerts: alertRulesOf({ alerts: preset?.alerts }),
     digestHour: preset?.digestHour ?? DIGEST_HOUR,
+    maxRejects: preset?.maxRejects ?? DEFAULT_MAX_REJECTS,
+    stalledMinutes: preset?.stalledMinutes ?? STALLED_MINUTES,
   }
 }
 
@@ -312,6 +331,8 @@ export async function createFromForm(
       notes: form.notes.trim() || null,
       alerts: form.alerts,
       digestHour: form.digestHour,
+      ...(form.maxRejects === DEFAULT_MAX_REJECTS ? {} : { maxRejects: form.maxRejects }),
+      ...(form.stalledMinutes === STALLED_MINUTES ? {} : { stalledMinutes: form.stalledMinutes }),
       // 下面这些没写时就是默认值，和现在的新建一样不写进频道
       ...(form.relay ? { relay: true } : {}),
       // 互派关着也存：之后打开互派时用的是预设里调好的规则

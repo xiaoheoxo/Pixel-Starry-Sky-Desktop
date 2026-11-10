@@ -82,6 +82,13 @@ import { settingsWindowMessages } from '../../../shared/i18n/settingsWindowMessa
 import { goalMessages } from '../../../shared/i18n/goalMessages'
 import { overviewMessages } from '../../../shared/i18n/overviewMessages'
 import { viewModeMessages } from '../../../shared/i18n/viewModeMessages'
+import { channelLandMessages } from '../../../shared/i18n/channelLandMessages'
+import { channelUsageMessages } from '../../../shared/i18n/channelUsageMessages'
+import { channelSlashMessages } from '../../../shared/i18n/channelSlashMessages'
+import { channelMiscMessages } from '../../../shared/i18n/channelMiscMessages'
+import { agentsSettingsMessages } from '../../../shared/i18n/agentsSettingsMessages'
+import { channelLimitsMessages } from '../../../shared/i18n/channelLimitsMessages'
+import { channelLandUiMessages } from '../../../shared/i18n/channelLandUiMessages'
 
 // 与 shared/i18n/translate.ts 的 allMessages 合并顺序一致
 const dictionaries: Record<string, Record<string, unknown>> = {
@@ -165,6 +172,13 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   goalMessages,
   overviewMessages,
   viewModeMessages,
+  channelLandMessages,
+  channelUsageMessages,
+  channelSlashMessages,
+  channelMiscMessages,
+  agentsSettingsMessages,
+  channelLimitsMessages,
+  channelLandUiMessages,
 }
 
 /** 中英文值不同、需要保持现状的重复 key（当前为空；新增重复必须先说明原因）。 */

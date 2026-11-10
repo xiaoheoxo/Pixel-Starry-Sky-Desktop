@@ -17,6 +17,7 @@ import {
   Smartphone,
   Moon,
   Network,
+  Bot,
   Palette,
   Puzzle,
   Route,
@@ -82,6 +83,7 @@ import { ImSection } from '../im/ImSection'
 import { ProjectsSection } from './projects/ProjectsSection'
 import { StorageSection } from '../storage/StorageSection'
 import { SubagentsSection } from './SubagentsSection'
+import { AgentsSection } from './AgentsSection'
 import { leaveSettings, UnsavedLeaveDialog } from './unsavedEdits'
 import type { SectionId } from './sectionId'
 
@@ -204,6 +206,13 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
     icon: Network,
   },
   {
+    id: 'agents',
+    get label() {
+      return tr('agentsSettings.title')
+    },
+    icon: Bot,
+  },
+  {
     id: 'usage',
     get label() {
       return tr('nav.TopNav.usage')
@@ -264,7 +273,7 @@ const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
     get label() {
       return tr('session.ModelSourceMenu.model')
     },
-    ids: ['models', 'subagents', 'usage'],
+    ids: ['models', 'subagents', 'agents', 'usage'],
   },
   {
     get label() {
@@ -477,6 +486,8 @@ export function SettingsContent({
           />
         ) : section === 'models' ? (
           <ModelsSection />
+        ) : section === 'agents' ? (
+          <AgentsSection />
         ) : section === 'subagents' ? (
           <SubagentsSection openChannels={() => setSection('models')} />
         ) : section === 'extensions' || section === 'plugins' ? (

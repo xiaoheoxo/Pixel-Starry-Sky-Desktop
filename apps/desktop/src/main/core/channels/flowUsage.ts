@@ -68,3 +68,24 @@ export function addUsage(a: FlowUsage, b: FlowUsage): FlowUsage {
 
 /** 整条流程的已知花费（下限，花费上限用） */
 export const knownCost = (steps: readonly FlowStep[]): number => steps.reduce((n, s) => n + (s.usage?.costUsd ?? 0), 0)
+
+/** 成员 / 频道的用量（docs/ui/channels-local-rest.md §3.2）：30 天、今天（today 起的记录）、耗时（每轮取一次 durationMs） */
+export function rangeUsage(
+  records: readonly UsageRecord[],
+  keys: readonly string[],
+  today: number,
+): { month: FlowUsage; today: FlowUsage; ms: number } {
+  const want = new Set(keys)
+  const mine = records.filter(r => want.has(turnKey(r.sessionId, r.turnId)))
+  const ms = new Map<string, number>()
+  for (const r of mine) {
+    const k = turnKey(r.sessionId, r.turnId)
+    ms.set(k, Math.max(ms.get(k) ?? 0, r.durationMs))
+  }
+  const recent = mine.filter(r => r.endedAt >= today)
+  return {
+    month: sumUsage(mine, keys),
+    today: sumUsage(recent, [...new Set(recent.map(r => turnKey(r.sessionId, r.turnId)))]),
+    ms: [...ms.values()].reduce((a, b) => a + b, 0),
+  }
+}

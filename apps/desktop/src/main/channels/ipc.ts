@@ -2,7 +2,8 @@
 // 引擎调用走 ctx.engineCall（和窗口同一层路由，含 SSH 机器）；会话事件和机器变化从 EventBus.taps 收。
 import { join } from 'node:path'
 import { hostname, userInfo } from 'node:os'
-import { app } from 'electron'
+import { app, shell } from 'electron'
+import { exec, git } from '../core/project-tools/common'
 import { describeError, logger } from '@pixelsky/engine'
 import type { HostEvent } from '@pixelsky/protocol'
 import * as ipc from '../ipc/guard'
@@ -36,7 +37,18 @@ const str = (value: unknown, what: string): string => {
   if (typeof value !== 'string' || !value) throw new Error(`${what}不正确`)
   return value
 }
-const ACTIONS = new Set<ChannelTaskAction>(['cancel', 'stop', 'retry', 'continue', 'unlimit', 'fix', 'reassign'])
+const ACTIONS = new Set<ChannelTaskAction>([
+  'cancel',
+  'stop',
+  'retry',
+  'continue',
+  'unlimit',
+  'fix',
+  'reassign',
+  'merge',
+  'pr',
+  'resolve',
+])
 const QUEUE_ACTIONS = new Set<ChannelQueueAction>(['up', 'down', 'first'])
 const ALERT_ACTIONS = new Set<ChannelAlertAction>(['hold', 'continue', 'open', 'stop', 'reassign', 'cancel', 'dismiss'])
 const INVITE_ROLES = new Set<Exclude<TeamRole, 'owner'>>(['member', 'observer'])
@@ -133,6 +145,9 @@ export async function initChannels(ctx: AppContext): Promise<void> {
       await (ctx.machines ? ctx.machines.invoke('projectTools:syncIssue', args, () => op(args)) : op(args))
     },
     // 流程里并行的步骤用 Git 副本（docs/ui/channels-pipeline.md §6.4）：流程只有本机成员，直接走本机的操作表
+    // 成员、频道用量：一次读完本机 30 天的记录（engine:usageList 每页 500 条、每页都重读文件）
+    usageRecords: async now =>
+      ctx.engine?.usageList({ range: '30d', filter: {}, now, offset: 0, limit: Number.MAX_SAFE_INTEGER }).records ?? [],
     copies: {
       create: async (projectId, input) => {
         const copy = (await tool('projectTools:createCopy')([
@@ -161,6 +176,55 @@ export async function initChannels(ctx: AppContext): Promise<void> {
         const r = (await tool('projectTools:gitCommit')([{ sessionId }, { message, all: true }])) as GitResult
         // 没东西可提交（它自己提交过了）不算错
         if (!r.ok && r.failure.kind !== 'nothing') throw new Error(r.failure.detail || r.failure.kind)
+      },
+      // 单张任务卡合并 / 开 PR（docs/ui/channels-local-rest.md §3.1）：只有本机成员
+      head: async projectId => {
+        const s = (await tool('projectTools:gitStatus')([{ projectId }])) as GitStatus
+        return s.repo ? { branch: s.branch, head: s.head } : null
+      },
+      squashMerge: (projectId, branch, message) => {
+        if (!ctx.projectTools) throw new Error('项目工具还没有就绪')
+        return ctx.projectTools.git.squashMerge({ projectId }, { branch, message })
+      },
+      deleteBranch: async (projectId, name) => {
+        const r = (await tool('projectTools:gitHistoryAction')([
+          { projectId },
+          { kind: 'deleteBranch', name, force: true },
+        ])) as GitResult
+        if (!r.ok) throw new Error(r.failure.detail || r.failure.kind)
+      },
+      openPr: async (sessionId, input) => {
+        const pushed = (await tool('projectTools:gitPush')([{ sessionId }, { publish: true }])) as GitResult
+        if (!pushed.ok) throw new Error(`推送分支失败：${pushed.failure.detail || pushed.failure.kind}`)
+        const remote = (await git(input.path, ['remote', 'get-url', 'origin'])).trim()
+        const repo = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(remote)?.[1]
+        if (!repo) throw new Error('origin 不是 GitHub 仓库，开不了 PR；分支已推送，请到代码托管网站上手动建')
+        const args = [
+          'pr',
+          'create',
+          '--head',
+          input.branch,
+          '--title',
+          input.title,
+          '--body',
+          input.body || input.title,
+        ]
+        try {
+          const { stdout } = await exec('gh', input.base ? [...args, '--base', input.base] : args, {
+            cwd: input.path,
+            windowsHide: true,
+            timeout: 60_000,
+          })
+          const url = String(stdout).trim().split(/\r?\n/).pop() ?? ''
+          return { url, number: Number(/\/pull\/(\d+)/.exec(url)?.[1]) || null }
+        } catch (error) {
+          // 没装 gh：打开比较页让你自己点；分支名里的 / 不能编码，GitHub 认不出
+          const seg = (b: string) => b.split('/').map(encodeURIComponent).join('/')
+          if ((error as { code?: unknown }).code !== 'ENOENT') throw error
+          const url = `https://github.com/${repo}/compare/${seg(input.base ?? 'main')}...${seg(input.branch)}?expand=1`
+          await shell.openExternal(url)
+          return { url }
+        }
       },
     },
   })

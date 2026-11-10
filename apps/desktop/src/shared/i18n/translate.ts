@@ -77,6 +77,13 @@ import { settingsWindowMessages } from './settingsWindowMessages'
 import { goalMessages } from './goalMessages'
 import { overviewMessages } from './overviewMessages'
 import { viewModeMessages } from './viewModeMessages'
+import { channelLandMessages } from './channelLandMessages'
+import { channelUsageMessages } from './channelUsageMessages'
+import { channelSlashMessages } from './channelSlashMessages'
+import { channelMiscMessages } from './channelMiscMessages'
+import { agentsSettingsMessages } from './agentsSettingsMessages'
+import { channelLimitsMessages } from './channelLimitsMessages'
+import { channelLandUiMessages } from './channelLandUiMessages'
 import { replaceCodedErrors } from '@pixelsky/protocol'
 import type { Locale } from './messages'
 
@@ -161,6 +168,13 @@ export const allMessages = {
   ...goalMessages,
   ...overviewMessages,
   ...viewModeMessages,
+  ...channelLandMessages,
+  ...channelUsageMessages,
+  ...channelSlashMessages,
+  ...channelMiscMessages,
+  ...agentsSettingsMessages,
+  ...channelLimitsMessages,
+  ...channelLandUiMessages,
 }
 export type TranslationKey = keyof typeof allMessages
 

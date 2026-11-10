@@ -6,7 +6,7 @@ vi.hoisted(() => {
   }
 })
 import type { Channel, ChannelMember, ChannelMessage, ChannelTask } from '@/data/types'
-import { channelNotice, taskOfNotice } from './channelNotice'
+import { channelNotice, channelOfInbox, taskOfNotice } from './channelNotice'
 
 // 频道派出去的会话的提醒（docs/ui/channels-local-ai.md §3.1 #12、#13）
 
@@ -81,5 +81,13 @@ describe('channelNotice', () => {
     expect(channelNotice(intent('completed'), '', real, null)!.id.length).toBeLessThanOrEqual(100)
     expect(taskOfNotice('waiting:s1:r1')).toBeNull()
     expect(taskOfNotice('feedback|x')).toBeNull()
+  })
+})
+
+describe('channelOfInbox', () => {
+  it('频道派出的会话写「# 频道 · 成员」并给出卡片；别的会话、频道删了是 null', () => {
+    expect(channelOfInbox('s1', state())).toEqual({ channelId: 'c1', taskId: 't1', label: '# 网页版改版 · 前端助手' })
+    expect(channelOfInbox('s2', state())).toBeNull()
+    expect(channelOfInbox('s1', { ...state(), channels: [] })).toBeNull()
   })
 })

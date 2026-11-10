@@ -56,6 +56,9 @@ export interface ChannelsBridge {
       /** 主动提醒的规则开关、每日简报几点发（docs/ui/channels-collab-v2.md §6） */
       alerts?: Partial<Record<ChannelAlertRule, boolean>>
       digestHour?: number
+      /** 审查打回上限、多久没进展提醒（docs/ui/channels-local-rest.md §3.3 d） */
+      maxRejects?: number
+      stalledMinutes?: number
     },
   ): Promise<void>
   /** 置顶 / 取消置顶一条文字消息（docs/ui/channels-local-ai.md §3.1 #9） */

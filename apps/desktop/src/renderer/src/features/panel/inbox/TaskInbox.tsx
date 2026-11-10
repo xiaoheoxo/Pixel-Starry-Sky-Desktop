@@ -9,6 +9,9 @@ import { isDemo } from '@/data'
 import { CARD, ToolError, useOperation, useRemember } from '../ToolsUi'
 import { canAnswerInline, canResume, LANES, type InboxItem, type InboxLane } from './inboxModel'
 import { dismissInbox, resolveDemoInbox, useInbox } from './useInbox'
+import { channelActions, useChannels } from '@/features/channels/store'
+import { channelOfInbox } from '@/features/channels/channelNotice'
+import { setPage } from '@/features/layout/page'
 
 const LANE: Record<InboxLane, { label: TranslationKey; icon: LucideIcon; tone: string }> = {
   waiting: { label: 'projectTools.inbox.lane.waiting', icon: ShieldAlert, tone: 'text-warn' },
@@ -31,6 +34,11 @@ function reasonOf(item: InboxItem): string {
 export function TaskInbox() {
   useI18n()
   const items = useInbox()
+  const channels = {
+    sessionTasks: useChannels(s => s.sessionTasks),
+    channels: useChannels(s => s.channels),
+    members: useChannels(s => s.members),
+  }
   const [collapsed, setCollapsed] = useRemember('pixelsky.inbox.collapsed', false)
   const { busy, error, run } = useOperation()
   const [now, setNow] = useState(Date.now)
@@ -81,6 +89,7 @@ export function TaskInbox() {
                 </h3>
                 {rows.map(item => {
                   const reason = reasonOf(item)
+                  const fromChannel = channelOfInbox(item.sessionId, channels)
                   return (
                     <article
                       key={item.sessionId}
@@ -90,11 +99,21 @@ export function TaskInbox() {
                       <div className="flex min-w-0 items-baseline gap-2">
                         <button
                           type="button"
-                          onClick={() => open(item.sessionId)}
+                          onClick={() => {
+                            // 频道派出的活：回到频道定位到那张卡（和频道提醒一样）
+                            if (!fromChannel) return open(item.sessionId)
+                            setPage('channels')
+                            void channelActions.focusMessage(fromChannel.channelId, fromChannel.taskId)
+                          }}
                           className="min-w-0 flex-1 truncate text-left text-list font-medium text-fg hover:underline"
                         >
                           {item.title}
                         </button>
+                        {fromChannel && (
+                          <span data-inbox-channel="" className="max-w-[45%] shrink-0 truncate text-meta text-fg-muted">
+                            {fromChannel.label}
+                          </span>
+                        )}
                         <span className="shrink-0 text-meta text-fg-faint tabular-nums">
                           {relativeTime(item.at, now)}
                         </span>

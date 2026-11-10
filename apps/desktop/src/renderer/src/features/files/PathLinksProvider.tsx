@@ -14,16 +14,26 @@ import { isHtmlPath, previewHtml } from './htmlPreview'
 import { isRemoteRef, pathHint, revealPath } from './reveal'
 import { MarkdownImageContext, type MarkdownImageReader } from '@/ui/markdown/MarkdownImage'
 import { readMarkdownImage } from './markdownImages'
+import type { WorkspaceRef } from '../../../../shared/types/workspace'
 
-export function PathLinksProvider({ sessionId, children }: { sessionId: string | null; children: ReactNode }) {
+export function PathLinksProvider({
+  sessionId,
+  projectId = null,
+  children,
+}: {
+  sessionId: string | null
+  /** 没有会话时按项目目录认路径（频道消息，docs/ui/channels-local-rest.md §3.3 b） */
+  projectId?: string | null
+  children: ReactNode
+}) {
   const toast = useToast()
-  const imageReader = useMemo<MarkdownImageReader | null>(
-    () => (sessionId && !isDemo ? path => readMarkdownImage({ sessionId }, path) : null),
-    [sessionId],
-  )
+  const imageReader = useMemo<MarkdownImageReader | null>(() => {
+    const ref: WorkspaceRef | null = sessionId ? { sessionId } : projectId ? { projectId } : null
+    return ref && !isDemo ? path => readMarkdownImage(ref, path) : null
+  }, [sessionId, projectId])
   const value = useMemo<PathLinks | null>(() => {
-    if (!sessionId || !window.pixelsky) return null
-    const ref = { sessionId }
+    const ref: WorkspaceRef | null = sessionId ? { sessionId } : projectId ? { projectId } : null
+    if (!ref || !window.pixelsky) return null
     return {
       resolve: isDemo ? async text => demoTextFile(text) : text => wholeTextFile(ref, text),
       // HTML 没带行号时在右侧浏览器里看效果（本机项目），其余照旧在编辑器里打开
@@ -62,7 +72,7 @@ export function PathLinksProvider({ sessionId, children }: { sessionId: string |
           .catch((e: Error) => toast(tr('path.revealFailed', { reason: translateMessage(e.message) })))
       },
     }
-  }, [sessionId, toast])
+  }, [sessionId, projectId, toast])
   return (
     <MarkdownImageContext.Provider value={imageReader}>
       <PathLinksContext.Provider value={value}>{children}</PathLinksContext.Provider>

@@ -680,7 +680,7 @@ export const channelMessages = {
     en: 'Two tasks in one folder; one runs git checkout / reset / clean or edits the other’s files: pause and ask you',
   },
   'alerts.rule.waiting': { zh: 'AI 等你回答太久（10 分钟）', en: 'AI waiting on you too long (10 min)' },
-  'alerts.rule.stalled': { zh: '很久没进展（15 分钟）', en: 'No progress for a while (15 min)' },
+  'alerts.rule.stalled': { zh: '很久没进展', en: 'No progress for a while' },
   'alerts.rule.unclaimed': {
     zh: '@ 了没人接（排队 10 分钟或机器离线）',
     en: 'Nobody picked it up (queued 10 min or machine offline)',

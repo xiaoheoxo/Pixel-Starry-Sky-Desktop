@@ -40,6 +40,8 @@ import {
 } from './model'
 import { MENTION_ALL } from '../../../../shared/channels/mentions'
 import { MentionMenu } from './MentionMenu'
+import { SlashMenu } from './SlashMenu'
+import { matchSlash, parseSlash, slashName, slashQuery, type SlashId } from './slash'
 import { channelDraftKey } from './draftKey'
 import { canDispatch, mentionNote } from './teamModel'
 
@@ -91,6 +93,7 @@ export function ChannelComposer({
   inputRef,
   threadId = null,
   placeholder,
+  slash,
 }: {
   channel: Channel
   /** 这个频道的成员 */
@@ -111,6 +114,8 @@ export function ChannelComposer({
   /** 讨论串面板里的输入框（docs/ui/channels-collab-v2.md §3）：草稿单独存，排版收窄 */
   threadId?: string | null
   placeholder?: string
+  /** 斜杠命令（只给本机频道的主输入框）：可用的命令和执行；不认识的 /xxx 照常发出 */
+  slash?: { available: readonly SlashId[]; run: (id: SlashId, arg: string) => Promise<void> }
 }) {
   useI18n()
   const artStyle = useThemeArtStyle(useTheme().resolved)
@@ -140,6 +145,19 @@ export function ChannelComposer({
   }, [members, mention?.query, mention?.start, team, role, allToken])
   const total = candidates.length + (all ? 1 : 0)
   const menuOpen = !!mention && dismissed !== mention.start
+  const sq = slash && !menuOpen ? slashQuery(value) : undefined
+  const slashItems = useMemo(() => (sq !== undefined && slash ? matchSlash(sq, slash.available) : []), [sq, slash])
+  const slashOpen = slashItems.length > 0 && dismissed !== -1
+  const [slashSel, setSlashSel] = useState(0)
+  useLayoutEffect(() => setSlashSel(0), [sq])
+  const chooseSlash = (index: number) => {
+    const id = slashItems[index]
+    if (!id) return
+    const next = `/${slashName(id)} `
+    setValue(next)
+    setCaret(next.length)
+    requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.length, next.length))
+  }
   /** 写了 @全体、又有成员用同一个目录：提示可能冲突 */
   const sharedDir = useMemo(() => (mentionsAll(value, members) ? sharedDirAgents(members) : []), [value, members])
   const toast = useToast()
@@ -187,6 +205,19 @@ export function ChannelComposer({
 
   const send = () => {
     if (!canSend) return
+    const command = slash && !hasAttachments ? parseSlash(value, slash.available) : null
+    if (command && slash) {
+      setSending(true)
+      slash
+        .run(command.id, command.arg)
+        .then(() => {
+          setValue('')
+          setCaret(0)
+        })
+        .catch(error => toast(translateMessage((error as Error).message)))
+        .finally(() => setSending(false))
+      return
+    }
     setSending(true)
     const sent = hasAttachments ? { images: attach.images, files: attach.files } : { images: [], files: [] }
     const text = value
@@ -236,6 +267,25 @@ export function ChannelComposer({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // 输入法组合中（候选字还没上屏）不处理 Enter / 方向键
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    if (slashOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        const delta = e.key === 'ArrowDown' ? 1 : -1
+        setSlashSel(i => (i + delta + slashItems.length) % slashItems.length)
+        return
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+        e.preventDefault()
+        chooseSlash(slashSel)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setDismissed(-1)
+        return
+      }
+    }
     if (menuOpen) {
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && total) {
         e.preventDefault()
@@ -270,6 +320,7 @@ export function ChannelComposer({
   return (
     <div className={threadId ? 'shrink-0 px-3 pb-3' : 'conversation-inset conversation-reading shrink-0 pb-4'}>
       <div className="relative">
+        {slashOpen && <SlashMenu id={menuId} items={slashItems} selected={slashSel} onChoose={chooseSlash} />}
         {menuOpen && (
           <MentionMenu
             id={menuId}
@@ -413,6 +464,8 @@ export function ChannelComposer({
               aria-activedescendant={menuOpen && total ? `${menuId}-${selected}` : undefined}
               onChange={e => {
                 setValue(e.target.value)
+                // Esc 关掉的斜杠菜单：清掉 / 之后再打 / 时重新出现
+                if (dismissed === -1 && !e.target.value.startsWith('/')) setDismissed(null)
                 setCaret(e.target.selectionStart ?? e.target.value.length)
               }}
               onSelect={syncCaret}

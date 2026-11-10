@@ -740,3 +740,73 @@ describe('Git 面板：失败分类', () => {
     }
   }, 60_000)
 })
+
+describe('压成一个提交合并（docs/ui/channels-local-rest.md §3.1）', () => {
+  async function branchWith(files: Record<string, string>): Promise<void> {
+    await init()
+    await writeFile(join(project, 'a.txt'), 'one\n')
+    await commitAll('base')
+    await git(project, ['switch', '-q', '-c', 'task'])
+    for (const [f, v] of Object.entries(files)) await writeFile(join(project, f), v)
+    await commitAll('task 1')
+    await commitAll('task 2').catch(() => {})
+    await git(project, ['switch', '-q', 'main'])
+  }
+  const log1 = async () => (await git(project, ['log', '-1', '--format=%s'])).trim()
+
+  it('干净合并：一个新提交，信息是给的；再合一次没有新提交', async () => {
+    await branchWith({ 'b.txt': 'new\n' })
+    const t = tools()
+    const r = await t.squashMerge(ref, { branch: 'task', message: '改登录页' })
+    expect(r).toMatchObject({ ok: true, merged: true })
+    expect(await log1()).toBe('改登录页')
+    expect(await readFile(join(project, 'b.txt'), 'utf8')).toBe('new\n')
+    const again = await t.squashMerge(ref, { branch: 'task', message: 'x' })
+    expect(again).toMatchObject({ ok: true, merged: false })
+    expect(await log1()).toBe('改登录页')
+  })
+
+  it('冲突：列出文件，工作区不动', async () => {
+    await branchWith({ 'a.txt': 'task\n' })
+    await writeFile(join(project, 'a.txt'), 'main\n')
+    await commitAll('main change')
+    const r = await tools().squashMerge(ref, { branch: 'task', message: 'm' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.failure).toMatchObject({ kind: 'conflict', files: ['a.txt'] })
+    expect(await readFile(join(project, 'a.txt'), 'utf8')).toBe('main\n')
+    expect(await log1()).toBe('main change')
+  })
+
+  it('主目录有改动拒绝；没跟踪的文件撞名报出文件', async () => {
+    await branchWith({ 'b.txt': 'new\n' })
+    await writeFile(join(project, 'a.txt'), 'dirty\n')
+    const dirty = await tools().squashMerge(ref, { branch: 'task', message: 'm' })
+    expect(!dirty.ok && dirty.failure.kind).toBe('dirty')
+    await git(project, ['checkout', '--', 'a.txt'])
+    await writeFile(join(project, 'b.txt'), 'mine\n')
+    const clash = await tools().squashMerge(ref, { branch: 'task', message: 'm' })
+    expect(clash.ok).toBe(false)
+    if (!clash.ok) expect(clash.failure).toMatchObject({ kind: 'dirty', files: ['b.txt'] })
+    expect(await readFile(join(project, 'b.txt'), 'utf8')).toBe('mine\n')
+  })
+
+  it('配了 merge.ff=false 也能合并；主目录有会话在跑时拒绝', async () => {
+    await branchWith({ 'b.txt': 'new\n' })
+    await git(project, ['config', 'merge.ff', 'false'])
+    busy = 1
+    const blocked = await tools().squashMerge(ref, { branch: 'task', message: 'm' })
+    expect(!blocked.ok && blocked.failure.kind).toBe('busy')
+    busy = 0
+    expect(await tools().squashMerge(ref, { branch: 'task', message: 'm' })).toMatchObject({ ok: true, merged: true })
+  })
+
+  it('提交钩子失败：撤回，主目录和合并前一样', async () => {
+    await branchWith({ 'b.txt': 'new\n' })
+    await mkdir(join(project, '.git', 'hooks'), { recursive: true })
+    await writeFile(join(project, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    const r = await tools().squashMerge(ref, { branch: 'task', message: 'm' })
+    expect(!r.ok && r.failure.kind).toBe('hook')
+    expect(await log1()).toBe('base')
+    expect((await git(project, ['status', '--porcelain'])).trim()).toBe('')
+  })
+})

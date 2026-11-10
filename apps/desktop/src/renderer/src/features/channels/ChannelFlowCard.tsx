@@ -12,7 +12,6 @@ import type {
   ChannelFlow,
   FlowAction,
   FlowBrief,
-  FlowUsage,
   FlowStep,
   FlowStepInput,
   FlowStepKind,
@@ -22,11 +21,10 @@ import { MemberAvatar } from './ChannelMessage'
 import { PlannerSwitch, plannerSummary, QuestionsForm } from './PlanParts'
 import { activityView, taskActivity, taskElapsed } from './taskActivity'
 import { ActivityLines } from './ActivityLines'
-import { durText } from './format'
+import { durText, sumUsage, usageText } from './format'
 import { agentActivity, RECENT_STEPS } from '@/features/session/live/agentActivity'
 import { GateActions } from './GateActions'
 import { StartDialog } from './StartDialog'
-import { formatCardCost, formatTokens, costHint } from '@/features/usage/format'
 import { scheduleToInput, type FlowPart } from './model'
 import { channelActions, useChannels } from './store'
 
@@ -199,63 +197,6 @@ function flowTotal(flow: ChannelFlow, tasks: ChannelTask[], now: number): string
   const time = m < 1 ? durText(end - start) : m < 60 ? tr('channels.flow.dur.min', { m }) : durText(end - start)
   const rounds = tasks.reduce((n, t) => n + (t.round ?? 0), 0)
   return rounds > 0 ? tr('channels.flow.dur.total', { time, rounds }) : time
-}
-
-const WHY_KEY = {
-  engine: 'engine',
-  pending: 'pending',
-  platform: 'platform',
-  'no-price': 'noPrice',
-} as const
-
-/** 一步（或整条流程）的用量文字：token + 费用；没有费用时写最常见的原因 */
-function usageText(u: FlowUsage | null | undefined): { text: string; title: string } | null {
-  if (!u || u.records <= 0) return null
-  const tokens = tr('channels.flow.usage.tokens', {
-    n: formatTokens(u.input + u.cacheRead + u.cacheWrite + u.output),
-  })
-  let cost = formatCardCost(u)
-  let title = ''
-  if (u.costKnown === 0) {
-    const top = (Object.entries(u.why) as [keyof typeof WHY_KEY, number][])
-      .filter(([k]) => k in WHY_KEY)
-      .sort((a, b) => b[1] - a[1])[0]?.[0]
-    if (top) {
-      cost += ' ' + tr(`channels.flow.usage.reason.${WHY_KEY[top]}`)
-      title = costHint(top)
-    }
-  }
-  return { text: `${u.unrecorded > 0 ? '≥ ' : ''}${tokens} · ${cost}`, title }
-}
-
-function sumUsage(list: readonly FlowUsage[]): FlowUsage {
-  const t: FlowUsage = {
-    input: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    output: 0,
-    costUsd: 0,
-    costKnown: 0,
-    costActual: 0,
-    records: 0,
-    turns: 0,
-    unrecorded: 0,
-    why: {},
-  }
-  for (const u of list) {
-    t.input += u.input
-    t.cacheRead += u.cacheRead
-    t.cacheWrite += u.cacheWrite
-    t.output += u.output
-    t.costUsd += u.costUsd
-    t.costKnown += u.costKnown
-    t.costActual = (t.costActual ?? 0) + (u.costActual ?? 0)
-    t.records += u.records
-    t.turns += u.turns
-    t.unrecorded += u.unrecorded
-    for (const [k, n] of Object.entries(u.why) as [keyof FlowUsage['why'], number][]) t.why[k] = (t.why[k] ?? 0) + n
-  }
-  return t
 }
 
 /** 花费上限输入框里的数：正数才算，其余 = 不限 */

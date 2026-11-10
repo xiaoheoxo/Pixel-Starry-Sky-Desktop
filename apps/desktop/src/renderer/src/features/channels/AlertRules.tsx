@@ -1,7 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { Select, Switch } from '@/ui'
-import { ALERT_RULES, type ChannelAlertRules } from '../../../../shared/channels/alerts'
+import { ALERT_RULES, STALLED_CHOICES, type ChannelAlertRules } from '../../../../shared/channels/alerts'
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
@@ -9,13 +9,17 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h)
 export function AlertRulesEditor({
   value,
   digestHour,
+  stalledMinutes,
   onChange,
   onDigestHour,
+  onStalledMinutes,
 }: {
   value: ChannelAlertRules
   digestHour: number
+  stalledMinutes: number
   onChange: (next: ChannelAlertRules) => void
   onDigestHour: (hour: number) => void
+  onStalledMinutes: (minutes: number) => void
 }) {
   useI18n()
   return (
@@ -35,6 +39,16 @@ export function AlertRulesEditor({
               value={String(digestHour)}
               options={HOURS.map(h => ({ value: String(h), label: tr('alerts.digestAt', { hour: h }) }))}
               onChange={v => onDigestHour(Number(v))}
+              className="h-7 w-auto"
+              fitContent
+            />
+          )}
+          {rule === 'stalled' && value.stalled && (
+            <Select
+              label={tr('alerts.rule.stalled')}
+              value={String(stalledMinutes)}
+              options={STALLED_CHOICES.map(n => ({ value: String(n), label: tr('alerts.stalledAfter', { n }) }))}
+              onChange={v => onStalledMinutes(Number(v))}
               className="h-7 w-auto"
               fitContent
             />

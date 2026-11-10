@@ -24,6 +24,8 @@ export type SectionId =
   | 'im'
   /** 本机数据目录的占用和清理 */
   | 'storage'
+  /** 本机所有 AI 成员，可全局删除（docs/ui/channels-local-rest.md §3.3 c） */
+  | 'agents'
 
 const IDS: ReadonlySet<string> = new Set<SectionId>([
   'account',
@@ -46,6 +48,7 @@ const IDS: ReadonlySet<string> = new Set<SectionId>([
   'mobile',
   'im',
   'storage',
+  'agents',
 ])
 
 /** 是不是设置的分区名（独立窗口从地址、主进程推送里收到的是字符串） */

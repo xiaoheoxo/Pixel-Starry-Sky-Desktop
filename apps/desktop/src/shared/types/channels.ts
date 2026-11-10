@@ -145,6 +145,11 @@ export interface AgentConfig {
   /** mode=shared 时用的会话 */
   sharedSessionId: string | null
   /**
+   * 每项活一个 Git 副本（docs/ui/channels-local-rest.md §3.1）：只在 mode=per-task、本机成员、没绑 copyId 时生效；
+   * 活做完卡片上可以查看改动、合并回去、开 PR。没写是关
+   */
+  copyPerTask?: boolean
+  /**
    * 从已有的会话加入频道的成员（docs/ui/import-collab.md 第 5 项②）：sharedSessionId 是你自己开的那个会话，
    * 频道派来的活就在里面接着做；没写是频道自己建的成员
    */
@@ -200,8 +205,10 @@ export interface AgentMember {
   warning?: string | null
   /** 最近一项结束的活 */
   last?: { status: ChannelTaskStatus; at: number } | null
-  /** 最近 30 天 */
-  stats?: { total: number; done: number; failed: number }
+  /** 最近 30 天（日历日，和用量页一致）；days 是每天结束了几项，30 格，最后一格是今天 */
+  stats?: { total: number; done: number; failed: number; stopped?: number; days?: number[] }
+  /** 最近 30 天和今天的用量、耗时（毫秒，每轮 durationMs 之和；docs/ui/channels-local-rest.md §3.2）；算不到时没有 */
+  usage?: { month: FlowUsage; today: FlowUsage; ms: number } | null
   /** 和这些成员用同一个工作目录（同时改文件可能冲突） */
   sharesDirWith?: string[]
   /** 从已有会话加入的成员：绑定的会话（标题是会话现在的标题；会话被删了是 null） */
@@ -232,6 +239,12 @@ export interface Channel {
   relay?: boolean
   /** 互相派活什么时候停下等你（docs/ui/relay-limits-mockup.html）；没写按「标准」 */
   relayRules?: RelayRules
+  /** 频道最近 30 天的用量合计（按任务卡记下的轮次算；只有本机频道有） */
+  usage?: FlowUsage | null
+  /** 审查打回上限（docs/ui/channels-local-rest.md §3.3 d）：同一步被打回这么多次后停下等你；没写按 3，只影响之后新建的流程 */
+  maxRejects?: number
+  /** 进行中的活多久没新动静就提醒（分钟）；没写按 15 */
+  stalledMinutes?: number
   /** 牵头成员（docs/ui/channels-pipeline.md §8.3）：不带 @ 的需求交给它拆成流程；null / 没写是不启用 */
   lead?: string | null
   /**
@@ -567,7 +580,10 @@ export interface ChannelTask extends ChannelMessageBase {
   /** Phase C：AI 成员的主人（owner key）；只有主人能同意、回答、打开会话 */
   ownerId?: string
   /** Phase C：派活的人或主人点了取消 / 停止 / 重试，等主人那台电脑执行 */
-  pendingAction?: Exclude<ChannelTaskAction, 'continue' | 'unlimit' | 'fix' | 'reassign'> | null
+  pendingAction?: Exclude<
+    ChannelTaskAction,
+    'continue' | 'unlimit' | 'fix' | 'reassign' | 'merge' | 'pr' | 'resolve'
+  > | null
   /** Phase C：主人的电脑不在线（queued 时显示「上线后开始」） */
   ownerOffline?: boolean
   /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
@@ -580,7 +596,38 @@ export interface ChannelTask extends ChannelMessageBase {
   issue?: { id: string; title: string } | null
   /** 流程里的一步（docs/ui/channels-pipeline.md §4）：流程卡消息 id、步骤 id；拆流程的活 stepId 是空串 */
   flow?: { messageId: string; stepId: string } | null
+  /** 这张卡跑过的轮次（会话 id:轮次 id），按它汇总成员用量（docs/ui/channels-local-rest.md §3.2）；旧卡片没有 */
+  turns?: string[]
+  /**
+   * 这张卡自己的 Git 副本（成员开了 copyPerTask 时建；docs/ui/channels-local-rest.md §3.1）。
+   * baseCommit 是分出副本时的提交，baseBranch 是当时主目录所在的分支（合并回这里；分离 HEAD 时是 null）
+   */
+  copy?: TaskCopy | null
+  /** 副本目录已经删掉（合并后、PR 关闭后）：不能再追加、重试 */
+  copyRemoved?: boolean
+  /** 落地结果：合并了、开了 PR、合并时有冲突 */
+  land?: TaskLand | null
 }
+
+export interface TaskCopy {
+  id: string
+  branch: string
+  path: string
+  baseCommit: string
+  baseBranch: string | null
+}
+
+/** 任务卡的落地结果；pr.state 是最后看到的 PR 状态（侧栏检测不到时用它） */
+export type TaskLand =
+  | { kind: 'merged'; commit: string; base: string; at: number }
+  | {
+      kind: 'pr'
+      url: string
+      number?: number | null
+      state?: 'open' | 'draft' | 'merged' | 'closed' | null
+      at: number
+    }
+  | { kind: 'conflict'; files: string[]; at: number }
 
 /** 把事项交给频道成员（channels:dispatchIssue） */
 export interface IssueDispatch {
@@ -838,7 +885,18 @@ export interface PostInput {
 /** continue：放行被防刷规则拦下的那一跳 */
 /** continue：放行被拦下的接力（计数重新算）；unlimit：放行并且这条接力以后不再拦；fix：把产出检查没过的部分发回去让它修 */
 /** reassign：改派给另一个成员（第三个参数是成员 id），只有本机频道 */
-export type ChannelTaskAction = 'cancel' | 'stop' | 'retry' | 'continue' | 'unlimit' | 'fix' | 'reassign'
+/** merge：把这张卡的副本压成一个提交合并回去；pr：推送副本分支并开 PR；resolve：让成员处理合并冲突（docs/ui/channels-local-rest.md §3.1） */
+export type ChannelTaskAction =
+  | 'cancel'
+  | 'stop'
+  | 'retry'
+  | 'continue'
+  | 'unlimit'
+  | 'fix'
+  | 'reassign'
+  | 'merge'
+  | 'pr'
+  | 'resolve'
 
 /** 成员面板排队控制（docs/ui/channels-local-ai.md #5）：上移 / 下移 / 先做这个 */
 export type ChannelQueueAction = 'up' | 'down' | 'first'

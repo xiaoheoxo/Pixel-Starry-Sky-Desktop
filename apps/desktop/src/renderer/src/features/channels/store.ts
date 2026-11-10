@@ -492,6 +492,9 @@ export const channelActions = {
       /** 主动提醒的规则开关、每日简报几点发（docs/ui/channels-collab-v2.md §6） */
       alerts?: Partial<Record<ChannelAlertRule, boolean>>
       digestHour?: number
+      /** 审查打回上限、多久没进展提醒（docs/ui/channels-local-rest.md §3.3 d） */
+      maxRejects?: number
+      stalledMinutes?: number
       /** 牵头成员（docs/ui/channels-pipeline.md §8.3）；null 是不启用 */
       lead?: string | null
       /** @ 一个 AI 派新活时先出计划 */
@@ -585,7 +588,7 @@ export const channelActions = {
     return channelsBridge ? channelsBridge.removeMember(channelId, memberId) : demo.removeMember(channelId, memberId)
   },
   deleteMember(memberId: string): Promise<void> {
-    return channelsBridge!.deleteMember(memberId)
+    return channelsBridge ? channelsBridge.deleteMember(memberId) : demo.deleteMember(memberId)
   },
   /** 流程卡上的操作（docs/ui/channels-pipeline.md §4.5）；返回流程消息 id。演示模式只改内存，AI 成员不会真的做 */
   async flow(channelId: string, action: FlowAction): Promise<string> {
@@ -796,6 +799,13 @@ const demo = {
           ? { ...m, mine: true, ownerId: self.id, ownerName: self.name, policy: m.policy ?? 'approve' }
           : m,
       ),
+    })
+    return Promise.resolve()
+  },
+  deleteMember(memberId: string): Promise<void> {
+    set({
+      members: state.members.filter(m => m.id !== memberId),
+      channels: state.channels.map(c => ({ ...c, memberIds: c.memberIds.filter(id => id !== memberId) })),
     })
     return Promise.resolve()
   },

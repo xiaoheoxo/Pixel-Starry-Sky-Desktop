@@ -501,6 +501,31 @@ describe('主动提醒（§6）', () => {
     expect(alerts(c, ch)[0].alert?.state).toBe(tasks(c, ch)[0].status === 'waiting' ? 'open' : 'done')
   })
 
+  it('「没进展」按频道设的分钟数提醒：设成 5 分钟，6 分钟没动静就提醒；旧频道按 15 分钟', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('前端'))
+    const ch = await c.create({ name: 'web', memberIds: [a] })
+    expect(c.state().channels.find(x => x.id === ch)).toMatchObject({ maxRejects: 3, stalledMinutes: 15 })
+    await c.update(ch, { stalledMinutes: 5, maxRejects: 99 })
+    // 不认识的值悄悄回到默认
+    expect(c.state().channels.find(x => x.id === ch)).toMatchObject({ maxRejects: 3, stalledMinutes: 5 })
+    await c.post(ch, { text: '@前端 改按钮', clientId: 'go' })
+    await settle()
+    const s = sends()[0]
+    c.hostEvent(
+      ev(s.sessionId, {
+        type: 'item_completed',
+        item: { kind: 'user', id: s.clientMessageId, text: '', createdAt: 0, turnId: 't' },
+      }),
+    )
+    await c.checkAlerts()
+    now += 6 * MIN
+    await c.checkAlerts()
+    const stalled = alerts(c, ch).filter(m => m.alert?.rule === 'stalled')
+    expect(stalled).toHaveLength(1)
+    expect(stalled[0].text).toContain('5 分钟')
+  })
+
   it('同一目录另一项活在做时，要审批的 git checkout 提醒「先暂停它」：点了就拒绝这个请求；不同目录不提醒', async () => {
     const c = await open()
     const a = await c.saveMember(null, agent('前端'))

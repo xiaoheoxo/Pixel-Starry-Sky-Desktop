@@ -379,6 +379,15 @@ export function dispatchPrompt(input: DispatchInput): string {
 }
 
 /** 回复任务卡 = 追加要求：会话里已经有上下文，只带原文（§7.1） */
+/** 任务卡合并有冲突：让成员把基础分支合进自己的分支（docs/ui/channels-local-rest.md §3.1） */
+export function resolvePrompt(locale: Locale, base: string | null, files: readonly string[]): string {
+  const list = files.slice(0, 20).join(', ')
+  const b = base ?? (en(locale) ? 'the main branch' : '主分支')
+  return en(locale)
+    ? `Merging back into ${b} conflicts${list ? ` (${list})` : ''}. Merge ${b} into your branch, resolve the conflicts, run the tests and commit.`
+    : `合并回 ${b} 时有冲突${list ? `（${list}）` : ''}。先把 ${b} 合进你的分支，解决冲突、跑测试、提交。`
+}
+
 export function followUpPrompt(input: { locale: Locale; channel: string; author: string; text: string }): string {
   return en(input.locale)
     ? `${input.text.trim()}\n\n(From #${input.channel}, ${input.author})`

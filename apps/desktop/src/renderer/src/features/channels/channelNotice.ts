@@ -61,3 +61,18 @@ export function taskOfNotice(id: string): { channelId: string; taskId: string } 
   const [prefix, channelId, taskId] = id.split('|')
   return prefix === PREFIX && channelId && taskId ? { channelId, taskId } : null
 }
+
+/**
+ * 右栏「待处理」里频道派出的会话（docs/ui/channels-local-rest.md §3.3 e）：标签写「# 频道 · 成员」，点开回到频道那张卡。
+ * 不是频道的会话（或频道已经删了）返回 null
+ */
+export function channelOfInbox(
+  sessionId: string,
+  s: Pick<ChannelsState, 'sessionTasks' | 'channels' | 'members'>,
+): { channelId: string; taskId: string; label: string } | null {
+  const ref = s.sessionTasks[sessionId]
+  const channel = ref && s.channels.find(c => c.id === ref.channelId)
+  if (!ref || !channel) return null
+  const member = s.members.find(m => m.id === ref.memberId)
+  return { channelId: channel.id, taskId: ref.taskId, label: `# ${channel.name} · ${member?.name ?? '?'}` }
+}

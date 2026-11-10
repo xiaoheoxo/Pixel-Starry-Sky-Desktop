@@ -400,13 +400,22 @@ export type GitAction =
   | 'create'
   | 'operation'
   | 'history'
+  | 'merge'
 export interface GitFailure {
   kind: GitFailureKind
   action: GitAction
   /** git 的原始输出末尾（最多 4000 字） */ detail: string
   remedies: GitRemedy[]
+  /** 压成一个提交合并时涉及的文件：有冲突的（conflict）、和没跟踪的文件同名的（dirty） */ files?: string[]
 }
 export type GitResult = { ok: true; status: GitStatus } | { ok: false; failure: GitFailure; status: GitStatus | null }
+/**
+ * 压成一个提交合并（频道任务卡，docs/ui/channels-local-rest.md §3.1）。commit 是合并后的提交；
+ * merged 为 false：分支的改动主目录里都已经有了（重复合并，或分支没改动），没有新提交，commit 是当前 HEAD
+ */
+export type GitSquashResult =
+  | { ok: true; status: GitStatus; commit: string; merged: boolean }
+  | { ok: false; failure: GitFailure; status: GitStatus | null }
 export type GitPaths = string[] | 'all'
 export type GitPullMode = 'ff-only' | 'rebase' | 'stash'
 

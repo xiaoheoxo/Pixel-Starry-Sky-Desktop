@@ -38,12 +38,14 @@ import type {
   ChannelMessage,
   ChannelNeed,
   ChannelsSnapshot,
+  FlowUsage,
   ChannelSearchResult,
   NeedGone,
   NeedMark,
   ChannelRelay,
   ChannelChatOrigin,
   ChannelTask,
+  TaskCopy,
   ChannelTaskAction,
   ChannelQueueAction,
   ChannelTextMessage,
@@ -64,7 +66,13 @@ import { cleanRelayRules, relayRulesOf, type RelayRules } from '../../../shared/
 import { AGENT_TOOLS_MAX, SYSTEM_AUTHOR, type AgentTools, type ChannelAlert } from '../../../shared/types/channels'
 import { countsUnread, threadMessages, threadRootOf } from '../../../shared/channels/threads'
 import { checkProblems, fixRequest, type CheckRun } from '../../../shared/types/checks'
-import { ACCEPTANCE_MAX, type IssueLink, type ManualTaskStatus } from '../../../shared/types/project-tools'
+import {
+  ACCEPTANCE_MAX,
+  type GitFailure,
+  type GitSquashResult,
+  type IssueLink,
+  type ManualTaskStatus,
+} from '../../../shared/types/project-tools'
 import {
   isReservedMentionName,
   mentionsAll,
@@ -73,10 +81,11 @@ import {
   type Mentionable,
 } from '../../../shared/channels/mentions'
 import { ChannelStore, type StoredChannel } from './store'
-import { addUsage, emptyUsage, knownCost, sumUsage, turnKey } from './flowUsage'
+import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
 import { jsonObjects } from '../json-reply'
 import {
+  DEFAULT_MAX_REJECTS,
   DIGEST_HOUR,
   STALLED_MINUTES,
   UNCLAIMED_MINUTES,
@@ -85,6 +94,8 @@ import {
   alertRulesOf,
   cleanAlertRules,
   cleanDigestHour,
+  cleanMaxRejects,
+  cleanStalledMinutes,
   dangerousCommand,
   type ChannelAlertAction,
 } from '../../../shared/channels/alerts'
@@ -97,6 +108,7 @@ import {
   droppedNote,
   unreachableNote,
   followUpPrompt,
+  resolvePrompt,
   HISTORY_WITH_TOOLS,
   historyLine,
   historyLines,
@@ -119,7 +131,6 @@ import {
 } from './prompt'
 import {
   ASK_TIMEOUT_MS,
-  FLOW_MAX_REJECTS,
   FLOW_TITLE_MAX,
   allDelivered,
   attributeBrief,
@@ -244,6 +255,8 @@ export interface ChannelsDeps {
   ) => Promise<unknown>
   /** false：不开每分钟的提醒巡检（测试） */
   alertTimer?: boolean
+  /** 本机最近 30 天的全部用量记录（成员、频道用量，docs/ui/channels-local-rest.md §3.2）；没接时不算 */
+  usageRecords?: (now: number) => Promise<UsageRecord[]>
   /** 流程里并行的步骤用 Git 副本（docs/ui/channels-pipeline.md §6.4）；没接时都在主目录做 */
   copies?: {
     create(
@@ -261,11 +274,31 @@ export interface ChannelsDeps {
     changed?(projectId: string, branch: string): Promise<string[]>
     /** 在会话所在的目录（副本）里提交全部改动；没东西可提交不算错 */
     commit?(sessionId: string, message: string): Promise<void>
+    /** 主目录现在的分支和提交；不是 Git 仓库是 null，读失败抛错（不能当成干净） */
+    head?(projectId: string): Promise<{ branch: string | null; head: string | null } | null>
+    /** 把分支压成一个提交合并进主目录当前分支（GitTools.squashMerge） */
+    squashMerge?(projectId: string, branch: string, message: string): Promise<GitSquashResult>
+    deleteBranch?(projectId: string, branch: string): Promise<void>
+    /** 推送会话所在副本的分支并开 PR（装了 gh 直接建，没装打开比较页） */
+    openPr?(
+      sessionId: string,
+      input: { path: string; branch: string; title: string; body: string; base: string | null },
+    ): Promise<{ url: string; number?: number | null }>
   }
 }
 
 const terminal = (status: ChannelTask['status']): boolean =>
   status === 'done' || status === 'failed' || status === 'stopped'
+/** 合并失败（冲突以外）的说明 */
+function mergeFailure(f: GitFailure): string {
+  if (f.kind === 'dirty' && f.files?.length)
+    return `主目录里没跟踪的文件和要合并的同名：${f.files.slice(0, 10).join('、')}`
+  if (f.kind === 'dirty') return '主目录有没提交的改动，先提交或收起再合并'
+  if (f.kind === 'unmerged') return '主目录有进行中的合并或变基，先处理完'
+  if (f.kind === 'busy') return '主目录里还有会话在运行，等它停下再合并'
+  if (f.kind === 'hook') return `提交钩子没通过，已撤回：${f.detail.slice(-300)}`
+  return f.detail || f.kind
+}
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 function cleanName(value: unknown, what: string): string {
@@ -382,6 +415,8 @@ export class Channels {
         60_000,
       )
       this.alertTimer.unref?.()
+      // 成员和频道的用量启动时算一次（之后跟着用量记录变）
+      this.usageChanged()
     }
     // 上次退出时还在跑的产出检查不会再有结果：清掉「检查中」
     for (const [channelId, list] of this.store.messages)
@@ -473,15 +508,22 @@ export class Channels {
           : 'idle'
     let total = 0,
       done = 0,
-      failed = 0
+      failed = 0,
+      stopped = 0
+    // 每天派了几项：日历 30 天，最后一格是今天（和用量页一致）
+    const days = new Array<number>(30).fill(0)
+    const today = new Date(now).setHours(0, 0, 0, 0)
+    const since = new Date(today - 29 * DAY + 3_600_000).setHours(0, 0, 0, 0)
     let last: AgentMember['last'] = null
     for (const list of this.store.messages.values())
       for (const m of list) {
         if (m.kind !== 'task' || m.assigneeId !== config.id) continue
-        if (m.at > now - 30 * DAY) {
+        if (m.at >= since) {
           total++
           if (m.status === 'done') done++
           if (m.status === 'failed') failed++
+          if (m.status === 'stopped') stopped++
+          days[Math.min(29, Math.round((new Date(m.at).setHours(0, 0, 0, 0) - since) / DAY))]++
         }
         if (terminal(m.status) && (!last || (m.endedAt ?? m.at) > last.at))
           last = { status: m.status, at: m.endedAt ?? m.at }
@@ -513,7 +555,8 @@ export class Channels {
       queued: runs.filter(r => r.phase === 'waiting').length,
       warning: project ? null : '项目不存在',
       last,
-      stats: { total, done, failed },
+      stats: { total, done, failed, stopped, days },
+      usage: this.memberUsage.get(config.id) ?? null,
       sharesDirWith: shares,
       ...(config.bound ? { boundSession: this.boundSession(config) } : {}),
     }
@@ -560,6 +603,9 @@ export class Channels {
         schedules: c.schedules ?? [],
         alerts: alertRulesOf(c),
         digestHour: c.digestHour ?? DIGEST_HOUR,
+        maxRejects: c.maxRejects ?? DEFAULT_MAX_REJECTS,
+        stalledMinutes: c.stalledMinutes ?? STALLED_MINUTES,
+        usage: this.channelUsage.get(c.id) ?? null,
         project: c.projectId ? (projects.get(c.projectId)?.name ?? null) : null,
         projectId: c.projectId,
         scope: 'local' as const,
@@ -876,6 +922,9 @@ export class Channels {
       /** 主动提醒的规则开关、每日简报几点发（只有本机频道） */
       alerts?: Partial<Record<ChannelAlert['rule'], boolean>>
       digestHour?: number
+      /** 审查打回上限、多久没进展提醒（只有本机频道，docs/ui/channels-local-rest.md §3.3 d） */
+      maxRejects?: number
+      stalledMinutes?: number
     },
   ): Promise<void> {
     const info = this.team?.channelInfo(id)
@@ -944,6 +993,8 @@ export class Channels {
     if (patch.schedules !== undefined) c.schedules = this.cleanSchedules(c, patch.schedules)
     if (patch.alerts !== undefined) c.alerts = cleanAlertRules(patch.alerts)
     if (patch.digestHour !== undefined) c.digestHour = cleanDigestHour(patch.digestHour)
+    if (patch.maxRejects !== undefined) c.maxRejects = cleanMaxRejects(patch.maxRejects)
+    if (patch.stalledMinutes !== undefined) c.stalledMinutes = cleanStalledMinutes(patch.stalledMinutes)
     // 归档时一并标为已读：收起来的频道不再算未读
     if (archiving) {
       c.archivedAt = this.now()
@@ -1040,6 +1091,7 @@ export class Channels {
       machineId,
       projectId: raw.projectId,
       copyId: raw.copyId ?? null,
+      ...(raw.copyPerTask === true ? { copyPerTask: true } : {}),
       settings,
       instructions: (typeof raw.instructions === 'string' ? raw.instructions : '').slice(0, INSTRUCTIONS_MAX),
       mode: raw.mode === 'shared' ? 'shared' : 'per-task',
@@ -1109,14 +1161,40 @@ export class Channels {
     this.changed()
   }
 
-  /** 全局删除成员：有没做完的活时不让删 */
+  /** 删不了这个成员的原因：有没做完的活，或者没结束的流程（步骤、拟计划）里有它；能删时是 null。定时运行不挡：到点会记原因跳过 */
+  private memberInUse(memberId: string): string | null {
+    if ([...this.store.runs.values()].some(r => r.memberId === memberId && r.phase !== 'ended'))
+      return '这个成员还有没做完的活'
+    // 交付了的步骤不再需要它；失败、停下的继续后还会重跑，算还要用
+    const inSteps = (steps: { memberId: string; status: string }[]) =>
+      steps.some(s => s.memberId === memberId && s.status !== 'delivered')
+    for (const c of this.store.channels.values()) {
+      const flow = (this.store.messages.get(c.id) ?? []).some(
+        m =>
+          m.kind === 'message' &&
+          !!m.flow &&
+          m.flow.status !== 'done' &&
+          m.flow.status !== 'stopped' &&
+          ((m.flow.status === 'planning' && m.flow.planner?.memberId === memberId) || inSteps(m.flow.steps)),
+      )
+      if (flow) return '这个成员还在没结束的流程里，流程结束后再删'
+    }
+    return null
+  }
+
+  /** 全局删除成员：有没做完的活、还在没结束的流程里时不让删 */
   async deleteMember(memberId: string): Promise<void> {
     if (!this.member(memberId)) return
-    if ([...this.store.runs.values()].some(r => r.memberId === memberId && r.phase !== 'ended'))
-      throw new Error('这个成员还有没做完的活')
+    const check = () => {
+      const reason = this.memberInUse(memberId)
+      if (reason) throw new Error(reason)
+    }
+    check()
     // 团队频道里登记的同名成员一起撤下（云端不通也不挡本机删除）
     for (const a of this.team?.agentsOfLocal(memberId) ?? [])
       await this.team!.deleteAgent(a.teamId, a.id).catch(e => this.deps.log?.('撤下团队 AI 成员失败', e))
+    // 撤登记期间可能派了新活、建了流程：await 之后再查一次
+    check()
     this.store.members = this.store.members.filter(m => m.id !== memberId)
     await this.store.saveMembers()
     for (const c of this.store.channels.values())
@@ -1183,8 +1261,7 @@ export class Channels {
     if (!member) return
     await this.removeMember(channelId, member.id)
     const elsewhere = [...this.store.channels.values()].some(c => c.memberIds.includes(member.id))
-    const busy = [...this.store.runs.values()].some(r => r.memberId === member.id && r.phase !== 'ended')
-    if (!elsewhere && !busy) await this.deleteMember(member.id)
+    if (!elsewhere && !this.memberInUse(member.id)) await this.deleteMember(member.id)
   }
 
   // -------------------------------------------------------------------------
@@ -1257,6 +1334,12 @@ export class Channels {
       ...(threadId ? { threadId } : {}),
       mentions: only ? [only] : parseMentions(text, members).filter(id => id !== SELF_ID),
     }
+    const agents = (message.mentions ?? []).filter(id => this.member(id))
+    // 讨论串里：@ 同一个成员 = 追加要求，不 @ 只是留言（docs/ui/channels-collab-v2.md §3）；引用卡片照旧，不 @ 也算追加要求
+    const target = this.replyTask(channelId, threadId ?? replyToId)
+    const following = !!target && (!threadId || agents.length > 0) && agents.every(id => id === target.assigneeId)
+    // 合并中、已合并的卡不能再追加：写进频道之前拦下
+    if (target && following && this.landLocked(target)) throw new Error('这张卡已经合并回去了，不能再追加')
     if (images.length || files.length) {
       // 全文先写好再追加消息：消息出现时附件一定读得到
       await this.store.saveAttachments(channelId, message.id, { images, files })
@@ -1272,12 +1355,9 @@ export class Channels {
     // 聊天里发的不算看过：人不在电脑前，这之前的新消息还要提示
     if (latest) await this.store.saveChannel({ ...latest, relayResetAt: now, ...(via ? {} : { readAt: now }) })
     this.pushMessage(message)
-    const agents = (message.mentions ?? []).filter(id => this.member(id))
-    // 讨论串里：@ 同一个成员 = 追加要求，不 @ 只是留言（docs/ui/channels-collab-v2.md §3）；引用卡片照旧，不 @ 也算追加要求
-    const target = this.replyTask(channelId, threadId ?? replyToId)
     const tasks: string[] = []
     let planning = false
-    if (target && (!threadId || agents.length > 0) && agents.every(id => id === target.assigneeId)) {
+    if (target && following) {
       this.followUp(c, target, message)
       tasks.push(target.id)
     } else if (!only && this.planTakes(c, message, agents)) {
@@ -1723,6 +1803,8 @@ export class Channels {
     /** 流程：这一轮另外要带的运行信息（盖过从上一轮带过来的） */
     extra?: Partial<TaskRun>,
   ): void {
+    // 合并中、已合并（副本删了）的卡不能再追加
+    if (this.landLocked(task)) throw new Error('这张卡已经合并回去了，不能再追加')
     // 团队活：云端任务卡的轮次可能已经被追加要求加过了
     const round = team ? Math.max((run?.round ?? task.round ?? 1) + 1, task.round ?? 0) : (task.round ?? 1) + 1
     const next: TaskRun = {
@@ -1927,7 +2009,11 @@ export class Channels {
             : null
         if (!sessionId) {
           // 流程里的一步：先定在哪做（并行时建副本），提示词按实际的位置写
-          const ws = current.flow?.stepId ? await this.flowWorkspace(current, member) : null
+          const ws = current.flow?.stepId
+            ? await this.flowWorkspace(current, member)
+            : !current.flow && !current.team
+              ? { copyId: await this.taskCopy(current, member), prompt: null }
+              : null
           sessionId = await this.createSession(
             member,
             task.title,
@@ -2031,6 +2117,9 @@ export class Channels {
         if (diff) patch.diff = diff
       }
       if (finish.status === 'done') {
+        // 单卡副本：活做完先提交一次，「查看改动」才看得到全部
+        if (task.copy && !task.copyRemoved && run.sessionId && this.deps.copies?.commit)
+          void this.deps.copies.commit(run.sessionId, task.title).catch(e => this.deps.log?.('任务卡副本提交失败', e))
         const reply = run.reply?.trim() ?? ''
         const locale = this.deps.locale()
         patch.summary = reply ? summaryOf(reply) : locale === 'en-US' ? 'No reply text' : '没有回复文字'
@@ -2784,21 +2873,140 @@ export class Channels {
       // 流程卡上提示一次
       if (!plan.base && !m.flow.wip && (await copies.dirty(member.projectId, true).catch(() => false)))
         this.updateFlow(run.channelId, run.flow!.messageId, f => ({ ...f, wip: this.projectPath(member) }))
-      const input = { name: plan.name, branch: plan.branch, base: plan.base ?? '' }
-      try {
-        copy = await copies.create(member.projectId, input)
-      } catch (error) {
-        const text = message(error)
-        // 不是 Git 仓库：在主目录做（同目录的冲突提醒照旧）；上次没建成留下的分支：接着用
-        if (/不是可用的 Git 仓库/.test(text)) return { prompt: prompt(null) }
-        if (!/分支已经存在/.test(text)) throw error
-        copy = await copies.create(member.projectId, { ...input, existingBranch: true })
-      }
+      // 不是 Git 仓库：在主目录做（同目录的冲突提醒照旧）
+      copy = await this.createCopy(member.projectId, { name: plan.name, branch: plan.branch, base: plan.base ?? '' })
+      if (!copy) return { prompt: prompt(null) }
     }
     const saved = { id: copy!.id, branch: copy!.branch, path: copy!.path }
     if (step.copy?.id !== saved.id)
       this.updateFlow(run.channelId, run.flow!.messageId, f => withStep(f, step.id, { copy: saved }))
     return { copyId: saved.id, prompt: prompt({ kind: 'reuse', copy: saved }) }
+  }
+
+  /** 建副本：不是 Git 仓库返回 null（在主目录做）；上次没建成留下的分支接着用 */
+  private async createCopy(
+    projectId: string,
+    input: { name: string; branch: string; base: string },
+  ): Promise<{ id: string; branch: string; path: string } | null> {
+    const copies = this.deps.copies!
+    try {
+      return await copies.create(projectId, input)
+    } catch (error) {
+      const text = message(error)
+      if (/不是可用的 Git 仓库/.test(text)) return null
+      if (!/分支已经存在/.test(text)) throw error
+      return copies.create(projectId, { ...input, existingBranch: true })
+    }
+  }
+
+  /** 单张任务卡的副本（成员开了「每项活一个 Git 副本」，docs/ui/channels-local-rest.md §3.1）；重试、追加沿用 */
+  private async taskCopy(run: TaskRun, member: AgentConfig): Promise<string | undefined> {
+    const task = this.store.task(run.taskId)
+    if (task?.copy) return task.copyRemoved ? undefined : task.copy.id
+    const copies = this.deps.copies
+    if (
+      !task ||
+      !copies ||
+      !member.copyPerTask ||
+      member.mode !== 'per-task' ||
+      member.machineId !== 'local' ||
+      member.copyId
+    )
+      return undefined
+    const main = copies.head ? await copies.head(member.projectId) : null
+    const tag = task.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)
+    const copy = await this.createCopy(member.projectId, {
+      name: `task-${tag}`,
+      branch: `pixelsky/task-${tag}`,
+      base: '',
+    })
+    if (!copy) return undefined
+    const saved: TaskCopy = { ...copy, baseCommit: main?.head ?? '', baseBranch: main?.branch ?? null }
+    this.patch(task.channelId, task.id, { copy: saved })
+    return saved.id
+  }
+
+  private readonly landing = new Set<string>()
+  private landLocked(task: ChannelTask): boolean {
+    return task.land?.kind === 'merged' || this.landing.has(task.id)
+  }
+
+  /** 合并回去 / 开 PR（docs/ui/channels-local-rest.md §3.1）：每张卡一次一个；每段 await 后核对卡片还是那一轮、没落地 */
+  private async landTask(task: ChannelTask, action: 'merge' | 'pr'): Promise<void> {
+    const copies = this.deps.copies
+    const member = this.member(task.assigneeId)
+    const copy = task.copy
+    if (task.status !== 'done' || !copy || task.copyRemoved || task.land?.kind === 'merged' || !member || !copies)
+      throw new Error('这张卡现在不能合并')
+    if (action === 'pr' && task.land?.kind === 'pr') throw new Error('已经开过 PR 了')
+    this.writable(task.channelId)
+    if (this.landing.has(task.id)) throw new Error('正在合并，稍等')
+    this.landing.add(task.id)
+    const fresh = (): void => {
+      const t = this.store.task(task.id)
+      const run = this.store.runs.get(task.id)
+      if (
+        !t ||
+        t.round !== task.round ||
+        t.status !== 'done' ||
+        (run && run.phase !== 'ended') ||
+        t.land?.kind === 'merged'
+      )
+        throw new Error('这张卡在合并期间变了，请重新操作')
+    }
+    try {
+      // 成员忘了提交的也算进去
+      if (task.sessionId && copies.commit)
+        await copies.commit(task.sessionId, task.title).catch(e => this.deps.log?.('任务卡副本提交失败', e))
+      fresh()
+      const body = task.summary ?? ''
+      if (action === 'pr') {
+        if (!task.sessionId || !copies.openPr) throw new Error('这张卡没有会话，开不了 PR')
+        const pr = await copies.openPr(task.sessionId, {
+          path: copy.path,
+          branch: copy.branch,
+          title: task.title,
+          body,
+          base: copy.baseBranch,
+        })
+        fresh()
+        // shortcut: PR 合并 / 关闭后不自动删副本、不跟踪状态；要的话接侧栏的 PR 检测（sessionStatus:changed）
+        this.patch(task.channelId, task.id, {
+          land: { kind: 'pr', url: pr.url, number: pr.number ?? null, state: 'open', at: this.now() },
+        })
+        return
+      }
+      if (!copies.head || !copies.squashMerge) throw new Error('现在不能合并')
+      const main = await copies.head(member.projectId)
+      if (!main) throw new Error('项目目录不是 Git 仓库')
+      if (!main.branch) throw new Error('主目录是分离 HEAD，先切到一个分支再合并')
+      if (copy.baseBranch && main.branch !== copy.baseBranch)
+        throw new Error(`主目录现在在「${main.branch}」，切回「${copy.baseBranch}」再合并`)
+      fresh()
+      const r = await copies.squashMerge(member.projectId, copy.branch, [task.title, body].filter(Boolean).join('\n\n'))
+      fresh()
+      if (!r.ok) {
+        if (r.failure.kind !== 'conflict') throw new Error(mergeFailure(r.failure))
+        this.patch(task.channelId, task.id, {
+          land: { kind: 'conflict', files: r.failure.files ?? [], at: this.now() },
+        })
+        return
+      }
+      // 先删副本再删分支：分支被副本检出时删不掉
+      let removed = true
+      await copies.remove(copy.id).catch(e => {
+        removed = false
+        this.deps.log?.('合并后删副本失败', e)
+      })
+      if (removed && copies.deleteBranch)
+        await copies.deleteBranch(member.projectId, copy.branch).catch(e => this.deps.log?.('合并后删分支失败', e))
+      this.patch(task.channelId, task.id, {
+        land: { kind: 'merged', commit: r.commit, base: main.branch, at: this.now() },
+        ...(removed ? { copyRemoved: true } : {}),
+      })
+    } finally {
+      this.landing.delete(task.id)
+    }
   }
 
   /** ids：步骤 id 或分支名。副本里只有那一步的改动，全部提交；提交失败只记日志（合并的人会看到没提交的） */
@@ -3194,6 +3402,7 @@ export class Channels {
     const member = this.member(run.memberId)
     const root = (
       step?.copy?.path ??
+      this.store.task(run.taskId)?.copy?.path ??
       (member && !member.copyId ? this.deps.projects().find(x => x.id === member.projectId)?.path : undefined)
     )
       ?.replace(/\\/g, '/')
@@ -3413,6 +3622,7 @@ export class Channels {
     this.usageTimer = setTimeout(() => {
       this.usageTimer = null
       void this.refreshUsage().catch(e => this.deps.log?.('流程用量刷新失败', e))
+      void this.refreshMemberUsage().catch(e => this.deps.log?.('成员用量刷新失败', e))
     }, USAGE_DEBOUNCE_MS)
     this.usageTimer.unref?.()
   }
@@ -3470,6 +3680,42 @@ export class Channels {
         void this.refreshUsage().catch(e => this.deps.log?.('流程用量刷新失败', e))
       }
     }
+  }
+
+  /** 成员、频道最近 30 天的用量（只在内存，state() 查表） */
+  private memberUsage = new Map<string, NonNullable<AgentMember['usage']>>()
+  private channelUsage = new Map<string, FlowUsage>()
+  private memberUsageBusy: Promise<void> = Promise.resolve()
+
+  /** 按任务卡记下的轮次汇总成员和频道的用量（docs/ui/channels-local-rest.md §3.2）；排在上一次后面，上一次失败不影响这次 */
+  refreshMemberUsage(): Promise<void> {
+    const next = this.memberUsageBusy.catch(() => {}).then(() => this.computeMemberUsage())
+    this.memberUsageBusy = next
+    return next
+  }
+
+  private async computeMemberUsage(): Promise<void> {
+    const now = this.now()
+    const byMember = new Map<string, string[]>()
+    const byChannel = new Map<string, string[]>()
+    for (const [channelId, list] of this.store.messages)
+      for (const m of list)
+        if (m.kind === 'task' && m.turns?.length) {
+          byMember.set(m.assigneeId, [...(byMember.get(m.assigneeId) ?? []), ...m.turns])
+          byChannel.set(channelId, [...(byChannel.get(channelId) ?? []), ...m.turns])
+        }
+    if (!byMember.size && !this.memberUsage.size) return
+    // shortcut: 只读本机的用量记录，SSH 成员的轮次算「没记录」；有人要再按机器各读一次
+    const records = (await this.deps.usageRecords?.(now)) ?? []
+    const today = new Date(now).setHours(0, 0, 0, 0)
+    const members = new Map([...byMember].map(([id, keys]) => [id, rangeUsage(records, keys, today)]))
+    const channels = new Map([...byChannel].map(([id, keys]) => [id, rangeUsage(records, keys, today).month]))
+    const same =
+      JSON.stringify([...members]) === JSON.stringify([...this.memberUsage]) &&
+      JSON.stringify([...channels]) === JSON.stringify([...this.channelUsage])
+    this.memberUsage = members
+    this.channelUsage = channels
+    if (!same) this.changed()
   }
 
   /** 一个会话最近 30 天的用量记录 */
@@ -3784,7 +4030,8 @@ export class Channels {
           title,
           status: planner ? 'planning' : 'draft',
           steps,
-          maxRejects: FLOW_MAX_REJECTS,
+          // 建的时候存一份：之后改频道设置不影响已有的流程
+          maxRejects: c.maxRejects ?? DEFAULT_MAX_REJECTS,
           planner,
           ...(source?.attached ? { attach: [source.id] } : {}),
           ...(limits ? { limits } : {}),
@@ -4076,7 +4323,10 @@ export class Channels {
     if (!member) return []
     // 实际的副本：流程步骤自己的副本优先，其次成员绑的
     const where = (r: TaskRun, m: AgentConfig) =>
-      (r.flow ? this.flowStepOf(r)?.copy?.id : undefined) ?? m.copyId ?? null
+      (r.flow ? this.flowStepOf(r)?.copy?.id : undefined) ??
+      (this.store.task(r.taskId)?.copyRemoved ? undefined : this.store.task(r.taskId)?.copy?.id) ??
+      m.copyId ??
+      null
     const mine = where(run, member)
     return [...this.store.runs.values()].filter(r => {
       if (r.taskId === run.taskId || r.phase !== 'sent' || r.team) return false
@@ -4151,6 +4401,7 @@ export class Channels {
     for (const c of [...this.store.channels.values()]) {
       if (c.archivedAt) continue
       const rules = alertRulesOf(c)
+      const stalled = c.stalledMinutes ?? STALLED_MINUTES
       const list = this.store.messages.get(c.id) ?? []
       for (const m of list) {
         if (m.kind !== 'task') continue
@@ -4171,13 +4422,13 @@ export class Channels {
         if (rules.stalled && m.status === 'running' && run?.phase === 'sent' && run.started) {
           const last = this.seen.get(m.id)
           if (last === undefined) this.seen.set(m.id, now)
-          else if (now - last >= STALLED_MINUTES * 60_000)
+          else if (now - last >= stalled * 60_000)
             await this.postAlert(
               c,
               { rule: 'stalled', state: 'open', taskId: m.id, sig: `${m.round ?? 1}:${last}` },
               en
-                ? `"${m.title}" has had no new output for ${STALLED_MINUTES}+ minutes.`
-                : `「${m.title}」已经 ${STALLED_MINUTES} 分钟没有新进展了。`,
+                ? `"${m.title}" has had no new output for ${stalled}+ minutes.`
+                : `「${m.title}」已经 ${stalled} 分钟没有新进展了。`,
             )
         }
         if (rules.unclaimed && m.status === 'queued' && !m.relay?.held && run?.phase === 'waiting') {
@@ -4326,6 +4577,13 @@ export class Channels {
         return !s || s.turns?.includes(key) ? f : withStep(f, stepId, { turns: [...(s.turns ?? []), key] })
       })
     }
+    // 本机任务卡也记轮次，成员和频道的用量按它汇总（docs/ui/channels-local-rest.md §3.2）
+    if (!tracked.run.team && turn && turn !== run.turnId && tracked.run.sessionId) {
+      const key = turnKey(tracked.run.sessionId, turn)
+      const task = this.store.task(run.taskId)
+      if (task && !task.turns?.includes(key))
+        this.store.patchTask(run.channelId, run.taskId, { turns: [...(task.turns ?? []), key] })
+    }
     if (tracked.run !== run) {
       this.store.runs.set(run.taskId, tracked.run)
       this.saveRuns(!tracked.finish && tracked.run.started === run.started)
@@ -4377,8 +4635,8 @@ export class Channels {
   async taskAction(taskId: string, action: ChannelTaskAction, memberId?: string): Promise<void> {
     // 团队卡：请求记在云端卡片上，由主人的电脑执行
     if (this.team?.card(taskId)) {
-      // 团队频道没有 AI 互相派活，也就没有被拦下的接力；也没有牵头分派
-      if (action === 'continue' || action === 'unlimit' || action === 'fix' || action === 'reassign') return
+      // 团队频道没有 AI 互相派活，也就没有被拦下的接力；也没有牵头分派、单卡副本
+      if (action !== 'cancel' && action !== 'stop' && action !== 'retry') return
       await this.team.taskCall(taskId, teamId => this.team!.api.action(teamId, taskId, action))
       return
     }
@@ -4424,6 +4682,22 @@ export class Channels {
       await this.store.saveChannel({ ...c, relayResetAt: this.now(), ...(free ? { relayFree: free } : {}) })
       this.patch(task.channelId, task.id, { relay: { ...task.relay, held: null, limit: undefined } })
       void this.pump(run.memberId)
+      return
+    }
+    if (action === 'merge' || action === 'pr') return this.landTask(task, action)
+    if (action === 'resolve') {
+      // 合并有冲突：让成员把基础分支合进来，做完再由你点合并
+      if (task.land?.kind !== 'conflict' || !task.copy || !terminal(task.status) || !this.member(task.assigneeId))
+        return
+      const c = this.writable(task.channelId)
+      const text = followUpPrompt({
+        locale: this.deps.locale(),
+        channel: c.name,
+        author: this.nameOf(SELF_ID),
+        text: resolvePrompt(this.deps.locale(), task.copy.baseBranch, task.land.files),
+      })
+      this.nextRound(task, run ?? null, text, text)
+      this.patch(task.channelId, task.id, { land: null })
       return
     }
     if (action === 'fix') {

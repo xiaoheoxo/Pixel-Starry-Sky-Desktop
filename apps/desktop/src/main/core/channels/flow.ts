@@ -12,7 +12,6 @@ import type {
 } from '../../../shared/types/channels'
 
 export const FLOW_MAX_STEPS = 9
-export const FLOW_MAX_REJECTS = 3
 export const FLOW_TITLE_MAX = 60
 /** 等别的成员回答超过这么久：流程停下等你看 */
 export const ASK_TIMEOUT_MS = 30 * 60_000
