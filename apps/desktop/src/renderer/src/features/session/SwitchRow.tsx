@@ -15,6 +15,7 @@ export function SwitchRow({
   tone,
   onChange,
   control,
+  tip,
 }: {
   icon?: ReactNode
   label: string
@@ -28,6 +29,8 @@ export function SwitchRow({
   onChange?: (on: boolean) => void
   /** 换掉默认的开关（Fast 行要能按住） */
   control?: ReactNode
+  /** 名字后面的「?」（功能提示） */
+  tip?: ReactNode
 }) {
   useI18n()
   return (
@@ -36,6 +39,7 @@ export function SwitchRow({
         <span className="flex items-center gap-1.5 text-ui text-fg">
           {icon}
           <span className={cn(tone === 'ultracode' && checked && 'effort-max ultracode-glow')}>{label}</span>
+          {tip}
           {pending && (
             <span className="rounded-sm bg-subtle px-1.5 text-label leading-5 whitespace-nowrap text-fg-muted">
               {pending}

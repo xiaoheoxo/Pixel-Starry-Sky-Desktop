@@ -1,6 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { FeatureTip } from '@/features/tips/FeatureTip'
 import { Check, Plus, Settings2, Workflow, X } from 'lucide-react'
 import type { Effort } from '@pixelsky/protocol'
 import { Button, cn, IconButton, Popover, Segmented, Select, Spinner, useToast, type SelectOption } from '@/ui'
@@ -547,6 +548,7 @@ function DraftEditor({
       <p className="mb-1 flex items-center gap-1.5 text-meta text-fg-muted">
         <Workflow size={13} strokeWidth={1.75} className="shrink-0" />
         <span className="min-w-0">{tr(flow.planner ? 'channels.flow.proposalHint' : 'channels.flow.draftHint')}</span>
+        {!readOnly && <FeatureTip id="flow" />}
       </p>
       <input
         aria-label={tr('channels.flow.titleLabel')}

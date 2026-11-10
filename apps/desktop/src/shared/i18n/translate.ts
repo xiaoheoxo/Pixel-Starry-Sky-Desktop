@@ -46,6 +46,7 @@ import { modelChannelMessages } from './modelChannelMessages'
 import { fullAccessMessages } from './fullAccessMessages'
 import { htmlPreviewMessages } from './htmlPreviewMessages'
 import { portPreviewMessages } from './portPreviewMessages'
+import { tipsMessages } from './tipsMessages'
 import { recoveryMessages } from './recoveryMessages'
 import { pathClickMessages } from './pathClickMessages'
 import { contextMenuMessages } from './contextMenuMessages'
@@ -129,6 +130,7 @@ export const allMessages = {
   ...fullAccessMessages,
   ...htmlPreviewMessages,
   ...portPreviewMessages,
+  ...tipsMessages,
   ...recoveryMessages,
   ...pathClickMessages,
   ...contextMenuMessages,

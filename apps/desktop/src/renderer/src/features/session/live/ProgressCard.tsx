@@ -22,6 +22,7 @@ import { activityTooltip, agentActivity, agoText } from './agentActivity'
 import { useFirstSeen } from './useFirstSeen'
 import { useOpenTrace } from './trace'
 import { effortLabel } from '@/features/engine/labels'
+import { FeatureTip } from '@/features/tips/FeatureTip'
 
 const COLLAPSED_KEY = 'pixelsky.progress.collapsed'
 /** 顶部那一条占的高度：上边距 12 + 条高 36 */
@@ -435,8 +436,10 @@ export function ProgressCard({
   useEffect(() => {
     if (!over) return
     const down = (e: PointerEvent): void => {
-      const target = e.target as Node
-      if (!card.current?.contains(target) && !stripBox.current?.contains(target)) setPeek(false)
+      const target = e.target as Element
+      // 卡片里弹出的层（功能提示）画在 body 上，点它不算点别处
+      if (!card.current?.contains(target) && !stripBox.current?.contains(target) && !target.closest?.('[data-popover]'))
+        setPeek(false)
     }
     document.addEventListener('pointerdown', down, true)
     return () => document.removeEventListener('pointerdown', down, true)
@@ -578,15 +581,18 @@ export function ProgressCard({
             </div>
           )}
           {onConfigure && open && (
-            <button
-              type="button"
-              onClick={onConfigure}
-              className="mx-3 mt-2 rounded-sm py-1 text-left text-meta text-accent-fg hover:bg-hover"
-            >
-              {tr(overrideCount ? 'subagentRoute.session.overridden' : 'subagentRoute.session.title', {
-                n: overrideCount,
-              })}
-            </button>
+            <div className="mx-3 mt-2 flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onConfigure}
+                className="rounded-sm py-1 text-left text-meta text-accent-fg hover:bg-hover"
+              >
+                {tr(overrideCount ? 'subagentRoute.session.overridden' : 'subagentRoute.session.title', {
+                  n: overrideCount,
+                })}
+              </button>
+              <FeatureTip id="subagent" />
+            </div>
           )}
         </section>
       )}

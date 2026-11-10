@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import type { QueuedMessage } from '@pixelsky/protocol'
 import { Button, IconButton, Spinner, cn } from '@/ui'
+import { FeatureTip } from '@/features/tips/FeatureTip'
 import { effortLabel, type ComposerController, type QueueController } from '@/features/engine'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
@@ -187,6 +188,7 @@ export function QueuedMessages({
         ) : (
           <span className="shrink-0">{title}</span>
         )}
+        <FeatureTip id="queue" />
         {common && (
           <span className="min-w-0 truncate text-fg-faint" title={tr('session.QueuedMessages.modelEffortAndCredit')}>
             · {common}

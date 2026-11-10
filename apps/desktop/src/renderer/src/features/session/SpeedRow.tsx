@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { Rocket, Zap } from 'lucide-react'
 import { cn } from '@/ui'
 import { SwitchRow } from './SwitchRow'
+import { FeatureTip } from '@/features/tips/FeatureTip'
 
 export type Speed = 'off' | 'fast' | 'ultrafast'
 
@@ -135,6 +136,7 @@ export function SpeedRow({
         </span>
       }
       label={ultrafast ? 'Ultrafast' : tr('session.ComposerMenus.fastMode')}
+      tip={<FeatureTip id="fast" />}
       pending={pending && !holding && !tooShort ? tr('codex.fastPending') : undefined}
       desc={
         holding

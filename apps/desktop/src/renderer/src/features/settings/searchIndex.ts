@@ -441,6 +441,15 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   {
     section: 'appearance',
     get title() {
+      return tr('tips.setting.title')
+    },
+    get keywords() {
+      return tr('tips.setting.keywords')
+    },
+  },
+  {
+    section: 'appearance',
+    get title() {
       return tr('session.fold.setting.title')
     },
     get keywords() {
