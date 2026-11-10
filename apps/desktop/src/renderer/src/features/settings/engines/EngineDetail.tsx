@@ -252,20 +252,25 @@ export function EngineDetail({
         />
       </Group>
 
-      {e.caps.launchSettings && (
+      {/* Codex 没有 launchSettings，但输入预测在这一组：只按 launchSettings 判断会让它整组不显示 */}
+      {(e.caps.launchSettings || e.id === 'codex') && (
         <Group title={tr('settings.engines.EngineDetail.conversation')}>
-          <OutputStyleRow engine={e} value={config.outputStyle} onChange={outputStyle => run({ outputStyle })} />
-          <Row
-            title={tr('settings.engines.EngineDetail.allowQuestionsDuringTasks')}
-            description={tr('settings.engines.EngineDetail.onPauseToAsk')}
-            control={
-              <Switch
-                checked={config.askQuestions}
-                label={tr('settings.engines.EngineDetail.allowQuestionsDuringTasks')}
-                onChange={on => run({ askQuestions: on })}
+          {e.caps.launchSettings && (
+            <>
+              <OutputStyleRow engine={e} value={config.outputStyle} onChange={outputStyle => run({ outputStyle })} />
+              <Row
+                title={tr('settings.engines.EngineDetail.allowQuestionsDuringTasks')}
+                description={tr('settings.engines.EngineDetail.onPauseToAsk')}
+                control={
+                  <Switch
+                    checked={config.askQuestions}
+                    label={tr('settings.engines.EngineDetail.allowQuestionsDuringTasks')}
+                    onChange={on => run({ askQuestions: on })}
+                  />
+                }
               />
-            }
-          />
+            </>
+          )}
           {/* 输入预测（docs/ui/codex-input-prediction.md）：实验，默认关 */}
           {e.id === 'codex' && (
             <Row
