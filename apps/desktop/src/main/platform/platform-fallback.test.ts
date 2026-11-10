@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '', on: () => undefined } }))
+vi.mock('../app/data-dir', () => ({ dataRoot: () => '', localRoot: () => '' }))
 
 const platform = vi.hoisted(() => ({
   email: 'me@pixel.test' as string | null,

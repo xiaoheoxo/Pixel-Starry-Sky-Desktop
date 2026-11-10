@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: { getPath: () => '', on: () => undefined } }))
+vi.mock('../app/data-dir', () => ({ dataRoot: () => '', localRoot: () => '' }))
 
 const { clearGatewaySettings, groupKey } = await import('./platform')
 

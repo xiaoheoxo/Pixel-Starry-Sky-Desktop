@@ -9,6 +9,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => tmpdir() },
   net: { fetch: vi.fn() },
 }))
+vi.mock('../app/data-dir', () => ({ dataRoot: () => tmpdir(), localRoot: () => tmpdir() }))
 vi.mock('../account/account', () => ({ baseUrl: () => 'http://127.0.0.1:9' }))
 
 const { createIconStore, ICON_MAX_BYTES } = await import('./market/icons')

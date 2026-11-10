@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: {}, BrowserWindow: {}, clipboard: {}, dialog: {}, shell: {} }))
+vi.mock('../app/data-dir', () => ({ dataRoot: () => '', localRoot: () => '' }))
 vi.mock('../core/editors', () => ({ Editors: class {} }))
 vi.mock('../ipc/guard', () => ({ handle: vi.fn() }))
 

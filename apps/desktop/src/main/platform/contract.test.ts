@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   paths: [] as string[],
 }))
 vi.mock('electron', () => ({ app: { getPath: () => '', isPackaged: false }, shell: { openExternal: vi.fn() } }))
+vi.mock('../app/data-dir', () => ({ dataRoot: () => '', localRoot: () => '' }))
 vi.mock('../account/account', () => ({
   signedInEmail: () => 'alice@example.com',
   accountEpoch: () => 1,
