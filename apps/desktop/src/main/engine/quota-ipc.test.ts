@@ -25,8 +25,8 @@ beforeEach(() => {
 })
 
 describe('quota IPC', () => {
-  it('只注册 quota:get 和 quota:refresh（quota:changed 是推送）', () => {
-    expect([...mocks.handlers.keys()].sort()).toEqual(['quota:get', 'quota:refresh'])
+  it('注册 quota:get、quota:refresh、quota:useResetCredit（quota:changed 是推送）', () => {
+    expect([...mocks.handlers.keys()].sort()).toEqual(['quota:get', 'quota:refresh', 'quota:useResetCredit'])
   })
 
   it('provider 只认 claude / chatgpt，其它抛「参数不对」，不碰宿主', () => {

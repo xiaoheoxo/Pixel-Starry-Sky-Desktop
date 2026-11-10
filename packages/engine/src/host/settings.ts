@@ -24,6 +24,7 @@ import {
   type EngineUpdateResult,
   type InputPrediction,
   type PeekScope,
+  type ResetCreditAuto,
   type SessionDefaults,
   type SessionRecord,
 } from '@pixelsky/protocol'
@@ -105,6 +106,16 @@ export function jobPhase(line: string, current: EngineJob['phase']): EngineJob['
 }
 
 const log = logger('engine')
+
+/** 界面只给这几档；设置文件手改成别的值当成没开 */
+const validResetAuto = (r: unknown): r is ResetCreditAuto => {
+  const o = (r ?? {}) as Record<string, unknown>
+  return (
+    [80, 90, 95, 100].includes(o.threshold as number) &&
+    [0, 12, 24, 48].includes(o.minLeftHours as number) &&
+    [1, 2].includes(o.perWeek as number)
+  )
+}
 
 export class HostSettings {
   /** 当前设置；只整体替换，不原地修改 */
@@ -237,6 +248,25 @@ export class HostSettings {
     return record.provider || o.autoCompactPct || Object.keys(windows).length ? `|${record.model ?? ''}` : ''
   }
 
+  /** Codex 周限快到时自动用重置卡的规则（docs/ui/codex-reset-card.md）；设置文件可手改，读出来再过一遍 */
+  resetCreditAuto(): ResetCreditAuto | null {
+    const r = this.file.options.codex?.resetCreditAuto
+    return r && validResetAuto(r) ? { ...r } : null
+  }
+
+  /** 这个周期（周限恢复时间）已经自动用了几张 */
+  resetCreditUsed(period: number): number {
+    const u = this.file.options.codex?.resetCreditUsed
+    return u && u.period === period ? u.count : 0
+  }
+
+  noteResetCreditUsed(period: number): void {
+    const options = { ...(this.file.options.codex ?? {}) }
+    options.resetCreditUsed = { period, count: this.resetCreditUsed(period) + 1 }
+    this.file = { ...this.file, options: { ...this.file.options, codex: options } }
+    this.ctx.store.saveSettings(this.file)
+  }
+
   engineConfig(): EngineConfig {
     const one = (id: EngineId): EngineLocalConfig => ({
       path: this.file.paths[id] ?? null,
@@ -246,6 +276,7 @@ export class HostSettings {
       ...this.launchOptions(id),
       hidden: this.file.options[id]?.hidden === true && id !== this.file.defaults.engine,
       rememberChoices: this.remembersChoices(id),
+      resetCreditAuto: id === 'codex' ? this.resetCreditAuto() : null,
     })
     return Object.fromEntries(ENGINE_ORDER.map(id => [id, one(id)])) as EngineConfig
   }
@@ -360,6 +391,12 @@ export class HostSettings {
       if (!INPUT_PREDICTIONS.includes(patch.inputPrediction)) throw new Error('「输入预测」的值不对')
       if (patch.inputPrediction === 'off') delete options.inputPrediction
       else options.inputPrediction = patch.inputPrediction
+    }
+    if (patch.resetCreditAuto !== undefined) {
+      const r = patch.resetCreditAuto
+      if (engine !== 'codex' || (r !== null && !validResetAuto(r))) throw new Error('「自动用重置卡」的值不对')
+      if (r) options.resetCreditAuto = { threshold: r.threshold, minLeftHours: r.minLeftHours, perWeek: r.perWeek }
+      else delete options.resetCreditAuto
     }
     if (patch.subagentEffort !== undefined) {
       const e = patch.subagentEffort

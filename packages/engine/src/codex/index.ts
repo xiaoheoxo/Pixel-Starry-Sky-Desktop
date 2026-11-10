@@ -20,6 +20,7 @@ import {
   type EngineInfo,
   type EngineUpdateResult,
   type Item,
+  type ResetCreditOutcome,
   type SessionRecord,
   viaGateway,
 } from '@pixelsky/protocol'
@@ -536,13 +537,29 @@ export class CodexAdapter implements EngineAdapter {
     const account = object(auth.account)
     if (account.type !== 'chatgpt') return { kind: 'unsupported' }
     try {
-      const res = await this.reader.request('account/rateLimits/read', { excludeResetCreditDetails: true }, signal)
+      // 不排除重置卡明细：额度弹层要显示每张的到期时间（docs/ui/codex-reset-card.md）
+      const res = await this.reader.request('account/rateLimits/read', { excludeResetCreditDetails: false }, signal)
       const reading = parseCodexRateLimits(res, Date.now())
       return reading.kind === 'ok' ? { ...reading, account: string(account.email) || null } : reading
     } catch (error) {
       if (/authentication required/i.test((error as Error).message)) return { kind: 'unsupported' }
       throw error
     }
+  }
+  /** 用一张重置卡：走只读进程（它跟着当前账号），不借会话进程 */
+  async consumeResetCredit(creditId: string | null, idempotencyKey: string): Promise<ResetCreditOutcome> {
+    const res = await this.reader.request(
+      'account/rateLimitResetCredit/consume',
+      { idempotencyKey, ...(creditId ? { creditId } : {}) },
+      AbortSignal.timeout(20_000),
+    )
+    const outcome = string(object(res).outcome)
+    return outcome === 'reset' ||
+      outcome === 'nothingToReset' ||
+      outcome === 'noCredit' ||
+      outcome === 'alreadyRedeemed'
+      ? outcome
+      : 'noCredit'
   }
   /** 关掉适配器自己的常驻进程（应用退出）：读取进程 */
   close(opts?: CloseOptions): Promise<void> {

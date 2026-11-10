@@ -1,7 +1,15 @@
 // 账号额度（docs/ui/account-quota.md §4）：按「引擎 + 账号」存一份，所有对话共用。
 // 主动读取优先借自有会话活着的进程，没有才让适配器起临时进程（Claude）/ 用只读进程（Codex）；对话里顺带收到的事件合并进同一份。
 // 单飞、节流、失败退避、变化去重后广播。
-import type { AccountQuota, EngineId, EngineQuotaProvider, QuotaRefreshOptions } from '@pixelsky/protocol'
+import { randomUUID } from 'node:crypto'
+import type {
+  AccountQuota,
+  EngineId,
+  EngineQuotaProvider,
+  QuotaRefreshOptions,
+  ResetCreditAuto,
+  ResetCreditOutcome,
+} from '@pixelsky/protocol'
 import { describeError, logger } from '../log'
 import { classifyQuotaError, mergeQuota, type AccountQuotaPatch, type QuotaReading } from '../quota'
 import type { HostContext } from './context'
@@ -27,6 +35,30 @@ export const AFTER_TURN_MAX_AGE_MS = 5 * 60_000
 export const ERROR_BACKOFF_MS = [30_000, 2 * 60_000, 5 * 60_000] as const
 /** 不支持的账号多久再试 */
 export const UNSUPPORTED_RECHECK_MS = 10 * 60_000
+
+/** 自动用卡后多久内不再判断：用完卡到重读出新用量之间，旧快照还显示用满 */
+export const RESET_AUTO_COOLDOWN_MS = 2 * 60_000
+
+/**
+ * 周限快到时要不要自动用重置卡（docs/ui/codex-reset-card.md §3）：返回这次算在哪个周期（周限恢复时间按小时取整），不用返回 null。
+ * 只看每周窗口；5 小时窗口不触发。used：这个周期已经自动用了几张
+ */
+export function resetAutoPeriod(
+  q: AccountQuota,
+  rule: ResetCreditAuto | null,
+  used: (period: number) => number,
+  now: number,
+): number | null {
+  if (!rule || q.status !== 'ok' || !(q.extras.resetCredits?.available ?? 0)) return null
+  const week = q.windows.find(w => w.id === 'seven_day')
+  if (!week) return null
+  const percent = week.rejected ? 100 : week.usedPercent
+  if (percent < rule.threshold) return null
+  if (rule.minLeftHours > 0 && (week.resetsAt === null || week.resetsAt - now < rule.minLeftHours * 3_600_000))
+    return null
+  const period = week.resetsAt === null ? 0 : Math.round(week.resetsAt / 3_600_000)
+  return used(period) < rule.perWeek ? period : null
+}
 
 /** 当前账号：键（可能经过别名）、检测到的邮箱、引擎是否可用、EngineInfo 对应的键、引擎版本 */
 interface Identity {
@@ -88,7 +120,69 @@ export class HostQuota {
   /** 各会话最近一次额度事件（自动换账号时取用完的窗口和恢复时间） */
   private readonly lastEvents = new Map<string, AccountQuotaPatch>()
 
+  /** 正在用的那张（手动、自动共用）：同一时间只发一次 consume */
+  private consuming: Promise<ResetCreditOutcome> | null = null
+  /** 最近一次用卡的时间（手动、自动都算）：之后一段时间不自动判断 */
+  private lastAuto = 0
+
   constructor(private readonly ctx: HostContext) {}
+
+  /**
+   * 用一张重置卡（docs/ui/codex-reset-card.md）：默认用最快过期的那张；用完马上重读额度，
+   * 成功时把在等周限恢复的 Codex 消息提前发出去。同一时间只发一次
+   */
+  useResetCredit(auto = false): Promise<ResetCreditOutcome> {
+    if (this.consuming) return this.consuming
+    const adapter = this.ctx.adapters.codex
+    if (!adapter?.consumeResetCredit) return Promise.reject(new Error('引擎不可用'))
+    this.lastAuto = Date.now()
+    const run = async (): Promise<ResetCreditOutcome> => {
+      const first = (await this.get('chatgpt'))?.extras.resetCredits?.credits?.[0]?.id ?? null
+      const outcome = await adapter.consumeResetCredit!(first, randomUUID())
+      log.info('used reset credit', { auto, outcome })
+      await this.reread(auto && outcome === 'reset' ? Date.now() : null)
+      if (outcome === 'reset') this.ctx.m.queue.wakeLimited('codex')
+      return outcome
+    }
+    this.consuming = run().finally(() => {
+      this.consuming = null
+    })
+    return this.consuming
+  }
+
+  /** 新快照来了：开着自动规则、条件都满足就用一张（不抛错） */
+  private checkAutoReset(quota: AccountQuota): void {
+    // 远程机器上没有界面看不到、也提示不了（不传 onQuota），不自动扣卡
+    if (quota.provider !== 'chatgpt' || this.consuming || this.ctx.closing || !this.ctx.opts.onQuota) return
+    const now = Date.now()
+    if (now - this.lastAuto < RESET_AUTO_COOLDOWN_MS) return
+    const s = this.ctx.m.settings
+    const period = resetAutoPeriod(quota, s.resetCreditAuto(), p => s.resetCreditUsed(p), now)
+    if (period === null) return
+    void this.useResetCredit(true)
+      .catch(error => log.warn('自动用重置卡失败', { error: describeError(error) }))
+      // 没清成、甚至报错（超时可能其实扣了，重试会换一张）也记一张：宁可这个周期不再自动用，也不多扣
+      .finally(() => s.noteResetCreditUsed(period))
+  }
+
+  /** 用完卡马上重读（不受 5 秒最短间隔限制）；autoAt：自动用的时间，记进快照让界面提示一次 */
+  private async reread(autoAt: number | null): Promise<void> {
+    const id = await this.identity('chatgpt').catch(() => null)
+    if (!id) return
+    const entry = this.entry(id.key, 'chatgpt', id.email)
+    entry.lastAttempt = 0
+    // 用卡前就在读的那次是旧数据：等它完再读，免得拿它当结果
+    await entry.inflight?.catch(() => undefined)
+    const q = await this.load('chatgpt', { force: true }, false)
+    const resets = q.extras.resetCredits
+    if (autoAt !== null && resets && this.entries.get(id.key) === entry) {
+      entry.quota = {
+        ...entry.quota,
+        extras: { ...entry.quota.extras, resetCredits: { ...resets, lastAutoAt: autoAt } },
+      }
+      this.publish('chatgpt', entry.quota)
+    }
+  }
 
   /** 读当前账号的快照，不发请求；还没读过为 null */
   async get(provider: EngineQuotaProvider): Promise<AccountQuota | null> {
@@ -228,6 +322,7 @@ export class HostQuota {
     if (this.sent.get(provider) === json) return
     this.sent.set(provider, json)
     if (!this.ctx.closing) this.ctx.opts.onQuota?.(quota)
+    this.checkAutoReset(quota)
   }
 
   private async merge(provider: EngineQuotaProvider, patch: AccountQuotaPatch): Promise<void> {

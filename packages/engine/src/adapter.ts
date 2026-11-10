@@ -284,6 +284,11 @@ export interface EngineAdapter {
   nativeLive?(rows: readonly { id: string; mtimeMs: number }[]): Map<string, LiveState>
   /** 不借会话进程读一次账号额度（Claude：临时进程；Codex：只读 app-server）。不支持的引擎不实现 */
   accountQuota?(): Promise<QuotaReading>
+  /** 用一张重置卡（Codex account/rateLimitResetCredit/consume，docs/ui/codex-reset-card.md）；creditId 不给由 Codex 挑。不支持的引擎不实现 */
+  consumeResetCredit?(
+    creditId: string | null,
+    idempotencyKey: string,
+  ): Promise<import('@pixelsky/protocol').ResetCreditOutcome>
   /** 应用退出时关掉适配器自己的常驻进程（Codex 的只读 app-server、Claude 的额度临时进程）；quick 同会话的 close：最多等 1 秒 */
   close?(opts?: CloseOptions): Promise<void>
   /** 旁聊：带着会话上下文单独问一次，没有工具、不写记录（§3） */

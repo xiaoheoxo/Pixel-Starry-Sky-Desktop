@@ -193,6 +193,7 @@ const demoLocal = (): EngineLocalConfig => ({
   subagentModel: null,
   subagentEffort: null,
   inputPrediction: 'off',
+  resetCreditAuto: null,
 })
 
 /** 演示模式下本机引擎的配置（设置 › 本机引擎 › 详情；只改内存） */

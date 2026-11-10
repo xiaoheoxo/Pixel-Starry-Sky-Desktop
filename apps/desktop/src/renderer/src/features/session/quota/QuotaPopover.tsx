@@ -7,8 +7,12 @@ import { isDemo } from '@/data/demo'
 import { useAccount } from '@/features/account/useAccount'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { requestSettingsRow } from '@/features/settings/settingsJump'
+import { translateMessage } from '@/i18n/core'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
+import { notify } from '@/features/panes/store'
+import { useEngineState } from '@/features/engine'
 import { QuotaPanel } from './QuotaPanel'
-import { OPEN_MAX_AGE_MS, type QuotaSource } from './quotaStore'
+import { OPEN_MAX_AGE_MS, useResetCredit, type QuotaSource } from './quotaStore'
 
 /** 「已刷新」对勾显示多久（同上下文弹窗） */
 const REFRESHED_MS = 1500
@@ -37,6 +41,20 @@ export function QuotaPopover({
   const settings = useSettings()
   const account = useAccount()
   const [refreshed, setRefreshed] = useState(false)
+  // 重置卡（docs/ui/codex-reset-card.md §2）：确认框开着 / 正在用
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [resetBusy, setResetBusy] = useState(false)
+  const resetAuto = useEngineState(s => s.config?.codex.resetCreditAuto?.threshold ?? null)
+  const useOne = (): void => {
+    setResetBusy(true)
+    useResetCredit()
+      .then(outcome => notify(tr(outcome === 'reset' ? 'resetCard.done' : `resetCard.outcome.${outcome}`)))
+      .catch((err: unknown) => notify(tr('resetCard.failed', { error: translateMessage((err as Error).message) })))
+      .finally(() => {
+        setResetBusy(false)
+        setConfirmReset(false)
+      })
+  }
   const { refresh } = source
   useEffect(() => {
     void refresh({ maxAgeMs: OPEN_MAX_AGE_MS })
@@ -61,12 +79,14 @@ export function QuotaPopover({
     }
   }, [anchor])
   useEffect(() => {
+    // 确认框开着时不关：它 portal 在弹层外面，点「使用」也算点外面，弹层一关确认框就跟着卸掉了
+    if (confirmReset) return
     const down = (e: PointerEvent): void => {
       if (!popup.current?.contains(e.target as Node) && !anchor.current?.contains(e.target as Node)) onClose()
     }
     window.addEventListener('pointerdown', down)
     return () => window.removeEventListener('pointerdown', down)
-  }, [anchor, onClose])
+  }, [anchor, onClose, confirmReset])
   useEffect(() => {
     if (!refreshed) return
     const t = setTimeout(() => setRefreshed(false), REFRESHED_MS)
@@ -77,42 +97,59 @@ export function QuotaPopover({
     anchor.current?.focus()
   }
   return createPortal(
-    <QuotaPanel
-      provider={provider}
-      quota={source.quota}
-      loading={source.loading}
-      refreshed={refreshed}
-      now={now}
-      balanceText={account.balanceText}
-      planLimits={source.planLimits}
-      demo={isDemo}
-      panelRef={popup}
-      onKeyDown={e => {
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          close()
-        }
-        e.stopPropagation()
-      }}
-      onRefresh={() => {
-        setRefreshed(false)
-        void refresh({ force: true }).then(ok => ok && setRefreshed(true))
-      }}
-      onClose={close}
-      onSwitchChannel={() => {
-        onClose()
-        onOpenChannels()
-      }}
-      onOpenSettings={() => {
-        requestSettingsRow(tr('quota.settings.title'))
-        onClose()
-        settings.openSettings('appearance')
-      }}
-      onOpenAccount={() => {
-        onClose()
-        settings.openSettings('account')
-      }}
-    />,
+    <>
+      <QuotaPanel
+        onUseResetCredit={provider === 'chatgpt' && !isDemo ? () => setConfirmReset(true) : undefined}
+        resetBusy={resetBusy}
+        resetAuto={resetAuto}
+        provider={provider}
+        quota={source.quota}
+        loading={source.loading}
+        refreshed={refreshed}
+        now={now}
+        balanceText={account.balanceText}
+        planLimits={source.planLimits}
+        demo={isDemo}
+        panelRef={popup}
+        onKeyDown={e => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            close()
+          }
+          e.stopPropagation()
+        }}
+        onRefresh={() => {
+          setRefreshed(false)
+          void refresh({ force: true }).then(ok => ok && setRefreshed(true))
+        }}
+        onClose={close}
+        onSwitchChannel={() => {
+          onClose()
+          onOpenChannels()
+        }}
+        onOpenSettings={() => {
+          requestSettingsRow(tr('quota.settings.title'))
+          onClose()
+          settings.openSettings('appearance')
+        }}
+        onOpenAccount={() => {
+          onClose()
+          settings.openSettings('account')
+        }}
+      />
+      {confirmReset && (
+        <ConfirmDialog
+          title={tr('resetCard.confirmTitle')}
+          description={tr('resetCard.confirmBody')}
+          confirmLabel={tr('resetCard.use')}
+          cancelLabel={tr('accounts.cancel')}
+          busy={resetBusy}
+          warn
+          onConfirm={useOne}
+          onCancel={() => setConfirmReset(false)}
+        />
+      )}
+    </>,
     document.body,
   )
 }

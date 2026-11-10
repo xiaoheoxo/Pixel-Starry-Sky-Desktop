@@ -30,4 +30,5 @@ export function registerQuotaIpc(host: EngineHost): void {
   ipc.handle('quota:refresh', (_event, provider: unknown, opts: unknown) =>
     host.refreshAccountQuota(quotaProvider(provider), quotaRefreshOptions(opts)),
   )
+  ipc.handle('quota:useResetCredit', () => host.useResetCredit())
 }

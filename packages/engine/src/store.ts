@@ -85,6 +85,10 @@ export interface EngineOptions {
   subagentEffort?: Effort
   /** Codex 输入预测；只存 cheap / same */
   inputPrediction?: 'cheap' | 'same'
+  /** Codex 周限快到时自动用重置卡（docs/ui/codex-reset-card.md）；只存开着的 */
+  resetCreditAuto?: { threshold: number; minLeftHours: number; perWeek: number }
+  /** 自动用过的：哪个周期（周限恢复时间，毫秒）用了几张；换周期从 0 算 */
+  resetCreditUsed?: { period: number; count: number }
 }
 
 export const DEFAULT_SETTINGS: EngineSettingsFile = {

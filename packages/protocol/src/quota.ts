@@ -68,6 +68,29 @@ export interface QuotaCredits {
   balance: number | null
 }
 
+/** Codex 的重置卡（docs/ui/codex-reset-card.md）：用一张把当前用量清零 */
+export interface QuotaResetCredits {
+  /** 可用张数 */
+  available: number
+  /** 每张的明细，按到期先后排；Codex 只给了张数时为 null */
+  credits: { id: string; expiresAt: number | null; title: string | null }[] | null
+  /** 最近一次自动使用的时间（毫秒）；界面看到它变了就提示一次 */
+  lastAutoAt?: number
+}
+
+/** 用重置卡的结果：Codex 原值 */
+export type ResetCreditOutcome = 'reset' | 'nothingToReset' | 'noCredit' | 'alreadyRedeemed'
+
+/** 周限快到时自动用重置卡（设置 › 本机引擎 › Codex）；null 表示关 */
+export interface ResetCreditAuto {
+  /** 本周用量到这个百分比（80 / 90 / 95 / 100） */
+  threshold: number
+  /** 离周限恢复不到这么多小时就不用（0 不限） */
+  minLeftHours: number
+  /** 7 天内最多自动用几张 */
+  perWeek: number
+}
+
 export interface AccountQuota {
   provider: QuotaProvider
   status: QuotaStatus
@@ -81,6 +104,7 @@ export interface AccountQuota {
     models?: QuotaModelLimit[]
     extraUsage?: QuotaExtraUsage
     credits?: QuotaCredits
+    resetCredits?: QuotaResetCredits
     /** 平台：余额（null 表示暂时拿不到） */
     balance?: { amount: number; currency: string } | null
   }

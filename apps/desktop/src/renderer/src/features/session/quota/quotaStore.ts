@@ -2,7 +2,14 @@
 // Claude / ChatGPT 经 window.pixelsky.quota（主进程按「引擎 + 账号」存一份，推 quota:changed）；
 // 平台用账号模块现成的 AccountInfo 换算（platformQuota.ts）；演示模式不碰 bridge。
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import type { AccountQuota, EngineQuotaProvider, QuotaProvider, QuotaRefreshOptions } from '@pixelsky/protocol'
+import type {
+  AccountQuota,
+  EngineQuotaProvider,
+  QuotaProvider,
+  QuotaRefreshOptions,
+  ResetCreditOutcome,
+} from '@pixelsky/protocol'
+import { tr } from '@/i18n/core'
 import type { QuotaBridge } from '../../../../../shared/types/quota'
 import { isDemo, demo } from '@/data/demo'
 import { useAccount } from '@/features/account/useAccount'
@@ -54,6 +61,16 @@ function put(provider: EngineQuotaProvider, patch: Partial<Entry>): void {
   listeners.forEach(fn => fn())
 }
 
+/** 最近一次提示过的自动用卡时间：同一次只提示一回 */
+let autoNoticed: number | null = null
+
+/** 用一张 Codex 重置卡（docs/ui/codex-reset-card.md）；用完主进程会重读并广播 */
+export async function useResetCredit(): Promise<ResetCreditOutcome> {
+  const b = bridge()
+  if (!b?.useResetCredit) throw new Error('引擎不可用')
+  return b.useResetCredit()
+}
+
 /** 第一次有人订阅时接一次 quota:changed，收到的快照按 provider 写进去 */
 function listen(): void {
   if (listening || isDemo) return
@@ -62,6 +79,14 @@ function listen(): void {
   listening = true
   try {
     b.onChange(q => {
+      const auto = q.extras.resetCredits?.lastAutoAt
+      if (auto && auto !== autoNoticed) {
+        // 第一次收到时只记下，不提示：打开窗口前的那次早就过去了
+        if (autoNoticed !== null || Date.now() - auto < 60_000)
+          // 用到时才加载：窗格 store 牵连很多模块，测试和演示里导入额度 store 不该带上它
+          void import('@/features/panes/store').then(m => m.notify(tr('resetCard.autoDone')))
+        autoNoticed = auto
+      }
       // pending：登录 / 换账号后主进程清掉了旧记录、正在重读，显示「读取中」（docs/ui/claude-login-recovery.md §1 第 1 条）
       if (q.provider !== 'platform' && belongs(q, wanted[q.provider]))
         put(q.provider, { quota: q, loading: q.pending === true || !!pending[q.provider] })

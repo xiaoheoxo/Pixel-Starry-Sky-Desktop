@@ -1346,7 +1346,7 @@ export class CodexSession implements EngineSession {
     const proc = this.proc
     if (this.closed || !proc?.alive || this.startup !== 'done' || this.procViaGateway) return null
     return proc
-      .request('account/rateLimits/read', { excludeResetCreditDetails: true }, 10_000)
+      .request('account/rateLimits/read', { excludeResetCreditDetails: false }, 10_000)
       .then(res => parseCodexRateLimits(res, Date.now()))
       .catch(error => {
         // 没用 ChatGPT 登录（API Key、自己配置的接口）：这个账号没有订阅额度

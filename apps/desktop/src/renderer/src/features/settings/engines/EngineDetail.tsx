@@ -16,6 +16,7 @@ import {
   type EngineLocalConfig,
   type InputPrediction,
   type PeekScope,
+  type ResetCreditAuto,
   type PermissionMode,
 } from '@pixelsky/protocol'
 import { Button, CopyButton, EngineIcon, Select, Switch, cn } from '@/ui'
@@ -313,6 +314,26 @@ export function EngineDetail({
         </Group>
       )}
 
+      {/* 重置卡（docs/ui/codex-reset-card.md §3）：默认关，打开时 95% / 1 天 / 1 张 */}
+      {e.id === 'codex' && (
+        <Group title={tr('resetCard.settings.group')}>
+          <Row
+            title={tr('resetCard.settings.auto')}
+            description={tr('resetCard.settings.autoHint')}
+            control={
+              <Switch
+                checked={!!config.resetCreditAuto}
+                label={tr('resetCard.settings.auto')}
+                onChange={on => run({ resetCreditAuto: on ? { threshold: 95, minLeftHours: 24, perWeek: 1 } : null })}
+              />
+            }
+          >
+            {config.resetCreditAuto && (
+              <ResetAutoFields value={config.resetCreditAuto} onChange={v => run({ resetCreditAuto: v })} />
+            )}
+          </Row>
+        </Group>
+      )}
       {e.id === 'codex' && <p className="mt-4 text-meta text-fg-muted">{tr('codex.nativeSettings')}</p>}
       {/* 多会话（docs/ui/import-collab.md 第 5 项③④）：只读查看本机其他会话；Claude Code 自带的跨会话收件 */}
       {(e.id === 'claude' || e.id === 'codex') && (
@@ -816,6 +837,59 @@ function LaunchRows({
         </p>
       )}
     </>
+  )
+}
+
+/** 自动用重置卡的三项：阈值、离恢复太近不用、每周期张数 */
+function ResetAutoFields({ value, onChange }: { value: ResetCreditAuto; onChange: (v: ResetCreditAuto) => void }) {
+  useI18n()
+  const line = (label: string, control: ReactNode) => (
+    <div className="flex items-center justify-between gap-4 py-1 text-meta text-fg-secondary">
+      <span>{label}</span>
+      {control}
+    </div>
+  )
+  return (
+    <div>
+      {line(
+        tr('resetCard.settings.threshold'),
+        <Select
+          label={tr('resetCard.settings.threshold')}
+          value={String(value.threshold)}
+          onChange={v => onChange({ ...value, threshold: Number(v) })}
+          options={[80, 90, 95, 100].map(p => ({
+            value: String(p),
+            label: p === 100 ? tr('resetCard.settings.full') : `${p}%`,
+          }))}
+        />,
+      )}
+      {line(
+        tr('resetCard.settings.minLeft'),
+        <Select
+          label={tr('resetCard.settings.minLeft')}
+          value={String(value.minLeftHours)}
+          onChange={v => onChange({ ...value, minLeftHours: Number(v) })}
+          options={[0, 12, 24, 48].map(h => ({
+            value: String(h),
+            label:
+              h === 0
+                ? tr('resetCard.settings.noLimit')
+                : h % 24 === 0
+                  ? tr('resetCard.settings.day', { n: h / 24 })
+                  : tr('resetCard.settings.hours', { n: h }),
+          }))}
+        />,
+      )}
+      {line(
+        tr('resetCard.settings.perWeek'),
+        <Select
+          label={tr('resetCard.settings.perWeek')}
+          value={String(value.perWeek)}
+          onChange={v => onChange({ ...value, perWeek: Number(v) })}
+          options={[1, 2].map(n => ({ value: String(n), label: tr('resetCard.settings.cards', { n }) }))}
+        />,
+      )}
+    </div>
   )
 }
 

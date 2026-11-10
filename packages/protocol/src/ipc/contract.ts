@@ -780,6 +780,8 @@ export const IPC_CONTRACT = {
   'quota:changed': { kind: 'push', route: 'push', trust: 'none' },
   'quota:get': { kind: 'invoke', route: 'local', trust: 'sender' },
   'quota:refresh': { kind: 'invoke', route: 'local', trust: 'sender' },
+  // 用一张 Codex 重置卡（docs/ui/codex-reset-card.md）：真实扣卡，只认可信窗口
+  'quota:useResetCredit': { kind: 'invoke', route: 'local', trust: 'sender' },
   // 侧栏对话的状态图标（docs/ui/sidebar-status-icons.md §4）：只在本机
   'sessionStatus:changed': { kind: 'push', route: 'push', trust: 'none' },
   'sessionStatus:get': { kind: 'invoke', route: 'local', trust: 'sender' },

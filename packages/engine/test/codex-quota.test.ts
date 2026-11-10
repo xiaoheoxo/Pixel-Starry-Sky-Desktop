@@ -53,9 +53,9 @@ const rpc = (): { method?: string; params?: Record<string, unknown> }[] => {
   }
 }
 
-/** 额度自己发的 account/rateLimits/read（检测时 catalog 读的那次不带参数） */
+/** 额度自己发的 account/rateLimits/read（检测时 catalog 读的那次不带参数；额度的要重置卡明细，显式传 false） */
 const quotaReads = () =>
-  rpc().filter(m => m.method === 'account/rateLimits/read' && m.params?.excludeResetCreditDetails === true)
+  rpc().filter(m => m.method === 'account/rateLimits/read' && m.params?.excludeResetCreditDetails === false)
 
 async function waitFor<T>(pick: () => T | undefined | null | false, timeoutMs = 10_000): Promise<T> {
   const start = Date.now()
@@ -110,7 +110,7 @@ describe('Codex 账号额度：只读进程', () => {
     const calls = rpc().flatMap(m => (m.method ? [m.method] : []))
     expect(calls).toContain('account/rateLimits/read')
     expect(calls.some(m => m.startsWith('thread/'))).toBe(false)
-    // 检测时 catalog 还会读一次（不带参数），额度自己读的带 excludeResetCreditDetails
+    // 检测时 catalog 还会读一次（不带参数），额度自己读的显式带 excludeResetCreditDetails: false（要重置卡明细）
     expect(quotaReads()).toHaveLength(1)
   })
 

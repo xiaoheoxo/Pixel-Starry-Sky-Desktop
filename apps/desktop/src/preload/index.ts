@@ -730,6 +730,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
   quota: {
     get: provider => call('quota:get', provider),
     refresh: (provider, opts) => call('quota:refresh', provider, opts),
+    useResetCredit: () => call('quota:useResetCredit'),
     onChange: callback => {
       const listener = (_e: Electron.IpcRendererEvent, quota: import('@pixelsky/protocol').AccountQuota) =>
         callback(quota)

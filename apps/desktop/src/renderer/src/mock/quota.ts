@@ -40,7 +40,16 @@ export function demoQuota(now: number = Date.now()): Record<EngineQuotaProvider,
         { id: 'five_hour', durationMins: 300, usedPercent: 27, resetsAt: now + 3 * HOUR + 40 * MIN },
         { id: 'seven_day', durationMins: 10_080, usedPercent: 54, resetsAt: now + 2 * DAY + 20 * HOUR },
       ],
-      extras: { credits: { hasCredits: true, unlimited: false, balance: 120 } },
+      extras: {
+        credits: { hasCredits: true, unlimited: false, balance: 120 },
+        resetCredits: {
+          available: 2,
+          credits: [
+            { id: 'demo-a', expiresAt: now + 2 * DAY + 6 * HOUR, title: null },
+            { id: 'demo-b', expiresAt: now + 21 * DAY, title: null },
+          ],
+        },
+      },
     },
   }
 }

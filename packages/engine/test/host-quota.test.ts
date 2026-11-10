@@ -3,7 +3,7 @@
 import { sourceKey, type AccountQuota, type EngineId } from '@pixelsky/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HostContext } from '../src/host/context'
-import { HostQuota } from '../src/host/quota'
+import { HostQuota, resetAutoPeriod } from '../src/host/quota'
 import type { AccountQuotaPatch, QuotaReading } from '../src/quota'
 
 const T0 = Date.UTC(2026, 9, 19, 8, 0, 0)
@@ -87,7 +87,10 @@ function rig(): Rig {
     runtimes,
     closing: false,
     opts: { onQuota: (q: AccountQuota) => sent.push(q) },
-    m: { settings: { engines }, accounts: { detected: (e: EngineId) => detecting.get(e) } },
+    m: {
+      settings: { engines, resetCreditAuto: () => null, resetCreditUsed: () => 0 },
+      accounts: { detected: (e: EngineId) => detecting.get(e) },
+    },
   } as unknown as HostContext
   return {
     quota: new HostQuota(ctx),
@@ -734,5 +737,91 @@ describe('HostQuota.reset（登录 / 换账号后，docs/ui/claude-login-recover
     await r.quota.reset('claude')
     expect(r.sent).toEqual([])
     expect(r.adapterCalls.claude).toBe(0)
+  })
+})
+
+describe('resetAutoPeriod：周限快到时要不要自动用重置卡', () => {
+  const NOW = 1_800_000_000_000
+  const H = 3_600_000
+  const rule = { threshold: 95, minLeftHours: 24, perWeek: 1 }
+  const q = (week: Partial<QuotaWindowLike>, available = 1): AccountQuota =>
+    ({
+      provider: 'chatgpt',
+      status: 'ok',
+      windows: [
+        { id: 'five_hour', durationMins: 300, usedPercent: 100, resetsAt: NOW + H },
+        { id: 'seven_day', durationMins: 10_080, usedPercent: 96, resetsAt: NOW + 72 * H, ...week },
+      ],
+      extras: { resetCredits: { available, credits: null } },
+    }) as unknown as AccountQuota
+  type QuotaWindowLike = { usedPercent: number; resetsAt: number | null; rejected: boolean }
+  const none = () => 0
+
+  it('全部满足时返回周期（恢复时间按小时取整）', () => {
+    expect(resetAutoPeriod(q({}), rule, none, NOW)).toBe(Math.round((NOW + 72 * H) / H))
+  })
+  it('没开、没卡、没到阈值都不用；只满的是 5 小时窗口也不用', () => {
+    expect(resetAutoPeriod(q({}), null, none, NOW)).toBeNull()
+    expect(resetAutoPeriod(q({}, 0), rule, none, NOW)).toBeNull()
+    expect(resetAutoPeriod(q({ usedPercent: 90 }), rule, none, NOW)).toBeNull()
+  })
+  it('被拒绝按 100% 算', () => {
+    expect(resetAutoPeriod(q({ usedPercent: 50, rejected: true }), rule, none, NOW)).not.toBeNull()
+  })
+  it('离恢复不到下限、或不知道恢复时间时不用；下限 0 不看', () => {
+    expect(resetAutoPeriod(q({ resetsAt: NOW + 10 * H }), rule, none, NOW)).toBeNull()
+    expect(resetAutoPeriod(q({ resetsAt: null }), rule, none, NOW)).toBeNull()
+    expect(resetAutoPeriod(q({ resetsAt: NOW + 10 * H }), { ...rule, minLeftHours: 0 }, none, NOW)).not.toBeNull()
+  })
+  it('这个周期用满张数就不再用', () => {
+    expect(resetAutoPeriod(q({}), rule, () => 1, NOW)).toBeNull()
+    expect(resetAutoPeriod(q({}), { ...rule, perWeek: 2 }, () => 1, NOW)).not.toBeNull()
+  })
+})
+
+describe('自动用重置卡', () => {
+  const H = 3_600_000
+  function setup(onQuota: boolean) {
+    const used = new Map<number, number>()
+    const consume = vi.fn(async () => {
+      throw new Error('超时')
+    })
+    const ctx = {
+      adapters: { codex: { consumeResetCredit: consume } },
+      runtimes: new Map(),
+      closing: false,
+      opts: onQuota ? { onQuota: () => undefined } : {},
+      m: {
+        settings: {
+          resetCreditAuto: () => ({ threshold: 95, minLeftHours: 0, perWeek: 1 }),
+          resetCreditUsed: (p: number) => used.get(p) ?? 0,
+          noteResetCreditUsed: (p: number) => used.set(p, (used.get(p) ?? 0) + 1),
+        },
+        queue: { wakeLimited: vi.fn() },
+      },
+    } as unknown as HostContext
+    const quota = new HostQuota(ctx)
+    const full = {
+      provider: 'chatgpt',
+      status: 'ok',
+      windows: [{ id: 'seven_day', durationMins: 10_080, usedPercent: 99, resetsAt: Date.now() + 72 * H }],
+      extras: { resetCredits: { available: 1, credits: null } },
+    } as unknown as AccountQuota
+    // 直接走广播后的判断（publish 内部调用）
+    const check = () => (quota as unknown as { checkAutoReset(q: AccountQuota): void }).checkAutoReset(full)
+    return { consume, used, check }
+  }
+
+  it('consume 报错也记一张：同一个周期不再自动用', async () => {
+    const { consume, used, check } = setup(true)
+    check()
+    await vi.waitFor(() => expect(used.size).toBe(1))
+    expect(consume).toHaveBeenCalledTimes(1)
+  })
+
+  it('远程机器（没有 onQuota）不自动用', () => {
+    const { consume, check } = setup(false)
+    check()
+    expect(consume).not.toHaveBeenCalled()
   })
 })

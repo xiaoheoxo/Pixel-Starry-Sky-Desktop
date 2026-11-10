@@ -1,6 +1,6 @@
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import { Check, ExternalLink, RefreshCw, Settings, X } from 'lucide-react'
-import type { AccountQuota, QuotaProvider } from '@pixelsky/protocol'
+import type { AccountQuota, QuotaProvider, QuotaResetCredits } from '@pixelsky/protocol'
 import { translateMessage, tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { cn, PlanBadge } from '@/ui'
@@ -11,6 +11,7 @@ import {
   planBadge,
   providerTitle,
   quotaLayout,
+  resetClock,
   type PlanLimit,
   type QuotaCard,
   type QuotaLevel,
@@ -41,6 +42,12 @@ export interface QuotaPanelProps {
   onOpenSettings?: () => void
   /** 平台的「账号设置」 */
   onOpenAccount?: () => void
+  /** Codex 重置卡：「使用一张」（弹确认框由外壳做）；不传不显示按钮 */
+  onUseResetCredit?: () => void
+  /** 正在用卡 */
+  resetBusy?: boolean
+  /** 自动使用的阈值（%）；没开为 null */
+  resetAuto?: number | null
 }
 
 /**
@@ -63,6 +70,9 @@ export function QuotaPanel({
   onSwitchChannel,
   onOpenSettings,
   onOpenAccount,
+  onUseResetCredit,
+  resetBusy = false,
+  resetAuto = null,
 }: QuotaPanelProps) {
   useI18n()
   const title = providerTitle(provider)
@@ -198,6 +208,15 @@ export function QuotaPanel({
                 )}
               </div>
             )}
+            {provider === 'chatgpt' && !!quota?.extras.resetCredits?.available && (
+              <ResetCredits
+                credits={quota.extras.resetCredits}
+                now={now}
+                busy={resetBusy}
+                auto={resetAuto}
+                onUse={onUseResetCredit}
+              />
+            )}
             {failed && (
               <p role="status" className="mx-0.5 mt-2 text-meta text-danger">
                 {selfContained ? reason : tr('quota.error.stale', { p0: reason })}
@@ -227,6 +246,73 @@ export function QuotaPanel({
           <Settings size={12} aria-hidden />
           {tr('quota.action.settings')}
         </FootButton>
+      </div>
+    </div>
+  )
+}
+
+/** 最多列几张；更多的写「还有 N 张」 */
+const RESET_LIST_MAX = 3
+const SOON_MS = 3 * 86_400_000
+
+/** Codex 重置卡（docs/ui/codex-reset-card.md §2）：张数、到期日、「使用一张」、自动使用的状态 */
+function ResetCredits({
+  credits,
+  now,
+  busy,
+  auto,
+  onUse,
+}: {
+  credits: QuotaResetCredits
+  now: number
+  busy: boolean
+  auto: number | null
+  onUse?: () => void
+}) {
+  const list = credits.credits ?? []
+  const shown = list.slice(0, RESET_LIST_MAX)
+  const more = Math.max(credits.available, list.length) - shown.length
+  return (
+    <div data-reset-credits className="mt-2.5 rounded-lg bg-subtle px-2.5 py-2 text-meta">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-ui text-fg">{tr('resetCard.title', { n: credits.available })}</div>
+          {credits.available > 0 && <div className="text-fg-muted">{tr('resetCard.hint')}</div>}
+        </div>
+        {onUse && credits.available > 0 && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onUse}
+            className="press shrink-0 rounded-md border border-line-card bg-surface px-2 py-0.5 text-label font-medium text-fg hover:bg-hover disabled:cursor-default disabled:opacity-50"
+          >
+            {tr('resetCard.use')}
+          </button>
+        )}
+      </div>
+      {shown.length > 0 && (
+        <ul className="mt-1.5">
+          {shown.map((c, i) => {
+            const soon = c.expiresAt !== null && c.expiresAt - now < SOON_MS
+            return (
+              <li key={c.id} className="flex justify-between gap-2 border-t border-line-subtle py-1 text-fg-muted">
+                <span className="min-w-0 truncate">{i === 0 ? tr('resetCard.next') : (c.title ?? '')}</span>
+                <span className={cn('shrink-0 tabular-nums', soon && 'text-warn')}>
+                  {c.expiresAt === null
+                    ? tr('resetCard.never')
+                    : tr('resetCard.expires', { date: resetClock(c.expiresAt, now) })}
+                  {soon && ` · ${tr('resetCard.soon')}`}
+                </span>
+              </li>
+            )
+          })}
+          {more > 0 && (
+            <li className="border-t border-line-subtle py-1 text-fg-faint">{tr('resetCard.more', { n: more })}</li>
+          )}
+        </ul>
+      )}
+      <div className="mt-1 text-fg-faint">
+        {auto === null ? tr('resetCard.autoOff') : tr('resetCard.autoOn', { p: auto })}
       </div>
     </div>
   )

@@ -313,3 +313,54 @@ describe('英文界面', () => {
     expect(html).toContain('aria-label="Refresh usage"')
   })
 })
+
+describe('重置卡（docs/ui/codex-reset-card.md §2）', () => {
+  const NOW_RC = 1_800_000_000_000
+  const withResets = (onUse?: () => void, auto: number | null = null) =>
+    renderToStaticMarkup(
+      <I18nProvider>
+        <QuotaPanel
+          provider="chatgpt"
+          now={NOW_RC}
+          resetAuto={auto}
+          onUseResetCredit={onUse}
+          quota={
+            {
+              provider: 'chatgpt',
+              status: 'ok',
+              plan: 'pro',
+              account: null,
+              windows: [{ id: 'seven_day', durationMins: 10_080, usedPercent: 91, resetsAt: NOW_RC + 3 * 86_400_000 }],
+              extras: {
+                resetCredits: {
+                  available: 5,
+                  credits: [
+                    { id: 'a', expiresAt: NOW_RC + 86_400_000, title: null },
+                    { id: 'b', expiresAt: null, title: '活动赠送' },
+                  ],
+                },
+              },
+              blocked: null,
+              observedAt: NOW_RC,
+              fetchedAt: NOW_RC,
+              source: 'usage',
+              refreshable: true,
+              error: null,
+            } as AccountQuota
+          }
+        />
+      </I18nProvider>,
+    )
+
+  it('显示张数、快过期、不过期、还有几张；给了回调才有「使用一张」', () => {
+    const html = withResets(() => undefined)
+    expect(html).toContain('重置卡 5 张')
+    expect(html).toContain('快过期')
+    expect(html).toContain('不过期')
+    expect(html).toContain('还有 3 张')
+    expect(html).toContain('使用一张')
+    expect(html).toContain('自动使用没开')
+    expect(withResets()).not.toContain('使用一张')
+    expect(withResets(undefined, 95)).toContain('本周到 95% 时')
+  })
+})

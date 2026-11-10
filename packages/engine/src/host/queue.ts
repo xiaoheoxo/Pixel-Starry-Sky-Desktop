@@ -1,8 +1,16 @@
 // 消息队列：发送、排队、撤回、关掉、调序、继续、插队、引导、断线自动重连（docs/ui/message-queue.md）
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
-import type { MessageInput, QueueLimit, QueuedMessage, QueueMove, QueueSummary, SendReceipt } from '@pixelsky/protocol'
-import { codedError, messageWithFiles } from '@pixelsky/protocol'
+import type {
+  EngineId,
+  MessageInput,
+  QueueLimit,
+  QueuedMessage,
+  QueueMove,
+  QueueSummary,
+  SendReceipt,
+} from '@pixelsky/protocol'
+import { codedError, messageWithFiles, viaGateway } from '@pixelsky/protocol'
 import { messageInput, queueSettings, sameQueueSettings } from '../queue'
 import { ENGINES } from '../registry'
 import { blockedDelay, connectionKind, LIMIT_MAX_TRIES, limitDelay, reconnectDelay, reconnectLimit } from '../retry'
@@ -383,6 +391,24 @@ export class HostQueue {
     rt.reconnectTimer = null
     rt.snapshot = { ...rt.snapshot, queuePaused: true }
     this.publishQueue(id)
+  }
+
+  /**
+   * 用了重置卡（docs/ui/codex-reset-card.md）：这个引擎走自己订阅、在等额度恢复的消息不再等，马上发「继续」。
+   * 平台 / 自定义接口的会话、被 429 限流的不动
+   */
+  wakeLimited(engine: EngineId): void {
+    const now = Date.now()
+    for (const [id, rt] of this.ctx.runtimes) {
+      const record = rt.execution ?? rt.snapshot.record
+      if (record.engine !== engine || viaGateway(record) || rt.snapshot.queuePaused) continue
+      // 卡用在当前账号上：用别的账号启动的进程（换过账号还没重启）的额度没变，叫醒了也只会再撞一次限额
+      if (rt.sessionAccount !== undefined && rt.sessionAccount !== this.ctx.m.accounts.currentId(engine)) continue
+      const head = rt.snapshot.queue.find(waitingLimit)
+      if (!head || head.status !== 'queued' || head.limit?.kind !== 'quota') continue
+      this.changeQueue(id, head.id, { reconnect: { ...head.reconnect!, at: now } })
+      if (!this.armReconnect(id)) queueMicrotask(() => void this.ctx.m.turn.pump(id))
+    }
   }
 
   /** 队首是还没到时间的自动重连：到时间再派发一次（重复调用只留最新的一个定时器） */

@@ -226,3 +226,38 @@ describe('codexQuotaPatch + mergeQuota（稀疏更新）', () => {
     expect(merged.extras.models?.some(m => m.name === 'Other' && m.usedPercent === 90)).toBe(true)
   })
 })
+
+describe('重置卡（docs/ui/codex-reset-card.md）', () => {
+  const withResets = (resets: unknown) => ({ ...sample(), rateLimitResetCredits: resets })
+
+  it('只留 available 的，按到期先后排，不过期的排最后；秒 → 毫秒', () => {
+    const r = ok(
+      withResets({
+        availableCount: '3',
+        credits: [
+          { id: 'b', status: 'available', expiresAt: null, title: null },
+          { id: 'a', status: 'available', expiresAt: 1_792_500_000, title: '活动赠送' },
+          { id: 'x', status: 'redeemed', expiresAt: 1_792_100_000 },
+          { id: 'c', status: 'available', expiresAt: 1_792_300_000 },
+        ],
+      }),
+    )
+    expect(r.extras.resetCredits).toEqual({
+      available: 3,
+      credits: [
+        { id: 'c', expiresAt: 1_792_300_000_000, title: null },
+        { id: 'a', expiresAt: 1_792_500_000_000, title: '活动赠送' },
+        { id: 'b', expiresAt: null, title: null },
+      ],
+    })
+  })
+
+  it('只有张数时 credits 为 null；没有这一项、张数不是数字时不出', () => {
+    expect(ok(withResets({ availableCount: 2, credits: null })).extras.resetCredits).toEqual({
+      available: 2,
+      credits: null,
+    })
+    expect(ok(sample()).extras.resetCredits).toBeUndefined()
+    expect(ok(withResets({ availableCount: 'x', credits: [] })).extras.resetCredits).toBeUndefined()
+  })
+})

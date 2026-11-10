@@ -166,6 +166,8 @@ export interface EngineLocalConfig {
   subagentModel: string | null
   subagentEffort: Effort | null
   inputPrediction: InputPrediction
+  /** 周限快到时自动用重置卡（docs/ui/codex-reset-card.md）；只对 Codex 生效，null 关 */
+  resetCreditAuto: import('../quota').ResetCreditAuto | null
 }
 
 /** Codex 输入预测（docs/ui/codex-input-prediction.md）：off 不预测（默认）；cheap 用便宜的模型；same 用会话的模型 */

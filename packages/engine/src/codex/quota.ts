@@ -5,6 +5,7 @@ import {
   type AccountQuota,
   type QuotaCredits,
   type QuotaModelLimit,
+  type QuotaResetCredits,
   type QuotaWindow,
 } from '@pixelsky/protocol'
 import { clampPercent, epochMs, quotaNoDataError, type AccountQuotaPatch, type QuotaReading } from '../quota'
@@ -52,6 +53,25 @@ function credits(raw: unknown): QuotaCredits | undefined {
   }
 }
 
+/**
+ * 重置卡（rateLimitResetCredits，docs/ui/codex-reset-card.md）：availableCount 在 JSON 里是数字或数字字符串；
+ * credits 为 null 表示只知道张数。只留 status available 的，按到期先后排（不过期的排最后）
+ */
+export function resetCredits(raw: unknown): QuotaResetCredits | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = object(raw)
+  const count = Number(r.availableCount)
+  if (!Number.isFinite(count) || count < 0) return undefined
+  const list = Array.isArray(r.credits)
+    ? r.credits
+        .map(object)
+        .filter(c => string(c.id) && (c.status === undefined || c.status === 'available'))
+        .map(c => ({ id: string(c.id), expiresAt: epochMs(c.expiresAt), title: string(c.title) || null }))
+        .sort((a, b) => (a.expiresAt ?? Infinity) - (b.expiresAt ?? Infinity))
+    : null
+  return { available: Math.floor(count), credits: list }
+}
+
 const planOf = (v: unknown): string | null => {
   const plan = string(v)
   return plan && plan !== 'unknown' ? plan : null
@@ -73,6 +93,8 @@ export function parseCodexRateLimits(res: unknown, observedAt: number): QuotaRea
 
   const c = credits(snapshot.credits)
   if (c) extras.credits = c
+  const resets = resetCredits(r.rateLimitResetCredits)
+  if (resets) extras.resetCredits = resets
 
   // 其它额度桶（limitId 和主桶不同的）放进「其它」
   const mainId = string(snapshot.limitId) || MAIN_LIMIT_ID

@@ -36,6 +36,7 @@ import type {
   ProjectRecord,
   QueueMove,
   QuotaRefreshOptions,
+  ResetCreditOutcome,
   AddProjectsResult,
   ForkResult,
   InterruptOptions,
@@ -955,6 +956,11 @@ export class EngineHost {
   /** 按需 / 手动读取账号额度；不抛错，失败时返回 status 'error' 的快照 */
   refreshAccountQuota(provider: EngineQuotaProvider, opts?: QuotaRefreshOptions): Promise<AccountQuota> {
     return this.m.quota.refresh(provider, opts)
+  }
+
+  /** 用一张 Codex 重置卡（docs/ui/codex-reset-card.md） */
+  useResetCredit(): Promise<ResetCreditOutcome> {
+    return this.m.quota.useResetCredit()
   }
 
   /** 退出应用：关掉所有引擎进程 */
