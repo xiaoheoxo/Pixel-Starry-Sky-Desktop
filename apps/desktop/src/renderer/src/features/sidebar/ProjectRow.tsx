@@ -7,6 +7,8 @@ import {
   FolderOpen,
   Folders,
   PencilLine,
+  Pin,
+  PinOff,
   Plus,
   SquareArrowOutUpRight,
   Trash2,
@@ -19,6 +21,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { translateMessage } from '@/i18n/core'
 import { isLive, removeProject, renameProject } from '@/features/engine'
 import { machineOf } from '@/features/machines/store'
+import { setProjectPinned } from '@/features/appearance/sidebar'
 import { paneActions } from '@/features/panes/store'
 import type { Project } from '@/data'
 import { ProjectFoldersDialog } from './ProjectFoldersDialog'
@@ -38,6 +41,7 @@ export function ProjectRow({
   picked = false,
   groupActions = [],
   onDragStart,
+  pinned = false,
 }: {
   project: Project
   open: boolean
@@ -51,6 +55,8 @@ export function ProjectRow({
   groupActions?: { label: string; icon: LucideIcon; run: () => void }[]
   /** 拖项目进出分区 */
   onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void
+  /** 置顶了（docs/ui/project-pin.md）：图钉代替文件夹图标 */
+  pinned?: boolean
 }) {
   const { t } = useI18n()
   const toast = useToast()
@@ -157,7 +163,9 @@ export function ProjectRow({
         onClick={onToggle}
         className="flex h-full min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md pl-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       >
-        {open ? (
+        {pinned ? (
+          <Pin data-project-pinned size={16} strokeWidth={1.5} className="shrink-0 text-fg-secondary" />
+        ) : open ? (
           <FolderOpen size={16} strokeWidth={1.5} className="shrink-0 text-fg-secondary" />
         ) : (
           <Folder size={16} strokeWidth={1.5} className="shrink-0 text-fg-secondary" />
@@ -266,6 +274,18 @@ export function ProjectRow({
               </button>
             ))}
             {groupActions.length > 0 && <div role="separator" className="my-1 border-t border-line-subtle" />}
+            <button
+              role="menuitem"
+              data-project-pin
+              onClick={() => {
+                close()
+                setProjectPinned(project.id, !pinned)
+              }}
+              className={item}
+            >
+              {pinned ? <PinOff size={15} strokeWidth={1.5} /> : <Pin size={15} strokeWidth={1.5} />}
+              {t(pinned ? 'session.unpin' : 'session.pin')}
+            </button>
             <button role="menuitem" onClick={() => run(() => setDialog('rename'))} className={item}>
               <PencilLine size={15} strokeWidth={1.5} />
               {t('project.rename')}

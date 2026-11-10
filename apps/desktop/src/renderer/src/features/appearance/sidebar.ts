@@ -37,6 +37,8 @@ export interface SidebarPrefs {
   groups?: ProjectGroup[]
   /** 侧栏里拖出来的项目先后（项目 ID；可选，不升版本）。分区的先后就是 groups 的先后 */
   order?: string[]
+  /** 置顶的项目 ID，后置顶的在前（可选，不升版本；docs/ui/project-pin.md） */
+  pinned?: string[]
   icons: SidebarIcons
   layout: SidebarLayout
 }
@@ -147,6 +149,7 @@ function rawRow(layout: unknown, key: string): string[] {
   const row = (layout as Record<string, unknown>)[key]
   if (!Array.isArray(row)) return []
   return row
+const PINNED_LIMIT = 200
     .filter((item): item is string => typeof item === 'string')
     .map(item => (RENAMED[item] as string | undefined) ?? item)
     .filter(item => !REMOVED.includes(item))
@@ -193,6 +196,10 @@ export function parseSidebarPrefs(value: unknown): SidebarPrefs {
     // Git 的常用操作挪到输入框上方后（docs/ui/composer-git.md），顶栏的 Git 默认收起（现在是「不显示」）；
     // 只改没动过的旧默认顶栏，自己排过的不动；只做一次，之后挪回顶栏不会再被改。
     // 判断看保存的原始数据：解析后工作台、频道已被丢掉，永远等不于 OLD_HEADER（docs/ui/layout-v2.md §7.2）
+  if (Array.isArray(saved.pinned)) {
+    const ids = saved.pinned.filter((id): id is string => typeof id === 'string' && !!id && id.length <= 200)
+    if (ids.length) result.pinned = [...new Set(ids)].slice(0, PINNED_LIMIT)
+  }
     const upgrades = Array.isArray(saved.upgrades) ? saved.upgrades.filter(u => typeof u === 'string') : []
     if (!upgrades.includes(GIT_TO_MORE)) {
       if (rawRow(saved.layout, 'header').join() === OLD_HEADER && !rawRow(saved.layout, 'more').length) {
@@ -286,16 +293,32 @@ export function setProjectsCollapsed(ids: readonly string[], collapsed: boolean)
 
 /** 整组替换分区（增删改由 sidebar/projectGroups.ts 的纯函数算好） */
 export function setProjectGroups(groups: ProjectGroup[]): void {
-  setSidebarPrefs({ groups })
+  setSidebarPrefs({ groups, ...unpinGrouped(groups) })
+}
+
+/** 置顶 / 取消置顶：置顶放最前面，并从分区里拿出来（分区空了就去掉） */
+export function setProjectPinned(id: string, pinned: boolean): void {
+  const rest = (prefs.pinned ?? []).filter(p => p !== id)
+  if (!pinned) return setSidebarPrefs({ pinned: rest })
+  const groups = (prefs.groups ?? [])
+    .map(g => ({ ...g, projects: g.projects.filter(p => p !== id) }))
+    .filter(g => g.projects.length > 0)
+  setSidebarPrefs({ pinned: [id, ...rest], groups })
 }
 
 /** 拖动换位置：分区和项目先后一起存（项目拖进别的分区时两样都变） */
 export function setProjectArrangement(arrangement: { groups: ProjectGroup[]; order: string[] }): void {
-  setSidebarPrefs(arrangement)
+  setSidebarPrefs({ ...arrangement, ...unpinGrouped(arrangement.groups) })
 }
 
 export function setSidebarIcon(action: SidebarAction, id: SidebarIconId): void {
   setSidebarPrefs({ icons: { ...prefs.icons, [action]: id } })
+/** 进了分区的项目不再置顶（置顶的项目不在分区里显示，docs/ui/project-pin.md §2） */
+const unpinGrouped = (groups: readonly ProjectGroup[]): { pinned: string[] } => {
+  const grouped = new Set(groups.flatMap(g => g.projects))
+  return { pinned: (prefs.pinned ?? []).filter(id => !grouped.has(id)) }
+}
+
 }
 
 export function resetSidebarIcons(): void {

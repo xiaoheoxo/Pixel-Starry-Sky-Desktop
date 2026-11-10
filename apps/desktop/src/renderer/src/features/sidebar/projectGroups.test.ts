@@ -31,6 +31,16 @@ describe('侧栏分区排列', () => {
     ])
   })
 
+  it('置顶的项目最前、后置顶的在上面，不算进分区；看不到的置顶项目跳过（project-pin.md）', () => {
+    expect(arrangeProjects(projects, groups, [], ['e', 'zz', 'b'])).toEqual([
+      { kind: 'project', project: { id: 'e' }, pinned: true },
+      { kind: 'project', project: { id: 'b' }, pinned: true },
+      { kind: 'group', group: groups[0], projects: [{ id: 'd' }] },
+      { kind: 'project', project: { id: 'a' } },
+      { kind: 'project', project: { id: 'c' } },
+    ])
+  })
+
   it('同一个项目只算在第一个分区里', () => {
     const twice = [...groups, { id: 'g3', name: '重复', projects: ['b'] }]
     expect(arrangeProjects(projects, twice).filter(e => e.kind === 'group')).toHaveLength(1)

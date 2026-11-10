@@ -96,6 +96,7 @@ export function ProjectTree({
   const collapsed = new Set(prefs.collapsed ?? [])
   const groups = prefs.groups ?? []
   const saved = prefs.order ?? []
+  const pinned = prefs.pinned ?? []
   const [showAll, setShowAll] = useState<Record<string, boolean>>({})
   const [archivedOpen, setArchivedOpen] = useState<Record<string, boolean>>({})
   const [archivedShown, setArchivedShown] = useState<Record<string, number>>({})
@@ -108,7 +109,7 @@ export function ProjectTree({
   const dragging = useRef<{ ids: string[] } | { group: string } | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ group: ProjectGroup; x: number; y: number } | null>(null)
 
-  const entries = arrangeProjects(projects, groups, saved)
+  const entries = arrangeProjects(projects, groups, saved, pinned)
   const shownGroups = entries.flatMap(e => (e.kind === 'group' ? [e.group] : []))
   const order = entries.flatMap(e => (e.kind === 'group' ? e.projects.map(p => p.id) : [e.project.id]))
   const pickedNow = picked.filter(id => order.includes(id))
@@ -212,9 +213,14 @@ export function ProjectTree({
    * 项目上的落点：拖项目来时，上半 / 下半排到它前面 / 后面（筛选时不排，分区外的项目上是移出分区）；
    * 拖的就是它自己时不接。拖分区来时不管，交给外面的分区盒子
    */
-  const projectDrop = (p: Project, inGroup: boolean) => ({
+  const projectDrop = (p: Project, inGroup: boolean, top = false) => ({
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
       if (!event.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return
+      // 置顶的项目上不接：拖动排序只在没置顶的里面（docs/ui/project-pin.md §2）；从别的行移过来时去掉留下的横线
+      if (top) {
+        if (drop) setDrop(null)
+        return
+      }
       const self = !!dragging.current && 'ids' in dragging.current && dragging.current.ids.includes(p.id)
       if (self) {
         event.stopPropagation()
@@ -228,7 +234,7 @@ export function ProjectTree({
       over(event, { key: p.id, place: placeBy(event, '[data-project-row]') })
     },
     onDrop: (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes(PROJECT_DRAG_TYPE) || (filtering && inGroup)) return
+      if (!event.dataTransfer.types.includes(PROJECT_DRAG_TYPE) || (filtering && inGroup) || top) return
       done(event)
       const ids = draggedIds(event).filter(id => id !== p.id)
       if (!ids.length) return
@@ -267,7 +273,7 @@ export function ProjectTree({
   })
   const lineAt = (key: string): DropPlace | null => (drop?.key === key && drop.place !== 'into' ? drop.place : null)
 
-  const renderProject = (p: Project, inGroup = false) => {
+  const renderProject = (p: Project, inGroup = false, top = false) => {
     const open = filtering || !collapsed.has(p.id)
     const { running, waiting } = projectCounts(p.sessions, lanes)
     const { shown, hidden } = visibleSessions(p.sessions, {
@@ -285,7 +291,7 @@ export function ProjectTree({
           open && p.sessions.length > 0 && 'mb-1',
           drop?.key === p.id && drop.place === 'into' && 'ring-1 ring-accent-line',
         )}
-        {...projectDrop(p, inGroup)}
+        {...projectDrop(p, inGroup, top)}
       >
         <DropLine place={lineAt(p.id)} />
         <ProjectRow
@@ -293,8 +299,9 @@ export function ProjectTree({
           open={open}
           onToggle={event => clickProject(p, open, event)}
           picked={pickedNow.includes(p.id)}
-          groupActions={groupActions(p)}
-          onDragStart={dragStart(p)}
+          groupActions={top ? [] : groupActions(p)}
+          onDragStart={top ? undefined : dragStart(p)}
+          pinned={top}
           trailing={<ProjectStatus project={p} open={open} running={running} waiting={waiting} />}
         />
         {open && folders.length > 0 && (
@@ -372,7 +379,7 @@ export function ProjectTree({
         </div>
       )}
       {entries.map(entry => {
-        if (entry.kind === 'project') return renderProject(entry.project)
+        if (entry.kind === 'project') return renderProject(entry.project, false, !!entry.pinned)
         const { group, projects: members } = entry
         const open = filtering || !collapsed.has(groupKey(group.id))
         const totals = members.reduce(

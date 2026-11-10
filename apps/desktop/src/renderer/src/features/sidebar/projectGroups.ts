@@ -2,7 +2,9 @@
 // 分区存在侧栏偏好里（appearance/sidebar.ts 的 groups）；这里是排列和增删改的纯函数，不依赖 window。
 import type { ProjectGroup } from '@/features/appearance/sidebar'
 
-export type TreeEntry<P> = { kind: 'group'; group: ProjectGroup; projects: P[] } | { kind: 'project'; project: P }
+export type TreeEntry<P> =
+  | { kind: 'group'; group: ProjectGroup; projects: P[] }
+  | { kind: 'project'; project: P; pinned?: true }
 
 /** 新分区的 ID：时间 + 随机几位，同一台电脑上不会撞 */
 export const newGroupId = (): string => `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -19,18 +21,28 @@ export function sortByOrder<P extends { id: string }>(projects: readonly P[], or
 }
 
 /**
- * 分区在前（按分区的先后），不在分区里的项目在后。项目（分区里的和外面的）按拖出来的顺序（order），
- * 没排过就按项目列表的顺序；当前列表里一个都没有（别的机器的、筛掉了的）的分区不显示
+ * 置顶的项目最前（按 pinned 的先后，docs/ui/project-pin.md），再是分区（按分区的先后），不在分区里的项目在后。
+ * 项目（分区里的和外面的）按拖出来的顺序（order），没排过就按项目列表的顺序；
+ * 当前列表里一个都没有（别的机器的、筛掉了的）的分区不显示。置顶的项目不算进分区
  */
 export function arrangeProjects<P extends { id: string }>(
   unsorted: readonly P[],
   groups: readonly ProjectGroup[],
   order: readonly string[] = [],
+  pinned: readonly string[] = [],
 ): TreeEntry<P>[] {
-  const projects = sortByOrder(unsorted, order)
-  const owner = new Map<string, string>()
-  for (const g of groups) for (const id of g.projects) if (!owner.has(id)) owner.set(id, g.id)
+  const top = new Set(pinned)
   const entries: TreeEntry<P>[] = []
+  for (const id of pinned) {
+    const project = unsorted.find(p => p.id === id)
+    if (project) entries.push({ kind: 'project', project, pinned: true })
+  }
+  const projects = sortByOrder(
+    unsorted.filter(p => !top.has(p.id)),
+    order,
+  )
+  const owner = new Map<string, string>()
+  for (const g of groups) for (const id of g.projects) if (!owner.has(id) && !top.has(id)) owner.set(id, g.id)
   for (const group of groups) {
     const members = projects.filter(p => owner.get(p.id) === group.id)
     if (members.length) entries.push({ kind: 'group', group, projects: members })

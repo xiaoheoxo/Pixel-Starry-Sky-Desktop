@@ -396,6 +396,23 @@ describe('侧边栏外观偏好', () => {
     expect(sidebar.getSidebarPrefs().icons.addProject).toBe('folder-open')
   })
 
+  it('项目置顶：放最前、从分区里拿出来；又进了分区就取消置顶；坏数据丢掉（project-pin.md）', async () => {
+    vi.resetModules()
+    const sidebar = await import('./sidebar')
+    sidebar.setProjectGroups([{ id: 'g', name: '组', projects: ['a', 'b'] }])
+    sidebar.setProjectPinned('a', true)
+    sidebar.setProjectPinned('c', true)
+    expect(sidebar.getSidebarPrefs().pinned).toEqual(['c', 'a'])
+    expect(sidebar.getSidebarPrefs().groups).toEqual([{ id: 'g', name: '组', projects: ['b'] }])
+    sidebar.setProjectPinned('b', true)
+    expect(sidebar.getSidebarPrefs().groups).toBeUndefined()
+    sidebar.setProjectGroups([{ id: 'h', name: '新组', projects: ['a'] }])
+    expect(sidebar.getSidebarPrefs().pinned).toEqual(['b', 'c'])
+    sidebar.setProjectPinned('b', false)
+    expect(sidebar.getSidebarPrefs().pinned).toEqual(['c'])
+    expect(parseSidebarPrefs({ version: 4, pinned: ['x', 'x', 3, '', 'y'] }).pinned).toEqual(['x', 'y'])
+  })
+
   it('顶栏工具与底部动作可在三排之间互相移动，图标随入口走', () => {
     let layout = moveSidebarActionInLayout(DEFAULT_SIDEBAR_LAYOUT, 'git', 'bottom', 0)
     expect(layout.hidden).toEqual(NEW)
