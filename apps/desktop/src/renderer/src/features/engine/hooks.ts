@@ -45,6 +45,7 @@ import { fastBlockedText, fastHintText, relativeTime, selfModelOptions } from '.
 import { resumeModel } from '@/features/resume/model'
 import { effortDefaultsFor } from './effortDefaults'
 import { sidebarData, demoSidebarData, type PinnedSession } from './sidebarData'
+import { useTuiBusy } from '@/features/terminal/useTuiBusy'
 import { useSidebarFreeze } from './sidebarFreeze'
 import { useAccount } from '@/features/account/useAccount'
 import {
@@ -138,6 +139,8 @@ export function useSidebarData(): SidebarData {
   const projects = useEngineState(s => s.projects)
   const sessions = useEngineState(s => s.sessions)
   const unread = useEngineState(s => s.unread)
+  // 终端模式的会话按输出判断在不在干活，变了要重算（sidebarData 的 busy 读它）
+  const tuiBusy = useTuiBusy()
   // 鼠标在侧栏里时冻结按最近活动的自动排序（docs/ui/motion-proposal.html ①）；用户操作不受影响
   const frozen = useSidebarFreeze()
   // 每分钟刷新一次，让「刚刚 / 5分钟」跟着变
@@ -162,7 +165,7 @@ export function useSidebarData(): SidebarData {
       stamp => relativeTime(stamp, now),
       frozen,
     )
-  }, [projects, sessions, unread, now, locale, demoChanges, machines.currentId, frozen])
+  }, [projects, sessions, unread, now, locale, demoChanges, machines.currentId, frozen, tuiBusy])
 }
 
 export { addProject }

@@ -7,6 +7,7 @@ import { IconButton, Popover, PopoverItem, Spinner, cn } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { isLive, useEngineState, useSessionTitle } from '@/features/engine'
 import { busy, orChat } from '@/features/engine/sidebarData'
+import { useTuiBusy } from '@/features/terminal/useTuiBusy'
 import { SPLIT_DOWN, SPLIT_RIGHT, ZOOM_PANE, withShortcut } from '@/features/layout/shortcuts'
 import { flipFrom } from './motion'
 import { TabSlot } from './tabHost'
@@ -40,6 +41,7 @@ function useTabInfo(tab: string | null): TabInfo {
     parsed = tab ? parseFileTab(tab) : null
   const title = useSessionTitle(sessionId)
   const summary = useEngineState(s => (sessionId ? s.sessions.find(x => x.record.id === sessionId) : undefined))
+  useTuiBusy() // busy() 里终端模式那部分读全局状态，这里订阅它的变化
   const project = useEngineState(s => {
     if (summary)
       return orChat(s.projects.find(p => p.id === summary.record.projectId)?.name, summary.record.projectId) ?? null

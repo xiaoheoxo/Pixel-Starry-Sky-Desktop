@@ -2,11 +2,17 @@ import { bottomOrder, isChatProject, pinnedOrder, type ProjectRecord, type Sessi
 import type { Project, RecentItem, Session, SessionStatus } from '@/data/types'
 import type { DemoSessionChange } from '@/data/types'
 import { tr } from '@/i18n/core'
+import { tuiBusy } from '@/features/terminal/tuiActivity'
 /** 会话所属项目的显示名：内置「对话」写「对话」；项目已移除时 undefined */
 export const orChat = (name: string | undefined, projectId: string | null | undefined): string | undefined =>
   name ?? (isChatProject(projectId) ? tr('sidebar.Sidebar.chat') : undefined)
-/** 运行中，或这一轮说完了但后台子智能体还在跑（docs/ui/notifications.md §7） */
-export const busy = (s: SessionSummary): boolean => s.state !== 'idle' || !!s.background
+/**
+ * 运行中，或这一轮说完了但后台子智能体还在跑（docs/ui/notifications.md §7），
+ * 或在终端模式里干活（宿主看不到终端里的引擎，按输出节奏判断，docs/ui/tui-toggle.md §5.5）。
+ * 终端那部分读的是全局状态：hook 里用的要另外订阅 useTuiBusy
+ */
+export const busy = (s: SessionSummary): boolean =>
+  s.state !== 'idle' || !!s.background || (!!s.record.tui && tuiBusy().has(s.record.id))
 /** 侧栏「置顶」分组里的会话：带上所属项目名 */
 export type PinnedSession = Session & { project?: string; projectId?: string }
 /** 冻结快照：会话 ID → 冻结那一刻的 updatedAt（侧栏按「最近」排的那把钥匙） */

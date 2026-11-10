@@ -5,6 +5,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { useEffect, useRef, useState } from 'react'
 import type { TerminalRecord } from '../../../../shared/types/terminal'
 import { consumeTerminal, demoWrite, noteTerminalEnter, terminalError, terminalState } from './store'
+import { noteTuiInput } from './tuiActivity'
 import { screens } from './screens'
 import { isDemo } from '@/data'
 import { openFile } from '@/features/files/store'
@@ -191,6 +192,7 @@ export function TerminalView({
         // 括号粘贴（多行粘贴）里的换行只进输入行，不执行
         if (data.includes('\r') && !data.startsWith('\x1b[200~'))
           noteTerminalEnter(now.id, now.generation, commandAtCursor(term))
+        if (now.sessionId) noteTuiInput(now.id)
         void window.pixelsky!.terminal.write(now.id, now.generation, data).catch(terminalError)
       }
     })

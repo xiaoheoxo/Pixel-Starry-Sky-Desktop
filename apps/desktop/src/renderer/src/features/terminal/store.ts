@@ -13,6 +13,7 @@ import { demo } from '@/data/demo'
 import { createHistory, HISTORY_LIMIT_BYTES, stripAnsi, type DataEvent, type TerminalHistory } from './history'
 import { applyPrompt, type PromptMarks } from './marks'
 import { endRun, startRun, type TerminalRun } from './pills'
+import { noteTuiOutput } from './tuiActivity'
 
 interface State extends TerminalState {
   ready: boolean
@@ -133,6 +134,8 @@ function event(value: TerminalEvent): void {
     return
   }
   seenOutput.add(value.terminalId)
+  const sessionId = state.terminals.find(t => t.id === value.terminalId)?.sessionId
+  if (sessionId) noteTuiOutput(value.terminalId, sessionId)
   const waiter = readyWaiters.get(value.terminalId)
   if (waiter) {
     readyWaiters.delete(value.terminalId)
