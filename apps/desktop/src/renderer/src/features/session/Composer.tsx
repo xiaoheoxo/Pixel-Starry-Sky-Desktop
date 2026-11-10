@@ -199,9 +199,9 @@ export function Composer({
   // 「/resume」是像素星空自己的命令（接着终端里的 Claude Code / Codex 会话）：执行者是 Claude Code 或 Codex 才有；引擎哪天也给了同名命令就丢掉它的
   const resumeWorkspace = composerWorkspace(live?.sessionId, status, draftKey)
   const resumeEngineId = (live ?? demoSource).engine?.id
-  // 对话没有项目目录：接终端会话会扫到所有对话的文件夹（命令面板、欢迎页提示也不给）
+  // 聊天没有项目目录：只有 Codex 能接，列的是项目外的会话（codex-resume.md §12）；Claude 不给
   const resumeCommand = useResumeCommand(
-    isChatProject(status?.project?.id) ? null : resumeEngineId,
+    isChatProject(status?.project?.id) && resumeEngineId !== 'codex' ? null : resumeEngineId,
     resumeWorkspace?.sessionId ?? resumeWorkspace?.projectId,
   )
   const menuCommands = useMemo(

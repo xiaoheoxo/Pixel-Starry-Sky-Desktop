@@ -1,6 +1,8 @@
 // 接着引擎自己留下的会话（终端里的 Claude Code……）：列出、导入、加载更早的、补上终端里新聊的（docs/ui/claude-resume.md）
 import { randomUUID } from 'node:crypto'
+import { stat } from 'node:fs/promises'
 import {
+  CHAT_PROJECT_ID,
   normalizeSessionTitle,
   type EngineId,
   type EngineSessionState,
@@ -93,12 +95,20 @@ export class HostNative {
   ): Promise<NativeSessionSummary[]> {
     const project = this.project(projectId)
     const adapter = this.adapter(engine)
-    const list = await adapter.nativeSessions(project.path, { subfolders: opts.subfolders !== false })
+    // 聊天：列不在任何项目下面的会话（codex-resume.md §12），只有 Codex 支持
+    const chat = project.id === CHAT_PROJECT_ID
+    if (chat && engine !== 'codex') return []
+    const list = await adapter.nativeSessions(
+      project.path,
+      chat ? { outside: this.ctx.m.projects.projects().map(p => p.path) } : { subfolders: opts.subfolders !== false },
+    )
     this.lists.set(`${projectId}\n${engine}`, list)
     const live = adapter.nativeLive?.(list.sessions)
     const owners = this.owners()
-    return list.sessions.map(s => ({
+    const folders = chat ? await Promise.all(list.sessions.map(s => existingDir(s.cwd))) : []
+    return list.sessions.map((s, i) => ({
       id: s.id,
+      ...(chat ? { folder: folders[i] } : {}),
       title: s.title,
       firstPrompt: s.firstPrompt,
       lastPrompt: s.lastPrompt,
@@ -215,9 +225,17 @@ export class HostNative {
     if (owner2) return { ownerId: owner2 }
 
     // 对话的工作目录跟着会话原来的目录（Codex 读线程时给；核对过在项目下面才用，没有列表缓存的 /resume <id> 也靠它拿到子文件夹）
-    const where = read.cwd ? await matchCwd(project.path, read.cwd, true) : null
+    // 聊天：原文件夹还在就在那里运行，没有就按普通聊天开 chats/<id>（codex-resume.md §12.3）
+    const chat = project.id === CHAT_PROJECT_ID
+    const where = !chat && read.cwd ? await matchCwd(project.path, read.cwd, true) : null
     // 和项目根目录是同一个目录（Windows 上只差大小写 / 末尾分隔符）就用项目路径，不然会被当成「同名的子文件夹」
-    const home = where ? (where.subdir === null ? project.path : read.cwd!) : cwd
+    const home = chat
+      ? ((await existingDir(read.cwd ?? summary?.cwd ?? '')) ?? project.path)
+      : where
+        ? where.subdir === null
+          ? project.path
+          : read.cwd!
+        : cwd
     const missing = Math.max(0, read.turns - read.shown)
     const items: Item[] = [
       this.divider(engine, read.source, copy, read.turns, missing, read.summary, undefined, legacy),
@@ -522,4 +540,13 @@ export class HostNative {
     })
     return { added: 0 }
   }
+}
+
+/** 是存在的文件夹就原样返回；空串、不在了、不是文件夹为 null */
+async function existingDir(path: string): Promise<string | null> {
+  if (!path) return null
+  return stat(path).then(
+    s => (s.isDirectory() ? path : null),
+    () => null,
+  )
 }

@@ -1,9 +1,9 @@
 import { scrollInPane } from '@/ui/scrollInPane'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { createPortal } from 'react-dom'
-import { CornerDownLeft, FolderGit2, Info, RefreshCw, Search, X } from 'lucide-react'
-import type { NativeSessionDetail, NativeSessionSummary } from '@pixelsky/protocol'
-import { Button, IconButton, Spinner, cn } from '@/ui'
+import { CornerDownLeft, Folder, FolderGit2, Info, RefreshCw, Search, X } from 'lucide-react'
+import { CHAT_PROJECT_ID, isChatProject, type NativeSessionDetail, type NativeSessionSummary } from '@pixelsky/protocol'
+import { Button, IconButton, Segmented, Spinner, cn } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { OPEN_SESSION_EVENT } from '@/features/engine/openRequests'
@@ -65,6 +65,10 @@ export interface PickerViewProps {
   inputRef?: Ref<HTMLInputElement>
   projectPath: string | null
   noProject: boolean
+  /** 列哪里的会话（codex-resume.md §12）：outside 是项目外的聊天 */
+  scope?: 'project' | 'outside'
+  /** 给了才显示「这个项目 / 项目外的聊天」切换（项目里的 Codex 选择框） */
+  onScope?(scope: 'project' | 'outside'): void
   onQuery(value: string): void
   onSelect(id: string): void
   onActivate(row: ResumeRow, how: ChooseHow): void
@@ -126,6 +130,19 @@ function Row({
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 truncate text-ui font-medium text-fg">{row.title}</span>
+        {row.folder !== undefined && (
+          <span
+            data-resume-folder
+            title={row.folder ?? undefined}
+            className={cn(
+              'inline-flex min-w-0 shrink items-center gap-1 rounded bg-hover px-1.5 text-meta text-fg-muted',
+              row.folder && 'font-mono',
+            )}
+          >
+            <Folder size={11} strokeWidth={1.5} className="shrink-0" />
+            <span className="truncate">{row.folder ?? tr('resume.outside.noFolder')}</span>
+          </span>
+        )}
         {row.subdir && (
           <span
             data-resume-subdir
@@ -158,6 +175,11 @@ function Row({
         <span className="shrink-0">
           {tr(row.source === 'terminal' ? 'resume.source.terminal' : 'resume.source.other')}
         </span>
+        {row.folder && (
+          <span className="shrink-0 rounded bg-hover px-1.5 text-meta text-fg-muted">
+            {tr('resume.outside.inFolder')}
+          </span>
+        )}
         <StatusChip row={row} />
         {selected && !busy && !choice && <CornerDownLeft size={13} className="shrink-0 text-fg-faint" />}
       </div>
@@ -293,10 +315,14 @@ export function ResumePickerView(view: PickerViewProps) {
           className="flex min-w-0 flex-1 items-baseline gap-3 text-ui font-medium text-fg-secondary"
         >
           <span className="shrink-0">{tr('resume.title', { engine: engineName })}</span>
-          {view.projectPath && (
-            <span className="min-w-0 truncate text-label font-normal text-fg-faint" title={view.projectPath}>
-              {view.projectPath}
-            </span>
+          {view.scope === 'outside' ? (
+            <span className="min-w-0 truncate text-label font-normal text-fg-faint">{tr('resume.outside.path')}</span>
+          ) : (
+            view.projectPath && (
+              <span className="min-w-0 truncate text-label font-normal text-fg-faint" title={view.projectPath}>
+                {view.projectPath}
+              </span>
+            )
           )}
         </h2>
         {view.reading && (
@@ -324,6 +350,34 @@ export function ResumePickerView(view: PickerViewProps) {
         />
         <IconButton icon={X} label={tr('resume.close')} size={24} iconSize={14} onClick={view.onClose} />
       </header>
+      {view.onScope && (
+        <div data-resume-scope className="px-4 pb-2">
+          <Segmented
+            label={tr('resume.scope.label')}
+            value={view.scope ?? 'project'}
+            options={[
+              {
+                value: 'project',
+                get label() {
+                  return tr('resume.scope.project')
+                },
+              },
+              {
+                value: 'outside',
+                get label() {
+                  return tr('resume.scope.outside')
+                },
+              },
+            ]}
+            onChange={v => view.onScope?.(v)}
+          />
+        </div>
+      )}
+      {view.scope === 'outside' && (
+        <p data-resume-outside-hint className="mx-4 mb-2 rounded-lg bg-subtle px-3 py-2 text-meta text-fg-muted">
+          {tr('resume.outside.hint')}
+        </p>
+      )}
       {view.help && (
         <ul
           data-resume-help
@@ -408,7 +462,11 @@ export function ResumePickerView(view: PickerViewProps) {
             data-resume-empty
             className="flex flex-col items-center gap-3 px-4 py-9 text-center text-ui text-fg-muted"
           >
-            <span>{view.query.trim() ? tr('resume.noMatch') : tr('resume.empty', { engine: engineName })}</span>
+            <span>
+              {view.query.trim()
+                ? tr('resume.noMatch')
+                : tr(view.scope === 'outside' ? 'resume.outside.empty' : 'resume.empty', { engine: engineName })}
+            </span>
             {!view.query.trim() && (
               <Button data-resume-action="recheck-empty" onClick={view.onRetry}>
                 {tr('resume.hint.recheck')}
@@ -452,9 +510,12 @@ function focusNewComposer(id: string, left = 30): void {
 
 export function ResumePicker({ request }: { request: ResumeRequest }) {
   useI18n()
-  const projectId = request.projectId
   const engine = request.engine
-  const project = useEngineState(s => s.projects.find(p => p.id === projectId) ?? null)
+  // 聊天里只列项目外的；项目里的 Codex 可以切过去（codex-resume.md §12），选中的都建在聊天里
+  const inChat = isChatProject(request.projectId)
+  const [scope, setScope] = useState<'project' | 'outside'>(inChat ? 'outside' : 'project')
+  const projectId = scope === 'outside' && engine === 'codex' ? CHAT_PROJECT_ID : inChat ? null : request.projectId
+  const project = useEngineState(s => s.projects.find(p => p.id === request.projectId) ?? null)
   const [rows, setRows] = useState<NativeSessionSummary[] | null>(null)
   const [details, setDetails] = useState<ReadonlyMap<string, NativeSessionDetail>>(() => new Map())
   const [error, setError] = useState<string | null>(null)
@@ -677,6 +738,18 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
           inputRef={input}
           projectPath={project?.path ?? null}
           noProject={!projectId}
+          scope={projectId === CHAT_PROJECT_ID ? 'outside' : 'project'}
+          onScope={
+            engine === 'codex' && !inChat && request.projectId
+              ? next => {
+                  setScope(next)
+                  setRows(null)
+                  setDetails(new Map())
+                  setSelectedId(null)
+                  setNotice(null)
+                }
+              : undefined
+          }
           onQuery={value => {
             setQuery(value)
             setSelectedId(null)
@@ -696,7 +769,7 @@ export function ResumePicker({ request }: { request: ResumeRequest }) {
             setDetails(new Map())
             setAttempt(n => n + 1)
             // 导入提示、空状态的计数跟着更新
-            if (projectId && isLive) void refreshResumeCounts(projectId)
+            if (projectId && projectId !== CHAT_PROJECT_ID && isLive) void refreshResumeCounts(projectId)
           }}
           onHelp={() => setHelp(v => !v)}
           onClose={() => closeResumePicker()}

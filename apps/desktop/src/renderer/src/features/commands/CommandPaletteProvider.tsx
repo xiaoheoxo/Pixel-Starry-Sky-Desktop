@@ -245,7 +245,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         openResumePicker({ engine: 'codex', projectId: projectId ?? (isDemo ? 'demo' : null) })
       },
       undefined,
-      () => hasProject() && !isChatProject(projectId) && !remoteWorkspace && !codexMissing,
+      () => hasProject() && !remoteWorkspace && !codexMissing,
       remoteWorkspace ? t('resume.remote') : codexMissing ? t('resume.open.codexMissing') : undefined,
     )
     add('nav.workbench', 'nav.workbench', 'terminal.categoryWorkbench', LayoutDashboard, showWorkbench)

@@ -207,5 +207,16 @@ export const resumeMessages = {
     zh: '现在连着 {machine}。查找会话要读那台机器上 Claude Code 和 Codex 的会话记录，这一版只支持本机的项目。',
     en: 'You’re connected to {machine}. Finding sessions means reading the Claude Code and Codex records on that machine; this version only supports local projects.',
   },
+  'resume.scope.label': { zh: '列哪里的会话', en: 'Which sessions to list' },
+  'resume.scope.project': { zh: '这个项目', en: 'This project' },
+  'resume.scope.outside': { zh: '项目外的聊天', en: 'Chats outside projects' },
+  'resume.outside.path': { zh: '不属于任何项目', en: 'Not in any project' },
+  'resume.outside.hint': {
+    zh: 'Codex 里不属于任何项目的会话：没有工作文件夹，或者文件夹不在像素星空的项目里。选中后在聊天里接着，不会挂到当前项目下。',
+    en: 'Codex sessions that are not in any project: no working folder, or a folder that is not a Pixel Starry Sky project. They continue as a chat, not under the current project.',
+  },
+  'resume.outside.empty': { zh: '没有项目外的 {engine} 会话', en: 'No {engine} sessions outside projects' },
+  'resume.outside.noFolder': { zh: '没有文件夹', en: 'No folder' },
+  'resume.outside.inFolder': { zh: '在原文件夹里运行', en: 'Runs in its original folder' },
   'resume.scan.switchLocal': { zh: '切换到本机', en: 'Switch to this computer' },
 } as const satisfies Record<string, { zh: string; en: string }>

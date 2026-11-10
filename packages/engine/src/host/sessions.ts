@@ -26,6 +26,7 @@ import { queueSettings } from '../queue'
 import { ENGINES } from '../registry'
 import type { HostContext, Runtime } from './context'
 import { NEW_TITLE } from './title'
+import { under } from '../native/paths'
 
 export class HostSessions {
   constructor(private readonly ctx: HostContext) {}
@@ -66,15 +67,16 @@ export class HostSessions {
     const project = m.projects.find(opts.projectId)
     if (!project) throw new Error('项目不存在')
     const id = randomUUID()
-    // 不用项目的对话：在数据目录下给它开一个自己的空文件夹
-    if (project.id === CHAT_PROJECT_ID) workspacePath = join(project.path, id)
+    // 不用项目的对话：在数据目录下给它开一个自己的空文件夹；接着项目外 Codex 会话的（codex-resume.md §12）在原文件夹里运行
+    const ownFolder = project.id === CHAT_PROJECT_ID && (!workspacePath || under(project.path, workspacePath) !== null)
+    if (ownFolder) workspacePath = join(project.path, id)
     if (m.guard.isLocked(workspacePath ?? project.path)) throw new Error('工作目录正在维护，请稍后重试')
     const engine = opts.engine ?? m.settings.file.defaults.engine
     if (opts.platform && opts.provider) throw new Error('额度来源无效')
     if (opts.provider && (typeof opts.provider.id !== 'string' || !PROVIDER_ID.test(opts.provider.id)))
       throw new Error('无效的自定义接口')
     const d = m.settings.engineDefaults(engine)
-    if (project.id === CHAT_PROJECT_ID) mkdirSync(workspacePath!, { recursive: true })
+    if (ownFolder) mkdirSync(workspacePath!, { recursive: true })
     const now = Date.now()
     const record: SessionRecord = {
       id,

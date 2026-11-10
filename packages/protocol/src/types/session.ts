@@ -289,6 +289,8 @@ export interface NativeSessionSummary {
   branch: string | null
   /** 会话开在项目子文件夹里时的相对路径，在项目根目录为 null */
   subdir: string | null
+  /** 聊天里列的项目外会话（codex-resume.md §12）：线程的工作文件夹，没有或已经不在了为 null；项目里的列表不带 */
+  folder?: string | null
   updatedAt: number
   size: number
   /** 第二步才有 */

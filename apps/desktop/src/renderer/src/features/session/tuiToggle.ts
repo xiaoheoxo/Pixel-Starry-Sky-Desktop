@@ -1,5 +1,6 @@
 // 会话界面 ⇄ 终端（TUI）切换的 React hook / IPC（docs/ui/tui-toggle.md）
 import { useCallback, useEffect, useState, useSyncExternalStore, type RefObject } from 'react'
+import { isChatProject } from '@pixelsky/protocol'
 import { isDemo } from '@/data'
 import { matchesAction } from '@/features/layout/keybindings'
 import { machineOf } from '@/features/machines/store'
@@ -127,7 +128,15 @@ export function useTuiToggle(
     () =>
       toast(tr('session.tui.mismatch'), {
         duration: 15_000,
-        action: { label: tr('session.tui.importResume'), run: () => openResumePicker({ engine: 'claude', projectId }) },
+        // 聊天没有项目文件夹，Claude 的选择框列不出东西：不给导入按钮
+        ...(isChatProject(projectId)
+          ? {}
+          : {
+              action: {
+                label: tr('session.tui.importResume'),
+                run: () => openResumePicker({ engine: 'claude', projectId }),
+              },
+            }),
       }),
     [toast, projectId],
   )

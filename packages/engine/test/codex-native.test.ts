@@ -428,6 +428,25 @@ describe('listCodexThreads', () => {
     expect(rootOnly.sessions.map(s => s.id)).toEqual([tid(1), tid(2), tid(6)])
   })
 
+  it('outside：列没有文件夹、或不在这些项目下面的线程（codex-resume.md §12）', async () => {
+    mkdirSync(join(proj, 'sub'), { recursive: true })
+    const other = join(root, 'other')
+    const rpc = new FakeRpc()
+      .add(thread(tid(1), { cwd: '' }))
+      .add(thread(tid(2), { cwd: other }))
+      .add(thread(tid(3), { cwd: proj }))
+      .add(thread(tid(4), { cwd: join(proj, 'sub') }))
+      .add(thread(tid(5), { cwd: IS_WINDOWS ? proj.toUpperCase() : proj }))
+      .add(thread(tid(6), { cwd: '', parentThreadId: tid(1) }))
+    const list = await listCodexThreads(rpc, 'ignored', { outside: [proj] })
+    expect(list.sessions.map(s => [s.id, s.cwd, s.subdir])).toEqual([
+      [tid(1), '', null],
+      [tid(2), other, null],
+    ])
+    // 没有项目：全部列
+    expect((await listCodexThreads(rpc, 'ignored', { outside: [] })).sessions).toHaveLength(5)
+  })
+
   it('子智能体、ephemeral、没有内容的线程不列', async () => {
     const rpc = new FakeRpc()
       .add(thread(tid(1)))

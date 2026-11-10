@@ -115,6 +115,35 @@ const render = (extra: Partial<PickerViewProps> = {}): string => {
 }
 
 describe('ResumePickerView', () => {
+  it('项目外的聊天（codex-resume.md §12）：标题写不属于任何项目，显示说明、切换和文件夹标签', () => {
+    const rows = mergeRows(
+      [
+        { ...FIXTURE[0][0], folder: null },
+        { ...FIXTURE[1][0], folder: 'E:\\Server' },
+      ],
+      new Map(),
+    )
+    const html = render({
+      engine: 'codex',
+      groups: groupRows(rows),
+      scope: 'outside',
+      onScope: () => undefined,
+    })
+    expect(html).toContain('不属于任何项目')
+    expect(html).not.toContain('D:\\PixelSky')
+    expect(html).toContain('data-resume-scope')
+    expect(html).toContain('data-resume-outside-hint')
+    expect(html).toContain('没有文件夹')
+    expect(html).toContain('E:\\Server')
+    expect(html.match(/在原文件夹里运行/g)).toHaveLength(1)
+    expect(render({ engine: 'codex', groups: groupRows([]), scope: 'outside' })).toContain('没有项目外的 Codex 会话')
+  })
+  it('项目里的列表：没有 onScope 时不显示切换，行上没有文件夹标签', () => {
+    const html = render()
+    expect(html).not.toContain('data-resume-scope')
+    expect(html).not.toContain('data-resume-folder')
+    expect(html).not.toContain('data-resume-outside-hint')
+  })
   it('演示数据：未被占用的在上，已被占用的收进底部「已在像素星空里」一组', () => {
     const html = render()
     expect(html).toContain('data-resume-picker')

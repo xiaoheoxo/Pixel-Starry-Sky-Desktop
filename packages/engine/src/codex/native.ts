@@ -10,7 +10,7 @@ import { HANDOFF_TAG } from '../handoff'
 import { NEW_TITLE, titleFrom } from '../host/title'
 import { IS_WINDOWS } from '../exec'
 import { countUsers, fit } from '../native/items'
-import { matchCwd } from '../native/paths'
+import { matchCwd, under } from '../native/paths'
 import { splitIdeContext, splitPrompt } from '../native/prompt'
 import { NATIVE_TEXT } from '../native/text'
 import type {
@@ -192,12 +192,20 @@ export async function listCodexThreads(
       if (found.length >= limit) break
       const id = string(thread.id),
         cwd = string(thread.cwd)
-      if (!id || !cwd || seen.has(id)) continue
+      if (!id || seen.has(id)) continue
       if (thread.ephemeral === true || string(thread.parentThreadId) || !string(thread.preview).trim()) continue
-      const where = await matchCwd(projectPath, cwd, subfolders)
-      if (!where) continue
+      let subdir: string | null = null
+      if (opts.outside) {
+        // shortcut: 只比规范化后的路径、不做 realpath，项目经符号链接打开时可能多列一份；有人反馈再换 matchCwd
+        if (cwd && opts.outside.some(p => under(p, cwd) !== null)) continue
+      } else {
+        if (!cwd) continue
+        const where = await matchCwd(projectPath, cwd, subfolders)
+        if (!where) continue
+        subdir = where.subdir
+      }
       seen.add(id)
-      found.push({ thread, subdir: where.subdir })
+      found.push({ thread, subdir })
     }
     cursor = string(reply.nextCursor) || null
     if (!cursor || rows.length === 0) break

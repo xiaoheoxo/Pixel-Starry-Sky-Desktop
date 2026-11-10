@@ -26,6 +26,8 @@ export interface ListOptions {
   limit?: number
   /** 项目子文件夹里开的会话也列出来（§3.1 D） */
   subfolders?: boolean
+  /** 列项目外的（codex-resume.md §12）：cwd 为空、或不在这些项目路径下面的；给了它就不看 cwd 参数和 subfolders */
+  outside?: readonly string[]
   /** 尾部总预算（字节）、单个文件上限，默认 TAIL_BUDGET / TAIL_CAP */
   tailBudget?: number
   tailCap?: number

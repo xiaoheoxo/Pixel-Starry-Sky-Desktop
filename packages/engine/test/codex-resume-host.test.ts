@@ -5,6 +5,7 @@ import { join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  CHAT_PROJECT_ID,
   parseCodedError,
   type HostEvent,
   type Item,
@@ -287,6 +288,53 @@ describe('列表和占用', { timeout: 20_000 }, () => {
     hosts.push(host)
     const project = host.addProject(t.cwd)
     await expect(host.nativeSessions(project.id, 'codex')).rejects.toThrow(NATIVE_TEXT.codexUnavailable)
+  })
+})
+
+describe('聊天：项目外的线程（codex-resume.md §12）', { timeout: 20_000 }, () => {
+  it('列没有文件夹、不在任何项目下面的；在项目下面的不列；Claude 返回空', async () => {
+    const t = setup()
+    const outsideDir = join(root, 'outside')
+    mkdirSync(outsideDir)
+    const a = addThread(1, '', 1)
+    const b = addThread(2, outsideDir, 1)
+    const gone = addThread(3, join(root, 'deleted'), 1)
+    addThread(4, t.cwd, 1)
+    addThread(5, join(t.cwd, 'pkg'), 1)
+    const list = await t.host.nativeSessions(CHAT_PROJECT_ID, 'codex')
+    expect(list.map(s => [s.id, s.folder])).toEqual([
+      [a, null],
+      [b, outsideDir],
+      [gone, null],
+    ])
+    // 项目里的列表不带 folder
+    expect((await t.host.nativeSessions(t.project.id, 'codex'))[0]).not.toHaveProperty('folder')
+  })
+
+  it('导入到聊天：有文件夹的在原文件夹里运行、删对话不删它；没有文件夹的开 chats/<id>', async () => {
+    const t = setup()
+    const outsideDir = join(root, 'outside')
+    mkdirSync(outsideDir)
+    writeFileSync(join(outsideDir, 'keep.txt'), 'x')
+    const a = addThread(1, '', 2)
+    const b = addThread(2, outsideDir, 2)
+    await t.host.nativeSessions(CHAT_PROJECT_ID, 'codex')
+
+    const ra = await t.host.importNativeSession(CHAT_PROJECT_ID, 'codex', a)
+    if (!('sessionId' in ra)) throw new Error('没有建对话')
+    const recA = t.host.record(ra.sessionId)!
+    expect(recA.projectId).toBe(CHAT_PROJECT_ID)
+    expect(recA.cwd).toBe(join(root, 'data', 'chats', ra.sessionId))
+    expect(existsSync(recA.cwd)).toBe(true)
+
+    const rb = await t.host.importNativeSession(CHAT_PROJECT_ID, 'codex', b)
+    if (!('sessionId' in rb)) throw new Error('没有建对话')
+    const recB = t.host.record(rb.sessionId)!
+    expect(recB.projectId).toBe(CHAT_PROJECT_ID)
+    expect(recB.cwd).toBe(outsideDir)
+    expect(recB.engineSessionId).toBe(b)
+    await t.host.deleteSession(rb.sessionId)
+    expect(existsSync(join(outsideDir, 'keep.txt'))).toBe(true)
   })
 })
 
