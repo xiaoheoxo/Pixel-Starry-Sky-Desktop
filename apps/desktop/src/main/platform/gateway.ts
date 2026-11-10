@@ -16,6 +16,7 @@ import {
   type Fetch,
 } from '../core/providers/upstream'
 import { stripLongContextSuffix } from './pixel-env'
+import { trimOldImages } from './codex-images'
 import { chatUsage, withUsageOption } from './chat-usage'
 import { CacheUsageFix } from './usageFix'
 import { compactionTap, type CompactionTap } from './compaction-tap'
@@ -58,10 +59,12 @@ const responsesFailed = (code = 'stream_interrupted', message = MID_STREAM_TEXT)
   })}\n\n`
 
 /** 本机网关收的请求体上限 */
-export const BODY_LIMIT = 32 * 1024 * 1024
+export const BODY_LIMIT = 64 * 1024 * 1024
 const OPTIONS_BODY_LIMIT = 64 * 1024
+/** Codex 超限时最多读进来多大来删旧图；再大就直接回上下文超限 */
+const TRIM_LIMIT = 4 * BODY_LIMIT
 /** Codex 超过上限时的说明（Codex 按错误代码显示它自己的「上下文窗口不够」，这句只进日志和原始事件） */
-const TOO_LARGE_TEXT = 'Request exceeds size limit (32 MB): compact the conversation'
+const TOO_LARGE_TEXT = 'Request exceeds size limit (64 MB): compact the conversation'
 
 /** Chat Completions 中途断开：OpenAI SDK 读到带 error 的数据块就报错 */
 const chatFailed = `data: ${JSON.stringify({ error: { type: 'stream_interrupted', message: MID_STREAM_TEXT } })}\n\n`
@@ -245,7 +248,7 @@ export function platformGateway(options: {
         )
     }
     /**
-     * Codex 的请求太大（网关 32 MB 或上游 413）：回它认得的上下文超限（response.failed + context_length_exceeded），
+     * Codex 的请求太大（网关 64 MB 或上游 413）：回它认得的上下文超限（response.failed + context_length_exceeded），
      * 下一轮先压缩，压缩请求也超限时它会丢掉最旧的历史再试；回 413 它只当普通错误重试，之后每轮都 413（ui/pixel-request-size.md §5）
      */
     const codexTooLarge = (message: string): void => {
@@ -539,17 +542,37 @@ export function platformGateway(options: {
       const chunks: Buffer[] = []
       let size = 0
       // 超限也读完再回：中途跳出循环会销毁请求，回复可能发不全
+      // Codex 的请求超限时要整段读进来删旧图，最多读到 TRIM_LIMIT
+      const keep = responses && record.engine === 'codex' ? TRIM_LIMIT : BODY_LIMIT
       for await (const chunk of req) {
         size += chunk.length
-        if (size <= BODY_LIMIT) chunks.push(Buffer.from(chunk))
+        if (size <= keep) chunks.push(Buffer.from(chunk))
       }
+      let body = size <= keep ? Buffer.concat(chunks).toString('utf8') : ''
       if (size > BODY_LIMIT) {
-        log.warn('请求超过本机网关的大小上限', { ...trace(), size, engine: record.engine, model: record.model })
-        if (responses && record.engine === 'codex') codexTooLarge(TOO_LARGE_TEXT)
-        else fail(413, 'Request exceeds size limit')
-        return
+        // Codex：历史里的截图每轮原样重发，删掉最早的图片直到放得下（docs/ui/pixel-request-size.md P2）
+        let dropped: number | null = null
+        if (body)
+          try {
+            const json = JSON.parse(body) as { input?: unknown }
+            dropped = trimOldImages(json, size, BODY_LIMIT)
+            if (dropped !== null) body = JSON.stringify(json)
+          } catch {
+            dropped = null
+          }
+        log.warn('请求超过本机网关的大小上限', {
+          ...trace(),
+          size,
+          engine: record.engine,
+          model: record.model,
+          droppedImages: dropped,
+        })
+        if (dropped === null) {
+          if (responses && record.engine === 'codex') codexTooLarge(TOO_LARGE_TEXT)
+          else fail(413, 'Request exceeds size limit')
+          return
+        }
       }
-      let body = Buffer.concat(chunks).toString('utf8')
       let parsed: { model?: unknown }
       try {
         parsed = JSON.parse(body)

@@ -318,7 +318,9 @@ function resetInFlight(): void {
   followUpPromise = null
 }
 
-function clearSession(error?: string): void {
+/** why：为什么清（哪个请求、云端回了什么），只进日志，排查「过一阵就要重新登录」用 */
+function clearSession(error?: string, why?: Record<string, unknown>): void {
+  if (error) log.warn('退出登录', { error, ...why })
   resetInFlight()
   tokens = null
   account = null
@@ -458,7 +460,8 @@ async function doRefresh(): Promise<void> {
     return
   }
   // 400/401/403：刷新令牌无效或已被轮换，只能重新登录；其余（5xx、429 等）当暂时故障
-  if (res.status === 400 || res.status === 401 || res.status === 403) throw new AuthExpiredError()
+  if (res.status === 400 || res.status === 401 || res.status === 403)
+    throw new AuthExpiredError(`refresh ${res.status} ${errorText(res.body)}`)
   throw new TransientError(statusMessage(res))
 }
 
@@ -515,14 +518,16 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   // 请求途中账号退出或切换：和登录过期同一个 code，调用方按「需要重新登录」处理
   const loggedOut = (): Error => Object.assign(new Error('账号已退出，请重新登录'), { code: 'AUTH_EXPIRED' })
   // 刷新令牌被拒（登录过期，或在云端管理页被吊销）：马上退出登录，不等下一次拉取账号数据
+  let lastExpired = ''
   const signedOut = (): Error => {
-    if (epoch === requestEpoch) clearSession(SIGNED_OUT_MESSAGE)
+    if (epoch === requestEpoch) clearSession(SIGNED_OUT_MESSAGE, { path, reason: lastExpired })
     return Object.assign(new Error(SIGNED_OUT_MESSAGE), { code: 'AUTH_EXPIRED' })
   }
   const refresh = async (): Promise<void> => {
     try {
       await refreshTokens()
     } catch (e) {
+      if (e instanceof AuthExpiredError) lastExpired = e.message
       throw e instanceof AuthExpiredError ? signedOut() : e
     }
   }
@@ -541,6 +546,7 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
     res = await send()
     if (res.status === 401) {
       await res.body?.cancel()
+      lastExpired = 'access 401 after refresh'
       throw signedOut()
     }
   }
@@ -652,7 +658,7 @@ export async function bridgeToken(force = false): Promise<string | null> {
     try {
       if (tokens?.accessToken === used) await refreshTokens()
     } catch (e) {
-      if (e instanceof AuthExpiredError) clearSession(SIGNED_OUT_MESSAGE)
+      if (e instanceof AuthExpiredError) clearSession(SIGNED_OUT_MESSAGE, { path: 'bridge', reason: e.message })
       return null
     }
   }
@@ -843,7 +849,7 @@ async function doFetchAccount(): Promise<void> {
         removeStoreFile()
         return
       }
-      clearSession(SIGNED_OUT_MESSAGE)
+      clearSession(SIGNED_OUT_MESSAGE, { path: 'account', reason: e.message })
       return
     }
     const message = e instanceof TransientError ? e.message : `网络错误：${describeError(e)}`
