@@ -39,7 +39,9 @@ import {
   useFindShortcut,
   type FoldedMatches,
 } from '@/features/search/ConversationFind'
-import { TOGGLE_SIDE_CHAT } from '@/features/layout/shortcuts'
+import { CYCLE_VIEW_MODE, TOGGLE_SIDE_CHAT } from '@/features/layout/shortcuts'
+import { ViewModeButton, VIEW_MODE_META } from './ViewModeButton'
+import { cycleViewMode, useViewMode, type ViewMode } from './viewMode'
 import { expandItems } from '@/features/search/expand'
 import { countFull, foldedMatches } from './live/foldedText'
 import { fullItem } from './live/itemBody'
@@ -193,6 +195,45 @@ function LiveSessionView({
   const [find, setFind] = useState<number | null>(null)
   useEffect(() => setFind(null), [sessionId])
   useFindShortcut(mainRef, !!sessionId, () => setFind(n => (n ?? 0) + 1))
+  // 查看模式（docs/ui/view-mode.md §4、§6）：Ctrl+O 循环；只有触发的窗格弹提示，连按就地更新
+  const [modeToast, setModeToast] = useState<{ mode: ViewMode; token: number } | null>(null)
+  const showModeToast = useCallback(
+    (mode: ViewMode) => setModeToast(prev => ({ mode, token: (prev?.token ?? 0) + 1 })),
+    [],
+  )
+  useEffect(() => {
+    if (!modeToast) return
+    const timer = setTimeout(() => setModeToast(null), 1500)
+    return () => clearTimeout(timer)
+  }, [modeToast])
+  useEffect(() => {
+    if (!sessionId || tuiMode === 'terminal') return
+    const onKey = (e: KeyboardEvent): void => {
+      const el = mainRef.current
+      if (!el || !CYCLE_VIEW_MODE.match(e) || !keyForConversation(el, e)) return
+      e.preventDefault()
+      showModeToast(cycleViewMode())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sessionId, tuiMode, showModeToast])
+  const viewMode = useViewMode().mode
+  // 模式不是普通、这个会话没开思考摘要：明说思考只显示用时（§4 第 2 条），引擎支持时给「下一轮开启」
+  const thinkingNote =
+    viewMode !== 'normal' && composer && !composer.thinkingSummaries ? (
+      <div data-view-mode-note className="conversation-message flex items-center gap-2 px-2 text-meta text-fg-muted">
+        <span>{tr(composer.thinkingSupported ? 'viewMode.noThinking' : 'viewMode.noThinkingUnsupported')}</span>
+        {composer.thinkingSupported && (
+          <button
+            type="button"
+            onClick={() => composer.setThinkingSummaries(true)}
+            className="rounded-md px-1.5 py-0.5 text-accent-fg hover:bg-hover"
+          >
+            {tr('viewMode.enableThinking')}
+          </button>
+        )}
+      </div>
+    ) : null
   // 折叠着的条目里的命中（docs/ui/conversation-ux.md §2.6）：哪些折叠着看页面上的 data-fold，文字从会话数据里取
   const items = snapshot?.items
   // 截过的长输出（cutChars）：先按截过的数，再逐条取完整内容补算（只记数字），算完让搜索框重数；换了词、关了搜索就停
@@ -458,6 +499,21 @@ function LiveSessionView({
                   }
                 />
               )}
+              {modeToast && tuiMode !== 'terminal' && (
+                <div
+                  key={modeToast.token}
+                  role="status"
+                  aria-live="polite"
+                  data-view-mode-toast
+                  className="pointer-events-none absolute top-12 left-1/2 z-20 -translate-x-1/2 rounded-md border border-line-card bg-popover px-3 py-1.5 text-meta text-fg-secondary shadow-popover motion-safe:animate-in motion-safe:fade-in"
+                >
+                  {tr('viewMode.toast', {
+                    mode: tr(VIEW_MODE_META[modeToast.mode].label),
+                    hint: tr(VIEW_MODE_META[modeToast.mode].hint),
+                    key: CYCLE_VIEW_MODE.label,
+                  })}
+                </div>
+              )}
               {sessionId && tuiMode === 'terminal' ? (
                 <div className="relative flex min-h-0 flex-1 flex-col">
                   {isDemoTuiTerminal(tui?.terminalId) && DemoTui ? (
@@ -558,7 +614,15 @@ function LiveSessionView({
                           <ApprovalWaitContext.Provider value={approvalWait}>
                             <LiveTranscript
                               snapshot={snapshot}
-                              footer={inlinePlan && <InlinePlan plan={inlinePlan} working={fullProgress.working} />}
+                              footer={
+                                // shortcut: 规格写在最后一轮的过程上方，这里放在对话末尾（离输入框近，不用改分块），有人觉得不明显再挪
+                                (inlinePlan || thinkingNote) && (
+                                  <>
+                                    {thinkingNote}
+                                    {inlinePlan && <InlinePlan plan={inlinePlan} working={fullProgress.working} />}
+                                  </>
+                                )
+                              }
                               divider={branchStart ? { beforeItemId: branchStart, node: <BranchStartDivider /> } : null}
                               header={
                                 forkedFrom &&
@@ -702,6 +766,7 @@ function LiveSessionView({
                                 <span data-composer-extra-label>{tr('checkpoint.button')}</span>
                               </button>
                             )}
+                            <ViewModeButton onPick={showModeToast} />
                             {branch.sideChat && (
                               <button
                                 type="button"

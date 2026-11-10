@@ -1,7 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '../../../i18n/core'
 // 每轮的过程收成一行「执行」（docs/ui/conversation-concise.md §3）：点开看全部；运行中露出最近 2 条
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, ChevronRight, Circle, Layers } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
@@ -11,6 +11,7 @@ import { planResult } from './progressData'
 import { planSections, type PlanSection } from './planStages'
 import { summarize, type ProcessSummary } from './turnFold'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
+import { failedItems, thinkingSegments, useRowMode, type ViewMode } from '../viewMode'
 
 /** 运行中收起时露出的最近几条 */
 const TAIL = 2
@@ -33,9 +34,75 @@ export function summaryText(s: ProcessSummary, steps: number): string {
   return parts.length ? parts.join(tr('session.process.joiner')) : tr('session.process.steps', { n: steps })
 }
 
-/** 「执行」没点过时展开不展开：极简模式都展开；有被拦下的也展开，原因和「仍要执行」不用点开就能看到 */
-export const processOpenByDefault = (items: readonly Item[], minimal: boolean): boolean =>
-  minimal || summarize(items).blocked > 0
+/**
+ * 「执行」没点过时展开不展开：极简模式都展开；有被拦下的也展开，原因和「仍要执行」不用点开就能看到；
+ * 思考、详细模式都展开（docs/ui/view-mode.md §3）
+ */
+export const processOpenByDefault = (items: readonly Item[], minimal: boolean, mode: ViewMode = 'normal'): boolean =>
+  minimal || mode !== 'normal' || summarize(items).blocked > 0
+
+/** 点过的展开只在这次模式里算（§4 第 4 条）：gen 变了回到模式默认 */
+function useModeToggle(): [boolean | null, (open: boolean) => void] {
+  const { gen } = useRowMode()
+  const [t, setT] = useState<{ gen: number; open: boolean } | null>(null)
+  return [t && t.gen === gen ? t.open : null, open => setT({ gen, open })]
+}
+
+/** 思考模式里两段思考之间的工具：收成一行，正在跑的那条露出来 */
+function ToolGroup({ items, render }: { items: Item[]; render: (items: Item[]) => ReactNode }) {
+  const [toggled, setToggled] = useModeToggle()
+  const ids = useMemo(() => items.map(i => i.id), [items])
+  const requested = useExpandAny(ids)
+  useEffect(() => {
+    if (requested && Date.now() - requested < REQUEST_MS) setToggled(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只跟请求走
+  }, [requested])
+  const summary = useMemo(() => summarize(items), [items])
+  const open = toggled ?? false
+  const running = open ? [] : items.filter(i => 'status' in i && i.status === 'running').slice(-1)
+  const hidden = open ? [] : ids.filter(id => !running.some(r => r.id === id))
+  return (
+    <div data-fold={open ? 'open' : 'closed'} data-fold-items={hidden.join(' ') || undefined}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setToggled(!open)}
+        className="flex h-[30px] max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-list text-fg-muted hover:bg-hover hover:text-fg-secondary"
+      >
+        <Layers size={15} strokeWidth={1.5} className="mr-0.5 shrink-0" />
+        <span className="min-w-0 truncate">{summaryText(summary, items.length)}</span>
+        <ChevronRight
+          size={15}
+          strokeWidth={1.5}
+          className={cn('shrink-0 transition-transform duration-(--dur-fast)', open && 'rotate-90')}
+        />
+      </button>
+      {(open || running.length > 0) && <div className={ROWS}>{render(open ? items : running)}</div>}
+    </div>
+  )
+}
+
+/** 按当前模式显示一组过程条目：思考模式（非极简）按段，其余原样 */
+function ModeRows({ items, render }: { items: Item[]; render: (items: Item[]) => ReactNode }) {
+  const { mode } = useRowMode()
+  const minimal = useMinimal()
+  const segments = useMemo(
+    () => (mode === 'thinking' && !minimal ? thinkingSegments(items) : null),
+    [mode, minimal, items],
+  )
+  if (!segments) return <>{render(items)}</>
+  return (
+    <>
+      {segments.map(s =>
+        s.type === 'text' ? (
+          <Fragment key={s.item.id}>{render([s.item])}</Fragment>
+        ) : (
+          <ToolGroup key={s.key} items={s.items} render={render} />
+        ),
+      )}
+    </>
+  )
+}
 
 const ROWS = 'mt-1 ml-[15px] flex flex-col gap-3 border-l border-line-subtle pl-3'
 
@@ -47,14 +114,16 @@ function PlanStage({
   stage: Extract<PlanSection, { type: 'stage' }>
   render: (items: Item[]) => ReactNode
 }) {
-  const [toggled, setToggled] = useState<boolean | null>(null)
+  const [toggled, setToggled] = useModeToggle()
+  const { mode } = useRowMode()
   const ids = useMemo(() => stage.items.map(i => i.id), [stage.items])
   const requested = useExpandAny(ids)
   useEffect(() => {
     if (requested && Date.now() - requested < REQUEST_MS) setToggled(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只跟请求走
   }, [requested])
   const summary = useMemo(() => summarize(stage.items), [stage.items])
-  const open = toggled ?? (stage.active || summary.failed > 0 || summary.blocked > 0)
+  const open = toggled ?? (mode !== 'normal' || stage.active || summary.failed > 0 || summary.blocked > 0)
   return (
     <div data-fold={open ? 'open' : 'closed'} data-fold-items={open ? undefined : ids.join(' ')} data-plan-stage>
       <button
@@ -100,7 +169,7 @@ function PlanStage({
       </button>
       {open && (
         <div data-process-rows className={ROWS}>
-          {render(stage.items)}
+          <ModeRows items={stage.items} render={render} />
         </div>
       )}
     </div>
@@ -115,7 +184,7 @@ function PlanSections({ sections, render }: { sections: PlanSection[]; render: (
           <PlanStage key={s.key} stage={s} render={render} />
         ) : (
           <div key={s.key} data-process-rows className={ROWS}>
-            {render(s.items)}
+            <ModeRows items={s.items} render={render} />
           </div>
         ),
       )}
@@ -146,8 +215,9 @@ export function TurnProcess({
   useI18n()
   // 极简模式（docs/ui/minimal-mode.md §3、§4）：和 Factory 一样每一步都摊开，一条一行；点过就按点的来
   const minimal = useMinimal()
+  const { mode } = useRowMode()
   const summary = useMemo(() => summarize(items), [items])
-  const open = toggled ?? processOpenByDefault(items, minimal)
+  const open = toggled ?? processOpenByDefault(items, minimal, mode)
   // 对话内搜索的「展开」、全局搜索跳到里面的条目：执行块先展开，里面的条目自己再展开
   const ids = useMemo(() => items.map(i => i.id), [items])
   const requested = useExpandAny(ids)
@@ -162,15 +232,20 @@ export function TurnProcess({
   )
   // 极简模式每一步都摊开，不分阶段（docs/ui/auto-fold.md §6）
   const sections = useMemo(() => (minimal ? null : planSections(items, running)), [minimal, items, running])
+  // 收起时露出来的：运行中最近 2 条，以及失败的那几条（所有模式一样，docs/ui/view-mode.md §3）
+  const tail = useMemo(() => {
+    if (open) return []
+    const keep = new Set([...(running ? shown.slice(-TAIL) : []), ...failedItems(items)])
+    return items.filter(i => keep.has(i))
+  }, [open, running, shown, items])
   if (sections && toggled === null && (running || latest))
     return (
       <div data-fold="open" data-turn-process>
         <PlanSections sections={sections} render={render} />
       </div>
     )
-  const tail = running && !open ? shown.slice(-TAIL) : []
   // 收起时不在页面上的条目：对话内搜索算进「折叠中还有 N 处」
-  const hidden = open ? [] : ids.slice(0, ids.length - tail.length)
+  const hidden = open ? [] : ids.filter(id => !tail.some(i => i.id === id))
   return (
     <div data-fold={open ? 'open' : 'closed'} data-fold-items={hidden.join(' ') || undefined} data-turn-process>
       <button
@@ -238,7 +313,7 @@ export function TurnProcess({
       ) : (
         (open || tail.length > 0) && (
           <div data-process-rows className={ROWS}>
-            {render(open ? items : tail)}
+            {open ? <ModeRows items={items} render={render} /> : render(tail)}
           </div>
         )
       )}

@@ -42,6 +42,8 @@ export const TOGGLE_SIDE_CHAT = action('toggleSideChat')
 export const OPEN_BUILTIN_BROWSER = action('openBrowser')
 /** 切换权限模式：默认 Ctrl+Shift+M，跳过完全放行（session/fullAccess.ts） */
 export const CYCLE_PERMISSION = action('cyclePermission')
+/** 切换对话查看模式：默认 Ctrl+O，在当前对话区生效（docs/ui/view-mode.md） */
+export const CYCLE_VIEW_MODE = action('cycleViewMode')
 
 const mod = (e: KeyboardEvent): boolean => (isMac ? e.metaKey : e.ctrlKey)
 

@@ -76,6 +76,7 @@ import { extstoreDetailMessages } from './extstoreDetailMessages'
 import { settingsWindowMessages } from './settingsWindowMessages'
 import { goalMessages } from './goalMessages'
 import { overviewMessages } from './overviewMessages'
+import { viewModeMessages } from './viewModeMessages'
 import { replaceCodedErrors } from '@pixelsky/protocol'
 import type { Locale } from './messages'
 
@@ -159,6 +160,7 @@ export const allMessages = {
   ...settingsWindowMessages,
   ...goalMessages,
   ...overviewMessages,
+  ...viewModeMessages,
 }
 export type TranslationKey = keyof typeof allMessages
 

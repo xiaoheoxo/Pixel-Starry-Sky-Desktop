@@ -43,6 +43,8 @@ export const ACTIONS = [
   { id: 'toggleSideChat', label: 'shortcuts.toggleSideChat', binding: key('Semicolon') },
   { id: 'openBrowser', label: 'shortcuts.openBrowser', binding: key('KeyB', { shift: true }) },
   { id: 'cyclePermission', label: 'shortcuts.cyclePermission', binding: key('KeyM', { shift: true }) },
+  // 对话查看模式：普通 → 思考 → 详细（docs/ui/view-mode.md §6）
+  { id: 'cycleViewMode', label: 'viewMode.cycle', binding: key('KeyO') },
 ] as const satisfies readonly { id: string; label: TranslationKey; binding: Binding }[]
 
 export type ActionId = (typeof ACTIONS)[number]['id']

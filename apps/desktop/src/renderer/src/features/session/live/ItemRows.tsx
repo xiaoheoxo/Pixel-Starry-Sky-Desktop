@@ -70,6 +70,7 @@ import {
 } from '@/features/model-channels/PlatformFallbackNoticeActions'
 import { clipOutput, OUTPUT_ALL_MAX } from './outputClip'
 import { useItemBody } from './itemBody'
+import { overClamp, useRowMode } from '../viewMode'
 
 type ItemOf<K extends Item['kind']> = Extract<Item, { kind: K }>
 
@@ -196,13 +197,58 @@ function UserBody({ id, text }: { id: string; text: string }) {
  * 可折叠条目的展开状态：点击切换；对话内搜索的「展开」和搜索跳转也会让它展开（features/search/expand.ts）。
  * fold 放在条目根元素的 data-fold 上：对话内搜索据此知道哪些条目折叠着（docs/ui/conversation-ux.md §2.6）
  */
-function useFold(id: string, foldable: boolean): { open: boolean; toggle: () => void; fold?: 'open' | 'closed' } {
-  const [open, setOpen] = useState(false)
+function useFold(
+  id: string,
+  foldable: boolean,
+  auto = false,
+): { open: boolean; manual: boolean; toggle: () => void; expand: () => void; fold?: 'open' | 'closed' } {
+  // 查看模式（docs/ui/view-mode.md §4）：auto 是模式要不要默认打开；点过的只在这次模式里算，切一次模式就回到模式默认
+  const { gen } = useRowMode()
+  const [t, setT] = useState<{ gen: number; open: boolean } | null>(null)
+  const genNow = useRef(gen)
+  genNow.current = gen
   const request = useExpandRequest(id)
   useEffect(() => {
-    if (freshRequest(request)) setOpen(true)
+    if (freshRequest(request)) setT({ gen: genNow.current, open: true })
   }, [request])
-  return { open, toggle: () => setOpen(v => !v), fold: foldable ? (open ? 'open' : 'closed') : undefined }
+  const mine = t !== null && t.gen === gen
+  const open = mine ? t.open : auto
+  return {
+    open,
+    // 用户自己打开的：只有这种才去取截过的完整输出、才去掉详细模式的限高
+    manual: mine && t.open,
+    toggle: () => setT({ gen, open: !open }),
+    expand: () => setT({ gen, open: true }),
+    fold: foldable ? (open ? 'open' : 'closed') : undefined,
+  }
+}
+
+/** 详细模式自动打开的输出限高 12 行（§5）：外面包一层，里面的 LongOutput、DiffView 不动；点「展开」去掉限高 */
+function Clamp({
+  on,
+  running,
+  onExpand,
+  children,
+}: {
+  on: boolean
+  running: boolean
+  onExpand: () => void
+  children: ReactNode
+}) {
+  if (!on) return <>{children}</>
+  return (
+    <>
+      {/* 运行中贴底显示最新的几行，跑完回到开头 */}
+      <div className={cn('max-h-[12lh] overflow-hidden', running && 'flex flex-col justify-end')}>{children}</div>
+      <button
+        type="button"
+        onClick={onExpand}
+        className="mt-1 block w-full rounded-md py-1 text-center font-sans text-meta text-accent-fg hover:bg-hover"
+      >
+        {tr('viewMode.showMore')}
+      </button>
+    </>
+  )
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -237,7 +283,7 @@ export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
   const running = item.status === 'running'
   const look = rowLook(running, useLiveOwned())
   const hasText = !!item.text.trim()
-  const { open, toggle, fold } = useFold(item.id, hasText)
+  const { open, toggle, fold } = useFold(item.id, hasText, useRowMode().mode !== 'normal')
   const [, tick] = useState(0)
   useEffect(() => {
     if (!look.clock) return
@@ -678,7 +724,7 @@ function FileChangeLine({
   changedClick: (change: FileChange) => PathClick
 }) {
   const foldable = !!c.diff
-  const { open, toggle, fold } = useFold(item.id, foldable)
+  const { open, manual, toggle, expand, fold } = useFold(item.id, foldable, useRowMode().mode === 'detailed')
   const editing = item.status === 'running'
   const look = rowLook(editing, useLiveOwned())
   const name = (
@@ -751,7 +797,9 @@ function FileChangeLine({
       </div>
       {open && (
         <div className={cn(OUTPUT_BOX, 'bg-surface py-1.5')}>
-          <DiffView diff={c.diff} path={c.path} />
+          <Clamp on={!manual && overClamp(c.diff)} running={editing} onExpand={expand}>
+            <DiffView diff={c.diff} path={c.path} />
+          </Clamp>
         </div>
       )}
     </div>
@@ -778,9 +826,9 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
   const output = textOf(item)
   const foldable =
     item.kind === 'file_change' ? item.changes.some(c => c.diff) : !!output || images.length > 0 || !!viewedImage
-  const { open, toggle, fold } = useFold(item.id, foldable)
-  // 快照里截过的长输出（cutChars）展开时取完整的；能不能展开仍按截过的判断
-  const body = useItemBody(item, open)
+  const { open, manual, toggle, expand, fold } = useFold(item.id, foldable, useRowMode().mode === 'detailed')
+  // 快照里截过的长输出（cutChars）用户自己展开时才取完整的；详细模式自动打开的不取（一屏几十条就是几十次读取）
+  const body = useItemBody(item, manual)
   const shown = body === item ? output : textOf(body)
   const row = useRef<HTMLDivElement>(null)
   const [fileError, setFileError] = useState('')
@@ -892,7 +940,11 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
                 <span className="font-sans text-fg-muted">{tr('approvals.fullCommand')}</span> {item.wrapper.line}
               </span>
             )}
-            {shown && <LongOutput text={shown} />}
+            {shown && (
+              <Clamp on={!manual && overClamp(shown)} running={item.status === 'running'} onExpand={expand}>
+                <LongOutput text={shown} />
+              </Clamp>
+            )}
           </pre>
         )}
       </div>
@@ -983,7 +1035,9 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
           <pre
             className={cn(OUTPUT_BOX, 'p-3 font-mono text-meta leading-[1.6] whitespace-pre-wrap text-fg-secondary')}
           >
-            <LongOutput text={shown} />
+            <Clamp on={!manual && overClamp(shown)} running={item.status === 'running'} onExpand={expand}>
+              <LongOutput text={shown} />
+            </Clamp>
           </pre>
         ))}
       {open && images.length > 0 && (
@@ -1003,7 +1057,7 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
 /** 待办清单（Claude 的 TodoWrite、Codex 的计划）：一行概要，点开看完整列表；当前计划常驻在进度卡片里（docs/ui/progress-card.md §5） */
 export function TodoCard({ item }: { item: ItemOf<'todo'> }) {
   useI18n()
-  const { open, toggle, fold } = useFold(item.id, item.steps.length > 0)
+  const { open, toggle, fold } = useFold(item.id, item.steps.length > 0, useRowMode().mode === 'detailed')
   if (item.steps.length === 0) return null
   const done = item.steps.filter(s => s.status === 'completed').length
   const current = item.steps.find(s => s.status === 'in_progress')

@@ -33,6 +33,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import { Brain as BrainIcon, Eye as EyeIcon, ListTree as ListTreeIcon } from 'lucide-react'
+import { setViewMode } from '@/features/session/viewMode'
 import { channelActions } from '@/features/channels/store'
 import { useI18n } from '@/i18n/I18nProvider'
 import { useSettings } from '@/features/settings/SettingsProvider'
@@ -308,6 +310,14 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     add('machines.switch', 'machines.switch', 'terminal.categoryWorkbench', TerminalSquare, openMachineManager)
     add('workspace.switch', 'machines.workspace', 'terminal.categoryWorkbench', FolderOpen, () => openWorkspacePicker())
     add('search.open', 'terminal.openSearch', 'terminal.categoryWorkbench', Search, openSearch, OPEN_SEARCH.label)
+    // 对话查看模式（docs/ui/view-mode.md §6）
+    add('viewMode.normal', 'viewMode.paletteNormal', 'terminal.categoryWorkbench', EyeIcon, () => setViewMode('normal'))
+    add('viewMode.thinking', 'viewMode.paletteThinking', 'terminal.categoryWorkbench', BrainIcon, () =>
+      setViewMode('thinking'),
+    )
+    add('viewMode.detailed', 'viewMode.paletteDetailed', 'terminal.categoryWorkbench', ListTreeIcon, () =>
+      setViewMode('detailed'),
+    )
     add(
       'sidebar.toggle',
       'terminal.toggleSidebar',
