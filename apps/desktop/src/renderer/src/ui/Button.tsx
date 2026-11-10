@@ -25,6 +25,7 @@ export function Button({ variant = 'outline', icon: Icon, pill, className, child
   return (
     <button
       type="button"
+      data-button
       className={cn(
         'press no-drag inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-ui font-medium disabled:pointer-events-none disabled:opacity-45',
         pill ? 'rounded-full' : 'rounded-md',

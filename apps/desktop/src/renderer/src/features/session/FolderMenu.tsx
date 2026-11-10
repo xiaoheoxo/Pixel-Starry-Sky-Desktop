@@ -41,7 +41,9 @@ export function FolderMenu({ name, path, target }: { name: string; path: string;
         )}
       >
         <Folder size={13} className="shrink-0" />
-        <span className="truncate">{name}</span>
+        <span data-composer-project-name className="truncate">
+          {name}
+        </span>
         <ChevronDown size={12} className="shrink-0" />
       </button>
       <Popover open={open} onClose={close} side="top" offset={8} className="w-72">

@@ -59,6 +59,17 @@ export const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
   bottom: ['usage', 'plugins', 'settings'],
   hidden: ['git', ...TOOL_ACTIONS, ...PAGE_ACTIONS],
 }
+/** 极简模式下会话页顶栏的默认摆法（docs/ui/minimal-mode.md §12 C） */
+export const MINIMAL_HEADER: readonly LayoutAction[] = [
+  'tool:overview',
+  'tool:terminal',
+  'git',
+  'tool:browser',
+  'tool:files',
+]
+/** 顶栏摆哪些：极简模式下没在「图标位置」里改过顶栏的，用极简的默认摆法；改过的按用户摆的来 */
+export const headerActions = (layout: SidebarLayout, minimal: boolean): readonly LayoutAction[] =>
+  minimal && layout.header.join() === DEFAULT_SIDEBAR_LAYOUT.header.join() ? MINIMAL_HEADER : layout.header
 /** 侧栏最窄 240px 时底部一排放得下的可移动图标（账号还占一格） */
 export const SIDEBAR_ROW_LIMIT = 5
 /** 顶栏最多几个：入口多了不能把标题挤没；「不显示」不限 */
@@ -138,6 +149,7 @@ const RECENT_OFF = 'recent-off'
 const COLLAPSED_LIMIT = 200
 /** 记住的项目先后最多这么多个 */
 const ORDER_LIMIT = 500
+const PINNED_LIMIT = 200
 /** 2026-10-13 之前的默认顶栏（云主机已在读取时丢掉） */
 const OLD_HEADER = 'workbench,channels,git,openIn'
 /** 早已删掉的入口，读原始数据比对时也要先去掉 */
@@ -149,7 +161,6 @@ function rawRow(layout: unknown, key: string): string[] {
   const row = (layout as Record<string, unknown>)[key]
   if (!Array.isArray(row)) return []
   return row
-const PINNED_LIMIT = 200
     .filter((item): item is string => typeof item === 'string')
     .map(item => (RENAMED[item] as string | undefined) ?? item)
     .filter(item => !REMOVED.includes(item))
@@ -185,6 +196,10 @@ export function parseSidebarPrefs(value: unknown): SidebarPrefs {
     const ids = saved.order.filter((id): id is string => typeof id === 'string' && !!id && id.length <= 200)
     if (ids.length) result.order = [...new Set(ids)].slice(0, ORDER_LIMIT)
   }
+  if (Array.isArray(saved.pinned)) {
+    const ids = saved.pinned.filter((id): id is string => typeof id === 'string' && !!id && id.length <= 200)
+    if (ids.length) result.pinned = [...new Set(ids)].slice(0, PINNED_LIMIT)
+  }
   if (saved.icons && typeof saved.icons === 'object' && !Array.isArray(saved.icons)) {
     const icons = saved.icons as Record<string, unknown>
     for (const action of SIDEBAR_ACTIONS) {
@@ -196,10 +211,6 @@ export function parseSidebarPrefs(value: unknown): SidebarPrefs {
     // Git 的常用操作挪到输入框上方后（docs/ui/composer-git.md），顶栏的 Git 默认收起（现在是「不显示」）；
     // 只改没动过的旧默认顶栏，自己排过的不动；只做一次，之后挪回顶栏不会再被改。
     // 判断看保存的原始数据：解析后工作台、频道已被丢掉，永远等不于 OLD_HEADER（docs/ui/layout-v2.md §7.2）
-  if (Array.isArray(saved.pinned)) {
-    const ids = saved.pinned.filter((id): id is string => typeof id === 'string' && !!id && id.length <= 200)
-    if (ids.length) result.pinned = [...new Set(ids)].slice(0, PINNED_LIMIT)
-  }
     const upgrades = Array.isArray(saved.upgrades) ? saved.upgrades.filter(u => typeof u === 'string') : []
     if (!upgrades.includes(GIT_TO_MORE)) {
       if (rawRow(saved.layout, 'header').join() === OLD_HEADER && !rawRow(saved.layout, 'more').length) {
@@ -292,6 +303,12 @@ export function setProjectsCollapsed(ids: readonly string[], collapsed: boolean)
 }
 
 /** 整组替换分区（增删改由 sidebar/projectGroups.ts 的纯函数算好） */
+/** 进了分区的项目不再置顶（置顶的项目不在分区里显示，docs/ui/project-pin.md §2） */
+const unpinGrouped = (groups: readonly ProjectGroup[]): { pinned: string[] } => {
+  const grouped = new Set(groups.flatMap(g => g.projects))
+  return { pinned: (prefs.pinned ?? []).filter(id => !grouped.has(id)) }
+}
+
 export function setProjectGroups(groups: ProjectGroup[]): void {
   setSidebarPrefs({ groups, ...unpinGrouped(groups) })
 }
@@ -313,12 +330,6 @@ export function setProjectArrangement(arrangement: { groups: ProjectGroup[]; ord
 
 export function setSidebarIcon(action: SidebarAction, id: SidebarIconId): void {
   setSidebarPrefs({ icons: { ...prefs.icons, [action]: id } })
-/** 进了分区的项目不再置顶（置顶的项目不在分区里显示，docs/ui/project-pin.md §2） */
-const unpinGrouped = (groups: readonly ProjectGroup[]): { pinned: string[] } => {
-  const grouped = new Set(groups.flatMap(g => g.projects))
-  return { pinned: (prefs.pinned ?? []).filter(id => !grouped.has(id)) }
-}
-
 }
 
 export function resetSidebarIcons(): void {

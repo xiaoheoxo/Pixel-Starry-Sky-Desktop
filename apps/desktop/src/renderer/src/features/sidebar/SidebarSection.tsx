@@ -23,12 +23,16 @@ export function SidebarSection({
   useI18n()
   return (
     <section className={cn('flex shrink-0 flex-col', className)}>
-      <div className="flex h-7 shrink-0 items-center justify-between gap-2 pr-1.5 pl-2.5">
+      <div data-sidebar-section-head className="flex h-7 shrink-0 items-center justify-between gap-2 pr-1.5 pl-2.5">
         <h3 className="flex min-w-0 items-baseline gap-1.5 truncate text-label font-medium text-fg-muted">
           {title}
           {count !== undefined && <span className="text-meta font-normal text-fg-faint tabular-nums">{count}</span>}
         </h3>
-        {action}
+        {action && (
+          <span data-sidebar-section-actions className="contents">
+            {action}
+          </span>
+        )}
       </div>
       <div className={cn('flex flex-col gap-px', contentClassName)}>{children}</div>
     </section>

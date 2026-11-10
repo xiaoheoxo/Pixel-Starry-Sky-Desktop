@@ -23,7 +23,6 @@ import { reuseTurns, turnsOf, type Turn } from './turnRailModel'
 import { useTurnRailOn } from '@/features/settings/turnRail'
 import { useTranscriptWindowSize } from '@/features/settings/longConversation'
 import { useSubagentView } from '@/features/settings/subagentView'
-import { useMinimal } from '@/features/appearance/ThemeProvider'
 import {
   hiddenCount,
   initialHidden,
@@ -257,9 +256,8 @@ const ProcessBlock = memo(
     render: (items: Item[]) => ReactNode
   }) {
     const toggle = useCallback((open: boolean) => onToggle(foldKey, open), [onToggle, foldKey])
-    // 没画过时的占位高度要按展开 / 收起算：极简模式默认展开，按收起的一行估会让滚动时总高度不停变、滑块乱跳
-    const minimal = useMinimal()
-    const open = toggled ?? processOpenByDefault(items, minimal, mode)
+    // 没画过时的占位高度要按展开 / 收起算：详细模式默认展开，按收起的一行估会让滚动时总高度不停变、滑块乱跳
+    const open = toggled ?? processOpenByDefault(items, mode)
     const style = useMemo(() => placeholder(processHeight(items, open, running)), [items, open, running])
     return (
       <div className="conversation-message" style={style}>
@@ -442,7 +440,6 @@ export function LiveTranscript({
   }, [shownItems, hiddenTurns])
   // 子智能体显示成小框，还是展开在执行里（docs/ui/subagent-box.md）
   const subagents = useSubagentView()
-  const minimal = useMinimal()
   const viewMode = useViewMode()
   const changesCache = useRef<{ sessionId: string | null; map: ChangesCache }>({ sessionId: null, map: new Map() })
   // 断线自动重连：自动发的「继续」显示成一行小字，接着重连了的那几次断线报错不显示
@@ -521,8 +518,7 @@ export function LiveTranscript({
     return null
   }, [blocks])
   const liveProcess = liveBlock?.key ?? null
-  const liveOpen =
-    !!liveBlock && (folds[liveBlock.key] ?? processOpenByDefault(liveBlock.items, minimal, viewMode.mode))
+  const liveOpen = !!liveBlock && (folds[liveBlock.key] ?? processOpenByDefault(liveBlock.items, viewMode.mode))
   const liveFold =
     liveProcess !== null
       ? {

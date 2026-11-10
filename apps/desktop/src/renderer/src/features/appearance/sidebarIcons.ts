@@ -72,6 +72,7 @@ export const TOOL_ACTIONS = [
   'tool:sandbox',
   'tool:tasks',
   'tool:copies',
+  'tool:overview',
 ] as const
 export type ToolAction = (typeof TOOL_ACTIONS)[number]
 

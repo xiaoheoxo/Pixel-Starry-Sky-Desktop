@@ -50,6 +50,7 @@ function PortActions({
         variant={opened ? 'ghost' : primary ? 'primary' : 'outline'}
         icon={opened ? undefined : Globe}
         className={SMALL}
+        data-port-open
         onClick={() => openPort(sessionId, found.port)}
       >
         {opened ? tr('portTip.show') : tr('portTip.open')}
@@ -154,7 +155,13 @@ export function PortTip() {
           ))}
         <span className="min-w-0 flex-1" />
         {!expanded && (
-          <Button variant="primary" icon={Globe} className={SMALL} onClick={() => openPort(sessionId, latest.port)}>
+          <Button
+            variant="primary"
+            icon={Globe}
+            className={SMALL}
+            data-port-open
+            onClick={() => openPort(sessionId, latest.port)}
+          >
             {tr('portTip.openPort', { port: latest.port })}
           </Button>
         )}

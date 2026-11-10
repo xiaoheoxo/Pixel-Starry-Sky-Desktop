@@ -17,15 +17,26 @@ export function ComposerStatusBar({
   live,
   extra,
   git,
+  inline,
 }: {
   live?: StatusBarController
   extra?: ReactNode
   git?: WorkspaceRef | null
+  /** 极简模式：不占一行，项目和分支并进输入框下面一排（docs/ui/minimal-mode.md §12 A）；机器在顶栏 */
+  inline?: boolean
 }) {
   const { text } = useI18n()
   const machines = useMachines(),
     machine = machines.machines.find(m => m.id === machines.currentId)
   const machineName = live ? (machine?.id === 'local' ? text('本机') : machine?.name) : text(composerStatus.machine)
+  const gitTarget = git ?? (!live && composerStatus.branch !== null ? DEMO_TARGET : null)
+  if (inline)
+    return (
+      <span data-composer-inline className="contents">
+        {live ? <ProjectPicker live={live} target={git ?? null} /> : <DemoFolder />}
+        {gitTarget && <ComposerGit target={gitTarget} compact />}
+      </span>
+    )
   return (
     <div data-composer-workspace className="flex min-w-0 items-center gap-x-3 px-3 pt-1.5 pb-2 text-meta text-fg-faint">
       <button
@@ -41,9 +52,9 @@ export function ComposerStatusBar({
         </span>
       </button>
       {live ? <ProjectPicker live={live} target={git ?? null} /> : <DemoFolder />}
-      {(git ?? (!live && composerStatus.branch !== null ? DEMO_TARGET : null)) && (
+      {gitTarget && (
         <span data-composer-git className="-ml-2 inline-flex min-w-0 items-center gap-x-1">
-          <ComposerGit target={git ?? DEMO_TARGET} />
+          <ComposerGit target={gitTarget} />
         </span>
       )}
       {extra && <span className="ml-auto flex shrink-0 items-center">{extra}</span>}
@@ -79,7 +90,9 @@ function ProjectPicker({ live, target }: { live: StatusBarController; target: Wo
       className="inline-flex min-w-0 items-center gap-1 rounded px-1 hover:bg-hover hover:text-fg"
     >
       <Folder size={13} className="shrink-0" />
-      <span className="truncate">{project?.name ?? text('选择项目文件夹')}</span>
+      <span data-composer-project-name className="truncate">
+        {project?.name ?? text('选择项目文件夹')}
+      </span>
       <ChevronDown size={12} className="shrink-0" />
     </button>
   )

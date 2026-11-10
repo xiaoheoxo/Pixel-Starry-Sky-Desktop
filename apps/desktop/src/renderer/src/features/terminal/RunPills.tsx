@@ -29,7 +29,7 @@ const QUOTE_LINES = 30
 const QUOTE_CHARS = 4096
 const DETAIL_WIDTH = 340
 /** 点过「从这里移除」的终端（模块级：状态栏重新挂载也不会让卡住的胶囊冒回来） */
-const hidden: Record<string, HiddenRuns[string]> = {}
+export const hiddenRuns: Record<string, HiddenRuns[string]> = {}
 
 function Mark({ pill }: { pill: RunPill }) {
   if (pill.state === 'failed') return <TriangleAlert size={12} strokeWidth={1.75} className="shrink-0" />
@@ -261,7 +261,7 @@ export const RunPills = memo(function RunPills({
     () => workspaceTerminals(store.terminals, projectId, cwd, window.pixelsky?.platform === 'win32'),
     [store.terminals, projectId, cwd],
   )
-  const { pills, nextAt } = pillsOf(records, store.marks, store.runs, Date.now(), hidden)
+  const { pills, nextAt } = pillsOf(records, store.marks, store.runs, Date.now(), hiddenRuns)
   const ports = usePorts(pills)
   const [, tick] = useState(0)
   useEffect(() => {
@@ -300,7 +300,7 @@ export const RunPills = memo(function RunPills({
     if (failed) toast(failed)
   }
   const hide = (pill: RunPill): void => {
-    hidden[pill.id] = { generation: pill.generation, prompts: store.marks[pill.id]?.prompts ?? 0 }
+    hiddenRuns[pill.id] = { generation: pill.generation, prompts: store.marks[pill.id]?.prompts ?? 0 }
     dismissTerminalRun(pill.id)
   }
   const portOf = (pill: RunPill): number | null => ports.get(portKey(pill)) ?? null

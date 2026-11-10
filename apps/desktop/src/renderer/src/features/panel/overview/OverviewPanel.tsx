@@ -73,7 +73,10 @@ function SessionOverview({ sessionId, active }: { sessionId: string; active: boo
   // 用的是当前窗格已经持有的快照（SessionView 的 useSession），不用再 retain；也不用整个 snapshot，它每来一个字都变
   const fresh = useEngineState(s => active && s.snapshots[sessionId]?.items.length === 0)
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5 [scrollbar-width:thin] [&>*]:shrink-0">
+    <div
+      data-overview-list
+      className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5 [scrollbar-width:thin] [&>*]:shrink-0"
+    >
       {fresh && <div className={NOTE}>{tr('overview.fresh')}</div>}
       {OVERVIEW_SECTIONS.map(({ id, Component }) => (
         <Fragment key={id}>

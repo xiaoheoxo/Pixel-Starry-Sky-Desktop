@@ -15,6 +15,8 @@ import {
   DEFAULT_SIDEBAR_LAYOUT,
   HEADER_ROW_LIMIT,
   LAYOUT_PLACEMENTS,
+  MINIMAL_HEADER,
+  headerActions,
   canPlace,
   isRowFull,
   moveSidebarActionInLayout,
@@ -394,6 +396,15 @@ describe('侧边栏外观偏好', () => {
     expect(sidebar.getSidebarPrefs().icons.newTask).toBe(DEFAULT_SIDEBAR_ICONS.newTask)
     sidebar.setSidebarIcon('addProject', 'folder-open')
     expect(sidebar.getSidebarPrefs().icons.addProject).toBe('folder-open')
+  })
+
+  it('极简模式的顶栏：没改过顶栏用极简的默认摆法，改过的按用户摆的来（minimal-mode.md §12 C）', () => {
+    expect(headerActions(DEFAULT_SIDEBAR_LAYOUT, false)).toBe(DEFAULT_SIDEBAR_LAYOUT.header)
+    expect(headerActions(DEFAULT_SIDEBAR_LAYOUT, true)).toBe(MINIMAL_HEADER)
+    const custom = moveSidebarActionInLayout(DEFAULT_SIDEBAR_LAYOUT, 'tool:files', 'header', 0)
+    expect(headerActions(custom, true)).toBe(custom.header)
+    expect(MINIMAL_HEADER.length).toBeLessThanOrEqual(HEADER_ROW_LIMIT)
+    for (const action of MINIMAL_HEADER) expect(LAYOUT_ACTIONS).toContain(action)
   })
 
   it('项目置顶：放最前、从分区里拿出来；又进了分区就取消置顶；坏数据丢掉（project-pin.md）', async () => {

@@ -22,7 +22,8 @@ const CHIP =
 /** 关掉提交框后写了一半的提交信息还在（每个工作区一份，只在内存里） */
 const drafts = new Map<string, string>()
 
-export function ComposerGit({ target }: { target: WorkspaceRef }) {
+/** compact：极简模式并进输入框下面一排（docs/ui/minimal-mode.md §12 A），只留分支和改动数；拉取推送、提交在概况和 Git 面板里 */
+export function ComposerGit({ target, compact }: { target: WorkspaceRef; compact?: boolean }) {
   useI18n()
   const status = useGitStatus(target)
   if (!status?.repo) return null
@@ -35,15 +36,15 @@ export function ComposerGit({ target }: { target: WorkspaceRef }) {
         <button
           type="button"
           data-composer-changes
-          title={tr('git.composer.changesTitle')}
+          title={compact ? tr('git.composer.changes', { n: changed }) : tr('git.composer.changesTitle')}
           onClick={openChanges}
           className={CHIP}
         >
-          {tr('git.composer.changes', { n: changed })}
+          {compact ? changed : tr('git.composer.changes', { n: changed })}
         </button>
       )}
-      <SyncButton target={target} status={status} />
-      {changed > 0 && <CommitButton target={target} status={status} />}
+      {!compact && <SyncButton target={target} status={status} />}
+      {!compact && changed > 0 && <CommitButton target={target} status={status} />}
     </>
   )
 }

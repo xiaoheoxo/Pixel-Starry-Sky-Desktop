@@ -1,5 +1,5 @@
-import { Ellipsis, Keyboard, MessageSquare, PanelLeft, PanelRight } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Ellipsis, Keyboard, MessageSquare, PanelLeft, PanelRight, SquareArrowOutUpRight } from 'lucide-react'
+import { Fragment, useMemo, useState } from 'react'
 import { cn, IconButton, SEGMENT_ICON, SEGMENT_TRACK } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { isMac } from '@/features/layout/keybindings'
@@ -13,12 +13,15 @@ import {
 import { useI18n } from '@/i18n/I18nProvider'
 import { useCommandPalette } from '@/features/commands/CommandPaletteProvider'
 import { MachineSwitch } from '@/features/machines/MachineSwitch'
-import { useSidebarPrefs } from '@/features/appearance/sidebar'
+import { headerActions, MINIMAL_HEADER, useSidebarPrefs } from '@/features/appearance/sidebar'
+import { useMinimal } from '@/features/appearance/ThemeProvider'
+import { useAppMode } from '@/features/coding/mode'
 import { useChannelUnreadTotal } from '@/features/channels/store'
 import { tr, type TranslationKey } from '@/i18n/core'
 import { LayoutActionButton } from '@/features/layout/LayoutActionButton'
 import { ToolbarContext } from '@/features/layout/ToolbarContext'
 import { SessionChannelBadge } from '@/features/channels/SessionChannelBadge'
+import { useOpenInActions } from '@/features/editor/OpenInButton'
 
 interface SessionHeaderProps {
   title: string
@@ -64,9 +67,16 @@ export function SessionHeader({
   const commands = useCommandPalette()
   const { layout } = useSidebarPrefs()
   const channelUnread = useChannelUnreadTotal()
+  // 极简模式的会话页（对话模式）：顶栏默认摆上概况和常用工具（docs/ui/minimal-mode.md §12 C）；看板、频道页不变
+  const minimalOn = useMinimal()
+  const appMode = useAppMode()
+  const headerItems = headerActions(layout, minimalOn && appMode !== 'code' && panelToggle === undefined)
+  // 极简的默认摆法里没有「打开方式」：放进「⋯」
+  const openIn = useOpenInActions(headerItems === MINIMAL_HEADER)
+  const openInMenu = headerItems === MINIMAL_HEADER && openIn.length > 0
   const [more, setMore] = useState<{ x: number; y: number } | null>(null)
   const moreLabel = text('更多')
-  const showMore = showActions || !!tui
+  const showMore = showActions || !!tui || openInMenu
   const tuiActive = Boolean(tui?.running || tui?.mode === 'terminal')
 
   const moreActions = useMemo((): MenuAction[] => {
@@ -108,8 +118,9 @@ export function SessionHeader({
         hint: COMMAND_PALETTE.label,
       })
     }
+    if (openInMenu) actions.push({ label: tr('sidebar.action.openIn'), icon: SquareArrowOutUpRight, children: openIn })
     return actions
-  }, [tui, commands])
+  }, [tui, commands, openInMenu, openIn])
 
   return (
     <header
@@ -174,14 +185,19 @@ export function SessionHeader({
       </div>
       <div className="header-tools no-drag ml-auto flex shrink-0 items-center gap-0.5">
         <MachineSwitch />
-        {(layout.header.length > 0 || panelToggle !== null) && (
+        {(headerItems.length > 0 || panelToggle !== null) && (
           <div data-header-group className={SEGMENT_TRACK}>
             <ToolbarContext.Provider value={{ panelOpen, filesPanelOpen, onCloseFiles }}>
-              {layout.header.map(action => (
-                <LayoutActionButton key={action} action={action} placement="header" />
+              {headerItems.map(action => (
+                <Fragment key={action}>
+                  <LayoutActionButton action={action} placement="header" />
+                  {action === 'tool:overview' && headerItems === MINIMAL_HEADER && (
+                    <span aria-hidden data-header-tools-sep className="mx-0.5 h-3.5 w-px shrink-0 bg-line" />
+                  )}
+                </Fragment>
               ))}
             </ToolbarContext.Provider>
-            {layout.header.length > 0 && panelToggle !== null && (
+            {headerItems.length > 0 && panelToggle !== null && (
               <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-line" />
             )}
             {panelToggle === undefined ? (

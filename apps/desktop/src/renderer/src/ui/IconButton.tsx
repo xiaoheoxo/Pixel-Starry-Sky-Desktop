@@ -1,10 +1,10 @@
 import { useI18n } from '@/i18n/I18nProvider'
-import type { ButtonHTMLAttributes, Ref } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from './cn'
 
 // 表格、列表里的叶子按钮（例如「上一页」「下一页」）也可以直接用，不只能在外形里
-export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
+export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon: LucideIcon
   /** 无障碍名称，同时作为悬停提示 */
   label: string
@@ -13,6 +13,8 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   iconSize?: number
   active?: boolean
   ref?: Ref<HTMLButtonElement>
+  /** 图标后面的小标记（数字、状态点） */
+  children?: ReactNode
 }
 
 /** 只有图标的方形按钮：悬停变 bg-hover，active 时 bg-selected */
@@ -24,6 +26,7 @@ export function IconButton({
   active,
   className,
   style,
+  children,
   ...rest
 }: IconButtonProps) {
   useI18n()
@@ -41,6 +44,7 @@ export function IconButton({
       {...rest}
     >
       <Icon size={iconSize} strokeWidth={1.5} />
+      {children}
     </button>
   )
 }

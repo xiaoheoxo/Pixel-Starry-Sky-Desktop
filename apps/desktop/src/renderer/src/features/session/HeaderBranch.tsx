@@ -159,7 +159,9 @@ export function HeaderBranch({
         )}
       >
         <GitBranch size={13} strokeWidth={1.5} className="shrink-0" />
-        <span className="truncate font-mono text-meta">{label}</span>
+        <span data-branch-label className="truncate font-mono text-meta">
+          {label}
+        </span>
         <ChevronDown size={12} strokeWidth={1.5} className="shrink-0" />
       </button>
       {menu && (

@@ -22,6 +22,7 @@ import { EditorIcon, editorLabel } from './EditorIcon'
 import { refreshEditors, setEditors, useEditors } from './store'
 import { useActiveWorkspace } from './target'
 import { useToolbarState } from '@/features/layout/ToolbarContext'
+import type { MenuAction } from '@/ui/ActionMenu'
 
 type Choice = { kind: 'editor'; item: EditorItem } | { kind: 'tool'; tool: OpenTool }
 
@@ -59,6 +60,36 @@ export function defaultChoice(state: EditorState | null): Choice | null {
   const { editors, tools } = choices(state)
   const all = [...editors, ...tools]
   return all.find(c => choiceId(c) === state?.workspaceId) ?? all.find(c => choiceId(c) === state?.defaultId) ?? null
+}
+
+/**
+ * 顶栏「⋯」里的「打开方式」子菜单：极简模式的顶栏不放这个按钮（docs/ui/minimal-mode.md §12 C）。
+ * 只管打开，默认的那个打勾；改默认在输入框的文件夹菜单里。没有工作区、远程机器上返回空
+ */
+export function useOpenInActions(enabled: boolean): MenuAction[] {
+  const toast = useToast()
+  const state = useEditors()
+  const { ref } = useActiveWorkspace()
+  // 和顶栏按钮一样空闲时才读（要查注册表和安装目录）；用不到（正常模式、改过顶栏）就不读
+  useEffect(() => {
+    if (!enabled || state) return
+    const timer = setTimeout(() => void refreshEditors().catch(() => undefined), 3000)
+    return () => clearTimeout(timer)
+  }, [enabled, state])
+  if (!enabled || !ref || machineOf(ref.sessionId ?? ref.projectId) !== 'local') return []
+  const current = defaultChoice(state)
+  const { editors, tools } = choices(state)
+  return [...editors, ...tools].map(choice => ({
+    label: choiceName(choice),
+    checked: !!current && choiceId(current) === choiceId(choice),
+    run: () => {
+      if (isDemo) toast(tr('editor.EditorButton.demoModeCannotOpen'))
+      else
+        window
+          .pixelsky!.editor.open(ref, choiceId(choice))
+          .catch((e: unknown) => toast(translateMessage((e as Error).message)))
+    },
+  }))
 }
 
 /** composer：输入框上方文件夹菜单里的一行（docs/ui/machines-workspaces.md §9），列表往右边弹 */

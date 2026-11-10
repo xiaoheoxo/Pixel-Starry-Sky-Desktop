@@ -60,6 +60,7 @@ export const sidebarMessages = {
   'sidebar.action.tool:sandbox': { zh: '环境', en: 'Environment' },
   'sidebar.action.tool:tasks': { zh: '任务', en: 'Tasks' },
   'sidebar.action.tool:copies': { zh: '副本', en: 'Worktrees' },
+  'sidebar.action.tool:overview': { zh: '概况', en: 'Overview' },
   'sidebar.action.page:mobile': { zh: '手机', en: 'Phone' },
   'sidebar.action.page:machines': { zh: '机器与连接', en: 'Machines' },
   'sidebar.action.page:extensions': { zh: '扩展', en: 'Extensions' },

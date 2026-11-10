@@ -35,11 +35,11 @@ export function summaryText(s: ProcessSummary, steps: number): string {
 }
 
 /**
- * 「执行」没点过时展开不展开：极简模式都展开；有被拦下的也展开，原因和「仍要执行」不用点开就能看到；
- * 思考、详细模式都展开（docs/ui/view-mode.md §3）
+ * 「执行」没点过时展开不展开：有被拦下的展开，原因和「仍要执行」不用点开就能看到；
+ * 思考、详细模式都展开（docs/ui/view-mode.md §3）。极简模式也跟查看模式走（docs/ui/minimal-mode.md §12 B）
  */
-export const processOpenByDefault = (items: readonly Item[], minimal: boolean, mode: ViewMode = 'normal'): boolean =>
-  minimal || mode !== 'normal' || summarize(items).blocked > 0
+export const processOpenByDefault = (items: readonly Item[], mode: ViewMode = 'normal'): boolean =>
+  mode !== 'normal' || summarize(items).blocked > 0
 
 /** 点过的展开只在这次模式里算（§4 第 4 条）：gen 变了回到模式默认 */
 function useModeToggle(): [boolean | null, (open: boolean) => void] {
@@ -206,18 +206,17 @@ export function TurnProcess({
   /** 在最后一轮里：按计划分步时不要「执行」这一行，直接列出每一步；下一轮开始后才收成一行 */
   latest: boolean
   durationMs: number | null
-  /** 点开 / 收起的状态由外面管（运行中底部的状态行也能展开它）：null 是还没点过，按极简模式的默认 */
+  /** 点开 / 收起的状态由外面管（运行中底部的状态行也能展开它）：null 是还没点过，按查看模式的默认 */
   toggled: boolean | null
   onToggle: (open: boolean) => void
   /** 显示一组过程条目（LiveTranscript 的工具行分组、思考、待办、过渡话） */
   render: (items: Item[]) => ReactNode
 }) {
   useI18n()
-  // 极简模式（docs/ui/minimal-mode.md §3、§4）：和 Factory 一样每一步都摊开，一条一行；点过就按点的来
   const minimal = useMinimal()
   const { mode } = useRowMode()
   const summary = useMemo(() => summarize(items), [items])
-  const open = toggled ?? processOpenByDefault(items, minimal, mode)
+  const open = toggled ?? processOpenByDefault(items, mode)
   // 对话内搜索的「展开」、全局搜索跳到里面的条目：执行块先展开，里面的条目自己再展开
   const ids = useMemo(() => items.map(i => i.id), [items])
   const requested = useExpandAny(ids)
@@ -230,7 +229,7 @@ export function TurnProcess({
     () => items.filter(i => !(i.kind === 'reasoning' && i.status !== 'running' && !i.text.trim())),
     [items],
   )
-  // 极简模式每一步都摊开，不分阶段（docs/ui/auto-fold.md §6）
+  // 极简模式不分阶段（docs/ui/auto-fold.md §6）：计划写在对话末尾
   const sections = useMemo(() => (minimal ? null : planSections(items, running)), [minimal, items, running])
   // 收起时露出来的：运行中最近 2 条，以及失败的那几条（所有模式一样，docs/ui/view-mode.md §3）
   const tail = useMemo(() => {

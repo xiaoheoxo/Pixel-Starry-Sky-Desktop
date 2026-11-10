@@ -33,6 +33,7 @@ export function Section({
     >
       <button
         type="button"
+        data-overview-head
         aria-expanded={open}
         onClick={() => overviewPrefs.toggleCollapsed(id)}
         className="press flex min-h-[34px] w-full items-center gap-[7px] rounded-lg py-[5px] pr-2 pl-2.5 text-left hover:bg-hover"

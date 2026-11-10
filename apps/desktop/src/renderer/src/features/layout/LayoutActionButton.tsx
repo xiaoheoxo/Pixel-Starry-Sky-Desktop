@@ -20,6 +20,8 @@ import { routeWorkspaceTool } from '@/features/coding/routingModel'
 import { tr } from '@/i18n/core'
 import { useToolbarState } from './ToolbarContext'
 import { OpenInButton } from '@/features/editor/OpenInButton'
+import { useMinimal } from '@/features/appearance/ThemeProvider'
+import { GitCount, TerminalDot } from './HeaderBadges'
 
 const PAGE_SECTIONS = { 'page:mobile': 'mobile', 'page:machines': 'machines', 'page:extensions': 'extensions' } as const
 
@@ -53,9 +55,12 @@ function ToolButton({ action, compact }: { action: 'git' | ToolAction; compact: 
   const page = usePage()
   const tab = useActivePanelTab()
   const mode = useAppMode()
+  const minimal = useMinimal()
   const shown = panelOpen && page === 'workbench' && tab === id
   // 代码模式没有评论、连接器这两栏，点了不会有反应，不如不显示
   if (mode === 'code' && !routeWorkspaceTool(id)) return null
+  // 极简模式的顶栏：图标上带状态（docs/ui/minimal-mode.md §12 C）
+  const badges = compact && minimal
   const toggle = (): void => {
     if (shown) window.dispatchEvent(new Event('pixelsky:close-right-workspace'))
     else openRightTab(id)
@@ -66,10 +71,20 @@ function ToolButton({ action, compact }: { action: 'git' | ToolAction; compact: 
       label={action === 'git' ? tr(shown ? 'git.toolbar.close' : 'git.toolbar.open') : name}
       size={32}
       iconSize={16}
-      style={compact ? SEGMENT_ICON : undefined}
+      style={
+        compact
+          ? badges && id === 'git'
+            ? { ...SEGMENT_ICON, width: 'auto', minWidth: SEGMENT_ICON.width, paddingInline: 6, gap: 3 }
+            : SEGMENT_ICON
+          : undefined
+      }
+      className={badges ? 'relative' : undefined}
       active={shown}
       onClick={toggle}
-    />
+    >
+      {badges && id === 'git' && <GitCount />}
+      {badges && id === 'terminal' && !shown && <TerminalDot />}
+    </IconButton>
   )
 }
 

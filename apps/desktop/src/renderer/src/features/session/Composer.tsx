@@ -48,6 +48,7 @@ import { QuotaButton } from './quota/QuotaButton'
 import { useComposerStyle } from '@/features/settings/composerStyle'
 import { useStopBackgroundAgents } from '@/features/settings/stopBackgroundAgents'
 import { ComposerStatusBar } from './ComposerStatusBar'
+import { useMinimal } from '@/features/appearance/ThemeProvider'
 import './composerCompact.css'
 import { useI18n } from '@/i18n/I18nProvider'
 import { useCommands } from '@/features/settings/plugins/useCommands'
@@ -140,6 +141,8 @@ export function Composer({
   const { text: translate } = useI18n()
   const style = useComposerStyle()
   const chatgpt = style === 'chatgpt'
+  // 极简模式：上面那一排并进下面一排（docs/ui/minimal-mode.md §12 A）
+  const minimal = useMinimal()
   const paddingY = chatgpt ? 22 : 28
   const [items, setItems] = useState(initialAttachments)
   const key = composerDraftKey(draftKey, live)
@@ -825,11 +828,13 @@ export function Composer({
         />
       )}
       {live?.sessionId && <McpLoginNotice key={live.sessionId} sessionId={live.sessionId} />}
-      <ComposerStatusBar
-        live={status}
-        extra={statusExtra}
-        git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
-      />
+      {!minimal && (
+        <ComposerStatusBar
+          live={status}
+          extra={statusExtra}
+          git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
+        />
+      )}
       <div
         data-composer-style={style}
         style={chatgpt ? artStyle : undefined}
@@ -1136,8 +1141,17 @@ export function Composer({
 
           {live && optimizer.enabled && <PromptOptimizeButton po={optimizer} text={text} />}
 
+          {minimal && (
+            <ComposerStatusBar
+              live={status}
+              git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
+              inline
+            />
+          )}
+
           <div className="flex-1" />
 
+          {minimal && statusExtra}
           {live ? (
             <>
               <ModelSourceMenu

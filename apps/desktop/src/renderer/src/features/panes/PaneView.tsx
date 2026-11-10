@@ -290,7 +290,7 @@ function TabStrip({ leaf, dim, areaSize }: { leaf: Leaf; dim: boolean; areaSize:
         <TabStripArrows strip={strip} />
       </div>
       {/* 新建按钮固定在标签栏右边，标签多了也不会被挤出去；上下留白和标签栏一样，和标签对齐 */}
-      <span className="flex shrink-0 pt-1 pb-1.5">
+      <span data-tab-new className="flex shrink-0 pt-1 pb-1.5">
         <button
           type="button"
           aria-label={tr('panes.PaneView.newConversationInThis')}

@@ -19,7 +19,8 @@ describe('极简模式', () => {
     const rules = css('minimal.css')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('}')
-      .map(rule => rule.split('{')[0].trim())
+      // @container 这类外壳不算选择器，看它里面那条
+      .map(rule => (rule.split('{').find(part => !part.trim().startsWith('@')) ?? '').trim())
       .filter(selector => selector && !selector.startsWith('--'))
     expect(rules.length).toBeGreaterThan(5)
     for (const selector of rules)
