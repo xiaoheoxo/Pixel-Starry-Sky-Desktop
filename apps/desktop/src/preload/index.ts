@@ -59,6 +59,7 @@ const account: AccountBridge = {
   cancelLogin: () => invoke('account:cancel'),
   logout: () => invoke('account:logout'),
   refresh: () => invoke('account:refresh'),
+  setCloudRoute: mode => invoke('account:setCloudRoute', mode),
   store: () => invoke('account:store'),
   openStore: (kind, params) => invoke('account:openStore', kind, params),
   checkoutCreate: input => invoke('account:checkoutCreate', input),

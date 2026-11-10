@@ -18,12 +18,14 @@ import { requestViaIp, withIpFallback } from './ip-fallback'
 import {
   CLOUD_ROUTES,
   RECHECK_MS,
+  isRouteMode,
   parseSavedRoute,
   pickRoute,
   probeRoute,
   routeOf,
   type CloudRoute,
   type ProbeResult,
+  type RouteMode,
 } from './cloud-route'
 import type {
   AccountInfo,
@@ -155,20 +157,23 @@ export function deviceName(): string {
   return host ? `${host} · ${os}` : os
 }
 
-/** 认证服务地址（「关于」页也显示它）：没有覆盖时按测速选的那条路（docs/network-direct.md §3） */
+/** 认证服务地址（「关于」页也显示它）：没有覆盖时按用户指定的、或测速选的那条路（docs/network-direct.md §3、§7） */
 export function baseUrl(): string {
   const raw = (process.env.PIXELSKY_AUTH_URL ?? '').trim().replace(/\/+$/, '')
   if (raw && overrideAllowed(raw)) return raw
-  return route ? routeOf(route).base : DEFAULT_AUTH_URL
+  const id = mode === 'auto' ? route : mode
+  return id ? routeOf(id).base : DEFAULT_AUTH_URL
 }
 
 // ---------------------------------------------------------------------------
 // 云端线路择优（docs/network-direct.md §3）：CDN 域名 vs 源站直连，都是 HTTPS。
-// 上次选的存 userData/cloud-route.json，启动先用它；启动后 3 秒测一次，之后每 10 分钟、系统唤醒后再测
+// 上次选的存 userData/cloud-route.json，启动先用它；启动后 3 秒测一次，之后每 10 分钟、系统唤醒后再测。
+// 用户在账号页指定了某条（§7）就固定走它；测速照跑，只为显示两边延迟
 // ---------------------------------------------------------------------------
 
 let route: CloudRoute['id'] | null = null
-/** 最近一次测速（「关于」页显示） */
+let mode: RouteMode = 'auto'
+/** 最近一次测速（「关于」页、账号页显示） */
 let lastProbe: ProbeResult[] = []
 
 const routeFile = (): string => join(app.getPath('userData'), 'cloud-route.json')
@@ -176,32 +181,53 @@ const routeFile = (): string => join(app.getPath('userData'), 'cloud-route.json'
 /** 有环境变量覆盖（测试站、本机）时不择优 */
 const routingEnabled = (): boolean => !(process.env.PIXELSKY_AUTH_URL ?? '').trim()
 
-export function cloudRouteInfo(): { route: CloudRoute['id'] | null; probe: ProbeResult[] } {
-  return { route: routingEnabled() ? route : null, probe: lastProbe }
+function saveRoute(): void {
+  try {
+    writeFileSync(routeFile(), JSON.stringify({ route, mode }))
+  } catch {
+    // 记不住就下次再测
+  }
 }
 
-/** 测一轮并按规则换线路；只换之后新发的请求 */
+export function cloudRouteInfo(): {
+  route: CloudRoute['id'] | null
+  mode: RouteMode
+  probe: ProbeResult[]
+} {
+  if (!routingEnabled()) return { route: null, mode: 'auto', probe: lastProbe }
+  return { route: mode === 'auto' ? route : mode, mode, probe: lastProbe }
+}
+
+/** 测一轮；自动模式下按规则换线路，只换之后新发的请求 */
 export async function probeCloudRoutes(): Promise<void> {
   if (!routingEnabled()) return
   const results = await Promise.all(CLOUD_ROUTES.map(r => probeRoute(r, fetch)))
   lastProbe = results
-  const next = pickRoute(route, results)
   const text = results.map(r => `${r.id} ${r.ms === null ? '不通' : `${r.ms} ms`}`).join(' / ')
+  if (mode !== 'auto') return log.info('云端线路（用户指定）', { mode, probe: text })
+  const next = pickRoute(route, results)
   if (next && next !== route) {
     log.warn('云端线路切换', { from: route, to: next, probe: text })
     route = next
-    try {
-      writeFileSync(routeFile(), JSON.stringify({ route: next }))
-    } catch {
-      // 记不住就下次再测
-    }
+    saveRoute()
   } else log.info('云端线路', { route, probe: text })
+}
+
+/** 账号页切换线路：存盘后马上测一轮，返回新的线路信息 */
+export async function setCloudRouteMode(next: RouteMode): Promise<ReturnType<typeof cloudRouteInfo>> {
+  if (routingEnabled() && next !== mode) {
+    log.warn('云端线路模式', { from: mode, to: next })
+    mode = next
+    saveRoute()
+    await probeCloudRoutes()
+  }
+  return cloudRouteInfo()
 }
 
 function initCloudRoute(): void {
   if (!routingEnabled()) return
   try {
-    route = parseSavedRoute(JSON.parse(readFileSync(routeFile(), 'utf8')))
+    ;({ route, mode } = parseSavedRoute(JSON.parse(readFileSync(routeFile(), 'utf8'))))
   } catch {
     route = null
   }
@@ -1174,6 +1200,10 @@ export function initAccount(): void {
     },
     ignore,
   )
+  ipc.handle('account:setCloudRoute', (_e, next: unknown) => {
+    if (!isRouteMode(next)) throw new Error('invalid cloud route')
+    return setCloudRouteMode(next)
+  })
   ipc.handle(
     'account:refresh',
     async (): Promise<AccountRefreshResult> => {

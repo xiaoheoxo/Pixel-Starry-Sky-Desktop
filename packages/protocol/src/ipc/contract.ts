@@ -78,6 +78,7 @@ export const IPC_CONTRACT = {
   'account:panelVerify': { kind: 'invoke', route: 'local', trust: 'frame' },
   'account:payWindow': { kind: 'push', route: 'push', trust: 'none' },
   'account:refresh': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'account:setCloudRoute': { kind: 'invoke', route: 'local', trust: 'sender' },
   'account:store': { kind: 'invoke', route: 'local', trust: 'sender' },
   'account:summary': { kind: 'invoke', route: 'local', trust: 'sender' },
   'app:config': { kind: 'sendSync', route: 'local', trust: 'none' },

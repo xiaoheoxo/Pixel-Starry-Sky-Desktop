@@ -26,6 +26,10 @@ export interface AccountBridge {
   logout(): Promise<void>
   /** 重新拉取账号与额度（一定发新请求；返回刷新后的账号数据，失败时带错误） */
   refresh(): Promise<AccountRefreshResult>
+  /** 云端线路：auto 按测速择优，cdn / direct 固定走那条；切换后马上测一轮，返回新的线路信息（docs/network-direct.md §7） */
+  setCloudRoute(
+    mode: import('../shared/types/app-info').CloudRouteInfo['mode'],
+  ): Promise<import('../shared/types/app-info').CloudRouteInfo>
   /** 订阅套餐与充值：云端 /v1/platform/store（跟随 Sub2api，docs/cloud-service.md §4.16） */
   store(): Promise<StoreCatalog>
   /** 在系统浏览器里打开面板的购买页 / 兑换页；地址取自最近一次 store() 的结果 */

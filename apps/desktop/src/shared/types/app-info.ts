@@ -2,6 +2,16 @@
 
 // 「关于」页用的应用信息：主进程提供，规格见 docs/ui/settings.md §5
 
+/**
+ * 云端走哪条路（docs/network-direct.md §3、§7）：route 是正在用的 cdn / direct，有环境变量覆盖时 null；
+ * mode 是用户在账号页的选择（auto 按测速择优）；probe 是最近一次测速，ms 为 null 是不通
+ */
+export interface CloudRouteInfo {
+  route: 'cdn' | 'direct' | null
+  mode: 'auto' | 'cdn' | 'direct'
+  probe: { id: 'cdn' | 'direct'; ms: number | null }[]
+}
+
 export interface AppInfo {
   /** 显示名：像素星空 */
   name: string
@@ -19,8 +29,7 @@ export interface AppInfo {
   arch: string
   /** 账号认证服务地址 */
   authUrl: string
-  /** 云端走哪条路（docs/network-direct.md）：cdn / direct；有环境变量覆盖时 null。probe 是最近一次测速，ms 为 null 是不通 */
-  cloudRoute: { route: 'cdn' | 'direct' | null; probe: { id: 'cdn' | 'direct'; ms: number | null }[] }
+  cloudRoute: CloudRouteInfo
   /** 本地数据目录（设置、登录信息） */
   dataDir: string
   /** 代码仓库地址 */

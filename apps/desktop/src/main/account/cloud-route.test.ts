@@ -32,8 +32,10 @@ describe('云端线路择优（docs/network-direct.md §3）', () => {
   })
 
   it('存盘读回：只认两个 id', () => {
-    expect(parseSavedRoute({ route: 'direct' })).toBe('direct')
-    expect(parseSavedRoute({ route: 'x' })).toBeNull()
-    expect(parseSavedRoute(null)).toBeNull()
+    // 旧文件没有 mode：按自动
+    expect(parseSavedRoute({ route: 'direct' })).toEqual({ route: 'direct', mode: 'auto' })
+    expect(parseSavedRoute({ route: 'cdn', mode: 'direct' })).toEqual({ route: 'cdn', mode: 'direct' })
+    expect(parseSavedRoute({ route: 'x', mode: 'x' })).toEqual({ route: null, mode: 'auto' })
+    expect(parseSavedRoute(null)).toEqual({ route: null, mode: 'auto' })
   })
 })

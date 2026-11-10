@@ -2836,6 +2836,15 @@ export const catalog = {
     zh: '在浏览器中管理',
     en: 'Manage in browser',
   },
+  'settings.account.AccountSection.routeAuto': { zh: '自动', en: 'Auto' },
+  'settings.account.AccountSection.routeHint': {
+    zh: '自动：每 10 分钟测一次，走快的那条。选了 CDN 或直连就固定走它，不通也不换。只影响之后新发的请求',
+    en: 'Auto times both every 10 minutes and uses the faster one. Picking CDN or Direct always uses it, even when it is down. Only new requests change',
+  },
+  'settings.account.AccountSection.routePinnedDown': {
+    zh: '选定的线路不通，可以改回「自动」',
+    en: 'The chosen route is down. Switch back to Auto',
+  },
   'settings.account.PlanStore.month': {
     zh: '月',
     en: 'month',

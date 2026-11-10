@@ -62,8 +62,15 @@ export function pickRoute(current: CloudRoute['id'] | null, results: readonly Pr
 
 export const routeOf = (id: CloudRoute['id']): CloudRoute => CLOUD_ROUTES.find(r => r.id === id)!
 
-/** 存盘的格式：上次选的那条；读不出来按 null */
-export function parseSavedRoute(raw: unknown): CloudRoute['id'] | null {
-  const id = raw && typeof raw === 'object' ? (raw as { route?: unknown }).route : null
-  return id === 'cdn' || id === 'direct' ? id : null
+/** 用户在账号页选的：auto 按测速择优；cdn / direct 固定走那条，不通也不换（docs/network-direct.md §7） */
+export type RouteMode = 'auto' | CloudRoute['id']
+
+const isRouteId = (v: unknown): v is CloudRoute['id'] => v === 'cdn' || v === 'direct'
+
+/** 存盘的格式 {route, mode}：上次选的那条和用户的选择；读不出来按 null / auto（旧文件没有 mode） */
+export function parseSavedRoute(raw: unknown): { route: CloudRoute['id'] | null; mode: RouteMode } {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as { route?: unknown; mode?: unknown }
+  return { route: isRouteId(o.route) ? o.route : null, mode: isRouteId(o.mode) ? o.mode : 'auto' }
 }
+
+export const isRouteMode = (v: unknown): v is RouteMode => v === 'auto' || isRouteId(v)

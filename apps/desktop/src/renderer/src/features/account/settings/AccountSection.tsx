@@ -10,6 +10,7 @@ import { SectionTitle } from '../../settings/SettingRow'
 import { SyncSettings } from '../../settings/sync/SyncSettings'
 import { AccountOverview } from './AccountOverview'
 import { StorePages } from './StorePages'
+import type { CloudRouteInfo } from '../../../../../shared/types/app-info'
 
 export type AccountTab = 'overview' | 'plans' | 'topup'
 
@@ -30,6 +31,27 @@ const TABS: Array<SegmentedOption<AccountTab>> = [
     value: 'topup',
     get label() {
       return tr('settings.account.AccountOverview.addCredits')
+    },
+  },
+]
+
+const ROUTE_MODES: Array<SegmentedOption<CloudRouteInfo['mode']>> = [
+  {
+    value: 'auto',
+    get label() {
+      return tr('settings.account.AccountSection.routeAuto')
+    },
+  },
+  {
+    value: 'cdn',
+    get label() {
+      return tr('settings.AboutSection.routeCdn')
+    },
+  },
+  {
+    value: 'direct',
+    get label() {
+      return tr('settings.AboutSection.routeDirect')
     },
   },
 ]
@@ -171,12 +193,33 @@ function SignedOutCard() {
 function AccountService() {
   useI18n()
   const [authUrl, setAuthUrl] = useState<string | null>(null)
+  const [route, setRoute] = useState<CloudRouteInfo | null>(null)
+  const [switching, setSwitching] = useState(false)
   useEffect(() => {
     window.pixelsky?.app.getInfo().then(
-      info => setAuthUrl(info.authUrl),
+      info => {
+        setAuthUrl(info.authUrl)
+        setRoute(info.cloudRoute)
+      },
       () => setAuthUrl(null),
     )
   }, [])
+  const pick = (mode: CloudRouteInfo['mode']): void => {
+    if (!window.pixelsky || switching) return
+    setSwitching(true)
+    setRoute(r => r && { ...r, mode })
+    void window.pixelsky.account
+      .setCloudRoute(mode)
+      .then(info => {
+        setRoute(info)
+        return window.pixelsky?.app.getInfo().then(i => setAuthUrl(i.authUrl))
+      })
+      .catch(() => undefined)
+      .finally(() => setSwitching(false))
+  }
+  const routeName = (id: 'cdn' | 'direct'): string =>
+    tr(id === 'cdn' ? 'settings.AboutSection.routeCdn' : 'settings.AboutSection.routeDirect')
+  const pinnedDown = route && route.mode !== 'auto' && route.probe.find(p => p.id === route.mode)?.ms === null
   return (
     <div className="mt-6">
       <h4 className="mb-2 text-meta font-medium text-fg-muted">
@@ -196,6 +239,37 @@ function AccountService() {
           {tr('settings.account.AccountSection.manageInBrowser')}{' '}
         </Button>
       </div>
+      {/* 有环境变量覆盖（测试站、本机）时 route 为 null，不显示（docs/network-direct.md §7） */}
+      {route?.route && (
+        <div className="mt-2 rounded-lg border border-line px-4 py-2">
+          <div className="flex min-h-7 flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span
+              className="w-20 shrink-0 text-ui text-fg-muted"
+              title={tr('settings.account.AccountSection.routeHint')}
+            >
+              {tr('settings.AboutSection.cloudRoute')}
+            </span>
+            <Segmented
+              label={tr('settings.AboutSection.cloudRoute')}
+              options={ROUTE_MODES}
+              value={route.mode}
+              onChange={pick}
+            />
+            <span className="selectable min-w-0 flex-1 truncate text-right font-mono text-meta text-fg-muted">
+              {switching && <Spinner />}
+              {!switching &&
+                route.probe
+                  .map(
+                    p => `${routeName(p.id)} ${p.ms === null ? tr('settings.AboutSection.routeDown') : `${p.ms} ms`}`,
+                  )
+                  .join(' · ')}
+            </span>
+          </div>
+          {pinnedDown && !switching && (
+            <p className="mt-1.5 text-meta text-warning">{tr('settings.account.AccountSection.routePinnedDown')}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
