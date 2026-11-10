@@ -2,13 +2,15 @@
 // 只管本机：会话来自 ctx.engine，副本来自 ctx.projectTools；SSH / WSL 机器上的数据不在这里统计。
 import { join } from 'node:path'
 import { app, session, shell } from 'electron'
+import { dataRoot } from '../app/data-dir'
+import { DATA_ENTRIES, inside, samePath } from '../app/data-location'
 import { logger } from '@pixelsky/engine'
 import type { AppContext } from '../app/context'
 import { logService } from '../app/logging'
 import * as ipc from '../ipc/guard'
 import type { StorageDeleteResult, StorageUsage } from '../../shared/types/storage'
 import { removeSessions } from './remove'
-import { cacheSize, scanUsage } from './scan'
+import { cacheSize, dirSize, scanUsage } from './scan'
 
 /** 一分钟内重复打开设置页直接用上次的结果（项目副本可能很大，统计要几秒） */
 const FRESH_MS = 60_000
@@ -51,8 +53,8 @@ export function initStorage(ctx: AppContext): void {
       const started = Date.now()
       const usage = await scanUsage({
         root,
-        sessionsDir: join(root, 'engine', 'sessions'),
-        chatsDir: join(root, 'engine', 'chats'),
+        sessionsDir: join(dataRoot(), 'engine', 'sessions'),
+        chatsDir: join(dataRoot(), 'engine', 'chats'),
         logsDir: logService()?.files.dir ?? null,
         sessions,
         copies,
@@ -69,6 +71,18 @@ export function initStorage(ctx: AppContext): void {
   ipc.handle('storage:usage', (_event, force: unknown) => {
     if (force !== true && last && Date.now() - last.scannedAt < FRESH_MS) return last
     return scan()
+      // 数据位置不在 userData：会话目录上面已经算了，其余数据条目（频道、附件、扩展包……）补进「其他」
+      // 数据位置在 userData 里面（子文件夹）：上面统计 userData 时已经算进「其他」了，不再加
+      if (!samePath(dataRoot(), root) && !inside(root, dataRoot())) {
+        const counted = new Set(['engine'])
+        const sizes = await Promise.all(
+          DATA_ENTRIES.filter(name => !counted.has(name)).map(name => dirSize(join(dataRoot(), name))),
+        )
+        const engineRest = await dirSize(join(dataRoot(), 'engine'), p =>
+          [join(dataRoot(), 'engine', 'sessions'), join(dataRoot(), 'engine', 'chats')].some(dir => samePath(dir, p)),
+        )
+        usage.parts.other += sizes.reduce((a, b) => a + b, 0) + engineRest
+      }
   })
 
   ipc.handle('storage:open', async () => {

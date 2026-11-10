@@ -2,6 +2,7 @@ import { createRequire } from 'node:module'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, shell } from 'electron'
+import { dataRoot } from '../app/data-dir'
 import { codedError, EXT_MANIFEST } from '@pixelsky/protocol'
 import type { ExtPackOptions } from '@pixelsky/protocol'
 import { object, text } from '@pixelsky/engine'
@@ -51,7 +52,7 @@ function optionsPatch(raw: unknown): ExtPackOptions {
 /** 扩展包的主进程一侧：服务在 extension-packs/service.ts，资源协议在 protocol.ts */
 export function initExtensionPacks(ctx: AppContext): ExtensionPacks {
   const service = new ExtensionPacks({
-    dataDir: join(app.getPath('userData'), 'extension-packs'),
+    dataDir: join(dataRoot(), 'extension-packs'),
     builtinDir: app.isPackaged
       ? join(process.resourcesPath, 'builtin-extensions')
       : join(__dirname, '../../../../extensions/builtin'),

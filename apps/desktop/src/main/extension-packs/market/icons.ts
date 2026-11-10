@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { localRoot } from '../../app/data-dir'
 import { checkSvg, isExtId, isExtVersion, parseCodedError } from '@pixelsky/protocol'
 import { downloadCapped } from './net'
 import type { Downloaded } from './net'
@@ -152,8 +153,8 @@ export function createIconStore(opts: IconStoreOptions): IconStore {
 }
 
 let shared: IconStore | null = null
-/** 协议和卸载共用的那一份（缓存放在 <userData>/extension-packs/cache/icons） */
+/** 协议和卸载共用的那一份（缓存放在 Local：<localRoot>/extension-packs/cache/icons） */
 export function storeIcons(): IconStore {
-  shared ??= createIconStore({ dir: join(app.getPath('userData'), 'extension-packs', 'cache', 'icons') })
+  shared ??= createIconStore({ dir: join(localRoot(), 'extension-packs', 'cache', 'icons') })
   return shared
 }

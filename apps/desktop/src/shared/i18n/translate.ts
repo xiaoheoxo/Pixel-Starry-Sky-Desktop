@@ -36,6 +36,7 @@ import { contextMessages } from './contextMessages'
 import { costMessages } from './costMessages'
 import { longConversationMessages } from './longConversationMessages'
 import { storageMessages } from './storageMessages'
+import { dataLocationMessages } from './dataLocationMessages'
 import { tabMenuMessages } from './tabMenuMessages'
 import { minimalModeMessages } from './minimalModeMessages'
 import { customThemeMessages } from './customThemeMessages'
@@ -128,6 +129,7 @@ export const allMessages = {
   ...costMessages,
   ...longConversationMessages,
   ...storageMessages,
+  ...dataLocationMessages,
   ...tabMenuMessages,
   ...minimalModeMessages,
   ...customThemeMessages,

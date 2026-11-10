@@ -728,6 +728,15 @@ contextBridge.exposeInMainWorld('pixelsky', {
     restoreSession: id => call('storage:restoreSession', id),
   } satisfies import('../shared/types/storage').StorageBridge,
   quota: {
+  dataLocation: {
+    info: () => call('dataLocation:info'),
+    choose: () => call('dataLocation:choose'),
+    move: path => call('dataLocation:move', path),
+    use: path => call('dataLocation:use', path),
+    cancelMove: () => call('dataLocation:cancelMove'),
+    removeOld: () => call('dataLocation:removeOld'),
+    dismiss: () => call('dataLocation:dismiss'),
+  } satisfies import('../shared/types/data-location').DataLocationBridge,
     get: provider => call('quota:get', provider),
     refresh: (provider, opts) => call('quota:refresh', provider, opts),
     useResetCredit: () => call('quota:useResetCredit'),

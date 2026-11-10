@@ -8,6 +8,7 @@
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import { app, BrowserWindow, dialog, net, powerMonitor, session, shell, type IpcMainInvokeEvent } from 'electron'
+import { dataRoot, localRoot } from '../app/data-dir'
 import * as ipc from '../ipc/guard'
 import { nativeText, windowLocale } from '../app/ui-language'
 import { EngineHost } from '@pixelsky/engine'
@@ -110,10 +111,10 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     systemProxy: engine => systemProxy.forEngine(engine),
     // 没装 Node.js 时一键安装 Codex / Claude Code 先装一份私有的（docs/ui/engine-update.md §7）；net.fetch 走系统代理
     nodeRuntime: createNodeRuntime({
-      root: join(app.getPath('userData'), 'runtime'),
+      root: join(localRoot(), 'runtime'),
       fetch: (url, init) => net.fetch(url, init),
     }),
-    dataDir: join(app.getPath('userData'), 'engine'),
+    dataDir: join(dataRoot(), 'engine'),
     // 删对话时它的文件夹里有文件：移到系统回收站
     trash: path => shell.trashItem(path),
     checkpoints: true,

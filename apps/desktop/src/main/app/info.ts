@@ -1,6 +1,7 @@
 // 「关于」页的数据：版本、运行环境、数据目录等。规格见 docs/ui/settings.md §5
 import { release } from 'node:os'
 import { app, shell } from 'electron'
+import { dataRoot } from './data-dir'
 import type { AppInfo, AppLink } from '../../shared/types/app-info'
 import { baseUrl, cloudRouteInfo } from '../account/account'
 import * as ipc from '../ipc/guard'
@@ -30,7 +31,7 @@ export function appInfo(): AppInfo {
     arch: process.arch,
     authUrl: baseUrl(),
     cloudRoute: cloudRouteInfo(),
-    dataDir: app.getPath('userData'),
+    dataDir: dataRoot(),
     repoUrl: REPO_URL,
   }
 }
@@ -38,7 +39,7 @@ export function appInfo(): AppInfo {
 async function open(link: AppLink): Promise<void> {
   switch (link) {
     case 'data-dir': {
-      const err = await shell.openPath(app.getPath('userData'))
+      const err = await shell.openPath(dataRoot())
       if (err) throw new Error(`打不开数据目录：${err}`)
       return
     }

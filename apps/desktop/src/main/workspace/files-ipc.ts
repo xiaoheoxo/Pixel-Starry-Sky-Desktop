@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, shell, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { dataRoot } from '../app/data-dir'
 import { Editors } from '../core/editors'
 import * as ipc from '../ipc/guard'
 import { WorkspaceFiles, locateFolder, workspacePath, workspaceRef, type TargetResolver } from '../core/workspace-files'
@@ -20,7 +21,7 @@ export async function initWorkspace(ctx: AppContext): Promise<void> {
   // 文件树删除：移到系统回收站（docs/ui/files-search-terminal-pins.md §3）
   const files = new WorkspaceFiles(resolveTarget, {
     trash: absolute => shell.trashItem(absolute),
-    attachmentDir: join(app.getPath('userData'), 'attachments'),
+    attachmentDir: join(dataRoot(), 'attachments'),
   })
   void files.cleanExpiredStages().catch(() => {})
   const icons = new Map<string, string>()

@@ -22,6 +22,14 @@ let installOnQuit = false
  * 不能在点按钮时直接 quitAndInstall：安装程序一启动，几秒内就会强制结束应用，未保存确认和退出清理都来不及
  * （审查报告 2026-10-14 第 3 条）。没点过时由 autoInstallOnAppQuit 在退出时静默安装 */
 /** 返回是否打开了安装程序（安装完会自己重新打开像素星空） */
+/**
+ * 重启（托盘「重启」、换数据位置）时不在退出时静默装更新：安装程序会杀掉刚重启的那份（可能正在搬数据），装完也不再打开。
+ * 更新留到下次正常退出再装
+ */
+export function skipInstallOnQuit(): void {
+  autoUpdater.autoInstallOnAppQuit = false
+}
+
 export function runPendingInstall(): boolean {
   if (!installOnQuit) return false
   installOnQuit = false

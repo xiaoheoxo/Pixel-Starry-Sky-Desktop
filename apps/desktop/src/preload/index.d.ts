@@ -64,6 +64,8 @@ export interface PixelskyBridge {
   log: LogBridge
   /** 设置 › 存储：本机数据目录的占用和清理 */
   storage: import('../shared/types/storage').StorageBridge
+  /** 设置 › 存储 › 数据位置（docs/ui/data-location.md） */
+  dataLocation: import('../shared/types/data-location').DataLocationBridge
   /** 自动更新（docs/release-update.md §7） */
   update: UpdateBridge
   files: FilesBridge

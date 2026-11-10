@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, shell, type IpcMainInvokeEvent } from 'electron'
 import * as ipc from '../ipc/guard'
 import { join } from 'node:path'
+import { dataRoot } from '../app/data-dir'
 import { value } from '../core/project-tools/common'
 import { ProjectTools } from '../core/project-tools/tools'
 import { PROJECT_TOOL_OPS, listWorkspaces, openWorkspace } from '../core/project-tools/ops'
@@ -16,7 +17,7 @@ import type { WorkspaceChoice } from '../../shared/types/machines'
 
 export async function initProjectTools(ctx: AppContext): Promise<void> {
   const host = workspaceToolsHost(ctx)
-  const dir = join(app.getPath('userData'), 'project-tools')
+  const dir = join(dataRoot(), 'project-tools')
   let timer: ReturnType<typeof setTimeout> | null = null
   const changed = (): void => {
     if (timer) return

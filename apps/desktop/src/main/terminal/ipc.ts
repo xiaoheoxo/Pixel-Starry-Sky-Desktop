@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, shell, webContents, type IpcMainInvokeEvent } from 'electron'
+import { dataRoot } from '../app/data-dir'
 import * as ipc from '../ipc/guard'
 import type { TerminalProfileInput, TerminalState } from '../../shared/types/terminal'
 import type { WorkspaceRef } from '../../shared/types/workspace'
@@ -31,7 +32,7 @@ export async function initTerminalIpc(
   machines: Machines | null,
   resolve: (ref: WorkspaceRef) => TerminalTarget,
 ): Promise<() => Promise<void>> {
-  const service = new TerminalManager(app.getPath('userData'), resolve, (owner, event) => {
+  const service = new TerminalManager(dataRoot(), resolve, (owner, event) => {
     const target = webContents.fromId(owner)
     if (target) sendTo(target, 'terminal:event', event)
   })
@@ -45,7 +46,7 @@ export async function initTerminalIpc(
     }
   })
   if (machines) {
-    remote = new RemoteTerminals(machines, app.getPath('userData'), (owner, event) => {
+    remote = new RemoteTerminals(machines, dataRoot(), (owner, event) => {
       const target = webContents.fromId(owner)
       if (target) sendTo(target, 'terminal:event', event)
     })

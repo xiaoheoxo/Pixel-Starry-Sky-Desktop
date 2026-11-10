@@ -82,6 +82,8 @@ function openWindow(theme: SplashTheme, near: Electron.Rectangle | null): Splash
 export function startSplash(opts: {
   near: () => Electron.Rectangle | null
   log: (message: string, fields: Record<string, number>) => void
+  /** 启动前要先干一件长活（搬数据）：马上弹，主窗口出来前不自己关 */
+  busy?: boolean
 }): SplashController {
   const saved = readWindowFile(file()).splashTheme
   const theme = splashTheme(saved, nativeTheme.shouldUseDarkColors)
@@ -99,9 +101,9 @@ export function startSplash(opts: {
       return () => clearTimeout(timer)
     },
     log: opts.log,
-    delayMs: Number.isFinite(override) && override >= 0 ? override : DELAY_MS,
+    delayMs: opts.busy ? 0 : Number.isFinite(override) && override >= 0 ? override : DELAY_MS,
     minMs: MIN_MS,
-    maxMs: MAX_MS,
+    maxMs: opts.busy ? 24 * 60 * 60_000 : MAX_MS,
   })
   app.on('before-quit', () => controller.dispose())
   return controller

@@ -1,6 +1,7 @@
 // 脚本扩展的命令：主进程入口（docs/ui/extension-commands-plan.md §4）
 import { app, type WebContents } from 'electron'
 import { join } from 'node:path'
+import { dataRoot } from '../../app/data-dir'
 import { text } from '@pixelsky/engine'
 import { codedError } from '@pixelsky/protocol'
 import type { ExtCommandApiReply, ExtCommandOutcome } from '../../../shared/types/ext-commands'
@@ -18,7 +19,7 @@ interface Active {
 
 export function initExtCommands(service: ExtensionPacks): void {
   const host = new ScriptHost()
-  const storage = new ScriptStorage(join(app.getPath('userData'), 'extension-packs', 'script-storage'))
+  const storage = new ScriptStorage(join(dataRoot(), 'extension-packs', 'script-storage'))
   service.onForgetScript(id => storage.forget(id))
   const active = new Map<string, Active>()
   const pendingCalls = new Map<number, { sender: WebContents; resolve: (r: ExtCommandApiReply) => void }>()

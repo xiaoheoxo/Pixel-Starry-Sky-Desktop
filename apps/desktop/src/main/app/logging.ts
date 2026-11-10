@@ -4,6 +4,7 @@ import { release } from 'node:os'
 import { join } from 'node:path'
 import { format } from 'node:util'
 import { app, BrowserWindow, dialog, shell, type WebContents } from 'electron'
+import { localRoot } from './data-dir'
 import { logTime, type LogQuery } from '@pixelsky/protocol'
 import { describeError, logger, redact, setLogSink, type LogLevel } from '@pixelsky/engine'
 import { LogService } from '../core/log/service'
@@ -22,10 +23,11 @@ export function logService(): LogService | null {
 
 function logsDir(): string {
   try {
-    app.setAppLogsPath()
+    // 日志删了能重建：放 Local（docs/ui/data-location.md §3.2）
+    app.setAppLogsPath(join(localRoot(), 'logs'))
     return app.getPath('logs')
   } catch {
-    return join(app.getPath('userData'), 'logs')
+    return join(localRoot(), 'logs')
   }
 }
 

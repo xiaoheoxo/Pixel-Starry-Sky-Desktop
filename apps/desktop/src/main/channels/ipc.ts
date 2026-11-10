@@ -3,6 +3,7 @@
 import { join } from 'node:path'
 import { hostname, userInfo } from 'node:os'
 import { app, shell } from 'electron'
+import { dataRoot } from '../app/data-dir'
 import { exec, git } from '../core/project-tools/common'
 import { describeError, logger } from '@pixelsky/engine'
 import type { HostEvent } from '@pixelsky/protocol'
@@ -81,7 +82,7 @@ function selfName(): string {
 
 export async function initChannels(ctx: AppContext): Promise<void> {
   const log = logger('channels')
-  const dir = join(app.getPath('userData'), 'channels')
+  const dir = join(dataRoot(), 'channels')
   const store = new ChannelStore(dir)
   await store.init()
   const deviceId = await loadDeviceId(dir)

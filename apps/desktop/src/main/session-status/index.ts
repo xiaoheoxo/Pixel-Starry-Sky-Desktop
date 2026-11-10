@@ -2,6 +2,7 @@
 // 对话列表和事件来自本机引擎宿主（ctx.engine / ctx.hostListeners），窗口获得焦点用 app 的 browser-window-focus。
 import { join } from 'node:path'
 import { app, BrowserWindow, net } from 'electron'
+import { dataRoot } from '../app/data-dir'
 import type { HostEvent } from '@pixelsky/protocol'
 import type { AppContext } from '../app/context'
 import { runGit } from '../core/project-tools/git'
@@ -46,7 +47,7 @@ async function fetchJson(url: string): Promise<RestResponse | null> {
 
 /** 创建服务并注册 IPC；返回停止函数（退出时也会自己停） */
 export async function initSessionStatus(ctx: AppContext): Promise<() => void> {
-  const links = new PrLinkStore(join(app.getPath('userData'), 'session-status', 'prs.json'))
+  const links = new PrLinkStore(join(dataRoot(), 'session-status', 'prs.json'))
   await links.load()
   const service = new SessionStatusService({
     sessions: () =>

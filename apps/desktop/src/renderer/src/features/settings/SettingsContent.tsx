@@ -82,6 +82,7 @@ import { MobileSection } from '../mobile/settings/MobileSection'
 import { ImSection } from '../im/ImSection'
 import { ProjectsSection } from './projects/ProjectsSection'
 import { StorageSection } from '../storage/StorageSection'
+import { DataLocationRow } from '../storage/DataLocationRow'
 import { SubagentsSection } from './SubagentsSection'
 import { AgentsSection } from './AgentsSection'
 import { leaveSettings, UnsavedLeaveDialog } from './unsavedEdits'
@@ -478,12 +479,17 @@ export function SettingsContent({
         ) : section === 'projects' ? (
           <ProjectsSection />
         ) : section === 'storage' ? (
-          <StorageSection
-            onOpenSession={sessionId => {
-              runMainAction({ kind: 'openSession', sessionId })
-              if (!standalone) onClose()
-            }}
-          />
+          <>
+            <StorageSection
+              onOpenSession={sessionId => {
+                runMainAction({ kind: 'openSession', sessionId })
+                if (!standalone) onClose()
+              }}
+            />
+            <div className="mt-6">
+              <DataLocationRow />
+            </div>
+          </>
         ) : section === 'models' ? (
           <ModelsSection />
         ) : section === 'agents' ? (

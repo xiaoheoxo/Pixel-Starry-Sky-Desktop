@@ -19,7 +19,7 @@ import { logger } from '@pixelsky/engine'
 import { initAccount } from './account/account'
 import * as ipc from './ipc/guard'
 import { initAppInfo } from './app/info'
-import { initUpdater, runPendingInstall } from './app/updater'
+import { initUpdater, runPendingInstall, skipInstallOnQuit } from './app/updater'
 import { quitWhenAllClosed } from './app/quit'
 import { initEngine } from './engine/ipc'
 import { initExtensionPacks } from './extension-packs/ipc'
@@ -34,7 +34,7 @@ import { initWorkspace } from './workspace/files-ipc'
 import { initWindowControls, observeWindowControls } from './app/window-controls'
 import { hasGlass, initGlass } from './app/glass'
 import { initExport } from './export/ipc'
-import { initUiLanguage, nativeText } from './app/ui-language'
+import { initUiLanguage, nativeText, windowLocale } from './app/ui-language'
 import { watchEditMenu } from './app/editMenu'
 import { initProjectTools } from './workspace/project-tools-ipc'
 import { initChannels } from './channels/ipc'
@@ -68,6 +68,9 @@ import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
 import { initFeedback } from './feedback/feedback'
 import { initStorage } from './storage'
+import { dataPointer, prepareDataRoot, resetDataRoot } from './app/data-dir'
+import { initDataLocation } from './app/data-location-ipc'
+import { trayText } from './app/tray'
 import type { Locale } from '../shared/i18n/messages'
 
 type ResolvedTheme = 'light' | 'dark'
@@ -204,7 +207,10 @@ app.on('before-quit', event => {
     // 点过「重启以更新」：现在才打开安装程序（打不开时照常退出）
     const installing = runPendingInstall()
     // 托盘「重启像素星空」：退出后用同样的参数再打开一份；在装更新时安装程序装完会自己打开，不再另开
-    if ((relaunchOnQuit || relaunchPending) && !installing) app.relaunch()
+    if ((relaunchOnQuit || relaunchPending) && !installing) {
+      skipInstallOnQuit()
+      app.relaunch()
+    }
     app.quit()
   })
 })
@@ -502,6 +508,46 @@ if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.pi
 // 扩展包的资源协议 pixelsky-ext:// 必须在 ready 之前登记
 protocol.registerSchemesAsPrivileged([EXT_SCHEME_PRIVILEGES, EXT_HOST_SCHEME_PRIVILEGES])
 
+/** 托盘「重启像素星空」和换数据位置：走正常的退出流程（确认未保存文件、停掉运行中的任务），再重新打开 */
+function restartApp(): void {
+  relaunchOnQuit = true
+  relaunchPending = false
+  app.quit()
+}
+
+/**
+ * 启动时准备数据位置；数据盘不在了让用户选「重试 / 回到默认位置 / 退出」。返回 false 表示退出
+ * shortcut: 搬家时开机画面没有进度，几 GB 的数据会等上一阵；有人反馈再给开机画面加进度
+ */
+async function ensureDataRoot(): Promise<boolean> {
+  for (;;) {
+    const state = await prepareDataRoot()
+    if (state.kind === 'moved') log.info('数据位置搬好了', { bytes: state.bytes })
+    if (state.kind === 'moveFailed') log.warn('搬数据失败，留在原位置', { error: state.error })
+    if (state.kind !== 'missing') return true
+    log.warn('找不到数据位置', { path: state.path })
+    // 还没有窗口报过界面语言：按系统语言
+    const text = trayText(app.getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US')
+    splash?.dispose()
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      title: text('dataLocation.missingTitle'),
+      message: text('dataLocation.missingMessage', { path: state.path }),
+      buttons: [text('dataLocation.retry'), text('dataLocation.useDefault'), text('dataLocation.quit')],
+      defaultId: 0,
+      cancelId: 2,
+    })
+    if (response === 1) {
+      await resetDataRoot()
+      return true
+    }
+    if (response === 2) {
+      app.exit(0)
+      return false
+    }
+  }
+}
+
 app.whenReady().then(async () => {
   startup.step('whenReady')
   // 主窗口 1 秒内没画好才弹开机画面，平时看不到（app/splash.ts）
@@ -509,6 +555,8 @@ app.whenReady().then(async () => {
     splash = startSplash({
       near: () => resolveInitialWindow(WINDOW_DEFAULT, WINDOW_MIN).bounds,
       log: (message, fields) => log.info(message, fields),
+      // 要搬数据：马上弹、一直留到主窗口出来，不然搬几 GB 时什么都看不到
+      busy: !!dataPointer()?.move,
     })
   // 卡顿诊断：窗口没响应、主进程卡住、内存过高时写日志（docs/ui/logging.md §4.9）
   allowCallStacks(session.defaultSession, isAppUrl)
@@ -530,6 +578,9 @@ app.whenReady().then(async () => {
     tray?.refresh()
   })
   startup.step('diagnostics') // 上面的卡顿诊断、内存监控、应用菜单、界面语言
+  // 数据位置（docs/ui/data-location.md）：排好的搬家现在搬（还没有模块在读写数据）；数据盘不在了先问
+  if (!(await ensureDataRoot())) return
+  startup.step('dataRoot')
   initWindowControls()
   initGlass()
   startup.step('initWindowControls')
@@ -566,6 +617,7 @@ app.whenReady().then(async () => {
   await initProjectTools(ctx)
   startup.step('initProjectTools')
   initStorage(ctx) // 设置 › 存储（本机数据目录的占用和清理），见 storage/index.ts
+  initDataLocation(restartApp) // 设置 › 存储 › 数据位置，见 app/data-location-ipc.ts
   await initChannels(ctx) // 协作频道（本机 AI 协作），见 channels/ipc.ts
   startup.step('initChannels')
   initSchedule(ctx) // 看板的定时任务，见 workspace/schedule-ipc.ts
@@ -586,11 +638,7 @@ app.whenReady().then(async () => {
         relaunchOnQuit = relaunchPending = false
         app.quit()
       },
-      restart: () => {
-        relaunchOnQuit = true
-        relaunchPending = false
-        app.quit()
-      },
+      restart: restartApp,
     })
   // macOS 点程序坞图标：没有窗口就开一个；窗口关到托盘（隐藏）了就拿回来
   app.on('activate', () => {

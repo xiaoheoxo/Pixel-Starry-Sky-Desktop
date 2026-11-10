@@ -14,6 +14,7 @@ import { once } from 'node:events'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { localRoot } from '../app/data-dir'
 import { officialPrice, type EngineId, type SessionRecord } from '@pixelsky/protocol'
 import {
   CLAUDE_COMPACT_MARKER,
@@ -330,9 +331,9 @@ export async function initPlatform(
   /** 设置 › 模型通道里给云端模型填的窗口（像素星空那份）：子智能体单独走云端线路时用 */
   pixelPlatformWindows: () => Record<string, number> = () => ({}),
 ): Promise<(record: SessionRecord) => NodeJS.ProcessEnv> {
-  clearGatewaySettings(join(app.getPath('userData'), 'gateway'))
+  clearGatewaySettings(join(localRoot(), 'gateway'))
   // 重启后续接的会话要在界面读分组目录之前选协议：先用上次存的，登录后再读一次新的
-  loadGroupCache(join(app.getPath('userData'), 'platform-groups.json'))
+  loadGroupCache(join(localRoot(), 'platform-groups.json'))
   let account = signedInEmail()
   refreshGroups()
   onAccountChange(() => {
@@ -597,7 +598,7 @@ export async function initPlatform(
     }
     // 真实 Key 不在这里：设置文件和进程环境里只有本机地址和会话密钥。
     // --settings 优先于本机已有的 settings.json，防止其中的 API 地址覆盖平台路由。
-    const dir = join(app.getPath('userData'), 'gateway')
+    const dir = join(localRoot(), 'gateway')
     mkdirSync(dir, { recursive: true })
     const file = join(dir, `${randomBytes(12).toString('hex')}.json`)
     // 填了上下文长度的模型按它自动压缩（docs/ui/custom-api.md §9）
