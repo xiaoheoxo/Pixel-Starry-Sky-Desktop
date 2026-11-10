@@ -726,8 +726,8 @@ contextBridge.exposeInMainWorld('pixelsky', {
     clearCache: () => call('storage:clearCache'),
     deleteSessions: ids => call('storage:deleteSessions', ids),
     restoreSession: id => call('storage:restoreSession', id),
+    clearCheckpoints: () => call('storage:clearCheckpoints'),
   } satisfies import('../shared/types/storage').StorageBridge,
-  quota: {
   dataLocation: {
     info: () => call('dataLocation:info'),
     choose: () => call('dataLocation:choose'),
@@ -737,6 +737,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
     removeOld: () => call('dataLocation:removeOld'),
     dismiss: () => call('dataLocation:dismiss'),
   } satisfies import('../shared/types/data-location').DataLocationBridge,
+  quota: {
     get: provider => call('quota:get', provider),
     refresh: (provider, opts) => call('quota:refresh', provider, opts),
     useResetCredit: () => call('quota:useResetCredit'),

@@ -46,10 +46,11 @@ export function useTurnUndo(turnKey: string): { undo: CardUndo | null; dialog: R
   const undo = useMemo<CardUndo | null>(() => {
     if (!cp || !list || turnKey === 'start') return null
     const hasTurn = list.turns.some(t => t.itemId === turnKey)
-    // 快照停用（太慢等）只是不再拍新的：这一轮有快照就照样能撤回
+    // 快照停用（太慢等）只是不再拍新的：这一轮有快照就照样能撤回。
+    // 撤回过的文件在快照被清掉后（设置 › 存储「清理检查点」）也还能恢复：恢复用的内容在宿主内存里
     const disabledReason = cp.busy
       ? tr('undo.busy')
-      : hasTurn
+      : hasTurn || reverted.size > 0
         ? null
         : list.disabled
           ? tr(`checkpoint.disabled.${list.disabled}`)

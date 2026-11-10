@@ -691,6 +691,17 @@ export class Store {
     return join(this.sessionDir(id), 'checkpoints')
   }
 
+  /** 有影子仓库目录的会话 id（定时清理用，docs/ui/checkpoint-disk.md）；没有对应会话记录的目录也算 */
+  checkpointIds(): string[] {
+    let names: string[]
+    try {
+      names = readdirSync(join(this.dir, 'sessions'))
+    } catch {
+      return []
+    }
+    return names.filter(name => existsSync(join(this.dir, 'sessions', name, 'checkpoints')))
+  }
+
   loadCheckpoints(id: string): unknown {
     return readJson<unknown>(join(this.sessionDir(id), 'checkpoints.json'))
   }

@@ -72,7 +72,15 @@ describe('scanUsage', () => {
     })
 
     expect(usage.scannedAt).toBe(42)
-    expect(usage.parts).toEqual({ sessions: 100, archived: 40, copies: 1000, cache: 250, logs: 25, other: 7 + 3 + 5 })
+    expect(usage.parts).toEqual({
+      sessions: 100,
+      archived: 40,
+      checkpoints: 0,
+      copies: 1000,
+      cache: 250,
+      logs: 25,
+      other: 7 + 3 + 5,
+    })
     expect(usage.sessions.map(s => [s.id, s.bytes])).toEqual([
       ['s1', 100],
       ['s2', 40],
@@ -110,7 +118,44 @@ describe('scanUsage', () => {
       ['c1', 310],
       ['c2', 20],
     ])
-    expect(usage.parts).toEqual({ sessions: 310, archived: 20, copies: 0, cache: 0, logs: 0, other: 4 })
+    expect(usage.parts).toEqual({ sessions: 310, archived: 20, checkpoints: 0, copies: 0, cache: 0, logs: 0, other: 4 })
+  })
+
+  it('counts checkpoints as their own part, not as sessions', async () => {
+    const root = join(base, 'data')
+    const sessionsDir = join(root, 'engine', 'sessions')
+    write(join(sessionsDir, 's1', 'items.jsonl'), 100)
+    write(join(sessionsDir, 's1', 'checkpoints', 'objects', 'pack', 'tmp_pack_x'), 5000)
+    write(join(sessionsDir, 's2', 'items.jsonl'), 40)
+    write(join(sessionsDir, 's2', 'checkpoints', 'index'), 60)
+    write(join(sessionsDir, 'orphan', 'checkpoints', 'index'), 9)
+    write(join(sessionsDir, 'orphan', 'items.jsonl'), 7)
+
+    const usage = await scanUsage({
+      root,
+      sessionsDir,
+      logsDir: null,
+      sessions: [
+        { id: 's1', title: 'one', projectName: 'p', updatedAt: 1, archivedAt: null, pinned: false, busy: false },
+        { id: 's2', title: 'two', projectName: null, updatedAt: 2, archivedAt: 5, pinned: false, busy: false },
+      ],
+      copies: [],
+    })
+
+    expect(usage.parts).toEqual({
+      sessions: 100,
+      archived: 40,
+      checkpoints: 5069,
+      copies: 0,
+      cache: 0,
+      logs: 0,
+      other: 7,
+    })
+    // 删会话能释放的是整个目录
+    expect(usage.sessions.map(s => [s.id, s.bytes, s.checkpointBytes])).toEqual([
+      ['s1', 5100, 5000],
+      ['s2', 100, 60],
+    ])
   })
 
   it('works before anything exists', async () => {
@@ -122,6 +167,6 @@ describe('scanUsage', () => {
       sessions: [],
       copies: [],
     })
-    expect(usage.parts).toEqual({ sessions: 0, archived: 0, copies: 0, cache: 0, logs: 0, other: 0 })
+    expect(usage.parts).toEqual({ sessions: 0, archived: 0, checkpoints: 0, copies: 0, cache: 0, logs: 0, other: 0 })
   })
 })

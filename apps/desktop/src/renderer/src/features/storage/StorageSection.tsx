@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FolderOpen, RefreshCw, X } from 'lucide-react'
 import { Button, cn } from '@/ui'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { Toast } from '@/ui/Toast'
 import { useI18n } from '@/i18n/I18nProvider'
 import { SectionTitle } from '../settings/SettingRow'
@@ -26,6 +27,7 @@ import {
 const PART_COLOR: Record<StoragePartKey, string> = {
   sessions: 'var(--chart-cache)',
   archived: 'var(--chart-bar-output)',
+  checkpoints: 'var(--chart-bar-input)',
   copies: 'var(--chart-input)',
   cache: 'var(--chart-output)',
   logs: 'var(--warn)',
@@ -42,6 +44,9 @@ export function StorageSection({ onOpenSession }: { onOpenSession: (sessionId: s
   const [dialog, setDialog] = useState<'old' | 'archived' | null>(null)
   const [copiesOpen, setCopiesOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
+  // 清理检查点：确认框开着 / 正在清
+  const [confirmCheckpoints, setConfirmCheckpoints] = useState(false)
+  const [clearingCheckpoints, setClearingCheckpoints] = useState(false)
   const [hover, setHover] = useState<StoragePartKey | null>(null)
 
   const load = useCallback(
@@ -101,6 +106,20 @@ export function StorageSection({ onOpenSession }: { onOpenSession: (sessionId: s
       setToast(String((e as Error)?.message ?? e))
     } finally {
       setClearing(false)
+    }
+  }
+
+  const clearCheckpoints = async (): Promise<void> => {
+    setClearingCheckpoints(true)
+    try {
+      const freed = await bridge.clearCheckpoints()
+      setToast(t('storage.checkpointsCleared', { size: formatBytes(freed) }))
+      void load(true)
+    } catch (e) {
+      setToast(String((e as Error)?.message ?? e))
+    } finally {
+      setClearingCheckpoints(false)
+      setConfirmCheckpoints(false)
     }
   }
 
@@ -221,6 +240,20 @@ export function StorageSection({ onOpenSession }: { onOpenSession: (sessionId: s
           {copiesOpen && usage && <CopiesList copies={usage.copies} />}
         </Row>
         <Row
+          title={t('storage.checkpointsTitle')}
+          badge={usage ? formatBytes(usage.parts.checkpoints) : null}
+          description={t('storage.checkpointsDesc')}
+          action={
+            <Button
+              className="h-7 px-3 text-meta"
+              disabled={!usage || usage.parts.checkpoints <= 0 || clearingCheckpoints}
+              onClick={() => setConfirmCheckpoints(true)}
+            >
+              {t('storage.clearCheckpoints')}
+            </Button>
+          }
+        />
+        <Row
           title={t('storage.cacheTitle')}
           badge={usage ? formatBytes(usage.parts.cache) : null}
           description={t('storage.cacheDesc')}
@@ -248,6 +281,18 @@ export function StorageSection({ onOpenSession }: { onOpenSession: (sessionId: s
             setDialog(null)
             onOpenSession(id)
           }}
+        />
+      )}
+      {confirmCheckpoints && usage && (
+        <ConfirmDialog
+          danger
+          title={t('storage.clearCheckpointsConfirm')}
+          description={t('storage.clearCheckpointsBody', { size: formatBytes(usage.parts.checkpoints) })}
+          confirmLabel={t('storage.clearCheckpoints')}
+          cancelLabel={t('session.cancel')}
+          busy={clearingCheckpoints}
+          onConfirm={() => void clearCheckpoints()}
+          onCancel={() => setConfirmCheckpoints(false)}
         />
       )}
       {toast && (

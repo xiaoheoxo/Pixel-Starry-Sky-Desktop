@@ -54,6 +54,8 @@ export interface EngineHostOptions {
   pixelCli?: string | null
   /** 对话检查点（docs/ui/undo-changes.md）：每轮前后给工作目录拍快照。桌面端和远程辅助进程打开，测试默认关 */
   checkpoints?: boolean
+  /** 测试用：这个目录所在磁盘的剩余字节数（默认 fs.statfs）；少于 5 GiB 不拍新快照（docs/ui/checkpoint-disk.md） */
+  diskFree?: (dir: string) => Promise<number>
   /** 保存数据的目录（Electron 里是 userData/engine） */
   dataDir: string
   /** 删「对话」时它的文件夹里有文件：移到回收站（本机系统回收站，远端数据目录 trash/）；不给就直接删 */

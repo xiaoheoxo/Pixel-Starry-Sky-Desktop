@@ -472,6 +472,101 @@ describe('对话检查点（宿主）', { timeout: 20_000 }, () => {
     expect(read('keep.txt')).toBe('v1\n')
   })
 
+  // docs/ui/checkpoint-disk.md
+  describe('不占满磁盘', () => {
+    type Inner = { failed(id: string, err: Error): void; maintain(limit?: number): Promise<number> }
+    const inner = (host: EngineHost): Inner => (host as unknown as { m: { checkpoints: Inner } }).m.checkpoints
+    const cpDir = (id: string): string => join(root, 'data', 'sessions', id, 'checkpoints')
+    /** 在这个会话里发一条，等结束时的快照也拍完 */
+    const sendIn = async (host: EngineHost, id: string, text: string): Promise<void> => {
+      await host.send(id, { text, clientMessageId: `${id}-${text}` })
+      await until(() => {
+        const snap = host.open(id)
+        const user = snap.items.find(i => i.kind === 'user' && i.text === text)
+        return snap.state === 'idle' && !!user && host.checkpoints(id).turns.some(t => t.itemId === user.id && t.files)
+      }, `turn ${text}`)
+    }
+
+    it('超时按项目算：同一个工作目录里的新会话不从 0 开始', async () => {
+      const { host, id } = setup({})
+      const other = host.createSession({ projectId: host.projects()[0]!.id }).id
+      for (let i = 0; i < 3; i++) inner(host).failed(id, new CheckpointError('timeout', '拍快照超时'))
+      expect(host.checkpoints(other).disabled).toBe('slow')
+      await host.send(other, { text: 'a', clientMessageId: 'a' })
+      await until(() => host.open(other).state === 'idle' && host.open(other).items.length > 0)
+      expect(existsSync(cpDir(other))).toBe(false)
+    })
+
+    it('磁盘剩余不到 5 GiB：不拍新快照，写明原因', async () => {
+      const host = new EngineHost({
+        dataDir: join(root, 'data'),
+        adapters: { claude: new EditingAdapter({ a: { 'a.txt': 'a\n' } }) },
+        checkpoints: true,
+        diskFree: async () => 1024 ** 3,
+        emit: () => {},
+      })
+      hosts.push(host)
+      const id = host.createSession({ projectId: host.addProject(work).id }).id
+      await host.send(id, { text: 'a', clientMessageId: 'a' })
+      await until(() => host.open(id).state === 'idle' && host.open(id).items.length > 0)
+      expect(host.checkpoints(id)).toMatchObject({ disabled: 'disk-low', turns: [] })
+      expect(existsSync(cpDir(id))).toBe(false)
+    })
+
+    it('定时清理：清掉半截文件；合计超限时先删最久没用的；清理检查点删掉全部', async () => {
+      write('a.txt', 'v0\n')
+      const { host, id: old } = setup({ a: { 'a.txt': 'v1\n' }, b: { 'a.txt': 'v2\n' } })
+      const recent = host.createSession({ projectId: host.projects()[0]!.id }).id
+      await sendIn(host, old, 'a')
+      await sendIn(host, recent, 'b')
+      // 没有对应会话的目录里留着被结束的 git 写到一半的包
+      const orphan = join(cpDir('gone'), 'objects', 'pack')
+      mkdirSync(orphan, { recursive: true })
+      writeFileSync(join(orphan, 'tmp_pack_AbCdEf'), Buffer.alloc(300_000))
+      expect(await inner(host).maintain()).toBe(300_000)
+      expect(existsSync(join(orphan, 'tmp_pack_AbCdEf'))).toBe(false)
+      expect(host.checkpoints(old).turns).toHaveLength(1)
+
+      // 最久没用的会话占得多：只删它就回到上限以内，最近用的不动
+      writeFileSync(join(cpDir(old), 'objects', 'pack', 'pack-junk.pack'), Buffer.alloc(1_000_000))
+      await inner(host).maintain(500_000)
+      expect(existsSync(cpDir(old))).toBe(false)
+      expect(host.checkpoints(old).turns).toEqual([])
+      expect(host.checkpoints(recent).turns).toHaveLength(1)
+
+      // 删掉之后这个会话照样能从头拍
+      await sendIn(host, old, 'b')
+      expect(host.checkpoints(old).turns).toHaveLength(1)
+
+      expect(await host.cleanCheckpoints(true)).toBeGreaterThan(0)
+      expect(existsSync(cpDir(old))).toBe(false)
+      expect(existsSync(cpDir(recent))).toBe(false)
+      expect(host.checkpoints(recent)).toMatchObject({ disabled: null, turns: [] })
+    })
+
+    it('清理检查点：正在撤回 / 回退的会话不删；撤回过的文件清理后还能恢复', async () => {
+      write('keep.txt', 'v0\n')
+      const { host, id } = setup({ a: { 'keep.txt': 'v1\n' } })
+      await sendIn(host, id, 'a')
+      const a = host.checkpoints(id).turns[0]!.itemId
+      const result = await host.revertFiles(id, a, ['keep.txt'], false)
+      const revertId = result.kind === 'done' ? result.revertId! : ''
+      expect(read('keep.txt')).toBe('v0\n')
+
+      const changing = (host as unknown as { ctx: { changingSessions: Set<string> } }).ctx.changingSessions
+      changing.add(id)
+      await host.cleanCheckpoints(true)
+      expect(existsSync(cpDir(id))).toBe(true)
+      changing.delete(id)
+
+      expect(await host.cleanCheckpoints(true)).toBeGreaterThan(0)
+      expect(existsSync(cpDir(id))).toBe(false)
+      expect(host.checkpoints(id)).toMatchObject({ turns: [], reverted: [{ revertId }] })
+      await host.restoreFiles(id, revertId)
+      expect(read('keep.txt')).toBe('v1\n')
+    })
+  })
+
   it('没打开检查点时不拍快照', async () => {
     const host = new EngineHost({
       dataDir: join(root, 'data'),

@@ -1,9 +1,20 @@
 // 设置 › 存储：本机数据目录的占用和清理。主进程统计，界面只显示和发起清理；只看本机，不含 SSH / WSL 机器上的数据。
 
-/** 占用分类：会话按是否归档分两类；项目副本在各项目旁的 .pixelsky/worktrees，不在数据目录里 */
-export type StoragePartKey = 'sessions' | 'archived' | 'copies' | 'cache' | 'logs' | 'other'
+/**
+ * 占用分类：会话按是否归档分两类（不含检查点）；检查点单独一类（docs/ui/checkpoint-disk.md）；
+ * 项目副本在各项目旁的 .pixelsky/worktrees，不在数据目录里
+ */
+export type StoragePartKey = 'sessions' | 'archived' | 'checkpoints' | 'copies' | 'cache' | 'logs' | 'other'
 
-export const STORAGE_PARTS: readonly StoragePartKey[] = ['sessions', 'archived', 'copies', 'cache', 'logs', 'other']
+export const STORAGE_PARTS: readonly StoragePartKey[] = [
+  'sessions',
+  'archived',
+  'checkpoints',
+  'copies',
+  'cache',
+  'logs',
+  'other',
+]
 
 /** 本机的一个会话和它的会话目录（对话记录、检查点）占多大 */
 export interface StorageSession {
@@ -17,7 +28,10 @@ export interface StorageSession {
   pinned: boolean
   /** 正在运行、等审批或后台还有子智能体：不能删 */
   busy: boolean
+  /** 整个会话目录，含检查点（删会话能释放这么多） */
   bytes: number
+  /** 其中检查点（影子仓库）占的 */
+  checkpointBytes: number
 }
 
 /** 一个项目副本（工作树） */
@@ -60,4 +74,9 @@ export interface StorageBridge {
   deleteSessions(ids: string[]): Promise<StorageDeleteResult>
   /** 恢复一个已归档的会话 */
   restoreSession(id: string): Promise<void>
+  /**
+   * 删掉所有空闲会话的检查点（正在运行的跳过）；返回释放的字节数。
+   * 之后这些会话不能再撤回本轮修改 / 回到检查点，对话记录不受影响
+   */
+  clearCheckpoints(): Promise<number>
 }

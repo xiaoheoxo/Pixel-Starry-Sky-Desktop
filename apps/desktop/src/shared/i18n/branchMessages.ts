@@ -303,8 +303,12 @@ export const branchMessages = {
     en: 'Git was not found, so code snapshots are off (install Git and restart)',
   },
   'checkpoint.disabled.slow': {
-    zh: '项目太大、拍快照太慢，这次运行里不再给这个会话拍新的快照（已有的照样能用，重启后再试）',
-    en: 'The project is too large to snapshot quickly; no new snapshots for this session until restart (existing ones still work)',
+    zh: '项目太大、拍快照太慢，这次运行里不再给这个项目的会话拍新的快照（已有的照样能用，重启后再试）',
+    en: 'The project is too large to snapshot quickly; no new snapshots for sessions in this project until restart (existing ones still work)',
+  },
+  'checkpoint.disabled.disk-low': {
+    zh: '磁盘剩余空间不到 5 GB，暂时不拍新的代码快照（已有的照样能用，腾出空间后自动恢复）',
+    en: 'Less than 5 GB of disk space is left, so new code snapshots are paused (existing ones still work; they resume once space is freed)',
   },
   'checkpoint.disabled.too-large': {
     zh: '代码快照超过 200 MiB，这个会话已停用',

@@ -2,7 +2,8 @@
 // 改动卡片按文件撤回 / 恢复，回退时用它还原代码（可以只还原其中几个文件）
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { lstat, readdir, statfs } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import type {
   CheckpointDisabled,
   CheckpointList,
@@ -10,7 +11,15 @@ import type {
   RevertSkip,
   RewindCodePreview,
 } from '@pixelsky/protocol'
-import { CHECKPOINT_EXPIRED, CheckpointError, ShadowRepo, workPath, type TreeBlob } from '../checkpoints'
+import {
+  CHECKPOINT_EXPIRED,
+  CheckpointError,
+  removeRepo,
+  ShadowRepo,
+  sweepLeftovers,
+  workPath,
+  type TreeBlob,
+} from '../checkpoints'
 import { diffText } from '../diff'
 import { describeError, logger } from '../log'
 import { UNDO_LIMIT } from './branch'
@@ -29,6 +38,15 @@ const LATER_TIMEOUT = 60_000
 const SLOW_LIMIT = 3
 /** 影子仓库超过这个大小就删掉并停用 */
 export const CHECKPOINT_LIMIT = 200 * 1024 * 1024
+/** 所有会话的影子仓库合计超过这个大小：从最久没用的会话开始删（docs/ui/checkpoint-disk.md） */
+export const CHECKPOINT_TOTAL_LIMIT = 5 * 1024 ** 3
+/** 数据目录所在磁盘剩余少于这么多就不拍新快照 */
+export const DISK_MIN = 5 * 1024 ** 3
+/** 剩余空间多久查一次 */
+const DISK_FRESH = 30_000
+/** 定时清理：启动后多久跑第一次、之后每隔多久 */
+const MAINTAIN_FIRST = 60_000
+const MAINTAIN_EVERY = 3_600_000
 /** 按修改时间判断手改时留的余量：有的文件系统时间精度只有 2 秒，这一轮最后写的文件不能算成之后改的 */
 const MTIME_SLACK = 2_000
 /** 冲突确认框里的 diff 最多这么长 */
@@ -85,12 +103,57 @@ export class HostCheckpoints {
   private readonly reverts = new Map<string, Map<string, Revert>>()
   /** 没装 git：这次运行里不再试（装上后重启生效） */
   private noGit = false
-  /** 每个会话连续超时的次数；到 SLOW_LIMIT 就停用（只在内存里） */
+  /**
+   * 每个工作目录连续超时的次数；到 SLOW_LIMIT 这个项目的会话都停用（只在内存里）。
+   * 按目录不按会话：频道每一步都是新会话，按会话算永远到不了上限（docs/ui/checkpoint-disk.md）
+   */
   private readonly timeouts = new Map<string, number>()
   /** 开始打字时预先拍第一次的会话（每次运行只拍一次） */
   private readonly prepared = new Set<string>()
+  /** 最近一次查到的磁盘剩余空间够不够 */
+  private disk = { at: 0, low: false }
+  private timer: NodeJS.Timeout | null = null
+  /** 清理一次只跑一个 */
+  private maintainChain: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly ctx: HostContext) {}
+  constructor(private readonly ctx: HostContext) {
+    if (!ctx.opts.checkpoints) return
+    const run = (): void => void this.maintain().catch(err => log.warn('清理检查点失败', { error: describeError(err) }))
+    this.timer = setTimeout(() => {
+      run()
+      this.timer = setInterval(run, MAINTAIN_EVERY)
+      this.timer.unref?.()
+    }, MAINTAIN_FIRST)
+    this.timer.unref?.()
+  }
+
+  private slowKey(id: string): string {
+    const cwd = this.ctx.records.get(id)?.cwd
+    if (!cwd) return id
+    const path = resolve(cwd)
+    return process.platform === 'win32' ? path.toLowerCase() : path
+  }
+
+  private slow(id: string): boolean {
+    return (this.timeouts.get(this.slowKey(id)) ?? 0) >= SLOW_LIMIT
+  }
+
+  /** 数据目录所在磁盘快满了：不拍新快照。半分钟内不重复查；查不了当成够用 */
+  private async diskLow(): Promise<boolean> {
+    const now = Date.now()
+    if (now - this.disk.at < DISK_FRESH) return this.disk.low
+    let free: number | null
+    try {
+      const dir = this.ctx.store.dir
+      free = this.ctx.opts.diskFree ? await this.ctx.opts.diskFree(dir) : await freeBytes(dir)
+    } catch {
+      free = null
+    }
+    const low = free !== null && free < DISK_MIN
+    if (low && !this.disk.low) log.warn('磁盘空间不足，不拍新快照', { free })
+    this.disk = { at: now, low }
+    return low
+  }
 
   private state(id: string): State | null {
     const record = this.ctx.records.get(id)
@@ -122,21 +185,28 @@ export class HostCheckpoints {
     const reason = err instanceof CheckpointError ? err.reason : 'failed'
     log.warn('拍快照失败', { session: id, reason, error: describeError(err) })
     if (reason === 'no-git') this.noGit = true
-    else if (reason === 'timeout') this.timeouts.set(id, (this.timeouts.get(id) ?? 0) + 1)
+    else if (reason === 'timeout') {
+      const key = this.slowKey(id)
+      this.timeouts.set(key, (this.timeouts.get(key) ?? 0) + 1)
+    }
   }
 
-  /** 拍快照，成功时清掉连续超时的计数；失败返回 null */
-  private capture(id: string, state: State): Promise<string | null> {
-    return state.repo.capture(LATER_TIMEOUT).then(
-      tree => {
-        this.timeouts.delete(id)
-        return tree
-      },
-      (err: unknown) => {
-        this.failed(id, err)
-        return null
-      },
-    )
+  /** 拍快照，成功时清掉连续超时的计数；失败、磁盘快满返回 null */
+  private async capture(id: string, state: State): Promise<string | null> {
+    if (await this.diskLow()) return null
+    try {
+      const tree = await state.repo.capture(LATER_TIMEOUT)
+      this.timeouts.delete(this.slowKey(id))
+      return tree
+    } catch (err) {
+      this.failed(id, err)
+      if (this.noGit) return null
+      // git 自己出错退出（磁盘满）也会留下半截文件：马上清，不等下一次拍
+      void state.repo.sweep().catch(() => undefined)
+      // 超时也查大小：以前只在拍成功后查，一直超时就一直不查
+      if (err instanceof CheckpointError && err.reason === 'timeout') void this.checkSize(id, state)
+      return null
+    }
   }
 
   /** 超过大小上限：删掉影子仓库并停用 */
@@ -156,8 +226,9 @@ export class HostCheckpoints {
   /** 停用原因：持久的（超过大小）或这次运行里的（没装 git、连续超时） */
   private disabledReason(state: State | null, id: string): CheckpointDisabled | null {
     if (this.noGit) return 'no-git'
-    if ((this.timeouts.get(id) ?? 0) >= SLOW_LIMIT) return 'slow'
-    return state?.data.disabled ?? null
+    if (this.slow(id)) return 'slow'
+    if (state?.data.disabled) return state.data.disabled
+    return this.disk.low ? 'disk-low' : null
   }
 
   /** 能用已有的快照（撤回、回退）：没装 git、超过大小（影子仓库已删）就不能 */
@@ -169,8 +240,74 @@ export class HostCheckpoints {
 
   /** 能拍新的快照：还要没在退出、没有连续超时 */
   private capturable(id: string): State | null {
-    if (this.ctx.closing || (this.timeouts.get(id) ?? 0) >= SLOW_LIMIT) return null
+    if (this.ctx.closing || this.slow(id)) return null
     return this.usable(id)
+  }
+
+  /**
+   * 清理（docs/ui/checkpoint-disk.md）：清掉被结束的 git 留下的半截文件；所有会话的影子仓库合计超过上限时，
+   * 从最久没用的会话开始删，正在运行的不动。limit 传 0：删掉所有空闲会话的（设置 › 存储的「清理检查点」）。
+   * 返回释放的字节数
+   */
+  maintain(limit = CHECKPOINT_TOTAL_LIMIT): Promise<number> {
+    const next = this.maintainChain.then(() => this.runMaintain(limit))
+    this.maintainChain = next.catch(() => undefined)
+    return next
+  }
+
+  private async runMaintain(limit: number): Promise<number> {
+    let freed = 0
+    const rows: { id: string; bytes: number; used: number }[] = []
+    for (const id of this.ctx.store.checkpointIds()) {
+      if (this.ctx.closing) return freed
+      const dir = this.ctx.store.checkpointDir(id)
+      const known = this.states.get(id)
+      // 这次运行里用过的会话排进它自己的命令队列，不和正在跑的 git 抢；没用过的没有 git 在跑，直接清
+      freed += known ? await known.repo.sweep().catch(() => 0) : sweepLeftovers(dir)
+      rows.push({ id, bytes: await dirBytes(dir), used: this.ctx.records.get(id)?.updatedAt ?? 0 })
+    }
+    let total = rows.reduce((sum, row) => sum + row.bytes, 0)
+    for (const row of rows.sort((a, b) => a.used - b.used)) {
+      if (total <= limit || this.ctx.closing) break
+      // 正在运行、正在撤回 / 回退（changingSessions）的不动：它们正用着这个仓库
+      const rt = this.ctx.runtimes.get(row.id)
+      if (this.ctx.changingSessions.has(row.id)) continue
+      if (rt && (rt.snapshot.state !== 'idle' || rt.pumping || rt.stopping || rt.activeId)) continue
+      if (!(await this.drop(row.id))) continue
+      total -= row.bytes
+      freed += row.bytes
+    }
+    if (freed > 0) log.info('清理检查点', { freed, limit, sessions: rows.length })
+    return freed
+  }
+
+  /**
+   * 删掉一个会话的影子仓库、清空它的快照记录（之后再用这个会话从头拍）；删不掉返回 false。
+   * 撤回记录（reverts）留着：「恢复」用的是内存里存的内容，不靠影子仓库
+   */
+  private async drop(id: string): Promise<boolean> {
+    try {
+      // 有会话记录的排进它自己的命令队列删：删的期间发了消息，新的快照排在后面、从头建库，不会建在删到一半的目录上。
+      // 没有记录的（删了一半的会话留下的目录）没人会用，直接删
+      const state = this.state(id)
+      if (!state) {
+        await removeRepo(this.ctx.store.checkpointDir(id))
+        return true
+      }
+      // 先清记录再等删除：等的期间新拍的那一轮记在清空之后，不会被盖掉
+      state.data = {
+        version: 1,
+        cwd: state.data.cwd,
+        ...(state.data.disabled ? { disabled: state.data.disabled } : {}),
+        turns: {},
+      }
+      this.save(id, state)
+      await state.repo.destroy()
+      return true
+    } catch (err) {
+      log.warn('删除检查点失败', { session: id, error: describeError(err) })
+      return false
+    }
   }
 
   /**
@@ -553,6 +690,11 @@ export class HostCheckpoints {
 
   /** 应用退出：结束各会话正在跑的 git */
   async shutdown(): Promise<void> {
+    if (this.timer) {
+      clearTimeout(this.timer)
+      clearInterval(this.timer)
+      this.timer = null
+    }
     await Promise.all([...this.states.values()].map(state => state.repo.stop()))
   }
 
@@ -561,11 +703,37 @@ export class HostCheckpoints {
     const state = this.states.get(id)
     this.states.delete(id)
     this.reverts.delete(id)
-    this.timeouts.delete(id)
     this.prepared.delete(id)
     // 不等它拍完：结束正在跑的 git，排着的不再跑
     await state?.repo.stop()
   }
+}
+
+async function freeBytes(dir: string): Promise<number> {
+  const s = await statfs(dir)
+  return s.bavail * s.bsize
+}
+
+/** 目录一共占多少字节；不跟符号链接，读不了的（正在被删）当 0 */
+async function dirBytes(path: string): Promise<number> {
+  let total = 0
+  const pending = [path]
+  while (pending.length) {
+    const batch = pending.splice(0, 64)
+    await Promise.all(
+      batch.map(async p => {
+        try {
+          const st = await lstat(p)
+          if (st.isSymbolicLink()) return
+          if (!st.isDirectory()) total += st.size
+          else for (const name of await readdir(p)) pending.push(join(p, name))
+        } catch {
+          // 读不了：跳过
+        }
+      }),
+    )
+  }
+  return total
 }
 
 function parseData(raw: unknown): FileData | null {

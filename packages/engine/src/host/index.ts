@@ -963,6 +963,14 @@ export class EngineHost {
     return this.m.quota.useResetCredit()
   }
 
+  /**
+   * 清理对话检查点（docs/ui/checkpoint-disk.md）：清掉半截文件、合计超限时删最旧的；all 为真时删掉所有空闲会话的
+   * （设置 › 存储的「清理检查点」）。返回释放的字节数
+   */
+  cleanCheckpoints(all = false): Promise<number> {
+    return all ? this.m.checkpoints.maintain(0) : this.m.checkpoints.maintain()
+  }
+
   /** 退出应用：关掉所有引擎进程 */
   async shutdown(): Promise<void> {
     this.ctx.closing = true

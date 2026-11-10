@@ -1,10 +1,26 @@
 // 对话检查点的影子 Git 仓库（docs/ui/undo-changes.md §2）：工作树指向会话的工作目录，只存树对象，不碰项目自己的 .git
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { rm, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { killTree, removeTree } from './exec'
 
-/** 默认排除的目录：依赖和构建缓存，体积大、AI 一般不改；项目自己的 .gitignore 照常生效 */
+/**
+ * 默认排除的大文件类型（docs/ui/checkpoint-disk.md）：视频、音频、压缩包、镜像、设计稿、模型权重。
+ * 素材体积大、AI 一般不改，存进快照会把磁盘占满
+ */
+const LARGE_TYPES =
+  'mp4 mov mkv avi webm m4v flv wmv mpg mpeg wav flac mp3 aac m4a ogg aiff zip 7z rar tar gz tgz bz2 xz zst iso dmg img vhd vhdx vmdk psd psb blend fbx exr safetensors gguf ckpt pt pth onnx'.split(
+    ' ',
+  )
+
+/** 单个文件超过这么大就不存进快照（扩展名不在名单里的也拦得住） */
+export const LARGE_FILE = 50 * 1024 * 1024
+
+/** 超时结束 git 后最多等它这么久真正退出：还活着的 git 占着索引锁和写到一半的文件 */
+const KILL_WAIT = 5_000
+
+/** 默认排除：依赖和构建缓存目录、大文件类型（大小写各写一条）；项目自己的 .gitignore 照常生效 */
 export const DEFAULT_EXCLUDES = [
   'node_modules/',
   '.venv/',
@@ -17,7 +33,62 @@ export const DEFAULT_EXCLUDES = [
   '.turbo/',
   '.cache/',
   '.pnpm-store/',
+  ...LARGE_TYPES.flatMap(ext => [`*.${ext}`, `*.${ext.toUpperCase()}`]),
 ]
+
+/** 把一个路径写成 info/exclude 里只匹配它自己的一行（转义通配符和行尾空格） */
+const excludeLine = (path: string): string =>
+  '/' + path.replace(/[\\*?[\]]/g, '\\$&').replace(/ +$/, spaces => spaces.replaceAll(' ', '\\ '))
+
+/** 文件或目录占多少字节（不跟符号链接） */
+function treeBytes(path: string): number {
+  const st = lstatSync(path)
+  if (!st.isDirectory()) return st.size
+  return readdirSync(path).reduce((sum, name) => sum + treeBytes(join(path, name)), 0)
+}
+
+/** 删掉整个影子仓库：异步删（几万个小文件同步删会卡住主进程几秒）；删不动再用同步的那套（会先去掉只读） */
+export const removeRepo = (dir: string): Promise<void> =>
+  rm(dir, { recursive: true, force: true }).catch(() => removeTree(dir))
+
+/**
+ * 被结束的 git 留在对象库里的半截文件（docs/ui/checkpoint-disk.md）：objects/pack/tmp_*、objects/??/tmp_obj_*，
+ * 以及用户的 git 开了 core.fsyncMethod=batch 时的 objects/tmp_objdir-*（整个目录，count-objects 不算它）。
+ * 返回删掉的字节数。调用时这个仓库里不能有我们自己的 git 在写
+ */
+export function sweepLeftovers(gitDir: string): number {
+  let freed = 0
+  const drop = (dir: string, match: RegExp): void => {
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (!match.test(name)) continue
+      const file = join(dir, name)
+      try {
+        const size = treeBytes(file)
+        removeTree(file)
+        freed += size
+      } catch {
+        // 还被占着（git 没退干净）：下次再清
+      }
+    }
+  }
+  const objects = join(gitDir, 'objects')
+  drop(join(objects, 'pack'), /^tmp_/)
+  drop(objects, /^tmp_objdir-/)
+  let dirs: string[]
+  try {
+    dirs = readdirSync(objects)
+  } catch {
+    return freed
+  }
+  for (const dir of dirs) if (/^[0-9a-f]{2}$/.test(dir)) drop(join(objects, dir), /^tmp_obj_/)
+  return freed
+}
 
 /** 树里的一个文件：内容；不在树里是 null；子模块、符号链接等不能当普通文件写回的是 'special' */
 export type TreeBlob = Buffer | null | 'special'
@@ -72,16 +143,22 @@ function runGit(
     const out: Buffer[] = []
     let stderr = ''
     let settled = false
+    let timedOut = false
+    let grace: NodeJS.Timeout | undefined
     const finish = (run: GitRun): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      clearTimeout(grace)
       opts.running?.delete(child)
       done(run)
     }
+    const late = (): GitRun => ({ code: null, stdout: Buffer.alloc(0), stderr, timedOut: true, missing: false })
     const timer = setTimeout(() => {
+      timedOut = true
       killTree(child)
-      finish({ code: null, stdout: Buffer.alloc(0), stderr, timedOut: true, missing: false })
+      // 等它真正退出再往下走（Windows 上 taskkill 是异步的）：不然清不掉它的锁和半截文件，下一条命令还会撞上索引锁
+      grace = setTimeout(() => finish(late()), KILL_WAIT)
     }, opts.timeout)
     child.stdout!.on('data', (chunk: Buffer) => out.push(chunk))
     child.stderr!.on('data', (chunk: Buffer) => {
@@ -96,7 +173,9 @@ function runGit(
         missing: (error as NodeJS.ErrnoException).code === 'ENOENT',
       }),
     )
-    child.on('close', code => finish({ code, stdout: Buffer.concat(out), stderr, timedOut: false, missing: false }))
+    child.on('close', code =>
+      finish(timedOut ? late() : { code, stdout: Buffer.concat(out), stderr, timedOut: false, missing: false }),
+    )
     if (opts.input !== undefined) {
       child.stdin!.on('error', () => {})
       child.stdin!.end(opts.input, 'utf8')
@@ -118,6 +197,8 @@ export class ShadowRepo {
   /** 正在跑的 git（退出时结束它们） */
   private readonly running = new Set<ChildProcess>()
   private stopped = false
+  /** 太大、不存进快照的文件（相对工作目录）；记在 info/large，比较两棵树时也不算它们 */
+  private large = new Set<string>()
 
   constructor(
     readonly gitDir: string,
@@ -196,13 +277,6 @@ export class ShadowRepo {
         join(this.gitDir, 'config'),
         '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tfilemode = false\n[gc]\n\tauto = 0\n',
       )
-      mkdirSync(join(this.gitDir, 'info'), { recursive: true })
-      // 影子仓库自己在工作目录里时（数据目录放在项目里）也排除，不然会把自己拍进去
-      const self = workPath(this.workTree, this.gitDir)
-      writeFileSync(
-        join(this.gitDir, 'info', 'exclude'),
-        [...DEFAULT_EXCLUDES, ...(self ? [`/${self}/`] : [])].join('\n') + '\n',
-      )
       await this.borrowObjects()
     }
     mkdirSync(join(this.gitDir, 'refs', 'heads'), { recursive: true })
@@ -212,7 +286,27 @@ export class ShadowRepo {
     // 存原样字节：项目 .gitattributes 的换行转换（text=auto、eol）、过滤器（LFS）、编码转换都不要，
     // 否则写回去的是转换过的内容。info/attributes 优先于工作树里的 .gitattributes
     writeFileSync(join(this.gitDir, 'info', 'attributes'), '* -text -filter -ident -working-tree-encoding\n')
+    try {
+      this.large = new Set(
+        readFileSync(join(this.gitDir, 'info', 'large'), 'utf8')
+          .split('\n')
+          .filter(Boolean),
+      )
+    } catch {
+      this.large = new Set()
+    }
+    // 每次都重写：旧版本建的仓库也用上新的默认排除（已经在快照里的文件不受影响）
+    this.writeExclude()
     this.ready = true
+  }
+
+  private writeExclude(): void {
+    // 影子仓库自己在工作目录里时（数据目录放在项目里）也排除，不然会把自己拍进去
+    const self = workPath(this.workTree, this.gitDir)
+    writeFileSync(
+      join(this.gitDir, 'info', 'exclude'),
+      [...DEFAULT_EXCLUDES, ...(self ? [`/${self}/`] : []), ...[...this.large].map(excludeLine)].join('\n') + '\n',
+    )
   }
 
   /**
@@ -233,13 +327,55 @@ export class ShadowRepo {
     writeFileSync(join(this.gitDir, 'objects', 'info', 'alternates'), objects.replaceAll('\\', '/') + '\n')
   }
 
-  /** 去掉索引锁：命令都在这里排队执行，开始前还在的锁是之前超时被结束的 git 留下的 */
+  /**
+   * 去掉索引锁和对象库里的半截文件：命令都在这里排队执行，开始前还在的是之前被结束的 git 留下的。
+   * 半截文件不清会越积越多（一次几百 MB 到几 GB，docs/ui/checkpoint-disk.md）
+   */
   private dropLock(): void {
     try {
       rmSync(join(this.gitDir, 'index.lock'), { force: true })
     } catch {
       // 删不掉时下面的 git 会报错
     }
+    sweepLeftovers(this.gitDir)
+  }
+
+  /** 清掉被结束的 git 留下的半截文件（定时清理用）；返回删掉的字节数 */
+  sweep(): Promise<number> {
+    return this.serial(async () => (existsSync(this.gitDir) ? sweepLeftovers(this.gitDir) : 0))
+  }
+
+  /**
+   * 拍快照前：有变化的文件里超过 LARGE_FILE 的不存。记进 info/large、写进排除、从索引里拿掉
+   * （以前存过的版本还在旧快照里，之后的快照不再有它）。列不出来不挡拍快照
+   */
+  private async skipLarge(timeout: number): Promise<void> {
+    const run = await this.git(['ls-files', '-z', '--others', '--modified', '--exclude-standard'], timeout)
+    if (run.timedOut) {
+      this.dropLock()
+      throw new CheckpointError('timeout', '拍快照超时')
+    }
+    if (run.code !== 0) return
+    const paths = [...new Set(run.stdout.toString('utf8').split('\0'))].filter(
+      path => path && !path.endsWith('/') && !/[\r\n]/.test(path) && !this.large.has(path),
+    )
+    const found: string[] = []
+    for (let i = 0; i < paths.length; i += 64)
+      await Promise.all(
+        paths.slice(i, i + 64).map(path =>
+          stat(join(this.workTree, path)).then(
+            st => {
+              if (st.isFile() && st.size > LARGE_FILE) found.push(path)
+            },
+            () => undefined,
+          ),
+        ),
+      )
+    if (found.length === 0) return
+    for (const path of found) this.large.add(path)
+    writeFileSync(join(this.gitDir, 'info', 'large'), [...this.large].join('\n') + '\n')
+    this.writeExclude()
+    await this.git(['update-index', '--force-remove', '-z', '--stdin'], timeout, found.join('\0') + '\0')
   }
 
   /** 拍一次快照：返回树对象 id。读不了的文件（被占用等）跳过 */
@@ -247,6 +383,7 @@ export class ShadowRepo {
     return this.serial(async () => {
       await this.init()
       this.dropLock()
+      await this.skipLarge(timeout)
       let run = await this.git(['add', '--all', '--ignore-errors', '--', '.'], timeout)
       if (run.missing) throw new CheckpointError('no-git', '没有找到 git')
       // 超时结束的 git 会留下索引锁，下次就拍不了了
@@ -290,6 +427,8 @@ export class ShadowRepo {
         const code = parts[i]
         const path = parts[i + 1]
         if (!code || !path) continue
+        // 太大不再存的文件：从索引里拿掉后新的树里就没有它了，不是真的被删
+        if (this.large.has(path)) continue
         const [insertions, deletions] = counts.get(path) ?? [0, 0]
         out.push({
           path,
@@ -347,13 +486,13 @@ export class ShadowRepo {
     })
   }
 
-  /** 对象库大小（字节） */
+  /** 对象库大小（字节），连同没清掉的半截文件（size-garbage）：以前不算它，上限拦不住残留 */
   size(): Promise<number> {
     return this.serial(async () => {
       await this.init()
       const text = (await this.must(['count-objects', '-v'])).toString('utf8')
       const kib = (key: string): number => Number(new RegExp(`^${key}: (\\d+)`, 'm').exec(text)?.[1] ?? 0)
-      return (kib('size') + kib('size-pack')) * 1024
+      return (kib('size') + kib('size-pack') + kib('size-garbage')) * 1024
     })
   }
 
@@ -377,7 +516,7 @@ export class ShadowRepo {
   /** 删掉整个影子仓库 */
   async destroy(): Promise<void> {
     await this.serial(async () => {
-      removeTree(this.gitDir)
+      await removeRepo(this.gitDir)
       this.ready = false
     })
   }

@@ -80,14 +80,22 @@ export interface ScanInput {
   chatsDir?: string
   /** 日志目录；在数据目录外也算进来 */
   logsDir: string | null
-  sessions: Array<Omit<StorageSession, 'bytes'>>
+  sessions: Array<Omit<StorageSession, 'bytes' | 'checkpointBytes'>>
   copies: Array<Omit<StorageCopy, 'bytes' | 'missing'>>
   now?: () => number
 }
 
 /** 统计占用：会话目录按会话分别算，副本按目录算，缓存和日志单独算，数据目录里剩下的都算「其他」 */
 export async function scanUsage(input: ScanInput): Promise<StorageUsage> {
-  const parts: Record<StoragePartKey, number> = { sessions: 0, archived: 0, copies: 0, cache: 0, logs: 0, other: 0 }
+  const parts: Record<StoragePartKey, number> = {
+    sessions: 0,
+    archived: 0,
+    checkpoints: 0,
+    copies: 0,
+    cache: 0,
+    logs: 0,
+    other: 0,
+  }
   const cacheDirs = CACHE_DIRS.map(name => join(input.root, name))
   const perSession = [input.sessionsDir, ...(input.chatsDir ? [input.chatsDir] : [])]
   const separate = new Set([...cacheDirs, ...perSession, ...(input.logsDir ? [input.logsDir] : [])].map(norm))
@@ -104,16 +112,25 @@ export async function scanUsage(input: ScanInput): Promise<StorageUsage> {
     const sizes = await mapLimit(names, 8, name => dirSize(join(dir, name)))
     names.forEach((name, i) => sessionBytes.set(name, (sessionBytes.get(name) ?? 0) + sizes[i]))
   }
+  // 检查点（会话目录下的 checkpoints/）单独算一类：它能单独清，也是最容易变大的
+  const checkpointBytes = new Map<string, number>()
+  {
+    const names = [...sessionBytes.keys()]
+    const sizes = await mapLimit(names, 8, name => dirSize(join(input.sessionsDir, name, 'checkpoints')))
+    names.forEach((name, i) => checkpointBytes.set(name, sizes[i]))
+  }
+  for (const bytes of checkpointBytes.values()) parts.checkpoints += bytes
 
   const sessions: StorageSession[] = input.sessions.map(s => {
     const bytes = sessionBytes.get(s.id) ?? 0
+    const checkpoints = checkpointBytes.get(s.id) ?? 0
     sessionBytes.delete(s.id)
-    if (s.archivedAt) parts.archived += bytes
-    else parts.sessions += bytes
-    return { ...s, bytes }
+    if (s.archivedAt) parts.archived += bytes - checkpoints
+    else parts.sessions += bytes - checkpoints
+    return { ...s, bytes, checkpointBytes: checkpoints }
   })
   // 没有对应会话的目录（删了一半、旧版本留下的）算「其他」
-  for (const bytes of sessionBytes.values()) parts.other += bytes
+  for (const [id, bytes] of sessionBytes) parts.other += bytes - (checkpointBytes.get(id) ?? 0)
 
   const [cache, logs, rest, copySizes] = await Promise.all([
     Promise.all(cacheDirs.map(dir => dirSize(dir))).then(list => list.reduce((a, b) => a + b, 0)),

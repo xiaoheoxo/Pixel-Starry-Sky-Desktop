@@ -18,13 +18,18 @@ export const storageMessages = {
   'storage.openFolder': { zh: '打开文件夹', en: 'Open folder' },
   'storage.part.sessions': { zh: '会话', en: 'Sessions' },
   'storage.part.archived': { zh: '已归档的会话', en: 'Archived sessions' },
+  'storage.part.checkpoints': { zh: '检查点', en: 'Checkpoints' },
   'storage.part.copies': { zh: '项目副本', en: 'Project copies' },
   'storage.part.cache': { zh: '缓存', en: 'Cache' },
   'storage.part.logs': { zh: '日志', en: 'Logs' },
   'storage.part.other': { zh: '其他', en: 'Other' },
   'storage.partDesc.sessions': {
-    zh: '会话的对话记录和检查点',
-    en: 'Conversation history and checkpoints of sessions',
+    zh: '会话的对话记录',
+    en: 'Conversation history of sessions',
+  },
+  'storage.partDesc.checkpoints': {
+    zh: '每轮前后给项目拍的代码快照，用来撤回本轮修改、回到检查点',
+    en: 'Code snapshots taken around each turn, used to undo a turn or go back to a checkpoint',
   },
   'storage.partDesc.archived': {
     zh: '归档后不在侧栏显示，但仍占空间',
@@ -105,4 +110,23 @@ export const storageMessages = {
   },
   'storage.clearCache': { zh: '清除缓存', en: 'Clear cache' },
   'storage.cacheCleared': { zh: '已清除缓存，释放 {size}', en: 'Cache cleared, freed {size}' },
+
+  // 检查点（docs/ui/checkpoint-disk.md）
+  'storage.checkpointsTitle': { zh: '对话检查点', en: 'Conversation checkpoints' },
+  'storage.checkpointsDesc': {
+    zh: '合计超过 5 GB 时会自动删掉最久没用的会话的检查点。清理后这些会话不能再撤回本轮修改、回到检查点，对话记录不受影响',
+    en: 'Above 5 GB in total, checkpoints of the least recently used sessions are removed automatically. After clearing, those sessions can no longer undo a turn or go back to a checkpoint; conversation history is kept',
+  },
+  'storage.clearCheckpoints': { zh: '清理检查点', en: 'Clear checkpoints' },
+  'storage.clearCheckpointsConfirm': { zh: '清理所有会话的检查点？', en: 'Clear checkpoints of all sessions?' },
+  'storage.clearCheckpointsBody': {
+    zh: '会释放约 {size}。清理后已有的对话不能再撤回本轮修改、回到检查点；对话记录和项目文件都不动，之后的新一轮照常拍快照。正在运行的会话会跳过。',
+    en: 'This frees about {size}. Existing chats can no longer undo a turn or go back to a checkpoint; conversation history and project files are untouched, and new turns are snapshotted as usual. Running sessions are skipped.',
+  },
+  'storage.checkpointsCleared': { zh: '已清理检查点，释放 {size}', en: 'Checkpoints cleared, freed {size}' },
+  'storage.lowDiskTitle': { zh: '磁盘空间不足', en: 'Low disk space' },
+  'storage.lowDiskBody': {
+    zh: '数据所在的磁盘只剩 {size}，对话可能保存不了。点这里打开存储设置清理。',
+    en: 'Only {size} is left on the data disk, so chats may fail to save. Click to open storage settings and clean up.',
+  },
 } as const

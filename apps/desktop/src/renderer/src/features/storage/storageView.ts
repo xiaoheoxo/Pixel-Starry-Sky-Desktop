@@ -77,7 +77,8 @@ export function withoutSessions(usage: StorageUsage, ids: readonly string[]): St
   for (const s of usage.sessions) {
     if (!gone.has(s.id)) continue
     const key = s.archivedAt ? 'archived' : 'sessions'
-    parts[key] = Math.max(0, parts[key] - s.bytes)
+    parts[key] = Math.max(0, parts[key] - (s.bytes - s.checkpointBytes))
+    parts.checkpoints = Math.max(0, parts.checkpoints - s.checkpointBytes)
   }
   return { ...usage, parts, sessions: usage.sessions.filter(s => !gone.has(s.id)) }
 }
@@ -86,12 +87,14 @@ export function withoutSessions(usage: StorageUsage, ids: readonly string[]): St
 export function withRestored(usage: StorageUsage, id: string): StorageUsage {
   const target = usage.sessions.find(s => s.id === id && s.archivedAt)
   if (!target) return usage
+  // 检查点单独一类，不跟着挪
+  const own = target.bytes - target.checkpointBytes
   return {
     ...usage,
     parts: {
       ...usage.parts,
-      archived: Math.max(0, usage.parts.archived - target.bytes),
-      sessions: usage.parts.sessions + target.bytes,
+      archived: Math.max(0, usage.parts.archived - own),
+      sessions: usage.parts.sessions + own,
     },
     sessions: usage.sessions.map(s => (s.id === id ? { ...s, archivedAt: null } : s)),
   }

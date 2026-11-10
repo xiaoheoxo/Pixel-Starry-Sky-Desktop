@@ -377,8 +377,8 @@ export interface RewindResult {
   codeSkipped?: string
 }
 
-/** 对话检查点停用的原因：没装 git / 拍快照太慢 / 超过大小上限 / 其他错误 */
-export type CheckpointDisabled = 'no-git' | 'slow' | 'too-large' | 'failed'
+/** 对话检查点停用的原因：没装 git / 拍快照太慢 / 超过大小上限 / 其他错误 / 磁盘快满了（暂时不拍新的，已有的照样能用） */
+export type CheckpointDisabled = 'no-git' | 'slow' | 'too-large' | 'failed' | 'disk-low'
 
 /** 一轮（一条我方消息）的检查点 */
 export interface CheckpointTurn {

@@ -23,13 +23,14 @@ const session = (id: string, patch: Partial<StorageSession> = {}): StorageSessio
   pinned: false,
   busy: false,
   bytes: 100,
+  checkpointBytes: 0,
   ...patch,
 })
 
 const usage = (sessions: StorageSession[]): StorageUsage => ({
   root: 'C:\\data',
   scannedAt: NOW,
-  parts: { sessions: 300, archived: 200, copies: 0, cache: 400, logs: 100, other: 0 },
+  parts: { sessions: 300, archived: 200, checkpoints: 0, copies: 0, cache: 400, logs: 100, other: 0 },
   sessions,
   copies: [],
 })
@@ -59,7 +60,10 @@ describe('segments', () => {
   })
   it('has no segments when nothing is used', () => {
     expect(
-      segments({ ...usage([]), parts: { sessions: 0, archived: 0, copies: 0, cache: 0, logs: 0, other: 0 } }),
+      segments({
+        ...usage([]),
+        parts: { sessions: 0, archived: 0, checkpoints: 0, copies: 0, cache: 0, logs: 0, other: 0 },
+      }),
     ).toEqual([])
   })
   it('labels tiny percentages', () => {
@@ -114,5 +118,19 @@ describe('local updates after cleaning', () => {
     expect(next.parts.sessions).toBe(370)
     expect(next.sessions.find(s => s.id === 'c')?.archivedAt).toBeNull()
     expect(withRestored(usage(list), 'a')).toEqual(usage(list))
+  })
+  it('keeps checkpoints in their own part when deleting or restoring', () => {
+    const withCp = [
+      session('a', { bytes: 120, checkpointBytes: 100 }),
+      session('c', { archivedAt: NOW, bytes: 70, checkpointBytes: 50 }),
+    ]
+    const u = { ...usage(withCp), parts: { ...usage(withCp).parts, checkpoints: 150 } }
+    const deleted = withoutSessions(u, ['a'])
+    expect(deleted.parts.sessions).toBe(280)
+    expect(deleted.parts.checkpoints).toBe(50)
+    const restored = withRestored(u, 'c')
+    expect(restored.parts.archived).toBe(180)
+    expect(restored.parts.sessions).toBe(320)
+    expect(restored.parts.checkpoints).toBe(150)
   })
 })

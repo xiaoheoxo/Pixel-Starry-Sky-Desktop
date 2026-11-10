@@ -788,12 +788,12 @@ export const IPC_CONTRACT = {
   'sessionStatus:refresh': { kind: 'invoke', route: 'local', trust: 'sender' },
   // 设置 › 存储：本机数据目录的占用、清理旧会话 / 已归档的会话、清除缓存。只看本机，不跟随选中的机器
   'storage:clearCache': { kind: 'invoke', route: 'local', trust: 'sender' },
+  // 删掉所有空闲会话的对话检查点（docs/ui/checkpoint-disk.md）
+  'storage:clearCheckpoints': { kind: 'invoke', route: 'local', trust: 'sender' },
   'storage:deleteSessions': { kind: 'invoke', route: 'local', trust: 'sender' },
   'storage:open': { kind: 'invoke', route: 'local', trust: 'sender' },
   'storage:restoreSession': { kind: 'invoke', route: 'local', trust: 'sender' },
   'storage:usage': { kind: 'invoke', route: 'local', trust: 'sender' },
-  'projectBrowser:action': { kind: 'invoke', route: 'local', trust: 'window' },
-  'projectBrowser:annotate': { kind: 'invoke', route: 'local', trust: 'window' },
   // 设置 › 存储 › 数据位置（docs/ui/data-location.md）
   'dataLocation:choose': { kind: 'invoke', route: 'local', trust: 'sender' },
   'dataLocation:dismiss': { kind: 'invoke', route: 'local', trust: 'sender' },
@@ -802,6 +802,8 @@ export const IPC_CONTRACT = {
   'dataLocation:move': { kind: 'invoke', route: 'local', trust: 'sender' },
   'dataLocation:removeOld': { kind: 'invoke', route: 'local', trust: 'sender' },
   'dataLocation:use': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'projectBrowser:action': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:annotate': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:changed': { kind: 'push', route: 'push', trust: 'none' },
   'projectBrowser:navigate': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:pick': { kind: 'invoke', route: 'local', trust: 'window' },
