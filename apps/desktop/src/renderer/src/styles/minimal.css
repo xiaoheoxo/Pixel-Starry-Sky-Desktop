@@ -113,6 +113,7 @@
   --ci-pb: 16px;
   --ci-px: 12px;
 }
+/* 底边留白和输入框的 --ci-pb 一样（16px）：24px 的按钮正好和最后一行字（24px 行高）上下对齐 */
 :root[data-minimal='on'] .composer-send-controls {
   padding: 0 8px 16px 0;
 }
@@ -138,7 +139,6 @@
   padding-left: 6px;
   border-radius: 4px;
   font-size: var(--text-meta);
-/* 底边留白和输入框的 --ci-pb 一样（16px）：24px 的按钮正好和最后一行字（24px 行高）上下对齐 */
 }
 :root[data-minimal='on'] .composer-card [data-chip] svg {
   width: 12px;
