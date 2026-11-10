@@ -1292,6 +1292,14 @@ export const catalog = {
     zh: '，正在重试',
     en: ', retrying',
   },
+  'session.live.RetryStatus.turnRetriesLeft': {
+    zh: ' · 本轮还能重试 {p0} 次',
+    en: ' · {p0} retries left this turn',
+  },
+  'session.live.RetryStatus.turnLastRetry': {
+    zh: ' · 本轮最后一次重试',
+    en: ' · last retry this turn',
+  },
   'session.live.RetryStatus.resumingInAboutS': {
     zh: '· 约 {p0} 秒后继续',
     en: '· Resuming in about {p0}s',
@@ -4234,8 +4242,8 @@ export const catalog = {
     en: 'Maximum automatic retries for temporary model request errors. 0 disables retries. Changes apply from the next turn.',
   },
   'settings.models.RequestRetrySettings.appliesToClaudeCode': {
-    zh: '适用于 Claude Code 的平台与自有请求。不会自动重新执行整轮任务或工具操作。',
-    en: 'Applies to Claude Code platform and own-account requests. Entire tasks and tool actions are never replayed automatically.',
+    zh: 'Claude Code 按一整轮共用这些次数；Codex 和像素星空引擎按每个请求计算。不会自动重新执行整轮任务或工具操作。',
+    en: 'Claude Code shares these retries across a whole turn; Codex and the PixelSky engine count them per request. Entire tasks and tool actions are never replayed automatically.',
   },
   'settings.models.RequestRetrySettings.requestRetryMode': {
     zh: '请求重试模式',

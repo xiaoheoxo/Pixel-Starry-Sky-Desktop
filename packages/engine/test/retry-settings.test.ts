@@ -83,7 +83,10 @@ describe('自定义请求重试设置', () => {
     t.handle(frame)
     t.handle(frame)
     expect(events.filter(e => e.type === 'request_retry')).toEqual([
-      { type: 'request_retry', retry: expect.objectContaining({ attempt: 1, maxRetries: 3, reason: 'HTTP 503' }) },
+      {
+        type: 'request_retry',
+        retry: expect.objectContaining({ attempt: 1, maxRetries: 3, reason: 'HTTP 503', scope: 'turn' }),
+      },
     ])
     t.handle({ type: 'stream_event', event: { type: 'message_start', message: { id: 'm', model: 'opus' } } })
     expect(events.at(-1)).toEqual({ type: 'request_retry', retry: null })

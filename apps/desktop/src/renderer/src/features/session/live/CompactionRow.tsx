@@ -39,6 +39,7 @@ import {
   recordSample,
 } from './compactionEstimate'
 import { CompactionLiveContext, type CompactionLive } from './compactionLive'
+import { retryProgress } from './retryProgress'
 
 const SHRINK_MS = 900
 /** 直连时等这么久才提示「看不到输出进度」，很快压完的不用提示 */
@@ -391,8 +392,9 @@ export function CompactionRow({ item }: { item: CompactionItem }) {
     metric = (
       <span className="text-label text-warn tabular-nums">
         {tr('session.compaction.retryIn', { s: Math.ceil((live.retry.retryAt - now) / 1000) })}
-        {live.retry.attempt !== null &&
-          ` · ${live.retry.attempt}${live.retry.maxRetries === null ? '' : `/${live.retry.maxRetries}`}`}
+        {live.retry.scope === 'turn'
+          ? retryProgress(live.retry)
+          : live.retry.attempt !== null && ` ·${retryProgress(live.retry)}`}
       </span>
     )
   else if ((phase === 'connecting' || phase === 'reading') && p && p.requests > 1)

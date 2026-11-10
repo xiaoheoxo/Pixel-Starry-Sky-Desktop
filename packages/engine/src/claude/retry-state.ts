@@ -17,5 +17,6 @@ export function requestRetryState(frame: Record<string, unknown>, turnId: string
     maxRetries: integer(frame.max_retries),
     retryAt: delay === null ? null : now + delay,
     reason,
+    scope: 'turn',
   }
 }

@@ -57,6 +57,8 @@ export interface RequestRetryState {
   maxRetries: number | null
   retryAt: number | null
   reason: string
+  /** 'turn'：maxRetries 是这一轮还剩的额度（Claude Code 一轮共用重试次数，error-retry.md §9）；不带时是每个请求的上限 */
+  scope?: 'turn'
 }
 
 /**

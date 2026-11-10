@@ -6,6 +6,7 @@ import { RotateCw } from 'lucide-react'
 import type { RequestRetryState } from '@pixelsky/protocol'
 import { Button } from '@/ui'
 import { bridge } from '@/features/engine'
+import { retryProgress } from './retryProgress'
 
 export function RetryStatus({ sessionId, retry }: { sessionId: string; retry: RequestRetryState | null | undefined }) {
   useI18n()
@@ -31,8 +32,7 @@ export function RetryStatus({ sessionId, retry }: { sessionId: string; retry: Re
   }, [retry?.retryAt])
   if (!retry) return null
   const seconds = retry.retryAt === null ? null : Math.max(0, Math.ceil((retry.retryAt - now) / 1000))
-  const attempt =
-    retry.attempt === null ? '' : ` ${retry.attempt}${retry.maxRetries === null ? '' : `/${retry.maxRetries}`}`
+  const attempt = retryProgress(retry)
   const stop = async (): Promise<void> => {
     if (!bridge || stopping.current) return
     stopping.current = true
