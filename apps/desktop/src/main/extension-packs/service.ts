@@ -177,6 +177,14 @@ export class ExtensionPacks {
     return this.phase2
   }
 
+  /** 加载完或等满 ms，哪个先到（会话启动前用：应用刚启动时等一下，第一条消息就带上扩展的连接器和技能） */
+  readyWithin(ms: number): Promise<void> {
+    if (this.ready_) return Promise.resolve()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<void>(done => (timer = setTimeout(done, ms)))
+    return Promise.race([this.ready(), timeout]).finally(() => clearTimeout(timer))
+  }
+
   state(): ExtPackState {
     return {
       revision: this.revision,
@@ -665,7 +673,7 @@ export class ExtensionPacks {
     })
   }
 
-  /** 会话启动时给引擎的连接器（shortcut: 扩展还没加载完时启动的会话拿不到，要等下一次重启会话） */
+  /** 会话启动时给引擎的连接器；启动前等过 readyWithin 还没加载完的拿不到，key 变了之后下一条消息换进程带上 */
   mcpLaunch(): { key: string; servers: Record<string, McpConfig> } {
     if (!this.ready_) return { key: '', servers: {} }
     return this.mcp.launch(this.packs.filter(p => p.info.live))

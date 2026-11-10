@@ -61,6 +61,8 @@ export class Extensions {
       ),
     )
     const only = channel?.tools ? new Set(channel.tools.ids) : undefined
+    // 应用刚启动、扩展还在加载：最多等 5 秒，超时照旧启动（下一条消息会换进程带上）
+    await this.ctx.extPacks?.readyWithin(5000)
     const packMcp = this.ctx.extPacks?.mcpLaunch() ?? { key: '', servers: {} }
     const launched = this.get().launch(
       record.cwd,

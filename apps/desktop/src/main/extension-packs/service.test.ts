@@ -460,6 +460,21 @@ describe('技能', () => {
     expect(b.skillLaunch('claude').key).not.toBe('loading')
   })
 
+  it('readyWithin：时限内加载完就带上扩展；到时限还没完也返回，不卡住会话启动', async () => {
+    const e = env()
+    skillState(e, copyFixture('with-skill', e.folders))
+    const svc = make(e)
+    svc.start()
+    await svc.readyWithin(20_000)
+    expect(svc.skillLaunch('claude').key).not.toBe('loading')
+    await svc.readyWithin(0) // 已加载完：不再等
+
+    const stuck = make(env())
+    vi.spyOn(stuck, 'ready').mockReturnValue(new Promise(() => undefined))
+    await stuck.readyWithin(10)
+    expect(stuck.mcpLaunch()).toEqual({ key: '', servers: {} })
+  })
+
   it('claude：插件目录已建好；codex：技能目录；命令列表', async () => {
     const e = env()
     const svc = await started(e)
