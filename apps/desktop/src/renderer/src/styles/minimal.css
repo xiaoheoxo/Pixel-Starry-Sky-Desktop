@@ -108,12 +108,13 @@
 /* 输入框：一行高，发送 / 停止是右下角 24px 的小方块 */
 :root[data-minimal='on'] .composer-input-row .composer-input {
   /* 输入框是 CodeMirror，内边距是变量（features/session/composerInput/composerInput.css） */
-  --ci-pt: 10px;
-  --ci-pb: 10px;
+  /* 输入框最低 56px 高（Composer.tsx 的 textHeight）：上下各 16px + 一行 24px 正好占满，字在中间，不贴顶 */
+  --ci-pt: 16px;
+  --ci-pb: 16px;
   --ci-px: 12px;
 }
 :root[data-minimal='on'] .composer-send-controls {
-  padding: 0 8px 8px 0;
+  padding: 0 8px 16px 0;
 }
 :root[data-minimal='on'] .composer-send-controls button {
   width: 24px;
@@ -137,6 +138,7 @@
   padding-left: 6px;
   border-radius: 4px;
   font-size: var(--text-meta);
+/* 底边留白和输入框的 --ci-pb 一样（16px）：24px 的按钮正好和最后一行字（24px 行高）上下对齐 */
 }
 :root[data-minimal='on'] .composer-card [data-chip] svg {
   width: 12px;
