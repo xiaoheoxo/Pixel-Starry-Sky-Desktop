@@ -63,3 +63,48 @@ export function projectFolders(
   const main = project.path ? [{ index: 0, name: folderLabel({ path: project.path }), path: project.path }] : []
   return [...main, ...project.folders.map((f, i) => ({ index: i + 1, name: folderLabel(f), path: f.path }))]
 }
+
+/** 项目下面的一行：一个会话，或同一频道收成的一行（docs/ui/sidebar-channel-fold.md） */
+export type FoldEntry<T> =
+  | { kind: 'session'; session: T }
+  | { kind: 'channel'; key: string; name: string; sessions: T[]; running: number; waiting: number }
+
+/**
+ * 同一个频道有 2 个及以上会话时收成一行，放在它最近那个会话的位置；
+ * 「先列 5 个」只算项目自己的对话（visibleSessions），频道行不占名额。
+ * hidden / own 是项目自己的对话收起了几个、一共几个；channelOf 返回 null 的会话照常列
+ */
+export function foldChannels<T extends Pick<Session, 'id' | 'status'>>(
+  sessions: readonly T[],
+  options: {
+    channelOf: (id: string) => string | null
+    all: boolean
+    selected: string | null
+    lanes: ReadonlyMap<string, SessionLane>
+  },
+): { entries: FoldEntry<T>[]; hidden: number; own: number } {
+  const byChannel = new Map<string, T[]>()
+  for (const s of sessions) {
+    const name = options.channelOf(s.id)
+    if (name) byChannel.set(name, [...(byChannel.get(name) ?? []), s])
+  }
+  const folded = new Map([...byChannel].filter(([, list]) => list.length > 1))
+  const own = sessions.filter(s => {
+    const name = options.channelOf(s.id)
+    return !name || !folded.has(name)
+  })
+  const { shown, hidden } = visibleSessions(own, options)
+  const shownIds = new Set(shown.map(s => s.id))
+  const entries: FoldEntry<T>[] = []
+  const placed = new Set<string>()
+  for (const s of sessions) {
+    const name = options.channelOf(s.id)
+    const list = name ? folded.get(name) : undefined
+    if (name && list) {
+      if (placed.has(name)) continue
+      placed.add(name)
+      entries.push({ kind: 'channel', key: name, name, sessions: list, ...projectCounts(list, options.lanes) })
+    } else if (shownIds.has(s.id)) entries.push({ kind: 'session', session: s })
+  }
+  return { entries, hidden, own: own.length }
+}

@@ -8,13 +8,14 @@ import {
   Folder,
   FolderOpen,
   Folders,
+  Hash,
   Layers,
   ListPlus,
   PencilLine,
   Ungroup,
   X,
 } from 'lucide-react'
-import { Spinner, cn } from '@/ui'
+import { Dot, Spinner, cn } from '@/ui'
 import { ActionMenu } from '@/ui/ActionMenu'
 import type { Project, Session } from '@/data'
 import { useSessionCards } from '@/features/board/useSessionCards'
@@ -27,15 +28,17 @@ import {
 } from '@/features/appearance/sidebar'
 import { cardsOf, lanesOf } from './runFilter'
 import { SessionItem } from './SessionItem'
+import { useChannels } from '@/features/channels/store'
 import { ProjectRow } from './ProjectRow'
 import { GroupNameDialog } from './GroupNameDialog'
 import {
   ARCHIVED_PAGE,
   SHOWN_SESSIONS,
+  foldChannels,
+  needsYou,
   projectCounts,
   projectFolders,
   visibleArchived,
-  visibleSessions,
 } from './projectTreeModel'
 import {
   addToGroup,
@@ -99,6 +102,9 @@ export function ProjectTree({
   const pinned = prefs.pinned ?? []
   const [showAll, setShowAll] = useState<Record<string, boolean>>({})
   const [archivedOpen, setArchivedOpen] = useState<Record<string, boolean>>({})
+  // 频道收成的那一行点开没有（项目 + 频道名；这次打开应用里记住），docs/ui/sidebar-channel-fold.md
+  const [channelOpen, setChannelOpen] = useState<Record<string, boolean>>({})
+  const sessionChannels = useChannels(s => s.sessionChannels)
   const [archivedShown, setArchivedShown] = useState<Record<string, number>>({})
   // Ctrl / Shift 选中的项目（准备组成分区）；Esc 或普通点击清掉
   const [picked, setPicked] = useState<string[]>([])
@@ -276,11 +282,30 @@ export function ProjectTree({
   const renderProject = (p: Project, inGroup = false, top = false) => {
     const open = filtering || !collapsed.has(p.id)
     const { running, waiting } = projectCounts(p.sessions, lanes)
-    const { shown, hidden } = visibleSessions(p.sessions, {
+    // 按状态筛选时不收，全部平铺
+    const {
+      entries: rows,
+      hidden,
+      own,
+    } = foldChannels(p.sessions, {
+      channelOf: id => (filtering ? null : (sessionChannels[id] ?? null)),
       all: filtering || !!showAll[p.id],
       selected: selectedSessionId,
       lanes,
     })
+    const item = (s: Session, inChannel = false) => (
+      <SessionItem
+        key={s.id}
+        session={s}
+        selected={s.id === selectedSessionId}
+        onSelect={onSelectSession}
+        lane={lanes.get(s.id)}
+        card={cardById.get(s.id)}
+        reason={filtering}
+        flipKey={`${p.id}/${s.id}`}
+        inChannel={inChannel}
+      />
+    )
     const folders = projectFolders(p).map(f => f.name)
     return (
       <div
@@ -316,19 +341,31 @@ export function ProjectTree({
         )}
         {open && (p.sessions.length > 0 || !!p.archived?.length) && (
           <div data-project-sessions className="flex flex-col gap-px">
-            {shown.map(s => (
-              <SessionItem
-                key={s.id}
-                session={s}
-                selected={s.id === selectedSessionId}
-                onSelect={onSelectSession}
-                lane={lanes.get(s.id)}
-                card={cardById.get(s.id)}
-                reason={filtering}
-                flipKey={`${p.id}/${s.id}`}
-              />
-            ))}
-            {!filtering && (hidden > 0 || (showAll[p.id] && p.sessions.length > SHOWN_SESSIONS)) && (
+            {rows.map(row => {
+              if (row.kind === 'session') return item(row.session)
+              const key = `${p.id}/${row.key}`
+              const opened = channelOpen[key] ?? row.sessions.some(s => s.id === selectedSessionId)
+              // 收起时也露出来：等你处理的、当前打开的
+              const members = opened
+                ? row.sessions
+                : row.sessions.filter(s => s.id === selectedSessionId || needsYou(lanes.get(s.id)))
+              return (
+                <div key={key} data-channel-fold-group={row.name} className="flex flex-col gap-px">
+                  <ChannelFoldRow
+                    name={row.name}
+                    count={row.sessions.length}
+                    running={row.running}
+                    waiting={row.waiting}
+                    time={row.sessions.find(s => s.time)?.time}
+                    unread={row.sessions.some(s => s.status === 'unread' || lanes.get(s.id) === 'unread')}
+                    open={opened}
+                    onClick={() => setChannelOpen(state => ({ ...state, [key]: !opened }))}
+                  />
+                  {members.map(s => item(s, true))}
+                </div>
+              )
+            })}
+            {!filtering && (hidden > 0 || (showAll[p.id] && own > SHOWN_SESSIONS)) && (
               <MoreRow
                 label={hidden > 0 ? tr('sidebar.tree.more', { count: hidden }) : tr('sidebar.tree.less')}
                 open={!hidden}
@@ -554,6 +591,71 @@ function GroupHeader({
 }
 
 /** 在跑几个（橙色胶囊带转圈）、等你几个（黄底数字）；项目行和分区标题共用 */
+/** 同一频道的成员会话收成的一行（docs/ui/sidebar-channel-fold.md）：「# 频道 · 1 等你 · 1 在跑 · 5 个 AI」，点了展开 / 收起 */
+function ChannelFoldRow({
+  name,
+  count,
+  running,
+  waiting,
+  time,
+  unread,
+  open,
+  onClick,
+}: {
+  name: string
+  count: number
+  running: number
+  waiting: number
+  time?: string
+  /** 有成员会话有新回复：收起时那几个会话不露出来，蓝点挂在这一行上 */
+  unread: boolean
+  open: boolean
+  onClick: () => void
+}) {
+  // 等你放最前：侧栏窄，后面的会被截掉
+  const parts = [
+    waiting > 0 && { text: tr('sidebar.channelFold.waiting', { count: waiting }), warn: true },
+    running > 0 && { text: tr('sidebar.channelFold.running', { count: running }), warn: false },
+    { text: tr('sidebar.channelFold.agents', { count }), warn: false },
+  ].filter(Boolean) as { text: string; warn: boolean }[]
+  return (
+    <button
+      type="button"
+      data-channel-fold={name}
+      aria-expanded={open}
+      title={tr('sidebar.channelFold.toggle', { name, count })}
+      onClick={onClick}
+      className="relative flex h-8 w-full min-w-0 shrink-0 items-center gap-1.5 rounded-md pr-2.5 pl-[28px] text-left text-list text-fg-secondary outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+    >
+      <span className="absolute left-[5px] flex w-3.5 items-center justify-center">
+        {running > 0 ? (
+          <Spinner size={11} className="text-active!" />
+        ) : waiting > 0 ? (
+          <span className="size-1.5 rounded-full bg-warn" />
+        ) : unread ? (
+          <Dot tone="accent" size={6} />
+        ) : null}
+      </span>
+      <Hash size={13} strokeWidth={1.6} className="shrink-0 text-fg-muted" />
+      <span className="max-w-[45%] shrink-0 truncate">{name}</span>
+      <span className="min-w-0 truncate text-meta text-fg-faint">
+        {parts.map((part, i) => (
+          <span key={i} className={part.warn ? 'text-warn-fg' : undefined}>
+            {' · '}
+            {part.text}
+          </span>
+        ))}
+      </span>
+      <ChevronRight
+        size={12}
+        strokeWidth={1.6}
+        className={cn('shrink-0 text-fg-faint transition-transform', open && 'rotate-90')}
+      />
+      {time && <span className="ml-auto shrink-0 pl-2 text-meta text-fg-faint">{time}</span>}
+    </button>
+  )
+}
+
 function StatusPills({ running, waiting }: { running: number; waiting: number }) {
   if (!running && !waiting) return null
   return (

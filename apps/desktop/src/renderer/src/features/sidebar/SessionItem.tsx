@@ -23,6 +23,7 @@ export function SessionItem({
   card,
   reason,
   flipKey,
+  inChannel,
 }: {
   session: Session
   selected: boolean
@@ -35,13 +36,16 @@ export function SessionItem({
   reason?: boolean
   /** 换顺序时滑动用的标记（useFlip），见 SessionRow */
   flipKey?: string
+  /** 在频道收成的那一行下面（docs/ui/sidebar-channel-fold.md）：多缩进一级，不再写 # 频道名 */
+  inChannel?: boolean
 }) {
   useI18n()
   const running = session.status === 'running'
   const unread = session.status === 'unread'
   const fresh = unread || lane === 'unread'
   // 协作频道派活开出来的会话（docs/ui/channels-phase-b.md §2.4）
-  const channel = useSessionChannel(session.id)
+  const named = useSessionChannel(session.id)
+  const channel = inChannel ? null : named
   const status = useRowStatus(session.id, { card, running, unread })
   const ring = ringOf(selected)
   return (
@@ -57,7 +61,7 @@ export function SessionItem({
       selected={selected}
       onSelect={onSelect}
       flipKey={flipKey}
-      className={session.branch?.depth ? undefined : '[&>button]:pl-[28px]'}
+      className={session.branch?.depth ? undefined : inChannel ? '[&>button]:pl-[44px]' : '[&>button]:pl-[28px]'}
       indent={session.branch?.depth ? 28 + Math.min(session.branch.depth, 3) * 14 : undefined}
       trailing={
         reason && lane ? (

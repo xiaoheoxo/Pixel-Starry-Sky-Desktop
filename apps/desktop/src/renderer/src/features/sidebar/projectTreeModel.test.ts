@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionLane } from '@/features/board/sessionLanes'
-import { ARCHIVED_PAGE, projectCounts, projectFolders, visibleArchived, visibleSessions } from './projectTreeModel'
+import {
+  ARCHIVED_PAGE,
+  foldChannels,
+  projectCounts,
+  projectFolders,
+  visibleArchived,
+  visibleSessions,
+} from './projectTreeModel'
 
 const session = (id: string, status: 'idle' | 'running' | 'unread' = 'idle') => ({ id, title: id, status })
 
@@ -90,5 +97,61 @@ describe('已归档先列几个', () => {
     const { shown, hidden } = visibleArchived(archived, ARCHIVED_PAGE, 'a99')
     expect(shown.at(-1)?.id).toBe('a99')
     expect(hidden).toBe(120 - ARCHIVED_PAGE - 1)
+  })
+})
+
+describe('频道的会话收成一行（sidebar-channel-fold.md）', () => {
+  const none = new Map<string, SessionLane>()
+  // 5 个频道成员都在最前面（刚刚活动），后面 6 个项目自己的对话
+  const members = ['m1', 'm2', 'm3', 'm4', 'm5'].map(id => session(id))
+  const own = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6'].map(id => session(id))
+  const channelOf = (id: string) => (id.startsWith('m') ? 'MV制作' : null)
+
+  it('同一频道 2 个以上收成一行，放在最近那个的位置；「先列 5 个」只算项目自己的', () => {
+    const {
+      entries,
+      hidden,
+      own: count,
+    } = foldChannels([...members, ...own], {
+      channelOf,
+      all: false,
+      selected: null,
+      lanes: none,
+    })
+    expect(entries.map(e => (e.kind === 'channel' ? `#${e.name}:${e.sessions.length}` : e.session.id))).toEqual([
+      '#MV制作:5',
+      'o1',
+      'o2',
+      'o3',
+      'o4',
+      'o5',
+    ])
+    expect([hidden, count]).toEqual([1, 6])
+  })
+
+  it('频道只有 1 个会话时照常一行；频道行带在跑、等你的数目', () => {
+    const lanes = new Map<string, SessionLane>([
+      ['m1', 'running'],
+      ['m2', 'waiting'],
+    ])
+    const { entries } = foldChannels([session('m1', 'running'), session('m2'), session('x')], {
+      channelOf: id => (id === 'x' ? '别的频道' : channelOf(id)),
+      all: false,
+      selected: null,
+      lanes,
+    })
+    expect(entries[0]).toMatchObject({ kind: 'channel', running: 1, waiting: 1 })
+    expect(entries[1]).toMatchObject({ kind: 'session', session: { id: 'x' } })
+  })
+
+  it('不收（筛选时传 channelOf 返回 null）就和原来一样', () => {
+    const { entries, hidden } = foldChannels([...members, ...own], {
+      channelOf: () => null,
+      all: false,
+      selected: null,
+      lanes: none,
+    })
+    expect(entries).toHaveLength(5)
+    expect(hidden).toBe(6)
   })
 })
