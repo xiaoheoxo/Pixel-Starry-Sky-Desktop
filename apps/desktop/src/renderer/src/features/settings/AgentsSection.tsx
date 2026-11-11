@@ -8,8 +8,27 @@ import { agentMeta, MemberAvatar } from '@/features/channels/ChannelMessage'
 import type { AgentMember } from '../../../../shared/types/channels'
 import { SectionTitle } from './SettingRow'
 
-/** 设置里的「AI 成员」（docs/ui/channels-local-rest.md §3.3 c）：列出本机所有 AI 成员，可以全局删除 */
-export function AgentsSection() {
+/** 频道页的「管理 AI 成员」弹窗：频道列表左下角和没有频道时的空状态页都用 */
+export function AgentsDialog({ onClose }: { onClose: () => void }) {
+  useI18n()
+  return (
+    <ConfirmDialog
+      wide
+      hideConfirm
+      title={tr('settingsAgents.manage')}
+      confirmLabel=""
+      cancelLabel={tr('settingsAgents.done')}
+      busy={false}
+      onConfirm={onClose}
+      onCancel={onClose}
+      description={<AgentsSection bare />}
+    />
+  )
+}
+
+/** 本机所有 AI 成员，可以全局删除（docs/ui/channels-local-rest.md §3.3 c）。
+ *  频道页左下角的「管理 AI 成员」弹窗里用（bare：标题由弹窗给）；设置里的 agents 分区只留作旧入口（docs/ui/settings-reorg.md） */
+export function AgentsSection({ bare }: { bare?: boolean }) {
   useI18n()
   const members = useChannels(s => s.members)
   const channels = useChannels(s => s.channels)
@@ -24,7 +43,7 @@ export function AgentsSection() {
   }
   return (
     <section data-agents-settings="">
-      <SectionTitle>{tr('agentsSettings.title')}</SectionTitle>
+      {!bare && <SectionTitle>{tr('agentsSettings.title')}</SectionTitle>}
       <p className="mb-4 text-meta text-fg-muted">{tr('agentsSettings.hint')}</p>
       {agents.length === 0 ? (
         <p className="text-meta text-fg-faint">{tr('agentsSettings.empty')}</p>

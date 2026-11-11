@@ -10,6 +10,7 @@ import { isDemo } from '@/data'
 import type { EditorKind } from '../../../../../shared/types/workspace'
 import { EditorIcon, editorLabel, editorSource } from '@/features/editor/EditorIcon'
 import { AutoSaveSetting } from './AutoSaveSetting'
+import { GitOpenStyleSettings } from '../../settings/GitOpenStyleSettings'
 import { setWordComplete, useWordComplete } from '../code/snippets/words'
 
 export function EditorSection() {
@@ -56,42 +57,7 @@ export function EditorSection() {
         description={tr('editor.complete.description')}
         control={<Switch checked={wordComplete} label={tr('editor.complete.title')} onChange={setWordComplete} />}
       />
-      <SettingRow
-        title={tr('settings.editor.EditorSection.defaultOpeningMethod')}
-        description={tr('settings.editor.EditorSection.toolbarOpensBuiltIn')}
-      >
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            aria-pressed={!state || state.openWith === 'app'}
-            disabled={busy || isDemo}
-            className="rounded-md border border-line bg-subtle px-3 py-1.5 text-ui text-fg aria-pressed:border-accent aria-pressed:bg-accent-soft"
-            onClick={() =>
-              void run(async () => setEditors(await window.pixelsky!.editor.preferences({ openWith: 'app' })))
-            }
-          >
-            {tr('ui.Logo.pixelStarrySky')}
-          </button>
-          {state?.items.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              disabled={!item.available || busy || isDemo}
-              aria-pressed={state.openWith === item.id}
-              title={item.path}
-              className="inline-flex items-center gap-2 rounded-md border border-line bg-subtle px-3 py-1.5 text-ui text-fg aria-pressed:border-accent aria-pressed:bg-accent-soft disabled:opacity-50"
-              onClick={() =>
-                void run(async () =>
-                  setEditors(await window.pixelsky!.editor.preferences({ openWith: item.id, defaultId: item.id })),
-                )
-              }
-            >
-              <EditorIcon item={item} />
-              {editorLabel(item)}
-            </button>
-          ))}
-        </div>
-      </SettingRow>
+      <GitOpenStyleSettings />
       <SettingRow
         title={tr('settings.editor.EditorSection.defaultExternalEditor')}
         description={tr('settings.editor.EditorSection.editorToolbarsExternalEditor')}

@@ -13,7 +13,8 @@ export function ComposerStyleSettings() {
   useI18n()
   const selected = useComposerStyle()
   return (
-    <div>
+    // 不包一层 div：这一行要直接跟在小标题后面，才留得出和别的小标题一样的间距
+    <>
       <SettingRow
         title={tr('settings.ComposerStyleSettings.composerStyle')}
         description={tr('settings.ComposerStyleSettings.chatgptPlacesToolsInside')}
@@ -68,7 +69,7 @@ export function ComposerStyleSettings() {
           </button>
         ))}
       </div>
-    </div>
+    </>
   )
 }
 function PreviewTools({ send = false }: { send?: boolean }) {

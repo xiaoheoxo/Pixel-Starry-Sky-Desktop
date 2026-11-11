@@ -14,7 +14,7 @@ export const terminalMessages = {
   'palette.external': { zh: '在外部编辑器中打开', en: 'Open in external editor' },
   'palette.openFolder': { zh: '打开项目目录', en: 'Open project folder' },
   'palette.copyPath': { zh: '复制当前文件路径', en: 'Copy current file path' },
-  'palette.models': { zh: '打开模型与额度设置', en: 'Open models and credits settings' },
+  'palette.models': { zh: '打开模型通道设置', en: 'Open model channels settings' },
   'palette.selectTerminal': { zh: '切换终端：{name}', en: 'Switch terminal: {name}' },
   'palette.light': { zh: '浅色主题', en: 'Light theme' },
   'palette.dark': { zh: '深色主题', en: 'Dark theme' },

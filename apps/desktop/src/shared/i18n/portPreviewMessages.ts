@@ -14,8 +14,8 @@ export const portPreviewMessages = {
   'portTip.ignoreThis': { zh: '忽略这个端口', en: 'Dismiss this port' },
   'portTip.turnOff': { zh: '不再提示发现的本机页面', en: 'Stop showing local page tips' },
   'portTip.turnedOff': {
-    zh: '已关闭「发现本机页面」提示，可在 设置 › 外观 › 对话 里重新打开',
-    en: 'Local page tips are off. Turn them back on in Settings › Appearance › Conversation',
+    zh: '已关闭「发现本机页面」提示，可在 设置 › 对话 › 提示 里重新打开',
+    en: 'Local page tips are off. Turn them back on in Settings › Chats › Tips',
   },
   'portTip.undo': { zh: '撤销', en: 'Undo' },
   'portTip.setting.title': { zh: '命令输出里发现本机页面时提示', en: 'Show a tip when commands print a local page' },

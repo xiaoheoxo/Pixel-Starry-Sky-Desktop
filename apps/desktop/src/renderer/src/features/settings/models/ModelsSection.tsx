@@ -1,7 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../../i18n/core'
 // 设置 › 模型通道（docs/ui/model-channels.md §2.1）：最上面四张通道卡和「新对话用」（model-channels/ChannelsSettings.tsx，
-// 自定义 API 的接口列在第四张卡里，docs/ui/custom-api.md）；下面是平台线路一览、菜单里显示的模型、AI 提交说明、请求重试。
+// 自定义 API 的接口列在第四张卡里，docs/ui/custom-api.md）；下面是平台线路一览、菜单里显示的模型。AI 写提交信息、语音输入在「AI 辅助」，请求重试在「本机引擎」（docs/ui/settings-reorg.md）。
 import type { EngineId } from '@pixelsky/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
@@ -22,11 +22,9 @@ import {
 } from '@/features/account/platform'
 import { GroupTitle, SectionTitle } from '../SettingRow'
 import { takeModelsScroll } from './scroll'
-import { RequestRetrySettings } from './RequestRetrySettings'
 import { ChannelsSettings } from '@/features/model-channels/ChannelsSettings'
 import { AccountsPage } from '@/features/model-channels/AccountsPage'
 import { openAccountsPage, useAccountsPage } from '@/features/model-channels/accountsStore'
-import { AiCommitSettings } from './AiCommitSettings'
 import { KeyChip, KeyLegend, KeyModeRow } from './PlatformKeyMode'
 import { useKeyMode } from '@/features/account/keyMode'
 import { ContextWindowInput } from './ContextWindowInput'
@@ -115,11 +113,7 @@ export function ModelsSection() {
       {platform.email && <GroupTitle>{tr('session.ModelSourceMenu.platform')}</GroupTitle>}
       {platform.email && (
         <div className="mt-3">
-          <div className="mb-2 flex items-center justify-between gap-3 text-meta text-fg-muted">
-            <span className="min-w-0 truncate">
-              {platform.email}
-              {account.balanceText ? tr('settings.models.ModelsSection.balance', { p0: account.balanceText }) : ''}
-            </span>
+          <div className="mb-2 flex items-center justify-end gap-3 text-meta text-fg-muted">
             <button
               type="button"
               disabled={platform.loading}
@@ -258,11 +252,6 @@ export function ModelsSection() {
 
       {/* 自定义 API 的模型也能在这里填窗口（docs/ui/context-settings-branch-switch.md §2.3.1） */}
       <CustomModelWindows />
-
-      <GroupTitle>{tr('aiCommit.settings.title')}</GroupTitle>
-      <AiCommitSettings />
-      <GroupTitle>{tr('settings.models.ModelsSection.requestRetries')}</GroupTitle>
-      <RequestRetrySettings />
     </section>
   )
 }

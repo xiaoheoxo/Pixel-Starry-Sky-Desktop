@@ -101,7 +101,7 @@ export function TerminalSection() {
   if (machines.currentId !== 'local')
     return (
       <section>
-        <SectionTitle>{t('terminal.settings')}</SectionTitle>
+        <SectionTitle>{t('settingsNav.terminal')}</SectionTitle>
         <p className="text-ui text-fg-muted">{t('SSH_SHELL_MANAGED_REMOTELY')}</p>
         <TerminalViewPrefs />
       </section>
@@ -109,7 +109,7 @@ export function TerminalSection() {
   return (
     <section>
       <div className="flex items-start justify-between">
-        <SectionTitle>{t('terminal.settings')}</SectionTitle>
+        <SectionTitle>{t('settingsNav.terminal')}</SectionTitle>
         <Button icon={RefreshCw} disabled={busy} onClick={() => void run(() => refreshTerminals(true))}>
           {t('terminal.detect')}
         </Button>

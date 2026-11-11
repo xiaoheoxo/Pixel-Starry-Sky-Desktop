@@ -49,8 +49,8 @@ export const subagentRouteMessages = {
     en: 'The main session can hand subtasks such as research or batch edits to subagents. Split them into types by purpose; each type can use its own site, model and tool permissions.',
   },
   'subagentRoute.scope': {
-    zh: '目前只对 Pixel 引擎的会话生效；Claude Code、Codex 照旧用自带的子智能体',
-    en: 'Applies to Pixel engine sessions only; Claude Code and Codex keep their own subagents',
+    zh: '下面的类型只对 Pixel 的会话生效；Claude Code 用自带的子智能体，Codex 的在「本机引擎 › Codex」里设置',
+    en: 'These types apply to Pixel sessions only. Claude Code keeps its own subagents; set Codex’s under Local engines › Codex',
   },
   'subagentRoute.types': { zh: '类型', en: 'Types' },
   'subagentRoute.typesHint': {
@@ -287,7 +287,7 @@ export const subagentRouteMessages = {
     en: 'The type you are editing is not saved. Leaving will lose your changes.',
   },
   // 改版（docs/ui/subagent-settings-v2-mockup.html）：两栏、从模板新建、主会话看到的类型说明
-  'subagentRoute.scopeShort': { zh: '只对 Pixel 引擎生效', en: 'Pixel engine only' },
+  'subagentRoute.scopeShort': { zh: '只对 Pixel 生效', en: 'Pixel only' },
   'subagentRoute.count': { zh: '{n} / {max}', en: '{n} / {max}' },
   'subagentRoute.templates': { zh: '从模板新建', en: 'Start from a template' },
   'subagentRoute.templatesHint': { zh: '点一下建好，展开再改', en: 'One click creates it; adjust before saving' },

@@ -1,4 +1,4 @@
-// 设置 › 模型与额度 › 自定义 API（docs/ui/custom-api.md §3.1）：接口列表、添加 / 编辑对话框、测试连接、读取模型、计价参照。
+// 设置 › 模型通道 › 自定义 API（docs/ui/custom-api.md §3.1）：接口列表、添加 / 编辑对话框、测试连接、读取模型、计价参照。
 // Key 只进不出：对话框里 Key 留空表示不改，附加请求头已保存的值显示为打码
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'

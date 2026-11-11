@@ -130,7 +130,7 @@ export function QuotaPopover({
         onOpenSettings={() => {
           requestSettingsRow(tr('quota.settings.title'))
           onClose()
-          settings.openSettings('appearance')
+          settings.openSettings('chat')
         }}
         onOpenAccount={() => {
           onClose()

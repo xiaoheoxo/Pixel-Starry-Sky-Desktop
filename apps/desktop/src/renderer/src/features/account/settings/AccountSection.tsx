@@ -135,14 +135,15 @@ export function AccountSection() {
             onRefresh={() => void acc.refresh()}
             onNavigate={setTab}
           />
-          <SyncSettings />
-          <AccountService />
         </>
       )}
       {tab !== 'overview' && (
         // key：换标签（或离开账号页）就重置，付款检测随之停止
         <StorePages key={tab} tab={tab} account={acc.account} onRefreshAccount={acc.refresh} />
       )}
+      {/* 云同步不跟页签走：换到套餐、充值也看得到 */}
+      <SyncSettings />
+      {tab === 'overview' && <AccountService />}
     </section>
   )
 }

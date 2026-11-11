@@ -20,6 +20,7 @@ import {
   type PermissionMode,
 } from '@pixelsky/protocol'
 import { Button, CopyButton, EngineIcon, Select, Switch, cn } from '@/ui'
+import { CodexSubagentCard } from '../CodexSubagentCard'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useUnmountFlush } from '@/ui/useUnmountFlush'
 import { platformModels, usePlatform } from '@/features/account/platform'
@@ -57,17 +58,13 @@ export function EngineDetail({
   config,
   isDefault,
   onSave,
-  onSetDefault,
   onBack,
-  onOpenModels,
 }: {
   engine: EngineLite
   config: EngineLocalConfig
   isDefault: boolean
   onSave: (patch: EngineConfigPatch) => Promise<void>
-  onSetDefault: () => Promise<void>
   onBack: () => void
-  onOpenModels?: () => void
 }) {
   useI18n()
   const [error, setError] = useState<string | null>(null)
@@ -78,6 +75,26 @@ export function EngineDetail({
   const d = config.defaults
   // 新会话默认改成完全放行：影响以后所有新任务，先弹窗确认（docs/ui/full-access-confirm.md P4）
   const [confirmFull, setConfirmFull] = useState(false)
+  // Codex 的并在「会话」组里，Claude Code 的在「多会话」组里
+  const peekRow = (
+    <Row
+      title={tr('settings.engines.EngineDetail.peekSessions')}
+      description={tr('settings.engines.EngineDetail.peekSessionsHint')}
+      control={
+        <Select
+          label={tr('settings.engines.EngineDetail.peekSessions')}
+          value={config.peekSessions}
+          onChange={v => run({ peekSessions: v as PeekScope })}
+          options={PEEK_OPTIONS.map(o => ({
+            value: o.value,
+            get label() {
+              return tr(o.key)
+            },
+          }))}
+        />
+      }
+    />
+  )
 
   return (
     <section>
@@ -110,7 +127,8 @@ export function EngineDetail({
         {tr('settings.engines.EngineDetail.allEngines')}{' '}
       </button>
 
-      <Header engine={e} isDefault={isDefault} onSetDefault={onSetDefault} />
+      <Header engine={e} isDefault={isDefault} />
+      {e.id === 'codex' && <p className="mt-3 text-meta text-fg-muted">{tr('codex.nativeSettings')}</p>}
       <p className="mt-4 mb-2 rounded-lg bg-subtle px-3 py-2 text-meta text-fg-muted">
         {tr('settings.engines.EngineDetail.changesTakeEffectImmediately', { p0: e.name })}
       </p>
@@ -171,21 +189,6 @@ export function EngineDetail({
             />
           }
         />
-        <Row
-          title={tr('session.ModelSourceMenu.model')}
-          description={tr('settings.engines.EngineDetail.defaultModelsForPlatform')}
-          control={
-            onOpenModels && (
-              <button
-                type="button"
-                onClick={onOpenModels}
-                className="shrink-0 text-meta text-accent-fg hover:underline"
-              >
-                {tr('settings.engines.EngineDetail.manageModels')}{' '}
-              </button>
-            )
-          }
-        />
         {e.caps.fast && (
           <Row
             title={tr('session.ComposerMenus.fastMode')}
@@ -239,7 +242,13 @@ export function EngineDetail({
         />
         <Row
           title={tr('engineDefaults.factory')}
-          description={tr('engineDefaults.factoryHint')}
+          description={tr(
+            e.caps.ultracode
+              ? 'engineDefaults.factoryHint'
+              : e.caps.thinkingSummaries
+                ? 'settingsEngines.factoryNoUltracode'
+                : 'settingsEngines.factoryBasic',
+          )}
           control={
             <Button
               variant="outline"
@@ -255,7 +264,9 @@ export function EngineDetail({
 
       {/* Codex 没有 launchSettings，但输入预测在这一组：只按 launchSettings 判断会让它整组不显示 */}
       {(e.caps.launchSettings || e.id === 'codex') && (
-        <Group title={tr('settings.engines.EngineDetail.conversation')}>
+        <Group
+          title={tr(e.id === 'codex' ? 'settingsEngines.codexSession' : 'settings.engines.EngineDetail.conversation')}
+        >
           {e.caps.launchSettings && (
             <>
               <OutputStyleRow engine={e} value={config.outputStyle} onChange={outputStyle => run({ outputStyle })} />
@@ -311,50 +322,37 @@ export function EngineDetail({
               }
             />
           )}
+          {/* 重置卡（docs/ui/codex-reset-card.md §3）：默认关，打开时 95% / 1 天 / 1 张 */}
+          {e.id === 'codex' && (
+            <Row
+              title={tr('resetCard.settings.auto')}
+              description={tr('resetCard.settings.autoHint')}
+              control={
+                <Switch
+                  checked={!!config.resetCreditAuto}
+                  label={tr('resetCard.settings.auto')}
+                  onChange={on => run({ resetCreditAuto: on ? { threshold: 95, minLeftHours: 24, perWeek: 1 } : null })}
+                />
+              }
+            >
+              {config.resetCreditAuto && (
+                <ResetAutoFields value={config.resetCreditAuto} onChange={v => run({ resetCreditAuto: v })} />
+              )}
+            </Row>
+          )}
+          {e.id === 'codex' && peekRow}
         </Group>
       )}
-
-      {/* 重置卡（docs/ui/codex-reset-card.md §3）：默认关，打开时 95% / 1 天 / 1 张 */}
+      {/* Codex 派出的子智能体用哪个模型（原来在设置 › 子智能体，docs/ui/settings-reorg.md §4） */}
       {e.id === 'codex' && (
-        <Group title={tr('resetCard.settings.group')}>
-          <Row
-            title={tr('resetCard.settings.auto')}
-            description={tr('resetCard.settings.autoHint')}
-            control={
-              <Switch
-                checked={!!config.resetCreditAuto}
-                label={tr('resetCard.settings.auto')}
-                onChange={on => run({ resetCreditAuto: on ? { threshold: 95, minLeftHours: 24, perWeek: 1 } : null })}
-              />
-            }
-          >
-            {config.resetCreditAuto && (
-              <ResetAutoFields value={config.resetCreditAuto} onChange={v => run({ resetCreditAuto: v })} />
-            )}
-          </Row>
-        </Group>
+        <div className="mt-7">
+          <CodexSubagentCard onError={setError} />
+        </div>
       )}
-      {e.id === 'codex' && <p className="mt-4 text-meta text-fg-muted">{tr('codex.nativeSettings')}</p>}
       {/* 多会话（docs/ui/import-collab.md 第 5 项③④）：只读查看本机其他会话；Claude Code 自带的跨会话收件 */}
-      {(e.id === 'claude' || e.id === 'codex') && (
+      {e.id === 'claude' && (
         <Group title={tr('settings.engines.EngineDetail.multiSession')}>
-          <Row
-            title={tr('settings.engines.EngineDetail.peekSessions')}
-            description={tr('settings.engines.EngineDetail.peekSessionsHint')}
-            control={
-              <Select
-                label={tr('settings.engines.EngineDetail.peekSessions')}
-                value={config.peekSessions}
-                onChange={v => run({ peekSessions: v as PeekScope })}
-                options={PEEK_OPTIONS.map(o => ({
-                  value: o.value,
-                  get label() {
-                    return tr(o.key)
-                  },
-                }))}
-              />
-            }
-          />
+          {peekRow}
           {e.caps.launchSettings && (
             <Row
               title={tr('settings.engines.EngineDetail.peerMessages')}
@@ -435,16 +433,8 @@ export function EngineDetail({
   )
 }
 
-/** 头部：图标、名字、默认角标、版本 · 路径、介绍；右侧设为默认、重新检测、检查更新 */
-function Header({
-  engine: e,
-  isDefault,
-  onSetDefault,
-}: {
-  engine: EngineLite
-  isDefault: boolean
-  onSetDefault: () => Promise<void>
-}) {
+/** 头部：图标、名字、默认角标、版本 · 路径、介绍；右侧重新检测、检查更新 */
+function Header({ engine: e, isDefault }: { engine: EngineLite; isDefault: boolean }) {
   useI18n()
   // 和列表那一行共用（engineUpdate.ts）：在列表点了「更新」，进详情也看得到进度和结果
   const { updating, action, job, result } = useEngineUpdate(e.id)
@@ -488,11 +478,6 @@ function Header({
           <p className="mt-1 text-meta text-fg-secondary">{ENGINE_INTRO[e.id]}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {!isDefault && ready && (
-            <Button variant="outline" className="h-8 px-3 text-meta" onClick={() => void onSetDefault()}>
-              {tr('session.ModelSourceMenu.setAsDefault')}{' '}
-            </Button>
-          )}
           <Button
             variant="outline"
             icon={RefreshCw}

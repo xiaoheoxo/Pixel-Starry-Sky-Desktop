@@ -181,21 +181,6 @@ export function StorageSection({ onOpenSession }: { onOpenSession: (sessionId: s
         ))}
       </div>
 
-      {usage && (
-        <div className="mt-3 flex min-w-0 items-center gap-2 text-meta text-fg-faint">
-          <span className="min-w-0 truncate font-mono" title={usage.root}>
-            {usage.root}
-          </span>
-          <button
-            type="button"
-            className="inline-flex shrink-0 items-center gap-1 text-accent-fg hover:underline"
-            onClick={() => void bridge.open().catch((e: unknown) => setToast(String((e as Error)?.message ?? e)))}
-          >
-            <FolderOpen size={12} strokeWidth={1.75} />
-            {t('storage.openFolder')}
-          </button>
-        </div>
-      )}
       {error && <p className="mt-2 text-meta text-danger">{error}</p>}
 
       <Card className="mt-6">
@@ -294,6 +279,23 @@ export function StorageSection({ onOpenSession }: { onOpenSession: (sessionId: s
           onConfirm={() => void clearCheckpoints()}
           onCancel={() => setConfirmCheckpoints(false)}
         />
+      )}
+      {/* 两个路径放在一起：这里是设置和登录信息，紧接着的「数据位置」是对话数据 */}
+      {usage && (
+        <div className="mt-6 flex min-w-0 items-center gap-2 text-meta text-fg-faint">
+          <span className="shrink-0 text-fg-muted">{t('settingsStorage.settingsPath')}</span>
+          <span className="min-w-0 truncate font-mono" title={usage.root}>
+            {usage.root}
+          </span>
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center gap-1 text-accent-fg hover:underline"
+            onClick={() => void bridge.open().catch((e: unknown) => setToast(String((e as Error)?.message ?? e)))}
+          >
+            <FolderOpen size={12} strokeWidth={1.75} />
+            {t('storage.openFolder')}
+          </button>
+        </div>
       )}
       {toast && (
         <Toast className="py-2.5 text-list">

@@ -1,16 +1,13 @@
-// 设置 › 模型与额度 › AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2.3、docs/ui/ai-commit-channels.md §2）：
-// 显示按钮、用哪条通道（四条通道列表，选中的展开模型 / 线路 / 接口；没设置好的放在「还没设置」下面）、语言、写法、额外要求
+// 设置 › AI 辅助（docs/ui/ai-commit-channels.md §2、docs/ui/settings-reorg.md §3）：
+// 共用的通道（一个下拉，下面是模型 / 线路 / 接口；通道的状态和修复在「模型通道」）、提交信息的按钮 / 语言 / 写法 / 额外要求、优化提示词的按钮
 import { useEffect, useState, type ReactNode } from 'react'
 import { Plug } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
-import { Button, cn, EngineIcon, Segmented, Select, Spinner } from '@/ui'
+import { Button, EngineIcon, Segmented, Select } from '@/ui'
 import { useUnmountFlush } from '@/ui/useUnmountFlush'
-import { useAccount } from '@/features/account'
-import { formatMultiplier, groupsForModel, platformModels, refreshPlatform } from '@/features/account/platform'
-import { channelFix, channelFixLabel, channelStateText } from '@/features/model-channels/channelLabels'
-import type { ChannelState } from '@/features/model-channels/channelModel'
-import { openAuthDialog } from '@/features/model-channels/authDialogStore'
+import { formatMultiplier, groupsForModel, platformModels } from '@/features/account/platform'
+import { channelStateText } from '@/features/model-channels/channelLabels'
 import { useSettings } from '../SettingsProvider'
 import {
   AI_COMMIT_CLAUDE_MODEL,
@@ -26,7 +23,7 @@ import {
   useAiCommitSettings,
   type AiCommitModel,
 } from '../aiCommit'
-import { SettingRow, Toggle } from '../SettingRow'
+import { GroupTitle, SettingRow, Toggle } from '../SettingRow'
 import { useCommitChannels } from './useCommitChannels'
 import type { AiCommitLanguage, AiCommitStyle, AiSource } from '../../../../../shared/types/ai'
 
@@ -53,20 +50,57 @@ export function AiCommitSettings() {
     if (instructions !== writing.instructions) setAiCommitWriting({ instructions })
   }
   const unsaved = useUnmountFlush(saveInstructions)
-  const row = (c: { source: AiSource; state: ChannelState }) => (
-    <ChannelRow
-      key={c.source}
-      source={c.source}
-      state={c.state}
-      model={model}
-      selected={selected === c.source}
-      auto={model.source === null}
-      channels={channels}
-    />
-  )
+  const { ready, unset } = channels.channels
+  const settings = useSettings()
 
   return (
     <div>
+      <GroupTitle>{tr('settingsAssist.channel')}</GroupTitle>
+      <SettingRow
+        title={tr('aiCommit.settings.source')}
+        description={`${tr('settingsAssist.channelHint')}${tr('aiCommit.settings.sourceHint')}`}
+      >
+        {ready.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-meta text-warn">{tr('settingsAssist.noChannel')}</p>
+            <Button className="h-7 px-2.5 text-meta" onClick={() => settings.openSettings('models')}>
+              {tr('settingsAssist.openChannels')}
+            </Button>
+          </div>
+        ) : (
+          <div className="max-w-xl rounded-lg border border-line">
+            <div className="p-3">
+              <Select<AiSource>
+                label={tr('aiCommit.settings.source')}
+                className="w-full"
+                // 没选过时不当成选中：显示「X · 自动选的」，点任何一项（包括同一项）都会存下来
+                value={model.source ?? ('' as AiSource)}
+                placeholder={`${channels.name(selected)} · ${tr('aiCommit.settings.auto')}`}
+                onChange={source => setAiCommitModel({ source })}
+                options={[
+                  ...ready.map(c => ({
+                    value: c.source,
+                    label: channels.name(c.source),
+                    hint: channels.costLabel(c.source),
+                  })),
+                  // 没设置好的也列出来，说明为什么不能选；去「模型通道」里设置
+                  ...unset.map(c => ({
+                    value: c.source,
+                    label: channels.name(c.source),
+                    description: channelStateText(COMMIT_CHANNEL[c.source], c.state) ?? undefined,
+                    disabled: true,
+                  })),
+                ]}
+              />
+            </div>
+            {ready.some(c => c.source === selected) && (
+              <ChannelDetail source={selected} model={model} channels={channels} />
+            )}
+          </div>
+        )}
+      </SettingRow>
+
+      <GroupTitle>{tr('settingsAssist.commit')}</GroupTitle>
       <SettingRow
         title={tr('aiCommit.settings.enabled')}
         description={tr('aiCommit.settings.enabledHint')}
@@ -78,32 +112,6 @@ export function AiCommitSettings() {
           />
         }
       />
-      <SettingRow
-        title={tr('promptOptimize.settings.enabled')}
-        description={tr('promptOptimize.settings.enabledHint')}
-        control={
-          <Toggle
-            label={tr('promptOptimize.settings.enabled')}
-            checked={writing.promptButton}
-            onChange={promptButton => setAiCommitWriting({ promptButton })}
-          />
-        }
-      />
-      <SettingRow title={tr('aiCommit.settings.source')} description={tr('aiCommit.settings.sourceHint')}>
-        <div
-          role="radiogroup"
-          aria-label={tr('aiCommit.settings.source')}
-          className="max-w-xl overflow-hidden rounded-lg border border-line"
-        >
-          {channels.channels.ready.map(row)}
-          {channels.channels.unset.length > 0 && (
-            <div className="border-t border-line-subtle bg-subtle px-3 py-1.5 text-meta text-fg-faint first:border-t-0">
-              {tr('aiCommit.settings.unset', { n: channels.channels.unset.length })}
-            </div>
-          )}
-          {channels.channels.unset.map(row)}
-        </div>
-      </SettingRow>
       <SettingRow title={tr('aiCommit.settings.language')} description="">
         <Segmented<AiCommitLanguage>
           label={tr('aiCommit.settings.language')}
@@ -142,114 +150,29 @@ export function AiCommitSettings() {
           className="block max-h-40 min-h-14 w-full max-w-xl resize-y rounded-md border border-line bg-surface px-2.5 py-2 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent"
         />
       </SettingRow>
+
+      <GroupTitle>{tr('settingsAssist.prompt')}</GroupTitle>
+      <SettingRow
+        title={tr('promptOptimize.settings.enabled')}
+        description={tr('promptOptimize.settings.enabledHint')}
+        control={
+          <Toggle
+            label={tr('promptOptimize.settings.enabled')}
+            checked={writing.promptButton}
+            onChange={promptButton => setAiCommitWriting({ promptButton })}
+          />
+        }
+      />
     </div>
   )
 }
 
 type Channels = ReturnType<typeof useCommitChannels>
 
-/** 通道列表的一行：单选圈、图标、名字和状态、右边的费用或修复按钮；选中的展开模型 */
-function ChannelRow({
-  source,
-  state,
-  model,
-  selected,
-  auto,
-  channels,
-}: {
-  source: AiSource
-  state: ChannelState
-  model: AiCommitModel
-  selected: boolean
-  auto: boolean
-  channels: Channels
-}) {
-  const account = useAccount()
-  const settings = useSettings()
-  const channel = COMMIT_CHANNEL[source]
-  const off = state.kind !== 'ready' && state.kind !== 'loading'
-  const fix = off ? channelFix(state) : null
-  const runFix = (): void => {
-    if (fix === 'signin') void account.login()
-    else if (fix === 'retry') void refreshPlatform()
-    else if (fix === 'auth' && (channel === 'claude' || channel === 'chatgpt')) openAuthDialog(channel)
-    else settings.openSettings('engines')
-  }
-  const sub = off ? channelStateText(channel, state) : channels.modelLabel(source, model)
-  return (
-    <div className={cn('border-t border-line-subtle first:border-t-0', selected && !off && 'bg-selected')}>
-      <div className="flex min-h-12 items-center gap-2.5 px-3 py-2">
-        <button
-          type="button"
-          role="radio"
-          aria-checked={selected}
-          disabled={off}
-          onClick={() => setAiCommitModel({ source })}
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:cursor-default"
-        >
-          <span
-            className={cn(
-              'flex size-3.5 shrink-0 items-center justify-center rounded-full border',
-              selected ? 'border-accent' : 'border-line-strong',
-              off && 'opacity-50',
-            )}
-          >
-            {selected && <span className="size-1.5 rounded-full bg-accent" />}
-          </span>
-          <span className={cn('flex size-5 shrink-0 items-center justify-center', off && 'opacity-50')}>
-            <CommitChannelIcon source={source} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className={cn('flex items-center gap-1.5 text-ui font-medium', off ? 'text-fg-muted' : 'text-fg')}>
-              <span className="truncate">{channels.name(source)}</span>
-              {source === 'claude' && !off && <Chip tone="accent">{tr('aiCommit.settings.recommended')}</Chip>}
-              {selected && auto && !off && <Chip>{tr('aiCommit.settings.auto')}</Chip>}
-              {state.kind === 'loading' && <Spinner size={11} />}
-            </span>
-            {sub && (
-              <span
-                className={cn(
-                  'block truncate text-meta',
-                  off ? 'text-warn' : 'text-fg-muted',
-                  (source === 'platform' || source === 'custom') && !off && 'font-mono',
-                )}
-              >
-                {sub}
-              </span>
-            )}
-          </span>
-        </button>
-        {/* 添加接口就在上面的「自定义接口」里，不另给按钮 */}
-        {fix && fix !== 'add-endpoint' ? (
-          <Button className="h-7 px-2.5 text-meta" onClick={runFix}>
-            {channelFixLabel(fix)}
-          </Button>
-        ) : !off ? (
-          <Chip>{channels.costLabel(source)}</Chip>
-        ) : null}
-      </div>
-      {selected && !off && <ChannelDetail source={source} model={model} channels={channels} />}
-    </div>
-  )
-}
-
-function Chip({ children, tone }: { children: ReactNode; tone?: 'accent' }) {
-  return (
-    <span
-      className={cn(
-        'shrink-0 rounded-full border px-1.5 text-meta font-normal whitespace-nowrap',
-        tone === 'accent' ? 'border-accent text-accent-fg' : 'border-line text-fg-muted',
-      )}
-    >
-      {children}
-    </span>
-  )
-}
-
 /** 选中的通道展开的部分：模型 / 线路 / 接口，下面一行说怎么算钱 */
 function ChannelDetail({ source, model, channels }: { source: AiSource; model: AiCommitModel; channels: Channels }) {
   const wrap = (children: ReactNode, facts?: string) => (
-    <div className="px-3 pb-3 pl-[3.25rem]">
+    <div className="px-3 pb-3">
       <div className="flex flex-wrap gap-2">{children}</div>
       {facts && <p className="mt-1.5 text-meta text-fg-faint">{facts}</p>}
     </div>

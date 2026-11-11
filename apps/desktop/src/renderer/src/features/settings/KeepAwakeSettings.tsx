@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useToast } from '@/ui'
-import { GroupTitle, SettingRow, Toggle } from './SettingRow'
+import { SettingRow, Toggle } from './SettingRow'
 
 /** 对话运行时不让电脑睡眠。值存在手机的设置文件里（老用户的选择不用迁移），和手机开关无关 */
 export function KeepAwakeSettings() {
@@ -28,7 +28,6 @@ export function KeepAwakeSettings() {
   if (!bridge) return null
   return (
     <>
-      <GroupTitle>{tr('notifications.keepAwake.group')}</GroupTitle>
       <SettingRow
         title={tr('notifications.keepAwake.title')}
         description={tr('notifications.keepAwake.desc')}

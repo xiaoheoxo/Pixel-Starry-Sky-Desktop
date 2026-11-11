@@ -327,7 +327,7 @@ export function Composer({
     onError: setError,
     onSetup: () =>
       toast(tr('voice.setup'), {
-        action: { label: tr('voice.openSettings'), run: () => settings.openSettings('models') },
+        action: { label: tr('voice.openSettings'), run: () => settings.openSettings('assist') },
       }),
   })
   const chooseMention = (index: number): void => {

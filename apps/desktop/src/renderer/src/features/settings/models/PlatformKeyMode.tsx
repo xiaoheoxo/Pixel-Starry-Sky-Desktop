@@ -11,7 +11,7 @@ export function KeyModeRow() {
   useI18n()
   const { mode, saving, error } = useKeyMode()
   return (
-    <div className="mt-3 mb-4 border-b border-line-subtle pb-4">
+    <div data-setting-title={tr('platformKey.title')} className="mt-3 mb-4 rounded-md border-b border-line-subtle pb-4">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-ui font-medium text-fg">{tr('platformKey.title')}</div>

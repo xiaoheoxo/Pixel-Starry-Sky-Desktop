@@ -17,7 +17,8 @@ export function GroupTitle({ children }: { children: ReactNode }) {
   return (
     <h4
       data-setting-title={typeof children === 'string' ? children : undefined}
-      className="mt-2 border-t border-line pt-6 pb-1 text-label font-medium text-fg-muted"
+      // 紧跟页标题的小标题不画分隔线（页标题下面已经留了间距）
+      className="mt-2 border-t border-line pt-6 pb-1 text-label font-medium text-fg-muted [h3+&]:mt-0 [h3+&]:border-t-0 [h3+&]:pt-0"
     >
       {typeof children === 'string' ? text(children) : children}
     </h4>
@@ -45,7 +46,8 @@ export function SettingRow({
   return (
     <div
       data-setting-title={title}
-      className="rounded-md border-t border-line-subtle py-5 first-of-type:border-t-0 first-of-type:pt-0"
+      // 页面第一行不要上边线和上间距；但前面是小标题时照常留，不然第一组的标题会贴着第一行
+      className="rounded-md border-t border-line-subtle py-5 first-of-type:border-t-0 first-of-type:pt-0 [h4+&]:first-of-type:border-t [h4+&]:first-of-type:pt-5"
     >
       <div className={control ? 'flex items-center justify-between gap-4' : undefined}>
         <div className="min-w-0">

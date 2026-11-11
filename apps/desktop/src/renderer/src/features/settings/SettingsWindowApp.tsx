@@ -38,7 +38,7 @@ function takeTarget(target: SettingsTarget): SectionId | null {
 export function SettingsWindowApp() {
   useI18n()
   useEngineBoot()
-  const [section, setSection] = useState<SectionId>(() => takeTarget(initialTarget()) ?? 'appearance')
+  const [section, setSection] = useState<SectionId>(() => takeTarget(initialTarget()) ?? 'general')
   // 已经开着时又要跳到某一行：数字变一次，内容里再取一次 takeSettingsRow
   const [jumpToken, setJumpToken] = useState(0)
   const sectionRef = useRef(section)
@@ -78,7 +78,7 @@ export function SettingsWindowApp() {
   }, [currentId])
 
   const openSettings = useCallback((target?: SectionId) => {
-    setSection(target ?? 'appearance')
+    setSection(target ?? 'general')
     setJumpToken(n => n + 1)
   }, [])
   const value = useMemo<SettingsContextValue>(

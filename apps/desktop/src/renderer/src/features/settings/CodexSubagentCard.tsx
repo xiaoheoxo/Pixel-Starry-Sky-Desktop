@@ -1,4 +1,4 @@
-// 设置 › 子智能体 › Codex 子智能体（docs/ui/codex-subagent-model.md）：Codex 派出的子智能体统一用哪个模型 / 强度，
+// 设置 › 本机引擎 › Codex › Codex 子智能体（docs/ui/codex-subagent-model.md）：Codex 派出的子智能体统一用哪个模型 / 强度，
 // 主会话不变。存在引擎级设置（engine:setConfig 的 subagentModel / subagentEffort），启动 Codex 时经 agents.default_subagent_* 传给它
 import type { Effort } from '@pixelsky/protocol'
 import { bridge, useEngineState } from '@/features/engine'

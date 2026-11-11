@@ -6,6 +6,7 @@ import {
   BookmarkPlus,
   ArchiveRestore,
   AtSign,
+  Bot,
   ChevronDown,
   CloudOff,
   Ellipsis,
@@ -30,6 +31,7 @@ import { channelActions, channelsLive, selfMember, useChannels } from './store'
 import { useNeeds } from './needs'
 import { SavePresetDialog } from './ChannelPresets'
 import { ChannelDialog } from './ChannelDialogs'
+import { AgentsDialog } from '@/features/settings/AgentsSection'
 import { CreateTeamDialog, TeamSettingsDialog } from './TeamDialog'
 import { roleLabel } from './TeamParts'
 import { formatShortTime, formatSyncTime } from './format'
@@ -387,6 +389,7 @@ export function ChannelList({
   const [menu, setMenu] = useState<{ x: number; y: number; team: TeamInfo } | null>(null)
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number; channel: Channel } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [agentsOpen, setAgentsOpen] = useState(false)
 
   const createLocal = () =>
     channelsLive ? setDialog({ kind: 'channel', teamId: null }) : comingSoon(tr('channels.new'))
@@ -580,6 +583,16 @@ export function ChannelList({
           <Plus size={14} strokeWidth={1.5} className="shrink-0 text-fg-muted" />
           <span className="truncate">{tr('channels.new')}</span>
         </button>
+        {channelsLive && (
+          <IconButton
+            icon={Bot}
+            label={tr('settingsAgents.manage')}
+            size={32}
+            iconSize={15}
+            data-manage-agents
+            onClick={() => setAgentsOpen(true)}
+          />
+        )}
         {teamUi && connection !== 'signed-out' && (
           <button
             type="button"
@@ -591,6 +604,7 @@ export function ChannelList({
           </button>
         )}
       </div>
+      {agentsOpen && <AgentsDialog onClose={() => setAgentsOpen(false)} />}
       {menu && (
         <ActionMenu
           x={menu.x}

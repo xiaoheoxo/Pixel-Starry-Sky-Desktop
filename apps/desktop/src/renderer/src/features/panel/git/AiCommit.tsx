@@ -352,7 +352,7 @@ function AiCommitMenu({ ai, onPick }: { ai: AiCommit; onPick: (source: AiSource)
       <button
         type="button"
         data-menu-item
-        onClick={() => settings.openSettings('models')}
+        onClick={() => settings.openSettings('assist')}
         className="w-full rounded-md px-2 py-1.5 text-left text-meta text-fg-muted hover:bg-hover"
       >
         {tr('aiCommit.menu.hint')}
@@ -450,7 +450,7 @@ export function AiCommitNote({ ai }: { ai: AiCommit }) {
       {label}
     </button>
   )
-  const models = () => settings.openSettings('models')
+  const models = () => settings.openSettings('assist')
   const channel = COMMIT_CHANNEL[note.source]
   return (
     <p role="alert" className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 px-0.5 text-meta text-danger">
@@ -469,7 +469,11 @@ export function AiCommitNote({ ai }: { ai: AiCommit }) {
         note.problem === 'route' ||
         note.problem === 'model' ||
         note.problem === 'provider') &&
-        action(tr('aiCommit.openSettings'), models)}
+        // 接口没有、没 Key、Key 无效：在模型通道的自定义 API 里修；线路、模型的下拉在 AI 辅助
+        action(
+          tr('aiCommit.openSettings'),
+          note.problem === 'provider' ? () => settings.openSettings('models') : models,
+        )}
     </p>
   )
 }

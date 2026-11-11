@@ -1,6 +1,6 @@
 // 子智能体显示成小框（docs/ui/subagent-box.md，D128，GitHub #41）
 export const subagentMessages = {
-  'subagent.setting': { zh: '子智能体', en: 'Subagents' },
+  'subagent.setting': { zh: '子智能体显示方式', en: 'Subagent display' },
   'subagent.settingHint': {
     zh: '小框：派发和完成各显示一个小框，子智能体自己的工具调用点小框查看；展开在执行里：子智能体的工具调用和其他命令一起放在「执行」里（0.3.1 之前的样子）',
     en: 'Boxes: each dispatch and completion shows as one box, click it to see the subagent’s own tool calls. Inside Worked: the subagent’s tool calls sit with the other commands in the “Worked” row (as before 0.3.1)',

@@ -46,7 +46,7 @@ describe('设置搜索（plan-search-panes-compact §1）', () => {
   })
   it('「停止时一起停掉后台子智能体」中文、英文关键词都搜得到', () => {
     expect(searchSettings('后台子智能体', label).map(h => h.title)).toContain('停止时一起停掉后台子智能体')
-    expect(searchSettings('stop background', label).map(h => h.section)).toContain('appearance')
+    expect(searchSettings('stop background', label).map(h => h.section)).toContain('chat')
   })
   it('文件图标、代码配色随扩展启停：没有启用着的扩展时搜不到，启用后搜得到', () => {
     const titles = (q: string) => searchSettings(q, label).map(h => h.title)

@@ -156,30 +156,7 @@ export function MobileSection() {
         )}
       </SettingRow>
 
-      <SettingRow title={tr('mobile.relay')} description={tr('mobile.relayDesc')}>
-        <form
-          className="flex gap-2"
-          onSubmit={e => {
-            e.preventDefault()
-            setError(null)
-            run(bridge.setPrefs({ relay }))
-          }}
-        >
-          <input
-            value={relay}
-            onChange={e => setRelay(e.target.value)}
-            spellCheck={false}
-            placeholder={state.relayDefault}
-            aria-label={t('mobile.relay')}
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-2 font-mono text-ui text-fg outline-none focus:border-accent"
-          />
-          <Button type="submit" disabled={relay.trim() === state.prefs.relay}>
-            {t('mobile.relaySave')}
-          </Button>
-        </form>
-      </SettingRow>
-
-      {shown && <p className="mb-4 text-meta text-danger">{shown}</p>}
+      {shown && error !== 'MOBILE_BAD_RELAY' && <p className="mb-4 text-meta text-danger">{shown}</p>}
 
       {seats?.available && (
         <>
@@ -292,6 +269,36 @@ export function MobileSection() {
           ))}
         </ul>
       )}
+      {/* 中转地址只有本机测试才要填，收在最下面 */}
+      <GroupTitle>{tr('settingsMobile.advanced')}</GroupTitle>
+      {/* 保存出错的提示跟着这一行：页面顶上那行报错这时已经滚出视野 */}
+      <SettingRow
+        title={tr('mobile.relay')}
+        description={tr('mobile.relayDesc')}
+        hint={error === 'MOBILE_BAD_RELAY' ? (shown ?? undefined) : undefined}
+        hintTone="danger"
+      >
+        <form
+          className="flex gap-2"
+          onSubmit={e => {
+            e.preventDefault()
+            setError(null)
+            run(bridge.setPrefs({ relay }))
+          }}
+        >
+          <input
+            value={relay}
+            onChange={e => setRelay(e.target.value)}
+            spellCheck={false}
+            placeholder={state.relayDefault}
+            aria-label={t('mobile.relay')}
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-2 font-mono text-ui text-fg outline-none focus:border-accent"
+          />
+          <Button type="submit" disabled={relay.trim() === state.prefs.relay}>
+            {t('mobile.relaySave')}
+          </Button>
+        </form>
+      </SettingRow>
       {removing && (
         <ConfirmDialog
           title={t('mobile.revoke')}

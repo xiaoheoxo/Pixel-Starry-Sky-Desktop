@@ -2,8 +2,8 @@
 export const storageMessages = {
   'storage.title': { zh: '存储', en: 'Storage' },
   'storage.keywords': {
-    zh: '存储 空间 占用 磁盘 清理 删除 缓存 归档 副本 工作树 storage disk space cache',
-    en: 'storage disk space usage clean delete cache archived copies worktrees',
+    zh: '存储 空间 占用 磁盘 清理 删除 缓存 归档 副本 工作树 数据目录 数据位置 文件夹 storage disk space cache data folder data location data directory',
+    en: 'storage disk space usage clean delete cache archived copies worktrees data folder data location data directory',
   },
   'storage.device': { zh: '此设备', en: 'This device' },
   'storage.deviceDesc': {

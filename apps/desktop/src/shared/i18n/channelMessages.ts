@@ -407,7 +407,7 @@ export const channelMessages = {
     en: 'Filled {n} fields. Check them, then click Add, or rephrase and fill again',
   },
   'channels.agent.quick.failed': { zh: '没填成，表单没动：{text}', en: 'Not filled, the form is unchanged: {text}' },
-  'channels.agent.quick.via': { zh: '用 {via}（设置 › 模型）', en: 'Using {via} (Settings › Models)' },
+  'channels.agent.quick.via': { zh: '用 {via}（设置 › AI 辅助）', en: 'Using {via} (Settings › AI assist)' },
   'channels.agent.quick.noFull': { zh: '全权限要你自己选', en: 'Choose full access yourself if you need it' },
   'channels.agent.quick.filled': { zh: '{field}是 AI 填的', en: '{field} filled by AI' },
   'channels.agent.quick.reason': { zh: '{field}是 AI 填的：{reason}', en: '{field} filled by AI: {reason}' },

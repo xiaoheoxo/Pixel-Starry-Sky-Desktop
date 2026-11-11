@@ -54,19 +54,18 @@ export function SystemProxySettings() {
       .then(setStatus, (e: Error) => setError(e.message))
       .finally(() => setBusy(false))
   }
+  // 不包一层 div：这一行直接跟在「所有引擎通用」小标题后面，才留得出和别的小标题一样的间距
   return (
-    <div className="mt-8">
-      <SettingRow
-        title={tr('systemProxy.title')}
-        description={tr('systemProxy.description')}
-        hint={error ? translateMessage(error) : undefined}
-        hintTone="danger"
-        control={<Toggle label={tr('systemProxy.title')} checked={status.enabled} onChange={toggle} />}
-      >
-        <p data-system-proxy-status className="text-meta text-fg-secondary">
-          {systemProxyHint(status, own)}
-        </p>
-      </SettingRow>
-    </div>
+    <SettingRow
+      title={tr('systemProxy.title')}
+      description={tr('systemProxy.description')}
+      hint={error ? translateMessage(error) : undefined}
+      hintTone="danger"
+      control={<Toggle label={tr('systemProxy.title')} checked={status.enabled} onChange={toggle} />}
+    >
+      <p data-system-proxy-status className="text-meta text-fg-secondary">
+        {systemProxyHint(status, own)}
+      </p>
+    </SettingRow>
   )
 }

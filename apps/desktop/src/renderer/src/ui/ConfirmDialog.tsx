@@ -62,6 +62,8 @@ export function ConfirmDialog({
       input.select()
     } else cancel.current?.focus({ preventScroll: true })
     const key = (event: KeyboardEvent): void => {
+      // 弹窗里又开了一层弹窗时只有最上面那层处理按键（后开的排在 body 最后），不然 Esc 会把两层一起关掉
+      if ([...document.querySelectorAll('[data-session-confirm]')].at(-1) !== ref.current) return
       if (event.key === 'Escape') {
         // 输入法候选框里的 Esc、弹窗里展开着的下拉菜单、标了 data-own-escape 的输入框（行内改名）的 Esc 交给它们自己，不关整个弹窗
         const target = event.target as HTMLElement | null

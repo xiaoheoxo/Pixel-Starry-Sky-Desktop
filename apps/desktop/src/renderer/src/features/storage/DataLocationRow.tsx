@@ -69,6 +69,7 @@ export function DataLocationRow() {
   return (
     <SettingRow title={t('dataLocation.title')} description={t('dataLocation.description')}>
       <div data-data-location className="flex flex-wrap items-center gap-2">
+        <span className="shrink-0 text-meta text-fg-muted">{t('settingsStorage.dataPath')}</span>
         <code
           className="min-w-0 flex-1 truncate rounded-md bg-subtle px-2.5 py-1.5 text-meta text-fg"
           title={info.path}

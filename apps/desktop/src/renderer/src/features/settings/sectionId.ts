@@ -24,8 +24,14 @@ export type SectionId =
   | 'im'
   /** 本机数据目录的占用和清理 */
   | 'storage'
-  /** 本机所有 AI 成员，可全局删除（docs/ui/channels-local-rest.md §3.3 c） */
+  /** 旧入口：导航里没有了，AI 成员改在频道页管理（docs/ui/settings-reorg.md） */
   | 'agents'
+  /** 通用：语言、关窗口、睡眠、更新；打开设置默认停在这里 */
+  | 'general'
+  /** 对话：输入框、消息、长对话、提示 */
+  | 'chat'
+  /** AI 辅助：AI 写提交信息、优化提示词、语音输入 */
+  | 'assist'
 
 const IDS: ReadonlySet<string> = new Set<SectionId>([
   'account',
@@ -49,6 +55,9 @@ const IDS: ReadonlySet<string> = new Set<SectionId>([
   'im',
   'storage',
   'agents',
+  'general',
+  'chat',
+  'assist',
 ])
 
 /** 是不是设置的分区名（独立窗口从地址、主进程推送里收到的是字符串） */

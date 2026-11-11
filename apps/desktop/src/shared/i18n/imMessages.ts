@@ -1,6 +1,6 @@
 // 消息通道（docs/ui/one-click-connectors.md）：设置 › 消息通道，以及机器人在聊天里说的话
 export const imMessages = {
-  'im.title': { zh: '消息通道', en: 'Chat channels' },
+  'im.title': { zh: '消息接入', en: 'Chat apps' },
   'im.intro': {
     zh: '在 QQ、微信里给这台电脑上的 AI 发消息。消息由这台电脑接收，关机或断网时不响应。',
     en: 'Message the AI on this computer from QQ or WeChat. This computer receives the messages, so nothing responds while it is off or offline.',
@@ -108,8 +108,8 @@ export const imMessages = {
     en: 'Conversation: {title}\nAwaiting approval: {pending}',
   },
   'im.chat.noProject': {
-    zh: '还没选项目。到电脑上的 设置 › 消息通道 选一个。',
-    en: 'No project is selected. Choose one under Settings › Chat channels on the computer.',
+    zh: '还没选项目。到电脑上的 设置 › 消息接入 选一个。',
+    en: 'No project is selected. Choose one under Settings › Chat apps on the computer.',
   },
   'im.chat.modeChanged': {
     zh: '这个对话在电脑上改成了别的权限模式，聊天里不能接着发。发 /新对话 开新的。',
@@ -175,8 +175,8 @@ export const imMessages = {
   },
   'im.chat.stateFlowRunning': { zh: '流程「{title}」进行中', en: 'Flow "{title}" is in progress' },
   'im.chat.noChannel': {
-    zh: '还没选频道，或者这个频道不在了。到电脑上的 设置 › 消息通道 选一个。',
-    en: 'No channel is selected, or it no longer exists. Choose one under Settings › Chat channels on the computer.',
+    zh: '还没选频道，或者这个频道不在了。到电脑上的 设置 › 消息接入 选一个。',
+    en: 'No channel is selected, or it no longer exists. Choose one under Settings › Chat apps on the computer.',
   },
   'im.chat.inChannel': {
     zh: '现在消息进 # {channel}，不用开新对话。',

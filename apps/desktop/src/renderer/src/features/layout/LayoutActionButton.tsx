@@ -22,8 +22,9 @@ import { useToolbarState } from './ToolbarContext'
 import { OpenInButton } from '@/features/editor/OpenInButton'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { GitCount, TerminalDot } from './HeaderBadges'
+import { openMachineManager } from '@/features/machines/store'
 
-const PAGE_SECTIONS = { 'page:mobile': 'mobile', 'page:machines': 'machines', 'page:extensions': 'extensions' } as const
+const PAGE_SECTIONS = { 'page:mobile': 'mobile', 'page:extensions': 'extensions' } as const
 
 /** 图标位置设置里的任一入口；顶栏、侧栏底部共用（「不显示」不渲染），挪位置不改变行为。
  *  顶栏里放在细边框轨道内，按钮缩成 28×24（docs/ui/layout-v2.md §4）。 */
@@ -88,12 +89,12 @@ function ToolButton({ action, compact }: { action: 'git' | ToolAction; compact: 
   )
 }
 
-/** 打开设置里的那一页（手机、机器与连接、扩展） */
+/** 打开设置里的那一页（手机、扩展）；机器直接打开机器管理，不再经设置里只有一个按钮的那一页 */
 function PageButton({ action, compact }: { action: PageAction; compact: boolean }) {
   useI18n()
   const { icons } = useSidebarPrefs()
   const settings = useSettings()
-  const section = PAGE_SECTIONS[action]
+  const section = action === 'page:machines' ? null : PAGE_SECTIONS[action]
   return (
     <IconButton
       icon={getLayoutIcon(action, icons)}
@@ -101,9 +102,9 @@ function PageButton({ action, compact }: { action: PageAction; compact: boolean 
       size={32}
       iconSize={16}
       style={compact ? SEGMENT_ICON : undefined}
-      active={settings.open && settings.section === section}
+      active={!!section && settings.open && settings.section === section}
       aria-haspopup="dialog"
-      onClick={() => settings.openSettings(section)}
+      onClick={() => (section ? settings.openSettings(section) : openMachineManager())}
     />
   )
 }

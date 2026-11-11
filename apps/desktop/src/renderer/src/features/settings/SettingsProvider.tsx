@@ -38,10 +38,10 @@ export const SettingsContext = createContext<SettingsContextValue | null>(null)
 export function SettingsProvider({ children }: { children: ReactNode }) {
   useI18n()
   const [open, setOpen] = useState(false)
-  const [section, setSection] = useState<SectionId>('appearance')
+  const [section, setSection] = useState<SectionId>('general')
   const triggerRef = useRef<HTMLElement | null>(null)
   const triggerSidebarActionRef = useRef<string | null>(null)
-  // 没指定分类时停在「外观」；设置已经打开时也跳过去
+  // 没指定分类时停在「通用」；设置已经打开时也跳过去
   const openDialog = useCallback(
     (target?: SectionId) => {
       if (!open) {
@@ -49,7 +49,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         triggerSidebarActionRef.current =
           triggerRef.current?.closest('[data-sidebar-action]')?.getAttribute('data-sidebar-action') ?? null
       }
-      setSection(target ?? 'appearance')
+      setSection(target ?? 'general')
       setOpen(true)
     },
     [open],

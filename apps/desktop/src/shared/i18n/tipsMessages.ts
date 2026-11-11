@@ -5,8 +5,8 @@ export const tipsMessages = {
   'tips.ok': { zh: '知道了', en: 'Got it' },
   'tips.never': { zh: '不再提示任何功能', en: 'Don’t show feature tips' },
   'tips.turnedOff': {
-    zh: '功能提示已关闭，可在「设置 › 外观」重新打开',
-    en: 'Feature tips are off. Turn them back on in Settings › Appearance',
+    zh: '功能提示已关闭，可在「设置 › 对话」重新打开',
+    en: 'Feature tips are off. Turn them back on in Settings › Chats',
   },
   'tips.setting.title': { zh: '功能提示', en: 'Feature tips' },
   'tips.setting.desc': {

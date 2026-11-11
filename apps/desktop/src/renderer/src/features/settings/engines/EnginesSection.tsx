@@ -2,14 +2,15 @@ import { translateMessage } from '../../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 // 设置 › 本机引擎（docs/ui/engine-settings-redesign.md，参考 Mirasim 设置 › 智能体）：
-// 列表页每个引擎一行（状态、版本、默认、设为默认），点进去是详情页（EngineDetail）。
+// 列表页每个引擎一行（状态、版本、默认角标），点进去是详情页（EngineDetail）。
 // 真实数据：配置在引擎 store（主进程改了会广播 engine_config）；演示模式只改内存。
 import { useEffect, useState } from 'react'
 import { CircleArrowUp, ChevronRight, CircleCheck, Download, Loader2 } from 'lucide-react'
 import type { EngineConfig, EngineConfigPatch, EngineId } from '@pixelsky/protocol'
 import { Button, EngineIcon, cn } from '@/ui'
 import { bridge, isLive, useEngineState } from '@/features/engine'
-import { SectionTitle } from '../SettingRow'
+import { GroupTitle, SectionTitle } from '../SettingRow'
+import { RequestRetrySettings } from '../models/RequestRetrySettings'
 import { EngineDetail } from './EngineDetail'
 import { openEngineDetail, useEngineDetail } from './nav'
 import { DefaultBadge, ENGINE_STATUS } from './parts'
@@ -21,7 +22,7 @@ import { mergeContextWindows } from '../models/contextWindows'
 import { demo, isDemo } from '@/data/demo'
 import type { EngineLite } from '@/data/types'
 
-export function EnginesSection({ onOpenModels }: { onOpenModels?: () => void }) {
+export function EnginesSection() {
   useI18n()
   const liveEngines = useEngineState(s => s.engines)
   const liveConfig = useEngineState(s => s.config)
@@ -29,12 +30,9 @@ export function EnginesSection({ onOpenModels }: { onOpenModels?: () => void }) 
   const engines: EngineLite[] = isLive ? liveEngines : isDemo ? demo().engines.status : []
   // 演示模式：配置和默认引擎只在内存里（没有桥接也不是演示模式时，比如普通浏览器，是空列表）
   const [demoConfig, setDemoConfig] = useState<EngineConfig | null>(() => (isDemo ? demo().engines.config : null))
-  const [demoDefault, setDemoDefault] = useState<EngineId>('claude')
   const config = isLive ? liveConfig : demoConfig
-  const defaultEngine = isLive ? (liveDefaults?.engine ?? 'claude') : demoDefault
+  const defaultEngine = isLive ? (liveDefaults?.engine ?? 'claude') : 'claude'
   const detail = useEngineDetail()
-  const [error, setError] = useState<string | null>(null)
-
   // 离开这一页时回到列表
   useEffect(() => () => openEngineDetail(null), [])
 
@@ -59,20 +57,6 @@ export function EnginesSection({ onOpenModels }: { onOpenModels?: () => void }) 
     // 主进程会广播 engine_config，store 跟着更新
     await bridge.setConfig(engine, patch)
   }
-  const setDefault = async (engine: EngineId): Promise<void> => {
-    setError(null)
-    if (!bridge) {
-      setDemoDefault(engine)
-      setDemoConfig(c => c && { ...c, [engine]: { ...c[engine], hidden: false } })
-      return
-    }
-    try {
-      await bridge.setDefaultEngine(engine)
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
   const open = detail ? engines.find(e => e.id === detail) : undefined
   if (open && config) {
     return (
@@ -82,9 +66,7 @@ export function EnginesSection({ onOpenModels }: { onOpenModels?: () => void }) 
         config={config[open.id]}
         isDefault={open.id === defaultEngine}
         onSave={patch => save(open.id, patch)}
-        onSetDefault={() => setDefault(open.id)}
         onBack={() => openEngineDetail(null)}
-        onOpenModels={onOpenModels}
       />
     )
   }
@@ -108,16 +90,13 @@ export function EnginesSection({ onOpenModels }: { onOpenModels?: () => void }) 
             isDefault={e.id === defaultEngine}
             hidden={config?.[e.id]?.hidden ?? false}
             onOpen={() => openEngineDetail(e.id)}
-            onSetDefault={() => void setDefault(e.id)}
           />
         ))}
       </div>
-      {error && (
-        <p role="alert" className="mt-3 text-meta text-danger">
-          {translateMessage(error)}
-        </p>
-      )}
+      {/* 默认引擎在「模型通道 › 新对话用」里定，这里只显示角标（docs/ui/settings-reorg.md §3） */}
+      <GroupTitle>{tr('settingsEngines.shared')}</GroupTitle>
       {isLive && <SystemProxySettings />}
+      <RequestRetrySettings />
     </section>
   )
 }
@@ -128,17 +107,14 @@ function EngineRow({
   isDefault,
   hidden,
   onOpen,
-  onSetDefault,
 }: {
   engine: EngineLite
   isDefault: boolean
   hidden: boolean
   onOpen: () => void
-  onSetDefault: () => void
 }) {
   useI18n()
   const unsupported = e.status === 'unsupported'
-  const canDefault = !isDefault && !unsupported && e.status !== 'missing'
   const { updating, action, job, result } = useEngineUpdate(e.id)
   const newer = hasNewer(e)
   const installable = canInstall(e)
@@ -240,15 +216,6 @@ function EngineRow({
             className="shrink-0 rounded-md border border-line px-2.5 py-1 text-meta text-accent-fg hover:bg-hover"
           >
             {tr('modelChannels.action.auth')}
-          </button>
-        )}
-        {canDefault && (
-          <button
-            type="button"
-            onClick={onSetDefault}
-            className="shrink-0 rounded-md border border-line px-2.5 py-1 text-meta text-fg-secondary hover:bg-hover hover:text-fg"
-          >
-            {tr('session.ModelSourceMenu.setAsDefault')}{' '}
           </button>
         )}
       </div>

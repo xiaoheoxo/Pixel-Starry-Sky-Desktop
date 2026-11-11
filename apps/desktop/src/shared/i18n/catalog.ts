@@ -2785,8 +2785,8 @@ export const catalog = {
     en: 'Groups',
   },
   'settings.account.AccountOverview.manageRoutesInModels': {
-    zh: '在「模型与额度」里管理线路',
-    en: 'Manage routes in Models & credits',
+    zh: '在「模型通道」里管理线路',
+    en: 'Manage routes in Model channels',
   },
   'settings.account.AccountOverview.addCredits': {
     zh: '充值',
@@ -3758,8 +3758,8 @@ export const catalog = {
     en: 'Default permissions',
   },
   'settings.engines.EngineDetail.defaultModelsForPlatform': {
-    zh: '平台额度和自有额度的默认模型都在「模型与额度」里选。',
-    en: 'Default models for platform and own-account credits are set in Models & credits.',
+    zh: '平台额度和自有额度的默认模型都在「模型通道」里选。',
+    en: 'Default models for platform and own-account credits are set in Model channels.',
   },
   'settings.engines.EngineDetail.manageModels': {
     zh: '管理模型 →',
@@ -3894,8 +3894,8 @@ export const catalog = {
     en: 'Hide this engine from the composer menu. Existing conversations using it are unaffected.',
   },
   'settings.engines.EngineDetail.defaultEngineCannotBe': {
-    zh: '默认引擎不能隐藏，先把别的引擎设为默认。',
-    en: 'The default engine cannot be hidden. Set another engine as default first.',
+    zh: '默认引擎不能隐藏；默认引擎在「模型通道 › 新对话用」里改。',
+    en: 'The default engine cannot be hidden. Change the default in Model channels › New conversations use.',
   },
   'settings.engines.engineUpdate.newVersion': {
     zh: '有新版本 {p0}',
@@ -4242,7 +4242,7 @@ export const catalog = {
     en: 'Maximum automatic retries for temporary model request errors. 0 disables retries. Changes apply from the next turn.',
   },
   'settings.models.RequestRetrySettings.appliesToClaudeCode': {
-    zh: 'Claude Code 按一整轮共用这些次数；Codex 和像素星空引擎按每个请求计算。不会自动重新执行整轮任务或工具操作。',
+    zh: 'Claude Code 按一整轮共用这些次数；Codex 和 Pixel 按每个请求计算。不会自动重新执行整轮任务或工具操作。',
     en: 'Claude Code shares these retries across a whole turn; Codex and the PixelSky engine count them per request. Entire tasks and tool actions are never replayed automatically.',
   },
   'settings.models.RequestRetrySettings.requestRetryMode': {
@@ -4402,7 +4402,7 @@ export const catalog = {
     en: 'hidden models manage model list visibility',
   },
   'settings.searchIndex.retryFailureTemporaryErrors': {
-    zh: '重试 失败 临时错误 自动重试',
+    zh: '重试 失败 临时错误 自动重试 retry',
     en: 'retry failure temporary errors automatic retry',
   },
   'settings.searchIndex.byokKeyUrlOpenai': {
@@ -4410,8 +4410,8 @@ export const catalog = {
     en: 'byok key url openai anthropic compatible',
   },
   'settings.searchIndex.engineVersionPathDetect': {
-    zh: '引擎 版本 路径 重新检测 claude 默认引擎 设为默认',
-    en: 'engine version path detect claude default engine',
+    zh: '引擎 版本 路径 重新检测 claude',
+    en: 'engine version path detect claude',
   },
   'settings.searchIndex.engineOpenaiCodex': {
     zh: '引擎 openai codex',
@@ -4558,8 +4558,8 @@ export const catalog = {
     en: 'About',
   },
   'settings.searchIndex.versionUpdateDataDirectory': {
-    zh: '版本 更新 数据目录 运行环境 链接',
-    en: 'version update data directory runtime links',
+    zh: '版本 更新 运行环境 链接',
+    en: 'version update runtime links',
   },
   'settings.SettingsDialog.appearance': {
     zh: '外观',

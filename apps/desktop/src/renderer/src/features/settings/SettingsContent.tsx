@@ -11,10 +11,13 @@ import {
   Info,
   Keyboard,
   MessageSquareText,
+  MessageCircle,
   MessagesSquare,
   Monitor,
   ScrollText,
+  SlidersHorizontal,
   Smartphone,
+  Sparkles,
   Moon,
   Network,
   Bot,
@@ -33,28 +36,13 @@ import { useTheme, type MotionPreference, type ThemePreference } from '@/feature
 import { AboutSection } from './AboutSection'
 import { AccountSection } from '../account/settings/AccountSection'
 import { FontSettings } from './FontSettings'
-import { ReplyStatsSettings } from './ReplyStatsSettings'
-import { ComposerStyleSettings } from './ComposerStyleSettings'
-import { QuotaDisplaySettings } from './QuotaDisplaySettings'
 import { takeSettingsRow } from './settingsJump'
 import { scrollInPane } from '@/ui/scrollInPane'
 import { runMainAction } from './windowBridge'
 import { AccentSettings } from './AccentSettings'
 import { PaletteSettings } from './PaletteSettings'
 import { MinimalModeSettings } from './MinimalModeSettings'
-import { CloseActionSettings } from './CloseActionSettings'
-import { TurnRailSettings } from './TurnRailSettings'
-import { LongConversationSettings } from './LongConversationSettings'
-import { StopBackgroundAgentsSettings } from './StopBackgroundAgentsSettings'
-import { SubagentViewSettings } from './SubagentViewSettings'
 import { ModeTransitionSettings } from './ModeTransitionSettings'
-import { GitOpenStyleSettings } from './GitOpenStyleSettings'
-import { MessageActionsSettings } from './MessageActionsSettings'
-import { FullAccessStripSettings } from './FullAccessStripSettings'
-import { PortTipSettings } from './PortTipSettings'
-import { FeatureTipsSettings } from './FeatureTipsSettings'
-import { OlderFoldSettings } from './OlderFoldSettings'
-import { CacheMissSettings } from './CacheMissSettings'
 import { WallpaperSettings } from './WallpaperSettings'
 import { GlassSettings } from './GlassSettings'
 import type { PaneFocusMotion } from '@/features/appearance/paneFocusMotion'
@@ -70,7 +58,6 @@ import { EditorThemeSettings } from './EditorThemeSettings'
 import { searchSettings, type SearchEntry } from './searchIndex'
 import { GroupTitle, SectionTitle, SettingRow } from './SettingRow'
 import { useI18n } from '@/i18n/I18nProvider'
-import { LOCALE_OPTIONS, type Locale } from '../../../../shared/i18n/messages'
 import { TerminalSection } from './TerminalSection'
 import { SidebarSettings } from './SidebarSettings'
 import { NotificationsSection } from './NotificationsSection'
@@ -80,6 +67,9 @@ import { FeedbackSection } from '../feedback/FeedbackSection'
 import { useFeedbackUnread } from '../feedback/store'
 import { MobileSection } from '../mobile/settings/MobileSection'
 import { ImSection } from '../im/ImSection'
+import { GeneralSection } from './GeneralSection'
+import { ChatSection } from './ChatSection'
+import { AssistSection } from './AssistSection'
 import { ProjectsSection } from './projects/ProjectsSection'
 import { StorageSection } from '../storage/StorageSection'
 import { DataLocationRow } from '../storage/DataLocationRow'
@@ -133,12 +123,33 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
   {
     id: 'terminal',
     get label() {
-      return tr('terminal.settings')
+      return tr('settingsNav.terminal')
     },
     get nav() {
-      return tr('settings.SettingsDialog.nav.terminal')
+      return tr('settingsNav.terminal')
     },
     icon: TerminalSquare,
+  },
+  {
+    id: 'general',
+    get label() {
+      return tr('settingsNav.general')
+    },
+    icon: SlidersHorizontal,
+  },
+  {
+    id: 'chat',
+    get label() {
+      return tr('settingsNav.chat')
+    },
+    icon: MessageCircle,
+  },
+  {
+    id: 'assist',
+    get label() {
+      return tr('settingsNav.assist')
+    },
+    icon: Sparkles,
   },
   {
     id: 'account',
@@ -250,37 +261,38 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
   },
 ]
 
-/** 左侧导航分组（参考 JuCode：按设置作用于什么分组）；label 为 null 的组不显示标题 */
+/** 左侧导航分组（docs/ui/settings-reorg.md §4：按这一页管的是什么分）；label 为 null 的组不显示标题。
+ *  machines、agents、plugins 不在导航里，只留作旧入口 */
 const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
+  {
+    get label() {
+      return tr('settingsNav.group.account')
+    },
+    ids: ['account', 'usage'],
+  },
   {
     get label() {
       return tr('settings.SettingsDialog.application')
     },
-    ids: [
-      'account',
-      'appearance',
-      'notifications',
-      'editor',
-      'projects',
-      'storage',
-      'extensions',
-      'shortcuts',
-      'machines',
-      'mobile',
-      'im',
-    ],
+    ids: ['general', 'appearance', 'chat', 'notifications', 'shortcuts'],
   },
   {
     get label() {
-      return tr('session.ModelSourceMenu.model')
+      return tr('settingsNav.group.workspace')
     },
-    ids: ['models', 'subagents', 'agents', 'usage'],
+    ids: ['projects', 'editor', 'terminal', 'storage'],
   },
   {
     get label() {
-      return tr('session.ModelSourceMenu.engine')
+      return tr('settingsNav.group.ai')
     },
-    ids: ['engines', 'terminal'],
+    ids: ['models', 'engines', 'subagents', 'assist'],
+  },
+  {
+    get label() {
+      return tr('settingsNav.group.connect')
+    },
+    ids: ['extensions', 'mobile', 'im'],
   },
   { label: null, ids: ['logs', 'feedback', 'about'] },
 ]
@@ -490,6 +502,12 @@ export function SettingsContent({
               <DataLocationRow />
             </div>
           </>
+        ) : section === 'general' ? (
+          <GeneralSection />
+        ) : section === 'chat' ? (
+          <ChatSection />
+        ) : section === 'assist' ? (
+          <AssistSection />
         ) : section === 'models' ? (
           <ModelsSection />
         ) : section === 'agents' ? (
@@ -518,7 +536,7 @@ export function SettingsContent({
         ) : section === 'terminal' ? (
           <TerminalSection />
         ) : section === 'engines' ? (
-          <EnginesSection onOpenModels={() => setSection('models')} />
+          <EnginesSection />
         ) : section === 'usage' ? (
           <UsageSection
             onOpenSession={sessionId => {
@@ -538,7 +556,7 @@ export function SettingsContent({
         ) : section === 'logs' ? (
           <LogsSection />
         ) : (
-          <AboutSection onOpenAccount={() => setSection('account')} />
+          <AboutSection />
         )}
       </div>
     </div>
@@ -617,11 +635,12 @@ function AppearanceSection() {
   useI18n()
   const { preference, setPreference, motion, setMotion, systemReducedMotion, paneFocusMotion, setPaneFocusMotion } =
     useTheme()
-  const { locale, setLocale, t, text } = useI18n()
+  const { text } = useI18n()
   const motionDisabled = motion === 'off' || (motion === 'system' && systemReducedMotion)
   return (
     <section>
       <SectionTitle>{tr('settings.SettingsDialog.appearance')}</SectionTitle>
+      <GroupTitle>{tr('settingsAppearance.theme')}</GroupTitle>
       <SettingRow
         title={tr('settings.searchIndex.theme')}
         description={tr('settings.SettingsDialog.whenFollowingSystemTheme')}
@@ -634,22 +653,20 @@ function AppearanceSection() {
         />
       </SettingRow>
       <PaletteSettings />
-      <GlassSettings />
       <AccentSettings />
-      <MinimalModeSettings />
       <FileIconThemeSettings />
       <EditorThemeSettings />
-      <SettingRow
-        title={tr('settings.SettingsDialog.interfaceLanguage')}
-        description={tr('settings.SettingsDialog.chooseLanguageUsedBy')}
-      >
-        <Segmented
-          label={t('settings.SettingsDialog.interfaceLanguage')}
-          options={LOCALE_OPTIONS}
-          value={locale}
-          onChange={value => setLocale(value as Locale)}
-        />
-      </SettingRow>
+      <MinimalModeSettings />
+
+      {/* 壁纸在毛玻璃前面：毛玻璃的提示写着「在上面选壁纸」 */}
+      <GroupTitle>{tr('settingsAppearance.wallpaper')}</GroupTitle>
+      <WallpaperSettings />
+      <GlassSettings />
+
+      <GroupTitle>{tr('settings.SettingsDialog.fonts')}</GroupTitle>
+      <FontSettings />
+
+      <GroupTitle>{tr('settingsAppearance.motion')}</GroupTitle>
       <SettingRow
         title={tr('settings.searchIndex.motion')}
         description={tr('settings.SettingsDialog.animationsForSidebarAnd')}
@@ -689,31 +706,8 @@ function AppearanceSection() {
         />
       </SettingRow>
       <ModeTransitionSettings />
-      <GitOpenStyleSettings />
-      <CloseActionSettings />
 
       <SidebarSettings />
-
-      <GroupTitle>{tr('settings.engines.EngineDetail.conversation')}</GroupTitle>
-      <ComposerStyleSettings />
-      <QuotaDisplaySettings />
-      <ReplyStatsSettings />
-      <TurnRailSettings />
-      <LongConversationSettings />
-      <SubagentViewSettings />
-      <StopBackgroundAgentsSettings />
-      <MessageActionsSettings />
-      <FullAccessStripSettings />
-      <CacheMissSettings />
-      <PortTipSettings />
-      <FeatureTipsSettings />
-      <OlderFoldSettings />
-
-      <GroupTitle>{tr('settings.SettingsDialog.fonts')}</GroupTitle>
-      <FontSettings />
-
-      <GroupTitle>{tr('settings.searchIndex.wallpaper')}</GroupTitle>
-      <WallpaperSettings />
     </section>
   )
 }

@@ -225,7 +225,7 @@ function Box({ view, session, path }: { view: EditorView; session: InlineSession
         <button
           type="button"
           title={tr('editor.inline.channelHint')}
-          onClick={() => settings.openSettings('models')}
+          onClick={() => settings.openSettings('assist')}
           className="max-w-[40%] shrink-0 truncate rounded-full bg-subtle px-2 text-meta text-fg-secondary hover:bg-hover hover:text-fg"
         >
           {via}

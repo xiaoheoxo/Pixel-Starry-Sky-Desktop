@@ -28,8 +28,8 @@ export const trayMessages = {
   'tray.quitConfirm': { zh: '停止任务并退出', en: 'Stop tasks and quit' },
   'tray.hiddenTitle': { zh: '像素星空还在后台运行', en: 'Pixel Starry Sky is still running' },
   'tray.hiddenBody': {
-    zh: '任务会继续运行。点通知区域的图标打开；想直接退出，可以在设置 › 外观里改。',
-    en: 'Tasks keep running. Click the icon in the notification area to open it, or change this in Settings › Appearance.',
+    zh: '任务会继续运行。点通知区域的图标打开；想直接退出，可以在设置 › 通用里改。',
+    en: 'Tasks keep running. Click the icon in the notification area to open it, or change this in Settings › General.',
   },
   'tray.overlay': { zh: '有任务等你处理', en: 'A task is waiting for you' },
   'tray.closeAction': { zh: '关闭主窗口时', en: 'When closing the main window' },

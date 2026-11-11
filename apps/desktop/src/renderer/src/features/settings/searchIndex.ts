@@ -32,7 +32,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   { section: 'mobile', title: '手机', keywords: '手机 远程 扫码 配对 中转 mobile phone remote pair qr relay' },
   { section: 'mobile', title: '允许手机远程连接', keywords: '手机 远程 连接 开关 mobile phone remote enable' },
   {
-    section: 'notifications',
+    section: 'general',
     get title() {
       return tr('notifications.keepAwake.title')
     },
@@ -55,14 +55,13 @@ export const SETTINGS_INDEX: SearchEntry[] = [
       return tr('projects.keywords')
     },
   },
-  { section: 'machines', title: '机器与连接', keywords: '机器 ssh remote 主机 连接 工作区 workspace' },
   {
     section: 'appearance',
     title: '图标位置',
     keywords:
       '浏览器 MCP 连接器 手机 远程 browser mobile 侧边栏 图标 拖动 位置 排序 上下 底部 顶栏 右上角 工具栏 不显示 隐藏 Git git sidebar icons drag position reorder bottom toolbar top bar header hidden hide 自定义 替换 恢复 样式 右键 新建任务 添加项目 设置 插件 用量 customize replace reset new task add project settings plugins usage',
   },
-  { section: 'terminal', title: '终端设置', keywords: '终端 shell powershell cmd git bash 交互 terminal' },
+  { section: 'terminal', title: '终端', keywords: '终端 shell powershell cmd git bash 交互 terminal' },
   { section: 'terminal', title: '默认 Shell', keywords: '默认 shell powershell cmd git bash' },
   {
     section: 'plugins',
@@ -138,18 +137,18 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     available: () => editorThemesAvailable(getPackState()),
   },
   {
-    section: 'appearance',
+    section: 'general',
     title: '界面语言',
     keywords: '语言 中文 英文 简体 language Chinese English locale localization',
   },
   {
-    section: 'appearance',
+    section: 'chat',
     title: '长对话先显示最近',
     keywords: '长对话 最近 轮 折叠 隐藏 更早 显示全部 conversation long recent turns fold hide',
   },
   // 用 tr() 取标题和关键词（getter，随界面语言），不新增写死的中文
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('subagent.setting')
     },
@@ -158,7 +157,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
   },
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('subagentStop.setting')
     },
@@ -166,12 +165,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
       return tr('subagentStop.searchKeywords')
     },
   },
-  { section: 'appearance', title: '对话框风格', keywords: '输入框 风格 样式 布局 chatgpt claude 工具框内 框外' },
-  {
-    section: 'editor',
-    title: '默认打开方式',
-    keywords: '打开方式 内置编辑器 像素星空 CodeMirror 软件内 打开项目 Trae TraeCode CN',
-  },
+  { section: 'chat', title: '对话框风格', keywords: '输入框 风格 样式 布局 chatgpt claude 工具框内 框外' },
   {
     section: 'editor',
     title: '默认外部编辑器',
@@ -235,15 +229,6 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   },
   { section: 'models', title: '平台', keywords: '线路 分组 倍率 余额计费 订阅额度 刷新' },
   {
-    section: 'agents',
-    get title() {
-      return tr('agentsSettings.title')
-    },
-    get keywords() {
-      return tr('agentsSettings.searchKeywords')
-    },
-  },
-  {
     section: 'subagents',
     get title() {
       return tr('subagentRoute.types')
@@ -271,13 +256,18 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
   },
   { section: 'models', title: '菜单里显示的模型', keywords: '隐藏模型 管理模型 模型列表 显示' },
-  { section: 'models', title: '请求重试', keywords: '重试 失败 临时错误 自动重试' },
+  { section: 'engines', title: '请求重试', keywords: '重试 失败 临时错误 自动重试 retry' },
+  {
+    section: 'assist',
+    title: allMessages['voice.settings.title'].zh,
+    keywords: '语音 麦克风 录音 听写 转写 识别 whisper voice mic microphone dictation speech transcribe',
+  },
   { section: 'models', title: '自定义 API', keywords: 'byok key 地址 openai anthropic 兼容' },
 
   {
     section: 'engines',
     title: 'Claude Code',
-    keywords: '引擎 版本 路径 重新检测 claude 默认引擎 设为默认',
+    keywords: '引擎 版本 路径 重新检测 claude',
     engine: 'claude',
   },
   { section: 'engines', title: 'Codex', keywords: '引擎 openai codex' },
@@ -388,7 +378,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
   },
   {
-    section: 'appearance',
+    section: 'editor',
     get title() {
       return tr('coding.gitOpen.setting')
     },
@@ -397,7 +387,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
   },
   {
-    section: 'appearance',
+    section: 'general',
     title: '关闭主窗口时',
     keywords: '托盘 通知区域 后台 最小化 隐藏 退出 关闭 tray background minimize close quit',
   },
@@ -408,7 +398,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     keywords: '侧栏 历史 隐藏 展开 折叠 sidebar history recent tasks hide collapse expand',
   },
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('quota.settings.title')
     },
@@ -416,14 +406,14 @@ export const SETTINGS_INDEX: SearchEntry[] = [
       return tr('quota.settings.keywords')
     },
   },
-  { section: 'appearance', title: '回复下方的统计', keywords: '统计行 耗时 token 费用 回复' },
+  { section: 'chat', title: '回复下方的统计', keywords: '统计行 耗时 token 费用 回复' },
   {
-    section: 'appearance',
+    section: 'chat',
     title: '消息操作按钮',
     keywords: '复制 分叉 分支 回退 撤回 按钮 位置 左侧 下方 message actions copy fork rewind position below left',
   },
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('fullAccess.setting.title')
     },
@@ -431,9 +421,9 @@ export const SETTINGS_INDEX: SearchEntry[] = [
       return tr('fullAccess.setting.keywords')
     },
   },
-  { section: 'appearance', title: '缓存未命中提醒', keywords: '缓存 命中率 提醒 停止' },
+  { section: 'chat', title: '缓存未命中提醒', keywords: '缓存 命中率 提醒 停止' },
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('portTip.setting.title')
     },
@@ -442,7 +432,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
   },
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('tips.setting.title')
     },
@@ -451,7 +441,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     },
   },
   {
-    section: 'appearance',
+    section: 'chat',
     get title() {
       return tr('session.fold.setting.title')
     },
@@ -485,7 +475,53 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     keywords: '反馈 问题 bug 建议 报错 联系 客服 意见 提交 feedback issue suggestion contact support',
   },
   { section: 'feedback', title: '我的反馈', keywords: '反馈 回复 团队 问题 建议 bug feedback reply ticket' },
-  { section: 'about', title: '关于', keywords: '版本 更新 数据目录 运行环境 链接' },
+  { section: 'about', title: '关于', keywords: '版本 更新 运行环境 链接' },
+  // 原来搜不到的（docs/ui/settings-reorg.md §5）
+  { section: 'general', title: allMessages['settingsNav.general'].zh, keywords: allMessages['settingsSearch.k1'].zh },
+  { section: 'general', title: allMessages['whatsNew.setting'].zh, keywords: allMessages['settingsSearch.k2'].zh },
+  { section: 'general', title: allMessages['update.beta'].zh, keywords: allMessages['settingsSearch.k3'].zh },
+  { section: 'chat', title: allMessages['settingsNav.chat'].zh, keywords: allMessages['settingsSearch.k4'].zh },
+  { section: 'chat', title: allMessages['turnRail.setting'].zh, keywords: allMessages['settingsSearch.k5'].zh },
+  { section: 'assist', title: allMessages['settingsNav.assist'].zh, keywords: allMessages['settingsSearch.k6'].zh },
+  {
+    section: 'assist',
+    title: allMessages['aiCommit.settings.source'].zh,
+    keywords: allMessages['settingsSearch.k7'].zh,
+  },
+  {
+    section: 'assist',
+    title: allMessages['aiCommit.settings.enabled'].zh,
+    keywords: allMessages['settingsSearch.k8'].zh,
+  },
+  {
+    section: 'assist',
+    title: allMessages['promptOptimize.settings.enabled'].zh,
+    keywords: allMessages['settingsSearch.k9'].zh,
+  },
+  {
+    section: 'models',
+    title: allMessages['modelChannels.menu.layout'].zh,
+    keywords: allMessages['settingsSearch.k10'].zh,
+  },
+  { section: 'models', title: allMessages['platformKey.title'].zh, keywords: allMessages['settingsSearch.k11'].zh },
+  {
+    section: 'engines',
+    engine: 'codex',
+    title: allMessages['subagentRoute.codex.title'].zh,
+    keywords: allMessages['settingsSearch.k12'].zh,
+  },
+  {
+    section: 'subagents',
+    title: allMessages['subagentRoute.templates'].zh,
+    keywords: allMessages['settingsSearch.k13'].zh,
+  },
+  { section: 'terminal', title: allMessages['terminal.scrollback'].zh, keywords: allMessages['settingsSearch.k14'].zh },
+  {
+    section: 'terminal',
+    title: allMessages['terminal.screenReader'].zh,
+    keywords: allMessages['settingsSearch.k15'].zh,
+  },
+  { section: 'terminal', title: allMessages['terminal.encoding'].zh, keywords: allMessages['settingsSearch.k16'].zh },
 ]
 
 /** 搜索：标题、关键词、页面名都参与，忽略大小写和空格；标题命中的排前面 */

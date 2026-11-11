@@ -77,8 +77,8 @@ export const errorMessages = {
     en: '“{arg}” is controlled by Pixel Starry Sky and can’t be set here',
   },
   'errors.env.reserved': {
-    zh: '{name} 不能在环境变量里新增或修改：接口地址和 Key 请在「设置 › 模型与额度 › 自定义 API」里配置',
-    en: '{name} can’t be added or changed here. Configure base URLs and keys under Settings › Models & credits › Custom API',
+    zh: '{name} 不能在环境变量里新增或修改：接口地址和 Key 请在「设置 › 模型通道 › 自定义 API」里配置',
+    en: '{name} can’t be added or changed here. Configure base URLs and keys under Settings › Model channels › Custom API',
   },
   'errors.launch.firstArg': {
     zh: '参数要以选项开头（- 或 --），「{arg}」不是选项',

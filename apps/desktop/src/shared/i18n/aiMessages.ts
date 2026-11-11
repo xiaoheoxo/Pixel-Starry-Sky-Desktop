@@ -7,8 +7,8 @@ export const aiMessages = {
   'aiCommit.menu.title': { zh: '用哪条通道写', en: 'Write with' },
   'aiCommit.menu.default': { zh: '默认', en: 'Default' },
   'aiCommit.menu.hint': {
-    zh: '选这里只用这一次；改默认去「设置 › 模型通道」',
-    en: 'Applies to this one only. Change the default in Settings › Model channels',
+    zh: '选这里只用这一次；改默认去「设置 › AI 辅助」',
+    en: 'Applies to this one only. Change the default in Settings › AI assist',
   },
   'aiCommit.channel.subscription': { zh: '订阅额度', en: 'Subscription quota' },
   'aiCommit.channel.balance': { zh: '从余额扣', en: 'From your balance' },
@@ -79,8 +79,8 @@ export const aiMessages = {
     en: 'Show the Improve button in the message box',
   },
   'promptOptimize.settings.enabledHint': {
-    zh: '把输入框里的话交给 AI 改写得更清楚，用下面同一条通道。只在点按钮时发送原文、项目名和最近几轮对话的摘录。',
-    en: 'AI rewrites your message to be clearer, using the channel below. Only when you click it, the message, project name and an excerpt of the last few turns are sent.',
+    zh: '把输入框里的话交给 AI 改写得更清楚。只在点按钮时发送原文、项目名和最近几轮对话的摘录。',
+    en: 'AI rewrites your message to be clearer. Only when you click it, the message, project name and an excerpt of the last few turns are sent.',
   },
   'promptOptimize.button': { zh: '优化', en: 'Improve' },
   'promptOptimize.buttonVia': { zh: '优化提示词（Ctrl+Shift+E）· {via}', en: 'Improve prompt (Ctrl+Shift+E) · {via}' },

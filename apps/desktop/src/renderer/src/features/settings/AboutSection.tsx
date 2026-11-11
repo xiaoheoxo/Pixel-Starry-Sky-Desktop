@@ -4,14 +4,10 @@ import { tr, translateText } from '../../i18n/core'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowDownToLine, Check, Copy, ExternalLink, FolderOpen, RefreshCw, RotateCw } from 'lucide-react'
 import type { AppInfo, AppLink } from '../../../../shared/types/app-info'
-import { useAccount } from '@/features/account'
-import { Button, Logo, Switch, cn } from '@/ui'
+import { Button, Logo, cn } from '@/ui'
 import { updateActions, useUpdateState } from '@/features/update/store'
-import { RELEASE_NOTES, useWhatsNew, whatsNewActions } from '@/features/update/whatsNew'
+import { RELEASE_NOTES, whatsNewActions } from '@/features/update/whatsNew'
 import type { UpdateState } from '../../../../shared/types/update'
-import { Toggle } from './SettingRow'
-import { useSettings } from './SettingsProvider'
-import { requestFeedback } from '../feedback/focus'
 
 const CHANNEL_LABELS: Record<AppInfo['channel'], string> = {
   get dev() {
@@ -28,15 +24,13 @@ const CHANNEL_LABELS: Record<AppInfo['channel'], string> = {
 /** 开源组件致谢：只列直接依赖的主要部分 */
 const CREDITS = ['Electron', 'React', 'Tailwind CSS', 'Lucide', 'Vite', 'Material Icon Theme (MIT)']
 
-/** 设置 → 关于：版本、运行环境、账号服务、本地数据（docs/ui/settings.md §5） */
-export function AboutSection({ onOpenAccount }: { onOpenAccount: () => void }) {
+/** 设置 → 关于：版本、运行环境、更新状态、仓库链接（账号、数据目录在各自的页，docs/ui/settings-reorg.md §3） */
+export function AboutSection() {
   useI18n()
   const [info, setInfo] = useState<AppInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const update = useUpdateState()
-  const acc = useAccount()
-  const settings = useSettings()
 
   useEffect(() => {
     const bridge = window.pixelsky?.app
@@ -66,15 +60,6 @@ export function AboutSection({ onOpenAccount }: { onOpenAccount: () => void }) {
       setError(tr('settings.AboutSection.copyFailedSelectAnd'))
     }
   }
-
-  const accountText =
-    acc.status === 'signed-in'
-      ? tr('settings.AboutSection.signedIn', { p0: acc.user?.email ?? '' })
-      : acc.status === 'signing-in'
-        ? tr('sidebar.SidebarFooter.signingIn')
-        : acc.status === 'loading'
-          ? tr('session.live.SessionStrips.loading')
-          : tr('sidebar.SidebarFooter.notSignedIn')
 
   return (
     <section>
@@ -129,54 +114,6 @@ export function AboutSection({ onOpenAccount }: { onOpenAccount: () => void }) {
         <Row label={tr('settings.AboutSection.system')} value={info && `${info.os}（${info.arch}）`} />
       </Group>
 
-      <Group title={tr('settings.AboutSection.accountAndData')}>
-        <Row
-          label={tr('settings.AboutSection.account')}
-          value={accountText}
-          action={
-            <button
-              type="button"
-              onClick={onOpenAccount}
-              className="press no-drag h-7 shrink-0 rounded-md px-2 text-meta text-fg-secondary hover:bg-hover hover:text-fg"
-            >
-              {tr('settings.AboutSection.manage')}{' '}
-            </button>
-          }
-        />
-        <Row
-          label={tr('settings.AboutSection.authenticationService')}
-          value={info?.authUrl.replace(/^https?:\/\//, '')}
-          mono
-          action={
-            <LinkButton
-              label={tr('settings.AboutSection.openAuthenticationServiceIn')}
-              onClick={() => open('auth')}
-              icon="external"
-            />
-          }
-        />
-        {info?.cloudRoute.route && (
-          <Row
-            label={tr('settings.AboutSection.cloudRoute')}
-            value={routeText(info.cloudRoute)}
-            title={tr('settings.AboutSection.cloudRouteHint')}
-          />
-        )}
-        <Row
-          label={tr('settings.AboutSection.dataDirectory')}
-          value={info?.dataDir}
-          mono
-          title={info?.dataDir}
-          action={
-            <LinkButton
-              label={tr('settings.AboutSection.openDataDirectory')}
-              onClick={() => open('data-dir')}
-              icon="folder"
-            />
-          }
-        />
-      </Group>
-
       <Group title={tr('settings.AboutSection.links')}>
         <Row
           label={tr('settings.AboutSection.sourceRepository')}
@@ -188,22 +125,6 @@ export function AboutSection({ onOpenAccount }: { onOpenAccount: () => void }) {
               onClick={() => open('repo')}
               icon="external"
             />
-          }
-        />
-        <Row
-          label={tr('feedback.aboutTitle')}
-          value={tr('feedback.aboutDesc')}
-          action={
-            <button
-              type="button"
-              onClick={() => {
-                requestFeedback({})
-                settings.openSettings('feedback')
-              }}
-              className="press no-drag h-7 shrink-0 rounded-md px-2 text-meta text-fg-secondary hover:bg-hover hover:text-fg"
-            >
-              {tr('feedback.send')}
-            </button>
           }
         />
       </Group>
@@ -255,7 +176,7 @@ function UpdateButton({ update }: { update: UpdateState | null }) {
   )
 }
 
-/** 「更新」分组：当前状态、更新说明、接收测试版开关 */
+/** 「更新」分组：当前状态、更新说明；两个开关在设置 › 通用 */
 function UpdateGroup({ update }: { update: UpdateState }) {
   useI18n()
   const { status, version } = update
@@ -283,10 +204,11 @@ function UpdateGroup({ update }: { update: UpdateState }) {
         : status === 'downloading'
           ? tr('update.downloadingHint')
           : null
+  if (!line) return null
   return (
     <Group title={tr('update.group')}>
       {line && (
-        <div data-update-status={status} className="border-b border-line-subtle px-4 py-2.5">
+        <div data-update-status={status} className="px-4 py-2.5">
           <p className={cn('text-ui', status === 'error' ? 'text-danger' : 'text-fg')}>{line}</p>
           {hint && <p className="mt-0.5 text-meta text-fg-muted">{hint}</p>}
           {status === 'downloading' && (
@@ -307,35 +229,7 @@ function UpdateGroup({ update }: { update: UpdateState }) {
           )}
         </div>
       )}
-      <WhatsNewToggle />
-      <div className="flex min-h-10 items-center gap-4 px-4 py-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-ui text-fg">{tr('update.beta')}</p>
-          <p className="text-meta text-fg-muted">{tr('update.betaHint')}</p>
-        </div>
-        <Switch
-          checked={update.beta}
-          disabled={status === 'unsupported'}
-          label={tr('update.beta')}
-          onChange={on => void updateActions.setBeta(on)}
-        />
-      </div>
     </Group>
-  )
-}
-
-/** 「更新后显示更新内容」：关掉就是弹窗里的「不再提示」 */
-function WhatsNewToggle() {
-  useI18n()
-  const { muted } = useWhatsNew()
-  return (
-    <div className="flex min-h-10 items-center gap-4 border-b border-line-subtle px-4 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="text-ui text-fg">{tr('whatsNew.setting')}</p>
-        <p className="text-meta text-fg-muted">{tr('whatsNew.settingHint')}</p>
-      </div>
-      <Toggle label={tr('whatsNew.setting')} checked={!muted} onChange={on => whatsNewActions.setMuted(!on)} />
-    </div>
   )
 }
 
