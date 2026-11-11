@@ -169,6 +169,17 @@
   height: 24px;
   border-radius: 4px;
 }
+/* 录音中的麦克风要放下红点和时长 */
+:root[data-minimal='on'] .composer-send-controls button[data-voice='recording'] {
+  width: auto;
+}
+/* 照 Claude 桌面版（docs/ui/voice-input.md §4）：「＋」在输入行最左，和最后一行字上下对齐（同发送按钮的 16px） */
+:root[data-minimal='on'] .composer-add-controls {
+  padding: 0 0 16px 8px;
+}
+:root[data-minimal='on'] .composer-add-controls button {
+  border-radius: 4px;
+}
 
 /* 输入框上方的附件 / 技能标签（§10 A7）：22 高、4px 圆角、字小一号；文件和模式两排并成一排，放不下再折行 */
 :root[data-minimal='on'] .composer-card div:has(> div > [data-chip]) {

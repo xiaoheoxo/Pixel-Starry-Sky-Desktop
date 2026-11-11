@@ -6,6 +6,7 @@ import type { AppContext } from '../app/context'
 import { systemCipher } from '../app/system-cipher'
 import { ProviderStore } from '../core/providers/store'
 import { relayBilling } from '../core/providers/relay'
+import { parseTranscribeRequest, transcribeAudio } from '../core/providers/transcribe'
 import { fetchModels, testProvider } from '../core/providers/upstream'
 import * as ipc from '../ipc/guard'
 
@@ -33,5 +34,11 @@ export function initProviders(ctx: AppContext): ProviderStore {
   ipc.handle('providers:test', (_e, input: unknown) => testProvider(store.draft(input as ProviderInput), upstream))
   ipc.handle('providers:models', (_e, input: unknown) => fetchModels(store.draft(input as ProviderInput), upstream))
   ipc.handle('providers:billing', (_e, input: unknown) => relayBilling(store.draft(input as ProviderInput), upstream))
+  // 语音输入（docs/ui/voice-input.md）：录音发到已保存的接口转写，Key 不出主进程
+  ipc.handle('providers:transcribe', (_e, input: unknown) => {
+    const p = store.resolve(providerId((input as { providerId?: unknown } | null)?.providerId))
+    if (!p) throw new Error('语音识别用的接口已经不在了，请到设置里重新选择')
+    return transcribeAudio(p, parseTranscribeRequest(input), upstream)
+  })
   return store
 }

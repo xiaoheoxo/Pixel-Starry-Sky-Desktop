@@ -95,3 +95,14 @@ export type ProviderProblem = 'auth' | 'quota' | 'model' | 'not_found' | 'timeou
 export type ProviderTestResult =
   | { ok: true; status: number; model: string | null }
   | { ok: false; problem: ProviderProblem; status: number | null; message: string }
+
+/** 语音输入的一次转写（docs/ui/voice-input.md）：录音发到已保存的接口的 /audio/transcriptions */
+export interface TranscribeInput {
+  providerId: string
+  model: string
+  /** 录音的类型，例如 audio/webm;codecs=opus */
+  mime: string
+  audio: ArrayBuffer
+  /** 两个字母的语言代码；不给让接口自己判断 */
+  language?: string | null
+}

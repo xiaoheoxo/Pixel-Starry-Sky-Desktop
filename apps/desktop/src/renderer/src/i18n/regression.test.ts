@@ -43,6 +43,7 @@ import { costMessages } from '../../../shared/i18n/costMessages'
 import { longConversationMessages } from '../../../shared/i18n/longConversationMessages'
 import { storageMessages } from '../../../shared/i18n/storageMessages'
 import { dataLocationMessages } from '../../../shared/i18n/dataLocationMessages'
+import { voiceMessages } from '../../../shared/i18n/voiceMessages'
 import { tabMenuMessages } from '../../../shared/i18n/tabMenuMessages'
 import { minimalModeMessages } from '../../../shared/i18n/minimalModeMessages'
 import { customThemeMessages } from '../../../shared/i18n/customThemeMessages'
@@ -134,6 +135,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   longConversationMessages,
   storageMessages,
   dataLocationMessages,
+  voiceMessages,
   tabMenuMessages,
   minimalModeMessages,
   customThemeMessages,

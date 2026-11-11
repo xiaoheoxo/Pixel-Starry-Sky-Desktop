@@ -1,6 +1,6 @@
 import { translateMessage } from '../../i18n/core'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { ArrowUp, AtSign, ChevronDown, Mic, Paperclip, Plus, ShieldOff, Square, SquareSlash } from 'lucide-react'
+import { ArrowUp, AtSign, ChevronDown, Paperclip, Plus, ShieldOff, Square, SquareSlash } from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import { IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { useTheme } from '@/features/appearance/ThemeProvider'
@@ -48,6 +48,8 @@ import { QuotaButton } from './quota/QuotaButton'
 import { useComposerStyle } from '@/features/settings/composerStyle'
 import { useStopBackgroundAgents } from '@/features/settings/stopBackgroundAgents'
 import { ComposerStatusBar } from './ComposerStatusBar'
+import { insertSpoken } from '@/features/voice/model'
+import { VoiceButton, useVoiceInput } from '@/features/voice/useVoiceInput'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
 import './composerCompact.css'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -143,6 +145,8 @@ export function Composer({
   const chatgpt = style === 'chatgpt'
   // 极简模式：上面那一排浮在输入框上、不占位置，工具按钮要用时才出现（docs/ui/minimal-mode.md §13）
   const minimal = useMinimal()
+  // 极简模式照 Claude 桌面版（docs/ui/voice-input.md §4）：「＋」在输入行最左、麦克风在最右，发送按钮有内容才出现
+  const inRow = minimal && !chatgpt
   const paddingY = chatgpt ? 22 : 28
   const [items, setItems] = useState(initialAttachments)
   const key = composerDraftKey(draftKey, live)
@@ -312,6 +316,20 @@ export function Composer({
       setCaret(at)
     })
   }
+  // 语音输入（docs/ui/voice-input.md）：识别出的文字放到光标处，不自动发送
+  const voice = useVoiceInput({
+    onText: spoken => {
+      const sel = ref.current?.selection() ?? { from: text.length, to: text.length }
+      const next = insertSpoken(text, sel.from, sel.to, spoken)
+      setText(next.text)
+      placeCaret(next.caret)
+    },
+    onError: setError,
+    onSetup: () =>
+      toast(tr('voice.setup'), {
+        action: { label: tr('voice.openSettings'), run: () => settings.openSettings('models') },
+      }),
+  })
   const chooseMention = (index: number): void => {
     const entry = mentions.entries[index]
     if (!entry || !mention || caret === null) return
@@ -686,6 +704,7 @@ export function Composer({
       optimizer.start()
       return
     }
+    // 语音输入的 Esc 取消在 useVoiceInput 里（窗口级，焦点不在输入框也算），到不了这里
     if (optimizer.running && e.key === 'Escape') {
       e.preventDefault()
       optimizer.stop()
@@ -790,7 +809,75 @@ export function Composer({
           <ArrowUp size={17} strokeWidth={2} />
         </button>
       )}
+      {/* 麦克风在输入框里、发送按钮右边：正常模式和极简模式都是（极简小一号）。ChatGPT 风格的在下面一排 */}
+      {!chatgpt && <VoiceButton voice={voice} size={minimal ? 24 : 32} />}
     </div>
+  )
+
+  // 「＋」和它的菜单：平时在工具行最左，极简模式在输入行最左
+  const addControl = (
+    <span className="relative">
+      <IconButton
+        icon={Plus}
+        label={tr('composer.menu.add')}
+        size={inRow ? 24 : 32}
+        active={addMenu}
+        onClick={() => setAddMenu(value => !value)}
+      />
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        onChange={event => {
+          if (event.currentTarget.files) addFiles(event.currentTarget.files)
+          event.currentTarget.value = ''
+          setAddMenu(false)
+        }}
+      />
+      {/* 「+」菜单：图片或文件 / 引用文件（@）/ 命令（/），docs/ui/workbench-ux-3.md §2.6 */}
+      <Popover open={addMenu} onClose={() => setAddMenu(false)} side="top" offset={8} className="w-52">
+        <PopoverItem
+          icon={<Paperclip size={15} strokeWidth={1.5} />}
+          onClick={() => {
+            setAddMenu(false)
+            fileInput.current?.click()
+          }}
+        >
+          {tr('composer.file.add')}
+        </PopoverItem>
+        {canMention && (
+          <PopoverItem
+            icon={<AtSign size={15} strokeWidth={1.5} />}
+            hint="@"
+            onClick={() => {
+              setAddMenu(false)
+              const sel = ref.current?.selection() ?? { from: text.length, to: text.length }
+              const next = insertMention(text, sel.from, sel.to)
+              setText(next.text)
+              placeCaret(next.caret)
+            }}
+          >
+            {tr('composer.menu.file')}
+          </PopoverItem>
+        )}
+        {menuCommands.length > 0 && (
+          <PopoverItem
+            icon={<SquareSlash size={15} strokeWidth={1.5} />}
+            hint="/"
+            disabled={!!text.trim()}
+            title={text.trim() ? tr('composer.menu.commandAtStart') : undefined}
+            onClick={() => {
+              setAddMenu(false)
+              setText('/')
+              placeCaret(1)
+            }}
+          >
+            {tr('composer.menu.command')}
+          </PopoverItem>
+        )}
+      </Popover>
+    </span>
   )
 
   return (
@@ -1004,6 +1091,7 @@ export function Composer({
           )}
 
           <div className="composer-input-row flex min-w-0 items-end">
+            {inRow && <div className="composer-add-controls flex shrink-0 items-center">{addControl}</div>}
             {/* 粘贴的长文本在这里折成标签（docs/ui/composer-paste-fold.md） */}
             <ComposerInput
               ref={ref}
@@ -1061,68 +1149,7 @@ export function Composer({
             chatgpt ? cn('pl-2.5 pb-2.5', running && hasContent ? 'pr-[84px]' : 'pr-[48px]') : 'px-1 pt-1.5',
           )}
         >
-          <span className="relative">
-            <IconButton
-              icon={Plus}
-              label={tr('composer.menu.add')}
-              size={32}
-              active={addMenu}
-              onClick={() => setAddMenu(value => !value)}
-            />
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              onChange={event => {
-                if (event.currentTarget.files) addFiles(event.currentTarget.files)
-                event.currentTarget.value = ''
-                setAddMenu(false)
-              }}
-            />
-            {/* 「+」菜单：图片或文件 / 引用文件（@）/ 命令（/），docs/ui/workbench-ux-3.md §2.6 */}
-            <Popover open={addMenu} onClose={() => setAddMenu(false)} side="top" offset={8} className="w-52">
-              <PopoverItem
-                icon={<Paperclip size={15} strokeWidth={1.5} />}
-                onClick={() => {
-                  setAddMenu(false)
-                  fileInput.current?.click()
-                }}
-              >
-                {tr('composer.file.add')}
-              </PopoverItem>
-              {canMention && (
-                <PopoverItem
-                  icon={<AtSign size={15} strokeWidth={1.5} />}
-                  hint="@"
-                  onClick={() => {
-                    setAddMenu(false)
-                    const sel = ref.current?.selection() ?? { from: text.length, to: text.length }
-                    const next = insertMention(text, sel.from, sel.to)
-                    setText(next.text)
-                    placeCaret(next.caret)
-                  }}
-                >
-                  {tr('composer.menu.file')}
-                </PopoverItem>
-              )}
-              {menuCommands.length > 0 && (
-                <PopoverItem
-                  icon={<SquareSlash size={15} strokeWidth={1.5} />}
-                  hint="/"
-                  disabled={!!text.trim()}
-                  title={text.trim() ? tr('composer.menu.commandAtStart') : undefined}
-                  onClick={() => {
-                    setAddMenu(false)
-                    setText('/')
-                    placeCaret(1)
-                  }}
-                >
-                  {tr('composer.menu.command')}
-                </PopoverItem>
-              )}
-            </Popover>
-          </span>
+          {!inRow && addControl}
           {live ? (
             // 外包一层 contents：窄宽时 composerCompact.css 靠它把权限按钮收成只剩图标
             <span data-composer-permission className="contents">
@@ -1181,15 +1208,7 @@ export function Composer({
               </button>
             </>
           )}
-          {/* 语音输入还没做：只在演示模式按参考图显示（docs/ui/conversation-ux.md §2.3） */}
-          {!live && (
-            <IconButton
-              icon={Mic}
-              label={translate('语音输入')}
-              size={32}
-              onClick={() => comingSoon(translate('语音输入'))}
-            />
-          )}
+          {chatgpt && <VoiceButton voice={voice} />}
           {/* 窄宽时 composerCompact.css 靠 data-composer-quota 把额度按钮收成只剩图标 */}
           <span data-composer-quota className="contents">
             <QuotaButton
