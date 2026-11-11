@@ -1,6 +1,6 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage, type TranslationKey } from '../../i18n/core'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { codexPlainText } from '@pixelsky/protocol'
 import {
   Archive,
@@ -9,7 +9,9 @@ import {
   ArrowUpRight,
   Bot,
   ChevronDown,
+  Copy,
   Ellipsis,
+  Folder,
   Pencil,
   Pin,
   PinOff,
@@ -21,10 +23,12 @@ import {
 import { Button, cn, IconButton, Select, Spinner, Switch, useComingSoon, useToast } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
-import { relativeTime } from '@/features/engine'
+import { effortLabel, PERMISSION_INFO, relativeTime } from '@/features/engine'
 import type { AgentMember, Channel, ChannelAgentStatus, ChannelMember, HumanMember } from '@/data/types'
 import type { AgentConfig, AgentPolicy, ChannelNotify, ChannelTaskStatus } from '../../../../shared/types/channels'
-import { agentMeta, MemberAvatar } from './ChannelMessage'
+import { usesTaskCopies } from '../../../../shared/types/channels'
+import { agentCredit, machineLabel, MemberAvatar } from './ChannelMessage'
+import { sharedDirGroups } from './model'
 import { AgentDialog, ChannelDialog } from './ChannelDialogs'
 import { SavePresetDialog } from './ChannelPresets'
 import { channelActions, channelsLive, useChannels } from './store'
@@ -254,12 +258,22 @@ function AgentRow({
   team,
   canRemoveOthers,
   readOnly = false,
+  dirGroup,
+  dirPeers,
+  copyName,
   onOpenSession,
   onEdit,
+  onDuplicate,
   onRemove,
   onPolicy,
 }: {
   member: AgentMember
+  /** 和频道里别的成员共用目录时：第几组（决定方块颜色）、和谁共用（docs/ui/channel-member-row.md §2） */
+  dirGroup: number | undefined
+  dirPeers: string[]
+  /** 成员绑的 Git 副本的名字；还没读到是 undefined */
+  copyName: string | undefined
+  onDuplicate: (config: AgentConfig) => void
   channelId: string
   live: boolean
   /** 团队频道 */
@@ -279,11 +293,39 @@ function AgentRow({
   const status = tr(STATUS_LABEL[member.status])
   // 别人的 AI 成员：只读，没有「打开会话」和档案
   const foreign = team && member.mine === false
+  const config = member.config
+  const settings = config?.settings
+  // 自己设过的才出标签；没设是跟随引擎默认
+  const tags = [
+    settings?.effort && effortLabel(settings.effort),
+    settings?.fast && 'Fast',
+    settings?.ultracode && 'Ultracode',
+  ].filter((t): t is string => !!t)
+  const where = [
+    member.project,
+    config &&
+      (usesTaskCopies(config)
+        ? tr('channels.members.taskCopies')
+        : config.copyId
+          ? (copyName ?? tr('machines.copy'))
+          : tr('channels.agent.mainTree')),
+    member.machineId !== 'local' && machineLabel(member),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const role = config?.instructions.trim().split('\n')[0]
+  const sharesText = dirPeers.length
+    ? tr('channels.members.sharesDir', { names: dirPeers.join(tr('channels.composer.nameSep')) })
+    : undefined
   const actions: MenuAction[] = foreign
     ? [{ label: tr('channels.members.remove'), icon: UserMinus, danger: true, run: () => onRemove(member) }]
     : [
         ...(member.config
           ? [{ label: tr('channels.members.edit'), icon: Pencil, run: () => onEdit(member.config!) }]
+          : []),
+        // 复制：新成员加进这个频道，所以归档的频道、团队频道（成员要另外登记）没有
+        ...(member.config && !readOnly && !team
+          ? [{ label: tr('channels.members.duplicate'), icon: Copy, run: () => onDuplicate(member.config!) }]
           : []),
         ...(member.sessionId || member.boundSession
           ? [
@@ -350,15 +392,45 @@ function AgentRow({
             )}
           </div>
         )}
-        <div className="truncate text-meta text-fg-faint">
-          {[
-            agentMeta(member),
-            member.project,
-            member.usage ? tr('channels.usage.todayCost', { cost: costCell(member.usage.today, true).text }) : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-meta">
+          <span className="min-w-0 truncate text-fg-secondary">
+            {[agentCredit(member), member.model].filter(Boolean).join(' · ') || tr('channels.agent.default')}
+          </span>
+          {tags.map(t => (
+            <span key={t} className="shrink-0 rounded bg-subtle px-1.5 text-label text-fg-muted">
+              {t}
+            </span>
+          ))}
+          {settings?.permissionMode && (
+            <span
+              className={cn(
+                'shrink-0 rounded px-1.5 text-label',
+                settings.permissionMode === 'full' ? 'bg-warn/10 text-warn' : 'bg-subtle text-fg-muted',
+              )}
+            >
+              {PERMISSION_INFO[settings.permissionMode].label}
+            </span>
+          )}
         </div>
+        {where && (
+          <div data-member-dir className="flex min-w-0 items-center gap-1.5 text-meta text-fg-muted" title={sharesText}>
+            {dirGroup !== undefined && (
+              <span
+                aria-hidden
+                className="size-2 shrink-0 rounded-sm"
+                style={{ background: `var(--graph-lane-${(dirGroup % 5) + 1})` }}
+              />
+            )}
+            <Folder size={12} className="shrink-0 text-fg-faint" />
+            <span className="min-w-0 truncate">{where}</span>
+            {sharesText && <span className="sr-only">{sharesText}</span>}
+          </div>
+        )}
+        {role && (
+          <div className="truncate text-meta text-fg-secondary" title={role}>
+            {role}
+          </div>
+        )}
         <div
           className={cn(
             'flex min-w-0 items-center gap-1.5 text-meta',
@@ -384,11 +456,7 @@ function AgentRow({
           ) : (
             <div className="text-meta text-fg-faint">{tr('channels.members.boundGone')}</div>
           ))}
-        {!!member.sharesDirWith?.length && (
-          <div className="text-meta text-fg-faint">
-            {tr('channels.members.sharesDir', { names: member.sharesDirWith.join('、') })}
-          </div>
-        )}
+
         {team && member.mine !== false && member.policy && (
           <div className="mt-1 flex items-center gap-2 text-meta text-fg-muted">
             <span className="shrink-0">{tr('team.panel.policyLabel')}</span>
@@ -454,6 +522,24 @@ function AgentRow({
   )
 }
 
+/** 成员绑的 Git 副本的名字（copyId → 名字）：只读绑了副本的成员所在的项目；读不到的行里写「Git 副本」 */
+function useCopyNames(agents: readonly AgentMember[]): Map<string, string> {
+  const projectIds = [...new Set(agents.filter(a => a.config?.copyId).map(a => a.config!.projectId))].sort().join('\n')
+  const [names, setNames] = useState(() => new Map<string, string>())
+  useEffect(() => {
+    const machines = window.pixelsky?.machines
+    if (!projectIds || !machines) return
+    let alive = true
+    void Promise.all(projectIds.split('\n').map(id => machines.workspaces(id).catch(() => []))).then(lists => {
+      if (alive) setNames(new Map(lists.flat().flatMap(w => (w.copyId ? [[w.copyId, w.name] as const] : []))))
+    })
+    return () => {
+      alive = false
+    }
+  }, [projectIds])
+  return names
+}
+
 /** 成员面板（docs/ui/channels.md §7，Phase B 见 channels-phase-b.md §8）：频道信息、真人成员、AI 成员 */
 export function ChannelMembers({
   channel,
@@ -474,7 +560,7 @@ export function ChannelMembers({
   const toast = useToast()
   const live = channelsLive
   const [dialog, setDialog] = useState<
-    | { kind: 'agent'; editing: AgentConfig | null }
+    | { kind: 'agent'; editing: AgentConfig | null; from?: AgentConfig }
     | { kind: 'channel' }
     | { kind: 'savePreset' }
     | { kind: 'delete' }
@@ -488,6 +574,9 @@ export function ChannelMembers({
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number } | null>(null)
   const humans = members.filter((m): m is HumanMember => m.kind === 'human')
   const agents = members.filter((m): m is AgentMember => m.kind === 'agent')
+  // 共用目录的成员同一种颜色（docs/ui/channel-member-row.md §2）
+  const dirGroups = sharedDirGroups(agents)
+  const copyNames = useCopyNames(agents)
   // 可以加进来的：我自己的全局 AI 成员（别人的、团队频道里登记的不算）
   const others = allMembers.filter(
     (m): m is AgentMember =>
@@ -635,10 +724,27 @@ export function ChannelMembers({
               : tr('channels.members.agents', { count: agents.length })
           }
         >
+          {dirGroups.size > 0 && (
+            <p className="mx-2 mb-1 flex items-center gap-1 rounded bg-subtle px-2 py-1 text-label text-fg-muted">
+              {[...new Set(dirGroups.values())].map(g => (
+                <span
+                  key={g}
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-sm"
+                  style={{ background: `var(--graph-lane-${(g % 5) + 1})` }}
+                />
+              ))}
+              <span className="ml-0.5 min-w-0">{tr('channels.members.sharedLegend')}</span>
+            </p>
+          )}
           {agents.map(m => (
             <AgentRow
               key={m.id}
               member={m}
+              dirGroup={dirGroups.get(m.id)}
+              dirPeers={(m.sharesDirWith ?? []).filter(n => n !== m.name && agents.some(a => a.name === n))}
+              copyName={m.config?.copyId ? copyNames.get(m.config.copyId) : undefined}
+              onDuplicate={config => setDialog({ kind: 'agent', editing: null, from: config })}
               channelId={channel.id}
               live={live}
               team={team}
@@ -744,7 +850,13 @@ export function ChannelMembers({
         />
       )}
       {dialog?.kind === 'agent' && (
-        <AgentDialog channel={channel} editing={dialog.editing} others={others} onClose={() => setDialog(null)} />
+        <AgentDialog
+          channel={channel}
+          editing={dialog.editing}
+          from={dialog.from}
+          others={others}
+          onClose={() => setDialog(null)}
+        />
       )}
       {dialog?.kind === 'savePreset' && <SavePresetDialog channel={channel} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'channel' && <ChannelDialog channel={channel} agents={[]} onClose={() => setDialog(null)} />}

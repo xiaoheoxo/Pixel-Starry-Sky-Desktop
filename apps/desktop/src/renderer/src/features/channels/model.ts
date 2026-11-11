@@ -324,6 +324,39 @@ export function sharedDirAgents(members: readonly ChannelMember[]): string[] {
   return shared.length >= 2 ? shared : []
 }
 
+/**
+ * 这个频道里共用同一个目录的 AI 成员（docs/ui/channel-member-row.md §2）：成员 id → 第几组（从 0 起，按出现顺序）。
+ * 不和频道里别的成员共用的不在里面
+ */
+export function sharedDirGroups(members: readonly ChannelMember[]): Map<string, number> {
+  const agents = members.filter((m): m is AgentMember => m.kind === 'agent')
+  const idOf = new Map(agents.map(a => [a.name, a.id]))
+  const groups = new Map<string, number>()
+  let next = 0
+  for (const a of agents) {
+    const peers = (a.sharesDirWith ?? []).filter(n => n !== a.name && idOf.has(n))
+    if (!peers.length) continue
+    const known = peers.map(n => groups.get(idOf.get(n)!)).find(g => g !== undefined)
+    groups.set(a.id, known ?? next++)
+  }
+  return groups
+}
+
+/**
+ * 复制成员时的名字：原名后面加数字（「前端助手 2」）。原名本身就是复制出来的（去掉结尾数字后的名字也有人用）
+ * 就接着往后数；避开已有的名字（不分大小写），不超过 max 个字
+ */
+export function duplicateName(name: string, taken: readonly string[], max = 40): string {
+  const used = new Set(taken.map(n => n.trim().toLowerCase()))
+  const numbered = /^(.+?) (\d+)$/.exec(name.trim())
+  const counting = !!numbered && used.has(numbered[1].toLowerCase())
+  const base = counting ? numbered[1] : name.trim()
+  for (let n = counting ? Number(numbered[2]) + 1 : 2; ; n++) {
+    const candidate = `${base.slice(0, max - String(n).length - 1).trimEnd()} ${n}`
+    if (!used.has(candidate.toLowerCase())) return candidate
+  }
+}
+
 /** 这条消息会派给的 SSH 成员（@ 到的，或被追加要求的）：读不到本机路径 */
 export function remoteAgents(text: string, members: readonly ChannelMember[], assigneeId?: string): AgentMember[] {
   const ids = new Set(parseMentions(text, members))
@@ -392,5 +425,26 @@ export function scheduleToInput(s: FlowSchedule): FlowScheduleInput {
     limits: s.limits,
     enabled: s.enabled,
     isolate: s.isolate,
+  }
+}
+
+/** 添加 / 编辑成员弹窗里跟着引擎走的四项（空字符串 = 默认） */
+export interface EngineBound {
+  source: string
+  model: string
+  permission: string
+  effort: string
+}
+
+/**
+ * 换引擎后哪几项被换掉了（docs/ui/channel-member-row.md §3）：before 是换之前的值，没换过引擎是 null。
+ * 原来就是默认（空）的模型、权限、推理强度不算
+ */
+export function engineResetFields(before: EngineBound | null, now: EngineBound): Record<keyof EngineBound, boolean> {
+  return {
+    source: !!before && before.source !== now.source,
+    model: !!before?.model && before.model !== now.model,
+    permission: !!before?.permission && before.permission !== now.permission,
+    effort: !!before?.effort && before.effort !== now.effort,
   }
 }

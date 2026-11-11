@@ -53,17 +53,22 @@ export function machineLabel(member: ChannelMember | undefined): string {
   return member.machine || (member.machineId === 'local' ? tr('channels.thisComputer') : member.machineId)
 }
 
-/** 额度来源（自有账号不写）· 模型 · 自己设过的推理强度 / Fast / Ultracode · 机器（AI 成员）；真人没有 */
-export function agentMeta(member: ChannelMember | undefined): string | null {
-  if (member?.kind !== 'agent') return null
-  const settings = member.config?.settings
-  const credit = settings?.platform
+/** 额度来源的短名：像素星空平台、自定义接口的名字；自有账号是 null */
+export function agentCredit(member: ChannelMember | undefined): string | null {
+  const settings = member?.kind === 'agent' ? member.config?.settings : undefined
+  return settings?.platform
     ? channelShort('platform')
     : settings?.provider
       ? (getProviders().providers.find(p => p.id === settings.provider?.id)?.name ?? channelShort('custom'))
       : null
+}
+
+/** 额度来源（自有账号不写）· 模型 · 自己设过的推理强度 / Fast / Ultracode · 机器（AI 成员）；真人没有 */
+export function agentMeta(member: ChannelMember | undefined): string | null {
+  if (member?.kind !== 'agent') return null
+  const settings = member.config?.settings
   return [
-    credit,
+    agentCredit(member),
     member.model,
     settings?.effort && effortLabel(settings.effort),
     settings?.fast && 'Fast',

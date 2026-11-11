@@ -162,6 +162,10 @@ export interface AgentConfig {
   createdAt: number
 }
 
+/** 「每项活一个 Git 副本」是否生效：只在每项活新开会话、本机成员、没绑副本时（派活和「和谁共用目录」用同一个判断） */
+export const usesTaskCopies = (c: Pick<AgentConfig, 'copyPerTask' | 'mode' | 'machineId' | 'copyId'>): boolean =>
+  c.copyPerTask === true && c.mode === 'per-task' && c.machineId === 'local' && !c.copyId
+
 /** 成员只用这些扩展（id 来自设置 › 扩展里像素星空管理的条目） */
 export interface AgentTools {
   mode: 'only'

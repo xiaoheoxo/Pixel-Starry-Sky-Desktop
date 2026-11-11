@@ -294,6 +294,24 @@ describe('协作频道：成员的额度来源', () => {
       rememberChoices: false,
     })
   })
+  // docs/ui/channel-member-row.md §2
+  it('和谁共用目录：开了每项活一个副本的成员也算（不是 Git 仓库、流程步骤、团队的活还在主目录做）；绑了副本的不算', async () => {
+    const c = await open()
+    const main = await c.saveMember(null, agent('主目录甲'))
+    await c.saveMember(null, agent('主目录乙'))
+    const perTask = await c.saveMember(null, agent('单独副本', { copyPerTask: true }))
+    // 一直用同一个会话的成员开了这个开关也不生效
+    const shared = await c.saveMember(null, agent('共用会话', { mode: 'shared', copyPerTask: true }))
+    const bound = await c.saveMember(null, agent('绑了副本', { copyId: 'copy-1' }))
+    const shares = (id: string) => {
+      const m = c.state().members.find(x => x.id === id)
+      return m?.kind === 'agent' ? m.sharesDirWith : undefined
+    }
+    expect(shares(main)).toEqual(['主目录乙', '单独副本', '共用会话'])
+    expect(shares(shared)).toEqual(['主目录甲', '主目录乙', '单独副本'])
+    expect(shares(perTask)).toEqual(['主目录甲', '主目录乙', '共用会话'])
+    expect(shares(bound)).toEqual([])
+  })
   it('一直用同一个会话的成员换了额度来源：下一项活开新会话（来源是开会话时定的）', async () => {
     const c = await open()
     const id = await c.saveMember(null, agent('共用', { mode: 'shared' }))

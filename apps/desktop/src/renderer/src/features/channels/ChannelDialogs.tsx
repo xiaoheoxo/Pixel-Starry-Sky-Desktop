@@ -16,7 +16,7 @@ import type { AgentMember, Channel } from '@/data/types'
 import { relayRulesOf, type AgentConfig, type RelayRules } from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
 import { channelActions, useChannels } from './store'
-import { matchAgents, scheduleToInput } from './model'
+import { duplicateName, engineResetFields, matchAgents, scheduleToInput } from './model'
 import { RelayRulesEditor } from './RelayRules'
 import { AlertRulesEditor } from './AlertRules'
 import { CopyFromChannel, ManagePresetsDialog, PresetChooser, PresetSummary } from './ChannelPresets'
@@ -673,11 +673,14 @@ function useCopies(projectId: string): WorkspaceChoice[] {
 export function AgentDialog({
   channel,
   editing,
+  from,
   others,
   onClose,
 }: {
   channel: Channel
   editing: AgentConfig | null
+  /** 复制这个成员（docs/ui/channel-member-row.md §3）：新建，设置都先填成它的；绑定的会话不带 */
+  from?: AgentConfig
   /** 还不在这个频道里的已有成员 */
   others: readonly AgentMember[]
   onClose: () => void
@@ -687,42 +690,65 @@ export function AgentDialog({
   const currentProject = useEngineState(s => s.currentProjectId)
   const projectOptions = useProjectOptions()
   const ready = engines.filter(e => e.status === 'ready' && (e.id === 'claude' || e.id === 'codex' || e.id === 'pixel'))
-  const [name, setName] = useState(editing?.name ?? '')
-  const [engine, setEngine] = useState<EngineId>(editing?.engine ?? ready[0]?.id ?? 'claude')
+  const allMembers = useChannels(s => s.members)
+  const seed = editing ?? from ?? null
+  // 打开时的名字和职责：关弹窗前用它判断改没改过
+  const [initial] = useState(() => ({
+    name:
+      editing?.name ??
+      (from
+        ? duplicateName(
+            from.name,
+            allMembers.map(m => m.name),
+          )
+        : ''),
+    instructions: seed?.instructions ?? '',
+  }))
+  const [name, setName] = useState(initial.name)
+  // 第一次换引擎前的几项（新引擎没有原来的模型、档位时会被换掉，原来是悄悄改的）：之后一直和它比，换回那个引擎就放回去
+  const [engineNote, setEngineNote] = useState<{
+    engine: EngineId
+    source: SourceKey
+    model: string
+    permission: PermissionMode | ''
+    effort: Effort | ''
+  } | null>(null)
+  const [engine, setEngine] = useState<EngineId>(seed?.engine ?? ready[0]?.id ?? 'claude')
   const firstProject = channel.projectId ?? currentProject ?? projectOptions.find(o => !o.disabled)?.value ?? ''
-  const [projectId, setProjectId] = useState(editing?.projectId ?? firstProject)
-  const [copyId, setCopyId] = useState<string>(editing?.copyId ?? '')
-  const [copyPerTask, setCopyPerTask] = useState(editing?.copyPerTask === true)
-  const [model, setModel] = useState<string>(editing?.settings.model ?? '')
-  const [source, setSource] = useState<SourceKey>(sourceKeyOf(editing?.settings))
+  const [projectId, setProjectId] = useState(seed?.projectId ?? firstProject)
+  const [copyId, setCopyId] = useState<string>(seed?.copyId ?? '')
+  const [copyPerTask, setCopyPerTask] = useState(seed?.copyPerTask === true)
+  const [model, setModel] = useState<string>(seed?.settings.model ?? '')
+  const [source, setSource] = useState<SourceKey>(sourceKeyOf(seed?.settings))
   // 平台线路：记的是用户选的那条，实际用哪条按模型对齐（resolveRoute）；swap 是换线路时顺手换掉的模型，可以撤销
-  const [groupId, setGroupId] = useState<string | null>(editing?.settings.platform?.groupId ?? null)
+  const [groupId, setGroupId] = useState<string | null>(seed?.settings.platform?.groupId ?? null)
   const [swap, setSwap] = useState<{ groupId: string | null; model: string; to: string } | null>(null)
-  const [permission, setPermission] = useState<PermissionMode | ''>(editing?.settings.permissionMode ?? '')
+  const [permission, setPermission] = useState<PermissionMode | ''>(seed?.settings.permissionMode ?? '')
   // 推理强度那几项（docs/ui/channels-pipeline.md 第 19 项）：'' / follow = 跟随引擎设置里的默认
-  const [effort, setEffort] = useState<Effort | ''>(editing?.settings.effort ?? '')
-  const [fast, setFast] = useState<Toggle>(toggleOf(editing?.settings.fast))
-  const [ultracode, setUltracode] = useState<Toggle>(toggleOf(editing?.settings.ultracode))
+  const [effort, setEffort] = useState<Effort | ''>(seed?.settings.effort ?? '')
+  const [fast, setFast] = useState<Toggle>(toggleOf(seed?.settings.fast))
+  const [ultracode, setUltracode] = useState<Toggle>(toggleOf(seed?.settings.ultracode))
   const engineConfig = useEngineState(s => s.config)
   const engineDefaults = useEngineState(s => s.defaults)
-  const [instructions, setInstructions] = useState(editing?.instructions ?? '')
-  const [mode, setMode] = useState<AgentConfig['mode']>(editing?.mode ?? 'per-task')
-  const [tools, setTools] = useState<AgentConfig['tools']>(editing?.tools ?? null)
+  const [instructions, setInstructions] = useState(seed?.instructions ?? '')
+  const [mode, setMode] = useState<AgentConfig['mode']>(seed?.mode ?? 'per-task')
+  const [tools, setTools] = useState<AgentConfig['tools']>(seed?.tools ?? null)
   // 一句话建成员（docs/ui/channels-member-quickstart-memory.md §A）：AI 填过的字段 → 为什么；用户改了这个字段就去掉
   const [ai, setAi] = useState<Partial<Record<MemberDraftField, string>>>({})
   const [drafted, setDrafted] = useState(false)
   const [quick, setQuick] = useState({ typed: false, running: false })
-  const unmark = (...keys: MemberDraftField[]) =>
+  const unmark = (...keys: MemberDraftField[]) => {
+    // 自己重新选了来源、模型、档位、权限：换引擎的那句说明不用再留着
+    if (keys.some(k => k === 'source' || k === 'model' || k === 'effort' || k === 'permission')) setEngineNote(null)
     setAi(a => {
       if (!keys.some(k => k in a)) return a
       const next = { ...a }
       for (const k of keys) delete next[k]
       return next
     })
-  const allMembers = useChannels(s => s.members)
+  }
   // 名字和职责说明（最长 2000 字）是自己打的字、AI 填过表：改过就先问再关
-  const dirty =
-    drafted || quick.typed || name !== (editing?.name ?? '') || instructions !== (editing?.instructions ?? '')
+  const dirty = drafted || quick.typed || name !== initial.name || instructions !== initial.instructions
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const copies = useCopies(projectId)
@@ -809,6 +835,12 @@ export function AgentDialog({
   const hasUltracode = caps ? caps.ultracode : true
   const panelDefaults = effortDefaultsFor(engineConfig, engineDefaults, engine)
   const onOff = (v: boolean) => tr(v ? 'channels.agent.on' : 'channels.agent.off')
+  // 换引擎后和换之前不一样的几项（docs/ui/channel-member-row.md §3）
+  const reset = engineResetFields(engineNote, { source, model, permission, effort: effortValue })
+  const resetNames = (['source', 'model', 'permission', 'effort'] as const)
+    .filter(k => reset[k])
+    .map(k => tr(`channels.agent.${k}`))
+  const RESET_RING = 'ring-1 ring-warn/50'
   const followLabel = (value: string) => tr('channels.agent.follow', { value })
   const effortOptions: SelectOption<Effort | ''>[] = [
     { value: '', label: followLabel(effortLabel(panelDefaults.effort)) },
@@ -903,14 +935,19 @@ export function AgentDialog({
       cancelLabel={tr('channels.dialog.cancel')}
       busy={busy}
       error={error}
-      focusInput={!!editing || others.length === 0}
+      focusInput={!!editing || !!from || others.length === 0}
       confirmDisabled={!canSave || quick.running}
       dirty={dirty}
       onConfirm={submit}
       onCancel={onClose}
       description={
         <div className="-mx-1 flex max-h-[min(60vh,560px)] flex-col gap-4 overflow-y-auto px-1 [scrollbar-width:thin]">
-          {!editing && others.length > 0 && (
+          {from && (
+            <p data-copied-from className="rounded-md bg-accent-soft px-2.5 py-2 text-meta text-fg-secondary">
+              {tr('channels.agent.copiedFrom', { name: from.name })}
+            </p>
+          )}
+          {!editing && !from && others.length > 0 && (
             <section className="flex flex-col gap-1">
               <h4 className="text-meta font-medium text-fg-muted">{tr('channels.agent.existing')}</h4>
               {others.map(a => (
@@ -932,7 +969,7 @@ export function AgentDialog({
               </h4>
             </section>
           )}
-          {!editing && (
+          {!editing && !from && (
             <MemberQuickFill
               context={() => memberDraftContext(draftCtx(), PROMPT_CONTEXT_LIMIT)}
               apply={applyAi}
@@ -967,8 +1004,18 @@ export function AgentDialog({
                   value={engine}
                   options={ready.map(e => ({ value: e.id, label: e.version ? `${e.name} ${e.version}` : e.name }))}
                   onChange={v => {
+                    const before = engineNote ?? { engine, source, model, permission, effort: effortValue }
                     unmark('engine', 'source', 'model')
                     setEngine(v)
+                    // 换回原来的引擎：被换掉的几项原样放回去（说明已经被 unmark 清掉）
+                    if (v === before.engine) {
+                      setSource(before.source)
+                      setModel(before.model)
+                      setPermission(before.permission)
+                      return
+                    }
+                    // 放在 unmark 后面：它会清掉说明
+                    setEngineNote(before)
                     // 自动审核只有部分引擎有：换到没有的引擎就退回跟随默认，不留一个选择框里没有的值
                     if (permission && !engines.find(e => e.id === v)?.caps.permissionModes.includes(permission))
                       setPermission('')
@@ -980,6 +1027,20 @@ export function AgentDialog({
                 />
               ) : (
                 <p className="text-meta text-warn">{tr('channels.agent.noEngine')}</p>
+              )}
+              {/* 复制的成员用的引擎现在没就绪：上面没有选中项、「添加」点不了，写明原因 */}
+              {!editing && ready.length > 0 && !ready.some(e => e.id === engine) && (
+                <p data-engine-gone className="text-meta text-warn">
+                  {tr('channels.agent.engineGone', { engine: engines.find(e => e.id === engine)?.name ?? engine })}
+                </p>
+              )}
+              {resetNames.length > 0 && (
+                <p data-engine-reset className="text-meta text-warn">
+                  {tr('channels.agent.engineReset', {
+                    engine: engines.find(e => e.id === engine)?.name ?? engine,
+                    fields: resetNames.join(tr('channels.composer.nameSep')),
+                  })}
+                </p>
               )}
               <AiFilled field={tr('channels.agent.engine')} reason={ai.engine} />
             </div>
@@ -1020,6 +1081,7 @@ export function AgentDialog({
                   value={source}
                   options={sourceSelect}
                   onChange={pickSource}
+                  className={reset.source ? RESET_RING : undefined}
                 />
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
@@ -1034,6 +1096,7 @@ export function AgentDialog({
                       unmark('model')
                     }}
                     mono
+                    className={reset.model ? RESET_RING : undefined}
                   />
                 ) : (
                   <p className="flex h-8 items-center text-meta text-warn">{tr('channels.agent.source.noModels')}</p>
@@ -1091,6 +1154,7 @@ export function AgentDialog({
                     setPermission(v)
                     unmark('permission')
                   }}
+                  className={reset.permission ? RESET_RING : undefined}
                 />
               </div>
               {efforts.length > 0 && (
@@ -1104,6 +1168,7 @@ export function AgentDialog({
                       setEffort(v)
                       unmark('effort')
                     }}
+                    className={reset.effort ? RESET_RING : undefined}
                   />
                 </div>
               )}

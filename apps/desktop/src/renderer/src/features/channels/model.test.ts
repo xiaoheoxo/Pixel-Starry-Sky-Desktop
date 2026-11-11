@@ -7,6 +7,8 @@ import {
   continuesTask,
   createMessage,
   defaultMentionIndex,
+  duplicateName,
+  engineResetFields,
   filterMentionable,
   firstUnreadAt,
   tasksWithResult,
@@ -18,6 +20,7 @@ import {
   parseMentions,
   remoteAgents,
   sharedDirAgents,
+  sharedDirGroups,
   splitMentions,
   stripPlanJson,
   unreadTotal,
@@ -410,6 +413,67 @@ describe('@提及', () => {
     ).toEqual(['前端助手', '前端'])
     expect(sharedDirAgents([{ ...fe, sharesDirWith: ['别的频道的'] }, fe2])).toEqual([])
     expect(sharedDirAgents([fe, fe2])).toEqual([])
+  })
+  // docs/ui/channel-member-row.md §2
+  it('共用目录的成员分组：按出现顺序编号，只算这个频道里的，不共用的不在里面', () => {
+    const agent = (id: string, sharesDirWith?: string[]): ChannelMember => ({
+      ...agentOf(members[1]),
+      id,
+      name: id,
+      sharesDirWith,
+    })
+    const groups = sharedDirGroups([
+      members[0],
+      agent('a', ['b', 'e']),
+      agent('solo'),
+      agent('c', ['d']),
+      agent('b', ['a', 'e']),
+      agent('d', ['c']),
+      agent('e', ['a', 'b']),
+      // 和它共用的成员不在这个频道里
+      agent('f', ['别的频道的']),
+    ])
+    expect([...groups]).toEqual([
+      ['a', 0],
+      ['c', 1],
+      ['b', 0],
+      ['d', 1],
+      ['e', 0],
+    ])
+    expect(sharedDirGroups([agent('a'), agent('b')]).size).toBe(0)
+  })
+  // docs/ui/channel-member-row.md §3
+  it('复制成员的名字：原名加数字，复制出来的接着往后数，避开已有的，不超过 40 个字', () => {
+    expect(duplicateName('前端助手', ['前端助手'])).toBe('前端助手 2')
+    expect(duplicateName('前端助手', ['前端助手', '前端助手 2', '前端助手 3'])).toBe('前端助手 4')
+    // 复制「前端助手 2」：接着数，不叫「前端助手 2 2」
+    expect(duplicateName('前端助手 2', ['前端助手', '前端助手 2'])).toBe('前端助手 3')
+    // 名字本来就以数字结尾（没有叫「Sonnet」的成员）：当成名字的一部分
+    expect(duplicateName('Sonnet 5', ['Sonnet 5'])).toBe('Sonnet 5 2')
+    // 不分大小写
+    expect(duplicateName('Bot', ['bot', 'BOT 2'])).toBe('Bot 3')
+    const long = '很'.repeat(40)
+    const copied = duplicateName(long, [long])
+    expect(copied).toBe(`${'很'.repeat(38)} 2`)
+    expect(copied).toHaveLength(40)
+  })
+  it('换引擎后哪几项被换掉：没换过引擎都不标；原来就是默认的不算；换回原来的值就不标了', () => {
+    const before = { source: 'self', model: 'claude-opus-5-5', permission: 'auto', effort: 'xhigh' }
+    const none = { source: false, model: false, permission: false, effort: false }
+    expect(engineResetFields(null, before)).toEqual(none)
+    expect(engineResetFields(before, before)).toEqual(none)
+    expect(engineResetFields(before, { source: 'self', model: '', permission: '', effort: 'xhigh' })).toEqual({
+      ...none,
+      model: true,
+      permission: true,
+    })
+    // 原来模型、权限、强度就是默认：换引擎后选了别的也不是「被换掉」；来源变了照样标
+    expect(
+      engineResetFields(
+        { source: 'platform', model: '', permission: '', effort: '' },
+        { source: 'self', model: 'gpt-5.5', permission: 'plan', effort: 'high' },
+      ),
+    ).toEqual({ ...none, source: true })
   })
   it('读不到本机路径的提示：只算这条会派给的 SSH 成员（@ 到的、@全体、被追加要求的）', () => {
     const local = agentOf(members[1])

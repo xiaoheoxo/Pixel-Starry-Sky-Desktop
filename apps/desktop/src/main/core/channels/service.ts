@@ -63,7 +63,13 @@ import type {
   TeamRole,
 } from '../../../shared/types/channels'
 import { cleanRelayRules, relayRulesOf, type RelayRules } from '../../../shared/types/channels'
-import { AGENT_TOOLS_MAX, SYSTEM_AUTHOR, type AgentTools, type ChannelAlert } from '../../../shared/types/channels'
+import {
+  AGENT_TOOLS_MAX,
+  SYSTEM_AUTHOR,
+  usesTaskCopies,
+  type AgentTools,
+  type ChannelAlert,
+} from '../../../shared/types/channels'
 import { countsUnread, threadMessages, threadRootOf } from '../../../shared/channels/threads'
 import { checkProblems, fixRequest, type CheckRun } from '../../../shared/types/checks'
 import {
@@ -529,6 +535,7 @@ export class Channels {
           last = { status: m.status, at: m.endedAt ?? m.at }
       }
     const project = projects.get(config.projectId)
+    // 开了「每项活一个 Git 副本」的成员也算：项目不是 Git 仓库、流程里的步骤、团队派来的活都还是在这个目录里做
     const shares = this.store.members
       .filter(
         o =>
@@ -2904,15 +2911,7 @@ export class Channels {
     const task = this.store.task(run.taskId)
     if (task?.copy) return task.copyRemoved ? undefined : task.copy.id
     const copies = this.deps.copies
-    if (
-      !task ||
-      !copies ||
-      !member.copyPerTask ||
-      member.mode !== 'per-task' ||
-      member.machineId !== 'local' ||
-      member.copyId
-    )
-      return undefined
+    if (!task || !copies || !usesTaskCopies(member)) return undefined
     const main = copies.head ? await copies.head(member.projectId) : null
     const tag = task.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)
     const copy = await this.createCopy(member.projectId, {

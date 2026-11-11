@@ -198,6 +198,12 @@ export const channelMessages = {
     zh: '和 {names} 用同一个目录，同时改文件可能冲突',
     en: 'Shares a folder with {names}; editing at the same time may conflict',
   },
+  'channels.members.sharedLegend': {
+    zh: '同色 = 用同一个目录，同时改可能冲突',
+    en: 'Same color = same folder; simultaneous edits may conflict',
+  },
+  'channels.members.taskCopies': { zh: '每项活单独副本', en: 'A copy per task' },
+  'channels.members.duplicate': { zh: '复制…', en: 'Duplicate…' },
   'channels.members.details': { zh: '{name} 的档案', en: 'Details for {name}' },
   'channels.members.instructions': { zh: '职责', en: 'Role' },
   'channels.members.mode': { zh: '工作方式', en: 'Mode' },
@@ -383,6 +389,18 @@ export const channelMessages = {
   'channels.agent.existing': { zh: '从已有成员添加', en: 'Add an existing member' },
   'channels.agent.add': { zh: '添加', en: 'Add' },
   'channels.agent.new': { zh: '新建成员', en: 'New member' },
+  'channels.agent.copiedFrom': {
+    zh: '复制自「{name}」：设置都带过来了；绑定的会话、用量不复制。',
+    en: 'Copied from “{name}”: all settings carried over. The bound session and usage are not copied.',
+  },
+  'channels.agent.engineGone': {
+    zh: '「{engine}」现在用不了，选一个能用的引擎。',
+    en: '{engine} isn’t available right now. Pick an engine that is.',
+  },
+  'channels.agent.engineReset': {
+    zh: '{engine} 用不了原来的{fields}，这几项已经换掉，其余设置不变。',
+    en: '{engine} can’t use the previous {fields}; those were changed. Other settings are unchanged.',
+  },
   'channels.agent.quick.title': { zh: '用一句话描述', en: 'Describe it in one sentence' },
   'channels.agent.quick.placeholder': {
     zh: '比如：帮我审 PR，只提意见不改代码，用便宜点的模型',
