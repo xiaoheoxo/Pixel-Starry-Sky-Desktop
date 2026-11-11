@@ -141,7 +141,7 @@ export function Composer({
   const { text: translate } = useI18n()
   const style = useComposerStyle()
   const chatgpt = style === 'chatgpt'
-  // 极简模式：上面那一排并进下面一排（docs/ui/minimal-mode.md §12 A）
+  // 极简模式：上面那一排浮在输入框上、不占位置，工具按钮要用时才出现（docs/ui/minimal-mode.md §13）
   const minimal = useMinimal()
   const paddingY = chatgpt ? 22 : 28
   const [items, setItems] = useState(initialAttachments)
@@ -840,6 +840,14 @@ export function Composer({
         style={chatgpt ? artStyle : undefined}
         className={cn('composer-shell relative', chatgpt && CARD_STYLE)}
       >
+        {minimal && (
+          <ComposerStatusBar
+            live={status}
+            extra={statusExtra}
+            git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
+            float
+          />
+        )}
         <div
           ref={cardRef}
           onDragEnter={e => {
@@ -1141,17 +1149,8 @@ export function Composer({
 
           {live && optimizer.enabled && <PromptOptimizeButton po={optimizer} text={text} />}
 
-          {minimal && (
-            <ComposerStatusBar
-              live={status}
-              git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
-              inline
-            />
-          )}
-
           <div className="flex-1" />
 
-          {minimal && statusExtra}
           {live ? (
             <>
               <ModelSourceMenu

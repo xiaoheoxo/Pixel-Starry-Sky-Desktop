@@ -45,7 +45,8 @@
     display: none;
   }
 }
-.composer-area:has([data-run-pills]) [data-composer-git]:not(:has([aria-expanded='true'])) {
+.composer-area:has([data-run-pills])
+  [data-composer-git]:not(:has([aria-expanded='true'], [data-header-branch-failure])) {
   overflow: hidden;
 }
 @container composer (width < 560px) {
@@ -64,7 +65,8 @@
 }
 @container composer (width < 560px) {
   /* 机器只留图标，项目、分支截断 */
-  .composer-area [data-composer-workspace] {
+  /* 切分支失败的提示是 absolute 往上弹的，有它时不裁 */
+  .composer-area [data-composer-workspace]:not(:has([data-header-branch-failure])) {
     overflow: hidden;
   }
   .composer-area [data-composer-machine-label],

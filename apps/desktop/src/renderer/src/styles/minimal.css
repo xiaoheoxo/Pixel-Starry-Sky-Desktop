@@ -75,41 +75,63 @@
 :root[data-minimal='on'] .composer-toolbar button {
   font-family: var(--font-mono);
 }
-/* 输入框合成一排（§12 A）：上面那一排在极简下不渲染，项目、分支、检查点、查看模式、旁聊都在下面一排。
-   名字限宽，窄了项目只留图标（名字在标签上有）、分支名再截短；右边几个小工具只留图标 */
-:root[data-minimal='on'] [data-composer-inline] :is([data-composer-project-name], [data-branch-label]) {
-  max-width: 14em;
+/* 输入框上面那一排（§13）：浮在对话最后一行上、不占位置。项目、分支（带改动数）、运行胶囊一直显示；
+   检查点、查看模式、旁聊只在鼠标移到输入框区域、键盘焦点进到这一排、或它们的菜单 / 面板开着时出现。
+   光标在输入框里打字不算（打开会话会自动聚焦，算的话就一直显示）。
+   往上挪 3px：不压 ChatGPT 风格卡片的顶边和聚焦光圈 */
+:root[data-minimal='on'] [data-composer-float] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 3px);
+  z-index: 1;
+  height: 30px;
+  padding-block: 0;
+  /* 空白处不拦点击，只有按钮接 */
+  pointer-events: none;
+  /* 对话模式的主区底色是 --bg-workbench（.workbench-surface 把 --bg-app 设成了透明） */
+  background: linear-gradient(to top, var(--bg-workbench) 65%, transparent);
 }
-:root[data-minimal='on'] .composer-toolbar [data-composer-extra-label] {
+:root[data-minimal='on'] [data-coding-layout] [data-composer-float] {
+  background: linear-gradient(to top, var(--bg-app) 65%, transparent);
+}
+:root[data-minimal='on'] [data-composer-float] > * {
+  pointer-events: auto;
+}
+/* 输入框上面有卡片（审批、排队、MCP 登录、撤销条……）时让出浮层的位置，免得盖住卡片的按钮；
+   和卡片自带的 mb-2 / mb-3 外边距合并，平时上面没卡片就不占位置 */
+:root[data-minimal='on'] .composer-area > * + .composer-shell {
+  margin-top: 33px;
+}
+:root[data-minimal='on'] [data-composer-float] :is([data-composer-project-name], [data-branch-label]) {
+  max-width: 16em;
+}
+:root[data-minimal='on'] [data-composer-float] [data-composer-extra-label] {
   display: none;
 }
-/* 原来在上面那一排是淡色；进了下面一排和别的按钮一个颜色 */
-:root[data-minimal='on'] [data-composer-inline] button {
-  color: var(--text-secondary);
+:root[data-minimal='on'] [data-composer-float] [data-composer-extra] > :not([data-run-pills]) {
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
-@container composer (width < 720px) {
-  :root[data-minimal='on'] [data-composer-inline] [data-composer-project-name],
-  :root[data-minimal='on'] .composer-toolbar [data-model-source] {
+:root[data-minimal='on'] .composer-area:hover [data-composer-float] [data-composer-extra] > *,
+:root[data-minimal='on'] [data-composer-float]:focus-within [data-composer-extra] > *,
+:root[data-minimal='on']
+  [data-composer-float]
+  [data-composer-extra]:has([aria-expanded='true'], [aria-pressed='true'])
+  > * {
+  opacity: 1;
+}
+@container composer (width < 560px) {
+  :root[data-minimal='on'] [data-composer-float] [data-composer-project-name] {
     display: none;
   }
-  :root[data-minimal='on'] [data-composer-inline] [data-branch-label] {
+  :root[data-minimal='on'] [data-composer-float] [data-branch-label] {
     max-width: 7em;
   }
 }
-/* 600 以上不折行：放不下时项目名、分支名自己缩短；再窄才折成两行，不裁掉按钮 */
-@container composer (width >= 600px) {
-  :root[data-minimal='on'] .composer-area .composer-toolbar {
-    flex-wrap: nowrap;
-  }
-  :root[data-minimal='on'] [data-composer-inline] > * {
-    flex-shrink: 1;
-    min-width: 24px;
-  }
-}
-@container composer (width < 600px) {
-  :root[data-minimal='on'] .composer-area .composer-toolbar {
-    flex-wrap: wrap;
-  }
+/* 对话滚到底时最后一行不被浮着的那排盖住（只加在对话流上，别处共用 .conversation-reading） */
+:root[data-minimal='on'] [data-conversation-stream] {
+  padding-bottom: 36px;
 }
 
 /* 输入框下面一排（§4）：每个按钮一样高（24px）、一圈细框的小标签，图标按钮也一样，等宽字；

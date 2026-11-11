@@ -17,47 +17,50 @@ export function ComposerStatusBar({
   live,
   extra,
   git,
-  inline,
+  float,
 }: {
   live?: StatusBarController
   extra?: ReactNode
   git?: WorkspaceRef | null
-  /** 极简模式：不占一行，项目和分支并进输入框下面一排（docs/ui/minimal-mode.md §12 A）；机器在顶栏 */
-  inline?: boolean
+  /** 极简模式：浮在输入框上面、不占位置（docs/ui/minimal-mode.md §13）；机器在顶栏，Git 只留分支和改动数 */
+  float?: boolean
 }) {
   const { text } = useI18n()
   const machines = useMachines(),
     machine = machines.machines.find(m => m.id === machines.currentId)
   const machineName = live ? (machine?.id === 'local' ? text('本机') : machine?.name) : text(composerStatus.machine)
   const gitTarget = git ?? (!live && composerStatus.branch !== null ? DEMO_TARGET : null)
-  if (inline)
-    return (
-      <span data-composer-inline className="contents">
-        {live ? <ProjectPicker live={live} target={git ?? null} /> : <DemoFolder />}
-        {gitTarget && <ComposerGit target={gitTarget} compact />}
-      </span>
-    )
   return (
-    <div data-composer-workspace className="flex min-w-0 items-center gap-x-3 px-3 pt-1.5 pb-2 text-meta text-fg-faint">
-      <button
-        type="button"
-        onClick={() => openMachineManager()}
-        title={machineName}
-        aria-label={machineName}
-        className="inline-flex min-w-0 shrink-0 items-center gap-1.5 hover:text-fg"
-      >
-        <Monitor size={13} strokeWidth={1.5} className="shrink-0" />
-        <span data-composer-machine-label className="truncate">
-          {machineName}
-        </span>
-      </button>
+    <div
+      data-composer-workspace
+      data-composer-float={float || undefined}
+      className="flex min-w-0 items-center gap-x-3 px-3 pt-1.5 pb-2 text-meta text-fg-faint"
+    >
+      {!float && (
+        <button
+          type="button"
+          onClick={() => openMachineManager()}
+          title={machineName}
+          aria-label={machineName}
+          className="inline-flex min-w-0 shrink-0 items-center gap-1.5 hover:text-fg"
+        >
+          <Monitor size={13} strokeWidth={1.5} className="shrink-0" />
+          <span data-composer-machine-label className="truncate">
+            {machineName}
+          </span>
+        </button>
+      )}
       {live ? <ProjectPicker live={live} target={git ?? null} /> : <DemoFolder />}
       {gitTarget && (
         <span data-composer-git className="-ml-2 inline-flex min-w-0 items-center gap-x-1">
-          <ComposerGit target={gitTarget} />
+          <ComposerGit target={gitTarget} compact={float} />
         </span>
       )}
-      {extra && <span className="ml-auto flex shrink-0 items-center">{extra}</span>}
+      {extra && (
+        <span data-composer-extra className="ml-auto flex shrink-0 items-center">
+          {extra}
+        </span>
+      )}
     </div>
   )
 }
