@@ -6,6 +6,8 @@ import { selectedMachine, type AppContext } from '../app/context'
 import { nativeText } from '../app/ui-language'
 import * as ipc from '../ipc/guard'
 import { listImportCandidates } from '../core/importProjects'
+import { importCodexWorkspace } from '../core/codex-import'
+import type { CodexWorkspaceImportResult } from '../../shared/types/codex-import'
 import {
   discoverToolProjects,
   inspectProjectPaths,
@@ -26,6 +28,19 @@ export function initProjectImport(ctx: AppContext, host: EngineHost): void {
     ...host.engineConfig().codex.env,
   })
   ipc.handle('projectImport:scan', () => discoverToolProjects(known(), undefined, env()))
+  let codexImport: Promise<CodexWorkspaceImportResult> | null = null
+  ipc.handle('projectImport:codexSessions', () => {
+    known()
+    if (codexImport) return codexImport
+    const run = importCodexWorkspace(host, env())
+    codexImport = run
+    void run
+      .finally(() => {
+        if (codexImport === run) codexImport = null
+      })
+      .catch(() => undefined)
+    return run
+  })
   ipc.handle('projectImport:paths', (_event, value: unknown) => {
     const projects = known()
     if (typeof value !== 'string') throw new Error('项目路径清单不正确')

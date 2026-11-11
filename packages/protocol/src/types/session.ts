@@ -275,6 +275,8 @@ export interface ImportedSession {
   turns: number
   shown: number
   forked?: boolean
+  /** 自动登记的来源快照标记；用于去重、刷新及跟随来源的项目归属，不是引擎设置。 */
+  registration?: { updatedAt: number; live?: boolean }
   /** 导入时这个会话是从终端还是其他程序开的：启动时撞上「正被别的进程写着」按它给提示（Codex） */
   source?: 'terminal' | 'other'
 }
@@ -322,6 +324,24 @@ export type NativeImportResult =
   | { sessionId: string; model: string | null; turns: number; shown: number }
   | { ownerId: string }
   | { live: 'terminal' | 'other' }
+
+/** 批量登记 Codex 历史：项目外的会话归入 CHAT_PROJECT_ID，不启动或分叉原线程。 */
+export interface CodexSessionAssignments {
+  projectless?: readonly string[]
+  projectRoots?: Readonly<Record<string, readonly string[]>>
+}
+
+export interface CodexSessionImportResult {
+  groups: Array<{
+    projectId: string
+    total: number
+    imported: number
+    existing: number
+    updated: number
+    sessionIds: string[]
+  }>
+  failed: Array<{ id: string; title: string; error: string }>
+}
 
 /** nativeSessionAction 的操作：加载更早的 / 补上终端里新聊的 / 原地改成复制 / 只检查有没有新聊的（有就在末尾加提示） */
 export type NativeAction = 'earlier' | 'sync' | 'copy' | 'check'

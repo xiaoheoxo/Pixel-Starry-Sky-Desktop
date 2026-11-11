@@ -117,7 +117,10 @@ class FakeRpc implements CodexRpc {
     this.calls.push({ method, params })
     const p = params as Record<string, unknown>
     if (method === 'thread/list') {
-      const rows = [...this.threads.values()].map(f => f.meta).sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
+      const rows = [...this.threads.values()]
+        .map(f => f.meta)
+        .filter(t => !!t.archived === (p.archived === true))
+        .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
       const size = Number(p.limit) || rows.length,
         start = Number(p.cursor) || 0
       return {
@@ -150,6 +153,18 @@ class FakeRpc implements CodexRpc {
   }
 }
 const array = (v: unknown): Message[] => (Array.isArray(v) ? (v as Message[]) : [])
+
+describe('全部 Codex 历史读取', () => {
+  it('跨过选择器的 200 条结果及 2000 条扫描限制，包含归档，列表查询全程不修复来源元数据', async () => {
+    const rpc = new FakeRpc()
+    for (let i = 1; i <= 2101; i++) rpc.add(thread(tid(i)))
+    rpc.add(thread(tid(2102), { archived: true }))
+    const list = await listCodexThreads(rpc, '', { all: true, readOnly: true, outside: [] })
+    expect(list.sessions).toHaveLength(2102)
+    expect(list.sessions.find(s => s.id === tid(2102))?.archived).toBe(true)
+    expect(rpc.of('thread/list').every(p => p.useStateDbOnly === true)).toBe(true)
+  })
+})
 
 const kinds = (items: Item[]): string[] => items.map(i => i.kind)
 const users = (items: Item[]): string[] => items.filter(i => i.kind === 'user').map(i => i.id)

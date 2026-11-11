@@ -99,6 +99,8 @@ export type {
   NativeSessionSummary,
   NativeSessionDetail,
   NativeImportResult,
+  CodexSessionImportResult,
+  CodexSessionAssignments,
   NativeAction,
   NativeActionResult,
   SessionSettings,

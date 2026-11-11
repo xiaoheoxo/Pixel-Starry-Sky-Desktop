@@ -41,6 +41,8 @@ export function lastTurnReply(items: readonly Item[]): string | undefined {
 const WORK_KINDS: ReadonlySet<Item['kind']> = new Set(['assistant', 'reasoning', 'tool', 'command'])
 
 export class HostEvents {
+  private sessionBatchDepth = 0
+  private sessionBroadcastTimer: NodeJS.Timeout | null = null
   /** 每个会话一条还没应用的文字增量（同一条目同一字段的连续增量合并在这里） */
   private readonly pendingDelta = new Map<string, DeltaEvent>()
 
@@ -157,7 +159,30 @@ export class HostEvents {
   }
 
   broadcastSessions(): void {
+    if (this.sessionBatchDepth) {
+      this.sessionBroadcastTimer ??= setTimeout(() => {
+        this.sessionBroadcastTimer = null
+        this.ctx.opts.emit({ kind: 'sessions', sessions: this.ctx.m.sessions.sessions() })
+      }, 100)
+      this.sessionBroadcastTimer.unref()
+      return
+    }
     this.ctx.opts.emit({ kind: 'sessions', sessions: this.ctx.m.sessions.sessions() })
+  }
+
+  /** 批量登记期间最多每 100 ms 推一次清单；退出批次时立即补发，其他会话事件照常流动。 */
+  async batchSessions<T>(run: () => Promise<T>): Promise<T> {
+    this.sessionBatchDepth++
+    try {
+      return await run()
+    } finally {
+      this.sessionBatchDepth--
+      if (!this.sessionBatchDepth) {
+        if (this.sessionBroadcastTimer) clearTimeout(this.sessionBroadcastTimer)
+        this.sessionBroadcastTimer = null
+        this.broadcastSessions()
+      }
+    }
   }
 
   /**

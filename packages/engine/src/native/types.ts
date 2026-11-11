@@ -19,9 +19,14 @@ export interface NativeListedSession {
   /** entrypoint 是 cli 的算终端，其余（sdk-cli、读不到……）算其他程序 */
   source: 'terminal' | 'other'
   model: string | null
+  archived?: boolean
 }
 
 export interface ListOptions {
+  /** 批量登记：遍历全部分页及归档线程，不应用选择器的 200 / 2000 条限制。 */
+  all?: boolean
+  /** 从 Codex 状态库读取，不触发列表第一页的元数据修复。 */
+  readOnly?: boolean
   /** 最多给多少个，默认 LIST_LIMIT */
   limit?: number
   /** 项目子文件夹里开的会话也列出来（§3.1 D） */

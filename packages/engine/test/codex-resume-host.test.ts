@@ -149,6 +149,269 @@ const rpc = (): Rpc[] =>
     : []
 const called = (method: string): Rpc[] => rpc().filter(m => m.method === method)
 
+describe('批量登记并读取 Codex 会话', { timeout: 30_000 }, () => {
+  it('未打开的历史重复读取和增量更新不常驻运行时；未变化来源不重读历史', async () => {
+    const t = setup()
+    const id = addThread(89, t.cwd)
+    const runtimes = (t.host as unknown as { runtimes: Map<string, unknown> }).runtimes
+    await t.host.importCodexSessions()
+    expect(runtimes.size).toBe(0)
+    const reads = called('thread/read').length
+    await t.host.importCodexSessions()
+    expect(called('thread/read')).toHaveLength(reads)
+    expect(runtimes.size).toBe(0)
+    appendTurns(id, fxTurn(89, 3))
+    await t.host.importCodexSessions()
+    expect(runtimes.size).toBe(0)
+    expect(t.host.open(t.host.sessions()[0].record.id).items.filter(i => i.kind === 'user')).toHaveLength(3)
+  })
+
+  it('已有分叉副本不占用来源原线程，批量读取仍登记原线程的新历史', async () => {
+    const t = setup()
+    const id = addThread(88, t.cwd)
+    const copy = await importIn(t, id, 'copy')
+    appendTurns(id, fxTurn(88, 3))
+    const result = await t.host.importCodexSessions()
+    expect(result.groups[0].imported).toBe(1)
+    const original = t.host.sessions().find(s => s.record.id !== copy.sessionId)!.record
+    expect(original.engineSessionId).toBe(id)
+    expect(t.host.open(original.id).items.filter(i => i.kind === 'user')).toHaveLength(3)
+    expect(t.host.open(copy.sessionId).items.filter(i => i.kind === 'user')).toHaveLength(2)
+    await t.host.importCodexSessions()
+    expect(t.host.sessions()).toHaveLength(2)
+    expect(called('thread/fork')).toHaveLength(0)
+  })
+
+  it('像素星空自己开的会话和已启动的副本只算已登记：不补内容、不改标题、不打导入标记，也不重复登记', async () => {
+    const t = setup({ env: { FAKE_CODEX_UUID_THREADS: '1' } })
+    const source = addThread(86, t.cwd)
+    const copy = await importIn(t, source, 'copy')
+    await t.host.send(copy.sessionId, '副本的新消息')
+    await waitFor(() => turnsDone(copy.sessionId) === 1)
+    const forkId = t.host.record(copy.sessionId)!.engineSessionId!
+    const plain = t.host.createSession({ projectId: t.project.id, engine: 'codex', model: 'fake-codex' })
+    await t.host.send(plain.id, '普通会话')
+    await waitFor(() => turnsDone(plain.id) === 1)
+    const plainId = t.host.record(plain.id)!.engineSessionId!
+    const named = { ...metaOf()[source], name: 'Codex 里的名字' }
+    write('meta.json', { ...metaOf(), [forkId]: named, [plainId]: named })
+    appendTurns(forkId, fxTurn(86, 4))
+    appendTurns(plainId, fxTurn(85, 2))
+    const mine = [copy.sessionId, plain.id]
+    const before = structuredClone(mine.map(id => ({ record: t.host.record(id), items: t.host.open(id).items })))
+    const result = await t.host.importCodexSessions()
+    expect(result.failed).toEqual([])
+    // 来源线程本身登记成一条新的；自己的两条算已登记
+    expect(result.groups[0]).toMatchObject({ imported: 1, existing: 2, updated: 0 })
+    expect(t.host.sessions()).toHaveLength(3)
+    expect(mine.map(id => ({ record: t.host.record(id), items: t.host.open(id).items }))).toEqual(before)
+    expect(t.host.record(plain.id)?.imported).toBeUndefined()
+    await t.host.importCodexSessions()
+    expect(t.host.sessions()).toHaveLength(3)
+  })
+
+  it('登记后回退了还没发消息：再读一次不重复登记，也不把回退掉的轮次补回来', async () => {
+    const t = setup()
+    const x = addThread(71, t.cwd, 3)
+    await t.host.importCodexSessions()
+    const id = t.host.sessions()[0].record.id
+    await t.host.rewind(id, turnId(71, 3))
+    appendTurns(x, fxTurn(71, 4))
+    const again = await t.host.importCodexSessions()
+    expect(t.host.sessions()).toHaveLength(1)
+    expect(again.groups[0]).toMatchObject({ imported: 0, existing: 1, updated: 0, sessionIds: [id] })
+    expect(userIds(t.host, id)).toEqual([turnId(71, 1), turnId(71, 2)])
+    expect(t.host.record(id)?.pendingRewind).toBe(turnId(71, 2))
+  })
+
+  it('补读等待期间改了标题：读完不被来源的线程名盖掉', async () => {
+    const t = setup()
+    const id = addThread(73, t.cwd, 1)
+    write('threads.json', { [id]: [fxTurn(73, 1, { status: 'inProgress' }, null)] })
+    const live = vi.spyOn(t.adapter, 'nativeLive').mockReturnValue(new Map([[id, 'other']]))
+    await t.host.importCodexSessions()
+    const record = t.host.sessions()[0].record
+    live.mockReturnValue(new Map())
+    write('threads.json', { [id]: [fxTurn(73, 1, { status: 'completed' })] })
+    const original = t.adapter.readNativeSession.bind(t.adapter)
+    let release!: () => void
+    let started!: () => void
+    const waiting = new Promise<void>(resolve => {
+      started = resolve
+    })
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    vi.spyOn(t.adapter, 'readNativeSession').mockImplementation(async (...args) => {
+      started()
+      await gate
+      return original(...args)
+    })
+    const reading = t.host.importCodexSessions()
+    await waiting
+    await t.host.update(record.id, { title: '我起的名字' })
+    release()
+    await reading
+    expect(t.host.record(record.id)).toMatchObject({ title: '我起的名字', titleEdited: true })
+    expect(t.host.record(record.id)?.imported?.shown).toBe(1)
+  })
+
+  it('来源进程退出后读取未完成的首轮；补读期间发送和删除不会覆盖历史', async () => {
+    const t = setup()
+    const id = addThread(87, t.cwd, 1)
+    write('threads.json', { [id]: [fxTurn(87, 1, { status: 'inProgress' }, null)] })
+    const live = vi.spyOn(t.adapter, 'nativeLive').mockReturnValue(new Map([[id, 'other']]))
+    await t.host.importCodexSessions()
+    const record = t.host.sessions()[0].record
+    live.mockReturnValue(new Map())
+    const original = t.adapter.readNativeSession.bind(t.adapter)
+    let release!: () => void
+    let started!: () => void
+    const waiting = new Promise<void>(resolve => {
+      started = resolve
+    })
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    vi.spyOn(t.adapter, 'readNativeSession').mockImplementation(async (...args) => {
+      started()
+      await gate
+      return original(...args)
+    })
+    const reading = t.host.importCodexSessions()
+    await waiting
+    await expect(t.host.send(record.id, '新的消息')).rejects.toThrow('正在处理这个会话')
+    await expect(t.host.deleteSession(record.id)).rejects.toThrow('正在处理这个会话')
+    release()
+    await reading
+    expect(t.host.open(record.id).items.filter(i => i.kind === 'user')).toHaveLength(1)
+    expect(t.host.record(record.id)?.imported?.shown).toBe(1)
+  })
+
+  it('首轮仍在运行的会话先登记，轮次完成后再次读取能补齐；来源归属变动不重复建会话', async () => {
+    const t = setup()
+    const id = addThread(90, t.cwd, 1)
+    write('threads.json', { [id]: [fxTurn(90, 1, { status: 'inProgress' }, null)] })
+    vi.spyOn(t.adapter, 'nativeLive').mockReturnValue(new Map([[id, 'other']]))
+    await t.host.importCodexSessions()
+    const record = t.host.sessions()[0].record
+    expect(record.imported?.shown).toBe(0)
+    write('threads.json', { [id]: [fxTurn(90, 1, { status: 'completed' })] })
+    await t.host.importCodexSessions({ projectless: [id] })
+    expect(t.host.sessions()).toHaveLength(1)
+    expect(t.host.record(record.id)?.projectId).toBe(CHAT_PROJECT_ID)
+    expect(t.host.open(record.id).items.filter(i => i.kind === 'user')).toHaveLength(1)
+    expect(t.host.open(record.id).items.some(i => i.kind === 'assistant')).toBe(true)
+  })
+
+  it('尊重 Codex 明确标记的项目外会话和项目归属，而不是按 cwd 误归类', async () => {
+    const t = setup()
+    const chat = addThread(98, t.cwd)
+    const worktree = join(root, 'worktree')
+    mkdirSync(worktree)
+    const assigned = addThread(99, worktree)
+    await t.host.importCodexSessions({ projectless: [chat], projectRoots: { [assigned]: [t.cwd] } })
+    const records = t.host.sessions().map(s => s.record)
+    expect(records.find(r => r.imported?.sessionId === chat)?.projectId).toBe(CHAT_PROJECT_ID)
+    expect(records.find(r => r.imported?.sessionId === assigned)?.projectId).toBe(t.project.id)
+    expect(records.find(r => r.imported?.sessionId === assigned)?.cwd).toBe(worktree)
+  })
+
+  it('项目、嵌套项目和项目外会话一起登记；活跃及旧格式会话也能读取，来源不写入', async () => {
+    const t = setup()
+    const nested = join(t.cwd, 'nested')
+    mkdirSync(nested, { recursive: true })
+    const child = t.host.addProject(nested)
+    const outside = join(root, 'outside')
+    mkdirSync(outside)
+    const a = addThread(91, t.cwd)
+    const b = addThread(92, nested)
+    const c = addThread(93, outside)
+    const d = addThread(94, '', 1, { historyMode: 'legacy' })
+    vi.spyOn(t.adapter, 'nativeLive').mockReturnValue(
+      new Map([
+        [a, 'other'],
+        [d, 'terminal'],
+      ]),
+    )
+    const before = [readFileSync(join(stateDir(), 'threads.json')), readFileSync(join(stateDir(), 'meta.json'))]
+    const defaults = t.host.defaults()
+
+    const result = await t.host.importCodexSessions()
+
+    expect(result.failed).toEqual([])
+    expect(result.groups.map(g => [g.projectId, g.imported]).sort()).toEqual(
+      [
+        [t.project.id, 1],
+        [child.id, 1],
+        [CHAT_PROJECT_ID, 2],
+      ].sort(),
+    )
+    const records = t.host.sessions().map(s => s.record)
+    expect(records).toHaveLength(4)
+    for (const [nativeId, projectId] of [
+      [a, t.project.id],
+      [b, child.id],
+      [c, CHAT_PROJECT_ID],
+      [d, CHAT_PROJECT_ID],
+    ]) {
+      const record = records.find(r => r.imported?.sessionId === nativeId)!
+      expect(record.projectId).toBe(projectId)
+      expect(record.engineSessionId).toBe(nativeId)
+      expect(record.pendingFork).toBeUndefined()
+      expect(t.host.open(record.id).items.some(i => i.kind === 'assistant')).toBe(true)
+    }
+    expect(t.host.defaults()).toEqual(defaults)
+    expect(readFileSync(join(stateDir(), 'threads.json'))).toEqual(before[0])
+    expect(readFileSync(join(stateDir(), 'meta.json'))).toEqual(before[1])
+    expect(
+      rpc().filter(
+        r =>
+          ![
+            'initialize',
+            'initialized',
+            'model/list',
+            'account/read',
+            'config/read',
+            'thread/list',
+            'thread/read',
+            'thread/turns/list',
+          ].includes(r.method ?? ''),
+      ),
+    ).toEqual([])
+    expect(called('thread/list').every(r => r.params?.useStateDbOnly === true)).toBe(true)
+
+    const repeated = await t.host.importCodexSessions()
+    expect(repeated.groups.reduce((n, g) => n + g.imported, 0)).toBe(0)
+    expect(repeated.groups.reduce((n, g) => n + g.existing, 0)).toBe(4)
+    expect(t.host.sessions()).toHaveLength(4)
+  })
+
+  it('再次读取补齐新历史，单个线程失败不阻断其余会话，并保持原来的归档状态', async () => {
+    const t = setup()
+    const a = addThread(95, t.cwd)
+    const archived = addThread(96, t.cwd, 1, { archived: true })
+    const broken = addThread(97, t.cwd)
+    const original = t.adapter.readNativeSession.bind(t.adapter)
+    vi.spyOn(t.adapter, 'readNativeSession').mockImplementation((cwd, id, opts) => {
+      if (id === broken) return Promise.reject(new Error('fixture unreadable'))
+      return original(cwd, id, opts)
+    })
+    const first = await t.host.importCodexSessions()
+    expect(first.failed).toEqual([{ id: broken, title: '问题 1', error: 'fixture unreadable' }])
+    const records = t.host.sessions().map(s => s.record)
+    expect(records.find(r => r.imported?.sessionId === archived)?.archivedAt).not.toBeNull()
+    const id = records.find(r => r.imported?.sessionId === a)!.id
+    appendTurns(a, fxTurn(95, 3))
+    const second = await t.host.importCodexSessions()
+    expect(second.groups.reduce((n, g) => n + g.updated, 0)).toBe(1)
+    expect(t.host.open(id).items.filter(i => i.kind === 'user')).toHaveLength(3)
+    expect(t.host.sessions()).toHaveLength(2)
+    expect(called('thread/resume')).toHaveLength(0)
+    expect(called('thread/fork')).toHaveLength(0)
+  })
+})
+
 function setup(opts: SetupOptions = {}) {
   mkdirSync(stateDir(), { recursive: true })
   const adapter = new CodexAdapter({

@@ -28,6 +28,7 @@ import { prefetchResumeCounts } from '@/features/resume/hint'
 import { ResumeHintLink } from '@/features/resume/ResumeHintLink'
 import { useSettings } from '../SettingsProvider'
 import { ResumeScanCard } from './ResumeScanCard'
+import { CodexImportCard } from './CodexImportCard'
 import { ProjectChecksCard } from './ProjectChecksCard'
 import {
   IMPORT_TOOLS,
@@ -139,7 +140,7 @@ export function ProjectsSection() {
       <section>
         <SectionTitle>{tr('projects.title')}</SectionTitle>
         <p className="mb-5 text-meta text-fg-muted">{tr('projectImport.localOnly')}</p>
-        <ResumeScanCard onOpened={closeSettings} />
+        <CodexImportCard onOpened={closeSettings} />
         <ProjectChecksCard />
       </section>
     )
@@ -221,7 +222,11 @@ export function ProjectsSection() {
     <section className="flex min-h-full flex-col">
       <SectionTitle>{tr('projects.title')}</SectionTitle>
       <p className="-mt-2 mb-5 text-meta text-fg-muted">{tr('projectImport.settingsIntro')}</p>
-      <ResumeScanCard onOpened={closeSettings} />
+      <CodexImportCard onOpened={closeSettings} />
+      <details className="mb-6 text-meta text-fg-muted">
+        <summary className="mb-2 cursor-pointer">{tr('codexImport.legacy')}</summary>
+        <ResumeScanCard onOpened={closeSettings} />
+      </details>
       <ProjectChecksCard />
 
       <div data-setting-title={tr('projectImport.fromTools')} className="mb-2 flex items-baseline justify-between">

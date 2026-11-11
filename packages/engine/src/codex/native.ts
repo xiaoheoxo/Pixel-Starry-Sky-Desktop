@@ -168,51 +168,56 @@ export async function listCodexThreads(
   opts: ListOptions = {},
 ): Promise<NativeSessionList> {
   const subfolders = opts.subfolders === true
-  const limit = opts.limit ?? LIST_LIMIT
-  const found: { thread: Message; subdir: string | null }[] = []
+  const limit = opts.limit ?? (opts.all ? Infinity : LIST_LIMIT)
+  const found: { thread: Message; subdir: string | null; archived: boolean }[] = []
   const seen = new Set<string>()
-  let cursor: string | null = null
-  let scanned = 0
-  for (let page = 0; found.length < limit && scanned < SCAN_LIMIT; page++) {
-    const reply: Message = await reader.request('thread/list', {
-      limit: LIST_PAGE,
-      sortKey: 'updated_at',
-      sortDirection: 'desc',
-      // 不传只列当前来源的线程；传 [] 才是全部
-      modelProviders: [],
-      sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'],
-      archived: false,
-      ...(cursor ? { cursor } : {}),
-      // 第一页让 Codex 顺手修元数据，后面的页只查状态库
-      ...(page > 0 ? { useStateDbOnly: true } : {}),
-    })
-    const rows = array(reply.data).map(object)
-    scanned += rows.length
-    for (const thread of rows) {
-      if (found.length >= limit) break
-      const id = string(thread.id),
-        cwd = string(thread.cwd)
-      if (!id || seen.has(id)) continue
-      if (thread.ephemeral === true || string(thread.parentThreadId) || !string(thread.preview).trim()) continue
-      let subdir: string | null = null
-      if (opts.outside) {
-        // shortcut: 只比规范化后的路径、不做 realpath，项目经符号链接打开时可能多列一份；有人反馈再换 matchCwd
-        if (cwd && opts.outside.some(p => under(p, cwd) !== null)) continue
-      } else {
-        if (!cwd) continue
-        const where = await matchCwd(projectPath, cwd, subfolders)
-        if (!where) continue
-        subdir = where.subdir
+  for (const archived of opts.all ? [false, true] : [false]) {
+    let cursor: string | null = null
+    const cursors = new Set<string>()
+    let scanned = 0
+    for (let page = 0; found.length < limit && (opts.all || scanned < SCAN_LIMIT); page++) {
+      const reply: Message = await reader.request('thread/list', {
+        limit: LIST_PAGE,
+        sortKey: 'updated_at',
+        sortDirection: 'desc',
+        // 不传只列当前来源的线程；传 [] 才是全部
+        modelProviders: [],
+        sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'],
+        archived,
+        ...(cursor ? { cursor } : {}),
+        // 第一页让 Codex 顺手修元数据，后面的页只查状态库
+        ...(opts.readOnly || page > 0 ? { useStateDbOnly: true } : {}),
+      })
+      const rows = array(reply.data).map(object)
+      scanned += rows.length
+      for (const thread of rows) {
+        if (found.length >= limit) break
+        const id = string(thread.id),
+          cwd = string(thread.cwd)
+        if (!id || seen.has(id)) continue
+        if (thread.ephemeral === true || string(thread.parentThreadId) || !string(thread.preview).trim()) continue
+        let subdir: string | null = null
+        if (opts.outside) {
+          // shortcut: 只比规范化后的路径、不做 realpath，项目经符号链接打开时可能多列一份；有人反馈再换 matchCwd
+          if (cwd && opts.outside.some(p => under(p, cwd) !== null)) continue
+        } else {
+          if (!cwd) continue
+          const where = await matchCwd(projectPath, cwd, subfolders)
+          if (!where) continue
+          subdir = where.subdir
+        }
+        seen.add(id)
+        found.push({ thread, subdir, archived })
       }
-      seen.add(id)
-      found.push({ thread, subdir })
+      cursor = string(reply.nextCursor) || null
+      if (!cursor || rows.length === 0) break
+      if (cursors.has(cursor)) throw new Error('Codex 会话列表返回了重复分页，请重试')
+      cursors.add(cursor)
     }
-    cursor = string(reply.nextCursor) || null
-    if (!cursor || rows.length === 0) break
   }
 
   const sessions = await Promise.all(
-    found.map(async ({ thread, subdir }): Promise<NativeListedSession> => {
+    found.map(async ({ thread, subdir, archived }): Promise<NativeListedSession> => {
       const file = string(thread.path)
       const size = file
         ? await stat(file).then(
@@ -235,6 +240,7 @@ export async function listCodexThreads(
         branch: string(object(thread.gitInfo).branch) || null,
         source: sourceOf(thread),
         model: string(thread.model) || null,
+        ...(archived ? { archived: true } : {}),
       }
     }),
   )
@@ -485,7 +491,7 @@ export async function codexTurnIndex(
     // 缓存是在那一秒的余量之外取的：之后再有改动 updatedAt 一定变了，直接复用
     if (
       hit &&
-      (!mayChangeInSameSecond(hit.cachedAt, updatedAt * 1000) ||
+      ((!mayChangeInSameSecond(hit.cachedAt, updatedAt * 1000) && hit.refs.at(-1)?.status !== 'inProgress') ||
         (await tailProbe(reader, id, signal)) === tailOf(hit.refs[hit.refs.length - 1]))
     ) {
       remember(indexCache, key, hit, INDEX_CACHE_MAX)

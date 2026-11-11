@@ -135,6 +135,7 @@ const engine: EngineBridge = {
   addProjects: paths => call('engine:addProjects', paths),
   importCandidates: () => call('engine:importCandidates'),
   scanProjectImports: () => call('projectImport:scan'),
+  importCodexSessions: () => call('projectImport:codexSessions'),
   pickProjectImports: kind => call('projectImport:choose', kind),
   previewProjectPaths: text => call('projectImport:paths', text),
   removeProject: id => call('engine:removeProject', id),

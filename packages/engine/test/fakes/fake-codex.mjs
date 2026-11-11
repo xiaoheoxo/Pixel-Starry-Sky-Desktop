@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import readline from 'node:readline'
 // 模型目录要用的两种模式（debug models、实测默认提示词）：命中时这个模块不往下执行
 import './fake-codex-catalog.mjs'
@@ -407,7 +408,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       if (m.method === 'thread/start' && stateFile) {
         // 开了落盘时每个新线程一个新 id，测试能分清「接着原线程」和「开了新线程」
         const n = Object.keys(threads).length
-        thread = n ? 'fake-thread-' + (n + 1) : 'fake-thread'
+        thread = process.env.FAKE_CODEX_UUID_THREADS ? randomUUID() : n ? 'fake-thread-' + (n + 1) : 'fake-thread'
         threads[thread] = []
         saveThreads()
       } else thread = p.threadId ?? (resumeFails() ? 'fake-thread-new' : 'fake-thread')
@@ -448,7 +449,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         rpcError(m, 'ephemeral paginated thread/fork requires excludeTurns: true')
         break
       }
-      thread = 'fake-fork-' + (Object.keys(threads).length + 1)
+      thread = process.env.FAKE_CODEX_UUID_THREADS ? randomUUID() : 'fake-fork-' + (Object.keys(threads).length + 1)
       if (p.ephemeral) ephemeral.add(thread)
       threads[thread] = source.slice(0, at + 1)
       saveThreads()

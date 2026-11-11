@@ -57,6 +57,7 @@ export const IPC_CONTRACT = {
   // 定时任务「立即运行」（docs/ui/board-schedule.md）：调度只在本机跑，不经过远端
   'schedule:runNow': { kind: 'invoke', route: 'local', trust: 'sender' },
   'projectImport:scan': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'projectImport:codexSessions': { kind: 'invoke', route: 'local', trust: 'sender' },
   'projectImport:paths': { kind: 'invoke', route: 'local', trust: 'sender' },
   'projectImport:choose': { kind: 'invoke', route: 'local', trust: 'sender' },
   'account:calls': { kind: 'invoke', route: 'local', trust: 'sender' },

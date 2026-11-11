@@ -30,6 +30,8 @@ import type {
   MessageInput,
   NativeActionResult,
   NativeImportResult,
+  CodexSessionImportResult,
+  CodexSessionAssignments,
   NativeSessionDetail,
   NativeSessionSummary,
   OpenedSession,
@@ -462,6 +464,11 @@ export class EngineHost {
 
   cancelNativeImport(token: string): void {
     this.m.native.cancelNativeImport(token)
+  }
+
+  /** 登记并读取全部 Codex 会话（含项目外和归档），不恢复、分叉或改写原线程。 */
+  importCodexSessions(assignments?: CodexSessionAssignments): Promise<CodexSessionImportResult> {
+    return this.m.native.importCodexSessions(assignments)
   }
 
   /** 加载更早的 / 补上终端里新聊的 / 检查有没有新聊的 / 改成复制一份接着聊 */

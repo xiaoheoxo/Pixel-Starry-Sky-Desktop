@@ -91,6 +91,8 @@ export interface EngineBridge {
   /** 选一个上级文件夹，列出它下面的子文件夹；取消时返回 null */
   importCandidates(): Promise<ImportCandidates | null>
   scanProjectImports(): Promise<ProjectImportBatch>
+  /** 登记 Codex 项目并读取全部项目内、项目外会话；来源记录和工具设置留在原处。 */
+  importCodexSessions(): Promise<import('../shared/types/codex-import').CodexWorkspaceImportResult>
   pickProjectImports(kind: ProjectImportPicker): Promise<ProjectImportBatch | null>
   previewProjectPaths(text: string): Promise<ProjectImportBatch>
   removeProject(id: string): Promise<void>

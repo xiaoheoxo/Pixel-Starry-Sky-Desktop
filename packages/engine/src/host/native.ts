@@ -11,13 +11,15 @@ import {
   type NativeAction,
   type NativeActionResult,
   type NativeImportResult,
+  type CodexSessionImportResult,
+  type CodexSessionAssignments,
   type NativeSessionDetail,
   type NativeSessionSummary,
   type SessionRecord,
   type SessionSettings,
 } from '@pixelsky/protocol'
 import type { EngineAdapter } from '../adapter'
-import type { NativeSessionList, NativeRead, NewerTurns } from '../native/types'
+import type { NativeSessionList, NativeListedSession, NativeRead, NewerTurns } from '../native/types'
 import { NATIVE_TEXT } from '../native/text'
 import { matchCwd } from '../native/paths'
 import { ENGINES } from '../registry'
@@ -35,6 +37,7 @@ const ACTIONS: readonly NativeAction[] = ['earlier', 'sync', 'copy', 'check']
 type NoticeItem = Extract<Item, { kind: 'notice' }>
 
 export class HostNative {
+  private codexImport: Promise<CodexSessionImportResult> | null = null
   /** 每个项目 + 引擎最近一次的列表：第二步（尾部）共用这次的读取预算，导入时也从这里查会话开在哪个子文件夹 */
   private readonly lists = new Map<string, NativeSessionList>()
   /** 正在导入的任务，cancelNativeImport 按 token 找到它 */
@@ -60,17 +63,23 @@ export class HostNative {
    * 谁占着这些原生会话：把每条记录里所有可能指向原生会话的 id 收起来（任何引擎），一个 id 对应多条记录时
    * 按「当前在用 > engineSessions > 导入 > 分叉待启动」选，同级取 updatedAt 最新的，再按记录 id，结果是确定的
    */
-  private owners(): Map<string, string> {
+  private owners(registration = false): Map<string, string> {
     const best = new Map<string, { rank: number; at: number; owner: string }>()
     for (const rec of this.ctx.records.values()) {
-      const claims: [string | null | undefined, number][] = [
-        // Claude 在 engineSessionId 为 null 时用对话自己的 id
-        [rec.engineSessionId, 0],
-        [rec.id, rec.engineSessionId == null && rec.engine === 'claude' ? 0 : 1],
-        [rec.imported?.sessionId, 2],
-        [rec.pendingFork?.from, 3],
-      ]
-      for (const entry of Object.values(rec.engineSessions ?? {}) as EngineSessionState[]) {
+      const claims: [string | null | undefined, number][] = registration
+        ? [
+            // 回退了还没发消息的也算占着（线程还是这一条）：不算的话再读一次会多登记一份；补读在 refreshCodexRegistration 里跳过
+            [rec.engine === 'codex' ? rec.engineSessionId : null, 0],
+            [rec.engine !== 'codex' ? rec.engineSessions?.codex?.id : null, 1],
+          ]
+        : [
+            // Claude 在 engineSessionId 为 null 时用对话自己的 id
+            [rec.engineSessionId, 0],
+            [rec.id, rec.engineSessionId == null && rec.engine === 'claude' ? 0 : 1],
+            [rec.imported?.sessionId, 2],
+            [rec.pendingFork?.from, 3],
+          ]
+      for (const entry of registration ? [] : (Object.values(rec.engineSessions ?? {}) as EngineSessionState[])) {
         claims.push([entry.id, 1], [entry.pendingFork?.from, 3])
       }
       for (const [id, rank] of claims) {
@@ -150,6 +159,164 @@ export class HostNative {
     this.imports.delete(token)
   }
 
+  /** 多窗口同时打开设置共用一轮；每个来源 id 登记一次，失败不挡住其余会话。 */
+  importCodexSessions(assignments: CodexSessionAssignments = {}): Promise<CodexSessionImportResult> {
+    if (this.codexImport) return this.codexImport
+    const run = this.ctx.m.events.batchSessions(() => this.readCodexSessions(assignments))
+    this.codexImport = run
+    void run
+      .finally(() => {
+        if (this.codexImport === run) this.codexImport = null
+      })
+      .catch(() => undefined)
+    return run
+  }
+
+  private async readCodexSessions(assignments: CodexSessionAssignments): Promise<CodexSessionImportResult> {
+    const list = await this.adapter('codex').nativeSessions('', { outside: [], all: true, readOnly: true })
+    const projects = this.ctx.m.projects.projects().sort((a, b) => b.path.length - a.path.length)
+    const result: CodexSessionImportResult = { groups: [], failed: [] }
+    const byProject = new Map<string, NativeSessionList>()
+    const projectless = new Set(assignments.projectless ?? [])
+    for (const session of list.sessions) {
+      let projectId = CHAT_PROJECT_ID
+      if (!projectless.has(session.id)) {
+        const roots = assignments.projectRoots?.[session.id]
+        const assigned = roots
+          ? (
+              await Promise.all(
+                projects.map(async project =>
+                  (await Promise.all(roots.map(root => matchCwd(project.path, root, false)))).some(Boolean)
+                    ? project
+                    : null,
+                ),
+              )
+            ).filter(project => project !== null)
+          : projects
+        if (roots && assigned.length) projectId = assigned[0].id
+        for (const project of assigned) {
+          if (session.cwd && (await matchCwd(project.path, session.cwd, true))) {
+            projectId = project.id
+            break
+          }
+        }
+      }
+      let group = byProject.get(projectId)
+      if (!group) {
+        group = { ...list, sessions: [] }
+        byProject.set(projectId, group)
+      }
+      group.sessions.push(session)
+    }
+    for (const [projectId, list] of byProject) {
+      this.lists.set(`${projectId}\ncodex`, list)
+      const group = {
+        projectId,
+        total: list.sessions.length,
+        imported: 0,
+        existing: 0,
+        updated: 0,
+        sessionIds: [] as string[],
+      }
+      result.groups.push(group)
+      for (const session of list.sessions) {
+        try {
+          const imported = await this.importNative(projectId, 'codex', session.id, { readOnly: true })
+          if ('ownerId' in imported) {
+            group.existing++
+            group.sessionIds.push(imported.ownerId)
+            const record = this.ctx.records.get(imported.ownerId)
+            if (record && (await this.refreshCodexRegistration(record, session, projectId))) group.updated++
+          } else if ('sessionId' in imported) {
+            group.imported++
+            group.sessionIds.push(imported.sessionId)
+            if (session.archived) this.ctx.m.events.patchRecord(imported.sessionId, { archivedAt: session.updatedAt })
+          }
+        } catch (error) {
+          result.failed.push({
+            id: session.id,
+            title: session.title,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+    return result
+  }
+
+  private async refreshCodexRegistration(
+    record: SessionRecord,
+    source: NativeListedSession,
+    projectId: string,
+  ): Promise<boolean> {
+    const { ctx } = this
+    const previous = record.imported
+    // 只跟随从这个线程导入的对话。像素星空自己开的会话、已启动的副本占着线程但不动它们：
+    // 补内容要打上导入标记，标题、空闲时间、打开时的检查都会跟着变（docs/ui/codex-import-all.md §7）
+    if (previous?.engine !== 'codex' || previous.sessionId !== source.id || previous.forked) return false
+    const imp = previous
+    const rt = ctx.runtimes.get(record.id)
+    if ((rt && (rt.snapshot.state !== 'idle' || rt.pumping || rt.stopping)) || ctx.changingSessions.has(record.id))
+      return false
+    if (imp.registration && record.projectId !== projectId) ctx.m.events.patchRecord(record.id, { projectId })
+    // 列表时间精确到秒：最近三秒和仍开着的线程继续核对；长期未变的历史不加载进 runtime。
+    if (
+      imp.shown > 0 &&
+      imp.registration?.updatedAt === source.updatedAt &&
+      !imp.registration.live &&
+      Date.now() > source.updatedAt + 3000
+    )
+      return false
+    const mine =
+      record.engine === 'codex'
+        ? { sessionId: record.engineSessionId, pendingRewind: record.pendingRewind }
+        : { sessionId: record.engineSessions?.codex?.id, pendingRewind: record.engineSessions?.codex?.pendingRewind }
+    if (mine.pendingRewind || mine.sessionId !== source.id) return false
+    const adapter = this.adapter('codex')
+    const live = adapter.nativeLive?.([{ id: source.id, mtimeMs: source.mtimeMs }]).get(source.id)
+    ctx.changingSessions.add(record.id)
+    try {
+      let added = 0
+      if (imp.shown === 0) {
+        const read = await adapter.readNativeSession(record.cwd, source.id, { turns: TURNS, live: !!live })
+        if (!read) throw new Error(NATIVE_TEXT.gone)
+        if (!ctx.records.has(record.id)) return false
+        if (read.shown) {
+          const items = [
+            this.divider('codex', read.source, false, read.turns, Math.max(0, read.turns - read.shown), read.summary),
+            ...read.items,
+          ]
+          this.replace(record.id, items)
+          // 读的时候等过：记录重新取最新的再改
+          const latest = ctx.records.get(record.id)!.engineSessions
+          ctx.m.events.patchRecord(record.id, {
+            imported: { ...imp, turns: read.turns, shown: read.shown },
+            engineSessions: { ...latest, codex: { ...latest?.codex, id: source.id, seen: lastItemId(items) } },
+          })
+          added = read.shown
+        }
+      } else added = (await this.newer(record.id, imp, adapter, true)).added
+      if (!ctx.records.has(record.id)) return false
+      const current = ctx.records.get(record.id)!
+      const refreshed = current.imported?.sessionId === source.id && !current.imported.forked ? current.imported : imp
+      ctx.m.events.patchRecord(record.id, {
+        ...(imp.registration
+          ? {
+              imported: {
+                ...refreshed,
+                registration: { updatedAt: source.updatedAt, ...(live ? { live: true } : {}) },
+              },
+            }
+          : {}),
+        ...(!current.titleEdited ? { title: normalizeSessionTitle(source.title) } : {}),
+        ...(added ? { updatedAt: Math.max(current.updatedAt, source.updatedAt) } : {}),
+      })
+      return added > 0
+    } finally {
+      ctx.changingSessions.delete(record.id)
+    }
+  }
+
   /** 最上面的分隔条：来自哪个引擎、哪里、几轮、还有几轮没显示（有就带「加载更早的」按钮） */
   private divider(
     engine: EngineId,
@@ -179,7 +346,7 @@ export class HostNative {
     projectId: string,
     engine: EngineId,
     nativeId: string,
-    opts: { mode?: 'inplace' | 'copy'; settings?: Partial<SessionSettings>; token?: string } = {},
+    opts: { mode?: 'inplace' | 'copy'; settings?: Partial<SessionSettings>; token?: string; readOnly?: boolean } = {},
   ): Promise<NativeImportResult> {
     const { ctx } = this
     const m = ctx.m
@@ -187,12 +354,12 @@ export class HostNative {
     const adapter = this.adapter(engine)
     if (typeof nativeId !== 'string' || !UUID.test(nativeId)) throw new Error('会话 id 不对')
     let copy = opts.mode === 'copy'
-    const owner = this.owners().get(nativeId)
+    const owner = this.owners(opts.readOnly).get(nativeId)
     if (owner) return { ownerId: owner }
     const summary = this.lists.get(`${projectId}\n${engine}`)?.sessions.find(s => s.id === nativeId)
     const cwd = summary?.cwd ?? project.path
     const live = adapter.nativeLive?.([{ id: nativeId, mtimeMs: 0 }]).get(nativeId) ?? null
-    if (!copy && (live === 'terminal' || live === 'other')) return { live }
+    if (!opts.readOnly && !copy && (live === 'terminal' || live === 'other')) return { live }
 
     const abort = new AbortController()
     const token = opts.token
@@ -218,10 +385,10 @@ export class HostNative {
     if (!read) throw new Error(NATIVE_TEXT.gone)
     // 旧格式的线程（Codex）不能原地回退：一律复制成新线程接着聊
     const legacy = !!read.copyOnly
-    copy ||= legacy
+    copy ||= legacy && !opts.readOnly
     if (copy && !read.at) throw new Error(NATIVE_TEXT.nothingToCopy)
     // 读文件期间可能被别的对话占用了
-    const owner2 = this.owners().get(nativeId)
+    const owner2 = this.owners(opts.readOnly).get(nativeId)
     if (owner2) return { ownerId: owner2 }
 
     // 对话的工作目录跟着会话原来的目录（Codex 读线程时给；核对过在项目下面才用，没有列表缓存的 /resume <id> 也靠它拿到子文件夹）
@@ -247,7 +414,7 @@ export class HostNative {
     ]
     const seen = lastItemId(items)
     const record = m.sessions.createSession(
-      { ...(opts.settings ?? {}), projectId, engine },
+      { ...(opts.settings ?? {}), projectId, engine, rememberChoices: false },
       home === project.path ? undefined : home,
     )
     ctx.store.replaceItems(record.id, items)
@@ -257,12 +424,16 @@ export class HostNative {
       at: Date.now(),
       turns: read.turns,
       shown: read.shown,
+      ...(opts.readOnly && summary
+        ? { registration: { updatedAt: summary.updatedAt, ...(live ? { live: true } : {}) } }
+        : {}),
       ...(copy ? { forked: true } : {}),
       source: read.source,
     }
     // seen 和每轮结束时写的是同一个意思：这个引擎上下文里最后一条对话条目
     m.events.patchRecord(record.id, {
       title: normalizeSessionTitle(read.title),
+      ...(opts.readOnly && summary ? { updatedAt: summary.updatedAt, model: read.model } : {}),
       imported,
       ...(copy
         ? {
@@ -435,15 +606,19 @@ export class HostNative {
    * 对话里认识的、记录里终端之后新加的轮次：从最近几条用户条目（id 是记录里的 uuid）往前找，
    * 第一个在当前分支上的就是像素星空认识的最后位置
    */
-  private async findNewer(id: string, imp: ImportedSession, adapter: ReturnType<HostNative['adapter']>) {
-    const rt = this.ctx.m.sessions.runtime(id)
+  private async findNewer(
+    record: SessionRecord,
+    items: readonly Item[],
+    imp: ImportedSession,
+    adapter: ReturnType<HostNative['adapter']>,
+  ) {
     if (!adapter.newerNativeTurns) throw new Error(NATIVE_TEXT.unsupported)
-    const users = rt.snapshot.items
+    const users = items
       .filter(item => item.kind === 'user' && UUID.test(item.id))
       .slice(-8)
       .reverse()
     for (const user of users) {
-      const found: NewerTurns | null = await adapter.newerNativeTurns(rt.snapshot.record.cwd, imp.sessionId, user.id, {
+      const found: NewerTurns | null = await adapter.newerNativeTurns(record.cwd, imp.sessionId, user.id, {
         turns: TURNS,
         afterTurn: true,
       })
@@ -460,9 +635,10 @@ export class HostNative {
   ): Promise<NativeActionResult> {
     const { ctx } = this
     const m = ctx.m
-    const rt = m.sessions.runtime(id)
-    const found = await this.findNewer(id, imp, adapter)
-    const old = rt.snapshot.items
+    const record = ctx.records.get(id)!
+    const old = ctx.runtimes.get(id)?.snapshot.items ?? (await ctx.store.loadItemsAsync(id)).items
+    const found = await this.findNewer(record, old, imp, adapter)
+    if (!ctx.records.has(id)) return { added: 0 }
     const stale = old.findIndex(item => item.kind === 'notice' && item.action?.kind === 'native-sync')
     if (!found || found.turns === 0) return { added: 0 }
     const without = stale >= 0 ? old.filter((_, i) => i !== stale) : old
@@ -488,15 +664,16 @@ export class HostNative {
     }
     const next = [...without, done, ...found.items]
     // 这些轮次本来就在 Claude 的上下文里：它读到的位置跟着挪到最后。前提是它原来已经看完了现有的全部对话
-    const record = rt.snapshot.record
-    const entry = record.engineSessions?.[imp.engine]
+    // findNewer 等过：engineSessions 重新取最新的
+    const sessions = ctx.records.get(id)!.engineSessions
+    const entry = sessions?.[imp.engine]
     const at = entry?.seen ? old.findIndex(item => item.id === entry.seen) : -1
     const caughtUp = at >= 0 && !hasHandoffContent(old.slice(at + 1))
     this.replace(id, next)
     m.events.patchRecord(id, {
       imported: { ...imp, turns: imp.turns + found.turns, shown: imp.shown + found.shown },
       ...(entry && caughtUp
-        ? { engineSessions: { ...record.engineSessions, [imp.engine]: { ...entry, seen: lastItemId(next) } } }
+        ? { engineSessions: { ...sessions, [imp.engine]: { ...entry, seen: lastItemId(next) } } }
         : {}),
     })
     return { added: found.shown }
@@ -514,7 +691,7 @@ export class HostNative {
     const record = rt.snapshot.record
     let at = record.pendingRewind ?? null
     if (!at) {
-      const found = await this.findNewer(id, imp, adapter)
+      const found = await this.findNewer(record, rt.snapshot.items, imp, adapter)
       at = found?.base ?? (await adapter.readNativeSession(record.cwd, imp.sessionId, { turns: 1 }))?.at ?? null
     }
     if (!at) throw new Error(NATIVE_TEXT.gone)

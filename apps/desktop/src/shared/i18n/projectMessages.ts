@@ -1,12 +1,69 @@
 export const projectMessages = {
+  'codexImport.title': { zh: 'Codex 项目与会话', en: 'Codex projects and sessions' },
+  'codexImport.intro': {
+    zh: '登记 Codex 里的项目并读取全部会话。项目内会话放回对应项目，项目外会话放到「对话」，点标题直接看历史，无需逐个点击「接着聊」。',
+    en: 'Registers your Codex projects and reads all sessions. Project sessions appear in their projects; sessions outside projects appear in Chats. Click a title to read it, without continuing them one at a time.',
+  },
+  'codexImport.sourcePolicy': {
+    zh: '导入只登记和读取，不搬动文件，也不迁移会话或工具设置。包含归档会话；长历史可在对话中加载更早内容。',
+    en: 'Import registers references and reads history. Files, sessions, and tool settings stay in place. Archived sessions are included; earlier messages in long histories remain available on demand.',
+  },
+  'codexImport.startHint': {
+    zh: '还没读过。读取会把 Codex 里的项目加进项目列表，会话多的话要等一会儿。',
+    en: 'Not read yet. Reading adds your Codex projects to the project list; it can take a while with many sessions.',
+  },
+  'codexImport.start': { zh: '读取 Codex 项目和会话', en: 'Read Codex projects and sessions' },
+  'codexImport.window': {
+    zh: '每个会话先读最近 50 轮，更早的在对话里点「加载更早的」',
+    en: 'Each session starts with its latest 50 turns; load earlier ones from the conversation',
+  },
+  'codexImport.refresh': { zh: '重新读取全部', en: 'Read all again' },
+  'codexImport.reading': { zh: '正在读取…', en: 'Reading…' },
+  'codexImport.readingAll': {
+    zh: '正在登记项目并读取会话历史，已登记的会话会自动去重并补齐新内容…',
+    en: 'Registering projects and reading history. Existing sessions are deduplicated and new messages are loaded…',
+  },
+  'codexImport.summary': {
+    zh: '新增 {projects} 个项目 · 导入 {imported} 个会话 · 已登记 {existing} 个 · 更新 {updated} 个',
+    en: '{projects} projects added · {imported} sessions imported · {existing} already registered · {updated} updated',
+  },
+  'codexImport.outside': { zh: '项目外会话（对话）', en: 'Sessions outside projects (Chats)' },
+  'codexImport.count': { zh: '{n} / {total} 个会话已登记', en: '{n} / {total} sessions registered' },
+  'codexImport.open': { zh: '查看', en: 'View' },
+  'codexImport.more': { zh: '显示更多会话', en: 'Show more sessions' },
+  'codexImport.archived': { zh: '已归档', en: 'Archived' },
+  'codexImport.empty': {
+    zh: '没有找到 Codex 会话（已包含项目外会话的查找）。',
+    en: 'No Codex sessions found, including sessions outside projects.',
+  },
+  'codexImport.failures': {
+    zh: '{n} 个会话读取失败（重新读取可重试）',
+    en: '{n} session reads failed (read again to retry)',
+  },
+  'codexImport.notices': { zh: '{n} 条项目提示', en: '{n} project notices' },
+  // 下面两条是主进程 core/codex-import.ts 给的提示原文，界面用 translateMessage 对上
+  'codexImport.dirUnavailable': { zh: 'Codex 项目目录不可用：{p0}', en: 'Codex project folder unavailable: {p0}' },
+  'codexImport.manifestFailed': {
+    zh: 'Codex 项目清单读取失败，仍会读取会话；可在下方手动登记项目',
+    en: 'Could not read the Codex project list. Sessions are still read; you can add projects manually below.',
+  },
+  'codexImport.local': {
+    zh: '切换到本机后读取本机 Codex 项目和会话。',
+    en: 'Switch to this computer to read its Codex projects and sessions.',
+  },
+  'codexImport.demo': { zh: '演示模式不读取本机 Codex 数据。', en: 'Demo mode does not read local Codex data.' },
+  'codexImport.legacy': {
+    zh: '原有会话选择器（Claude Code / Codex）',
+    en: 'Original session picker (Claude Code / Codex)',
+  },
   'projects.title': { zh: '项目', en: 'Projects' },
   'projects.keywords': {
     zh: '项目 导入 批量 文件夹 分区 Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness 路径',
     en: 'projects import bulk folders sections Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness paths',
   },
   'projectImport.settingsIntro': {
-    zh: '把其他 AI 编程工具里用过的项目加到侧栏。只登记文件夹路径，文件保留在原处。',
-    en: 'Add projects you used in other AI coding tools to the sidebar. Only folder paths are saved; files stay in place.',
+    zh: '自动读取 Codex 项目和会话，也支持导入其他工具的项目。导入登记和读取现有记录，文件保留在原处。',
+    en: 'Automatically read Codex projects and sessions, or import projects from other tools. Import registers and reads existing records; source files stay in place.',
   },
   'projectImport.fromTools': { zh: '从其他工具导入', en: 'Import from other tools' },
   'projectImport.menuFromTools': { zh: '从其他工具导入…', en: 'Import from other tools…' },
