@@ -95,7 +95,19 @@ export function goalAction(v: unknown): GoalAction {
   if (a.kind === 'get' || a.kind === 'pause' || a.kind === 'resume' || a.kind === 'clear') return { kind: a.kind }
   if (a.kind === 'set' && typeof a.objective === 'string') {
     const objective = a.objective.trim()
-    if (objective && objective.length <= 4000) return { kind: 'set', objective }
+    const tokenBudget = a.tokenBudget
+    if (
+      tokenBudget !== undefined &&
+      tokenBudget !== null &&
+      (!Number.isSafeInteger(tokenBudget) || Number(tokenBudget) <= 0)
+    )
+      throw new Error('token 预算必须是正整数')
+    if (objective && objective.length <= 4000)
+      return {
+        kind: 'set',
+        objective,
+        ...(tokenBudget !== undefined ? { tokenBudget: tokenBudget as number | null } : {}),
+      }
   }
   throw new Error('目标操作不对')
 }

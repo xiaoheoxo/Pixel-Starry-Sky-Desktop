@@ -1,4 +1,4 @@
-// Codex 目标模式（/goal，docs/ui/codex-goal.md）：输入框上方的目标栏、/goal 的结果提示，以及引擎在对话里说的话（NATIVE_TEXT.goal*）
+// Codex / Pixel 目标模式：目标栏、/goal 结果，以及引擎在对话里说的话（GOAL_TEXT）。
 export const goalMessages = {
   'goal.bar.label': { zh: '目标', en: 'Goal' },
   'goal.bar.region': { zh: '当前目标', en: 'Current goal' },
@@ -9,10 +9,10 @@ export const goalMessages = {
   'goal.bar.resume': { zh: '继续', en: 'Resume' },
   'goal.bar.clear': { zh: '清除', en: 'Clear' },
   'goal.bar.pauseHint': {
-    zh: '暂停后 Codex 做完这一轮就停下，不再自己接着开下一轮',
-    en: 'After pausing, Codex stops when this turn ends instead of starting the next one',
+    zh: '暂停后做完这一轮就停下，不再自动开始下一轮',
+    en: 'After pausing, finish the current turn without automatically starting another',
   },
-  'goal.bar.resumeHint': { zh: 'Codex 接着朝这个目标做', en: 'Codex keeps working toward this goal' },
+  'goal.bar.resumeHint': { zh: '继续朝这个目标执行', en: 'Keep working toward this goal' },
   'goal.bar.clearHint': {
     zh: '清除目标（不会停止正在跑的这一轮）',
     en: 'Clear the goal (the current turn keeps running)',
@@ -24,9 +24,16 @@ export const goalMessages = {
   'goal.bar.editCancel': { zh: '取消', en: 'Cancel' },
   'goal.bar.editSave': { zh: '换成新目标', en: 'Replace goal' },
   'goal.bar.editHint': {
-    zh: '换目标等于重新发 /goal，Codex 按新目标接着做',
-    en: 'Same as sending /goal again: Codex continues with the new goal',
+    zh: '换目标等于重新发 /goal，按新目标接着做',
+    en: 'Same as sending /goal again: continue with the new goal',
   },
+  'goal.bar.budget': { zh: 'token 预算（可选）', en: 'Token budget (optional)' },
+  'goal.bar.noBudget': { zh: '不设预算', en: 'No budget' },
+  'goal.bar.budgetHint': {
+    zh: '留空不设预算；换目标后重新计数',
+    en: 'Leave blank for no budget; replacing the goal resets usage',
+  },
+  'goal.bar.invalidBudget': { zh: 'token 预算必须是正整数', en: 'Token budget must be a positive integer' },
   'goal.bar.statStatus': { zh: '状态', en: 'Status' },
   'goal.bar.statTokens': { zh: '已用 token', en: 'Tokens used' },
   'goal.bar.statNoBudget': { zh: '{used}（没设预算）', en: '{used} (no budget)' },
@@ -34,8 +41,8 @@ export const goalMessages = {
   'goal.bar.statUpdated': { zh: '最后更新', en: 'Last update' },
   'goal.bar.plan': { zh: '当前计划', en: 'Current plan' },
   'goal.bar.hint.blocked': {
-    zh: 'Codex 说卡住了：看最后一轮的说明，补充信息后点「继续」，或者改目标',
-    en: 'Codex is blocked: read the last turn, add what it needs and resume, or edit the goal',
+    zh: '执行遇到阻碍：看最后一轮的说明，补充信息后点「继续」，或者改目标',
+    en: 'The goal is blocked: read the last turn, add what is needed and resume, or edit the goal',
   },
   'goal.bar.hint.usageLimited': {
     zh: '额度用完了：额度恢复或换账号后点「继续」',
@@ -44,6 +51,10 @@ export const goalMessages = {
   'goal.bar.hint.budgetLimited': {
     zh: 'token 预算用完了：点「继续」接着做，或者改目标',
     en: 'Token budget used up: resume to keep going, or edit the goal',
+  },
+  'goal.bar.hint.pixelBudgetLimited': {
+    zh: 'token 预算已用完：点「继续」修改目标和预算，保存后重新开始计数',
+    en: 'Token budget used up: Resume opens the goal and budget editor; saving starts a new budget',
   },
   'goal.status.active': { zh: '进行中', en: 'In progress' },
   'goal.status.paused': { zh: '已暂停', en: 'Paused' },
@@ -55,6 +66,10 @@ export const goalMessages = {
   'goal.native.set': {
     zh: '已设目标：{p0}。Codex 会一轮接一轮地做，直到完成；输入 /goal pause 暂停，/goal clear 清除',
     en: 'Goal set: {p0}. Codex will keep working turn after turn until it’s done. Type /goal pause to pause or /goal clear to clear it',
+  },
+  'goal.native.setPixel': {
+    zh: '已设目标：{p0}。像素星空会一轮接一轮地做，直到完成；输入 /goal pause 暂停，/goal clear 清除',
+    en: 'Goal set: {p0}. PixelSky will keep working turn after turn until it’s done. Type /goal pause to pause or /goal clear to clear it',
   },
   'goal.native.waiting': {
     zh: 'Codex 已经记下目标，会自己接着做',
@@ -81,11 +96,23 @@ export const goalMessages = {
     zh: '目标卡住了，Codex 需要你帮忙：{p0}',
     en: 'Codex is stuck on the goal and needs your help: {p0}',
   },
+  'goal.native.blockedPixel': {
+    zh: '目标卡住了，像素星空需要你帮忙：{p0}',
+    en: 'PixelSky is stuck on the goal and needs your help: {p0}',
+  },
   'goal.native.usageLimited': { zh: '额度用完了，目标先停下', en: 'Usage limit reached, so the goal is on hold' },
   'goal.native.budgetLimited': { zh: '目标的 token 预算用完了', en: 'The goal’s token budget is used up' },
   'goal.native.unsupported': {
     zh: '这个 Codex 版本没有目标模式（/goal），请更新到 0.128 以上',
     en: 'This Codex version doesn’t support goals (/goal). Update to 0.128 or later',
+  },
+  'goal.native.pixelUnsupported': {
+    zh: '这个像素星空命令行版本没有目标模式，请更新像素星空或使用自带的命令行',
+    en: 'This PixelSky CLI does not support goals. Update PixelSky or use the bundled CLI',
+  },
+  'goal.native.budgetResume': {
+    zh: '目标的 token 预算已用完，请修改目标并设置新的预算后继续',
+    en: 'The goal’s token budget is used up. Edit the goal and set a new budget to continue',
   },
   'goal.native.images': {
     zh: '目标只能是文字，/goal 不能带图片',

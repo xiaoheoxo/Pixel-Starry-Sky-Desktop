@@ -1,5 +1,16 @@
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {
+  PIXEL_GOAL_COMMAND,
+  PIXEL_GOAL_CONTEXT,
+  PIXEL_GOAL_CONTINUE,
+  PIXEL_GOAL_ENTRY,
+  PIXEL_GOAL_STATUS,
+  pixelGoalReport,
+  type PixelGoalAction,
+  type PixelGoalReport,
+} from './pixel-goal'
+export { GOAL_TEXT, sameGoal } from './types/goal'
+export {
   pixelSpeedCapability,
   pixelSpeedOf,
   pixelSpeedTier,

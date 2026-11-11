@@ -36,6 +36,9 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
  */
 export const SAFE_INTERNAL_TOOLS: ReadonlySet<string> = new Set([
   'todo_write',
+  'create_goal',
+  'get_goal',
+  'update_goal',
   'tool_search',
   EXIT_PLAN_TOOL,
   'task',
@@ -277,8 +280,8 @@ export function createApprovalExtension(
     // 计划模式：每轮开始前告诉模型；退出后从上下文里去掉之前注入的说明。子智能体只做调查、把结果交回去
     if (!options.subagent) registerPlanMode()
     function registerPlanMode(): void {
-      pi.on('before_agent_start', async event => {
-        if (event.messageType !== 'user' || currentMode() !== 'plan') return undefined
+      pi.on('before_agent_start', async _event => {
+        if (currentMode() !== 'plan') return undefined
         return { message: { customType: PLAN_CONTEXT, content: PLAN_PROMPT, display: false } }
       })
       pi.on('context', async event => {

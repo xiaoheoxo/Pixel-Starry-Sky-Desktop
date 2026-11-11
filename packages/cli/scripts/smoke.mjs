@@ -105,6 +105,8 @@ for (const r of requests) {
 }
 if (!responses.c.data?.commands?.some(c => c.name === 'pixelsky-mode'))
   fail('get_commands 里没有 pixelsky-mode，自带扩展没打进去')
+for (const name of ['goal', 'pixelsky-goal'])
+  if (!responses.c.data?.commands?.some(c => c.name === name)) fail(`get_commands 里没有 ${name}，目标模式扩展没打进去`)
 console.log('ok RPC get_state / get_commands / get_available_models')
 
 // 4. 运行期依赖：在产物目录里用同一个可执行文件加载 photon / quickjs 的 wasm（跟 Pi 的 worker 一样要读磁盘上的文件）

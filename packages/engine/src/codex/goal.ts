@@ -1,6 +1,7 @@
 // Codex 目标模式（docs/ui/codex-goal.md）：thread/goal/* 返回的 ThreadGoal 换成 SessionGoal，判断是不是旧版没有这组接口
 import type { GoalStatus, SessionGoal } from '@pixelsky/protocol'
 import { object, string } from './process'
+export { sameGoal } from '@pixelsky/protocol'
 
 const STATUSES: readonly GoalStatus[] = ['active', 'paused', 'blocked', 'usageLimited', 'budgetLimited', 'complete']
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0)
@@ -27,9 +28,4 @@ export function goalUnsupported(error: unknown): boolean {
   return /unknown variant|unknown method|method not found|not supported|-32601|goals? (?:feature|are|is) (?:disabled|not enabled)/i.test(
     (error as Error)?.message ?? String(error),
   )
-}
-
-/** 两个目标是不是同一个状态（界面要不要重画、要不要在对话里说一句） */
-export function sameGoal(a: SessionGoal | null, b: SessionGoal | null): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
 }

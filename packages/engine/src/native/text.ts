@@ -1,4 +1,5 @@
 // 导入 / 补上本机会话时放进对话的提示文字（不分引擎；引擎名由调用方传入，不传按 Claude Code）。
+import { GOAL_TEXT } from '@pixelsky/protocol'
 /** 导入时放进对话的提示文字（引擎发的中文，界面靠 shared/i18n/systemMessages.ts 翻译；数字原样写在句子里） */
 export const NATIVE_TEXT = {
   relayRun: (turns: number) => `以下 ${turns} 轮是在像素星空里用别的引擎聊的，接力时写进了这个会话`,
@@ -53,29 +54,7 @@ export const NATIVE_TEXT = {
   /** 原生会话接不上了（恢复 / 回退 / 分叉失败），改开了新会话，把像素星空里的聊天带了过去 */
   resumeLost: (turns: number, engine = 'Claude Code') =>
     `没能接上原来的 ${engine} 会话，已改开新的引擎会话，并把像素星空里的聊天（${turns} 轮）带了过去（工具调用和文件改动没有带过去）`,
-  /** 目标模式（Codex /goal，docs/ui/codex-goal.md） */
-  goalSet: (objective: string) =>
-    `已设目标：${objective}。Codex 会一轮接一轮地做，直到完成；输入 /goal pause 暂停，/goal clear 清除`,
-  goalWaiting: 'Codex 已经记下目标，会自己接着做',
-  goalNone: '这个对话没有目标。输入 /goal 加上要达成的目标来设一个',
-  goalShow: (objective: string, status: string) => `当前目标（${status}）：${objective}`,
-  goalPaused: '目标已暂停',
-  goalResumed: '目标继续进行',
-  goalCleared: '目标已清除',
-  goalComplete: (objective: string) => `目标已完成：${objective}`,
-  goalBlocked: (objective: string) => `目标卡住了，Codex 需要你帮忙：${objective}`,
-  goalUsageLimited: '额度用完了，目标先停下',
-  goalBudgetLimited: '目标的 token 预算用完了',
-  goalUnsupported: '这个 Codex 版本没有目标模式（/goal），请更新到 0.128 以上',
-  goalImages: '目标只能是文字，/goal 不能带图片',
-  goalStatus: {
-    active: '进行中',
-    paused: '已暂停',
-    blocked: '卡住了',
-    usageLimited: '额度用完',
-    budgetLimited: '预算用完',
-    complete: '已完成',
-  },
+  ...GOAL_TEXT,
   /** 原生会话接不上、发的是 /compact，之前的聊天又注不进新会话：这次不压缩，下一条普通消息再带过去 */
   compactSkipped: (engine = 'Claude Code') =>
     `没能接上原来的 ${engine} 会话，之前的聊天也没能放进新的引擎会话，这次没有压缩；下一条消息会把像素星空里的聊天带过去`,

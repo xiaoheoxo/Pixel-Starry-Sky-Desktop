@@ -619,8 +619,7 @@ export function Composer({
       if (hasContent) comingSoon(translate('发送'))
       return
     }
-    // Codex 的 /goal（docs/ui/codex-goal.md §2）：进程在跑时直接改目标，不排队、不发给模型；
-    // 不是 Codex 会话、进程没在跑、带了附件时照普通消息发（会话启动后由 Codex 会话处理，Claude Code 有自己的 /goal）
+    // Codex / Pixel 的 /goal：进程在跑时直接改目标，不排队；冷启动后由相应适配器处理。
     const goal = images.length || textFiles.length ? null : parseGoalCommand(text)
     if (goal && canSend && !submitting.current && !pendingReads.current) {
       const typed = text
@@ -632,7 +631,7 @@ export function Composer({
         const done = await live.goal(goal)
         if (done) {
           setText(current => (current === typed ? '' : current))
-          toast(goalResultText(goal, done.goal))
+          toast(goalResultText(goal, done.goal, live.engine?.id))
         } else handled = false
       } catch (err) {
         setError((err as Error).message)

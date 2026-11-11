@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   FAILED_STEPS_STOP,
   LoopGuard,
+  LOOP_GUARD_RESET_EVENT,
   REPEAT_STOP,
   REPEAT_WARN,
   callKey,
@@ -70,7 +71,15 @@ describe('loopGuardExtension', () => {
   function setup() {
     const handlers: Record<string, (event: unknown, ctx: unknown) => Promise<unknown>> = {}
     const notices: Array<[string, string]> = []
+    const bus = new Map<string, () => void>()
     loopGuardExtension({
+      events: {
+        emit: () => {},
+        on: (name: string, handler: () => void) => {
+          bus.set(name, handler)
+          return () => bus.delete(name)
+        },
+      },
       on: (name: string, handler: (event: unknown, ctx: unknown) => Promise<unknown>) => {
         handlers[name] = handler
       },
@@ -96,11 +105,11 @@ describe('loopGuardExtension', () => {
       ) as Promise<{ content: Array<{ text: string }>; structuredContent: unknown } | undefined>
     const step = (isError: boolean[]) =>
       handlers.turn_end({ type: 'turn_end', toolResults: isError.map(e => ({ isError: e })) }, ctx)
-    return { handlers, notices, call, result, step }
+    return { handlers, notices, call, result, step, resetGoal: () => bus.get(LOOP_GUARD_RESET_EVENT)!() }
   }
 
   it(`第 ${REPEAT_WARN} 次起提醒模型，第 ${REPEAT_STOP} 次拦下并停止、只提示用户一次`, async () => {
-    const { notices, call, result } = setup()
+    const { handlers, notices, call, result, resetGoal } = setup()
     const input = { path: 'src/a.ts', oldText: 'x', newText: 'y' }
     for (let i = 1; i < REPEAT_STOP; i++) {
       expect(await call('edit', input)).toBeUndefined()
@@ -111,12 +120,21 @@ describe('loopGuardExtension', () => {
         expect(r!.content[0].text).toBe('Could not find oldText')
         expect(r!.structuredContent).toEqual({ kept: true })
       }
+      // 目标自动续轮不能把重复计数清零，从而绕过循环检测。
+      await handlers.before_agent_start(
+        { messageType: 'custom', message: { customType: 'pixelsky-goal-continue' } },
+        {},
+      )
+      await handlers.agent_start({ type: 'agent_start' }, {})
     }
     const blocked = await call('edit', input)
     expect(blocked).toMatchObject({ block: true, terminate: true })
     expect(blocked!.reason).toContain('[loop guard] Blocked')
     expect(await call('read', { path: 'x' })).toMatchObject({ block: true, terminate: true })
     expect(notices).toEqual([[stopNotice({ kind: 'repeat', tool: 'edit', count: REPEAT_STOP - 1 }), 'warning']])
+    // 用户明确恢复或换了目标后，允许重新尝试；自动续轮本身不会重置。
+    resetGoal()
+    expect(await call('edit', input)).toBeUndefined()
   })
 
   it('用户发了新消息（或新一轮开始）重新计数；codemode 脚本里的嵌套调用不算', async () => {

@@ -262,6 +262,13 @@ export class HostEvents {
     }
     this.apply(id, event)
     switch (event.type) {
+      case 'goal':
+        // 续轮间隙仍在执行目标，不能被空闲回收打断；暂停/清除后恢复正常回收。
+        if (event.goal?.status === 'active' && rt.idleTimer) {
+          clearTimeout(rt.idleTimer)
+          rt.idleTimer = null
+        } else if (event.goal?.status !== 'active' && rt.snapshot.state === 'idle') this.armIdle(id)
+        break
       case 'turn_started':
         // 适配器自己开的一轮（后台任务通知后引擎接着干活，没有用户消息）：和普通的一轮一样算运行中，
         // 空闲定时器不能在这时关掉进程
@@ -447,7 +454,11 @@ export class HostEvents {
   armIdle(id: string): void {
     const rt = this.ctx.runtimes.get(id)
     if (!rt || rt.snapshot.background) return
-    if (rt.idleTimer) clearTimeout(rt.idleTimer)
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer)
+      rt.idleTimer = null
+    }
+    if (rt.snapshot.goal?.status === 'active') return
     // 原地接着终端里的 Codex 会话：进程一直拿着线程的写入锁，终端里 `codex resume` 会报被占用，所以 2 分钟空闲就放开
     // （docs/ui/codex-resume.md §4.6）；下一条消息再 thread/resume
     // 只在当前执行者还是 Codex、并且还接着原线程时才缩短：换到别的引擎、或回退后换了新线程，进程没拿着原线程的锁
@@ -462,7 +473,13 @@ export class HostEvents {
         : this.ctx.idleMs
     rt.idleTimer = setTimeout(() => {
       rt.idleTimer = null
-      if (rt.snapshot.state !== 'idle' || rt.snapshot.background || !rt.session) return
+      if (
+        rt.snapshot.state !== 'idle' ||
+        rt.snapshot.background ||
+        rt.snapshot.goal?.status === 'active' ||
+        !rt.session
+      )
+        return
       const s = rt.session
       rt.session = null
       void s.close()

@@ -67,6 +67,8 @@ describe('GoalBar', () => {
       '已设目标：修 bug。Codex 会一轮接一轮地做，直到完成；输入 /goal pause 暂停，/goal clear 清除',
     )
     expect(goalResultText({ kind: 'clear' }, null)).toBe('目标已清除')
+    expect(goalResultText({ kind: 'set', objective: '修 bug' }, goal(), 'pixel')).toContain('像素星空')
+    expect(goalResultText({ kind: 'set', objective: '修 bug' }, goal(), 'pixel')).not.toContain('Codex')
   })
 
   it('默认收起：整行是展开按钮，完整目标和明细要点开才显示', () => {

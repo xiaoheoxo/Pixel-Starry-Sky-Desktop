@@ -14,6 +14,9 @@ describe('目标模式的文案（docs/ui/codex-goal.md）', () => {
     expect(translateMessage('当前目标（已暂停）：修 bug', 'en-US')).toBe('Current goal (paused): 修 bug')
     expect(translateMessage('目标已完成：修 bug', 'en-US')).toBe('Goal complete: 修 bug')
     expect(translateMessage('目标已暂停', 'en-US')).toBe('Goal paused')
+    expect(translateMessage('目标卡住了，像素星空需要你帮忙：修 bug', 'en-US')).toBe(
+      'PixelSky is stuck on the goal and needs your help: 修 bug',
+    )
     expect(translateMessage('这个 Codex 版本没有目标模式（/goal），请更新到 0.128 以上', 'en-US')).toBe(
       'This Codex version doesn’t support goals (/goal). Update to 0.128 or later',
     )

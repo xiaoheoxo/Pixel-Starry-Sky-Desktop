@@ -435,8 +435,8 @@ export interface ComposerController {
    */
   resumeSettings(sessionModel: string | null): Partial<SessionSettings>
   /**
-   * 目标模式（Codex /goal，docs/ui/codex-goal.md）：Codex 会话的进程在跑时直接改目标，返回 { goal }（改后的目标）；
-   * 不是 Codex 会话、进程没在跑时返回 null，调用方把 /goal 按普通消息发
+   * 目标模式：Codex / Pixel 进程在跑时直接改目标，返回 { goal }；
+   * 其他引擎、进程没在跑时返回 null，调用方把 /goal 按普通消息发
    */
   goal(action: GoalAction): Promise<{ goal: SessionGoal | null } | null>
   /** 发送；失败时抛出给用户看的错误 */
@@ -997,7 +997,13 @@ export function useComposerController(
     redetect: () => void redetectEngines(),
     goal: async action => {
       // 运行中选了别的引擎（下一条起生效）时也不拦：/goal 交给接下来的引擎
-      if (!record || !started || record.engine !== 'codex' || (record.nextEngine ?? 'codex') !== 'codex') return null
+      if (
+        !record ||
+        !started ||
+        !['codex', 'pixel'].includes(record.engine) ||
+        (record.nextEngine ?? record.engine) !== record.engine
+      )
+        return null
       try {
         return { goal: await b.goal(record.id, action) }
       } catch (error) {

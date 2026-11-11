@@ -10,6 +10,7 @@ import { createApprovalExtension } from './extensions/approval.ts'
 import { gatewayExtension } from './extensions/gateway.ts'
 import { speedExtension } from './extensions/speed.ts'
 import { loopGuardExtension } from './extensions/loopGuard.ts'
+import { goalExtension } from './extensions/goal.ts'
 import { mcpExtension } from './extensions/mcp.ts'
 import { packagesExtension, skipMissingPackages } from './packages.ts'
 import { SUBAGENT_ENV, createSubagentExtension } from './tools/subagent.ts'
@@ -62,6 +63,7 @@ if (intercepted.action === 'run') {
       ...(subagent
         ? []
         : [
+            goalExtension,
             createSubagentExtension({
               mode: approval.currentMode,
               rules: approval,

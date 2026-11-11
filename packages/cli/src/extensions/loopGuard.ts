@@ -6,6 +6,10 @@
 // 只用可擦除的 TS 语法。
 import { createHash } from 'node:crypto'
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { PIXEL_GOAL_CONTINUE } from '../../../protocol/src/pixel-goal.ts'
+
+export const LOOP_GUARD_STOP_EVENT = 'pixelsky:loop-guard-stop'
+export const LOOP_GUARD_RESET_EVENT = 'pixelsky:loop-guard-reset'
 
 /** 同样的调用、同样的结果连着第几次开始提醒 */
 export const REPEAT_WARN = 3
@@ -121,11 +125,19 @@ export function stopNotice(stop: GuardStop): string {
 export function loopGuardExtension(pi: ExtensionAPI): void {
   const guard = new LoopGuard()
   let notified = false
+  let goalContinuation = false
   const reset = (): void => {
     guard.reset()
     notified = false
   }
-  pi.on('agent_start', async () => reset())
+  const offReset = pi.events.on(LOOP_GUARD_RESET_EVENT, reset)
+  pi.on('session_shutdown', () => offReset())
+  pi.on('before_agent_start', async event => {
+    goalContinuation = event.messageType === 'custom' && event.message.customType === PIXEL_GOAL_CONTINUE
+  })
+  pi.on('agent_start', async () => {
+    if (!goalContinuation) reset()
+  })
   pi.on('message_start', async event => {
     if ((event.message as { role?: string }).role === 'user') reset()
   })
@@ -135,6 +147,7 @@ export function loopGuardExtension(pi: ExtensionAPI): void {
     if (!stop) return undefined
     if (!notified) {
       notified = true
+      pi.events.emit(LOOP_GUARD_STOP_EVENT, stop)
       ctx.ui.notify(stopNotice(stop), 'warning')
     }
     return { block: true, reason: blockReason(stop), terminate: true }

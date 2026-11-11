@@ -2069,6 +2069,7 @@ export class CodexSession implements EngineSession {
         result = await proc.request('thread/goal/set', {
           threadId,
           objective: action.objective,
+          ...(action.tokenBudget !== undefined ? { tokenBudget: action.tokenBudget } : {}),
           status: 'active',
           origin: 'user',
         })

@@ -4,6 +4,7 @@ import {
   artifactRef,
   engineConfigPatch,
   engineId,
+  goalAction,
   int,
   mcpOp,
   str,
@@ -13,6 +14,21 @@ import {
 } from './args'
 
 describe('shared argument checks', () => {
+  it('preserves an explicit goal budget and rejects invalid limits', () => {
+    expect(goalAction({ kind: 'set', objective: '  Finish  ', tokenBudget: 1200 })).toEqual({
+      kind: 'set',
+      objective: 'Finish',
+      tokenBudget: 1200,
+    })
+    expect(goalAction({ kind: 'set', objective: 'Finish', tokenBudget: null })).toEqual({
+      kind: 'set',
+      objective: 'Finish',
+      tokenBudget: null,
+    })
+    for (const tokenBudget of [0, -1, 0.5, '1200', Infinity, Number.MAX_SAFE_INTEGER + 1])
+      expect(() => goalAction({ kind: 'set', objective: 'Finish', tokenBudget })).toThrow('正整数')
+  })
+
   it('accepts only non-empty strings as ids', () => {
     expect(str('a', 'id')).toBe('a')
     expect(() => str('', 'id')).toThrow('参数 id 不对')

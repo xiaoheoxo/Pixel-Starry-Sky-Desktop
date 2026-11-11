@@ -1,5 +1,6 @@
 // 像素星空会话：一个会话一个 `pixelsky --mode rpc` 子进程（docs/own-cli.md §4.1）
 import { existsSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { delimiter } from 'node:path'
 import type {
   ApprovalDecision,
@@ -14,9 +15,21 @@ import type {
   SessionSettings,
   SkillCommand,
   TurnOutcome,
+  GoalAction,
+  SessionGoal,
 } from '@pixelsky/protocol'
 import {
   EMPTY_FLAGS,
+  GOAL_NO_PROCESS,
+  GOAL_TEXT,
+  PIXEL_GOAL_COMMAND,
+  PIXEL_GOAL_STATUS,
+  codedError,
+  parseGoalCommand,
+  pixelGoalReport,
+  sameGoal,
+  type PixelGoalAction,
+  type PixelGoalReport,
   looksVisual,
   viaGateway,
   pixelSpeedCapability,
@@ -29,6 +42,7 @@ import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, t
 import type { ChatSeed } from '../chat-log'
 import { McpReporter, pixelMcpServers } from '../mcp'
 import { crashReason } from '../exec'
+import { queueSettings } from '../queue'
 import { effortOfLevel, effortsFromLevels, findModel, modelEfforts, piThinkingLevel } from './catalog'
 import { pixelWindow } from './context-window'
 import {
@@ -69,7 +83,7 @@ const MCP_OP_TIMEOUT_MS = 95_000
 /** 命令末尾带上的请求号，命令行原样放回结果里（packages/cli/src/extensions/mcp.ts） */
 const MCP_REQ_FLAG = '--req='
 /** 适配器自己用的扩展命令，不进斜杠菜单（用户自己装的扩展命令照常列出） */
-const INTERNAL_COMMANDS = new Set([MODE_COMMAND, MCP_COMMAND, SPEED_COMMAND])
+const INTERNAL_COMMANDS = new Set([MODE_COMMAND, MCP_COMMAND, SPEED_COMMAND, PIXEL_GOAL_COMMAND])
 /**
  * 发出提示后等 Pi 开始处理（prompt 的回应）最多等多久没动静。Pi 回应前要做发送前的准备，可能先压缩一次上下文
  * （整段对话做一次总结请求）：压缩中、等审批时不算没动静，收到别的事件也重新计时
@@ -253,6 +267,9 @@ interface ActiveTurn {
   id: string
   started: number
   promptSent: boolean
+  auto?: boolean
+  announced?: boolean
+  adopting?: boolean
   /** 提示一直没开始、已经让 Pi 停下：之后的 agent_settled（aborted）按失败结束，带上这个原因 */
   failure?: string
 }
@@ -285,6 +302,11 @@ export class PixelSession implements EngineSession {
   private speedSeq = 0
   private settingsRevision = 0
   private speedQueue: Promise<void> = Promise.resolve()
+  private goalState: SessionGoal | null = null
+  private goalSupported = false
+  private goalReply: PixelGoalReport | null = null
+  private goalSeq = 0
+  private goalQueue: Promise<void> = Promise.resolve()
   /** 自己在改模型 / 强度（期间 Pi 报的 thinking_level_changed 是中间状态，不当作被夹紧） */
   private syncing = 0
   /** 启动时没接上原来的会话文件：exists 是文件还在不在，reason 是原因；由这一轮发送前处理 */
@@ -384,6 +406,7 @@ export class PixelSession implements EngineSession {
       exit: (_code, tail) => {
         if (this.proc !== proc) return
         this.ready = false
+        this.setGoal(null)
         this.rejectApprovals()
         this.mcpReporter.stale()
         for (const w of this.mcpWaiters.splice(0)) w.resolve({ error: '引擎进程已退出' })
@@ -469,9 +492,11 @@ export class PixelSession implements EngineSession {
       }
       this.emitFlags()
       await this.emitCommands(proc)
+      if (this.goalSupported) await this.applyGoal({ kind: 'get' })
       this.ready = true
     } catch (error) {
       this.proc = null
+      this.setGoal(null)
       await proc.close()
       throw error
     }
@@ -480,6 +505,7 @@ export class PixelSession implements EngineSession {
   private async emitCommands(proc: PixelProcess): Promise<void> {
     const found = await proc.request('get_commands').catch(() => ({ command: 'get_commands', data: {} as Message }))
     this.speedSupported = array(found.data.commands).some(c => object(c).name === SPEED_COMMAND)
+    this.goalSupported = array(found.data.commands).some(c => object(c).name === PIXEL_GOAL_COMMAND)
     const commands: SkillCommand[] = [
       {
         name: 'compact',
@@ -606,19 +632,42 @@ export class PixelSession implements EngineSession {
     _seed?: ChatSeed,
     handoffImages: ImageAttachment[] = [],
   ): void {
+    // 自动续轮刚好先于宿主派发：用户消息接管这一轮，并通过 Pi 的 steer 队列交给模型。
+    if (this.active?.auto) {
+      const active = this.active
+      active.id = turnId
+      active.auto = false
+      active.announced = true
+      active.adopting = true
+      void this.run(active, text, userItemId, attachments, handoffImages).catch(error => {
+        if (this.active === active) this.finish('failed', (error as Error).message)
+      })
+      return
+    }
     if (this.active) {
       this.ctx.emit({ type: 'turn_completed', turnId, outcome: 'failed', error: 'Pixel turn already running' })
       return
     }
+    const active = this.startActive(turnId)
+    void this.run(active, text, userItemId, attachments, handoffImages).catch(error => {
+      if (this.active === active) this.finish('failed', (error as Error).message)
+    })
+  }
+
+  private startActive(turnId: string): ActiveTurn {
     const active: ActiveTurn = { id: turnId, started: Date.now(), promptSent: false }
     this.active = active
     this.promptUserSeen = false
     this.guidance.length = 0
     this.asked.clear()
     this.translator.beginTurn()
-    void this.run(active, text, userItemId, attachments, handoffImages).catch(error => {
-      if (this.active === active) this.finish('failed', (error as Error).message)
-    })
+    return active
+  }
+
+  private announce(active: ActiveTurn): void {
+    if (this.active !== active || !active.auto || active.announced) return
+    active.announced = true
+    this.ctx.emit({ type: 'turn_started', turnId: active.id, execution: queueSettings(this.ctx.record()) })
   }
 
   private async run(
@@ -630,7 +679,12 @@ export class PixelSession implements EngineSession {
   ): Promise<void> {
     await this.open()
     if (this.active !== active || this.closed) return
-    await this.syncSpeed(this.proc!, true)
+    const goal = parseGoalCommand(text)
+    if (goal) {
+      this.recoverLost(text, userItemId, array(this.modelInfo.input).includes('image'))
+      return this.runGoal(goal, active, userItemId, attachments)
+    }
+    if (!active.adopting) await this.syncSpeed(this.proc!, true)
     if (this.active !== active || this.closed) return
     const sees = array(this.modelInfo.input).includes('image')
     if (attachments.length && !sees) throw new Error('This model does not support images')
@@ -658,6 +712,7 @@ export class PixelSession implements EngineSession {
     }
     const response = await this.startPrompt(proc, active, {
       message,
+      ...(active.adopting ? { streamingBehavior: 'steer' } : {}),
       ...(images.length
         ? { images: images.map(i => ({ type: 'image', data: i.dataBase64, mimeType: i.mediaType })) }
         : {}),
@@ -800,7 +855,15 @@ export class PixelSession implements EngineSession {
       if (this.ready && !this.syncing) this.clamped(effortOfLevel(string(raw.level)))
       return
     }
+    if (type === 'agent_start' && !this.active && !this.closed) {
+      const active = this.startActive(randomUUID())
+      active.auto = true
+      active.promptSent = true
+      // 先让宿主派发已排队的用户消息；后续任何工作事件到来前一定先宣布本轮。
+      setTimeout(() => this.announce(active), 0)
+    }
     if (!this.active) return
+    if (type !== 'agent_start') this.announce(this.active)
     if (type === 'agent_settled') {
       if (raw.aborted === true) {
         // 提示一直没开始、是我们让它停的：按失败结束，说明原因
@@ -856,7 +919,16 @@ export class PixelSession implements EngineSession {
     if (method === 'setStatus') {
       const key = string(raw.statusKey)
       if (key === MODE_STATUS) this.syncMode(string(raw.statusText))
-      else if (key === SPEED_COMMAND) {
+      else if (key === PIXEL_GOAL_STATUS) {
+        try {
+          const report = pixelGoalReport(JSON.parse(string(raw.statusText)))
+          if (!report) return
+          if (report.req) this.goalReply = report
+          this.setGoal(report.goal)
+        } catch {
+          /* 损坏或旧版扩展的状态不能当成目标操作成功 */
+        }
+      } else if (key === SPEED_COMMAND) {
         try {
           const value = object(JSON.parse(string(raw.statusText)))
           if (value.version !== 1) return
@@ -1078,6 +1150,8 @@ export class PixelSession implements EngineSession {
   }
 
   async interrupt(): Promise<void> {
+    // 两轮之间点停止也要取消续轮；暂停按钮仅让当前轮做完，停止按钮还会 abort 当前轮。
+    if (this.goalState?.status === 'active' && this.proc?.alive) await this.applyGoal({ kind: 'pause' }).catch(() => {})
     const active = this.active
     if (!active) return
     if (!active.promptSent || !this.proc?.alive) {
@@ -1171,6 +1245,76 @@ export class PixelSession implements EngineSession {
     }
   }
 
+  private setGoal(goal: SessionGoal | null): void {
+    if (sameGoal(this.goalState, goal)) return
+    this.goalState = goal
+    this.ctx.emit({ type: 'goal', goal })
+  }
+
+  async goal(action: GoalAction): Promise<SessionGoal | null> {
+    if (this.opening) await this.opening.catch(() => {})
+    if (this.closed || !this.proc?.alive || !this.ready) throw codedError(GOAL_NO_PROCESS)
+    return this.applyGoal(action)
+  }
+
+  /** 状态和回执经 setStatus 推回；命令逐个执行，校验请求号后才向界面报告成功。 */
+  private applyGoal(action: PixelGoalAction): Promise<SessionGoal | null> {
+    const operation = this.goalQueue.then(async () => {
+      const proc = this.proc
+      if (!proc?.alive) throw codedError(GOAL_NO_PROCESS)
+      if (!this.goalSupported) throw new Error(GOAL_TEXT.goalPixelUnsupported)
+      const req = String(++this.goalSeq)
+      this.goalReply = null
+      const response = await proc.request(
+        'prompt',
+        {
+          message: `/${PIXEL_GOAL_COMMAND} ${JSON.stringify({ ...action, req })}`,
+        },
+        5_000,
+      )
+      const report = this.goalReply as PixelGoalReport | null
+      if (response.data.disposition !== 'handled' || report?.req !== req)
+        throw new Error('Pixel did not acknowledge the goal command')
+      if (report.error) throw new Error(report.error)
+      return report.goal
+    })
+    this.goalQueue = operation.then(
+      () => {},
+      () => {},
+    )
+    return operation
+  }
+
+  /** 冷启动时输入框会把 /goal 当普通消息发来；在本地处理，不让模型猜斜杠命令的意思。 */
+  private async runGoal(
+    action: GoalAction,
+    active: ActiveTurn,
+    userItemId: string,
+    attachments: ImageAttachment[],
+  ): Promise<void> {
+    this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed', mode: 'normal' })
+    try {
+      if (attachments.length) throw new Error(GOAL_TEXT.goalImages)
+      const goal = await this.applyGoal(action)
+      const text =
+        action.kind === 'set'
+          ? GOAL_TEXT.goalSet(action.objective, '像素星空')
+          : action.kind === 'pause'
+            ? GOAL_TEXT.goalPaused
+            : action.kind === 'resume'
+              ? GOAL_TEXT.goalResumed
+              : action.kind === 'clear'
+                ? GOAL_TEXT.goalCleared
+                : goal
+                  ? GOAL_TEXT.goalShow(goal.objective, GOAL_TEXT.goalStatus[goal.status])
+                  : GOAL_TEXT.goalNone
+      this.translator.notice('info', text)
+    } catch (error) {
+      this.translator.notice('warn', (error as Error).message)
+    }
+    if (this.active === active && !active.adopting) this.finish('completed', null)
+  }
+
   async mcp(op: McpOp): Promise<McpOpResult> {
     const proc = this.proc
     if (!proc?.alive || !this.ready) {
@@ -1212,6 +1356,7 @@ export class PixelSession implements EngineSession {
 
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    if (this.goalState?.status === 'active' && this.proc?.alive) await this.applyGoal({ kind: 'hold' }).catch(() => {})
     this.mcpReporter.dispose()
     await this.interrupt()
     this.rejectApprovals()

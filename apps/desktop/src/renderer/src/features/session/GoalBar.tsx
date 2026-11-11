@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Pause, Play, Target, X } from 'lucide-react'
-import type { GoalAction, GoalStatus, SessionGoal } from '@pixelsky/protocol'
+import type { EngineId, GoalAction, GoalStatus, SessionGoal } from '@pixelsky/protocol'
 import { Button, IconButton, Spinner, cn } from '@/ui'
 import { useEngineState } from '@/features/engine/store'
 import { formatDuration, formatTime, formatTokens } from '@/features/usage/format'
@@ -47,8 +47,9 @@ const HINT_KEY: Partial<Record<GoalStatus, TranslationKey>> = {
 }
 
 /** 输入框里的 /goal 直接生效后的提示（和进程没在跑时引擎在对话里说的同一句） */
-export function goalResultText(action: GoalAction, goal: SessionGoal | null): string {
-  if (action.kind === 'set') return tr('goal.native.set', { p0: action.objective })
+export function goalResultText(action: GoalAction, goal: SessionGoal | null, engine: EngineId = 'codex'): string {
+  if (action.kind === 'set')
+    return tr(engine === 'pixel' ? 'goal.native.setPixel' : 'goal.native.set', { p0: action.objective })
   if (action.kind === 'pause') return tr('goal.native.paused')
   if (action.kind === 'resume') return tr('goal.native.resumed')
   if (action.kind === 'clear') return tr('goal.native.cleared')
@@ -86,7 +87,7 @@ export function goalStats(goal: SessionGoal): { label: string; value: string; wa
 }
 
 /**
- * 输入框上方的目标栏（Codex /goal，docs/ui/codex-goal.md §2）：会话有目标时显示目标、状态、用量，
+ * 输入框上方的目标栏（Codex / Pixel）：会话有目标时显示目标、状态、用量，
  * 点这一行展开看完整目标、用量明细和当前计划，能就地改目标。按钮马上生效（不排队）。
  * onAction 返回 null 表示引擎进程不在了（目标也就跟着没了）
  */
@@ -99,6 +100,7 @@ export function GoalBar({
 }) {
   useI18n()
   const goal = useEngineState(s => (sessionId ? (s.snapshots[sessionId]?.goal ?? null) : null))
+  const engine = useEngineState(s => (sessionId ? s.snapshots[sessionId]?.record?.engine : undefined))
   const items = useEngineState(s => (sessionId ? s.snapshots[sessionId]?.items : undefined))
   const [busy, setBusy] = useState<GoalAction['kind'] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +108,7 @@ export function GoalBar({
   const [openFor, setOpenFor] = useState<string | null>(null)
   // 正在改的目标文字；null 表示没在改
   const [draft, setDraft] = useState<string | null>(null)
+  const [draftBudget, setDraftBudget] = useState('')
   // 目标暂停、引擎空闲时没做完的计划也算当前计划
   const plan = useMemo(() => (items ? currentPlan(items, true) : null), [items])
   const toggleRef = useRef<HTMLButtonElement>(null)
@@ -122,7 +125,7 @@ export function GoalBar({
     setBusy(action.kind)
     setError(null)
     try {
-      // null：这个会话现在不归 Codex 管（进程不在、下一条换了引擎），没改成
+      // null：进程不在或下一条换了引擎，没改成
       if ((await onAction(action)) === null) {
         setError(tr('errors.engine.goalNoProcess'))
         return false
@@ -144,14 +147,29 @@ export function GoalBar({
     setDraft(null)
     toggleRef.current?.focus()
   }
+  const edit = (): void => {
+    setOpenFor(sessionId)
+    setDraft(goal.objective)
+    setDraftBudget(goal.tokenBudget?.toString() ?? '')
+  }
   const save = async (): Promise<void> => {
     const objective = draft?.trim()
     if (!objective) return
-    if (objective === goal.objective || (await act({ kind: 'set', objective }))) closeEditor()
+    const tokenBudget = draftBudget.trim() ? Number(draftBudget) : null
+    if (engine === 'pixel' && tokenBudget !== null && (!Number.isSafeInteger(tokenBudget) || tokenBudget <= 0)) {
+      setError(tr('goal.bar.invalidBudget'))
+      return
+    }
+    const unchanged =
+      objective === goal.objective &&
+      (engine !== 'pixel' || (tokenBudget === goal.tokenBudget && goal.status !== 'budgetLimited'))
+    if (unchanged || (await act({ kind: 'set', objective, ...(engine === 'pixel' ? { tokenBudget } : {}) })))
+      closeEditor()
   }
   const status = goalStatusText(goal.status)
   const usage = goalUsageText(goal)
-  const hint = HINT_KEY[goal.status]
+  const hint =
+    engine === 'pixel' && goal.status === 'budgetLimited' ? 'goal.bar.hint.pixelBudgetLimited' : HINT_KEY[goal.status]
   const warn = !!hint
   const canResume = goal.status !== 'active' && goal.status !== 'complete'
   const detailId = `goal-detail-${sessionId ?? ''}`
@@ -205,9 +223,15 @@ export function GoalBar({
               variant="ghost"
               icon={Play}
               disabled={!!busy}
-              title={tr('goal.bar.resumeHint')}
+              title={tr(
+                engine === 'pixel' && goal.status === 'budgetLimited'
+                  ? 'goal.bar.hint.pixelBudgetLimited'
+                  : 'goal.bar.resumeHint',
+              )}
               className="h-6 px-2 text-meta"
-              onClick={() => void act({ kind: 'resume' })}
+              onClick={() =>
+                engine === 'pixel' && goal.status === 'budgetLimited' ? edit() : void act({ kind: 'resume' })
+              }
             >
               {tr('goal.bar.resume')}
             </Button>
@@ -233,7 +257,7 @@ export function GoalBar({
                   type="button"
                   disabled={!!busy}
                   className="text-accent hover:underline disabled:opacity-50"
-                  onClick={() => setDraft(goal.objective)}
+                  onClick={edit}
                 >
                   {tr('goal.bar.edit')}
                 </button>
@@ -248,6 +272,7 @@ export function GoalBar({
                 <textarea
                   autoFocus
                   value={draft}
+                  maxLength={4000}
                   aria-label={tr('goal.bar.edit')}
                   onChange={e => setDraft(e.target.value)}
                   onKeyDown={e => {
@@ -257,6 +282,21 @@ export function GoalBar({
                   }}
                   className="min-h-24 resize-y rounded-md border border-line bg-app px-2.5 py-1.5 text-list text-fg outline-none focus-visible:border-accent"
                 />
+                {engine === 'pixel' && (
+                  <label className="flex flex-wrap items-center gap-2 text-meta text-fg-muted">
+                    <span>{tr('goal.bar.budget')}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={draftBudget}
+                      onChange={e => setDraftBudget(e.target.value)}
+                      placeholder={tr('goal.bar.noBudget')}
+                      className="w-36 rounded-md border border-line bg-app px-2 py-1 text-fg outline-none focus-visible:border-accent"
+                    />
+                    <span className="text-label text-fg-faint">{tr('goal.bar.budgetHint')}</span>
+                  </label>
+                )}
                 <div className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 text-label text-fg-faint">{tr('goal.bar.editHint')}</span>
                   <Button variant="ghost" className="h-6 px-2 text-meta" onClick={closeEditor}>

@@ -76,15 +76,36 @@ class Adapter implements EngineAdapter {
     return s
   }
 }
-function setup() {
+function setup(idleMs?: number) {
   const adapter = new Adapter(),
     dataDir = join(root, 'engine'),
-    host = new EngineHost({ dataDir, adapters: { claude: adapter }, emit: () => {} })
+    host = new EngineHost({ dataDir, adapters: { claude: adapter }, emit: () => {}, idleMs })
   hosts.push(host)
   const record = host.createSession({ projectId: host.addProject(root).id })
   return { host, adapter, record, dataDir }
 }
 describe('归档与删除生命周期', () => {
+  it('活动目标在续轮间隙不回收进程，暂停后恢复空闲回收', async () => {
+    const { host, adapter, record } = setup(10)
+    await host.send(record.id, '开始')
+    await until(() => !!adapter.sessions[0]?.active)
+    const session = adapter.sessions[0]
+    const goal = {
+      objective: '继续工作',
+      status: 'active' as const,
+      tokensUsed: 0,
+      tokenBudget: null,
+      timeUsedSeconds: 0,
+      updatedAt: 1,
+    }
+    session.ctx.emit({ type: 'goal', goal })
+    session.finish()
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(session.closed).toBe(false)
+    session.ctx.emit({ type: 'goal', goal: { ...goal, status: 'paused' } })
+    await until(() => session.closed)
+  })
+
   it('子任务覆盖即时进入网关执行记录并持久化，不重启主会话或修改新会话默认值', async () => {
     const { host, adapter, record, dataDir } = setup()
     await host.send(record.id, '开始工作')
