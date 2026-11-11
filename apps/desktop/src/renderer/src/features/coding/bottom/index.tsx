@@ -107,7 +107,7 @@ export function BottomPanel({
                 icon={SquareSplitHorizontal}
                 label={tr('coding.bottom.splitTerminal')}
                 disabled={!ui.activeId}
-                onClick={() => void ui.splitRight()}
+                onClick={() => void ui.splitTo('right')}
               />
               <IconButton
                 icon={Eraser}

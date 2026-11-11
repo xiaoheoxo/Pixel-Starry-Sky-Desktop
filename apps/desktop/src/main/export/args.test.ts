@@ -10,6 +10,10 @@ describe('saveArgs', () => {
     })
   })
 
+  it('accepts txt (terminal output)', () => {
+    expect(saveArgs({ name: 'PowerShell 7', ext: 'txt', content: 'PS> ' }).ext).toBe('txt')
+  })
+
   it('strips path separators and illegal characters from the name', () => {
     expect(saveArgs({ name: String.raw`..\..\evil/a:b*?`, ext: 'json', content: '{}' }).name).toBe('.. .. evil a b')
     expect(saveArgs({ name: '  ', ext: 'html', content: '' }).name).toBe('conversation')

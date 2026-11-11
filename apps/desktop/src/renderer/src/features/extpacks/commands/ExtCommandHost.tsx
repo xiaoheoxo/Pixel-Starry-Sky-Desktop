@@ -148,7 +148,11 @@ export function ExtCommandHost() {
   useEffect(() => {
     let bound: PackCommand[] = []
     const refresh = (): void => {
-      const taken = [...ACTIONS.map(a => bindingOf(a.id)), ...FIXED.flatMap(f => f.bindings)]
+      // 终端分屏的 Alt+方向键只在终端里生效，这里本来就不管终端里的按键，不算占用
+      const taken = [
+        ...ACTIONS.map(a => bindingOf(a.id)),
+        ...FIXED.filter(f => f.label !== 'terminal.splitFocus').flatMap(f => f.bindings),
+      ]
       bound = activeBindings(packCommands(getPackState(), getLocale()), taken)
     }
     refresh()

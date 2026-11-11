@@ -71,6 +71,12 @@ export const FIXED: readonly { label: TranslationKey; keys: () => string; bindin
     bindings: [key('KeyC', { shift: true })],
   },
   { label: 'terminal.paste', keys: () => 'Ctrl+Shift+V', bindings: [key('KeyV', { shift: true })] },
+  // 只在终端分屏时拦（docs/ui/terminal-toolbar-status.md §6）
+  {
+    label: 'terminal.splitFocus',
+    keys: () => (isMac ? '⌥← → ↑ ↓' : 'Alt+← → ↑ ↓'),
+    bindings: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].map(code => key(code, { mod: false, alt: true })),
+  },
 ]
 
 const STORAGE_KEY = 'pixelsky.keybindings'

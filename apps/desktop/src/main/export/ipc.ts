@@ -12,7 +12,7 @@ export function initExport(): void {
     const { name, ext, content } = saveArgs(input)
     const win = BrowserWindow.fromWebContents(e.sender)
     const opts = {
-      title: nativeText(win, '导出对话'),
+      title: nativeText(win, ext === 'txt' ? '保存终端输出' : '导出对话'),
       defaultPath: join(app.getPath('downloads'), `${name}.${ext}`),
       filters: [{ name: EXPORT_KINDS[ext], extensions: [ext] }],
     }

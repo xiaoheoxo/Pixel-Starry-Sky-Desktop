@@ -1,7 +1,8 @@
 import { safeFileName } from '../../shared/safeFileName'
 
 // 导出对话的保存参数检查（docs/ui/conversation-export.md）：渲染层写好内容交过来，主进程只管弹对话框、写文件
-export const EXPORT_KINDS = { md: 'Markdown', html: 'HTML', json: 'JSON' } as const
+// txt：终端的「把输出存成文件」（docs/ui/terminal-toolbar-status.md §4）
+export const EXPORT_KINDS = { md: 'Markdown', html: 'HTML', json: 'JSON', txt: 'Text' } as const
 export type ExportKind = keyof typeof EXPORT_KINDS
 /** 一份对话文本的上限：再大多半不是对话（防止界面出错时往磁盘里灌东西） */
 export const EXPORT_MAX_CHARS = 64 * 1024 * 1024

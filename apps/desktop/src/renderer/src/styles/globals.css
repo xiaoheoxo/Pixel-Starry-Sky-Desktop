@@ -190,15 +190,6 @@
   height: 8px;
   z-index: 35;
 }
-.terminal-shell-select {
-  width: 28px;
-  min-width: 28px;
-  padding: 0;
-  justify-content: center;
-}
-.terminal-shell-select > span {
-  display: none;
-}
 @utility titlebar-reserve {
   padding-right: var(--titlebar-reserve);
 }
@@ -1184,13 +1175,35 @@
   box-shadow: inset 0 0 0 2px var(--accent-border);
 }
 
-/* 终端左右分屏（docs/ui/files-search-terminal-pins.md §4.1）：把手按左栏宽度放置，聚焦的一边顶部有一条强调线 */
-.terminal-split-resize {
+/* 终端分屏（docs/ui/terminal-toolbar-status.md §5）：把手按第一格的大小放置；聚焦的一格左右分屏时顶部一条强调线，
+   上下分屏时在左边（放顶部的话下面那格的线和分隔线贴在一起） */
+.terminal-split-resize.layout-resize-x {
   top: 0;
   bottom: 0;
 }
-.terminal-split-focused {
-  box-shadow: inset 0 2px 0 var(--accent-border);
+.terminal-split-resize.layout-resize-y {
+  left: 0;
+  right: 0;
+}
+.terminal-split-focused,
+.terminal-split-focused-down {
+  position: relative;
+}
+.terminal-split-focused::after,
+.terminal-split-focused-down::after {
+  content: '';
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--accent-border);
+}
+.terminal-split-focused::after {
+  inset: 0 0 auto 0;
+  height: 2px;
+}
+.terminal-split-focused-down::after {
+  inset: 0 auto 0 0;
+  width: 2px;
 }
 
 .terminal-project-select {

@@ -12,7 +12,7 @@ import { translateMessage, tr } from '@/i18n/core'
 import { demo } from '@/data/demo'
 import { createHistory, HISTORY_LIMIT_BYTES, stripAnsi, type DataEvent, type TerminalHistory } from './history'
 import { applyPrompt, type PromptMarks } from './marks'
-import { endRun, startRun, type TerminalRun } from './pills'
+import { endRun, reportsEnds, startRun, unseenAfterPrompt, type TerminalRun, type Unseen } from './pills'
 import { noteTuiOutput } from './tuiActivity'
 
 interface State extends TerminalState {
@@ -22,6 +22,8 @@ interface State extends TerminalState {
   marks: Record<string, PromptMarks>
   /** 各终端最近一条命令（运行胶囊，docs/ui/panel-pill.md §4） */
   runs: Record<string, TerminalRun>
+  /** 各终端不在眼前时出的结果，标签上的红三角 / 蓝点（docs/ui/terminal-toolbar-status.md §3）；不落盘 */
+  unseen: Record<string, Unseen>
 }
 let state: State = {
   profiles: [],
@@ -31,6 +33,7 @@ let state: State = {
   error: null,
   marks: {},
   runs: {},
+  unseen: {},
 }
 const listeners = new Set<() => void>()
 let init: Promise<void> | null = null
@@ -62,6 +65,18 @@ function withRun(id: string, run: TerminalRun | undefined): Record<string, Termi
 function terminalOnScreen(id: string): boolean {
   const el = document.querySelector(`[data-terminal-input="${CSS.escape(id)}"]`)
   return !!el && el.getBoundingClientRect().width > 0
+}
+/** 显示着的终端视图（TerminalView 的 visible）。输出很密，「有新输出」按它判断，不去量 DOM */
+const shownViews = new Set<string>()
+export function setTerminalShown(id: string, shown: boolean): void {
+  if (shown) shownViews.add(id)
+  else shownViews.delete(id)
+}
+/** 这个终端显示出来了：标签上没看过的结果算看过 */
+export function seeTerminal(id: string): void {
+  if (!state.unseen[id]) return
+  const { [id]: _seen, ...unseen } = state.unseen
+  set({ unseen })
 }
 /** 回车了：记下一条命令开始（只记名字给胶囊显示，不存别的输入）。command：屏幕上的命令，读不到为 null */
 export function noteTerminalEnter(id: string, generation: number, command: string | null): void {
@@ -128,14 +143,35 @@ function event(value: TerminalEvent): void {
   if (value.type === 'prompt') {
     const next = applyPrompt(state.marks[value.terminalId], value)
     if (next && next !== state.marks[value.terminalId]) {
-      const run = endRun(state.runs[value.terminalId], next, Date.now(), terminalOnScreen(value.terminalId))
-      set({ marks: { ...state.marks, [value.terminalId]: next }, runs: withRun(value.terminalId, run) })
+      const id = value.terminalId,
+        onScreen = terminalOnScreen(id)
+      const run = endRun(state.runs[id], next, Date.now(), onScreen)
+      // 会话的终端模式（sessionId）不在标签里，不记
+      const known = state.terminals.find(t => t.id === id)
+      // 「在不在眼前」和「有新输出」同一个判断（视图的 visible），面板按它把结果算成看过
+      const prev = state.unseen[id]
+      const after =
+        known && !known.sessionId ? unseenAfterPrompt(prev, state.marks[id], next, shownViews.has(id)) : prev
+      let unseen = state.unseen
+      if (after !== prev) {
+        const { [id]: _old, ...rest } = state.unseen
+        unseen = after ? { ...rest, [id]: after } : rest
+      }
+      set({ marks: { ...state.marks, [id]: next }, runs: withRun(id, run), unseen })
     }
     return
   }
   seenOutput.add(value.terminalId)
-  const sessionId = state.terminals.find(t => t.id === value.terminalId)?.sessionId
-  if (sessionId) noteTuiOutput(value.terminalId, sessionId)
+  const record = state.terminals.find(t => t.id === value.terminalId)
+  if (record?.sessionId) noteTuiOutput(value.terminalId, record.sessionId)
+  // 不报告命令结束的 Shell（cmd、没有集成的）：不在眼前时有新输出就在标签上给蓝点。便宜的判断放前面，输出很密
+  else if (
+    record &&
+    state.unseen[record.id]?.generation !== value.generation &&
+    !reportsEnds(state.marks[record.id], value.generation) &&
+    !shownViews.has(record.id)
+  )
+    set({ unseen: { ...state.unseen, [record.id]: { generation: value.generation, code: null } } })
   const waiter = readyWaiters.get(value.terminalId)
   if (waiter) {
     readyWaiters.delete(value.terminalId)
@@ -272,9 +308,11 @@ export function forgetTerminal(id: string): void {
   notifyHistory()
   seenOutput.delete(id)
   readyWaiters.delete(id)
-  const marks = { ...state.marks }
+  const marks = { ...state.marks },
+    unseen = { ...state.unseen }
   delete marks[id]
-  set({ terminals: state.terminals.filter(r => r.id !== id), marks, runs: withRun(id, undefined) })
+  delete unseen[id]
+  set({ terminals: state.terminals.filter(r => r.id !== id), marks, unseen, runs: withRun(id, undefined) })
 }
 export async function terminalRestart(id: string, force = false): Promise<void> {
   const record = state.terminals.find(r => r.id === id)

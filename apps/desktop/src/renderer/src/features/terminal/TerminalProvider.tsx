@@ -27,14 +27,9 @@ import { getPage, showWorkbench } from '@/features/layout/page'
 import { NEW_TERMINAL, TOGGLE_TERMINAL } from '@/features/layout/shortcuts'
 import { getAppMode } from '@/features/coding/mode'
 import { codingLayout, getCodingLayout } from '@/features/coding/layoutStore'
+import { clampRatio, liveSplit, readSplit, type TerminalSplit } from './split'
 
 type Action = 'rename' | 'close' | 'restart' | 'search' | 'clear'
-/** 左右分屏（docs/ui/files-search-terminal-pins.md §4.1）：两个终端 id 和左边所占比例 */
-export interface TerminalSplit {
-  left: string
-  right: string
-  ratio: number
-}
 interface TerminalUi {
   workspacePath: string
   open: boolean
@@ -55,9 +50,9 @@ interface TerminalUi {
   searchId: string | null
   stopSearch(): void
   split: TerminalSplit | null
-  /** 新建一个终端放到右边（已分屏时替换右边） */
-  splitRight(): Promise<void>
-  /** 把已有的终端放到右边 */
+  /** 新建一个终端放到第二格（已分屏时替换第二格）；dir 不传沿用现在的方向，没分屏时向右 */
+  splitTo(dir?: TerminalSplit['dir']): Promise<void>
+  /** 把已有的终端放到第二格（方向沿用现在的，没分屏时向右） */
   showRight(id: string): void
   unsplit(): void
   setSplitRatio(ratio: number): void
@@ -85,13 +80,6 @@ interface Dialog {
 }
 const Context = createContext<TerminalUi | null>(null)
 const key = isDemo ? 'pixelsky.terminal.ui.demo' : 'pixelsky.terminal.ui'
-const clampRatio = (ratio: number): number => Math.min(0.8, Math.max(0.2, ratio))
-function readSplit(v: unknown): TerminalSplit | null {
-  const s = v as Partial<TerminalSplit> | null
-  return s && typeof s.left === 'string' && typeof s.right === 'string' && s.left !== s.right
-    ? { left: s.left, right: s.right, ratio: typeof s.ratio === 'number' ? clampRatio(s.ratio) : 0.5 }
-    : null
-}
 function read(): {
   open: boolean
   projectId: string | null
@@ -134,7 +122,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setUi(v => ({
       ...v,
       projectId,
-      activeId: items.some(t => t.id === v.activeId) ? v.activeId : (items[0]?.id ?? null),
+      // 切回来时这个项目还记着分屏：选分屏的第一格，不然显示着分屏、当前终端却在分屏外面
+      activeId: items.some(t => t.id === v.activeId)
+        ? v.activeId
+        : v.split && items.some(t => t.id === v.split!.left)
+          ? v.split.left
+          : (items[0]?.id ?? null),
     }))
   }, [workspace.path, workspace.ref?.projectId, workspace.ref?.sessionId])
   useEffect(() => {
@@ -365,8 +358,24 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   })
-  const splitRight = async (): Promise<void> => {
-    const left = ui.split ? ui.split.left : ui.activeId
+  /** 当前项目（工作目录）的终端 id，和面板标签栏是同一份 */
+  const currentIds = (): string[] =>
+    workspaceTerminals(
+      terminalState().terminals,
+      ui.projectId,
+      projectOf(workspace.ref) === ui.projectId ? workspace.path : '',
+      window.pixelsky?.platform === 'win32',
+    ).map(r => r.id)
+  const splitTo = async (dir?: TerminalSplit['dir']): Promise<void> => {
+    // 别的项目留下的分屏不算：拿它的第一格来配，两边对不上，分屏显示不出来
+    const live = liveSplit(ui.split, currentIds())
+    // 已经分屏、只是方向不同（命令面板）：换方向，不另开终端；终端没显示着就显示出来
+    if (dir && live && live.dir !== dir) {
+      setUi(v => (v.split ? { ...v, open: true, split: { ...v.split, dir } } : v))
+      openRightTab('terminal')
+      return
+    }
+    const left = live ? live.left : ui.activeId
     const ref = defaultRef()
     if (!left || !ref || creating.current) return
     creating.current = true
@@ -377,7 +386,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         ...v,
         activeId: record.id,
         open: true,
-        split: { left, right: record.id, ratio: v.split?.ratio ?? 0.5 },
+        split: { left, right: record.id, ratio: live?.ratio ?? 0.5, dir: dir ?? live?.dir ?? 'right' },
       }))
       openRightTab('terminal')
       requestAnimationFrame(() => screens.get(record.id)?.focus())
@@ -388,10 +397,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     }
   }
   const showRight = (id: string): void => {
+    const ids = currentIds()
     setUi(v => {
-      const left = v.activeId && v.activeId !== id ? v.activeId : v.split?.left
+      const live = liveSplit(v.split, ids)
+      const left = v.activeId && v.activeId !== id ? v.activeId : live?.left
       if (!left || left === id) return v
-      return { ...v, activeId: id, split: { left, right: id, ratio: v.split?.ratio ?? 0.5 } }
+      return { ...v, activeId: id, split: { left, right: id, ratio: live?.ratio ?? 0.5, dir: live?.dir ?? 'right' } }
     })
     requestAnimationFrame(() => screens.get(id)?.focus())
   }
@@ -461,8 +472,10 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   }
   const context: TerminalUi = {
     ...ui,
+    // 对外只给显示着的分屏（命令面板「取消分屏」能不能用、代码模式底部的列表）
+    split: liveSplit(ui.split, currentIds()),
     runTask,
-    splitRight,
+    splitTo,
     showRight,
     runScript,
     unsplit: () => setUi(v => ({ ...v, split: null })),

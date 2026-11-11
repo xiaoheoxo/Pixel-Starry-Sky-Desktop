@@ -9,6 +9,7 @@ import { portUrl, findPorts } from '@/features/coding/bottom/portsModel'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { cn, useToast } from '@/ui'
+import type { TerminalRecord } from '../../../../shared/types/terminal'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { sendTerminalQuote } from './AskAi'
 import { quoteCard } from './errorLines'
@@ -30,6 +31,19 @@ const QUOTE_CHARS = 4096
 const DETAIL_WIDTH = 340
 /** 点过「从这里移除」的终端（模块级：状态栏重新挂载也不会让卡住的胶囊冒回来） */
 export const hiddenRuns: Record<string, HiddenRuns[string]> = {}
+
+/** 这些终端现在的胶囊；到点（2 秒门槛、✓ 到期）自己重算。输入框状态栏、极简顶栏的橙点、终端标签的转圈共用 */
+export function useRunPills(records: readonly TerminalRecord[]): RunPill[] {
+  const store = useTerminalStore()
+  const { pills, nextAt } = pillsOf(records, store.marks, store.runs, Date.now(), hiddenRuns)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (nextAt === null) return
+    const timer = setTimeout(() => tick(n => n + 1), Math.max(0, nextAt - Date.now()) + 20)
+    return () => clearTimeout(timer)
+  }, [nextAt])
+  return pills
+}
 
 function Mark({ pill }: { pill: RunPill }) {
   if (pill.state === 'failed') return <TriangleAlert size={12} strokeWidth={1.75} className="shrink-0" />
@@ -261,14 +275,8 @@ export const RunPills = memo(function RunPills({
     () => workspaceTerminals(store.terminals, projectId, cwd, window.pixelsky?.platform === 'win32'),
     [store.terminals, projectId, cwd],
   )
-  const { pills, nextAt } = pillsOf(records, store.marks, store.runs, Date.now(), hiddenRuns)
+  const pills = useRunPills(records)
   const ports = usePorts(pills)
-  const [, tick] = useState(0)
-  useEffect(() => {
-    if (nextAt === null) return
-    const timer = setTimeout(() => tick(n => n + 1), Math.max(0, nextAt - Date.now()) + 20)
-    return () => clearTimeout(timer)
-  }, [nextAt])
 
   // 正看着的那个终端：结束的状态算看过了
   const activeId = ui?.activeId ?? null

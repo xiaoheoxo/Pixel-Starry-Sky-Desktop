@@ -555,6 +555,27 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
         () => !!terminalId && terminalState().terminals.some(r => r.id === terminalId),
         t('terminal.noTerminals'),
       )
+    // 终端分屏（docs/ui/terminal-toolbar-status.md §5）
+    for (const dir of ['right', 'down'] as const)
+      add(
+        'terminal.split.' + dir,
+        dir === 'down' ? 'terminal.splitDown' : 'terminal.splitRight',
+        'terminal.categoryTerminal',
+        TerminalSquare,
+        () => terminal.splitTo(dir),
+        undefined,
+        () => !!terminalId && terminalState().terminals.some(r => r.id === terminalId),
+        t('terminal.noTerminals'),
+      )
+    add(
+      'terminal.unsplit',
+      'terminal.unsplit',
+      'terminal.categoryTerminal',
+      TerminalSquare,
+      terminal.unsplit,
+      undefined,
+      () => !!terminal.split,
+    )
     // 会话 TUI 终端嵌在会话里，终端面板选不到
     for (const r of terminalState().terminals.filter(t => !t.sessionId))
       items.push({

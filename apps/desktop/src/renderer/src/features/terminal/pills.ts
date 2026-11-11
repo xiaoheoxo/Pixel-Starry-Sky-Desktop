@@ -34,6 +34,56 @@ export type TerminalRun =
 const marksOf = (marks: PromptMarks | undefined, generation: number): PromptMarks | undefined =>
   marks?.generation === generation ? marks : undefined
 
+/** 标签上没看过的结果（docs/ui/terminal-toolbar-status.md §3）：code 是退出码，null 是「有新输出」（退出码不知道、Shell 不报告命令结束） */
+export interface Unseen {
+  generation: number
+  code: number | null
+}
+
+/** 这个 Shell 报告命令结束吗：没有集成、cmd（weak）都不报告 */
+export const reportsEnds = (marks: PromptMarks | undefined, generation: number): boolean =>
+  hasIntegration(marks, generation) && marks!.weak === 0
+
+/** 终端不在眼前时来了提示符：有命令结束就记下结果；Ctrl+C 中止的、没有命令结束的不记 */
+export function unseenEnd(before: PromptMarks | undefined, after: PromptMarks): Unseen | undefined {
+  if (after.ends <= (before?.generation === after.generation ? before.ends : 0)) return undefined
+  const code = after.codes[after.codes.length - 1] ?? null
+  return code !== null && INTERRUPTED.has(code) ? undefined : { generation: after.generation, code }
+}
+
+/**
+ * 提示符来了之后这个终端「没看过的结果」。shown：正显示着，不记新的。
+ * - 同一轮 shell 里没看过的失败，不被后面成功的命令盖成蓝点
+ * - 有集成的 Shell 在后台重启：第一个提示符之前的输出当成了「有新输出」（那时还不知道它报告命令结束），去掉
+ */
+export function unseenAfterPrompt(
+  prev: Unseen | undefined,
+  before: PromptMarks | undefined,
+  next: PromptMarks,
+  shown: boolean,
+): Unseen | undefined {
+  const seen = shown ? undefined : unseenEnd(before, next)
+  if (seen && !(prev?.generation === seen.generation && prev.code && !seen.code)) return seen
+  if (
+    prev?.generation === next.generation &&
+    prev.code === null &&
+    next.ends === 0 &&
+    reportsEnds(next, next.generation)
+  )
+    return undefined
+  return prev
+}
+
+export type TabMark = 'exited' | 'running' | 'failed' | 'new' | 'idle'
+
+/** 标签标题前面的标记，从上往下取第一个成立的；running：运行胶囊判断的「命令在跑」 */
+export function tabMarkOf(record: TerminalRecord, running: boolean, unseen: Unseen | undefined): TabMark {
+  if (record.status !== 'running' && record.status !== 'starting') return 'exited'
+  if (running) return 'running'
+  if (unseen?.generation !== record.generation) return 'idle'
+  return unseen.code ? 'failed' : 'new'
+}
+
 /** 输入里有回车：记下一条命令开始；在跑的程序收到回车、exec 换掉 shell 不算新命令 */
 export function startRun(
   run: TerminalRun | undefined,

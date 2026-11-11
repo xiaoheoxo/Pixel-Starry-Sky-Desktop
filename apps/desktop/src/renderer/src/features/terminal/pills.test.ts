@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalRecord } from '../../../../shared/types/terminal'
 import type { PromptMarks } from './marks'
-import { DONE_SHOW_MS, endRun, lastLines, pillsOf, shortName, startRun, type TerminalRun } from './pills'
+import {
+  DONE_SHOW_MS,
+  endRun,
+  lastLines,
+  pillsOf,
+  reportsEnds,
+  shortName,
+  startRun,
+  tabMarkOf,
+  unseenAfterPrompt,
+  unseenEnd,
+  type TerminalRun,
+} from './pills'
 
 const marks = (over: Partial<PromptMarks> = {}): PromptMarks => ({
   generation: 1,
@@ -150,5 +162,67 @@ describe('显示用的文字', () => {
     expect(lastLines('', 3)).toEqual([])
     expect(lastLines('boom\nPS C:\\proj> ', 3)).toEqual(['boom'])
     expect(lastLines('PS C:\\proj>', 3)).toEqual([])
+  })
+})
+
+describe('标签上的标记（docs/ui/terminal-toolbar-status.md §3）', () => {
+  it('不在眼前时命令结束：记下退出码；Ctrl+C 中止的、没有命令结束的提示符不记', () => {
+    expect(unseenEnd(marks(), ended(1))).toEqual({ generation: 1, code: 1 })
+    expect(unseenEnd(marks(), ended(0))).toEqual({ generation: 1, code: 0 })
+    expect(unseenEnd(marks(), ended(null))).toEqual({ generation: 1, code: null })
+    expect(unseenEnd(marks(), ended(130))).toBeUndefined()
+    expect(unseenEnd(marks(), ended(-1073741510))).toBeUndefined()
+    // 清屏重画、第一个提示符：ends 没变
+    expect(unseenEnd(marks(), marks({ prompts: 2 }))).toBeUndefined()
+    // 上一轮 shell 结束过 3 次，重启后的第一次结束也算
+    expect(unseenEnd(marks({ ends: 3 }), marks({ generation: 2, prompts: 2, ends: 1, codes: [2] }))).toEqual({
+      generation: 2,
+      code: 2,
+    })
+    expect(unseenEnd(undefined, ended(1))).toEqual({ generation: 1, code: 1 })
+  })
+  it('cmd 和没有集成的 Shell 不报告命令结束', () => {
+    expect(reportsEnds(marks(), 1)).toBe(true)
+    expect(reportsEnds(marks({ weak: 1 }), 1)).toBe(false)
+    expect(reportsEnds(undefined, 1)).toBe(false)
+    expect(reportsEnds(marks(), 2)).toBe(false)
+  })
+  it('一个标签只有一个标记：已退出 > 在跑 > 失败 > 有新结果 > 空闲', () => {
+    const failed = { generation: 1, code: 1 }
+    expect(tabMarkOf(record({ status: 'exited' }), true, failed)).toBe('exited')
+    expect(tabMarkOf(record({ status: 'stopped' }), false, undefined)).toBe('exited')
+    expect(tabMarkOf(record({ status: 'starting' }), false, undefined)).toBe('idle')
+    expect(tabMarkOf(record(), true, failed)).toBe('running')
+    expect(tabMarkOf(record(), false, failed)).toBe('failed')
+    expect(tabMarkOf(record(), false, { generation: 1, code: 0 })).toBe('new')
+    expect(tabMarkOf(record(), false, { generation: 1, code: null })).toBe('new')
+    expect(tabMarkOf(record(), false, undefined)).toBe('idle')
+    // 重启后上一轮的结果不算
+    expect(tabMarkOf(record({ generation: 2 }), false, failed)).toBe('idle')
+  })
+})
+
+describe('提示符来了之后没看过的结果', () => {
+  const failed = { generation: 1, code: 1 }
+  it('没看过的失败不被后面成功的命令盖掉；后面又失败了换成新的退出码', () => {
+    const after = marks({ prompts: 3, ends: 2, codes: [1, 0] })
+    expect(unseenAfterPrompt(failed, ended(1), after, false)).toBe(failed)
+    const again = marks({ prompts: 3, ends: 2, codes: [1, 5] })
+    expect(unseenAfterPrompt(failed, ended(1), again, false)).toEqual({ generation: 1, code: 5 })
+    // 上一轮 shell 的失败不挡新一轮的结果
+    expect(
+      unseenAfterPrompt(failed, undefined, marks({ generation: 2, prompts: 2, ends: 1, codes: [0] }), false),
+    ).toEqual({
+      generation: 2,
+      code: 0,
+    })
+  })
+  it('有集成的 Shell 重启后第一个提示符之前的「有新输出」去掉；cmd 的留着', () => {
+    const guess = { generation: 2, code: null }
+    expect(unseenAfterPrompt(guess, undefined, marks({ generation: 2, prompts: 1 }), false)).toBeUndefined()
+    expect(unseenAfterPrompt(guess, undefined, marks({ generation: 2, prompts: 1, weak: 1 }), false)).toBe(guess)
+  })
+  it('正显示着不记新的', () => {
+    expect(unseenAfterPrompt(undefined, marks(), ended(1), true)).toBeUndefined()
   })
 })

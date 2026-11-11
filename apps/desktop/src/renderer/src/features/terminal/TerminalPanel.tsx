@@ -4,19 +4,22 @@ import {
   ArrowUp,
   ChevronDown,
   Columns2,
+  Folder,
   Maximize2,
   Minimize2,
   MoreHorizontal,
   Play,
   Plus,
+  Rows2,
   Search,
   Settings,
   TerminalSquare,
+  TriangleAlert,
   X,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
-import { cn, IconButton, Select } from '@/ui'
+import { cn, IconButton, Select, Spinner } from '@/ui'
 import { ResizeHandle } from '@/ui/ResizeHandle'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { useEngineState } from '@/features/engine'
@@ -24,12 +27,16 @@ import { addProject } from '@/features/engine/store'
 import { folderLabel } from '@/features/files/extraFolderPaths'
 import { isDemo, projects as demoProjects } from '@/data'
 import { useTerminalUi } from './TerminalProvider'
-import { useTerminalStore, terminalError } from './store'
+import { seeTerminal, useTerminalStore, terminalError } from './store'
 import { TerminalView } from './TerminalView'
 import { screens } from './screens'
 import { createPortal } from 'react-dom'
-import { ActionMenu } from '@/ui/ActionMenu'
+import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { workspaceTerminals } from './workspace'
+import { tabMarkOf, type TabMark } from './pills'
+import { useRunPills } from './RunPills'
+import { liveSplit, splitMoveTarget } from './split'
+import type { TerminalRecord } from '../../../../shared/types/terminal'
 import { demo } from '@/data/demo'
 import { isChatProject, scriptCommand } from '@pixelsky/protocol'
 import { useFolderlessChat } from '@/features/editor/target'
@@ -62,40 +69,50 @@ export function TerminalPanel({
   const [context, setContext] = useState<{ id: string; x: number; y: number; trigger: HTMLElement } | null>(null)
   const [query, setQuery] = useState(''),
     [found, setFound] = useState(true)
-  // 项目脚本菜单（docs/ui/files-search-terminal-pins.md §4.3）
-  const [scripts, setScripts] = useState<{
+  // 「+」旁边的「▾」（docs/ui/terminal-toolbar-status.md §2）：选 Shell、在附加文件夹里开、运行项目脚本
+  const [newMenu, setNewMenu] = useState<{
     x: number
     y: number
     trigger: HTMLElement
-    items: Array<{ name: string; command: string }>
+    projectId: string
+    /** null：还在读 */
+    scripts: Array<{ name: string; command: string }> | null
   } | null>(null)
+  // 分屏按钮点开选方向
+  const [splitMenu, setSplitMenu] = useState<{ x: number; y: number; trigger: HTMLElement } | null>(null)
   const body = useRef<HTMLDivElement>(null),
-    [bodyWidth, setBodyWidth] = useState(0)
+    [bodySize, setBodySize] = useState({ w: 0, h: 0 })
   useEffect(() => {
     const el = body.current
     if (!el) return
-    const observer = new ResizeObserver(() => setBodyWidth(el.clientWidth))
+    const observer = new ResizeObserver(() => setBodySize({ w: el.clientWidth, h: el.clientHeight }))
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-  const openScripts = async (trigger: HTMLElement): Promise<void> => {
-    if (scripts) return setScripts(null)
-    if (!ui.projectId) return
+  const below = (trigger: HTMLElement): { x: number; y: number; trigger: HTMLElement } => {
     const r = trigger.getBoundingClientRect()
-    try {
-      const env = isDemo
-        ? demo().projectTools.environment
-        : await window.pixelsky!.projectTools.environment({ projectId: ui.projectId }, false)
-      const manager = env.packageManager ?? 'npm'
-      setScripts({
-        x: r.left,
-        y: r.bottom,
-        trigger,
-        items: Object.keys(env.scripts).map(name => ({ name, command: scriptCommand(manager, name) })),
+    return { x: r.left, y: r.bottom + 4, trigger }
+  }
+  const openNew = (trigger: HTMLElement): void => {
+    const projectId = ui.projectId
+    if (!projectId) return
+    // 先打开、脚本读到了再补：读脚本要跑 git、where 等（大仓库、远程机器上要几秒），不能挡住选 Shell
+    setNewMenu({ ...below(trigger), projectId, scripts: null })
+    void (
+      isDemo
+        ? Promise.resolve(demo().projectTools.environment)
+        : window.pixelsky!.projectTools.environment({ projectId }, false)
+    )
+      .then(env => {
+        const manager = env.packageManager ?? 'npm'
+        return Object.keys(env.scripts).map(name => ({ name, command: scriptCommand(manager, name) }))
       })
-    } catch (cause) {
-      terminalError(cause)
-    }
+      // 读不到（对话的文件夹、没有 package.json、远端断了）当成没有脚本
+      .catch(() => [])
+      // 菜单已经关了、换了项目就不补
+      .then(scripts =>
+        setNewMenu(m => (m && m.trigger === trigger && m.projectId === projectId ? { ...m, scripts } : m)),
+      )
   }
   const items = workspaceTerminals(
     state.terminals,
@@ -105,9 +122,41 @@ export function TerminalPanel({
   )
   const active = items.find(r => r.id === ui.activeId) ?? null
   // 分屏（docs/ui/files-search-terminal-pins.md §4.1）：两边都是当前项目的终端时才显示
-  const split =
-    ui.split && items.some(r => r.id === ui.split!.left) && items.some(r => r.id === ui.split!.right) ? ui.split : null
-  const leftWidth = split ? Math.round(bodyWidth * split.ratio) : 0
+  const split = liveSplit(
+    ui.split,
+    items.map(r => r.id),
+  )
+  const down = split?.dir === 'down'
+  // 第一格（左 / 上）的大小：每格至少 160，面板不够大时取一半
+  const splitTotal = down ? bodySize.h : bodySize.w,
+    splitMin = Math.min(160, splitTotal / 2),
+    firstSize = split ? Math.round(Math.min(splitTotal - splitMin, Math.max(splitMin, splitTotal * split.ratio))) : 0
+  // 标签上的标记（docs/ui/terminal-toolbar-status.md §3）
+  const runningIds = new Set(
+    useRunPills(items)
+      .filter(p => p.state === 'running')
+      .map(p => p.id),
+  )
+  /** 标记对应的一句话（读屏、鼠标提示）；空闲没有 */
+  const markText = (item: TerminalRecord, mark: TabMark): string =>
+    mark === 'idle'
+      ? ''
+      : mark === 'exited'
+        ? t(('terminal.' + item.status) as 'terminal.exited')
+        : mark === 'failed'
+          ? t('terminal.tab.failed') + ' · ' + t('terminal.exitCode', { p0: state.unseen[item.id]?.code ?? '' })
+          : t(mark === 'running' ? 'terminal.tab.running' : 'terminal.tab.new')
+  // 显示出来的终端：没看过的结果算看过了
+  const shownIds = !(embedded || chrome === 'bare' ? visible : ui.open)
+    ? []
+    : split
+      ? [split.left, split.right]
+      : active
+        ? [active.id]
+        : []
+  useEffect(() => {
+    for (const id of shownIds) if (state.unseen[id]) seeTerminal(id)
+  })
   const visibleProjects = [
     ...projects.map(p => ({ value: p.id, label: p.name })),
     ...state.terminals
@@ -179,6 +228,39 @@ export function TerminalPanel({
   }
   const projectOptions = [{ value: '', label: t('terminal.chooseProject') }, ...visibleProjects]
   const bare = chrome === 'bare'
+  const newActions: MenuAction[] = newMenu
+    ? [
+        ...state.profiles.map((p, i) => ({
+          label: p.label,
+          icon: TerminalSquare,
+          section: i === 0 ? t('terminal.new') : undefined,
+          hint: p.id === state.defaultProfileId ? t('terminal.defaultMark') : undefined,
+          disabled: !p.available,
+          title: p.available ? undefined : t('terminal.notDetected'),
+          run: () => void ui.create(undefined, p.id),
+        })),
+        // 多文件夹项目：在某个附加文件夹里开终端（docs/ui/multi-root-projects.md §3.4）
+        ...(extraFolders ?? []).map((f, i) => ({
+          label: folderLabel(f),
+          icon: Folder,
+          section: i === 0 ? t('terminal.newInFolder') : undefined,
+          hint: f.path,
+          run: () => void ui.create({ projectId: ui.projectId!, folder: i + 1 }),
+        })),
+        // 项目脚本（docs/ui/files-search-terminal-pins.md §4.3）：在新终端里运行
+        ...(newMenu.scripts === null
+          ? [{ label: t('terminal.loadingScripts'), section: t('terminal.scripts'), disabled: true }]
+          : newMenu.scripts.length
+            ? newMenu.scripts.map((item, i) => ({
+                label: item.name,
+                icon: Play,
+                section: i === 0 ? t('terminal.scripts') : undefined,
+                hint: item.command,
+                run: () => void ui.runScript(item.name, item.command),
+              }))
+            : [{ label: t('terminal.noScripts'), section: t('terminal.scripts'), disabled: true }]),
+      ]
+    : []
   return (
     <section
       ref={panel}
@@ -226,62 +308,61 @@ export function TerminalPanel({
           aria-label={t('terminal.title')}
           className="relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
         >
-          {items.map(item => (
-            <div
-              key={item.id}
-              onContextMenu={e => {
-                e.preventDefault()
-                setContext({
-                  id: item.id,
-                  x: e.clientX,
-                  y: e.clientY,
-                  trigger: e.currentTarget.querySelector('button')!,
-                })
-              }}
-              className={cn(
-                'flex h-7 max-w-[min(36rem,75vw)] shrink-0 items-center rounded-md',
-                item.id === active?.id ? 'bg-selected text-fg' : 'text-fg-muted hover:bg-hover',
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={item.id === active?.id}
-                tabIndex={item.id === active?.id ? 0 : -1}
-                onClick={() => ui.select(item.id)}
-                onDoubleClick={() => void ui.request('rename', item.id)}
-                onKeyDown={e => {
-                  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
-                    e.preventDefault()
-                    const r = e.currentTarget.getBoundingClientRect()
-                    setContext({ id: item.id, x: r.left, y: r.bottom, trigger: e.currentTarget })
-                  }
-                  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-                    e.preventDefault()
-                    cycle(e.key === 'ArrowRight' ? 1 : -1)
-                  }
+          {items.map(item => {
+            const mark = tabMarkOf(item, runningIds.has(item.id), state.unseen[item.id]),
+              note = markText(item, mark)
+            return (
+              <div
+                key={item.id}
+                onContextMenu={e => {
+                  e.preventDefault()
+                  setContext({
+                    id: item.id,
+                    x: e.clientX,
+                    y: e.clientY,
+                    trigger: e.currentTarget.querySelector('button')!,
+                  })
                 }}
-                title={item.title + ' · ' + item.cwd}
-                className="flex min-w-0 items-center gap-1.5 px-2 text-meta"
+                className={cn(
+                  'flex h-7 max-w-[min(36rem,75vw)] shrink-0 items-center rounded-md',
+                  item.id === active?.id ? 'bg-selected text-fg' : 'text-fg-muted hover:bg-hover',
+                )}
               >
-                <TerminalSquare size={14} className="shrink-0" />
-                <span className="truncate">{item.title}</span>
-                <span
-                  className={cn(
-                    'size-1.5 shrink-0 rounded-full',
-                    item.status === 'running' ? 'bg-online' : 'bg-fg-faint',
-                  )}
-                />
-              </button>
-              <button
-                aria-label={t('terminal.close') + ': ' + item.title}
-                onClick={() => void ui.request('close', item.id)}
-                className="mr-1 rounded p-0.5 hover:bg-hover"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={item.id === active?.id}
+                  tabIndex={item.id === active?.id ? 0 : -1}
+                  onClick={() => ui.select(item.id)}
+                  onDoubleClick={() => void ui.request('rename', item.id)}
+                  onKeyDown={e => {
+                    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                      e.preventDefault()
+                      const r = e.currentTarget.getBoundingClientRect()
+                      setContext({ id: item.id, x: r.left, y: r.bottom, trigger: e.currentTarget })
+                    }
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                      e.preventDefault()
+                      cycle(e.key === 'ArrowRight' ? 1 : -1)
+                    }
+                  }}
+                  title={[item.title, item.cwd, ...(note ? [note] : [])].join(' · ')}
+                  className="flex min-w-0 items-center gap-1.5 px-2 text-meta"
+                >
+                  <TabMarkIcon mark={mark} />
+                  <span className={cn('truncate', mark === 'exited' && 'text-fg-faint')}>{item.title}</span>
+                  {note && <span className="sr-only">{note}</span>}
+                </button>
+                <button
+                  aria-label={t('terminal.close') + ': ' + item.title}
+                  onClick={() => void ui.request('close', item.id)}
+                  className="mr-1 rounded p-0.5 hover:bg-hover"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )
+          })}
         </div>
         <IconButton
           icon={Plus}
@@ -291,65 +372,33 @@ export function TerminalPanel({
           onClick={() => void ui.create()}
           disabled={!ui.projectId || !state.ready}
         />
+        {/* 菜单开着时再点按钮是收起：拦住 pointerdown，不然菜单先被「点了外面」关掉，click 又把它打开 */}
         <IconButton
-          icon={Columns2}
-          label={t(split ? 'terminal.unsplit' : 'terminal.splitRight')}
+          icon={ChevronDown}
+          label={t('terminal.newMenu')}
+          size={28}
+          iconSize={12}
+          data-terminal-new-menu
+          className="-ml-1"
+          style={{ width: 18 }}
+          aria-haspopup="menu"
+          aria-expanded={!!newMenu}
+          disabled={!ui.projectId || !state.ready}
+          onPointerDown={e => newMenu && e.stopPropagation()}
+          onClick={e => (newMenu ? setNewMenu(null) : openNew(e.currentTarget))}
+        />
+        <IconButton
+          icon={down ? Rows2 : Columns2}
+          label={t(split ? 'terminal.unsplit' : 'terminal.split')}
           size={28}
           iconSize={14}
           active={!!split}
+          data-terminal-split
+          aria-haspopup={split ? undefined : 'menu'}
+          aria-expanded={split ? undefined : !!splitMenu}
           disabled={!active || !state.ready}
-          onClick={() => (split ? ui.unsplit() : void ui.splitRight())}
-        />
-        <IconButton
-          icon={Play}
-          label={t('terminal.scripts')}
-          size={28}
-          iconSize={14}
-          aria-haspopup="menu"
-          aria-expanded={!!scripts}
-          disabled={!ui.projectId || !state.ready}
-          onClick={e => void openScripts(e.currentTarget)}
-        />
-        <Select
-          label={t('terminal.selectShell')}
-          placeholder={t('terminal.selectShell')}
-          value=""
-          fitContent
-          options={state.profiles.map(p => ({
-            value: p.id,
-            label: p.label,
-            disabled: !p.available,
-            description: p.available ? undefined : t('terminal.notDetected'),
-          }))}
-          onChange={id => void ui.create(undefined, id)}
-          disabled={!ui.projectId}
-          className="terminal-shell-select"
-        />
-        {/* 多文件夹项目：在某个附加文件夹里开终端（docs/ui/multi-root-projects.md §3.4） */}
-        {!!extraFolders?.length && ui.projectId && (
-          <Select
-            label={t('terminal.newInFolder')}
-            placeholder={t('terminal.newInFolder')}
-            value=""
-            fitContent
-            options={extraFolders.map((f, i) => ({ value: String(i + 1), label: folderLabel(f), hint: f.path }))}
-            onChange={folder => void ui.create({ projectId: ui.projectId!, folder: Number(folder) })}
-            disabled={!state.ready}
-            className="terminal-shell-select"
-          />
-        )}
-        <IconButton
-          icon={Search}
-          label={t('terminal.search')}
-          size={28}
-          iconSize={14}
-          disabled={!active}
-          active={!!active && ui.searchId === active.id}
-          aria-expanded={!!active && ui.searchId === active.id}
-          onClick={() => {
-            if (active && ui.searchId === active.id) ui.stopSearch()
-            else void ui.request('search')
-          }}
+          onPointerDown={e => splitMenu && e.stopPropagation()}
+          onClick={e => (split ? ui.unsplit() : setSplitMenu(splitMenu ? null : below(e.currentTarget)))}
         />
         <button
           ref={moreRef}
@@ -428,7 +477,7 @@ export function TerminalPanel({
         ref={body}
         className={cn(
           'relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-terminal',
-          split ? 'flex-row' : 'flex-col',
+          split && !down ? 'flex-row' : 'flex-col',
         )}
       >
         {!active && (
@@ -470,11 +519,19 @@ export function TerminalPanel({
               data-terminal-side={side ?? undefined}
               className={cn(
                 shown ? 'flex min-h-0 min-w-0 flex-col' : 'contents',
-                side === 'right' && 'flex-1 border-l border-line-layout',
-                side && split && ui.activeId === record.id && 'terminal-split-focused',
+                side === 'right' && cn('flex-1 border-line-layout', down ? 'border-t' : 'border-l'),
+                side && ui.activeId === record.id && (down ? 'terminal-split-focused-down' : 'terminal-split-focused'),
                 !split && shown && 'flex-1',
               )}
-              style={side === 'left' ? { order: 0, width: leftWidth, flex: 'none' } : side ? { order: 2 } : undefined}
+              style={
+                side === 'left'
+                  ? down
+                    ? { order: 0, height: firstSize, flex: 'none' }
+                    : { order: 0, width: firstSize, flex: 'none' }
+                  : side
+                    ? { order: 2 }
+                    : undefined
+              }
               onPointerDownCapture={() => {
                 if (side && ui.activeId !== record.id) ui.select(record.id)
               }}
@@ -485,21 +542,26 @@ export function TerminalPanel({
                 onPaste={ui.paste}
                 onFind={() => void ui.request('search', record.id)}
                 onCycle={cycle}
+                onAltArrow={key => {
+                  const id = splitMoveTarget(split, key)
+                  if (id && id !== ui.activeId) ui.select(id)
+                  return !!id
+                }}
               />
             </div>
           )
         })}
-        {split && bodyWidth > 0 && (
+        {split && splitTotal > 0 && (
           <ResizeHandle
-            axis="x"
+            axis={down ? 'y' : 'x'}
             className="terminal-split-resize"
-            label={t('terminal.splitWidth')}
-            value={leftWidth}
-            min={160}
-            max={Math.max(160, bodyWidth - 160)}
-            style={{ left: leftWidth - 4 }}
-            onChange={v => ui.setSplitRatio(v / bodyWidth)}
-            onCommit={v => ui.setSplitRatio(v / bodyWidth)}
+            label={t(down ? 'terminal.splitHeight' : 'terminal.splitWidth')}
+            value={firstSize}
+            min={splitMin}
+            max={splitTotal - splitMin}
+            style={down ? { top: firstSize - 4 } : { left: firstSize - 4 }}
+            onChange={v => ui.setSplitRatio(v / splitTotal)}
+            onCommit={v => ui.setSplitRatio(v / splitTotal)}
             onReset={() => ui.setSplitRatio(0.5)}
           />
         )}
@@ -536,7 +598,13 @@ export function TerminalPanel({
           }}
           actions={[
             ...(active && context.id !== active.id && context.id !== split?.right
-              ? [{ label: t('terminal.showRight'), icon: Columns2, run: () => ui.showRight(context.id) }]
+              ? [
+                  {
+                    label: t(down ? 'terminal.showBelow' : 'terminal.showRight'),
+                    icon: down ? Rows2 : Columns2,
+                    run: () => ui.showRight(context.id),
+                  },
+                ]
               : []),
             ...(['rename', 'close', 'clear', 'restart'] as const).map(action => ({
               label: t(action === 'close' ? 'workspace.removeTerminal' : `terminal.${action}`),
@@ -546,25 +614,31 @@ export function TerminalPanel({
           ]}
         />
       )}
-      {scripts && (
+      {newMenu && (
         <ActionMenu
-          x={scripts.x}
-          y={scripts.y}
-          label={t('terminal.scripts')}
+          x={newMenu.x}
+          y={newMenu.y}
+          label={t('terminal.newMenu')}
           onClose={() => {
-            setScripts(null)
-            scripts.trigger.focus({ preventScroll: true })
+            setNewMenu(null)
+            newMenu.trigger.focus({ preventScroll: true })
           }}
-          actions={
-            scripts.items.length
-              ? scripts.items.map((item, i) => ({
-                  label: `${item.name}  ·  ${item.command}`,
-                  icon: Play,
-                  section: i === 0 ? t('terminal.scriptsHint') : undefined,
-                  run: () => void ui.runScript(item.name, item.command),
-                }))
-              : [{ label: t('terminal.noScripts'), disabled: true, run: () => {} }]
-          }
+          actions={newActions}
+        />
+      )}
+      {splitMenu && (
+        <ActionMenu
+          x={splitMenu.x}
+          y={splitMenu.y}
+          label={t('terminal.split')}
+          onClose={() => {
+            setSplitMenu(null)
+            splitMenu.trigger.focus({ preventScroll: true })
+          }}
+          actions={[
+            { label: t('terminal.splitRight'), icon: Columns2, run: () => void ui.splitTo('right') },
+            { label: t('terminal.splitDown'), icon: Rows2, run: () => void ui.splitTo('down') },
+          ]}
         />
       )}
       {menu &&
@@ -599,6 +673,24 @@ export function TerminalPanel({
           document.body,
         )}
     </section>
+  )
+}
+/** 标签标题前面的标记（docs/ui/terminal-toolbar-status.md §3）；对应的文字在标签的隐藏文字和鼠标提示里 */
+function TabMarkIcon({ mark }: { mark: TabMark }) {
+  return (
+    <span aria-hidden data-terminal-tab-mark={mark} className="flex size-3.5 shrink-0 items-center justify-center">
+      {mark === 'running' ? (
+        <Spinner size={12} className="text-active!" />
+      ) : mark === 'failed' ? (
+        <TriangleAlert size={13} strokeWidth={1.75} className="text-danger" />
+      ) : mark === 'new' ? (
+        <span className="size-[7px] rounded-full bg-status-seen" />
+      ) : mark === 'exited' ? (
+        <span className="size-2 rounded-full border-[1.5px] border-fg-faint" />
+      ) : (
+        <TerminalSquare size={14} />
+      )}
+    </span>
   )
 }
 function TerminalMenu({ x, y, close, children }: { x: number; y: number; close(): void; children: React.ReactNode }) {

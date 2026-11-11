@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createHistory, stripAnsi, type DataEvent } from './history'
+import { createHistory, rowsText, stripAnsi, type DataEvent } from './history'
 
 const ev = (seq: number, data: string, generation = 1): DataEvent => ({
   type: 'data',
@@ -53,5 +53,29 @@ describe('stripAnsi', () => {
   })
   it('normalizes CRLF and drops stray control characters', () => {
     expect(stripAnsi('a\r\nb\u0007c')).toBe('a\nbc')
+  })
+})
+
+describe('rowsText', () => {
+  const rows = (lines: Array<[string, boolean?]>) => ({
+    length: lines.length,
+    text: (row: number) => lines[row][0],
+    wrapped: (row: number) => !!lines[row][1],
+  })
+  it('折行接回一行，中间的空行留着，末尾的空行去掉', () => {
+    expect(rowsText(rows([['PS> echo aaaa'], ['bbbb', true], [''], ['done'], [''], ['  ']]))).toBe(
+      'PS> echo aaaabbbb\n\ndone',
+    )
+  })
+  it('空缓冲区是空字符串；第一行标成折行也不出错', () => {
+    expect(rowsText(rows([]))).toBe('')
+    expect(
+      rowsText(
+        rows([
+          ['a', true],
+          ['b', true],
+        ]),
+      ),
+    ).toBe('ab')
   })
 })

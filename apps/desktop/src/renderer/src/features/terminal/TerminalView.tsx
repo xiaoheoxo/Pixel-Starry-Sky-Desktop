@@ -4,7 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { useEffect, useRef, useState } from 'react'
 import type { TerminalRecord } from '../../../../shared/types/terminal'
-import { consumeTerminal, demoWrite, noteTerminalEnter, terminalError, terminalState } from './store'
+import { consumeTerminal, demoWrite, noteTerminalEnter, setTerminalShown, terminalError, terminalState } from './store'
+import { rowsText } from './history'
 import { noteTuiInput } from './tuiActivity'
 import { screens } from './screens'
 import { isDemo } from '@/data'
@@ -21,8 +22,9 @@ import { splitExtra } from '@/features/files/extraFolderPaths'
 import { projectOf } from './projectOf'
 import { machineOf } from '@/features/machines/store'
 import { useI18n } from '@/i18n/I18nProvider'
-import { tr } from '@/i18n/core'
+import { tr, translateMessage } from '@/i18n/core'
 import { useToast } from '@/ui'
+import { ActionMenu } from '@/ui/ActionMenu'
 import { QUOTE_MAX_CHARS, QUOTE_MAX_LINES } from '@/features/session/quote'
 import {
   errorQuote,
@@ -54,6 +56,9 @@ const ansi = [
   'brightCyan',
   'brightWhite',
 ] as const
+
+/** 「复制全部输出」最多这么多字（主进程剪贴板通道的上限），超过只留最后这么多 */
+const COPY_ALL_MAX = 2_000_000
 
 /** xterm 当前缓冲区按行读（报错行识别用） */
 function bufferRows(term: Terminal): Rows {
@@ -106,12 +111,15 @@ export function TerminalView({
   onPaste,
   onFind,
   onCycle,
+  onAltArrow,
 }: {
   record: TerminalRecord
   visible: boolean
   onPaste: (id: string, text: string) => void
   onFind: () => void
   onCycle: (delta: number) => void
+  /** Alt+方向键（分屏间切焦点）：处理了返回 true，按键就不发给 Shell */
+  onAltArrow?: (key: string) => boolean
 }) {
   const { t } = useI18n()
   const toast = useToast()
@@ -119,10 +127,10 @@ export function TerminalView({
     instance = useRef<Terminal | null>(null),
     refit = useRef<() => void>(() => {}),
     restyle = useRef<() => void>(() => {})
-  const latest = useRef({ record, visible, onPaste, onFind, onCycle })
-  latest.current = { record, visible, onPaste, onFind, onCycle }
+  const latest = useRef({ record, visible, onPaste, onFind, onCycle, onAltArrow })
+  latest.current = { record, visible, onPaste, onFind, onCycle, onAltArrow }
   const [away, setAway] = useState(false),
-    [menu, setMenu] = useState<{ x: number; y: number } | null>(null),
+    [menu, setMenu] = useState<{ x: number; y: number; selection: boolean } | null>(null),
     [bar, setBar] = useState<{ x: number; y: number } | null>(null),
     [fix, setFix] = useState<{ x: number; y: number; row: number } | null>(null)
   /** 鼠标停在缓冲区的哪一行（同一行不重复识别） */
@@ -307,6 +315,19 @@ export function TerminalView({
         latest.current.onCycle(event.shiftKey ? -1 : 1)
         return false
       }
+      // 分屏时 Alt+方向键在两格之间切（docs/ui/terminal-toolbar-status.md §6）；带 Ctrl / Shift / ⌘ 的、不是分屏方向的照常给 Shell
+      if (
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.key.startsWith('Arrow') &&
+        latest.current.onAltArrow?.(event.key)
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
+        return false
+      }
       if (isCopyKey(event, term.hasSelection(), isMac)) {
         event.preventDefault()
         // Ctrl+C 复制完清掉选区，下一次 Ctrl+C 就是中断
@@ -387,7 +408,7 @@ export function TerminalView({
     screens.set(record.id, screen)
     const contextMenu = (event: MouseEvent): void => {
       event.preventDefault()
-      setMenu({ x: Math.min(innerWidth - 190, event.clientX), y: Math.min(innerHeight - 115, event.clientY) })
+      setMenu({ x: event.clientX, y: event.clientY, selection: term.hasSelection() })
     }
     el.addEventListener('contextmenu', contextMenu)
     return () => {
@@ -412,6 +433,11 @@ export function TerminalView({
   useEffect(() => {
     if (visible) requestAnimationFrame(() => refit.current())
   }, [visible, record.generation, record.status])
+  useEffect(() => {
+    if (!visible) return
+    setTerminalShown(record.id, true)
+    return () => setTerminalShown(record.id, false)
+  }, [visible, record.id])
   const prefs = useTerminalPrefs()
   useEffect(() => {
     const term = instance.current
@@ -481,12 +507,28 @@ export function TerminalView({
     if (failed) toast(failed)
     else term.clearSelection()
   }
-  useEffect(() => {
-    if (!menu) return
-    const dismiss = () => setMenu(null)
-    window.addEventListener('pointerdown', dismiss)
-    return () => window.removeEventListener('pointerdown', dismiss)
-  }, [menu])
+  /** 缓冲区里现在能翻到的全部文字 */
+  const allText = (): string => (instance.current ? rowsText(bufferRows(instance.current)) : '')
+  const copyAll = async (): Promise<void> => {
+    const text = allText(),
+      cut = text.length > COPY_ALL_MAX,
+      value = cut ? text.slice(-COPY_ALL_MAX) : text
+    if (isDemo) await navigator.clipboard.writeText(value)
+    else await window.pixelsky!.terminal.clipboardWrite(value)
+    toast(cut ? tr('terminal.copiedAllCut', { n: COPY_ALL_MAX }) : t('terminal.copiedAll'))
+  }
+  const saveOutput = async (): Promise<void> => {
+    const saved = await window.pixelsky!.conversationExport.save({ name: record.title, ext: 'txt', content: allText() })
+    if (!saved) return
+    toast(`${t('terminal.savedOutput')} · ${saved.split(/[\\/]/).pop()}`, {
+      duration: 8000,
+      action: {
+        label: t('export.openFolder'),
+        run: () => void window.pixelsky?.editor.revealOutside(saved).catch(() => {}),
+      },
+    })
+  }
+  const remote = machineOf(record.projectId) !== 'local'
   return (
     <div
       className={visible ? 'relative flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
@@ -525,45 +567,47 @@ export function TerminalView({
         </button>
       )}
       {menu && (
-        <div
-          role="menu"
-          className="fixed z-[95] w-44 rounded-md border border-line-card bg-popover p-1 text-list text-fg shadow-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onPointerDown={e => e.stopPropagation()}
-        >
-          <button
-            role="menuitem"
-            className="block w-full rounded px-3 py-2 text-left hover:bg-hover"
-            onClick={() => {
-              void screens.get(record.id)?.copy().catch(terminalError)
-              setMenu(null)
-            }}
-          >
-            {t('terminal.copy')}
-          </button>
-          <button
-            role="menuitem"
-            className="block w-full rounded px-3 py-2 text-left hover:bg-hover"
-            onClick={() => {
-              void (isDemo ? navigator.clipboard.readText() : window.pixelsky!.terminal.clipboardRead())
-                .then(text => onPaste(record.id, text))
-                .catch(terminalError)
-              setMenu(null)
-            }}
-          >
-            {t('terminal.paste')}
-          </button>
-          <button
-            role="menuitem"
-            className="block w-full rounded px-3 py-2 text-left hover:bg-hover"
-            onClick={() => {
-              onFind()
-              setMenu(null)
-            }}
-          >
-            {t('terminal.search')}
-          </button>
-        </div>
+        <ActionMenu
+          x={menu.x}
+          y={menu.y}
+          label={t('terminal.more')}
+          onClose={() => setMenu(null)}
+          actions={[
+            {
+              label: t('terminal.copy'),
+              disabled: !menu.selection,
+              run: () => void screens.get(record.id)?.copy().catch(terminalError),
+            },
+            {
+              label: t('terminal.paste'),
+              run: () =>
+                void (isDemo ? navigator.clipboard.readText() : window.pixelsky!.terminal.clipboardRead())
+                  .then(text => onPaste(record.id, text))
+                  .catch(terminalError),
+            },
+            { label: t('terminal.selectAll'), run: () => instance.current?.selectAll() },
+            { label: t('terminal.search'), separator: true, run: onFind },
+            { label: t('terminal.clear'), run: () => screens.get(record.id)?.clear() },
+            { label: t('terminal.copyAll'), separator: true, run: () => void copyAll().catch(terminalError) },
+            {
+              label: t('terminal.saveOutput'),
+              disabled: isDemo,
+              title: isDemo ? t('files.store.demoModeCannotSave') : undefined,
+              run: () => void saveOutput().catch(terminalError),
+            },
+            {
+              // 只知道启动时的目录（cd 之后的读不到）；远程机器上的目录本机打不开
+              label: t('terminal.revealCwd'),
+              separator: true,
+              disabled: isDemo || remote,
+              title: isDemo ? t('path.revealDemo') : remote ? t('path.revealRemote') : record.cwd,
+              run: () =>
+                void window
+                  .pixelsky!.editor.revealOutside(record.cwd)
+                  .catch((e: Error) => toast(tr('path.revealFailed', { reason: translateMessage(e.message) }))),
+            },
+          ]}
+        />
       )}
     </div>
   )

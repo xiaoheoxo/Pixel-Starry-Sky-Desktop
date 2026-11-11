@@ -31,6 +31,17 @@ export function stripAnsi(data: string): string {
   )
 }
 
+/** 屏幕缓冲区里的全部文字（复制全部输出、存成文件）：折行接回一行，去掉末尾的空行 */
+export function rowsText(rows: { length: number; text(row: number): string; wrapped(row: number): boolean }): string {
+  const lines: string[] = []
+  for (let row = 0; row < rows.length; row++) {
+    if (row > 0 && rows.wrapped(row)) lines[lines.length - 1] += rows.text(row)
+    else lines.push(rows.text(row))
+  }
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+  return lines.join('\n')
+}
+
 /**
  * 每个终端一个缓冲区，保存最近 limitBytes 字节的数据事件。
  * generation 变了（终端重启）就清空；超过上限时从最早的一条整条丢弃（至少保留最新一条）。
