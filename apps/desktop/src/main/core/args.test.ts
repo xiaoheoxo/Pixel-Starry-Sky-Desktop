@@ -97,6 +97,22 @@ describe('shared argument checks', () => {
         contextWindows: { platform: { a: 200_000, b: null, c: '1m' }, self: [], other: { x: 1 } },
       }),
     ).toEqual({ rememberChoices: true, contextWindows: { platform: { a: 200_000, b: null } } })
+    // Codex 子智能体、输入预测、自动用重置卡：以前被这里丢掉，开关点了又弹回去
+    const auto = { threshold: 95, minLeftHours: 24, perWeek: 1 }
+    expect(
+      engineConfigPatch({
+        subagentModel: 'gpt-x',
+        subagentEffort: 'high',
+        inputPrediction: 'cheap',
+        resetCreditAuto: auto,
+      }),
+    ).toEqual({ subagentModel: 'gpt-x', subagentEffort: 'high', inputPrediction: 'cheap', resetCreditAuto: auto })
+    expect(engineConfigPatch({ subagentModel: null, subagentEffort: null, resetCreditAuto: null })).toEqual({
+      subagentModel: null,
+      subagentEffort: null,
+      resetCreditAuto: null,
+    })
+    expect(engineConfigPatch({ subagentModel: 1, inputPrediction: true, resetCreditAuto: 'on' })).toEqual({})
     expect(engineConfigPatch({ rememberChoices: 'yes', contextWindows: [1] })).toEqual({})
     expect(engineConfigPatch({ args: ['--x', 1] })).toEqual({})
     expect(engineConfigPatch({ args: '--debug' })).toEqual({})

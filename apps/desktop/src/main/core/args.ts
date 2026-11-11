@@ -153,6 +153,14 @@ export function engineConfigPatch(patch: unknown): EngineConfigPatch {
   if (p.autoCompactPct === null || typeof p.autoCompactPct === 'number') out.autoCompactPct = p.autoCompactPct
   if (typeof p.hidden === 'boolean') out.hidden = p.hidden
   if (typeof p.rememberChoices === 'boolean') out.rememberChoices = p.rememberChoices
+  // Codex 子智能体、输入预测、自动用重置卡：取值由 EngineHost 查
+  if (p.subagentModel === null || typeof p.subagentModel === 'string') out.subagentModel = p.subagentModel
+  if (p.subagentEffort === null || typeof p.subagentEffort === 'string')
+    out.subagentEffort = p.subagentEffort as EngineConfigPatch['subagentEffort']
+  if (typeof p.inputPrediction === 'string')
+    out.inputPrediction = p.inputPrediction as EngineConfigPatch['inputPrediction']
+  if (p.resetCreditAuto === null || (p.resetCreditAuto && typeof p.resetCreditAuto === 'object'))
+    out.resetCreditAuto = p.resetCreditAuto as EngineConfigPatch['resetCreditAuto']
   // 每个模型的上下文窗口（GitHub #20）：只留 { platform | self: { 模型: 数字 | null } } 的形状，范围由 EngineHost 查
   if (p.contextWindows && typeof p.contextWindows === 'object' && !Array.isArray(p.contextWindows)) {
     const windows: NonNullable<EngineConfigPatch['contextWindows']> = {}
