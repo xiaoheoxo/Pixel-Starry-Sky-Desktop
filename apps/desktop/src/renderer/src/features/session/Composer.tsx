@@ -1,6 +1,6 @@
 import { translateMessage } from '../../i18n/core'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { ArrowUp, AtSign, ChevronDown, Paperclip, Plus, ShieldOff, Square, SquareSlash } from 'lucide-react'
+import { AtSign, ChevronDown, CornerDownLeft, Paperclip, Plus, ShieldOff, Square, SquareSlash } from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import { IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { useTheme } from '@/features/appearance/ThemeProvider'
@@ -791,22 +791,22 @@ export function Composer({
           <Square size={12} strokeWidth={0} fill="currentColor" />
         </button>
       )}
-      {(!running || hasContent) && (
+      {/* 照 Claude 桌面版（docs/ui/voice-input.md §8）：有内容才出现，不带底色，和麦克风一样是图标按钮；两种模式都这样 */}
+      {hasContent && (
         <button
           key="send"
           type="button"
+          data-composer-send
           aria-label={running ? translate('加入队列') : translate('发送')}
           aria-disabled={!canSend}
           title={running ? translate('加入队列（Enter）') : translate('发送（Enter）')}
           onClick={() => void submit()}
           className={cn(
-            'no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-full',
-            canSend
-              ? 'press bg-primary text-primary-fg hover:opacity-90'
-              : 'bg-disabled text-disabled-fg transition-colors',
+            'no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-md',
+            canSend ? 'press text-fg-muted hover:bg-hover hover:text-fg' : 'text-fg-muted opacity-40',
           )}
         >
-          <ArrowUp size={17} strokeWidth={2} />
+          <CornerDownLeft size={16} strokeWidth={1.5} />
         </button>
       )}
       {/* 麦克风在输入框里、发送按钮右边：正常模式和极简模式都是（极简小一号）。ChatGPT 风格的在下面一排 */}
@@ -1146,7 +1146,13 @@ export function Composer({
           ref={toolbarRef}
           className={cn(
             'composer-toolbar flex flex-wrap items-center gap-1',
-            chatgpt ? cn('pl-2.5 pb-2.5', running && hasContent ? 'pr-[84px]' : 'pr-[48px]') : 'px-1 pt-1.5',
+            // 右边给停止 / 发送按钮留位置：两个 84、一个 48；没内容又没在跑时一个都没有，不留
+            chatgpt
+              ? cn(
+                  'pl-2.5 pb-2.5',
+                  running && hasContent ? 'pr-[84px]' : running || hasContent ? 'pr-[48px]' : 'pr-2.5',
+                )
+              : 'px-1 pt-1.5',
           )}
         >
           {!inRow && addControl}
