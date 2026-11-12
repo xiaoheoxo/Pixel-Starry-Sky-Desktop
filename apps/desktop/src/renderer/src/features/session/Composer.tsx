@@ -786,12 +786,12 @@ export function Composer({
               : translate('停止当前任务并暂停队列（Esc）')
           }
           onClick={stop}
-          className="press no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg hover:opacity-90"
+          className="press no-drag inline-flex size-8 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg"
         >
           <Square size={12} strokeWidth={0} fill="currentColor" />
         </button>
       )}
-      {/* 照 Claude 桌面版（docs/ui/voice-input.md §8）：有内容才出现，不带底色，和麦克风一样是图标按钮；两种模式都这样 */}
+      {/* 照 Claude 桌面版（docs/ui/voice-input.md §8）：发送和停止都不带底色，和麦克风一样是图标按钮；发送有内容才出现，两种模式都这样 */}
       {hasContent && (
         <button
           key="send"
