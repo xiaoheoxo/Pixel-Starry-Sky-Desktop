@@ -511,7 +511,20 @@ export async function settingsFetch(method: 'GET' | 'PUT', body?: unknown): Prom
   })
 }
 
-/** 带登录令牌的请求：快过期先刷新，401 刷新后重试一次，刷新被拒就退出登录 */
+/**
+ * 云端自己拒绝登录令牌的 401：services/cloud apierr.InvalidToken（{"error":"invalid_token"}）和 AnthropicUnauthorized
+ * （「未登录或令牌无效」）。推理接口会把上游的状态码原样转回来（旧版云端），上游的 401 不能当成登录失效。
+ * 读掉了响应体，res 是照原样重建的
+ */
+async function ownUnauthorized(res: Response): Promise<{ own: boolean; res: Response }> {
+  const text = await res.text().catch(() => '')
+  return {
+    own: text.includes('"invalid_token"') || text.includes('未登录或令牌无效'),
+    res: new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers }),
+  }
+}
+
+/** 带登录令牌的请求：快过期先刷新，云端拒绝令牌（401）时刷新后重试一次，还被拒或刷新被拒就退出登录 */
 async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   if (!tokens) throw new Error('请先登录像素星空账号')
   const requestEpoch = epoch
@@ -540,16 +553,18 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   }
   const used = tokens?.accessToken
   let res = await send()
-  if (res.status === 401) {
-    await res.body?.cancel()
+  // 只有云端自己拒绝令牌才算登录失效；转发来的上游 401（线路的 Key 被拒）原样交给调用方，不刷新、不退出登录
+  let own = res.status === 401 ? await ownUnauthorized(res) : null
+  if (own?.own) {
     if (tokens?.accessToken === used) await refresh()
     res = await send()
-    if (res.status === 401) {
-      await res.body?.cancel()
+    own = res.status === 401 ? await ownUnauthorized(res) : null
+    if (own?.own) {
       lastExpired = 'access 401 after refresh'
       throw signedOut()
     }
   }
+  if (own) res = own.res
   if (epoch !== requestEpoch) {
     await res.body?.cancel()
     throw loggedOut()

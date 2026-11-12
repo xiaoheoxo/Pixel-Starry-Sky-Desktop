@@ -80,7 +80,11 @@ vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
   // 软件内付款：面板凭证的问题云端回 403 + code（不是 401），不能被当成登录过期
   if (path === '/v1/platform/reauth')
     return Response.json({ error: '需要确认账号', code: 'PANEL_REAUTH_REQUIRED' }, { status: 403 })
-  if (path.startsWith('/v1/platform/')) return Response.json({}, { status: revoked ? 401 : 200 })
+  // 旧版云端把上游的 401 原样转回来：不是登录失效
+  if (path === '/v1/platform/upstream401')
+    return Response.json({ error: { message: 'invalid api key' } }, { status: 401 })
+  if (path.startsWith('/v1/platform/'))
+    return revoked ? Response.json({ error: 'invalid_token' }, { status: 401 }) : Response.json({}, { status: 200 })
   // 账号数据读不到只是暂时故障：保持登录
   return Response.json({}, { status: 503 })
 })
@@ -200,6 +204,17 @@ describe('platformFetch 的 403', () => {
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ code: 'PANEL_REAUTH_REQUIRED' })
     expect(requests.map(r => r.path)).toEqual(['/v1/platform/reauth'])
+    expect(signedInEmail()).toBe('alice@example.com')
+  })
+})
+
+describe('platformFetch 的 401', () => {
+  it('上游转回来的 401 原样返回：不刷新令牌、不退出登录，响应体还能读', async () => {
+    requests.length = 0
+    const res = await platformFetch('/v1/platform/upstream401', { method: 'POST' })
+    expect(res.status).toBe(401)
+    expect(await res.json()).toMatchObject({ error: { message: 'invalid api key' } })
+    expect(requests.map(r => r.path)).toEqual(['/v1/platform/upstream401'])
     expect(signedInEmail()).toBe('alice@example.com')
   })
 })
