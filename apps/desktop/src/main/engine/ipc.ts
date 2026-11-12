@@ -32,6 +32,7 @@ import { logger } from '@pixelsky/engine'
 import { initPlatform, platformFallbackRoute, validateQueuedInput } from '../platform/platform'
 import { initProviders } from '../providers/providers'
 import { initSubagents } from '../subagents/ipc'
+import { initVoice } from '../voice/voice'
 import { initAi } from '../ai/ipc'
 import { Extensions } from '../extensions/ipc'
 import { historyEnabled, historyServer } from './history-mcp'
@@ -59,6 +60,7 @@ import { initSessionStatus } from '../session-status'
 export async function initEngine(ctx: AppContext): Promise<void> {
   ctx.providers = initProviders(ctx)
   const subagents = initSubagents(ctx)
+  initVoice()
   initAi(ctx)
   const sessionEnv = await initPlatform(
     id =>

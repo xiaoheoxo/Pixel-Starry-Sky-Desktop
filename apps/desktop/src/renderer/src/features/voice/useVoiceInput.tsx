@@ -1,11 +1,20 @@
-// 语音输入（docs/ui/voice-input.md）：点一下开始录，再点结束并识别，Esc 取消；识别在主进程里发到用户的自定义接口
+// 语音输入（docs/ui/voice-input.md）：点一下开始录，再点结束并识别，Esc 取消；识别在主进程里发到设置里填的地址
 import { useEffect, useRef, useState } from 'react'
 import { Mic } from 'lucide-react'
 import { Spinner, cn } from '@/ui'
 import { tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
-import { useProviders } from '@/features/account/providers'
-import { VOICE_MAX_SECONDS, useVoiceSettings, voiceClock, voiceTarget } from './model'
+import { VOICE_MAX_SECONDS, VOICE_SAMPLE_RATE, encodeWav, useVoiceSettings, voiceClock } from './model'
+import { useVoiceConfig } from './voiceConfig'
+
+/** 浏览器录的是 webm，有的接口（小米 MiMo）只收 wav：解码成 16 kHz，多声道取平均 */
+async function toWav(blob: Blob): Promise<ArrayBuffer> {
+  const audio = await new OfflineAudioContext(1, 1, VOICE_SAMPLE_RATE).decodeAudioData(await blob.arrayBuffer())
+  const mono = new Float32Array(audio.length)
+  for (let c = 0; c < audio.numberOfChannels; c++)
+    audio.getChannelData(c).forEach((v, i) => (mono[i] += v / audio.numberOfChannels))
+  return encodeWav(mono, VOICE_SAMPLE_RATE)
+}
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing'
 
@@ -14,7 +23,7 @@ interface Handlers {
   onText(text: string): void
   /** 出错的说明；开始新的一次时传 null 清掉 */
   onError(message: string | null): void
-  /** 还没有能转写的接口 */
+  /** 还没有填识别用的接口地址 */
   onSetup(): void
 }
 
@@ -26,8 +35,8 @@ interface Recording {
 
 export function useVoiceInput(handlers: Handlers) {
   const settings = useVoiceSettings()
-  const providers = useProviders()
-  const target = voiceTarget(providers.providers, settings)
+  /** 填了识别用的接口地址 */
+  const target = !!useVoiceConfig().baseUrl
   const [state, setState] = useState<VoiceState>('idle')
   const [seconds, setSeconds] = useState(0)
   const recording = useRef<Recording | null>(null)
@@ -53,16 +62,20 @@ export function useVoiceInput(handlers: Handlers) {
   }, [])
 
   const transcribe = async (blob: Blob): Promise<void> => {
-    const { target: provider, settings: s } = latest.current
-    if (!provider) return setState('idle')
+    const { target: ready, settings: s } = latest.current
+    if (!ready) return setState('idle')
+    // 点了马上又点：一点声音都没录到，解码会报看不懂的错
+    if (!blob.size) {
+      latest.current.handlers.onError(tr('voice.empty'))
+      return setState('idle')
+    }
     const id = ++job.current
     setState('transcribing')
     try {
-      const text = await window.pixelsky!.providers.transcribe({
-        providerId: provider.id,
+      const text = await window.pixelsky!.voice.transcribe({
         model: s.model,
-        mime: blob.type,
-        audio: await blob.arrayBuffer(),
+        mime: 'audio/wav',
+        audio: await toWav(blob),
         language: s.language === 'auto' ? null : s.language,
       })
       if (job.current !== id) return

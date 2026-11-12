@@ -690,7 +690,6 @@ contextBridge.exposeInMainWorld('pixelsky', {
     test: input => call('providers:test', input),
     models: input => call('providers:models', input),
     billing: input => call('providers:billing', input),
-    transcribe: input => call('providers:transcribe', input),
     onChange: callback => {
       const listener = (_e: Electron.IpcRendererEvent, state: import('../shared/types/providers').ProvidersState) =>
         callback(state)
@@ -698,6 +697,11 @@ contextBridge.exposeInMainWorld('pixelsky', {
       return () => ipcRenderer.removeListener('providers:changed', listener)
     },
   } satisfies import('./providers').ProvidersBridge,
+  voice: {
+    get: () => call('voice:get'),
+    save: input => call('voice:save', input),
+    transcribe: input => call('voice:transcribe', input),
+  } satisfies import('../shared/types/voice').VoiceBridge,
   subagents: {
     get: () => call('subagents:get'),
     set: settings => call('subagents:set', settings),

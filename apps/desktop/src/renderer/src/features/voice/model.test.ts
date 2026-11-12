@@ -1,42 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import type { ProviderView } from '../../../../shared/types/providers'
-import { DEFAULT_VOICE, insertSpoken, parseVoiceSettings, voiceClock, voiceTarget } from './model'
-
-const provider = (id: string, protocol: ProviderView['protocol']): ProviderView => ({
-  id,
-  name: id,
-  template: 'custom',
-  protocol,
-  baseUrl: 'https://example.test/v1',
-  auth: 'bearer',
-  models: [],
-  smallModel: null,
-  modelFallback: true,
-  keyHint: null,
-  headerNames: [],
-  insecure: false,
-  createdAt: 0,
-  updatedAt: 0,
-})
+import { DEFAULT_VOICE, encodeWav, insertSpoken, parseVoiceSettings, voiceClock } from './model'
 
 describe('语音输入', () => {
-  it('设置：坏的值回到默认，模型去空白', () => {
+  it('设置：坏的值回到默认，模型去空白；旧版存的 providerId 丢掉', () => {
     expect(parseVoiceSettings(null)).toEqual(DEFAULT_VOICE)
-    expect(parseVoiceSettings({ providerId: '../x', model: '  ', language: 'fr' })).toEqual(DEFAULT_VOICE)
+    expect(parseVoiceSettings({ model: '  ', language: 'fr' })).toEqual(DEFAULT_VOICE)
     expect(parseVoiceSettings({ providerId: 'p_1', model: ' gpt-4o-transcribe ', language: 'zh' })).toEqual({
-      providerId: 'p_1',
       model: 'gpt-4o-transcribe',
       language: 'zh',
     })
   })
 
-  it('用哪个接口：选过且还在用它；没选、删了、选的是 Anthropic 协议就用第一个能转写的；没有为 null', () => {
-    const list = [provider('a', 'anthropic'), provider('b', 'chat'), provider('c', 'responses')]
-    expect(voiceTarget(list, { ...DEFAULT_VOICE, providerId: 'c' })?.id).toBe('c')
-    expect(voiceTarget(list, DEFAULT_VOICE)?.id).toBe('b')
-    expect(voiceTarget(list, { ...DEFAULT_VOICE, providerId: 'gone' })?.id).toBe('b')
-    expect(voiceTarget(list, { ...DEFAULT_VOICE, providerId: 'a' })?.id).toBe('b')
-    expect(voiceTarget([provider('a', 'anthropic')], DEFAULT_VOICE)).toBeNull()
+  it('wav：44 字节文件头加 16 位采样，超出范围的削平', () => {
+    const view = new DataView(encodeWav(new Float32Array([0, 1, -2]), 16000))
+    expect(view.byteLength).toBe(50)
+    expect(String.fromCharCode(...new Uint8Array(view.buffer, 0, 4))).toBe('RIFF')
+    expect(view.getUint32(4, true)).toBe(42)
+    expect(view.getUint16(22, true)).toBe(1)
+    expect(view.getUint32(24, true)).toBe(16000)
+    expect(view.getUint32(40, true)).toBe(6)
+    expect([44, 46, 48].map(at => view.getInt16(at, true))).toEqual([0, 32767, -32767])
   })
 
   it('插入：放到光标处或换掉选中的，英文接英文补空格，中文不补', () => {

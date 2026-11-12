@@ -4,8 +4,8 @@ export const voiceMessages = {
   'voice.stop': { zh: '结束录音并识别（Esc 取消）', en: 'Stop and transcribe (Esc to cancel)' },
   'voice.cancel': { zh: '正在识别，点击取消', en: 'Transcribing — click to cancel' },
   'voice.setup': {
-    zh: '语音输入要用一个 OpenAI 兼容的自定义接口来识别，还没有设置',
-    en: 'Voice input needs an OpenAI-compatible custom endpoint for transcription, and none is set up yet',
+    zh: '语音输入还没有填识别用的接口地址和 Key',
+    en: 'Voice input has no transcription endpoint and key set up yet',
   },
   'voice.openSettings': { zh: '去设置', en: 'Open settings' },
   'voice.noMic': { zh: '没有找到麦克风', en: 'No microphone found' },
@@ -14,17 +14,25 @@ export const voiceMessages = {
   'voice.failed': { zh: '语音识别失败：{error}', en: 'Transcription failed: {error}' },
   'voice.settings.title': { zh: '语音输入', en: 'Voice input' },
   'voice.settings.description': {
-    zh: '点输入框的麦克风录音，录完发到下面选的接口识别成文字，放到光标处，不会自动发送。接口要支持 OpenAI 的语音转写（/audio/transcriptions），一次最多录 2 分钟。',
-    en: 'Click the microphone in the composer to record. The recording is sent to the endpoint below, and the text is inserted at the cursor without sending. The endpoint must support OpenAI audio transcription (/audio/transcriptions); up to 2 minutes per recording.',
+    zh: '点输入框的麦克风录音，录完发到下面填的地址识别成文字，放到光标处，不会自动发送。地址和 Key 单独填在这里，和模型通道无关；Key 加密存在本机。一次最多录 2 分钟。',
+    en: 'Click the microphone in the composer to record. The recording is sent to the address below, and the text is inserted at the cursor without sending. The address and key are set here, separate from model channels; the key is stored encrypted on this computer. Up to 2 minutes per recording.',
   },
-  'voice.settings.endpoint': { zh: '识别用的接口', en: 'Transcription endpoint' },
+  'voice.settings.baseUrl': {
+    zh: '接口地址，例如 https://api.xiaomimimo.com/v1',
+    en: 'Endpoint, e.g. https://api.openai.com/v1',
+  },
+  'voice.settings.apiKey': { zh: 'API Key', en: 'API key' },
+  'voice.settings.apiKeySaved': { zh: '已保存 ••••{hint}，留空不改', en: 'Saved ••••{hint}; leave empty to keep' },
+  'voice.settings.mode': { zh: '调用方式', en: 'Call style' },
+  'voice.settings.modeFile': { zh: '上传文件（OpenAI）', en: 'File upload (OpenAI)' },
+  'voice.settings.modeChat': { zh: '对话接口（小米 MiMo）', en: 'Chat API (Xiaomi MiMo)' },
+  'voice.settings.unsaved': {
+    zh: '系统加密用不了，Key 只在这次运行里有效',
+    en: 'System encryption is unavailable; the key only lasts for this run',
+  },
   'voice.settings.model': { zh: '识别模型', en: 'Transcription model' },
   'voice.settings.language': { zh: '语言', en: 'Language' },
   'voice.settings.languageAuto': { zh: '自动判断', en: 'Auto-detect' },
   'voice.settings.languageZh': { zh: '中文', en: 'Chinese' },
   'voice.settings.languageEn': { zh: '英文', en: 'English' },
-  'voice.settings.none': {
-    zh: '还没有能用的接口：先在「模型通道 › 自定义 API」里添加一个 OpenAI 协议（Responses 或 Chat Completions）的接口。',
-    en: 'No usable endpoint yet: add an OpenAI-protocol (Responses or Chat Completions) endpoint in Model channels › Custom API.',
-  },
 } as const

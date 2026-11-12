@@ -773,7 +773,10 @@ export const IPC_CONTRACT = {
   'providers:remove': { kind: 'invoke', route: 'local', trust: 'sender' },
   'providers:save': { kind: 'invoke', route: 'local', trust: 'sender' },
   'providers:test': { kind: 'invoke', route: 'local', trust: 'sender' },
-  'providers:transcribe': { kind: 'invoke', route: 'local', trust: 'sender' },
+  // 语音输入（docs/ui/voice-input.md §10）：识别用的地址和 Key 单独存，只在本机
+  'voice:get': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'voice:save': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'voice:transcribe': { kind: 'invoke', route: 'local', trust: 'sender' },
   // 设置 › 子智能体（docs/ui/subagent-routing.md）：像素星空引擎的子智能体走哪个站点，只在本机
   'subagents:changed': { kind: 'push', route: 'push', trust: 'none' },
   'subagents:get': { kind: 'invoke', route: 'local', trust: 'sender' },

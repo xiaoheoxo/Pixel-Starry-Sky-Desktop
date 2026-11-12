@@ -51,6 +51,8 @@ export interface PixelskyBridge {
   platformCatalog: PlatformCatalogBridge
   /** 自定义 API 的接口配置（docs/ui/custom-api.md） */
   providers: ProvidersBridge
+  /** 语音输入识别用的地址和 Key（docs/ui/voice-input.md §10） */
+  voice: import('../shared/types/voice').VoiceBridge
   sessionStatus: import('../shared/types/session-status').SessionStatusBridge
   /** 设置 › 子智能体（docs/ui/subagent-routing.md） */
   subagents: import('../shared/types/subagents').SubagentsBridge
