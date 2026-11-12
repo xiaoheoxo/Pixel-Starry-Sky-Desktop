@@ -1284,6 +1284,8 @@ describe('接着引擎自己的会话（docs/ui/claude-resume.md）', () => {
     const t = setup()
     t.claude.nativeSessions = undefined as never
     await expect(t.host.nativeSessions(t.host.projects()[0].id, 'claude')).rejects.toThrow('不支持')
-    await expect(t.host.nativeSessionAction(t.record.id, 'check')).rejects.toThrow('不是接着')
+    await expect(t.host.nativeSessionAction(t.record.id, 'earlier')).rejects.toThrow('不是接着')
+    // 自动同步（native-sync.md §3）：普通对话也能 check / sync，没有可补的就是 0
+    await expect(t.host.nativeSessionAction(t.record.id, 'check')).resolves.toEqual({ added: 0 })
   })
 })

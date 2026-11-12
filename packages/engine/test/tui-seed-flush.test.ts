@@ -246,6 +246,59 @@ describe('TUI seed-only flush (§5.3)', () => {
     expect(snap().items.length).toBe(before)
   })
 
+  it('自动同步（native-sync.md §3）：自己开的会话 sync 补上终端里聊的；在终端模式里不补；一句没说的新对话不读', async () => {
+    const { host, claude, record, say, snap } = setup()
+    expect(await host.nativeSessionAction(record.id, 'sync')).toEqual({ added: 0 })
+    await say('界面里一轮', '22222222-2222-4222-8222-222222222222')
+    if (!snap().record.engineSessionId) return expect.fail('假引擎应当记下 engineSessionId')
+    claude.native = [{ kind: 'user', id: 'tui-a', text: '终端里一轮', attachments: [], createdAt: 0, mode: 'normal' }]
+    await host.prepareTui(record.id)
+    expect(await host.nativeSessionAction(record.id, 'sync')).toEqual({ added: 0 })
+    host.clearTui(record.id)
+    expect(await host.nativeSessionAction(record.id, 'sync')).toEqual({ added: 1 })
+    expect(snap().items.at(-1)).toMatchObject({ id: 'tui-a', source: 'tui' })
+  })
+
+  it('回归（审查 1）：补上之后关掉空闲开着的引擎进程，下一条消息重新启动、从记录接着', async () => {
+    const { host, claude, record, say } = setup()
+    await say('界面里一轮', '44444444-4444-4444-8444-444444444444')
+    const first = claude.sessions.at(-1)!
+    expect(first.closed).toBe(false)
+    claude.native = [{ kind: 'user', id: 'tui-b', text: '终端里一轮', attachments: [], createdAt: 0, mode: 'normal' }]
+    expect(await host.nativeSessionAction(record.id, 'sync')).toEqual({ added: 1 })
+    expect(first.closed).toBe(true)
+    await say('接着聊')
+    expect(claude.sessions.at(-1)).not.toBe(first)
+  })
+
+  it('回归（审查 3）：换过引擎、它还没看完的对话，补上时不把它读到的位置挪到最后（中间的轮次还要交接）', async () => {
+    const { host, claude, record, say, snap } = setup()
+    await say('claude 一轮', '55555555-5555-4555-8555-555555555555')
+    await host.update(record.id, { engine: 'codex' })
+    await say('codex 一轮', '66666666-6666-4666-8666-666666666666')
+    await host.update(record.id, { engine: 'claude' })
+    const seenBefore = snap().record.engineSessions?.claude?.seen ?? null
+    expect(seenBefore).toBeTruthy()
+    claude.native = [{ kind: 'user', id: 'tui-c', text: '终端里一轮', attachments: [], createdAt: 0, mode: 'normal' }]
+    expect((await host.nativeSessionAction(record.id, 'sync')).added).toBe(1)
+    expect(snap().items.at(-1)).toMatchObject({ id: 'tui-c' })
+    expect(snap().record.engineSessions?.claude?.seen).toBe(seenBefore)
+  })
+
+  it('重试的消息（id 是 x-retry-y，原生记录里原样有）也当锚点：不会从更早的一条算起', async () => {
+    const { host, claude, record, say, snap } = setup()
+    await say('第一轮', '33333333-3333-4333-8333-333333333333')
+    await say('重试的那一轮', '33333333-3333-4333-8333-333333333333-retry-1')
+    const seen: string[] = []
+    claude.newerNativeTurns = async (_cwd: string, _id: string, after: string) => {
+      seen.push(after)
+      return { items: [], turns: 0, shown: 0, gap: 0 } as unknown as NewerTurns
+    }
+    expect(await host.syncFromTui(record.id)).toEqual({ added: 0, mismatched: false })
+    expect(seen[0]).toBe('33333333-3333-4333-8333-333333333333-retry-1')
+    expect(snap().items.filter(i => i.kind === 'user')).toHaveLength(2)
+  })
+
   it('回归：新对话切到终端一句没说就切回（没有记录文件）：没有可补的，不提示对不上', async () => {
     const { host, claude, record, snap } = setup()
     await host.prepareTui(record.id)

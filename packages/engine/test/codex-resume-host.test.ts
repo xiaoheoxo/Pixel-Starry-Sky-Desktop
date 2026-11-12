@@ -1076,8 +1076,9 @@ describe('加载更早的 / 补上', { timeout: 30_000 }, () => {
     const { sessionId: id } = await importIn(t, x)
     appendTurns(x, fxTurn(1, 3, { status: 'inProgress' }, '半截'))
     const live = vi.spyOn(t.adapter, 'nativeLive').mockReturnValue(new Map([[x, 'terminal']]))
-    await expect(t.host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0 })
-    await expect(t.host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0 })
+    // 正开着：结果带 live，界面据此提示并每 5 秒再补（native-sync.md §3）
+    await expect(t.host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0, live: true })
+    await expect(t.host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0, live: true })
     expect(userIds(t.host, id)).toEqual([turnId(1, 1), turnId(1, 2)])
     expect(t.host.open(id).record.imported).toMatchObject({ turns: 2 })
     // 不再开着（它也跑完了）：补上整轮

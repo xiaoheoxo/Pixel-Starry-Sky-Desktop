@@ -49,6 +49,8 @@ export interface IndexRow extends RowPos {
   /** 接力写入的行（seedTranscript）：user 行没有 version 且 assistant 子行没有 message.model；assistant 行本身也标 */
   relay?: true
   boundary?: BoundaryInfo
+  /** 一轮到这里结束了：assistant 停下不是为了调工具（end_turn 等），或者用户中断。终端还开着时没有它的最后一轮不补（docs/ui/native-sync.md §3） */
+  end?: true
   /** 同一个 uuid 出现不止一次时，第一次出现的位置（anchorPosition / 复制按第一次算） */
   first?: RowPos
 }
@@ -239,11 +241,14 @@ function addRow(idx: TranscriptIndex, e: Row, line: number, offset: number, len:
     const content = userContent(message.content)
     const kind = classifyUser(e, content)
     row.user = kind
+    if (kind === 'other' && content.text.trimStart().startsWith('[Request interrupted by user')) row.end = true
     if (kind === 'prompt' && !side && typeof e.version !== 'string') row.noVersion = true
     if (kind === 'prompt' && !side && !idx.firstPrompt) idx.firstPrompt = row
     for (const id of content.results) if (id) idx.results.set(id, { uuid: row.uuid, offset, len, line })
   }
   if (type === 'assistant' && !side) {
+    const stop = text(message.stop_reason)
+    if (stop && stop !== 'tool_use' && stop !== 'pause_turn') row.end = true
     const model = text(message.model)
     const parent = row.parent ? idx.rows.get(row.parent) : undefined
     if (parent?.noVersion) {

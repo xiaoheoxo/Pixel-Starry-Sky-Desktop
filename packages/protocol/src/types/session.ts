@@ -349,6 +349,8 @@ export type NativeAction = 'earlier' | 'sync' | 'copy' | 'check'
 /** added：这次加进显示的轮数（copy 为 0；check 是发现的新轮数，没有加进显示） */
 export interface NativeActionResult {
   added: number
+  /** check / sync：终端或别的程序现在正开着这个会话（docs/ui/native-sync.md §3），界面据此提示并接着跟 */
+  live?: boolean
 }
 
 /** 回退要做什么（docs/ui/rewind-fork-sidechat.md §1）；省略时只回退对话 */

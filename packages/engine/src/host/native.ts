@@ -472,11 +472,9 @@ export class HostNative {
         // 新对话：还没有用户条目，整段读最近轮次。终端里一句没说时 Claude Code 不建记录文件，读不到＝没有可补的，不算对不上
         found = (await adapter.readNativeSession?.(record.cwd, sid, { turns: 50 })) ?? { items: [], shown: 0 }
       } else {
-        // 重试 / 重连的条目 id 不是 uuid，不当锚点；只剩这种条目时按对不上处理，不整段重读（会重复）
-        for (const user of all
-          .filter(item => UUID.test(item.id))
-          .slice(-8)
-          .reverse()) {
+        // 重试 / 重连的条目 id（x-retry-y）不是 uuid，但发给引擎时就用它，原生记录里原样有（2026-11-12 核对过 Claude 的记录）：
+        // 一样当锚点，跳过的话会从更早的一条算起，把重试的那一轮当成终端里新聊的再补一遍
+        for (const user of all.slice(-8).reverse()) {
           found = await adapter.newerNativeTurns(record.cwd, sid, user.id, { turns: 50, afterTurn: true })
           if (found) break
         }
@@ -491,12 +489,22 @@ export class HostNative {
         text: NATIVE_TEXT.tuiSynced(found.shown),
         detail: null,
       }
-      const next = [...rt.snapshot.items, notice, ...tagged]
+      const old = rt.snapshot.items
+      const next = [...old, notice, ...tagged]
       this.replace(id, next)
-      const entry = record.engineSessions?.[record.engine]
+      // await 之后重新取记录（期间可能换了引擎、改了设置）；它读到的位置只在原来已经看完全部对话时才挪到最后，
+      // 否则中间没交接的轮次（换引擎前聊的）会被跳过
+      const latest = ctx.records.get(id)!
+      const entry = latest.engineSessions?.[record.engine]
+      const at = entry?.seen ? old.findIndex(item => item.id === entry.seen) : -1
+      const caughtUp = !entry || (at >= 0 && !hasHandoffContent(old.slice(at + 1)))
       m.events.patchRecord(id, {
-        engineSessions: { ...record.engineSessions, [record.engine]: { ...entry, id: sid, seen: next.at(-1)!.id } },
+        engineSessions: {
+          ...latest.engineSessions,
+          [record.engine]: { ...entry, id: sid, seen: caughtUp ? next.at(-1)!.id : (entry?.seen ?? null) },
+        },
       })
+      if (!rt.snapshot.record.tui) await this.dropIdle(id)
       return { added: found.shown, mismatched: false }
     } finally {
       ctx.changingSessions.delete(id)
@@ -513,11 +521,15 @@ export class HostNative {
     const action = kind as NativeAction
     const rt = ctx.m.sessions.runtime(id)
     const imp = rt.snapshot.record.imported
-    if (!imp) throw new Error('这个对话不是接着本机会话来的')
+    // 像素星空自己开的会话：终端里 claude --resume / codex resume 接着聊过的也自动补上（docs/ui/native-sync.md §3）
+    if (!imp) {
+      if (action !== 'check' && action !== 'sync') throw new Error('这个对话不是接着本机会话来的')
+      return this.syncOwn(id)
+    }
     const adapter = this.adapter(imp.engine)
     const idle = rt.snapshot.state === 'idle' && !rt.pumping && !rt.stopping
     if (ctx.changingSessions.has(id) || !idle) {
-      if (action === 'check') return { added: 0 }
+      if (action === 'check' || action === 'sync') return { added: 0 }
       throw new Error(ctx.changingSessions.has(id) ? '正在处理这个会话，请稍后重试' : '任务运行中，结束后再试')
     }
     if (action !== 'earlier' && imp.forked) return { added: 0 }
@@ -535,10 +547,48 @@ export class HostNative {
     try {
       if (action === 'earlier') return await this.earlier(id, imp, adapter)
       if (action === 'copy') return await this.toCopy(id, imp, adapter)
-      return await this.newer(id, imp, adapter, action === 'sync')
+      const result = await this.newer(id, imp, adapter, action === 'sync')
+      return this.liveNow(imp.engine, imp.sessionId) ? { ...result, live: true } : result
     } finally {
       ctx.changingSessions.delete(id)
     }
+  }
+
+  /**
+   * 补上终端里新聊的之后：空闲开着的引擎进程不知道这些轮次（Claude Code 不重读记录），下一条消息还会接在旧的位置上、
+   * 记录分叉。关掉它，下一条消息重新启动、从记录接着。调用方持有 changingSessions，期间不会开始新的一轮
+   */
+  private async dropIdle(id: string): Promise<void> {
+    // 只看已有的运行时：没打开过的会话（批量读 Codex 时）没有进程，不能顺手建一个运行时常驻
+    const rt = this.ctx.runtimes.get(id)
+    if (!rt?.session) return
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer)
+      rt.idleTimer = null
+    }
+    const stale = rt.session
+    rt.session = null
+    await stale.close()
+  }
+
+  /** 终端或别的程序（不算像素星空自己的进程）现在开着这个原生会话 */
+  private liveNow(engine: EngineId, sessionId: string): boolean {
+    const state = this.ctx.adapters[engine]?.nativeLive?.([{ id: sessionId, mtimeMs: 0 }]).get(sessionId)
+    return state === 'terminal' || state === 'other'
+  }
+
+  /** 自己开的会话自动补上：空闲、不在终端模式（那边切回时自己补）、有原生会话时才查；对不上就什么都不做 */
+  private async syncOwn(id: string): Promise<NativeActionResult> {
+    const { ctx } = this
+    const rt = ctx.m.sessions.runtime(id)
+    const record = rt.snapshot.record
+    const idle = rt.snapshot.state === 'idle' && !rt.pumping && !rt.stopping
+    if (!record.engineSessionId || record.tui || record.pendingRewind || record.pendingFork) return { added: 0 }
+    if (!idle || ctx.changingSessions.has(id) || !ctx.adapters[record.engine]?.newerNativeTurns) return { added: 0 }
+    // 一句都没发过的新对话不整段读原生记录（syncFromTui 在没有用户条目时会整段读）
+    if (!rt.snapshot.items.some(item => item.kind === 'user')) return { added: 0 }
+    const { added } = await this.syncFromTui(id)
+    return this.liveNow(record.engine, record.engineSessionId) ? { added, live: true } : { added }
   }
 
   /**
@@ -670,6 +720,7 @@ export class HostNative {
     const at = entry?.seen ? old.findIndex(item => item.id === entry.seen) : -1
     const caughtUp = at >= 0 && !hasHandoffContent(old.slice(at + 1))
     this.replace(id, next)
+    await this.dropIdle(id)
     m.events.patchRecord(id, {
       imported: { ...imp, turns: imp.turns + found.turns, shown: imp.shown + found.shown },
       ...(entry && caughtUp

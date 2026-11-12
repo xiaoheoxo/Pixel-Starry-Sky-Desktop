@@ -24,6 +24,10 @@ export const resumeMessages = {
   'resume.owned': { zh: '已在像素星空里（{n}）', en: 'Already in Pixel Starry Sky ({n})' },
   'resume.ownedRow': { zh: '点一下跳到那个对话', en: 'Click to jump to that conversation' },
   'resume.copy': { zh: '复制一份接着聊', en: 'Continue in a copy' },
+  'resume.following': {
+    zh: '终端里正在用这个会话：那边每回完一轮，这里自动补上。别在两边同时发消息',
+    en: 'This session is open in the terminal: each finished turn there shows up here. Don’t send from both sides at once',
+  },
   'resume.inplace': { zh: '直接接着聊', en: 'Continue directly' },
   'resume.closeThere': { zh: '我去那边关掉再来', en: 'I’ll close it there first' },
   'resume.closeThereDone': { zh: '关掉后再按 Enter', en: 'Press Enter again after closing it' },

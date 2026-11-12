@@ -412,7 +412,9 @@ export class ClaudeAdapter implements EngineAdapter {
     after: string,
     opts?: { turns?: number; afterTurn?: boolean },
   ): Promise<NewerTurns | null> {
-    return newerTurns(this.projectsDir(), cwd, id, after, opts)
+    // 终端里正开着：最后那一轮还没回完的不补（和 Codex 一样），等它结束了下次再补
+    const live = this.nativeLive([{ id, mtimeMs: 0 }]).get(id)
+    return newerTurns(this.projectsDir(), cwd, id, after, { ...opts, live: live === 'terminal' || live === 'other' })
   }
 
   hasNativeSession(record: SessionRecord): boolean {

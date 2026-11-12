@@ -1147,6 +1147,35 @@ describe('补上终端里新聊的轮次', () => {
     expect(await newerTurns(projects, cwd, id(1), 'nope')).toBeNull()
   })
 
+  it('终端里正开着（live）：最后一轮还没回完的先不补，回完（end_turn）再补；不开着时照旧补（native-sync.md §3）', async () => {
+    const log = new Log(id(1))
+    const known = turns(log, 1, 1, null)
+    log.save()
+    log.rows = []
+    log
+      .user('t1', known, '终端里问的', { origin: { kind: 'human' } })
+      .assistant('ta1', 't1', [{ type: 'tool_use', id: 'tool1', name: 'Bash', input: { command: 'ls' } }], {
+        message: { role: 'assistant', model: 'claude-opus-4-5', stop_reason: 'tool_use', content: [] },
+      })
+      .append()
+    expect((await newerTurns(projects, cwd, id(1), known!, { live: true }))!).toMatchObject({ turns: 0, items: [] })
+    expect((await newerTurns(projects, cwd, id(1), known!))!.turns).toBe(1)
+    log.rows = []
+    log
+      .assistant('ta2', 'ta1', '好了', {
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-5',
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: '好了' }],
+        },
+      })
+      .append()
+    const done = (await newerTurns(projects, cwd, id(1), known!, { live: true }))!
+    expect(done.turns).toBe(1)
+    expect(done.at).toBe('ta2')
+  })
+
   it('超过 50 轮只给最近 50 轮，最前面放一条「中间还有 M 轮没有显示」', async () => {
     const log = new Log(id(1))
     const known = turns(log, 1, 2, null)

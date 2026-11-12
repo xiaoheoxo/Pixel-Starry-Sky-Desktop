@@ -895,6 +895,8 @@ export async function newerTurns(
   opts: Pick<ReadOptions, 'turns' | 'maxItems' | 'signal' | 'onProgress' | 'chunk'> & {
     /** after 是一条用户消息（对话里认识的最后一条）时，从它这一轮的末尾算起，免得把它自己的回复当成新的 */
     afterTurn?: boolean
+    /** 终端里正开着：最后一轮还没结束（没有 end 行）就先不补，免得补进半截、剩下的回复以后再也补不进来 */
+    live?: boolean
   } = {},
 ): Promise<NewerTurns | null> {
   if (!UUID.test(id)) throw new Error('会话 id 不对')
@@ -902,7 +904,8 @@ export async function newerTurns(
   if (!file) return null
   const idx = await transcriptIndex(file, { signal: opts.signal, onProgress: opts.onProgress, chunk: opts.chunk })
   const chain = branchRows(idx)
-  let at = chain.findIndex(r => r.uuid === after)
+  // 接力写入的行换了新 uuid，原来的条目 id 记在 pixelskyItemId：也认，不然换过引擎的对话会从更早的一条算起、把接力的轮次重复补一遍
+  let at = chain.findIndex(r => r.uuid === after || r.pixelskyItemId === after)
   if (at < 0) return null
   if (opts.afterTurn && isTurn(chain[at])) {
     // 这一轮的末尾：下一条用户消息之前的最后一行
@@ -910,8 +913,13 @@ export async function newerTurns(
     while (next < chain.length && !isTurn(chain[next])) next++
     at = next - 1
   }
-  const rest = chain.slice(at + 1)
-  const starts = turnIndexes(rest)
+  let rest = chain.slice(at + 1)
+  let starts = turnIndexes(rest)
+  if (opts.live && starts.length && !rest.slice(starts.at(-1)).some(r => r.end)) {
+    rest = rest.slice(0, starts.at(-1))
+    starts = starts.slice(0, -1)
+  }
+  const kept = chain.slice(0, at + 1 + rest.length)
   const limit = opts.turns ?? 50
   const gap = Math.max(0, starts.length - limit)
   const window = gap > 0 ? rest.slice(starts[gap]) : rest
@@ -924,8 +932,8 @@ export async function newerTurns(
     turns: starts.length,
     shown: countUsers(items),
     gap,
-    leafUuid: chain.at(-1)?.uuid ?? null,
-    at: lastMessageUuid(chain),
+    leafUuid: kept.at(-1)?.uuid ?? null,
+    at: lastMessageUuid(kept),
     base: chain[at].uuid,
   }
 }

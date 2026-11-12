@@ -377,7 +377,13 @@ export function LiveTranscript({
   // 导入的终端会话（原地接着的）：打开 / 窗口回到前台时查终端里有没有又聊了新的
   // 只在执行者还是导入的那个引擎、还在接着导入的会话（或复制出来还没启动）时写「正在加载 X 会话」，引擎名取正在启动的执行者
   const importedEngine = loadingImportedEngine(snapshot?.record)
-  useNativeCheck(sessionId, !!snapshot?.record.imported && !snapshot.record.imported.forked)
+  // 导入的（原地接着的）和自己开的都自动补上终端里新聊的（docs/ui/native-sync.md §3）；复制出来的不补
+  const terminalLive = useNativeCheck(
+    sessionId,
+    !!snapshot &&
+      !snapshot.record.imported?.forked &&
+      (!!snapshot.record.imported || !!snapshot.record.engineSessionId),
+  )
 
   // 长对话只显示最近几轮（docs/ui/turn-rail.md §9）：win.hidden 是从头隐藏了几轮。
   // 打开这个会话时按设置算一次，之后变少（点「显示更早的」、跳转到隐藏的内容）；新的轮次往后加不会把已显示的藏回去，
@@ -1086,6 +1092,15 @@ export function LiveTranscript({
                     </div>
                   ))}
                   {showLive && <LiveStatusLine items={visible} turnId={snapshot?.turnId ?? null} fold={liveFold} />}
+                  {terminalLive && (
+                    <p
+                      data-terminal-live
+                      className="conversation-message flex items-center gap-2 text-meta text-fg-faint"
+                    >
+                      <Spinner size={12} />
+                      {tr('resume.following')}
+                    </p>
+                  )}
                 </div>
               </div>
               {away && snapshot && <JumpToLatest unseen={unseen} onClick={jumpToLatest} />}
