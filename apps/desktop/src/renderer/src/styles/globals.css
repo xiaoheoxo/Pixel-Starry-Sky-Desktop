@@ -491,6 +491,80 @@
   --border-layout: transparent;
   background: var(--bg-workbench);
 }
+/* 无边框（docs/ui/minimal-mode.md §14，正常模式和极简模式都这样）：主区里卡片、输入框、子智能体框、按钮、执行块的描边都变透明，
+   卡片和输入框改成比主区亮（深色）/ 暗（浅色）一点的底色块。暖灰深色下 --bg-surface #262624 和主区 #242422 几乎一样，
+   只去框卡片会「消失」，所以连 --bg-surface 一起换。状态描边（焦点环、选中、警告色框）不走这几个变量，照旧 */
+.workbench-surface {
+  --border: transparent;
+  --border-subtle: transparent;
+  --border-card: transparent;
+  --border-composer: transparent;
+  --border-composer-focus: transparent;
+  --bg-surface: color-mix(in srgb, var(--ink) 5%, var(--bg-workbench));
+}
+/* 「审查」这类次要按钮用 --border-strong（分屏的分隔线也用它，不能整体改） */
+.workbench-surface [data-button] {
+  border-color: transparent;
+  box-shadow: none;
+}
+/* 顶栏右上角「本机 / 云端」和工具那一组不要轨道框，只有选中项一块底色；侧栏顶上「对话 / 代码」保留轨道框 */
+:is([data-machine-menu], [data-header-group]) {
+  border-color: transparent;
+  background: transparent;
+}
+/* 没有轨道框以后，轨道的 1px 边和 3px 内边距只剩下看不见的空隙，组和组之间宽窄不一：
+   去掉它们，按钮统一 28 高；组内按钮间隔 2px，组和组之间 8px */
+.header-tools :is([data-machine-menu], [data-header-group]),
+[data-coding-topbar] :is([data-machine-menu], [data-header-group]) {
+  height: 28px;
+  padding: 0;
+  border-width: 0;
+  gap: 4px;
+}
+/* 不分组：四个图标一排、间隔都是 4px，不画竖线（分开排看着像两套东西） */
+.header-tools {
+  gap: 4px;
+}
+[data-header-group] > [data-panel-sep] {
+  display: none;
+}
+.header-tools [data-machine-menu] {
+  margin-right: 0;
+}
+[data-coding-topbar] [data-machine-menu] {
+  margin-right: 6px;
+}
+/* 顶栏「本机 / 云端」只留图标，正常模式也这样（两个按钮都有 title；docs/ui/header-right-styles-mockup.html 第 7 种） */
+[data-machine-menu] :is([data-machine-label], [data-machine-chevron]) {
+  display: none;
+}
+/* 只剩图标后和右边的图标按钮一样：28×28、图标 16 */
+[data-machine-menu] > button {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+[data-machine-menu] > button > svg {
+  width: 16px;
+  height: 16px;
+}
+/* 右侧面板开关是 IconButton，高度写在行内样式上（SEGMENT_ICON 28×24），只能 !important */
+.header-tools [data-header-group] :is(button, [data-open-in] > span) {
+  height: 28px !important;
+}
+/* 侧栏顶部「新建任务」「搜索」的快捷键：鼠标移上去或键盘聚焦时才显示（照 Claude 桌面版）；用透明度藏，行宽不跳 */
+[data-nav-shortcut] {
+  opacity: 0;
+  transition: opacity var(--dur-base, 150ms) ease;
+}
+button:is(:hover, :focus-visible) > [data-nav-shortcut] {
+  opacity: 1;
+}
+/* 侧栏底部「运行中 | 等待」胶囊：正常模式也不要外框和投影（极简模式在 minimal.css 里连底色一起去掉） */
+[data-run-status] > div {
+  border-color: transparent;
+  box-shadow: none;
+}
 /* 主区直接贴合窗口，拖动边从 48px 顶栏下方的正文开始。 */
 .sidebar-resize {
   top: 48px;

@@ -198,7 +198,7 @@ export function SessionHeader({
               ))}
             </ToolbarContext.Provider>
             {headerItems.length > 0 && panelToggle !== null && (
-              <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-line" />
+              <span aria-hidden data-panel-sep className="mx-0.5 h-3.5 w-px shrink-0 bg-line" />
             )}
             {panelToggle === undefined ? (
               <IconButton

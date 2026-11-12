@@ -374,11 +374,6 @@
 
 /* ================= 共用部件（两种模式都有，改一次两边都生效，§9 A） ================= */
 
-/* 顶栏「本机 / 云端」只留图标，和窗格窄时一样（两个按钮都有 title） */
-:root[data-minimal='on'] [data-machine-menu] :is([data-machine-label], [data-machine-chevron]) {
-  display: none;
-}
-
 /* 文件树（对话模式右侧「文件」、代码模式左栏）：过滤框平时无框，聚焦才有框；
    新建 / 刷新 / 折叠在鼠标移进树或焦点在树里时才显示（不写标题时 FileTree 把它们并进过滤框那一行） */
 :root[data-minimal='on'] [data-file-tree-head] {

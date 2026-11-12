@@ -89,12 +89,16 @@ export function SidebarNav({ onNewTask }: { onNewTask?: () => void }) {
       <SidebarRow onClick={onNewTask ?? (() => comingSoon(tr('sidebar.NewTaskButton.newTask')))}>
         <NewTaskIcon size={16} strokeWidth={1.5} className="shrink-0 text-fg-muted" />
         <span className="min-w-0 flex-1 truncate">{tr('sidebar.action.newTask')}</span>
-        <span className={HINT}>{NEW_TASK.label}</span>
+        <span data-nav-shortcut className={HINT}>
+          {NEW_TASK.label}
+        </span>
       </SidebarRow>
       <SidebarRow onClick={openSearch} aria-haspopup="dialog" title={withShortcut(tr('sidebar.search'), OPEN_SEARCH)}>
         <SearchIcon size={16} strokeWidth={1.5} className="shrink-0 text-fg-muted" />
         <span className="min-w-0 flex-1 truncate">{tr('sidebar.search')}</span>
-        <span className={HINT}>{OPEN_SEARCH.label}</span>
+        <span data-nav-shortcut className={HINT}>
+          {OPEN_SEARCH.label}
+        </span>
       </SidebarRow>
       <BoardEntry />
       <ChannelsEntry />

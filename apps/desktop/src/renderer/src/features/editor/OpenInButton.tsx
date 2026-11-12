@@ -1,5 +1,6 @@
-// 「打开方式」（GitHub #12，docs/ui/open-with.md）：顶栏的分体按钮。左边直接用默认程序打开当前工作区，
-// 右边的 ▾ 列出本机装了的编辑器、文件资源管理器和终端，标出默认的，可以改默认。图标位置里能挪走或隐藏。
+// 「打开方式」（GitHub #12，docs/ui/open-with.md）：侧栏、底部是分体按钮，左边直接用默认程序打开当前工作区，
+// 右边的 ▾ 出列表；顶栏只有一个图标，点了直接出列表（默认那行带焦点，Enter 打开）。
+// 列表里是本机装了的编辑器、文件资源管理器和终端，标出默认的，可以改默认。图标位置里能挪走或隐藏。
 import { useEffect, useState } from 'react'
 import {
   Check,
@@ -167,10 +168,16 @@ export function OpenInButton({ placement }: { placement: SidebarPlacement | 'com
     const id = choiceId(choice),
       isDefault = current && choiceId(current) === id
     return (
-      <div key={id} data-open-with={id} className="group flex h-8 items-center rounded-md hover:bg-hover">
+      <div
+        key={id}
+        data-open-with={id}
+        className="group flex h-8 items-center rounded-md hover:bg-hover has-[[data-menu-item]:focus]:bg-hover"
+      >
         <button
           type="button"
           data-menu-item
+          // 顶栏只有一个图标，点了先出菜单：焦点停在默认那一行，Enter 就打开（docs/ui/minimal-mode.md §14）
+          autoFocus={inTrack && !!isDefault}
           disabled={busy}
           onClick={() => void open(choice)}
           title={choice.kind === 'editor' ? choice.item.path : choice.tool.path}
@@ -231,13 +238,15 @@ export function OpenInButton({ placement }: { placement: SidebarPlacement | 'com
         >
           <button
             type="button"
-            aria-label={label}
-            title={label}
+            aria-label={inTrack ? (disabledReason ?? tr('openWith.more')) : label}
+            title={inTrack ? (disabledReason ?? tr('openWith.more')) : label}
+            aria-haspopup={inTrack ? 'menu' : undefined}
+            aria-expanded={inTrack ? menu : undefined}
             disabled={!!disabledReason || busy}
-            onClick={() => (current ? void open(current) : showMenu())}
+            onClick={() => (current && !inTrack ? void open(current) : showMenu())}
             className={cn(
-              'press no-drag inline-flex h-full items-center gap-1.5 rounded-l-md text-fg-secondary hover:bg-hover hover:text-fg disabled:hover:bg-transparent',
-              inTrack ? 'pr-0.5 pl-1.5' : 'pr-1 pl-2',
+              'press no-drag inline-flex h-full items-center gap-1.5 text-fg-secondary hover:bg-hover hover:text-fg disabled:hover:bg-transparent',
+              inTrack ? 'rounded-md px-1.5' : 'rounded-l-md pr-1 pl-2',
             )}
           >
             {/* 顶栏里编辑器的彩色图标平时去色，鼠标移上去、键盘焦点或菜单打开时才显示原色，整排只剩黑白灰；
@@ -254,21 +263,20 @@ export function OpenInButton({ placement }: { placement: SidebarPlacement | 'com
               <ChoiceIcon choice={current} />
             </span>
           </button>
-          <button
-            type="button"
-            aria-label={tr('openWith.more')}
-            title={tr('openWith.more')}
-            aria-haspopup="menu"
-            aria-expanded={menu}
-            disabled={!!disabledReason}
-            onClick={showMenu}
-            className={cn(
-              'press no-drag inline-flex h-full items-center justify-center rounded-r-md text-fg-muted hover:bg-hover hover:text-fg disabled:hover:bg-transparent',
-              inTrack ? 'w-4' : 'w-5',
-            )}
-          >
-            <ChevronDown size={inTrack ? 12 : 13} strokeWidth={1.5} />
-          </button>
+          {!inTrack && (
+            <button
+              type="button"
+              aria-label={tr('openWith.more')}
+              title={tr('openWith.more')}
+              aria-haspopup="menu"
+              aria-expanded={menu}
+              disabled={!!disabledReason}
+              onClick={showMenu}
+              className="press no-drag inline-flex h-full w-5 items-center justify-center rounded-r-md text-fg-muted hover:bg-hover hover:text-fg disabled:hover:bg-transparent"
+            >
+              <ChevronDown size={13} strokeWidth={1.5} />
+            </button>
+          )}
         </span>
       )}
       <Popover
