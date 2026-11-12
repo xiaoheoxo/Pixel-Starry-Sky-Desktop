@@ -201,3 +201,86 @@
 .tab-strip-wrap:has(> [data-fade-right]) > [data-tab-scroll='right'] {
   display: flex;
 }
+
+/* 标签栏 32 高，「+」24，和右侧面板的标签行齐 */
+:is([data-tab-bar], .pane-head) :is([data-tab-strip], [data-tab-new]) {
+  padding-block: 3px 4px;
+}
+:is([data-tab-bar], .pane-head) [data-tab-new] > button {
+  width: 24px;
+  height: 24px;
+}
+
+/* 对话标签栏（docs/ui/minimal-mode.md §15，样稿 minimal-tabs-fusion-mockup.html 的「融合 B」），正常模式和极简模式一样：
+   整行是一条轨道，当前标签用内容区的底色往下接到内容上，两脚用反向圆角过渡；别的标签留在轨道里。
+   内容区是透明的（.workbench-surface 只在最外层画 --bg-workbench），所以当前标签直接用 --bg-workbench 就和内容同色。
+   不放 @layer，压得过标签上的 Tailwind 工具类（h-7、rounded-md、bg-surface、shadow-sm）。
+   shortcut: 有壁纸 / 毛玻璃时 --bg-workbench 是半透明的，当前标签盖在轨道上只会比轨道浅一点，接不成一块；要接上得改成轨道绕开当前标签 */
+:is([data-tab-bar], .pane-head) {
+  /* 底下那条 1px 的线已经是透明的，留着的话轨道的底色会从当前标签下面透出一条缝 */
+  border-bottom-width: 0;
+  background: color-mix(in srgb, var(--ink) 7%, var(--bg-workbench));
+}
+/* 分屏：当前窗格的轨道深一点（原来靠 bg-selected 区分） */
+[data-pane-id][data-focused] > .pane-head {
+  background: color-mix(in srgb, var(--ink) 11%, var(--bg-workbench));
+}
+/* 分屏的窗格头原来 40 高、标签居中：改成 32 高、标签贴底，右边的按钮照旧居中 */
+.pane-head > div {
+  min-height: 32px;
+  align-items: flex-end;
+}
+.pane-head > div > :not(.pane-head-content) {
+  align-self: center;
+}
+:is([data-tab-bar], .pane-head) [data-tab-strip] {
+  align-items: flex-end;
+  padding-block: 4px 0;
+}
+[data-tab-strip] [role='tab'] {
+  margin-bottom: 4px;
+  border-color: transparent;
+  border-radius: 6px;
+}
+/* 分屏时不是当前的窗格整条变淡（PaneView 的 dim = opacity-55）：透明度加在整条上的话，当前标签的底色也被压淡、和内容接不上，
+   所以只让标签里的字和图标变淡（关闭按钮有自己的显隐，不动） */
+.pane-head-content.opacity-55 {
+  opacity: 1;
+}
+.pane-head-content.opacity-55 :is([role='tab'] > :not(button), [data-tab-new]) {
+  opacity: 0.55;
+}
+[data-tab-strip] [role='tab']:not([aria-selected='true']):hover {
+  background: var(--bg-hover);
+}
+/* 当前标签高 28、贴着内容；下面多的 4px 用内边距垫上，字和别的标签在一条线上 */
+[data-tab-strip] [role='tab'][aria-selected='true'] {
+  position: relative;
+  height: 28px;
+  margin-bottom: 0;
+  padding-bottom: 4px;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-workbench);
+  box-shadow: none;
+}
+/* 当前标签贴着标签条的底边，焦点环照默认往外画的话下边会被横向滚动的容器裁掉：画在标签里面 */
+[data-tab-strip] [role='tab'][aria-selected='true']:focus-visible {
+  outline-offset: -2px;
+}
+[data-tab-strip] [role='tab'][aria-selected='true']::before,
+[data-tab-strip] [role='tab'][aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+}
+[data-tab-strip] [role='tab'][aria-selected='true']::before {
+  left: -8px;
+  background: radial-gradient(circle at 0 0, transparent 7.5px, var(--bg-workbench) 8px);
+}
+[data-tab-strip] [role='tab'][aria-selected='true']::after {
+  right: -8px;
+  background: radial-gradient(circle at 100% 0, transparent 7.5px, var(--bg-workbench) 8px);
+}

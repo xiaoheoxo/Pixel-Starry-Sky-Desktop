@@ -419,9 +419,9 @@
   opacity: 1;
 }
 
-/* 标签统一（对话标签、右侧面板标签、代码模式的编辑器标签和底部面板标签）：不要底框和底色，选中字色加深、底下一道线 */
-:root[data-minimal='on']
-  :is([data-tab-strip] [role='tab'], [data-panel-tab], [data-code-tab], [data-coding-bottom-tab]) {
+/* 标签统一（右侧面板标签、代码模式的编辑器标签和底部面板标签）：不要底框和底色，选中字色加深、底下一道线。
+   对话标签两种模式都是轨道 + 连体（features/panes/panes.css），不在这里 */
+:root[data-minimal='on'] :is([data-panel-tab], [data-code-tab], [data-coding-bottom-tab]) {
   border-color: transparent;
   border-radius: 0;
   background: transparent;
@@ -429,7 +429,6 @@
 }
 :root[data-minimal='on']
   :is(
-    [data-tab-strip] [role='tab'][aria-selected='true'],
     [data-panel-tab][data-active],
     [data-code-tab][aria-selected='true'],
     [data-coding-bottom-tab][aria-selected='true']
@@ -487,15 +486,6 @@
   :root[data-minimal='on'] [data-header-tools-sep] {
     display: none;
   }
-}
-
-/* 对话标签栏（§12 S3）：39 → 32，和右侧面板的标签行齐 */
-:root[data-minimal='on'] [data-tab-bar] :is([data-tab-strip], [data-tab-new]) {
-  padding-block: 3px 4px;
-}
-:root[data-minimal='on'] [data-tab-bar] [data-tab-new] > button {
-  width: 24px;
-  height: 24px;
 }
 
 /* 概况面板（§12 S1）：分组标题行 34 → 28，卡片间距 8 → 6 */
