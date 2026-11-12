@@ -38,6 +38,12 @@ function read(): LayoutSizes {
 }
 let sizes = read()
 const listeners = new Set<() => void>()
+/** 对话那一列跟着输入框一样宽（conversation.css 的 .conversation-reading 读这个变量），拖输入框时上下一起变 */
+function syncComposerWidth(): void {
+  if (typeof document !== 'undefined')
+    document.documentElement.style.setProperty('--composer-width', `${sizes.composer}px`)
+}
+syncComposerWidth()
 export function setLayoutSize<K extends keyof LayoutSizes>(key: K, value: LayoutSizes[K], persist = false): void {
   const changed = sizes[key] !== value
   if (changed) sizes = { ...sizes, [key]: value }
@@ -47,7 +53,10 @@ export function setLayoutSize<K extends keyof LayoutSizes>(key: K, value: Layout
     } catch {
       /* 本次使用仍然有效 */
     }
-  if (changed) listeners.forEach(fn => fn())
+  if (changed) {
+    if (key === 'composer') syncComposerWidth()
+    listeners.forEach(fn => fn())
+  }
 }
 function subscribe(fn: () => void): () => void {
   listeners.add(fn)

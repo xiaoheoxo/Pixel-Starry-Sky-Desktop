@@ -30,7 +30,8 @@
   padding-inline: 24px;
 }
 .conversation-reading {
-  max-width: 1024px;
+  /* 内容宽和输入框一样（--composer-width 由 layout/sizes.ts 写，默认 960），左右边对齐；加上两边各 32px 内边距 */
+  max-width: calc(var(--composer-width, 960px) + 64px);
   margin-inline: auto;
   padding-inline: 32px;
 }
@@ -72,7 +73,7 @@
 .conversation-message {
   width: 100%;
   min-width: 0;
-  max-width: 960px;
+  max-width: var(--composer-width, 960px);
   align-self: flex-start;
   overflow-wrap: anywhere;
 }
@@ -81,7 +82,8 @@
   min-width: 0;
 }
 .conversation-user-bubble {
-  max-width: min(75%, 720px);
+  /* 列宽 75%：默认 960 宽时正好是原来的 720，输入框拖宽了跟着变宽 */
+  max-width: 75%;
   overflow-wrap: anywhere;
 }
 @container conversation (width < 640px) {
