@@ -27,6 +27,15 @@
             同时跑多个会话，看板管理任务，随时换模型和账号。改了哪些文件、跑了哪些命令，一眼看清，一键撤销。
           </p>
           <div class="dl enter" style="--d: 3">
+            <div class="chan" id="chan" role="group" aria-label="release channel" hidden>
+              <span class="chan-ind"></span>
+              <button type="button" data-chan="stable" aria-pressed="true">
+                <span data-i="chan.stable">正式版</span><small data-chan-ver="stable"></small>
+              </button>
+              <button type="button" data-chan="beta" aria-pressed="false">
+                <span data-i="chan.beta">测试版</span><small data-chan-ver="beta"></small>
+              </button>
+            </div>
             <div class="dl-row">
               <a class="btn-main dl-btn" id="dl-main" href="#"
                 ><svg><use href="#win" /></svg><span class="lbl">下载 Windows 版</span
@@ -44,9 +53,10 @@
               <div class="menu" id="dl-menu" role="menu"></div>
             </div>
             <div class="dl-meta" id="dl-meta">{{tag}} · {{date}}</div>
+            <p class="chan-note" id="chan-note" hidden></p>
             <div class="plats">
-              <span data-i="dl.for">适用于</span><svg><use href="#win" /></svg><svg><use href="#apple" /></svg
-              ><svg><use href="#linux" /></svg>
+              <span data-i="dl.for">适用于</span><svg data-plat="win"><use href="#win" /></svg
+              ><svg data-plat="apple"><use href="#apple" /></svg><svg data-plat="linux"><use href="#linux" /></svg>
             </div>
           </div>
         </div>
@@ -75,7 +85,49 @@
         <div class="fade"></div>
       </div>
 
-      <section>
+      <section class="lanes-sec">
+        <div class="wrap">
+          <div class="sec-h rv">
+            <span class="eyebrow" data-i="lanes.eyebrow">同时进行</span>
+            <h2 data-i="lanes.title">一个窗口，几个会话各干各的</h2>
+            <p data-i="lanes.lead">不同引擎、不同模型的会话同时在跑；要你点头的那一个，会停下来等你。</p>
+          </div>
+          <div class="lanes rv" id="lanes" aria-hidden="true">
+            <div class="lane" data-state="run" style="--i: 0">
+              <span class="lane-who"><b>Claude Code</b><small>claude-opus-5-5</small></span>
+              <span class="lane-task" data-i="lane.1">重构登录页的表单校验</span>
+              <span class="lane-track"><i></i></span>
+              <span class="lane-state" data-i="lane.run">正在运行</span>
+            </div>
+            <div class="lane" data-state="wait" style="--i: 1">
+              <span class="lane-who"><b>Codex</b><small>gpt-6.1-sol</small></span>
+              <span class="lane-task" data-i="lane.2">升级依赖，再跑一遍构建</span>
+              <span class="lane-track"><i></i></span>
+              <span class="lane-state"
+                ><span class="lane-swap"
+                  ><span data-i-html="lane.wait">等你允许 <code>npm install</code></span
+                  ><span data-i="lane.ok">已允许 · 构建通过</span></span
+                ></span
+              >
+            </div>
+            <div class="lane" data-state="run" style="--i: 2">
+              <span class="lane-who"><b data-i="lane.px">像素星空</b><small>claude-fable-5-2</small></span>
+              <span class="lane-task" data-i="lane.3">查首页加载慢的原因</span>
+              <span class="lane-track"><i></i></span>
+              <span class="lane-state" data-i="lane.run">正在运行</span>
+            </div>
+            <div class="lane" data-state="done" style="--i: 3">
+              <span class="lane-who"><b>Claude Code</b><small>claude-sonnet-5-5</small></span>
+              <span class="lane-task" data-i="lane.4">更新 README 的安装步骤</span>
+              <span class="lane-track"><i></i></span>
+              <span class="lane-state" data-i="lane.done">已完成 · 改了 2 个文件</span>
+            </div>
+          </div>
+          <p class="lanes-cap rv" data-i="lanes.cap">示意动画，不是实时数据。</p>
+        </div>
+      </section>
+
+      <section class="feat-sec">
         <div class="wrap">
           <div class="sec-h rv">
             <span class="eyebrow" data-i="feat.eyebrow">为什么用像素星空</span>

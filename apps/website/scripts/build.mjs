@@ -1,8 +1,8 @@
 // 官网构建（无依赖）：把顶栏、页脚、图标写进四个页面，样式和脚本带内容哈希，嵌入兜底的版本数据。
 // 用法：node apps/website/scripts/build.mjs [--out <目录>] [--base /download/] [--offline] [--update-fallback]
 //   --offline          不读 GitHub，直接用 src/fallback.json
-//   --update-fallback  读到 GitHub 后，把最新一版写回 src/fallback.json（发版后顺手更新，提交进仓库）
-// 走代理时加 NODE_USE_ENV_PROXY=1（和 packages/cli/scripts/tools.mjs 一样）。
+//   --update-fallback  读到 GitHub 后，把两个通道各自的最新一版写回 src/fallback.json（发版后顺手更新，提交进仓库）
+// 走代理时加 NODE_USE_ENV_PROXY=1（和 packages/cli/scripts/tools.mjs 一样）；匿名请求被限流时设 GITHUB_TOKEN。
 import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -34,11 +34,16 @@ const read = p => readFileSync(join(src, p), 'utf8')
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const hash = s => createHash('sha256').update(s).digest('hex').slice(0, 10)
 
-/** lib.js 在 node 里也能跑：取 fromGitHub，和页面用同一份转换 */
+/** lib.js 在 node 里也能跑：取 fromGitHub、channels，和页面用同一份转换 */
 function lib() {
   const ctx = {}
   vm.runInNewContext(read('lib.js'), ctx)
   return ctx.PSLib
+}
+/** 下载按钮要的那几版：比正式版新的测试版（有的话）在前，最新正式版在后 */
+const latestOf = list => {
+  const { stable, beta } = lib().channels(list)
+  return [beta, stable].filter(Boolean)
 }
 
 async function releases() {
@@ -46,14 +51,18 @@ async function releases() {
   if (args.includes('--offline')) return { list: fallback, from: 'src/fallback.json' }
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'pixelsky-website-build' },
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'pixelsky-website-build',
+        ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
+      },
       signal: AbortSignal.timeout(20000),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const list = lib().fromGitHub(await res.json())
     if (!list.length) throw new Error('没有已发布的版本')
     if (args.includes('--update-fallback'))
-      writeFileSync(join(src, 'fallback.json'), JSON.stringify([list[0]], null, 2) + '\n')
+      writeFileSync(join(src, 'fallback.json'), JSON.stringify(latestOf(list), null, 2) + '\n')
     return { list, from: 'GitHub' }
   } catch (e) {
     console.warn(`[website] 读 GitHub 失败（${e.message}），用 src/fallback.json`)
@@ -89,9 +98,9 @@ export async function build() {
       if (!html.includes(`<!-- @${k} -->`)) throw new Error(`${page.file} 缺少 <!-- @${k} -->`)
       html = html.replace(`<!-- @${k} -->`, () => v)
     }
-    // 更新说明页带全部版本，其它页只带最新一版（下载按钮用）
-    const data = page.file === 'changelog.html' ? list : list.slice(0, 1)
-    const latest = list[0]
+    // 更新说明页带全部版本，其它页只带两个通道各自的最新一版（下载按钮用）；占位写最新正式版
+    const data = page.file === 'changelog.html' ? list : latestOf(list)
+    const latest = lib().channels(list).stable || list[0]
     html = html
       .replace('{{releases}}', () => jsonScript(data))
       .replaceAll('{{tag}}', esc(latest?.tag ?? ''))
@@ -104,7 +113,15 @@ export async function build() {
     mkdirSync(dirname(join(out, page.out)), { recursive: true })
     writeFileSync(join(out, page.out), html)
   }
-  return { out, base, from, versions: list.length, latest: list[0]?.tag }
+  return {
+    out,
+    base,
+    from,
+    versions: list.length,
+    latest: latestOf(list)
+      .map(r => r.tag)
+      .join(' / '),
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

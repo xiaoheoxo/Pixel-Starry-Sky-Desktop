@@ -17,6 +17,8 @@
   --accent-soft: #e1eae5;
   --accent-text: #2d6151;
   --star: #e08a3c;
+  /* 橙色当文字用：浅色主题下加深到看得清 */
+  --star-text: color-mix(in oklch, var(--star) 62%, var(--ink));
   --ok: #2f8a5b;
   --shadow: 0 40px 100px -30px rgba(32, 33, 31, 0.32), 0 2px 8px rgba(32, 33, 31, 0.06);
   --pop: 0 12px 32px -8px rgba(32, 33, 31, 0.2), 0 1px 3px rgba(32, 33, 31, 0.08);
@@ -39,6 +41,7 @@
   --accent-soft: #1e3a30;
   --accent-text: #8fd0b4;
   --star: #f0a764;
+  --star-text: var(--star);
   --ok: #7fc4a8;
   --shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(250, 249, 245, 0.06);
   --pop: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(250, 249, 245, 0.06);
@@ -462,6 +465,72 @@ h1 {
   align-items: center;
   gap: 14px;
 }
+/* 版本通道：正式版 / 测试版，指示块滑到选中的那一个 */
+.chan {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  backdrop-filter: blur(8px);
+}
+.chan-ind {
+  position: absolute;
+  inset: 4px 50% 4px 4px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  transition:
+    translate 0.45s var(--ease),
+    background 0.3s,
+    border-color 0.3s;
+}
+.chan[data-chan='beta'] .chan-ind {
+  translate: 100% 0;
+  background: color-mix(in srgb, var(--star) 16%, transparent);
+  border-color: color-mix(in srgb, var(--star) 45%, transparent);
+}
+.chan button {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  min-width: 148px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: color 0.25s;
+}
+.chan button:hover,
+.chan button[aria-pressed='true'] {
+  color: var(--fg);
+}
+.chan small {
+  font: 500 11.5px var(--mono);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.chan button[aria-pressed='true'] small {
+  color: var(--accent-text);
+}
+.chan[data-chan='beta'] button[aria-pressed='true'] small {
+  color: var(--star-text);
+}
+.chan-note {
+  max-width: 460px;
+  margin: -4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--muted);
+  animation: rise 0.5s var(--ease) both;
+}
 .dl-row {
   display: flex;
   gap: 8px;
@@ -580,6 +649,10 @@ h1 {
   color: var(--fg-2);
   transform: translateY(-2px);
 }
+/* 选中的那一版没有这个系统的安装包 */
+.plats svg.off {
+  opacity: 0.28;
+}
 
 .menu {
   position: absolute;
@@ -644,7 +717,14 @@ h1 {
   background: var(--accent-soft);
   color: var(--accent-text);
 }
+.tag.pre {
+  background: color-mix(in srgb, var(--star) 16%, transparent);
+  color: var(--star-text);
+}
 .menu .h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 10px 4px;
   font-size: 12px;
   color: var(--faint);
@@ -925,6 +1005,280 @@ html.js .stagger.done > * {
 }
 .glow:hover::before {
   opacity: 1;
+}
+
+/* 首页：并行会话轨道（首屏下面的主角动效） */
+.lanes-sec {
+  padding-bottom: clamp(36px, 5vw, 64px);
+}
+.lanes-sec + .feat-sec {
+  padding-top: clamp(48px, 6vw, 80px);
+}
+.lanes {
+  display: grid;
+  gap: 10px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+.lane {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1.1fr) minmax(120px, 1fr) 190px;
+  align-items: center;
+  gap: 20px;
+  padding: 15px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+html.js .lanes .lane {
+  opacity: 0;
+  transform: translateX(-22px);
+  transition:
+    opacity 0.7s var(--ease),
+    transform 0.7s var(--ease),
+    border-color 0.4s;
+  transition-delay: calc(var(--i) * 110ms);
+}
+html.js .lanes.in .lane {
+  opacity: 1;
+  transform: none;
+}
+.lane-who {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+  min-width: 0;
+}
+.lane-who b {
+  font-size: 14px;
+  font-weight: 650;
+}
+.lane-who small {
+  font: 500 11.5px var(--mono);
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-task {
+  font-size: 14px;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lane-track {
+  position: relative;
+  height: 6px;
+  border-radius: 9px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.lane-track i {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: 0 50%;
+}
+/* 底子是一张静态快照（没有脚本、关了动画时就显示它），动画叠在上面 */
+.lane[data-state='run'] .lane-track i {
+  transform: scaleX(0.7);
+}
+.lane[data-state='wait'] .lane-track i {
+  transform: scaleX(0.58);
+  background: var(--star);
+}
+.lane[data-state='done'] .lane-track i {
+  transform: scaleX(1);
+}
+html.js .lanes:not(.in) .lane-track i {
+  transform: scaleX(0);
+}
+.lane-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.lane-state::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.lane-state code {
+  font: 12px var(--mono);
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--hover);
+  color: var(--fg);
+}
+/* 在跑：进度往前走，同一个时长里各自的节奏不一样 */
+.lanes.in .lane[data-state='run'] .lane-track i {
+  animation: lane-run 9s cubic-bezier(0.45, 0.05, 0.25, 1) infinite backwards;
+  animation-delay: calc(var(--i) * 0.9s + 0.6s);
+}
+.lanes.in .lane[data-state='run'] .lane-state::before {
+  animation: blink 1.4s ease-in-out infinite;
+}
+/* 等你点头：停在半路，整行用星标色提醒；几秒后「已允许」，走完，再从头来（14 秒一轮） */
+.lane[data-state='wait'] {
+  border-color: color-mix(in srgb, var(--star) 50%, var(--line));
+}
+.lanes.in .lane[data-state='wait'] {
+  animation: lane-ask-border 14s 0.9s infinite;
+}
+.lanes.in .lane[data-state='wait'] .lane-track i {
+  animation: lane-ask 14s var(--ease) 0.9s infinite backwards;
+}
+/* 这一行的圆点跟着文字一起换，所以画在两段文字各自前面 */
+.lane[data-state='wait'] .lane-state::before {
+  content: none;
+}
+.lane-swap {
+  display: grid;
+  justify-items: end;
+}
+.lane-swap > span {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--star-text);
+}
+.lane-swap > span::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--star);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--star) 22%, transparent);
+}
+.lanes.in .lane-swap > span:first-child {
+  animation: lane-ask-out 14s 0.9s infinite;
+}
+.lanes.in .lane-swap > span:first-child::before {
+  animation: blink 1.4s ease-in-out infinite;
+}
+.lane-swap > span + span {
+  opacity: 0;
+  color: var(--muted);
+}
+.lane-swap > span + span::before {
+  background: var(--ok);
+  box-shadow: none;
+}
+.lanes.in .lane-swap > span + span {
+  animation: lane-ask-in 14s 0.9s infinite;
+}
+/* 做完：走到头就不动了 */
+.lanes.in .lane[data-state='done'] .lane-track i {
+  animation: lane-done 1.6s var(--ease) 1s both;
+}
+.lane[data-state='done'] .lane-state::before {
+  background: var(--ok);
+}
+@keyframes lane-run {
+  0% {
+    transform: scaleX(0.04);
+  }
+  18% {
+    transform: scaleX(0.3);
+  }
+  34% {
+    transform: scaleX(0.36);
+  }
+  62% {
+    transform: scaleX(0.74);
+  }
+  /* 不走满：还在跑的会话没有「做完」这一刻，淡出后接着下一段 */
+  88%,
+  96% {
+    transform: scaleX(0.92);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(0.92);
+    opacity: 0;
+  }
+}
+@keyframes lane-ask {
+  0% {
+    transform: scaleX(0);
+    background: var(--star);
+    opacity: 1;
+  }
+  8%,
+  36% {
+    transform: scaleX(0.58);
+    background: var(--star);
+  }
+  52%,
+  92% {
+    transform: scaleX(1);
+    background: var(--accent);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    background: var(--accent);
+    opacity: 0;
+  }
+}
+@keyframes lane-ask-border {
+  0%,
+  36% {
+    border-color: color-mix(in srgb, var(--star) 50%, var(--line));
+  }
+  40%,
+  96% {
+    border-color: var(--line);
+  }
+}
+@keyframes lane-ask-out {
+  0%,
+  35% {
+    opacity: 1;
+  }
+  38%,
+  97% {
+    opacity: 0;
+  }
+}
+@keyframes lane-ask-in {
+  0%,
+  38% {
+    opacity: 0;
+  }
+  42%,
+  94% {
+    opacity: 1;
+  }
+  98%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes lane-done {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.lanes-cap {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--faint);
 }
 
 /* 首页：亮点卡片（便当格） */
@@ -1711,10 +2065,34 @@ html.vt-theme::view-transition-new(root) {
     width: min(360px, calc(100vw - 48px));
     transform-origin: top center;
   }
+  .lane {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 14px;
+    padding: 14px 16px;
+  }
+  .lane-task {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .lane-track {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .lane-state {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 @media (max-width: 480px) {
   #gh-pill {
     display: none;
+  }
+  .chan button {
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    padding: 6px 14px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1728,7 +2106,8 @@ html.vt-theme::view-transition-new(root) {
     scroll-behavior: auto;
   }
   html.js .rv,
-  html.js .stagger > * {
+  html.js .stagger > *,
+  html.js .lanes .lane {
     opacity: 1;
     transform: none;
   }

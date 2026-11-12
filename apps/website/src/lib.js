@@ -30,16 +30,20 @@
 
   const mb = n => `${Math.round(n / 1048576)} MB`
 
-  /** GitHub API 的 releases 列表 → 页面用的精简结构（去掉草稿、预发布、blockmap / 更新清单） */
+  /** GitHub API 的 releases 列表 → 页面用的精简结构（去掉草稿、blockmap / 更新清单；预发布标 pre） */
   const fromGitHub = list =>
     list
-      .filter(r => !r.draft && !r.prerelease)
+      .filter(r => !r.draft)
       .map(r => ({
         tag: r.tag_name,
         date: (r.published_at || '').slice(0, 10),
         body: r.body || '',
         assets: (r.assets || []).filter(a => !/\.(blockmap|yml)$/.test(a.name)).map(a => [a.name, a.size]),
+        pre: !!r.prerelease,
       }))
+
+  /** 两个通道各自的最新一版（列表从新到旧）：测试版只在比最新正式版还新时才有，否则 null */
+  const channels = list => ({ stable: list.find(r => !r.pre) || null, beta: list[0]?.pre ? list[0] : null })
 
   /** 首页顶部小标签：更新说明里第一条加粗的要点（「新功能」下的第一条），去掉末尾标点；没有时 null */
   function headline(body) {
@@ -75,5 +79,5 @@
     return html
   }
 
-  root.PSLib = { PLATFORMS, detect, fileOf, mb, fromGitHub, headline, md }
+  root.PSLib = { PLATFORMS, detect, fileOf, mb, fromGitHub, channels, headline, md }
 })(globalThis)

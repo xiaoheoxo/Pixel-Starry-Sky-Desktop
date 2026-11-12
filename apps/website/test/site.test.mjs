@@ -16,7 +16,7 @@ const read = p => readFileSync(join(src, p), 'utf8')
 
 const ctx = {}
 vm.runInNewContext(read('lib.js') + '\n' + read('i18n.js'), ctx)
-const { PLATFORMS, detect, fileOf, fromGitHub, headline, md } = ctx.PSLib
+const { PLATFORMS, channels, detect, fileOf, fromGitHub, headline, md } = ctx.PSLib
 const { EN, FAQ } = ctx.PSText
 
 describe('lib', () => {
@@ -57,7 +57,7 @@ describe('lib', () => {
   })
 
   test('fileOf：认得 electron-builder 的五种安装包名，blockmap / yml 在 fromGitHub 里去掉', () => {
-    const [rel] = fromGitHub(
+    const list = fromGitHub(
       [
         {
           tag_name: 'v9.9.9',
@@ -78,6 +78,15 @@ describe('lib', () => {
         { tag_name: 'v9.9.8-beta', prerelease: true, assets: [] },
       ].concat([]),
     )
+    // 草稿去掉；预发布留着，标 pre
+    assert.deepEqual(
+      list.map(r => [r.tag, r.pre]),
+      [
+        ['v9.9.9', false],
+        ['v9.9.8-beta', true],
+      ],
+    )
+    const [rel] = list
     assert.equal(rel.tag, 'v9.9.9')
     assert.equal(rel.date, '2026-10-21')
     assert.ok(!rel.assets.some(([n]) => /blockmap|yml$/.test(n)))
@@ -91,6 +100,25 @@ describe('lib', () => {
         'PixelSky-9.9.9-linux-amd64.deb',
       ],
     )
+  })
+})
+
+describe('版本通道', () => {
+  const r = (tag, pre) => ({ tag, pre })
+  const tags = list => {
+    const c = channels(list)
+    return [c.stable?.tag ?? null, c.beta?.tag ?? null]
+  }
+
+  test('测试版比正式版新：两个通道都有', () =>
+    assert.deepEqual(tags([r('v2-beta', true), r('v1', false), r('v0', false)]), ['v1', 'v2-beta']))
+  test('正式版已经追上：不再给旧的测试版', () =>
+    assert.deepEqual(tags([r('v2', false), r('v2-beta', true), r('v1', false)]), ['v2', null]))
+  test('连着几个测试版：取最新的那个', () =>
+    assert.deepEqual(tags([r('v3-beta', true), r('v2-beta', true), r('v1', false)]), ['v1', 'v3-beta']))
+  test('只有测试版 / 一个版本都没有', () => {
+    assert.deepEqual(tags([r('v1-beta', true)]), [null, 'v1-beta'])
+    assert.deepEqual(tags([]), [null, null])
   })
 })
 

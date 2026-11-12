@@ -1,7 +1,7 @@
 // 官网的页面脚本（四个页面共用）：中英切换、深浅色、下载按钮、版本列表、动效。
 // 构建时和 lib.js、i18n.js 拼在一起；顶栏、页脚、图标、兜底版本数据由构建写进 HTML（scripts/build.mjs）。
 ;(() => {
-  const { PLATFORMS, detect, fileOf, mb, fromGitHub, headline, md } = globalThis.PSLib
+  const { PLATFORMS, detect, fileOf, mb, fromGitHub, channels, headline, md } = globalThis.PSLib
   const { EN, FAQ } = globalThis.PSText
   const REPO = 'xiaoheoxo/Pixel-Starry-Sky-Desktop'
   const GH = `https://github.com/${REPO}`
@@ -39,6 +39,9 @@
   } catch {}
   let allVers = false
   const SHOW_VERS = 5
+  // 版本通道：正式版 / 测试版。选过的记在 localStorage；测试版没有比正式版新的时候只给正式版
+  let chanPick = localStorage.getItem('ps-channel')
+  const betaTag = r => (r.pre ? `<span class="tag pre">${lang === 'en' ? 'Beta' : '测试版'}</span>` : '')
   const url = (tag, name) => `${GH}/releases/download/${tag}/${name}`
   const filesHtml = r =>
     Object.entries(PLATFORMS)
@@ -55,23 +58,60 @@
     $$('[data-i]').forEach(e => (e.textContent = t(e.dataset.i)))
     $$('[data-i-html]').forEach(e => (e.innerHTML = t(e.dataset.iHtml)))
     $('#lang span').textContent = lang === 'en' ? '中文' : 'English'
-    const rel = releases[0]
-    const f = rel && fileOf(rel, mine)
-    if (rel) $$('[data-ver]').forEach(e => (e.textContent = rel.tag))
+    const { stable, beta } = channels(releases)
+    // 还没出过正式版时，测试版就是唯一能下的
+    const chan = beta && (chanPick === 'beta' || !stable) ? 'beta' : 'stable'
+    const rel = chan === 'beta' ? beta : stable
+    // 这一版没有访问者系统的安装包（测试版常常只有 Windows）：按钮给它有的第一个，说明里写清楚
+    const have = rel ? Object.keys(PLATFORMS).filter(k => fileOf(rel, k)) : []
+    const key = have.includes(mine) ? mine : have[0] || mine
+    const f = rel && fileOf(rel, key)
+    // 更新说明页最上面那一版：列表里最新的（可能是测试版）
+    const top = PAGE === 'changelog' ? releases[0] : rel
+    if (top) $$('[data-ver]').forEach(e => (e.textContent = top.tag))
+    if ($('#chan')) {
+      $('#chan').hidden = !(stable && beta)
+      $('#chan').dataset.chan = chan
+      $$('#chan button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.chan === chan)))
+      $$('[data-chan-ver]').forEach(e => (e.textContent = (e.dataset.chanVer === 'beta' ? beta : stable)?.tag || ''))
+      const os = k => PLATFORMS[k][lang].split(' · ')[0]
+      const names = have
+        .map(os)
+        .filter((n, i, a) => a.indexOf(n) === i)
+        .join(' / ')
+      // 缺安装包时说清楚：访问者的系统没有 → 点名；只是别的系统没有 → 说只有哪些
+      const gap =
+        !have.length || have.length === Object.keys(PLATFORMS).length ? '' : have.includes(mine) ? 'some' : 'mine'
+      const zh = { some: `这一版只有 ${names} 安装包。`, mine: `这一版没有 ${os(mine)} 安装包，只有 ${names}。` }
+      const en = {
+        some: ` This build is ${names} only.`,
+        mine: ` This build has no ${os(mine)} installer, only ${names}.`,
+      }
+      $('#chan-note').hidden = chan !== 'beta'
+      $('#chan-note').textContent =
+        chan !== 'beta'
+          ? ''
+          : lang === 'en'
+            ? `Beta gets new features first and may have more bugs.${en[gap] || ''} It installs over the stable version and keeps your settings and chats.`
+            : `测试版先拿到新功能，问题也可能更多。${zh[gap] || ''}覆盖安装在正式版上，设置和对话都保留。`
+    }
     // 首页小标签：中文取更新说明第一条要点（说明只有中文），英文写「vX 更新了什么」
+    $$('.plats [data-plat]').forEach(e =>
+      e.classList.toggle('off', !!rel && !have.some(k => PLATFORMS[k].icon === e.dataset.plat)),
+    )
     if ($('#badge-text') && rel)
       $('#badge-text').textContent =
         lang === 'en' ? `What's new in ${rel.tag}` : headline(rel.body) || `${rel.tag} 更新了什么`
     // 下载按钮（顶栏的只写「下载」）
     for (const a of $$('.dl-btn')) {
       a.href = f ? url(rel.tag, f[0]) : `${GH}/releases/latest`
-      a.querySelector('use').setAttribute('href', '#' + PLATFORMS[mine].icon)
+      a.querySelector('use').setAttribute('href', '#' + PLATFORMS[key].icon)
       a.querySelector('.lbl').textContent =
         'short' in a.dataset
           ? lang === 'en'
             ? 'Download'
             : '下载'
-          : (lang === 'en' ? 'Download for ' : '下载 ') + PLATFORMS[mine][lang] + (lang === 'en' ? '' : ' 版')
+          : (lang === 'en' ? 'Download for ' : '下载 ') + PLATFORMS[key][lang] + (lang === 'en' ? '' : ' 版')
     }
     const other = lang === 'en' ? 'Other platforms' : '其他系统'
     const meta = rel ? `${rel.tag} · ${f ? mb(f[1]) + ' · ' : ''}${rel.date}` : ''
@@ -84,7 +124,7 @@
     )
     if ($('#dl-menu') && rel)
       $('#dl-menu').innerHTML =
-        `<div class="h">${rel.tag}</div>` +
+        `<div class="h">${rel.tag}${betaTag(rel)}</div>` +
         Object.entries(PLATFORMS)
           .map(([k, p], i) => {
             const x = fileOf(rel, k)
@@ -95,22 +135,26 @@
           })
           .join('')
     // 更新说明页：最新一版完整显示，其余在下面的列表里
-    if ($('#notes-body') && rel) {
-      $('#notes-date').textContent = rel.date
-      $('#notes-files').innerHTML = filesHtml(rel)
-      $('#notes-body').innerHTML = md(rel.body)
+    if ($('#notes-body') && top) {
+      $('#notes-date').textContent = top.date
+      $('#notes-files').innerHTML = filesHtml(top)
+      $('#notes-body').innerHTML = md(top.body)
+      $('#notes-tag').textContent = top.pre ? (lang === 'en' ? 'Latest beta' : '最新测试版') : t('pc.latest')
+      $('#notes-tag').classList.toggle('pre', !!top.pre)
     }
     if ($('#ver-list')) {
       const old = releases.slice(1)
+      // 最新正式版前面可能排着好几个测试版：默认至少显示到它
+      const showN = Math.max(SHOW_VERS, old.findIndex(r => !r.pre) + 1)
       $('#ver-list').innerHTML = old
         .map(
           (r, i) =>
-            `<details class="ver" style="--i:${Math.min(i, 6)}"${!allVers && i >= SHOW_VERS ? ' hidden' : ''}><summary><b>${r.tag}</b><span>${r.date}</span><svg class="ico"><use href="#down"/></svg></summary>` +
+            `<details class="ver" style="--i:${Math.min(i, 6)}"${!allVers && i >= showN ? ' hidden' : ''}><summary><b>${r.tag}</b>${betaTag(r)}<span>${r.date}</span><svg class="ico"><use href="#down"/></svg></summary>` +
             `<div class="in"><div class="inner"><div class="files">${filesHtml(r)}</div><div class="md">${md(r.body)}</div></div></div></details>`,
         )
         .join('')
       $('#old-wrap').hidden = !old.length
-      const hiddenN = allVers ? 0 : Math.max(0, old.length - SHOW_VERS)
+      const hiddenN = allVers ? 0 : Math.max(0, old.length - showN)
       $('#ver-more').hidden = !hiddenN
       $('#ver-more span').textContent =
         lang === 'en' ? `Show ${hiddenN} older versions` : `显示更早的 ${hiddenN} 个版本`
@@ -138,6 +182,16 @@
   document.addEventListener(
     'keydown',
     e => e.key === 'Escape' && (toggleMenu(false), $('#nav').classList.remove('open')),
+  )
+
+  // ---------- 版本通道 ----------
+  $$('#chan button').forEach(
+    b =>
+      (b.onclick = () => {
+        chanPick = b.dataset.chan
+        localStorage.setItem('ps-channel', chanPick)
+        render()
+      }),
   )
 
   // ---------- 手机上的导航 ----------
