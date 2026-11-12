@@ -175,25 +175,30 @@ export function QueuedMessages({
     >
       <div className="flex shrink-0 items-center gap-2 px-1 text-meta text-fg-muted">
         {paused && !onlyFailures ? <Pause size={12} /> : <CornerDownRight size={12} />}
-        {short ? (
-          <button
-            type="button"
-            aria-expanded={!collapsed}
-            onClick={() => setOpen(v => !v)}
-            className="inline-flex shrink-0 items-center gap-1 rounded hover:text-fg"
-          >
-            {title}
-            {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-          </button>
-        ) : (
-          <span className="shrink-0">{title}</span>
-        )}
+        {/* 标题和「模型 · 强度 · 线路」连成一句，间隔号两边一样宽；「?」跟在这一句后面，不夹在中间把间隔撑得一宽一窄 */}
+        <span className="flex min-w-0 items-center">
+          {short ? (
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              onClick={() => setOpen(v => !v)}
+              className="inline-flex shrink-0 items-center gap-1 rounded hover:text-fg"
+            >
+              {title}
+              {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            </button>
+          ) : (
+            <span className="shrink-0">{title}</span>
+          )}
+          {common && (
+            <span className="min-w-0 truncate text-fg-faint" title={tr('session.QueuedMessages.modelEffortAndCredit')}>
+              {/* 不换行空格：开头的普通空格会被折叠掉 */}
+              {' · '}
+              {common}
+            </span>
+          )}
+        </span>
         <FeatureTip id="queue" />
-        {common && (
-          <span className="min-w-0 truncate text-fg-faint" title={tr('session.QueuedMessages.modelEffortAndCredit')}>
-            · {common}
-          </span>
-        )}
         {paused && !onlyFailures && live.state === 'idle' && (
           <span className="min-w-0 truncate text-fg-faint">{tr('session.QueuedMessages.heldHint')}</span>
         )}
