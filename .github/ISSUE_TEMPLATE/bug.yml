@@ -19,8 +19,11 @@ body:
         - Git
         - 终端
         - 文件树 / 文件预览
-        - 远程机器（SSH / 云端机器）
-        - 账号、平台线路与用量
+        - 机器与连接（SSH / 云端机器）
+        - 账号、模型通道与用量
+        - 协作频道 / 任务看板
+        - 扩展（扩展商店、插件、MCP）
+        - 手机 / 消息接入
         - 设置 / 外观
         - 安装、更新、启动
         - 其他
@@ -66,14 +69,14 @@ body:
     id: screenshots
     attributes:
       label: 截图或录屏
-      description: 直接把图片 / 视频拖进来。显示类的问题请尽量附上。
+      description: 直接把图片 / 视频拖进来，显示类的问题请尽量附上。导出的诊断文件也拖到这里。
 
   - type: input
     id: version
     attributes:
       label: 像素星空版本
       description: 在「设置 › 关于」里能看到
-      placeholder: 例如 0.1.6-beta
+      placeholder: 例如 0.7.12-beta
     validations:
       required: true
 
@@ -94,7 +97,8 @@ body:
         - 和引擎无关
         - Claude Code
         - Codex
-        - 两个都有
+        - Pixel（像素星空引擎）
+        - 不止一个引擎
 
   - type: input
     id: setup
@@ -107,7 +111,7 @@ body:
     id: logs
     attributes:
       label: 日志（可选）
-      description: 在「设置 › 日志」点「复制最近的错误」粘贴到这里；需要更多信息时可以点「导出诊断文件」作为附件上传。日志在写入前已去掉密钥和令牌。
+      description: 在「设置 › 日志」点「复制最近的错误」粘贴到这里；需要更多信息时可以点「导出诊断文件」，把导出的 .log 文件拖到上面的「截图或录屏」里（这一栏不能传附件）。日志在写入前已去掉密钥和令牌。
       render: text
 
   - type: textarea
