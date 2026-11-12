@@ -1,9 +1,9 @@
 // 对话查看模式的按钮和菜单（docs/ui/view-mode.md §6）：放在输入框状态栏，普通只有图标，思考、详细带文字和强调底色
 import { useRef, useState } from 'react'
-import { Brain, Eye, ListTree, type LucideIcon } from 'lucide-react'
+import { Brain, Check, Eye, ListTree, type LucideIcon } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '../../i18n/core'
-import { Popover, PopoverItem, cn } from '@/ui'
+import { Popover, cn } from '@/ui'
 import { CYCLE_VIEW_MODE } from '@/features/layout/shortcuts'
 import { VIEW_MODES, setViewMode, useStoredViewMode, type ViewMode } from './viewMode'
 
@@ -50,26 +50,35 @@ export function ViewModeButton({ onPick }: { onPick: (mode: ViewMode) => void })
         {VIEW_MODES.map(m => {
           const meta = VIEW_MODE_META[m]
           const MIcon = meta.icon
+          const on = m === mode
+          // 两行：名字一行、说明一行（说明放名字后面时窄菜单里会折到图标底下）；当前的打勾
           return (
-            <PopoverItem
+            <button
               key={m}
+              type="button"
+              data-menu-item
               role="menuitemradio"
-              checked={m === mode}
-              selected={m === mode}
-              icon={<MIcon size={14} strokeWidth={1.5} className="shrink-0 text-fg-muted" />}
-              title={tr(meta.hint)}
+              aria-checked={on}
               onClick={() => {
                 setOpen(false)
                 setViewMode(m)
                 onPick(m)
               }}
+              className={cn(
+                'flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-hover',
+                on && 'bg-selected hover:bg-selected',
+              )}
             >
-              {tr(meta.label)}
-              <span className="ml-2 text-meta text-fg-faint">{tr(meta.hint)}</span>
-            </PopoverItem>
+              <MIcon size={15} strokeWidth={1.5} className="mt-0.5 shrink-0 text-fg-muted" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-ui text-fg">{tr(meta.label)}</span>
+                <span className="block text-meta text-fg-faint">{tr(meta.hint)}</span>
+              </span>
+              {on && <Check size={14} strokeWidth={1.75} className="mt-0.5 shrink-0 text-fg-secondary" />}
+            </button>
           )
         })}
-        <p className="mt-1 border-t border-line-subtle px-2 pt-1.5 pb-0.5 text-meta text-fg-faint">
+        <p className="mt-1 border-t border-line-subtle px-2 pt-2 pb-1 text-meta text-fg-faint">
           {tr('viewMode.footer', { key: CYCLE_VIEW_MODE.label })}
         </p>
       </Popover>
