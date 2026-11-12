@@ -151,17 +151,18 @@ export function EffortMenu({ live }: { live: ComposerController }) {
         <span key={effort ?? ''} className={look.className} style={accentStyle}>
           {effortLabel(effort)}
         </span>
+        {/* 档位后面的小图标和右边的 ▾ 一样大（14、描边 1.5），不然看着比旁边小一号、还往下偏 */}
         {(ultracode || fastOn || fastPending || thinkingOn || checkOn) && (
           <span className="flex items-center gap-0.5 text-accent" aria-hidden>
-            {ultracode && <Sparkles size={13} strokeWidth={1.75} className="text-ultracode" />}
+            {ultracode && <Sparkles size={14} strokeWidth={1.5} className="text-ultracode" />}
             {(fastOn || fastPending) &&
               (live.ultrafast ? (
-                <Rocket size={13} strokeWidth={1.75} className={cn(fastPending && 'text-warn')} data-ultrafast-on />
+                <Rocket size={14} strokeWidth={1.5} className={cn(fastPending && 'text-warn')} data-ultrafast-on />
               ) : (
-                <Zap size={13} strokeWidth={1.75} className={cn(fastPending && 'text-warn')} />
+                <Zap size={14} strokeWidth={1.5} className={cn(fastPending && 'text-warn')} />
               ))}
-            {thinkingOn && <Brain size={13} strokeWidth={1.75} />}
-            {checkOn && <ListChecks size={13} strokeWidth={1.75} data-auto-check-on />}
+            {thinkingOn && <Brain size={14} strokeWidth={1.5} />}
+            {checkOn && <ListChecks size={14} strokeWidth={1.5} data-auto-check-on />}
           </span>
         )}
         <ChevronDown size={14} strokeWidth={1.5} className="text-fg-muted" />
