@@ -4,6 +4,7 @@ import { Mic } from 'lucide-react'
 import { Spinner, cn } from '@/ui'
 import { tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
+import { TOGGLE_VOICE, withShortcut } from '@/features/layout/shortcuts'
 import { VOICE_MAX_SECONDS, VOICE_SAMPLE_RATE, encodeWav, useVoiceSettings, voiceClock } from './model'
 import { useVoiceConfig } from './voiceConfig'
 
@@ -183,7 +184,12 @@ export type VoiceInput = ReturnType<typeof useVoiceInput>
 export function VoiceButton({ voice, size = 32 }: { voice: VoiceInput; size?: number }) {
   useI18n()
   const { state } = voice
-  const label = tr(state === 'recording' ? 'voice.stop' : state === 'transcribing' ? 'voice.cancel' : 'voice.start')
+  const label =
+    state === 'recording'
+      ? tr('voice.stop', { key: TOGGLE_VOICE.label })
+      : state === 'transcribing'
+        ? tr('voice.cancel')
+        : withShortcut(tr('voice.start'), TOGGLE_VOICE)
   return (
     <button
       type="button"

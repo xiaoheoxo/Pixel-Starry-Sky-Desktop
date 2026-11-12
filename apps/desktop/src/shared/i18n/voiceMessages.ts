@@ -1,7 +1,8 @@
 // 语音输入（docs/ui/voice-input.md）
 export const voiceMessages = {
   'voice.start': { zh: '语音输入', en: 'Voice input' },
-  'voice.stop': { zh: '结束录音并识别（Esc 取消）', en: 'Stop and transcribe (Esc to cancel)' },
+  'voice.stop': { zh: '结束录音并识别（{key}；Esc 取消）', en: 'Stop and transcribe ({key}; Esc to cancel)' },
+  'voice.shortcut': { zh: '语音输入：开始 / 结束并识别', en: 'Voice input: start / stop and transcribe' },
   'voice.cancel': { zh: '正在识别，点击取消', en: 'Transcribing — click to cancel' },
   'voice.setup': {
     zh: '语音输入还没有填识别用的接口地址和 Key',

@@ -44,6 +44,8 @@ export const OPEN_BUILTIN_BROWSER = action('openBrowser')
 export const CYCLE_PERMISSION = action('cyclePermission')
 /** 切换对话查看模式：默认 Ctrl+O，在当前对话区生效（docs/ui/view-mode.md） */
 export const CYCLE_VIEW_MODE = action('cycleViewMode')
+/** 语音输入开始 / 结束并识别：默认 Alt+V，在当前对话区生效（docs/ui/voice-input.md §11） */
+export const TOGGLE_VOICE = action('toggleVoice')
 
 const mod = (e: KeyboardEvent): boolean => (isMac ? e.metaKey : e.ctrlKey)
 

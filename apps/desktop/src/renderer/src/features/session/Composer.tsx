@@ -30,7 +30,7 @@ import { sourceOfChannel, type ChannelChoice } from '@/features/model-channels/c
 import type { SourceSwitch } from './SourceHintBar'
 import { nextPermissionMode } from './fullAccess'
 import { keyForConversation } from '@/features/search/ConversationFind'
-import { CYCLE_PERMISSION } from '@/features/layout/shortcuts'
+import { CYCLE_PERMISSION, TOGGLE_VOICE } from '@/features/layout/shortcuts'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { AttachmentChip } from './AttachmentChip'
 import { EffortMenu, PermissionMenu } from './ComposerMenus'
@@ -330,6 +330,19 @@ export function Composer({
         action: { label: tr('voice.openSettings'), run: () => settings.openSettings('assist') },
       }),
   })
+  // 快捷键（默认 Alt+V）和点麦克风一样：按一次开始、再按一次结束并识别；只在这个对话区生效
+  const voiceToggle = useRef(voice.toggle)
+  voiceToggle.current = voice.toggle
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const main = cardRef.current?.closest('main')
+      if (!main || !TOGGLE_VOICE.match(e) || !keyForConversation(main, e)) return
+      e.preventDefault()
+      voiceToggle.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const chooseMention = (index: number): void => {
     const entry = mentions.entries[index]
     if (!entry || !mention || caret === null) return

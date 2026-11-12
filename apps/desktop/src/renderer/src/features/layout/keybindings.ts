@@ -45,6 +45,8 @@ export const ACTIONS = [
   { id: 'cyclePermission', label: 'shortcuts.cyclePermission', binding: key('KeyM', { shift: true }) },
   // 对话查看模式：普通 → 思考 → 详细（docs/ui/view-mode.md §6）
   { id: 'cycleViewMode', label: 'viewMode.cycle', binding: key('KeyO') },
+  // 语音输入：按一次开始、再按一次结束并识别（docs/ui/voice-input.md §11）；默认 Alt+V
+  { id: 'toggleVoice', label: 'voice.shortcut', binding: key('KeyV', { mod: false, alt: true }) },
 ] as const satisfies readonly { id: string; label: TranslationKey; binding: Binding }[]
 
 export type ActionId = (typeof ACTIONS)[number]['id']
