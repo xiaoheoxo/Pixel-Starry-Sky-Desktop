@@ -103,6 +103,17 @@ describe('presetFromChannel', () => {
     expect(members?.[0].config).not.toHaveProperty('machineId')
     expect(members?.[0].config.settings).toEqual({ provider: { id: 'prov' } })
   })
+  it('成员的头像跟着进预设，读回来时乱写的丢掉', () => {
+    const avatar = { style: 'pixel' as const, color: 'teal', seed: 2 }
+    const preset = presetFromChannel(channel(), [agent('a', { config: { ...config('a'), avatar } })], head)
+    expect(preset.members?.[0].config.avatar).toEqual(avatar)
+    expect(presetFromChannel(channel(), [agent('a')], head).members?.[0].config).not.toHaveProperty('avatar')
+    const bad = {
+      ...preset,
+      members: [{ ...preset.members![0], config: { ...preset.members![0].config, avatar: { style: 'x' } } }],
+    }
+    expect(parsePresets(JSON.stringify({ items: [bad] })).items[0].members?.[0].config).not.toHaveProperty('avatar')
+  })
   it('别人的成员、没有配置的成员、不在频道里的不进预设', () => {
     const list = [agent('a', { mine: false }), agent('b', { config: undefined }), agent('c')]
     expect(presetFromChannel(channel({ memberIds: ['a', 'b'] }), list, head).members).toEqual([])

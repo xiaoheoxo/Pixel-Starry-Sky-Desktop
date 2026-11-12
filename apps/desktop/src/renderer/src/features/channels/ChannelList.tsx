@@ -1,6 +1,6 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import {
   Archive,
   BookmarkPlus,
@@ -25,11 +25,13 @@ import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { SidebarEmpty } from '@/features/sidebar/SidebarSection'
 import { useAccount } from '@/features/account'
-import type { AgentMember, Channel } from '@/data/types'
+import type { AgentMember, Channel, ChannelMember } from '@/data/types'
 import type { PendingInvite, TeamInfo } from '../../../../shared/types/channels'
 import { channelActions, channelsLive, selfMember, useChannels } from './store'
 import { useNeeds } from './needs'
 import { SavePresetDialog } from './ChannelPresets'
+import { MemberAvatar } from './ChannelMessage'
+import { channelLoad, memberLoad } from './model'
 import { ChannelDialog } from './ChannelDialogs'
 import { AgentsDialog } from '@/features/settings/AgentsSection'
 import { CreateTeamDialog, TeamSettingsDialog } from './TeamDialog'
@@ -75,19 +77,26 @@ function useCollapsed(): [readonly string[], (id: string) => void] {
 
 function ChannelRow({
   channel,
+  members,
   selected,
   onSelect,
   onMenu,
 }: {
   channel: Channel
+  /** 这个频道的成员（算行尾的在做 / 排队） */
+  members: readonly ChannelMember[]
   selected: boolean
   onSelect: () => void
   /** 右键或点「⋯」：编辑、归档 / 恢复、删除（团队频道不给，在成员栏的菜单里按权限处理） */
   onMenu?: (x: number, y: number) => void
 }) {
   useI18n()
+  // 只有带 load 的（本机）频道显示；团队频道用全局状态会把别的频道的活算进来
+  const busy = channel.load ? channelLoad(channel, members) : { running: 0, queued: 0 }
   const label = [
     channel.name,
+    busy.running > 0 ? tr('channels.list.busyLabel', { count: busy.running }) : '',
+    busy.queued > 0 ? tr('channels.list.queuedLabel', { count: busy.queued }) : '',
     channel.unread > 0 ? tr('channels.unreadCount', { count: channel.unread }) : '',
     channel.mentioned ? tr('channels.mentioned') : '',
   ]
@@ -119,6 +128,17 @@ function ChannelRow({
         <span className={cn('min-w-0 flex-1 truncate', channel.unread > 0 && 'font-medium text-fg')}>
           {channel.name}
         </span>
+        {!selected && busy.running > 0 && (
+          <span className="flex shrink-0 items-center gap-1 text-label text-accent-fg">
+            <Spinner size={11} className="text-accent-fg" />
+            {busy.queued > 0 && busy.queued}
+          </span>
+        )}
+        {!selected && busy.running === 0 && busy.queued > 0 && (
+          <span className="shrink-0 text-label text-fg-faint">
+            {tr('channels.list.agentQueued', { count: busy.queued })}
+          </span>
+        )}
         {channel.mentioned && <AtSign size={13} strokeWidth={2} className="shrink-0 text-accent-fg" />}
         {channel.unread > 0 && <CountBadge count={channel.unread} />}
       </button>
@@ -135,6 +155,65 @@ function ChannelRow({
           }}
         />
       )}
+    </div>
+  )
+}
+
+/** 选中频道下面的 AI 成员（channels-side-panels §4.4）：头像、名字、在这个频道里的状态；有会话的点了打开 */
+function AgentRows({
+  channel,
+  agents,
+  onOpenSession,
+}: {
+  channel: Channel
+  agents: readonly AgentMember[]
+  onOpenSession: (sessionId: string) => void
+}) {
+  useI18n()
+  if (agents.length === 0) return null
+  return (
+    <div className="mt-px mb-1 ml-[18px] flex flex-col gap-px border-l border-line-subtle pl-2">
+      {agents.map(m => {
+        const load = memberLoad(channel, m)
+        const state: ReactNode =
+          load.state === 'running' ? (
+            <span className="flex items-center gap-1 text-accent-fg">
+              <Spinner size={11} className="text-accent-fg" />
+              {load.queued > 0 ? `+${load.queued}` : tr('channels.list.agentRunning')}
+            </span>
+          ) : load.state === 'waiting' ? (
+            <span className="text-warn">{tr('channels.status.waiting')}</span>
+          ) : load.state === 'queued' ? (
+            tr('channels.list.agentQueued', { count: load.queued })
+          ) : (
+            tr(load.state === 'offline' ? 'channels.status.offline' : 'channels.status.idle')
+          )
+        const sessionId = m.mine === false ? null : (m.sessionId ?? m.boundSession?.id ?? null)
+        const content = (
+          <>
+            <MemberAvatar member={m} size={16} />
+            <span className="min-w-0 flex-1 truncate">{m.name}</span>
+            <span className="shrink-0 text-label text-fg-faint">{state}</span>
+          </>
+        )
+        const row =
+          'flex h-[26px] w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-meta text-fg-secondary'
+        return sessionId ? (
+          <button
+            key={m.id}
+            type="button"
+            title={tr('channels.list.openAgentSession', { name: m.name })}
+            onClick={() => onOpenSession(sessionId)}
+            className={cn(row, 'hover:bg-hover')}
+          >
+            {content}
+          </button>
+        ) : (
+          <div key={m.id} title={tr('channels.list.noAgentSession', { name: m.name })} className={row}>
+            {content}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -342,6 +421,7 @@ export function ChannelList({
   channels,
   selectedId,
   onSelect,
+  onOpenSession,
   agents,
 }: {
   channels: readonly Channel[]
@@ -349,6 +429,8 @@ export function ChannelList({
   agents: readonly AgentMember[]
   selectedId: string
   onSelect: (id: string) => void
+  /** 点选中频道下面的 AI 成员：打开它的会话 */
+  onOpenSession: (sessionId: string) => void
 }) {
   useI18n()
   const comingSoon = useComingSoon()
@@ -533,17 +615,33 @@ export function ChannelList({
                   {section.channels.length === 0 && !searching && team && (
                     <SidebarEmpty>{tr('team.section.empty')}</SidebarEmpty>
                   )}
-                  {rows.map(c => (
-                    <ChannelRow
-                      key={c.id}
-                      channel={c}
-                      selected={c.id === selectedId}
-                      onSelect={() => onSelect(c.id)}
-                      onMenu={
-                        channelsLive && c.scope !== 'team' ? (x, y) => setChannelMenu({ x, y, channel: c }) : undefined
-                      }
-                    />
-                  ))}
+                  {rows.map(c => {
+                    const own = members.filter(m => c.memberIds.includes(m.id))
+                    // 搜索时、归档的不列成员；分组收起时 rows 里只剩归档的那个，也就不列了
+                    const listAgents = c.id === selectedId && !searching && !c.archivedAt
+                    return (
+                      <div key={c.id} className="flex shrink-0 flex-col">
+                        <ChannelRow
+                          channel={c}
+                          members={own}
+                          selected={c.id === selectedId}
+                          onSelect={() => onSelect(c.id)}
+                          onMenu={
+                            channelsLive && c.scope !== 'team'
+                              ? (x, y) => setChannelMenu({ x, y, channel: c })
+                              : undefined
+                          }
+                        />
+                        {listAgents && (
+                          <AgentRows
+                            channel={c}
+                            agents={own.filter((m): m is AgentMember => m.kind === 'agent')}
+                            onOpenSession={onOpenSession}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </section>

@@ -159,7 +159,31 @@ export interface AgentConfig {
    * only 是只用列出的扩展（MCP、技能、插件的 id），没列的这个成员的会话里不挂。频道工具（pixelsky_channel）总是有
    */
   tools?: AgentTools | null
+  /** 头像（docs/ui/channels-side-panels.md §3.1）；没写是引擎图标 */
+  avatar?: AgentAvatar
   createdAt: number
+}
+
+export type AgentAvatarStyle = 'engine' | 'letter' | 'gradient' | 'icon' | 'emoji' | 'pixel'
+/** 清单和校验在 shared/channels/avatar.ts */
+export interface AgentAvatar {
+  style: AgentAvatarStyle
+  /** AVATAR_COLORS 里的键 */
+  color: string
+  /** letter / gradient：最多 2 个字；空 = 名字第一个字 */
+  text?: string
+  /** icon：AVATAR_ICONS 里的键 */
+  icon?: string
+  /** emoji：AVATAR_EMOJIS 里的一个 */
+  emoji?: string
+  /** pixel：第几张图案，1–6 */
+  seed?: number
+}
+/** 这个频道里每个 AI 成员手上的活（只有本机频道给；键是成员 id） */
+export interface ChannelAgentLoad {
+  running: boolean
+  waiting: boolean
+  queued: number
 }
 
 /** 「每项活一个 Git 副本」是否生效：只在每项活新开会话、本机成员、没绑副本时（派活和「和谁共用目录」用同一个判断） */
@@ -217,6 +241,8 @@ export interface AgentMember {
   sharesDirWith?: string[]
   /** 从已有会话加入的成员：绑定的会话（标题是会话现在的标题；会话被删了是 null） */
   boundSession?: { id: string; title: string } | null
+  /** 头像：界面一律读这个，不读 config.avatar（演示成员、团队里别人的成员没有 config）；null / 没写是引擎图标 */
+  avatar?: AgentAvatar | null
 }
 
 export type ChannelMember = HumanMember | AgentMember
@@ -273,6 +299,8 @@ export interface Channel {
   createdAt: number
   /** 最后一条消息的时间，列表按它排序（只有真实数据有） */
   lastAt?: number
+  /** 只列手上有活的 AI 成员（键是成员 id）；只有本机频道有，团队频道退回用成员的全局状态 */
+  load?: Record<string, ChannelAgentLoad>
 }
 
 /** approval：团队频道里等 AI 成员的主人同意（Phase C §4.2） */
@@ -872,7 +900,11 @@ export interface JoinSessionInput {
 }
 
 /** machineId 由主进程按 projectId 推出来 */
-export type AgentInput = Omit<AgentConfig, 'id' | 'createdAt' | 'sharedSessionId' | 'machineId'> & { id?: string }
+/** avatar：没写沿用原来的，null 清掉（回到引擎图标） */
+export type AgentInput = Omit<AgentConfig, 'id' | 'createdAt' | 'sharedSessionId' | 'machineId' | 'avatar'> & {
+  id?: string
+  avatar?: AgentAvatar | null
+}
 
 export interface PostInput {
   text: string

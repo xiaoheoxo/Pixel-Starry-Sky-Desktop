@@ -15,6 +15,7 @@ import { machineOf, useMachines } from '@/features/machines/store'
 import type { AgentMember, Channel } from '@/data/types'
 import { relayRulesOf, type AgentConfig, type RelayRules } from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
+import { defaultAvatar } from '../../../../shared/channels/avatar'
 import { channelActions, useChannels } from './store'
 import { duplicateName, engineResetFields, matchAgents, scheduleToInput } from './model'
 import { RelayRulesEditor } from './RelayRules'
@@ -334,7 +335,7 @@ export function ChannelDialog({
             : {
                 ...input,
                 notes: notes.trim() || null,
-                relay,
+                ...(relay !== base.relay ? { relay } : {}),
                 relayRules: rules,
                 alerts,
                 digestHour,
@@ -921,6 +922,8 @@ export function AgentDialog({
         instructions,
         mode,
         tools,
+        // 编辑、复制沿用原来的头像；新建按名字给一个默认的
+        avatar: seed ? (seed.avatar ?? null) : defaultAvatar(name.replace(/\s+/g, ' ').trim()),
         ...(copyPerTask && mode === 'per-task' && !copyId && machineOf(projectId) === 'local'
           ? { copyPerTask: true }
           : {}),

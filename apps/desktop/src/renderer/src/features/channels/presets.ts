@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import type { AgentMember, Channel } from '@/data/types'
 import { tr } from '../../i18n/core'
+import { cleanAvatar } from '../../../../shared/channels/avatar'
 import {
   DEFAULT_RELAY_RULES,
   cleanRelayRules,
@@ -31,7 +32,7 @@ export const PRESET_NAME_MAX = 40
 /** 成员配置快照：不存 id、会话、机器（机器由项目算），不含密钥（额度来源只有分组、账号或接口 id） */
 export type PresetMemberConfig = Pick<
   AgentConfig,
-  'name' | 'engine' | 'projectId' | 'copyId' | 'settings' | 'instructions' | 'mode' | 'tools'
+  'name' | 'engine' | 'projectId' | 'copyId' | 'settings' | 'instructions' | 'mode' | 'tools' | 'avatar'
 >
 
 /** 除了 id、名字和时间，没写的字段 = 存的时候没勾，新建时用表单默认值 */
@@ -78,6 +79,8 @@ function parseMember(raw: unknown): NonNullable<ChannelPreset['members']>[number
       instructions: typeof c.instructions === 'string' ? c.instructions : '',
       mode: c.mode === 'shared' ? 'shared' : 'per-task',
       ...(c.tools ? { tools: c.tools } : {}),
+      // 存下来的 JSON 可能被改过：主进程 saveMember 还会再校验一次
+      ...(cleanAvatar(c.avatar) ? { avatar: cleanAvatar(c.avatar)! } : {}),
     },
   }
 }
@@ -185,10 +188,20 @@ export function presetFromChannel(
   const picked = parts.includes('members') ? presetableMembers(channel, members) : []
   if (parts.includes('members'))
     preset.members = picked.map(m => {
-      const { name, engine, projectId, copyId, settings, instructions, mode, tools } = m.config!
+      const { name, engine, projectId, copyId, settings, instructions, mode, tools, avatar } = m.config!
       return {
         sourceId: m.id,
-        config: { name, engine, projectId, copyId, settings, instructions, mode, ...(tools ? { tools } : {}) },
+        config: {
+          name,
+          engine,
+          projectId,
+          copyId,
+          settings,
+          instructions,
+          mode,
+          ...(tools ? { tools } : {}),
+          ...(avatar ? { avatar } : {}),
+        },
       }
     })
   if (parts.includes('dispatch')) {

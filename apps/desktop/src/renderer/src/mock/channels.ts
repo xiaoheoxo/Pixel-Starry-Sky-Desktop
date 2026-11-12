@@ -52,6 +52,8 @@ export const demoChannelMembers: ChannelMember[] = [
     sessionId: 's-settings-form',
     queued: 3,
     sharesDirWith: ['审查员'],
+    // 头像的几种样式（docs/ui/channels-side-panels.md §4.1）
+    avatar: { style: 'icon', color: 'orange', icon: 'code' },
   },
   {
     id: 'a-reviewer',
@@ -66,6 +68,7 @@ export const demoChannelMembers: ChannelMember[] = [
     task: null,
     sessionId: 's-redesign',
     sharesDirWith: ['前端助手'],
+    avatar: { style: 'gradient', color: 'blue', text: '审' },
   },
   {
     id: 'a-builder',
@@ -79,6 +82,7 @@ export const demoChannelMembers: ChannelMember[] = [
     status: 'waiting',
     task: '重新打包 0.1.0 便携版',
     sessionId: null,
+    avatar: { style: 'pixel', color: 'purple', seed: 3 },
   },
   {
     id: 'a-docs',
@@ -144,6 +148,8 @@ export const demoChannels: Channel[] = [
       },
     ],
     memberIds: ['m-linxia', 'a-frontend', 'a-reviewer'],
+    // 各成员在这个频道里手上的活（左栏子行、右栏摘要）
+    load: { 'a-frontend': { running: true, waiting: false, queued: 3 } },
     unread: 2,
     mentioned: true,
     createdAt: YESTERDAY - 3 * 86_400_000,
@@ -155,6 +161,8 @@ export const demoChannels: Channel[] = [
     project: 'pixel-desktop',
     scope: 'local',
     memberIds: ['m-linxia', 'a-builder', 'a-reviewer'],
+    // 和这个频道的任务卡对上：构建助手在等确认，没有排队（行尾转圈看没选中时的「网页版改版」）
+    load: { 'a-builder': { running: false, waiting: true, queued: 0 } },
     unread: 1,
     createdAt: YESTERDAY - 2 * 86_400_000,
   },
@@ -188,6 +196,8 @@ export const demoChannels: Channel[] = [
     scope: 'local',
     relay: true,
     memberIds: ['m-linxia', 'a-frontend', 'a-reviewer'],
+    // 本机频道都带 load（没活是空的），和正式模式一样
+    load: {},
     unread: 1,
     mentioned: true,
     createdAt: YESTERDAY,
@@ -199,6 +209,7 @@ export const demoChannels: Channel[] = [
     project: 'research-notes',
     scope: 'local',
     memberIds: ['m-linxia', 'a-docs'],
+    load: {},
     unread: 0,
     createdAt: YESTERDAY,
   },

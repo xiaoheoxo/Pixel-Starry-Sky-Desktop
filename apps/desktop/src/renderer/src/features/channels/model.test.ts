@@ -20,7 +20,9 @@ import {
   parseMentions,
   remoteAgents,
   sharedDirAgents,
-  sharedDirGroups,
+  channelLoad,
+  dirConflicts,
+  memberLoad,
   splitMentions,
   stripPlanJson,
   unreadTotal,
@@ -414,34 +416,6 @@ describe('@提及', () => {
     expect(sharedDirAgents([{ ...fe, sharesDirWith: ['别的频道的'] }, fe2])).toEqual([])
     expect(sharedDirAgents([fe, fe2])).toEqual([])
   })
-  // docs/ui/channel-member-row.md §2
-  it('共用目录的成员分组：按出现顺序编号，只算这个频道里的，不共用的不在里面', () => {
-    const agent = (id: string, sharesDirWith?: string[]): ChannelMember => ({
-      ...agentOf(members[1]),
-      id,
-      name: id,
-      sharesDirWith,
-    })
-    const groups = sharedDirGroups([
-      members[0],
-      agent('a', ['b', 'e']),
-      agent('solo'),
-      agent('c', ['d']),
-      agent('b', ['a', 'e']),
-      agent('d', ['c']),
-      agent('e', ['a', 'b']),
-      // 和它共用的成员不在这个频道里
-      agent('f', ['别的频道的']),
-    ])
-    expect([...groups]).toEqual([
-      ['a', 0],
-      ['c', 1],
-      ['b', 0],
-      ['d', 1],
-      ['e', 0],
-    ])
-    expect(sharedDirGroups([agent('a'), agent('b')]).size).toBe(0)
-  })
   // docs/ui/channel-member-row.md §3
   it('复制成员的名字：原名加数字，复制出来的接着往后数，避开已有的，不超过 40 个字', () => {
     expect(duplicateName('前端助手', ['前端助手'])).toBe('前端助手 2')
@@ -561,5 +535,76 @@ describe('频道日期格式', () => {
     expect(formatClock(at)).toBe('09:05')
     setCurrentLocale('en-US')
     expect(formatClock(at)).toMatch(/^9:05\sAM$/)
+  })
+})
+
+// docs/ui/channels-side-panels.md §4.5
+describe('频道里成员的活', () => {
+  const fe = agentOf(members[1])
+  const fe2 = agentOf(members[2])
+
+  it('有 load 按频道算：等确认 > 在做 > 排队 > 空闲；离线看成员', () => {
+    const load = {
+      fe: { running: true, waiting: true, queued: 2 },
+      fe2: { running: false, waiting: false, queued: 1 },
+    }
+    expect(memberLoad({ load }, fe)).toEqual({ state: 'waiting', queued: 2 })
+    expect(memberLoad({ load: { fe: { running: true, waiting: false, queued: 0 } } }, fe)).toEqual({
+      state: 'running',
+      queued: 0,
+    })
+    expect(memberLoad({ load }, fe2)).toEqual({ state: 'queued', queued: 1 })
+    // 别的频道在忙，这个频道里是空闲
+    expect(memberLoad({ load: {} }, { ...fe, status: 'running', queued: 3 })).toEqual({ state: 'idle', queued: 0 })
+    expect(memberLoad({ load }, { ...fe, status: 'offline' })).toEqual({ state: 'offline', queued: 2 })
+  })
+
+  it('没有 load（团队频道）按成员的全局状态', () => {
+    expect(memberLoad({}, { ...fe, status: 'running', queued: 2 })).toEqual({ state: 'running', queued: 2 })
+    expect(memberLoad({}, { ...fe, queued: 1 })).toEqual({ state: 'queued', queued: 1 })
+    expect(memberLoad({}, fe)).toEqual({ state: 'idle', queued: 0 })
+  })
+
+  it('频道合计：只算 AI 成员，排队为 0 也对', () => {
+    expect(channelLoad({ load: { fe: { running: true, waiting: false, queued: 3 } } }, members)).toEqual({
+      running: 1,
+      queued: 3,
+    })
+    expect(channelLoad({ load: {} }, members)).toEqual({ running: 0, queued: 0 })
+    expect(
+      channelLoad({}, [
+        { ...fe, status: 'running' },
+        { ...fe2, queued: 2 },
+      ]),
+    ).toEqual({ running: 1, queued: 2 })
+  })
+
+  it('目录冲突：0 组、1 组、2 组；没有可编辑成员时 editId 是 null', () => {
+    const cfg = (projectId: string) => ({
+      id: '',
+      name: '',
+      engine: 'claude' as const,
+      machineId: 'local',
+      projectId,
+      copyId: null,
+      settings: {},
+      instructions: '',
+      mode: 'per-task' as const,
+      sharedSessionId: null,
+      createdAt: 0,
+    })
+    const dir = (a: { project?: string | null }) => a.project ?? '?'
+    expect(dirConflicts([fe, fe2], dir)).toEqual([])
+    const a = { ...fe, id: 'a', name: 'A', project: 'web', config: cfg('p1') }
+    const b = { ...fe, id: 'b', name: 'B', project: 'web', config: cfg('p1') }
+    const c = { ...fe, id: 'c', name: 'C', project: 'api', config: cfg('p2') }
+    expect(dirConflicts([a, b, c], dir)).toEqual([{ names: ['A', 'B'], dir: 'web', editId: 'b' }])
+    // 演示 / 团队成员没有 config：按 sharesDirWith，不能编辑
+    const x = { ...fe, id: 'x', name: 'X', project: 'docs', sharesDirWith: ['Y'] }
+    const y = { ...fe, id: 'y', name: 'Y', project: 'docs', sharesDirWith: ['X'] }
+    expect(dirConflicts([a, x, b, y, c], dir)).toEqual([
+      { names: ['A', 'B'], dir: 'web', editId: 'b' },
+      { names: ['X', 'Y'], dir: 'docs', editId: null },
+    ])
   })
 })

@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   Bot,
   ChevronDown,
+  ChevronRight,
   Copy,
   Ellipsis,
   Folder,
@@ -28,7 +29,8 @@ import type { AgentMember, Channel, ChannelAgentStatus, ChannelMember, HumanMemb
 import type { AgentConfig, AgentPolicy, ChannelNotify, ChannelTaskStatus } from '../../../../shared/types/channels'
 import { usesTaskCopies } from '../../../../shared/types/channels'
 import { agentCredit, machineLabel, MemberAvatar } from './ChannelMessage'
-import { sharedDirGroups } from './model'
+import { channelLoad, dirConflicts, memberLoad } from './model'
+import { AvatarPicker } from './AvatarPicker'
 import { AgentDialog, ChannelDialog } from './ChannelDialogs'
 import { SavePresetDialog } from './ChannelPresets'
 import { channelActions, channelsLive, useChannels } from './store'
@@ -62,10 +64,13 @@ const TASK_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
 
 const NOTIFY_OPTIONS: readonly ChannelNotify[] = ['all', 'important', 'mute']
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1">
-      <h3 className="px-2 text-label font-medium text-fg-muted">{title}</h3>
+      <div className="flex min-h-7 items-center gap-1 px-2">
+        <h3 className="min-w-0 flex-1 truncate text-label font-medium text-fg-muted">{title}</h3>
+        {action}
+      </div>
       <div className="flex flex-col gap-px">{children}</div>
     </section>
   )
@@ -251,6 +256,31 @@ function AgentDetails({ member }: { member: AgentMember }) {
   )
 }
 
+function LeadTag() {
+  return (
+    <span className="shrink-0 rounded bg-accent/10 px-1.5 text-label font-normal text-accent">
+      {tr('channels.members.lead')}
+    </span>
+  )
+}
+
+/** 目录行：项目 · 主目录 / 副本 / 每项单独副本 · 远端机器 */
+function dirText(member: AgentMember, copyName: string | undefined): string {
+  const config = member.config
+  return [
+    member.project,
+    config &&
+      (usesTaskCopies(config)
+        ? tr('channels.members.taskCopies')
+        : config.copyId
+          ? (copyName ?? tr('machines.copy'))
+          : tr('channels.agent.mainTree')),
+    member.machineId !== 'local' && machineLabel(member),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 function AgentRow({
   member,
   channelId,
@@ -258,7 +288,8 @@ function AgentRow({
   team,
   canRemoveOthers,
   readOnly = false,
-  dirGroup,
+  lead,
+  queued,
   dirPeers,
   copyName,
   onOpenSession,
@@ -268,8 +299,11 @@ function AgentRow({
   onPolicy,
 }: {
   member: AgentMember
-  /** 和频道里别的成员共用目录时：第几组（决定方块颜色）、和谁共用（docs/ui/channel-member-row.md §2） */
-  dirGroup: number | undefined
+  /** 是这个频道的牵头成员 */
+  lead: boolean
+  /** 这个频道里排队的活数（channels-side-panels §4.3） */
+  queued: number
+  /** 和频道里别的成员共用目录时和谁共用（docs/ui/channel-member-row.md §2） */
   dirPeers: string[]
   /** 成员绑的 Git 副本的名字；还没读到是 undefined */
   copyName: string | undefined
@@ -288,6 +322,9 @@ function AgentRow({
   useI18n()
   const messages = useChannels(s => s.messages[channelId])
   const [open, setOpen] = useState(false)
+  const [queueOpen, setQueueOpen] = useState(false)
+  // 队列清空后收起：下次有新的排队不自己弹开
+  if (queueOpen && queued === 0) setQueueOpen(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const line = agentLine(member, Date.now())
   const status = tr(STATUS_LABEL[member.status])
@@ -301,22 +338,13 @@ function AgentRow({
     settings?.fast && 'Fast',
     settings?.ultracode && 'Ultracode',
   ].filter((t): t is string => !!t)
-  const where = [
-    member.project,
-    config &&
-      (usesTaskCopies(config)
-        ? tr('channels.members.taskCopies')
-        : config.copyId
-          ? (copyName ?? tr('machines.copy'))
-          : tr('channels.agent.mainTree')),
-    member.machineId !== 'local' && machineLabel(member),
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const where = dirText(member, copyName)
   const role = config?.instructions.trim().split('\n')[0]
   const sharesText = dirPeers.length
     ? tr('channels.members.sharesDir', { names: dirPeers.join(tr('channels.composer.nameSep')) })
     : undefined
+  // 演示成员没有 config，演示模式也让换（只改内存）
+  const canChangeAvatar = !readOnly && member.mine !== false && (!!config || !channelsLive)
   const actions: MenuAction[] = foreign
     ? [{ label: tr('channels.members.remove'), icon: UserMinus, danger: true, run: () => onRemove(member) }]
     : [
@@ -351,17 +379,17 @@ function AgentRow({
   return (
     <div
       className={cn(
-        'group/agent flex min-w-0 gap-2.5 rounded-md px-2 py-2 hover:bg-hover',
+        'group/agent flex min-w-0 flex-wrap gap-x-2.5 rounded-lg bg-surface px-2.5 py-2',
         member.status === 'offline' && 'opacity-60',
       )}
     >
       <span className="relative mt-0.5 h-fit shrink-0 self-start">
-        <MemberAvatar member={member} size={28} />
+        <AvatarPicker member={member} size={28} editable={canChangeAvatar} />
         {member.status !== 'running' && (
           <span
             aria-hidden
             className={cn(
-              'absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface',
+              'absolute -bottom-0.5 -left-0.5 size-2.5 rounded-full ring-2 ring-surface',
               STATUS_DOT[member.status],
             )}
           />
@@ -377,6 +405,7 @@ function AgentRow({
             className="flex max-w-full min-w-0 items-center gap-1 text-left text-list font-medium text-fg"
           >
             <span className="truncate">{member.name}</span>
+            {lead && <LeadTag />}
             <ChevronDown
               size={12}
               className={cn('shrink-0 text-fg-faint transition-transform', open && 'rotate-180')}
@@ -385,6 +414,7 @@ function AgentRow({
         ) : (
           <div className="flex min-w-0 items-baseline gap-1 text-list font-medium text-fg">
             <span className="truncate">{member.name}</span>
+            {lead && <LeadTag />}
             {foreign && member.ownerName && (
               <span className="shrink-0 text-meta font-normal text-fg-faint">
                 · {tr('team.panel.agentOf', { owner: member.ownerName })}
@@ -414,13 +444,6 @@ function AgentRow({
         </div>
         {where && (
           <div data-member-dir className="flex min-w-0 items-center gap-1.5 text-meta text-fg-muted" title={sharesText}>
-            {dirGroup !== undefined && (
-              <span
-                aria-hidden
-                className="size-2 shrink-0 rounded-sm"
-                style={{ background: `var(--graph-lane-${(dirGroup % 5) + 1})` }}
-              />
-            )}
             <Folder size={12} className="shrink-0 text-fg-faint" />
             <span className="min-w-0 truncate">{where}</span>
             {sharesText && <span className="sr-only">{sharesText}</span>}
@@ -442,6 +465,17 @@ function AgentRow({
             {line}
           </span>
         </div>
+        {!foreign && queued > 0 && (
+          <button
+            type="button"
+            aria-expanded={open || queueOpen}
+            onClick={() => setQueueOpen(v => !v)}
+            className="press mt-0.5 inline-flex items-center gap-0.5 rounded bg-subtle px-1.5 text-label text-fg-muted hover:text-fg"
+          >
+            {tr('channels.members.queuedCount', { count: queued })}
+            <ChevronDown size={11} className={cn('transition-transform', (open || queueOpen) && 'rotate-180')} />
+          </button>
+        )}
         {member.warning && <div className="text-meta text-warn">{translateMessage(member.warning)}</div>}
         {member.config?.bound &&
           (member.boundSession ? (
@@ -472,18 +506,7 @@ function AgentRow({
             />
           </div>
         )}
-        {open && (
-          <>
-            <AgentDetails member={member} />
-            {!foreign && (
-              <AgentQueue
-                member={member}
-                tasks={memberQueueTasks(messages, member.id)}
-                onFocus={id => void channelActions.focusMessage(channelId, id)}
-              />
-            )}
-          </>
-        )}
+        {open && <AgentDetails member={member} />}
       </div>
       {foreign && !canRemoveOthers ? null : live ? (
         <IconButton
@@ -508,6 +531,16 @@ function AgentRow({
             onClick={() => onOpenSession(member.sessionId!)}
           />
         )
+      )}
+      {/* 档案和排队各管各的，两个都开着时队列只出一份；另起一行占满卡片宽度（夹在头像和按钮中间放不下） */}
+      {!foreign && (open || (queueOpen && queued > 0)) && (
+        <div className="w-full min-w-0">
+          <AgentQueue
+            member={member}
+            tasks={memberQueueTasks(messages, member.id)}
+            onFocus={id => void channelActions.focusMessage(channelId, id)}
+          />
+        </div>
       )}
       {menu && (
         <ActionMenu
@@ -574,9 +607,15 @@ export function ChannelMembers({
   const [channelMenu, setChannelMenu] = useState<{ x: number; y: number } | null>(null)
   const humans = members.filter((m): m is HumanMember => m.kind === 'human')
   const agents = members.filter((m): m is AgentMember => m.kind === 'agent')
-  // 共用目录的成员同一种颜色（docs/ui/channel-member-row.md §2）
-  const dirGroups = sharedDirGroups(agents)
   const copyNames = useCopyNames(agents)
+  const copyNameOf = (a: AgentMember) => (a.config?.copyId ? copyNames.get(a.config.copyId) : undefined)
+  const conflicts = dirConflicts(agents, a => dirText(a, copyNameOf(a)))
+  const load = channelLoad(channel, agents)
+  const [moreOpen, setMoreOpen] = useState(false)
+  // 牵头的候选照频道设置对话框：这个频道里本机的 AI 成员
+  const leadOptions = agents.filter(m => m.machineId === 'local')
+  const leadShown = leadOptions.find(m => m.id === channel.lead)?.id ?? ''
+  const usage = channel.scope === 'local' ? usageText(channel.usage) : null
   // 可以加进来的：我自己的全局 AI 成员（别人的、团队频道里登记的不算）
   const others = allMembers.filter(
     (m): m is AgentMember =>
@@ -599,8 +638,9 @@ export function ChannelMembers({
     toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) }))
   // 归档的频道只读（docs/ui/channels-local-ai.md §3.1 #11）：只能恢复、删除，成员和设置都不能改
   const archived = !!channel.archivedAt
-  const setArchived = (on: boolean) =>
-    void channelActions.updateChannel(channel.id, { archived: on }).catch(policyFailed)
+  const update = (patch: Parameters<typeof channelActions.updateChannel>[1]) =>
+    void channelActions.updateChannel(channel.id, patch).catch(policyFailed)
+  const setArchived = (on: boolean) => update({ archived: on })
   return (
     <aside
       aria-label={tr('channels.members.title')}
@@ -623,88 +663,191 @@ export function ChannelMembers({
         <IconButton icon={X} label={tr('channels.members.hide')} size={28} iconSize={15} onClick={onClose} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 pt-1 pb-4 [scrollbar-width:thin]">
-        <dl className="mx-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-list">
-          <dt className="text-fg-faint">{tr('channels.members.topic')}</dt>
-          <dd className={cn('min-w-0 break-words', channel.topic ? 'text-fg-secondary' : 'text-fg-faint')}>
-            {channel.topic ?? tr('channels.members.noTopic')}
-          </dd>
-          {team && teamName && (
-            <>
-              <dt className="text-fg-faint">{tr('team.panel.team')}</dt>
-              <dd className="min-w-0 truncate text-fg-secondary">{teamName}</dd>
-            </>
-          )}
-          {channel.project && !team && (
-            <>
-              <dt className="text-fg-faint">{tr('channels.members.project')}</dt>
-              <dd className="min-w-0 truncate text-fg-secondary">{channel.project}</dd>
-            </>
-          )}
-          <dt className="text-fg-faint">{tr('channels.members.type')}</dt>
-          <dd className="text-fg-secondary">
-            {tr(channel.scope === 'team' ? 'channels.scope.team' : 'channels.scope.local')}
-          </dd>
-          {!team && (
-            <>
-              <dt className="self-center text-fg-faint">{tr('channels.members.notify')}</dt>
-              <dd className="min-w-0">
+        <div className="mx-2 flex flex-col gap-1.5 text-list">
+          {channel.topic && <p className="min-w-0 break-words text-fg-secondary">{channel.topic}</p>}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
+            {team && teamName && (
+              <>
+                <dt className="text-fg-faint">{tr('team.panel.team')}</dt>
+                <dd className="min-w-0 truncate text-fg-secondary">{teamName}</dd>
+              </>
+            )}
+            {channel.project && !team && (
+              <>
+                <dt className="text-fg-faint">{tr('channels.members.project')}</dt>
+                <dd className="min-w-0 truncate text-fg-secondary">{channel.project}</dd>
+              </>
+            )}
+            <dt className="text-fg-faint">{tr('channels.members.type')}</dt>
+            <dd className="text-fg-secondary">
+              {tr(channel.scope === 'team' ? 'channels.scope.team' : 'channels.scope.local')}
+            </dd>
+            {!team && (
+              <>
+                <dt className="self-center text-fg-faint">{tr('channels.members.notify')}</dt>
+                <dd className="min-w-0">
+                  <Select
+                    label={tr('channels.members.notify')}
+                    value={channel.notify ?? 'all'}
+                    disabled={archived}
+                    options={NOTIFY_OPTIONS.map(v => ({ value: v, label: tr(`channels.notify.level.${v}`) }))}
+                    onChange={v => update({ notify: v })}
+                    className="h-7 w-full"
+                  />
+                </dd>
+              </>
+            )}
+          </dl>
+        </div>
+        <Section
+          title={
+            team
+              ? tr('team.panel.agents', { count: agents.length })
+              : tr('channels.members.agents', { count: agents.length })
+          }
+          action={
+            archived ? null : team ? (
+              <>
+                {canAddAgent(role) && (
+                  <Button
+                    icon={Bot}
+                    variant="ghost"
+                    className="h-7 px-2 text-meta"
+                    onClick={() => setDialog({ kind: 'addTeamAgent' })}
+                  >
+                    {tr('team.panel.addMine')}
+                  </Button>
+                )}
+                {owner && (
+                  <Button
+                    icon={UserPlus}
+                    variant="ghost"
+                    className="h-7 px-2 text-meta"
+                    onClick={() => setDialog({ kind: 'invite' })}
+                  >
+                    {tr('team.panel.invite')}
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button
+                icon={Bot}
+                variant="ghost"
+                className="h-7 px-2 text-meta"
+                aria-label={tr('channels.members.addAgent')}
+                onClick={() =>
+                  live ? setDialog({ kind: 'agent', editing: null }) : comingSoon(tr('channels.members.addAgent'))
+                }
+              >
+                {tr('channels.members.add')}
+              </Button>
+            )
+          }
+        >
+          <p className="px-2 pb-1 text-meta text-fg-muted">
+            {agents.length
+              ? [
+                  load.running
+                    ? tr('channels.members.runningCount', { count: load.running })
+                    : tr('channels.members.noneRunning'),
+                  load.queued
+                    ? tr('channels.members.queuedCount', { count: load.queued })
+                    : tr('channels.members.noneQueued'),
+                ].join(' · ')
+              : tr('channels.members.noAgents')}
+          </p>
+          {conflicts.map(c => {
+            const editing = archived ? undefined : agents.find(a => a.id === c.editId)?.config
+            return (
+              <div
+                key={c.names.join('\n')}
+                data-dir-conflict
+                className="mx-1 mb-1 flex min-w-0 items-start gap-2 rounded-md bg-warn/10 px-2 py-1.5 text-meta text-warn"
+              >
+                <span className="min-w-0 flex-1 break-words">
+                  {tr('channels.members.dirConflict', {
+                    names: c.names.join(tr('channels.composer.nameSep')),
+                    dir: c.dir,
+                  })}
+                </span>
+                {editing && live && (
+                  <button
+                    type="button"
+                    onClick={() => setDialog({ kind: 'agent', editing })}
+                    className="press shrink-0 font-medium underline-offset-2 hover:underline"
+                  >
+                    {tr('channels.members.changeDir')}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+          <div className="flex flex-col gap-1.5">
+            {agents.map(m => (
+              <AgentRow
+                key={m.id}
+                member={m}
+                lead={channel.lead === m.id}
+                queued={memberLoad(channel, m).queued}
+                dirPeers={(m.sharesDirWith ?? []).filter(n => n !== m.name && agents.some(a => a.name === n))}
+                copyName={copyNameOf(m)}
+                onDuplicate={config => setDialog({ kind: 'agent', editing: null, from: config })}
+                channelId={channel.id}
+                live={live}
+                team={team}
+                canRemoveOthers={live && owner}
+                readOnly={archived}
+                onPolicy={(member, policy) =>
+                  policy === 'team'
+                    ? setDialog({ kind: 'policy', member })
+                    : void channelActions.setAgentPolicy(channel.id, member.id, policy).catch(policyFailed)
+                }
+                onOpenSession={onOpenSession}
+                onEdit={config => setDialog({ kind: 'agent', editing: config })}
+                onRemove={member => setDialog({ kind: 'remove', member })}
+              />
+            ))}
+          </div>
+        </Section>
+        {!team && !archived && leadOptions.length > 0 && (
+          <Section title={tr('channels.members.dispatch')}>
+            <div className="flex flex-col gap-2 px-2">
+              <div className="flex min-w-0 items-center gap-2 text-list" title={tr('channels.dialog.leadHint')}>
+                <span className="shrink-0 text-fg-secondary">{tr('channels.dialog.lead')}</span>
                 <Select
-                  label={tr('channels.members.notify')}
-                  value={channel.notify ?? 'all'}
-                  disabled={archived}
-                  options={NOTIFY_OPTIONS.map(v => ({ value: v, label: tr(`channels.notify.level.${v}`) }))}
-                  onChange={v =>
-                    void channelActions
-                      .updateChannel(channel.id, { notify: v })
-                      .catch(e =>
-                        toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) })),
-                      )
-                  }
-                  className="h-7 w-full"
+                  label={tr('channels.dialog.lead')}
+                  value={leadShown}
+                  options={[
+                    { value: '', label: tr('channels.dialog.leadNone') },
+                    ...leadOptions.map(m => ({ value: m.id, label: m.name })),
+                  ]}
+                  onChange={v => update({ lead: v || null })}
+                  className="h-7 min-w-0 flex-1"
                 />
-              </dd>
-              <dt className="self-center text-fg-faint">{tr('channels.members.relay')}</dt>
-              <dd className="flex min-w-0 items-center gap-2" title={tr('channels.dialog.relayHint')}>
+              </div>
+              {leadShown && (
+                <div className="flex min-w-0 items-center gap-2" title={tr('channels.dialog.leadRouteHint')}>
+                  <span className="min-w-0 flex-1 text-list text-fg-secondary">{tr('channels.dialog.leadRoute')}</span>
+                  <Switch
+                    size="sm"
+                    checked={channel.leadRoute !== false}
+                    label={tr('channels.dialog.leadRoute')}
+                    onChange={on => update({ leadRoute: on })}
+                  />
+                </div>
+              )}
+              <div className="flex min-w-0 items-center gap-2" title={tr('channels.dialog.relayHint')}>
+                <span className="min-w-0 flex-1 text-list text-fg-secondary">{tr('channels.dialog.relay')}</span>
                 <Switch
                   size="sm"
                   checked={channel.relay === true}
-                  disabled={archived}
                   label={tr('channels.dialog.relay')}
-                  onChange={on =>
-                    void channelActions
-                      .updateChannel(channel.id, { relay: on })
-                      .catch(e =>
-                        toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) })),
-                      )
-                  }
+                  onChange={on => update({ relay: on })}
                 />
-                <span className="text-meta text-fg-muted">
-                  {tr(channel.relay ? 'channels.members.relayOn' : 'channels.members.relayOff')}
-                </span>
-              </dd>
-            </>
-          )}
-          {channel.scope === 'local' && usageText(channel.usage) && (
-            <dd
-              data-channel-usage=""
-              className="col-span-2 text-meta text-fg-muted"
-              title={usageText(channel.usage)!.title || undefined}
-            >
-              {tr('channels.usage.channel', { usage: usageText(channel.usage)!.text })}
-            </dd>
-          )}
-          {channel.notes && (
-            <>
-              <dt className="text-fg-faint">{tr('channels.members.notes')}</dt>
-              <dd
-                data-channel-notes
-                className="selectable min-w-0 text-meta leading-5 break-words whitespace-pre-wrap text-fg-secondary"
-              >
-                {channel.notes}
-              </dd>
-            </>
-          )}
-        </dl>
+              </div>
+            </div>
+          </Section>
+        )}
         <PinnedList channel={channel} members={allMembers} />
         <Section
           title={
@@ -717,89 +860,44 @@ export function ChannelMembers({
             <HumanRow key={m.id} member={m} team={team} />
           ))}
         </Section>
-        <Section
-          title={
-            team
-              ? tr('team.panel.agents', { count: agents.length })
-              : tr('channels.members.agents', { count: agents.length })
-          }
-        >
-          {dirGroups.size > 0 && (
-            <p className="mx-2 mb-1 flex items-center gap-1 rounded bg-subtle px-2 py-1 text-label text-fg-muted">
-              {[...new Set(dirGroups.values())].map(g => (
-                <span
-                  key={g}
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-sm"
-                  style={{ background: `var(--graph-lane-${(g % 5) + 1})` }}
-                />
-              ))}
-              <span className="ml-0.5 min-w-0">{tr('channels.members.sharedLegend')}</span>
-            </p>
-          )}
-          {agents.map(m => (
-            <AgentRow
-              key={m.id}
-              member={m}
-              dirGroup={dirGroups.get(m.id)}
-              dirPeers={(m.sharesDirWith ?? []).filter(n => n !== m.name && agents.some(a => a.name === n))}
-              copyName={m.config?.copyId ? copyNames.get(m.config.copyId) : undefined}
-              onDuplicate={config => setDialog({ kind: 'agent', editing: null, from: config })}
-              channelId={channel.id}
-              live={live}
-              team={team}
-              canRemoveOthers={live && owner}
-              readOnly={archived}
-              onPolicy={(member, policy) =>
-                policy === 'team'
-                  ? setDialog({ kind: 'policy', member })
-                  : void channelActions.setAgentPolicy(channel.id, member.id, policy).catch(policyFailed)
-              }
-              onOpenSession={onOpenSession}
-              onEdit={config => setDialog({ kind: 'agent', editing: config })}
-              onRemove={member => setDialog({ kind: 'remove', member })}
-            />
-          ))}
-        </Section>
-      </div>
-      {/* 归档的频道：输入框的位置有「恢复频道」，这里不再放按钮 */}
-      {!archived && (
-        <div className="flex shrink-0 flex-col gap-2 border-t border-line-subtle p-3">
-          {team ? (
-            <>
-              {canAddAgent(role) && (
-                <Button
-                  icon={Bot}
-                  className="w-full justify-center"
-                  onClick={() => setDialog({ kind: 'addTeamAgent' })}
-                >
-                  {tr('team.panel.addMine')}
-                </Button>
-              )}
-              {owner && (
-                <Button
-                  icon={UserPlus}
-                  variant="ghost"
-                  className="w-full justify-center"
-                  onClick={() => setDialog({ kind: 'invite' })}
-                >
-                  {tr('team.panel.invite')}
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button
-              icon={Bot}
-              className="w-full justify-center"
-              onClick={() =>
-                live ? setDialog({ kind: 'agent', editing: null }) : comingSoon(tr('channels.members.addAgent'))
-              }
+        {(channel.notes || usage) && (
+          <section className="flex flex-col gap-1">
+            <button
+              type="button"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen(v => !v)}
+              className="press flex items-center gap-1 rounded-md px-2 py-1 text-left text-label font-medium text-fg-muted hover:bg-hover"
             >
-              {tr('channels.members.addAgent')}
-            </Button>
-          )}
-        </div>
-      )}
+              <ChevronRight size={12} className={cn('shrink-0 transition-transform', moreOpen && 'rotate-90')} />
+              {tr('channels.members.more')}
+            </button>
+            {moreOpen && (
+              <dl className="mx-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-list">
+                {usage && (
+                  <dd
+                    data-channel-usage=""
+                    className="col-span-2 text-meta text-fg-muted"
+                    title={usage.title || undefined}
+                  >
+                    {tr('channels.usage.channel', { usage: usage.text })}
+                  </dd>
+                )}
+                {channel.notes && (
+                  <>
+                    <dt className="text-fg-faint">{tr('channels.members.notes')}</dt>
+                    <dd
+                      data-channel-notes
+                      className="selectable min-w-0 text-meta leading-5 break-words whitespace-pre-wrap text-fg-secondary"
+                    >
+                      {channel.notes}
+                    </dd>
+                  </>
+                )}
+              </dl>
+            )}
+          </section>
+        )}
+      </div>
       {channelMenu && (
         <ActionMenu
           x={channelMenu.x}

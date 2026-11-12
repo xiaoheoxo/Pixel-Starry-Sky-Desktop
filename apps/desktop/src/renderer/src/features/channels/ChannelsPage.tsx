@@ -132,7 +132,15 @@ export function ChannelsPage({
     return (
       <div className="@container absolute inset-0 flex min-w-0">
         {/* 加入了团队或收到邀请时，列表要留着（团队段、邀请卡） */}
-        {hasTeams && <ChannelList channels={channels} selectedId="" onSelect={selectChannel} agents={agents} />}
+        {hasTeams && (
+          <ChannelList
+            channels={channels}
+            selectedId=""
+            onSelect={selectChannel}
+            onOpenSession={openSession}
+            agents={agents}
+          />
+        )}
         <ChannelsEmpty agents={agents} />
       </div>
     )
@@ -191,7 +199,13 @@ export function ChannelsPage({
   }
   return (
     <div className="@container absolute inset-0 flex min-w-0" data-channels-page>
-      <ChannelList channels={channels} selectedId={channel.id} onSelect={selectChannel} agents={agents} />
+      <ChannelList
+        channels={channels}
+        selectedId={channel.id}
+        onSelect={selectChannel}
+        onOpenSession={openSession}
+        agents={agents}
+      />
       {needsOpen ? (
         <NeedsView />
       ) : (
@@ -257,6 +271,7 @@ export function ChannelsPage({
           />
         ) : (
           <ChannelMembers
+            key={channel.id}
             channel={channel}
             members={channelMembers}
             allMembers={members}

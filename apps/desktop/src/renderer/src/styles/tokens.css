@@ -103,6 +103,16 @@
   --graph-lane-3: #b5477f;
   --graph-lane-4: #1f8da0;
   --graph-lane-5: #8a8a1f;
+  /* AI 成员头像（docs/ui/channels-side-panels.md §4.1）：8 种可选色，不随配色主题变；--avatar-on 是底色上的字 */
+  --avatar-orange: #c96a1c;
+  --avatar-blue: #3a6fd0;
+  --avatar-purple: #7a5bd6;
+  --avatar-green: #2f8a4c;
+  --avatar-teal: #1f8da0;
+  --avatar-pink: #c2457f;
+  --avatar-yellow: #a88412;
+  --avatar-gray: #6b7280;
+  --avatar-on: #ffffff;
   --chart-output: #0f8456;
   /* 柱状图：同一冷色系三档明暗（缓存读最深、输入居中、输出最浅），7 种浅色卡片底色上用 dataviz 校验脚本（全部两两比较）都通过 */
   --chart-bar-input: #5081fc;
@@ -256,6 +266,15 @@
   --graph-lane-3: #d98ab4;
   --graph-lane-4: #4fb8c8;
   --graph-lane-5: #c2c25a;
+  --avatar-orange: #e08a48;
+  --avatar-blue: #6b9cf0;
+  --avatar-purple: #a78bfa;
+  --avatar-green: #5cbf7a;
+  --avatar-teal: #4fb8c8;
+  --avatar-pink: #e384b0;
+  --avatar-yellow: #d4b04a;
+  --avatar-gray: #9ca3af;
+  --avatar-on: #ffffff;
   --chart-output: #1e9a6c;
   /* 柱状图：8 种深色卡片底色上都通过（深色的明暗范围更窄，缓存读和底色的对比度低，靠悬停明细和表格看数值） */
   --chart-bar-input: #5081fb;

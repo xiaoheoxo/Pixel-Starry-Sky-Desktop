@@ -371,6 +371,60 @@ describe('成员的扩展设置（§5）', () => {
     expect(c.sessionMember(sends()[0].sessionId)).toEqual({ memberId: a, tools: null })
   })
 
+  it('头像（channels-side-panels §3.3）：合法的存下，乱写的丢掉，编辑不带不清掉，改头像不清共用会话', async () => {
+    const c = await open()
+    const avatarOf = (id: string) => c.state().members.find(m => m.id === id)
+    const a = await c.saveMember(
+      null,
+      agent('前端', { mode: 'shared', avatar: { style: 'icon', color: 'blue', icon: 'skull' } }),
+    )
+    expect(avatarOf(a)).toMatchObject({
+      avatar: { style: 'icon', color: 'blue' },
+      config: { avatar: { style: 'icon' } },
+    })
+    expect(avatarOf(a)).not.toHaveProperty('avatar.icon')
+    const b = await c.saveMember(
+      null,
+      agent('文档', { avatar: { style: 'photo', color: 'blue' } as unknown as AgentInput['avatar'] }),
+    )
+    expect(avatarOf(b)).toMatchObject({ avatar: null })
+
+    const ch = await c.create({ name: 'web', memberIds: [a] })
+    await c.post(ch, { text: '@前端 改按钮', clientId: 'go' })
+    await settle()
+    const shared = c.state().members.find(m => m.id === a)
+    const session = shared?.kind === 'agent' ? shared.config?.sharedSessionId : null
+    expect(session).toBeTruthy()
+
+    // 编辑对话框不带头像：沿用
+    await c.saveMember(null, { ...agent('前端', { mode: 'shared' }), id: a })
+    expect(avatarOf(a)).toMatchObject({ avatar: { style: 'icon', color: 'blue' } })
+    // 换头像：共用会话还在
+    await c.saveMember(null, {
+      ...agent('前端', { mode: 'shared' }),
+      id: a,
+      avatar: { style: 'pixel', color: 'gray', seed: 2 },
+    })
+    expect(avatarOf(a)).toMatchObject({ avatar: { style: 'pixel', seed: 2 }, config: { sharedSessionId: session } })
+    // null 清掉
+    await c.saveMember(null, { ...agent('前端', { mode: 'shared' }), id: a, avatar: null })
+    expect(avatarOf(a)).toMatchObject({ avatar: null })
+  })
+
+  it('频道的 load：一个成员在两个频道里，只有派了活的那个频道有它', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('前端'))
+    const web = await c.create({ name: 'web', memberIds: [a] })
+    const docs = await c.create({ name: 'docs', memberIds: [a] })
+    const loadOf = (id: string) => c.state().channels.find(x => x.id === id)?.load
+    expect(loadOf(web)).toEqual({})
+    await c.post(web, { text: '@前端 改按钮', clientId: 'go' })
+    await c.post(web, { text: '@前端 再改个颜色', clientId: 'go2' })
+    await settle()
+    expect(loadOf(web)).toEqual({ [a]: { running: true, waiting: false, queued: 1 } })
+    expect(loadOf(docs)).toEqual({})
+  })
+
   it('没开频道工具（测试 / 旧接线）：会话不算频道会话，提示词照旧', async () => {
     const c = await open(false)
     const a = await c.saveMember(null, agent('前端'))

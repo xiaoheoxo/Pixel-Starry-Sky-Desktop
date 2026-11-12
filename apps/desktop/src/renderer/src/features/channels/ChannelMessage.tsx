@@ -19,8 +19,9 @@ import type { ChannelAttachments } from '../../../../shared/types/channels'
 import { getProviders } from '@/features/account/providers'
 import { channelShort } from '@/features/model-channels/channelLabels'
 import { effortLabel } from '@/features/engine/labels'
+import { AgentAvatarFace } from './AgentAvatar'
 
-/** 成员头像：真人是圆形首字头像，AI 成员是圆角方块里的引擎图标 */
+/** 成员头像：真人是圆形首字头像，AI 成员默认是圆角方块里的引擎图标，选了别的样式见 AgentAvatar.tsx */
 export function MemberAvatar({
   member,
   size = 28,
@@ -32,6 +33,16 @@ export function MemberAvatar({
 }) {
   useI18n()
   if (member?.kind === 'agent') {
+    if (member.avatar && member.avatar.style !== 'engine')
+      return (
+        <AgentAvatarFace
+          avatar={member.avatar}
+          name={member.name}
+          engine={member.engine}
+          size={size}
+          className={className}
+        />
+      )
     return (
       <span
         className={cn(

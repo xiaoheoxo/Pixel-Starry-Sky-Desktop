@@ -324,22 +324,71 @@ export function sharedDirAgents(members: readonly ChannelMember[]): string[] {
   return shared.length >= 2 ? shared : []
 }
 
+export type MemberLoadState = 'running' | 'waiting' | 'queued' | 'idle' | 'offline'
+
+/** 成员在这个频道里的状态（channels-side-panels §4.5）：有 channel.load 按频道算，没有（团队频道）按成员的全局状态 */
+export function memberLoad(
+  channel: Pick<Channel, 'load'>,
+  member: Pick<AgentMember, 'id' | 'status' | 'queued'>,
+): { state: MemberLoadState; queued: number } {
+  if (!channel.load) {
+    const queued = member.queued ?? 0
+    const state = member.status === 'idle' && queued ? 'queued' : member.status
+    return { state, queued }
+  }
+  const l = channel.load[member.id]
+  const queued = l?.queued ?? 0
+  // 离线看的是机器连没连上，频道里的活不影响
+  if (member.status === 'offline') return { state: 'offline', queued }
+  const state = l?.waiting ? 'waiting' : l?.running ? 'running' : queued ? 'queued' : 'idle'
+  return { state, queued }
+}
+
+/** 频道里在做的成员数、排队的活数（左栏行尾、右栏摘要） */
+export function channelLoad(
+  channel: Pick<Channel, 'load'>,
+  members: readonly ChannelMember[],
+): { running: number; queued: number } {
+  let running = 0,
+    queued = 0
+  for (const m of members) {
+    if (m.kind !== 'agent') continue
+    const l = memberLoad(channel, m)
+    if (l.state === 'running') running++
+    queued += l.queued
+  }
+  return { running, queued }
+}
+
 /**
- * 这个频道里共用同一个目录的 AI 成员（docs/ui/channel-member-row.md §2）：成员 id → 第几组（从 0 起，按出现顺序）。
- * 不和频道里别的成员共用的不在里面
+ * 同一个目录里有两个以上 AI 成员（右栏的冲突提醒）：按 sharesDirWith 连成组，没有时按同机器同项目同副本；
+ * editId 是组里最后一个能编辑（有 config）的成员
  */
-export function sharedDirGroups(members: readonly ChannelMember[]): Map<string, number> {
-  const agents = members.filter((m): m is AgentMember => m.kind === 'agent')
-  const idOf = new Map(agents.map(a => [a.name, a.id]))
-  const groups = new Map<string, number>()
-  let next = 0
+export function dirConflicts(
+  agents: readonly AgentMember[],
+  dirLabel: (a: AgentMember) => string,
+): { names: string[]; dir: string; editId: string | null }[] {
+  const sameDir = (a: AgentMember, b: AgentMember): boolean =>
+    !!a.sharesDirWith?.includes(b.name) ||
+    !!b.sharesDirWith?.includes(a.name) ||
+    (!!a.config &&
+      !!b.config &&
+      a.config.machineId === b.config.machineId &&
+      a.config.projectId === b.config.projectId &&
+      a.config.copyId === b.config.copyId)
+  const groups: AgentMember[][] = []
   for (const a of agents) {
-    const peers = (a.sharesDirWith ?? []).filter(n => n !== a.name && idOf.has(n))
-    if (!peers.length) continue
-    const known = peers.map(n => groups.get(idOf.get(n)!)).find(g => g !== undefined)
-    groups.set(a.id, known ?? next++)
+    const g = groups.find(list => list.some(b => sameDir(a, b)))
+    if (g) g.push(a)
+    else groups.push([a])
   }
   return groups
+    .filter(g => g.length >= 2)
+    .map(g => ({
+      names: g.map(a => a.name),
+      dir: dirLabel(g[0]),
+      editId: g.findLast(a => a.config)?.id ?? null,
+    }))
 }
 
 /**

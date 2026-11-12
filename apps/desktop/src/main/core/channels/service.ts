@@ -28,6 +28,7 @@ import {
 import type { Locale } from '../../../shared/i18n/messages'
 import type {
   AgentConfig,
+  ChannelAgentLoad,
   ChannelAttachedMeta,
   AgentInput,
   AgentMember,
@@ -71,6 +72,7 @@ import {
   type ChannelAlert,
 } from '../../../shared/types/channels'
 import { countsUnread, threadMessages, threadRootOf } from '../../../shared/channels/threads'
+import { cleanAvatar } from '../../../shared/channels/avatar'
 import { checkProblems, fixRequest, type CheckRun } from '../../../shared/types/checks'
 import {
   ACCEPTANCE_MAX,
@@ -565,6 +567,7 @@ export class Channels {
       stats: { total, done, failed, stopped, days },
       usage: this.memberUsage.get(config.id) ?? null,
       sharesDirWith: shares,
+      avatar: config.avatar ?? null,
       ...(config.bound ? { boundSession: this.boundSession(config) } : {}),
     }
   }
@@ -588,6 +591,21 @@ export class Channels {
       if (m.kind === 'message' && m.mentions?.includes(SELF_ID)) mentioned = true
     }
     return { unread, mentioned, lastAt }
+  }
+
+  /** 这个频道里每个 AI 成员手上的活：口径和 agentView 的 status / queued 一样，只是按频道分 */
+  private loadOf(channelId: string): Record<string, ChannelAgentLoad> {
+    const load: Record<string, ChannelAgentLoad> = {}
+    for (const r of this.store.runs.values()) {
+      if (r.channelId !== channelId || r.phase === 'ended') continue
+      const task = this.taskOf(r)
+      const l = (load[r.memberId] ??= { running: false, waiting: false, queued: 0 })
+      if (r.phase === 'waiting') l.queued++
+      if (task && !terminal(task.status) && r.phase === 'sent') l.running = true
+      if (task?.status === 'waiting') l.waiting = true
+    }
+    for (const [id, l] of Object.entries(load)) if (!l.running && !l.waiting && !l.queued) delete load[id]
+    return load
   }
 
   state(): ChannelsSnapshot {
@@ -618,6 +636,7 @@ export class Channels {
         scope: 'local' as const,
         memberIds: c.memberIds,
         createdAt: c.createdAt,
+        load: this.loadOf(c.id),
         ...this.unreadOf(c),
       }))
       .sort((a, b) => b.lastAt - a.lastAt)
@@ -1091,6 +1110,8 @@ export class Channels {
         existing.projectId !== raw.projectId ||
         existing.copyId !== (raw.copyId ?? null) ||
         credit(existing.settings) !== credit(settings))
+    // 没带头像（编辑对话框、预设）沿用原来的；null 或校验不过就清掉，回到引擎图标
+    const avatar = raw.avatar === undefined ? existing?.avatar : cleanAvatar(raw.avatar)
     const config: AgentConfig = {
       id: existing?.id ?? randomUUID(),
       name,
@@ -1107,6 +1128,7 @@ export class Channels {
       // 从已有会话加入的：换了这些也就不再绑着那个会话
       ...(existing?.bound && !moved && raw.mode === 'shared' ? { bound: true } : {}),
       ...(toolsOf(raw.tools) ? { tools: toolsOf(raw.tools) } : {}),
+      ...(avatar ? { avatar } : {}),
       createdAt: existing?.createdAt ?? this.now(),
     }
     this.store.members = existing

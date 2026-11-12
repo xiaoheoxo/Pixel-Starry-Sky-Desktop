@@ -7,6 +7,7 @@ import { tr } from '../../i18n/core'
 import { channelMembers, channelMessages, channels, channelTeams, isDemo } from '@/data'
 import type { Channel, ChannelMember, ChannelMessage, ChannelTask, ChannelTextMessage } from '@/data/types'
 import type {
+  AgentAvatar,
   AgentInput,
   AgentPolicy,
   ChannelAttachments,
@@ -564,6 +565,19 @@ export const channelActions = {
   },
   saveMember(channelId: string | null, input: AgentInput): Promise<string> {
     return channelsBridge!.saveMember(channelId, input)
+  },
+  /** 换头像（docs/ui/channels-side-panels.md §4.2）：成员从 store 取最新的，点开面板之后改过的设置不会被盖掉 */
+  async setAvatar(memberId: string, avatar: AgentAvatar | null): Promise<void> {
+    const member = state.members.find(m => m.id === memberId)
+    if (member?.kind !== 'agent') throw new Error(tr('channels.error.memberMissing'))
+    if (!channelsBridge) {
+      set({ members: state.members.map(m => (m.id === memberId && m.kind === 'agent' ? { ...m, avatar } : m)) })
+      return
+    }
+    if (!member.config) throw new Error(tr('channels.error.memberMissing'))
+    const { createdAt: _c, sharedSessionId: _s, machineId: _m, ...config } = member.config
+    // 团队频道里自己的成员：member.id 是团队成员 id，本机成员 id 在 config 里
+    await channelsBridge.saveMember(null, { ...config, avatar })
   },
   /** 打开「加入频道」对话框（会话右键菜单；只有正式模式有） */
   openJoin(sessionId: string, title: string): void {
