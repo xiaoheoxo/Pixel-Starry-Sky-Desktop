@@ -258,7 +258,13 @@ function LiveSessionView({
         const id = el.closest<HTMLElement>('[data-search-item]')?.dataset.searchItem
         if (id) closed.add(id)
       }
-      const { ids, count, missing } = foldedMatches(items, [term], closed, hidden)
+      // 展开着但限高只画了前几行的（docs/ui/view-mode.md §13 A）
+      const clamped = new Set<string>()
+      for (const el of stream.querySelectorAll('[data-clamped]')) {
+        const id = el.closest<HTMLElement>('[data-search-item]')?.dataset.searchItem
+        if (id) clamped.add(id)
+      }
+      const { ids, count, missing } = foldedMatches(items, [term], closed, hidden, clamped)
       if (missing.length && counting.current?.term !== term) {
         const job = { term }
         counting.current = job

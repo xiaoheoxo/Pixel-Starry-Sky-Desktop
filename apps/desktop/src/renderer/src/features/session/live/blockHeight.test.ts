@@ -8,6 +8,7 @@ import {
   itemHeight,
   markdownHeight,
   processHeight,
+  rowHeight,
   toolsHeight,
 } from './blockHeight'
 
@@ -100,5 +101,35 @@ describe('processHeight', () => {
   })
   it('展开时比收起高得多：滚动时不会按一行占位再突然撑开', () => {
     expect(processHeight(tools, true, false)).toBeGreaterThan(processHeight(tools, false, false) * 5)
+  })
+})
+
+describe('按查看模式估（§13 D）', () => {
+  const long = {
+    kind: 'command',
+    id: 'o',
+    command: 'ls',
+    output: Array(40).fill('x').join('\n'),
+    status: 'completed',
+  } as Item
+  const short = { kind: 'command', id: 's', command: 'ls', output: 'a\nb', status: 'completed' } as Item
+  const think = { kind: 'reasoning', id: 'r', text: '一\n二\n三', status: 'completed' } as Item
+  it('普通模式工具、思考都一行', () => {
+    expect(rowHeight(long, 'normal')).toBe(ROW)
+    expect(rowHeight(think, 'normal')).toBe(ROW)
+  })
+  it('详细模式展开输出，长输出按限高 12 行算，不随总行数涨', () => {
+    expect(rowHeight(short, 'detailed')).toBeGreaterThan(ROW)
+    expect(rowHeight(long, 'detailed')).toBeGreaterThan(rowHeight(short, 'detailed'))
+    const longer = { ...long, output: Array(400).fill('x').join('\n') } as Item
+    expect(rowHeight(longer, 'detailed')).toBe(rowHeight(long, 'detailed'))
+  })
+  it('思考模式展开思考正文；非极简时工具组收成一行', () => {
+    expect(rowHeight(think, 'thinking')).toBeGreaterThan(ROW)
+    const items = [think, long, short, long]
+    expect(processHeight(items, true, false, 'thinking', true)).toBeLessThan(
+      processHeight(items, true, false, 'detailed'),
+    )
+    expect(processHeight(items, true, false, 'thinking', true)).toBe(30 + 4 + rowHeight(think, 'thinking') + 30)
   })
 })

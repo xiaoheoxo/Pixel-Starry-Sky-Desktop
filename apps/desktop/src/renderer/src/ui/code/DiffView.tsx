@@ -18,10 +18,13 @@ export function DiffView({
   path,
   className,
   commentable = true,
+  maxLines,
 }: {
   diff: string
   path?: string
   className?: string
+  /** 只画前这么多行，不带「显示剩余」：外面限了高、有自己的「展开」（对话里详细模式自动展开的改动） */
+  maxLines?: number
   /** 审批卡片里的 diff 不评论 */
   commentable?: boolean
 }) {
@@ -30,18 +33,22 @@ export function DiffView({
   // 很长的 diff 先只画前 DIFF_LINE_LIMIT 行（高亮、逐词对比也只算这些），点「显示剩余」再全画
   // （原来几千行一挂载就是一个长任务，docs/perf-audit-2026-10-18.md B4）
   const [all, setAll] = useState(false)
-  const lines = useMemo(
-    () => (all || allLines.length <= DIFF_LINE_LIMIT ? allLines : allLines.slice(0, DIFF_LINE_LIMIT)),
-    [allLines, all],
-  )
-  const rest = allLines.length - lines.length
+  const limit = maxLines ?? (all ? Infinity : DIFF_LINE_LIMIT)
+  const lines = useMemo(() => (allLines.length <= limit ? allLines : allLines.slice(0, limit)), [allLines, limit])
+  const rest = maxLines === undefined ? allLines.length - lines.length : 0
   const lang = useMemo(() => languageFromPath(path), [path])
   // 去掉每行开头的 +/−/空格 后整段高亮（跨行的注释、字符串颜色才对）；@@ 段头和 ---/+++ 文件头不参与
   const segments = useMemo(
     () => highlightSegments(lines.map(l => (isCodeLine(l) ? l.slice(1) : '')).join('\n'), lang),
     [lines, lang],
   )
-  const words = useMemo(() => wordDiffRanges(lines), [lines])
+  // 只画前几行时，逐词对比要成对的两边都在：比到这一段删除 / 增加结束为止，画出来的行和画全时一样
+  const words = useMemo(() => {
+    if (maxLines === undefined) return wordDiffRanges(lines)
+    let end = lines.length
+    while (end < allLines.length && end < DIFF_LINE_LIMIT && /^[+-]/.test(allLines[end]!)) end++
+    return wordDiffRanges(allLines.slice(0, end))
+  }, [lines, allLines, maxLines])
   const numbers = useMemo(() => diffLineNumbers(allLines), [allLines])
   const api = useContext(DiffCommentsContext)
   const comments = commentable && api && path ? api : null

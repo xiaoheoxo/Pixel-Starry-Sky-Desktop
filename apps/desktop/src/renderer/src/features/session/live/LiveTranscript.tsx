@@ -77,7 +77,16 @@ import {
 } from './scrollFollow'
 import { glideToEnd } from './glide'
 import { motionEnabled } from '@/features/panes/motion'
-import { changesHeight, errorNoticeHeight, itemHeight, processHeight, SUBAGENT_BOX, toolsHeight } from './blockHeight'
+import {
+  changesHeight,
+  errorNoticeHeight,
+  itemHeight,
+  processHeight,
+  rowHeight,
+  SUBAGENT_BOX,
+  toolsHeight,
+} from './blockHeight'
+import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
@@ -258,7 +267,12 @@ const ProcessBlock = memo(
     const toggle = useCallback((open: boolean) => onToggle(foldKey, open), [onToggle, foldKey])
     // 没画过时的占位高度要按展开 / 收起算：详细模式默认展开，按收起的一行估会让滚动时总高度不停变、滑块乱跳
     const open = toggled ?? processOpenByDefault(items, mode)
-    const style = useMemo(() => placeholder(processHeight(items, open, running)), [items, open, running])
+    // 按模式估（§13 D）：思考模式（非极简）的工具收成一行，详细模式的输出展开
+    const grouped = !useMinimal()
+    const style = useMemo(
+      () => placeholder(processHeight(items, open, running, mode, grouped)),
+      [items, open, running, mode, grouped],
+    )
     return (
       <div className="conversation-message" style={style}>
         <TurnProcess
@@ -812,7 +826,8 @@ export function LiveTranscript({
     if (b.type === 'process')
       return (
         <ProcessBlock
-          key={b.key}
+          // 切模式换一个新元素：上一档记住的真实高度（contain-intrinsic-size 的 auto）不带过来（§13 D）
+          key={`${b.key}-${viewMode.gen}`}
           foldKey={b.key}
           items={b.items}
           running={b.running}
@@ -834,7 +849,12 @@ export function LiveTranscript({
           style={placeholder(toolsHeight(b.items.length))}
         >
           {b.items.map(it => (
-            <div key={it.id} data-search-item={it.id} className={highlight === it.id ? 'search-hit' : undefined}>
+            <div
+              key={it.id}
+              data-search-item={it.id}
+              style={nested ? placeholder(rowHeight(it, viewMode.mode)) : undefined}
+              className={highlight === it.id ? 'search-hit' : undefined}
+            >
               <ToolItemRow item={it} />
             </div>
           ))}
@@ -910,7 +930,7 @@ export function LiveTranscript({
       <div
         key={item.id}
         data-search-item={item.id}
-        style={placeholder(estimate(item))}
+        style={placeholder(nested ? rowHeight(item, viewMode.mode) : estimate(item))}
         className={[
           'group/message',
           isUser ? 'conversation-user-row' : 'conversation-message',

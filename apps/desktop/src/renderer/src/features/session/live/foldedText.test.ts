@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CUT_EDGE, cutItem, searchLiteral, type Item } from '@pixelsky/protocol'
-import { countFull, foldedMatches, foldedText } from './foldedText'
+import { clampedText, countFull, foldedMatches, foldedText } from './foldedText'
+import { CLAMP_DRAWN_LINES } from '../viewModeModel'
 
 const command: Item = {
   kind: 'command',
@@ -111,5 +112,22 @@ describe('foldedMatches', () => {
     // 换了词、换了对象都要重新数
     expect(foldedMatches([cut], [searchLiteral('x')], new Set(['big'])).missing).toEqual([cut])
     expect(foldedMatches([{ ...cut }], term, new Set(['big'])).missing).toHaveLength(1)
+  })
+})
+
+describe('限高没画的部分（§13 A）', () => {
+  const out = [...Array.from({ length: CLAMP_DRAWN_LINES }, () => '前面 hit'), '后面 hit', '后面 hit'].join('\n')
+  const long = { kind: 'command', id: 'k1', command: 'x', output: out, status: 'completed' } as Item
+  it('clampedText 只取画出来以后的行', () => {
+    expect(clampedText(long)).toBe('后面 hit\n后面 hit')
+  })
+  it('foldedMatches 对 clamped 的条目只数没画的', () => {
+    const term = [searchLiteral('hit')]
+    expect(foldedMatches([long], term, new Set(), new Set(), new Set(['k1']))).toEqual({
+      ids: ['k1'],
+      count: 2,
+      missing: [],
+    })
+    expect(foldedMatches([long], term, new Set(), new Set(), new Set()).count).toBe(0)
   })
 })

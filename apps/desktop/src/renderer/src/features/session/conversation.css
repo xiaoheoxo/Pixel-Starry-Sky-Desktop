@@ -70,6 +70,13 @@
 [data-conversation-stream] > [data-turn-stats] {
   contain-intrinsic-block-size: auto 24px;
 }
+/* 执行块里的每一行也一样（docs/ui/view-mode.md §13 B）：展开的一轮几百行，屏幕外的不排版；
+   占位高度 LiveTranscript 按查看模式给（blockHeight.ts 的 rowHeight） */
+[data-process-rows] [data-search-item] {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 24px;
+  overflow-clip-margin: 8px;
+}
 .conversation-message {
   width: 100%;
   min-width: 0;

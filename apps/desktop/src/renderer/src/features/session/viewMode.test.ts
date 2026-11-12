@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Item } from '@pixelsky/protocol'
-import { failedItems, nextViewMode, overClamp, parseViewMode, thinkingSegments } from './viewModeModel'
+import {
+  CLAMP_DRAWN_LINES,
+  clampLines,
+  clampedRest,
+  failedItems,
+  nextViewMode,
+  overClamp,
+  parseViewMode,
+  streamChunks,
+  thinkingSegments,
+} from './viewModeModel'
 
 const tool = (id: string, status = 'completed', extra: object = {}): Item =>
   ({ id, kind: 'tool', tool: 'read', name: 'Read', title: id, output: '', status, ...extra }) as unknown as Item
@@ -53,5 +63,34 @@ describe('查看模式', () => {
     expect(overClamp('a\n'.repeat(11))).toBe(false)
     expect(overClamp('a\n'.repeat(12))).toBe(true)
     expect(overClamp('x'.repeat(5000))).toBe(false)
+  })
+})
+
+describe('限高只画前几行（§13 A）', () => {
+  const lines = (n: number): string => Array.from({ length: n }, (_, i) => `l${i}`).join('\n')
+  it('超过 CLAMP_DRAWN_LINES 行：画的和没画的拼起来是原文', () => {
+    const text = lines(CLAMP_DRAWN_LINES + 5)
+    expect(clampLines(text).split('\n')).toHaveLength(CLAMP_DRAWN_LINES)
+    expect(clampedRest(text).split('\n')).toHaveLength(5)
+    expect(`${clampLines(text)}\n${clampedRest(text)}`).toBe(text)
+  })
+  it('不到这么多行：全画，没剩下的', () => {
+    expect(clampLines(lines(3))).toBe(lines(3))
+    expect(clampedRest(lines(3))).toBe('')
+    expect(clampedRest(lines(CLAMP_DRAWN_LINES))).toBe('')
+  })
+})
+
+describe('流式思考分块（§13 C）', () => {
+  it('16 行一块，换行拼回原文；前面的块不随新文字变', () => {
+    const text = Array.from({ length: 40 }, (_, i) => `t${i}`).join('\n')
+    const chunks = streamChunks(text)
+    expect(chunks).toHaveLength(3)
+    expect(chunks.join('\n')).toBe(text)
+    expect(streamChunks(text + '更多').slice(0, 2)).toEqual(chunks.slice(0, 2))
+  })
+  it('短文字一块；空串没有块', () => {
+    expect(streamChunks('一行')).toEqual(['一行'])
+    expect(streamChunks('')).toEqual([])
   })
 })

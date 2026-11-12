@@ -70,7 +70,7 @@ import {
 } from '@/features/model-channels/PlatformFallbackNoticeActions'
 import { clipOutput, OUTPUT_ALL_MAX } from './outputClip'
 import { useItemBody } from './itemBody'
-import { overClamp, useRowMode } from '../viewMode'
+import { CLAMP_DRAWN_LINES, clampLines, overClamp, streamChunks, useRowMode } from '../viewMode'
 
 type ItemOf<K extends Item['kind']> = Extract<Item, { kind: K }>
 
@@ -223,14 +223,19 @@ function useFold(
   }
 }
 
-/** 详细模式自动打开的输出限高 12 行（§5）：外面包一层，里面的 LongOutput、DiffView 不动；点「展开」去掉限高 */
+/**
+ * 详细模式自动打开的输出限高 12 行（§5）：外面包一层；点「展开」去掉限高。
+ * cut：里面只画了前 CLAMP_DRAWN_LINES 行（§13 A，跑完的才这样），对话内搜索据此把没画的部分算进「折叠中还有 N 处」
+ */
 function Clamp({
   on,
+  cut,
   running,
   onExpand,
   children,
 }: {
   on: boolean
+  cut: boolean
   running: boolean
   onExpand: () => void
   children: ReactNode
@@ -239,7 +244,12 @@ function Clamp({
   return (
     <>
       {/* 运行中贴底显示最新的几行，跑完回到开头 */}
-      <div className={cn('max-h-[12lh] overflow-hidden', running && 'flex flex-col justify-end')}>{children}</div>
+      <div
+        data-clamped={cut ? '' : undefined}
+        className={cn('max-h-[12lh] overflow-hidden', running && 'flex flex-col justify-end')}
+      >
+        {children}
+      </div>
       <button
         type="button"
         onClick={onExpand}
@@ -334,7 +344,13 @@ export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
       </button>
       {open && item.text && (
         <div className="mt-1 ml-[15px] border-l border-line pl-3.5 text-meta leading-relaxed whitespace-pre-wrap text-fg-muted">
-          {item.text}
+          {/* 输出中按行分块（§13 C）：写满的块不再变，每来一段只重排最后一块；想完了还是一整段 */}
+          {/* 块尾是空行时多补一个换行：块末尾的换行不占一行，不补那行空行就没了，想完变回整段时会跳一下 */}
+          {running
+            ? streamChunks(item.text).map((chunk, i, all) => (
+                <div key={i}>{i < all.length - 1 && chunk.endsWith('\n') ? `${chunk}\n` : chunk}</div>
+              ))
+            : item.text}
         </div>
       )}
     </div>
@@ -726,6 +742,9 @@ function FileChangeLine({
   const foldable = !!c.diff
   const { open, manual, toggle, expand, fold } = useFold(item.id, foldable, useRowMode().mode === 'detailed')
   const editing = item.status === 'running'
+  const clamp = !manual && overClamp(c.diff)
+  // 运行中贴底显示，要整段都在；跑完的只画前几行
+  const cut = clamp && !editing
   const look = rowLook(editing, useLiveOwned())
   const name = (
     <>
@@ -797,8 +816,8 @@ function FileChangeLine({
       </div>
       {open && (
         <div className={cn(OUTPUT_BOX, 'bg-surface py-1.5')}>
-          <Clamp on={!manual && overClamp(c.diff)} running={editing} onExpand={expand}>
-            <DiffView diff={c.diff} path={c.path} />
+          <Clamp on={clamp} cut={cut} running={editing} onExpand={expand}>
+            <DiffView diff={c.diff} path={c.path} maxLines={cut ? CLAMP_DRAWN_LINES : undefined} />
           </Clamp>
         </div>
       )}
@@ -830,6 +849,10 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
   // 快照里截过的长输出（cutChars）用户自己展开时才取完整的；详细模式自动打开的不取（一屏几十条就是几十次读取）
   const body = useItemBody(item, manual)
   const shown = body === item ? output : textOf(body)
+  const clamp = !manual && overClamp(shown)
+  // 运行中贴底显示最新的几行，要整段都在；跑完的只画前几行
+  const cut = clamp && item.status !== 'running'
+  const drawn = cut ? clampLines(shown) : shown
   const row = useRef<HTMLDivElement>(null)
   const [fileError, setFileError] = useState('')
   const waiting = !!useApprovalWait(item.id)
@@ -941,8 +964,8 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
               </span>
             )}
             {shown && (
-              <Clamp on={!manual && overClamp(shown)} running={item.status === 'running'} onExpand={expand}>
-                <LongOutput text={shown} />
+              <Clamp on={clamp} cut={cut} running={item.status === 'running'} onExpand={expand}>
+                <LongOutput text={drawn} />
               </Clamp>
             )}
           </pre>
@@ -1035,8 +1058,8 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
           <pre
             className={cn(OUTPUT_BOX, 'p-3 font-mono text-meta leading-[1.6] whitespace-pre-wrap text-fg-secondary')}
           >
-            <Clamp on={!manual && overClamp(shown)} running={item.status === 'running'} onExpand={expand}>
-              <LongOutput text={shown} />
+            <Clamp on={clamp} cut={cut} running={item.status === 'running'} onExpand={expand}>
+              <LongOutput text={drawn} />
             </Clamp>
           </pre>
         ))}

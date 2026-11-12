@@ -4,6 +4,7 @@
 import type { Item } from '@pixelsky/protocol'
 import { FOLD_OVER, FOLD_SHOW } from '@/ui/code/CodeBlock'
 import { USER_FOLD_CHARS, USER_FOLD_LINES } from './userBlocks'
+import { OUTPUT_CLAMP_LINES, thinkingSegments, type ViewMode } from '../viewModeModel'
 
 /** 正文一行（含行距） */
 const PROSE_LINE = 26
@@ -97,18 +98,75 @@ export const errorNoticeHeight = (actions: boolean): number => (actions ? 78 : 4
 /** 子智能体小框（density.css 的 [data-subagent-box]，两种模式都是 28） */
 export const SUBAGENT_BOX = 28
 
+/** 输出、diff 一行（text-meta，行高 1.6） */
+const OUT_LINE = 19
+/** 展开的输出框上下内边距 */
+const OUT_CHROME = 16
+/** 限高输出下面的「展开」按钮 */
+const CLAMP_BUTTON = 26
+/** 思考模式里一组工具收成的一行（TurnProcess 的 ToolGroup） */
+const TOOL_GROUP = 30
+
+/** 详细模式自动展开的输出：超过 OUTPUT_CLAMP_LINES 行的限高，下面多一个按钮 */
+function outputHeight(text: string): number {
+  if (!text) return 0
+  let n = 1
+  for (let i = text.indexOf('\n'); i >= 0 && n <= OUTPUT_CLAMP_LINES; i = text.indexOf('\n', i + 1)) n++
+  return n > OUTPUT_CLAMP_LINES ? OUT_CHROME + OUT_LINE * OUTPUT_CLAMP_LINES + CLAMP_BUTTON : OUT_CHROME + OUT_LINE * n
+}
+
 /**
- * 「执行」块：收起时只有标题行；展开时（极简模式默认展开）加上里面每一条：工具行、思考、待办一行，
- * 过渡话按 Markdown 估、上下留空。运行中收起时还露出最后几条
+ * 执行块里的一行（不含上下留空）。按查看模式估：思考、详细模式展开思考正文，
+ * 详细模式还展开工具输出、改动、待办（docs/ui/view-mode.md §13 D）
  */
-export function processHeight(items: readonly Item[], open: boolean, running: boolean): number {
+export function rowHeight(item: Item, mode: ViewMode): number {
+  switch (item.kind) {
+    case 'assistant':
+    case 'notice':
+    case 'user':
+    case 'compaction':
+      return itemHeight(item)
+    case 'reasoning':
+      if (mode === 'normal' || !item.text.trim()) return ROW
+      return Math.min(
+        MAX,
+        ROW + 8 + PROSE_LINE * item.text.split('\n').reduce((n, l) => n + (l.trim() ? proseLines(l) : 0), 0),
+      )
+    case 'command':
+    case 'tool':
+      return mode === 'detailed' ? ROW + outputHeight(item.output) : ROW
+    case 'file_change':
+      return mode === 'detailed' ? ROW + item.changes.reduce((h, c) => h + outputHeight(c.diff), 0) : ROW
+    case 'todo':
+      return mode === 'detailed' ? ROW + ROW * item.steps.length : ROW
+    default:
+      return ROW
+  }
+}
+
+/** 夹在工具行之间的过渡话、提示上下留空 */
+const gapOf = (item: Item): number =>
+  item.kind === 'assistant' || item.kind === 'notice' || item.kind === 'user' ? PROCESS_GAP : 0
+
+/**
+ * 「执行」块：收起时只有标题行；展开时（极简模式默认展开）加上里面每一行（rowHeight，按模式估）。
+ * 运行中收起时还露出最后几条。grouped：思考模式（非极简）两段思考之间的工具收成一行
+ */
+export function processHeight(
+  items: readonly Item[],
+  open: boolean,
+  running: boolean,
+  mode: ViewMode = 'normal',
+  grouped = false,
+): number {
   const shown = open ? items : running ? items.slice(-PROCESS_TAIL) : []
   if (!shown.length) return PROCESS_HEAD
   let height = PROCESS_HEAD + 4
-  for (const item of shown) {
-    if (item.kind === 'assistant' || item.kind === 'notice' || item.kind === 'user')
-      height += itemHeight(item) + PROCESS_GAP
-    else height += ROW
-  }
+  if (open && mode === 'thinking' && grouped)
+    for (const s of thinkingSegments(shown)) {
+      if (s.type === 'text') height += rowHeight(s.item, mode) + gapOf(s.item)
+      else height += TOOL_GROUP + (s.items.some(i => 'status' in i && i.status === 'running') ? ROW : 0)
+    }
+  else for (const item of shown) height += rowHeight(item, open ? mode : 'normal') + gapOf(item)
   return Math.min(MAX, Math.round(height))
 }
