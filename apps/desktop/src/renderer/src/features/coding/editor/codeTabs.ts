@@ -94,7 +94,6 @@ export function useCodeTabs(): CodeTabsState {
     () => state,
   )
 }
-export const getCodeTabs = (): CodeTabsState => state
 
 // 文件改名 / 移动后标签换了 id：所有项目的标签组、视图设置、最近使用顺序里的旧 id 换成新的（审查报告 2026-10-14）
 window.addEventListener(FILE_RENAMED_EVENT, e => {
