@@ -3,7 +3,15 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { formatLogLine, logTime, matchesLogQuery, parseLogLine, type LogEntry, type LogQuery } from '@pixelsky/protocol'
+import {
+  formatLogLine,
+  logTime,
+  matchesLogQuery,
+  parseLogLine,
+  type LogEntry,
+  type LogQuery,
+  type SessionRecord,
+} from '@pixelsky/protocol'
 import { LogFiles, linesFromEnd, roughMatcher } from './files'
 import { LogService, VERBOSE_MS } from './service'
 import { logHostEvent } from './host-events'
@@ -192,5 +200,33 @@ describe('日志服务', () => {
       reason: 'Connection dropped (ECONNRESET)',
     })
     expect(got[3].fields).toMatchObject({ outcome: 'completed', durationMs: 5 })
+  })
+
+  it('一轮结束写上额度来源和这一轮用到的模型', () => {
+    const svc = new LogService({ dir, now: () => t0 })
+    setLogSink(svc)
+    const got: LogEntry[] = []
+    svc.subscribe(e => got.push(e))
+    const record = { platform: { groupId: '71', account: 'a@b.c' }, provider: null } as unknown as SessionRecord
+    const done = (sessionId: string) =>
+      logHostEvent(
+        {
+          kind: 'session',
+          sessionId,
+          seq: 1,
+          event: {
+            type: 'turn_completed',
+            turnId: 't',
+            outcome: 'completed',
+            error: null,
+            usage: { durationMs: 1, models: { 'claude-fable-5-1': {} } },
+          },
+        } as unknown as Parameters<typeof logHostEvent>[0],
+        id => (id === 's1' ? record : null),
+      )
+    done('s1')
+    done('gone')
+    expect(got[0].fields).toMatchObject({ source: 'platform:71', models: ['claude-fable-5-1'] })
+    expect(got[1].fields).not.toHaveProperty('source')
   })
 })

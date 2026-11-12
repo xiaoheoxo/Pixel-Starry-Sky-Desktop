@@ -123,7 +123,7 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     pixelCli: bundledPixelCli(),
     // 有 SSH 机器时由它合并本机与远端的项目 / 会话再广播
     emit: (e: HostEvent) => {
-      logHostEvent(e)
+      logHostEvent(e, id => ctx.engine?.record(id) ?? null)
       for (const listener of ctx.hostListeners) listener(e)
       if (ctx.machines) ctx.machines.hostEvent(e)
       else ctx.events.broadcast('engine:event', e)

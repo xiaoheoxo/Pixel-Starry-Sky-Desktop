@@ -1,10 +1,11 @@
 // 会话事件记进日志（docs/ui/logging.md §4.5「session」）：请求重试、警告和错误提示、一轮结束
-import type { HostEvent } from '@pixelsky/protocol'
+import { sourceLabel, type HostEvent, type SessionRecord } from '@pixelsky/protocol'
 import { logger } from '@pixelsky/engine'
 
 const log = logger('session')
 
-export function logHostEvent(e: HostEvent): void {
+/** record：取会话当前记录，「一轮结束」写上额度来源 */
+export function logHostEvent(e: HostEvent, record?: (id: string) => SessionRecord | null): void {
   if (e.kind !== 'session') return
   const sessionId = e.sessionId
   const event = e.event
@@ -24,11 +25,14 @@ export function logHostEvent(e: HostEvent): void {
       log.debug('一轮开始', { sessionId, turnId: event.turnId })
       return
     case 'turn_completed': {
+      const current = record?.(sessionId)
       const fields = {
         sessionId,
         turnId: event.turnId,
         outcome: event.outcome,
         durationMs: event.usage?.durationMs ?? null,
+        ...(current ? { source: sourceLabel(current) } : {}),
+        ...(event.usage ? { models: Object.keys(event.usage.models) } : {}),
         ...(event.error ? { error: event.error } : {}),
       }
       if (event.outcome === 'completed') log.info('一轮结束', fields)

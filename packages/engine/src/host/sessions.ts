@@ -11,6 +11,7 @@ import {
   parseSubagentOverrides,
   PROVIDER_ID,
   sourceKey,
+  sourceLabel,
   type EngineId,
   type Item,
   type OpenedSession,
@@ -27,6 +28,9 @@ import { ENGINES } from '../registry'
 import type { HostContext, Runtime } from './context'
 import { NEW_TITLE } from './title'
 import { under } from '../native/paths'
+import { logger } from '../log'
+
+const log = logger('engine.sessions')
 
 export class HostSessions {
   constructor(private readonly ctx: HostContext) {}
@@ -342,6 +346,10 @@ export class HostSessions {
     // 执行设置不改、也不发给进程；下一条消息派发时换进程（turn.ts pump）
     const modelLater = running && patch.model !== undefined && rt.session?.restartsForModel?.(patch.model) === true
     const record = m.events.patchRecord(id, next)
+    // 手动换来源 / 模型留痕；自动改用平台、换回订阅、换账号各有自己的日志（docs/ui/logging.md §4.5）
+    const from = `${sourceLabel(current)} · ${current.model ?? 'default'}`,
+      to = `${sourceLabel(record)} · ${record.model ?? 'default'}`
+    if (from !== to) log.info('会话换了来源或模型', { sessionId: id, from, to })
     if (rt.execution) {
       const applied = { ...next }
       // 还没生效的引擎选择不进执行设置（正在执行的还是原来的引擎）

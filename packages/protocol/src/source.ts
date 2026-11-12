@@ -13,6 +13,10 @@ export const sourceKind = (r: Sourced): SourceKind => (r.platform ? 'platform' :
 export const sourceKey = (r: Sourced): string | null =>
   r.platform ? `platform:${r.platform.account}` : r.provider ? `custom:${r.provider.id}` : null
 
+/** 日志里写的来源：self / platform:<线路> / custom:<接口>（docs/ui/logging.md §4.5） */
+export const sourceLabel = (r: Sourced): string =>
+  r.platform ? `platform:${r.platform.groupId}` : r.provider ? `custom:${r.provider.id}` : 'self'
+
 /** 请求经过本机网关（平台和自定义 API），引擎进程里没有真实凭证 */
 export const viaGateway = (r: Sourced): boolean => !!(r.platform || r.provider)
 

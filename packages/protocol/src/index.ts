@@ -218,7 +218,7 @@ export type {
   UsageSummary,
   UsageTotals,
 } from './usage'
-export { PROVIDER_ENV, PROVIDER_ID, sourceKey, sourceKind, viaGateway } from './source'
+export { PROVIDER_ENV, PROVIDER_ID, sourceKey, sourceKind, sourceLabel, viaGateway } from './source'
 export { estimateCost, officialModels, officialPrice } from './pricing'
 export type { OfficialPrice } from './pricing'
 export { autoImageInput, looksVisual, piBuiltinImage, stripVendorPrefix } from './models/image-input'
