@@ -10,10 +10,10 @@ vi.mock('@/features/session/attachments/ImageAttachments', () => ({ ImageAttachm
 vi.mock('@/ui', () => ({ cn: (...values: unknown[]) => values.filter(Boolean).join(' ') }))
 
 // 在 React 内创建真实 hook，直接验证表单事件是否把文件交给图片读取器。
-function images(): FeedbackImages {
+function images(locked = false): FeedbackImages {
   let state!: FeedbackImages
   function Probe() {
-    state = useFeedbackImages()
+    state = useFeedbackImages(undefined, locked)
     return null
   }
   renderToStaticMarkup(<Probe />)
@@ -61,6 +61,14 @@ describe('反馈图片拖放', () => {
     expect(vi.mocked(readImage).mock.calls.map(([file]) => file)).toEqual([png, jpg])
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(event.stopPropagation).toHaveBeenCalledOnce()
+  })
+
+  it('提交中不收新图，但仍拦住浏览器默认打开文件', () => {
+    const state = images(true)
+    const event = drop([new File(['png'], 'shot.png', { type: 'image/png' })])
+    state.onDrop(event)
+    expect(readImage).not.toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 
   it('SVG 等不支持的图片交给读取器报错，不悄悄忽略', () => {

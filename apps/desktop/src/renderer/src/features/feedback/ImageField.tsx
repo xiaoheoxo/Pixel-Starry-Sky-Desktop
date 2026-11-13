@@ -32,8 +32,11 @@ export interface FeedbackImages {
 // 支持的图片，加上 MIME 是 image/* 但格式不支持的（如 SVG）：后者交给 readImage 报「图片类型不对」，不悄悄忽略
 const acceptable = (file: File): boolean => isImageFile(file) || file.type.startsWith('image/')
 
-/** draftEmail：新反馈表单传账号，图片跟草稿一起留在内存里，关掉再打开还在；回复框不传 */
-export function useFeedbackImages(draftEmail?: string): FeedbackImages {
+/**
+ * draftEmail：新反馈表单传账号，图片跟草稿一起留在内存里，关掉再打开还在；回复框不传。
+ * locked：提交中，粘贴、拖入、选择的图片都不收
+ */
+export function useFeedbackImages(draftEmail?: string, locked = false): FeedbackImages {
   const [images, setImages] = useState<ImageAttachment[]>(() => (draftEmail ? loadDraftImages(draftEmail) : []))
   useEffect(() => {
     if (draftEmail) saveDraftImages(draftEmail, images)
@@ -46,7 +49,7 @@ export function useFeedbackImages(draftEmail?: string): FeedbackImages {
   count.current = images.length
   const add = (files: File[]): void => {
     const list = files.filter(acceptable)
-    if (!list.length) return
+    if (locked || !list.length) return
     if (count.current + pending.current + list.length > FEEDBACK_LIMITS.images) {
       setError(tr('feedback.limit.images', { p0: FEEDBACK_LIMITS.images }))
       return

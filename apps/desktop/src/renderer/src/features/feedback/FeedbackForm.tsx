@@ -104,10 +104,13 @@ export function FeedbackForm({
   const [attempted, setAttempted] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const images = useFeedbackImages(email)
+  // 提交中不收新图：提交成功会清掉草稿，这时进来的图会丢或留成下次的草稿
+  const images = useFeedbackImages(email, busy)
   // 打开时有上次没提交的草稿（文字或图片）就在顶部说一句；只看打开那一刻
-  const [restoredImages] = useState(images.images.length)
-  const restored = initial.restored || restoredImages > 0
+  const [restoredList] = useState(images.images)
+  const restored = initial.restored || restoredList.length > 0
+  // 图片动过以后不再写张数，免得和下面的对不上
+  const restoredImages = images.images === restoredList ? restoredList.length : 0
 
   const around = prefill?.logsSince ?? null
   const logsOn = logsFlag ?? type === 'bug'
