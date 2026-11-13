@@ -306,6 +306,12 @@ export function Workspace(props: WorkspaceProps) {
                   hidden && 'pointer-events-none opacity-0',
                 )}
                 style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
+                // 哪几边挨着别的窗格：「两块独立」的边框在这几边留半条缝（globals.css，docs/ui/minimal-mode.md §16）
+                data-inner={
+                  [r.x > 1e-6 && 'l', r.x + r.w < 1 - 1e-6 && 'r', r.y > 1e-6 && 't', r.y + r.h < 1 - 1e-6 && 'b']
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
                 inert={hidden || !!closing[leaf.id]}
               >
                 <PaneView

@@ -112,6 +112,7 @@ export const SYNC_ENTRIES: readonly SyncEntry[] = [
   storageEntry('desktop.motion', 'appearance', 'pixelsky.motion'),
   storageEntry('desktop.paneFocusMotion', 'appearance', 'pixelsky.paneFocusMotion'),
   storageEntry('desktop.minimal', 'appearance', 'pixelsky.minimal'),
+  storageEntry('desktop.workbenchFrame', 'appearance', 'pixelsky.workbenchFrame'),
   storageEntry('desktop.modeTransition', 'appearance', 'pixelsky.mode-transition'),
   storageEntry('desktop.gitOpenStyle', 'appearance', 'pixelsky.coding.git-open'),
   storageEntry('desktop.locale', 'appearance', 'pixelsky.locale'),

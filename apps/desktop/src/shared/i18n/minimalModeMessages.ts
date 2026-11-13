@@ -7,6 +7,13 @@ export const minimalModeMessages = {
   },
   'minimal.on': { zh: '开启', en: 'On' },
   'minimal.off': { zh: '关闭', en: 'Off' },
+  'workbenchFrame.setting': { zh: '工作区边框', en: 'Workspace frame' },
+  'workbenchFrame.settingHint': {
+    zh: '两块独立：对话区和右栏各是一张圆角面板，中间留一条缝；一条线：不留缝，中间只画一条细线',
+    en: 'Separate panels: the conversation and right panel are rounded panels with a gap between; Single line: no gap, just a thin line between them',
+  },
+  'workbenchFrame.block': { zh: '两块独立', en: 'Separate panels' },
+  'workbenchFrame.line': { zh: '一条线', en: 'Single line' },
   'minimal.paletteMidnight': { zh: '极夜', en: 'Midnight' },
   'minimal.plan.title': { zh: '正在进行… {done}/{total}', en: 'In progress… {done}/{total}' },
   'minimal.plan.pressBefore': { zh: '按', en: 'Press' },

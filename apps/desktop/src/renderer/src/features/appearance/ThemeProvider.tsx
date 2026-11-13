@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { isDemo } from '@/data'
 import { PANE_FOCUS_MOTION_KEY, readPaneFocusMotion, type PaneFocusMotion } from './paneFocusMotion'
 import { MINIMAL_MODE_KEY, readMinimalMode, type MinimalMode } from './minimalMode'
+import { WORKBENCH_FRAME_KEY, readWorkbenchFrame, type WorkbenchFrame } from './workbenchFrame'
 import { windowBackground } from './palette'
 import { useCustomThemes } from './customTheme'
 
@@ -24,6 +25,9 @@ interface ThemeContextValue {
   /** 极简模式（docs/ui/minimal-mode.md） */
   minimal: MinimalMode
   setMinimal: (minimal: MinimalMode) => void
+  /** 工作区边框（docs/ui/minimal-mode.md §16） */
+  workbenchFrame: WorkbenchFrame
+  setWorkbenchFrame: (frame: WorkbenchFrame) => void
   /** 系统是否要求减少动态效果（Windows「动画效果」关闭时为 true） */
   systemReducedMotion: boolean
 }
@@ -75,6 +79,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [motion, setMotionState] = useState<MotionPreference>(readMotion)
   const [paneFocusMotion, setPaneFocusMotionState] = useState<PaneFocusMotion>(readPaneFocusMotion)
   const [minimal, setMinimalState] = useState<MinimalMode>(readMinimalMode)
+  const [workbenchFrame, setWorkbenchFrameState] = useState<WorkbenchFrame>(readWorkbenchFrame)
   const [systemReducedMotion, setSystemReducedMotion] = useState(() => window.matchMedia(REDUCED_MOTION).matches)
 
   useEffect(() => {
@@ -92,6 +97,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (e.key === MOTION_KEY || e.key === null) setMotionState(readMotion())
       if (e.key === PANE_FOCUS_MOTION_KEY || e.key === null) setPaneFocusMotionState(readPaneFocusMotion())
       if (e.key === MINIMAL_MODE_KEY || e.key === null) setMinimalState(readMinimalMode())
+      if (e.key === WORKBENCH_FRAME_KEY || e.key === null) setWorkbenchFrameState(readWorkbenchFrame())
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -108,6 +114,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.minimal = minimal
   }, [minimal])
+  useEffect(() => {
+    document.documentElement.dataset.workbenchFrame = workbenchFrame
+  }, [workbenchFrame])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -166,8 +175,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setMinimalState(next)
         if (!isDemo) save(MINIMAL_MODE_KEY, next)
       },
+      workbenchFrame,
+      setWorkbenchFrame: next => {
+        setWorkbenchFrameState(next)
+        if (!isDemo) save(WORKBENCH_FRAME_KEY, next)
+      },
     }),
-    [preference, resolved, motion, systemReducedMotion, paneFocusMotion, minimal],
+    [preference, resolved, motion, systemReducedMotion, paneFocusMotion, minimal, workbenchFrame],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

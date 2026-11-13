@@ -88,12 +88,12 @@ export function WorkspaceTabs({
           run: () => onSelect(tool.id),
         }))
   return (
-    <div data-panel-tabs className="flex h-10 min-w-0 shrink-0 items-center gap-1 border-b border-line-layout px-2">
+    <div data-panel-tabs className="flex h-8 min-w-0 shrink-0 items-stretch">
       <div
         ref={strip}
         role="tablist"
         aria-label={t('workspace.title')}
-        className="relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
+        className="relative flex min-w-0 flex-1 items-end gap-2 overflow-x-auto pt-1 [scrollbar-width:none]"
       >
         {layout.tabs.map(id => {
           const Icon = toolIcon(id) ?? FileText,
@@ -104,10 +104,9 @@ export function WorkspaceTabs({
               data-panel-tab={id}
               data-active={id === layout.active || undefined}
               className={cn(
-                'group flex h-7 max-w-[min(32rem,80vw)] shrink-0 items-center gap-1 rounded-md border pr-1',
-                id === layout.active
-                  ? 'border-line bg-surface text-fg shadow-sm'
-                  : 'border-transparent text-fg-muted hover:bg-hover',
+                // 轨道里的标签（样式在 panes.css）：当前标签 28 高连到内容上，别的 24 高、离底 4
+                'group mb-1 flex h-6 max-w-[min(32rem,80vw)] shrink-0 items-center gap-1 rounded-md pr-1',
+                id === layout.active ? 'text-fg' : 'text-fg-muted hover:bg-hover',
               )}
               onContextMenu={e => {
                 e.preventDefault()
@@ -176,7 +175,7 @@ export function WorkspaceTabs({
         <IconButton
           icon={ChevronDown}
           label={t('workspace.allTabs')}
-          size={28}
+          size={32}
           iconSize={15}
           aria-haspopup="menu"
           aria-expanded={menu?.all === true}
@@ -189,7 +188,7 @@ export function WorkspaceTabs({
       <IconButton
         icon={Plus}
         label={t('workspace.add')}
-        size={28}
+        size={32}
         iconSize={15}
         aria-haspopup="menu"
         aria-expanded={menu?.id === null && !menu.all}
@@ -202,14 +201,14 @@ export function WorkspaceTabs({
       <IconButton
         icon={maximized ? Minimize2 : Maximize2}
         label={t(maximized ? 'workspace.restore' : 'workspace.maximize')}
-        size={28}
+        size={32}
         iconSize={15}
         onClick={() => window.dispatchEvent(new Event('pixelsky:panel-maximize'))}
       />
       <IconButton
         icon={X}
         label={t('workspace.collapse')}
-        size={28}
+        size={32}
         iconSize={15}
         onClick={() => window.dispatchEvent(new Event('pixelsky:close-right-workspace'))}
       />

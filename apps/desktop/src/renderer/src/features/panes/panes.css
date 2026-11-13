@@ -202,15 +202,6 @@
   display: flex;
 }
 
-/* 标签栏 32 高，「+」24，和右侧面板的标签行齐 */
-:is([data-tab-bar], .pane-head) :is([data-tab-strip], [data-tab-new]) {
-  padding-block: 3px 4px;
-}
-:is([data-tab-bar], .pane-head) [data-tab-new] > button {
-  width: 24px;
-  height: 24px;
-}
-
 /* 对话标签栏（docs/ui/minimal-mode.md §15，样稿 minimal-tabs-fusion-mockup.html 的「融合 B」），正常模式和极简模式一样：
    整行是一条轨道，当前标签用内容区的底色往下接到内容上，两脚用反向圆角过渡；别的标签留在轨道里。
    内容区是透明的（.workbench-surface 只在最外层画 --bg-workbench），所以当前标签直接用 --bg-workbench 就和内容同色。
@@ -286,5 +277,70 @@
 }
 [data-tab-strip] [role='tab'][aria-selected='true']::after {
   right: -9px;
+  background: radial-gradient(circle at 100% 0, transparent 7px, var(--bg-workbench) 8px);
+}
+
+/* 轨道两端贴边（docs/ui/minimal-mode.md §16）：标签从轨道最左边开始；第一个标签是当前标签时没有左脚、往上长到轨道顶，
+   左上角是方的（两块独立时由面板圆角裁出来），字和别的标签在同一条线上。右边的按钮是整高 32×32 的方格，最后一个贴到右边 */
+:is([data-tab-bar], .pane-head) [data-tab-strip] {
+  /* 定高：第一个当前标签 32 高、伸进上面 4 的内边距里，不把标签条撑高 */
+  height: 32px;
+  padding-left: 0;
+}
+:is([data-tab-bar], .pane-head) .pane-head-content,
+.pane-head > div > :not(.pane-head-content) {
+  padding-right: 0;
+}
+:is([data-tab-bar], .pane-head) [data-tab-new] {
+  align-self: stretch;
+  padding: 0;
+}
+:is([data-tab-bar], .pane-head) [data-tab-new] > button {
+  width: 32px;
+  height: 32px;
+  border-radius: 0;
+}
+[data-tab-strip] > [role='tab'][aria-selected='true']:first-child,
+[data-panel-tabs] [role='tablist'] > [data-panel-tab][data-active]:first-child {
+  height: 32px;
+  padding-top: 4px;
+  border-top-left-radius: 0;
+}
+[data-tab-strip] > [role='tab'][aria-selected='true']:first-child::before,
+[data-panel-tabs] [role='tablist'] > [data-panel-tab][data-active]:first-child::before {
+  display: none;
+}
+
+/* 右栏标签栏也是轨道（和对话标签栏同一套）：32 高，当前标签用主区底色、两脚接到内容上，别的标签留在轨道里 */
+[data-panel-tabs] {
+  background: color-mix(in srgb, var(--ink) 7%, var(--bg-workbench));
+}
+[data-panel-tabs] > button {
+  align-self: stretch;
+  border-radius: 0;
+}
+[data-panel-tab][data-active] {
+  position: relative;
+  height: 28px;
+  margin-bottom: 0;
+  padding-bottom: 4px;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-workbench);
+}
+[data-panel-tab][data-active]::before,
+[data-panel-tab][data-active]::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+}
+[data-panel-tab][data-active]::before {
+  left: -8px;
+  background: radial-gradient(circle at 0 0, transparent 7px, var(--bg-workbench) 8px);
+}
+[data-panel-tab][data-active]::after {
+  right: -8px;
   background: radial-gradient(circle at 100% 0, transparent 7px, var(--bg-workbench) 8px);
 }

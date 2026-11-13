@@ -510,6 +510,98 @@
   --border-composer-focus: transparent;
   --bg-surface: color-mix(in srgb, var(--ink) 5%, var(--bg-workbench));
 }
+/* 工作区边框（docs/ui/minimal-mode.md §16，设置 → 外观 → 工作区边框，<html data-workbench-frame>）。
+   两块独立：标题栏和缝是侧栏底色；每个对话窗格、右栏各是一张主区底色的圆角面板，缝 8（块之间、右边、下边，左边挨着侧栏不留）。
+   细边画在面板里面的 ::after 上：面板外面一层 overflow:hidden，往外画的阴影会被裁掉 */
+:root[data-workbench-frame='block'] {
+  --frame-ring: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+:root[data-workbench-frame='block'][data-theme='dark'] {
+  --frame-ring: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+:root[data-workbench-frame='block'] .workbench-surface {
+  background: var(--bg-sidebar);
+}
+:root[data-workbench-frame='block'] .workbench-content {
+  padding: 0 8px 8px 0;
+}
+/* 侧栏收起时面板不贴窗口左边，左边也留缝 */
+:root[data-workbench-frame='block'] .workbench-surface[data-sidebar='closed'] .workbench-content {
+  padding-left: 8px;
+}
+:root[data-workbench-frame='block'] :is(.pane-box > [data-pane-id], [data-right-workspace]) {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--bg-workbench);
+}
+:root[data-workbench-frame='block'] :is(.pane-box > [data-pane-id], [data-right-workspace])::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--frame-ring);
+  pointer-events: none;
+}
+/* 右栏和对话区之间的缝；右栏放大时只剩它一块，不留。拖动把手（left:-4px 的 8px 条）挪到缝里 */
+:root[data-workbench-frame='block'] [data-right-workspace] {
+  margin-left: 8px;
+  border-left-width: 0;
+}
+:root[data-workbench-frame='block'] [data-vt-chat-conversation].hidden + [data-vt-chat-right] [data-right-workspace] {
+  margin-left: 0;
+}
+:root[data-workbench-frame='block'] .right-workspace-resize {
+  left: 0;
+}
+/* 分屏：窗格之间留缝，挨着别的窗格的那几边各留一半；分隔线平时不画（悬停、拖动时照旧显示强调色），
+   当前窗格的强调色框也不画，靠轨道深一档区分 */
+:root[data-workbench-frame='block'] .pane-box[data-inner~='l'] {
+  padding-left: 4px;
+}
+:root[data-workbench-frame='block'] .pane-box[data-inner~='r'] {
+  padding-right: 4px;
+}
+:root[data-workbench-frame='block'] .pane-box[data-inner~='t'] {
+  padding-top: 4px;
+}
+:root[data-workbench-frame='block'] .pane-box[data-inner~='b'] {
+  padding-bottom: 4px;
+}
+:root[data-workbench-frame='block'] .pane-divider:not(:hover, [data-active]) .pane-divider-line,
+:root[data-workbench-frame='block'] .pane-focus-frame {
+  display: none;
+}
+/* 分屏时当前窗格：面板那圈细边换成强调色；「切换窗格时：高亮」时先亮一下再收回（「滑动」在缝隔开的块之间没法滑，同样只亮框；「无」不画） */
+:root[data-workbench-frame='block']:not([data-pane-focus='none']) .pane-box > [data-pane-id][data-focused]::after {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+:root[data-workbench-frame='block'][data-pane-focus='flash'] .pane-box > [data-pane-id][data-focused]::after {
+  animation: pane-block-flash var(--dur-pane-focus) var(--ease-out);
+}
+@keyframes pane-block-flash {
+  from {
+    box-shadow:
+      inset 0 0 0 1px var(--accent),
+      inset 0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  to {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+}
+:root[data-motion='off'] .pane-box > [data-pane-id][data-focused]::after {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion='system'] .pane-box > [data-pane-id][data-focused]::after {
+    animation: none;
+  }
+}
+/* 一条线：整块主区底色、不留缝，对话区和右栏之间一条 1px 竖线（右栏本来就有左边线，主区的 --border-layout 是透明的） */
+:root[data-workbench-frame='line'] [data-right-workspace] {
+  border-left-color: color-mix(in srgb, var(--ink) 10%, transparent);
+}
 /* 「审查」这类次要按钮用 --border-strong（分屏的分隔线也用它，不能整体改） */
 .workbench-surface [data-button] {
   border-color: transparent;

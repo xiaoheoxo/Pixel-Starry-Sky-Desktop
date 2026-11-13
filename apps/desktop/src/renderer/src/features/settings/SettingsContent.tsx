@@ -41,7 +41,7 @@ import { scrollInPane } from '@/ui/scrollInPane'
 import { runMainAction } from './windowBridge'
 import { AccentSettings } from './AccentSettings'
 import { PaletteSettings } from './PaletteSettings'
-import { MinimalModeSettings } from './MinimalModeSettings'
+import { MinimalModeSettings, WorkbenchFrameSettings } from './MinimalModeSettings'
 import { ModeTransitionSettings } from './ModeTransitionSettings'
 import { WallpaperSettings } from './WallpaperSettings'
 import { GlassSettings } from './GlassSettings'
@@ -657,6 +657,7 @@ function AppearanceSection() {
       <FileIconThemeSettings />
       <EditorThemeSettings />
       <MinimalModeSettings />
+      <WorkbenchFrameSettings />
 
       {/* 壁纸在毛玻璃前面：毛玻璃的提示写着「在上面选壁纸」 */}
       <GroupTitle>{tr('settingsAppearance.wallpaper')}</GroupTitle>

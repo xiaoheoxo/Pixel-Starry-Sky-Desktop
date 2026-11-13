@@ -366,6 +366,11 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     title: '极简模式',
     keywords: '极简 简洁 紧凑 安静 阴影 密度 factory minimal compact clean density',
   },
+  {
+    section: 'appearance',
+    title: '工作区边框',
+    keywords: '边框 两块独立 一条线 分割线 缝 圆角 面板 外框 frame border panel divider',
+  },
   { section: 'appearance', title: '动画', keywords: '动效 过渡 减少动画' },
   { section: 'appearance', title: '切换窗格时', keywords: '窗格 分屏 高亮 滑动 焦点 动画' },
   {

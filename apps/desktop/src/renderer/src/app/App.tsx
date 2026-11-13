@@ -46,6 +46,7 @@ import { MachineStatus } from '../features/machines/MachineStatus'
 import { showWorkbench, usePage } from '../features/layout/page'
 import { ChannelsPage } from '../features/channels/ChannelsPage'
 import { TaskBoardPage } from '../features/board/TaskBoardPage'
+import { useTheme } from '../features/appearance/ThemeProvider'
 
 /** 各栏宽度，需与对应组件的 class 保持一致（docs/ui/workbench.md §2.1） */
 const SESSION_MIN_WIDTH = 464 // SessionView min-w-[464px]
@@ -64,14 +65,20 @@ function fitsChannels(sidebarOpen: boolean, sidebarWidth: number): boolean {
   )
 }
 
+/** 「两块独立」边框在主区右边多留的缝（globals.css；设置还没写到 <html> 上时按默认的两块独立算） */
+const frameGap = (sidebarOpen: boolean): number =>
+  document.documentElement.dataset.workbenchFrame === 'line' ? 0 : sidebarOpen ? 8 : 16
+
 /** 给定侧边栏、右侧面板的开合状态，当前窗口宽度能否放下所有打开的栏 */
 function fits(sidebarOpen: boolean, panelOpen: boolean, sidebarWidth: number, panelWidth: number): boolean {
-  const needed = (sidebarOpen ? sidebarWidth : 0) + SESSION_MIN_WIDTH + (panelOpen ? panelWidth : 0)
+  const needed =
+    (sidebarOpen ? sidebarWidth : 0) + SESSION_MIN_WIDTH + (panelOpen ? panelWidth : 0) + frameGap(sidebarOpen)
   return needed <= window.innerWidth
 }
 
 /** 布局：侧边栏 + 会话区（可拆成多个窗格，features/panes/）+ 右侧面板 */
 export function App() {
+  const { workbenchFrame } = useTheme()
   useI18n()
   const mode = useAppMode()
   // 主区显示工作台还是协作频道（docs/ui/channels.md §2）；工作台在频道页期间保持挂载
@@ -91,7 +98,9 @@ export function App() {
   // 没拖过时按窗口宽度自动算（docs/ui/workbench-ux-3.md §2.3）
   const savedPanelWidth = useLayoutSize('rightWorkspace')
   const preferredPanelWidth = savedPanelWidth ?? autoPanelWidth(windowWidth, preferredSidebarWidth)
-  const panelMax = Math.max(360, windowWidth - (sidebarOpen ? preferredSidebarWidth : 0) - SESSION_MIN_WIDTH)
+  // 两块独立：主区右边留 8；侧栏收起时左边也留 8（globals.css）
+  const gap = workbenchFrame === 'block' ? (sidebarOpen ? 8 : 16) : 0
+  const panelMax = Math.max(360, windowWidth - (sidebarOpen ? preferredSidebarWidth : 0) - SESSION_MIN_WIDTH - gap)
   const panelWidth = Math.min(preferredPanelWidth, panelMax)
   // 多对话窗格：第一次渲染前读出保存的布局（没有记录时打开默认会话），docs/ui/multi-pane.md
   useState(() => startPanes(defaultSessionId))
@@ -336,7 +345,10 @@ export function App() {
             )}
           </div>
           {/* 顶栏、会话与右面板直接拼接侧栏，主区不留外层间距或装饰轮廓。 */}
-          <div className="workbench-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div
+            className="workbench-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            data-sidebar={sidebarOpen ? 'open' : 'closed'}
+          >
             <WorkspaceHeader
               sidebarOpen={sidebarOpen}
               panelOpen={panelOpen}
@@ -368,7 +380,7 @@ export function App() {
                 <div data-vt-chat-right className="relative flex min-h-0 shrink-0">
                   <CollapsibleSlot
                     open={panelOpen}
-                    width={panelMaximized ? windowWidth - (sidebarOpen ? sidebarWidth : 0) : panelWidth}
+                    width={panelMaximized ? windowWidth - (sidebarOpen ? sidebarWidth : 0) - gap : panelWidth}
                     side="right"
                   >
                     <RightPanel maximized={panelMaximized} visible={panelOpen} />
