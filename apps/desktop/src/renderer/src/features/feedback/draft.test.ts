@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_DRAFT, clearDraft, draftKey, loadDraft, sanitizeDraft, saveDraft } from './draft'
+import type { ImageAttachment } from '@pixelsky/protocol'
+import {
+  EMPTY_DRAFT,
+  clearDraft,
+  draftKey,
+  loadDraft,
+  loadDraftImages,
+  sanitizeDraft,
+  saveDraft,
+  saveDraftImages,
+} from './draft'
 
 function fakeStorage() {
   const map = new Map<string, string>()
@@ -41,5 +51,14 @@ describe('feedback draft', () => {
     s.map.set(draftKey('a@x.com'), '{nope')
     expect(loadDraft('a@x.com', s)).toEqual(EMPTY_DRAFT)
     expect(sanitizeDraft({ type: 'zzz', title: 5, logs: 'x', window: 'y' })).toEqual(EMPTY_DRAFT)
+  })
+
+  it('图片按账号留在内存里，提交成功（clearDraft）后清掉', () => {
+    const shot = { id: 'i1', name: 'shot.png' } as ImageAttachment
+    saveDraftImages('a@x.com', [shot])
+    expect(loadDraftImages('a@x.com')).toEqual([shot])
+    expect(loadDraftImages('b@x.com')).toEqual([])
+    clearDraft('a@x.com', fakeStorage())
+    expect(loadDraftImages('a@x.com')).toEqual([])
   })
 })

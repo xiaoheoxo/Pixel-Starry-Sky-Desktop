@@ -1,5 +1,5 @@
 // 反馈里的截图：粘贴、拖入或选择文件，最多 FEEDBACK_LIMITS.images 张；点图片可标注（复用输入框的图片附件组件）
-import { useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { ImagePlus } from 'lucide-react'
 import type { ImageAttachment } from '@pixelsky/protocol'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -9,6 +9,7 @@ import { ImageAttachments } from '@/features/session/attachments/ImageAttachment
 import { isImageFile } from '@/features/session/attachments/files'
 import { readImage } from '@/features/session/attachments/images'
 import { FEEDBACK_LIMITS, type FeedbackImageInput } from '../../../../shared/types/feedback'
+import { loadDraftImages, saveDraftImages } from './draft'
 import { errorText } from './logic'
 
 export interface FeedbackImages {
@@ -31,8 +32,12 @@ export interface FeedbackImages {
 // 支持的图片，加上 MIME 是 image/* 但格式不支持的（如 SVG）：后者交给 readImage 报「图片类型不对」，不悄悄忽略
 const acceptable = (file: File): boolean => isImageFile(file) || file.type.startsWith('image/')
 
-export function useFeedbackImages(): FeedbackImages {
-  const [images, setImages] = useState<ImageAttachment[]>([])
+/** draftEmail：新反馈表单传账号，图片跟草稿一起留在内存里，关掉再打开还在；回复框不传 */
+export function useFeedbackImages(draftEmail?: string): FeedbackImages {
+  const [images, setImages] = useState<ImageAttachment[]>(() => (draftEmail ? loadDraftImages(draftEmail) : []))
+  useEffect(() => {
+    if (draftEmail) saveDraftImages(draftEmail, images)
+  }, [draftEmail, images])
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)

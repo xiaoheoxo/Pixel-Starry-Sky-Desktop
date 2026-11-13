@@ -64,6 +64,11 @@ export const feedbackMessages = {
   'feedback.githubOpen': { zh: '去 GitHub 提交 issue', en: 'Open an issue on GitHub' },
 
   'feedback.form.title': { zh: '标题', en: 'Title' },
+  'feedback.form.restored': { zh: '已恢复上次没提交的草稿', en: 'Restored your unsent draft' },
+  'feedback.form.restoredImages': {
+    zh: '已恢复上次没提交的草稿（含 {n} 张图片）',
+    en: 'Restored your unsent draft ({n} images)',
+  },
   'feedback.form.titlePlaceholder': { zh: '一句话说清楚', en: 'Summarise it in one line' },
   'feedback.form.body': { zh: '描述', en: 'Description' },
   'feedback.form.bodyBug': {

@@ -4,7 +4,6 @@ import { Plus } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { Button, cn } from '@/ui'
-import { DiscardBar } from '@/ui/DiscardBar'
 import {
   FEEDBACK_LIMITS,
   type FeedbackDetail,
@@ -12,7 +11,7 @@ import {
   type FeedbackType,
 } from '../../../../shared/types/feedback'
 import { AttachmentOptions } from './AttachmentOptions'
-import { clearDraft, loadDraft, saveDraft, type LogWindow } from './draft'
+import { clearDraft, isEmptyDraft, loadDraft, saveDraft, type LogWindow } from './draft'
 import type { FeedbackPrefill } from './focus'
 import { ImageField, toImageInputs, useFeedbackImages } from './ImageField'
 import { checkCreate, clipErrorText, composeBody, errorText, isAuthExpired, type LimitReason } from './logic'
@@ -83,6 +82,7 @@ export function FeedbackForm({
     const wantsLogs = !!(prefill?.logs || prefill?.logsSince || prefill?.error)
     return {
       ...draft,
+      restored: !isEmptyDraft(draft),
       type: prefill?.type ?? draft.type,
       logs: wantsLogs ? true : draft.logs,
       window: prefill?.logsSince ? ('around' as const) : draft.window,
@@ -100,20 +100,21 @@ export function FeedbackForm({
   const [includeError, setIncludeError] = useState(true)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  // 文字有本地草稿兜底，粘贴 / 拖进来的图片没有：带着图片取消先问一句
-  const [asking, setAsking] = useState(false)
   // 第一次点提交以后才在对应框下面显示红字，之后实时更新
   const [attempted, setAttempted] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
-  const images = useFeedbackImages()
+  const images = useFeedbackImages(email)
+  // 打开时有上次没提交的草稿（文字或图片）就在顶部说一句；只看打开那一刻
+  const [restoredImages] = useState(images.images.length)
+  const restored = initial.restored || restoredImages > 0
 
   const around = prefill?.logsSince ?? null
   const logsOn = logsFlag ?? type === 'bug'
   const effectiveRange: LogWindow = range === 'around' && around === null ? '2h' : range
   const preview = useFeedbackPreview(logsOn, effectiveRange, around)
 
-  // 草稿（不存图片和日志原文）
+  // 草稿（图片在 useFeedbackImages 里另存内存，日志原文不存）
   useEffect(() => {
     saveDraft(email, { type, title, body, steps, diagnostics, logs: logsFlag, window: range })
   }, [email, type, title, body, steps, diagnostics, logsFlag, range])
@@ -196,6 +197,11 @@ export function FeedbackForm({
       }}
       className="flex flex-col gap-5"
     >
+      {restored && (
+        <p data-feedback-restored className="rounded-md bg-subtle px-3 py-2 text-meta text-fg-muted">
+          {restoredImages ? tr('feedback.form.restoredImages', { n: restoredImages }) : tr('feedback.form.restored')}
+        </p>
+      )}
       <fieldset>
         <legend className="mb-2 text-ui font-medium text-fg">{tr('feedback.form.typeQuestion')}</legend>
         <div role="radiogroup" aria-label={tr('feedback.type.label')} className="grid grid-cols-3 gap-2.5">
@@ -337,7 +343,7 @@ export function FeedbackForm({
               {reasonText(reason)}
             </span>
           )}
-          <Button onClick={() => (images.images.length ? setAsking(true) : onCancel())} disabled={busy}>
+          <Button onClick={onCancel} disabled={busy}>
             {tr('feedback.form.cancel')}
           </Button>
           <Button variant="primary" type="submit" disabled={busy || reason?.code === 'previewing'}>
@@ -345,7 +351,6 @@ export function FeedbackForm({
             {!busy && <span className="ml-1.5 font-mono text-label opacity-70">{SEND_HINT}</span>}
           </Button>
         </div>
-        {asking && <DiscardBar onKeep={() => setAsking(false)} onDiscard={onCancel} />}
       </div>
     </form>
   )

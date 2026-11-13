@@ -1,4 +1,5 @@
-// 新反馈的草稿（docs/ui/feedback.md §2.3）：按账号存在 localStorage，不存图片和日志原文；提交成功后清掉
+// 新反馈的草稿（docs/ui/feedback.md §2.3）：文字按账号存在 localStorage，图片只放内存（重启就没了），不存日志原文；提交成功后清掉
+import type { ImageAttachment } from '@pixelsky/protocol'
 import type { FeedbackType } from '../../../../shared/types/feedback'
 
 export type LogWindow = 'around' | '30m' | '2h' | '24h'
@@ -71,7 +72,16 @@ export function saveDraft(
   }
 }
 
+// localStorage 放不下图片：按账号放在内存里，关掉表单再打开还在
+const draftImages = new Map<string, ImageAttachment[]>()
+export const loadDraftImages = (email: string): ImageAttachment[] => draftImages.get(email) ?? []
+export function saveDraftImages(email: string, images: ImageAttachment[]): void {
+  if (images.length) draftImages.set(email, images)
+  else draftImages.delete(email)
+}
+
 export function clearDraft(email: string, storage: Pick<Storage, 'removeItem'> = localStorage): void {
+  draftImages.delete(email)
   try {
     storage.removeItem(draftKey(email))
   } catch {
