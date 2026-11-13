@@ -317,7 +317,8 @@ function summary(b: UsageBucket, title: string, current: boolean): string {
   ].join('，')
 }
 
-/** 浮动明细：数值用正文色，系列只靠左边的色块区分；靠右半边时翻到左侧 */
+/** 浮动明细：数值用正文色，系列只靠左边的色块区分；靠右半边时翻到左侧。
+ *  比图高：底边对齐图的底边往上长（卡片 overflow-hidden，图上面有标题行和刻度，下面只有一行日期） */
 function Tooltip({
   colors,
   account,
@@ -346,7 +347,7 @@ function Tooltip({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute top-0 z-10 min-w-44 rounded-lg border border-line bg-popover px-3 py-2 text-meta whitespace-nowrap shadow-popover"
+      className="pointer-events-none absolute bottom-0 z-10 min-w-44 rounded-lg border border-line bg-popover px-3 py-2 text-meta whitespace-nowrap shadow-popover"
       style={{ left: x, transform: flip ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)' }}
     >
       <div className="mb-1.5 font-medium text-fg">
