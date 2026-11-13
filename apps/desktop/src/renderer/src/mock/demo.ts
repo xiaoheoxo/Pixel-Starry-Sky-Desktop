@@ -4,6 +4,7 @@ import type { AppData } from '@/data/types'
 import { COMPOSER } from '@/data/constants'
 import { DEMO_TEAMS, demoChannelData } from './channels'
 import { SHOWCASE_PROJECT, SHOWCASE_SESSIONS, showcaseSnapshots } from './conversations'
+import { CODEX_FLOW_PROJECT, CODEX_FLOW_SESSIONS, codexFlowSnapshots } from './codexFlow'
 import { CODING_SESSION } from './coding'
 import { BRANCH_MERGE_SESSIONS } from './branchMerge'
 import { statusDemoProjects } from './statusDemo'
@@ -130,6 +131,17 @@ export const demo: AppData = {
         id: s.id,
         title: s.title,
         status: showcaseSnapshots[s.id].state === 'idle' ? ('idle' as const) : ('running' as const),
+      })),
+    },
+    // Codex 普通模式：中间的回复直接显示、动作按段收起（docs/ui/codex-flow-slash-feedback.md A）
+    {
+      id: CODEX_FLOW_PROJECT,
+      name: '对话展示（Codex）',
+      expanded: true,
+      sessions: CODEX_FLOW_SESSIONS.map(s => ({
+        id: s.id,
+        title: s.title,
+        status: codexFlowSnapshots[s.id].state === 'idle' ? ('idle' as const) : ('running' as const),
       })),
     },
     // 侧栏对话的状态图标（docs/ui/sidebar-status-icons.md）：每种问题、每种 PR 一个对话

@@ -12,7 +12,7 @@ describe('工作台演示会话', () => {
       ...demo.projects.flatMap(p => [...p.sessions, ...(p.archived ?? [])].map(s => s.id)),
       ...demo.pinned.filter(p => p.kind === 'session').map(p => p.id),
       ...demo.recent.map(r => r.id),
-    ].filter(id => !id.startsWith('demo-claude-') && !id.startsWith('demo-coding-'))
+    ].filter(id => !id.startsWith('demo-claude-') && !id.startsWith('demo-coding-') && !id.startsWith('demo-codex-'))
     expect(ids.length).toBeGreaterThan(5)
     for (const id of ids) {
       expect(workbenchSnapshots[id], id).toBeDefined()

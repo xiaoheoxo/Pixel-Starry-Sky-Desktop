@@ -303,3 +303,78 @@ describe('子智能体：box / inline', () => {
     expect([...turnReplies(items, box)]).toEqual([['s', 'a']])
   })
 })
+
+describe('穿插：中间的回复直接显示（docs/ui/codex-flow-slash-feedback.md A，D276）', () => {
+  const on = { interleave: true }
+
+  it('有字的回复都在外面，两段回复之间的工具各成一段；最后一段带用时', () => {
+    const items = [
+      user('u1'),
+      think('r1'),
+      say('a1'),
+      read('t1'),
+      run('c1'),
+      say('a2'),
+      edit('e1', 'x.ts'),
+      run('c2'),
+      say('a3'),
+      stats('s'),
+    ]
+    const entries = foldTurns(items, false, on)
+    expect(shape(entries)).toEqual(['u1', 'a1', ['r1', 't1', 'c1'], 'a2', ['e1', 'c2'], 'a3', 's'])
+    expect(entries[2]).toMatchObject({ durationMs: null })
+    expect(entries[4]).toMatchObject({ durationMs: 1234 })
+  })
+
+  it('思考跟着它所在那一段；只有思考的一段并进后面那段有工具的，后面没有就照原样显示', () => {
+    const entries = foldTurns(
+      [user('u1'), think('r0'), say('a1'), run('c1'), think('r2'), say('a2'), think('r3'), say('a3'), stats('s')],
+      false,
+      on,
+    )
+    expect(shape(entries)).toEqual(['u1', 'a1', ['r0', 'c1', 'r2'], 'a2', 'r3', 'a3', 's'])
+    // 隔着警告不并
+    const warned = foldTurns(
+      [user('u1'), think('r0'), notice('w', 'warn'), run('c1'), say('a1'), stats('s')],
+      false,
+      on,
+    )
+    expect(shape(warned)).toEqual(['u1', 'r0', 'w', ['c1'], 'a1', 's'])
+  })
+
+  it('运行中：正在输出的文字也在外面；最后一段后面已经有回复时它不算正在跑', () => {
+    const working = foldTurns([user('u1'), say('a1'), run('c1', 'running')], true, on)
+    expect(shape(working)).toEqual(['u1', 'a1', ['c1']])
+    expect(working[2]).toMatchObject({ running: true })
+    const talking = foldTurns([user('u1'), say('a1'), run('c1'), say('a2', 'running')], true, on)
+    expect(shape(talking)).toEqual(['u1', 'a1', ['c1'], 'a2'])
+    expect(talking[2]).toMatchObject({ running: false })
+  })
+
+  it('引导、警告照样打断；空白文字收进段里', () => {
+    const blank: Item = { kind: 'assistant', id: 'b', text: '  ', status: 'completed' }
+    const entries = foldTurns(
+      [
+        user('u1'),
+        run('c1'),
+        user('g', 'guidance'),
+        run('c2'),
+        blank,
+        notice('w', 'warn'),
+        run('c3'),
+        say('a1'),
+        stats('s'),
+      ],
+      false,
+      on,
+    )
+    expect(shape(entries)).toEqual(['u1', ['c1'], 'g', ['c2', 'b'], 'w', ['c3'], 'a1', 's'])
+  })
+
+  it('复制用的最后回复不变；不开时和原来一样', () => {
+    const items = [user('u1'), say('a1'), run('c1'), say('a2'), stats('s')]
+    expect(turnReplies(items)).toEqual(new Map([['s', 'a2']]))
+    expect(shape(foldTurns(items, false))).toEqual(['u1', ['a1', 'c1'], 'a2', 's'])
+    expect(shape(foldTurns(items, false, on))).toEqual(['u1', 'a1', ['c1'], 'a2', 's'])
+  })
+})

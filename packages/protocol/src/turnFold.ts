@@ -16,6 +16,11 @@ const isTool = (item: Item): boolean => item.kind === 'command' || item.kind ===
  */
 export interface FoldOptions {
   subagents?: 'box' | 'inline'
+  /**
+   * 中间的回复直接显示（docs/ui/codex-flow-slash-feedback.md A，D276）：有字的助手文字都不收进执行块、把它断开，
+   * 两段回复之间的过程各成一段；没有工具调用的一段（只有思考、信息提示）照原样显示。现在只有 Codex 会话开
+   */
+  interleave?: boolean
 }
 
 /** 主智能体派出子智能体的调用（Agent / Task / Workflow、Codex 协作智能体） */
@@ -65,25 +70,28 @@ const isTurnUser = (item: Item): boolean => item.kind === 'user' && item.mode !=
  * 最后的回复、统计行一直显示。运行中正在输出、前面已经有过程的文字先留在执行块里（不然一调工具它就从外面跳进去），
  * 这一轮结束后才作为最后的回复显示在外面
  */
-function foldTurn(turn: Item[], running: boolean, box: boolean): TurnEntry[] {
+function foldTurn(turn: Item[], running: boolean, box: boolean, interleave: boolean): TurnEntry[] {
   let reply = replyIndex(turn, box)
   const candidate = turn[reply]
   // 不只看这段文字是不是还在输出：一段话说完、下一个工具调用还没到的那一会儿，它也要留在执行块里，
-  // 不然先跳到外面（和执行块里的条目不对齐）、工具一来又跳回去。有了统计行才算这一轮结束
+  // 不然先跳到外面（和执行块里的条目不对齐）、工具一来又跳回去。有了统计行才算这一轮结束。
+  // 穿插时文字本来就都在外面，不会跳
   const ended = turn.some(item => item.kind === 'turn_stats')
-  if (running && !ended && candidate?.kind === 'assistant') {
+  if (!interleave && running && !ended && candidate?.kind === 'assistant') {
     const before = turn.slice(0, reply).some(item => !alwaysVisible(item, box))
     if (before) reply = -1
   }
-  const process = turn.filter((item, i) => i !== reply && !alwaysVisible(item, box))
+  const said = (item: Item): boolean => interleave && item.kind === 'assistant' && !!item.text.trim()
+  const shown = (item: Item, i: number): boolean => i === reply || alwaysVisible(item, box) || said(item)
+  const process = turn.filter((item, i) => !shown(item, i))
   // 没有工具调用、只有一条（只有一段思考、一条信息提示）：照原样显示
   if (process.length === 0 || (process.length === 1 && !isTool(process[0])))
     return turn.map(item => ({ type: 'item', item }))
   const out: (TurnEntry | { type: 'segment'; items: Item[] })[] = []
   let segment: { type: 'segment'; items: Item[] } | null = null
   turn.forEach((item, i) => {
-    if (i === reply || alwaysVisible(item, box)) {
-      if (interrupts(item, box)) segment = null
+    if (shown(item, i)) {
+      if (interrupts(item, box) || said(item)) segment = null
       out.push({ type: 'item', item })
     } else if (segment) segment.items.push(item)
     else {
@@ -91,21 +99,40 @@ function foldTurn(turn: Item[], running: boolean, box: boolean): TurnEntry[] {
       out.push(segment)
     }
   })
+  // 穿插时 Codex 先想再说再做：只有思考的一段并进后面最近那段有工具的（中间只隔着回复），
+  // 不单独占一行，那一段的标题也取得到这段思考（D276）
+  if (interleave)
+    out.forEach((e, i) => {
+      if (e.type !== 'segment' || e.items.some(isTool)) return
+      for (const f of out.slice(i + 1)) {
+        if (f.type === 'segment') {
+          if (f.items.some(isTool)) f.items.unshift(...e.items.splice(0))
+          return
+        }
+        if (f.type !== 'item' || !said(f.item)) return
+      }
+    })
   const stats = turn.find(item => item.kind === 'turn_stats')
-  const segments = out.filter(e => e.type === 'segment')
+  const segments = out.filter(e => e.type === 'segment' && e.items.length > 0)
   const last = segments[segments.length - 1]
-  return out.map((e): TurnEntry => {
-    if (e.type !== 'segment') return e
-    // 被打断后只剩一条、又不是工具调用的一段：照原样显示
-    if (e.items.length === 1 && !isTool(e.items[0])) return { type: 'item', item: e.items[0] }
-    return {
-      type: 'process',
-      key: `process-${e.items[0].id}`,
-      items: e.items,
-      running: running && e === last,
-      // 用时是整轮的：放在最后一段上
-      durationMs: e === last && stats?.kind === 'turn_stats' ? stats.usage.durationMs : null,
-    }
+  // 穿插时最后一段后面已经有回复了，那一段就做完了；统计行、提示不算
+  const settled = interleave && out.slice(out.indexOf(last) + 1).some(e => e.type === 'item' && said(e.item))
+  return out.flatMap((e): TurnEntry[] => {
+    if (e.type !== 'segment') return [e]
+    if (e.items.length === 0) return []
+    // 被打断后只剩一条、又不是工具调用的一段：照原样显示；穿插时没有工具调用的一段都照原样显示
+    if ((e.items.length === 1 || interleave) && !e.items.some(isTool))
+      return e.items.map(item => ({ type: 'item', item }))
+    return [
+      {
+        type: 'process',
+        key: `process-${e.items[0].id}`,
+        items: e.items,
+        running: running && e === last && !settled,
+        // 用时是整轮的：放在最后一段上
+        durationMs: e === last && stats?.kind === 'turn_stats' ? stats.usage.durationMs : null,
+      },
+    ]
   })
 }
 
@@ -117,7 +144,7 @@ function foldTurn(turn: Item[], running: boolean, box: boolean): TurnEntry[] {
 export function foldTurns(items: readonly Item[], running: boolean, options: FoldOptions = {}): TurnEntry[] {
   const box = options.subagents === 'box'
   const turns = splitTurns(box ? items.filter(item => !isSubagentWork(item)) : items)
-  return turns.flatMap((turn, i) => foldTurn(turn, running && i === turns.length - 1, box))
+  return turns.flatMap((turn, i) => foldTurn(turn, running && i === turns.length - 1, box, !!options.interleave))
 }
 
 export function splitTurns(items: readonly Item[]): Item[][] {

@@ -226,3 +226,32 @@ describe('「仍要执行」发送失败后收起再展开', () => {
     expect(reviewRetryDone(false, false, 's1', 'c')).toBe(false)
   })
 })
+
+describe('stepTitle：一组过程的标题（D276）', () => {
+  const thought = (id: string, text: string): Item => ({ kind: 'reasoning', id, text, status: 'completed' })
+  const cmd: Item = {
+    kind: 'command',
+    id: 'c',
+    command: 'ls',
+    description: null,
+    output: '',
+    exitCode: 0,
+    status: 'running',
+  }
+  it('取最近一段思考里最后一个 **标题**，照原文', async () => {
+    const { stepTitle } = await import('./currentStep')
+    const items = [
+      thought('r1', '**Preparing model**\n\nI need to look first'),
+      cmd,
+      thought('r2', '**Outlining design**\n\nbody\n\n**Validating model**\n\nmore'),
+    ]
+    expect(stepTitle(items)).toBe('Validating model')
+    expect(stepTitle([thought('r', '**验证三个版本的候选来源**')])).toBe('验证三个版本的候选来源')
+  })
+  it('没有带标题的思考（Claude 那种整段话、空思考、只有工具）：null', async () => {
+    const { stepTitle } = await import('./currentStep')
+    expect(stepTitle([thought('r', '用户想把经验接到 AuraSkills……'), cmd])).toBeNull()
+    expect(stepTitle([thought('r', ''), cmd])).toBeNull()
+    expect(stepTitle([cmd])).toBeNull()
+  })
+})

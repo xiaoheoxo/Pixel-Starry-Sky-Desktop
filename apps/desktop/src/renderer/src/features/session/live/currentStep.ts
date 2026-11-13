@@ -217,3 +217,17 @@ export function liveStatus(items: readonly Item[]): LiveStatus {
   if (step) return { ...liveStep(step.item), more: step.more }
   return { verb: tr(`session.wait.${waitingFor(items)}`), object: null, more: 0 }
 }
+
+/**
+ * 一组过程的标题（docs/ui/codex-flow-slash-feedback.md A.3，D276）：Codex 的思考摘要每段以「**标题**」开头，
+ * 取这一组里最近的那个（照原文，多为英文）；没有带标题的思考时 null
+ */
+export function stepTitle(items: readonly Item[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item.kind !== 'reasoning') continue
+    const titles = [...item.text.matchAll(/^\s*\*\*([^*\n]{2,120})\*\*/gm)]
+    if (titles.length) return titles[titles.length - 1][1].trim()
+  }
+  return null
+}

@@ -41,6 +41,7 @@ import { demoSearchProjects, searchDemo } from './search'
 import { demoSessions } from './sessionLifecycle'
 import { demoRewindPreview, demoSideAnswer } from './branch'
 import { codexResumeSnapshots, demoNativeSessions } from './native'
+import { codexFlowSnapshots } from './codexFlow'
 import { demoTerminalOutput, demoTerminalProfiles } from './terminal'
 import { demoStore } from './store'
 import { createDemoCheckout } from './checkout'
@@ -98,6 +99,7 @@ export const demoSource: DemoSource = {
       ...workbenchSnapshots,
       ...codingSnapshots,
       ...codexResumeSnapshots,
+      ...codexFlowSnapshots,
     },
     subagentTranscript: showcaseSubagentTranscript,
     taskOutput: showcaseTaskOutput,

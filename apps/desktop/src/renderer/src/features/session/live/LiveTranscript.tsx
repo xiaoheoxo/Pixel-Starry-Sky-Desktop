@@ -91,6 +91,7 @@ import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
 import { TurnProcess, processOpenByDefault } from './TurnProcess'
+import { ProcessGroup } from './ProcessGroup'
 import { AutoFoldRow } from './AutoFoldRow'
 import { foldBlocks, foldPoint, samePoint, type FoldEntry, type FoldPoint } from './autoFold'
 import { useOlderFoldOff } from './olderFoldSwitch'
@@ -249,6 +250,7 @@ const ProcessBlock = memo(
     toggled,
     onToggle,
     mode,
+    group,
     render,
   }: {
     foldKey: string
@@ -261,6 +263,8 @@ const ProcessBlock = memo(
     onToggle: (key: string, open: boolean) => void
     /** 查看模式：要进 memo 比较，否则切模式不重画（docs/ui/view-mode.md §7） */
     mode: ViewMode
+    /** 穿插显示的一组（ProcessGroup），不是整轮的「执行」 */
+    group: boolean
     highlight: string | null
     render: (items: Item[]) => ReactNode
   }) {
@@ -275,15 +279,26 @@ const ProcessBlock = memo(
     )
     return (
       <div className="conversation-message" style={style}>
-        <TurnProcess
-          items={items}
-          running={running}
-          latest={latest}
-          durationMs={durationMs}
-          toggled={toggled}
-          onToggle={toggle}
-          render={render}
-        />
+        {group ? (
+          <ProcessGroup
+            items={items}
+            running={running}
+            durationMs={durationMs}
+            toggled={toggled}
+            onToggle={toggle}
+            render={render}
+          />
+        ) : (
+          <TurnProcess
+            items={items}
+            running={running}
+            latest={latest}
+            durationMs={durationMs}
+            toggled={toggled}
+            onToggle={toggle}
+            render={render}
+          />
+        )}
       </div>
     )
   },
@@ -293,6 +308,7 @@ const ProcessBlock = memo(
     a.toggled === b.toggled &&
     a.onToggle === b.onToggle &&
     a.mode === b.mode &&
+    a.group === b.group &&
     a.durationMs === b.durationMs &&
     a.highlight === b.highlight &&
     sameItems(a.items, b.items),
@@ -465,10 +481,12 @@ export function LiveTranscript({
   // 断线自动重连：自动发的「继续」显示成一行小字，接着重连了的那几次断线报错不显示
   const pendingReconnect = !!snapshot?.queue.some(isReconnecting)
   const reconnects = useMemo(() => reconnectView(shownItems, pendingReconnect), [shownItems, pendingReconnect])
+  // Codex 普通模式：中间的回复直接显示，两段回复之间的过程各收成一行（docs/ui/codex-flow-slash-feedback.md A，D276）
+  const interleave = snapshot?.record.engine === 'codex' && viewMode.mode === 'normal'
   const blocks = useMemo(() => {
     if (changesCache.current.sessionId !== sessionId) changesCache.current = { sessionId, map: new Map() }
-    return toBlocks(reconnects.items, running, changesCache.current.map, { subagents })
-  }, [reconnects, running, sessionId, subagents])
+    return toBlocks(reconnects.items, running, changesCache.current.map, { subagents, interleave })
+  }, [reconnects, running, sessionId, subagents, interleave])
   // 每轮统计行对应的回复：和显示在外面的「最后的回复」是同一段（中间穿插工具调用的过渡话不算）
   // 每轮的版本（全部保留之后又有新改动要能看出来）；按完整快照算，和编辑器里 useTurnChanges 的 revision 一致
   const revisions = useMemo(() => turnRevisions(snapshot?.items ?? NO_ITEMS), [snapshot?.items])
@@ -842,6 +860,7 @@ export function LiveTranscript({
           toggled={folds[b.key] ?? null}
           onToggle={setFold}
           mode={viewMode.mode}
+          group={interleave}
           highlight={highlight}
           render={list => innerBlocks(list).map((inner, j) => renderBlock(inner, j, true))}
         />
