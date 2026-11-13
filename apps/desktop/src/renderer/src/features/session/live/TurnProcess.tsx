@@ -11,6 +11,7 @@ import { planResult } from './progressData'
 import { planSections, type PlanSection } from './planStages'
 import { summarize, type ProcessSummary } from './turnFold'
 import { useMinimal } from '@/features/appearance/ThemeProvider'
+import { ImageThumbs } from '../attachments/ImageAttachments'
 import { failedItems, thinkingSegments, useRowMode, type ViewMode } from '../viewMode'
 
 /** 运行中收起时露出的最近几条 */
@@ -245,6 +246,12 @@ export function TurnProcess({
     )
   // 收起时不在页面上的条目：对话内搜索算进「折叠中还有 N 处」
   const hidden = open ? [] : ids.filter(id => !tail.some(i => i.id === id))
+  // 收起时，藏起来的那几行里模型看过的图直接排在「执行」下面（露出来的行自己带缩略图）
+  const viewed = open
+    ? []
+    : items.flatMap(i =>
+        i.kind === 'tool' && !tail.includes(i) ? (i.images ?? []).map(image => ({ image, itemId: i.id })) : [],
+      )
   return (
     <div data-fold={open ? 'open' : 'closed'} data-fold-items={hidden.join(' ') || undefined} data-turn-process>
       <button
@@ -301,6 +308,11 @@ export function TurnProcess({
           className={cn('shrink-0 transition-transform duration-(--dur-fast)', open && 'rotate-90')}
         />
       </button>
+      {viewed.length > 0 && (
+        <div className="mt-1 mb-0.5 ml-[31px]">
+          <ImageThumbs entries={viewed} />
+        </div>
+      )}
       {open && sections ? (
         <div className="mt-1">
           {/* 分步时不画清单；展开了就画出来，全局搜索跳到清单这一条才找得到 */}

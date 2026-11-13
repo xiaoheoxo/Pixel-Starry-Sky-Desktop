@@ -918,6 +918,17 @@ const userMessages = snapshot(record('demo-claude-user', { updatedAt: T0 - 15 * 
       image('img-error', '报错弹窗.png', ERROR_PNG, 180, 120),
     ],
   }),
+  // 模型自己读了一张截图：看图那一行下面直接一排缩略图（docs/ui/image-view-thumbnail-mockup.html）
+  {
+    kind: 'tool',
+    id: 'c-t1',
+    tool: 'read',
+    name: 'Read',
+    title: 'docs/screenshots/草稿丢失.png',
+    output: '[图片]',
+    status: 'completed',
+    images: [image('c-t1-img0', '草稿丢失.png', SCREENSHOT_PNG, 240, 150)],
+  },
   assistant(
     'c-a1',
     '看了截图和 `src/session/Composer.jsx`：切换会话后输入框是空的，因为草稿存在组件 state 里，组件重新挂载就没了。第二张图的报错是另一个问题（保存设置时网络断开），和草稿无关。',

@@ -52,7 +52,7 @@ import { pathHint, revealPath } from '@/features/files/reveal'
 import { taskNoticeText } from './subagentBoxModel'
 import { foldNotice } from './noticeFold'
 import { getActiveWorkspace } from '@/features/editor/target'
-import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
+import { ImageAttachments, ImageThumbs } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import { Markdown } from '@/ui/markdown/Markdown'
 import { MarkdownImage } from '@/ui/markdown/MarkdownImage'
@@ -1063,13 +1063,24 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
             </Clamp>
           </pre>
         ))}
-      {open && images.length > 0 && (
+      {images.length > 0 && (
         <div className="mt-1 mb-1.5 ml-[23px]">
-          <ImageAttachments images={images} itemId={item.id} />
+          {/* 模型看过的图收着时也直接一排缩略图，点开这一行再看带文件名的（docs/ui/image-view-thumbnail-mockup.html） */}
+          {open ? (
+            <ImageAttachments images={images} itemId={item.id} />
+          ) : (
+            <ImageThumbs entries={images.map(image => ({ image, itemId: item.id }))} />
+          )}
         </div>
       )}
-      {open && viewedImage && (
-        <div className="mt-1 mb-1.5 ml-[23px]">
+      {viewedImage && (
+        <div
+          className={cn(
+            'mt-1 mb-1.5 ml-[23px]',
+            !open &&
+              'h-[84px] w-[132px] overflow-hidden rounded-lg border border-line-card bg-subtle [&_img]:size-full [&_img]:max-h-none [&_img]:rounded-none [&_img]:object-cover',
+          )}
+        >
           <MarkdownImage src={viewedImage} />
         </div>
       )}

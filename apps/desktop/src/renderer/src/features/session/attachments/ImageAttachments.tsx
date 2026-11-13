@@ -16,6 +16,8 @@ function ImageTile({
   onReplace,
   compact = false,
   caption = true,
+  thumb = false,
+  more = 0,
 }: {
   image: ImageAttachment
   /** 对话里的图：所在条目（图片不带数据时按需取原图，imageSource.ts） */
@@ -24,21 +26,40 @@ function ImageTile({
   compact?: boolean
   /** 图下面写文件名；关掉时只有缩略图（文件名在悬停提示和 alt 里） */
   caption?: boolean
+  /** 对话里「模型看过的图」那一行下面的横条缩略图（132×84，不写文件名） */
+  thumb?: boolean
+  /** 没显示出来的张数：盖在这张上写「+N」 */
+  more?: number
   onRemove?: (id: string) => void
   /** 标注后替换这张图（docs/ui/rewind-fork-sidechat.md §6） */
   onReplace?: (id: string, next: ImageAttachment) => void
 }) {
   useI18n()
   const [url, setUrl] = useState(''),
+    [missing, setMissing] = useState(false),
     [open, setOpen] = useState(false),
     [annotating, setAnnotating] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const sessionId = useContext(ImageSessionContext)
+  // 横条缩略图常驻在对话里（行不卸载，只是 content-visibility 不画）：快到屏幕上才取原图，离开就放掉，
+  // 否则长会话一打开就把所有看过的图都从主进程取一遍（docs/perf-audit-2026-10-18.md B1）
+  const [near, setNear] = useState(!thumb)
   useEffect(() => {
+    const el = trigger.current
+    if (!thumb || !el) return
+    const io = new IntersectionObserver(([e]) => setNear(!!e?.isIntersecting), { rootMargin: '600px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [thumb])
+  useEffect(() => {
+    if (!near) return
     let url = '',
       gone = false
+    setMissing(false)
     void fullImage(image, sessionId, itemId).then(full => {
-      if (gone || !full) return
+      if (gone) return
+      // 读不到（文件删了、在远程机器上）：缩略图位置写文件名，不空着
+      if (!full) return setMissing(true)
       url = URL.createObjectURL(imageBlob(full))
       setUrl(url)
     })
@@ -47,7 +68,7 @@ function ImageTile({
       if (url) URL.revokeObjectURL(url)
       setUrl('')
     }
-  }, [image.id, image.dataBase64, image.mediaType, sessionId, itemId])
+  }, [near, image.id, image.dataBase64, image.mediaType, sessionId, itemId])
   const description = `${image.name} · ${image.width}×${image.height} · ${imageSize(image.bytes)}`
   return (
     <>
@@ -55,7 +76,7 @@ function ImageTile({
         data-image-attachment={image.id}
         className={cn(
           'group relative overflow-hidden border border-line-card bg-subtle',
-          compact ? 'size-10 rounded-md' : 'h-24 w-24 rounded-lg',
+          compact ? 'size-10 rounded-md' : thumb ? 'h-[84px] w-[132px] rounded-lg' : 'h-24 w-24 rounded-lg',
         )}
       >
         <button
@@ -67,6 +88,16 @@ function ImageTile({
           onClick={() => setOpen(true)}
         >
           {url && <img src={url} alt={image.name} className="size-full object-cover" />}
+          {missing && !url && (
+            <span className="block truncate px-1.5 text-label text-fg-faint" title={image.name}>
+              {image.name}
+            </span>
+          )}
+          {more > 0 && (
+            <span className="absolute inset-0 grid place-items-center bg-(--scrim) text-meta font-semibold text-white">
+              +{more}
+            </span>
+          )}
         </button>
         {onReplace && (
           <button
@@ -90,7 +121,7 @@ function ImageTile({
             <X size={12} />
           </button>
         )}
-        {!compact && caption && (
+        {!compact && !thumb && caption && (
           <span className="pointer-events-none absolute right-0 bottom-0 left-0 truncate border-t border-line-card bg-popover px-1 py-0.5 text-label text-fg-secondary">
             {image.name}
           </span>
@@ -160,6 +191,31 @@ export function ImageAttachments({
           onReplace={onReplace}
           compact={compact}
           caption={caption}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** 模型看过的图：一排横条缩略图，最多 3 张，多的在最后一张上写「+N」，点了放大（docs/ui/image-view-thumbnail-mockup.html）。
+ *  图可能来自不同条目（「执行」收起时汇总里面几行看过的图），所以每张带自己的条目 id */
+export function ImageThumbs({
+  entries,
+  max = 3,
+}: {
+  entries: { image: ImageAttachment; itemId: string }[]
+  max?: number
+}) {
+  const shown = entries.slice(0, max)
+  return (
+    <div data-image-thumbs className="flex min-w-0 flex-wrap gap-1.5">
+      {shown.map((e, i) => (
+        <ImageTile
+          key={e.image.id}
+          image={e.image}
+          itemId={e.itemId}
+          thumb
+          more={i === shown.length - 1 ? entries.length - shown.length : 0}
         />
       ))}
     </div>
