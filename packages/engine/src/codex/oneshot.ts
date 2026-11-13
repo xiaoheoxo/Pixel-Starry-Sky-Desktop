@@ -174,6 +174,8 @@ export async function codexOneShot(
     clearTimeout(timer)
     signal.removeEventListener('abort', onAbort)
     proc.kill()
+    // 等进程真的退出再返回（最多 2 秒）：旁聊的工作目录是用户的项目，Windows 上进程没退出前目录一直被占着
+    await Promise.race([proc.exitPromise, new Promise(r => setTimeout(r, 2_000).unref?.())])
     removeLater(home)
   }
 }
