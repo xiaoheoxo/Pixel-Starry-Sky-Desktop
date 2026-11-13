@@ -236,6 +236,8 @@
 :is([data-tab-bar], .pane-head) [data-tab-strip] {
   align-items: flex-end;
   padding-block: 4px 0;
+  /* 标签间距 = 当前标签两脚的宽（8），脚不压到旁边标签上 */
+  column-gap: 8px;
 }
 [data-tab-strip] [role='tab'] {
   margin-bottom: 4px;
@@ -271,16 +273,18 @@
 [data-tab-strip] [role='tab'][aria-selected='true']::after {
   content: '';
   position: absolute;
-  bottom: 0;
+  /* 定位从内边距框算，标签有 1px 透明边框：往外挪 1px 才贴着标签外沿和内容 */
+  bottom: -1px;
   width: 8px;
   height: 8px;
   pointer-events: none;
 }
 [data-tab-strip] [role='tab'][aria-selected='true']::before {
-  left: -8px;
-  background: radial-gradient(circle at 0 0, transparent 7.5px, var(--bg-workbench) 8px);
+  left: -9px;
+  /* 留 1px 过渡做抗锯齿，0.5px 在 1 倍屏上是锯齿 */
+  background: radial-gradient(circle at 0 0, transparent 7px, var(--bg-workbench) 8px);
 }
 [data-tab-strip] [role='tab'][aria-selected='true']::after {
-  right: -8px;
-  background: radial-gradient(circle at 100% 0, transparent 7.5px, var(--bg-workbench) 8px);
+  right: -9px;
+  background: radial-gradient(circle at 100% 0, transparent 7px, var(--bg-workbench) 8px);
 }
