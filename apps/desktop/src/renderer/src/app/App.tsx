@@ -65,14 +65,13 @@ function fitsChannels(sidebarOpen: boolean, sidebarWidth: number): boolean {
   )
 }
 
-/** 「两块独立」边框在主区右边多留的缝（globals.css；设置还没写到 <html> 上时按默认的两块独立算） */
-const frameGap = (sidebarOpen: boolean): number =>
-  document.documentElement.dataset.workbenchFrame === 'line' ? 0 : sidebarOpen ? 8 : 16
+/** 「两块独立」边框在主区左右各留 8 的缝（globals.css；设置还没写到 <html> 上时按默认的两块独立算） */
+const BLOCK_GAP = 16
+const frameGap = (): number => (document.documentElement.dataset.workbenchFrame === 'line' ? 0 : BLOCK_GAP)
 
 /** 给定侧边栏、右侧面板的开合状态，当前窗口宽度能否放下所有打开的栏 */
 function fits(sidebarOpen: boolean, panelOpen: boolean, sidebarWidth: number, panelWidth: number): boolean {
-  const needed =
-    (sidebarOpen ? sidebarWidth : 0) + SESSION_MIN_WIDTH + (panelOpen ? panelWidth : 0) + frameGap(sidebarOpen)
+  const needed = (sidebarOpen ? sidebarWidth : 0) + SESSION_MIN_WIDTH + (panelOpen ? panelWidth : 0) + frameGap()
   return needed <= window.innerWidth
 }
 
@@ -98,8 +97,7 @@ export function App() {
   // 没拖过时按窗口宽度自动算（docs/ui/workbench-ux-3.md §2.3）
   const savedPanelWidth = useLayoutSize('rightWorkspace')
   const preferredPanelWidth = savedPanelWidth ?? autoPanelWidth(windowWidth, preferredSidebarWidth)
-  // 两块独立：主区右边留 8；侧栏收起时左边也留 8（globals.css）
-  const gap = workbenchFrame === 'block' ? (sidebarOpen ? 8 : 16) : 0
+  const gap = workbenchFrame === 'block' ? BLOCK_GAP : 0
   const panelMax = Math.max(360, windowWidth - (sidebarOpen ? preferredSidebarWidth : 0) - SESSION_MIN_WIDTH - gap)
   const panelWidth = Math.min(preferredPanelWidth, panelMax)
   // 多对话窗格：第一次渲染前读出保存的布局（没有记录时打开默认会话），docs/ui/multi-pane.md

@@ -515,19 +515,31 @@
    细边画在面板里面的 ::after 上：面板外面一层 overflow:hidden，往外画的阴影会被裁掉 */
 :root[data-workbench-frame='block'] {
   --frame-ring: color-mix(in srgb, var(--ink) 6%, transparent);
+  /* 外框色（标题栏和缝，§17）：侧栏底色压暗一档，侧栏自己成一块 */
+  --bg-frame: color-mix(in srgb, #000 5.5%, var(--bg-sidebar));
 }
 :root[data-workbench-frame='block'][data-theme='dark'] {
   --frame-ring: color-mix(in srgb, var(--ink) 5%, transparent);
+  --bg-frame: color-mix(in srgb, #000 35%, var(--bg-sidebar));
 }
-:root[data-workbench-frame='block'] .workbench-surface {
+:root[data-workbench-frame='block'] :is(.workbench-surface, [data-vt-chat-sidebar]) {
+  background: var(--bg-frame);
+}
+/* 侧栏从顶到底一块，右边两个角圆，贴窗口左边 */
+:root[data-workbench-frame='block'] [data-vt-chat-sidebar] aside {
+  border-radius: 0 12px 12px 0;
+}
+/* 铺满主区的页面（看板、频道）没有面板，照旧用侧栏底色 */
+:root[data-workbench-frame='block'] :is([data-task-board], [data-channels-page]) {
   background: var(--bg-sidebar);
 }
+/* 左右各 8：左边隔开侧栏，右边贴窗口 */
 :root[data-workbench-frame='block'] .workbench-content {
-  padding: 0 8px 8px 0;
+  padding: 0 8px 8px;
 }
-/* 侧栏收起时面板不贴窗口左边，左边也留缝 */
-:root[data-workbench-frame='block'] .workbench-surface[data-sidebar='closed'] .workbench-content {
-  padding-left: 8px;
+/* 拖侧栏宽度的把手放进侧栏右边那条缝 */
+:root[data-workbench-frame='block'] .sidebar-resize {
+  right: -8px;
 }
 :root[data-workbench-frame='block'] :is(.pane-box > [data-pane-id], [data-right-workspace]) {
   position: relative;

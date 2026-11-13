@@ -130,7 +130,7 @@ export function ChannelsPage({
 
   if (!channel)
     return (
-      <div className="@container absolute inset-0 flex min-w-0">
+      <div className="@container absolute inset-0 flex min-w-0" data-channels-page>
         {/* 加入了团队或收到邀请时，列表要留着（团队段、邀请卡） */}
         {hasTeams && (
           <ChannelList
