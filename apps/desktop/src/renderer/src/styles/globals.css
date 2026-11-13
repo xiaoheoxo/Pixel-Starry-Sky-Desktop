@@ -75,6 +75,14 @@
   --color-chart-cache: var(--chart-cache);
   --color-chart-output: var(--chart-output);
   --color-terminal: var(--terminal-bg);
+  /* 概况的胶囊卡片（D274）：值在 [data-overview] 上算，见文件末尾 */
+  --color-ov-card: var(--ov-card);
+  --color-ov-tile: var(--ov-tile);
+  --color-ov-chip: var(--ov-chip);
+  --color-ov-chip-hover: var(--ov-chip-hover);
+  --color-ov-track: var(--ov-track);
+  --color-ov-warn: var(--ov-warn-bg);
+  --color-ov-bad: var(--ov-bad-bg);
 
   --shadow-sm: var(--shadow-sm);
   --shadow-float: var(--shadow-float);
@@ -1557,4 +1565,29 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
   :root[data-motion='system'] :is(.speed-glow, .speed-launch .speed-rocket, .speed-launch .speed-trail, .speed-nudge) {
     animation: none;
   }
+}
+
+/* 概况是胶囊卡片（D274，样稿 docs/ui/session-overview-pill-mockup.html）：每组一块墨色底的卡片，格子、小胶囊再叠一层墨色。
+   卡片按主区底色混，不透明：右栏在壁纸上也一样 */
+[data-overview] {
+  --ov-card: color-mix(in srgb, var(--ink) 5%, var(--bg-workbench));
+  --ov-tile: color-mix(in srgb, var(--ink) 4%, var(--ov-card));
+  --ov-chip: color-mix(in srgb, var(--ink) 8%, transparent);
+  --ov-chip-hover: color-mix(in srgb, var(--ink) 12%, transparent);
+  --ov-track: color-mix(in srgb, var(--ink) 10%, transparent);
+  --ov-warn-bg: color-mix(in srgb, var(--warn) 13%, var(--bg-workbench));
+  --ov-bad-bg: color-mix(in srgb, var(--danger) 12%, var(--bg-workbench));
+}
+/* 上下文条里自动压缩预留的那段：斜纹 */
+[data-overview] .ov-hatch {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--ink) 26%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+/* 分组里的共用按钮（「让它修」「看页面」）24 高的胶囊。Button 自带的 h-8 压过调用方写的 h-6，所以写在这 */
+[data-overview-section] [data-button] {
+  height: 24px;
+  border-radius: 9999px;
 }

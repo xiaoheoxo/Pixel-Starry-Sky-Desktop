@@ -9,7 +9,7 @@ import { StepMark } from '@/features/session/live/ProgressCard'
 import { currentPlan } from '@/features/session/live/progressData'
 import { lastTurnDuration } from './overviewModel'
 import type { SectionProps } from './OverviewPanel'
-import { Section } from './Section'
+import { Section, SECTION_ROW_STATIC } from './Section'
 
 export function ProgressSection({ sessionId, active }: SectionProps) {
   useI18n()
@@ -32,13 +32,15 @@ export function ProgressSection({ sessionId, active }: SectionProps) {
       title={tr('session.progress.title')}
       summary={tr('overview.lastTurnPlan', { plan: text })}
     >
-      <div className="flex items-start gap-2 text-list text-fg-secondary">
+      <div title={tr('overview.planInTurn')} className={SECTION_ROW_STATIC}>
         <StepMark status={allDone ? 'completed' : 'in_progress'} live={false} />
-        <span className="min-w-0 flex-1 tabular-nums">
-          {duration > 0 ? `${text} · ${tr('goal.bar.time', { time: formatDuration(duration) })}` : text}
-        </span>
+        <span className="min-w-0 flex-1 truncate font-medium text-fg">{text}</span>
+        {duration > 0 && (
+          <span className="shrink-0 text-meta text-fg-muted tabular-nums">
+            {tr('goal.bar.time', { time: formatDuration(duration) })}
+          </span>
+        )}
       </div>
-      <p className="mt-1 text-meta text-fg-muted">{tr('overview.planInTurn')}</p>
     </Section>
   )
 }

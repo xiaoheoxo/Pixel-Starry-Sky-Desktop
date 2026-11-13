@@ -61,3 +61,7 @@ export function splitArtifactPath(path: string): { name: string; dir: string } {
   const i = normal.lastIndexOf('/')
   return i < 0 ? { name: normal, dir: '' } : { name: normal.slice(i + 1), dir: normal.slice(0, i) }
 }
+
+let lastRequest = 0
+/** 产物扫描的请求编号：主进程每个窗口只留一个扫描、编号小的算旧的，产物页和概况的「产出」要共用一个计数 */
+export const nextArtifactsRequest = (): number => ++lastRequest

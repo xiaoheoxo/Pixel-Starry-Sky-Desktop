@@ -24,13 +24,8 @@ export function ChecksSection({ sessionId, active }: SectionProps) {
       id="checks"
       icon={ListChecks}
       title={tr('checks.title')}
-      summary={
-        sent ? (
-          tr('overview.checksFixSent')
-        ) : (
-          <span className={headline.bad ? 'text-danger' : undefined}>{headline.text}</span>
-        )
-      }
+      summary={sent ? tr('overview.checksFixSent') : headline.text}
+      tone={headline.bad && !sent ? 'bad' : undefined}
     >
       <CheckSummary
         embedded

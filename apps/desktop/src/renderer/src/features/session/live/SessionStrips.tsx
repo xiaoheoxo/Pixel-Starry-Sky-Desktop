@@ -77,51 +77,79 @@ export function TaskStrip({
       {tasks.map(t => {
         const out = outputs[t.id]
         const port = onOpenPort && findPorts(t.message ?? '')[0]
-        return (
-          <div key={t.id} className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2 text-meta">
-              <Spinner size={12} />
-              <span className="shrink-0 text-fg-muted">{taskKindLabel(t.kind)}</span>
-              <span className="min-w-0 truncate text-fg" title={t.description}>
-                {t.description}
-              </span>
-              {t.message && (
-                <span className="min-w-0 truncate text-fg-faint" title={t.message}>
-                  {t.message}
-                </span>
-              )}
-              <span className="flex-1" />
-              {port && (
-                <button
-                  type="button"
-                  className={cn(LINK, 'inline-flex items-center gap-1 font-mono')}
-                  title={tr('portTip.open')}
-                  onClick={() => onOpenPort?.(port)}
-                >
-                  <Globe size={12} strokeWidth={1.6} />:{port}
-                </button>
-              )}
-              {openTrace && t.kind.startsWith('local_workflow') && (
-                <button type="button" className={LINK} onClick={() => openTrace()}>
-                  {tr('session.live.ItemRows.viewActivity')}{' '}
-                </button>
-              )}
-              {hasOutput(t.kind) && (
-                <button type="button" className={LINK} onClick={() => toggleOutput(t.id)}>
-                  {open === t.id
-                    ? tr('session.live.SessionStrips.collapseOutput')
-                    : tr('session.live.SessionStrips.output')}
-                </button>
-              )}
+        const ops = (
+          <>
+            {port && (
               <button
                 type="button"
-                className={cn(LINK, 'hover:text-danger')}
-                disabled={!!stopping[t.id]}
-                onClick={() => stop(t.id)}
+                className={cn(LINK, 'inline-flex items-center gap-1 font-mono')}
+                title={tr('portTip.open')}
+                onClick={() => onOpenPort?.(port)}
               >
-                {stopping[t.id] ? tr('session.CacheMissAlerts.stopping') : tr('session.Composer.stop')}
+                <Globe size={12} strokeWidth={1.6} />:{port}
               </button>
-            </div>
+            )}
+            {openTrace && t.kind.startsWith('local_workflow') && (
+              <button type="button" className={LINK} onClick={() => openTrace()}>
+                {tr('session.live.ItemRows.viewActivity')}{' '}
+              </button>
+            )}
+            {hasOutput(t.kind) && (
+              <button type="button" className={LINK} onClick={() => toggleOutput(t.id)}>
+                {open === t.id
+                  ? tr('session.live.SessionStrips.collapseOutput')
+                  : tr('session.live.SessionStrips.output')}
+              </button>
+            )}
+            <button
+              type="button"
+              className={cn(LINK, 'hover:text-danger')}
+              disabled={!!stopping[t.id]}
+              onClick={() => stop(t.id)}
+            >
+              {stopping[t.id] ? tr('session.CacheMissAlerts.stopping') : tr('session.Composer.stop')}
+            </button>
+          </>
+        )
+        const message = t.message && (
+          <span className={cn('min-w-0 truncate', bare ? 'flex-1 text-fg-muted' : 'text-fg-faint')} title={t.message}>
+            {t.message}
+          </span>
+        )
+        const kind = <span className="shrink-0 text-fg-muted">{taskKindLabel(t.kind)}</span>
+        const description = (
+          <span className="min-w-0 truncate text-fg" title={t.description}>
+            {t.description}
+          </span>
+        )
+        return (
+          <div key={t.id} className="min-w-0">
+            {/* 概况里（D273）：两行，第一行是任务，第二行是最新一行进度和操作，操作不再挤掉任务名 */}
+            {bare ? (
+              <div className="flex min-h-7 min-w-0 items-start gap-[9px] py-[5px] text-meta">
+                {/* 和别的行的 15px 图标对齐 */}
+                <Spinner size={13} className="mx-px mt-0.5 shrink-0" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="flex min-w-0 items-center gap-2">
+                    {kind}
+                    {description}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    {message || <span className="flex-1" />}
+                    {ops}
+                  </span>
+                </span>
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-2 text-meta">
+                <Spinner size={12} />
+                {kind}
+                {description}
+                {message}
+                <span className="flex-1" />
+                {ops}
+              </div>
+            )}
             {open === t.id && (
               <div className="mt-1 mb-1 ml-5 rounded-lg border border-line bg-subtle px-3 py-2 text-meta">
                 {!out ? (

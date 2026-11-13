@@ -156,7 +156,13 @@ export function CheckSummary({
         )}
       </div>
       {open && (
-        <div className="flex flex-col gap-2 rounded-md border border-line-card bg-subtle p-2 text-meta">
+        <div
+          className={cn(
+            'flex flex-col gap-2 text-meta',
+            // 概况是平铺清单（D273）：不再套一层框，缩进和标题对齐
+            embedded ? 'pt-0.5 pl-[17px]' : 'rounded-md border border-line-card bg-subtle p-2',
+          )}
+        >
           {run.items.map((item, i) =>
             item.kind === 'page' ? (
               <PageDetail key={i} item={item} onOpen={onOpenPage} />

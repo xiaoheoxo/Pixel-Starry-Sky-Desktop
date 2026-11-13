@@ -1,14 +1,14 @@
-// 概况 › 要处理：下面各分组里要你动手的汇总，每条一个主操作；没有就不显示（docs/ui/desktop-parity.md §3.1）
+// 概况 › 要处理：下面各分组里要你动手的汇总，每条一个圆形图标（红 = 坏了、橙 = 要你处理，坏了的在前）和一个操作；
+// 等审批在顶上的「正在」行（SessionHead），这里不列；没有就不显示（docs/ui/desktop-parity.md §3.1）
 import { useEffect, type ReactNode } from 'react'
 import { Activity, Gauge, GitPullRequest, ListChecks, Plug, TriangleAlert, type LucideIcon } from 'lucide-react'
 import type { ApprovalRequest } from '@pixelsky/protocol'
-import { useToast } from '@/ui'
+import { cn, useToast } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '@/i18n/core'
 import { sendCheckFix, sendFix } from '@/features/checks/SessionCheckBar'
 import { useSessionCheck } from '@/features/checks/sessionChecks'
 import { useEngineState } from '@/features/engine'
-import { locateApproval } from '@/features/session/live/approvals/focus'
 import { planEntries, quotaEntries, tightestEntry } from '@/features/session/quota/quotaModel'
 import { useMinuteNow } from '@/features/session/quota/quotaStore'
 import { openUrl } from '@/features/sidebar/PrCard'
@@ -23,6 +23,8 @@ import { attentionItems, resolvedPrKeys, type AttentionAction, type AttentionIte
 import { useOverviewPrefs } from './overviewPrefs'
 import type { SectionProps } from './OverviewPanel'
 import { Section, SectionAction } from './Section'
+
+const RANK = { bad: 0, warn: 1 }
 
 const NO_PENDING: ApprovalRequest[] = []
 
@@ -76,12 +78,14 @@ function AttentionBody({ sessionId, mcp }: { sessionId: string; mcp: OverviewMcp
     now,
     dismissed,
   })
+    .filter(item => item.kind !== 'approval')
+    .sort((a, b) => RANK[a.tone] - RANK[b.tone])
   if (!items.length) return null
 
   const act = (item: AttentionItem, action: Exclude<AttentionAction, { kind: 'compact' }>): void => {
     switch (action.kind) {
       case 'approval':
-        return locateApproval(sessionId, action.requestId)
+        return
       case 'mcp-login':
         return mcp.actions.login(action.name)
       case 'mcp-reconnect':
@@ -101,9 +105,10 @@ function AttentionBody({ sessionId, mcp }: { sessionId: string; mcp: OverviewMcp
   return (
     <Section
       id="attention"
-      attention
       icon={TriangleAlert}
+      attention
       title={tr('overview.attention')}
+      count={items.length}
       summary={tr('overview.attentionCount', { count: items.length })}
     >
       {items.map(item => {
@@ -142,11 +147,18 @@ function CompactRow({ item, sessionId }: { item: AttentionItem; sessionId: strin
 function Row({ item, button, below }: { item: AttentionItem; button?: ReactNode; below?: ReactNode }) {
   const Icon = ICON[item.kind]
   return (
-    <div data-overview-attention={item.kind}>
-      <div className="flex items-start gap-[7px] py-[3px] text-fg-secondary">
-        <Icon size={14} strokeWidth={1.6} className="mt-0.5 shrink-0 text-fg-muted" />
+    <div data-overview-attention={item.kind} data-tone={item.tone}>
+      <div className="flex min-h-8 items-center gap-[9px] py-0.5">
+        <span
+          className={cn(
+            'grid size-6 shrink-0 place-items-center rounded-full',
+            item.tone === 'bad' ? 'bg-danger/15 text-danger' : 'bg-warn/18 text-warn-fg',
+          )}
+        >
+          <Icon size={13} strokeWidth={1.6} />
+        </span>
         <span className="min-w-0 flex-1">
-          <span title={item.text} className="line-clamp-2 break-words">
+          <span title={item.text} className="line-clamp-2 font-medium break-words text-fg">
             {item.text}
           </span>
           {item.sub && (

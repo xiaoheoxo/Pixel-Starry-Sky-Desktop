@@ -1,7 +1,7 @@
 // 「审查」：从对话里的改动卡片定位到产物面板里的这一轮（docs/ui/conversation-ux.md §2.1）。
 // 对话那边调用 reviewTurn，打开右侧「产物」页并登记请求；产物面板读到数据后滚过去、闪一下、展开各文件的 diff
 import { useSyncExternalStore } from 'react'
-import type { ArtifactTurn } from '@pixelsky/protocol'
+import type { ArtifactDelivery, ArtifactTurn } from '@pixelsky/protocol'
 import { openRightTab } from '../workspaceStore'
 
 export interface ArtifactsFocus {
@@ -49,8 +49,37 @@ export function useArtifactsFocus(): ArtifactsFocus | null {
   )
 }
 
-export const freshFocus = (focus: ArtifactsFocus | null, now = Date.now()): focus is ArtifactsFocus =>
+export const freshFocus = <T extends { at: number }>(focus: T | null, now = Date.now()): focus is T =>
   !!focus && now - focus.at < FOCUS_MS
+
+/** 概况「产出」点了一个交付文件：打开产物页，产物面板读到后直接预览它 */
+export interface PreviewRequest {
+  item: ArtifactDelivery
+  token: number
+  at: number
+}
+
+let previewRequest: PreviewRequest | null = null
+
+export function previewDelivery(item: ArtifactDelivery, now = Date.now()): void {
+  previewRequest = { item, token: ++sequence, at: now }
+  emit()
+  openRightTab('artifacts')
+}
+
+export function finishPreviewRequest(token: number): void {
+  if (previewRequest?.token !== token) return
+  previewRequest = null
+  emit()
+}
+
+export function usePreviewRequest(): PreviewRequest | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => previewRequest,
+    () => null,
+  )
+}
 
 /** 产物数据里的这一轮 */
 export function findFocusTurn(

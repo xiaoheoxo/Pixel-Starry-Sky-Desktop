@@ -10,6 +10,7 @@ import { panelCloseTargets, TOOL_IDS, type PanelLayout, type ToolId } from './wo
 import { GROUP_KEY, TOOLS, toolIcon } from './tools'
 import { displayPath } from '@/features/files/extraFolders'
 import { OverviewMenuButton } from './overview/OverviewMenuButton'
+import { useOverviewAlert } from './overview/overviewAlert'
 export function WorkspaceTabs({
   layout,
   maximized,
@@ -30,6 +31,8 @@ export function WorkspaceTabs({
     strip = useRef<HTMLDivElement>(null)
   // 任务标签上显示待处理数量（docs/ui/tasks-inbox.md §2）
   const inboxCount = useInbox().length
+  // 「概况」不是当前标签时，当前会话有要处理的就在标签上点一个点（D273）
+  const overviewAlert = useOverviewAlert(layout.tabs.includes('overview') && layout.active !== 'overview')
   // id 为标签时是标签右键菜单；null 时是「+」菜单（all 为真时是「全部标签」溢出菜单）
   const [menu, setMenu] = useState<{
     id: string | null
@@ -145,6 +148,13 @@ export function WorkspaceTabs({
                 <Icon size={14} className="shrink-0" />
                 <span className="truncate">{label(id)}</span>
                 {id === 'tasks' && inboxCount > 0 && <CountBadge count={inboxCount} className="shrink-0" />}
+                {id === 'overview' && overviewAlert && (
+                  <span
+                    role="img"
+                    aria-label={t('overview.alert')}
+                    className="size-1.5 shrink-0 rounded-full bg-warn"
+                  />
+                )}
                 {file && dirtyFile(file) && (
                   <span aria-label={text('未保存')} className="size-1.5 shrink-0 rounded-full bg-fg-muted" />
                 )}

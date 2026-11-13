@@ -30,7 +30,7 @@ import type { WorkspaceRef } from '../../../../../shared/types/workspace'
 import { useProjectContext } from '../projectContext'
 import { NoProject, useRemember } from '../ToolsUi'
 import { EmptyState, PanelCard } from '../PanelSurface'
-import { artifactDiffs, groupBySession, splitArtifactPath } from './artifactsModel'
+import { artifactDiffs, groupBySession, nextArtifactsRequest, splitArtifactPath } from './artifactsModel'
 import { ArtifactPreview } from './ArtifactPreview'
 import {
   DELIVERED_MAX,
@@ -58,9 +58,11 @@ import {
   FOCUS_OPEN_MAX,
   findFocusTurn,
   finishArtifactsFocus,
+  finishPreviewRequest,
   freshFocus,
   turnKey,
   useArtifactsFocus,
+  usePreviewRequest,
   type ArtifactsFocus,
 } from './focus'
 
@@ -124,7 +126,7 @@ function ArtifactsBody({
 
   const load = async () => {
     if (demo || !window.pixelsky) return
-    const id = ++request.current
+    const id = (request.current = nextArtifactsRequest())
     setLoading(true)
     try {
       const res = await window.pixelsky.artifacts.list({
@@ -192,6 +194,14 @@ function ArtifactsBody({
     const timer = window.setTimeout(() => setFocused(null), 2000)
     return () => window.clearTimeout(timer)
   }, [focused])
+
+  // 概况「产出」点了一个文件：直接打开它的预览
+  const wanted = usePreviewRequest()
+  useEffect(() => {
+    if (!active || !wanted) return
+    finishPreviewRequest(wanted.token)
+    if (freshFocus(wanted)) setPreview(wanted.item)
+  }, [wanted, active])
 
   const groups = useMemo(() => groupBySession(data?.turns ?? []), [data])
   const deliveredTypes = useMemo(() => [...new Set((data?.delivered ?? []).map(d => d.type))], [data])

@@ -488,19 +488,6 @@
   }
 }
 
-/* 概况面板（§12 S1）：分组标题行 34 → 28，卡片间距 8 → 6 */
-:root[data-minimal='on'] [data-overview-list] {
-  gap: 6px;
-}
-:root[data-minimal='on'] [data-overview-head] {
-  min-height: 28px;
-  padding-block: 2px;
-}
-/* 分组里的共用按钮 24 高（「看页面」「让它修」原来 32：Button 自带的 h-8 压过了调用方写的 h-6） */
-:root[data-minimal='on'] [data-overview-section] [data-button] {
-  height: 24px;
-}
-
 /* 右侧面板的标签行：40 → 32，右边的「+ / 放大 / 收起」悬停才显示；一个标签都没有时照常显示 */
 :root[data-minimal='on'] [data-panel-tabs] {
   height: 32px;

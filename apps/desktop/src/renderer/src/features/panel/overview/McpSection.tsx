@@ -1,10 +1,14 @@
-// 概况 › MCP：已连接、要处理、工具数、本会话调用；每个服务的状态、来源、工具和调用次数。配置和工具说明还在连接器页（「管理」）
+// 概况 › MCP（「状态」里的一格）：每个服务一个状态圆点、已连接 / 要处理、工具数和本会话调用。点开：按状态筛选、三格数字、
+// 每个服务一张小卡（来源、连接方式、工具数、调用次数；点开是地址、密钥名、出错原因、工具按调用排、登录 / 重连和启用开关）。
+// 配置和工具说明全文还在连接器页（「管理」）
 import { useState } from 'react'
-import { Plug, Plus, RefreshCw } from 'lucide-react'
+import { ChevronRight, ExternalLink, Plug, Plus, RefreshCw } from 'lucide-react'
 import type { McpReport } from '@pixelsky/protocol'
-import { Button, cn, Switch } from '@/ui'
+import { CopyButton, cn, IconButton, Switch } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
+import { agoText } from '@/features/session/live/agentActivity'
+import { useMinuteNow } from '@/features/session/quota/quotaStore'
 import { DOT, sourceLabel, STATUS_KEY } from '../connectors/ConnectorsPanel'
 import { displayName, initials, summarize, type Connector } from '../connectors/connectorsModel'
 import type { ConnectorActions } from '../connectors/useConnectors'
@@ -12,81 +16,179 @@ import { ToolError } from '../ToolsUi'
 import { openRightTab } from '../workspaceStore'
 import { mcpActions, topTools } from './overviewModel'
 import type { SectionProps } from './OverviewPanel'
-import { Section, SECTION_ROW, SectionAction, Stat } from './Section'
+import { FilterChips, Meter, Pill, SectionLink, StatusTile, SUB_LABEL, Tag, Unit } from './Section'
+
+type Group = 'attn' | 'ok' | 'off'
+const groupOf = (c: Connector): Group =>
+  c.status === 'connected' ? 'ok' : c.status === 'auth' || c.status === 'failed' ? 'attn' : 'off'
+/** 出事的在前，其余按调用次数 */
+const RANK: Record<Connector['status'], number> = { failed: 0, auth: 1, connected: 2, pending: 3, idle: 4, disabled: 5 }
 
 export function McpSection({ active, mcp }: SectionProps) {
   useI18n()
   const { list, report, actions, error } = mcp
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   if (!active || !list.length) return null
   const sum = summarize(list)
-  const toggle = (name: string): void =>
-    setExpanded(current => {
-      const next = new Set(current)
-      if (!next.delete(name)) next.add(name)
-      return next
-    })
   return (
-    <Section
+    <StatusTile
       id="mcp"
       icon={Plug}
       title={tr('overview.mcp')}
-      summary={
-        <>
-          {sum.connected ? tr('overview.mcpConnected', { count: sum.connected }) : tr('overview.mcpNotConnected')}
-          {sum.attention > 0 && (
-            <span className="text-warn-fg"> · {tr('overview.mcpAttention', { count: sum.attention })}</span>
-          )}
-        </>
+      tone={sum.attention > 0 ? 'warn' : undefined}
+      value={
+        !report ? (
+          <>
+            {list.length}
+            <Unit>{tr('overview.mcpUnitServers')}</Unit>
+          </>
+        ) : sum.attention > 0 ? (
+          <>
+            {sum.attention}
+            <Unit>{tr('overview.mcpUnitAttention')}</Unit>
+          </>
+        ) : (
+          <>
+            {sum.connected}
+            <Unit>{tr('overview.mcpUnitConnected', { total: list.length })}</Unit>
+          </>
+        )
+      }
+      folded={`${tr('overview.mcp')} ${
+        sum.attention > 0
+          ? tr('overview.mcpAttention', { count: sum.attention })
+          : tr('overview.mcpConnected', { count: sum.connected })
+      }`}
+      visual={
+        <span className="mt-1 flex flex-wrap gap-[3px]">
+          {list.map(c => (
+            <i
+              key={c.name}
+              title={`${displayName(c)}：${tr(STATUS_KEY[c.status])}`}
+              className={cn('size-[7px] rounded-full', DOT[c.status])}
+            />
+          ))}
+        </span>
+      }
+      sub={
+        report ? tr('overview.mcpToolsCalls', { tools: sum.tools, calls: sum.calls }) : tr('overview.mcpNotConnected')
       }
     >
-      {report ? (
-        <>
-          {!report.live && <p className="pb-1 text-meta text-fg-muted">{tr('connectors.notLive')}</p>}
-          <div className="mb-1.5 grid grid-cols-4 gap-0.5">
-            <Stat value={sum.connected} label={tr('connectors.statConnected')} />
-            <Stat
-              value={<span className={sum.attention > 0 ? 'text-warn-fg' : undefined}>{sum.attention}</span>}
-              label={tr('connectors.statAttention')}
-            />
-            <Stat value={sum.tools} label={tr('connectors.statTools')} />
-            <Stat value={sum.calls} label={tr('connectors.statCalls')} />
-          </div>
-        </>
-      ) : (
-        <p className="pb-1 text-meta text-fg-muted">{tr('connectors.idleHint')}</p>
-      )}
-      {list.map(c => (
-        <McpRow
-          key={c.name}
-          c={c}
-          report={report}
-          actions={actions}
-          open={expanded.has(c.name)}
-          onToggle={() => toggle(c.name)}
-        />
-      ))}
+      <McpDetail list={list} report={report} actions={actions} />
       {error && (
         <div className="mt-1.5">
           <ToolError error={error} />
         </div>
       )}
-      <div className="mt-1.5 flex flex-wrap gap-1.5">
-        <SectionAction onClick={() => openRightTab('connectors')}>{tr('settings.AboutSection.manage')}</SectionAction>
-        <SectionAction onClick={actions.settings}>
-          <Plus size={13} strokeWidth={1.6} />
-          {tr('connectors.add')}
-        </SectionAction>
-        <SectionAction disabled={actions.busy === 'refresh'} onClick={actions.refresh}>
-          <RefreshCw size={13} strokeWidth={1.6} className={cn(actions.busy === 'refresh' && 'animate-spin')} />
-          {tr('connectors.refresh')}
-        </SectionAction>
-      </div>
-    </Section>
+    </StatusTile>
   )
 }
 
-function McpRow({
+function McpDetail({
+  list,
+  report,
+  actions,
+}: {
+  list: readonly Connector[]
+  report: McpReport | null
+  actions: ConnectorActions
+}) {
+  useI18n()
+  const now = useMinuteNow()
+  const [filter, setFilter] = useState<'all' | Group>('all')
+  const [open, setOpen] = useState<string | null>(null)
+  const count = (g: Group): number => list.filter(c => groupOf(c) === g).length
+  const chips = [
+    { id: 'all' as const, label: tr('overview.filterAll'), count: list.length },
+    { id: 'attn' as const, label: tr('overview.attention'), count: count('attn'), dot: 'bg-warn' },
+    { id: 'ok' as const, label: tr('connectors.statusConnected'), count: count('ok'), dot: 'bg-success' },
+    { id: 'off' as const, label: tr('overview.mcpFilterOff'), count: count('off') },
+  ].filter(c => c.id === 'all' || c.count > 0)
+  const shown = chips.some(c => c.id === filter) ? filter : 'all'
+  const sorted = list
+    .filter(c => shown === 'all' || groupOf(c) === shown)
+    .sort((a, b) => RANK[a.status] - RANK[b.status] || b.calls - a.calls)
+  const sum = summarize(list)
+  const top = list
+    .flatMap(c => Object.entries(c.toolCalls).map(([tool, n]) => ({ server: displayName(c), tool, n })))
+    .sort((a, b) => b.n - a.n)[0]
+  return (
+    <>
+      <FilterChips<'all' | Group> value={shown} onChange={setFilter} options={chips} className="-mt-0.5 mb-1" />
+      {!report ? (
+        <p className="mb-1.5 rounded-lg bg-ov-chip px-2.5 py-[5px] text-label text-fg-muted">
+          {tr('connectors.idleHint')}
+        </p>
+      ) : (
+        <>
+          {!report.live && (
+            <p className="mb-1.5 rounded-lg bg-ov-chip px-2.5 py-[5px] text-label text-fg-muted">
+              {tr('connectors.notLive')}
+            </p>
+          )}
+          <div className="mb-1.5 grid grid-cols-[auto_auto_minmax(0,1fr)] gap-1.5">
+            <Stat value={String(sum.tools)} label={tr('overview.mcpStatTools')} />
+            <Stat value={String(sum.calls)} label={tr('overview.mcpStatCalls')} />
+            <Stat
+              mono
+              value={top ? top.tool : '—'}
+              label={top ? tr('overview.mcpStatTop', { count: top.n }) : tr('overview.mcpStatTopNone')}
+              title={top ? `${top.server} · ${top.tool}` : undefined}
+            />
+          </div>
+        </>
+      )}
+      {sorted.map(c => (
+        <ServerCard
+          key={c.name}
+          c={c}
+          report={report}
+          actions={actions}
+          open={open === c.name}
+          onToggle={() => setOpen(open === c.name ? null : c.name)}
+        />
+      ))}
+      <div className="flex flex-wrap items-center gap-1.5 pt-2">
+        <SectionLink onClick={() => openRightTab('connectors')}>
+          <ExternalLink size={13} strokeWidth={1.6} />
+          {tr('settings.AboutSection.manage')}
+        </SectionLink>
+        <SectionLink onClick={actions.settings}>
+          <Plus size={13} strokeWidth={1.6} />
+          {tr('connectors.add')}
+        </SectionLink>
+        <span className="ml-auto inline-flex items-center gap-0.5 text-label text-fg-faint">
+          {report && agoText(Math.max(0, now - report.at))}
+          <IconButton
+            icon={RefreshCw}
+            label={tr('connectors.refresh')}
+            size={22}
+            iconSize={13}
+            disabled={actions.busy === 'refresh'}
+            onClick={actions.refresh}
+          />
+        </span>
+      </div>
+    </>
+  )
+}
+
+function Stat({ value, label, mono, title }: { value: string; label: string; mono?: boolean; title?: string }) {
+  return (
+    <div title={title} className="min-w-0 rounded-lg bg-ov-chip px-[9px] py-[5px]">
+      <b
+        className={cn(
+          'block truncate font-medium tabular-nums',
+          mono ? 'font-mono text-meta leading-[17.5px]' : 'text-prose leading-[1.25]',
+        )}
+      >
+        {value}
+      </b>
+      <span className="block truncate text-label text-fg-muted">{label}</span>
+    </div>
+  )
+}
+
+function ServerCard({
   c,
   report,
   actions,
@@ -100,87 +202,165 @@ function McpRow({
   onToggle(): void
 }) {
   const name = displayName(c)
-  const meta =
-    c.status === 'connected'
-      ? [
-          tr('connectors.toolCount', { count: c.tools.length }),
-          c.calls ? tr('connectors.used', { count: c.calls }) : null,
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      : tr(STATUS_KEY[c.status])
+  const bad = c.status === 'failed',
+    warn = c.status === 'auth',
+    off = c.status === 'disabled' || c.status === 'idle'
+  const right = bad ? (
+    <Tag tone="bad">{tr(STATUS_KEY.failed)}</Tag>
+  ) : warn ? (
+    <Tag tone="warn">{tr(STATUS_KEY.auth)}</Tag>
+  ) : c.status === 'disabled' || c.status === 'pending' ? (
+    <Tag>{tr(STATUS_KEY[c.status])}</Tag>
+  ) : c.status === 'connected' ? (
+    <span className={cn('shrink-0 tabular-nums', c.calls ? 'text-fg-muted' : 'text-fg-faint')}>
+      {c.calls ? tr('connectors.used', { count: c.calls }) : tr('overview.mcpUnused')}
+    </span>
+  ) : null
   return (
-    <>
-      <button type="button" aria-expanded={open} data-overview-mcp={c.name} onClick={onToggle} className={SECTION_ROW}>
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-selected text-label font-semibold">
+    <div
+      data-overview-mcp={c.name}
+      className={cn(
+        '-mx-1 rounded-xl px-1.5 pt-[5px] pb-1.5 [&+&]:mt-0.5',
+        open ? 'bg-ov-chip' : bad ? 'bg-danger/15' : warn ? 'bg-warn/18' : 'hover:bg-hover',
+      )}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="press flex min-h-6 w-full items-center gap-2 text-left"
+      >
+        <span className="relative grid size-[22px] shrink-0 place-items-center rounded-lg bg-fg/10 text-[10px] font-semibold text-fg-secondary">
           {initials(name)}
+          <i className={cn('absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-ov-tile', DOT[c.status])} />
         </span>
-        <span title={c.name} className={cn('min-w-0 flex-1 truncate', c.status === 'disabled' && 'text-fg-muted')}>
+        <span title={c.name} className={cn('min-w-0 flex-1 truncate', off ? 'text-fg-muted' : 'font-medium text-fg')}>
           {name}
+          {c.version && (
+            <small className="ml-1 text-label font-normal text-fg-faint">
+              {/^\d/.test(c.version) ? `v${c.version}` : c.version}
+            </small>
+          )}
         </span>
-        <span title={meta} className="max-w-[60%] min-w-0 truncate text-meta text-fg-muted tabular-nums">
-          {meta}
-        </span>
-        <span className={cn('size-[7px] shrink-0 rounded-full', DOT[c.status])} />
+        {right}
+        <ChevronRight
+          size={12}
+          strokeWidth={1.6}
+          className={cn(
+            'shrink-0 text-fg-faint transition-transform motion-reduce:transition-none',
+            open && 'rotate-90',
+          )}
+        />
       </button>
-      {open && <McpDetail c={c} report={report} actions={actions} />}
-    </>
+      <div className="flex flex-wrap items-center gap-1 pt-[3px] pl-[30px]">
+        <Tag className="h-[18px] px-[7px] text-fg-muted">{sourceLabel(c)}</Tag>
+        {c.config?.transport && <Tag className="h-[18px] px-[7px] text-fg-muted">{c.config.transport}</Tag>}
+        {c.status === 'connected' && (
+          <Tag className="h-[18px] px-[7px] text-fg-muted">{tr('connectors.toolCount', { count: c.tools.length })}</Tag>
+        )}
+      </div>
+      {open && <ServerBody c={c} report={report} actions={actions} />}
+    </div>
   )
 }
 
-function McpDetail({ c, report, actions }: { c: Connector; report: McpReport | null; actions: ConnectorActions }) {
+function ServerBody({ c, report, actions }: { c: Connector; report: McpReport | null; actions: ConnectorActions }) {
   const can = mcpActions(c.status, report)
-  const { tools, more } = topTools(c)
-  // 远程机器读不到配置，就没有传输方式
-  const source = [sourceLabel(c), c.config?.transport].filter(Boolean).join(' · ')
+  const [all, setAll] = useState(false)
+  const { tools, more } = topTools(c, all ? Infinity : 3)
+  const most = Math.max(1, ...tools.map(t => c.toolCalls[t.name] ?? 0))
   return (
-    <div className="mt-0.5 mb-1.5 ml-[27px] border-l border-line-subtle pl-[9px] text-meta">
-      <p title={source} className="truncate text-fg-muted">
-        {source}
-      </p>
+    <div className="pt-1.5 pl-[30px]">
+      {/* 远程机器读不到配置，就没有地址 */}
+      {c.config && (
+        <div className="flex min-h-[22px] items-center gap-1.5 text-label text-fg-muted">
+          <span title={c.config.target} className="min-w-0 flex-1 truncate font-mono">
+            {c.config.target}
+          </span>
+          <CopyButton text={c.config.target} iconOnly />
+        </div>
+      )}
+      {!!c.config?.secrets.length && (
+        <div className="flex min-h-[22px] flex-wrap items-center gap-1 text-label text-fg-muted">
+          {c.config.secrets.map(k => (
+            <Tag key={k} className="font-mono">
+              {k}
+            </Tag>
+          ))}
+          <span className="text-fg-faint">{tr('connectors.secretsHidden')}</span>
+        </div>
+      )}
       {c.error && (
-        <p title={c.error} className="line-clamp-3 py-0.5 break-words text-danger">
+        <p
+          className={cn(
+            'my-1 rounded-lg px-2.5 py-1.5 leading-[1.45] break-words',
+            c.status === 'auth' ? 'bg-warn/12 text-warn-fg' : 'bg-danger/10 text-danger',
+          )}
+        >
           {c.error}
         </p>
       )}
-      {tools.map(t => (
-        <div key={t.name} className="flex min-h-[22px] items-center gap-[7px] text-fg-secondary">
-          <span title={t.description ?? t.name} className="min-w-0 flex-1 truncate font-mono">
-            {t.name}
-          </span>
-          {!!c.toolCalls[t.name] && (
-            <span className="shrink-0 text-fg-muted tabular-nums">
-              {tr('connectors.toolCalls', { count: c.toolCalls[t.name]! })}
-            </span>
+      {tools.length > 0 && (
+        <>
+          <div className={SUB_LABEL}>
+            {tr('overview.mcpTools')}
+            <span className="ml-auto">{tr('overview.mcpToolCalls')}</span>
+          </div>
+          {tools.map(t => {
+            const n = c.toolCalls[t.name] ?? 0
+            return (
+              <div key={t.name} className="py-[3px]">
+                <div className="flex items-center gap-1.5 text-fg-secondary">
+                  <span className="min-w-0 truncate font-mono text-[11.5px]">{t.name}</span>
+                  {t.readOnly && (
+                    <Tag title={tr('connectors.readOnlyHint')} className="h-4 px-1.5">
+                      {tr('overview.mcpReadOnly')}
+                    </Tag>
+                  )}
+                  <span
+                    className={cn('ml-auto shrink-0 text-label tabular-nums', n ? 'text-fg-muted' : 'text-fg-faint')}
+                  >
+                    {n ? `×${n}` : '—'}
+                  </span>
+                </div>
+                {t.description && (
+                  <div title={t.description} className="truncate text-label text-fg-faint">
+                    {t.description}
+                  </div>
+                )}
+                {n > 0 && <Meter percent={(n / most) * 100} className="mt-[3px] h-[3px] opacity-75" />}
+              </div>
+            )
+          })}
+          {more > 0 && (
+            <SectionLink onClick={() => setAll(true)}>{tr('overview.mcpMoreTools', { count: more })}</SectionLink>
           )}
-        </div>
-      ))}
-      {more > 0 && <p className="py-0.5 text-fg-muted">{tr('overview.mcpMoreTools', { count: more })}</p>}
-      <div className="mt-[3px] flex min-h-6 items-center gap-1.5">
+        </>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
         {can.login && (
-          <Button
-            variant="primary"
-            className="h-6 px-2 text-meta"
-            disabled={actions.busy === 'login:' + c.name}
-            onClick={() => actions.login(c.name)}
-          >
+          <Pill tone="primary" disabled={actions.busy === 'login:' + c.name} onClick={() => actions.login(c.name)}>
             {tr('connectors.login')}
-          </Button>
+          </Pill>
         )}
         {can.reconnect && (
-          <SectionAction disabled={actions.busy === 'reconnect:' + c.name} onClick={() => actions.reconnect(c.name)}>
+          <Pill
+            tone={c.status === 'failed' ? 'primary' : 'default'}
+            disabled={actions.busy === 'reconnect:' + c.name}
+            onClick={() => actions.reconnect(c.name)}
+          >
             <RefreshCw
               size={13}
               strokeWidth={1.6}
               className={cn(actions.busy === 'reconnect:' + c.name && 'animate-spin')}
             />
             {tr('connectors.reconnect')}
-          </SectionAction>
+          </Pill>
         )}
         <span className="flex-1" />
         {can.toggle && (
-          <>
-            <span className="text-fg-muted">{tr('connectors.enable')}</span>
+          <span className="inline-flex items-center gap-1.5 text-label text-fg-muted">
+            {tr('connectors.enable')}
             <Switch
               size="sm"
               label={`${tr('connectors.enable')} · ${c.name}`}
@@ -188,7 +368,7 @@ function McpDetail({ c, report, actions }: { c: Connector; report: McpReport | n
               disabled={actions.busy === 'toggle:' + c.name}
               onChange={on => actions.toggle(c.name, on)}
             />
-          </>
+          </span>
         )}
       </div>
     </div>

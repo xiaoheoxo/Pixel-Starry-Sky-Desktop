@@ -2,12 +2,18 @@
 import { useSyncExternalStore } from 'react'
 import { DEFAULT_OVERVIEW_PREFS, parseOverviewPrefs, type OverviewPrefs } from './overviewModel'
 
-const KEY = 'pixelsky.overview.sections'
+// 2026-11-13 改成平铺清单（D273）：默认都展开，旧键里只带过来「隐藏」
+const KEY = 'pixelsky.overview.sections.v2'
+const OLD_KEY = 'pixelsky.overview.sections'
 
 function read(): OverviewPrefs {
   try {
     const text = localStorage.getItem(KEY)
-    return text ? parseOverviewPrefs(JSON.parse(text)) : DEFAULT_OVERVIEW_PREFS
+    if (text) return parseOverviewPrefs(JSON.parse(text))
+    const old = localStorage.getItem(OLD_KEY)
+    return old
+      ? { ...DEFAULT_OVERVIEW_PREFS, hidden: parseOverviewPrefs(JSON.parse(old)).hidden }
+      : DEFAULT_OVERVIEW_PREFS
   } catch {
     return DEFAULT_OVERVIEW_PREFS
   }
@@ -35,7 +41,8 @@ function subscribe(callback: () => void): () => void {
 }
 
 export function useOverviewPrefs(): OverviewPrefs {
-  return useSyncExternalStore(subscribe, current, () => DEFAULT_OVERVIEW_PREFS)
+  // 第三个参数也用 current：没有服务端渲染，测试用 renderToStaticMarkup 时要读到改过的偏好
+  return useSyncExternalStore(subscribe, current, current)
 }
 
 const toggled = (list: string[], id: string): string[] =>
@@ -47,6 +54,10 @@ export const overviewPrefs = {
   },
   toggleHidden(id: string): void {
     set({ ...current(), hidden: toggled(current().hidden, id) })
+  },
+  /** 全部折叠 / 全部展开：「要处理」不收 */
+  setAllCollapsed(ids: readonly string[], collapsed: boolean): void {
+    set({ ...current(), collapsed: collapsed ? [...ids] : [] })
   },
   reset(): void {
     set(DEFAULT_OVERVIEW_PREFS)

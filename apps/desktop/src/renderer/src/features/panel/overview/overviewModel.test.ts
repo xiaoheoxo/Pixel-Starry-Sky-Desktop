@@ -15,16 +15,20 @@ import {
   checkHeadline,
   contextLevel,
   contextRows,
+  contextSplit,
   countsForUsage,
   dockTarget,
   lastTurnDuration,
   mcpActions,
+  modelUsage,
   parseOverviewPrefs,
   prHeadline,
+  quotaPace,
   quotaRows,
   resolvedPrKeys,
   sessionUsage,
   topTools,
+  windowElapsed,
 } from './overviewModel'
 
 describe('parseOverviewPrefs', () => {
@@ -96,6 +100,74 @@ describe('contextRows', () => {
   it('没有诊断：请求计数，没报的和 0 不显示', () => {
     expect(contextRows({ ...base, input: 5, cacheRead: 0, output: 2 }).map(r => r.tokens)).toEqual([5, 2])
     expect(contextRows(base)).toEqual([])
+  })
+})
+
+describe('contextSplit', () => {
+  const base = { used: 120, window: 200, diagnostic: null } as ContextWindow
+  const diag = (buffer: number, deferred = 0): ContextWindow['diagnostic'] =>
+    ({
+      categories: [
+        { name: 'Messages', tokens: 100, kind: 'used' },
+        { name: 'Free space', tokens: 50, kind: 'free' },
+        { name: 'Autocompact buffer', tokens: buffer, kind: 'buffer' },
+        { name: 'MCP tools (deferred)', tokens: deferred, kind: 'deferred' },
+      ],
+    }) as ContextWindow['diagnostic']
+  it('三段：已用、空闲、自动压缩预留；空闲按最新的已用算', () => {
+    expect(contextSplit({ ...base, diagnostic: diag(45, 12) })).toEqual({
+      used: 120,
+      window: 200,
+      buffer: 45,
+      free: 35,
+      deferred: 12,
+    })
+  })
+  it('没有诊断（或自动压缩关着）：没有预留，剩下的都是空闲', () => {
+    expect(contextSplit(base)).toMatchObject({ buffer: 0, free: 80 })
+  })
+  it('分类是旧的、已用已经吃进预留：预留不超过剩下的', () => {
+    expect(contextSplit({ ...base, used: 190, diagnostic: diag(45) })).toMatchObject({ buffer: 10, free: 0 })
+  })
+  it('不知道已用或窗口：null', () => {
+    expect(contextSplit({ ...base, used: null })).toBeNull()
+    expect(contextSplit({ ...base, window: 0 })).toBeNull()
+  })
+})
+
+describe('quotaPace', () => {
+  const HOUR = 3_600_000
+  const now = 10 * HOUR
+  const entry = (percent: number, elapsedHours: number, over: Partial<QuotaEntry> = {}): QuotaEntry =>
+    ({
+      id: '5h',
+      kind: 'window',
+      name: '5 小时内',
+      durationMins: 300,
+      percent,
+      resetsAt: now + (5 - elapsedHours) * HOUR,
+      expired: false,
+      level: 'normal',
+      ...over,
+    }) as QuotaEntry
+  it('竖线：窗口过了多少时间', () => {
+    expect(windowElapsed(entry(10, 2), now)).toBeCloseTo(0.4)
+    expect(windowElapsed(entry(10, 2, { durationMins: null }), now)).toBeNull()
+    expect(windowElapsed(entry(10, 2, { expired: true }), now)).toBeNull()
+  })
+  it('用得比时间快：算出还能用多久、比恢复早多少', () => {
+    // 2 小时用了 50%：再 2 小时用完，离恢复还有 3 小时
+    const pace = quotaPace(entry(50, 2), now)
+    expect(pace).toEqual({ fast: true, emptyIn: 2 * HOUR, early: HOUR })
+  })
+  it('照这个速度够用', () => {
+    expect(quotaPace(entry(30, 2), now)).toEqual({ fast: false })
+  })
+  it('窗口刚开始、没用、已用完、不知道时长：不算', () => {
+    expect(quotaPace(entry(5, 0.2), now)).toBeNull()
+    expect(quotaPace(entry(0, 2), now)).toBeNull()
+    expect(quotaPace(entry(100, 2), now)).toBeNull()
+    expect(quotaPace(entry(50, 2, { durationMins: null }), now)).toBeNull()
   })
 })
 
@@ -179,6 +251,27 @@ describe('sessionUsage', () => {
     const r = sessionUsage([stats('s1', { x: m() }), stats('s2', { x: m() }, 1000, { settlement: { complete: true } })])
     expect(r?.usage.settlement).toEqual({ complete: true })
   })
+  it('每轮的 Token：断线重连的「继续」并进它那一轮，计数缺失的模型不算', () => {
+    const broken = m({ cacheWrite: undefined as unknown as number })
+    const items = [
+      user('a'),
+      stats('s1', { x: m() }),
+      user('b', { reconnect: {} }),
+      stats('s2', { x: m() }),
+      user('c'),
+      stats('s3', { x: m(), y: broken }),
+    ]
+    expect(sessionUsage(items)?.perTurn).toEqual([20, 10])
+  })
+  it('按模型合计：同一模型各轮加起来，Token 多的在前，各带各的用量算费用', () => {
+    const r = sessionUsage([user('a'), stats('s1', { x: m(), y: m({ output: 40 }) }), stats('s2', { x: m() })])!
+    const rows = modelUsage(r.usage)
+    expect(rows.map(row => [row.model, row.tokens])).toEqual([
+      ['y', 46],
+      ['x', 20],
+    ])
+    expect(Object.keys(rows[1]!.usage.models)).toEqual(['x#s1', 'x#s2'])
+  })
   it('判断要不要重算只看 turn_stats 和开启新一轮的 user', () => {
     expect(countsForUsage(user('a'))).toBe(true)
     expect(countsForUsage(user('b', { reconnect: {} }))).toBe(false)
@@ -219,6 +312,30 @@ describe('changeRows', () => {
     const { rows } = changeRows({ ...none, unstaged: [file('app/src/A.ts', 'src/A.ts')] }, turn('src/a.ts'))
     expect(rows[0]).toMatchObject({ path: 'app/src/A.ts', label: 'src/A.ts' })
     expect(rows[0].turn?.added).toBe(2)
+  })
+  it('冲突排最前，标成 U；暂存和没暂存的增删加起来', () => {
+    const stat = (path: string, insertions: number, deletions: number): GitFileChange => ({
+      ...file(path),
+      insertions,
+      deletions,
+    })
+    const { rows } = changeRows(
+      {
+        ...none,
+        conflicted: [file('z')],
+        staged: [stat('a', 3, 1)],
+        unstaged: [stat('a', 2, 0), file('c')],
+      },
+      turn('c'),
+      Infinity,
+    )
+    expect(rows.map(r => [r.path, r.code])).toEqual([
+      ['z', 'U'],
+      ['c', 'M'],
+      ['a', 'M'],
+    ])
+    expect(rows[2]).toMatchObject({ staged: true, insertions: 5, deletions: 1 })
+    expect(rows[1]).toMatchObject({ staged: false, insertions: null })
   })
   it('工作区之外的文件显示仓库路径', () => {
     expect(changeRows({ ...none, unstaged: [file('other/x.ts', null)] }, null).rows[0].label).toBe('other/x.ts')

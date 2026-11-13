@@ -2,7 +2,18 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 // 进度卡片：显示当前计划和子智能体，按对话区宽度浮着或收成顶部一条，概况开着时停靠进右栏（docs/ui/progress-card.md §4，参考 Claude 桌面版）
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Bot, Check, ChevronDown, ChevronUp, CircleSlash, PanelRight, SlidersHorizontal, Square, X } from 'lucide-react'
+import {
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleSlash,
+  List,
+  PanelRight,
+  SlidersHorizontal,
+  Square,
+  X,
+} from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import type { SessionSnapshot, TodoStep } from '@pixelsky/protocol'
 import { IconButton, Spinner, cn } from '@/ui'
@@ -145,7 +156,8 @@ function summary(plan: Plan | null, agents: ProgressAgent[], finished: boolean):
   return parts.join(' · ')
 }
 
-function Steps({ plan, working }: { plan: Plan; working: boolean }) {
+/** quiet：停靠在概况里，顶上「正在」行已经是强调色胶囊，当前步骤只加粗（D274） */
+function Steps({ plan, working, quiet }: { plan: Plan; working: boolean; quiet?: boolean }) {
   const { steps } = plan
   const list = useRef<HTMLOListElement>(null)
   const active = activeStep(steps)
@@ -189,7 +201,7 @@ function Steps({ plan, working }: { plan: Plan; working: boolean }) {
             aria-current={i === active ? 'step' : undefined}
             className={cn(
               'flex items-start gap-2 rounded-md px-1.5 py-[3px] text-list',
-              i === active && 'bg-accent-soft',
+              i === active && !quiet && 'bg-accent-soft',
             )}
           >
             <StepMark status={s.status} live={working} />
@@ -536,15 +548,24 @@ export function ProgressCard({
           className={cn(
             'flex flex-col py-2',
             docked
-              ? 'rounded-lg border border-line-card bg-surface'
+              ? // 概况里的卡片底色和圆角在停靠位置上（OverviewPanel），这里不画框
+                'py-0'
               : cn(
                   'pop-in absolute z-20 max-h-[60%] w-[min(22rem,calc(100%-2rem))] rounded-xl border border-line bg-popover shadow-popover',
                   over ? 'right-4' : 'right-5',
                 ),
           )}
         >
-          <div className="flex items-center gap-1 pr-1.5 pl-3">
-            <span className="text-list font-medium text-fg">{tr('session.progress.title')}</span>
+          <div className={cn('flex items-center gap-1', docked ? 'min-h-8 gap-2 px-2' : 'pr-1.5 pl-3')}>
+            {docked && <List size={15} strokeWidth={1.6} className="shrink-0 text-fg-muted" />}
+            <span className={cn('text-list text-fg', docked ? 'font-semibold' : 'font-medium')}>
+              {tr('session.progress.title')}
+            </span>
+            {docked && plan && (
+              <span className="inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-ov-chip px-[5px] text-label font-medium text-fg-muted tabular-nums">
+                {plan.done}/{plan.steps.length}
+              </span>
+            )}
             {progress.background && (
               <span className="ml-1 truncate text-meta text-fg-muted">{tr('session.progress.background')}</span>
             )}
@@ -563,11 +584,22 @@ export function ProgressCard({
             {chevron}
             {dismiss}
           </div>
-          <div className={cn('px-3 pb-1 text-meta tabular-nums', finished ? 'text-success' : 'text-fg-muted')}>
+          <div
+            className={cn(
+              'pb-1 text-meta tabular-nums',
+              docked ? 'px-2' : 'px-3',
+              finished ? 'text-success' : 'text-fg-muted',
+            )}
+          >
             {summary(plan, agents, finished)}
           </div>
           {current && (
-            <div className="mx-1.5 flex items-start gap-2 rounded-md bg-accent-soft px-1.5 py-[3px] text-list font-medium text-fg">
+            <div
+              className={cn(
+                'mx-1.5 flex items-start gap-2 rounded-md px-1.5 py-[3px] text-list text-fg',
+                docked ? 'font-semibold' : 'bg-accent-soft font-medium',
+              )}
+            >
               <StepMark status="in_progress" live={progress.working} />
               <span title={current.text} className="min-w-0 truncate">
                 {current.text}
@@ -576,7 +608,7 @@ export function ProgressCard({
           )}
           {open && (
             <div className="flex min-h-0 flex-col overflow-y-auto">
-              {plan && <Steps key={plan.id} plan={plan} working={progress.working} />}
+              {plan && <Steps key={plan.id} plan={plan} working={progress.working} quiet={docked} />}
               {agents.length > 0 && <Agents agents={agents} divided={!!plan} onStop={onStopAgents} />}
             </div>
           )}

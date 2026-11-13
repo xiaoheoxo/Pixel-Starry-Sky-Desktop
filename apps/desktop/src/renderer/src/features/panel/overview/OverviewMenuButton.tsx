@@ -1,19 +1,28 @@
-// 标签栏上的滑杆图标：选概况里显示哪些分组（样稿 .menu）
+// 标签栏上概况的两个按钮：全部折叠 / 展开，滑杆图标选显示哪些分组
 import { useRef, useState } from 'react'
-import { SlidersHorizontal } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, SlidersHorizontal } from 'lucide-react'
 import { IconButton, Popover, Switch } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
-import { OVERVIEW_SECTIONS } from './OverviewPanel'
+import { FOLDABLE_IDS, OVERVIEW_SECTIONS } from './OverviewPanel'
 import { overviewPrefs, useOverviewPrefs } from './overviewPrefs'
 
 export function OverviewMenuButton() {
   useI18n()
-  const { hidden } = useOverviewPrefs()
+  const { hidden, collapsed } = useOverviewPrefs()
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement>(null)
+  const folded = FOLDABLE_IDS.every(id => collapsed.includes(id))
   return (
     <>
+      {/* 全部折叠成速览：每组一行摘要；「要处理」不收 */}
+      <IconButton
+        icon={folded ? ChevronsUpDown : ChevronsDownUp}
+        label={tr(folded ? 'overview.unfoldAll' : 'overview.foldAll')}
+        size={28}
+        iconSize={15}
+        onClick={() => overviewPrefs.setAllCollapsed(FOLDABLE_IDS, !folded)}
+      />
       <IconButton
         ref={anchor}
         icon={SlidersHorizontal}
