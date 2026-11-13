@@ -602,6 +602,29 @@
 :root[data-workbench-frame='line'] [data-right-workspace] {
   border-left-color: color-mix(in srgb, var(--ink) 10%, transparent);
 }
+/* 毛玻璃下的工作区边框（docs/ui/glass-effect.md §7）。两块独立：外框和缝就是侧栏那层玻璃色（--bg-sidebar），
+   对话窗格、右栏各盖自己那层（正文区、右侧面板），main 不再整块盖一层（否则对话区比右栏实一截，分屏的缝也被盖上）；
+   面板圆角跟毛玻璃的「卡片圆角」，边用毛玻璃的亮边。一条线：线换成亮边色，墨色线在玻璃上看不清 */
+:root[data-glass][data-workbench-frame='block'] .workbench-surface main {
+  background-color: transparent;
+}
+:root[data-glass][data-workbench-frame='block'] .pane-box > [data-pane-id] {
+  background: color-mix(in srgb, var(--glass-tint-main) var(--glass-main), transparent);
+}
+:root[data-glass][data-workbench-frame='block'] [data-right-workspace] {
+  background: var(--bg-panel);
+}
+:root[data-glass][data-workbench-frame='block'] :is(.pane-box > [data-pane-id], [data-right-workspace]) {
+  border-radius: var(--glass-radius);
+}
+:root[data-glass][data-workbench-frame='block'] :is(.pane-box > [data-pane-id], [data-right-workspace])::after {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, var(--glass-rim)),
+    inset 0 0 0 1px rgba(255, 255, 255, calc(var(--glass-rim) / 3));
+}
+:root[data-glass][data-workbench-frame='line'] [data-right-workspace] {
+  border-left-color: var(--glass-edge);
+}
 /* 「审查」这类次要按钮用 --border-strong（分屏的分隔线也用它，不能整体改） */
 .workbench-surface [data-button] {
   border-color: transparent;

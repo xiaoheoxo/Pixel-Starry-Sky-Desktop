@@ -315,8 +315,10 @@
 [data-panel-tabs] {
   background: color-mix(in srgb, var(--ink) 7%, var(--bg-workbench));
 }
+/* 右边的按钮都是整高方格（「概况」那两个按钮的宽高写在行内样式上，要 !important） */
 [data-panel-tabs] > button {
   align-self: stretch;
+  height: 32px !important;
   border-radius: 0;
 }
 [data-panel-tab][data-active] {
@@ -343,4 +345,84 @@
 [data-panel-tab][data-active]::after {
   right: -8px;
   background: radial-gradient(circle at 100% 0, transparent 7px, var(--bg-workbench) 8px);
+}
+
+/* 毛玻璃、壁纸（docs/ui/glass-effect.md §7）：面板底色是半透明的，当前标签再盖一层底色也盖不住下面的轨道，和内容接不成一块。
+   改成轨道绕开当前标签：标签栏自己不画底色，当前标签透明；它的 ::before 比标签左右各宽 8（两脚的位置），往外投一圈 100vmax 的阴影
+   当轨道（阴影不画在自己框里，被标签条裁到标签栏里）；::after 把两脚上面那一列、反向圆角外面、标签上圆角外面补成轨道。
+   标签条外面的按钮、没有当前标签的标签条自己画轨道色。两个伪元素放在标签栏的层里最底下（isolation + z-index -1），不盖住字 */
+:root:is([data-glass], [data-wallpaper]) {
+  --track-ink: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+:root:is([data-glass], [data-wallpaper]) [data-pane-id][data-focused] > .pane-head {
+  --track-ink: color-mix(in srgb, var(--ink) 11%, transparent);
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-bar], .pane-head, [data-pane-id][data-focused] > .pane-head, [data-panel-tabs]) {
+  isolation: isolate;
+  background: transparent;
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-new], .pane-head > div > :not(.pane-head-content), [data-panel-tabs] > :not([role='tablist'])),
+:root:is([data-glass], [data-wallpaper]) [data-panel-tabs] > [role='tablist']:not(:has([data-active])) {
+  background: var(--track-ink);
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-strip] [role='tab'][aria-selected='true'], [data-panel-tab][data-active]) {
+  background: transparent;
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-strip] [role='tab'][aria-selected='true'], [data-panel-tab][data-active])::before,
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-strip] [role='tab'][aria-selected='true'], [data-panel-tab][data-active])::after {
+  display: block;
+  inset: 0 -8px;
+  z-index: -1;
+  width: auto;
+  height: auto;
+}
+/* 对话标签有 1px 透明边框，伪元素从内边距框算：各往外多 1px */
+:root:is([data-glass], [data-wallpaper]) [data-tab-strip] [role='tab'][aria-selected='true']::before,
+:root:is([data-glass], [data-wallpaper]) [data-tab-strip] [role='tab'][aria-selected='true']::after {
+  inset: -1px -9px;
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-strip] [role='tab'][aria-selected='true'], [data-panel-tab][data-active])::before {
+  background: none;
+  box-shadow: 0 0 0 100vmax var(--track-ink);
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-strip] [role='tab'][aria-selected='true'], [data-panel-tab][data-active])::after {
+  background:
+    linear-gradient(var(--track-ink), var(--track-ink)) left top / 8px calc(100% - 8px) no-repeat,
+    linear-gradient(var(--track-ink), var(--track-ink)) right top / 8px calc(100% - 8px) no-repeat,
+    radial-gradient(circle at 0 0, var(--track-ink) 7px, transparent 8px) left bottom / 8px 8px no-repeat,
+    radial-gradient(circle at 100% 0, var(--track-ink) 7px, transparent 8px) right bottom / 8px 8px no-repeat,
+    radial-gradient(circle at 100% 100%, transparent 7px, var(--track-ink) 8px) 8px 0 / 8px 8px no-repeat,
+    radial-gradient(circle at 0 100%, transparent 7px, var(--track-ink) 8px) calc(100% - 8px) 0 / 8px 8px no-repeat;
+}
+/* 第一个标签贴边、填满左上角：左边没有脚也没有圆角，只补右边 */
+:root:is([data-glass], [data-wallpaper]) [data-tab-strip] > [role='tab'][aria-selected='true']:first-child::before,
+:root:is([data-glass], [data-wallpaper]) [data-tab-strip] > [role='tab'][aria-selected='true']:first-child::after {
+  left: -1px;
+}
+:root:is([data-glass], [data-wallpaper])
+  [data-panel-tabs]
+  [role='tablist']
+  > [data-panel-tab][data-active]:first-child::before,
+:root:is([data-glass], [data-wallpaper])
+  [data-panel-tabs]
+  [role='tablist']
+  > [data-panel-tab][data-active]:first-child::after {
+  left: 0;
+}
+:root:is([data-glass], [data-wallpaper])
+  :is([data-tab-strip] > [role='tab'], [data-panel-tabs] [role='tablist'] > [data-panel-tab]):first-child:is(
+    [aria-selected='true'],
+    [data-active]
+  )::after {
+  background:
+    linear-gradient(var(--track-ink), var(--track-ink)) right top / 8px calc(100% - 8px) no-repeat,
+    radial-gradient(circle at 100% 0, var(--track-ink) 7px, transparent 8px) right bottom / 8px 8px no-repeat,
+    radial-gradient(circle at 0 100%, transparent 7px, var(--track-ink) 8px) calc(100% - 8px) 0 / 8px 8px no-repeat;
 }
