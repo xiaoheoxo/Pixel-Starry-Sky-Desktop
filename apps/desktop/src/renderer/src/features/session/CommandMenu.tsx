@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { Fragment, useLayoutEffect, useRef } from 'react'
 import type { SkillCommand } from '@pixelsky/protocol'
 import { cn } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -84,31 +84,43 @@ export function CommandMenu({
             )
           }
           if (command.invocation === 'app') {
+            // 分组标题：这一组的第一条前面写一行（D277）
+            const prev = commands[index - 1]
+            const heading =
+              command.group && !(prev?.invocation === 'app' && prev.group === command.group) ? command.group : null
             return (
-              <button
-                type="button"
-                role="option"
-                tabIndex={-1}
-                id={`${id}-${index}`}
-                data-command-index={index}
-                data-app-command={command.name}
-                aria-selected={index === selected}
-                key={`${command.invocation}:${command.name}`}
-                onMouseDown={event => event.preventDefault()}
-                onClick={() => onChoose(index)}
-                className={cn(
-                  'flex w-full min-w-0 flex-col gap-1 rounded-md px-3 py-2 text-left text-list',
-                  index === selected ? 'bg-selected' : 'hover:bg-hover',
+              <Fragment key={`${command.invocation}:${command.name}`}>
+                {heading && (
+                  <div role="presentation" className="px-3 pt-2 pb-1 text-label text-fg-faint">
+                    {tr(`appCommand.group.${heading}`)}
+                  </div>
                 )}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-medium">/{command.name}</span>
-                  <span className="shrink-0 rounded bg-hover px-1.5 text-meta text-fg-muted">{tr('resume.chip')}</span>
-                </span>
-                <span title={command.description} className="truncate text-meta text-fg-muted">
-                  {command.description}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  role="option"
+                  tabIndex={-1}
+                  id={`${id}-${index}`}
+                  data-command-index={index}
+                  data-app-command={command.name}
+                  aria-selected={index === selected}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => onChoose(index)}
+                  className={cn(
+                    'flex w-full min-w-0 flex-col gap-1 rounded-md px-3 py-2 text-left text-list',
+                    index === selected ? 'bg-selected' : 'hover:bg-hover',
+                  )}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">/{command.name}</span>
+                    <span className="shrink-0 rounded bg-hover px-1.5 text-meta text-fg-muted">
+                      {tr('resume.chip')}
+                    </span>
+                  </span>
+                  <span title={command.description} className="truncate text-meta text-fg-muted">
+                    {command.description}
+                  </span>
+                </button>
+              </Fragment>
             )
           }
           const description = commandDescription(command, locale)

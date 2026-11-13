@@ -95,6 +95,13 @@ import { isSlashCommand } from '@/features/panel/annotationText'
 import { Popover, PopoverItem } from '@/ui'
 import { ComposerInput, type ComposerInputHandle } from './composerInput/ComposerInput'
 import { PromptOptimizeButton, PromptOptimizeNote, usePromptOptimize } from './PromptOptimize'
+import { appCommandsFor, runAppCommand, typedAppCommand, type AppCommandContext } from './appCommands'
+import { openBranchDialog } from './branch/store'
+import { paneActions } from '@/features/panes/store'
+import { openRightTab } from '@/features/panel/workspaceStore'
+import { useSessionActions } from '@/features/sidebar/SessionActions'
+import { sessionTarget } from '@/features/commands/CommandPaletteProvider'
+import { useAppMode } from '@/features/coding/mode'
 
 /** text-prose 是 14px / 1.7，行高取整成 24px，增高计算和样式共用 */
 const LINE_HEIGHT = 24
@@ -119,6 +126,7 @@ export function Composer({
   autoFocus,
   draftKey,
   onSideQuestion,
+  onOpenSide,
   statusExtra,
   demoQueue,
   newTask,
@@ -131,6 +139,8 @@ export function Composer({
   draftKey?: string
   /** 「/btw 问题」：交给旁聊，不发进主对话（docs/ui/rewind-fork-sidechat.md §3）；现在不能问时返回原因，输入框保留原文 */
   onSideQuestion?: (question: string) => string | null
+  /** 打开旁聊面板（「/」菜单的 /side）；没有旁聊时不传 */
+  onOpenSide?: () => void
   /** 输入框上方那一行右边的按钮（旁聊） */
   statusExtra?: ReactNode
   /** 欢迎页（新任务）的输入框：模型按钮旁边写「接着上次」（docs/ui/model-channels.md §2.6） */
@@ -211,14 +221,39 @@ export function Composer({
     isChatProject(status?.project?.id) && resumeEngineId !== 'codex' ? null : resumeEngineId,
     resumeWorkspace?.sessionId ?? resumeWorkspace?.projectId,
   )
-  const menuCommands = useMemo(
-    () => [
-      ...(resumeCommand ? commands.filter(c => !(c.name === 'resume' && c.invocation !== 'skill')) : commands),
+  // Codex 会话里像素星空自己处理的命令（docs/ui/codex-flow-slash-feedback.md B，D277）：选了打开已有的功能，不发给 Codex
+  const sessionActions = useSessionActions()
+  const appMode = useAppMode()
+  const [effortOpen, setEffortOpen] = useState(false)
+  const appContext: AppCommandContext | null = live
+    ? {
+        live,
+        newChat: () => paneActions.open(null),
+        fork: () => live.sessionId && openBranchDialog(live.sessionId),
+        openSide: onOpenSide ?? null,
+        archive: sessionTarget(live.sessionId)
+          ? () => void sessionActions.requestResult('archive', sessionTarget(live.sessionId)!)
+          : null,
+        openModelMenu: () => setMenuOpen(true),
+        openEffortMenu: () => setEffortOpen(true),
+        openOverview: appMode === 'code' ? null : () => openRightTab('overview'),
+        openFeedback: () => settings.openSettings('feedback'),
+      }
+    : null
+  const appList = appContext ? appCommandsFor(live?.engine?.id, appContext) : []
+  // 只在列表（名字、说明）变了时换新数组：上下文每次渲染都是新的
+  const appKey = appList.map(c => `${c.name}:${c.description}`).join('|')
+  const appCommands = useMemo(() => appList, [appKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const menuCommands = useMemo(() => {
+    // 引擎哪天也给了同名命令就丢掉它的（同 /resume）
+    const taken = new Set([...(resumeCommand ? ['resume'] : []), ...appCommands.map(c => c.name)])
+    return [
+      ...commands.filter(c => !(c.invocation !== 'skill' && taken.has(c.name))),
       ...promptCommands,
       ...(resumeCommand ? [resumeCommand] : []),
-    ],
-    [commands, promptCommands, resumeCommand],
-  )
+      ...appCommands,
+    ]
+  }, [commands, promptCommands, resumeCommand, appCommands])
   const [commandIndex, setCommandIndex] = useState(0),
     [commandDismissed, setCommandDismissed] = useState(false)
   const commandQuery = /^[/$]([^\s]*)$/.exec(text)?.[1].toLowerCase()
@@ -280,7 +315,12 @@ export function Composer({
     if (command?.invocation === 'app') {
       // 菜单里选中：输入框里只有刚敲的「/resu」这一个词（commandQuery 的正则要求整段文字就是它），清掉，回到敲「/」之前
       setText('')
-      openResume()
+      if (command.name === 'resume') openResume()
+      else if (appContext) {
+        setCommandDismissed(true)
+        const refused = runAppCommand(command.name, appContext)
+        if (refused) setError(refused)
+      }
     } else if (command?.invocation === 'prompt') {
       setCommandDismissed(true)
       const selected = activeEditorSelection()
@@ -644,6 +684,14 @@ export function Composer({
     const resume = resumeCommand ? parseResumeCommand(text) : null
     if (resume) {
       openResume(resume)
+      return
+    }
+    // 手打整段 /fast、/plan 这类回车：像素星空自己处理，不发给 Codex；带参数的、表里没有的照旧发
+    const typed = appContext ? typedAppCommand(text) : null
+    if (typed && appCommands.some(c => c.name === typed)) {
+      const refused = runAppCommand(typed, appContext!)
+      if (refused) setError(refused)
+      else setText('')
       return
     }
     if (!live) {
@@ -1206,7 +1254,7 @@ export function Composer({
                 onOpenChange={setMenuOpen}
                 onRequestChoice={requestChoice}
               />
-              <EffortMenu live={live} />
+              <EffortMenu live={live} open={effortOpen} onOpenChange={setEffortOpen} />
             </>
           ) : (
             <>

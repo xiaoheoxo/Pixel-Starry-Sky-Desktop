@@ -86,9 +86,24 @@ export const TRIGGER =
  * 推理强度：滑块 + 下面的会话开关（Ultracode、Fast 模式、显示思考摘要，引擎支持时才出现）。
  * 配色和 JuCode 同步：强度名、滑块用引擎品牌色，最高档时流动（docs/engines.md §15）。
  */
-export function EffortMenu({ live }: { live: ComposerController }) {
+export function EffortMenu({
+  live,
+  open: controlled,
+  onOpenChange,
+}: {
+  live: ComposerController
+  /** 由外面控制开合（输入框的 /effort 打开它）；不传时自己管 */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
   useI18n()
-  const [open, setOpen] = useState(false)
+  const [own, setOwn] = useState(false)
+  const open = controlled ?? own
+  const setOpen = (next: boolean | ((v: boolean) => boolean)): void => {
+    const value = typeof next === 'function' ? next(open) : next
+    if (onOpenChange) onOpenChange(value)
+    else setOwn(value)
+  }
   const { effort, efforts, ultracode, ultracodeSupported, ultracodeAvailable, effortEngine } = live
   const look = effortLook(effort, efforts, effortEngine)
   const ultraUnavailable = ultracodeAvailable === false

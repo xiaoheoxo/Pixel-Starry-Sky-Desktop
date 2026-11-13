@@ -5,12 +5,14 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { machineOf } from '@/features/machines/store'
 
-/** 「/」菜单里像素星空自己的命令（不是引擎给的）；现在只有 /resume */
+/** 「/」菜单里像素星空自己的命令（不是引擎给的）：/resume，以及 Codex 会话里的那几条（session/appCommands.ts） */
 export interface AppCommand {
   invocation: 'app'
   name: string
   description: string
   source: 'app'
+  /** 菜单里的分组（对话 / 模型与模式 / 查看）；/resume 没有 */
+  group?: 'chat' | 'mode' | 'view'
 }
 
 /** 执行者是 Claude Code 或 Codex、对话不在远程机器上才出现（执行者看 nextEngine ?? engine，新任务看草稿 / 默认） */

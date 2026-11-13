@@ -744,6 +744,7 @@ function LiveSessionView({
                               }
                             : undefined
                         }
+                        onOpenSide={sideAvailable ? () => openSide() : undefined}
                         statusExtra={
                           <>
                             {snapshot && (

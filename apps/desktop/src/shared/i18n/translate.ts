@@ -72,6 +72,7 @@ import { extSnippetMessages } from './extSnippetMessages'
 import { extTaskMessages } from './extTaskMessages'
 import { promptMessages } from './promptMessages'
 import { resumeMessages } from './resumeMessages'
+import { appCommandMessages } from './appCommandMessages'
 import { onboardingMessages } from './onboardingMessages'
 import { systemProxyMessages } from './systemProxyMessages'
 import { approvalMessages } from './approvalMessages'
@@ -166,6 +167,7 @@ export const allMessages = {
   ...extTaskMessages,
   ...promptMessages,
   ...resumeMessages,
+  ...appCommandMessages,
   ...onboardingMessages,
   ...systemProxyMessages,
   ...approvalMessages,

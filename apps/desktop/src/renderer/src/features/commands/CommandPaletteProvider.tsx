@@ -113,7 +113,8 @@ function history(): string[] {
     return []
   }
 }
-function sessionTarget(id: string | null): SessionTarget | null {
+/** 侧栏里的会话 → 归档、改名等操作的目标；输入框的 /archive 也用（session/appCommands.ts） */
+export function sessionTarget(id: string | null): SessionTarget | null {
   if (!id || isFileTab(id) || isNewTab(id)) return null
   if (isDemo) {
     const s = projects.flatMap(p => [...p.sessions, ...(p.archived ?? [])]).find(s => s.id === id),
