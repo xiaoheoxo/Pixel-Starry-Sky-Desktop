@@ -89,6 +89,33 @@
   animation: mode-vt-in-right 300ms var(--mode-vt-in) 160ms both;
 }
 
+/* 「对话 | 代码」胶囊（docs/ui/minimal-mode.md §18）：不跟着顶栏整体淡入淡出，胶囊、两段、收起按钮各自从旧位置挪到新位置
+   （对话模式在侧栏卡片里、代码模式在顶栏里），底色和选中块在挪的途中交叉淡入 */
+:root[data-mode-vt='slide'] [data-mode-switch] {
+  view-transition-name: mode-cap;
+}
+:root[data-mode-vt='slide'] [data-mode-switch] > button[data-mode='chat'] {
+  view-transition-name: mode-cap-chat;
+}
+:root[data-mode-vt='slide'] [data-mode-switch] > button[data-mode='code'] {
+  view-transition-name: mode-cap-code;
+}
+:root[data-mode-vt='slide'] [data-mode-switch] > button:not([data-mode]) {
+  view-transition-name: mode-cap-collapse;
+}
+:root[data-mode-vt='slide']::view-transition-group(mode-cap),
+:root[data-mode-vt='slide']::view-transition-group(mode-cap-chat),
+:root[data-mode-vt='slide']::view-transition-group(mode-cap-code),
+:root[data-mode-vt='slide']::view-transition-group(mode-cap-collapse) {
+  animation-duration: 360ms;
+  animation-timing-function: cubic-bezier(0.45, 0, 0.15, 1);
+}
+/* 胶囊外框从侧栏里的 266×34 变成顶栏里的 296×32：两张截图跟着外框拉伸，不按原比例留空 */
+:root[data-mode-vt='slide']::view-transition-old(mode-cap),
+:root[data-mode-vt='slide']::view-transition-new(mode-cap) {
+  block-size: 100%;
+}
+
 /* 其余（顶栏、工具条）整体交叉淡入 */
 :root[data-mode-vt='slide']::view-transition-old(root) {
   animation: mode-vt-fade-out 200ms var(--mode-vt-out) 60ms both;

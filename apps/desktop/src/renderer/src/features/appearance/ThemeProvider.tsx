@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { isDemo } from '@/data'
 import { PANE_FOCUS_MOTION_KEY, readPaneFocusMotion, type PaneFocusMotion } from './paneFocusMotion'
 import { MINIMAL_MODE_KEY, readMinimalMode, type MinimalMode } from './minimalMode'
+import { useAppMode } from '@/features/coding/mode'
 import { WORKBENCH_FRAME_KEY, readWorkbenchFrame, type WorkbenchFrame } from './workbenchFrame'
 import { windowBackground } from './palette'
 import { useCustomThemes } from './customTheme'
@@ -114,9 +115,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.minimal = minimal
   }, [minimal])
+  // 代码模式一律按一条线（docs/ui/minimal-mode.md §18）：编辑器、终端、对话几栏挨着排，不做圆角面板和缝；设置里的选择只管对话模式
+  const appMode = useAppMode()
   useEffect(() => {
-    document.documentElement.dataset.workbenchFrame = workbenchFrame
-  }, [workbenchFrame])
+    document.documentElement.dataset.workbenchFrame = appMode === 'code' ? 'line' : workbenchFrame
+  }, [workbenchFrame, appMode])
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')

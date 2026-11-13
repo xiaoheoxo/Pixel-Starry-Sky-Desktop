@@ -2,6 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../i18n/core'
 import { useEffect, useRef, useState } from 'react'
 import { Sidebar } from '../features/sidebar/Sidebar'
+import { SidebarHeader } from '../features/sidebar/SidebarHeader'
 import { SidebarFollow } from './SidebarFollow'
 import { ToolbarContext } from '../features/layout/ToolbarContext'
 import { RightPanel } from '../features/panel/RightPanel'
@@ -320,11 +321,11 @@ export function App() {
               <ToolbarContext.Provider
                 value={{ panelOpen, filesPanelOpen: panelOpen, onCloseFiles: () => setPanelOpen(false) }}
               >
-                <Sidebar
-                  selectedSessionId={onWorkbench ? sessionId : null}
-                  onSelectSession={paneActions.open}
-                  onCollapse={() => setSidebarOpen(false)}
-                />
+                {/* 上面一排工具 + 侧栏（docs/ui/minimal-mode.md §18）：两块独立时侧栏是外框上的一张卡片 */}
+                <div data-sidebar-column className="flex h-full w-full min-w-0 flex-col bg-sidebar">
+                  <SidebarHeader onCollapse={() => setSidebarOpen(false)} />
+                  <Sidebar selectedSessionId={onWorkbench ? sessionId : null} onSelectSession={paneActions.open} />
+                </div>
               </ToolbarContext.Provider>
             </CollapsibleSlot>
             {sidebarOpen && (

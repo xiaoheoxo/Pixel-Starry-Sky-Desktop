@@ -7,7 +7,7 @@ import { usePage } from '@/features/layout/page'
 import { UpdateNotice } from '@/features/update/UpdateNotice'
 import { useEnterCodingMode } from './enter'
 import { useCodingRouting } from './routing'
-import { PANEL_LIMITS, fitCoding } from './layoutModel'
+import { PANEL_LIMITS, STRIPE_WIDTH, fitCoding } from './layoutModel'
 import { codingLayout, reportCodingFit, useCodingLayout, useKeepLeft } from './layoutStore'
 import { CodingTopBar } from './shell/CodingTopBar'
 import { ToolStripe } from './shell/ToolStripe'
@@ -49,7 +49,8 @@ export function CodingLayout() {
   })
   return (
     <div data-coding-layout className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-app text-fg">
-      <CodingTopBar />
+      {/* 胶囊右边对齐左栏（活动栏 + 左栏）右边减 8，和对话模式侧栏里一样 */}
+      <CodingTopBar leftEdge={fit.left.shown ? STRIPE_WIDTH + fit.left.size : 0} />
       <MachineStatus />
       <div className="relative flex min-h-0 flex-1">
         <ToolStripe side="left" />

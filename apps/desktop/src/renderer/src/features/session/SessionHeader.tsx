@@ -126,7 +126,8 @@ export function SessionHeader({
     <header
       className={cn(
         'session-header drag @container flex h-12 shrink-0 items-center gap-2',
-        isMac && !sidebarOpen ? 'pl-20' : 'pl-4',
+        // 侧栏收起时展开按钮靠左到 8（两块独立下和对话面板左边对齐，minimal-mode.md §18）
+        sidebarOpen ? 'pl-4' : isMac ? 'pl-20' : 'pl-2',
       )}
       style={{ paddingRight: 'calc(var(--titlebar-reserve) + 12px)' }}
     >

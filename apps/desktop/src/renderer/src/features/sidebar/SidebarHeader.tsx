@@ -6,13 +6,26 @@ import { useI18n } from '@/i18n/I18nProvider'
 
 const isMac = window.pixelsky?.platform === 'darwin'
 
-/** 顶部 48px：左边「对话 | 代码」切换（docs/ui/layout-v2.md §5），右边收起按钮。 */
+/**
+ * 侧栏最上面一行（docs/ui/minimal-mode.md §18）：一个整宽胶囊，「对话 | 代码」平分，收起侧栏在右端。
+ * 胶囊左边、顶上都离窗口 16：一条线时直接留 16，两块独立时侧栏整列是一张卡片（离窗口 8），胶囊在卡片里再留 8
+ */
 export function SidebarHeader({ onCollapse }: { onCollapse: () => void }) {
   const { text } = useI18n()
   return (
-    <div className={cn('drag flex h-12 shrink-0 items-center justify-between gap-2 pr-3', isMac ? 'pl-20' : 'pl-3')}>
-      <ModeSwitch variant="sidebar" />
-      <IconButton icon={PanelLeft} label={withShortcut(text('收起侧边栏'), TOGGLE_SIDEBAR)} onClick={onCollapse} />
+    <div
+      data-sidebar-tools
+      data-mac={isMac || undefined}
+      className={cn('drag flex shrink-0 items-center pt-4 pr-2 pl-4', isMac && 'pl-20')}
+    >
+      <ModeSwitch>
+        <IconButton
+          icon={PanelLeft}
+          label={withShortcut(text('收起侧边栏'), TOGGLE_SIDEBAR)}
+          style={{ width: 28, height: '100%' }}
+          onClick={onCollapse}
+        />
+      </ModeSwitch>
     </div>
   )
 }

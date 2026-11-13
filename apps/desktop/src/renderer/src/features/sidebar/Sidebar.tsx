@@ -28,7 +28,6 @@ import { addProject, isLive, recentSpansProjects, useSidebarData, useSidebarFree
 import { addProjectPaths, chatProjectId, importProjects } from '@/features/engine/store'
 import { newChatInProject } from '@/features/coding/workspace'
 import { useSettings } from '@/features/settings/SettingsProvider'
-import { SidebarHeader } from './SidebarHeader'
 import { SidebarNav } from './SidebarNav'
 import { SidebarEmpty, SidebarRow, SidebarSection } from './SidebarSection'
 import { PinnedList } from './PinnedList'
@@ -50,7 +49,6 @@ export interface SidebarProps {
   selectedSessionId: string | null
   /** null 表示新会话（欢迎页） */
   onSelectSession: (id: string | null) => void
-  onCollapse: () => void
 }
 
 /**
@@ -58,7 +56,7 @@ export interface SidebarProps {
  * 顶部与底部（运行状态、最近任务、设置、账户）固定，中间的项目与置顶分组独立滚动。
  * 宽度由外层 CollapsibleSlot 决定，这里始终撑满。
  */
-export function Sidebar({ selectedSessionId, onSelectSession, onCollapse }: SidebarProps) {
+export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
   useI18n()
   const comingSoon = useComingSoon()
   const settings = useSettings()
@@ -133,7 +131,7 @@ export function Sidebar({ selectedSessionId, onSelectSession, onCollapse }: Side
   return (
     <aside
       ref={root}
-      className={cn('flex h-full w-full min-w-0 flex-col bg-sidebar', dropping && 'sidebar-task-drop')}
+      className={cn('flex min-h-0 w-full min-w-0 flex-1 flex-col bg-sidebar pt-2', dropping && 'sidebar-task-drop')}
       onDragOver={e => {
         if (!taskDrag(e) && !fileDrag(e)) return
         e.preventDefault()
@@ -156,8 +154,6 @@ export function Sidebar({ selectedSessionId, onSelectSession, onCollapse }: Side
         if (task) void pinTask(task, true).catch(() => undefined)
       }}
     >
-      <SidebarHeader onCollapse={onCollapse} />
-
       <SidebarNav onNewTask={onNewTask} />
 
       <div

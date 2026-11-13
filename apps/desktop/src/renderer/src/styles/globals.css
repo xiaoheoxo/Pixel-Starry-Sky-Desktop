@@ -525,9 +525,18 @@
 :root[data-workbench-frame='block'] :is(.workbench-surface, [data-vt-chat-sidebar]) {
   background: var(--bg-frame);
 }
-/* 侧栏从顶到底一块，右边两个角圆，贴窗口左边 */
-:root[data-workbench-frame='block'] [data-vt-chat-sidebar] aside {
-  border-radius: 0 12px 12px 0;
+/* 侧栏整列是一张四角圆 12 的卡片（§18 甲）：上、左、下各留 8，右边那 8 是 .workbench-content 的左内边距；胶囊在卡片第一行 */
+:root[data-workbench-frame='block'] [data-sidebar-column] {
+  width: calc(100% - 8px);
+  height: calc(100% - 16px);
+  margin: 8px 0 8px 8px;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--frame-ring);
+}
+/* 细边画在卡片上，侧栏自己不再铺底色（否则盖住细边） */
+:root[data-workbench-frame='block'] [data-sidebar-column] > aside {
+  background: transparent;
 }
 /* 铺满主区的页面（看板、频道）没有面板，照旧用侧栏底色 */
 :root[data-workbench-frame='block'] :is([data-task-board], [data-channels-page]) {
@@ -614,6 +623,14 @@
 :root[data-workbench-frame='line'] [data-right-workspace] {
   border-left-color: color-mix(in srgb, var(--ink) 10%, transparent);
 }
+/* 一条线：侧栏连同上面那排工具从顶到底一列，和主区之间也是一条 1px 竖线（§18） */
+:root[data-workbench-frame='line'] [data-sidebar-column] {
+  border-right: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+/* 一条线下胶囊和入口的位置照两块独立（§18 一）：入口左边多留 8，切换工作区边框时都不挪 */
+:root[data-workbench-frame='line'] [data-sidebar-column] > aside {
+  padding-left: 8px;
+}
 /* 毛玻璃下的工作区边框（docs/ui/glass-effect.md §7）。两块独立：外框和缝就是侧栏那层玻璃色（--bg-sidebar），
    对话窗格、右栏各盖自己那层（正文区、右侧面板），main 不再整块盖一层（否则对话区比右栏实一截，分屏的缝也被盖上）；
    面板圆角跟毛玻璃的「卡片圆角」，边用毛玻璃的亮边。一条线：线换成亮边色，墨色线在玻璃上看不清 */
@@ -637,12 +654,75 @@
 :root[data-glass][data-workbench-frame='line'] [data-right-workspace] {
   border-left-color: var(--glass-edge);
 }
+:root[data-glass][data-workbench-frame='line'] [data-sidebar-column] {
+  border-right-color: var(--glass-edge);
+}
 /* 「审查」这类次要按钮用 --border-strong（分屏的分隔线也用它，不能整体改） */
 .workbench-surface [data-button] {
   border-color: transparent;
   box-shadow: none;
 }
-/* 顶栏右上角「本机 / 云端」和工具那一组不要轨道框，只有选中项一块底色；侧栏顶上「对话 / 代码」保留轨道框 */
+/* 侧栏里整宽的「对话 | 代码」（docs/ui/minimal-mode.md §18，细节和边框见 sidebar-capsule-detail-mockup.html 甲）：
+   轨道填一层底色、一圈很淡的内边；选中那段浮起来：浅色白底、深色比轨道亮一档，都带一圈细边和一点阴影。
+   外圆角 10、里面各段 7（= 10 − 内边距 3），同心 */
+[data-mode-switch] {
+  height: 34px;
+  border-color: transparent;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 7%, var(--bg-sidebar));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 6%, transparent);
+}
+[data-mode-switch] > button {
+  border-radius: 7px;
+}
+/* 没选中的悬停只淡淡一层，不能比选中的那段还显眼 */
+[data-mode-switch] > button:not([aria-pressed='true']):hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+[data-mode-switch] [data-mode-switch-sep] {
+  width: 1px;
+  height: 12px;
+  margin: 0 4px;
+  flex: none;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+/* 两块独立：胶囊在卡片里，上、右、左各留 8（macOS 左边照旧让给红绿灯） */
+:root[data-workbench-frame='block'] [data-sidebar-tools] {
+  padding-top: 8px;
+  padding-right: 8px;
+}
+:root[data-workbench-frame='block'] [data-sidebar-tools]:not([data-mac]) {
+  padding-left: 8px;
+}
+[data-mode-switch] > button[aria-pressed='true'] {
+  background: var(--bg-workbench);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent),
+    var(--shadow-sm);
+}
+:root[data-theme='dark'] [data-mode-switch] > button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--ink) 13%, var(--bg-sidebar));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent),
+    0 1px 2px color-mix(in srgb, #000 40%, transparent);
+}
+/* 代码模式一律按一条线：顶栏里的胶囊不画框、不填底色，只有选中那段一层浅底色（§18 丙，
+   和顶栏右边那组按钮、底部面板的标签一个画法）；位置、宽度不变 */
+[data-coding-topbar] [data-mode-switch] {
+  height: 32px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+[data-coding-topbar] [data-mode-switch] > button[aria-pressed='true'],
+:root[data-theme='dark'] [data-coding-topbar] [data-mode-switch] > button[aria-pressed='true'] {
+  background: var(--bg-selected);
+  box-shadow: none;
+}
+[data-coding-topbar] [data-mode-switch] [data-mode-switch-sep] {
+  opacity: 0;
+}
+/* 顶栏右上角「本机 / 云端」和工具那一组不要轨道框，只有选中项一块底色 */
 :is([data-machine-menu], [data-header-group]) {
   border-color: transparent;
   background: transparent;
