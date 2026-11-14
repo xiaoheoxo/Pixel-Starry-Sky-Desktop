@@ -1,5 +1,5 @@
 // Antigravity CLI 引擎（agy acp，docs/antigravity-engine.md）：检测、安装、更新、模型目录、会话（session.ts）
-import type { EngineCatalog, EngineInfo, EngineUpdateResult } from '@pixelsky/protocol'
+import type { EngineCatalog, EngineInfo, EngineUpdateResult, SessionRecord } from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
 import { engineEnv, systemProxyEnv } from '../env'
 import { outputTail, runInteractive, runStream } from '../exec'
@@ -25,6 +25,8 @@ export interface AntigravityAdapterOptions {
   launchOptions?: () => AgyLaunch
   /** 查最新版本用的 fetch（桌面端是 net.fetch，走系统代理） */
   fetch?: typeof fetch
+  /** 会话走平台线路时的环境（GOOGLE_GEMINI_BASE_URL 指本机网关、GEMINI_API_KEY 是会话密钥，docs/antigravity-engine.md §13） */
+  sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   /** 测试用：替换探登录 */
   probe?: typeof probeAgyAuth
 }
@@ -86,7 +88,7 @@ export class AntigravityAdapter implements EngineAdapter {
       throw new Error(result?.info.message ?? 'Antigravity CLI is unavailable')
     return new AntigravitySession(
       result.launcher,
-      this.env(),
+      { ...this.env(), ...this.opts.sessionEnv?.(ctx.record()) },
       ctx,
       this.opts.launchArgs?.() ?? [],
       this.opts.launchOptions?.() ?? { askQuestions: true, autoPlan: true, autoCompactPct: null },

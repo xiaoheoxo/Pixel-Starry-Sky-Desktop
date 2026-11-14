@@ -536,6 +536,10 @@ export async function initPlatform(
         ...(window ? { [CODEX_WINDOW_ENV]: String(window) } : {}),
       }
     }
+    if (record.engine === 'antigravity') {
+      // agy 认 Gemini 的地址和 Key：指到本机网关，Key 是会话密钥（网关的 /v1beta 分支认它，docs/antigravity-engine.md §13）
+      return { GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${address.port}`, GEMINI_API_KEY: entry.secret }
+    }
     if (record.engine === 'pixel') {
       // 像素星空不读设置文件，地址 / 密钥 / 协议 / 模型直接给环境变量，由适配器写进会话自己的 models.json（密钥只在环境变量里）。
       // 协议跟着线路 / 接口走：Messages、Responses、Chat Completions（docs/own-cli.md §12）

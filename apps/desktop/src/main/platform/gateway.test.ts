@@ -958,3 +958,50 @@ describe('平台的在途预留冲突：刚断开过请求就被拒的，等一�
     expect(gw.calls()).toBe(2)
   })
 })
+
+describe('Antigravity 的 Gemini 请求（docs/antigravity-engine.md §13）', () => {
+  const start = (engine: string, upstream: (path: string, init: RequestInit) => Promise<Response>) => {
+    server = platformGateway({
+      sessions: new Map([['s', { recordId: 's', secret: 'local-secret' }]]),
+      record: () =>
+        ({ id: 's', engine, model: 'gemini-3.8-flash', platform: { groupId: '32', account: 'user' } }) as SessionRecord,
+      account: () => 'user',
+      fetch: upstream,
+    })
+    server.listen(0, '127.0.0.1')
+    return once(server, 'listening').then(() => 'http://127.0.0.1:' + (server.address() as { port: number }).port)
+  }
+
+  it('会话密钥放在 x-goog-api-key：转到云端同名接口，带分组头和 alt=sse，原样回传', async () => {
+    const upstream = vi.fn(
+      async (_path: string, _init: RequestInit) =>
+        new Response('data: {"candidates":[]}\r\n\r\n', { headers: { 'Content-Type': 'text/event-stream' } }),
+    )
+    const base = await start('antigravity', upstream)
+    const res = await fetch(base + '/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse', {
+      method: 'POST',
+      headers: { 'x-goog-api-key': 'local-secret' },
+      body: '{"contents":[]}',
+    })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('data: {"candidates":[]}\r\n\r\n')
+    const [path, init] = upstream.mock.calls[0]!
+    expect(path).toBe('/v1/platform/gemini/models/gemini-3.8-flash:streamGenerateContent?alt=sse')
+    expect(new Headers(init.headers).get('X-PixelSky-Group')).toBe('32')
+  })
+
+  it('密钥不对 401、别的引擎 403、不认识的方法 404，都不转发', async () => {
+    const upstream = vi.fn(async () => new Response('{}'))
+    let base = await start('antigravity', upstream)
+    const post = (path: string, key = 'local-secret') =>
+      fetch(base + path, { method: 'POST', headers: { 'x-goog-api-key': key }, body: '{}' })
+    expect((await post('/v1beta/models/gemini-3.8-flash:generateContent', 'nope')).status).toBe(401)
+    expect((await post('/v1beta/models/gemini-3.8-flash:deleteAll')).status).toBe(404)
+    server.close()
+    base = await start('claude', upstream)
+    const res = await post('/v1beta/models/gemini-3.8-flash:generateContent')
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ error: { code: 403 } })
+    expect(upstream).not.toHaveBeenCalled()
+  })
+})

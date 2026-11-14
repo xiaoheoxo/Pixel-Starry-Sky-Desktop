@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EngineId, EngineStatus } from '@pixelsky/protocol'
-import type { PlatformGroup } from '@/features/account/platform'
+import { agyOnly, type PlatformGroup } from '@/features/account/platform'
 import {
   buildChannelMenu,
   channelOf,
@@ -88,6 +88,17 @@ describe('谁来执行（§2.5）', () => {
     ])
     expect(executorsFor({ channel: 'claude', model: null, providerId: null }, ctx)).toEqual(['claude'])
     expect(executorsFor({ channel: 'chatgpt', model: 'gpt-6.1', providerId: null }, ctx)).toEqual(['codex'])
+  })
+  it('Gemini 平台分组（只给 Antigravity）的模型只交给 Antigravity', () => {
+    const gem = group('g', 'gemini', ['gemini-3.8-flash'], {
+      supported_engines: ['antigravity'],
+      supported_apis: ['gemini'],
+    })
+    expect(agyOnly(gem)).toBe(true)
+    expect(agyOnly(groups[0]!)).toBe(false)
+    expect(
+      executorsFor({ channel: 'platform', model: 'gemini-3.8-flash', providerId: null }, { groups: [gem], providers }),
+    ).toEqual(['antigravity'])
   })
   it('自定义按协议；Chat 只有像素星空能跑', () => {
     const t = (providerId: string) => executorsFor({ channel: 'custom', model: null, providerId }, ctx)

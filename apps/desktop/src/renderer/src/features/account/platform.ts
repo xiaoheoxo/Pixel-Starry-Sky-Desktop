@@ -55,7 +55,7 @@ const OWN_ENGINES: readonly OwnEngine[] = ['codex', 'pixel', 'antigravity']
 /**
  * 新装还没选过时的默认来源：登录了用平台；没登录时 Codex 用自有（它自己的登录），
  * 像素星空也用平台——它的自有是命令行自己配的 Key，新装多半没配，落到自有只会发出去才报错；平台没登录时输入框直接提示登录。
- * Antigravity 没有平台线路（docs/antigravity-engine.md §5），一律自有
+ * Antigravity 默认用自己的 Google 账号（平台线路要手动选，docs/antigravity-engine.md §13）
  */
 export function fallbackSource(engine: OwnEngine, email: string | null): CreditSource {
   if (engine === 'antigravity') return 'self'
@@ -231,6 +231,12 @@ export function getPlatformState(engine: EngineId = 'claude'): PlatformState {
 // 纯函数：会话和全局默认共用
 // ---------------------------------------------------------------------------
 
+/** 只给 Antigravity 用的分组（其它引擎都不支持） */
+export const agyOnly = (g: PlatformGroupInfo): boolean =>
+  groupSupportsEngine(g, 'antigravity') && !(['claude', 'codex', 'pixel'] as const).some(e => groupSupportsEngine(g, e))
+const agyModels = async (): Promise<string[]> =>
+  ((await window.pixelsky?.engine?.catalog('antigravity'))?.models ?? []).map(m => m.id)
+
 /** 所有分组的模型并集，按分组顺序、组内顺序去重 */
 export function platformModels(groups: PlatformGroup[]): string[] {
   const seen = new Set<string>()
@@ -359,7 +365,9 @@ export async function refreshPlatform(): Promise<void> {
   try {
     const list = await api.groups()
     // 每个分组的模型一起读：先选模型、再选线路需要全部分组的模型
-    const models = await Promise.allSettled(list.map(g => api.models(g.id)))
+    // 只给 Antigravity 的分组（Gemini）列 agy 自己的模型目录：agy 只认自己的名字，发给上游时还会改名；
+    // 分组不支持的模型发消息时报「模型不可用」（docs/antigravity-engine.md §13）
+    const models = await Promise.allSettled(list.map(g => (agyOnly(g) ? agyModels() : api.models(g.id))))
     if (gen !== generation) return
     const groups: PlatformGroup[] = list.map((g, i) => {
       const r = models[i]

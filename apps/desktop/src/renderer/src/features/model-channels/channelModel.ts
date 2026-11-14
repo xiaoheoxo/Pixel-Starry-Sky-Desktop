@@ -87,7 +87,7 @@ export const protocolExecutors = (p: ProviderProtocol): EngineId[] =>
   p === 'anthropic' ? ['claude', 'pixel'] : p === 'responses' ? ['codex', 'pixel'] : ['pixel']
 
 /** 官方工具排在像素星空前面 */
-const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel']
+const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
 
 /** 能跑这个模型的执行者，默认的排第一；平台同时核对模型协议和线路声明的引擎能力 */
 export function executorsFor(

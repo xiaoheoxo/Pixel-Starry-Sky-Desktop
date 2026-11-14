@@ -61,6 +61,9 @@ const responsesFailed = (code = 'stream_interrupted', message = MID_STREAM_TEXT)
 /** 本机网关收的请求体上限 */
 export const BODY_LIMIT = 64 * 1024 * 1024
 const OPTIONS_BODY_LIMIT = 64 * 1024
+/** Antigravity（agy）的 Gemini 请求：/v1beta/models/{模型}:{方法}，平台线路转到云端同名接口（docs/antigravity-engine.md §13） */
+export const GEMINI_PATH =
+  /^\/v1beta\/models\/([A-Za-z0-9._-]{1,128}):(generateContent|streamGenerateContent|countTokens)$/
 /** Codex 超限时最多读进来多大来删旧图；再大就直接回上下文超限 */
 const TRIM_LIMIT = 4 * BODY_LIMIT
 /** Codex 超过上限时的说明（Codex 按错误代码显示它自己的「上下文窗口不够」，这句只进日志和原始事件） */
@@ -235,7 +238,16 @@ export function platformGateway(options: {
     const responses = path === '/v1/responses'
     const chat = path === '/v1/chat/completions'
     const countTokens = path === '/v1/messages/count_tokens'
+    const gemini = GEMINI_PATH.exec(path)
     const fail = (status: number, message: string): void => {
+      if (gemini) {
+        res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(
+          JSON.stringify({
+            error: { code: status, message, status: status === 401 ? 'UNAUTHENTICATED' : 'FAILED_PRECONDITION' },
+          }),
+        )
+        return
+      }
       const type = gatewayErrorType(status, responses || chat)
       res
         .writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
@@ -301,7 +313,8 @@ export function platformGateway(options: {
       res.writeHead(upstream.status, output)
       // SSE 只按完整事件转发：上游中途断开时能接一个错误事件收尾，而不是掐断连接。Messages 一直这样；
       // Responses / Chat 只对像素星空（掐断的话 Pi 报 terminated、按它的规则重试三次）。Codex 遇到 response.failed 怎么处理没验证过，照旧
-      const sse = output['Content-Type'].includes('text/event-stream') && (pixel || (!responses && !chat))
+      // Gemini 原样转发（agy 自己处理断流），不按 Messages 的事件规则补错误事件
+      const sse = !gemini && output['Content-Type'].includes('text/event-stream') && (pixel || (!responses && !chat))
       const protocol = responses ? 'responses' : chat ? 'chat' : 'messages'
       const failEvent = (): string => (responses ? responsesFailed() : chat ? chatFailed : midStreamError)
       // 像素星空：上游正常结束却没有收尾事件（云端的 Responses 中途断开就是这样）时也补一个错误事件，
@@ -489,6 +502,61 @@ export function platformGateway(options: {
         if (!reply) return fail(401, 'Invalid token')
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
         res.end(JSON.stringify(reply))
+        return
+      }
+      if (req.method === 'POST' && gemini) {
+        // agy 带的是 x-goog-api-key（也认 ?key=）：值是这条会话的网关密钥
+        const key = req.headers['x-goog-api-key'] ?? new URLSearchParams(req.url?.split('?')[1] ?? '').get('key')
+        const session = [...options.sessions.values()].find(entry => entry.secret === key)
+        const record = session ? await options.record(session.recordId) : null
+        sessionId = record?.id ?? null
+        if (!record?.platform || options.account() !== record.platform.account) {
+          fail(401, '平台账号已退出或切换，请重新登录原账号')
+          return
+        }
+        if (record.engine !== 'antigravity') {
+          fail(403, '线路协议与当前引擎不兼容')
+          return
+        }
+        const chunks: Buffer[] = []
+        let size = 0
+        for await (const chunk of req) {
+          size += chunk.length
+          if (size <= BODY_LIMIT) chunks.push(Buffer.from(chunk))
+        }
+        if (size > BODY_LIMIT) {
+          fail(413, 'Request exceeds size limit')
+          return
+        }
+        const platform = record.platform
+        const [, model, method] = gemini
+        requestId = `pixelsky-${randomUUID()}`
+        const trackRequest = options.requestContext?.(record)
+        // 先记下再发：记不上（SSH 断了）就不发，免得扣了费却对不上这一轮
+        await trackRequest?.(requestId, model)
+        const stream = new URLSearchParams(req.url?.split('?')[1] ?? '').get('alt') === 'sse'
+        sentAccount = platform.account
+        const upstream = await options.fetch(
+          `/v1/platform/gemini/models/${model}:${method}${stream ? '?alt=sse' : ''}`,
+          {
+            method: 'POST',
+            headers: new Headers({
+              'Content-Type': 'application/json',
+              Accept: stream ? 'text/event-stream' : 'application/json',
+              'X-PixelSky-Group': platform.groupId,
+              'X-Client-Request-ID': requestId,
+              ...(typeof req.headers['user-agent'] === 'string' ? { 'User-Agent': req.headers['user-agent'] } : {}),
+            }),
+            body: Buffer.concat(chunks),
+            signal: abort.signal,
+          },
+        )
+        const chargeId = upstream.headers.get('x-client-request-id')
+        if (chargeId && chargeId !== requestId && /^[a-f0-9-]{36}$/.test(chargeId))
+          await Promise.resolve(trackRequest?.(requestId, model, chargeId)).catch(error =>
+            log.warn('记不上平台请求的计费 ID', { ...trace(error), chargeId }),
+          )
+        await pipe(upstream)
         return
       }
       if (req.method !== 'POST' || (!responses && !chat && !countTokens && path !== '/v1/messages')) {

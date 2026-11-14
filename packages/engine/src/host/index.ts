@@ -185,6 +185,7 @@ export class EngineHost {
         launchArgs: () => settings.launchOptions('antigravity').args,
         launchOptions: () => settings.launchOptions('antigravity'),
         fetch: opts.fetch,
+        sessionEnv: opts.sessionEnv,
       }),
     }
     const projects = new HostProjects(ctx)

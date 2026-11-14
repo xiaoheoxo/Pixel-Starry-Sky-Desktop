@@ -1,5 +1,5 @@
 export interface PlatformGroupInfo {
-  supported_engines?: Array<'claude' | 'codex' | 'pixel'>
+  supported_engines?: Array<'claude' | 'codex' | 'pixel' | 'antigravity'>
   supported_apis?: string[]
   id: string
   name: string
