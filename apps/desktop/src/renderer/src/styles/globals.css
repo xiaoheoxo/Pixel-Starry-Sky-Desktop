@@ -1627,9 +1627,120 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
 :root[data-perf='smooth'] .animate-spin {
   animation-timing-function: linear;
 }
+/* 运行中图标（ui/Spinner.tsx）：2×2 方格不动，亮度顺时针流（左上 → 右上 → 右下 → 左下），四块相差 1/4 圈。
+   亮度一直在变、没有停住的平台：下一块提前缓缓亮起，到顶后慢慢褪成拖尾。曲线写成关键帧上的折线，
+   省电档每段折线跳 3 步（一圈约 22 次，每秒不到 20 次重绘），流畅档平滑。领头的橙色是单独一层，只变透明度（橙灰之间插值会发棕） */
+.pixel-spinner {
+  --pixel-spin: 1.2s;
+}
+.pixel-spinner > i {
+  position: relative;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.18;
+  animation: pixel-flow var(--pixel-spin) steps(3, end) infinite;
+}
+.pixel-spinner > i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--active);
+  opacity: 0;
+  animation: pixel-flow-lead var(--pixel-spin) steps(3, end) infinite;
+  animation-delay: inherit;
+}
+.pixel-spinner[data-mono] > i::after {
+  display: none;
+}
+.pixel-spinner > i:nth-child(2) {
+  animation-delay: calc(var(--pixel-spin) * -0.75);
+}
+.pixel-spinner > i:nth-child(4) {
+  animation-delay: calc(var(--pixel-spin) * -0.5);
+}
+.pixel-spinner > i:nth-child(3) {
+  animation-delay: calc(var(--pixel-spin) * -0.25);
+}
+:root[data-perf='smooth'] .pixel-spinner > i,
+:root[data-perf='smooth'] .pixel-spinner > i::after {
+  animation-timing-function: linear;
+}
+@keyframes pixel-flow {
+  0% {
+    opacity: 1;
+  }
+  10% {
+    opacity: 0.78;
+  }
+  25% {
+    opacity: 0.5;
+  }
+  40% {
+    opacity: 0.28;
+  }
+  55%,
+  85% {
+    opacity: 0.18;
+  }
+  92% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes pixel-flow-lead {
+  0% {
+    opacity: 1;
+  }
+  12% {
+    opacity: 0.6;
+  }
+  22% {
+    opacity: 0.2;
+  }
+  30%,
+  85% {
+    opacity: 0;
+  }
+  93% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+/* 关了动画：停在第一拍（左上领头、左下半亮），照样看得出是「运行中」 */
+:root[data-motion='off'] .pixel-spinner > i,
+:root[data-motion='off'] .pixel-spinner > i::after {
+  animation: none;
+}
+:root[data-motion='off'] .pixel-spinner > i:nth-child(1),
+:root[data-motion='off'] .pixel-spinner > i:nth-child(1)::after {
+  opacity: 1;
+}
+:root[data-motion='off'] .pixel-spinner > i:nth-child(3) {
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion='system'] .pixel-spinner > i,
+  :root[data-motion='system'] .pixel-spinner > i::after {
+    animation: none;
+  }
+  :root[data-motion='system'] .pixel-spinner > i:nth-child(1),
+  :root[data-motion='system'] .pixel-spinner > i:nth-child(1)::after {
+    opacity: 1;
+  }
+  :root[data-motion='system'] .pixel-spinner > i:nth-child(3) {
+    opacity: 0.55;
+  }
+}
 :root[data-window-idle]
   :is(
     .animate-spin,
+    .pixel-spinner > i,
+    .pixel-spinner > i::after,
     .animate-pulse,
     .effort-max,
     .effort-ultra,

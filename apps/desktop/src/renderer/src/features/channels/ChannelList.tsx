@@ -130,7 +130,7 @@ function ChannelRow({
         </span>
         {!selected && busy.running > 0 && (
           <span className="flex shrink-0 items-center gap-1 text-label text-accent-fg">
-            <Spinner size={11} className="text-accent-fg" />
+            <Spinner size={11} className="text-accent-fg" mono />
             {busy.queued > 0 && busy.queued}
           </span>
         )}
@@ -178,7 +178,7 @@ function AgentRows({
         const state: ReactNode =
           load.state === 'running' ? (
             <span className="flex items-center gap-1 text-accent-fg">
-              <Spinner size={11} className="text-accent-fg" />
+              <Spinner size={11} className="text-accent-fg" mono />
               {load.queued > 0 ? `+${load.queued}` : tr('channels.list.agentRunning')}
             </span>
           ) : load.state === 'waiting' ? (

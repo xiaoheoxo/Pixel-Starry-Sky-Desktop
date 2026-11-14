@@ -176,7 +176,7 @@ function Box({ view, session, path }: { view: EditorView; session: InlineSession
     >
       <div className="flex min-w-0 items-center gap-2">
         {running ? (
-          <Spinner size={14} className="shrink-0 text-accent-fg" />
+          <Spinner size={14} className="shrink-0 text-accent-fg" mono />
         ) : (
           <Sparkles
             size={14}

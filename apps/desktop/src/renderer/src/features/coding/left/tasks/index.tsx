@@ -167,11 +167,11 @@ function StatusIcon({ status }: { status: TaskStatus }) {
   const cls = 'shrink-0'
   switch (status.kind) {
     case 'running':
-      return <Spinner size={14} className={cn(cls, 'text-accent')} />
+      return <Spinner size={14} className={cn(cls, 'text-accent')} mono />
     case 'stopping':
       return (
         <span className={cn(cls, 'flex')} title={tr('coding.tasks.status.stopping')}>
-          <Spinner size={14} className="text-warning" />
+          <Spinner size={14} className="text-warning" mono />
         </span>
       )
     case 'ok':
@@ -222,7 +222,7 @@ function GradleFullBar({ wsRef, root, group }: { wsRef: WorkspaceRef | null; roo
   }
   let tone = 'text-fg-faint'
   if (job?.loading) {
-    icon = <Spinner size={12} className="shrink-0 text-accent" />
+    icon = <Spinner size={12} className="shrink-0 text-accent" mono />
     text = tr('coding.tasks.gradle.full.loading')
     action = {
       label: tr('coding.tasks.gradle.full.cancel'),

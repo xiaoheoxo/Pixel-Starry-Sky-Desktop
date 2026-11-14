@@ -4,8 +4,8 @@
 // 窗口回到前台（暂停过的动画接着动，起点已经偏了）时再整体对齐一次。
 // 改 startTime 不影响 animation-play-state 的暂停和 animation: none（Chromium 实测）。
 
-/** 要对齐的 @keyframes：Tailwind 的 animate-spin / animate-pulse */
-export const SYNCED_LOOPS: ReadonlySet<string> = new Set(['spin', 'pulse'])
+/** 要对齐的 @keyframes：Tailwind 的 animate-spin / animate-pulse，运行中图标的方格（ui/Spinner.tsx） */
+export const SYNCED_LOOPS: ReadonlySet<string> = new Set(['spin', 'pulse', 'pixel-flow', 'pixel-flow-lead'])
 
 const loopName = (animation: Animation): string | null =>
   'animationName' in animation && typeof animation.animationName === 'string' ? animation.animationName : null
@@ -30,7 +30,8 @@ export function startLoopClock(doc: Document = document): void {
     'animationstart',
     event => {
       if (!SYNCED_LOOPS.has(event.animationName) || !(event.target instanceof Element)) return
-      for (const animation of event.target.getAnimations()) alignLoop(animation)
+      // subtree：方格的橙色领头是 ::after，要和方块本身一起对齐，不然两层错拍
+      for (const animation of event.target.getAnimations({ subtree: true })) alignLoop(animation)
     },
     true,
   )
