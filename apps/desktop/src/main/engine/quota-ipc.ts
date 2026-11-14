@@ -9,9 +9,9 @@ import * as ipc from '../ipc/guard'
 export const DEFAULT_QUOTA_MAX_AGE_MS = 60_000
 const MAX_AGE_LIMIT_MS = 3_600_000
 
-/** provider 只认 claude / chatgpt */
+/** provider 只认 claude / chatgpt / google */
 export function quotaProvider(value: unknown): EngineQuotaProvider {
-  if (value !== 'claude' && value !== 'chatgpt') throw new Error('参数不对')
+  if (value !== 'claude' && value !== 'chatgpt' && value !== 'google') throw new Error('参数不对')
   return value
 }
 

@@ -250,7 +250,7 @@ export function QuotaPanel({
           <FootButton onClick={onOpenAccount} tone="accent">
             {tr('quota.link.platform')}
           </FootButton>
-        ) : (
+        ) : QUOTA_LINKS[provider] ? (
           <a
             href={QUOTA_LINKS[provider]}
             target="_blank"
@@ -260,7 +260,7 @@ export function QuotaPanel({
             {tr(provider === 'claude' ? 'quota.link.claude' : 'quota.link.chatgpt')}
             <ExternalLink size={12} aria-hidden />
           </a>
-        )}
+        ) : null}
         <span className="flex-1">{demo && <span className="text-fg-faint">{tr('quota.demoData')}</span>}</span>
         {estimate && onOpenDetail && (
           <FootButton onClick={onOpenDetail} tone="quiet">

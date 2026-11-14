@@ -42,6 +42,7 @@ import {
   buildChannelMenu,
   isAuthChannel,
   sameTarget,
+  type AuthChannel,
   type ChannelChoice,
   type ChannelGroupView,
   type ChannelId,
@@ -50,8 +51,9 @@ import {
 } from '@/features/model-channels/channelModel'
 import {
   CHANNEL_DIGIT,
+  authChannelSub,
+  channelAccount,
   maskEmail,
-  planLabel,
   channelFix,
   channelFixLabel,
   channelLabel,
@@ -338,19 +340,16 @@ export function ModelSourceMenu({
         : g.state.kind === 'empty'
           ? tr('modelChannels.menu.broken.empty')
           : (channelStateText(g.channel, g.state) ?? '')
+  const authInfo = (c: AuthChannel) => engines.find(e => e.id === AUTH_ENGINE[c])
   const authAccount = (c: ChannelId) =>
-    isAuthChannel(c) ? engines.find(e => e.id === AUTH_ENGINE[c])?.account : undefined
+    isAuthChannel(c) ? channelAccount(c, authInfo(c), prefs.googleNote) : undefined
   /** 两栏左边的第二行、标签的鼠标提示 */
   const status = (g: ChannelGroupView): string => {
     if (isBroken(g)) return brokenTitle(g)
     const text = stateText(g)
     if (text) return text
-    const a = authAccount(g.channel)
-    if (a?.email || a?.plan)
-      return [a.email && maskEmail(a.email), planLabel(g.channel === 'chatgpt' ? 'chatgpt' : 'claude', a.plan)]
-        .filter(Boolean)
-        .join(' · ')
     const count = tr('modelChannels.menu.usable', { p0: g.rows.length })
+    if (isAuthChannel(g.channel)) return authChannelSub(g.channel, authInfo(g.channel), count, prefs.googleNote)
     return g.channel === 'platform' && account.balanceText ? `${account.balanceText} · ${count}` : count
   }
   const addTitle = tr('modelChannels.menu.addTitle', {
@@ -465,11 +464,16 @@ export function ModelSourceMenu({
             )
           ) : c === 'custom' ? (
             <span className="truncate">{providers.providers.map(p => p.name).join('、')}</span>
+          ) : c === 'google' && authInfo('google')?.auth?.kind === 'apiKey' ? (
+            <span className="truncate">{tr('modelChannels.authCard.apiKey')}</span>
           ) : (
             <>
-              <AccountTag account={a} provider={c === 'chatgpt' ? 'chatgpt' : 'claude'} />
-              {/* Claude / ChatGPT 授权账号后面的额度简写；平台那一列已经显示余额，不加 */}
-              <QuotaInline provider={c === 'claude' ? 'claude' : 'chatgpt'} />
+              <AccountTag account={a} provider={c} />
+              {c === 'google' && !a?.email && (
+                <span className="truncate">{tr('modelChannels.menu.usable', { p0: g.rows.length })}</span>
+              )}
+              {/* 授权账号后面的额度简写；平台那一列已经显示余额 */}
+              {(c === 'claude' || c === 'chatgpt' || c === 'google') && <QuotaInline provider={c} />}
             </>
           )}
         </span>

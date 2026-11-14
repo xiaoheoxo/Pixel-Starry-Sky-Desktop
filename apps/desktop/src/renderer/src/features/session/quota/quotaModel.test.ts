@@ -583,6 +583,13 @@ describe('quotaTarget：什么时候有按钮', () => {
     expect(quotaTarget(input({ channel: 'platform', platformSignedIn: false }))).toBeNull()
     expect(quotaTarget(input({ channel: 'platform', platformWindows: 0 }))).toBeNull()
   })
+  it('Google / Antigravity：只有 Google 账号登录时返回 google，API Key 或未授权为 null', () => {
+    const agy = (status: string, auth?: { kind: string }) => [{ id: 'antigravity' as const, status, auth }]
+    expect(quotaTarget(input({ channel: 'google', engines: agy('ready', { kind: 'login' }) }))).toBe('google')
+    expect(quotaTarget(input({ channel: 'google', engines: agy('ready', { kind: 'apiKey' }) }))).toBeNull()
+    expect(quotaTarget(input({ channel: 'google', engines: agy('unauthenticated') }))).toBeNull()
+    expect(quotaTarget(input({ channel: 'google', engines: agy('ready') }))).toBeNull()
+  })
 })
 
 const PLAN_WEEKLY_93: PlanLimit = { id: 'weekly', used: 46.5, limit: 50, currency: 'USD' }

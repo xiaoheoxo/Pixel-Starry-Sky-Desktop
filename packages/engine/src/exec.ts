@@ -156,13 +156,22 @@ export function run(
   args: string[],
   env: NodeJS.ProcessEnv,
   timeoutMs = 20_000,
+  opts?: { cwd?: string; signal?: AbortSignal },
 ): Promise<ExecResult> {
   return new Promise(resolve => {
     try {
       execFile(
         launcher.command,
         [...launcher.args, ...args],
-        { env, timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'buffer' },
+        {
+          env,
+          timeout: timeoutMs,
+          windowsHide: true,
+          maxBuffer: 4 * 1024 * 1024,
+          encoding: 'buffer',
+          ...(opts?.cwd ? { cwd: opts.cwd } : {}),
+          ...(opts?.signal ? { signal: opts.signal } : {}),
+        },
         (err, stdout, stderr) => {
           // 输出超过 maxBuffer 时 Node 也会结束进程（有的版本还标 killed），和超时分开报
           const tooLarge = (err as NodeJS.ErrnoException | null)?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'

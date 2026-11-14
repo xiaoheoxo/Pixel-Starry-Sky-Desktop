@@ -364,3 +364,23 @@ describe('重置卡（docs/ui/codex-reset-card.md §2）', () => {
     expect(withResets(undefined, 95)).toContain('本周到 95% 时')
   })
 })
+
+describe('Google / Antigravity 弹窗', () => {
+  it('显示标题、AI Ultra 标签、双窗口进度，且不渲染官方网页外链', () => {
+    const html = render({
+      q: quota({
+        provider: 'google',
+        plan: 'Google AI Ultra',
+        account: null,
+        windows: [win(300, 7, at(16, 45)), win(10_080, 2, at(9, 0, 5))],
+      }),
+    })
+    expect(html).toContain('aria-label="Google 账号额度"')
+    expect(html).toContain('Google 账号额度')
+    expect(html).toContain('>Ultra<')
+    expect(html).toContain('5 小时内')
+    expect(html).toContain('本周')
+    expect(html).not.toContain('<a ')
+    expect(html).toContain('额度按钮设置')
+  })
+})

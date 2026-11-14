@@ -5,6 +5,8 @@ import { engineEnv, systemProxyEnv } from '../env'
 import { outputTail, runInteractive, runStream } from '../exec'
 import { agyCatalog, agyInstaller, agyLogout, agyOneShot, customAgy, discoverAgy, probeAgyAuth } from './discover'
 import { OneShotError, type OneShotReply, type OneShotRequest } from '../oneshot'
+import type { QuotaReading } from '../quota'
+import { fetchAgyUsage } from './quota'
 import { AntigravitySession, type AgyLaunch } from './session'
 import { agyNativeSessions, agyProjectDirs, agyReadNative } from './native'
 import type { ListOptions, NativeRead, NativeSessionList, ReadOptions } from '../native/types'
@@ -29,11 +31,16 @@ export interface AntigravityAdapterOptions {
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   /** 测试用：替换探登录 */
   probe?: typeof probeAgyAuth
+  /** 测试用：替换读取账号额度 */
+  fetchQuota?: typeof fetchAgyUsage
 }
 
 export class AntigravityAdapter implements EngineAdapter {
   private cached: { info: EngineInfo; launcher: Launcher | null } | null = null
   private detecting: Promise<EngineInfo> | null = null
+  private quotaProbe: Promise<QuotaReading> | null = null
+  private quotaAbort: AbortController | null = null
+  private closedForQuota = false
   constructor(private readonly opts: AntigravityAdapterOptions = {}) {}
 
   private env(): NodeJS.ProcessEnv {
@@ -63,8 +70,15 @@ export class AntigravityAdapter implements EngineAdapter {
     if (found.info.status === 'ready' && found.launcher) {
       try {
         const auth = await (this.opts.probe ?? probeAgyAuth)(found.launcher, this.opts.launchArgs?.() ?? [], env)
-        if (auth.signedIn) found.info.auth = { kind: auth.kind }
-        else
+        if (auth.signedIn) {
+          found.info.auth = { kind: auth.kind }
+          const plan =
+            auth.plan ??
+            (auth.kind === 'login' && this.cached?.info.auth?.kind === 'login'
+              ? this.cached.info.account?.plan
+              : undefined)
+          if (plan) found.info.account = { plan }
+        } else
           Object.assign(found.info, {
             status: 'unauthenticated',
             message: '还没登录：在终端运行 agy 用 Google 账号登录，或在下面的环境变量里填 GEMINI_API_KEY',
@@ -106,7 +120,10 @@ export class AntigravityAdapter implements EngineAdapter {
     const launcher = this.cached?.launcher
     if (!launcher || info.status !== 'ready') return empty
     try {
-      this.catalogCache = await agyCatalog(launcher, this.opts.launchArgs?.() ?? [], this.env())
+      this.catalogCache = await agyCatalog(launcher, this.opts.launchArgs?.() ?? [], this.env(), plan => {
+        if (this.cached && this.cached.info.auth?.kind !== 'apiKey')
+          this.cached.info.account = plan ? { plan } : undefined
+      })
       return this.catalogCache
     } catch (error) {
       info.launchError = (error as Error).message
@@ -169,6 +186,32 @@ export class AntigravityAdapter implements EngineAdapter {
     if (!launcher) throw new Error(this.cached?.info.message ?? '没找到 Antigravity CLI')
     await agyLogout(launcher, this.opts.launchArgs?.() ?? [], this.env())
     return { ok: true, output: '', version: null }
+  }
+
+  /** 读取 Google 账号订阅额度（agy --print /usage --output-format json）；API Key 或未就绪时为 unsupported */
+  async accountQuota(): Promise<QuotaReading> {
+    if (this.closedForQuota) throw new Error('Antigravity unavailable: 应用正在退出')
+    const info = await this.info()
+    const launcher = this.cached?.launcher
+    if (!launcher || info.status !== 'ready' || info.auth?.kind !== 'login') return { kind: 'unsupported' }
+    if (this.quotaProbe) return this.quotaProbe
+    const abort = new AbortController()
+    this.quotaAbort = abort
+    const runFetch = this.opts.fetchQuota ?? fetchAgyUsage
+    const promise = runFetch(launcher, this.env(), info.account?.plan ?? null, abort.signal).finally(() => {
+      if (this.quotaProbe === promise) {
+        this.quotaProbe = null
+        this.quotaAbort = null
+      }
+    })
+    this.quotaProbe = promise
+    return promise
+  }
+
+  /** 应用退出：中止还在跑的临时 /usage 读取进程 */
+  async close(): Promise<void> {
+    this.closedForQuota = true
+    this.quotaAbort?.abort()
   }
 
   /** 最新版本：官方安装器读的清单（install.ps1 / install.sh 同一个地址），按本机系统和架构取 */

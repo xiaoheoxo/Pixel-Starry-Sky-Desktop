@@ -825,3 +825,57 @@ describe('自动用重置卡', () => {
     expect(consume).not.toHaveBeenCalled()
   })
 })
+
+describe('Antigravity / google 额度接入（方案 A）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(T0)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('afterTurn 只借会话进程，不会触发临时 agy /usage；主动 refresh 才读适配器', async () => {
+    const accountQuota = vi.fn(async () => okReading(12, { plan: 'Google AI Ultra' }))
+    const sent: AccountQuota[] = []
+    const runtimes = new Map<string, unknown>()
+    const ctx = {
+      adapters: {
+        antigravity: {
+          info: async () => ({ id: 'antigravity', status: 'ready', version: '1.5.9' }),
+          accountQuota,
+        },
+      },
+      runtimes,
+      closing: false,
+      opts: { onQuota: (q: AccountQuota) => sent.push(q) },
+      m: {
+        settings: { engines: vi.fn(async () => []), resetCreditAuto: () => null, resetCreditUsed: () => 0 },
+        accounts: { detected: () => undefined },
+      },
+    } as unknown as HostContext
+    const quota = new HostQuota(ctx)
+    runtimes.set('s-agy', {
+      snapshot: { record: { id: 's-agy', engine: 'antigravity' } },
+      execution: null,
+      session: {},
+      sessionSource: null,
+    })
+
+    // 1. 先主动看过一次并拿到初始额度
+    const first = await quota.refresh('google')
+    expect(first).toMatchObject({ provider: 'google', status: 'ok', plan: 'Google AI Ultra' })
+    expect(accountQuota).toHaveBeenCalledTimes(1)
+
+    // 2. 过了 6 分钟跑完一轮对话：afterTurn 因 Antigravity 无会话级 RPC 不起临时进程
+    vi.advanceTimersByTime(6 * 60_000)
+    quota.afterTurn('s-agy')
+    await Promise.resolve()
+    expect(accountQuota).toHaveBeenCalledTimes(1)
+
+    // 3. 手动 / 429 触发 refresh 会重新调用适配器
+    await quota.refresh('google')
+    expect(accountQuota).toHaveBeenCalledTimes(2)
+    expect(sent.at(-1)?.provider).toBe('google')
+  })
+})

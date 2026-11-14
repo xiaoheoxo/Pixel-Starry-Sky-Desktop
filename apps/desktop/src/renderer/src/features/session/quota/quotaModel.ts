@@ -1,6 +1,13 @@
 // 账号额度的纯函数（docs/ui/account-quota.md §6.3，样稿第 8 节）：窗口命名、最紧一项、颜色级别、按钮文字、
 // 恢复时间、卡片布局。不碰 React / bridge；时间一律由调用方传 now，测试可以固定时间。
-import type { AccountQuota, EngineId, QuotaModelLimit, QuotaProvider, QuotaWindow } from '@pixelsky/protocol'
+import type {
+  AccountQuota,
+  EngineId,
+  EngineQuotaProvider,
+  QuotaModelLimit,
+  QuotaProvider,
+  QuotaWindow,
+} from '@pixelsky/protocol'
 import { QUOTA_WINDOW_MINS } from '@pixelsky/protocol'
 import { getLocale, tr } from '@/i18n/core'
 import { formatAmount, formatBalance } from '@/features/account/format'
@@ -10,11 +17,11 @@ import type { QuotaShowWhen } from '@/features/settings/quotaDisplay'
 
 /** 到橙色的百分比 */
 export const WARN_PERCENT = 80
-/** 官方用量页 */
-export const QUOTA_LINKS = {
+/** 官方用量页（Antigravity CLI 无独立网页额度页，留空不显示外链） */
+export const QUOTA_LINKS: Partial<Record<EngineQuotaProvider, string>> = {
   claude: 'https://claude.ai/settings/usage',
   chatgpt: 'https://chatgpt.com/codex/settings/usage',
-} as const
+}
 
 export type QuotaLevel = 'normal' | 'warn' | 'full'
 
@@ -516,6 +523,10 @@ export function quotaTarget(i: QuotaTargetInput): QuotaProvider | null {
     return codex?.status === 'ready' && codex.auth?.kind !== 'apiKey' && codex.auth?.kind !== 'provider'
       ? 'chatgpt'
       : null
+  }
+  if (i.channel === 'google') {
+    const agy = engine('antigravity')
+    return agy?.status === 'ready' && agy.auth?.kind === 'login' ? 'google' : null
   }
   if (i.channel === 'platform') return i.platformSignedIn && i.platformWindows > 0 ? 'platform' : null
   return null

@@ -93,7 +93,7 @@ export function monthValue(rows: readonly UsageGroupRow[]): MonthValue | null {
 }
 
 /** 明细里能选的月费（美元）；id 存在本机 */
-export const PLAN_FEES: Record<'claude' | 'chatgpt', { id: string; label: string; usd: number }[]> = {
+export const PLAN_FEES: Record<'claude' | 'chatgpt' | 'google', { id: string; label: string; usd: number }[]> = {
   claude: [
     { id: 'pro', label: 'Pro $20', usd: 20 },
     { id: 'max_5x', label: 'Max 5x $100', usd: 100 },
@@ -103,17 +103,31 @@ export const PLAN_FEES: Record<'claude' | 'chatgpt', { id: string; label: string
     { id: 'plus', label: 'Plus $20', usd: 20 },
     { id: 'pro', label: 'Pro $200', usd: 200 },
   ],
+  google: [
+    { id: 'pro', label: 'AI Pro $20', usd: 20 },
+    { id: 'ultra_5x', label: 'AI Ultra 5x $100', usd: 100 },
+    { id: 'ultra_20x', label: 'AI Ultra 20x $200', usd: 200 },
+  ],
 }
 
-/** 默认月费：按套餐值；Claude 只写「max」分不出 5x / 20x 时按 20x；认不出（Team、企业、免费）为 null，不比 */
+/** 默认月费：按套餐值；Claude 只写「max」、Google 只写「Ultra」分不出 5x / 20x 时按 20x；认不出（Team、企业、免费）为 null，不比 */
 export function defaultFeeId(provider: QuotaProvider, plan: string | null): string | null {
   if (provider === 'platform' || !plan) return null
   if (provider === 'claude') return plan === 'max' ? 'max_20x' : PLAN_FEES.claude.some(f => f.id === plan) ? plan : null
+  if (provider === 'google') {
+    if (/\bultra\b|-ultra-/i.test(plan)) return /\b5x\b/i.test(plan) ? 'ultra_5x' : 'ultra_20x'
+    if (/\bpro\b|-pro-/i.test(plan)) return 'pro'
+    return null
+  }
   return PLAN_FEES.chatgpt.some(f => f.id === plan) ? plan : null
 }
 
-/** 引擎记录里的 engine：Claude 账号是 claude，ChatGPT 账号是 codex */
-export const PROVIDER_ENGINE: Partial<Record<QuotaProvider, string>> = { claude: 'claude', chatgpt: 'codex' }
+/** 引擎记录里的 engine：Claude 账号是 claude，ChatGPT 账号是 codex，Google 账号是 antigravity */
+export const PROVIDER_ENGINE: Partial<Record<QuotaProvider, string>> = {
+  claude: 'claude',
+  chatgpt: 'codex',
+  google: 'antigravity',
+}
 
 /** 估计的金额：「≈ $36」「≈ $4.5」，不到 $0.1 写「≈ <$0.1」 */
 export function usdText(usd: number): string {

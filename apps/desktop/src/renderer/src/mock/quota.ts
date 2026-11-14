@@ -51,5 +51,16 @@ export function demoQuota(now: number = Date.now()): Record<EngineQuotaProvider,
         },
       },
     },
+    google: {
+      ...base,
+      provider: 'google',
+      plan: 'Google AI Ultra',
+      account: null,
+      windows: [
+        { id: 'five_hour', durationMins: 300, usedPercent: 7, resetsAt: now + 3 * HOUR + 12 * MIN },
+        { id: 'seven_day', durationMins: 10_080, usedPercent: 2, resetsAt: now + 6 * DAY + 18 * HOUR },
+      ],
+      extras: {},
+    },
   }
 }

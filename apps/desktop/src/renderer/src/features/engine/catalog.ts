@@ -52,7 +52,15 @@ export function useEngineCatalog(engine: EngineId, enabled = true): EngineCatalo
         listeners.delete(fn)
       }
     },
-    // 演示模式没有引擎进程：Codex 用演示目录（③ ChatGPT 授权要列模型），其它照旧没有
-    () => (enabled ? (catalogs[key] ?? (isDemo && engine === 'codex' ? demo().engines.codexCatalog : null)) : null),
+    // 演示模式没有引擎进程：Codex / Antigravity 用演示目录（③ ChatGPT / ④ Google 授权要列模型），其它照旧没有
+    () =>
+      enabled
+        ? (catalogs[key] ??
+          (isDemo && engine === 'codex'
+            ? demo().engines.codexCatalog
+            : isDemo && engine === 'antigravity'
+              ? (demo().engines.agyCatalog ?? null)
+              : null))
+        : null,
   )
 }

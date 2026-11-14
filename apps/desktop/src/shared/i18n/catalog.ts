@@ -5433,6 +5433,10 @@ export const catalog = {
     zh: 'ChatGPT 账号额度',
     en: 'ChatGPT usage limits',
   },
+  'quota.title.google': {
+    zh: 'Google 账号额度',
+    en: 'Google usage limits',
+  },
   'quota.title.platform': {
     zh: '像素星空账号额度',
     en: 'PixelSky account usage',

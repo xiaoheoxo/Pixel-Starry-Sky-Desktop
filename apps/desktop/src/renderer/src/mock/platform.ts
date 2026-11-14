@@ -119,14 +119,16 @@ export const demoEngineStatus: EngineLite[] = [
     },
   },
   {
-    // Antigravity 第一期只有检测（docs/antigravity-engine.md）：演示「装好了、还没登录」
+    // Antigravity 已登录（Google AI Ultra + 演示目录与额度，docs/antigravity-engine.md §14–§15）
     id: 'antigravity',
     name: ENGINES.antigravity.name,
-    status: 'unauthenticated',
+    status: 'ready',
     version: '1.5.9',
-    // 演示列表里的「去授权」和「更新」两个按钮
+    // 演示列表里的「更新」按钮
     latestVersion: '1.6.0',
-    message: '还没登录：在终端运行 agy 用 Google 账号登录，或在下面的环境变量里填 GEMINI_API_KEY',
+    message: null,
+    account: { plan: 'Google AI Ultra' },
+    auth: { kind: 'login' },
     path: 'C:\\Users\\linxia\\AppData\\Local\\agy\\bin\\agy.exe',
     caps: {
       permissionModes: ENGINES.antigravity.caps.permissionModes,
@@ -187,6 +189,27 @@ export const demoCodexCatalog: EngineCatalog = {
     codexModel('gpt-6-sol', 'GPT-6-Sol'),
     codexModel('gpt-6-luna', 'GPT-6-Luna'),
     codexModel('gpt-5.5', 'GPT-5.5'),
+  ],
+}
+
+/** 演示模式下 Antigravity 报上来的 Gemini 模型（④ Google 账号） */
+const agyModel = (id: string, label: string, isDefault = false) => ({
+  id,
+  label,
+  efforts: ['low', 'medium', 'high'] as Array<'low' | 'medium' | 'high'>,
+  defaultEffort: 'medium' as const,
+  inputModalities: ['text', 'image'],
+  isDefault,
+})
+export const demoAgyCatalog: EngineCatalog = {
+  outputStyles: [],
+  currentOutputStyle: null,
+  models: [
+    agyModel('gemini-4-carbon', 'Gemini 4 Carbon', true),
+    agyModel('gemini-4-argon', 'Gemini 4 Argon'),
+    agyModel('gemini-4-hydrogen', 'Gemini 4 Hydrogen'),
+    agyModel('gemini-3.8-flash', 'Gemini 3.8 Flash'),
+    agyModel('gemini-pro-orchestrator', 'Gemini Pro Orchestrator'),
   ],
 }
 

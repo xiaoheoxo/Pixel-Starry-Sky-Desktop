@@ -404,6 +404,14 @@ export class HostEvents {
         if (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0) this.armIdle(id)
         // 账号额度：有人看过、超过 5 分钟没取，借这个会话还活着的进程补取一次（分模型 / 额外用量 / 点数）
         m.quota.afterTurn(id)
+        // Antigravity ACP 没有额度推送：自己账号的轮次遇到 429 / 限流 / 额度报错时，按需静默校准一次（方案 A）
+        if (
+          event.outcome === 'failed' &&
+          turnEngine === 'antigravity' &&
+          rt.sessionSource === null &&
+          limitKind(event.error, turn?.usageLimited)
+        )
+          void m.quota.refresh('google').catch(() => undefined)
         // 自动换过订阅账号、改用过平台：订阅额度恢复了就换回去（从下一条消息起）
         m.accounts.afterTurn(turnEngine, id)
         break

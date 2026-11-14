@@ -5,7 +5,7 @@ import { OFFICIAL_PRICES } from './official'
 export interface OfficialPrice {
   /** 价格表里的官方模型名 */
   model: string
-  vendor: 'anthropic' | 'openai'
+  vendor: 'anthropic' | 'openai' | 'google'
   /** 美元 / 百万 token */
   input: number
   output: number
@@ -14,12 +14,24 @@ export interface OfficialPrice {
   contextWindow: number | null
 }
 
+const VENDOR_OF: Record<'a' | 'o' | 'g', OfficialPrice['vendor']> = {
+  a: 'anthropic',
+  o: 'openai',
+  g: 'google',
+}
+
+/** Antigravity 编排器内部别名映射到对应基础计费模型 */
+const MODEL_ALIASES: Record<string, string> = {
+  'gemini-pro-orchestrator': 'gemini-4-carbon',
+  'gemini-pro-orchestrator-argon': 'gemini-4-argon',
+}
+
 const price = (model: string): OfficialPrice | null => {
   const p = Object.prototype.hasOwnProperty.call(OFFICIAL_PRICES, model) ? OFFICIAL_PRICES[model] : undefined
   return p
     ? {
         model,
-        vendor: p[0] === 'a' ? 'anthropic' : 'openai',
+        vendor: VENDOR_OF[p[0]],
         input: p[1],
         output: p[2],
         cacheRead: p[3],
@@ -29,12 +41,12 @@ const price = (model: string): OfficialPrice | null => {
     : null
 }
 
-/** 去掉常见的前缀和后缀：anthropic/、openai/、us.anthropic. 之类、-20250929 / -2025-08-07 日期、-thinking、[1m]、-latest */
+/** 去掉常见的前缀和后缀：anthropic/、openai/、google/、us.anthropic. 之类、-20250929 / -2025-08-07 日期、-thinking、[1m]、-latest */
 function stripModel(model: string): string {
   let m = model.trim().toLowerCase()
   m = m.replace(/\[[^\]]*\]$/, '')
   m = m.replace(/^.*\//, '')
-  m = m.replace(/^(?:[a-z]{2}\.)?(?:anthropic|openai)\./, '')
+  m = m.replace(/^(?:[a-z]{2}\.)?(?:anthropic|openai|google|gemini)\./, '')
   m = m.replace(/(?:-v\d+)?(?::\d+)?$/, '')
   m = m.replace(/-thinking$/, '')
   m = m.replace(/-(?:\d{8}|\d{4}-\d{2}-\d{2})$/, '')
@@ -44,13 +56,16 @@ function stripModel(model: string): string {
 
 /**
  * 去前后缀之后还对不上时再试的写法（规则参照 tern 的 pricing.rs，MIT）：
- * 版本号写成点（claude-sonnet-4.5 → claude-sonnet-4-5）；中转站给别家模型加的 claude- 前缀（claude-gpt-5 → gpt-5）
+ * 版本号写成点（claude-sonnet-4.5 → claude-sonnet-4-5）；中转站给别家模型加的 claude- 前缀（claude-gpt-5 → gpt-5）；
+ * Google preview / Antigravity 编排器别名
  */
 function candidates(model: string): string[] {
   const m = stripModel(model)
   const out = [m, m.replace(/(\d)\.(\d)/g, '$1-$2')]
   const fake = m.match(/^claude-((?:gpt|o\d|chatgpt|codex)\b.*)$/)
   if (fake) out.push(fake[1])
+  if (Object.prototype.hasOwnProperty.call(MODEL_ALIASES, m)) out.push(MODEL_ALIASES[m])
+  if (m.startsWith('gemini-') && !m.endsWith('-preview')) out.push(`${m}-preview`)
   return out
 }
 
@@ -91,6 +106,6 @@ export function estimateCost(
 /** 价格表里的官方模型名（设置页「计价参照」的选项），可按厂商筛 */
 export function officialModels(vendor?: OfficialPrice['vendor']): string[] {
   return Object.keys(OFFICIAL_PRICES)
-    .filter(m => !vendor || (OFFICIAL_PRICES[m][0] === 'a') === (vendor === 'anthropic'))
+    .filter(m => !vendor || VENDOR_OF[OFFICIAL_PRICES[m][0]] === vendor)
     .filter(m => !/-\d{8}$|-\d{4}-\d{2}-\d{2}$/.test(m))
 }

@@ -25,22 +25,32 @@ const data = JSON.parse(raw)
 const perMillion = v =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Number((v * 1e6).toPrecision(6)) : null
 
+const VENDORS = { anthropic: 'a', openai: 'o', gemini: 'g' }
+
 const models = {}
 for (const [name, v] of Object.entries(data)) {
   if (!v || typeof v !== 'object' || name === 'sample_spec') continue
-  if (v.litellm_provider !== 'anthropic' && v.litellm_provider !== 'openai') continue
+  const vendor = VENDORS[v.litellm_provider]
+  if (!vendor) continue
   if (v.mode !== 'chat' && v.mode !== 'responses') continue
-  // 带前缀的别名（ft:、openai/ 之类）不收：模型名对价时会先去掉这些前缀
-  if (name.includes('/') || name.includes(':')) continue
+  // Gemini 官方条目在 LiteLLM 里常带 gemini/ 前缀；去掉之后再挡掉其它带前缀/冒号的别名
+  const key = vendor === 'g' && name.startsWith('gemini/') ? name.slice('gemini/'.length) : name
+  if (key.includes('/') || key.includes(':')) continue
   const input = perMillion(v.input_cost_per_token),
     output = perMillion(v.output_cost_per_token)
   if (input === null || output === null) continue
-  models[name] = [
-    v.litellm_provider === 'anthropic' ? 'a' : 'o',
+  const cacheRead = perMillion(v.cache_read_input_token_cost) ?? input,
+    cacheWrite = perMillion(v.cache_creation_input_token_cost) ?? input
+  // 跳过官方标价全 0 的实验 / 免费模型（如 gemma、lyria、learnlm、gemini-exp-1114），否则用量会显示 $0 而不是「没有价格」
+  if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) continue
+  // 若既有裸名又有 gemini/ 别名，优先保留裸名
+  if (key !== name && key in models) continue
+  models[key] = [
+    vendor,
     input,
     output,
-    perMillion(v.cache_read_input_token_cost) ?? input,
-    perMillion(v.cache_creation_input_token_cost) ?? input,
+    cacheRead,
+    cacheWrite,
     typeof v.max_input_tokens === 'number' ? v.max_input_tokens : null,
   ]
 }
@@ -52,8 +62,8 @@ writeFileSync(
   out,
   `// 由 scripts/update-official-pricing.mjs 生成，不要手改。来源：${source}
 // 生成日期：${new Date().toISOString().slice(0, 10)}；${names.length} 个模型
-// 每项：[厂商 a=Anthropic o=OpenAI, 输入, 输出, 缓存读, 缓存写（美元 / 百万 token）, 上下文长度]
-export const OFFICIAL_PRICES: Record<string, readonly ['a' | 'o', number, number, number, number, number | null]> = {
+// 每项：[厂商 a=Anthropic o=OpenAI g=Google, 输入, 输出, 缓存读, 缓存写（美元 / 百万 token）, 上下文长度]
+export const OFFICIAL_PRICES: Record<string, readonly ['a' | 'o' | 'g', number, number, number, number, number | null]> = {
 ${body}
 }
 `,

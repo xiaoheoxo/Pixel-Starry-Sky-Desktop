@@ -91,6 +91,8 @@ export class HostLogin {
     this.cancelLogin(engine)
     const result = await adapter.logout()
     const info = (await this.ctx.m.settings.engines(true)).find(e => e.id === engine)
+    const provider = providerOfEngine(engine)
+    if (provider) void this.ctx.m.quota.reset(provider)
     const version = info?.version ?? null
     // 命令成功了但重新检测仍然可用：引擎在用自己配置的接口（或环境变量里的 Key），
     // 说清楚原因，别让界面当成已经取消

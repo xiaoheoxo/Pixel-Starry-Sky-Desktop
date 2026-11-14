@@ -84,12 +84,16 @@ describe('monthValue', () => {
 })
 
 describe('defaultFeeId', () => {
-  it('按套餐值；分不出倍数的 max 按 20x；认不出的不比', () => {
+  it('按套餐值；分不出倍数的 max / Ultra 按 20x；认不出的不比', () => {
     expect(defaultFeeId('claude', 'max')).toBe('max_20x')
     expect(defaultFeeId('claude', 'max_5x')).toBe('max_5x')
     expect(defaultFeeId('claude', 'team_5x')).toBeNull()
     expect(defaultFeeId('chatgpt', 'pro')).toBe('pro')
     expect(defaultFeeId('chatgpt', 'team')).toBeNull()
+    expect(defaultFeeId('google', 'Google AI Ultra')).toBe('ultra_20x')
+    expect(defaultFeeId('google', 'Google AI Ultra 5x')).toBe('ultra_5x')
+    expect(defaultFeeId('google', 'Google AI Pro')).toBe('pro')
+    expect(defaultFeeId('google', 'Free')).toBeNull()
     expect(defaultFeeId('platform', 'pro')).toBeNull()
   })
 })

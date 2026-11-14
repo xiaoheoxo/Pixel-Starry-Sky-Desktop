@@ -27,6 +27,7 @@ import { demoMachines, demoMachineProjects, demoMachineWorkspaces } from './mach
 import { DemoTuiPanel } from './DemoTuiPanel'
 import { demoBoardTasks } from './board'
 import {
+  demoAgyCatalog,
   demoEngineCatalog,
   demoCodexCatalog,
   demoEngineConfig,
@@ -61,6 +62,7 @@ export const demoSource: DemoSource = {
     status: demoEngineStatus,
     catalog: demoEngineCatalog,
     codexCatalog: demoCodexCatalog,
+    agyCatalog: demoAgyCatalog,
     config: demoEngineConfig,
   },
   artifacts: { response: demoArtifacts, changes: demoArtifactChanges, preview: demoArtifactPreview },

@@ -11,16 +11,21 @@ import type {
   ResetCreditOutcome,
 } from '@pixelsky/protocol'
 import { describeError, logger } from '../log'
-import { classifyQuotaError, mergeQuota, type AccountQuotaPatch, type QuotaReading } from '../quota'
+import { classifyQuotaError, mergeQuota, type AccountQuotaPatch, type QuotaHost, type QuotaReading } from '../quota'
 import type { HostContext } from './context'
 
 const log = logger('engine.quota')
 
 /** 额度属于哪个引擎 */
-const QUOTA_ENGINE: Record<EngineQuotaProvider, EngineId> = { claude: 'claude', chatgpt: 'codex' }
-const QUOTA_HOST: Record<EngineQuotaProvider, 'claude.ai' | 'chatgpt.com'> = {
+const QUOTA_ENGINE: Record<EngineQuotaProvider, EngineId> = {
+  claude: 'claude',
+  chatgpt: 'codex',
+  google: 'antigravity',
+}
+const QUOTA_HOST: Record<EngineQuotaProvider, QuotaHost> = {
   claude: 'claude.ai',
   chatgpt: 'chatgpt.com',
+  google: 'antigravity.google',
 }
 
 /** 打开弹窗：超过 1 分钟没主动取就取 */
@@ -85,7 +90,7 @@ interface Entry {
 }
 
 export const providerOfEngine = (engine: EngineId): EngineQuotaProvider | null =>
-  engine === 'claude' ? 'claude' : engine === 'codex' ? 'chatgpt' : null
+  engine === 'claude' ? 'claude' : engine === 'codex' ? 'chatgpt' : engine === 'antigravity' ? 'google' : null
 
 const hasData = (q: Pick<AccountQuota, 'windows' | 'extras' | 'blocked'>): boolean =>
   q.windows.length > 0 || Object.keys(q.extras).length > 0 || q.blocked !== null

@@ -92,7 +92,7 @@ const subscribeFee = (cb: () => void): (() => void) => {
 
 /** 月费：用户在明细里选过的（存本机，弹窗和概况同步），没选过按套餐猜；认不出为 null */
 export function usePlanFee(provider: QuotaProvider | null, plan: string | null) {
-  const list = provider === 'claude' || provider === 'chatgpt' ? PLAN_FEES[provider] : null
+  const list = provider === 'claude' || provider === 'chatgpt' || provider === 'google' ? PLAN_FEES[provider] : null
   const picked = useSyncExternalStore(subscribeFee, () => (provider ? localStorage.getItem(FEE_KEY + provider) : null))
   const id = (list?.some(f => f.id === picked) ? picked : null) ?? (provider ? defaultFeeId(provider, plan) : null)
   const fee = list?.find(f => f.id === id) ?? null

@@ -114,20 +114,25 @@ const NO_DATA = '没有拿到额度数据'
 /** 抛给宿主的「没有拿到额度数据」（rate_limits_available 为真但没有 rate_limits） */
 export const quotaNoDataError = (): Error => new Error(NO_DATA)
 
+export type QuotaHost = 'claude.ai' | 'chatgpt.com' | 'antigravity.google'
+
+const ENGINE_NAME: Record<QuotaHost, string> = {
+  'claude.ai': 'Claude Code',
+  'chatgpt.com': 'Codex',
+  'antigravity.google': 'Antigravity',
+}
+
 /**
  * 读取失败的原因归类。message 是主进程文案（中文原文，界面 translateMessage 反查，对应 systemMessages 的 system.quota*）。
  * host：出错的是哪一边的服务，用来写「连不上 {p0}」和「{p0} 现在不可用」
  */
-export function classifyQuotaError(
-  err: unknown,
-  host: 'claude.ai' | 'chatgpt.com',
-): NonNullable<AccountQuota['error']> {
+export function classifyQuotaError(err: unknown, host: QuotaHost): NonNullable<AccountQuota['error']> {
   const raw = err instanceof Error ? err.message : String(err ?? '')
   if (raw === NO_DATA) return { code: 'failed', message: NO_DATA }
   if (/没有回应|did not respond|timeout|timed out/i.test(raw)) return { code: 'timeout', message: '读取额度超时' }
   if (/ECONN|ENOTFOUND|ETIMEDOUT|network|fetch failed|socket/i.test(raw))
     return { code: 'network', message: `连不上 ${host}` }
   if (/进程已退出|process exited|引擎不可用|没装好|已重新检测|unavailable|ENOENT/i.test(raw))
-    return { code: 'engine-unavailable', message: `${host === 'claude.ai' ? 'Claude Code' : 'Codex'} 现在不可用` }
+    return { code: 'engine-unavailable', message: `${ENGINE_NAME[host]} 现在不可用` }
   return { code: 'failed', message: `读取额度失败：${raw.slice(0, 200)}` }
 }

@@ -93,15 +93,20 @@ export function demoUsageRecords(now: number): UsageRecord[] {
       const sessionId = `demo-s${SESSIONS.indexOf(session)}`
       const turnId = `t${day}-${k}`
       const outcome = r() < 0.04 ? 'failed' : r() < 0.06 ? 'interrupted' : 'completed'
-      const codex = r() < 0.08
+      const pick = r()
+      const codex = pick < 0.08
+      const agy = !codex && day < 30 && pick < 0.2
+      const engine = codex ? 'codex' : agy ? 'antigravity' : 'claude'
       const models = codex
         ? ['gpt-5.5']
-        : [r() < 0.15 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', ...(r() < 0.3 ? ['claude-haiku-4-5'] : [])]
+        : agy
+          ? [r() < 0.35 ? 'gemini-3.8-flash' : 'gemini-4-carbon']
+          : [r() < 0.15 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', ...(r() < 0.3 ? ['claude-haiku-4-5'] : [])]
       for (const model of models) {
-        const sub = model === 'claude-haiku-4-5'
+        const sub = model === 'claude-haiku-4-5' || model === 'gemini-3.8-flash'
         const input = int(300, sub ? 2000 : 6000)
         const cacheRead = sub ? int(2000, 20000) : int(15000, 140000)
-        const cacheWrite = int(0, sub ? 2000 : 9000)
+        const cacheWrite = agy ? 0 : int(0, sub ? 2000 : 9000)
         const output = int(200, sub ? 1500 : 7000)
         const p = PRICE[model]
         const costUsd = p
@@ -117,7 +122,7 @@ export function demoUsageRecords(now: number): UsageRecord[] {
           durationMs: endedAt - startedAt,
           sessionTitle: session.title,
           project: session.project,
-          engine: codex ? 'codex' : 'claude',
+          engine,
           model,
           route: 'cli',
           requests: int(1, sub ? 4 : 12),
@@ -136,6 +141,31 @@ export function demoUsageRecords(now: number): UsageRecord[] {
     }
   }
   records.push(...noCost(today.getTime() - DAY, now))
+  // 演示模式下 5 小时窗口内的 Antigravity 轮次（costUsd 为 null，按官方 Gemini 定价实时折合）
+  for (let k = 0; k < 2; k++) {
+    const startedAt = now - (90 - k * 35) * 60_000
+    records.push({
+      v: 1,
+      id: `demo-s4:agy-5h-${k}:gemini-4-carbon`,
+      sessionId: 'demo-s4',
+      turnId: `agy-5h-${k}`,
+      startedAt,
+      endedAt: startedAt + 42_000,
+      durationMs: 42_000,
+      sessionTitle: SESSIONS[4].title,
+      project: SESSIONS[4].project,
+      engine: 'antigravity',
+      model: 'gemini-4-carbon',
+      route: 'cli',
+      requests: 4,
+      input: 48_000,
+      cacheRead: 220_000,
+      cacheWrite: 0,
+      output: 9_600,
+      costUsd: null,
+      outcome: 'completed',
+    })
+  }
   return records
 }
 

@@ -138,6 +138,8 @@ export interface DemoSource {
     catalog: EngineCatalog
     /** Codex 的模型目录（③ ChatGPT 授权列的模型，docs/ui/model-channels.md） */
     codexCatalog: EngineCatalog
+    /** Antigravity 的模型目录（④ Google 账号列的模型） */
+    agyCatalog?: EngineCatalog
     config: EngineConfig
   }
   artifacts: {

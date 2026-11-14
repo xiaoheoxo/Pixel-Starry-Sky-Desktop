@@ -19,7 +19,8 @@ afterEach(() => {
 describe('演示数据', () => {
   const claude = demoQuota(NOW).claude
   const chatgpt = demoQuota(NOW).chatgpt
-  const text = (q: AccountQuota, provider: 'claude' | 'chatgpt' | 'platform' = q.provider) => {
+  const google = demoQuota(NOW).google
+  const text = (q: AccountQuota, provider: AccountQuota['provider'] = q.provider) => {
     const v = quotaButtonView(q, { provider, loading: false, now: NOW })
     return [v.short, v.value].filter(Boolean).join(' ')
   }
@@ -40,6 +41,10 @@ describe('演示数据', () => {
     expect(chatgpt).toMatchObject({ plan: 'plus', source: 'demo' })
     expect(chatgpt.extras.credits).toEqual({ hasCredits: true, unlimited: false, balance: 120 })
     expect(text(chatgpt)).toBe('周 54%')
+  })
+  it('Google：5 小时 7%、本周 2%、Google AI Ultra；按钮「5h 7%」', () => {
+    expect(google).toMatchObject({ plan: 'Google AI Ultra', source: 'demo' })
+    expect(text(google)).toBe('5h 7%')
   })
   it('平台：演示账号的 5h $0.50 / $2 → 「5h 25%」', () => {
     expect(text(platformQuota(demoAccount)!, 'platform')).toBe('5h 25%')
