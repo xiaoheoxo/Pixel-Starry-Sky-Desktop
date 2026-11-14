@@ -1,5 +1,5 @@
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
-import { Check, ExternalLink, RefreshCw, Settings, X } from 'lucide-react'
+import { Check, ChevronRight, ExternalLink, RefreshCw, Settings, X } from 'lucide-react'
 import type { AccountQuota, QuotaProvider, QuotaResetCredits } from '@pixelsky/protocol'
 import { translateMessage, tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -8,6 +8,7 @@ import {
   QUOTA_LINKS,
   clockText,
   maskAccount,
+  percentText,
   planBadge,
   providerTitle,
   quotaLayout,
@@ -17,6 +18,8 @@ import {
   type QuotaLevel,
   type QuotaRow,
 } from './quotaModel'
+import { usdText, type WindowEstimate } from './estimate'
+import type { QuotaEstimate } from './useQuotaEstimate'
 
 const TEXT: Record<QuotaLevel, string> = { normal: 'text-fg', warn: 'text-warn', full: 'text-danger' }
 const FILL: Record<QuotaLevel, string> = { normal: 'bg-accent', warn: 'bg-warn', full: 'bg-danger' }
@@ -48,6 +51,12 @@ export interface QuotaPanelProps {
   resetBusy?: boolean
   /** 自动使用的阈值（%）；没开为 null */
   resetAuto?: number | null
+  /** 订阅额度估算（docs/ui/quota-estimate.md）；不支持或数据没到为 null */
+  estimate?: QuotaEstimate | null
+  /** 折合月费的几倍（一位小数）；月费认不出为 null */
+  feeRatio?: string | null
+  /** 「明细」：打开概况 */
+  onOpenDetail?: () => void
 }
 
 /**
@@ -73,6 +82,9 @@ export function QuotaPanel({
   onUseResetCredit,
   resetBusy = false,
   resetAuto = null,
+  estimate = null,
+  feeRatio = null,
+  onOpenDetail,
 }: QuotaPanelProps) {
   useI18n()
   const title = providerTitle(provider)
@@ -169,8 +181,16 @@ export function QuotaPanel({
             {layout.cards.length > 0 && (
               <div className={cn('grid gap-2', layout.cards.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
                 {layout.cards.map(card => (
-                  <Tile key={card.id} card={card} />
+                  <Tile key={card.id} card={card} est={estimate?.windows[card.id]} now={now} />
                 ))}
+              </div>
+            )}
+            {estimate?.month && (
+              <div className="mt-2 flex items-baseline gap-2 px-0.5 text-label text-fg-muted tabular-nums">
+                <span className="min-w-0 truncate">{tr('quotaEst.worth', { usd: usdText(estimate.month.usd) })}</span>
+                {feeRatio && (
+                  <span className="ml-auto shrink-0 text-fg-faint">{tr('quotaEst.ratio', { n: feeRatio })}</span>
+                )}
               </div>
             )}
             {layout.rows.length > 0 && (
@@ -242,6 +262,12 @@ export function QuotaPanel({
           </a>
         )}
         <span className="flex-1">{demo && <span className="text-fg-faint">{tr('quota.demoData')}</span>}</span>
+        {estimate && onOpenDetail && (
+          <FootButton onClick={onOpenDetail} tone="quiet">
+            {tr('quotaEst.detail')}
+            <ChevronRight size={12} aria-hidden />
+          </FootButton>
+        )}
         <FootButton onClick={onOpenSettings} tone="quiet">
           <Settings size={12} aria-hidden />
           {tr('quota.action.settings')}
@@ -341,15 +367,24 @@ function FootButton({
   )
 }
 
-/** 大数字卡片：名字、大百分比、进度条、恢复时间（平台是金额） */
-function Tile({ card }: { card: QuotaCard }) {
+/** 大数字卡片：名字、大百分比、进度条、恢复时间（平台是金额）；有估算时加「剩 N%」、浅色的预计段、时间竖线和预估几行 */
+function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: number }) {
   const full = card.level === 'full'
+  const e = card.type === 'meter' && !full ? est : undefined
+  const hot = !!e?.emptyAt
   return (
     <div
       title={card.hover || undefined}
       className={cn('min-w-0 rounded-[10px] px-[11px] pt-[9px] pb-2.5', full ? 'bg-danger/10' : 'bg-subtle')}
     >
-      <div className="text-label text-fg-muted">{card.name}</div>
+      <div className="flex items-baseline gap-1.5 text-label text-fg-muted">
+        <span className="min-w-0 truncate">{card.name}</span>
+        {e && (
+          <span className="ml-auto shrink-0 text-fg-faint tabular-nums">
+            {tr('quotaEst.left', { p: percentText(100 - card.percent) })}
+          </span>
+        )}
+      </div>
       <div
         className={cn(
           'mt-px leading-7 font-semibold tracking-[-0.01em] tabular-nums',
@@ -363,28 +398,57 @@ function Tile({ card }: { card: QuotaCard }) {
         )}
       </div>
       {card.type === 'meter' && (
-        <div
-          role="progressbar"
-          aria-label={card.name}
-          aria-valuenow={Math.round(card.percent)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="mt-1.5 h-1 overflow-hidden rounded-full bg-selected"
-        >
-          <i
-            className={cn('block h-full rounded-full', FILL[card.level])}
-            style={{ width: `${Math.min(100, Math.max(card.percent, 2))}%` }}
-          />
+        <div className="relative mt-1.5">
+          <div
+            role="progressbar"
+            aria-label={card.name}
+            aria-valuenow={Math.round(card.percent)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="relative h-1 overflow-hidden rounded-full bg-selected"
+          >
+            {e?.projected != null && e.projected > card.percent && (
+              <i
+                title={tr('quotaEst.projTip')}
+                className={cn('absolute inset-y-0 left-0 rounded-full opacity-30', hot ? 'bg-warn' : FILL[card.level])}
+                style={{ width: `${Math.min(100, e.projected)}%` }}
+              />
+            )}
+            <i
+              className={cn('relative block h-full rounded-full', FILL[card.level])}
+              style={{ width: `${Math.min(100, Math.max(card.percent, 2))}%` }}
+            />
+          </div>
+          {e && (
+            <i
+              title={tr('quotaEst.paceTip', { p: percentText(e.elapsed * 100) })}
+              className="absolute -inset-y-0.5 -ml-px w-0.5 rounded-sm bg-fg opacity-55"
+              style={{ left: `${e.elapsed * 100}%` }}
+            />
+          )}
+        </div>
+      )}
+      {e && (hot || e.projected !== null) && (
+        <div className={cn('mt-1.5 truncate text-label tabular-nums', hot ? 'text-warn' : 'text-fg-muted')}>
+          {hot
+            ? tr('quotaEst.emptyAt', { time: resetClock(e.emptyAt!, now) })
+            : tr('quotaEst.leftAtReset', { p: percentText(100 - e.projected!) })}
+        </div>
+      )}
+      {e?.usd != null && (
+        <div className="mt-px truncate text-label text-fg-secondary tabular-nums">
+          {tr('quotaEst.run', { usd: usdText(e.usd) })}
         </div>
       )}
       <div
         className={cn(
-          'mt-1.5 text-label tabular-nums',
+          e ? 'mt-px' : 'mt-1.5',
+          'text-label tabular-nums',
           card.type === 'meter' && 'truncate',
           full ? 'text-danger' : 'text-fg-faint',
         )}
       >
-        {card.note}
+        {e?.turns != null ? tr('quotaEst.turnsReset', { n: e.turns, reset: card.note }) : card.note}
       </div>
     </div>
   )

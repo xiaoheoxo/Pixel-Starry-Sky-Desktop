@@ -3,7 +3,7 @@
 import { useMemo, useRef } from 'react'
 import { Activity, Check, TriangleAlert } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
-import { cn } from '@/ui'
+import { cn, Select } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { useAccount } from '@/features/account/useAccount'
@@ -20,6 +20,8 @@ import {
   type QuotaEntry,
 } from '@/features/session/quota/quotaModel'
 import { useMinuteNow } from '@/features/session/quota/quotaStore'
+import { usdText } from '@/features/session/quota/estimate'
+import { feeRatio, usePlanFee, useQuotaEstimate, type QuotaEstimate } from '@/features/session/quota/useQuotaEstimate'
 import { replyStatParts } from '@/features/session/turnStatsData'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { formatTokens } from '@/features/usage/format'
@@ -79,6 +81,7 @@ function UsageBody({ sessionId }: { sessionId: string }) {
   const now = useMinuteNow()
   const { balanceText } = useAccount()
   const usage = useSessionUsage(sessionId)
+  const estimate = useQuotaEstimate(provider, quota, now)
   const supported = !!provider && !!quota && quota.status !== 'unsupported'
   const entries = supported ? [...quotaEntries(quota, now), ...planEntries(planLimits, now)] : []
   const rows = supported ? quotaRows(quotaLayout(quota, { provider, now, balanceText, planLimits })) : []
@@ -118,6 +121,7 @@ function UsageBody({ sessionId }: { sessionId: string }) {
             </div>
           )
         const p = quotaPace(entry, now)
+        const est = estimate?.windows[entry.id]
         return (
           <div key={row.id} title={row.hover} className="[&+&]:mt-2.5">
             <div className="flex min-w-0 items-baseline gap-1.5">
@@ -142,10 +146,18 @@ function UsageBody({ sessionId }: { sessionId: string }) {
                   : tr('overview.paceOk')}
               </div>
             )}
+            {est?.usd != null && entry.level !== 'full' && (
+              <div className="mt-[3px] text-label text-fg-muted tabular-nums">
+                {est.turns != null
+                  ? tr('quotaEst.runTurns', { usd: usdText(est.usd), n: est.turns })
+                  : tr('quotaEst.run', { usd: usdText(est.usd) })}
+              </div>
+            )}
           </div>
         )
       })}
       {entries.some(e => windowElapsed(e, now) !== null) && <p className={NOTE}>{tr('overview.paceNote')}</p>}
+      {estimate?.month && <MonthWorth provider={provider} plan={quota?.plan ?? null} estimate={estimate} />}
       {usage && <SessionStats usage={usage} elapsed={elapsed?.text} cost={cost} />}
       <div className={SECTION_LINKS}>
         <SectionLink onClick={() => settings.openSettings('usage')}>{tr('overview.usagePage')}</SectionLink>
@@ -229,6 +241,54 @@ function SessionStats({
           })}
         </div>
       )}
+    </>
+  )
+}
+
+/** 近 30 天按 API 价折合多少、是月费的几倍（月费可选，存本机）、按模型（默认收起）、只算本机的说明 */
+function MonthWorth({
+  provider,
+  plan,
+  estimate,
+}: {
+  provider: Parameters<typeof usePlanFee>[0]
+  plan: string | null
+  estimate: QuotaEstimate
+}) {
+  const month = estimate.month!
+  const { options, fee, pick } = usePlanFee(provider, plan)
+  const ratio = feeRatio(month, fee)
+  return (
+    <>
+      <div className="mt-2.5 flex min-h-7 flex-wrap items-center gap-x-1.5 gap-y-1 text-fg-secondary tabular-nums">
+        <span>{tr('quotaEst.worth', { usd: usdText(month.usd) })}</span>
+        {ratio && <span className="text-fg-muted">· {tr('quotaEst.ratio', { n: ratio })}</span>}
+        {options.length > 0 && (
+          <Select
+            label={tr('quotaEst.fee')}
+            value={fee?.id ?? ''}
+            placeholder={tr('quotaEst.feeNone')}
+            options={options.map(o => ({ value: o.id, label: o.label }))}
+            onChange={pick}
+            fitContent
+            className="ml-auto h-6! w-auto gap-1 px-2! text-label!"
+          />
+        )}
+      </div>
+      {month.models.length > 1 && (
+        <details className="mt-1 text-label text-fg-muted">
+          <summary className="cursor-pointer select-none hover:text-fg">{tr('quotaEst.byModel')}</summary>
+          {month.models.map(m => (
+            <div key={m.model} className="flex justify-between gap-2 py-px">
+              <span title={m.model} className="truncate">
+                {shortModel(m.model)}
+              </span>
+              <span className="tabular-nums">{usdText(m.usd)}</span>
+            </div>
+          ))}
+        </details>
+      )}
+      <p className={NOTE}>{tr('quotaEst.fine')}</p>
     </>
   )
 }

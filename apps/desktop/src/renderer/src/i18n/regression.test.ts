@@ -30,6 +30,7 @@ import { updateMessages } from '../../../shared/i18n/updateMessages'
 import { customApiMessages } from '../../../shared/i18n/customApiMessages'
 import { logMessages } from '../../../shared/i18n/logMessages'
 import { feedbackMessages } from '../../../shared/i18n/feedbackMessages'
+import { quotaEstimateMessages } from '../../../shared/i18n/quotaEstimateMessages'
 import { trayMessages } from '../../../shared/i18n/trayMessages'
 import { mobileMessages } from '../../../shared/i18n/mobileMessages'
 import { imMessages } from '../../../shared/i18n/imMessages'
@@ -124,6 +125,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   customApiMessages,
   logMessages,
   feedbackMessages,
+  quotaEstimateMessages,
   trayMessages,
   mobileMessages,
   imMessages,

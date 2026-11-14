@@ -4,7 +4,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isDemo } from '@/data'
 import { groupByDay, heatmapDays, listRecords, summarize, toCsv } from './aggregate'
-import type { UsageBucket, UsageFilter, UsagePage, UsageRangeId, UsageRecord, UsageSummary, UsageTotals } from './types'
+import type {
+  UsageBucket,
+  UsageFilter,
+  UsageGroupRow,
+  UsagePage,
+  UsageRangeId,
+  UsageRecord,
+  UsageSummary,
+  UsageTotals,
+} from './types'
 import { demo } from '@/data/demo'
 
 export interface UsageQuery {
@@ -173,4 +182,47 @@ export function useUsageActions() {
   }, [])
 
   return { exportCsv, clear }
+}
+
+/** 额度估算每页读多少（主进程上限 500）。范围用 30 天：「7 天」从 6 天前的零点算，周窗口快到头时开头那段不在里面 */
+const ESTIMATE_PAGE = 500
+const ESTIMATE_PAGES_MAX = 20
+
+/**
+ * 额度估算（docs/ui/quota-estimate.md）：from 之后的记录（新的在前，按页读到 from 之前为止）和近 30 天按模型的合计。
+ * 读不到抛错，调用方不写估计
+ */
+export async function readQuotaUsage(
+  filter: UsageFilter,
+  from: number,
+): Promise<{ records: UsageRecord[]; models: UsageGroupRow[] }> {
+  const now = Date.now()
+  const b = bridge()
+  if (!b?.usageSummary || !b.usageList)
+    return {
+      records: listRecords(localRecords, '30d', filter, now, 0, Number.MAX_SAFE_INTEGER).records.filter(
+        r => r.endedAt >= from,
+      ),
+      models: summarize(localRecords, '30d', filter, now).groups.model,
+    }
+  const records: UsageRecord[] = []
+  for (let page = 0; page < ESTIMATE_PAGES_MAX; page++) {
+    const p = await b.usageList({ range: '30d', filter, now, offset: page * ESTIMATE_PAGE, limit: ESTIMATE_PAGE })
+    records.push(...p.records.filter(r => r.endedAt >= from))
+    if (p.records.length < ESTIMATE_PAGE || p.records.at(-1)!.endedAt < from) break
+  }
+  const summary = await b.usageSummary({ range: '30d', filter, now, tzOffset: new Date().getTimezoneOffset() })
+  return { records, models: summary.groups.model }
+}
+
+/** 新的一轮记下来、清空后回调 */
+export function onUsageChange(cb: () => void): () => void {
+  listeners.add(cb)
+  const off = bridge()?.onEvent?.(e => {
+    if (e.kind === 'usage_recorded') cb()
+  })
+  return () => {
+    listeners.delete(cb)
+    off?.()
+  }
 }

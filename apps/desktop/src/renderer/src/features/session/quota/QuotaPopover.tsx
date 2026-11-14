@@ -11,7 +11,9 @@ import { translateMessage } from '@/i18n/core'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { notify } from '@/features/panes/store'
 import { useEngineState } from '@/features/engine'
+import { openRightTab } from '@/features/panel/workspaceStore'
 import { QuotaPanel } from './QuotaPanel'
+import { feeRatio, usePlanFee, useQuotaEstimate } from './useQuotaEstimate'
 import { OPEN_MAX_AGE_MS, useResetCredit, type QuotaSource } from './quotaStore'
 
 /** 「已刷新」对勾显示多久（同上下文弹窗） */
@@ -56,6 +58,8 @@ export function QuotaPopover({
       })
   }
   const { refresh } = source
+  const estimate = useQuotaEstimate(provider, source.quota, now)
+  const { fee } = usePlanFee(provider, source.quota?.plan ?? null)
   useEffect(() => {
     void refresh({ maxAgeMs: OPEN_MAX_AGE_MS })
   }, [refresh])
@@ -102,6 +106,12 @@ export function QuotaPopover({
         onUseResetCredit={provider === 'chatgpt' && !isDemo ? () => setConfirmReset(true) : undefined}
         resetBusy={resetBusy}
         resetAuto={resetAuto}
+        estimate={estimate}
+        feeRatio={feeRatio(estimate?.month ?? null, fee)}
+        onOpenDetail={() => {
+          onClose()
+          openRightTab('overview')
+        }}
         provider={provider}
         quota={source.quota}
         loading={source.loading}

@@ -24,6 +24,7 @@ import { updateMessages } from './updateMessages'
 import { customApiMessages } from './customApiMessages'
 import { logMessages } from './logMessages'
 import { feedbackMessages } from './feedbackMessages'
+import { quotaEstimateMessages } from './quotaEstimateMessages'
 import { trayMessages } from './trayMessages'
 import { mobileMessages } from './mobileMessages'
 import { imMessages } from './imMessages'
@@ -120,6 +121,7 @@ export const allMessages = {
   ...customApiMessages,
   ...logMessages,
   ...feedbackMessages,
+  ...quotaEstimateMessages,
   ...trayMessages,
   ...mobileMessages,
   ...imMessages,
