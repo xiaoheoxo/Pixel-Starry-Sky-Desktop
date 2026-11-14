@@ -4,6 +4,7 @@ export const PI_IMAGE_MODELS: Readonly<Record<string, boolean>> = {
   'chat-latest': true,
   'claude-fable-5': true,
   'claude-fable-5-1': true,
+  'claude-fable-5-2': true,
   'claude-haiku-4-5': true,
   'claude-haiku-4-5-20251001': true,
   'claude-haiku-5-5': true,

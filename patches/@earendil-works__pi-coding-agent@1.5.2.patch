@@ -1,5 +1,5 @@
 diff --git a/dist/cli/args.js b/dist/cli/args.js
-index 730b43c..09339d7 100644
+index 3a2ee31..d60f8e3 100644
 --- a/dist/cli/args.js
 +++ b/dist/cli/args.js
 @@ -280,15 +280,11 @@ ${chalk.bold("Usage:")}
@@ -12,7 +12,7 @@ index 730b43c..09339d7 100644
 -  ${APP_NAME} update [source|self|pi]   Update pi, extensions, or model catalogs
    ${APP_NAME} list                      List installed extensions from settings
    ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
-   ${APP_NAME} auth <command>            Print credentials or check provider readiness
+   ${APP_NAME} auth <command>            Log in or out, print credentials, or check provider readiness
    ${APP_NAME} mcp <command>             Manage MCP servers
 -  ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp
 +  ${APP_NAME} <command> --help          Show help for list/config/auth/mcp
@@ -159,10 +159,10 @@ index 6ca9ad3..9ebc456 100644
      { name: "new", description: "Start a new session" },
      { name: "compact", description: "Manually compact the session context" },
 diff --git a/dist/extensions/mcp/index.js b/dist/extensions/mcp/index.js
-index 8ebc6df..aea3773 100644
+index 69edd29..5248fe0 100644
 --- a/dist/extensions/mcp/index.js
 +++ b/dist/extensions/mcp/index.js
-@@ -244,6 +244,76 @@ export function createMcpExtension(options = {}) {
+@@ -245,6 +245,76 @@ export function createMcpExtension(options = {}) {
          };
          const connections = () => servers.flatMap((server) => (server.connection ? [server.connection] : []));
          const findServer = (name) => servers.find((server) => server.entry.name === name);
@@ -240,10 +240,10 @@ index 8ebc6df..aea3773 100644
          const registeredServers = () => {
              const registered = [];
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 615a6ba..f3ce1aa 100644
+index d4e4b09..ea3ad03 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -681,7 +681,7 @@ export class InteractiveMode {
+@@ -694,7 +694,7 @@ export class InteractiveMode {
              return;
          this.registerSignalHandlers();
          // Load changelogs (only show new entries, skip for resumed sessions)
@@ -252,7 +252,7 @@ index 615a6ba..f3ce1aa 100644
          this.extensionChangelogUpdates = this.getExtensionChangelogUpdates();
          // Fullscreen renders on the alternate screen, so text printed to stdout here would stay in the shell
          // after exit. Fullscreen shows the notice in the header instead (#11508).
-@@ -2596,6 +2596,17 @@ export class InteractiveMode {
+@@ -2649,6 +2649,17 @@ export class InteractiveMode {
              text = text.trim();
              if (!text)
                  return;
@@ -287,7 +287,7 @@ index 32b7d63..049631f 100644
          onStatus?.({ type: "warning", message: `${config.name} not found. Offline mode enabled, skipping download.` });
          return undefined;
 diff --git a/package.json b/package.json
-index 705be3d..4833711 100644
+index eb98197..e79de36 100644
 --- a/package.json
 +++ b/package.json
 @@ -4,7 +4,8 @@
