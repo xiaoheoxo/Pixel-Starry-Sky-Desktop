@@ -21,6 +21,9 @@ export const ENGINE_STATUS: Record<string, string> = {
   },
 }
 
+/** 有授权登录的引擎 → 授权弹窗的线路（Antigravity 是 Google 账号，D283）；列表的「去授权」和详情页头部共用 */
+export const AUTH_CHANNEL_OF = { claude: 'claude', codex: 'chatgpt', antigravity: 'google' } as const
+
 /** 详情页头部的一句介绍 */
 export const ENGINE_INTRO: Record<EngineId, string> = {
   get claude() {
@@ -31,6 +34,9 @@ export const ENGINE_INTRO: Record<EngineId, string> = {
   },
   get pixel() {
     return tr('engine.pixel.intro')
+  },
+  get antigravity() {
+    return tr('settings.engines.parts.antigravityIntro')
   },
 }
 

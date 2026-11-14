@@ -4,6 +4,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parse } from 'yaml'
 import type {
   ExtensionComponent,
+  ExtensionEngine,
   ExtensionEntry,
   ExtensionHook,
   ExtensionInput,
@@ -94,10 +95,10 @@ export function input(v: unknown): ExtensionInput {
     if (
       !Array.isArray(o.engines) ||
       !o.engines.length ||
-      o.engines.some(e => e !== 'claude' && e !== 'codex' && e !== 'pixel')
+      o.engines.some(e => e !== 'claude' && e !== 'codex' && e !== 'pixel' && e !== 'antigravity')
     )
       throw new Error('适用引擎不正确')
-    base.engines = [...new Set(o.engines)] as Array<'claude' | 'codex' | 'pixel'>
+    base.engines = [...new Set(o.engines)] as ExtensionEngine[]
   }
   if (base.kind === 'mcp') base.mcp = mcpConfig(o.mcp)
   if (base.kind === 'cli') {

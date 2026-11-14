@@ -11,6 +11,8 @@ export const IMPORT_TOOLS: ReadonlyArray<{ id: ProjectImportTool; name: string }
   { id: 'kimi', name: 'Kimi Code' },
   { id: 'cursor', name: 'Cursor' },
   { id: 'dsh', name: 'DeepSeek Harness' },
+  { id: 'antigravity', name: 'Antigravity' },
+  { id: 'grok', name: 'Grok' },
 ]
 
 const TOOL_NAMES = new Set(IMPORT_TOOLS.map(t => t.name))

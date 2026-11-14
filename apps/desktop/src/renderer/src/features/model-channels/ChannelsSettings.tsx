@@ -48,6 +48,7 @@ export function ChannelsSettings() {
       <PlatformCard />
       <AuthCard channel="claude" />
       <AuthCard channel="chatgpt" />
+      <AuthCard channel="google" />
       <Card channel="custom" status={tr('modelChannels.custom.desc')}>
         <div className="border-t border-line-subtle px-4 pb-3">
           <CustomApiSettings />
@@ -383,6 +384,7 @@ function NewTaskRow() {
   const engines = useChannelEngines()
   const claudeCatalog = useEngineCatalog('claude')
   const codexCatalog = useEngineCatalog('codex')
+  const agyCatalog = useEngineCatalog('antigravity')
   const fixed = prefs.newTask.mode === 'fixed' ? prefs.newTask.choice : null
   const groups = buildChannelMenu({
     selection: fixed,
@@ -391,6 +393,7 @@ function NewTaskRow() {
     selfModels: {
       claude: selfModelOptions('claude', claudeCatalog?.models),
       chatgpt: selfModelOptions('codex', codexCatalog?.models),
+      google: selfModelOptions('antigravity', agyCatalog?.models),
     },
     providers: providers.providers,
     engines,
@@ -404,8 +407,8 @@ function NewTaskRow() {
         const choice: ChannelChoice = { ...row.target, engine }
         const provider = providers.providers.find(p => p.id === row.target.providerId)
         const model =
-          g.channel === 'claude' || g.channel === 'chatgpt'
-            ? selfModelLabel(engine, row.target.model)
+          g.channel === 'claude' || g.channel === 'chatgpt' || g.channel === 'google'
+            ? selfModelLabel(engine, row.target.model, g.channel === 'google' ? agyCatalog?.models : undefined)
             : (row.target.model ?? '')
         const where = g.channel === 'custom' ? (provider?.name ?? channelShort('custom')) : channelShort(g.channel)
         options.push({

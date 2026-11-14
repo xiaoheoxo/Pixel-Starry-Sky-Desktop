@@ -27,7 +27,7 @@ export function cleanSchedule(raw: unknown, prior: TaskSchedule | null | undefin
     permission = r.permission as TaskSchedule['permission']
   if (
     !SCHEDULE_FREQS.includes(freq) ||
-    !ENGINES.includes(engine) ||
+    !(ENGINES as readonly string[]).includes(engine) ||
     !(PERMISSIONS as readonly string[]).includes(permission)
   )
     throw new Error('参数不正确')

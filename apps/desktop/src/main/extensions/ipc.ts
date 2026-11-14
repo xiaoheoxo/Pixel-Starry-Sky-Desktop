@@ -4,7 +4,7 @@ import { app, dialog, shell } from 'electron'
 import { systemCipher } from '../app/system-cipher'
 import { object, scope, text } from '@pixelsky/engine'
 import { IMPORT_APPS, IMPORT_APP_NAMES } from '@pixelsky/protocol'
-import type { ExtensionLaunch, ExtensionScope, ImportApp, SessionRecord } from '@pixelsky/protocol'
+import type { EngineId, ExtensionLaunch, ExtensionScope, ImportApp, SessionRecord } from '@pixelsky/protocol'
 import { defaultWhere, publicScan, scanApp } from './import-apps'
 import type { WorkspaceRef } from '../../shared/types/workspace'
 import * as ipc from '../ipc/guard'
@@ -29,7 +29,7 @@ export class Extensions {
     private readonly threads: ThreadsServer | null = null,
   ) {}
 
-  private env(engine: 'claude' | 'codex' | 'pixel' = 'claude'): Record<string, string> | undefined {
+  private env(engine: EngineId = 'claude'): Record<string, string> | undefined {
     return this.ctx.engine?.engineConfig()[engine].env
   }
 
@@ -77,6 +77,8 @@ export class Extensions {
     // 这些工具只读（频道工具只在频道里留记录），不用每次都等用户批准
     const allow = Object.keys(servers).map(name => `mcp__${name}`)
     const launch = allow.length ? { ...base, allowTools: allow } : base
+    // Antigravity 只接 MCP（launch 给的 acpMcp，应用自己的标了 own 免审批），扩展包的技能没地方放（docs/antigravity-engine.md §12）
+    if (record.engine === 'antigravity') return launch
     // 扩展包里的技能：Claude 走生成的插件目录，Codex 走技能目录；没有时 key 和原来一字不差
     const packs = this.ctx.extPacks?.skillLaunch(record.engine)
     if (!packs) return launch
@@ -176,7 +178,7 @@ export class Extensions {
         const items = scanApp(app as ImportApp, where(ref)).items.filter(i => wanted.has(i.key))
         return service().importFromApp(items, checkedScope(s), {
           name: IMPORT_APP_NAMES[app as ImportApp],
-          isClaudeCode: app === 'claude-code',
+          own: app === 'claude-code' ? 'claude' : app === 'antigravity' ? 'antigravity' : null,
         })
       })
     })

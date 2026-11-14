@@ -112,6 +112,18 @@ export const resumeMessages = {
     zh: '可以在模型菜单换到 Codex 接着聊（Codex 拿到的是聊天回放，不含工具和压缩摘要）。换回 Claude 时，Codex 期间的聊天会写进终端那份记录。',
     en: 'You can switch to Codex from the model menu (Codex gets a chat replay without tools or compaction summaries). Switching back writes the Codex-era chat into the terminal’s session record.',
   },
+  'resume.help.agy.history': {
+    zh: 'agy 的记录不在文件里：导入时临时启动一次 agy 把整段对话读出来，一次全部显示。',
+    en: 'agy does not keep its history in files: importing starts agy once to read the whole conversation, shown in full.',
+  },
+  'resume.help.agy.context': {
+    zh: '接着聊用的是 agy 自己的会话（session/resume），模型上下文和终端里一样。',
+    en: 'Continuing uses agy’s own session (session/resume), so the model context is the same as in the terminal.',
+  },
+  'resume.help.agy.copy': {
+    zh: 'agy 不能从中间分叉，没有「复制一份接着聊」；终端里还开着这个会话时，先关掉再接着聊。',
+    en: 'agy cannot branch from the middle, so there is no “Continue in a copy”; close the session in the terminal before continuing here.',
+  },
   'resume.help.codex.live': {
     zh: '会话在终端里正开着时，Codex 不让两个程序同时写一个会话：只能「复制一份接着聊」（原会话不动），或者关掉终端再来。',
     en: 'Codex doesn’t let two programs write to one session. If it is open in the terminal, use “Continue in a copy” (the original is untouched) or close the terminal first.',

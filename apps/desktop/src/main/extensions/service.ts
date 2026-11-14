@@ -36,6 +36,7 @@ import {
 } from '@pixelsky/engine'
 import type {
   ExtensionCheck,
+  ExtensionEngine,
   ExtensionEntry,
   ExtensionImport,
   ExtensionLaunch,
@@ -390,15 +391,17 @@ export class ExtensionService {
     if (data.subdir && (/^[\\/]/.test(data.subdir) || data.subdir.split(/[\\/]/).includes('..')))
       throw new Error('子目录必须位于来源目录内')
     // 先校验再建包目录：校验失败不留空目录
-    let engines: Array<'claude' | 'codex' | 'pixel'> | undefined
+    let engines: ExtensionEngine[] | undefined
     if (o.engines !== undefined) {
       if (
         !Array.isArray(o.engines) ||
         !o.engines.length ||
-        o.engines.some(engine => engine !== 'claude' && engine !== 'codex' && engine !== 'pixel')
+        o.engines.some(
+          engine => engine !== 'claude' && engine !== 'codex' && engine !== 'pixel' && engine !== 'antigravity',
+        )
       )
         throw new Error('适用引擎不正确')
-      engines = kind === 'plugin' ? ['claude'] : (o.engines as Array<'claude' | 'codex' | 'pixel'>)
+      engines = kind === 'plugin' ? ['claude'] : (o.engines as ExtensionEngine[])
     }
     const root = this.packageDir()
     /** 技能另建的包：后面出错（含保存配置失败）时连它一起删，不留孤儿目录 */
@@ -556,19 +559,19 @@ export class ExtensionService {
   }
   /**
    * 从别的软件导入（import-apps.ts 扫出来、主进程里带原值的那几项）：同名自动改名，一项失败不影响别的。
-   * 从 Claude Code 导入的 MCP 只给 Codex / 像素星空（Claude Code 自己本来就有）
+   * MCP 给所有引擎（含 Antigravity），技能给能用技能的三个；来源本身是我们的某个引擎（Claude Code、Antigravity）时
+   * 不再给它（它自己本来就有）
    */
   async importFromApp(
     items: ImportFull[],
     s: ExtensionScope,
-    app: { name: string; isClaudeCode: boolean },
+    app: { name: string; own: ExtensionEngine | null },
   ): Promise<{ imported: number; failed: Array<{ name: string; error: string }> }> {
     let imported = 0
     const failed: Array<{ name: string; error: string }> = []
-    const engines: Array<'claude' | 'codex' | 'pixel'> = app.isClaudeCode
-      ? ['codex', 'pixel']
-      : ['claude', 'codex', 'pixel']
+    const all: ExtensionEngine[] = ['claude', 'codex', 'pixel', 'antigravity']
     for (const item of items) {
+      const engines = all.filter(e => e !== app.own && (item.kind === 'mcp' || e !== 'antigravity'))
       try {
         const name = this.freeName(item.name, item.kind, s, engines)
         if (item.kind === 'mcp')
@@ -661,7 +664,7 @@ export class ExtensionService {
   }
   launch(
     project: string,
-    engine: 'claude' | 'codex' | 'pixel' = 'claude',
+    engine: ExtensionEngine = 'claude',
     extraEnv: Record<string, string> = {},
     extraServers: Record<string, McpConfig> = {},
     /** 频道成员「只用这些」（docs/ui/channels-collab-v2.md §5）：MCP、技能、插件只留这些 id；命令行不受影响 */
@@ -734,6 +737,20 @@ export class ExtensionService {
       .map(([name, c]) => `|${name}:${c.url ?? c.command ?? ''}`)
       .join('')
     let file: string | undefined
+    // Antigravity：只接 MCP，走 ACP 会话参数（docs/antigravity-engine.md §12）；技能、插件目录没有可指定的地方
+    if (engine === 'antigravity')
+      return {
+        key:
+          JSON.stringify(entries.filter(e => e.kind === 'mcp').map(e => [e.id, e.revision, e.enabled, e.mcp])) +
+          extraKey,
+        pluginDirs: [],
+        pathDirs: [...new Set(pathDirs)],
+        acpMcp: Object.entries(servers).map(([name, c]) => ({
+          ...c,
+          name,
+          ...(Object.hasOwn(extraServers, name) ? { own: true } : {}),
+        })),
+      }
     if (engine === 'codex') {
       // 应用自己的服务器（pixelsky_*）名字写死在提示词和审批规则里，不改名
       const named = Object.entries(servers).map(([name, c]) => [

@@ -31,7 +31,7 @@ export interface ModelDeps {
   provider(id: string): ResolvedProvider | null
   fetch: Fetch
   /** Claude / ChatGPT 授权：本机引擎单独问一次；出错抛带 kind 的错误（OneShotError） */
-  engine(engine: 'claude' | 'codex', req: OneShotRequest, signal: AbortSignal): Promise<OneShotReply>
+  engine(engine: 'claude' | 'codex' | 'antigravity', req: OneShotRequest, signal: AbortSignal): Promise<OneShotReply>
 }
 
 export interface CommitMessageDeps extends ModelDeps {
@@ -239,7 +239,7 @@ export async function askModel(
     }
   }
 
-  if (req.source === 'claude' || req.source === 'codex') {
+  if (req.source === 'claude' || req.source === 'codex' || req.source === 'antigravity') {
     let reply: OneShotReply
     try {
       // 命令行没有单独的系统提示入口，说明和内容放在一条消息里

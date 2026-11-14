@@ -129,6 +129,8 @@ describe('通道', () => {
     email?: string | null
     claude?: Status
     codex?: Status
+    /** 默认没装（真实环境检测完后每个引擎都在列表里） */
+    agy?: Status
     providers?: number
     remote?: boolean
   }): CommitChannelContext => ({
@@ -136,6 +138,7 @@ describe('通道', () => {
     engines: [
       ...(o.claude ? [{ id: 'claude' as const, status: o.claude, message: null }] : []),
       ...(o.codex ? [{ id: 'codex' as const, status: o.codex, message: null }] : []),
+      { id: 'antigravity' as const, status: o.agy ?? 'missing', message: null },
     ],
     providers: Array.from({ length: o.providers ?? 0 }),
     remote: o.remote ?? false,
@@ -162,13 +165,14 @@ describe('通道', () => {
     const list = commitChannels(ctx({ codex: 'ready', email: null, providers: 2 }))
     expect(list.ready.map(c => c.source)).toEqual(['claude', 'codex', 'custom'])
     expect(list.ready[0].state.kind).toBe('loading')
-    expect(list.unset).toEqual([{ source: 'platform', state: { kind: 'signin' } }])
+    expect(list.unset.map(c => c.source)).toEqual(['platform', 'antigravity'])
   })
 
-  it('远程机器上：两条授权通道在本机跑，先当能用（写的时候再报）', () => {
+  it('远程机器上：三条授权通道（含 Google 账号）在本机跑，先当能用（写的时候再报）', () => {
     expect(commitChannels(ctx({ claude: 'missing', remote: true })).ready.map(c => c.source)).toEqual([
       'claude',
       'codex',
+      'antigravity',
     ])
   })
 

@@ -12,15 +12,18 @@ import {
   type PlatformGroup,
 } from '@/features/account/platform'
 
-/** ① 像素星空账号、② Claude 授权、③ ChatGPT 授权、④ 自定义接口 */
-export type ChannelId = 'platform' | 'claude' | 'chatgpt' | 'custom'
-export const CHANNELS: readonly ChannelId[] = ['platform', 'claude', 'chatgpt', 'custom']
+/** ① 像素星空账号、② Claude 授权、③ ChatGPT 授权、Google 账号（Antigravity，D283）、④ 自定义接口 */
+export type ChannelId = 'platform' | 'claude' | 'chatgpt' | 'google' | 'custom'
+export const CHANNELS: readonly ChannelId[] = ['platform', 'claude', 'chatgpt', 'google', 'custom']
 
 /** 授权通道只能交给官方工具（订阅 / 账号只给它们用） */
-export const AUTH_ENGINE = { claude: 'claude', chatgpt: 'codex' } as const satisfies Record<string, EngineId>
+export const AUTH_ENGINE = { claude: 'claude', chatgpt: 'codex', google: 'antigravity' } as const satisfies Record<
+  string,
+  EngineId
+>
 export type AuthChannel = keyof typeof AUTH_ENGINE
 
-export const isAuthChannel = (c: ChannelId): c is AuthChannel => c === 'claude' || c === 'chatgpt'
+export const isAuthChannel = (c: ChannelId): c is AuthChannel => c === 'claude' || c === 'chatgpt' || c === 'google'
 
 /**
  * 现有的「引擎 + 额度来源」→ 通道；像素星空 + 自有（命令行自己配的 Key）没有对应的通道，按自定义算（没有选中的接口）。
@@ -28,7 +31,13 @@ export const isAuthChannel = (c: ChannelId): c is AuthChannel => c === 'claude' 
  */
 export function channelOf(engine: EngineId, source: CreditSource): ChannelId {
   if (source === 'platform' || source === 'custom') return source
-  return engine === 'claude' ? 'claude' : engine === 'codex' ? 'chatgpt' : 'custom'
+  return engine === 'claude'
+    ? 'claude'
+    : engine === 'codex'
+      ? 'chatgpt'
+      : engine === 'antigravity'
+        ? 'google'
+        : 'custom'
 }
 
 /**
@@ -85,7 +94,7 @@ export function executorsFor(
   target: ModelTarget,
   ctx: { groups: PlatformGroup[]; providers: Pick<ProviderView, 'id' | 'protocol'>[] },
 ): EngineId[] {
-  if (target.channel === 'claude' || target.channel === 'chatgpt') return [AUTH_ENGINE[target.channel]]
+  if (isAuthChannel(target.channel)) return [AUTH_ENGINE[target.channel]]
   if (target.channel === 'custom') {
     const p = ctx.providers.find(x => x.id === target.providerId)
     return p ? protocolExecutors(p.protocol) : []
@@ -297,7 +306,7 @@ export function buildChannelMenu(input: MenuInput): ChannelGroupView[] {
 export const EXECUTOR_KEY = 'pixelsky.channels.executor.v1'
 export const NEW_TASK_KEY = 'pixelsky.channels.newTask.v1'
 
-const ENGINE_IDS: readonly EngineId[] = ['claude', 'codex', 'pixel']
+const ENGINE_IDS: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
 const isEngine = (v: unknown): v is EngineId => typeof v === 'string' && (ENGINE_IDS as string[]).includes(v)
 
 export function parseExecutorMemory(raw: string | null): Record<string, EngineId> {

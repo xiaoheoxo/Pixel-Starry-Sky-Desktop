@@ -113,6 +113,37 @@ describe('管理配置与凭据', () => {
     px.dispose?.()
     expect(existsSync(px.mcpFile!)).toBe(false)
   })
+  it('Antigravity 只拿勾了它的 MCP，转成会话参数列表；应用自己的标 own；技能不给', () => {
+    service.upsert({
+      kind: 'mcp',
+      name: 'agy-tools',
+      scope: global,
+      engines: ['antigravity'],
+      mcp: { type: 'stdio', command: process.execPath, args: ['--version'], env: { TOKEN: 'private-agy' } },
+    })
+    service.upsert({
+      kind: 'mcp',
+      name: 'claude-only',
+      scope: global,
+      mcp: { type: 'http', url: 'https://example.com/mcp' },
+    })
+    service.upsert({
+      kind: 'skill',
+      name: 'agy-skill',
+      scope: global,
+      engines: ['antigravity', 'codex'],
+      text: '---\nname: agy-skill\ndescription: test\n---\nRead.',
+    })
+    const own = { pixelsky_threads: { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' } }
+    const ag = service.launch(project, 'antigravity', {}, own)
+    expect(ag.mcpFile).toBeUndefined()
+    expect(ag.skillRoots).toBeUndefined()
+    expect(ag.acpMcp?.map(s => [s.name, s.own ?? false])).toEqual([
+      ['agy-tools', false],
+      ['pixelsky_threads', true],
+    ])
+    expect(ag.acpMcp?.[0]).toMatchObject({ type: 'stdio', env: { TOKEN: 'private-agy' } })
+  })
   it('频道成员「只用这些」：MCP / 技能只留勾选的，命令行照旧；应用自己的 MCP 总是有；key 跟着变', () => {
     const mcp = { type: 'http' as const, url: 'https://example.com/mcp' }
     const keep = service.upsert({ kind: 'mcp', name: 'keep', scope: global, mcp })
@@ -174,13 +205,13 @@ describe('管理配置与凭据', () => {
         { ...base, key: '3', kind: 'skill', name: 'missing', dir: join(root, 'nope') },
       ],
       global,
-      { name: 'Cursor', isClaudeCode: false },
+      { name: 'Cursor', own: null },
     )
     expect(r.imported).toBe(2)
     expect(r.failed.map(f => f.name)).toEqual(['missing'])
     const entries = service.state(null).entries.filter(e => e.origin === 'managed')
     const gh2 = entries.find(e => e.name === 'gh-2')!
-    expect(gh2.engines).toEqual(['claude', 'codex', 'pixel'])
+    expect(gh2.engines).toEqual(['claude', 'codex', 'pixel', 'antigravity'])
     expect(gh2.description).toBe('从 Cursor 导入')
     expect(entries.some(e => e.name === 'brave-search')).toBe(true)
     const launch = service.launch(project, 'pixel')
@@ -191,10 +222,10 @@ describe('管理配置与凭据', () => {
     const fromClaude = await service.importFromApp(
       [{ ...base, key: '4', kind: 'mcp', name: 'cc', config: { type: 'http', url: 'https://c.dev/mcp' } }],
       global,
-      { name: 'Claude Code', isClaudeCode: true },
+      { name: 'Claude Code', own: 'claude' },
     )
     expect(fromClaude.imported).toBe(1)
-    expect(service.state(null).entries.find(e => e.name === 'cc')!.engines).toEqual(['codex', 'pixel'])
+    expect(service.state(null).entries.find(e => e.name === 'cc')!.engines).toEqual(['codex', 'pixel', 'antigravity'])
   })
   it('从 Claude Code 导入：只给 Codex / Pixel，不因为和原生的同名而改名', async () => {
     mkdirSync(join(root, 'native'), { recursive: true })
@@ -207,12 +238,13 @@ describe('管理配置与凭据', () => {
     const r = await service.importFromApp(
       [{ ...base, key: '1', kind: 'mcp', name: 'cc', config: { type: 'http', url: 'https://c.dev/mcp' } }],
       global,
-      { name: 'Claude Code', isClaudeCode: true },
+      { name: 'Claude Code', own: 'claude' },
     )
     expect(r).toEqual({ imported: 1, failed: [] })
     expect(service.state(null).entries.find(e => e.origin === 'managed' && e.name === 'cc')?.engines).toEqual([
       'codex',
       'pixel',
+      'antigravity',
     ])
     expect(service.hasName('cc', 'mcp', null, true)).toBe(true)
   })

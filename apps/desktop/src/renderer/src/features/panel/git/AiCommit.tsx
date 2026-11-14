@@ -79,10 +79,14 @@ export async function channelRequest(
     const multiplier = platform.groups.find(g => g.id === groups[0])?.rate_multiplier ?? 1
     return { request: { source: 'platform', groups, providerId: null, model: model.model }, multiplier, priceRef: null }
   }
-  if (using === 'claude' || using === 'codex') {
-    // 模型留空：跟随引擎自己的设置
+  if (using === 'claude' || using === 'codex' || using === 'antigravity') {
+    // 模型留空：跟随引擎自己的设置（Antigravity 总是跟随）
     const engineModel =
-      using === 'claude' ? model.claudeModel : commitCodexModel(model.codexModel, channels.codexModels)
+      using === 'claude'
+        ? model.claudeModel
+        : using === 'codex'
+          ? commitCodexModel(model.codexModel, channels.codexModels)
+          : null
     return {
       request: { source: using, groups: [], providerId: null, model: engineModel ?? '' },
       multiplier: 1,
@@ -191,7 +195,7 @@ export function useAiCommit({
       if (result.groupId)
         multiplier = getPlatformState('claude').groups.find(g => g.id === result.groupId)?.rate_multiplier ?? multiplier
       const written = result.message
-      const subscription = using === 'claude' || using === 'codex'
+      const subscription = using === 'claude' || using === 'codex' || using === 'antigravity'
       setNote({
         kind: 'done',
         previous: current.current,
@@ -202,7 +206,7 @@ export function useAiCommit({
           subscription && request.model
             ? channels.modelLabel(using, model)
             : result.model || channels.modelLabel(using, model),
-        // 两条授权通道用订阅额度，不估算费用
+        // 授权通道（Claude / ChatGPT / Google 账号）用订阅额度，不估算费用
         cost: subscription ? null : estimateUsd(result.usage, result.model, multiplier, priceRef),
         charged: false,
         partial: result.partial,
@@ -378,7 +382,7 @@ const PROBLEM_TEXT: Record<
   tooLong: 'aiCommit.problem.tooLong',
 }
 
-const engineName = (s: AiSource): string => ENGINES[s === 'codex' ? 'codex' : 'claude'].name
+const engineName = (s: AiSource): string => ENGINES[s === 'codex' || s === 'antigravity' ? s : 'claude'].name
 
 export function problemText(
   n: Pick<Extract<Note, { kind: 'error' }>, 'problem' | 'detail' | 'model' | 'source'>,
@@ -411,7 +415,7 @@ export function AiCommitNote({ ai }: { ai: AiCommit }) {
   if (ai.running) return <p className="mt-1 truncate px-0.5 text-meta text-fg-muted">{tr('aiCommit.writing')}</p>
   if (!note) return null
   if (note.kind === 'done') {
-    const subscription = note.source === 'claude' || note.source === 'codex'
+    const subscription = note.source === 'claude' || note.source === 'codex' || note.source === 'antigravity'
     return (
       <p className="mt-1 flex min-w-0 items-center gap-1 px-0.5 text-meta text-fg-muted">
         <Sparkles size={12} strokeWidth={1.5} className="shrink-0 text-accent-fg" />

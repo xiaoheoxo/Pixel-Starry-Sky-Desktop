@@ -1,5 +1,6 @@
 import type { AlwaysScope, Effort, EngineId, PermissionMode } from './base'
 import type { SessionSettings } from './session'
+import type { SkillCommand } from '../extensions'
 
 /** 中断选项 */
 export interface InterruptOptions {
@@ -209,6 +210,8 @@ export interface EngineCatalog {
   outputStyles: string[]
   /** 引擎自己的当前输出风格（不加我们的设置时） */
   currentOutputStyle: string | null
+  /** 进程还没起时「/」菜单先用的命令（Antigravity：临时会话报的 available_commands） */
+  commands?: SkillCommand[]
 }
 
 export interface EngineModel {

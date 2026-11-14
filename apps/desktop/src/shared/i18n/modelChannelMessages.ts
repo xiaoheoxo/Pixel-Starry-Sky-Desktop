@@ -4,10 +4,12 @@ export const modelChannelMessages = {
   'modelChannels.channel.platform': { zh: '像素星空账号', en: 'PixelSky account' },
   'modelChannels.channel.claude': { zh: 'Claude 授权', en: 'Claude sign-in' },
   'modelChannels.channel.chatgpt': { zh: 'ChatGPT 授权', en: 'ChatGPT sign-in' },
+  'modelChannels.channel.google': { zh: 'Google 账号', en: 'Google account' },
   'modelChannels.channel.custom': { zh: '自定义接口', en: 'Custom API' },
   'modelChannels.short.platform': { zh: '像素星空', en: 'PixelSky' },
   'modelChannels.short.claude': { zh: 'Claude 授权', en: 'Claude' },
   'modelChannels.short.chatgpt': { zh: 'ChatGPT 授权', en: 'ChatGPT' },
+  'modelChannels.short.google': { zh: 'Google 账号', en: 'Google' },
   'modelChannels.short.custom': { zh: '自定义接口', en: 'Custom API' },
 
   // 通道状态（菜单分组、设置卡片）
@@ -38,6 +40,10 @@ export const modelChannelMessages = {
   'modelChannels.executor.desc.codex': {
     zh: 'OpenAI 官方的工具，对 GPT 模型最熟',
     en: "OpenAI's official tool, best with GPT models",
+  },
+  'modelChannels.executor.desc.antigravity': {
+    zh: 'Google 官方的工具，对 Gemini 模型最熟',
+    en: "Google's official tool, best with Gemini models",
   },
   'modelChannels.executor.desc.pixel': {
     zh: '我们自带的，启动快，不用另外装程序',
@@ -112,6 +118,7 @@ export const modelChannelMessages = {
   'modelChannels.tab.platform': { zh: '平台', en: 'PixelSky' },
   'modelChannels.tab.claude': { zh: 'Claude', en: 'Claude' },
   'modelChannels.tab.chatgpt': { zh: 'ChatGPT', en: 'ChatGPT' },
+  'modelChannels.tab.google': { zh: 'Google', en: 'Google' },
   'modelChannels.tab.custom': { zh: '自定义', en: 'Custom' },
 
   // 授权弹窗（§3）
@@ -175,6 +182,11 @@ export const modelChannelMessages = {
   },
   'modelChannels.claude.signIn': { zh: '用 Claude 授权', en: 'Sign in with Claude' },
   'modelChannels.chatgpt.signIn': { zh: '用 ChatGPT 授权', en: 'Sign in with ChatGPT' },
+  'modelChannels.google.desc': {
+    zh: '用自己的 Google 账号或 Gemini API Key，交给 Antigravity 跑',
+    en: 'Use your Google account or Gemini API key with Antigravity',
+  },
+  'modelChannels.google.signIn': { zh: '用 Google 账号登录', en: 'Sign in with Google' },
   'modelChannels.custom.desc': {
     zh: '自己填地址和 Key：中转站、官方 API Key、DeepSeek、本地 Ollama……',
     en: 'Your own URL and key: relays, official API keys, DeepSeek, local Ollama…',

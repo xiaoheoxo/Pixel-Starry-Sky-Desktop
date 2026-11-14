@@ -90,6 +90,22 @@ function codexServers(text: string): Servers {
   return out
 }
 
+/**
+ * Grok 的 config.toml（docs.x.ai/build/settings，2026-11 核对）：[mcp_servers.x] 是 command / args / env，
+ * 或 url + headers（headers 里的 ${VAR} 我们也认）；enabled = false 是停用
+ */
+function grokServers(text: string): Servers {
+  const out: Servers = {}
+  for (const [name, raw] of Object.entries(object(object(parseToml(text)).mcp_servers))) {
+    const s = object(raw)
+    out[name] =
+      typeof s.url === 'string'
+        ? { type: 'http', url: s.url, headers: object(s.headers), enabled: s.enabled }
+        : { command: s.command, args: s.args, env: s.env, enabled: s.enabled }
+  }
+  return out
+}
+
 interface Source {
   file: string
   project: boolean
@@ -158,6 +174,36 @@ function sourcesOf(app: ImportApp, w: Where): { mcp: Source[]; skillRoots: Array
         ]),
         skillRoots: [],
       }
+    case 'antigravity': {
+      // antigravity.google/docs/mcp、/docs/skills（2026-11 核对）：mcpServers 里远程的是 serverUrl（也认 url），disabled 停用
+      const gemini = join(home, '.gemini')
+      return {
+        mcp: list([
+          [join(gemini, 'config', 'mcp_config.json'), false, mcpServersKey('mcpServers')],
+          [p('.agents/mcp_config.json'), true, mcpServersKey('mcpServers')],
+        ]),
+        skillRoots: [
+          { dir: join(gemini, 'config', 'skills'), project: false },
+          { dir: join(gemini, 'antigravity-cli', 'skills'), project: false },
+          { dir: join(gemini, 'skills'), project: false },
+          ...(project ? [{ dir: join(project, '.agents', 'skills'), project: true }] : []),
+        ],
+      }
+    }
+    case 'grok': {
+      // docs.x.ai/build/settings、/build/features/skills-plugins-marketplaces（2026-11 核对）
+      const dir = env.GROK_HOME ?? join(home, '.grok')
+      return {
+        mcp: list([
+          [join(dir, 'config.toml'), false, grokServers],
+          [p('.grok/config.toml'), true, grokServers],
+        ]),
+        skillRoots: [
+          { dir: join(dir, 'skills'), project: false },
+          ...(project ? [{ dir: join(project, '.grok', 'skills'), project: true }] : []),
+        ],
+      }
+    }
     case 'codex': {
       const dir = env.CODEX_HOME ?? join(home, '.codex')
       return {

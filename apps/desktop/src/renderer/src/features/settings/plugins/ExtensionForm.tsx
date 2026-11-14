@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useUnsavedCheck } from '../unsavedEdits'
 import {
   ENGINES,
+  type ExtensionEngine,
   type ExtensionEntry,
   type ExtensionKind,
   type ExtensionScope,
@@ -19,6 +20,8 @@ export interface FormTarget {
   copy?: ExtensionEntry
   preset?: { name: string; description: string; mcp: McpConfig }
 }
+const ENGINES_NO_AGY: ExtensionEngine[] = ['claude', 'codex', 'pixel']
+const ENGINES_WITH_AGY: ExtensionEngine[] = [...ENGINES_NO_AGY, 'antigravity']
 const INPUT =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-list text-fg outline-none focus:border-accent-line'
 const lines = (value: Record<string, string> | undefined): string =>
@@ -75,7 +78,7 @@ export function ExtensionForm({
   const [version, setVersion] = useState<string>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null)
-  const [engines, setEngines] = useState<Array<'claude' | 'codex' | 'pixel'>>(e?.engines ?? ['claude'])
+  const [engines, setEngines] = useState<ExtensionEngine[]>(e?.engines ?? ['claude'])
   // 关设置、切分区前比较打开时的样子，有改动先问（unsavedEdits.tsx）；技能正文读进来后以读到的为准
   const snapshot = JSON.stringify({ name, description, type, command, args, env, headers, url, location, subdir, json })
   const origin = useRef({ snapshot, source, engines: engines.join() })
@@ -254,7 +257,8 @@ export function ExtensionForm({
       {target.kind !== 'plugin' && target.mode !== 'json' && (
         <fieldset className="flex flex-wrap items-center gap-3 text-meta text-fg-secondary">
           <legend className="mb-2">{tr('codex.targets')}</legend>
-          {(['claude', 'codex', 'pixel'] as const).map(engine => (
+          {/* Antigravity 只接 MCP 连接器（docs/antigravity-engine.md §12） */}
+          {(target.kind === 'mcp' ? ENGINES_WITH_AGY : ENGINES_NO_AGY).map(engine => (
             <label key={engine} className="flex items-center gap-2">
               <input
                 type="checkbox"

@@ -235,6 +235,8 @@ export interface EngineAdapter {
   accountForget?(dir: string): void
   /** npm 上的包名：宿主定时查最新版本，界面提示「有新版本」（docs/ui/engine-update.md） */
   readonly npmPackage?: string
+  /** 不在 npm 上的引擎自己查最新版本（Antigravity：官方安装器的清单）；查不到返回 null。有它时不看 npmPackage */
+  latestVersion?(): Promise<string | null>
   /**
    * 更新要替换正在用的程序（Windows 上 npm 换不了被占用的 codex.exe）：宿主先关掉这个引擎空闲的进程，
    * 有任务在跑就不更新
@@ -271,6 +273,8 @@ export interface EngineAdapter {
   nativeSessions?(cwd: string, opts?: ListOptions): Promise<NativeSessionList>
   /** 把引擎自己的一个会话读成条目（流式，能取消）；记录不在了返回 null */
   readNativeSession?(cwd: string, id: string, opts?: ReadOptions): Promise<NativeRead | null>
+  /** 引擎自己的会话用过的所有工作目录（设置 › 项目 › 从其他工具导入；只有记录不能直接读文件的引擎实现） */
+  nativeProjects?(): Promise<string[]>
   /** 补上：after 之后新增的轮次；after 不在当前分支上或记录不在了返回 null */
   newerNativeTurns?(
     cwd: string,

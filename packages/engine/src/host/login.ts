@@ -4,6 +4,7 @@ import { codedError, type EngineId, type EngineLogin, type EngineUpdateResult } 
 import type { LoginProcess } from '../adapter'
 import { parseClaudeLogin } from '../claude/login'
 import { parseCodexLogin } from '../codex/login'
+import { parseAgyLogin } from '../antigravity/login'
 import type { HostContext } from './context'
 import { providerOfEngine } from './quota'
 
@@ -30,6 +31,7 @@ export interface LoginTarget {
 function parseLine(engine: EngineId, line: string): { url?: string; userCode?: string; awaitingCode?: boolean } {
   if (engine === 'claude') return parseClaudeLogin(line)
   if (engine === 'codex') return parseCodexLogin(line)
+  if (engine === 'antigravity') return parseAgyLogin(line)
   return {}
 }
 

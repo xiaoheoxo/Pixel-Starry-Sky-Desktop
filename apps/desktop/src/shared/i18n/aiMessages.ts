@@ -98,8 +98,8 @@ export const aiMessages = {
   },
   'aiCommit.settings.source': { zh: '用哪条通道', en: 'Channel' },
   'aiCommit.settings.sourceHint': {
-    zh: '没选过时自动用第一条能用的：Claude 授权 → 像素星空 → ChatGPT 授权 → 自定义接口。这些调用不属于任何会话，不计入「用量」页。',
-    en: 'Until you pick one, the first available channel is used: Claude → PixelSky → ChatGPT → custom API. These calls belong to no session, so they are not on the Usage page.',
+    zh: '没选过时自动用第一条能用的：Claude 授权 → 像素星空 → ChatGPT 授权 → Google 账号 → 自定义接口。这些调用不属于任何会话，不计入「用量」页。',
+    en: 'Until you pick one, the first available channel is used: Claude → PixelSky → ChatGPT → Google → custom API. These calls belong to no session, so they are not on the Usage page.',
   },
   'aiCommit.settings.unset': { zh: '还没设置 {n} 条', en: '{n} not set up yet' },
   'aiCommit.settings.recommended': { zh: '推荐', en: 'Recommended' },
@@ -107,6 +107,7 @@ export const aiMessages = {
   'aiCommit.settings.haiku': { zh: 'Haiku（推荐，快）', en: 'Haiku (recommended, fast)' },
   'aiCommit.settings.followClaude': { zh: '跟随 Claude Code 的设置', en: 'Use Claude Code settings' },
   'aiCommit.settings.followCodex': { zh: '跟随 Codex 的设置', en: 'Use Codex settings' },
+  'aiCommit.settings.followAgy': { zh: '跟随 Antigravity 的设置', en: 'Use Antigravity settings' },
   'aiCommit.settings.codexSmall': { zh: '自动选小模型（{model}）', en: 'Small model, automatic ({model})' },
   'aiCommit.settings.codexSmallNone': {
     zh: '自动选小模型（没找到，跟随 Codex）',

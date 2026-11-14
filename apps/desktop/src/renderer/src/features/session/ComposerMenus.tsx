@@ -18,7 +18,7 @@ import {
   type LucideIcon,
   ShieldEllipsis,
 } from 'lucide-react'
-import type { PermissionMode } from '@pixelsky/protocol'
+import type { EngineId, PermissionMode } from '@pixelsky/protocol'
 import { IconButton, Popover, cn, useToast } from '@/ui'
 import { PERMISSION_HINTS, PERMISSION_INFO, effortLabel, effortLook, type ComposerController } from '@/features/engine'
 import { EffortSlider } from './EffortSlider'
@@ -349,7 +349,7 @@ export function PermissionMenu({
   mode: PermissionMode
   modes: PermissionMode[]
   onSelect: (m: PermissionMode) => void
-  engine?: 'claude' | 'codex' | 'pixel'
+  engine?: EngineId
   /** 这个引擎新会话的默认权限：确认里写「新任务还是……」 */
   defaultMode?: PermissionMode
   /** 已经开始的对话（确认标题写「这个对话」，新任务写「这个任务」） */
@@ -395,7 +395,8 @@ export function PermissionMenu({
                 title={tr(started ? 'fullAccess.confirm.title' : 'fullAccess.confirm.newTitle')}
                 items={[
                   tr('fullAccess.confirm.noAsk'),
-                  tr(`fullAccess.confirm.${engine ?? 'claude'}`),
+                  // Antigravity 没有完全放行（ENGINES.antigravity.caps.permissionModes），走不到这里
+                  tr(`fullAccess.confirm.${engine === undefined || engine === 'antigravity' ? 'claude' : engine}`),
                   tr(started ? 'fullAccess.confirm.scope' : 'fullAccess.confirm.scopeNew', {
                     p0: PERMISSION_INFO[later].label,
                   }),

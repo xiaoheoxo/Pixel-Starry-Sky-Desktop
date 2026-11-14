@@ -258,6 +258,17 @@ export const SELF_MODELS: Record<EngineId, Array<{ value: string | null; label: 
       },
     },
   ],
+  antigravity: [
+    {
+      value: null,
+      get label() {
+        return tr('engine.labels.default')
+      },
+      get hint() {
+        return tr('engine.labels.useAntigravitySettings')
+      },
+    },
+  ],
   // 像素星空：模型来自命令行报上来的目录（catalog.models），没有写死的别名
   pixel: [
     {

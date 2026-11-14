@@ -14,7 +14,11 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import type { ProjectImportBatch, ProjectImportCandidate } from '../../../../../shared/types/project-import'
+import type {
+  ProjectImportBatch,
+  ProjectImportCandidate,
+  ProjectImportPicker,
+} from '../../../../../shared/types/project-import'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { Button, EngineIcon, Segmented, Select, Spinner, cn, useToast } from '@/ui'
@@ -65,7 +69,7 @@ const sourceLabel = (source: string): string =>
 const TOOL_LETTER: Record<string, string> = { zcode: 'Z', kimi: 'K', cursor: 'C', dsh: 'D' }
 
 function ToolMark({ id }: { id: string }) {
-  if (id === 'claude' || id === 'codex') return <EngineIcon engine={id} size={18} />
+  if (id === 'claude' || id === 'codex' || id === 'antigravity') return <EngineIcon engine={id} size={18} />
   return (
     <span className="grid size-[18px] shrink-0 place-items-center rounded bg-fg-secondary text-[10px] font-bold text-surface">
       {TOOL_LETTER[id] ?? id[0].toUpperCase()}
@@ -243,12 +247,13 @@ export function ProjectsSection() {
       <div className="grid grid-cols-4 gap-2 @max-[720px]:grid-cols-2">
         {IMPORT_TOOLS.map(tool => {
           const { total, addable } = toolCounts(candidates, tool.name)
-          const chooseList = (
+          // Antigravity 没有能选的清单（问 agy 本身）
+          const chooseList = tool.id !== 'antigravity' && (
             <button
               type="button"
               disabled={disabled}
               title={tr('projectImport.chooseListHint', { tool: tool.name })}
-              onClick={() => void load(() => pickProjectImports(tool.id))}
+              onClick={() => void load(() => pickProjectImports(tool.id as ProjectImportPicker))}
               className="text-accent-fg hover:underline disabled:opacity-45"
             >
               {tr('projectImport.chooseList')}
@@ -274,7 +279,8 @@ export function ProjectsSection() {
                     tr('projectImport.reading')
                   ) : (
                     <>
-                      {tr('projectImport.toolNone')} · {chooseList}
+                      {tr('projectImport.toolNone')}
+                      {chooseList && <> · {chooseList}</>}
                     </>
                   )}
                 </span>

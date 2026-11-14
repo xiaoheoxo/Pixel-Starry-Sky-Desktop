@@ -271,6 +271,7 @@ export type {
   ExtensionHook,
   ExtensionImport,
   ExtensionInput,
+  ExtensionEngine,
   ExtensionKind,
   ExtensionLaunch,
   ExtensionScope,

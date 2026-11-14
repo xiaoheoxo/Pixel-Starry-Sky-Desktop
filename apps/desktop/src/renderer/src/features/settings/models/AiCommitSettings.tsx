@@ -259,6 +259,12 @@ function ChannelDetail({ source, model, channels }: { source: AiSource; model: A
       tr('aiCommit.settings.subscriptionFacts', { engine: 'Codex' }),
     )
   }
+  // Google 账号（Antigravity）：模型总是跟随它自己的设置，没有可选的
+  if (source === 'antigravity')
+    return wrap(
+      <span className="text-meta text-fg-secondary">{tr('aiCommit.settings.followAgy')}</span>,
+      tr('aiCommit.settings.subscriptionFacts', { engine: 'Antigravity' }),
+    )
   const chosen = commitProvider(channels.providers, model)
   if (!chosen) return null
   return wrap(

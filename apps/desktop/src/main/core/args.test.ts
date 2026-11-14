@@ -29,6 +29,7 @@ describe('shared argument checks', () => {
     expect(int('3', 7, 10)).toBe(7)
     expect(int(Number.NaN, 7, 10)).toBe(7)
     expect(engineId('codex')).toBe('codex')
+    expect(engineId('antigravity')).toBe('antigravity')
     expect(() => engineId('gpt')).toThrow('未知引擎')
   })
 

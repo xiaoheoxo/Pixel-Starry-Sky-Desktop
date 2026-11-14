@@ -115,7 +115,7 @@ export function configured(engine: EngineId, entries: readonly ExtensionEntry[])
         const source: SourceKind = sameFile(path, '.mcp.json') ? 'project' : project ? 'local' : 'user'
         out.push({ name: e.name, source, sourceDetail: null, config: configOf(e.id, path, e.mcp, project) })
       }
-    } else if (!(e.engines ?? ['claude']).includes(engine)) continue
+    } else if (!(e.engines ?? (['claude'] as readonly string[])).includes(engine)) continue
     else if (e.kind === 'mcp' && e.mcp)
       out.push({
         name: e.name,

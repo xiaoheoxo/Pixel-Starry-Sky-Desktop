@@ -38,6 +38,7 @@ const ENGINE_NAME: Record<EngineId, () => string> = {
   claude: () => 'Claude Code',
   codex: () => 'Codex',
   pixel: () => tr('engine.pixel.name'),
+  antigravity: () => 'Antigravity',
 }
 
 /** 头像底色（按名字固定） */

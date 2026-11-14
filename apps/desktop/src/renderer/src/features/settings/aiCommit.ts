@@ -43,7 +43,7 @@ export const AI_COMMIT_CLAUDE_MODEL = 'haiku'
 export const CODEX_SMALL = 'auto-mini'
 export const INSTRUCTIONS_LIMIT = 1000
 /** 没选过时按这个顺序用第一条能用的（§1 第 1 条）；也是菜单和设置页的排列顺序 */
-export const COMMIT_ORDER: readonly AiSource[] = ['claude', 'platform', 'codex', 'custom']
+export const COMMIT_ORDER: readonly AiSource[] = ['claude', 'platform', 'codex', 'antigravity', 'custom']
 /** 线路拒绝时最多换几条 */
 const MAX_GROUPS = 3
 
@@ -168,6 +168,7 @@ export const COMMIT_CHANNEL: Record<AiSource, ChannelId> = {
   platform: 'platform',
   claude: 'claude',
   codex: 'chatgpt',
+  antigravity: 'google',
   custom: 'custom',
 }
 
@@ -181,7 +182,7 @@ export interface CommitChannelContext {
 }
 
 export function commitChannelState(source: AiSource, ctx: CommitChannelContext): ChannelState {
-  if ((source === 'claude' || source === 'codex') && ctx.remote) return { kind: 'ready' }
+  if ((source === 'claude' || source === 'codex' || source === 'antigravity') && ctx.remote) return { kind: 'ready' }
   return channelState(COMMIT_CHANNEL[source], ctx)
 }
 

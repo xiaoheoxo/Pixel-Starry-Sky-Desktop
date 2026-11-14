@@ -12,7 +12,11 @@ const KINDS = new Set<string>(['mcp', 'skill', 'plugin'])
 /** 设置 › 扩展里像素星空管理的、这个引擎能用、开着的 MCP / 技能 / 插件 */
 export function memberToolChoices(entries: readonly ExtensionEntry[], engine: EngineId): ExtensionEntry[] {
   return entries.filter(
-    e => e.origin === 'managed' && e.enabled && KINDS.has(e.kind) && (e.engines ?? ['claude']).includes(engine),
+    e =>
+      e.origin === 'managed' &&
+      e.enabled &&
+      KINDS.has(e.kind) &&
+      (e.engines ?? (['claude'] as readonly string[])).includes(engine),
   )
 }
 

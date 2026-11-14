@@ -2212,6 +2212,10 @@ export const catalog = {
     zh: '跟随 Codex 的设置',
     en: 'Use Codex settings',
   },
+  'engine.labels.useAntigravitySettings': {
+    zh: '跟随 Antigravity 的设置',
+    en: 'Use Antigravity settings',
+  },
   'engine.openRequests.thisConversationWasDeleted': {
     zh: '这个会话已经删除',
     en: 'This conversation was deleted',
@@ -3801,6 +3805,14 @@ export const catalog = {
     zh: '允许中途向我提问',
     en: 'Allow questions during tasks',
   },
+  'settings.engines.EngineDetail.onPauseToAskAgy': {
+    zh: '开：遇到该你定的选择，Antigravity 把问题和选项写在回复里、停下来等你回答；关：自己拿主意，并在回复里说明做了哪些假设。',
+    en: 'On: when you need to decide, Antigravity writes the question and options in its reply and waits for your answer. Off: it makes decisions and explains assumptions in the reply.',
+  },
+  'settings.engines.EngineDetail.autoPlanHintAgy': {
+    zh: '开：3 步以上的活，Antigravity 先写任务清单（它自己的 task.md）、边做边勾，对话区右上角的进度卡片能看到做到哪了；简单问答和一两步的活不列。会多几次工具调用（费用略高）。下一条消息起生效。',
+    en: 'On: for work with 3 or more steps, Antigravity writes its task list (its own task.md) first and checks items off as it goes, so the progress card at the top right shows where it is. Questions and one- or two-step requests get no list. Adds a few tool calls (slightly higher cost). Applies from the next message.',
+  },
   'settings.engines.EngineDetail.onPauseToAsk': {
     zh: '开：遇到该你定的选择会停下来问你；关：自己拿主意，并在回复里说明做了哪些假设。',
     en: 'On: pause to ask when you need to decide. Off: make decisions and explain assumptions in the reply.',
@@ -4009,6 +4021,10 @@ export const catalog = {
     zh: '环境变量',
     en: 'Environment variables',
   },
+  'settings.engines.EngineDetail.envAntigravity': {
+    zh: 'KEY=VALUE 每行一条，在系统环境之上追加。不用 Google 账号登录时，填 GEMINI_API_KEY=你的 Key；存好后自动重新检测。',
+    en: 'One KEY=VALUE per line, added to system variables. To use a key instead of a Google sign-in, add GEMINI_API_KEY=your key; the engine is re-detected after saving.',
+  },
   'settings.engines.EngineDetail.oneKeyValuePer': {
     zh: 'KEY=VALUE 每行一条，在系统环境之上追加。平台会话的网关地址和凭据仍以平台为准，这里的同名变量不生效。',
     en: 'One KEY=VALUE per line, added to system variables. Platform gateway URLs and credentials take precedence over matching values here.',
@@ -4116,6 +4132,10 @@ export const catalog = {
   'settings.engines.parts.openaisCodingCliSupport': {
     zh: 'OpenAI 的编码 CLI。即将支持。',
     en: "OpenAI's coding CLI. Support coming soon.",
+  },
+  'settings.engines.parts.antigravityIntro': {
+    zh: 'Google 的编码 CLI（agy），用 Google 账号、Gemini API Key 或企业账号登录。',
+    en: "Google's coding CLI (agy). Sign in with a Google account, a Gemini API key or an enterprise account.",
   },
   'settings.FontPicker.chooseFromInstalledFonts': {
     zh: '从本机字体中选择{p0}',

@@ -57,8 +57,15 @@ export function getProviders(): ProvidersState {
 }
 
 /** 引擎能用哪些协议：Claude Code ↔ Anthropic Messages，Codex ↔ OpenAI Responses，像素星空三种都行（Chat Completions 只有它能用） */
+/** 引擎能用哪些协议的自定义接口；Antigravity 只走自己的登录（Google 账号 / Gemini Key），一个都不能用 */
 export const engineProtocols = (engine: EngineId): ProviderProtocol[] =>
-  engine === 'codex' ? ['responses'] : engine === 'pixel' ? ['anthropic', 'responses', 'chat'] : ['anthropic']
+  engine === 'codex'
+    ? ['responses']
+    : engine === 'pixel'
+      ? ['anthropic', 'responses', 'chat']
+      : engine === 'antigravity'
+        ? []
+        : ['anthropic']
 
 export const providersFor = (providers: ProviderView[], engine: EngineId): ProviderView[] =>
   providers.filter(p => engineProtocols(engine).includes(p.protocol))

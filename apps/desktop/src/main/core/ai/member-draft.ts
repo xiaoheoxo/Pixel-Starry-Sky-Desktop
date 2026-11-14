@@ -7,7 +7,7 @@ import { jsonObjects } from '../json-reply'
 import { askModel, TIMEOUT, type ModelDeps } from './commit-message'
 
 const MAX_TOKENS = 8192
-const ENGINES: readonly EngineId[] = ['claude', 'codex', 'pixel']
+const ENGINES: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
 const FIELDS: readonly MemberDraftField[] = [
   'name',
   'engine',

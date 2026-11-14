@@ -31,7 +31,8 @@ function load(engine: EngineId, key: string, machine: string): void {
       if (dirty.delete(key)) load(engine, key, machine)
     })
 }
-export function useEngineCatalog(engine: EngineId): EngineCatalog | null {
+/** enabled 为假时不取（hook 不能按条件调用，调用方用它关掉） */
+export function useEngineCatalog(engine: EngineId, enabled = true): EngineCatalog | null {
   const { currentId } = useMachines(),
     key = currentId + ':' + engine
   const signature = useEngineState(state =>
@@ -41,7 +42,9 @@ export function useEngineCatalog(engine: EngineId): EngineCatalog | null {
       state.detectGen,
     ),
   )
-  useEffect(() => load(engine, key, currentId), [engine, signature, key, currentId])
+  useEffect(() => {
+    if (enabled) load(engine, key, currentId)
+  }, [engine, signature, key, currentId, enabled])
   return useSyncExternalStore(
     fn => {
       listeners.add(fn)
@@ -50,6 +53,6 @@ export function useEngineCatalog(engine: EngineId): EngineCatalog | null {
       }
     },
     // 演示模式没有引擎进程：Codex 用演示目录（③ ChatGPT 授权要列模型），其它照旧没有
-    () => catalogs[key] ?? (isDemo && engine === 'codex' ? demo().engines.codexCatalog : null),
+    () => (enabled ? (catalogs[key] ?? (isDemo && engine === 'codex' ? demo().engines.codexCatalog : null)) : null),
   )
 }

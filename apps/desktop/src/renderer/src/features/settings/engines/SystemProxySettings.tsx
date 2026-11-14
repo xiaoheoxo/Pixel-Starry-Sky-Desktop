@@ -1,7 +1,7 @@
 // 设置 › 本机引擎「使用系统代理」：系统开着代理、用户没设 HTTPS_PROXY 时，把系统代理补给本机的 Claude Code、Codex、
 // 像素星空引擎（main/engine/systemProxy.ts）。远程机器上的引擎不受影响，选着远程机器时不显示
 import { useEffect, useState } from 'react'
-import type { EngineId } from '@pixelsky/protocol'
+import { ENGINE_ORDER } from '@pixelsky/protocol'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { bridge, useEngineState } from '@/features/engine'
@@ -10,7 +10,7 @@ import type { SystemProxyStatus } from '../../../../../shared/types/system-proxy
 import { SettingRow, Toggle } from '../SettingRow'
 
 const PROXY_KEY = /^(https?_proxy|all_proxy)$/i
-const ENGINES: EngineId[] = ['claude', 'codex', 'pixel']
+const ENGINES = ENGINE_ORDER
 
 /** 状态说明：开关关了、用户自己设了、查到 HTTP 代理、只有 SOCKS、没开代理 */
 export function systemProxyHint(status: SystemProxyStatus, ownEngines: string[]): string {

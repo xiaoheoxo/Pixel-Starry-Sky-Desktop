@@ -17,7 +17,7 @@ import { cancelLogin, clearLogin, sendLoginCode, startLogin, useChannelEngines, 
 import { accountText } from './channelLabels'
 
 /** 内置终端里跑的登录命令（兜底） */
-const LOGIN_COMMAND = { claude: 'claude auth login', codex: 'codex login' } as const
+const LOGIN_COMMAND = { claude: 'claude auth login', codex: 'codex login', antigravity: 'agy acp --login' } as const
 
 const openUrl = (url: string): void => {
   if (window.pixelsky?.demo) return

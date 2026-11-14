@@ -140,6 +140,71 @@ describe('scanApp', () => {
   })
 })
 
+describe('Antigravity 和 Grok', () => {
+  it('Antigravity：全局和项目的 mcp_config.json（serverUrl 当 http、disabled 停用），四处技能目录', () => {
+    const w = setup({
+      'home/.gemini/config/mcp_config.json': json({
+        mcpServers: {
+          fs: { command: 'npx', args: ['-y', 'fs'], env: { TOKEN: 'sk-1' } },
+          remote: { serverUrl: 'https://r.dev/mcp', headers: { Authorization: 'Bearer x' }, disabled: true },
+        },
+      }),
+      'proj/.agents/mcp_config.json': json({ mcpServers: { local: { url: 'https://l.dev/mcp' } } }),
+      'home/.gemini/config/skills/a/SKILL.md': '---\nname: a\n---',
+      'home/.gemini/antigravity-cli/skills/b/SKILL.md': '---\nname: b\n---',
+      'home/.gemini/skills/c/SKILL.md': '---\nname: c\n---',
+      'proj/.agents/skills/d/SKILL.md': '---\nname: d\n---',
+    })
+    const r = scanApp('antigravity', w)
+    expect(r.errors).toEqual([])
+    expect(r.items.map(i => `${i.kind}:${i.name}:${i.project}:${i.enabled}`)).toEqual([
+      'mcp:fs:false:true',
+      'mcp:remote:false:false',
+      'mcp:local:true:true',
+      'skill:a:false:true',
+      'skill:b:false:true',
+      'skill:c:false:true',
+      'skill:d:true:true',
+    ])
+    expect(r.items[1].config).toMatchObject({ type: 'http', url: 'https://r.dev/mcp' })
+    expect(r.items[0].secrets).toEqual(['TOKEN'])
+  })
+
+  it('Grok：config.toml 的 mcp_servers（url + headers、enabled = false），GROK_HOME 和项目 .grok', () => {
+    const w = setup({
+      'home/gh/config.toml': [
+        '[mcp_servers.filesystem]',
+        'command = "npx"',
+        'args = ["-y", "fs"]',
+        '',
+        '[mcp_servers.linear]',
+        'url = "https://mcp.linear.app/mcp"',
+        'headers = { "Authorization" = "Bearer ${LINEAR_API_KEY}" }',
+        'enabled = false',
+      ].join('\n'),
+      'proj/.grok/config.toml': '[mcp_servers.p]\ncommand = "node"\n',
+      'home/gh/skills/s/SKILL.md': '---\nname: s\n---',
+      'proj/.grok/skills/t/SKILL.md': '---\nname: t\n---',
+    })
+    const r = scanApp('grok', { ...w, env: { ...w.env, GROK_HOME: join(w.home, 'gh') } })
+    expect(r.errors).toEqual([])
+    expect(r.items.map(i => `${i.kind}:${i.name}:${i.project}:${i.enabled}`)).toEqual([
+      'mcp:filesystem:false:true',
+      'mcp:linear:false:false',
+      'mcp:p:true:true',
+      'skill:s:false:true',
+      'skill:t:true:true',
+    ])
+    expect(r.items[1].config).toMatchObject({
+      type: 'http',
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer ${LINEAR_API_KEY}' },
+    })
+    // 和 Codex 一样：Bearer 开头的请求头都按可能是密钥报名字
+    expect(r.items[1].secrets).toEqual(['Authorization'])
+  })
+})
+
 describe('审查后补的', () => {
   it('坏文件的报错不带原文（解析器会引用出错那几行，可能有密钥）', () => {
     const w = setup({

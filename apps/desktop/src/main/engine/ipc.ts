@@ -143,6 +143,7 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     platformCharges,
     platformCalls,
     latestVersion: npmLatest,
+    fetch: (input, init) => net.fetch(input instanceof URL ? input.href : input, init),
     // 断线自动重连时替用户发的那句，按界面语言
     continueText: () => (windowLocale() === 'en-US' ? 'Continue' : '继续'),
     // 账号额度变了广播给所有窗口（只在本机；docs/ui/account-quota.md §5）

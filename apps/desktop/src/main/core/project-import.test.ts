@@ -271,6 +271,31 @@ describe('Cursor 和 DeepSeek Harness', () => {
     expect(r.paths.map(p => p.path)).toEqual([a])
   })
 
+  it('Grok：sessions 下每个工作目录取 summary.json 的 info.cwd，读不到时解码目录名；选 .grok 文件夹也认', async () => {
+    const a = await folder('grok-a')
+    const b = await folder('grok-b')
+    const home = join(root, 'grokhome')
+    const sessions = toolImportFiles(root, { GROK_HOME: home }).grok[0]
+    expect(sessions).toBe(join(home, 'sessions'))
+    await json(join(sessions, encodeURIComponent(a), 's1', 'summary.json'), { info: { id: 's1', cwd: a } })
+    await mkdir(join(sessions, encodeURIComponent(b), 's2'), { recursive: true })
+    const r = await readToolProjects('grok', sessions)
+    expect(r.paths.map(p => p.path).sort()).toEqual([a, b].sort())
+    expect(r.paths[0]!.source).toBe('Grok')
+    expect((await readToolProjects('grok', home)).paths).toHaveLength(2)
+  })
+
+  it('不读文件的来源（Antigravity）和读到的一起检查', async () => {
+    const a = await folder('agy-a')
+    const batch = await discoverToolProjects(
+      [],
+      join(root, 'empty-home'),
+      {},
+      Promise.resolve([{ path: a, source: 'Antigravity' }]),
+    )
+    expect(batch.candidates.map(c => [c.name, c.sources])).toEqual([['agy-a', ['Antigravity']]])
+  })
+
   it('DSH_HOME 空白当没设、~ 开头展开；没装的工具自动扫描时不报错', async () => {
     expect(toolImportFiles(root, { DSH_HOME: '  ' }).dsh[0]).toBe(join(root, '.dsh', 'storages'))
     expect(toolImportFiles(root, { DSH_HOME: '~/x' }).dsh[0]).toBe(join(root, 'x', 'storages'))

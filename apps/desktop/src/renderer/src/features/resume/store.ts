@@ -3,8 +3,12 @@ import { useSyncExternalStore } from 'react'
 import type { SessionSettings } from '@pixelsky/protocol'
 
 /** 能接着聊的引擎 */
-export type ResumeEngine = 'claude' | 'codex'
-export const RESUME_ENGINE_NAMES: Record<ResumeEngine, string> = { claude: 'Claude Code', codex: 'Codex' }
+export type ResumeEngine = 'claude' | 'codex' | 'antigravity'
+export const RESUME_ENGINE_NAMES: Record<ResumeEngine, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  antigravity: 'Antigravity',
+}
 
 export interface ResumeRequest {
   /** 每次打开请求不同（openResumePicker 填）：ResumeHost 拿它当 key，请求变了就重建选择框 */

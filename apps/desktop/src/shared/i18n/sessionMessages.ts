@@ -394,6 +394,14 @@ export const sessionMessages = {
     zh: '对之后新建的会话生效。会话里改模型、权限会记到这里；推理强度、Ultracode、Fast、思考摘要在会话里改只影响那个会话，要在输入框的推理强度菜单里点「设为默认」。',
     en: 'Applies to sessions created from now on. Model and permission changes made in a session are saved here; effort, Ultracode, Fast and thinking summaries changed in a session only affect that session unless you choose "Set as default" in the composer’s effort menu.',
   },
+  'engineDefaults.noteNoUltracode': {
+    zh: '对之后新建的会话生效。会话里改模型、权限会记到这里；推理强度、Fast、思考摘要在会话里改只影响那个会话，要在输入框的推理强度菜单里点「设为默认」。',
+    en: 'Applies to sessions created from now on. Model and permission changes made in a session are saved here; effort, Fast and thinking summaries changed in a session only affect that session unless you choose "Set as default" in the composer’s effort menu.',
+  },
+  'engineDefaults.noteBasic': {
+    zh: '对之后新建的会话生效。会话里改模型、权限会记到这里；推理强度在会话里改只影响那个会话，要在输入框的推理强度菜单里点「设为默认」。',
+    en: 'Applies to sessions created from now on. Model and permission changes made in a session are saved here; effort changed in a session only affects that session unless you choose "Set as default" in the composer’s effort menu.',
+  },
   'engineDefaults.noteRemember': {
     zh: '对之后新建的会话生效；会话里改过的选择也会记到这里。',
     en: 'Applies to sessions created from now on; choices changed in a session are saved here too.',
@@ -402,6 +410,14 @@ export const sessionMessages = {
   'engineDefaults.rememberDesc': {
     zh: '在会话里改推理强度、Ultracode、Fast、思考摘要时，同时记成新会话的默认值',
     en: 'When you change effort, Ultracode, Fast or thinking summaries in a session, also use them for new sessions',
+  },
+  'engineDefaults.rememberDescNoUltracode': {
+    zh: '在会话里改推理强度、Fast、思考摘要时，同时记成新会话的默认值',
+    en: 'When you change effort, Fast or thinking summaries in a session, also use them for new sessions',
+  },
+  'engineDefaults.rememberDescBasic': {
+    zh: '在会话里改推理强度时，同时记成新会话的默认值',
+    en: 'When you change effort in a session, also use it for new sessions',
   },
   'engineDefaults.factory': { zh: '恢复出厂设置', en: 'Restore factory defaults' },
   'engineDefaults.factoryHint': {

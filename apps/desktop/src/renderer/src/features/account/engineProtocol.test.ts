@@ -13,6 +13,8 @@ describe('引擎能用哪些自定义接口', () => {
     expect(providersFor(list, 'claude').map(p => p.id)).toEqual(['a'])
     expect(providersFor(list, 'codex').map(p => p.id)).toEqual(['r'])
     expect(providersFor(list, 'pixel').map(p => p.id)).toEqual(['a', 'r', 'c'])
+    // Antigravity 只走自己的登录：一个都不给（不然频道成员 / 输入框会列出它用不了的 Anthropic 接口）
+    expect(providersFor(list, 'antigravity')).toEqual([])
   })
   it('平台线路：openai 线路给 Codex 和 Pixel，anthropic 线路给 Claude Code 和 Pixel', () => {
     const openai = group({ platform: 'openai' }),

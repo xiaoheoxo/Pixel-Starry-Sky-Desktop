@@ -58,8 +58,8 @@ export const projectMessages = {
   },
   'projects.title': { zh: '项目', en: 'Projects' },
   'projects.keywords': {
-    zh: '项目 导入 批量 文件夹 分区 Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness 路径',
-    en: 'projects import bulk folders sections Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness paths',
+    zh: '项目 导入 批量 文件夹 分区 Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness Antigravity Grok 路径',
+    en: 'projects import bulk folders sections Claude Code Codex Z Code Kimi Code Cursor DeepSeek Harness Antigravity Grok paths',
   },
   'projectImport.settingsIntro': {
     zh: '自动读取 Codex 项目和会话，也支持导入其他工具的项目。导入登记和读取现有记录，文件保留在原处。',
@@ -168,6 +168,10 @@ export const projectMessages = {
   'projectImport.pickCursor': {
     zh: '选择 Cursor 的 workspaceStorage 文件夹',
     en: 'Choose the Cursor workspaceStorage folder',
+  },
+  'projectImport.pickGrok': {
+    zh: '选择 Grok 的 sessions 文件夹',
+    en: 'Choose the Grok sessions folder',
   },
   'projectImport.unreadableIndex': {
     zh: 'Z Code：任务索引无法读取，已保留设置中的项目',

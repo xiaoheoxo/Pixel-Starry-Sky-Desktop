@@ -48,9 +48,9 @@ function aiChannelRequest(v: Record<string, unknown>): AiChannelRequest {
     throw new Error('参数不正确')
   if (v.providerId !== null && (typeof v.providerId !== 'string' || !ID.test(v.providerId)))
     throw new Error('参数不正确')
-  const source = oneOf(v.source, ['platform', 'claude', 'codex', 'custom'])
-  // Claude / ChatGPT 授权的模型可以留空：跟随引擎自己的设置
-  const engine = source === 'claude' || source === 'codex'
+  const source = oneOf(v.source, ['platform', 'claude', 'codex', 'antigravity', 'custom'])
+  // Claude / ChatGPT 授权、Google 账号的模型可以留空：跟随引擎自己的设置
+  const engine = source === 'claude' || source === 'codex' || source === 'antigravity'
   if (typeof v.model !== 'string' || (!engine && !v.model.trim()) || v.model.length > 200) throw new Error('参数不正确')
   return { requestId: v.requestId, source, groups: groups as string[], providerId: v.providerId, model: v.model.trim() }
 }

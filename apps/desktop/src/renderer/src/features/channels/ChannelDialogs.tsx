@@ -690,7 +690,7 @@ export function AgentDialog({
   const engines = useEngineState(s => s.engines)
   const currentProject = useEngineState(s => s.currentProjectId)
   const projectOptions = useProjectOptions()
-  const ready = engines.filter(e => e.status === 'ready' && (e.id === 'claude' || e.id === 'codex' || e.id === 'pixel'))
+  const ready = engines.filter(e => e.status === 'ready')
   const allMembers = useChannels(s => s.members)
   const seed = editing ?? from ?? null
   // 打开时的名字和职责：关弹窗前用它判断改没改过

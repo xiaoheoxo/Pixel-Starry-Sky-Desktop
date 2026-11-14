@@ -23,7 +23,7 @@ export const settingsReorgMessages = {
     zh: '推理强度 High，Fast 关，显示思考摘要开',
     en: 'Effort High, Fast off, thinking summaries on',
   },
-  'settingsEngines.factoryBasic': { zh: '推理强度 High，Fast 关', en: 'Effort High, Fast off' },
+  'settingsEngines.factoryBasic': { zh: '推理强度 High', en: 'Effort High' },
   'settingsMobile.advanced': { zh: '高级', en: 'Advanced' },
   'settingsAssist.channel': { zh: '共用的通道', en: 'Shared channel' },
   'settingsAssist.channelHint': {

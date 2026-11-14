@@ -291,6 +291,7 @@ const HELP_KEYS = {
     'resume.help.codex.legacy',
     'resume.help.codex.engine',
   ],
+  antigravity: ['resume.help.switch', 'resume.help.agy.history', 'resume.help.agy.context', 'resume.help.agy.copy'],
 } as const
 
 export function ResumePickerView(view: PickerViewProps) {

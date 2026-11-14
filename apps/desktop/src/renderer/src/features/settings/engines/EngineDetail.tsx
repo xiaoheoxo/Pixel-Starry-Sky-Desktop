@@ -5,7 +5,7 @@ import { tr } from '../../../i18n/core'
 // 头部（版本、路径、重新检测、检查更新、设为默认）→ 新会话默认值 → 对话 → 上下文 → 高级。
 // 改了立刻保存。除「新会话默认值」外，对已开始的会话也生效：下一条消息开始前用新设置重启引擎进程并接上原对话。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, CircleCheck, Download, RefreshCw } from 'lucide-react'
+import { ChevronLeft, CircleCheck, Download, LogIn, RefreshCw } from 'lucide-react'
 import {
   AUTO_COMPACT_PCTS,
   EFFORT_PANEL_FACTORY,
@@ -29,7 +29,8 @@ import { envLines, parseEnvLines } from './envLines'
 import { migrateEnv, providerEnvKeys } from './migrateEnv'
 import { LaunchCard } from './LaunchCard'
 import { splitInstallCommand } from './installCommand'
-import { DefaultBadge, ENGINE_INTRO, ENGINE_STATUS, FIELD } from './parts'
+import { AUTH_CHANNEL_OF, DefaultBadge, ENGINE_INTRO, ENGINE_STATUS, FIELD } from './parts'
+import { openAuthDialog } from '@/features/model-channels/authDialogStore'
 import {
   canInstall,
   canUpdate,
@@ -73,6 +74,8 @@ export function EngineDetail({
     onSave(patch).catch((err: unknown) => setError((err as Error).message))
   }
   const d = config.defaults
+  // 说明文字只提这个引擎有的开关：Claude Code 全有，Codex 没有 Ultracode，像素星空 / Antigravity 只有推理强度
+  const tier = e.caps.ultracode ? '' : e.caps.thinkingSummaries ? 'NoUltracode' : 'Basic'
   // 新会话默认改成完全放行：影响以后所有新任务，先弹窗确认（docs/ui/full-access-confirm.md P4）
   const [confirmFull, setConfirmFull] = useState(false)
   // Codex 的并在「会话」组里，Claude Code 的在「多会话」组里
@@ -156,7 +159,7 @@ export function EngineDetail({
 
       <Group
         title={tr('settings.engines.EngineDetail.newConversationDefaults')}
-        note={tr(config.rememberChoices ? 'engineDefaults.noteRemember' : 'engineDefaults.note')}
+        note={tr(config.rememberChoices ? 'engineDefaults.noteRemember' : `engineDefaults.note${tier}`)}
       >
         <Row
           title={tr('session.Composer.reasoningEffort')}
@@ -231,7 +234,7 @@ export function EngineDetail({
         )}
         <Row
           title={tr('engineDefaults.remember')}
-          description={tr('engineDefaults.rememberDesc')}
+          description={tr(`engineDefaults.rememberDesc${tier}`)}
           control={
             <Switch
               checked={config.rememberChoices}
@@ -243,9 +246,9 @@ export function EngineDetail({
         <Row
           title={tr('engineDefaults.factory')}
           description={tr(
-            e.caps.ultracode
+            tier === ''
               ? 'engineDefaults.factoryHint'
-              : e.caps.thinkingSummaries
+              : tier === 'NoUltracode'
                 ? 'settingsEngines.factoryNoUltracode'
                 : 'settingsEngines.factoryBasic',
           )}
@@ -263,16 +266,23 @@ export function EngineDetail({
       </Group>
 
       {/* Codex 没有 launchSettings，但输入预测在这一组：只按 launchSettings 判断会让它整组不显示 */}
-      {(e.caps.launchSettings || e.id === 'codex') && (
+      {(e.caps.launchSettings || e.id === 'codex' || e.id === 'antigravity') && (
         <Group
           title={tr(e.id === 'codex' ? 'settingsEngines.codexSession' : 'settings.engines.EngineDetail.conversation')}
         >
           {e.caps.launchSettings && (
+            <OutputStyleRow engine={e} value={config.outputStyle} onChange={outputStyle => run({ outputStyle })} />
+          )}
+          {/* Antigravity 的提问、自动列任务靠追加系统提示（docs/antigravity-engine.md §12） */}
+          {(e.caps.launchSettings || e.id === 'antigravity') && (
             <>
-              <OutputStyleRow engine={e} value={config.outputStyle} onChange={outputStyle => run({ outputStyle })} />
               <Row
                 title={tr('settings.engines.EngineDetail.allowQuestionsDuringTasks')}
-                description={tr('settings.engines.EngineDetail.onPauseToAsk')}
+                description={tr(
+                  e.id === 'antigravity'
+                    ? 'settings.engines.EngineDetail.onPauseToAskAgy'
+                    : 'settings.engines.EngineDetail.onPauseToAsk',
+                )}
                 control={
                   <Switch
                     checked={config.askQuestions}
@@ -309,10 +319,14 @@ export function EngineDetail({
               )}
             </Row>
           )}
-          {e.id === 'claude' && (
+          {(e.id === 'claude' || e.id === 'antigravity') && (
             <Row
               title={tr('settings.engines.EngineDetail.autoPlan')}
-              description={tr('settings.engines.EngineDetail.autoPlanHint')}
+              description={tr(
+                e.id === 'antigravity'
+                  ? 'settings.engines.EngineDetail.autoPlanHintAgy'
+                  : 'settings.engines.EngineDetail.autoPlanHint',
+              )}
               control={
                 <Switch
                   checked={config.autoPlan}
@@ -350,7 +364,7 @@ export function EngineDetail({
         </div>
       )}
       {/* 多会话（docs/ui/import-collab.md 第 5 项③④）：只读查看本机其他会话；Claude Code 自带的跨会话收件 */}
-      {e.id === 'claude' && (
+      {(e.id === 'claude' || e.id === 'antigravity') && (
         <Group title={tr('settings.engines.EngineDetail.multiSession')}>
           {peekRow}
           {e.caps.launchSettings && (
@@ -370,6 +384,7 @@ export function EngineDetail({
       )}
       {/* 上下文（GitHub #20）：Codex 也有自动压缩和模型窗口；压缩用的模型只有 Claude Code 能换。
           像素星空只有阈值（Pi 补丁按比例判断，docs/own-cli.md §15）；本机模型的窗口 Pi 自己知道，不显示 */}
+      {/* Antigravity 只有阈值：到了由我们在下一条消息前发 /compact；窗口 agy 自己报、不能改（docs/antigravity-engine.md §12） */}
       <Group title={tr('session.ContextWindowButton.context2')}>
         <Row
           title={tr('settings.engines.EngineDetail.autocompactThreshold')}
@@ -379,7 +394,9 @@ export function EngineDetail({
               ? tr('contextWindow.codexCompactHint')
               : e.id === 'pixel'
                 ? tr('contextWindow.pixelCompactHint')
-                : undefined
+                : e.id === 'antigravity'
+                  ? tr('contextWindow.agyCompactHint')
+                  : undefined
           }
           control={
             <Select
@@ -404,7 +421,7 @@ export function EngineDetail({
         {e.caps.launchSettings && (
           <CompactModelRow engine={e} value={config.compactModel} onChange={compactModel => run({ compactModel })} />
         )}
-        {e.id !== 'pixel' && (
+        {e.id !== 'pixel' && e.id !== 'antigravity' && (
           <ModelWindowsRow
             engine={e}
             windows={config.contextWindows.self}
@@ -487,6 +504,16 @@ function Header({ engine: e, isDefault }: { engine: EngineLite; isDefault: boole
           >
             {redetecting ? tr('settings.engines.EngineDetail.detecting') : tr('session.SourceHintBar.detectAgain')}
           </Button>
+          {e.status === 'unauthenticated' && e.id in AUTH_CHANNEL_OF && (
+            <Button
+              variant="primary"
+              icon={LogIn}
+              className="h-8 px-3 text-meta"
+              onClick={() => openAuthDialog(AUTH_CHANNEL_OF[e.id as keyof typeof AUTH_CHANNEL_OF])}
+            >
+              {tr('modelChannels.action.auth')}
+            </Button>
+          )}
           {(installable || (updating && action === 'install')) && (
             <Button
               variant="primary"
@@ -784,7 +811,11 @@ function LaunchRows({
       <LaunchCard engine={e} config={config} onSave={onSave} />
       <Row
         title={tr('settings.engines.EngineDetail.environmentVariables')}
-        description={tr('settings.engines.EngineDetail.oneKeyValuePer')}
+        description={tr(
+          e.id === 'antigravity'
+            ? 'settings.engines.EngineDetail.envAntigravity'
+            : 'settings.engines.EngineDetail.oneKeyValuePer',
+        )}
       >
         <textarea
           value={env}
@@ -794,7 +825,7 @@ function LaunchRows({
           }}
           onBlur={saveEnv}
           rows={4}
-          placeholder="HTTPS_PROXY=http://127.0.0.1:7890"
+          placeholder={e.id === 'antigravity' ? 'GEMINI_API_KEY=…' : 'HTTPS_PROXY=http://127.0.0.1:7890'}
           aria-label={tr('settings.engines.EngineDetail.environmentVariables')}
           className={cn(FIELD, 'resize-y font-mono text-meta')}
           spellCheck={false}

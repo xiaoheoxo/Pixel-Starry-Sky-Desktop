@@ -516,12 +516,16 @@ export class HostSettings {
    */
   async checkEngineUpdates(): Promise<void> {
     const fetchLatest = this.ctx.opts.latestVersion
-    if (!fetchLatest) return
     let changed = false
     await Promise.all(
       ENGINE_ORDER.map(async id => {
-        const pkg = this.ctx.adapters[id]?.npmPackage
-        const version = pkg ? await fetchLatest(pkg).catch(() => null) : null
+        const adapter = this.ctx.adapters[id]
+        const pkg = adapter?.npmPackage
+        const version = adapter?.latestVersion
+          ? await adapter.latestVersion().catch(() => null)
+          : pkg && fetchLatest
+            ? await fetchLatest(pkg).catch(() => null)
+            : null
         if (version && version !== this.latest[id]) {
           this.latest[id] = version
           changed = true

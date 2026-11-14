@@ -6,8 +6,8 @@ export interface EngineDescriptor {
   name: string
   short: string
   caps: EngineCaps
-  /** 请求格式：messages（Anthropic 接口）或 responses（OpenAI Responses 接口）；平台分组按它筛选 */
-  wireApi: 'messages' | 'responses'
+  /** 请求格式：messages（Anthropic 接口）、responses（OpenAI Responses 接口）或 gemini（Gemini 原生接口）；平台分组按它筛选 */
+  wireApi: 'messages' | 'responses' | 'gemini'
   /** 平台目录里属于这个引擎的供应商名（小写），例如 anthropic、openai */
   platformVendors: string[]
   /** 平台分组没有写平台字段时，是否算作这个引擎（旧目录兼容） */
@@ -135,9 +135,52 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
     accent: null,
     nativeModelPrefix: null,
   },
+  // Google Antigravity CLI（agy acp，ACP 协议，docs/antigravity-engine.md）：能力按 P0 实测（§7）先保守；
+  // 第一期还没有对话（P2 做），模型菜单里也还没有它的线路，只在设置 › 本机引擎里检测、安装
+  antigravity: {
+    id: 'antigravity',
+    name: 'Antigravity',
+    short: 'Ag',
+    caps: {
+      imageInput: true,
+      interrupt: true,
+      resume: true,
+      // agy 运行中再发一条就引导当前这一轮，但 P0 没录过、还没接：先走宿主排队（docs/antigravity-engine.md §11）
+      steer: false,
+      rewind: false,
+      fork: false,
+      sideChat: false,
+      // 模型、思考档位、模式都是会话选项，运行中改实时生效
+      liveModelSwitch: true,
+      livePermissionSwitch: true,
+      // default / accept-edits / plan；完全放行是 agy 的 accept-edits 加我们替它回允许（不换进程，antigravity/session.ts）
+      permissionModes: ['ask', 'edits', 'plan', 'full'],
+      // 实际档位跟着模型变（3.1-pro 只有 low / high），P2 按会话选项给
+      efforts: ['low', 'medium', 'high'],
+      ultracode: false,
+      fast: false,
+      thinkingSummaries: false,
+      backgroundTasks: false,
+      agentTrace: false,
+      promptSuggestions: false,
+      // agy 只有允许一次 / 拒绝一次；「本会话不再询问」由我们的会话记住（antigravity/session.ts）
+      alwaysScopes: ['session'],
+      costUsd: false,
+      // agy update
+      selfUpdate: true,
+      launchSettings: false,
+      pluginCommands: false,
+      platformSwitch: false,
+    },
+    wireApi: 'gemini',
+    platformVendors: [],
+    unlabeledGroups: false,
+    accent: null,
+    nativeModelPrefix: 'gemini-',
+  },
 }
 
-export const ENGINE_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel']
+export const ENGINE_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
 
 /** 版本号 a 是否比 b 新（按点分的数字逐段比，-beta 之类的后缀不计） */
 export function isNewerVersion(a: string | null | undefined, b: string | null | undefined): boolean {

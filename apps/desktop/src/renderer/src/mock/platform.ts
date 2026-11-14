@@ -118,6 +118,28 @@ export const demoEngineStatus: EngineLite[] = [
       platformSwitch: false,
     },
   },
+  {
+    // Antigravity 第一期只有检测（docs/antigravity-engine.md）：演示「装好了、还没登录」
+    id: 'antigravity',
+    name: ENGINES.antigravity.name,
+    status: 'unauthenticated',
+    version: '1.5.9',
+    // 演示列表里的「去授权」和「更新」两个按钮
+    latestVersion: '1.6.0',
+    message: '还没登录：在终端运行 agy 用 Google 账号登录，或在下面的环境变量里填 GEMINI_API_KEY',
+    path: 'C:\\Users\\linxia\\AppData\\Local\\agy\\bin\\agy.exe',
+    caps: {
+      permissionModes: ENGINES.antigravity.caps.permissionModes,
+      efforts: ENGINES.antigravity.caps.efforts,
+      ultracode: false,
+      fast: false,
+      thinkingSummaries: false,
+      selfUpdate: true,
+      launchSettings: false,
+      pluginCommands: false,
+      platformSwitch: false,
+    },
+  },
 ]
 
 /** 演示模式下 Claude Code 报上来的输出风格（设置 › 本机引擎 › 对话） */
@@ -197,7 +219,12 @@ const demoLocal = (): EngineLocalConfig => ({
 })
 
 /** 演示模式下本机引擎的配置（设置 › 本机引擎 › 详情；只改内存） */
-export const demoEngineConfig: EngineConfig = { claude: demoLocal(), codex: demoLocal(), pixel: demoLocal() }
+export const demoEngineConfig: EngineConfig = {
+  claude: demoLocal(),
+  codex: demoLocal(),
+  pixel: demoLocal(),
+  antigravity: demoLocal(),
+}
 
 /** 演示用的两条自定义 API（docs/ui/custom-api.md §5 A4） */
 export const demoProviders: ProvidersState = {

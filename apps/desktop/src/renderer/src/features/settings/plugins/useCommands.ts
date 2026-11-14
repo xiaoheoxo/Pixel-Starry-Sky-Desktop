@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ENGINES, type EngineId, type SkillCommand } from '@pixelsky/protocol'
 import { useEngineState } from '@/features/engine'
 import { useActiveWorkspace } from '@/features/editor/target'
+import { useEngineCatalog } from '@/features/engine/catalog'
 import { rememberCommands, rememberedCommands } from './rememberedCommands'
 
 export function useCommands(sessionId: string | null | undefined, engine: EngineId | undefined): SkillCommand[] {
@@ -42,14 +43,17 @@ export function useCommands(sessionId: string | null | undefined, engine: Engine
   const loaded = snapshot?.commands?.length ? snapshot.commands : undefined
   // 只记这个会话自己引擎报的（换了引擎、记录还没跟上时不记）
   const own = snapshot?.record.engine === engine
+  // Antigravity 发第一条消息才起进程：之前用这个项目上次记下的，没有时用模型目录那次临时会话报的（docs/antigravity-engine.md §12）
+  const agy = engine === 'antigravity'
+  const agyCatalog = useEngineCatalog('antigravity', agy && !loaded)
   useEffect(() => {
-    if (loaded && own && rememberKey) rememberCommands(rememberKey, loaded)
-  }, [loaded, own, rememberKey])
-  return useMemo(
-    () =>
-      (loaded ?? (rememberKey ? rememberedCommands(rememberKey) : configured)).filter(
-        command => !/^(?:mcp|plugin|plugins|login|logout|config|background|reload-plugins)$/.test(command.name),
-      ),
-    [loaded, configured, rememberKey],
-  )
+    if (loaded && own && rememberKey) rememberCommands(rememberKey, loaded, agy)
+  }, [loaded, own, rememberKey, agy])
+  return useMemo(() => {
+    const remembered = rememberKey ? rememberedCommands(rememberKey) : configured
+    const before = agy && !remembered.length ? (agyCatalog?.commands ?? []) : remembered
+    return (loaded ?? before).filter(
+      command => !/^(?:mcp|plugin|plugins|login|logout|config|background|reload-plugins)$/.test(command.name),
+    )
+  }, [loaded, configured, rememberKey, agy, agyCatalog])
 }

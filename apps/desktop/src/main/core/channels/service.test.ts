@@ -1420,6 +1420,14 @@ describe('协作频道：存储与对账', () => {
     expect(texts(again, channelId).at(-1)?.text).toBe('离线时做完了')
   })
 
+  it('成员可以用 Antigravity；不认识的引擎照旧拒绝', async () => {
+    const c = await open()
+    const id = await c.saveMember(null, agent('谷歌', { engine: 'antigravity' }))
+    const store = (c as unknown as { store: ChannelStore }).store
+    expect(store.members.find(m => m.id === id)?.engine).toBe('antigravity')
+    await expect(c.saveMember(null, agent('坏', { engine: 'grok' as never }))).rejects.toThrow('不支持的引擎')
+  })
+
   it('老数据里已经叫「全体」的成员：不改名照样能保存', async () => {
     const c = await open()
     const id = await c.saveMember(null, agent('旧名'))

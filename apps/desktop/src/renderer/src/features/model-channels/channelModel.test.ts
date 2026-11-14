@@ -201,7 +201,7 @@ describe('菜单（§2.3）', () => {
     selection: { channel: 'platform', model: 'claude-opus-5-5', providerId: null },
     current: null,
     platform: { email: 'a@b.c', loaded: true, loading: false, groups, hiddenModels: [] },
-    selfModels: { claude: [{ value: null }, { value: 'opus' }], chatgpt: [{ value: null }] },
+    selfModels: { claude: [{ value: null }, { value: 'opus' }], chatgpt: [{ value: null }], google: [{ value: null }] },
     providers,
     engines: engines(),
     remembered: {},
@@ -210,12 +210,12 @@ describe('菜单（§2.3）', () => {
 
   it('四组按顺序，选中的打勾，每行带执行者', () => {
     const menu = buildChannelMenu(input())
-    expect(menu.map(g => g.channel)).toEqual(['platform', 'claude', 'chatgpt', 'custom'])
+    expect(menu.map(g => g.channel)).toEqual(['platform', 'claude', 'chatgpt', 'google', 'custom'])
     const platform = menu[0].rows
     expect(platform.map(r => r.target.model)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-6.1-sol'])
     expect(platform.map(r => r.selected)).toEqual([true, false, false])
     expect(platform.map(r => r.pick.engine)).toEqual(['claude', 'claude', 'codex'])
-    expect(menu[3].rows.map(r => r.pick.engine)).toEqual(['claude', 'codex', 'pixel'])
+    expect(menu[4].rows.map(r => r.pick.engine)).toEqual(['claude', 'codex', 'pixel'])
   })
   it('隐藏的平台模型不列，正在用的照常列', () => {
     const menu = buildChannelMenu(
@@ -231,19 +231,19 @@ describe('菜单（§2.3）', () => {
     const menu = buildChannelMenu(input({ current: 'claude' }))
     expect(menu[0].rows.map(r => r.pick.engine)).toEqual(['claude', 'claude', 'codex'])
     expect(menu[0].rows.map(r => r.disabled)).toEqual([null, null, null])
-    expect(menu[3].rows.map(r => r.pick.engine)).toEqual(['claude', 'codex', 'pixel'])
+    expect(menu[4].rows.map(r => r.pick.engine)).toEqual(['claude', 'codex', 'pixel'])
     expect(menu[2].rows.every(r => r.disabled === null)).toBe(true)
   })
   it('像素星空的对话：平台模型和自定义接口默认继续由它执行', () => {
     const menu = buildChannelMenu(input({ current: 'pixel' }))
     expect(menu[0].rows.map(r => r.pick.engine)).toEqual(['pixel', 'pixel', 'pixel'])
-    expect(menu[3].rows.map(r => r.pick.engine)).toEqual(['pixel', 'pixel', 'pixel'])
+    expect(menu[4].rows.map(r => r.pick.engine)).toEqual(['pixel', 'pixel', 'pixel'])
   })
   it('自定义接口一行一个，选中的接口显示当前模型，其它显示第一个模型', () => {
     const menu = buildChannelMenu(
       input({ selection: { channel: 'custom', model: 'deepseek-reasoner', providerId: 'ds' } }),
     )
-    expect(menu[3].rows.map(r => [r.target.model, r.selected])).toEqual([
+    expect(menu[4].rows.map(r => [r.target.model, r.selected])).toEqual([
       ['claude-sonnet-5-5', false],
       ['gpt-6.1', false],
       ['deepseek-reasoner', true],
@@ -254,7 +254,7 @@ describe('菜单（§2.3）', () => {
       input({ remembered: { 'platform:claude-opus-5-5': 'pixel', 'custom:relay': 'pixel' } }),
     )
     expect(menu[0].rows[0].pick.engine).toBe('pixel')
-    expect(menu[3].rows[0].pick.engine).toBe('pixel')
+    expect(menu[4].rows[0].pick.engine).toBe('pixel')
   })
   it('GPT 的旧 Claude Code 执行者记忆失效', () => {
     const platform = {
@@ -274,7 +274,7 @@ describe('菜单（§2.3）', () => {
   })
   it('能跑的执行者都没装：灰掉', () => {
     const menu = buildChannelMenu(input({ engines: engines({ pixel: 'missing' }) }))
-    expect(menu[3].rows.map(r => r.disabled)).toEqual([null, null, 'no-executor'])
+    expect(menu[4].rows.map(r => r.disabled)).toEqual([null, null, 'no-executor'])
   })
 })
 

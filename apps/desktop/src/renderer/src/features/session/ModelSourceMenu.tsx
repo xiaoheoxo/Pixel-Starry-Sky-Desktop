@@ -139,6 +139,7 @@ export function ModelSourceMenu({
   const ownCatalog = useEngineCatalog(engineId)
   const claudeCatalog = useEngineCatalog('claude')
   const codexCatalog = useEngineCatalog('codex')
+  const agyCatalog = useEngineCatalog('antigravity')
   const engines = useChannelEngines()
   const providers = useProviders()
   const prefs = useChannelPrefs()
@@ -201,6 +202,7 @@ export function ModelSourceMenu({
   const selfModels = {
     claude: selfModelOptions('claude', claudeCatalog?.models),
     chatgpt: selfModelOptions('codex', codexCatalog?.models),
+    google: selfModelOptions('antigravity', agyCatalog?.models),
   }
   const groups = buildChannelMenu({
     selection,
@@ -288,7 +290,7 @@ export function ModelSourceMenu({
           selfModelLabel(
             AUTH_ENGINE[c],
             row.target.model,
-            c === 'claude' ? claudeCatalog?.models : codexCatalog?.models,
+            c === 'claude' ? claudeCatalog?.models : c === 'chatgpt' ? codexCatalog?.models : agyCatalog?.models,
           ))
   /** 名字后面的淡色小字：执行者不可用 > 自动换了执行者 > 接口的模型 / 别名的说明 */
   const rowDesc = (c: ChannelId, row: ChannelRow): string | undefined => {

@@ -65,6 +65,7 @@ import { ClaudeAdapter } from '../claude'
 import type { CompactionRequestReport } from '../compaction'
 import { CodexAdapter } from '../codex'
 import { PixelAdapter } from '../pixel'
+import { AntigravityAdapter } from '../antigravity'
 import { Store } from '../store'
 import { UsageStore, type UsageQuery } from '../usage'
 import { HostAccounts } from './accounts'
@@ -176,6 +177,14 @@ export class EngineHost {
           const o = settings.launchOptions('pixel')
           return { args: o.args, contextWindows: o.contextWindows, autoCompactPct: o.autoCompactPct }
         },
+      }), // Antigravity（agy acp，docs/antigravity-engine.md）
+      antigravity: new AntigravityAdapter({
+        overridePath: () => settings.file.paths.antigravity ?? null,
+        extraEnv: () => settings.file.env.antigravity ?? {},
+        systemProxy: () => opts.systemProxy?.('antigravity') ?? null,
+        launchArgs: () => settings.launchOptions('antigravity').args,
+        launchOptions: () => settings.launchOptions('antigravity'),
+        fetch: opts.fetch,
       }),
     }
     const projects = new HostProjects(ctx)
@@ -445,6 +454,11 @@ export class EngineHost {
     opts?: { subfolders?: boolean },
   ): Promise<NativeSessionSummary[]> {
     return this.m.native.nativeSessions(projectId, engine, opts)
+  }
+
+  /** 引擎自己的会话用过的工作目录（项目导入）；引擎不支持时空 */
+  nativeProjects(engine: EngineId): Promise<string[]> {
+    return this.ctx.adapters[engine]?.nativeProjects?.() ?? Promise.resolve([])
   }
 
   /** 第二步：读这几个会话的尾部，补最后一句、标题、模型 */

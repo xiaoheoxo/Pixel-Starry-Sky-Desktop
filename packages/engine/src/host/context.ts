@@ -78,6 +78,8 @@ export interface EngineHostOptions {
   /** 授权登录最多等多久（毫秒），默认 10 分钟；测试用 */
   loginTimeoutMs?: number
   latestVersion?: (npmPackage: string) => Promise<string | null>
+  /** 引擎自己查最新版本用的 fetch（桌面端给 Electron 的 net.fetch，走系统代理）；没有时用 Node 自带的 */
+  fetch?: typeof fetch
   /** 断线自动重连时替用户发的那句（按界面语言），默认「继续」 */
   continueText?: () => string
   /** 测试用：第 n 次自动重连前等多久（毫秒），不给按 retry.ts reconnectDelay */

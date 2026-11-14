@@ -51,12 +51,14 @@ const HIDDEN_KEY = 'pixelsky.platform.hiddenModels'
 const ENGINE_KEY = 'pixelsky.sources.v2'
 /** 除 Claude Code 外，每个引擎各自存一份默认（Claude Code 的在 state 里）；像素星空走 Anthropic 线路但模型自己定 */
 type OwnEngine = Exclude<EngineId, 'claude'>
-const OWN_ENGINES: readonly OwnEngine[] = ['codex', 'pixel']
+const OWN_ENGINES: readonly OwnEngine[] = ['codex', 'pixel', 'antigravity']
 /**
  * 新装还没选过时的默认来源：登录了用平台；没登录时 Codex 用自有（它自己的登录），
- * 像素星空也用平台——它的自有是命令行自己配的 Key，新装多半没配，落到自有只会发出去才报错；平台没登录时输入框直接提示登录
+ * 像素星空也用平台——它的自有是命令行自己配的 Key，新装多半没配，落到自有只会发出去才报错；平台没登录时输入框直接提示登录。
+ * Antigravity 没有平台线路（docs/antigravity-engine.md §5），一律自有
  */
 export function fallbackSource(engine: OwnEngine, email: string | null): CreditSource {
+  if (engine === 'antigravity') return 'self'
   return email || engine === 'pixel' ? 'platform' : 'self'
 }
 const blankPreference = (engine: OwnEngine): SourcePreference => ({
@@ -70,8 +72,9 @@ const blankPreference = (engine: OwnEngine): SourcePreference => ({
 const enginePreferences: Record<OwnEngine, SourcePreference> = {
   codex: blankPreference('codex'),
   pixel: blankPreference('pixel'),
+  antigravity: blankPreference('antigravity'),
 }
-const engineUnsaved: Record<OwnEngine, boolean> = { codex: true, pixel: true }
+const engineUnsaved: Record<OwnEngine, boolean> = { codex: true, pixel: true, antigravity: true }
 function readEnginePreferences(raw: string | null): void {
   const all = JSON.parse(raw ?? '{}') as Record<string, Record<string, unknown> | undefined>
   for (const engine of OWN_ENGINES) {
@@ -105,7 +108,7 @@ export function groupSupportsEngine(group: PlatformGroupInfo, engine: EngineId):
   // 目录里写了 claude 或 codex 的线路像素星空也能用
   if (group.supported_engines)
     return (
-      group.supported_engines.includes(engine) ||
+      (group.supported_engines as readonly string[]).includes(engine) ||
       (engine === 'pixel' && (group.supported_engines.includes('claude') || group.supported_engines.includes('codex')))
     )
   // 旧目录没有写平台字段的分组，只归给允许的引擎（unlabeledGroups）

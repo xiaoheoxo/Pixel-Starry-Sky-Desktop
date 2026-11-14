@@ -99,6 +99,10 @@ export function toolProjectPaths(tool: ProjectImportTool, value: unknown): strin
     }
     case 'dsh':
       return dshWorkspacePaths(data)
+    // 读的是文件夹或问 agy，没有 JSON 清单
+    case 'grok':
+    case 'antigravity':
+      return []
     case 'kimi': {
       const deleted = new Set(strings(data.deleted_workspace_ids))
       return [
@@ -187,6 +191,33 @@ async function dshStoragePaths(storages: string): Promise<string[]> {
     return dshWorkspacePaths({ global: object(global).record, tables: { workspaces: records } })
   }
   return dshWorkspacePaths(await json(join(storages, 'workspace.json')))
+}
+
+/**
+ * Grok 的会话目录 $GROK_HOME/sessions/<编码后的工作目录>/<会话 id>/summary.json（info.cwd）：
+ * 每个工作目录取一个会话的 info.cwd，读不到时把目录名解码。选到 .grok 文件夹时进 sessions
+ */
+async function grokSessionPaths(dir: string): Promise<string[]> {
+  const sub = join(dir, 'sessions')
+  if ((await stat(sub).catch(() => null))?.isDirectory()) dir = sub
+  const out: string[] = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    if (out.length > MAX_IMPORT_PATHS) break
+    let cwd: unknown
+    for (const s of await readdir(join(dir, entry.name)).catch(() => [] as string[])) {
+      cwd = object(object(await json(join(dir, entry.name, s, 'summary.json')).catch(() => ({}))).info).cwd
+      if (typeof cwd === 'string') break
+    }
+    if (typeof cwd === 'string') out.push(cwd)
+    else
+      try {
+        out.push(decodeURIComponent(entry.name))
+      } catch {
+        /* 不是编码过的路径：跳过 */
+      }
+  }
+  return out
 }
 
 export interface ImportPath {
@@ -280,6 +311,9 @@ export function toolImportFiles(
   return {
     cursor: [join(appDataDir(home, env, platform), 'Cursor', 'User', 'workspaceStorage')],
     dsh: [join(dshHome(home, env), 'storages')],
+    grok: [join(env.GROK_HOME?.trim() || join(home, '.grok'), 'sessions')],
+    // 不读文件，扫描时问 agy（discoverToolProjects 的 extra）
+    antigravity: [],
     claude: [env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(home, '.claude.json')],
     codex: [join(env.CODEX_HOME || join(home, '.codex'), '.codex-global-state.json')],
     zcode: [join(zhome, '.zcode', 'v2', 'setting.json')],
@@ -322,6 +356,8 @@ const TOOL_SOURCE: Record<ProjectImportTool, string> = {
   kimi: 'Kimi Code',
   cursor: 'Cursor',
   dsh: 'DeepSeek Harness',
+  antigravity: 'Antigravity',
+  grok: 'Grok',
 }
 
 export async function readToolProjects(
@@ -333,10 +369,11 @@ export async function readToolProjects(
   if (tool === 'zcode' && /\.(sqlite|db)$/i.test(file))
     return { paths: zcodeIndexPaths(file).map(path => ({ path, source: 'Z Code' })), warnings }
   const source = TOOL_SOURCE[tool]
-  // Cursor、DeepSeek Harness 读的是文件夹（自动读取的位置，或手动选的文件夹）
-  if ((tool === 'cursor' || tool === 'dsh') && (await stat(file)).isDirectory()) {
+  // Cursor、DeepSeek Harness、Grok 读的是文件夹（自动读取的位置，或手动选的文件夹）
+  if ((tool === 'cursor' || tool === 'dsh' || tool === 'grok') && (await stat(file)).isDirectory()) {
     let found: string[]
     if (tool === 'dsh') found = await dshStoragePaths(file)
+    else if (tool === 'grok') found = await grokSessionPaths(file)
     else {
       // 选到某个项目的 <哈希> 目录：只读那一个
       const single = await json(join(file, 'workspace.json')).catch(() => null)
@@ -363,6 +400,8 @@ export async function discoverToolProjects(
   known: readonly string[],
   home = homedir(),
   env: NodeJS.ProcessEnv = process.env,
+  /** 不读文件的来源（Antigravity 问 agy），和读文件同时进行 */
+  extra: Promise<ImportPath[]> = Promise.resolve([]),
 ): Promise<ProjectImportBatch> {
   const paths: ImportPath[] = [],
     warnings: string[] = []
@@ -389,6 +428,7 @@ export async function discoverToolProjects(
       }
     }
   }
+  paths.push(...(await extra))
   const unique = new Map<string, ImportPath>()
   // inspectProjectPaths 再按实际路径合并；此处只限制读取规模。
   for (const p of paths) unique.set(key(p.path) + '\0' + p.source, p)

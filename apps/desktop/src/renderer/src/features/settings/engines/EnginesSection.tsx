@@ -13,7 +13,7 @@ import { GroupTitle, SectionTitle } from '../SettingRow'
 import { RequestRetrySettings } from '../models/RequestRetrySettings'
 import { EngineDetail } from './EngineDetail'
 import { openEngineDetail, useEngineDetail } from './nav'
-import { DefaultBadge, ENGINE_STATUS } from './parts'
+import { AUTH_CHANNEL_OF, DefaultBadge, ENGINE_STATUS } from './parts'
 import { canInstall, hasNewer, installEngine, outcomeTitle, updateEngine, useEngineUpdate } from './engineUpdate'
 import { JobProgress } from './JobProgress'
 import { SystemProxySettings } from './SystemProxySettings'
@@ -209,10 +209,10 @@ function EngineRow({
           </Button>
         )}
         {/* 没登录：直接打开授权弹窗（docs/ui/model-channels.md §2.4） */}
-        {e.status === 'unauthenticated' && (e.id === 'claude' || e.id === 'codex') && (
+        {e.status === 'unauthenticated' && e.id in AUTH_CHANNEL_OF && (
           <button
             type="button"
-            onClick={() => openAuthDialog(e.id === 'claude' ? 'claude' : 'chatgpt')}
+            onClick={() => openAuthDialog(AUTH_CHANNEL_OF[e.id as keyof typeof AUTH_CHANNEL_OF])}
             className="shrink-0 rounded-md border border-line px-2.5 py-1 text-meta text-accent-fg hover:bg-hover"
           >
             {tr('modelChannels.action.auth')}

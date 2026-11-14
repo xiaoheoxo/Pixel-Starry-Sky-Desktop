@@ -1,5 +1,7 @@
 export type ExtensionKind = 'plugin' | 'mcp' | 'cli' | 'skill'
 export type ExtensionScope = { kind: 'global' } | { kind: 'project'; path: string }
+/** 扩展适用的引擎；Antigravity 只接 MCP 连接器（技能没有可指定的目录，docs/antigravity-engine.md §12） */
+export type ExtensionEngine = 'claude' | 'codex' | 'pixel' | 'antigravity'
 export interface McpConfig {
   type: 'stdio' | 'http' | 'sse'
   command?: string
@@ -33,7 +35,7 @@ export interface ExtensionCheck {
   at: number
 }
 export interface ExtensionEntry {
-  engines?: Array<'claude' | 'codex' | 'pixel'>
+  engines?: ExtensionEngine[]
   id: string
   kind: ExtensionKind
   name: string
@@ -64,7 +66,7 @@ export interface ExtensionState {
   secretsPersistent: boolean
 }
 export interface ExtensionInput {
-  engines?: Array<'claude' | 'codex' | 'pixel'>
+  engines?: ExtensionEngine[]
   id?: string
   kind: ExtensionKind
   name: string
@@ -78,7 +80,7 @@ export interface ExtensionInput {
   expectedVersion?: string
 }
 export interface ExtensionImport {
-  engines?: Array<'claude' | 'codex' | 'pixel'>
+  engines?: ExtensionEngine[]
   kind: 'plugin' | 'skill'
   source: 'local' | 'git'
   location: string
@@ -104,6 +106,8 @@ export interface ExtensionLaunch {
   /** 不用逐次审批的工具（Claude 的 permissions.allow 规则），例如只读的对话历史 MCP */
   allowTools?: string[]
   pathDirs: string[]
+  /** 走会话参数的 MCP（Antigravity 的 session/new mcpServers）：own 是应用自己的只读服务（免审批） */
+  acpMcp?: Array<McpConfig & { name: string; own?: boolean }>
   dispose?: () => void
 }
 export interface SkillCommand {
@@ -117,7 +121,16 @@ export interface SkillCommand {
 }
 
 // 从本机其他软件导入（apps/desktop/src/main/extensions/import-apps.ts，docs/ui/extension-remaining-plan.md §H）
-export const IMPORT_APPS = ['claude-code', 'claude-desktop', 'cursor', 'codex', 'vscode', 'windsurf'] as const
+export const IMPORT_APPS = [
+  'claude-code',
+  'claude-desktop',
+  'cursor',
+  'codex',
+  'antigravity',
+  'grok',
+  'vscode',
+  'windsurf',
+] as const
 export type ImportApp = (typeof IMPORT_APPS)[number]
 
 export const IMPORT_APP_NAMES: Record<ImportApp, string> = {
@@ -125,6 +138,8 @@ export const IMPORT_APP_NAMES: Record<ImportApp, string> = {
   'claude-desktop': 'Claude Desktop',
   cursor: 'Cursor',
   codex: 'Codex',
+  antigravity: 'Antigravity',
+  grok: 'Grok',
   vscode: 'VS Code',
   windsurf: 'Windsurf',
 }

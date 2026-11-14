@@ -1,12 +1,24 @@
 // 通道和执行者的显示文字（输入框菜单、设置页共用）
 import { tr } from '../../i18n/core'
 import { ENGINES, type EngineId } from '@pixelsky/protocol'
-import { AUTH_ENGINE, type ChannelId, type ChannelState } from './channelModel'
+import { AUTH_ENGINE, isAuthChannel, type ChannelId, type ChannelState } from './channelModel'
 import { planInfo, type PlanProvider } from './plans'
 
-export const CHANNEL_NUMBER: Record<ChannelId, string> = { platform: '①', claude: '②', chatgpt: '③', custom: '④' }
+export const CHANNEL_NUMBER: Record<ChannelId, string> = {
+  platform: '①',
+  claude: '②',
+  chatgpt: '③',
+  google: '④',
+  custom: '⑤',
+}
 /** 小方块里的编号（菜单分组标题、设置卡片） */
-export const CHANNEL_DIGIT: Record<ChannelId, string> = { platform: '1', claude: '2', chatgpt: '3', custom: '4' }
+export const CHANNEL_DIGIT: Record<ChannelId, string> = {
+  platform: '1',
+  claude: '2',
+  chatgpt: '3',
+  google: '4',
+  custom: '5',
+}
 
 export const channelLabel = (c: ChannelId): string => tr(`modelChannels.channel.${c}`)
 export const channelShort = (c: ChannelId): string => tr(`modelChannels.short.${c}`)
@@ -30,16 +42,17 @@ export function maskEmail(email: string): string {
 /** 已授权的账号：邮箱 · 套餐（Ultra）；都没有时为空 */
 export function accountText(
   account: { email?: string; plan?: string; org?: string } | undefined,
-  provider: PlanProvider,
+  provider: PlanProvider | 'google',
 ): string {
   if (!account) return ''
-  const plan = planLabel(provider, account.plan)
+  // Google 账号（Antigravity）不报套餐
+  const plan = provider === 'google' ? '' : planLabel(provider, account.plan)
   return [account.email, plan].filter(Boolean).join(' · ')
 }
 
 /** 通道不能用时的一句话；能用时为 null */
 export function channelStateText(channel: ChannelId, state: ChannelState): string | null {
-  const engine = channel === 'claude' || channel === 'chatgpt' ? ENGINES[AUTH_ENGINE[channel]].name : ''
+  const engine = isAuthChannel(channel) ? ENGINES[AUTH_ENGINE[channel]].name : ''
   switch (state.kind) {
     case 'ready':
       return null

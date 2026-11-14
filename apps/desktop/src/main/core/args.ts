@@ -28,7 +28,7 @@ export function int(v: unknown, fallback: number, max: number): number {
 }
 
 export function engineId(v: unknown): EngineId {
-  if (v !== 'claude' && v !== 'codex' && v !== 'pixel') throw new Error('未知引擎')
+  if (v !== 'claude' && v !== 'codex' && v !== 'pixel' && v !== 'antigravity') throw new Error('未知引擎')
   return v
 }
 

@@ -27,7 +27,18 @@ export function initProjectImport(ctx: AppContext, host: EngineHost): void {
     ...host.engineConfig().claude.env,
     ...host.engineConfig().codex.env,
   })
-  ipc.handle('projectImport:scan', () => discoverToolProjects(known(), undefined, env()))
+  ipc.handle('projectImport:scan', () => {
+    const projects = known()
+    // agy 的会话记录加密，项目路径只能问 agy（session/list）；没装、没登录、出错都当没找到，
+    // 最多等 15 秒，agy 卡住时别的工具照常出结果
+    const agy = Promise.race([
+      host.nativeProjects('antigravity'),
+      new Promise<string[]>(done => setTimeout(() => done([]), 15_000).unref()),
+    ])
+      .then(dirs => dirs.map(path => ({ path, source: 'Antigravity' })))
+      .catch(() => [])
+    return discoverToolProjects(projects, undefined, env(), agy)
+  })
   let codexImport: Promise<CodexWorkspaceImportResult> | null = null
   ipc.handle('projectImport:codexSessions', () => {
     known()
@@ -61,17 +72,24 @@ export function initProjectImport(ctx: AppContext, host: EngineHost): void {
       'kimi',
       'cursor',
       'dsh',
+      'grok',
     ]
     if (!kinds.includes(raw as ProjectImportPicker)) throw new Error('项目清单来源不正确')
     const kind = raw as ProjectImportPicker
     const folders = kind === 'folders' || kind === 'parent'
-    // Cursor 每个项目一个文件，选 workspaceStorage 文件夹（或它的上级）
-    const cursor = kind === 'cursor'
+    // Cursor 每个项目一个文件，选 workspaceStorage 文件夹（或它的上级）；Grok 选 sessions 或 .grok 文件夹
+    const cursor = kind === 'cursor' || kind === 'grok'
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
       title: nativeText(
         win,
-        folders ? '选择项目文件夹' : cursor ? '选择 Cursor 的 workspaceStorage 文件夹' : '手动选择清单',
+        folders
+          ? '选择项目文件夹'
+          : kind === 'grok'
+            ? '选择 Grok 的 sessions 文件夹'
+            : cursor
+              ? '选择 Cursor 的 workspaceStorage 文件夹'
+              : '手动选择清单',
       ),
       properties: folders ? ['openDirectory', 'multiSelections'] : cursor ? ['openDirectory'] : ['openFile'],
       ...(folders || cursor

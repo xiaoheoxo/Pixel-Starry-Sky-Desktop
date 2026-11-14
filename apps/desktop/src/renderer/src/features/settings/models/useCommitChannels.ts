@@ -41,6 +41,8 @@ export function useCommitChannels() {
         const model = commitCodexModel(m.codexModel, codexModels)
         return model === null ? tr('aiCommit.settings.followCodex') : selfModelLabel('codex', model, codexModels)
       }
+      case 'antigravity':
+        return tr('aiCommit.settings.followAgy')
       case 'custom': {
         const chosen = commitProvider(providers, m)
         return chosen ? `${chosen.provider.name} · ${chosen.model}` : ''
