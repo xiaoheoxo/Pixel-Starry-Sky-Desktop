@@ -4,7 +4,7 @@
 import type { Item } from '@pixelsky/protocol'
 import { FOLD_OVER, FOLD_SHOW } from '@/ui/code/CodeBlock'
 import { USER_FOLD_CHARS, USER_FOLD_LINES } from './userBlocks'
-import { OUTPUT_CLAMP_LINES, thinkingSegments, type ViewMode } from '../viewModeModel'
+import { OUTPUT_CLAMP_LINES, type ViewMode } from '../viewModeModel'
 
 /** 正文一行（含行距） */
 const PROSE_LINE = 26
@@ -104,8 +104,6 @@ const OUT_LINE = 19
 const OUT_CHROME = 16
 /** 限高输出下面的「展开」按钮 */
 const CLAMP_BUTTON = 26
-/** 思考模式里一组工具收成的一行（TurnProcess 的 ToolGroup） */
-const TOOL_GROUP = 30
 
 /** 详细模式自动展开的输出：超过 OUTPUT_CLAMP_LINES 行的限高，下面多一个按钮 */
 function outputHeight(text: string): number {
@@ -116,8 +114,8 @@ function outputHeight(text: string): number {
 }
 
 /**
- * 执行块里的一行（不含上下留空）。按查看模式估：思考、详细模式展开思考正文，
- * 详细模式还展开工具输出、改动、待办（docs/ui/view-mode.md §13 D）
+ * 执行块里的一行（不含上下留空）。按查看模式估：详细模式展开思考正文，
+ * 还展开工具输出、改动、待办（docs/ui/view-mode.md §13 D）
  */
 export function rowHeight(item: Item, mode: ViewMode): number {
   switch (item.kind) {
@@ -127,7 +125,7 @@ export function rowHeight(item: Item, mode: ViewMode): number {
     case 'compaction':
       return itemHeight(item)
     case 'reasoning':
-      if (mode === 'normal' || !item.text.trim()) return ROW
+      if (mode !== 'detailed' || !item.text.trim()) return ROW
       return Math.min(
         MAX,
         ROW + 8 + PROSE_LINE * item.text.split('\n').reduce((n, l) => n + (l.trim() ? proseLines(l) : 0), 0),
@@ -150,23 +148,17 @@ const gapOf = (item: Item): number =>
 
 /**
  * 「执行」块：收起时只有标题行；展开时（极简模式默认展开）加上里面每一行（rowHeight，按模式估）。
- * 运行中收起时还露出最后几条。grouped：思考模式（非极简）两段思考之间的工具收成一行
+ * 运行中收起时还露出最后几条
  */
 export function processHeight(
   items: readonly Item[],
   open: boolean,
   running: boolean,
   mode: ViewMode = 'normal',
-  grouped = false,
 ): number {
   const shown = open ? items : running ? items.slice(-PROCESS_TAIL) : []
   if (!shown.length) return PROCESS_HEAD
   let height = PROCESS_HEAD + 4
-  if (open && mode === 'thinking' && grouped)
-    for (const s of thinkingSegments(shown)) {
-      if (s.type === 'text') height += rowHeight(s.item, mode) + gapOf(s.item)
-      else height += TOOL_GROUP + (s.items.some(i => 'status' in i && i.status === 'running') ? ROW : 0)
-    }
-  else for (const item of shown) height += rowHeight(item, open ? mode : 'normal') + gapOf(item)
+  for (const item of shown) height += rowHeight(item, open ? mode : 'normal') + gapOf(item)
   return Math.min(MAX, Math.round(height))
 }

@@ -293,7 +293,7 @@ export function ReasoningBlock({ item }: { item: ItemOf<'reasoning'> }) {
   const running = item.status === 'running'
   const look = rowLook(running, useLiveOwned())
   const hasText = !!item.text.trim()
-  const { open, toggle, fold } = useFold(item.id, hasText, useRowMode().mode !== 'normal')
+  const { open, toggle, fold } = useFold(item.id, hasText, useRowMode().mode === 'detailed')
   const [, tick] = useState(0)
   useEffect(() => {
     if (!look.clock) return

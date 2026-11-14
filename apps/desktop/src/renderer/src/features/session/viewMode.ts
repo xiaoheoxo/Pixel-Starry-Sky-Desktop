@@ -1,4 +1,4 @@
-// 对话查看模式（docs/ui/view-mode.md，D237）：普通 / 思考 / 详细，全局一份存本机，多窗口同步；只改显示，不碰 thinkingSummaries
+// 对话查看模式（docs/ui/view-mode.md，D237）：普通 / 聊天 / 详细（D281），全局一份存本机，多窗口同步；只改显示，不碰 thinkingSummaries
 import { createContext, useContext, useSyncExternalStore } from 'react'
 import { useLightweight } from '@/features/recovery/lightweight'
 

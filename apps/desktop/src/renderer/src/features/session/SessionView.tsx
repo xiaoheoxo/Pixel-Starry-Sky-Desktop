@@ -218,9 +218,9 @@ function LiveSessionView({
     return () => window.removeEventListener('keydown', onKey)
   }, [sessionId, tuiMode, showModeToast])
   const viewMode = useViewMode().mode
-  // 模式不是普通、这个会话没开思考摘要：明说思考只显示用时（§4 第 2 条），引擎支持时给「下一轮开启」
+  // 详细模式、这个会话没开思考摘要：明说思考只显示用时（§4 第 2 条），引擎支持时给「下一轮开启」
   const thinkingNote =
-    viewMode !== 'normal' && composer && !composer.thinkingSummaries ? (
+    viewMode === 'detailed' && composer && !composer.thinkingSummaries ? (
       <div data-view-mode-note className="conversation-message flex items-center gap-2 px-2 text-meta text-fg-muted">
         <span>{tr(composer.thinkingSupported ? 'viewMode.noThinking' : 'viewMode.noThinkingUnsupported')}</span>
         {composer.thinkingSupported && (

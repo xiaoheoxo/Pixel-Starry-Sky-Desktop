@@ -1,6 +1,6 @@
-// 对话查看模式的按钮和菜单（docs/ui/view-mode.md §6）：放在输入框状态栏，普通只有图标，思考、详细带文字和强调底色
+// 对话查看模式的按钮和菜单（docs/ui/view-mode.md §6）：放在输入框状态栏，普通只有图标，聊天、详细带文字和强调底色
 import { useRef, useState } from 'react'
-import { Brain, Check, Eye, ListTree, type LucideIcon } from 'lucide-react'
+import { Check, Eye, ListTree, MessagesSquare, type LucideIcon } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '../../i18n/core'
 import { Popover, cn } from '@/ui'
@@ -9,7 +9,7 @@ import { VIEW_MODES, setViewMode, useStoredViewMode, type ViewMode } from './vie
 
 export const VIEW_MODE_META: Record<ViewMode, { icon: LucideIcon; label: TranslationKey; hint: TranslationKey }> = {
   normal: { icon: Eye, label: 'viewMode.normal', hint: 'viewMode.normalHint' },
-  thinking: { icon: Brain, label: 'viewMode.thinking', hint: 'viewMode.thinkingHint' },
+  chat: { icon: MessagesSquare, label: 'viewMode.chat', hint: 'viewMode.chatHint' },
   detailed: { icon: ListTree, label: 'viewMode.detailed', hint: 'viewMode.detailedHint' },
 }
 

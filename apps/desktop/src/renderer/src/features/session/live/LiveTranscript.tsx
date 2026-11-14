@@ -86,7 +86,6 @@ import {
   SUBAGENT_BOX,
   toolsHeight,
 } from './blockHeight'
-import { useMinimal } from '@/features/appearance/ThemeProvider'
 import { reviewTurn } from '@/features/panel/artifacts/focus'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
@@ -271,12 +270,8 @@ const ProcessBlock = memo(
     const toggle = useCallback((open: boolean) => onToggle(foldKey, open), [onToggle, foldKey])
     // 没画过时的占位高度要按展开 / 收起算：详细模式默认展开，按收起的一行估会让滚动时总高度不停变、滑块乱跳
     const open = toggled ?? processOpenByDefault(items, mode)
-    // 按模式估（§13 D）：思考模式（非极简）的工具收成一行，详细模式的输出展开
-    const grouped = !useMinimal()
-    const style = useMemo(
-      () => placeholder(processHeight(items, open, running, mode, grouped)),
-      [items, open, running, mode, grouped],
-    )
+    // 按模式估（§13 D）：详细模式的思考、输出展开
+    const style = useMemo(() => placeholder(processHeight(items, open, running, mode)), [items, open, running, mode])
     return (
       <div className="conversation-message" style={style}>
         {group ? (
@@ -481,8 +476,8 @@ export function LiveTranscript({
   // 断线自动重连：自动发的「继续」显示成一行小字，接着重连了的那几次断线报错不显示
   const pendingReconnect = !!snapshot?.queue.some(isReconnecting)
   const reconnects = useMemo(() => reconnectView(shownItems, pendingReconnect), [shownItems, pendingReconnect])
-  // Codex 普通模式：中间的回复直接显示，两段回复之间的过程各收成一行（docs/ui/codex-flow-slash-feedback.md A，D276）
-  const interleave = snapshot?.record.engine === 'codex' && viewMode.mode === 'normal'
+  // 聊天模式：中间的回复直接显示，两段回复之间的过程各收成一行（docs/ui/view-mode.md §3，D276、D281），所有引擎一样
+  const interleave = viewMode.mode === 'chat'
   const blocks = useMemo(() => {
     if (changesCache.current.sessionId !== sessionId) changesCache.current = { sessionId, map: new Map() }
     return toBlocks(reconnects.items, running, changesCache.current.map, { subagents, interleave })

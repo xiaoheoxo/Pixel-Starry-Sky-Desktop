@@ -124,12 +124,8 @@ describe('按查看模式估（§13 D）', () => {
     const longer = { ...long, output: Array(400).fill('x').join('\n') } as Item
     expect(rowHeight(longer, 'detailed')).toBe(rowHeight(long, 'detailed'))
   })
-  it('思考模式展开思考正文；非极简时工具组收成一行', () => {
-    expect(rowHeight(think, 'thinking')).toBeGreaterThan(ROW)
-    const items = [think, long, short, long]
-    expect(processHeight(items, true, false, 'thinking', true)).toBeLessThan(
-      processHeight(items, true, false, 'detailed'),
-    )
-    expect(processHeight(items, true, false, 'thinking', true)).toBe(30 + 4 + rowHeight(think, 'thinking') + 30)
+  it('思考正文只在详细模式展开，聊天模式和普通一样一行', () => {
+    expect(rowHeight(think, 'detailed')).toBeGreaterThan(ROW)
+    expect(rowHeight(think, 'chat')).toBe(ROW)
   })
 })

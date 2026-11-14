@@ -33,7 +33,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { Brain as BrainIcon, Eye as EyeIcon, ListTree as ListTreeIcon } from 'lucide-react'
+import { Eye as EyeIcon, ListTree as ListTreeIcon, MessagesSquare as ChatIcon } from 'lucide-react'
 import { setViewMode } from '@/features/session/viewMode'
 import { channelActions } from '@/features/channels/store'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -313,9 +313,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     add('search.open', 'terminal.openSearch', 'terminal.categoryWorkbench', Search, openSearch, OPEN_SEARCH.label)
     // 对话查看模式（docs/ui/view-mode.md §6）
     add('viewMode.normal', 'viewMode.paletteNormal', 'terminal.categoryWorkbench', EyeIcon, () => setViewMode('normal'))
-    add('viewMode.thinking', 'viewMode.paletteThinking', 'terminal.categoryWorkbench', BrainIcon, () =>
-      setViewMode('thinking'),
-    )
+    add('viewMode.chat', 'viewMode.paletteChat', 'terminal.categoryWorkbench', ChatIcon, () => setViewMode('chat'))
     add('viewMode.detailed', 'viewMode.paletteDetailed', 'terminal.categoryWorkbench', ListTreeIcon, () =>
       setViewMode('detailed'),
     )
