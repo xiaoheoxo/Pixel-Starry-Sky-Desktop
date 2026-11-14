@@ -36,10 +36,13 @@ export function AuthDialogHost() {
   ) : null
 }
 
+/** 授权弹窗标题里的账号名 */
+const AUTH_NAME: Record<AuthChannel, string> = { claude: 'Claude', chatgpt: 'ChatGPT', google: 'Google' }
+
 function AuthDialog({ channel, target, onDone }: { channel: AuthChannel; target?: string; onDone?: () => void }) {
   useI18n()
   const engine = AUTH_ENGINE[channel]
-  const name = channel === 'claude' ? 'Claude' : 'ChatGPT'
+  const name = AUTH_NAME[channel]
   const login = useEngineLogin(engine)
   const info = useChannelEngines().find(e => e.id === engine)
   const settings = useSettings()
@@ -250,7 +253,8 @@ function AuthDialog({ channel, target, onDone }: { channel: AuthChannel; target?
             <span className="flex-1" />
           )}
         </div>
-        {engine === 'claude' && (
+        {/* Claude、agy 授权完页面给授权码，要粘贴回命令行 */}
+        {(engine === 'claude' || engine === 'antigravity') && (
           <form
             className="flex flex-col gap-1.5"
             onSubmit={e => {
