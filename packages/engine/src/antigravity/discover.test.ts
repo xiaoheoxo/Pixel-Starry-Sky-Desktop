@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { AcpConnection } from '../acp/connection'
 import { AntigravityAdapter } from './index'
-import { agyCatalog, agyOneShot, agyVersionStatus, discoverAgy, probeAgyAuth } from './discover'
+import { agyCatalog, agyOneShot, agyTier, agyVersionStatus, discoverAgy, probeAgyAuth } from './discover'
 
 // 假的 agy acp：照 P0 录像（docs/antigravity-engine.md §7）回 initialize；
-// 有 GEMINI_API_KEY 时 authenticate 成功，没有时 session/list 回 -32000；收到 ping 时反过来发一个字符串 id 的请求
+// 有 GEMINI_API_KEY 时 authenticate 成功，没有时 session/new 回 -32000；收到 ping 时反过来发一个字符串 id 的请求
 const dir = mkdtempSync(join(tmpdir(), 'pixelsky-agy-test-'))
 const fake = join(dir, 'fake-agy.mjs')
 writeFileSync(
@@ -18,11 +18,16 @@ const out = m => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) +
 createInterface({ input: process.stdin }).on('line', line => {
   const m = JSON.parse(line)
   if (m.method === 'initialize') out({ id: m.id, result: { protocolVersion: 1, authMethods: [{ id: 'gemini-api-key' }] } })
-  else if (m.method === 'authenticate') out({ id: m.id, result: {} })
+  else if (m.method === 'authenticate') { globalThis.authed = true; out({ id: m.id, result: {} }) }
   else if (m.method === 'session/list')
     process.env.FAKE_SIGNED_IN ? out({ id: m.id, result: { sessions: [] } }) : out({ id: m.id, error: { code: -32000, message: 'Authentication required' } })
   else if (m.method === 'session/new') {
-    out({ id: m.id, result: { sessionId: 'c1', configOptions: [{ id: 'model', currentValue: 'g', options: [{ value: 'g', name: 'G' }] }] } })
+    if (!process.env.FAKE_SIGNED_IN && !globalThis.authed) {
+      out({ id: m.id, error: { code: -32000, message: 'Authentication required' } })
+      return
+    }
+    const tier = process.env.FAKE_TIER ? { name: process.env.FAKE_TIER, id: 'g1-ultra-tier' } : undefined
+    out({ id: m.id, result: { sessionId: 'c1', configOptions: [{ id: 'model', currentValue: 'g', options: [{ value: 'g', name: 'G' }] }], ...(tier ? { _meta: { antigravity: { tier } } } : {}) } })
     out({ method: 'session/update', params: { sessionId: 'c1', update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'goal', description: 'Set a goal' }, { name: '' }] } } })
   }
   else if (m.method === 'session/close') out({ id: m.id, result: {} })
@@ -76,7 +81,7 @@ describe('ACP 连接和探登录', () => {
   it('没有 Key、没登录：未登录', async () => {
     expect(await probeAgyAuth(launcher, [], env())).toEqual({ signedIn: false, reason: 'Authentication required' })
   })
-  it('缓存的登录还在：账号登录', async () => {
+  it('缓存的登录还在：session/list 返回账号登录，不额外新建会话', async () => {
     expect(await probeAgyAuth(launcher, [], env({ FAKE_SIGNED_IN: '1' }))).toEqual({ signedIn: true, kind: 'login' })
   })
   it('有 GEMINI_API_KEY：按 Key 认证', async () => {
@@ -98,16 +103,28 @@ describe('ACP 连接和探登录', () => {
 })
 
 describe('模型目录', () => {
-  it('临时会话报的命令一起带回，给还没起进程的会话当「/」菜单', async () => {
-    const c = await agyCatalog(launcher, [], env())
+  it('临时会话报的命令与 _meta.antigravity.tier 套餐一起带回', async () => {
+    const tiers: (string | undefined)[] = []
+    const c = await agyCatalog(launcher, [], env({ FAKE_SIGNED_IN: '1', FAKE_TIER: 'Google AI Ultra' }), t =>
+      tiers.push(t),
+    )
     expect(c.models?.map(m => m.id)).toEqual(['g'])
     expect(c.commands).toEqual([{ name: 'goal', description: 'Set a goal', source: 'engine' }])
+    expect(tiers).toEqual(['Google AI Ultra'])
+    expect(agyTier({ _meta: { antigravity: { tier: { name: '', id: 'g1-pro-tier' } } } })).toBe('g1-pro-tier')
+    expect(agyTier({})).toBeUndefined()
   })
 })
 
 describe('单独问一次', () => {
   it('收集回复文字和用量，权限请求一律拒', async () => {
-    const r = await agyOneShot(launcher, [], env(), { prompt: 'write', model: null }, new AbortController().signal)
+    const r = await agyOneShot(
+      launcher,
+      [],
+      env({ FAKE_SIGNED_IN: '1' }),
+      { prompt: 'write', model: null },
+      new AbortController().signal,
+    )
     expect(r).toEqual({
       text: 'feat: cancelled',
       model: 'g',
@@ -117,6 +134,19 @@ describe('单独问一次', () => {
 })
 
 describe('适配器检测', () => {
+  it('登录且带套餐时写进 info.account.plan', async () => {
+    const adapter = new AntigravityAdapter({
+      overridePath: () => process.execPath,
+      env: env(),
+      probe: async () => ({ signedIn: true, kind: 'login', plan: 'Google AI Ultra' }),
+    })
+    expect(await adapter.info()).toMatchObject({
+      id: 'antigravity',
+      status: 'ready',
+      auth: { kind: 'login' },
+      account: { plan: 'Google AI Ultra' },
+    })
+  })
   it('没登录时状态是 unauthenticated', async () => {
     const adapter = new AntigravityAdapter({
       overridePath: () => process.execPath,

@@ -36,6 +36,17 @@ describe('planInfo', () => {
   it('同一个 pro：Claude 是标准档，ChatGPT 是 Pro 20x', () => {
     expect(planInfo('claude', 'pro')?.label).toBe('Pro')
     expect(planInfo('chatgpt', 'pro')?.label).toBe('Pro 20x')
+    expect(planInfo('google', 'Google AI Pro')).toEqual({ label: 'Pro', tone: 'high' })
+  })
+
+  it('Google（Antigravity _meta.antigravity.tier）：显示名和 id 都能对应档位', () => {
+    expect(planInfo('google', 'Google AI Ultra')).toEqual({ label: 'Ultra', tone: 'top' })
+    expect(planInfo('google', 'g1-ultra-tier')).toEqual({ label: 'Ultra', tone: 'top' })
+    expect(planInfo('google', 'g1-pro-tier')).toEqual({ label: 'Pro', tone: 'high' })
+    expect(planInfo('google', 'Free')).toEqual({ label: 'Free', tone: 'free' })
+    expect(planInfo('google', 'free-tier')).toEqual({ label: 'Free', tone: 'free' })
+    expect(planInfo('google', 'Gemini Enterprise')).toEqual({ label: 'Enterprise', tone: 'team' })
+    expect(planInfo('google', 'Google AI Plus')).toEqual({ label: 'Plus', tone: 'std' })
   })
 
   it('没有、unknown 不显示；认不出的首字母大写', () => {
@@ -47,6 +58,7 @@ describe('planInfo', () => {
 
   it('planProviderOf', () => {
     expect(planProviderOf('codex')).toBe('chatgpt')
+    expect(planProviderOf('antigravity')).toBe('google')
     expect(planProviderOf('claude')).toBe('claude')
   })
 })

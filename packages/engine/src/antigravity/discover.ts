@@ -111,17 +111,27 @@ export async function discoverAgy(
   return { info: { ...base, status: check.status, version, path, message: check.message }, launcher }
 }
 
-export type AgyAuth = { signedIn: true; kind: 'login' | 'apiKey' } | { signedIn: false; reason: string }
+export type AgyAuth = { signedIn: true; kind: 'login' | 'apiKey'; plan?: string } | { signedIn: false; reason: string }
+
+/** session/new 返回的 _meta.antigravity.tier（Google 账号登录有，如 { id: 'g1-ultra-tier', name: 'Google AI Ultra' }） */
+export function agyTier(result: Record<string, unknown>): string | undefined {
+  const meta = (result._meta ?? {}) as Record<string, unknown>
+  const agy = (meta.antigravity ?? {}) as Record<string, unknown>
+  const tier = (agy.tier ?? {}) as Record<string, unknown>
+  for (const v of [tier.name, tier.id]) if (typeof v === 'string' && v.trim()) return v.trim()
+  return undefined
+}
 
 /**
- * 探登录：起一次 agy acp（临时空目录），握手。有 GEMINI_API_KEY 时按 Key 认证（authenticate gemini-api-key），
- * 否则 session/list 看缓存的登录还在不在：没凭据回 -32000（§7「握手和认证」）。不新建会话、不发消息
+ * 探登录：起一次 agy acp（临时空目录），握手。有 GEMINI_API_KEY 时按 Key 认证（authenticate gemini-api-key）；
+ * 否则只调 session/list 确认登录（不新建会话、避免每次检测多开一次 agy 会话；套餐档位在 catalog() 顺手读，§14）
  */
 export async function probeAgyAuth(launcher: Launcher, args: string[], env: NodeJS.ProcessEnv): Promise<AgyAuth> {
   try {
     return await withAgy(launcher, args, env, async (conn, key) => {
-      if (!key) await conn.request('session/list', {}, 20_000)
-      return { signedIn: true, kind: key ? 'apiKey' : 'login' } as const
+      if (key) return { signedIn: true, kind: 'apiKey' } as const
+      await conn.request('session/list', {}, 20_000)
+      return { signedIn: true, kind: 'login' } as const
     })
   } catch (error) {
     if (error instanceof AcpError && error.code === ACP_AUTH_REQUIRED) return { signedIn: false, reason: error.message }
@@ -201,7 +211,12 @@ export function agyModels(result: Record<string, unknown>): EngineCatalog {
  * 模型目录：开一个临时会话读完就关（session/close），不发消息。新建后 agy 紧接着推一次 available_commands_update
  * （P0 录像约 25 ms 后），等它最多 1 秒，给还没起进程的会话当「/」菜单
  */
-export function agyCatalog(launcher: Launcher, args: string[], env: NodeJS.ProcessEnv): Promise<EngineCatalog> {
+export function agyCatalog(
+  launcher: Launcher,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  onTier?: (plan: string | undefined) => void,
+): Promise<EngineCatalog> {
   let commands: SkillCommand[] | null = null
   let got: () => void = () => {}
   const arrived = new Promise<void>(resolve => (got = resolve))
@@ -211,6 +226,7 @@ export function agyCatalog(launcher: Launcher, args: string[], env: NodeJS.Proce
     env,
     async (conn, _key, cwd) => {
       const r = await conn.request<Record<string, unknown>>('session/new', { cwd, mcpServers: [] }, 30_000)
+      onTier?.(agyTier(r))
       await Promise.race([arrived, new Promise(resolve => setTimeout(resolve, 1000))])
       await conn.request('session/close', { sessionId: r.sessionId }, 10_000).catch(() => {})
       return { ...agyModels(r), ...(commands ? { commands } : {}) }

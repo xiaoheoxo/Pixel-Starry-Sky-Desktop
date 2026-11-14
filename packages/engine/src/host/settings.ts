@@ -430,7 +430,12 @@ export class HostSettings {
 
   async engineCatalog(engine: EngineId, force = false): Promise<EngineCatalog> {
     const adapter = this.ctx.adapters[engine]
-    return adapter?.catalog ? adapter.catalog(force) : { outputStyles: [], currentOutputStyle: null }
+    if (!adapter?.catalog) return { outputStyles: [], currentOutputStyle: null }
+    const prevPlan = (await adapter.info().catch(() => null))?.account?.plan
+    const catalog = await adapter.catalog(force)
+    const nextPlan = (await adapter.info().catch(() => null))?.account?.plan
+    if (nextPlan !== prevPlan) this.ctx.opts.emit({ kind: 'engines', engines: await this.engines() })
+    return catalog
   }
 
   async updateEngine(engine: EngineId): Promise<EngineUpdateResult> {

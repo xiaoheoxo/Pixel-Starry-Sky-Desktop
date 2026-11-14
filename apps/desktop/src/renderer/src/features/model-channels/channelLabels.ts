@@ -1,7 +1,7 @@
 // 通道和执行者的显示文字（输入框菜单、设置页共用）
 import { tr } from '../../i18n/core'
-import { ENGINES, type EngineId } from '@pixelsky/protocol'
-import { AUTH_ENGINE, isAuthChannel, type ChannelId, type ChannelState } from './channelModel'
+import { ENGINES, type EngineId, type EngineInfo } from '@pixelsky/protocol'
+import { AUTH_ENGINE, isAuthChannel, type AuthChannel, type ChannelId, type ChannelState } from './channelModel'
 import { planInfo, type PlanProvider } from './plans'
 
 export const CHANNEL_NUMBER: Record<ChannelId, string> = {
@@ -42,12 +42,38 @@ export function maskEmail(email: string): string {
 /** 已授权的账号：邮箱 · 套餐（Ultra）；都没有时为空 */
 export function accountText(
   account: { email?: string; plan?: string; org?: string } | undefined,
-  provider: PlanProvider | 'google',
+  provider: PlanProvider,
 ): string {
   if (!account) return ''
-  // Google 账号（Antigravity）不报套餐
-  const plan = provider === 'google' ? '' : planLabel(provider, account.plan)
-  return [account.email, plan].filter(Boolean).join(' · ')
+  return [account.email, planLabel(provider, account.plan)].filter(Boolean).join(' · ')
+}
+
+/** 授权通道显示的账号：Google 账号官方不返回邮箱，非 Key 登录且用户填了备注时把备注当账号显示（docs/antigravity-engine.md §14） */
+export function channelAccount(
+  channel: AuthChannel,
+  info: Pick<EngineInfo, 'account' | 'auth'> | undefined,
+  googleNote = '',
+): { email?: string; plan?: string; org?: string } | undefined {
+  if (channel !== 'google') return info?.account
+  if (info?.auth?.kind === 'apiKey') return undefined
+  const email = googleNote.trim() || undefined
+  const plan = info?.account?.plan
+  return email || plan ? { ...(email ? { email } : {}), ...(plan ? { plan } : {}) } : undefined
+}
+
+/** 模型菜单左栏 / 悬停提示里授权通道的第二行（方案 D：有邮箱/备注同 Claude，只有套餐显示「Ultra · N 个可用」，Key 显示「API Key · N 个可用」） */
+export function authChannelSub(
+  channel: AuthChannel,
+  info: Pick<EngineInfo, 'account' | 'auth'> | undefined,
+  usableText: string,
+  googleNote = '',
+): string {
+  if (channel === 'google' && info?.auth?.kind === 'apiKey') return `${tr('modelChannels.menu.apiKey')} · ${usableText}`
+  const a = channelAccount(channel, info, googleNote)
+  const plan = planLabel(channel, a?.plan)
+  if (a?.email) return [maskEmail(a.email), plan].filter(Boolean).join(' · ')
+  if (plan) return channel === 'google' ? `${plan} · ${usableText}` : plan
+  return usableText
 }
 
 /** 通道不能用时的一句话；能用时为 null */

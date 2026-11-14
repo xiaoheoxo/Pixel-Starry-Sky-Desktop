@@ -4,7 +4,7 @@ import { tr, translateMessage } from '../../i18n/core'
 // 最下面「新对话用：接着上次 / 固定为」（§2.6）
 import { useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Columns2, LogIn, PanelTop } from 'lucide-react'
-import { Button, EngineIcon, Popover, Segmented, Select, Spinner, cn } from '@/ui'
+import { Button, EngineIcon, PlanBadge, Popover, Segmented, Select, Spinner, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useAccount } from '@/features/account/useAccount'
 import { usePlatformCatalog } from '@/features/account/platform'
@@ -34,7 +34,8 @@ import {
   channelStateText,
   executorName,
 } from './channelLabels'
-import { setMenuLayout, useChannelPrefs } from './channelPrefs'
+import { setGoogleNote, setMenuLayout, useChannelPrefs } from './channelPrefs'
+import { planInfo } from './plans'
 import { openAuthDialog } from './authDialogStore'
 import { logoutEngine, useChannelEngines } from './loginStore'
 import { currentNewTaskChoice, pinNewTask } from './newTaskDefault'
@@ -167,9 +168,12 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
   const info = engines.find(e => e.id === engine)
   const machine = useMachines().currentId
   const settings = useSettings()
+  const prefs = useChannelPrefs()
   const [confirm, setConfirm] = useState<'logout' | 'switch' | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingNote, setEditingNote] = useState(false)
+  const [noteDraft, setNoteDraft] = useState('')
   const state = channelState(channel, {
     platform: { email: null, loaded: false, loading: false, groups: [] },
     engines,
@@ -181,6 +185,7 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
   const remote = machine !== 'local'
   // Codex 用 config.toml 里自己的接口（docs/ui/model-channels.md §3 第 6 条）
   const provider = state.kind === 'ready' && info?.auth?.kind === 'provider' ? (info.auth.provider ?? '') : null
+  const canNote = channel === 'google' && state.kind === 'ready' && !remote && info?.auth?.kind !== 'apiKey'
   // 订阅账号多开（docs/ui/engine-accounts.md）：本机、用订阅登录的才有账号下拉和「管理账号」
   const accountEngine = ACCOUNT_ENGINE[channel]
   const accounts = useAccounts(accountEngine)
@@ -204,20 +209,43 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
   let secondary: ReactNode = null
   if (state.kind === 'loading') status = <Spinner />
   else if (state.kind === 'ready') {
-    const signedIn = accountText(info?.account, channel)
-    status = (
-      <>
-        <span className="text-fg">
-          {provider !== null
-            ? tr('modelChannels.authCard.provider', { p0: provider })
-            : signedIn ||
-              tr(info?.auth?.kind === 'apiKey' ? 'modelChannels.authCard.apiKey' : 'modelChannels.auth.done')}
+    if (channel === 'google' && provider === null && info?.auth?.kind !== 'apiKey') {
+      const googlePlan = planInfo('google', info?.account?.plan)
+      status = (
+        <span className="inline-flex max-w-full items-center gap-1.5 align-bottom">
+          <span className="truncate text-fg">{prefs.googleNote || tr('modelChannels.auth.done')}</span>
+          {googlePlan && <PlanBadge label={googlePlan.label} tone={googlePlan.tone} />}
+          {canNote && !editingNote && (
+            <button
+              type="button"
+              data-google-note-trigger
+              onClick={() => {
+                setNoteDraft(prefs.googleNote)
+                setEditingNote(true)
+              }}
+              className="shrink-0 text-fg-muted underline hover:text-fg"
+            >
+              {tr(prefs.googleNote ? 'modelChannels.google.editNote' : 'modelChannels.google.note')}
+            </button>
+          )}
         </span>
-        {multi && accounts.accounts.length > 1 && (
-          <span> · {tr('accounts.count', { n: accounts.accounts.length })}</span>
-        )}
-      </>
-    )
+      )
+    } else {
+      const signedIn = accountText(info?.account, channel)
+      status = (
+        <>
+          <span className="text-fg">
+            {provider !== null
+              ? tr('modelChannels.authCard.provider', { p0: provider })
+              : signedIn ||
+                tr(info?.auth?.kind === 'apiKey' ? 'modelChannels.authCard.apiKey' : 'modelChannels.auth.done')}
+          </span>
+          {multi && accounts.accounts.length > 1 && (
+            <span> · {tr('accounts.count', { n: accounts.accounts.length })}</span>
+          )}
+        </>
+      )
+    }
     // 自己配置的接口不用授权、取消不掉：只在同时还登着账号时给「取消授权」
     if (multi) {
       primary = (
@@ -316,7 +344,55 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
         icon={<EngineIcon engine={engine} size={14} className="opacity-70" />}
         primary={primary}
         secondary={secondary}
-      />
+      >
+        {canNote && editingNote && (
+          <form
+            className="flex flex-col gap-1.5 border-t border-line-subtle px-4 py-2.5"
+            onSubmit={e => {
+              e.preventDefault()
+              setGoogleNote(noteDraft)
+              setEditingNote(false)
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                data-google-note-input
+                value={noteDraft}
+                onChange={e => setNoteDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') {
+                    e.stopPropagation()
+                    setEditingNote(false)
+                  }
+                }}
+                maxLength={120}
+                spellCheck={false}
+                placeholder={tr('modelChannels.google.notePlaceholder')}
+                aria-label={tr('modelChannels.google.noteLabel')}
+                className="h-8 min-w-0 flex-1 rounded-md border border-line bg-surface px-2.5 text-meta text-fg outline-none placeholder:text-fg-faint focus:border-line-strong"
+              />
+              <Button type="submit">{tr('modelChannels.google.noteSave')}</Button>
+              {prefs.googleNote && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setGoogleNote('')
+                    setEditingNote(false)
+                  }}
+                >
+                  {tr('modelChannels.google.noteClear')}
+                </Button>
+              )}
+              <Button type="button" variant="ghost" onClick={() => setEditingNote(false)}>
+                {tr('modelChannels.auth.cancel')}
+              </Button>
+            </div>
+            <p className="text-label text-fg-muted">{tr('modelChannels.google.noteHint')}</p>
+          </form>
+        )}
+      </Card>
       {confirm && (
         <ConfirmDialog
           title={tr(

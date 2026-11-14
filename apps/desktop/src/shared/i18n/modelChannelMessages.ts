@@ -115,6 +115,7 @@ export const modelChannelMessages = {
   'modelChannels.menu.manage': { zh: '管理模型…', en: 'Manage models…' },
   'modelChannels.menu.hiddenCount': { zh: '（已隐藏 {p0} 个）', en: '({p0} hidden)' },
   'modelChannels.menu.usable': { zh: '{p0} 个可用', en: '{p0} available' },
+  'modelChannels.menu.apiKey': { zh: 'API Key', en: 'API key' },
   'modelChannels.tab.platform': { zh: '平台', en: 'PixelSky' },
   'modelChannels.tab.claude': { zh: 'Claude', en: 'Claude' },
   'modelChannels.tab.chatgpt': { zh: 'ChatGPT', en: 'ChatGPT' },
@@ -187,6 +188,22 @@ export const modelChannelMessages = {
     en: 'Use your Google account or Gemini API key with Antigravity',
   },
   'modelChannels.google.signIn': { zh: '用 Google 账号登录', en: 'Sign in with Google' },
+  'modelChannels.google.note': { zh: '备注账号', en: 'Add note' },
+  'modelChannels.google.editNote': { zh: '修改备注', en: 'Edit note' },
+  'modelChannels.google.noteLabel': {
+    zh: '备注登录的邮箱或名称（可选）',
+    en: 'Account email or note (optional)',
+  },
+  'modelChannels.google.notePlaceholder': {
+    zh: '例如 name@gmail.com，留空不显示',
+    en: 'e.g. name@gmail.com (leave blank to hide)',
+  },
+  'modelChannels.google.noteHint': {
+    zh: 'Antigravity 不返回登录邮箱；备注只存在本机，模型菜单里会自动打码。',
+    en: 'Antigravity does not report your email. This note stays on this device and is masked in menus.',
+  },
+  'modelChannels.google.noteSave': { zh: '保存', en: 'Save' },
+  'modelChannels.google.noteClear': { zh: '清空', en: 'Clear' },
   'modelChannels.custom.desc': {
     zh: '自己填地址和 Key：中转站、官方 API Key、DeepSeek、本地 Ollama……',
     en: 'Your own URL and key: relays, official API keys, DeepSeek, local Ollama…',

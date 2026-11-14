@@ -4,7 +4,7 @@
 
 import type { PlanBadgeTone } from '@/ui'
 
-export type PlanProvider = 'claude' | 'chatgpt'
+export type PlanProvider = 'claude' | 'chatgpt' | 'google'
 /** free 灰、std 墨绿、high 琥珀、top 琥珀渐变（最高档）、team 蓝灰 */
 export type PlanTone = PlanBadgeTone
 export interface PlanInfo {
@@ -45,12 +45,26 @@ function chatgptPlan(p: string): PlanInfo {
   return { label: capital(p), tone: 'std' }
 }
 
+/** Google 账号（Antigravity session/new 的 _meta.antigravity.tier，如 Google AI Ultra / g1-ultra-tier） */
+function googlePlan(raw: string): PlanInfo {
+  const p = raw.toLowerCase()
+  if (/\bultra\b|-ultra-/.test(p)) return { label: 'Ultra', tone: 'top' }
+  if (/\bpro\b|-pro-/.test(p)) return { label: 'Pro', tone: 'high' }
+  if (/enterprise|business|code assist/.test(p)) return { label: 'Enterprise', tone: 'team' }
+  if (/\bfree\b|\bstarter\b/.test(p)) return { label: 'Free', tone: 'free' }
+  const stripped = raw.replace(/^(?:google\s+ai|gemini)\s+/i, '').trim()
+  return { label: capital(stripped || raw), tone: 'std' }
+}
+
 /** 套餐的显示名和档位；没有套餐、unknown 为 null */
 export function planInfo(provider: PlanProvider, plan: string | null | undefined): PlanInfo | null {
-  const p = plan?.trim().toLowerCase()
-  if (!p || p === 'unknown') return null
+  const raw = plan?.trim()
+  const p = raw?.toLowerCase()
+  if (!raw || !p || p === 'unknown') return null
+  if (provider === 'google') return googlePlan(raw)
   return provider === 'chatgpt' ? chatgptPlan(p) : claudePlan(p)
 }
 
-/** 引擎 → 哪家的套餐（codex 是 ChatGPT 账号） */
-export const planProviderOf = (engine: string): PlanProvider => (engine === 'codex' ? 'chatgpt' : 'claude')
+/** 引擎 → 哪家的套餐（codex 是 ChatGPT 账号，antigravity 是 Google 账号） */
+export const planProviderOf = (engine: string): PlanProvider =>
+  engine === 'codex' ? 'chatgpt' : engine === 'antigravity' ? 'google' : 'claude'

@@ -14,7 +14,8 @@ import { runMainAction } from '@/features/settings/windowBridge'
 import { AUTH_ENGINE, type AuthChannel } from './channelModel'
 import { closeAuthDialog, useAuthDialog } from './authDialogStore'
 import { cancelLogin, clearLogin, sendLoginCode, startLogin, useChannelEngines, useEngineLogin } from './loginStore'
-import { accountText } from './channelLabels'
+import { accountText, channelAccount } from './channelLabels'
+import { setGoogleNote, useChannelPrefs } from './channelPrefs'
 
 /** 内置终端里跑的登录命令（兜底） */
 const LOGIN_COMMAND = { claude: 'claude auth login', codex: 'codex login', antigravity: 'agy acp --login' } as const
@@ -45,6 +46,7 @@ function AuthDialog({ channel, target, onDone }: { channel: AuthChannel; target?
   const name = AUTH_NAME[channel]
   const login = useEngineLogin(engine)
   const info = useChannelEngines().find(e => e.id === engine)
+  const prefs = useChannelPrefs()
   const settings = useSettings()
   // 设置独立窗口里没有终端界面：「在终端里授权」交给主窗口去跑
   const terminal = useOptionalTerminalUi()
@@ -149,15 +151,34 @@ function AuthDialog({ channel, target, onDone }: { channel: AuthChannel; target?
       </p>
     )
   } else if (login.phase === 'done') {
-    const account = accountText(info?.account, channel)
+    const account = accountText(channelAccount(channel, info, prefs.googleNote), channel)
     body = (
-      <p className="flex items-center gap-2 text-fg">
-        <CircleCheck size={16} className="shrink-0 text-success" />
-        <span>
-          {tr('modelChannels.auth.done')}
-          {account && <span className="text-fg-secondary"> · {account}</span>}
-        </span>
-      </p>
+      <div className="flex flex-col gap-3">
+        <p className="flex items-center gap-2 text-fg">
+          <CircleCheck size={16} className="shrink-0 text-success" />
+          <span>
+            {tr('modelChannels.auth.done')}
+            {account && <span className="text-fg-secondary"> · {account}</span>}
+          </span>
+        </p>
+        {channel === 'google' && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={`${titleId}-note`} className="text-meta text-fg-muted">
+              {tr('modelChannels.google.noteLabel')}
+            </label>
+            <input
+              id={`${titleId}-note`}
+              value={prefs.googleNote}
+              onChange={e => setGoogleNote(e.target.value)}
+              maxLength={120}
+              spellCheck={false}
+              placeholder={tr('modelChannels.google.notePlaceholder')}
+              className="h-8 min-w-0 rounded-md border border-line bg-surface px-2.5 text-meta text-fg outline-none placeholder:text-fg-faint focus:border-line-strong"
+            />
+            <p className="text-label text-fg-faint">{tr('modelChannels.google.noteHint')}</p>
+          </div>
+        )}
+      </div>
     )
   } else if (login.phase === 'failed' || login.phase === 'cancelled') {
     body = (

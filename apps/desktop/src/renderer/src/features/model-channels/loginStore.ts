@@ -7,6 +7,7 @@ import { demo } from '@/data/demo'
 import type { EngineLite } from '@/data/types'
 import { bridge, useEngineState } from '@/features/engine/store'
 import { demoAddAccount } from './accountsStore'
+import { setGoogleNote } from './channelPrefs'
 
 let logins: Partial<Record<EngineId, EngineLogin>> = {}
 /** 演示模式里假授权 / 取消授权过的引擎 */
@@ -167,12 +168,14 @@ export async function logoutEngine(engine: EngineId): Promise<string | null> {
   if (isDemo) {
     demoAuth = { ...demoAuth, [engine]: false }
     demoEngines = null
+    if (engine === 'antigravity') setGoogleNote('')
     emit()
     return null
   }
   if (!bridge) return null
   try {
     const r = await bridge.logoutEngine(engine)
+    if (r.ok && engine === 'antigravity') setGoogleNote('')
     return r.ok ? null : r.output || null
   } catch (err) {
     return (err as Error).message
@@ -189,7 +192,11 @@ function demoEngineList(): EngineLite[] {
           ...e,
           status: 'ready',
           message: null,
-          account: e.account ?? { email: 'linxia@example.com', plan: e.id === 'codex' ? 'plus' : 'max' },
+          account:
+            e.account ??
+            (e.id === 'antigravity'
+              ? { plan: 'Google AI Ultra' }
+              : { email: 'linxia@example.com', plan: e.id === 'codex' ? 'plus' : 'max' }),
           auth: { kind: 'login' as const },
         }
       : { ...e, status: 'unauthenticated', account: undefined }
