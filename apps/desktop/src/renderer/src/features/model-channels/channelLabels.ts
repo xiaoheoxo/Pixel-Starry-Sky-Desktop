@@ -8,7 +8,7 @@ export const CHANNEL_NUMBER: Record<ChannelId, string> = {
   platform: '①',
   claude: '②',
   chatgpt: '③',
-  google: '④',
+  antigravity: '④',
   custom: '⑤',
 }
 /** 小方块里的编号（菜单分组标题、设置卡片） */
@@ -16,7 +16,7 @@ export const CHANNEL_DIGIT: Record<ChannelId, string> = {
   platform: '1',
   claude: '2',
   chatgpt: '3',
-  google: '4',
+  antigravity: '4',
   custom: '5',
 }
 
@@ -48,15 +48,15 @@ export function accountText(
   return [account.email, planLabel(provider, account.plan)].filter(Boolean).join(' · ')
 }
 
-/** 授权通道显示的账号：Google 账号官方不返回邮箱，非 Key 登录且用户填了备注时把备注当账号显示（docs/antigravity-engine.md §14） */
+/** 授权通道显示的账号：Antigravity 官方不返回邮箱，非 Key 登录且用户填了备注时把备注当账号显示（docs/antigravity-engine.md §14） */
 export function channelAccount(
   channel: AuthChannel,
   info: Pick<EngineInfo, 'account' | 'auth'> | undefined,
-  googleNote = '',
+  antigravityNote = '',
 ): { email?: string; plan?: string; org?: string } | undefined {
-  if (channel !== 'google') return info?.account
+  if (channel !== 'antigravity') return info?.account
   if (info?.auth?.kind === 'apiKey') return undefined
-  const email = googleNote.trim() || undefined
+  const email = antigravityNote.trim() || undefined
   const plan = info?.account?.plan
   return email || plan ? { ...(email ? { email } : {}), ...(plan ? { plan } : {}) } : undefined
 }
@@ -66,13 +66,14 @@ export function authChannelSub(
   channel: AuthChannel,
   info: Pick<EngineInfo, 'account' | 'auth'> | undefined,
   usableText: string,
-  googleNote = '',
+  antigravityNote = '',
 ): string {
-  if (channel === 'google' && info?.auth?.kind === 'apiKey') return `${tr('modelChannels.menu.apiKey')} · ${usableText}`
-  const a = channelAccount(channel, info, googleNote)
+  if (channel === 'antigravity' && info?.auth?.kind === 'apiKey')
+    return `${tr('modelChannels.menu.apiKey')} · ${usableText}`
+  const a = channelAccount(channel, info, antigravityNote)
   const plan = planLabel(channel, a?.plan)
   if (a?.email) return [maskEmail(a.email), plan].filter(Boolean).join(' · ')
-  if (plan) return channel === 'google' ? `${plan} · ${usableText}` : plan
+  if (plan) return channel === 'antigravity' ? `${plan} · ${usableText}` : plan
   return usableText
 }
 

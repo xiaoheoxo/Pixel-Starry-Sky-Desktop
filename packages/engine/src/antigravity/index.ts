@@ -81,7 +81,7 @@ export class AntigravityAdapter implements EngineAdapter {
         } else
           Object.assign(found.info, {
             status: 'unauthenticated',
-            message: '还没登录：在终端运行 agy 用 Google 账号登录，或在下面的环境变量里填 GEMINI_API_KEY',
+            message: '还没登录：在终端运行 agy 用 Antigravity 账号登录，或在下面的环境变量里填 GEMINI_API_KEY',
           })
       } catch (error) {
         // 握手失败（进程起不来、超时）：程序本身能跑，按可用算，把原因放进启动错误给设置页看
@@ -167,7 +167,7 @@ export class AntigravityAdapter implements EngineAdapter {
     return launcher
   }
 
-  /** 不带会话问一次（AI 写提交信息等，「Google 账号」通道） */
+  /** 不带会话问一次（AI 写提交信息等，「Antigravity 授权」通道） */
   async oneShot(req: OneShotRequest, signal: AbortSignal): Promise<OneShotReply> {
     const info = await this.info()
     const launcher = this.cached?.launcher
@@ -188,7 +188,7 @@ export class AntigravityAdapter implements EngineAdapter {
     return { ok: true, output: '', version: null }
   }
 
-  /** 读取 Google 账号订阅额度（agy --print /usage --output-format json）；API Key 或未就绪时为 unsupported */
+  /** 读取 Antigravity 账号订阅额度（agy --print /usage --output-format json）；API Key 或未就绪时为 unsupported */
   async accountQuota(): Promise<QuotaReading> {
     if (this.closedForQuota) throw new Error('Antigravity unavailable: 应用正在退出')
     const info = await this.info()

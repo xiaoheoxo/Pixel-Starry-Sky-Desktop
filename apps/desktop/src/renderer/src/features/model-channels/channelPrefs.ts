@@ -1,5 +1,5 @@
 // 模型通道的本机设置（docs/ui/model-channels.md §2.3、§2.5、§2.6）：按模型记住的执行者、新任务用什么、模型菜单怎么排；
-// 前三项进设置同步（settings/sync/registry.ts），Google 账号备注只留在本机（不同电脑可能登录不同账号，docs/antigravity-engine.md §14）；
+// 前三项进设置同步（settings/sync/registry.ts），Antigravity 账号备注只留在本机（不同电脑可能登录不同账号，docs/antigravity-engine.md §14）；
 // 演示模式只改内存，不覆盖真实设置。
 import { useSyncExternalStore } from 'react'
 import type { EngineId } from '@pixelsky/protocol'
@@ -14,9 +14,9 @@ import {
 } from './channelModel'
 import { MENU_LAYOUT_KEY, parseMenuLayout, type MenuLayout } from './menuModel'
 
-export const GOOGLE_NOTE_KEY = 'pixelsky.channels.googleNote.v1'
+export const ANTIGRAVITY_NOTE_KEY = 'pixelsky.channels.antigravityNote.v1'
 
-export function parseGoogleNote(raw: string | null): string {
+export function parseAntigravityNote(raw: string | null): string {
   try {
     const v = JSON.parse(raw ?? 'null')
     return typeof v === 'string' ? v.trim().slice(0, 120) : ''
@@ -29,7 +29,7 @@ interface Prefs {
   executors: Record<string, EngineId>
   newTask: NewTaskDefault
   menuLayout: MenuLayout
-  googleNote: string
+  antigravityNote: string
 }
 
 const read = (key: string): string | null => {
@@ -44,7 +44,7 @@ let prefs: Prefs = {
   executors: parseExecutorMemory(read(EXECUTOR_KEY)),
   newTask: parseNewTask(read(NEW_TASK_KEY)),
   menuLayout: parseMenuLayout(read(MENU_LAYOUT_KEY)),
-  googleNote: parseGoogleNote(read(GOOGLE_NOTE_KEY)),
+  antigravityNote: parseAntigravityNote(read(ANTIGRAVITY_NOTE_KEY)),
 }
 const listeners = new Set<() => void>()
 const emit = (): void => listeners.forEach(fn => fn())
@@ -56,7 +56,8 @@ if (typeof window !== 'undefined')
     if (e.key === EXECUTOR_KEY) prefs = { ...prefs, executors: parseExecutorMemory(e.newValue) }
     else if (e.key === NEW_TASK_KEY) prefs = { ...prefs, newTask: parseNewTask(e.newValue) }
     else if (e.key === MENU_LAYOUT_KEY) prefs = { ...prefs, menuLayout: parseMenuLayout(e.newValue) }
-    else if (e.key === GOOGLE_NOTE_KEY) prefs = { ...prefs, googleNote: parseGoogleNote(e.newValue) }
+    else if (e.key === ANTIGRAVITY_NOTE_KEY)
+      prefs = { ...prefs, antigravityNote: parseAntigravityNote(e.newValue) }
     else return
     emit()
   })
@@ -107,11 +108,11 @@ export function setMenuLayout(layout: MenuLayout): void {
   emit()
 }
 
-/** Google 账号备注邮箱 / 名称（本机显示，空串即清空） */
-export function setGoogleNote(note: string): void {
+/** Antigravity 账号备注邮箱 / 名称（本机显示，空串即清空） */
+export function setAntigravityNote(note: string): void {
   const next = note.trim().slice(0, 120)
-  if (prefs.googleNote === next) return
-  prefs = { ...prefs, googleNote: next }
-  save(GOOGLE_NOTE_KEY, next)
+  if (prefs.antigravityNote === next) return
+  prefs = { ...prefs, antigravityNote: next }
+  save(ANTIGRAVITY_NOTE_KEY, next)
   emit()
 }
