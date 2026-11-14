@@ -448,7 +448,9 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
           full ? 'text-danger' : 'text-fg-faint',
         )}
       >
-        {e?.turns != null ? tr('quotaEst.turnsReset', { n: e.turns, reset: card.note }) : card.note}
+        {e?.turns == null
+          ? card.note
+          : tr(e.turns ? 'quotaEst.turnsReset' : 'quotaEst.turnsResetFew', { n: e.turns, reset: card.note })}
       </div>
     </div>
   )

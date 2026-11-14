@@ -190,12 +190,12 @@ const ESTIMATE_PAGES_MAX = 20
 
 /**
  * 额度估算（docs/ui/quota-estimate.md）：from 之后的记录（新的在前，按页读到 from 之前为止）和近 30 天按模型的合计。
- * 读不到抛错，调用方不写估计
+ * coveredFrom：记录读全到哪一刻（读满上限时晚于 from）。读不到抛错，调用方不写估计
  */
 export async function readQuotaUsage(
   filter: UsageFilter,
   from: number,
-): Promise<{ records: UsageRecord[]; models: UsageGroupRow[] }> {
+): Promise<{ records: UsageRecord[]; models: UsageGroupRow[]; coveredFrom: number }> {
   const now = Date.now()
   const b = bridge()
   if (!b?.usageSummary || !b.usageList)
@@ -204,15 +204,19 @@ export async function readQuotaUsage(
         r => r.endedAt >= from,
       ),
       models: summarize(localRecords, '30d', filter, now).groups.model,
+      coveredFrom: from,
     }
   const records: UsageRecord[] = []
+  let coveredFrom = from
   for (let page = 0; page < ESTIMATE_PAGES_MAX; page++) {
     const p = await b.usageList({ range: '30d', filter, now, offset: page * ESTIMATE_PAGE, limit: ESTIMATE_PAGE })
     records.push(...p.records.filter(r => r.endedAt >= from))
     if (p.records.length < ESTIMATE_PAGE || p.records.at(-1)!.endedAt < from) break
+    // 读满上限还没到 from：更早的没读到，只有最早一条之后的算数
+    if (page === ESTIMATE_PAGES_MAX - 1) coveredFrom = p.records.at(-1)!.endedAt
   }
   const summary = await b.usageSummary({ range: '30d', filter, now, tzOffset: new Date().getTimezoneOffset() })
-  return { records, models: summary.groups.model }
+  return { records, models: summary.groups.model, coveredFrom }
 }
 
 /** 新的一轮记下来、清空后回调 */

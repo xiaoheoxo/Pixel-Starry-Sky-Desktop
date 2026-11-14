@@ -39,6 +39,8 @@ export function windowEstimate(
     'endedAt' | 'sessionId' | 'turnId' | 'costUsd' | 'model' | 'input' | 'output' | 'cacheRead' | 'cacheWrite'
   >[],
   now: number,
+  /** 记录读全到哪一刻；窗口开始比它早时窗口里的记录不全，不写金额和轮数 */
+  coveredFrom = -Infinity,
 ): WindowEstimate | null {
   if (e.kind !== 'window' || !e.durationMins || e.resetsAt === null || e.expired || e.resetsAt <= now) return null
   const span = e.durationMins * 60_000
@@ -61,7 +63,7 @@ export function windowEstimate(
     if (v !== null) usd += v
     turns.add(`${r.sessionId}:${r.turnId}`)
   }
-  const enough = used >= MIN_PERCENT && used < 100 && turns.size >= MIN_TURNS && usd > 0
+  const enough = start >= coveredFrom && used >= MIN_PERCENT && used < 100 && turns.size >= MIN_TURNS && usd > 0
   const left = 100 - used
   return {
     elapsed: Math.min(1, Math.max(0, elapsed)),

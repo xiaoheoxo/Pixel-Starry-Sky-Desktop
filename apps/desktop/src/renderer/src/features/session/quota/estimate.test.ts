@@ -55,6 +55,13 @@ describe('windowEstimate', () => {
     expect(windowEstimate(entry(30, 2, { durationMins: null }), [], now)).toBeNull()
     expect(windowEstimate(entry(30, 2, { expired: true }), [], now)).toBeNull()
   })
+  it('记录没读全到窗口开始（读满上限）：不写金额和轮数，用完时间照写', () => {
+    const records = [rec(0.5, 2, 'a'), rec(1, 3, 'b')]
+    const e = windowEstimate(entry(50, 2), records, now, now - HOUR)!
+    expect(e.usd).toBeNull()
+    expect(e.turns).toBeNull()
+    expect(e.emptyAt).toBe(now + 2 * HOUR)
+  })
   it('已用完：剩 0，不再写用完时刻', () => {
     const e = windowEstimate(entry(100, 2), [], now)!
     expect(e.emptyAt).toBeNull()

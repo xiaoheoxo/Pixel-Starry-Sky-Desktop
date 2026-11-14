@@ -1,5 +1,5 @@
 // 订阅额度估算的数据（docs/ui/quota-estimate.md §2）：这个引擎走订阅登录（route cli）的用量记录 + 月费选择。
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { AccountQuota, QuotaProvider, UsageGroupRow, UsageRecord } from '@pixelsky/protocol'
 import { onUsageChange, readQuotaUsage } from '@/features/usage/source'
 import {
@@ -14,6 +14,8 @@ import {
 import { quotaEntries } from './quotaModel'
 
 const WEEK = 7 * 86_400_000
+/** 一轮记下来后等这么久再重读：连着几轮结束、多个模型各记一条时只读一次 */
+const REREAD_DELAY_MS = 15_000
 
 export interface QuotaEstimate {
   /** 按额度条目 id（同卡片 id） */
@@ -42,9 +44,24 @@ export function useQuotaEstimate(
     now,
   )
   const fromKey = Math.floor(Math.max(from, now - WEEK) / 60_000)
-  const [data, setData] = useState<{ records: UsageRecord[]; models: UsageGroupRow[] } | null>(null)
+  const [data, setData] = useState<{ records: UsageRecord[]; models: UsageGroupRow[]; coveredFrom: number } | null>(
+    null,
+  )
   const [version, setVersion] = useState(0)
-  useEffect(() => (supported ? onUsageChange(() => setVersion(v => v + 1)) : undefined), [supported])
+  useEffect(() => {
+    if (!supported) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const off = onUsageChange(() => {
+      timer ??= setTimeout(() => {
+        timer = null
+        setVersion(v => v + 1)
+      }, REREAD_DELAY_MS)
+    })
+    return () => {
+      off()
+      if (timer) clearTimeout(timer)
+    }
+  }, [supported])
   useEffect(() => {
     if (!supported) return
     let cancelled = false
@@ -59,7 +76,7 @@ export function useQuotaEstimate(
     if (!supported || !data) return null
     const out: Record<string, WindowEstimate> = {}
     for (const e of windows) {
-      const est = windowEstimate(e, data.records, now)
+      const est = windowEstimate(e, data.records, now, data.coveredFrom)
       if (est) out[e.id] = est
     }
     return { windows: out, month: monthValue(data.models) }
@@ -67,17 +84,22 @@ export function useQuotaEstimate(
 }
 
 const FEE_KEY = 'pixelsky.quotaFee.'
+const feeListeners = new Set<() => void>()
+const subscribeFee = (cb: () => void): (() => void) => {
+  feeListeners.add(cb)
+  return () => feeListeners.delete(cb)
+}
 
-/** 月费：用户在明细里选过的（存本机），没选过按套餐猜；认不出为 null */
+/** 月费：用户在明细里选过的（存本机，弹窗和概况同步），没选过按套餐猜；认不出为 null */
 export function usePlanFee(provider: QuotaProvider | null, plan: string | null) {
   const list = provider === 'claude' || provider === 'chatgpt' ? PLAN_FEES[provider] : null
-  const [picked, setPicked] = useState(() => (provider ? localStorage.getItem(FEE_KEY + provider) : null))
+  const picked = useSyncExternalStore(subscribeFee, () => (provider ? localStorage.getItem(FEE_KEY + provider) : null))
   const id = (list?.some(f => f.id === picked) ? picked : null) ?? (provider ? defaultFeeId(provider, plan) : null)
   const fee = list?.find(f => f.id === id) ?? null
   const pick = (next: string): void => {
     if (!provider) return
     localStorage.setItem(FEE_KEY + provider, next)
-    setPicked(next)
+    feeListeners.forEach(l => l())
   }
   return { options: list ?? [], fee, pick }
 }

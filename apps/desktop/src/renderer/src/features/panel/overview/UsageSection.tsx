@@ -148,9 +148,9 @@ function UsageBody({ sessionId }: { sessionId: string }) {
             )}
             {est?.usd != null && entry.level !== 'full' && (
               <div className="mt-[3px] text-label text-fg-muted tabular-nums">
-                {est.turns != null
-                  ? tr('quotaEst.runTurns', { usd: usdText(est.usd), n: est.turns })
-                  : tr('quotaEst.run', { usd: usdText(est.usd) })}
+                {est.turns == null
+                  ? tr('quotaEst.run', { usd: usdText(est.usd) })
+                  : tr(est.turns ? 'quotaEst.runTurns' : 'quotaEst.runFew', { usd: usdText(est.usd), n: est.turns })}
               </div>
             )}
           </div>
