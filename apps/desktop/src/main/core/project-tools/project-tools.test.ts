@@ -4,7 +4,8 @@ import { createServer } from 'node:net'
 import { spawn } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Tasks } from './tasks'
-import { Copies } from './copies'
+import { Copies, busyMessage } from './copies'
+import { parseHolders, shallowFiles } from './holders'
 import { Services, redact, childEnvironment, portStatus } from './services'
 import { directory, git, JsonStore, type ToolsHost } from './common'
 let root: string, project: string, host: ToolsHost
@@ -301,6 +302,111 @@ describe('leftover worktree directories (GitHub #37)', () => {
     },
     60_000,
   )
+  // 另开进程开着深层的一个文件，不允许别人删除（Java 在 Windows 上打开文件就是这样，Gradle 守护进程开着 build 里的文件）。
+  // Node 自己打开文件时允许删除，挡不住删除，模拟不出来
+  async function holdFile(file: string) {
+    const holder = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `$h = [IO.File]::Open('${file.replaceAll("'", "''")}', 'Open', 'Read', 'Read'); 'ready'; Start-Sleep 600`,
+      ],
+      { windowsHide: true },
+    )
+    await new Promise(r => holder.stdout.once('data', r))
+    return {
+      pid: holder.pid!,
+      release: async () => {
+        holder.kill()
+        await new Promise(r => holder.once('exit', r))
+      },
+    }
+  }
+  const deep = (base: string) => join(base, 'build', 'classes', 'java', 'main', 'com', 'example', 'deep')
+  it.runIf(process.platform === 'win32')(
+    'refuses quickly before deleting anything when a deep file is held, and names the holder',
+    async () => {
+      const copies = await setup()
+      const copy = await copies.create('p', input('locked'))
+      // 像 runClient 的游戏开着 run/logs 的日志：前面有几百个 .class，查占用时也要找得到它
+      await mkdir(deep(copy.path), { recursive: true })
+      await Promise.all(Array.from({ length: 300 }, (_, i) => writeFile(join(deep(copy.path), `C${i}.class`), 'x')))
+      await mkdir(join(copy.path, 'run', 'logs'), { recursive: true })
+      const file = join(copy.path, 'run', 'logs', 'latest.log')
+      await writeFile(file, 'x')
+      const held = await holdFile(file)
+      try {
+        const started = Date.now()
+        const error = await copies.remove(copy.id, true).then(
+          () => null,
+          (e: Error) => e,
+        )
+        expect(error?.message).toContain('被占用')
+        expect(error?.message).toContain(`PID ${held.pid}`)
+        expect(Date.now() - started).toBeLessThan(15_000)
+        // 一个文件都没删，副本仍然有效
+        expect(await readFile(join(copy.path, 'tracked.txt'), 'utf8')).toBe('base')
+        expect((await copies.list('p'))[0].error).toBeNull()
+      } finally {
+        await held.release()
+      }
+      await copies.remove(copy.id, true)
+      expect(await exists(copy.path)).toBe(false)
+    },
+    60_000,
+  )
+  it.runIf(process.platform === 'win32')(
+    'gives up on a held leftover directory within the time limit instead of hanging',
+    async () => {
+      const copies = await setup()
+      const copy = await copies.create('p', input('stuck'))
+      const path = await unregister(copies, copy.id)
+      await mkdir(deep(path), { recursive: true })
+      const file = join(deep(path), 'A.class')
+      await writeFile(file, 'x')
+      const held = await holdFile(file)
+      try {
+        const started = Date.now()
+        await expect(copies.remove(copy.id, true)).rejects.toThrow('被占用')
+        expect(Date.now() - started).toBeLessThan(15_000)
+        expect(await exists(file)).toBe(true)
+        expect(copies.store.data.copies).toHaveLength(1)
+      } finally {
+        await held.release()
+      }
+      await copies.remove(copy.id, true)
+      expect(copies.store.data.copies).toEqual([])
+      expect(await exists(path)).toBe(false)
+    },
+    60_000,
+  )
+  it('lists shallow files first and stops at the limit', async () => {
+    const base = join(root, 'tree')
+    await mkdir(join(base, 'a', 'b', 'c'), { recursive: true })
+    await writeFile(join(base, 'a', 'b', 'c', 'deep.txt'), 'x')
+    await writeFile(join(base, 'a', 'mid.txt'), 'x')
+    await writeFile(join(base, 'z.txt'), 'x')
+    expect(await shallowFiles(base)).toEqual([
+      join(base, 'z.txt'),
+      join(base, 'a', 'mid.txt'),
+      join(base, 'a', 'b', 'c', 'deep.txt'),
+    ])
+    expect(await shallowFiles(base, 2)).toHaveLength(2)
+    expect(await shallowFiles(join(root, 'missing'))).toEqual([])
+  })
+  it('names the holding programs and hints at the Gradle daemon only for java with .gradle', () => {
+    const java = [{ pid: 12, name: 'java.exe' }]
+    expect(busyMessage('C:\\w', java, true)).toContain('java.exe（PID 12）')
+    expect(busyMessage('C:\\w', java, true)).toContain('gradlew --stop')
+    expect(busyMessage('C:\\w', java, false)).not.toContain('gradlew')
+    expect(busyMessage('C:\\w', [{ pid: 3, name: 'code.exe' }], true)).not.toContain('gradlew')
+    expect(busyMessage('C:\\w')).toContain('关掉在这个目录里打开的终端或程序')
+    expect(parseHolders('12\tjava.exe\r\n12\tjava.exe\r\nbad\n0\tx\n7\t?\n')).toEqual([
+      { pid: 12, name: 'java.exe' },
+      { pid: 7, name: '?' },
+    ])
+  })
 })
 describe('local services', () => {
   it('detects occupied ports, suggests a free port and validates env names', async () => {

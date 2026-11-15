@@ -1,12 +1,83 @@
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdir, readdir, realpath, rm, rmdir } from 'node:fs/promises'
+import { access, mkdir, readdir, realpath, rename, rm, rmdir } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type { CopyInput, CopyPreview, ProjectCopy } from '../../../shared/types/project-tools'
 import { JsonStore, git, gitInfo, inside, run, samePath, value, type ToolsHost } from './common'
+import { dirHolders, type DirHolder } from './holders'
 
-/** 副本目录删不掉时的提示（目录被终端或别的程序当作当前目录） */
-const busyMessage = (path: string): string =>
-  `副本目录被占用，没删掉：${path}。关掉在这个目录里打开的终端或程序后再删除。`
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/**
+ * 副本目录删不掉时的提示；能查到占用的进程就点名（停会话、服务、终端都停不到的那些）。
+ * 实测 Gradle 9 守护进程编译完不占副本，占着的 java 多半是从副本启动的程序（runClient 的游戏等）
+ */
+export function busyMessage(path: string, holders: DirHolder[] = [], gradle = false): string {
+  let text = `副本目录被占用，没删掉：${path}。`
+  if (holders.length) {
+    text += `占用的程序：${holders.map(h => `${h.name}（PID ${h.pid}）`).join('、')}。`
+    if (gradle && holders.some(h => /java/i.test(h.name)))
+      text +=
+        'Java 程序多半是从这个副本启动的游戏或服务（比如 runClient），也可能是 Gradle 守护进程（可在项目里执行 gradlew --stop）。'
+    return text + '结束这些程序后再删除。'
+  }
+  return text + '关掉在这个目录里打开的终端或程序后再删除。'
+}
+async function busyError(path: string): Promise<Error> {
+  const holders = await dirHolders(path)
+  const gradle =
+    holders.length > 0 &&
+    (await access(join(path, '.gradle')).then(
+      () => true,
+      () => false,
+    ))
+  return new Error(busyMessage(path, holders, gradle))
+}
+
+/**
+ * 删文件之前先查占用：把目录改个名再改回来。Windows 上里面有文件开着、或有进程的当前目录在里面时改名会失败，
+ * 这样一个文件都不删就能报出来，副本不会删掉一半变成残留目录。其它系统删除不受打开的文件影响，不查。
+ */
+async function probeFree(path: string): Promise<boolean> {
+  if (process.platform !== 'win32') return true
+  const probe = `${path}.pixelsky-check-${randomUUID().slice(0, 8)}`
+  // 只占一下的不算：停会话后界面会马上重读这个副本的 git 状态，杀毒软件也会扫刚生成的文件
+  for (let i = 0; ; i++) {
+    try {
+      await rename(path, probe)
+      break
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
+      if (i === 4) return false
+      await sleep(250)
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    try {
+      await rename(probe, path)
+      return true
+    } catch {
+      await sleep(100)
+    }
+  }
+  throw new Error(`检查副本目录是否被占用时改了名，没能改回来，现在在：${probe}`)
+}
+
+/**
+ * 递归删目录，总时长有上限。不用 fs.rm 自带的 maxRetries：它在每一层都重试、上层重试又把整棵子树重做，
+ * 耗时随目录深度成倍增长，有一个文件一直被锁时实际上不返回（0.7.16 删副本卡死）。这里只在最外层整体重试。
+ */
+async function removeTree(path: string, budgetMs = 5000): Promise<boolean> {
+  const end = Date.now() + budgetMs
+  for (let delay = 200; ; delay = Math.min(delay * 2, 1000)) {
+    try {
+      await rm(path, { recursive: true, force: true })
+      return true
+    } catch {
+      if (Date.now() + delay > end) return (await dirState(path)) === 'missing'
+      await sleep(delay)
+    }
+  }
+}
 /** 渲染层靠这段文字识别「残留目录不是空的」并弹出二次确认，不要改 */
 export const LEFTOVER_MARK = '残留目录不是空的'
 
@@ -30,7 +101,7 @@ async function removeEmptyDir(path: string, tries = 5, delay = 300): Promise<boo
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
     }
-    if (i < tries - 1) await new Promise(r => setTimeout(r, delay))
+    if (i < tries - 1) await sleep(delay)
   }
   return (await dirState(path)) === 'missing'
 }
@@ -239,6 +310,7 @@ export class Copies {
         // Recheck after stopping active writers.
         const after = await gitInfo(copy.path)
         if (after.dirty && !force) throw new Error('副本有未提交修改，请再次确认删除')
+        if (!(await probeFree(copy.path))) throw await busyError(copy.path)
         try {
           await git(target.path, ['worktree', 'remove', ...(force ? ['--force'] : []), '--', copy.path])
         } catch (error) {
@@ -246,7 +318,7 @@ export class Copies {
           if (await this.registered(target.path, copy.path)) throw error
           const state = await dirState(copy.path)
           if (state !== 'missing' && !(state === 'empty' && (await removeEmptyDir(copy.path))))
-            throw new Error(busyMessage(copy.path))
+            throw await busyError(copy.path)
         }
         data.copies = data.copies.filter(c => c.id !== id)
       })
@@ -263,14 +335,10 @@ export class Copies {
     await this.host.withStopped(copy.path, async () => {
       await this.stopServices(copy.path)
       if (state === 'empty') {
-        if (!(await removeEmptyDir(copy.path))) throw new Error(busyMessage(copy.path))
+        if (!(await removeEmptyDir(copy.path))) throw await busyError(copy.path)
         return
       }
-      try {
-        await rm(copy.path, { recursive: true, force: true, maxRetries: 4, retryDelay: 300 })
-      } catch {
-        throw new Error(busyMessage(copy.path))
-      }
+      if (!(await probeFree(copy.path)) || !(await removeTree(copy.path))) throw await busyError(copy.path)
     })
   }
   async forget(id: string): Promise<void> {
