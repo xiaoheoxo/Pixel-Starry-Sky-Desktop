@@ -29,8 +29,8 @@ describe('quota IPC', () => {
     expect([...mocks.handlers.keys()].sort()).toEqual(['quota:get', 'quota:refresh', 'quota:useResetCredit'])
   })
 
-  it('provider 只认 claude / chatgpt / antigravity，其它抛「参数不对」，不碰宿主', () => {
-    for (const bad of ['platform', 'codex', 'google', '', undefined, null, 1, {}, ['claude']]) {
+  it('provider 只认 claude / chatgpt / google，其它抛「参数不对」，不碰宿主', () => {
+    for (const bad of ['platform', 'codex', 'antigravity', '', undefined, null, 1, {}, ['claude']]) {
       expect(() => quotaProvider(bad)).toThrow('参数不对')
       expect(() => call('quota:get', bad)).toThrow('参数不对')
       expect(() => call('quota:refresh', bad)).toThrow('参数不对')
@@ -39,7 +39,7 @@ describe('quota IPC', () => {
     expect(host.refreshAccountQuota).not.toHaveBeenCalled()
     expect(quotaProvider('claude')).toBe('claude')
     expect(quotaProvider('chatgpt')).toBe('chatgpt')
-    expect(quotaProvider('antigravity')).toBe('antigravity')
+    expect(quotaProvider('google')).toBe('google')
   })
 
   it('quota:get 读缓存', async () => {

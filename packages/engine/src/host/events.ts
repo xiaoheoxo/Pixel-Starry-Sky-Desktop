@@ -411,7 +411,7 @@ export class HostEvents {
           rt.sessionSource === null &&
           limitKind(event.error, turn?.usageLimited)
         )
-          void m.quota.refresh('antigravity').catch(() => undefined)
+          void m.quota.refresh('google').catch(() => undefined)
         // 自动换过订阅账号、改用过平台：订阅额度恢复了就换回去（从下一条消息起）
         m.accounts.afterTurn(turnEngine, id)
         break

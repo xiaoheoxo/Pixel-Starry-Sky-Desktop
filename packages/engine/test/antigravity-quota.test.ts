@@ -125,7 +125,7 @@ describe('parseAgyUsage', () => {
 })
 
 describe('AntigravityAdapter.accountQuota', () => {
-  it('API Key 模式或未登录返回 unsupported；Antigravity 登录传递 tier 并合并并发请求', async () => {
+  it('API Key 模式或未登录返回 unsupported；Google 登录传递 tier 并合并并发请求', async () => {
     const apiKeyAdapter = new AntigravityAdapter({
       overridePath: () => process.execPath,
       probe: async () => ({ signedIn: true, kind: 'apiKey' }),

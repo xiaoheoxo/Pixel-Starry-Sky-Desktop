@@ -38,7 +38,7 @@ export function AuthDialogHost() {
 }
 
 /** 授权弹窗标题里的账号名 */
-const AUTH_NAME: Record<AuthChannel, string> = { claude: 'Claude', chatgpt: 'ChatGPT', google: 'Google' }
+const AUTH_NAME: Record<AuthChannel, string> = { claude: 'Claude', chatgpt: 'ChatGPT', google: 'Antigravity' }
 
 function AuthDialog({ channel, target, onDone }: { channel: AuthChannel; target?: string; onDone?: () => void }) {
   useI18n()

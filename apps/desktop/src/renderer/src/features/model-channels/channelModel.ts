@@ -12,19 +12,18 @@ import {
   type PlatformGroup,
 } from '@/features/account/platform'
 
-/** ① 像素星空账号、② Claude 授权、③ ChatGPT 授权、④ Antigravity 授权（D283）、⑤ 自定义接口 */
-export type ChannelId = 'platform' | 'claude' | 'chatgpt' | 'antigravity' | 'custom'
-export const CHANNELS: readonly ChannelId[] = ['platform', 'claude', 'chatgpt', 'antigravity', 'custom']
+/** ① 像素星空账号、② Claude 授权、③ ChatGPT 授权、④ Antigravity 授权（内部 ID 仍是 google，D283、D289）、⑤ 自定义接口 */
+export type ChannelId = 'platform' | 'claude' | 'chatgpt' | 'google' | 'custom'
+export const CHANNELS: readonly ChannelId[] = ['platform', 'claude', 'chatgpt', 'google', 'custom']
 
 /** 授权通道只能交给官方工具（订阅 / 账号只给它们用） */
-export const AUTH_ENGINE = { claude: 'claude', chatgpt: 'codex', antigravity: 'antigravity' } as const satisfies Record<
+export const AUTH_ENGINE = { claude: 'claude', chatgpt: 'codex', google: 'antigravity' } as const satisfies Record<
   string,
   EngineId
 >
 export type AuthChannel = keyof typeof AUTH_ENGINE
 
-export const isAuthChannel = (c: ChannelId): c is AuthChannel =>
-  c === 'claude' || c === 'chatgpt' || c === 'antigravity'
+export const isAuthChannel = (c: ChannelId): c is AuthChannel => c === 'claude' || c === 'chatgpt' || c === 'google'
 
 /**
  * 现有的「引擎 + 额度来源」→ 通道；像素星空 + 自有（命令行自己配的 Key）没有对应的通道，按自定义算（没有选中的接口）。
@@ -37,7 +36,7 @@ export function channelOf(engine: EngineId, source: CreditSource): ChannelId {
     : engine === 'codex'
       ? 'chatgpt'
       : engine === 'antigravity'
-        ? 'antigravity'
+        ? 'google'
         : 'custom'
 }
 

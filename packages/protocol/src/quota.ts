@@ -1,9 +1,9 @@
-// 账号额度（docs/ui/account-quota.md）：Claude 订阅、ChatGPT 订阅、Antigravity 订阅、像素星空平台的 5 小时 / 每周等用量。
+// 账号额度（docs/ui/account-quota.md）：Claude 订阅、ChatGPT 订阅、Google 订阅、像素星空平台的 5 小时 / 每周等用量。
 // 引擎层把各家的原始形状（Claude get_usage / rate_limit_event、Codex account/rateLimits/*、Antigravity agy /usage）统一成这里的快照；
 // 窗口按时长认，不按「主 / 次」位置认。
 
 /** 额度属于哪种账号 */
-export type QuotaProvider = 'claude' | 'chatgpt' | 'antigravity' | 'platform'
+export type QuotaProvider = 'claude' | 'chatgpt' | 'google' | 'platform'
 /** 经引擎读取的三种（平台的额度在渲染层由 AccountInfo 换算，不走 quota:* 通道） */
 export type EngineQuotaProvider = Exclude<QuotaProvider, 'platform'>
 

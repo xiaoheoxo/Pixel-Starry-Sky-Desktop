@@ -375,8 +375,8 @@ describe('Google / Antigravity 弹窗', () => {
         windows: [win(300, 7, at(16, 45)), win(10_080, 2, at(9, 0, 5))],
       }),
     })
-    expect(html).toContain('aria-label="Google 账号额度"')
-    expect(html).toContain('Google 账号额度')
+    expect(html).toContain('aria-label="Antigravity 账号额度"')
+    expect(html).toContain('Antigravity 账号额度')
     expect(html).toContain('>Ultra<')
     expect(html).toContain('5 小时内')
     expect(html).toContain('本周')

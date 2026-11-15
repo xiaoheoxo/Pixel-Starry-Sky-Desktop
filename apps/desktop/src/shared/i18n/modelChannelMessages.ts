@@ -4,12 +4,12 @@ export const modelChannelMessages = {
   'modelChannels.channel.platform': { zh: '像素星空账号', en: 'PixelSky account' },
   'modelChannels.channel.claude': { zh: 'Claude 授权', en: 'Claude sign-in' },
   'modelChannels.channel.chatgpt': { zh: 'ChatGPT 授权', en: 'ChatGPT sign-in' },
-  'modelChannels.channel.google': { zh: 'Google 账号', en: 'Google account' },
+  'modelChannels.channel.google': { zh: 'Antigravity 授权', en: 'Antigravity sign-in' },
   'modelChannels.channel.custom': { zh: '自定义接口', en: 'Custom API' },
   'modelChannels.short.platform': { zh: '像素星空', en: 'PixelSky' },
   'modelChannels.short.claude': { zh: 'Claude 授权', en: 'Claude' },
   'modelChannels.short.chatgpt': { zh: 'ChatGPT 授权', en: 'ChatGPT' },
-  'modelChannels.short.google': { zh: 'Google 账号', en: 'Google' },
+  'modelChannels.short.google': { zh: 'Antigravity', en: 'Antigravity' },
   'modelChannels.short.custom': { zh: '自定义接口', en: 'Custom API' },
 
   // 通道状态（菜单分组、设置卡片）
@@ -119,7 +119,7 @@ export const modelChannelMessages = {
   'modelChannels.tab.platform': { zh: '平台', en: 'PixelSky' },
   'modelChannels.tab.claude': { zh: 'Claude', en: 'Claude' },
   'modelChannels.tab.chatgpt': { zh: 'ChatGPT', en: 'ChatGPT' },
-  'modelChannels.tab.google': { zh: 'Google', en: 'Google' },
+  'modelChannels.tab.google': { zh: 'Antigravity', en: 'Antigravity' },
   'modelChannels.tab.custom': { zh: '自定义', en: 'Custom' },
 
   // 授权弹窗（§3）
@@ -184,10 +184,10 @@ export const modelChannelMessages = {
   'modelChannels.claude.signIn': { zh: '用 Claude 授权', en: 'Sign in with Claude' },
   'modelChannels.chatgpt.signIn': { zh: '用 ChatGPT 授权', en: 'Sign in with ChatGPT' },
   'modelChannels.google.desc': {
-    zh: '用自己的 Google 账号或 Gemini API Key，交给 Antigravity 跑',
-    en: 'Use your Google account or Gemini API key with Antigravity',
+    zh: '用自己的 Antigravity 账号或 Gemini API Key，交给 Antigravity 跑',
+    en: 'Use your Antigravity account or Gemini API key with Antigravity',
   },
-  'modelChannels.google.signIn': { zh: '用 Google 账号登录', en: 'Sign in with Google' },
+  'modelChannels.google.signIn': { zh: '用 Antigravity 授权', en: 'Sign in with Antigravity' },
   'modelChannels.google.note': { zh: '备注账号', en: 'Add note' },
   'modelChannels.google.editNote': { zh: '修改备注', en: 'Edit note' },
   'modelChannels.google.noteLabel': {

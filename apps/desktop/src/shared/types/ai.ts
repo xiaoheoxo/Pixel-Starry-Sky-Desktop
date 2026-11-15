@@ -5,7 +5,7 @@ import type { WorkspaceRef } from './workspace'
 
 /**
  * 用哪条通道（docs/ui/ai-commit-channels.md）：像素星空云端（照常从账号余额扣费）/ Claude 授权（本机 Claude Code + 订阅）/
- * ChatGPT 授权（本机 Codex + 账号）/ Antigravity 授权（本机 Antigravity，模型跟随它自己的设置）/ 自定义 API
+ * ChatGPT 授权（本机 Codex + 账号）/ Google 账号（本机 Antigravity，模型跟随它自己的设置）/ 自定义 API
  */
 export type AiSource = 'platform' | 'claude' | 'codex' | 'antigravity' | 'custom'
 /** auto：跟随仓库最近的提交，没有提交时用界面语言 */

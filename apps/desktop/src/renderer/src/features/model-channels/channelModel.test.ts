@@ -212,11 +212,7 @@ describe('菜单（§2.3）', () => {
     selection: { channel: 'platform', model: 'claude-opus-5-5', providerId: null },
     current: null,
     platform: { email: 'a@b.c', loaded: true, loading: false, groups, hiddenModels: [] },
-    selfModels: {
-      claude: [{ value: null }, { value: 'opus' }],
-      chatgpt: [{ value: null }],
-      antigravity: [{ value: null }],
-    },
+    selfModels: { claude: [{ value: null }, { value: 'opus' }], chatgpt: [{ value: null }], google: [{ value: null }] },
     providers,
     engines: engines(),
     remembered: {},
@@ -225,7 +221,7 @@ describe('菜单（§2.3）', () => {
 
   it('五组按顺序，选中的打勾，每行带执行者', () => {
     const menu = buildChannelMenu(input())
-    expect(menu.map(g => g.channel)).toEqual(['platform', 'claude', 'chatgpt', 'antigravity', 'custom'])
+    expect(menu.map(g => g.channel)).toEqual(['platform', 'claude', 'chatgpt', 'google', 'custom'])
     const platform = menu[0].rows
     expect(platform.map(r => r.target.model)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-6.1-sol'])
     expect(platform.map(r => r.selected)).toEqual([true, false, false])

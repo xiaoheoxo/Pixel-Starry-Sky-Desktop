@@ -4022,8 +4022,8 @@ export const catalog = {
     en: 'Environment variables',
   },
   'settings.engines.EngineDetail.envAntigravity': {
-    zh: 'KEY=VALUE 每行一条，在系统环境之上追加。不用 Google 账号登录时，填 GEMINI_API_KEY=你的 Key；存好后自动重新检测。',
-    en: 'One KEY=VALUE per line, added to system variables. To use a key instead of a Google sign-in, add GEMINI_API_KEY=your key; the engine is re-detected after saving.',
+    zh: 'KEY=VALUE 每行一条，在系统环境之上追加。不用 Antigravity 账号登录时，填 GEMINI_API_KEY=你的 Key；存好后自动重新检测。',
+    en: 'One KEY=VALUE per line, added to system variables. To use a key instead of an Antigravity sign-in, add GEMINI_API_KEY=your key; the engine is re-detected after saving.',
   },
   'settings.engines.EngineDetail.oneKeyValuePer': {
     zh: 'KEY=VALUE 每行一条，在系统环境之上追加。平台会话的网关地址和凭据仍以平台为准，这里的同名变量不生效。',
@@ -4134,8 +4134,8 @@ export const catalog = {
     en: "OpenAI's coding CLI. Support coming soon.",
   },
   'settings.engines.parts.antigravityIntro': {
-    zh: 'Google 的编码 CLI（agy），用 Google 账号、Gemini API Key 或企业账号登录。',
-    en: "Google's coding CLI (agy). Sign in with a Google account, a Gemini API key or an enterprise account.",
+    zh: 'Google 的编码 CLI（agy），用 Antigravity 账号、Gemini API Key 或企业账号登录。',
+    en: "Google's coding CLI (agy). Sign in with an Antigravity account, a Gemini API key or an enterprise account.",
   },
   'settings.FontPicker.chooseFromInstalledFonts': {
     zh: '从本机字体中选择{p0}',
@@ -5434,8 +5434,8 @@ export const catalog = {
     en: 'ChatGPT usage limits',
   },
   'quota.title.google': {
-    zh: 'Google 账号额度',
-    en: 'Google usage limits',
+    zh: 'Antigravity 账号额度',
+    en: 'Antigravity usage limits',
   },
   'quota.title.platform': {
     zh: '像素星空账号额度',
