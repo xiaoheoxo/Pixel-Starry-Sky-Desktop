@@ -4229,10 +4229,6 @@ export const catalog = {
     zh: '菜单里显示的模型',
     en: 'Models shown in menu',
   },
-  'settings.models.ModelsSection.hiddenModelsAreRemoved': {
-    zh: '关掉的模型不在输入框菜单里列出，不影响调用。正在用的和默认模型总会显示。',
-    en: 'Hidden models are removed from the composer menu without affecting requests. Current and default models always remain visible.',
-  },
   'settings.models.ModelsSection.showAll': {
     zh: '全部显示',
     en: 'Show all',

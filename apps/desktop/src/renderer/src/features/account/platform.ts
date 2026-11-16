@@ -272,11 +272,14 @@ export function platformModels(groups: PlatformGroup[]): string[] {
   return [...seen]
 }
 
-/** 包含这个模型的分组，按有效倍率从低到高；倍率相同按管理员排序 */
+/**
+ * 包含这个模型的分组（对话能用的线路），按有效倍率从低到高；倍率相同按管理员排序。
+ * 只能生图的分组不算：它也列着 gpt-6 这类模型，算进来菜单会多数线路、最低倍率也可能取到它
+ */
 export function groupsForModel(groups: PlatformGroup[], model: string | null): PlatformGroup[] {
   return groups
     .map((g, i) => ({ g, i }))
-    .filter(({ g }) => (model ? g.models.includes(model) : g.models.length > 0))
+    .filter(({ g }) => !imageOnlyGroup(g) && (model ? g.models.includes(model) : g.models.length > 0))
     .sort((a, b) => a.g.rate_multiplier - b.g.rate_multiplier || a.i - b.i)
     .map(({ g }) => g)
 }
@@ -487,6 +490,12 @@ export function setModelHidden(model: string, hidden: boolean): void {
   saveHidden(hidden ? [...rest, model] : rest)
 }
 
+/** 一次显示 / 隐藏一批（设置页的组开关、「隐藏旧版本」，docs/ui/menu-models.md） */
+export function setModelsHidden(models: readonly string[], hidden: boolean): void {
+  const rest = state.hiddenModels.filter(m => !models.includes(m))
+  saveHidden(hidden ? [...rest, ...models] : rest)
+}
+
 export function showAllModels(): void {
   saveHidden([])
 }
@@ -495,9 +504,6 @@ export function showAllModels(): void {
 export function visibleModels(models: string[], hidden: string[], keep: Array<string | null>): string[] {
   return models.filter(m => !hidden.includes(m) || keep.includes(m))
 }
-
-/** 模型多于这个数时显示搜索框 */
-export const MODEL_SEARCH_MIN = 8
 
 /** 按名字过滤模型（忽略大小写、空格和连字符） */
 export function matchModels(models: string[], query: string): string[] {

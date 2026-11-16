@@ -17,10 +17,16 @@ export function ContextWindowInput({
   onChange,
   onValidity,
   onDraftDirty,
+  placeholder,
+  ghost = false,
 }: {
   value: number | null
   label?: string
   commit?: 'change' | 'blur'
+  /** 留空时的灰字（如官方表里的 1M）；不给用「自动」 */
+  placeholder?: string
+  /** 平时不画边框、窄一些，悬停所在行或聚焦时才像输入框（菜单里显示的模型，docs/ui/menu-models.md） */
+  ghost?: boolean
   onChange(value: number | null): void
   onValidity?(ok: boolean): void
   /** 输入中就报告：输入框里的文字和当前值对不上（含认不出的）；打字时不标红，只给外面判断关闭前要不要确认 */
@@ -46,7 +52,9 @@ export function ContextWindowInput({
       aria-label={label ?? tr('customApi.contextWindow')}
       aria-invalid={invalid}
       title={invalid ? tr('customApi.contextWindowHint') : tr('customApi.contextWindowTip')}
-      placeholder={commit === 'blur' ? tr('contextWindow.auto') : tr('customApi.contextWindowPlaceholder')}
+      placeholder={
+        placeholder ?? (commit === 'blur' ? tr('contextWindow.auto') : tr('customApi.contextWindowPlaceholder'))
+      }
       value={draft}
       onFocus={() => {
         editingRef.current = true
@@ -75,8 +83,15 @@ export function ContextWindowInput({
         if (commit === 'blur' && next !== value) onChange(next)
       }}
       className={cn(
-        'h-7 w-28 shrink-0 rounded-md border bg-subtle px-2 text-meta tabular-nums text-fg outline-none placeholder:text-fg-faint',
-        invalid ? 'border-danger' : 'border-line focus:border-line-strong',
+        'shrink-0 rounded-md border text-meta tabular-nums text-fg outline-none placeholder:text-fg-faint',
+        ghost
+          ? 'h-6 w-20 px-1.5 text-right group-hover:border-line group-hover:bg-subtle focus:bg-surface'
+          : 'h-7 w-28 bg-subtle px-2',
+        invalid
+          ? 'border-danger'
+          : ghost
+            ? 'border-transparent bg-transparent focus:border-line-strong'
+            : 'border-line focus:border-line-strong',
       )}
     />
   )

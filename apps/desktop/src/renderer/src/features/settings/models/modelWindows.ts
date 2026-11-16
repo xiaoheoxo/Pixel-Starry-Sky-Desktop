@@ -7,16 +7,23 @@ export type EngineModelLists = Partial<Record<EngineId, readonly string[]>>
 /** 每个引擎设置里平台模型的窗口（contextWindows.platform） */
 export type EngineWindowMaps = Partial<Record<EngineId, Readonly<Record<string, number>>>>
 
-/** 官方工具在前；像素星空什么协议都能跑，常常只有它能跑的模型排最后 */
-const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel']
+/** 官方工具在前；像素星空什么协议都能跑，常常只有它能跑的模型排在后面；Antigravity 只跑 Gemini 分组 */
+const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
+/** 能改上下文窗口的引擎（Antigravity 用 agy 自己的窗口，不支持） */
+const WINDOW_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel']
 
 /** 合在一起的模型：按引擎顺序、组内顺序去重 */
 export function mergedModels(lists: EngineModelLists): string[] {
   return [...new Set(ORDER.flatMap(e => lists[e] ?? []))]
 }
 
-/** 能跑这个模型的引擎（存窗口时每个都写一份） */
+/** 能改这个模型窗口的引擎（存窗口时每个都写一份）；只有 Antigravity 能跑的为空，那一行不给填 */
 export function windowEngines(model: string, lists: EngineModelLists): EngineId[] {
+  return WINDOW_ORDER.filter(e => lists[e]?.includes(model))
+}
+
+/** 能跑这个模型的引擎（行里的小图标） */
+export function modelEngines(model: string, lists: EngineModelLists): EngineId[] {
   return ORDER.filter(e => lists[e]?.includes(model))
 }
 
@@ -53,10 +60,4 @@ export function routeCount(
   groups: Partial<Record<EngineId, ReadonlyArray<{ id: string; models: readonly string[] }>>>,
 ): number {
   return new Set(ORDER.flatMap(e => (groups[e] ?? []).filter(g => g.models.includes(model)).map(g => g.id))).size
-}
-
-/** 模型名前的小图标：Claude Code 能跑的不画；只有 Codex / 像素星空能跑的画那个引擎 */
-export function modelBadge(model: string, lists: EngineModelLists): EngineId | null {
-  const [first] = windowEngines(model, lists)
-  return first && first !== 'claude' ? first : null
 }

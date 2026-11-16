@@ -61,6 +61,13 @@ describe('平台目录：先选模型、再选线路（docs/ui/source-switch.md 
     expect(groupsForModel([group('9', 0, ['x']), group('8', 1, ['x'])], 'x').map(g => g.id)).toEqual(['9', '8'])
   })
 
+  it('回归（审查）：只能生图的分组也列着 gpt-6，不算对话线路（菜单线路数、最低倍率不含它）', () => {
+    const image = { ...group('41', 0.1, ['gpt-6', 'gpt-image-2']), supported_apis: ['images'] }
+    const chat = group('35', 1, ['gpt-6'])
+    expect(groupsForModel([chat, image], 'gpt-6').map(g => g.id)).toEqual(['35'])
+    expect(groupsForModel([image], null)).toEqual([])
+  })
+
   it('对齐：原线路有这个模型就不动；没有就换到倍率最低的线路', () => {
     expect(resolvePlatform(groups, '1', 'sonnet')).toEqual({ groupId: '1', model: 'sonnet' })
     expect(resolvePlatform(groups, '1', 'haiku')).toEqual({ groupId: '2', model: 'haiku' })

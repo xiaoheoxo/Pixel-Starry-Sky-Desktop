@@ -9,10 +9,6 @@ export const contextMessages = {
     en: 'Same value as the context window in the custom API settings; editing either place changes both. Leave empty to use the engine’s own value.',
   },
   'contextWindow.platformTitle': { zh: '上下文窗口', en: 'Context windows' },
-  'contextWindow.platformHint': {
-    zh: '每个模型可以填上下文窗口，如 1M、200K；留空用引擎自己知道的大小。比模型实际支持的大，请求会出错。改了以后下一条消息生效。',
-    en: "Set a context window per model, e.g. 1M or 200K. Leave empty to use the engine's own value. Larger than the model really supports and requests fail. Applies from the next message.",
-  },
   'contextWindow.engineTitle': { zh: '模型的上下文窗口', en: 'Model context windows' },
   'contextWindow.engineHint': {
     zh: '用自己的账号时，每个模型的上下文窗口，如 1M、200K；留空用 {engine} 自己知道的大小。比模型实际支持的大，请求会出错。',

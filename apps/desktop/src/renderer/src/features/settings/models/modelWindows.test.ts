@@ -1,6 +1,6 @@
 // 设置 › 模型通道 › 菜单里显示的模型：三个引擎合在一起、每个模型一个上下文窗口
 import { describe, expect, it } from 'vitest'
-import { mergedModels, modelBadge, routeCount, sharedWindow, windowBackfill, windowEngines } from './modelWindows'
+import { mergedModels, modelEngines, routeCount, sharedWindow, windowBackfill, windowEngines } from './modelWindows'
 
 const lists = {
   claude: ['claude-opus-5-5'],
@@ -20,10 +20,14 @@ describe('模型列表', () => {
     expect(windowEngines('deepseek-v4', lists)).toEqual(['pixel'])
   })
 
-  it('图标：Claude Code 能跑的不画，只有 Codex / Pixel 能跑的画那个引擎', () => {
-    expect(modelBadge('claude-opus-5-5', lists)).toBeNull()
-    expect(modelBadge('gpt-6.1', lists)).toBe('codex')
-    expect(modelBadge('deepseek-v4', lists)).toBe('pixel')
+  it('行里的图标：能跑它的引擎都画；只有 Antigravity 能跑的不给填窗口', () => {
+    expect(modelEngines('claude-opus-5-5', lists)).toEqual(['claude', 'pixel'])
+    expect(modelEngines('gpt-6.1', lists)).toEqual(['codex', 'pixel'])
+    expect(modelEngines('deepseek-v4', lists)).toEqual(['pixel'])
+    const gem = { ...lists, antigravity: ['gemini-4-carbon'] }
+    expect(mergedModels(gem)).toContain('gemini-4-carbon')
+    expect(modelEngines('gemini-4-carbon', gem)).toEqual(['antigravity'])
+    expect(windowEngines('gemini-4-carbon', gem)).toEqual([])
   })
 
   it('线路数：各引擎目录里同一个分组只算一次', () => {
