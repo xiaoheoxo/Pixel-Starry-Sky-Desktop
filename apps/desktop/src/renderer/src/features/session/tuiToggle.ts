@@ -13,6 +13,7 @@ import { openResumePicker } from '@/features/resume/store'
 import { tr } from '@/i18n/core'
 import {
   DEMO_TUI_TERMINAL_ID,
+  isTuiEngine,
   isTuiRunningError,
   tuiDisabledReason,
   tuiBlockKey,
@@ -124,21 +125,22 @@ export function useTuiToggle(
 
   // 终端里的会话和这里对不上（/rewind、/clear 过）：不猜，给「从 /resume 导入」打开现有的选择器（§3.3）
   const projectId = record?.projectId ?? null
+  const engine = record?.engine
   const mismatch = useCallback(
     () =>
       toast(tr('session.tui.mismatch'), {
         duration: 15_000,
-        // 聊天没有项目文件夹，Claude 的选择框列不出东西：不给导入按钮
-        ...(isChatProject(projectId)
+        // 聊天没有项目文件夹，选择框列不出东西：不给导入按钮。按这个对话的引擎打开（原来写死 Claude，Codex 也开成了 Claude 的）
+        ...(isChatProject(projectId) || !isTuiEngine(engine)
           ? {}
           : {
               action: {
                 label: tr('session.tui.importResume'),
-                run: () => openResumePicker({ engine: 'claude', projectId }),
+                run: () => openResumePicker({ engine, projectId }),
               },
             }),
       }),
-    [toast, projectId],
+    [toast, projectId, engine],
   )
 
   const onChange = useCallback(

@@ -95,6 +95,7 @@ export type {
   McpServerStatus,
   McpServerTool,
   SessionRecord,
+  TuiMark,
   ImportedSession,
   NativeSessionSummary,
   NativeSessionDetail,

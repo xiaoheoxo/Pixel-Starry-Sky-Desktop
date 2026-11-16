@@ -1,5 +1,5 @@
 // 会话界面 ⇄ 终端（TUI）切换（docs/ui/tui-toggle.md）
-import type { SessionRecord, SessionSnapshot } from '@pixelsky/protocol'
+import type { EngineId, SessionRecord, SessionSnapshot } from '@pixelsky/protocol'
 import type { TranslationKey } from '@/i18n/core'
 import { stopTargets } from './live/subagentStop'
 
@@ -15,17 +15,22 @@ export function tuiModeOf(record: SessionRecord | null | undefined): TuiMode {
   return tuiActive(record) ? 'terminal' : 'ui'
 }
 
-/** 顶栏要不要画开关：Claude、Codex 显示；pixel / 无记录不画 */
+/** 能切到终端的引擎（宿主 host/index.ts 的 TUI_ENGINES 要一起改）；也都能「从 /resume 导入」 */
+export const TUI_ENGINES = ['claude', 'codex', 'antigravity'] as const
+export type TuiEngine = (typeof TUI_ENGINES)[number]
+export const isTuiEngine = (engine: EngineId | undefined): engine is TuiEngine =>
+  (TUI_ENGINES as readonly string[]).includes(engine ?? '')
+
+/** 顶栏要不要画开关：Claude、Codex、Antigravity 显示；pixel / 无记录不画 */
 export function tuiToggleVisible(record: SessionRecord | null | undefined): boolean {
-  if (!record) return false
-  return record.engine === 'claude' || record.engine === 'codex'
+  return isTuiEngine(record?.engine)
 }
 
 /** 开关能不能点：灰着时返回原因（i18n key），能点返回 null。外部占用由主进程的 tuiCheck 另查 */
 export function tuiDisabledReason(snapshot: SessionSnapshot | null | undefined): TranslationKey | null {
   if (!snapshot) return 'session.tui.disabledBusy'
   const { record, state, queue, pending } = snapshot
-  if (record.engine !== 'claude' && record.engine !== 'codex') return 'session.tui.disabledEngine'
+  if (!isTuiEngine(record.engine)) return 'session.tui.disabledEngine'
   if (record.tui) return null // 已在终端：不因自己的 TUI 变灰
   // Codex 不能预先指定线程 id，界面进程也不能 warm（切之前落实不了回退 / 分叉）：先在界面里发一条消息
   if (record.engine === 'codex' && (!record.engineSessionId || record.pendingRewind || record.pendingFork))

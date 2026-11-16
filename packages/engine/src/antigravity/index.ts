@@ -1,6 +1,8 @@
 // Antigravity CLI 引擎（agy acp，docs/antigravity-engine.md）：检测、安装、更新、模型目录、会话（session.ts）
-import type { EngineCatalog, EngineInfo, EngineUpdateResult, SessionRecord } from '@pixelsky/protocol'
-import type { EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext } from '../adapter'
+import type { EngineCatalog, EngineInfo, EngineUpdateResult, Item, SessionRecord, TuiMark } from '@pixelsky/protocol'
+import type { EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext, TuiLaunch } from '../adapter'
+import type { NewerTurns } from '../native/types'
+import { agyNewSession, agyTuiArgs, markOf, sinceMark } from './tui'
 import { engineEnv, systemProxyEnv } from '../env'
 import { outputTail, runInteractive, runStream } from '../exec'
 import { agyCatalog, agyInstaller, agyLogout, agyOneShot, customAgy, discoverAgy, probeAgyAuth } from './discover'
@@ -153,6 +155,49 @@ export class AntigravityAdapter implements EngineAdapter {
   async readNativeSession(cwd: string, id: string, opts?: ReadOptions): Promise<NativeRead | null> {
     const launcher = await this.readyLauncher()
     return agyReadNative(launcher, this.opts.launchArgs?.() ?? [], this.env(), cwd, id, opts)
+  }
+
+  /**
+   * 读回放给终端模式用：起临时 agy（起不来、超时、登录失效都会抛）时返回 undefined。
+   * 切回时抛出去会让会话卡在终端模式（tuiClose 的 clearTui 执行不到），所以不抛。会话里还没有用户消息时 readNativeSession 给 null
+   */
+  private async replay(cwd: string, id: string): Promise<Item[] | undefined> {
+    const read = await this.readNativeSession(cwd, id).catch(() => undefined)
+    return read === undefined ? undefined : (read?.items ?? [])
+  }
+
+  /** 切到终端时记下回放里的位置（tui.ts markOf） */
+  async tuiMark(cwd: string, id: string): Promise<TuiMark | null> {
+    const items = await this.replay(cwd, id)
+    return items ? markOf(items) : null
+  }
+
+  /** 切回界面时从记下的位置往后补；读不到按对不上（提示里能「从 /resume 导入」手动补） */
+  async newerSinceMark(cwd: string, id: string, mark: TuiMark): Promise<NewerTurns | null> {
+    const items = await this.replay(cwd, id)
+    return items ? sinceMark(items, mark) : null
+  }
+
+  /**
+   * 终端（TUI）模式（docs/ui/tui-toggle.md §12.2）：agy --conversation <会话>，env 和界面进程一样（含平台线路的网关）。
+   * 新对话还没有 agy 会话时先用临时 ACP 进程建一个，宿主把返回的 id 写进 engineSessionId
+   */
+  async tuiLaunch(record: SessionRecord): Promise<TuiLaunch> {
+    if (record.engine !== 'antigravity') throw new Error('不是 Antigravity 对话')
+    await this.info()
+    const launcher = this.cached?.launcher
+    if (!launcher || this.cached?.info.status === 'missing' || this.cached?.info.status === 'outdated')
+      throw new Error(this.cached?.info.message ?? 'Antigravity CLI is unavailable')
+    const env = { ...this.env(), ...this.opts.sessionEnv?.(record) }
+    const userArgs = this.opts.launchArgs?.() ?? []
+    const conversation = record.engineSessionId || (await agyNewSession(launcher, userArgs, env, record.cwd))
+    return {
+      command: launcher.command,
+      args: [...launcher.args, ...agyTuiArgs(record, conversation, userArgs)],
+      env,
+      cwd: record.cwd,
+      engineSessionId: conversation,
+    }
   }
 
   /** 用过的工作目录（设置 › 项目 › 从其他工具导入） */

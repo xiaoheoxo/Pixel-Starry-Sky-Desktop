@@ -32,6 +32,7 @@ export type {
   SideTurn,
   SendReceipt,
   SessionRecord,
+  TuiMark,
   ImportedSession,
   NativeSessionSummary,
   NativeSessionDetail,

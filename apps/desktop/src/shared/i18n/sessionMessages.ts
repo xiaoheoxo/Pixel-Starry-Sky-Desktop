@@ -523,6 +523,15 @@ export const sessionMessages = {
     zh: '终端模式下批注、回退、分叉不可用',
     en: 'Annotations, rewind and fork unavailable in terminal mode',
   },
+  // Antigravity 的终端只读 agy 自己的 mcp_config.json，桌面端管理的 MCP 带不过去（docs/ui/tui-toggle.md §12.2）
+  'session.tui.bannerAgy': {
+    zh: '终端模式下批注、回退、分叉不可用，像素星空管理的 MCP 工具也不可用',
+    en: 'Annotations, rewind, fork and PixelSky-managed MCP tools are unavailable in terminal mode',
+  },
+  'session.tui.syncing': {
+    zh: '正在切回界面，补上终端里聊的内容…',
+    en: 'Switching back and adding what you chatted in the terminal…',
+  },
   'session.tui.switching': {
     zh: '正在停止界面里的会话，在终端中继续…',
     en: 'Stopping the UI session and continuing in the terminal…',

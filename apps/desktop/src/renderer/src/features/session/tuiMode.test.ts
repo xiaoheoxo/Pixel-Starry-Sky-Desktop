@@ -49,11 +49,17 @@ describe('tuiMode helpers', () => {
     expect(tuiDisabledReason(snap({ engine: 'claude', pendingFork: { from: 'a', at: 'b' } }))).toBeNull()
   })
 
-  it('shows toggle for claude/codex, not pixel', () => {
+  it('shows toggle for claude/codex/antigravity, not pixel', () => {
     expect(tuiToggleVisible(snap({ engine: 'claude' }).record)).toBe(true)
     expect(tuiToggleVisible(snap({ engine: 'codex' }).record)).toBe(true)
+    expect(tuiToggleVisible(snap({ engine: 'antigravity' }).record)).toBe(true)
     expect(tuiToggleVisible(snap({ engine: 'pixel' }).record)).toBe(false)
     expect(tuiToggleVisible(null)).toBe(false)
+  })
+
+  it('Antigravity：新对话也能切（切之前在后台建会话），不像 Codex 那样要先发一条', () => {
+    expect(tuiDisabledReason(snap({ engine: 'antigravity', engineSessionId: null }))).toBeNull()
+    expect(tuiDisabledReason(snap({ engine: 'antigravity', engineSessionId: 'conv-1' }))).toBeNull()
   })
 
   it('主进程的原因代码换成文字；不认识的当能切', () => {

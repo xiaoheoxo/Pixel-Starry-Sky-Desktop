@@ -532,7 +532,9 @@ function LiveSessionView({
                   ) : (
                     <>
                       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5 text-meta text-fg-muted">
-                        <span className="min-w-0 flex-1 truncate">{tr('session.tui.bannerShort')}</span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {tr(record?.engine === 'antigravity' ? 'session.tui.bannerAgy' : 'session.tui.bannerShort')}
+                        </span>
                         <button
                           type="button"
                           className="press shrink-0 rounded px-1.5 text-accent-fg hover:bg-hover"
@@ -562,7 +564,8 @@ function LiveSessionView({
                   )}
                   {tuiBusy && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-app/70 text-ui text-fg-muted">
-                      {tr('session.tui.switching')}
+                      {/* 终端已经起来了还在忙＝正在切回（Antigravity 要起临时进程读回放，要几秒） */}
+                      {tr(tuiTerminal ? 'session.tui.syncing' : 'session.tui.switching')}
                     </div>
                   )}
                   {tuiConfirm && tui && (

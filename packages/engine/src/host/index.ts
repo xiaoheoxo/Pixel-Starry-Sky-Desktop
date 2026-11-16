@@ -99,6 +99,9 @@ export type { SyncableEngineSettings } from './settings'
  */
 export type TuiBlock = 'engine' | 'fresh' | 'busy' | 'liveTerminal' | 'liveOther'
 
+/** 能切到终端的引擎（docs/ui/tui-toggle.md；界面 tuiMode.ts 的 TUI_ENGINES 要一起改） */
+const TUI_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['claude', 'codex', 'antigravity'])
+
 /** 切换时直接报错用的文字（和界面 session.tui.disabled* 的中文一致，界面能翻译） */
 const TUI_BLOCK_TEXT: Record<TuiBlock, string> = {
   engine: '当前引擎不支持终端模式',
@@ -752,7 +755,7 @@ export class EngineHost {
     const ctx = this.ctx
     const rt = this.m.sessions.runtime(id)
     const record = rt.snapshot.record
-    if (record.engine !== 'claude' && record.engine !== 'codex') return 'engine'
+    if (!TUI_ENGINES.has(record.engine)) return 'engine'
     if (record.tui) return null
     if (record.engine === 'codex' && (!record.engineSessionId || record.pendingRewind || record.pendingFork))
       return 'fresh'
@@ -880,14 +883,21 @@ export class EngineHost {
 
       if (!extensions) extensions = await ctx.opts.extensions?.(m.sessions.runtime(id).snapshot.record)
       let current = m.sessions.runtime(id).snapshot.record
+      const hadSession = !!current.engineSessionId
       let launch = await adapter.tuiLaunch(current, extensions)
       if (current.engineSessionId !== launch.engineSessionId) {
         m.events.patchRecord(id, { engineSessionId: launch.engineSessionId })
         current = m.sessions.runtime(id).snapshot.record
         launch = await adapter.tuiLaunch(current, extensions)
       }
+      // 原生记录没有稳定 id 的引擎（Antigravity）：切过去时记下位置，切回从这往后补（§12.7）。新建的会话是空的，不用读
+      const mark = adapter.tuiMark
+        ? hadSession
+          ? await adapter.tuiMark(current.cwd, launch.engineSessionId)
+          : { users: 0, last: '' }
+        : undefined
       rt.tuiLive = true
-      m.events.patchRecord(id, { tui: { terminalId: '', since: Date.now() } })
+      m.events.patchRecord(id, { tui: { terminalId: '', since: Date.now(), ...(mark !== undefined && { mark }) } })
       // extensions.dispose 不在这里调：mcp 临时文件还要给 TUI 进程用；进程退出后由下次 prepare 覆盖或 OS 清临时目录
       return launch
     } catch (err) {

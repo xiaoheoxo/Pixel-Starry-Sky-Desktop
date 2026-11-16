@@ -460,7 +460,7 @@ export class HostNative {
     const sid = record.engineSessionId
     if (!sid) return { added: 0, mismatched: false }
     const adapter = this.adapter(record.engine)
-    if (!adapter.newerNativeTurns) return { added: 0, mismatched: false }
+    if (!adapter.newerNativeTurns && !adapter.newerSinceMark) return { added: 0, mismatched: false }
     const idle = rt.snapshot.state === 'idle' && !rt.pumping && !rt.stopping
     if (ctx.changingSessions.has(id) || !idle)
       throw new Error(ctx.changingSessions.has(id) ? '正在处理这个会话，请稍后重试' : '任务运行中，结束后再试')
@@ -468,10 +468,14 @@ export class HostNative {
     try {
       const all = rt.snapshot.items.filter(item => item.kind === 'user')
       let found: { items: Item[]; shown: number } | null = null
-      if (all.length === 0) {
+      if (adapter.newerSinceMark) {
+        // 原生记录没有稳定 id 的引擎（Antigravity）：从切过去时记下的位置往后取（§12.7）；当时没读到位置就对不上
+        const mark = record.tui?.mark
+        found = mark ? await adapter.newerSinceMark(record.cwd, sid, mark) : null
+      } else if (all.length === 0) {
         // 新对话：还没有用户条目，整段读最近轮次。终端里一句没说时 Claude Code 不建记录文件，读不到＝没有可补的，不算对不上
         found = (await adapter.readNativeSession?.(record.cwd, sid, { turns: 50 })) ?? { items: [], shown: 0 }
-      } else {
+      } else if (adapter.newerNativeTurns) {
         // 重试 / 重连的条目 id（x-retry-y）不是 uuid，但发给引擎时就用它，原生记录里原样有（2026-11-12 核对过 Claude 的记录）：
         // 一样当锚点，跳过的话会从更早的一条算起，把重试的那一轮当成终端里新聊的再补一遍
         for (const user of all.slice(-8).reverse()) {
