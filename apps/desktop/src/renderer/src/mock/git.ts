@@ -10,6 +10,7 @@ import type {
   GitFileChange,
   GitLogPage,
   GitLogQuery,
+  GitModule,
   GitRefLabel,
   GitRefs,
   GitStatus,
@@ -23,6 +24,19 @@ const file = (path: string, code: GitFileChange['code'], origPath: string | null
   local: path,
   submodule: false,
 })
+/** 带改动行数的（Git 面板开着「改动行数」时有，docs/ui/git-panel.md §10.1） */
+const counted = (path: string, code: GitFileChange['code'], insertions: number, deletions: number): GitFileChange => ({
+  ...file(path, code),
+  insertions,
+  deletions,
+})
+
+/** 按模块分组用（docs/ui/git-panel.md §10）：仓库根 + 两个子模块 */
+export const demoGitModules: GitModule[] = [
+  { dir: '', name: 'pixel-web', kind: 'npm' },
+  { dir: 'apps/mobile', name: 'pixel_mobile', kind: 'Flutter' },
+  { dir: 'packages/ui', name: '@pixel/ui', kind: 'npm' },
+]
 
 export const demoGitStatus: GitStatus = {
   repo: true,
@@ -37,15 +51,23 @@ export const demoGitStatus: GitStatus = {
   behind: 2,
   remotes: ['origin'],
   conflicted: [],
-  staged: [file('src/settings/AccountForm.tsx', 'M'), file('src/settings/fields/useField.ts', 'A')],
+  staged: [counted('src/settings/AccountForm.tsx', 'M', 24, 8), counted('src/settings/fields/useField.ts', 'A', 61, 0)],
   unstaged: [
-    file('src/settings/AccountForm.tsx', 'M'),
-    file('src/settings/AppearanceForm.tsx', 'M'),
-    file('src/legacy/OldForm.tsx', 'D'),
-    file('src/session/SessionHeader.tsx', 'M'),
-    file('src/machines/store.ts', 'M'),
+    counted('src/settings/AccountForm.tsx', 'M', 6, 2),
+    counted('src/settings/AppearanceForm.tsx', 'M', 18, 11),
+    counted('src/legacy/OldForm.tsx', 'D', 0, 142),
+    counted('src/session/SessionHeader.tsx', 'M', 3, 3),
+    counted('src/machines/store.ts', 'M', 40, 7),
+    counted('packages/ui/src/Button.tsx', 'M', 12, 4),
+    counted('packages/ui/package.json', 'M', 1, 1),
+    counted('apps/mobile/lib/settings_page.dart', 'M', 27, 9),
   ],
-  untracked: [file('docs/表单迁移.md', '?'), file('src/machines/MachineSwitch.tsx', '?')],
+  untracked: [
+    file('docs/表单迁移.md', '?'),
+    file('src/machines/MachineSwitch.tsx', '?'),
+    file('apps/mobile/build/app/outputs/app-debug.apk', '?'),
+    file('apps/mobile/build/app/outputs/output-metadata.json', '?'),
+  ],
   truncated: false,
   operation: null,
   fetchedAt: Date.now() - 6 * 60_000,

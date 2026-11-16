@@ -26,6 +26,19 @@ export function demoApply(status: GitStatus, action: string, arg?: unknown): Git
     s.unstaged = s.unstaged.filter(f => !paths(s.unstaged, p).includes(f))
     s.untracked = s.untracked.filter(f => !paths(s.untracked, p).includes(f))
   }
+  // 只提交这些（docs/ui/git-panel.md §10.1）：别的取消暂存，再暂存这些
+  if (action === 'commitOnly') {
+    const keep = arg as string[]
+    const others = s.staged.filter(f => !keep.includes(f.path)).map(f => f.path)
+    return demoApply(demoApply(s, 'unstage', others), 'stage', keep)
+  }
+  // 加入 .gitignore：未跟踪里在这些路径下的不再显示
+  if (action === 'ignore') {
+    const list = arg as { path: string; dir: boolean }[]
+    s.untracked = s.untracked.filter(
+      f => !list.some(e => f.path === e.path || (e.dir && f.path.startsWith(e.path + '/'))),
+    )
+  }
   if (action === 'commit') {
     const all = (arg as { all: boolean }).all
     s.staged = []

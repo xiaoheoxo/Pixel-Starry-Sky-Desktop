@@ -50,6 +50,8 @@ type Note =
       model: string
       source: AiSource
       scope: GitCommitScope
+      /** 只给这些文件写（Git 面板多选、文件夹右键，docs/ui/git-panel.md §10.1）；换通道重试时照旧 */
+      paths?: string[]
       /** 订阅额度用完、没装、没授权时「这次改用 X」 */
       instead: AiSource | null
     }
@@ -137,7 +139,7 @@ export function useAiCommit({
     if (note?.kind === 'done' && message !== note.written) setNote(null)
   }, [message, note])
 
-  const start = async (scope: GitCommitScope, override?: AiSource): Promise<void> => {
+  const start = async (scope: GitCommitScope, override?: AiSource, paths?: string[]): Promise<void> => {
     if (running) return
     const using = override ?? source
     const requestId = crypto.randomUUID()
@@ -149,6 +151,7 @@ export function useAiCommit({
         model: name,
         source: using,
         scope,
+        paths,
         instead: SWITCHABLE.includes(problem) ? fallbackSource(using, channels.ctx) : null,
       })
     setNote(null)
@@ -177,6 +180,7 @@ export function useAiCommit({
         requestId,
         ref: target,
         scope,
+        ...(paths?.length ? { paths } : {}),
         language: writing.language,
         uiLanguage: getLocale() === 'en-US' ? 'en' : 'zh',
         style: writing.style,
@@ -236,8 +240,8 @@ export function useAiCommit({
     source,
     channels,
     model,
-    /** override：菜单里选的通道，只用这一次 */
-    start: (scope: GitCommitScope, override?: AiSource) => void start(scope, override),
+    /** override：菜单里选的通道，只用这一次；paths：只给这些文件写 */
+    start: (scope: GitCommitScope, override?: AiSource, paths?: string[]) => void start(scope, override, paths),
     stop: () => {
       if (running && !demo) void window.pixelsky?.ai.cancel(running)
     },
@@ -469,7 +473,7 @@ export function AiCommitNote({ ai }: { ai: AiCommit }) {
         action(tr('aiCommit.authorize'), () => openAuthDialog(channel))}
       {note.instead &&
         action(tr('aiCommit.useInstead', { channel: ai.channels.name(note.instead) }), () =>
-          ai.start(note.scope, note.instead ?? undefined),
+          ai.start(note.scope, note.instead ?? undefined, note.paths),
         )}
       {(note.problem === 'signedOut' ||
         note.problem === 'route' ||

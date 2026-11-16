@@ -164,13 +164,18 @@ async function readHead(path: string, limits = CONTEXT_LIMITS): Promise<{ lines:
   }
 }
 
-/** 取这次要提交的改动；run 在仓库根目录跑 git，root 是仓库根目录的绝对路径 */
+/**
+ * 取这次要提交的改动；run 在仓库根目录跑 git，root 是仓库根目录的绝对路径。
+ * only：只看这些路径（文件或文件夹，相对仓库根；Git 面板「AI 只给这些写」，docs/ui/git-panel.md §10.1）
+ */
 export async function collectCommitContext(
   root: string,
   scope: GitCommitScope,
   run: GitRunner,
   limits = CONTEXT_LIMITS,
+  only?: readonly string[],
 ): Promise<GitCommitContext> {
+  const pathspec = only?.length ? ['--', ...only] : []
   const out = async (args: string[], opts?: { input?: string; limit?: number }): Promise<string> => {
     const r = await run(args, opts)
     return r.ok ? r.stdout.toString('utf8') : ''
@@ -187,6 +192,7 @@ export async function collectCommitContext(
     ...format,
     '--end-of-options',
     base,
+    ...pathspec,
   ]
   const [names, nums, patch, branch, log, untracked] = await Promise.all([
     out(diff('--name-status', '-z')),
@@ -194,7 +200,7 @@ export async function collectCommitContext(
     out(diff('-U3'), { limit: limits.patchBytes }),
     out(['branch', '--show-current']),
     head ? out(['log', '-n', String(limits.recent), '--no-merges', '--format=%s']) : Promise.resolve(''),
-    scope === 'all' ? out(['ls-files', '--others', '--exclude-standard', '-z']) : Promise.resolve(''),
+    scope === 'all' ? out(['ls-files', '--others', '--exclude-standard', '-z', ...pathspec]) : Promise.resolve(''),
   ])
   const tracked = parseCommitFiles(names, nums, limits.files)
   const sections = splitPatch(patch)

@@ -29,6 +29,8 @@ export interface AiChannelRequest {
 export interface AiCommitRequest extends AiChannelRequest {
   ref: WorkspaceRef
   scope: GitCommitScope
+  /** 只给这些文件 / 文件夹写（相对仓库根；Git 面板的「AI 只给这些写」，docs/ui/git-panel.md §10.1）；不给就是整个 scope */
+  paths?: string[]
   language: AiCommitLanguage
   /** 界面语言：language 为 auto 且仓库还没有提交时用 */
   uiLanguage: 'zh' | 'en'

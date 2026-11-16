@@ -21,6 +21,8 @@ const again = new Set<string>()
 /** 下一轮要重新确认仓库根（手动刷新） */
 const rechecks = new Set<string>()
 const errors = new Map<string, string>()
+/** 要增删行数的工作区（Git 页开着「改动行数」，docs/ui/git-panel.md §10.1）→ 几个地方要：只有它们读状态时带 stats，多跑两次 git diff --numstat */
+const statsWanted = new Map<string, number>()
 const listeners = new Set<() => void>()
 let version = 0
 /** 每读到一次状态加一（内容没变也加）：Git 页的对比、中栏对比标签靠它知道该重读文件内容 */
@@ -71,7 +73,9 @@ function load(ref: WorkspaceRef, rerun: boolean, recheck = false): Promise<void>
       again.delete(key)
       const recheck = rechecks.delete(key)
       try {
-        publishGitStatus(ref, await api.gitStatus(ref, recheck ? { recheck } : undefined))
+        const stats = statsWanted.has(key)
+        const opts = recheck || stats ? { ...(recheck ? { recheck } : {}), ...(stats ? { stats } : {}) } : undefined
+        publishGitStatus(ref, await api.gitStatus(ref, opts))
       } catch (e) {
         // 读不到（不是 Git 仓库、远端断开）：保留上次的状态；Git 页还没有状态时显示原因
         const message = (e as Error).message
@@ -190,6 +194,21 @@ function forgetLater(key: string): void {
       errors.delete(key)
     }, FORGET_MS),
   )
+}
+
+/** 这个工作区读状态时带上增删行数（Git 页开着「改动行数」且在前台）；打开时马上重读一次 */
+export function useGitStats(ref: WorkspaceRef | null, on: boolean): void {
+  const key = ref ? refKey(ref) : null
+  useEffect(() => {
+    if (!key || !on || isDemo) return
+    statsWanted.set(key, (statsWanted.get(key) ?? 0) + 1)
+    void load(keyRef(key), true)
+    return () => {
+      const n = (statsWanted.get(key) ?? 1) - 1
+      if (n > 0) statsWanted.set(key, n)
+      else statsWanted.delete(key)
+    }
+  }, [key, on])
 }
 
 /** 有人在看这个工作区：登记、挂监听、先读一次；watching 为 false（例如 Git 页不在前台）时不登记 */

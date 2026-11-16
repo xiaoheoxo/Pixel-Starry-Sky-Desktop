@@ -36,7 +36,7 @@ export interface ModelDeps {
 
 export interface CommitMessageDeps extends ModelDeps {
   /** 在项目所在的机器上取改动（SSH 自动转发） */
-  context(ref: WorkspaceRef, scope: AiCommitRequest['scope']): Promise<GitCommitContext>
+  context(ref: WorkspaceRef, scope: AiCommitRequest['scope'], paths?: string[]): Promise<GitCommitContext>
 }
 
 /** 成功时还带上计费用的 ID（云端回传的 X-Client-Request-ID） */
@@ -175,7 +175,7 @@ export async function writeCommitMessage(
   const signal = AbortSignal.any([cancel, AbortSignal.timeout(TIMEOUT)])
   let context: GitCommitContext
   try {
-    context = await deps.context(req.ref, req.scope)
+    context = await deps.context(req.ref, req.scope, req.paths)
   } catch (error) {
     return cancel.aborted ? fail('cancelled') : fail('failed', cut((error as Error).message ?? String(error)))
   }

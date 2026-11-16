@@ -300,6 +300,33 @@ export interface GitFileChange {
   insertions?: number | null
   deletions?: number | null
 }
+/** 认作模块的项目清单，前面的优先（同一个文件夹里有几个时用它的名字和类型）；面板见清单有改动时重找模块 */
+export const GIT_MODULE_MANIFESTS = [
+  'package.json',
+  'pubspec.yaml',
+  'Cargo.toml',
+  'go.mod',
+  'pom.xml',
+  'pyproject.toml',
+  'settings.gradle',
+  'settings.gradle.kts',
+  'build.gradle',
+  'build.gradle.kts',
+] as const
+/** 按模块分组用的模块（docs/ui/git-panel.md §10）：带项目清单的文件夹 */
+export interface GitModule {
+  /** 相对仓库根，用 / 分隔；仓库根是 '' */
+  dir: string
+  /** 清单里的名字，没有就用文件夹名 */
+  name: string
+  /** npm / Flutter / Dart / Cargo / Go / Maven / Python / Gradle（产品名，不翻译） */
+  kind: string
+}
+/** 加进 .gitignore 的一项：相对仓库根；dir 为真时规则以 / 结尾 */
+export interface GitIgnoreEntry {
+  path: string
+  dir: boolean
+}
 export type GitOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert'
 export interface GitStatus {
   repo: boolean
@@ -401,6 +428,8 @@ export type GitAction =
   | 'operation'
   | 'history'
   | 'merge'
+  /** 加进 .gitignore（docs/ui/git-panel.md §10.1） */
+  | 'ignore'
 export interface GitFailure {
   kind: GitFailureKind
   action: GitAction

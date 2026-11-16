@@ -28,6 +28,7 @@ import type {
   GitResult,
   GitSquashResult,
   GitFileChange,
+  GitModule,
   GitStatus,
 } from '../../../shared/types/project-tools'
 import { workspaceEntry } from '../workspace-files'
@@ -47,6 +48,7 @@ import {
 } from './git-parse'
 import type { TrashFile } from './trash'
 import { collectCommitContext } from './commit-context'
+import { appendIgnore, ignoreEntries, MODULE_PATHSPECS, readModules } from './git-modules'
 
 export const DIFF_LIMIT = 2 * 1024 * 1024
 const OUTPUT_LIMIT = 16 * 1024 * 1024
@@ -737,14 +739,47 @@ export class GitTools {
 
   /** AI 写提交信息要发给模型的改动（docs/ui/ai-commit-codex-warnings-history.md §2.2）：只读，按上限截好 */
   async commitContext(ref: WorkspaceRef, input: unknown): Promise<GitCommitContext> {
-    const scope = (input as { scope?: unknown } | null)?.scope
+    const v = input as { scope?: unknown; paths?: unknown } | null
+    const scope = v?.scope
     if (scope !== 'staged' && scope !== 'all') throw new Error('参数不正确')
+    // 只给选中的文件 / 文件夹写（docs/ui/git-panel.md §10.1）：路径按字面（GIT_LITERAL_PATHSPECS），文件夹包含下面所有文件
+    const only = v?.paths === undefined || v.paths === null ? undefined : pathList(v.paths)
+    if (only && (!only.length || pathBatches(only).length > 1)) throw new Error('选的文件太多，换成选文件夹')
     const repo = await this.repo(ref)
     if (!repo || repo === 'missing') throw new Error('当前项目不是可用的 Git 仓库')
-    return collectCommitContext(repo.root, scope, async (args, opts) => {
-      const run = await runGit(repo.root, args, { timeout: this.timeout('diff'), ...opts })
-      return { ok: run.code === 0 && !run.timedOut, stdout: run.stdout }
-    })
+    return collectCommitContext(
+      repo.root,
+      scope,
+      async (args, opts) => {
+        const run = await runGit(repo.root, args, { timeout: this.timeout('diff'), ...opts })
+        return { ok: run.code === 0 && !run.timedOut, stdout: run.stdout }
+      },
+      undefined,
+      only,
+    )
+  }
+
+  /**
+   * 仓库里的模块（按模块分组，docs/ui/git-panel.md §10）：已跟踪和没被忽略的新清单文件，任意深度；
+   * 不是仓库、读失败时为空（界面就只按目录分）
+   */
+  async modules(ref: WorkspaceRef): Promise<GitModule[]> {
+    const repo = await this.repo(ref)
+    if (!repo || repo === 'missing') return []
+    const run = await runGit(
+      repo.root,
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...MODULE_PATHSPECS],
+      // 这一条要认 glob（**/package.json），其余命令照旧按字面
+      { timeout: this.timeout('read'), env: { GIT_LITERAL_PATHSPECS: '0' } },
+    )
+    if (run.code !== 0 || run.timedOut) return []
+    return readModules(repo.root, [...new Set(text(run.stdout).split('\0').filter(Boolean))])
+  }
+
+  /** 把未跟踪的文件 / 文件夹加进仓库根的 .gitignore（§10.1）；写完和其他写操作一样返回新状态 */
+  ignore(ref: WorkspaceRef, input: unknown): Promise<GitResult> {
+    const entries = ignoreEntries(input)
+    return this.mutate(ref, 'ignore', repo => appendIgnore(repo.root, entries))
   }
 
   async branches(ref: WorkspaceRef): Promise<GitBranch[]> {
@@ -1234,21 +1269,26 @@ export class GitTools {
   stage(ref: WorkspaceRef, input: unknown): Promise<GitResult> {
     const list = paths(input)
     return this.mutate(ref, 'stage', async repo => {
-      await this.exec(repo, 'stage', list === 'all' ? ['add', '-A'] : ['add', '-A', '--', ...list], 'stage')
+      if (list === 'all') return void (await this.exec(repo, 'stage', ['add', '-A'], 'stage'))
+      // 整个文件夹 / 模块一起暂存可能有几千个文件：分批，免得命令行超长起不来
+      for (const batch of pathBatches(list)) await this.exec(repo, 'stage', ['add', '-A', '--', ...batch], 'stage')
     })
   }
 
   unstage(ref: WorkspaceRef, input: unknown): Promise<GitResult> {
     const list = paths(input)
     return this.mutate(ref, 'unstage', async (repo, status) => {
-      const target = list === 'all' ? ['.'] : list
-      // 还没有任何提交时没有 HEAD 可以 reset，改为从暂存区移除
-      if (status.initial) await this.exec(repo, 'unstage', ['rm', '--cached', '-r', '-q', '--', ...target], 'stage')
-      else
+      if (list === 'all') {
+        // 还没有任何提交时没有 HEAD 可以 reset，改为从暂存区移除
+        if (status.initial) await this.exec(repo, 'unstage', ['rm', '--cached', '-r', '-q', '--', '.'], 'stage')
+        else await this.exec(repo, 'unstage', ['reset', '-q'], 'stage')
+        return
+      }
+      for (const batch of pathBatches(list))
         await this.exec(
           repo,
           'unstage',
-          list === 'all' ? ['reset', '-q'] : ['reset', '-q', 'HEAD', '--', ...list],
+          status.initial ? ['rm', '--cached', '-r', '-q', '--', ...batch] : ['reset', '-q', 'HEAD', '--', ...batch],
           'stage',
         )
     })

@@ -99,6 +99,9 @@ export const PROJECT_TOOL_OPS = {
   'projectTools:gitStage': (c, ref, paths) => c.tools.git.stage(workspaceRef(ref), paths),
   'projectTools:gitUnstage': (c, ref, paths) => c.tools.git.unstage(workspaceRef(ref), paths),
   'projectTools:gitDiscard': (c, ref, input) => c.tools.git.discard(workspaceRef(ref), input),
+  // 改动按模块分组、加入 .gitignore（docs/ui/git-panel.md §10）
+  'projectTools:gitModules': (c, ref) => c.tools.git.modules(workspaceRef(ref)),
+  'projectTools:gitIgnore': (c, ref, input) => c.tools.git.ignore(workspaceRef(ref), input),
   'projectTools:gitCommit': (c, ref, input) => c.tools.git.commit(workspaceRef(ref), input),
   'projectTools:gitCommitContext': (c, ref, input) => c.tools.git.commitContext(workspaceRef(ref), input),
   'projectTools:gitPull': (c, ref, mode) => c.tools.git.pull(workspaceRef(ref), mode),

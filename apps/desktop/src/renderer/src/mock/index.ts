@@ -16,7 +16,7 @@ import { codingSnapshots } from './coding'
 import { workbenchSnapshots } from './workbench'
 import { demo, demoIdleDays } from './demo'
 import { DEMO_EDITOR_STATE, DEMO_FILES, demoDirectory, demoDocument } from './files'
-import { demoGitBranches, demoGitDiff, demoGitHistory, demoGitStatus } from './git'
+import { demoGitBranches, demoGitDiff, demoGitHistory, demoGitModules, demoGitStatus } from './git'
 import { demoExtStore } from './extStore'
 import { demoInbox, demoScheduledSessions } from './inbox'
 import { demoConnectors } from './connectors'
@@ -69,7 +69,13 @@ export const demoSource: DemoSource = {
   context: demoContext,
   quota: demoQuota(),
   files: { contents: DEMO_FILES, editorState: DEMO_EDITOR_STATE, directory: demoDirectory, document: demoDocument },
-  git: { status: demoGitStatus, branches: demoGitBranches, diff: demoGitDiff, history: demoGitHistory },
+  git: {
+    status: demoGitStatus,
+    branches: demoGitBranches,
+    modules: demoGitModules,
+    diff: demoGitDiff,
+    history: demoGitHistory,
+  },
   extStore: demoExtStore,
   inbox: [...demoInbox, ...statusDemoInbox],
   sessionStatus: statusDemoSessionState,

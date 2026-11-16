@@ -55,6 +55,15 @@ function aiChannelRequest(v: Record<string, unknown>): AiChannelRequest {
   return { requestId: v.requestId, source, groups: groups as string[], providerId: v.providerId, model: v.model.trim() }
 }
 
+/** 「AI 只给这些写」的路径：最多 1000 个，每个是不超过 4096 字的相对路径 */
+function commitPaths(input: unknown): string[] {
+  if (!Array.isArray(input) || !input.length || input.length > 1000) throw new Error('参数不正确')
+  return input.map(p => {
+    if (typeof p !== 'string' || !p || p.length > 4096 || p.includes('\0')) throw new Error('参数不正确')
+    return p
+  })
+}
+
 /** 渲染层传来的请求：逐项检查，不信任 */
 export function aiCommitRequest(input: unknown): AiCommitRequest {
   const v = (input ?? {}) as Record<string, unknown>
@@ -64,6 +73,7 @@ export function aiCommitRequest(input: unknown): AiCommitRequest {
     ...channel,
     ref: workspaceRef(v.ref),
     scope: oneOf(v.scope, ['staged', 'all']),
+    ...(v.paths === undefined ? {} : { paths: commitPaths(v.paths) }),
     language: oneOf(v.language, ['auto', 'zh', 'en']),
     uiLanguage: oneOf(v.uiLanguage, ['zh', 'en']),
     style: oneOf(v.style, ['subject', 'body']),
@@ -107,11 +117,15 @@ export function initAi(ctx: AppContext): void {
   /** 渲染层的 requestId → 这次云端请求的结算信息 */
   const settlements = new Map<string, PlatformSettlement>()
 
-  const context = (ref: AiCommitRequest['ref'], scope: AiCommitRequest['scope']): Promise<GitCommitContext> => {
+  const context = (
+    ref: AiCommitRequest['ref'],
+    scope: AiCommitRequest['scope'],
+    paths?: string[],
+  ): Promise<GitCommitContext> => {
     const channel = 'projectTools:gitCommitContext'
     const local = ctx.toolOps.get(channel)
     if (!local) throw new Error('项目尚未加载')
-    const args = [ref, { scope }]
+    const args = [ref, paths ? { scope, paths } : { scope }]
     return Promise.resolve(
       ctx.machines ? ctx.machines.invoke(channel, args, () => local(args)) : local(args),
     ) as Promise<GitCommitContext>

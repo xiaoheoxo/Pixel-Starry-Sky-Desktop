@@ -915,6 +915,20 @@ export const IPC_CONTRACT = {
     remote: 'projectTools:gitCommit',
     trust: 'window',
   },
+  'projectTools:gitIgnore': {
+    kind: 'invoke',
+    route: 'selected',
+    ids: [0],
+    remote: 'projectTools:gitIgnore',
+    trust: 'window',
+  },
+  'projectTools:gitModules': {
+    kind: 'invoke',
+    route: 'selected',
+    ids: [0],
+    remote: 'projectTools:gitModules',
+    trust: 'window',
+  },
   'projectTools:gitCommitContext': {
     kind: 'invoke',
     route: 'selected',

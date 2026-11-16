@@ -1,20 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  CloudDownload,
-  FileClock,
-  FileCode2,
-  GitBranch,
-  Minus,
-  Plus,
-  RefreshCw,
-  TriangleAlert,
-  Undo2,
-  X,
-} from 'lucide-react'
-import { Button, cn, IconButton, Segmented, Select, Spinner } from '@/ui'
+import { ArrowDown, ArrowUp, ChevronDown, CloudDownload, GitBranch, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { Button, cn, IconButton, Segmented, Select, Spinner, useToast } from '@/ui'
 import { useEngineState } from '@/features/engine'
 import { folderLabel } from '@/features/files/extraFolderPaths'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
@@ -24,7 +10,7 @@ import { hasCodeOpener, openFile, refreshHeads } from '@/features/files/store'
 import { keyRef, refKey } from '@/features/editor/target'
 import { gitOpenTarget, routeGitDiff } from '@/features/coding/editor/gitDiffModel'
 import { getGitOpenStyle } from '@/features/coding/editor/gitOpenStyle'
-import { openWorkFile, useActiveCodeFile } from '@/features/coding/editor/gitWorkOpen'
+import { openWorkFile } from '@/features/coding/editor/gitWorkOpen'
 import {
   openGitDiffTab,
   registerGitFileActions,
@@ -33,7 +19,6 @@ import {
   noteGitHead,
   setGitFileKey,
   syncGitDiffTabs,
-  useCurrentGitDiff,
   workDiffInput,
 } from '@/features/coding/editor/gitDiffTabs'
 import { machineOf } from '@/features/machines/store'
@@ -59,8 +44,6 @@ import {
   gitSections,
   needsCommitAll,
   neighbour,
-  SECTION_PAGE,
-  sectionPage,
   splitPath,
   type GitSection,
 } from './gitModel'
@@ -70,7 +53,15 @@ import type { GitFileActions } from '@/features/coding/editor/gitDiffTabs'
 import { AI_COMMIT_PAD, AiCommitButton, AiCommitNote, useAiCommit } from './AiCommit'
 import { BranchMenu } from './BranchMenu'
 import { GitHistory } from './GitHistory'
-import { ShowMore } from './HistoryParts'
+import {
+  GitBulkBar,
+  GitChangeList,
+  GitFilterBar,
+  GitTreeTools,
+  useGitTree,
+  type GitItem,
+  type GitTreeOps,
+} from './GitChanges'
 import { FILE_HISTORY_EVENT, takeFileHistory } from './fileHistory'
 import { publishGitStatus, refreshGitStatus, useGitLoadError, useGitRevision, useGitStatus } from './summary'
 import { demoApply } from './demoGit'
@@ -153,8 +144,8 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
   const [message, setMessage] = useState('')
   const ai = useAiCommit({ target, demo, message, setMessage })
   const [selected, setSelected] = useState<{ area: GitArea; path: string } | null>(null)
-  // 每组画到第几行（点「再显示」加一页，gitModel SECTION_PAGE）
-  const [shown, setShown] = useState<Partial<Record<GitArea, number>>>({})
+  const messageRef = useRef<HTMLTextAreaElement>(null)
+  const toast = useToast()
   const [fileMenu, setFileMenu] = useState<(GitFileMenuPosition & { area: GitArea; path: string }) | null>(null)
   const [menu, setMenu] = useState(false)
   const branchTrigger = useRef<HTMLButtonElement>(null)
@@ -338,6 +329,8 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
   }
 
   const sections = useMemo(() => (status?.repo ? gitSections(status) : []), [status, stamp])
+  // 更改页的分组、筛选、多选（docs/ui/git-panel.md §10）
+  const tree = useGitTree({ target, workspaceKey, demo, active: active && view === 'changes', status, sections })
   const stage = (paths: string[] | 'all') => perform(() => api!.gitStage(target, paths), ['stage', paths])
   const unstage = (paths: string[] | 'all') => perform(() => api!.gitUnstage(target, paths), ['unstage', paths])
   const busyNote = status && status.busySessions > 0 ? <p className="mt-2 text-warn">{tr('git.confirm.busy')}</p> : null
@@ -396,6 +389,65 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
     else void run(false)
   }
 
+  /** 撤销一批（文件夹、多选）：暂存区里的不动；只有一个文件时和单个文件一样问 */
+  const discardItems = (items: GitItem[]) => {
+    const pick = (area: GitArea) => [...new Set(items.filter(i => i.area === area).map(i => i.file.path))]
+    const tracked = pick('unstaged'),
+      untracked = pick('untracked')
+    if (tracked.length + untracked.length === 0) return
+    if (tracked.length + untracked.length === 1) {
+      const one = items.find(i => i.area === 'unstaged' || i.area === 'untracked')!
+      discardFile(one.file, one.area)
+    } else
+      discard(
+        { paths: tracked, untracked },
+        tr('git.confirm.discardAll.body', { count: tracked.length, untracked: untracked.length }),
+      )
+  }
+  /** 只提交这些（§10.1）：别的先取消暂存，再暂存这些，光标放到提交框 */
+  const commitOnly = (paths: string[]) => {
+    if (!status) return
+    const keep = new Set(paths)
+    const others = status.staged.filter(f => !keep.has(f.path)).map(f => f.path)
+    const pending = new Set([...status.unstaged, ...status.untracked].map(f => f.path))
+    const need = paths.filter(p => pending.has(p))
+    let ok = demo
+    void perform(async () => {
+      let r: GitResult | null = null
+      if (others.length) {
+        r = await api!.gitUnstage(target, others)
+        if (!r.ok) return r
+      }
+      if (need.length || !r) r = await api!.gitStage(target, need.length ? need : paths)
+      ok = r.ok
+      return r
+    }, ['commitOnly', paths]).then(() => {
+      if (!ok) return
+      messageRef.current?.focus()
+      toast(tr('git.group.commitOnlyDone', { n: paths.length }))
+    })
+  }
+  const treeOps: GitTreeOps = {
+    stage: paths => void stage(paths),
+    unstage: paths => void unstage(paths),
+    discard: discardItems,
+    discardSection: section => discardSection(section),
+    commitOnly,
+    ai: ai.enabled && !ai.running ? paths => ai.start('all', undefined, paths) : null,
+    ignore: (entries, label) => {
+      let ok = demo
+      void perform(async () => {
+        const r = await api!.gitIgnore(target, entries)
+        ok = r.ok
+        return r
+      }, ['ignore', entries]).then(() => ok && toast(tr('git.group.ignored', { path: label })))
+    },
+    openDiff: (area, file) => openDiff(area, file),
+    open: file => file.local && void openFile(target, file.local),
+    history: path => showFileHistory(path, 'repo'),
+    fileMenu: position => setFileMenu(position),
+  }
+
   // 代码模式：点文件打开到中栏（左栏列表不动、高亮当前文件）——样式 A 工作区改动开成文件标签、其余开「Git 对比」标签，
   // 样式 B 一律「Git 对比」标签（docs/ui/coding-mode.md §3.3.1–3.3.2）；对话模式仍在面板里就地看
   const openDiff = (area: GitArea, file: GitFileChange) => {
@@ -404,8 +456,6 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
       void openWorkFile(target, file.local)
     else openGitDiffTab(workDiffInput(target, workspaceKey, demo, area, file))
   }
-  const currentDiff = useCurrentGitDiff(workspaceKey)
-  const currentFile = useActiveCodeFile(workspaceKey)
   // 中栏对比标签上的暂存 / 取消暂存 / 还原 / 看历史由这里执行（状态、确认框、演示数据都在这里）
   const diffTabActions = useRef<GitFileActions | null>(null)
   diffTabActions.current = {
@@ -615,7 +665,12 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
   const canCommit = !!message.trim() && !busy && !ai.running && total > 0 && !status.conflicted.length
   const commitAll = needsCommitAll(status)
   return (
-    <div ref={setRootEl} data-git-panel className="@container flex min-h-0 min-w-0 flex-1 flex-col">
+    <div
+      ref={setRootEl}
+      data-git-panel
+      className="@container flex min-h-0 min-w-0 flex-1 flex-col"
+      onKeyDown={view === 'changes' ? tree.onPanelKey : undefined}
+    >
       {/* 顶部：分支、领先落后、拉取推送、远端检查 */}
       <div className="flex shrink-0 flex-col gap-1.5 border-b border-line-subtle px-3 py-2">
         <div className="flex items-center gap-1.5">
@@ -721,7 +776,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
           )}
           {busy && <Spinner size={13} className="shrink-0" />}
         </div>
-        <div className="flex min-w-0">
+        <div className="flex min-w-0 items-center gap-1">
           <Segmented
             label={tr('git.tab.label')}
             value={view}
@@ -734,7 +789,10 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
               { value: 'history', label: tr('git.tab.history') },
             ]}
           />
+          {view === 'changes' && total > 0 && <GitTreeTools tree={tree} />}
         </div>
+        {/* 筛选栏不随列表滚动：面板底色可能是透明的（毛玻璃、壁纸），吸顶会和下面的行叠在一起 */}
+        {view === 'changes' && total > 0 && <GitFilterBar tree={tree} compact={compact} />}
       </div>
 
       {view === 'history' ? (
@@ -767,6 +825,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
           <div className="shrink-0">
             <div className="relative">
               <textarea
+                ref={messageRef}
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 // 多行的提交信息（AI 写的标题加正文）跟着变高，最多 7 行，再多就滚动
@@ -804,7 +863,7 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
                 disabled={!canCommit}
                 onClick={() => commit(false)}
               >
-                {tr(commitAll ? 'git.commitAll' : 'git.commit')}
+                {commitAll ? tr('git.commitAll') : tr('git.commitN', { n: status.staged.length })}
               </Button>
               <Button
                 className="h-7 min-w-0 flex-1 justify-center truncate whitespace-nowrap px-2.5 text-meta @max-[280px]:flex-none"
@@ -823,180 +882,10 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
             </div>
           )}
           {status.truncated && <p className="shrink-0 text-meta text-warn">{tr('git.truncated')}</p>}
-          {sections.map(section => (
-            <section key={section.area} data-git-section={section.area} className="shrink-0">
-              <div className="group/section flex h-7 items-center gap-1 pr-0.5">
-                <h3
-                  className={cn(
-                    'min-w-0 flex-1 truncate text-label font-medium',
-                    section.area === 'conflicted' ? 'text-danger' : 'text-fg-muted',
-                  )}
-                >
-                  {tr(section.title)} <span className="tabular-nums text-fg-faint">{section.files.length}</span>
-                </h3>
-                {section.area === 'staged' ? (
-                  <IconButton
-                    icon={Minus}
-                    label={tr('git.unstageAll')}
-                    size={24}
-                    iconSize={13}
-                    disabled={busy}
-                    onClick={() => void unstage('all')}
-                  />
-                ) : (
-                  <>
-                    {section.area !== 'conflicted' && (
-                      <IconButton
-                        icon={Undo2}
-                        label={tr('git.discardAll')}
-                        size={24}
-                        iconSize={13}
-                        disabled={busy}
-                        onClick={() => discardSection(section)}
-                      />
-                    )}
-                    <IconButton
-                      icon={Plus}
-                      label={tr('git.stageAll')}
-                      size={24}
-                      iconSize={13}
-                      disabled={busy}
-                      onClick={() => void stage(section.files.map(f => f.path))}
-                    />
-                  </>
-                )}
-              </div>
-              <ul className="flex flex-col">
-                {sectionPage(section.files, shown[section.area]).visible.map(file => {
-                  const { name, dir } = splitPath(file.path)
-                  const actions = fileActions(file, section.area)
-                  return (
-                    <li
-                      key={section.area + ':' + file.path}
-                      data-git-file={file.path}
-                      onContextMenu={e => {
-                        e.preventDefault()
-                        const trigger = e.currentTarget.querySelector('button')!
-                        trigger.focus({ preventScroll: true })
-                        // 菜单键 / Shift+F10 已经在 keydown 里打开了这一行的菜单时，随后的 contextmenu 不再挪位置
-                        setFileMenu(m =>
-                          m?.area === section.area && m.path === file.path
-                            ? m
-                            : { x: e.clientX, y: e.clientY, trigger, area: section.area, path: file.path },
-                        )
-                      }}
-                      onKeyDown={e => {
-                        if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return
-                        e.preventDefault()
-                        const trigger = e.currentTarget.querySelector('button')!
-                        const rect = trigger.getBoundingClientRect()
-                        setFileMenu({ x: rect.left + 20, y: rect.bottom, trigger, area: section.area, path: file.path })
-                      }}
-                      className={cn(
-                        'group/file flex h-7 min-w-0 items-center gap-1 rounded-md pr-0.5 hover:bg-hover',
-                        ((currentDiff?.area === section.area && currentDiff.path === file.path) ||
-                          (section.area !== 'staged' && currentFile !== null && file.local === currentFile)) &&
-                          'bg-selected',
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => openDiff(section.area, file)}
-                        title={`${tr('git.viewDiff')} · ${file.origPath ? file.origPath + ' → ' : ''}${file.path}`}
-                        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 text-left"
-                      >
-                        <span
-                          className={cn(
-                            'w-3 shrink-0 text-center font-mono text-[11px] font-semibold',
-                            file.code === 'D'
-                              ? 'text-danger'
-                              : file.code === 'A' || file.code === '?'
-                                ? 'text-success'
-                                : file.code === 'U'
-                                  ? 'text-danger'
-                                  : 'text-warn',
-                          )}
-                        >
-                          {file.code}
-                        </span>
-                        <span
-                          className={cn(
-                            'min-w-0 truncate whitespace-nowrap text-list',
-                            file.code === 'D' ? 'text-fg-muted line-through' : 'text-fg',
-                          )}
-                        >
-                          {name}
-                        </span>
-                        {dir && !compact && (
-                          <span className="min-w-0 shrink-[3] truncate whitespace-nowrap text-meta text-fg-faint">
-                            {dir}
-                          </span>
-                        )}
-                      </button>
-                      <span className="flex shrink-0 items-center opacity-0 group-hover/file:opacity-100 group-focus-within/file:opacity-100">
-                        {actions.onOpen && (
-                          <IconButton
-                            icon={FileCode2}
-                            label={tr('git.open')}
-                            size={22}
-                            iconSize={12}
-                            onClick={actions.onOpen}
-                          />
-                        )}
-                        {section.area !== 'untracked' && file.code !== 'A' && (
-                          <IconButton
-                            icon={FileClock}
-                            label={tr('git.history.file.show')}
-                            size={22}
-                            iconSize={12}
-                            onClick={() => showFileHistory(file.path, 'repo')}
-                          />
-                        )}
-                        {actions.onDiscard && (
-                          <IconButton
-                            icon={Undo2}
-                            label={tr('git.discard')}
-                            size={22}
-                            iconSize={12}
-                            disabled={busy}
-                            onClick={actions.onDiscard}
-                          />
-                        )}
-                        {actions.onStage && (
-                          <IconButton
-                            icon={Plus}
-                            label={tr('git.stage')}
-                            size={22}
-                            iconSize={12}
-                            disabled={busy}
-                            onClick={actions.onStage}
-                          />
-                        )}
-                        {actions.onUnstage && (
-                          <IconButton
-                            icon={Minus}
-                            label={tr('git.unstage')}
-                            size={22}
-                            iconSize={12}
-                            disabled={busy}
-                            onClick={actions.onUnstage}
-                          />
-                        )}
-                      </span>
-                    </li>
-                  )
-                })}
-              </ul>
-              <ShowMore
-                rest={sectionPage(section.files, shown[section.area]).rest}
-                onMore={() =>
-                  setShown(s => ({ ...s, [section.area]: (s[section.area] ?? SECTION_PAGE) + SECTION_PAGE }))
-                }
-              />
-            </section>
-          ))}
+          {total > 0 && <GitChangeList tree={tree} ops={treeOps} target={target} busy={busy} compact={compact} />}
         </div>
       )}
+      {view === 'changes' && <GitBulkBar tree={tree} ops={treeOps} busy={busy} />}
       {overlay}
       {fileMenu && menuFile && (
         <GitFileMenu

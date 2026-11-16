@@ -32,6 +32,7 @@ import type { BrowserState } from '../../../shared/types/project-browser'
 import type {
   EnvironmentState,
   GitBranch,
+  GitModule,
   GitCommitDetail,
   GitCompareTarget,
   GitCompareResult,
@@ -160,6 +161,8 @@ export interface DemoSource {
   git: {
     status: GitStatus
     branches: GitBranch[]
+    /** 按模块分组（docs/ui/git-panel.md §10） */
+    modules: GitModule[]
     diff(path: string): GitDiff
     /** 提交历史（docs/ui/git-panel.md §9） */
     history: {

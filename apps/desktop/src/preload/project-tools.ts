@@ -16,6 +16,8 @@ import type {
   GitCompareTarget,
   GitHistoryAction,
   GitDiffInput,
+  GitIgnoreEntry,
+  GitModule,
   GitLogPage,
   GitLogQuery,
   GitRefs,
@@ -77,13 +79,17 @@ export interface ProjectToolsBridge {
   openPath(ref: WorkspaceRef): Promise<void>
   revealCopy(id: string): Promise<void>
   openExternal(url: string): Promise<void>
-  /** recheck：重新确认仓库根再读（Git 页的刷新按钮） */
-  gitStatus(ref: WorkspaceRef, opts?: { recheck?: boolean }): Promise<GitStatus>
+  /** recheck：重新确认仓库根再读（Git 页的刷新按钮）；stats：暂存 / 更改的行带增删行数（Git 页开着「改动行数」时） */
+  gitStatus(ref: WorkspaceRef, opts?: { recheck?: boolean; stats?: boolean }): Promise<GitStatus>
   gitDiff(ref: WorkspaceRef, input: GitDiffInput): Promise<GitDiff>
   gitBranches(ref: WorkspaceRef): Promise<GitBranch[]>
   gitStage(ref: WorkspaceRef, paths: GitPaths): Promise<GitResult>
   gitUnstage(ref: WorkspaceRef, paths: GitPaths): Promise<GitResult>
   gitDiscard(ref: WorkspaceRef, input: { paths: string[]; untracked: string[] } | 'all'): Promise<GitResult>
+  /** 按模块分组用的模块（docs/ui/git-panel.md §10） */
+  gitModules(ref: WorkspaceRef): Promise<GitModule[]>
+  /** 把未跟踪的文件 / 文件夹加进仓库根的 .gitignore（§10.1） */
+  gitIgnore(ref: WorkspaceRef, entries: GitIgnoreEntry[]): Promise<GitResult>
   gitCommit(ref: WorkspaceRef, input: { message: string; all: boolean; push: boolean }): Promise<GitResult>
   gitPull(ref: WorkspaceRef, mode: GitPullMode): Promise<GitResult>
   gitPush(ref: WorkspaceRef, input: { publish: boolean }): Promise<GitResult>

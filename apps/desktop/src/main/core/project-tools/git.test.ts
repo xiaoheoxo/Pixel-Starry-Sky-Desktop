@@ -810,3 +810,84 @@ describe('压成一个提交合并（docs/ui/channels-local-rest.md §3.1）', (
     expect((await git(project, ['status', '--porcelain'])).trim()).toBe('')
   })
 })
+
+describe('Git 面板：按模块分组、加入 .gitignore、只给选中的写提交信息（§10）', () => {
+  it('模块：已跟踪和新的清单都算，被忽略的不算，名字取清单里的', async () => {
+    await init()
+    await mkdir(join(project, 'apps', 'web'), { recursive: true })
+    await mkdir(join(project, 'apps', 'mobile'), { recursive: true })
+    await mkdir(join(project, 'deps', 'lib'), { recursive: true })
+    await writeFile(join(project, 'package.json'), '{"name":"root-pkg"}')
+    await writeFile(join(project, 'apps', 'web', 'package.json'), '{"name":"@x/web"}')
+    await writeFile(join(project, 'deps', 'lib', 'package.json'), '{"name":"ignored"}')
+    await writeFile(join(project, '.gitignore'), '/deps/\n')
+    await commitAll('base')
+    // 还没提交的新模块也算
+    await writeFile(join(project, 'apps', 'mobile', 'pubspec.yaml'), 'name: mobile_app\n')
+    expect(await tools().modules(ref)).toEqual([
+      { dir: '', name: 'root-pkg', kind: 'npm' },
+      { dir: 'apps/mobile', name: 'mobile_app', kind: 'Dart' },
+      { dir: 'apps/web', name: '@x/web', kind: 'npm' },
+    ])
+  })
+
+  it('加入 .gitignore：没有就新建，有就沿用换行追加；状态里不再列出；符号链接不写', async () => {
+    await init()
+    await writeFile(join(project, 'a.txt'), 'a')
+    await commitAll('base')
+    await mkdir(join(project, 'out', 'x'), { recursive: true })
+    await writeFile(join(project, 'out', 'x', 'f.bin'), 'x')
+    await writeFile(join(project, 'notes[1].md'), 'n')
+    let s = ok(await tools().ignore(ref, { entries: [{ path: 'out', dir: true }] }))
+    expect(await readFile(join(project, '.gitignore'), 'utf8')).toBe('/out/\n')
+    expect(s.untracked.map(f => f.path).sort()).toEqual(['.gitignore', 'notes[1].md'])
+    await writeFile(join(project, '.gitignore'), '/out/\r\n# keep')
+    s = ok(await tools().ignore(ref, { entries: [{ path: 'notes[1].md', dir: false }] }))
+    expect(await readFile(join(project, '.gitignore'), 'utf8')).toBe('/out/\r\n# keep\r\n/notes\\[1\\].md\r\n')
+    expect(s.untracked.map(f => f.path)).toEqual(['.gitignore'])
+    expect(() => tools().ignore(ref, { entries: [{ path: '../x', dir: false }] })).toThrow()
+    // .gitignore 是符号链接：不跟过去写
+    await rm(join(project, '.gitignore'))
+    await writeFile(join(root, 'elsewhere'), 'outside\n')
+    try {
+      await symlink(join(root, 'elsewhere'), join(project, '.gitignore'))
+    } catch {
+      return // 没有建符号链接的权限（Windows 普通用户）：这一项跳过
+    }
+    const failed = fail(await tools().ignore(ref, { entries: [{ path: 'out', dir: true }] }))
+    expect(failed.action).toBe('ignore')
+    expect(await readFile(join(root, 'elsewhere'), 'utf8')).toBe('outside\n')
+  })
+
+  it('整个文件夹暂存 / 取消暂存的文件很多：分批，不会超出命令行上限', async () => {
+    await init()
+    await writeFile(join(project, 'a.txt'), 'a')
+    await commitAll('base')
+    const names = Array.from({ length: 300 }, (_, i) => `d/${String(i).padStart(4, '0')}-${'y'.repeat(100)}.txt`)
+    await mkdir(join(project, 'd'))
+    for (const n of names) await writeFile(join(project, n), 'x')
+    const adds = spawned('add')
+    let s = ok(await tools().stage(ref, names))
+    expect(s.staged).toHaveLength(300)
+    expect(spawned('add') - adds).toBeGreaterThan(1)
+    s = ok(await tools().unstage(ref, names))
+    expect(s.staged).toEqual([])
+    expect(s.untracked).toHaveLength(300)
+  }, 30_000)
+
+  it('AI 只给选中的写：改动、新文件都只取这些路径（文件夹包含下面的文件）', async () => {
+    await init()
+    await mkdir(join(project, 'src'))
+    await writeFile(join(project, 'src', 'a.ts'), 'a\n')
+    await writeFile(join(project, 'b.ts'), 'b\n')
+    await commitAll('base')
+    await writeFile(join(project, 'src', 'a.ts'), 'a2\n')
+    await writeFile(join(project, 'b.ts'), 'b2\n')
+    await writeFile(join(project, 'src', 'new.ts'), 'n\n')
+    const only = await tools().commitContext(ref, { scope: 'all', paths: ['src'] })
+    expect(only.files.map(f => f.path).sort()).toEqual(['src/a.ts', 'src/new.ts'])
+    const all = await tools().commitContext(ref, { scope: 'all' })
+    expect(all.files.map(f => f.path).sort()).toEqual(['b.ts', 'src/a.ts', 'src/new.ts'])
+    await expect(tools().commitContext(ref, { scope: 'all', paths: [] })).rejects.toThrow()
+  })
+})
