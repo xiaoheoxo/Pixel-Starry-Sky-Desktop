@@ -443,6 +443,42 @@ function handEvents(): { name: string; events: EngineEvent[] }[] {
   ]
 }
 
+/** 随机序列碰不到的形状，手写：生成的图（Codex 生图在一轮中间、云端生图在统计行之后单独一轮） */
+function handFoldItems(): Item[][] {
+  const user = (id: string): Item => ({ kind: 'user', id, text: id, createdAt: 0 })
+  const say = (id: string): Item => ({ kind: 'assistant', id, text: id, status: 'completed' })
+  const read = (id: string): Item => ({
+    kind: 'tool',
+    id,
+    tool: 'read',
+    name: 'Read',
+    title: id,
+    output: '',
+    status: 'completed',
+  })
+  const image = (id: string, name: 'imageGeneration' | 'cloudImage'): Item => ({
+    kind: 'tool',
+    id,
+    tool: 'other',
+    name,
+    title: id,
+    output: '',
+    status: 'completed',
+  })
+  const stats = (id: string): Item => ({
+    kind: 'turn_stats',
+    id,
+    turnId: id,
+    outcome: 'completed',
+    usage: { durationMs: 1234, models: {} },
+  })
+  return [
+    [user('u'), read('r1'), image('g', 'imageGeneration'), read('r2'), say('好了'), stats('s')],
+    [user('u'), say('a'), stats('s'), image('c', 'cloudImage')],
+    [user('u'), read('r1'), image('g', 'imageGeneration')],
+  ]
+}
+
 /** foldTurns 的结果只记 id（条目内容由 reduce 的样例覆盖），文件小、差异好读 */
 const compactFold = (entries: TurnEntry[]) =>
   entries.map(e =>
@@ -485,9 +521,11 @@ describe('app fixtures: protocol', () => {
   })
 
   it('protocol_fold.json', () => {
-    const cases = Array.from({ length: 60 }, (_, i) => {
-      const events = makeEvents(5000 + i, 25 + (i % 5) * 8)
-      const items = events.reduce(reduce, emptySnapshot(record)).items
+    const random = Array.from(
+      { length: 60 },
+      (_, i) => makeEvents(5000 + i, 25 + (i % 5) * 8).reduce(reduce, emptySnapshot(record)).items,
+    )
+    const cases = [...random, ...handFoldItems()].map(items => {
       return {
         items,
         splitTurns: splitTurns(items).map(t => t.map(x => x.id)),

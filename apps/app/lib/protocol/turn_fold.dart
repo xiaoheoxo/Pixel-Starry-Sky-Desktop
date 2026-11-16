@@ -49,11 +49,18 @@ bool isTaskNotice(Item item) => item.kind == 'notice' && truthy(item['task']);
 
 bool isSubagentBox(Item item) => isSubagentCall(item) || isTaskNotice(item);
 
+/// 生成的图（Codex 内置生图、云端生图，docs/ui/image-gen.md）是这一轮的结果：不收进执行块。
+/// 云端生图在上一轮的统计行之后单独成一轮，收进去就成了一行「执行」，图看不到
+bool _generatedImage(Item item) =>
+    item.kind == 'tool' &&
+    (item['name'] == 'imageGeneration' || item['name'] == 'cloudImage');
+
 bool _alwaysVisible(Item item, bool box) {
   final kind = item.kind;
   if (kind == 'user' || kind == 'turn_stats' || kind == 'compaction') {
     return true;
   }
+  if (_generatedImage(item)) return true;
   if (box && isSubagentBox(item)) return true;
   return kind == 'notice' && item.level != 'info';
 }

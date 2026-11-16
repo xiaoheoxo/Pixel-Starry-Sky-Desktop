@@ -33587,6 +33587,921 @@
     "failed": 0,
     "blocked": 0
    }
+  },
+  {
+   "items": [
+    {
+     "kind": "user",
+     "id": "u",
+     "text": "u",
+     "createdAt": 0
+    },
+    {
+     "kind": "tool",
+     "id": "r1",
+     "tool": "read",
+     "name": "Read",
+     "title": "r1",
+     "output": "",
+     "status": "completed"
+    },
+    {
+     "kind": "tool",
+     "id": "g",
+     "tool": "other",
+     "name": "imageGeneration",
+     "title": "g",
+     "output": "",
+     "status": "completed"
+    },
+    {
+     "kind": "tool",
+     "id": "r2",
+     "tool": "read",
+     "name": "Read",
+     "title": "r2",
+     "output": "",
+     "status": "completed"
+    },
+    {
+     "kind": "assistant",
+     "id": "好了",
+     "text": "好了",
+     "status": "completed"
+    },
+    {
+     "kind": "turn_stats",
+     "id": "s",
+     "turnId": "s",
+     "outcome": "completed",
+     "usage": {
+      "durationMs": 1234,
+      "models": {}
+     }
+    }
+   ],
+   "splitTurns": [
+    [
+     "u",
+     "r1",
+     "g",
+     "r2",
+     "好了",
+     "s"
+    ]
+   ],
+   "fold": [
+    {
+     "options": "default",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": false,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "default",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": true,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": false,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": true,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "interleave",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": false,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "interleave",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": false,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "box+interleave",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": false,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    },
+    {
+     "options": "box+interleave",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      },
+      {
+       "type": "process",
+       "key": "process-r2",
+       "ids": [
+        "r2"
+       ],
+       "running": false,
+       "durationMs": 1234
+      },
+      {
+       "type": "item",
+       "id": "好了"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      }
+     ]
+    }
+   ],
+   "replies": [
+    {
+     "options": "default",
+     "map": [
+      {
+       "statsId": "s",
+       "text": "好了"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "map": [
+      {
+       "statsId": "s",
+       "text": "好了"
+      }
+     ]
+    }
+   ],
+   "summary": {
+    "commands": 0,
+    "edits": 0,
+    "reads": 2,
+    "searches": 0,
+    "web": 0,
+    "mcp": 0,
+    "agents": 0,
+    "other": 1,
+    "failed": 0,
+    "blocked": 0
+   }
+  },
+  {
+   "items": [
+    {
+     "kind": "user",
+     "id": "u",
+     "text": "u",
+     "createdAt": 0
+    },
+    {
+     "kind": "assistant",
+     "id": "a",
+     "text": "a",
+     "status": "completed"
+    },
+    {
+     "kind": "turn_stats",
+     "id": "s",
+     "turnId": "s",
+     "outcome": "completed",
+     "usage": {
+      "durationMs": 1234,
+      "models": {}
+     }
+    },
+    {
+     "kind": "tool",
+     "id": "c",
+     "tool": "other",
+     "name": "cloudImage",
+     "title": "c",
+     "output": "",
+     "status": "completed"
+    }
+   ],
+   "splitTurns": [
+    [
+     "u",
+     "a",
+     "s"
+    ],
+    [
+     "c"
+    ]
+   ],
+   "fold": [
+    {
+     "options": "default",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "default",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "interleave",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "interleave",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "box+interleave",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    },
+    {
+     "options": "box+interleave",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "item",
+       "id": "a"
+      },
+      {
+       "type": "item",
+       "id": "s"
+      },
+      {
+       "type": "item",
+       "id": "c"
+      }
+     ]
+    }
+   ],
+   "replies": [
+    {
+     "options": "default",
+     "map": [
+      {
+       "statsId": "s",
+       "text": "a"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "map": [
+      {
+       "statsId": "s",
+       "text": "a"
+      }
+     ]
+    }
+   ],
+   "summary": {
+    "commands": 0,
+    "edits": 0,
+    "reads": 0,
+    "searches": 0,
+    "web": 0,
+    "mcp": 0,
+    "agents": 0,
+    "other": 1,
+    "failed": 0,
+    "blocked": 0
+   }
+  },
+  {
+   "items": [
+    {
+     "kind": "user",
+     "id": "u",
+     "text": "u",
+     "createdAt": 0
+    },
+    {
+     "kind": "tool",
+     "id": "r1",
+     "tool": "read",
+     "name": "Read",
+     "title": "r1",
+     "output": "",
+     "status": "completed"
+    },
+    {
+     "kind": "tool",
+     "id": "g",
+     "tool": "other",
+     "name": "imageGeneration",
+     "title": "g",
+     "output": "",
+     "status": "completed"
+    }
+   ],
+   "splitTurns": [
+    [
+     "u",
+     "r1",
+     "g"
+    ]
+   ],
+   "fold": [
+    {
+     "options": "default",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "default",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": true,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "box",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": true,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "interleave",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "interleave",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": true,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "box+interleave",
+     "running": false,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": false,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    },
+    {
+     "options": "box+interleave",
+     "running": true,
+     "entries": [
+      {
+       "type": "item",
+       "id": "u"
+      },
+      {
+       "type": "process",
+       "key": "process-r1",
+       "ids": [
+        "r1"
+       ],
+       "running": true,
+       "durationMs": null
+      },
+      {
+       "type": "item",
+       "id": "g"
+      }
+     ]
+    }
+   ],
+   "replies": [
+    {
+     "options": "default",
+     "map": []
+    },
+    {
+     "options": "box",
+     "map": []
+    }
+   ],
+   "summary": {
+    "commands": 0,
+    "edits": 0,
+    "reads": 1,
+    "searches": 0,
+    "web": 0,
+    "mcp": 0,
+    "agents": 0,
+    "other": 1,
+    "failed": 0,
+    "blocked": 0
+   }
   }
  ]
 }
