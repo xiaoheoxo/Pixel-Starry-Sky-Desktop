@@ -21,8 +21,17 @@ import type {
 } from '../shared/types/channels'
 import type { ChannelAlertAction } from '../shared/channels/alerts'
 import type { FlowScheduleInput, IssueDispatch } from '../shared/types/channels'
+import type { CloudImageInput } from './image'
 
 /** 协作频道 Phase B（docs/ui/channels-phase-b.md §11） */
+/** 频道里云端生图的参数：同会话里的云端生图（preload/image.ts），换成频道和讨论串 */
+export interface ChannelImageInput extends Omit<CloudImageInput, 'sessionId'> {
+  channelId: string
+  threadId: string | null
+  /** 界面算的估价（美元），写在消息的小字上；估不出时 null */
+  estimate: number | null
+}
+
 export interface ChannelsBridge {
   state(): Promise<ChannelsSnapshot>
   /** 一页消息（最多 200 条）；before 是毫秒时间戳，取这之前的 */
@@ -79,6 +88,15 @@ export interface ChannelsBridge {
   post(channelId: string, input: PostInput): Promise<{ message: ChannelTextMessage; tasks: string[] }>
   /** 一条消息带的图片和文件全文；没有时两个空数组 */
   attachments(channelId: string, messageId: string): Promise<ChannelAttachments>
+  /**
+   * 频道里云端生图（docs/ui/channel-image-gen.md §3.1）：在后台生成，时间线底部的临时行看 state().imagePending，
+   * 生成完作为你发的一条带图消息进频道。返回这次生成的 id（停止、关掉那一行用）
+   */
+  generateImage(input: ChannelImageInput): Promise<{ id: string }>
+  /** 停止生成（已经开始生成的可能照常扣费），那一行一起关掉 */
+  cancelImage(id: string): Promise<void>
+  /** 关掉失败的那一行 */
+  dismissImage(id: string): Promise<void>
   markRead(channelId: string): Promise<void>
   /** 新建或编辑 AI 成员；带 channelId 时顺便加进这个频道。返回成员 id */
   saveMember(channelId: string | null, input: AgentInput): Promise<string>

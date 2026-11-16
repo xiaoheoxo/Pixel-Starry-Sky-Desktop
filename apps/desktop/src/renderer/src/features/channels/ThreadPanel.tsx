@@ -8,6 +8,7 @@ import { threadMessages } from '../../../../shared/channels/threads'
 import { MessageGroup, type Quotable } from './ChannelMessage'
 import { ChannelTaskCard, type TaskCardActions } from './ChannelTaskCard'
 import { ChannelComposer } from './ChannelComposer'
+import { ImagePendingRows } from './ImagePendingRows'
 import { channelActions } from './store'
 import { useFollowBottom } from './useFollowBottom'
 
@@ -122,6 +123,7 @@ export function ThreadPanel({
               />
             ))
           )}
+          <ImagePendingRows channelId={channel.id} threadId={rootId} />
         </div>
       </div>
       {!readOnly && root && (

@@ -19,6 +19,10 @@ import { TeamSync } from '../core/channels/team/sync'
 import { ChannelStore } from '../core/channels/store'
 import { Channels, type MachineLite } from '../core/channels/service'
 import { channelToolsServer } from './channel-mcp'
+import { fitImage } from '../image/fit'
+import { cancelCloudImage, startCloudImage } from '../image/job'
+import { cloudImageArgs } from '../core/image/cloud-image'
+import { randomUUID } from 'node:crypto'
 import type { CheckRun } from '../../shared/types/checks'
 import type { GitCompareResult, GitResult, GitStatus, ProjectCopy } from '../../shared/types/project-tools'
 import type { ChannelAlertAction } from '../../shared/channels/alerts'
@@ -129,6 +133,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     deviceId,
     machineName: () => hostname() || '这台电脑',
     channelTools: true,
+    fitImage,
     defaultMode: engine => ctx.engine?.engineDefaults(engine).permissionMode,
     // 产出检查走项目工具的操作表，和窗口一样按会话路由到所在的机器（docs/ui/channels-collab-v2.md §8）
     runChecks: async (sessionId, files) => {
@@ -280,6 +285,42 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   ipc.handle('channels:attachments', (_e, id, messageId) =>
     channels.attachments(str(id, '频道'), str(messageId, '消息')),
   )
+  // 频道里云端生图（docs/ui/channel-image-gen.md §3.1）：生成和会话里共用 job.ts，生成完作为你发的带图消息进频道
+  ipc.handle('channels:generateImage', (_e, input: unknown): { id: string } => {
+    const v = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+    const channelId = str(v.channelId, '频道')
+    const req = cloudImageArgs(input, 'channel')
+    const account = signedInEmail()
+    if (!account) throw new Error('请先登录像素星空账号')
+    const estimate =
+      typeof v.estimate === 'number' && Number.isFinite(v.estimate) && v.estimate >= 0 ? v.estimate : null
+    const id = `chimg-${randomUUID()}`
+    channels.imageStarted({
+      id,
+      channelId,
+      threadId: typeof v.threadId === 'string' ? v.threadId : null,
+      prompt: req.prompt,
+      size: req.size,
+      n: req.n,
+    })
+    void startCloudImage(id, account, req, () => {})
+      .then(async ({ images, cost }) => {
+        const generated = { group: req.groupName, size: req.size, n: req.n, quality: req.quality, estimate }
+        const message = await channels.postGenerated(id, { images, generated })
+        if (!message) return
+        const usd = await cost()
+        if (usd !== null) channels.generatedCost(message.channelId, message.id, usd)
+      })
+      // 停止时那一行已经关掉，imageFailed 不会再画出来
+      .catch(error => channels.imageFailed(id, (error as Error).message || '生成失败'))
+    return { id }
+  })
+  ipc.handle('channels:cancelImage', (_e, id: unknown) => {
+    const key = str(id, '生成')
+    channels.imageDismissed(key)
+    cancelCloudImage(key)
+  })
+  ipc.handle('channels:dismissImage', (_e, id: unknown) => channels.imageDismissed(str(id, '生成')))
   ipc.handle('channels:markRead', (_e, id) => channels.markRead(str(id, '频道')))
   ipc.handle('channels:pin', (_e, id, messageId, pinned) =>
     channels.pin(str(id, '频道'), str(messageId, '消息'), pinned === true),

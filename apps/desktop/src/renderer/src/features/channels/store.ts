@@ -80,6 +80,8 @@ export interface ChannelsState {
   /** 标为已处理、状态还没变的（§2.1） */
   needsDone: NonNullable<ChannelsSnapshot['needsDone']>
   following: NonNullable<ChannelsSnapshot['following']>
+  /** 频道里正在生成（或刚失败）的云端生图（docs/ui/channel-image-gen.md §3.1）：时间线底部一行 */
+  imagePending: NonNullable<ChannelsSnapshot['imagePending']>
   /** 演示模式标为已处理的：频道 id → key → sig（正式模式记在主进程） */
   demoMarks: Record<string, Record<string, string>>
   /** 频道页正在看「需要你」（代替时间线） */
@@ -109,6 +111,7 @@ let state: ChannelsState = {
   needs: [],
   needsDone: [],
   following: [],
+  imagePending: [],
   demoMarks: {},
   needsOpen: false,
   focus: null,
@@ -191,6 +194,7 @@ function applySnapshot(s: ChannelsSnapshot): void {
     needs: s.needs ?? [],
     needsDone: s.needsDone ?? [],
     following: s.following ?? [],
+    imagePending: s.imagePending ?? [],
     teams: s.teams ?? [],
     invites: s.invites ?? [],
     teamsConnection: s.teamsConnection ?? 'unavailable',

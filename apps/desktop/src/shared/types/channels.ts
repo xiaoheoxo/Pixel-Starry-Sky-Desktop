@@ -342,6 +342,38 @@ export interface ChannelTextMessage extends ChannelMessageBase {
   flow?: ChannelFlow | null
   /** 带的图片和文件：消息里只有说明，图片数据和文件全文另存，按需用 channels:attachments 读 */
   attached?: ChannelAttachedMeta
+  /** 频道里云端生图发的（docs/ui/channel-image-gen.md §3.1）：图在 attached 里，正文是提示词 */
+  generated?: ChannelGenerated | null
+}
+
+/** 频道里云端生图的说明（消息上的一行小字） */
+export interface ChannelGenerated {
+  /** 分组名 */
+  group: string
+  size: string
+  n: number
+  quality: string
+  /** 估价（美元）；这一档没配单价时 null */
+  estimate: number | null
+  /** 实扣（美元）：查到后补上；没查到一直没有 */
+  cost?: number | null
+  /** 放不进频道的张数（太大、超过上限） */
+  dropped?: number
+}
+
+/** 频道里正在生成的图（docs/ui/channel-image-gen.md §3.1）：只在主进程内存里，界面在时间线底部画一行 */
+export interface ChannelImagePending {
+  id: string
+  channelId: string
+  /** 发在哪个讨论串里 */
+  threadId: string | null
+  prompt: string
+  size: string
+  n: number
+  startedAt: number
+  /** failed：失败了等你点「关闭」或「重试」 */
+  status: 'running' | 'failed'
+  error?: string | null
 }
 
 /** 流程里一步的类型：干活、审查某一步、汇总 */
@@ -809,6 +841,8 @@ export interface ChannelsSnapshot {
   needsDone?: ChannelNeed[]
   /** 「需要你 › 跟进中」：还在排队或运行的活，新的在前 */
   following?: ChannelFollow[]
+  /** 频道里正在生成（或刚失败）的云端生图（docs/ui/channel-image-gen.md §3.1） */
+  imagePending?: ChannelImagePending[]
   // ── Phase C ──
   teams: TeamInfo[]
   invites: PendingInvite[]

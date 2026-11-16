@@ -15,6 +15,7 @@ import {
 export { estimateCost, imageTier } from '../../../shared/cloudImage'
 
 export interface CloudImageRequest {
+  /** 放进哪个会话；频道里生图（docs/ui/channel-image-gen.md §3.1）是空串 */
   sessionId: string
   groupId: string
   /** 分组名，写在卡片上 */
@@ -32,8 +33,8 @@ const MAX_REFERENCES = 4
 /** 所有参考图加起来（云端请求体上限 32 MB，base64 会大 1/3） */
 const MAX_REFERENCE_BYTES = 20 * 1024 * 1024
 
-/** IPC 进来的参数校验；不对就抛 */
-export function cloudImageArgs(value: unknown): CloudImageRequest {
+/** IPC 进来的参数校验；不对就抛。channel：频道里生图，不要会话 id */
+export function cloudImageArgs(value: unknown, target: 'session' | 'channel' = 'session'): CloudImageRequest {
   if (!value || typeof value !== 'object') throw new Error('生图参数不对')
   const v = value as Record<string, unknown>
   const text = (key: string, max: number): string => {
@@ -61,7 +62,7 @@ export function cloudImageArgs(value: unknown): CloudImageRequest {
   if (bytes > MAX_REFERENCE_BYTES) throw new Error('参考图加起来不能超过 20 MB')
   if (refs.length && n !== 1) throw new Error('按参考图改图一次一张')
   return {
-    sessionId: text('sessionId', 200),
+    sessionId: target === 'session' ? text('sessionId', 200) : '',
     groupId,
     groupName: typeof v.groupName === 'string' ? v.groupName.slice(0, 100) : '',
     prompt,
@@ -88,10 +89,13 @@ export function cloudImageBody(req: CloudImageRequest): { path: string; body: st
   return { path: edit ? '/v1/platform/images/edits' : '/v1/platform/images/generations', body: JSON.stringify(body) }
 }
 
+/** 有整理函数（fit）时先收下的单张上限：4K PNG 可能超过 MAX_IMAGE_BYTES，由 fit 转小 */
+const RAW_IMAGE_BYTES = 64 * 1024 * 1024
+
 /** base64 → 图片附件；认不出格式、超过上限返回 null */
-export function imageFromBase64(b64: string, id: string, name: string): ImageAttachment | null {
+export function imageFromBase64(b64: string, id: string, name: string, max = MAX_IMAGE_BYTES): ImageAttachment | null {
   const clean = b64.replace(/^data:[^,]*,/, '')
-  if (!clean || (clean.length / 4) * 3 > MAX_IMAGE_BYTES) return null
+  if (!clean || (clean.length / 4) * 3 > max) return null
   const data = Buffer.from(clean, 'base64')
   const mediaType = data.length ? imageMediaType(data) : null
   if (!mediaType) return null
@@ -203,6 +207,11 @@ export interface CloudImageDeps {
   /** 条目有变化（开始、预览、完成、失败）时调用 */
   put: (item: Item) => void
   signal: AbortSignal
+  /**
+   * 收到的图整理一下（主进程的 fitImage：补宽高、超过 MAX_IMAGE_BYTES 转 JPEG）；返回 null 的丢掉。
+   * 没给时超过 MAX_IMAGE_BYTES 的直接丢掉（测试）
+   */
+  fit?: (image: ImageAttachment) => ImageAttachment | null
 }
 
 /**
@@ -221,6 +230,16 @@ export async function runCloudImage(
   const put = (status: 'running' | 'completed' | 'failed' | 'interrupted', output = meta): void =>
     deps.put(cloudImageItem(itemId, req, { status, images: images.length ? images : preview ? [preview] : [], output }))
   put('running')
+  const decode = (b64: string): ImageAttachment | null => {
+    const n = images.length
+    const image = imageFromBase64(
+      b64,
+      `${itemId}-img${n}`,
+      `image-${n + 1}`,
+      deps.fit ? RAW_IMAGE_BYTES : MAX_IMAGE_BYTES,
+    )
+    return image && deps.fit ? deps.fit(image) : image
+  }
   const { path, body } = cloudImageBody(req)
   try {
     const res = await deps.fetch(path, {
@@ -243,7 +262,7 @@ export async function runCloudImage(
         const event = parseImageEvent(block)
         if (!event) continue
         if (event.kind === 'error') throw new Error(event.message)
-        const image = imageFromBase64(event.b64, `${itemId}-img${images.length}`, `image-${images.length + 1}`)
+        const image = decode(event.b64)
         if (!image) continue
         if (event.kind === 'partial') {
           if (!images.length) {
@@ -259,8 +278,7 @@ export async function runCloudImage(
       // 旧的一次性 JSON（{data:[{b64_json}]}）
       const json = (await res.json()) as { data?: { b64_json?: string }[] }
       for (const d of json.data ?? []) {
-        const image =
-          d.b64_json && imageFromBase64(d.b64_json, `${itemId}-img${images.length}`, `image-${images.length + 1}`)
+        const image = d.b64_json && decode(d.b64_json)
         if (image) images.push(image)
       }
     }

@@ -1,6 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { getLocale, tr, translateMessage } from '../../i18n/core'
 import {
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
@@ -12,7 +13,7 @@ import {
   type Ref,
   type RefObject,
 } from 'react'
-import { ArrowUp, CornerUpLeft, Paperclip, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, CornerUpLeft, ImageIcon, Paperclip, TriangleAlert, X } from 'lucide-react'
 import { cn, IconButton, useToast } from '@/ui'
 import { useTheme } from '@/features/appearance/ThemeProvider'
 import { useThemeArtStyle } from '@/features/appearance/customTheme'
@@ -43,6 +44,18 @@ import { MentionMenu } from './MentionMenu'
 import { SlashMenu } from './SlashMenu'
 import { matchSlash, parseSlash, slashName, slashQuery, type SlashId } from './slash'
 import { channelDraftKey } from './draftKey'
+import { usePlatformCatalog } from '@/features/account/platform'
+import { useAccount } from '@/features/account/useAccount'
+import { formatBalance } from '@/features/account/format'
+import { useSettings } from '@/features/settings/SettingsProvider'
+import {
+  CloudImageBar,
+  costCheck,
+  imageGroups,
+  initialOptions,
+  type CloudImageOptions,
+} from '@/features/session/cloudImage/CloudImageBar'
+import { generateChannelImage } from './channelImage'
 import { canDispatch, mentionNote } from './teamModel'
 
 export { channelDraftKey } from './draftKey'
@@ -130,6 +143,8 @@ export function ChannelComposer({
   const [selected, setSelected] = useState(0)
   /** 按 Esc 关掉的那个 @ 的位置；光标移到别的 @ 时菜单重新出现 */
   const [dismissed, setDismissed] = useState<number | null>(null)
+  /** 云端生图的选项；打开时发送 = 生图（docs/ui/channel-image-gen.md §3.1） */
+  const [cloudImage, setCloudImage] = useState<CloudImageOptions | null>(null)
   const mention = mentionAt(value, caret)
   const candidates = useMemo(
     () => (mention ? filterMentionable(members, mention.query, selfId) : []),
@@ -144,8 +159,8 @@ export function ChannelComposer({
     return { ...option, token: allToken, approval }
   }, [members, mention?.query, mention?.start, team, role, allToken])
   const total = candidates.length + (all ? 1 : 0)
-  const menuOpen = !!mention && dismissed !== mention.start
-  const sq = slash && !menuOpen ? slashQuery(value) : undefined
+  const menuOpen = !!mention && dismissed !== mention.start && !cloudImage
+  const sq = slash && !menuOpen && !cloudImage ? slashQuery(value) : undefined
   const slashItems = useMemo(() => (sq !== undefined && slash ? matchSlash(sq, slash.available) : []), [sq, slash])
   const slashOpen = slashItems.length > 0 && dismissed !== -1
   const [slashSel, setSlashSel] = useState(0)
@@ -167,8 +182,23 @@ export function ChannelComposer({
     [followUp, value, members],
   )
   const [sending, setSending] = useState(false)
+  // 云端生图（docs/ui/channel-image-gen.md §3.1）：打开时发送 = 生图，生成的图作为你的消息进频道；@ 菜单、斜杠命令关掉
+  const platformCatalog = usePlatformCatalog()
+  const account = useAccount()
+  const settings = useSettings()
+  const cloudGroups = useMemo(() => imageGroups(platformCatalog.groups), [platformCatalog.groups])
+  const canCloudImage = !isDemo && !team && !!platformCatalog.email && cloudGroups.length > 0
+  const imageMode = !!cloudImage && canCloudImage && cloudGroups.some(g => g.id === cloudImage.groupId)
+  // 退出登录、分组没了：关掉生图（不然 @ 菜单一直关着、选项栏却不显示）
+  useEffect(() => {
+    if (cloudImage && !imageMode) setCloudImage(null)
+  }, [cloudImage, imageMode])
   const hasAttachments = !team && (attach.images.length > 0 || attach.files.length > 0)
-  const canSend = (value.trim().length > 0 || hasAttachments) && !sending && !offline && !attach.busy
+  const canSend =
+    (imageMode ? value.trim().length > 0 : value.trim().length > 0 || hasAttachments) &&
+    !sending &&
+    !offline &&
+    !attach.busy
   const hasAgents = members.some(m => m.kind === 'agent')
   /** 带了路径引用，这条又会派给 SSH 成员：对方读不到，先说一声 */
   const unreachable =
@@ -203,8 +233,46 @@ export function ChannelComposer({
     requestAnimationFrame(() => inputRef.current?.setSelectionRange(next.caret, next.caret))
   }
 
+  /** 生图：输入框里的图当参考图（一次一张），文件不带 */
+  const sendImage = (options: CloudImageOptions) => {
+    const prompt = value.trim()
+    if (!prompt) return
+    const group = cloudGroups.find(g => g.id === options.groupId)
+    const balance = account.account?.balance ?? null
+    const currency = account.account?.currency ?? 'USD'
+    const references = attach.images
+    const check = costCheck(group, options, references.length, balance, currency)
+    if (check.short) {
+      toast(tr('cloudImage.short', { balance: formatBalance(balance ?? 0, currency) }))
+      return
+    }
+    setSending(true)
+    generateChannelImage({
+      channelId: channel.id,
+      threadId,
+      groupId: options.groupId,
+      groupName: group?.name ?? '',
+      prompt,
+      size: options.size,
+      n: references.length ? 1 : options.n,
+      quality: options.quality,
+      references: [...references],
+      estimate: check.cost,
+    })
+      .then(() => {
+        if (composerDraft(draftKey) === value) {
+          setValue('')
+          setCaret(0)
+        }
+        if (references.length) void attach.clear({ images: references, files: [] }).catch(() => {})
+      })
+      .catch(error => toast(tr('channels.image.failed', { error: translateMessage((error as Error).message) })))
+      .finally(() => setSending(false))
+  }
+
   const send = () => {
     if (!canSend) return
+    if (imageMode && cloudImage) return sendImage(cloudImage)
     const command = slash && !hasAttachments ? parseSlash(value, slash.available) : null
     if (command && slash) {
       setSending(true)
@@ -418,6 +486,20 @@ export function ChannelComposer({
           {attach.error && !team && (
             <AttachError key={attach.error} message={translateMessage(attach.error)} onDismiss={attach.dismissError} />
           )}
+          {imageMode && cloudImage && (
+            <div className="px-3 pt-2">
+              <CloudImageBar
+                groups={cloudGroups}
+                options={cloudImage}
+                onChange={setCloudImage}
+                onClose={() => setCloudImage(null)}
+                references={attach.images.length}
+                balance={account.account?.balance ?? null}
+                currency={account.account?.currency ?? 'USD'}
+                onTopUp={() => settings.openSettings('account')}
+              />
+            </div>
+          )}
           <div className={cn('flex items-end gap-2 py-2 pr-2', team ? 'pl-4' : 'pl-1.5')}>
             {!team && (
               <>
@@ -428,6 +510,19 @@ export function ChannelComposer({
                   disabled={offline}
                   onClick={() => fileInput.current?.click()}
                 />
+                {canCloudImage && (
+                  <IconButton
+                    icon={ImageIcon}
+                    label={tr('channels.image.toggle')}
+                    size={32}
+                    disabled={offline}
+                    active={!!cloudImage}
+                    onClick={() => {
+                      setCloudImage(cloudImage ? null : initialOptions(cloudGroups))
+                      inputRef.current?.focus()
+                    }}
+                  />
+                )}
                 <input
                   ref={fileInput}
                   type="file"
@@ -449,13 +544,15 @@ export function ChannelComposer({
               placeholder={
                 offline
                   ? tr('team.composer.offline')
-                  : (placeholder ??
-                    tr(
-                      channelsLive && !hasAgents
-                        ? 'channels.composer.placeholderNoAgents'
-                        : 'channels.composer.placeholder',
-                      { name: channel.name },
-                    ))
+                  : imageMode
+                    ? tr('channels.image.placeholder')
+                    : (placeholder ??
+                      tr(
+                        channelsLive && !hasAgents
+                          ? 'channels.composer.placeholderNoAgents'
+                          : 'channels.composer.placeholder',
+                        { name: channel.name },
+                      ))
               }
               role="combobox"
               aria-autocomplete="list"

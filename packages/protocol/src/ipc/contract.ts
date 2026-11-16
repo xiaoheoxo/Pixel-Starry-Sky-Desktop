@@ -93,6 +93,9 @@ export const IPC_CONTRACT = {
   // 协作频道 Phase B（docs/ui/channels-phase-b.md §11）：频道只存在本机
   'channels:addMember': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:attachments': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:cancelImage': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:dismissImage': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:generateImage': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:agentPolicy': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:approveTask': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:changed': { kind: 'push', route: 'push', trust: 'none' },

@@ -20,6 +20,7 @@ import { ChannelFlowCard } from './ChannelFlowCard'
 import { PlannerHandoff, PlannerRow } from './PlannerRow'
 import { channelActions, useChannels } from './store'
 import { useFollowBottom } from './useFollowBottom'
+import { ImagePendingRows } from './ImagePendingRows'
 
 /** 离底部这么近时，新消息到来自动跟到底部 */
 const STICK_PX = 80
@@ -384,6 +385,7 @@ export function ChannelTimeline({
             ))}
           </div>
         )}
+        <ImagePendingRows channelId={channel.id} threadId={null} />
       </div>
     </div>
   )

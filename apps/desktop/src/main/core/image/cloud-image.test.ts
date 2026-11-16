@@ -180,6 +180,20 @@ describe('runCloudImage', () => {
     expect(items.at(-1)).toMatchObject({ status: 'interrupted', output: expect.stringContaining('照常扣费') })
   })
 
+  it('收到的图交给 fit 整理（补宽高、超限转小）；fit 丢掉的不算', async () => {
+    const items: Item[] = []
+    const ev = (type: string) => `data: {"type":"${type}","b64_json":"${PNG}"}\n\n`
+    let n = 0
+    const r = await runCloudImage('it5', 'pixelsky-x', req(), {
+      fetch: async () => sse([ev('image_generation.completed') + ev('image_generation.completed')]),
+      put: item => items.push(item),
+      signal: new AbortController().signal,
+      fit: image => (n++ === 0 ? { ...image, width: 1, height: 1 } : null),
+    })
+    expect(r.images).toHaveLength(1)
+    expect(r.images[0]).toMatchObject({ id: 'it5-img0', width: 1, height: 1 })
+  })
+
   it('流里一张图都没有：算失败', async () => {
     const items: Item[] = []
     await expect(

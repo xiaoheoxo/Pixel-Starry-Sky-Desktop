@@ -28,9 +28,15 @@ function fakeEngine() {
   const snapshots = new Map<string, SessionSnapshot>()
   let n = 0
   const fail = new Map<string, string>()
+  /** engine:image 的图：键是「条目 id/图片 id」；值是函数时调用它（测试控制读图的时机） */
+  const images = new Map<string, unknown>()
   const call = async (channel: string, args: unknown[]): Promise<unknown> => {
     calls.push({ channel, args })
     if (fail.has(channel)) throw new Error(fail.get(channel))
+    if (channel === 'engine:image') {
+      const found = images.get(`${args[1] as string}/${args[2] as string}`)
+      return typeof found === 'function' ? (found as () => unknown)() : (found ?? null)
+    }
     if (channel === 'engine:createSession') {
       const o = args[0] as { projectId: string }
       const prefix = o.projectId.includes('~') ? o.projectId.slice(0, o.projectId.indexOf('~') + 1) : ''
@@ -51,7 +57,7 @@ function fakeEngine() {
     calls
       .filter(c => c.channel === 'engine:send')
       .map(c => ({ sessionId: c.args[0] as string, ...(c.args[1] as { text: string; clientMessageId: string }) }))
-  return { calls, sessions, snapshots, call, sends, fail }
+  return { calls, sessions, snapshots, call, sends, fail, images }
 }
 
 const projects: ProjectRecord[] = [
@@ -1497,4 +1503,161 @@ describe('消息分页', () => {
     expect(c.messages(channelId, oldest.at, 'gone').messages).toHaveLength(1)
     // 要发 202 条（每条写盘）：整套测试并行跑时比单跑慢得多
   }, 30_000)
+})
+
+describe('协作频道：成员生成的图带回频道（docs/ui/channel-image-gen.md §3.2）', () => {
+  /** 最近一轮：先生成一张图（云端生图条目），再回复、结束 */
+  async function finishWithImage(c: Channels, reply: string, imageId = 'cloudimg-1-img0'): Promise<void> {
+    const s = engine.sends().at(-1)!
+    const turn = `turn-${s.clientMessageId}`
+    c.hostEvent(ev(s.sessionId, userItem(s.clientMessageId, turn)))
+    c.hostEvent(
+      ev(s.sessionId, {
+        type: 'item_completed',
+        item: {
+          kind: 'tool',
+          id: 'cloudimg-1',
+          tool: 'other',
+          name: 'cloudImage',
+          title: '夜空',
+          output: '',
+          status: 'completed',
+          // 宿主发出的事件里图片数据已经去掉，只有 id
+          images: [{ ...image(imageId), dataBase64: '' }],
+        },
+      }),
+    )
+    if (reply)
+      c.hostEvent(
+        ev(s.sessionId, {
+          type: 'item_completed',
+          item: { kind: 'assistant', id: `a-${turn}`, text: reply, status: 'completed' },
+        }),
+      )
+    c.hostEvent(ev(s.sessionId, { type: 'turn_completed', turnId: turn, outcome: 'completed', error: null }))
+    await settle()
+  }
+
+  it('结果消息带上这一轮生成的图（先存再发），接力的成员也拿到', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('画师'))
+    const b = await c.saveMember(null, agent('前端助手'))
+    const channelId = await c.create({ name: 'ch', memberIds: [a, b] })
+    await c.update(channelId, { relay: true })
+    await c.post(channelId, { text: '@画师 画一张登录页背景', clientId: '1' })
+    await settle()
+    // 回归（审查）：引擎给的图片 id 带了频道附件不认的字符，重新编号后照样放进去
+    engine.images.set('cloudimg-1/bg', { ...image('bg'), id: 'ig:1.png' })
+    await finishWithImage(c, '画好了。\n\n@前端助手 用这张做登录页背景。', 'bg')
+    const result = texts(c, channelId).find(m => m.authorId === a)!
+    expect(result.attached?.images.map(i => i.id)).toEqual(['gen1'])
+    expect(result.text).not.toContain('没能放进频道')
+    expect(await c.attachments(channelId, result.id)).toEqual({ images: [{ ...image('bg'), id: 'gen1' }], files: [] })
+    expect(tasks(c, channelId)[0]).toMatchObject({ status: 'done', summary: '画好了。' })
+    // 接力：前端助手这一轮带着这张图
+    expect(tasks(c, channelId)[1]).toMatchObject({ assigneeId: b })
+    expect(
+      sentWith()
+        .at(-1)
+        ?.attachments?.map(i => i.id),
+    ).toEqual(['gen1'])
+  })
+
+  it('只有图没有文字也发；读不到的图在正文里说一句', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('画师'))
+    const channelId = await c.create({ name: 'ch', memberIds: [a] })
+    await c.post(channelId, { text: '@画师 画一张', clientId: '1' })
+    await settle()
+    await finishWithImage(c, '')
+    const result = texts(c, channelId).find(m => m.authorId === a)!
+    expect(result.attached).toBeUndefined()
+    expect(result.text).toBe('（生成了 1 张图没能放进频道，在会话里看）')
+    expect(tasks(c, channelId)[0]).toMatchObject({ status: 'done', summary: '生成了 1 张图' })
+  })
+
+  it('读图期间频道被删了：不再发结果', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('画师'))
+    const channelId = await c.create({ name: 'ch', memberIds: [a] })
+    await c.post(channelId, { text: '@画师 画一张', clientId: '1' })
+    await settle()
+    let release: () => void = () => {}
+    engine.images.set('cloudimg-1/late', () => new Promise(r => (release = () => r(image('late')))))
+    await finishWithImage(c, '画好了', 'late')
+    await c.delete(channelId)
+    release()
+    await settle()
+    expect(c.state().channels).toHaveLength(0)
+    expect(engine.calls.filter(x => x.channel === 'engine:image')).toHaveLength(1)
+  })
+})
+
+describe('协作频道：频道里云端生图（docs/ui/channel-image-gen.md §3.1）', () => {
+  const generated = { group: '生图分组', size: '1024x1024', n: 1, quality: 'medium', estimate: 0.1 }
+  const start = (c: Channels, channelId: string, id = 'g1', threadId: string | null = null) =>
+    c.imageStarted({ id, channelId, threadId, prompt: '夜空 @画师', size: '1024x1024', n: 1 })
+
+  it('生成中出一行；生成完作为你发的带图消息进频道（不派活），那一行消失；查到实扣后补到小字上', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('画师'))
+    const channelId = await c.create({ name: 'ch', memberIds: [a] })
+    start(c, channelId)
+    expect(c.state().imagePending).toMatchObject([{ id: 'g1', channelId, status: 'running', prompt: '夜空 @画师' }])
+    const message = (await c.postGenerated('g1', { images: [image('pic')], generated }))!
+    expect(message).toMatchObject({ authorId: SELF_ID, text: '夜空 @画师', mentions: [], generated })
+    expect(message.attached?.images.map(i => i.id)).toEqual(['pic'])
+    expect(await c.attachments(channelId, message.id)).toEqual({ images: [image('pic')], files: [] })
+    expect(c.state().imagePending).toEqual([])
+    await settle()
+    expect(tasks(c, channelId)).toEqual([])
+    c.generatedCost(channelId, message.id, 0.1)
+    await settle()
+    expect(texts(c, channelId).at(-1)?.generated?.cost).toBe(0.1)
+    // 重启后还是补过实扣的那份
+    await c.dispose()
+    const again = await open()
+    expect(texts(again, channelId).at(-1)?.generated?.cost).toBe(0.1)
+  })
+
+  it('失败：那一行变成错误，关掉才消失；停止（已经关掉）后再生成完不发', async () => {
+    const c = await open()
+    const channelId = await c.create({ name: 'ch', memberIds: [] })
+    start(c, channelId)
+    c.imageFailed('g1', '余额不足')
+    expect(c.state().imagePending).toMatchObject([{ status: 'failed', error: '余额不足' }])
+    c.imageDismissed('g1')
+    expect(c.state().imagePending).toEqual([])
+    start(c, channelId, 'g2')
+    c.imageDismissed('g2')
+    expect(await c.postGenerated('g2', { images: [image('pic')], generated })).toBeNull()
+    expect(texts(c, channelId)).toEqual([])
+  })
+
+  it('图都放不下：不发，那一行写原因；归档的频道不能开始', async () => {
+    const c = await open()
+    const channelId = await c.create({ name: 'ch', memberIds: [] })
+    start(c, channelId)
+    expect(await c.postGenerated('g1', { images: [{ ...image('w'), width: 0 }], generated })).toBeNull()
+    expect(c.state().imagePending).toMatchObject([{ status: 'failed', error: '图太大，放不进频道' }])
+    c.imageDismissed('g1')
+    await c.update(channelId, { archived: true })
+    expect(() => start(c, channelId, 'g3')).toThrow('频道已归档')
+  })
+
+  it('回复生成的图再 @ 成员：图交给它', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('前端助手'))
+    const channelId = await c.create({ name: 'ch', memberIds: [a] })
+    start(c, channelId)
+    const pic = (await c.postGenerated('g1', { images: [image('pic')], generated }))!
+    await c.post(channelId, { text: '@前端助手 用这张做登录页背景', clientId: 'r', replyToId: pic.id })
+    await settle()
+    expect(tasks(c, channelId)).toHaveLength(1)
+    expect(
+      sentWith()
+        .at(-1)
+        ?.attachments?.map(i => i.id),
+    ).toEqual(['pic'])
+  })
 })

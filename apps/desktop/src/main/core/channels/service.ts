@@ -30,6 +30,8 @@ import type {
   AgentConfig,
   ChannelAgentLoad,
   ChannelAttachedMeta,
+  ChannelGenerated,
+  ChannelImagePending,
   AgentInput,
   AgentMember,
   Channel,
@@ -89,6 +91,7 @@ import {
   type Mentionable,
 } from '../../../shared/channels/mentions'
 import { ChannelStore, type StoredChannel } from './store'
+import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
 import { jsonObjects } from '../json-reply'
@@ -172,6 +175,7 @@ import {
   trackEvent,
   type Finish,
   type FlowQuestion,
+  type GeneratedImageRef,
   type TaskRun,
   type TeamRunRef,
   type Tracked,
@@ -203,6 +207,8 @@ const SESSION_IMAGE_PAGES = 10
 const RELAY_FREE_MAX = 50
 /** 交接时带上的上一项活的回复最多这么多字；派活要求（回复里 @ 到对方的那几段）最多这么多字 */
 const HANDOFF_CHARS = 4000
+/** 读成员生成的一张图最多等多久（SSH 机器上的成员要经远端读） */
+const IMAGE_READ_MS = 10_000
 const RELAY_REQUEST_CHARS = 2000
 
 /** 别的 AI 成员交过来的一跳：提示词里写谁交的、要求是什么、交接了什么 */
@@ -248,6 +254,8 @@ export interface ChannelsDeps {
   machineName?: () => string
   /** 测试里调小团队写回的节流 / 上报间隔 */
   teamTiming?: { progressMs?: number; statusMs?: number }
+  /** 生成的图放进频道前整理（主进程的 fitImage：补宽高、超限转 JPEG，docs/ui/channel-image-gen.md）；没接时只收放得下的 */
+  fitImage?: FitImage
   /** 本机会话挂了频道工具（main/channels/channel-mcp.ts）：派活提示词只带最近几条、说明怎么用工具 */
   channelTools?: boolean
   /** 新会话的默认权限模式（本机）：成员没单独设时，聊天派活按它判断（消息通道） */
@@ -396,6 +404,8 @@ export class Channels {
   /** 断开的机器：重连后对账 */
   private offline = new Set<string>()
   private changedTimer: ReturnType<typeof setTimeout> | null = null
+  /** 频道里正在生成（或刚失败）的云端生图（docs/ui/channel-image-gen.md §3.1）：只在内存里 */
+  private readonly imagePending = new Map<string, ChannelImagePending>()
   private runsTimer: ReturnType<typeof setTimeout> | null = null
   /** Phase C：团队同步和执行端 */
   private readonly team: TeamSync | null
@@ -682,6 +692,7 @@ export class Channels {
       sessionTasks,
       sessionBindings,
       ...this.needs(),
+      imagePending: [...this.imagePending.values()],
       teams: team?.teams ?? [],
       invites: team?.invites ?? [],
       // 没有团队同步（团队功能关着，见 main/channels/ipc.ts 的 teamsEnabled）：报不可用，界面藏起所有团队入口
@@ -1447,6 +1458,93 @@ export class Channels {
     return this.store.messages.get(channelId) ?? []
   }
 
+  // -------------------------------------------------------------------------
+  // 频道里云端生图（docs/ui/channel-image-gen.md §3.1）：生成在主进程 main/image/job.ts 跑，这里管临时行和发消息
+  // -------------------------------------------------------------------------
+
+  /** 开始生成：时间线底部出一行「云端生图中…」。只有本机频道、没归档的 */
+  imageStarted(input: Pick<ChannelImagePending, 'id' | 'channelId' | 'threadId' | 'prompt' | 'size' | 'n'>): void {
+    if (this.isTeam(input.channelId)) throw new Error('团队频道暂时不能生图')
+    this.writable(input.channelId)
+    const threadId = this.threadRoot(input.channelId, input.threadId)
+    this.imagePending.set(input.id, { ...input, threadId, startedAt: this.now(), status: 'running', error: null })
+    this.changed()
+  }
+
+  /** 生成失败：那一行变成错误，等你关掉 */
+  imageFailed(id: string, error: string): void {
+    const p = this.imagePending.get(id)
+    if (!p) return
+    this.imagePending.set(id, { ...p, status: 'failed', error })
+    this.changed()
+  }
+
+  /** 关掉那一行（失败了点「关闭」、停止生成时） */
+  imageDismissed(id: string): void {
+    if (this.imagePending.delete(id)) this.changed()
+  }
+
+  /**
+   * 生成完：作为你发的一条带图消息进频道（先存附件再追加），不派活。那一行已经关掉（停止了）、
+   * 频道期间被删 / 归档、图一张都放不下时不发，返回 null
+   */
+  async postGenerated(
+    id: string,
+    input: { images: ImageAttachment[]; generated: ChannelGenerated },
+  ): Promise<ChannelTextMessage | null> {
+    const p = this.imagePending.get(id)
+    if (!p) return null
+    const { images, dropped } = fitForChannel(input.images, this.deps.fitImage)
+    if (!images.length) {
+      this.imageFailed(
+        id,
+        this.deps.locale() === 'en-US' ? 'The images are too large for the channel' : '图太大，放不进频道',
+      )
+      return null
+    }
+    const usable = (): StoredChannel | null => {
+      const c = this.store.channels.get(p.channelId)
+      return c && !c.archivedAt ? c : null
+    }
+    if (!usable()) return (this.imageDismissed(id), null)
+    const messageId = randomUUID()
+    await this.store.saveAttachments(p.channelId, messageId, { images, files: [] })
+    // 写附件期间频道可能被删、归档，那一行也可能被关掉：按最新的状态
+    const latest = usable()
+    if (!latest || !this.imagePending.has(id)) return (this.imageDismissed(id), null)
+    const now = this.now()
+    const message: ChannelTextMessage = {
+      kind: 'message',
+      id: messageId,
+      channelId: p.channelId,
+      at: now,
+      authorId: SELF_ID,
+      text: p.prompt,
+      format: 'plain',
+      replyToId: null,
+      ...(p.threadId ? { threadId: p.threadId } : {}),
+      mentions: [],
+      attached: { images: images.map(({ dataBase64: _d, ...meta }) => meta), files: [] },
+      generated: { ...input.generated, ...(dropped ? { dropped } : {}) },
+    }
+    this.imagePending.delete(id)
+    await this.store.append(message)
+    const after = this.store.channels.get(p.channelId)
+    if (after) await this.store.saveChannel({ ...after, readAt: now })
+    this.pushMessage(message)
+    this.changed()
+    return message
+  }
+
+  /** 查到实扣：写到生图消息的小字上 */
+  generatedCost(channelId: string, messageId: string, cost: number): void {
+    const m = this.store.messages.get(channelId)?.find(x => x.id === messageId)
+    if (m?.kind !== 'message' || !m.generated) return
+    const next: ChannelTextMessage = { ...m, generated: { ...m.generated, cost } }
+    void this.store.append(next).catch(e => this.deps.log?.('保存频道消息失败', e))
+    this.pushMessage(next)
+  }
+
   /** 一条消息带的图片和文件全文（团队频道没有附件） */
   async attachments(channelId: string, messageId: string): Promise<ChannelAttachments> {
     if (this.isTeam(channelId)) return { images: [], files: [] }
@@ -1725,6 +1823,9 @@ export class Channels {
     const member = this.member(memberId)!
     const now = this.now()
     const text = relay ? relay.request : source.text
+    // 回复一条带图 / 文件的消息再 @ 成员：被回复那条的附件也交给它（docs/ui/channel-image-gen.md §3.1，例如回复生成的图「@前端 用这张」）
+    const replied = replyToId && !relay ? this.store.messages.get(c.id)?.find(m => m.id === replyToId) : undefined
+    if (replied?.kind === 'message' && replied.attached && replied.id !== source.id) inherit = [replied.id, ...inherit]
     const task: ChannelTask = {
       kind: 'task',
       id: randomUUID(),
@@ -2151,13 +2252,23 @@ export class Channels {
           void this.deps.copies.commit(run.sessionId, task.title).catch(e => this.deps.log?.('任务卡副本提交失败', e))
         const reply = run.reply?.trim() ?? ''
         const locale = this.deps.locale()
-        patch.summary = reply ? summaryOf(reply) : locale === 'en-US' ? 'No reply text' : '没有回复文字'
+        // 这一轮生成的图随结果带回频道（docs/ui/channel-image-gen.md §3.2）；团队频道不支持附件
+        const images = run.team || !run.sessionId ? [] : (run.images ?? [])
+        patch.summary = reply
+          ? summaryOf(reply)
+          : images.length
+            ? locale === 'en-US'
+              ? `Generated ${images.length} image(s)`
+              : `生成了 ${images.length} 张图`
+            : locale === 'en-US'
+              ? 'No reply text'
+              : '没有回复文字'
         patch.decision = reply ? decisionOf(reply) : null
         if (reply && run.team) {
           // 团队活：结果由执行端以 AI 成员的身份发到云端频道（随任务卡的收尾一起，没发成功会补发）
           const decide = patch.decision && run.team.author ? [run.team.author] : []
           teamResult = { text: clipResult(reply, locale), mentions: decide }
-        } else if (reply) {
+        } else if (reply || images.length) {
           const c = this.store.channels.get(run.channelId)
           // 回复里 @ 了别的 AI 成员、频道允许互相派活：交给他们（docs/ui/import-collab.md 第 5 项①）
           // 已经用 task_handover 交给过的成员，回复里再 @ 不重复派
@@ -2180,7 +2291,10 @@ export class Channels {
             mentions:
               patch.decision || (relays.some(r => r.relay.held) && c && relayRulesOf(c).notify) ? [SELF_ID] : [],
           }
-          if (c) {
+          // 接力的决定在读图（await）之前定好；读完后按最新的频道发（AGENTS.md「await 之后写回」）
+          const send = (): void => {
+            const latest = this.store.channels.get(run.channelId)
+            if (!latest) return
             void this.store.append(result).catch(e => this.deps.log?.('保存频道消息失败', e))
             this.pushMessage(result)
             const handoff: Handoff = {
@@ -2189,10 +2303,11 @@ export class Channels {
               reply: reply.length > HANDOFF_CHARS ? `${reply.slice(0, HANDOFF_CHARS)}…` : reply,
               files: changedFiles(run),
             }
-            const inherit = this.attachIds(task, run)
+            // 结果带了图：接力的成员也拿到
+            const inherit = [...this.attachIds(task, run), ...(result.attached ? [result.id] : [])]
             for (const r of relays)
               this.newTask(
-                c,
+                latest,
                 result,
                 r.target,
                 null,
@@ -2206,6 +2321,8 @@ export class Channels {
                 inherit,
               )
           }
+          if (c && images.length) void this.attachRunImages(run, result, images, locale).then(send)
+          else if (c) send()
         }
       }
       if (run.team) this.patchTeam(ended, patch, teamResult)
@@ -2233,6 +2350,49 @@ export class Channels {
     this.saveRuns()
     this.prune()
     void this.pump(run.memberId)
+  }
+
+  /**
+   * 成员这一轮生成的图（docs/ui/channel-image-gen.md §3.2）：经 engine:image 读出来，整理到频道放得下，
+   * 存在结果消息名下（先存再发），写进 result.attached；读不到、放不下的在正文末尾说一句。不抛错
+   */
+  private async attachRunImages(
+    run: TaskRun,
+    result: ChannelTextMessage,
+    refs: GeneratedImageRef[],
+    locale: Locale,
+  ): Promise<void> {
+    const read: ImageAttachment[] = []
+    for (const ref of refs) {
+      try {
+        const image = (await Promise.race([
+          this.deps.call('engine:image', [run.sessionId, ref.itemId, ref.imageId]),
+          new Promise(resolve => setTimeout(resolve, IMAGE_READ_MS, null)),
+        ])) as ImageAttachment | null
+        if (image?.dataBase64) read.push(image)
+      } catch (e) {
+        this.deps.log?.('读成员生成的图失败', e)
+      }
+    }
+    // 图片 id 按频道附件的规则重新编号：引擎给的 id 可能有别的字符、两个条目也可能撞号，一张不合格整批都放不进去
+    const renamed = read.map((image, i) => ({ ...image, id: `gen${i + 1}` }))
+    const { images } = fitForChannel(renamed, this.deps.fitImage)
+    if (images.length)
+      try {
+        await this.store.saveAttachments(result.channelId, result.id, { images, files: [] })
+        result.attached = { images: images.map(({ dataBase64: _d, ...meta }) => meta), files: [] }
+      } catch (e) {
+        this.deps.log?.('保存成员生成的图失败', e)
+      }
+    // 读不到的、放不下的、存失败的都算（attached 只有真正存下的）
+    const missing = refs.length - (result.attached?.images.length ?? 0)
+    if (missing > 0) {
+      const note =
+        locale === 'en-US'
+          ? `(${missing} generated image(s) could not be added to the channel; see the session)`
+          : `（生成了 ${missing} 张图没能放进频道，在会话里看）`
+      result.text = result.text ? `${result.text}\n\n${note}` : note
+    }
   }
 
   // -------------------------------------------------------------------------

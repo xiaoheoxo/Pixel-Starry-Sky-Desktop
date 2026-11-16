@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ApprovalRequest, EngineEvent, Item, SessionSnapshot } from '@pixelsky/protocol'
 import type { ChannelMessage } from '../../../shared/types/channels'
-import { ACTIVITY_STEPS, reconcileRun, trackEvent, diffTotal, type TaskRun } from './tracker'
+import { ACTIVITY_STEPS, RUN_IMAGES_MAX, reconcileRun, trackEvent, diffTotal, type TaskRun } from './tracker'
 import {
   HISTORY_CHARS,
   HISTORY_MESSAGES,
@@ -477,6 +477,50 @@ describe('任务状态跟踪（§5.1）', () => {
     ])
     expect(r.patches).toMatchObject([{ progress: { done: 1, total: 2 } }])
   })
+
+  describe('生成的图（docs/ui/channel-image-gen.md §3.2）', () => {
+    const image = (id: string) => ({
+      id,
+      name: `${id}.png`,
+      mediaType: 'image/png' as const,
+      bytes: 1,
+      width: 0,
+      height: 0,
+      dataBase64: '',
+    })
+    const gen = (id: string, name: string, ids: string[], status = 'completed'): Item =>
+      ({ kind: 'tool', id, tool: 'other', name, title: '夜空', output: '', status, images: ids.map(image) }) as Item
+
+    it('这一轮完成的 Codex 生图、云端生图都记下（去重）；运行中的、别的工具不记', () => {
+      const r = feed(run({ started: true, turnId: 't' }), [
+        { type: 'item_started', item: gen('g0', 'imageGeneration', ['p'], 'running') },
+        { type: 'item_completed', item: gen('g1', 'imageGeneration', ['a']) },
+        { type: 'item_completed', item: gen('c1', 'cloudImage', ['b', 'c']) },
+        // 查到实扣后同一条目再放一次
+        { type: 'item_completed', item: gen('c1', 'cloudImage', ['b', 'c']) },
+        { type: 'item_completed', item: gen('x', 'webFetch', ['d']) },
+      ])
+      expect(r.run.images).toEqual([
+        { itemId: 'g1', imageId: 'a' },
+        { itemId: 'c1', imageId: 'b' },
+        { itemId: 'c1', imageId: 'c' },
+      ])
+      expect(r.patches.every(p => !('images' in p))).toBe(true)
+    })
+
+    it('只留最近几张；新的一轮清掉，断线重连的「继续」不清', () => {
+      const many = feed(run({ started: true, turnId: 't' }), [
+        { type: 'item_completed', item: gen('c1', 'cloudImage', ['1', '2', '3', '4']) },
+        { type: 'item_completed', item: gen('c2', 'cloudImage', ['5', '6']) },
+      ])
+      expect(many.run.images).toHaveLength(RUN_IMAGES_MAX)
+      expect(many.run.images?.[0]).toEqual({ itemId: 'c1', imageId: '2' })
+      const kept = trackEvent(many.run, { type: 'item_completed', item: user('ch-t1-1-reconnect-1', 't2') })
+      expect(kept.run.images).toHaveLength(RUN_IMAGES_MAX)
+      const fresh = trackEvent(run({ images: many.run.images }), { type: 'item_completed', item: user('ch-t1-1', 't') })
+      expect(fresh.run.images).toEqual([])
+    })
+  })
 })
 
 describe('重启后对账', () => {
@@ -612,6 +656,45 @@ describe('重启后对账', () => {
       reconcileRun(run(), snapshot({ items, record: { lastOutcome: 'interrupted' } as SessionSnapshot['record'] }))
         .finish,
     ).toEqual({ status: 'stopped' })
+  })
+})
+
+describe('重启后对账：生成的图', () => {
+  it('按快照里这一轮的条目重新记', () => {
+    const snap = {
+      record: { id: 's1', lastOutcome: 'completed' },
+      state: 'idle',
+      items: [
+        {
+          kind: 'tool',
+          id: 'old',
+          tool: 'other',
+          name: 'cloudImage',
+          title: '',
+          output: '',
+          status: 'completed',
+          images: [{ id: 'z' }],
+        },
+        user('ch-t1-1', 't'),
+        {
+          kind: 'tool',
+          id: 'g1',
+          tool: 'other',
+          name: 'imageGeneration',
+          title: '',
+          output: '',
+          status: 'completed',
+          images: [{ id: 'a' }],
+        },
+        { kind: 'assistant', id: 'a', text: '画好了', status: 'completed' },
+      ],
+      pending: [],
+      queue: [],
+      turnId: null,
+    } as unknown as SessionSnapshot
+    const r = reconcileRun(run({ images: [{ itemId: 'stale', imageId: 'x' }] }), snap)
+    expect(r.finish).toEqual({ status: 'done' })
+    expect(r.run.images).toEqual([{ itemId: 'g1', imageId: 'a' }])
   })
 })
 

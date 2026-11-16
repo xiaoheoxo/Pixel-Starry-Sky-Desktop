@@ -20,6 +20,7 @@ import { getProviders } from '@/features/account/providers'
 import { channelShort } from '@/features/model-channels/channelLabels'
 import { effortLabel } from '@/features/engine/labels'
 import { AgentAvatarFace } from './AgentAvatar'
+import { GeneratedLine } from './GeneratedLine'
 
 /** 成员头像：真人是圆形首字头像，AI 成员默认是圆角方块里的引擎图标，选了别的样式见 AgentAvatar.tsx */
 export function MemberAvatar({
@@ -575,6 +576,7 @@ export function MessageGroup({
               )}
               {m.alert && <AlertButtons message={m} readOnly={proposalsReadOnly} />}
               {m.attached && <MessageAttachments message={m} />}
+              {m.generated && <GeneratedLine generated={m.generated} />}
               {m.chat && !m.flow && (
                 <span data-chat-origin className="mt-0.5 px-1 text-meta text-fg-faint">
                   {tr(m.chat.via === 'qq' ? 'im.from.qq' : 'im.from.wechat')}

@@ -140,6 +140,23 @@ export const channelMessages = {
     zh: '添加图片或文件（也可以粘贴、拖进来）',
     en: 'Add images or files (you can also paste or drop them)',
   },
+  // 频道里云端生图（docs/ui/channel-image-gen.md §3.1）
+  'channels.image.toggle': { zh: '云端生图', en: 'Cloud image' },
+  'channels.image.placeholder': {
+    zh: '描述要生成的图，生成后作为你的消息发到频道…',
+    en: 'Describe the image; it will be posted to the channel as your message…',
+  },
+  'channels.image.running': { zh: '云端生图中…', en: 'Generating image…' },
+  'channels.image.failed': { zh: '云端生图没成功：{error}', en: 'Image generation failed: {error}' },
+  'channels.image.stop': {
+    zh: '停止（已经开始生成的可能照常扣费）',
+    en: 'Stop (generation already started may still be charged)',
+  },
+  'channels.image.retry': { zh: '重试', en: 'Retry' },
+  'channels.image.dismiss': { zh: '关闭', en: 'Dismiss' },
+  'channels.image.meta': { zh: '云端生图 · {group} · {size} · {n} 张', en: 'Cloud image · {group} · {size} · {n}' },
+  'channels.image.estimate': { zh: '约 {cost}', en: 'about {cost}' },
+  'channels.image.dropped': { zh: '{n} 张太大没放进频道', en: '{n} too large for the channel' },
   'channels.attach.team': { zh: '团队频道暂不支持附件', en: "Team channels don't support attachments yet" },
   'channels.attach.missing': { zh: '附件已不在了', en: 'The attachments are no longer available' },
   'channels.attach.showDetails': { zh: '查看详情', en: 'Show details' },

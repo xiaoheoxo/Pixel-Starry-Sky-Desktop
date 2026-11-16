@@ -58,6 +58,11 @@ export interface TaskRun {
   files?: Record<string, string[]>
   /** 这一轮最后一条 assistant 回复 */
   reply: string | null
+  /**
+   * 这一轮生成的图（Codex 生图、在成员会话里点的云端生图）：条目 id + 图片 id，结果发回频道时经 engine:image 读出来带上
+   * （docs/ui/channel-image-gen.md §3.2）；runs.json 里不存图片。旧数据没有
+   */
+  images?: GeneratedImageRef[]
   progress: { done: number; total: number } | null
   /** 这一轮「正在做什么」（任务卡上显示）；旧数据没有 */
   activity?: ChannelActivity | null
@@ -130,6 +135,30 @@ export function newTaskRun(
     notice: null,
     ...init,
   }
+}
+
+/** 成员这一轮里生成的一张图（docs/ui/channel-image-gen.md §3.2） */
+export interface GeneratedImageRef {
+  itemId: string
+  imageId: string
+}
+
+/** 一轮最多带回频道几张（频道附件的上限 MAX_IMAGE_COUNT） */
+export const RUN_IMAGES_MAX = 5
+
+/** 生成图片的工具条目：Codex 内置生图、云端生图（docs/ui/image-gen.md） */
+const GENERATED = new Set(['imageGeneration', 'cloudImage'])
+
+/** 完成的生图条目：把图记进这一轮（去重，只留最近 RUN_IMAGES_MAX 张） */
+function withImages(run: TaskRun, item: Item): TaskRun {
+  if (item.kind !== 'tool' || !GENERATED.has(item.name) || item.status !== 'completed' || !item.images?.length)
+    return run
+  const known = run.images ?? []
+  const fresh = item.images
+    .map(image => ({ itemId: item.id, imageId: image.id }))
+    .filter(ref => !known.some(k => k.itemId === ref.itemId && k.imageId === ref.imageId))
+  if (!fresh.length) return run
+  return { ...run, images: [...known, ...fresh].slice(-RUN_IMAGES_MAX) }
 }
 
 export interface Finish {
@@ -275,6 +304,7 @@ function absorbStep(run: TaskRun, item: StepItem, now: number): TaskRun {
 /** 这一轮里的条目：更新回复、改动、进度、正在做什么、错误通知 */
 function absorb(run: TaskRun, item: Item, now: number): TaskRun {
   if (isStepItem(item)) run = absorbStep(run, item, now)
+  run = withImages(run, item)
   switch (item.kind) {
     case 'reasoning':
       return withWait(run, 'thinking', now)
@@ -362,6 +392,7 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
       turnId: (event.item.kind === 'user' && event.item.turnId) || run.turnId,
       requests: [],
       diff: resumed ? run.diff : {},
+      images: resumed ? run.images : [],
       reply: null,
       progress: resumed ? run.progress : null,
       activity: resumed ? resumedActivity(run.activity, now) : null,
@@ -446,6 +477,7 @@ export function reconcileRun(run: TaskRun, snapshot: SessionSnapshot | null, now
     started: true,
     turnId: user.turnId ?? run.turnId,
     diff: {},
+    images: [],
     reply: null,
     progress: null,
     activity: null,
