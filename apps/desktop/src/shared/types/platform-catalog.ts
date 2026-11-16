@@ -10,6 +10,11 @@ export interface PlatformGroupInfo {
   models: string[]
   /** 这条线路按「扣费用的 Key」会记在哪把 Key 上（只有名字）；旧云端没有这个字段（docs/ui/platform-key-mode.md） */
   key?: PlatformGroupKey | null
+  /**
+   * 生图每张单价（美元，没乘倍率；0 是这一档没配）。只有能生图的分组（supported_apis 里有 images）才有；
+   * 旧云端没有（docs/ui/image-gen.md §6.5）
+   */
+  image_prices?: { '1k': number; '2k': number; '4k': number }
 }
 
 /** 线路当前扣费的 Key：own 为 true 是用户自己在网站上建的，否则是客户端专用的托管 Key */

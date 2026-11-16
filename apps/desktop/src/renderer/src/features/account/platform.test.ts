@@ -47,6 +47,12 @@ describe('平台目录：先选模型、再选线路（docs/ui/source-switch.md 
     expect(platformModels(groups)).toEqual(['opus', 'sonnet', 'haiku'])
   })
 
+  it('回归（审查）：只能生图的分组的模型不进引擎的模型列表；能生图也能聊的照常', () => {
+    const image = { ...group('41', 1, ['gpt-image-2']), supported_apis: ['images'] }
+    const both = { ...group('35', 1, ['gpt-5.5']), supported_apis: ['responses', 'images'] }
+    expect(platformModels([...groups, image, both])).toEqual(['opus', 'sonnet', 'haiku', 'gpt-5.5'])
+  })
+
   it('线路只列包含该模型的，按倍率从低到高，同倍率按管理员排序；零倍率有效', () => {
     expect(groupsForModel(groups, 'sonnet').map(g => g.id)).toEqual(['2', '3', '1'])
     expect(groupsForModel(groups, 'opus').map(g => g.id)).toEqual(['1'])

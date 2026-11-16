@@ -639,6 +639,16 @@ export class EngineHost {
     return this.m.sessions.renameSession(id, title)
   }
 
+  /**
+   * 引擎外面放进对话的条目（云端生图，docs/ui/image-gen.md §6）：同一个 id 再放一次就是更新；运行中的按开始算。
+   * 引擎这一轮结束时会把还在运行的收尾（标成中断），之后再放完成的会盖回去
+   */
+  putItem(id: string, item: Item): void {
+    this.m.sessions.runtime(id)
+    const running = 'status' in item && item.status === 'running'
+    this.m.events.apply(id, { type: running ? 'item_started' : 'item_completed', item })
+  }
+
   /** 在会话里加一条提示条目（手机改了设置时留一条记录，docs/mobile-remote.md §21.7） */
   addNotice(id: string, level: 'info' | 'warn' | 'error', text: string): void {
     this.m.sessions.addNotice(id, level, text)

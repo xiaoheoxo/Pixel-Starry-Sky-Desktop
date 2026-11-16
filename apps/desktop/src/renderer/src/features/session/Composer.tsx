@@ -1,6 +1,16 @@
 import { translateMessage } from '../../i18n/core'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { AtSign, ChevronDown, CornerDownLeft, Paperclip, Plus, ShieldOff, Square, SquareSlash } from 'lucide-react'
+import {
+  AtSign,
+  ChevronDown,
+  CornerDownLeft,
+  ImageIcon,
+  Paperclip,
+  Plus,
+  ShieldOff,
+  Square,
+  SquareSlash,
+} from 'lucide-react'
 import { settledResizeObserver } from '@/features/panes/motion'
 import { IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { useTheme } from '@/features/appearance/ThemeProvider'
@@ -63,6 +73,14 @@ import { getFiles } from '@/features/files/store'
 import { MentionMenu, useMentionEntries } from './MentionMenu'
 import { applyMention, folderMention, insertAt, insertMention, mentionAt } from './mention'
 import { machineOf } from '@/features/machines/store'
+import { usePlatformCatalog } from '@/features/account/platform'
+import {
+  CloudImageBar,
+  costCheck,
+  imageGroups,
+  initialOptions,
+  type CloudImageOptions,
+} from '@/features/session/cloudImage/CloudImageBar'
 import { McpLoginNotice } from '@/features/panel/connectors/McpLoginNotice'
 import { composerWorkspace, folderWorkspace } from './composerWorkspace'
 import { useResumeCommand } from '@/features/resume/useResumeCommand'
@@ -205,6 +223,19 @@ export function Composer({
   // 引擎 / 额度来源 / 模型菜单；已开始的会话切换平台 ↔ 自有前先确认（docs/ui/source-switch.md §3.4）
   const [menuOpen, setMenuOpen] = useState(false)
   const [addMenu, setAddMenu] = useState(false)
+  // 云端生图（docs/ui/image-gen.md §6）：打开时输入框上方是选项，发送走生图、不发给 AI。只在本机、登录了平台、有能生图的分组时给
+  const [cloudImage, setCloudImage] = useState<CloudImageOptions | null>(null)
+  const platformCatalog = usePlatformCatalog()
+  const cloudGroups = useMemo(() => imageGroups(platformCatalog.groups), [platformCatalog.groups])
+  const canCloudImage =
+    !isDemo &&
+    !!live?.sessionId &&
+    machineOf(live.sessionId) === 'local' &&
+    !!platformCatalog.email &&
+    cloudGroups.length > 0
+  useEffect(() => {
+    if (cloudImage && (!canCloudImage || !cloudGroups.some(g => g.id === cloudImage.groupId))) setCloudImage(null)
+  }, [cloudImage, canCloudImage, cloudGroups])
   const [confirmSource, setConfirmSource] = useState<SourceSwitch | null>(null)
   const account = useAccount()
   const settings = useSettings()
@@ -672,7 +703,50 @@ export function Composer({
     addFiles(files)
   }
 
+  const submitCloudImage = async (options: CloudImageOptions): Promise<void> => {
+    const prompt = text.trim()
+    if (!prompt) {
+      setError(tr('cloudImage.needPrompt'))
+      return
+    }
+    if (!live?.sessionId || submitting.current || pendingReads.current) return
+    const group = cloudGroups.find(g => g.id === options.groupId)
+    if (
+      costCheck(group, options, images.length, account.account?.balance ?? null, account.account?.currency ?? 'USD')
+        .short
+    ) {
+      setError(tr('cloudImage.short', { balance: String(account.account?.balance ?? 0) }))
+      return
+    }
+    submitting.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      await window.pixelsky!.image.generate({
+        sessionId: live.sessionId,
+        groupId: options.groupId,
+        groupName: group?.name ?? '',
+        prompt,
+        size: options.size,
+        n: images.length ? 1 : options.n,
+        quality: options.quality,
+        references: images,
+      })
+      setText(current => (current === text ? '' : current))
+      if (images.length) {
+        const used = new Set(images.map(image => image.id))
+        await updateImages(key, current => current.filter(image => !used.has(image.id)))
+      }
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+      submitting.current = false
+      ref.current?.focus()
+    }
+  }
   const submit = async (): Promise<void> => {
+    if (cloudImage && canCloudImage) return submitCloudImage(cloudImage)
     const side = onSideQuestion ? /^\/btw\s+([\s\S]+)$/.exec(text.trim()) : null
     if (side) {
       const refused = onSideQuestion!(side[1].trim())
@@ -907,6 +981,18 @@ export function Composer({
         >
           {tr('composer.file.add')}
         </PopoverItem>
+        {canCloudImage && (
+          <PopoverItem
+            icon={<ImageIcon size={15} strokeWidth={1.5} />}
+            onClick={() => {
+              setAddMenu(false)
+              setCloudImage(initialOptions(cloudGroups))
+              ref.current?.focus()
+            }}
+          >
+            {tr('cloudImage.menu')}
+          </PopoverItem>
+        )}
         {canMention && (
           <PopoverItem
             icon={<AtSign size={15} strokeWidth={1.5} />}
@@ -1151,6 +1237,20 @@ export function Composer({
             </p>
           )}
 
+          {cloudImage && canCloudImage && (
+            <div className="px-3 pt-2">
+              <CloudImageBar
+                groups={cloudGroups}
+                options={cloudImage}
+                onChange={setCloudImage}
+                onClose={() => setCloudImage(null)}
+                references={images.length}
+                balance={account.account?.balance ?? null}
+                currency={account.account?.currency ?? 'USD'}
+                onTopUp={() => settings.openSettings('account')}
+              />
+            </div>
+          )}
           <div className="composer-input-row flex min-w-0 items-end">
             {inRow && <div className="composer-add-controls flex shrink-0 items-center">{addControl}</div>}
             {/* 粘贴的长文本在这里折成标签（docs/ui/composer-paste-fold.md） */}
@@ -1181,13 +1281,15 @@ export function Composer({
                 return true
               }}
               placeholder={
-                live?.awaitingApproval
-                  ? tr('approvals.composerHint')
-                  : running
-                    ? translate('继续补充要求，Enter 加入队列…')
-                    : suggestion
-                      ? `${suggestion}（${translate('按 Tab 填入')}）`
-                      : translate(composer.placeholder)
+                cloudImage && canCloudImage
+                  ? tr('cloudImage.placeholder')
+                  : live?.awaitingApproval
+                    ? tr('approvals.composerHint')
+                    : running
+                      ? translate('继续补充要求，Enter 加入队列…')
+                      : suggestion
+                        ? `${suggestion}（${translate('按 Tab 填入')}）`
+                        : translate(composer.placeholder)
               }
               height={textHeight}
               onContentHeight={setContentHeight}

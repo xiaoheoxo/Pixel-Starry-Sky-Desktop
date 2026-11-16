@@ -842,7 +842,10 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
   const viewedImage = item.kind === 'tool' && item.name === 'imageView' && !images.length ? item.title : null
   // 已经显示成图片的，不再在文字框里重复一行「[图片]」；只剩占位时文字框整个不显示
   const textOf = (it: typeof item): string =>
-    it.kind === 'file_change' ? '' : withoutShownImagePlaceholders(it.output, images.length)
+    // 云端生图的说明在图下面单独一行，不放进展开的文字框
+    it.kind === 'file_change' || (it.kind === 'tool' && it.name === 'cloudImage')
+      ? ''
+      : withoutShownImagePlaceholders(it.output, images.length)
   const output = textOf(item)
   const foldable =
     item.kind === 'file_change' ? item.changes.some(c => c.diff) : !!output || images.length > 0 || !!viewedImage
@@ -999,19 +1002,22 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
     )
   }
 
-  // Codex 内置生图（docs/ui/image-gen.md）：图直接按大图显示，不收成缩略图
-  const generated = item.name === 'imageGeneration'
+  // Codex 内置生图、云端生图（docs/ui/image-gen.md）：图直接按大图显示，不收成缩略图
+  const cloud = item.name === 'cloudImage'
+  const generated = item.name === 'imageGeneration' || cloud
   const meta = TOOL_META[item.tool]
   // 子任务（Agent 工具）和多智能体编排（Workflow 工具）可以打开智能体追踪
   const traceable = !!openTrace && item.tool === 'task' && !item.subagent
   const named = NAMED_VERBS[item.name]
-  const verb = generated
-    ? tr(item.status === 'running' ? 'session.live.tool.imageGenerating' : 'session.live.tool.imageGeneration')
-    : item.name === 'Workflow'
-      ? tr('session.live.ItemRows.orchestration')
-      : named
-        ? tr(named)
-        : meta.verb || item.name
+  const verb = cloud
+    ? tr(item.status === 'running' ? 'session.live.tool.cloudImaging' : 'session.live.tool.cloudImage')
+    : generated
+      ? tr(item.status === 'running' ? 'session.live.tool.imageGenerating' : 'session.live.tool.imageGeneration')
+      : item.name === 'Workflow'
+        ? tr('session.live.ItemRows.orchestration')
+        : named
+          ? tr(named)
+          : meta.verb || item.name
   // 提交计划：展开看的是计划正文（Markdown），批准之后对话里还在
   const plan = item.name === 'ExitPlanMode'
   return (
@@ -1036,7 +1042,15 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
           </>
         }
         action={
-          waiting || traceable ? (
+          cloud && item.status === 'running' ? (
+            <button
+              type="button"
+              onClick={() => void window.pixelsky?.image.cancel(item.id)}
+              className="shrink-0 rounded-md px-1.5 py-1 text-meta text-fg-secondary hover:bg-hover hover:text-fg"
+            >
+              {tr('session.live.tool.cloudImageStop')}
+            </button>
+          ) : waiting || traceable ? (
             <>
               {waitTag}
               {traceable && (
@@ -1081,6 +1095,12 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
         <div className="mt-1 mb-1.5 ml-[23px]">
           <ImageAttachments images={images} itemId={item.id} large />
         </div>
+      )}
+      {/* 云端生图：分组 · 尺寸 · 张数 · 扣费（失败、停止时是原因），一直显示 */}
+      {cloud && item.output && (
+        <p className={cn('mb-1.5 ml-[23px] text-meta', item.status === 'failed' ? 'text-danger' : 'text-fg-faint')}>
+          {item.output}
+        </p>
       )}
       {images.length > 0 && !generated && (
         <div className="mt-1 mb-1.5 ml-[23px]">

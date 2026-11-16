@@ -238,9 +238,13 @@ const agyModels = async (): Promise<string[]> =>
   ((await window.pixelsky?.engine?.catalog('antigravity'))?.models ?? []).map(m => m.id)
 
 /** 所有分组的模型并集，按分组顺序、组内顺序去重 */
+/** 只能生图的分组（云端生图用，docs/ui/image-gen.md §6）：它的模型（gpt-image…）不进引擎的模型列表 */
+export const imageOnlyGroup = (g: PlatformGroupInfo): boolean =>
+  !!g.supported_apis?.length && g.supported_apis.every(a => a === 'images')
+
 export function platformModels(groups: PlatformGroup[]): string[] {
   const seen = new Set<string>()
-  for (const g of groups) for (const m of g.models) seen.add(m)
+  for (const g of groups) if (!imageOnlyGroup(g)) for (const m of g.models) seen.add(m)
   return [...seen]
 }
 

@@ -43,6 +43,7 @@ import { spawnTui } from './tui-spawn'
 import { initTerminalIpc, localTerminals } from '../terminal/ipc'
 import { initMachines } from '../machines/service'
 import { machineOf } from '../machines/identity'
+import { initImage } from '../image/ipc'
 import { initArtifacts } from '../artifacts/ipc'
 import { chatName, resolveTerminalTarget, workspaceToolsHost } from '../workspace/resolve'
 import { ENGINE_OPS, addProjectPaths, type EngineOpContext } from '../core/engine/ops'
@@ -62,6 +63,7 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   const subagents = initSubagents(ctx)
   initVoice()
   initAi(ctx)
+  initImage(ctx)
   const sessionEnv = await initPlatform(
     id =>
       machineOf(id) === 'local'

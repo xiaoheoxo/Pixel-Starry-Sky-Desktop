@@ -761,6 +761,9 @@ export const IPC_CONTRACT = {
   'platform:models': { kind: 'invoke', route: 'local', trust: 'sender' },
   'platform:setKeyMode': { kind: 'invoke', route: 'local', trust: 'sender' },
   'ai:cancel': { kind: 'invoke', route: 'local', trust: 'window' },
+  // 云端生图（docs/ui/image-gen.md §6）：花额度，只认可信窗口；只在本机
+  'image:cancel': { kind: 'invoke', route: 'local', trust: 'window' },
+  'image:generate': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:commitCharge': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:commitMessage': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:inlineEdit': { kind: 'invoke', route: 'local', trust: 'window' },

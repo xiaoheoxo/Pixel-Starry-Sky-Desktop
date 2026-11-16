@@ -762,6 +762,10 @@ contextBridge.exposeInMainWorld('pixelsky', {
     cancel: requestId => call('ai:cancel', requestId),
     commitCharge: requestId => call('ai:commitCharge', requestId),
   } satisfies import('./ai').AiBridge,
+  image: {
+    generate: request => call('image:generate', request),
+    cancel: itemId => call('image:cancel', itemId),
+  } satisfies import('./image').ImageBridge,
   engine,
   app: appInfo,
   log,
