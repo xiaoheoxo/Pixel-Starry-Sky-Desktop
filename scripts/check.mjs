@@ -1,6 +1,8 @@
 // 统一检查入口（无依赖，不经过 pnpm）
-// 用法：node scripts/check.mjs [--fast] [--strict] [--remote] [--build] [--cloud] [--extpacks] [--only <步骤名>]
+// 用法：node scripts/check.mjs [--fast] [--strict] [--remote] [--build] [--cloud] [--extpacks] [--app] [--only <步骤名>]
 // --cloud 加跑 services/cloud 的 Go 检查（gofmt、go vet、go test），需要本机装 Go 1.27 或更新版本
+// --app 加跑手机 App（apps/app，Flutter）的格式、静态检查、测试和 Dart ↔ TS 实时互通（scripts/app-interop），需要 flutter 和 dart 在 PATH 上；
+//   App 和 TS 共用的测试样例是否最新由 test:link 检查（packages/link/test/app-fixtures.test.ts），不用 --app 也会跑
 import { spawn } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -38,6 +40,13 @@ const buildDir = join(root, 'scratch', `${new Date().toISOString().slice(0, 10)}
 // 云端服务（Go）：独立的 go.mod，不经过 node；只有 --cloud 时才跑
 const cloud = join(root, 'services', 'cloud')
 const goCommand = (name, args) => ({ name, group: 'cloud', cwd: cloud, command: 'go', args })
+
+// 手机 App（Flutter）：Windows 上 flutter / dart 是 .bat，spawn 不经过 shell 找不到，要经 cmd /c
+const app = join(root, 'apps', 'app')
+const appCommand = (name, tool, args) =>
+  process.platform === 'win32'
+    ? { name, group: 'app', cwd: app, command: 'cmd', args: ['/c', tool, ...args] }
+    : { name, group: 'app', cwd: app, command: tool, args }
 
 // group：fast 只跑 tsc 和 docs
 const steps = [
@@ -103,6 +112,11 @@ const steps = [
   { name: 'cloud:gofmt', group: 'cloud', cwd: cloud, command: 'gofmt', args: ['-l', '.'], failOnOutput: true },
   goCommand('cloud:vet', ['vet', './...']),
   goCommand('cloud:test', ['test', './...', '-count=1']),
+  appCommand('app:format', 'dart', ['format', '--output=none', '--set-exit-if-changed', 'lib', 'test', 'tool']),
+  appCommand('app:analyze', 'flutter', ['analyze', '--no-pub']),
+  appCommand('app:test', 'flutter', ['test', '--no-pub']),
+  // Dart 探针和桌面端真网关的实时互通（本机模拟中转，见 scripts/app-interop/README.md）；dart 的调用在 run.mjs 里处理
+  { name: 'app:interop', group: 'app', cwd: root, script: join(root, 'scripts', 'app-interop', 'run.mjs'), args: [] },
 ]
 
 const selected = steps.filter(step => {
@@ -110,6 +124,7 @@ const selected = steps.filter(step => {
   if (step.group === 'remote') return has('--remote')
   if (step.group === 'build') return has('--build')
   if (step.group === 'cloud') return has('--cloud')
+  if (step.group === 'app') return has('--app')
   if (step.group === 'extpacks') return has('--extpacks')
   // 文档只在本机，仓库里没有 check-docs.mjs 时跳过
   if (step.group === 'docs' && !existsSync(step.script)) return false

@@ -1,0 +1,830 @@
+{
+  "generated_by": "由 packages/link/test/app-fixtures.test.ts 生成（node scripts/export-app-fixtures.mjs），不要手改",
+  "constants": {
+    "link_version": 1,
+    "prologue": {
+      "text": "pixelsky-mobile/1",
+      "hex": "706978656c736b792d6d6f62696c652f31"
+    },
+    "bridge_protocol": "pixelsky.v1",
+    "bridge_protocols": {
+      "token": "tok.123",
+      "protocols": [
+        "pixelsky.v1",
+        "bearer.tok.123"
+      ]
+    },
+    "pair_statuses": [
+      "pending",
+      "accepted",
+      "rejected",
+      "expired",
+      "unknown",
+      "unavailable",
+      "handshake_failed"
+    ],
+    "pairing_secret_bytes": 16
+  },
+  "keys": {
+    "desktop": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+    "phone": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839"
+  },
+  "offer": {
+    "v": 1,
+    "relay": "wss://auth.example/v1/bridge/ws",
+    "desktop": "d-1",
+    "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+    "secret": "FKFRCxy9UP33WsoXnLz2dw",
+    "name": "我的电脑",
+    "expires": 1800000000000
+  },
+  "encode": [
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      },
+      "web": null,
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0"
+    },
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000,
+        "code": "c0de"
+      },
+      "web": null,
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiY29kZSI6ImMwZGUifQ"
+    },
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "A \"q\" \\ \n😀 ",
+        "expires": 1800000000000
+      },
+      "web": null,
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoiQSBcInFcIiBcXCBcbvCfmIDigKgiLCJleHBpcmVzIjoxODAwMDAwMDAwMDAwfQ"
+    },
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      },
+      "web": "",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0"
+    },
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      },
+      "web": "https://auth.example/m/",
+      "text": "https://auth.example/m/#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0"
+    },
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      },
+      "web": "https://auth.example/m/#old",
+      "text": "https://auth.example/m/#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0"
+    },
+    {
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000,
+        "code": "c0de"
+      },
+      "web": "http://192.168.1.5:9080/m/?a=1#x#y",
+      "text": "http://192.168.1.5:9080/m/?a=1#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiY29kZSI6ImMwZGUifQ"
+    }
+  ],
+  "decode": [
+    {
+      "name": "app_link",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "with_code",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiY29kZSI6ImMwZGUifQ",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000,
+        "code": "c0de"
+      }
+    },
+    {
+      "name": "web_link",
+      "text": "https://auth.example/m/#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "http_web_link",
+      "text": "http://192.168.1.5:9080/m/?a=1#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiY29kZSI6ImMwZGUifQ",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000,
+        "code": "c0de"
+      }
+    },
+    {
+      "name": "surrounding_whitespace",
+      "text": "  \npixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0\t ",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "ideographic_space",
+      "text": "　pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0　",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "nel_not_trimmed",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "extra_field",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiZXh0cmEiOjF9",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000,
+        "extra": 1
+      }
+    },
+    {
+      "name": "bom_json",
+      "text": "pixelsky://pair?d=77u_eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "relay_ws",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzOi8vMTI3LjAuMC4xOjkwODAvdjEvYnJpZGdlL3dzIiwiZGVza3RvcCI6ImQtMSIsImtleSI6Illrc3VVaG1xVURqbUpoLTBCY0U0REJ0bVVvMmNUVVc0d2NhZ0YtaG1JUnciLCJzZWNyZXQiOiJGS0ZSQ3h5OVVQMzNXc29Ybkx6MmR3IiwibmFtZSI6IuaIkeeahOeUteiEkSIsImV4cGlyZXMiOjE4MDAwMDAwMDAwMDB9",
+      "offer": {
+        "v": 1,
+        "relay": "ws://127.0.0.1:9080/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "relay_prefix_only",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzOi8vIiwiZGVza3RvcCI6ImQtMSIsImtleSI6Illrc3VVaG1xVURqbUpoLTBCY0U0REJ0bVVvMmNUVVc0d2NhZ0YtaG1JUnciLCJzZWNyZXQiOiJGS0ZSQ3h5OVVQMzNXc29Ybkx6MmR3IiwibmFtZSI6IuaIkeeahOeUteiEkSIsImV4cGlyZXMiOjE4MDAwMDAwMDAwMDB9",
+      "offer": {
+        "v": 1,
+        "relay": "ws://",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "float_version",
+      "text": "pixelsky://pair?d=eyJ2IjoxLjAsInJlbGF5Ijoid3NzOi8vYXV0aC5leGFtcGxlL3YxL2JyaWRnZS93cyIsImRlc2t0b3AiOiJkLTEiLCJrZXkiOiJZa3N1VWhtcVVEam1KaC0wQmNFNERCdG1VbzJjVFVXNHdjYWdGLWhtSVJ3Iiwic2VjcmV0IjoiRktGUkN4eTlVUDMzV3NvWG5MejJkdyIsIm5hbWUiOiLmiJHnmoTnlLXohJEiLCJleHBpcmVzIjoxODAwMDAwMDAwMDAwfQ",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1800000000000
+      }
+    },
+    {
+      "name": "float_expires",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MS41fQ",
+      "offer": {
+        "v": 1,
+        "relay": "wss://auth.example/v1/bridge/ws",
+        "desktop": "d-1",
+        "key": "YksuUhmqUDjmJh-0BcE4DBtmUo2cTUW4wcagF-hmIRw",
+        "secret": "FKFRCxy9UP33WsoXnLz2dw",
+        "name": "我的电脑",
+        "expires": 1.5
+      }
+    },
+    {
+      "name": "plain_url",
+      "text": "https://example.com",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "other_fragment",
+      "text": "https://auth.example/m/#other=1",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "upper_case_scheme",
+      "text": "PIXELSKY://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "upper_case_https",
+      "text": "HTTPS://auth.example/m/#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "space_in_url",
+      "text": "https://auth example/m/#pair=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "empty_data",
+      "text": "pixelsky://pair?d=",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "bad_base64_length",
+      "text": "pixelsky://pair?d=A",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "padding",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0=",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "trailing_text",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0 x",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "bad_utf8",
+      "text": "pixelsky://pair?d=__4",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "not_json",
+      "text": "pixelsky://pair?d=e2JhZA",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "null",
+      "text": "pixelsky://pair?d=bnVsbA",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "number",
+      "text": "pixelsky://pair?d=MQ",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "array",
+      "text": "pixelsky://pair?d=W10",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "string",
+      "text": "pixelsky://pair?d=Ingi",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "true",
+      "text": "pixelsky://pair?d=dHJ1ZQ",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "empty_object",
+      "text": "pixelsky://pair?d=e30",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "version_2",
+      "text": "pixelsky://pair?d=eyJ2IjoyLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMH0",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "version_string",
+      "text": "pixelsky://pair?d=eyJ2IjoiMSIsInJlbGF5Ijoid3NzOi8vYXV0aC5leGFtcGxlL3YxL2JyaWRnZS93cyIsImRlc2t0b3AiOiJkLTEiLCJrZXkiOiJZa3N1VWhtcVVEam1KaC0wQmNFNERCdG1VbzJjVFVXNHdjYWdGLWhtSVJ3Iiwic2VjcmV0IjoiRktGUkN4eTlVUDMzV3NvWG5MejJkdyIsIm5hbWUiOiLmiJHnmoTnlLXohJEiLCJleHBpcmVzIjoxODAwMDAwMDAwMDAwfQ",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "relay_https",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6Imh0dHBzOi8vYXV0aC5leGFtcGxlIiwiZGVza3RvcCI6ImQtMSIsImtleSI6Illrc3VVaG1xVURqbUpoLTBCY0U0REJ0bVVvMmNUVVc0d2NhZ0YtaG1JUnciLCJzZWNyZXQiOiJGS0ZSQ3h5OVVQMzNXc29Ybkx6MmR3IiwibmFtZSI6IuaIkeeahOeUteiEkSIsImV4cGlyZXMiOjE4MDAwMDAwMDAwMDB9",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "missing_name",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJleHBpcmVzIjoxODAwMDAwMDAwMDAwfQ",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "name_number",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoxLCJleHBpcmVzIjoxODAwMDAwMDAwMDAwfQ",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "key_number",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoxLCJzZWNyZXQiOiJGS0ZSQ3h5OVVQMzNXc29Ybkx6MmR3IiwibmFtZSI6IuaIkeeahOeUteiEkSIsImV4cGlyZXMiOjE4MDAwMDAwMDAwMDB9",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "expires_string",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6IjE4MDAwMDAwMDAwMDAifQ",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "code_null",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiY29kZSI6bnVsbH0",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "name": "code_number",
+      "text": "pixelsky://pair?d=eyJ2IjoxLCJyZWxheSI6IndzczovL2F1dGguZXhhbXBsZS92MS9icmlkZ2Uvd3MiLCJkZXNrdG9wIjoiZC0xIiwia2V5IjoiWWtzdVVobXFVRGptSmgtMEJjRTREQnRtVW8yY1RVVzR3Y2FnRi1obUlSdyIsInNlY3JldCI6IkZLRlJDeHk5VVAzM1dzb1huTHoyZHciLCJuYW1lIjoi5oiR55qE55S16ISRIiwiZXhwaXJlcyI6MTgwMDAwMDAwMDAwMCwiY29kZSI6MX0",
+      "error": "LINK_BAD_OFFER"
+    }
+  ],
+  "pair_requests": [
+    {
+      "name": " 小米 14\u0007 ",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      }
+    },
+    {
+      "name": "iPhone",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "iPhone",
+        "mac": "N1iPuoK-HgBhzP4GqDggxNxiI6pIWQtT1ta-m5votuA"
+      }
+    },
+    {
+      "name": "",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "",
+        "mac": "Gp8nOmC-eVt8uV-ydtRcGNuNBflzMM5EvLxvincjyEI"
+      }
+    },
+    {
+      "name": "   ",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "",
+        "mac": "Gp8nOmC-eVt8uV-ydtRcGNuNBflzMM5EvLxvincjyEI"
+      }
+    },
+    {
+      "name": "a\u0000b\u001fcd",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "abcd",
+        "mac": "cobtfhSTrwMqUuupY7KcMyFMlyZv5B3ZosuhRFo8eHg"
+      }
+    },
+    {
+      "name": "　名字　",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "名字",
+        "mac": "uvTSL3A007nEcUtQuK02aiyp3R84z-LOgwZ4G_E6RQM"
+      }
+    },
+    {
+      "name": "NEL",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "NEL",
+        "mac": "IfiX9J325_oeCkyARungdeSUVOvZduKzFWjZzKn6O4g"
+      }
+    },
+    {
+      "name": "﻿BOM ",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "BOM",
+        "mac": "OsNJWTRWHyrqG37-rRlUMClAuB-4XRSTwFzMVNsfFiI"
+      }
+    },
+    {
+      "name": " 行 ",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "行",
+        "mac": "mfrXie2v97z3MLIRLc6bAfBtqN64evRlPV4-TBxKYIo"
+      }
+    },
+    {
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "mac": "JMICcJkjmMTAmnsdTafnAJ5iE4XefJtcrUdbpfFC3mg"
+      }
+    },
+    {
+      "name": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy😀z",
+      "request": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\ud83d",
+        "mac": "PO2CtuMeFW69RT2OJTnHARx3j7jOTOodk7XTXLYQ6K8"
+      }
+    }
+  ],
+  "verify": [
+    {
+      "name": "valid",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": {
+        "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+        "name": "小米 14"
+      }
+    },
+    {
+      "name": "other_secret",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "LojZAtUL3ybbKmslM9FY8A",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "name_changed",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "iPhone",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "key_changed",
+      "raw": {
+        "key": "HX-gP-JvM3eInEWcnJYmAiE0fRePzf7pDYW6bgFFnCs",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "other_desktop",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "90e9f7500b347911e83cac07df623cf8fb05956f123cb5a5de78d178f7995167",
+      "result": null
+    },
+    {
+      "name": "mac_of_other_request",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "jsDif5Y5JOB6ux2NoVL4dRoXLMMopHButJ2y_FrIGBY"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "mac_truncated",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_P"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "key_not_string",
+      "raw": {
+        "key": 1
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "null",
+      "raw": null,
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "array",
+      "raw": [],
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "string",
+      "raw": "text",
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "untrimmed_name",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": " 小米 14 ",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "missing_name",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "mac": "Gp8nOmC-eVt8uV-ydtRcGNuNBflzMM5EvLxvincjyEI"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "empty_name",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "",
+        "mac": "Gp8nOmC-eVt8uV-ydtRcGNuNBflzMM5EvLxvincjyEI"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": {
+        "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+        "name": ""
+      }
+    },
+    {
+      "name": "short_key",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWA",
+        "name": "x",
+        "mac": "S6wJ3F2-umb7pU3lNFeRteuckwrE6TgESrNzlvfrHPY"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "bad_mac_encoding",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "a+b"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "bad_secret_encoding",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo"
+      },
+      "secret": "a+b",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "name_64",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+        "mac": "SWL0y0wNNfWmpxCRho6GHIWDPWjN6tOniSFZHJMwgbo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": {
+        "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+      }
+    },
+    {
+      "name": "name_65",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+        "mac": "SWL0y0wNNfWmpxCRho6GHIWDPWjN6tOniSFZHJMwgbo"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": null
+    },
+    {
+      "name": "lone_surrogate_name",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\ud83d",
+        "mac": "PO2CtuMeFW69RT2OJTnHARx3j7jOTOodk7XTXLYQ6K8"
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": {
+        "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+        "name": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\ud83d"
+      }
+    },
+    {
+      "name": "extra_fields",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "小米 14",
+        "mac": "ifd4DkCJ_RIndWkVIw_PqH6EOjTeRr2TKGkXMO1Gtvo",
+        "extra": true
+      },
+      "secret": "FKFRCxy9UP33WsoXnLz2dw",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": {
+        "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+        "name": "小米 14"
+      }
+    },
+    {
+      "name": "empty_secret",
+      "raw": {
+        "key": "JtW2tAiVCwF2wXtwWfUllVpGTxnghcMjcIKNwdWTWDk",
+        "name": "x",
+        "mac": "veWENd8GHAQbt08U7UGMS0YNxtKSYDCdEtnfs1sA4iw"
+      },
+      "secret": "",
+      "desktop_public": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "result": {
+        "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+        "name": "x"
+      }
+    }
+  ],
+  "fingerprints": [
+    {
+      "public_key": "624b2e5219aa5038e6261fb405c1380c1b66528d9c4d45b8c1c6a017e866211c",
+      "fingerprint": "D316·C86C·7D42·5171"
+    },
+    {
+      "public_key": "26d5b6b408950b0176c17b7059f525955a464f19e085c32370828dc1d5935839",
+      "fingerprint": "BDC4·7E2D·3DF0·9951"
+    },
+    {
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fingerprint": "6668·7AAD·F862·BD77"
+    },
+    {
+      "public_key": "",
+      "fingerprint": "E3B0·C442·98FC·1C14"
+    }
+  ],
+  "bridge_api_base": [
+    {
+      "relay": "wss://auth.example/v1/bridge/ws",
+      "base": "https://auth.example"
+    },
+    {
+      "relay": "ws://127.0.0.1:9080/v1/bridge/ws",
+      "base": "http://127.0.0.1:9080"
+    },
+    {
+      "relay": "wss://h?x=1",
+      "base": "https://h"
+    },
+    {
+      "relay": "wss://h#f",
+      "base": "https://h"
+    },
+    {
+      "relay": "wss://user@h:1/x",
+      "base": "https://user@h:1"
+    },
+    {
+      "relay": "https://auth.example",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "relay": "wss://",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "relay": "wss:///path",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "relay": "WSS://h",
+      "error": "LINK_BAD_OFFER"
+    },
+    {
+      "relay": " wss://h",
+      "error": "LINK_BAD_OFFER"
+    }
+  ]
+}

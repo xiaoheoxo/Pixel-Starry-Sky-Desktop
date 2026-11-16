@@ -1,0 +1,610 @@
+{
+  "generated_by": "由 packages/link/test/app-fixtures.test.ts 生成（node scripts/export-app-fixtures.mjs），不要手改",
+  "constants": {
+    "size_limit": "RPC_SIZE_LIMIT",
+    "closed_error": "LINK_CLOSED",
+    "timeout_error": "RPC_TIMEOUT: x",
+    "reply_limit": 100
+  },
+  "outgoing": [
+    {
+      "call": "hello",
+      "args": [
+        {
+          "client": "app",
+          "version": "0.1.0"
+        }
+      ],
+      "message": {
+        "id": 1,
+        "method": "hello",
+        "args": [
+          {
+            "client": "app",
+            "version": "0.1.0"
+          }
+        ]
+      }
+    },
+    {
+      "event": "away",
+      "data": true,
+      "message": {
+        "event": "away",
+        "data": true
+      }
+    },
+    {
+      "call": "engine:sessions",
+      "args": [],
+      "message": {
+        "id": 2,
+        "method": "engine:sessions",
+        "args": []
+      }
+    },
+    {
+      "call": "engine:open",
+      "args": [
+        "s-1",
+        {
+          "limit": 50
+        }
+      ],
+      "message": {
+        "id": 3,
+        "method": "engine:open",
+        "args": [
+          "s-1",
+          {
+            "limit": 50
+          }
+        ]
+      }
+    },
+    {
+      "event": "engine:event",
+      "data": {
+        "kind": "x",
+        "n": 1
+      },
+      "message": {
+        "event": "engine:event",
+        "data": {
+          "kind": "x",
+          "n": 1
+        }
+      }
+    }
+  ],
+  "handled": [
+    {
+      "request": {
+        "id": 7,
+        "method": "echo",
+        "args": [
+          1,
+          "中文"
+        ]
+      },
+      "handler": {
+        "result": [
+          1,
+          "中文"
+        ]
+      },
+      "replies": [
+        {
+          "id": 7,
+          "result": [
+            1,
+            "中文"
+          ]
+        }
+      ]
+    },
+    {
+      "request": {
+        "id": 8,
+        "method": "deny",
+        "args": []
+      },
+      "handler": {
+        "throw": "MOBILE_NOT_ALLOWED"
+      },
+      "replies": [
+        {
+          "id": 8,
+          "error": "MOBILE_NOT_ALLOWED"
+        }
+      ]
+    },
+    {
+      "request": {
+        "id": 9,
+        "method": "nothing",
+        "args": []
+      },
+      "handler": {
+        "result": null
+      },
+      "replies": [
+        {
+          "id": 9,
+          "result": null
+        }
+      ]
+    },
+    {
+      "request": {
+        "id": 10,
+        "method": "big",
+        "args": []
+      },
+      "handler": {
+        "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "replies": [
+        {
+          "id": 10,
+          "error": "RPC_SIZE_LIMIT"
+        }
+      ]
+    },
+    {
+      "request": {
+        "id": 11,
+        "method": "nested",
+        "args": [
+          {
+            "a": [
+              1
+            ]
+          }
+        ]
+      },
+      "handler": {
+        "result": {
+          "ok": true,
+          "list": [
+            {}
+          ]
+        }
+      },
+      "replies": [
+        {
+          "id": 11,
+          "result": {
+            "ok": true,
+            "list": [
+              {}
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "incoming": [
+    {
+      "name": "result",
+      "raw": {
+        "id": 1,
+        "result": {
+          "sessions": []
+        }
+      },
+      "call": {
+        "resolved": {
+          "sessions": []
+        }
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "error",
+      "raw": {
+        "id": 1,
+        "error": "MOBILE_NOT_ALLOWED"
+      },
+      "call": {
+        "rejected": "MOBILE_NOT_ALLOWED"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "empty_error_is_success",
+      "raw": {
+        "id": 1,
+        "error": "",
+        "result": 5
+      },
+      "call": {
+        "resolved": 5
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "zero_error_is_success",
+      "raw": {
+        "id": 1,
+        "error": 0,
+        "result": 5
+      },
+      "call": {
+        "resolved": 5
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "false_error_is_success",
+      "raw": {
+        "id": 1,
+        "error": false
+      },
+      "call": {
+        "resolved": null
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "null_error_is_success",
+      "raw": {
+        "id": 1,
+        "error": null,
+        "result": "r"
+      },
+      "call": {
+        "resolved": "r"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "number_error",
+      "raw": {
+        "id": 1,
+        "error": 404
+      },
+      "call": {
+        "rejected": "404"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "float_error",
+      "raw": {
+        "id": 1,
+        "error": 1.5
+      },
+      "call": {
+        "rejected": "1.5"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "true_error",
+      "raw": {
+        "id": 1,
+        "error": true
+      },
+      "call": {
+        "rejected": "true"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "object_error",
+      "raw": {
+        "id": 1,
+        "error": {
+          "code": 1
+        }
+      },
+      "call": {
+        "rejected": "[object Object]"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "array_error",
+      "raw": {
+        "id": 1,
+        "error": [
+          "a",
+          null,
+          2
+        ]
+      },
+      "call": {
+        "rejected": "a,,2"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "empty_array_error",
+      "raw": {
+        "id": 1,
+        "error": []
+      },
+      "call": {
+        "rejected": ""
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "missing_result",
+      "raw": {
+        "id": 1
+      },
+      "call": {
+        "resolved": null
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "unknown_id",
+      "raw": {
+        "id": 2,
+        "result": 1
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "negative_id",
+      "raw": {
+        "id": -1,
+        "result": 1
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "string_id",
+      "raw": {
+        "id": "1",
+        "result": 1
+      },
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "fractional_id",
+      "raw": {
+        "id": 1.5,
+        "result": 1
+      },
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "unsafe_id",
+      "raw": {
+        "id": 9007199254740992,
+        "result": 1
+      },
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "max_safe_id",
+      "raw": {
+        "id": 9007199254740991,
+        "result": 1
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "event",
+      "raw": {
+        "event": "engine:event",
+        "data": {
+          "kind": "sessions"
+        }
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [
+        [
+          "engine:event",
+          {
+            "kind": "sessions"
+          }
+        ]
+      ],
+      "replies": []
+    },
+    {
+      "name": "event_without_data",
+      "raw": {
+        "event": "away"
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [
+        [
+          "away",
+          null
+        ]
+      ],
+      "replies": []
+    },
+    {
+      "name": "event_wins_over_id",
+      "raw": {
+        "id": 1,
+        "event": "e",
+        "data": 1,
+        "result": 2
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [
+        [
+          "e",
+          1
+        ]
+      ],
+      "replies": []
+    },
+    {
+      "name": "non_string_event",
+      "raw": {
+        "event": 1,
+        "data": 1
+      },
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "null",
+      "raw": null,
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "array",
+      "raw": [],
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "string",
+      "raw": "text",
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "number",
+      "raw": 5,
+      "call": {
+        "rejected": "Invalid RPC id"
+      },
+      "closed": "Invalid RPC id",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "call",
+      "raw": {
+        "id": 3,
+        "method": "engine:list",
+        "args": [
+          1
+        ]
+      },
+      "call": "pending",
+      "closed": null,
+      "events": [],
+      "replies": [
+        {
+          "id": 3,
+          "error": "Unknown RPC method"
+        }
+      ]
+    },
+    {
+      "name": "call_without_args",
+      "raw": {
+        "id": 3,
+        "method": "x"
+      },
+      "call": {
+        "rejected": "Invalid RPC arguments"
+      },
+      "closed": "Invalid RPC arguments",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "call_with_object_args",
+      "raw": {
+        "id": 3,
+        "method": "x",
+        "args": {
+          "a": 1
+        }
+      },
+      "call": {
+        "rejected": "Invalid RPC arguments"
+      },
+      "closed": "Invalid RPC arguments",
+      "events": [],
+      "replies": []
+    },
+    {
+      "name": "non_string_method_is_reply",
+      "raw": {
+        "id": 1,
+        "method": 5,
+        "result": "r"
+      },
+      "call": {
+        "resolved": "r"
+      },
+      "closed": null,
+      "events": [],
+      "replies": []
+    }
+  ]
+}

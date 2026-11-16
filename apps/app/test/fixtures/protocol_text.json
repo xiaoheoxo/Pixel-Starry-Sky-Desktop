@@ -1,0 +1,296 @@
+{
+ "generatedBy": "由 packages/protocol/test/app-fixtures.test.ts 生成（node scripts/export-app-fixtures.mjs），不要手改",
+ "errors": [
+  {
+   "input": "",
+   "parsed": null,
+   "replaced": ""
+  },
+  {
+   "input": "普通错误",
+   "parsed": null,
+   "replaced": "普通错误"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"files.exists\"}",
+   "parsed": {
+    "code": "files.exists",
+    "params": {}
+   },
+   "replaced": "[files.exists|{}]"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"files.exists\",\"params\":{\"path\":\"a.ts\"}}",
+   "parsed": {
+    "code": "files.exists",
+    "params": {
+     "path": "a.ts"
+    }
+   },
+   "replaced": "[files.exists|{\"path\":\"a.ts\"}]"
+  },
+  {
+   "input": "启动失败：PIXELSKY_ERR:{\"code\":\"engine.spawn\",\"params\":{\"code\":2}}",
+   "parsed": null,
+   "replaced": "启动失败：[engine.spawn|{\"code\":2}]"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"a\"}，然后 PIXELSKY_ERR:{\"code\":\"b\",\"params\":{\"n\":1}}。",
+   "parsed": null,
+   "replaced": "[a|{}]，然后 [b|{\"n\":1}]。"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"files.missing\",\"params\":{\"path\":\"src/{id}.ts\"}} 之后",
+   "parsed": null,
+   "replaced": "[files.missing|{\"path\":\"src/{id}.ts\"}] 之后"
+  },
+  {
+   "input": "PIXELSKY_ERR:{坏的 JSON}",
+   "parsed": null,
+   "replaced": "PIXELSKY_ERR:{坏的 JSON}"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"\"}",
+   "parsed": null,
+   "replaced": "PIXELSKY_ERR:{\"code\":\"\"}"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"x\",\"params\":[1,2]}",
+   "parsed": {
+    "code": "x",
+    "params": {}
+   },
+   "replaced": "[x|{}]"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"x\",\"params\":{\"a\":true,\"b\":\"s\",\"c\":1.5}}",
+   "parsed": {
+    "code": "x",
+    "params": {
+     "b": "s",
+     "c": 1.5
+    }
+   },
+   "replaced": "[x|{\"b\":\"s\",\"c\":1.5}]"
+  },
+  {
+   "input": "PIXELSKY_ERR:not json",
+   "parsed": null,
+   "replaced": "PIXELSKY_ERR:not json"
+  },
+  {
+   "input": "  PIXELSKY_ERR:{\"code\":\"trim.me\"}  ",
+   "parsed": {
+    "code": "trim.me",
+    "params": {}
+   },
+   "replaced": "  [trim.me|{}]  "
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"a\"}x",
+   "parsed": null,
+   "replaced": "PIXELSKY_ERR:{\"code\":\"a\"}x"
+  },
+  {
+   "input": "前缀\nPIXELSKY_ERR:{\"code\":\"next.line\"}\n后缀",
+   "parsed": null,
+   "replaced": "前缀\n[next.line|{}]\n后缀"
+  },
+  {
+   "input": "PIXELSKY_ERR:{\"code\":\"x\"",
+   "parsed": null,
+   "replaced": "PIXELSKY_ERR:{\"code\":\"x\""
+  }
+ ],
+ "codex": [
+  {
+   "input": "没有标记",
+   "output": "没有标记"
+  },
+  {
+   "input": "看 :codex-file-citation{path=\"src/a.ts\" purpose=\"output\"} 这个文件",
+   "output": "看 [[src/a.ts|{\"path\":\"src/a.ts\",\"purpose\":\"output\"}]] 这个文件"
+  },
+  {
+   "input": ":codex-file-citation{path=\"C:\\work\\b.ts\"}",
+   "output": "[[C:\\work\\b.ts|{\"path\":\"C:\\\\work\\\\b.ts\"}]]"
+  },
+  {
+   "input": "::codex-file-citation{path=x.ts}",
+   "output": "[[x.ts|{\"path\":\"x.ts\"}]]"
+  },
+  {
+   "input": ":::codex-file-citation{path=\"y.ts\"}",
+   "output": "[[y.ts|{\"path\":\"y.ts\"}]]"
+  },
+  {
+   "input": "::::codex-file-citation{path=\"z.ts\"}",
+   "output": "::::codex-file-citation{path=\"z.ts\"}"
+  },
+  {
+   "input": "\\:codex-file-citation{path=\"esc.ts\"}",
+   "output": "\\:codex-file-citation{path=\"esc.ts\"}"
+  },
+  {
+   "input": "\\\\:codex-file-citation{path=\"esc2.ts\"}",
+   "output": "\\\\[[esc2.ts|{\"path\":\"esc2.ts\"}]]"
+  },
+  {
+   "input": ":codex-followup[运行测试]{id=\"1\"}",
+   "output": "运行测试"
+  },
+  {
+   "input": "::codex-followup[两个冒号]{id=\"1\"}",
+   "output": "::codex-followup[两个冒号]{id=\"1\"}"
+  },
+  {
+   "input": ":codex-followup[  ]{id=\"1\"}",
+   "output": ":codex-followup[  ]{id=\"1\"}"
+  },
+  {
+   "input": ":codex-followup[嵌套 [括号] 文字]{a=b}",
+   "output": "嵌套 [括号] 文字"
+  },
+  {
+   "input": ":codex-followup[跨\n行]{a=b}",
+   "output": ":codex-followup[跨\n行]{a=b}"
+  },
+  {
+   "input": ":codex-followup[转义 \\] 括号]{q=\"带 \\\" 引号\"}",
+   "output": "转义 \\] 括号"
+  },
+  {
+   "input": ":codex-file-citation[不该有]{path=\"a\"}",
+   "output": ":codex-file-citation[不该有]{path=\"a\"}"
+  },
+  {
+   "input": ":codex-file-citation{purpose=\"no-path\"}",
+   "output": ":codex-file-citation{purpose=\"no-path\"}"
+  },
+  {
+   "input": ":codex-file-citation{path=\"a\" path=\"b\"}",
+   "output": ":codex-file-citation{path=\"a\" path=\"b\"}"
+  },
+  {
+   "input": ":codex-file-citation{path=\"未闭合}",
+   "output": ":codex-file-citation{path=\"未闭合}"
+  },
+  {
+   "input": ":codex-file-citation{path='单引号.ts'}",
+   "output": "[[单引号.ts|{\"path\":\"单引号.ts\"}]]"
+  },
+  {
+   "input": ":codex-file-citation{ path = \"空格.ts\" }",
+   "output": "[[空格.ts|{\"path\":\"空格.ts\"}]]"
+  },
+  {
+   "input": ":codex-file-citation{path=\"a\"\n}",
+   "output": ":codex-file-citation{path=\"a\"\n}"
+  },
+  {
+   "input": "```\n:codex-file-citation{path=\"代码块里.ts\"}\n```\n外面 :codex-file-citation{path=\"外面.ts\"}",
+   "output": "```\n:codex-file-citation{path=\"代码块里.ts\"}\n```\n外面 [[外面.ts|{\"path\":\"外面.ts\"}]]"
+  },
+  {
+   "input": "行内 `:codex-file-citation{path=\"行内.ts\"}` 和 :codex-file-citation{path=\"真的.ts\"}",
+   "output": "行内 `:codex-file-citation{path=\"行内.ts\"}` 和 [[真的.ts|{\"path\":\"真的.ts\"}]]"
+  },
+  {
+   "input": "没配对的 ``` 在行中间 :codex-file-citation{path=\"仍然替换.ts\"}",
+   "output": "没配对的 ``` 在行中间 [[仍然替换.ts|{\"path\":\"仍然替换.ts\"}]]"
+  },
+  {
+   "input": "~~~\n:codex-followup[不换]{a=b}\n~~~",
+   "output": "~~~\n:codex-followup[不换]{a=b}\n~~~"
+  },
+  {
+   "input": "a:codex-file-citation{path=\"紧跟字母.ts\"}",
+   "output": "a[[紧跟字母.ts|{\"path\":\"紧跟字母.ts\"}]]"
+  },
+  {
+   "input": ":codex-file-citation{path=\"a.ts\"}:codex-file-citation{path=\"b.ts\"}",
+   "output": "[[a.ts|{\"path\":\"a.ts\"}]][[b.ts|{\"path\":\"b.ts\"}]]"
+  },
+  {
+   "input": ":codex-followup[x]",
+   "output": ":codex-followup[x]"
+  },
+  {
+   "input": ":codex-file-citation",
+   "output": ":codex-file-citation"
+  },
+  {
+   "input": ":codex-file-citation{path=\"\"}",
+   "output": ":codex-file-citation{path=\"\"}"
+  }
+ ],
+ "citations": [
+  {
+   "path": "a.ts",
+   "name": "a.ts"
+  },
+  {
+   "path": "src/a.ts",
+   "name": "a.ts"
+  },
+  {
+   "path": "C:\\work\\b.ts",
+   "name": "b.ts"
+  },
+  {
+   "path": "dir/",
+   "name": "dir"
+  },
+  {
+   "path": "/",
+   "name": "/"
+  },
+  {
+   "path": "",
+   "name": ""
+  },
+  {
+   "path": "a\\b/c",
+   "name": "c"
+  }
+ ],
+ "diffs": [
+  {
+   "changes": [],
+   "stat": {
+    "added": 0,
+    "removed": 0
+   }
+  },
+  {
+   "changes": [
+    {
+     "path": "a.ts",
+     "kind": "delete",
+     "diff": "@@ -1 +1 @@\n-a\n+b",
+     "added": 13,
+     "removed": 5
+    }
+   ],
+   "stat": {
+    "added": 13,
+    "removed": 5
+   }
+  },
+  {
+   "changes": [
+    {
+     "path": "a.ts",
+     "kind": "add",
+     "diff": "@@ -1 +1 @@\n-a\n+b",
+     "added": 13,
+     "removed": 5
+    }
+   ],
+   "stat": {
+    "added": 13,
+    "removed": 5
+   }
+  }
+ ]
+}

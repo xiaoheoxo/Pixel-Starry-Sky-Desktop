@@ -1,0 +1,323 @@
+{
+  "generated_by": "由 packages/link/test/app-fixtures.test.ts 生成（node scripts/export-app-fixtures.mjs），不要手改",
+  "base64url": [
+    {
+      "hex": "",
+      "text": ""
+    },
+    {
+      "hex": "01",
+      "text": "AQ"
+    },
+    {
+      "hex": "0227",
+      "text": "Aic"
+    },
+    {
+      "hex": "03284d",
+      "text": "AyhN"
+    },
+    {
+      "hex": "04294e73",
+      "text": "BClOcw"
+    },
+    {
+      "hex": "052a4f7499",
+      "text": "BSpPdJk"
+    },
+    {
+      "hex": "062b50759abf",
+      "text": "BitQdZq_"
+    },
+    {
+      "hex": "072c51769bc0e5",
+      "text": "ByxRdpvA5Q"
+    },
+    {
+      "hex": "082d52779cc1e60b",
+      "text": "CC1Sd5zB5gs"
+    },
+    {
+      "hex": "092e53789dc2e70c31",
+      "text": "CS5TeJ3C5wwx"
+    },
+    {
+      "hex": "0a2f54799ec3e80d3257",
+      "text": "Ci9UeZ7D6A0yVw"
+    },
+    {
+      "hex": "0b30557a9fc4e90e33587d",
+      "text": "CzBVep_E6Q4zWH0"
+    },
+    {
+      "hex": "0c31567ba0c5ea0f34597ea3",
+      "text": "DDFWe6DF6g80WX6j"
+    },
+    {
+      "hex": "0d32577ca1c6eb10355a7fa4c9",
+      "text": "DTJXfKHG6xA1Wn-kyQ"
+    },
+    {
+      "hex": "0e33587da2c7ec11365b80a5caef",
+      "text": "DjNYfaLH7BE2W4Clyu8"
+    },
+    {
+      "hex": "0f34597ea3c8ed12375c81a6cbf015",
+      "text": "DzRZfqPI7RI3XIGmy_AV"
+    },
+    {
+      "hex": "10355a7fa4c9ee13385d82a7ccf1163b",
+      "text": "EDVaf6TJ7hM4XYKnzPEWOw"
+    },
+    {
+      "hex": "11365b80a5caef14395e83a8cdf2173c61",
+      "text": "ETZbgKXK7xQ5XoOozfIXPGE"
+    },
+    {
+      "hex": "12375c81a6cbf0153a5f84a9cef3183d6287",
+      "text": "EjdcgabL8BU6X4SpzvMYPWKH"
+    },
+    {
+      "hex": "13385d82a7ccf1163b6085aacff4193e6388ad",
+      "text": "EzhdgqfM8RY7YIWqz_QZPmOIrQ"
+    },
+    {
+      "hex": "14395e83a8cdf2173c6186abd0f51a3f6489aed3",
+      "text": "FDleg6jN8hc8YYar0PUaP2SJrtM"
+    },
+    {
+      "hex": "153a5f84a9cef3183d6287acd1f61b40658aafd4f9",
+      "text": "FTpfhKnO8xg9Yoes0fYbQGWKr9T5"
+    },
+    {
+      "hex": "163b6085aacff4193e6388add2f71c41668bb0d5fa1f",
+      "text": "FjtgharP9Bk-Y4it0vccQWaLsNX6Hw"
+    },
+    {
+      "hex": "173c6186abd0f51a3f6489aed3f81d42678cb1d6fb2045",
+      "text": "FzxhhqvQ9Ro_ZImu0_gdQmeMsdb7IEU"
+    },
+    {
+      "hex": "183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b",
+      "text": "GD1ih6zR9htAZYqv1PkeQ2iNstf8IUZr"
+    },
+    {
+      "hex": "193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91",
+      "text": "GT5jiK3S9xxBZouw1fofRGmOs9j9IkdskQ"
+    },
+    {
+      "hex": "1a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7",
+      "text": "Gj9kia7T-B1CZ4yx1vsgRWqPtNn-I0htkrc"
+    },
+    {
+      "hex": "1b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd",
+      "text": "G0Bliq_U-R5DaI2y1_whRmuQtdr_JEluk7jd"
+    },
+    {
+      "hex": "1c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03",
+      "text": "HEFmi7DV-h9EaY6z2P0iR2yRttsAJUpvlLneAw"
+    },
+    {
+      "hex": "1d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf0429",
+      "text": "HUJnjLHW-yBFao-02f4jSG2St9wBJktwlbrfBCk"
+    },
+    {
+      "hex": "1e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f",
+      "text": "HkNojbLX_CFGa5C12v8kSW6TuN0CJ0xxlrvgBSpP"
+    },
+    {
+      "hex": "1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b5075",
+      "text": "H0RpjrPY_SJHbJG22wAlSm-Uud4DKE1yl7zhBitQdQ"
+    },
+    {
+      "hex": "20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769b",
+      "text": "IEVqj7TZ_iNIbZK33AEmS3CVut8EKU5zmL3iByxRdps"
+    },
+    {
+      "hex": "21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1",
+      "text": "IUZrkLXa_yRJbpO43QInTHGWu-AFKk90mb7jCC1Sd5zB"
+    },
+    {
+      "hex": "22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e7",
+      "text": "IkdskbbbACVKb5S53gMoTXKXvOEGK1B1mr_kCS5TeJ3C5w"
+    },
+    {
+      "hex": "23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d",
+      "text": "I0htkrfcASZLcJW63wQpTnOYveIHLFF2m8DlCi9UeZ7D6A0"
+    },
+    {
+      "hex": "24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33",
+      "text": "JEluk7jdAidMcZa74AUqT3SZvuMILVJ3nMHmCzBVep_E6Q4z"
+    },
+    {
+      "hex": "254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f3459",
+      "text": "JUpvlLneAyhNcpe84QYrUHWav-QJLlN4ncLnDDFWe6DF6g80WQ"
+    },
+    {
+      "hex": "264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7f",
+      "text": "JktwlbrfBClOc5i94gcsUXabwOUKL1R5nsPoDTJXfKHG6xA1Wn8"
+    },
+    {
+      "hex": "274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5",
+      "text": "J0xxlrvgBSpPdJm-4wgtUnecweYLMFV6n8TpDjNYfaLH7BE2W4Cl"
+    },
+    {
+      "hex": "284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cb",
+      "text": "KE1yl7zhBitQdZq_5AkuU3idwucMMVZ7oMXqDzRZfqPI7RI3XIGmyw"
+    }
+  ],
+  "base64url_decode": [
+    {
+      "text": "",
+      "hex": ""
+    },
+    {
+      "text": "AA",
+      "hex": "00"
+    },
+    {
+      "text": "AB",
+      "hex": "00"
+    },
+    {
+      "text": "AP",
+      "hex": "00"
+    },
+    {
+      "text": "AAA",
+      "hex": "0000"
+    },
+    {
+      "text": "AAB",
+      "hex": "0000"
+    },
+    {
+      "text": "_-8",
+      "hex": "ffef"
+    },
+    {
+      "text": "A",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": "AAAAA",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": "a+b=",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": "ab=",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": "AA==",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": " ab",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": "ab\n",
+      "error": "LINK_BAD_ENCODING"
+    },
+    {
+      "text": "é",
+      "error": "LINK_BAD_ENCODING"
+    }
+  ],
+  "utf8_decode": [
+    {
+      "hex": "",
+      "text": ""
+    },
+    {
+      "hex": "41",
+      "text": "A"
+    },
+    {
+      "hex": "e4b8ade69687",
+      "text": "中文"
+    },
+    {
+      "hex": "f09f9880",
+      "text": "😀"
+    },
+    {
+      "hex": "efbbbf41",
+      "text": "A"
+    },
+    {
+      "hex": "efbbbfefbbbf41",
+      "text": "﻿A"
+    },
+    {
+      "hex": "41efbbbf",
+      "text": "A﻿"
+    },
+    {
+      "hex": "ff",
+      "invalid": true
+    },
+    {
+      "hex": "80",
+      "invalid": true
+    },
+    {
+      "hex": "c3",
+      "invalid": true
+    },
+    {
+      "hex": "c0af",
+      "invalid": true
+    },
+    {
+      "hex": "e4b8",
+      "invalid": true
+    },
+    {
+      "hex": "eda080",
+      "invalid": true
+    },
+    {
+      "hex": "f4908080",
+      "invalid": true
+    }
+  ],
+  "utf8_encode": [
+    {
+      "text": "",
+      "hex": ""
+    },
+    {
+      "text": "abc",
+      "hex": "616263"
+    },
+    {
+      "text": "中文",
+      "hex": "e4b8ade69687"
+    },
+    {
+      "text": "😀",
+      "hex": "f09f9880"
+    },
+    {
+      "text": "a\ud83d",
+      "hex": "61efbfbd"
+    },
+    {
+      "text": "\udc00b",
+      "hex": "efbfbd62"
+    },
+    {
+      "text": "\u0000",
+      "hex": "00"
+    },
+    {
+      "text": "﻿",
+      "hex": "efbbbf"
+    }
+  ]
+}

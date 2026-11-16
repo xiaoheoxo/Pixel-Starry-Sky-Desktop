@@ -1,0 +1,306 @@
+{
+  "generated_by": "由 packages/link/test/app-fixtures.test.ts 生成（node scripts/export-app-fixtures.mjs），不要手改",
+  "constants": {
+    "max_frame": 1048576,
+    "max_payload": 1047552,
+    "types": {
+      "Handshake1": 1,
+      "Handshake2": 2,
+      "Data": 3,
+      "Pair": 4,
+      "PairResult": 5
+    }
+  },
+  "encode": [
+    {
+      "type": 1,
+      "body": "",
+      "frame": "01"
+    },
+    {
+      "type": 1,
+      "body": "616263",
+      "frame": "01616263"
+    },
+    {
+      "type": 1,
+      "body": "00ff",
+      "frame": "0100ff"
+    },
+    {
+      "type": 2,
+      "body": "",
+      "frame": "02"
+    },
+    {
+      "type": 2,
+      "body": "616263",
+      "frame": "02616263"
+    },
+    {
+      "type": 2,
+      "body": "00ff",
+      "frame": "0200ff"
+    },
+    {
+      "type": 3,
+      "body": "",
+      "frame": "03"
+    },
+    {
+      "type": 3,
+      "body": "616263",
+      "frame": "03616263"
+    },
+    {
+      "type": 3,
+      "body": "00ff",
+      "frame": "0300ff"
+    },
+    {
+      "type": 4,
+      "body": "",
+      "frame": "04"
+    },
+    {
+      "type": 4,
+      "body": "616263",
+      "frame": "04616263"
+    },
+    {
+      "type": 4,
+      "body": "00ff",
+      "frame": "0400ff"
+    },
+    {
+      "type": 5,
+      "body": "",
+      "frame": "05"
+    },
+    {
+      "type": 5,
+      "body": "616263",
+      "frame": "05616263"
+    },
+    {
+      "type": 5,
+      "body": "00ff",
+      "frame": "0500ff"
+    }
+  ],
+  "encode_large": [
+    {
+      "length": 1048575
+    },
+    {
+      "length": 1048576,
+      "error": "LINK_FRAME_TOO_LARGE"
+    }
+  ],
+  "decode": [
+    {
+      "frame": "01",
+      "type": 1,
+      "body": ""
+    },
+    {
+      "frame": "03616263",
+      "type": 3,
+      "body": "616263"
+    },
+    {
+      "frame": "0500ff",
+      "type": 5,
+      "body": "00ff"
+    },
+    {
+      "frame": "00",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "frame": "06",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "frame": "07",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "frame": "ff",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "frame": "",
+      "error": "LINK_BAD_FRAME"
+    }
+  ],
+  "decode_large": [
+    {
+      "length": 1048576
+    },
+    {
+      "length": 1048577,
+      "error": "LINK_BAD_FRAME"
+    }
+  ],
+  "json_decode": [
+    {
+      "hex": "7b7d",
+      "value": {}
+    },
+    {
+      "hex": "207b2261223a5b312c322c7b2262223a6e756c6c7d5d7d20",
+      "value": {
+        "a": [
+          1,
+          2,
+          {
+            "b": null
+          }
+        ]
+      }
+    },
+    {
+      "hex": "6e756c6c",
+      "value": null
+    },
+    {
+      "hex": "227822",
+      "value": "x"
+    },
+    {
+      "hex": "312e35",
+      "value": 1.5
+    },
+    {
+      "hex": "2d33",
+      "value": -3
+    },
+    {
+      "hex": "2d30",
+      "value": 0
+    },
+    {
+      "hex": "7b2261223a312c2261223a327d",
+      "value": {
+        "a": 2
+      }
+    },
+    {
+      "hex": "225c756438336422",
+      "value": "\ud83d"
+    },
+    {
+      "hex": "225c75346532645c6e22",
+      "value": "中\n"
+    },
+    {
+      "hex": "5b312c5d",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "7b626164",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "756e646566696e6564",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "277827",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "4e614e",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "3031",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "312e",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "2e35",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "220922",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "7b2261223a317d78",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "c2a07b7d",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "efbbbf7b2278223a317d",
+      "value": {
+        "x": 1
+      }
+    },
+    {
+      "hex": "efbbbfefbbbf7b7d",
+      "error": "LINK_BAD_FRAME"
+    },
+    {
+      "hex": "ff",
+      "error": "LINK_BAD_FRAME"
+    }
+  ],
+  "json_encode": [
+    {
+      "value": {
+        "n": 1
+      },
+      "hex": "7b226e223a317d"
+    },
+    {
+      "value": "中文😀",
+      "hex": "22e4b8ade69687f09f988022"
+    },
+    {
+      "value": "a\"b\\c\n\t\u0001\u001f /",
+      "hex": "22615c22625c5c635c6e5c745c75303030315c75303031667fe280a82f22"
+    },
+    {
+      "value": "x\ud83dy",
+      "hex": "22785c75643833647922"
+    },
+    {
+      "value": [
+        1,
+        -2,
+        1.5,
+        0.1,
+        1e+21,
+        123456789,
+        true,
+        false,
+        null
+      ],
+      "hex": "5b312c2d322c312e352c302e312c31652b32312c3132333435363738392c747275652c66616c73652c6e756c6c5d"
+    },
+    {
+      "value": {
+        "nested": {
+          "k": [
+            "x",
+            {}
+          ]
+        },
+        "empty": []
+      },
+      "hex": "7b226e6573746564223a7b226b223a5b2278222c7b7d5d7d2c22656d707479223a5b5d7d"
+    }
+  ]
+}

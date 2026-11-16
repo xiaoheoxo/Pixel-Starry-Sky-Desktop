@@ -1,0 +1,196 @@
+{
+ "generatedBy": "由 packages/protocol/test/app-fixtures.test.ts 生成（node scripts/export-app-fixtures.mjs），不要手改",
+ "chatProjectId": "chat",
+ "errorPrefix": "PIXELSKY_ERR:",
+ "permissionModes": [
+  "ask",
+  "edits",
+  "auto",
+  "plan",
+  "full"
+ ],
+ "efforts": [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra"
+ ],
+ "engines": [
+  {
+   "id": "claude",
+   "name": "Claude Code",
+   "short": "Cc",
+   "caps": {
+    "imageInput": true,
+    "interrupt": true,
+    "resume": true,
+    "steer": false,
+    "rewind": true,
+    "rewindCode": true,
+    "fork": true,
+    "sideChat": true,
+    "liveModelSwitch": true,
+    "livePermissionSwitch": true,
+    "permissionModes": [
+     "ask",
+     "edits",
+     "plan",
+     "full"
+    ],
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "ultracode": true,
+    "fast": true,
+    "thinkingSummaries": true,
+    "backgroundTasks": true,
+    "agentTrace": true,
+    "promptSuggestions": true,
+    "alwaysScopes": [
+     "session",
+     "project",
+     "user"
+    ],
+    "costUsd": true,
+    "selfUpdate": true,
+    "launchSettings": true,
+    "pluginCommands": true,
+    "platformSwitch": true
+   }
+  },
+  {
+   "id": "codex",
+   "name": "Codex",
+   "short": "Cx",
+   "caps": {
+    "imageInput": true,
+    "interrupt": true,
+    "resume": true,
+    "steer": true,
+    "rewind": true,
+    "fork": true,
+    "sideChat": true,
+    "liveModelSwitch": false,
+    "livePermissionSwitch": false,
+    "permissionModes": [
+     "ask",
+     "edits",
+     "auto",
+     "plan",
+     "full"
+    ],
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max",
+     "ultra"
+    ],
+    "ultracode": false,
+    "fast": true,
+    "thinkingSummaries": true,
+    "backgroundTasks": false,
+    "agentTrace": true,
+    "promptSuggestions": false,
+    "alwaysScopes": [
+     "session"
+    ],
+    "costUsd": false,
+    "selfUpdate": true,
+    "launchSettings": false,
+    "pluginCommands": false,
+    "platformSwitch": false
+   }
+  },
+  {
+   "id": "pixel",
+   "name": "Pixel",
+   "short": "Px",
+   "caps": {
+    "imageInput": true,
+    "interrupt": true,
+    "resume": true,
+    "steer": true,
+    "rewind": false,
+    "sideChat": true,
+    "liveModelSwitch": true,
+    "livePermissionSwitch": true,
+    "permissionModes": [
+     "ask",
+     "edits",
+     "plan",
+     "full"
+    ],
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "ultracode": false,
+    "fast": true,
+    "thinkingSummaries": false,
+    "backgroundTasks": false,
+    "agentTrace": true,
+    "promptSuggestions": false,
+    "alwaysScopes": [
+     "session"
+    ],
+    "costUsd": true,
+    "selfUpdate": false,
+    "launchSettings": false,
+    "pluginCommands": false,
+    "platformSwitch": false
+   }
+  },
+  {
+   "id": "antigravity",
+   "name": "Antigravity",
+   "short": "Ag",
+   "caps": {
+    "imageInput": true,
+    "interrupt": true,
+    "resume": true,
+    "steer": false,
+    "rewind": false,
+    "fork": false,
+    "sideChat": false,
+    "liveModelSwitch": true,
+    "livePermissionSwitch": true,
+    "permissionModes": [
+     "ask",
+     "edits",
+     "plan",
+     "full"
+    ],
+    "efforts": [
+     "low",
+     "medium",
+     "high"
+    ],
+    "ultracode": false,
+    "fast": false,
+    "thinkingSummaries": false,
+    "backgroundTasks": true,
+    "agentTrace": false,
+    "promptSuggestions": false,
+    "alwaysScopes": [
+     "session"
+    ],
+    "costUsd": false,
+    "selfUpdate": true,
+    "launchSettings": false,
+    "pluginCommands": false,
+    "platformSwitch": false
+   }
+  }
+ ]
+}
