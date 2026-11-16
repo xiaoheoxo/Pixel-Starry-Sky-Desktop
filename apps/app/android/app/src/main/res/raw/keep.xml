@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知图标只在 Dart 里按名字引用，正式包压缩资源时会被当成没用删掉；这里声明保留 -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_pixelsky" />

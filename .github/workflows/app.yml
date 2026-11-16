@@ -1,0 +1,85 @@
+# 手机 App（apps/app，Flutter）打包（docs/mobile-app.md §8.6）：只在 Actions 页手动运行，产物放在这次运行的 Artifacts 里，不建 Release。
+# - 安卓：仓库 Secrets 里有 ANDROID_KEYSTORE_BASE64（app-release.jks 的 base64）和 ANDROID_KEY_PASSWORD 才打，打出正式签名的 APK；没有就跳过。
+# - iOS：没有苹果开发者账号，打没签名的 IPA，用 Sideloadly / AltStore 拿自己的 Apple ID 签上再装（docs/release-update.md「手机 App」）。
+name: app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.50.0
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: 有没有签名密钥
+        id: key
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::仓库 Secrets 里没有 ANDROID_KEYSTORE_BASE64 / ANDROID_KEY_PASSWORD，跳过安卓"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.key.outputs.ok == 'true'
+      - uses: actions/setup-java@v4
+        if: steps.key.outputs.ok == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: subosito/flutter-action@v2
+        if: steps.key.outputs.ok == 'true'
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: 放好签名密钥（只在这台临时机器上）
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/app-release.jks"
+          printf 'storeFile=app-release.jks\nstorePassword=%s\nkeyAlias=pixelsky\nkeyPassword=%s\n' \
+            "$ANDROID_KEY_PASSWORD" "$ANDROID_KEY_PASSWORD" > "$RUNNER_TEMP/app-release.properties"
+          echo "PIXELSKY_KEY_PROPERTIES=$RUNNER_TEMP/app-release.properties" >> "$GITHUB_ENV"
+      - name: 打安卓包
+        if: steps.key.outputs.ok == 'true'
+        run: node scripts/build-app.mjs
+      - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.ok == 'true'
+        with:
+          name: android
+          path: apps/app/build/dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: 打 iOS 包（不签名）
+        working-directory: apps/app
+        run: flutter build ios --release --no-codesign
+      # 没签名的 .app 装进 Payload 文件夹再压成 .ipa，侧载工具认这个格式
+      - name: 压成 IPA
+        working-directory: apps/app
+        run: |
+          version="$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)"
+          mkdir -p build/dist/Payload
+          cp -R build/ios/iphoneos/Runner.app build/dist/Payload/
+          (cd build/dist && zip -qry "pixelsky-$version-unsigned.ipa" Payload && rm -rf Payload)
+          shasum -a 256 build/dist/*.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: apps/app/build/dist/*.ipa
+          if-no-files-found: error

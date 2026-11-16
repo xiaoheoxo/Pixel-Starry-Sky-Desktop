@@ -1,8 +1,23 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// 正式签名（docs/mobile-app.md §8.6）：密钥和密码在仓库外，默认 ~/.pixelsky/app-release.properties，
+// 工作流用环境变量 PIXELSKY_KEY_PROPERTIES 指过去。storeFile 相对这个文件所在的文件夹。
+// 没有这个文件时 release 退回 debug 签名（别人拉代码也能打包，但装不到正式版上面覆盖）。
+val releaseKeyFile = file(
+    System.getenv("PIXELSKY_KEY_PROPERTIES")
+        ?: "${System.getProperty("user.home")}/.pixelsky/app-release.properties",
+)
+val releaseKey = Properties().apply {
+    if (releaseKeyFile.isFile) FileInputStream(releaseKeyFile).use { load(it) }
+}
+val hasReleaseKey = releaseKey.getProperty("storeFile") != null
 
 android {
     namespace = "xyz.pixelstarrysky.pixelsky_app"
@@ -11,32 +26,40 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // flutter_local_notifications 瑕佹眰鎵撳紑 desugaring
+        // flutter_local_notifications 要求打开 desugaring
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "xyz.pixelstarrysky.mobile"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
+        // 版本号取 pubspec.yaml 的 version（0.1.0+1 → versionName 0.1.0、versionCode 1）
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = releaseKeyFile.parentFile.resolve(releaseKey.getProperty("storeFile"))
+                storePassword = releaseKey.getProperty("storePassword")
+                keyAlias = releaseKey.getProperty("keyAlias")
+                keyPassword = releaseKey.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn("没有找到正式签名（$releaseKeyFile），release 用 debug 签名")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

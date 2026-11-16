@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知栏小图标：桌面端 brand/badge.svg 的 P 和星星，白色剪影（安卓只用透明度）。lib/platform/notifier.dart 用它 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="50"
+    android:viewportHeight="50">
+    <group
+        android:translateX="5.4"
+        android:translateY="5">
+        <path
+            android:pathData="M0,40V0H11A11.5,11.5 0,0 1,11 23H0"
+            android:strokeWidth="5"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M34,-1.75Q35.4,3.85 41,5.25Q35.4,6.65 34,12.25Q32.6,6.65 27,5.25Q32.6,3.85 34,-1.75Z"
+            android:strokeWidth="1.5"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

@@ -63,7 +63,8 @@ class LocalNotifier implements Notifier {
     if (_ready) return;
     await _plugin.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // 白色剪影的小图标（res/drawable/ic_stat_pixelsky.xml）；用应用图标会显示成一块灰方块
+        android: AndroidInitializationSettings('@drawable/ic_stat_pixelsky'),
         iOS: DarwinInitializationSettings(
           requestAlertPermission: false,
           requestBadgePermission: false,
