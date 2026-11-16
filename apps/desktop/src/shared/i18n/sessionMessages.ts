@@ -366,6 +366,8 @@ export const sessionMessages = {
   'session.live.tool.ExitPlanMode': { zh: '提交计划', en: 'Proposed a plan' },
   'session.live.tool.EnterPlanMode': { zh: '进入计划模式', en: 'Entered plan mode' },
   'session.live.tool.Skill': { zh: '使用技能', en: 'Used skill' },
+  'session.live.tool.imageGeneration': { zh: '生成图片', en: 'Generated image' },
+  'session.live.tool.imageGenerating': { zh: '正在生成图片', en: 'Generating image' },
   'session.live.tool.BashOutput': { zh: '查看后台输出', en: 'Checked background output' },
   'session.live.tool.KillShell': { zh: '停止后台命令', en: 'Stopped background command' },
   'session.live.tool.ToolSearch': { zh: '查找工具', en: 'Searched tools' },

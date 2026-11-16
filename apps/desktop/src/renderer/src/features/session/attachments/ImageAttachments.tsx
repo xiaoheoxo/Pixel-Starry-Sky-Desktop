@@ -17,6 +17,7 @@ function ImageTile({
   compact = false,
   caption = true,
   thumb = false,
+  large = false,
   more = 0,
 }: {
   image: ImageAttachment
@@ -28,6 +29,11 @@ function ImageTile({
   caption?: boolean
   /** 对话里「模型看过的图」那一行下面的横条缩略图（132×84，不写文件名） */
   thumb?: boolean
+  /**
+   * 生成的图（Codex 生图）：按原比例显示大图，最宽 360、最高 320，不写文件名。
+   * 两个上限都放在图上（外框跟着图的实际大小走）：放在外框上时竖图被高度压窄，外框还是 360 宽，右边空一块
+   */
+  large?: boolean
   /** 没显示出来的张数：盖在这张上写「+N」 */
   more?: number
   onRemove?: (id: string) => void
@@ -76,7 +82,13 @@ function ImageTile({
         data-image-attachment={image.id}
         className={cn(
           'group relative overflow-hidden border border-line-card bg-subtle',
-          compact ? 'size-10 rounded-md' : thumb ? 'h-[84px] w-[132px] rounded-lg' : 'h-24 w-24 rounded-lg',
+          compact
+            ? 'size-10 rounded-md'
+            : thumb
+              ? 'h-[84px] w-[132px] rounded-lg'
+              : large
+                ? cn('rounded-lg', !url && 'h-48 w-72 max-w-full')
+                : 'h-24 w-24 rounded-lg',
         )}
       >
         <button
@@ -87,7 +99,13 @@ function ImageTile({
           title={description}
           onClick={() => setOpen(true)}
         >
-          {url && <img src={url} alt={image.name} className="size-full object-cover" />}
+          {url && (
+            <img
+              src={url}
+              alt={image.name}
+              className={large ? 'block h-auto max-h-80 w-auto max-w-[min(360px,100%)]' : 'size-full object-cover'}
+            />
+          )}
           {missing && !url && (
             <span className="block truncate px-1.5 text-label text-fg-faint" title={image.name}>
               {image.name}
@@ -121,7 +139,7 @@ function ImageTile({
             <X size={12} />
           </button>
         )}
-        {!compact && !thumb && caption && (
+        {!compact && !thumb && !large && caption && (
           <span className="pointer-events-none absolute right-0 bottom-0 left-0 truncate border-t border-line-card bg-popover px-1 py-0.5 text-label text-fg-secondary">
             {image.name}
           </span>
@@ -170,8 +188,11 @@ export function ImageAttachments({
   onReplace,
   compact,
   caption,
+  large,
 }: {
   images: ImageAttachment[]
+  /** 生成的图：大图（见 ImageTile） */
+  large?: boolean
   /** 对话里的图所在条目：图片不带数据时按需取原图 */
   itemId?: string
   compact?: boolean
@@ -181,7 +202,7 @@ export function ImageAttachments({
   onReplace?: (id: string, next: ImageAttachment) => void
 }) {
   return (
-    <div data-image-attachments className="flex max-h-56 min-w-0 flex-wrap gap-2 overflow-y-auto">
+    <div data-image-attachments className={cn('flex min-w-0 flex-wrap gap-2', !large && 'max-h-56 overflow-y-auto')}>
       {images.map(image => (
         <ImageTile
           key={image.id}
@@ -191,6 +212,7 @@ export function ImageAttachments({
           onReplace={onReplace}
           compact={compact}
           caption={caption}
+          large={large}
         />
       ))}
     </div>

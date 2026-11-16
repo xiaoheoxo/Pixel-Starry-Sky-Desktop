@@ -4,7 +4,7 @@ import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
 import { codexCommandParts } from './command'
-import { codexViewedImage } from './images'
+import { codexGeneratedImage, codexGenerationFailure, codexViewedImage } from './images'
 
 export function codexChanges(value: unknown): FileChange[] {
   return array(value)
@@ -141,6 +141,30 @@ export class CodexTranslator {
         postTokens: null,
       }
       if (status === 'completed') this.compactionSize = id
+    } else if (type === 'imageGeneration') {
+      // Codex 内置生图（docs/ui/image-gen.md）：图挂在条目上，标题是改写后的提示词；结果里的 base64 不当文字显示
+      const before = prior?.kind === 'tool' ? prior : null
+      const failure = codexGenerationFailure(raw.failure)
+      const image = complete && !failure ? codexGeneratedImage(raw, id) : null
+      const images = image ? [image] : (before?.images ?? [])
+      // 完成了却没拿到图（只给了云端 fileId、本地文件读不到或超过上限）：写一句，不然这一行看不出图去哪了
+      const saved = string(raw.savedPath)
+      const missing =
+        complete && !failure && !images.length
+          ? saved
+            ? `图片在 ${saved}，没能读出来（文件不在了或超过 10 MB）`
+            : '没拿到图片（Codex 没有给本地文件）'
+          : ''
+      item = {
+        kind: 'tool',
+        id,
+        tool: 'other',
+        name: 'imageGeneration',
+        title: string(raw.revisedPrompt) || before?.title || '',
+        output: failure || missing,
+        status: failure ? 'failed' : status,
+        ...(images.length ? { images } : {}),
+      }
     } else if (type !== 'userMessage') {
       const tool =
         type === 'mcpToolCall'

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAX_IMAGE_BYTES, type EngineEvent } from '@pixelsky/protocol'
 import { CodexAdapter, EngineHost } from '../src'
-import { codexViewedImage } from '../src/codex/images'
+import { codexGeneratedImage, codexGenerationFailure, codexViewedImage } from '../src/codex/images'
 import { CodexTranslator } from '../src/codex/translate'
 import { Store } from '../src/store'
 import { makeTmp, removeTmp } from './helpers/tmp'
@@ -166,5 +166,92 @@ describe('Codex 看图附件', () => {
     host = new EngineHost({ dataDir, adapters: {}, emit: () => {} })
     expect(host.open(record.id).items.find(i => i.id === viewed?.id)).toEqual(viewed)
     expect(host.item(record.id, viewed!.id)).toEqual(full)
+  })
+})
+
+// docs/ui/image-gen.md：Codex 内置生图的 imageGeneration 条目
+describe('Codex 生图', () => {
+  it('完成时读 Codex 存的 savedPath，标题是改写后的提示词；结果里的 base64 不当文字', () => {
+    const path = join(root, 'gen.png')
+    writeFileSync(path, png)
+    const translator = new CodexTranslator(() => {})
+    translator.item(
+      { type: 'imageGeneration', id: 'g', status: 'generating', revisedPrompt: null, failure: null },
+      false,
+    )
+    expect(translator.items.get('cx-g')).toMatchObject({ name: 'imageGeneration', status: 'running', output: '' })
+    translator.item(
+      {
+        type: 'imageGeneration',
+        id: 'g',
+        status: 'completed',
+        revisedPrompt: '像素风夜空',
+        failure: null,
+        savedPath: path,
+        result: 'AAAA',
+        generationId: null,
+      },
+      true,
+    )
+    const item = translator.items.get('cx-g')
+    expect(item).toMatchObject({ kind: 'tool', title: '像素风夜空', output: '', status: 'completed' })
+    expect(item?.kind === 'tool' && item.images?.[0]).toMatchObject({
+      mediaType: 'image/png',
+      name: 'gen.png',
+      dataBase64: png.toString('base64'),
+    })
+  })
+
+  it('没有 savedPath 时用 result 的 base64；认不出格式、超过上限的不要', () => {
+    expect(codexGeneratedImage({ result: png.toString('base64') }, 'cx-g')).toMatchObject({
+      name: 'image.png',
+      mediaType: 'image/png',
+    })
+    expect(codexGeneratedImage({ result: 'data:image/png;base64,' + png.toString('base64') }, 'x')?.bytes).toBe(
+      png.length,
+    )
+    expect(codexGeneratedImage({ result: Buffer.from('not an image').toString('base64') }, 'x')).toBeNull()
+    expect(codexGeneratedImage({ result: 'A'.repeat(Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 8) }, 'x')).toBeNull()
+    // 相对路径不读（Codex 给的是绝对路径）
+    expect(codexGeneratedImage({ savedPath: 'gen.png' }, 'x')).toBeNull()
+  })
+
+  it('回归（审查）：完成了却没拿到图，写一句原因，不留空行', () => {
+    const translator = new CodexTranslator(() => {})
+    const base = { type: 'imageGeneration', status: 'completed', revisedPrompt: 'p', failure: null }
+    translator.item({ ...base, id: 'a', savedPath: join(root, 'gone.png'), result: '' }, true)
+    expect(translator.items.get('cx-a')).toMatchObject({
+      status: 'completed',
+      output: expect.stringContaining('gone.png'),
+    })
+    translator.item({ ...base, id: 'b', fileId: 'file_1' }, true)
+    expect(translator.items.get('cx-b')).toMatchObject({ output: '没拿到图片（Codex 没有给本地文件）' })
+    translator.item({ ...base, id: 'c', status: 'generating' }, false)
+    expect(translator.items.get('cx-c')).toMatchObject({ output: '' })
+  })
+
+  it('额度用完：标失败，写什么时候恢复', () => {
+    const translator = new CodexTranslator(() => {})
+    const resetsAt = Math.floor(new Date(2026, 10, 16, 18, 5).getTime() / 1000)
+    translator.item(
+      {
+        type: 'imageGeneration',
+        id: 'f',
+        status: 'failed',
+        revisedPrompt: null,
+        failure: { type: 'usageLimitExceeded', limitId: 'images', resetsAt },
+        result: '',
+      },
+      true,
+    )
+    expect(translator.items.get('cx-f')).toMatchObject({ status: 'failed' })
+    expect(codexGenerationFailure({ type: 'usageLimitExceeded', resetsAt }, new Date(2026, 10, 16, 9).getTime())).toBe(
+      '生图额度用完了，今天 18:05 恢复',
+    )
+    expect(codexGenerationFailure({ type: 'usageLimitExceeded', resetsAt }, new Date(2026, 10, 15, 9).getTime())).toBe(
+      '生图额度用完了，11 月 16 日 18:05 恢复',
+    )
+    expect(codexGenerationFailure({ type: 'usageLimitExceeded', resetsAt: null })).toBe('生图额度用完了')
+    expect(codexGenerationFailure(null)).toBe('')
   })
 })

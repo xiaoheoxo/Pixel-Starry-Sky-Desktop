@@ -15,6 +15,7 @@ import {
   FilePlus,
   FileText,
   Globe,
+  ImageIcon,
   Info,
   Keyboard,
   ListTodo,
@@ -998,19 +999,26 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
     )
   }
 
+  // Codex 内置生图（docs/ui/image-gen.md）：图直接按大图显示，不收成缩略图
+  const generated = item.name === 'imageGeneration'
   const meta = TOOL_META[item.tool]
   // 子任务（Agent 工具）和多智能体编排（Workflow 工具）可以打开智能体追踪
   const traceable = !!openTrace && item.tool === 'task' && !item.subagent
   const named = NAMED_VERBS[item.name]
-  const verb =
-    item.name === 'Workflow' ? tr('session.live.ItemRows.orchestration') : named ? tr(named) : meta.verb || item.name
+  const verb = generated
+    ? tr(item.status === 'running' ? 'session.live.tool.imageGenerating' : 'session.live.tool.imageGeneration')
+    : item.name === 'Workflow'
+      ? tr('session.live.ItemRows.orchestration')
+      : named
+        ? tr(named)
+        : meta.verb || item.name
   // 提交计划：展开看的是计划正文（Markdown），批准之后对话里还在
   const plan = item.name === 'ExitPlanMode'
   return (
     <div ref={row} data-fold={fold} className={rowClass}>
       <Row
         id={item.id}
-        icon={plan ? ListTodo : meta.icon}
+        icon={plan ? ListTodo : generated ? ImageIcon : meta.icon}
         verb={verb}
         status={item.status}
         expandable={foldable}
@@ -1019,7 +1027,7 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
         trailing={
           <>
             <StatusMark status={item.status} review={item.review} />
-            {images.length > 0 && (
+            {images.length > 0 && !generated && (
               <span className="shrink-0 text-meta text-fg-faint">
                 {tr('session.live.viewedImages', { n: images.length })}
               </span>
@@ -1063,7 +1071,18 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
             </Clamp>
           </pre>
         ))}
-      {images.length > 0 && (
+      {generated && item.status === 'running' && !images.length && (
+        <div
+          aria-hidden
+          className="mt-1 mb-1.5 ml-[23px] h-48 w-72 max-w-full animate-pulse rounded-lg border border-line-card bg-subtle"
+        />
+      )}
+      {generated && images.length > 0 && (
+        <div className="mt-1 mb-1.5 ml-[23px]">
+          <ImageAttachments images={images} itemId={item.id} large />
+        </div>
+      )}
+      {images.length > 0 && !generated && (
         <div className="mt-1 mb-1.5 ml-[23px]">
           {/* 模型看过的图收着时也直接一排缩略图，点开这一行再看带文件名的（docs/ui/image-view-thumbnail-mockup.html） */}
           {open ? (
