@@ -2,9 +2,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { EngineEvent, SessionRecord } from '@pixelsky/protocol'
 import type { SessionContext } from '../src/adapter'
+import type { AgyProcessOps } from '../src/antigravity/background'
 import { AntigravitySession, agySystemPrompt, pickEffort, type AgyLaunch } from '../src/antigravity/session'
 import { agyModels } from '../src/antigravity/discover'
 
@@ -61,6 +63,24 @@ createInterface({ input: process.stdin }).on('line', line => {
     waiting = () => { waiting = null; upd({ sessionUpdate: 'tool_call_update', ...call, status: 'completed' }); end() }
     return
   }
+  if (text.includes('bg:')) {
+    const cmd = text.includes('bg:dev') ? 'pnpm dev' : 'pnpm build'
+    const tid = text.includes('bg:dev') ? 's1/task-76' : 's1/task-77'
+    const logUrl = process.env.FAKE_BG_LOG_URL || ''
+    const call = { toolCallId: 'bg1', name: 'run_command', kind: 'execute', title: cmd, rawInput: { CommandLine: cmd, toolSummary: 'Background run' } }
+    upd({ sessionUpdate: 'tool_call', ...call, status: 'in_progress' })
+    upd({
+      sessionUpdate: 'tool_call_update',
+      ...call,
+      status: 'completed',
+      rawOutput: {
+        output: 'Tool is running as a background task with task id: ' + tid + '\\nTask logs are available at: ' + logUrl + '\\nYOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: ...',
+        exit_code: 0,
+      },
+    })
+    upd({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已在后台启动' } })
+    return end()
+  }
   if (text.includes('tool')) {
     const call = { toolCallId: 'c1', name: 'run_command', kind: 'execute', title: 'echo hi', rawInput: { CommandLine: 'echo hi' } }
     upd({ sessionUpdate: 'tool_call', ...call, status: 'in_progress' })
@@ -83,7 +103,14 @@ createInterface({ input: process.stdin }).on('line', line => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 let n = 0
-function setup(record: Partial<SessionRecord> = {}, launch?: AgyLaunch, extensions?: SessionContext['extensions']) {
+function setup(
+  record: Partial<SessionRecord> = {},
+  launch?: AgyLaunch,
+  extensions?: SessionContext['extensions'],
+  processOps?: AgyProcessOps,
+  bgPollMs?: number,
+  extraEnv: NodeJS.ProcessEnv = {},
+) {
   const logFile = join(dir, `log-${++n}.ndjson`)
   writeFileSync(logFile, '')
   const events: EngineEvent[] = []
@@ -105,8 +132,16 @@ function setup(record: Partial<SessionRecord> = {}, launch?: AgyLaunch, extensio
     setFast: () => {},
     setEffort: (effort: SessionRecord['effort']) => (rec = { ...rec, effort }),
   } as unknown as SessionContext
-  const env = { ...process.env, FAKE_LOG: logFile, GEMINI_API_KEY: 'k' }
-  const session = new AntigravitySession({ command: process.execPath, args: [fake] }, env, ctx, [], launch)
+  const env = { ...process.env, FAKE_LOG: logFile, GEMINI_API_KEY: 'k', ...extraEnv }
+  const session = new AntigravitySession(
+    { command: process.execPath, args: [fake] },
+    env,
+    ctx,
+    [],
+    launch,
+    processOps,
+    bgPollMs,
+  )
   const sent = (): Record<string, any>[] =>
     (require('node:fs').readFileSync(logFile, 'utf8') as string)
       .split('\n')
@@ -395,6 +430,91 @@ describe('Antigravity 会话（假 agy）', () => {
     await again.turnDone('t1')
     expect(again.sent().map(m => m.method)).not.toContain('session/new')
     await again.session.close()
+  })
+
+  it('后台命令：顶条 tasks、读实时输出与端口、点停止杀子进程树并插已停止卡片', async () => {
+    const taskLog = join(dir, 'task-76.log')
+    writeFileSync(taskLog, 'VITE v6.3.5 ready\nLocal: http://localhost:5173/\n')
+    const killed: number[] = []
+    const alive = new Set([4242])
+    const ops: AgyProcessOps = {
+      findChild: async () => 4242,
+      isAlive: pid => alive.has(pid),
+      killTree: async pid => {
+        killed.push(pid)
+        alive.delete(pid)
+      },
+    }
+    const t = setup({}, undefined, undefined, ops, 80, { FAKE_BG_LOG_URL: pathToFileURL(taskLog).href })
+    t.session.send('bg:dev', 't1', 'u1')
+    await t.turnDone('t1')
+
+    const lastTasks = () =>
+      (t.events.filter(e => e.type === 'tasks').at(-1) as Extract<EngineEvent, { type: 'tasks' }> | undefined)?.tasks
+    expect(lastTasks()).toEqual([
+      {
+        id: 's1/task-76',
+        kind: 'local_bash',
+        description: 'pnpm dev',
+        message: 'Local: http://localhost:5173/',
+      },
+    ])
+    const out = await t.session.taskOutput('s1/task-76')
+    expect(out).toEqual({ output: 'VITE v6.3.5 ready\nLocal: http://localhost:5173/', truncated: false })
+
+    await t.session.stopTask('s1/task-76')
+    expect(killed).toEqual([4242])
+    expect(lastTasks()).toEqual([])
+    expect(
+      t.events.find(e => e.type === 'item_completed' && e.item.kind === 'command' && e.item.command === 'pnpm dev'),
+    ).toMatchObject({
+      item: { status: 'interrupted', background: false, output: 'VITE v6.3.5 ready\nLocal: http://localhost:5173/' },
+    })
+    expect(
+      t.events.find(e => e.type === 'item_completed' && e.item.kind === 'notice' && e.item.task?.kind === 'bash'),
+    ).toMatchObject({
+      item: { task: { kind: 'bash', status: 'stopped', label: 'pnpm dev' } },
+    })
+    await t.session.close()
+  })
+
+  it('后台构建自然跑完：空闲巡检发现子进程退出后自动收起顶条并插已完成卡片', async () => {
+    const taskLog = join(dir, 'task-77.log')
+    writeFileSync(taskLog, 'building...\n')
+    const alive = new Set([5151])
+    const ops: AgyProcessOps = {
+      findChild: async () => 5151,
+      isAlive: pid => alive.has(pid),
+      killTree: async () => {},
+    }
+    const t = setup({}, undefined, undefined, ops, 40, { FAKE_BG_LOG_URL: pathToFileURL(taskLog).href })
+    t.session.send('bg:build', 't1', 'u1')
+    await t.turnDone('t1')
+    // 等待 bindPid 完成绑定后，模拟构建结束并退出
+    await new Promise(r => setTimeout(r, 60))
+    writeFileSync(taskLog, 'building...\nbuilt 24 chunks in 3.1s\n')
+    alive.delete(5151)
+    await new Promise<void>(resolve => {
+      const wait = (): void => {
+        const tasks = (t.events.filter(e => e.type === 'tasks').at(-1) as { tasks: unknown[] } | undefined)?.tasks
+        if (tasks && tasks.length === 0) resolve()
+        else setTimeout(wait, 25)
+      }
+      wait()
+    })
+    expect(
+      t.events.find(e => e.type === 'item_completed' && e.item.kind === 'command' && e.item.command === 'pnpm build'),
+    ).toMatchObject({
+      item: { status: 'completed', background: false, output: 'building...\nbuilt 24 chunks in 3.1s' },
+    })
+    expect(
+      t.events.find(e => e.type === 'item_completed' && e.item.kind === 'notice' && e.item.task?.kind === 'bash'),
+    ).toMatchObject({
+      item: {
+        task: { kind: 'bash', status: 'completed', label: 'pnpm build', summary: 'built 24 chunks in 3.1s' },
+      },
+    })
+    await t.session.close()
   })
 })
 

@@ -416,6 +416,21 @@ export class HostEvents {
         m.accounts.afterTurn(turnEngine, id)
         break
       }
+      case 'tasks':
+        // 后台命令（开发服务、长构建）还在跑时不关会话进程（关了它们就一起没了）；都结束了、会话也空着，再开始计时
+        if (event.tasks.length > 0) {
+          if (rt.idleTimer) {
+            clearTimeout(rt.idleTimer)
+            rt.idleTimer = null
+          }
+        } else if (
+          rt.snapshot.state === 'idle' &&
+          !rt.snapshot.background &&
+          !rt.idleTimer &&
+          (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0)
+        )
+          this.armIdle(id)
+        break
       case 'background':
         // 后台子智能体还在跑时不关进程（关了它们就一起没了）；都结束了、会话也空着，再开始计时
         if (event.count > 0) {
@@ -425,6 +440,7 @@ export class HostEvents {
           }
         } else if (
           rt.snapshot.state === 'idle' &&
+          rt.snapshot.tasks.length === 0 &&
           !rt.idleTimer &&
           (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0)
         )
@@ -479,7 +495,7 @@ export class HostEvents {
 
   armIdle(id: string): void {
     const rt = this.ctx.runtimes.get(id)
-    if (!rt || rt.snapshot.background) return
+    if (!rt || rt.snapshot.background || rt.snapshot.tasks.length > 0) return
     if (rt.idleTimer) clearTimeout(rt.idleTimer)
     // 原地接着终端里的 Codex 会话：进程一直拿着线程的写入锁，终端里 `codex resume` 会报被占用，所以 2 分钟空闲就放开
     // （docs/ui/codex-resume.md §4.6）；下一条消息再 thread/resume
@@ -495,7 +511,7 @@ export class HostEvents {
         : this.ctx.idleMs
     rt.idleTimer = setTimeout(() => {
       rt.idleTimer = null
-      if (rt.snapshot.state !== 'idle' || rt.snapshot.background || !rt.session) return
+      if (rt.snapshot.state !== 'idle' || rt.snapshot.background || rt.snapshot.tasks.length > 0 || !rt.session) return
       const s = rt.session
       rt.session = null
       void s.close()

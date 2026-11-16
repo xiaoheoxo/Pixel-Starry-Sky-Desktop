@@ -82,7 +82,10 @@ export function TaskStrip({
             {port && (
               <button
                 type="button"
-                className={cn(LINK, 'inline-flex items-center gap-1 font-mono')}
+                className={cn(
+                  LINK,
+                  'inline-flex items-center gap-1 bg-accent-soft/65 font-mono text-accent-fg hover:bg-accent-soft hover:text-accent-fg',
+                )}
                 title={tr('portTip.open')}
                 onClick={() => onOpenPort?.(port)}
               >

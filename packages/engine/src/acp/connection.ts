@@ -35,6 +35,11 @@ export class AcpConnection {
   private stderr = ''
   private exited = false
 
+  /** 当前 ACP 子进程的 PID；还没拿到或启动失败时为 undefined */
+  get pid(): number | undefined {
+    return this.child.pid
+  }
+
   constructor(
     launcher: Launcher,
     args: string[],

@@ -501,7 +501,8 @@ export class HostSettings {
     const idle: Runtime[] = []
     for (const rt of this.ctx.runtimes.values()) {
       if (!rt.session || (rt.execution ?? rt.snapshot.record).engine !== engine) continue
-      if (rt.snapshot.state !== 'idle') throw new Error('有这个引擎的任务正在运行，等它们结束后再更新')
+      if (rt.snapshot.state !== 'idle' || rt.snapshot.background || rt.snapshot.tasks.length > 0)
+        throw new Error('有这个引擎的任务正在运行，等它们结束后再更新')
       idle.push(rt)
     }
     await Promise.all(

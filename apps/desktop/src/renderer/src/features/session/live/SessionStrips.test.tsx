@@ -18,10 +18,14 @@ const render = (props: Partial<Parameters<typeof TaskStrip>[0]>): string =>
   )
 
 describe('TaskStrip', () => {
-  it('对话里的任务条：卡片框还在，没有打开按钮', () => {
-    const html = render({})
-    expect(html).toContain('rounded-xl')
-    expect(html).not.toContain('lucide-globe')
+  it('对话里的任务条：本机传了 onOpenPort 带端口打开按钮，远端没传时不带', () => {
+    const remote = render({})
+    expect(remote).toContain('rounded-xl')
+    expect(remote).not.toContain('lucide-globe')
+    const local = render({ onOpenPort: () => {} })
+    expect(local).toContain('rounded-xl')
+    expect(local).toContain('lucide-globe')
+    expect(local).toContain(':5173')
   })
   it('概况里：不要卡片框，进度里写着本机地址才带打开按钮', () => {
     const html = render({ bare: true, onOpenPort: () => {} })

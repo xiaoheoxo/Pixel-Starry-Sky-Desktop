@@ -9,6 +9,7 @@ import { agyCatalog, agyInstaller, agyLogout, agyOneShot, customAgy, discoverAgy
 import { OneShotError, type OneShotReply, type OneShotRequest } from '../oneshot'
 import type { QuotaReading } from '../quota'
 import { fetchAgyUsage } from './quota'
+import type { AgyProcessOps } from './background'
 import { AntigravitySession, type AgyLaunch } from './session'
 import { agyNativeSessions, agyProjectDirs, agyReadNative } from './native'
 import type { ListOptions, NativeRead, NativeSessionList, ReadOptions } from '../native/types'
@@ -35,6 +36,10 @@ export interface AntigravityAdapterOptions {
   probe?: typeof probeAgyAuth
   /** 测试用：替换读取账号额度 */
   fetchQuota?: typeof fetchAgyUsage
+  /** 测试用：替换后台命令子进程查找 / 存活 / 结束 */
+  processOps?: AgyProcessOps
+  /** 测试用：后台任务日志与存活巡检间隔（毫秒） */
+  bgPollMs?: number
 }
 
 export class AntigravityAdapter implements EngineAdapter {
@@ -108,6 +113,8 @@ export class AntigravityAdapter implements EngineAdapter {
       ctx,
       this.opts.launchArgs?.() ?? [],
       this.opts.launchOptions?.() ?? { askQuestions: true, autoPlan: true, autoCompactPct: null },
+      this.opts.processOps,
+      this.opts.bgPollMs,
     )
   }
 

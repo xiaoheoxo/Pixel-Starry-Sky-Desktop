@@ -14,6 +14,7 @@ import type {
   TurnUsage,
 } from '@pixelsky/protocol'
 import { diffAdded, diffText } from '../diff'
+import { parseAgyBackgroundTask, readLogTail, type AgyBackgroundStart } from './background'
 
 type Msg = Record<string, unknown>
 const obj = (v: unknown): Msg => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Msg) : {})
@@ -106,18 +107,28 @@ export class AgyTranslator {
   private todoId: string | null = null
   /** 这次 prompt 里 agy 提的问题；有了之后它再发的回复文字（问题的文字版）不显示 */
   private question: AgyQuestion | null = null
+  private bgStarted: AgyBackgroundStart | null = null
+  private bgKilled: string | null = null
 
   constructor(
     private readonly emit: (e: EngineEvent) => void,
     private readonly cwd: string,
+    /** 实时会话里开启：run_command 转后台后保持运行中并交给会话追踪；回放历史（native.ts）时不挂起 */
+    private readonly liveBackground = false,
   ) {}
 
   private nextId(kind: string): string {
     return `ag-${this.prefix}-${kind}-${++this.seq}`
   }
 
-  /** 一条 session/update；返回值是要宿主处理的（模式变了、命令列表、上下文用量） */
-  update(u: Msg): { mode?: string; commands?: SkillCommand[]; context?: { used: number; size: number } } {
+  /** 一条 session/update；返回值是要宿主处理的（模式变了、命令列表、上下文用量、后台任务起停） */
+  update(u: Msg): {
+    mode?: string
+    commands?: SkillCommand[]
+    context?: { used: number; size: number }
+    backgroundStarted?: AgyBackgroundStart
+    backgroundKilled?: string
+  } {
     switch (str(u.sessionUpdate)) {
       case 'agent_message_chunk':
         this.text('assistant', str(obj(u.content).text))
@@ -126,10 +137,20 @@ export class AgyTranslator {
         this.text('reasoning', str(obj(u.content).text))
         return {}
       case 'tool_call':
-      case 'tool_call_update':
+      case 'tool_call_update': {
         this.closeText()
+        this.bgStarted = null
+        this.bgKilled = null
         this.tool(u)
-        return {}
+        const started = this.bgStarted
+        const killed = this.bgKilled
+        this.bgStarted = null
+        this.bgKilled = null
+        return {
+          ...(started ? { backgroundStarted: started } : {}),
+          ...(killed ? { backgroundKilled: killed } : {}),
+        }
+      }
       case 'plan':
         this.closeText()
         this.plan(u)
@@ -178,6 +199,32 @@ export class AgyTranslator {
     const prev = this.tools.get(callId)
     const merged = { ...(prev ? (this.toolRaw.get(callId) ?? {}) : {}), ...u }
     this.toolRaw.set(callId, merged)
+    if (str(merged.name) === 'manage_task' && u.status === 'completed') {
+      const input = obj(merged.rawInput ?? merged.args)
+      if (str(input.Action) === 'kill' && str(input.TaskId)) this.bgKilled = str(input.TaskId)
+    }
+    if (str(merged.kind) === 'execute' && u.status === 'completed') {
+      const out = str(obj(merged.rawOutput).output) || this.contentText(merged)
+      const bg = parseAgyBackgroundTask(out)
+      if (bg && this.liveBackground) {
+        const input = obj(merged.rawInput ?? merged.args)
+        const command = str(input.CommandLine) || str(merged.title)
+        const cmdItem: Extract<Item, { kind: 'command' }> = {
+          kind: 'command',
+          id: prev?.id ?? 'ag-tool-' + callId,
+          command,
+          description: str(input.toolSummary) || null,
+          output: '',
+          exitCode: null,
+          status: 'running',
+          background: true,
+        }
+        this.tools.set(callId, cmdItem)
+        this.emit({ type: 'item_started', item: cmdItem })
+        this.bgStarted = { taskId: bg.taskId, logPath: bg.logPath, callId, command, item: cmdItem }
+        return cmdItem
+      }
+    }
     const status: ItemStatus = u.status === 'completed' ? 'completed' : u.status === 'failed' ? 'failed' : 'running'
     const item = this.toolItem(prev?.id ?? 'ag-tool-' + callId, merged, status)
     this.tools.set(callId, item)
@@ -194,12 +241,13 @@ export class AgyTranslator {
     const rawOut = obj(u.rawOutput)
     if (kind === 'execute') {
       const out = str(rawOut.output) || this.contentText(u)
+      const bg = status === 'completed' ? parseAgyBackgroundTask(out) : null
       return {
         kind: 'command',
         id,
         command: str(input.CommandLine) || str(u.title),
         description: str(input.toolSummary) || null,
-        output: commandOutput(out),
+        output: bg ? readLogTail(bg.logPath).output : commandOutput(out),
         exitCode: typeof rawOut.exit_code === 'number' ? rawOut.exit_code : null,
         status,
       }
@@ -370,11 +418,11 @@ export class AgyTranslator {
     }
   }
 
-  /** 一轮结束：没收尾的文字收尾，还在跑的工具按中断算 */
+  /** 一轮结束：没收尾的文字收尾，还在跑的工具按中断算（转入后台的命令由会话追踪器单独收尾） */
   finish(outcome: 'completed' | 'interrupted' | 'failed'): void {
     this.closeText(outcome === 'completed' ? 'completed' : 'interrupted')
     for (const [callId, item] of this.tools)
-      if ('status' in item && item.status === 'running') {
+      if ('status' in item && item.status === 'running' && !('background' in item && item.background)) {
         const done = { ...item, status: outcome === 'completed' ? 'completed' : 'interrupted' } as Item
         this.tools.set(callId, done)
         this.emit({ type: 'item_completed', item: done })
@@ -384,6 +432,8 @@ export class AgyTranslator {
     this.todoId = null
     this.error = null
     this.question = null
+    this.bgStarted = null
+    this.bgKilled = null
   }
 }
 

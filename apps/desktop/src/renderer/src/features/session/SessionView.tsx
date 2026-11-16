@@ -65,6 +65,9 @@ import { useAppMode } from '@/features/coding/mode'
 import { dockTarget } from '@/features/panel/overview/overviewModel'
 import { useOverviewSlot } from '@/features/panel/overviewSlot'
 import { openRightTab, useActivePanelTab } from '@/features/panel/workspaceStore'
+import { openSessionPage } from '@/features/checks/SessionCheckBar'
+import { portUrl } from '@/features/coding/bottom/portsModel'
+import { machineOf } from '@/features/machines/store'
 import { isDemo, sessionDiff } from '@/data'
 import { demo } from '@/data/demo'
 import { cn, useToast } from '@/ui'
@@ -618,7 +621,15 @@ function LiveSessionView({
                               </button>
                             </div>
                           )}
-                          <TaskStrip sessionId={sessionId} tasks={tasks} />
+                          <TaskStrip
+                            sessionId={sessionId}
+                            tasks={tasks}
+                            onOpenPort={
+                              machineOf(sessionId) === 'local'
+                                ? port => openSessionPage(sessionId, portUrl(port))
+                                : undefined
+                            }
+                          />
                         </div>
                       </div>
                     )}

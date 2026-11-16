@@ -11,10 +11,12 @@ import type {
   PermissionMode,
   Question,
   SessionSettings,
+  TaskOutput,
   TurnOutcome,
 } from '@pixelsky/protocol'
 import type { CloseOptions, EngineSession, Launcher, SessionContext } from '../adapter'
 import { AcpConnection } from '../acp/connection'
+import { AgyBackgroundTracker, defaultAgyProcessOps, type AgyProcessOps } from './background'
 import { AGY_ERROR_PREFIX, AgyTranslator, agyTurnUsage, type AgyQuestion } from './translate'
 
 type Msg = Record<string, unknown>
@@ -140,6 +142,7 @@ export class AntigravitySession implements EngineSession {
   private active: Active | null = null
   private closed = false
   private readonly translator: AgyTranslator
+  private readonly bg: AgyBackgroundTracker
   private readonly approvals = new Map<string, PendingApproval>()
   /** 「本会话不再询问」允许过的（approvalKeys） */
   private readonly allowedForSession = new Set<string>()
@@ -156,9 +159,17 @@ export class AntigravitySession implements EngineSession {
     private readonly ctx: SessionContext,
     private readonly args: string[] = [],
     private readonly launch: AgyLaunch = { askQuestions: true, autoPlan: true, autoCompactPct: null },
+    processOps: AgyProcessOps = defaultAgyProcessOps,
+    bgPollMs?: number,
   ) {
     this.settings = { ...ctx.record() }
-    this.translator = new AgyTranslator(e => this.ctx.emit(e), ctx.record().cwd)
+    this.translator = new AgyTranslator(e => this.ctx.emit(e), ctx.record().cwd, true)
+    this.bg = new AgyBackgroundTracker(
+      e => this.ctx.emit(e),
+      () => this.conn?.pid,
+      processOps,
+      bgPollMs,
+    )
   }
 
   private open(): Promise<void> {
@@ -261,6 +272,8 @@ export class AntigravitySession implements EngineSession {
       return
     }
     const r = this.translator.update(u)
+    if (r.backgroundStarted) this.bg.register(r.backgroundStarted)
+    if (r.backgroundKilled) this.bg.killedByModel(r.backgroundKilled)
     if (r.mode) {
       const mode = MODE_IN[r.mode]
       // 完全放行在 agy 那边就是 accept-edits，它报回来时别把我们的改回「自动编辑」
@@ -537,9 +550,20 @@ export class AntigravitySession implements EngineSession {
     }
   }
 
+  async stopTask(taskId: string): Promise<void> {
+    if (!this.conn) throw new Error('引擎没有在运行')
+    await this.bg.stop(taskId)
+  }
+
+  async taskOutput(taskId: string): Promise<TaskOutput> {
+    if (!this.conn) throw new Error('引擎没有在运行')
+    return this.bg.taskOutput(taskId)
+  }
+
   private exited(stderr: string): void {
     this.conn = null
     this.sessionId = null
+    this.bg.processGone()
     if (this.active && !this.closed)
       this.finish('failed', stderr.trim().split(/\r?\n/).slice(-3).join('\n') || 'Antigravity 进程退出了')
   }
@@ -548,6 +572,7 @@ export class AntigravitySession implements EngineSession {
     const conn = this.conn
     this.conn = null
     this.sessionId = null
+    this.bg.processGone()
     await conn?.close(500)
   }
 
@@ -557,6 +582,7 @@ export class AntigravitySession implements EngineSession {
     const conn = this.conn
     this.conn = null
     this.sessionId = null
+    this.bg.processGone()
     await conn?.close(opts.quick ? 300 : 2000)
   }
 }

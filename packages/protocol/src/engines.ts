@@ -160,7 +160,8 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
       ultracode: false,
       fast: false,
       thinkingSummaries: false,
-      backgroundTasks: false,
+      // run_command 转后台（task-N + task-N.log）：对话上方后台任务条、实时输出、直接结束子进程树（antigravity/background.ts）
+      backgroundTasks: true,
       agentTrace: false,
       promptSuggestions: false,
       // agy 只有允许一次 / 拒绝一次；「本会话不再询问」由我们的会话记住（antigravity/session.ts）
