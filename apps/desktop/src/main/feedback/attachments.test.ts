@@ -11,6 +11,7 @@ import {
   packLogs,
   prepareImages,
   sanitizeLogText,
+  phoneInput,
 } from './attachments'
 
 const win = { home: 'C:\\Users\\Alice', platform: 'win32' }
@@ -197,5 +198,46 @@ describe('checkErrorSnippet / buildAttachFields', () => {
     expect(on.attachments).toEqual([
       expect.objectContaining({ kind: 'log', encoding: 'gzip', media_type: 'text/plain' }),
     ])
+  })
+})
+
+// 手机经网关提交（docs/mobile-app.md §8.5）：日志给时间窗、在电脑上取；出错片段不收手机的
+describe('phoneInput', () => {
+  const logs = async (w: unknown) => ({
+    text: 'LOG ' + JSON.stringify(w),
+    lines: 1,
+    bytes: 1,
+    truncated: false,
+    since: 1,
+    until: 2,
+  })
+  it('turns the log window into log text, keeps other fields, drops the error snippet', async () => {
+    const r = await phoneInput(
+      {
+        type: 'bug',
+        title: 't',
+        body: 'b',
+        diagnostics: true,
+        logs: { since: 1 },
+        images: [{ name: 'a' }],
+        error: { text: 'x' },
+      },
+      logs,
+    )
+    expect(r).toEqual({
+      type: 'bug',
+      title: 't',
+      body: 'b',
+      diagnostics: true,
+      logs: 'LOG {"since":1}',
+      images: [{ name: 'a' }],
+      error: null,
+    })
+  })
+  it('no logs without a window; diagnostics only when exactly true; images default to none', async () => {
+    const r = await phoneInput({ body: 'b', diagnostics: 'yes', logs: null }, logs)
+    expect(r).toMatchObject({ diagnostics: false, logs: null, images: [], error: null })
+    await expect(phoneInput(null, logs)).rejects.toThrow('反馈参数不对')
+    await expect(phoneInput([], logs)).rejects.toThrow('反馈参数不对')
   })
 })

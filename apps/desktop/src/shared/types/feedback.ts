@@ -189,3 +189,32 @@ export const FEEDBACK_LIMITS = {
   /** 日志压缩后上限 */
   logPackedBytes: 512 * 1024,
 } as const
+
+// ---------------------------------------------------------------------------
+// 手机经电脑网关用反馈（docs/mobile-app.md §8.5）：令牌不离开电脑，手机看不到邮箱
+// ---------------------------------------------------------------------------
+
+/** 给手机的反馈状态：去掉邮箱，只说登没登录 */
+export type PhoneFeedbackState = Omit<FeedbackState, 'email'> & { signedIn: boolean }
+
+/** 给手机的预览：电脑诊断信息的文字版 + 电脑日志（网关会截短再发） */
+export interface PhoneFeedbackPreview {
+  diagnosticsText: string
+  logs: FeedbackLogPreview | null
+}
+
+/**
+ * 主进程交给手机网关的反馈操作（feedback/feedback.ts 填进 AppContext）。参数是手机原样传来的，校验在里面做：
+ * 新反馈 / 补充的 logs 是时间窗 { since, until } 或 null（日志在电脑上取），error 手机不带
+ */
+export interface PhoneFeedback {
+  state(): PhoneFeedbackState
+  list(before: unknown): Promise<FeedbackList>
+  get(id: unknown): Promise<FeedbackDetail>
+  attachment(threadId: unknown, attachmentId: unknown): Promise<FeedbackAttachmentData>
+  preview(logs: unknown): Promise<PhoneFeedbackPreview>
+  create(input: unknown): Promise<FeedbackDetail>
+  reply(id: unknown, input: unknown): Promise<FeedbackDetail>
+  close(id: unknown): Promise<FeedbackDetail>
+  markAllRead(): Promise<void>
+}

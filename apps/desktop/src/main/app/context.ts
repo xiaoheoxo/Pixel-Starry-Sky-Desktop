@@ -6,6 +6,7 @@ import type { Machines } from '../machines/service'
 import type { ProviderStore } from '../core/providers/store'
 import type { ChannelToolsServer } from '../channels/channel-mcp'
 import type { Channels } from '../core/channels/service'
+import type { PhoneFeedback } from '../../shared/types/feedback'
 import { EventBus } from './events'
 import { Lifecycle } from './lifecycle'
 
@@ -44,6 +45,8 @@ export interface AppContext {
    * 路由和窗口一样由调用方经 ctx.machines 处理。手机的 Git / 文件 / 任务工具用它（docs/mobile-remote.md §18.4）
    */
   readonly toolOps: Map<string, (args: unknown[]) => unknown>
+  /** 反馈操作给手机网关用的那一份（feedback/feedback.ts 的 initFeedback，比 initMobile 晚；docs/mobile-app.md §8.5） */
+  feedback: PhoneFeedback | null
 }
 
 export type EngineCall = (channel: string, args: unknown[], owner: string) => Promise<unknown>
@@ -63,6 +66,7 @@ export function createAppContext(): AppContext {
     channels: null,
     engineCall: null,
     toolOps: new Map(),
+    feedback: null,
   }
 }
 

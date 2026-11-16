@@ -1,5 +1,5 @@
 // 设置（docs/mobile-app.md §8.2、§8.4）：电脑（切换、在手机上删掉、添加）、通用（外观、语言）、
-// 提醒（通知、后台保持连接）、安全（面容 / 指纹锁、电脑和本机指纹）、页脚版本号。
+// 提醒（通知、后台保持连接）、安全（面容 / 指纹锁、电脑和本机指纹）、反馈（问题与建议，有新回复时红点）、页脚版本号。
 import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
@@ -15,6 +15,7 @@ import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../lock/lock_screen.dart';
+import '../feedback/feedback_screen.dart';
 import '../pairing/add_computer_screen.dart';
 import '../pairing/texts.dart';
 import '../session/approval_card.dart' show confirm;
@@ -155,7 +156,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     final c = context.colors;
     final s = AppScope.of(context);
     return ListenableBuilder(
-      listenable: Listenable.merge([s.settings, s.connections]),
+      listenable: Listenable.merge([s.settings, s.connections, ?s.feedback]),
       builder: (context, _) {
         final active = s.connections.active;
         return AppScreen(
@@ -327,6 +328,42 @@ class _SettingsScreenState extends State<SettingsScreen>
                     style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
                   ),
                 ),
+              if (active != null) ...[
+                const SizedBox(height: 8),
+                Section(
+                  title: L('反馈', 'Feedback'),
+                  children: [
+                    ListRow(
+                      leading: Icon(
+                        Icons.chat_bubble_outline,
+                        color: c.textMuted,
+                      ),
+                      title: L('问题与建议', 'Problems & suggestions'),
+                      subtitle: L(
+                        '经「${active.desktopName}」发给团队',
+                        'To the team via “${active.desktopName}”',
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if ((s.feedback?.unread(active.deviceId) ?? 0) > 0)
+                            Container(
+                              width: 8,
+                              height: 8,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: c.notify,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          Icon(Icons.chevron_right, color: c.textFaint),
+                        ],
+                      ),
+                      onTap: () => openFeedback(context, active.deviceId),
+                    ),
+                  ],
+                ),
+              ],
               Padding(
                 padding: const EdgeInsets.only(top: 28),
                 child: Text(

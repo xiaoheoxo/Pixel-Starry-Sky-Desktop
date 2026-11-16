@@ -280,3 +280,23 @@ export function checkTitle(value: unknown): string {
   if (countChars(title) > FEEDBACK_LIMITS.titleChars) throw new Error(`标题不能超过 ${FEEDBACK_LIMITS.titleChars} 字`)
   return title
 }
+
+/**
+ * 手机发来的新反馈 / 补充：日志是时间窗 { since, until }（或 null），在电脑上取；出错片段手机不带。
+ * 其余字段原样交给和设置页同一套校验
+ */
+export async function phoneInput(
+  raw: unknown,
+  logs: (window: unknown) => Promise<FeedbackLogPreview>,
+): Promise<Record<string, unknown>> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('反馈参数不对')
+  const input = raw as Record<string, unknown>
+  const window = input.logs
+  return {
+    ...input,
+    diagnostics: input.diagnostics === true,
+    logs: window === null || window === undefined ? null : (await logs(window)).text,
+    images: Array.isArray(input.images) ? input.images : [],
+    error: null,
+  }
+}

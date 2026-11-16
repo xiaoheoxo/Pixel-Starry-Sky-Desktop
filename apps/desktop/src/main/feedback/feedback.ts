@@ -16,6 +16,7 @@ import {
   type FeedbackDetail,
   type FeedbackDiagnostics,
   type FeedbackList,
+  type FeedbackLogPreview,
   type FeedbackPreview,
   type FeedbackPreviewQuery,
   type FeedbackReplyInput,
@@ -35,7 +36,15 @@ import {
   markAllFeedbackRead,
   replyFeedback,
 } from './api'
-import { buildAttachFields, buildDiagnostics, buildLogs, checkBody, checkTitle, type MessageDeps } from './attachments'
+import {
+  buildAttachFields,
+  buildDiagnostics,
+  buildLogs,
+  checkBody,
+  checkTitle,
+  phoneInput,
+  type MessageDeps,
+} from './attachments'
 import { FeedbackTracker, FileNotifiedStore } from './tracker'
 
 /** 定时器多久醒一次，看要不要检查（只比时间，不发请求）；真正的间隔由 tracker.pollInterval() 决定 */
@@ -140,37 +149,25 @@ export function initFeedback(ctx: AppContext): void {
     },
     deny,
   )
-  ipc.handle(
-    'feedback:markAllRead',
-    async (): Promise<void> => {
+  /** 设置页和手机（经网关，docs/mobile-app.md §8.5）共用的操作：参数校验在这里，两边一样 */
+  const ops = {
+    async markAllRead(): Promise<void> {
       requireEmail()
       await markAllFeedbackRead()
       // 走现有的检查：feedback:changed 推送新状态；检查失败不算标记失败
       await tracker.poll().catch(() => undefined)
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:list',
-    async (_event, before: unknown): Promise<FeedbackList> => {
+    async list(before: unknown): Promise<FeedbackList> {
       requireEmail()
       if (before !== null && before !== undefined && (typeof before !== 'string' || !before || before.length > 200))
         throw new Error('分页参数不对')
       return listFeedback(before ?? null)
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:get',
-    async (_event, id: unknown): Promise<FeedbackDetail> => {
+    async get(id: unknown): Promise<FeedbackDetail> {
       requireEmail()
       return afterAction(await getFeedback(checkThreadId(id)))
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:create',
-    async (_event, raw: unknown): Promise<FeedbackDetail> => {
+    async create(raw: unknown): Promise<FeedbackDetail> {
       requireEmail()
       const input = asObject(raw, '反馈') as unknown as FeedbackCreateInput
       const type = parseType(input.type)
@@ -182,11 +179,7 @@ export function initFeedback(ctx: AppContext): void {
       tracker.markActive()
       return afterAction(detail)
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:reply',
-    async (_event, id: unknown, raw: unknown): Promise<FeedbackDetail> => {
+    async reply(id: unknown, raw: unknown): Promise<FeedbackDetail> {
       requireEmail()
       const threadId = checkThreadId(id)
       const input = asObject(raw, '补充') as unknown as FeedbackReplyInput
@@ -197,43 +190,63 @@ export function initFeedback(ctx: AppContext): void {
       tracker.markActive()
       return afterAction(detail)
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:close',
-    async (_event, id: unknown): Promise<FeedbackDetail> => {
+    async close(id: unknown): Promise<FeedbackDetail> {
       requireEmail()
       return afterAction(await closeFeedback(checkThreadId(id)))
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:preview',
-    async (_event, raw: unknown): Promise<FeedbackPreview> => {
+    /** 日志时间窗：until 省略为现在，since 省略为往前 2 小时 */
+    async logs(raw: unknown): Promise<FeedbackLogPreview> {
+      const w = asObject(raw, '日志时间窗')
+      const until = w.until === undefined ? Date.now() : parseTime(w.until, '日志结束时间')
+      const since = w.since === undefined ? until - DEFAULT_LOG_WINDOW_MS : parseTime(w.since, '日志开始时间')
+      if (since >= until) throw new Error('日志时间窗不对')
+      return buildLogs(logService() ?? emptyLogs, since, until)
+    },
+    async preview(raw: unknown): Promise<FeedbackPreview> {
       const query = (raw ?? {}) as FeedbackPreviewQuery
       asObject(query, '预览')
       const d = await diagnostics()
-      let logs = null
-      if (query.logs !== undefined && query.logs !== null) {
-        const w = asObject(query.logs, '日志时间窗')
-        const until = w.until === undefined ? Date.now() : parseTime(w.until, '日志结束时间')
-        const since = w.since === undefined ? until - DEFAULT_LOG_WINDOW_MS : parseTime(w.since, '日志开始时间')
-        if (since >= until) throw new Error('日志时间窗不对')
-        logs = await buildLogs(logService() ?? emptyLogs, since, until)
-      }
+      const logs = query.logs !== undefined && query.logs !== null ? await ops.logs(query.logs) : null
       return { diagnostics: d.diagnostics, diagnosticsText: d.text, logs }
     },
-    deny,
-  )
-  ipc.handle(
-    'feedback:attachment',
-    async (_event, threadId: unknown, attachmentId: unknown): Promise<FeedbackAttachmentData> => {
+    async attachment(threadId: unknown, attachmentId: unknown): Promise<FeedbackAttachmentData> {
       requireEmail()
       const { bytes, mediaType } = await fetchAttachment(checkThreadId(threadId), checkAttachmentId(attachmentId))
       if (mediaType.startsWith('image/')) return { kind: 'image', mediaType, data: bytes.toString('base64') }
       if (mediaType.startsWith('text/')) return { kind: 'log', text: bytes.toString('utf8') }
       throw new FeedbackError('不支持的附件类型', 'INVALID')
     },
+  }
+
+  ipc.handle('feedback:markAllRead', () => ops.markAllRead(), deny)
+  ipc.handle('feedback:list', (_event, before: unknown) => ops.list(before), deny)
+  ipc.handle('feedback:get', (_event, id: unknown) => ops.get(id), deny)
+  ipc.handle('feedback:create', (_event, raw: unknown) => ops.create(raw), deny)
+  ipc.handle('feedback:reply', (_event, id: unknown, raw: unknown) => ops.reply(id, raw), deny)
+  ipc.handle('feedback:close', (_event, id: unknown) => ops.close(id), deny)
+  ipc.handle('feedback:preview', (_event, raw: unknown) => ops.preview(raw), deny)
+  ipc.handle(
+    'feedback:attachment',
+    (_event, threadId: unknown, attachmentId: unknown) => ops.attachment(threadId, attachmentId),
     deny,
   )
+
+  // 手机经网关用的那一份：不带邮箱；日志由手机给时间窗、这里取（原文不经手机来回传）
+  ctx.feedback = {
+    state: () => {
+      const { email, ...rest } = tracker.state()
+      return { ...rest, signedIn: email !== null }
+    },
+    list: ops.list,
+    get: ops.get,
+    attachment: ops.attachment,
+    close: ops.close,
+    markAllRead: ops.markAllRead,
+    preview: async window => {
+      const d = await diagnostics()
+      return { diagnosticsText: d.text, logs: window ? await ops.logs(window) : null }
+    },
+    create: async raw => ops.create(await phoneInput(raw, ops.logs)),
+    reply: async (id, raw) => ops.reply(id, await phoneInput(raw, ops.logs)),
+  }
 }

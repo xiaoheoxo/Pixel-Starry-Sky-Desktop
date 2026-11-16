@@ -11,6 +11,9 @@ abstract final class Radii {
 
   /// 回复里的代码块
   static const code = 12.0;
+
+  /// 胶囊（状态小标签）
+  static const pill = 999.0;
 }
 
 ThemeData buildTheme(Brightness brightness) {

@@ -198,6 +198,8 @@ export function initMobile(ctx: AppContext): void {
         if (!ctx.engine) throw new Error('项目尚未加载')
         return ctx.engine.search({ requestId: ++searchSeq, text, scope: 'all', projectId }, signal)
       },
+      // 反馈模块比手机晚初始化：每次调用时再取
+      feedback: () => ctx.feedback,
       directories: path => listDirectories(path),
       addProject: path => {
         if (!ctx.engine) throw new Error('项目尚未加载')

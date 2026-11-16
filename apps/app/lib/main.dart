@@ -12,6 +12,7 @@ import 'connection/pair.dart';
 import 'connection/socket.dart';
 import 'connection/storage.dart';
 import 'data/desktop_lists.dart';
+import 'data/feedback.dart';
 import 'data/list_cache.dart';
 import 'demo/demo.dart';
 import 'i18n/i18n.dart';
@@ -49,6 +50,7 @@ Future<void> main() async {
         settings: settings,
         notifier: notifier,
         watcher: BackgroundWatcher(notifier: notifier, settings: settings),
+        feedback: FeedbackUnread(connections),
         demo: demo != null,
       ),
     ),

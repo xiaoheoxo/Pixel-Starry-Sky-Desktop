@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../connection/connections.dart';
 import '../connection/pair.dart';
 import '../data/desktop_lists.dart';
+import '../data/feedback.dart';
 import '../platform/notifier.dart';
 import 'background.dart';
 import 'settings.dart';
@@ -16,6 +17,7 @@ class AppServices {
     required this.settings,
     required this.notifier,
     required this.watcher,
+    this.feedback,
     this.demo = false,
   });
   final Connections connections;
@@ -32,6 +34,9 @@ class AppServices {
 
   /// 在后台时的提醒和保持连接
   final BackgroundWatcher watcher;
+
+  /// 每台电脑的反馈未读数（设置、抽屉的红点）；测试里不给就不显示红点
+  final FeedbackUnread? feedback;
 
   /// 演示模式：不连电脑，用假数据（--dart-define=DEMO=1）
   final bool demo;

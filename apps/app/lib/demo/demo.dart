@@ -10,6 +10,7 @@ import '../connection/socket.dart';
 import '../link/link.dart';
 import '../protocol/json.dart';
 import '../protocol/reduce.dart';
+import 'demo_feedback.dart';
 import 'demo_tools.dart';
 
 // bool.fromEnvironment 只认 true，文档里写的是 DEMO=1，两种都认
@@ -404,10 +405,17 @@ class DemoDesktop {
     },
   );
 
+  late final _feedback = DemoFeedback(
+    changed: (unread) =>
+        _rpc?.event('feedback:changed', {'kind': 'feedback', 'unread': unread}),
+  );
+
   Object? _handle(String method, List args) {
     final id = args.isEmpty ? null : args.first;
     final tool = _tools.handle(method, args);
     if (!identical(tool, notTool)) return tool;
+    final feedback = _feedback.handle(method, args);
+    if (!identical(feedback, notTool)) return feedback;
     switch (method) {
       case 'hello':
         _startStream();

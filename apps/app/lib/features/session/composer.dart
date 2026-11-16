@@ -2,7 +2,6 @@
 // 下面一行：圆形「＋」（相册 / 拍照）、输入框、右边一个圆键。
 // 圆键：运行中且没字没图是方形「停止」；其余是发送（运行中发的由电脑排队，docs/ui/message-queue.md）。
 // 草稿由外面管（会话页的 TextEditingController）：队列里撤回的消息会放回这里。规则照网页版 Composer.tsx。
-import 'package:image_picker/image_picker.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../data/actions.dart';
@@ -10,8 +9,8 @@ import '../../data/images.dart';
 import '../../i18n/i18n.dart';
 import '../../ui/theme/theme.dart';
 import '../../ui/theme/tokens.dart';
+import '../../ui/image_attach.dart';
 import '../../ui/theme/type.dart';
-import '../../ui/widgets.dart';
 
 class Composer extends StatefulWidget {
   const Composer({
@@ -54,7 +53,6 @@ class Composer extends StatefulWidget {
 class _ComposerState extends State<Composer> {
   bool _busy = false;
   String? _error;
-  final _picker = ImagePicker();
 
   @override
   void initState() {
@@ -104,38 +102,8 @@ class _ComposerState extends State<Composer> {
   Future<void> _pick() async {
     final images = widget.images;
     if (images == null) return;
-    final source = await showPanel<ImageSource>(
-      context,
-      (context) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Section(
-            children: [
-              ListRow(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: L('从相册选', 'Choose from photos'),
-                onTap: () => Navigator.pop(context, ImageSource.gallery),
-              ),
-              ListRow(
-                leading: const Icon(Icons.photo_camera_outlined),
-                title: L('拍照', 'Take a photo'),
-                onTap: () => Navigator.pop(context, ImageSource.camera),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (source == null) return;
-    try {
-      final files = source == ImageSource.gallery
-          ? await _picker.pickMultiImage(limit: maxImages)
-          : [?await _picker.pickImage(source: ImageSource.camera)];
-      if (files.isNotEmpty) await images.add(files);
-    } catch (e) {
-      if (mounted) setState(() => _error = '$e');
-    }
+    final error = await pickImagesInto(context, images);
+    if (error != null && mounted) setState(() => _error = error);
   }
 
   @override
@@ -189,7 +157,7 @@ class _ComposerState extends State<Composer> {
               children: [
                 ?widget.top,
                 if (_images.isNotEmpty || (images?.busy ?? false))
-                  _Thumbs(images: images!),
+                  ImageThumbs(images: images!),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -305,75 +273,6 @@ class _Circle extends StatelessWidget {
                 : Icon(icon, size: 20, color: fg),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Thumbs extends StatelessWidget {
-  const _Thumbs({required this.images});
-  final PendingImages images;
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return SizedBox(
-      height: 72,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-        children: [
-          for (final img in images.images)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.memory(
-                      imageBytes(img),
-                      width: 64,
-                      height: 64,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                    ),
-                  ),
-                  Positioned(
-                    top: -6,
-                    right: -6,
-                    child: GestureDetector(
-                      onTap: () => images.remove(img['id'] as String),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: c.btnPrimaryBg,
-                          shape: BoxShape.circle,
-                        ),
-                        padding: const EdgeInsets.all(3),
-                        child: Icon(
-                          Icons.close,
-                          size: 14,
-                          color: c.btnPrimaryText,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          if (images.busy)
-            SizedBox(
-              width: 64,
-              child: Center(
-                child: SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: c.textMuted,
-                  ),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

@@ -4,7 +4,8 @@
 // - 调用：只放行契约里标了 mobile 的通道，「只看」的手机不能调 act 的；参数先清洗（不能放宽权限、改线路）；
 // - 事件：和窗口看到的同一份；会话事件只推给打开着这个会话的手机，会话列表合并节流。
 // - 网关自己的几个调用（不在契约里）：hello、unwatch、defaults、account、search、image（docs/mobile-remote.md §17）；
-//   工具（Git / 文件 / 产物 / 任务）和加项目也由网关放行（PHONE_TOOLS、directories、addProject，§18.4）。
+//   工具（Git / 文件 / 产物 / 任务）和加项目也由网关放行（PHONE_TOOLS、directories、addProject，§18.4）；
+//   反馈（feedback:*，FEEDBACK_ACCESS，docs/mobile-app.md §8.5）转给电脑的设置 › 反馈，令牌不离开电脑。
 import {
   EFFORTS,
   ENGINES,
@@ -48,6 +49,7 @@ import type { EngineCall } from '../app/context'
 import type { DirectoryChoices } from '../core/directories'
 import { slimForPhone } from '../core/engine/tail'
 import type { AccountInfo } from '../../shared/types/account'
+import type { PhoneFeedback } from '../../shared/types/feedback'
 import type { MobilePairing } from '../../shared/types/mobile'
 import type { GitDiff } from '../../shared/types/project-tools'
 import type { FileDocument } from '../../shared/types/workspace'
@@ -127,6 +129,8 @@ export interface LocalQueries {
   addProject?(path: string): ProjectRecord | Promise<ProjectRecord>
   /** 电脑登录的平台账号（抽屉底部的头像、余额）；没登录为 null */
   account?(): Promise<PhoneAccount | null> | PhoneAccount | null
+  /** 电脑的反馈（设置 › 反馈）；反馈模块还没起来时为 null */
+  feedback?(): PhoneFeedback | null
 }
 
 /** 手机能看到的账号信息：只有名字、余额、套餐名，不带邮箱、分组、限流、额度 */
@@ -304,6 +308,22 @@ export const PHONE_TOOLS: Readonly<Record<string, PhoneTool>> = {
   },
   'projectTools:createTask': { access: 'act', args: a => [asString(a[0]), taskArg(a[1])] },
   'projectTools:updateTask': { access: 'act', args: a => [asString(a[0]), taskArg(a[1])] },
+}
+
+/**
+ * 手机能用的反馈调用和要的权限：看列表、回复、附件、预览、标已读只要「只看」；
+ * 提交、补充、关闭以电脑账号的名义发出，要「可操作」（docs/mobile-app.md §8.5 第 3 问）
+ */
+export const FEEDBACK_ACCESS: Readonly<Record<string, MobileAccess>> = {
+  'feedback:state': 'view',
+  'feedback:list': 'view',
+  'feedback:get': 'view',
+  'feedback:attachment': 'view',
+  'feedback:preview': 'view',
+  'feedback:markAllRead': 'view',
+  'feedback:create': 'act',
+  'feedback:reply': 'act',
+  'feedback:close': 'act',
 }
 
 /** 手机看的 Git 改动：电脑上比好，只发改动和前后几行 */
@@ -693,6 +713,7 @@ export class MobileGateway {
     if (method === 'search') return this.search(peer, args)
     if (method === 'image') return this.image(peer, args)
     if (method === 'directories' || method === 'addProject') return this.project(device.access, method, args)
+    if (Object.hasOwn(FEEDBACK_ACCESS, method)) return this.feedback(device.access, method, args)
     const tool = Object.hasOwn(PHONE_TOOLS, method) ? PHONE_TOOLS[method] : undefined
     if (tool) {
       if (tool.access === 'act' && device.access !== 'act') throw new Error('MOBILE_FORBIDDEN')
@@ -807,6 +828,59 @@ export class MobileGateway {
     return local.addProject(asString(args[0], 4096))
   }
 
+  /** 反馈：按权限放行，交给电脑的反馈模块；大的日志截短、大图缩小，回复放得进一帧 */
+  private async feedback(access: MobileAccess, method: string, args: unknown[]): Promise<unknown> {
+    if (FEEDBACK_ACCESS[method] === 'act' && access !== 'act') throw new Error('MOBILE_FORBIDDEN')
+    const f = this.d.local?.feedback?.()
+    if (!f) throw new Error('MOBILE_UNSUPPORTED')
+    switch (method) {
+      case 'feedback:state':
+        return f.state()
+      case 'feedback:list':
+        return f.list(args[0] ?? null)
+      case 'feedback:get':
+        return f.get(args[0])
+      case 'feedback:markAllRead':
+        return f.markAllRead()
+      case 'feedback:create':
+        return f.create(args[0])
+      case 'feedback:reply':
+        return f.reply(args[0], args[1])
+      case 'feedback:close':
+        return f.close(args[0])
+      case 'feedback:preview': {
+        const p = await f.preview(args[0] ?? null)
+        if (!p.logs || p.logs.text.length <= PHONE_TEXT_LIMIT) return p
+        // 手机只是预览：留最后一段（最近的日志），提交时电脑重新取完整的
+        return { ...p, logs: { ...p.logs, text: p.logs.text.slice(-PHONE_TEXT_LIMIT), cut: true } }
+      }
+      default: {
+        const a = await f.attachment(args[0], args[1])
+        if (a.kind === 'log')
+          return a.text.length <= PHONE_TEXT_LIMIT
+            ? a
+            : { kind: 'log', text: a.text.slice(-PHONE_TEXT_LIMIT), cut: true }
+        if (a.data.length <= IMAGE_INLINE) return a
+        const image: ImageAttachment = {
+          id: 'feedback',
+          name: 'image',
+          mediaType: a.mediaType as ImageAttachment['mediaType'],
+          bytes: 0,
+          width: 0,
+          height: 0,
+          dataBase64: a.data,
+        }
+        for (const edge of SHRINK_EDGES) {
+          const small = this.d.shrinkImage?.(image, edge)
+          if (!small) break
+          if (small.dataBase64.length <= IMAGE_INLINE)
+            return { kind: 'image', mediaType: small.mediaType, data: small.dataBase64 }
+        }
+        throw new Error('MOBILE_TOO_LARGE')
+      }
+    }
+  }
+
   /** 搜索本机会话的对话内容（标题在手机上自己筛）；同一部手机新的搜索会取消上一次 */
   private async search(peer: Peer, args: unknown[]): Promise<PhoneSearch> {
     const local = this.d.local
@@ -861,6 +935,13 @@ export class MobileGateway {
     if (channel === 'engine:event' && (args[0] as HostEvent | undefined)?.kind === 'sessions')
       this.remind((args[0] as Extract<HostEvent, { kind: 'sessions' }>).sessions)
     if (!this.peers.size) return
+    // 反馈有新回复、已读变了：只告诉未读数，手机上开着反馈页时自己重取（旧手机认不得 kind: 'feedback'，会忽略）
+    if (channel === 'feedback:changed') {
+      const unread = (args[0] as { state?: { unreadCount?: unknown } } | undefined)?.state?.unreadCount
+      const data = { kind: 'feedback', unread: typeof unread === 'number' ? unread : 0 }
+      for (const peer of this.peers.values()) peer.rpc.event('feedback:changed', data)
+      return
+    }
     // 任务、Git 状态变了（电脑上已经合并过）：手机上开着的工具页重新取。
     // 手机只看事件内容不看通道名，旧版手机认不得 kind: 'tools'，会直接忽略
     if (channel === 'projectTools:changed') {

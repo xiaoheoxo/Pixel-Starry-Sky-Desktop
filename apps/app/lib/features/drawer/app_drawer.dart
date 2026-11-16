@@ -529,11 +529,13 @@ class _AccountRowState extends State<_AccountRow> {
     final c = context.colors;
     final connections = AppScope.of(context).connections;
     return ListenableBuilder(
-      listenable: _data,
+      listenable: Listenable.merge([_data, ?AppScope.of(context).feedback]),
       builder: (context, _) {
         final raw = objOrNull(_data.data);
         final ready = connections.state(widget.deviceId) == LinkState.ready;
         final account = raw == null || !ready ? null : Account(raw);
+        final unread =
+            AppScope.of(context).feedback?.unread(widget.deviceId) ?? 0;
         void open() {
           closeDrawer(context);
           openSettings(context);
@@ -552,15 +554,21 @@ class _AccountRowState extends State<_AccountRow> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: c.bgSelected,
-                  child: Text(
-                    accountInitial(account.name),
-                    style: TextStyle(
-                      fontSize: Fs.ui,
-                      fontWeight: FontWeight.w600,
-                      color: c.text,
+                // 反馈有新回复：头像右上角红点（点进设置 › 反馈看）
+                Badge(
+                  isLabelVisible: unread > 0,
+                  smallSize: 9,
+                  backgroundColor: c.notify,
+                  child: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: c.bgSelected,
+                    child: Text(
+                      accountInitial(account.name),
+                      style: TextStyle(
+                        fontSize: Fs.ui,
+                        fontWeight: FontWeight.w600,
+                        color: c.text,
+                      ),
                     ),
                   ),
                 ),

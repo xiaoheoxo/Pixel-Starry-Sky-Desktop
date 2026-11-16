@@ -443,6 +443,77 @@ describe('MobileGateway calls', () => {
     expect(await (await paired(out)).call('account')).toBeNull()
   })
 
+  // 反馈（docs/mobile-app.md §8.5）：看要「只看」，提交 / 补充 / 关闭要「可操作」；长日志截短、大图缩小；未读变化只说数
+  it('feedback: view-only phones read, only act phones write; big logs cut, big images shrunk', async () => {
+    const calls: unknown[][] = []
+    const detail = { thread: { id: 't1' }, messages: [] } as never
+    const feedback = {
+      state: () =>
+        ({
+          status: 'ready',
+          signedIn: true,
+          unreadCount: 1,
+          threads: [],
+          nextBefore: null,
+          error: null,
+          checkedAt: 1,
+        }) as never,
+      list: async (before: unknown) => (calls.push(['list', before]), { threads: [], nextBefore: null }) as never,
+      get: async (id: unknown) => (calls.push(['get', id]), detail),
+      attachment: async (_t: unknown, id: unknown) =>
+        (id === 1
+          ? { kind: 'log', text: 'x'.repeat(PHONE_TEXT_LIMIT + 10) }
+          : { kind: 'image', mediaType: 'image/png', data: 'y'.repeat(IMAGE_INLINE + 1) }) as never,
+      preview: async (w: unknown) => (calls.push(['preview', w]), { diagnosticsText: 'd', logs: null }),
+      create: async (input: unknown) => (calls.push(['create', input]), detail),
+      reply: async (id: unknown, input: unknown) => (calls.push(['reply', id, input]), detail),
+      close: async (id: unknown) => (calls.push(['close', id]), detail),
+      markAllRead: async () => void calls.push(['markAllRead']),
+    }
+    const t = setup({
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never, feedback: () => feedback },
+      shrinkImage: image => ({ ...image, dataBase64: 'small' }),
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    expect(await p.call('feedback:state')).toMatchObject({ signedIn: true, unreadCount: 1 })
+    expect(JSON.stringify(await p.call('feedback:state'))).not.toContain('@')
+    await p.call('feedback:list', null)
+    await p.call('feedback:get', 't1')
+    await p.call('feedback:markAllRead')
+    await p.call('feedback:preview', { since: 1 })
+    await expect(p.call('feedback:create', { type: 'bug' })).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('feedback:reply', 't1', { body: 'x' })).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('feedback:close', 't1')).rejects.toThrow('MOBILE_FORBIDDEN')
+    const log = (await p.call('feedback:attachment', 't1', 1)) as { text: string; cut?: boolean }
+    expect(log.text.length).toBe(PHONE_TEXT_LIMIT)
+    expect(log.cut).toBe(true)
+    expect(await p.call('feedback:attachment', 't1', 2)).toEqual({
+      kind: 'image',
+      mediaType: 'image/png',
+      data: 'small',
+    })
+    t.devices[0].access = 'act'
+    await p.call('feedback:create', { type: 'bug' })
+    await p.call('feedback:reply', 't1', { body: 'x' })
+    await p.call('feedback:close', 't1')
+    expect(calls.map(c => c[0])).toEqual(['list', 'get', 'markAllRead', 'preview', 'create', 'reply', 'close'])
+    expect(calls[4]).toEqual(['create', { type: 'bug' }])
+    // 未读变化：只发未读数，不带反馈内容和邮箱
+    t.gateway.hostEvent('feedback:changed', [
+      { state: { email: 'a@b.c', unreadCount: 2, threads: [{ title: 'secret' }] } },
+    ])
+    await wait(20)
+    expect(p.events.at(-1)).toEqual({ kind: 'feedback', unread: 2 })
+    // 电脑上反馈模块还没起来：说不支持
+    const none = setup({
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never, feedback: () => null },
+    })
+    gateways.push(none.gateway)
+    await expect((await paired(none)).call('feedback:state')).rejects.toThrow('MOBILE_UNSUPPORTED')
+  })
+
   it('phoneAccount keeps only name, balance, currency, plan name and updatedAt', () => {
     const info = {
       email: 'a@b.c',

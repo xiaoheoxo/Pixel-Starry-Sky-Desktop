@@ -1,6 +1,9 @@
 // 本机的设置（docs/mobile-app.md §8.2、§8.4）：后台保持连接、面容 / 指纹锁、外观、语言、每台电脑上次选的项目。
 // 存在 shared_preferences；persist: false 时只放内存（演示模式、测试）。
 import 'package:material_ui/material_ui.dart' show ThemeMode, Locale;
+
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -36,6 +39,7 @@ class AppSettings extends ChangeNotifier {
   static const _appearanceKey = 'pixelsky.appearance';
   static const _languageKey = 'pixelsky.language';
   static const _projectKey = 'pixelsky.project.';
+  static const _draftKey = 'pixelsky.feedbackDraft.';
 
   /// 切到后台时保持和电脑的连接（安卓前台服务），默认开
   bool keepAlive = true;
@@ -48,6 +52,9 @@ class AppSettings extends ChangeNotifier {
 
   /// 每台电脑上次在工具里选的项目
   final _projects = <String, String>{};
+
+  /// 每台电脑没提交的反馈草稿（类型、标题、描述、复现步骤；图片不存）
+  final _drafts = <String, Map<String, Object?>>{};
 
   T _parse<T extends Enum>(List<T> values, String? name, T fallback) {
     for (final v in values) {
@@ -76,6 +83,14 @@ class AppSettings extends ChangeNotifier {
       for (final e in all.entries) {
         if (e.key.startsWith(_projectKey) && e.value is String) {
           _projects[e.key.substring(_projectKey.length)] = e.value as String;
+        }
+        if (e.key.startsWith(_draftKey) && e.value is String) {
+          try {
+            final d = jsonDecode(e.value as String);
+            if (d is Map<String, Object?>) {
+              _drafts[e.key.substring(_draftKey.length)] = d;
+            }
+          } catch (_) {}
         }
       }
     } catch (_) {}
@@ -114,9 +129,34 @@ class AppSettings extends ChangeNotifier {
     await _prefs?.setString('$_projectKey$deviceId', projectId);
   }
 
+  Map<String, Object?>? feedbackDraft(String deviceId) => _drafts[deviceId];
+
+  /// 存草稿；null 或全空时删掉
+  Future<void> setFeedbackDraft(
+    String deviceId,
+    Map<String, Object?>? draft,
+  ) async {
+    final empty =
+        draft == null ||
+        [
+          'title',
+          'body',
+          'steps',
+        ].every((k) => (draft[k] as String? ?? '').trim().isEmpty);
+    if (empty) {
+      _drafts.remove(deviceId);
+      await _prefs?.remove('$_draftKey$deviceId');
+      return;
+    }
+    _drafts[deviceId] = draft;
+    await _prefs?.setString('$_draftKey$deviceId', jsonEncode(draft));
+  }
+
   /// 忘掉电脑时一起删掉
   Future<void> forgetDevice(String deviceId) async {
     _projects.remove(deviceId);
+    _drafts.remove(deviceId);
     await _prefs?.remove('$_projectKey$deviceId');
+    await _prefs?.remove('$_draftKey$deviceId');
   }
 }
