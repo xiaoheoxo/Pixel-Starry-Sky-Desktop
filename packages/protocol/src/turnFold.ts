@@ -37,8 +37,16 @@ export const isTaskNotice = (item: Item): boolean => item.kind === 'notice' && !
 export const isSubagentBox = (item: Item): boolean => isSubagentCall(item) || isTaskNotice(item)
 
 /** 一直显示的条目（不看位置）：最后的回复另外判断 */
+/**
+ * 生成的图（Codex 内置生图、云端生图，docs/ui/image-gen.md）是这一轮的结果：不收进执行块。
+ * 云端生图在上一轮的统计行之后单独成一轮，收进去就成了一行「执行」，图看不到
+ */
+const generatedImage = (item: Item): boolean =>
+  item.kind === 'tool' && (item.name === 'imageGeneration' || item.name === 'cloudImage')
+
 function alwaysVisible(item: Item, box: boolean): boolean {
   if (item.kind === 'user' || item.kind === 'turn_stats' || item.kind === 'compaction') return true
+  if (generatedImage(item)) return true
   if (box && isSubagentBox(item)) return true
   return item.kind === 'notice' && item.level !== 'info'
 }

@@ -378,3 +378,26 @@ describe('穿插：中间的回复直接显示（docs/ui/codex-flow-slash-feedba
     expect(shape(foldTurns(items, false, on))).toEqual(['u1', 'a1', ['c1'], 'a2', 's'])
   })
 })
+
+// 回归（审查）：生成的图不收进「执行」，是这一轮的结果
+describe('生成的图（docs/ui/image-gen.md）', () => {
+  const image = (id: string, name: 'imageGeneration' | 'cloudImage'): Item => ({
+    kind: 'tool',
+    id,
+    tool: 'other',
+    name,
+    title: id,
+    output: '',
+    status: 'completed',
+  })
+  const kinds = (entries: TurnEntry[]) =>
+    entries.map(e => (e.type === 'item' ? e.item.id : `process:${e.items.map(i => i.id).join(',')}`))
+  it('Codex 一轮里生图：图在外面，前后的工具照样收', () => {
+    const turn = [user('u'), read('r1'), image('g', 'imageGeneration'), read('r2'), say('好了'), stats('s')]
+    expect(kinds(foldTurns(turn, false))).toEqual(['u', 'process:r1', 'g', 'process:r2', '好了', 's'])
+  })
+  it('云端生图在统计行之后单独一轮：照原样显示，不变成「执行」', () => {
+    const items = [user('u'), say('a'), stats('s'), image('c', 'cloudImage')]
+    expect(kinds(foldTurns(items, false))).toEqual(['u', 'a', 's', 'c'])
+  })
+})
