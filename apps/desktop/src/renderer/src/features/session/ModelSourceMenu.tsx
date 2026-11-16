@@ -61,6 +61,7 @@ import {
   channelStateText,
   executorDesc,
   executorName,
+  showTriggerSource,
 } from '@/features/model-channels/channelLabels'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
@@ -923,10 +924,9 @@ export function ModelSourceMenu({
       </>
     )
 
-  const modelText =
-    live.channel === 'claude' || live.channel === 'chatgpt'
-      ? selfModelLabel(engineId, live.model, ownCatalog?.models)
-      : (live.model ?? tr('session.ModelSourceMenu.chooseModel'))
+  const modelText = isAuthChannel(live.channel)
+    ? selfModelLabel(engineId, live.model, ownCatalog?.models)
+    : (live.model ?? tr('session.ModelSourceMenu.chooseModel'))
   const channelText =
     live.channel === 'custom'
       ? (endpoint?.name ?? channelShort('custom'))
@@ -1056,8 +1056,8 @@ export function ModelSourceMenu({
         <span data-model-name className={cn('max-w-44 min-w-0 truncate', notReady && 'text-warn')}>
           {modelText}
         </span>
-        {/* 账号模式（自己的 Claude / ChatGPT 账号）：图标就说明了来源，不再写「· Claude」，悬停提示里有（docs/ui/composer-model-button-mockup.html 方案 B） */}
-        {live.channel !== 'claude' && live.channel !== 'chatgpt' && (
+        {/* 账号模式（自己的 Claude / ChatGPT / Antigravity 授权）：图标就说明了来源，不再写「· 来源」，悬停提示里有（docs/ui/composer-model-button-mockup.html 方案 B） */}
+        {showTriggerSource(live.channel) && (
           <span data-model-source className="shrink-0 text-meta text-fg-muted">
             · {channelText}
           </span>

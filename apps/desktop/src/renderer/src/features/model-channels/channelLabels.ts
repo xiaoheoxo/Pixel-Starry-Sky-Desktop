@@ -23,6 +23,9 @@ export const CHANNEL_DIGIT: Record<ChannelId, string> = {
 export const channelLabel = (c: ChannelId): string => tr(`modelChannels.channel.${c}`)
 export const channelShort = (c: ChannelId): string => tr(`modelChannels.short.${c}`)
 
+/** 输入框模型按钮要不要写「· 来源」：Claude / ChatGPT / Antigravity 自有授权有左侧引擎图标，不重复写后缀 */
+export const showTriggerSource = (c: ChannelId): boolean => !isAuthChannel(c)
+
 /** 执行者的名字：像素星空写成「像素星空 agent」，和通道「像素星空账号」分开 */
 export const executorName = (e: EngineId): string =>
   e === 'pixel' ? tr('modelChannels.executor.pixel') : ENGINES[e].name

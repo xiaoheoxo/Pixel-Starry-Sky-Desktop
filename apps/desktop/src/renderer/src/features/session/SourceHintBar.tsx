@@ -18,6 +18,7 @@ import {
   isAuthChannel,
   pixelSelfMissing,
   selfSourceReady,
+  type AuthChannel,
   type ChannelChoice,
 } from '@/features/model-channels/channelModel'
 import { useEngineCatalog } from '@/features/engine/catalog'
@@ -382,7 +383,7 @@ export function SourceHintBar({
               {usePlatformBtn}
               <Action onClick={live.redetect}>{tr('session.SourceHintBar.detectAgain')}</Action>
               {b.kind === 'self-auth' && isAuthChannel(live.channel) && (
-                <Action primary onClick={() => openAuthDialog(live.channel as 'claude' | 'chatgpt')}>
+                <Action primary onClick={() => openAuthDialog(live.channel as AuthChannel)}>
                   {tr('modelChannels.action.auth')}
                 </Action>
               )}

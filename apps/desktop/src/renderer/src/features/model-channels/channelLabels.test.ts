@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { accountText, authChannelSub, channelAccount, maskEmail } from './channelLabels'
+import { selfModelLabel } from '@/features/engine/labels'
+import { accountText, authChannelSub, channelAccount, maskEmail, showTriggerSource } from './channelLabels'
 import { parseGoogleNote } from './channelPrefs'
 
 describe('Google 账号套餐与备注（方案 D）', () => {
@@ -53,5 +54,25 @@ describe('Google 账号套餐与备注（方案 D）', () => {
     expect(maskEmail('a@gmail.com')).toBe('a@gmail.com')
     expect(accountText({ email: 'ray@gmail.com', plan: 'Google AI Pro' }, 'google')).toBe('ray@gmail.com · Pro')
     expect(accountText({ plan: 'Google AI Ultra' }, 'google')).toBe('Ultra')
+  })
+
+  it('输入框模型按钮：授权通道（含 Antigravity）不显示来源后缀，模型名走目录显示名', () => {
+    expect(showTriggerSource('claude')).toBe(false)
+    expect(showTriggerSource('chatgpt')).toBe(false)
+    expect(showTriggerSource('google')).toBe(false)
+    expect(showTriggerSource('platform')).toBe(true)
+    expect(showTriggerSource('custom')).toBe(true)
+    expect(
+      selfModelLabel('antigravity', 'gemini-4-carbon', [
+        {
+          id: 'gemini-4-carbon',
+          label: 'Gemini 4 Carbon',
+          efforts: ['low', 'medium', 'high'],
+          defaultEffort: 'high',
+          isDefault: false,
+          inputModalities: ['text', 'image'],
+        },
+      ]),
+    ).toBe('Gemini 4 Carbon')
   })
 })

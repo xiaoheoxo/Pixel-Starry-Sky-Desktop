@@ -12,6 +12,7 @@ import { useAccount } from '@/features/account'
 import { getPlatformState, refreshPlatform } from '@/features/account/platform'
 import { ENGINES } from '@pixelsky/protocol'
 import { channelStateText } from '@/features/model-channels/channelLabels'
+import { isAuthChannel } from '@/features/model-channels/channelModel'
 import { openAuthDialog } from '@/features/model-channels/authDialogStore'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import {
@@ -463,7 +464,8 @@ export function AiCommitNote({ ai }: { ai: AiCommit }) {
       {note.problem === 'balance' && action(tr('aiCommit.openSettings'), () => settings.openSettings('account'))}
       {note.problem === 'notInstalled' && action(tr('aiCommit.install'), () => settings.openSettings('engines'))}
       {note.problem === 'notAuthorized' &&
-        (channel === 'claude' || channel === 'chatgpt') &&
+        channel &&
+        isAuthChannel(channel) &&
         action(tr('aiCommit.authorize'), () => openAuthDialog(channel))}
       {note.instead &&
         action(tr('aiCommit.useInstead', { channel: ai.channels.name(note.instead) }), () =>
