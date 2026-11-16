@@ -53,6 +53,7 @@ export function markOf(replay: readonly Item[]): TuiMark {
  * 记下的那条不在原处了（终端里 /rewind、/clear 过）返回 null，按「对不上了」处理
  */
 export function sinceMark(replay: readonly Item[], mark: TuiMark): NewerTurns | null {
+  if (!('users' in mark)) return null
   const list = users(replay)
   if (list.length < mark.users) return null
   if (mark.users > 0 && list[mark.users - 1]!.text !== norm(mark.last)) return null

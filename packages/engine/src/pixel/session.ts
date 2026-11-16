@@ -260,6 +260,37 @@ interface ActiveTurn {
 /** Pi 取消等着的重试时报的 finalError（用户停止、超过重试次数设置时）：不是请求错误 */
 const RETRY_CANCELLED = 'Retry cancelled'
 
+/**
+ * 会话进程和终端模式（index.ts tuiLaunch）共用的启动参数和环境：权限档、技能、搜索工具、用户追加的参数，
+ * 扩展的 env / PATH、网关模型、桌面端管理的 MCP。返回的 args 不含 --mode（会话进程是 rpc，终端是交互界面）
+ */
+export function pixelLaunch(
+  base: NodeJS.ProcessEnv,
+  record: SessionRecord,
+  permissionMode: PermissionMode,
+  ext: import('@pixelsky/protocol').ExtensionLaunch | undefined,
+  options: PixelLaunchOptions,
+): { args: string[]; env: NodeJS.ProcessEnv } {
+  const env: NodeJS.ProcessEnv = { ...base, ...ext?.env }
+  const args = ['--permission-mode', PIXEL_MODES[permissionMode] ?? 'default']
+  if (ext?.pathDirs.length) {
+    const key = Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH'
+    env[key] = [...ext.pathDirs, env[key] ?? ''].join(delimiter)
+  }
+  // 自定义地址：交给命令行的网关扩展 pi.registerProvider()（packages/cli/src/extensions/gateway.ts）。
+  // 配置目录始终是用户自己的 ~/.pixelsky-cli/agent/，里面的 mcp.json、技能、扩展、bin/ 才会生效
+  applyPixelModels(env, record, options.contextWindows)
+  // 桌面端管理的 MCP（设置 › 插件）：文件交给命令行的 MCP 扩展注册；应用自己的只读服务器不用问
+  if (ext?.mcpFile) env[MCP_FILE_ENV] = ext.mcpFile
+  else delete env[MCP_FILE_ENV]
+  if (ext?.allowTools?.length) env[ALLOW_TOOLS_ENV] = ext.allowTools.join(',')
+  else delete env[ALLOW_TOOLS_ENV]
+  // 桌面端管理的技能：每个技能目录一个 --skill（Pi 认 SKILL.md 所在的目录）
+  for (const root of ext?.skillRoots ?? []) args.push('--skill', root)
+  args.push(...searchToolArgs(options.args ?? []), ...(options.args ?? []))
+  return { args, env }
+}
+
 export class PixelSession implements EngineSession {
   private proc: PixelProcess | null = null
   private opening: Promise<void> | null = null
@@ -359,26 +390,10 @@ export class PixelSession implements EngineSession {
   }
 
   private async connect(): Promise<void> {
-    const record = this.ctx.record(),
-      environment: NodeJS.ProcessEnv = { ...this.env },
-      args = ['--mode', 'rpc', '--permission-mode', PIXEL_MODES[this.settings.permissionMode] ?? 'default']
-    Object.assign(environment, this.ctx.extensions?.env)
-    if (this.ctx.extensions?.pathDirs.length) {
-      const key = Object.keys(environment).find(k => k.toLowerCase() === 'path') ?? 'PATH'
-      environment[key] = [...this.ctx.extensions.pathDirs, environment[key] ?? ''].join(delimiter)
-    }
-    // 自定义地址：交给命令行的网关扩展 pi.registerProvider()（packages/cli/src/extensions/gateway.ts）。
-    // 配置目录始终是用户自己的 ~/.pixelsky-cli/agent/，里面的 mcp.json、技能、扩展、bin/ 才会生效
-    applyPixelModels(environment, record, this.options.contextWindows)
-    // 桌面端管理的 MCP（设置 › 插件）：文件交给命令行的 MCP 扩展注册；应用自己的只读服务器不用问
-    const ext = this.ctx.extensions
-    if (ext?.mcpFile) environment[MCP_FILE_ENV] = ext.mcpFile
-    else delete environment[MCP_FILE_ENV]
-    if (ext?.allowTools?.length) environment[ALLOW_TOOLS_ENV] = ext.allowTools.join(',')
-    else delete environment[ALLOW_TOOLS_ENV]
-    // 桌面端管理的技能：每个技能目录一个 --skill（Pi 认 SKILL.md 所在的目录）
-    for (const root of ext?.skillRoots ?? []) args.push('--skill', root)
-    args.push(...searchToolArgs(this.options.args ?? []), ...(this.options.args ?? []))
+    const record = this.ctx.record()
+    const launch = pixelLaunch(this.env, record, this.settings.permissionMode, this.ctx.extensions, this.options)
+    const environment = launch.env,
+      args = ['--mode', 'rpc', ...launch.args]
     const proc = new PixelProcess(this.launcher, args, record.cwd, environment, {
       event: event => this.event(event),
       exit: (_code, tail) => {

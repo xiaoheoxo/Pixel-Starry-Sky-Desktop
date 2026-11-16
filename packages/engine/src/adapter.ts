@@ -283,11 +283,11 @@ export interface EngineAdapter {
     opts?: { turns?: number; afterTurn?: boolean },
   ): Promise<NewerTurns | null>
   /**
-   * 原生记录里没有稳定 id 的引擎（Antigravity 的回放，docs/ui/tui-toggle.md §12.7）：切到终端时记下记录里的位置，
-   * 切回时从那往后取。tuiMark 读不到返回 null；newerSinceMark 对不上（终端里 /rewind、/clear 过）或读不到返回 null。
-   * 有这一对时宿主不再用 newerNativeTurns 按 id 找
+   * 终端模式按位置补轮次（Antigravity 的回放没有稳定 id §12.7；Pixel 沿 parentId §12.8）：切到终端时记下记录里的位置，
+   * 切回时从那往后取。fresh：会话是这次切换时新建的（还是空的）。tuiMark 读不到返回 null；
+   * newerSinceMark 对不上（终端里 /rewind、/clear、/tree 过）或读不到返回 null。有这一对时宿主不再用 newerNativeTurns 按 id 找
    */
-  tuiMark?(cwd: string, id: string): Promise<import('@pixelsky/protocol').TuiMark | null>
+  tuiMark?(cwd: string, id: string, fresh: boolean): Promise<import('@pixelsky/protocol').TuiMark | null>
   newerSinceMark?(cwd: string, id: string, mark: import('@pixelsky/protocol').TuiMark): Promise<NewerTurns | null>
   /** 这个会话在引擎那边的记录还在不在（接力发现记录没了时把聊天写进新的引擎会话用） */
   hasNativeSession?(record: SessionRecord): boolean

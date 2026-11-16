@@ -100,7 +100,7 @@ export type { SyncableEngineSettings } from './settings'
 export type TuiBlock = 'engine' | 'fresh' | 'busy' | 'liveTerminal' | 'liveOther'
 
 /** 能切到终端的引擎（docs/ui/tui-toggle.md；界面 tuiMode.ts 的 TUI_ENGINES 要一起改） */
-const TUI_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['claude', 'codex', 'antigravity'])
+const TUI_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['claude', 'codex', 'antigravity', 'pixel'])
 
 /** 切换时直接报错用的文字（和界面 session.tui.disabled* 的中文一致，界面能翻译） */
 const TUI_BLOCK_TEXT: Record<TuiBlock, string> = {
@@ -175,6 +175,7 @@ export class EngineHost {
         extraEnv: () => settings.file.env.pixel ?? {},
         systemProxy: () => opts.systemProxy?.('pixel') ?? null,
         bundledCli: opts.pixelCli,
+        nodeRuntime: opts.nodeRuntime,
         sessionEnv: opts.sessionEnv,
         launchOptions: () => {
           const o = settings.launchOptions('pixel')
@@ -776,6 +777,15 @@ export class EngineHost {
     return this.tuiLiveBlock(record)
   }
 
+  /**
+   * 能切但要先知道的（tuiCheck 在没有 tuiBlock 时给界面）：noNode 是 Pixel 找不到现成的 Node，切过去时先下载私有的（§12.8）
+   */
+  tuiHint(id: string): 'noNode' | null {
+    const record = this.m.sessions.runtime(id).snapshot.record
+    const adapter = this.ctx.adapters[record.engine] as { tuiNeedsNode?(): boolean } | undefined
+    return !record.tui && adapter?.tuiNeedsNode?.() ? 'noNode' : null
+  }
+
   /** 外部终端 / 其他程序占着这个引擎会话 */
   private tuiLiveBlock(record: SessionRecord): TuiBlock | null {
     const sid = record.engineSessionId
@@ -890,12 +900,8 @@ export class EngineHost {
         current = m.sessions.runtime(id).snapshot.record
         launch = await adapter.tuiLaunch(current, extensions)
       }
-      // 原生记录没有稳定 id 的引擎（Antigravity）：切过去时记下位置，切回从这往后补（§12.7）。新建的会话是空的，不用读
-      const mark = adapter.tuiMark
-        ? hadSession
-          ? await adapter.tuiMark(current.cwd, launch.engineSessionId)
-          : { users: 0, last: '' }
-        : undefined
+      // 切过去时记下引擎记录里的位置，切回从这往后补（Antigravity §12.7、Pixel §12.8）。fresh：会话是这次新建的
+      const mark = adapter.tuiMark ? await adapter.tuiMark(current.cwd, launch.engineSessionId, !hadSession) : undefined
       rt.tuiLive = true
       m.events.patchRecord(id, { tui: { terminalId: '', since: Date.now(), ...(mark !== undefined && { mark }) } })
       // extensions.dispose 不在这里调：mcp 临时文件还要给 TUI 进程用；进程退出后由下次 prepare 覆盖或 OS 清临时目录

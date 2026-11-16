@@ -19,16 +19,18 @@ import {
   tuiBlockKey,
   tuiConfirm,
   tuiModeOf,
+  tuiNeedsNode,
   tuiToggleVisible,
   type TuiMode,
 } from './tuiMode'
 
+/** 主进程 tuiCheck 的原始代码（不能切的原因，或 noNode 这类提示）；查不了为 null */
 export async function checkTui(sessionId: string): Promise<string | null> {
   if (isDemo) return null
   const api = window.pixelsky?.engine
   if (!api?.tuiCheck) return null
   try {
-    return tuiBlockKey(await api.tuiCheck(sessionId))
+    return await api.tuiCheck(sessionId)
   } catch {
     return null
   }
@@ -82,6 +84,8 @@ export function useTuiToggle(
   forceClose: () => void
   terminalId: string | null
   visible: boolean
+  /** 切过去要先下载 Node.js（Pixel，§12.8）：遮罩换成下载的说明 */
+  needsNode: boolean
 } | null {
   const snapshot = useSession(sessionId)
   const toast = useToast()
@@ -102,17 +106,21 @@ export function useTuiToggle(
   const tuiTerminal = terminalId ? (terminals.terminals.find(t => t.id === terminalId) ?? null) : null
   const baseDisabled = tuiDisabledReason(snapshot)
   const [liveDisabled, setLiveDisabled] = useState<string | null>(null)
+  const [needsNode, setNeedsNode] = useState(false)
   const disabledReason = busy ? 'session.tui.switching' : (baseDisabled ?? liveDisabled)
 
   useEffect(() => {
     if (!sessionId || !visible || mode === 'terminal' || baseDisabled || isDemo) {
       setLiveDisabled(null)
+      setNeedsNode(false)
       return
     }
     let cancelled = false
     const run = (): void => {
-      void checkTui(sessionId).then(reason => {
-        if (!cancelled) setLiveDisabled(reason)
+      void checkTui(sessionId).then(code => {
+        if (cancelled) return
+        setLiveDisabled(tuiBlockKey(code))
+        setNeedsNode(tuiNeedsNode(code))
       })
     }
     run()
@@ -130,8 +138,9 @@ export function useTuiToggle(
     () =>
       toast(tr('session.tui.mismatch'), {
         duration: 15_000,
-        // 聊天没有项目文件夹，选择框列不出东西：不给导入按钮。按这个对话的引擎打开（原来写死 Claude，Codex 也开成了 Claude 的）
-        ...(isChatProject(projectId) || !isTuiEngine(engine)
+        // 聊天没有项目文件夹，选择框列不出东西：不给导入按钮。按这个对话的引擎打开（原来写死 Claude，Codex 也开成了 Claude 的）；
+        // Pixel 没有 /resume 选择器，只提示
+        ...(isChatProject(projectId) || !isTuiEngine(engine) || engine === 'pixel'
           ? {}
           : {
               action: {
@@ -150,6 +159,7 @@ export function useTuiToggle(
         if (disabledReason) return
         setBusy(true)
         try {
+          if (needsNode) toast(tr('session.tui.downloadingNode'), { duration: 10_000 })
           await openTui(sessionId)
           void terminalState()
         } catch (err) {
@@ -170,7 +180,7 @@ export function useTuiToggle(
         setBusy(false)
       }
     },
-    [sessionId, busy, disabledReason, toast, mismatch, setConfirm],
+    [sessionId, busy, disabledReason, needsNode, toast, mismatch, setConfirm],
   )
 
   const forceClose = useCallback(() => {
@@ -210,5 +220,6 @@ export function useTuiToggle(
     forceClose,
     terminalId,
     visible: true,
+    needsNode,
   }
 }

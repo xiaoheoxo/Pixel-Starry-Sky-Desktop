@@ -1,7 +1,7 @@
-// 子智能体的会话文件（Pi 的 JSONL）→ 对话条目，给智能体追踪窗口看（只读）
+// Pi 的会话条目（JSONL）→ 对话条目：子智能体追踪窗口（只读）、终端模式切回时补轮次（tui.ts）
 import type { Item } from '@pixelsky/protocol'
 import { entries } from './agents'
-import { array, object, string } from './process'
+import { array, object, string, type Message } from './process'
 import { resultImages, toolItem } from './translate'
 
 function textOf(content: unknown): string {
@@ -13,14 +13,19 @@ function textOf(content: unknown): string {
 
 /** 子智能体的会话文件 → 对话条目（只读，给追踪窗口看） */
 export function transcriptItems(file: string, cwd: string): Item[] {
+  return messageItems(entries(file), cwd, 'px-sub')
+}
+
+/** 会话条目 → 对话条目；条目 id 是 `<prefix>-<Pi 条目 id>-<序号>` */
+export function messageItems(list: readonly Message[], cwd: string, prefix: string): Item[] {
   const items: Item[] = []
   const tools = new Map<string, number>()
   let n = 0
-  for (const e of entries(file)) {
+  for (const e of list) {
     if (e.type !== 'message') continue
     const m = object(e.message)
     const at = Date.parse(string(e.timestamp)) || 0
-    const id = (suffix: string) => `px-sub-${string(e.id) || ++n}-${suffix}`
+    const id = (suffix: string) => `${prefix}-${string(e.id) || ++n}-${suffix}`
     if (m.role === 'user') {
       const text = textOf(m.content)
       if (text) items.push({ kind: 'user', id: id('u'), text, createdAt: at })

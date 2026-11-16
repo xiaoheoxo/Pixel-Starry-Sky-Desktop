@@ -15,13 +15,13 @@ export function tuiModeOf(record: SessionRecord | null | undefined): TuiMode {
   return tuiActive(record) ? 'terminal' : 'ui'
 }
 
-/** 能切到终端的引擎（宿主 host/index.ts 的 TUI_ENGINES 要一起改）；也都能「从 /resume 导入」 */
-export const TUI_ENGINES = ['claude', 'codex', 'antigravity'] as const
+/** 能切到终端的引擎（宿主 host/index.ts 的 TUI_ENGINES 要一起改）；除 Pixel 外都能「从 /resume 导入」 */
+export const TUI_ENGINES = ['claude', 'codex', 'antigravity', 'pixel'] as const
 export type TuiEngine = (typeof TUI_ENGINES)[number]
 export const isTuiEngine = (engine: EngineId | undefined): engine is TuiEngine =>
   (TUI_ENGINES as readonly string[]).includes(engine ?? '')
 
-/** 顶栏要不要画开关：Claude、Codex、Antigravity 显示；pixel / 无记录不画 */
+/** 顶栏要不要画开关：TUI_ENGINES 里的引擎显示；无记录不画 */
 export function tuiToggleVisible(record: SessionRecord | null | undefined): boolean {
   return isTuiEngine(record?.engine)
 }
@@ -52,6 +52,9 @@ const BLOCK_KEY: Record<string, TranslationKey> = {
 }
 
 export const tuiBlockKey = (code: string | null): TranslationKey | null => (code ? (BLOCK_KEY[code] ?? null) : null)
+
+/** tuiCheck 的提示代码（能切，但要先知道）：noNode 是 Pixel 切过去要先下载 Node.js（§12.8） */
+export const tuiNeedsNode = (code: string | null): boolean => code === 'noNode'
 
 export function isTuiRunningError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false

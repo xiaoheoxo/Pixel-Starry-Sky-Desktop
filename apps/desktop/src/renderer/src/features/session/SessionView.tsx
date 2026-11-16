@@ -565,7 +565,13 @@ function LiveSessionView({
                   {tuiBusy && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-app/70 text-ui text-fg-muted">
                       {/* 终端已经起来了还在忙＝正在切回（Antigravity 要起临时进程读回放，要几秒） */}
-                      {tr(tuiTerminal ? 'session.tui.syncing' : 'session.tui.switching')}
+                      {tr(
+                        tuiTerminal
+                          ? 'session.tui.syncing'
+                          : tui?.needsNode
+                            ? 'session.tui.downloadingNode'
+                            : 'session.tui.switching',
+                      )}
                     </div>
                   )}
                   {tuiConfirm && tui && (

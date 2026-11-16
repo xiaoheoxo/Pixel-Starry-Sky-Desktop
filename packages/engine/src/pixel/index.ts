@@ -7,27 +7,36 @@ import {
   type EngineCatalog,
   type EngineInfo,
   type Item,
+  type ExtensionLaunch,
   type SessionRecord,
+  type TuiMark,
   viaGateway,
 } from '@pixelsky/protocol'
-import type { EngineAdapter, EngineSession, Launcher, SessionContext } from '../adapter'
+import type { EngineAdapter, EngineSession, Launcher, SessionContext, TuiLaunch } from '../adapter'
+import { logger } from '../log'
+import type { NewerTurns } from '../native/types'
+import type { NodeRuntime } from '../npm'
 import { engineEnv, systemProxyEnv } from '../env'
-import { startupReason, removeTree } from '../exec'
+import { resolveCommand, startupReason, removeTree } from '../exec'
 import { engineBase } from '../registry'
 import { runsFromSession } from './agents'
 import { customPixel, discoverPixel, pixelEnvironment, pixelShell } from './discover'
 import { pixelCatalog } from './catalog'
-import { PixelProcess } from './process'
+import { PixelProcess, object, string } from './process'
 import {
   ALLOW_TOOLS_ENV,
   applyPixelModels,
   MCP_FILE_ENV,
   PixelSession,
+  pixelLaunch,
   reservedPixelArg,
   type PixelLaunchOptions,
 } from './session'
 import { pixelSideModel, pixelSideQuestion } from './side'
 import { transcriptItems } from './transcript'
+import { findNode, markOfFile, needsRealNode, pixelTuiArgs, privateNode, readSinceMark } from './tui'
+
+const log = logger('engine.pixel')
 
 /** 自动压缩阈值交给命令行的环境变量：Pi 补丁里的 shouldCompact 读它（patches/@earendil-works__pi-coding-agent@1.4.0.patch，docs/own-cli.md §15） */
 export const AUTO_COMPACT_ENV = 'PIXELSKY_AUTOCOMPACT_PCT'
@@ -42,6 +51,8 @@ export interface PixelAdapterOptions {
   /** 系统代理（http://主机:端口）；没开代理、开关关了时为 null。用户自己设了代理变量时不用（env.ts systemProxyEnv） */
   systemProxy?: () => string | null
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
+  /** 私有 Node.js（node-runtime.ts）：终端模式跑命令行用，找不到别的 Node 时下载（docs/ui/tui-toggle.md §12.3） */
+  nodeRuntime?: NodeRuntime
   /** 测试里直接给启动方式（不查找、不跑 --version） */
   launcher?: Launcher
   launchOptions?: () => PixelLaunchOptions
@@ -191,6 +202,89 @@ export class PixelAdapter implements EngineAdapter {
       prompt,
       signal,
     })
+  }
+
+  /**
+   * 终端模式找不到现成的 Node，切过去要先下载私有的（界面提示用，不拦）。只看文件在不在，版本切的时候再查
+   */
+  tuiNeedsNode(): boolean {
+    const launcher = this.cached?.launcher
+    if (!launcher || !needsRealNode(launcher)) return false
+    return !privateNode(this.opts.nodeRuntime?.paths() ?? []) && !resolveCommand('node', this.env()).ok
+  }
+
+  /** 切到终端时记下会话文件的叶子（新对话的文件还没写出来，叶子为空） */
+  async tuiMark(_cwd: string, file: string): Promise<TuiMark | null> {
+    return markOfFile(file)
+  }
+
+  /** 切回时沿 parentId 从当前叶子走回记下的叶子（tui.ts sinceLeaf） */
+  async newerSinceMark(cwd: string, file: string, mark: TuiMark): Promise<NewerTurns | null> {
+    return readSinceMark(file, mark, cwd)
+  }
+
+  /**
+   * 终端（TUI）模式（docs/ui/tui-toggle.md §12.3）：<node> <命令行> … --session <会话文件>，参数和 env 跟会话进程同一份（pixelLaunch）。
+   * 新对话还没有会话文件：起一次临时 RPC 进程问 Pi 会把文件放在哪（不发消息），终端里 --session 这个路径就在那里新建
+   */
+  async tuiLaunch(record: SessionRecord, extensions?: ExtensionLaunch): Promise<TuiLaunch> {
+    await this.info()
+    const result = this.cached
+    if (!result?.launcher || result.info.status !== 'ready')
+      throw new Error(result?.info.message ?? 'Pixel is unavailable')
+    const options = this.opts.launchOptions?.() ?? {}
+    const launch = pixelLaunch(
+      this.sessionEnvironment(result.launcher, record),
+      record,
+      record.permissionMode,
+      extensions,
+      options,
+    )
+    const file = record.engineSessionId || (await this.newSessionFile(result.launcher, launch, record.cwd))
+    const launcher = await this.tuiLauncher(result.launcher)
+    const env = { ...launch.env }
+    // 真正的 Node 不需要；留着会传给终端里跑的命令（里面要是起 Electron 程序会当成 Node）
+    if (launcher !== result.launcher) delete env.ELECTRON_RUN_AS_NODE
+    if (options.autoCompactPct) env[AUTO_COMPACT_ENV] = String(options.autoCompactPct)
+    return {
+      command: launcher.command,
+      args: [...launcher.args, ...pixelTuiArgs(record, file, launch.args)],
+      env,
+      cwd: record.cwd,
+      engineSessionId: file,
+    }
+  }
+
+  /** 新对话：临时 RPC 进程的 get_state.sessionFile（Pi 按用户的会话目录设置算好的路径，第一次回复后才写文件） */
+  private async newSessionFile(
+    launcher: Launcher,
+    launch: { args: string[]; env: NodeJS.ProcessEnv },
+    cwd: string,
+  ): Promise<string> {
+    let tail = ''
+    const proc = new PixelProcess(launcher, ['--mode', 'rpc', ...launch.args], cwd, launch.env, {
+      event() {},
+      exit: (_code, stderr) => (tail = stderr),
+    })
+    try {
+      const file = string(object((await proc.request('get_state')).data).sessionFile)
+      if (!file) throw new Error('Pixel 没给出会话文件')
+      return file
+    } catch (error) {
+      throw new Error(startupReason(tail) || (error as Error).message)
+    } finally {
+      await proc.close()
+    }
+  }
+
+  /** 自带命令行是用 Electron 跑的脚本：终端里换成私有 Node / 系统 Node，都没有就下载私有的 */
+  private async tuiLauncher(launcher: Launcher): Promise<Launcher> {
+    if (!needsRealNode(launcher)) return launcher
+    const runtime = this.opts.nodeRuntime
+    let node = await findNode(this.env(), runtime?.paths() ?? [])
+    if (!node && runtime) node = (await runtime.ensure(line => log.info('终端模式下载 Node.js', { line }))).node
+    if (!node) throw new Error('终端模式要用 Node.js 22.19 以上，请先安装 Node.js')
+    return { command: node, args: launcher.args }
   }
 
   /** 会话进程的环境：Git Bash、宿主给的网关 / 子智能体设置；网关会话去掉本机的密钥 */

@@ -137,7 +137,9 @@ class FakeAgy implements EngineAdapter {
   async readNativeSession(): Promise<NativeRead | null> {
     return null
   }
-  async tuiMark(): Promise<TuiMark | null> {
+  /** 照真实 AntigravityAdapter.tuiMark：新建的会话不读回放 */
+  async tuiMark(_cwd: string, _id: string, fresh: boolean): Promise<TuiMark | null> {
+    if (fresh) return { users: 0, last: '' }
     this.marks++
     return markOf(this.replay)
   }

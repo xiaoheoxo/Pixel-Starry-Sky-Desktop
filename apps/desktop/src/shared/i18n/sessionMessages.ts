@@ -532,6 +532,10 @@ export const sessionMessages = {
     zh: '正在切回界面，补上终端里聊的内容…',
     en: 'Switching back and adding what you chatted in the terminal…',
   },
+  'session.tui.downloadingNode': {
+    zh: '第一次用终端模式：正在下载一份只给像素星空用的 Node.js（约 30 MB），下完自动切过去…',
+    en: 'First time in terminal mode: downloading a private Node.js for PixelSky (about 30 MB), then switching…',
+  },
   'session.tui.switching': {
     zh: '正在停止界面里的会话，在终端中继续…',
     en: 'Stopping the UI session and continuing in the terminal…',

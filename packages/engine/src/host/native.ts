@@ -469,9 +469,12 @@ export class HostNative {
       const all = rt.snapshot.items.filter(item => item.kind === 'user')
       let found: { items: Item[]; shown: number } | null = null
       if (adapter.newerSinceMark) {
-        // 原生记录没有稳定 id 的引擎（Antigravity）：从切过去时记下的位置往后取（§12.7）；当时没读到位置就对不上
+        // 从切过去时记下的位置往后取（Antigravity §12.7、Pixel §12.8）；当时没读到位置就对不上
         const mark = record.tui?.mark
         found = mark ? await adapter.newerSinceMark(record.cwd, sid, mark) : null
+        // 新对话切过去一句没说：Pixel 预留的会话文件没写出来，清掉 id，免得下次发消息当成「会话文件不在了」
+        if (found && !found.items.length && adapter.hasNativeSession && !adapter.hasNativeSession(record))
+          m.events.patchRecord(id, { engineSessionId: null })
       } else if (all.length === 0) {
         // 新对话：还没有用户条目，整段读最近轮次。终端里一句没说时 Claude Code 不建记录文件，读不到＝没有可补的，不算对不上
         found = (await adapter.readNativeSession?.(record.cwd, sid, { turns: 50 })) ?? { items: [], shown: 0 }

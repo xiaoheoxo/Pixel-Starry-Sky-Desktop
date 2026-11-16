@@ -139,9 +139,10 @@ const READ_CHUNK = 1024 * 1024
 
 /**
  * 读 Pi 的会话文件（JSONL）：按块读、按行切，不把整个文件变成一个字符串（长会话的文件会超过 V8 字符串上限 512 MB）。
- * 给了 keep 就只解析含这段文字的行；写到一半的最后一行、超过 LINE_MAX 的行跳过
+ * 给了 keep 就只解析含这段文字的行；写到一半的最后一行、超过 LINE_MAX 的行跳过。
+ * start：从这个字节开始读（终端模式只读切过去之后追加的，tui.ts）；落在行中间时那半行解析不了，跳过
  */
-export function entries(file: string, keep?: string): Message[] {
+export function entries(file: string, keep?: string, start = 0): Message[] {
   if (!file || !existsSync(file)) return []
   const out: Message[] = []
   const mark = keep ? Buffer.from(keep) : null
@@ -164,11 +165,13 @@ export function entries(file: string, keep?: string): Message[] {
     }
   }
   const fd = openSync(file, 'r')
+  let pos = start
   try {
     for (;;) {
       // 每块新分配：take 留着的是这块的切片
       const chunk = Buffer.allocUnsafe(READ_CHUNK)
-      const n = readSync(fd, chunk, 0, READ_CHUNK, null)
+      const n = readSync(fd, chunk, 0, READ_CHUNK, pos)
+      pos += n
       if (!n) break
       const data = chunk.subarray(0, n)
       let from = 0

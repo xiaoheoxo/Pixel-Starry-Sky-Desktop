@@ -166,8 +166,9 @@ export class AntigravityAdapter implements EngineAdapter {
     return read === undefined ? undefined : (read?.items ?? [])
   }
 
-  /** 切到终端时记下回放里的位置（tui.ts markOf） */
-  async tuiMark(cwd: string, id: string): Promise<TuiMark | null> {
+  /** 切到终端时记下回放里的位置（tui.ts markOf）；刚建的会话是空的，不用读 */
+  async tuiMark(cwd: string, id: string, fresh: boolean): Promise<TuiMark | null> {
+    if (fresh) return { users: 0, last: '' }
     const items = await this.replay(cwd, id)
     return items ? markOf(items) : null
   }

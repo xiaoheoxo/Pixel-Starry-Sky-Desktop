@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { tuiActive, tuiBlockKey, tuiConfirm, tuiDisabledReason, tuiModeOf, tuiToggleVisible } from './tuiMode'
+import {
+  tuiActive,
+  tuiBlockKey,
+  tuiConfirm,
+  tuiDisabledReason,
+  tuiModeOf,
+  tuiNeedsNode,
+  tuiToggleVisible,
+} from './tuiMode'
 import type { SessionRecord, SessionSnapshot } from '@pixelsky/protocol'
 
 function snap(partial: Partial<SessionRecord> & Pick<SessionRecord, 'engine'>): SessionSnapshot {
@@ -49,17 +57,24 @@ describe('tuiMode helpers', () => {
     expect(tuiDisabledReason(snap({ engine: 'claude', pendingFork: { from: 'a', at: 'b' } }))).toBeNull()
   })
 
-  it('shows toggle for claude/codex/antigravity, not pixel', () => {
+  it('shows toggle for claude/codex/antigravity/pixel', () => {
     expect(tuiToggleVisible(snap({ engine: 'claude' }).record)).toBe(true)
     expect(tuiToggleVisible(snap({ engine: 'codex' }).record)).toBe(true)
     expect(tuiToggleVisible(snap({ engine: 'antigravity' }).record)).toBe(true)
-    expect(tuiToggleVisible(snap({ engine: 'pixel' }).record)).toBe(false)
+    expect(tuiToggleVisible(snap({ engine: 'pixel' }).record)).toBe(true)
     expect(tuiToggleVisible(null)).toBe(false)
   })
 
   it('Antigravity：新对话也能切（切之前在后台建会话），不像 Codex 那样要先发一条', () => {
     expect(tuiDisabledReason(snap({ engine: 'antigravity', engineSessionId: null }))).toBeNull()
     expect(tuiDisabledReason(snap({ engine: 'antigravity', engineSessionId: 'conv-1' }))).toBeNull()
+  })
+
+  it('Pixel：新对话也能切；找不到 Node 是提示（noNode），不灰掉', () => {
+    expect(tuiDisabledReason(snap({ engine: 'pixel', engineSessionId: null }))).toBeNull()
+    expect(tuiBlockKey('noNode')).toBeNull()
+    expect(tuiNeedsNode('noNode')).toBe(true)
+    expect(tuiNeedsNode('busy')).toBe(false)
   })
 
   it('主进程的原因代码换成文字；不认识的当能切', () => {
@@ -77,7 +92,6 @@ describe('tuiMode helpers', () => {
     expect(
       tuiDisabledReason(snap({ engine: 'codex', engineSessionId: null, pendingFork: { from: 'a', at: 'b' } })),
     ).toBe('session.tui.disabledFresh')
-    expect(tuiDisabledReason(snap({ engine: 'pixel' }))).toBe('session.tui.disabledEngine')
     expect(tuiBlockKey('fresh')).toBe('session.tui.disabledFresh')
   })
 

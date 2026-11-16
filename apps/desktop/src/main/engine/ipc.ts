@@ -215,7 +215,8 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   // 会话 ⇄ 终端（TUI）（docs/ui/tui-toggle.md §4.1）：只本机，不经 Machines.invoke
   ipc.handle('engine:tuiCheck', (_e, sessionId) => {
     if (typeof sessionId !== 'string' || !sessionId) throw new Error('会话不正确')
-    return h.tuiBlock(sessionId)
+    // 不能切的原因优先；能切时再给要先知道的（noNode：Pixel 切过去要先下载 Node.js）
+    return h.tuiBlock(sessionId) ?? h.tuiHint(sessionId)
   })
   ipc.handle('engine:tuiOpen', async (e, sessionId) => {
     if (typeof sessionId !== 'string' || !sessionId) throw new Error('会话不正确')
