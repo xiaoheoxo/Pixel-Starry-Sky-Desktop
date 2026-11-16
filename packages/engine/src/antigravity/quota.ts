@@ -8,6 +8,7 @@ import { quotaWindowId } from '@pixelsky/protocol'
 import type { Launcher } from '../adapter'
 import { removeTree, run } from '../exec'
 import { clampPercent, epochMs, quotaNoDataError, type QuotaReading } from '../quota'
+import { forgetKeyAuth } from './auth-state'
 
 const FIVE_HOUR = 300
 const WEEK = 10_080
@@ -96,6 +97,7 @@ export async function fetchAgyUsage(
 ): Promise<QuotaReading> {
   if (signal?.aborted) throw new Error('Antigravity unavailable: 应用正在退出')
   const cwd = mkdtempSync(join(tmpdir(), 'pixelsky-agy-'))
+  forgetKeyAuth(env)
   try {
     const r = await run(launcher, ['--print', '/usage', '--output-format', 'json'], env, USAGE_TIMEOUT_MS, {
       cwd,

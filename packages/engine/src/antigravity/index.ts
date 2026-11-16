@@ -2,6 +2,7 @@
 import type { EngineCatalog, EngineInfo, EngineUpdateResult, Item, SessionRecord, TuiMark } from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, Launcher, LoginProcess, SessionContext, TuiLaunch } from '../adapter'
 import type { NewerTurns } from '../native/types'
+import { forgetKeyAuth, rememberKeyAuth } from './auth-state'
 import { agyNewSession, agyTuiArgs, markOf, sinceMark } from './tui'
 import { engineEnv, systemProxyEnv } from '../env'
 import { outputTail, runInteractive, runStream } from '../exec'
@@ -199,6 +200,10 @@ export class AntigravityAdapter implements EngineAdapter {
     const env = { ...this.env(), ...this.opts.sessionEnv?.(record) }
     const userArgs = this.opts.launchArgs?.() ?? []
     const conversation = record.engineSessionId || (await agyNewSession(launcher, userArgs, env, record.cwd))
+    // 终端里的 agy 不走 withAgy、也不 authenticate，只看记住的登录方式（auth-state.ts）：
+    // 不带 Key 时清掉记住的 Key 登录；带 Key（平台线路、设置里的 Key）时记上，不然它会改用 Google 登录
+    forgetKeyAuth(env)
+    rememberKeyAuth(env)
     return {
       command: launcher.command,
       args: [...launcher.args, ...agyTuiArgs(record, conversation, userArgs)],

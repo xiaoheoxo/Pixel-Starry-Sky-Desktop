@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -47,8 +47,9 @@ createInterface({ input: process.stdin }).on('line', line => {
 `,
 )
 const launcher = { command: process.execPath, args: [fake] }
+// 用户目录指到临时目录：启动前清「按 Key 登录」记录（auth-state.ts）不碰本机真的 ~/.gemini
 const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
-  const e: NodeJS.ProcessEnv = { ...process.env, ...extra }
+  const e: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: dir, HOME: dir, ...extra }
   delete e.GEMINI_API_KEY
   return { ...e, ...extra }
 }
@@ -99,6 +100,50 @@ describe('ACP 连接和探登录', () => {
     const conn = new AcpConnection({ command: process.execPath, args: ['-e', 'process.exit(3)'] }, [], dir, env())
     await new Promise(r => setTimeout(r, 300))
     await expect(conn.request('initialize')).rejects.toThrow()
+  })
+})
+
+describe('同时启动的平台会话把「按 Key 登录」写了回去', () => {
+  // 假 agy：第一次启动时模拟平台会话刚好写回记录（在我们清完之后），按记录走 Key 模式、没有 Key 就报需要认证；
+  // 之后的启动看记录：没有就是已登录
+  const home = mkdtempSync(join(tmpdir(), 'pixelsky-agy-home-'))
+  const race = join(dir, 'race-agy.mjs')
+  writeFileSync(
+    race,
+    `
+import { createInterface } from 'node:readline'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+const home = process.platform === 'win32' ? process.env.USERPROFILE : process.env.HOME
+const state = join(home, '.gemini', 'antigravity-cli', 'cache', 'acp-auth-state.json')
+const marker = join(home, 'raced')
+if (!existsSync(marker)) {
+  writeFileSync(marker, '1')
+  mkdirSync(join(home, '.gemini', 'antigravity-cli', 'cache'), { recursive: true })
+  writeFileSync(state, '{"methodId":"gemini-api-key"}')
+}
+const keyMode = existsSync(state) && readFileSync(state, 'utf8').includes('gemini-api-key')
+const out = m => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n')
+createInterface({ input: process.stdin }).on('line', line => {
+  const m = JSON.parse(line)
+  if (m.method === 'initialize') out({ id: m.id, result: { protocolVersion: 1 } })
+  else if (m.method === 'session/list')
+    keyMode ? out({ id: m.id, error: { code: -32000, message: 'Authentication required' } }) : out({ id: m.id, result: { sessions: [] } })
+})
+`,
+  )
+  afterAll(() => rmSync(home, { recursive: true, force: true }))
+  it('回归：不带 Key 的检测报需要认证、记录又出现了：再清一次重来，仍是已登录', async () => {
+    const auth = await probeAgyAuth(
+      { command: process.execPath, args: [race] },
+      [],
+      env({ USERPROFILE: home, HOME: home }),
+    )
+    expect(auth).toEqual({ signedIn: true, kind: 'login' })
+    expect(existsSync(join(home, '.gemini', 'antigravity-cli', 'cache', 'acp-auth-state.json'))).toBe(false)
+  })
+  it('真的没登录（没有记录可清）不重试，照常报未登录', async () => {
+    expect(await probeAgyAuth(launcher, [], env())).toEqual({ signedIn: false, reason: 'Authentication required' })
   })
 })
 

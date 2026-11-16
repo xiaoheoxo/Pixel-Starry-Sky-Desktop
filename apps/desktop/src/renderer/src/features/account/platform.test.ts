@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { classifyError, platformNoticeText } from '../session/live/errorKind'
 import {
+  agyGroupModels,
+  agyRouteModels,
   fallbackSource,
   formatMultiplier,
   groupProblem,
@@ -146,6 +148,48 @@ describe('菜单里显示的模型（§8）', () => {
     expect(visibleModels(all, ['haiku', 'opus-20251101'], [null, null])).toEqual(['opus', 'sonnet'])
     expect(visibleModels(all, ['haiku', 'opus-20251101'], ['haiku', 'sonnet'])).toEqual(['opus', 'sonnet', 'haiku'])
     expect(visibleModels(all, all, [null, null])).toEqual([])
+  })
+})
+
+describe('只给 Antigravity 的分组列哪些模型（docs/antigravity-engine.md §13）', () => {
+  const allow = ['gemini-4-argon', 'gemini-4-carbon', 'gemini-4-hydrogen', 'gemini-3.8-flash']
+  it('agy 目录和分组白名单取交集，按 agy 的顺序：分组没有的（orchestrator、claude）不列', () => {
+    const catalog = [
+      'gemini-4-carbon',
+      'gemini-4-argon',
+      'gemini-4-hydrogen',
+      'gemini-pro-orchestrator',
+      'gemini-3.8-flash',
+      'claude-opus-5-5',
+    ]
+    expect(agyRouteModels(catalog, allow)).toEqual([
+      'gemini-4-carbon',
+      'gemini-4-argon',
+      'gemini-4-hydrogen',
+      'gemini-3.8-flash',
+    ])
+  })
+  it('回归：agy 没登录、目录为空时用分组的模型，平台菜单不再一个 Gemini 都没有', () => {
+    expect(agyRouteModels([], allow)).toEqual(allow)
+  })
+  it('两边对不上（分组写的是上游改过的名字）时照旧列 agy 的目录', () => {
+    expect(agyRouteModels(['gemini-3.1-pro'], ['gemini-3.1-pro-preview'])).toEqual(['gemini-3.1-pro'])
+  })
+  it('分组列表里没写模型：按线路读一次；目录、线路读不到都当作空', async () => {
+    const fail = () => Promise.reject(new Error('x'))
+    const allow = ['gemini-4-carbon', 'gemini-4-argon']
+    expect(await agyGroupModels([], fail, async () => allow)).toEqual(allow)
+    expect(
+      await agyGroupModels(
+        [],
+        async () => ['gemini-4-argon', 'x'],
+        async () => allow,
+      ),
+    ).toEqual(['gemini-4-argon'])
+    expect(await agyGroupModels([], async () => ['x'], fail)).toEqual(['x'])
+    let asked = false
+    await agyGroupModels(allow, fail, async () => ((asked = true), []))
+    expect(asked).toBe(false)
   })
 })
 

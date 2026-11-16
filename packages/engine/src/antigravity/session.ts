@@ -15,7 +15,8 @@ import type {
   TurnOutcome,
 } from '@pixelsky/protocol'
 import type { CloseOptions, EngineSession, Launcher, SessionContext } from '../adapter'
-import { AcpConnection } from '../acp/connection'
+import { ACP_AUTH_REQUIRED, AcpConnection } from '../acp/connection'
+import { forgetKeyAuth, keyAuthCameBack } from './auth-state'
 import { AgyBackgroundTracker, defaultAgyProcessOps, type AgyProcessOps } from './background'
 import { AGY_ERROR_PREFIX, AgyTranslator, agyTurnUsage, type AgyQuestion } from './translate'
 
@@ -181,7 +182,18 @@ export class AntigravitySession implements EngineSession {
   }
 
   private async start(): Promise<void> {
+    try {
+      await this.startOnce()
+    } catch (error) {
+      // 不带 Key：同时启动的平台会话把「按 Key 登录」写了回去，这次按 Key 模式走了，再清一次重来（auth-state.ts）
+      if (!keyAuthCameBack(error, this.env)) throw error
+      await this.startOnce()
+    }
+  }
+
+  private async startOnce(): Promise<void> {
     const record = this.ctx.record()
+    forgetKeyAuth(this.env)
     const conn = new AcpConnection(this.launcher, ['acp', ...this.args], record.cwd, this.env, {
       notification: (method, params) => this.notification(method, params),
       request: (method, params) => (method === 'session/request_permission' ? this.permission(params) : undefined),
@@ -209,6 +221,8 @@ export class AntigravitySession implements EngineSession {
           result = obj(await conn.request('session/resume', { ...params, sessionId: record.engineSessionId }))
           this.sessionId = record.engineSessionId
         } catch (error) {
+          // 没登录不是会话接不上：照原样报出去（新建一样会失败），不提示「已经开了新会话」
+          if ((error as { code?: unknown }).code === ACP_AUTH_REQUIRED) throw error
           this.ctx.emit({
             type: 'item_completed',
             item: {

@@ -237,6 +237,30 @@ export const agyOnly = (g: PlatformGroupInfo): boolean =>
 const agyModels = async (): Promise<string[]> =>
   ((await window.pixelsky?.engine?.catalog('antigravity'))?.models ?? []).map(m => m.id)
 
+/**
+ * 只给 Antigravity 的分组列哪些模型（docs/antigravity-engine.md §13）：agy 只认自己目录里的名字，分组只放行白名单里的，
+ * 所以取两边都有的（按 agy 的顺序）；agy 没登录、读不到目录时用分组的（平台会话自带 Key，不靠本机登录）；
+ * 两边一个都对不上（分组写的是上游改过的名字）时照旧列 agy 的目录
+ */
+export function agyRouteModels(catalog: string[], group: string[]): string[] {
+  if (catalog.length === 0) return group
+  const both = catalog.filter(m => group.includes(m))
+  return both.length > 0 ? both : catalog
+}
+
+/**
+ * 只给 Antigravity 的分组的模型：agy 目录（读不到当作空）和分组模型取 agyRouteModels。分组列表里没写模型
+ * （云端「为空表示不知道」）时按线路读一次（route），读不到也当作空
+ */
+export async function agyGroupModels(
+  group: string[],
+  catalog: () => Promise<string[]>,
+  route: () => Promise<string[]>,
+): Promise<string[]> {
+  const [agy, models] = await Promise.all([catalog().catch(() => []), group.length ? group : route().catch(() => [])])
+  return agyRouteModels(agy, models)
+}
+
 /** 所有分组的模型并集，按分组顺序、组内顺序去重 */
 /** 只能生图的分组（云端生图用，docs/ui/image-gen.md §6）：它的模型（gpt-image…）不进引擎的模型列表 */
 export const imageOnlyGroup = (g: PlatformGroupInfo): boolean =>
@@ -369,9 +393,10 @@ export async function refreshPlatform(): Promise<void> {
   try {
     const list = await api.groups()
     // 每个分组的模型一起读：先选模型、再选线路需要全部分组的模型
-    // 只给 Antigravity 的分组（Gemini）列 agy 自己的模型目录：agy 只认自己的名字，发给上游时还会改名；
-    // 分组不支持的模型发消息时报「模型不可用」（docs/antigravity-engine.md §13）
-    const models = await Promise.allSettled(list.map(g => (agyOnly(g) ? agyModels() : api.models(g.id))))
+    // 只给 Antigravity 的分组（Gemini）：agy 目录和分组模型取交集，读不到目录时用分组的（agyRouteModels）
+    const models = await Promise.allSettled(
+      list.map(g => (agyOnly(g) ? agyGroupModels(g.models, agyModels, () => api.models(g.id)) : api.models(g.id))),
+    )
     if (gen !== generation) return
     const groups: PlatformGroup[] = list.map((g, i) => {
       const r = models[i]

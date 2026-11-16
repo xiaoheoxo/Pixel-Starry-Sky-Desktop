@@ -15,6 +15,7 @@ import { ACP_AUTH_REQUIRED, AcpConnection, AcpError, type AcpHandlers } from '..
 import { ONE_SHOT_TIMEOUT, OneShotError, oneShotProblem, type OneShotReply, type OneShotRequest } from '../oneshot'
 import { IS_WINDOWS, findOnPath, isFile, removeTree, resolveCommand, run, versionAtLeast } from '../exec'
 import { engineBase } from '../registry'
+import { forgetKeyAuth, keyAuthCameBack } from './auth-state'
 import { configOptions } from './session'
 import { AGY_ERROR_PREFIX, agyCommands } from './translate'
 
@@ -146,7 +147,10 @@ export function agyLogout(launcher: Launcher, args: string[], env: NodeJS.Proces
   })
 }
 
-/** 在临时空目录里起一次 agy acp，握手（有 Key 时按 Key 认证），做完关掉 */
+/**
+ * 在临时空目录里起一次 agy acp，握手（有 Key 时按 Key 认证），做完关掉。不带 Key 时遇到同时启动的平台会话把
+ * 「按 Key 登录」写回去（auth-state.ts keyAuthCameBack）再起一次
+ */
 export async function withAgy<T>(
   launcher: Launcher,
   args: string[],
@@ -154,7 +158,23 @@ export async function withAgy<T>(
   body: (conn: AcpConnection, key: boolean, cwd: string) => Promise<T>,
   handlers: AcpHandlers = {},
 ): Promise<T> {
+  try {
+    return await agyOnce(launcher, args, env, body, handlers)
+  } catch (error) {
+    if (keyAuthCameBack(error, env)) return agyOnce(launcher, args, env, body, handlers)
+    throw error
+  }
+}
+
+async function agyOnce<T>(
+  launcher: Launcher,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  body: (conn: AcpConnection, key: boolean, cwd: string) => Promise<T>,
+  handlers: AcpHandlers,
+): Promise<T> {
   const cwd = mkdtempSync(join(tmpdir(), 'pixelsky-agy-'))
+  forgetKeyAuth(env)
   const conn = new AcpConnection(launcher, ['acp', ...args], cwd, env, handlers)
   try {
     await conn.request(
