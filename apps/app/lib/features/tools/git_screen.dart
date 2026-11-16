@@ -54,6 +54,8 @@ mixin _GitAction<T extends StatefulWidget> on State<T> {
           ],
         ),
       );
+      // 等结果时离开了这一页：不再碰已经释放的状态
+      if (!mounted) return false;
       final status = objOrNull(r['status']);
       if (status != null) onStatus?.call(GitStatus(status));
       if (r['ok'] == true) {

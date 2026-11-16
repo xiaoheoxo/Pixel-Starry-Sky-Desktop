@@ -512,10 +512,15 @@ class ToolData extends ChangeNotifier {
     );
   }
 
-  /// 写操作直接带回了新数据（Git 的结果带最新状态）时用它，不用再取一次
+  /// 写操作直接带回了新数据（Git 的结果带最新状态）时用它，不用再取一次。
+  /// 写之前发出、还没回来的那次重取作废：它带的是写之前的状态，回来会把新的盖掉
   void set(Object? next) {
+    if (_disposed) return;
+    _request++;
     data = next;
     loaded = true;
+    error = null;
+    loading = false;
     notifyListeners();
   }
 
