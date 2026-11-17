@@ -9,6 +9,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../i18n/i18n.dart';
 import '../protocol/codex_directives.dart';
+import 'markdown_image.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
 import 'theme/type.dart';
@@ -59,6 +60,9 @@ class _ReplyMarkdownState extends State<ReplyMarkdown> {
     return GptMarkdown(
       source,
       style: TextStyle(fontSize: Fs.prose, height: Lh.prose, color: c.textBody),
+      // 图片：本地路径向电脑取（会话页给 MarkdownImages），网址直接加载（§15.17）
+      imageBuilder: (context, url, width, height) =>
+          markdownImage(context, url),
       // 手机上不直接打开链接（还没接系统浏览器）：复制下来
       onLinkTap: (url, title) {
         Clipboard.setData(ClipboardData(text: url));

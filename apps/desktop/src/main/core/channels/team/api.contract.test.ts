@@ -112,7 +112,8 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
               status: 'string',
               task: ['string', 'null'],
             })
-            expect(['approve', 'team']).toContain(a.policy)
+            expect(['owner', 'approve', 'listed', 'team']).toContain(a.policy)
+            expect(Array.isArray(a.allow)).toBe(true)
           }
         }
         for (const i of ov.invites)
@@ -123,6 +124,31 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
             inviter: 'string',
             role: 'string',
             expiresAt: 'number',
+          })
+      })
+    } else if (s.status >= 200 && s.status < 300 && (Array.isArray(body.items) || body.item)) {
+      // 收件箱（docs/multica-learn.md §11.5）：每一行都认得，种类都是已知的
+      it(`${name}：收件箱`, async () => {
+        const api = serve(s)
+        const items = Array.isArray(body.items)
+          ? await api.inbox()
+          : [await api.patchInbox('tm_1', 'tg_1', { read: true })]
+        expect(items).toHaveLength(Array.isArray(body.items) ? body.items.length : 1)
+        expect(items!.length).toBeGreaterThan(0)
+        for (const it of items!)
+          expectFields(it as unknown as Record<string, unknown>, {
+            teamId: 'string',
+            key: 'string',
+            channelId: 'string',
+            kind: 'string',
+            actor: 'string',
+            text: 'string',
+            count: 'number',
+            at: 'number',
+            read: 'boolean',
+            archived: 'boolean',
+            snoozeUntil: ['number', 'null'],
+            muted: 'boolean',
           })
       })
     } else if (s.status >= 200 && s.status < 300 && Array.isArray(body.messages)) {
@@ -143,8 +169,14 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
         for (const t of body.tasks as Record<string, unknown>[]) expectMessage(t.message ?? t)
       })
     } else if (s.status >= 200 && s.status < 300 && body.message) {
-      it(`${name}：带消息的响应`, () => {
+      it(`${name}：带消息的响应`, async () => {
         expectMessage(body.message)
+        // 开工前核对（docs/multica-learn.md §11.3）：结果和这一轮的运行凭证
+        if (s.endpoint.endsWith('/start')) {
+          const res = await serve(s).start('tm_1', 'tg_1', 'laptop')
+          expect(res.outcome).toBe(body.outcome)
+          expect(res.runToken).toMatch(/^rt_/)
+        }
         for (const t of (Array.isArray(body.tasks) ? body.tasks : []) as unknown[]) expectMessage(t)
       })
     } else if (s.status >= 400) {
@@ -153,6 +185,7 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
           (
             {
               400: 'INVALID',
+              401: 'RUN_TOKEN',
               403: 'FORBIDDEN',
               404: 'NOT_FOUND',
               409: 'CONFLICT',

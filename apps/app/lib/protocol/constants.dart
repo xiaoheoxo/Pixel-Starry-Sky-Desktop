@@ -28,6 +28,7 @@ class EngineDescriptor {
     required this.liveModelSwitch,
     required this.livePermissionSwitch,
     required this.rewind,
+    required this.sideChat,
   });
   final String id;
   final String name;
@@ -51,6 +52,9 @@ class EngineDescriptor {
 
   /// 能回退到自己的某条消息（手机上「编辑重发」）
   final bool rewind;
+
+  /// 能旁聊（不打断正在跑的这一轮问一句，docs/mobile-app.md §15.3）
+  final bool sideChat;
 }
 
 const engines = <String, EngineDescriptor>{
@@ -69,6 +73,7 @@ const engines = <String, EngineDescriptor>{
     liveModelSwitch: true,
     livePermissionSwitch: true,
     rewind: true,
+    sideChat: true,
   ),
   'codex': EngineDescriptor(
     id: 'codex',
@@ -85,6 +90,7 @@ const engines = <String, EngineDescriptor>{
     liveModelSwitch: false,
     livePermissionSwitch: false,
     rewind: true,
+    sideChat: true,
   ),
   'pixel': EngineDescriptor(
     id: 'pixel',
@@ -101,6 +107,7 @@ const engines = <String, EngineDescriptor>{
     liveModelSwitch: true,
     livePermissionSwitch: true,
     rewind: false,
+    sideChat: true,
   ),
   'antigravity': EngineDescriptor(
     id: 'antigravity',
@@ -117,6 +124,7 @@ const engines = <String, EngineDescriptor>{
     liveModelSwitch: true,
     livePermissionSwitch: true,
     rewind: false,
+    sideChat: false,
   ),
   'dot': EngineDescriptor(
     id: 'dot',

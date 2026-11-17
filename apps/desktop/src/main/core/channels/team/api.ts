@@ -1,6 +1,16 @@
 // 团队云端接口的薄客户端（docs/ui/channels-phase-c.md §8.2）：snake_case → camelCase，时间转毫秒，
 // 非 2xx 转成带 code 的错误。请求函数（teamsFetch）由应用层注入，这里不碰 Electron。
-import type { AgentPolicy, ChannelTaskStatus, TeamRole } from '../../../../shared/types/channels'
+import type {
+  AgentPolicy,
+  ChannelRun,
+  ChannelTaskStatus,
+  RunReason,
+  TeamInboxItem,
+  TeamInboxKind,
+  TeamInboxPatch,
+  TeamRole,
+} from '../../../../shared/types/channels'
+import { parseRunReason } from '../../../../shared/channels/runReason'
 
 export type TeamErrorCode =
   | 'NOT_DEPLOYED'
@@ -11,6 +21,8 @@ export type TeamErrorCode =
   | 'INVALID'
   | 'UNAVAILABLE'
   | 'AUTH_EXPIRED'
+  /** 运行凭证不对、过期，或卡已经结束（docs/multica-learn.md §11.3） */
+  | 'RUN_TOKEN'
 
 export class TeamError extends Error {
   constructor(
@@ -27,6 +39,8 @@ export type TeamFetch = (
   path: string,
   body?: unknown,
   timeoutMs?: number,
+  /** 用这一轮的运行凭证代替登录令牌（只用于 /v1/teams/{tid}/runs/…，docs/multica-learn.md §11.3） */
+  runToken?: string,
 ) => Promise<Response>
 
 // ---------------------------------------------------------------------------
@@ -82,6 +96,8 @@ export interface TeamAgentData {
   machine: string
   project: string
   policy: AgentPolicy
+  /** 「指定的人直接派」的名单（owner key）；旧云端没有 */
+  allow: string[]
   status: 'idle' | 'running' | 'waiting'
   task: string | null
   updatedAt: number
@@ -92,6 +108,8 @@ export interface TeamData {
   name: string
   role: TeamRole
   seq: number
+  /** 排队宽限期（小时）；旧云端没有，为 0 */
+  queueGraceHours: number
   members: TeamMemberData[]
   invites: TeamInviteData[]
   channels: TeamChannelData[]
@@ -131,6 +149,11 @@ export interface TeamTaskData {
   /** 追加要求那条消息的 id（任务卡被追加要求后云端带上） */
   followupMessage: string | null
   endedAt: number | null
+  /** 这一轮的原因代码、跑过的每一轮（docs/multica-learn.md §11.1）；旧云端没有 */
+  reason: RunReason | null
+  runs: ChannelRun[]
+  /** 这一轮是谁要的（docs/multica-learn.md §11.3）；旧云端没有 */
+  requestedBy: string | null
 }
 
 export interface TeamEventData {
@@ -185,6 +208,10 @@ export interface TaskPatch {
   progress?: { done: number; total: number } | null
   round?: number
   clearAction?: boolean
+  /** 这一轮的原因代码；null 清掉 */
+  reason?: RunReason | null
+  /** 要追加的运行记录（云端按轮次 + 结束时间去重） */
+  addRuns?: ChannelRun[]
 }
 
 export interface AgentRegistration {
@@ -194,12 +221,22 @@ export interface AgentRegistration {
   machine: string
   project: string
   policy: AgentPolicy
+  /** 「指定的人直接派」的名单；不带就不改 */
+  allow?: string[]
+}
+
+/** 开工前核对的结果（docs/multica-learn.md §11.3）：ok 时带这一轮的运行凭证；旧云端没有这个接口时 ok、没有凭证 */
+export interface StartResult {
+  outcome: 'ok' | 'approval' | 'stopped'
+  message: TeamMessage | null
+  runToken: string | null
 }
 
 // ---------------------------------------------------------------------------
 // 解析（逐字段防御）
 // ---------------------------------------------------------------------------
 
+const AGENT_POLICIES = ['owner', 'approve', 'listed', 'team'] as const
 type Obj = Record<string, unknown>
 export const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -285,7 +322,8 @@ function parseAgent(v: unknown): TeamAgentData | null {
     model: str(v.model),
     machine: str(v.machine),
     project: str(v.project),
-    policy: oneOf(v.policy, ['approve', 'team'] as const, 'approve'),
+    policy: oneOf(v.policy, AGENT_POLICIES, 'approve'),
+    allow: Array.isArray(v.allow) ? v.allow.filter((x): x is string => typeof x === 'string' && !!x) : [],
     status: oneOf(v.status, AGENT_STATUS, 'idle'),
     task: strOrNull(v.task),
     updatedAt: time(v.updated_at),
@@ -299,6 +337,7 @@ function parseTeam(v: unknown): TeamData | null {
     name: str(v.name),
     role: oneOf(v.role, ROLES, 'member'),
     seq: int(v.seq),
+    queueGraceHours: int(v.queue_grace_hours),
     members: arr(v.members, parseMember),
     invites: arr(v.invites, parseTeamInvite),
     channels: arr(v.channels, parseChannel),
@@ -354,6 +393,83 @@ function parseTask(v: unknown): TeamTaskData | null {
     sourceMessage: strOrNull(v.source_message),
     followupMessage: strOrNull(v.followup_message),
     endedAt: time(v.ended_at) || null,
+    reason: parseRunReason(v.reason),
+    runs: arr(v.runs, parseRun),
+    requestedBy: strOrNull(v.requested_by),
+  }
+}
+
+const RUN_STATUSES = ['done', 'failed', 'stopped'] as const
+
+function parseRun(v: unknown): ChannelRun | null {
+  if (!isObj(v)) return null
+  const endedAt = time(v.ended_at)
+  if (!endedAt || !(RUN_STATUSES as readonly unknown[]).includes(v.status)) return null
+  return {
+    n: Math.max(1, int(v.n)),
+    status: v.status as ChannelRun['status'],
+    startedAt: time(v.started_at) || null,
+    endedAt,
+    reason: parseRunReason(v.reason),
+    error: strOrNull(v.error),
+    engine: strOrNull(v.engine),
+    model: strOrNull(v.model),
+    machine: strOrNull(v.machine),
+  }
+}
+
+/** 运行记录的线上形状（会话 id 只在本机，不上传） */
+function runWire(r: ChannelRun): Record<string, unknown> {
+  return {
+    n: r.n,
+    status: r.status,
+    started_at: r.startedAt ? new Date(r.startedAt).toISOString() : null,
+    ended_at: new Date(r.endedAt).toISOString(),
+    ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.error ? { error: r.error } : {}),
+    ...(r.engine ? { engine: r.engine } : {}),
+    ...(r.model ? { model: r.model } : {}),
+    ...(r.machine ? { machine: r.machine } : {}),
+  }
+}
+
+const INBOX_KINDS: readonly TeamInboxKind[] = [
+  'mention',
+  'reply',
+  'assigned',
+  'approval',
+  'failed',
+  'done',
+  'review',
+  'rejected',
+]
+
+const timeOf = (v: unknown): number | null => {
+  if (typeof v !== 'string') return null
+  const t = Date.parse(v)
+  return Number.isFinite(t) ? t : null
+}
+
+/** 收件箱的一行（docs/multica-learn.md §11.5）；不认识的种类丢掉 */
+export function parseInboxItem(v: unknown): TeamInboxItem | null {
+  if (!isObj(v) || typeof v.team_id !== 'string' || typeof v.key !== 'string' || typeof v.channel_id !== 'string')
+    return null
+  const kind = INBOX_KINDS.find(k => k === v.kind)
+  const at = timeOf(v.at)
+  if (!kind || at === null) return null
+  return {
+    teamId: v.team_id,
+    key: v.key,
+    channelId: v.channel_id,
+    kind,
+    actor: typeof v.actor === 'string' ? v.actor : '',
+    text: typeof v.text === 'string' ? v.text : '',
+    count: typeof v.count === 'number' && v.count >= 0 ? Math.floor(v.count) : 0,
+    at,
+    read: v.read === true,
+    archived: v.archived === true,
+    snoozeUntil: timeOf(v.snooze_until),
+    muted: v.muted === true,
   }
 }
 
@@ -413,6 +529,7 @@ async function errorOf(res: Response, notDeployed: boolean): Promise<TeamError> 
   const s = res.status
   if (s === 404 && notDeployed) return new TeamError(message || '云端暂未开放团队功能', 'NOT_DEPLOYED')
   if (s === 404) return new TeamError(message || '团队、频道或消息不存在', 'NOT_FOUND')
+  if (s === 401) return new TeamError(message || '运行凭证无效或已过期', 'RUN_TOKEN')
   if (s === 403) return new TeamError(message || '没有权限', 'FORBIDDEN')
   if (s === 409) return new TeamError(message || '操作冲突，请刷新后重试', 'CONFLICT')
   if (s === 429) return new TeamError(message || '操作太频繁，请稍后再试', 'RATE_LIMITED')
@@ -421,6 +538,16 @@ async function errorOf(res: Response, notDeployed: boolean): Promise<TeamError> 
 }
 
 const seg = (id: string): string => encodeURIComponent(id)
+
+/** 任务卡写回的请求体（登录令牌和运行凭证两条路一样） */
+function taskWire(patch: TaskPatch): Record<string, unknown> {
+  const { clearAction, addRuns, ...rest } = patch
+  return {
+    ...rest,
+    ...(clearAction ? { clear_action: true } : {}),
+    ...(addRuns?.length ? { add_runs: addRuns.map(runWire) } : {}),
+  }
+}
 
 export class TeamApi {
   constructor(private readonly fetcher: TeamFetch) {}
@@ -431,10 +558,13 @@ export class TeamApi {
     path: string,
     body?: unknown,
     notDeployed = false,
+    runToken?: string,
   ): Promise<Response> {
     let res: Response
     try {
-      res = await this.fetcher(method, path, body)
+      res = runToken
+        ? await this.fetcher(method, path, body, undefined, runToken)
+        : await this.fetcher(method, path, body)
     } catch (e) {
       if (e instanceof TeamError) throw e
       const err = e as { code?: unknown; name?: unknown; message?: unknown }
@@ -474,8 +604,11 @@ export class TeamApi {
     return id
   }
 
-  updateTeam(teamId: string, patch: { name: string }): Promise<void> {
-    return this.call('PATCH', `/v1/teams/${seg(teamId)}`, patch)
+  updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void> {
+    return this.call('PATCH', `/v1/teams/${seg(teamId)}`, {
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.queueGraceHours !== undefined ? { queue_grace_hours: patch.queueGraceHours } : {}),
+    })
   }
 
   deleteTeam(teamId: string): Promise<void> {
@@ -603,10 +736,83 @@ export class TeamApi {
   }
 
   async patchTask(teamId: string, messageId: string, patch: TaskPatch): Promise<TeamMessage> {
-    const { clearAction, ...rest } = patch
-    const wire = { ...rest, ...(clearAction ? { clear_action: true } : {}) }
     return messageOf(
-      await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}`, wire)),
+      await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}`, taskWire(patch))),
+    )
+  }
+
+  /** 开工前核对（docs/multica-learn.md §11.3）。旧云端没有这个接口（404 且不是 JSON 错误）：当作通过、没有凭证 */
+  async start(teamId: string, messageId: string, device: string): Promise<StartResult> {
+    let res: Response
+    try {
+      res = await this.request('POST', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}/start`, { device })
+    } catch (e) {
+      if (e instanceof TeamError && e.code === 'NOT_FOUND' && e.message === '团队、频道或消息不存在')
+        return { outcome: 'ok', message: null, runToken: null }
+      throw e
+    }
+    const body = await this.json(res)
+    const o = isObj(body) ? body : {}
+    const message = parseMessage(o.message)
+    if (!message) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    const outcome = oneOf(o.outcome, ['ok', 'approval', 'stopped'] as const, 'ok')
+    const token = typeof o.run_token === 'string' && o.run_token.startsWith('rt_') ? o.run_token : null
+    return { outcome, message, runToken: outcome === 'ok' ? token : null }
+  }
+
+  /** 收件箱（docs/multica-learn.md §11.5）。旧云端没有这个接口（404 且不是 JSON 错误）：null */
+  async inbox(): Promise<TeamInboxItem[] | null> {
+    let res: Response
+    try {
+      res = await this.request('GET', '/v1/inbox')
+    } catch (e) {
+      if (e instanceof TeamError && e.code === 'NOT_FOUND' && e.message === '团队、频道或消息不存在') return null
+      throw e
+    }
+    const body = await this.json(res)
+    return arr(isObj(body) ? body.items : null, parseInboxItem)
+  }
+
+  /** 改收件箱的一行：已读、归档、延后、取消订阅 */
+  async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<TeamInboxItem> {
+    const wire: Record<string, unknown> = {}
+    if (patch.read !== undefined) wire.read = patch.read
+    if (patch.archived !== undefined) wire.archived = patch.archived
+    if (patch.muted !== undefined) wire.muted = patch.muted
+    if (patch.snoozeUntil !== undefined)
+      wire.snooze_until = patch.snoozeUntil === null ? null : new Date(patch.snoozeUntil).toISOString()
+    const body = await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/inbox/${seg(key)}`, wire))
+    const item = parseInboxItem(isObj(body) ? body.item : null)
+    if (!item) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    return item
+  }
+
+  /** 用运行凭证写回任务卡（字段和 patchTask 一样） */
+  async patchRun(teamId: string, messageId: string, token: string, patch: TaskPatch): Promise<TeamMessage> {
+    return messageOf(
+      await this.json(
+        await this.request('PATCH', `/v1/teams/${seg(teamId)}/runs/${seg(messageId)}`, taskWire(patch), false, token),
+      ),
+    )
+  }
+
+  /** 用运行凭证以这张卡的 AI 成员发结果 */
+  async postRunResult(
+    teamId: string,
+    messageId: string,
+    token: string,
+    input: { clientId: string; text: string; mentions: string[] },
+  ): Promise<TeamMessage> {
+    return messageOf(
+      await this.json(
+        await this.request(
+          'POST',
+          `/v1/teams/${seg(teamId)}/runs/${seg(messageId)}/result`,
+          { client_id: input.clientId, text: input.text, mentions: input.mentions },
+          false,
+          token,
+        ),
+      ),
     )
   }
 

@@ -35,6 +35,7 @@ import type {
   ChannelQueueAction,
   NeedMark,
   PostInput,
+  TeamInboxPatch,
   TeamRole,
 } from '../../shared/types/channels'
 
@@ -53,25 +54,28 @@ const ACTIONS = new Set<ChannelTaskAction>([
   'merge',
   'pr',
   'resolve',
+  'copyNow',
 ])
 const QUEUE_ACTIONS = new Set<ChannelQueueAction>(['up', 'down', 'first'])
 const ALERT_ACTIONS = new Set<ChannelAlertAction>(['hold', 'continue', 'open', 'stop', 'reassign', 'cancel', 'dismiss'])
 const INVITE_ROLES = new Set<Exclude<TeamRole, 'owner'>>(['member', 'observer'])
-const POLICIES = new Set<AgentPolicy>(['approve', 'team'])
+const POLICIES = new Set<AgentPolicy>(['owner', 'approve', 'listed', 'team'])
+/** 「指定的人直接派」最多指定几个人（和云端 MaxAllow 一致） */
+const ALLOW_MAX = 50
 const role = (value: unknown): Exclude<TeamRole, 'owner'> => {
   if (!INVITE_ROLES.has(value as Exclude<TeamRole, 'owner'>)) throw new Error('角色不正确')
   return value as Exclude<TeamRole, 'owner'>
 }
 
-/** 团队实时通道的地址：登录服务的同一个地址（https → wss） */
 /**
- * 团队功能（协作频道 Phase C）2026-10-18 起默认关闭，频道只做本机多 AI 协作（docs/ui/channels-local-ai.md §1）。
- * 代码、测试和云端接口都留着，开发时设 PIXELSKY_TEAMS=1 打开
+ * 团队功能（协作频道 Phase C）：2026-10-18 关过一阵（docs/ui/channels-local-ai.md §1），2026-11-17 重新打开（docs/multica-learn.md §13）。
+ * 设 PIXELSKY_TEAMS=0 关掉（排查问题用）；云端没开团队接口时（TEAMS_ENABLED 关着，团队接口 404）同步当作「云端没部署」，报不可用、界面藏起团队入口
  */
 export function teamsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.PIXELSKY_TEAMS === '1'
+  return env.PIXELSKY_TEAMS !== '0'
 }
 
+/** 团队实时通道的地址：登录服务的同一个地址（https → wss） */
 export function teamsWsUrl(base: string): string {
   return base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/teams/ws'
 }
@@ -90,7 +94,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   const store = new ChannelStore(dir)
   await store.init()
   const deviceId = await loadDeviceId(dir)
-  // 团队同步（Phase C）：登录后启动，退出登录清空。团队功能默认关着（teamsEnabled），关着时不创建、不连云端
+  // 团队同步（Phase C）：登录后启动，退出登录清空。PIXELSKY_TEAMS=0 时不创建、不连云端（teamsEnabled）
   const team = teamsEnabled()
     ? new TeamSync({
         api: new TeamApi(teamsFetch),
@@ -386,13 +390,47 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   ipc.handle('channels:approveTask', (_e, taskId, approve) =>
     channels.approveTask(str(taskId, '任务'), approve === true),
   )
-  ipc.handle('channels:agentPolicy', (_e, channelId, memberId, policy) => {
+  // 队友派来的活的限制：主进程按 cleanTeammate 整理，不认识的字段丢掉
+  ipc.handle('channels:teammate', (_e, rules) => channels.setTeammate(rules))
+  // 收件箱改一行（docs/multica-learn.md §11.5）：只认这四个字段
+  ipc.handle('channels:inbox', (_e, teamId, key, raw) => {
+    const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+    const flag = (v: unknown): boolean | undefined => {
+      if (v === undefined) return undefined
+      if (typeof v !== 'boolean') throw new Error('参数不对')
+      return v
+    }
+    const snooze = p.snoozeUntil
+    if (snooze !== undefined && snooze !== null && (typeof snooze !== 'number' || !Number.isFinite(snooze)))
+      throw new Error('参数不对')
+    const patch: TeamInboxPatch = {}
+    const read = flag(p.read),
+      archived = flag(p.archived),
+      muted = flag(p.muted)
+    if (read !== undefined) patch.read = read
+    if (archived !== undefined) patch.archived = archived
+    if (muted !== undefined) patch.muted = muted
+    if (snooze !== undefined) patch.snoozeUntil = snooze as number | null
+    return channels.patchInbox(str(teamId, '团队'), str(key, '通知'), patch)
+  })
+  ipc.handle('channels:agentPolicy', (_e, channelId, memberId, policy, raw) => {
     if (!POLICIES.has(policy as AgentPolicy)) throw new Error('不支持的派活规则')
-    return channels.setAgentPolicy(str(channelId, '频道'), str(memberId, '成员'), policy as AgentPolicy)
+    const allow: unknown = raw
+    if (
+      allow !== undefined &&
+      (!Array.isArray(allow) || allow.length > ALLOW_MAX || allow.some(x => typeof x !== 'string' || !x))
+    )
+      throw new Error('指定的人不对')
+    return channels.setAgentPolicy(
+      str(channelId, '频道'),
+      str(memberId, '成员'),
+      policy as AgentPolicy,
+      allow as string[] | undefined,
+    )
   })
   ipc.handle('teams:create', (_e, name) => channels.createTeam(typeof name === 'string' ? name : ''))
   ipc.handle('teams:update', (_e, teamId, patch) =>
-    channels.updateTeam(str(teamId, '团队'), (patch ?? {}) as { name: string }),
+    channels.updateTeam(str(teamId, '团队'), (patch ?? {}) as { name?: string; queueGraceHours?: number }),
   )
   ipc.handle('teams:delete', (_e, teamId) => channels.deleteTeam(str(teamId, '团队')))
   ipc.handle('teams:rename', (_e, teamId, name) =>

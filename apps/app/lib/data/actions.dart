@@ -51,6 +51,9 @@ class Rewound {
   final bool undoable;
 }
 
+/// 旁聊的一轮问答
+typedef SideTurn = ({String question, String answer});
+
 class SessionActions {
   SessionActions(this._connections, this.deviceId, this.sessionId);
   final Connections _connections;
@@ -63,10 +66,14 @@ class SessionActions {
   bool get canAct =>
       link?.state == LinkState.ready && link?.hello?.access == 'act';
 
-  Future<Object?> _call(String method, [List<Object?> args = const []]) {
+  Future<Object?> _call(
+    String method, [
+    List<Object?> args = const [],
+    Duration? timeout,
+  ]) {
     final l = link;
     if (l == null) return Future.error(const LinkNotReady());
-    return l.call(method, [sessionId, ...args]);
+    return l.call(method, [sessionId, ...args], timeout);
   }
 
   // 上次没发成功的内容和它的 ID：原样重发时沿用（retry.dart）
@@ -140,6 +147,21 @@ class SessionActions {
 
   /// 撤销上一次回退（发出新消息之前）
   Future<void> undoRewind() => _call('engine:undoRewind');
+
+  /// 旁聊（docs/mobile-app.md §15.3）：不打断正在跑的这一轮问一句，返回回答。
+  /// history 是这次旁聊里之前的问答（只在手机内存里）；等 AI 回答，最多 3 分钟
+  Future<String> sideQuestion(String question, List<SideTurn> history) async {
+    final r = await _call('engine:sideQuestion', [
+      question,
+      [
+        for (final t in history) {'question': t.question, 'answer': t.answer},
+      ],
+    ], const Duration(minutes: 3));
+    return r is String ? r : '';
+  }
+
+  /// 停掉正在问的那一句
+  Future<void> cancelSideQuestion() => _call('engine:cancelSideQuestion');
 
   /// 改设置：permissionMode / model / effort / fast / thinkingSummaries
   Future<void> update(Json patch) => _call('engine:updateSession', [patch]);

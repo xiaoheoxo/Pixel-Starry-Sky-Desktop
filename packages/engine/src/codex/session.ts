@@ -365,6 +365,8 @@ export async function codexLaunchConfig(
     environment[key] = [...ctx.extensions.pathDirs, environment[key] ?? ''].join(delimiter)
   }
   const ext = ctx.extensions
+  // 队友派来的活：不带用户 config.toml 里的 MCP（Codex 没有只用项目配置的开关，项目里的也一起清掉）
+  if (ext?.strictMcp) config('mcp_servers', {})
   for (const [key, value] of Object.entries(ext?.codexConfig ?? {})) config(key, value)
   if (askFlag) config(`features.${DEFAULT_MODE_ASK}`, true)
   // 用户追加的参数 / 配置也开了同一个功能时警告不是我们的；config.toml 要等 config/read 才知道，警告可能先到，先按我们的算

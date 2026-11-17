@@ -71,6 +71,18 @@ export interface SessionStatusState {
   gh: 'ready' | 'missing' | 'signed-out'
 }
 
+/**
+ * 手机网关用的 PR 操作（docs/mobile-app.md §15.4）：session-status/index.ts 建好后放在 AppContext 上，
+ * 合并和窗口走同一个函数（只合并这个对话自己的 PR、合并后重查）
+ */
+export interface PhonePrs {
+  state(): SessionStatusState
+  /** 立刻重查这个对话的 PR */
+  refresh(sessionId: string): Promise<void>
+  mergeOptions(url: string): Promise<PrMergeOptions>
+  merge(sessionId: string, url: string, method: PrMergeMethod, deleteBranch: boolean): Promise<void>
+}
+
 export interface SessionStatusBridge {
   get(): Promise<SessionStatusState>
   /** 立刻重查（不传就查全部）；切回窗口、悬停卡里点「刷新」时用 */

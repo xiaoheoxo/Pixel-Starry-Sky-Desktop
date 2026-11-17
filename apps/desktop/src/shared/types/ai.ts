@@ -196,6 +196,40 @@ export type AiReviewResult =
     } & Pick<Extract<AiCommitResult, { ok: true }>, 'model' | 'groupId' | 'usage' | 'chargeable'>)
   | Extract<AiCommitResult, { ok: false }>
 
+/** 审查结果里一条的状态：没处理、发去修了、复审确认修好了、忽略 */
+export type ReviewStatus = 'open' | 'sent' | 'fixed' | 'ignored'
+
+export interface ReviewItem extends ReviewFinding {
+  id: string
+  status: ReviewStatus
+  /** 修完后复审新发现的 */
+  recheck?: boolean
+}
+
+/** 一轮的审查结果（按会话、轮次存在主进程的 ai-reviews.json，docs/mobile-app.md §15.5） */
+export interface TurnReview {
+  at: number
+  /** 哪个模型审的（显示用：通道 · 模型） */
+  model: string
+  files: number
+  items: ReviewItem[]
+  /** 两次都没按格式回时的原文 */
+  raw?: string
+  /** 发去修的消息原文：复审时按它找修的那一轮；ids 是这次发去修的条目 */
+  fix: { text: string; ids: string[] } | null
+  /** 已经自动复审过（只复审一次） */
+  rechecked: boolean
+}
+
+/** 一个会话的审查结果：轮次（那一轮用户消息的 id，第一轮之前的改动是 'start'）→ 结果 */
+export type SessionReviews = Record<string, TurnReview>
+
+/** reviews:changed 推给窗口的：哪个会话、现在的全部结果（删光了是空对象） */
+export interface ReviewsChange {
+  sessionId: string
+  turns: SessionReviews
+}
+
 /** 「修这条」「全部修复」发给会话的话：给 AI 看的，不走界面词典（和 checks 的 fixRequest 一样） */
 export function reviewFixRequest(items: readonly ReviewFinding[]): string {
   const where = (f: ReviewFinding): string => (f.file ? f.file + (f.line ? `:${f.line}` : '') : '')

@@ -144,6 +144,10 @@ class PendingImages extends ChangeNotifier {
     }
   }
 
+  /// 按文件路径加（从别的 App 分享进来的图片，D2）
+  Future<void> addPaths(List<String> paths) =>
+      paths.isEmpty ? Future.value() : add([for (final p in paths) XFile(p)]);
+
   void remove(String id) {
     images.removeWhere((i) => i['id'] == id);
     notifyListeners();

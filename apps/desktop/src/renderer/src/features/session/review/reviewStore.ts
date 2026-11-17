@@ -1,5 +1,7 @@
-// 审查结果（docs/ui/review-pr-actions.md §2.4）：按会话存每轮的结果和每条的状态，存在本机 localStorage，
-// 只留最近 SESSION_LIMIT 个会话；读写失败不影响使用。正在审、失败的原因只在内存里
+// 审查结果（docs/ui/review-pr-actions.md §2.4、docs/mobile-app.md §15.5）：按会话存每轮的结果和每条的状态。
+// 存在主进程（<dataRoot>/ai-reviews.json，手机也能看）：启动时取一次（顺带把 localStorage 里的旧结果迁过去），
+// 改了经 IPC 写回，别处（手机）改了主进程推过来。演示模式只存 localStorage。只留最近 SESSION_LIMIT 个会话。
+// 读写失败不影响使用。正在审、失败的原因只在内存里
 import { useSyncExternalStore } from 'react'
 import { isDemo } from '@/data'
 import type { TurnReview } from './reviewModel'
@@ -9,12 +11,39 @@ const SESSION_LIMIT = 200
 
 type Saved = Record<string, Record<string, TurnReview>>
 
-let saved: Saved = {}
-try {
-  const raw: unknown = JSON.parse(localStorage.getItem(KEY) ?? '{}')
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) saved = raw as Saved
-} catch {
-  /* 坏数据从空开始 */
+const reviewsBridge = isDemo ? null : (window.pixelsky?.reviews ?? null)
+
+function readLocal(): Saved {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(KEY) ?? '{}')
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Saved
+  } catch {
+    /* 坏数据从空开始 */
+  }
+  return {}
+}
+
+// 没有主进程（单测、演示）时用 localStorage
+let saved: Saved = reviewsBridge ? {} : readLocal()
+if (reviewsBridge) {
+  void reviewsBridge
+    .load(readLocal())
+    .then(all => {
+      // 取回来之前本窗口已经改过的会话以本窗口的为准（改动也已经发给主进程了）
+      saved = { ...all, ...saved }
+      try {
+        localStorage.removeItem(KEY)
+      } catch {}
+      emit()
+    })
+    .catch(() => {})
+  reviewsBridge.onChange(({ sessionId, turns }) => {
+    const next = { ...saved }
+    delete next[sessionId]
+    if (Object.keys(turns).length) next[sessionId] = turns
+    saved = next
+    emit()
+  })
 }
 
 export interface TurnReviewState {
@@ -38,10 +67,15 @@ const subscribe = (l: () => void): (() => void) => {
 }
 const key = (sessionId: string, turnKey: string): string => sessionId + '\n' + turnKey
 
-function persist(): void {
+/** 改了一轮：主进程有就写给主进程（它也裁到最近 SESSION_LIMIT 个），没有写 localStorage */
+function persist(sessionId: string, turnKey: string): void {
   const ids = Object.keys(saved)
   // 只留最近的：新写的会话排在最后（删了再加）
   for (const id of ids.slice(0, Math.max(0, ids.length - SESSION_LIMIT))) delete saved[id]
+  if (reviewsBridge) {
+    void reviewsBridge.set(sessionId, turnKey, saved[sessionId]?.[turnKey] ?? null).catch(() => {})
+    return
+  }
   try {
     localStorage.setItem(KEY, JSON.stringify(saved))
   } catch {}
@@ -56,7 +90,7 @@ export function setReview(sessionId: string, turnKey: string, review: TurnReview
   delete saved[sessionId]
   saved = { ...saved, [sessionId]: turns }
   errors.delete(key(sessionId, turnKey))
-  persist()
+  persist(sessionId, turnKey)
   emit()
 }
 
@@ -71,7 +105,7 @@ export function clearReview(sessionId: string, turnKey: string): void {
   delete turns[turnKey]
   saved = { ...saved, [sessionId]: turns }
   errors.delete(key(sessionId, turnKey))
-  persist()
+  persist(sessionId, turnKey)
   emit()
 }
 

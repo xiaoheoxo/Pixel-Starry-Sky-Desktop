@@ -1,7 +1,7 @@
 // 协作频道的演示数据（docs/ui/channels.md §9.1），只在 `pnpm dev:demo` 显示。
 // 时间相对本地 0 点推算，日期分隔始终是「昨天 / 今天」。
 import type { Channel, ChannelMember, ChannelMessage } from '@/data/types'
-import type { PendingInvite, TeamInfo } from '../../../shared/types/channels'
+import type { PendingInvite, TeamInboxItem, TeamInfo } from '../../../shared/types/channels'
 
 const NOW = Date.now()
 const HOUR = 3_600_000
@@ -692,6 +692,7 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       title: '补发布页的 e2e 截图',
       status: 'failed',
       error: '会话已删除',
+      reason: 'session_gone',
       sessionId: null,
       summary: null,
       diff: null,
@@ -719,6 +720,33 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       summary: '签名证书已过期，打包在签名步骤中断。',
       diff: null,
       error: '签名证书已过期，打包在签名步骤中断。',
+      reason: 'other',
+      round: 2,
+      // 运行记录（docs/multica-learn.md §1）：第一次额度用完，充值后重试，第二次卡在签名
+      runs: [
+        {
+          n: 1,
+          status: 'failed',
+          startedAt: at(YESTERDAY, '16:21'),
+          endedAt: at(YESTERDAY, '16:23'),
+          reason: 'engine.quota',
+          error: '平台余额不足，请充值后重试',
+          engine: 'codex',
+          model: 'gpt-5.5',
+          machine: 'build-01',
+        },
+        {
+          n: 2,
+          status: 'failed',
+          startedAt: at(YESTERDAY, '16:40'),
+          endedAt: at(YESTERDAY, '16:47'),
+          reason: 'other',
+          error: '签名证书已过期，打包在签名步骤中断。',
+          engine: 'codex',
+          model: 'gpt-5.5',
+          machine: 'build-01',
+        },
+      ],
       activity: {
         say: null,
         steps: [
@@ -1068,13 +1096,14 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
 }
 
 // ── Phase C：示例团队（docs/ui/channels-phase-c.md §9.3），只改内存，不联网 ──
-// 团队功能 2026-10-18 起默认关闭（docs/ui/channels-local-ai.md §1）：示例留着，演示模式用 demoChannelData(DEMO_TEAMS) 滤掉
+// 团队功能 2026-11-17 重新打开（docs/multica-learn.md §13）；DEMO_TEAMS 改成 false 看关着团队时的样子
 
 export const demoTeams: TeamInfo[] = [
   {
     id: 'tm-pixel',
     name: '像素星空小队',
     role: 'owner',
+    queueGraceHours: 24,
     members: [
       { id: 'm-linxia', role: 'owner', online: true, lastSeenAt: NOW },
       { id: 'm-zhouning', role: 'member', online: true, lastSeenAt: NOW },
@@ -1095,8 +1124,54 @@ export const demoInvites: PendingInvite[] = [
   },
 ]
 
-/** 演示模式里团队先关着（和主进程默认一样）；改成 true 就能看到团队示例 */
-export const DEMO_TEAMS = false
+/** 收件箱（docs/multica-learn.md §11.5）：我是林夏 */
+export const demoInbox: TeamInboxItem[] = [
+  {
+    teamId: 'tm-pixel',
+    key: 'log-m5',
+    channelId: 'c-changelog',
+    kind: 'mention',
+    actor: 'm-chenyi',
+    text: '@林夏 文档助手那张卡在等你点同意，点完它就开工了。',
+    count: 1,
+    at: NOW - 10 * 60_000,
+    read: false,
+    archived: false,
+    snoozeUntil: null,
+    muted: false,
+  },
+  {
+    teamId: 'tm-pixel',
+    key: 'log-t2',
+    channelId: 'c-changelog',
+    kind: 'approval',
+    actor: 'm-zhouning',
+    text: '按模块重排更新日志，加作者栏',
+    count: 2,
+    at: NOW - 20 * 60_000,
+    read: false,
+    archived: false,
+    snoozeUntil: null,
+    muted: false,
+  },
+  {
+    teamId: 'tm-pixel',
+    key: 'log-t1',
+    channelId: 'c-changelog',
+    kind: 'done',
+    actor: 'a-docs',
+    text: '整理 10 月更新日志',
+    count: 0,
+    at: NOW - 3 * HOUR,
+    read: true,
+    archived: false,
+    snoozeUntil: null,
+    muted: false,
+  },
+]
+
+/** 演示模式里显示团队示例（和主进程默认一样）；改成 false 看关着团队时的样子 */
+export const DEMO_TEAMS = true
 
 /**
  * 拼演示模式的频道数据。不带团队时：去掉团队频道和它们的消息、队友、别人电脑上的 AI 成员，
@@ -1106,14 +1181,19 @@ export function demoChannelData(teams: boolean): {
   channels: Channel[]
   channelMembers: ChannelMember[]
   channelMessages: Record<string, ChannelMessage[]>
-  channelTeams: { teams: TeamInfo[]; invites: PendingInvite[]; connection: 'online' | 'unavailable' }
+  channelTeams: {
+    teams: TeamInfo[]
+    invites: PendingInvite[]
+    connection: 'online' | 'unavailable'
+    inbox?: TeamInboxItem[]
+  }
 } {
   if (teams)
     return {
       channels: demoChannels,
       channelMembers: demoChannelMembers,
       channelMessages: demoChannelMessages,
-      channelTeams: { teams: demoTeams, invites: demoInvites, connection: 'online' },
+      channelTeams: { teams: demoTeams, invites: demoInvites, connection: 'online', inbox: demoInbox },
     }
   const channels = demoChannels.filter(c => c.scope !== 'team')
   const keep = new Set(channels.map(c => c.id))

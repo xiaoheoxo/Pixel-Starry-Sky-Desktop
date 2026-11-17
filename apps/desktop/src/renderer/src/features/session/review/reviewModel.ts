@@ -10,31 +10,11 @@ import {
   reviewFixRequest,
   type ReviewFinding,
   type ReviewPrevious,
+  type TurnReview,
 } from '../../../../../shared/types/ai'
 
-export type ReviewStatus = 'open' | 'sent' | 'fixed' | 'ignored'
-
-export interface ReviewItem extends ReviewFinding {
-  id: string
-  status: ReviewStatus
-  /** 修完后复审新发现的 */
-  recheck?: boolean
-}
-
-/** 一轮的审查结果（按会话、轮次存） */
-export interface TurnReview {
-  at: number
-  /** 哪个模型审的（显示用：通道 · 模型） */
-  model: string
-  files: number
-  items: ReviewItem[]
-  /** 两次都没按格式回时的原文 */
-  raw?: string
-  /** 发去修的消息原文：复审时按它找修的那一轮；ids 是这次发去修的条目 */
-  fix: { text: string; ids: string[] } | null
-  /** 已经自动复审过（只复审一次） */
-  rechecked: boolean
-}
+// 类型放在 shared（主进程存、手机网关也用）
+export type { ReviewItem, ReviewStatus, TurnReview } from '../../../../../shared/types/ai'
 
 /** 这一轮的差异，按文件拼；太长时截断并在末尾注明还有哪些文件没给 */
 export function reviewDiff(data: ChangedFiles, limit = REVIEW_DIFF_LIMIT): string {

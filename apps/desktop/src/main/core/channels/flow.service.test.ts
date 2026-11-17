@@ -1823,3 +1823,170 @@ describe('单张任务卡合并（docs/ui/channels-local-rest.md §3.1）', () =
     expect(c.messages(ch).messages).toHaveLength(before)
   })
 })
+
+describe('牵头唤醒和同一目录排队（docs/multica-learn.md §11.2）', () => {
+  const texts = (c: Channels, id: string) =>
+    c.messages(id).messages.filter((m): m is ChannelTextMessage => m.kind === 'message')
+
+  /** 牵头（画师）把活交给程序员：返回牵头那张卡和程序员那张卡 */
+  async function handed(c: Channels, ch: string, text = '@程序员 把首页按钮改成蓝色') {
+    await c.post(ch, { text: '@画师 安排一下首页', clientId: `q-${now}` })
+    await settle()
+    const lead = tasks(c, ch).at(-1)!
+    await endTurn(c, lead.sessionId!, text)
+    return { lead, work: tasks(c, ch).at(-1)! }
+  }
+
+  it('牵头经手的活：成员交回结果、没 @ 别人时叫牵头；回 [silent] 不发消息', async () => {
+    const { c, a, b, ch } = await setup()
+    await c.update(ch, { lead: a, relay: true })
+    expect(c.state().channels[0]).toMatchObject({ leadWake: true, leadDispatchOnly: false })
+    const { lead, work } = await handed(c, ch)
+    expect(work).toMatchObject({ assigneeId: b, relay: { chain: lead.id, hop: 1 } })
+    await endTurn(c, work.sessionId!, '改好了，按钮现在是蓝色。')
+    const wake = tasks(c, ch).at(-1)!
+    expect(wake).toMatchObject({
+      assigneeId: a,
+      authorId: b,
+      title: '牵头接手：把首页按钮改成蓝色',
+      wake: { from: ['程序员'] },
+      relay: { chain: lead.id, hop: 2, held: null },
+    })
+    const prompt = lastTo(wake.sessionId!).text
+    expect(prompt).toContain('你是这个频道的牵头')
+    expect(prompt).toContain('> 改好了，按钮现在是蓝色。')
+    expect(prompt).not.toContain('只负责分派和协调')
+    const before = texts(c, ch).length
+    await endTurn(c, wake.sessionId!, ' [silent] ')
+    expect(tasks(c, ch).find(t => t.id === wake.id)).toMatchObject({ status: 'done', summary: '没有要说的' })
+    expect(texts(c, ch)).toHaveLength(before)
+    expect(tasks(c, ch)).toHaveLength(3)
+  })
+
+  it('牵头只派活不动手：唤醒提示词里写明；牵头再派出去的活做完还会叫它', async () => {
+    const { c, a, ch } = await setup()
+    await c.update(ch, { lead: a, relay: true, leadDispatchOnly: true })
+    const { work } = await handed(c, ch)
+    await endTurn(c, work.sessionId!, '改好了。')
+    const wake = tasks(c, ch).at(-1)!
+    expect(lastTo(wake.sessionId!).text).toContain('只负责分派和协调')
+    await endTurn(c, wake.sessionId!, '@审查员 看一下按钮')
+    const review = tasks(c, ch).at(-1)!
+    await endTurn(c, review.sessionId!, '没问题。')
+    expect(tasks(c, ch).at(-1)).toMatchObject({ assigneeId: a, wake: { from: ['审查员'] } })
+  })
+
+  it('不叫牵头：你直接 @ 成员问的、成员要你决定的、牵头自己的回复、没开互相派活、关掉了', async () => {
+    const { c, a, ch } = await setup()
+    await c.update(ch, { lead: a, relay: true })
+    await c.post(ch, { text: '@程序员 首页用的什么框架', clientId: 'q1' })
+    await settle()
+    await endTurn(c, tasks(c, ch).at(-1)!.sessionId!, 'React。')
+    expect(tasks(c, ch)).toHaveLength(1)
+    const one = await handed(c, ch)
+    await endTurn(c, one.work.sessionId!, '需要你决定：蓝色还是绿色？')
+    expect(tasks(c, ch)).toHaveLength(3)
+    // 牵头自己回复没 @ 人
+    await c.post(ch, { text: '@画师 首页好了吗', clientId: 'q3' })
+    await settle()
+    await endTurn(c, tasks(c, ch).at(-1)!.sessionId!, '好了。')
+    expect(tasks(c, ch)).toHaveLength(4)
+    await c.update(ch, { leadWake: false })
+    expect(c.state().channels[0].leadWake).toBe(false)
+    const two = await handed(c, ch)
+    await endTurn(c, two.work.sessionId!, '改好了。')
+    expect(tasks(c, ch).at(-1)!.id).toBe(two.work.id)
+    await c.update(ch, { leadWake: true, relay: false })
+    await c.post(ch, { text: '@画师 再安排', clientId: 'q5' })
+    await settle()
+    await endTurn(c, tasks(c, ch).at(-1)!.sessionId!, '@程序员 改一下')
+    // 没开互相派活：@ 只是文字，也不会叫牵头
+    expect(tasks(c, ch).at(-1)!.assigneeId).toBe(a)
+  })
+
+  it('牵头在这件事上已有没做完的唤醒卡：新的结果并进去（做着的记成追加要求），不另开卡', async () => {
+    const c = await open()
+    const together = (name: string): AgentInput => ({ ...agent(name), sameDir: 'together' })
+    const a = await c.saveMember(null, together('画师'))
+    const b = await c.saveMember(null, together('程序员'))
+    const r = await c.saveMember(null, together('审查员'))
+    const ch = await c.create({ name: 'web', memberIds: [a, b, r] })
+    await c.update(ch, { lead: a, relay: true })
+    await c.post(ch, { text: '@画师 安排一下首页', clientId: 'q1' })
+    await settle()
+    const lead = tasks(c, ch).at(-1)!
+    await endTurn(c, lead.sessionId!, '@程序员 改按钮\n\n@审查员 看文案')
+    const [, coder, reviewer] = tasks(c, ch)
+    await endTurn(c, coder.sessionId!, '按钮改好了。')
+    const wake = tasks(c, ch).at(-1)!
+    expect(wake.wake).toEqual({ from: ['程序员'] })
+    await endTurn(c, reviewer.sessionId!, '文案没问题。')
+    expect(tasks(c, ch)).toHaveLength(4)
+    expect(tasks(c, ch).find(t => t.id === wake.id)?.wake).toEqual({ from: ['程序员', '审查员'] })
+    // 这一轮做完接着发并进来的结果
+    await endTurn(c, wake.sessionId!, '还差文案那边的结果。')
+    expect(lastTo(wake.sessionId!).text).toContain('审查员 做完「看文案」后把活交给了你。')
+    expect(tasks(c, ch).find(t => t.id === wake.id)?.round).toBe(2)
+  })
+
+  it('同一目录：默认排队等前面那项做完自动开始；照常一起跑、每次都问的成员不排', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('画师'))
+    const b = await c.saveMember(null, agent('程序员'))
+    const t = await c.saveMember(null, { ...agent('测试'), sameDir: 'together' })
+    const q = await c.saveMember(null, { ...agent('问问'), settings: { permissionMode: 'ask' } })
+    const ch = await c.create({ name: 'web', memberIds: [a, b, t, q] })
+    await c.post(ch, { text: '@画师 改首页', clientId: '1' })
+    await settle()
+    await c.post(ch, { text: '@程序员 改登录页', clientId: '2' })
+    await settle()
+    const [first, second] = tasks(c, ch)
+    expect(first.sessionId).toBeTruthy()
+    expect(second).toMatchObject({ status: 'queued', dirWait: { memberId: a, title: '改首页', canCopy: false } })
+    expect(second.sessionId ?? null).toBeNull()
+    await c.post(ch, { text: '@测试 跑一下', clientId: '3' })
+    await c.post(ch, { text: '@问问 看看', clientId: '4' })
+    await settle()
+    expect(tasks(c, ch)[2].sessionId).toBeTruthy()
+    expect(tasks(c, ch)[3].sessionId).toBeTruthy()
+    await endTurn(c, first.sessionId!, '首页好了。')
+    // 「测试」照常一起跑，但它会改文件：还在做时程序员接着等它
+    expect(tasks(c, ch)[1]).toMatchObject({ dirWait: { memberId: t } })
+    await endTurn(c, tasks(c, ch)[2].sessionId!, '跑完了。')
+    expect(tasks(c, ch)[1]).toMatchObject({ dirWait: null, sessionId: expect.any(String) })
+  })
+
+  it('用 Git 副本并行：给这张卡建副本马上开始；排队的卡点「改用副本马上开始」', async () => {
+    const created: string[] = []
+    const c = await open({
+      copies: {
+        create: async (_p, input) => {
+          created.push(input.name)
+          return { id: `c${created.length}`, branch: input.branch, path: `D:/copies/${input.name}` }
+        },
+        remove: async () => {},
+        dirty: async () => false,
+      },
+    })
+    const a = await c.saveMember(null, agent('画师'))
+    const b = await c.saveMember(null, { ...agent('程序员'), sameDir: 'copy' })
+    const d = await c.saveMember(null, agent('设计'))
+    const ch = await c.create({ name: 'web', memberIds: [a, b, d] })
+    await c.post(ch, { text: '@画师 改首页', clientId: '1' })
+    await settle()
+    await c.post(ch, { text: '@程序员 改登录页', clientId: '2' })
+    await settle()
+    expect(tasks(c, ch)[1]).toMatchObject({ copy: { id: 'c1' }, sessionId: expect.any(String) })
+    expect(calls.filter(x => x.channel === 'engine:createSession').at(-1)?.args[0]).toMatchObject({ copyId: 'c1' })
+    await c.post(ch, { text: '@设计 出图', clientId: '3' })
+    await settle()
+    const waiting = tasks(c, ch)[2]
+    expect(waiting.dirWait).toMatchObject({ canCopy: true })
+    await c.taskAction(waiting.id, 'copyNow')
+    await settle()
+    expect(tasks(c, ch)[2]).toMatchObject({ dirWait: null, copy: { id: 'c2' }, sessionId: expect.any(String) })
+    // 不在等目录的卡：copyNow 不起作用
+    await c.taskAction(tasks(c, ch)[0].id, 'copyNow')
+    expect(created).toHaveLength(2)
+  })
+})

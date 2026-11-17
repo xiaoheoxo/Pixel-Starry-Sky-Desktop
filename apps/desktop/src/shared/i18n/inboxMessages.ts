@@ -1,0 +1,23 @@
+// 收件箱「通知」页（docs/multica-learn.md §7、§11.5）
+export const inboxMessages = {
+  'inbox.tab.pending': { zh: '待处理', en: 'Needs attention' },
+  'inbox.tab.notices': { zh: '通知', en: 'Notifications' },
+  'inbox.empty': { zh: '没有新通知', en: 'No new notifications' },
+  'inbox.kind.mention': { zh: '{name} @了你', en: '{name} mentioned you' },
+  'inbox.kind.reply': { zh: '{name} 回复了', en: '{name} replied' },
+  'inbox.kind.assigned': { zh: '{name} 派活给你的 AI 成员', en: '{name} assigned work to your AI member' },
+  'inbox.kind.approval': { zh: '{name} 派的活等你同意', en: '{name} is waiting for your approval' },
+  'inbox.kind.failed': { zh: '{name} 的活失败了', en: "{name}'s work failed" },
+  'inbox.kind.done': { zh: '{name} 做完了', en: '{name} finished' },
+  'inbox.kind.review': { zh: '{name} 做完了，等你决定', en: '{name} finished and needs your decision' },
+  'inbox.kind.rejected': { zh: '{name} 没同意你派的活', en: '{name} declined your request' },
+  'inbox.more': { zh: '+{count}', en: '+{count}' },
+  'inbox.unread': { zh: '未读', en: 'Unread' },
+  'inbox.archive': { zh: '归档（E）', en: 'Archive (E)' },
+  'inbox.snooze': { zh: '延后（H）', en: 'Snooze (H)' },
+  'inbox.snooze.hour': { zh: '1 小时后', en: 'In 1 hour' },
+  'inbox.snooze.tomorrow': { zh: '明天 9 点', en: 'Tomorrow 9:00' },
+  'inbox.snooze.nextWeek': { zh: '下周一 9 点', en: 'Next Monday 9:00' },
+  'inbox.mute': { zh: '取消订阅并归档', en: 'Unsubscribe and archive' },
+  'inbox.unknown': { zh: '有人', en: 'Someone' },
+} as const

@@ -4,7 +4,7 @@ import { costHint, formatCardCost, formatShortCost, formatTokens } from '@/featu
 import type { FlowUsage } from '../../../../shared/types/channels'
 import type { ChannelMember, ChannelMessage } from '@/data/types'
 import { dayStart } from './model'
-import { lastSeen } from './teamModel'
+import { lastSeen, type Presence } from './teamModel'
 
 const WEEKDAYS = '日一二三四五六'
 
@@ -67,6 +67,15 @@ export function formatLastSeen(at: number | null | undefined, now = Date.now()):
   if (!seen) return null
   if (seen.unit === 'justNow') return tr('team.seen.justNow')
   return tr(SEEN_KEY[seen.unit], { count: seen.count })
+}
+
+/** 在线状态后面那几个字（docs/multica-learn.md §2）：在线不写；忙写排着几件；刚失联写几分钟前；离线写上次在线 */
+export function presenceLabel(p: Presence, lastSeenAt: number | null | undefined, now = Date.now()): string | null {
+  if (p.kind === 'busy') return tr('team.presence.busy', { count: p.queued })
+  if (p.kind === 'lost')
+    return p.minutes < 1 ? tr('team.presence.lostNow') : tr('team.presence.lost', { count: p.minutes })
+  if (p.kind === 'offline') return formatLastSeen(lastSeenAt, now)
+  return null
 }
 
 /** 同步时间：今天只写时间，其它带日期 */

@@ -279,7 +279,9 @@ function mcpServer(channels: () => Channels | null, sessionId: string): Server {
 
 export interface ChannelToolsServer {
   /** 本机的频道会话：成员的扩展设置（跟随全局时 tools 为 null）和频道工具的地址、令牌；不是频道会话时 null */
-  forSession(record: SessionRecord): Promise<{ tools: AgentTools | null; entry: LocalMcpEntry | null } | null>
+  forSession(
+    record: SessionRecord,
+  ): Promise<{ tools: AgentTools | null; entry: LocalMcpEntry | null; isolated?: boolean } | null>
   /** 频道派活的会话（任何机器上的）：会话自己的「做完自动检查」不重复跑，由频道写在任务卡上 */
   ownsSession(sessionId: string): boolean
   close(): void
@@ -292,6 +294,8 @@ export function channelToolsServer(channels: () => Channels | null): ChannelTool
       if (machineOf(record.id) !== 'local') return null
       const member = channels()?.sessionMember(record.id)
       if (!member) return null
+      // 队友派来的活：不挂频道工具（团队频道没有），也不带我的扩展和 MCP（docs/multica-learn.md §11.4）
+      if (member.isolated) return { tools: member.tools, entry: null, isolated: true }
       return { tools: member.tools, entry: await http.entry(record.id) }
     },
     ownsSession: sessionId => channels()?.ownsSession(sessionId) ?? false,

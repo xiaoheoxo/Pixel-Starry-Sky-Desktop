@@ -17,6 +17,8 @@ import '../../ui/widgets.dart';
 import '../pairing/add_computer_screen.dart';
 import '../pairing/texts.dart';
 import '../../data/actions.dart';
+import '../account/account_screen.dart';
+import '../channels/channels_screen.dart';
 import '../new_session/new_session_screen.dart';
 import '../session/session_menu.dart';
 import '../settings/settings_screen.dart';
@@ -213,6 +215,15 @@ class _AppDrawerState extends State<AppDrawer> {
                 Divider(height: 1, color: c.borderSubtle),
                 if (active != null)
                   ListRow(
+                    title: L('频道', 'Channels'),
+                    leading: Icon(Icons.forum_outlined, color: c.textSecondary),
+                    onTap: () {
+                      closeDrawer(context);
+                      openChannels(context, active.deviceId);
+                    },
+                  ),
+                if (active != null)
+                  ListRow(
                     title: L('工具与项目', 'Tools & projects'),
                     leading: Icon(
                       Icons.handyman_outlined,
@@ -226,6 +237,18 @@ class _AppDrawerState extends State<AppDrawer> {
                         active.deviceId,
                         openSession: widget.currentSessionId,
                       );
+                    },
+                  ),
+                if (active != null)
+                  ListRow(
+                    title: L('账号与充值', 'Account & top-up'),
+                    leading: Icon(
+                      Icons.account_balance_wallet_outlined,
+                      color: c.textSecondary,
+                    ),
+                    onTap: () {
+                      closeDrawer(context);
+                      openAccount(context, active.deviceId);
                     },
                   ),
                 if (active == null)

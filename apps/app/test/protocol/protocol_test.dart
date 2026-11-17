@@ -221,6 +221,7 @@ void main() {
           'liveModelSwitch': d.liveModelSwitch,
           'livePermissionSwitch': d.livePermissionSwitch,
           'rewind': d.rewind,
+          'sideChat': d.sideChat,
         },
         {
           'name': e['name'],
@@ -236,6 +237,7 @@ void main() {
           'liveModelSwitch': caps['liveModelSwitch'],
           'livePermissionSwitch': caps['livePermissionSwitch'],
           'rewind': caps['rewind'],
+          'sideChat': caps['sideChat'],
         },
         reason: '${e['id']}',
       );

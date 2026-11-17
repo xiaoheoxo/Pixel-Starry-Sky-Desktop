@@ -114,6 +114,9 @@ class DemoDesktop {
   final _snaps = <String, Json>{};
   final _seq = <String, int>{};
   final _timers = <String, List<Timer>>{};
+
+  /// 消息里图片的数据（会话内容里去掉了，同电脑）：「会话/条目」→ 每张的 base64，image 方法按第几张取
+  final _imageData = <String, List<String>>{};
   int _ids = 0;
   String _id(String p) => '$p${++_ids}';
   int get _now => DateTime.now().millisecondsSinceEpoch;
@@ -191,11 +194,17 @@ class DemoDesktop {
     final turnId = _id('t');
     final reasoning = _id('r'), command = _id('c'), reply = _id('a');
     final start = _now;
+    final userId = _id('u');
+    if (attachments != null && attachments.isNotEmpty) {
+      _imageData['$id/$userId'] = [
+        for (final a in attachments) str(obj(a)['dataBase64']) ?? '',
+      ];
+    }
     _push(id, {
       'type': 'item_started',
       'item': {
         'kind': 'user',
-        'id': _id('u'),
+        'id': userId,
         'text': text,
         'createdAt': start,
         'mode': mode,
@@ -410,6 +419,117 @@ class DemoDesktop {
         _rpc?.event('feedback:changed', {'kind': 'feedback', 'unread': unread}),
   );
 
+  /// 演示的 PR（C3）：s3 有一个检查没过的 PR；让 AI 修发一句话进对话，合并后变成已合并
+  final _prs = <String, List<Json>>{
+    's3': [Map.of(L10n.pr3)],
+  };
+
+  List<Json> _prsOf(String id) => _prs[id] ?? const [];
+
+  /// 演示的审查结果（C4）：s3 第一轮审过，两条没处理、一条已修
+  final _reviews = <String, Map<String, Json>>{
+    's3': {'u1': obj(_recent(L10n.review3))},
+  };
+
+  /// 演示数据里写死的时间（at、lastAt）整体挪到「刚才」：最晚的一条是一分钟前
+  static Object? _recent(Object? v) {
+    final shift = DateTime.now().millisecondsSinceEpoch - 60000 - 1763435940000;
+    Object? walk(Object? x) => switch (x) {
+      Map() => {
+        for (final e in x.entries)
+          e.key: (e.key == 'at' || e.key == 'lastAt') && e.value is int
+              ? (e.value as int) + shift
+              : walk(e.value),
+      },
+      List() => [for (final y in x) walk(y)],
+      _ => x,
+    };
+    return walk(v);
+  }
+
+  void _pushReviews(String id) => _rpc?.event('reviews:changed', {
+    'kind': 'reviews',
+    'sessionId': id,
+    'turns': _reviews[id] ?? const <String, Json>{},
+  });
+
+  Object? _review(String id, String method, List args) {
+    if (method == 'reviews') return _reviews[id] ?? const <String, Json>{};
+    final review = _reviews[id]?[args[1]];
+    if (review == null) throw const LinkException('MOBILE_NOT_FOUND');
+    final items = objList(review['items']);
+    if (method == 'reviewItem') {
+      for (final i in items) {
+        if (i['id'] == args[2]) i['status'] = args[3];
+      }
+    } else {
+      final ids = args[2] is List ? (args[2] as List).toSet() : null;
+      final chosen = [
+        for (final i in items)
+          if ((ids == null ? i['status'] == 'open' : ids.contains(i['id'])) &&
+              i['status'] != 'ignored')
+            i,
+      ];
+      if (chosen.isEmpty) throw const LinkException('MOBILE_NOT_FOUND');
+      for (final i in chosen) {
+        i['status'] = 'sent';
+      }
+      _handle('engine:send', [
+        id,
+        {
+          'text': [
+            L10n.reviewFix,
+            for (final i in chosen) '- ${i['file']}:${i['line']} ${i['title']}',
+          ].join('\n'),
+        },
+      ]);
+    }
+    _pushReviews(id);
+    return null;
+  }
+
+  void _pushPrs(String id) => _rpc?.event('sessionStatus:changed', {
+    'kind': 'prs',
+    'sessionId': id,
+    'prs': _prsOf(id),
+  });
+
+  /// 改演示 PR 的字段并推给手机（测试里模拟检查跑完）
+  void setPr(String id, Json patch) {
+    for (final pr in _prsOf(id)) {
+      pr.addAll(patch);
+    }
+    _pushPrs(id);
+  }
+
+  Object? _pr(String id, String method, List args) {
+    switch (method) {
+      case 'prs' || 'prRefresh':
+        return _prsOf(id);
+      case 'prMergeOptions':
+        return {
+          'methods': ['squash', 'merge', 'rebase'],
+          'deleteBranch': true,
+        };
+      case 'prFix':
+        return _handle('engine:send', [
+          id,
+          {
+            'text': args[2] == 'conflict'
+                ? L10n.prFixConflict
+                : L10n.prFixChecks,
+          },
+        ]);
+      default:
+        final list = _prsOf(id);
+        for (final pr in list) {
+          if (pr['url'] == args[1]) pr['state'] = 'merged';
+        }
+        _pushPrs(id);
+        return list;
+    }
+  }
+
   Object? _handle(String method, List args) {
     final id = args.isEmpty ? null : args.first;
     final tool = _tools.handle(method, args);
@@ -417,6 +537,35 @@ class DemoDesktop {
     final feedback = _feedback.handle(method, args);
     if (!identical(feedback, notTool)) return feedback;
     switch (method) {
+      // 回复里 Markdown 图片指向的本地文件（同电脑网关的 fileImage）：演示只有一张
+      case 'fileImage':
+        if ('${args.length > 1 ? args[1] : ''}'.endsWith(
+          'screens/settings.png',
+        )) {
+          return {
+            'id': 'file',
+            'name': 'settings.png',
+            'mediaType': 'image/png',
+            'dataBase64': L10n.shotSettings,
+          };
+        }
+        throw const LinkException('MOBILE_NOT_FOUND');
+      // 消息里的一张图（用户发的、工具结果里的），同电脑网关的 image
+      case 'image':
+        final data = _imageData['${args[0]}/${args[1]}'];
+        final index = args.length > 2 ? args[2] : null;
+        if (data == null ||
+            index is! int ||
+            index < 0 ||
+            index >= data.length) {
+          throw const LinkException('MOBILE_NOT_FOUND');
+        }
+        return {
+          'id': 'img$index',
+          'name': 'image.png',
+          'mediaType': 'image/png',
+          'dataBase64': data[index],
+        };
       case 'hello':
         _startStream();
         return {
@@ -438,8 +587,16 @@ class DemoDesktop {
           'before': null,
           'truncated': <String>[],
         };
-      case 'unwatch' || 'away':
+      case 'unwatch' || 'away' || 'channelUnwatch':
         return null;
+      // 频道（docs/mobile-app.md §15.6，只读）：一个本机频道，三个成员、一张完成的任务卡、一张等你确认的
+      case 'channels':
+        return _recent(L10n.channels);
+      case 'channelMessages':
+        if (id != 'c1') throw const LinkException('MOBILE_NOT_FOUND');
+        return {'messages': _recent(L10n.channelMessages), 'more': false};
+      case 'channelImage':
+        throw const LinkException('MOBILE_NOT_FOUND');
       case 'defaults':
         return {'engine': 'claude'};
       case 'sources':
@@ -535,6 +692,16 @@ class DemoDesktop {
         if (source != null) {
           patch.addAll(_switchSource(source, _record(id), patch['model']));
         }
+        // 「先出计划」：同电脑 engine/host/plan-return.ts 的 nextPlanReturn
+        final was = _record(id);
+        final mode = patch['permissionMode'] ?? was['permissionMode'];
+        patch['planReturn'] = mode != 'plan'
+            ? null
+            : patch.containsKey('planReturn')
+            ? patch['planReturn']
+            : was['permissionMode'] != 'plan'
+            ? was['permissionMode']
+            : was['planReturn'];
         _setRecord(id, patch);
         return null;
       case 'engine:renameSession':
@@ -566,6 +733,18 @@ class DemoDesktop {
         }
         _push(id, {'type': 'items_reset', 'items': saved});
         return null;
+      // 旁聊（docs/mobile-app.md §15.3）：稍等一下回一段固定的话
+      case 'engine:sideQuestion':
+        return Future<Object?>.delayed(
+          const Duration(milliseconds: 1200),
+          () => L10n.sideAnswer,
+        );
+      case 'engine:cancelSideQuestion':
+        return null;
+      case 'prs' || 'prRefresh' || 'prMergeOptions' || 'prFix' || 'prMerge':
+        return _pr(id, method, args);
+      case 'reviews' || 'reviewItem' || 'reviewFix':
+        return _review(id, method, args);
       case 'engine:archiveSession':
         if (running && args.length > 2 && args[2] != true) {
           throw const LinkException('SESSION_RUNNING');
@@ -1020,6 +1199,8 @@ class DemoDesktop {
         {'kind': 'notice', 'id': 'n1', 'level': 'error', 'text': L10n.error4},
       ],
     });
+    _imageData['s5/u1'] = [L10n.shotSettings];
+    _imageData['s5/t1'] = [L10n.shotBrowser];
     _add({
       'id': 's5',
       'projectId': 'chat',
@@ -1035,11 +1216,44 @@ class DemoDesktop {
           'id': 'u1',
           'text': L10n.title5,
           'createdAt': now - 259200000,
+          // 演示消息里的图（§15.16）：数据在 _imageData，看到时经 image 取
+          'attachments': [
+            {
+              'id': 'a1',
+              'name': 'settings.png',
+              'mediaType': 'image/png',
+              'bytes': 790,
+              'width': 320,
+              'height': 200,
+              'dataBase64': '',
+            },
+          ],
+        },
+        {
+          'kind': 'tool',
+          'id': 't1',
+          'tool': 'browser',
+          'name': 'Screenshot',
+          'title': 'localhost:5173/settings',
+          'output': '',
+          'status': 'completed',
+          'images': [
+            {
+              'id': 'i1',
+              'name': 'screenshot.png',
+              'mediaType': 'image/png',
+              'bytes': 630,
+              'width': 320,
+              'height': 200,
+              'dataBase64': '',
+            },
+          ],
         },
         {
           'kind': 'assistant',
           'id': 'a1',
-          'text': L10n.reply5,
+          // 回复里的本地图片（§15.17）：经 fileImage 向电脑取
+          'text': '${L10n.reply5}\n\n![设置页截图](./screens/settings.png)',
           'status': 'completed',
         },
       ],
@@ -1123,6 +1337,156 @@ class DemoDesktop {
 /// 演示文字（演示模式只给自己看，不走 i18n）
 abstract final class L10n {
   static const desktop = '工作室台式机';
+  static const pr3 = <String, Object?>{
+    'repo': 'pixelsky/site',
+    'number': 128,
+    'url': 'https://github.com/pixelsky/site/pull/128',
+    'title': '路由改成按需加载',
+    'state': 'open',
+    'ci': 'fail',
+    'ciFailed': 2,
+    'conflict': false,
+    'additions': 86,
+    'deletions': 12,
+    'head': 'perf/lazy-routes',
+    'base': 'main',
+    'closedAt': null,
+    'checks': [
+      {
+        'name': 'test (node 22)',
+        'state': 'fail',
+        'url': 'https://github.com/pixelsky/site/actions/runs/1',
+      },
+      {
+        'name': 'lint',
+        'state': 'fail',
+        'url': 'https://github.com/pixelsky/site/actions/runs/2',
+      },
+      {'name': 'build', 'state': 'pass', 'url': ''},
+      {'name': 'typecheck', 'state': 'pass', 'url': ''},
+      {'name': 'deploy preview', 'state': 'pass', 'url': ''},
+    ],
+  };
+  static const review3 = <String, Object?>{
+    'at': 1763430000000,
+    'model': '平台 · gpt-6.1-sol',
+    'files': 3,
+    'fix': null,
+    'rechecked': false,
+    'items': [
+      {
+        'id': 'r1',
+        'status': 'open',
+        'severity': 'high',
+        'file': 'packages/link/src/noise.ts',
+        'line': 42,
+        'title': '握手超时后没有清掉半开的会话，重连会复用旧密钥',
+        'detail': '',
+      },
+      {
+        'id': 'r2',
+        'status': 'open',
+        'severity': 'medium',
+        'file': 'packages/link/src/pairing.ts',
+        'line': 18,
+        'title': '重试次数写死，建议放进配置',
+        'detail': '',
+      },
+      {
+        'id': 'r3',
+        'status': 'fixed',
+        'severity': 'low',
+        'file': 'packages/link/src/log.ts',
+        'line': 7,
+        'title': '日志里打印了完整的设备 id',
+        'detail': '',
+      },
+    ],
+  };
+  static const reviewFix = '审查发现这些问题，请逐条修好：';
+  static const prFixChecks =
+      '这个 PR 有检查没通过：https://github.com/pixelsky/site/pull/128\n- test (node 22)\n- lint\n看失败的日志，修好后推送到 perf/lazy-routes。';
+  static const prFixConflict =
+      '这个 PR 和 main 有合并冲突，请解决：https://github.com/pixelsky/site/pull/128';
+  static const channels = <String, Object?>{
+    'selfId': 'me',
+    'channels': [
+      {
+        'id': 'c1',
+        'name': '前端重构',
+        'topic': null,
+        'unread': 3,
+        'mentioned': false,
+        'archived': false,
+        'lastAt': 1763435880000,
+        'memberIds': ['me', 'a1', 'a2'],
+        'last': {'authorId': 'a1', 'text': '登录页已拆成三个组件，等你看'},
+      },
+    ],
+    'members': [
+      {'id': 'me', 'kind': 'human', 'name': '我', 'you': true},
+      {
+        'id': 'a1',
+        'kind': 'agent',
+        'name': 'Codex',
+        'engine': 'codex',
+        'status': 'idle',
+        'color': '#2D6151',
+        'text': 'C',
+      },
+      {
+        'id': 'a2',
+        'kind': 'agent',
+        'name': 'Claude',
+        'engine': 'claude',
+        'status': 'waiting',
+        'color': '#D97757',
+        'text': 'C',
+      },
+    ],
+  };
+  static const channelMessages = [
+    {
+      'id': 'cm1',
+      'kind': 'message',
+      'at': 1763434800000,
+      'authorId': 'me',
+      'text': '把登录页拆开，@Codex 做，@Claude 审',
+      'format': 'plain',
+      'images': 0,
+      'files': <String>[],
+    },
+    {
+      'id': 'ct1',
+      'kind': 'task',
+      'at': 1763435880000,
+      'authorId': 'me',
+      'assigneeId': 'a1',
+      'title': '拆分登录页',
+      'status': 'done',
+      'sessionId': 's1',
+      'summary': '拆成表单、第三方登录、页脚三个组件，改了 5 个文件。',
+      'diff': {'added': 142, 'removed': 96},
+    },
+    {
+      'id': 'ct2',
+      'kind': 'task',
+      'at': 1763435940000,
+      'authorId': 'me',
+      'assigneeId': 'a2',
+      'title': '审查拆分结果',
+      'status': 'waiting',
+      'sessionId': null,
+    },
+  ];
+  static const sideAnswer =
+      '它正在改 `src/router/index.ts`，懒加载用 `() => import(...)` 的写法；这一轮不受影响。';
+
+  /// 演示消息里的两张图（320×200 的设置页、浏览器截图示意）
+  static const shotSettings =
+      'iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAAC4ElEQVR42u3coRGEMBRF0TREN1RAgxiKwGCi0QhENIMBjSQC+Mx5cyvYnePySU3XSgpa8hNIAEsCWBLAEsCSAJYEsCSAJYAlASwJYAlgSQBLAlgSwBLAkgCWBLAkgCWAJQEsCWAJYEmhAO/7JiloAEsASwJYEsASwJIAlgSwpDuAS1l/mb9cAAMsAfxVwMPQS68HcD3gw+zVAQywAQywGcAAmwEMsAFcC3hc5nABbAADbAYwwGYAA2wAAwywAQywGcAAmwEMsAEMMMAGMMBmAANsAAMMsAHsmMEMYJ/UkXxSx0ftJIAlgAGWAAZYAhhgAQywBDDAEsAASwADLIABlgAGWAIYYAEM8LWcJz0QfgADDDDAAAMMMMAAC2CAAQZYAAMMMMAAC2CAARbAAAMMsAAGGGCAPaWUAAZYAhhgAQywBDDAEsAASwADLIABlgAGWAIYYAlgCWCAJYABlgAGWAAD7NDPGSPAAAtggAEWwAADLIABFsAAAyyAAQZYAAMMMMAAAyyAAQZYAAPsKaU8pQRYAhhgCWCAJYABFsAASwADLAEMsAAGWAIYYAlggCWAARbAAEsAAywB7JxQzhgBBlgAAywBDLAABhhgAQwwwAIYYAlggAUwwAALYIAlgD2llAAGWAJYAhhgCWCAJYABFsAASwADLAEMsAQwwAIYYAlggCWAARbAAEsAOyfUF87rAAYYYIABBlgAAwwwwAIYYIABBlgAAwywAAYYYIAFMMAAAwywAAbYU0oJYIAFMMASwABLAAMsAQywAAZYAhhgCWCABTDAEsAASwADLAEMsAAGWALYOaGcMQIMsAAGGGCAAQZYAAMMsAAGGGABDDDAAAMMsAAGGGABDDDAAthTSglggCWAAZYAlgAGWAIYYAlggAUwwBLAAEsAAywBDLAABlgCGGAJYIAFMMASwABLAAMsAQywAAZYAhhg6XnAkgCWBLAkgCWAJQEsCWAJYEkhOwGQInAC7BdkagAAAABJRU5ErkJggg==';
+  static const shotBrowser =
+      'iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAACQElEQVR42u3dsQmAMBCG0ew/XpprLYI4ggREB7CxCSTn+3kTBL7ySGltAxZVPAEIGBAwIGAQ8Fi3WaIJ2EzAAjYTsIDNBCxgE7CAzQQsYDMBC9hMwAI2AQvYTMACNhOwgE3AjhkAAYOAAQEDAgZeAfd+AosSMAgYEDAgYBAwIGBAwICAQcCAgAEBg4C/u44dGETAIGABg4ABAYOABQwC9sQgYEDAIGABg4ABAYOABQwCFjAIGBAwCFjAIGBAwICAQcACBgEDAgYBCxgELGAQMCBgELCA4Y8BA34nBAQMAgYEDAgYEDAIGBAwIGBAwCBgQMCAgEHAgICBeQOOqEBEFTAIWMAgYAGDgEHAAgYBCxgELGAQMAhYwCBgAYOAQcCOGQABg4ABAQMCBgQMAgYEDAgYEDAIGBAwIGAQMJAxYEdkOOsTMAhYwCBgASNgAYOABQwCFjACFrCAEbCAQcACBgELGAELGATsmAEQMAgYEDAgYEDAIGBAwICAAQGDgAEBAwIGAQN5A3a8hrM+ASNgBIyABSxgBCxgBKwoASNgBIyABSxgBCxgBIyAETACRsACBgE7ZgAEDAIGBAwIGBAwCBgQMCBgQMAgYEDAgIBBwEDegB3NOetDwAgYASNgAQtYwAgYASNgBIyABYyABSxgBIyAETACRsACRsAIGMcMgIBBwICAAQEDAgYBAwIGBAwIGAQMCBgQMAgYEDAgYEDAIGBAwICAAQGDgAEBAwIGAQMCBgQMCBgEDAgYEDAIGFjSA/ZuLi6iWLLKAAAAAElFTkSuQmCC';
   static const site = '官网';
   static const title1 = '修复手机端断线重连';
   static const ask1 = '手机切到后台再回来，有时一直显示「正在连接」，帮我查一下原因并修好。';

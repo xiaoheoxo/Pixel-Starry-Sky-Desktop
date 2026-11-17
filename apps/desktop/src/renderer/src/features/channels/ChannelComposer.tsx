@@ -155,9 +155,11 @@ export function ChannelComposer({
   const all = useMemo(() => {
     const option = mention ? mentionAllOption(members, mention.query) : null
     if (!option) return null
-    const approval = team ? members.filter(m => m.kind === 'agent' && mentionNote(m, role) === 'approval').length : 0
+    const approval = team
+      ? members.filter(m => m.kind === 'agent' && mentionNote(m, role, selfId) === 'approval').length
+      : 0
     return { ...option, token: allToken, approval }
-  }, [members, mention?.query, mention?.start, team, role, allToken])
+  }, [members, mention?.query, mention?.start, team, role, allToken, selfId])
   const total = candidates.length + (all ? 1 : 0)
   const menuOpen = !!mention && dismissed !== mention.start && !cloudImage
   const sq = slash && !menuOpen && !cloudImage ? slashQuery(value) : undefined
@@ -398,6 +400,7 @@ export function ChannelComposer({
             onChoose={choose}
             team={team}
             role={role}
+            selfId={selfId}
           />
         )}
         <div

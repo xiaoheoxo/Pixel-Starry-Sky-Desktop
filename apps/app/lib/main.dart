@@ -17,6 +17,8 @@ import 'data/list_cache.dart';
 import 'demo/demo.dart';
 import 'i18n/i18n.dart';
 import 'platform/notifier.dart';
+import 'platform/home_widget.dart';
+import 'platform/share_inbox.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +53,8 @@ Future<void> main() async {
         notifier: notifier,
         watcher: BackgroundWatcher(notifier: notifier, settings: settings),
         feedback: FeedbackUnread(connections),
+        share: PluginShareInbox(),
+        homeWidget: PluginHomeWidget(),
         demo: demo != null,
       ),
     ),

@@ -5,6 +5,7 @@
 import type { Locale } from '../../../../shared/i18n/messages'
 import type { AgentConfig, ChannelMessage, ChannelTask } from '../../../../shared/types/channels'
 import { mentionsAll } from '../../../../shared/channels/mentions'
+import { MAX_RUNS, runReasonOf } from '../../../../shared/channels/runReason'
 import { continuePrompt, dispatchPrompt, followUpPrompt, historyLines } from '../prompt'
 import { newTaskRun, type TaskRun, type TeamRunRef } from '../tracker'
 import { TeamError, type TaskPatch, type TeamMessage, type TeamTaskData } from './api'
@@ -166,9 +167,47 @@ export class TeamExecutor {
     }
   }
 
+  /**
+   * 开工前核对（docs/multica-learn.md §4、§11.3）：本机排队轮到这项活、开会话之前调。云端说不能开工（回到等同意、停下、
+   * 卡已经不是这台的或已经取消）时返回 ok = false，卡的新状态已经进了同步；通过时带这一轮的凭证（旧云端没有）。
+   * 连不上云端时照常开工、不带凭证：认领时已经核对过一次，不为一次网络问题让活失败
+   */
+  async preflight(run: TaskRun): Promise<{ ok: boolean; token: string | null }> {
+    const team = run.team
+    if (!team) return { ok: true, token: null }
+    try {
+      // 先把这张卡排着的写回发出去（重试、追加要求时卡要先回到排队，云端才认）
+      await this.drain(team.messageId)
+      const res = await this.sync.api.start(team.teamId, team.messageId, this.device)
+      if (res.message) this.sync.ingest(team.teamId, res.message.channelId || team.channelId, res.message)
+      return { ok: res.outcome === 'ok', token: res.runToken }
+    } catch (error) {
+      const code = error instanceof TeamError ? error.code : null
+      if (code === 'CONFLICT' || code === 'FORBIDDEN' || code === 'NOT_FOUND') return { ok: false, token: null }
+      this.deps.log?.('开工前核对失败，照常开工', error)
+      return { ok: true, token: null }
+    }
+  }
+
+  /** 有这一轮的运行凭证就用它写，凭证被拒（过期、云端换过版本）退回登录令牌，保证收尾写得回去 */
+  private async withRun<T>(
+    team: TeamRunRef,
+    viaRun: (token: string) => Promise<T>,
+    viaLogin: () => Promise<T>,
+  ): Promise<T> {
+    const token = team.runToken
+    if (token)
+      try {
+        return await viaRun(token)
+      } catch (error) {
+        if (!(error instanceof TeamError && error.code === 'RUN_TOKEN')) throw error
+      }
+    return viaLogin()
+  }
+
   private async fail(teamId: string, tm: TeamMessage, error: string): Promise<void> {
     await this.sync
-      .writeTask(teamId, tm.channelId, tm.id, { status: 'failed', error })
+      .writeTask(teamId, tm.channelId, tm.id, { status: 'failed', error, reason: runReasonOf('failed', error) })
       .catch(e => this.deps.log?.('写回团队任务失败', e))
   }
 
@@ -389,7 +428,9 @@ export class TeamExecutor {
     const card = this.sync.card(team.messageId)?.tm.task
     const body: TaskPatch = {}
     const local: Partial<TeamTaskData> = {}
-    const put = <K extends 'status' | 'round' | 'error' | 'note' | 'decision' | 'summary' | 'diff' | 'progress'>(
+    const put = <
+      K extends 'status' | 'round' | 'error' | 'note' | 'decision' | 'summary' | 'diff' | 'progress' | 'reason',
+    >(
       key: K,
       value: ChannelTask[K] | undefined,
     ): void => {
@@ -406,6 +447,18 @@ export class TeamExecutor {
     put('summary', patch.summary)
     put('diff', patch.diff)
     put('progress', patch.progress)
+    put('reason', patch.reason)
+    // 运行记录只追加云端还没有的（docs/multica-learn.md §11.1）
+    if (patch.runs) {
+      const known = card?.runs ?? []
+      const fresh = patch.runs
+        .filter(r => !known.some(k => k.n === r.n && k.endedAt === r.endedAt))
+        .map(({ sessionId: _sessionId, ...r }) => r)
+      if (fresh.length) {
+        body.addRuns = fresh.slice(-MAX_RUNS)
+        local.runs = [...known, ...fresh].slice(-MAX_RUNS)
+      }
+    }
     if (patch.endedAt !== undefined) local.endedAt = patch.endedAt
     if (!Object.keys(body).length && !result) return
     this.sync.patchCard(team.messageId, local)
@@ -416,7 +469,10 @@ export class TeamExecutor {
     const id = team.messageId
     const entry: Outbox = this.outbox.get(id) ?? { team, body: {}, final: false, attempts: 0 }
     entry.team = team
-    entry.body = { ...entry.body, ...body }
+    // 没连上时几轮的运行记录接在一起，不互相覆盖
+    // 云端一次最多收 MAX_RUNS 条，多了整条写回会被拒（连状态一起丢）
+    const addRuns = [...(entry.body.addRuns ?? []), ...(body.addRuns ?? [])].slice(-MAX_RUNS)
+    entry.body = { ...entry.body, ...body, ...(addRuns.length ? { addRuns } : {}) }
     if (result) {
       entry.result = result
       entry.final = true
@@ -438,13 +494,29 @@ export class TeamExecutor {
       id,
       setTimeout(() => {
         this.timers.delete(id)
-        const next = (this.chains.get(id) ?? Promise.resolve()).then(() => this.flush(id))
-        this.chains.set(id, next)
-        void next.finally(() => {
-          if (this.chains.get(id) === next) this.chains.delete(id)
-        })
+        void this.kick(id)
       }, wait),
     )
+  }
+
+  /** 接在这张卡上一次写回后面发一次 */
+  private kick(id: string): Promise<void> {
+    const next = (this.chains.get(id) ?? Promise.resolve()).then(() => this.flush(id))
+    this.chains.set(id, next)
+    void next.finally(() => {
+      if (this.chains.get(id) === next) this.chains.delete(id)
+    })
+    return next
+  }
+
+  /** 马上把这张卡排着的写回发完（不等节流）；发不出去也不抛，留在 outbox 里照旧补发 */
+  private async drain(id: string): Promise<void> {
+    const timer = this.timers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      this.timers.delete(id)
+    }
+    await (this.outbox.has(id) ? this.kick(id) : this.chains.get(id))?.catch(() => undefined)
   }
 
   private async flush(id: string): Promise<void> {
@@ -457,17 +529,31 @@ export class TeamExecutor {
     try {
       if (entry.result) {
         const round = entry.result.round ?? this.host.run(id)?.round ?? 0
-        const res = await this.sync.api.postMessage(team.teamId, team.channelId, {
-          clientId: `res-${id}-${round}`,
-          text: entry.result.text,
-          replyTo: id,
-          mentions: entry.result.mentions,
-          agentId: team.agentId,
-          taskId: id,
-        })
-        this.sync.ingest(team.teamId, team.channelId, res.message)
+        const input = { clientId: `res-${id}-${round}`, text: entry.result.text, mentions: entry.result.mentions }
+        const message = await this.withRun(
+          team,
+          token => this.sync.api.postRunResult(team.teamId, id, token, input),
+          async () =>
+            (
+              await this.sync.api.postMessage(team.teamId, team.channelId, {
+                ...input,
+                replyTo: id,
+                agentId: team.agentId,
+                taskId: id,
+              })
+            ).message,
+        )
+        this.sync.ingest(team.teamId, team.channelId, message)
       }
-      if (Object.keys(entry.body).length) await this.sync.writeTask(team.teamId, team.channelId, id, entry.body)
+      if (Object.keys(entry.body).length) {
+        const body = entry.body
+        const tm = await this.withRun(
+          team,
+          token => this.sync.api.patchRun(team.teamId, id, token, body),
+          () => this.sync.api.patchTask(team.teamId, id, body),
+        )
+        this.sync.ingest(team.teamId, tm.channelId || team.channelId, tm)
+      }
       this.lastSent.set(id, this.now())
       if (entry.final) this.host.setFinal(id, undefined)
     } catch (error) {

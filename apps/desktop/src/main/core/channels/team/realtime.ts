@@ -1,7 +1,8 @@
 // 团队实时通道的 WebSocket 客户端（docs/ui/channels-phase-c.md §8.3）。重连、看门狗照 mobile/relay.ts：
 // 断线指数退避加随机、60 秒没收到任何帧（含云端每 20 秒一次的 tick）就当连接已死、4001 换令牌马上重连。
 // socket 工厂和令牌都由应用层注入，这里不碰 Electron。客户端不发业务帧，只收。
-import { isObj, parseMessage, type TeamMessage } from './api'
+import { isObj, parseInboxItem, parseMessage, type TeamMessage } from './api'
+import type { TeamInboxItem } from '../../../../shared/types/channels'
 
 export type TeamFrame =
   | { type: 'hello'; online: Record<string, string[]> }
@@ -10,6 +11,7 @@ export type TeamFrame =
   | { type: 'presence'; team: string; user: string; online: boolean }
   | { type: 'invites' }
   | { type: 'removed'; team: string }
+  | { type: 'inbox'; team: string; item: TeamInboxItem }
 
 export type RealtimeStatus = 'connecting' | 'online' | 'offline'
 
@@ -66,6 +68,10 @@ export function parseFrame(raw: unknown): TeamFrame | null {
       return { type: 'invites' }
     case 'removed':
       return team ? { type: 'removed', team } : null
+    case 'inbox': {
+      const item = parseInboxItem(raw.item)
+      return item ? { type: 'inbox', team: item.teamId, item } : null
+    }
     default:
       return null
   }

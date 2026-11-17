@@ -11,6 +11,7 @@ import type { AgentConfig, ChannelAttachments, ChannelMessage, ChannelTask } fro
 import type { TaskRun } from './tracker'
 
 import type { ChannelAlertRule, ChannelNotify, FlowSchedule, RelayRules } from '../../../shared/types/channels'
+import { cleanTeammate, DEFAULT_TEAMMATE, type TeammateRules } from '../../../shared/types/channels'
 
 export interface StoredChannel {
   id: string
@@ -37,6 +38,10 @@ export interface StoredChannel {
   lead?: string | null
   /** 不带 @ 的简单活由牵头直接派（docs/ui/channels-auto-route.md）；旧数据没有（= 开） */
   leadRoute?: boolean
+  /** 成员交回结果时叫牵头（docs/multica-learn.md §11.2）；旧数据没有（= 开） */
+  leadWake?: boolean
+  /** 牵头只派活不动手；旧数据没有（= 关） */
+  leadDispatchOnly?: boolean
   /** @ 一个 AI 派新活时先出计划；旧数据没有（= 按默认，开） */
   planFirst?: boolean
   /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）；旧数据没有 */
@@ -112,6 +117,7 @@ export class ChannelStore {
   async init(): Promise<void> {
     await mkdir(this.dir, { recursive: true })
     this.members = await this.readJson<AgentConfig[]>(join(this.dir, 'members.json'), [])
+    this.teammate = cleanTeammate(await this.readJson<unknown>(join(this.dir, 'teammate.json'), null))
     for (const run of await this.readJson<TaskRun[]>(join(this.dir, 'runs.json'), [])) this.runs.set(run.taskId, run)
     for (const entry of await readdir(this.dir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !ID.test(entry.name)) continue
@@ -166,6 +172,12 @@ export class ChannelStore {
 
   saveMembers(): Promise<void> {
     return this.atomic(join(this.dir, 'members.json'), this.members)
+  }
+
+  /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
+  teammate: TeammateRules = DEFAULT_TEAMMATE
+  saveTeammate(): Promise<void> {
+    return this.atomic(join(this.dir, 'teammate.json'), this.teammate)
   }
 
   saveRuns(): Promise<void> {

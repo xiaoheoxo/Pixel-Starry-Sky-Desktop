@@ -4,6 +4,7 @@
 import 'dart:convert';
 
 import '../i18n/i18n.dart';
+import '../protocol/json.dart';
 import 'tasks.dart';
 
 enum NotifyKind { waiting, failed, completed }
@@ -49,10 +50,56 @@ void mergeNotify(NotifySessions into, NotifySessions add) {
 
 /// 一条提醒：最要紧的那种、涉及几个会话、只涉及一个时是哪个
 class NotifyPayload {
-  const NotifyPayload(this.kind, this.count, this.session);
+  const NotifyPayload(this.kind, this.count, this.session, {this.approval});
   final NotifyKind kind;
   final int count;
   final String? session;
+
+  /// 只有一个会话在等、等的是普通权限审批时：通知上直接「允许 / 拒绝」（§15.7）
+  final QuickApproval? approval;
+
+  NotifyPayload withApproval(QuickApproval? a) =>
+      NotifyPayload(kind, count, session, approval: a);
+}
+
+/// 通知上能直接处理的审批：哪一条、做什么（标题、命令）、哪个会话
+class QuickApproval {
+  const QuickApproval({
+    required this.requestId,
+    required this.title,
+    this.command,
+    this.sessionTitle = '',
+  });
+  final String requestId;
+  final String title;
+  final String? command;
+  final String sessionTitle;
+
+  /// 通知正文：「运行命令 · npm test」（锁屏上不显示，见 LocalNotifier）
+  String get text {
+    final cmd = command == null ? null : jsTrim(command!).split('\n').first;
+    final line = cmd == null || cmd.isEmpty ? title : '$title · $cmd';
+    return line.length > 200 ? '${line.substring(0, 200)}…' : line;
+  }
+}
+
+/// 会话里等着的请求能不能在通知上直接处理：只有一条、是普通的权限审批（命令、改文件、工具），
+/// 能允许也能拒绝、不用填表。提问、计划、要填表的点开 App 处理（§15.7）
+QuickApproval? quickApproval(List<Json> pending, {String sessionTitle = ''}) {
+  if (pending.length != 1) return null;
+  final p = pending.single;
+  final id = str(p['requestId']);
+  final kind = str(p['kind']) ?? 'tool';
+  if (id == null || !NotifyTarget.validId(id)) return null;
+  if (kind != 'command' && kind != 'file_change' && kind != 'tool') return null;
+  if (p['canAllow'] == false || p['canDeny'] == false) return null;
+  if (p.containsKey('formSchema')) return null;
+  return QuickApproval(
+    requestId: id,
+    title: str(p['title']) ?? '',
+    command: str(p['command']),
+    sessionTitle: sessionTitle,
+  );
 }
 
 NotifyPayload? notifyPayload(NotifySessions sessions) {
@@ -90,15 +137,24 @@ class NotifyTarget {
     required this.device,
     this.session,
     this.waiting = false,
+    this.request,
   });
   final String device;
   final String? session;
   final bool waiting;
 
-  String encode() =>
-      jsonEncode({'device': device, 'session': ?session, 'waiting': waiting});
+  /// 通知上带「允许 / 拒绝」时：那条审批的 id
+  final String? request;
+
+  String encode() => jsonEncode({
+    'device': device,
+    'session': ?session,
+    'waiting': waiting,
+    'request': ?request,
+  });
 
   static final _id = RegExp(r'^[A-Za-z0-9_.:~-]{1,128}$');
+  static bool validId(String id) => _id.hasMatch(id);
 
   /// 解析通知里带的；不对的返回 null
   static NotifyTarget? decode(String? raw) {
@@ -113,13 +169,22 @@ class NotifyTarget {
     final device = v['device'];
     if (device is! String || !_id.hasMatch(device)) return null;
     final session = v['session'];
+    final request = v['request'];
     return NotifyTarget(
       device: device,
       session: session is String && _id.hasMatch(session) ? session : null,
       waiting: v['waiting'] == true,
+      request: request is String && _id.hasMatch(request) ? request : null,
     );
   }
 }
+
+/// 在通知上点了「允许」或「拒绝」
+typedef NotifyAnswer = ({NotifyTarget target, bool allow});
+
+/// 通知按钮的 id
+const notifyAllow = 'allow';
+const notifyDeny = 'deny';
 
 // ---------------------------------------------------------------------------
 // 逐个处理（网页版 data/triage.ts）

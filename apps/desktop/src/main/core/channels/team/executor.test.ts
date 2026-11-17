@@ -180,7 +180,12 @@ describe('TeamExecutor 认领和派活', () => {
     t.members.clear()
     await t.online()
     await until(() => t.cloud.task(id).status === 'failed')
-    expect(t.cloud.task(id)).toMatchObject({ status: 'failed', error: '这个 AI 成员已被删除', claimed_by: DEVICE })
+    expect(t.cloud.task(id)).toMatchObject({
+      status: 'failed',
+      error: '这个 AI 成员已被删除',
+      reason: 'not_deployed',
+      claimed_by: DEVICE,
+    })
     expect(t.host.enqueue).not.toHaveBeenCalled()
   })
 
@@ -255,6 +260,49 @@ describe('TeamExecutor 写回云端', () => {
     await until(() => t.patches().length === 4)
     expect(t.patches()[3].body).toEqual({ progress: { done: 4, total: 4 }, status: 'waiting' })
     expect(t.cloud.task(id)).toMatchObject({ status: 'waiting', progress: { done: 4, total: 4 } })
+  })
+
+  it('失败原因和运行记录（docs/multica-learn.md §11.1）：只发云端还没有的那几条，不带会话 id；没连上时几轮接在一起', async () => {
+    const t = setup()
+    const { agent, id } = queued(t)
+    t.cloud.task(id).claimed_by = DEVICE
+    t.cloud.task(id).status = 'running'
+    await t.online()
+    const run = runFor(id, agent.id as string)
+    t.runs.set(id, run)
+    const one = {
+      n: 1,
+      status: 'failed' as const,
+      startedAt: 1_000,
+      endedAt: 2_000,
+      reason: 'engine.busy' as const,
+      error: '502',
+      sessionId: 's1',
+      machine: 'pc',
+    }
+    t.exec.send(run, { status: 'failed', error: '502', reason: 'engine.busy', runs: [one] })
+    await until(() => t.patches().length === 1)
+    const body = t.patches()[0].body as Record<string, unknown>
+    expect(body).toMatchObject({ status: 'failed', error: '502', reason: 'engine.busy' })
+    expect(body.add_runs).toEqual([
+      {
+        n: 1,
+        status: 'failed',
+        started_at: new Date(1_000).toISOString(),
+        ended_at: new Date(2_000).toISOString(),
+        reason: 'engine.busy',
+        error: '502',
+        machine: 'pc',
+      },
+    ])
+    await until(() => (t.cloud.task(id).runs as unknown[] | undefined)?.length === 1)
+    // 云端已经有第 1 轮：第 2 轮结束只发第 2 轮
+    await t.sync.reload('plain')
+    const two = { ...one, n: 2, endedAt: 3_000, reason: null, status: 'done' as const, error: null }
+    t.exec.send(run, { status: 'done', reason: null, runs: [one, two] })
+    await until(() => t.patches().length === 2)
+    expect((t.patches()[1].body as { add_runs: { n: number }[] }).add_runs.map(r => r.n)).toEqual([2])
+    expect(t.cloud.task(id).runs).toHaveLength(2)
   })
 
   it('做完：先以 AI 成员的身份发结果，再写任务卡；写成功后清掉收尾记录', async () => {

@@ -25,6 +25,15 @@ import {
   refreshAccountIfStale,
   signedInEmail,
 } from '../account/account'
+import {
+  checkoutCancel,
+  checkoutCreate,
+  checkoutGet,
+  checkoutPending,
+  checkoutVerify,
+  panelVerify,
+} from '../account/checkout'
+import { fetchStore } from '../account/store'
 import { createDesktopRegistrar } from './desktop-register'
 import { parseRelay, parseSeats, pickRelay } from './cloud-devices'
 import { MobileGateway, phoneAccount, type CloudDevices } from './gateway'
@@ -224,6 +233,19 @@ export function initMobile(ctx: AppContext): void {
       },
       // 反馈模块比手机晚初始化：每次调用时再取
       feedback: () => ctx.feedback,
+      prs: () => ctx.prs,
+      channels: () => ctx.channels,
+      reviews: () => ctx.reviews,
+      // 充值（docs/mobile-app.md §15.13）：和窗口的 account:store / account:checkout* 同一套
+      checkout: {
+        store: () => fetchStore(),
+        create: input => checkoutCreate(input),
+        get: id => checkoutGet(id),
+        verify: id => checkoutVerify(id),
+        cancel: id => checkoutCancel(id),
+        pending: () => checkoutPending(),
+        panelVerify: () => panelVerify(),
+      },
       directories: path => listDirectories(path),
       addProject: path => {
         if (!ctx.engine) throw new Error('项目尚未加载')

@@ -4,6 +4,7 @@ import type {
   ChannelMember,
   ChannelMessage,
   PendingInvite,
+  TeamInboxItem,
   TeamInfo,
   TeamsConnection,
 } from '../../../shared/types/channels'
@@ -134,7 +135,13 @@ export interface AppData {
   /** 频道 id → 按时间排列的消息 */
   channelMessages: Record<string, ChannelMessage[]>
   /** 团队（Phase C，docs/ui/channels-phase-c.md §9.3）：空界面没有团队，也不显示团队入口 */
-  channelTeams: { teams: TeamInfo[]; invites: PendingInvite[]; connection: TeamsConnection }
+  channelTeams: {
+    teams: TeamInfo[]
+    invites: PendingInvite[]
+    connection: TeamsConnection
+    /** 收件箱（docs/multica-learn.md §11.5）；没有时不显示「通知」标签 */
+    inbox?: TeamInboxItem[]
+  }
 }
 
 // 协作频道（docs/ui/channels.md §9）：类型和主进程共用

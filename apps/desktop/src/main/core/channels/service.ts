@@ -65,7 +65,14 @@ import type {
   FlowStepSettings,
   TeamRole,
 } from '../../../shared/types/channels'
-import { cleanRelayRules, relayRulesOf, type RelayRules } from '../../../shared/types/channels'
+import {
+  cleanRelayRules,
+  cleanTeammate,
+  relayRulesOf,
+  type RelayRules,
+  type TeamInboxPatch,
+  type TeammateRules,
+} from '../../../shared/types/channels'
 import {
   AGENT_TOOLS_MAX,
   SYSTEM_AUTHOR,
@@ -94,6 +101,7 @@ import { ChannelStore, type StoredChannel } from './store'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
+import { appendRun, runReasonOf, TEAMMATE_PROJECT_ERROR } from '../../../shared/channels/runReason'
 import { jsonObjects } from '../json-reply'
 import {
   DEFAULT_MAX_REJECTS,
@@ -137,6 +145,9 @@ import {
   flowReviewAgainPrompt,
   flowStepPrompt,
   flowGatePrompt,
+  isSilent,
+  leadWakeMore,
+  leadWakeRequest,
   type FlowInput,
   type Handoff,
 } from './prompt'
@@ -218,6 +229,9 @@ interface RelayInput {
   handoff: Handoff
 }
 const PAGE = 200
+/** 不问你就能改文件的成员（同一目录排队只管这些，docs/multica-learn.md §11.2）；没设权限按会改 */
+const editsFreely = (m: AgentConfig | undefined): boolean =>
+  !!m && m.settings.permissionMode !== 'ask' && m.settings.permissionMode !== 'plan'
 /** 频道消息搜索最多返回这么多条；搜索词最多这么长（和全局搜索一样） */
 const SEARCH_LIMIT = 50
 const SEARCH_TEXT_MAX = 200
@@ -488,6 +502,13 @@ export class Channels {
     return { id: SELF_ID, kind: 'human', name: this.deps.selfName(), you: true, role: 'owner' }
   }
 
+  /** 给别人看的机器名：本机用电脑名，SSH / WSL 用机器名 */
+  private machineLabel(machineId: string): string {
+    return machineId === 'local'
+      ? (this.deps.machineName?.() ?? '这台电脑')
+      : (this.deps.machines().find(m => m.id === machineId)?.name ?? machineId)
+  }
+
   private member(id: string): AgentConfig | undefined {
     return this.store.members.find(m => m.id === id)
   }
@@ -634,6 +655,8 @@ export class Channels {
         relayRules: relayRulesOf(c),
         lead: c.lead ?? null,
         leadRoute: c.leadRoute !== false,
+        leadWake: c.leadWake !== false,
+        leadDispatchOnly: c.leadDispatchOnly === true,
         planFirst: c.planFirst ?? this.deps.planFirst ?? true,
         schedules: c.schedules ?? [],
         alerts: alertRulesOf(c),
@@ -698,6 +721,11 @@ export class Channels {
       // 没有团队同步（团队功能关着，见 main/channels/ipc.ts 的 teamsEnabled）：报不可用，界面藏起所有团队入口
       teamsConnection: this.team ? (team?.connection ?? 'signed-out') : 'unavailable',
       teamsSyncedAt: team?.syncedAt ?? null,
+      teammate: this.store.teammate,
+      ...(() => {
+        const inbox = this.team?.inboxItems() ?? null
+        return { inbox: inbox ?? [], inboxSupported: inbox !== null }
+      })(),
     }
   }
 
@@ -954,6 +982,9 @@ export class Channels {
       planFirst?: boolean
       /** 不带 @ 的简单活由牵头直接派（只有本机频道） */
       leadRoute?: boolean
+      /** 成员交回结果时叫牵头、牵头只派活不动手（只有本机频道，docs/multica-learn.md §11.2） */
+      leadWake?: boolean
+      leadDispatchOnly?: boolean
       /** 每天定时运行的流程（只有本机频道，§10.3）：整个列表一起存 */
       schedules?: unknown[]
       /** 主动提醒的规则开关、每日简报几点发（只有本机频道） */
@@ -1027,6 +1058,8 @@ export class Channels {
     }
     if (patch.planFirst !== undefined) c.planFirst = patch.planFirst === true
     if (patch.leadRoute !== undefined) c.leadRoute = patch.leadRoute === true
+    if (patch.leadWake !== undefined) c.leadWake = patch.leadWake === true
+    if (patch.leadDispatchOnly !== undefined) c.leadDispatchOnly = patch.leadDispatchOnly === true
     if (patch.schedules !== undefined) c.schedules = this.cleanSchedules(c, patch.schedules)
     if (patch.alerts !== undefined) c.alerts = cleanAlertRules(patch.alerts)
     if (patch.digestHour !== undefined) c.digestHour = cleanDigestHour(patch.digestHour)
@@ -1131,6 +1164,7 @@ export class Channels {
       projectId: raw.projectId,
       copyId: raw.copyId ?? null,
       ...(raw.copyPerTask === true ? { copyPerTask: true } : {}),
+      ...(raw.sameDir === 'copy' || raw.sameDir === 'together' ? { sameDir: raw.sameDir } : {}),
       settings,
       instructions: (typeof raw.instructions === 'string' ? raw.instructions : '').slice(0, INSTRUCTIONS_MAX),
       mode: raw.mode === 'shared' ? 'shared' : 'per-task',
@@ -1819,6 +1853,8 @@ export class Channels {
     relay?: RelayInput & { from: string; relay: ChannelRelay },
     /** 除了来源消息自己的，还要带上哪些消息的附件（交活的成员手上那项活带的） */
     inherit: string[] = [],
+    /** 卡片上另外的字段（牵头唤醒卡的标题、wake）：开会话前就要在卡上 */
+    fields?: Pick<ChannelTask, 'title' | 'wake'>,
   ): string {
     const member = this.member(memberId)!
     const now = this.now()
@@ -1847,6 +1883,7 @@ export class Channels {
       round: 1,
       ...(relay ? { relay: relay.relay } : {}),
       ...(inherit.length ? { attach: inherit } : {}),
+      ...fields,
     }
     // 接力的来源消息是上一个成员的回复：来源记在这条接力最早那张卡上
     const chat = relay ? this.store.task(relay.relay.chain)?.chat : source.chat
@@ -1881,6 +1918,105 @@ export class Channels {
     this.saveRuns()
     void this.pump(memberId)
     return task.id
+  }
+
+  /**
+   * 成员交回结果、没 @ 别人时要不要叫牵头（docs/multica-learn.md §11.2）：频道有本机牵头、开着互相派活和「叫牵头」，
+   * 做完的不是牵头、不是流程步骤、没用 task_handover 交出去、没问人，这件事是牵头经手的（接力第一张卡是牵头的或牵头分派的）
+   */
+  private wakePlan(
+    c: StoredChannel,
+    run: TaskRun,
+    task: ChannelTask,
+    reply: string,
+    relays: number,
+    decision: string | null,
+  ): { relay: ChannelRelay } | null {
+    const lead = c.lead
+    if (!lead || !c.relay || c.leadWake === false || c.archivedAt || run.flow || run.team) return null
+    if (run.memberId === lead || relays || run.tools?.handover.length || decision || !reply) return null
+    if (!c.memberIds.includes(lead) || !this.flowMemberCheck(c)(lead)?.local) return null
+    const chain = task.relay?.chain ?? task.id
+    const root = chain === task.id ? task : this.store.task(chain)
+    if (!root || (root.assigneeId !== lead && root.routedBy?.memberId !== lead)) return null
+    // 并进还没做完的唤醒卡时不另算一跳
+    if (this.openWake(c.id, lead, chain)) return { relay: { chain, hop: (task.relay?.hop ?? 0) + 1, held: null } }
+    const stop = this.relayHeld(c, chain, run.memberId, lead)
+    return {
+      relay: {
+        chain,
+        hop: (task.relay?.hop ?? 0) + 1,
+        held: stop?.held ?? null,
+        ...(stop ? { limit: stop.limit } : {}),
+      },
+    }
+  }
+
+  /** 牵头在这条接力上还没做完的唤醒卡 */
+  private openWake(channelId: string, lead: string, chain: string): TaskRun | undefined {
+    for (const r of this.store.runs.values()) {
+      if (r.memberId !== lead || r.channelId !== channelId || r.phase === 'ended') continue
+      const t = this.taskOf(r)
+      if (t?.wake && t.relay?.chain === chain) return r
+    }
+    return undefined
+  }
+
+  /** 叫牵头：有还没做完的唤醒卡就把这份结果并进去（排着的拼进提示词，做着的记成追加要求），没有就派一张新的 */
+  private wakeLead(
+    c: StoredChannel,
+    result: ChannelTextMessage,
+    run: TaskRun,
+    handoff: Handoff,
+    inherit: string[],
+    relay: ChannelRelay,
+  ): void {
+    const lead = c.lead
+    if (!lead || !this.member(lead)) return
+    const locale = this.deps.locale()
+    const from = this.nameOf(run.memberId)
+    const open = this.openWake(c.id, lead, relay.chain)
+    const openTask = open && this.taskOf(open)
+    if (open && openTask?.wake) {
+      const more = leadWakeMore(locale, handoff)
+      this.store.runs.set(
+        open.taskId,
+        open.phase === 'waiting'
+          ? {
+              ...open,
+              prompt: `${open.prompt}\n\n${more}`,
+              freshPrompt: `${open.freshPrompt}\n\n${more}`,
+              ...(inherit.length ? { attach: [...new Set([...(open.attach ?? []), ...inherit])] } : {}),
+            }
+          : {
+              ...open,
+              followUps: [...open.followUps, more],
+              ...(inherit.length ? { followUpAttach: [...(open.followUpAttach ?? []), ...inherit] } : {}),
+            },
+      )
+      if (inherit.length)
+        this.patch(c.id, openTask.id, { attach: [...new Set([...(openTask.attach ?? []), ...inherit])] })
+      this.patch(c.id, openTask.id, { wake: { from: [...openTask.wake.from, from].slice(-20) } })
+      this.saveRuns()
+      return
+    }
+    const source = this.taskOf(run)
+    const title = (locale === 'en-US' ? 'Lead: ' : '牵头接手：') + (source?.title ?? '')
+    this.newTask(
+      c,
+      result,
+      lead,
+      null,
+      {
+        from: run.memberId,
+        author: from,
+        request: leadWakeRequest(locale, c.leadDispatchOnly === true),
+        handoff,
+        relay,
+      },
+      inherit,
+      { title: title.slice(0, 80), wake: { from: [from] } },
+    )
   }
 
   /** 回复任务卡 = 追加要求（§7.1）：还在做时等这一轮做完再发 */
@@ -1958,6 +2094,8 @@ export class Channels {
       notice: null,
       ...(attach?.length ? { attach } : {}),
       ...(team ? { team: { ...team, final: undefined } } : {}),
+      // 队友派来的活：副本、权限上限、MCP 隔离几轮之间接着用
+      ...(run?.guard ? { guard: run.guard } : {}),
       // 流程里的一步：追加要求、重试、回答问题都还是这一步
       // 运行信息没了（启动时补过、很久以前的）也认卡片上记的流程
       ...(run?.flow || task.flow
@@ -1978,6 +2116,7 @@ export class Channels {
       status: 'queued',
       round,
       error: null,
+      reason: null,
       note: null,
       decision: null,
       request: null,
@@ -2100,11 +2239,73 @@ export class Channels {
       .sort((a, b) => a.queuedAt - b.queuedAt)
     waiting.forEach((r, i) => {
       const ahead = i + (busy ? 1 : 0)
-      if (this.taskOf(r)?.ahead !== ahead) this.patch(r.channelId, r.taskId, { ahead })
+      const t = this.taskOf(r)
+      // 等目录只记在马上要开始的那项上：成员自己在忙、排在后面的不算
+      const stale = (busy || i > 0) && !!t?.dirWait
+      if (t?.ahead !== ahead || stale) this.patch(r.channelId, r.taskId, { ahead, ...(stale ? { dirWait: null } : {}) })
     })
     this.changed()
     if (busy || !waiting.length) return
-    await this.start(waiting[0])
+    const next = this.dirCheck(waiting[0])
+    if (next) await this.start(next)
+  }
+
+  /**
+   * 同一个目录里别的成员有活在做（docs/multica-learn.md §11.2）：按成员设置排队等（返回 null，卡上记 dirWait）、
+   * 改用这张卡的副本（返回带 forceCopy 的运行信息）或照常开始
+   */
+  private dirCheck(run: TaskRun): TaskRun | null {
+    const member = this.member(run.memberId)
+    const task = this.taskOf(run)
+    if (!member || !task) return run
+    const clear = (): TaskRun => {
+      if (task.dirWait) this.patch(run.channelId, run.taskId, { dirWait: null })
+      return run
+    }
+    // 团队活受 §8 管；流程自己分副本；会自己建副本、已经有副本的不在同一个目录
+    const policy = member.sameDir ?? 'queue'
+    const ownCopy = !!task.copy && !task.copyRemoved
+    if (run.team || run.flow || run.forceCopy || policy === 'together' || usesTaskCopies(member) || ownCopy)
+      return clear()
+    // 改文件要你确认的（每次都问、计划模式）不排也不挡：改之前你看得到，冲突提醒照旧
+    if (!editsFreely(member)) return clear()
+    // 同一条消息同时派给几个成员（@ 了几个、@全体、一条回复交给几个人）：本来就是要一起做，彼此不等
+    // 还在建会话、马上会进自己副本的不算（不然要等它整项做完才轮到）
+    const others = this.sameDirRuns(run).filter(r => {
+      const m = this.member(r.memberId)
+      const t = this.taskOf(r)
+      if (!editsFreely(m) || t?.sourceMessageId === task.sourceMessageId) return false
+      return !(m && usesTaskCopies(m) && !t?.copy && !r.sessionId)
+    })
+    if (!others.length) return clear()
+    // 这一轮还没开会话、每项活新开会话的本机成员才能临时建副本（会话开出来目录就定了）
+    const canCopy =
+      !!this.deps.copies &&
+      member.machineId === 'local' &&
+      member.mode === 'per-task' &&
+      !member.copyId &&
+      !task.copy &&
+      !this.sessionExists(run.sessionId)
+    if (policy === 'copy' && canCopy) {
+      const next = { ...run, forceCopy: true }
+      this.store.runs.set(run.taskId, next)
+      clear()
+      return next
+    }
+    const first = others[0]
+    const wait = { memberId: first.memberId, title: this.taskOf(first)?.title ?? '', canCopy }
+    const old = task.dirWait
+    if (!old || old.memberId !== wait.memberId || old.title !== wait.title || old.canCopy !== canCopy)
+      this.patch(run.channelId, run.taskId, { dirWait: wait })
+    return null
+  }
+
+  /** 一项活结束、目录空出来了：在等目录的成员重新排一次 */
+  private pumpDirWaiters(except: string): void {
+    const ids = new Set<string>()
+    for (const r of this.store.runs.values())
+      if (r.phase === 'waiting' && r.memberId !== except && this.taskOf(r)?.dirWait) ids.add(r.memberId)
+    for (const id of ids) void this.pump(id)
   }
 
   private sessionExists(id: string | null | undefined): boolean {
@@ -2123,39 +2324,66 @@ export class Channels {
     const cmid = clientMessageId(task.id, run.round)
     let current: TaskRun = { ...run, phase: 'sent', clientMessageId: cmid }
     this.store.runs.set(run.taskId, current)
-    this.patch(run.channelId, run.taskId, { ahead: 0, disconnected: false })
+    this.patch(run.channelId, run.taskId, { ahead: 0, disconnected: false, ...(task.dirWait ? { dirWait: null } : {}) })
     try {
       if (!this.machineOnline(member.machineId)) {
         const name = this.deps.machines().find(m => m.id === member.machineId)?.name ?? member.machineId
         throw new Error(`机器「${name}」未连接`)
       }
+      // 团队活开工前再核对一次（docs/multica-learn.md §11.3）：派活人还在、规则没改；通过时拿这一轮的运行凭证
+      if (current.team && this.exec) {
+        const check = await this.exec.preflight(current)
+        const latest = this.store.runs.get(run.taskId)
+        if (!latest || latest.phase !== 'sent' || latest.clientMessageId !== cmid) return
+        if (!check.ok) {
+          // 卡回到等同意或停下了（新状态从云端来）：不开工，本机的运行信息不留（同意后会重新认领）
+          this.store.runs.delete(run.taskId)
+          this.saveRuns()
+          void this.pump(run.memberId)
+          return
+        }
+        current = { ...latest, team: { ...latest.team!, runToken: check.token } }
+        this.store.runs.set(run.taskId, current)
+      }
+      // 队友派来的活（docs/multica-learn.md §8、§11.4）：只在允许的项目里接，新开会话、独立副本、权限上限、不带我的 MCP
+      const rules = this.teammateOf(current)
+      if (rules?.projects && !rules.projects.includes(member.projectId)) throw new Error(TEAMMATE_PROJECT_ERROR)
+      let guard = current.guard
       let sessionId = current.sessionId
       let text = current.prompt
-      if (!this.sessionExists(sessionId)) {
+      // 队友在我自己开的会话上追加要求（前几轮是我派的、没有限制）：不接着用那个会话，按限制新开一个
+      if (!this.sessionExists(sessionId) || (rules && !guard)) {
         // 流程里的步骤每步新开会话（docs/ui/channels-pipeline.md §4.2）
         sessionId =
-          member.mode === 'shared' && !current.flow && this.sessionExists(member.sharedSessionId)
+          member.mode === 'shared' && !current.flow && !rules && this.sessionExists(member.sharedSessionId)
             ? member.sharedSessionId
             : null
         if (!sessionId) {
+          if (rules) guard = await this.guardFor(current, member, rules)
           // 流程里的一步：先定在哪做（并行时建副本），提示词按实际的位置写
           const ws = current.flow?.stepId
             ? await this.flowWorkspace(current, member)
             : !current.flow && !current.team
               ? { copyId: await this.taskCopy(current, member), prompt: null }
-              : null
+              : guard?.copy
+                ? { copyId: guard.copy.id, prompt: null }
+                : null
           sessionId = await this.createSession(
             member,
             task.title,
-            current.flow
-              ? current.flow.stepId
-                ? (this.flowStepOf(current)?.settings ?? null)
-                : // 拟计划一律开计划模式（只读，不管哪个引擎、哪个模型），开工后的步骤才按成员的权限做
-                  {
-                    ...this.flowMessage(current.channelId, current.flow.messageId)?.flow.planner?.settings,
-                    permissionMode: 'plan',
-                  }
-              : undefined,
+            rules
+              ? guard?.capped
+                ? { permissionMode: 'edits' }
+                : {}
+              : current.flow
+                ? current.flow.stepId
+                  ? (this.flowStepOf(current)?.settings ?? null)
+                  : // 拟计划一律开计划模式（只读，不管哪个引擎、哪个模型），开工后的步骤才按成员的权限做
+                    {
+                      ...this.flowMessage(current.channelId, current.flow.messageId)?.flow.planner?.settings,
+                      permissionMode: 'plan',
+                    }
+                : undefined,
             ws?.copyId,
           )
           text = ws?.prompt ?? current.freshPrompt
@@ -2164,7 +2392,7 @@ export class Channels {
       // 建会话期间可能追加了要求、被停止或删掉：按存着的最新那份写，别用 await 之前的拷贝覆盖
       const latest = this.store.runs.get(run.taskId)
       if (!latest || latest.phase !== 'sent' || latest.clientMessageId !== cmid) return
-      current = { ...latest, sessionId }
+      current = { ...latest, sessionId, ...(guard ? { guard } : {}) }
       this.store.runs.set(run.taskId, current)
       this.patch(run.channelId, run.taskId, { sessionId, status: 'queued' })
       this.saveRuns()
@@ -2189,6 +2417,59 @@ export class Channels {
       if (latest && latest.phase === 'sent' && !latest.started)
         this.finish(latest, { status: 'failed', error: message(error) })
     }
+  }
+
+  /**
+   * 这一轮是队友派来的（团队卡、这一轮要的人不是我；旧云端没有 requested_by 时看派活的人）：返回限制；不是时 null。
+   * 认不出时按队友派来的算
+   */
+  private teammateOf(run: TaskRun): TeammateRules | null {
+    if (!run.team || !this.team) return null
+    const tm = this.team.card(run.taskId)?.tm
+    const me = this.team.getMe()?.id
+    const who = tm?.task?.requestedBy ?? tm?.author ?? run.team.author ?? null
+    // 认不出是谁要的（卡还没同步下来、还没拿到自己是谁）：按队友派来的算，宁可多限制
+    if (me && who === me) return null
+    return this.store.teammate
+  }
+
+  /** 队友派来的活这一轮的限制：权限超过「自动改文件」的降下来，能建副本就建一个（之后几轮接着用） */
+  private async guardFor(
+    run: TaskRun,
+    member: AgentConfig,
+    rules: TeammateRules,
+  ): Promise<NonNullable<TaskRun['guard']>> {
+    const mode = member.settings.permissionMode ?? this.deps.defaultMode?.(member.engine)
+    const guard: NonNullable<TaskRun['guard']> = {
+      ...(mode === 'full' || mode === 'auto' ? { capped: mode } : {}),
+      ...(rules.isolateMcp ? { isolate: true } : {}),
+    }
+    let copy = run.guard?.copy
+    const copies = this.deps.copies
+    if (!copy && rules.copy && copies && member.machineId === 'local' && !member.copyId) {
+      const tag = run.taskId.replace(/[^a-zA-Z0-9]/g, '').slice(-6)
+      copy =
+        (await this.createCopy(member.projectId, { name: `team-${tag}`, branch: `pixelsky/team-${tag}`, base: '' })) ??
+        undefined
+    }
+    return copy ? { ...guard, copy } : guard
+  }
+
+  /** 队友派来的活的限制（这台电脑的设置） */
+  teammate(): TeammateRules {
+    return this.store.teammate
+  }
+
+  /** 收件箱改一行（docs/multica-learn.md §11.5）：已读、归档、延后、取消订阅 */
+  async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void> {
+    if (!this.team) throw new Error('还没登录团队')
+    await this.team.patchInbox(teamId, key, patch)
+  }
+
+  async setTeammate(raw: unknown): Promise<void> {
+    this.store.teammate = cleanTeammate(raw)
+    await this.store.saveTeammate()
+    this.changed()
   }
 
   /** flow：流程里的一步（不用共用会话），带这一步的临时设置；copyId：这一步的副本 */
@@ -2242,6 +2523,24 @@ export class Channels {
         disconnected: false,
         endedAt: now,
       }
+      // 这一轮的运行记录和原因（docs/multica-learn.md §1、§2）：发出去过的、或没发出去就失败的；还在排队时取消的不算
+      patch.reason = runReasonOf(finish.status, patch.error)
+      if (run.phase !== 'waiting' || finish.status === 'failed') {
+        const config = this.member(run.memberId)
+        patch.runs = appendRun(task.runs, {
+          n: run.round,
+          status: finish.status,
+          // 卡片上的 startedAt 只记第一轮；旧的运行信息没有自己的开始时间时，只有第一轮能借用
+          startedAt: run.startedAt ?? (run.round === 1 ? (task.startedAt ?? null) : null),
+          endedAt: now,
+          reason: patch.reason,
+          error: patch.error,
+          engine: config?.engine ?? null,
+          model: config?.settings.model ?? null,
+          machine: config ? this.machineLabel(config.machineId) : null,
+          sessionId: run.sessionId ?? null,
+        })
+      }
       if (finish.status === 'done' || run.reply) {
         const diff = diffTotal(run)
         if (diff) patch.diff = diff
@@ -2252,19 +2551,27 @@ export class Channels {
           void this.deps.copies.commit(run.sessionId, task.title).catch(e => this.deps.log?.('任务卡副本提交失败', e))
         const reply = run.reply?.trim() ?? ''
         const locale = this.deps.locale()
+        // 牵头的唤醒卡回 [silent]：不发消息（docs/multica-learn.md §11.2）
+        const silent = !!task.wake && isSilent(reply)
         // 这一轮生成的图随结果带回频道（docs/ui/channel-image-gen.md §3.2）；团队频道不支持附件
         const images = run.team || !run.sessionId ? [] : (run.images ?? [])
-        patch.summary = reply
-          ? summaryOf(reply)
-          : images.length
-            ? locale === 'en-US'
-              ? `Generated ${images.length} image(s)`
-              : `生成了 ${images.length} 张图`
-            : locale === 'en-US'
-              ? 'No reply text'
-              : '没有回复文字'
-        patch.decision = reply ? decisionOf(reply) : null
-        if (reply && run.team) {
+        patch.summary = silent
+          ? locale === 'en-US'
+            ? 'Nothing to add'
+            : '没有要说的'
+          : reply
+            ? summaryOf(reply)
+            : images.length
+              ? locale === 'en-US'
+                ? `Generated ${images.length} image(s)`
+                : `生成了 ${images.length} 张图`
+              : locale === 'en-US'
+                ? 'No reply text'
+                : '没有回复文字'
+        patch.decision = reply && !silent ? decisionOf(reply) : null
+        if (silent) {
+          // 不发消息、不接力
+        } else if (reply && run.team) {
           // 团队活：结果由执行端以 AI 成员的身份发到云端频道（随任务卡的收尾一起，没发成功会补发）
           const decide = patch.decision && run.team.author ? [run.team.author] : []
           teamResult = { text: clipResult(reply, locale), mentions: decide }
@@ -2277,6 +2584,8 @@ export class Channels {
             c && !run.flow
               ? this.relayPlan(c, run, task, reply).filter(r => !run.tools?.handover.includes(r.target))
               : []
+          // 没 @ 别人：牵头经手的活叫牵头决定下一步
+          const wake = c ? this.wakePlan(c, run, task, reply, relays.length, patch.decision ?? null) : null
           const result: ChannelTextMessage = {
             kind: 'message',
             id: randomUUID(),
@@ -2289,7 +2598,9 @@ export class Channels {
             taskId: task.id,
             // 要你决定、或接力被拦下等你放行：算 @你
             mentions:
-              patch.decision || (relays.some(r => r.relay.held) && c && relayRulesOf(c).notify) ? [SELF_ID] : [],
+              patch.decision || ((relays.some(r => r.relay.held) || wake?.relay.held) && c && relayRulesOf(c).notify)
+                ? [SELF_ID]
+                : [],
           }
           // 接力的决定在读图（await）之前定好；读完后按最新的频道发（AGENTS.md「await 之后写回」）
           const send = (): void => {
@@ -2320,6 +2631,7 @@ export class Channels {
                 },
                 inherit,
               )
+            if (wake) this.wakeLead(latest, result, run, handoff, inherit, wake.relay)
           }
           if (c && images.length) void this.attachRunImages(run, result, images, locale).then(send)
           else if (c) send()
@@ -2350,6 +2662,7 @@ export class Channels {
     this.saveRuns()
     this.prune()
     void this.pump(run.memberId)
+    this.pumpDirWaiters(run.memberId)
   }
 
   /**
@@ -2407,7 +2720,11 @@ export class Channels {
    * 会话属于哪个 AI 成员（频道派活开的、共用的、从已有会话加入的）；不是频道会话时 null。
    * 扩展准备时用：挂频道工具、按成员的设置筛扩展（从已有会话加入的成员不筛，那是你自己开的会话）
    */
-  sessionMember(sessionId: string): { memberId: string; tools: AgentTools | null } | null {
+  sessionMember(sessionId: string): { memberId: string; tools: AgentTools | null; isolated?: boolean } | null {
+    // 队友派来的活（docs/multica-learn.md §11.4）：一个扩展都不挂，引擎也不读用户级 MCP
+    for (const r of this.store.runs.values())
+      if (r.team && r.sessionId === sessionId && r.guard?.isolate)
+        return { memberId: r.memberId, tools: { mode: 'only', ids: [] }, isolated: true }
     const caller = this.toolCaller(sessionId)
     if (!caller) return null
     return { memberId: caller.member.id, tools: caller.member.bound ? null : (caller.member.tools ?? null) }
@@ -3093,7 +3410,7 @@ export class Channels {
     const task = this.store.task(run.taskId)
     if (task?.copy) return task.copyRemoved ? undefined : task.copy.id
     const copies = this.deps.copies
-    if (!task || !copies || !usesTaskCopies(member)) return undefined
+    if (!task || !copies || !(usesTaskCopies(member) || run.forceCopy)) return undefined
     const main = copies.head ? await copies.head(member.projectId) : null
     const tag = task.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)
     const copy = await this.createCopy(member.projectId, {
@@ -4866,6 +5183,15 @@ export class Channels {
       return
     }
     if (action === 'merge' || action === 'pr') return this.landTask(task, action)
+    if (action === 'copyNow') {
+      // 在等同一个目录：这张卡建副本、马上开始（§11.2）
+      if (run?.phase !== 'waiting' || !task.dirWait?.canCopy) return
+      this.writable(task.channelId)
+      this.store.runs.set(taskId, { ...run, forceCopy: true })
+      this.saveRuns()
+      void this.pump(run.memberId)
+      return
+    }
     if (action === 'resolve') {
       // 合并有冲突：让成员把基础分支合进来，做完再由你点合并
       if (task.land?.kind !== 'conflict' || !task.copy || !terminal(task.status) || !this.member(task.assigneeId))
@@ -5093,6 +5419,9 @@ export class Channels {
       request: m.status === 'waiting' ? (run.requests[0] ?? null) : null,
       ...(local?.ahead !== undefined ? { ahead: local.ahead } : {}),
       ...(local?.disconnected !== undefined ? { disconnected: local.disconnected } : {}),
+      ...(run.guard && (run.guard.capped || run.guard.copy)
+        ? { guard: { capped: run.guard.capped ?? null, copy: run.guard.copy?.branch ?? null } }
+        : {}),
     }
   }
 
@@ -5189,15 +5518,14 @@ export class Channels {
     channelId: string,
     localId: string,
     policy: AgentPolicy,
+    /** 「指定的人直接派」的名单；不带就不改 */
+    allow?: string[],
   ): Promise<void> {
     if (info.role === 'observer') throw new Error('观察者不能添加 AI 成员')
     const config = this.member(localId)
     if (!config) throw new Error('成员不存在')
     const project = this.deps.projects().find(p => p.id === config.projectId)
-    const machine =
-      config.machineId === 'local'
-        ? (this.deps.machineName?.() ?? '这台电脑')
-        : (this.deps.machines().find(m => m.id === config.machineId)?.name ?? config.machineId)
+    const machine = this.machineLabel(config.machineId)
     const reg: AgentRegistration = {
       name: config.name,
       engine: config.engine,
@@ -5205,20 +5533,21 @@ export class Channels {
       machine,
       project: project?.name ?? '',
       policy,
+      ...(allow ? { allow } : {}),
     }
     await this.requireTeam().putAgent(info.teamId, channelId, config.id, reg)
   }
 
-  /** 团队频道里我的 AI 成员：别人 @ 它要不要我同意 */
-  async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy): Promise<void> {
-    if (policy !== 'approve' && policy !== 'team') throw new Error('不支持的派活规则')
+  /** 团队频道里我的 AI 成员谁能派活（docs/multica-learn.md §4、§11.3）；listed 时 allow 是能直接派的人 */
+  async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void> {
+    if (!['owner', 'approve', 'listed', 'team'].includes(policy)) throw new Error('不支持的派活规则')
     const team = this.requireTeam()
     const info = team.channelInfo(channelId)
     if (!info) throw new Error('频道不存在')
     const agent = team.agentById(memberId)
     if (!agent || agent.channelId !== channelId || agent.owner !== team.getMe()?.id)
       throw new Error('只能设置自己的 AI 成员')
-    await this.registerAgent(info, channelId, agent.localId, policy)
+    await this.registerAgent(info, channelId, agent.localId, policy, allow)
   }
 
   /** 等主人同意的活：同意 / 拒绝 */
@@ -5257,8 +5586,15 @@ export class Channels {
   async createTeam(name: string): Promise<string> {
     return this.requireTeam().createTeam(cleanName(name, '团队名'))
   }
-  async updateTeam(teamId: string, patch: { name: string }): Promise<void> {
-    return this.requireTeam().updateTeam(teamId, { name: cleanName(patch?.name, '团队名') })
+  /** 改团队名或排队宽限期（docs/multica-learn.md §2：只认 1 / 6 / 24 / 72 小时） */
+  async updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void> {
+    const grace = patch?.queueGraceHours
+    if (grace !== undefined && ![1, 6, 24, 72].includes(grace)) throw new Error('排队宽限期只能选 1、6、24 或 72 小时')
+    if (patch?.name === undefined && grace === undefined) throw new Error('没有要改的内容')
+    return this.requireTeam().updateTeam(teamId, {
+      ...(patch.name !== undefined ? { name: cleanName(patch.name, '团队名') } : {}),
+      ...(grace !== undefined ? { queueGraceHours: grace } : {}),
+    })
   }
   deleteTeam(teamId: string): Promise<void> {
     return this.requireTeam().deleteTeam(teamId)

@@ -10,6 +10,7 @@ import '../../app/scope.dart';
 import '../../connection/desktop_link.dart';
 import '../../data/actions.dart';
 import '../../data/images.dart';
+import '../../data/share.dart';
 import '../../data/mode.dart';
 import '../../data/notify.dart';
 import '../../data/queue.dart';
@@ -27,8 +28,17 @@ import '../drawer/app_drawer.dart';
 import '../home/home_screen.dart';
 import '../new_session/new_session_screen.dart';
 import 'approval_card.dart';
+import 'side_chat.dart';
+import '../../data/prs.dart';
+import '../../data/message_images.dart';
+import '../../data/reviews.dart';
+import 'review_card.dart';
+import '../pr/pr_screen.dart';
+import '../../protocol/constants.dart' show engines;
 import 'composer.dart';
 import 'items.dart';
+import 'message_images.dart';
+import '../../ui/markdown_image.dart';
 import 'mode_sheet.dart';
 import 'queue_view.dart';
 import 'session_menu.dart';
@@ -44,6 +54,7 @@ void openSession(
   bool replace = false,
   Triage? triage,
   bool notified = false,
+  SharedContent? shared,
 }) {
   final route = MaterialPageRoute<void>(
     builder: (_) => SessionScreen(
@@ -51,6 +62,7 @@ void openSession(
       sessionId: sessionId,
       triage: triage,
       notified: notified,
+      shared: shared,
     ),
   );
   final nav = Navigator.of(context);
@@ -64,6 +76,7 @@ class SessionScreen extends StatefulWidget {
     required this.sessionId,
     this.triage,
     this.notified = false,
+    this.shared,
   });
   final String deviceId;
   final String sessionId;
@@ -74,6 +87,9 @@ class SessionScreen extends StatefulWidget {
   /// 点「等你处理」的通知进来的：审批已经在电脑上处理掉时说一声
   final bool notified;
 
+  /// 从别的 App 分享进来的（D2）：放进输入框和待发图片，不自动发
+  final SharedContent? shared;
+
   @override
   State<SessionScreen> createState() => _SessionScreenState();
 }
@@ -81,6 +97,16 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen> {
   SessionController? _session;
   late SessionActions _actions;
+
+  /// 旁聊记录：关掉面板还在，离开会话页才清（docs/mobile-app.md §15.3）
+  final _side = SideChat();
+
+  /// 这个对话的 PR（C3）：顶栏下面的 PR 条
+  SessionPrs? _prs;
+
+  /// 电脑上审过的轮次（C4）：改动卡片下面的审查卡
+  SessionReviews? _reviews;
+  MessageImages? _messageImages;
   late DesktopActions _desktop;
   final _scroll = ScrollController();
   final _draft = TextEditingController();
@@ -126,12 +152,24 @@ class _SessionScreenState extends State<SessionScreen> {
       );
       _actions = SessionActions(connections, widget.deviceId, widget.sessionId);
       _desktop = DesktopActions(connections, widget.deviceId);
+      _prs = SessionPrs(connections, widget.deviceId, widget.sessionId);
+      _reviews = SessionReviews(connections, widget.deviceId, widget.sessionId);
+      _messageImages = MessageImages(
+        connections,
+        widget.deviceId,
+        widget.sessionId,
+      );
     }
   }
 
   @override
   void initState() {
     super.initState();
+    final shared = widget.shared;
+    if (shared != null) {
+      _draft.text = shared.text;
+      _images.addPaths(shared.imagePaths);
+    }
     // 倒着排的列表：滑到「最后」就是最早的条目，到了就加载更早的
     _scroll.addListener(() {
       final p = _scroll.position;
@@ -169,6 +207,9 @@ class _SessionScreenState extends State<SessionScreen> {
     _scroll.dispose();
     _draft.dispose();
     _images.dispose();
+    _side.dispose();
+    _prs?.dispose();
+    _reviews?.dispose();
     super.dispose();
   }
 
@@ -335,6 +376,10 @@ class _SessionScreenState extends State<SessionScreen> {
                   running: running,
                 ),
               ),
+            )
+            .withReview(
+              (key) =>
+                  ReviewCard(reviews: _reviews!, turnKey: key, canAct: canAct),
             );
         final title = jsTrim(str(record['title']) ?? '').isEmpty
             ? L('未命名会话', 'Untitled conversation')
@@ -391,6 +436,17 @@ class _SessionScreenState extends State<SessionScreen> {
                             projectId: projectId,
                           ),
                           onArchived: () => Navigator.of(context).maybePop(),
+                          onSideChat: () => showSideChat(
+                            context,
+                            chat: _side,
+                            actions: _actions,
+                          ),
+                          sideChatOff: engines[engine]?.sideChat == false
+                              ? L(
+                                  '这个引擎还不支持旁聊',
+                                  "This engine doesn't support side chat yet",
+                                )
+                              : null,
                           onTool: project == null
                               ? null
                               : (id) => openTool(
@@ -496,83 +552,118 @@ class _SessionScreenState extends State<SessionScreen> {
               ),
             ),
           ],
-          body: Stack(
-            children: [
-              Positioned.fill(
-                child: SelectionArea(
-                  child: CustomScrollView(
-                    controller: _scroll,
-                    reverse: true,
-                    slivers: [
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                        sliver: SliverList.list(
-                          children: [
-                            if (snapshot != null)
-                              QueuedMessages(
-                                snapshot: snapshot,
-                                actions: _actions,
-                                canAct: canAct,
-                                onRecall: _recall,
-                              ),
-                            if (running &&
-                                pending == null &&
-                                items.isNotEmpty &&
-                                items.last.kind == 'user')
-                              const _Thinking(),
-                            for (final e in entries.reversed)
-                              EntryView(e, context: turn),
-                            if (session.loadingOlder)
-                              const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              ),
-                            if (snapshot == null &&
-                                session.error == null &&
-                                state == LinkState.ready)
-                              const Padding(
-                                padding: EdgeInsets.all(48),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              ),
-                            if (session.error != null) _Banner(session.error!),
-                            if (_retryError != null) _Banner(_retryError!),
-                            if (state != LinkState.ready)
-                              StateBanner(
-                                deviceId: widget.deviceId,
-                                state: state,
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Positioned(
-                right: 16,
-                bottom: 12,
-                child: AnimatedOpacity(
-                  opacity: _atBottom ? 0 : 1,
-                  duration: const Duration(milliseconds: 150),
-                  child: IgnorePointer(
-                    ignoring: _atBottom,
-                    child: RoundIconButton(
-                      icon: Icons.arrow_downward,
-                      tooltip: L('回到最新', 'Jump to latest'),
-                      onPressed: _toBottom,
+          body: MessageImageScope(
+            images: _messageImages!,
+            child: MarkdownImages(
+              load: _messageImages!.file,
+              describe: imageError,
+              child: Column(
+                children: [
+                  PrBar(
+                    prs: _prs!,
+                    onOpen: (pr) => openPr(
+                      context,
+                      prs: _prs!,
+                      actions: _actions,
+                      url: pr.url,
+                      running: running,
                     ),
                   ),
-                ),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: SelectionArea(
+                            child: CustomScrollView(
+                              controller: _scroll,
+                              reverse: true,
+                              slivers: [
+                                SliverPadding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    12,
+                                    16,
+                                    16,
+                                  ),
+                                  sliver: SliverList.list(
+                                    children: [
+                                      if (snapshot != null)
+                                        QueuedMessages(
+                                          snapshot: snapshot,
+                                          actions: _actions,
+                                          canAct: canAct,
+                                          onRecall: _recall,
+                                        ),
+                                      if (running &&
+                                          pending == null &&
+                                          items.isNotEmpty &&
+                                          items.last.kind == 'user')
+                                        const _Thinking(),
+                                      for (final e in entries.reversed)
+                                        // 按条目 id 认：新消息插在前面时，缩略图、展开状态不跑到别的条目上
+                                        EntryView(
+                                          e,
+                                          key: ValueKey(entryKey(e)),
+                                          context: turn,
+                                        ),
+                                      if (session.loadingOlder)
+                                        const Padding(
+                                          padding: EdgeInsets.all(16),
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      if (snapshot == null &&
+                                          session.error == null &&
+                                          state == LinkState.ready)
+                                        const Padding(
+                                          padding: EdgeInsets.all(48),
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      if (session.error != null)
+                                        _Banner(session.error!),
+                                      if (_retryError != null)
+                                        _Banner(_retryError!),
+                                      if (state != LinkState.ready)
+                                        StateBanner(
+                                          deviceId: widget.deviceId,
+                                          state: state,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 16,
+                          bottom: 12,
+                          child: AnimatedOpacity(
+                            opacity: _atBottom ? 0 : 1,
+                            duration: const Duration(milliseconds: 150),
+                            child: IgnorePointer(
+                              ignoring: _atBottom,
+                              child: RoundIconButton(
+                                icon: Icons.arrow_downward,
+                                tooltip: L('回到最新', 'Jump to latest'),
+                                onPressed: _toBottom,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
           bottom: snapshot == null
               ? null
@@ -600,6 +691,9 @@ class _SessionScreenState extends State<SessionScreen> {
                         more: pendingList.length - 1,
                         onAnswer: (d) => _actions.answer(pending.requestId, d),
                         onStop: running ? () => _actions.interrupt() : null,
+                        planNote: pending.kind == 'plan'
+                            ? planAfterText(record)
+                            : null,
                       )
                     else ...[
                       if (_rewound != null && !running)
@@ -654,10 +748,18 @@ List<Widget> _modelChip(Json record, AppColors c) {
     fontWeight: FontWeight.w500,
     color: c.text,
   );
+  // 计划中：最前面一个清单图标（先出计划开着，docs/mobile-app.md §15.2）
+  final plan = [
+    if (inPlan(record)) ...[
+      Icon(Icons.checklist, size: 14, color: c.accentText),
+      const SizedBox(width: 4),
+    ],
+  ];
   if (chip.model == null && chip.effort == null) {
-    return [Text(modelChipText(record), style: style)];
+    return [...plan, Text(modelChipText(record), style: style)];
   }
   return [
+    ...plan,
     if (chip.model != null)
       Flexible(
         child: Text(

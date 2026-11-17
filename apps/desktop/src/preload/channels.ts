@@ -20,7 +20,7 @@ import type {
   TeamRole,
 } from '../shared/types/channels'
 import type { ChannelAlertAction } from '../shared/channels/alerts'
-import type { FlowScheduleInput, IssueDispatch } from '../shared/types/channels'
+import type { FlowScheduleInput, IssueDispatch, TeamInboxPatch, TeammateRules } from '../shared/types/channels'
 import type { CloudImageInput } from './image'
 
 /** 协作频道 Phase B（docs/ui/channels-phase-b.md §11） */
@@ -60,6 +60,10 @@ export interface ChannelsBridge {
       lead?: string | null
       /** @ 一个 AI 派新活时先出计划 */
       planFirst?: boolean
+      /** 不带 @ 的简单活由牵头直接派；成员交回结果时叫牵头；牵头只派活不动手（docs/multica-learn.md §11.2） */
+      leadRoute?: boolean
+      leadWake?: boolean
+      leadDispatchOnly?: boolean
       /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）：整个列表一起存 */
       schedules?: FlowScheduleInput[]
       /** 主动提醒的规则开关、每日简报几点发（docs/ui/channels-collab-v2.md §6） */
@@ -114,11 +118,15 @@ export interface ChannelsBridge {
   // ── Phase C：多人团队（docs/ui/channels-phase-c.md §9.2） ──
   /** 等主人同意的活（approval）：同意 / 拒绝 */
   approveTask(taskId: string, approve: boolean): Promise<void>
-  /** 团队频道里我的 AI 成员：别人 @ 它要不要我同意 */
-  setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy): Promise<void>
+  /** 团队频道里我的 AI 成员谁能派活；listed 时 allow 是能直接派的人（团队成员 id），不带就不改 */
+  setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void>
+  /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
+  setTeammate(rules: TeammateRules): Promise<void>
+  /** 收件箱改一行：已读、归档、延后、取消订阅（docs/multica-learn.md §11.5） */
+  patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void>
   /** 新建团队，返回团队 id */
   createTeam(name: string): Promise<string>
-  updateTeam(teamId: string, patch: { name: string }): Promise<void>
+  updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void>
   deleteTeam(teamId: string): Promise<void>
   /** 改我在这个团队的显示名 */
   setDisplayName(teamId: string, name: string): Promise<void>

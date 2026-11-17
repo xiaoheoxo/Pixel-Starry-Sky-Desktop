@@ -104,7 +104,18 @@ void main() {
       of: find.byType(UserBubble),
       matching: find.text(ask),
     );
-    await until(() => bubble.evaluate().isNotEmpty, '打开 s3');
+    // s3 下面还有 PR 条和审查卡：往上滑到这条消息
+    await until(
+      () =>
+          find.byType(UserBubble).evaluate().isNotEmpty ||
+          find.text('AI 审查').evaluate().isNotEmpty,
+      '打开 s3',
+    );
+    await tester.dragUntilVisible(
+      bubble,
+      find.byType(CustomScrollView).last,
+      const Offset(0, 300),
+    );
     expect(find.textContaining(reply), findsWidgets);
 
     await tester.longPress(bubble);
@@ -121,7 +132,12 @@ void main() {
     expect(field.controller!.text, ask);
 
     await tester.tap(find.text('撤销'));
-    await until(() => bubble.evaluate().isNotEmpty, '撤销后对话回来');
+    await until(() => find.text('AI 审查').evaluate().isNotEmpty, '撤销后对话回来');
+    await tester.dragUntilVisible(
+      bubble,
+      find.byType(CustomScrollView).last,
+      const Offset(0, 300),
+    );
     expect(find.textContaining(reply), findsWidgets);
     expect(find.text('已回到这条消息，改好再发'), findsNothing);
     expect(field.controller!.text, '');

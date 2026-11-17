@@ -27,6 +27,8 @@ export interface TeamRunRef {
   title?: string
   /** 最近一次已处理的追加要求（消息 id） */
   follow?: string | null
+  /** 这一轮的运行凭证（开工前核对时云端发的，docs/multica-learn.md §11.3）：写回优先用它；旧云端没有 */
+  runToken?: string | null
   /** 这一轮的收尾（任务卡字段 + 结果消息）还没写回云端时留着，重连后补发 */
   final?: { patch: Record<string, unknown>; result?: { text: string; mentions: string[]; round?: number } }
 }
@@ -50,6 +52,8 @@ export interface TaskRun {
   freshPrompt: string
   /** 这一轮的 user 条目出现过（引擎开始做了） */
   started: boolean
+  /** 这一轮真正开始的时间（不含排队；断线重连、自动重试不重算），运行记录算用时；旧数据没有 */
+  startedAt?: number
   turnId: string | null
   requests: ApprovalRequest[]
   /** file_change 条目 id → 改动统计 */
@@ -106,6 +110,13 @@ export interface TaskRun {
   reminded?: boolean
   /** 这一步在哪做（第 11 项）：开始时定下，开会话时才建副本 */
   copyPlan?: CopyPlan
+  /** 同一个目录有别人在做、成员设置是「用副本并行」或点了「改用副本马上开始」：这一轮给卡建副本（§11.2） */
+  forceCopy?: boolean
+  /**
+   * 队友派来的活的限制（docs/multica-learn.md §11.4）：capped 是被降级前的权限，copy 是这件活自己的副本，
+   * isolate 是不带我的 MCP。几轮之间接着用
+   */
+  guard?: { capped?: string; copy?: { id: string; branch: string; path: string }; isolate?: boolean }
 }
 
 /** 流程里一个成员问另一个成员的问题 */
@@ -389,6 +400,7 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
     const next: TaskRun = {
       ...run,
       started: true,
+      startedAt: run.startedAt ?? now,
       turnId: (event.item.kind === 'user' && event.item.turnId) || run.turnId,
       requests: [],
       diff: resumed ? run.diff : {},

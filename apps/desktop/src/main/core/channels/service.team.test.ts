@@ -17,10 +17,11 @@ let dir: string
 let opened: Channels[]
 let emitted: { channel: string; value: unknown }[]
 let sent: { sessionId: string; text: string; clientMessageId: string }[]
+let created: Record<string, unknown>[]
 let sessions: SessionSummary[]
 let now: number
 
-async function open() {
+async function open(extra: Partial<ConstructorParameters<typeof Channels>[0]> = {}) {
   const cloud = new FakeCloud()
   let handlers!: { onFrame(f: TeamFrame): void; onStatus(s: RealtimeStatus): void }
   const sync = new TeamSync({
@@ -37,6 +38,7 @@ async function open() {
     store,
     call: async (channel, args) => {
       if (channel === 'engine:createSession') {
+        created.push(args[0] as Record<string, unknown>)
         const id = `s${sessions.length + 1}`
         sessions.push({ record: { id, projectId: 'p1' }, state: 'idle' } as SessionSummary)
         return { id }
@@ -57,6 +59,7 @@ async function open() {
     deviceId: 'dev-A',
     machineName: () => '林夏的电脑',
     teamTiming: { progressMs: 10, statusMs: 10 },
+    ...extra,
   })
   opened.push(c)
   const online = async () => {
@@ -99,6 +102,7 @@ beforeEach(async () => {
   opened = []
   emitted = []
   sent = []
+  created = []
   sessions = []
   now = 1_000_000
 })
@@ -451,5 +455,283 @@ describe('协作频道 Phase C：执行端复用 Phase B', () => {
     await store.init()
     expect(store.runs.get(a)?.team).toMatchObject({ teamId: 'tm_1', messageId: a })
     expect(store.runs.get(a)?.phase).toBe('sent')
+  })
+})
+
+describe('派活规则四档、开工前核对、运行凭证（docs/multica-learn.md §11.3）', () => {
+  async function ready() {
+    const t = await open()
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    return { ...t, agentId: view.id }
+  }
+
+  it('指定的人直接派：名单存到云端，名单里的人派的直接开工', async () => {
+    const { c, cloud, agentId } = await ready()
+    await c.setAgentPolicy('tc_1', agentId, 'listed', ['u:2'])
+    expect(cloud.agent(agentId)).toMatchObject({ policy: 'listed', allow: ['u:2'] })
+    expect(c.state().members.find(m => m.id === agentId)).toMatchObject({ policy: 'listed', allow: ['u:2'] })
+    cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId])
+    await until(() => sent.length === 1)
+    // 只有我：别人 @ 只当文字
+    await c.setAgentPolicy('tc_1', agentId, 'owner')
+    expect(cloud.userPost('u:2', 'tc_1', '@前端助手 再改', [agentId]).tasks).toHaveLength(0)
+  })
+
+  it('核对通过：开工前拿凭证，结果和写回都走凭证接口', async () => {
+    const { c, cloud, agentId } = await ready()
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    const start = cloud.calls.find(x => x.path === `/v1/teams/tm_1/tasks/${id}/start`)
+    expect(start?.body).toEqual({ device: 'dev-A' })
+    const token = cloud.runTokens.get(id)!
+    expect(token).toMatch(/^rt_/)
+    complete(c, 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(id).status === 'done')
+    const viaRun = cloud.calls.filter(x => x.runToken === token).map(x => `${x.method} ${x.path}`)
+    expect(viaRun).toEqual(
+      expect.arrayContaining([`POST /v1/teams/tm_1/runs/${id}/result`, `PATCH /v1/teams/tm_1/runs/${id}`]),
+    )
+    expect(cloud.calls.some(x => x.method === 'PATCH' && x.path === `/v1/teams/tm_1/tasks/${id}`)).toBe(false)
+    expect(cloud.messages.get('tc_1')!.find(m => m.author === agentId && m.task_id === id)?.text).toContain('改好了')
+  })
+
+  it('核对不通过（主人改成要同意）：不开工、本机不留运行信息；同意后重新认领开工', async () => {
+    const { c, cloud, store, agentId } = await ready()
+    cloud.startOutcome = 'approval'
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => cloud.task(id).status === 'approval')
+    await new Promise(r => setTimeout(r, 30))
+    expect(sent).toHaveLength(0)
+    expect(store.runs.has(id)).toBe(false)
+    expect(sessions).toHaveLength(0)
+    cloud.startOutcome = 'ok'
+    await c.approveTask(id, true)
+    await until(() => sent.length === 1)
+    expect(sent[0].clientMessageId).toBe(`ch-${id}-1`)
+  })
+
+  it('旧云端没有核对接口：照常开工，写回走登录令牌', async () => {
+    const { c, cloud, agentId } = await ready()
+    cloud.startOutcome = null
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    complete(c, 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(id).status === 'done')
+    expect(cloud.calls.some(x => x.runToken)).toBe(false)
+  })
+
+  it('失败后重试：卡先回到排队再核对，核对通过开下一轮（不会被「状态不对」拦下）', async () => {
+    const { c, cloud, agentId } = await ready()
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    const turn = 'turn-x'
+    c.hostEvent(
+      ev('s1', {
+        type: 'item_completed',
+        item: { kind: 'user', id: sent[0].clientMessageId, text: '', createdAt: 0, turnId: turn },
+      }),
+    )
+    c.hostEvent(ev('s1', { type: 'turn_completed', turnId: turn, outcome: 'failed', error: '额度不足' }))
+    // 宿主每轮结束都紧跟一个队列事件；不在队列里（没有自动重连）才算失败
+    c.hostEvent(ev('s1', { type: 'queue', items: [], paused: true }))
+    await until(() => cloud.task(id).status === 'failed')
+    await c.taskAction(id, 'retry')
+    await until(() => sent.length === 2)
+    expect(sent[1].clientMessageId).toBe(`ch-${id}-2`)
+    await until(() => cloud.task(id).pending_action === null)
+    expect(cloud.runTokens.get(id)).toMatch(/^rt_/)
+  })
+
+  it('凭证被拒（过期、云端换了）：退回登录令牌，收尾照样写回', async () => {
+    const { c, cloud, agentId } = await ready()
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    cloud.runTokens.clear()
+    complete(c, 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(id).status === 'done')
+    expect(cloud.calls.some(x => x.method === 'PATCH' && x.path === `/v1/teams/tm_1/tasks/${id}`)).toBe(true)
+    expect(cloud.messages.get('tc_1')!.some(m => m.author === agentId && m.task_id === id)).toBe(true)
+  })
+})
+
+describe('队友派来的活的限制（docs/multica-learn.md §8、§11.4）', () => {
+  const madeCopies: { projectId: string; name: string; branch: string }[] = []
+  async function ready(patch: Partial<AgentInput> = {}) {
+    madeCopies.length = 0
+    const t = await open({
+      defaultMode: () => 'full',
+      copies: {
+        create: async (projectId, input) => {
+          madeCopies.push({ projectId, name: input.name, branch: input.branch })
+          return { id: `cp-${madeCopies.length}`, branch: input.branch, path: `D:/copies/${input.name}` }
+        },
+        remove: async () => {},
+        dirty: async () => false,
+      },
+    })
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手', patch))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    return { ...t, agentId: view.id }
+  }
+
+  it('默认：新开会话、权限降到自动改文件、独立副本、不带我的 MCP；主人的卡上写明', async () => {
+    const { c, cloud, store, agentId } = await ready({ mode: 'shared' })
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0]).toMatchObject({ permissionMode: 'edits', copyId: 'cp-1' })
+    expect(madeCopies[0].branch).toMatch(/^pixelsky\/team-/)
+    // 共用会话的成员也不记成共用会话
+    expect(store.members[0].sharedSessionId ?? null).toBeNull()
+    expect(store.runs.get(id)?.guard).toMatchObject({ capped: 'full', isolate: true, copy: { id: 'cp-1' } })
+    expect(c.sessionMember('s1')).toMatchObject({ isolated: true, tools: { mode: 'only', ids: [] } })
+    const page = await c.page('tc_1')
+    expect(page.messages.find(m => m.id === id)).toMatchObject({
+      guard: { capped: 'full', copy: madeCopies[0].branch },
+    })
+  })
+
+  it('队友在我派的卡上追加要求：不接着用我那个没限制的会话，按限制新开', async () => {
+    const { cloud, store, agentId } = await ready()
+    const card = cloud.userPost('u:1', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0].permissionMode).toBeUndefined()
+    complete(opened[0], 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(card).status === 'done')
+    cloud.userPost('u:2', 'tc_1', '顺便把颜色也改了', [], card)
+    await until(() => sent.length === 2)
+    expect(sent[1].sessionId).toBe('s2')
+    expect(created[1]).toMatchObject({ permissionMode: 'edits', copyId: 'cp-1' })
+    expect(store.runs.get(card)?.guard).toMatchObject({ capped: 'full', isolate: true })
+  })
+
+  it('我自己派的活不受限制', async () => {
+    const { c, cloud, store, agentId } = await ready()
+    const id = cloud.userPost('u:1', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0].permissionMode).toBeUndefined()
+    expect(created[0].copyId).toBeUndefined()
+    expect(madeCopies).toHaveLength(0)
+    expect(store.runs.get(id)?.guard).toBeUndefined()
+    expect(c.sessionMember('s1')?.isolated).toBeUndefined()
+  })
+
+  it('不在允许的项目里：不开工，卡片失败、原因是这个项目不接', async () => {
+    const { c, cloud, agentId } = await ready()
+    await c.setTeammate({ projects: ['p2'], copy: true, isolateMcp: true })
+    expect(c.state().teammate).toEqual({ projects: ['p2'], copy: true, isolateMcp: true })
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => cloud.task(id).status === 'failed')
+    expect(sent).toHaveLength(0)
+    expect(sessions).toHaveLength(0)
+    expect(cloud.task(id).reason).toBe('project_blocked')
+  })
+
+  it('关掉副本和隔离、成员本来就要问：照原样开，不降级', async () => {
+    const { c, cloud, store, agentId } = await ready({ settings: { model: 'sonnet', permissionMode: 'ask' } })
+    await c.setTeammate({ projects: null, copy: false, isolateMcp: false })
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0]).toMatchObject({ permissionMode: 'ask' })
+    expect(madeCopies).toHaveLength(0)
+    expect(store.runs.get(id)?.guard ?? {}).toEqual({})
+    expect(c.sessionMember('s1')?.isolated).toBeUndefined()
+  })
+
+  it('设置存盘，重开还在；不认识的字段丢掉', async () => {
+    const { c } = await ready()
+    await c.setTeammate({ projects: ['p1', 'p1', 3], copy: false, extra: 1 })
+    const again = new ChannelStore(dir)
+    await again.init()
+    expect(again.teammate).toEqual({ projects: ['p1'], copy: false, isolateMcp: true })
+  })
+})
+
+describe('收件箱（docs/multica-learn.md §11.5）', () => {
+  const row = (key: string, patch: Record<string, unknown> = {}) => ({
+    team_id: 'tm_1',
+    key,
+    channel_id: 'tc_1',
+    kind: 'mention',
+    actor: 'u:2',
+    text: '@林夏 看下',
+    count: 1,
+    at: '2026-11-18T08:00:00Z',
+    read: false,
+    archived: false,
+    snooze_until: null,
+    muted: false,
+    ...patch,
+  })
+
+  it('连上时拉一次；帧来了换那一行，归档的拿掉；改一行走云端', async () => {
+    const t = await open()
+    t.cloud.inbox = [row('tg_1'), row('tg_2', { kind: 'nope' })]
+    await t.online()
+    await until(() => t.c.state().inboxSupported === true)
+    expect(t.c.state().inbox).toEqual([
+      expect.objectContaining({ teamId: 'tm_1', key: 'tg_1', kind: 'mention', at: Date.parse('2026-11-18T08:00:00Z') }),
+    ])
+    t.cloud.push({
+      type: 'inbox',
+      team: 'tm_1',
+      item: { ...t.c.state().inbox![0], key: 'tg_3', kind: 'failed', at: Date.parse('2026-11-18T09:00:00Z') },
+    })
+    expect(t.c.state().inbox!.map(i => i.key)).toEqual(['tg_3', 'tg_1'])
+    t.cloud.push({ type: 'inbox', team: 'tm_1', item: { ...t.c.state().inbox![0], archived: true } })
+    expect(t.c.state().inbox!.map(i => i.key)).toEqual(['tg_1'])
+    const at = Date.parse('2026-11-19T01:00:00Z')
+    await t.c.patchInbox('tm_1', 'tg_1', { read: true, snoozeUntil: at })
+    const call = t.cloud.calls.find(x => x.method === 'PATCH' && x.path === '/v1/teams/tm_1/inbox/tg_1')
+    expect(call?.body).toEqual({ read: true, snooze_until: new Date(at).toISOString() })
+    expect(t.c.state().inbox![0]).toMatchObject({ read: true, snoozeUntil: at })
+    await t.c.patchInbox('tm_1', 'tg_1', { muted: true })
+    expect(t.c.state().inbox).toEqual([])
+  })
+
+  it('拉取期间推来的行不会被较早发出的那次请求盖掉', async () => {
+    const t = await open()
+    t.cloud.inbox = [row('tg_1')]
+    let release!: () => void
+    t.cloud.inboxGate = new Promise(r => (release = r))
+    await t.online()
+    await until(() => t.cloud.calls.some(x => x.path === '/v1/inbox'))
+    // 请求在路上时：tg_1 被另一台电脑标了已读，tg_2 新来
+    const base = {
+      teamId: 'tm_1',
+      channelId: 'tc_1',
+      actor: 'u:2',
+      text: 'x',
+      count: 1,
+      archived: false,
+      snoozeUntil: null,
+      muted: false,
+    }
+    t.cloud.push({ type: 'inbox', team: 'tm_1', item: { ...base, key: 'tg_1', kind: 'mention', at: 1, read: true } })
+    t.cloud.push({ type: 'inbox', team: 'tm_1', item: { ...base, key: 'tg_2', kind: 'failed', at: 2, read: false } })
+    release()
+    // 等那次较早的请求回来、写进去之后再看
+    await new Promise(r => setTimeout(r, 30))
+    expect(
+      t.c
+        .state()
+        .inbox!.map(i => i.key)
+        .sort(),
+    ).toEqual(['tg_1', 'tg_2'])
+    expect(t.c.state().inbox!.find(i => i.key === 'tg_1')?.read).toBe(true)
+  })
+
+  it('旧云端没有收件箱：inboxSupported 为 false', async () => {
+    const t = await open()
+    t.cloud.inbox = null
+    await t.online()
+    await until(() => t.c.state().teamsConnection === 'online')
+    expect(t.c.state()).toMatchObject({ inbox: [], inboxSupported: false })
   })
 })

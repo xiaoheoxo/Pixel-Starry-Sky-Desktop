@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小部件的颜色和默认字（同 App 浅色主题：bgSurface、text、textMuted、warn、success）；字由 App 按语言写进去，这里是还没打开过 App 时的 -->
+<resources>
+    <color name="widget_bg">#FFFFFFFF</color>
+    <color name="widget_text">#FF20211F</color>
+    <color name="widget_muted">#FF777872</color>
+    <color name="widget_waiting">#FFB97A36</color>
+    <color name="widget_idle">#FF2F7D4F</color>
+    <string name="widget_empty_title">像素星空</string>
+    <string name="widget_empty_body">打开 App 连上电脑后显示</string>
+    <string name="widget_description">等你处理的任务</string>
+</resources>

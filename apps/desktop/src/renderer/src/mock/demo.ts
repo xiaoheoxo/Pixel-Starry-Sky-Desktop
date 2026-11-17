@@ -208,6 +208,6 @@ export const demo: AppData = {
   composerStatus: { machine: '这台电脑', branch: 'main', contextPercent: 12 },
   defaultPanelOpen: true,
   // 协作频道的角标由未读数计算（features/channels/store.ts），不再写在 BADGES 里
-  // 团队先关着（docs/ui/channels-local-ai.md §1），DEMO_TEAMS 改成 true 能看到团队示例
+  // 带团队示例（docs/multica-learn.md §13），DEMO_TEAMS 改成 false 看关着团队时的样子
   ...demoChannelData(DEMO_TEAMS),
 }

@@ -290,7 +290,7 @@ void main() {
               .permission;
       expect(
         [p('ask'), p('edits'), p('plan'), p('full')],
-        ['每步问我', '自动改文件', '只规划', '完全放行'],
+        ['每步问我', '自动改文件', '先出计划 · 每步问我', '完全放行'],
       );
       final chip = modeChip({
         'permissionMode': 'edits',
@@ -300,6 +300,28 @@ void main() {
       expect(chip.model, 'Sonnet 4.5');
       expect(chip.effort, '中');
       expect(modeChip({'permissionMode': 'ask'}).model, isNull);
+    });
+
+    test('「先出计划」是开关，不是一档；计划中显示批准后回到哪档', () {
+      expect(permissionOptions('claude', 'ask').map((o) => o.value), [
+        'ask',
+        'edits',
+      ]);
+      final planning = {'permissionMode': 'plan', 'planReturn': 'edits'};
+      expect(inPlan(planning), true);
+      expect(planReturnOf(planning), 'edits');
+      // 旧记录 / 旧电脑：没有 planReturn，批准后回每步问我
+      expect(planReturnOf({'permissionMode': 'plan'}), 'ask');
+      expect(modeChip(planning).permission, '先出计划 · 自动改文件');
+      expect(planAfterText(planning), '批准后按「自动改文件」去做');
+      // 电脑上是完全放行：手机上批准回到自动改文件，关掉开关也一样
+      final full = {'permissionMode': 'plan', 'planReturn': 'full'};
+      expect(planAfterText(full), contains('电脑上是完全放行'));
+      expect(approvedOnPhone('full'), 'edits');
+      expect(approvedOnPhone('auto'), 'auto');
+      expect(planOffMode('full'), 'edits');
+      expect(planOffMode('auto'), 'edits');
+      expect(planOffMode('ask'), 'ask');
     });
 
     test('电脑上开着完全放行 / 自动审核：列出来但选不了', () {

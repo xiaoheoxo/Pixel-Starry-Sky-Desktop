@@ -12,6 +12,8 @@ import { dismissInbox, resolveDemoInbox, useInbox } from './useInbox'
 import { channelActions, useChannels } from '@/features/channels/store'
 import { channelOfInbox } from '@/features/channels/channelNotice'
 import { setPage } from '@/features/layout/page'
+import { TeamInboxList } from '@/features/channels/TeamInbox'
+import { unreadInbox } from '@/features/channels/teamInboxModel'
 
 const LANE: Record<InboxLane, { label: TranslationKey; icon: LucideIcon; tone: string }> = {
   waiting: { label: 'projectTools.inbox.lane.waiting', icon: ShieldAlert, tone: 'text-warn' },
@@ -40,6 +42,12 @@ export function TaskInbox() {
     members: useChannels(s => s.members),
   }
   const [collapsed, setCollapsed] = useRemember('pixelsky.inbox.collapsed', false)
+  // 「通知」标签（docs/multica-learn.md §11.5）：云端有收件箱时才有
+  const noticesOn = useChannels(s => s.inboxSupported)
+  const notices = useChannels(s => s.inbox)
+  const [tabPref, setTab] = useRemember<'pending' | 'notices'>('pixelsky.inbox.tab', 'pending')
+  const tab = noticesOn ? tabPref : 'pending'
+  const [noticeError, setNoticeError] = useState('')
   const { busy, error, run } = useOperation()
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -55,23 +63,77 @@ export function TaskInbox() {
   const listId = 'task-inbox-list'
   return (
     <section data-task-inbox className={cn(CARD, 'flex flex-col gap-2')}>
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        aria-controls={listId}
-        title={tr(collapsed ? 'projectTools.inbox.expand' : 'projectTools.inbox.collapse')}
-        onClick={() => setCollapsed(!collapsed)}
-        className="-m-1 flex items-center gap-2 rounded-md p-1 text-left hover:bg-hover"
-      >
-        <span className="text-ui font-medium text-fg">{tr('projectTools.inbox.title')}</span>
-        {items.length > 0 && <CountBadge count={items.length} />}
-        <span className="min-w-0 flex-1 truncate text-meta text-fg-faint">{tr('projectTools.inbox.hint')}</span>
-        <ChevronDown
-          size={14}
-          className={cn('shrink-0 text-fg-muted transition-transform', collapsed && '-rotate-90')}
-        />
-      </button>
-      {!collapsed && (
+      {noticesOn ? (
+        // 两个标签：待处理 / 通知；右边的箭头照旧折叠整张卡
+        <div className="-m-1 flex items-center gap-1 p-1">
+          <div
+            role="tablist"
+            aria-label={tr('projectTools.inbox.title')}
+            className="flex min-w-0 flex-1 items-center gap-1"
+          >
+            {(
+              [
+                ['pending', tr('inbox.tab.pending'), items.length],
+                ['notices', tr('inbox.tab.notices'), unreadInbox(notices, now)],
+              ] as const
+            ).map(([id, label, count]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                data-inbox-tab={id}
+                aria-selected={tab === id}
+                aria-controls={listId}
+                onClick={() => {
+                  setTab(id)
+                  if (collapsed) setCollapsed(false)
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-ui',
+                  tab === id ? 'bg-subtle font-medium text-fg' : 'text-fg-muted hover:bg-hover',
+                )}
+              >
+                {label}
+                {count > 0 && <CountBadge count={count} />}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-controls={listId}
+            title={tr(collapsed ? 'projectTools.inbox.expand' : 'projectTools.inbox.collapse')}
+            onClick={() => setCollapsed(!collapsed)}
+            className="shrink-0 rounded-md p-1 hover:bg-hover"
+          >
+            <ChevronDown size={14} className={cn('text-fg-muted transition-transform', collapsed && '-rotate-90')} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          aria-controls={listId}
+          title={tr(collapsed ? 'projectTools.inbox.expand' : 'projectTools.inbox.collapse')}
+          onClick={() => setCollapsed(!collapsed)}
+          className="-m-1 flex items-center gap-2 rounded-md p-1 text-left hover:bg-hover"
+        >
+          <span className="text-ui font-medium text-fg">{tr('projectTools.inbox.title')}</span>
+          {items.length > 0 && <CountBadge count={items.length} />}
+          <span className="min-w-0 flex-1 truncate text-meta text-fg-faint">{tr('projectTools.inbox.hint')}</span>
+          <ChevronDown
+            size={14}
+            className={cn('shrink-0 text-fg-muted transition-transform', collapsed && '-rotate-90')}
+          />
+        </button>
+      )}
+      {!collapsed && tab === 'notices' && (
+        <div id={listId} className="flex flex-col gap-2">
+          <ToolError error={noticeError} />
+          <TeamInboxList now={now} onError={e => setNoticeError(e instanceof Error ? e.message : String(e))} />
+        </div>
+      )}
+      {!collapsed && tab === 'pending' && (
         <div id={listId} className="flex flex-col gap-2">
           <ToolError error={error} />
           {items.length === 0 && (

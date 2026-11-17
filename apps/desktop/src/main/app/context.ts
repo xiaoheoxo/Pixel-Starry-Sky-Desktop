@@ -7,6 +7,8 @@ import type { ProviderStore } from '../core/providers/store'
 import type { ChannelToolsServer } from '../channels/channel-mcp'
 import type { Channels } from '../core/channels/service'
 import type { PhoneFeedback } from '../../shared/types/feedback'
+import type { PhonePrs } from '../../shared/types/session-status'
+import type { ReviewStore } from '../reviews/store'
 import { EventBus } from './events'
 import { Lifecycle } from './lifecycle'
 
@@ -47,6 +49,10 @@ export interface AppContext {
   readonly toolOps: Map<string, (args: unknown[]) => unknown>
   /** 反馈操作给手机网关用的那一份（feedback/feedback.ts 的 initFeedback，比 initMobile 晚；docs/mobile-app.md §8.5） */
   feedback: PhoneFeedback | null
+  /** PR 状态和合并给手机网关用的那一份（session-status/index.ts，比 initMobile 晚；docs/mobile-app.md §15.4） */
+  prs: PhonePrs | null
+  /** AI 审查结果（reviews/ipc.ts 的 initReviews，读完文件后才有；docs/mobile-app.md §15.5） */
+  reviews: ReviewStore | null
 }
 
 export type EngineCall = (channel: string, args: unknown[], owner: string) => Promise<unknown>
@@ -67,6 +73,8 @@ export function createAppContext(): AppContext {
     engineCall: null,
     toolOps: new Map(),
     feedback: null,
+    prs: null,
+    reviews: null,
   }
 }
 

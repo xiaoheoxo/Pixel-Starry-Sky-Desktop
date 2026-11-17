@@ -3,9 +3,14 @@
 // - 握手：只和已配对的手机做 Noise KK，之后一部手机一条加密通道 + 一个 RpcCore；
 // - 调用：只放行契约里标了 mobile 的通道，「只看」的手机不能调 act 的；参数先清洗（不能放宽权限、改线路）；
 // - 事件：和窗口看到的同一份；会话事件只推给打开着这个会话的手机，会话列表合并节流。
-// - 网关自己的几个调用（不在契约里）：hello、unwatch、defaults、account、search、image（docs/mobile-remote.md §17）；
+// - 网关自己的几个调用（不在契约里）：hello、unwatch、defaults、account、search、image（docs/mobile-remote.md §17）、fileImage（回复里的本地图片，image-path.ts，docs/mobile-app.md §15.17）；
 //   工具（Git / 文件 / 产物 / 任务）和加项目也由网关放行（PHONE_TOOLS、directories、addProject，§18.4）；
-//   反馈（feedback:*，FEEDBACK_ACCESS，docs/mobile-app.md §8.5）转给电脑的设置 › 反馈，令牌不离开电脑。
+//   反馈（feedback:*，FEEDBACK_ACCESS，docs/mobile-app.md §8.5）转给电脑的设置 › 反馈，令牌不离开电脑；
+//   PR（prs、prFix、prMerge…，PR_ACCESS，docs/mobile-app.md §15.4）转给电脑的 session-status，让 AI 修的文字由电脑拼；
+//   频道只读（channels、channelMessages、channelImage，CHANNEL_METHODS，§15.6）：只给本机频道，正文截短、图片按需取；
+//   AI 审查结果（reviews、reviewItem、reviewFix，REVIEW_ACCESS，§15.5）：存在电脑主进程，修的文字由电脑拼；
+//   充值（store、checkout*，CHECKOUT_ACCESS，§15.13）：借电脑的账号下单，令牌不离开电脑，支付链接不写日志。
+import { randomUUID } from 'node:crypto'
 import {
   EFFORTS,
   ENGINES,
@@ -52,8 +57,19 @@ import { slimForPhone } from '../core/engine/tail'
 import type { AccountInfo } from '../../shared/types/account'
 import type { PhoneFeedback } from '../../shared/types/feedback'
 import type { MobilePairing } from '../../shared/types/mobile'
-import type { GitDiff } from '../../shared/types/project-tools'
-import type { FileDocument } from '../../shared/types/workspace'
+import type { CheckoutOrder, StoreCatalog } from '../../shared/types/account'
+import { reviewFixRequest, type ReviewStatus, type SessionReviews } from '../../shared/types/ai'
+import type { Channel, ChannelAttachments, ChannelMember, ChannelMessage } from '../../shared/types/channels'
+import {
+  prChecksRequest,
+  prConflictRequest,
+  type PhonePrs,
+  type SessionPr,
+  type SessionStatusState,
+} from '../../shared/types/session-status'
+import type { GitDiff, GitDiffImageSide } from '../../shared/types/project-tools'
+import type { FileDocument, WorkspaceTarget } from '../../shared/types/workspace'
+import { phoneImagePath } from './image-path'
 import { phoneDiff, PHONE_DIFF_LIMIT, type PhoneDiff } from './diff'
 import { PushScheduler, pushChanges, waitingCount, type PushPayload } from './push'
 import type { MobileStore } from './store'
@@ -134,6 +150,44 @@ export interface LocalQueries {
   sources?(engine: EngineId): Promise<DesktopSources>
   /** 电脑的反馈（设置 › 反馈）；反馈模块还没起来时为 null */
   feedback?(): PhoneFeedback | null
+  /** 对话的 PR（session-status）；还没起来时为 null */
+  prs?(): PhonePrs | null
+  /** 协作频道（channels/ipc.ts 的 initChannels）；还没起来时为 null */
+  channels?(): PhoneChannels | null
+  /** AI 审查结果（reviews/ipc.ts 的 initReviews）；还没读完文件时为 null */
+  reviews?(): PhoneReviews | null
+  /** 充值（account/checkout.ts、store.ts）；没有时手机上没有充值 */
+  checkout?: PhoneCheckout
+}
+
+/** 网关转给电脑账号模块的充值操作（docs/mobile-app.md §15.13） */
+export interface PhoneCheckout {
+  store(): Promise<StoreCatalog>
+  create(input: unknown): Promise<CheckoutOrder>
+  get(orderId: unknown): Promise<CheckoutOrder>
+  verify(orderId: unknown): Promise<CheckoutOrder>
+  cancel(orderId: unknown): Promise<CheckoutOrder>
+  pending(): Promise<CheckoutOrder[]>
+  /** 电脑上打开浏览器确认账号（PANEL_REAUTH_REQUIRED 时） */
+  panelVerify(): Promise<void>
+}
+
+/** 网关用到的审查结果存储那几个操作（reviews/store.ts 的 ReviewStore） */
+export interface PhoneReviews {
+  session(sessionId: string): SessionReviews
+  setStatus(sessionId: string, turnKey: string, itemId: string, status: ReviewStatus): boolean
+  markSent(sessionId: string, turnKey: string, ids: readonly string[], text: string): void
+}
+
+/** 网关用到的频道服务那几个读操作（core/channels/service.ts 的 Channels） */
+export interface PhoneChannels {
+  state(): { self: { id: string }; channels: Channel[]; members: ChannelMember[] }
+  page(
+    channelId: string,
+    before?: number | null,
+    beforeId?: string | null,
+  ): { messages: ChannelMessage[]; more: boolean } | Promise<{ messages: ChannelMessage[]; more: boolean }>
+  attachments(channelId: string, messageId: string): ChannelAttachments | Promise<ChannelAttachments>
 }
 
 /** 手机能看到的账号信息：只有名字、余额、套餐名，不带邮箱、分组、限流、额度 */
@@ -183,6 +237,10 @@ interface Peer {
   batch?: boolean
   /** 攒着还没发的会话事件 */
   pending?: SessionEvent[]
+  /** 每个会话最后发给这部手机的 PR 列表（JSON）：没变的不再发 */
+  prSent?: Map<string, string>
+  /** 手机开着的频道（channelMessages 时记下，channelUnwatch 清掉）：新消息只推这个 */
+  openChannel?: string | null
   pendingChars?: number
   flushTimer?: ReturnType<typeof setTimeout>
 }
@@ -276,8 +334,8 @@ export const PHONE_TOOLS: Readonly<Record<string, PhoneTool>> = {
       if (!['staged', 'unstaged', 'untracked', 'conflicted'].includes(o.area as string))
         throw new Error('MOBILE_BAD_ARGUMENT')
       const origPath = typeof o.origPath === 'string' ? { origPath: asString(o.origPath, 4096) } : {}
-      // 手机不显示图片对比：images: false 让主进程不读图片
-      return [workspaceArg(a[0]), { path: asString(o.path, 4096), area: o.area, ...origPath, images: false }]
+      // 图片对比（§15.17）：主进程读两端的图，网关缩小到一帧放得下
+      return [workspaceArg(a[0]), { path: asString(o.path, 4096), area: o.area, ...origPath }]
     },
   },
   'projectTools:tasks': { access: 'view', args: a => [asString(a[0])] },
@@ -329,6 +387,173 @@ export const FEEDBACK_ACCESS: Readonly<Record<string, MobileAccess>> = {
   'feedback:close': 'act',
 }
 
+/**
+ * 手机的 PR 调用和要的权限（docs/mobile-app.md §15.4）：看、重查、合并方式只要「只看」；
+ * 让 AI 修（往对话里发消息）、合并要「可操作」
+ */
+export const PR_ACCESS: Readonly<Record<string, MobileAccess>> = {
+  prs: 'view',
+  prRefresh: 'view',
+  prMergeOptions: 'view',
+  prFix: 'act',
+  prMerge: 'act',
+}
+/** 手机点「重查」最快多久一次（同一个会话） */
+export const PR_REFRESH_GAP = 10_000
+/** PR 变了推给手机：合并节流 */
+const PR_EVENT_THROTTLE = 500
+
+/** 手机看的 PR：检查最多 20 项，名字截短 */
+export function phonePrs(list: readonly SessionPr[] | undefined): SessionPr[] {
+  return (list ?? []).map(pr =>
+    pr.checks
+      ? { ...pr, checks: pr.checks.slice(0, 20).map(c => ({ name: c.name.slice(0, 200), state: c.state, url: c.url })) }
+      : pr,
+  )
+}
+
+/**
+ * 手机的充值调用和要的权限（docs/mobile-app.md §15.13）：看商品、查单只要「只看」；
+ * 下单、取消、请电脑打开确认页要「可操作」
+ */
+export const CHECKOUT_ACCESS: Readonly<Record<string, MobileAccess>> = {
+  store: 'view',
+  checkoutGet: 'view',
+  checkoutVerify: 'view',
+  checkoutPending: 'view',
+  checkoutCreate: 'act',
+  checkoutCancel: 'act',
+  panelVerify: 'act',
+}
+
+/** 手机看的商品：不给面板页地址（手机打开不了电脑浏览器里的登录状态） */
+export function phoneStore(c: StoreCatalog): Omit<StoreCatalog, 'purchaseUrl' | 'redeemUrl'> {
+  const { purchaseUrl: _p, redeemUrl: _r, ...rest } = c
+  return rest
+}
+
+/** 手机看的订单：不带手续费明细之外的内部字段；支付链接和码内容只在待付时有（parseOrder 已经这样了） */
+export function phoneOrder(o: CheckoutOrder): Record<string, unknown> {
+  return {
+    orderId: o.orderId,
+    kind: o.kind,
+    status: o.status,
+    method: o.method,
+    methodLabel: o.methodLabel,
+    payAmount: o.payAmount,
+    payCurrency: o.payCurrency,
+    credited: o.credited,
+    bonus: o.bonus,
+    plan: o.plan,
+    payUrl: o.payUrl,
+    qrContent: o.qrContent,
+    expiresAt: o.expiresAt,
+    serverTime: o.serverTime,
+    reused: o.reused,
+  }
+}
+
+/** 电脑账号模块抛的带码错误（codedError 的 checkout.X）换成手机认得的 MOBILE_CHECKOUT_X；金额范围带上 min:max */
+export function checkoutErrorCode(e: unknown): Error {
+  const message = e instanceof Error ? e.message : String(e)
+  const at = message.indexOf('{')
+  if (at >= 0)
+    try {
+      const v = JSON.parse(message.slice(at)) as { code?: unknown; params?: Record<string, unknown> }
+      if (typeof v.code === 'string' && v.code.startsWith('checkout.')) {
+        const code = 'MOBILE_CHECKOUT_' + v.code.slice('checkout.'.length)
+        const p = v.params ?? {}
+        return new Error(typeof p.min === 'number' && typeof p.max === 'number' ? `${code}:${p.min}:${p.max}` : code)
+      }
+    } catch {
+      /* 不是带码的，原样 */
+    }
+  return e instanceof Error ? e : new Error(message)
+}
+
+/** 手机的审查调用和要的权限（docs/mobile-app.md §15.5）：看只要「只看」；标忽略、发去修要「可操作」 */
+export const REVIEW_ACCESS: Readonly<Record<string, MobileAccess>> = {
+  reviews: 'view',
+  reviewItem: 'act',
+  reviewFix: 'act',
+}
+
+/** 手机看的审查结果：没按格式回的原文截短 */
+export function phoneReviews(turns: SessionReviews): SessionReviews {
+  const out: SessionReviews = {}
+  for (const [turnKey, r] of Object.entries(turns))
+    out[turnKey] = r.raw && r.raw.length > PHONE_TEXT_LIMIT ? { ...r, raw: r.raw.slice(0, PHONE_TEXT_LIMIT) } : r
+  return out
+}
+
+/** 手机看频道的调用（docs/mobile-app.md §15.6）：第一版只读，「只看」的手机也能用 */
+export const CHANNEL_METHODS = new Set(['channels', 'channelMessages', 'channelImage', 'channelUnwatch'])
+/** 频道消息正文最多给手机多少字 */
+export const CHANNEL_TEXT_LIMIT = 4000
+
+const cut = (text: string | null | undefined, limit: number): string | null =>
+  text == null ? null : text.length > limit ? text.slice(0, limit) + '…' : text
+
+/** 手机看的成员：名字、是不是 AI、引擎、头像颜色和字、状态 */
+export function phoneMember(m: ChannelMember): Record<string, unknown> {
+  if (m.kind === 'human') return { id: m.id, kind: 'human', name: m.name, you: m.you === true }
+  return {
+    id: m.id,
+    kind: 'agent',
+    name: m.name,
+    engine: m.engine,
+    status: m.status,
+    color: m.avatar?.color ?? null,
+    text: m.avatar?.text ?? m.avatar?.emoji ?? null,
+  }
+}
+
+/** 手机看的一条频道消息：只留时间线要画的；讨论串里的、流程卡不给（手机第一版不画） */
+export function phoneChannelMessage(m: ChannelMessage): Record<string, unknown> | null {
+  const base = { id: m.id, at: m.at }
+  if (m.kind === 'event')
+    return {
+      ...base,
+      kind: 'event',
+      event: m.event,
+      actorId: m.actorId,
+      targetId: m.targetId ?? null,
+      value: cut(m.value, 200),
+    }
+  if (m.kind === 'task')
+    return {
+      ...base,
+      kind: 'task',
+      authorId: m.authorId,
+      assigneeId: m.assigneeId,
+      title: cut(m.title, 300),
+      status: m.status,
+      sessionId: m.sessionId ?? null,
+      summary: cut(m.summary, 500),
+      diff: m.diff ?? null,
+      error: cut(m.error, 300),
+      decision: cut(m.decision, 300),
+    }
+  if (m.threadId || m.flow) return null
+  return {
+    ...base,
+    kind: 'message',
+    authorId: m.authorId,
+    text: cut(m.text, CHANNEL_TEXT_LIMIT),
+    format: m.format,
+    taskId: m.taskId ?? null,
+    images: (m.attached?.images ?? []).length,
+    files: (m.attached?.files ?? []).map(f => f.name),
+  }
+}
+
+/** 列表上的一行：最后一条的预览；事件、讨论串、流程卡不算 */
+function lastPreview(m: ChannelMessage): string | null {
+  if (m.kind === 'task') return m.title
+  if (m.kind === 'event' || m.threadId || m.flow) return null
+  return cut(m.text.replace(/\s+/g, ' ').trim(), 120)
+}
+
 /** 手机看的 Git 改动：电脑上比好，只发改动和前后几行 */
 export type PhoneGitDiff = Pick<GitDiff, 'path' | 'binary' | 'tooLarge'> & PhoneDiff
 
@@ -364,6 +589,11 @@ export interface PhoneSettings {
   /** 换额度来源；网关核对后换成记录里的 platform / provider（resolvePhoneSource），不原样传给电脑 */
   source?: PhoneSource
   permissionMode?: PhoneMode
+  /**
+   * 计划批准后回到哪一档（「先出计划」开关，docs/mobile-app.md §15.2）：只能是手机能开的档；
+   * 规划中只换这一项 = 换「批准后用哪档」。旧电脑不认，丢掉后照旧（批准后回每步问我）
+   */
+  planReturn?: Exclude<PhoneMode, 'plan'>
   /** null：用引擎默认的模型 */
   model?: string | null
   /** null：用引擎默认的强度 */
@@ -391,6 +621,10 @@ export function phoneSettings(o: Record<string, unknown>): PhoneSettings {
   if (o.permissionMode !== undefined) {
     if (!PHONE_MODES.includes(o.permissionMode as PhoneMode)) throw new Error('MOBILE_BAD_ARGUMENT')
     out.permissionMode = o.permissionMode as PhoneMode
+  }
+  if (o.planReturn !== undefined) {
+    if (o.planReturn !== 'ask' && o.planReturn !== 'edits') throw new Error('MOBILE_BAD_ARGUMENT')
+    out.planReturn = o.planReturn
   }
   if (o.model !== undefined) out.model = o.model === null ? null : asString(o.model)
   if (o.effort !== undefined) {
@@ -479,6 +713,7 @@ export function resolvePhoneSource(
 export function checkSettings(caps: EngineCaps, s: PhoneSettings): void {
   if (s.permissionMode !== undefined && !caps.permissionModes.includes(s.permissionMode))
     throw new Error('MOBILE_BAD_ARGUMENT')
+  if (s.planReturn !== undefined && !caps.permissionModes.includes(s.planReturn)) throw new Error('MOBILE_BAD_ARGUMENT')
   if (s.effort && !caps.efforts.includes(s.effort)) throw new Error('MOBILE_BAD_ARGUMENT')
   if (s.thinkingSummaries !== undefined && !caps.thinkingSummaries) throw new Error('MOBILE_BAD_ARGUMENT')
   if (s.fast !== undefined && !caps.fast) throw new Error('MOBILE_BAD_ARGUMENT')
@@ -535,6 +770,17 @@ export function phoneRewind(r: RewindResult): {
   }
 }
 
+/** 旁聊的历史：只留问答两段文字，最近 20 轮 */
+function phoneSideHistory(v: unknown): { question: string; answer: string }[] {
+  if (v === undefined) return []
+  if (!Array.isArray(v)) throw new Error('MOBILE_BAD_ARGUMENT')
+  return v.slice(-20).map(t => {
+    const o = (t ?? {}) as Record<string, unknown>
+    if (typeof o.question !== 'string' || typeof o.answer !== 'string') throw new Error('MOBILE_BAD_ARGUMENT')
+    return { question: o.question.slice(0, 20_000), answer: o.answer.slice(0, 20_000) }
+  })
+}
+
 /** 手机传来的参数：只留手机该给的字段，其余由电脑上的设置决定（线路、平台、引擎用电脑上的；权限模式、模型、强度只认 phoneSettings 那几项） */
 export function sanitize(method: string, args: unknown[]): unknown[] {
   switch (method) {
@@ -576,6 +822,11 @@ export function sanitize(method: string, args: unknown[]): unknown[] {
       return [asString(args[0]), asString(args[1]), { conversation: true, code: false }]
     case 'engine:undoRewind':
       return [asString(args[0])]
+    // 旁聊（docs/mobile-app.md §15.3）：一问一答，历史由手机带，最多 20 轮、每段 2 万字（同电脑 ops.ts 的 sideHistory）
+    case 'engine:sideQuestion':
+      return [asString(args[0]), asString(args[1], 20_000), phoneSideHistory(args[2])]
+    case 'engine:cancelSideQuestion':
+      return [asString(args[0])]
     case 'engine:answer': {
       // 手机不能把会话切成完全放行（docs/mobile-remote.md）：allow_all 一律拒绝
       const decision = (args[2] ?? {}) as { type?: unknown }
@@ -593,6 +844,12 @@ export class MobileGateway {
   private pairing: Pairing | null = null
   private sessionsTimer: ReturnType<typeof setTimeout> | null = null
   private latestSessions: SessionSummary[] | null = null
+  /** PR 变了：攒着最新的一份，节流后推给开着那个会话的手机 */
+  private prTimer: ReturnType<typeof setTimeout> | null = null
+  private channelsTimer: ReturnType<typeof setTimeout> | null = null
+  private prState: SessionStatusState | null = null
+  /** 每个会话上次手机要求重查的时间 */
+  private readonly prRefreshed = new Map<string, number>()
   /** 产物扫描的请求号 */
   private scans = 0
   /** 上一次的会话列表：和这次比，算出要推送的提醒 */
@@ -852,8 +1109,13 @@ export class MobileGateway {
     }
     if (method === 'search') return this.search(peer, args)
     if (method === 'image') return this.image(peer, args)
+    if (method === 'fileImage') return this.fileImage(peer, args)
     if (method === 'directories' || method === 'addProject') return this.project(device.access, method, args)
     if (Object.hasOwn(FEEDBACK_ACCESS, method)) return this.feedback(device.access, method, args)
+    if (Object.hasOwn(PR_ACCESS, method)) return this.pr(peer, device.access, method, args)
+    if (CHANNEL_METHODS.has(method)) return this.channels(peer, method, args)
+    if (Object.hasOwn(REVIEW_ACCESS, method)) return this.reviews(peer, device.access, method, args)
+    if (Object.hasOwn(CHECKOUT_ACCESS, method)) return this.checkout(device.access, method, args)
     const tool = Object.hasOwn(PHONE_TOOLS, method) ? PHONE_TOOLS[method] : undefined
     if (tool) {
       if (tool.access === 'act' && device.access !== 'act') throw new Error('MOBILE_FORBIDDEN')
@@ -938,7 +1200,22 @@ export class MobileGateway {
   private toolResult(method: string, result: unknown): unknown {
     if (method === 'projectTools:gitDiff') {
       const r = result as GitDiff
-      return { path: r.path, binary: r.binary, tooLarge: r.tooLarge, ...phoneDiff(r.original, r.modified) }
+      return {
+        path: r.path,
+        binary: r.binary,
+        tooLarge: r.tooLarge,
+        ...phoneDiff(r.original, r.modified),
+        // 图片对比（§15.17）：两端缩小后带上；image 是「超过图片上限」的提示
+        ...(r.images
+          ? {
+              images: {
+                original: this.phoneDiffImage(r.images.original),
+                modified: this.phoneDiffImage(r.images.modified),
+              },
+            }
+          : {}),
+        ...(r.image ? { image: true } : {}),
+      }
     }
     if (method === 'files:read') return this.phoneFile(result as FileDocument)
     if (method === 'engine:artifacts') {
@@ -962,13 +1239,22 @@ export class MobileGateway {
   private phoneFile(doc: FileDocument): FileDocument | (FileDocument & { cut: true }) {
     if (doc.kind === 'text' && doc.content.length > PHONE_TEXT_LIMIT)
       return { ...doc, content: cutText(doc.content, PHONE_TEXT_LIMIT), readonly: true, cut: true }
-    if (doc.kind !== 'image' || doc.dataUrl.length <= IMAGE_INLINE) return doc
-    const m = /^data:([^;,]+);base64,(.*)$/s.exec(doc.dataUrl)
+    if (doc.kind !== 'image') return doc
+    const dataUrl = this.fitDataUrl(doc.dataUrl, doc.bytes, IMAGE_INLINE)
+    return dataUrl
+      ? { ...doc, dataUrl }
+      : { kind: 'unsupported', path: doc.path, reason: '图片太大，请到电脑上看', bytes: doc.bytes }
+  }
+
+  /** 一张 data URL 的图放进 limit 个字符：放得下原样，放不下逐级缩小，缩不了返回 null */
+  private fitDataUrl(dataUrl: string, bytes: number, limit: number): string | null {
+    if (dataUrl.length <= limit) return dataUrl
+    const m = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
     const image: ImageAttachment | null = m && {
       id: 'file',
-      name: doc.path,
+      name: 'image',
       mediaType: m[1] as ImageAttachment['mediaType'],
-      bytes: doc.bytes,
+      bytes,
       width: 0,
       height: 0,
       dataBase64: m[2],
@@ -976,10 +1262,42 @@ export class MobileGateway {
     for (const edge of image ? SHRINK_EDGES : []) {
       const small = this.d.shrinkImage?.(image!, edge)
       if (!small) break
-      if (small.dataBase64.length <= IMAGE_INLINE)
-        return { ...doc, dataUrl: `data:${small.mediaType};base64,${small.dataBase64}` }
+      if (small.dataBase64.length <= limit) return `data:${small.mediaType};base64,${small.dataBase64}`
     }
-    return { kind: 'unsupported', path: doc.path, reason: '图片太大，请到电脑上看', bytes: doc.bytes }
+    return null
+  }
+
+  /**
+   * 回复里 Markdown 图片指向的本地文件（docs/mobile-app.md §15.17）：地址按会话的工作目录换成项目里的路径
+   * （image-path.ts，项目外的不给），经 files:read 读出来，放不进一帧就缩小
+   */
+  private async fileImage(peer: Peer, args: unknown[]): Promise<ImageAttachment> {
+    const ref = { sessionId: asString(args[0]) }
+    const owner = 'mobile:' + peer.phone
+    const target = (await this.d.call('files:target', [ref], owner).catch(() => null)) as WorkspaceTarget | null
+    const path = target && phoneImagePath(asString(args[1], 4096), target)
+    if (!path) throw new Error('MOBILE_NOT_FOUND')
+    const doc = (await this.d.call('files:read', [ref, path], owner).catch(() => null)) as FileDocument | null
+    if (doc?.kind !== 'image') throw new Error('MOBILE_NOT_FOUND')
+    const dataUrl = this.fitDataUrl(doc.dataUrl, doc.bytes, IMAGE_INLINE)
+    const m = dataUrl && /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
+    if (!m) throw new Error('MOBILE_TOO_LARGE')
+    return {
+      id: 'file',
+      name: path.split('/').pop() ?? 'image',
+      mediaType: m[1] as ImageAttachment['mediaType'],
+      bytes: doc.bytes,
+      width: 0,
+      height: 0,
+      dataBase64: m[2],
+    }
+  }
+
+  /** Git 图片对比的一端：两张一起放进一帧，每张最多半帧，缩不下写 tooLarge */
+  private phoneDiffImage(side: GitDiffImageSide): GitDiffImageSide | { unavailable: 'tooLarge' } {
+    if (!side || !('dataUrl' in side)) return side
+    const dataUrl = this.fitDataUrl(side.dataUrl, side.bytes, IMAGE_INLINE / 2)
+    return dataUrl ? { dataUrl, bytes: side.bytes } : { unavailable: 'tooLarge' }
   }
 
   /** 加项目：列这台电脑上的目录、把选的目录加成项目（只在这台电脑上，不经 SSH 机器） */
@@ -992,6 +1310,183 @@ export class MobileGateway {
     }
     if (!local?.addProject) throw new Error('MOBILE_UNSUPPORTED')
     return local.addProject(asString(args[0], 4096))
+  }
+
+  /** PR：只给这个会话自己的 PR；让 AI 修的文字电脑拼好，按手机发消息的路径发 */
+  private async pr(peer: Peer, access: MobileAccess, method: string, args: unknown[]): Promise<unknown> {
+    if (PR_ACCESS[method] === 'act' && access !== 'act') throw new Error('MOBILE_FORBIDDEN')
+    const p = this.d.local?.prs?.()
+    if (!p) throw new Error('MOBILE_UNSUPPORTED')
+    const sessionId = asString(args[0])
+    const list = (): SessionPr[] => {
+      const prs = phonePrs(p.state().prs[sessionId])
+      ;(peer.prSent ??= new Map()).set(sessionId, JSON.stringify(prs))
+      return prs
+    }
+    const find = (): SessionPr => {
+      const url = asString(args[1], 2000)
+      const pr = p.state().prs[sessionId]?.find(x => x.url === url)
+      if (!pr) throw new Error('MOBILE_NOT_FOUND')
+      return pr
+    }
+    switch (method) {
+      case 'prs':
+        return list()
+      case 'prRefresh': {
+        const now = this.now()
+        if (now - (this.prRefreshed.get(sessionId) ?? -Infinity) >= PR_REFRESH_GAP) {
+          this.prRefreshed.set(sessionId, now)
+          await p.refresh(sessionId)
+        }
+        return list()
+      }
+      case 'prMergeOptions':
+        return p.mergeOptions(find().url)
+      case 'prFix': {
+        const pr = find()
+        const kind = args[2]
+        if (kind !== 'checks' && kind !== 'conflict') throw new Error('MOBILE_BAD_ARGUMENT')
+        const text = kind === 'checks' ? prChecksRequest(pr) : prConflictRequest(pr)
+        await this.d.call('engine:send', [sessionId, { text, clientMessageId: randomUUID() }], 'mobile:' + peer.phone)
+        return null
+      }
+      default: {
+        const pr = find()
+        const how = args[2]
+        if (how !== 'merge' && how !== 'squash' && how !== 'rebase') throw new Error('MOBILE_BAD_ARGUMENT')
+        await p.merge(sessionId, pr.url, how, args[3] === true)
+        return list()
+      }
+    }
+  }
+
+  /** 充值：转给电脑的账号模块（它核对金额、套餐、支付方式和登录状态） */
+  private async checkout(access: MobileAccess, method: string, args: unknown[]): Promise<unknown> {
+    if (CHECKOUT_ACCESS[method] === 'act' && access !== 'act') throw new Error('MOBILE_FORBIDDEN')
+    const c = this.d.local?.checkout
+    if (!c) throw new Error('MOBILE_UNSUPPORTED')
+    try {
+      switch (method) {
+        case 'store':
+          return phoneStore(await c.store())
+        case 'checkoutCreate':
+          return phoneOrder(await c.create(args[0]))
+        case 'checkoutGet':
+          return phoneOrder(await c.get(args[0]))
+        case 'checkoutVerify':
+          return phoneOrder(await c.verify(args[0]))
+        case 'checkoutCancel':
+          return phoneOrder(await c.cancel(args[0]))
+        case 'checkoutPending':
+          return (await c.pending()).map(phoneOrder)
+        default:
+          await c.panelVerify()
+          return null
+      }
+    } catch (e) {
+      throw checkoutErrorCode(e)
+    }
+  }
+
+  /** 审查结果：看一个会话的；手机上标忽略 / 恢复，发去修（文字电脑拼，按手机发消息的路径发） */
+  private async reviews(peer: Peer, access: MobileAccess, method: string, args: unknown[]): Promise<unknown> {
+    if (REVIEW_ACCESS[method] === 'act' && access !== 'act') throw new Error('MOBILE_FORBIDDEN')
+    const r = this.d.local?.reviews?.()
+    if (!r) throw new Error('MOBILE_UNSUPPORTED')
+    const sessionId = asString(args[0])
+    if (method === 'reviews') return phoneReviews(r.session(sessionId))
+    const turnKey = asString(args[1])
+    if (method === 'reviewItem') {
+      const status = args[3]
+      if (status !== 'ignored' && status !== 'open') throw new Error('MOBILE_BAD_ARGUMENT')
+      if (!r.setStatus(sessionId, turnKey, asString(args[2]), status)) throw new Error('MOBILE_NOT_FOUND')
+      return null
+    }
+    // reviewFix(sessionId, turnKey, ids)：ids 为 null 是「全部修复」（没处理的那些）
+    const review = r.session(sessionId)[turnKey]
+    if (!review) throw new Error('MOBILE_NOT_FOUND')
+    const ids = Array.isArray(args[2]) ? new Set(args[2].filter((x): x is string => typeof x === 'string')) : null
+    const chosen = review.items.filter(i => (ids ? ids.has(i.id) : i.status === 'open') && i.status !== 'ignored')
+    if (!chosen.length) throw new Error('MOBILE_NOT_FOUND')
+    const text = reviewFixRequest(chosen)
+    await this.d.call('engine:send', [sessionId, { text, clientMessageId: randomUUID() }], 'mobile:' + peer.phone)
+    r.markSent(
+      sessionId,
+      turnKey,
+      chosen.map(i => i.id),
+      text,
+    )
+    return null
+  }
+
+  /** 频道只读：本机频道的列表、时间线、图片 */
+  private async channels(peer: Peer, method: string, args: unknown[]): Promise<unknown> {
+    if (method === 'channelUnwatch') {
+      if (peer.openChannel === args[0]) peer.openChannel = null
+      return null
+    }
+    const c = this.d.local?.channels?.()
+    if (!c) throw new Error('MOBILE_UNSUPPORTED')
+    const state = c.state()
+    const local = state.channels.filter(ch => ch.scope === 'local')
+    if (method === 'channels') {
+      const channels = await Promise.all(
+        local.map(async ch => {
+          const page = await c.page(ch.id)
+          const last = page.messages.findLast(m => lastPreview(m) !== null)
+          return {
+            id: ch.id,
+            name: ch.name,
+            topic: cut(ch.topic, 200),
+            unread: ch.unread,
+            mentioned: ch.mentioned === true,
+            archived: !!ch.archivedAt,
+            lastAt: ch.lastAt ?? ch.createdAt,
+            memberIds: ch.memberIds,
+            last: last && last.kind !== 'event' ? { authorId: last.authorId, text: lastPreview(last) } : null,
+          }
+        }),
+      )
+      return { selfId: state.self.id, channels, members: state.members.map(phoneMember) }
+    }
+    const id = asString(args[0])
+    if (!local.some(ch => ch.id === id)) throw new Error('MOBILE_NOT_FOUND')
+    if (method === 'channelMessages') {
+      const before = typeof args[1] === 'number' ? args[1] : null
+      const beforeId = typeof args[2] === 'string' ? args[2] : null
+      const page = await c.page(id, before, beforeId)
+      peer.openChannel = id
+      return { messages: page.messages.map(phoneChannelMessage).filter(m => m !== null), more: page.more }
+    }
+    // channelImage(channelId, messageId, index)：一张图，放不进一帧就缩小
+    const index = args[2]
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 50)
+      throw new Error('MOBILE_BAD_ARGUMENT')
+    const image = (await c.attachments(id, asString(args[1]))).images[index]
+    if (!image?.dataBase64) throw new Error('MOBILE_NOT_FOUND')
+    if (image.dataBase64.length <= IMAGE_INLINE) return image
+    for (const edge of SHRINK_EDGES) {
+      const small = this.d.shrinkImage?.(image, edge)
+      if (!small) break
+      if (small.dataBase64.length <= IMAGE_INLINE) return small
+    }
+    throw new Error('MOBILE_TOO_LARGE')
+  }
+
+  /** 把变了的 PR 推给开着那个会话的手机 */
+  private pushPrs(): void {
+    const state = this.prState
+    this.prState = null
+    if (!state) return
+    for (const peer of this.peers.values())
+      for (const id of peer.watching) {
+        const prs = phonePrs(state.prs[id])
+        const json = JSON.stringify(prs)
+        const sent = (peer.prSent ??= new Map())
+        if (sent.get(id) === json) continue
+        sent.set(id, json)
+        peer.rpc.event('sessionStatus:changed', { kind: 'prs', sessionId: id, prs })
+      }
   }
 
   /** 反馈：按权限放行，交给电脑的反馈模块；大的日志截短、大图缩小，回复放得进一帧 */
@@ -1116,6 +1611,42 @@ export class MobileGateway {
       for (const peer of this.peers.values()) peer.rpc.event('projectTools:changed', { kind: 'tools' })
       return
     }
+    // 审查结果变了（docs/mobile-app.md §15.5）：推给开着那个会话的手机；旧版手机认不得 kind: 'reviews'，会忽略
+    if (channel === 'reviews:changed') {
+      const v = args[0] as { sessionId?: unknown; turns?: SessionReviews } | undefined
+      if (typeof v?.sessionId !== 'string' || !v.turns) return
+      const turns = phoneReviews(v.turns)
+      for (const peer of this.peers.values())
+        if (peer.watching.includes(v.sessionId))
+          peer.rpc.event('reviews:changed', { kind: 'reviews', sessionId: v.sessionId, turns })
+      return
+    }
+    // 频道（docs/mobile-app.md §15.6）：新消息只推给开着那个频道的手机；列表变了合并节流后告诉所有手机重取
+    if (channel === 'channels:message') {
+      const v = args[0] as { channelId?: unknown; message?: ChannelMessage } | undefined
+      const message = v?.message ? phoneChannelMessage(v.message) : null
+      if (!message) return
+      for (const peer of this.peers.values())
+        if (peer.openChannel === v?.channelId)
+          peer.rpc.event('channels:message', { kind: 'channelMessage', channelId: v?.channelId, message })
+      return
+    }
+    if (channel === 'channels:changed') {
+      this.channelsTimer ??= setTimeout(() => {
+        this.channelsTimer = null
+        for (const peer of this.peers.values()) peer.rpc.event('channels:changed', { kind: 'channels' })
+      }, PR_EVENT_THROTTLE)
+      return
+    }
+    // 对话的 PR 变了（docs/mobile-app.md §15.4）：只推手机开着的会话、变了的；旧版手机认不得 kind: 'prs'，会忽略
+    if (channel === 'sessionStatus:changed') {
+      this.prState = args[0] as SessionStatusState
+      this.prTimer ??= setTimeout(() => {
+        this.prTimer = null
+        this.pushPrs()
+      }, PR_EVENT_THROTTLE)
+      return
+    }
     if (channel !== 'engine:event') return
     const event = args[0] as HostEvent
     if (event.kind === 'session') {
@@ -1211,6 +1742,10 @@ export class MobileGateway {
   close(): void {
     if (this.sessionsTimer) clearTimeout(this.sessionsTimer)
     this.sessionsTimer = null
+    if (this.prTimer) clearTimeout(this.prTimer)
+    this.prTimer = null
+    if (this.channelsTimer) clearTimeout(this.channelsTimer)
+    this.channelsTimer = null
     this.pushes.close()
     this.dropAll()
     this.pairing = null

@@ -60,6 +60,8 @@ export interface PixelskyBridge {
   quota: import('../shared/types/quota').QuotaBridge
   /** AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2） */
   ai: import('./ai').AiBridge
+  /** AI 审查结果（主进程存，docs/mobile-app.md §15.5） */
+  reviews: import('./ai').ReviewsBridge
   image: import('./image').ImageBridge
   /** 「关于」页：版本与运行环境（docs/ui/settings.md §5） */
   app: AppInfoBridge

@@ -68,6 +68,7 @@ import { initSettingsWindow, type SettingsWindowController } from './app/setting
 import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
 import { initFeedback } from './feedback/feedback'
+import { initReviews } from './reviews/ipc'
 import { initStorage } from './storage'
 import { dataPointer, prepareDataRoot, resetDataRoot } from './app/data-dir'
 import { initDataLocation } from './app/data-location-ipc'
@@ -615,6 +616,7 @@ app.whenReady().then(async () => {
   startup.step('initSettingsSync')
   initFeedback(ctx) // 设置 › 反馈（云端工单、回复提醒），见 feedback/feedback.ts
   startup.step('initFeedback')
+  initReviews(ctx) // AI 审查结果（窗口和手机共用），见 reviews/ipc.ts
   await initWorkspace(ctx)
   startup.step('initWorkspace')
   await initProjectTools(ctx)

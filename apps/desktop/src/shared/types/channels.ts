@@ -61,7 +61,11 @@ export interface ChannelActivity {
 
 export type TeamRole = 'owner' | 'member' | 'observer'
 /** 团队频道里别人 @ 我的 AI 成员时：approve = 要我同意（默认）；team = 团队成员可直接派活 */
-export type AgentPolicy = 'approve' | 'team'
+/**
+ * 团队频道里 AI 成员的派活规则（docs/multica-learn.md §4、§11.3）：owner 只有我（别人 @ 只当文字）、approve 要我同意（默认）、
+ * listed 指定的人直接派（其余要同意）、team 团队成员都能直接派
+ */
+export type AgentPolicy = 'owner' | 'approve' | 'listed' | 'team'
 
 export interface TeamMemberInfo {
   /** owner key（u:123 / e:邮箱），也是团队频道里的成员 id */
@@ -88,6 +92,8 @@ export interface TeamInfo {
   members: TeamMemberInfo[]
   /** 待接受的邀请；只有所有者能看到 */
   invites: TeamInviteInfo[]
+  /** 主人不在线时排队的活最多等几小时（1 / 6 / 24 / 72，docs/multica-learn.md §2）；旧云端没有 */
+  queueGraceHours?: number
 }
 
 /** 别人邀请我（频道页最上面的邀请卡） */
@@ -150,6 +156,11 @@ export interface AgentConfig {
    */
   copyPerTask?: boolean
   /**
+   * 同一个目录里别的成员有活在做时（docs/multica-learn.md §10、§11.2）：queue 排队等（没写按这个）、
+   * copy 给这张卡建 Git 副本并行（建不了照排队）、together 照常一起跑
+   */
+  sameDir?: SameDirPolicy
+  /**
    * 从已有的会话加入频道的成员（docs/ui/import-collab.md 第 5 项②）：sharedSessionId 是你自己开的那个会话，
    * 频道派来的活就在里面接着做；没写是频道自己建的成员
    */
@@ -163,6 +174,8 @@ export interface AgentConfig {
   avatar?: AgentAvatar
   createdAt: number
 }
+
+export type SameDirPolicy = 'queue' | 'copy' | 'together'
 
 export type AgentAvatarStyle = 'engine' | 'letter' | 'gradient' | 'icon' | 'emoji' | 'pixel'
 /** 清单和校验在 shared/channels/avatar.ts */
@@ -225,6 +238,8 @@ export interface AgentMember {
   mine?: boolean
   /** Phase C：别人 @ 它时要不要我同意 */
   policy?: AgentPolicy
+  /** policy 是 listed 时能直接派活的人（团队成员 id） */
+  allow?: string[]
   // 以下只有真实数据才有（主进程按任务汇总后推过来）
   config?: AgentConfig
   /** 当前任务之外还在排队的活 */
@@ -282,6 +297,10 @@ export interface Channel {
    * false：都拆成流程草稿（原来的做法）。没写按开
    */
   leadRoute?: boolean
+  /** 牵头经手的活，成员交回结果（没 @ 别人）时叫牵头决定下一步（docs/multica-learn.md §11.2）；没写按开 */
+  leadWake?: boolean
+  /** 牵头只分派和协调、不自己改文件（只是提示词里的一句）；没写按关 */
+  leadDispatchOnly?: boolean
   /** @ 一个 AI 派新活时先让它出计划，商量好、点开工才动手；没写按默认（开） */
   planFirst?: boolean
   /** 每天定时运行的流程（§10.3），只有本机频道 */
@@ -621,6 +640,10 @@ export interface ChannelTask extends ChannelMessageBase {
   round?: number
   /** 失败原因（第一行） */
   error?: string | null
+  /** 这一轮结束的原因代码（失败 / 过期时有，docs/multica-learn.md §2） */
+  reason?: RunReason | null
+  /** 跑过的每一轮（最多 20 条，旧的在前）；旧卡片没有 */
+  runs?: ChannelRun[]
   /** stopped 的补充：cancelled = 还没开始就取消了；rejected = 主人没同意；expired = 排队太久过期（Phase C） */
   note?: 'cancelled' | 'rejected' | 'expired' | null
   /** 回复里「需要你决定：」那一行 */
@@ -646,12 +669,23 @@ export interface ChannelTask extends ChannelMessageBase {
   /** Phase C：派活的人或主人点了取消 / 停止 / 重试，等主人那台电脑执行 */
   pendingAction?: Exclude<
     ChannelTaskAction,
-    'continue' | 'unlimit' | 'fix' | 'reassign' | 'merge' | 'pr' | 'resolve'
+    'continue' | 'unlimit' | 'fix' | 'reassign' | 'merge' | 'pr' | 'resolve' | 'copyNow'
   > | null
   /** Phase C：主人的电脑不在线（queued 时显示「上线后开始」） */
   ownerOffline?: boolean
   /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
   routedBy?: { memberId: string; note: string; moved?: boolean } | null
+  /**
+   * 队友派来的活在主人这边的限制（docs/multica-learn.md §11.4，只有主人看得到）：capped 是被降级前的权限，
+   * copy 是这件活自己的副本分支
+   */
+  guard?: { capped?: string | null; copy?: string | null } | null
+  /** 牵头被成员交回的结果叫起来的卡（docs/multica-learn.md §11.2）：哪些成员交回的（名字，并进来的接在后面） */
+  wake?: { from: string[] } | null
+  /**
+   * 排队中、在等同一个目录里别人的活做完（§10）：哪个成员、哪项活；canCopy 时可以「改用副本马上开始」
+   */
+  dirWait?: { memberId: string; title: string; canCopy: boolean } | null
   /** AI 成员互相派活的一跳（authorId 是交活的成员）；held：超了防刷规则，停下等你点「继续」 */
   relay?: ChannelRelay | null
   /** 做完后的产出检查（docs/ui/channels-collab-v2.md §8）：running 时还在跑；项目关了频道检查时没有 */
@@ -671,6 +705,42 @@ export interface ChannelTask extends ChannelMessageBase {
   copyRemoved?: boolean
   /** 落地结果：合并了、开了 PR、合并时有冲突 */
   land?: TaskLand | null
+}
+
+/**
+ * 一轮结束的原因（docs/multica-learn.md §2、§11.1）：平台的（云端或执行端判的）和引擎的（按报错归类）。
+ * 云端以后加的代码、别的版本写的，界面当 other
+ */
+export type RunReason =
+  | 'machine_offline'
+  | 'queue_expired'
+  | 'session_gone'
+  | 'not_deployed'
+  | 'not_allowed'
+  | 'requester_left'
+  | 'project_blocked'
+  | 'engine.auth'
+  | 'engine.quota'
+  | 'engine.model'
+  | 'engine.busy'
+  | 'engine.context'
+  | 'other'
+
+/** 任务卡的一次执行（docs/multica-learn.md §1）：每轮结束记一条，旧的不覆盖 */
+export interface ChannelRun {
+  /** 第几轮 */
+  n: number
+  status: 'done' | 'failed' | 'stopped'
+  startedAt: number | null
+  endedAt: number
+  reason?: RunReason | null
+  error?: string | null
+  engine?: string | null
+  model?: string | null
+  /** 在哪台电脑上跑的（团队卡给别人看） */
+  machine?: string | null
+  /** 本机的会话（团队卡里别人的没有） */
+  sessionId?: string | null
 }
 
 export interface TaskCopy {
@@ -849,6 +919,66 @@ export interface ChannelsSnapshot {
   teamsConnection: TeamsConnection
   /** 上次和云端同步成功的时间 */
   teamsSyncedAt: number | null
+  /** 队友派来的活的限制（这台电脑的设置，所有团队通用）；旧版本没有 */
+  teammate?: TeammateRules
+  /** 收件箱（docs/multica-learn.md §11.5）：没归档的，新的在前；inboxSupported 为 false 是云端还没有收件箱 */
+  inbox?: TeamInboxItem[]
+  inboxSupported?: boolean
+}
+
+/** 收件箱里一行的种类（最近一次是什么事） */
+export type TeamInboxKind = 'mention' | 'reply' | 'assigned' | 'approval' | 'failed' | 'done' | 'review' | 'rejected'
+
+/** 收件箱里的一行（docs/multica-learn.md §11.5）：一个人、一件事（任务卡或消息串的根） */
+export interface TeamInboxItem {
+  teamId: string
+  /** 任务卡 id，或消息串第一条的 id */
+  key: string
+  channelId: string
+  kind: TeamInboxKind
+  /** 触发的人（成员 id）或 AI 成员（ta_…） */
+  actor: string
+  text: string
+  /** 上次读过之后合并了几条 */
+  count: number
+  at: number
+  read: boolean
+  archived: boolean
+  snoozeUntil: number | null
+  muted: boolean
+}
+
+/** 改收件箱的一行：不写的不改；snoozeUntil 为 null 是取消延后 */
+export interface TeamInboxPatch {
+  read?: boolean
+  archived?: boolean
+  snoozeUntil?: number | null
+  muted?: boolean
+}
+
+/** 队友派来的活的限制（docs/multica-learn.md §8、§11.4）：只在主人这台电脑上生效；权限上限固定「自动改文件」（D324） */
+export interface TeammateRules {
+  /** 只在这些项目里接队友的活；null 是所有项目 */
+  projects: string[] | null
+  /** 每件活一个 Git 副本（能建的时候） */
+  copy: boolean
+  /** 不带我的 MCP：只用项目里的 MCP 配置，像素星空的扩展不挂 */
+  isolateMcp: boolean
+}
+
+export const DEFAULT_TEAMMATE: TeammateRules = { projects: null, copy: true, isolateMcp: true }
+
+/** 设置里存的值整理成合法的（不认识的字段丢掉，缺的按默认） */
+export function cleanTeammate(raw: unknown): TeammateRules {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const projects = Array.isArray(r.projects)
+    ? [...new Set(r.projects.filter((p): p is string => typeof p === 'string' && !!p))].slice(0, 500)
+    : null
+  return {
+    projects,
+    copy: typeof r.copy === 'boolean' ? r.copy : DEFAULT_TEAMMATE.copy,
+    isolateMcp: typeof r.isolateMcp === 'boolean' ? r.isolateMcp : DEFAULT_TEAMMATE.isolateMcp,
+  }
 }
 
 /**
@@ -967,6 +1097,7 @@ export type ChannelTaskAction =
   | 'merge'
   | 'pr'
   | 'resolve'
+  | 'copyNow'
 
 /** 成员面板排队控制（docs/ui/channels-local-ai.md #5）：上移 / 下移 / 先做这个 */
 export type ChannelQueueAction = 'up' | 'down' | 'first'

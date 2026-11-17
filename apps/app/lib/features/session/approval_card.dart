@@ -57,6 +57,7 @@ class ApprovalCard extends StatefulWidget {
     required this.onAnswer,
     this.more = 0,
     this.onStop,
+    this.planNote,
   });
   final Approval request;
   final bool canAct;
@@ -67,6 +68,9 @@ class ApprovalCard extends StatefulWidget {
 
   /// 正在运行时卡片下面的「停止」
   final VoidCallback? onStop;
+
+  /// 计划卡底下的一句：批准后按哪一档去做（docs/mobile-app.md §15.2）
+  final String? planNote;
 
   @override
   State<ApprovalCard> createState() => _ApprovalCardState();
@@ -406,6 +410,13 @@ class _ApprovalCardState extends State<ApprovalCard> {
                         child: ReplyMarkdown(r.plan!),
                       ),
                     ),
+                    if (widget.planNote != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.planNote!,
+                        style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+                      ),
+                    ],
                   ],
                   if (r.kind == 'question')
                     for (final q in questions)

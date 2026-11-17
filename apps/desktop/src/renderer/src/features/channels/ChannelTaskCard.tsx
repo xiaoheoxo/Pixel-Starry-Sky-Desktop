@@ -12,6 +12,8 @@ import {
   Shuffle,
   SquareKanban,
   Unplug,
+  FolderClock,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { setPage } from '@/features/layout/page'
@@ -31,6 +33,7 @@ import { ActivityLines, TaskElapsed } from './ActivityLines'
 import { CheckSummary } from '@/features/checks/CheckSummary'
 import { landView } from './taskLand'
 import { TaskChanges } from './TaskChanges'
+import { RunReasonLine, TaskRuns } from './TaskRuns'
 
 export const STATUS_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
   queued: 'channels.task.queued',
@@ -270,16 +273,65 @@ export function ChannelTaskCard({
           onMove={memberId => run(() => onAction!(task.id, 'reassign', memberId))}
         />
       )}
+      {task.wake && task.wake.from.length > 0 && (
+        // 成员交回结果叫起来的牵头（docs/multica-learn.md §11.2）
+        <p data-task-wake className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
+          <Shuffle size={12} strokeWidth={1.75} className="shrink-0 text-accent-fg" />
+          <span className="min-w-0 truncate" title={task.wake.from.join('、')}>
+            {task.wake.from.length > 1
+              ? tr('channels.wake.merged', { name: task.wake.from[0], count: task.wake.from.length })
+              : tr('channels.wake.from', { name: task.wake.from[0] })}
+          </span>
+        </p>
+      )}
+      {task.guard && (task.guard.capped || task.guard.copy) && (
+        // 队友派来的活在我这边的限制（docs/multica-learn.md §11.4，只有主人看得到）
+        <p data-task-guard className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
+          <ShieldCheck size={12} strokeWidth={1.75} className="shrink-0" />
+          <span className="min-w-0 truncate">
+            {[
+              task.guard.capped ? tr('teammate.guard.capped') : null,
+              task.guard.copy ? tr('teammate.guard.copy', { branch: task.guard.copy }) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </p>
+      )}
+      {task.status === 'queued' && task.dirWait && (
+        // 等同一个目录里别人的活做完（§10）
+        <p data-dir-wait className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
+          <FolderClock size={12} strokeWidth={1.75} className="shrink-0" />
+          <span className="min-w-0 truncate">
+            {tr('channels.dirWait.text', {
+              name: membersById.get(task.dirWait.memberId)?.name ?? '?',
+              title: task.dirWait.title,
+            })}
+          </span>
+          {task.dirWait.canCopy && live && control && !pending && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => run(() => onAction!(task.id, 'copyNow'))}
+              className="press shrink-0 rounded px-1 text-accent-fg hover:bg-hover disabled:opacity-40"
+            >
+              {tr('channels.dirWait.copyNow')}
+            </button>
+          )}
+        </p>
+      )}
       {task.summary && !resultShown && <p className="mt-1 text-list break-words text-fg-secondary">{task.summary}</p>}
       {view && (
         // 错误下面单独写一行，这里不重复
         <ActivityLines view={view.head?.kind === 'error' ? { ...view, head: null } : view} className="mt-1" />
       )}
+      <RunReasonLine task={task} mine={mine} />
       {task.status === 'failed' && task.error && (
         <p className="mt-1 line-clamp-3 text-meta break-words text-danger" title={translateMessage(task.error)}>
           {translateMessage(task.error)}
         </p>
       )}
+      <TaskRuns task={task} mine={mine} onOpenSession={onOpenSession} />
       {task.status === 'waiting' && task.request && (
         <p
           className={cn('mt-1 line-clamp-2 text-meta break-words text-fg-muted', task.request.command && 'font-mono')}

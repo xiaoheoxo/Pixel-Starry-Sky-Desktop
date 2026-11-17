@@ -36,10 +36,10 @@ import { SavePresetDialog } from './ChannelPresets'
 import { channelActions, channelsLive, useChannels } from './store'
 import { AddTeamAgentDialog, TeamSettingsDialog } from './TeamDialog'
 import { PresenceAvatar, roleLabel } from './TeamParts'
-import { costCell, durText, formatLastSeen, usageText } from './format'
+import { costCell, durText, presenceLabel, usageText } from './format'
 import { formatTokens } from '@/features/usage/format'
 import { AgentQueue, memberQueueTasks } from './AgentQueue'
-import { canAddAgent, canManageTeam, myRole, onlineCount } from './teamModel'
+import { canAddAgent, canManageTeam, myRole, onlineCount, presenceOf, queuedFor } from './teamModel'
 
 const STATUS_LABEL: Record<ChannelAgentStatus, TranslationKey> = {
   idle: 'channels.status.idle',
@@ -137,10 +137,13 @@ function PinnedList({ channel, members }: { channel: Channel; members: readonly 
   )
 }
 
-function HumanRow({ member, team }: { member: HumanMember; team: boolean }) {
+function HumanRow({ member, team, channelId }: { member: HumanMember; team: boolean; channelId: string }) {
   useI18n()
   const online = !!member.online || !!member.you
-  const seen = team && !online ? formatLastSeen(member.lastSeenAt, Date.now()) : null
+  // 四种在线状态（docs/multica-learn.md §2）：忙按这个频道里他的卡算
+  const queued = useChannels(s => (team ? queuedFor(member.id, s.messages[channelId] ?? []) : 0))
+  const presence = presenceOf(member, queued, Date.now())
+  const seen = team ? presenceLabel(presence, member.lastSeenAt) : null
   const role = !member.role
     ? null
     : team
@@ -149,7 +152,7 @@ function HumanRow({ member, team }: { member: HumanMember; team: boolean }) {
   return (
     <div className="flex h-9 min-w-0 items-center gap-2.5 rounded-md px-2">
       {team ? (
-        <PresenceAvatar name={member.name} online={online} size={24} />
+        <PresenceAvatar name={member.name} online={online} state={presence.kind} size={24} />
       ) : (
         <MemberAvatar member={member} size={24} />
       )}
@@ -498,7 +501,9 @@ function AgentRow({
               label={tr('team.panel.policyLabel')}
               value={member.policy}
               options={[
+                { value: 'owner', label: tr('team.policy.owner') },
                 { value: 'approve', label: tr('team.policy.approve') },
+                { value: 'listed', label: tr('team.policy.listed') },
                 { value: 'team', label: tr('team.policy.team') },
               ]}
               onChange={policy => onPolicy(member, policy)}
@@ -599,6 +604,7 @@ export function ChannelMembers({
     | { kind: 'delete' }
     | { kind: 'remove'; member: AgentMember }
     | { kind: 'policy'; member: AgentMember }
+    | { kind: 'listed'; member: AgentMember }
     | { kind: 'addTeamAgent' }
     | { kind: 'invite' }
     | null
@@ -800,7 +806,9 @@ export function ChannelMembers({
                 onPolicy={(member, policy) =>
                   policy === 'team'
                     ? setDialog({ kind: 'policy', member })
-                    : void channelActions.setAgentPolicy(channel.id, member.id, policy).catch(policyFailed)
+                    : policy === 'listed'
+                      ? setDialog({ kind: 'listed', member })
+                      : void channelActions.setAgentPolicy(channel.id, member.id, policy).catch(policyFailed)
                 }
                 onOpenSession={onOpenSession}
                 onEdit={config => setDialog({ kind: 'agent', editing: config })}
@@ -857,7 +865,7 @@ export function ChannelMembers({
           }
         >
           {humans.map(m => (
-            <HumanRow key={m.id} member={m} team={team} />
+            <HumanRow key={m.id} member={m} team={team} channelId={channel.id} />
           ))}
         </Section>
         {(channel.notes || usage) && (
@@ -947,6 +955,17 @@ export function ChannelMembers({
           onCancel={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === 'listed' && (
+        <ListedDialog
+          member={dialog.member}
+          people={humans.filter(h => h.id !== dialog.member.ownerId)}
+          busy={busy}
+          onConfirm={allow =>
+            confirm(() => channelActions.setAgentPolicy(channel.id, dialog.member.id, 'listed', allow))
+          }
+          onCancel={() => setDialog(null)}
+        />
+      )}
       {dialog?.kind === 'agent' && (
         <AgentDialog
           channel={channel}
@@ -987,5 +1006,55 @@ export function ChannelMembers({
         />
       )}
     </aside>
+  )
+}
+
+/** 「指定的人直接派」（docs/multica-learn.md §4、§11.3）：勾团队里能不经我同意直接派活的人，其余人照旧要我同意 */
+function ListedDialog({
+  member,
+  people,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  member: AgentMember
+  people: readonly HumanMember[]
+  busy: boolean
+  onConfirm: (allow: string[]) => void
+  onCancel: () => void
+}) {
+  useI18n()
+  const [picked, setPicked] = useState<string[]>(member.allow ?? [])
+  const toggle = (id: string, on: boolean) => setPicked(list => (on ? [...list, id] : list.filter(x => x !== id)))
+  return (
+    <ConfirmDialog
+      title={tr('team.policy.listedTitle', { name: member.name })}
+      description={
+        <div className="flex flex-col gap-2">
+          <p>{tr('team.policy.listedBody')}</p>
+          {people.length ? (
+            <div data-policy-listed className="flex max-h-60 flex-col gap-1 overflow-y-auto">
+              {people.map(p => (
+                <label key={p.id} className="flex items-center gap-2 rounded px-1 py-1 hover:bg-hover">
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(p.id)}
+                    onChange={e => toggle(p.id, e.target.checked)}
+                  />
+                  <span className="min-w-0 truncate text-list text-fg">{p.name}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="text-meta text-fg-faint">{tr('team.policy.listedNone')}</p>
+          )}
+        </div>
+      }
+      confirmLabel={tr('team.policy.listedSave')}
+      cancelLabel={tr('channels.dialog.cancel')}
+      busy={busy}
+      onConfirm={() => onConfirm(picked)}
+      onCancel={onCancel}
+    />
   )
 }

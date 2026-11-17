@@ -55,6 +55,10 @@ import { mermaidMessages } from '../../../shared/i18n/mermaidMessages'
 import { modelChannelMessages } from '../../../shared/i18n/modelChannelMessages'
 import { fullAccessMessages } from '../../../shared/i18n/fullAccessMessages'
 import { planModeMessages } from '../../../shared/i18n/planModeMessages'
+import { teamRunMessages } from '../../../shared/i18n/teamRunMessages'
+import { leadWakeMessages } from '../../../shared/i18n/leadWakeMessages'
+import { teammateMessages } from '../../../shared/i18n/teammateMessages'
+import { inboxMessages } from '../../../shared/i18n/inboxMessages'
 import { htmlPreviewMessages } from '../../../shared/i18n/htmlPreviewMessages'
 import { portPreviewMessages } from '../../../shared/i18n/portPreviewMessages'
 import { tipsMessages } from '../../../shared/i18n/tipsMessages'
@@ -153,6 +157,10 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   modelChannelMessages,
   fullAccessMessages,
   planModeMessages,
+  teamRunMessages,
+  leadWakeMessages,
+  teammateMessages,
+  inboxMessages,
   htmlPreviewMessages,
   portPreviewMessages,
   tipsMessages,

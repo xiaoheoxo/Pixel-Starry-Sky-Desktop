@@ -42,16 +42,21 @@ describe('协作频道演示数据', () => {
     for (const m of demo.channelMembers)
       if (m.kind === 'agent' && m.sessionId) expect(sessions.has(m.sessionId), m.id).toBe(true)
   })
-  it('团队默认关着：演示模式没有团队频道、队友、别人的 AI 成员，团队连接不可用', () => {
-    expect(DEMO_TEAMS).toBe(false)
-    expect(demo.channelTeams).toEqual({ teams: [], invites: [], connection: 'unavailable' })
-    expect(demo.channels.some(c => c.scope === 'team')).toBe(false)
-    expect(demo.channels.length).toBeGreaterThan(0)
-    for (const m of demo.channelMembers) {
+  it('团队打开（默认）：演示模式带示例团队，团队连接在线', () => {
+    expect(DEMO_TEAMS).toBe(true)
+    expect(demo.channelTeams.connection).toBe('online')
+    expect(demo.channels.some(c => c.scope === 'team')).toBe(true)
+  })
+  it('关着团队时（DEMO_TEAMS = false）：没有团队频道、队友、别人的 AI 成员，团队连接不可用', () => {
+    const off = demoChannelData(false)
+    expect(off.channelTeams).toEqual({ teams: [], invites: [], connection: 'unavailable' })
+    expect(off.channels.some(c => c.scope === 'team')).toBe(false)
+    expect(off.channels.length).toBeGreaterThan(0)
+    for (const m of off.channelMembers) {
       if (m.kind === 'human') expect(m.you, m.id).toBe(true)
       else expect(m.mine, m.id).not.toBe(false)
     }
-    expect(Object.keys(demo.channelMessages).sort()).toEqual(demo.channels.map(c => c.id).sort())
+    expect(Object.keys(off.channelMessages).sort()).toEqual(off.channels.map(c => c.id).sort())
   })
   it('示例团队（DEMO_TEAMS 打开时）：团队频道都属于某个团队，成员 id 对得上，有一张等同意的卡和一张别人电脑上的进行中的卡', () => {
     const withTeams = demoChannelData(true)
@@ -79,8 +84,9 @@ describe('协作频道演示数据', () => {
     expect(foreign.length).toBeGreaterThan(0)
     for (const a of foreign) expect(a.kind === 'agent' && a.ownerName).toBeTruthy()
   })
-  it('未读合计 4（导航角标，团队频道关着），空界面没有频道和团队', () => {
-    expect(unreadTotal(demo.channels)).toBe(4)
+  it('未读合计 6（导航角标，含团队频道；关着团队时 4），空界面没有频道和团队', () => {
+    expect(unreadTotal(demo.channels)).toBe(6)
+    expect(unreadTotal(demoChannelData(false).channels)).toBe(4)
     expect(empty.channelTeams).toEqual({ teams: [], invites: [], connection: 'unavailable' })
     expect(empty.channels).toEqual([])
     expect(empty.channelMembers).toEqual([])

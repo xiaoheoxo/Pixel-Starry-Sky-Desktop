@@ -378,6 +378,37 @@ export function dispatchPrompt(input: DispatchInput): string {
   return parts.join('\n\n')
 }
 
+/** 牵头的唤醒卡回复只有这个标记：不发到频道（docs/multica-learn.md §11.2） */
+export const isSilent = (text: string): boolean => /^\s*\[silent\]\s*$/i.test(text)
+
+/** 牵头被成员交回的结果叫起来：这次的要求（交回的结果在交接那一段里） */
+export function leadWakeRequest(locale: Locale, dispatchOnly: boolean): string {
+  if (en(locale))
+    return [
+      'You lead this channel. A member has handed back the result above (without @-ing anyone). Decide what happens next:',
+      '- More work is needed: @ the right member and say clearly what they should do;',
+      '- A person needs to decide: put it on its own line starting with "Needs your decision:";',
+      '- The work is finished: sum up the outcome in a sentence or two;',
+      '- Nothing to add: reply with just [silent] (nothing is posted to the channel).',
+      ...(dispatchOnly
+        ? ['You only assign and coordinate: do not change code or files yourself; hand the work to the right member.']
+        : []),
+    ].join('\n')
+  return [
+    '你是这个频道的牵头。上面是成员交回的结果（回复里没有 @ 别人）。决定下一步：',
+    '- 还要接着做：@ 对应的成员，写清楚要他做什么；',
+    '- 需要人来决定：单独写一行，以「需要你决定：」开头；',
+    '- 这件事做完了：用一两句话总结结果；',
+    '- 没什么要说的：只回复 [silent]（不会发到频道里）。',
+    ...(dispatchOnly ? ['你只负责分派和协调：不要自己改代码或文件，要做的活交给对应的成员。'] : []),
+  ].join('\n')
+}
+
+/** 同一条接力上又有成员交回结果：拼进牵头还没做完的那张唤醒卡 */
+export function leadWakeMore(locale: Locale, h: Handoff): string {
+  return `${handoffText(h, locale)}\n${en(locale) ? 'Take this into account when you decide the next step.' : '决定下一步时一起考虑。'}`
+}
+
 /** 回复任务卡 = 追加要求：会话里已经有上下文，只带原文（§7.1） */
 /** 任务卡合并有冲突：让成员把基础分支合进自己的分支（docs/ui/channels-local-rest.md §3.1） */
 export function resolvePrompt(locale: Locale, base: string | null, files: readonly string[]): string {

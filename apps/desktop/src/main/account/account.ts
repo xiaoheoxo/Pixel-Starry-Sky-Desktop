@@ -603,8 +603,20 @@ export async function teamsFetch(
   path: string,
   body?: unknown,
   timeoutMs = 20_000,
+  runToken?: string,
 ): Promise<Response> {
   if (!/^\/v1\/(teams|invites)(\/|\?|$)/.test(path) || /\.\.|%2e/i.test(path)) throw new Error('无效的团队接口')
+  // 团队活的运行凭证（docs/multica-learn.md §11.3）：只用在 runs 接口，不带登录令牌
+  if (runToken !== undefined) {
+    if (!/^\/v1\/teams\/[^/?]+\/runs\//.test(path) || !runToken.startsWith('rt_')) throw new Error('无效的团队接口')
+    return fetch(`${baseUrl()}${path}`, {
+      method,
+      body: JSON.stringify(body ?? {}),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${runToken}` },
+      redirect: 'error',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  }
   return authedFetch(path, {
     method,
     ...(body !== undefined && { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),

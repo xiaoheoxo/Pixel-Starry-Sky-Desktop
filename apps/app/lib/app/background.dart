@@ -6,6 +6,7 @@ import 'dart:async';
 import '../connection/connections.dart';
 import '../data/desktop_lists.dart';
 import '../data/notify.dart';
+import '../data/quick_answer.dart';
 import '../data/tasks.dart';
 import '../i18n/i18n.dart';
 import '../platform/notifier.dart';
@@ -16,11 +17,15 @@ class BackgroundWatcher {
     required this.notifier,
     required this.settings,
     this.delay = const Duration(seconds: 2),
+    this.approvalFor,
   });
 
   final Notifier notifier;
   final AppSettings settings;
   final Duration delay;
+
+  /// 只有一个会话在等时，看它等的是不是能在通知上直接处理的审批（§15.7）；attach 时接上连接
+  Future<QuickApproval?> Function(String device, String session)? approvalFor;
 
   bool _foreground = true;
   final _prev = <String, List<SessionSummary>>{};
@@ -49,11 +54,20 @@ class BackgroundWatcher {
       timer: Timer(delay, () {
         final p = _pending.remove(device);
         final payload = p == null ? null : notifyPayload(p.sessions);
-        if (payload != null && !_foreground) {
-          notifier.show(payload, device).catchError((Object _) {});
-        }
+        if (payload != null && !_foreground) _show(payload, device);
       }),
     );
+  }
+
+  Future<void> _show(NotifyPayload payload, String device) async {
+    final session = payload.session, find = approvalFor;
+    if (payload.kind == NotifyKind.waiting && session != null && find != null) {
+      payload = payload.withApproval(await find(device, session));
+      if (_foreground) return;
+    }
+    await notifier
+        .show(payload, device, unlockFirst: settings.lock)
+        .catchError((Object _) {});
   }
 
   /// 忘掉的电脑
@@ -79,6 +93,15 @@ class BackgroundWatcher {
 
   /// 接上 App 的连接和列表
   void attach(Connections connections, DesktopLists lists) {
+    approvalFor ??= (device, session) {
+      final s = lists.get(device).sessions.where((s) => s.id == session);
+      return quickApprovalFor(
+        connections,
+        device,
+        session,
+        sessionTitle: s.isEmpty ? '' : taskTitle(s.first),
+      );
+    };
     void sync() {
       final keep = {for (final p in connections.pairings) p.deviceId};
       for (final id in [..._prev.keys]) {

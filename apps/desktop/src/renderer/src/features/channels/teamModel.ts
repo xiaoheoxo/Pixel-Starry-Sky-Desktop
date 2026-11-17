@@ -87,6 +87,40 @@ export function lastSeen(at: number | null | undefined, now: number): LastSeen |
   return { unit: 'days', count: Math.floor(ms / DAY) }
 }
 
+/** 离线不到这么久算「刚失联」（docs/multica-learn.md §2） */
+export const LOST_WINDOW = 5 * 60_000
+
+/** 团队成员的在线状态四种：在线、忙（排着 N 件）、刚失联（N 分钟前）、离线 */
+export type Presence =
+  | { kind: 'online' }
+  | { kind: 'busy'; queued: number }
+  | { kind: 'lost'; minutes: number }
+  | { kind: 'offline' }
+
+export function presenceOf(
+  member: { online?: boolean; you?: boolean; lastSeenAt?: number | null },
+  queued: number,
+  now: number,
+): Presence {
+  if (member.online || member.you) return queued > 0 ? { kind: 'busy', queued } : { kind: 'online' }
+  const at = member.lastSeenAt
+  if (at != null && now - at >= 0 && now - at < LOST_WINDOW)
+    return { kind: 'lost', minutes: Math.floor((now - at) / 60_000) }
+  return { kind: 'offline' }
+}
+
+/** 某人的 AI 成员在跑、还排着几件（「忙 · 排着 N 件」）；没在跑的不算忙 */
+export function queuedFor(owner: string, messages: readonly ChannelMessage[]): number {
+  let running = false
+  let queued = 0
+  for (const m of messages) {
+    if (m.kind !== 'task' || m.ownerId !== owner) continue
+    if (m.status === 'running' || m.status === 'waiting') running = true
+    else if (m.status === 'queued') queued++
+  }
+  return running ? queued : 0
+}
+
 export function onlineCount(humans: readonly { online?: boolean; you?: boolean }[]): number {
   return humans.filter(h => h.online || h.you).length
 }
@@ -120,12 +154,22 @@ export const isMyTask = (task: Pick<ChannelTask, 'ownerId'>, selfId: string | nu
 export const canControlTask = (task: Pick<ChannelTask, 'ownerId' | 'authorId'>, selfId: string | null): boolean =>
   isMyTask(task, selfId) || (!!selfId && task.authorId === selfId)
 
-/** @ 菜单里 AI 成员后面的提示：观察者不能派活；别人的「要我同意」的成员需要主人同意 */
-export function mentionNote(member: ChannelMember, role: TeamRole | undefined): 'observer' | 'approval' | null {
+/**
+ * @ 菜单里 AI 成员后面的提示：观察者不能派活；别人的「只有我」的成员 @ 了只当文字；其余别人的成员，
+ * 除了「团队成员都能派」和名单里有我的「指定的人」，都要主人同意（docs/multica-learn.md §11.3）
+ */
+export function mentionNote(
+  member: ChannelMember,
+  role: TeamRole | undefined,
+  selfId: string | null = null,
+): 'observer' | 'owner' | 'approval' | null {
   if (member.kind !== 'agent') return null
   if (!canDispatch(role)) return 'observer'
-  if (member.mine === false && member.policy !== 'team') return 'approval'
-  return null
+  if (member.mine !== false) return null
+  if (member.policy === 'owner') return 'owner'
+  if (member.policy === 'team') return null
+  if (member.policy === 'listed' && !!selfId && (member.allow ?? []).includes(selfId)) return null
+  return 'approval'
 }
 
 // ---------------------------------------------------------------------------

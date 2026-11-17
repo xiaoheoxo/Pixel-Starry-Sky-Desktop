@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- 充值：微信付款码存到相册（gal）；安卓 10 起不用权限 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
     <application
         android:label="像素星空"
         android:allowBackup="false"
@@ -41,6 +45,22 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="pixelsky" />
             </intent-filter>
+            <!-- 别的 App 分享文字、链接、图片进来（第三批 D2，docs/mobile-app.md §15.8） -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
         </activity>
         <!-- 链接交给 app_links 处理，不走 Flutter 自带的路由 -->
         <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
@@ -50,6 +70,21 @@
             android:exported="false"
             android:stopWithTask="true"
             android:foregroundServiceType="remoteMessaging" />
+        <!-- 桌面小部件（docs/mobile-app.md §15.9）：数据由 App 写，PixelSkyWidget.kt 画 -->
+        <receiver
+            android:name=".PixelSkyWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/pixelsky_widget_info" />
+        </receiver>
+        <!-- 通知上的「允许 / 拒绝」按钮（docs/mobile-app.md §15.7） -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -65,6 +100,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- 在系统浏览器 / 支付 App 里打开链接（url_launcher：PR、检查运行页、充值收银台） -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
         </intent>
     </queries>
 </manifest>
