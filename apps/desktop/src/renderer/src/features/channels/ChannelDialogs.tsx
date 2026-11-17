@@ -13,7 +13,7 @@ import { effortLabel } from '@/features/engine/labels'
 import { effortDefaultsFor } from '@/features/engine/effortDefaults'
 import { machineOf, useMachines } from '@/features/machines/store'
 import type { AgentMember, Channel } from '@/data/types'
-import { relayRulesOf, type AgentConfig, type RelayRules } from '../../../../shared/types/channels'
+import { relayRulesOf, type AgentConfig, type RelayRules, type SameDirPolicy } from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
 import { defaultAvatar } from '../../../../shared/channels/avatar'
 import { channelActions, useChannels } from './store'
@@ -247,6 +247,11 @@ export function ChannelDialog({
   const [lead, setLead] = useState(base.lead)
   const [planFirst, setPlanFirst] = useState(base.planFirst)
   const [leadRoute, setLeadRoute] = useState(base.leadRoute)
+  // 牵头唤醒（docs/multica-learn.md §11.2）：只在改已有频道时显示，新建按默认
+  const [leadWake, setLeadWake] = useState(channel?.leadWake !== false)
+  const [leadDispatchOnly, setLeadDispatchOnly] = useState(channel?.leadDispatchOnly === true)
+  const wakeChanged =
+    !!channel && (leadWake !== (channel.leadWake !== false) || leadDispatchOnly !== (channel.leadDispatchOnly === true))
   const channelMembers = useChannels(s => s.members)
   const leadOptions = channelMembers.filter(
     m => m.kind === 'agent' && m.machineId === 'local' && (channel ? channel.memberIds : members).includes(m.id),
@@ -320,7 +325,7 @@ export function ChannelDialog({
   const [error, setError] = useState<string | null>(null)
   const toast = useToast()
   // 名称、主题、说明是自己打的字：改过就先问再关（取消 / Esc / 点背景）
-  const dirty = name !== (channel?.name ?? '') || topic !== (channel?.topic ?? '') || changed
+  const dirty = name !== (channel?.name ?? '') || topic !== (channel?.topic ?? '') || changed || wakeChanged
   const submit = () => {
     if (!name.trim() || busy) return
     setBusy(true)
@@ -344,6 +349,8 @@ export function ChannelDialog({
                 ...(lead !== base.lead ? { lead: lead || null } : {}),
                 ...(planFirst !== base.planFirst ? { planFirst } : {}),
                 ...(leadRoute !== base.leadRoute ? { leadRoute } : {}),
+                ...(leadWake !== (channel.leadWake !== false) ? { leadWake } : {}),
+                ...(leadDispatchOnly !== (channel.leadDispatchOnly === true) ? { leadDispatchOnly } : {}),
               },
         )
       : teamId
@@ -518,6 +525,39 @@ export function ChannelDialog({
                     <span className="text-meta text-fg-muted">{tr('channels.dialog.leadRouteHint')}</span>
                   </span>
                 </label>
+              )}
+              {leadShown && channel && (
+                <>
+                  <label className="mt-1.5 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      data-channel-lead-wake
+                      className="mt-0.5"
+                      checked={leadWake}
+                      onChange={e => setLeadWake(e.target.checked)}
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-list text-fg">{tr('channels.dialog.leadWake')}</span>
+                      <span className="text-meta text-fg-muted">{tr('channels.dialog.leadWakeHint')}</span>
+                    </span>
+                  </label>
+                  <label className="mt-1.5 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      data-channel-lead-dispatch-only
+                      className="mt-0.5"
+                      checked={leadDispatchOnly}
+                      onChange={e => setLeadDispatchOnly(e.target.checked)}
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-list text-fg">{tr('channels.dialog.leadDispatchOnly')}</span>
+                      <span className="text-meta text-fg-muted">{tr('channels.dialog.leadDispatchOnlyHint')}</span>
+                    </span>
+                  </label>
+                  <p data-channel-lead-rules className="mt-1.5 text-meta break-words text-fg-faint">
+                    {tr('channels.dialog.leadRules')}
+                  </p>
+                </>
               )}
             </Field>
           )}
@@ -719,6 +759,8 @@ export function AgentDialog({
   const [projectId, setProjectId] = useState(seed?.projectId ?? firstProject)
   const [copyId, setCopyId] = useState<string>(seed?.copyId ?? '')
   const [copyPerTask, setCopyPerTask] = useState(seed?.copyPerTask === true)
+  // 同一目录有活在做时（docs/multica-learn.md §11.2）
+  const [sameDir, setSameDir] = useState<SameDirPolicy>(seed?.sameDir ?? 'queue')
   const [model, setModel] = useState<string>(seed?.settings.model ?? '')
   const [source, setSource] = useState<SourceKey>(sourceKeyOf(seed?.settings))
   // 平台线路：记的是用户选的那条，实际用哪条按模型对齐（resolveRoute）；swap 是换线路时顺手换掉的模型，可以撤销
@@ -927,6 +969,7 @@ export function AgentDialog({
         ...(copyPerTask && mode === 'per-task' && !copyId && machineOf(projectId) === 'local'
           ? { copyPerTask: true }
           : {}),
+        ...(sameDir !== 'queue' ? { sameDir } : {}),
       }),
     )
   }
@@ -1272,6 +1315,21 @@ export function AgentDialog({
                   onChange={setCopyPerTask}
                 />
               </label>
+            )}
+            {!(copyPerTask && mode === 'per-task' && !copyId && machineOf(projectId) === 'local') && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-meta font-medium text-fg-muted">{tr('channels.agent.sameDir')}</span>
+                <Select
+                  label={tr('channels.agent.sameDir')}
+                  value={sameDir}
+                  options={(['queue', 'copy', 'together'] as const).map(v => ({
+                    value: v,
+                    label: tr(`channels.agent.sameDir.${v}`),
+                  }))}
+                  onChange={v => setSameDir(v as SameDirPolicy)}
+                />
+                <span className="text-meta text-fg-faint">{tr('channels.agent.sameDirHint')}</span>
+              </div>
             )}
             {!editing?.bound && (
               <MemberTools engine={engine} projectId={projectId} value={tools ?? null} onChange={setTools} />

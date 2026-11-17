@@ -53,6 +53,7 @@ const ACTIONS = new Set<ChannelTaskAction>([
   'merge',
   'pr',
   'resolve',
+  'copyNow',
 ])
 const QUEUE_ACTIONS = new Set<ChannelQueueAction>(['up', 'down', 'first'])
 const ALERT_ACTIONS = new Set<ChannelAlertAction>(['hold', 'continue', 'open', 'stop', 'reassign', 'cancel', 'dismiss'])

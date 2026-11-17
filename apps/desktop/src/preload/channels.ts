@@ -60,6 +60,10 @@ export interface ChannelsBridge {
       lead?: string | null
       /** @ 一个 AI 派新活时先出计划 */
       planFirst?: boolean
+      /** 不带 @ 的简单活由牵头直接派；成员交回结果时叫牵头；牵头只派活不动手（docs/multica-learn.md §11.2） */
+      leadRoute?: boolean
+      leadWake?: boolean
+      leadDispatchOnly?: boolean
       /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）：整个列表一起存 */
       schedules?: FlowScheduleInput[]
       /** 主动提醒的规则开关、每日简报几点发（docs/ui/channels-collab-v2.md §6） */

@@ -56,6 +56,7 @@ import { modelChannelMessages } from '../../../shared/i18n/modelChannelMessages'
 import { fullAccessMessages } from '../../../shared/i18n/fullAccessMessages'
 import { planModeMessages } from '../../../shared/i18n/planModeMessages'
 import { teamRunMessages } from '../../../shared/i18n/teamRunMessages'
+import { leadWakeMessages } from '../../../shared/i18n/leadWakeMessages'
 import { htmlPreviewMessages } from '../../../shared/i18n/htmlPreviewMessages'
 import { portPreviewMessages } from '../../../shared/i18n/portPreviewMessages'
 import { tipsMessages } from '../../../shared/i18n/tipsMessages'
@@ -155,6 +156,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   fullAccessMessages,
   planModeMessages,
   teamRunMessages,
+  leadWakeMessages,
   htmlPreviewMessages,
   portPreviewMessages,
   tipsMessages,

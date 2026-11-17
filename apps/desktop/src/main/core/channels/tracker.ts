@@ -108,6 +108,8 @@ export interface TaskRun {
   reminded?: boolean
   /** 这一步在哪做（第 11 项）：开始时定下，开会话时才建副本 */
   copyPlan?: CopyPlan
+  /** 同一个目录有别人在做、成员设置是「用副本并行」或点了「改用副本马上开始」：这一轮给卡建副本（§11.2） */
+  forceCopy?: boolean
 }
 
 /** 流程里一个成员问另一个成员的问题 */

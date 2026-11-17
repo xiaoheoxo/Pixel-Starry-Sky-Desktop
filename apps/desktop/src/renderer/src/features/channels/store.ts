@@ -538,6 +538,9 @@ export const channelActions = {
       planFirst?: boolean
       /** 不带 @ 的简单活由牵头直接派（docs/ui/channels-auto-route.md） */
       leadRoute?: boolean
+      /** 成员交回结果时叫牵头、牵头只派活不动手（docs/multica-learn.md §11.2） */
+      leadWake?: boolean
+      leadDispatchOnly?: boolean
       /** 每天定时运行的流程（§10.3）：整份列表，主进程按 id 保留运行时字段 */
       schedules?: FlowScheduleInput[]
     },

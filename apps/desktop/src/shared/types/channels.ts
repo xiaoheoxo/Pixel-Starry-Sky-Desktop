@@ -152,6 +152,11 @@ export interface AgentConfig {
    */
   copyPerTask?: boolean
   /**
+   * 同一个目录里别的成员有活在做时（docs/multica-learn.md §10、§11.2）：queue 排队等（没写按这个）、
+   * copy 给这张卡建 Git 副本并行（建不了照排队）、together 照常一起跑
+   */
+  sameDir?: SameDirPolicy
+  /**
    * 从已有的会话加入频道的成员（docs/ui/import-collab.md 第 5 项②）：sharedSessionId 是你自己开的那个会话，
    * 频道派来的活就在里面接着做；没写是频道自己建的成员
    */
@@ -165,6 +170,8 @@ export interface AgentConfig {
   avatar?: AgentAvatar
   createdAt: number
 }
+
+export type SameDirPolicy = 'queue' | 'copy' | 'together'
 
 export type AgentAvatarStyle = 'engine' | 'letter' | 'gradient' | 'icon' | 'emoji' | 'pixel'
 /** 清单和校验在 shared/channels/avatar.ts */
@@ -284,6 +291,10 @@ export interface Channel {
    * false：都拆成流程草稿（原来的做法）。没写按开
    */
   leadRoute?: boolean
+  /** 牵头经手的活，成员交回结果（没 @ 别人）时叫牵头决定下一步（docs/multica-learn.md §11.2）；没写按开 */
+  leadWake?: boolean
+  /** 牵头只分派和协调、不自己改文件（只是提示词里的一句）；没写按关 */
+  leadDispatchOnly?: boolean
   /** @ 一个 AI 派新活时先让它出计划，商量好、点开工才动手；没写按默认（开） */
   planFirst?: boolean
   /** 每天定时运行的流程（§10.3），只有本机频道 */
@@ -652,12 +663,18 @@ export interface ChannelTask extends ChannelMessageBase {
   /** Phase C：派活的人或主人点了取消 / 停止 / 重试，等主人那台电脑执行 */
   pendingAction?: Exclude<
     ChannelTaskAction,
-    'continue' | 'unlimit' | 'fix' | 'reassign' | 'merge' | 'pr' | 'resolve'
+    'continue' | 'unlimit' | 'fix' | 'reassign' | 'merge' | 'pr' | 'resolve' | 'copyNow'
   > | null
   /** Phase C：主人的电脑不在线（queued 时显示「上线后开始」） */
   ownerOffline?: boolean
   /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
   routedBy?: { memberId: string; note: string; moved?: boolean } | null
+  /** 牵头被成员交回的结果叫起来的卡（docs/multica-learn.md §11.2）：哪些成员交回的（名字，并进来的接在后面） */
+  wake?: { from: string[] } | null
+  /**
+   * 排队中、在等同一个目录里别人的活做完（§10）：哪个成员、哪项活；canCopy 时可以「改用副本马上开始」
+   */
+  dirWait?: { memberId: string; title: string; canCopy: boolean } | null
   /** AI 成员互相派活的一跳（authorId 是交活的成员）；held：超了防刷规则，停下等你点「继续」 */
   relay?: ChannelRelay | null
   /** 做完后的产出检查（docs/ui/channels-collab-v2.md §8）：running 时还在跑；项目关了频道检查时没有 */
@@ -1006,6 +1023,7 @@ export type ChannelTaskAction =
   | 'merge'
   | 'pr'
   | 'resolve'
+  | 'copyNow'
 
 /** 成员面板排队控制（docs/ui/channels-local-ai.md #5）：上移 / 下移 / 先做这个 */
 export type ChannelQueueAction = 'up' | 'down' | 'first'

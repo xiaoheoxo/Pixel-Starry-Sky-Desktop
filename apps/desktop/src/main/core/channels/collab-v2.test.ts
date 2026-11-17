@@ -75,6 +75,8 @@ const agent = (name: string, patch: Partial<AgentInput> = {}): AgentInput => ({
   settings: {},
   instructions: '',
   mode: 'per-task',
+  // 同一目录排队另有测试（flow.service.test.ts）；这里的成员照原来一起跑
+  sameDir: 'together',
   ...patch,
 })
 const sends = () =>

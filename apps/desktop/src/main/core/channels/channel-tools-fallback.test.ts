@@ -74,6 +74,8 @@ const agent = (name: string): AgentInput => ({
   settings: {},
   instructions: '',
   mode: 'per-task',
+  // 同一目录排队另有测试（flow.service.test.ts）；这里的成员照原来一起跑
+  sameDir: 'together',
 })
 const settle = async () => {
   for (let i = 0; i < 10; i++) {

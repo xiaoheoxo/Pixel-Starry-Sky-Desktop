@@ -50,6 +50,7 @@ import { modelChannelMessages } from './modelChannelMessages'
 import { fullAccessMessages } from './fullAccessMessages'
 import { planModeMessages } from './planModeMessages'
 import { teamRunMessages } from './teamRunMessages'
+import { leadWakeMessages } from './leadWakeMessages'
 import { htmlPreviewMessages } from './htmlPreviewMessages'
 import { portPreviewMessages } from './portPreviewMessages'
 import { tipsMessages } from './tipsMessages'
@@ -151,6 +152,7 @@ export const allMessages = {
   ...fullAccessMessages,
   ...planModeMessages,
   ...teamRunMessages,
+  ...leadWakeMessages,
   ...htmlPreviewMessages,
   ...portPreviewMessages,
   ...tipsMessages,
