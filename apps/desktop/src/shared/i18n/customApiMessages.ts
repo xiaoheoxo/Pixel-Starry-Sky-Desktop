@@ -2,8 +2,8 @@
 export const customApiMessages = {
   'customApi.source': { zh: '自定义', en: 'Custom' },
   'customApi.intro': {
-    zh: '用自己的接口地址和 API Key 跑 Claude Code / Codex / Pixel，费用记在你自己的账号上（Chat Completions 兼容接口只有 Pixel 能用）。Key 用系统加密保存，不会交给引擎进程。',
-    en: 'Run Claude Code / Codex / Pixel against your own endpoint and API key, billed to your own account (Chat Completions–compatible endpoints work with Pixel only). Keys are stored with system encryption and never handed to the engine process.',
+    zh: '用自己的接口地址和 API Key 跑 Claude Code / Codex / Pixel / Antigravity，费用记在你自己的账号上（Chat Completions 兼容接口只有 Pixel 能用，Gemini 接口只有 Antigravity 能用）。Key 用系统加密保存，不会交给引擎进程。',
+    en: 'Run Claude Code / Codex / Pixel / Antigravity against your own endpoint and API key, billed to your own account (Chat Completions–compatible endpoints work with Pixel only, Gemini endpoints with Antigravity only). Keys are stored with system encryption and never handed to the engine process.',
   },
   'customApi.add': { zh: '添加接口', en: 'Add endpoint' },
   'customApi.empty': { zh: '还没有接口。', en: 'No endpoints yet.' },
@@ -20,7 +20,6 @@ export const customApiMessages = {
   'customApi.protocolGemini': { zh: 'Gemini（给 Antigravity）', en: 'Gemini (for Antigravity)' },
   'customApi.modelCount': { zh: '{n} 个模型', en: '{n} models' },
   'customApi.noKey': { zh: '没有 Key', en: 'No key' },
-  'customApi.keyHint': { zh: 'Key ••••{p0}', en: 'Key ••••{p0}' },
   'customApi.insecure': { zh: '不加密', en: 'Unencrypted' },
   'customApi.notPersistent': {
     zh: '系统加密不可用：Key 只保存在内存里，重启后需要重新填写。',

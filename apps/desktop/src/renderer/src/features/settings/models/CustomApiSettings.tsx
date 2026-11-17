@@ -2,9 +2,11 @@
 // Key 只进不出：对话框里 Key 留空表示不改，附加请求头已保存的值显示为打码
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, CheckCircle2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { autoImageInput, officialModels, officialPrice, type ImageInputReason } from '@pixelsky/protocol'
-import { Button, IconButton, Select, Spinner, Switch, cn } from '@/ui'
+import { Button, EngineIcon, IconButton, Select, Spinner, Switch, cn } from '@/ui'
+import { formatMultiplier } from '@/features/account/platform'
+import { protocolExecutors } from '@/features/model-channels/channelModel'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
@@ -119,34 +121,7 @@ export function CustomApiSettings() {
       ) : (
         <div className="overflow-hidden rounded-lg border border-line">
           {providers.providers.map(p => (
-            <div
-              key={p.id}
-              className="flex items-center gap-3 border-t border-line-subtle px-4 py-2.5 first:border-t-0"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-ui text-fg">
-                  {p.name}
-                  <span className="ml-2 text-meta text-fg-muted">
-                    {protocolLabel(p.protocol)} · {tr('customApi.modelCount', { n: p.models.length })}
-                  </span>
-                </span>
-                <span className="block truncate text-meta text-fg-muted">
-                  <span className="font-mono">{p.baseUrl}</span>
-                  {p.insecure && <span className="ml-2 text-warn">{tr('customApi.insecure')}</span>}
-                  <span className={cn('ml-2', !p.keyHint && 'text-danger')}>
-                    {p.keyHint ? tr('customApi.keyHint', { p0: p.keyHint }) : tr('customApi.noKey')}
-                  </span>
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setEditing(p)}
-                className="shrink-0 rounded-md px-2 py-1 text-meta text-accent-fg hover:bg-hover"
-              >
-                {tr('customApi.edit')}
-              </button>
-              <IconButton icon={Trash2} label={tr('customApi.delete')} onClick={() => setRemoving(p)} />
-            </div>
+            <ProviderRow key={p.id} p={p} onEdit={() => setEditing(p)} onRemove={() => setRemoving(p)} />
           ))}
         </div>
       )}
@@ -173,6 +148,87 @@ export function CustomApiSettings() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+/** 列表里的协议短名（完整名放鼠标提示） */
+const PROTOCOL_SHORT: Record<ProviderProtocol, string> = {
+  anthropic: 'Anthropic',
+  responses: 'Responses',
+  chat: 'Chat',
+  gemini: 'Gemini',
+}
+
+function Tag({ tone, children }: { tone?: 'danger' | 'warn'; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'rounded-[5px] px-1.5 py-px text-label whitespace-nowrap',
+        tone === 'danger'
+          ? 'bg-danger/10 text-danger'
+          : tone === 'warn'
+            ? 'bg-warn/12 text-warn'
+            : 'bg-subtle text-fg-muted',
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+/**
+ * 接口列表的一行（docs/ui/custom-api.md §16）：名称、地址各自截断；谁来执行、协议、模型数和状态标签放右边不截断。
+ * 整行点开编辑，删除悬停 / 聚焦时出现
+ */
+function ProviderRow({ p, onEdit, onRemove }: { p: ProviderView; onEdit: () => void; onRemove: () => void }) {
+  return (
+    <div className="group flex items-center gap-1 border-t border-line-subtle pr-2 first:border-t-0 hover:bg-hover">
+      <button
+        type="button"
+        onClick={onEdit}
+        title={tr('customApi.edit')}
+        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 text-left"
+      >
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-ui text-fg">{p.name}</span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <span className="flex items-center gap-0.5">
+                {protocolExecutors(p.protocol).map(e => (
+                  <EngineIcon key={e} engine={e} size={14} />
+                ))}
+              </span>
+              <span title={protocolLabel(p.protocol)}>
+                <Tag>
+                  <span className="font-mono">{PROTOCOL_SHORT[p.protocol]}</span>
+                </Tag>
+              </span>
+              {p.models.length > 0 && (
+                <span className="text-meta text-fg-muted tabular-nums">
+                  {tr('customApi.modelCount', { n: p.models.length })}
+                </span>
+              )}
+            </span>
+          </span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-meta text-fg-muted">{p.baseUrl}</span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              {!p.keyHint && <Tag tone="danger">{tr('customApi.noKey')}</Tag>}
+              {p.models.length === 0 && <Tag tone="warn">{tr('customApi.modelCount', { n: 0 })}</Tag>}
+              {p.insecure && <Tag tone="warn">{tr('customApi.insecure')}</Tag>}
+              {p.costMultiplier != null && <Tag>{formatMultiplier(p.costMultiplier)}</Tag>}
+            </span>
+          </span>
+        </span>
+        <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-fg-faint" />
+      </button>
+      <IconButton
+        icon={Trash2}
+        label={tr('customApi.delete')}
+        onClick={onRemove}
+        className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+      />
     </div>
   )
 }
