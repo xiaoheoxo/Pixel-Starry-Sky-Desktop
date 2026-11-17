@@ -1,6 +1,6 @@
 // 侧栏状态图标里的 PR（docs/ui/sidebar-status-icons.md §4）：纯函数部分——解析 GitHub 地址、从文字里找 PR 链接、
 // 把 gh / GitHub 接口的 JSON 转成 SessionPr、排序和过期过滤。不碰文件、网络和进程，方便测试。
-import type { SessionPr } from '../../shared/types/session-status'
+import type { PrCheck, SessionPr } from '../../shared/types/session-status'
 
 export interface RepoRef {
   owner: string
@@ -89,6 +89,27 @@ export function summarizeChecks(rollup: unknown): { ci: SessionPr['ci']; ciFaile
   return { ci: pending ? 'pending' : 'pass', ciFailed: 0 }
 }
 
+/** 卡片里最多列这么多项检查 */
+export const CHECKS_MAX = 20
+
+/** statusCheckRollup → 每一项（CheckRun 有 name / detailsUrl，旧的 StatusContext 有 context / targetUrl）；没过的在前、进行中其次 */
+export function listChecks(rollup: unknown): PrCheck[] {
+  if (!Array.isArray(rollup)) return []
+  const order = { fail: 0, pending: 1, pass: 2 }
+  return rollup
+    .map((raw): PrCheck | null => {
+      const c = (raw ?? {}) as Record<string, unknown>
+      const name = str(c.name) || str(c.context)
+      if (!name) return null
+      const { ci } = summarizeChecks([c])
+      const url = str(c.detailsUrl) || str(c.targetUrl)
+      return { name, state: ci ?? 'pending', url: /^https:\/\//.test(url) ? url : '' }
+    })
+    .filter((c): c is PrCheck => !!c)
+    .sort((a, b) => order[a.state] - order[b.state])
+    .slice(0, CHECKS_MAX)
+}
+
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const time = (v: unknown): string | null => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null)
@@ -118,6 +139,7 @@ export function mapGhPr(raw: unknown, fallbackRepo?: string): SessionPr | null {
     head: str(o.headRefName),
     base: str(o.baseRefName),
     closedAt: mergedAt ?? closedAt,
+    checks: listChecks(o.statusCheckRollup),
   }
 }
 

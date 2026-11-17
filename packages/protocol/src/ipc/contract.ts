@@ -814,6 +814,8 @@ export const IPC_CONTRACT = {
   // 侧栏对话的状态图标（docs/ui/sidebar-status-icons.md §4）：只在本机
   'sessionStatus:changed': { kind: 'push', route: 'push', trust: 'none' },
   'sessionStatus:get': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'sessionStatus:mergeOptions': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'sessionStatus:mergePr': { kind: 'invoke', route: 'local', trust: 'sender' },
   'sessionStatus:refresh': { kind: 'invoke', route: 'local', trust: 'sender' },
   // 设置 › 存储：本机数据目录的占用、清理旧会话 / 已归档的会话、清除缓存。只看本机，不跟随选中的机器
   'storage:clearCache': { kind: 'invoke', route: 'local', trust: 'sender' },

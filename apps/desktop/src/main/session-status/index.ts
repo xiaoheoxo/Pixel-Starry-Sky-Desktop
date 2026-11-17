@@ -9,6 +9,7 @@ import { runGit } from '../core/project-tools/git'
 import * as ipc from '../ipc/guard'
 import { machineOf } from '../machines/identity'
 import { createGhRunner } from './gh'
+import { mergeOptions, mergePr } from './merge'
 import { createsPr } from './github'
 import { PrLinkStore } from './links'
 import { SessionStatusService, type RestResponse } from './service'
@@ -155,6 +156,20 @@ export async function initSessionStatus(ctx: AppContext): Promise<() => void> {
       throw new Error('参数错误')
     const id = typeof sessionId === 'string' ? sessionId : undefined
     await Promise.all([service.refreshFolders(), service.refreshPrs(id, true)])
+  })
+  // PR 合并（docs/ui/review-pr-actions.md §3.2）：合并比查状态慢，单独给 60 秒
+  const mergeGh = createGhRunner({ timeout: 60_000 })
+  ipc.handle('sessionStatus:mergeOptions', (_e, url: unknown) => mergeOptions(mergeGh, url))
+  ipc.handle('sessionStatus:mergePr', async (_e, sessionId: unknown, url: unknown, method: unknown, del: unknown) => {
+    if (typeof sessionId !== 'string' || sessionId.length > 200) throw new Error('参数错误')
+    // 只合并这个对话自己的 PR（侧栏、概况里显示的那些）
+    if (!service.state().prs[sessionId]?.some(pr => pr.url === url)) throw new Error('这个对话没有这个 PR')
+    // 合并成了、删分支失败时 gh 也报错：不管成没成都重查一次，卡片按真实状态显示
+    try {
+      await mergePr(mergeGh, url, method, del)
+    } finally {
+      await service.refreshPrs(sessionId, true).catch(() => {})
+    }
   })
 
   const dispose = (): void => {

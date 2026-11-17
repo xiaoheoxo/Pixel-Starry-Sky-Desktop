@@ -11,14 +11,13 @@ import { useSessionCheck } from '@/features/checks/sessionChecks'
 import { useEngineState } from '@/features/engine'
 import { planEntries, quotaEntries, tightestEntry } from '@/features/session/quota/quotaModel'
 import { useMinuteNow } from '@/features/session/quota/quotaStore'
-import { openUrl } from '@/features/sidebar/PrCard'
 import { visiblePrs } from '@/features/sidebar/sessionStatusModel'
 import { useSessionStatus } from '@/features/sidebar/useSessionStatus'
 import { ToolError } from '../ToolsUi'
 import { setDismissed, useDismissed } from './attentionDismissed'
 import { useCompactAction } from './ContextSection'
 import { useSessionContext, useSessionQuota, useSessionRecord, type OverviewMcp } from './overviewData'
-import { prConflictRequest } from '../../../../../shared/types/session-status'
+import { prChecksRequest, prConflictRequest } from '../../../../../shared/types/session-status'
 import { attentionItems, resolvedPrKeys, type AttentionAction, type AttentionItem } from './overviewModel'
 import { useOverviewPrefs } from './overviewPrefs'
 import type { SectionProps } from './OverviewPanel'
@@ -43,7 +42,7 @@ const LABEL: Record<Exclude<AttentionAction['kind'], 'compact'>, TranslationKey>
   'mcp-reconnect': 'connectors.reconnect',
   check: 'checks.fix',
   'pr-conflict': 'checks.fix',
-  'pr-ci': 'sidebar.status.openPr',
+  'pr-ci': 'checks.fix',
 }
 
 export function AttentionSection({ sessionId, active, mcp }: SectionProps) {
@@ -95,8 +94,7 @@ function AttentionBody({ sessionId, mcp }: { sessionId: string; mcp: OverviewMcp
       case 'pr-conflict':
         return void sendFix(sessionId, prConflictRequest(action.pr), item.key, toast)
       case 'pr-ci':
-        setDismissed(item.key, true)
-        return void openUrl(action.pr.url, toast)
+        return void sendFix(sessionId, prChecksRequest(action.pr), item.key, toast)
     }
   }
   const mcpBusy = (action: AttentionAction): boolean =>

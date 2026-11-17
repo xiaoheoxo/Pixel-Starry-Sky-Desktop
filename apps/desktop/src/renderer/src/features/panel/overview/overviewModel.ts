@@ -325,7 +325,11 @@ export function topTools(
 }
 
 export const prConflictKey = (pr: SessionPr): string => `pr-conflict:${pr.url}`
-const prCiKey = (pr: SessionPr): string => `pr-ci:${pr.url}`
+export const prCiKey = (pr: SessionPr): string => `pr-ci:${pr.url}`
+
+/** PR 卡片的「合并」：开着（不是草稿）、检查全过或没有检查、没冲突、gh 能用（docs/ui/review-pr-actions.md §3.2；不做 GitHub 的自动合并） */
+export const canMergePr = (pr: SessionPr, gh: string): boolean =>
+  !pr.unknown && pr.state === 'open' && !pr.conflict && pr.ci !== 'fail' && pr.ci !== 'pending' && gh === 'ready'
 
 /** 现在已经没这个问题的 PR：点过的记录要忘掉，以后再冲突、再失败还要提。查不到状态时不算解决了 */
 export function resolvedPrKeys(prs: readonly SessionPr[]): string[] {

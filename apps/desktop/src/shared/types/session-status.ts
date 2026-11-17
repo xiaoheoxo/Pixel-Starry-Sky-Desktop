@@ -23,6 +23,36 @@ export interface SessionPr {
   closedAt: string | null
   /** 只知道有这个 PR（对话里出现过链接），查不到状态：私有仓库又没登录 gh */
   unknown?: boolean
+  /** 每项检查（没过的在前，最多 20 项）；查不到检查（REST 回退、只知道链接）时没有 */
+  checks?: PrCheck[]
+}
+
+/** PR 的一项检查（docs/ui/review-pr-actions.md §3.1） */
+export interface PrCheck {
+  name: string
+  state: 'fail' | 'pending' | 'pass'
+  /** 检查详情页（GitHub Actions 的运行页）；没有时为空 */
+  url: string
+}
+
+/** 合并方式（gh pr merge 的 --merge / --squash / --rebase） */
+export type PrMergeMethod = 'merge' | 'squash' | 'rebase'
+
+/** 合并确认框要的：仓库允许的合并方式（按 GitHub 网页的顺序），仓库默认要不要删分支 */
+export interface PrMergeOptions {
+  methods: PrMergeMethod[]
+  deleteBranch: boolean
+}
+
+/** 「让 AI 修检查」发给会话的话：给 AI 看的，不走界面词典（和 prConflictRequest 一样） */
+export function prChecksRequest(pr: Pick<SessionPr, 'url' | 'head' | 'checks'>): string {
+  const failed = (pr.checks ?? []).filter(c => c.state === 'fail')
+  const list = failed.map(c => '- ' + c.name + (c.url ? '：' + c.url : '')).join('\n')
+  return (
+    `这个 PR 有检查没通过：${pr.url}\n` +
+    (list ? list + '\n' : '') +
+    `用 gh run view <运行 id> --log-failed（或打开上面的链接）看失败的日志，找到原因后在 ${pr.head} 上修好，本地跑一遍相关的检查，没问题就推送到 ${pr.head}（不要强推）。`
+  )
 }
 
 /** 「让它修」PR 冲突时发给会话的话：和 checks.ts 的 fixRequest 一样是给 AI 看的，不走界面词典 */
@@ -45,5 +75,9 @@ export interface SessionStatusBridge {
   get(): Promise<SessionStatusState>
   /** 立刻重查（不传就查全部）；切回窗口、悬停卡里点「刷新」时用 */
   refresh(sessionId?: string): Promise<void>
+  /** 合并确认框：仓库允许的合并方式 */
+  mergeOptions(url: string): Promise<PrMergeOptions>
+  /** 合并这个 PR（gh pr merge），合并后重查这个对话的 PR；失败抛出 gh 的原话 */
+  mergePr(sessionId: string, url: string, method: PrMergeMethod, deleteBranch: boolean): Promise<void>
   onChange(callback: (state: SessionStatusState) => void): () => void
 }

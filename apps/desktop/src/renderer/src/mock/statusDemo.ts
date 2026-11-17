@@ -154,6 +154,45 @@ export const statusDemoSessionState: SessionStatusState = {
         'feat/drafts',
       ),
     ],
+    // PR 操作（docs/ui/review-pr-actions.md §3）：检查没过时「让 AI 修检查」和检查列表；已合并时「归档这个对话」
+    'demo-claude-markdown': [
+      {
+        ...full(
+          {
+            number: 131,
+            title: '回复里的表格加圆角外框',
+            state: 'open',
+            ci: 'fail',
+            ciFailed: 2,
+            conflict: false,
+            additions: 42,
+            deletions: 10,
+          },
+          'feat/markdown-table',
+        ),
+        checks: [
+          { name: 'test (ubuntu-latest)', state: 'fail', url: 'https://github.com/pixelsky/pixel-web/actions/runs/1' },
+          { name: 'typecheck', state: 'fail', url: 'https://github.com/pixelsky/pixel-web/actions/runs/2' },
+          { name: 'lint', state: 'pass', url: 'https://github.com/pixelsky/pixel-web/actions/runs/3' },
+        ],
+      },
+    ],
+    'demo-claude-tools': [
+      full(
+        {
+          number: 126,
+          title: '工具调用卡片折叠长输出',
+          state: 'merged',
+          ci: 'pass',
+          ciFailed: 0,
+          conflict: false,
+          additions: 88,
+          deletions: 21,
+          closedAt: iso(20 * MIN),
+        },
+        'feat/tool-cards',
+      ),
+    ],
     // 出问题的对话也有 PR：问题卡下面附一行，点「查看 PR」切过去
     's-st-busy': [
       full(

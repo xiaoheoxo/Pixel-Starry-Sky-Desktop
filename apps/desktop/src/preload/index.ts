@@ -734,6 +734,9 @@ contextBridge.exposeInMainWorld('pixelsky', {
   sessionStatus: {
     get: () => call('sessionStatus:get'),
     refresh: sessionId => call('sessionStatus:refresh', sessionId),
+    mergeOptions: url => call('sessionStatus:mergeOptions', url),
+    mergePr: (sessionId, url, method, deleteBranch) =>
+      call('sessionStatus:mergePr', sessionId, url, method, deleteBranch),
     onChange: callback => {
       const listener = (
         _e: Electron.IpcRendererEvent,
