@@ -13,6 +13,8 @@ vi.mock('@/features/machines/store', () => ({
 }))
 // 输入框上方的 Git 那几项（docs/ui/composer-git.md）不在这里测：它导入的账号模块要真的 window
 vi.mock('@/features/session/ComposerGit', () => ({ ComposerGit: () => null }))
+// 「独立副本」开关要读 Git 状态和引擎 store（服务端渲染没有快照），在 isolatedCopy.test.ts 里测
+vi.mock('@/features/session/isolatedCopy', () => ({ useIsolatedCopy: () => null }))
 // 已开始会话的文件夹菜单（docs/ui/machines-workspaces.md §9）同理换成只带参数的壳，这里只看给它的名字和路径
 vi.mock('@/features/session/FolderMenu', () => ({
   FolderMenu: ({ name, path }: { name: string; path: string }) => (

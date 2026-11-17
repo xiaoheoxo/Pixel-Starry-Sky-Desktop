@@ -365,8 +365,8 @@
   color: var(--accent-text);
 }
 
-/* 新建页的开场白按钮（§12 S5）：24 高、4px 圆角 */
-:root[data-minimal='on'] [data-starter] {
+/* 新建页的开场白按钮（§12 S5）和最近的项目：24 高、4px 圆角 */
+:root[data-minimal='on'] :is([data-starter], [data-recent-project], [data-recent-other]) {
   height: 24px;
   border-radius: 4px;
   font-size: var(--text-meta);

@@ -5,7 +5,9 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useEngineCatalog } from './catalog'
 import { useMachines, machineOf } from '@/features/machines/store'
-import { draftWorkspace } from '@/features/machines/drafts'
+import { draftWorkspace, useDraftWorkspace } from '@/features/machines/drafts'
+import { cachedGitStatus, refreshGitStatus } from '@/features/panel/git/summary'
+import { copyBase, createIsolatedCopy, isolatedOn, isolatedTarget } from '@/features/session/isolatedCopy'
 import { notify } from '@/features/panes/store'
 import {
   ENGINES,
@@ -1044,6 +1046,12 @@ export function useComposerController(
     },
     submit: async (text, clientMessageId = crypto.randomUUID(), attachments = [], files = []) => {
       const input = { text, clientMessageId, attachments, ...(files.length ? { files } : {}) }
+      // 「独立副本」开着（docs/ui/desktop-parity.md §3.2）：在第一个 await 之前定好要不要；Git 状态到建副本时再看
+      const copyTarget =
+        !record && draftKey
+          ? isolatedTarget(draftKey, draftWorkspace(draftKey)?.projectId ?? getEngineState().currentProjectId)
+          : null
+      const isolated = copyTarget && isolatedOn(copyTarget.projectId) ? copyTarget : null
       if (
         attachments.length &&
         (engine ?? (await b.engines()).find(info => info.id === engineId))?.caps.imageInput !== true
@@ -1084,20 +1092,56 @@ export function useComposerController(
       const workspace = draftKey ? draftWorkspace(draftKey) : null
       const projectId = workspace?.projectId ?? getEngineState().currentProjectId ?? (await addProject())
       if (!projectId) throw new Error(tr('engine.hooks.chooseProjectFolderFirst'))
-      const created = await b.createSession({
-        projectId,
-        copyId: workspace?.copyId,
-        workspaceSessionId: workspace?.sessionId,
-        ...base,
-        ultrafast,
-        ...sourcePatch,
-      })
+      // 建副本：只在点发送时选的就是这个项目时（期间换了项目就照常开）。Git 状态还没读到（刚换过来的项目、
+      // 5 分钟没人看丢了缓存）先读一次；读不到就报错，不悄悄开在项目目录里。不是仓库、子文件夹项目照常开（开关本来就不显示）
+      let copy: Awaited<ReturnType<typeof createIsolatedCopy>> | null = null
+      const tools = window.pixelsky?.projectTools,
+        machines = window.pixelsky?.machines
+      if (isolated && isolated.projectId === projectId && draftKey && tools && machines) {
+        const ref = { projectId }
+        // soft：正在读就等这一轮，不再排一次
+        if (!cachedGitStatus(ref)) await refreshGitStatus(ref, true)
+        const status = cachedGitStatus(ref)
+        if (!status) throw new Error(tr('session.isolated.noStatus'))
+        const from = copyBase(status, isolated.path)
+        if (from)
+          copy = await createIsolatedCopy(
+            {
+              branches: id => tools.branches(id),
+              copyNames: async id => (await machines.workspaces(id)).filter(w => w.copyId).map(w => w.name),
+              createCopy: (id, input) => tools.createCopy(id, input),
+            },
+            draftKey,
+            projectId,
+            from,
+            text,
+          )
+      }
+      // 刚建的副本是空的：会话没开起来就连副本一起删（分支留着）
+      const dropCopy = async (): Promise<void> => {
+        if (copy) await window.pixelsky?.projectTools.removeCopy(copy.id, true).catch(() => undefined)
+      }
+      let created: Awaited<ReturnType<typeof b.createSession>>
+      try {
+        created = await b.createSession({
+          projectId,
+          copyId: copy ? copy.id : workspace?.copyId,
+          workspaceSessionId: copy ? undefined : workspace?.sessionId,
+          ...base,
+          ultrafast,
+          ...sourcePatch,
+        })
+      } catch (err) {
+        await dropCopy()
+        throw err
+      }
       // 检查开不了不拦这条消息：说一声，会话照常开始
       if (draftAutoCheck) await enableSessionChecks(created.id).catch(updateFailed)
       try {
         await b.send(created.id, input)
       } catch (err) {
         await b.deleteSession(created.id).catch(() => undefined)
+        await dropCopy()
         throw err
       }
       setDraft(null)
@@ -1125,8 +1169,8 @@ export function useStatusBar(sessionId: string | null, draftKey?: string): Statu
   const projects = useEngineState(s => s.projects)
   const currentProjectId = useEngineState(s => s.currentProjectId)
   const snap = useEngineState(s => (sessionId ? (s.snapshots[sessionId] ?? null) : null))
+  const chosen = useDraftWorkspace(draftKey)
   if (!isLive) return undefined
-  const chosen = draftKey ? draftWorkspace(draftKey) : null
   const pid = chosen?.projectId ?? snap?.record.projectId ?? (sessionId ? null : currentProjectId)
   const project = projects.find(p => p.id === pid) ?? null
   return {

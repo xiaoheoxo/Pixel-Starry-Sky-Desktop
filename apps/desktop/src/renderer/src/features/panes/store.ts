@@ -284,6 +284,11 @@ export const paneActions = {
     if (!isDemo) migrateNewComposerDraft(tab)
     setLayout(T.openTab(layout, tab))
   },
+  /** 新建页「最近的项目」：把这个新会话标签换到别的项目，草稿留着（docs/ui/desktop-parity.md §3.2） */
+  rebindNewTab(tab: string, projectId: string): void {
+    if (isDemo || !T.isNewTab(tab)) return
+    bindNewTab(tab, null, projectId, true)
+  },
   activate(leafId: string, tab: string): void {
     setLayout(T.activateTab(state.layout, leafId, tab))
   },

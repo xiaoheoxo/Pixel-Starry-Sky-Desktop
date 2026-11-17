@@ -152,6 +152,10 @@ export function useGitSummary(ref: WorkspaceRef | null): GitSummary | null {
   return key ? (cache.get(key) ?? null) : null
 }
 
+/** 最近读到的完整状态（不登记监听、不订阅；发送时判断用） */
+export const cachedGitStatus = (ref: WorkspaceRef): GitStatus | null =>
+  isDemo ? demoGit() : (statuses.get(refKey(ref)) ?? null)
+
 /** 最近读到的完整状态；还没读到、不是 Git 仓库时是 null（不是仓库时 status.repo 为 false）。watching 为 false 时只读缓存，不登记监听 */
 export function useGitStatus(ref: WorkspaceRef | null, watching = true): GitStatus | null {
   const key = useWatched(ref, watching)

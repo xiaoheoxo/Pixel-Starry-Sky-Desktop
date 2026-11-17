@@ -70,6 +70,7 @@
     overflow: hidden;
   }
   .composer-area [data-composer-machine-label],
+  .composer-area [data-composer-isolated-label],
   .composer-area [data-composer-label] {
     display: none;
   }

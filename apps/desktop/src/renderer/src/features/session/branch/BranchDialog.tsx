@@ -12,6 +12,7 @@ import { updateFiles, updateImages } from '@/features/session/attachments/drafts
 import { paneActions } from '@/features/panes/store'
 import type { BranchPrepare } from '../../../../../shared/types/branch'
 import { closeBranchDialog, sessionRecord } from './store'
+import { copyName, defaultBranch } from './naming'
 
 const INPUT =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg outline-none focus:border-accent-line focus:ring-2 focus:ring-composer-ring'
@@ -20,25 +21,6 @@ const BRANCH_NAME = /^[A-Za-z0-9._/-]+$/
 const BAD_COPY = /[\\/:*?"<>|]/
 
 const cut = (s: string, n: number): string => (s.length > n ? s.slice(0, n) + '…' : s)
-
-/** 默认分支名：名字里的英文词连起来，没有就用日期时间 */
-function defaultBranch(name: string, taken: readonly string[]): string {
-  const words = (name.toLowerCase().match(/[a-z0-9]+/g) ?? []).join('-').slice(0, 30)
-  const d = new Date()
-  const stamp = `${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
-  const base = `pixelsky/${words || 'branch-' + stamp}`
-  let branch = base
-  for (let i = 2; taken.includes(branch); i++) branch = `${base}-${i}`
-  return branch
-}
-
-/** 副本名：分支名最后一段，重名时加序号 */
-function copyName(branch: string, taken: readonly string[]): string {
-  const base = (branch.split('/').filter(Boolean).pop() ?? 'branch').replace(/[. ]+$/, '') || 'branch'
-  let name = base
-  for (let i = 2; taken.includes(name); i++) name = `${base}-${i}`
-  return name
-}
 
 export function BranchDialog({
   sessionId,

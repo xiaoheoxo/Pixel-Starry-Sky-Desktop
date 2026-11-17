@@ -1,7 +1,14 @@
+import { useMemo, useState } from 'react'
+import { FolderOpen, GitBranch } from 'lucide-react'
 import { isChatProject } from '@pixelsky/protocol'
-import { Wordmark } from '@/ui'
-import { isDemo } from '@/data'
-import { useEngineState, type ComposerController, type StatusBarController } from '@/features/engine'
+import { cn, Wordmark } from '@/ui'
+import { isDemo, projects as demoProjects } from '@/data'
+import { relativeTime, useEngineState, type ComposerController, type StatusBarController } from '@/features/engine'
+import { machineOf, openWorkspacePicker, useMachines } from '@/features/machines/store'
+import { paneActions } from '@/features/panes/store'
+import { newChatInProject } from '@/features/coding/workspace'
+import { useIsolatedCopy } from './isolatedCopy'
+import { recentProjects } from './recentProjects'
 import { useComposerDraft } from '@/features/engine/drafts'
 import { useGitSummary } from '@/features/panel/git/summary'
 import { tr } from '@/i18n/core'
@@ -39,6 +46,8 @@ export function WelcomeView({
   // 演示模式用演示数据里的 Git 状态
   const ref = status ? folderWorkspace(live?.sessionId, status, draftKey) : isDemo ? { projectId: 'demo' } : null
   const git = useGitSummary(ref)
+  // 「独立副本」开着时输入框下面的说明（docs/ui/desktop-parity.md §3.2）；和位置行的开关同一份状态
+  const isolated = useIsolatedCopy(live?.sessionId ? undefined : key, projectId)
   const choose = (prompt: string): void => {
     setDraft(prompt)
     // 输入框是 CodeMirror，不是 textarea：按草稿键找到它，光标放到末尾
@@ -72,6 +81,28 @@ export function WelcomeView({
             <Composer live={live} status={status} draftKey={draftKey} autoFocus={!!live} newTask />
           </ComposerArea>
         </div>
+        {/* 开关显示时就占住这一行（关着时看不见）：开关时输入框不跳 */}
+        {isolated && (
+          <p
+            data-isolated-note
+            aria-hidden={!isolated.on || undefined}
+            title={tr('projectTools.copyCommitHint')}
+            className={cn(
+              'mt-2 flex min-h-8 min-w-0 items-start justify-center gap-1.5 px-6 text-meta text-fg-muted',
+              !isolated.on && 'invisible',
+            )}
+          >
+            <GitBranch size={13} className="mt-0.5 shrink-0" />
+            <span className="min-w-0 text-center">
+              {isolated.creating
+                ? tr('session.isolated.creating')
+                : isolated.base
+                  ? tr('session.isolated.note', { base: isolated.base })
+                  : tr('session.isolated.reading')}
+            </span>
+          </p>
+        )}
+        {!needProject && <RecentProjects live={live} draftKey={draftKey} current={projectId} composerKey={key} />}
         {/* 占住高度：开始打字时起点消失，输入框不跟着动 */}
         <div className="mt-3 flex min-h-8 flex-wrap justify-center gap-2 px-6">
           {chat && (
@@ -97,6 +128,82 @@ export function WelcomeView({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * 最近的项目（docs/ui/desktop-parity.md §3.2）：这台机器上最近有对话的 4 个项目，点了直接把这个新会话换过去；
+ * 当前项目描边。只有当前项目一个时不显示。演示模式用演示项目，点了只换描边
+ */
+function RecentProjects({
+  live,
+  draftKey,
+  current,
+  composerKey,
+}: {
+  live?: ComposerController
+  draftKey?: string
+  current?: string
+  composerKey: string
+}) {
+  const sessions = useEngineState(s => s.sessions)
+  const projects = useEngineState(s => s.projects)
+  const machine = useMachines().currentId
+  const [demoCurrent, setDemoCurrent] = useState(demoProjects[0]?.id)
+  const list = useMemo(
+    () =>
+      isDemo
+        ? demoProjects.slice(0, 4).map(p => ({ id: p.id, name: p.name, at: null as number | null }))
+        : recentProjects(projects, sessions, id => machineOf(id) === machine),
+    [projects, sessions, machine],
+  )
+  const selected = isDemo ? demoCurrent : current
+  if (!list.some(p => p.id !== selected)) return null
+  const pick = (id: string): void => {
+    if (id === selected) return
+    if (isDemo) setDemoCurrent(id)
+    // 标签已经有会话（工作区选择里建的空会话）：在那个项目里另开新对话
+    else if (live?.sessionId || !draftKey) newChatInProject(id)
+    else paneActions.rebindNewTab(draftKey, id)
+    focusComposer(composerKey)
+  }
+  const chip =
+    'press inline-flex h-7 max-w-[14rem] items-center gap-1.5 rounded-full border px-3 text-list hover:bg-hover hover:text-fg'
+  return (
+    <div
+      data-recent-projects
+      role="group"
+      aria-label={tr('session.WelcomeView.recentProjects')}
+      className="mt-4 flex flex-wrap items-center justify-center gap-2 px-6"
+    >
+      <span className="text-meta text-fg-faint">{tr('session.WelcomeView.recentProjects')}</span>
+      {list.map(p => (
+        <button
+          key={p.id}
+          type="button"
+          data-recent-project={p.id}
+          aria-current={p.id === selected || undefined}
+          onClick={() => pick(p.id)}
+          className={cn(
+            chip,
+            p.id === selected ? 'border-accent-line bg-surface text-fg' : 'border-line bg-surface text-fg-secondary',
+          )}
+        >
+          <span className="truncate">{p.name}</span>
+          {p.at !== null && <span className="shrink-0 text-meta text-fg-faint">{relativeTime(p.at)}</span>}
+        </button>
+      ))}
+      <button
+        type="button"
+        data-recent-other
+        onClick={() => openWorkspacePicker()}
+        title={tr('session.WelcomeView.otherFolder')}
+        aria-label={tr('session.WelcomeView.otherFolder')}
+        className="press inline-flex size-7 items-center justify-center rounded-full border border-line text-fg-muted hover:bg-hover hover:text-fg"
+      >
+        <FolderOpen size={14} />
+      </button>
     </div>
   )
 }

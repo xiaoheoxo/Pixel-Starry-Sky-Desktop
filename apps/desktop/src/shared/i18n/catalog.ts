@@ -1776,6 +1776,42 @@ export const catalog = {
     zh: '跑一遍这个项目的测试；有失败的话找出原因，先说明再改。',
     en: "Run this project's tests. If anything fails, find the cause and explain it before changing any code.",
   },
+  'session.WelcomeView.recentProjects': {
+    zh: '最近的项目',
+    en: 'Recent projects',
+  },
+  'session.WelcomeView.otherFolder': {
+    zh: '其他文件夹…',
+    en: 'Other folder…',
+  },
+  'session.isolated.label': {
+    zh: '独立副本',
+    en: 'Separate copy',
+  },
+  'session.isolated.hint': {
+    zh: '在新的 Git 副本里做，当前目录不受影响',
+    en: 'Work in a new Git copy. This folder stays untouched',
+  },
+  'session.isolated.note': {
+    zh: '发送后在新的 Git 副本里开一个分支（从 {base}），只带已提交的内容（未提交的改动不会带过去），当前目录不受影响；做完在副本页合并或丢掉',
+    en: 'When you send, a new branch is created in a fresh Git copy (from {base}) with committed content only (uncommitted changes stay here). This folder stays untouched; merge or discard it on the Copies page when done',
+  },
+  'session.isolated.reading': {
+    zh: '正在读这个项目的 Git 状态；发送时会先读到再建副本',
+    en: "Reading this project's Git status. It will be read before the copy is created when you send",
+  },
+  'session.isolated.failed': {
+    zh: '建独立副本失败：{reason}',
+    en: 'Could not create the separate copy: {reason}',
+  },
+  'session.isolated.noStatus': {
+    zh: '读不到这个项目的 Git 状态，没法建独立副本；关掉「独立副本」再发，或者稍后重试',
+    en: "Can't read this project's Git status, so the separate copy can't be created. Turn off Separate copy and send again, or try later",
+  },
+  'session.isolated.creating': {
+    zh: '正在建副本…',
+    en: 'Creating the copy…',
+  },
   'sidebar.NewTaskButton.newTask': {
     zh: '新建任务',
     en: 'New task',

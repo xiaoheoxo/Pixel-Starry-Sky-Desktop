@@ -1067,6 +1067,7 @@ export function Composer({
           live={status}
           extra={statusExtra}
           git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
+          isolatedTab={newTask && !live?.sessionId ? key : undefined}
         />
       )}
       <div
@@ -1079,6 +1080,7 @@ export function Composer({
             live={status}
             extra={statusExtra}
             git={live ? folderWorkspace(live.sessionId, status, draftKey) : null}
+            isolatedTab={newTask && !live?.sessionId ? key : undefined}
             float
           />
         )}

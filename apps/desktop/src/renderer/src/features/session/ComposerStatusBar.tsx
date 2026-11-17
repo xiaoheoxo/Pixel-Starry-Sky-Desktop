@@ -7,6 +7,9 @@ import { FolderMenu } from './FolderMenu'
 import { useActiveWorkspace } from '@/features/editor/target'
 import type { StatusBarController } from '@/features/engine'
 import { useI18n } from '@/i18n/I18nProvider'
+import { tr } from '@/i18n/core'
+import { cn, Switch } from '@/ui'
+import { useIsolatedCopy, type IsolatedCopy } from './isolatedCopy'
 import { openMachineManager, openWorkspacePicker, useMachines } from '@/features/machines/store'
 
 /**
@@ -18,18 +21,22 @@ export function ComposerStatusBar({
   extra,
   git,
   float,
+  isolatedTab,
 }: {
   live?: StatusBarController
   extra?: ReactNode
   git?: WorkspaceRef | null
   /** 极简模式：浮在输入框上面、不占位置（docs/ui/minimal-mode.md §13）；机器在顶栏，Git 只留分支和改动数 */
   float?: boolean
+  /** 新建页（还没有会话的标签）的草稿键：显示「独立副本」开关（docs/ui/desktop-parity.md §3.2） */
+  isolatedTab?: string
 }) {
   const { text } = useI18n()
   const machines = useMachines(),
     machine = machines.machines.find(m => m.id === machines.currentId)
   const machineName = live ? (machine?.id === 'local' ? text('本机') : machine?.name) : text(composerStatus.machine)
   const gitTarget = git ?? (!live && composerStatus.branch !== null ? DEMO_TARGET : null)
+  const isolated = useIsolatedCopy(isolatedTab, live?.project?.id)
   return (
     <div
       data-composer-workspace
@@ -56,12 +63,28 @@ export function ComposerStatusBar({
           <ComposerGit target={gitTarget} compact={float} />
         </span>
       )}
+      {isolated && <IsolatedSwitch copy={isolated} />}
       {extra && (
-        <span data-composer-extra className="ml-auto flex shrink-0 items-center">
+        <span data-composer-extra className={cn('flex shrink-0 items-center', !isolated && 'ml-auto')}>
           {extra}
         </span>
       )}
     </div>
+  )
+}
+
+/** 「独立副本」：开着时第一条消息先建一个 Git 副本，会话开在副本里；正在建时不能改 */
+function IsolatedSwitch({ copy }: { copy: IsolatedCopy }) {
+  const label = tr('session.isolated.label')
+  return (
+    <label
+      data-composer-isolated
+      title={tr('session.isolated.hint')}
+      className="ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1.5 hover:text-fg"
+    >
+      <Switch size="sm" checked={copy.on} disabled={copy.creating} label={label} onChange={copy.set} />
+      <span data-composer-isolated-label>{label}</span>
+    </label>
   )
 }
 
