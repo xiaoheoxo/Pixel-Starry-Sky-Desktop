@@ -51,12 +51,41 @@ String modelLabel(String model) {
   return name.length > _maxRaw ? '${name.substring(0, _maxRaw)}…' : name;
 }
 
-/// 胶囊上的三段：权限、模型（没指定时 null）、强度（没指定时 null）
+// ---- 「先出计划」开关（docs/mobile-app.md §15.2）：权限档位和计划分开，计划中另记批准后回到哪一档（planReturn）----
+
+/// 会话在计划中（先出计划开着）
+bool inPlan(Json record) => str(record['permissionMode']) == 'plan';
+
+/// 计划中时批准后回到哪一档；没记（旧记录、旧电脑）是每步问我
+String planReturnOf(Json record) => str(record['planReturn']) ?? 'ask';
+
+/// 在手机上批准计划后实际用哪一档：完全放行回到自动改文件（电脑 ops.ts 的 engine:answer）
+String approvedOnPhone(String ret) => ret == 'full' ? 'edits' : ret;
+
+/// 手机上关掉「先出计划」切到哪一档：完全放行、自动审核手机开不了，回到自动改文件
+String planOffMode(String ret) =>
+    ret == 'full' || ret == 'auto' ? 'edits' : ret;
+
+/// 计划卡、开关下面的一句：批准后按哪一档去做
+String planAfterText(Json record) {
+  final ret = planReturnOf(record);
+  final mode = permissionLabel(approvedOnPhone(ret));
+  return ret == 'full'
+      ? L(
+          '批准后按「$mode」去做（电脑上是完全放行，手机上批准回到自动改文件）',
+          'After approval it continues with “$mode” (full access on the computer; approving on the phone returns to auto-edit)',
+        )
+      : L('批准后按「$mode」去做', 'After approval it continues with “$mode”');
+}
+
+/// 胶囊上的三段：权限、模型（没指定时 null）、强度（没指定时 null）。计划中权限写「先出计划 · 批准后那档」
 ({String permission, String? model, String? effort}) modeChip(Json record) {
   final model = str(record['model']);
   final effort = str(record['effort']);
   return (
-    permission: permissionLabel(str(record['permissionMode']) ?? 'ask'),
+    permission: inPlan(record)
+        ? '${L('先出计划', 'Plan first')} · ${permissionLabel(planReturnOf(record))}'
+        : permissionLabel(str(record['permissionMode']) ?? 'ask'),
     model: model != null && model.isNotEmpty ? modelLabel(model) : null,
     effort: effort != null && effort.isNotEmpty ? effortLabel(effort) : null,
   );
@@ -84,8 +113,8 @@ class ModeOption {
   String toString() => 'ModeOption($value, $label, $hint, $disabled)';
 }
 
-/// 手机能切的三档（从严到宽）；自动审核、完全放行只能在电脑上开
-const _phoneModes = ['plan', 'ask', 'edits'];
+/// 手机能切的档（从严到宽）；自动审核、完全放行只能在电脑上开。计划不是一档，是另外的开关
+const _phoneModes = ['ask', 'edits'];
 const _rank = {'plan': 0, 'ask': 1, 'edits': 2, 'auto': 3, 'full': 4};
 
 /// 往更宽的权限切（要确认一次）
@@ -96,7 +125,6 @@ List<ModeOption> permissionOptions(String engine, String? current) {
   final caps = engines[engine]?.permissionModes ?? _phoneModes;
   final labels = _permission();
   final hints = {
-    'plan': L('只读代码、写计划，不改文件', 'Reads code and writes a plan, no file changes'),
     'ask': L(
       '改文件、运行命令前都问你',
       'Asks you before editing files or running commands',

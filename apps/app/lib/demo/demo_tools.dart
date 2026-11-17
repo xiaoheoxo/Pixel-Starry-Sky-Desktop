@@ -1,5 +1,7 @@
 // 演示电脑的工具（docs/mobile-app.md §8.4）：Git、文件、产物、任务、加项目、账号的假数据。
 // 写操作真的改这里的状态（暂存、提交、加待办…），再发 projectTools:changed 让开着的工具页刷新。
+import '../data/checkout.dart';
+import 'demo.dart' show L10n;
 import '../link/link.dart';
 import '../protocol/json.dart';
 
@@ -17,6 +19,53 @@ class DemoTools {
 
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
+  /// 演示的商品：两档赠送、两个套餐，支付宝和微信
+  static const demoStore = <String, Object?>{
+    'enabled': true,
+    'currency': 'CNY',
+    'helpText': '演示数据：下单后 3 秒自动到账。',
+    'checkout': {
+      'enabled': true,
+      'methods': ['alipay', 'wxpay'],
+      'orderTimeoutMinutes': 15,
+    },
+    'methods': [
+      {'type': 'alipay', 'label': '支付宝'},
+      {'type': 'wxpay', 'label': '微信支付'},
+    ],
+    'recharge': {
+      'enabled': true,
+      'min': 10,
+      'max': 2000,
+      'multiplier': 0.14,
+      'feeRate': 0,
+      'bonusMode': 'bonus',
+      'bonusTiers': [
+        {'minAmount': 200, 'bonusPercent': 5},
+        {'minAmount': 500, 'bonusPercent': 10},
+      ],
+      'usdToCnyRate': 7.2,
+    },
+    'plans': [
+      {
+        'id': 1,
+        'name': 'Pro 月卡',
+        'description': '适合日常开发',
+        'price': 99,
+        'validityDays': 30,
+        'features': ['支持 Claude、Codex 引擎', '优先排队'],
+      },
+      {
+        'id': 2,
+        'name': 'Max 季卡',
+        'description': '适合多会话并行',
+        'price': 799,
+        'validityDays': 90,
+        'features': ['支持 Claude、Codex 引擎', '优先排队', '更高并发'],
+      },
+    ],
+  };
+
   // Git：p1 有改动，p2 是干净的
   final _git = <String, Json>{
     'p1': {
@@ -25,6 +74,8 @@ class DemoTools {
         _f('apps/app/lib/connection/desktop_link.dart', 'M', 18, 4),
         _f('apps/app/test/connection/desktop_link_test.dart', 'M', 42, 0),
         _f('docs/mobile-app.md', 'M', 6, 1),
+        // 图片对比（§15.17）
+        _f('apps/app/assets/screen.png', 'M', 0, 0),
       ],
       'untracked': <Json>[_f('apps/app/lib/connection/probe.dart', '?', 37, 0)],
       'ahead': 1,
@@ -200,14 +251,89 @@ Future<void> main() async {
      _retryNow();
    }''';
 
+  /// 演示的充值（E1，docs/mobile-app.md §15.13）：下的单第一次轮询（约 3 秒）就到账，不跳真的支付宝 / 微信
+  final _orders = <int, Json>{};
+  final _reads = <int, int>{};
+  var _balance = 96.25;
+
+  Json _order(int id) {
+    final o = _orders[id];
+    if (o == null) throw const LinkException('MOBILE_CHECKOUT_ORDER_NOT_FOUND');
+    // 按读的次数而不是钟点：测试里的假时间不推 DateTime.now()
+    final reads = _reads[id] = (_reads[id] ?? 0) + 1;
+    if (o['status'] == 'pending' && reads > 1) {
+      o['status'] = 'completed';
+      o['payUrl'] = null;
+      o['qrContent'] = null;
+      _balance += (o['credited'] as num?)?.toDouble() ?? 0;
+    }
+    return {...o, 'serverTime': DateTime.now().toUtc().toIso8601String()};
+  }
+
   Object? handle(String method, List args) {
     final first = args.isEmpty ? null : args.first;
     final projectId = str(obj(first)['projectId']) ?? 'p1';
     switch (method) {
+      case 'store':
+        return demoStore;
+      case 'checkoutPending':
+        return [
+          for (final o in _orders.values)
+            if (o['status'] == 'pending') {...o},
+        ];
+      case 'checkoutGet' || 'checkoutVerify':
+        return _order((first as num).toInt());
+      case 'checkoutCancel':
+        final id = (first as num).toInt();
+        if (_orders[id]?['status'] == 'pending') {
+          _orders[id]!['status'] = 'cancelled';
+        }
+        return _order(id);
+      case 'panelVerify':
+        return null;
+      case 'checkoutCreate':
+        final input = obj(first);
+        final plan = objList(demoStore['plans'])
+            .where((p) => p['id'] == input['planId'])
+            .firstOrNull;
+        final amount = (input['amount'] as num?)?.toDouble();
+        final id = 1000 + _orders.length;
+        final now = DateTime.now().toUtc();
+        final wx = input['method'] == 'wxpay';
+        final quote = amount == null
+            ? null
+            : quoteRecharge(Recharge(obj(demoStore['recharge'])), amount);
+        _orders[id] = {
+          'orderId': id,
+          'kind': plan == null ? 'balance' : 'plan',
+          'status': 'pending',
+          'method': input['method'],
+          'methodLabel': wx ? '微信支付' : '支付宝',
+          'payAmount': plan?['price'] ?? amount,
+          'payCurrency': 'CNY',
+          'credited': quote?.credited,
+          'bonus': quote?.bonus ?? 0,
+          'plan': plan == null
+              ? null
+              : {
+                  'id': plan['id'],
+                  'name': plan['name'],
+                  'validityDays': plan['validityDays'],
+                },
+          'payUrl': null,
+          // 演示：微信给一个付款码；支付宝也给码（不打开真的收银台）
+          'qrContent': wx
+              ? 'weixin://wxpay/bizpayurl?pr=demo$id'
+              : 'alipay-demo-$id',
+          'expiresAt': now.add(const Duration(minutes: 15)).toIso8601String(),
+          'serverTime': now.toIso8601String(),
+          'reused': false,
+        };
+        return _order(id);
       case 'account':
         return {
           'name': '小黑',
-          'balance': 96.25,
+          'balance': _balance,
           'currency': 'USD',
           'plan': 'Pro',
           'updatedAt': _now(),
@@ -216,6 +342,27 @@ Future<void> main() async {
         return _status(projectId);
       case 'projectTools:gitDiff':
         final o = obj(args.length > 1 ? args[1] : null);
+        if ('${o['path']}'.endsWith('.png')) {
+          return {
+            'path': o['path'],
+            'binary': true,
+            'tooLarge': false,
+            'diff': '',
+            'added': 0,
+            'removed': 0,
+            'cut': false,
+            'images': {
+              'original': {
+                'dataUrl': 'data:image/png;base64,${L10n.shotBrowser}',
+                'bytes': 630,
+              },
+              'modified': {
+                'dataUrl': 'data:image/png;base64,${L10n.shotSettings}',
+                'bytes': 790,
+              },
+            },
+          };
+        }
         return {
           'path': o['path'],
           'binary': false,

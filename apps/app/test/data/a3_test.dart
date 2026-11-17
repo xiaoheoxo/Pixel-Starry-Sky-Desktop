@@ -30,9 +30,15 @@ SessionSummary s(
 
 class FakeNotifier implements Notifier {
   final shown = <(NotifyPayload, String)>[];
+  final unlockFirst = <bool>[];
+  final results = <String>[];
   final alive = <String?>[];
   @override
   Stream<NotifyTarget> get taps => const Stream.empty();
+  @override
+  Stream<NotifyAnswer> get answers => const Stream.empty();
+  @override
+  Future<void> showResult(String text) async => results.add(text);
   @override
   Future<NotifyTarget?> launchTarget() async => null;
   @override
@@ -40,8 +46,15 @@ class FakeNotifier implements Notifier {
   @override
   Future<bool> enabled() async => true;
   @override
-  Future<void> show(NotifyPayload payload, String device) async =>
-      shown.add((payload, device));
+  Future<void> show(
+    NotifyPayload payload,
+    String device, {
+    bool unlockFirst = false,
+  }) async {
+    shown.add((payload, device));
+    this.unlockFirst.add(unlockFirst);
+  }
+
   @override
   Future<void> keepAlive(String? text) async => alive.add(text);
 }

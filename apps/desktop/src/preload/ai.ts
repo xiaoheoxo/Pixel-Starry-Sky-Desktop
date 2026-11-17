@@ -1,5 +1,16 @@
 import type { AiCommitRequest, AiCommitResult, AiMemberDraftResult, AiPromptRequest } from '../shared/types/ai'
 import type { AiInlineEditRequest, AiReviewRequest, AiReviewResult } from '../shared/types/ai'
+import type { ReviewsChange, SessionReviews, TurnReview } from '../shared/types/ai'
+
+/** AI 审查结果存在主进程（docs/mobile-app.md §15.5）：窗口和手机共用 */
+export interface ReviewsBridge {
+  /** 全部结果；legacy 是 localStorage 里的旧结果，主进程没有的会话迁过去 */
+  load(legacy: unknown): Promise<Record<string, SessionReviews>>
+  /** 写一轮的结果；null 是删掉 */
+  set(sessionId: string, turnKey: string, review: TurnReview | null): Promise<void>
+  /** 别处（手机、另一个窗口）改了 */
+  onChange(callback: (change: ReviewsChange) => void): () => void
+}
 
 /** AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2） */
 export interface AiBridge {

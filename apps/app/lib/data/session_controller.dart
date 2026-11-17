@@ -11,6 +11,7 @@ import 'session_view.dart';
 
 class SessionController extends ChangeNotifier {
   SessionController(this._connections, this.deviceId, this.sessionId) {
+    _opened.update(_key, (n) => n + 1, ifAbsent: () => 1);
     _connections.addListener(_check);
     _events = _connections.events.listen(_onEvent);
     _check();
@@ -19,6 +20,12 @@ class SessionController extends ChangeNotifier {
   final Connections _connections;
   final String deviceId;
   final String sessionId;
+
+  /// 手机上开着的会话页（同一个会话可能开了两层）：别处临时取快照后，开着的不能 unwatch
+  static final _opened = <String, int>{};
+  String get _key => '$deviceId/$sessionId';
+  static bool isOpen(String deviceId, String sessionId) =>
+      _opened.containsKey('$deviceId/$sessionId');
   late final StreamSubscription<DesktopEvent> _events;
 
   SessionView view = const SessionView();
@@ -110,6 +117,8 @@ class SessionController extends ChangeNotifier {
 
   @override
   void dispose() {
+    final n = (_opened[_key] ?? 1) - 1;
+    n <= 0 ? _opened.remove(_key) : _opened[_key] = n;
     _connections.removeListener(_check);
     _events.cancel();
     _link?.call('unwatch', [sessionId]).catchError((Object _) => null);

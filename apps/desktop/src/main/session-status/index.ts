@@ -160,7 +160,7 @@ export async function initSessionStatus(ctx: AppContext): Promise<() => void> {
   // PR 合并（docs/ui/review-pr-actions.md §3.2）：合并比查状态慢，单独给 60 秒
   const mergeGh = createGhRunner({ timeout: 60_000 })
   ipc.handle('sessionStatus:mergeOptions', (_e, url: unknown) => mergeOptions(mergeGh, url))
-  ipc.handle('sessionStatus:mergePr', async (_e, sessionId: unknown, url: unknown, method: unknown, del: unknown) => {
+  const merge = async (sessionId: unknown, url: unknown, method: unknown, del: unknown): Promise<void> => {
     if (typeof sessionId !== 'string' || sessionId.length > 200) throw new Error('参数错误')
     // 只合并这个对话自己的 PR（侧栏、概况里显示的那些）
     if (!service.state().prs[sessionId]?.some(pr => pr.url === url)) throw new Error('这个对话没有这个 PR')
@@ -170,9 +170,20 @@ export async function initSessionStatus(ctx: AppContext): Promise<() => void> {
     } finally {
       await service.refreshPrs(sessionId, true).catch(() => {})
     }
-  })
+  }
+  ipc.handle('sessionStatus:mergePr', (_e, sessionId: unknown, url: unknown, method: unknown, del: unknown) =>
+    merge(sessionId, url, method, del),
+  )
+  // 手机（docs/mobile-app.md §15.4）：网关每次调用时再取
+  ctx.prs = {
+    state: () => service.state(),
+    refresh: sessionId => service.refreshPrs(sessionId, true),
+    mergeOptions: url => mergeOptions(mergeGh, url),
+    merge,
+  }
 
   const dispose = (): void => {
+    ctx.prs = null
     ctx.hostListeners.delete(onHostEvent)
     app.removeListener('browser-window-focus', onFocus)
     clearInterval(everyFolders)

@@ -29,6 +29,10 @@ Future<void> showSessionMenu(
 
   /// 第一排 Git / 文件 / 产物 / 任务（作用于这个会话的项目；对话类会话没有）
   void Function(ToolId tool)? onTool,
+
+  /// 旁聊（docs/mobile-app.md §15.3）；sideChatOff 是用不了的原因（引擎不支持），有原因时灰掉
+  VoidCallback? onSideChat,
+  String? sideChatOff,
 }) async {
   final canAct = actions.canAct;
   final pinned = record['pinnedAt'] != null;
@@ -91,6 +95,21 @@ Future<void> showSessionMenu(
                   trailing: const SizedBox(),
                   onTap: canAct ? () => Navigator.pop(context, 'pin') : null,
                 ),
+                if (onSideChat != null)
+                  ListRow(
+                    leading: const Icon(Icons.forum_outlined),
+                    title: L('旁聊', 'Side chat'),
+                    subtitle:
+                        sideChatOff ??
+                        L(
+                          '问一句，不打断正在跑的这一轮',
+                          "Ask without interrupting the current turn",
+                        ),
+                    trailing: const SizedBox(),
+                    onTap: canAct && sideChatOff == null
+                        ? () => Navigator.pop(context, 'side')
+                        : null,
+                  ),
                 if (onNew != null &&
                     projectId != null &&
                     projectId != chatProjectId)
@@ -158,6 +177,8 @@ Future<void> showSessionMenu(
       }
     case 'new':
       onNew?.call(projectId!);
+    case 'side':
+      onSideChat?.call();
     case 'archive':
       await archiveSession(
         context,

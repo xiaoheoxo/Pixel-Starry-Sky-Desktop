@@ -6,6 +6,8 @@ import '../connection/pair.dart';
 import '../data/desktop_lists.dart';
 import '../data/feedback.dart';
 import '../platform/notifier.dart';
+import '../platform/home_widget.dart';
+import '../platform/share_inbox.dart';
 import 'background.dart';
 import 'settings.dart';
 
@@ -18,6 +20,8 @@ class AppServices {
     required this.notifier,
     required this.watcher,
     this.feedback,
+    this.share = const NoShareInbox(),
+    this.homeWidget = const NoHomeWidget(),
     this.demo = false,
   });
   final Connections connections;
@@ -37,6 +41,12 @@ class AppServices {
 
   /// 每台电脑的反馈未读数（设置、抽屉的红点）；测试里不给就不显示红点
   final FeedbackUnread? feedback;
+
+  /// 别的 App 分享进来的（D2）
+  final ShareInbox share;
+
+  /// 桌面小部件（D3）
+  final HomeScreenWidget homeWidget;
 
   /// 演示模式：不连电脑，用假数据（--dart-define=DEMO=1）
   final bool demo;

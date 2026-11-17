@@ -803,6 +803,16 @@ contextBridge.exposeInMainWorld('pixelsky', {
     cancel: requestId => call('ai:cancel', requestId),
     commitCharge: requestId => call('ai:commitCharge', requestId),
   } satisfies import('./ai').AiBridge,
+  reviews: {
+    load: legacy => call('reviews:load', legacy),
+    set: (sessionId, turnKey, review) => call('reviews:set', sessionId, turnKey, review),
+    onChange: callback => {
+      const listener = (_e: Electron.IpcRendererEvent, change: import('../shared/types/ai').ReviewsChange) =>
+        callback(change)
+      on('reviews:changed', listener)
+      return () => ipcRenderer.removeListener('reviews:changed', listener)
+    },
+  } satisfies import('./ai').ReviewsBridge,
   image: {
     generate: request => call('image:generate', request),
     cancel: itemId => call('image:cancel', itemId),

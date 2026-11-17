@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 深色（同 App 深色主题） -->
+<resources>
+    <color name="widget_bg">#FF262624</color>
+    <color name="widget_text">#FFECEBE7</color>
+    <color name="widget_muted">#FF9C9A92</color>
+    <color name="widget_waiting">#FFE0A86A</color>
+    <color name="widget_idle">#FF6FCF97</color>
+</resources>

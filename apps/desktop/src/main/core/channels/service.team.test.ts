@@ -597,6 +597,20 @@ describe('队友派来的活的限制（docs/multica-learn.md §8、§11.4）', 
     })
   })
 
+  it('队友在我派的卡上追加要求：不接着用我那个没限制的会话，按限制新开', async () => {
+    const { cloud, store, agentId } = await ready()
+    const card = cloud.userPost('u:1', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0].permissionMode).toBeUndefined()
+    complete(opened[0], 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(card).status === 'done')
+    cloud.userPost('u:2', 'tc_1', '顺便把颜色也改了', [], card)
+    await until(() => sent.length === 2)
+    expect(sent[1].sessionId).toBe('s2')
+    expect(created[1]).toMatchObject({ permissionMode: 'edits', copyId: 'cp-1' })
+    expect(store.runs.get(card)?.guard).toMatchObject({ capped: 'full', isolate: true })
+  })
+
   it('我自己派的活不受限制', async () => {
     const { c, cloud, store, agentId } = await ready()
     const id = cloud.userPost('u:1', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string

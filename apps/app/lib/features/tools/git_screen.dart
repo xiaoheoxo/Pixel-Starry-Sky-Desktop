@@ -1,6 +1,9 @@
 // Git（docs/mobile-app.md §8.4，照网页版 features/tools/GitScreen.tsx）：大标题是项目名，下面一行分支 · 上游 · ↑↓；
 // 改动按冲突 / 已暂存 / 没暂存 / 未跟踪分组，每行状态角标 + 路径 +「+N −N」，点开看改动；底部提交卡片（说明、提交后推送、全部暂存、提交）
 // 和推送按钮，提交、推送前确认。放弃改动、强推、删分支、改写历史都不在手机上做（电脑网关也不放行）。
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../app/scope.dart';
@@ -11,6 +14,7 @@ import '../../protocol/json.dart';
 import '../../ui/theme/theme.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
+import '../../ui/image_viewer.dart';
 import '../../ui/widgets.dart';
 import '../session/approval_card.dart' show confirm;
 import '../session/items.dart' show DiffView;
@@ -698,6 +702,18 @@ class _DiffPageState extends State<_DiffPage> with _GitAction {
               ToolBanner(actionError!, tone: Tone.danger),
             if (d == null)
               ToolLoading(error: _diff.error)
+            // 图片：改前 / 改后两张（§15.17，旧电脑不带 images，照旧写二进制文件）
+            else if (d['images'] is Map)
+              ImageCompare(obj(d['images']), path: widget.file.path)
+            else if (d['tooLarge'] == true && d['image'] == true)
+              EmptyState(
+                icon: Icons.image_outlined,
+                title: L('图片太大', 'Image too large'),
+                body: L(
+                  '超过 8 MB，请到电脑上看。',
+                  'Over 8 MB. View it on your computer.',
+                ),
+              )
             else if (d['binary'] == true)
               EmptyState(
                 icon: Icons.insert_drive_file_outlined,
@@ -744,6 +760,110 @@ class _DiffPageState extends State<_DiffPage> with _GitAction {
           ],
         );
       },
+    );
+  }
+}
+
+/// Git 改动里的图片（§15.17）：改前、改后上下两张（手机窄，不并排），点开全屏；
+/// 一端没有（新增 / 删除）、是 Git LFS、不是图片、太大时写原因
+class ImageCompare extends StatelessWidget {
+  const ImageCompare(this.images, {super.key, required this.path});
+  final Json images;
+  final String path;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _side(context, L('改前', 'Before'), images['original'], added: true),
+      const SizedBox(height: 16),
+      _side(context, L('改后', 'After'), images['modified'], added: false),
+    ],
+  );
+
+  Widget _side(
+    BuildContext context,
+    String label,
+    Object? side, {
+    required bool added,
+  }) {
+    final c = context.colors;
+    final data = side is Map ? str(side['dataUrl']) : null;
+    final comma = data?.indexOf(',') ?? -1;
+    Uint8List? bytes;
+    if (data != null && comma > 0) {
+      try {
+        bytes = base64Decode(data.substring(comma + 1));
+      } on FormatException {
+        bytes = null;
+      }
+    }
+    final reason = switch (side is Map ? side['unavailable'] : null) {
+      _ when bytes != null => null,
+      'lfs' => L(
+        'Git LFS 文件，手机上看不了',
+        'Git LFS file — not viewable on the phone',
+      ),
+      'notImage' => L('不是能显示的图片', 'Not a displayable image'),
+      'tooLarge' => L('太大，请到电脑上看', 'Too large — view it on the computer'),
+      _ when side == null =>
+        added
+            ? L('没有（新文件）', 'None (new file)')
+            : L('没有（已删除）', 'None (deleted)'),
+      _ => L('打不开这张图', "Can't open this image"),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+        ),
+        const SizedBox(height: 6),
+        if (bytes == null)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: c.bgSubtle,
+              borderRadius: BorderRadius.circular(Radii.code),
+            ),
+            child: Text(
+              reason ?? '',
+              style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+            ),
+          )
+        else
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ImageViewer(
+                  title: '$label · ${path.split('/').last}',
+                  load: () async => bytes!,
+                ),
+              ),
+            ),
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 260),
+              decoration: BoxDecoration(
+                color: c.bgSubtle,
+                borderRadius: BorderRadius.circular(Radii.code),
+                border: Border.all(color: c.borderSubtle),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    L('打不开这张图', "Can't open this image"),
+                    style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../data/reviews.dart';
 import '../../i18n/i18n.dart';
 import '../../protocol/constants.dart';
 import '../../protocol/json.dart';
@@ -15,6 +16,7 @@ import '../../ui/theme/theme.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
+import 'message_images.dart';
 
 /// 一段时间说成「N 秒」「M 分 S 秒」
 String spanText(num ms) {
@@ -163,6 +165,7 @@ class TurnContext {
     this.retrying = false,
     this.onRetry,
     this.onUserMenu,
+    this.review,
   });
 
   /// 统计行 id → 这一轮的全部条目
@@ -178,6 +181,9 @@ class TurnContext {
 
   /// 长按自己的消息：弹出菜单（编辑重发、复制）；null 时长按不做事
   final void Function(Item item)? onUserMenu;
+
+  /// 这一轮的审查卡（C4）：参数是轮次 key（这一轮开头那条用户消息的 id），没审过的返回空
+  final Widget Function(String turnKey)? review;
 
   static TurnContext of(List<Item> items) {
     final turns = <String, List<Item>>{};
@@ -197,6 +203,7 @@ class TurnContext {
         retrying: retrying,
         onRetry: onRetry,
         onUserMenu: onUserMenu,
+        review: review,
       );
 
   TurnContext withUserMenu(void Function(Item item) onUserMenu) => TurnContext(
@@ -206,6 +213,17 @@ class TurnContext {
     retrying: retrying,
     onRetry: onRetry,
     onUserMenu: onUserMenu,
+    review: review,
+  );
+
+  TurnContext withReview(Widget Function(String turnKey) review) => TurnContext(
+    turns: turns,
+    replies: replies,
+    retryId: retryId,
+    retrying: retrying,
+    onRetry: onRetry,
+    onUserMenu: onUserMenu,
+    review: review,
   );
 }
 
@@ -218,6 +236,12 @@ String? retryNoticeId(List<Item> items, bool running, int queued) {
   }
   return null;
 }
+
+/// 一项在列表里的身份：单条用条目 id，过程用 process-第一条的 id
+String entryKey(TurnEntry e) => switch (e) {
+  ItemEntry(:final item) => item.id,
+  ProcessEntry(:final key) => key,
+};
 
 class EntryView extends StatelessWidget {
   const EntryView(this.entry, {super.key, this.context = const TurnContext()});
@@ -249,7 +273,8 @@ class ItemView extends StatelessWidget {
         final menu = turn.onUserMenu;
         return UserBubble(
           text: item.text,
-          images: objList(item['attachments']).length,
+          itemId: item.id,
+          imageMeta: objList(item['attachments']),
           guidance: item.mode == 'guidance',
           onLongPress: menu == null ? null : () => menu(item),
         );
@@ -296,12 +321,20 @@ class UserBubble extends StatelessWidget {
     super.key,
     required this.text,
     this.images = 0,
+    this.itemId,
+    this.imageMeta = const [],
     this.guidance = false,
     this.faded = false,
     this.onLongPress,
   });
   final String text;
+
+  /// 只知道张数时（排队中的）
   final int images;
+
+  /// 发出去的消息：条目 id 和图片元数据，看得到时向电脑取缩略图
+  final String? itemId;
+  final List<Json> imageMeta;
   final bool guidance;
   final bool faded;
   final VoidCallback? onLongPress;
@@ -341,18 +374,13 @@ class UserBubble extends StatelessWidget {
                     color: faded ? c.textSecondary : c.text,
                   ),
                 ),
-              if (images > 0)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.image_outlined, size: 14, color: c.textMuted),
-                    const SizedBox(width: 4),
-                    Text(
-                      L('$images 张图片', '$images images'),
-                      style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
-                    ),
-                  ],
-                ),
+              if (itemId != null && imageMeta.isNotEmpty)
+                Padding(
+                  padding: EdgeInsets.only(top: text.isEmpty ? 0 : 8),
+                  child: ImageStrip(itemId: itemId!, images: imageMeta),
+                )
+              else if (images > 0)
+                ImageCount(images),
             ],
           ),
         ),
@@ -523,6 +551,7 @@ class _TurnFooter extends StatelessWidget {
           ],
         ),
         if (changes.isNotEmpty) ChangesCard(changes),
+        if (turn.review != null) turn.review!(turnKeyOf(items)),
       ],
     );
   }
@@ -950,7 +979,10 @@ class StepRow extends StatelessWidget {
     final body = stepBody(item);
     final mono =
         item.kind == 'command' && (str(item['description']) ?? '').isEmpty;
-    return InkWell(
+    final shots = item.kind == 'tool'
+        ? objList(item['images'])
+        : const <Json>[];
+    final row = InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: body == null
           ? null
@@ -1010,6 +1042,18 @@ class StepRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+    if (shots.isEmpty) return row;
+    // 工具结果里的图（截图、生成的图）：步骤下面一排缩略图
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        row,
+        Padding(
+          padding: const EdgeInsets.only(left: 34, bottom: 6),
+          child: ImageStrip(itemId: item.id, images: shots),
+        ),
+      ],
     );
   }
 }
@@ -1226,6 +1270,14 @@ class _ProcessBlockState extends State<ProcessBlock> {
               ),
             ),
           ),
+          // 折起来时工具结果里的图（截图、生成的图）照样露出来，展开后跟着各自那一步
+          if (!_open)
+            for (final s in steps)
+              if (s.kind == 'tool' && objList(s['images']).isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 25, bottom: 6),
+                  child: ImageStrip(itemId: s.id, images: objList(s['images'])),
+                ),
           if (_open)
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: 4),

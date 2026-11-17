@@ -217,12 +217,19 @@ class DesktopLink {
     }
   }
 
-  Future<Object?> call(String method, [List<Object?> args = const []]) {
+  /// timeout：等得久的调用（旁聊要等 AI 回答）另给；默认 timings.callTimeout
+  Future<Object?> call(
+    String method, [
+    List<Object?> args = const [],
+    Duration? timeout,
+  ]) {
     final rpc = _rpc;
     if (rpc == null || state != LinkState.ready) {
       return Future.error(const LinkNotReady());
     }
-    return rpc.call(method, args, timings.callTimeout).catchError((Object e) {
+    return rpc.call(method, args, timeout ?? timings.callTimeout).catchError((
+      Object e,
+    ) {
       // 超时可能是电脑那边悄悄丢了加密会话（篡改 / 电脑重启）：探一下，不通就重新握手
       if (e is LinkException && e.message.startsWith('RPC_TIMEOUT')) {
         if (identical(_rpc, rpc)) _probe();

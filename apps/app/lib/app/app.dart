@@ -1,20 +1,27 @@
 // 根组件：外观、语言按设置（默认跟随系统，A4）；没有配对过的电脑时先去配对。
 // A3：前后台切换时告诉连接和后台提醒（安卓起前台服务保持连接）；点通知 / pixelsky:// 链接打开对应页面；
 // 开了面容 / 指纹锁时，打开 App 和离开超过 1 分钟回来先验证。
+// 第三批 D1：通知上点了「允许 / 拒绝」就答复那条审批（开了锁时先解锁），结果换成一行通知或底部提示。
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../data/notify.dart';
+import '../data/quick_answer.dart';
+import '../data/tasks.dart';
 import '../features/home/home_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/pairing/add_computer_screen.dart';
 import '../features/session/session_screen.dart';
+import '../features/share/share_target_screen.dart';
+import '../data/share.dart';
 import '../i18n/i18n.dart';
 import '../ui/theme/theme.dart';
 import '../ui/theme/type.dart';
+import '../platform/home_widget.dart';
 import 'background.dart';
+import 'widget_sync.dart';
 import 'scope.dart';
 import 'settings.dart';
 
@@ -36,6 +43,12 @@ class _PixelSkyAppState extends State<PixelSkyApp> with WidgetsBindingObserver {
 
   /// 面容 / 指纹锁：现在锁着；什么时候切到后台的
   late bool _locked = widget.services.settings.lock;
+
+  /// 桌面小部件跟着会话列表更新（D3）
+  late final _widgetSync = WidgetSync(widget.services.homeWidget);
+
+  /// 锁着时点了通知按钮：解锁后再处理
+  final _afterUnlock = <VoidCallback>[];
   DateTime? _leftAt;
   static const _relockAfter = Duration(minutes: 1);
 
@@ -49,11 +62,23 @@ class _PixelSkyAppState extends State<PixelSkyApp> with WidgetsBindingObserver {
     _s.settings.addListener(_applyLanguage);
     _applyLanguage();
     _subs.add(_s.notifier.taps.listen(_openTarget));
+    _subs.add(_s.notifier.answers.listen(_answer));
+    _subs.add(_s.share.received.listen(_openShare));
+    _subs.add(_s.homeWidget.clicks.listen(_openWidget));
+    _widgetSync.attach(_s.connections, _s.lists);
     final links = widget.links;
     if (links != null) _subs.add(links.uriLinkStream.listen(_openLink));
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final shared = await _s.share.initial().catchError((Object _) => null);
       final target = await _s.notifier.launchTarget();
-      if (target != null) {
+      final fromWidget = await _s.homeWidget.launched().catchError(
+        (Object _) => null,
+      );
+      if (shared != null) {
+        _openShare(shared);
+      } else if (fromWidget != null) {
+        _openWidget(fromWidget);
+      } else if (target != null) {
         _openTarget(target);
       } else {
         final uri = await links?.getInitialLink();
@@ -73,6 +98,7 @@ class _PixelSkyAppState extends State<PixelSkyApp> with WidgetsBindingObserver {
     for (final s in _subs) {
       s.cancel();
     }
+    _widgetSync.dispose();
     super.dispose();
   }
 
@@ -151,8 +177,63 @@ class _PixelSkyAppState extends State<PixelSkyApp> with WidgetsBindingObserver {
     openSession(ctx, t.device, triage.ids.first, triage: triage);
   }
 
-  /// pixelsky:// 链接：配对
+  /// 通知上点了允许 / 拒绝：开了锁就等解锁（按钮这时会打开 App），答复后告诉结果
+  void _answer(NotifyAnswer a) {
+    if (_locked) {
+      _afterUnlock.add(() => _answer(a));
+      return;
+    }
+    final t = a.target;
+    final s = _s.lists.get(t.device).sessions.where((s) => s.id == t.session);
+    answerFromNotice(
+      _s.connections,
+      a,
+      sessionTitle: s.isEmpty ? '' : taskTitle(s.first),
+    ).then((text) {
+      if (!mounted) return;
+      if (_s.watcher.foreground) {
+        _messenger.currentState?.showSnackBar(SnackBar(content: Text(text)));
+      } else {
+        _s.notifier.showResult(text).catchError((Object _) {});
+      }
+    });
+  }
+
+  void _unlocked() {
+    setState(() => _locked = false);
+    final list = [..._afterUnlock];
+    _afterUnlock.clear();
+    for (final f in list) {
+      f();
+    }
+  }
+
+  /// 别的 App 分享进来：没配过电脑时不管（还在配对页）
+  void _openShare(SharedContent content) {
+    if (_s.connections.pairings.isEmpty) return;
+    final nav = _navigator.currentState;
+    final ctx = _navigator.currentContext;
+    if (nav == null || ctx == null || !ctx.mounted) return;
+    nav.popUntil((r) => r.isFirst);
+    openShareTarget(ctx, content);
+  }
+
+  /// 点了桌面小部件：去第一台有任务在等的电脑逐个处理；都没有就回概览
+  void _openWidget(Uri? uri) {
+    if (uri?.toString() != widgetTriageUri) return;
+    final c = _s.connections;
+    for (final p in c.pairings) {
+      if (_s.lists.get(p.deviceId).sessions.any((s) => s.state == 'waiting')) {
+        _openTarget(NotifyTarget(device: p.deviceId, waiting: true));
+        return;
+      }
+    }
+    _navigator.currentState?.popUntil((r) => r.isFirst);
+  }
+
+  /// pixelsky:// 链接：配对（小部件的 pixelsky://widget/… 不是配对，app_links 也会收到，跳过）
   void _openLink(Uri uri) {
+    if (uri.host == 'widget') return;
     final ctx = _navigator.currentContext;
     if (ctx == null || !ctx.mounted) return;
     openOffer(ctx, uri.toString());
@@ -180,11 +261,7 @@ class _PixelSkyAppState extends State<PixelSkyApp> with WidgetsBindingObserver {
               children: [
                 ?child,
                 if (_locked)
-                  Positioned.fill(
-                    child: LockScreen(
-                      onUnlocked: () => setState(() => _locked = false),
-                    ),
-                  ),
+                  Positioned.fill(child: LockScreen(onUnlocked: _unlocked)),
               ],
             ),
           ),

@@ -18,7 +18,14 @@ import {
   type Codec,
   type Keypair,
 } from '@pixelsky/link'
-import { ENGINES, type ImageAttachment, type Item, type SearchResult, type SessionSummary } from '@pixelsky/protocol'
+import {
+  codedError,
+  ENGINES,
+  type ImageAttachment,
+  type Item,
+  type SearchResult,
+  type SessionSummary,
+} from '@pixelsky/protocol'
 import { imageOf } from '../core/engine/desktop-images'
 import {
   DELTA_BATCH,
@@ -26,17 +33,25 @@ import {
   IMAGE_INLINE,
   MobileGateway,
   PAIRING_TTL,
+  CHANNEL_TEXT_LIMIT,
   PHONE_TEXT_LIMIT,
   phoneAccount,
   phoneRewind,
   phoneSessions,
   phoneSettings,
+  PR_REFRESH_GAP,
   sanitize,
   type DesktopSources,
   type GatewayDeps,
   type PhoneSearch,
 } from './gateway'
 import type { StoredDevice } from './store'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { reviewFixRequest } from '../../shared/types/ai'
+import { ReviewStore } from '../reviews/store'
+import { prConflictRequest, type SessionPr, type SessionStatusState } from '../../shared/types/session-status'
 
 const codec: Codec = {
   deflate: b => new Uint8Array(deflateRawSync(b)),
@@ -267,6 +282,70 @@ describe('MobileGateway calls', () => {
     await expect(p.call('projectTools:gitDiscard', { projectId: 'proj' }, 'all')).rejects.toThrow('MOBILE_UNSUPPORTED')
   })
 
+  it('git image diffs: both sides shrunk to half a frame each; unavailable sides pass through (§15.17)', async () => {
+    const big = 'data:image/png;base64,' + 'B'.repeat(IMAGE_INLINE)
+    const t = setup({
+      call: async channel =>
+        channel === 'projectTools:gitDiff'
+          ? {
+              path: 'logo.png',
+              original: null,
+              modified: null,
+              binary: true,
+              tooLarge: false,
+              images: {
+                original: { dataUrl: 'data:image/png;base64,AAAA', bytes: 3 },
+                modified: { dataUrl: big, bytes: 9 },
+              },
+            }
+          : null,
+      shrinkImage: image => ({ ...image, mediaType: 'image/jpeg', dataBase64: 'SMALL' }),
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    expect(
+      await p.call('projectTools:gitDiff', { projectId: 'proj' }, { path: 'logo.png', area: 'unstaged' }),
+    ).toMatchObject({
+      binary: true,
+      images: {
+        original: { dataUrl: 'data:image/png;base64,AAAA', bytes: 3 },
+        modified: { dataUrl: 'data:image/jpeg;base64,SMALL', bytes: 9 },
+      },
+    })
+  })
+
+  it('fileImage: markdown image paths inside the session workspace only, shrunk to a frame (§15.17)', async () => {
+    const calls: [string, unknown[]][] = []
+    const t = setup({
+      call: async (channel, args) => {
+        calls.push([channel, args])
+        if (channel === 'files:target') return { ref: args[0], name: 'app', path: '/home/me/app' }
+        if (channel === 'files:read')
+          return args[1] === 'out/shot.png'
+            ? { kind: 'image', path: 'out/shot.png', dataUrl: 'data:image/png;base64,QUJD', bytes: 3 }
+            : { kind: 'text', path: String(args[1]), content: 'x', version: 'v', bytes: 1, bom: false, newline: 'lf' }
+        return null
+      },
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    expect(await p.call('fileImage', 's1', './out/shot.png')).toMatchObject({
+      name: 'shot.png',
+      mediaType: 'image/png',
+      dataBase64: 'QUJD',
+    })
+    expect(await p.call('fileImage', 's1', '/home/me/app/out/shot.png')).toMatchObject({ dataBase64: 'QUJD' })
+    // 项目外、::0、不是图片：不读或报不在
+    await expect(p.call('fileImage', 's1', '/etc/passwd')).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('fileImage', 's1', '::0/etc/passwd')).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('fileImage', 's1', 'README.md')).rejects.toThrow('MOBILE_NOT_FOUND')
+    expect(calls.filter(c => c[0] === 'files:read').map(c => c[1])).toEqual([
+      [{ sessionId: 's1' }, 'out/shot.png'],
+      [{ sessionId: 's1' }, 'out/shot.png'],
+      [{ sessionId: 's1' }, 'README.md'],
+    ])
+  })
+
   it('serves the tools with rebuilt arguments and phone-sized results', async () => {
     const calls: [string, unknown[], string][] = []
     const long = Array.from({ length: 40_000 }, (_, i) => `${i} ${'x'.repeat(20)}`).join('\n')
@@ -330,7 +409,7 @@ describe('MobileGateway calls', () => {
     await p.call('projectTools:createTask', 'proj', { title: '写测试', status: 'pending', order: 5, projectId: 'x' })
     await p.call('projectTools:updateTask', 't1', { status: 'completed', pinnedAt: 1 })
     expect(calls.map(c => [c[0], c[1]])).toEqual([
-      ['projectTools:gitDiff', [{ projectId: 'proj' }, { path: 'a.ts', area: 'unstaged', images: false }]],
+      ['projectTools:gitDiff', [{ projectId: 'proj' }, { path: 'a.ts', area: 'unstaged' }]],
       ['files:read', [{ projectId: 'proj' }, 'big.txt']],
       ['files:read', [{ sessionId: 's1' }, 'p.png']],
       ['engine:artifacts', [{ projectId: 'proj', days: 30, requestId: 1 }]],
@@ -514,6 +593,292 @@ describe('MobileGateway calls', () => {
     })
     gateways.push(none.gateway)
     await expect((await paired(none)).call('feedback:state')).rejects.toThrow('MOBILE_UNSUPPORTED')
+  })
+
+  it('checkout: view phones see the store and orders; only act phones order / cancel; coded errors become phone codes', async () => {
+    const order = {
+      orderId: 9,
+      kind: 'balance',
+      status: 'pending',
+      method: 'alipay',
+      methodLabel: '支付宝',
+      payAmount: 72,
+      payCurrency: 'CNY',
+      feeRate: 0,
+      credited: 10,
+      bonus: 0,
+      plan: null,
+      qrContent: 'https://pay.example.com/cashier?o=1',
+      qrSource: 'provider',
+      payUrl: null,
+      createdAt: 'x',
+      expiresAt: 'y',
+      paidAt: null,
+      completedAt: null,
+      serverTime: 'z',
+      reused: false,
+    } as const
+    const log: unknown[] = []
+    const checkout = {
+      store: async () =>
+        ({
+          enabled: true,
+          currency: 'CNY',
+          plans: [],
+          recharge: {},
+          methods: [],
+          helpText: '',
+          purchaseUrl: '/buy',
+          redeemUrl: '/r',
+        }) as never,
+      create: async (input: unknown) => {
+        log.push(input)
+        if ((input as { amount?: number }).amount === 1)
+          throw codedError('checkout.AMOUNT_OUT_OF_RANGE', { min: 5, max: 500 })
+        if ((input as { amount?: number }).amount === 2) throw codedError('checkout.PANEL_REAUTH_REQUIRED')
+        return order as never
+      },
+      get: async () => order as never,
+      verify: async () => order as never,
+      cancel: async () => ({ ...order, status: 'cancelled', qrContent: null }) as never,
+      pending: async () => [order] as never,
+      panelVerify: async () => void log.push('verify'),
+    }
+    const t = setup({ local: { defaultEngine: () => 'codex', search: async () => ({}) as never, checkout } })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    const store = (await p.call('store')) as Record<string, unknown>
+    expect(store.purchaseUrl).toBeUndefined()
+    expect(store.redeemUrl).toBeUndefined()
+    const got = (await p.call('checkoutGet', 9)) as Record<string, unknown>
+    expect(got).toMatchObject({ orderId: 9, qrContent: order.qrContent, payAmount: 72 })
+    expect(got.qrSource).toBeUndefined()
+    expect(((await p.call('checkoutPending')) as unknown[]).length).toBe(1)
+    await expect(p.call('checkoutCreate', { amount: 10 })).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('checkoutCancel', 9)).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('panelVerify')).rejects.toThrow('MOBILE_FORBIDDEN')
+    t.devices[0].access = 'act'
+    expect(await p.call('checkoutCreate', { amount: 10 })).toMatchObject({ orderId: 9 })
+    await expect(p.call('checkoutCreate', { amount: 1 })).rejects.toThrow('MOBILE_CHECKOUT_AMOUNT_OUT_OF_RANGE:5:500')
+    await expect(p.call('checkoutCreate', { amount: 2 })).rejects.toThrow('MOBILE_CHECKOUT_PANEL_REAUTH_REQUIRED')
+    expect(await p.call('checkoutCancel', 9)).toMatchObject({ status: 'cancelled' })
+    await p.call('panelVerify')
+    expect(log.at(-1)).toBe('verify')
+
+    const none = setup({ local: { defaultEngine: () => 'codex', search: async () => ({}) as never } })
+    gateways.push(none.gateway)
+    await expect((await paired(none)).call('store')).rejects.toThrow('MOBILE_UNSUPPORTED')
+  })
+
+  it('reviews: view phones read; act phones ignore and send to fix with desktop-built text; changes pushed to watchers', async () => {
+    const file = join(tmpdir(), 'gw-reviews-' + process.pid + '.json')
+    const store = new ReviewStore(file)
+    const item = (id: string, status = 'open') =>
+      ({ id, status, severity: 'high', file: 'a.ts', line: 3, title: 'bug ' + id, detail: '' }) as never
+    store.set('s1', 't1', {
+      at: 1,
+      model: 'm',
+      files: 1,
+      items: [item('a'), item('b'), item('c', 'ignored')],
+      fix: null,
+      rechecked: false,
+    })
+    const t = setup({
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never, reviews: () => store },
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    expect(Object.keys((await p.call('reviews', 's1')) as object)).toEqual(['t1'])
+    expect(await p.call('reviews', 'other')).toEqual({})
+    await expect(p.call('reviewItem', 's1', 't1', 'a', 'ignored')).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('reviewFix', 's1', 't1', null)).rejects.toThrow('MOBILE_FORBIDDEN')
+    t.devices[0].access = 'act'
+    await p.call('reviewItem', 's1', 't1', 'a', 'ignored')
+    await expect(p.call('reviewItem', 's1', 't1', 'a', 'fixed')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await expect(p.call('reviewItem', 's1', 't1', 'zz', 'open')).rejects.toThrow('MOBILE_NOT_FOUND')
+    // 全部修复：没处理的那些（a 刚忽略、c 早忽略了，只剩 b）
+    await p.call('reviewFix', 's1', 't1', null)
+    const sent = t.calls.find(c => c[0] === 'engine:send')!
+    expect((sent[1][1] as { text: string }).text).toBe(reviewFixRequest([item('b')]))
+    const r = store.session('s1').t1
+    expect(r.items.map(i => i.status)).toEqual(['ignored', 'sent', 'ignored'])
+    expect(r.fix?.ids).toEqual(['b'])
+    await expect(p.call('reviewFix', 's1', 't1', ['c'])).rejects.toThrow('MOBILE_NOT_FOUND')
+
+    // 推给开着这个会话的手机
+    await p.call('engine:openSessionTail', 's1')
+    t.gateway.hostEvent('reviews:changed', [{ sessionId: 's1', turns: store.session('s1') }])
+    t.gateway.hostEvent('reviews:changed', [{ sessionId: 's2', turns: {} }])
+    await wait(20)
+    expect(p.events.at(-1)).toMatchObject({ kind: 'reviews', sessionId: 's1' })
+    await store.flush()
+    await rm(file, { force: true })
+  })
+
+  it('channels: local only, read-only for view phones; text cut, thread / flow hidden; new messages pushed to the open channel', async () => {
+    const msg = (id: string, extra: object = {}) =>
+      ({ id, channelId: 'c1', at: 1, kind: 'message', authorId: 'me', text: 'hi', format: 'plain', ...extra }) as never
+    const messages = [
+      msg('m1', {
+        text: 'x'.repeat(CHANNEL_TEXT_LIMIT + 50),
+        attached: { images: [{ name: 'a' }], files: [{ name: 'f.txt' }] },
+      }),
+      msg('m2', { threadId: 'm1' }),
+      {
+        id: 't1',
+        channelId: 'c1',
+        at: 2,
+        kind: 'task',
+        authorId: 'me',
+        assigneeId: 'a1',
+        title: '拆分登录页',
+        status: 'done',
+        sessionId: 's9',
+      },
+    ] as never[]
+    const channels = {
+      state: () =>
+        ({
+          self: { id: 'me' },
+          channels: [
+            { id: 'c1', name: '前端', topic: null, scope: 'local', memberIds: ['me', 'a1'], unread: 2, createdAt: 1 },
+            { id: 'team1', name: '团队', topic: null, scope: 'team', memberIds: [], unread: 0, createdAt: 1 },
+          ],
+          members: [
+            { id: 'me', kind: 'human', name: '我', you: true },
+            {
+              id: 'a1',
+              kind: 'agent',
+              name: 'Codex',
+              engine: 'codex',
+              status: 'idle',
+              avatar: { style: 'letter', color: '#2d6151', text: 'C' },
+              config: { secret: 1 },
+            },
+          ],
+        }) as never,
+      page: (id: string) => {
+        if (id !== 'c1') throw new Error('频道不存在')
+        return { messages, more: false }
+      },
+      attachments: () => ({ images: [picture('big'.repeat(IMAGE_INLINE))], files: [] }) as never,
+    }
+    const t = setup({
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never, channels: () => channels },
+      shrinkImage: image => ({ ...image, dataBase64: 'small' }),
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    const list = (await p.call('channels')) as { channels: { id: string; last: unknown }[]; members: object[] }
+    expect(list.channels.map(c => c.id)).toEqual(['c1'])
+    expect(list.channels[0].last).toEqual({ authorId: 'me', text: '拆分登录页' })
+    expect(list.members[1]).toEqual({
+      id: 'a1',
+      kind: 'agent',
+      name: 'Codex',
+      engine: 'codex',
+      status: 'idle',
+      color: '#2d6151',
+      text: 'C',
+    })
+    const page = (await p.call('channelMessages', 'c1')) as { messages: Record<string, unknown>[] }
+    expect(page.messages.map(m => m.id)).toEqual(['m1', 't1'])
+    expect((page.messages[0].text as string).length).toBe(CHANNEL_TEXT_LIMIT + 1)
+    expect(page.messages[0]).toMatchObject({ images: 1, files: ['f.txt'] })
+    expect(page.messages[1]).toMatchObject({ kind: 'task', status: 'done', sessionId: 's9' })
+    await expect(p.call('channelMessages', 'team1')).rejects.toThrow('MOBILE_NOT_FOUND')
+    expect(await p.call('channelImage', 'c1', 'm1', 0)).toMatchObject({ dataBase64: 'small' })
+
+    // 新消息只推给开着这个频道的手机；关了就不推
+    t.gateway.hostEvent('channels:message', [{ channelId: 'c1', message: msg('m3') }])
+    await wait(20)
+    expect(p.events.at(-1)).toMatchObject({ kind: 'channelMessage', channelId: 'c1', message: { id: 'm3' } })
+    await p.call('channelUnwatch', 'c1')
+    const before = p.events.length
+    t.gateway.hostEvent('channels:message', [{ channelId: 'c1', message: msg('m4') }])
+    t.gateway.hostEvent('channels:changed', [{}])
+    t.gateway.hostEvent('channels:changed', [{}])
+    await wait(600)
+    expect(p.events.slice(before)).toEqual([{ kind: 'channels' }])
+
+    const none = setup({
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never, channels: () => null },
+    })
+    gateways.push(none.gateway)
+    await expect((await paired(none)).call('channels')).rejects.toThrow('MOBILE_UNSUPPORTED')
+  })
+
+  it('PRs: only the session own PRs; fix text built on the desktop; act needed to fix / merge; changes pushed to watchers', async () => {
+    const pr = {
+      repo: 'o/r',
+      number: 7,
+      url: 'https://github.com/o/r/pull/7',
+      title: 'Fix login',
+      state: 'open',
+      ci: 'fail',
+      ciFailed: 1,
+      conflict: true,
+      additions: 3,
+      deletions: 1,
+      head: 'fix',
+      base: 'main',
+      closedAt: null,
+      checks: Array.from({ length: 25 }, (_, i) => ({ name: 'c' + i, state: i ? 'pass' : 'fail', url: 'u' + i })),
+    } as const
+    const log: unknown[][] = []
+    let state = { missingFolders: {}, prs: { s1: [pr] }, mentioned: {}, gh: 'ready' } as never as SessionStatusState
+    const prs = {
+      state: () => state,
+      refresh: async (id: string) => void log.push(['refresh', id]),
+      mergeOptions: async (url: string) =>
+        (log.push(['options', url]), { methods: ['squash'], deleteBranch: true }) as never,
+      merge: async (...a: unknown[]) => void log.push(['merge', ...a]),
+    }
+    const t = setup({ local: { defaultEngine: () => 'codex', search: async () => ({}) as never, prs: () => prs } })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    const list = (await p.call('prs', 's1')) as SessionPr[]
+    expect(list[0].checks).toHaveLength(20)
+    expect(await p.call('prs', 'other')).toEqual([])
+    await p.call('prRefresh', 's1')
+    await p.call('prRefresh', 's1')
+    expect(log).toEqual([['refresh', 's1']])
+    t.tick(PR_REFRESH_GAP)
+    await p.call('prRefresh', 's1')
+    expect(log).toHaveLength(2)
+    expect(await p.call('prMergeOptions', 's1', pr.url)).toEqual({ methods: ['squash'], deleteBranch: true })
+    await expect(p.call('prMergeOptions', 's1', 'https://github.com/o/r/pull/8')).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('prFix', 's1', pr.url, 'checks')).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('prMerge', 's1', pr.url, 'squash', true)).rejects.toThrow('MOBILE_FORBIDDEN')
+    t.devices[0].access = 'act'
+    await p.call('prFix', 's1', pr.url, 'conflict')
+    const sent = t.calls.find(c => c[0] === 'engine:send')!
+    expect(sent[1][0]).toBe('s1')
+    expect((sent[1][1] as { text: string }).text).toBe(prConflictRequest(pr))
+    expect(sent[2]).toBe('mobile:p1')
+    await expect(p.call('prFix', 's1', pr.url, 'other')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await expect(p.call('prMerge', 's1', pr.url, 'fast', true)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await p.call('prMerge', 's1', pr.url, 'squash', true)
+    expect(log.at(-1)).toEqual(['merge', 's1', pr.url, 'squash', true])
+
+    // 变了的才推，只推开着的会话
+    await p.call('engine:openSessionTail', 's1')
+    const before = p.events.length
+    t.gateway.hostEvent('sessionStatus:changed', [state])
+    await wait(600)
+    expect(p.events.length).toBe(before)
+    state = { ...state, prs: { s1: [{ ...pr, state: 'merged' }], s2: [pr] } } as never
+    t.gateway.hostEvent('sessionStatus:changed', [state])
+    await wait(600)
+    expect(p.events.slice(before)).toMatchObject([{ kind: 'prs', sessionId: 's1', prs: [{ state: 'merged' }] }])
+
+    const none = setup({ local: { defaultEngine: () => 'codex', search: async () => ({}) as never, prs: () => null } })
+    gateways.push(none.gateway)
+    await expect((await paired(none)).call('prs', 's1')).rejects.toThrow('MOBILE_UNSUPPORTED')
   })
 
   it('phoneAccount keeps only name, balance, currency, plan name and updatedAt', () => {
@@ -1089,6 +1454,23 @@ describe('MobileGateway session settings', () => {
       fast: true,
     })
   })
+
+  it('「先出计划」开关：批准后回到的档只能是手机能开的，引擎要认这一档', () => {
+    expect(phoneSettings({ permissionMode: 'plan', planReturn: 'edits' })).toEqual({
+      permissionMode: 'plan',
+      planReturn: 'edits',
+    })
+    expect(phoneSettings({ planReturn: 'ask' })).toEqual({ planReturn: 'ask' })
+    for (const bad of ['full', 'auto', 'plan', 1])
+      expect(() => phoneSettings({ planReturn: bad })).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(sanitize('engine:updateSession', ['s', { planReturn: 'edits' }])[1]).toEqual({ planReturn: 'edits' })
+    expect(() => checkSettings(ENGINES.claude.caps, { planReturn: 'edits' })).not.toThrow()
+    const noEdits = {
+      ...ENGINES.claude.caps,
+      permissionModes: ['ask', 'plan'] as typeof ENGINES.claude.caps.permissionModes,
+    }
+    expect(() => checkSettings(noEdits, { planReturn: 'edits' })).toThrow('MOBILE_BAD_ARGUMENT')
+  })
 })
 
 describe('helpers', () => {
@@ -1121,6 +1503,16 @@ describe('helpers', () => {
     ])
     expect(sanitize('engine:rewind', ['s', 'u1'])).toEqual(['s', 'u1', { conversation: true, code: false }])
     expect(() => sanitize('engine:rewind', ['s', 7])).toThrow()
+    // 旁聊：问题和历史只留文字，历史最多 20 轮
+    const history = Array.from({ length: 25 }, (_, i) => ({ question: 'q' + i, answer: 'a' + i, extra: 1 }))
+    const side = sanitize('engine:sideQuestion', ['s', '懒加载怎么写', history])
+    expect(side[1]).toBe('懒加载怎么写')
+    expect(side[2]).toHaveLength(20)
+    expect((side[2] as unknown[])[0]).toEqual({ question: 'q5', answer: 'a5' })
+    expect(sanitize('engine:sideQuestion', ['s', 'q'])[2]).toEqual([])
+    expect(() => sanitize('engine:sideQuestion', ['s', ''])).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(() => sanitize('engine:sideQuestion', ['s', 'q', [{ question: 1 }]])).toThrow('MOBILE_BAD_ARGUMENT')
+    expect(sanitize('engine:cancelSideQuestion', ['s', 'x'])).toEqual(['s'])
     expect(sanitize('engine:undoRewind', ['s', 'extra'])).toEqual(['s'])
   })
   it('回退的结果：手机发图上限内的图片带回，超了整组不带，文件附件不带，都算进 dropped', () => {

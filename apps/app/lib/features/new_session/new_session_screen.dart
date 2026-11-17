@@ -8,6 +8,7 @@ import '../../app/scope.dart';
 import '../../connection/desktop_link.dart';
 import '../../data/actions.dart';
 import '../../data/images.dart';
+import '../../data/share.dart';
 import '../../data/mode.dart';
 import '../../i18n/i18n.dart';
 import '../../protocol/constants.dart';
@@ -25,13 +26,15 @@ void openNewSession(
   String deviceId, {
   String? projectId,
   String? draft,
+  SharedContent? shared,
 }) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => NewSessionScreen(
         deviceId: deviceId,
         projectId: projectId,
-        draft: draft,
+        draft: draft ?? shared?.text,
+        images: shared?.imagePaths ?? const [],
       ),
     ),
   );
@@ -39,14 +42,27 @@ void openNewSession(
 
 /// 新会话的模式；null 都是「用电脑上的设置」
 class _Mode {
-  const _Mode({this.permissionMode, this.model, this.effort, this.fast});
+  const _Mode({
+    this.permissionMode,
+    this.model,
+    this.effort,
+    this.fast,
+    this.plan = false,
+  });
   final String? permissionMode;
   final String? model;
   final String? effort;
   final bool? fast;
 
+  /// 「先出计划」：开着时权限发 plan，选的档位是批准后回到的那档（docs/mobile-app.md §15.2）
+  final bool plan;
+
   Json toJson() => {
-    'permissionMode': ?permissionMode,
+    if (plan) ...{
+      'permissionMode': 'plan',
+      'planReturn': ?permissionMode,
+    } else
+      'permissionMode': ?permissionMode,
     'model': ?model,
     'effort': ?effort,
     'fast': ?fast,
@@ -59,12 +75,16 @@ class NewSessionScreen extends StatefulWidget {
     required this.deviceId,
     this.projectId,
     this.draft,
+    this.images = const [],
   });
   final String deviceId;
   final String? projectId;
 
   /// 输入框里先放好的字（任务「交给 AI」）
   final String? draft;
+
+  /// 先放进待发的图片路径（从别的 App 分享进来的，D2）
+  final List<String> images;
   @override
   State<NewSessionScreen> createState() => _NewSessionScreenState();
 }
@@ -94,6 +114,9 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
       widget.deviceId,
     );
     _projectId = widget.projectId;
+    if (widget.images.isNotEmpty) {
+      _images.addPaths(widget.images);
+    }
     _desktop.defaultEngine().then((e) {
       if (mounted) setState(() => _defaultEngine = e);
     });
@@ -114,12 +137,10 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
   _Mode get _modeNow {
     if (_modeEngine == _engine) return _mode;
     final kept = _mode.permissionMode;
+    final modes = engines[_engine]?.permissionModes ?? const <String>[];
     return _Mode(
-      permissionMode:
-          kept != null &&
-              (engines[_engine]?.permissionModes.contains(kept) ?? false)
-          ? kept
-          : null,
+      permissionMode: kept != null && modes.contains(kept) ? kept : null,
+      plan: _mode.plan && modes.contains('plan'),
     );
   }
 
@@ -135,6 +156,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
       'effort': m.effort,
     });
     final parts = [
+      if (m.plan) L('先出计划', 'Plan first'),
       if (m.permissionMode != null) chip.permission,
       ?chip.model,
       ?chip.effort,
@@ -321,6 +343,27 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                 ModeGroup(
                   title: L('权限', 'Permissions'),
                   options: permissionOptions(_engine, null),
+                  toggle:
+                      (engines[_engine]?.permissionModes.contains('plan') ??
+                          false)
+                      ? ModeToggle(
+                          label: L('先出计划', 'Plan first'),
+                          hint: L(
+                            '只读代码、写计划，你批准后按上面选的档位去做',
+                            'Reads code and writes a plan; after you approve it continues with the level above',
+                          ),
+                          value: m.plan,
+                          onChanged: (v) => set(
+                            _Mode(
+                              permissionMode: m.permissionMode,
+                              model: m.model,
+                              effort: m.effort,
+                              fast: m.fast,
+                              plan: v,
+                            ),
+                          ),
+                        )
+                      : null,
                   value: m.permissionMode ?? '',
                   onPick: (v) async {
                     if (v.isNotEmpty &&
@@ -331,6 +374,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                     set(
                       _Mode(
                         permissionMode: v.isEmpty ? null : v,
+                        plan: m.plan,
                         model: m.model,
                         effort: m.effort,
                         fast: m.fast,
@@ -348,6 +392,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                   onPick: (v) => set(
                     _Mode(
                       permissionMode: m.permissionMode,
+                      plan: m.plan,
                       model: v.isEmpty ? null : v,
                       fast: m.fast,
                     ),
@@ -361,6 +406,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                   onPick: (v) => set(
                     _Mode(
                       permissionMode: m.permissionMode,
+                      plan: m.plan,
                       model: m.model,
                       effort: v.isEmpty ? null : v,
                       fast: m.fast,
@@ -387,6 +433,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                       set(
                         _Mode(
                           permissionMode: m.permissionMode,
+                          plan: m.plan,
                           model: m.model,
                           effort: m.effort,
                           fast: v.isEmpty ? null : v == 'on',

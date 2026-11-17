@@ -2351,7 +2351,8 @@ export class Channels {
       let guard = current.guard
       let sessionId = current.sessionId
       let text = current.prompt
-      if (!this.sessionExists(sessionId)) {
+      // 队友在我自己开的会话上追加要求（前几轮是我派的、没有限制）：不接着用那个会话，按限制新开一个
+      if (!this.sessionExists(sessionId) || (rules && !guard)) {
         // 流程里的步骤每步新开会话（docs/ui/channels-pipeline.md §4.2）
         sessionId =
           member.mode === 'shared' && !current.flow && !rules && this.sessionExists(member.sharedSessionId)
@@ -2419,14 +2420,16 @@ export class Channels {
   }
 
   /**
-   * 这一轮是队友派来的（团队卡、这一轮要的人不是我；旧云端没有 requested_by 时看派活的人）：返回限制；不是时 null
+   * 这一轮是队友派来的（团队卡、这一轮要的人不是我；旧云端没有 requested_by 时看派活的人）：返回限制；不是时 null。
+   * 认不出时按队友派来的算
    */
   private teammateOf(run: TaskRun): TeammateRules | null {
     if (!run.team || !this.team) return null
     const tm = this.team.card(run.taskId)?.tm
     const me = this.team.getMe()?.id
-    const who = tm?.task?.requestedBy ?? tm?.author ?? null
-    if (!me || !who || who === me) return null
+    const who = tm?.task?.requestedBy ?? tm?.author ?? run.team.author ?? null
+    // 认不出是谁要的（卡还没同步下来、还没拿到自己是谁）：按队友派来的算，宁可多限制
+    if (me && who === me) return null
     return this.store.teammate
   }
 

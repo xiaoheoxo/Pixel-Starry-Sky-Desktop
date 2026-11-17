@@ -23,11 +23,15 @@ class ModeGroup {
     required this.value,
     required this.onPick,
     this.segmented = false,
+    this.toggle,
   });
   final String title;
   final List<ModeOption> options;
   final String value;
   final ValueChanged<String> onPick;
+
+  /// 选项下面跟一个开关（权限下面的「先出计划」，docs/mobile-app.md §15.2）；只用在一行一项的组
+  final ModeToggle? toggle;
 
   /// 选项不多、没有说明时画成一排分段按钮（强度）
   final bool segmented;
@@ -176,11 +180,10 @@ class ModePanel extends StatelessWidget {
                 ),
               )
             else
-              Container(
-                decoration: BoxDecoration(
-                  color: c.bgSubtle,
-                  borderRadius: BorderRadius.circular(16),
-                ),
+              // Material 当底色：组里跟着的开关行，点按水波画在它上面
+              Material(
+                color: c.bgSubtle,
+                borderRadius: BorderRadius.circular(16),
                 clipBehavior: Clip.antiAlias,
                 child: Column(
                   children: [
@@ -200,6 +203,10 @@ class ModePanel extends StatelessWidget {
                         },
                       ),
                     ],
+                    if (g.toggle != null) ...[
+                      Divider(height: 1, color: c.borderSubtle),
+                      _toggleTile(g.toggle!, locked, c),
+                    ],
                   ],
                 ),
               ),
@@ -216,36 +223,7 @@ class ModePanel extends StatelessWidget {
                   for (var i = 0; i < toggles.length; i++) ...[
                     if (i > 0)
                       Divider(height: 1, indent: 16, color: c.borderSubtle),
-                    Opacity(
-                      opacity: locked || toggles[i].disabled ? 0.5 : 1,
-                      child: SwitchListTile(
-                        value: toggles[i].value,
-                        onChanged: locked || toggles[i].disabled
-                            ? null
-                            : toggles[i].onChanged,
-                        title: Row(
-                          children: [
-                            if (toggles[i].icon != null) ...[
-                              Icon(toggles[i].icon, size: 16, color: c.warn),
-                              const SizedBox(width: 6),
-                            ],
-                            Text(
-                              toggles[i].label,
-                              style: TextStyle(fontSize: Fs.ui, color: c.text),
-                            ),
-                          ],
-                        ),
-                        subtitle: toggles[i].hint == null
-                            ? null
-                            : Text(
-                                toggles[i].hint!,
-                                style: TextStyle(
-                                  fontSize: Fs.meta,
-                                  color: toggles[i].warn ? c.warn : c.textMuted,
-                                ),
-                              ),
-                      ),
-                    ),
+                    _toggleTile(toggles[i], locked, c),
                   ],
                 ],
               ),
@@ -274,6 +252,36 @@ class ModePanel extends StatelessWidget {
 }
 
 /// 一档：选中实底（bg-selected），没选的描边
+/// 开关的一行（面板底部的开关组、组里跟着的开关共用）
+Widget _toggleTile(ModeToggle t, bool locked, AppColors c) => Opacity(
+  opacity: locked || t.disabled ? 0.5 : 1,
+  child: SwitchListTile(
+    value: t.value,
+    onChanged: locked || t.disabled ? null : t.onChanged,
+    title: Row(
+      children: [
+        if (t.icon != null) ...[
+          Icon(t.icon, size: 16, color: c.warn),
+          const SizedBox(width: 6),
+        ],
+        Text(
+          t.label,
+          style: TextStyle(fontSize: Fs.ui, color: c.text),
+        ),
+      ],
+    ),
+    subtitle: t.hint == null
+        ? null
+        : Text(
+            t.hint!,
+            style: TextStyle(
+              fontSize: Fs.meta,
+              color: t.warn ? c.warn : c.textMuted,
+            ),
+          ),
+  ),
+);
+
 class _Pill extends StatelessWidget {
   const _Pill({required this.label, required this.selected, this.onTap});
   final String label;
@@ -460,6 +468,9 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
         final model = str(record['model']);
         final effort = str(record['effort']);
         final permission = str(record['permissionMode']);
+        // 计划中：档位那组显示、改的是批准后回到哪一档
+        final planning = inPlan(record);
+        final level = planning ? planReturnOf(record) : permission;
         EngineModel? current;
         for (final m in _models ?? const <EngineModel>[]) {
           if (m.id == model) current = m;
@@ -526,15 +537,38 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
               ),
             ModeGroup(
               title: L('权限', 'Permissions'),
-              options: permissionOptions(engine, permission),
-              value: permission ?? '',
+              options: permissionOptions(engine, level),
+              value: level ?? '',
               onPick: (v) async {
-                if (widens(permission, v) &&
+                if (widens(level, v) &&
                     !await confirm(context, widenConfirm())) {
                   return;
                 }
-                await _apply({'permissionMode': v});
+                await _apply(
+                  planning ? {'planReturn': v} : {'permissionMode': v},
+                );
               },
+              toggle: (caps?.permissionModes.contains('plan') ?? false)
+                  ? ModeToggle(
+                      label: L('先出计划', 'Plan first'),
+                      hint: planning
+                          ? planAfterText(record)
+                          : L(
+                              '只读代码、写计划，你批准后再动手',
+                              'Reads code and writes a plan; changes start after you approve',
+                            ),
+                      value: planning,
+                      onChanged: (v) => _apply(
+                        v
+                            ? {'permissionMode': 'plan'}
+                            : {
+                                'permissionMode': planOffMode(
+                                  planReturnOf(record),
+                                ),
+                              },
+                      ),
+                    )
+                  : null,
             ),
             ModeGroup(
               title: sourceList != null

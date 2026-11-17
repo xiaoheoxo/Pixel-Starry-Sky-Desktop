@@ -465,6 +465,8 @@ export const IPC_CONTRACT = {
     route: 'resource',
     ids: [0],
     remote: 'engine:sideQuestion',
+    // 手机上的旁聊（docs/mobile-app.md §15.3）
+    mobile: 'act',
     trust: 'sender',
   },
   'engine:cancelSideQuestion': {
@@ -472,6 +474,8 @@ export const IPC_CONTRACT = {
     route: 'resource',
     ids: [0],
     remote: 'engine:cancelSideQuestion',
+    // 手机上的旁聊（docs/mobile-app.md §15.3）
+    mobile: 'act',
     trust: 'sender',
   },
   // 会话 ⇄ 终端（TUI）切换（docs/ui/tui-toggle.md §4.1）：只做本机，不进远端
@@ -793,6 +797,10 @@ export const IPC_CONTRACT = {
   'ai:memberDraft': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:optimizePrompt': { kind: 'invoke', route: 'local', trust: 'window' },
   'ai:review': { kind: 'invoke', route: 'local', trust: 'window' },
+  // 审查结果存在主进程（docs/mobile-app.md §15.5）：窗口读写，手机网关也看
+  'reviews:load': { kind: 'invoke', route: 'local', trust: 'window' },
+  'reviews:set': { kind: 'invoke', route: 'local', trust: 'window' },
+  'reviews:changed': { kind: 'push', route: 'push', trust: 'none' },
   'providers:billing': { kind: 'invoke', route: 'local', trust: 'sender' },
   'providers:changed': { kind: 'push', route: 'push', trust: 'none' },
   'providers:list': { kind: 'invoke', route: 'local', trust: 'sender' },
