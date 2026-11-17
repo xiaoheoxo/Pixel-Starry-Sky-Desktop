@@ -1627,120 +1627,60 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
 :root[data-perf='smooth'] .animate-spin {
   animation-timing-function: linear;
 }
-/* 运行中图标（ui/Spinner.tsx）：2×2 方格不动，亮度顺时针流（左上 → 右上 → 右下 → 左下），四块相差 1/4 圈。
-   亮度一直在变、没有停住的平台：下一块提前缓缓亮起，到顶后慢慢褪成拖尾。曲线写成关键帧上的折线，
-   省电档每段折线跳 3 步（一圈约 22 次，每秒不到 20 次重绘），流畅档平滑。领头的橙色是单独一层，只变透明度（橙灰之间插值会发棕） */
+/* 运行中图标（ui/Spinner.tsx）：2×2 方格不动，亮度顺时针流（左上 → 右上 → 右下 → 左下），四块相差 1/4 圈，领头是橙色。
+   原来 4 个方块 + 4 个领头层各跑一个透明度动画，一个图标 8 个合成层，分屏过渡时每帧都要整体重排、掉帧（docs/ui/multi-pane.md §7.2）。
+   现在是帧条：照原来的关键帧把每一刻预先算成两条遮罩（ui/spinnerStrip.ts，按方格边长插进页面），灰色、领头两层一步一步挪遮罩位置，
+   不进合成层，外观不变。省电档每圈 48 帧，流畅档 100 帧；帧距 = 方格宽 + 2px（STRIP_GUTTER）；最后一帧是动画关时停的那一拍。
+   图标里的 4 个 <i> 只占位（排版、基线同原来），不画东西。
+   mono：领头也用文字色（两层叠起来正好是原来只有灰色方块的样子） */
 .pixel-spinner {
   --pixel-spin: 1.2s;
+  --pixel-n: 48;
 }
-.pixel-spinner > i {
-  position: relative;
-  border-radius: 1px;
-  background: currentColor;
-  opacity: 0.18;
-  animation: pixel-flow var(--pixel-spin) steps(3, end) infinite;
+:root[data-perf='smooth'] .pixel-spinner {
+  --pixel-n: 100;
 }
-.pixel-spinner > i::after {
-  content: '';
+.pixel-spinner > b {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  inset: var(--pixel-pad);
+  -webkit-mask: var(--pixel-mask) 0 0 / calc((var(--pixel-w) + 2px) * (var(--pixel-n) + 1)) var(--pixel-w) no-repeat;
+  mask: var(--pixel-mask) 0 0 / calc((var(--pixel-w) + 2px) * (var(--pixel-n) + 1)) var(--pixel-w) no-repeat;
+  animation: pixel-strip var(--pixel-spin) steps(var(--pixel-n), end) infinite;
+}
+.pixel-spinner > .pixel-gray {
+  --pixel-mask: var(--pixel-gray);
+  background: currentColor;
+}
+.pixel-spinner > .pixel-lead {
+  --pixel-mask: var(--pixel-lead);
   background: var(--active);
-  opacity: 0;
-  animation: pixel-flow-lead var(--pixel-spin) steps(3, end) infinite;
-  animation-delay: inherit;
 }
-.pixel-spinner[data-mono] > i::after {
-  display: none;
+.pixel-spinner[data-mono] > .pixel-lead {
+  background: currentColor;
 }
-.pixel-spinner > i:nth-child(2) {
-  animation-delay: calc(var(--pixel-spin) * -0.75);
-}
-.pixel-spinner > i:nth-child(4) {
-  animation-delay: calc(var(--pixel-spin) * -0.5);
-}
-.pixel-spinner > i:nth-child(3) {
-  animation-delay: calc(var(--pixel-spin) * -0.25);
-}
-:root[data-perf='smooth'] .pixel-spinner > i,
-:root[data-perf='smooth'] .pixel-spinner > i::after {
-  animation-timing-function: linear;
-}
-@keyframes pixel-flow {
-  0% {
-    opacity: 1;
-  }
-  10% {
-    opacity: 0.78;
-  }
-  25% {
-    opacity: 0.5;
-  }
-  40% {
-    opacity: 0.28;
-  }
-  55%,
-  85% {
-    opacity: 0.18;
-  }
-  92% {
-    opacity: 0.45;
-  }
-  100% {
-    opacity: 1;
+@keyframes pixel-strip {
+  to {
+    -webkit-mask-position: calc((var(--pixel-w) + 2px) * var(--pixel-n) * -1) 0;
+    mask-position: calc((var(--pixel-w) + 2px) * var(--pixel-n) * -1) 0;
   }
 }
-@keyframes pixel-flow-lead {
-  0% {
-    opacity: 1;
-  }
-  12% {
-    opacity: 0.6;
-  }
-  22% {
-    opacity: 0.2;
-  }
-  30%,
-  85% {
-    opacity: 0;
-  }
-  93% {
-    opacity: 0.35;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-/* 关了动画：停在第一拍（左上领头、左下半亮），照样看得出是「运行中」 */
-:root[data-motion='off'] .pixel-spinner > i,
-:root[data-motion='off'] .pixel-spinner > i::after {
+/* 关了动画：停在帧条最后一帧（左上领头、左下半亮），照样看得出是「运行中」 */
+:root[data-motion='off'] .pixel-spinner > b {
   animation: none;
-}
-:root[data-motion='off'] .pixel-spinner > i:nth-child(1),
-:root[data-motion='off'] .pixel-spinner > i:nth-child(1)::after {
-  opacity: 1;
-}
-:root[data-motion='off'] .pixel-spinner > i:nth-child(3) {
-  opacity: 0.55;
+  -webkit-mask-position: calc((var(--pixel-w) + 2px) * var(--pixel-n) * -1) 0;
+  mask-position: calc((var(--pixel-w) + 2px) * var(--pixel-n) * -1) 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-motion='system'] .pixel-spinner > i,
-  :root[data-motion='system'] .pixel-spinner > i::after {
+  :root[data-motion='system'] .pixel-spinner > b {
     animation: none;
-  }
-  :root[data-motion='system'] .pixel-spinner > i:nth-child(1),
-  :root[data-motion='system'] .pixel-spinner > i:nth-child(1)::after {
-    opacity: 1;
-  }
-  :root[data-motion='system'] .pixel-spinner > i:nth-child(3) {
-    opacity: 0.55;
+    -webkit-mask-position: calc((var(--pixel-w) + 2px) * var(--pixel-n) * -1) 0;
+    mask-position: calc((var(--pixel-w) + 2px) * var(--pixel-n) * -1) 0;
   }
 }
 :root[data-window-idle]
   :is(
     .animate-spin,
-    .pixel-spinner > i,
-    .pixel-spinner > i::after,
+    .pixel-spinner > b,
     .animate-pulse,
     .effort-max,
     .effort-ultra,
