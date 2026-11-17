@@ -1,4 +1,5 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
+import { nativeMemoryFrom } from '../shared/nativeMemory'
 import type { HostEvent, IpcChannelName } from '@pixelsky/protocol'
 import type { AccountState, PayWindowEvent } from '../shared/types/account'
 import type { PlatformKeyMode } from '../shared/types/platform-catalog'
@@ -245,7 +246,16 @@ const log: LogBridge = {
   exportDiagnostics: () => call('log:export'),
   write: (level, message, fields) => send('log:write', { level, message, fields }),
   uncaught: () => send('log:uncaught'),
-  sample: sample => call('log:sample', sample),
+  // 内存分项只有 preload 拿得到（界面主世界没有 process / webFrame）：转发前附上（docs/memory-tier2.md §2）
+  sample: sample =>
+    call('log:sample', {
+      ...sample,
+      native: nativeMemoryFrom({
+        heap: () => process.getHeapStatistics(),
+        blink: () => process.getBlinkMemoryInfo(),
+        usage: () => webFrame.getResourceUsage(),
+      }),
+    }),
 }
 function logEntryListener(_e: Electron.IpcRendererEvent, entry: import('@pixelsky/protocol').LogEntry): void {
   for (const listener of logListeners) listener(entry)

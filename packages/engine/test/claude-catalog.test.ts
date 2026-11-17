@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ClaudeAdapter } from '../src'
-import { claudeModels } from '../src/claude'
+import { CATALOG_TTL, claudeModels } from '../src/claude'
 
 const FAKE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
 
@@ -59,7 +59,7 @@ describe('Claude 目录缓存', () => {
     })
     const first = await adapter.catalog()
     const a = adapter as unknown as { catalogCache: { at: number; value: unknown } | null; probing: unknown }
-    a.catalogCache!.at = Date.now() - 31 * 60_000
+    a.catalogCache!.at = Date.now() - CATALOG_TTL - 60_000
     const stale = await adapter.catalog()
     expect(stale).toBe(first)
     expect(a.probing).not.toBeNull()
@@ -91,7 +91,7 @@ describe('Claude 目录缓存', () => {
       probing: Promise<unknown> | null
       discover(force: boolean): Promise<unknown>
     }
-    a.catalogCache!.at = Date.now() - 31 * 60_000
+    a.catalogCache!.at = Date.now() - CATALOG_TTL - 60_000
     await adapter.catalog()
     const running = a.probing!
     expect(running).not.toBeNull()

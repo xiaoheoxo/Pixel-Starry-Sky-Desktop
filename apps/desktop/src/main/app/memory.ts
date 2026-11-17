@@ -2,7 +2,7 @@
 // 只在换档、首条、心跳时写日志；崩溃时把最近 10 条和整机内存写进「渲染进程退出」。
 import { app, type WebContents } from 'electron'
 import { logger } from '@pixelsky/engine'
-import type { RendererMemorySample } from '../../shared/types/memory'
+import type { NativeMemory, RendererMemorySample } from '../../shared/types/memory'
 
 const log = logger('perf')
 
@@ -97,6 +97,7 @@ export function parseRendererSample(raw: unknown): RendererMemorySample | null {
     const v = r[key]
     return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v * 10) / 10 : 0
   }
+  const native = nativeOf(r.native)
   return {
     heapUsedMb: n('heapUsedMb'),
     heapTotalMb: n('heapTotalMb'),
@@ -113,7 +114,55 @@ export function parseRendererSample(raw: unknown): RendererMemorySample | null {
     terminalLines: n('terminalLines'),
     codeEditors: n('codeEditors'),
     lightweight: r.lightweight === true,
+    ...(native ? { native } : {}),
   }
+}
+
+const NATIVE_KEYS = [
+  'v8UsedMb',
+  'v8TotalMb',
+  'v8PhysicalMb',
+  'v8CodeMb',
+  'v8MallocMb',
+  'blinkAllocMb',
+  'blinkTotalMb',
+  'cacheImagesMb',
+  'cacheScriptsMb',
+  'cacheCssMb',
+  'cacheFontsMb',
+  'cacheOtherMb',
+] as const satisfies readonly (keyof NativeMemory)[]
+
+/** preload 附上的内存分项：不是对象、一项也不合法就没有；不合法的项缺省（不写成 0，分得清「拿不到」和「是 0」） */
+function nativeOf(raw: unknown): NativeMemory | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const out: NativeMemory = {}
+  for (const key of NATIVE_KEYS) {
+    const v = r[key]
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[key] = Math.round(v * 10) / 10
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+/** 分项的日志短键：平铺在 renderer 里（日志最多 4 层，崩溃日志的 recent 里再嵌一层会被截掉） */
+function nativeFields(m: NativeMemory | undefined): Record<string, unknown> {
+  if (!m) return {}
+  const pairOf = (a?: number, b?: number): string | undefined =>
+    a === undefined && b === undefined ? undefined : `${a ?? '-'}/${b ?? '-'}`
+  const out: Record<string, unknown> = {
+    v8: pairOf(m.v8UsedMb, m.v8TotalMb),
+    v8Phys: m.v8PhysicalMb,
+    code: m.v8CodeMb,
+    malloc: m.v8MallocMb,
+    blink: pairOf(m.blinkAllocMb, m.blinkTotalMb),
+    img: m.cacheImagesMb,
+    js: m.cacheScriptsMb,
+    css: m.cacheCssMb,
+    font: m.cacheFontsMb,
+    otherRes: m.cacheOtherMb,
+  }
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined))
 }
 
 function procMem(m: AppMetric['memory']): ProcMem {
@@ -183,6 +232,7 @@ export function sampleFields(s: MemorySample): Record<string, unknown> {
             termLines: r.terminalLines,
             editors: r.codeEditors,
             ...(r.lightweight ? { lightweight: true } : {}),
+            ...nativeFields(r.native),
           },
         }
       : { renderer: null }),

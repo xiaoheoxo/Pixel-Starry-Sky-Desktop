@@ -117,8 +117,12 @@ export interface ClaudeAdapterOptions {
   dataDir?: string
 }
 
-/** 输出风格 / 模型列表的缓存时间；过期后先返回旧值、后台刷新（每次刷新都要起一个 claude.exe 握手） */
-const CATALOG_TTL = 30 * 60_000
+/**
+ * 输出风格 / 模型列表的缓存时间；过期后先返回旧值、后台刷新（每次刷新都要起一个 claude.exe 握手）。
+ * 换账号、登录退出、改路径 / 参数、安装更新、重新检测都会清缓存（dropCatalog），和有效期无关；
+ * 只有在 ~/.claude 里改输出风格、Claude Code 自己后台升级这类变化要等过期（docs/memory-tier2.md §1）
+ */
+export const CATALOG_TTL = 6 * 60 * 60_000
 /** 后台刷新握手失败、留着旧列表时，隔多久再试 */
 const CATALOG_RETRY = 60_000
 /**
@@ -146,6 +150,18 @@ const log = logger('engine.claude')
 
 function isEffort(x: unknown): x is Effort {
   return typeof x === 'string' && (EFFORTS as readonly string[]).includes(x)
+}
+
+/** 握手进程（主目录、PROBE_ARGS、自己的账号环境）initialize 回包里的整份目录 */
+function catalogFromInit(init: Record<string, unknown>): EngineCatalog {
+  const styles = Array.isArray(init.available_output_styles)
+    ? init.available_output_styles.filter((x): x is string => typeof x === 'string')
+    : []
+  return {
+    outputStyles: styles,
+    currentOutputStyle: typeof init.output_style === 'string' ? init.output_style : null,
+    models: claudeModels(init.models),
+  }
 }
 
 /**
@@ -482,19 +498,6 @@ export class ClaudeAdapter implements EngineAdapter {
     return windowSettings(list)
   }
 
-  /**
-   * 会话 initialize 回包里的模型列表更新缓存里的 models；缓存还没有（没握手过）就不管。
-   * 注意：本机会话在项目目录里启动、带项目设置（.claude/settings.json 的 env / availableModels），
-   * 这份列表可能是项目限定过的，会覆盖全局目录，最多持续到下一次握手刷新（30 分钟内）
-   */
-  private refreshModels(raw: unknown): void {
-    if (!this.catalogCache || !Array.isArray(raw)) return
-    const models = claudeModels(raw)
-    if (!models.length) return
-    // at 不动：只换了 models，输出风格的有效期不能被顺带延长
-    this.catalogCache = { at: this.catalogCache.at, value: { ...this.catalogCache.value, models } }
-  }
-
   private readyLauncher(record: SessionRecord): Launcher {
     const d = this.cached
     if (!d?.launcher || (d.info.status !== 'ready' && !(viaGateway(record) && d.info.status === 'unauthenticated')))
@@ -534,12 +537,8 @@ export class ClaudeAdapter implements EngineAdapter {
         this.opts.projectsDir ?? (accountDir ? defaultProjectsDir(base) : (d.projectsDir ?? defaultProjectsDir(env))),
       steeringValidated: this.opts.steeringValidated,
       extensions: ctx.extensions,
-      // 本机账号的会话自己的 initialize 回包里有模型列表，顺手更新缓存，省得过期后再起进程握手；
-      // 平台线路和自定义 API 走网关，模型列表不同，不能写进本机目录（回包到达时再按当前来源判断，会话中途换来源也对）。
-      // 输出风格受项目设置影响，也不动
-      onInitialize: init => {
-        if (!viaGateway(ctx.record())) this.refreshModels(init.models)
-      },
+      // 会话自己的 initialize 回包不写全局目录：会话在项目目录里启动，模型列表可能被项目设置（availableModels）限定过，
+      // 目录有效期 6 小时，写进去会错很久（docs/memory-tier2.md §1）。全局目录只来自主目录的握手和读额度进程
     })
   }
 
@@ -709,13 +708,21 @@ export class ClaudeAdapter implements EngineAdapter {
    * current 为假是读别的订阅账号（账号表）：模型列表和「认不认识 get_usage」不记进缓存
    */
   private async probeQuota(launcher: Launcher, env: NodeJS.ProcessEnv, current: boolean): Promise<QuotaReading> {
+    // 目录代次和调用方算 env 在同一个同步段里取：之后清过目录（换账号、改参数），这个进程的回包就不写
+    const gen = this.catalogGen
     if (this.closedForQuota) throw new Error('Claude Code unavailable: 应用正在退出')
     await this.freshLogin(launcher, env)
     if (this.closedForQuota) throw new Error('Claude Code unavailable: 应用正在退出')
     const proc = this.probeProcess(launcher, env, current ? 'quota' : 'account')
     try {
       const init = await proc.request('initialize', {}, 30_000)
-      if (current) this.refreshModels(init.models)
+      // 当前账号的额度进程和握手进程同源（主目录、同样的参数和环境）：回包就是一份完整目录，顺手写进缓存并续期，
+      // 省掉一次只为握手起的进程（docs/memory-tier2.md §1）。握手期间清过缓存（换账号、改参数）就不写
+      if (current && gen === this.catalogGen) {
+        const catalog = catalogFromInit(init)
+        if (catalog.models?.length || catalog.outputStyles.length)
+          this.catalogCache = { at: Date.now(), value: catalog }
+      }
       const email = str(obj(init.account).email) || null
       let raw: Record<string, unknown>
       try {
@@ -801,16 +808,7 @@ export class ClaudeAdapter implements EngineAdapter {
     const proc = this.probeProcess(launcher, env, 'catalog')
     try {
       const init = await proc.request('initialize', {}, 30_000)
-      const styles = Array.isArray(init.available_output_styles)
-        ? init.available_output_styles.filter((x): x is string => typeof x === 'string')
-        : []
-      return {
-        catalog: {
-          outputStyles: styles,
-          currentOutputStyle: typeof init.output_style === 'string' ? init.output_style : null,
-          models: claudeModels(init.models),
-        },
-      }
+      return { catalog: catalogFromInit(init) }
     } catch (err) {
       if (proc.alive) return null
       return { error: startupReason(proc.stderrTail) || (err as Error).message }

@@ -26,4 +26,26 @@ export interface RendererMemorySample {
   /** CodeEditor 实例数 */
   codeEditors: number
   lightweight: boolean
+  /** preload 附上的内存分项（docs/memory-tier2.md §2）；界面自己不填 */
+  native?: NativeMemory
+}
+
+/**
+ * 界面进程的内存分项（docs/memory-tier2.md §2），preload 取的，单位 MB；某组拿不到时那几项缺省。
+ * v8*：process.getHeapStatistics()（已用 / 总量 / 物理提交 / 代码空间 / V8 自己 malloc 的）；
+ * blink*：process.getBlinkMemoryInfo()（DOM、排版对象所在的 GC 堆）；cache*：webFrame.getResourceUsage() 的内存缓存
+ */
+export interface NativeMemory {
+  v8UsedMb?: number
+  v8TotalMb?: number
+  v8PhysicalMb?: number
+  v8CodeMb?: number
+  v8MallocMb?: number
+  blinkAllocMb?: number
+  blinkTotalMb?: number
+  cacheImagesMb?: number
+  cacheScriptsMb?: number
+  cacheCssMb?: number
+  cacheFontsMb?: number
+  cacheOtherMb?: number
 }

@@ -187,8 +187,6 @@ export interface ClaudeSessionDeps {
   env: NodeJS.ProcessEnv
   projectsDir: string
   steeringValidated?: boolean
-  /** initialize 回包到了（宿主拿去更新模型目录缓存） */
-  onInitialize?: (init: Record<string, unknown>) => void
   /**
    * 用的是添加的订阅账号（docs/ui/engine-accounts-claude.md §2.3）：账号目录；原文件里这个目录能用的 MCP 服务器
    * （账号的 .claude.json 里不放，每次启动现读，和扩展的合成一个 --mcp-config 文件放在账号目录里）
@@ -736,7 +734,6 @@ export class ClaudeSession implements EngineSession {
         { promptSuggestions: true, agentProgressSummaries: true, perTaskStopAffordance: true },
         30_000,
       )
-      this.deps.onInitialize?.(init)
       const commands = Array.isArray(init.commands) ? init.commands.map(v => str(obj(v).name)) : []
       this.ctx.emit({
         type: 'commands',

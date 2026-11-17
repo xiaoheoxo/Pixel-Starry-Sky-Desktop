@@ -317,3 +317,35 @@ describe('Linux 的物理可用按 MemAvailable 算', () => {
     expect(systemMemory(info, 'win32').freePct).toBe(5)
   })
 })
+
+describe('界面内存分项（docs/memory-tier2.md §2）', () => {
+  it('parseRendererSample：分项只留合法的数，一项都不合法或不是对象就没有', () => {
+    const parsed = parseRendererSample({
+      ...renderer(),
+      native: { v8UsedMb: 65.04, blinkAllocMb: -1, cacheImagesMb: 'x', extra: 9 },
+    })
+    expect(parsed?.native).toEqual({ v8UsedMb: 65 })
+    expect(parseRendererSample({ ...renderer(), native: { v8UsedMb: Number.NaN } })?.native).toBeUndefined()
+    expect(parseRendererSample({ ...renderer(), native: 'x' })).not.toHaveProperty('native')
+  })
+
+  it('sampleFields：分项平铺在 renderer 里，没有的不写', () => {
+    const s = sample(0)
+    s.renderer = renderer({
+      native: { v8UsedMb: 65, v8TotalMb: 80, v8CodeMb: 5, blinkAllocMb: 120, blinkTotalMb: 180, cacheImagesMb: 30 },
+    })
+    const r = sampleFields(s).renderer as Record<string, unknown>
+    expect(r).toMatchObject({ v8: '65/80', code: 5, blink: '120/180', img: 30 })
+    expect(r).not.toHaveProperty('font')
+    expect(Object.values(r).some(v => v !== null && typeof v === 'object')).toBe(false)
+    expect(sampleFields(sample(0)).renderer).not.toHaveProperty('v8')
+  })
+
+  it('只有分项不同的两条采样不多写一次盘', () => {
+    const t = createTelemetry()
+    expect(t.push(sample(0), 0).write).toBe(true)
+    const next = sample(MIN)
+    next.renderer = renderer({ native: { v8UsedMb: 500, blinkAllocMb: 400 } })
+    expect(t.push(next, MIN).write).toBe(false)
+  })
+})
