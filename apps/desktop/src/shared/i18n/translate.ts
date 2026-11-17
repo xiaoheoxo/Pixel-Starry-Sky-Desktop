@@ -76,6 +76,7 @@ import { resumeMessages } from './resumeMessages'
 import { appCommandMessages } from './appCommandMessages'
 import { onboardingMessages } from './onboardingMessages'
 import { systemProxyMessages } from './systemProxyMessages'
+import { idleReleaseMessages } from './idleReleaseMessages'
 import { approvalMessages } from './approvalMessages'
 import { extstoreDetailMessages } from './extstoreDetailMessages'
 import { settingsWindowMessages } from './settingsWindowMessages'
@@ -172,6 +173,7 @@ export const allMessages = {
   ...appCommandMessages,
   ...onboardingMessages,
   ...systemProxyMessages,
+  ...idleReleaseMessages,
   ...approvalMessages,
   ...extstoreDetailMessages,
   ...settingsWindowMessages,

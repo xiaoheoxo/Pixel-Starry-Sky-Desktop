@@ -78,6 +78,9 @@ export interface EngineBridge {
   /** 系统代理补给本机引擎的状态（会重新查一次系统代理） */
   systemProxy(): Promise<import('../shared/types/system-proxy').SystemProxyStatus>
   setSystemProxy(enabled: boolean): Promise<import('../shared/types/system-proxy').SystemProxyStatus>
+  /** 闲置多久关引擎进程（分钟），null 不释放；只管本机（docs/engine-idle-release.md） */
+  idleRelease(): Promise<{ minutes: 5 | 10 | 30 | null }>
+  setIdleRelease(minutes: 5 | 10 | 30 | null): Promise<{ minutes: 5 | 10 | 30 | null }>
   setRetrySettings(maxRetries: number | null): Promise<{ maxRetries: number | null }>
   /** 引擎列表和状态；force 时重新检测 */
   engines(force?: boolean): Promise<EngineInfo[]>

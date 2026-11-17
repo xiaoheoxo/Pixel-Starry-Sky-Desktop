@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   AUTO_REVIEW_TEXT,
+  backgroundAgents,
   cutItem,
   reduce,
   replyPreview,
@@ -10,7 +11,7 @@ import {
   type SessionRecord,
 } from '@pixelsky/protocol'
 import type { HostContext, Runtime } from './context'
-import { reconnectedCount } from './queue'
+import { nextQueued, reconnectedCount } from './queue'
 import { providerOfEngine } from './quota'
 import { limitKind } from '../retry'
 import { logger } from '../log'
@@ -21,6 +22,11 @@ type DeltaEvent = Extract<EngineEvent, { type: 'item_delta' }>
 
 /** 原地接着终端里的 Codex 会话的对话：空闲这么久就关进程、放开线程的写入锁 */
 const CODEX_IMPORTED_IDLE_MS = 2 * 60_000
+
+/** 闲置着还开着引擎进程的会话最多留几个（docs/engine-idle-release.md §3） */
+export const IDLE_KEEP = 2
+/** 到点时会话被别的流程占着、没放成：隔这么久再看一次 */
+const IDLE_RETRY_MS = 60_000
 
 /**
  * 最近一轮最后一条 assistant 回复的预览（SessionRecord.lastReply）：从末尾往前找，遇到普通用户消息（这一轮的起点）就停；
@@ -294,6 +300,7 @@ export class HostEvents {
           clearTimeout(rt.idleTimer)
           rt.idleTimer = null
         }
+        rt.idleSince = undefined
         this.apply(id, { type: 'status', state: 'running' })
         break
       case 'approval_request':
@@ -401,7 +408,7 @@ export class HostEvents {
         queueMicrotask(() => {
           void m.turn.pump(id)
         })
-        if (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0) this.armIdle(id)
+        if (!nextQueued(rt.snapshot)) this.armIdle(id)
         // 账号额度：有人看过、超过 5 分钟没取，借这个会话还活着的进程补取一次（分模型 / 额外用量 / 点数）
         m.quota.afterTurn(id)
         // Antigravity ACP 没有额度推送：自己账号的轮次遇到 429 / 限流 / 额度报错时，按需静默校准一次（方案 A）
@@ -423,12 +430,8 @@ export class HostEvents {
             clearTimeout(rt.idleTimer)
             rt.idleTimer = null
           }
-        } else if (
-          rt.snapshot.state === 'idle' &&
-          !rt.snapshot.background &&
-          !rt.idleTimer &&
-          (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0)
-        )
+          rt.idleSince = undefined
+        } else if (rt.snapshot.state === 'idle' && !rt.snapshot.background && !rt.idleTimer && !nextQueued(rt.snapshot))
           this.armIdle(id)
         break
       case 'background':
@@ -438,11 +441,12 @@ export class HostEvents {
             clearTimeout(rt.idleTimer)
             rt.idleTimer = null
           }
+          rt.idleSince = undefined
         } else if (
           rt.snapshot.state === 'idle' &&
           rt.snapshot.tasks.length === 0 &&
           !rt.idleTimer &&
-          (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0)
+          !nextQueued(rt.snapshot)
         )
           this.armIdle(id)
         break
@@ -485,7 +489,7 @@ export class HostEvents {
             queueMicrotask(() => {
               void m.turn.pump(id)
             })
-            if (rt.snapshot.queuePaused || rt.snapshot.queue.length === 0) this.armIdle(id)
+            if (!nextQueued(rt.snapshot)) this.armIdle(id)
           }
         }
         break
@@ -493,29 +497,131 @@ export class HostEvents {
     }
   }
 
+  /**
+   * 会话转为闲置：记下闲置起点（idleSince，最久没用的先放），按设置挂到点关进程的定时器，再看闲置进程有没有超过上限
+   * （docs/engine-idle-release.md §3）。已经闲置着再调（改了设置、后台任务刚结束）按原起点算剩余时间
+   */
   armIdle(id: string): void {
     const rt = this.ctx.runtimes.get(id)
     if (!rt || rt.snapshot.background || rt.snapshot.tasks.length > 0) return
-    if (rt.idleTimer) clearTimeout(rt.idleTimer)
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer)
+      rt.idleTimer = null
+    }
+    const now = Date.now()
+    rt.idleSince ??= now
+    const idleMs = this.idleMsFor(rt)
+    if (idleMs !== null) {
+      // 到点时被别的流程临时占着（补终端轮次、撤回改动等，它们结束时不会再挂）：过一会儿再看，直到放掉或进程没了
+      const fire = (): void => {
+        rt.idleTimer = null
+        if (this.ctx.runtimes.get(id) !== rt || this.release(id, 'idle') || !rt.session) return
+        rt.idleTimer = setTimeout(fire, IDLE_RETRY_MS)
+        rt.idleTimer.unref?.()
+      }
+      rt.idleTimer = setTimeout(fire, Math.max(0, rt.idleSince + idleMs - now))
+      rt.idleTimer.unref?.()
+    }
+    this.enforceIdleCap()
+  }
+
+  /** 这个会话闲置多久关进程；null 是不关（设置成「不释放」） */
+  private idleMsFor(rt: Runtime): number | null {
+    const minutes = this.ctx.m.settings.file.idleReleaseMinutes
+    const base = this.ctx.idleMs ?? (minutes === null ? null : minutes * 60_000)
     // 原地接着终端里的 Codex 会话：进程一直拿着线程的写入锁，终端里 `codex resume` 会报被占用，所以 2 分钟空闲就放开
-    // （docs/ui/codex-resume.md §4.6）；下一条消息再 thread/resume
+    // （docs/ui/codex-resume.md §4.6）；下一条消息再 thread/resume。设置成「不释放」也照样放
     // 只在当前执行者还是 Codex、并且还接着原线程时才缩短：换到别的引擎、或回退后换了新线程，进程没拿着原线程的锁
     const record = rt.snapshot.record
     const imported = record.imported
-    const idleMs =
+    const codexLock =
       imported?.engine === 'codex' &&
       !imported.forked &&
       record.engine === 'codex' &&
       record.engineSessionId === imported.sessionId
-        ? Math.min(this.ctx.idleMs, CODEX_IMPORTED_IDLE_MS)
-        : this.ctx.idleMs
-    rt.idleTimer = setTimeout(() => {
+    if (!codexLock) return base
+    return base === null ? CODEX_IMPORTED_IDLE_MS : Math.min(base, CODEX_IMPORTED_IDLE_MS)
+  }
+
+  /** 改了闲置时长：已经闲置着的会话按原起点重挂定时器，改成「不释放」时清掉（导入的 Codex 会话除外） */
+  rearmIdle(): void {
+    // 正在派发的不重挂（它的定时器马上在 pump 里清掉；重挂会把派发时刻记成闲置起点）
+    for (const [id, rt] of this.ctx.runtimes)
+      if (!rt.pumping && (rt.idleTimer || this.canRelease(id, rt))) this.armIdle(id)
+  }
+
+  /**
+   * 现在能不能关掉这个会话的引擎进程（docs/engine-idle-release.md §2）：有进程、完全空闲、没有后台活和待审批，
+   * 也没有别的流程（换引擎、归档、切终端、目录维护、退出）正在管它
+   */
+  canRelease(id: string, rt: Runtime): boolean {
+    const { ctx } = this
+    const s = rt.snapshot
+    return (
+      rt.session !== null &&
+      !ctx.closing &&
+      !ctx.changingSessions.has(id) &&
+      !s.record.tui &&
+      !rt.tuiLive &&
+      !ctx.m.guard.isLocked(s.record.cwd) &&
+      s.state === 'idle' &&
+      !rt.pumping &&
+      !rt.stopping &&
+      !rt.activeId &&
+      !rt.turn &&
+      !rt.inspectingContext &&
+      !rt.sourceSwitching &&
+      !rt.reconnectTimer &&
+      !s.background &&
+      s.tasks.length === 0 &&
+      !s.pending?.length &&
+      backgroundAgents(s.subagents, s.tasks).length === 0 &&
+      !nextQueued(s)
+    )
+  }
+
+  /** 关掉一个闲置会话的引擎进程；下一条消息再起进程接上原对话。返回放没放 */
+  release(id: string, reason: 'idle' | 'cap' | 'memory'): boolean {
+    const rt = this.ctx.runtimes.get(id)
+    if (!rt || !this.canRelease(id, rt)) return false
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer)
       rt.idleTimer = null
-      if (rt.snapshot.state !== 'idle' || rt.snapshot.background || rt.snapshot.tasks.length > 0 || !rt.session) return
-      const s = rt.session
-      rt.session = null
-      void s.close()
-    }, idleMs)
-    rt.idleTimer.unref?.()
+    }
+    const s = rt.session!
+    rt.session = null
+    const idleMs = rt.idleSince === undefined ? null : Date.now() - rt.idleSince
+    log.info('释放闲置引擎进程', { reason, engine: (rt.execution ?? rt.snapshot.record).engine, idleMs })
+    void s.close().catch(() => undefined)
+    return true
+  }
+
+  /** 可以放的会话，最久没用的在前（没记过闲置起点的按 0 算，排最前） */
+  private releasable(): string[] {
+    const out: { id: string; since: number }[] = []
+    const now = Date.now()
+    // Codex 目标进行中、刚闲置不到一分钟：多半是两轮之间的空隙（Codex 马上接着开下一轮），这时关进程会把目标暂停。
+    // 只在内存紧张、超上限时跳过；闲置久了（目标卡住、Codex 不再开轮）照常放，到点释放也照旧
+    for (const [id, rt] of this.ctx.runtimes) {
+      if (!this.canRelease(id, rt)) continue
+      const since = rt.idleSince ?? 0
+      if (rt.snapshot.goal?.status === 'active' && now - since < IDLE_RETRY_MS) continue
+      out.push({ id, since })
+    }
+    return out.sort((a, b) => a.since - b.since).map(x => x.id)
+  }
+
+  /** 内存紧张：放掉所有能放的，最久没用的先放。返回放了几个 */
+  releaseIdle(reason: 'memory'): number {
+    let released = 0
+    for (const id of this.releasable()) if (this.release(id, reason)) released++
+    return released
+  }
+
+  /** 闲置着还开着进程的最多留 IDLE_KEEP 个，超出放最久没用的；设置成「不释放」时不限 */
+  private enforceIdleCap(): void {
+    if (this.ctx.idleMs === null && this.ctx.m.settings.file.idleReleaseMinutes === null) return
+    const ids = this.releasable()
+    for (const id of ids.slice(0, Math.max(0, ids.length - IDLE_KEEP))) this.release(id, 'cap')
   }
 }

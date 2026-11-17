@@ -31,7 +31,7 @@ import {
 import { logger } from '../log'
 import { ENGINE_ORDER, unsupportedInfo } from '../registry'
 import { retryLimit } from '../retry'
-import { DEFAULT_SETTINGS, type EngineSettingsFile } from '../store'
+import { DEFAULT_SETTINGS, idleReleaseMinutes, type EngineSettingsFile, type IdleReleaseMinutes } from '../store'
 import type { HostContext, Runtime } from './context'
 
 const WINDOW_SOURCES = ['platform', 'self'] as const
@@ -645,6 +645,20 @@ export class HostSettings {
     const settings = this.retrySettings()
     this.ctx.opts.emit({ kind: 'retry_settings', settings })
     return settings
+  }
+
+  idleRelease(): { minutes: IdleReleaseMinutes } {
+    return { minutes: this.file.idleReleaseMinutes }
+  }
+
+  /** 闲置多久关引擎进程（docs/engine-idle-release.md §3）：存进设置文件，已经闲置着的会话马上按新时长重算 */
+  setIdleRelease(value: unknown): { minutes: IdleReleaseMinutes } {
+    const minutes = idleReleaseMinutes(value)
+    const next = { ...this.file, idleReleaseMinutes: minutes }
+    this.ctx.store.saveSettings(next)
+    this.file = next
+    this.ctx.m.events.rearmIdle()
+    return this.idleRelease()
   }
 
   setDefaults(patch: Partial<EngineDefaults>): EngineDefaults {

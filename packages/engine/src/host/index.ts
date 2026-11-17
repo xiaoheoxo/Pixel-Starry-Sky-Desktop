@@ -66,7 +66,7 @@ import type { CompactionRequestReport } from '../compaction'
 import { CodexAdapter } from '../codex'
 import { PixelAdapter } from '../pixel'
 import { AntigravityAdapter } from '../antigravity'
-import { Store } from '../store'
+import { Store, type IdleReleaseMinutes } from '../store'
 import { UsageStore, type UsageQuery } from '../usage'
 import { HostAccounts } from './accounts'
 import { HostBranch } from './branch'
@@ -125,7 +125,7 @@ export class EngineHost {
       opts,
       store,
       usage,
-      idleMs: opts.idleMs ?? 30 * 60_000,
+      idleMs: opts.idleMs ?? null,
       adapters: {},
       records: new Map(),
       runtimes: new Map(),
@@ -373,6 +373,20 @@ export class EngineHost {
 
   setRetrySettings(value: unknown): { maxRetries: number | null } {
     return this.m.settings.setRetrySettings(value)
+  }
+
+  /** 闲置多久关引擎进程（docs/engine-idle-release.md）：5 / 10 / 30 分钟，null 不释放 */
+  idleRelease(): { minutes: IdleReleaseMinutes } {
+    return this.m.settings.idleRelease()
+  }
+
+  setIdleRelease(value: unknown): { minutes: IdleReleaseMinutes } {
+    return this.m.settings.setIdleRelease(value)
+  }
+
+  /** 内存紧张时放掉所有闲置会话的引擎进程，最久没用的先放；返回放了几个（桌面主进程按整机内存调） */
+  releaseIdleProcesses(reason: 'memory'): number {
+    return this.m.events.releaseIdle(reason)
   }
 
   /** 记住会话里改过的选择：写到 patch.engine（缺省为默认引擎）名下的默认值，不改默认引擎 */

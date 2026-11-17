@@ -152,6 +152,9 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     onQuota: quota => ctx.events.broadcast('quota:changed', quota),
   })
   ctx.engine = h
+  // 闲置多久关引擎进程（docs/engine-idle-release.md）：只管本机，值的校验在宿主里
+  ipc.handle('engine:idleRelease', () => h.idleRelease())
+  ipc.handle('engine:setIdleRelease', (_event, minutes: unknown) => h.setIdleRelease(minutes))
   registerQuotaIpc(h)
   watchSleep(h)
   backfillAfterSignIn(h)

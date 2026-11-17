@@ -8,8 +8,10 @@ vi.mock('@pixelsky/engine', () => ({
 
 import {
   bandOf,
+  createLowMemory,
   createTelemetry,
   HEARTBEAT_MS,
+  LOW_MEMORY_COOLDOWN_MS,
   parseRendererSample,
   rendererBasis,
   sampleFields,
@@ -253,5 +255,65 @@ describe('取数', () => {
     const parsed = parseRendererSample({ heapUsedMb: 12.34, elements: -1, mountedTabs: 'x', lightweight: 1 })
     expect(parsed).toMatchObject({ heapUsedMb: 12.3, elements: 0, mountedTabs: 0, lightweight: false })
     expect(parseRendererSample(null)).toBeNull()
+  })
+})
+
+describe('内存紧张时释放闲置引擎进程（docs/engine-idle-release.md §3 #2）', () => {
+  const sys = (freePct: number, commitFreePct?: number) => ({
+    totalMb: 16000,
+    freeMb: 160 * freePct,
+    freePct,
+    ...(commitFreePct !== undefined ? { commitTotalMb: 20000, commitFreeMb: 200 * commitFreePct, commitFreePct } : {}),
+  })
+
+  it('物理可用低于 15% 进入，马上放一次；两项都回到 18% 才退出', () => {
+    const lm = createLowMemory('linux')
+    expect(lm.push(sys(40), 0)).toEqual({ release: false, changed: null })
+    expect(lm.push(sys(14), 1000)).toEqual({ release: true, changed: 'enter' })
+    expect(lm.low).toBe(true)
+    // 回到 16%：还在回差里，不退出；离上次释放不到 60 秒，不再放
+    expect(lm.push(sys(16), 2000)).toEqual({ release: false, changed: null })
+    expect(lm.push(sys(18), 3000)).toEqual({ release: false, changed: 'exit' })
+    expect(lm.low).toBe(false)
+  })
+
+  it('一直紧张时每 60 秒放一次', () => {
+    const lm = createLowMemory('linux')
+    lm.push(sys(10), 0)
+    expect(lm.push(sys(10), LOW_MEMORY_COOLDOWN_MS - 1).release).toBe(false)
+    expect(lm.push(sys(10), LOW_MEMORY_COOLDOWN_MS).release).toBe(true)
+    expect(lm.push(sys(10), LOW_MEMORY_COOLDOWN_MS + 10_000).release).toBe(false)
+  })
+
+  it('Windows 看可提交余量：物理够、提交不够也算紧张；退出要两项都够', () => {
+    const lm = createLowMemory('win32')
+    expect(lm.push(sys(50, 12), 0)).toEqual({ release: true, changed: 'enter' })
+    expect(lm.push(sys(50, 17), 1000).changed).toBeNull()
+    expect(lm.push(sys(17, 30), 2000).changed).toBeNull()
+    expect(lm.push(sys(30, 30), 3000).changed).toBe('exit')
+  })
+
+  it('macOS 物理可用口径偏低，5% 才算紧张、8% 退出', () => {
+    const lm = createLowMemory('darwin')
+    expect(lm.push(sys(10), 0).changed).toBeNull()
+    expect(lm.push(sys(4), 1000)).toEqual({ release: true, changed: 'enter' })
+    expect(lm.push(sys(8), 2000).changed).toBe('exit')
+  })
+
+  it('退出后又马上紧张：进入时照样马上放，不受冷却限制', () => {
+    const lm = createLowMemory('linux')
+    lm.push(sys(10), 0)
+    lm.push(sys(30), 1000)
+    expect(lm.push(sys(10), 2000)).toEqual({ release: true, changed: 'enter' })
+  })
+})
+
+describe('Linux 的物理可用按 MemAvailable 算', () => {
+  it('available 有值时用它；老内核上是 0 时退回 free；别的平台不看它', () => {
+    const KB = 1024
+    const info = { total: 1000 * KB, free: 50 * KB, available: 600 * KB }
+    expect(systemMemory(info, 'linux')).toMatchObject({ freeMb: 600, freePct: 60 })
+    expect(systemMemory({ ...info, available: 0 }, 'linux')).toMatchObject({ freeMb: 50, freePct: 5 })
+    expect(systemMemory(info, 'win32').freePct).toBe(5)
   })
 })

@@ -64,7 +64,7 @@ export interface EngineHostOptions {
   emit(event: HostEvent): void
   /** 当前账号的额度快照变了（docs/ui/account-quota.md §4.4）：主进程广播给所有窗口；远程机器上不传，只静默合并 */
   onQuota?: (quota: AccountQuota) => void
-  /** 空闲多久关闭引擎进程，默认 30 分钟 */
+  /** 测试用：空闲多久关闭引擎进程，盖过设置里的闲置时长（不给按设置，默认 10 分钟，docs/engine-idle-release.md） */
   idleMs?: number
   /** 测试用：替换适配器 */
   adapters?: Partial<Record<EngineId, EngineAdapter>>
@@ -128,6 +128,8 @@ export interface Runtime {
   seq: number
   session: EngineSession | null
   idleTimer: NodeJS.Timeout | null
+  /** 这次转为闲置的时间（只在内存里）：内存紧张、超过闲置上限时最久没用的先放；开始派发、引擎自己开一轮、有后台活时清掉 */
+  idleSince?: number
   receipts: SendReceipt[]
   pumping: boolean
   stopping: boolean
@@ -177,7 +179,8 @@ export interface HostContext {
   readonly opts: EngineHostOptions
   readonly store: Store
   readonly usage: UsageStore
-  readonly idleMs: number
+  /** 测试传的闲置时长（opts.idleMs）；null 时按设置 */
+  readonly idleMs: number | null
   /** 构造时赋值一次（自带的适配器要读设置模块） */
   adapters: Partial<Record<EngineId, EngineAdapter>>
   readonly records: Map<string, SessionRecord>

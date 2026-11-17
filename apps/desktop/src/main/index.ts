@@ -565,6 +565,8 @@ app.whenReady().then(async () => {
   initMemory({
     engine: () => ctx.engine?.memoryStats() ?? { runtimes: 0, processes: 0, running: 0 },
     check: memoryChecker(),
+    // 内存紧张时放掉闲置的引擎进程（docs/engine-idle-release.md §3 #2）；引擎要等 initEngine 之后才有
+    releaseIdle: () => ctx.engine?.releaseIdleProcesses('memory') ?? 0,
     rendererPid: () => {
       const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && !isPayWindow(w) && !isSettingsWindow(w))
       return win ? win.webContents.getOSProcessId() : null

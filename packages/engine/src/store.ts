@@ -46,8 +46,22 @@ import { removeTree } from './exec'
 
 const VERSION = 1
 
+/** 闲置多久关掉会话的引擎进程（分钟）；null 是不释放（docs/engine-idle-release.md） */
+export type IdleReleaseMinutes = 5 | 10 | 30 | null
+export const IDLE_RELEASE_CHOICES: readonly IdleReleaseMinutes[] = [5, 10, 30, null]
+export const DEFAULT_IDLE_RELEASE: IdleReleaseMinutes = 10
+
+/** 校验闲置时长：只认 5 / 10 / 30 / null，别的抛错 */
+export function idleReleaseMinutes(value: unknown): IdleReleaseMinutes {
+  const hit = IDLE_RELEASE_CHOICES.find(v => v === value)
+  if (hit === undefined) throw new Error('闲置释放时长只能是 5、10、30 分钟或不释放')
+  return hit
+}
+
 export interface EngineSettingsFile {
   maxRetries: number | null
+  /** 闲置多久关掉引擎进程；只管这台机器，不进云同步 */
+  idleReleaseMinutes: IdleReleaseMinutes
   defaults: EngineDefaults
   /** 各引擎替换的命令：绝对路径或 PATH 上的命令名（docs/ui/engine-launch.md） */
   paths: Partial<Record<EngineId, string>>
@@ -93,6 +107,7 @@ export interface EngineOptions {
 
 export const DEFAULT_SETTINGS: EngineSettingsFile = {
   maxRetries: null,
+  idleReleaseMinutes: DEFAULT_IDLE_RELEASE,
   defaults: {
     engine: 'claude',
     model: null,
@@ -242,8 +257,15 @@ export class Store {
     } catch {
       /* 旧文件或损坏值恢复跟随引擎 */
     }
+    let idleRelease: IdleReleaseMinutes = DEFAULT_IDLE_RELEASE
+    try {
+      if (data && 'idleReleaseMinutes' in data) idleRelease = idleReleaseMinutes(data.idleReleaseMinutes)
+    } catch {
+      /* 损坏值按默认 */
+    }
     return {
       maxRetries,
+      idleReleaseMinutes: idleRelease,
       defaults: { ...DEFAULT_SETTINGS.defaults, ...(data?.defaults ?? {}) },
       paths: { ...(data?.paths ?? {}) },
       env: { ...(data?.env ?? {}) },

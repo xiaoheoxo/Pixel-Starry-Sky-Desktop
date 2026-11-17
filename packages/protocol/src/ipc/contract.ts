@@ -334,6 +334,9 @@ export const IPC_CONTRACT = {
   // 设置 › 本机引擎「使用系统代理」：只管本机引擎，不转给远程机器
   'engine:systemProxy': { kind: 'invoke', route: 'local', trust: 'sender' },
   'engine:setSystemProxy': { kind: 'invoke', route: 'local', trust: 'sender' },
+  // 闲置多久关引擎进程（docs/engine-idle-release.md）：只管本机，SSH / WSL 机器上按默认 10 分钟
+  'engine:idleRelease': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'engine:setIdleRelease': { kind: 'invoke', route: 'local', trust: 'sender' },
   'engine:retrySettings': {
     kind: 'invoke',
     route: 'selected',

@@ -21,7 +21,7 @@ import { queueSettings } from '../queue'
 import type { EngineAdapter, EngineSession } from '../adapter'
 import type { HostContext } from './context'
 import { mergeContext } from './branch'
-import { reconnectedCount } from './queue'
+import { nextQueued, reconnectedCount } from './queue'
 import { NEW_TITLE, titleFrom } from './title'
 
 export class HostTurn {
@@ -46,11 +46,13 @@ export class HostTurn {
     )
       return
     // 失败 / 待核对和单独暂停的项不堵住队首，取第一条可执行的消息。
-    const item = rt.snapshot.queuePaused ? undefined : rt.snapshot.queue.find(q => q.status === 'queued' && !q.held)
+    const item = nextQueued(rt.snapshot)
     if (!item) return
     // 自动重连还没到时间：后面的消息也等着，到时间再来
     if (m.queue.armReconnect(id)) return
     rt.pumping = true
+    // 开始派发就不算闲置了：闲置起点等这一轮结束再记（docs/engine-idle-release.md §2）
+    rt.idleSince = undefined
     let finishPump!: () => void
     rt.pumpFinished = new Promise<void>(resolve => {
       finishPump = resolve
@@ -378,6 +380,8 @@ export class HostTurn {
       return await rt.session.context(detail)
     } finally {
       rt.inspectingContext = false
+      // 看上下文明细算一次使用：闲置从现在重新计
+      rt.idleSince = undefined
       ctx.m.events.armIdle(id)
       queueMicrotask(() => {
         void this.pump(id)

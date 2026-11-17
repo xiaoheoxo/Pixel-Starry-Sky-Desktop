@@ -43,6 +43,13 @@ const limitAtOf = (queue: readonly QueuedMessage[], paused: boolean): number | u
   return q && (q.limit?.tries.length ?? 0) < LIMIT_MAX_TRIES ? q.reconnect!.at : undefined
 }
 
+/**
+ * 下一条会自动派发的消息：没暂停时第一条排着、没单独暂停的。没有（队列空、暂停着、只剩单独暂停 / 失败 / 待核对的）就是 undefined，
+ * 这时会话算闲着，可以关进程（docs/engine-idle-release.md §2）
+ */
+export const nextQueued = (s: { queue: readonly QueuedMessage[]; queuePaused?: boolean }): QueuedMessage | undefined =>
+  s.queuePaused ? undefined : s.queue.find(q => q.status === 'queued' && !q.held)
+
 /** 累计自动重连的上限是当前 max 的几倍（每次有输出 attempt 都从 1 重算，没有总上限会无限「继续」烧额度） */
 export const RECONNECT_TOTAL_FACTOR = 3
 

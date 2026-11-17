@@ -135,12 +135,16 @@ export function summarizeProcesses(metrics: readonly AppMetric[], rendererPid: n
   return out
 }
 
-/** process.getSystemMemoryInfo()（KB）换成 MB；commit 只在 Windows 上取 swapTotal / swapFree 原值，不要再加物理内存 */
+/**
+ * process.getSystemMemoryInfo()（KB）换成 MB；commit 只在 Windows 上取 swapTotal / swapFree 原值，不要再加物理内存。
+ * Linux 的 free 是 MemFree（不含页缓存，平时就很低），改用 MemAvailable（available）；老内核上它是 0，退回 free
+ */
 export function systemMemory(
-  info: { total: number; free: number; swapTotal?: number; swapFree?: number },
+  info: { total: number; free: number; available?: number; swapTotal?: number; swapFree?: number },
   platform: string = process.platform,
 ): SystemMem {
-  const out: SystemMem = { totalMb: mb(info.total), freeMb: mb(info.free), freePct: pct(info.free, info.total) }
+  const free = platform === 'linux' && info.available ? info.available : info.free
+  const out: SystemMem = { totalMb: mb(info.total), freeMb: mb(free), freePct: pct(free, info.total) }
   if (platform === 'win32' && info.swapTotal !== undefined && info.swapFree !== undefined && info.swapTotal > 0) {
     out.commitTotalMb = mb(info.swapTotal)
     out.commitFreeMb = mb(info.swapFree)
@@ -272,6 +276,49 @@ export function createTelemetry() {
 }
 
 // ---------------------------------------------------------------------------
+// 内存紧张时释放闲置引擎进程（纯状态机，docs/engine-idle-release.md §3 #2）
+// ---------------------------------------------------------------------------
+
+/** 进入 / 退出「内存紧张」的百分比：macOS 的物理可用不含文件缓存、平时就偏低，用低一档 */
+export const LOW_MEMORY_PCT = { enter: 15, exit: 18, macEnter: 5, macExit: 8 } as const
+/** 一直紧张时，两次释放至少隔这么久（期间新变成闲置的下一次放） */
+export const LOW_MEMORY_COOLDOWN_MS = 60_000
+
+export interface LowMemoryDecision {
+  /** 这次要不要释放 */
+  release: boolean
+  /** 这次进入 / 退出了紧张状态 */
+  changed: 'enter' | 'exit' | null
+}
+
+export function createLowMemory(platform: string = process.platform) {
+  const enter = platform === 'darwin' ? LOW_MEMORY_PCT.macEnter : LOW_MEMORY_PCT.enter
+  const exit = platform === 'darwin' ? LOW_MEMORY_PCT.macExit : LOW_MEMORY_PCT.exit
+  let low = false
+  let lastReleaseAt = -Infinity
+  return {
+    get low(): boolean {
+      return low
+    },
+    push(s: SystemMem, now: number): LowMemoryDecision {
+      const commit = s.commitFreePct
+      let changed: LowMemoryDecision['changed'] = null
+      if (!low && (s.freePct < enter || (commit !== undefined && commit < enter))) {
+        low = true
+        changed = 'enter'
+      } else if (low && s.freePct >= exit && (commit === undefined || commit >= exit)) {
+        low = false
+        changed = 'exit'
+      }
+      // 刚进入时马上放一次；一直紧张时隔一段再放
+      const release = changed === 'enter' || (low && now - lastReleaseAt >= LOW_MEMORY_COOLDOWN_MS)
+      if (release) lastReleaseAt = now
+      return { release, changed }
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 接到主进程
 // ---------------------------------------------------------------------------
 
@@ -282,10 +329,13 @@ export interface MemoryDeps {
   check: (metrics: ReturnType<typeof app.getAppMetrics>) => void
   /** 看门狗：没人报时取哪个窗口的界面进程 */
   rendererPid: () => number | null
+  /** 内存紧张时放掉本机所有闲置的引擎进程，返回放了几个；引擎还没起来时为 0。同步返回，关进程在后台 */
+  releaseIdle?: () => number
 }
 
 let deps: MemoryDeps | null = null
 const telemetry = createTelemetry()
+const lowMemory = createLowMemory()
 let intervalMs = NORMAL_MS
 let lastSampleAt = Date.now()
 /** 界面最近一次加载完的时刻，崩溃时算 sinceLoadMs */
@@ -324,7 +374,27 @@ function record(sample: MemorySample): number {
   const decision = telemetry.push(sample, sample.at)
   intervalMs = decision.intervalMs
   if (decision.write) log[decision.level]('内存采样', sampleFields(sample))
+  relieve(sample)
   return decision.intervalMs
+}
+
+/** 内存紧张就放掉闲置的引擎进程；不能抛错（这里跑在 log:sample 的回复里） */
+function relieve(sample: Pick<MemorySample, 'at' | 'system' | 'engine'>): void {
+  const d = lowMemory.push(sample.system, sample.at)
+  if (d.changed === 'exit') log.info('内存不再紧张', pickSystem(sample.system))
+  if (!d.release) return
+  let released = 0
+  try {
+    released = deps?.releaseIdle?.() ?? 0
+  } catch (err) {
+    log.warn('释放闲置引擎进程失败', { error: err instanceof Error ? err.message : String(err) })
+  }
+  if (d.changed === 'enter' || released > 0)
+    log[d.changed === 'enter' ? 'warn' : 'info']('内存紧张，释放闲置引擎进程', {
+      ...pickSystem(sample.system),
+      released,
+      engine: { rt: sample.engine.runtimes, proc: sample.engine.processes, run: sample.engine.running },
+    })
 }
 
 /** 整机还能用的内存（MB）：物理可用和可提交余量取小的；界面按它定切走的对话保留几个（docs/ui/performance.md §5.3） */
@@ -348,7 +418,11 @@ export function memoryTick(metrics: ReturnType<typeof app.getAppMetrics>): void 
   deps.check(metrics)
   if (Date.now() - lastSampleAt <= intervalMs * 2 + 5_000) return
   const pid = deps.rendererPid()
-  if (pid === null) return
+  // 没有窗口（macOS 关掉了所有窗口）：不记采样，但内存紧张照样释放闲置的引擎进程
+  if (pid === null) {
+    relieve({ at: Date.now(), system: systemMemory(process.getSystemMemoryInfo()), engine: deps.engine() })
+    return
+  }
   record(collect(null, pid, metrics))
 }
 

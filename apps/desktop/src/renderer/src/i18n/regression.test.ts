@@ -81,6 +81,7 @@ import { resumeMessages } from '../../../shared/i18n/resumeMessages'
 import { appCommandMessages } from '../../../shared/i18n/appCommandMessages'
 import { onboardingMessages } from '../../../shared/i18n/onboardingMessages'
 import { systemProxyMessages } from '../../../shared/i18n/systemProxyMessages'
+import { idleReleaseMessages } from '../../../shared/i18n/idleReleaseMessages'
 import { approvalMessages } from '../../../shared/i18n/approvalMessages'
 import { extstoreDetailMessages } from '../../../shared/i18n/extstoreDetailMessages'
 import { settingsWindowMessages } from '../../../shared/i18n/settingsWindowMessages'
@@ -176,6 +177,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   appCommandMessages,
   onboardingMessages,
   systemProxyMessages,
+  idleReleaseMessages,
   approvalMessages,
   extstoreDetailMessages,
   settingsWindowMessages,

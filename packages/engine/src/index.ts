@@ -49,6 +49,7 @@ export {
 export { diffLines, type DiffLine } from './diff'
 export { artifactQuery, collectArtifacts, recordedIn, sessionArtifacts, within } from './artifacts'
 export { UsageStore, USAGE_RETENTION_DAYS, type UsageQuery } from './usage'
+export { IDLE_RELEASE_CHOICES, type IdleReleaseMinutes } from './store'
 export {
   LOG_LEVELS,
   REDACTED,

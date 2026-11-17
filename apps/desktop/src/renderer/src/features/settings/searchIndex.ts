@@ -258,6 +258,13 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   { section: 'models', title: '菜单里显示的模型', keywords: '隐藏模型 管理模型 模型列表 显示' },
   { section: 'engines', title: '请求重试', keywords: '重试 失败 临时错误 自动重试 retry' },
   {
+    section: 'engines',
+    title: allMessages['idleRelease.title'].zh,
+    get keywords() {
+      return tr('idleRelease.searchKeywords')
+    },
+  },
+  {
     section: 'assist',
     title: allMessages['voice.settings.title'].zh,
     keywords: '语音 麦克风 录音 听写 转写 识别 whisper voice mic microphone dictation speech transcribe',
