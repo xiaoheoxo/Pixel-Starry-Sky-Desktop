@@ -34,9 +34,16 @@ export interface BrowserPage {
   annotations: BrowserAnnotation[]
   /** Original remote address; the local SSH forwarding port is never the saved workspace target. */
   remoteUrl?: string
+  /** 这一页的控制台错误和失败请求（运行胶囊，docs/ui/panel-pill.md §8.1）；只在广播里带，不落盘，换页清零 */
+  issues?: { errors: number; requests: number; last: string[] }
 }
 export interface BrowserState {
   scope: string
   pages: BrowserPage[]
   activeId: string | null
+}
+
+/** 运行胶囊「把错误发给 AI」放进输入框的那段（docs/ui/panel-pill.md §8.1）：给 AI 看的，不走界面词典 */
+export function browserIssueText(url: string, total: number, lines: readonly string[]): string {
+  return `内置浏览器 ${url} 的错误（共 ${total} 个，下面是最近几条）：\n\`\`\`\n${lines.join('\n')}\n\`\`\``
 }

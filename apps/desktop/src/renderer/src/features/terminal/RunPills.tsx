@@ -1,7 +1,7 @@
 // 运行胶囊（docs/ui/panel-pill.md）：手动开的终端不在眼前时，输入框状态栏显示它的状态
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, TriangleAlert } from 'lucide-react'
+import { Check, Globe, TriangleAlert } from 'lucide-react'
 import { useAppMode } from '@/features/coding/mode'
 import { OPEN_BROWSER } from '@/features/panel/EnvironmentPanel'
 import { openRightTab, useActivePanelTab } from '@/features/panel/workspaceStore'
@@ -9,9 +9,13 @@ import { portUrl, findPorts } from '@/features/coding/bottom/portsModel'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { cn, useToast } from '@/ui'
+import { isDemo } from '@/data'
+import { demo as demoData } from '@/data/demo'
+import type { BrowserState } from '../../../../shared/types/project-browser'
 import type { TerminalRecord } from '../../../../shared/types/terminal'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { sendTerminalQuote } from './AskAi'
+import { browserFailed, browserIssueQuote, browserPillOf, type BrowserPill } from './browserPill'
 import { quoteCard } from './errorLines'
 import { lastLines, pillsOf, type HiddenRuns, type RunPill } from './pills'
 import {
@@ -162,20 +166,19 @@ function Detail({
 
 /** 一个胶囊按钮和它的详情。详情挂到 body：窄宽时状态栏 overflow: hidden，放里面会被裁掉 */
 function Pill({
-  pills,
+  details,
   label,
   failed,
   ariaLabel,
   onClick,
-  renderDetail,
   attrs,
 }: {
-  pills: RunPill[]
+  /** 悬停 / 键盘选中时的详情 */
+  details: ReactNode
   label: ReactNode
   failed: boolean
   ariaLabel: string
   onClick: () => void
-  renderDetail: (pill: RunPill) => ReactNode
   attrs?: Record<string, string>
 }) {
   const [at, setAt] = useState<{ right: number; bottom: number } | null>(null)
@@ -244,12 +247,105 @@ function Pill({
               ref={detail}
               className="rounded-lg border border-line-card bg-popover p-2 text-fg-secondary shadow-popover"
             >
-              {pills.map(renderDetail)}
+              {details}
             </div>
           </div>,
           document.body,
         )}
     </span>
+  )
+}
+
+const browserStatus = (pill: BrowserPill): string =>
+  pill.error
+    ? tr('terminal.pills.browserFailed')
+    : pill.issues > 0
+      ? tr('terminal.pills.browserIssues', { n: pill.issues })
+      : pill.loading
+        ? tr('terminal.pills.browserLoading')
+        : tr('terminal.pills.browserOpen')
+
+/** 这个会话所在工作区的内置浏览器状态（主进程按工作区存，变了广播）；演示模式用演示数据 */
+function useBrowserState(ref: WorkspaceRef | null): BrowserState | null {
+  const [state, setState] = useState<BrowserState | null>(() => (isDemo ? demoData().projectTools.browser : null))
+  useEffect(() => {
+    const api = window.pixelsky?.projectBrowser
+    if (isDemo || !ref || !api) return
+    let gone = false,
+      scope: string | null = null
+    void api.state(ref).then(
+      next => {
+        if (gone) return
+        scope = next.scope
+        setState(next)
+      },
+      () => {},
+    )
+    const off = api.onChange(next => {
+      if (!gone && next.scope === scope) setState(next)
+    })
+    return () => {
+      gone = true
+      off()
+      setState(null)
+    }
+  }, [ref])
+  return state
+}
+
+function BrowserDetail({
+  pill,
+  onOpen,
+  onReload,
+  onAskAi,
+}: {
+  pill: BrowserPill
+  onOpen: (pill: BrowserPill) => void
+  onReload: (pill: BrowserPill) => void
+  onAskAi: (pill: BrowserPill) => void
+}) {
+  const failed = browserFailed(pill)
+  const lines = [...(pill.error ? [pill.error] : []), ...pill.last]
+  const button = 'rounded-md border border-line-card px-2 text-meta text-fg-secondary hover:bg-hover hover:text-fg'
+  return (
+    <div data-run-pill-detail className="border-line-subtle not-first:mt-2 not-first:border-t not-first:pt-2">
+      <div className="flex items-center gap-1.5 text-ui text-fg">
+        <span className={cn('inline-flex shrink-0 items-center', failed && 'text-danger')}>
+          <Globe size={12} strokeWidth={1.75} />
+        </span>
+        <span className="min-w-0 truncate" title={pill.title}>
+          {pill.title || pill.label}
+        </span>
+        <span className={cn('ml-auto shrink-0 text-label', failed ? 'text-danger' : 'text-fg-muted')}>
+          {browserStatus(pill)}
+        </span>
+      </div>
+      <div title={pill.url} className="truncate pt-0.5 font-mono text-label text-fg-faint">
+        {pill.url}
+      </div>
+      {lines.length > 0 && (
+        <pre className="my-1.5 max-h-32 overflow-hidden rounded-md bg-hover px-2 py-1.5 font-mono text-label break-all whitespace-pre-wrap text-fg-secondary">
+          {lines.join('\n')}
+        </pre>
+      )}
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => onOpen(pill)}
+          className={cn(button, 'border-transparent bg-accent-soft text-accent-fg')}
+        >
+          {tr('terminal.pills.openBrowserTab')}
+        </button>
+        <button type="button" onClick={() => onReload(pill)} className={button}>
+          {tr('terminal.pills.reload')}
+        </button>
+        {failed && (
+          <button type="button" onClick={() => onAskAi(pill)} className={button}>
+            {tr('terminal.pills.browserAskAi')}
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -285,8 +381,13 @@ export const RunPills = memo(function RunPills({
     if (viewing && activeId) dismissTerminalRun(activeId)
   }, [viewing, activeId])
 
-  // 代码模式底部本来就有终端
-  if (mode === 'code' || inView || !pills.length) return null
+  // 内置浏览器（§8.1）：浏览器标签不在眼前时，当前页一个胶囊
+  const browserState = useBrowserState(browserRef)
+  const browser = browserPillOf(browserState, panelOpen && tab === 'browser')
+  const terms = inView ? [] : pills
+
+  // 代码模式底部本来就有终端，右边有浏览器
+  if (mode === 'code' || (!terms.length && !browser)) return null
 
   const open = (pill: RunPill): void => {
     ui?.select(pill.id)
@@ -324,9 +425,30 @@ export const RunPills = memo(function RunPills({
       browserRef={browserRef}
     />
   )
-  const shown = pills.slice(0, 2)
-  const rest = pills.slice(2)
-  const anyFailed = pills.some(p => p.state === 'failed')
+  const openBrowser = (pill: BrowserPill): void => {
+    if (browserRef) void window.pixelsky?.projectBrowser.select(browserRef, pill.pageId).catch(() => {})
+    openRightTab('browser')
+  }
+  const reloadBrowser = (pill: BrowserPill): void => {
+    if (browserRef)
+      void window.pixelsky?.projectBrowser
+        .action(browserRef, pill.pageId, 'reload')
+        .catch((e: Error) => toast(e.message))
+  }
+  const askBrowser = (pill: BrowserPill): void => {
+    const failed = sendTerminalQuote(browserIssueQuote(pill), tr('terminal.ask.fixPrompt'))
+    if (failed) toast(failed)
+  }
+  const browserDetail = browser && (
+    <BrowserDetail key="browser" pill={browser} onOpen={openBrowser} onReload={reloadBrowser} onAskAi={askBrowser} />
+  )
+  const browserLabel = (pill: BrowserPill): string =>
+    tr('terminal.pills.browserLabel', { url: pill.label, status: browserStatus(pill) })
+  const shown = terms.slice(0, 2)
+  const rest = terms.slice(2)
+  const anyFailed = terms.some(p => p.state === 'failed') || (!!browser && browserFailed(browser))
+  const count = terms.length + (browser ? 1 : 0)
+  const first = terms[0]
   return (
     <span data-run-pills className="mr-2 flex min-w-0 items-center gap-1.5">
       <span data-run-pills-list className="flex min-w-0 items-center gap-1.5">
@@ -335,11 +457,10 @@ export const RunPills = memo(function RunPills({
           return (
             <Pill
               key={pill.id}
-              pills={[pill]}
+              details={renderDetail(pill)}
               failed={pill.state === 'failed'}
               ariaLabel={describe(pill)}
               onClick={() => open(pill)}
-              renderDetail={renderDetail}
               label={
                 <>
                   <Mark pill={pill} />
@@ -358,31 +479,54 @@ export const RunPills = memo(function RunPills({
         })}
         {rest.length > 0 && (
           <Pill
-            pills={rest}
+            details={rest.map(renderDetail)}
             failed={false}
             ariaLabel={tr('terminal.pills.more', { n: rest.length })}
             onClick={() => open(rest[0])}
-            renderDetail={renderDetail}
             label={`+${rest.length}`}
+          />
+        )}
+        {browser && (
+          <Pill
+            attrs={{ 'data-browser-pill': '' }}
+            details={browserDetail}
+            failed={browserFailed(browser)}
+            ariaLabel={browserLabel(browser)}
+            onClick={() => openBrowser(browser)}
+            label={
+              <>
+                <Globe size={12} strokeWidth={1.75} className="shrink-0" />
+                <span data-run-pill-long className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 truncate font-mono">{browser.label}</span>
+                  {browserFailed(browser) && <span className="shrink-0">{browserStatus(browser)}</span>}
+                </span>
+                <span data-run-pill-short className="max-w-24 min-w-0 truncate">
+                  {browserFailed(browser) ? browserStatus(browser) : browser.label}
+                </span>
+              </>
+            }
           />
         )}
       </span>
       <span data-run-pills-merged className="min-w-0">
         <Pill
-          pills={pills}
+          details={[...terms.map(renderDetail), browserDetail]}
           failed={anyFailed}
-          ariaLabel={pills.map(describe).join('; ')}
-          onClick={() => open(pills[0])}
-          renderDetail={renderDetail}
+          ariaLabel={[...terms.map(describe), ...(browser ? [browserLabel(browser)] : [])].join('; ')}
+          onClick={() => (first ? open(first) : browser && openBrowser(browser))}
           label={
             <>
-              <Mark pill={pills[0]} />
+              {first ? <Mark pill={first} /> : <Globe size={12} strokeWidth={1.75} className="shrink-0" />}
               <span className="min-w-0 truncate">
-                {pills.length > 1
-                  ? tr('terminal.pills.items', { n: pills.length })
-                  : portOf(pills[0]) !== null
-                    ? `:${portOf(pills[0])}`
-                    : pills[0].short}
+                {count > 1
+                  ? tr('terminal.pills.items', { n: count })
+                  : first
+                    ? portOf(first) !== null
+                      ? `:${portOf(first)}`
+                      : first.short
+                    : browserFailed(browser!)
+                      ? browserStatus(browser!)
+                      : browser!.label}
               </span>
             </>
           }

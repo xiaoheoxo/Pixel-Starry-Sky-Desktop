@@ -133,6 +133,15 @@ export const demoToolBrowser: BrowserState = {
       error: null,
       canBack: false,
       canForward: false,
+      // 运行胶囊的浏览器项（docs/ui/panel-pill.md §8.1）：右栏没开浏览器时，输入框状态栏写「2 个错误」
+      issues: {
+        errors: 1,
+        requests: 1,
+        last: [
+          "TypeError: Cannot read properties of undefined (reading 'total') (http://127.0.0.1:8330/src/Checkout.tsx:42)",
+          '404 http://127.0.0.1:8330/api/coupons',
+        ],
+      },
       annotations: [
         demoNote(
           1,

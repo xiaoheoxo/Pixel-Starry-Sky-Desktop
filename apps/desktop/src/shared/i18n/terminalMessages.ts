@@ -230,5 +230,13 @@ export const terminalMessages = {
   },
   'terminal.pills.more': { zh: '还有 {n} 项', en: '{n} more' },
   'terminal.pills.items': { zh: '{n} 项', en: '{n} items' },
+  'terminal.pills.browserOpen': { zh: '已打开', en: 'Open' },
+  'terminal.pills.browserLoading': { zh: '加载中', en: 'Loading' },
+  'terminal.pills.browserIssues': { zh: '{n} 个错误', en: '{n} errors' },
+  'terminal.pills.browserFailed': { zh: '打不开', en: 'Failed to load' },
+  'terminal.pills.browserLabel': { zh: '内置浏览器：{url}，{status}', en: 'Built-in browser: {url}, {status}' },
+  'terminal.pills.openBrowserTab': { zh: '打开浏览器', en: 'Open browser' },
+  'terminal.pills.reload': { zh: '刷新', en: 'Reload' },
+  'terminal.pills.browserAskAi': { zh: '把错误发给 AI', en: 'Send errors to AI' },
   'terminal.quote.lines': { zh: '第 {start}–{end} 行', en: 'lines {start}–{end}' },
 } as const

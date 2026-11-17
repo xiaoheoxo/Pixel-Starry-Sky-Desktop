@@ -2,7 +2,7 @@
 // 离屏视图挂在不显示的 BaseWindow 上：不挂窗口截不到图，隐藏的 BrowserWindow 又会进 getAllWindows、收广播；独立的内存会话，不带用户的登录状态
 import { BaseWindow, WebContentsView, session, type Session } from 'electron'
 import { pageCheckUrl, type CheckPageResult } from '../../shared/types/checks'
-import { redact } from '../core/project-tools/services'
+import { cleanIssue as clean, consoleIssue } from './page-issues'
 
 const PARTITION = 'pixelsky-page-check'
 const LOAD_TIMEOUT_MS = 20_000
@@ -10,16 +10,10 @@ const LOAD_TIMEOUT_MS = 20_000
 const SETTLE_MS = 1500
 const SHOT_TIMEOUT_MS = 3000
 const LINES_MAX = 10
-const LINE_CHARS = 400
 const SHOT_WIDTH = 640
 const VIEW = { width: 1280, height: 800 }
 /** 连不上：开发服务多半没开，不算项目的问题（ERR_CONNECTION_REFUSED / FAILED / RESET / ADDRESS_UNREACHABLE / TIMED_OUT、EMPTY_RESPONSE） */
 const UNREACHABLE = new Set([-102, -104, -101, -109, -118, -324])
-/** 控制台里的这句和失败的请求是同一件事，只记请求 */
-const NETWORK_NOISE = /^Failed to load resource/
-
-const clean = (text: string): string => redact(text, []).slice(0, LINE_CHARS)
-
 let configured: Session | null = null
 function checkSession(): Session {
   const ses = session.fromPartition(PARTITION)
@@ -68,8 +62,8 @@ async function open(url: string): Promise<CheckPageResult> {
   wc.on('will-navigate', stay)
   wc.on('will-redirect', stay)
   wc.on('console-message', details => {
-    if (details.level !== 'error' || NETWORK_NOISE.test(details.message)) return
-    add(errors, details.message + (details.sourceId ? ` (${details.sourceId}:${details.lineNumber})` : ''))
+    const line = consoleIssue(details)
+    if (line) add(errors, line)
   })
   wc.on('render-process-gone', (_e, gone) => {
     reason = 'error'

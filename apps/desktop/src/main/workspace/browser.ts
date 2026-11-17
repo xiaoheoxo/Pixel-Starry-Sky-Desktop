@@ -22,6 +22,7 @@ import {
   type PickMessage,
   type PickRect,
 } from './elementPicker'
+import { addIssue, consoleIssue, failedRequest, type PageIssues } from './page-issues'
 
 const ANNOTATION_LIMIT = 100
 
@@ -97,6 +98,24 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
   const missing = new Map<string, Set<string>>()
   /** 本机项目的根目录（file:// 只放行这里面的文件）；远程机器不记 */
   const scopeRoots = new Map<string, string>()
+  /** 每个网页标签这一页的控制台错误和失败请求（运行胶囊用，docs/ui/panel-pill.md §8.1）；只在内存里，主框架跳转时清零 */
+  const issues = new Map<string, PageIssues>()
+  const issueTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** 报错常一下来一串：每个工作区 500ms 最多广播一次 */
+  const broadcastSoon = (scope: string): void => {
+    if (issueTimers.has(scope)) return
+    issueTimers.set(
+      scope,
+      setTimeout(() => {
+        issueTimers.delete(scope)
+        broadcast(scope)
+      }, 500),
+    )
+  }
+  const noteIssue = (scope: string, id: string, kind: 'errors' | 'requests', line: string): void => {
+    issues.set(id, addIssue(issues.get(id), kind, line))
+    broadcastSoon(scope)
+  }
   const scopeOf = (ref: WorkspaceRef): string => {
     const target = host.resolve(ref)
     const machine = machineOf(target.projectId)
@@ -122,8 +141,10 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     ...value,
     pages: value.pages.map(page => {
       const gone = missing.get(page.id)
+      const found = issues.get(page.id)
       return {
         ...page,
+        ...(found ? { issues: found } : {}),
         url: page.remoteUrl ?? page.url,
         annotations: gone?.size
           ? page.annotations.map(a => (gone.has(a.id) ? { ...a, missing: true as const } : a))
@@ -265,6 +286,22 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
         callback(r.response === 1)
         if (!entry.owner.isDestroyed()) place(entry)
       })
+      // 失败的请求记到发出请求的那个网页标签上（每个分区只能挂一个监听，这里是唯一的）
+      const owner = (id: number | undefined): View | undefined =>
+        id === undefined
+          ? undefined
+          : [...views.values()].find(v => !v.view.webContents.isDestroyed() && v.view.webContents.id === id)
+      const all = { urls: ['<all_urls>'] }
+      browserSession.webRequest.onCompleted(all, d => {
+        const v = owner(d.webContentsId),
+          line = v && failedRequest(d)
+        if (v && line) noteIssue(v.scope, v.id, 'requests', line)
+      })
+      browserSession.webRequest.onErrorOccurred(all, d => {
+        const v = owner(d.webContentsId),
+          line = v && failedRequest(d)
+        if (v && line) noteIssue(v.scope, v.id, 'requests', line)
+      })
       browserSession.on('will-download', (event, item, contents) => {
         const entry = [...views.values()].find(v => v.view.webContents === contents)
         if (!entry) {
@@ -380,6 +417,14 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     wc.on('page-title-updated', update)
     wc.on('dom-ready', () => void syncPicker(entry))
     wc.on('console-message', details => void onPick(entry, parsePickMessage(details.message, entry.channel)))
+    wc.on('console-message', details => {
+      const line = consoleIssue(details)
+      if (line) noteIssue(scope, p.id, 'errors', line)
+    })
+    // 换了一页（不是页内跳转）：上一页的错误清掉
+    wc.on('did-start-navigation', details => {
+      if (details.isMainFrame && !details.isSameDocument && issues.delete(p.id)) broadcastSoon(scope)
+    })
     wc.on('did-fail-load', (_e, code, description, _url, mainFrame) => {
       if (mainFrame && code !== -3) {
         p.error = description
@@ -489,6 +534,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
           views.delete(key)
         }
       missing.delete(id)
+      issues.delete(id)
       const next = state(scope).activeId
       if (next) place(getView(win, scope, find(scope, next)))
     } else {
