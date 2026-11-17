@@ -68,6 +68,88 @@ export interface BrowserState {
   activeId: string | null
   /** 这个工作区最近打开过的地址（新的在前，最多 8 个；远端工作区是原地址，不是本机转发端口） */
   recent?: string[]
+  /** 设备尺寸、网页主题（docs/ui/browser-v2.md §3.3、§10）；按工作区记，没有时是自适应 + 跟随系统 */
+  preview?: BrowserPreview
+}
+
+// ---- 第三批：设备尺寸、网页主题（docs/ui/browser-v2.md §3.3、§10）----
+export type BrowserDeviceId = 'responsive' | 'phone' | 'phoneLarge' | 'tablet' | 'laptop' | 'custom'
+export type BrowserDeviceKind = 'phone' | 'tablet' | 'desktop'
+export type BrowserPageTheme = 'system' | 'light' | 'dark'
+export interface BrowserPreview {
+  device: BrowserDeviceId
+  /** 自定义时的宽高（CSS 像素） */
+  width?: number
+  height?: number
+  /** 横过来（宽高对调） */
+  landscape?: boolean
+  theme?: BrowserPageTheme
+}
+/** 预设设备（竖着的宽高） */
+export const BROWSER_DEVICES: Record<
+  'phone' | 'phoneLarge' | 'tablet' | 'laptop',
+  { width: number; height: number; kind: BrowserDeviceKind }
+> = {
+  phone: { width: 390, height: 844, kind: 'phone' },
+  phoneLarge: { width: 430, height: 932, kind: 'phone' },
+  tablet: { width: 820, height: 1180, kind: 'tablet' },
+  laptop: { width: 1280, height: 800, kind: 'desktop' },
+}
+export const BROWSER_DEVICE_IDS: BrowserDeviceId[] = ['responsive', 'phone', 'phoneLarge', 'tablet', 'laptop', 'custom']
+export const CUSTOM_SIZE = { min: 200, max: 4000, width: 1024, height: 768 }
+
+const clampSize = (v: unknown, fallback: number): number =>
+  typeof v === 'number' && Number.isFinite(v)
+    ? Math.min(CUSTOM_SIZE.max, Math.max(CUSTOM_SIZE.min, Math.round(v)))
+    : fallback
+
+/** 校验、补全界面传来的设置（坏的字段用默认值）；自适应 + 跟随系统时返回 null（不用存） */
+export function cleanPreview(raw: unknown): BrowserPreview | null {
+  const v = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const device = BROWSER_DEVICE_IDS.includes(v.device as BrowserDeviceId) ? (v.device as BrowserDeviceId) : 'responsive'
+  const theme: BrowserPageTheme = v.theme === 'light' || v.theme === 'dark' ? v.theme : 'system'
+  if (device === 'responsive' && theme === 'system') return null
+  return {
+    device,
+    ...(device === 'custom'
+      ? { width: clampSize(v.width, CUSTOM_SIZE.width), height: clampSize(v.height, CUSTOM_SIZE.height) }
+      : {}),
+    ...(device !== 'responsive' && v.landscape === true ? { landscape: true } : {}),
+    ...(theme !== 'system' ? { theme } : {}),
+  }
+}
+
+/** 设备的 CSS 尺寸（横着时对调）和种类；自适应时 null */
+export function deviceSize(
+  preview: BrowserPreview | null | undefined,
+): { width: number; height: number; kind: BrowserDeviceKind } | null {
+  if (!preview || preview.device === 'responsive') return null
+  const base =
+    preview.device === 'custom'
+      ? {
+          width: clampSize(preview.width, CUSTOM_SIZE.width),
+          height: clampSize(preview.height, CUSTOM_SIZE.height),
+          kind: 'desktop' as const,
+        }
+      : BROWSER_DEVICES[preview.device]
+  return preview.landscape ? { width: base.height, height: base.width, kind: base.kind } : base
+}
+
+/** 设备框放进网页区：只缩小不放大、居中；scale 是设备 CSS 像素到网页区像素的比例 */
+export function fitDevice(
+  box: { x: number; y: number; width: number; height: number },
+  size: { width: number; height: number },
+): { x: number; y: number; width: number; height: number; scale: number } {
+  const scale = Math.max(0.05, Math.min(1, box.width / size.width, box.height / size.height))
+  const width = Math.round(size.width * scale),
+    height = Math.round(size.height * scale)
+  return {
+    x: Math.round(box.x + (box.width - width) / 2),
+    y: Math.round(box.y + (box.height - height) / 2),
+    width,
+    height,
+    scale,
+  }
 }
 
 /** 浏览器快捷键（docs/ui/browser-v2.md §3.1）：焦点在浏览器标签里、包括网页里时生效 */

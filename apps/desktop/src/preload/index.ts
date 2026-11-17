@@ -443,6 +443,7 @@ const projectBrowser: import('./project-browser').BrowserBridge = {
   devtools: (ref, id) => call('projectBrowser:devtools', ref, id),
   capture: (ref, id, full) => call('projectBrowser:capture', ref, id, full),
   clearSiteData: (ref, id) => call('projectBrowser:clearSiteData', ref, id),
+  preview: (ref, preview) => call('projectBrowser:preview', ref, preview),
   onChange: cb => {
     const listener = (
       _e: Electron.IpcRendererEvent,

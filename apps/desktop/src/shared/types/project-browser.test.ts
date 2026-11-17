@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { browserShortcut } from './project-browser'
+import { CUSTOM_SIZE, browserShortcut, cleanPreview, deviceSize, fitDevice } from './project-browser'
 
 const k = (key: string, mods: Partial<{ mod: boolean; shift: boolean; alt: boolean }> = {}) => ({
   key,
@@ -43,5 +43,53 @@ describe('浏览器快捷键', () => {
     expect(browserShortcut(k('w', { mod: true, shift: true }), false)).toBeNull()
     expect(browserShortcut(k('ArrowLeft', { alt: true, mod: true }), false)).toBeNull()
     expect(browserShortcut(k('F5', { shift: true }), false)).toBeNull()
+  })
+})
+
+describe('设备尺寸（docs/ui/browser-v2.md §3.3）', () => {
+  it('自适应 + 跟随系统不用存；坏字段用默认值', () => {
+    expect(cleanPreview(null)).toBeNull()
+    expect(cleanPreview({ device: 'responsive', theme: 'system' })).toBeNull()
+    expect(cleanPreview({ device: 'watch' })).toBeNull()
+    expect(cleanPreview({ device: 'phone', landscape: true, theme: 'dark' })).toEqual({
+      device: 'phone',
+      landscape: true,
+      theme: 'dark',
+    })
+    // 自适应没有横竖；只有自定义带宽高
+    expect(cleanPreview({ device: 'responsive', landscape: true, theme: 'light', width: 300 })).toEqual({
+      device: 'responsive',
+      theme: 'light',
+    })
+    expect(cleanPreview({ device: 'custom', width: 99999, height: 'x' })).toEqual({
+      device: 'custom',
+      width: CUSTOM_SIZE.max,
+      height: CUSTOM_SIZE.height,
+    })
+  })
+  it('设备的 CSS 尺寸：横着对调，自定义算桌面', () => {
+    expect(deviceSize(undefined)).toBeNull()
+    expect(deviceSize({ device: 'responsive' })).toBeNull()
+    expect(deviceSize({ device: 'phone' })).toEqual({ width: 390, height: 844, kind: 'phone' })
+    expect(deviceSize({ device: 'tablet', landscape: true })).toEqual({ width: 1180, height: 820, kind: 'tablet' })
+    expect(deviceSize({ device: 'custom', width: 500, height: 600 })).toEqual({
+      width: 500,
+      height: 600,
+      kind: 'desktop',
+    })
+  })
+  it('设备框放进网页区：只缩小不放大、居中', () => {
+    // 放得下：原尺寸居中
+    expect(fitDevice({ x: 0, y: 100, width: 600, height: 1000 }, { width: 390, height: 844 })).toEqual({
+      x: 105,
+      y: 178,
+      width: 390,
+      height: 844,
+      scale: 1,
+    })
+    // 高不够：按高缩小
+    const fit = fitDevice({ x: 10, y: 0, width: 600, height: 422 }, { width: 390, height: 844 })
+    expect(fit.scale).toBe(0.5)
+    expect(fit).toMatchObject({ width: 195, height: 422, x: 213, y: 0 })
   })
 })

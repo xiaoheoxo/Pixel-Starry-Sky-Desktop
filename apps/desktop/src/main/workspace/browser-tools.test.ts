@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { ZOOM_SITES_MAX, isZoomMove, nextZoom, rememberZoom, zoomSiteOf } from './browser-tools'
+import {
+  ZOOM_SITES_MAX,
+  isZoomMove,
+  nextZoom,
+  opensInside,
+  rememberZoom,
+  reloadsPage,
+  zoomSiteOf,
+} from './browser-tools'
 
 describe('缩放档位', () => {
   it('按档位放大、缩小、还原', () => {
@@ -48,5 +56,30 @@ describe('按网站记住缩放', () => {
     map = rememberZoom(map, 'new', 1.5)
     expect(map.s1).toBe(1.5)
     expect(map.s2).toBeUndefined()
+  })
+})
+
+describe('新窗口链接在哪开（docs/ui/browser-v2.md §3.3）', () => {
+  it('本机地址、和打开它的网页同一个主机：内置浏览器；外部网站、别的协议：不', () => {
+    expect(opensInside('http://localhost:3000/x', 'https://example.com/')).toBe(true)
+    expect(opensInside('http://127.0.0.1:8080/', 'http://localhost:5173/')).toBe(true)
+    expect(opensInside('http://[::1]:8080/', 'http://localhost:5173/')).toBe(true)
+    expect(opensInside('https://app.example.com/b', 'https://app.example.com/a')).toBe(true)
+    expect(opensInside('https://github.com/', 'http://localhost:5173/')).toBe(false)
+    expect(opensInside('https://other.example.com/', 'https://app.example.com/')).toBe(false)
+    expect(opensInside('mailto:a@b.c', 'http://localhost:5173/')).toBe(false)
+    expect(opensInside('not a url', 'http://localhost:5173/')).toBe(false)
+  })
+})
+
+describe('本地文件自动刷新看哪些文件', () => {
+  it('网页相关文件刷新；node_modules、.git、日志不刷新', () => {
+    expect(reloadsPage('index.html')).toBe(true)
+    expect(reloadsPage('src/app.MJS')).toBe(true)
+    expect(reloadsPage('assets/logo.svg')).toBe(true)
+    expect(reloadsPage('node_modules/x/index.js')).toBe(false)
+    expect(reloadsPage('.git/index')).toBe(false)
+    expect(reloadsPage('logs/server.log')).toBe(false)
+    expect(reloadsPage('data.sqlite')).toBe(false)
   })
 })

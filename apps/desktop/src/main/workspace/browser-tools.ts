@@ -27,6 +27,26 @@ export function zoomSiteOf(url: string): string | null {
   }
 }
 
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/i
+
+/** 新窗口链接直接在内置浏览器开（docs/ui/browser-v2.md §3.3）：本机地址，或者和打开它的网页同一个主机（http / https） */
+export function opensInside(url: string, opener: string): boolean {
+  try {
+    const target = new URL(url)
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') return false
+    if (LOCAL_HOST.test(target.hostname)) return true
+    return new URL(opener).hostname === target.hostname
+  } catch {
+    return false
+  }
+}
+
+/** 本地文件自动刷新：这些文件变了才刷新网页（日志、数据库、node_modules 这类不算） */
+export function reloadsPage(path: string): boolean {
+  if (/(^|\/)(node_modules|\.git)(\/|$)/.test(path)) return false
+  return /\.(html?|css|m?js|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?)$/i.test(path)
+}
+
 /** 记住的缩放：按网站（zoomSiteOf），100% 不记，最多记这么多个网站 */
 export const ZOOM_SITES_MAX = 200
 export function rememberZoom(map: Record<string, number> | undefined, origin: string, zoom: number) {
@@ -84,8 +104,22 @@ function fitImage(image: NativeImage, truncated: boolean): BrowserCapture {
   return { dataBase64: out.toJPEG(85).toString('base64'), width: fit.width, height: fit.height, truncated }
 }
 
-/** 截图：当前画面用 capturePage；整页用开发者协议的 captureBeyondViewport（别人连着调试器时借用，不断开） */
-export async function capturePage(wc: WebContents, full: boolean): Promise<BrowserCapture> {
+/**
+ * 截图：当前画面用 capturePage；整页用开发者协议的 captureBeyondViewport（别人连着调试器时借用，不断开）。
+ * device：正在模拟设备，当前画面也用开发者协议截，得到设备原尺寸，不是缩小后的画面
+ */
+export async function capturePage(wc: WebContents, full: boolean, device = false): Promise<BrowserCapture> {
+  if (device && !full && wc.debugger.isAttached()) {
+    const shot = (await timeout(
+      wc.debugger.sendCommand('Page.captureScreenshot', { format: 'jpeg', quality: 92 }),
+      15000,
+    )) as {
+      data: string
+    }
+    const image = nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64'))
+    if (image.isEmpty()) throw new Error('截不到网页画面')
+    return fitImage(image, false)
+  }
   if (full) {
     const dbg = wc.debugger
     const mine = !dbg.isAttached()

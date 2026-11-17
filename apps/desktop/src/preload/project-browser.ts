@@ -3,6 +3,7 @@ import type {
   BrowserAnnotation,
   BrowserCapture,
   BrowserIssueEntry,
+  BrowserPreview,
   BrowserShortcut,
   BrowserState,
 } from '../shared/types/project-browser'
@@ -55,6 +56,8 @@ export interface BrowserBridge {
   capture(ref: WorkspaceRef, id: string, full: boolean): Promise<BrowserCapture>
   /** 清这个网站的 Cookie、存储和缓存，然后重新加载 */
   clearSiteData(ref: WorkspaceRef, id: string): Promise<BrowserState>
+  /** 这个工作区的设备尺寸、网页主题（docs/ui/browser-v2.md §3.3）；主进程校验，自适应 + 跟随系统时清掉 */
+  preview(ref: WorkspaceRef, preview: BrowserPreview): Promise<BrowserState>
   onChange(cb: (state: BrowserState) => void): () => void
   /** 网页有焦点时按的浏览器快捷键（主进程截下来转过来） */
   onKey(cb: (event: { scope: string; pageId: string; shortcut: BrowserShortcut }) => void): () => void

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Clock, Globe } from 'lucide-react'
 import { Button, cn, useToast } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
@@ -22,6 +22,10 @@ import { NoProject, ToolError, useOperation } from './ToolsUi'
 import {
   BROWSER_CAPTURE_MAX_HEIGHT,
   browserShortcut,
+  cleanPreview,
+  deviceSize,
+  fitDevice,
+  type BrowserPreview,
   type BrowserAnnotation,
   type BrowserIssueEntry,
   type BrowserPage,
@@ -38,6 +42,7 @@ import { BrowserPageTabs } from './BrowserPageTabs'
 import { BrowserErrorPage } from './BrowserErrorPage'
 import { plainAddress, showPageTabs } from './browserModel'
 import { BrowserConsole } from './BrowserConsole'
+import { BrowserDeviceBar } from './BrowserDeviceBar'
 import { BrowserFindBar, type FindRequest } from './BrowserFindBar'
 import {
   attachmentProblem,
@@ -60,6 +65,15 @@ const readConsolePrefs = (): ConsolePrefs => {
   } catch {
     return parseConsolePrefs(null)
   }
+}
+
+/** 设备条放得下全部内容的宽度；更窄时网页主题收进 ⋯ 菜单、触摸只留图标 */
+const DEVICE_BAR_FULL = 380
+
+/** 设备尺寸时网页区的点阵背景（docs/ui/browser-v2.md §3.3） */
+const STAGE_DOTS = {
+  backgroundImage: 'radial-gradient(circle, var(--border-strong) 1px, transparent 1.2px)',
+  backgroundSize: '14px 14px',
 }
 
 /** 网页和批注栏按批注栏的位置排（docs/ui/element-annotation.md §7） */
@@ -147,6 +161,13 @@ function BrowserBody({
   const [entries, setEntries] = useState<BrowserIssueEntry[] | null>(null)
   const [find, setFind] = useState<{ seq: number } | null>(null)
   const [clearing, setClearing] = useState(false)
+  // ---- 第三批（docs/ui/browser-v2.md §3.3）：设备尺寸、网页主题 ----
+  /** 网页区（占位框）的大小：设备框按它算缩小比例和位置，和主进程用同一个 fitDevice */
+  const [stage, setStage] = useState<{ width: number; height: number } | null>(null)
+  const device = deviceSize(state?.preview)
+  const fit = device && stage ? fitDevice({ x: 0, y: 0, ...stage }, device) : null
+  /** 设备框在占位框里的位置：fit 按含边框的大小算（和主进程一样），绝对定位从 1px 边框里面算 */
+  const fitBox = fit ? { left: fit.x - 1, top: fit.y - 1, width: fit.width, height: fit.height } : undefined
   const openUrl = (url: string) =>
     run(async () => {
       const same = isPortUrl(url) ? state?.pages.find(p => sameService(p.url, url)) : undefined
@@ -564,6 +585,15 @@ function BrowserBody({
       setClearing(false)
       toast(tr('projectTools.siteDataCleared', { host }))
     })
+  /** 改设备尺寸、网页主题：整份交给主进程（它校验后按工作区存），演示时只改界面 */
+  const setPreview = (next: BrowserPreview) =>
+    run(async () => {
+      if (demo) {
+        const clean = cleanPreview(next)
+        return setState(s => (s ? { ...s, preview: clean ?? undefined } : s))
+      }
+      setState(await window.pixelsky!.projectBrowser.preview(target, next))
+    })
   /** 浏览器快捷键（docs/ui/browser-v2.md §3.1、§3.2）；返回是否处理了 */
   const shortcut = (key: BrowserShortcut): boolean => {
     if (key === 'address') {
@@ -597,6 +627,27 @@ function BrowserBody({
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+  // 网页区的大小（设备框按它摆），含边框，和主进程拿到的占位框一致。
+  // 跟着元素走：没有网页和有网页时网页区不在同一个位置，第一次打开网页时会换一个元素
+  const [viewportEl, setViewportEl] = useState<HTMLDivElement | null>(null)
+  const viewportRef = useCallback((el: HTMLDivElement | null) => {
+    viewport.current = el
+    setViewportEl(el)
+  }, [])
+  useEffect(() => {
+    const el = viewportEl
+    if (!el) return
+    const observer = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect()
+      setStage(prior =>
+        prior && Math.abs(prior.width - r.width) < 0.5 && Math.abs(prior.height - r.height) < 0.5
+          ? prior
+          : { width: r.width, height: r.height },
+      )
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [viewportEl])
   // Esc 退出选取（网页拿到焦点时由网页里的脚本处理）
   useEffect(() => {
     if (!page?.picking) return
@@ -669,6 +720,8 @@ function BrowserBody({
         onFind={openFind}
         onZoom={move => void zoom(move)}
         onDevtools={() => void devtools()}
+        preview={state?.preview}
+        onPreview={next => void setPreview(next)}
         onClearSiteData={() => {
           // 确认框里只显示这次清除的错误
           setError('')
@@ -681,11 +734,35 @@ function BrowserBody({
       <div className={cn('flex min-h-0 flex-1 gap-2', DOCK_FLOW[placed])}>
         {/* min-h-0：控制台抽屉拖得很高、窗口又矮时，这一列能缩，抽屉按剩下的高度封顶（不把批注栏挤出去） */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+          {page && state?.preview && state.preview.device !== 'responsive' && (
+            <BrowserDeviceBar
+              preview={state.preview}
+              scale={fit?.scale ?? null}
+              compact={!!stage && stage.width < DEVICE_BAR_FULL}
+              busy={busy}
+              onChange={next => void setPreview(next)}
+            />
+          )}
           <div
-            ref={viewport}
+            ref={viewportRef}
             data-browser-viewport
             className="relative flex min-h-24 flex-1 flex-col overflow-hidden rounded-lg border border-line-card bg-surface"
           >
+            {/* 设备尺寸：设备框外面铺点阵，设备框画一圈边（网页视图盖在框里） */}
+            {fit && page && !failed && (
+              <div
+                aria-hidden
+                data-browser-stage
+                className="pointer-events-none absolute inset-0 bg-subtle"
+                style={STAGE_DOTS}
+              >
+                <div
+                  data-browser-device-frame
+                  className="absolute rounded-sm bg-surface shadow-menu outline outline-1 outline-line-strong"
+                  style={fitBox}
+                />
+              </div>
+            )}
             {snapshot && (
               <img
                 src={snapshot}
@@ -693,7 +770,11 @@ function BrowserBody({
                 aria-hidden
                 data-browser-snapshot
                 draggable={false}
-                className="pointer-events-none absolute inset-0 z-[1] size-full select-none"
+                className={cn(
+                  'pointer-events-none absolute z-[1] select-none',
+                  !(fit && !failed) && 'inset-0 size-full',
+                )}
+                style={failed ? undefined : fitBox}
               />
             )}
             {page && failed ? (
@@ -707,8 +788,14 @@ function BrowserBody({
                 onOpenPort={n => void navigate(portUrl(n))}
               />
             ) : demo && page ? (
-              <PreviewViewport />
-            ) : (
+              fit ? (
+                <div className="absolute flex flex-col overflow-hidden" style={fitBox}>
+                  <PreviewViewport />
+                </div>
+              ) : (
+                <PreviewViewport />
+              )
+            ) : fit && page ? null : (
               <div className="pointer-events-none flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-meta text-fg-muted">
                 <Globe size={24} />
                 <p>

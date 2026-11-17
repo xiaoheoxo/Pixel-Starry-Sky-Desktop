@@ -848,6 +848,8 @@ export const IPC_CONTRACT = {
   'projectBrowser:key': { kind: 'push', route: 'push', trust: 'none' },
   'projectBrowser:navigate': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:pick': { kind: 'invoke', route: 'local', trust: 'window' },
+  // 第三批（docs/ui/browser-v2.md §3.3）：设备尺寸、网页主题（按工作区记）
+  'projectBrowser:preview': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:removeAnnotation': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:select': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:state': { kind: 'invoke', route: 'local', trust: 'window' },

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   Camera,
   Clock,
   Code,
@@ -36,6 +37,8 @@ import type { FoundPort } from '@/features/session/live/portTipsModel'
 import type { BrowserPage } from '../../../../shared/types/project-browser'
 import { addressParts, addressSuggestions, type AddressKind, type AddressSuggestion } from './browserModel'
 import { isWebPage, zoomPercent } from './browserTools'
+import { DEVICE_ICON, THEME_ICON, currentPreview, deviceActions, deviceName, themeActions } from './browserPreviewMenu'
+import type { BrowserPreview } from '../../../../shared/types/project-browser'
 
 const KIND_ICON: Record<AddressKind, LucideIcon> = { secure: Lock, insecure: Globe, local: Server, file: FileText }
 
@@ -69,7 +72,13 @@ export interface BrowserToolbarProps {
   onZoom: (move: 'in' | 'out' | 'reset') => void
   onDevtools: () => void
   onClearSiteData: () => void
+  // ---- 第三批（docs/ui/browser-v2.md §3.3）----
+  /** 这个工作区的设备尺寸、网页主题 */
+  preview: BrowserPreview | undefined
+  onPreview: (next: BrowserPreview) => void
 }
+
+type MenuKind = 'more' | 'capture' | 'device'
 
 export function BrowserToolbar(props: BrowserToolbarProps) {
   useI18n()
@@ -77,9 +86,10 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
   const { page, busy } = props
   const [focused, setFocused] = useState(false)
   const more = useRef<HTMLButtonElement>(null),
-    camera = useRef<HTMLButtonElement>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'more' | 'capture' } | null>(null)
-  const openMenu = (kind: 'more' | 'capture', button: HTMLButtonElement | null, width: number) => {
+    camera = useRef<HTMLButtonElement>(null),
+    deviceButton = useRef<HTMLButtonElement>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: MenuKind } | null>(null)
+  const openMenu = (kind: MenuKind, button: HTMLButtonElement | null, width: number) => {
     const r = button?.getBoundingClientRect()
     if (r) setMenu(menu?.kind === kind ? null : { x: r.right - width, y: r.bottom + 4, kind })
   }
@@ -102,6 +112,8 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
     },
   ]
   const zoom = zoomPercent(page?.zoom)
+  const preview = currentPreview(props.preview),
+    devices = deviceActions(props.preview, props.onPreview)
   const actions: MenuAction[] = [
     {
       label: tr('projectTools.newPage'),
@@ -112,6 +124,18 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
     },
     // 窄面板时截图在这里，宽时在工具栏
     ...(props.wide ? [] : captures),
+    // 窄面板时设备尺寸也在这里（宽时工具栏有按钮）
+    ...(props.wide
+      ? []
+      : [
+          {
+            label: tr('projectTools.device'),
+            icon: DEVICE_ICON[preview.device],
+            hint: deviceName(preview.device),
+            disabled: !page,
+            children: devices,
+          },
+        ]),
     {
       label: tr('projectTools.find'),
       icon: Search,
@@ -135,6 +159,14 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
           run: () => props.onZoom('reset'),
         },
       ],
+    },
+    {
+      label: tr('projectTools.pageTheme'),
+      icon: THEME_ICON[preview.theme ?? 'system'],
+      hint: tr(`projectTools.pageTheme.${preview.theme ?? 'system'}`),
+      title: tr('projectTools.pageThemeHint'),
+      disabled: !page,
+      children: themeActions(preview, props.onPreview),
     },
     {
       label: tr('projectTools.console'),
@@ -210,6 +242,30 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
       {/* 地址栏聚焦时盖住右边的按钮（变成整排宽） */}
       {!focused && (
         <>
+          {/* 设备尺寸（docs/ui/browser-v2.md §3.3）：宽时常驻，窄时在 ⋯ 里 */}
+          {props.wide && (
+            <button
+              ref={deviceButton}
+              type="button"
+              data-browser-device
+              aria-haspopup="menu"
+              aria-expanded={menu?.kind === 'device'}
+              title={tr('projectTools.device')}
+              disabled={!page}
+              onClick={() => openMenu('device', deviceButton.current, 220)}
+              className={cn(
+                'press no-drag inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-label whitespace-nowrap text-fg-muted hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40',
+                (menu?.kind === 'device' || preview.device !== 'responsive') && 'bg-selected text-fg',
+              )}
+            >
+              {(() => {
+                const Icon = DEVICE_ICON[preview.device]
+                return <Icon size={14} strokeWidth={1.5} />
+              })()}
+              {deviceName(preview.device)}
+              <ChevronDown size={12} className="text-fg-faint" />
+            </button>
+          )}
           {props.wide && (
             <IconButton
               ref={camera}
@@ -275,10 +331,17 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
         <ActionMenu
           x={menu.x}
           y={menu.y}
-          label={tr(menu.kind === 'more' ? 'projectTools.more' : 'projectTools.capture')}
-          actions={menu.kind === 'more' ? actions : captures}
+          label={tr(
+            menu.kind === 'more'
+              ? 'projectTools.more'
+              : menu.kind === 'device'
+                ? 'projectTools.device'
+                : 'projectTools.capture',
+          )}
+          actions={menu.kind === 'more' ? actions : menu.kind === 'device' ? devices : captures}
           onClose={() => {
-            const button = menu.kind === 'more' ? more.current : camera.current
+            const button =
+              menu.kind === 'more' ? more.current : menu.kind === 'device' ? deviceButton.current : camera.current
             setMenu(null)
             button?.focus({ preventScroll: true })
           }}

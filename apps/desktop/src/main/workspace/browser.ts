@@ -11,7 +11,15 @@ import * as ipc from '../ipc/guard'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, basename, isAbsolute, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { browserShortcut, type BrowserPage, type BrowserState } from '../../shared/types/project-browser'
+import {
+  browserShortcut,
+  cleanPreview,
+  deviceSize,
+  fitDevice,
+  type BrowserPage,
+  type BrowserPreview,
+  type BrowserState,
+} from '../../shared/types/project-browser'
 import type { WorkspaceRef } from '../../shared/types/workspace'
 import { JsonStore, value, type ToolsHost } from '../core/project-tools/common'
 import { workspaceRef } from '../core/workspace-files'
@@ -45,17 +53,33 @@ import {
   findOnce,
   isZoomMove,
   nextZoom,
+  opensInside,
+  reloadsPage,
   rememberZoom,
   toggleDevTools,
   zoomSiteOf,
   type ZoomMove,
 } from './browser-tools'
 import { pushRecent } from './browser-recent'
+import { applyEmulation, emulatingDevice, staleEmulation } from './browser-emulation'
+import { createTreeWatcher } from './tree-watch'
 import { sendTo } from '../app/rendererHealth'
 
 const ANNOTATION_LIMIT = 100
+/** 每个工作区最多开这么多个网页标签 */
+const PAGE_LIMIT = 12
 /** 第二批的通道（docs/ui/browser-v2.md §3.2）：只对已经开着的网页，调用前不重新转发远端端口 */
-const TOOL_CHANNELS = ['issues', 'clearIssues', 'find', 'stopFind', 'zoom', 'devtools', 'capture', 'clearSiteData']
+const TOOL_CHANNELS = [
+  'issues',
+  'clearIssues',
+  'find',
+  'stopFind',
+  'zoom',
+  'devtools',
+  'capture',
+  'clearSiteData',
+  'preview',
+]
 /** 网站图标最大字节数 */
 const FAVICON_MAX = 32 * 1024
 const sameOrigin = (a: string, b: string): boolean => {
@@ -71,6 +95,8 @@ interface StoredScope {
   activeId: string | null
   /** 最近打开过的地址（docs/ui/browser-v2.md §3.1） */
   recent?: string[]
+  /** 设备尺寸、网页主题（docs/ui/browser-v2.md §3.3） */
+  preview?: BrowserPreview
 }
 export function browserUrl(raw: unknown): string {
   const input = value(raw, 4000, true)
@@ -143,10 +169,13 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     channel: string
     /** 注入过点选脚本（关掉选取时要通知它） */
     injected: boolean
+    /** 设备尺寸下网页缩小的比例（视图像素 / 网页 CSS 像素，不含网页缩放）；自适应时 1 */
+    scale: number
   }
   const views = new Map<string, View>(),
     configured = new Set<string>()
-  const bounds = new Map<number, { scope: string; rect: Electron.Rectangle }>()
+  /** 每个窗口的网页区（窗口像素）和界面的缩放（设备框按界面的 CSS 像素算，见 fitDevice） */
+  const bounds = new Map<number, { scope: string; rect: Electron.Rectangle; zoom: number }>()
   const scopeMachines = new Map<string, string>()
   /** 点选批注：界面最近一次传来的主题色和文案；页面里找不到元素的批注（页面标签 id → 批注 id，只在内存里） */
   let pickConfig = sanitizePickConfig(null)
@@ -244,7 +273,13 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
   }
   const state = (scope: string): BrowserState => {
     const s = store.data.scopes[scope] ?? { pages: [], activeId: null }
-    return { scope, pages: s.pages, activeId: s.activeId, ...(s.recent?.length ? { recent: s.recent } : {}) }
+    return {
+      scope,
+      pages: s.pages,
+      activeId: s.activeId,
+      ...(s.recent?.length ? { recent: s.recent } : {}),
+      ...(s.preview ? { preview: s.preview } : {}),
+    }
   }
   const broadcast = (scope: string): void => {
     ctx.events.broadcast('projectBrowser:changed', displayState(state(scope)))
@@ -274,6 +309,31 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     if (machine === 'local' || port === null) return url
     return browserTunnelUrl(url, await ctx.machines!.connection(machine).forwardPort(port))
   }
+  // 本地文件自动刷新（docs/ui/browser-v2.md §3.3）：文件树那套监听另开一个实例，变化停下 300ms 推一次
+  const fileWatcher = createTreeWatcher({ quietMs: 300, maxWaitMs: 1000 })
+  const fileWatches = new Map<string, () => void>()
+  const filePages = (scope: string): View[] =>
+    [...views.values()].filter(
+      v => v.scope === scope && !v.view.webContents.isDestroyed() && v.view.webContents.getURL().startsWith('file:'),
+    )
+  /** 本机工作区有 file:// 网页时监听项目目录，网页相关文件变了就刷新这些网页；没有了就退订（Windows 上开着会占住目录） */
+  const syncFileWatch = (scope: string): void => {
+    const root = scopeRoots.get(scope),
+      need = !!root && filePages(scope).length > 0,
+      off = fileWatches.get(scope)
+    if (need && !off)
+      fileWatches.set(
+        scope,
+        fileWatcher.subscribe([{ path: root!, prefix: '' }], change => {
+          if (!change.overflow && ![...change.added, ...change.changed].some(reloadsPage)) return
+          for (const v of filePages(scope)) v.view.webContents.reload()
+        }),
+      )
+    else if (!need && off) {
+      off()
+      fileWatches.delete(scope)
+    }
+  }
   const persist = (): void => {
     void store.transaction(() => {}).catch(() => {})
   }
@@ -284,8 +344,44 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     const b = bounds.get(v.owner.id),
       current = state(v.scope)
     const show = !!b && b.scope === v.scope && current.activeId === v.id && b.rect.width > 0 && b.rect.height > 0
-    if (show && b) v.view.setBounds(b.rect)
+    if (show && b) {
+      // 选了设备（docs/ui/browser-v2.md §10）：视图只占设备框，按界面的 CSS 像素算缩小比例，再换回窗口像素
+      const size = deviceSize(current.preview),
+        z = b.zoom || 1
+      const fit = size
+        ? fitDevice({ x: b.rect.x / z, y: b.rect.y / z, width: b.rect.width / z, height: b.rect.height / z }, size)
+        : null
+      v.scale = fit ? fit.scale * z : 1
+      v.view.setBounds(
+        fit
+          ? {
+              x: Math.round(fit.x * z),
+              y: Math.round(fit.y * z),
+              width: Math.max(1, Math.round(fit.width * z)),
+              height: Math.max(1, Math.round(fit.height * z)),
+            }
+          : b.rect,
+      )
+      void emulate(v, size)
+    }
     v.view.setVisible(show)
+  }
+  /** 按工作区的设备、网页主题模拟；手机 / 平板标识变了重新加载（服务器按标识出页面） */
+  const emulate = (v: View, size = deviceSize(state(v.scope).preview)): Promise<void> => {
+    const wc = v.view.webContents,
+      p = state(v.scope).pages.find(item => item.id === v.id)
+    if (wc.isDestroyed() || !p) return Promise.resolve()
+    return applyEmulation(wc, {
+      size,
+      scale: v.scale,
+      theme: state(v.scope).preview?.theme ?? 'system',
+      picking: !!p.picking,
+    }).then(
+      uaChanged => {
+        if (uaChanged && !wc.isDestroyed() && wc.getURL() && !wc.isLoadingMainFrame()) wc.reload()
+      },
+      () => {},
+    )
   }
   const markersOf = (p: BrowserPage) =>
     p.annotations.flatMap((a, i) =>
@@ -308,7 +404,10 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     for (const v of views.values()) if (v.scope === scope && v.id === id) void syncPicker(v)
   }
   /** 元素区域截图：夹在视图里，长边缩到 SHOT_MAX_EDGE，存成 JPEG */
-  const captureShot = async (v: View, rect: PickRect) => {
+  const captureShot = async (v: View, css: PickRect) => {
+    // 网页里量的是 CSS 坐标，视图坐标要乘网页缩放和设备缩小比例
+    const k = v.view.webContents.getZoomFactor() * v.scale,
+      rect = { x: css.x * k, y: css.y * k, width: css.width * k, height: css.height * k }
     const size = v.view.getBounds(),
       r = clampRect(rect, size.width, size.height)
     const image = r ? await v.view.webContents.capturePage(r).catch(() => null) : null
@@ -334,6 +433,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     if (!msg || !page) return
     if (msg.t === 'exit') {
       page.picking = false
+      void emulate(v)
       broadcast(v.scope)
     } else if (msg.t === 'missing') {
       const prior = missing.get(page.id)
@@ -455,12 +555,29 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       owner: win,
       channel: 'pixelsky-pick:' + randomUUID() + ':',
       injected: false,
+      scale: 1,
     }
     views.set(key, entry)
     win.contentView.addChildView(view)
     view.setVisible(false)
     const wc = view.webContents
+    // 新窗口链接（docs/ui/browser-v2.md §3.3）：本机、同一个主机、项目里的文件直接新开网页标签；外部的照旧问
+    const openFailed = (error: unknown): void => {
+      p.error = error instanceof Error ? error.message : String(error)
+      broadcast(scope)
+    }
+    /** 用户看到的地址（远端工作区把本机转发的地址换回原地址） */
+    const shownUrl = (url: string): string => (p.remoteUrl ? (browserRemoteUrl(url, p.remoteUrl, p.url) ?? url) : url)
     wc.setWindowOpenHandler(({ url }) => {
+      let inside: string | null = null
+      try {
+        const target = pageUrl(url, root)
+        if (target.startsWith('file:') || opensInside(target, wc.getURL())) inside = shownUrl(target)
+      } catch {}
+      if (inside && state(scope).pages.length < PAGE_LIMIT) {
+        void openInBrowser(win, scope, inside).catch(openFailed)
+        return { action: 'deny' }
+      }
       try {
         const safe = browserUrl(url)
         hide(win)
@@ -469,12 +586,18 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
             type: 'question',
             title: nativeText(win, '打开外部链接'),
             message: safe,
-            buttons: [nativeText(win, '取消'), nativeText(win, '用系统浏览器打开')],
+            detail: nativeText(win, '需要和原网页互相通信的弹窗（比如第三方登录）在内置浏览器里用不了'),
+            buttons: [
+              nativeText(win, '取消'),
+              nativeText(win, '在内置浏览器打开'),
+              nativeText(win, '用系统浏览器打开'),
+            ],
             defaultId: 0,
             cancelId: 0,
           })
           .then(r => {
-            if (r.response === 1) return shell.openExternal(safe)
+            if (r.response === 1) return openInBrowser(win, scope, shownUrl(safe)).catch(openFailed)
+            if (r.response === 2) return shell.openExternal(safe)
           })
           .finally(() => {
             if (!win.isDestroyed()) place(entry)
@@ -561,6 +684,8 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       // 按网站记住的缩放（docs/ui/browser-v2.md §3.2）；加载中 p.url 还是上一页的，按跳到的地址算
       const zoom = zoomOf(p, url)
       if (Math.abs(wc.getZoomFactor() - zoom) > 0.001) wc.setZoomFactor(zoom)
+      // 打开 / 离开本地文件：开始 / 停止监听项目目录
+      syncFileWatch(scope)
     })
     // 网页里 Ctrl+滚轮、触控板捏合。一下滚轮会连着来两次（真实实例里量到相隔不到 1ms），15ms 内的只认第一次
     let lastWheel = 0
@@ -611,9 +736,13 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
           views.delete(id)
         }
       bounds.delete(win.id)
+      for (const scope of fileWatches.keys()) syncFileWatch(scope)
     })
     void wc.loadURL(p.url).catch(() => {})
     place(entry)
+    // 不在前台的标签也设好模拟，切过去不用再刷新。要在开始加载之后：还没加载过的网页连调试器发模拟，实测主进程会崩溃。
+    // 手机 / 平板第一次加载用的还是电脑标识，emulate 设好后会重新加载一次（触摸也要新页面才认）
+    void emulate(entry)
     return entry
   }
   const handle = (name: string, fn: (e: IpcMainInvokeEvent, scope: string, ...args: unknown[]) => unknown): void => {
@@ -634,20 +763,19 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     })
   }
   handle('state', (_, scope) => state(scope))
-  handle('navigate', async (e, scope, rawId, rawUrl) => {
-    const original = pageUrl(rawUrl, scopeRoots.get(scope) ?? null),
-      url = await transport(scope, original),
-      win = BrowserWindow.fromWebContents(e.sender)!
+  /** 打开地址：pageId 为 null 时新开一个网页标签（original 已经校验过，是用户看到的地址） */
+  const openUrl = async (win: BrowserWindow, scope: string, pageId: string | null, original: string) => {
+    const url = await transport(scope, original)
     let page!: BrowserPage
     await store.transaction(data => {
       const s = (data.scopes[scope] ??= { pages: [], activeId: null })
-      if (rawId !== null) {
-        page = find(scope, value(rawId, 200))
+      if (pageId !== null) {
+        page = find(scope, pageId)
         page.url = url
         page.remoteUrl = original === url ? undefined : original
         page.error = null
       } else {
-        if (s.pages.length >= 12) throw new Error('最多打开 12 个网页标签')
+        if (s.pages.length >= PAGE_LIMIT) throw new Error('最多打开 12 个网页标签')
         page = {
           id: randomUUID(),
           url,
@@ -663,6 +791,20 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       }
       s.activeId = page.id
     })
+    return { page, url }
+  }
+  /** 网页里点的新窗口链接：新开一个网页标签（docs/ui/browser-v2.md §3.3） */
+  async function openInBrowser(win: BrowserWindow, scope: string, original: string): Promise<void> {
+    await openUrl(win, scope, null, original)
+    hide(win)
+    const id = state(scope).activeId
+    if (id) place(getView(win, scope, find(scope, id)))
+    broadcast(scope)
+  }
+  handle('navigate', async (e, scope, rawId, rawUrl) => {
+    const original = pageUrl(rawUrl, scopeRoots.get(scope) ?? null),
+      win = BrowserWindow.fromWebContents(e.sender)!
+    const { page, url } = await openUrl(win, scope, rawId === null ? null : value(rawId, 200), original)
     hide(win)
     const existed = views.has(win.id + ':' + scope + ':' + page.id)
     const view = getView(win, scope, page)
@@ -703,6 +845,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       missing.delete(id)
       forgetIssues(id)
       favicons.delete(id)
+      syncFileWatch(scope)
       const next = state(scope).activeId
       if (next) place(getView(win, scope, find(scope, next)))
     } else {
@@ -725,7 +868,9 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       const shown =
         b && [...views.values()].find(v => v.owner === win && v.scope === b.scope && state(v.scope).activeId === v.id)
       if (shown && !shown.view.webContents.isDestroyed()) {
-        const image = await shown.view.webContents.capturePage().catch(() => null)
+        // 模拟设备时不带区域截到的是设备大小的画布、内容只在左上角缩小的那块：按视图大小截
+        const { width, height } = shown.view.getBounds()
+        const image = await shown.view.webContents.capturePage({ x: 0, y: 0, width, height }).catch(() => null)
         if (image && !image.isEmpty()) snapshot = `data:image/jpeg;base64,${image.toJPEG(85).toString('base64')}`
       }
     }
@@ -746,7 +891,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       width: Math.max(0, Math.min(Math.round(r.width * zoom), width - x)),
       height: Math.max(0, Math.min(Math.round(r.height * zoom), height - y)),
     }
-    bounds.set(win.id, { scope, rect })
+    bounds.set(win.id, { scope, rect, zoom })
     const id = state(scope).activeId
     if (id && rect.width && rect.height) place(getView(win, scope, find(scope, id)))
   })
@@ -775,6 +920,8 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     page.picking = on === true
     const entry = getView(win, scope, page)
     await syncPicker(entry)
+    // 手机 / 平板模拟时点选期间鼠标不当手指用（点选靠悬停）
+    void emulate(entry)
     if (page.picking && !was && !entry.view.webContents.isDestroyed()) entry.view.webContents.focus()
     broadcast(scope)
     return state(scope)
@@ -831,14 +978,44 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     return state(scope)
   })
   handle('devtools', (e, scope, rawId) => toggleDevTools(openView(e, scope, rawId).wc))
-  handle('capture', (e, scope, rawId, full) => capturePage(openView(e, scope, rawId).wc, full === true))
+  handle('capture', async (e, scope, rawId, full) => {
+    const { wc } = openView(e, scope, rawId)
+    const device = emulatingDevice(wc)
+    try {
+      return await capturePage(wc, full === true, device)
+    } finally {
+      // 整页截图会关掉触摸模拟：截完重发一遍
+      if (device && full === true) {
+        staleEmulation(wc)
+        for (const v of views.values()) if (v.view.webContents === wc) void emulate(v)
+      }
+    }
+  })
   handle('clearSiteData', async (e, scope, rawId) => {
     const { wc } = openView(e, scope, rawId)
     await clearSiteData(wc.session, wc.getURL())
     wc.reloadIgnoringCache()
     return state(scope)
   })
+  // ---- 第三批（docs/ui/browser-v2.md §3.3、§10）：设备尺寸、网页主题按工作区记 ----
+  handle('preview', async (_, scope, raw) => {
+    const next = cleanPreview(raw)
+    await store.transaction(data => {
+      const s = (data.scopes[scope] ??= { pages: [], activeId: null })
+      if (next) s.preview = next
+      else delete s.preview
+    })
+    for (const v of views.values())
+      if (v.scope === scope) {
+        if (state(scope).activeId === v.id) place(v)
+        else void emulate(v)
+      }
+    broadcast(scope)
+    return state(scope)
+  })
   ctx.lifecycle.onShutdown(() => {
+    for (const off of fileWatches.values()) off()
+    fileWatches.clear()
     for (const v of views.values()) if (!v.view.webContents.isDestroyed()) v.view.webContents.close()
     views.clear()
   })
