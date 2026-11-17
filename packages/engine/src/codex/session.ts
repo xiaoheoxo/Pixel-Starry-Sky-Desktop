@@ -41,7 +41,7 @@ import { codexMcpServers, McpReporter } from '../mcp'
 import { NO_REPLY, seedImageCount, seedTurns, type ChatSeed, type ChatTurn } from '../chat-log'
 import { CodexProcess, array, object, string, type Message } from './process'
 import { readCodexTurns, revertTarget } from './branch'
-import { codexCatalog } from './catalog'
+import { codexCatalog, codexModelSees } from './catalog'
 import { codexThreadName } from './native'
 import { describeError, logger } from '../log'
 import { forkToProvider } from './provider-switch'
@@ -986,9 +986,10 @@ export class CodexSession implements EngineSession {
       this.adopting = null
       if (this.active !== active || this.closed) return
     }
-    const selected = this.catalog?.models?.find(m => m.id === (this.settings.model ?? this.catalog?.currentModel))
+    const modelId = this.settings.model ?? this.catalog?.currentModel ?? null
+    const selected = this.catalog?.models?.find(m => m.id === modelId)
     this.active.baseline = { ...this.totals }
-    const sees = !!selected?.inputModalities.includes('image')
+    const sees = codexModelSees(this.catalog, modelId, !!this.ctx.record().platform)
     // 原来的线程接不上、新线程是空的：请宿主把这一轮之前的整段聊天做成回放（包含这一轮原本的 seed），注进新线程
     // 「已带过去」的提示等真的送进去（或改成文字交接）时才发；/compact 注不进去时不发，this.lost 留着下一轮再补
     let lostNotice: Item | null = null

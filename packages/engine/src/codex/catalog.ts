@@ -1,4 +1,4 @@
-import { EFFORTS, type EngineCatalog, type EngineModel, type Effort } from '@pixelsky/protocol'
+import { EFFORTS, autoImageInput, type EngineCatalog, type EngineModel, type Effort } from '@pixelsky/protocol'
 import { describeError, logger } from '../log'
 import { CodexProcess, array, object, string } from './process'
 
@@ -63,4 +63,15 @@ export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
     authType,
     rateLimits,
   }
+}
+
+/**
+ * 当前模型能不能看图（发图片前拦不能看的）：
+ * - 平台会话按平台的模型资料（autoImageInput：内置模型表、名字、Responses 协议默认能看）；线路里的模型不一定在 Codex 目录里；
+ * - 其余按 Codex 的模型目录；目录里没有这个模型（本机 Codex 版本旧、自定义接口的模型）不拦，交给服务端判断
+ */
+export function codexModelSees(catalog: EngineCatalog | null, model: string | null, platform: boolean): boolean {
+  if (platform && model) return autoImageInput(model, 'responses').images
+  const found = model ? catalog?.models?.find(m => m.id === model) : undefined
+  return found ? found.inputModalities.includes('image') : true
 }

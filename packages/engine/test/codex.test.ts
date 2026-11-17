@@ -1852,16 +1852,15 @@ describe('Codex 接手带图片的聊天', () => {
     expect(notices(session.id)).toEqual([])
   })
 
-  it('目录里没有这个模型：host 按引擎能力交了图片，会话这边兜底不带，并告诉用户实际没带', async () => {
-    const { session, messages } = await handoff('fake-unlisted', {}, undefined)
+  it('目录里没有这个模型（本机 Codex 旧、自定义接口）：不当成不能看图，图片照带，交给服务端判断', async () => {
+    const { old, session, messages } = await handoff('fake-unlisted', {}, undefined)
     const inject = messages().find(m => m.method === 'thread/inject_items')!
     expect(inject.params!.items![0].content).toEqual([
-      { type: 'input_text', text: `${ASKED}（附：old.png）（上面这些图片没有带上：当前模型不能看图）` },
+      { type: 'input_text', text: `${ASKED}（附：old.png）` },
+      { type: 'input_image', image_url: url(old) },
     ])
     expect(host!.open(session.id).items.some(i => i.kind === 'notice' && i.level === 'error')).toBe(false)
-    expect(notices(session.id)).toEqual([
-      "The current model can't view images, so 1 earlier image(s) were not actually passed along",
-    ])
+    expect(notices(session.id).filter(t => t.includes('view images'))).toEqual([])
   })
 
   it('注入失败退回文字交接：更早消息的图片排在消息自己的图片前面一起发', async () => {
@@ -1884,13 +1883,11 @@ describe('Codex 接手带图片的聊天', () => {
     expect(notices(session.id).filter(t => t.includes('view images'))).toEqual([])
   })
 
-  it('注入失败且目录里没有这个模型：会话兜底只发文字交接，不带图片，告诉用户实际没带', async () => {
+  it('注入失败且目录里没有这个模型：文字交接照带更早消息的图片，不警告', async () => {
     const { session, messages } = await handoff('fake-unlisted', { FAKE_CODEX_INJECT_FAIL: '1' }, undefined)
     const start = messages().find(m => m.method === 'turn/start') as { params: { input: { type: string }[] } }
-    expect(start.params.input.map(i => i.type)).toEqual(['text'])
-    expect(notices(session.id).filter(t => t.includes('view images'))).toEqual([
-      "The current model can't view images, so 1 earlier image(s) were not actually passed along",
-    ])
+    expect(start.params.input.map(i => i.type)).toEqual(['text', 'image'])
+    expect(notices(session.id).filter(t => t.includes('view images'))).toEqual([])
   })
 })
 
