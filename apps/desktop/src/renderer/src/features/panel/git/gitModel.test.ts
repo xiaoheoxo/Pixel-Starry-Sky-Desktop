@@ -3,6 +3,7 @@ import { setCurrentLocale } from '../../../i18n/core'
 import type { GitFileChange, GitStatus } from '../../../../../shared/types/project-tools'
 import {
   ago,
+  diffEditable,
   diffMode,
   gitAbsolutePath,
   gitSections,
@@ -127,5 +128,21 @@ describe('sectionPage', () => {
     expect(sectionPage(files, SECTION_PAGE * 2).visible).toHaveLength(SECTION_PAGE * 2)
     expect(sectionPage(files, 2200)).toMatchObject({ rest: 0 })
     expect(sectionPage(files, 2200).visible).toHaveLength(2110)
+  })
+})
+
+describe('diffEditable', () => {
+  const file = { local: 'src/a.ts', code: 'M', submodule: false } as const
+  it('新版本是磁盘文件的才能直接改：未暂存、未跟踪、冲突', () => {
+    expect(diffEditable('unstaged', file)).toBe(true)
+    expect(diffEditable('untracked', { ...file, code: '?' })).toBe(true)
+    expect(diffEditable('conflicted', { ...file, code: 'U' })).toBe(true)
+    expect(diffEditable('staged', file)).toBe(false)
+    expect(diffEditable('commit', file)).toBe(false)
+  })
+  it('删掉的、子模块、没有工作区路径的不能改', () => {
+    expect(diffEditable('unstaged', { ...file, code: 'D' })).toBe(false)
+    expect(diffEditable('unstaged', { ...file, submodule: true })).toBe(false)
+    expect(diffEditable('unstaged', { ...file, local: null })).toBe(false)
   })
 })

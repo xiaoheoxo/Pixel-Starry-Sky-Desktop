@@ -15,7 +15,23 @@ export const mergeTheme = EditorView.theme({
   // 行内模式：新内容所在行没有 cm-merge-b 类
   '&:not(.cm-merge-a):not(.cm-merge-b) .cm-changedLine': { backgroundColor: added },
   '&:not(.cm-merge-a):not(.cm-merge-b) .cm-changedText': { background: addedText },
-  '.cm-deletedChunk': { paddingLeft: '14px' },
+  '.cm-deletedChunk': { paddingLeft: '14px', position: 'relative' },
+  // 删掉的那块悬停时右上角「复制删掉的内容」（DiffEditor 借 mergeControls 放的）；纯新增没有删掉的行，不显示
+  '.cm-deletedChunk .cm-chunkButtons': { top: '2px', zIndex: '1', opacity: '0', transition: 'opacity 120ms' },
+  '.cm-deletedChunk:hover .cm-chunkButtons, .cm-deletedChunk .cm-chunkButtons:focus-within': { opacity: '1' },
+  '.cm-deletedChunk:not(:has(.cm-deletedLine)) .cm-chunkButtons': { display: 'none' },
+  '.cm-deletedChunk button[data-copy-deleted]': {
+    height: '20px',
+    padding: '0 8px',
+    borderRadius: '6px',
+    border: '1px solid var(--border-strong)',
+    background: 'var(--bg-popover)',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: 'var(--text-label)',
+    lineHeight: '18px',
+  },
+  '.cm-deletedChunk button[data-copy-deleted]:hover': { color: 'var(--text)', background: 'var(--bg-hover)' },
   '.cm-collapsedLines': {
     color: 'var(--text-muted)',
     background: 'var(--bg-subtle)',

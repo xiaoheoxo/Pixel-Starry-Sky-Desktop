@@ -237,16 +237,33 @@ export function setCodeOpener(opener: ((id: string) => void) | null): void {
   codeOpener = opener
 }
 export const hasCodeOpener = (): boolean => codeOpener !== null
-/** 返回打开的文件 id；打不开时 null */
-export async function openFile(
-  ref: WorkspaceRef,
-  path: string,
-  line?: number,
-  column = 1,
-  searchText?: string,
-  options: OpenFileOptions = {},
-): Promise<string | null> {
-  const panelScope = getPanelScope()
+/**
+ * 不开标签、只在 store 里拿着的文件（Git 面板的差异直接改，docs/ui/git-diff-copy-edit.md）：
+ * holds 是拿着的次数；borrowed 是因为拿着才载入的（没在任何标签里打开过），放下时清掉
+ */
+const holds = new Map<string, number>()
+const borrowed = new Set<string>()
+/** 拿着一个文件（和编辑器标签是同一份草稿）；用完调 releaseFile */
+export async function holdFile(ref: WorkspaceRef, path: string): Promise<string> {
+  const { id } = await resolveFile(ref, path, true)
+  holds.set(id, (holds.get(id) ?? 0) + 1)
+  return id
+}
+/** 放下 holdFile 拿着的文件：没人拿着、没在标签里打开过、也没有没存的改动时从 store 里去掉（有没存的留着，自动保存 / 退出时照常处理） */
+export function releaseFile(id: string): void {
+  const left = (holds.get(id) ?? 1) - 1
+  if (left > 0) {
+    holds.set(id, left)
+    return
+  }
+  holds.delete(id)
+  const tab = state.tabs.find(t => t.id === id)
+  if (!borrowed.has(id) || (tab && dirtyFile(tab))) return
+  borrowed.delete(id)
+  if (tab) set({ ...state, tabs: state.tabs.filter(t => t.id !== id) })
+}
+/** 找到或载入一个文件（不开标签）；hold：holdFile 拿着用 */
+async function resolveFile(ref: WorkspaceRef, path: string, hold = false): Promise<{ id: string; normalized: string }> {
   let normalized = path.replaceAll('\\', '/').replace(/^\.\//, '')
   // 从附加文件夹的 Git 面板打开（ref 带 folder）：换成项目里的「::N/…」，和文件树打开的是同一个标签
   if (ref.folder) {
@@ -275,9 +292,26 @@ export async function openFile(
   )
   if (!isDemo && 'ref' in target) ref = target.ref
   const id = existing?.id ?? fileTab(ref, normalized)
+  // 拿着时才载入的记成借来的：在加进 store 的同一刻记，同时有人 openFile 也不会在它之后才记上
+  if (hold && !state.tabs.some(t => t.id === id)) borrowed.add(id)
   const loading = ensureFile(id)
   updateFile(id, { root, project: target.name })
   await loading
+  return { id, normalized }
+}
+/** 返回打开的文件 id；打不开时 null */
+export async function openFile(
+  ref: WorkspaceRef,
+  path: string,
+  line?: number,
+  column = 1,
+  searchText?: string,
+  options: OpenFileOptions = {},
+): Promise<string | null> {
+  const panelScope = getPanelScope()
+  const { id, normalized } = await resolveFile(ref, path)
+  // 开成标签了：不再是 holdFile 借来的，放下时不清
+  borrowed.delete(id)
   const current = state.tabs.find(t => t.id === id)
   // 指名了行（搜索结果、路径链接）：Markdown 不停在预览，切到源码那一行（docs/ui/markdown-preview.md §2）
   const named = line !== undefined || !!searchText

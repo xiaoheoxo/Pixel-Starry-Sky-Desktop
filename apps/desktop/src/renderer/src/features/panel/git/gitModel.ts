@@ -116,3 +116,16 @@ const sameImageSide = (a: GitDiffImageSide | undefined, b: GitDiffImageSide | un
     ('dataUrl' in a
       ? 'dataUrl' in b && a.dataUrl === b.dataUrl
       : 'unavailable' in b && a.unavailable === b.unavailable))
+
+/**
+ * 差异的新版本就是磁盘上的文件、能直接改（docs/ui/git-diff-copy-edit.md §2）：未暂存、未跟踪、冲突，
+ * 有工作区里的路径、不是删掉的、不是子模块。已暂存和提交里的版本只能复制
+ */
+export const diffEditable = (
+  area: GitArea | 'commit',
+  file: Pick<GitFileChange, 'local' | 'code' | 'submodule'>,
+): boolean =>
+  (area === 'unstaged' || area === 'untracked' || area === 'conflicted') &&
+  !!file.local &&
+  file.code !== 'D' &&
+  !file.submodule

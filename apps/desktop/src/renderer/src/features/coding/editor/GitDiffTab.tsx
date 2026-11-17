@@ -65,6 +65,7 @@ export function GitDiffTab({ id }: { id: string }) {
         // 历史里的提交不会变，不跟状态重读
         revision={data.area === 'commit' ? undefined : revision}
         caption={diffCaption(data.area, data.caption)}
+        editRef={data.demo ? undefined : data.ref}
         load={load}
         onOpen={
           data.local && data.code !== 'D'

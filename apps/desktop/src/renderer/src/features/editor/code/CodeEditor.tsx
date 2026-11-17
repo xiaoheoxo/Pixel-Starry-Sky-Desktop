@@ -216,9 +216,9 @@ export function quoteSelection(tabId: string): string | null {
   return null
 }
 
-const clipboardWrite = (text: string): Promise<unknown> =>
+export const clipboardWrite = (text: string): Promise<unknown> =>
   isDemo ? navigator.clipboard.writeText(text) : window.pixelsky!.terminal.clipboardWrite(text)
-const clipboardRead = (): Promise<string> =>
+export const clipboardRead = (): Promise<string> =>
   isDemo ? navigator.clipboard.readText() : window.pixelsky!.terminal.clipboardRead()
 
 /** 右键菜单：引用到对话，再加上剪切、复制、粘贴、全选（编辑器原来没有右键菜单） */

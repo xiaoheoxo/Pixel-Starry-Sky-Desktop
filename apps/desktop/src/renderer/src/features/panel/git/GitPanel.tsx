@@ -562,6 +562,8 @@ function GitBody({ target, demo, active }: { target: WorkspaceRef; demo: boolean
           busy={busy}
           // 每次读到新状态都重读一次（文件还在同一区、字母没变时内容也可能变了）
           revision={stamp}
+          // 未暂存 / 未跟踪 / 冲突的文件能在差异里直接改（docs/ui/git-diff-copy-edit.md）；演示模式不改
+          editRef={demo ? undefined : target}
           {...fileActions(selectedFile, selected.area)}
           load={known =>
             demo

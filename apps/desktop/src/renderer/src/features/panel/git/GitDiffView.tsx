@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   ArrowLeft,
   ChevronDown,
@@ -11,102 +11,55 @@ import {
   Plus,
   Undo2,
 } from 'lucide-react'
-import { EditorState } from '@codemirror/state'
-import { EditorView, lineNumbers } from '@codemirror/view'
-import { goToNextChunk, goToPreviousChunk, MergeView, unifiedMergeView } from '@codemirror/merge'
+import type { EditorView } from '@codemirror/view'
+import { goToNextChunk, goToPreviousChunk } from '@codemirror/merge'
 import { Button, IconButton, Segmented, Spinner } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
-import { editorChrome } from '@/features/editor/code/theme'
-import { diffPackExtensions } from '@/features/editor/code/packs'
-import { useEditorPacksTick } from '@/features/editor/code/packEvents'
-import { mergeTheme } from '@/features/editor/code/mergeTheme'
-import { lineDiffConfig } from '@/features/editor/code/lineDiff'
-import { firstLineOf } from '@/features/editor/code/languageIds'
-import { loadLanguage } from '@/features/editor/code/languages'
+import { DiffEditor } from '@/features/editor/code/DiffEditor'
+import { aiBusyFor, getAutoSave, subscribeAutoSave } from '@/features/editor/autoSaveModel'
+import { refKey } from '@/features/editor/target'
+import { getEngineState, subscribeEngine } from '@/features/engine/store'
+import { dirtyFile, holdFile, releaseFile, useFiles, type OpenFile } from '@/features/files/store'
+import { isMac } from '@/features/layout/keybindings'
 import { useRemember } from '../ToolsUi'
 import type { GitArea, GitDiff, GitFileChange } from '../../../../../shared/types/project-tools'
-import { diffMode, sameGitDiff, SPLIT_MIN_WIDTH, splitPath } from './gitModel'
+import type { WorkspaceRef } from '../../../../../shared/types/workspace'
+import { diffEditable, diffMode, sameGitDiff, SPLIT_MIN_WIDTH, splitPath } from './gitModel'
 import { GitImageDiff } from './GitImageDiff'
 
-const COLLAPSE = { margin: 3, minSize: 4 }
+const caseInsensitive = (): boolean => (window.pixelsky?.platform ?? 'win32') !== 'linux'
 
-/** 只读的差异编辑器：并排用 MergeView，行内用 unifiedMergeView；navRef 指向可以跳转改动的那个编辑器 */
-function DiffEditor({
-  diff,
-  mode,
-  navRef,
-}: {
-  diff: GitDiff
-  mode: 'split' | 'inline'
-  navRef: { current: EditorView | null }
-}) {
-  const host = useRef<HTMLDivElement>(null)
-  // 扩展包、深浅色、颜色主题加载完都要重建（B4）
-  const packsTick = useEditorPacksTick()
+/**
+ * 能直接改的差异：在文件 store 里拿着这个文件（和编辑器标签是同一份草稿、同一套保存），不开标签；
+ * 离开时放下（docs/ui/git-diff-copy-edit.md）。读不到时返回 null，差异照旧只读显示
+ */
+function useHeldFile(ref: WorkspaceRef | undefined, path: string | undefined): OpenFile | null {
+  const key = ref && path ? `${refKey(ref)}\n${path}` : ''
+  const [id, setId] = useState<string | null>(null)
   useEffect(() => {
-    const parent = host.current
-    if (!parent) return
-    let destroy = (): void => {}
-    let disposed = false
-    void loadLanguage(diff.path, firstLineOf(diff.modified || diff.original || '')).then(language => {
-      if (disposed) return
-      const base = [
-        editorChrome,
-        ...diffPackExtensions(),
-        mergeTheme,
-        lineNumbers(),
-        EditorView.editable.of(false),
-        EditorState.readOnly.of(true),
-        language,
-      ]
-      const original = diff.original ?? '',
-        modified = diff.modified ?? ''
-      if (mode === 'split') {
-        const view = new MergeView({
-          a: { doc: original, extensions: base },
-          b: { doc: modified, extensions: base },
-          parent,
-          collapseUnchanged: COLLAPSE,
-          gutter: true,
-          diffConfig: lineDiffConfig,
-        })
-        navRef.current = view.b
-        destroy = () => view.destroy()
-      } else {
-        const view = new EditorView({
-          parent,
-          state: EditorState.create({
-            doc: modified,
-            extensions: [
-              ...base,
-              unifiedMergeView({
-                original,
-                mergeControls: false,
-                collapseUnchanged: COLLAPSE,
-                gutter: true,
-                diffConfig: lineDiffConfig,
-              }),
-            ],
-          }),
-        })
-        navRef.current = view
-        destroy = () => view.destroy()
-      }
-    })
+    if (!ref || !path) return
+    let gone = false
+    let held: string | null = null
+    holdFile(ref, path).then(
+      got => {
+        if (gone) releaseFile(got)
+        else {
+          held = got
+          setId(got)
+        }
+      },
+      () => undefined,
+    )
     return () => {
-      disposed = true
-      navRef.current = null
-      destroy()
+      gone = true
+      setId(null)
+      if (held) releaseFile(held)
     }
-  }, [diff, mode, packsTick])
-  return (
-    <div
-      ref={host}
-      data-git-diff={mode}
-      className="min-h-0 flex-1 overflow-hidden [&_.cm-editor]:h-full [&_.cm-mergeView]:h-full [&_.cm-mergeView]:overflow-y-auto [&_.cm-mergeViewEditors]:min-h-full"
-    />
-  )
+  }, [key])
+  const files = useFiles()
+  const tab = (id && files.tabs.find(t => t.id === id)) || null
+  return tab && !tab.loading && tab.document?.kind === 'text' ? tab : null
 }
 
 /** Git 面板里点进去看一个文件的差异（docs/ui/git-panel.md §2.5、§9.5） */
@@ -125,6 +78,7 @@ export function GitDiffView({
   busy,
   labelled,
   revision,
+  editRef,
 }: {
   file: GitFileChange
   /** commit：历史里一个提交的文件（docs/ui/git-panel.md §9.5） */
@@ -150,6 +104,8 @@ export function GitDiffView({
    * 文件还在同一区、状态字母也没变时（比如再次 git add 了新内容），靠它跟上；历史里的提交不会变，不传
    */
   revision?: unknown
+  /** 能直接改时文件所在的工作区（和「在编辑器中打开」用的同一个）；不给就只读（docs/ui/git-diff-copy-edit.md） */
+  editRef?: WorkspaceRef
 }) {
   useI18n()
   const [diff, setDiff] = useState<GitDiff | null>(null)
@@ -201,6 +157,16 @@ export function GitDiffView({
   }, [file.path, area, file.code, revision])
   const mode = diffMode(preferred, width)
   const { name, dir } = splitPath(file.path)
+  // 新版本就是磁盘文件的（未暂存 / 未跟踪 / 冲突）：拿着这个文件直接改，保存、自动保存和编辑器一样
+  const canEdit = !!editRef && diffEditable(area, file)
+  const tab = useHeldFile(canEdit ? editRef : undefined, canEdit ? (file.local ?? undefined) : undefined)
+  const aiBusy = useSyncExternalStore(
+    subscribeEngine,
+    () => !!tab && aiBusyFor(tab, getEngineState().sessions, caseInsensitive()),
+  )
+  const autoSave = useSyncExternalStore(subscribeAutoSave, () => getAutoSave().mode !== 'off')
+  const fileReadOnly = !tab || aiBusy || (tab.document?.kind === 'text' && !!tab.document.readonly)
+  const dirty = !!tab && dirtyFile(tab)
   const jump = (delta: 1 | -1) => {
     const view = nav.current
     if (view) {
@@ -208,14 +174,52 @@ export function GitDiffView({
       view.focus()
     }
   }
+  const modified = tab ? tab.draft : (diff?.modified ?? '')
+  // 按 Git 读到的判断，不按草稿：在差异里把改动改回原样时编辑器不能突然消失
   const same = diff && !diff.binary && !diff.tooLarge && diff.original === diff.modified
+  const textDiff = !!diff && !error && !diff.images && !diff.binary && !diff.tooLarge && !same
+  // 编辑器上面一行：能改时说怎么存 / 为什么暂时只读，磁盘被别处改了时提醒；暂存区、提交里的版本说只能复制
+  const notice: { text: string; tone: 'muted' | 'warn'; open?: boolean } | null = !textDiff
+    ? null
+    : tab && (tab.external || tab.error)
+      ? {
+          text: tab.error ? translateMessage(tab.error) : tr('editor.FileEditor.fileChangedExternallyYour'),
+          tone: 'warn',
+          open: true,
+        }
+      : tab
+        ? {
+            text: aiBusy
+              ? tr('coding.editor.diff.aiRunning')
+              : autoSave
+                ? tr('git.diff.editable.auto')
+                : tr('coding.editor.diff.editable', { keys: isMac ? '⌘S' : 'Ctrl+S' }),
+            tone: aiBusy ? 'warn' : 'muted',
+          }
+        : area === 'staged' || area === 'commit'
+          ? {
+              text: tr(area === 'staged' ? 'git.diff.readonly.staged' : 'git.diff.readonly.commit'),
+              tone: 'muted',
+              open: true,
+            }
+          : null
   return (
     <div ref={box} data-git-diff-view className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-1 border-b border-line-subtle px-2 py-1.5">
         {onBack && <IconButton icon={ArrowLeft} label={tr('git.back')} size={28} iconSize={15} onClick={onBack} />}
         <div className="min-w-0 flex-1 px-1">
-          <div className="truncate text-list font-medium text-fg" title={file.path}>
-            {name}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-list font-medium text-fg" title={file.path}>
+              {name}
+            </span>
+            {dirty && (
+              <span
+                data-git-diff-dirty
+                title={tr('git.diff.unsaved')}
+                aria-label={tr('git.diff.unsaved')}
+                className="size-1.5 shrink-0 rounded-full bg-fg-muted"
+              />
+            )}
           </div>
           {caption ? (
             <div className="truncate text-meta text-fg-faint" title={caption}>
@@ -328,6 +332,20 @@ export function GitDiffView({
             />
           ))}
       </div>
+      {notice && (
+        <div
+          data-git-diff-notice
+          role={notice.tone === 'warn' ? 'status' : undefined}
+          className={`flex shrink-0 items-center gap-2 border-b border-line-subtle px-3 py-1 text-meta ${notice.tone === 'warn' ? 'text-fg' : 'text-fg-faint'}`}
+        >
+          <span className="min-w-0 flex-1 truncate">{notice.text}</span>
+          {notice.open && onOpen && (
+            <button type="button" className="shrink-0 text-accent-fg hover:underline" onClick={onOpen}>
+              {tr(tab ? 'git.open' : 'git.diff.openToEdit')}
+            </button>
+          )}
+        </div>
+      )}
       {error ? (
         <p role="alert" className="m-3 rounded-md bg-subtle p-2 text-meta text-danger">
           {translateMessage(error)}
@@ -357,7 +375,17 @@ export function GitDiffView({
           )}
         </p>
       ) : (
-        <DiffEditor key={`${file.path}:${area}:${mode}`} diff={diff} mode={mode} navRef={nav} />
+        <DiffEditor
+          key={`${file.path}:${area}:${mode}`}
+          tabId={tab?.id ?? null}
+          path={file.path}
+          original={diff.original ?? ''}
+          modified={modified}
+          mode={mode}
+          readOnly={fileReadOnly}
+          navRef={nav}
+          marker="git-diff"
+        />
       )}
     </div>
   )
