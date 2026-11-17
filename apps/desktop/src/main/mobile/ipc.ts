@@ -30,6 +30,8 @@ import { parseRelay, parseSeats, pickRelay } from './cloud-devices'
 import { MobileGateway, phoneAccount, type CloudDevices } from './gateway'
 import { RelayLink } from './relay'
 import { MobileStore } from './store'
+import { enginePlatformRoutes } from '../platform/platform'
+import { engineProviderProtocols } from '../platform/pixel-env'
 
 /** 电脑这边用 zlib；手机用 CompressionStream，格式都是 deflate-raw（M0 核对过互通） */
 export const zlibCodec: Codec = {
@@ -197,6 +199,28 @@ export function initMobile(ctx: AppContext): void {
       search: async (text, projectId, signal) => {
         if (!ctx.engine) throw new Error('项目尚未加载')
         return ctx.engine.search({ requestId: ++searchSeq, text, scope: 'all', projectId }, signal)
+      },
+      // 手机换额度来源（docs/mobile-app.md §14.4）：平台线路和兜底换线路同一套筛法；自定义接口只给名字和模型
+      sources: async engine => {
+        const routes = await enginePlatformRoutes(engine)
+        const providers =
+          engine === 'antigravity'
+            ? []
+            : (ctx.providers?.state().providers ?? []).filter(p => engineProviderProtocols(engine).includes(p.protocol))
+        return {
+          account: 'error' in routes ? null : routes.account,
+          platform:
+            'error' in routes
+              ? null
+              : routes.lines.map(l => ({
+                  id: l.group.id,
+                  name: l.group.name,
+                  rate: l.group.rate_multiplier,
+                  models: l.models,
+                })),
+          platformError: 'error' in routes ? routes.error : null,
+          providers: providers.map(p => ({ id: p.id, name: p.name, models: p.models.map(m => m.id) })),
+        }
       },
       // 反馈模块比手机晚初始化：每次调用时再取
       feedback: () => ctx.feedback,

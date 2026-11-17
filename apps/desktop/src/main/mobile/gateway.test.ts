@@ -28,9 +28,11 @@ import {
   PAIRING_TTL,
   PHONE_TEXT_LIMIT,
   phoneAccount,
+  phoneRewind,
   phoneSessions,
   phoneSettings,
   sanitize,
+  type DesktopSources,
   type GatewayDeps,
   type PhoneSearch,
 } from './gateway'
@@ -729,7 +731,20 @@ describe('MobileGateway session settings', () => {
     record: { id, title: id, updatedAt: 1, archivedAt: null, engine, permissionMode, nextEngine },
     state: 'idle',
   })
-  function settingsSetup() {
+  // 电脑上配好的来源（docs/mobile-app.md §14.4）
+  const desktopSources = (account: string | null = 'me@x.com'): DesktopSources => ({
+    account,
+    platform: [
+      { id: '34', name: '便宜线路', rate: 0.6, models: ['opus', 'gpt-6'] },
+      { id: '35', name: '贵线路', rate: 1.5, models: ['opus'] },
+    ],
+    platformError: null,
+    providers: [
+      { id: 'p1', name: '中转', models: ['m1', 'm2'] },
+      { id: 'p2', name: '没列模型', models: [] },
+    ],
+  })
+  function settingsSetup(sources: DesktopSources | null = desktopSources()) {
     const calls: [string, unknown[]][] = []
     const t = setup({
       call: async (channel, args) => {
@@ -743,12 +758,34 @@ describe('MobileGateway session settings', () => {
             record('next', 'claude', 'ask', 'pixel'),
             // 用自定义接口
             { ...record('api', 'claude'), record: { ...record('api', 'claude').record, provider: { id: 'p1' } } },
+            // 用平台线路
+            {
+              ...record('plat', 'claude'),
+              record: {
+                ...record('plat', 'claude').record,
+                platform: { groupId: '34', account: 'me@x.com' },
+                model: 'gpt-6',
+              },
+            },
+            // 平台线路上用的是 Claude 自己的型号
+            {
+              ...record('platc', 'claude'),
+              record: {
+                ...record('platc', 'claude').record,
+                platform: { groupId: '34', account: 'me@x.com' },
+                model: 'claude-opus-4-7',
+              },
+            },
           ]
         if (channel === 'engine:catalog')
           return { models: [{ id: 'opus' }, { id: 'sonnet' }], outputStyles: [], currentOutputStyle: null }
         return { ok: channel }
       },
-      local: { defaultEngine: () => 'codex', search: async () => ({}) as never },
+      local: {
+        defaultEngine: () => 'codex',
+        search: async () => ({}) as never,
+        ...(sources ? { sources: async () => sources } : {}),
+      },
     })
     gateways.push(t.gateway)
     return { t, calls, mutations: () => calls.filter(c => !['engine:sessions', 'engine:catalog'].includes(c[0])) }
@@ -812,7 +849,7 @@ describe('MobileGateway session settings', () => {
     expect(mutations()).toHaveLength(1)
     // 选了下一个引擎还没生效：按下一个引擎的能力核对（像素星空没有思考摘要）
     await bad('next', { thinkingSummaries: true })
-    // 自定义接口的会话：模型不能从手机改（目录对不上），别的照常
+    // 自定义接口的会话：模型只能换成那个接口列着的（引擎目录对不上，docs/mobile-app.md §14.4），别的照常
     await bad('api', { model: 'opus' })
     await bad('api', { model: null })
     expect(mutations()).toHaveLength(1)
@@ -821,6 +858,111 @@ describe('MobileGateway session settings', () => {
     // Pixel 支持速度设置，具体模型 / 通道由适配器核对。
     await p.call('engine:updateSession', 'next', { fast: true })
     expect(mutations().at(-1)).toEqual(['engine:updateSession', ['next', { fast: true }, 'mobile']])
+  })
+
+  it('给手机电脑上配好的来源，不带平台账号；旧电脑没有这个方法', async () => {
+    const p = await paired(settingsSetup().t)
+    const list = (await p.call('sources', 'claude')) as Record<string, unknown>
+    expect(list).not.toHaveProperty('account')
+    expect(list.platform).toEqual(desktopSources().platform)
+    expect(list.providers).toEqual(desktopSources().providers)
+    await expect(p.call('sources', 'nope')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    const old = await paired(settingsSetup(null).t)
+    await expect(old.call('sources', 'claude')).rejects.toThrow('MOBILE_UNSUPPORTED')
+    await expect(old.call('engine:updateSession', 'cc', { source: { kind: 'self' } })).rejects.toThrow(
+      'MOBILE_UNSUPPORTED',
+    )
+  })
+
+  it('换来源：核对后换成记录里的平台 / 接口和模型，带上给电脑记录的说法', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    // 自己的账号 → 平台：会话没有模型，用那条线路的第一个；平台账号是电脑上登录的
+    await p.call('engine:updateSession', 'cc', { source: { kind: 'platform', groupId: '35' } })
+    expect(mutations().at(-1)).toEqual([
+      'engine:updateSession',
+      [
+        'cc',
+        { platform: { groupId: '35', account: 'me@x.com' }, provider: null, model: 'opus' },
+        'mobile',
+        '平台 · 贵线路',
+      ],
+    ])
+    // 平台 → 自定义接口：原来的模型接口里没有，用接口的第一个
+    await p.call('engine:updateSession', 'plat', { source: { kind: 'provider', id: 'p1' } })
+    expect(mutations().at(-1)).toEqual([
+      'engine:updateSession',
+      ['plat', { platform: null, provider: { id: 'p1' }, model: 'm1' }, 'mobile', '自定义接口 · 中转'],
+    ])
+    // 换来源同时指定模型
+    await p.call('engine:updateSession', 'api', { source: { kind: 'platform', groupId: '34' }, model: 'gpt-6' })
+    expect(mutations().at(-1)?.[1]).toEqual([
+      'api',
+      { platform: { groupId: '34', account: 'me@x.com' }, provider: null, model: 'gpt-6' },
+      'mobile',
+      '平台 · 便宜线路',
+    ])
+    // 平台 → 自己的账号：原来的模型引擎目录里没有，用引擎默认
+    await p.call('engine:updateSession', 'plat', { source: { kind: 'self' } })
+    expect(mutations().at(-1)?.[1]).toEqual([
+      'plat',
+      { platform: null, provider: null, model: null },
+      'mobile',
+      '自己的账号',
+    ])
+    // 原来的是引擎自己的型号（claude-…）：和电脑上一样留着
+    await p.call('engine:updateSession', 'platc', { source: { kind: 'self' } })
+    expect(mutations().at(-1)?.[1]).toEqual([
+      'platc',
+      { platform: null, provider: null, model: 'claude-opus-4-7' },
+      'mobile',
+      '自己的账号',
+    ])
+    // 接口没列模型：原来的模型照用
+    await p.call('engine:updateSession', 'plat', { source: { kind: 'provider', id: 'p2' } })
+    expect(mutations().at(-1)?.[1]).toEqual([
+      'plat',
+      { platform: null, provider: { id: 'p2' }, model: 'gpt-6' },
+      'mobile',
+      '自定义接口 · 没列模型',
+    ])
+  })
+
+  it('平台 / 接口的会话换模型：对着那条线路 / 接口的模型核对，不是引擎目录', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    await p.call('engine:updateSession', 'plat', { model: 'opus', effort: 'high' })
+    expect(mutations().at(-1)).toEqual(['engine:updateSession', ['plat', { model: 'opus', effort: 'high' }, 'mobile']])
+    await p.call('engine:updateSession', 'api', { model: 'm2' })
+    expect(mutations().at(-1)).toEqual(['engine:updateSession', ['api', { model: 'm2' }, 'mobile']])
+    const before = mutations().length
+    const bad = (id: string, patch: unknown) =>
+      expect(p.call('engine:updateSession', id, patch)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await bad('plat', { model: 'sonnet' }) // 引擎目录里有，线路上没有
+    await bad('plat', { model: null })
+    await bad('api', { model: null })
+    expect(mutations()).toHaveLength(before)
+  })
+
+  it('拒绝不在列表里的来源、线路、接口和模型，电脑没登录平台时不能换到平台，新建时不能选来源', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    const bad = (id: string, patch: unknown) =>
+      expect(p.call('engine:updateSession', id, patch)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await bad('cc', { source: { kind: 'platform', groupId: '99' } })
+    await bad('cc', { source: { kind: 'provider', id: 'gone' } })
+    await bad('cc', { source: { kind: 'provider', id: 'p1', baseUrl: 'https://evil' }, model: 'opus' })
+    await bad('cc', { source: { kind: 'platform', groupId: '34' }, model: 'm1' })
+    await bad('cc', { source: { kind: 'mine' } })
+    await bad('cc', { source: 'self' })
+    await expect(p.call('engine:createSession', { projectId: 'proj', source: { kind: 'self' } })).rejects.toThrow(
+      'MOBILE_BAD_ARGUMENT',
+    )
+    expect(mutations()).toEqual([])
+    const signedOut = await paired(settingsSetup(desktopSources(null)).t)
+    await expect(
+      signedOut.call('engine:updateSession', 'cc', { source: { kind: 'platform', groupId: '34' } }),
+    ).rejects.toThrow('MOBILE_BAD_ARGUMENT')
   })
 
   it('lets a session that is full on the desktop only come down, never go back up', async () => {
@@ -970,6 +1112,40 @@ describe('helpers', () => {
     // 审批：手机不能借「允许并完全放行」把会话切成 full，别的答复原样放行
     expect(() => sanitize('engine:answer', ['s', 'r1', { type: 'allow_all' }])).toThrow('MOBILE_FORBIDDEN')
     expect(sanitize('engine:answer', ['s', 'r1', { type: 'allow' }])).toEqual(['s', 'r1', { type: 'allow' }])
+  })
+  it('回退：手机只能回退对话，传了还原文件、指定文件也一律去掉（docs/mobile-app.md §14.3）', () => {
+    expect(sanitize('engine:rewind', ['s', 'u1', { conversation: true, code: true, paths: ['a.txt'] }])).toEqual([
+      's',
+      'u1',
+      { conversation: true, code: false },
+    ])
+    expect(sanitize('engine:rewind', ['s', 'u1'])).toEqual(['s', 'u1', { conversation: true, code: false }])
+    expect(() => sanitize('engine:rewind', ['s', 7])).toThrow()
+    expect(sanitize('engine:undoRewind', ['s', 'extra'])).toEqual(['s'])
+  })
+  it('回退的结果：手机发图上限内的图片带回，超了整组不带，文件附件不带，都算进 dropped', () => {
+    const image = (bytes: number): ImageAttachment => ({
+      id: String(bytes),
+      name: 'a.png',
+      mediaType: 'image/png',
+      bytes,
+      width: 1,
+      height: 1,
+      dataBase64: 'x',
+    })
+    expect(phoneRewind({ text: 'hi', undoable: true, attachments: [image(1000)] })).toEqual({
+      text: 'hi',
+      attachments: [image(1000)],
+      dropped: 0,
+      undoable: true,
+    })
+    expect(phoneRewind({ text: 'hi', attachments: [image(400_000), image(400_000)] })).toEqual({
+      text: 'hi',
+      dropped: 2,
+      undoable: false,
+    })
+    const file = { id: 'f', name: 'a.pdf' } as never
+    expect(phoneRewind({ text: '', files: [file], undoable: true }).dropped).toBe(1)
   })
 })
 

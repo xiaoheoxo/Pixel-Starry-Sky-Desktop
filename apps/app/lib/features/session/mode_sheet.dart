@@ -1,12 +1,14 @@
 // 改模式的面板（规则照网页版 ModeChip.tsx / ui/ModeSheet.tsx）：几组单选（权限、模型、强度）加几个开关（快速模式、思考摘要）。
 // 会话页顶栏的模型胶囊点开它；改了马上发给电脑（engine:updateSession），电脑推回来的会话记录变了面板跟着变。
 // 往更宽的权限切确认一次；完全放行手机上开不了；快速模式打开时确认一次（按更高的价格计费）。
+// 额度来源（docs/mobile-app.md §14.4）：只列电脑上配好的；换到平台、或换成更贵的线路时确认倍率。
 // 新建对话页用同一个面板，只是改的是本地的选择（NewModeSheet）。
 import 'package:material_ui/material_ui.dart';
 
 import '../../data/actions.dart';
 import '../../data/mode.dart';
 import '../../data/session_controller.dart';
+import '../../data/sources.dart';
 import '../../i18n/i18n.dart';
 import '../../protocol/constants.dart';
 import '../../protocol/json.dart';
@@ -204,11 +206,11 @@ class ModePanel extends StatelessWidget {
           ],
           if (toggles.isNotEmpty) ...[
             const SizedBox(height: 18),
-            Container(
-              decoration: BoxDecoration(
-                color: c.bgSubtle,
-                borderRadius: BorderRadius.circular(16),
-              ),
+            // 用 Material 当底色：开关行的点按水波画在它上面（Container 的底色会把水波盖住）
+            Material(
+              color: c.bgSubtle,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
               child: Column(
                 children: [
                   for (var i = 0; i < toggles.length; i++) ...[
@@ -389,6 +391,19 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
   bool _unsupported = false;
   String? _engineLoaded;
 
+  /// 电脑上配好的来源；旧电脑、读不到时为 null（不显示来源那组）
+  PhoneSources? _sources;
+  String? _sourcesEngine;
+
+  void _loadSources(String engine) {
+    if (_sourcesEngine == engine) return;
+    _sourcesEngine = engine;
+    _sources = null;
+    widget.desktop.sources(engine).then((s) {
+      if (mounted) setState(() => _sources = s);
+    }, onError: (Object _) {});
+  }
+
   Json get _record => obj(widget.session.view.snapshot?['record']);
 
   void _loadCatalog(String engine) {
@@ -436,6 +451,11 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
             str(record['nextEngine']) ?? str(record['engine']) ?? 'claude';
         final custom = truthy(record['provider']);
         if (!custom) _loadCatalog(engine);
+        _loadSources(engine);
+        final sources = _sources;
+        // 平台 / 自定义接口的会话：模型来自那条线路 / 那个接口
+        final viaSource = custom || truthy(record['platform']);
+        final sourceList = viaSource ? sourceModels(sources, record) : null;
         final caps = engines[engine];
         final model = str(record['model']);
         final effort = str(record['effort']);
@@ -475,6 +495,13 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
                 '正在运行时改权限，下一轮生效。',
                 'Permission changes while running apply from the next turn.',
               ),
+            if (sources != null &&
+                sources.platform == null &&
+                sources.platformError != null)
+              L(
+                '平台线路现在用不了：${sources.platformError}。',
+                'Platform routes are unavailable: ${sources.platformError}. ',
+              ),
             caps?.fast == true
                 ? L(
                     '换模型、调高强度、打开快速模式会改变费用。',
@@ -486,6 +513,17 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
                   ),
           ].join(L('', ' ')),
           groups: [
+            if (sources != null)
+              ModeGroup(
+                title: L('额度来源', 'Quota source'),
+                options: sourceOptions(sources, record),
+                value: sourceKey(record),
+                onPick: (v) async {
+                  final ask = sourceConfirm(sources, record, v);
+                  if (ask != null && !await confirm(context, ask)) return;
+                  await _apply(sourcePatch(v));
+                },
+              ),
             ModeGroup(
               title: L('权限', 'Permissions'),
               options: permissionOptions(engine, permission),
@@ -499,7 +537,9 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
               },
             ),
             ModeGroup(
-              title: custom
+              title: sourceList != null
+                  ? L('模型', 'Model')
+                  : custom
                   ? L(
                       '模型（自定义接口的，在电脑上改）',
                       'Model (custom endpoint, change it on the computer)',
@@ -507,7 +547,9 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
                   : _models == null
                   ? L('模型（正在取）', 'Model (loading)')
                   : L('模型', 'Model'),
-              options: custom
+              options: sourceList != null
+                  ? [for (final m in sourceList) ModeOption(m, modelLabel(m))]
+                  : custom
                   ? [
                       ModeOption(
                         model ?? '',
@@ -517,8 +559,9 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
                   : modelOptions(_models, model),
               value: model ?? '',
               onPick: (v) {
-                if (custom) return;
-                // 新模型不支持现在的强度：一起退回默认
+                // 线路 / 接口的模型由电脑对着那份列表核对；接口没列模型时在电脑上改
+                if (sourceList == null && custom) return;
+                // 新模型不支持现在的强度：一起退回默认（线路上的模型在引擎目录里查得到时也一样）
                 EngineModel? next;
                 for (final m in _models ?? const <EngineModel>[]) {
                   if (m.id == v) next = m;

@@ -129,8 +129,14 @@ function nativeImportOptions(raw: unknown): {
 const MODE_LABEL: Record<string, string> = { ask: '每步问我', edits: '自动改文件', plan: '只规划', full: '完全放行' }
 
 /** 手机改了会话设置时留在会话里的那句话（只写真的变了的项）；都没变时返回 null */
-export function mobileChangeNotice(before: SessionRecord | null, patch: SessionPatch): string | null {
+/** source：手机换了额度来源时网关给的说法（「平台 · 线路名」），docs/mobile-app.md §14.4 */
+export function mobileChangeNotice(
+  before: SessionRecord | null,
+  patch: SessionPatch,
+  source: string | null = null,
+): string | null {
   const parts: string[] = []
+  if (source) parts.push(`额度来源改成了「${source}」`)
   const changed = <K extends 'permissionMode' | 'model' | 'effort' | 'thinkingSummaries' | 'fast'>(key: K): boolean =>
     patch[key] !== undefined && (!before || patch[key] !== before[key])
   if (changed('permissionMode'))
@@ -312,13 +318,13 @@ export const ENGINE_OPS = {
     c.host.answer(str(id, 'id'), str(requestId, 'requestId'), decision as ApprovalDecision),
   // 第三个参数 via 可省略：'mobile' 表示是手机改的，会话里留一条看得见的记录（docs/mobile-remote.md §21.7）；
   // 记录的文字由这里按改动算出来，不信任调用方给的文字。旧版远端不认第三个参数，忽略就是了
-  'engine:updateSession': async (c, id, raw, via?: unknown) => {
+  'engine:updateSession': async (c, id, raw, via?: unknown, source?: unknown) => {
     const sessionId = str(id, 'id'),
       patch = (raw ?? {}) as SessionPatch,
       before = c.host.record(sessionId)
     if (c.beforeUpdate && before) await c.beforeUpdate({ ...before, ...patch })
     const record = await c.host.update(sessionId, patch)
-    const text = via === 'mobile' ? mobileChangeNotice(before, patch) : null
+    const text = via === 'mobile' ? mobileChangeNotice(before, patch, typeof source === 'string' ? source : null) : null
     if (text) c.host.addNotice(sessionId, 'warn', text)
     return record
   },

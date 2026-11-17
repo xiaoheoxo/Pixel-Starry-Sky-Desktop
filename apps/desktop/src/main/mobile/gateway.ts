@@ -21,6 +21,7 @@ import {
   type IpcChannelSpec,
   type Item,
   type ProjectRecord,
+  type RewindResult,
   type SearchResponse,
   type SearchResult,
   type SessionSummary,
@@ -129,6 +130,8 @@ export interface LocalQueries {
   addProject?(path: string): ProjectRecord | Promise<ProjectRecord>
   /** 电脑登录的平台账号（抽屉底部的头像、余额）；没登录为 null */
   account?(): Promise<PhoneAccount | null> | PhoneAccount | null
+  /** 这个引擎在电脑上配好的额度来源（平台线路、自定义接口）；没有时手机不能换来源 */
+  sources?(engine: EngineId): Promise<DesktopSources>
   /** 电脑的反馈（设置 › 反馈）；反馈模块还没起来时为 null */
   feedback?(): PhoneFeedback | null
 }
@@ -341,7 +344,25 @@ const PHONE_MODES = ['ask', 'edits', 'plan'] as const
 type PhoneMode = (typeof PHONE_MODES)[number]
 
 /** 手机能改的会话设置（新建和修改共用）；平台、接口、引擎、ultracode 不让手机动 */
+/** 手机选的额度来源（docs/mobile-app.md §14.4）：只能是电脑上已经配好的，网关对着 LocalQueries.sources 核对 */
+export type PhoneSource = { kind: 'self' } | { kind: 'platform'; groupId: string } | { kind: 'provider'; id: string }
+
+/** 给手机的来源列表：自定义 API 只给名字和模型，不给地址、Key；平台线路带倍率（换到更贵的手机上要确认） */
+export interface PhoneSources {
+  /** 平台线路，按倍率从低到高；电脑没登录、余额不足、读不到时为 null，原因在 platformError */
+  platform: { id: string; name: string; rate: number; models: string[] }[] | null
+  platformError: string | null
+  providers: { id: string; name: string; models: string[] }[]
+}
+
+/** 电脑上解析来源时多知道的：平台账号（换到平台时写进会话记录），不发给手机 */
+export interface DesktopSources extends PhoneSources {
+  account: string | null
+}
+
 export interface PhoneSettings {
+  /** 换额度来源；网关核对后换成记录里的 platform / provider（resolvePhoneSource），不原样传给电脑 */
+  source?: PhoneSource
   permissionMode?: PhoneMode
   /** null：用引擎默认的模型 */
   model?: string | null
@@ -356,8 +377,17 @@ export interface PhoneSettings {
  * 从一份参数里挑出手机能改的设置，别的字段一律丢掉。字段给了但值不对（包括 full）整条拒绝，不静默丢弃；
  * 值是否被这个引擎支持（权限模式、强度、模型）见 checkSettings / MobileGateway.vet
  */
+function phoneSource(v: unknown): PhoneSource {
+  const o = (v ?? {}) as Record<string, unknown>
+  if (o.kind === 'self') return { kind: 'self' }
+  if (o.kind === 'platform') return { kind: 'platform', groupId: asString(o.groupId) }
+  if (o.kind === 'provider') return { kind: 'provider', id: asString(o.id) }
+  throw new Error('MOBILE_BAD_ARGUMENT')
+}
+
 export function phoneSettings(o: Record<string, unknown>): PhoneSettings {
   const out: PhoneSettings = {}
+  if (o.source !== undefined) out.source = phoneSource(o.source)
   if (o.permissionMode !== undefined) {
     if (!PHONE_MODES.includes(o.permissionMode as PhoneMode)) throw new Error('MOBILE_BAD_ARGUMENT')
     out.permissionMode = o.permissionMode as PhoneMode
@@ -378,6 +408,73 @@ export function phoneSettings(o: Record<string, unknown>): PhoneSettings {
   return out
 }
 
+type SourcePatch = {
+  platform?: { groupId: string; account: string } | null
+  provider?: { id: string } | null
+  model?: string | null
+}
+
+/**
+ * 手机换来源 / 在平台、自定义接口的会话里换模型：对着电脑上配好的来源核对，换成记录里的 platform / provider 和模型。
+ * 不在列表里的来源、线路、接口、模型整条拒绝。只换来源没给模型：原来的模型新来源里有就留着，没有就用第一个
+ * （自己的账号：引擎目录里有就留着，没有就用引擎默认）。selfModels 是引擎目录里的模型（只有目标是自己的账号时要）。
+ * 返回要并进补丁的字段和给电脑那条记录的说法（只有换了来源才有）
+ */
+export function resolvePhoneSource(
+  record: { platform?: { groupId: string } | null; provider?: { id: string } | null; model?: string | null },
+  settings: PhoneSettings,
+  sources: DesktopSources,
+  selfModels: string[] | null,
+): { patch: SourcePatch; label: string | null } {
+  const changing = settings.source !== undefined
+  const target: PhoneSource =
+    settings.source ??
+    (record.platform
+      ? { kind: 'platform', groupId: record.platform.groupId }
+      : record.provider
+        ? { kind: 'provider', id: record.provider.id }
+        : { kind: 'self' })
+  let models: string[] | null, patch: SourcePatch, label: string
+  if (target.kind === 'platform') {
+    const line = sources.platform?.find(g => g.id === target.groupId)
+    if (!line || !sources.account || line.models.length === 0) throw new Error('MOBILE_BAD_ARGUMENT')
+    models = line.models
+    patch = { platform: { groupId: line.id, account: sources.account }, provider: null }
+    label = `平台 · ${line.name}`
+  } else if (target.kind === 'provider') {
+    const p = sources.providers.find(x => x.id === target.id)
+    if (!p) throw new Error('MOBILE_BAD_ARGUMENT')
+    // 接口没列模型：模型随便填，电脑照用
+    models = p.models.length ? p.models : null
+    patch = { platform: null, provider: { id: p.id } }
+    label = `自定义接口 · ${p.name}`
+  } else {
+    models = selfModels
+    patch = { platform: null, provider: null }
+    label = '自己的账号'
+  }
+  const keep = record.model ?? null
+  if (settings.model !== undefined) {
+    // 「用引擎默认的模型」只有自己的账号有；平台、自定义接口要指定一个
+    if (settings.model === null && target.kind !== 'self') throw new Error('MOBILE_BAD_ARGUMENT')
+    if (settings.model !== null && (target.kind !== 'provider' || models) && !models?.includes(settings.model))
+      throw new Error('MOBILE_BAD_ARGUMENT')
+    patch.model = settings.model
+  } else if (changing) {
+    patch.model =
+      keep && (models ? models.includes(keep) : target.kind === 'provider')
+        ? keep
+        : target.kind === 'self'
+          ? null
+          : models![0]
+  }
+  if (!changing) {
+    delete patch.platform
+    delete patch.provider
+  }
+  return { patch, label: changing ? label : null }
+}
+
 /** 引擎能力表认不认这些设置：权限模式要在 caps.permissionModes 里、强度在 caps.efforts 里、思考摘要和快速模式要引擎有这个开关 */
 export function checkSettings(caps: EngineCaps, s: PhoneSettings): void {
   if (s.permissionMode !== undefined && !caps.permissionModes.includes(s.permissionMode))
@@ -390,6 +487,12 @@ export function checkSettings(caps: EngineCaps, s: PhoneSettings): void {
 const asBoolean = (v: unknown): boolean => {
   if (typeof v !== 'boolean') throw new Error('MOBILE_BAD_ARGUMENT')
   return v
+}
+
+/** 已有会话的引擎（手机能打开电脑上用任何引擎的会话） */
+const asAnyEngine = (v: unknown): EngineId => {
+  if (typeof v !== 'string' || !Object.hasOwn(ENGINES, v)) throw new Error('MOBILE_BAD_ARGUMENT')
+  return v as EngineId
 }
 
 const asEngine = (v: unknown): EngineId => {
@@ -405,6 +508,31 @@ function asTitle(v: unknown): string {
   if (!title || /[\u0000-\u001f\u007f]/.test(title) || Array.from(title).length > SESSION_TITLE_LIMIT)
     throw new Error('MOBILE_BAD_ARGUMENT')
   return title
+}
+
+/** 手机发图的上限（同 App / 网页版：一条最多 5 张、总共 640 KB） */
+const PHONE_IMAGES = 5
+const PHONE_IMAGE_BYTES = 640 * 1024
+
+/**
+ * 回退的结果给手机：文字照给；图片在手机发图的上限内才带回（放回输入框重发），超了整组不带；
+ * 文件附件手机发不了，不带。dropped 是没带回的个数，手机上说一声
+ */
+export function phoneRewind(r: RewindResult): {
+  text: string
+  attachments?: ImageAttachment[]
+  dropped: number
+  undoable: boolean
+} {
+  const images = r.attachments ?? []
+  const fits = images.length <= PHONE_IMAGES && images.reduce((sum, a) => sum + a.bytes, 0) <= PHONE_IMAGE_BYTES
+  const kept = fits ? images : []
+  return {
+    text: r.text,
+    ...(kept.length ? { attachments: kept } : {}),
+    dropped: images.length - kept.length + (r.files?.length ?? 0),
+    undoable: r.undoable === true,
+  }
 }
 
 /** 手机传来的参数：只留手机该给的字段，其余由电脑上的设置决定（线路、平台、引擎用电脑上的；权限模式、模型、强度只认 phoneSettings 那几项） */
@@ -443,6 +571,11 @@ export function sanitize(method: string, args: unknown[]): unknown[] {
         },
       ]
     }
+    case 'engine:rewind':
+      // 手机上只回退对话，不还原文件（还原会批量改用户的文件，docs/mobile-app.md §14.3）
+      return [asString(args[0]), asString(args[1]), { conversation: true, code: false }]
+    case 'engine:undoRewind':
+      return [asString(args[0])]
     case 'engine:answer': {
       // 手机不能把会话切成完全放行（docs/mobile-remote.md）：allow_all 一律拒绝
       const decision = (args[2] ?? {}) as { type?: unknown }
@@ -710,6 +843,12 @@ export class MobileGateway {
       if (!this.d.local?.account) throw new Error('MOBILE_UNSUPPORTED')
       return (await this.d.local.account()) ?? null
     }
+    if (method === 'sources') {
+      // 这个引擎在电脑上配好的额度来源（docs/mobile-app.md §14.4）；平台账号不给手机
+      if (!this.d.local?.sources) throw new Error('MOBILE_UNSUPPORTED')
+      const { account: _account, ...forPhone } = await this.d.local.sources(asAnyEngine(args[0]))
+      return forPhone
+    }
     if (method === 'search') return this.search(peer, args)
     if (method === 'image') return this.image(peer, args)
     if (method === 'directories' || method === 'addProject') return this.project(device.access, method, args)
@@ -735,6 +874,7 @@ export class MobileGateway {
     }
     const result = await this.d.call(method, clean, owner)
     if (method === 'engine:sessions') return phoneSessions(result as SessionSummary[])
+    if (method === 'engine:rewind') return phoneRewind(result as RewindResult)
     return result
   }
 
@@ -751,21 +891,46 @@ export class MobileGateway {
       if (!record) throw new Error('MOBILE_NOT_FOUND')
       engine = record.nextEngine ?? record.engine
       settings = clean[1] as PhoneSettings
-      // 用自定义接口的会话：模型来自那个接口，不在引擎目录里，手机不能改（docs/mobile-remote.md §23.5）
-      if (record.provider && settings.model !== undefined) throw new Error('MOBILE_BAD_ARGUMENT')
+      // 换来源，或在平台 / 自定义接口的会话里换模型：模型要对着那个来源核（不在引擎目录里，docs/mobile-app.md §14.4）
+      const viaSource = !!record.platform || !!record.provider
+      if (settings.source !== undefined || (settings.model !== undefined && viaSource)) {
+        if (!this.d.local?.sources) throw new Error('MOBILE_UNSUPPORTED')
+        const sources = await this.d.local.sources(engine)
+        const toSelf = settings.source ? settings.source.kind === 'self' : !viaSource
+        // 换回自己的账号时原来的模型留不留：和电脑上一样（hooks.ts selfModelFrom），目录里的 id / 别名指向的、或引擎自己的型号都算
+        const prefix = ENGINES[engine].nativeModelPrefix
+        const selfModels = toSelf
+          ? [
+              ...(await this.catalogIds(engine, owner, true)),
+              ...(record.model && prefix && record.model.startsWith(prefix) ? [record.model] : []),
+            ]
+          : null
+        const { patch, label } = resolvePhoneSource(record, settings, sources, selfModels)
+        delete settings.source
+        Object.assign(settings, patch)
+        if (label) clean[3] = label
+        checkSettings(ENGINES[engine].caps, settings)
+        return
+      }
     } else {
       const create = clean[0] as { engine?: EngineId }
       settings = phoneSettings(create)
+      // 新建时选来源这次不做（用电脑上的默认来源）
+      if (settings.source !== undefined) throw new Error('MOBILE_BAD_ARGUMENT')
       if (!Object.keys(settings).length) return
       // 手机没指定引擎时用电脑上的默认引擎，并写明在参数里，核对的和实际用的是同一个
       engine = create.engine ?? this.d.local?.defaultEngine() ?? 'claude'
       create.engine = engine
     }
     checkSettings(ENGINES[engine].caps, settings)
-    if (typeof settings.model === 'string') {
-      const catalog = (await this.d.call('engine:catalog', [engine], owner)) as EngineCatalog | null
-      if (!catalog?.models?.some(m => m.id === settings.model)) throw new Error('MOBILE_BAD_ARGUMENT')
-    }
+    if (typeof settings.model === 'string' && !(await this.catalogIds(engine, owner)).includes(settings.model))
+      throw new Error('MOBILE_BAD_ARGUMENT')
+  }
+
+  /** 引擎目录里的模型 id；resolved 为 true 时连别名指向的型号一起 */
+  private async catalogIds(engine: EngineId, owner: string, resolved = false): Promise<string[]> {
+    const catalog = (await this.d.call('engine:catalog', [engine], owner)) as EngineCatalog | null
+    return (catalog?.models ?? []).flatMap(m => (resolved && m.resolved ? [m.id, m.resolved] : [m.id]))
   }
 
   /** 工具的结果放进一帧：Git 改动比成 diff、大文件截断、大图缩小、产物只留最近的 */

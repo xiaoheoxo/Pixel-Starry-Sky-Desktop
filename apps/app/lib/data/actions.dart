@@ -7,6 +7,7 @@ import '../protocol/json.dart';
 import 'mode.dart';
 import 'queue.dart';
 import 'retry.dart';
+import 'sources.dart';
 
 /// 电脑回的错误代码 → 给人看的话；别的原样
 String actionError(Object e) {
@@ -36,6 +37,19 @@ String actionError(Object e) {
 
 /// 一张待发的图片（packages/protocol 的 ImageAttachment）
 typedef Attachment = Json;
+
+/// 回退的结果（电脑网关 phoneRewind）：放回输入框的文字、手机发得出的图片，没带回的附件个数，能不能撤销
+class Rewound {
+  Rewound(Json r)
+    : text = str(r['text']) ?? '',
+      attachments = objList(r['attachments']),
+      dropped = (r['dropped'] as num?)?.toInt() ?? 0,
+      undoable = r['undoable'] == true;
+  final String text;
+  final List<Attachment> attachments;
+  final int dropped;
+  final bool undoable;
+}
 
 class SessionActions {
   SessionActions(this._connections, this.deviceId, this.sessionId);
@@ -119,6 +133,14 @@ class SessionActions {
     return r is String ? r : null;
   }
 
+  /// 编辑重发：回退到自己的这条消息（只回退对话，电脑上的文件不动，docs/mobile-app.md §14.3），
+  /// 返回要放回输入框的文字和图片
+  Future<Rewound> rewind(String userItemId) async =>
+      Rewound(obj(await _call('engine:rewind', [userItemId])));
+
+  /// 撤销上一次回退（发出新消息之前）
+  Future<void> undoRewind() => _call('engine:undoRewind');
+
   /// 改设置：permissionMode / model / effort / fast / thinkingSummaries
   Future<void> update(Json patch) => _call('engine:updateSession', [patch]);
   Future<void> rename(String title) => _call('engine:renameSession', [title]);
@@ -160,6 +182,10 @@ class DesktopActions {
       return const [];
     }
   }
+
+  /// 这个引擎在电脑上配好的额度来源（docs/mobile-app.md §14.4）；旧电脑抛 MOBILE_UNSUPPORTED
+  Future<PhoneSources> sources(String engine) async =>
+      PhoneSources(obj(await _call('sources', [engine])));
 
   /// 电脑上设的默认引擎；旧电脑、取不到为 null
   Future<String?> defaultEngine() async {

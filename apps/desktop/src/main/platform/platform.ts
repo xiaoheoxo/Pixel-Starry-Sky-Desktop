@@ -237,11 +237,12 @@ export function modelFamily(model: string): string {
 }
 
 /**
- * 订阅额度都用完、自动改用平台时挑线路（docs/ui/engine-accounts.md §5.2）：平台要登录着，只看这个引擎能用的线路和模型，
- * 余额计费的线路在余额 ≤ 0 时跳过。有同名模型的线路里倍率最低的；没有就找同系列模型、倍率最低的；
- * 还没有就取倍率最低线路的第一个模型。一条都用不了时返回原因
+ * 这个引擎现在能用的平台线路：付得起钱（订阅线路，或余额计费且余额 > 0）、有这个引擎能用的模型，
+ * 按倍率从低到高、同倍率按目录顺序。用不了时给原因。兜底换线路和手机选来源（docs/mobile-app.md §14.4）共用
  */
-export async function platformFallbackRoute(engine: EngineId, model: string | null): Promise<PlatformRouteResult> {
+export async function enginePlatformRoutes(
+  engine: EngineId,
+): Promise<{ account: string; lines: { group: PlatformGroupInfo; models: string[] }[] } | { error: string }> {
   const account = signedInEmail()
   if (!account) return { error: '没有登录像素星空账号' }
   let groups: PlatformGroupInfo[]
@@ -270,9 +271,21 @@ export async function platformFallbackRoute(engine: EngineId, model: string | nu
     .filter(x => x.models.length > 0)
     .sort((a, b) => a.g.rate_multiplier - b.g.rate_multiplier || a.i - b.i)
   if (!lines.length) return { error: '平台线路上没有这个引擎能用的模型' }
+  return { account, lines: lines.map(x => ({ group: x.g, models: x.models })) }
+}
+
+/**
+ * 订阅额度都用完、自动改用平台时挑线路（docs/ui/engine-accounts.md §5.2）：平台要登录着，只看这个引擎能用的线路和模型，
+ * 余额计费的线路在余额 ≤ 0 时跳过。有同名模型的线路里倍率最低的；没有就找同系列模型、倍率最低的；
+ * 还没有就取倍率最低线路的第一个模型。一条都用不了时返回原因
+ */
+export async function platformFallbackRoute(engine: EngineId, model: string | null): Promise<PlatformRouteResult> {
+  const routes = await enginePlatformRoutes(engine)
+  if ('error' in routes) return routes
+  const { account, lines } = routes
   const pick = (line: (typeof lines)[number], m: string): PlatformRouteResult => ({
-    groupId: line.g.id,
-    group: line.g.name,
+    groupId: line.group.id,
+    group: line.group.name,
     account,
     model: m,
   })

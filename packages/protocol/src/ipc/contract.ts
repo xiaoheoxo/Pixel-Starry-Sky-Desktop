@@ -341,7 +341,15 @@ export const IPC_CONTRACT = {
     remote: 'engine:retrySettings',
     trust: 'sender',
   },
-  'engine:rewind': { kind: 'invoke', route: 'resource', ids: [0, 1], remote: 'engine:rewind', trust: 'sender' },
+  // 手机能回退（只回退对话，网关固定 code: false，docs/mobile-app.md §14.3）
+  'engine:rewind': {
+    kind: 'invoke',
+    route: 'resource',
+    ids: [0, 1],
+    remote: 'engine:rewind',
+    mobile: 'act',
+    trust: 'sender',
+  },
   'engine:rewindPreview': {
     kind: 'invoke',
     route: 'resource',
@@ -349,7 +357,14 @@ export const IPC_CONTRACT = {
     remote: 'engine:rewindPreview',
     trust: 'sender',
   },
-  'engine:undoRewind': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:undoRewind', trust: 'sender' },
+  'engine:undoRewind': {
+    kind: 'invoke',
+    route: 'resource',
+    ids: [0],
+    remote: 'engine:undoRewind',
+    mobile: 'act',
+    trust: 'sender',
+  },
   // 对话检查点（docs/ui/undo-changes.md）
   'engine:checkpoints': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:checkpoints', trust: 'sender' },
   'engine:prepareCheckpoints': {

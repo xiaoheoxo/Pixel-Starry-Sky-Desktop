@@ -162,6 +162,7 @@ class TurnContext {
     this.retryId,
     this.retrying = false,
     this.onRetry,
+    this.onUserMenu,
   });
 
   /// 统计行 id → 这一轮的全部条目
@@ -174,6 +175,9 @@ class TurnContext {
   final String? retryId;
   final bool retrying;
   final VoidCallback? onRetry;
+
+  /// 长按自己的消息：弹出菜单（编辑重发、复制）；null 时长按不做事
+  final void Function(Item item)? onUserMenu;
 
   static TurnContext of(List<Item> items) {
     final turns = <String, List<Item>>{};
@@ -192,7 +196,17 @@ class TurnContext {
         retryId: id,
         retrying: retrying,
         onRetry: onRetry,
+        onUserMenu: onUserMenu,
       );
+
+  TurnContext withUserMenu(void Function(Item item) onUserMenu) => TurnContext(
+    turns: turns,
+    replies: replies,
+    retryId: retryId,
+    retrying: retrying,
+    onRetry: onRetry,
+    onUserMenu: onUserMenu,
+  );
 }
 
 /// 「重试」挂在哪条错误上：最近一轮的最后一条错误；正在运行、队列里还有消息时不给（同网页版 retryNoticeId）
@@ -232,10 +246,12 @@ class ItemView extends StatelessWidget {
             icon: Icons.refresh,
           );
         }
+        final menu = turn.onUserMenu;
         return UserBubble(
           text: item.text,
           images: objList(item['attachments']).length,
           guidance: item.mode == 'guidance',
+          onLongPress: menu == null ? null : () => menu(item),
         );
       case 'assistant':
         if (jsTrim(item.text).isEmpty) return const SizedBox();
@@ -282,58 +298,63 @@ class UserBubble extends StatelessWidget {
     this.images = 0,
     this.guidance = false,
     this.faded = false,
+    this.onLongPress,
   });
   final String text;
   final int images;
   final bool guidance;
   final bool faded;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Align(
       alignment: Alignment.centerRight,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.84,
-        ),
-        margin: const EdgeInsets.only(top: 10, bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: faded ? c.bgSubtle : c.bgSelected,
-          borderRadius: BorderRadius.circular(Radii.bubble),
-          border: faded ? Border.all(color: c.borderSubtle) : null,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (guidance)
-              Text(
-                L('插话', 'Steer'),
-                style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
-              ),
-            if (text.isNotEmpty)
-              Text(
-                text,
-                style: TextStyle(
-                  fontSize: Fs.prose,
-                  height: 1.5,
-                  color: faded ? c.textSecondary : c.text,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width * 0.84,
+          ),
+          margin: const EdgeInsets.only(top: 10, bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: faded ? c.bgSubtle : c.bgSelected,
+            borderRadius: BorderRadius.circular(Radii.bubble),
+            border: faded ? Border.all(color: c.borderSubtle) : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (guidance)
+                Text(
+                  L('插话', 'Steer'),
+                  style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
                 ),
-              ),
-            if (images > 0)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.image_outlined, size: 14, color: c.textMuted),
-                  const SizedBox(width: 4),
-                  Text(
-                    L('$images 张图片', '$images images'),
-                    style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+              if (text.isNotEmpty)
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: Fs.prose,
+                    height: 1.5,
+                    color: faded ? c.textSecondary : c.text,
                   ),
-                ],
-              ),
-          ],
+                ),
+              if (images > 0)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.image_outlined, size: 14, color: c.textMuted),
+                    const SizedBox(width: 4),
+                    Text(
+                      L('$images 张图片', '$images images'),
+                      style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );

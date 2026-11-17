@@ -442,6 +442,8 @@ class DemoDesktop {
         return null;
       case 'defaults':
         return {'engine': 'claude'};
+      case 'sources':
+        return _sources(args.first == 'codex');
       case 'engine:catalog':
         return {
           'models': args.first == 'codex'
@@ -457,6 +459,7 @@ class DemoDesktop {
     final running = snap['turnId'] != null;
     switch (method) {
       case 'engine:send':
+        _undo.remove(id);
         final input = obj(args[1]);
         final text = str(input['text']) ?? '';
         final attachments = input['attachments'] as List?;
@@ -527,13 +530,41 @@ class DemoDesktop {
         if (!running) _next(id);
         return null;
       case 'engine:updateSession':
-        _setRecord(id, obj(args[1]));
+        final patch = Map<String, Object?>.of(obj(args[1]));
+        final source = objOrNull(patch.remove('source'));
+        if (source != null) {
+          patch.addAll(_switchSource(source, _record(id), patch['model']));
+        }
+        _setRecord(id, patch);
         return null;
       case 'engine:renameSession':
         _setRecord(id, {'title': args[1]});
         return null;
       case 'engine:setSessionPinned':
         _setRecord(id, {'pinnedAt': args[1] == true ? _now : null});
+        return null;
+      case 'engine:rewind':
+        if (running) throw const LinkException('请先停止当前任务再回退');
+        final items = objList(snap['items']);
+        final at = items.indexWhere((x) => x['id'] == args[1]);
+        if (at < 0 || items[at]['kind'] != 'user') {
+          throw const LinkException('只能回退到自己发送的消息');
+        }
+        _undo[id] = items;
+        _push(id, {'type': 'items_truncated', 'fromItemId': args[1]});
+        return {
+          'text': items[at]['text'] ?? '',
+          if (items[at]['attachments'] is List)
+            'attachments': items[at]['attachments'],
+          'dropped': 0,
+          'undoable': true,
+        };
+      case 'engine:undoRewind':
+        final saved = _undo.remove(id);
+        if (saved == null) {
+          throw const LinkException('回退之后有了新的对话，不能撤销了');
+        }
+        _push(id, {'type': 'items_reset', 'items': saved});
         return null;
       case 'engine:archiveSession':
         if (running && args.length > 2 && args[2] != true) {
@@ -546,6 +577,72 @@ class DemoDesktop {
         throw const LinkException('MOBILE_UNSUPPORTED');
     }
   }
+
+  /// 演示电脑上「配好的」额度来源（docs/mobile-app.md §14.4）：两条平台线路、一个自定义接口
+  Json _sources(bool codex) {
+    final models = [
+      for (final m in codex ? L10n.codexModels : L10n.claudeModels)
+        m['id'] as String,
+    ];
+    return {
+      'platform': [
+        {'id': '34', 'name': '便宜线路', 'rate': 0.6, 'models': models},
+        {
+          'id': '35',
+          'name': '官方直连',
+          'rate': 1.5,
+          'models': models.take(1).toList(),
+        },
+      ],
+      'platformError': null,
+      'providers': [
+        {
+          'id': 'demo-api',
+          'name': '我的中转',
+          'models': [models.last],
+        },
+      ],
+    };
+  }
+
+  /// 换来源：照电脑上的网关换成记录字段（不核对，演示用）
+  Json _switchSource(Json source, Json record, Object? model) {
+    final codex = record['engine'] == 'codex';
+    final all = objList(_sources(codex)['platform']);
+    final providers = objList(_sources(codex)['providers']);
+    List<String> listOf(Json? j) => [
+      for (final m in (j?['models'] as List? ?? const [])) '$m',
+    ];
+    String? pickFrom(List<String> models) {
+      if (model is String) return model;
+      final now = str(record['model']);
+      return now != null && models.contains(now)
+          ? now
+          : (models.isEmpty ? null : models.first);
+    }
+
+    switch (source['kind']) {
+      case 'platform':
+        final line = all.firstWhere((g) => g['id'] == source['groupId']);
+        return {
+          'platform': {'groupId': line['id'], 'account': 'demo@pixelsky.app'},
+          'provider': null,
+          'model': pickFrom(listOf(line)),
+        };
+      case 'provider':
+        final p = providers.firstWhere((x) => x['id'] == source['id']);
+        return {
+          'platform': null,
+          'provider': {'id': p['id']},
+          'model': pickFrom(listOf(p)),
+        };
+      default:
+        return {'platform': null, 'provider': null};
+    }
+  }
+
+  /// 回退前的条目（撤销用）；发了新消息就作废，同电脑上的宿主
+  final _undo = <String, List<Json>>{};
 
   /// 发消息时带 approve 的那一轮：在等允许的命令
   final _waitingCommand =

@@ -27,6 +27,7 @@ class EngineDescriptor {
     required this.thinkingSummaries,
     required this.liveModelSwitch,
     required this.livePermissionSwitch,
+    required this.rewind,
   });
   final String id;
   final String name;
@@ -47,6 +48,9 @@ class EngineDescriptor {
 
   /// 运行中改权限当轮生效（否则下一轮）
   final bool livePermissionSwitch;
+
+  /// 能回退到自己的某条消息（手机上「编辑重发」）
+  final bool rewind;
 }
 
 const engines = <String, EngineDescriptor>{
@@ -64,6 +68,7 @@ const engines = <String, EngineDescriptor>{
     thinkingSummaries: true,
     liveModelSwitch: true,
     livePermissionSwitch: true,
+    rewind: true,
   ),
   'codex': EngineDescriptor(
     id: 'codex',
@@ -79,6 +84,7 @@ const engines = <String, EngineDescriptor>{
     thinkingSummaries: true,
     liveModelSwitch: false,
     livePermissionSwitch: false,
+    rewind: true,
   ),
   'pixel': EngineDescriptor(
     id: 'pixel',
@@ -94,6 +100,7 @@ const engines = <String, EngineDescriptor>{
     thinkingSummaries: false,
     liveModelSwitch: true,
     livePermissionSwitch: true,
+    rewind: false,
   ),
   'antigravity': EngineDescriptor(
     id: 'antigravity',
@@ -109,6 +116,7 @@ const engines = <String, EngineDescriptor>{
     thinkingSummaries: false,
     liveModelSwitch: true,
     livePermissionSwitch: true,
+    rewind: false,
   ),
 };
 

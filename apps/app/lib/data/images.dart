@@ -149,6 +149,22 @@ class PendingImages extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 编辑重发：回退带回来的图片放回待发列表（网关已按手机发图的上限筛过）；返回放进来的 id
+  List<String> restore(List<Json> list) {
+    final added = <String>[];
+    for (final i in list) {
+      final id = str(i['id']);
+      if (id == null || str(i['dataBase64']) == null) continue;
+      final full = images.length >= maxImages;
+      if (full || images.any((x) => x['id'] == id)) continue;
+      images.add(i);
+      added.add(id);
+    }
+    error = null;
+    notifyListeners();
+    return added;
+  }
+
   /// 发出去之后去掉这几张（发送中新加的留着）
   void discard(List<String> ids) {
     images.removeWhere((i) => ids.contains(i['id']));

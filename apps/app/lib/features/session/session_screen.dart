@@ -32,6 +32,7 @@ import 'items.dart';
 import 'mode_sheet.dart';
 import 'queue_view.dart';
 import 'session_menu.dart';
+import 'user_menu.dart';
 import '../tools/common.dart';
 import '../tools/tools.dart';
 
@@ -87,6 +88,11 @@ class _SessionScreenState extends State<SessionScreen> {
   bool _atBottom = true;
   bool _retrying = false;
   String? _retryError;
+
+  /// 编辑重发后还能撤销：放回之前输入框里的字、放回之后的字和放进来的图片（撤销时输入框没改过就换回之前的）；
+  /// null 是没有可撤销的回退
+  ({String before, String text, List<String> images})? _rewound;
+  bool _undoing = false;
 
   /// 宽屏时右边栏里开着的工具（栏里有自己的导航，换一个工具就换一个导航）
   Widget? _tool;
@@ -194,6 +200,76 @@ class _SessionScreenState extends State<SessionScreen> {
     _draft.selection = TextSelection.collapsed(offset: _draft.text.length);
   }
 
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// 长按自己的消息
+  Future<void> _userMenu(Item item, String? blocked) async {
+    final pick = await showUserMessageMenu(
+      context,
+      item: item,
+      blocked: blocked,
+    );
+    if (pick == 'copy') {
+      await copyMessage(item);
+      _toast(L('已复制', 'Copied'));
+    } else if (pick == 'edit') {
+      await _edit(item);
+    }
+  }
+
+  /// 编辑重发：回退到这条（只回退对话），文字和图片放回输入框
+  Future<void> _edit(Item item) async {
+    try {
+      final r = await _actions.rewind(item.id);
+      if (!mounted) return;
+      final before = _draft.text;
+      _recall(r.text);
+      final images = _images.restore(r.attachments);
+      setState(
+        () => _rewound = r.undoable
+            ? (before: before, text: _draft.text, images: images)
+            : null,
+      );
+      if (r.dropped > 0) {
+        _toast(
+          L(
+            '有 ${r.dropped} 个附件没带回来，要的话重新添加',
+            "${r.dropped} attachment(s) didn't come back. Add them again if needed.",
+          ),
+        );
+      }
+    } catch (e) {
+      _toast(actionError(e));
+    }
+  }
+
+  /// 撤销回退：对话还原；输入框里还是放回去的那些就拿掉
+  Future<void> _undoRewind() async {
+    final rewound = _rewound;
+    if (rewound == null || _undoing) return;
+    setState(() => _undoing = true);
+    try {
+      await _actions.undoRewind();
+      if (_draft.text == rewound.text) {
+        _draft.text = rewound.before;
+        _draft.selection = TextSelection.collapsed(offset: _draft.text.length);
+      }
+      _images.discard(rewound.images);
+    } catch (e) {
+      _toast(actionError(e));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _undoing = false;
+          _rewound = null;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -246,9 +322,20 @@ class _SessionScreenState extends State<SessionScreen> {
         final retryId = canAct && snapshot != null
             ? retryNoticeId(items, running, queued)
             : null;
-        final turn = TurnContext.of(items)
-            .withRetry(retryId, _retrying, () => _retry(retryId!));
         final engine = str(record['engine']) ?? summary?.engine ?? 'claude';
+        final turn = TurnContext.of(items)
+            .withRetry(retryId, _retrying, () => _retry(retryId!))
+            .withUserMenu(
+              (item) => _userMenu(
+                item,
+                editBlocked(
+                  item,
+                  engine: engine,
+                  canAct: canAct,
+                  running: running,
+                ),
+              ),
+            );
         final title = jsTrim(str(record['title']) ?? '').isEmpty
             ? L('未命名会话', 'Untitled conversation')
             : jsTrim(str(record['title'])!);
@@ -514,7 +601,9 @@ class _SessionScreenState extends State<SessionScreen> {
                         onAnswer: (d) => _actions.answer(pending.requestId, d),
                         onStop: running ? () => _actions.interrupt() : null,
                       )
-                    else
+                    else ...[
+                      if (_rewound != null && !running)
+                        RewindBar(onUndo: _undoRewind, busy: _undoing),
                       Composer(
                         top: running ? RunningStrip(items: items) : null,
                         draft: _draft,
@@ -524,10 +613,13 @@ class _SessionScreenState extends State<SessionScreen> {
                         images: _images,
                         onSend: (text, images) async {
                           await _actions.send(text, images);
+                          // 发了新消息：电脑上的回退不能再撤销了
+                          if (mounted) setState(() => _rewound = null);
                           if (mounted) _toBottom();
                         },
                         onStop: _actions.interrupt,
                       ),
+                    ],
                   ],
                 ),
         );

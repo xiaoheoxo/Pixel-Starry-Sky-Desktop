@@ -22,6 +22,14 @@ describe('mobileChangeNotice', () => {
     expect(mobileChangeNotice(record, { permissionMode: 'ask', effort: 'low' })).toBeNull()
     expect(mobileChangeNotice(null, { effort: 'high' })).toBe('手机把强度改成了「high」')
     expect(mobileChangeNotice(record, { fast: true })).toBe('手机把快速模式改成了「开」')
+    // 换了额度来源：网关给的说法放在最前面（docs/mobile-app.md §14.4）
+    expect(
+      mobileChangeNotice(
+        record,
+        { platform: { groupId: '34', account: 'a@b.c' }, provider: null, model: 'gpt-6' },
+        '平台 · 便宜线路',
+      ),
+    ).toBe('手机把额度来源改成了「平台 · 便宜线路」，把模型改成了「gpt-6」')
   })
 })
 

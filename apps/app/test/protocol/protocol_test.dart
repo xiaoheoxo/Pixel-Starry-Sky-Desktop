@@ -220,6 +220,7 @@ void main() {
           'thinkingSummaries': d.thinkingSummaries,
           'liveModelSwitch': d.liveModelSwitch,
           'livePermissionSwitch': d.livePermissionSwitch,
+          'rewind': d.rewind,
         },
         {
           'name': e['name'],
@@ -234,6 +235,7 @@ void main() {
           'thinkingSummaries': caps['thinkingSummaries'],
           'liveModelSwitch': caps['liveModelSwitch'],
           'livePermissionSwitch': caps['livePermissionSwitch'],
+          'rewind': caps['rewind'],
         },
         reason: '${e['id']}',
       );
