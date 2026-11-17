@@ -5,6 +5,9 @@ import type { ChannelRun, RunReason } from '../types/channels'
 /** 一张卡留几条运行记录（和云端 teams.MaxRuns 一致） */
 export const MAX_RUNS = 20
 
+/** 队友派来的活落在不允许的项目里（docs/multica-learn.md §11.4）：执行端写进卡片的错误原文 */
+export const TEAMMATE_PROJECT_ERROR = '这个项目不接队友派来的活'
+
 const REASONS: readonly RunReason[] = [
   'machine_offline',
   'queue_expired',
@@ -12,6 +15,7 @@ const REASONS: readonly RunReason[] = [
   'not_deployed',
   'not_allowed',
   'requester_left',
+  'project_blocked',
   'engine.auth',
   'engine.quota',
   'engine.model',
@@ -39,6 +43,7 @@ const PLATFORM: Record<string, RunReason> = {
   会话已删除: 'session_gone',
   '这个 AI 成员已被删除': 'not_deployed',
   '这台电脑上没有这项活的记录，请重新派活': 'not_deployed',
+  [TEAMMATE_PROJECT_ERROR]: 'project_blocked',
 }
 
 /** 一轮结束时的原因：只有失败才归类（停止、完成没有原因）；引擎的报错按协议包的归类，认不出的是 other */

@@ -13,6 +13,7 @@ import { presenceLabel } from './format'
 import { PresenceDot, PresenceAvatar, roleLabel, roleOptions } from './TeamParts'
 import { canManageTeam, inviteDaysLeft, isValidEmail, normalizeEmail, presenceOf, sortTeamMembers } from './teamModel'
 import { useFollowedDraft } from '@/ui/useFollowedDraft'
+import { TeammateSection, teammateAllows } from './TeammateRules'
 
 /** 能选的排队宽限期（小时，和云端 teams.ValidGrace 一致） */
 const GRACE_HOURS = [1, 6, 24, 72] as const
@@ -430,6 +431,7 @@ function TeamSettings({
                   {tr('team.settings.save')}
                 </Button>
               </div>
+              <TeammateSection />
               <section className="flex flex-col gap-2 border-t border-line-subtle pt-4">
                 <h4 className="text-meta font-medium text-danger">{tr('team.danger.title')}</h4>
                 {owner ? (
@@ -549,6 +551,12 @@ export function AddTeamAgentDialog({
 }) {
   useI18n()
   const [picked, setPicked] = useState<string | null>(candidates[0]?.id ?? null)
+  const teammate = useChannels(s => s.teammate)
+  // 选的成员所在项目不接队友派来的活：加进来别人也派不动，先说一声（docs/multica-learn.md §11.4）
+  const blocked = (() => {
+    const config = candidates.find(a => a.id === picked)?.config
+    return !!config && !teammateAllows(teammate, config.projectId)
+  })()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submit = () => {
@@ -592,6 +600,11 @@ export function AddTeamAgentDialog({
           )}
           <p className="text-meta text-fg-muted">{tr('team.addAgent.privacy')}</p>
           <p className="text-meta text-fg-faint">{tr('team.addAgent.policyNote')}</p>
+          {blocked && (
+            <p data-teammate-blocked className="text-meta text-warning">
+              {tr('teammate.blocked')}
+            </p>
+          )}
         </div>
       }
     />

@@ -143,6 +143,8 @@ export interface TeamTaskData {
   /** 这一轮的原因代码、跑过的每一轮（docs/multica-learn.md §11.1）；旧云端没有 */
   reason: RunReason | null
   runs: ChannelRun[]
+  /** 这一轮是谁要的（docs/multica-learn.md §11.3）；旧云端没有 */
+  requestedBy: string | null
 }
 
 export interface TeamEventData {
@@ -384,6 +386,7 @@ function parseTask(v: unknown): TeamTaskData | null {
     endedAt: time(v.ended_at) || null,
     reason: parseRunReason(v.reason),
     runs: arr(v.runs, parseRun),
+    requestedBy: strOrNull(v.requested_by),
   }
 }
 

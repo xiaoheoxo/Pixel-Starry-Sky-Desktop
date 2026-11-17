@@ -112,6 +112,11 @@ export interface TaskRun {
   copyPlan?: CopyPlan
   /** 同一个目录有别人在做、成员设置是「用副本并行」或点了「改用副本马上开始」：这一轮给卡建副本（§11.2） */
   forceCopy?: boolean
+  /**
+   * 队友派来的活的限制（docs/multica-learn.md §11.4）：capped 是被降级前的权限，copy 是这件活自己的副本，
+   * isolate 是不带我的 MCP。几轮之间接着用
+   */
+  guard?: { capped?: string; copy?: { id: string; branch: string; path: string }; isolate?: boolean }
 }
 
 /** 流程里一个成员问另一个成员的问题 */

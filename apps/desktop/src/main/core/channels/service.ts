@@ -65,7 +65,13 @@ import type {
   FlowStepSettings,
   TeamRole,
 } from '../../../shared/types/channels'
-import { cleanRelayRules, relayRulesOf, type RelayRules } from '../../../shared/types/channels'
+import {
+  cleanRelayRules,
+  cleanTeammate,
+  relayRulesOf,
+  type RelayRules,
+  type TeammateRules,
+} from '../../../shared/types/channels'
 import {
   AGENT_TOOLS_MAX,
   SYSTEM_AUTHOR,
@@ -94,7 +100,7 @@ import { ChannelStore, type StoredChannel } from './store'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
-import { appendRun, runReasonOf } from '../../../shared/channels/runReason'
+import { appendRun, runReasonOf, TEAMMATE_PROJECT_ERROR } from '../../../shared/channels/runReason'
 import { jsonObjects } from '../json-reply'
 import {
   DEFAULT_MAX_REJECTS,
@@ -714,6 +720,7 @@ export class Channels {
       // 没有团队同步（团队功能关着，见 main/channels/ipc.ts 的 teamsEnabled）：报不可用，界面藏起所有团队入口
       teamsConnection: this.team ? (team?.connection ?? 'signed-out') : 'unavailable',
       teamsSyncedAt: team?.syncedAt ?? null,
+      teammate: this.store.teammate,
     }
   }
 
@@ -2082,6 +2089,8 @@ export class Channels {
       notice: null,
       ...(attach?.length ? { attach } : {}),
       ...(team ? { team: { ...team, final: undefined } } : {}),
+      // 队友派来的活：副本、权限上限、MCP 隔离几轮之间接着用
+      ...(run?.guard ? { guard: run.guard } : {}),
       // 流程里的一步：追加要求、重试、回答问题都还是这一步
       // 运行信息没了（启动时补过、很久以前的）也认卡片上记的流程
       ...(run?.flow || task.flow
@@ -2331,33 +2340,44 @@ export class Channels {
         current = { ...latest, team: { ...latest.team!, runToken: check.token } }
         this.store.runs.set(run.taskId, current)
       }
+      // 队友派来的活（docs/multica-learn.md §8、§11.4）：只在允许的项目里接，新开会话、独立副本、权限上限、不带我的 MCP
+      const rules = this.teammateOf(current)
+      if (rules?.projects && !rules.projects.includes(member.projectId)) throw new Error(TEAMMATE_PROJECT_ERROR)
+      let guard = current.guard
       let sessionId = current.sessionId
       let text = current.prompt
       if (!this.sessionExists(sessionId)) {
         // 流程里的步骤每步新开会话（docs/ui/channels-pipeline.md §4.2）
         sessionId =
-          member.mode === 'shared' && !current.flow && this.sessionExists(member.sharedSessionId)
+          member.mode === 'shared' && !current.flow && !rules && this.sessionExists(member.sharedSessionId)
             ? member.sharedSessionId
             : null
         if (!sessionId) {
+          if (rules) guard = await this.guardFor(current, member, rules)
           // 流程里的一步：先定在哪做（并行时建副本），提示词按实际的位置写
           const ws = current.flow?.stepId
             ? await this.flowWorkspace(current, member)
             : !current.flow && !current.team
               ? { copyId: await this.taskCopy(current, member), prompt: null }
-              : null
+              : guard?.copy
+                ? { copyId: guard.copy.id, prompt: null }
+                : null
           sessionId = await this.createSession(
             member,
             task.title,
-            current.flow
-              ? current.flow.stepId
-                ? (this.flowStepOf(current)?.settings ?? null)
-                : // 拟计划一律开计划模式（只读，不管哪个引擎、哪个模型），开工后的步骤才按成员的权限做
-                  {
-                    ...this.flowMessage(current.channelId, current.flow.messageId)?.flow.planner?.settings,
-                    permissionMode: 'plan',
-                  }
-              : undefined,
+            rules
+              ? guard?.capped
+                ? { permissionMode: 'edits' }
+                : {}
+              : current.flow
+                ? current.flow.stepId
+                  ? (this.flowStepOf(current)?.settings ?? null)
+                  : // 拟计划一律开计划模式（只读，不管哪个引擎、哪个模型），开工后的步骤才按成员的权限做
+                    {
+                      ...this.flowMessage(current.channelId, current.flow.messageId)?.flow.planner?.settings,
+                      permissionMode: 'plan',
+                    }
+                : undefined,
             ws?.copyId,
           )
           text = ws?.prompt ?? current.freshPrompt
@@ -2366,7 +2386,7 @@ export class Channels {
       // 建会话期间可能追加了要求、被停止或删掉：按存着的最新那份写，别用 await 之前的拷贝覆盖
       const latest = this.store.runs.get(run.taskId)
       if (!latest || latest.phase !== 'sent' || latest.clientMessageId !== cmid) return
-      current = { ...latest, sessionId }
+      current = { ...latest, sessionId, ...(guard ? { guard } : {}) }
       this.store.runs.set(run.taskId, current)
       this.patch(run.channelId, run.taskId, { sessionId, status: 'queued' })
       this.saveRuns()
@@ -2391,6 +2411,51 @@ export class Channels {
       if (latest && latest.phase === 'sent' && !latest.started)
         this.finish(latest, { status: 'failed', error: message(error) })
     }
+  }
+
+  /**
+   * 这一轮是队友派来的（团队卡、这一轮要的人不是我；旧云端没有 requested_by 时看派活的人）：返回限制；不是时 null
+   */
+  private teammateOf(run: TaskRun): TeammateRules | null {
+    if (!run.team || !this.team) return null
+    const tm = this.team.card(run.taskId)?.tm
+    const me = this.team.getMe()?.id
+    const who = tm?.task?.requestedBy ?? tm?.author ?? null
+    if (!me || !who || who === me) return null
+    return this.store.teammate
+  }
+
+  /** 队友派来的活这一轮的限制：权限超过「自动改文件」的降下来，能建副本就建一个（之后几轮接着用） */
+  private async guardFor(
+    run: TaskRun,
+    member: AgentConfig,
+    rules: TeammateRules,
+  ): Promise<NonNullable<TaskRun['guard']>> {
+    const mode = member.settings.permissionMode ?? this.deps.defaultMode?.(member.engine)
+    const guard: NonNullable<TaskRun['guard']> = {
+      ...(mode === 'full' || mode === 'auto' ? { capped: mode } : {}),
+      ...(rules.isolateMcp ? { isolate: true } : {}),
+    }
+    let copy = run.guard?.copy
+    const copies = this.deps.copies
+    if (!copy && rules.copy && copies && member.machineId === 'local' && !member.copyId) {
+      const tag = run.taskId.replace(/[^a-zA-Z0-9]/g, '').slice(-6)
+      copy =
+        (await this.createCopy(member.projectId, { name: `team-${tag}`, branch: `pixelsky/team-${tag}`, base: '' })) ??
+        undefined
+    }
+    return copy ? { ...guard, copy } : guard
+  }
+
+  /** 队友派来的活的限制（这台电脑的设置） */
+  teammate(): TeammateRules {
+    return this.store.teammate
+  }
+
+  async setTeammate(raw: unknown): Promise<void> {
+    this.store.teammate = cleanTeammate(raw)
+    await this.store.saveTeammate()
+    this.changed()
   }
 
   /** flow：流程里的一步（不用共用会话），带这一步的临时设置；copyId：这一步的副本 */
@@ -2641,7 +2706,11 @@ export class Channels {
    * 会话属于哪个 AI 成员（频道派活开的、共用的、从已有会话加入的）；不是频道会话时 null。
    * 扩展准备时用：挂频道工具、按成员的设置筛扩展（从已有会话加入的成员不筛，那是你自己开的会话）
    */
-  sessionMember(sessionId: string): { memberId: string; tools: AgentTools | null } | null {
+  sessionMember(sessionId: string): { memberId: string; tools: AgentTools | null; isolated?: boolean } | null {
+    // 队友派来的活（docs/multica-learn.md §11.4）：一个扩展都不挂，引擎也不读用户级 MCP
+    for (const r of this.store.runs.values())
+      if (r.team && r.sessionId === sessionId && r.guard?.isolate)
+        return { memberId: r.memberId, tools: { mode: 'only', ids: [] }, isolated: true }
     const caller = this.toolCaller(sessionId)
     if (!caller) return null
     return { memberId: caller.member.id, tools: caller.member.bound ? null : (caller.member.tools ?? null) }
@@ -5336,6 +5405,9 @@ export class Channels {
       request: m.status === 'waiting' ? (run.requests[0] ?? null) : null,
       ...(local?.ahead !== undefined ? { ahead: local.ahead } : {}),
       ...(local?.disconnected !== undefined ? { disconnected: local.disconnected } : {}),
+      ...(run.guard && (run.guard.capped || run.guard.copy)
+        ? { guard: { capped: run.guard.capped ?? null, copy: run.guard.copy?.branch ?? null } }
+        : {}),
     }
   }
 

@@ -675,6 +675,11 @@ export interface ChannelTask extends ChannelMessageBase {
   ownerOffline?: boolean
   /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
   routedBy?: { memberId: string; note: string; moved?: boolean } | null
+  /**
+   * 队友派来的活在主人这边的限制（docs/multica-learn.md §11.4，只有主人看得到）：capped 是被降级前的权限，
+   * copy 是这件活自己的副本分支
+   */
+  guard?: { capped?: string | null; copy?: string | null } | null
   /** 牵头被成员交回的结果叫起来的卡（docs/multica-learn.md §11.2）：哪些成员交回的（名字，并进来的接在后面） */
   wake?: { from: string[] } | null
   /**
@@ -713,6 +718,7 @@ export type RunReason =
   | 'not_deployed'
   | 'not_allowed'
   | 'requester_left'
+  | 'project_blocked'
   | 'engine.auth'
   | 'engine.quota'
   | 'engine.model'
@@ -913,6 +919,33 @@ export interface ChannelsSnapshot {
   teamsConnection: TeamsConnection
   /** 上次和云端同步成功的时间 */
   teamsSyncedAt: number | null
+  /** 队友派来的活的限制（这台电脑的设置，所有团队通用）；旧版本没有 */
+  teammate?: TeammateRules
+}
+
+/** 队友派来的活的限制（docs/multica-learn.md §8、§11.4）：只在主人这台电脑上生效；权限上限固定「自动改文件」（D324） */
+export interface TeammateRules {
+  /** 只在这些项目里接队友的活；null 是所有项目 */
+  projects: string[] | null
+  /** 每件活一个 Git 副本（能建的时候） */
+  copy: boolean
+  /** 不带我的 MCP：只用项目里的 MCP 配置，像素星空的扩展不挂 */
+  isolateMcp: boolean
+}
+
+export const DEFAULT_TEAMMATE: TeammateRules = { projects: null, copy: true, isolateMcp: true }
+
+/** 设置里存的值整理成合法的（不认识的字段丢掉，缺的按默认） */
+export function cleanTeammate(raw: unknown): TeammateRules {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const projects = Array.isArray(r.projects)
+    ? [...new Set(r.projects.filter((p): p is string => typeof p === 'string' && !!p))].slice(0, 500)
+    : null
+  return {
+    projects,
+    copy: typeof r.copy === 'boolean' ? r.copy : DEFAULT_TEAMMATE.copy,
+    isolateMcp: typeof r.isolateMcp === 'boolean' ? r.isolateMcp : DEFAULT_TEAMMATE.isolateMcp,
+  }
 }
 
 /**

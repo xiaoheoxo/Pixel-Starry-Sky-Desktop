@@ -11,6 +11,7 @@ import type { AgentConfig, ChannelAttachments, ChannelMessage, ChannelTask } fro
 import type { TaskRun } from './tracker'
 
 import type { ChannelAlertRule, ChannelNotify, FlowSchedule, RelayRules } from '../../../shared/types/channels'
+import { cleanTeammate, DEFAULT_TEAMMATE, type TeammateRules } from '../../../shared/types/channels'
 
 export interface StoredChannel {
   id: string
@@ -116,6 +117,7 @@ export class ChannelStore {
   async init(): Promise<void> {
     await mkdir(this.dir, { recursive: true })
     this.members = await this.readJson<AgentConfig[]>(join(this.dir, 'members.json'), [])
+    this.teammate = cleanTeammate(await this.readJson<unknown>(join(this.dir, 'teammate.json'), null))
     for (const run of await this.readJson<TaskRun[]>(join(this.dir, 'runs.json'), [])) this.runs.set(run.taskId, run)
     for (const entry of await readdir(this.dir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !ID.test(entry.name)) continue
@@ -170,6 +172,12 @@ export class ChannelStore {
 
   saveMembers(): Promise<void> {
     return this.atomic(join(this.dir, 'members.json'), this.members)
+  }
+
+  /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
+  teammate: TeammateRules = DEFAULT_TEAMMATE
+  saveTeammate(): Promise<void> {
+    return this.atomic(join(this.dir, 'teammate.json'), this.teammate)
   }
 
   saveRuns(): Promise<void> {

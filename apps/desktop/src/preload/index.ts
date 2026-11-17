@@ -583,6 +583,7 @@ const channels: ChannelsBridge = {
   approveTask: (taskId, approve) => call('channels:approveTask', taskId, approve),
   setAgentPolicy: (channelId, memberId, policy, allow) =>
     call('channels:agentPolicy', channelId, memberId, policy, allow),
+  setTeammate: rules => call('channels:teammate', rules),
   createTeam: name => call('teams:create', name),
   updateTeam: (teamId, patch) => call('teams:update', teamId, patch),
   deleteTeam: teamId => call('teams:delete', teamId),

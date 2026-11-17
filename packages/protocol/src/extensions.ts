@@ -108,6 +108,11 @@ export interface ExtensionLaunch {
   pathDirs: string[]
   /** 走会话参数的 MCP（Antigravity 的 session/new mcpServers）：own 是应用自己的只读服务（免审批） */
   acpMcp?: Array<McpConfig & { name: string; own?: boolean }>
+  /**
+   * 只用项目自己的 MCP 配置、不带用户级的（队友派来的活，docs/multica-learn.md §8、§11.4）：
+   * Claude 加 --strict-mcp-config 并只带项目的 .mcp.json；Codex 清空 mcp_servers（再加上面给的）
+   */
+  strictMcp?: boolean
   dispose?: () => void
 }
 export interface SkillCommand {

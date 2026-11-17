@@ -389,6 +389,8 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   ipc.handle('channels:approveTask', (_e, taskId, approve) =>
     channels.approveTask(str(taskId, '任务'), approve === true),
   )
+  // 队友派来的活的限制：主进程按 cleanTeammate 整理，不认识的字段丢掉
+  ipc.handle('channels:teammate', (_e, rules) => channels.setTeammate(rules))
   ipc.handle('channels:agentPolicy', (_e, channelId, memberId, policy, raw) => {
     if (!POLICIES.has(policy as AgentPolicy)) throw new Error('不支持的派活规则')
     const allow: unknown = raw

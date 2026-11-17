@@ -17,10 +17,11 @@ let dir: string
 let opened: Channels[]
 let emitted: { channel: string; value: unknown }[]
 let sent: { sessionId: string; text: string; clientMessageId: string }[]
+let created: Record<string, unknown>[]
 let sessions: SessionSummary[]
 let now: number
 
-async function open() {
+async function open(extra: Partial<ConstructorParameters<typeof Channels>[0]> = {}) {
   const cloud = new FakeCloud()
   let handlers!: { onFrame(f: TeamFrame): void; onStatus(s: RealtimeStatus): void }
   const sync = new TeamSync({
@@ -37,6 +38,7 @@ async function open() {
     store,
     call: async (channel, args) => {
       if (channel === 'engine:createSession') {
+        created.push(args[0] as Record<string, unknown>)
         const id = `s${sessions.length + 1}`
         sessions.push({ record: { id, projectId: 'p1' }, state: 'idle' } as SessionSummary)
         return { id }
@@ -57,6 +59,7 @@ async function open() {
     deviceId: 'dev-A',
     machineName: () => '林夏的电脑',
     teamTiming: { progressMs: 10, statusMs: 10 },
+    ...extra,
   })
   opened.push(c)
   const online = async () => {
@@ -99,6 +102,7 @@ beforeEach(async () => {
   opened = []
   emitted = []
   sent = []
+  created = []
   sessions = []
   now = 1_000_000
 })
@@ -551,5 +555,86 @@ describe('派活规则四档、开工前核对、运行凭证（docs/multica-lea
     await until(() => cloud.task(id).status === 'done')
     expect(cloud.calls.some(x => x.method === 'PATCH' && x.path === `/v1/teams/tm_1/tasks/${id}`)).toBe(true)
     expect(cloud.messages.get('tc_1')!.some(m => m.author === agentId && m.task_id === id)).toBe(true)
+  })
+})
+
+describe('队友派来的活的限制（docs/multica-learn.md §8、§11.4）', () => {
+  const madeCopies: { projectId: string; name: string; branch: string }[] = []
+  async function ready(patch: Partial<AgentInput> = {}) {
+    madeCopies.length = 0
+    const t = await open({
+      defaultMode: () => 'full',
+      copies: {
+        create: async (projectId, input) => {
+          madeCopies.push({ projectId, name: input.name, branch: input.branch })
+          return { id: `cp-${madeCopies.length}`, branch: input.branch, path: `D:/copies/${input.name}` }
+        },
+        remove: async () => {},
+        dirty: async () => false,
+      },
+    })
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手', patch))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    return { ...t, agentId: view.id }
+  }
+
+  it('默认：新开会话、权限降到自动改文件、独立副本、不带我的 MCP；主人的卡上写明', async () => {
+    const { c, cloud, store, agentId } = await ready({ mode: 'shared' })
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0]).toMatchObject({ permissionMode: 'edits', copyId: 'cp-1' })
+    expect(madeCopies[0].branch).toMatch(/^pixelsky\/team-/)
+    // 共用会话的成员也不记成共用会话
+    expect(store.members[0].sharedSessionId ?? null).toBeNull()
+    expect(store.runs.get(id)?.guard).toMatchObject({ capped: 'full', isolate: true, copy: { id: 'cp-1' } })
+    expect(c.sessionMember('s1')).toMatchObject({ isolated: true, tools: { mode: 'only', ids: [] } })
+    const page = await c.page('tc_1')
+    expect(page.messages.find(m => m.id === id)).toMatchObject({
+      guard: { capped: 'full', copy: madeCopies[0].branch },
+    })
+  })
+
+  it('我自己派的活不受限制', async () => {
+    const { c, cloud, store, agentId } = await ready()
+    const id = cloud.userPost('u:1', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0].permissionMode).toBeUndefined()
+    expect(created[0].copyId).toBeUndefined()
+    expect(madeCopies).toHaveLength(0)
+    expect(store.runs.get(id)?.guard).toBeUndefined()
+    expect(c.sessionMember('s1')?.isolated).toBeUndefined()
+  })
+
+  it('不在允许的项目里：不开工，卡片失败、原因是这个项目不接', async () => {
+    const { c, cloud, agentId } = await ready()
+    await c.setTeammate({ projects: ['p2'], copy: true, isolateMcp: true })
+    expect(c.state().teammate).toEqual({ projects: ['p2'], copy: true, isolateMcp: true })
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => cloud.task(id).status === 'failed')
+    expect(sent).toHaveLength(0)
+    expect(sessions).toHaveLength(0)
+    expect(cloud.task(id).reason).toBe('project_blocked')
+  })
+
+  it('关掉副本和隔离、成员本来就要问：照原样开，不降级', async () => {
+    const { c, cloud, store, agentId } = await ready({ settings: { model: 'sonnet', permissionMode: 'ask' } })
+    await c.setTeammate({ projects: null, copy: false, isolateMcp: false })
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(created[0]).toMatchObject({ permissionMode: 'ask' })
+    expect(madeCopies).toHaveLength(0)
+    expect(store.runs.get(id)?.guard ?? {}).toEqual({})
+    expect(c.sessionMember('s1')?.isolated).toBeUndefined()
+  })
+
+  it('设置存盘，重开还在；不认识的字段丢掉', async () => {
+    const { c } = await ready()
+    await c.setTeammate({ projects: ['p1', 'p1', 3], copy: false, extra: 1 })
+    const again = new ChannelStore(dir)
+    await again.init()
+    expect(again.teammate).toEqual({ projects: ['p1'], copy: false, isolateMcp: true })
   })
 })

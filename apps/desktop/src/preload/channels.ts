@@ -20,7 +20,7 @@ import type {
   TeamRole,
 } from '../shared/types/channels'
 import type { ChannelAlertAction } from '../shared/channels/alerts'
-import type { FlowScheduleInput, IssueDispatch } from '../shared/types/channels'
+import type { FlowScheduleInput, IssueDispatch, TeammateRules } from '../shared/types/channels'
 import type { CloudImageInput } from './image'
 
 /** 协作频道 Phase B（docs/ui/channels-phase-b.md §11） */
@@ -120,6 +120,8 @@ export interface ChannelsBridge {
   approveTask(taskId: string, approve: boolean): Promise<void>
   /** 团队频道里我的 AI 成员谁能派活；listed 时 allow 是能直接派的人（团队成员 id），不带就不改 */
   setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void>
+  /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
+  setTeammate(rules: TeammateRules): Promise<void>
   /** 新建团队，返回团队 id */
   createTeam(name: string): Promise<string>
   updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void>

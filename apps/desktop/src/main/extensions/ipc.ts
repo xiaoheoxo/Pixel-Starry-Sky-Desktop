@@ -48,11 +48,15 @@ export class Extensions {
     // 设置里开了「查看本机其他会话」时挂 list_threads / read_thread（docs/ui/import-collab.md 第 5 项③）
     // 频道派活的会话挂频道工具，成员设了「只用这些」时只带勾选的扩展（docs/ui/channels-collab-v2.md §1、§5）
     const channel = await this.ctx.channelTools?.forSession(record).catch(() => null)
-    const own: [string, LocalMcpEntry | null | undefined][] = [
-      [HISTORY_SERVER_NAME, await this.history?.entry(record)],
-      [THREADS_SERVER_NAME, await this.threads?.entry(record)],
-      [CHANNEL_SERVER_NAME, channel?.entry],
-    ]
+    // 队友派来的活（docs/multica-learn.md §11.4）：应用自己的也不挂（「查看本机其他会话」会读到我别的对话）
+    const isolated = !!channel?.isolated
+    const own: [string, LocalMcpEntry | null | undefined][] = isolated
+      ? []
+      : [
+          [HISTORY_SERVER_NAME, await this.history?.entry(record)],
+          [THREADS_SERVER_NAME, await this.threads?.entry(record)],
+          [CHANNEL_SERVER_NAME, channel?.entry],
+        ]
     const servers = Object.fromEntries(
       own.flatMap(([name, entry]) =>
         entry
@@ -63,7 +67,7 @@ export class Extensions {
     const only = channel?.tools ? new Set(channel.tools.ids) : undefined
     // 应用刚启动、扩展还在加载：最多等 5 秒，超时照旧启动（下一条消息会换进程带上）
     await this.ctx.extPacks?.readyWithin(5000)
-    const packMcp = this.ctx.extPacks?.mcpLaunch() ?? { key: '', servers: {} }
+    const packMcp = isolated ? { key: '', servers: {} } : (this.ctx.extPacks?.mcpLaunch() ?? { key: '', servers: {} })
     const launched = this.get().launch(
       record.cwd,
       record.engine,
@@ -76,7 +80,11 @@ export class Extensions {
     const base = packMcp.key && !only ? { ...launched, key: launched.key + '|packmcp:' + packMcp.key } : launched
     // 这些工具只读（频道工具只在频道里留记录），不用每次都等用户批准
     const allow = Object.keys(servers).map(name => `mcp__${name}`)
-    const launch = allow.length ? { ...base, allowTools: allow } : base
+    const allowed = allow.length ? { ...base, allowTools: allow } : base
+    // 队友派来的活（docs/multica-learn.md §11.4）：引擎也不读用户级 MCP，只用项目里的
+    const launch = isolated ? { ...allowed, strictMcp: true } : allowed
+    // 扩展包的技能也不带
+    if (isolated) return launch
     // Antigravity 只接 MCP（launch 给的 acpMcp，应用自己的标了 own 免审批），扩展包的技能没地方放（docs/antigravity-engine.md §12）
     if (record.engine === 'antigravity') return launch
     // 扩展包里的技能：Claude 走生成的插件目录，Codex 走技能目录；没有时 key 和原来一字不差

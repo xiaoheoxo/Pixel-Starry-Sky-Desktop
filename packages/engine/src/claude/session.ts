@@ -1,6 +1,6 @@
 // 一个会话对应的 Claude Code 进程：启动 / 恢复、发消息、审批、中断、改设置（docs/engines.md §9）
 import { randomUUID } from 'node:crypto'
-import { readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   codedError,
@@ -475,7 +475,8 @@ export class ClaudeSession implements EngineSession {
   /** --mcp-config：添加的账号把原文件里的 MCP 服务器和扩展的合成一份；原来的账号直接用扩展的 */
   private mcpConfigFile(cwd: string): string | null {
     const account = this.deps.account
-    if (!account) return this.deps.extensions?.mcpFile ?? null
+    // 只用项目的 MCP：账号原文件里的（用户级）不带
+    if (!account || this.deps.extensions?.strictMcp) return this.deps.extensions?.mcpFile ?? null
     try {
       this.accountMcpFile = writeAccountMcpFile(account.dir, account.mcpServers(cwd), this.deps.extensions?.mcpFile)
     } catch {
@@ -688,7 +689,12 @@ export class ClaudeSession implements EngineSession {
     for (const path of this.deps.extensions?.pluginDirs ?? []) args.push('--plugin-dir', path)
     this.dropTempFiles()
     const mcpFile = this.mcpConfigFile(rec.cwd)
-    if (mcpFile) args.push('--mcp-config', mcpFile)
+    // 队友派来的活（docs/multica-learn.md §11.4）：不读用户级 MCP，只带项目的 .mcp.json 和上面给的
+    const strict = this.deps.extensions?.strictMcp === true
+    const projectMcp = strict ? join(rec.cwd, '.mcp.json') : null
+    const mcpFiles = [...(mcpFile ? [mcpFile] : []), ...(projectMcp && existsSync(projectMcp) ? [projectMcp] : [])]
+    if (strict) args.push('--strict-mcp-config')
+    if (mcpFiles.length) args.push('--mcp-config', ...mcpFiles)
     const gateway = viaGateway(rec) ? this.deps.env.PIXELSKY_GATEWAY_SETTINGS : undefined
     // 网关模式下凭证只在网关里：没有网关设置文件就不能启动，否则会落到引擎自己的登录上
     if (viaGateway(rec) && !gateway) throw new Error('本机网关不可用，请重启应用')

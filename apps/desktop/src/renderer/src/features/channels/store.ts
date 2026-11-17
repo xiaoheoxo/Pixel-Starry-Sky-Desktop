@@ -29,7 +29,9 @@ import type {
   TeamInfo,
   TeamRole,
   TeamsConnection,
+  TeammateRules,
 } from '../../../../shared/types/channels'
+import { DEFAULT_TEAMMATE } from '../../../../shared/types/channels'
 import { getPage, subscribePage } from '@/features/layout/page'
 import { appendMessage, createMessage, firstUnreadAt, markRead, unreadTotal } from './model'
 import { channelDraftKey } from './draftKey'
@@ -75,6 +77,8 @@ export interface ChannelsState {
   /** unavailable = 云端没有团队接口，不显示任何团队入口 */
   teamsConnection: TeamsConnection
   teamsSyncedAt: number | null
+  /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
+  teammate: TeammateRules
   /** 「需要你」（docs/ui/channels-collab-v2.md §2）：主进程算好推过来；演示模式在 needs.ts 里现算 */
   needs: NonNullable<ChannelsSnapshot['needs']>
   /** 标为已处理、状态还没变的（§2.1） */
@@ -108,6 +112,7 @@ let state: ChannelsState = {
   invites: channelsLive ? [] : channelTeams.invites,
   teamsConnection: channelsLive ? 'unavailable' : channelTeams.connection,
   teamsSyncedAt: channelsLive ? null : Date.now(),
+  teammate: DEFAULT_TEAMMATE,
   needs: [],
   needsDone: [],
   following: [],
@@ -223,6 +228,7 @@ function applySnapshot(s: ChannelsSnapshot): void {
     invites: s.invites ?? [],
     teamsConnection: s.teamsConnection ?? 'unavailable',
     teamsSyncedAt: s.teamsSyncedAt ?? null,
+    teammate: s.teammate ?? DEFAULT_TEAMMATE,
   })
   if (visible && s.channels.some(c => c.id === visible && (c.unread > 0 || c.mentioned))) readLater(visible)
 }
@@ -664,6 +670,11 @@ export const channelActions = {
   async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void> {
     if (channelsBridge) await channelsBridge.setAgentPolicy(channelId, memberId, policy, allow)
     else demo.setAgentPolicy(memberId, policy, allow)
+  },
+  /** 队友派来的活的限制：只在哪些项目接、要不要副本、带不带我的 MCP */
+  async setTeammate(rules: TeammateRules): Promise<void> {
+    if (channelsBridge) await channelsBridge.setTeammate(rules)
+    else set({ teammate: rules })
   },
   async createTeam(name: string): Promise<string> {
     if (!channelsBridge) return demo.createTeam(name)

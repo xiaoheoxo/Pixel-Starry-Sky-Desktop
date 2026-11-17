@@ -13,6 +13,7 @@ import {
   SquareKanban,
   Unplug,
   FolderClock,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { setPage } from '@/features/layout/page'
@@ -280,6 +281,20 @@ export function ChannelTaskCard({
             {task.wake.from.length > 1
               ? tr('channels.wake.merged', { name: task.wake.from[0], count: task.wake.from.length })
               : tr('channels.wake.from', { name: task.wake.from[0] })}
+          </span>
+        </p>
+      )}
+      {task.guard && (task.guard.capped || task.guard.copy) && (
+        // 队友派来的活在我这边的限制（docs/multica-learn.md §11.4，只有主人看得到）
+        <p data-task-guard className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
+          <ShieldCheck size={12} strokeWidth={1.75} className="shrink-0" />
+          <span className="min-w-0 truncate">
+            {[
+              task.guard.capped ? tr('teammate.guard.capped') : null,
+              task.guard.copy ? tr('teammate.guard.copy', { branch: task.guard.copy }) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </p>
       )}
