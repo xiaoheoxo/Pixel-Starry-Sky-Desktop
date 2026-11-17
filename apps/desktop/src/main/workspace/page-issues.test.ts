@@ -14,6 +14,9 @@ describe('网页错误的过滤（页面检查、浏览器胶囊共用）', () =
     expect(r({ statusCode: 404 })).toBe('404 http://a/api')
     expect(r({ error: 'net::ERR_CONNECTION_REFUSED' })).toBe('net::ERR_CONNECTION_REFUSED http://a/api')
     expect(r({ statusCode: 200 })).toBeNull()
+    // onCompleted 成功时 error 是 net::OK：按状态码算（之前把所有成功的请求都算成了失败）
+    expect(r({ statusCode: 200, error: 'net::OK' })).toBeNull()
+    expect(r({ statusCode: 404, error: 'net::OK' })).toBe('404 http://a/api')
     expect(r({ error: 'net::ERR_ABORTED' })).toBeNull()
     expect(r({ statusCode: 500, resourceType: 'mainFrame' })).toBeNull()
     expect(failedRequest({ url: 'http://a/favicon.ico', resourceType: 'image', statusCode: 404 })).toBeNull()

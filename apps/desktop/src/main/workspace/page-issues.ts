@@ -30,7 +30,9 @@ export function failedRequest(d: {
   error?: string
 }): string | null {
   if (d.resourceType === 'mainFrame' || /\/favicon\.ico(\?|$)/.test(d.url)) return null
-  if (d.error !== undefined) return d.error === 'net::ERR_ABORTED' ? null : cleanIssue(`${d.error} ${d.url}`)
+  // Electron 的 onCompleted 成功时也带 error: 'net::OK'，不算网络错误，看状态码
+  if (d.error !== undefined && d.error !== 'net::OK')
+    return d.error === 'net::ERR_ABORTED' ? null : cleanIssue(`${d.error} ${d.url}`)
   return d.statusCode !== undefined && d.statusCode >= 400 ? cleanIssue(`${d.statusCode} ${d.url}`) : null
 }
 
