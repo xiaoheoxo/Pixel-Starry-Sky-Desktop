@@ -14,6 +14,7 @@ import type {
   TeamRole,
   TeamsConnection,
 } from '../../../../shared/types/channels'
+import type { TeamInboxItem, TeamInboxPatch } from '../../../../shared/types/channels'
 import {
   TeamError,
   type AgentRegistration,
@@ -135,6 +136,11 @@ export class TeamSync {
   /** 任务卡消息（执行端和卡片更新用，不限于已打开的频道） */
   private readonly cards = new Map<string, { teamId: string; tm: TeamMessage }>()
   private online = new Map<string, Set<string>>()
+  /** 收件箱（docs/multica-learn.md §11.5）：团队/key → 没归档的那一行；inboxOk 为 false 是云端还没有收件箱 */
+  private inbox = new Map<string, TeamInboxItem>()
+  private inboxOk = false
+  /** 拉收件箱期间推来（或改过）的行：拉完叠在上面，别让较早发出的那次请求把它盖掉 */
+  private inboxFresh: Map<string, TeamInboxItem> | null = null
   /** 频道 → 已经（或正在）告诉云端读到哪条 */
   private readonly readSent = new Map<string, number>()
   /** 其他人最后在线时间的本地更新（presence 离线帧） */
@@ -213,6 +219,8 @@ export class TeamSync {
     this.caches.clear()
     this.cards.clear()
     this.online = new Map()
+    this.inbox = new Map()
+    this.inboxOk = false
     this.readSent.clear()
     this.seen = new Map()
     this.syncedAt = null
@@ -345,8 +353,32 @@ export class TeamSync {
       this.deps.log?.('补齐团队消息失败', error)
     }
     if (epoch !== this.epoch) return
+    // 收件箱另外拉，不拖慢 ready（执行端等着它认领）
+    void this.loadInbox(epoch).then(() => {
+      if (epoch === this.epoch) this.emitChanged()
+    })
     this.emitChanged()
     if (reason !== 'plain') for (const l of this.listeners) l.ready?.(reason)
+  }
+
+  /** 拉一次收件箱（连上、重拉总览时）；失败只记日志，留着上次的 */
+  private async loadInbox(epoch: number): Promise<void> {
+    let items: TeamInboxItem[] | null
+    const fresh = new Map<string, TeamInboxItem>()
+    this.inboxFresh = fresh
+    try {
+      items = await this.api.inbox()
+    } catch (error) {
+      this.deps.log?.('拉取收件箱失败', error)
+      return
+    } finally {
+      if (this.inboxFresh === fresh) this.inboxFresh = null
+    }
+    if (epoch !== this.epoch) return
+    this.inboxOk = this.inboxOk || items !== null
+    if (items === null) return
+    this.inbox = new Map(items.map(it => [inboxId(it), it]))
+    for (const it of fresh.values()) this.putInbox(it)
   }
 
   private clearData(): void {
@@ -357,6 +389,8 @@ export class TeamSync {
     this.caches.clear()
     this.cards.clear()
     this.online = new Map()
+    this.inbox = new Map()
+    this.inboxOk = false
     this.syncedAt = null
     this.restOk = false
   }
@@ -454,6 +488,11 @@ export class TeamSync {
         this.dropTeam(frame.team)
         this.reloadSoon()
         return
+      case 'inbox':
+        this.inboxOk = true
+        this.putInbox(frame.item)
+        this.emitChanged()
+        return
       case 'presence': {
         const set = this.online.get(frame.team) ?? new Set<string>()
         if (frame.online) set.add(frame.user)
@@ -465,6 +504,25 @@ export class TeamSync {
         this.emitChanged()
       }
     }
+  }
+
+  private putInbox(item: TeamInboxItem): void {
+    this.inboxFresh?.set(inboxId(item), item)
+    if (item.archived) this.inbox.delete(inboxId(item))
+    else this.inbox.set(inboxId(item), item)
+  }
+
+  /** 收件箱：我还在的团队里没归档的，新的在前；云端没有收件箱时 null */
+  inboxItems(): TeamInboxItem[] | null {
+    if (!this.inboxOk) return null
+    return [...this.inbox.values()].filter(it => this.teams.has(it.teamId)).sort((a, b) => b.at - a.at)
+  }
+
+  /** 改收件箱的一行：云端改好后换成它返回的那一行（推送也会来一次，结果一样） */
+  async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void> {
+    const item = await this.api.patchInbox(teamId, key, patch)
+    this.putInbox(item)
+    this.emitChanged()
   }
 
   private dropTeam(tid: string): void {
@@ -977,3 +1035,5 @@ export class TeamSync {
     return this.lastLoadAt ? this.now() - this.lastLoadAt : Infinity
   }
 }
+
+const inboxId = (it: Pick<TeamInboxItem, 'teamId' | 'key'>): string => `${it.teamId}/${it.key}`

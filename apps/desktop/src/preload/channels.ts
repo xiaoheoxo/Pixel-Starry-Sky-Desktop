@@ -20,7 +20,7 @@ import type {
   TeamRole,
 } from '../shared/types/channels'
 import type { ChannelAlertAction } from '../shared/channels/alerts'
-import type { FlowScheduleInput, IssueDispatch, TeammateRules } from '../shared/types/channels'
+import type { FlowScheduleInput, IssueDispatch, TeamInboxPatch, TeammateRules } from '../shared/types/channels'
 import type { CloudImageInput } from './image'
 
 /** 协作频道 Phase B（docs/ui/channels-phase-b.md §11） */
@@ -122,6 +122,8 @@ export interface ChannelsBridge {
   setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void>
   /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
   setTeammate(rules: TeammateRules): Promise<void>
+  /** 收件箱改一行：已读、归档、延后、取消订阅（docs/multica-learn.md §11.5） */
+  patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void>
   /** 新建团队，返回团队 id */
   createTeam(name: string): Promise<string>
   updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void>

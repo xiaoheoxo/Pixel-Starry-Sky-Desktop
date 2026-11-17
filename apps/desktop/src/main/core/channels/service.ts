@@ -70,6 +70,7 @@ import {
   cleanTeammate,
   relayRulesOf,
   type RelayRules,
+  type TeamInboxPatch,
   type TeammateRules,
 } from '../../../shared/types/channels'
 import {
@@ -721,6 +722,10 @@ export class Channels {
       teamsConnection: this.team ? (team?.connection ?? 'signed-out') : 'unavailable',
       teamsSyncedAt: team?.syncedAt ?? null,
       teammate: this.store.teammate,
+      ...(() => {
+        const inbox = this.team?.inboxItems() ?? null
+        return { inbox: inbox ?? [], inboxSupported: inbox !== null }
+      })(),
     }
   }
 
@@ -2450,6 +2455,12 @@ export class Channels {
   /** 队友派来的活的限制（这台电脑的设置） */
   teammate(): TeammateRules {
     return this.store.teammate
+  }
+
+  /** 收件箱改一行（docs/multica-learn.md §11.5）：已读、归档、延后、取消订阅 */
+  async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void> {
+    if (!this.team) throw new Error('还没登录团队')
+    await this.team.patchInbox(teamId, key, patch)
   }
 
   async setTeammate(raw: unknown): Promise<void> {

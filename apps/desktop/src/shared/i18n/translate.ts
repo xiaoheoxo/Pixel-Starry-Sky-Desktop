@@ -52,6 +52,7 @@ import { planModeMessages } from './planModeMessages'
 import { teamRunMessages } from './teamRunMessages'
 import { leadWakeMessages } from './leadWakeMessages'
 import { teammateMessages } from './teammateMessages'
+import { inboxMessages } from './inboxMessages'
 import { htmlPreviewMessages } from './htmlPreviewMessages'
 import { portPreviewMessages } from './portPreviewMessages'
 import { tipsMessages } from './tipsMessages'
@@ -155,6 +156,7 @@ export const allMessages = {
   ...teamRunMessages,
   ...leadWakeMessages,
   ...teammateMessages,
+  ...inboxMessages,
   ...htmlPreviewMessages,
   ...portPreviewMessages,
   ...tipsMessages,

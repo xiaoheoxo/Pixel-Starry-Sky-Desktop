@@ -921,6 +921,39 @@ export interface ChannelsSnapshot {
   teamsSyncedAt: number | null
   /** 队友派来的活的限制（这台电脑的设置，所有团队通用）；旧版本没有 */
   teammate?: TeammateRules
+  /** 收件箱（docs/multica-learn.md §11.5）：没归档的，新的在前；inboxSupported 为 false 是云端还没有收件箱 */
+  inbox?: TeamInboxItem[]
+  inboxSupported?: boolean
+}
+
+/** 收件箱里一行的种类（最近一次是什么事） */
+export type TeamInboxKind = 'mention' | 'reply' | 'assigned' | 'approval' | 'failed' | 'done' | 'review' | 'rejected'
+
+/** 收件箱里的一行（docs/multica-learn.md §11.5）：一个人、一件事（任务卡或消息串的根） */
+export interface TeamInboxItem {
+  teamId: string
+  /** 任务卡 id，或消息串第一条的 id */
+  key: string
+  channelId: string
+  kind: TeamInboxKind
+  /** 触发的人（成员 id）或 AI 成员（ta_…） */
+  actor: string
+  text: string
+  /** 上次读过之后合并了几条 */
+  count: number
+  at: number
+  read: boolean
+  archived: boolean
+  snoozeUntil: number | null
+  muted: boolean
+}
+
+/** 改收件箱的一行：不写的不改；snoozeUntil 为 null 是取消延后 */
+export interface TeamInboxPatch {
+  read?: boolean
+  archived?: boolean
+  snoozeUntil?: number | null
+  muted?: boolean
 }
 
 /** 队友派来的活的限制（docs/multica-learn.md §8、§11.4）：只在主人这台电脑上生效；权限上限固定「自动改文件」（D324） */

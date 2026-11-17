@@ -98,6 +98,7 @@ export const IPC_CONTRACT = {
   'channels:generateImage': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:agentPolicy': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:teammate': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:inbox': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:approveTask': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:changed': { kind: 'push', route: 'push', trust: 'none' },
   'channels:create': { kind: 'invoke', route: 'local', trust: 'sender' },

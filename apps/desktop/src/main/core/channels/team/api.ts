@@ -1,6 +1,15 @@
 // 团队云端接口的薄客户端（docs/ui/channels-phase-c.md §8.2）：snake_case → camelCase，时间转毫秒，
 // 非 2xx 转成带 code 的错误。请求函数（teamsFetch）由应用层注入，这里不碰 Electron。
-import type { AgentPolicy, ChannelRun, ChannelTaskStatus, RunReason, TeamRole } from '../../../../shared/types/channels'
+import type {
+  AgentPolicy,
+  ChannelRun,
+  ChannelTaskStatus,
+  RunReason,
+  TeamInboxItem,
+  TeamInboxKind,
+  TeamInboxPatch,
+  TeamRole,
+} from '../../../../shared/types/channels'
 import { parseRunReason } from '../../../../shared/channels/runReason'
 
 export type TeamErrorCode =
@@ -424,6 +433,46 @@ function runWire(r: ChannelRun): Record<string, unknown> {
   }
 }
 
+const INBOX_KINDS: readonly TeamInboxKind[] = [
+  'mention',
+  'reply',
+  'assigned',
+  'approval',
+  'failed',
+  'done',
+  'review',
+  'rejected',
+]
+
+const timeOf = (v: unknown): number | null => {
+  if (typeof v !== 'string') return null
+  const t = Date.parse(v)
+  return Number.isFinite(t) ? t : null
+}
+
+/** 收件箱的一行（docs/multica-learn.md §11.5）；不认识的种类丢掉 */
+export function parseInboxItem(v: unknown): TeamInboxItem | null {
+  if (!isObj(v) || typeof v.team_id !== 'string' || typeof v.key !== 'string' || typeof v.channel_id !== 'string')
+    return null
+  const kind = INBOX_KINDS.find(k => k === v.kind)
+  const at = timeOf(v.at)
+  if (!kind || at === null) return null
+  return {
+    teamId: v.team_id,
+    key: v.key,
+    channelId: v.channel_id,
+    kind,
+    actor: typeof v.actor === 'string' ? v.actor : '',
+    text: typeof v.text === 'string' ? v.text : '',
+    count: typeof v.count === 'number' && v.count >= 0 ? Math.floor(v.count) : 0,
+    at,
+    read: v.read === true,
+    archived: v.archived === true,
+    snoozeUntil: timeOf(v.snooze_until),
+    muted: v.muted === true,
+  }
+}
+
 export function parseMessage(v: unknown): TeamMessage | null {
   if (!isObj(v) || typeof v.id !== 'string' || !v.id) return null
   const kind = oneOf(v.kind, ['message', 'task', 'event'] as const, 'message')
@@ -709,6 +758,33 @@ export class TeamApi {
     const outcome = oneOf(o.outcome, ['ok', 'approval', 'stopped'] as const, 'ok')
     const token = typeof o.run_token === 'string' && o.run_token.startsWith('rt_') ? o.run_token : null
     return { outcome, message, runToken: outcome === 'ok' ? token : null }
+  }
+
+  /** 收件箱（docs/multica-learn.md §11.5）。旧云端没有这个接口（404 且不是 JSON 错误）：null */
+  async inbox(): Promise<TeamInboxItem[] | null> {
+    let res: Response
+    try {
+      res = await this.request('GET', '/v1/inbox')
+    } catch (e) {
+      if (e instanceof TeamError && e.code === 'NOT_FOUND' && e.message === '团队、频道或消息不存在') return null
+      throw e
+    }
+    const body = await this.json(res)
+    return arr(isObj(body) ? body.items : null, parseInboxItem)
+  }
+
+  /** 改收件箱的一行：已读、归档、延后、取消订阅 */
+  async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<TeamInboxItem> {
+    const wire: Record<string, unknown> = {}
+    if (patch.read !== undefined) wire.read = patch.read
+    if (patch.archived !== undefined) wire.archived = patch.archived
+    if (patch.muted !== undefined) wire.muted = patch.muted
+    if (patch.snoozeUntil !== undefined)
+      wire.snooze_until = patch.snoozeUntil === null ? null : new Date(patch.snoozeUntil).toISOString()
+    const body = await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/inbox/${seg(key)}`, wire))
+    const item = parseInboxItem(isObj(body) ? body.item : null)
+    if (!item) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    return item
   }
 
   /** 用运行凭证写回任务卡（字段和 patchTask 一样） */

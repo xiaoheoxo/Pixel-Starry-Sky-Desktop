@@ -126,6 +126,31 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
             expiresAt: 'number',
           })
       })
+    } else if (s.status >= 200 && s.status < 300 && (Array.isArray(body.items) || body.item)) {
+      // 收件箱（docs/multica-learn.md §11.5）：每一行都认得，种类都是已知的
+      it(`${name}：收件箱`, async () => {
+        const api = serve(s)
+        const items = Array.isArray(body.items)
+          ? await api.inbox()
+          : [await api.patchInbox('tm_1', 'tg_1', { read: true })]
+        expect(items).toHaveLength(Array.isArray(body.items) ? body.items.length : 1)
+        expect(items!.length).toBeGreaterThan(0)
+        for (const it of items!)
+          expectFields(it as unknown as Record<string, unknown>, {
+            teamId: 'string',
+            key: 'string',
+            channelId: 'string',
+            kind: 'string',
+            actor: 'string',
+            text: 'string',
+            count: 'number',
+            at: 'number',
+            read: 'boolean',
+            archived: 'boolean',
+            snoozeUntil: ['number', 'null'],
+            muted: 'boolean',
+          })
+      })
     } else if (s.status >= 200 && s.status < 300 && Array.isArray(body.messages)) {
       it(`${name}：消息列表`, async () => {
         const page = await serve(s).messages('tm_1', 'tc_1')

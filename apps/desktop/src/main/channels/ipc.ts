@@ -35,6 +35,7 @@ import type {
   ChannelQueueAction,
   NeedMark,
   PostInput,
+  TeamInboxPatch,
   TeamRole,
 } from '../../shared/types/channels'
 
@@ -391,6 +392,27 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   )
   // 队友派来的活的限制：主进程按 cleanTeammate 整理，不认识的字段丢掉
   ipc.handle('channels:teammate', (_e, rules) => channels.setTeammate(rules))
+  // 收件箱改一行（docs/multica-learn.md §11.5）：只认这四个字段
+  ipc.handle('channels:inbox', (_e, teamId, key, raw) => {
+    const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+    const flag = (v: unknown): boolean | undefined => {
+      if (v === undefined) return undefined
+      if (typeof v !== 'boolean') throw new Error('参数不对')
+      return v
+    }
+    const snooze = p.snoozeUntil
+    if (snooze !== undefined && snooze !== null && (typeof snooze !== 'number' || !Number.isFinite(snooze)))
+      throw new Error('参数不对')
+    const patch: TeamInboxPatch = {}
+    const read = flag(p.read),
+      archived = flag(p.archived),
+      muted = flag(p.muted)
+    if (read !== undefined) patch.read = read
+    if (archived !== undefined) patch.archived = archived
+    if (muted !== undefined) patch.muted = muted
+    if (snooze !== undefined) patch.snoozeUntil = snooze as number | null
+    return channels.patchInbox(str(teamId, '团队'), str(key, '通知'), patch)
+  })
   ipc.handle('channels:agentPolicy', (_e, channelId, memberId, policy, raw) => {
     if (!POLICIES.has(policy as AgentPolicy)) throw new Error('不支持的派活规则')
     const allow: unknown = raw

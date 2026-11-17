@@ -638,3 +638,86 @@ describe('队友派来的活的限制（docs/multica-learn.md §8、§11.4）', 
     expect(again.teammate).toEqual({ projects: ['p1'], copy: false, isolateMcp: true })
   })
 })
+
+describe('收件箱（docs/multica-learn.md §11.5）', () => {
+  const row = (key: string, patch: Record<string, unknown> = {}) => ({
+    team_id: 'tm_1',
+    key,
+    channel_id: 'tc_1',
+    kind: 'mention',
+    actor: 'u:2',
+    text: '@林夏 看下',
+    count: 1,
+    at: '2026-11-18T08:00:00Z',
+    read: false,
+    archived: false,
+    snooze_until: null,
+    muted: false,
+    ...patch,
+  })
+
+  it('连上时拉一次；帧来了换那一行，归档的拿掉；改一行走云端', async () => {
+    const t = await open()
+    t.cloud.inbox = [row('tg_1'), row('tg_2', { kind: 'nope' })]
+    await t.online()
+    await until(() => t.c.state().inboxSupported === true)
+    expect(t.c.state().inbox).toEqual([
+      expect.objectContaining({ teamId: 'tm_1', key: 'tg_1', kind: 'mention', at: Date.parse('2026-11-18T08:00:00Z') }),
+    ])
+    t.cloud.push({
+      type: 'inbox',
+      team: 'tm_1',
+      item: { ...t.c.state().inbox![0], key: 'tg_3', kind: 'failed', at: Date.parse('2026-11-18T09:00:00Z') },
+    })
+    expect(t.c.state().inbox!.map(i => i.key)).toEqual(['tg_3', 'tg_1'])
+    t.cloud.push({ type: 'inbox', team: 'tm_1', item: { ...t.c.state().inbox![0], archived: true } })
+    expect(t.c.state().inbox!.map(i => i.key)).toEqual(['tg_1'])
+    const at = Date.parse('2026-11-19T01:00:00Z')
+    await t.c.patchInbox('tm_1', 'tg_1', { read: true, snoozeUntil: at })
+    const call = t.cloud.calls.find(x => x.method === 'PATCH' && x.path === '/v1/teams/tm_1/inbox/tg_1')
+    expect(call?.body).toEqual({ read: true, snooze_until: new Date(at).toISOString() })
+    expect(t.c.state().inbox![0]).toMatchObject({ read: true, snoozeUntil: at })
+    await t.c.patchInbox('tm_1', 'tg_1', { muted: true })
+    expect(t.c.state().inbox).toEqual([])
+  })
+
+  it('拉取期间推来的行不会被较早发出的那次请求盖掉', async () => {
+    const t = await open()
+    t.cloud.inbox = [row('tg_1')]
+    let release!: () => void
+    t.cloud.inboxGate = new Promise(r => (release = r))
+    await t.online()
+    await until(() => t.cloud.calls.some(x => x.path === '/v1/inbox'))
+    // 请求在路上时：tg_1 被另一台电脑标了已读，tg_2 新来
+    const base = {
+      teamId: 'tm_1',
+      channelId: 'tc_1',
+      actor: 'u:2',
+      text: 'x',
+      count: 1,
+      archived: false,
+      snoozeUntil: null,
+      muted: false,
+    }
+    t.cloud.push({ type: 'inbox', team: 'tm_1', item: { ...base, key: 'tg_1', kind: 'mention', at: 1, read: true } })
+    t.cloud.push({ type: 'inbox', team: 'tm_1', item: { ...base, key: 'tg_2', kind: 'failed', at: 2, read: false } })
+    release()
+    // 等那次较早的请求回来、写进去之后再看
+    await new Promise(r => setTimeout(r, 30))
+    expect(
+      t.c
+        .state()
+        .inbox!.map(i => i.key)
+        .sort(),
+    ).toEqual(['tg_1', 'tg_2'])
+    expect(t.c.state().inbox!.find(i => i.key === 'tg_1')?.read).toBe(true)
+  })
+
+  it('旧云端没有收件箱：inboxSupported 为 false', async () => {
+    const t = await open()
+    t.cloud.inbox = null
+    await t.online()
+    await until(() => t.c.state().teamsConnection === 'online')
+    expect(t.c.state()).toMatchObject({ inbox: [], inboxSupported: false })
+  })
+})

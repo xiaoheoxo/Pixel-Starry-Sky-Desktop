@@ -41,6 +41,10 @@ export class FakeCloud {
   startOutcome: 'ok' | 'approval' | 'stopped' | null = 'ok'
   /** 每张卡现在有效的运行凭证 */
   runTokens = new Map<string, string>()
+  /** 收件箱（docs/multica-learn.md §11.5）：GET /v1/inbox 返回的行；null 是旧云端（404） */
+  inbox: Json[] | null = []
+  /** 设了时 GET /v1/inbox 等它放行才回（测拉取期间推来的帧） */
+  inboxGate: Promise<void> | null = null
   push: (frame: TeamFrame) => void = () => {}
   private seq = 100
   private tick = 0
@@ -67,6 +71,12 @@ export class FakeCloud {
       if (m === method && path.startsWith(prefix)) return this.json({ error: '失败' }, status)
     }
     if (!this.deployed) return this.json({ error: 'not found' }, 404)
+    if (method === 'GET' && path === '/v1/inbox' && this.inboxGate) {
+      // 先把这一刻的数据拍下来（请求「发出」时的样子），放行后才回
+      const res = this.route(method, path, {}, runToken)
+      await this.inboxGate
+      return res
+    }
     return this.route(method, path, (body ?? {}) as Json, runToken)
   }
 
@@ -235,6 +245,17 @@ export class FakeCloud {
     const seg = path.split('/').filter(Boolean).map(decodeURIComponent)
     // seg: v1 teams ...
     if (seg[1] === 'invites') return this.json({})
+    if (seg[1] === 'inbox' && method === 'GET') {
+      if (!this.inbox) return new Response('404 page not found', { status: 404 })
+      return this.json({ items: this.inbox.filter(it => !it.archived) })
+    }
+    if (seg[3] === 'inbox' && method === 'PATCH') {
+      const it = this.inbox?.find(x => x.team_id === seg[2] && x.key === seg[4])
+      if (!it) return this.json({ error: '找不到' }, 404)
+      for (const k of ['read', 'archived', 'muted', 'snooze_until']) if (k in body) it[k] = body[k]
+      if (body.muted === true) it.archived = true
+      return this.json({ item: it })
+    }
     if (method === 'GET' && seg.length === 2) return this.json(this.overview())
     if (method === 'POST' && seg.length === 2) return this.json({ id: this.id('tm') })
     if (method === 'GET' && seg[2] === 'tasks' && seg[3] === 'mine') {

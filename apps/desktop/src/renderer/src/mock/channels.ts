@@ -1,7 +1,7 @@
 // 协作频道的演示数据（docs/ui/channels.md §9.1），只在 `pnpm dev:demo` 显示。
 // 时间相对本地 0 点推算，日期分隔始终是「昨天 / 今天」。
 import type { Channel, ChannelMember, ChannelMessage } from '@/data/types'
-import type { PendingInvite, TeamInfo } from '../../../shared/types/channels'
+import type { PendingInvite, TeamInboxItem, TeamInfo } from '../../../shared/types/channels'
 
 const NOW = Date.now()
 const HOUR = 3_600_000
@@ -1124,6 +1124,52 @@ export const demoInvites: PendingInvite[] = [
   },
 ]
 
+/** 收件箱（docs/multica-learn.md §11.5）：我是林夏 */
+export const demoInbox: TeamInboxItem[] = [
+  {
+    teamId: 'tm-pixel',
+    key: 'log-m5',
+    channelId: 'c-changelog',
+    kind: 'mention',
+    actor: 'm-chenyi',
+    text: '@林夏 文档助手那张卡在等你点同意，点完它就开工了。',
+    count: 1,
+    at: NOW - 10 * 60_000,
+    read: false,
+    archived: false,
+    snoozeUntil: null,
+    muted: false,
+  },
+  {
+    teamId: 'tm-pixel',
+    key: 'log-t2',
+    channelId: 'c-changelog',
+    kind: 'approval',
+    actor: 'm-zhouning',
+    text: '按模块重排更新日志，加作者栏',
+    count: 2,
+    at: NOW - 20 * 60_000,
+    read: false,
+    archived: false,
+    snoozeUntil: null,
+    muted: false,
+  },
+  {
+    teamId: 'tm-pixel',
+    key: 'log-t1',
+    channelId: 'c-changelog',
+    kind: 'done',
+    actor: 'a-docs',
+    text: '整理 10 月更新日志',
+    count: 0,
+    at: NOW - 3 * HOUR,
+    read: true,
+    archived: false,
+    snoozeUntil: null,
+    muted: false,
+  },
+]
+
 /** 演示模式里显示团队示例（和主进程默认一样）；改成 false 看关着团队时的样子 */
 export const DEMO_TEAMS = true
 
@@ -1135,14 +1181,19 @@ export function demoChannelData(teams: boolean): {
   channels: Channel[]
   channelMembers: ChannelMember[]
   channelMessages: Record<string, ChannelMessage[]>
-  channelTeams: { teams: TeamInfo[]; invites: PendingInvite[]; connection: 'online' | 'unavailable' }
+  channelTeams: {
+    teams: TeamInfo[]
+    invites: PendingInvite[]
+    connection: 'online' | 'unavailable'
+    inbox?: TeamInboxItem[]
+  }
 } {
   if (teams)
     return {
       channels: demoChannels,
       channelMembers: demoChannelMembers,
       channelMessages: demoChannelMessages,
-      channelTeams: { teams: demoTeams, invites: demoInvites, connection: 'online' },
+      channelTeams: { teams: demoTeams, invites: demoInvites, connection: 'online', inbox: demoInbox },
     }
   const channels = demoChannels.filter(c => c.scope !== 'team')
   const keep = new Set(channels.map(c => c.id))

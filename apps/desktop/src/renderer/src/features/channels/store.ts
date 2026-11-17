@@ -30,6 +30,8 @@ import type {
   TeamRole,
   TeamsConnection,
   TeammateRules,
+  TeamInboxItem,
+  TeamInboxPatch,
 } from '../../../../shared/types/channels'
 import { DEFAULT_TEAMMATE } from '../../../../shared/types/channels'
 import { getPage, subscribePage } from '@/features/layout/page'
@@ -79,6 +81,9 @@ export interface ChannelsState {
   teamsSyncedAt: number | null
   /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
   teammate: TeammateRules
+  /** 收件箱（docs/multica-learn.md §11.5）：没归档的，新的在前；inboxSupported 为 false 时不显示「通知」 */
+  inbox: TeamInboxItem[]
+  inboxSupported: boolean
   /** 「需要你」（docs/ui/channels-collab-v2.md §2）：主进程算好推过来；演示模式在 needs.ts 里现算 */
   needs: NonNullable<ChannelsSnapshot['needs']>
   /** 标为已处理、状态还没变的（§2.1） */
@@ -113,6 +118,8 @@ let state: ChannelsState = {
   teamsConnection: channelsLive ? 'unavailable' : channelTeams.connection,
   teamsSyncedAt: channelsLive ? null : Date.now(),
   teammate: DEFAULT_TEAMMATE,
+  inbox: channelsLive ? [] : (channelTeams.inbox ?? []),
+  inboxSupported: !channelsLive && !!channelTeams.inbox,
   needs: [],
   needsDone: [],
   following: [],
@@ -133,6 +140,8 @@ function set(next: Partial<ChannelsState>): void {
   for (const listener of listeners) listener()
 }
 export const getChannels = (): ChannelsState => state
+/** 不经过 React 订阅变化（系统通知用） */
+export const subscribeChannels = subscribe
 
 /** selector 必须返回 state 里已有的引用（或原始值），派生数据在组件里用 useMemo 算 */
 export function useChannels<T>(selector: (s: ChannelsState) => T): T {
@@ -229,6 +238,8 @@ function applySnapshot(s: ChannelsSnapshot): void {
     teamsConnection: s.teamsConnection ?? 'unavailable',
     teamsSyncedAt: s.teamsSyncedAt ?? null,
     teammate: s.teammate ?? DEFAULT_TEAMMATE,
+    inbox: s.inbox ?? [],
+    inboxSupported: s.inboxSupported ?? false,
   })
   if (visible && s.channels.some(c => c.id === visible && (c.unread > 0 || c.mentioned))) readLater(visible)
 }
@@ -670,6 +681,25 @@ export const channelActions = {
   async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void> {
     if (channelsBridge) await channelsBridge.setAgentPolicy(channelId, memberId, policy, allow)
     else demo.setAgentPolicy(memberId, policy, allow)
+  },
+  /** 收件箱改一行：已读、归档、延后、取消订阅。演示模式只改内存 */
+  async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void> {
+    if (channelsBridge) {
+      await channelsBridge.patchInbox(teamId, key, patch)
+      return
+    }
+    const next = state.inbox.map(it =>
+      it.teamId === teamId && it.key === key
+        ? {
+            ...it,
+            ...(patch.read !== undefined ? { read: patch.read, ...(patch.read ? { count: 0 } : {}) } : {}),
+            ...(patch.archived !== undefined ? { archived: patch.archived } : {}),
+            ...(patch.snoozeUntil !== undefined ? { snoozeUntil: patch.snoozeUntil } : {}),
+            ...(patch.muted ? { muted: true, archived: true } : {}),
+          }
+        : it,
+    )
+    set({ inbox: next.filter(it => !it.archived) })
   },
   /** 队友派来的活的限制：只在哪些项目接、要不要副本、带不带我的 MCP */
   async setTeammate(rules: TeammateRules): Promise<void> {
