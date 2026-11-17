@@ -779,6 +779,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
     optimizePrompt: request => call('ai:optimizePrompt', request),
     inlineEdit: request => call('ai:inlineEdit', request),
     memberDraft: request => call('ai:memberDraft', request),
+    review: request => call('ai:review', request),
     cancel: requestId => call('ai:cancel', requestId),
     commitCharge: requestId => call('ai:commitCharge', requestId),
   } satisfies import('./ai').AiBridge,

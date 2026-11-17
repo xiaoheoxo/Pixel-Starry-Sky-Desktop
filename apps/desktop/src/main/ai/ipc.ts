@@ -12,12 +12,17 @@ import {
   PROMPT_CONTEXT_LIMIT,
   PROMPT_TEXT_LIMIT,
   MEMBER_DRAFT_TEXT_LIMIT,
+  REVIEW_ASK_LIMIT,
+  REVIEW_DIFF_LIMIT,
+  REVIEW_PREVIOUS_MAX,
   type AiChannelRequest,
   type AiCommitRequest,
   type AiCommitResult,
   type AiInlineEditRequest,
   type AiMemberDraftResult,
   type AiPromptRequest,
+  type AiReviewRequest,
+  type AiReviewResult,
 } from '../../shared/types/ai'
 import type { GitCommitContext } from '../../shared/types/project-tools'
 import type { AppContext } from '../app/context'
@@ -26,6 +31,7 @@ import { writeCommitMessage, type ModelDeps } from '../core/ai/commit-message'
 import { inlineEdit } from '../core/ai/inline-edit'
 import { memberDraft } from '../core/ai/member-draft'
 import { optimizePrompt } from '../core/ai/prompt-optimize'
+import { reviewChanges } from '../core/ai/review'
 import { workspaceRef } from '../core/workspace-files'
 import * as ipc from '../ipc/guard'
 import { platformCharges } from '../platform/billing'
@@ -112,6 +118,24 @@ export function aiInlineEditRequest(input: unknown): AiInlineEditRequest {
   }
 }
 
+/** AI 审查（docs/ui/review-pr-actions.md §2）：差异、原话、复审的旧条目都限长 */
+export function aiReviewRequest(input: unknown): AiReviewRequest {
+  const v = (input ?? {}) as Record<string, unknown>
+  const channel = aiChannelRequest(v)
+  if (typeof v.diff !== 'string' || !v.diff.trim() || v.diff.length > REVIEW_DIFF_LIMIT) throw new Error('参数不正确')
+  if (typeof v.ask !== 'string' || v.ask.length > REVIEW_ASK_LIMIT) throw new Error('参数不正确')
+  if (!Array.isArray(v.previous) || v.previous.length > REVIEW_PREVIOUS_MAX) throw new Error('参数不正确')
+  const previous = v.previous.map(raw => {
+    const p = (raw ?? {}) as Record<string, unknown>
+    if (typeof p.n !== 'number' || !Number.isInteger(p.n) || p.n < 1 || p.n > 1000) throw new Error('参数不正确')
+    if (typeof p.title !== 'string' || p.title.length > 200) throw new Error('参数不正确')
+    if (typeof p.file !== 'string' || p.file.length > 500) throw new Error('参数不正确')
+    const line = typeof p.line === 'number' && Number.isInteger(p.line) && p.line > 0 ? p.line : null
+    return { n: p.n, title: p.title, file: p.file, line }
+  })
+  return { ...channel, diff: v.diff, ask: v.ask, previous, uiLanguage: oneOf(v.uiLanguage, ['zh', 'en']) }
+}
+
 export function initAi(ctx: AppContext): void {
   const running = new Map<string, AbortController>()
   /** 渲染层的 requestId → 这次云端请求的结算信息 */
@@ -132,7 +156,7 @@ export function initAi(ctx: AppContext): void {
   }
 
   /** 问一次模型：可以按 requestId 停止；云端请求记下计费 ID，之后 ai:commitCharge 按它查实际扣费 */
-  const run = async <R extends AiCommitResult | AiMemberDraftResult>(
+  const run = async <R extends AiCommitResult | AiMemberDraftResult | AiReviewResult>(
     req: AiChannelRequest,
     task: (deps: ModelDeps, signal: AbortSignal) => Promise<R & { chargeId?: string }>,
   ): Promise<R> => {
@@ -202,6 +226,11 @@ export function initAi(ctx: AppContext): void {
   ipc.handle('ai:optimizePrompt', (_e, input: unknown) => {
     const req = aiPromptRequest(input)
     return run(req, (deps, signal) => optimizePrompt(deps, req, signal))
+  })
+
+  ipc.handle('ai:review', (_e, input: unknown) => {
+    const req = aiReviewRequest(input)
+    return run(req, (deps, signal) => reviewChanges(deps, req, signal))
   })
 
   ipc.handle('ai:inlineEdit', (_e, input: unknown) => {

@@ -87,6 +87,9 @@ import {
   toolsHeight,
 } from './blockHeight'
 import { reviewTurn } from '@/features/panel/artifacts/focus'
+import { ReviewCard } from '@/features/session/review/ReviewCard'
+import { useTurnReview } from '@/features/session/review/reviewStore'
+import { useReviewRunner, type ReviewRunner } from '@/features/session/review/useReviewRunner'
 import { turnReplies } from './turnFold'
 import { innerBlocks, sameItems, toBlocks, type Block, type ChangesCache } from './changeBlocks'
 import { TurnProcess, processOpenByDefault } from './TurnProcess'
@@ -190,10 +193,12 @@ const TurnChanges = memo(function TurnChanges({
   sessionId,
   turnKey,
   revision,
+  runner,
 }: {
   data: ChangedFiles
   sessionId: string | null
   turnKey: string
+  runner: ReviewRunner
   /** 这一轮的版本（turnRevision）：「全部保留」记下它，断线重连的「继续」又改了文件就重新显示按钮 */
   revision: string
 }) {
@@ -219,6 +224,15 @@ const TurnChanges = memo(function TurnChanges({
   const kept = useTurnReviewed(sessionId, turnKey, revision)
   // 撤回 / 恢复这一轮的文件（docs/ui/undo-changes.md §3）
   const { undo, dialog } = useTurnUndo(turnKey)
+  // AI 审查：审过了就不再显示按钮（卡片里有「换个模型复审」）
+  const aiState = useTurnReview(sessionId, turnKey)
+  const aiReview = useMemo(
+    () =>
+      sessionId && !aiState.review
+        ? { onClick: () => runner.run(turnKey, data), running: aiState.running === 'review' }
+        : null,
+    [sessionId, aiState.review, aiState.running, runner, turnKey, data],
+  )
   return (
     <>
       <ChangedFilesCard
@@ -229,7 +243,9 @@ const TurnChanges = memo(function TurnChanges({
         onReview={review}
         onKeepAll={kept ? undefined : keepAll}
         undo={undo}
+        aiReview={aiReview}
       />
+      {sessionId && <ReviewCard sessionId={sessionId} turnKey={turnKey} data={data} target={target} runner={runner} />}
       {dialog}
     </>
   )
@@ -384,6 +400,8 @@ export function LiveTranscript({
   // 轮次跳转条（docs/ui/turn-rail.md）
   const showTurns = useTurnRailOn()
   const sessionId = snapshot?.record.id ?? null
+  // 审查结果卡片（docs/ui/review-pr-actions.md §2）：审、发去修、修完自动复审，一个会话一份
+  const reviewRunner = useReviewRunner(sessionId, snapshot?.items ?? NO_ITEMS, running)
   usePublishPorts(sessionId, snapshot?.items ?? NO_ITEMS)
   // 导入的终端会话（原地接着的）：打开 / 窗口回到前台时查终端里有没有又聊了新的
   // 只在执行者还是导入的那个引擎、还在接着导入的会话（或复制出来还没启动）时写「正在加载 X 会话」，引擎名取正在启动的执行者
@@ -889,6 +907,7 @@ export function LiveTranscript({
           sessionId={sessionId}
           turnKey={b.turnKey}
           revision={revisions.get(b.turnKey) ?? ''}
+          runner={reviewRunner}
         />
       )
     // 统计关闭时 TurnStats 不产生 DOM，避免外层空块在 flex 列表里留下间距。

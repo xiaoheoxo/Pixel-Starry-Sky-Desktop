@@ -1,7 +1,16 @@
 import { translateMessage } from '../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
-import { CheckCheck, ChevronRight, FileDiff, Redo2, ScanEye, SquareArrowOutUpRight, Undo2 } from 'lucide-react'
+import {
+  CheckCheck,
+  ChevronRight,
+  FileDiff,
+  Redo2,
+  ScanEye,
+  ScanSearch,
+  SquareArrowOutUpRight,
+  Undo2,
+} from 'lucide-react'
 import { Button, DiffStat, IconButton, cn, useComingSoon, useToast } from '@/ui'
 import { DiffView } from '@/ui/code/DiffView'
 import { changedFiles, type ChangedFile, type ChangedFiles } from '@/data'
@@ -37,6 +46,7 @@ export function ChangedFilesCard({
   onKeepAll,
   undo,
   style,
+  aiReview,
 }: {
   className?: string
   style?: CSSProperties
@@ -46,6 +56,8 @@ export function ChangedFilesCard({
   /** 代码模式：整轮标记为已审查 */
   onKeepAll?: () => void
   undo?: CardUndo | null
+  /** 「AI 审查」（docs/ui/review-pr-actions.md §2）：不传不显示 */
+  aiReview?: { onClick: () => void; running: boolean } | null
 }) {
   useI18n()
   const comingSoon = useComingSoon()
@@ -254,6 +266,22 @@ ${path}${ref && !isRemoteRef(ref) ? `\n${tr('path.hintDiff')}` : ''}`
           >
             <CheckCheck size={14} strokeWidth={1.5} className="hidden @max-[440px]/changes:block" />
             <span className="@max-[440px]/changes:hidden">{tr('coding.review.bar.keepAll')}</span>
+          </Button>
+        )}
+        {aiReview && (
+          <Button
+            variant="ghost"
+            data-ai-review-start
+            className="h-7 px-2 text-meta @max-[440px]/changes:px-1.5"
+            title={tr('aiReview.startTitle')}
+            aria-label={tr('aiReview.start')}
+            disabled={aiReview.running}
+            onClick={aiReview.onClick}
+          >
+            <ScanSearch size={14} strokeWidth={1.5} className="hidden @max-[440px]/changes:block" />
+            <span className="@max-[440px]/changes:hidden">
+              {aiReview.running ? tr('aiReview.running') : tr('aiReview.start')}
+            </span>
           </Button>
         )}
         {review && (

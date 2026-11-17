@@ -29,6 +29,7 @@ import type { ArtifactPreview } from '../../../shared/types/artifacts'
 import type { PlatformGroupInfo, PlatformGroupKey, PlatformKeyMode } from '../../../shared/types/platform-catalog'
 import type { ProvidersState } from '../../../shared/types/providers'
 import type { BrowserState } from '../../../shared/types/project-browser'
+import type { ReviewFinding } from '../../../shared/types/ai'
 import type {
   EnvironmentState,
   GitBranch,
@@ -178,6 +179,8 @@ export interface DemoSource {
   sessionStatus?: SessionStatusState
   /** 会话 id → 上一轮的自动检查（输入框上方、概况的「检查」，docs/ui/channels-collab-v2.md §8） */
   sessionChecks: Record<string, CheckRun>
+  /** 改动卡片「AI 审查」在演示模式里回的问题（docs/ui/review-pr-actions.md §2），不调模型 */
+  aiReviewFindings: ReviewFinding[]
   /** 扩展商店（设置 › 扩展 › 发现）：假的预加载桥（带一份演示目录）和已经装好的扩展 id */
   extStore: { bridge: ExtStoreBridge; installed: string[] }
   /** 演示用的云端机器（顶栏「本机 | 云端」），machines/store.ts 演示时用它当初始状态 */

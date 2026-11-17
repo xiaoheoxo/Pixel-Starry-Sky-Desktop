@@ -1,5 +1,5 @@
 import type { AiCommitRequest, AiCommitResult, AiMemberDraftResult, AiPromptRequest } from '../shared/types/ai'
-import type { AiInlineEditRequest } from '../shared/types/ai'
+import type { AiInlineEditRequest, AiReviewRequest, AiReviewResult } from '../shared/types/ai'
 
 /** AI 写提交信息（docs/ui/ai-commit-codex-warnings-history.md §2） */
 export interface AiBridge {
@@ -10,6 +10,8 @@ export interface AiBridge {
   inlineEdit(request: AiInlineEditRequest): Promise<AiCommitResult>
   /** 一句话建成员（docs/ui/channels-member-quickstart-memory.md §A）：text 是那句话，context 是可选项 */
   memberDraft(request: AiPromptRequest): Promise<AiMemberDraftResult>
+  /** AI 审查一轮改动（docs/ui/review-pr-actions.md §2）；previous 不为空时是修完后的复审 */
+  review(request: AiReviewRequest): Promise<AiReviewResult>
   /** 停止这次生成 */
   cancel(requestId: string): Promise<void>
   /** 云端这次实际扣了多少（美元）；还查不到时为 null */

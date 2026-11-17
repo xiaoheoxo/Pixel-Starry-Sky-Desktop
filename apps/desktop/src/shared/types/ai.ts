@@ -150,3 +150,58 @@ export const INLINE_EDIT_MAX_LINES = 400
 export const INLINE_EDIT_MAX_CHARS = 40_000
 export const INLINE_EDIT_CONTEXT_LINES = 60
 export const INLINE_EDIT_INSTRUCTION_LIMIT = 2000
+
+/**
+ * AI 审查一轮改动（docs/ui/review-pr-actions.md §2）：只看这一轮的差异，按固定格式回问题列表。
+ * previous 不为空时是修完后的复审：模型另回哪些原来的问题已经解决（resolved 是 previous 里的 n）
+ */
+export interface AiReviewRequest extends AiChannelRequest {
+  /** 这一轮的差异，按文件拼好（最多 REVIEW_DIFF_LIMIT 字，超出的渲染层已截断并注明） */
+  diff: string
+  /** 用户这一轮的原话（最多 REVIEW_ASK_LIMIT 字） */
+  ask: string
+  previous: ReviewPrevious[]
+  /** 界面语言：问题的标题和细节用这个语言写 */
+  uiLanguage: 'zh' | 'en'
+}
+export interface ReviewPrevious {
+  n: number
+  title: string
+  file: string
+  line: number | null
+}
+export const REVIEW_DIFF_LIMIT = 120_000
+export const REVIEW_ASK_LIMIT = 2000
+export const REVIEW_PREVIOUS_MAX = 30
+export const REVIEW_FINDINGS_MAX = 20
+
+export type ReviewSeverity = 'high' | 'medium' | 'low'
+export interface ReviewFinding {
+  severity: ReviewSeverity
+  /** 相对项目的路径 */
+  file: string
+  line: number | null
+  /** 一句话 */
+  title: string
+  detail: string
+}
+
+export type AiReviewResult =
+  | ({
+      ok: true
+      findings: ReviewFinding[]
+      resolved: number[]
+      /** 两次都没按格式回：原文当「审查意见」显示，findings 为空 */
+      raw?: string
+    } & Pick<Extract<AiCommitResult, { ok: true }>, 'model' | 'groupId' | 'usage' | 'chargeable'>)
+  | Extract<AiCommitResult, { ok: false }>
+
+/** 「修这条」「全部修复」发给会话的话：给 AI 看的，不走界面词典（和 checks 的 fixRequest 一样） */
+export function reviewFixRequest(items: readonly ReviewFinding[]): string {
+  const where = (f: ReviewFinding): string => (f.file ? f.file + (f.line ? `:${f.line}` : '') : '')
+  const line = (f: ReviewFinding, i: number | null): string =>
+    `${i === null ? '' : `${i + 1}. `}${where(f) ? where(f) + ' ' : ''}${f.title}${f.detail ? `\n   ${f.detail}` : ''}`
+  if (items.length === 1)
+    return `审查发现一个问题，请修好：\n${line(items[0], null)}\n修完说一句改了什么；如果你认为这不是问题，说明理由，不要硬改。`
+  return `审查发现这些问题，请逐条修好：\n${items.map((f, i) => line(f, i)).join('\n')}\n修完按序号说一句改了什么；认为不是问题的说明理由，不要硬改。`
+}

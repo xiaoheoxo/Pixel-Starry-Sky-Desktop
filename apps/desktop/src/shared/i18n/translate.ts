@@ -82,6 +82,7 @@ import { extstoreDetailMessages } from './extstoreDetailMessages'
 import { settingsWindowMessages } from './settingsWindowMessages'
 import { goalMessages } from './goalMessages'
 import { overviewMessages } from './overviewMessages'
+import { aiReviewMessages } from './aiReviewMessages'
 import { viewModeMessages } from './viewModeMessages'
 import { channelLandMessages } from './channelLandMessages'
 import { channelUsageMessages } from './channelUsageMessages'
@@ -179,6 +180,7 @@ export const allMessages = {
   ...settingsWindowMessages,
   ...goalMessages,
   ...overviewMessages,
+  ...aiReviewMessages,
   ...viewModeMessages,
   ...channelLandMessages,
   ...channelUsageMessages,

@@ -87,6 +87,7 @@ import { extstoreDetailMessages } from '../../../shared/i18n/extstoreDetailMessa
 import { settingsWindowMessages } from '../../../shared/i18n/settingsWindowMessages'
 import { goalMessages } from '../../../shared/i18n/goalMessages'
 import { overviewMessages } from '../../../shared/i18n/overviewMessages'
+import { aiReviewMessages } from '../../../shared/i18n/aiReviewMessages'
 import { viewModeMessages } from '../../../shared/i18n/viewModeMessages'
 import { channelLandMessages } from '../../../shared/i18n/channelLandMessages'
 import { channelUsageMessages } from '../../../shared/i18n/channelUsageMessages'
@@ -183,6 +184,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   settingsWindowMessages,
   goalMessages,
   overviewMessages,
+  aiReviewMessages,
   viewModeMessages,
   channelLandMessages,
   channelUsageMessages,
