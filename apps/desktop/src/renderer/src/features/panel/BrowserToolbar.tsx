@@ -1,22 +1,31 @@
-// 内置浏览器的一排工具栏（docs/ui/browser-v2.md §3.1）：← → ⟳ ｜ 地址栏（短地址、下拉） ｜ 选元素 ｜ ⋯ ｜（宽时）+
+// 内置浏览器的一排工具栏（docs/ui/browser-v2.md §3.1、§3.2）：
+// ← → ⟳ ｜ 地址栏（短地址、下拉、缩放） ｜（宽时）截图 ｜ 选元素 ｜ ⚠ n ｜ ⋯ ｜（宽时）+
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Camera,
   Clock,
+  Code,
   Copy,
   ExternalLink,
   FileText,
   Globe,
+  Layers,
   Lock,
   MousePointerClick,
   MoreHorizontal,
   Plus,
   RefreshCw,
   RotateCw,
+  Search,
   Server,
   Square,
+  SquareTerminal,
+  Trash2,
   Zap,
+  ZoomIn,
   type LucideIcon,
 } from 'lucide-react'
 import { IconButton, cn, useToast } from '@/ui'
@@ -26,6 +35,7 @@ import { tr } from '@/i18n/core'
 import type { FoundPort } from '@/features/session/live/portTipsModel'
 import type { BrowserPage } from '../../../../shared/types/project-browser'
 import { addressParts, addressSuggestions, type AddressKind, type AddressSuggestion } from './browserModel'
+import { isWebPage, zoomPercent } from './browserTools'
 
 const KIND_ICON: Record<AddressKind, LucideIcon> = { secure: Lock, insecure: Globe, local: Server, file: FileText }
 
@@ -48,6 +58,17 @@ export interface BrowserToolbarProps {
   onTogglePick: () => void
   onNewPage: () => void
   onOpenExternal: () => void
+  // ---- 第二批（docs/ui/browser-v2.md §3.2）----
+  /** 工具栏「⚠」上的数（错误 + 失败请求，开了显示警告再加警告） */
+  issueCount: number
+  consoleOpen: boolean
+  onToggleConsole: () => void
+  /** fromMenu：从菜单点的（菜单关掉、网页放回去之后再截） */
+  onCapture: (full: boolean, fromMenu: boolean) => void
+  onFind: () => void
+  onZoom: (move: 'in' | 'out' | 'reset') => void
+  onDevtools: () => void
+  onClearSiteData: () => void
 }
 
 export function BrowserToolbar(props: BrowserToolbarProps) {
@@ -55,8 +76,32 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
   const toast = useToast()
   const { page, busy } = props
   const [focused, setFocused] = useState(false)
-  const more = useRef<HTMLButtonElement>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const more = useRef<HTMLButtonElement>(null),
+    camera = useRef<HTMLButtonElement>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: 'more' | 'capture' } | null>(null)
+  const openMenu = (kind: 'more' | 'capture', button: HTMLButtonElement | null, width: number) => {
+    const r = button?.getBoundingClientRect()
+    if (r) setMenu(menu?.kind === kind ? null : { x: r.right - width, y: r.bottom + 4, kind })
+  }
+  // 截图、查找对整页打不开的错误页没意义；开发者工具、清数据只对网页（不是本地文件）
+  const live = !!page && page.failed === undefined && !props.demo
+  const web = live && isWebPage(page)
+  const captures: MenuAction[] = [
+    {
+      label: tr('projectTools.captureVisible'),
+      icon: Camera,
+      hint: tr('projectTools.captureHint'),
+      disabled: !live || busy,
+      run: () => props.onCapture(false, true),
+    },
+    {
+      label: tr('projectTools.captureFull'),
+      icon: Layers,
+      disabled: !live || busy,
+      run: () => props.onCapture(true, true),
+    },
+  ]
+  const zoom = zoomPercent(page?.zoom)
   const actions: MenuAction[] = [
     {
       label: tr('projectTools.newPage'),
@@ -65,6 +110,40 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
       disabled: !props.canAddPage,
       run: props.onNewPage,
     },
+    // 窄面板时截图在这里，宽时在工具栏
+    ...(props.wide ? [] : captures),
+    {
+      label: tr('projectTools.find'),
+      icon: Search,
+      hint: 'Ctrl+F',
+      disabled: !page || page.failed !== undefined,
+      separator: true,
+      run: props.onFind,
+    },
+    {
+      label: tr('projectTools.zoom'),
+      icon: ZoomIn,
+      hint: zoom,
+      disabled: !page || page.failed !== undefined,
+      children: [
+        { label: tr('projectTools.zoomIn'), hint: 'Ctrl+=', run: () => props.onZoom('in') },
+        { label: tr('projectTools.zoomOut'), hint: 'Ctrl+-', run: () => props.onZoom('out') },
+        {
+          label: tr('projectTools.zoomReset'),
+          hint: 'Ctrl+0',
+          disabled: !page?.zoom,
+          run: () => props.onZoom('reset'),
+        },
+      ],
+    },
+    {
+      label: tr('projectTools.console'),
+      icon: SquareTerminal,
+      checked: props.consoleOpen,
+      hint: props.issueCount ? String(props.issueCount) : undefined,
+      disabled: !page,
+      run: props.onToggleConsole,
+    },
     {
       label: tr('projectTools.hardReload'),
       icon: RotateCw,
@@ -72,6 +151,19 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
       disabled: !page || props.demo,
       separator: true,
       run: () => props.onAction('hardReload'),
+    },
+    {
+      label: tr('projectTools.clearSiteData'),
+      icon: Trash2,
+      disabled: !web || busy,
+      run: props.onClearSiteData,
+    },
+    {
+      label: tr('projectTools.devtools'),
+      icon: Code,
+      hint: 'F12',
+      disabled: !page || props.demo,
+      run: props.onDevtools,
     },
     {
       label: tr('projectTools.copyAddress'),
@@ -118,6 +210,18 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
       {/* 地址栏聚焦时盖住右边的按钮（变成整排宽） */}
       {!focused && (
         <>
+          {props.wide && (
+            <IconButton
+              ref={camera}
+              icon={Camera}
+              label={tr('projectTools.capture')}
+              aria-haspopup="menu"
+              aria-expanded={menu?.kind === 'capture'}
+              active={menu?.kind === 'capture'}
+              disabled={busy || !live}
+              onClick={() => openMenu('capture', camera.current, 220)}
+            />
+          )}
           <IconButton
             icon={MousePointerClick}
             active={!!page?.picking}
@@ -126,17 +230,35 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
             disabled={busy || !page}
             onClick={props.onTogglePick}
           />
+          {/* 有错误或抽屉开着时才出来（docs/ui/browser-v2.md §3.2）；没有错误时是灰的 */}
+          {page && (props.issueCount > 0 || props.consoleOpen) && (
+            <button
+              type="button"
+              data-browser-console-toggle
+              aria-pressed={props.consoleOpen}
+              aria-label={tr('projectTools.consoleCount', { count: props.issueCount })}
+              title={tr('projectTools.consoleCount', { count: props.issueCount })}
+              onClick={props.onToggleConsole}
+              className={cn(
+                'press no-drag inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-label font-medium tabular-nums',
+                props.issueCount > 0
+                  ? 'bg-danger/10 text-danger hover:bg-danger/15'
+                  : 'bg-subtle text-fg-muted hover:bg-hover',
+                props.consoleOpen && (props.issueCount > 0 ? 'ring-1 ring-danger' : 'ring-1 ring-line-strong'),
+              )}
+            >
+              <AlertTriangle size={12} strokeWidth={2} />
+              {props.issueCount}
+            </button>
+          )}
           <IconButton
             ref={more}
             icon={MoreHorizontal}
             label={tr('projectTools.more')}
             aria-haspopup="menu"
-            aria-expanded={!!menu}
-            active={!!menu}
-            onClick={() => {
-              const r = more.current?.getBoundingClientRect()
-              if (r) setMenu(menu ? null : { x: r.right - 220, y: r.bottom + 4 })
-            }}
+            aria-expanded={menu?.kind === 'more'}
+            active={menu?.kind === 'more'}
+            onClick={() => openMenu('more', more.current, 240)}
           />
           {props.wide && !props.tabs && (
             <IconButton
@@ -153,11 +275,12 @@ export function BrowserToolbar(props: BrowserToolbarProps) {
         <ActionMenu
           x={menu.x}
           y={menu.y}
-          label={tr('projectTools.more')}
-          actions={actions}
+          label={tr(menu.kind === 'more' ? 'projectTools.more' : 'projectTools.capture')}
+          actions={menu.kind === 'more' ? actions : captures}
           onClose={() => {
+            const button = menu.kind === 'more' ? more.current : camera.current
             setMenu(null)
-            more.current?.focus({ preventScroll: true })
+            button?.focus({ preventScroll: true })
           }}
         />
       )}
@@ -176,6 +299,7 @@ function AddressBar({
   focused,
   onFocusChange,
   onNavigate,
+  onZoom,
 }: BrowserToolbarProps & { focused: boolean; onFocusChange: (on: boolean) => void }) {
   const current = page ? (page.remoteUrl ?? page.url) : ''
   const [value, setValue] = useState(current)
@@ -270,11 +394,25 @@ function AddressBar({
           <span
             data-browser-short-address
             title={current}
-            className="flex min-w-0 flex-1 items-center text-list whitespace-nowrap"
+            className="flex min-w-0 flex-1 items-center overflow-hidden text-list whitespace-nowrap"
           >
-            <span className="shrink-0 text-fg">{parts.host}</span>
-            <span className="min-w-0 truncate text-fg-faint">{parts.path}</span>
+            {/* 放不下时先省略路径，再省略主机（窄面板还有缩放标记） */}
+            <span className="min-w-0 truncate text-fg">{parts.host}</span>
+            <span className="min-w-0 shrink-[100] truncate text-fg-faint">{parts.path}</span>
           </span>
+        )}
+        {/* 网页不是 100% 时提醒一下，点了还原（docs/ui/browser-v2.md §3.2）；盖在透明输入框上面 */}
+        {!focused && page?.zoom && (
+          <button
+            type="button"
+            data-browser-zoom
+            title={tr('projectTools.zoomChip', { percent: zoomPercent(page.zoom) })}
+            aria-label={tr('projectTools.zoomChip', { percent: zoomPercent(page.zoom) })}
+            onClick={() => onZoom('reset')}
+            className="relative z-[2] -mr-1 shrink-0 rounded-sm bg-subtle px-1 text-label text-fg-secondary tabular-nums hover:bg-hover hover:text-fg"
+          >
+            {zoomPercent(page.zoom)}
+          </button>
         )}
       </form>
       {open && list.length > 0 && (

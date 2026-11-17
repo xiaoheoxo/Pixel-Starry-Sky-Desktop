@@ -28,7 +28,7 @@ import type { AccountBridge } from '../../../preload/account'
 import type { ArtifactPreview } from '../../../shared/types/artifacts'
 import type { PlatformGroupInfo, PlatformGroupKey, PlatformKeyMode } from '../../../shared/types/platform-catalog'
 import type { ProvidersState } from '../../../shared/types/providers'
-import type { BrowserState } from '../../../shared/types/project-browser'
+import type { BrowserIssueEntry, BrowserState } from '../../../shared/types/project-browser'
 import type { ReviewFinding } from '../../../shared/types/ai'
 import type {
   EnvironmentState,
@@ -197,6 +197,8 @@ export interface DemoSource {
     environment: EnvironmentState
     copies: ProjectCopy[]
     browser: BrowserState
+    /** 控制台抽屉的明细（docs/ui/browser-v2.md §3.2），对应 browser 里演示网页的错误计数 */
+    browserIssues: BrowserIssueEntry[]
   }
   /** 任务看板的演示任务（几个演示项目都有，docs/ui/task-board.md §7）；now 是打开看板的时间 */
   boardTasks(now: number): ManualTask[]

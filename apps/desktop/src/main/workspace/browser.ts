@@ -1,4 +1,12 @@
-import { BrowserWindow, WebContentsView, dialog, session, shell, type IpcMainInvokeEvent } from 'electron'
+import {
+  BrowserWindow,
+  WebContentsView,
+  dialog,
+  session,
+  shell,
+  type IpcMainInvokeEvent,
+  type WebContents,
+} from 'electron'
 import * as ipc from '../ipc/guard'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, basename, isAbsolute, relative } from 'node:path'
@@ -22,11 +30,32 @@ import {
   type PickMessage,
   type PickRect,
 } from './elementPicker'
-import { addIssue, consoleIssue, failedRequest, type PageIssues } from './page-issues'
+import {
+  addIssue,
+  consoleEntry,
+  consoleIssue,
+  failedRequest,
+  pushEntry,
+  type IssueEntry,
+  type PageIssues,
+} from './page-issues'
+import {
+  capturePage,
+  clearSiteData,
+  findOnce,
+  isZoomMove,
+  nextZoom,
+  rememberZoom,
+  toggleDevTools,
+  zoomSiteOf,
+  type ZoomMove,
+} from './browser-tools'
 import { pushRecent } from './browser-recent'
 import { sendTo } from '../app/rendererHealth'
 
 const ANNOTATION_LIMIT = 100
+/** 第二批的通道（docs/ui/browser-v2.md §3.2）：只对已经开着的网页，调用前不重新转发远端端口 */
+const TOOL_CHANNELS = ['issues', 'clearIssues', 'find', 'stopFind', 'zoom', 'devtools', 'capture', 'clearSiteData']
 /** 网站图标最大字节数 */
 const FAVICON_MAX = 32 * 1024
 const sameOrigin = (a: string, b: string): boolean => {
@@ -88,7 +117,11 @@ const pageTitle = (url: string): string => {
   return parsed.protocol === 'file:' ? decodeURIComponent(basename(parsed.pathname)) : parsed.hostname
 }
 export async function initProjectBrowser(ctx: AppContext, dir: string, host: ToolsHost): Promise<void> {
-  const store = new JsonStore<{ scopes: Record<string, StoredScope> }>(join(dir, 'browser.json'), { scopes: {} })
+  // zoom：按网站（主机名，和 Chromium 自己同步缩放的范围一致）记住的缩放，所有工作区共用
+  const store = new JsonStore<{ scopes: Record<string, StoredScope>; zoom?: Record<string, number> }>(
+    join(dir, 'browser.json'),
+    { scopes: {} },
+  )
   await store.init()
   for (const scope of Object.values(store.data.scopes))
     for (const p of scope.pages) {
@@ -122,6 +155,8 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
   const scopeRoots = new Map<string, string>()
   /** 每个网页标签这一页的控制台错误和失败请求（运行胶囊用，docs/ui/panel-pill.md §8.1）；只在内存里，主框架跳转时清零 */
   const issues = new Map<string, PageIssues>()
+  /** 控制台抽屉的明细（docs/ui/browser-v2.md §3.2）：抽屉打开时才取，不进广播；和 issues 一起清 */
+  const entries = new Map<string, IssueEntry[]>()
   const issueTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** 报错常一下来一串：每个工作区 500ms 最多广播一次 */
   const broadcastSoon = (scope: string): void => {
@@ -156,9 +191,42 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     faviconCache.set(url, found)
     return found
   }
-  const noteIssue = (scope: string, id: string, kind: 'errors' | 'requests', line: string): void => {
-    issues.set(id, addIssue(issues.get(id), kind, line))
+  /** 记一条：错误和失败请求进计数和胶囊的最近几条（line 是胶囊里那行）；警告只记个数 */
+  const noteIssue = (scope: string, id: string, entry: IssueEntry, line: string): void => {
+    const prior = issues.get(id) ?? { errors: 0, requests: 0, last: [] }
+    issues.set(
+      id,
+      entry.kind === 'warning'
+        ? { ...prior, warnings: (prior.warnings ?? 0) + 1 }
+        : addIssue(prior, entry.kind === 'error' ? 'errors' : 'requests', line),
+    )
+    entries.set(id, pushEntry(entries.get(id), entry))
     broadcastSoon(scope)
+  }
+  const forgetIssues = (id: string): boolean => {
+    entries.delete(id)
+    return issues.delete(id)
+  }
+  /**
+   * 记缩放用的网站：http / https 的主机名（远端工作区换成原地址）。shown：网页实际的地址（wc.getURL()）——
+   * 跳转加载中 p.url 还是上一页的，不传时才用记下的地址
+   */
+  const zoomSite = (p: BrowserPage, shown?: string): string | null => {
+    try {
+      return zoomSiteOf(
+        shown === undefined
+          ? (p.remoteUrl ?? p.url)
+          : p.remoteUrl
+            ? (browserRemoteUrl(shown, p.remoteUrl, p.url) ?? shown)
+            : shown,
+      )
+    } catch {
+      return null
+    }
+  }
+  const zoomOf = (p: BrowserPage, shown?: string): number => {
+    const site = zoomSite(p, shown)
+    return (site && store.data.zoom?.[site]) || 1
   }
   const scopeOf = (ref: WorkspaceRef): string => {
     const target = host.resolve(ref)
@@ -186,11 +254,13 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     pages: value.pages.map(page => {
       const gone = missing.get(page.id)
       const found = issues.get(page.id),
-        icon = favicons.get(page.id)
+        icon = favicons.get(page.id),
+        zoom = zoomOf(page)
       return {
         ...page,
         ...(found ? { issues: found } : {}),
         ...(icon ? { favicon: icon } : {}),
+        ...(zoom !== 1 ? { zoom } : {}),
         url: page.remoteUrl ?? page.url,
         annotations: gone?.size
           ? page.annotations.map(a => (gone.has(a.id) ? { ...a, missing: true as const } : a))
@@ -338,16 +408,19 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
           ? undefined
           : [...views.values()].find(v => !v.view.webContents.isDestroyed() && v.view.webContents.id === id)
       const all = { urls: ['<all_urls>'] }
-      browserSession.webRequest.onCompleted(all, d => {
+      const request = (d: Parameters<typeof failedRequest>[0] & { webContentsId?: number; method: string }): void => {
         const v = owner(d.webContentsId),
           line = v && failedRequest(d)
-        if (v && line) noteIssue(v.scope, v.id, 'requests', line)
-      })
-      browserSession.webRequest.onErrorOccurred(all, d => {
-        const v = owner(d.webContentsId),
-          line = v && failedRequest(d)
-        if (v && line) noteIssue(v.scope, v.id, 'requests', line)
-      })
+        if (v && line)
+          noteIssue(
+            v.scope,
+            v.id,
+            { kind: 'request', text: `${d.method} ${line}`, source: d.resourceType, at: Date.now() },
+            line,
+          )
+      }
+      browserSession.webRequest.onCompleted(all, request)
+      browserSession.webRequest.onErrorOccurred(all, request)
       browserSession.on('will-download', (event, item, contents) => {
         const entry = [...views.values()].find(v => v.view.webContents === contents)
         if (!entry) {
@@ -473,18 +546,29 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       if (input.type !== 'keyDown' || input.isAutoRepeat) return
       const mac = process.platform === 'darwin'
       const shortcut = browserShortcut(
-        { key: input.key, mod: mac ? input.meta : input.control, shift: input.shift, alt: input.alt },
+        { key: input.key, code: input.code, mod: mac ? input.meta : input.control, shift: input.shift, alt: input.alt },
         mac,
       )
       if (!shortcut || win.isDestroyed()) return
       event.preventDefault()
-      // 要在界面里打字的（地址栏）：焦点先从网页回到应用窗口
-      if (shortcut === 'address' || shortcut === 'newPage') win.webContents.focus()
+      // 要在界面里打字的（地址栏、查找条）：焦点先从网页回到应用窗口
+      if (shortcut === 'address' || shortcut === 'newPage' || shortcut === 'find') win.webContents.focus()
       sendTo(win.webContents, 'projectBrowser:key', { scope, pageId: p.id, shortcut })
     })
-    wc.on('did-navigate', () => {
+    wc.on('did-navigate', (_e, url) => {
       update()
       setImmediate(update)
+      // 按网站记住的缩放（docs/ui/browser-v2.md §3.2）；加载中 p.url 还是上一页的，按跳到的地址算
+      const zoom = zoomOf(p, url)
+      if (Math.abs(wc.getZoomFactor() - zoom) > 0.001) wc.setZoomFactor(zoom)
+    })
+    // 网页里 Ctrl+滚轮、触控板捏合。一下滚轮会连着来两次（真实实例里量到相隔不到 1ms），15ms 内的只认第一次
+    let lastWheel = 0
+    wc.on('zoom-changed', (_e, direction) => {
+      const now = performance.now()
+      if (now - lastWheel < 15) return
+      lastWheel = now
+      setZoom(scope, p, wc, direction === 'in' ? 'in' : 'out')
     })
     wc.on('did-navigate-in-page', () => {
       update()
@@ -494,13 +578,13 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     wc.on('dom-ready', () => void syncPicker(entry))
     wc.on('console-message', details => void onPick(entry, parsePickMessage(details.message, entry.channel)))
     wc.on('console-message', details => {
-      const line = consoleIssue(details)
-      if (line) noteIssue(scope, p.id, 'errors', line)
+      const entry = consoleEntry(details, Date.now())
+      if (entry) noteIssue(scope, p.id, entry, consoleIssue(details) ?? entry.text)
     })
     // 换了一页（不是页内跳转）：上一页的错误清掉
     wc.on('did-start-navigation', details => {
       if (!details.isMainFrame || details.isSameDocument) return
-      const cleared = issues.delete(p.id)
+      const cleared = forgetIssues(p.id)
       // 换了网站：上一个站的图标不留着
       const icon = favicons.get(p.id)
       if (icon && !sameOrigin(details.url, wc.getURL()) && favicons.delete(p.id)) broadcastSoon(scope)
@@ -537,7 +621,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       const scope = scopeOf(workspaceRef(ref))
       if (
         name !== 'navigate' &&
-        !['state', 'annotate', 'removeAnnotation'].includes(name) &&
+        !['state', 'annotate', 'removeAnnotation', ...TOOL_CHANNELS].includes(name) &&
         !(name === 'viewport' && args[0] === null) &&
         !(name === 'action' && ['close', 'stop', 'back', 'forward'].includes(String(args[1])))
       ) {
@@ -617,7 +701,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
           views.delete(key)
         }
       missing.delete(id)
-      issues.delete(id)
+      forgetIssues(id)
       favicons.delete(id)
       const next = state(scope).activeId
       if (next) place(getView(win, scope, find(scope, next)))
@@ -702,6 +786,56 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     })
     refreshPicker(scope, value(rawId, 200))
     broadcast(scope)
+    return state(scope)
+  })
+  // ---- 第二批（docs/ui/browser-v2.md §3.2）：只对这个窗口里已经开着的网页 ----
+  const openView = (e: IpcMainInvokeEvent, scope: string, rawId: unknown): { p: BrowserPage; wc: WebContents } => {
+    const p = find(scope, value(rawId, 200)),
+      win = BrowserWindow.fromWebContents(e.sender),
+      wc = win && views.get(win.id + ':' + scope + ':' + p.id)?.view.webContents
+    if (!wc || wc.isDestroyed()) throw new Error('网页还没打开')
+    return { p, wc }
+  }
+  function setZoom(scope: string, p: BrowserPage, wc: WebContents, move: ZoomMove): void {
+    const zoom = nextZoom(wc.getZoomFactor(), move),
+      site = zoomSite(p, wc.getURL())
+    wc.setZoomFactor(zoom)
+    if (site) {
+      store.data.zoom = rememberZoom(store.data.zoom, site, zoom)
+      persist()
+    }
+    broadcast(scope)
+  }
+  handle('issues', (_, scope, rawId) => entries.get(find(scope, value(rawId, 200)).id) ?? [])
+  handle('clearIssues', (_, scope, rawId) => {
+    forgetIssues(find(scope, value(rawId, 200)).id)
+    broadcast(scope)
+    return state(scope)
+  })
+  handle('find', (e, scope, rawId, text, opts) => {
+    const o = (opts ?? {}) as { forward?: unknown; next?: unknown }
+    // 查找的文字不去空格（找「 a 」和找「a」不一样）
+    if (typeof text !== 'string' || text.length > 500) throw new Error('参数不正确')
+    return findOnce(openView(e, scope, rawId).wc, text, {
+      forward: o.forward !== false,
+      next: o.next === true,
+    })
+  })
+  handle('stopFind', (e, scope, rawId) => {
+    openView(e, scope, rawId).wc.stopFindInPage('clearSelection')
+  })
+  handle('zoom', (e, scope, rawId, move) => {
+    if (!isZoomMove(move)) throw new Error('参数不正确')
+    const { p, wc } = openView(e, scope, rawId)
+    setZoom(scope, p, wc, move)
+    return state(scope)
+  })
+  handle('devtools', (e, scope, rawId) => toggleDevTools(openView(e, scope, rawId).wc))
+  handle('capture', (e, scope, rawId, full) => capturePage(openView(e, scope, rawId).wc, full === true))
+  handle('clearSiteData', async (e, scope, rawId) => {
+    const { wc } = openView(e, scope, rawId)
+    await clearSiteData(wc.session, wc.getURL())
+    wc.reloadIgnoringCache()
     return state(scope)
   })
   ctx.lifecycle.onShutdown(() => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Clock, Globe } from 'lucide-react'
-import { Button, cn } from '@/ui'
+import { Button, cn, useToast } from '@/ui'
+import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { MAX_IMAGE_COUNT } from '@pixelsky/protocol'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
@@ -19,8 +20,10 @@ import { PreviewViewport } from './PreviewViewport'
 import { useProjectContext } from './projectContext'
 import { NoProject, ToolError, useOperation } from './ToolsUi'
 import {
+  BROWSER_CAPTURE_MAX_HEIGHT,
   browserShortcut,
   type BrowserAnnotation,
+  type BrowserIssueEntry,
   type BrowserPage,
   type BrowserShortcut,
   type BrowserState,
@@ -34,6 +37,30 @@ import { BrowserToolbar } from './BrowserToolbar'
 import { BrowserPageTabs } from './BrowserPageTabs'
 import { BrowserErrorPage } from './BrowserErrorPage'
 import { plainAddress, showPageTabs } from './browserModel'
+import { BrowserConsole } from './BrowserConsole'
+import { BrowserFindBar, type FindRequest } from './BrowserFindBar'
+import {
+  attachmentProblem,
+  captureAttachment,
+  captureName,
+  entriesQuote,
+  issueCount,
+  parseConsolePrefs,
+  type ConsolePrefs,
+} from './browserTools'
+import { composerTarget } from '@/features/session/composerTarget'
+import { updateImages } from '@/features/session/attachments/drafts'
+import { sendTerminalQuote } from '@/features/terminal/AskAi'
+
+/** 控制台抽屉的高度和「显示警告」存在这里（全局） */
+const CONSOLE_PREFS_KEY = 'pixelsky.browser-console.v1'
+const readConsolePrefs = (): ConsolePrefs => {
+  try {
+    return parseConsolePrefs(localStorage.getItem(CONSOLE_PREFS_KEY))
+  } catch {
+    return parseConsolePrefs(null)
+  }
+}
 
 /** 网页和批注栏按批注栏的位置排（docs/ui/element-annotation.md §7） */
 const DOCK_FLOW: Record<AnnotationDock, string> = {
@@ -101,6 +128,25 @@ function BrowserBody({
   const canAddPage = pages.length < 12
   const [port, setPort] = useState('')
   const found = usePortState(target.sessionId).found
+  const toast = useToast()
+  // ---- 第二批（docs/ui/browser-v2.md §3.2）：控制台抽屉、查找条、清网站数据 ----
+  const [consolePrefs, setConsolePrefsState] = useState(readConsolePrefs)
+  const setConsolePrefs = (patch: Partial<ConsolePrefs>, save = true) =>
+    setConsolePrefsState(prior => {
+      const next = { ...prior, ...patch }
+      if (save)
+        try {
+          localStorage.setItem(CONSOLE_PREFS_KEY, JSON.stringify(next))
+        } catch {
+          // 存不下只影响下次打开
+        }
+      return next
+    })
+  const [consoleOpen, setConsoleOpen] = useState(false)
+  /** 抽屉里的明细（打开时才取）；null：还没取到 */
+  const [entries, setEntries] = useState<BrowserIssueEntry[] | null>(null)
+  const [find, setFind] = useState<{ seq: number } | null>(null)
+  const [clearing, setClearing] = useState(false)
   const openUrl = (url: string) =>
     run(async () => {
       const same = isPortUrl(url) ? state?.pages.find(p => sameService(p.url, url)) : undefined
@@ -409,7 +455,116 @@ function BrowserBody({
       // 远端工作区用本机转发的地址：系统浏览器在这台电脑上
       if (page && !demo) await window.pixelsky!.projectTools.openExternal(page.url)
     })
-  /** 浏览器快捷键（docs/ui/browser-v2.md §3.1）；返回是否处理了 */
+  // ---- 第二批（docs/ui/browser-v2.md §3.2）----
+  const issueKey = page?.issues ? `${page.issues.errors}:${page.issues.requests}:${page.issues.warnings ?? 0}` : ''
+  // 抽屉开着时取明细：换页、计数变了（来了新的、清空了）都重新取
+  useEffect(() => {
+    if (!consoleOpen || !page) return setEntries(null)
+    if (demo) return setEntries(page.issues ? demoData().projectTools.browserIssues : [])
+    let gone = false
+    void window
+      .pixelsky!.projectBrowser.issues(target, page.id)
+      .then(list => !gone && setEntries(list))
+      .catch(() => !gone && setEntries([]))
+    return () => {
+      gone = true
+    }
+  }, [consoleOpen, page?.id, issueKey])
+  // 换了页面：查找条关掉，上一页的高亮也清掉（不然切回去还是黄的）
+  const findOpen = useRef(false)
+  findOpen.current = !!find
+  useEffect(() => {
+    const id = page?.id
+    return () => {
+      if (!findOpen.current) return
+      setFind(null)
+      if (id && !demo) void window.pixelsky!.projectBrowser.stopFind(target, id).catch(() => {})
+    }
+  }, [page?.id])
+  /** 控制台的几条放进输入框（不发送），和运行胶囊的「发给 AI」一样（代码模式切到对话、光标跟过去） */
+  const quoteIssues = (list: BrowserIssueEntry[]) => {
+    if (!page || !list.length) return
+    const problem = sendTerminalQuote(entriesQuote(page.remoteUrl ?? page.url, list), tr('terminal.ask.fixPrompt'))
+    toast(problem ?? tr('projectTools.consoleQuoted'))
+  }
+  const clearIssues = () =>
+    run(async () => {
+      if (!page) return
+      if (demo) patchPage(page.id, p => ({ ...p, issues: undefined }))
+      else setState(await window.pixelsky!.projectBrowser.clearIssues(target, page.id))
+      setEntries([])
+    })
+  const openFind = () => {
+    if (!page || failed) return false
+    setFind(f => ({ seq: (f?.seq ?? 0) + 1 }))
+    return true
+  }
+  const closeFind = () => {
+    setFind(null)
+    if (page && !demo) void window.pixelsky!.projectBrowser.stopFind(target, page.id).catch(() => {})
+  }
+  const findInPage: FindRequest = (text, opts) => {
+    if (!page) return Promise.resolve(null)
+    if (demo) return Promise.resolve(text ? { active: 1, total: 3 } : null)
+    return window.pixelsky!.projectBrowser.find(target, page.id, text, opts).catch(() => null)
+  }
+  const zoom = (move: 'in' | 'out' | 'reset') =>
+    run(async () => {
+      if (!page) return
+      if (demo) {
+        const steps = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2],
+          now = page.zoom ?? 1,
+          next =
+            move === 'reset'
+              ? 1
+              : move === 'in'
+                ? (steps.find(z => z > now + 0.001) ?? now)
+                : ([...steps].reverse().find(z => z < now - 0.001) ?? now)
+        return patchPage(page.id, p => ({ ...p, zoom: next === 1 ? undefined : next }))
+      }
+      setState(await window.pixelsky!.projectBrowser.zoom(target, page.id, move))
+    })
+  const devtools = () =>
+    run(async () => {
+      if (page && !demo) await window.pixelsky!.projectBrowser.devtools(target, page.id)
+    })
+  /** 截图放进输入框当图片附件（docs/ui/browser-v2.md §3.2），提示里可以撤销 */
+  const capture = (full: boolean, fromMenu: boolean) =>
+    run(async () => {
+      if (!page || demo || failed) return
+      const t = composerTarget()
+      if (!t) throw new Error(tr('editor.quote.noSession'))
+      // 菜单盖着网页时网页视图是藏起来的：等菜单关掉、网页放回去再截
+      if (fromMenu) await new Promise(r => setTimeout(r, 250))
+      const shot = await window.pixelsky!.projectBrowser.capture(target, page.id, full)
+      const image = captureAttachment(shot, captureName(page.remoteUrl ?? page.url, Date.now()), crypto.randomUUID())
+      let problem: ReturnType<typeof attachmentProblem> = null
+      await updateImages(t.key, current => {
+        problem = attachmentProblem(current, image)
+        return problem ? current : [...current, image]
+      })
+      if (problem) throw new Error(tr(problem))
+      toast(
+        shot.truncated
+          ? tr('projectTools.captureTruncated', { max: BROWSER_CAPTURE_MAX_HEIGHT })
+          : tr('projectTools.captureAdded'),
+        {
+          action: {
+            label: tr('projectTools.undo'),
+            run: () => void updateImages(t.key, list => list.filter(i => i.id !== image.id)).catch(() => {}),
+          },
+        },
+      )
+    })
+  const clearSiteData = () =>
+    run(async () => {
+      if (!page || demo) return
+      const host = plainAddress(page.remoteUrl ?? page.url).split('/')[0]
+      setState(await window.pixelsky!.projectBrowser.clearSiteData(target, page.id))
+      setClearing(false)
+      toast(tr('projectTools.siteDataCleared', { host }))
+    })
+  /** 浏览器快捷键（docs/ui/browser-v2.md §3.1、§3.2）；返回是否处理了 */
   const shortcut = (key: BrowserShortcut): boolean => {
     if (key === 'address') {
       addressRef.current?.focus()
@@ -417,7 +572,13 @@ function BrowserBody({
     } else if (key === 'newPage') newPage()
     else if (!page) return false
     else if (key === 'closePage') void action('close')
-    else void action(key)
+    else if (key === 'find') return openFind()
+    else if (key === 'zoomIn' || key === 'zoomOut' || key === 'zoomReset')
+      void zoom(key === 'zoomIn' ? 'in' : key === 'zoomOut' ? 'out' : 'reset')
+    else if (key === 'devtools') {
+      if (demo) return false
+      void devtools()
+    } else void action(key)
     return true
   }
   const shortcutRef = useRef(shortcut)
@@ -461,7 +622,7 @@ function BrowserBody({
       onKeyDown={e => {
         if (e.defaultPrevented || e.nativeEvent.isComposing) return
         const key = browserShortcut(
-          { key: e.key, mod: isMac ? e.metaKey : e.ctrlKey, shift: e.shiftKey, alt: e.altKey },
+          { key: e.key, code: e.code, mod: isMac ? e.metaKey : e.ctrlKey, shift: e.shiftKey, alt: e.altKey },
           isMac,
         )
         // 处理了就不再往外传：Ctrl+W 关的是网页，不是右栏的浏览器标签
@@ -501,11 +662,25 @@ function BrowserBody({
         onTogglePick={() => void togglePick()}
         onNewPage={newPage}
         onOpenExternal={openExternal}
+        issueCount={issueCount(page, consolePrefs.warnings)}
+        consoleOpen={consoleOpen}
+        onToggleConsole={() => setConsoleOpen(o => !o)}
+        onCapture={(full, fromMenu) => void capture(full, fromMenu)}
+        onFind={openFind}
+        onZoom={move => void zoom(move)}
+        onDevtools={() => void devtools()}
+        onClearSiteData={() => {
+          // 确认框里只显示这次清除的错误
+          setError('')
+          setClearing(true)
+        }}
       />
+      {find && page && <BrowserFindBar focusSeq={find.seq} onFind={findInPage} onClose={closeFind} />}
       {/* 整页打不开时原因在错误页里，这里只放操作出错和批注上限之类 */}
       <ToolError error={error || (failed ? '' : page?.error) || ''} />
       <div className={cn('flex min-h-0 flex-1 gap-2', DOCK_FLOW[placed])}>
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {/* min-h-0：控制台抽屉拖得很高、窗口又矮时，这一列能缩，抽屉按剩下的高度封顶（不把批注栏挤出去） */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
           <div
             ref={viewport}
             data-browser-viewport
@@ -611,6 +786,17 @@ function BrowserBody({
               </div>
             )}
           </div>
+          {consoleOpen && page && (
+            <BrowserConsole
+              entries={entries}
+              prefs={consolePrefs}
+              busy={busy}
+              onPrefs={setConsolePrefs}
+              onClose={() => setConsoleOpen(false)}
+              onClear={() => void clearIssues()}
+              onQuote={quoteIssues}
+            />
+          )}
         </div>
         {page && (
           <ElementNotes
@@ -630,6 +816,19 @@ function BrowserBody({
           />
         )}
       </div>
+      {clearing && page && (
+        <ConfirmDialog
+          title={tr('projectTools.clearSiteTitle', { host: plainAddress(page.remoteUrl ?? page.url).split('/')[0] })}
+          description={tr('projectTools.clearSiteBody')}
+          confirmLabel={tr('projectTools.clearSiteConfirm')}
+          cancelLabel={tr('projectTools.cancel')}
+          busy={busy}
+          error={error}
+          danger
+          onConfirm={() => void clearSiteData()}
+          onCancel={() => setClearing(false)}
+        />
+      )}
     </div>
   )
 }

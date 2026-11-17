@@ -36,7 +36,14 @@ import {
   demoPlatformKeys,
   demoProviders,
 } from './platform'
-import { demoToolBrowser, demoToolCopies, demoToolEnvironment, demoToolRunTasks, demoToolTasks } from './projectTools'
+import {
+  demoToolBrowser,
+  demoToolBrowserIssues,
+  demoToolCopies,
+  demoToolEnvironment,
+  demoToolRunTasks,
+  demoToolTasks,
+} from './projectTools'
 import { demoRemoteCalls } from './remoteCalls'
 import { demoSearchProjects, searchDemo } from './search'
 import { demoSessions } from './sessionLifecycle'
@@ -95,6 +102,7 @@ export const demoSource: DemoSource = {
     environment: demoToolEnvironment,
     copies: demoToolCopies,
     browser: demoToolBrowser,
+    browserIssues: demoToolBrowserIssues,
   },
   remoteCalls: demoRemoteCalls,
   usageRecords: demoUsageRecords,

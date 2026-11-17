@@ -1,5 +1,5 @@
 import type { TaskState, EnvironmentState, ProjectCopy, RunTaskState } from '../../../shared/types/project-tools'
-import type { BrowserState } from '../../../shared/types/project-browser'
+import type { BrowserIssueEntry, BrowserState } from '../../../shared/types/project-browser'
 export const demoToolTasks: TaskState = {
   tasks: [
     {
@@ -142,11 +142,14 @@ export const demoToolBrowser: BrowserState = {
       issues: {
         errors: 1,
         requests: 1,
+        warnings: 1,
         last: [
           "TypeError: Cannot read properties of undefined (reading 'total') (http://127.0.0.1:8330/src/Checkout.tsx:42)",
           '404 http://127.0.0.1:8330/api/coupons',
         ],
       },
+      // ⋯ 菜单和地址栏里的缩放（docs/ui/browser-v2.md §3.2）
+      zoom: 1.1,
       annotations: [
         demoNote(
           1,
@@ -165,6 +168,29 @@ export const demoToolBrowser: BrowserState = {
     },
   ],
 }
+
+/** 控制台抽屉的演示明细（docs/ui/browser-v2.md §3.2）：和上面演示网页的 1 个错误、1 个失败请求、1 个警告对上 */
+const DEMO_AT = Date.UTC(2026, 10, 17, 4, 4, 30)
+export const demoToolBrowserIssues: BrowserIssueEntry[] = [
+  {
+    kind: 'warning',
+    text: 'Warning: Each child in a list should have a unique "key" prop.',
+    source: 'http://127.0.0.1:8330/src/CartList.tsx:18',
+    at: DEMO_AT - 4000,
+  },
+  {
+    kind: 'request',
+    text: 'GET 404 http://127.0.0.1:8330/api/coupons',
+    source: 'xhr',
+    at: DEMO_AT,
+  },
+  {
+    kind: 'error',
+    text: "TypeError: Cannot read properties of undefined (reading 'total')",
+    source: 'http://127.0.0.1:8330/src/Checkout.tsx:42',
+    at: DEMO_AT + 1000,
+  },
+]
 
 /** 左栏「任务」的演示数据（docs/ui/coding-tasks.md §4）：照示意图的三种文件 */
 export const demoToolRunTasks: RunTaskState = {

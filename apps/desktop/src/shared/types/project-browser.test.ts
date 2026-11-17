@@ -27,6 +27,16 @@ describe('浏览器快捷键', () => {
     expect(browserShortcut(k(']', { mod: true }), true)).toBe('forward')
     expect(browserShortcut(k('ArrowLeft', { alt: true }), true)).toBeNull()
   })
+  it('第二批：查找、缩放、开发者工具', () => {
+    expect(browserShortcut(k('f', { mod: true }), false)).toBe('find')
+    expect(browserShortcut(k('=', { mod: true }), false)).toBe('zoomIn')
+    expect(browserShortcut(k('+', { mod: true, shift: true }), false)).toBe('zoomIn')
+    expect(browserShortcut(k('-', { mod: true }), false)).toBe('zoomOut')
+    expect(browserShortcut(k('0', { mod: true }), false)).toBe('zoomReset')
+    expect(browserShortcut(k('F12'), false)).toBe('devtools')
+    expect(browserShortcut({ ...k('ˆ', { mod: true, alt: true }), code: 'KeyI' }, true)).toBe('devtools')
+    expect(browserShortcut(k('F', { mod: true, shift: true }), false)).toBeNull()
+  })
   it('其余按键交给网页', () => {
     expect(browserShortcut(k('l'), false)).toBeNull()
     expect(browserShortcut(k('c', { mod: true }), false)).toBeNull()

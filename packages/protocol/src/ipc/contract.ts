@@ -836,7 +836,14 @@ export const IPC_CONTRACT = {
   'dataLocation:use': { kind: 'invoke', route: 'local', trust: 'sender' },
   'projectBrowser:action': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:annotate': { kind: 'invoke', route: 'local', trust: 'window' },
+  // 第二批（docs/ui/browser-v2.md §3.2）：控制台明细、查找、缩放、开发者工具、截图、清网站数据
+  'projectBrowser:capture': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:changed': { kind: 'push', route: 'push', trust: 'none' },
+  'projectBrowser:clearIssues': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:clearSiteData': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:devtools': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:find': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:issues': { kind: 'invoke', route: 'local', trust: 'window' },
   // 网页有焦点时按的浏览器快捷键（docs/ui/browser-v2.md §3.1）：只发给网页所在的窗口
   'projectBrowser:key': { kind: 'push', route: 'push', trust: 'none' },
   'projectBrowser:navigate': { kind: 'invoke', route: 'local', trust: 'window' },
@@ -844,7 +851,9 @@ export const IPC_CONTRACT = {
   'projectBrowser:removeAnnotation': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:select': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:state': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:stopFind': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:viewport': { kind: 'invoke', route: 'local', trust: 'window' },
+  'projectBrowser:zoom': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectTools:branches': {
     kind: 'invoke',
     route: 'resource',

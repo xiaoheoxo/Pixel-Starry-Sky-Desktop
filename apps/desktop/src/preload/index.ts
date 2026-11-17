@@ -435,6 +435,14 @@ const projectBrowser: import('./project-browser').BrowserBridge = {
   annotate: (ref, id, text, extra) => call('projectBrowser:annotate', ref, id, text, extra),
   pick: (ref, id, on, config) => call('projectBrowser:pick', ref, id, on, config),
   removeAnnotation: (ref, id, annotationId) => call('projectBrowser:removeAnnotation', ref, id, annotationId),
+  issues: (ref, id) => call('projectBrowser:issues', ref, id),
+  clearIssues: (ref, id) => call('projectBrowser:clearIssues', ref, id),
+  find: (ref, id, text, opts) => call('projectBrowser:find', ref, id, text, opts),
+  stopFind: (ref, id) => call('projectBrowser:stopFind', ref, id),
+  zoom: (ref, id, move) => call('projectBrowser:zoom', ref, id, move),
+  devtools: (ref, id) => call('projectBrowser:devtools', ref, id),
+  capture: (ref, id, full) => call('projectBrowser:capture', ref, id, full),
+  clearSiteData: (ref, id) => call('projectBrowser:clearSiteData', ref, id),
   onChange: cb => {
     const listener = (
       _e: Electron.IpcRendererEvent,
