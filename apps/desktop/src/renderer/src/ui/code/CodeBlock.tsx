@@ -1,9 +1,9 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
-import { memo, useMemo, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { CopyButton, cn } from '@/ui'
-import { highlight, languageLabel, resolveLanguage } from './highlight'
+import { MAX_LENGTH, highlight, languageLabel, resolveLanguage } from './highlight'
 
 /** 超过这么多行的代码块默认折叠（docs/ui/content-highlight.md §2 H） */
 export const FOLD_OVER = 30
@@ -11,6 +11,22 @@ export const FOLD_OVER = 30
 export const FOLD_SHOW = 20
 
 export const shouldFold = (lineCount: number): boolean => lineCount > FOLD_OVER
+
+/** 折叠时高亮的行数：露出来的 20 行再多几行（渐隐那一段也是彩色的），后面是纯文字（docs/memory-tier3.md §2.1） */
+export const FOLD_HIGHLIGHT = FOLD_SHOW + 5
+
+/** 折叠时的前后两段：前一段高亮；后一段（以换行开头）原样放着，对话内搜索照样能搜到 */
+export function foldSplit(text: string): { head: string; tail: string } {
+  let at = -1
+  for (let i = 0; i < FOLD_HIGHLIGHT; i++) {
+    at = text.indexOf('\n', at + 1)
+    if (at < 0) return { head: text, tail: '' }
+  }
+  return { head: text.slice(0, at), tail: text.slice(at) }
+}
+
+/** 展开后过多久再高亮全文：搜索点开的先按纯文字滚到命中，再换成高亮（节点换了，搜索会重查） */
+const FULL_DELAY_MS = 300
 
 /**
  * 代码块（参考 Claude / Mirasim）：顶部一条标题栏，左边语言名、右边「复制」；下面是语法高亮的代码，
@@ -41,11 +57,29 @@ export const CodeBlock = memo(function CodeBlock({
   const text = code.endsWith('\n') ? code.slice(0, -1) : code
   const resolved = resolveLanguage(lang)
   const label = languageLabel(lang) ?? tr('code.CodeBlock.code')
-  const body = useMemo(() => highlight(text, resolved), [text, resolved])
   const lines = useMemo(() => text.split('\n').length, [text])
   const foldable = !view && shouldFold(lines)
   const [expanded, setExpanded] = useState(false)
   const folded = foldable && !expanded
+  // 折叠着的长代码块只高亮露出来的部分，展开后稍等再高亮全文；展开过一次就一直是全文
+  const [full, setFull] = useState(false)
+  useEffect(() => {
+    if (!expanded || full) return
+    const timer = window.setTimeout(() => setFull(true), FULL_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [expanded, full])
+  // 超过高亮上限的整段本来就是纯文字：不拆，免得折叠时前面有颜色、展开后反而没了
+  const partial = foldable && !full && text.length <= MAX_LENGTH
+  const body = useMemo((): ReactNode => {
+    if (!partial) return highlight(text, resolved)
+    const { head, tail } = foldSplit(text)
+    return (
+      <>
+        {highlight(head, resolved)}
+        {tail}
+      </>
+    )
+  }, [text, resolved, partial])
 
   return (
     <div

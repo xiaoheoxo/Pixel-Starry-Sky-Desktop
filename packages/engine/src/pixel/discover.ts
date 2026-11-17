@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { extname, join, win32 } from 'node:path'
 import { codedError, type EngineInfo } from '@pixelsky/protocol'
 import type { Launcher } from '../adapter'
-import { isFile, resolveCommand, run, startupReason } from '../exec'
+import { isFile, resolveCommand, run, startupReason, warmPath } from '../exec'
 import { engineBase } from '../registry'
 
 /** 脚本入口：用当前的 node（Electron 里是 ELECTRON_RUN_AS_NODE 的 Electron 自带 Node）运行 */
@@ -50,6 +50,7 @@ export async function discoverPixel(
     info: { ...base, status: 'missing', version: null, path: null, message },
     launcher: null,
   })
+  await warmPath(env)
   // 用户替换的命令找不到时直接报它，不悄悄换成别的；否则依次试 PIXELSKY_CLI_BIN、自带入口、PATH 上的 pixelsky
   let found: { launcher: Launcher; path: string } | null = null
   if (override) {

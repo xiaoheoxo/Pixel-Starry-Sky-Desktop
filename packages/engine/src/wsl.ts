@@ -1,7 +1,7 @@
 // 在 WSL 里找引擎程序时认准 Linux 版（规划 §4.5）：PATH 里带进来的 Windows 程序能跑，但会按 Windows 路径处理
 import { closeSync, openSync, readSync, realpathSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
-import { isFile } from './exec'
+import { join } from 'node:path'
+import { isFile, pathDirs } from './exec'
 
 export interface WslDeps {
   readHead: (path: string) => Uint8Array | null
@@ -76,11 +76,8 @@ export function keepInWsl(
 
 /** PATH 里所有叫这个名字的文件（WSL 里第一个常是 /mnt/c 下的，Linux 版在后面） */
 export function allOnPath(fileName: string, env: NodeJS.ProcessEnv): string[] {
-  const raw = env.PATH ?? env.Path ?? ''
-  return raw
-    .split(delimiter)
-    .filter(Boolean)
-    .map(d => join(d.replace(/^"|"$/g, ''), fileName))
+  return pathDirs(env.PATH ?? env.Path ?? '')
+    .map(d => join(d, fileName))
     .filter(isFile)
 }
 

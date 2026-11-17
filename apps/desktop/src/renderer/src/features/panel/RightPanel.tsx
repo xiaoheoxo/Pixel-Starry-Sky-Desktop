@@ -25,6 +25,7 @@ import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { WorkspaceTabs } from './WorkspaceTabs'
 import { ToolLauncher } from './ToolLauncher'
 import { recordRecentFile } from './recentFiles'
+import { expiredTabs } from './tabExpiry'
 import {
   detachPanelFile,
   forgetPanelTabs,
@@ -57,12 +58,37 @@ export function RightPanel({ maximized = false, visible = true }: { maximized?: 
   const [requested, setRequested] = useState<WorkspaceRef | null>(null)
   const [browserRequest, setBrowserRequest] = useState<{ ref: WorkspaceRef; url: string; seq: number } | null>(null)
   const [visited, setVisited] = useState(new Set<string>())
+  // 看过的标签挂着；概况、产物、评论 10 分钟没看就卸（tabExpiry.ts）。在眼前的每分钟记一次时间，离开时再记一次
+  const lastSeen = useRef(new Map<string, number>())
+  const shown = visible ? (layout.active ?? null) : null
+  useEffect(() => {
+    const seen = lastSeen.current
+    const tick = (): void => {
+      const now = Date.now()
+      if (shown) seen.set(shown, now)
+      // 更新函数里不改 seen：React 可能调两次
+      setVisited(old => {
+        const gone = expiredTabs(old, seen, shown, now)
+        return gone.length ? new Set([...old].filter(kind => !gone.includes(kind))) : old
+      })
+    }
+    tick()
+    const timer = window.setInterval(tick, 60_000)
+    return () => {
+      window.clearInterval(timer)
+      if (shown) seen.set(shown, Date.now())
+    }
+  }, [shown])
   useEffect(() => {
     setRequested(null)
     setBrowserRequest(null)
   }, [scope])
   useEffect(() => {
-    if (layout.active) setVisited(old => new Set([...old, layout.active!]))
+    if (layout.active) {
+      // 切到的标签从现在算起（右栏关着时切过去的也是）
+      lastSeen.current.set(layout.active, Date.now())
+      setVisited(old => new Set([...old, layout.active!]))
+    }
     for (const id of layout.tabs.filter(isFileTab)) void ensureFile(id)
     if (layout.active && isFileTab(layout.active)) {
       activateFile(layout.active)

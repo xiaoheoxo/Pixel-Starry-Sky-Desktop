@@ -6,7 +6,17 @@ import { codedError, type EngineInfo } from '@pixelsky/protocol'
 import type { Launcher } from '../adapter'
 import { engineBase } from '../registry'
 import { allOnPath, inWsl, keepInWsl, windowsOnlyNote, type WslOpts } from '../wsl'
-import { IS_WINDOWS, dirsOnPath, findOnPath, isFile, resolveCommand, run, versionAtLeast } from '../exec'
+import {
+  IS_WINDOWS,
+  dirsOnPath,
+  findOnPath,
+  isFile,
+  resolveCommand,
+  run,
+  timedLookup,
+  versionAtLeast,
+  warmPath,
+} from '../exec'
 import { claudePlanFor } from './tier'
 
 /** 用到的参数（--permission-prompt-tool stdio、--effort、control 协议的 apply_flag_settings 等）在这个版本之后都有 */
@@ -143,7 +153,8 @@ export async function discoverClaude(
   env: NodeJS.ProcessEnv,
   wsl: WslOpts = {},
 ): Promise<ClaudeDiscovery> {
-  const custom = command ? customClaude(command, env) : null
+  await warmPath(env)
+  const custom = command ? timedLookup('claude', () => customClaude(command, env)) : null
   const launch = custom ? 'custom' : 'stock'
   if (custom && 'error' in custom)
     return {
@@ -152,7 +163,7 @@ export async function discoverClaude(
       info: { ...base(launch), status: 'missing', version: null, path: null, message: custom.error },
     }
   const skipped: string[] = []
-  const launcher = custom ? custom.launcher : findClaude(env, skipped, wsl)
+  const launcher = custom ? custom.launcher : timedLookup('claude', () => findClaude(env, skipped, wsl))
   const note = windowsOnlyNote(skipped)
   if (!launcher) {
     return {

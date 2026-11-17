@@ -172,7 +172,7 @@ export function languageLabel(lang: string | null | undefined): string | null {
 }
 
 /** 太长的内容不高亮（highlight.js 是同步的，几万行会卡住界面），直接按纯文本显示 */
-const MAX_LENGTH = 100_000
+export const MAX_LENGTH = 100_000
 
 /**
  * 高亮结果（hast 语法树，不缓存 React 元素）按 (语言, 内容) 缓存（docs/perf-audit-2026-10-18.md B4）：

@@ -1,10 +1,12 @@
 // 找可执行文件、跑一次性命令（--version 之类）
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { accessSync, chmodSync, constants, existsSync, lstatSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, extname, isAbsolute, join } from 'node:path'
 import type { Launcher } from './adapter'
 import { ConsoleStreamDecoder, decodeConsoleText } from './console-text'
+import { logger } from './log'
 
 export const IS_WINDOWS = process.platform === 'win32'
 
@@ -66,12 +68,95 @@ export function isFile(p: string): boolean {
   }
 }
 
+/* ---- PATH 目录预热（docs/memory-tier3.md §1）：查找是同步的，盘没唤醒、网络盘断开时第一次 stat 会卡住主进程。
+   检测前先异步 stat 一遍 PATH 里的目录（把盘叫醒），超时还没回的先不查，回来以后再放开 ---- */
+
+const WARM_TIMEOUT_MS = 3_000
+const SLOW_DIR_MS = 200
+const pathLog = logger('engine')
+/** 还没回应的目录（按小写比较）：同步查找跳过 */
+const slowDirs = new Set<string>()
+/** 正在 stat 的目录：卡住的不重复发（每个卡住的 stat 占着一个 libuv 线程） */
+const warming = new Map<string, Promise<void>>()
+const dirKey = (dir: string): string => (IS_WINDOWS ? dir.toLowerCase() : dir)
+const unquote = (dir: string): string => dir.replace(/^"|"$/g, '')
+
+/** PATH 里的目录，去掉引号和空段；还没回应的目录不算 */
+export function pathDirs(raw: string): string[] {
+  return raw
+    .split(delimiter)
+    .filter(Boolean)
+    .map(unquote)
+    .filter(d => !slowDirs.has(dirKey(d)))
+}
+
+function warmDir(dir: string, now: () => number): Promise<void> {
+  const key = dirKey(dir)
+  const running = warming.get(key)
+  if (running) return running
+  const start = now()
+  const job = stat(dir).then(
+    () => undefined,
+    () => undefined,
+  )
+  const settled = job.then(() => {
+    warming.delete(key)
+    const ms = Math.round(now() - start)
+    if (slowDirs.delete(key)) pathLog.info('PATH 目录恢复响应', { dir, ms })
+    else if (ms >= SLOW_DIR_MS) pathLog.warn('PATH 目录查找慢', { dir, ms })
+  })
+  warming.set(key, settled)
+  return settled
+}
+
+/**
+ * 检测引擎前调用：并行 stat PATH 里每个目录，最多等 3 秒；超时的目录记进 slowDirs，之后的同步查找跳过它，
+ * 直到它的 stat 回来
+ */
+export async function warmPath(env: NodeJS.ProcessEnv, timeoutMs = WARM_TIMEOUT_MS): Promise<void> {
+  const dirs = [
+    ...new Map(
+      pathValue(env)
+        .split(delimiter)
+        .filter(Boolean)
+        .map(d => [dirKey(unquote(d)), unquote(d)]),
+    ).values(),
+  ]
+  const now = (): number => performance.now()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<'timeout'>(resolve => (timer = setTimeout(() => resolve('timeout'), timeoutMs)))
+  const results = await Promise.all(
+    dirs.map(dir => Promise.race([warmDir(dir, now).then(() => 'ok' as const), timeout]).then(r => [dir, r] as const)),
+  )
+  clearTimeout(timer)
+  for (const [dir, r] of results)
+    if (r === 'timeout' && warming.has(dirKey(dir)) && !slowDirs.has(dirKey(dir))) {
+      slowDirs.add(dirKey(dir))
+      pathLog.warn('PATH 目录没有回应，先跳过', { dir, ms: timeoutMs })
+    }
+}
+
+/** 同步查找花了多久：超过 200 ms 记一条（原因不在 PATH 目录上时靠它定位，docs/memory-tier3.md §1） */
+export function timedLookup<T>(engine: string, find: () => T): T {
+  const start = performance.now()
+  try {
+    return find()
+  } finally {
+    const ms = Math.round(performance.now() - start)
+    if (ms >= SLOW_DIR_MS) pathLog.warn('找引擎程序慢', { engine, ms })
+  }
+}
+
+/** 测试用：清掉预热状态 */
+export function resetPathWarm(): void {
+  slowDirs.clear()
+  warming.clear()
+}
+
 /** 在 PATH 里找某个文件名（Windows 上要带扩展名，例如 claude.exe） */
 export function findOnPath(fileName: string, env: NodeJS.ProcessEnv = process.env): string | null {
-  const raw = env.PATH ?? env.Path ?? ''
-  for (const dir of raw.split(delimiter)) {
-    if (!dir) continue
-    const p = join(dir.replace(/^"|"$/g, ''), fileName)
+  for (const dir of pathDirs(env.PATH ?? env.Path ?? '')) {
+    const p = join(dir, fileName)
     if (existsSync(p) && isFile(p)) return p
   }
   return null
@@ -79,12 +164,7 @@ export function findOnPath(fileName: string, env: NodeJS.ProcessEnv = process.en
 
 /** PATH 里所有包含某个文件的目录 */
 export function dirsOnPath(fileName: string, env: NodeJS.ProcessEnv = process.env): string[] {
-  const raw = env.PATH ?? env.Path ?? ''
-  return raw
-    .split(delimiter)
-    .filter(Boolean)
-    .map(d => d.replace(/^"|"$/g, ''))
-    .filter(d => isFile(join(d, fileName)))
+  return pathDirs(env.PATH ?? env.Path ?? '').filter(d => isFile(join(d, fileName)))
 }
 
 /** PATH 环境变量的值（Windows 上键名大小写不定，复制出来的环境对象不再忽略大小写） */
@@ -131,8 +211,7 @@ export function resolveCommand(command: string, env: NodeJS.ProcessEnv = process
     if (!isAbsolute(c)) return { ok: false, reason: 'notAbsolute' }
     candidates = variants(c)
   } else if (c) {
-    for (const dir of pathValue(env).split(delimiter))
-      if (dir) candidates.push(...variants(join(dir.replace(/^"|"$/g, ''), c)))
+    for (const dir of pathDirs(pathValue(env))) candidates.push(...variants(join(dir, c)))
   }
   const found = candidates.filter(isFile)
   const path = found.find(launchable)

@@ -445,3 +445,14 @@ describe('卡顿诊断（docs/ui/logging.md §4.9）', () => {
     })
   })
 })
+
+describe('慢同步警告带的参数（docs/memory-tier3.md §1）', () => {
+  it('只对引擎通道带，只收字符串和数字，截 40 字', async () => {
+    const { slowArg } = await import('./guard')
+    expect(slowArg('engine:catalog', 'claude')).toBe('claude')
+    expect(slowArg('engine:catalog', 3)).toBe('3')
+    expect(slowArg('engine:catalog', 'x'.repeat(60))).toHaveLength(40)
+    expect(slowArg('engine:catalog', { path: 'C:\secret' })).toBeUndefined()
+    expect(slowArg('fs:read', 'C:\Users\me\notes.txt')).toBeUndefined()
+  })
+})

@@ -61,13 +61,22 @@ const inFlight = new Map<number, { channel: string; at: number }>()
 const recent: { channel: string; end: number; ms: number; size?: string }[] = []
 let lastCall = 0
 
-function timed<T>(channel: string, run: () => T): T {
+/** 慢同步警告里带第一个参数：只对引擎通道（参数是引擎名、会话 id），只收字符串和数字，截 40 字（docs/memory-tier3.md §1） */
+export function slowArg(channel: string, arg: unknown): string | undefined {
+  if (!channel.startsWith('engine:')) return undefined
+  return typeof arg === 'string' || typeof arg === 'number' ? String(arg).slice(0, 40) : undefined
+}
+
+function timed<T>(channel: string, run: () => T, firstArg?: unknown): T {
   const start = performance.now()
   try {
     return run()
   } finally {
     const ms = performance.now() - start
-    if (ms >= SLOW_SYNC_MS) perf.warn('IPC 处理占住了主进程', { channel, ms: Math.round(ms) })
+    if (ms >= SLOW_SYNC_MS) {
+      const arg = slowArg(channel, firstArg)
+      perf.warn('IPC 处理占住了主进程', { channel, ms: Math.round(ms), ...(arg !== undefined ? { arg } : {}) })
+    }
   }
 }
 
@@ -100,7 +109,7 @@ function noteDone(channel: string, start: number, result?: unknown): void {
  * 给一次调用计时并登记：处理期间列在 ipcInFlight 里，结束后（含失败）记进最近结束的列表。
  * 窗口的 invoke 通道（handle）和手机网关的调用（通道名加 `mobile:` 前缀）都走这里。
  */
-export function track<T>(channel: string, run: () => T): T {
+export function track<T>(channel: string, run: () => T, firstArg?: unknown): T {
   const id = ++lastCall
   const start = performance.now()
   inFlight.set(id, { channel, at: start })
@@ -114,7 +123,7 @@ export function track<T>(channel: string, run: () => T): T {
   }
   let result: T
   try {
-    result = timed(channel, run)
+    result = timed(channel, run, firstArg)
   } catch (err) {
     done()
     throw err
@@ -215,7 +224,7 @@ export function handle(
       if (opts.onUntrusted) return opts.onUntrusted()
       throw new Error(opts.deny ?? DEFAULT_DENY)
     }
-    return track(channel, () => fn(event, ...(args as never[])))
+    return track(channel, () => fn(event, ...(args as never[])), args[0])
   })
 }
 
@@ -227,6 +236,6 @@ export function on(
 ): void {
   const trust = trustOf(channel, ['send', 'sendSync'])
   ipcMain.on(channel, (event, ...args) => {
-    if (check(event, trust, opts) === 'ok') timed(channel, () => fn(event, ...(args as never[])))
+    if (check(event, trust, opts) === 'ok') timed(channel, () => fn(event, ...(args as never[])), args[0])
   })
 }

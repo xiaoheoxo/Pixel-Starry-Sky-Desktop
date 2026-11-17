@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from '@/i18n/I18nProvider'
 import { Markdown } from './Markdown'
 import { hasMath, loadMath, normalizeMath } from './math'
-import { shouldFold } from '../code/CodeBlock'
+import { FOLD_HIGHLIGHT, foldSplit, shouldFold } from '../code/CodeBlock'
 import { MarkdownImageContext } from './MarkdownImage'
 
 const html = (text: string): string =>
@@ -123,6 +123,24 @@ describe('长代码块折叠', () => {
     const out = html('```\n' + code + '\n```')
     expect(out).toContain('aria-expanded="false"')
     expect(out).toContain('line 40')
+  })
+
+  it('折叠时只高亮前 25 行，后面是纯文字但仍在页面上（docs/memory-tier3.md §2.1）', () => {
+    const code = Array.from({ length: 40 }, (_, i) => `const a${i + 1} = ${i + 1}`).join('\n')
+    const out = html('```ts\n' + code + '\n```')
+    // 高亮的行被 <span> 拆开，纯文字的行原样连在一起
+    expect(out).not.toContain('const a5 = 5')
+    expect(out).toContain('const a26 = 26\nconst a27 = 27')
+    expect(out).toContain('const a40 = 40')
+  })
+
+  it('foldSplit：前 25 行一段，剩下的以换行开头；不够 25 行时整段都是前一段', () => {
+    const text = Array.from({ length: 40 }, (_, i) => `l${i + 1}`).join('\n')
+    const { head, tail } = foldSplit(text)
+    expect(head.split('\n')).toHaveLength(FOLD_HIGHLIGHT)
+    expect(tail.startsWith('\nl26')).toBe(true)
+    expect(head + tail).toBe(text)
+    expect(foldSplit('a\nb')).toEqual({ head: 'a\nb', tail: '' })
   })
 })
 

@@ -13,7 +13,17 @@ import {
 import type { Launcher } from '../adapter'
 import { ACP_AUTH_REQUIRED, AcpConnection, AcpError, type AcpHandlers } from '../acp/connection'
 import { ONE_SHOT_TIMEOUT, OneShotError, oneShotProblem, type OneShotReply, type OneShotRequest } from '../oneshot'
-import { IS_WINDOWS, findOnPath, isFile, removeTree, resolveCommand, run, versionAtLeast } from '../exec'
+import {
+  IS_WINDOWS,
+  findOnPath,
+  isFile,
+  removeTree,
+  resolveCommand,
+  run,
+  timedLookup,
+  versionAtLeast,
+  warmPath,
+} from '../exec'
 import { engineBase } from '../registry'
 import { forgetKeyAuth, keyAuthCameBack } from './auth-state'
 import { configOptions } from './session'
@@ -79,12 +89,16 @@ export async function discoverAgy(
   env: NodeJS.ProcessEnv,
 ): Promise<{ info: EngineInfo; launcher: Launcher | null }> {
   const base = { ...engineBase('antigravity'), launch: override ? ('custom' as const) : ('stock' as const) }
-  const custom = override ? customAgy(override, env) : null
+  await warmPath(env)
+  const custom = override ? timedLookup('antigravity', () => customAgy(override, env)) : null
   if (custom && 'error' in custom)
     return { info: { ...base, status: 'missing', version: null, path: null, message: custom.error }, launcher: null }
   const path = custom
     ? custom.path
-    : (findOnPath(IS_WINDOWS ? 'agy.exe' : 'agy', env) ?? agyCandidates(env).find(isFile) ?? null)
+    : timedLookup(
+        'antigravity',
+        () => findOnPath(IS_WINDOWS ? 'agy.exe' : 'agy', env) ?? agyCandidates(env).find(isFile) ?? null,
+      )
   if (!path)
     return {
       info: {

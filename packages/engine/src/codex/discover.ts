@@ -1,9 +1,9 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, delimiter } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { codedError, type EngineInfo } from '@pixelsky/protocol'
 import type { Launcher } from '../adapter'
-import { isFile, resolveCommand, run, versionAtLeast } from '../exec'
+import { isFile, pathDirs, resolveCommand, run, timedLookup, versionAtLeast, warmPath } from '../exec'
 import { globalNpm } from '../npm'
 import { engineBase } from '../registry'
 import { keepInWsl, windowsOnlyNote, type WslOpts } from '../wsl'
@@ -79,7 +79,8 @@ export async function discoverCodex(
   wsl: WslOpts = {},
 ): Promise<{ info: EngineInfo; launcher: Launcher | null }> {
   const base = { ...engineBase('codex'), launch: override ? ('custom' as const) : ('stock' as const) }
-  const custom = override ? customCodex(override, env) : null
+  await warmPath(env)
+  const custom = override ? timedLookup('codex', () => customCodex(override, env)) : null
   if (custom && 'error' in custom)
     return { info: { ...base, status: 'missing', version: null, path: null, message: custom.error }, launcher: null }
   const skipped: string[] = []
@@ -90,9 +91,9 @@ export async function discoverCodex(
     ? custom.path
     : (explicit ??
       [
-        ...(env.PATH ?? env.Path ?? '')
-          .split(delimiter)
-          .flatMap(dir => ['codex.exe', 'codex.cmd', 'codex'].map(name => join(dir.replace(/^"|"$/g, ''), name))),
+        ...pathDirs(env.PATH ?? env.Path ?? '').flatMap(dir =>
+          ['codex.exe', 'codex.cmd', 'codex'].map(name => join(dir, name)),
+        ),
         ...(process.platform === 'win32'
           ? [
               join(homedir(), '.local/bin/codex.exe'),

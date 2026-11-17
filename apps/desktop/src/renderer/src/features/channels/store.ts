@@ -165,6 +165,30 @@ export const selfIdIn = (s: ChannelsState, ids: readonly string[] | null | undef
 // 正式模式：和主进程同步
 // ---------------------------------------------------------------------------
 
+/** 离开的频道在内存里留多少条（docs/memory-tier3.md §2.2）；往上翻照常分页再读 */
+export const KEEP_ON_LEAVE = 100
+
+/**
+ * 离开频道时裁掉早的消息：只留最近 KEEP_ON_LEAVE 条，更早的标成还有（more）；
+ * 打开的讨论串、回复对象被裁掉了就一起清掉。不用裁时返回 null
+ */
+export function trimOnLeave(
+  s: Pick<ChannelsState, 'messages' | 'more' | 'thread' | 'replyTo'>,
+  id: string,
+): Pick<ChannelsState, 'messages' | 'more' | 'thread' | 'replyTo'> | null {
+  const list = s.messages[id]
+  if (!list || list.length <= KEEP_ON_LEAVE) return null
+  const kept = list.slice(-KEEP_ON_LEAVE)
+  const has = new Set(kept.map(m => m.id))
+  const gone = (ref: string | null | undefined): boolean => !!ref && !has.has(ref)
+  return {
+    messages: { ...s.messages, [id]: kept },
+    more: { ...s.more, [id]: true },
+    thread: gone(s.thread[id]) ? { ...s.thread, [id]: null } : s.thread,
+    replyTo: gone(s.replyTo[id]) ? { ...s.replyTo, [id]: null } : s.replyTo,
+  }
+}
+
 /** 按时间插入或替换一条消息 */
 export function upsertMessage(list: readonly ChannelMessage[], message: ChannelMessage): ChannelMessage[] {
   const i = list.findIndex(m => m.id === message.id)
@@ -333,7 +357,15 @@ export const channelActions = {
     if (state.selectedId === id && channel.unread === 0 && !channel.mentioned && (loaded || !channelsLive)) return
     const self = selfIdIn(state, channel.memberIds)
     const newFrom = channel.unread > 0 && loaded ? firstUnreadAt(state.messages[id] ?? [], channel.unread, self) : null
-    set({ selectedId: id, channels: markRead(state.channels, id), newFrom: { ...state.newFrom, [id]: newFrom } })
+    // 离开的频道只留最近的消息；正在往前翻页的不裁（读回来的一页会和裁过的接不上），演示数据读不回来也不裁
+    const prev = state.selectedId
+    const trimmed = channelsBridge && prev && prev !== id && !loading.has(prev) ? trimOnLeave(state, prev) : null
+    set({
+      ...trimmed,
+      selectedId: id,
+      channels: markRead(state.channels, id),
+      newFrom: { ...state.newFrom, [id]: newFrom },
+    })
     if (channelsBridge) {
       if (channel.unread > 0 || channel.mentioned) void channelsBridge.markRead(id).catch(() => {})
       if (!loaded) void loadMessages(id, false, channel.unread)
