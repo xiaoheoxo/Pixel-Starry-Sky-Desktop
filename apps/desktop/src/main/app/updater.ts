@@ -54,8 +54,7 @@ function saveBeta(beta: boolean): void {
 
 export function initUpdater(ctx: AppContext): void {
   const feed = process.env.PIXELSKY_UPDATE_FEED
-  // 独立测试安装包不可被正式发行源覆盖；它的安装身份、数据目录均与正式版分开。
-  const supported = (app.isPackaged && app.getName() !== 'pixelsky-dot-test') || !!feed
+  const supported = app.isPackaged || !!feed
   const runAs = channel()
   // 便携版没法替换自己；macOS 版没有签名，系统不让自动更新替换：都只检查、提示去下载
   const portable = runAs === 'portable' || process.platform === 'darwin'

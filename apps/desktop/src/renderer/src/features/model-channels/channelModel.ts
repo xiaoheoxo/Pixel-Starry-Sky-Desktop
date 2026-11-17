@@ -1,6 +1,6 @@
 // 模型通道（docs/ui/model-channels.md）：界面上只选「通道 + 模型」，谁来执行按规则定（§2.5）。
 // 存储不变，还是「引擎 + 额度来源 + 模型 / 线路 / 接口」；这里只做两边的换算，全是纯函数。
-import { supportsChatGptDot, type EngineCatalog, type EngineId, type EngineInfo } from '@pixelsky/protocol'
+import { type EngineCatalog, type EngineId, type EngineInfo } from '@pixelsky/protocol'
 import type { ProviderProtocol, ProviderView } from '../../../../shared/types/providers'
 import { platformModelSupportsEngine } from '../../../../shared/platform-models'
 import {
@@ -286,41 +286,41 @@ export function buildChannelMenu(input: MenuInput): ChannelGroupView[] {
       disabled: pick.unavailable ? 'no-executor' : null,
     }
   }
-  // Older remote hosts do not advertise Dot; do not offer an unsupported channel on them.
-  const plan = input.engines.find(e => e.id === 'codex')?.account?.plan
-  return CHANNELS.filter(
-    c => c !== 'dot' || (input.engines.some(e => e.id === 'dot') && (!plan || supportsChatGptDot(plan))),
-  ).map(channel => {
-    const state = channelState(channel, {
-      platform: input.platform,
-      engines: input.engines,
-      providers: input.providers,
-    })
-    if (state.kind !== 'ready') return { channel, state, rows: [] }
-    let rows: ChannelRow[]
-    if (channel === 'platform') {
-      const all = platformModels(input.platform.groups)
-      const keep = input.selection?.channel === 'platform' ? [input.selection.model] : []
-      rows = visibleModels(all, input.platform.hiddenModels, keep).map(m =>
-        row({ channel, model: m, providerId: null }, `platform:${m}`),
-      )
-    } else if (channel === 'dot') {
-      rows = [row({ channel, model: null, providerId: null }, 'dot')]
-    } else if (channel === 'custom') {
-      rows = input.providers.map(p => {
-        const current = input.selection?.channel === 'custom' && input.selection.providerId === p.id
-        const model = current ? input.selection!.model : (p.models[0]?.id ?? null)
-        const r = row({ channel, model, providerId: p.id }, `custom:${p.id}`)
-        // 接口这一行代表整个接口：选中的是它的哪个模型都算选中
-        return { ...r, selected: current }
+  // Dot 只给本机登录着 ChatGPT Pro 的用户（引擎报 ready：当前 Codex 账号读得到 Pro 的登录）；没登录、Plus、
+  // 旧版远端没有这个引擎时都不列（docs/ui/dot-optimize.md §2 B1）
+  return CHANNELS.filter(c => c !== 'dot' || input.engines.some(e => e.id === 'dot' && e.status === 'ready')).map(
+    channel => {
+      const state = channelState(channel, {
+        platform: input.platform,
+        engines: input.engines,
+        providers: input.providers,
       })
-    } else {
-      rows = input.selfModels[channel].map(m =>
-        row({ channel, model: m.value, providerId: null }, `${channel}:${m.value ?? ''}`),
-      )
-    }
-    return { channel, state, rows }
-  })
+      if (state.kind !== 'ready') return { channel, state, rows: [] }
+      let rows: ChannelRow[]
+      if (channel === 'platform') {
+        const all = platformModels(input.platform.groups)
+        const keep = input.selection?.channel === 'platform' ? [input.selection.model] : []
+        rows = visibleModels(all, input.platform.hiddenModels, keep).map(m =>
+          row({ channel, model: m, providerId: null }, `platform:${m}`),
+        )
+      } else if (channel === 'dot') {
+        rows = [row({ channel, model: null, providerId: null }, 'dot')]
+      } else if (channel === 'custom') {
+        rows = input.providers.map(p => {
+          const current = input.selection?.channel === 'custom' && input.selection.providerId === p.id
+          const model = current ? input.selection!.model : (p.models[0]?.id ?? null)
+          const r = row({ channel, model, providerId: p.id }, `custom:${p.id}`)
+          // 接口这一行代表整个接口：选中的是它的哪个模型都算选中
+          return { ...r, selected: current }
+        })
+      } else {
+        rows = input.selfModels[channel].map(m =>
+          row({ channel, model: m.value, providerId: null }, `${channel}:${m.value ?? ''}`),
+        )
+      }
+      return { channel, state, rows }
+    },
+  )
 }
 
 // ---------------------------------------------------------------------------

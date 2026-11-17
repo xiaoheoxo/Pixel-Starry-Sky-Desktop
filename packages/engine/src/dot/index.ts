@@ -41,14 +41,19 @@ export class DotAdapter implements EngineAdapter {
     return this.connectionInfo(record.dot?.account)
   }
 
-  private async connectionInfo(account?: string, force = false): Promise<EngineInfo> {
-    let configured = false
+  /** 这个账号（不传是 Codex 当前账号）在本机登录着 ChatGPT、而且是 Pro 档：凭据函数对别的档位返回 null */
+  async signedIn(account?: string, signal?: AbortSignal): Promise<boolean> {
     try {
-      const c = await this.options.credentials(undefined, account)
-      configured = !!(c?.accessToken && c.accountId && c.accountUserId)
+      const c = await this.options.credentials(signal, account)
+      return !!(c?.accessToken && c.accountId && c.accountUserId)
     } catch {
       // Codex 不可用或未登录：凭据相关的底层错误不进入 UI 或日志。
+      return false
     }
+  }
+
+  private async connectionInfo(account?: string, force = false): Promise<EngineInfo> {
+    const configured = await this.signedIn(account)
     const info: EngineInfo = {
       ...engineBase('dot'),
       status: configured ? 'ready' : 'unauthenticated',

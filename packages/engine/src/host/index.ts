@@ -486,6 +486,12 @@ export class EngineHost {
     return adapter.listDots(account, signal)
   }
 
+  /** 这个已保存账号在本机登录着 ChatGPT Pro（Dot 入口只对这样的账号显示） */
+  async dotSignedIn(account: string, signal?: AbortSignal): Promise<boolean> {
+    const adapter = this.ctx.adapters.dot
+    return adapter instanceof DotAdapter && adapter.signedIn(account, signal)
+  }
+
   readDot(
     account: string,
     target: { id: string; threadId: string },

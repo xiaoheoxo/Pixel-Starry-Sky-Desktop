@@ -1,7 +1,18 @@
+import { dotError } from './errors'
 import { useEffect, useSyncExternalStore } from 'react'
 import type { DotCatalogState } from '../../../../shared/types/dot-chat'
 
-let state: DotCatalogState & { loading: boolean } = { eligible: false, entries: [], errors: [], loading: false }
+/**
+ * Dot 入口只对「本机登录着 ChatGPT Pro」的用户显示（docs/ui/dot-optimize.md §2）：eligible 由主进程逐个账号核对后给出，
+ * 侧栏、模型通道卡片、会话列表、标签都按它。checked：至少核对过一次（核对前不关标签，免得启动时误关）
+ */
+let state: DotCatalogState & { loading: boolean; checked: boolean } = {
+  eligible: false,
+  entries: [],
+  errors: [],
+  loading: false,
+  checked: false,
+}
 const listeners = new Set<() => void>()
 let pending: Promise<void> | null = null
 let started = false
@@ -18,10 +29,10 @@ export function refreshDots(): Promise<void> {
     .catalog(true)
     .then(
       next => {
-        state = { ...next, loading: false }
+        state = { ...next, loading: false, checked: true }
       },
       error => {
-        state = { ...state, loading: false, errors: [String(error)] }
+        state = { ...state, loading: false, errors: [dotError(error)] }
       },
     )
     .finally(() => {

@@ -1,3 +1,4 @@
+import { dotError } from './errors'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Maximize, Monitor, RefreshCw, X } from 'lucide-react'
 import { Button, IconButton, Spinner } from '@/ui'
@@ -56,7 +57,7 @@ export function DotComputer({ onClose }: { onClose: () => void }) {
       clearTimeout(timer)
       release()
       setStatus('failed')
-      setError(e instanceof Error ? e.message : String(e))
+      setError(dotError(e))
       pc.close()
     }
     const ready = () => {

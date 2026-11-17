@@ -33,13 +33,12 @@ describe('Dot native channel', () => {
     expect(sourceOfChannel('dot')).toBe('self')
   })
 
-  it('hides Dot on older remote hosts and provides setup when credentials are absent', () => {
+  it('hides Dot unless this computer is signed in to ChatGPT Pro, and on older remote hosts', () => {
     expect(buildChannelMenu({ ...input, engines: [] }).some(g => g.channel === 'dot')).toBe(false)
-    expect(
-      buildChannelMenu({ ...input, engines: [{ id: 'dot', status: 'unauthenticated', message: null }] }).find(
-        g => g.channel === 'dot',
-      ),
-    ).toMatchObject({ state: { kind: 'auth' }, rows: [] })
+    for (const status of ['unauthenticated', 'missing', 'error'] as const)
+      expect(
+        buildChannelMenu({ ...input, engines: [{ id: 'dot', status, message: null }] }).some(g => g.channel === 'dot'),
+      ).toBe(false)
   })
 
   it('does not offer platform model routing for Dot, even when signed in', () => {

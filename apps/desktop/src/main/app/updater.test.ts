@@ -5,10 +5,9 @@ const quit = vi.fn()
 const quitAndInstall = vi.fn()
 const listeners = new Map<string, (...args: unknown[]) => void>()
 const handlers = new Map<string, (...args: unknown[]) => unknown>()
-let appName = '@pixelsky/desktop'
 
 vi.mock('electron', () => ({
-  app: { isPackaged: true, quit, getPath: () => '', getName: () => appName },
+  app: { isPackaged: true, quit, getPath: () => '' },
   shell: { openExternal: vi.fn() },
 }))
 vi.mock('electron-updater', () => ({
@@ -30,7 +29,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   quit.mockClear()
   quitAndInstall.mockClear()
-  appName = '@pixelsky/desktop'
   initUpdater({ events: { broadcast: () => {} } } as never)
   listeners.get('update-downloaded')!({ version: '9.9.9', releaseNotes: '' })
 })
@@ -39,13 +37,6 @@ afterEach(() => {
 })
 
 describe('重启以更新', () => {
-  it('独立 Dot 测试安装包不连接正式更新源', () => {
-    appName = 'pixelsky-dot-test'
-    listeners.clear()
-    initUpdater({ events: { broadcast: () => {} } } as never)
-    expect(handlers.get('update:state')!()).toMatchObject({ status: 'unsupported' })
-    expect(listeners.size).toBe(0)
-  })
   it('点按钮只发起退出，不马上打开安装程序；退出流程最后才打开一次', () => {
     handlers.get('update:install')!()
     vi.advanceTimersByTime(200)

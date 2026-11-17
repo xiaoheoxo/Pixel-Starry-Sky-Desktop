@@ -1,3 +1,4 @@
+import { dotError } from './errors'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, ExternalLink, File, Mic, Monitor, MoreHorizontal, PanelRight, Paperclip, Plus, X } from 'lucide-react'
 import type { SessionSnapshot } from '@pixelsky/protocol'
@@ -12,7 +13,8 @@ import '@/features/session/conversation.css'
 import { tr, translateMessage } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { DotAvatar } from './DotAvatar'
-import { DotProfilePanel, dotStatus, dotWebUrl } from './DotProfilePanel'
+import { DotProfilePanel, DotStatusPill, dotWebUrl } from './DotProfilePanel'
+import { DotExperimental } from './DotExperimental'
 import { dotTranscript, mergeDotHistory } from './conversation'
 import { DotFile } from './DotFile'
 import { DotComputer } from './DotComputer'
@@ -76,7 +78,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         if (next.overview) setOverview(next.overview)
         setServerError('')
       } catch (e) {
-        if (alive.current) setServerError(String(e))
+        if (alive.current) setServerError(dotError(e))
       } finally {
         network.current = false
         if (alive.current) {
@@ -135,7 +137,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
             setSnapshotError('')
           }
         } catch (e) {
-          if (mounted) setSnapshotError(String(e))
+          if (mounted) setSnapshotError(dotError(e))
         }
       } while (mounted && again)
       fetching = false
@@ -196,7 +198,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       const sentIds = new Set(files.map(file => file.id))
       setFiles(current => current.filter(file => !sentIds.has(file.id)))
     } catch (e) {
-      setError(String(e))
+      setError(dotError(e))
     } finally {
       setSending(false)
     }
@@ -210,7 +212,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       const chosen = await window.pixelsky!.dotChat.pickFiles(entryKey)
       setFiles(previous => [...previous, ...chosen].slice(0, 10))
     } catch (e) {
-      setError(String(e))
+      setError(dotError(e))
     } finally {
       setPicking(false)
     }
@@ -221,40 +223,45 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       <header className="dot-toolbar">
         <div className="dot-tab">
           <DotAvatar name={entry?.name ?? 'Dot'} url={entry?.avatarUrl} size={26} />
-          <h1 className="dot-tab-title">{entry?.name ?? tr('dot.yourDot')}</h1>
-          <details ref={menuRef} className="relative" open={menu} onToggle={e => setMenu(e.currentTarget.open)}>
-            <summary className="dot-icon-button list-none" aria-label={tr('dot.more')}>
-              <MoreHorizontal size={18} />
-            </summary>
-            <div className="absolute top-full right-0 z-30 mt-2 flex w-44 flex-col gap-1 rounded-xl border border-line bg-popover p-1.5 shadow-popover">
-              <button
-                type="button"
-                className="rounded-lg px-3 py-2 text-left text-ui hover:bg-hover"
-                onClick={() => {
-                  setMenu(false)
-                  retry()
-                }}
-              >
-                {tr('dot.refreshConversation')}
-              </button>
-              <a className="rounded-lg px-3 py-2 text-ui hover:bg-hover" href={web} target="_blank" rel="noreferrer">
-                {tr('dot.openWeb')}
-              </a>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="dot-tab-title">{entry?.name ?? tr('dot.yourDot')}</h1>
+              <DotExperimental />
             </div>
-          </details>
+            {entry?.accountName && (
+              <p className="truncate text-meta leading-4 text-fg-faint" title={entry.accountName}>
+                {entry.accountName}
+              </p>
+            )}
+          </div>
         </div>
-        <button
-          type="button"
-          className="dot-icon-button"
-          aria-label={tr('dot.open')}
-          title={tr('dot.open')}
-          onClick={() => void window.pixelsky?.dotChat.open().catch(e => setError(String(e)))}
-        >
-          <Plus size={20} />
-        </button>
-        <span className="min-w-0 flex-1 truncate text-meta text-fg-faint" title={entry?.accountName}>
-          {entry?.accountName}
-        </span>
+        <span className="flex-1" />
+        <details ref={menuRef} className="relative" open={menu} onToggle={e => setMenu(e.currentTarget.open)}>
+          <summary className="dot-icon-button list-none" aria-label={tr('dot.more')}>
+            <MoreHorizontal size={18} />
+          </summary>
+          <div className="absolute top-full right-0 z-30 mt-2 flex w-48 flex-col gap-1 rounded-xl border border-line bg-popover p-1.5 shadow-popover">
+            <button
+              type="button"
+              className="rounded-lg px-3 py-2 text-left text-ui hover:bg-hover"
+              onClick={() => {
+                setMenu(false)
+                retry()
+              }}
+            >
+              {tr('dot.refreshConversation')}
+            </button>
+            <a
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-ui hover:bg-hover"
+              href={web}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="flex-1">{tr('dot.openWeb')}</span>
+              <ExternalLink size={13} className="text-fg-faint" />
+            </a>
+          </div>
+        </details>
         <IconButton
           icon={Monitor}
           label={tr('dot.computer')}
@@ -346,11 +353,14 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                 ),
               )}
               {snapshot?.runs.workflows.map(run => (
-                <a key={run.id} className="dot-file-chip" href={web} target="_blank" rel="noreferrer">
-                  <File size={17} />
-                  <span>{run.name}</span>
-                  <span className="text-meta text-fg-muted">{dotStatus(run.status)}</span>
-                  <ExternalLink size={13} />
+                <a key={run.id} className="dot-task-card" href={web} target="_blank" rel="noreferrer">
+                  <File size={16} className="shrink-0 text-fg-muted" />
+                  <span className="min-w-0 flex-1 truncate text-ui text-fg">{run.name || tr('dot.task')}</span>
+                  <DotStatusPill status={run.status} />
+                  <span className="flex shrink-0 items-center gap-1 text-meta text-fg-muted">
+                    {tr(run.status === 'needsInput' ? 'dot.handleInWeb' : 'dot.openWeb')}
+                    <ExternalLink size={12} />
+                  </span>
                 </a>
               ))}
             </div>
@@ -382,7 +392,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                     void window
                       .pixelsky!.engine.cancelQueued(snapshot!.record.id, item.id)
                       .then(() => refreshSnapshot.current())
-                      .catch(e => setError(String(e)))
+                      .catch(e => setError(dotError(e)))
                       .finally(() => setResolving(false))
                   }}
                 />
@@ -392,12 +402,6 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                   {tr('dot.waiting')}
                 </p>
               )}
-              <div className="mb-2 flex min-w-0 items-center gap-2 px-2 text-meta text-fg-faint">
-                <DotAvatar name={entry?.name ?? 'Dot'} url={entry?.avatarUrl} size={16} />
-                <span className="truncate">{entry?.name ?? tr('dot.yourDot')}</span>
-                <span className="text-fg-faint">·</span>
-                <span className="truncate">{entry?.accountName}</span>
-              </div>
               <div className={`${CARD_STYLE} dot-composer`}>
                 {!!files.length && (
                   <div className="mb-3 flex flex-wrap gap-2" aria-label={tr('dot.pendingFiles')}>

@@ -87,6 +87,8 @@ import {
 import { demo, useDemoSessionChanges } from '@/data/demo'
 import { stopTargets } from '@/features/session/live/subagentStop'
 import { getStopBackgroundAgents } from '@/features/settings/stopBackgroundAgents'
+import { useDots } from '@/features/dot/store'
+import { listedSessions } from '@/features/dot/visibility'
 
 /** 是否连接了真实引擎（演示模式下为 false） */
 export const isLive = !!bridge
@@ -145,6 +147,7 @@ export function useSidebarData(): SidebarData {
   const tuiBusy = useTuiBusy()
   // 鼠标在侧栏里时冻结按最近活动的自动排序（docs/ui/motion-proposal.html ①）；用户操作不受影响
   const frozen = useSidebarFreeze()
+  const dotVisible = useDots().eligible
   // 每分钟刷新一次，让「刚刚 / 5分钟」跟着变
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -162,12 +165,15 @@ export function useSidebarData(): SidebarData {
     }
     return sidebarData(
       projects.filter(p => machineOf(p.id) === machines.currentId),
-      sessions.filter(s => machineOf(s.record.id) === machines.currentId),
+      listedSessions(
+        sessions.filter(s => machineOf(s.record.id) === machines.currentId),
+        dotVisible,
+      ),
       unread,
       stamp => relativeTime(stamp, now),
       frozen,
     )
-  }, [projects, sessions, unread, now, locale, demoChanges, machines.currentId, frozen, tuiBusy])
+  }, [projects, sessions, unread, now, locale, demoChanges, machines.currentId, frozen, tuiBusy, dotVisible])
 }
 
 export { addProject }

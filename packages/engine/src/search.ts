@@ -104,7 +104,8 @@ export async function searchSessions(
 ): Promise<SearchResponse> {
   signal?.throwIfAborted()
   const records = source.records
-    .filter(r => !query.projectId || r.projectId === query.projectId)
+    // 从侧栏 Dot 组打开的对话不进搜索（只在 Dot 组里出现，没登录 ChatGPT Pro 时整组不显示）
+    .filter(r => !r.dot && (!query.projectId || r.projectId === query.projectId))
     .sort((a, b) => b.updatedAt - a.updatedAt)
   const projects = new Map(source.projects.map(p => [p.id, p]))
   const terms = searchTerms(query.text)

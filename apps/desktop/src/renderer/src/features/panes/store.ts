@@ -513,6 +513,8 @@ export const paneActions = {
     setLayout({ ...next, focused: before.focused }, !isDemo)
   },
   prune(keep: (tab: string) => boolean): void {
-    setLayout(T.pruneTabs(state.layout, tab => T.isFileTab(tab) || keep(tab)))
+    // 没有要关的就不动布局（Dot 不可见时会话列表每次变都会来一次）
+    const next = T.pruneTabs(state.layout, tab => T.isFileTab(tab) || keep(tab))
+    if (next !== state.layout) setLayout(next)
   },
 }

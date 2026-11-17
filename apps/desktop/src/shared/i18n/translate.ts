@@ -47,6 +47,7 @@ import { imageViewerMessages } from './imageViewerMessages'
 import { exportMessages } from './exportMessages'
 import { mermaidMessages } from './mermaidMessages'
 import { modelChannelMessages } from './modelChannelMessages'
+import { dotMessages } from './dotMessages'
 import { fullAccessMessages } from './fullAccessMessages'
 import { planModeMessages } from './planModeMessages'
 import { teamRunMessages } from './teamRunMessages'
@@ -151,6 +152,7 @@ export const allMessages = {
   ...exportMessages,
   ...mermaidMessages,
   ...modelChannelMessages,
+  ...dotMessages,
   ...fullAccessMessages,
   ...planModeMessages,
   ...teamRunMessages,

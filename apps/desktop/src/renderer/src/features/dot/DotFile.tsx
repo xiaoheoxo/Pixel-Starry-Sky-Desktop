@@ -1,3 +1,4 @@
+import { dotError } from './errors'
 import { useEffect, useRef, useState } from 'react'
 import { Download, File, ImageIcon, RefreshCw } from 'lucide-react'
 import type { DotAttachment } from '@pixelsky/engine'
@@ -48,7 +49,7 @@ export function DotFile({ file, compact = false }: { file: DotAttachment; compac
         setUrl(objectUrl)
       })
       .catch(e => {
-        if (!gone) setError(String(e))
+        if (!gone) setError(dotError(e))
       })
       .finally(() => {
         if (!gone) setBusy(false)
@@ -66,7 +67,7 @@ export function DotFile({ file, compact = false }: { file: DotAttachment; compac
     try {
       await window.pixelsky!.dotChat.saveFile(key, file.fileId)
     } catch (e) {
-      setError(String(e))
+      setError(dotError(e))
     } finally {
       setBusy(false)
     }

@@ -730,7 +730,8 @@ export function AgentDialog({
   const engines = useEngineState(s => s.engines)
   const currentProject = useEngineState(s => s.currentProjectId)
   const projectOptions = useProjectOptions()
-  const ready = engines.filter(e => e.status === 'ready')
+  // Dot 只能在 ChatGPT 里聊天、不在项目里干活，不当频道 AI 成员的引擎
+  const ready = engines.filter(e => e.status === 'ready' && e.id !== 'dot')
   const allMembers = useChannels(s => s.members)
   const seed = editing ?? from ?? null
   // 打开时的名字和职责：关弹窗前用它判断改没改过

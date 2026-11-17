@@ -237,6 +237,18 @@ describe('本机会话搜索', () => {
     expect(names.get(gone.id)).toBe('已移除的项目')
   })
 
+  it('从侧栏 Dot 组打开的对话不进搜索结果', async () => {
+    const chat = host.createSession({ projectId: CHAT_PROJECT_ID })
+    const dot = host.createSession({
+      projectId: CHAT_PROJECT_ID,
+      engine: 'dot',
+      dot: { account: 'default', id: 'd', threadId: 't' },
+    })
+    const ids = (await host.search(query(''))).results.map(r => r.sessionId)
+    expect(ids).toContain(chat.id)
+    expect(ids).not.toContain(dot.id)
+  })
+
   it('无数据目录保持空结果；输入不接受越界路径或任意正则范围', async () => {
     expect((await host.search(query(''))).results).toEqual([])
     expect(() => searchQuery({ ...query('text'), projectId: '../other' })).toThrow('无效')

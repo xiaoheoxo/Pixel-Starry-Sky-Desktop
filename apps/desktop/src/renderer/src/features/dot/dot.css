@@ -130,7 +130,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  background: #111;
+  background: var(--bg-subtle);
 }
 .dot-computer-video {
   width: 100%;
@@ -237,6 +237,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 对话里 Dot 派出的任务：一行一个，状态彩色小标签，点了在 ChatGPT 打开 */
+.dot-task-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.dot-task-card:hover {
+  background: var(--bg-hover);
+}
 .dot-composer-form {
   width: 100%;
   min-width: 0;
@@ -318,25 +332,6 @@
   color: var(--text-muted);
   font-size: var(--text-meta);
 }
-.dot-profile-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.dot-profile-actions a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  font-size: var(--text-ui);
-}
-.dot-profile-actions a:hover {
-  background: var(--bg-hover);
-}
 .dot-computer-card {
   display: flex;
   align-items: center;
@@ -364,31 +359,16 @@
   margin-top: 3px;
   color: var(--text-muted);
 }
+.dot-profile-panel section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .dot-profile-panel h3 {
-  margin: 0 0 12px;
+  margin: 0 0 2px;
   color: var(--text-muted);
   font-size: var(--text-meta);
   font-weight: 500;
-}
-.dot-device {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0;
-  font-size: var(--text-ui);
-}
-.dot-device i {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 7px;
-  height: 7px;
-  background: var(--text-faint);
-  border: 1px solid var(--bg-panel);
-  border-radius: 50%;
-}
-.dot-device i.is-online {
-  background: var(--success);
 }
 .dot-output-list {
   display: flex;
@@ -423,13 +403,6 @@
 }
 .dot-more-outputs .dot-output-row {
   margin-top: 10px;
-}
-.dot-profile-account {
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-  overflow-wrap: anywhere;
-  color: var(--text-faint);
-  font-size: var(--text-meta);
 }
 @media (max-width: 940px) {
   .dot-detail-column {

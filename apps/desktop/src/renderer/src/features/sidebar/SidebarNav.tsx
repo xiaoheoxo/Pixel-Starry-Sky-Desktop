@@ -13,7 +13,7 @@ import { machineOf, useMachines } from '@/features/machines/store'
 import { useOpenSearch } from '@/features/search/SearchProvider'
 import { projects as demoProjects } from '@/data'
 import { SidebarRow } from './SidebarSection'
-import { DotNavEntry } from '@/features/dot/DotSidebar'
+import { DotNavGroup } from '@/features/dot/DotSidebar'
 
 /** 行右边的灰字（快捷键、待办数） */
 const HINT = 'shrink-0 text-meta text-fg-faint'
@@ -77,7 +77,14 @@ function ChannelsEntry() {
  * 侧栏顶部四行（docs/ui/layout-v2.md §3）：新建任务、搜索、任务看板、频道，正常和极简模式共用。
  * 外层 data-sidebar-nav：极简样式和截图脚本用 `[data-sidebar-nav] > button` 定位。
  */
-export function SidebarNav({ onNewTask }: { onNewTask?: () => void }) {
+export function SidebarNav({
+  onNewTask,
+  selectedSessionId,
+}: {
+  onNewTask?: () => void
+  /** 当前打开的会话：Dot 组里对应的那一行高亮 */
+  selectedSessionId?: string | null
+}) {
   useI18n()
   const comingSoon = useComingSoon()
   const openSearch = useOpenSearch()
@@ -103,7 +110,7 @@ export function SidebarNav({ onNewTask }: { onNewTask?: () => void }) {
       </SidebarRow>
       <BoardEntry />
       <ChannelsEntry />
-      <DotNavEntry />
+      <DotNavGroup selectedSessionId={selectedSessionId} />
     </nav>
   )
 }

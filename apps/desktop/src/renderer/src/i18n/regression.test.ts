@@ -53,6 +53,7 @@ import { imageViewerMessages } from '../../../shared/i18n/imageViewerMessages'
 import { exportMessages } from '../../../shared/i18n/exportMessages'
 import { mermaidMessages } from '../../../shared/i18n/mermaidMessages'
 import { modelChannelMessages } from '../../../shared/i18n/modelChannelMessages'
+import { dotMessages } from '../../../shared/i18n/dotMessages'
 import { fullAccessMessages } from '../../../shared/i18n/fullAccessMessages'
 import { planModeMessages } from '../../../shared/i18n/planModeMessages'
 import { teamRunMessages } from '../../../shared/i18n/teamRunMessages'
@@ -155,6 +156,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   exportMessages,
   mermaidMessages,
   modelChannelMessages,
+  dotMessages,
   fullAccessMessages,
   planModeMessages,
   teamRunMessages,

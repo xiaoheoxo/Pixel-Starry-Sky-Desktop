@@ -28,7 +28,8 @@ export function EnginesSection() {
   const liveEngines = useEngineState(s => s.engines)
   const liveConfig = useEngineState(s => s.config)
   const liveDefaults = useEngineState(s => s.defaults)
-  const engines: EngineLite[] = isLive ? liveEngines : isDemo ? demo().engines.status : []
+  // ChatGPT Dot 不是本机程序：不列在这里，入口在模型通道的 ChatGPT 卡片里（docs/ui/dot-optimize.md §2 B3）
+  const engines: EngineLite[] = (isLive ? liveEngines : isDemo ? demo().engines.status : []).filter(e => e.id !== 'dot')
   // 演示模式：配置和默认引擎只在内存里（没有桥接也不是演示模式时，比如普通浏览器，是空列表）
   const [demoConfig, setDemoConfig] = useState<EngineConfig | null>(() => (isDemo ? demo().engines.config : null))
   const config = isLive ? liveConfig : demoConfig

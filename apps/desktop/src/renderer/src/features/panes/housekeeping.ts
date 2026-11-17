@@ -4,11 +4,14 @@ import { useAppMode } from '@/features/coding/mode'
 import { usePage } from '@/features/layout/page'
 import { paneActions, usePaneState } from './store'
 import { focusedTab, isFileTab, isNewTab, visibleTabs } from './tree'
+import { useDots } from '@/features/dot/store'
+import { dotSessionIds } from '@/features/dot/visibility'
 
 /**
  * 窗格的后台维护，不管当前是对话模式还是代码模式都要跑（原来在 Workspace 里，代码模式下 Workspace 不挂载）：
  * 1. 标记「正在看」的会话，回复完不标新回复；
- * 2. 引擎读出会话列表后，去掉已经不存在的会话标签（只做一次）。
+ * 2. 引擎读出会话列表后，去掉已经不存在的会话标签（只做一次）；
+ * 3. 核对过本机没登录 ChatGPT Pro（登出、换成 Plus）时关掉 Dot 的标签（docs/ui/dot-optimize.md §2）。
  */
 export function usePaneHousekeeping(): void {
   const mode = useAppMode()
@@ -38,4 +41,11 @@ export function usePaneHousekeeping(): void {
     const ids = new Set(sessions.map(s => s.record.id))
     paneActions.prune(tab => isNewTab(tab) || ids.has(tab))
   }, [ready, sessions])
+
+  const dots = useDots()
+  useEffect(() => {
+    if (!isLive || !ready || !dots.checked || dots.eligible) return
+    const ids = dotSessionIds(sessions)
+    if (ids.size) paneActions.prune(tab => !ids.has(tab))
+  }, [ready, sessions, dots.checked, dots.eligible])
 }

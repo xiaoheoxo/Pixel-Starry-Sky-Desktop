@@ -22,8 +22,8 @@ describe('multi-account Dot chats', () => {
         { id: 'same-id', name: 'Dot', threadId: `${id}-thread`, status: 'active' },
         { id: 'second-id', name: 'Dot', threadId: `${id}-second`, status: 'active' },
       ]),
+      dotSignedIn: vi.fn(async () => true),
       sessions: () => records.map(record => ({ record })),
-      addProject: () => ({ id: 'project' }),
       createSession: vi.fn((opts: Partial<SessionRecord>) => {
         const record = { ...opts, id: `local-${records.length}` } as SessionRecord
         records.push(record)
@@ -48,6 +48,8 @@ describe('multi-account Dot chats', () => {
       const entry = catalog.entries[2]
       const snapshot = service.snapshot(entry.key)
       expect(snapshot.record.dot).toEqual({ account: 'pro2', id: 'same-id', threadId: 'pro2-thread' })
+      // 不建假项目：挂在「对话」下面
+      expect(snapshot.record.projectId).toBe('chat')
       const reopened = new DotChatSessions(host as unknown as EngineHost, root)
       expect(reopened.snapshot(entry.key).record.id).toBe(snapshot.record.id)
       expect(host.createSession).toHaveBeenCalledTimes(1)
@@ -70,11 +72,44 @@ describe('multi-account Dot chats', () => {
   })
   it('hides entries when only Plus accounts remain, including previously cached Dots', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dot-plus-'))
-    const host = { accounts: async () => ({ accounts: [{ id: 'a', plan: 'plus' }] }), dotCatalog: vi.fn() }
+    const host = {
+      accounts: async () => ({ accounts: [{ id: 'a', plan: 'plus' }] }),
+      dotCatalog: vi.fn(),
+      dotSignedIn: vi.fn(async () => true),
+    }
     try {
       const catalog = await new DotChatSessions(host as unknown as EngineHost, root).catalog(true)
       expect(catalog).toEqual({ eligible: false, entries: [], errors: [] })
       expect(host.dotCatalog).not.toHaveBeenCalled()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it('lists only Pro accounts that are still signed in, and keys do not depend on the email', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dot-signed-'))
+    let email = 'old@example.com'
+    const host = {
+      accounts: async () => ({
+        accounts: [
+          { id: 'expired', plan: 'pro', email: 'x@example.com', status: 'expired' },
+          { id: 'gone', plan: 'pro', email: 'y@example.com', status: 'ok' },
+          { id: 'pro', plan: 'pro', email, status: 'ok' },
+        ],
+      }),
+      dotSignedIn: vi.fn(async (id: string) => id !== 'gone'),
+      dotCatalog: vi.fn(async () => [{ id: 'dot', name: 'Nova', threadId: 't', status: 'active' }]),
+    }
+    try {
+      const service = new DotChatSessions(host as unknown as EngineHost, root)
+      const first = await service.catalog(true)
+      expect(first.eligible).toBe(true)
+      expect(first.entries.map(e => e.account)).toEqual(['pro'])
+      expect(host.dotSignedIn).not.toHaveBeenCalledWith('expired')
+      expect(host.dotCatalog).toHaveBeenCalledTimes(1)
+      email = 'new@example.com'
+      expect((await service.catalog(true)).entries[0].key).toBe(first.entries[0].key)
+      host.dotSignedIn.mockResolvedValue(false)
+      expect(await service.catalog(true)).toEqual({ eligible: false, entries: [], errors: [] })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { DOT_FILE_LIMIT } from '@pixelsky/engine'
 import type { EngineHost } from '@pixelsky/engine'
 import type { FileAttachment, SessionSnapshot } from '@pixelsky/protocol'
-import { supportsChatGptDot } from '@pixelsky/protocol'
+import { CHAT_PROJECT_ID, supportsChatGptDot } from '@pixelsky/protocol'
 import type { DotCatalogState, DotEntry } from '../../shared/types/dot-chat'
 import { readWindowFile, mergeWindowFile } from './windowFile'
 
@@ -44,31 +43,38 @@ export class DotChatSessions {
     }))
   }
   private async refresh(): Promise<DotCatalogState> {
-    const accounts = (await this.host.accounts('codex')).accounts.filter(a => supportsChatGptDot(a.plan))
-    this.eligible = accounts.length > 0
+    const candidates = (await this.host.accounts('codex')).accounts.filter(
+      a => a.status !== 'expired' && supportsChatGptDot(a.plan),
+    )
     const entries: DotEntry[] = []
     const errors: string[] = []
-    // 限制并发：一个账号刷新失败不影响其它账号，避免同时启动很多 app-server。
-    for (const account of accounts) {
+    let eligible = false
+    // 逐个账号来：一个账号刷新失败不影响其它账号，避免同时启动很多 app-server。
+    for (const account of candidates) {
+      // 列表里记的套餐可能是旧的（登出、降到 Plus）：本机读得到 Pro 的登录才算，没登录的账号不列它的 Dot
+      if (!(await this.host.dotSignedIn(account.id))) continue
+      eligible = true
       const accountName = account.label || account.email || account.id
       try {
         const profiles = await this.host.dotCatalog(account.id)
         for (const profile of profiles) {
+          // 不含邮箱：账号改了邮箱还是同一个对话
           const key = createHash('sha256')
-            .update(JSON.stringify([account.id, account.email, profile.id]))
+            .update(JSON.stringify([account.id, profile.id]))
             .digest('hex')
             .slice(0, 32)
           entries.push({ ...profile, key, account: account.id, accountName })
         }
       } catch (error) {
-        errors.push(`${accountName}: ${error instanceof Error ? error.message : 'Dot unavailable'}`)
+        errors.push(error instanceof Error ? error.message : 'Dot unavailable')
         entries.push(...this.entries.filter(e => e.account === account.id).map(e => ({ ...e, status: 'unavailable' })))
       }
     }
+    this.eligible = eligible
     this.entries = entries
     this.errors = errors
     mergeWindowFile(this.file, { entries, sessions: this.sessions })
-    return { eligible: this.eligible, entries, errors }
+    return { eligible, entries, errors }
   }
   entry(key: string): DotEntry {
     const entry = this.entries.find(e => e.key === key)
@@ -86,11 +92,9 @@ export class DotChatSessions {
       record.dot.threadId === entry.threadId
     )
       return this.host.open(record.id)
-    const path = join(this.root, 'dot-workspace')
-    mkdirSync(path, { recursive: true })
-    const project = this.host.addProject(path)
+    // 挂在「对话」下面（不建项目）：侧栏、看板、搜索都不列 Dot 会话，只在侧栏的 Dot 组里打开
     const created = this.host.createSession({
-      projectId: project.id,
+      projectId: CHAT_PROJECT_ID,
       engine: 'dot',
       dot: { account: entry.account, id: entry.id, threadId: entry.threadId },
       platform: null,
