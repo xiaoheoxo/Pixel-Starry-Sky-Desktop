@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({ BrowserWindow: {}, WebContentsView: class {}, dialog: {}, session: {}, shell: {} }))
 vi.mock('../ipc/guard', () => ({ handle: vi.fn() }))
 
-const { pageUrl } = await import('./browser')
+const { browserUrl, pageUrl } = await import('./browser')
 
 describe('网页标签能打开的地址', () => {
   const root = join(process.cwd(), 'fixture-project')
@@ -25,6 +25,13 @@ describe('网页标签能打开的地址', () => {
     expect(() => pageUrl(pathToFileURL(join(root, '..', 'secret.html')).href, root)).toThrow()
     expect(() => pageUrl(inside, null)).toThrow()
     expect(() => pageUrl(pathToFileURL(root).href, root)).toThrow()
+  })
+
+  it('只输端口号：本机这个端口', () => {
+    expect(browserUrl('5173')).toBe('http://localhost:5173/')
+    expect(browserUrl(':8080')).toBe('http://localhost:8080/')
+    expect(browserUrl('5173/settings?tab=1')).toBe('http://localhost:5173/settings?tab=1')
+    expect(() => browserUrl('99999')).toThrow()
   })
 
   it('其余协议照旧拒绝', () => {

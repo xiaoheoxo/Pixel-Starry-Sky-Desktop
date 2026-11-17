@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ExternalLink, Globe, MousePointerClick, Plus, RefreshCw, Square, X } from 'lucide-react'
-import { Button, IconButton, cn } from '@/ui'
+import { Clock, Globe } from 'lucide-react'
+import { Button, cn } from '@/ui'
 import { MAX_IMAGE_COUNT } from '@pixelsky/protocol'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
@@ -17,12 +17,23 @@ import { shotImage } from './annotationText'
 import { pickConfig } from './pickConfig'
 import { PreviewViewport } from './PreviewViewport'
 import { useProjectContext } from './projectContext'
-import { FIELD, NoProject, ToolError, useOperation } from './ToolsUi'
-import type { BrowserAnnotation, BrowserPage, BrowserState } from '../../../../shared/types/project-browser'
+import { NoProject, ToolError, useOperation } from './ToolsUi'
+import {
+  browserShortcut,
+  type BrowserAnnotation,
+  type BrowserPage,
+  type BrowserShortcut,
+  type BrowserState,
+} from '../../../../shared/types/project-browser'
 import type { WorkspaceRef } from '../../../../shared/types/workspace'
 import { demo as demoData } from '@/data/demo'
 import { isPortUrl, parsePort, portUrl, sameService } from '@/features/coding/bottom/portsModel'
 import { usePortState } from '@/features/session/live/portTips'
+import { isMac } from '@/features/layout/keybindings'
+import { BrowserToolbar } from './BrowserToolbar'
+import { BrowserPageTabs } from './BrowserPageTabs'
+import { BrowserErrorPage } from './BrowserErrorPage'
+import { plainAddress, showPageTabs } from './browserModel'
 
 /** 网页和批注栏按批注栏的位置排（docs/ui/element-annotation.md §7） */
 const DOCK_FLOW: Record<AnnotationDock, string> = {
@@ -68,8 +79,7 @@ function BrowserBody({
   const [state, setState] = useState<BrowserState | null>(
     demo ? structuredClone(demoData().projectTools.browser) : null,
   )
-  const [address, setAddress] = useState(''),
-    [note, setNote] = useState('')
+  const [note, setNote] = useState('')
   /** 刚放进输入框、已从列表移除的批注：提示几秒，可以放回列表（也从输入框的批注卡里拿掉） */
   const [sent, setSent] = useState<{ pageId: string; notes: BrowserAnnotation[] } | null>(null)
   /** 面板够宽时批注汇总放右侧（docs/ui/element-annotation.md §2），窄时是底部可折叠的样式 */
@@ -84,6 +94,11 @@ function BrowserBody({
     requestedSeq = useRef(0)
   const { busy, error, setError, run } = useOperation()
   const page = state?.pages.find(p => p.id === state.activeId)
+  /** 整页打不开 / 崩溃：网页区域换成错误页，原生视图藏起来（docs/ui/browser-v2.md §3.1） */
+  const failed = page?.failed !== undefined
+  const addressRef = useRef<HTMLInputElement>(null)
+  const pages = state?.pages ?? []
+  const canAddPage = pages.length < 12
   const [port, setPort] = useState('')
   const found = usePortState(target.sessionId).found
   const openUrl = (url: string) =>
@@ -129,9 +144,6 @@ function BrowserBody({
     const timer = window.setTimeout(() => setSent(null), 6000)
     return () => window.clearTimeout(timer)
   }, [sent])
-  useEffect(() => {
-    setAddress(page?.url ?? '')
-  }, [page?.id, page?.url])
   useEffect(() => {
     if (
       !requested ||
@@ -190,10 +202,14 @@ function BrowserBody({
         r.right <= innerWidth + 1 &&
         r.bottom <= innerHeight + 1
       const visible =
-        placeable && !covered && !!element && pointShowsPlaceholder(element, r.x + r.width / 2, r.y + r.height / 2)
+        !failed &&
+        placeable &&
+        !covered &&
+        !!element &&
+        pointShowsPlaceholder(element, r.x + r.width / 2, r.y + r.height / 2)
       const rect = visible && r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null
       // 只是被挡住（认得出的弹出层，或中心点被别的元素盖着）：藏之前截一张图顶替（定格画面），挡的东西没了再放回真网页
-      const freeze = !rect && placeable
+      const freeze = !rect && placeable && !failed
       const hash = JSON.stringify(rect) + ':' + freeze + ':' + page.id
       if (hash === prior) return
       prior = hash
@@ -272,13 +288,13 @@ function BrowserBody({
       setSnapshot(null)
       void window.pixelsky?.projectBrowser.viewport(target, null).catch(() => {})
     }
-  }, [page?.id, demo])
-  const navigate = () =>
+  }, [page?.id, demo, failed])
+  const navigate = (url: string) =>
     run(async () => {
       if (demo) return
-      setState(await window.pixelsky!.projectBrowser.navigate(target, page?.id ?? null, address))
+      setState(await window.pixelsky!.projectBrowser.navigate(target, page?.id ?? null, url))
     })
-  const action = (kind: 'back' | 'forward' | 'reload' | 'stop' | 'close', id = page?.id) =>
+  const action = (kind: 'back' | 'forward' | 'reload' | 'hardReload' | 'stop' | 'close', id = page?.id) =>
     run(async () => {
       if (!id) return
       if (demo) {
@@ -372,6 +388,47 @@ function BrowserBody({
       }
       for (const a of notes) setState(await window.pixelsky!.projectBrowser.annotate(target, page.id, a.text, a))
     })
+  /** 新页面：没有当前页时显示空状态，焦点放进地址栏 */
+  const newPage = () => {
+    if (!canAddPage) return
+    void select(null).then(() => requestAnimationFrame(() => addressRef.current?.focus()))
+  }
+  const closeOthers = (id: string) =>
+    run(async () => {
+      if (demo) return setState(s => (s ? { ...s, pages: s.pages.filter(p => p.id === id), activeId: id } : s))
+      for (const p of pages)
+        if (p.id !== id) setState(await window.pixelsky!.projectBrowser.action(target, p.id, 'close'))
+    })
+  const duplicate = (p: BrowserPage) =>
+    run(async () => {
+      if (demo) return
+      setState(await window.pixelsky!.projectBrowser.navigate(target, null, p.remoteUrl ?? p.url))
+    })
+  const openExternal = () =>
+    void run(async () => {
+      // 远端工作区用本机转发的地址：系统浏览器在这台电脑上
+      if (page && !demo) await window.pixelsky!.projectTools.openExternal(page.url)
+    })
+  /** 浏览器快捷键（docs/ui/browser-v2.md §3.1）；返回是否处理了 */
+  const shortcut = (key: BrowserShortcut): boolean => {
+    if (key === 'address') {
+      addressRef.current?.focus()
+      addressRef.current?.select()
+    } else if (key === 'newPage') newPage()
+    else if (!page) return false
+    else if (key === 'closePage') void action('close')
+    else void action(key)
+    return true
+  }
+  const shortcutRef = useRef(shortcut)
+  shortcutRef.current = shortcut
+  // 网页有焦点时主进程截下来转过来的
+  useEffect(() => {
+    if (demo) return
+    return window.pixelsky?.projectBrowser.onKey(e => {
+      if (e.scope === scope.current) shortcutRef.current(e.shortcut)
+    })
+  }, [demo])
   useEffect(() => {
     const el = root.current
     if (!el) return
@@ -397,100 +454,56 @@ function BrowserBody({
       .catch(() => {})
   }, [page?.id])
   return (
-    <div ref={root} data-tools-browser className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-      <div className="flex shrink-0 items-center gap-1">
-        <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-          {state?.pages.map(p => (
-            <div
-              key={p.id}
-              className={
-                'flex shrink-0 items-center rounded-md border ' +
-                (p.id === state.activeId ? 'border-line bg-surface' : 'border-transparent')
-              }
-            >
-              <button
-                title={p.url}
-                disabled={busy}
-                onClick={() => void select(p.id)}
-                className="max-w-36 truncate px-2 py-1.5 text-meta text-fg-secondary"
-              >
-                {p.title}
-              </button>
-              <IconButton
-                size={24}
-                iconSize={12}
-                icon={X}
-                label={tr('projectTools.closePage')}
-                disabled={busy}
-                onClick={() => void action('close', p.id)}
-              />
-            </div>
-          ))}
-        </div>
-        <IconButton
-          icon={Plus}
-          label={tr('projectTools.newPage')}
-          disabled={busy || (state?.pages.length ?? 0) >= 12}
-          onClick={() => void select(null)}
+    <div
+      ref={root}
+      data-tools-browser
+      className="flex min-h-0 flex-1 flex-col gap-2 p-3"
+      onKeyDown={e => {
+        if (e.defaultPrevented || e.nativeEvent.isComposing) return
+        const key = browserShortcut(
+          { key: e.key, mod: isMac ? e.metaKey : e.ctrlKey, shift: e.shiftKey, alt: e.altKey },
+          isMac,
+        )
+        // 处理了就不再往外传：Ctrl+W 关的是网页，不是右栏的浏览器标签
+        if (key && (e.repeat || shortcut(key))) {
+          e.preventDefault()
+          e.stopPropagation()
+        }
+      }}
+    >
+      {showPageTabs(pages, state?.activeId ?? null) && (
+        <BrowserPageTabs
+          pages={pages}
+          activeId={state?.activeId ?? null}
+          busy={busy}
+          canAddPage={canAddPage}
+          onSelect={id => void select(id)}
+          onClose={id => void action('close', id)}
+          onNewPage={newPage}
+          onReload={id => void action('reload', id)}
+          onDuplicate={p => void duplicate(p)}
+          onCloseOthers={id => void closeOthers(id)}
         />
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <IconButton
-          icon={ArrowLeft}
-          label={tr('projectTools.back')}
-          disabled={busy || !page?.canBack}
-          onClick={() => void action('back')}
-        />
-        <IconButton
-          icon={ArrowRight}
-          label={tr('projectTools.forward')}
-          disabled={busy || !page?.canForward}
-          onClick={() => void action('forward')}
-        />
-        <IconButton
-          icon={page?.loading ? Square : RefreshCw}
-          label={tr(page?.loading ? 'projectTools.stopLoading' : 'projectTools.reload')}
-          disabled={busy || !page}
-          onClick={() => void action(page?.loading ? 'stop' : 'reload')}
-        />
-        <form
-          onSubmit={e => {
-            e.preventDefault()
-            void navigate()
-          }}
-          className="flex min-w-0 flex-1 gap-1"
-        >
-          <input
-            aria-label={tr('projectTools.enterUrl')}
-            value={address}
-            onChange={e => setAddress(e.target.value)}
-            placeholder={tr('projectTools.enterUrl')}
-            className={FIELD}
-          />
-          <Button type="submit" disabled={busy || !address.trim()}>
-            {tr('projectTools.go')}
-          </Button>
-        </form>
-        <IconButton
-          icon={MousePointerClick}
-          active={!!page?.picking}
-          aria-pressed={!!page?.picking}
-          label={tr(page?.picking ? 'projectTools.pickElementOff' : 'projectTools.pickElement')}
-          disabled={busy || !page}
-          onClick={() => void togglePick()}
-        />
-        <IconButton
-          icon={ExternalLink}
-          label={tr('projectTools.openExternal')}
-          disabled={!page || busy || demo}
-          onClick={() =>
-            void run(async () => {
-              if (page) await window.pixelsky!.projectTools.openExternal(page.url)
-            })
-          }
-        />
-      </div>
-      <ToolError error={error || page?.error || ''} />
+      )}
+      <BrowserToolbar
+        page={page}
+        wide={wide}
+        tabs={showPageTabs(pages, state?.activeId ?? null)}
+        canAddPage={canAddPage}
+        busy={busy}
+        demo={demo}
+        ports={found}
+        recent={state?.recent ?? []}
+        titles={new Map(pages.map(p => [p.remoteUrl ?? p.url, p.title]))}
+        addressRef={addressRef}
+        onNavigate={url => void navigate(url)}
+        onAction={kind => void action(kind)}
+        onTogglePick={() => void togglePick()}
+        onNewPage={newPage}
+        onOpenExternal={openExternal}
+      />
+      {/* 整页打不开时原因在错误页里，这里只放操作出错和批注上限之类 */}
+      <ToolError error={error || (failed ? '' : page?.error) || ''} />
       <div className={cn('flex min-h-0 flex-1 gap-2', DOCK_FLOW[placed])}>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div
@@ -508,7 +521,17 @@ function BrowserBody({
                 className="pointer-events-none absolute inset-0 z-[1] size-full select-none"
               />
             )}
-            {demo && page ? (
+            {page && failed ? (
+              <BrowserErrorPage
+                page={page}
+                ports={found}
+                busy={busy}
+                demo={demo}
+                onRetry={() => void action('reload')}
+                onOpenExternal={openExternal}
+                onOpenPort={n => void navigate(portUrl(n))}
+              />
+            ) : demo && page ? (
               <PreviewViewport />
             ) : (
               <div className="pointer-events-none flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-meta text-fg-muted">
@@ -558,6 +581,26 @@ function BrowserBody({
                               className="rounded-sm bg-subtle px-1.5 font-mono text-fg-secondary hover:bg-hover"
                             >
                               :{f.port}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(state?.recent?.length ?? 0) > 0 && (
+                      <div data-browser-recent className="text-left text-fg-faint">
+                        {tr('projectTools.recentPages')}
+                        <div className="mt-1 flex flex-col">
+                          {state!.recent!.slice(0, 5).map(url => (
+                            <button
+                              key={url}
+                              type="button"
+                              disabled={busy}
+                              title={url}
+                              onClick={() => void openUrl(url)}
+                              className="flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 text-fg-secondary hover:bg-hover"
+                            >
+                              <Clock size={12} className="shrink-0 text-fg-faint" />
+                              <span className="truncate font-mono">{plainAddress(url)}</span>
                             </button>
                           ))}
                         </div>

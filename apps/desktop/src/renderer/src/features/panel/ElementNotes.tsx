@@ -178,6 +178,30 @@ export function ElementNotes({
           </span>
         )}
       </h3>
+      {/* 收起时刚发出去的也能放回（展开时在下面的提示条里） */}
+      {folded && band && sent?.pageId === page.id && (
+        <button
+          type="button"
+          disabled={busy}
+          className="shrink-0 text-meta whitespace-nowrap text-accent-fg underline"
+          onClick={onRestore}
+        >
+          {tr('projectTools.restoreAnnotation')}
+        </button>
+      )}
+      {folded && band && count > 0 && (
+        <Button
+          variant="primary"
+          icon={Send}
+          data-annotation-send-folded
+          className="h-7 px-2.5 text-meta"
+          disabled={!canSend || busy}
+          title={canSend ? tr('projectTools.sendAnnotationFull') : tr('projectTools.noConversation')}
+          onClick={onSend}
+        >
+          {tr('projectTools.sendAnnotation')}
+        </Button>
+      )}
       {!(folded && vertical) && (
         <span className="relative shrink-0">
           <IconButton
@@ -254,7 +278,10 @@ export function ElementNotes({
         e.preventDefault()
         onAnnotate()
       }}
-      className={cn('flex min-w-0 shrink-0 flex-col gap-1.5', band && '[grid-area:compose]')}
+      className={cn(
+        'flex min-w-0 shrink-0 flex-col gap-1.5',
+        band && '[grid-area:compose] @max-[480px]:flex-row @max-[480px]:items-start',
+      )}
     >
       <textarea
         value={note}
@@ -269,10 +296,15 @@ export function ElementNotes({
           }
         }}
         placeholder={tr('projectTools.annotationPlaceholder')}
-        className="min-h-12 w-full min-w-0 resize-none rounded-md border border-line bg-surface px-2.5 py-1.5 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent"
+        className={cn(
+          'min-h-12 w-full min-w-0 resize-none rounded-md border border-line bg-surface px-2.5 py-1.5 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent',
+          band && '@max-[480px]:min-h-8 @max-[480px]:flex-1',
+        )}
       />
       <div className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-fg-faint">{tr('projectTools.annotationHint')}</span>
+        <span className={cn('min-w-0 flex-1 truncate text-label text-fg-faint', band && '@max-[480px]:hidden')}>
+          {tr('projectTools.annotationHint')}
+        </span>
         <Button type="submit" className="whitespace-nowrap" disabled={busy || !note.trim()}>
           {tr('projectTools.save')}
         </Button>
@@ -344,7 +376,7 @@ export function ElementNotes({
     </div>
   ) : (
     // 宽：写批注 | 条目横着排 | 提示和按钮；窄（< 640）：左边上面写批注、下面提示和按钮，右边条目竖着排
-    <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)_11rem] grid-rows-[minmax(0,1fr)] gap-2 p-2 [grid-template-areas:'compose_list_side'] @max-[640px]:grid-cols-[13rem_minmax(0,1fr)] @max-[640px]:grid-rows-[auto_minmax(0,1fr)] @max-[640px]:[grid-template-areas:'compose_list'_'side_list']">
+    <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)_11rem] grid-rows-[minmax(0,1fr)] gap-2 p-2 [grid-template-areas:'compose_list_side'] @max-[640px]:grid-cols-[13rem_minmax(0,1fr)] @max-[640px]:grid-rows-[auto_minmax(0,1fr)] @max-[640px]:[grid-template-areas:'compose_list'_'side_list'] @max-[480px]:grid-cols-[minmax(0,1fr)] @max-[480px]:grid-rows-[auto_minmax(0,1fr)_auto] @max-[480px]:[grid-template-areas:'compose'_'list'_'side']">
       {compose}
       {list}
       <div className="flex min-w-0 flex-col justify-between gap-2 border-l border-line-card pl-2 [grid-area:side] @max-[640px]:justify-end @max-[640px]:border-l-0 @max-[640px]:pl-0">

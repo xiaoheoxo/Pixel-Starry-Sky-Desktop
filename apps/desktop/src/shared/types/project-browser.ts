@@ -36,11 +36,41 @@ export interface BrowserPage {
   remoteUrl?: string
   /** 这一页的控制台错误和失败请求（运行胶囊，docs/ui/panel-pill.md §8.1）；只在广播里带，不落盘，换页清零 */
   issues?: { errors: number; requests: number; last: string[] }
+  /** 整页打不开（docs/ui/browser-v2.md §3.1 错误页）：Chromium 的网络错误码（负数），网页崩溃为 0；重新加载时清掉，不落盘 */
+  failed?: number
+  /** 网站图标（data URL，≤ 32 KB）；只在广播里带，不落盘 */
+  favicon?: string
 }
 export interface BrowserState {
   scope: string
   pages: BrowserPage[]
   activeId: string | null
+  /** 这个工作区最近打开过的地址（新的在前，最多 8 个；远端工作区是原地址，不是本机转发端口） */
+  recent?: string[]
+}
+
+/** 浏览器快捷键（docs/ui/browser-v2.md §3.1）：焦点在浏览器标签里、包括网页里时生效 */
+export type BrowserShortcut = 'address' | 'reload' | 'hardReload' | 'newPage' | 'closePage' | 'back' | 'forward'
+
+/** 按键 → 浏览器快捷键；主进程（网页有焦点时）和界面共用。mod 是 Windows / Linux 的 Ctrl、macOS 的 ⌘ */
+export function browserShortcut(
+  e: { key: string; mod: boolean; shift: boolean; alt: boolean },
+  mac: boolean,
+): BrowserShortcut | null {
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
+  if (e.alt) {
+    if (mac || e.mod || e.shift) return null
+    return key === 'ArrowLeft' ? 'back' : key === 'ArrowRight' ? 'forward' : null
+  }
+  if (!e.mod) return !e.shift && key === 'F5' ? 'reload' : !e.shift && key === 'F6' ? 'address' : null
+  if (key === 'r') return e.shift ? 'hardReload' : 'reload'
+  if (e.shift) return null
+  if (key === 'l') return 'address'
+  if (key === 't') return 'newPage'
+  if (key === 'w') return 'closePage'
+  if (mac && key === '[') return 'back'
+  if (mac && key === ']') return 'forward'
+  return null
 }
 
 /** 运行胶囊「把错误发给 AI」放进输入框的那段（docs/ui/panel-pill.md §8.1）：给 AI 看的，不走界面词典 */

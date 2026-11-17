@@ -443,6 +443,14 @@ const projectBrowser: import('./project-browser').BrowserBridge = {
     on('projectBrowser:changed', listener)
     return () => ipcRenderer.removeListener('projectBrowser:changed', listener)
   },
+  onKey: cb => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      event: Parameters<Parameters<import('./project-browser').BrowserBridge['onKey']>[0]>[0],
+    ): void => cb(event)
+    on('projectBrowser:key', listener)
+    return () => ipcRenderer.removeListener('projectBrowser:key', listener)
+  },
 }
 const terminal: TerminalBridge = {
   state: force => call('terminal:state', force),

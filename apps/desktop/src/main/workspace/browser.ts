@@ -3,7 +3,7 @@ import * as ipc from '../ipc/guard'
 import { createHash, randomUUID } from 'node:crypto'
 import { join, basename, isAbsolute, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { BrowserPage, BrowserState } from '../../shared/types/project-browser'
+import { browserShortcut, type BrowserPage, type BrowserState } from '../../shared/types/project-browser'
 import type { WorkspaceRef } from '../../shared/types/workspace'
 import { JsonStore, value, type ToolsHost } from '../core/project-tools/common'
 import { workspaceRef } from '../core/workspace-files'
@@ -23,15 +23,35 @@ import {
   type PickRect,
 } from './elementPicker'
 import { addIssue, consoleIssue, failedRequest, type PageIssues } from './page-issues'
+import { pushRecent } from './browser-recent'
+import { sendTo } from '../app/rendererHealth'
 
 const ANNOTATION_LIMIT = 100
+/** 网站图标最大字节数 */
+const FAVICON_MAX = 32 * 1024
+const sameOrigin = (a: string, b: string): boolean => {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
 
 interface StoredScope {
   pages: BrowserPage[]
   activeId: string | null
+  /** 最近打开过的地址（docs/ui/browser-v2.md §3.1） */
+  recent?: string[]
 }
 export function browserUrl(raw: unknown): string {
   const input = value(raw, 4000, true)
+  // 只输端口号（5173、:5173、5173/settings）：本机这个端口（docs/ui/browser-v2.md §3.1）
+  const port = /^:?(\d+)(\/.*)?$/.exec(input)
+  if (port) {
+    const n = Number(port[1])
+    if (n < 1 || n > 65535) throw new Error('端口号要在 1–65535 之间')
+    return new URL(port[2] ?? '/', `http://localhost:${n}`).href
+  }
   const normalized = /^[a-z][a-z\d+.-]*:\/\//i.test(input)
     ? input
     : /^(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(input)
@@ -78,6 +98,8 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       p.canForward = false
       p.picking = false
       p.annotations ??= []
+      delete p.failed
+      delete p.favicon
     }
   type View = {
     view: WebContentsView
@@ -112,6 +134,28 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       }, 500),
     )
   }
+  /** 每个网页标签的网站图标（data URL）；取到的按图标地址缓存，同一个站换页不重新取（没取到的不记，下次再试） */
+  const favicons = new Map<string, string>()
+  const faviconCache = new Map<string, string>()
+  const loadFavicon = async (ses: Electron.Session, url: string): Promise<string | null> => {
+    const cached = faviconCache.get(url)
+    if (cached) return cached
+    let found: string | null = null
+    if (url.startsWith('data:image/')) found = url.length <= FAVICON_MAX * 1.4 ? url : null
+    else if (/^https?:/i.test(url))
+      try {
+        const res = await ses.fetch(url, { signal: AbortSignal.timeout(5000) })
+        const type = res.headers.get('content-type') ?? ''
+        // 写明了太大的不下载
+        const big = Number(res.headers.get('content-length') ?? 0) > FAVICON_MAX
+        const body = res.ok && !big && type.startsWith('image/') ? Buffer.from(await res.arrayBuffer()) : null
+        if (body && body.length <= FAVICON_MAX) found = `data:${type.split(';')[0]};base64,${body.toString('base64')}`
+      } catch {}
+    if (!found) return null
+    if (faviconCache.size >= 100) faviconCache.delete(faviconCache.keys().next().value!)
+    faviconCache.set(url, found)
+    return found
+  }
   const noteIssue = (scope: string, id: string, kind: 'errors' | 'requests', line: string): void => {
     issues.set(id, addIssue(issues.get(id), kind, line))
     broadcastSoon(scope)
@@ -132,7 +176,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
   }
   const state = (scope: string): BrowserState => {
     const s = store.data.scopes[scope] ?? { pages: [], activeId: null }
-    return { scope, pages: s.pages, activeId: s.activeId }
+    return { scope, pages: s.pages, activeId: s.activeId, ...(s.recent?.length ? { recent: s.recent } : {}) }
   }
   const broadcast = (scope: string): void => {
     ctx.events.broadcast('projectBrowser:changed', displayState(state(scope)))
@@ -141,10 +185,12 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     ...value,
     pages: value.pages.map(page => {
       const gone = missing.get(page.id)
-      const found = issues.get(page.id)
+      const found = issues.get(page.id),
+        icon = favicons.get(page.id)
       return {
         ...page,
         ...(found ? { issues: found } : {}),
+        ...(icon ? { favicon: icon } : {}),
         url: page.remoteUrl ?? page.url,
         annotations: gone?.size
           ? page.annotations.map(a => (gone.has(a.id) ? { ...a, missing: true as const } : a))
@@ -399,12 +445,42 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     wc.on('did-start-loading', () => {
       p.loading = true
       p.error = null
+      delete p.failed
       update()
     })
     wc.on('did-stop-loading', () => {
       p.loading = false
       update()
+      // 打开成功的记进最近地址（地址栏下拉）
+      const s = store.data.scopes[scope]
+      if (s && p.failed === undefined && !p.error) s.recent = pushRecent(s.recent, p.remoteUrl ?? p.url)
       persist()
+    })
+    wc.on('page-favicon-updated', (_e, urls) => {
+      const url = urls.find(u => /^(https?:|data:image\/)/i.test(u))
+      if (!url) return
+      const at = wc.getURL()
+      void loadFavicon(browserSession, url).then(icon => {
+        // 取图标期间换了网站：这个图标是上一个站的，不用
+        if (!icon || wc.isDestroyed() || !sameOrigin(at, wc.getURL())) return
+        if (favicons.get(p.id) === icon || !state(scope).pages.some(item => item.id === p.id)) return
+        favicons.set(p.id, icon)
+        broadcast(scope)
+      })
+    })
+    // 网页有焦点时应用窗口收不到按键：浏览器快捷键在这里截下来交给界面（docs/ui/browser-v2.md §3.1），其余照常给网页
+    wc.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.isAutoRepeat) return
+      const mac = process.platform === 'darwin'
+      const shortcut = browserShortcut(
+        { key: input.key, mod: mac ? input.meta : input.control, shift: input.shift, alt: input.alt },
+        mac,
+      )
+      if (!shortcut || win.isDestroyed()) return
+      event.preventDefault()
+      // 要在界面里打字的（地址栏）：焦点先从网页回到应用窗口
+      if (shortcut === 'address' || shortcut === 'newPage') win.webContents.focus()
+      sendTo(win.webContents, 'projectBrowser:key', { scope, pageId: p.id, shortcut })
     })
     wc.on('did-navigate', () => {
       update()
@@ -423,17 +499,24 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
     })
     // 换了一页（不是页内跳转）：上一页的错误清掉
     wc.on('did-start-navigation', details => {
-      if (details.isMainFrame && !details.isSameDocument && issues.delete(p.id)) broadcastSoon(scope)
+      if (!details.isMainFrame || details.isSameDocument) return
+      const cleared = issues.delete(p.id)
+      // 换了网站：上一个站的图标不留着
+      const icon = favicons.get(p.id)
+      if (icon && !sameOrigin(details.url, wc.getURL()) && favicons.delete(p.id)) broadcastSoon(scope)
+      else if (cleared) broadcastSoon(scope)
     })
     wc.on('did-fail-load', (_e, code, description, _url, mainFrame) => {
       if (mainFrame && code !== -3) {
         p.error = description
+        p.failed = code
         p.loading = false
         update()
       }
     })
     wc.on('render-process-gone', (_e, details) => {
       p.error = details.reason
+      p.failed = 0
       p.loading = false
       broadcast(scope)
     })
@@ -535,6 +618,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
         }
       missing.delete(id)
       issues.delete(id)
+      favicons.delete(id)
       const next = state(scope).activeId
       if (next) place(getView(win, scope, find(scope, next)))
     } else {
@@ -542,6 +626,7 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
       else if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward()
       else if (action === 'reload') wc.reload()
+      else if (action === 'hardReload') wc.reloadIgnoringCache()
       else if (action === 'stop') wc.stop()
     }
     broadcast(scope)

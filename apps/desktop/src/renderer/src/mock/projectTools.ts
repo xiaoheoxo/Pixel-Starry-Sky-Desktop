@@ -124,11 +124,16 @@ const demoNote = (
 export const demoToolBrowser: BrowserState = {
   scope: 'demo',
   activeId: 'demo-web',
+  // 地址栏下拉的「最近」（docs/ui/browser-v2.md §3.1）
+  recent: ['http://127.0.0.1:8330/', 'http://127.0.0.1:8330/settings', 'http://localhost:5173/login'],
   pages: [
     {
       id: 'demo-web',
       url: 'http://127.0.0.1:8330/',
       title: 'pixel-web',
+      // 演示网页自己的图标（网页的颜色，不是界面的）
+      favicon:
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%234f46e5'/%3E%3C/svg%3E",
       loading: false,
       error: null,
       canBack: false,

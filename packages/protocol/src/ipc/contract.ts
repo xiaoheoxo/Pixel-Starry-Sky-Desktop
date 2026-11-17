@@ -837,6 +837,8 @@ export const IPC_CONTRACT = {
   'projectBrowser:action': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:annotate': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:changed': { kind: 'push', route: 'push', trust: 'none' },
+  // 网页有焦点时按的浏览器快捷键（docs/ui/browser-v2.md §3.1）：只发给网页所在的窗口
+  'projectBrowser:key': { kind: 'push', route: 'push', trust: 'none' },
   'projectBrowser:navigate': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:pick': { kind: 'invoke', route: 'local', trust: 'window' },
   'projectBrowser:removeAnnotation': { kind: 'invoke', route: 'local', trust: 'window' },
