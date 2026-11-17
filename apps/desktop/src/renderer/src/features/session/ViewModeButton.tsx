@@ -1,4 +1,4 @@
-// 对话查看模式的按钮和菜单（docs/ui/view-mode.md §6）：放在输入框状态栏，普通只有图标，聊天、详细带文字和强调底色
+// 对话查看模式的按钮和菜单（docs/ui/view-mode.md §6）：放在输入框状态栏，三档都带文字，聊天、详细另加强调底色
 import { useRef, useState } from 'react'
 import { Check, Eye, ListTree, MessagesSquare, type LucideIcon } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -36,7 +36,7 @@ export function ViewModeButton({ onPick }: { onPick: (mode: ViewMode) => void })
         )}
       >
         <Icon size={13} strokeWidth={1.5} />
-        {mode !== 'normal' && <span>{tr(label)}</span>}
+        <span>{tr(label)}</span>
       </button>
       <Popover
         open={open}
