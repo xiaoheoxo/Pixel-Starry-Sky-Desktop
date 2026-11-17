@@ -2,10 +2,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { ClaudeAdapter } from '../src'
 import { CATALOG_TTL } from '../src/claude'
-import { makeTmp } from './helpers/tmp'
+import { makeTmp, removeTmp } from './helpers/tmp'
 
 const FAKE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
 const newAdapter = (launcher = { command: process.execPath, args: [FAKE] }) =>
@@ -87,7 +87,9 @@ describe('目录少起进程（docs/memory-tier2.md §1）', () => {
 
 describe('重新检测期间读额度（docs/memory-tier2.md §1）', () => {
   it('先等正在进行的检测做完，用新的命令起进程，不把旧命令的目录写进缓存', async () => {
-    const log = join(makeTmp('catalog-redetect'), 'argv.log')
+    const dir = makeTmp('catalog-redetect')
+    onTestFinished(() => removeTmp(dir))
+    const log = join(dir, 'argv.log')
     const oldLauncher = { command: process.execPath, args: [FAKE, '--old-command'] }
     const adapter = new ClaudeAdapter({
       launcher: oldLauncher,
