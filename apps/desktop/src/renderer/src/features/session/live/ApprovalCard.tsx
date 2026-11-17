@@ -31,6 +31,7 @@ import { DiffView } from '@/ui/code/DiffView'
 import { CommandText } from '@/ui/code/CommandText'
 import { Markdown } from '@/ui/markdown/Markdown'
 import { FullAccessConfirm } from '../FullAccessConfirm'
+import { PERMISSION_INFO } from '@/features/engine'
 import { hasWrapperExtra, shellDisplayName } from './commandWrapper'
 import { alwaysKeyScope, approvalShortcut, digitQuestion, questionShortcut } from './approvals/cardKeys'
 import { PlanReview, usePlanDraft, type PlanActions } from './PlanReview'
@@ -348,7 +349,9 @@ export function ApprovalCard({
       title={planNotes > 0 ? tr('approvals.keys.startPlan') : withKeys(tr('approvals.keys.startPlan'), [mod, 'Enter'])}
       onClick={() => answer({ type: 'allow' })}
     >
-      {tr('session.live.ApprovalCard.startExecution')}
+      {planActions?.returnLevel
+        ? tr('planMode.start', { p0: PERMISSION_INFO[planActions.returnLevel].label })
+        : tr('session.live.ApprovalCard.startExecution')}
     </Button>
   )
   const compactButton = (variant: 'outline' | 'ghost') =>

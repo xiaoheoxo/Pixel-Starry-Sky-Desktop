@@ -1769,7 +1769,7 @@ export class CodexSession implements EngineSession {
     if (decision.type === 'allow_all') {
       if (!approval.request.canAllowAll) throw new Error('This request cannot enable full access')
       this.settings.permissionMode = 'full'
-      this.ctx.setPermissionMode('full')
+      this.ctx.setPermissionMode('full', true)
     }
     const allow = decision.type === 'allow' || decision.type === 'allow_always' || decision.type === 'allow_all'
     if (allow && approval.request.canAllow === false) return

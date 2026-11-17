@@ -39,6 +39,7 @@ import type { CreditSource } from '@/features/account/platform'
 import { sourceOfChannel, type ChannelChoice } from '@/features/model-channels/channelModel'
 import type { SourceSwitch } from './SourceHintBar'
 import { nextPermissionMode } from './fullAccess'
+import { PlanReadyBar } from './PlanReadyBar'
 import { keyForConversation } from '@/features/search/ConversationFind'
 import { CYCLE_PERMISSION, TOGGLE_VOICE } from '@/features/layout/shortcuts'
 import { useSettings } from '@/features/settings/SettingsProvider'
@@ -1072,6 +1073,7 @@ export function Composer({
       )}
       <div
         data-composer-style={style}
+        data-planning={live?.planning || undefined}
         style={chatgpt ? artStyle : undefined}
         className={cn('composer-shell relative', chatgpt && CARD_STYLE)}
       >
@@ -1099,6 +1101,7 @@ export function Composer({
             if (!e.currentTarget.contains(e.relatedTarget as Node)) setDraggingImages(false)
           }}
           onDrop={onDrop}
+          data-planning={live?.planning || undefined}
           style={chatgpt ? undefined : artStyle}
           className={cn('composer-core relative', !chatgpt && CARD_STYLE, draggingImages && 'ring-2 ring-accent')}
         >
@@ -1142,6 +1145,7 @@ export function Composer({
             onReset={() => setLayoutSize('composerHeight', null, true)}
           />
           {live && live.permissionMode === 'full' && <FullAccessStrip live={live} />}
+          {live?.planning && <PlanReadyBar live={live} />}
           {live && (
             <SourceHintBar
               live={live}
@@ -1291,7 +1295,9 @@ export function Composer({
                       ? translate('继续补充要求，Enter 加入队列…')
                       : suggestion
                         ? `${suggestion}（${translate('按 Tab 填入')}）`
-                        : translate(composer.placeholder)
+                        : live?.planning
+                          ? tr('planMode.placeholder')
+                          : translate(composer.placeholder)
               }
               height={textHeight}
               onContentHeight={setContentHeight}
@@ -1325,9 +1331,11 @@ export function Composer({
             // 外包一层 contents：窄宽时 composerCompact.css 靠它把权限按钮收成只剩图标
             <span data-composer-permission className="contents">
               <PermissionMenu
-                mode={live.permissionMode}
+                mode={live.level}
                 modes={live.permissionModes}
-                onSelect={live.setPermissionMode}
+                onSelect={live.setLevel}
+                planning={live.planning}
+                onPlanning={live.setPlanning}
                 engine={live.engine?.id}
                 defaultMode={live.defaultPermissionMode}
                 started={live.started}

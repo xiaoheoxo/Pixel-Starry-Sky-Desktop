@@ -27,6 +27,7 @@ import { queueSettings } from '../queue'
 import { ENGINES } from '../registry'
 import type { HostContext, Runtime } from './context'
 import { NEW_TITLE } from './title'
+import { checkPlanReturn, nextPlanReturn } from './plan-return'
 import { under } from '../native/paths'
 import { logger } from '../log'
 
@@ -95,6 +96,10 @@ export class HostSessions {
       provider: opts.provider ? { id: opts.provider.id } : null,
       effort: opts.effort !== undefined ? opts.effort : d.effort,
       permissionMode: opts.permissionMode ?? d.permissionMode,
+      // 新任务先开了「先出计划」：批准后回到选的那档（docs/ui/plan-mode-split.md §7）
+      ...((opts.permissionMode ?? d.permissionMode) === 'plan' && opts.planReturn
+        ? { planReturn: checkPlanReturn(opts.planReturn) }
+        : {}),
       ultracode: opts.ultracode ?? d.ultracode,
       fast: opts.fast ?? d.fast,
       ...(opts.ultrafast ? { ultrafast: true } : {}),
@@ -286,6 +291,8 @@ export class HostSessions {
         next.engine = patch.engine
         // 自动审核只有部分引擎有：和开始过的会话换引擎一样退回每次询问（handoff.ts）
         if (!ENGINES[patch.engine].caps.permissionModes.includes(current.permissionMode)) next.permissionMode = 'ask'
+        if (current.planReturn && !ENGINES[patch.engine].caps.permissionModes.includes(current.planReturn))
+          next.planReturn = 'ask'
       } else if (!running && !rt.stopping && !rt.activeId && rt.snapshot.queue.length === 0) {
         if (ctx.changingSessions.has(id)) throw new Error('正在处理这个会话，请稍后重试')
         ctx.changingSessions.add(id)
@@ -328,6 +335,12 @@ export class HostSessions {
     if (patch.effort !== undefined) next.effort = patch.effort
     if (patch.subagentOverrides !== undefined) next.subagentOverrides = parseSubagentOverrides(patch.subagentOverrides)
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode
+    const planReturn = nextPlanReturn(
+      current,
+      next.permissionMode ?? current.permissionMode,
+      patch.planReturn !== undefined ? patch.planReturn : next.planReturn,
+    )
+    if (planReturn !== (current.planReturn ?? null)) next.planReturn = planReturn
     if (patch.ultracode !== undefined) next.ultracode = patch.ultracode
     if (patch.fast !== undefined) next.fast = patch.fast
     if (patch.ultrafast !== undefined) next.ultrafast = patch.ultrafast
@@ -399,6 +412,8 @@ export class HostSessions {
       if (remembered.permissionMode === 'auto') delete remembered.permissionMode
       // 完全放行只管这个对话，不记成新会话的默认；要默认完全放行得在设置里明确改（docs/ui/full-access-confirm.md）
       if (remembered.permissionMode === 'full') delete remembered.permissionMode
+      // 「先出计划」只管这个任务（docs/ui/plan-mode-split.md §3），不让以后的新任务都从计划开始
+      if (remembered.permissionMode === 'plan') delete remembered.permissionMode
       if (Object.keys(remembered).length > 0) m.settings.setDefaults({ ...remembered, engine: target })
       const live = { ...settings }
       if (deferred || modelLater) {

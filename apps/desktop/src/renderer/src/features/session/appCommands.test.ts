@@ -15,6 +15,8 @@ function context(patch: Partial<AppCommandContext['live']> = {}, extra: Partial<
     permissionModes: ['ask', 'edits', 'plan', 'full'],
     defaultPermissionMode: 'ask',
     setPermissionMode: vi.fn(),
+    planning: false,
+    setPlanning: vi.fn(),
     ...patch,
   }
   const ctx: AppCommandContext = {
@@ -93,16 +95,14 @@ describe('像素星空处理的 Codex 命令', () => {
     expect(on.live.setFast).toHaveBeenCalledWith(false)
   })
 
-  it('/plan 进计划模式；再来一次回到这个引擎新会话的默认权限（默认就是计划时回到编辑）', () => {
+  it('/plan 和「先出计划」开关一样：开着就关（回到进计划前那档），关着就开', () => {
     const a = context()
     runAppCommand('plan', a)
-    expect(a.live.setPermissionMode).toHaveBeenCalledWith('plan')
-    const b = context({ permissionMode: 'plan' })
+    expect(a.live.setPlanning).toHaveBeenCalledWith(true)
+    const b = context({ permissionMode: 'plan', planning: true })
     runAppCommand('plan', b)
-    expect(b.live.setPermissionMode).toHaveBeenCalledWith('ask')
-    const c = context({ permissionMode: 'plan', defaultPermissionMode: 'plan' })
-    runAppCommand('plan', c)
-    expect(c.live.setPermissionMode).toHaveBeenCalledWith('edits')
+    expect(b.live.setPlanning).toHaveBeenCalledWith(false)
+    expect(b.live.setPermissionMode).not.toHaveBeenCalled()
   })
 
   it('各命令调到对应的入口；表里没有的、现在不能用的返回 undefined', () => {

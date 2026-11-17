@@ -54,6 +54,7 @@ import { exportMessages } from '../../../shared/i18n/exportMessages'
 import { mermaidMessages } from '../../../shared/i18n/mermaidMessages'
 import { modelChannelMessages } from '../../../shared/i18n/modelChannelMessages'
 import { fullAccessMessages } from '../../../shared/i18n/fullAccessMessages'
+import { planModeMessages } from '../../../shared/i18n/planModeMessages'
 import { htmlPreviewMessages } from '../../../shared/i18n/htmlPreviewMessages'
 import { portPreviewMessages } from '../../../shared/i18n/portPreviewMessages'
 import { tipsMessages } from '../../../shared/i18n/tipsMessages'
@@ -151,6 +152,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   mermaidMessages,
   modelChannelMessages,
   fullAccessMessages,
+  planModeMessages,
   htmlPreviewMessages,
   portPreviewMessages,
   tipsMessages,

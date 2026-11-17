@@ -64,6 +64,45 @@ describe('engine:updateSession', () => {
   })
 })
 
+describe('engine:answer', () => {
+  // 手机批准计划：原来完全放行的回到自动改文件（docs/ui/plan-mode-split.md §3）
+  function context(planReturn: SessionRecord['planReturn'], kind = 'plan') {
+    const calls: unknown[][] = []
+    const c = {
+      host: {
+        record: () => ({ ...record, permissionMode: 'plan', planReturn }),
+        open: () => ({ pending: [{ requestId: 'r1', kind }] }),
+        update: async (id: string, patch: unknown) => (calls.push(['update', id, patch]), record),
+        answer: (id: string, rid: string, d: unknown) => calls.push(['answer', id, rid, d]),
+      },
+    } as unknown as EngineOpContext
+    return { c, calls }
+  }
+  const allow = { type: 'allow' }
+
+  it('phone approving a plan that returns to full access returns to edits instead', async () => {
+    const { c, calls } = context('full')
+    await ENGINE_OPS['engine:answer'](c, 's1', 'r1', allow, 'mobile')
+    expect(calls).toEqual([
+      ['update', 's1', { planReturn: 'edits' }],
+      ['answer', 's1', 'r1', allow],
+    ])
+  })
+
+  it('leaves the desktop, a refusal, other cards and other return levels alone', async () => {
+    const cases: [ReturnType<typeof context>, unknown, unknown][] = [
+      [context('full'), allow, undefined],
+      [context('full'), { type: 'deny' }, 'mobile'],
+      [context('full', 'command'), allow, 'mobile'],
+      [context('edits'), allow, 'mobile'],
+    ]
+    for (const [ctx, decision, via] of cases) {
+      await ENGINE_OPS['engine:answer'](ctx.c, 's1', 'r1', decision, via)
+      expect(ctx.calls.map(call => call[0])).toEqual(['answer'])
+    }
+  })
+})
+
 describe('engine:moveQueued', () => {
   function context() {
     const calls: unknown[][] = []

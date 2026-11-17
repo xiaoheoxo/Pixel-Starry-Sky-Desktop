@@ -48,6 +48,7 @@ import { exportMessages } from './exportMessages'
 import { mermaidMessages } from './mermaidMessages'
 import { modelChannelMessages } from './modelChannelMessages'
 import { fullAccessMessages } from './fullAccessMessages'
+import { planModeMessages } from './planModeMessages'
 import { htmlPreviewMessages } from './htmlPreviewMessages'
 import { portPreviewMessages } from './portPreviewMessages'
 import { tipsMessages } from './tipsMessages'
@@ -147,6 +148,7 @@ export const allMessages = {
   ...mermaidMessages,
   ...modelChannelMessages,
   ...fullAccessMessages,
+  ...planModeMessages,
   ...htmlPreviewMessages,
   ...portPreviewMessages,
   ...tipsMessages,

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import type { PermissionMode } from '@pixelsky/protocol'
 import { useI18n } from '@/i18n/I18nProvider'
 import { IconButton, cn } from '@/ui'
 import { Markdown } from '@/ui/markdown/Markdown'
@@ -29,6 +30,8 @@ export interface PlanActions {
   compact?: (plan: string) => Promise<void>
   /** 引擎打回计划时不带话（像素星空只回「继续完善」）：意见作为下一条消息发 */
   feedback?: (message: string) => Promise<void>
+  /** 批准后用哪档执行（docs/ui/plan-mode-split.md）：「开始执行」按钮上写明；不在计划中时不给 */
+  returnLevel?: PermissionMode
 }
 
 interface Editing {

@@ -580,7 +580,8 @@ export function sanitize(method: string, args: unknown[]): unknown[] {
       // 手机不能把会话切成完全放行（docs/mobile-remote.md）：allow_all 一律拒绝
       const decision = (args[2] ?? {}) as { type?: unknown }
       if (decision.type === 'allow_all') throw new Error('MOBILE_FORBIDDEN')
-      return args
+      // 第四个参数告诉电脑这是手机答的：批准计划后不回完全放行（ops.ts 的 engine:answer）
+      return [args[0], args[1], args[2], 'mobile']
     }
     default:
       return args

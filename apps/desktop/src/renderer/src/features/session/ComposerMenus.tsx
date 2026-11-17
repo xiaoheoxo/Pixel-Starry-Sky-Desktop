@@ -17,6 +17,7 @@ import {
   Zap,
   type LucideIcon,
   ShieldEllipsis,
+  X,
 } from 'lucide-react'
 import type { EngineId, PermissionMode } from '@pixelsky/protocol'
 import { IconButton, Popover, cn, useToast } from '@/ui'
@@ -338,17 +339,26 @@ export function EffortMenu({
   )
 }
 
+/**
+ * 权限按钮和菜单：菜单只列权限档位，下面另起一个「先出计划」开关（docs/ui/plan-mode-split.md）。
+ * mode 是权限档位（计划中是批准后回到的那档），planning 是开关
+ */
 export function PermissionMenu({
   mode,
   modes,
   onSelect,
+  planning = false,
+  onPlanning,
   engine,
   defaultMode,
   started = true,
 }: {
-  mode: PermissionMode
+  mode: Exclude<PermissionMode, 'plan'>
   modes: PermissionMode[]
-  onSelect: (m: PermissionMode) => void
+  onSelect: (m: Exclude<PermissionMode, 'plan'>) => void
+  planning?: boolean
+  /** 没有时不显示开关（引擎没有计划模式） */
+  onPlanning?: (on: boolean) => unknown
   engine?: EngineId
   /** 这个引擎新会话的默认权限：确认里写「新任务还是……」 */
   defaultMode?: PermissionMode
@@ -365,8 +375,10 @@ export function PermissionMenu({
     setConfirming(false)
   }
   const later = saferMode(defaultMode, modes)
+  const PlanIcon = PERMISSION_ICON.plan
+  const canPlan = !!onPlanning && modes.includes('plan')
   return (
-    <div className="relative">
+    <div className="relative flex items-center">
       <button
         type="button"
         title={tr('session.ComposerMenus.permissions', { p0: PERMISSION_INFO[mode].label })}
@@ -382,10 +394,25 @@ export function PermissionMenu({
         <Icon size={16} strokeWidth={1.5} />
         <span>{PERMISSION_INFO[mode].label}</span>
       </button>
+      {planning && canPlan && (
+        // 计划中胶囊：点它关掉先出计划，回到原来那档
+        <button
+          type="button"
+          data-plan-chip
+          title={tr('planMode.chipOff', { p0: PERMISSION_INFO[mode].label })}
+          aria-label={tr('planMode.chipOff', { p0: PERMISSION_INFO[mode].label })}
+          onClick={() => void onPlanning?.(false)}
+          className="press no-drag ml-0.5 inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-accent-line bg-accent-soft px-2 text-meta text-accent-fg hover:text-fg"
+        >
+          <PlanIcon size={12} strokeWidth={1.75} />
+          <span>{tr('planMode.chip')}</span>
+          <X size={11} strokeWidth={2} />
+        </button>
+      )}
       <Popover open={open} onClose={close} side="top" offset={8} className="w-80">
-        <MenuTitle>{tr('session.Composer.permissionMode')}</MenuTitle>
+        <MenuTitle>{tr(planning && canPlan ? 'planMode.menuTitle' : 'session.Composer.permissionMode')}</MenuTitle>
         {/* 自动审核只有部分引擎有：没有时不占一行，其它不支持的才灰着 */}
-        {(['ask', 'edits', ...(modes.includes('auto') ? (['auto'] as const) : []), 'plan', 'full'] as const).map(m => {
+        {(['ask', 'edits', ...(modes.includes('auto') ? (['auto'] as const) : []), 'full'] as const).map(m => {
           const MIcon = PERMISSION_ICON[m]
           const supported = modes.includes(m)
           if (m === 'full' && confirming)
@@ -419,9 +446,11 @@ export function PermissionMenu({
               icon={<MIcon size={16} strokeWidth={1.5} className={m === 'full' ? 'text-warn' : 'text-fg-muted'} />}
               title={PERMISSION_INFO[m].label}
               hint={
-                supported
-                  ? ((engine ? PERMISSION_HINTS[engine]?.[m]?.() : undefined) ?? PERMISSION_INFO[m].hint)
-                  : tr('session.ComposerMenus.notSupportedByThis2')
+                !supported
+                  ? tr('session.ComposerMenus.notSupportedByThis2')
+                  : planning && canPlan && m === mode
+                    ? tr('planMode.returnHere')
+                    : ((engine ? PERMISSION_HINTS[engine]?.[m]?.() : undefined) ?? PERMISSION_INFO[m].hint)
               }
               onClick={() => {
                 if (needsFullConfirm(mode, m)) {
@@ -434,6 +463,17 @@ export function PermissionMenu({
             />
           )
         })}
+        {canPlan && (
+          <div className="mx-0.5 mt-1 border-t border-line-subtle px-2">
+            <SwitchRow
+              icon={<PlanIcon size={14} strokeWidth={1.75} className={planning ? 'text-accent' : 'text-fg-muted'} />}
+              label={tr('planMode.toggle')}
+              desc={planning ? tr('planMode.onHint', { p0: PERMISSION_INFO[mode].label }) : tr('planMode.toggleHint')}
+              checked={planning}
+              onChange={on => void onPlanning?.(on)}
+            />
+          </div>
+        )}
       </Popover>
     </div>
   )

@@ -23,6 +23,7 @@ import type { HostContext } from './context'
 import { mergeContext } from './branch'
 import { nextQueued, reconnectedCount } from './queue'
 import { NEW_TITLE, titleFrom } from './title'
+import { reportedMode } from './plan-return'
 
 export class HostTurn {
   constructor(private readonly ctx: HostContext) {}
@@ -301,9 +302,17 @@ export class HostTurn {
             : {}),
         })
       },
-      setPermissionMode: permissionMode => {
+      setPermissionMode: (reported, chosen) => {
+        // 计划批准后引擎自己退回的档（Claude 回 default 等）换成进计划前那档，再推回引擎（docs/ui/plan-mode-split.md §7）
+        const { permissionMode, planReturn, push } = reportedMode(rt.snapshot.record, reported, chosen === true)
         if (rt.execution) rt.execution.permissionMode = permissionMode
-        m.events.patchRecord(id, { permissionMode })
+        m.events.patchRecord(id, { permissionMode, planReturn })
+        const session = rt.session
+        if (push && session)
+          void Promise.resolve()
+            .then(() => (rt.session === session ? session.update({ permissionMode }) : undefined))
+            // 推不过去时引擎照它自己那档继续（最多多问几次），记录已经是用户要的档，下一轮启动时会带上
+            .catch(() => undefined)
       },
       setUltracode: ultracode => {
         if (rt.execution) rt.execution.ultracode = ultracode

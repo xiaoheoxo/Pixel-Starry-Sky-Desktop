@@ -1111,7 +1111,7 @@ describe('helpers', () => {
     expect(sanitize('engine:moveQueued', ['s', 'q1', 2])).toEqual(['s', 'q1', 2])
     // 审批：手机不能借「允许并完全放行」把会话切成 full，别的答复原样放行
     expect(() => sanitize('engine:answer', ['s', 'r1', { type: 'allow_all' }])).toThrow('MOBILE_FORBIDDEN')
-    expect(sanitize('engine:answer', ['s', 'r1', { type: 'allow' }])).toEqual(['s', 'r1', { type: 'allow' }])
+    expect(sanitize('engine:answer', ['s', 'r1', { type: 'allow' }])).toEqual(['s', 'r1', { type: 'allow' }, 'mobile'])
   })
   it('回退：手机只能回退对话，传了还原文件、指定文件也一律去掉（docs/mobile-app.md §14.3）', () => {
     expect(sanitize('engine:rewind', ['s', 'u1', { conversation: true, code: true, paths: ['a.txt'] }])).toEqual([

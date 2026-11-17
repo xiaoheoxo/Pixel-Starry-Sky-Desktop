@@ -40,6 +40,11 @@ export interface SessionSettings {
   /** null 表示用引擎自己的默认强度 */
   effort: Effort | null
   permissionMode: PermissionMode
+  /**
+   * 「先出计划」开着时，计划批准后回到哪一档（docs/ui/plan-mode-split.md）：从别的档进只规划时记下，
+   * 批准后宿主切回这里并清掉；手动离开只规划也清掉。旧记录、不在计划中为 null / 缺省（批准后照旧回每步问我）
+   */
+  planReturn?: Exclude<PermissionMode, 'plan'> | null
   /** Ultracode 开关（只有能力表里 ultracode 为真的引擎才有效） */
   ultracode: boolean
   /** Fast 模式（更快、更贵） */

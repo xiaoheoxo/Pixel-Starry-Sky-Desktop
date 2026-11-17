@@ -979,8 +979,10 @@ describe('EngineHost + Claude（假引擎）', () => {
     expect(host.open(record.id).record.permissionMode).toBe('full')
     // 完全放行不记成新会话的默认（docs/ui/full-access-confirm.md）；别的模式照旧记住
     expect(host.defaults().permissionMode).toBe(before)
+    // 「先出计划」只管这个任务，也不记成默认（docs/ui/plan-mode-split.md §3）
+    await host.update(record.id, { permissionMode: 'edits' })
     await host.update(record.id, { permissionMode: 'plan' })
-    expect(host.defaults().permissionMode).toBe('plan')
+    expect(host.defaults().permissionMode).toBe('edits')
     await host.update(record.id, { permissionMode: 'full' })
     await host.interrupt(record.id)
     await waitFor(() => turnsDone(record.id) === 1)
@@ -1422,14 +1424,61 @@ describe('Claude 每轮开始前只发变了的设置', () => {
     await host.update(record.id, { permissionMode: 'edits' })
     await turn('第三轮')
     expect(settings(controls().slice(before))).toEqual(['set_permission_mode'])
-    // Claude Code 自己切了模式（批准计划后切回原模式）：之后用户再选回 plan 一定要发出去
+    // Claude Code 自己切了模式（批准计划后切回 default）：宿主换成进计划前那档并推回去；之后用户再选回 plan 一定要发出去
     await host.update(record.id, { permissionMode: 'plan' })
+    expect(host.open(record.id).record.planReturn).toBe('edits')
+    before = controls().length
     await turn('切回')
-    expect(host.open(record.id).record.permissionMode).toBe('ask')
+    await waitFor(() => settings(controls().slice(before)).length === 1)
+    expect(host.open(record.id).record).toMatchObject({ permissionMode: 'edits', planReturn: null })
     before = controls().length
     await host.update(record.id, { permissionMode: 'plan' })
     expect(settings(controls().slice(before))).toEqual(['set_permission_mode'])
   })
+})
+
+describe('先出计划：批准后回到进计划前那档（docs/ui/plan-mode-split.md）', () => {
+  const modes = (): string[] => {
+    try {
+      return readFileSync(join(root, 'argv.control.log'), 'utf8').split('\n').filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+  it('完全放行进计划、规划中换档、批准、旧记录', async () => {
+    const host = makeHost()
+    const { record } = setup(host)
+    const rec = () => host.open(record.id).record
+    const turn = async (text: string): Promise<void> => {
+      const done = turnsDone(record.id)
+      await host.send(record.id, text)
+      await waitFor(() => turnsDone(record.id) > done && host.open(record.id).state === 'idle')
+    }
+    await host.update(record.id, { permissionMode: 'full' })
+    await host.update(record.id, { permissionMode: 'plan' })
+    expect(rec()).toMatchObject({ permissionMode: 'plan', planReturn: 'full' })
+    // 规划中只换「批准后用哪档」：仍在计划中
+    await host.update(record.id, { planReturn: 'edits' })
+    expect(rec()).toMatchObject({ permissionMode: 'plan', planReturn: 'edits' })
+    await host.update(record.id, { planReturn: 'full' })
+    await expect(host.update(record.id, { planReturn: 'plan' as never })).rejects.toThrow('档位')
+    // 批准（Claude 自己退回 default）：回到完全放行，并推给进程 bypassPermissions
+    const pushes = () => modes().filter(c => c === 'set_permission_mode').length
+    const before = pushes()
+    await turn('切回')
+    await waitFor(() => rec().permissionMode === 'full' && pushes() > before)
+    expect(rec().planReturn).toBeNull()
+    // 手动关掉计划：回到那档、清掉记录，不再改写之后引擎报的模式
+    await host.update(record.id, { permissionMode: 'plan' })
+    await host.update(record.id, { permissionMode: 'full' })
+    expect(rec()).toMatchObject({ permissionMode: 'full', planReturn: null })
+    // 旧记录（计划中但没有 planReturn）：照旧回每步问我
+    await host.update(record.id, { permissionMode: 'plan', planReturn: null })
+    expect(rec().planReturn).toBeNull()
+    await turn('再切回')
+    await waitFor(() => rec().permissionMode === 'ask')
+    // 三轮对话，全量并行跑时 5 秒不够
+  }, 20_000)
 })
 
 describe('停止时连同后台子智能体', () => {

@@ -117,9 +117,12 @@ describe('本机引擎详情设置', () => {
       ultracode: false,
       thinkingSummaries: true,
     })
+    // 先出计划只管这个任务，不记成默认（docs/ui/plan-mode-split.md §3）；别的档照旧记住
     await host.update(a.id, { permissionMode: 'plan' })
-    expect(host.defaults()).toMatchObject({ engine: 'claude', effort: 'max', permissionMode: 'plan' })
-    expect(host.createSession({ projectId: p.id })).toMatchObject({ effort: 'max', permissionMode: 'plan' })
+    expect(host.defaults()).toMatchObject({ engine: 'claude', permissionMode: 'full' })
+    await host.update(a.id, { permissionMode: 'edits' })
+    expect(host.defaults()).toMatchObject({ engine: 'claude', effort: 'max', permissionMode: 'edits' })
+    expect(host.createSession({ projectId: p.id })).toMatchObject({ effort: 'max', permissionMode: 'edits' })
     await expect(host.setEngineConfig('claude', { defaults: { effort: 'huge' as never } })).rejects.toThrow(
       '默认推理强度不对',
     )

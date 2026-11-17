@@ -424,6 +424,16 @@ export interface ComposerController {
   /** 这个引擎新会话的默认权限（完全放行的确认和「改回」用，docs/ui/full-access-confirm.md） */
   defaultPermissionMode: PermissionMode
   setPermissionMode(m: PermissionMode): void
+  /**
+   * 「先出计划」和权限档位分开（docs/ui/plan-mode-split.md）：planning 是开关（permissionMode 为 plan），
+   * level 是权限按钮显示的档位（计划中是批准后回到的那档，旧记录没记时按每步问我）
+   */
+  planning: boolean
+  level: Exclude<PermissionMode, 'plan'>
+  /** 菜单里选档：计划中只改批准后回到哪档，仍在计划中 */
+  setLevel(m: Exclude<PermissionMode, 'plan'>): void
+  /** 开关「先出计划」：打开记下当前档，关掉回到那档；改完（宿主收下）后 resolve，失败时已提示过 */
+  setPlanning(on: boolean): Promise<void>
   /** 这一轮正在进行（包括等审批） */
   running: boolean
   /** 引擎在等你审批（输入框提示「AI 在等你决定」，docs/ui/approval-stack.md） */
@@ -455,6 +465,8 @@ interface Draft {
   engine: EngineId
   effort: Effort | null
   permissionMode: PermissionMode
+  /** 新任务开了「先出计划」时，批准后回到的档 */
+  planReturn?: Exclude<PermissionMode, 'plan'> | null
   ultracode: boolean
   fast: boolean
   ultrafast?: boolean
@@ -500,6 +512,10 @@ export function useComposerController(
     ...panelDefaults(baseEngine),
   }
   const record = snap?.record ?? null
+  const mode = record ? record.permissionMode : base.permissionMode
+  const planning = mode === 'plan'
+  const level: Exclude<PermissionMode, 'plan'> =
+    mode !== 'plan' ? mode : ((record ? record.planReturn : base.planReturn) ?? 'ask')
   // 已开始的会话：运行中选了别的引擎时，菜单、模型、强度档位都按新选的引擎走（下一条消息起生效）
   const engineId = record ? (record.nextEngine ?? record.engine) : base.engine
   const engine = engines.find(e => e.id === engineId) ?? null
@@ -976,7 +992,7 @@ export function useComposerController(
     draftAutoCheck,
     setDraftAutoCheck,
     suggestion: snap?.suggestion ?? null,
-    permissionMode: record ? record.permissionMode : base.permissionMode,
+    permissionMode: mode,
     permissionModes: engine?.caps.permissionModes ?? ['ask', 'edits', 'plan', 'full'],
     defaultPermissionMode:
       config?.[engineId]?.defaults.permissionMode ??
@@ -984,7 +1000,32 @@ export function useComposerController(
       'edits',
     setPermissionMode: permissionMode => {
       if (record) void b.updateSession(record.id, { permissionMode }).catch(updateFailed)
-      else setDraft({ ...base, permissionMode })
+      // 新任务：和宿主一样，进计划时记下原来那档（快捷键切进计划也算）
+      else
+        setDraft({
+          ...base,
+          permissionMode,
+          planReturn: permissionMode !== 'plan' ? null : planning ? (base.planReturn ?? null) : level,
+        })
+    },
+    planning,
+    level,
+    setLevel: m => {
+      if (!planning) {
+        if (record) void b.updateSession(record.id, { permissionMode: m }).catch(updateFailed)
+        else setDraft({ ...base, permissionMode: m })
+      } else if (record) void b.updateSession(record.id, { planReturn: m }).catch(updateFailed)
+      else setDraft({ ...base, planReturn: m })
+    },
+    setPlanning: async on => {
+      if (on === planning) return
+      // 打开：宿主记下当前档（新任务这里记）；关掉：回到那档，宿主清掉记录
+      if (record)
+        await b
+          .updateSession(record.id, { permissionMode: on ? 'plan' : level })
+          .then(() => undefined)
+          .catch(updateFailed)
+      else setDraft({ ...base, permissionMode: on ? 'plan' : level, planReturn: on ? level : null })
     },
     running: !!snap && snap.state !== 'idle',
     awaitingApproval: !!snap && snap.pending.length > 0,
@@ -1022,7 +1063,9 @@ export function useComposerController(
       })
       const panel = {
         effort: record ? record.effort : base.effort,
-        permissionMode: record ? record.permissionMode : base.permissionMode,
+        permissionMode: mode,
+        // 先出计划开着：新对话批准后同样回到这一档
+        planReturn: planning ? level : null,
         ultracode: record ? record.ultracode : base.ultracode,
         fast: record ? record.fast : base.fast,
         thinkingSummaries: record ? record.thinkingSummaries : base.thinkingSummaries,

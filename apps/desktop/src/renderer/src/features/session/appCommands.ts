@@ -22,6 +22,8 @@ export interface AppCommandContext {
     | 'permissionModes'
     | 'defaultPermissionMode'
     | 'setPermissionMode'
+    | 'planning'
+    | 'setPlanning'
   >
   newChat(): void
   fork(): void
@@ -103,11 +105,8 @@ const SPECS: Spec[] = [
     description: c => (c.live.permissionMode === 'plan' ? 'appCommand.planOff' : 'appCommand.planOn'),
     available: c => c.live.permissionModes.includes('plan'),
     run: c => {
-      const { permissionMode, defaultPermissionMode, setPermissionMode } = c.live
-      // 退出时回到这个引擎新会话的默认权限；默认就是计划模式时回到「编辑」
-      setPermissionMode(
-        permissionMode !== 'plan' ? 'plan' : defaultPermissionMode !== 'plan' ? defaultPermissionMode : 'edits',
-      )
+      // 和菜单里的「先出计划」开关一样：打开记下当前档，关掉回到那档（docs/ui/plan-mode-split.md）
+      void c.live.setPlanning(!c.live.planning)
       return null
     },
   },

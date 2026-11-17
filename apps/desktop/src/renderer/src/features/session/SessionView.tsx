@@ -396,14 +396,17 @@ function LiveSessionView({
   // 计划卡要会话层做的事（docs/ui/plan-review.md §3）
   const planActions: PlanActions | undefined = composer
     ? {
-        // 「压缩上下文后执行」：卡片已经打回了计划；离开「只规划」，排上 /compact 和「按计划执行」，按顺序跑
+        // 批准后回到进计划前那档；旧记录没记时 Claude / 像素星空批准后回每步问我
+        ...(snapshot?.record.permissionMode === 'plan'
+          ? { returnLevel: snapshot.record.planReturn ?? ('ask' as const) }
+          : {}),
+        // 「压缩上下文后执行」：卡片已经打回了计划；关掉先出计划（回到进计划前那档），排上 /compact 和「按计划执行」，按顺序跑
         compact: snapshot?.flags.compactAvailable
           ? async plan => {
               const c = composerRef.current
               if (!c) return
               try {
-                if (c.permissionMode === 'plan')
-                  c.setPermissionMode(c.permissionModes.includes('ask') ? 'ask' : c.defaultPermissionMode)
+                if (c.planning) await c.setPlanning(false)
                 await c.submit('/compact')
                 await c.submit(`${tr('plan.runApproved')}\n\n${plan}`)
               } catch (e) {

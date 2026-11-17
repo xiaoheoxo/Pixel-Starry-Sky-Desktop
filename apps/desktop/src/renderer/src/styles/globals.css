@@ -1849,3 +1849,9 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
   height: 24px;
   border-radius: 9999px;
 }
+
+/* 先出计划开着：输入框一圈强调色描边，聚焦时也不换回普通描边（docs/ui/plan-mode-split.md §7） */
+.composer-card[data-planning],
+.composer-card[data-planning]:focus-within {
+  border-color: var(--accent-border);
+}

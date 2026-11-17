@@ -61,8 +61,11 @@ export interface SessionContext {
   runs?(): AgentRuns
   /** 引擎分配（或确认）了自己的会话 id */
   setEngineSessionId(id: string): void
-  /** 引擎自己改了权限模式（例如计划模式下用户同意了计划） */
-  setPermissionMode(mode: PermissionMode): void
+  /**
+   * 引擎自己改了权限模式（例如计划模式下用户同意了计划）。chosen：这是用户在审批里明确选的（Codex 的「全部放行」），
+   * 不是引擎批准计划后自己退回的档，宿主不换成进计划前那档（docs/ui/plan-mode-split.md §7）
+   */
+  setPermissionMode(mode: PermissionMode, chosen?: boolean): void
   /** 引擎实际生效的 Ultracode 状态和我们记录的不一样（例如当前模型不支持） */
   setUltracode(on: boolean): void
   /** Fast 模式开不了（账号或接口不支持），把记录里的开关关掉 */

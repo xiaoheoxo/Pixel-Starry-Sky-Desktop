@@ -423,6 +423,21 @@ describe('Pixel 引擎适配器', () => {
     // 命令行自己换的模式：适配器不再发 /pixelsky-mode
     expect(messages().filter(m => m.type === 'prompt' && m.message === '/pixelsky-mode default')).toHaveLength(0)
   })
+  it('完全放行时先出计划：命令行批准后退回 default，宿主换回完全放行并发 /pixelsky-mode（plan-mode-split.md §7）', async () => {
+    const { session, messages } = setup()
+    await host!.update(session.id, { permissionMode: 'full' })
+    await host!.update(session.id, { permissionMode: 'plan' })
+    expect(host!.record(session.id)?.planReturn).toBe('full')
+    await host!.send(session.id, '交计划')
+    await wait(() => snap(session.id).pending.length === 1)
+    host!.answer(session.id, snap(session.id).pending[0].requestId, { type: 'allow' })
+    await wait(
+      () =>
+        idle(session.id) &&
+        messages().some(m => m.type === 'prompt' && m.message === '/pixelsky-mode bypassPermissions'),
+    )
+    expect(host!.record(session.id)).toMatchObject({ permissionMode: 'full', planReturn: null })
+  })
   it('停止：abort 后这一轮以 interrupted 结束；等批准时停止也行', async () => {
     const { session, messages, events } = setup(60_000)
     await host!.send(session.id, '慢')

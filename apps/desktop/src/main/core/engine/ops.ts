@@ -116,6 +116,9 @@ function nativeImportOptions(raw: unknown): {
   if (typeof s.effort === 'string' || s.effort === null) settings.effort = s.effort as SessionSettings['effort']
   if (typeof s.permissionMode === 'string')
     settings.permissionMode = s.permissionMode as SessionSettings['permissionMode']
+  // 宿主 createSession 核对取值
+  if (typeof s.planReturn === 'string' || s.planReturn === null)
+    settings.planReturn = s.planReturn as SessionSettings['planReturn']
   if (typeof s.ultracode === 'boolean') settings.ultracode = s.ultracode
   if (typeof s.fast === 'boolean') settings.fast = s.fast
   if (typeof s.thinkingSummaries === 'boolean') settings.thinkingSummaries = s.thinkingSummaries
@@ -314,8 +317,21 @@ export const ENGINE_OPS = {
   'engine:interrupt': (c, id, opts) => c.host.interrupt(str(id, 'id'), interruptOptions(opts)),
   'engine:interruptTurn': (c, id, turnId) => c.host.interruptTurn(str(id, 'id'), str(turnId, 'turnId')),
   'engine:approveReview': (c, id, itemId) => c.host.approveReview(str(id, 'id'), str(itemId, 'itemId')),
-  'engine:answer': (c, id, requestId, decision) =>
-    c.host.answer(str(id, 'id'), str(requestId, 'requestId'), decision as ApprovalDecision),
+  // 第四个参数 via 可省略：'mobile' 表示手机上答的。手机批准计划、批准后要回完全放行时改成回自动改文件
+  // （手机不开完全放行，docs/ui/plan-mode-split.md §3）；旧版远端不认第四个参数，照旧回完全放行
+  'engine:answer': async (c, id, requestId, decision, via?: unknown) => {
+    const sessionId = str(id, 'id'),
+      rid = str(requestId, 'requestId'),
+      d = decision as ApprovalDecision
+    if (
+      via === 'mobile' &&
+      d?.type !== 'deny' &&
+      c.host.record(sessionId)?.planReturn === 'full' &&
+      c.host.open(sessionId).pending.some(p => p.requestId === rid && p.kind === 'plan')
+    )
+      await c.host.update(sessionId, { planReturn: 'edits' })
+    return c.host.answer(sessionId, rid, d)
+  },
   // 第三个参数 via 可省略：'mobile' 表示是手机改的，会话里留一条看得见的记录（docs/mobile-remote.md §21.7）；
   // 记录的文字由这里按改动算出来，不信任调用方给的文字。旧版远端不认第三个参数，忽略就是了
   'engine:updateSession': async (c, id, raw, via?: unknown, source?: unknown) => {
