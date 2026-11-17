@@ -63,15 +63,15 @@ const role = (value: unknown): Exclude<TeamRole, 'owner'> => {
   return value as Exclude<TeamRole, 'owner'>
 }
 
-/** 团队实时通道的地址：登录服务的同一个地址（https → wss） */
 /**
- * 团队功能（协作频道 Phase C）2026-10-18 起默认关闭，频道只做本机多 AI 协作（docs/ui/channels-local-ai.md §1）。
- * 代码、测试和云端接口都留着，开发时设 PIXELSKY_TEAMS=1 打开
+ * 团队功能（协作频道 Phase C）：2026-10-18 关过一阵（docs/ui/channels-local-ai.md §1），2026-11-17 重新打开（docs/multica-learn.md §13）。
+ * 设 PIXELSKY_TEAMS=0 关掉（排查问题用）；云端没开团队接口时（TEAMS_ENABLED 关着，团队接口 404）同步当作「云端没部署」，报不可用、界面藏起团队入口
  */
 export function teamsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.PIXELSKY_TEAMS === '1'
+  return env.PIXELSKY_TEAMS !== '0'
 }
 
+/** 团队实时通道的地址：登录服务的同一个地址（https → wss） */
 export function teamsWsUrl(base: string): string {
   return base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/teams/ws'
 }
@@ -90,7 +90,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   const store = new ChannelStore(dir)
   await store.init()
   const deviceId = await loadDeviceId(dir)
-  // 团队同步（Phase C）：登录后启动，退出登录清空。团队功能默认关着（teamsEnabled），关着时不创建、不连云端
+  // 团队同步（Phase C）：登录后启动，退出登录清空。PIXELSKY_TEAMS=0 时不创建、不连云端（teamsEnabled）
   const team = teamsEnabled()
     ? new TeamSync({
         api: new TeamApi(teamsFetch),

@@ -1068,7 +1068,7 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
 }
 
 // ── Phase C：示例团队（docs/ui/channels-phase-c.md §9.3），只改内存，不联网 ──
-// 团队功能 2026-10-18 起默认关闭（docs/ui/channels-local-ai.md §1）：示例留着，演示模式用 demoChannelData(DEMO_TEAMS) 滤掉
+// 团队功能 2026-11-17 重新打开（docs/multica-learn.md §13）；DEMO_TEAMS 改成 false 看关着团队时的样子
 
 export const demoTeams: TeamInfo[] = [
   {
@@ -1095,8 +1095,8 @@ export const demoInvites: PendingInvite[] = [
   },
 ]
 
-/** 演示模式里团队先关着（和主进程默认一样）；改成 true 就能看到团队示例 */
-export const DEMO_TEAMS = false
+/** 演示模式里显示团队示例（和主进程默认一样）；改成 false 看关着团队时的样子 */
+export const DEMO_TEAMS = true
 
 /**
  * 拼演示模式的频道数据。不带团队时：去掉团队频道和它们的消息、队友、别人电脑上的 AI 成员，

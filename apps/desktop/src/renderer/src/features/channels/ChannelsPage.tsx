@@ -87,7 +87,6 @@ export function ChannelsPage({
   const moreMap = useChannels(s => s.more)
   const channel = useChannels(selectedChannel)
   const selfId = useChannels(s => selfIdIn(s, selectedChannel(s)?.memberIds))
-  const hasTeams = useChannels(s => s.teams.length > 0 || s.invites.length > 0)
   const connection = useChannels(s => s.teamsConnection)
   const role = useChannels(s => myRole(s.teams, selectedChannel(s)?.teamId))
   const messages = (channel && messageMap[channel.id]) || NO_MESSAGES
@@ -131,8 +130,8 @@ export function ChannelsPage({
   if (!channel)
     return (
       <div className="@container absolute inset-0 flex min-w-0" data-channels-page>
-        {/* 加入了团队或收到邀请时，列表要留着（团队段、邀请卡） */}
-        {hasTeams && (
+        {/* 团队可用时列表留着：邀请卡、登录提示、新建团队都在列表里（docs/multica-learn.md §13） */}
+        {connection !== 'unavailable' && (
           <ChannelList
             channels={channels}
             selectedId=""
@@ -141,7 +140,7 @@ export function ChannelsPage({
             agents={agents}
           />
         )}
-        <ChannelsEmpty agents={agents} />
+        <ChannelsEmpty agents={agents} teams={connection !== 'unavailable'} />
       </div>
     )
 

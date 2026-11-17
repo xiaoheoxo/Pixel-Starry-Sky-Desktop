@@ -9,7 +9,7 @@ import { ChannelDialog } from './ChannelDialogs'
 import { AgentsDialog } from '@/features/settings/AgentsSection'
 
 /** 没有频道时的整页空状态（docs/ui/channels.md §8） */
-export function ChannelsEmpty({ agents }: { agents: readonly AgentMember[] }) {
+export function ChannelsEmpty({ agents, teams }: { agents: readonly AgentMember[]; teams: boolean }) {
   useI18n()
   const comingSoon = useComingSoon()
   const [creating, setCreating] = useState(false)
@@ -21,7 +21,9 @@ export function ChannelsEmpty({ agents }: { agents: readonly AgentMember[] }) {
       </span>
       <h2 className="mt-4 text-section font-semibold text-fg">{tr('channels.empty.title')}</h2>
       <p className="mt-2 max-w-[480px] text-list text-balance text-fg-muted">{tr('channels.empty.body')}</p>
-      <p className="mt-1 max-w-[480px] text-meta text-balance text-fg-faint">{tr('channels.empty.later')}</p>
+      {!teams && (
+        <p className="mt-1 max-w-[480px] text-meta text-balance text-fg-faint">{tr('channels.empty.later')}</p>
+      )}
       <Button
         variant="primary"
         icon={Plus}
