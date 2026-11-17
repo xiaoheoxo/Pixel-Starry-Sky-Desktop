@@ -13,7 +13,7 @@ export interface FontPrefs {
   serifProse: boolean
 }
 
-export const FONT_SCALES = [0.9, 1, 1.1, 1.2, 1.3] as const
+export const FONT_SCALES = [0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5] as const
 export const DEFAULT_FONTS: FontPrefs = { sans: '', mono: '', scale: 1, serifProse: false }
 
 const KEY = 'pixelsky.fonts'
