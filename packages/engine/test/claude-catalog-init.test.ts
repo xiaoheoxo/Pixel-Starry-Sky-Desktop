@@ -1,8 +1,11 @@
 // 目录缓存：后台刷新失败保留旧列表、读额度的临时进程顺手续期（docs/memory-tier2.md §1）
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ClaudeAdapter } from '../src'
 import { CATALOG_TTL } from '../src/claude'
+import { makeTmp } from './helpers/tmp'
 
 const FAKE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
 const newAdapter = (launcher = { command: process.execPath, args: [FAKE] }) =>
@@ -79,5 +82,36 @@ describe('目录少起进程（docs/memory-tier2.md §1）', () => {
     drop(adapter)
     await pending
     expect((adapter as unknown as Internals).catalogCache).toBeNull()
+  })
+})
+
+describe('重新检测期间读额度（docs/memory-tier2.md §1）', () => {
+  it('先等正在进行的检测做完，用新的命令起进程，不把旧命令的目录写进缓存', async () => {
+    const log = join(makeTmp('catalog-redetect'), 'argv.log')
+    const oldLauncher = { command: process.execPath, args: [FAKE, '--old-command'] }
+    const adapter = new ClaudeAdapter({
+      launcher: oldLauncher,
+      env: { ...process.env, FAKE_CLAUDE_QUOTA: '1', FAKE_CLAUDE_LOG: log },
+    })
+    await adapter.info()
+    const a = adapter as unknown as {
+      cached: { launcher: unknown }
+      detect: () => Promise<unknown>
+      discover: (force: boolean) => Promise<unknown>
+    }
+    // 改了替换的命令：重新检测要一会儿，检测完换成新命令
+    const before = a.cached
+    a.detect = async () => {
+      await new Promise(r => setTimeout(r, 300))
+      return { ...before, launcher: { command: process.execPath, args: [FAKE] } }
+    }
+    const redetect = a.discover(true)
+    await adapter.accountQuota()
+    await redetect
+    const spawned = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map(l => JSON.parse(l) as string[])
+    expect(spawned.at(-1)).not.toContain('--old-command')
   })
 })

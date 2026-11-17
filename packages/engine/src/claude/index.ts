@@ -686,7 +686,8 @@ export class ClaudeAdapter implements EngineAdapter {
    */
   async accountQuota(): Promise<QuotaReading> {
     if (this.closedForQuota) throw new Error('Claude Code unavailable: 应用正在退出')
-    const d = await this.discover(false)
+    // 改了替换命令正在重新检测：等它做完，否则拿旧命令起进程，回包把旧命令的目录写进缓存
+    const d = await (this.detection.pending() ?? this.discover(false))
     if (!d.launcher || d.info.status !== 'ready') return { kind: 'unsupported' }
     if (this.usageRequest === false) return { kind: 'no-request' }
     // 同一时间只起一个，且按账号区分：别的账号的读取还在跑时等它结束再起，不拿它的结果顶替
