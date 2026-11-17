@@ -2,12 +2,16 @@
 import type { ProviderProblem, ProviderProtocol, ProviderTestResult } from '../../../shared/types/providers'
 import type { ResolvedProvider } from './store'
 
-/** 各协议的请求路径（本机网关和上游共用同一套） */
+/** 各协议的请求路径（本机网关和上游共用同一套）；Gemini 的路径带模型名，见 geminiPath */
 export const PROTOCOL_PATH = {
   anthropic: '/v1/messages',
   responses: '/v1/responses',
   chat: '/v1/chat/completions',
-} as const satisfies Record<ProviderProtocol, string>
+} as const satisfies Record<Exclude<ProviderProtocol, 'gemini'>, string>
+
+/** Gemini 原生接口的路径（agy 发到本机网关的也是这个形状） */
+export const geminiPath = (model: string, method: string): string =>
+  `/v1beta/models/${encodeURIComponent(model)}:${method}`
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
@@ -25,9 +29,10 @@ export function smallModelOf(p: Pick<ResolvedProvider, 'models' | 'smallModel'>)
  * - Anthropic 协议：接口地址不带 /v1（https://api.anthropic.com），Claude Code 发 /v1/messages，原样拼上；
  * - Responses 协议：接口地址带 /v1（https://api.openai.com/v1），Codex 发到网关的 /v1/responses，去掉 /v1 再拼。
  * - Chat Completions 协议：同 Responses，接口地址就是 /chat/completions 前面的部分（https://api.deepseek.com、https://openrouter.ai/api/v1）。
+ * - Gemini 协议：同 Anthropic，接口地址是 /v1beta 前面的部分，路径原样拼。
  */
 export function upstreamUrl(p: Pick<ResolvedProvider, 'protocol' | 'baseUrl'>, path: string): string {
-  const rest = p.protocol !== 'anthropic' ? path.replace(/^\/v1(?=\/|$)/, '') : path
+  const rest = p.protocol === 'responses' || p.protocol === 'chat' ? path.replace(/^\/v1(?=\/|$)/, '') : path
   return p.baseUrl + rest
 }
 
@@ -38,7 +43,9 @@ export function providerHeaders(
 ): Record<string, string> {
   const headers: Record<string, string> = { ...base, ...p.headers }
   if (p.apiKey) {
-    if (p.auth === 'bearer') headers.authorization = `Bearer ${p.apiKey}`
+    // Gemini：Google 官方和 Sub2api、new-api 的 Gemini 入口都认 x-goog-api-key（不放进 ?key=，免得进日志）
+    if (p.protocol === 'gemini') headers['x-goog-api-key'] = p.apiKey
+    else if (p.auth === 'bearer') headers.authorization = `Bearer ${p.apiKey}`
     else headers['x-api-key'] = p.apiKey
   }
   if (p.protocol === 'anthropic' && !Object.keys(headers).some(k => k.toLowerCase() === 'anthropic-version'))
@@ -105,7 +112,9 @@ export function classifyStatus(
       message:
         p.protocol === 'anthropic'
           ? '地址不对：接口返回 404。Anthropic 兼容地址一般以 /anthropic 结尾（例如 https://api.deepseek.com/anthropic），也检查是否多写或少写了 /v1'
-          : '地址不对：接口返回 404，检查是否多写或少写了 /v1',
+          : p.protocol === 'gemini'
+            ? '地址不对：接口返回 404。Gemini 地址填 /v1beta 前面的部分（例如 https://generativelanguage.googleapis.com）'
+            : '地址不对：接口返回 404，检查是否多写或少写了 /v1',
     }
   return { problem: 'other', message: `接口返回 ${status}${detail ? '：' + detail : ''}` }
 }
@@ -140,6 +149,7 @@ const TIMEOUT = 20_000
  * Anthropic 协议、地址以 /anthropic 结尾时 404 了再去掉 /anthropic 取一次：DeepSeek、Kimi 等只在 /anthropic 下放对话接口，模型列表在根上
  */
 export async function fetchModels(p: ResolvedProvider, fetch: Fetch): Promise<string[]> {
+  if (p.protocol === 'gemini') return fetchGeminiModels(p, fetch)
   const get = async (base: string): Promise<{ res: Response; body: string }> => {
     const url = upstreamUrl({ protocol: p.protocol, baseUrl: base }, '/v1/models')
     let res: Response
@@ -177,6 +187,49 @@ export async function fetchModels(p: ResolvedProvider, fetch: Fetch): Promise<st
   return [...new Set(ids)].sort().slice(0, 200)
 }
 
+/**
+ * Gemini 的模型列表：GET /v1beta/models，翻 nextPageToken（最多 5 页），去掉 models/ 前缀；
+ * 写了 supportedGenerationMethods 的只留能 generateContent 的（去掉向量、图片生成等）
+ */
+async function fetchGeminiModels(p: ResolvedProvider, fetch: Fetch): Promise<string[]> {
+  const ids: string[] = []
+  let token = ''
+  for (let page = 0; page < 5; page++) {
+    const url =
+      upstreamUrl(p, '/v1beta/models') + '?pageSize=1000' + (token ? `&pageToken=${encodeURIComponent(token)}` : '')
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'GET',
+        headers: providerHeaders(p, { accept: 'application/json' }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(TIMEOUT),
+      })
+    } catch (err) {
+      throw new Error(classifyError(err, url).message)
+    }
+    const body = await res.text()
+    if (!res.ok) throw new Error(classifyStatus(res.status, body, p, null).message)
+    let json: { models?: unknown; nextPageToken?: unknown }
+    try {
+      json = JSON.parse(body) as typeof json
+    } catch {
+      throw new Error('接口返回的模型列表格式不对，请手动填写')
+    }
+    if (!Array.isArray(json.models)) throw new Error('接口返回的模型列表格式不对，请手动填写')
+    for (const m of json.models as { name?: unknown; supportedGenerationMethods?: unknown }[]) {
+      if (!m || typeof m.name !== 'string') continue
+      const methods = m.supportedGenerationMethods
+      if (Array.isArray(methods) && !methods.includes('generateContent')) continue
+      const id = m.name.replace(/^models\//, '').trim()
+      if (id && id.length <= 200) ids.push(id)
+    }
+    token = typeof json.nextPageToken === 'string' ? json.nextPageToken : ''
+    if (!token) break
+  }
+  return [...new Set(ids)].sort().slice(0, 200)
+}
+
 /** 测试连接：用第一个模型发一个最小请求；没有模型时改为读取模型列表 */
 export async function testProvider(p: ResolvedProvider, fetch: Fetch): Promise<ProviderTestResult> {
   const model = p.models[0]?.id ?? null
@@ -187,13 +240,15 @@ export async function testProvider(p: ResolvedProvider, fetch: Fetch): Promise<P
     } catch (err) {
       return { ok: false, problem: 'other', status: null, message: (err as Error).message }
     }
-  const url = upstreamUrl(p, PROTOCOL_PATH[p.protocol])
+  const url = upstreamUrl(p, p.protocol === 'gemini' ? geminiPath(model, 'generateContent') : PROTOCOL_PATH[p.protocol])
   const body =
     p.protocol === 'anthropic'
       ? { model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }
       : p.protocol === 'chat'
         ? { model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 16 }
-        : { model, input: 'ping', max_output_tokens: 16 }
+        : p.protocol === 'gemini'
+          ? { contents: [{ role: 'user', parts: [{ text: 'ping' }] }], generationConfig: { maxOutputTokens: 16 } }
+          : { model, input: 'ping', max_output_tokens: 16 }
   let res: Response
   try {
     res = await fetch(url, {

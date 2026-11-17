@@ -84,7 +84,13 @@ export const sameTarget = (a: ModelTarget | null, b: ModelTarget | null): boolea
 
 /** 能跑这个协议的执行者，默认的排第一 */
 export const protocolExecutors = (p: ProviderProtocol): EngineId[] =>
-  p === 'anthropic' ? ['claude', 'pixel'] : p === 'responses' ? ['codex', 'pixel'] : ['pixel']
+  p === 'anthropic'
+    ? ['claude', 'pixel']
+    : p === 'responses'
+      ? ['codex', 'pixel']
+      : p === 'gemini'
+        ? ['antigravity']
+        : ['pixel']
 
 /** 官方工具排在像素星空前面 */
 const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']

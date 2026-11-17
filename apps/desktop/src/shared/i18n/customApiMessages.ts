@@ -17,6 +17,7 @@ export const customApiMessages = {
   'customApi.protocolAnthropic': { zh: 'Anthropic 协议', en: 'Anthropic Messages' },
   'customApi.protocolResponses': { zh: 'OpenAI Responses', en: 'OpenAI Responses' },
   'customApi.protocolChat': { zh: 'OpenAI Chat Completions（兼容格式）', en: 'OpenAI Chat Completions (compatible)' },
+  'customApi.protocolGemini': { zh: 'Gemini（给 Antigravity）', en: 'Gemini (for Antigravity)' },
   'customApi.modelCount': { zh: '{n} 个模型', en: '{n} models' },
   'customApi.noKey': { zh: '没有 Key', en: 'No key' },
   'customApi.keyHint': { zh: 'Key ••••{p0}', en: 'Key ••••{p0}' },
@@ -30,6 +31,7 @@ export const customApiMessages = {
   'customApi.template': { zh: '模板', en: 'Template' },
   'customApi.templateAnthropic': { zh: 'Anthropic 官方', en: 'Anthropic official' },
   'customApi.templateOpenai': { zh: 'OpenAI 官方', en: 'OpenAI official' },
+  'customApi.templateGoogle': { zh: 'Google AI Studio', en: 'Google AI Studio' },
   'customApi.templateCustom': { zh: '自定义', en: 'Custom' },
   'customApi.name': { zh: '名称', en: 'Name' },
   'customApi.namePlaceholder': { zh: '例如 DeepSeek 兼容', en: 'e.g. DeepSeek compatible' },
@@ -265,6 +267,10 @@ export const customApiMessages = {
   'customApi.err.notFoundAnthropic': {
     zh: '地址不对：接口返回 404。Anthropic 兼容地址一般以 /anthropic 结尾（例如 https://api.deepseek.com/anthropic），也检查是否多写或少写了 /v1',
     en: 'Wrong address: the endpoint returned 404. Anthropic-compatible addresses usually end with /anthropic (e.g. https://api.deepseek.com/anthropic); also check for a missing or extra /v1',
+  },
+  'customApi.err.notFoundGemini': {
+    zh: '地址不对：接口返回 404。Gemini 地址填 /v1beta 前面的部分（例如 https://generativelanguage.googleapis.com）',
+    en: 'Wrong address: the endpoint returned 404. For Gemini, enter the part before /v1beta (e.g. https://generativelanguage.googleapis.com)',
   },
   'customApi.err.noModelList': {
     zh: '这个接口没有提供模型列表，请手动填写模型',

@@ -46,6 +46,7 @@ const PROTOCOL: Record<ProviderProtocol, string> = {
   anthropic: 'Anthropic',
   responses: 'Responses',
   chat: 'Chat Completions',
+  gemini: 'Gemini',
 }
 
 /** 图标底色：内置的固定，自己加的按顺序轮换 */

@@ -8,6 +8,7 @@ import type { ResolvedProvider } from '../core/providers/store'
 import {
   balanceProblem,
   classifyError,
+  geminiPath,
   providerHeaders,
   redact,
   smallModelOf,
@@ -482,6 +483,47 @@ export function platformGateway(options: {
       )
     }
 
+    /**
+     * 自定义 Gemini 接口（Antigravity）：模型在路径里。agy 会请求接口没列的模型（改名成 -preview、后台用 flash-lite，
+     * 菜单选了 agy 不认的名字时它用自己的默认模型），开着兜底时换成会话当前的模型。响应原样回传（agy 自己处理断流）
+     */
+    const forwardGemini = async (
+      p: ResolvedProvider,
+      record: SessionRecord,
+      requested: string,
+      method: string,
+      stream: boolean,
+      body: Buffer,
+    ) => {
+      balanceWhere = `自定义接口「${p.name}」`
+      redactDetail = text => redact(text, p)
+      const ids = p.models.map(m => m.id)
+      let model = requested
+      if (p.modelFallback && ids.length && !ids.includes(requested))
+        model = record.model && ids.includes(record.model) ? record.model : ids[0]!
+      const url = upstreamUrl(p, geminiPath(model, method)) + (stream ? '?alt=sse' : '')
+      let upstream: Response
+      try {
+        upstream = await (options.upstream ?? fetch)(url, {
+          method: 'POST',
+          headers: providerHeaders(p, {
+            'content-type': 'application/json',
+            accept: stream ? 'text/event-stream' : 'application/json',
+            ...(typeof req.headers['user-agent'] === 'string' ? { 'user-agent': req.headers['user-agent'] } : {}),
+          }),
+          body,
+          redirect: 'error',
+          signal: abort.signal,
+        })
+      } catch (error) {
+        if (abort.signal.aborted) throw error
+        log.warn('连不上自定义接口', trace(error))
+        fail(502, classifyError(error, url).message)
+        return
+      }
+      await pipe(upstream)
+    }
+
     try {
       if (req.method === 'POST' && path === SUBAGENT_OPTIONS_PATH && options.subagentOptions) {
         const chunks: Buffer[] = []
@@ -510,7 +552,23 @@ export function platformGateway(options: {
         const session = [...options.sessions.values()].find(entry => entry.secret === key)
         const record = session ? await options.record(session.recordId) : null
         sessionId = record?.id ?? null
-        if (!record?.platform || options.account() !== record.platform.account) {
+        // 自定义 Gemini 接口（docs/ui/custom-api.md §15）：换上真实 Key 发往接口地址
+        let provider: ResolvedProvider | null = null
+        if (record?.provider && !record.platform) {
+          provider = options.provider?.(record.provider.id) ?? null
+          if (!provider) {
+            fail(401, '这个会话用的自定义接口已删除，请换一个接口')
+            return
+          }
+          if (provider.protocol !== 'gemini') {
+            fail(403, '接口协议与当前引擎不兼容')
+            return
+          }
+          if (!provider.apiKey) {
+            fail(401, `自定义接口「${provider.name}」还没有 Key，请在设置里填写`)
+            return
+          }
+        } else if (!record?.platform || options.account() !== record.platform.account) {
           fail(401, '平台账号已退出或切换，请重新登录原账号')
           return
         }
@@ -528,13 +586,17 @@ export function platformGateway(options: {
           fail(413, 'Request exceeds size limit')
           return
         }
-        const platform = record.platform
         const [, model, method] = gemini
+        const stream = new URLSearchParams(req.url?.split('?')[1] ?? '').get('alt') === 'sse'
+        if (provider) {
+          await forwardGemini(provider, record, model, method, stream, Buffer.concat(chunks))
+          return
+        }
+        const platform = record.platform!
         requestId = `pixelsky-${randomUUID()}`
         const trackRequest = options.requestContext?.(record)
         // 先记下再发：记不上（SSH 断了）就不发，免得扣了费却对不上这一轮
         await trackRequest?.(requestId, model)
-        const stream = new URLSearchParams(req.url?.split('?')[1] ?? '').get('alt') === 'sse'
         sentAccount = platform.account
         const upstream = await options.fetch(
           `/v1/platform/gemini/models/${model}:${method}${stream ? '?alt=sse' : ''}`,

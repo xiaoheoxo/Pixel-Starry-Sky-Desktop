@@ -52,14 +52,21 @@ function imagesWhy(m: ProviderModel, guess: { images: boolean; reason: ImageInpu
 const TEMPLATES: Record<Exclude<ProviderTemplate, 'custom'>, { protocol: ProviderProtocol; baseUrl: string }> = {
   anthropic: { protocol: 'anthropic', baseUrl: 'https://api.anthropic.com' },
   openai: { protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
+  google: { protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com' },
 }
+
+/** 新接口默认的认证方式（Gemini 不看这一项，Key 总是放 x-goog-api-key） */
+const defaultAuth = (p: ProviderProtocol): ProviderAuth =>
+  p === 'anthropic' || p === 'gemini' ? 'x-api-key' : 'bearer'
 
 export const protocolLabel = (p: ProviderProtocol): string =>
   p === 'anthropic'
     ? tr('customApi.protocolAnthropic')
     : p === 'chat'
       ? tr('customApi.protocolChat')
-      : tr('customApi.protocolResponses')
+      : p === 'gemini'
+        ? tr('customApi.protocolGemini')
+        : tr('customApi.protocolResponses')
 
 const PROTOCOLS = [
   {
@@ -75,6 +82,12 @@ const PROTOCOLS = [
     desc: 'modelChannels.protocol.responses',
   },
   { value: 'chat', label: 'customApi.protocolChat', path: '/v1/chat/completions', desc: 'modelChannels.protocol.chat' },
+  {
+    value: 'gemini',
+    label: 'customApi.protocolGemini',
+    path: '/v1beta/models/…:generateContent',
+    desc: 'modelChannels.protocol.gemini',
+  },
 ] as const satisfies ReadonlyArray<{ value: ProviderProtocol; label: string; path: string; desc: string }>
 
 export function CustomApiSettings() {
@@ -230,7 +243,10 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ProviderTestResult | null>(null)
   const [readCount, setReadCount] = useState<number | null>(null)
-  const official = useMemo(() => officialModels(protocol === 'anthropic' ? 'anthropic' : 'openai'), [protocol])
+  const official = useMemo(
+    () => officialModels(protocol === 'anthropic' ? 'anthropic' : protocol === 'gemini' ? 'google' : 'openai'),
+    [protocol],
+  )
   // 打开时的草稿快照：关闭前和当前内容比，有改动先确认，免得误碰空白处 / Esc 丢掉刚填的 Key 和模型
   const draft: ProviderDraft = {
     template,
@@ -281,8 +297,8 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
     if (t === 'custom') return
     setProtocol(TEMPLATES[t].protocol)
     setBaseUrl(TEMPLATES[t].baseUrl)
-    setAuth(TEMPLATES[t].protocol === 'anthropic' ? 'x-api-key' : 'bearer')
-    if (!name.trim()) setName(t === 'anthropic' ? 'Anthropic' : 'OpenAI')
+    setAuth(defaultAuth(TEMPLATES[t].protocol))
+    if (!name.trim()) setName(t === 'anthropic' ? 'Anthropic' : t === 'google' ? 'Google AI Studio' : 'OpenAI')
   }
 
   const input = (d: ProviderDraft = draft): ProviderInput | null => {
@@ -389,7 +405,7 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
           {!provider && (
             <Field label={tr('customApi.template')}>
               <div className="flex flex-wrap gap-2">
-                {(['anthropic', 'openai', 'custom'] as const).map(t => (
+                {(['anthropic', 'openai', 'google', 'custom'] as const).map(t => (
                   <button
                     key={t}
                     type="button"
@@ -406,7 +422,9 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
                       ? tr('customApi.templateAnthropic')
                       : t === 'openai'
                         ? tr('customApi.templateOpenai')
-                        : tr('customApi.templateCustom')}
+                        : t === 'google'
+                          ? tr('customApi.templateGoogle')
+                          : tr('customApi.templateCustom')}
                   </button>
                 ))}
               </div>
@@ -422,7 +440,7 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
             />
           </Field>
           <Field label={tr('customApi.protocol')} hint={provider ? tr('customApi.protocolLocked') : undefined}>
-            {/* 三张单选卡：协议决定交给哪个执行者跑（docs/ui/model-channels.md §2.2） */}
+            {/* 四张单选卡：协议决定交给哪个执行者跑（docs/ui/model-channels.md §2.2） */}
             <div role="radiogroup" aria-label={tr('customApi.protocol')} className="grid gap-2">
               {PROTOCOLS.map(p => {
                 const selected = protocol === p.value
@@ -437,7 +455,7 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
                     onClick={() => {
                       if (locked || selected) return
                       setProtocol(p.value)
-                      setAuth(p.value === 'anthropic' ? 'x-api-key' : 'bearer')
+                      setAuth(defaultAuth(p.value))
                     }}
                     className={cn(
                       'flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left disabled:opacity-45',
@@ -470,7 +488,11 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
               className={cn(FIELD, 'font-mono')}
               value={baseUrl}
               spellCheck={false}
-              placeholder={protocol === 'anthropic' ? 'https://api.example.com' : 'https://api.example.com/v1'}
+              placeholder={
+                protocol === 'anthropic' || protocol === 'gemini'
+                  ? 'https://api.example.com'
+                  : 'https://api.example.com/v1'
+              }
               onChange={e => setBaseUrl(e.target.value)}
             />
           </Field>
@@ -488,18 +510,21 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
               onChange={e => setApiKey(e.target.value)}
             />
           </Field>
-          <Field label={tr('customApi.auth')}>
-            <Select<ProviderAuth>
-              label={tr('customApi.auth')}
-              className="w-full max-w-lg"
-              value={auth}
-              onChange={setAuth}
-              options={[
-                { value: 'x-api-key', label: tr('customApi.authXApiKey') },
-                { value: 'bearer', label: tr('customApi.authBearer') },
-              ]}
-            />
-          </Field>
+          {/* Gemini 的 Key 总是放 x-goog-api-key，没得选 */}
+          {protocol !== 'gemini' && (
+            <Field label={tr('customApi.auth')}>
+              <Select<ProviderAuth>
+                label={tr('customApi.auth')}
+                className="w-full max-w-lg"
+                value={auth}
+                onChange={setAuth}
+                options={[
+                  { value: 'x-api-key', label: tr('customApi.authXApiKey') },
+                  { value: 'bearer', label: tr('customApi.authBearer') },
+                ]}
+              />
+            </Field>
+          )}
 
           <Field label={tr('customApi.models')}>
             <div className="flex max-w-lg gap-2">
@@ -536,7 +561,7 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
               <div className="mt-1 overflow-hidden rounded-lg border border-line">
                 {models.map(m => {
                   const auto = officialPrice(m.id)
-                  const guess = autoImageInput(m.id, protocol)
+                  const guess = protocol === 'gemini' ? null : autoImageInput(m.id, protocol)
                   // 第一行模型名和删除，第二行上下文、计价参照、看图，最后一行是看图的判断依据
                   return (
                     <div
@@ -595,34 +620,43 @@ function ProviderDialog({ provider, close }: { provider: ProviderView | null; cl
                             ...official.map(o => ({ value: o, label: o })),
                           ]}
                         />
-                        <Select<ImagesChoice>
-                          label={tr('customApi.images')}
-                          className="w-36"
-                          value={m.images === true ? 'yes' : m.images === false ? 'no' : 'auto'}
-                          onChange={v => patchModel(m.id, { images: v === 'auto' ? null : v === 'yes' })}
-                          options={[
-                            {
-                              value: 'auto',
-                              label: tr('customApi.imagesAuto', {
-                                p0: tr(guess.images ? 'customApi.imagesYes' : 'customApi.imagesNo'),
-                              }),
-                            },
-                            { value: 'yes', label: tr('customApi.imagesYes') },
-                            { value: 'no', label: tr('customApi.imagesNo') },
-                          ]}
-                        />
+                        {guess && (
+                          <Select<ImagesChoice>
+                            label={tr('customApi.images')}
+                            className="w-36"
+                            value={m.images === true ? 'yes' : m.images === false ? 'no' : 'auto'}
+                            onChange={v => patchModel(m.id, { images: v === 'auto' ? null : v === 'yes' })}
+                            options={[
+                              {
+                                value: 'auto',
+                                label: tr('customApi.imagesAuto', {
+                                  p0: tr(guess.images ? 'customApi.imagesYes' : 'customApi.imagesNo'),
+                                }),
+                              },
+                              { value: 'yes', label: tr('customApi.imagesYes') },
+                              { value: 'no', label: tr('customApi.imagesNo') },
+                            ]}
+                          />
+                        )}
                       </div>
-                      <span
-                        className={cn('text-label', m.images == null && !guess.images ? 'text-warn' : 'text-fg-faint')}
-                      >
-                        {imagesWhy(m, guess)}
-                      </span>
+                      {guess && (
+                        <span
+                          className={cn(
+                            'text-label',
+                            m.images == null && !guess.images ? 'text-warn' : 'text-fg-faint',
+                          )}
+                        >
+                          {imagesWhy(m, guess)}
+                        </span>
+                      )}
                     </div>
                   )
                 })}
               </div>
             )}
-            {models.length > 0 && <span className="text-meta text-fg-faint">{tr('customApi.imagesNote')}</span>}
+            {models.length > 0 && protocol !== 'gemini' && (
+              <span className="text-meta text-fg-faint">{tr('customApi.imagesNote')}</span>
+            )}
           </Field>
 
           {protocol === 'anthropic' && (

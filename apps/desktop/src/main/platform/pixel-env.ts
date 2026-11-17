@@ -249,10 +249,8 @@ export function pixelSubagentRoute(options: {
   }
 }
 
-/** 引擎能用哪些接口协议：像素星空三种都行，Claude Code 只要 Anthropic，Codex 只要 Responses */
-export function engineProviderProtocols(engine: string): ProviderProtocol[] {
-  return engine === 'codex' ? ['responses'] : engine === 'pixel' ? ['anthropic', 'responses', 'chat'] : ['anthropic']
-}
+/** 引擎能用哪些接口协议：一份在 shared，渲染层也用它 */
+export { engineProviderProtocols } from '../../shared/provider-protocols'
 
 /** 线路目录里这个分组能给哪个引擎用（没写 supported_engines 的按 platform 推：openai → Codex、像素星空；其余 → Claude Code、像素星空） */
 export function groupEngines(group: Pick<PlatformGroupInfo, 'platform' | 'supported_engines'>): string[] {

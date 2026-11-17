@@ -257,6 +257,10 @@ export const modelChannelMessages = {
     zh: 'DeepSeek、通义、Kimi、本地 Ollama 等兼容接口 → Pixel agent 执行',
     en: 'DeepSeek, Qwen, Kimi, local Ollama and other compatible APIs → runs with the Pixel agent',
   },
+  'modelChannels.protocol.gemini': {
+    zh: 'Google AI Studio、Gemini 中转站 → Antigravity 执行（地址填 /v1beta 前面的部分）',
+    en: 'Google AI Studio and Gemini relays → runs with Antigravity (enter the part before /v1beta)',
+  },
   // 扣费用的 Key（docs/ui/platform-key-mode.md）
   'platformKey.title': { zh: '扣费用的 Key', en: 'Key used for billing' },
   'platformKey.desc': {

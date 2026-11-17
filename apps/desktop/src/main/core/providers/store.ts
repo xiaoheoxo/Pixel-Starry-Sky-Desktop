@@ -83,6 +83,9 @@ export function privateHost(hostname: string): boolean {
   return !host.includes('.')
 }
 
+const PROTOCOLS: ReadonlySet<unknown> = new Set<ProviderProtocol>(['anthropic', 'responses', 'chat', 'gemini'])
+const TEMPLATES: ReadonlySet<unknown> = new Set<ProviderTemplate>(['anthropic', 'openai', 'google', 'custom'])
+
 /** 接口地址：只收 https；http 只允许本机和内网。去掉末尾的 /；Anthropic 协议去掉末尾的 /v1（Claude Code 自己会加） */
 export function normalizeBaseUrl(raw: unknown, protocol: ProviderProtocol): string {
   const value = text(raw, '接口地址', 500)
@@ -99,6 +102,8 @@ export function normalizeBaseUrl(raw: unknown, protocol: ProviderProtocol): stri
   if (url.search || url.hash) throw new Error('接口地址不能带 ? 或 # 后面的部分')
   let path = url.pathname.replace(/\/+$/, '')
   if (protocol === 'anthropic') path = path.replace(/\/v1$/, '')
+  // Gemini：agy 自己在地址后面加 /v1beta（docs/ui/custom-api.md §15）
+  if (protocol === 'gemini') path = path.replace(/\/v1(?:beta)?$/, '')
   return url.origin + path
 }
 
@@ -174,12 +179,12 @@ export class ProviderStore {
     try {
       const p = raw as StoredProvider
       if (!p || typeof p.id !== 'string' || !PROVIDER_ID.test(p.id)) return []
-      const protocol: ProviderProtocol = p.protocol === 'responses' || p.protocol === 'chat' ? p.protocol : 'anthropic'
+      const protocol: ProviderProtocol = PROTOCOLS.has(p.protocol) ? p.protocol : 'anthropic'
       return [
         {
           id: p.id,
           name: text(p.name, '名称', 60),
-          template: p.template === 'anthropic' || p.template === 'openai' ? p.template : 'custom',
+          template: TEMPLATES.has(p.template) ? p.template : 'custom',
           protocol,
           baseUrl: normalizeBaseUrl(p.baseUrl, protocol),
           auth: p.auth === 'bearer' ? 'bearer' : 'x-api-key',
@@ -270,18 +275,15 @@ export class ProviderStore {
     if (input.id !== undefined && !existing) throw new Error('这个接口已经删除')
     if (!existing && !draft && this.providers.length >= MAX_PROVIDERS)
       throw new Error(`最多添加 ${MAX_PROVIDERS} 个接口`)
-    if (input.protocol !== 'anthropic' && input.protocol !== 'responses' && input.protocol !== 'chat')
-      throw new Error('请选择协议')
+    if (!PROTOCOLS.has(input.protocol)) throw new Error('请选择协议')
     const protocol = input.protocol
     if (existing && existing.protocol !== protocol) throw new Error('已有接口不能换协议，请新建一个')
     const template: ProviderTemplate =
-      input.template === 'anthropic' || input.template === 'openai' || input.template === 'custom'
-        ? input.template
-        : (existing?.template ?? 'custom')
+      TEMPLATES.has(input.template) && input.template ? input.template : (existing?.template ?? 'custom')
     const auth: ProviderAuth =
       input.auth === 'bearer' || input.auth === 'x-api-key'
         ? input.auth
-        : (existing?.auth ?? (protocol === 'anthropic' ? 'x-api-key' : 'bearer'))
+        : (existing?.auth ?? (protocol === 'anthropic' || protocol === 'gemini' ? 'x-api-key' : 'bearer'))
     const models = input.models !== undefined ? parseModels(input.models) : (existing?.models ?? [])
     const small = input.smallModel !== undefined ? input.smallModel : (existing?.smallModel ?? null)
     if (small !== null && (typeof small !== 'string' || small.length > 200)) throw new Error('后台小模型格式不对')

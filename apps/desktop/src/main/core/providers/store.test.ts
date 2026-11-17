@@ -201,6 +201,89 @@ describe('自定义 API 配置存储（docs/ui/custom-api.md §4.2）', () => {
   })
 })
 
+describe('Gemini 协议（docs/ui/custom-api.md §15）', () => {
+  const g = {
+    id: 'g1',
+    name: 'Studio',
+    template: 'google' as const,
+    protocol: 'gemini' as const,
+    baseUrl: 'https://gemini.example.com',
+    auth: 'x-api-key' as const,
+    models: [{ id: 'gemini-3.1-pro' }],
+    smallModel: null,
+    modelFallback: true,
+    headerNames: [],
+    createdAt: 0,
+    updatedAt: 0,
+    apiKey: KEY,
+    headers: {},
+  }
+  it('地址去掉结尾的 /v1beta、/v1；存下来读回仍是 gemini 和 google 模板，不存后台小模型', () => {
+    expect(normalizeBaseUrl('https://generativelanguage.googleapis.com/v1beta/', 'gemini')).toBe(
+      'https://generativelanguage.googleapis.com',
+    )
+    expect(normalizeBaseUrl('https://relay.example.com/gemini/v1', 'gemini')).toBe('https://relay.example.com/gemini')
+    const store = new ProviderStore(dir, cipher())
+    const view = store.save({
+      name: 'Studio',
+      template: 'google',
+      protocol: 'gemini',
+      baseUrl: 'https://gemini.example.com/v1beta',
+      apiKey: KEY,
+      models: [{ id: 'gemini-3.1-pro' }],
+      smallModel: 'gemini-3.1-pro',
+    })
+    expect(view).toMatchObject({ protocol: 'gemini', template: 'google', auth: 'x-api-key', smallModel: null })
+    expect(new ProviderStore(dir, cipher()).resolve(view.id)).toMatchObject({
+      protocol: 'gemini',
+      template: 'google',
+      baseUrl: 'https://gemini.example.com',
+    })
+  })
+  it('Key 放 x-goog-api-key（不管认证方式），路径原样拼', () => {
+    expect(providerHeaders({ ...g, auth: 'bearer' })).toEqual({ 'x-goog-api-key': KEY })
+    expect(upstreamUrl(g, '/v1beta/models/gemini-3.1-pro:generateContent')).toBe(
+      'https://gemini.example.com/v1beta/models/gemini-3.1-pro:generateContent',
+    )
+    expect(classifyStatus(404, 'Not Found', g, null).message).toContain('/v1beta 前面')
+  })
+  it('读取模型：翻页、去掉 models/ 前缀、只留能 generateContent 的', async () => {
+    const urls: string[] = []
+    const fetch: Fetch = async url => {
+      urls.push(url)
+      return new Response(
+        JSON.stringify(
+          url.includes('pageToken')
+            ? { models: [{ name: 'models/gemini-3.8-flash' }] }
+            : {
+                models: [
+                  { name: 'models/gemini-3.1-pro', supportedGenerationMethods: ['generateContent', 'countTokens'] },
+                  { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
+                ],
+                nextPageToken: 'n 2',
+              },
+        ),
+      )
+    }
+    expect(await fetchModels(g, fetch)).toEqual(['gemini-3.1-pro', 'gemini-3.8-flash'])
+    expect(urls).toEqual([
+      'https://gemini.example.com/v1beta/models?pageSize=1000',
+      'https://gemini.example.com/v1beta/models?pageSize=1000&pageToken=n%202',
+    ])
+  })
+  it('测试连接：generateContent，Key 在头里不在 URL 里', async () => {
+    let seen: { url: string; init: RequestInit } | null = null
+    const fetch: Fetch = async (url, init) => {
+      seen = { url, init }
+      return new Response('{}')
+    }
+    expect(await testProvider(g, fetch)).toEqual({ ok: true, status: 200, model: 'gemini-3.1-pro' })
+    expect(seen!.url).toBe('https://gemini.example.com/v1beta/models/gemini-3.1-pro:generateContent')
+    expect(new Headers(seen!.init.headers).get('x-goog-api-key')).toBe(KEY)
+    expect(JSON.parse(String(seen!.init.body))).toMatchObject({ generationConfig: { maxOutputTokens: 16 } })
+  })
+})
+
 describe('发往接口的请求', () => {
   const p = {
     id: 'p1',

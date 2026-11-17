@@ -286,7 +286,8 @@ export async function askModel(
   }
 
   const p = req.providerId ? deps.provider(req.providerId) : null
-  if (!p) return failed('provider', 'missing')
+  // Gemini 接口只给 Antigravity（docs/ui/custom-api.md §15），一问一答没接
+  if (!p || p.protocol === 'gemini') return failed('provider', 'missing')
   if (!p.apiKey) return failed('provider', 'noKey')
   const url = upstreamUrl(p, PROTOCOL_PATH[p.protocol])
   let res: Response

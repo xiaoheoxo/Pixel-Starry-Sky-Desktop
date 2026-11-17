@@ -203,6 +203,9 @@ describe('引擎与协议的对应', () => {
     expect(engineProviderProtocols('claude')).toEqual(['anthropic'])
     expect(engineProviderProtocols('codex')).toEqual(['responses'])
     expect(engineProviderProtocols('pixel')).toEqual(['anthropic', 'responses', 'chat'])
+    // Antigravity 只要 Gemini（以前落到默认的 Anthropic，主进程不拦 Antigravity 会话带 Anthropic 接口）
+    expect(engineProviderProtocols('antigravity')).toEqual(['gemini'])
+    expect(engineProviderProtocols('unknown')).toEqual([])
   })
   it('线路目录：openai 线路像素星空也能用；写了 claude / codex 的它都能用', () => {
     expect(groupEngines({ platform: 'openai' })).toEqual(['codex', 'pixel'])

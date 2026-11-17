@@ -1,8 +1,10 @@
 // 自定义 API（docs/ui/custom-api.md）：主进程和设置页之间传的接口配置。Key 和附加请求头的值只在主进程里
-// chat：OpenAI Chat Completions（DeepSeek、OpenRouter 等兼容接口），只有像素星空能用；老版本读到会当成 anthropic，不会崩
-export type ProviderProtocol = 'anthropic' | 'responses' | 'chat'
+// chat：OpenAI Chat Completions（DeepSeek、OpenRouter 等兼容接口），只有像素星空能用；
+// gemini：Gemini 原生接口（/v1beta/models/…:generateContent），只有 Antigravity 能用（§15）。老版本读到新协议会当成 anthropic，不会崩
+export type ProviderProtocol = 'anthropic' | 'responses' | 'chat' | 'gemini'
+/** gemini 协议不看这一项，Key 总是放 x-goog-api-key */
 export type ProviderAuth = 'x-api-key' | 'bearer'
-export type ProviderTemplate = 'anthropic' | 'openai' | 'custom'
+export type ProviderTemplate = 'anthropic' | 'openai' | 'google' | 'custom'
 
 export interface ProviderModel {
   id: string

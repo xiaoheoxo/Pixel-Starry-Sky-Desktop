@@ -10,6 +10,7 @@ import type {
   ProviderView,
   RelayBilling,
 } from '../../../../shared/types/providers'
+import { engineProviderProtocols } from '../../../../shared/provider-protocols'
 import { demo } from '@/data/demo'
 
 let state: ProvidersState = { providers: [], persistent: true, warning: null }
@@ -56,19 +57,22 @@ export function getProviders(): ProvidersState {
   return state
 }
 
-/** 引擎能用哪些协议：Claude Code ↔ Anthropic Messages，Codex ↔ OpenAI Responses，像素星空三种都行（Chat Completions 只有它能用） */
-/** 引擎能用哪些协议的自定义接口；Antigravity 只走自己的登录（Google 账号 / Gemini Key），一个都不能用 */
-export const engineProtocols = (engine: EngineId): ProviderProtocol[] =>
-  engine === 'codex'
-    ? ['responses']
-    : engine === 'pixel'
-      ? ['anthropic', 'responses', 'chat']
-      : engine === 'antigravity'
-        ? []
-        : ['anthropic']
+/** 引擎能用哪些协议的自定义接口（和主进程同一份）；Antigravity 只能用 Gemini 接口（docs/ui/custom-api.md §15） */
+export const engineProtocols = (engine: EngineId): ProviderProtocol[] => engineProviderProtocols(engine)
 
 export const providersFor = (providers: ProviderView[], engine: EngineId): ProviderView[] =>
   providers.filter(p => engineProtocols(engine).includes(p.protocol))
+
+/**
+ * 模型菜单里 Gemini 接口列哪些模型（docs/ui/custom-api.md §15）：有 agy 目录里也有的就只列这些；一个都对不上
+ * （接口列的是上游的真名，如 -preview）或读不到目录时列接口的——发出去的是接口的名字，网关按会话模型兜底。
+ * 不列 agy 目录里接口没有的名字：选了网关也只能换成接口第一个模型。别的协议原样
+ */
+export function menuProvider(p: ProviderView, agyCatalog: readonly string[]): ProviderView {
+  if (p.protocol !== 'gemini') return p
+  const both = p.models.filter(m => agyCatalog.includes(m.id))
+  return both.length ? { ...p, models: both } : p
+}
 
 /** 接口里还在的模型；没有就取第一个；接口没列模型时保留原值 */
 export function resolveCustomModel(p: ProviderView | undefined, model: string | null): string | null {
@@ -85,7 +89,7 @@ export async function saveProvider(input: ProviderInput): Promise<ProviderView> 
       template: input.template ?? 'custom',
       protocol: input.protocol,
       baseUrl: input.baseUrl.trim().replace(/\/+$/, ''),
-      auth: input.auth ?? (input.protocol === 'anthropic' ? 'x-api-key' : 'bearer'),
+      auth: input.auth ?? (input.protocol === 'anthropic' || input.protocol === 'gemini' ? 'x-api-key' : 'bearer'),
       models: input.models ?? existing?.models ?? [],
       smallModel: input.smallModel ?? null,
       modelFallback: input.modelFallback ?? true,
@@ -125,6 +129,10 @@ export async function readRelayBilling(input: ProviderInput): Promise<RelayBilli
 
 export async function readProviderModels(input: ProviderInput): Promise<string[]> {
   if (window.pixelsky?.demo)
-    return input.protocol === 'anthropic' ? ['deepseek-chat', 'deepseek-reasoner'] : ['gpt-5', 'gpt-5-mini']
+    return input.protocol === 'anthropic'
+      ? ['deepseek-chat', 'deepseek-reasoner']
+      : input.protocol === 'gemini'
+        ? ['gemini-3.1-pro', 'gemini-3.8-flash']
+        : ['gpt-5', 'gpt-5-mini']
   return window.pixelsky!.providers.models(input)
 }

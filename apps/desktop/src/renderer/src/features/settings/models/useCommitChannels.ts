@@ -20,7 +20,8 @@ import {
 
 export function useCommitChannels() {
   const platform = usePlatform('claude')
-  const providers: ProviderView[] = useProviders().providers.filter(p => p.models.length)
+  // AI 写提交信息是我们直接发一问一答，Gemini 接口没接（docs/ui/custom-api.md §15）
+  const providers: ProviderView[] = useProviders().providers.filter(p => p.models.length && p.protocol !== 'gemini')
   const engines = useChannelEngines()
   const remote = useMachines().currentId !== 'local'
   // Claude 授权只用别名（haiku / sonnet / opus），不读它的模型目录（读一次要启动 Claude Code）

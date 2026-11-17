@@ -309,5 +309,22 @@ export const demoProviders: ProvidersState = {
       createdAt: 1_760_000_000_000,
       updatedAt: 1_760_000_000_000,
     },
+    {
+      // Gemini 协议：只给 Antigravity（docs/ui/custom-api.md §15）
+      id: 'demo-gemini-studio',
+      name: 'Google AI Studio',
+      template: 'google',
+      protocol: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      auth: 'x-api-key',
+      models: [{ id: 'gemini-3.1-pro' }, { id: 'gemini-3.8-flash' }],
+      smallModel: null,
+      modelFallback: true,
+      keyHint: '2b9d',
+      headerNames: [],
+      insecure: false,
+      createdAt: 1_760_000_000_000,
+      updatedAt: 1_760_000_000_000,
+    },
   ],
 }

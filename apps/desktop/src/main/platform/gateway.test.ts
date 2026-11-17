@@ -5,6 +5,7 @@ import type { SessionRecord } from '@pixelsky/protocol'
 import { CLAUDE_COMPACT_MARKER, setLogSink, type CompactionRequestReport } from '@pixelsky/engine'
 import { BODY_LIMIT, eventEnd, platformGateway, reservationConflict } from './gateway'
 import type { ResolvedProvider } from '../core/providers/store'
+import type { Fetch } from '../core/providers/upstream'
 let server: Server
 afterEach(() => {
   server?.closeAllConnections()
@@ -1003,5 +1004,123 @@ describe('Antigravity 的 Gemini 请求（docs/antigravity-engine.md §13）', (
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ error: { code: 403 } })
     expect(upstream).not.toHaveBeenCalled()
+  })
+})
+
+describe('自定义 Gemini 接口给 Antigravity（docs/ui/custom-api.md §15）', () => {
+  const gemini = (over: Partial<ResolvedProvider> = {}): ResolvedProvider => ({
+    id: 'g1',
+    name: 'Studio',
+    template: 'google',
+    protocol: 'gemini',
+    baseUrl: 'https://gemini.example.com',
+    auth: 'x-api-key',
+    models: [{ id: 'gemini-3.1-pro' }, { id: 'gemini-3.8-flash' }],
+    smallModel: null,
+    modelFallback: true,
+    headerNames: [],
+    createdAt: 0,
+    updatedAt: 0,
+    apiKey: 'AIza-real-key',
+    headers: {},
+    ...over,
+  })
+  const start = (opts: { engine?: string; provider?: ResolvedProvider | null; upstream: Fetch }) => {
+    const cloud = vi.fn(async () => new Response('{}'))
+    server = platformGateway({
+      sessions: new Map([['s', { recordId: 's', secret: 'local-secret' }]]),
+      record: () =>
+        ({
+          id: 's',
+          engine: opts.engine ?? 'antigravity',
+          model: 'gemini-3.1-pro',
+          platform: null,
+          provider: { id: 'g1' },
+        }) as SessionRecord,
+      account: () => null,
+      fetch: cloud,
+      provider: () => (opts.provider === undefined ? gemini() : opts.provider),
+      upstream: opts.upstream,
+    })
+    server.listen(0, '127.0.0.1')
+    return once(server, 'listening').then(() => ({
+      cloud,
+      post: (path: string, key = 'local-secret') =>
+        fetch('http://127.0.0.1:' + (server.address() as { port: number }).port + path, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': key },
+          body: '{"contents":[]}',
+        }),
+    }))
+  }
+
+  it('换上真实 Key（x-goog-api-key，不进 URL）发往接口地址，带 alt=sse、不跟随跳转，原样回传', async () => {
+    const upstream = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response('data: {"candidates":[]}\r\n\r\n', { headers: { 'Content-Type': 'text/event-stream' } }),
+    )
+    const gw = await start({ upstream })
+    const res = await gw.post('/v1beta/models/gemini-3.1-pro:streamGenerateContent?alt=sse')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('data: {"candidates":[]}\r\n\r\n')
+    const [url, init] = upstream.mock.calls[0]!
+    expect(url).toBe('https://gemini.example.com/v1beta/models/gemini-3.1-pro:streamGenerateContent?alt=sse')
+    expect(new Headers(init.headers).get('x-goog-api-key')).toBe('AIza-real-key')
+    expect(init.redirect).toBe('error')
+    expect(init.body?.toString()).toBe('{"contents":[]}')
+    expect(gw.cloud).not.toHaveBeenCalled()
+  })
+
+  it('接口没列的模型（-preview 改名、后台 flash-lite）都换成会话当前模型；关掉兜底原样发', async () => {
+    const urls: string[] = []
+    const upstream: Fetch = async url => {
+      urls.push(url)
+      return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
+    }
+    let gw = await start({ upstream })
+    await gw.post('/v1beta/models/gemini-3.1-pro-preview:generateContent')
+    await gw.post('/v1beta/models/gemini-3.1-flash-lite-preview:generateContent')
+    server.close()
+    // 列表第一个不是会话模型：后台 lite 请求也跟会话模型走，不被换成列表第一个
+    gw = await start({ upstream, provider: gemini({ models: [{ id: 'gemini-3.8-flash' }, { id: 'gemini-3.1-pro' }] }) })
+    await gw.post('/v1beta/models/gemini-3.1-flash-lite-preview:generateContent')
+    server.close()
+    gw = await start({ upstream, provider: gemini({ modelFallback: false }) })
+    await gw.post('/v1beta/models/gemini-3.1-pro-preview:generateContent')
+    expect(urls).toEqual([
+      'https://gemini.example.com/v1beta/models/gemini-3.1-pro:generateContent',
+      'https://gemini.example.com/v1beta/models/gemini-3.1-pro:generateContent',
+      'https://gemini.example.com/v1beta/models/gemini-3.1-pro:generateContent',
+      'https://gemini.example.com/v1beta/models/gemini-3.1-pro-preview:generateContent',
+    ])
+  })
+
+  it('接口删了 / 没 Key 401，协议不是 Gemini、引擎不是 Antigravity 403，回 Google 格式、都不转发', async () => {
+    const upstream = vi.fn(async () => new Response('{}'))
+    const cases: [Parameters<typeof start>[0], number][] = [
+      [{ upstream, provider: null }, 401],
+      [{ upstream, provider: gemini({ apiKey: null }) }, 401],
+      [{ upstream, provider: gemini({ protocol: 'anthropic' }) }, 403],
+      [{ upstream, engine: 'claude' }, 403],
+    ]
+    for (const [opts, status] of cases) {
+      const gw = await start(opts)
+      const res = await gw.post('/v1beta/models/gemini-3.1-pro:generateContent')
+      expect(res.status).toBe(status)
+      expect(await res.json()).toMatchObject({ error: { code: status } })
+      server.close()
+    }
+    expect(upstream).not.toHaveBeenCalled()
+  })
+
+  it('连不上接口：回 502 和人话说明', async () => {
+    const gw = await start({
+      upstream: async () => {
+        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
+      },
+    })
+    const res = await gw.post('/v1beta/models/gemini-3.1-pro:generateContent')
+    expect(res.status).toBe(502)
+    expect(((await res.json()) as { error: { message: string } }).error.message).toContain('连接被拒绝')
   })
 })

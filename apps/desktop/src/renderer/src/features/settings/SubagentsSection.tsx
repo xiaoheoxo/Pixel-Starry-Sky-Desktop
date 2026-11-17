@@ -8,7 +8,7 @@ import { tr } from '@/i18n/core'
 import { Button, Segmented, Switch } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { usePlatform } from '@/features/account/platform'
-import { useProviders } from '@/features/account/providers'
+import { providersFor, useProviders } from '@/features/account/providers'
 import { savedTypes, setSubagentSettings, useSubagentSettings } from './subagents'
 import { SubagentTypeCard, TYPE_ICONS, minutesLabel, typeName, type SiteContext } from './SubagentTypeCard'
 import { useUnsavedCheck } from './unsavedEdits'
@@ -41,7 +41,8 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
   useI18n()
   const { settings } = useSubagentSettings()
   const platform = usePlatform('pixel')
-  const providers = useProviders().providers.filter(p => p.models.length)
+  // 子智能体由像素星空跑：只列它能用的协议（Gemini 接口只给 Antigravity）
+  const providers = providersFor(useProviders().providers, 'pixel').filter(p => p.models.length)
   const sites: SiteContext = {
     providers,
     groups: platform.email ? platform.groups.filter(g => g.models.length) : [],

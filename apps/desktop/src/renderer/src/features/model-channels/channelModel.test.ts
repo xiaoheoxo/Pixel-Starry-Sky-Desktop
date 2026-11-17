@@ -89,6 +89,14 @@ describe('谁来执行（§2.5）', () => {
     expect(executorsFor({ channel: 'claude', model: null, providerId: null }, ctx)).toEqual(['claude'])
     expect(executorsFor({ channel: 'chatgpt', model: 'gpt-6.1', providerId: null }, ctx)).toEqual(['codex'])
   })
+  it('Gemini 自定义接口只交给 Antigravity（docs/ui/custom-api.md §15）', () => {
+    expect(
+      executorsFor(
+        { channel: 'custom', model: 'gemini-3.1-pro', providerId: 'g' },
+        { groups, providers: [{ id: 'g', protocol: 'gemini' }] },
+      ),
+    ).toEqual(['antigravity'])
+  })
   it('Gemini 平台分组（只给 Antigravity）的模型只交给 Antigravity', () => {
     const gem = group('g', 'gemini', ['gemini-3.8-flash'], {
       supported_engines: ['antigravity'],

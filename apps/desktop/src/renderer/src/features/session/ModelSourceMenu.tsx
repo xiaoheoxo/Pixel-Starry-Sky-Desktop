@@ -23,7 +23,7 @@ import {
 import type { EngineId } from '@pixelsky/protocol'
 import { EngineIcon, Kbd, PlanBadge, Popover, Spinner, cn } from '@/ui'
 import { useAccount } from '@/features/account/useAccount'
-import { useProviders } from '@/features/account/providers'
+import { menuProvider, useProviders } from '@/features/account/providers'
 import {
   billingLabel,
   formatMultiplier,
@@ -201,6 +201,9 @@ export function ModelSourceMenu({
     if (open) scrollInPane(list.current?.querySelector('[data-active]'), 'nearest')
   }, [open, active])
 
+  // Gemini 接口只列 agy 认得的模型（docs/ui/custom-api.md §15）
+  const agyIds = (agyCatalog?.models ?? []).map(m => m.id)
+  const menuProviders = providers.providers.map(p => menuProvider(p, agyIds))
   const selection: ModelTarget = { channel: live.channel, model: live.model, providerId: live.providerId }
   const selfModels = {
     claude: selfModelOptions('claude', claudeCatalog?.models),
@@ -213,7 +216,7 @@ export function ModelSourceMenu({
     current: live.started ? engineId : null,
     platform: catalog,
     selfModels,
-    providers: providers.providers,
+    providers: menuProviders,
     engines,
     remembered: prefs.executors,
   })
@@ -225,7 +228,7 @@ export function ModelSourceMenu({
   /** 标签页只有一个设置好的通道：不要标签栏，信息行写通道名，「添加通道」放底栏 */
   const single = layout === 'tabs' && channels.shown.length === 1
   const route = platform.groups.find(g => g.id === live.groupId)
-  const endpoint = providers.providers.find(p => p.id === live.providerId)
+  const endpoint = menuProviders.find(p => p.id === live.providerId)
   const notReady = live.blocker !== null && live.blocker.kind !== 'balance'
 
   const run = (fn: () => Promise<void>): void => {
@@ -281,7 +284,7 @@ export function ModelSourceMenu({
     }
   }
 
-  const providerOf = (row: ChannelRow) => providers.providers.find(p => p.id === row.target.providerId)
+  const providerOf = (row: ChannelRow) => menuProviders.find(p => p.id === row.target.providerId)
   const selfOption = (c: ChannelId, row: ChannelRow) =>
     isAuthChannel(c) ? selfModels[c].find(m => m.value === row.target.model) : undefined
   const rowTitle = (c: ChannelId, row: ChannelRow): string =>
