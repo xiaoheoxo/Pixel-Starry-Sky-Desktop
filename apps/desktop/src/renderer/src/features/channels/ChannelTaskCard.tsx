@@ -31,6 +31,7 @@ import { ActivityLines, TaskElapsed } from './ActivityLines'
 import { CheckSummary } from '@/features/checks/CheckSummary'
 import { landView } from './taskLand'
 import { TaskChanges } from './TaskChanges'
+import { RunReasonLine, TaskRuns } from './TaskRuns'
 
 export const STATUS_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
   queued: 'channels.task.queued',
@@ -275,11 +276,13 @@ export function ChannelTaskCard({
         // 错误下面单独写一行，这里不重复
         <ActivityLines view={view.head?.kind === 'error' ? { ...view, head: null } : view} className="mt-1" />
       )}
+      <RunReasonLine task={task} mine={mine} />
       {task.status === 'failed' && task.error && (
         <p className="mt-1 line-clamp-3 text-meta break-words text-danger" title={translateMessage(task.error)}>
           {translateMessage(task.error)}
         </p>
       )}
+      <TaskRuns task={task} mine={mine} onOpenSession={onOpenSession} />
       {task.status === 'waiting' && task.request && (
         <p
           className={cn('mt-1 line-clamp-2 text-meta break-words text-fg-muted', task.request.command && 'font-mono')}

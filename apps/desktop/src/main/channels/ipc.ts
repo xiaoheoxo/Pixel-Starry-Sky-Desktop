@@ -392,7 +392,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   })
   ipc.handle('teams:create', (_e, name) => channels.createTeam(typeof name === 'string' ? name : ''))
   ipc.handle('teams:update', (_e, teamId, patch) =>
-    channels.updateTeam(str(teamId, '团队'), (patch ?? {}) as { name: string }),
+    channels.updateTeam(str(teamId, '团队'), (patch ?? {}) as { name?: string; queueGraceHours?: number }),
   )
   ipc.handle('teams:delete', (_e, teamId) => channels.deleteTeam(str(teamId, '团队')))
   ipc.handle('teams:rename', (_e, teamId, name) =>

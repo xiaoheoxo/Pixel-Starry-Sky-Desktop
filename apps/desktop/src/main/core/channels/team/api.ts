@@ -1,6 +1,7 @@
 // 团队云端接口的薄客户端（docs/ui/channels-phase-c.md §8.2）：snake_case → camelCase，时间转毫秒，
 // 非 2xx 转成带 code 的错误。请求函数（teamsFetch）由应用层注入，这里不碰 Electron。
-import type { AgentPolicy, ChannelTaskStatus, TeamRole } from '../../../../shared/types/channels'
+import type { AgentPolicy, ChannelRun, ChannelTaskStatus, RunReason, TeamRole } from '../../../../shared/types/channels'
+import { parseRunReason } from '../../../../shared/channels/runReason'
 
 export type TeamErrorCode =
   | 'NOT_DEPLOYED'
@@ -92,6 +93,8 @@ export interface TeamData {
   name: string
   role: TeamRole
   seq: number
+  /** 排队宽限期（小时）；旧云端没有，为 0 */
+  queueGraceHours: number
   members: TeamMemberData[]
   invites: TeamInviteData[]
   channels: TeamChannelData[]
@@ -131,6 +134,9 @@ export interface TeamTaskData {
   /** 追加要求那条消息的 id（任务卡被追加要求后云端带上） */
   followupMessage: string | null
   endedAt: number | null
+  /** 这一轮的原因代码、跑过的每一轮（docs/multica-learn.md §11.1）；旧云端没有 */
+  reason: RunReason | null
+  runs: ChannelRun[]
 }
 
 export interface TeamEventData {
@@ -185,6 +191,10 @@ export interface TaskPatch {
   progress?: { done: number; total: number } | null
   round?: number
   clearAction?: boolean
+  /** 这一轮的原因代码；null 清掉 */
+  reason?: RunReason | null
+  /** 要追加的运行记录（云端按轮次 + 结束时间去重） */
+  addRuns?: ChannelRun[]
 }
 
 export interface AgentRegistration {
@@ -299,6 +309,7 @@ function parseTeam(v: unknown): TeamData | null {
     name: str(v.name),
     role: oneOf(v.role, ROLES, 'member'),
     seq: int(v.seq),
+    queueGraceHours: int(v.queue_grace_hours),
     members: arr(v.members, parseMember),
     invites: arr(v.invites, parseTeamInvite),
     channels: arr(v.channels, parseChannel),
@@ -354,6 +365,42 @@ function parseTask(v: unknown): TeamTaskData | null {
     sourceMessage: strOrNull(v.source_message),
     followupMessage: strOrNull(v.followup_message),
     endedAt: time(v.ended_at) || null,
+    reason: parseRunReason(v.reason),
+    runs: arr(v.runs, parseRun),
+  }
+}
+
+const RUN_STATUSES = ['done', 'failed', 'stopped'] as const
+
+function parseRun(v: unknown): ChannelRun | null {
+  if (!isObj(v)) return null
+  const endedAt = time(v.ended_at)
+  if (!endedAt || !(RUN_STATUSES as readonly unknown[]).includes(v.status)) return null
+  return {
+    n: Math.max(1, int(v.n)),
+    status: v.status as ChannelRun['status'],
+    startedAt: time(v.started_at) || null,
+    endedAt,
+    reason: parseRunReason(v.reason),
+    error: strOrNull(v.error),
+    engine: strOrNull(v.engine),
+    model: strOrNull(v.model),
+    machine: strOrNull(v.machine),
+  }
+}
+
+/** 运行记录的线上形状（会话 id 只在本机，不上传） */
+function runWire(r: ChannelRun): Record<string, unknown> {
+  return {
+    n: r.n,
+    status: r.status,
+    started_at: r.startedAt ? new Date(r.startedAt).toISOString() : null,
+    ended_at: new Date(r.endedAt).toISOString(),
+    ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.error ? { error: r.error } : {}),
+    ...(r.engine ? { engine: r.engine } : {}),
+    ...(r.model ? { model: r.model } : {}),
+    ...(r.machine ? { machine: r.machine } : {}),
   }
 }
 
@@ -474,8 +521,11 @@ export class TeamApi {
     return id
   }
 
-  updateTeam(teamId: string, patch: { name: string }): Promise<void> {
-    return this.call('PATCH', `/v1/teams/${seg(teamId)}`, patch)
+  updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void> {
+    return this.call('PATCH', `/v1/teams/${seg(teamId)}`, {
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.queueGraceHours !== undefined ? { queue_grace_hours: patch.queueGraceHours } : {}),
+    })
   }
 
   deleteTeam(teamId: string): Promise<void> {
@@ -603,8 +653,12 @@ export class TeamApi {
   }
 
   async patchTask(teamId: string, messageId: string, patch: TaskPatch): Promise<TeamMessage> {
-    const { clearAction, ...rest } = patch
-    const wire = { ...rest, ...(clearAction ? { clear_action: true } : {}) }
+    const { clearAction, addRuns, ...rest } = patch
+    const wire = {
+      ...rest,
+      ...(clearAction ? { clear_action: true } : {}),
+      ...(addRuns?.length ? { add_runs: addRuns.map(runWire) } : {}),
+    }
     return messageOf(
       await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}`, wire)),
     )

@@ -692,6 +692,7 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       title: '补发布页的 e2e 截图',
       status: 'failed',
       error: '会话已删除',
+      reason: 'session_gone',
       sessionId: null,
       summary: null,
       diff: null,
@@ -719,6 +720,33 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       summary: '签名证书已过期，打包在签名步骤中断。',
       diff: null,
       error: '签名证书已过期，打包在签名步骤中断。',
+      reason: 'other',
+      round: 2,
+      // 运行记录（docs/multica-learn.md §1）：第一次额度用完，充值后重试，第二次卡在签名
+      runs: [
+        {
+          n: 1,
+          status: 'failed',
+          startedAt: at(YESTERDAY, '16:21'),
+          endedAt: at(YESTERDAY, '16:23'),
+          reason: 'engine.quota',
+          error: '平台余额不足，请充值后重试',
+          engine: 'codex',
+          model: 'gpt-5.5',
+          machine: 'build-01',
+        },
+        {
+          n: 2,
+          status: 'failed',
+          startedAt: at(YESTERDAY, '16:40'),
+          endedAt: at(YESTERDAY, '16:47'),
+          reason: 'other',
+          error: '签名证书已过期，打包在签名步骤中断。',
+          engine: 'codex',
+          model: 'gpt-5.5',
+          machine: 'build-01',
+        },
+      ],
       activity: {
         say: null,
         steps: [
@@ -1075,6 +1103,7 @@ export const demoTeams: TeamInfo[] = [
     id: 'tm-pixel',
     name: '像素星空小队',
     role: 'owner',
+    queueGraceHours: 24,
     members: [
       { id: 'm-linxia', role: 'owner', online: true, lastSeenAt: NOW },
       { id: 'm-zhouning', role: 'member', online: true, lastSeenAt: NOW },

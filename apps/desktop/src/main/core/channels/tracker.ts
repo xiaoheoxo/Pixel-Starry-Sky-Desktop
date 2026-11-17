@@ -50,6 +50,8 @@ export interface TaskRun {
   freshPrompt: string
   /** 这一轮的 user 条目出现过（引擎开始做了） */
   started: boolean
+  /** 这一轮真正开始的时间（不含排队；断线重连、自动重试不重算），运行记录算用时；旧数据没有 */
+  startedAt?: number
   turnId: string | null
   requests: ApprovalRequest[]
   /** file_change 条目 id → 改动统计 */
@@ -389,6 +391,7 @@ export function trackEvent(run: TaskRun, event: EngineEvent, now = Date.now()): 
     const next: TaskRun = {
       ...run,
       started: true,
+      startedAt: run.startedAt ?? now,
       turnId: (event.item.kind === 'user' && event.item.turnId) || run.turnId,
       requests: [],
       diff: resumed ? run.diff : {},

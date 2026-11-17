@@ -94,6 +94,7 @@ import { ChannelStore, type StoredChannel } from './store'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
+import { appendRun, runReasonOf } from '../../../shared/channels/runReason'
 import { jsonObjects } from '../json-reply'
 import {
   DEFAULT_MAX_REJECTS,
@@ -486,6 +487,13 @@ export class Channels {
 
   self(): HumanMember {
     return { id: SELF_ID, kind: 'human', name: this.deps.selfName(), you: true, role: 'owner' }
+  }
+
+  /** 给别人看的机器名：本机用电脑名，SSH / WSL 用机器名 */
+  private machineLabel(machineId: string): string {
+    return machineId === 'local'
+      ? (this.deps.machineName?.() ?? '这台电脑')
+      : (this.deps.machines().find(m => m.id === machineId)?.name ?? machineId)
   }
 
   private member(id: string): AgentConfig | undefined {
@@ -1978,6 +1986,7 @@ export class Channels {
       status: 'queued',
       round,
       error: null,
+      reason: null,
       note: null,
       decision: null,
       request: null,
@@ -2241,6 +2250,24 @@ export class Channels {
         ahead: 0,
         disconnected: false,
         endedAt: now,
+      }
+      // 这一轮的运行记录和原因（docs/multica-learn.md §1、§2）：发出去过的、或没发出去就失败的；还在排队时取消的不算
+      patch.reason = runReasonOf(finish.status, patch.error)
+      if (run.phase !== 'waiting' || finish.status === 'failed') {
+        const config = this.member(run.memberId)
+        patch.runs = appendRun(task.runs, {
+          n: run.round,
+          status: finish.status,
+          // 卡片上的 startedAt 只记第一轮；旧的运行信息没有自己的开始时间时，只有第一轮能借用
+          startedAt: run.startedAt ?? (run.round === 1 ? (task.startedAt ?? null) : null),
+          endedAt: now,
+          reason: patch.reason,
+          error: patch.error,
+          engine: config?.engine ?? null,
+          model: config?.settings.model ?? null,
+          machine: config ? this.machineLabel(config.machineId) : null,
+          sessionId: run.sessionId ?? null,
+        })
       }
       if (finish.status === 'done' || run.reply) {
         const diff = diffTotal(run)
@@ -5194,10 +5221,7 @@ export class Channels {
     const config = this.member(localId)
     if (!config) throw new Error('成员不存在')
     const project = this.deps.projects().find(p => p.id === config.projectId)
-    const machine =
-      config.machineId === 'local'
-        ? (this.deps.machineName?.() ?? '这台电脑')
-        : (this.deps.machines().find(m => m.id === config.machineId)?.name ?? config.machineId)
+    const machine = this.machineLabel(config.machineId)
     const reg: AgentRegistration = {
       name: config.name,
       engine: config.engine,
@@ -5257,8 +5281,15 @@ export class Channels {
   async createTeam(name: string): Promise<string> {
     return this.requireTeam().createTeam(cleanName(name, '团队名'))
   }
-  async updateTeam(teamId: string, patch: { name: string }): Promise<void> {
-    return this.requireTeam().updateTeam(teamId, { name: cleanName(patch?.name, '团队名') })
+  /** 改团队名或排队宽限期（docs/multica-learn.md §2：只认 1 / 6 / 24 / 72 小时） */
+  async updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void> {
+    const grace = patch?.queueGraceHours
+    if (grace !== undefined && ![1, 6, 24, 72].includes(grace)) throw new Error('排队宽限期只能选 1、6、24 或 72 小时')
+    if (patch?.name === undefined && grace === undefined) throw new Error('没有要改的内容')
+    return this.requireTeam().updateTeam(teamId, {
+      ...(patch.name !== undefined ? { name: cleanName(patch.name, '团队名') } : {}),
+      ...(grace !== undefined ? { queueGraceHours: grace } : {}),
+    })
   }
   deleteTeam(teamId: string): Promise<void> {
     return this.requireTeam().deleteTeam(teamId)

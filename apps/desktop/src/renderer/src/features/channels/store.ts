@@ -674,6 +674,13 @@ export const channelActions = {
       await resync()
     } else demo.patchTeam(teamId, t => ({ ...t, name }))
   },
+  /** 排队宽限期（docs/multica-learn.md §2）：只有所有者能改 */
+  async setQueueGrace(teamId: string, hours: number): Promise<void> {
+    if (channelsBridge) {
+      await channelsBridge.updateTeam(teamId, { queueGraceHours: hours })
+      await resync()
+    } else demo.patchTeam(teamId, t => ({ ...t, queueGraceHours: hours }))
+  },
   async deleteTeam(teamId: string): Promise<void> {
     if (channelsBridge) {
       await channelsBridge.deleteTeam(teamId)

@@ -1188,6 +1188,17 @@ describe('协作频道：失败、停止、重试', () => {
     // 宿主每轮结束都紧跟一个队列事件；这条不在队列里（没有自动重连）才算失败
     c.hostEvent(ev('ssh-ab~s1', { type: 'queue', items: [], paused: true }))
     expect(tasks(c, channelId)[0]).toMatchObject({ status: 'failed', error: '502 Bad Gateway' })
+    // 每轮一条运行记录，失败原因按报错归类（docs/multica-learn.md §1、§2）
+    const failed = tasks(c, channelId)[0]
+    expect(failed.reason).toBe('engine.busy')
+    expect(failed.runs?.map(r => [r.n, r.status, r.reason])).toEqual([
+      [1, 'failed', 'other'],
+      [2, 'failed', 'engine.busy'],
+    ])
+    expect(failed.runs?.[1]).toMatchObject({ machine: 'build-01', sessionId: 'ssh-ab~s1', error: '502 Bad Gateway' })
+    // 用时按每一轮自己开始的时间算：第一轮没开始就失败（没有开始时间），第二轮有
+    expect(failed.runs?.[0].startedAt).toBeNull()
+    expect(failed.runs?.[1].startedAt).toEqual(expect.any(Number))
     await c.taskAction(task.id, 'retry')
     await settle()
     expect(engine.sends().at(-1)).toMatchObject({
@@ -1195,6 +1206,9 @@ describe('协作频道：失败、停止、重试', () => {
       text: '继续',
       clientMessageId: `ch-${task.id}-3`,
     })
+    // 新一轮开始：原因清掉，运行记录留着
+    expect(tasks(c, channelId)[0]).toMatchObject({ reason: null })
+    expect(tasks(c, channelId)[0].runs).toHaveLength(2)
   })
 
   it('取消排队的活；停止进行中的活；会话被删 → 失败', async () => {

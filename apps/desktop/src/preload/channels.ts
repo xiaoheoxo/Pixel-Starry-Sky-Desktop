@@ -118,7 +118,7 @@ export interface ChannelsBridge {
   setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy): Promise<void>
   /** 新建团队，返回团队 id */
   createTeam(name: string): Promise<string>
-  updateTeam(teamId: string, patch: { name: string }): Promise<void>
+  updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void>
   deleteTeam(teamId: string): Promise<void>
   /** 改我在这个团队的显示名 */
   setDisplayName(teamId: string, name: string): Promise<void>

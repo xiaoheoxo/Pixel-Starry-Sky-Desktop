@@ -36,10 +36,10 @@ import { SavePresetDialog } from './ChannelPresets'
 import { channelActions, channelsLive, useChannels } from './store'
 import { AddTeamAgentDialog, TeamSettingsDialog } from './TeamDialog'
 import { PresenceAvatar, roleLabel } from './TeamParts'
-import { costCell, durText, formatLastSeen, usageText } from './format'
+import { costCell, durText, presenceLabel, usageText } from './format'
 import { formatTokens } from '@/features/usage/format'
 import { AgentQueue, memberQueueTasks } from './AgentQueue'
-import { canAddAgent, canManageTeam, myRole, onlineCount } from './teamModel'
+import { canAddAgent, canManageTeam, myRole, onlineCount, presenceOf, queuedFor } from './teamModel'
 
 const STATUS_LABEL: Record<ChannelAgentStatus, TranslationKey> = {
   idle: 'channels.status.idle',
@@ -137,10 +137,13 @@ function PinnedList({ channel, members }: { channel: Channel; members: readonly 
   )
 }
 
-function HumanRow({ member, team }: { member: HumanMember; team: boolean }) {
+function HumanRow({ member, team, channelId }: { member: HumanMember; team: boolean; channelId: string }) {
   useI18n()
   const online = !!member.online || !!member.you
-  const seen = team && !online ? formatLastSeen(member.lastSeenAt, Date.now()) : null
+  // 四种在线状态（docs/multica-learn.md §2）：忙按这个频道里他的卡算
+  const queued = useChannels(s => (team ? queuedFor(member.id, s.messages[channelId] ?? []) : 0))
+  const presence = presenceOf(member, queued, Date.now())
+  const seen = team ? presenceLabel(presence, member.lastSeenAt) : null
   const role = !member.role
     ? null
     : team
@@ -149,7 +152,7 @@ function HumanRow({ member, team }: { member: HumanMember; team: boolean }) {
   return (
     <div className="flex h-9 min-w-0 items-center gap-2.5 rounded-md px-2">
       {team ? (
-        <PresenceAvatar name={member.name} online={online} size={24} />
+        <PresenceAvatar name={member.name} online={online} state={presence.kind} size={24} />
       ) : (
         <MemberAvatar member={member} size={24} />
       )}
@@ -857,7 +860,7 @@ export function ChannelMembers({
           }
         >
           {humans.map(m => (
-            <HumanRow key={m.id} member={m} team={team} />
+            <HumanRow key={m.id} member={m} team={team} channelId={channel.id} />
           ))}
         </Section>
         {(channel.notes || usage) && (

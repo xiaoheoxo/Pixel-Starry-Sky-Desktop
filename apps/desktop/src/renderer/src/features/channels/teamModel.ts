@@ -87,6 +87,40 @@ export function lastSeen(at: number | null | undefined, now: number): LastSeen |
   return { unit: 'days', count: Math.floor(ms / DAY) }
 }
 
+/** 离线不到这么久算「刚失联」（docs/multica-learn.md §2） */
+export const LOST_WINDOW = 5 * 60_000
+
+/** 团队成员的在线状态四种：在线、忙（排着 N 件）、刚失联（N 分钟前）、离线 */
+export type Presence =
+  | { kind: 'online' }
+  | { kind: 'busy'; queued: number }
+  | { kind: 'lost'; minutes: number }
+  | { kind: 'offline' }
+
+export function presenceOf(
+  member: { online?: boolean; you?: boolean; lastSeenAt?: number | null },
+  queued: number,
+  now: number,
+): Presence {
+  if (member.online || member.you) return queued > 0 ? { kind: 'busy', queued } : { kind: 'online' }
+  const at = member.lastSeenAt
+  if (at != null && now - at >= 0 && now - at < LOST_WINDOW)
+    return { kind: 'lost', minutes: Math.floor((now - at) / 60_000) }
+  return { kind: 'offline' }
+}
+
+/** 某人的 AI 成员在跑、还排着几件（「忙 · 排着 N 件」）；没在跑的不算忙 */
+export function queuedFor(owner: string, messages: readonly ChannelMessage[]): number {
+  let running = false
+  let queued = 0
+  for (const m of messages) {
+    if (m.kind !== 'task' || m.ownerId !== owner) continue
+    if (m.status === 'running' || m.status === 'waiting') running = true
+    else if (m.status === 'queued') queued++
+  }
+  return running ? queued : 0
+}
+
 export function onlineCount(humans: readonly { online?: boolean; you?: boolean }[]): number {
   return humans.filter(h => h.online || h.you).length
 }

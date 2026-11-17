@@ -88,6 +88,8 @@ export interface TeamInfo {
   members: TeamMemberInfo[]
   /** 待接受的邀请；只有所有者能看到 */
   invites: TeamInviteInfo[]
+  /** 主人不在线时排队的活最多等几小时（1 / 6 / 24 / 72，docs/multica-learn.md §2）；旧云端没有 */
+  queueGraceHours?: number
 }
 
 /** 别人邀请我（频道页最上面的邀请卡） */
@@ -621,6 +623,10 @@ export interface ChannelTask extends ChannelMessageBase {
   round?: number
   /** 失败原因（第一行） */
   error?: string | null
+  /** 这一轮结束的原因代码（失败 / 过期时有，docs/multica-learn.md §2） */
+  reason?: RunReason | null
+  /** 跑过的每一轮（最多 20 条，旧的在前）；旧卡片没有 */
+  runs?: ChannelRun[]
   /** stopped 的补充：cancelled = 还没开始就取消了；rejected = 主人没同意；expired = 排队太久过期（Phase C） */
   note?: 'cancelled' | 'rejected' | 'expired' | null
   /** 回复里「需要你决定：」那一行 */
@@ -671,6 +677,39 @@ export interface ChannelTask extends ChannelMessageBase {
   copyRemoved?: boolean
   /** 落地结果：合并了、开了 PR、合并时有冲突 */
   land?: TaskLand | null
+}
+
+/**
+ * 一轮结束的原因（docs/multica-learn.md §2、§11.1）：平台的（云端或执行端判的）和引擎的（按报错归类）。
+ * 云端以后加的代码、别的版本写的，界面当 other
+ */
+export type RunReason =
+  | 'machine_offline'
+  | 'queue_expired'
+  | 'session_gone'
+  | 'not_deployed'
+  | 'engine.auth'
+  | 'engine.quota'
+  | 'engine.model'
+  | 'engine.busy'
+  | 'engine.context'
+  | 'other'
+
+/** 任务卡的一次执行（docs/multica-learn.md §1）：每轮结束记一条，旧的不覆盖 */
+export interface ChannelRun {
+  /** 第几轮 */
+  n: number
+  status: 'done' | 'failed' | 'stopped'
+  startedAt: number | null
+  endedAt: number
+  reason?: RunReason | null
+  error?: string | null
+  engine?: string | null
+  model?: string | null
+  /** 在哪台电脑上跑的（团队卡给别人看） */
+  machine?: string | null
+  /** 本机的会话（团队卡里别人的没有） */
+  sessionId?: string | null
 }
 
 export interface TaskCopy {

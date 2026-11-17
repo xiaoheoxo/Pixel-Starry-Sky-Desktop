@@ -18,6 +18,8 @@ import {
   onlineCount,
   onlineMembers,
   parseCollapsed,
+  presenceOf,
+  queuedFor,
   sortTeamMembers,
   teamNotice,
   teamNoticeId,
@@ -257,5 +259,27 @@ describe('系统通知', () => {
     const id = teamNoticeId({ kind: 'mention', messageId: 'm1', channelId: 'tc_1' })
     expect(channelOfNotice(id)).toBe('tc_1')
     expect(channelOfNotice('feedback:1')).toBeNull()
+  })
+})
+
+describe('在线状态四种（docs/multica-learn.md §2）', () => {
+  const now = 10 * 60 * 60_000
+  it('在线 / 忙 / 刚失联 / 离线', () => {
+    expect(presenceOf({ online: true }, 0, now)).toEqual({ kind: 'online' })
+    expect(presenceOf({ you: true }, 2, now)).toEqual({ kind: 'busy', queued: 2 })
+    expect(presenceOf({ online: false, lastSeenAt: now - 2 * 60_000 - 5 }, 0, now)).toEqual({
+      kind: 'lost',
+      minutes: 2,
+    })
+    expect(presenceOf({ online: false, lastSeenAt: now - 5 * 60_000 }, 0, now)).toEqual({ kind: 'offline' })
+    expect(presenceOf({ online: false, lastSeenAt: null }, 3, now)).toEqual({ kind: 'offline' })
+  })
+  it('排着几件：只有他的 AI 成员在跑时才算', () => {
+    const task = (ownerId: string, status: ChannelTask['status']): ChannelMessage =>
+      ({ kind: 'task', id: ownerId + status + Math.random(), ownerId, status }) as ChannelTask
+    const list = [task('u:1', 'queued'), task('u:1', 'queued'), task('u:2', 'queued')]
+    expect(queuedFor('u:1', list)).toBe(0)
+    expect(queuedFor('u:1', [...list, task('u:1', 'running')])).toBe(2)
+    expect(queuedFor('u:2', [...list, task('u:1', 'running')])).toBe(0)
   })
 })

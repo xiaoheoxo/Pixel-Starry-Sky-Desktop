@@ -5,6 +5,7 @@
 import type { Locale } from '../../../../shared/i18n/messages'
 import type { AgentConfig, ChannelMessage, ChannelTask } from '../../../../shared/types/channels'
 import { mentionsAll } from '../../../../shared/channels/mentions'
+import { MAX_RUNS, runReasonOf } from '../../../../shared/channels/runReason'
 import { continuePrompt, dispatchPrompt, followUpPrompt, historyLines } from '../prompt'
 import { newTaskRun, type TaskRun, type TeamRunRef } from '../tracker'
 import { TeamError, type TaskPatch, type TeamMessage, type TeamTaskData } from './api'
@@ -168,7 +169,7 @@ export class TeamExecutor {
 
   private async fail(teamId: string, tm: TeamMessage, error: string): Promise<void> {
     await this.sync
-      .writeTask(teamId, tm.channelId, tm.id, { status: 'failed', error })
+      .writeTask(teamId, tm.channelId, tm.id, { status: 'failed', error, reason: runReasonOf('failed', error) })
       .catch(e => this.deps.log?.('写回团队任务失败', e))
   }
 
@@ -389,7 +390,9 @@ export class TeamExecutor {
     const card = this.sync.card(team.messageId)?.tm.task
     const body: TaskPatch = {}
     const local: Partial<TeamTaskData> = {}
-    const put = <K extends 'status' | 'round' | 'error' | 'note' | 'decision' | 'summary' | 'diff' | 'progress'>(
+    const put = <
+      K extends 'status' | 'round' | 'error' | 'note' | 'decision' | 'summary' | 'diff' | 'progress' | 'reason',
+    >(
       key: K,
       value: ChannelTask[K] | undefined,
     ): void => {
@@ -406,6 +409,18 @@ export class TeamExecutor {
     put('summary', patch.summary)
     put('diff', patch.diff)
     put('progress', patch.progress)
+    put('reason', patch.reason)
+    // 运行记录只追加云端还没有的（docs/multica-learn.md §11.1）
+    if (patch.runs) {
+      const known = card?.runs ?? []
+      const fresh = patch.runs
+        .filter(r => !known.some(k => k.n === r.n && k.endedAt === r.endedAt))
+        .map(({ sessionId: _sessionId, ...r }) => r)
+      if (fresh.length) {
+        body.addRuns = fresh.slice(-MAX_RUNS)
+        local.runs = [...known, ...fresh].slice(-MAX_RUNS)
+      }
+    }
     if (patch.endedAt !== undefined) local.endedAt = patch.endedAt
     if (!Object.keys(body).length && !result) return
     this.sync.patchCard(team.messageId, local)
@@ -416,7 +431,10 @@ export class TeamExecutor {
     const id = team.messageId
     const entry: Outbox = this.outbox.get(id) ?? { team, body: {}, final: false, attempts: 0 }
     entry.team = team
-    entry.body = { ...entry.body, ...body }
+    // 没连上时几轮的运行记录接在一起，不互相覆盖
+    // 云端一次最多收 MAX_RUNS 条，多了整条写回会被拒（连状态一起丢）
+    const addRuns = [...(entry.body.addRuns ?? []), ...(body.addRuns ?? [])].slice(-MAX_RUNS)
+    entry.body = { ...entry.body, ...body, ...(addRuns.length ? { addRuns } : {}) }
     if (result) {
       entry.result = result
       entry.final = true

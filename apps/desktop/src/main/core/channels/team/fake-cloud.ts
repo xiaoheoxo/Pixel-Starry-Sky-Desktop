@@ -293,9 +293,27 @@ export class FakeCloud {
         t.pending_action = body.action
         this.touch(card)
       } else if (method === 'PATCH') {
-        for (const key of ['status', 'title', 'summary', 'diff', 'error', 'note', 'decision', 'progress', 'round'])
+        for (const key of [
+          'status',
+          'title',
+          'summary',
+          'diff',
+          'error',
+          'note',
+          'decision',
+          'progress',
+          'round',
+          'reason',
+        ])
           if (key in body) t[key] = body[key]
         if (body.clear_action) t.pending_action = null
+        // 运行记录只追加，同一轮同一结束时间不重复（同云端 teams.addRuns）
+        if (Array.isArray(body.add_runs)) {
+          const runs = Array.isArray(t.runs) ? (t.runs as Record<string, unknown>[]) : []
+          for (const r of body.add_runs as Record<string, unknown>[])
+            if (!runs.some(o => o.n === r.n && o.ended_at === r.ended_at)) runs.push(r)
+          t.runs = runs
+        }
         if (['done', 'failed', 'stopped'].includes(t.status as string)) t.ended_at = this.time()
         this.touch(card)
       }

@@ -9,10 +9,13 @@ import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import type { AgentMember } from '@/data/types'
 import type { TeamInfo, TeamRole } from '../../../../shared/types/channels'
 import { channelActions, selfIdIn, useChannels } from './store'
-import { formatLastSeen } from './format'
+import { presenceLabel } from './format'
 import { PresenceDot, PresenceAvatar, roleLabel, roleOptions } from './TeamParts'
-import { canManageTeam, inviteDaysLeft, isValidEmail, normalizeEmail, sortTeamMembers } from './teamModel'
+import { canManageTeam, inviteDaysLeft, isValidEmail, normalizeEmail, presenceOf, sortTeamMembers } from './teamModel'
 import { useFollowedDraft } from '@/ui/useFollowedDraft'
+
+/** 能选的排队宽限期（小时，和云端 teams.ValidGrace 一致） */
+const GRACE_HOURS = [1, 6, 24, 72] as const
 
 const INPUT =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg outline-none focus:border-accent-line focus:ring-2 focus:ring-composer-ring disabled:opacity-60'
@@ -303,7 +306,7 @@ function TeamSettings({
                   const you = m.id === selfId
                   const online = m.online || you
                   const name = names.get(m.id) ?? m.email ?? '?'
-                  const seen = online ? null : formatLastSeen(m.lastSeenAt, now)
+                  const seen = online ? null : presenceLabel(presenceOf(m, 0, now), m.lastSeenAt, now)
                   return (
                     <div key={m.id} className="flex h-11 min-w-0 items-center gap-2.5 rounded-md px-2 hover:bg-hover">
                       <PresenceAvatar name={name} size={28} />
@@ -402,6 +405,26 @@ function TeamSettings({
                   className={INPUT}
                 />
               </label>
+              {team.queueGraceHours !== undefined && (
+                // 排队宽限期（docs/multica-learn.md §2）：选了就生效，不跟着「保存」
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-meta font-medium text-fg-muted">{tr('team.grace.label')}</span>
+                  <Select
+                    label={tr('team.grace.label')}
+                    value={String(team.queueGraceHours)}
+                    options={GRACE_HOURS.map(h => ({ value: String(h), label: tr('team.grace.hours', { count: h }) }))}
+                    onChange={v =>
+                      run(
+                        () => channelActions.setQueueGrace(team.id, Number(v)),
+                        () => toast(tr('team.grace.saved', { count: Number(v) })),
+                      )
+                    }
+                    disabled={!owner || busy}
+                    className="w-[160px]"
+                  />
+                  <p className="text-meta text-fg-faint">{tr('team.grace.hint')}</p>
+                </div>
+              )}
               <div>
                 <Button type="submit" variant="primary" disabled={busy || (!dirtyName && !dirtyDisplay)}>
                   {tr('team.settings.save')}

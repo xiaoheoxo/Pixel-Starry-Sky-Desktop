@@ -757,6 +757,8 @@ export class TeamSync {
         sourceMessageId: t.sourceMessage ?? undefined,
         round: t.round,
         error: t.error,
+        reason: t.reason,
+        runs: t.runs,
         note: t.note,
         decision: t.decision,
         request: null,
@@ -786,6 +788,7 @@ export class TeamSync {
       id: t.id,
       name: t.name,
       role: t.role,
+      ...(t.queueGraceHours ? { queueGraceHours: t.queueGraceHours } : {}),
       members: t.members.map(m => ({
         id: m.id,
         role: m.role,
@@ -900,7 +903,7 @@ export class TeamSync {
   createTeam(name: string): Promise<string> {
     return this.done(this.api.createTeam(name))
   }
-  updateTeam(teamId: string, patch: { name: string }): Promise<void> {
+  updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void> {
     return this.done(this.api.updateTeam(teamId, patch))
   }
   deleteTeam(teamId: string): Promise<void> {
