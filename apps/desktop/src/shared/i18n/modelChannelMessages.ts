@@ -72,6 +72,11 @@ export const modelChannelMessages = {
     zh: '正在等待 Dot；消息未确认送达时请先到 ChatGPT 核对。',
     en: 'Waiting for Dot. If delivery is uncertain, check ChatGPT before resending.',
   },
+  'dot.uncertainDelivery': {
+    zh: '这条消息可能已经送达。请先核对 ChatGPT 记录，再解除等待；此操作不会重发消息或撤回云端任务。',
+    en: 'This message may have been delivered. Check ChatGPT before clearing the wait. This will not resend the message or cancel the cloud task.',
+  },
+  'dot.resolveDelivery': { zh: '已核对，解除等待（不重发）', en: 'Checked: clear wait without resending' },
   'dot.send': { zh: '发送', en: 'Send' },
   'dot.closeHint': {
     zh: 'Enter 发送 · Shift+Enter 换行。关闭标签保留本地记录，云端工作继续运行。',

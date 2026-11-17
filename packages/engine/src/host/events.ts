@@ -353,7 +353,14 @@ export class HostEvents {
         if (rt.activeId) {
           const item = rt.snapshot.queue.find(q => q.id === rt.activeId)
           // 连续被自动审核拦下：消息模型收到了也做了，不留成「发送失败」（否则接着发消息时原消息被标成未送达）
-          if (item && event.outcome === 'failed' && event.error !== AUTO_REVIEW_TEXT.tooMany) {
+          if (item && event.outcome === 'failed' && engine === 'dot') {
+            // Dot 的远端任务不会因本地观察失败而停止，不能自动重发消息或发送「继续」。
+            m.queue.changeQueue(id, item.id, {
+              status: item.status === 'uncertain' ? 'uncertain' : 'failed',
+              error: event.error ?? 'Dot request failed',
+              reconnect: undefined,
+            })
+          } else if (item && event.outcome === 'failed' && event.error !== AUTO_REVIEW_TEXT.tooMany) {
             // 额度用完、开了自动换账号：换到下一个账号，这条马上重新派发（下一条消息前按新账号换进程）
             const switched = rt.turn?.usageLimited ? m.accounts.autoSwitch(id, item.id) : null
             // 没换成账号（订阅账号都用完了）、开了「订阅额度都用完时改用平台」：这条先在队首等着，挑好平台线路再重发
@@ -451,6 +458,13 @@ export class HostEvents {
           this.armIdle(id)
         break
       case 'input_ack': {
+        if (
+          event.state === 'uncertain' &&
+          (rt.execution ?? rt.snapshot.record).engine === 'dot' &&
+          rt.turn?.userItemId === event.id
+        ) {
+          m.queue.changeQueue(id, rt.turn.queueId, { status: 'uncertain' })
+        }
         const input = rt.snapshot.queue.find(q => q.id === event.id && q.mode === 'guidance')
         if (input) {
           if (event.state === 'consumed') {

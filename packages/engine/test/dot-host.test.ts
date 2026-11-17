@@ -132,6 +132,78 @@ describe('Dot through EngineHost', () => {
     }
   })
 
+  it.each([
+    ['send', 502, 'uncertain'],
+    ['send', 429, 'uncertain'],
+    ['read', 502, 'failed'],
+    ['read', 429, 'failed'],
+  ] as const)('does not resend after a %s HTTP %i failure', async (stage, status, queueStatus) => {
+    const root = mkdtempSync(join(tmpdir(), 'dot-host-failure-'))
+    const request = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new URL(String(input)).pathname
+      if (path.endsWith('/tbo/primary'))
+        return Response.json({
+          selection: { available: true, aeon_id: 'dot', thread_id: 'root', messaging_room_id: 'room' },
+        })
+      if (path.endsWith('/tbo/by-thread/root'))
+        return Response.json({
+          id: 'dot',
+          status: 'active',
+          messaging_room_id: 'room',
+          active_root_thread_id: 'root',
+        })
+      if (path.endsWith('/messaging/rooms/room'))
+        return Response.json({
+          id: 'room',
+          type: 'DM',
+          app_source: 'chatgpt:messaging',
+          aeon_id: 'dot',
+          members: [{ account_user_id: 'human' }, { account_user_id: 'bot', aeon_id: 'dot' }],
+        })
+      if (path.endsWith('/messages') && init?.method === 'POST') {
+        if (stage === 'send') return new Response('', { status })
+        return Response.json({
+          id: 'sent',
+          request_id: JSON.parse(String(init.body)).request_id,
+          account_user_id: 'human',
+          created_at: '2026-11-17T00:00:00Z',
+          content: { text: 'hello' },
+        })
+      }
+      if (path.endsWith('/messages')) return new Response('', { status })
+      throw new Error(`Unexpected Dot request: ${path}`)
+    })
+    const host = new EngineHost({
+      dataDir: join(root, 'data'),
+      emit: () => {},
+      reconnectDelays: [1],
+      limitDelays: [1],
+      adapters: {
+        dot: new DotAdapter({
+          fetch: request,
+          credentials: () => ({ accessToken: 'token', accountId: 'account', accountUserId: 'human' }),
+        }),
+      },
+    })
+    try {
+      const project = host.addProject(root)
+      const record = host.createSession({ projectId: project.id, engine: 'dot' })
+      await host.send(record.id, { text: 'hello', clientMessageId: 'failure-test' })
+      await vi.waitFor(() => {
+        const snapshot = host.open(record.id)
+        expect(snapshot.state).toBe('idle')
+        expect(snapshot.queuePaused).toBe(true)
+        expect(snapshot.queue).toHaveLength(1)
+        expect(snapshot.queue[0]).toMatchObject({ status: queueStatus, error: `Dot HTTP ${status}` })
+        expect(snapshot.queue[0].reconnect).toBeUndefined()
+      })
+      expect(request.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+    } finally {
+      await host.shutdown()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('does not advertise remote cancellation or accept a model gateway connection', () => {
     const adapter = new DotAdapter({ credentials: () => ({ accessToken: '', accountId: '', accountUserId: '' }) })
     expect(() => adapter.createSession({ record: () => ({ provider: { id: 'api' } }) } as never)).toThrow(

@@ -96,7 +96,9 @@ function preloadChannels(): Record<'invoke' | 'send' | 'sendSync' | 'on', string
   }
   for (const { text } of sources(preloadDir)) {
     for (const name of names(text, /\bcall\(\s*'([^']+)'/g)) found.invoke.add(name)
-    for (const m of text.matchAll(/(?:ipcRenderer\.|(?<![.\w]))(invoke|send|sendSync|on|once)\(\s*'([^']+)'/g))
+    for (const m of text.matchAll(
+      /(?:ipcRenderer\.|(?<![.\w]))(invoke|send|sendSync|on|once)(?:<[^>]+>)?\(\s*'([^']+)'/g,
+    ))
       found[m[1] === 'once' ? 'on' : (m[1] as 'invoke' | 'send' | 'sendSync' | 'on')].add(m[2])
   }
   return {

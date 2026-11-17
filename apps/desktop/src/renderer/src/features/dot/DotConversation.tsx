@@ -16,6 +16,7 @@ import { DotProfilePanel, dotStatus, dotWebUrl } from './DotProfilePanel'
 import { dotTranscript, mergeDotHistory } from './conversation'
 import { DotFile } from './DotFile'
 import { DotComputer } from './DotComputer'
+import { DotDeliveryNotice } from './DotDeliveryNotice'
 import './dot.css'
 
 function readDraft(key: string): string {
@@ -39,6 +40,9 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [serverError, setServerError] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const [resolving, setResolving] = useState(false)
+  const refreshSnapshot = useRef<() => Promise<void>>(async () => {})
+  const [snapshotError, setSnapshotError] = useState('')
   const [picking, setPicking] = useState(false)
   const [files, setFiles] = useState<DotLocalFile[]>([])
   const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null)
@@ -128,13 +132,15 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
           if (mounted) {
             current.current = next.record.id
             setSnapshot(next)
+            setSnapshotError('')
           }
         } catch (e) {
-          if (mounted) setError(String(e))
+          if (mounted) setSnapshotError(String(e))
         }
       } while (mounted && again)
       fetching = false
     }
+    refreshSnapshot.current = refresh
     const off = window.pixelsky?.engine.onEvent(e => {
       if (e.kind !== 'session' || (current.current && e.sessionId !== current.current)) return
       void refresh()
@@ -168,7 +174,13 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     return () => window.removeEventListener('keydown', close)
   }, [menu])
 
-  const busy = sending || !snapshot || snapshot.state !== 'idle' || snapshot.queue.some(q => q.status !== 'failed')
+  const retry = () => {
+    void refreshSnapshot.current()
+    void remote.current({ overview: true })
+  }
+  const uncertain = snapshot?.queue.filter(q => q.status === 'uncertain') ?? []
+  const busy =
+    resolving || sending || !snapshot || snapshot.state !== 'idle' || snapshot.queue.some(q => q.status !== 'failed')
   const send = async (): Promise<void> => {
     if (!snapshot || (!text.trim() && !files.length) || busy) return
     setSending(true)
@@ -180,8 +192,9 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         text,
         files.map(f => f.id),
       )
-      setText('')
-      setFiles([])
+      setText(current => (current === text ? '' : current))
+      const sentIds = new Set(files.map(file => file.id))
+      setFiles(current => current.filter(file => !sentIds.has(file.id)))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -219,7 +232,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                 className="rounded-lg px-3 py-2 text-left text-ui hover:bg-hover"
                 onClick={() => {
                   setMenu(false)
-                  void remote.current({ overview: true })
+                  retry()
                 }}
               >
                 {tr('dot.refreshConversation')}
@@ -350,20 +363,31 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                 void send()
               }}
             >
-              {(error || serverError) && (
+              {(error || snapshotError || serverError) && (
                 <div role="alert" className="mb-2 flex items-center gap-2 text-meta text-danger">
-                  <span className="min-w-0 flex-1">{translateMessage(error || serverError)}</span>
-                  <button
-                    type="button"
-                    className="shrink-0 underline"
-                    disabled={reading}
-                    onClick={() => void readRemote({ overview: true })}
-                  >
+                  <span className="min-w-0 flex-1">{translateMessage(error || snapshotError || serverError)}</span>
+                  <button type="button" className="shrink-0 underline" disabled={reading} onClick={retry}>
                     {tr('modelChannels.action.retry')}
                   </button>
                 </div>
               )}
-              {busy && snapshot && (
+              {uncertain.map(item => (
+                <DotDeliveryNotice
+                  key={item.id}
+                  text={item.text}
+                  web={web}
+                  busy={resolving}
+                  onResolve={() => {
+                    setResolving(true)
+                    void window
+                      .pixelsky!.engine.cancelQueued(snapshot!.record.id, item.id)
+                      .then(() => refreshSnapshot.current())
+                      .catch(e => setError(String(e)))
+                      .finally(() => setResolving(false))
+                  }}
+                />
+              ))}
+              {busy && snapshot && !uncertain.length && (
                 <p role="status" className="mb-2 text-meta text-fg-muted">
                   {tr('dot.waiting')}
                 </p>
