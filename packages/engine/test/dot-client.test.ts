@@ -1,0 +1,310 @@
+import { describe, expect, it, vi } from 'vitest'
+import { DotClient } from '../src/dot/client'
+
+const identity = {
+  accountId: 'account',
+  accountUserId: 'human',
+  accessToken: 'private-token',
+}
+const selection = { available: true, thread_id: 'root', aeon_id: 'dot', messaging_room_id: 'room' }
+const profile = { id: 'dot', status: 'active', messaging_room_id: 'room', active_root_thread_id: 'root' }
+const room = {
+  id: 'room',
+  type: 'DM',
+  app_source: 'chatgpt:messaging',
+  aeon_id: 'dot',
+  members: [{ account_user_id: 'human' }, { account_user_id: 'bot', aeon_id: 'dot' }],
+}
+const message = (id: string, text = 'hello') => ({
+  id,
+  account_user_id: 'bot',
+  created_at: '2026-11-17T00:00:00Z',
+  content: { text, attachments: [] },
+})
+
+function setup(overrides: Record<string, unknown> = {}) {
+  const routes: Record<string, unknown> = {
+    '/backend-api/tbo/primary': { selection },
+    '/backend-api/tbo/by-thread/root': profile,
+    '/backend-api/messaging/rooms/room': room,
+    ...overrides,
+  }
+  const request = vi.fn<typeof fetch>(async (input, init) => {
+    const path = new URL(String(input)).pathname + new URL(String(input)).search
+    const value = routes[path]
+    if (value instanceof Response) return value.clone()
+    if (value === undefined) throw new Error(`Unexpected request: ${init?.method} ${path}`)
+    return Response.json(value)
+  })
+  return { client: new DotClient({ credentials: () => identity, fetch: request }), request, routes }
+}
+
+describe('native Dot client', () => {
+  it('recovers an unavailable thread lookup through the same Dot ID and verifies its current room', async () => {
+    const { request } = setup({
+      '/backend-api/tbo/by-thread/old-root': new Response('', { status: 404 }),
+      '/backend-api/tbo/dot': profile,
+    })
+    const client = new DotClient({
+      credentials: () => identity,
+      fetch: request,
+      target: { id: 'dot', threadId: 'old-root' },
+    })
+    await expect(client.discover()).resolves.toMatchObject({ id: 'dot', threadId: 'root', roomId: 'room' })
+    expect(request.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+      '/backend-api/tbo/by-thread/old-root',
+      '/backend-api/tbo/dot',
+      '/backend-api/messaging/rooms/room',
+    ])
+    for (const [, init] of request.mock.calls) {
+      expect(init?.cache).toBe('no-store')
+      expect(init?.credentials).toBe('omit')
+    }
+  })
+
+  it('never replaces a missing Dot with the primary Dot or an unrelated profile', async () => {
+    const { request, routes } = setup({
+      '/backend-api/tbo/by-thread/root': new Response('', { status: 404 }),
+      '/backend-api/tbo/dot': { ...profile, id: 'other' },
+    })
+    const client = new DotClient({
+      credentials: () => identity,
+      fetch: request,
+      target: { id: 'dot', threadId: 'root' },
+    })
+    await expect(client.discover()).rejects.toThrow('identity')
+    routes['/backend-api/tbo/dot'] = new Response('', { status: 404 })
+    await expect(client.discover()).rejects.toThrow('Dot HTTP 404')
+    expect(
+      request.mock.calls.every(([url]) => !String(url).includes('/primary') && !String(url).includes('/rooms/')),
+    ).toBe(true)
+  })
+
+  it('uploads files to the verified room and sends their references together with the message', async () => {
+    const { client, request } = setup({
+      '/backend-api/messaging/rooms/room/files': { id: 'uploaded' },
+      '/backend-api/messaging/rooms/room/messages': {
+        ...message('sent'),
+        account_user_id: 'human',
+        request_id: 'request',
+      },
+    })
+    const dot = await client.discover()
+    const file = await client.upload(dot, { name: 'example.txt', mime: 'text/plain', data: new Uint8Array([65]) })
+    expect(file).toBe('uploaded')
+    const upload = request.mock.calls.at(-1)![1]!
+    expect(upload.body).toBeInstanceOf(FormData)
+    expect(new Headers(upload.headers).get('content-type')).toBeNull()
+    await client.send(dot, 'read this', 'request', undefined, [file])
+    expect(JSON.parse(String(request.mock.calls.at(-1)![1]!.body)).content.attachments).toEqual([
+      { type: 'file', file_id: 'uploaded' },
+    ])
+  })
+
+  it('refreshes a file URL through its verified room and never sends OAuth to storage', async () => {
+    const { client, request } = setup({
+      '/backend-api/messaging/rooms/room/files/file': {
+        id: 'file',
+        name: 'result.png',
+        mime_type: 'image/png',
+        download_url: 'https://storage.oaiusercontent.com/current',
+      },
+      '/current': new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } }),
+    })
+    const dot = await client.discover()
+    const file = await client.download(dot, 'file')
+    expect(file.mime).toBe('image/png')
+    expect(file.data.length).toBe(4)
+    expect(new Headers(request.mock.calls.at(-1)![1]?.headers).has('authorization')).toBe(false)
+    expect(request.mock.calls.at(-1)![1]?.redirect).toBe('error')
+  })
+
+  it('rejects mismatched file identities, unsafe storage and oversized uploads', async () => {
+    const { client, routes, request } = setup({
+      '/backend-api/messaging/rooms/room/files/file': {
+        id: 'other',
+        download_url: 'https://storage.oaiusercontent.com/image',
+      },
+    })
+    const dot = await client.discover()
+    await expect(client.download(dot, 'file')).rejects.toThrow('identity')
+    routes['/backend-api/messaging/rooms/room/files/file'] = {
+      id: 'file',
+      download_url: 'https://attacker.example/image',
+    }
+    await expect(client.download(dot, 'file')).rejects.toThrow('storage')
+    const count = request.mock.calls.length
+    await expect(client.upload(dot, { name: 'large', data: new Uint8Array(20 * 1024 * 1024 + 1) })).rejects.toThrow(
+      '20 MiB',
+    )
+    expect(request.mock.calls.length).toBe(count)
+  })
+
+  it('negotiates a computer stream for the bound Dot using SDP without exposing the token', async () => {
+    const { client, request } = setup({
+      '/v1/cua?source=aeon&thread_id=root&aeon_id=dot': new Response('v=0\r\nanswer'),
+    })
+    const dot = await client.discover()
+    await expect(client.computerOffer(dot, 'v=0\r\noffer')).resolves.toBe('v=0\r\nanswer')
+    const [url, init] = request.mock.calls.at(-1)!
+    expect(String(url)).toBe('https://realtime.chatgpt.com/v1/cua?source=aeon&thread_id=root&aeon_id=dot')
+    expect(new Headers(init?.headers).get('content-type')).toBe('application/sdp')
+    expect(init?.body).toBe('v=0\r\noffer')
+    await expect(client.computerOffer({ ...dot }, 'v=0\r\noffer')).rejects.toThrow()
+  })
+
+  it('reads a native older history page and keeps partial overview failures separate', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&before=older': {
+        items: [
+          {
+            ...message('history'),
+            content: {
+              text: 'Saved reply',
+              attachments: [{ type: 'file', file_id: 'file', file: { name: 'result.mp4', mime_type: 'video/mp4' } }],
+            },
+          },
+        ],
+        prev_cursor: 'previous',
+      },
+      '/backend-api/tbo/dot/environment/status': {
+        status: 'connected',
+        capabilities: [{ type: 'remote_desktop', status: 'ready' }],
+      },
+      '/backend-api/tbo/dot/activity?limit=5': { data: [] },
+      '/backend-api/tbo/dot/tasks?limit=25': new Response('', { status: 503 }),
+    })
+    const dot = await client.discover()
+    expect(await client.history(dot, 'older')).toMatchObject({
+      before: 'previous',
+      items: [{ role: 'assistant', attachments: [{ name: 'result.mp4', mime: 'video/mp4' }] }],
+    })
+    const overview = await client.overview(dot)
+    expect(overview.environment?.capabilities[0].status).toBe('ready')
+    expect(overview.activity).toEqual([])
+    expect(overview.tasks).toBeNull()
+    expect(overview.errors).toEqual(['Dot HTTP 503'])
+  })
+
+  it('accepts the canonical ChatGPT user as the room member when account-user and user claims differ', async () => {
+    const { request } = setup({
+      '/backend-api/messaging/rooms/room/messages': {
+        ...message('sent'),
+        account_user_id: 'human',
+        request_id: 'request-1',
+      },
+    })
+    const client = new DotClient({
+      credentials: () => ({ ...identity, accountUserId: 'workspace-member', userId: 'human' }),
+      fetch: request,
+    })
+    const dot = await client.discover()
+    await expect(client.send(dot, 'hello', 'request-1')).resolves.toMatchObject({ account_user_id: 'human' })
+  })
+
+  it('lists multiple Dots with catalog pagination and resolves a fixed target without using primary', async () => {
+    const { request } = setup({
+      '/backend-api/tbo?limit=25&include_room_preview=false': {
+        items: [{ id: 'dot', display_name: 'First', active_root_thread_id: 'root', status: 'active' }],
+        cursor: 'next',
+      },
+      '/backend-api/tbo?limit=25&include_room_preview=false&cursor=next': {
+        items: [{ id: 'second', display_name: 'Second', active_root_thread_id: 'other', status: 'active' }],
+        cursor: null,
+      },
+    })
+    const client = new DotClient({
+      credentials: async () => identity,
+      fetch: request,
+      target: { id: 'dot', threadId: 'root' },
+    })
+    expect((await client.catalog()).map(p => p.id)).toEqual(['dot', 'second'])
+    expect(await client.discover()).toMatchObject({ id: 'dot', threadId: 'root', roomId: 'room' })
+    expect(request.mock.calls.some(([url]) => String(url).endsWith('/tbo/primary'))).toBe(false)
+  })
+
+  it('verifies the primary Dot, account and room before sending an idempotent message', async () => {
+    const { client, request } = setup({
+      '/backend-api/messaging/rooms/room/messages': {
+        ...message('sent'),
+        account_user_id: 'human',
+        request_id: 'request-1',
+      },
+    })
+    const dot = await client.discover()
+    await client.send(dot, 'hello', 'request-1')
+    const [url, init] = request.mock.calls.at(-1)!
+    expect(String(url)).toBe('https://chatgpt.com/backend-api/messaging/rooms/room/messages')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      content: { text: 'hello' },
+      request_id: 'request-1',
+      idempotency_token: 'request-1',
+    })
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer private-token')
+    expect(new Headers(init?.headers).get('ChatGPT-Account-Id')).toBe('account')
+  })
+
+  it.each([
+    { ...room, aeon_id: 'another-dot' },
+    { ...room, members: [{ account_user_id: 'bot', aeon_id: 'dot' }] },
+    { ...room, type: 'GROUP' },
+  ])('refuses a mismatched room before any POST', async invalid => {
+    const { client, request } = setup({ '/backend-api/messaging/rooms/room': invalid })
+    await expect(client.discover()).rejects.toThrow(/identity/i)
+    expect(request.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true)
+  })
+
+  it('reads all message pages and sorts them chronologically', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=sent': {
+        items: [{ ...message('b'), created_at: '2026-11-17T00:00:02Z' }],
+        next_cursor: 'cursor',
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=cursor': { items: [message('a')] },
+    })
+    const dot = await client.discover()
+    expect((await client.messages(dot, 'sent')).map(m => m.id)).toEqual(['a', 'b'])
+  })
+
+  it('rejects a pagination loop instead of silently losing messages', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=sent': {
+        items: [message('a')],
+        next_cursor: 'sent',
+      },
+    })
+    await expect(client.messages(await client.discover(), 'sent')).rejects.toThrow(/pagination/i)
+  })
+
+  it('never retries an ambiguous write and never includes a provider body or token in errors', async () => {
+    const { client, request } = setup({
+      '/backend-api/messaging/rooms/room/messages': new Response('private-token', { status: 502 }),
+    })
+    const dot = await client.discover()
+    await expect(client.send(dot, 'hello', 'request-1')).rejects.toThrow('Dot HTTP 502')
+    expect(request.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+  })
+
+  it('invalidates a verified Dot after the configured account changes', async () => {
+    let credentials = identity
+    const { request } = setup()
+    const client = new DotClient({ credentials: () => credentials, fetch: request })
+    const dot = await client.discover()
+    credentials = { ...identity, accountId: 'other' }
+    await expect(client.send(dot, 'hello', 'request-1')).rejects.toThrow(/account changed/i)
+  })
+
+  it('only loads workflow threads attached by the verified Dot', async () => {
+    const { client, request } = setup({
+      '/v1/threads/task': { thread: { id: 'task', name: 'Build', updatedAt: 10, status: { type: 'idle' } } },
+      '/v2/threads/task/turns?limit=1&sortDirection=desc&itemsView=notLoaded': {
+        data: [{ id: 'turn', status: 'completed', startedAt: 5 }],
+      },
+    })
+    const dot = await client.discover()
+    await expect(client.workflow(dot, message('a'), 'task')).rejects.toThrow(/attachment/i)
+    const card = { ...message('a'), content: { text: '', attachments: [{ type: 'thread', thread_id: 'task' }] } }
+    expect(await client.workflow(dot, card, 'task')).toMatchObject({ id: 'task', title: 'Build', status: 'completed' })
+    expect(String(request.mock.calls.at(-1)![0])).toMatch(/^https:\/\/codex-cloud-backend.chatgpt.com\//)
+  })
+})

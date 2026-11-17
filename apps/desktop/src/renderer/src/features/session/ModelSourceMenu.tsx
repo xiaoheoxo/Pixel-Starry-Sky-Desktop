@@ -274,9 +274,11 @@ export function ModelSourceMenu({
     const fix = channelFix(g.state)
     if (fix === 'signin') void account.login()
     else if (fix === 'retry') void refreshPlatform()
-    else if (fix === 'auth' && isAuthChannel(g.channel)) {
+    else if (fix === 'auth' && (isAuthChannel(g.channel) || g.channel === 'dot')) {
       onOpenChange(false)
-      openAuthDialog(g.channel)
+      openAuthDialog(g.channel === 'dot' ? 'chatgpt' : g.channel)
+    } else if (g.channel === 'dot') {
+      openChannels()
     } else if (fix === 'add-endpoint') openChannels()
     else if (fix) {
       onOpenChange(false)
@@ -288,18 +290,21 @@ export function ModelSourceMenu({
   const selfOption = (c: ChannelId, row: ChannelRow) =>
     isAuthChannel(c) ? selfModels[c].find(m => m.value === row.target.model) : undefined
   const rowTitle = (c: ChannelId, row: ChannelRow): string =>
-    c === 'platform'
-      ? (row.target.model ?? '')
-      : c === 'custom'
-        ? (providerOf(row)?.name ?? '')
-        : (selfOption(c, row)?.label ??
-          selfModelLabel(
-            AUTH_ENGINE[c],
-            row.target.model,
-            c === 'claude' ? claudeCatalog?.models : c === 'chatgpt' ? codexCatalog?.models : agyCatalog?.models,
-          ))
+    c === 'dot'
+      ? 'ChatGPT Dot'
+      : c === 'platform'
+        ? (row.target.model ?? '')
+        : c === 'custom'
+          ? (providerOf(row)?.name ?? '')
+          : (selfOption(c, row)?.label ??
+            selfModelLabel(
+              AUTH_ENGINE[c],
+              row.target.model,
+              c === 'claude' ? claudeCatalog?.models : c === 'chatgpt' ? codexCatalog?.models : agyCatalog?.models,
+            ))
   /** 名字后面的淡色小字：执行者不可用 > 自动换了执行者 > 接口的模型 / 别名的说明 */
   const rowDesc = (c: ChannelId, row: ChannelRow): string | undefined => {
+    if (c === 'dot') return tr('engine.dot.intro')
     const first = row.candidates[0]
     if (row.disabled === 'no-executor' && first) return tr('modelChannels.row.noExecutor', { p0: executorName(first) })
     if (row.pick.fallbackFrom && row.pick.engine)
@@ -472,7 +477,7 @@ export function ModelSourceMenu({
             <span className="truncate">{tr('modelChannels.authCard.apiKey')}</span>
           ) : (
             <>
-              <AccountTag account={a} provider={c} />
+              {c !== 'dot' && <AccountTag account={a} provider={c} />}
               {c === 'google' && !a?.email && (
                 <span className="truncate">{tr('modelChannels.menu.usable', { p0: g.rows.length })}</span>
               )}
@@ -927,9 +932,12 @@ export function ModelSourceMenu({
       </>
     )
 
-  const modelText = isAuthChannel(live.channel)
-    ? selfModelLabel(engineId, live.model, ownCatalog?.models)
-    : (live.model ?? tr('session.ModelSourceMenu.chooseModel'))
+  const modelText =
+    live.channel === 'dot'
+      ? 'ChatGPT Dot'
+      : isAuthChannel(live.channel)
+        ? selfModelLabel(engineId, live.model, ownCatalog?.models)
+        : (live.model ?? tr('session.ModelSourceMenu.chooseModel'))
   const channelText =
     live.channel === 'custom'
       ? (endpoint?.name ?? channelShort('custom'))

@@ -1,6 +1,6 @@
 // 模型通道（docs/ui/model-channels.md）：界面上只选「通道 + 模型」，谁来执行按规则定（§2.5）。
 // 存储不变，还是「引擎 + 额度来源 + 模型 / 线路 / 接口」；这里只做两边的换算，全是纯函数。
-import type { EngineCatalog, EngineId, EngineInfo } from '@pixelsky/protocol'
+import { supportsChatGptDot, type EngineCatalog, type EngineId, type EngineInfo } from '@pixelsky/protocol'
 import type { ProviderProtocol, ProviderView } from '../../../../shared/types/providers'
 import { platformModelSupportsEngine } from '../../../../shared/platform-models'
 import {
@@ -12,9 +12,9 @@ import {
   type PlatformGroup,
 } from '@/features/account/platform'
 
-/** ① 像素星空账号、② Claude 授权、③ ChatGPT 授权、④ Antigravity 授权（内部 ID 仍是 google，D283、D289）、⑤ 自定义接口 */
-export type ChannelId = 'platform' | 'claude' | 'chatgpt' | 'google' | 'custom'
-export const CHANNELS: readonly ChannelId[] = ['platform', 'claude', 'chatgpt', 'google', 'custom']
+/** ① 像素星空账号、② Claude、③ ChatGPT、④ Dot（共用 Codex 登录）、⑤ Antigravity、⑥ 自定义接口 */
+export type ChannelId = 'platform' | 'claude' | 'chatgpt' | 'google' | 'custom' | 'dot'
+export const CHANNELS: readonly ChannelId[] = ['platform', 'claude', 'chatgpt', 'dot', 'google', 'custom']
 
 /** 授权通道只能交给官方工具（订阅 / 账号只给它们用） */
 export const AUTH_ENGINE = { claude: 'claude', chatgpt: 'codex', google: 'antigravity' } as const satisfies Record<
@@ -30,6 +30,7 @@ export const isAuthChannel = (c: ChannelId): c is AuthChannel => c === 'claude' 
  * 这个自有能不能用看 selfSourceReady；新装默认不再落到它上面（account/platform.ts 的 fallbackSource）
  */
 export function channelOf(engine: EngineId, source: CreditSource): ChannelId {
+  if (engine === 'dot') return 'dot'
   if (source === 'platform' || source === 'custom') return source
   return engine === 'claude'
     ? 'claude'
@@ -100,6 +101,7 @@ export function executorsFor(
   target: ModelTarget,
   ctx: { groups: PlatformGroup[]; providers: Pick<ProviderView, 'id' | 'protocol'>[] },
 ): EngineId[] {
+  if (target.channel === 'dot') return ['dot']
   if (isAuthChannel(target.channel)) return [AUTH_ENGINE[target.channel]]
   if (target.channel === 'custom') {
     const p = ctx.providers.find(x => x.id === target.providerId)
@@ -190,6 +192,16 @@ export function channelState(
     providers: unknown[]
   },
 ): ChannelState {
+  if (channel === 'dot') {
+    const info = ctx.engines.find(e => e.id === 'dot')
+    return !info
+      ? { kind: 'loading' }
+      : info.status === 'ready'
+        ? { kind: 'ready' }
+        : info.status === 'unauthenticated'
+          ? { kind: 'auth' }
+          : { kind: 'error', message: info.message }
+  }
   if (channel === 'platform') {
     const p = ctx.platform
     if (!p.email) return { kind: 'signin' }
@@ -249,7 +261,7 @@ export interface MenuInput {
   /** 授权通道列的模型（引擎的别名表 / 目录） */
   selfModels: Record<AuthChannel, Array<{ value: string | null }>>
   providers: Array<Pick<ProviderView, 'id' | 'protocol' | 'models'>>
-  engines: Array<Pick<EngineInfo, 'id' | 'status' | 'message'>>
+  engines: Array<Pick<EngineInfo, 'id' | 'status' | 'message' | 'account'>>
   remembered: Record<string, EngineId>
 }
 
@@ -274,7 +286,11 @@ export function buildChannelMenu(input: MenuInput): ChannelGroupView[] {
       disabled: pick.unavailable ? 'no-executor' : null,
     }
   }
-  return CHANNELS.map(channel => {
+  // Older remote hosts do not advertise Dot; do not offer an unsupported channel on them.
+  const plan = input.engines.find(e => e.id === 'codex')?.account?.plan
+  return CHANNELS.filter(
+    c => c !== 'dot' || (input.engines.some(e => e.id === 'dot') && (!plan || supportsChatGptDot(plan))),
+  ).map(channel => {
     const state = channelState(channel, {
       platform: input.platform,
       engines: input.engines,
@@ -288,6 +304,8 @@ export function buildChannelMenu(input: MenuInput): ChannelGroupView[] {
       rows = visibleModels(all, input.platform.hiddenModels, keep).map(m =>
         row({ channel, model: m, providerId: null }, `platform:${m}`),
       )
+    } else if (channel === 'dot') {
+      rows = [row({ channel, model: null, providerId: null }, 'dot')]
     } else if (channel === 'custom') {
       rows = input.providers.map(p => {
         const current = input.selection?.channel === 'custom' && input.selection.providerId === p.id
@@ -312,7 +330,7 @@ export function buildChannelMenu(input: MenuInput): ChannelGroupView[] {
 export const EXECUTOR_KEY = 'pixelsky.channels.executor.v1'
 export const NEW_TASK_KEY = 'pixelsky.channels.newTask.v1'
 
-const ENGINE_IDS: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
+const ENGINE_IDS: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity', 'dot']
 const isEngine = (v: unknown): v is EngineId => typeof v === 'string' && (ENGINE_IDS as string[]).includes(v)
 
 export function parseExecutorMemory(raw: string | null): Record<string, EngineId> {

@@ -63,6 +63,7 @@ import { canSend, markReady } from './app/rendererHealth'
 import { initTray, type TrayController } from './app/tray'
 import { isPayWindow } from './app/payWindowRegistry'
 import { isSettingsWindow } from './app/settingsWindowRegistry'
+import { initDotChat } from './app/dot-chat'
 import { initSettingsWindow, type SettingsWindowController } from './app/settings-window'
 import { resolveInitialWindow, trackWindowState } from './app/window-state'
 import { initSettingsSync } from './account/settings-sync'
@@ -630,6 +631,13 @@ app.whenReady().then(async () => {
     setup: attachWindow,
     load: (win, query) => loadApp(win, query),
   })
+  initDotChat(
+    ctx,
+    () =>
+      tray?.showWindow() ??
+      BrowserWindow.getAllWindows().find(w => !isPayWindow(w) && !isSettingsWindow(w)) ??
+      createWindow(),
+  )
   createWindow()
   startup.step('createWindow')
   // 系统托盘（docs/ui/tray.md）：通知区域图标、右键菜单、关闭时隐藏到托盘

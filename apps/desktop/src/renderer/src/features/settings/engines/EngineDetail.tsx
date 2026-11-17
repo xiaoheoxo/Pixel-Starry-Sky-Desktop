@@ -385,50 +385,52 @@ export function EngineDetail({
       {/* 上下文（GitHub #20）：Codex 也有自动压缩和模型窗口；压缩用的模型只有 Claude Code 能换。
           像素星空只有阈值（Pi 补丁按比例判断，docs/own-cli.md §15）；本机模型的窗口 Pi 自己知道，不显示 */}
       {/* Antigravity 只有阈值：到了由我们在下一条消息前发 /compact；窗口 agy 自己报、不能改（docs/antigravity-engine.md §12） */}
-      <Group title={tr('session.ContextWindowButton.context2')}>
-        <Row
-          title={tr('settings.engines.EngineDetail.autocompactThreshold')}
-          description={tr('settings.engines.EngineDetail.automaticallyCompactAtThis')}
-          hint={
-            e.id === 'codex'
-              ? tr('contextWindow.codexCompactHint')
-              : e.id === 'pixel'
-                ? tr('contextWindow.pixelCompactHint')
-                : e.id === 'antigravity'
-                  ? tr('contextWindow.agyCompactHint')
-                  : undefined
-          }
-          control={
-            <Select
-              label={tr('settings.engines.EngineDetail.autocompactThreshold')}
-              value={config.autoCompactPct === null ? '' : String(config.autoCompactPct)}
-              onChange={v => run({ autoCompactPct: v ? Number(v) : null })}
-              options={[
-                {
-                  value: '',
-                  get label() {
-                    return tr('settings.engines.EngineDetail.defaultBuiltInThreshold')
+      {e.id !== 'dot' && (
+        <Group title={tr('session.ContextWindowButton.context2')}>
+          <Row
+            title={tr('settings.engines.EngineDetail.autocompactThreshold')}
+            description={tr('settings.engines.EngineDetail.automaticallyCompactAtThis')}
+            hint={
+              e.id === 'codex'
+                ? tr('contextWindow.codexCompactHint')
+                : e.id === 'pixel'
+                  ? tr('contextWindow.pixelCompactHint')
+                  : e.id === 'antigravity'
+                    ? tr('contextWindow.agyCompactHint')
+                    : undefined
+            }
+            control={
+              <Select
+                label={tr('settings.engines.EngineDetail.autocompactThreshold')}
+                value={config.autoCompactPct === null ? '' : String(config.autoCompactPct)}
+                onChange={v => run({ autoCompactPct: v ? Number(v) : null })}
+                options={[
+                  {
+                    value: '',
+                    get label() {
+                      return tr('settings.engines.EngineDetail.defaultBuiltInThreshold')
+                    },
                   },
-                },
-                ...AUTO_COMPACT_PCTS.map(p => ({
-                  value: String(p),
-                  label: tr('settings.engines.EngineDetail.atUsage', { p0: p }),
-                })),
-              ]}
-            />
-          }
-        />
-        {e.caps.launchSettings && (
-          <CompactModelRow engine={e} value={config.compactModel} onChange={compactModel => run({ compactModel })} />
-        )}
-        {e.id !== 'pixel' && e.id !== 'antigravity' && (
-          <ModelWindowsRow
-            engine={e}
-            windows={config.contextWindows.self}
-            onChange={(model, value) => run({ contextWindows: { self: { [model]: value } } })}
+                  ...AUTO_COMPACT_PCTS.map(p => ({
+                    value: String(p),
+                    label: tr('settings.engines.EngineDetail.atUsage', { p0: p }),
+                  })),
+                ]}
+              />
+            }
           />
-        )}
-      </Group>
+          {e.caps.launchSettings && (
+            <CompactModelRow engine={e} value={config.compactModel} onChange={compactModel => run({ compactModel })} />
+          )}
+          {e.id !== 'pixel' && e.id !== 'antigravity' && (
+            <ModelWindowsRow
+              engine={e}
+              windows={config.contextWindows.self}
+              onChange={(model, value) => run({ contextWindows: { self: { [model]: value } } })}
+            />
+          )}
+        </Group>
+      )}
 
       <Group title={tr('settings.engines.EngineDetail.advanced')}>
         <Row
@@ -805,6 +807,8 @@ function LaunchRows({
   }
   // 改了还没离开输入框就关掉设置 / 切走：补存一次（格式不对的照旧不存）
   const unsavedEnv = useUnmountFlush(saveEnv)
+
+  if (e.id === 'dot') return <p className="py-3 text-meta text-fg-muted">{tr('modelChannels.dot.sharedLogin')}</p>
 
   return (
     <>

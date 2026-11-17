@@ -66,6 +66,8 @@ import type { CompactionRequestReport } from '../compaction'
 import { CodexAdapter } from '../codex'
 import { PixelAdapter } from '../pixel'
 import { AntigravityAdapter } from '../antigravity'
+import { DotAdapter } from '../dot'
+import { supportsChatGptDot } from '@pixelsky/protocol'
 import { Store, type IdleReleaseMinutes } from '../store'
 import { UsageStore, type UsageQuery } from '../usage'
 import { HostAccounts } from './accounts'
@@ -182,6 +184,16 @@ export class EngineHost {
           return { args: o.args, contextWindows: o.contextWindows, autoCompactPct: o.autoCompactPct }
         },
       }), // Antigravity（agy acp，docs/antigravity-engine.md）
+      dot: new DotAdapter({
+        credentials: async (signal, account) => {
+          const credentials = await (ctx.adapters.codex as CodexAdapter).chatgptCredentials(
+            signal,
+            account === undefined ? undefined : ctx.m.accounts.knownDir('codex', account),
+          )
+          return supportsChatGptDot(credentials?.plan) ? credentials : null
+        },
+        fetch: opts.fetch,
+      }),
       antigravity: new AntigravityAdapter({
         overridePath: () => settings.file.paths.antigravity ?? null,
         extraEnv: () => settings.file.env.antigravity ?? {},
@@ -460,10 +472,41 @@ export class EngineHost {
         engine?: EngineId
         rememberChoices?: false
         scheduleTaskId?: string
+        dot?: SessionRecord['dot']
       },
     workspacePath?: string,
   ): SessionRecord {
     return this.m.sessions.createSession(opts, workspacePath)
+  }
+
+  /** 读取指定已保存账号的 Dot 列表，不改变 Codex 当前账号。 */
+  dotCatalog(account: string, signal?: AbortSignal) {
+    const adapter = this.ctx.adapters.dot
+    if (!(adapter instanceof DotAdapter)) throw new Error('Dot unavailable')
+    return adapter.listDots(account, signal)
+  }
+
+  readDot(
+    account: string,
+    target: { id: string; threadId: string },
+    options: { before?: string; overview?: boolean } = {},
+    signal?: AbortSignal,
+  ) {
+    const adapter = this.ctx.adapters.dot
+    if (!(adapter instanceof DotAdapter)) throw new Error('Dot unavailable')
+    return adapter.readDot(account, target, options, signal)
+  }
+
+  downloadDotFile(account: string, target: { id: string; threadId: string }, fileId: string, signal?: AbortSignal) {
+    const adapter = this.ctx.adapters.dot
+    if (!(adapter instanceof DotAdapter)) throw new Error('Dot unavailable')
+    return adapter.download(account, target, fileId, signal)
+  }
+
+  dotComputerOffer(account: string, target: { id: string; threadId: string }, offer: string, signal?: AbortSignal) {
+    const adapter = this.ctx.adapters.dot
+    if (!(adapter instanceof DotAdapter)) throw new Error('Dot unavailable')
+    return adapter.computerOffer(account, target, offer, signal)
   }
 
   /** 引擎自己留下的会话（终端里的 Claude Code……）：第一步，只读头部（docs/ui/claude-resume.md） */

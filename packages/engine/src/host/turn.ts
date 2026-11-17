@@ -77,7 +77,7 @@ export class HostTurn {
       let record = { ...rt.snapshot.record, ...settings }
       const adapter = ctx.adapters[record.engine]
       if (!adapter) throw new Error('这个引擎暂不支持')
-      const info = await adapter.info()
+      const info = await (adapter.infoForSession?.(record) ?? adapter.info())
       if (!stillCurrent()) return
       if (item.attachments?.length && !info.caps.imageInput) throw new Error('当前引擎不支持图片输入')
       if (info.status !== 'ready' && !(viaGateway(record) && info.status === 'unauthenticated'))
@@ -98,7 +98,10 @@ export class HostTurn {
       const maxRetries = m.settings.file.maxRetries
       // 在换引擎之后准备：新引擎的第一条消息就带上按新记录（engineSessions 等）决定的扩展
       const extensions = (preparedExtensions = await ctx.opts.extensions?.(record))
-      const launch = m.settings.launchKey(record.engine) + m.settings.modelLaunchKey(record) + (extensions?.key ?? '')
+      const launch =
+        m.settings.launchKey(record.engine, record.engine === 'dot' ? record.dot?.account : undefined) +
+        m.settings.modelLaunchKey(record) +
+        (extensions?.key ?? '')
       // 额度来源、重试次数或引擎级设置（输出风格、允许提问、压缩触发点、路径、环境变量）变了，
       // 或者这个进程换不到这条消息的模型（像素星空经网关时只注册了启动时的模型）：换一个进程，--resume 接上原对话
       if (
@@ -215,7 +218,9 @@ export class HostTurn {
       if (merge) m.events.patchRecord(id, { pendingMerge: null })
       const sent = merge ? `${mergeContext(merge)}\n\n${handoff.text}` : handoff.text
       if (!resume) rt.session.newRound?.()
-      rt.session.send(sent, turnId, userItemId, attachments, handoff.seed, handoff.attachments)
+      if (record.engine === 'dot')
+        rt.session.send(text, turnId, userItemId, attachments, handoff.seed, handoff.attachments, files)
+      else rt.session.send(sent, turnId, userItemId, attachments, handoff.seed, handoff.attachments)
     } catch (err) {
       if (ctx.runtimes.get(id) !== rt) return
       if (merge && !rt.snapshot.record.pendingMerge) m.events.patchRecord(id, { pendingMerge: merge })

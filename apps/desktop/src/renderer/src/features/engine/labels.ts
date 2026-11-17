@@ -215,6 +215,15 @@ export function toChangedFiles(changes: FileChange[]): ChangedFiles | null {
  * 平台额度的模型来自分组目录，不在这里（docs/ui/source-switch.md §3.2）。
  */
 export const SELF_MODELS: Record<EngineId, Array<{ value: string | null; label: string; hint: string }>> = {
+  dot: [
+    {
+      value: null,
+      label: 'ChatGPT Dot',
+      get hint() {
+        return tr('engine.dot.intro')
+      },
+    },
+  ],
   claude: [
     {
       value: null,

@@ -118,6 +118,22 @@ const engines = <String, EngineDescriptor>{
     livePermissionSwitch: true,
     rewind: false,
   ),
+  'dot': EngineDescriptor(
+    id: 'dot',
+    name: 'ChatGPT Dot',
+    short: 'Dt',
+    permissionModes: ['ask'],
+    efforts: [],
+    imageInput: false,
+    interrupt: false,
+    steer: false,
+    ultracode: false,
+    fast: false,
+    thinkingSummaries: false,
+    liveModelSwitch: false,
+    livePermissionSwitch: false,
+    rewind: false,
+  ),
 };
 
 /// 汇总几处改动的增删行数

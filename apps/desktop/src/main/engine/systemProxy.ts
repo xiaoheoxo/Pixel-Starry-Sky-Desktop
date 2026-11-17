@@ -9,6 +9,7 @@ import type { SystemProxyStatus } from '../../shared/types/system-proxy'
 
 /** 每个引擎按它要连的地址查（PAC 可能对不同网站给不同的代理） */
 const TARGETS: Record<EngineId, string> = {
+  dot: 'https://chatgpt.com',
   claude: 'https://api.anthropic.com',
   codex: 'https://api.openai.com',
   pixel: 'https://api.anthropic.com',

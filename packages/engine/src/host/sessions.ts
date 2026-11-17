@@ -64,6 +64,7 @@ export class HostSessions {
         engine?: EngineId
         rememberChoices?: false
         scheduleTaskId?: string
+        dot?: SessionRecord['dot']
       },
     workspacePath?: string,
   ): SessionRecord {
@@ -89,6 +90,7 @@ export class HostSessions {
       cwd: workspacePath ?? project.path,
       ...(project.folders?.length ? { extraDirs: project.folders.map(f => f.path) } : {}),
       engine,
+      ...(engine === 'dot' && opts.dot ? { dot: { ...opts.dot } } : {}),
       engineSessionId: null,
       title: NEW_TITLE,
       model: opts.model !== undefined ? opts.model : d.model,

@@ -191,6 +191,38 @@
     "pluginCommands": false,
     "platformSwitch": false
    }
+  },
+  {
+   "id": "dot",
+   "name": "ChatGPT Dot",
+   "short": "Dt",
+   "caps": {
+    "imageInput": false,
+    "interrupt": false,
+    "resume": true,
+    "steer": false,
+    "rewind": false,
+    "fork": false,
+    "sideChat": false,
+    "liveModelSwitch": false,
+    "livePermissionSwitch": false,
+    "permissionModes": [
+     "ask"
+    ],
+    "efforts": [],
+    "ultracode": false,
+    "fast": false,
+    "thinkingSummaries": false,
+    "backgroundTasks": false,
+    "agentTrace": true,
+    "promptSuggestions": false,
+    "alwaysScopes": [],
+    "costUsd": false,
+    "selfUpdate": false,
+    "launchSettings": false,
+    "pluginCommands": false,
+    "platformSwitch": false
+   }
   }
  ]
 }

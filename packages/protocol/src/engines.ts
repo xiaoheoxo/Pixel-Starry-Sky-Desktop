@@ -6,8 +6,8 @@ export interface EngineDescriptor {
   name: string
   short: string
   caps: EngineCaps
-  /** 请求格式：messages（Anthropic 接口）、responses（OpenAI Responses 接口）或 gemini（Gemini 原生接口）；平台分组按它筛选 */
-  wireApi: 'messages' | 'responses' | 'gemini'
+  /** 请求格式：messages / responses / gemini；native 表示独立产品协议，不接模型 API 网关。平台分组按它筛选 */
+  wireApi: 'messages' | 'responses' | 'gemini' | 'native'
   /** 平台目录里属于这个引擎的供应商名（小写），例如 anthropic、openai */
   platformVendors: string[]
   /** 平台分组没有写平台字段时，是否算作这个引擎（旧目录兼容） */
@@ -179,9 +179,44 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
     accent: null,
     nativeModelPrefix: 'gemini-',
   },
+  dot: {
+    id: 'dot',
+    name: 'ChatGPT Dot',
+    short: 'Dt',
+    caps: {
+      imageInput: false,
+      interrupt: false,
+      resume: true,
+      steer: false,
+      rewind: false,
+      fork: false,
+      sideChat: false,
+      liveModelSwitch: false,
+      livePermissionSwitch: false,
+      permissionModes: ['ask'],
+      efforts: [],
+      ultracode: false,
+      fast: false,
+      thinkingSummaries: false,
+      backgroundTasks: false,
+      agentTrace: true,
+      promptSuggestions: false,
+      alwaysScopes: [],
+      costUsd: false,
+      selfUpdate: false,
+      launchSettings: false,
+      pluginCommands: false,
+      platformSwitch: false,
+    },
+    wireApi: 'native',
+    platformVendors: [],
+    unlabeledGroups: false,
+    accent: null,
+    nativeModelPrefix: null,
+  },
 }
 
-export const ENGINE_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
+export const ENGINE_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity', 'dot']
 
 /** 版本号 a 是否比 b 新（按点分的数字逐段比，-beta 之类的后缀不计） */
 export function isNewerVersion(a: string | null | undefined, b: string | null | undefined): boolean {

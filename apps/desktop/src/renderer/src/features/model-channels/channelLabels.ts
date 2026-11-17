@@ -5,19 +5,21 @@ import { AUTH_ENGINE, isAuthChannel, type AuthChannel, type ChannelId, type Chan
 import { planInfo, type PlanProvider } from './plans'
 
 export const CHANNEL_NUMBER: Record<ChannelId, string> = {
+  dot: '④',
   platform: '①',
   claude: '②',
   chatgpt: '③',
-  google: '④',
-  custom: '⑤',
+  google: '⑤',
+  custom: '⑥',
 }
 /** 小方块里的编号（菜单分组标题、设置卡片） */
 export const CHANNEL_DIGIT: Record<ChannelId, string> = {
+  dot: '4',
   platform: '1',
   claude: '2',
   chatgpt: '3',
-  google: '4',
-  custom: '5',
+  google: '5',
+  custom: '6',
 }
 
 export const channelLabel = (c: ChannelId): string => tr(`modelChannels.channel.${c}`)

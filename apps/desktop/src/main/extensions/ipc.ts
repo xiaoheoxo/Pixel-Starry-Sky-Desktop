@@ -44,6 +44,8 @@ export class Extensions {
 
   /** 会话启动前：给引擎准备这个工作目录生效的扩展 */
   async prepare(record: SessionRecord): Promise<ExtensionLaunch> {
+    // Dot uses plugins connected in ChatGPT; local CLI extensions cannot be injected.
+    if (record.engine === 'dot') return { key: '', pluginDirs: [], pathDirs: [] }
     // 应用自己的只读 MCP 服务器：换过引擎的对话挂对话历史，新引擎可以按需查更早的部分；
     // 设置里开了「查看本机其他会话」时挂 list_threads / read_thread（docs/ui/import-collab.md 第 5 项③）
     // 频道派活的会话挂频道工具，成员设了「只用这些」时只带勾选的扩展（docs/ui/channels-collab-v2.md §1、§5）

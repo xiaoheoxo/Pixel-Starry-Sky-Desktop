@@ -15,6 +15,7 @@ export function platformModelApi(model: string | null | undefined): 'messages' |
 
 /** 线路支持一个引擎，不代表线路里每个模型都适合该引擎。 */
 export function platformModelSupportsEngine(model: string | null | undefined, engine: EngineId): boolean {
+  if (ENGINES[engine].wireApi === 'native') return false
   const api = platformModelApi(model)
   return engine === 'pixel' || api === null || api === ENGINES[engine].wireApi
 }

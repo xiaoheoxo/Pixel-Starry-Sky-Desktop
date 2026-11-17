@@ -667,6 +667,18 @@ const feedback: FeedbackBridge = {
 contextBridge.exposeInMainWorld('pixelsky', {
   tray,
   settingsWindow,
+  dotChat: {
+    open: (key?: string) => invoke<void>('dotChat:open', key),
+    catalog: (refresh?: boolean) => invoke('dotChat:catalog', refresh),
+    snapshot: (key: string) => invoke('dotChat:snapshot', key),
+    send: (key: string, id: string, text: string, files?: string[]) =>
+      invoke<void>('dotChat:send', key, id, text, files),
+    read: (key: string, options?: { before?: string; overview?: boolean }) => invoke('dotChat:read', key, options),
+    pickFiles: (key: string) => invoke('dotChat:pickFiles', key),
+    file: (key: string, fileId: string) => invoke('dotChat:file', key, fileId),
+    saveFile: (key: string, fileId: string) => invoke<boolean>('dotChat:saveFile', key, fileId),
+    computerOffer: (key: string, offer: string) => invoke<string>('dotChat:computerOffer', key, offer),
+  },
   feedback,
   channels,
   mobile,

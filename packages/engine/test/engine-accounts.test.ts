@@ -9,7 +9,7 @@ import type { AccountProbe, LoginProcess, SessionContext } from '../src/adapter'
 import { removeOwnFiles } from '../src/accounts-home'
 import { forgetCodexAccount, prepareAccountHome } from '../src/codex/accounts'
 import type { QuotaReading } from '../src/quota'
-import { readAccountsFile } from '../src/host/accounts'
+import { HostAccounts, readAccountsFile } from '../src/host/accounts'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
 const roots: string[] = []
@@ -109,6 +109,26 @@ describe('账号目录接回原目录', () => {
 })
 
 describe('账号文件', () => {
+  it('Dot 可解析未写入账号文件的原有默认登录；隐藏的默认账号和未知账号仍拒绝', () => {
+    const accounts = (saved: unknown) =>
+      new HostAccounts({
+        store: { loadAccounts: () => saved },
+        opts: { dataDir: 'test-data' },
+      } as never)
+    // list() 在尚未添加账号时动态返回 default，持久化的 accounts 仍是空数组。
+    expect(accounts({}).knownDir('codex', 'default')).toBeNull()
+    const managed = accounts({
+      codex: {
+        hideDefault: true,
+        current: 'a_111111111111',
+        accounts: [{ id: 'a_111111111111', email: 'work@example.com' }],
+      },
+    })
+    expect(() => managed.knownDir('codex', 'default')).toThrow(/unavailable/)
+    expect(() => managed.knownDir('codex', '../invalid')).toThrow(/unavailable/)
+    expect(managed.knownDir('codex', 'a_111111111111')).toBe(join('test-data', 'accounts', 'codex', 'a_111111111111'))
+  })
+
   it('不合法的项丢掉，当前账号不在列表里时回到原来的；自动切换默认关', () => {
     const file = readAccountsFile({
       codex: {

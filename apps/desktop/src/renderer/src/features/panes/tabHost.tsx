@@ -190,6 +190,7 @@ const TabBody = memo(function TabBody({
           <FileEditor id={tab} active={active} />
         ) : (
           <SessionView
+            active={active}
             embedded
             sessionId={sessionId}
             draftKey={isLive ? tab : `demo:${tab}`}

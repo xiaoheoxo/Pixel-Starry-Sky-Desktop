@@ -495,3 +495,4 @@ export type {
   QuotaWindow,
 } from './quota'
 export { QUOTA_WINDOW_MINS, quotaWindowId } from './quota'
+export { supportsChatGptDot } from './dot'

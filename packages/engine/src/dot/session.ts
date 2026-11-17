@@ -1,0 +1,278 @@
+import { setTimeout as delay } from 'node:timers/promises'
+import { open } from 'node:fs/promises'
+import type {
+  ApprovalDecision,
+  FileAttachment,
+  ImageAttachment,
+  SessionSettings,
+  WorkflowRun,
+} from '@pixelsky/protocol'
+import type { ChatSeed } from '../chat-log'
+import { DOT_FILE_LIMIT } from './client'
+import type { EngineSession, SessionContext } from '../adapter'
+import type { DotClient, DotIdentity, DotMessage, DotWorkflow } from './client'
+
+export interface DotSessionOptions {
+  pollMs?: number
+  replyTimeoutMs?: number
+  acquire?: (dot: DotIdentity) => () => void
+}
+
+const terminal = (status: DotWorkflow['status']) => ['completed', 'failed', 'interrupted'].includes(status)
+
+/** Chat and delegated work have separate lifetimes. Closing only detaches the local client. */
+export class DotSession implements EngineSession {
+  private closed = false
+  private turn: { abort: AbortController; done: Promise<void> } | null = null
+  private readonly abort = new AbortController()
+  private readonly watches = new Map<string, Promise<void>>()
+  private readonly workflows = new Map<string, WorkflowRun>()
+
+  constructor(
+    private readonly client: DotClient,
+    private readonly ctx: SessionContext,
+    private readonly options: DotSessionOptions = {},
+  ) {
+    for (const workflow of ctx.runs?.().workflows ?? []) this.workflows.set(workflow.id, workflow)
+  }
+
+  send(
+    text: string,
+    turnId: string,
+    userItemId: string,
+    attachments?: ImageAttachment[],
+    _seed?: ChatSeed,
+    _handoffImages?: ImageAttachment[],
+    files?: FileAttachment[],
+  ): void {
+    if (this.closed || this.turn) throw new Error('Dot session closed or busy')
+    if (attachments?.length) throw new Error('Dot image input is not supported')
+    const abort = new AbortController()
+    const done = this.run(text, turnId, userItemId, abort.signal, files).finally(() => {
+      this.turn = null
+    })
+    this.turn = { abort, done }
+  }
+
+  private async run(
+    text: string,
+    turnId: string,
+    userItemId: string,
+    signal: AbortSignal,
+    files: FileAttachment[] = [],
+  ): Promise<void> {
+    let attempted = false
+    let confirmed = false
+    let release: (() => void) | undefined
+    try {
+      const dot = await this.client.discover(signal)
+      release = this.options.acquire?.(dot)
+      const previous = this.ctx.record().engineSessionId
+      if (previous && previous !== dot.threadId)
+        throw new Error('Dot thread changed; select the current Dot in a new session')
+      this.ctx.setEngineSessionId(dot.threadId)
+      const fileIds: string[] = []
+      if (files.length > 10) throw new Error('Dot supports at most 10 attachments per message')
+      for (const file of files) {
+        if (!file.path) throw new Error('Dot attachment requires a local file')
+        const handle = await open(file.path, 'r')
+        try {
+          const info = await handle.stat()
+          if (!info.isFile() || info.size > DOT_FILE_LIMIT)
+            throw new Error('Dot attachment exceeds 20 MiB or is not a file')
+          if (info.size !== file.bytes) throw new Error('Dot attachment changed; select it again')
+          const data = new Uint8Array(info.size + 1)
+          let size = 0
+          while (size < data.length) {
+            signal.throwIfAborted()
+            const result = await handle.read(data, size, data.length - size)
+            if (!result.bytesRead) break
+            size += result.bytesRead
+          }
+          if (size > DOT_FILE_LIMIT) throw new Error('Dot attachment exceeds 20 MiB')
+          if (size !== info.size || (await handle.stat()).mtimeMs !== info.mtimeMs)
+            throw new Error('Dot attachment changed; select it again')
+          fileIds.push(await this.client.upload(dot, { name: file.name, data: data.subarray(0, size) }, signal))
+        } finally {
+          await handle.close()
+        }
+      }
+      attempted = true
+      // Stable request ID across ambiguous transport responses. No implicit resend.
+      const sent = await this.client.send(dot, text, userItemId, signal, fileIds)
+      confirmed = true
+      this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed' })
+      let after = sent.id
+      let received = false
+      const emitted = new Set<string>()
+      const deadline = Date.now() + (this.options.replyTimeoutMs ?? 10 * 60_000)
+      for (;;) {
+        signal.throwIfAborted()
+        if (Date.now() >= deadline) throw new Error('Dot reply wait timed out; check ChatGPT before continuing')
+        const messages = await this.client.messages(dot, after, signal)
+        for (const m of messages) {
+          after = m.id
+          if (m.account_user_id !== dot.memberId || m.deleted_at || emitted.has(m.id)) continue
+          emitted.add(m.id)
+          received = true
+          if (m.content.text)
+            this.ctx.emit({
+              type: 'item_completed',
+              item: {
+                id: `dot-${m.id}`,
+                kind: 'assistant',
+                text: m.content.text,
+                status: 'completed',
+              },
+            })
+          for (const attachment of m.content.attachments ?? []) {
+            if (attachment.type === 'thread' && attachment.thread_id) {
+              try {
+                await this.refresh(dot, m, attachment.thread_id, signal)
+              } catch {
+                signal.throwIfAborted()
+                this.monitorNotice(dot, attachment.thread_id)
+              }
+              this.watch(dot, m, attachment.thread_id)
+            } else {
+              this.ctx.emit({
+                type: 'item_completed',
+                item: {
+                  id: `dot-attachment-${m.id}`,
+                  kind: 'notice',
+                  level: 'info',
+                  text: `View the Dot attachment in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+                },
+              })
+            }
+          }
+          if (m.content.elicitation)
+            this.ctx.emit({
+              type: 'item_completed',
+              item: {
+                id: `dot-approval-${m.id}`,
+                kind: 'notice',
+                level: 'info',
+                text: `Dot needs your input in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+              },
+            })
+        }
+        if (received) {
+          const activity = await this.client.activity(dot, signal)
+          if (activity === 'systemError') throw new Error('Dot reported a system error; open ChatGPT')
+          if (activity === 'idle') break
+        }
+        await delay(this.options.pollMs ?? 1500, undefined, { signal })
+      }
+      this.ctx.emit({
+        type: 'turn_completed',
+        turnId,
+        outcome: 'completed',
+        error: null,
+        background: this.background(),
+      })
+    } catch (error) {
+      if (attempted && !confirmed) this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'uncertain' })
+      this.ctx.emit({
+        type: 'turn_completed',
+        turnId,
+        outcome: signal.aborted ? 'interrupted' : 'failed',
+        error: signal.aborted ? null : error instanceof Error ? error.message : 'Dot request failed',
+        background: this.background(),
+      })
+    } finally {
+      release?.()
+    }
+  }
+
+  private background(): number {
+    return [...this.watches.keys()].filter(
+      id => !['completed', 'failed', 'interrupted'].includes(this.workflows.get(id)?.status ?? ''),
+    ).length
+  }
+
+  private async refresh(dot: DotIdentity, card: DotMessage, id: string, signal: AbortSignal): Promise<boolean> {
+    const task = await this.client.workflow(dot, card, id, signal)
+    this.workflows.set(id, {
+      id,
+      name: task.title,
+      description: card.content.text ?? '',
+      status: task.status,
+      startedAt: task.startedAt,
+      durationMs: task.startedAt ? Math.max(0, task.updatedAt - task.startedAt) : 0,
+      // The endpoint does not report token or tool totals. Do not fabricate usage events.
+      tokens: 0,
+      toolCalls: 0,
+      phases: [],
+      agents: [],
+      toolUseId: null,
+    })
+    this.ctx.emit({ type: 'runs', runs: { workflows: [...this.workflows.values()], agents: [] } })
+    this.ctx.emit({ type: 'background', count: this.background() })
+    if (task.status === 'needsInput')
+      this.ctx.emit({
+        type: 'item_completed',
+        item: {
+          id: `dot-input-${id}`,
+          kind: 'notice',
+          level: 'info',
+          text: `Dot workflow needs your input in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+        },
+      })
+    return terminal(task.status)
+  }
+
+  private monitorNotice(dot: DotIdentity, id: string): void {
+    this.ctx.emit({
+      type: 'item_completed',
+      item: {
+        id: `dot-watch-${id}`,
+        kind: 'notice',
+        level: 'warn',
+        text: `Dot workflow status unavailable. Review it in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+      },
+    })
+  }
+
+  private watch(dot: DotIdentity, card: DotMessage, id: string): void {
+    if (
+      this.watches.has(id) ||
+      this.closed ||
+      (this.workflows.get(id) && ['completed', 'failed', 'interrupted'].includes(this.workflows.get(id)!.status))
+    )
+      return
+    const signal = this.abort.signal
+    const done = (async () => {
+      try {
+        for (;;) {
+          await delay(this.options.pollMs ?? 3000, undefined, { signal })
+          if (await this.refresh(dot, card, id, signal)) return
+        }
+      } catch {
+        if (!signal.aborted) this.monitorNotice(dot, id)
+      } finally {
+        this.watches.delete(id)
+        if (!signal.aborted) this.ctx.emit({ type: 'background', count: this.background() })
+      }
+    })()
+    this.watches.set(id, done)
+    this.ctx.emit({ type: 'background', count: this.background() })
+  }
+
+  // There is no verified native cancellation/approval endpoint in this integration.
+  async interrupt(): Promise<void> {
+    throw new Error('Stop Dot work in ChatGPT')
+  }
+  answer(_requestId: string, _decision: ApprovalDecision): void {
+    throw new Error('Review Dot approvals in ChatGPT')
+  }
+  async update(_patch: Partial<SessionSettings>): Promise<void> {}
+
+  async close(): Promise<void> {
+    this.closed = true
+    this.turn?.abort.abort()
+    this.abort.abort()
+    await this.turn?.done
+    await Promise.allSettled(this.watches.values())
+  }
+}

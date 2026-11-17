@@ -423,7 +423,9 @@ export function PermissionMenu({
                 items={[
                   tr('fullAccess.confirm.noAsk'),
                   // Antigravity 没有完全放行（ENGINES.antigravity.caps.permissionModes），走不到这里
-                  tr(`fullAccess.confirm.${engine === undefined || engine === 'antigravity' ? 'claude' : engine}`),
+                  tr(
+                    `fullAccess.confirm.${engine === undefined || engine === 'antigravity' || engine === 'dot' ? 'claude' : engine}`,
+                  ),
                   tr(started ? 'fullAccess.confirm.scope' : 'fullAccess.confirm.scopeNew', {
                     p0: PERMISSION_INFO[later].label,
                   }),

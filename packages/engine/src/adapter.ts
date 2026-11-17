@@ -4,6 +4,7 @@ import type {
   ApprovalDecision,
   Effort,
   ImageAttachment,
+  FileAttachment,
   InterruptOptions,
   Item,
   McpOp,
@@ -113,6 +114,7 @@ export interface EngineSession {
     attachments?: ImageAttachment[],
     seed?: ChatSeed,
     handoffImages?: ImageAttachment[],
+    files?: FileAttachment[],
   ): void
   /** 用户发了新的一轮，send 之前调（断线重连自动发的「继续」不调）；清单按轮次的引擎才实现 */
   newRound?(): void
@@ -200,6 +202,8 @@ export interface TuiLaunch {
 export interface EngineAdapter {
   /** 检测引擎状态；结果会缓存，force 时重新检测 */
   info(force?: boolean): Promise<EngineInfo>
+  /** 固定到某个已保存账号的连接，按会话自身检测，避免被全局当前账号覆盖。 */
+  infoForSession?(record: SessionRecord): Promise<EngineInfo>
   /**
    * 保存前校验用户替换的命令和追加的参数（docs/ui/engine-launch.md §3）：命令找不到、不能直接启动，
    * 或参数里有像素星空自己控制的参数时抛出原因。command 为 null 时不查命令。

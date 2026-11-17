@@ -13,6 +13,7 @@ import { machineOf, useMachines } from '@/features/machines/store'
 import { useOpenSearch } from '@/features/search/SearchProvider'
 import { projects as demoProjects } from '@/data'
 import { SidebarRow } from './SidebarSection'
+import { DotNavEntry } from '@/features/dot/DotSidebar'
 
 /** 行右边的灰字（快捷键、待办数） */
 const HINT = 'shrink-0 text-meta text-fg-faint'
@@ -102,6 +103,7 @@ export function SidebarNav({ onNewTask }: { onNewTask?: () => void }) {
       </SidebarRow>
       <BoardEntry />
       <ChannelsEntry />
+      <DotNavEntry />
     </nav>
   )
 }

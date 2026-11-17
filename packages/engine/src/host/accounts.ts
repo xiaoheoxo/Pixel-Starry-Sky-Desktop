@@ -213,6 +213,15 @@ export class HostAccounts {
     return this.dir(engine, this.currentId(engine))
   }
 
+  /** 固定账号的 Dot 连接只能读取仍在账号库里的目录，不能拼接外部传入的路径。 */
+  knownDir(engine: AccountEngine, id: string): string | null {
+    const s = this.engineState(engine)
+    // 原有登录由 list() 动态列出，未添加其它账号时不写进 accounts 文件。
+    if (id === DEFAULT_ACCOUNT && !s.hideDefault) return null
+    if (!s.accounts.some(a => a.id === id)) throw new Error('Saved ChatGPT account unavailable')
+    return this.dir(engine, id)
+  }
+
   private save(): void {
     try {
       this.ctx.store.saveAccounts({ version: 1, ...this.state })

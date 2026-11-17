@@ -126,8 +126,8 @@ import { useAppMode } from '@/features/coding/mode'
 const LINE_HEIGHT = 24
 const MAX_ROWS = 8
 /** 输入区上下内边距（pt-3.5 + pb-3.5） */
-export const CARD_STYLE =
-  'composer-card rounded-2xl border border-line-composer bg-surface shadow-composer transition-[border-color,box-shadow] duration-(--dur-base) ease-(--ease-out) focus-within:border-line-composer-focus focus-within:ring-2 focus-within:ring-composer-ring'
+export { CARD_STYLE } from './composerStyles'
+import { CARD_STYLE } from './composerStyles'
 /**
  * 输入框：附件与文本、发送 / 停止；设置工具行在框外。
  * 传入 live（引擎的真实逻辑）时能真正发送，Enter 发送、Shift+Enter 换行，运行中发送键变成停止键；

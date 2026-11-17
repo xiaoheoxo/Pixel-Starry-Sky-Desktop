@@ -26,6 +26,9 @@ export const RUN_STATE_LABEL: Record<RunState, string> = {
 export function runState(state: string): RunState {
   switch (state) {
     case 'running':
+    case 'thinking':
+    case 'inProgress':
+    case 'needsInput':
     case 'start':
     case 'started':
     case 'async_launched':

@@ -42,6 +42,10 @@
 
 安全问题请不要公开提 issue，到[这里私下报告](https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop/security/advisories/new)。
 
+## ChatGPT Dot
+
+引擎库支持与已有的 ChatGPT Dot 进行文本对话，并跟踪它派出的工作任务。配置自己的 ChatGPT 连接后，在模型菜单选择「ChatGPT Dot」。接入使用网页协议，配置方法和当前支持范围见 [Dot 接入说明](packages/engine/DOT.md)。
+
 ## 从源码运行
 
 需要：Node 22+、pnpm 11（版本以根目录 `package.json` 的 `packageManager` 为准）。

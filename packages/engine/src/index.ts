@@ -33,6 +33,23 @@ export { CodexAdapter } from './codex'
 export { OneShotError, type OneShotProblem, type OneShotReply, type OneShotRequest } from './oneshot'
 export { PixelAdapter } from './pixel'
 export { AntigravityAdapter } from './antigravity'
+export {
+  DotAdapter,
+  DotClient,
+  type DotAdapterOptions,
+  type DotClientOptions,
+  type DotCredentials,
+  type DotIdentity,
+  type DotMessage,
+  type DotWorkflow,
+  type DotProfile,
+  type DotChatMessage,
+  type DotHistoryPage,
+  type DotOverview,
+  type DotAttachment,
+  type DotFileData,
+  DOT_FILE_LIMIT,
+} from './dot'
 export { pixelAutoWindow } from './pixel/context-window'
 export { searchQuery } from './search'
 export { buildHandoff, handoffEngines, type HandoffInput } from './handoff'

@@ -218,6 +218,8 @@ export interface SessionRecord extends SessionSettings {
   /** 项目的附加文件夹（创建时从项目复制，之后给项目加减文件夹不影响已有会话；docs/ui/multi-root-projects.md §3.2） */
   extraDirs?: string[]
   engine: EngineId
+  /** Dot 独立聊天绑定的已保存 Codex 账号和远端 Dot；不含凭据。 */
+  dot?: { account: string; id: string; threadId: string }
   /** 引擎自己的会话 id（Claude 的 session_id / Codex 的 thread id）；还没启动过引擎时为 null */
   engineSessionId: string | null
   /** 各引擎的原生会话和读到的位置（跨引擎接力）；旧记录没有，按「当前引擎已看到全部对话」处理 */

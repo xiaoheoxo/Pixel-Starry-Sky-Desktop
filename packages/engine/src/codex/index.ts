@@ -48,6 +48,7 @@ import { array } from './process'
 import { codexViewedImage } from './images'
 import { accountEnv, forgetCodexAccount, prepareAccountHome } from './accounts'
 import { Rerun } from '../rerun'
+import { readChatGptCredentials, type ChatGptCredentials } from './chatgpt'
 
 const log = logger('engine.codex')
 
@@ -130,6 +131,33 @@ export class CodexAdapter implements EngineAdapter {
     if (prepareAccountHome(real, dir)) this.prepared.set(key, Date.now())
   }
   constructor(private readonly opts: CodexAdapterOptions = {}) {}
+  /** Dot 共用当前 Codex 订阅账号，不另存 token，也不自行刷新 OAuth 凭据。 */
+  private readonly accountReaders = new Map<string, CodexReader>()
+  chatgptCredentials(signal?: AbortSignal, dir?: string | null): Promise<ChatGptCredentials | null> {
+    if (dir === undefined) return readChatGptCredentials(this.reader, signal)
+    const key = dir ?? '<default>'
+    let reader = this.accountReaders.get(key)
+    if (!reader) {
+      reader = new CodexReader(async () => {
+        await this.info()
+        const launcher = this.cached?.launcher
+        return launcher
+          ? {
+              launcher,
+              args: this.launchArgs(),
+              cwd: homedir(),
+              env: toolEnvironment(launcher, this.env(dir)),
+            }
+          : null
+      })
+      this.accountReaders.set(key, reader)
+    }
+    return readChatGptCredentials(reader, signal)
+  }
+  private async closeReaders(opts: { quick?: boolean } = {}): Promise<void> {
+    await Promise.all([this.reader, ...this.accountReaders.values()].map(reader => reader.close(opts)))
+    this.accountReaders.clear()
+  }
   checkLaunch(command: string | null, args: readonly string[]): void {
     if (command) {
       const custom = customCodex(command, this.env())
@@ -146,7 +174,7 @@ export class CodexAdapter implements EngineAdapter {
   async update(onLine?: (line: string) => void): Promise<EngineUpdateResult> {
     await this.info()
     // 读取进程也占着 codex.exe：Windows 上 npm 换不了被占用的程序
-    await this.reader.close()
+    await this.closeReaders()
     const exe = this.cached?.info.path
     if (!exe) throw new Error(this.cached?.info.message ?? '没找到 Codex')
     const result = await updateCodexWithNpm(exe, this.env(), onLine)
@@ -158,9 +186,9 @@ export class CodexAdapter implements EngineAdapter {
     const launcher = await this.loginLauncher()
     const args = method === 'device' ? ['login', '--device-auth'] : ['login']
     // 只读进程会缓存启动时的登录状态：登录前后各关一次，下次读额度重新起，不会还是旧账号
-    await this.reader.close()
+    await this.closeReaders()
     const proc = runInteractive(launcher, args, toolEnvironment(launcher, this.env()), onLine)
-    void proc.done.finally(() => this.reader.close()).catch(() => undefined)
+    void proc.done.finally(() => this.closeReaders()).catch(() => undefined)
     return proc
   }
   /** 取消授权：codex logout */
@@ -175,17 +203,17 @@ export class CodexAdapter implements EngineAdapter {
   ): Promise<LoginProcess> {
     const launcher = await this.loginLauncher()
     const args = method === 'device' ? ['login', '--device-auth'] : ['login']
-    await this.reader.close()
+    await this.closeReaders()
     const proc = runInteractive(launcher, args, toolEnvironment(launcher, this.env(dir)), onLine)
-    void proc.done.finally(() => this.reader.close()).catch(() => undefined)
+    void proc.done.finally(() => this.closeReaders()).catch(() => undefined)
     return proc
   }
   /** 退出某个订阅账号（移除账号）；dir 不传是当前账号，null 是原来的目录 */
   async accountLogout(dir: string | null | undefined): Promise<EngineUpdateResult> {
     const launcher = await this.loginLauncher()
-    await this.reader.close()
+    await this.closeReaders()
     const r = await run(launcher, ['logout'], toolEnvironment(launcher, this.env(dir)))
-    await this.reader.close()
+    await this.closeReaders()
     return { ok: r.ok, output: outputTail(r), version: null }
   }
   /** 会话的 CODEX_HOME 在创建时定好（换账号后重建）：还有进程活着、用的是这个目录就算在用 */
@@ -242,7 +270,7 @@ export class CodexAdapter implements EngineAdapter {
   }
   /** 一键安装：npm install -g（找得到 npm、或桌面端能给私有 Node.js 时 info.installable 才为真） */
   async install(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
-    await this.reader.close()
+    await this.closeReaders()
     const result = await installCodexWithNpm(this.env(), onLine, this.opts.nodeRuntime)
     this.catalogCache = null
     return result
@@ -273,7 +301,7 @@ export class CodexAdapter implements EngineAdapter {
     this.cached = result
     // Codex 换了位置（用户在设置里换了命令、重装）：读取进程还是旧程序，马上关掉，不占着旧的 codex.exe。
     // 参数、环境变量（CODEX_HOME）变了由读取进程自己在下次请求前核对、换进程（reader.ts readerLaunchKey）
-    if (before !== undefined && before !== result.info.path) void this.reader.close()
+    if (before !== undefined && before !== result.info.path) void this.closeReaders()
     if (!result.launcher || result.info.status !== 'ready') return result.info
     let stderr = ''
     const proc = new CodexProcess(
@@ -606,7 +634,7 @@ export class CodexAdapter implements EngineAdapter {
   }
   /** 关掉适配器自己的常驻进程（应用退出）：读取进程 */
   close(opts?: CloseOptions): Promise<void> {
-    return this.reader.close(opts)
+    return this.closeReaders(opts)
   }
   // ---------- 接着终端里的 Codex 会话（docs/ui/codex-resume.md） ----------
   async nativeSessions(cwd: string, opts?: ListOptions): Promise<NativeSessionList> {

@@ -4,8 +4,10 @@ import { installDemo, isDemo } from './data/demo'
 
 async function boot(): Promise<void> {
   if (isDemo) installDemo((await import('./mock')).demoSource)
-  const settingsWindow = new URLSearchParams(location.search).get('view') === 'settings'
-  await (settingsWindow ? import('./app/startSettings') : import('./app/start'))
+  const view = new URLSearchParams(location.search).get('view')
+  // 每个入口各自导入，确保 Vite 给对应入口附带正确的 CSS 依赖。
+  if (view === 'settings') await import('./app/startSettings')
+  else await import('./app/start')
 }
 
 void boot()

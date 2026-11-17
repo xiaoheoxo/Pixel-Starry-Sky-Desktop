@@ -85,8 +85,11 @@ import './conversation.css'
 import { TranscriptMenu } from './contextMenu/TranscriptMenu'
 import { openExport } from '@/features/export/store'
 import { ImageSessionContext } from './attachments/imageSource'
+import { useEngineState } from '@/features/engine/store'
+import { DotSessionView } from '@/features/dot/DotSessionView'
 
 export interface SessionViewProps {
+  active?: boolean
   /** 当前会话，null 表示新会话（显示欢迎页） */
   sessionId: string | null
   title: string
@@ -112,6 +115,8 @@ export function useHeaderActions(sessionId: string | null): boolean {
 /** 会话主区：顶部栏 + 可滚动对话流 + 固定在底部的输入框；没有对话时显示欢迎页 */
 export function SessionView(props: SessionViewProps) {
   useI18n()
+  const dot = useEngineState(s => s.sessions.find(session => session.record.id === props.sessionId)?.record.dot)
+  if (dot) return <DotSessionView target={dot} active={props.active} />
   // 演示模式里的对话展示用真实会话的视图（docs/ui/demo-conversation.md）
   const live = isLive || (isDemo && !!props.sessionId && props.sessionId in demo().conversations.snapshots)
   return live ? <LiveSessionView {...props} /> : <DemoSessionView {...props} />

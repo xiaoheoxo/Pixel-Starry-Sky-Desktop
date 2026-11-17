@@ -41,6 +41,7 @@ import { logoutEngine, useChannelEngines } from './loginStore'
 import { currentNewTaskChoice, pinNewTask } from './newTaskDefault'
 import { ACCOUNT_ENGINE, openAccountsPage, useAccounts } from './accountsStore'
 import { AccountPickList } from './AccountsUI'
+import { supportsChatGptDot } from '@pixelsky/protocol'
 
 export function ChannelsSettings() {
   useI18n()
@@ -49,6 +50,7 @@ export function ChannelsSettings() {
       <PlatformCard />
       <AuthCard channel="claude" />
       <AuthCard channel="chatgpt" />
+      <DotChannelCard />
       <AuthCard channel="google" />
       <Card channel="custom" status={tr('modelChannels.custom.desc')}>
         <div className="border-t border-line-subtle px-4 pb-3">
@@ -59,6 +61,14 @@ export function ChannelsSettings() {
       <MenuLayoutRow />
     </div>
   )
+}
+
+function DotChannelCard() {
+  const accounts = useAccounts('codex')
+  const current = useChannelEngines().find(e => e.id === 'codex')
+  if (!supportsChatGptDot(current?.account?.plan) && !accounts?.accounts.some(a => supportsChatGptDot(a.plan)))
+    return null
+  return <AuthCard channel="chatgpt" dot />
 }
 
 function Card({
@@ -161,7 +171,7 @@ function PlatformCard() {
   )
 }
 
-function AuthCard({ channel }: { channel: AuthChannel }) {
+function AuthCard({ channel, dot = false }: { channel: AuthChannel; dot?: boolean }) {
   useI18n()
   const engine = AUTH_ENGINE[channel]
   const engines = useChannelEngines()
@@ -180,7 +190,8 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
     providers: [],
   })
   const fix = channelFix(state)
-  const desc = tr(`modelChannels.${channel}.desc`)
+  const desc = tr(`modelChannels.${dot ? 'dot' : channel}.desc`)
+  const dotInfo = dot ? engines.find(e => e.id === 'dot') : undefined
   // 远程机器（SSH / WSL）上的引擎要在那台机器上登录（§6）
   const remote = machine !== 'local'
   // Codex 用 config.toml 里自己的接口（docs/ui/model-channels.md §3 第 6 条）
@@ -315,7 +326,7 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
   } else if (state.kind === 'auth') {
     primary = remote ? null : (
       <Button variant="primary" onClick={() => openAuthDialog(channel)}>
-        {tr(`modelChannels.${channel}.signIn`)}
+        {tr(`modelChannels.${dot ? 'dot' : channel}.signIn`)}
       </Button>
     )
   } else {
@@ -328,7 +339,7 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
   return (
     <>
       <Card
-        channel={channel}
+        channel={dot ? 'dot' : channel}
         status={status}
         sub={
           remote ? (
@@ -336,15 +347,27 @@ function AuthCard({ channel }: { channel: AuthChannel }) {
           ) : error ? (
             <span className="text-danger">{translateMessage(error)}</span>
           ) : provider !== null ? (
-            tr('modelChannels.authCard.providerHint')
+            tr(dot ? 'modelChannels.dot.sharedLogin' : 'modelChannels.authCard.providerHint')
+          ) : dot ? (
+            <>
+              {tr('modelChannels.dot.sharedLogin')}
+              {dotInfo?.message && <span className="block text-warn">{translateMessage(dotInfo.message)}</span>}
+            </>
           ) : state.kind !== 'ready' && state.kind !== 'auth' ? (
             desc
           ) : null
         }
-        icon={<EngineIcon engine={engine} size={14} className="opacity-70" />}
+        icon={<EngineIcon engine={dot ? 'dot' : engine} size={14} className="opacity-70" />}
         primary={primary}
         secondary={secondary}
       >
+        {dot && (
+          <div className="flex justify-end border-t border-line-subtle px-4 py-2.5">
+            <Button onClick={() => void window.pixelsky?.dotChat.open().catch(err => setError(String(err)))}>
+              {tr('dot.open')}
+            </Button>
+          </div>
+        )}
         {canNote && editingNote && (
           <form
             className="flex flex-col gap-1.5 border-t border-line-subtle px-4 py-2.5"

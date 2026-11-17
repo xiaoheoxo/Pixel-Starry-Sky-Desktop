@@ -35,6 +35,7 @@ import {
 } from './useConnectors'
 
 const ENGINE_NAME: Record<EngineId, () => string> = {
+  dot: () => 'ChatGPT Dot',
   claude: () => 'Claude Code',
   codex: () => 'Codex',
   pixel: () => tr('engine.pixel.name'),

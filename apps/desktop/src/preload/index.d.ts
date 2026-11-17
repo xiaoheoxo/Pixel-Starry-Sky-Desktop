@@ -87,6 +87,7 @@ export interface PixelskyBridge {
   tray: import('./tray').TrayBridge
   /** 设置独立窗口（docs/ui/settings-window.md） */
   settingsWindow: import('./settings-window').SettingsWindowBridge
+  dotChat: import('../shared/types/dot-chat').DotChatBridge
   /** 手机远程连接（docs/mobile-remote.md） */
   mobile: import('./mobile').MobileBridge
   /** 消息通道（docs/ui/one-click-connectors.md） */

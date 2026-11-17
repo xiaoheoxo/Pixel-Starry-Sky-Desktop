@@ -44,6 +44,7 @@ import { useSessionCards } from '@/features/board/useSessionCards'
 import { SidebarFooter } from './SidebarFooter'
 import { WslHint } from './WslHint'
 import { useFlip } from './useFlip'
+import { DotSidebarList } from '@/features/dot/DotSidebar'
 
 export interface SidebarProps {
   selectedSessionId: string | null
@@ -216,6 +217,8 @@ export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
             />
           </SidebarSection>
         )}
+
+        <DotSidebarList />
 
         <SidebarSection
           title={tr('sidebar.Sidebar.projects')}
