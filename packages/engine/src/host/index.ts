@@ -906,7 +906,17 @@ export class EngineHost {
       const hadSession = !!current.engineSessionId
       let launch = await adapter.tuiLaunch(current, extensions)
       if (current.engineSessionId !== launch.engineSessionId) {
-        m.events.patchRecord(id, { engineSessionId: launch.engineSessionId })
+        // 换了线程（新对话先建、Codex 换来源分叉）：engineSessions 里当前引擎的 id 一起换，seen 不变（内容一样）
+        const latest = m.sessions.runtime(id).snapshot.record
+        const entry = latest.engineSessions?.[latest.engine]
+        m.events.patchRecord(id, {
+          engineSessionId: launch.engineSessionId,
+          ...(entry && latest.engineSessions
+            ? {
+                engineSessions: { ...latest.engineSessions, [latest.engine]: { ...entry, id: launch.engineSessionId } },
+              }
+            : {}),
+        })
         current = m.sessions.runtime(id).snapshot.record
         launch = await adapter.tuiLaunch(current, extensions)
       }

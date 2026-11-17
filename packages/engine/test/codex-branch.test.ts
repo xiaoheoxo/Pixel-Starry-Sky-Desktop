@@ -512,3 +512,117 @@ describe('Codex 分叉', { timeout: 20_000 }, () => {
     expect(after.engineSessionId).toBeTruthy()
   })
 })
+
+// 新版 Codex 线程绑死 provider，换额度来源后 resume 接不上：分叉到新来源接着聊（docs/codex-engine.md §15）
+describe('Codex 换来源接线程', { timeout: 20_000 }, () => {
+  const gateway = {
+    FAKE_CODEX_PROVIDER: 'openai',
+    PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1',
+    PIXELSKY_CODEX_TOKEN: 'tok',
+    FAKE_CODEX_PROVIDER_LOCK: '1',
+  }
+  it('自己账号换到自定义接口：resume 被拒后 thread/fork 带新 provider，上下文整条带过去，不开新线程、不提示、不注入', async () => {
+    const { session, messages, say, conversation } = setup(gateway)
+    await conversation(['一', '二'])
+    expect(host!.open(session.id).record.engineSessionId).toBe('fake-thread')
+    await host!.update(session.id, { provider: { id: 'my-api' } })
+    const from = messages().length
+    await say(session.id, '三', 'm2')
+    const sent = messages().slice(from)
+    expect(sent.filter(m => m.method === 'thread/fork')).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ threadId: 'fake-thread', modelProvider: 'pixelsky-custom' }),
+      }),
+    ])
+    expect(methods(sent)).not.toContain('thread/start')
+    expect(methods(sent)).not.toContain('thread/inject_items')
+    // 回归（审查）：原线程没会话认了，归档掉，「继续 Codex 对话」列表里不多一份旧副本
+    expect(sent.filter(m => m.method === 'thread/archive')).toEqual([
+      expect.objectContaining({ params: { threadId: 'fake-thread' } }),
+    ])
+    const forked = host!.open(session.id).record.engineSessionId!
+    expect(forked).not.toBe('fake-thread')
+    expect(clientIds(forked)).toEqual(['m0', 'm1', 'm2'])
+    expect(notices(session.id)).toEqual([])
+    // 换回自己账号：分叉出来的线程绑的是 pixelsky-custom，再分叉回 openai
+    await host!.update(session.id, { provider: null })
+    const back = messages().length
+    await say(session.id, '四', 'm3')
+    expect(
+      messages()
+        .slice(back)
+        .filter(m => m.method === 'thread/fork'),
+    ).toEqual([
+      expect.objectContaining({ params: expect.objectContaining({ threadId: forked, modelProvider: 'openai' }) }),
+    ])
+    expect(clientIds(host!.open(session.id).record.engineSessionId!)).toEqual(['m0', 'm1', 'm2', 'm3'])
+    expect(notices(session.id)).toEqual([])
+  })
+
+  it('回退后换来源：在分叉出来的线程上 thread/revert（轮次 id 不变）', async () => {
+    const { session, messages, say, conversation } = setup(gateway)
+    await conversation(['一', '二', '三'])
+    await host!.rewind(session.id, 'm1')
+    await host!.update(session.id, { provider: { id: 'my-api' } })
+    const from = messages().length
+    await say(session.id, '新的', 'n0')
+    const forked = host!.open(session.id).record.engineSessionId!
+    expect(
+      messages()
+        .slice(from)
+        .filter(m => m.method === 'thread/revert'),
+    ).toEqual([expect.objectContaining({ params: { threadId: forked, beforeTurnId: 'turn-2' } })])
+    expect(clientIds(forked)).toEqual(['m0', 'n0'])
+    expect(clientIds('fake-thread')).toEqual(['m0', 'm1', 'm2'])
+    expect(notices(session.id)).toEqual([])
+  })
+
+  it('换来源后没发消息就切终端：读出线程绑着旧来源，分叉过去再 codex resume 分叉的线程，原线程归档（§15.8）', async () => {
+    const { session, messages, conversation } = setup(gateway)
+    await conversation(['一', '二'])
+    await host!.update(session.id, { provider: { id: 'my-api' } })
+    const launch = await host!.prepareTui(session.id)
+    const forked = host!.open(session.id).record.engineSessionId!
+    expect(forked).not.toBe('fake-thread')
+    expect(launch.engineSessionId).toBe(forked)
+    expect(launch.args.slice(launch.args.indexOf('resume'), launch.args.indexOf('resume') + 2)).toEqual([
+      'resume',
+      forked,
+    ])
+    expect(host!.open(session.id).record.engineSessions?.codex?.id).toBe(forked)
+    expect(clientIds(forked)).toEqual(['m0', 'm1'])
+    expect(messages().filter(m => m.method === 'thread/fork')).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ threadId: 'fake-thread', modelProvider: 'pixelsky-custom' }),
+      }),
+    ])
+    expect(messages().filter(m => m.method === 'thread/archive')).toEqual([
+      expect.objectContaining({ params: { threadId: 'fake-thread' } }),
+    ])
+  })
+
+  it('没换来源时切终端：只读一次线程，不分叉', async () => {
+    const { session, messages, conversation } = setup(gateway)
+    await conversation(['一'])
+    const launch = await host!.prepareTui(session.id)
+    expect(launch.engineSessionId).toBe('fake-thread')
+    expect(messages().some(m => m.method === 'thread/read' && m.params?.threadId === 'fake-thread')).toBe(true)
+    expect(messages().some(m => m.method === 'thread/fork')).toBe(false)
+  })
+
+  it('线程找不到（分叉也失败）：照旧开新线程，把聊天文字带过去', async () => {
+    const { session, conversation } = setup({ FAKE_CODEX_RESUME_FAIL_FILE: join(root, 'resume-fail') })
+    await conversation(['一'])
+    writeFileSync(join(root, 'resume-fail'), '1')
+    await host!.shutdown()
+    host = undefined
+    const again = setup({ FAKE_CODEX_RESUME_FAIL_FILE: join(root, 'resume-fail') })
+    const from = again.messages().length
+    await again.say(session.id, '二', 'm1')
+    const sent = methods(again.messages().slice(from))
+    expect(sent).toEqual(
+      expect.arrayContaining(['thread/resume', 'thread/fork', 'thread/start', 'thread/inject_items']),
+    )
+    expect(host!.open(session.id).record.engineSessionId).not.toBe('fake-thread')
+  })
+})

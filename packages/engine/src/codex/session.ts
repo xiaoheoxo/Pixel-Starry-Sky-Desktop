@@ -44,6 +44,7 @@ import { readCodexTurns, revertTarget } from './branch'
 import { codexCatalog } from './catalog'
 import { codexThreadName } from './native'
 import { describeError, logger } from '../log'
+import { forkToProvider } from './provider-switch'
 import { FIREWALL_BLOCKED, isFirewallBlock } from '../retry'
 import { NATIVE_TEXT } from '../native/text'
 import { codexCommandParts } from './command'
@@ -649,34 +650,47 @@ export class CodexSession implements EngineSession {
         rewindFailed = false
       /** 原来的线程接不上时 Codex 报的原因（写日志、放进提示的详情） */
       let lost: string | null = null
-      if (record.engineSessionId)
+      if (record.engineSessionId) {
+        let threadId = record.engineSessionId
         try {
-          thread = await proc.request('thread/resume', { threadId: record.engineSessionId, ...threadParams })
-          // 回退：下次启动才真正截断（thread/revert 会改写记录），撤销回退因此还来得及
-          if (record.pendingRewind)
-            try {
-              const target = revertTarget(await readCodexTurns(proc, record.engineSessionId), record.pendingRewind)
-              if (target === 'missing') throw new Error('Codex rewind point not found')
-              if (target)
-                await proc.request('thread/revert', { threadId: record.engineSessionId, beforeTurnId: target })
-            } catch (error) {
-              if (!proc.alive) throw error
-              // 找不到截断点或回退失败：不能带着没截断的上下文继续，改用新线程
-              lost = `thread/revert: ${describeError(error)}`
-              thread = await proc.request('thread/start', threadParams)
-              rewindFailed = true
-            }
+          thread = await proc.request('thread/resume', { threadId, ...threadParams })
         } catch (error) {
-          // 进程已经退出说明是连接问题，照常报错；进程还在说明线程找不到或已损坏，改用新线程
+          // 进程已经退出说明是连接问题，照常报错
           if (!proc.alive) throw error
           // 另一个进程（例如终端里的 codex）正写着这个线程：改开新线程会丢上下文，报给界面让用户选
           if (/already has an active writer/i.test((error as Error).message))
             throw codedError('resume.live', { source: record.imported?.source ?? 'other' })
-          lost = `thread/resume: ${describeError(error)}`
-          thread = await proc.request('thread/start', threadParams)
-          resumeFailed = true
+          // 新版 Codex 不让线程换 provider，换了额度来源就接不上（docs/codex-engine.md §15）：
+          // 分叉到当前来源，上下文整条带过去、轮次 id 不变；线程找不到或已损坏时分叉也失败，再改用新线程
+          try {
+            thread = await forkToProvider(proc, record, threadParams)
+            threadId = string(object(thread.thread).id)
+            log.info('接不上原来的 Codex 线程，分叉到新线程接着聊', {
+              threadId: record.engineSessionId,
+              forked: threadId,
+              reason: describeError(error),
+            })
+          } catch (forkError) {
+            if (!proc.alive) throw forkError
+            lost = `thread/resume: ${describeError(error)}`
+            thread = await proc.request('thread/start', threadParams)
+            resumeFailed = true
+          }
         }
-      else if (record.pendingFork)
+        // 回退：下次启动才真正截断（thread/revert 会改写记录），撤销回退因此还来得及
+        if (record.pendingRewind && !resumeFailed)
+          try {
+            const target = revertTarget(await readCodexTurns(proc, threadId), record.pendingRewind)
+            if (target === 'missing') throw new Error('Codex rewind point not found')
+            if (target) await proc.request('thread/revert', { threadId, beforeTurnId: target })
+          } catch (error) {
+            if (!proc.alive) throw error
+            // 找不到截断点或回退失败：不能带着没截断的上下文继续，改用新线程
+            lost = `thread/revert: ${describeError(error)}`
+            thread = await proc.request('thread/start', threadParams)
+            rewindFailed = true
+          }
+      } else if (record.pendingFork)
         try {
           // 分叉：从原线程保留到 at 这一轮为止（含），新线程带同样的启动参数
           thread = await proc.request('thread/fork', {
@@ -2195,27 +2209,6 @@ export class CodexSession implements EngineSession {
     this.ctx.emit({ type: 'turn_started', turnId: active.id, execution: queueSettings(this.ctx.record()) })
   }
 
-  /**
-   * 经网关时 Codex 把线程记下的 provider 改成了 pixelsky（只 resume 不发消息也会改），官方应用的配置里没有它，
-   * 打开就报「Model provider `pixelsky` not found」。关进程前先卸载线程、再用用户自己的 provider resume 一次改回
-   * （已加载的线程直接 resume 不会改；实测 Codex 0.164，约 25 毫秒）。失败不影响关闭，下次用自己账号接着聊时也会改回
-   */
-  private async restoreProvider(): Promise<void> {
-    const proc = this.proc,
-      own = string(this.env.PIXELSKY_CODEX_PROVIDER)
-    if (!this.procViaGateway || !proc?.alive || this.startup !== 'done' || !this.threadId || !own) return
-    try {
-      await proc.request('thread/unsubscribe', { threadId: this.threadId }, 1_000)
-      await proc.request(
-        'thread/resume',
-        { threadId: this.threadId, modelProvider: own, cwd: this.ctx.record().cwd },
-        1_000,
-      )
-    } catch (error) {
-      log.warn('线程的 provider 没改回', { threadId: this.threadId, error: describeError(error) })
-    }
-  }
-
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
     this.cancelPrediction()
@@ -2223,7 +2216,6 @@ export class CodexSession implements EngineSession {
     this.mcpReporter.dispose()
     this.own(null)
     await this.interrupt()
-    await this.restoreProvider()
     await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
     this.ctx.extensions?.dispose?.()
   }

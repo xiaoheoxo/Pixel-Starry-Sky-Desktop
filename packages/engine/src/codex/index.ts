@@ -33,6 +33,8 @@ import { codexOneShot } from './oneshot'
 import { OneShotError, type OneShotReply, type OneShotRequest } from '../oneshot'
 import { codexAnchor, readCodexTurns } from './branch'
 import { CodexProcess, object, string } from './process'
+import { forkToProvider } from './provider-switch'
+import { describeError, logger } from '../log'
 import { parseCodexRateLimits } from './quota'
 import { codexCatalog } from './catalog'
 import { CodexCatalog } from './model-catalog'
@@ -46,6 +48,8 @@ import { array } from './process'
 import { codexViewedImage } from './images'
 import { accountEnv, forgetCodexAccount, prepareAccountHome } from './accounts'
 import { Rerun } from '../rerun'
+
+const log = logger('engine.codex')
 
 export interface CodexAdapterOptions {
   /** 用户在设置里替换的命令（绝对路径或 PATH 上的命令名，docs/ui/engine-launch.md） */
@@ -433,8 +437,7 @@ export class CodexAdapter implements EngineAdapter {
     extensions?: import('@pixelsky/protocol').ExtensionLaunch,
   ): Promise<TuiLaunch> {
     if (record.engine !== 'codex') throw new Error('不是 Codex 对话')
-    const thread = record.engineSessionId
-    if (!thread) throw new Error('Codex 新对话先在界面里聊一句，再切到终端')
+    if (!record.engineSessionId) throw new Error('Codex 新对话先在界面里聊一句，再切到终端')
     await this.info()
     const result = this.cached
     if (
@@ -450,6 +453,7 @@ export class CodexAdapter implements EngineAdapter {
       this.sessionOptions(result.launcher, result.info.version ?? null),
       false,
     )
+    const thread = await this.tuiThread(record, result.launcher, launched)
     const mode = record.permissionMode
     const sandbox = mode === 'full' ? 'danger-full-access' : mode === 'plan' ? 'read-only' : 'workspace-write'
     const args = [
@@ -471,6 +475,45 @@ export class CodexAdapter implements EngineAdapter {
       ...(record.extraDirs ?? []).flatMap(dir => ['--add-dir', dir]),
     ]
     return { command: result.launcher.command, args, env: launched.env, cwd: record.cwd, engineSessionId: thread }
+  }
+  /**
+   * 切终端前核对线程绑的来源（docs/codex-engine.md §15.8）：换了额度来源还没在界面里发过消息时，线程还绑着旧 provider，
+   * `codex resume` 会被新版 Codex 拒绝或只读打开。起一个临时 app-server（带当前来源的配置）读线程，不一样就分叉过去；
+   * 读不到、旧版 Codex 不报 modelProvider、分叉失败都照旧用原线程，不挡用户切终端
+   */
+  private async tuiThread(
+    record: SessionRecord,
+    launcher: Launcher,
+    launched: { args: string[]; env: NodeJS.ProcessEnv; gatewayProvider: string | null },
+  ): Promise<string> {
+    const thread = record.engineSessionId!
+    const provider = launched.gatewayProvider ?? (string(launched.env.PIXELSKY_CODEX_PROVIDER) || null)
+    if (!provider) return thread
+    let proc: CodexProcess | undefined
+    try {
+      const p: CodexProcess = (proc = new CodexProcess(
+        launcher,
+        ['app-server', '--listen', 'stdio://', ...launched.args],
+        record.cwd,
+        launched.env,
+        { notification() {}, request: id => p.respondError(id, 'Read-only history'), exit() {} },
+      ))
+      await p.initialize(true)
+      const bound = string(
+        object(object(await p.request('thread/read', { threadId: thread }, 10_000)).thread).modelProvider,
+      )
+      if (!bound || bound === provider) return thread
+      const forked = string(
+        object(object(await forkToProvider(p, record, { cwd: record.cwd, modelProvider: provider })).thread).id,
+      )
+      log.info('切终端前线程还绑着别的来源，分叉到新线程', { threadId: thread, forked, from: bound, to: provider })
+      return forked || thread
+    } catch (error) {
+      log.warn('切终端前没核对上线程的来源', { threadId: thread, error: describeError(error) })
+      return thread
+    } finally {
+      await proc?.close()
+    }
   }
   /** 会话和读历史的临时进程共用的环境：平台 / 自定义接口会话去掉 OpenAI 登录变量，带上网关变量 */
   private sessionEnvironment(launcher: Launcher, record: SessionRecord): NodeJS.ProcessEnv {

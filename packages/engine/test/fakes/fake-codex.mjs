@@ -33,6 +33,23 @@ const lockedThread = id => {
 const resumeFails = () =>
   !!process.env.FAKE_CODEX_RESUME_FAIL_FILE && existsSync(process.env.FAKE_CODEX_RESUME_FAIL_FILE)
 /**
+ * FAKE_CODEX_PROVIDER_LOCK：和真 Codex 0.169 一样线程绑死开它时的 provider，thread/resume 换 provider 报错，
+ * thread/fork 可以换（docs/codex-engine.md §15）。要配合 FAKE_CODEX_STATE_DIR，各线程的 provider 记在 providers.json
+ */
+const providerLock = !!process.env.FAKE_CODEX_PROVIDER_LOCK
+const providersFile = process.env.FAKE_CODEX_STATE_DIR ? join(process.env.FAKE_CODEX_STATE_DIR, 'providers.json') : null
+function threadProviders() {
+  try {
+    return JSON.parse(readFileSync(providersFile, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+function bindProvider(id, provider) {
+  if (!providerLock || !providersFile) return
+  writeFileSync(providersFile, JSON.stringify({ ...threadProviders(), [id]: provider ?? 'openai' }))
+}
+/**
  * 线程的轮次（回退 / 分叉测试用）：每个线程记 [{ id, clientId, content }]。
  * FAKE_CODEX_STATE_DIR 指向目录时落盘（threads.json），新进程能读到旧进程的线程；不设则只在本进程内存里。
  */
@@ -400,6 +417,16 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         out({ id: m.id, error: { code: -32000, message: 'thread not found: ' + p.threadId } })
         break
       }
+      if (m.method === 'thread/resume' && providerLock) {
+        const bound = threadProviders()[p.threadId]
+        if (bound && p.modelProvider && bound !== p.modelProvider) {
+          rpcError(
+            m,
+            `failed to load configuration: Cannot change this thread's model provider from \`${bound}\` to \`${p.modelProvider}\` on resume.`,
+          )
+          break
+        }
+      }
       loadThreads()
       if (m.method === 'thread/resume' && stateFile && !threads[p.threadId]) {
         rpcError(m, 'thread not found: ' + p.threadId)
@@ -411,6 +438,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         thread = process.env.FAKE_CODEX_UUID_THREADS ? randomUUID() : n ? 'fake-thread-' + (n + 1) : 'fake-thread'
         threads[thread] = []
         saveThreads()
+        bindProvider(thread, p.modelProvider)
       } else thread = p.threadId ?? (resumeFails() ? 'fake-thread-new' : 'fake-thread')
       response(m, { thread: { id: thread, turns: [] }, ...threadReport(m.method === 'thread/resume') })
       rateUpdate()
@@ -440,7 +468,8 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       loadThreads()
       const source = threads[p.threadId]
       const at = p.lastTurnId ? source?.findIndex(t => t.id === p.lastTurnId) : source ? source.length - 1 : -1
-      if (!source || at < 0) {
+      // 线程找不到（FAKE_CODEX_RESUME_FAIL_FILE）时分叉也找不到
+      if (!source || at < 0 || (resumeFails() && !p.ephemeral)) {
         rpcError(m, 'cannot fork: ' + p.threadId + ' @ ' + p.lastTurnId)
         break
       }
@@ -453,6 +482,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       if (p.ephemeral) ephemeral.add(thread)
       threads[thread] = source.slice(0, at + 1)
       saveThreads()
+      if (!p.ephemeral) bindProvider(thread, p.modelProvider)
       response(m, { thread: { id: thread, turns: [] }, model: 'fake-codex' })
       break
     }
@@ -525,6 +555,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       const list = threads[p.threadId]
       const thread = threadObject(p.threadId, meta[p.threadId] ?? {}, list)
       if (p.includeTurns) thread.turns = (list ?? []).map(t => turnObject(t, 'full'))
+      if (providerLock && threadProviders()[p.threadId]) thread.modelProvider = threadProviders()[p.threadId]
       response(m, { thread })
       break
     }
@@ -941,6 +972,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       }
       break
     }
+    case 'thread/archive':
+      response(m, {})
+      break
     case 'thread/unsubscribe':
       predictForks.delete(p.threadId)
       response(m, { status: 'unsubscribed' })

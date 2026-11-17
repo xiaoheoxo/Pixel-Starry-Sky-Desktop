@@ -54,6 +54,7 @@ describe('CodexAdapter.tuiLaunch', () => {
     const launch = await adapter().tuiLaunch(record({ extraDirs: [join(root, 'more')] }))
     const args = launch.args
     expect(launch.command).toBe(process.execPath)
+    // 线程读不到（假 Codex 里没有 thread-1）：照旧 resume 原线程，不挡切终端
     expect(launch.engineSessionId).toBe('thread-1')
     expect(args.slice(0, 3)).toEqual([FAKE, 'resume', 'thread-1'])
     expect(args.slice(3, 5)).toEqual(['-c', 'user_key=1'])

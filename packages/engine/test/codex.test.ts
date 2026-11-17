@@ -675,36 +675,6 @@ describe('Codex app-server adapter', () => {
     await wait(() => host!.open(gateway.session.id).items.some(i => i.kind === 'turn_stats'))
     expect(providers(gateway.messages).at(-1)).toEqual(['thread/start', 'pixelsky-custom'])
   })
-  it('经网关的线程关进程前卸载再用自己的 provider resume，官方应用才打得开；自己账号的不做', async () => {
-    const tail = (messages: () => { method?: string; params?: Record<string, unknown> }[]) =>
-      messages()
-        .filter(m => m.method === 'thread/unsubscribe' || m.method === 'thread/resume')
-        .map(m => [m.method, m.params?.modelProvider ?? null])
-    const own = setup(50, { env: { FAKE_CODEX_PROVIDER: 'openai' } })
-    await host!.send(own.session.id, 'one')
-    await wait(() => host!.open(own.session.id).items.some(i => i.kind === 'turn_stats'))
-    await host!.shutdown()
-    host = undefined
-    expect(tail(own.messages)).toEqual([])
-
-    rmSync(join(root, 'rpc.jsonl'), { force: true })
-    const gateway = setup(50, {
-      env: {
-        PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1',
-        PIXELSKY_CODEX_TOKEN: 'tok',
-        FAKE_CODEX_PROVIDER: 'mine',
-      },
-    })
-    await host!.update(gateway.session.id, { provider: { id: 'my-api' } })
-    await host!.send(gateway.session.id, 'one')
-    await wait(() => host!.open(gateway.session.id).items.some(i => i.kind === 'turn_stats'))
-    await host!.shutdown()
-    host = undefined
-    expect(tail(gateway.messages)).toEqual([
-      ['thread/unsubscribe', null],
-      ['thread/resume', 'mine'],
-    ])
-  })
   it('经网关的线程在 Codex 里改名带上「[像素星空]」前缀，跟着标题改；自己账号的不改名', async () => {
     const names = (messages: () => { method?: string; params?: Record<string, unknown> }[]) =>
       messages()
@@ -739,10 +709,12 @@ describe('Codex app-server adapter', () => {
     await new Promise(r => setTimeout(r, 150))
     await host!.send(session.id, 'two')
     await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
-    // 关进程前改回 provider 的那次 resume 紧跟在 thread/unsubscribe 后面，不算
-    const rpc = messages()
-    const reconnect = rpc.filter((m, i) => m.method === 'thread/resume' && rpc[i - 1]?.method !== 'thread/unsubscribe')
-    expect(reconnect[0]?.params?.modelProvider).toBe('pixelsky-custom')
+    const resume = messages().find(m => m.method === 'thread/resume')
+    expect(resume?.params?.modelProvider).toBe('pixelsky-custom')
+    // 新版 Codex 不让线程换 provider，关进程前不再卸载线程去改回（docs/codex-engine.md §15）
+    await host!.shutdown()
+    host = undefined
+    expect(messages().some(m => m.method === 'thread/unsubscribe')).toBe(false)
   })
   it('线程正被别的进程写着（already has an active writer）：失败代码 resume.live，不改开新线程', async () => {
     const { session, messages } = setup(50, { env: { FAKE_CODEX_LOCKED: '1' } })
