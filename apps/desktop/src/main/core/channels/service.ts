@@ -2316,6 +2316,21 @@ export class Channels {
         const name = this.deps.machines().find(m => m.id === member.machineId)?.name ?? member.machineId
         throw new Error(`机器「${name}」未连接`)
       }
+      // 团队活开工前再核对一次（docs/multica-learn.md §11.3）：派活人还在、规则没改；通过时拿这一轮的运行凭证
+      if (current.team && this.exec) {
+        const check = await this.exec.preflight(current)
+        const latest = this.store.runs.get(run.taskId)
+        if (!latest || latest.phase !== 'sent' || latest.clientMessageId !== cmid) return
+        if (!check.ok) {
+          // 卡回到等同意或停下了（新状态从云端来）：不开工，本机的运行信息不留（同意后会重新认领）
+          this.store.runs.delete(run.taskId)
+          this.saveRuns()
+          void this.pump(run.memberId)
+          return
+        }
+        current = { ...latest, team: { ...latest.team!, runToken: check.token } }
+        this.store.runs.set(run.taskId, current)
+      }
       let sessionId = current.sessionId
       let text = current.prompt
       if (!this.sessionExists(sessionId)) {
@@ -5417,6 +5432,8 @@ export class Channels {
     channelId: string,
     localId: string,
     policy: AgentPolicy,
+    /** 「指定的人直接派」的名单；不带就不改 */
+    allow?: string[],
   ): Promise<void> {
     if (info.role === 'observer') throw new Error('观察者不能添加 AI 成员')
     const config = this.member(localId)
@@ -5430,20 +5447,21 @@ export class Channels {
       machine,
       project: project?.name ?? '',
       policy,
+      ...(allow ? { allow } : {}),
     }
     await this.requireTeam().putAgent(info.teamId, channelId, config.id, reg)
   }
 
-  /** 团队频道里我的 AI 成员：别人 @ 它要不要我同意 */
-  async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy): Promise<void> {
-    if (policy !== 'approve' && policy !== 'team') throw new Error('不支持的派活规则')
+  /** 团队频道里我的 AI 成员谁能派活（docs/multica-learn.md §4、§11.3）；listed 时 allow 是能直接派的人 */
+  async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void> {
+    if (!['owner', 'approve', 'listed', 'team'].includes(policy)) throw new Error('不支持的派活规则')
     const team = this.requireTeam()
     const info = team.channelInfo(channelId)
     if (!info) throw new Error('频道不存在')
     const agent = team.agentById(memberId)
     if (!agent || agent.channelId !== channelId || agent.owner !== team.getMe()?.id)
       throw new Error('只能设置自己的 AI 成员')
-    await this.registerAgent(info, channelId, agent.localId, policy)
+    await this.registerAgent(info, channelId, agent.localId, policy, allow)
   }
 
   /** 等主人同意的活：同意 / 拒绝 */

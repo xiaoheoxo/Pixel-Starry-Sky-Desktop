@@ -12,6 +12,8 @@ export type TeamErrorCode =
   | 'INVALID'
   | 'UNAVAILABLE'
   | 'AUTH_EXPIRED'
+  /** 运行凭证不对、过期，或卡已经结束（docs/multica-learn.md §11.3） */
+  | 'RUN_TOKEN'
 
 export class TeamError extends Error {
   constructor(
@@ -28,6 +30,8 @@ export type TeamFetch = (
   path: string,
   body?: unknown,
   timeoutMs?: number,
+  /** 用这一轮的运行凭证代替登录令牌（只用于 /v1/teams/{tid}/runs/…，docs/multica-learn.md §11.3） */
+  runToken?: string,
 ) => Promise<Response>
 
 // ---------------------------------------------------------------------------
@@ -83,6 +87,8 @@ export interface TeamAgentData {
   machine: string
   project: string
   policy: AgentPolicy
+  /** 「指定的人直接派」的名单（owner key）；旧云端没有 */
+  allow: string[]
   status: 'idle' | 'running' | 'waiting'
   task: string | null
   updatedAt: number
@@ -204,12 +210,22 @@ export interface AgentRegistration {
   machine: string
   project: string
   policy: AgentPolicy
+  /** 「指定的人直接派」的名单；不带就不改 */
+  allow?: string[]
+}
+
+/** 开工前核对的结果（docs/multica-learn.md §11.3）：ok 时带这一轮的运行凭证；旧云端没有这个接口时 ok、没有凭证 */
+export interface StartResult {
+  outcome: 'ok' | 'approval' | 'stopped'
+  message: TeamMessage | null
+  runToken: string | null
 }
 
 // ---------------------------------------------------------------------------
 // 解析（逐字段防御）
 // ---------------------------------------------------------------------------
 
+const AGENT_POLICIES = ['owner', 'approve', 'listed', 'team'] as const
 type Obj = Record<string, unknown>
 export const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -295,7 +311,8 @@ function parseAgent(v: unknown): TeamAgentData | null {
     model: str(v.model),
     machine: str(v.machine),
     project: str(v.project),
-    policy: oneOf(v.policy, ['approve', 'team'] as const, 'approve'),
+    policy: oneOf(v.policy, AGENT_POLICIES, 'approve'),
+    allow: Array.isArray(v.allow) ? v.allow.filter((x): x is string => typeof x === 'string' && !!x) : [],
     status: oneOf(v.status, AGENT_STATUS, 'idle'),
     task: strOrNull(v.task),
     updatedAt: time(v.updated_at),
@@ -460,6 +477,7 @@ async function errorOf(res: Response, notDeployed: boolean): Promise<TeamError> 
   const s = res.status
   if (s === 404 && notDeployed) return new TeamError(message || '云端暂未开放团队功能', 'NOT_DEPLOYED')
   if (s === 404) return new TeamError(message || '团队、频道或消息不存在', 'NOT_FOUND')
+  if (s === 401) return new TeamError(message || '运行凭证无效或已过期', 'RUN_TOKEN')
   if (s === 403) return new TeamError(message || '没有权限', 'FORBIDDEN')
   if (s === 409) return new TeamError(message || '操作冲突，请刷新后重试', 'CONFLICT')
   if (s === 429) return new TeamError(message || '操作太频繁，请稍后再试', 'RATE_LIMITED')
@@ -468,6 +486,16 @@ async function errorOf(res: Response, notDeployed: boolean): Promise<TeamError> 
 }
 
 const seg = (id: string): string => encodeURIComponent(id)
+
+/** 任务卡写回的请求体（登录令牌和运行凭证两条路一样） */
+function taskWire(patch: TaskPatch): Record<string, unknown> {
+  const { clearAction, addRuns, ...rest } = patch
+  return {
+    ...rest,
+    ...(clearAction ? { clear_action: true } : {}),
+    ...(addRuns?.length ? { add_runs: addRuns.map(runWire) } : {}),
+  }
+}
 
 export class TeamApi {
   constructor(private readonly fetcher: TeamFetch) {}
@@ -478,10 +506,13 @@ export class TeamApi {
     path: string,
     body?: unknown,
     notDeployed = false,
+    runToken?: string,
   ): Promise<Response> {
     let res: Response
     try {
-      res = await this.fetcher(method, path, body)
+      res = runToken
+        ? await this.fetcher(method, path, body, undefined, runToken)
+        : await this.fetcher(method, path, body)
     } catch (e) {
       if (e instanceof TeamError) throw e
       const err = e as { code?: unknown; name?: unknown; message?: unknown }
@@ -653,14 +684,56 @@ export class TeamApi {
   }
 
   async patchTask(teamId: string, messageId: string, patch: TaskPatch): Promise<TeamMessage> {
-    const { clearAction, addRuns, ...rest } = patch
-    const wire = {
-      ...rest,
-      ...(clearAction ? { clear_action: true } : {}),
-      ...(addRuns?.length ? { add_runs: addRuns.map(runWire) } : {}),
-    }
     return messageOf(
-      await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}`, wire)),
+      await this.json(await this.request('PATCH', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}`, taskWire(patch))),
+    )
+  }
+
+  /** 开工前核对（docs/multica-learn.md §11.3）。旧云端没有这个接口（404 且不是 JSON 错误）：当作通过、没有凭证 */
+  async start(teamId: string, messageId: string, device: string): Promise<StartResult> {
+    let res: Response
+    try {
+      res = await this.request('POST', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}/start`, { device })
+    } catch (e) {
+      if (e instanceof TeamError && e.code === 'NOT_FOUND' && e.message === '团队、频道或消息不存在')
+        return { outcome: 'ok', message: null, runToken: null }
+      throw e
+    }
+    const body = await this.json(res)
+    const o = isObj(body) ? body : {}
+    const message = parseMessage(o.message)
+    if (!message) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    const outcome = oneOf(o.outcome, ['ok', 'approval', 'stopped'] as const, 'ok')
+    const token = typeof o.run_token === 'string' && o.run_token.startsWith('rt_') ? o.run_token : null
+    return { outcome, message, runToken: outcome === 'ok' ? token : null }
+  }
+
+  /** 用运行凭证写回任务卡（字段和 patchTask 一样） */
+  async patchRun(teamId: string, messageId: string, token: string, patch: TaskPatch): Promise<TeamMessage> {
+    return messageOf(
+      await this.json(
+        await this.request('PATCH', `/v1/teams/${seg(teamId)}/runs/${seg(messageId)}`, taskWire(patch), false, token),
+      ),
+    )
+  }
+
+  /** 用运行凭证以这张卡的 AI 成员发结果 */
+  async postRunResult(
+    teamId: string,
+    messageId: string,
+    token: string,
+    input: { clientId: string; text: string; mentions: string[] },
+  ): Promise<TeamMessage> {
+    return messageOf(
+      await this.json(
+        await this.request(
+          'POST',
+          `/v1/teams/${seg(teamId)}/runs/${seg(messageId)}/result`,
+          { client_id: input.clientId, text: input.text, mentions: input.mentions },
+          false,
+          token,
+        ),
+      ),
     )
   }
 

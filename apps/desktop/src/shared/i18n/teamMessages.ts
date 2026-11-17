@@ -97,7 +97,16 @@ export const teamMessages = {
   'team.seen.hours': { zh: '{count} 小时前在线', en: 'Online {count} h ago' },
   'team.seen.days': { zh: '{count} 天前在线', en: 'Online {count} d ago' },
   'team.seen.justNow': { zh: '刚刚在线', en: 'Online just now' },
+  'team.policy.owner': { zh: '只有我', en: 'Only me' },
   'team.policy.approve': { zh: '要我同意', en: 'Ask me first' },
+  'team.policy.listed': { zh: '指定的人直接派', en: 'Chosen people assign directly' },
+  'team.policy.listedTitle': { zh: '谁能直接给「{name}」派活', en: 'Who can assign work to {name} directly' },
+  'team.policy.listedBody': {
+    zh: '勾上的人派的活直接开工，其他人派的要你同意。它在你的电脑上改代码、跑命令，受它的权限模式限制。',
+    en: 'Work from the people you check starts right away; anyone else needs your approval. It changes code and runs commands on your computer, within its permission mode.',
+  },
+  'team.policy.listedNone': { zh: '团队里还没有别人', en: 'No one else is in the team yet' },
+  'team.policy.listedSave': { zh: '保存', en: 'Save' },
   'team.policy.team': { zh: '团队成员可直接派活', en: 'Team members can assign directly' },
   'team.policy.confirmTitle': { zh: '让团队成员直接派活？', en: 'Let team members assign work directly?' },
   'team.policy.confirmBody': {
@@ -143,6 +152,10 @@ export const teamMessages = {
   // ── 输入框 ──
   'team.composer.offline': { zh: '连上云端后才能发送', en: 'You can send once the cloud is reachable' },
   'team.mention.observer': { zh: '观察者不能派活', en: "Observers can't assign work" },
+  'team.mention.ownerOnly': {
+    zh: '只有 {owner} 能派活，@ 只当文字',
+    en: 'Only {owner} can assign work; the @ stays as text',
+  },
   'team.mention.needsApproval': { zh: '需要 {owner} 同意后开工', en: 'Needs approval from {owner} to start' },
   // ── 新建频道 ──
   'team.channel.inTeam': { zh: '团队：{name}', en: 'Team: {name}' },

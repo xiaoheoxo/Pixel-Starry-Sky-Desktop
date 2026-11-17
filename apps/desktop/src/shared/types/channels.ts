@@ -61,7 +61,11 @@ export interface ChannelActivity {
 
 export type TeamRole = 'owner' | 'member' | 'observer'
 /** 团队频道里别人 @ 我的 AI 成员时：approve = 要我同意（默认）；team = 团队成员可直接派活 */
-export type AgentPolicy = 'approve' | 'team'
+/**
+ * 团队频道里 AI 成员的派活规则（docs/multica-learn.md §4、§11.3）：owner 只有我（别人 @ 只当文字）、approve 要我同意（默认）、
+ * listed 指定的人直接派（其余要同意）、team 团队成员都能直接派
+ */
+export type AgentPolicy = 'owner' | 'approve' | 'listed' | 'team'
 
 export interface TeamMemberInfo {
   /** owner key（u:123 / e:邮箱），也是团队频道里的成员 id */
@@ -234,6 +238,8 @@ export interface AgentMember {
   mine?: boolean
   /** Phase C：别人 @ 它时要不要我同意 */
   policy?: AgentPolicy
+  /** policy 是 listed 时能直接派活的人（团队成员 id） */
+  allow?: string[]
   // 以下只有真实数据才有（主进程按任务汇总后推过来）
   config?: AgentConfig
   /** 当前任务之外还在排队的活 */
@@ -705,6 +711,8 @@ export type RunReason =
   | 'queue_expired'
   | 'session_gone'
   | 'not_deployed'
+  | 'not_allowed'
+  | 'requester_left'
   | 'engine.auth'
   | 'engine.quota'
   | 'engine.model'

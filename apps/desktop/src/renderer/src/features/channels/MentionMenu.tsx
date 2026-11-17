@@ -18,6 +18,7 @@ export function MentionMenu({
   onChoose,
   team = false,
   role,
+  selfId = null,
 }: {
   id: string
   members: readonly ChannelMember[]
@@ -29,6 +30,8 @@ export function MentionMenu({
   /** 团队频道：真人写团队角色，AI 成员写归属，观察者不能派活 */
   team?: boolean
   role?: TeamRole
+  /** 我在团队里的 id：「指定的人」名单里有我就不用同意 */
+  selfId?: string | null
 }) {
   const offset = all ? 1 : 0
   const allBlocked = team && !canDispatch(role)
@@ -101,7 +104,7 @@ export function MentionMenu({
                 ? roleLabel(member.role)
                 : tr(member.role === 'owner' ? 'channels.role.owner' : 'channels.role.member')
               : '')
-          const note = team ? mentionNote(member, role) : null
+          const note = team ? mentionNote(member, role, selfId) : null
           const foreign = member.kind === 'agent' && member.mine === false ? member : null
           return (
             <button
@@ -146,7 +149,9 @@ export function MentionMenu({
                 <span className="basis-full pl-[32px] text-meta text-fg-faint">
                   {note === 'observer'
                     ? tr('team.mention.observer')
-                    : tr('team.mention.needsApproval', { owner: foreign?.ownerName ?? '?' })}
+                    : note === 'owner'
+                      ? tr('team.mention.ownerOnly', { owner: foreign?.ownerName ?? '?' })
+                      : tr('team.mention.needsApproval', { owner: foreign?.ownerName ?? '?' })}
                 </span>
               )}
             </button>

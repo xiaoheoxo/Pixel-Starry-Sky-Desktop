@@ -873,6 +873,7 @@ export class TeamSync {
       ownerName: this.nameOf(team.id, a.owner),
       mine,
       policy: a.policy as AgentPolicy,
+      allow: a.allow,
     }
     if (!mine) return base
     const local = this.localAgent?.(a.localId)
@@ -887,6 +888,7 @@ export class TeamSync {
       ownerName: base.ownerName,
       mine: true,
       policy: base.policy,
+      allow: base.allow,
     }
   }
 

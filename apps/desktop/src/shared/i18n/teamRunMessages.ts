@@ -11,6 +11,16 @@ export const teamRunMessages = {
   'run.hint.session_gone': { zh: '重试会重新开始', en: 'Retrying starts over' },
   'run.reason.not_deployed': { zh: '这台电脑上没有这个 AI 成员', en: 'This AI member is not on that computer' },
   'run.hint.not_deployed': { zh: '请主人重新添加，或改派', en: 'Ask the owner to add it again, or reassign' },
+  'run.reason.not_allowed': {
+    zh: '主人改了派活规则，这项活没开工',
+    en: 'The owner changed who can assign work; this did not start',
+  },
+  'run.hint.not_allowed': {
+    zh: '请主人自己派，或换个 AI 成员',
+    en: 'Ask the owner to assign it, or pick another AI member',
+  },
+  'run.reason.requester_left': { zh: '派活的人已离开团队', en: 'The person who assigned this left the team' },
+  'run.hint.requester_left': { zh: '需要的话重新派一次', en: 'Assign it again if still needed' },
   'run.reason.engine.auth': { zh: '引擎登录失效', en: 'Engine sign-in expired' },
   'run.hint.engine.auth': { zh: '重新登录后重试', en: 'Sign in again, then retry' },
   'run.reason.engine.quota': { zh: '额度用完', en: 'Out of quota' },

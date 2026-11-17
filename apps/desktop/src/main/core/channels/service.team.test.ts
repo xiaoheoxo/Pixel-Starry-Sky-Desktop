@@ -453,3 +453,103 @@ describe('协作频道 Phase C：执行端复用 Phase B', () => {
     expect(store.runs.get(a)?.phase).toBe('sent')
   })
 })
+
+describe('派活规则四档、开工前核对、运行凭证（docs/multica-learn.md §11.3）', () => {
+  async function ready() {
+    const t = await open()
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    return { ...t, agentId: view.id }
+  }
+
+  it('指定的人直接派：名单存到云端，名单里的人派的直接开工', async () => {
+    const { c, cloud, agentId } = await ready()
+    await c.setAgentPolicy('tc_1', agentId, 'listed', ['u:2'])
+    expect(cloud.agent(agentId)).toMatchObject({ policy: 'listed', allow: ['u:2'] })
+    expect(c.state().members.find(m => m.id === agentId)).toMatchObject({ policy: 'listed', allow: ['u:2'] })
+    cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId])
+    await until(() => sent.length === 1)
+    // 只有我：别人 @ 只当文字
+    await c.setAgentPolicy('tc_1', agentId, 'owner')
+    expect(cloud.userPost('u:2', 'tc_1', '@前端助手 再改', [agentId]).tasks).toHaveLength(0)
+  })
+
+  it('核对通过：开工前拿凭证，结果和写回都走凭证接口', async () => {
+    const { c, cloud, agentId } = await ready()
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    const start = cloud.calls.find(x => x.path === `/v1/teams/tm_1/tasks/${id}/start`)
+    expect(start?.body).toEqual({ device: 'dev-A' })
+    const token = cloud.runTokens.get(id)!
+    expect(token).toMatch(/^rt_/)
+    complete(c, 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(id).status === 'done')
+    const viaRun = cloud.calls.filter(x => x.runToken === token).map(x => `${x.method} ${x.path}`)
+    expect(viaRun).toEqual(
+      expect.arrayContaining([`POST /v1/teams/tm_1/runs/${id}/result`, `PATCH /v1/teams/tm_1/runs/${id}`]),
+    )
+    expect(cloud.calls.some(x => x.method === 'PATCH' && x.path === `/v1/teams/tm_1/tasks/${id}`)).toBe(false)
+    expect(cloud.messages.get('tc_1')!.find(m => m.author === agentId && m.task_id === id)?.text).toContain('改好了')
+  })
+
+  it('核对不通过（主人改成要同意）：不开工、本机不留运行信息；同意后重新认领开工', async () => {
+    const { c, cloud, store, agentId } = await ready()
+    cloud.startOutcome = 'approval'
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => cloud.task(id).status === 'approval')
+    await new Promise(r => setTimeout(r, 30))
+    expect(sent).toHaveLength(0)
+    expect(store.runs.has(id)).toBe(false)
+    expect(sessions).toHaveLength(0)
+    cloud.startOutcome = 'ok'
+    await c.approveTask(id, true)
+    await until(() => sent.length === 1)
+    expect(sent[0].clientMessageId).toBe(`ch-${id}-1`)
+  })
+
+  it('旧云端没有核对接口：照常开工，写回走登录令牌', async () => {
+    const { c, cloud, agentId } = await ready()
+    cloud.startOutcome = null
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    complete(c, 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(id).status === 'done')
+    expect(cloud.calls.some(x => x.runToken)).toBe(false)
+  })
+
+  it('失败后重试：卡先回到排队再核对，核对通过开下一轮（不会被「状态不对」拦下）', async () => {
+    const { c, cloud, agentId } = await ready()
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    const turn = 'turn-x'
+    c.hostEvent(
+      ev('s1', {
+        type: 'item_completed',
+        item: { kind: 'user', id: sent[0].clientMessageId, text: '', createdAt: 0, turnId: turn },
+      }),
+    )
+    c.hostEvent(ev('s1', { type: 'turn_completed', turnId: turn, outcome: 'failed', error: '额度不足' }))
+    // 宿主每轮结束都紧跟一个队列事件；不在队列里（没有自动重连）才算失败
+    c.hostEvent(ev('s1', { type: 'queue', items: [], paused: true }))
+    await until(() => cloud.task(id).status === 'failed')
+    await c.taskAction(id, 'retry')
+    await until(() => sent.length === 2)
+    expect(sent[1].clientMessageId).toBe(`ch-${id}-2`)
+    await until(() => cloud.task(id).pending_action === null)
+    expect(cloud.runTokens.get(id)).toMatch(/^rt_/)
+  })
+
+  it('凭证被拒（过期、云端换了）：退回登录令牌，收尾照样写回', async () => {
+    const { c, cloud, agentId } = await ready()
+    const id = cloud.userPost('u:2', 'tc_1', '@前端助手 改按钮', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    cloud.runTokens.clear()
+    complete(c, 's1', sent[0].clientMessageId, '改好了。')
+    await until(() => cloud.task(id).status === 'done')
+    expect(cloud.calls.some(x => x.method === 'PATCH' && x.path === `/v1/teams/tm_1/tasks/${id}`)).toBe(true)
+    expect(cloud.messages.get('tc_1')!.some(m => m.author === agentId && m.task_id === id)).toBe(true)
+  })
+})

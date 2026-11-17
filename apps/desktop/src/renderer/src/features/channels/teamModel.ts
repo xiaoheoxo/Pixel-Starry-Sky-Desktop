@@ -154,12 +154,22 @@ export const isMyTask = (task: Pick<ChannelTask, 'ownerId'>, selfId: string | nu
 export const canControlTask = (task: Pick<ChannelTask, 'ownerId' | 'authorId'>, selfId: string | null): boolean =>
   isMyTask(task, selfId) || (!!selfId && task.authorId === selfId)
 
-/** @ 菜单里 AI 成员后面的提示：观察者不能派活；别人的「要我同意」的成员需要主人同意 */
-export function mentionNote(member: ChannelMember, role: TeamRole | undefined): 'observer' | 'approval' | null {
+/**
+ * @ 菜单里 AI 成员后面的提示：观察者不能派活；别人的「只有我」的成员 @ 了只当文字；其余别人的成员，
+ * 除了「团队成员都能派」和名单里有我的「指定的人」，都要主人同意（docs/multica-learn.md §11.3）
+ */
+export function mentionNote(
+  member: ChannelMember,
+  role: TeamRole | undefined,
+  selfId: string | null = null,
+): 'observer' | 'owner' | 'approval' | null {
   if (member.kind !== 'agent') return null
   if (!canDispatch(role)) return 'observer'
-  if (member.mine === false && member.policy !== 'team') return 'approval'
-  return null
+  if (member.mine !== false) return null
+  if (member.policy === 'owner') return 'owner'
+  if (member.policy === 'team') return null
+  if (member.policy === 'listed' && !!selfId && (member.allow ?? []).includes(selfId)) return null
+  return 'approval'
 }
 
 // ---------------------------------------------------------------------------

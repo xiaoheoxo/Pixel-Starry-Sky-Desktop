@@ -58,7 +58,9 @@ const ACTIONS = new Set<ChannelTaskAction>([
 const QUEUE_ACTIONS = new Set<ChannelQueueAction>(['up', 'down', 'first'])
 const ALERT_ACTIONS = new Set<ChannelAlertAction>(['hold', 'continue', 'open', 'stop', 'reassign', 'cancel', 'dismiss'])
 const INVITE_ROLES = new Set<Exclude<TeamRole, 'owner'>>(['member', 'observer'])
-const POLICIES = new Set<AgentPolicy>(['approve', 'team'])
+const POLICIES = new Set<AgentPolicy>(['owner', 'approve', 'listed', 'team'])
+/** 「指定的人直接派」最多指定几个人（和云端 MaxAllow 一致） */
+const ALLOW_MAX = 50
 const role = (value: unknown): Exclude<TeamRole, 'owner'> => {
   if (!INVITE_ROLES.has(value as Exclude<TeamRole, 'owner'>)) throw new Error('角色不正确')
   return value as Exclude<TeamRole, 'owner'>
@@ -387,9 +389,20 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   ipc.handle('channels:approveTask', (_e, taskId, approve) =>
     channels.approveTask(str(taskId, '任务'), approve === true),
   )
-  ipc.handle('channels:agentPolicy', (_e, channelId, memberId, policy) => {
+  ipc.handle('channels:agentPolicy', (_e, channelId, memberId, policy, raw) => {
     if (!POLICIES.has(policy as AgentPolicy)) throw new Error('不支持的派活规则')
-    return channels.setAgentPolicy(str(channelId, '频道'), str(memberId, '成员'), policy as AgentPolicy)
+    const allow: unknown = raw
+    if (
+      allow !== undefined &&
+      (!Array.isArray(allow) || allow.length > ALLOW_MAX || allow.some(x => typeof x !== 'string' || !x))
+    )
+      throw new Error('指定的人不对')
+    return channels.setAgentPolicy(
+      str(channelId, '频道'),
+      str(memberId, '成员'),
+      policy as AgentPolicy,
+      allow as string[] | undefined,
+    )
   })
   ipc.handle('teams:create', (_e, name) => channels.createTeam(typeof name === 'string' ? name : ''))
   ipc.handle('teams:update', (_e, teamId, patch) =>

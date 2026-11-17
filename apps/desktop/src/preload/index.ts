@@ -581,7 +581,8 @@ const channels: ChannelsBridge = {
   task: (taskId, action, memberId) => call('channels:task', taskId, action, memberId),
   queueControl: (taskId, action) => call('channels:queueControl', taskId, action),
   approveTask: (taskId, approve) => call('channels:approveTask', taskId, approve),
-  setAgentPolicy: (channelId, memberId, policy) => call('channels:agentPolicy', channelId, memberId, policy),
+  setAgentPolicy: (channelId, memberId, policy, allow) =>
+    call('channels:agentPolicy', channelId, memberId, policy, allow),
   createTeam: name => call('teams:create', name),
   updateTeam: (teamId, patch) => call('teams:update', teamId, patch),
   deleteTeam: teamId => call('teams:delete', teamId),

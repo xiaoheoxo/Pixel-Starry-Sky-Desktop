@@ -661,9 +661,9 @@ export const channelActions = {
     else demo.approveTask(taskId, approve)
   },
   /** 我的 AI 成员在这个团队频道里：别人 @ 它要不要我同意 */
-  async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy): Promise<void> {
-    if (channelsBridge) await channelsBridge.setAgentPolicy(channelId, memberId, policy)
-    else demo.setAgentPolicy(memberId, policy)
+  async setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void> {
+    if (channelsBridge) await channelsBridge.setAgentPolicy(channelId, memberId, policy, allow)
+    else demo.setAgentPolicy(memberId, policy, allow)
   },
   async createTeam(name: string): Promise<string> {
     if (!channelsBridge) return demo.createTeam(name)
@@ -877,8 +877,12 @@ const demo = {
     })
     return Promise.resolve()
   },
-  setAgentPolicy(memberId: string, policy: AgentPolicy): void {
-    set({ members: state.members.map(m => (m.id === memberId && m.kind === 'agent' ? { ...m, policy } : m)) })
+  setAgentPolicy(memberId: string, policy: AgentPolicy, allow?: string[]): void {
+    set({
+      members: state.members.map(m =>
+        m.id === memberId && m.kind === 'agent' ? { ...m, policy, ...(allow ? { allow } : {}) } : m,
+      ),
+    })
   },
   /** 找到任务卡并改它 */
   patchTask(taskId: string, change: (task: ChannelTask) => ChannelTask): void {

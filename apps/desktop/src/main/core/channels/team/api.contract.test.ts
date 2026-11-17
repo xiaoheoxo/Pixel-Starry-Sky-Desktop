@@ -112,7 +112,8 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
               status: 'string',
               task: ['string', 'null'],
             })
-            expect(['approve', 'team']).toContain(a.policy)
+            expect(['owner', 'approve', 'listed', 'team']).toContain(a.policy)
+            expect(Array.isArray(a.allow)).toBe(true)
           }
         }
         for (const i of ov.invites)
@@ -143,8 +144,14 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
         for (const t of body.tasks as Record<string, unknown>[]) expectMessage(t.message ?? t)
       })
     } else if (s.status >= 200 && s.status < 300 && body.message) {
-      it(`${name}：带消息的响应`, () => {
+      it(`${name}：带消息的响应`, async () => {
         expectMessage(body.message)
+        // 开工前核对（docs/multica-learn.md §11.3）：结果和这一轮的运行凭证
+        if (s.endpoint.endsWith('/start')) {
+          const res = await serve(s).start('tm_1', 'tg_1', 'laptop')
+          expect(res.outcome).toBe(body.outcome)
+          expect(res.runToken).toMatch(/^rt_/)
+        }
         for (const t of (Array.isArray(body.tasks) ? body.tasks : []) as unknown[]) expectMessage(t)
       })
     } else if (s.status >= 400) {
@@ -153,6 +160,7 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
           (
             {
               400: 'INVALID',
+              401: 'RUN_TOKEN',
               403: 'FORBIDDEN',
               404: 'NOT_FOUND',
               409: 'CONFLICT',

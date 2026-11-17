@@ -185,6 +185,11 @@ describe('权限', () => {
     expect(mentionNote(agent({ mine: false, policy: 'approve' }), 'member')).toBe('approval')
     expect(mentionNote(agent({ mine: false, policy: 'team' }), 'member')).toBeNull()
     expect(mentionNote(agent({ mine: true, policy: 'approve' }), 'member')).toBeNull()
+    // 四档派活规则（docs/multica-learn.md §11.3）
+    expect(mentionNote(agent({ mine: false, policy: 'owner' }), 'member')).toBe('owner')
+    expect(mentionNote(agent({ mine: false, policy: 'listed', allow: ['u:2'] }), 'member', 'u:2')).toBeNull()
+    expect(mentionNote(agent({ mine: false, policy: 'listed', allow: ['u:2'] }), 'member', 'u:3')).toBe('approval')
+    expect(mentionNote(agent({ mine: false, policy: 'listed' }), 'member')).toBe('approval')
     expect(mentionNote(agent({}), undefined)).toBeNull()
     expect(mentionNote({ id: 'h', kind: 'human', name: 'H' }, 'observer')).toBeNull()
   })

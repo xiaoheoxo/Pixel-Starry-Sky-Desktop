@@ -27,6 +27,8 @@ export interface TeamRunRef {
   title?: string
   /** 最近一次已处理的追加要求（消息 id） */
   follow?: string | null
+  /** 这一轮的运行凭证（开工前核对时云端发的，docs/multica-learn.md §11.3）：写回优先用它；旧云端没有 */
+  runToken?: string | null
   /** 这一轮的收尾（任务卡字段 + 结果消息）还没写回云端时留着，重连后补发 */
   final?: { patch: Record<string, unknown>; result?: { text: string; mentions: string[]; round?: number } }
 }

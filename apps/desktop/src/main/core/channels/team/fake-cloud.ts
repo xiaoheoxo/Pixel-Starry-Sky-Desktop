@@ -5,11 +5,14 @@ import type { TeamFrame } from './realtime'
 import { parseMessage } from './api'
 
 type Json = Record<string, unknown>
+const ENDED = ['done', 'failed', 'stopped']
 
 export interface FakeCall {
   method: string
   path: string
   body: Json | undefined
+  /** 带的运行凭证（runs 接口） */
+  runToken?: string
 }
 
 export class FakeCloud {
@@ -34,6 +37,10 @@ export class FakeCloud {
   /** 整个云端不通（网络错误） */
   down = false
   deployed = true
+  /** 开工前核对（docs/multica-learn.md §11.3）：null 是旧云端（没有这个接口）；否则按这个结果回 */
+  startOutcome: 'ok' | 'approval' | 'stopped' | null = 'ok'
+  /** 每张卡现在有效的运行凭证 */
+  runTokens = new Map<string, string>()
   push: (frame: TeamFrame) => void = () => {}
   private seq = 100
   private tick = 0
@@ -52,15 +59,15 @@ export class FakeCloud {
     return new Date(Date.UTC(2026, 9, 14, 6, 0, 0) + ++this.tick * 1000).toISOString()
   }
 
-  fetch: TeamFetch = async (method, path, body) => {
+  fetch: TeamFetch = async (method, path, body, _timeout, runToken) => {
     if (this.down) throw new TypeError('fetch failed')
-    this.calls.push({ method, path, body: body as Json | undefined })
+    this.calls.push({ method, path, body: body as Json | undefined, ...(runToken ? { runToken } : {}) })
     for (const [key, status] of Object.entries(this.failures)) {
       const [m, prefix] = key.split(' ')
       if (m === method && path.startsWith(prefix)) return this.json({ error: '失败' }, status)
     }
     if (!this.deployed) return this.json({ error: 'not found' }, 404)
-    return this.route(method, path, (body ?? {}) as Json)
+    return this.route(method, path, (body ?? {}) as Json, runToken)
   }
 
   private json(body: unknown, status = 200): Response {
@@ -146,10 +153,21 @@ export class FakeCloud {
     const observer = this.users[author]?.role === 'observer'
     const target = replyTo ? this.messages.get(cid)!.find(x => x.id === replyTo && x.kind === 'task') : undefined
     const assignees = mentions.map(id => this.agent(id)).filter((a): a is Json => !!a)
-    const status = (a: Json): string => (a.owner === author || a.policy === 'team' ? 'queued' : 'approval')
+    // 同云端 dispatchStatus：主人自己、团队都能派、名单里有他 → queued；只有我 → 不建卡；其余要同意
+    const status = (a: Json): string | null =>
+      a.owner === author ||
+      a.policy === 'team' ||
+      (a.policy === 'listed' && ((a.allow as string[] | undefined) ?? []).includes(author))
+        ? 'queued'
+        : a.policy === 'owner'
+          ? null
+          : 'approval'
     if (!observer && target && (!assignees.length || assignees.every(a => a.id === (target.task as Json).assignee))) {
       const t = target.task as Json
       const a = this.agent(t.assignee as string)!
+      if (!status(a)) return { message: m, tasks }
+      t.requested_by = author
+      t.approved = false
       t.round = (t.round as number) + 1
       t.status = status(a)
       t.followup_message = m.id
@@ -158,6 +176,7 @@ export class FakeCloud {
       tasks.push(target)
     } else if (!observer)
       for (const a of assignees) {
+        if (!status(a)) continue
         const card = this.message(cid, 'task', author, {
           task: {
             assignee: a.id,
@@ -181,6 +200,8 @@ export class FakeCloud {
             pending_action: null,
             source_message: m.id,
             ended_at: null,
+            requested_by: author,
+            approved: false,
           },
         })
         this.frame(cid, card)
@@ -208,7 +229,7 @@ export class FakeCloud {
 
   // ---- 路由 ----
 
-  private route(method: string, full: string, body: Json): Response {
+  private route(method: string, full: string, body: Json, runToken?: string): Response {
     const [path, query = ''] = full.split('?')
     const q = new URLSearchParams(query)
     const seg = path.split('/').filter(Boolean).map(decodeURIComponent)
@@ -277,51 +298,112 @@ export class FakeCloud {
       this.agents = this.agents.filter(a => a.id !== seg[4])
       return this.json({})
     }
+    if (seg[3] === 'runs') {
+      // 运行凭证写回（同云端 runTask：凭证对、卡没结束）
+      const card = this.cards().find(m => m.id === seg[4])
+      const t = card?.task as Json | undefined
+      if (
+        !card ||
+        !t ||
+        !runToken ||
+        this.runTokens.get(card.id as string) !== runToken ||
+        ENDED.includes(t.status as string)
+      )
+        return this.json({ error: '运行凭证无效或已过期' }, 401)
+      if (seg[5] === 'result')
+        return this.json(
+          JSON.parse(
+            JSON.stringify(
+              this.agentPost(card.channel_id as string, {
+                ...body,
+                agent_id: t.assignee,
+                task_id: card.id,
+                reply_to: card.id,
+              }),
+            ),
+          ),
+          201,
+        )
+      this.patchCard(card, body)
+      return this.json({ message: card })
+    }
     if (seg[3] === 'tasks') {
       const card = this.cards().find(m => m.id === seg[4])
       if (!card) return this.json({ error: '不存在' }, 404)
       const t = card.task as Json
+      if (seg[5] === 'start') {
+        // 旧云端：没有这个接口（Go 的 404 是纯文字）
+        if (!this.startOutcome) return new Response('404 page not found', { status: 404 })
+        if (t.claimed_by !== body.device) return this.json({ error: '已被认领' }, 409)
+        // 同云端：还在排队、没有别的请求（重试的请求执行端随后清掉）
+        if (t.status !== 'queued' || (t.pending_action && t.pending_action !== 'retry'))
+          return this.json({ error: '任务现在的状态不能做这个操作' }, 409)
+        const outcome = this.startOutcome
+        let token: string | null = null
+        if (outcome === 'ok') {
+          token = `rt_${card.id}_${this.id('run')}`
+          this.runTokens.set(card.id as string, token)
+        } else if (outcome === 'approval') {
+          t.status = 'approval'
+          t.claimed_by = null
+        } else {
+          t.status = 'stopped'
+          t.reason = 'not_allowed'
+          t.ended_at = this.time()
+        }
+        if (outcome !== 'ok') this.runTokens.delete(card.id as string)
+        this.touch(card)
+        return this.json({ message: card, outcome, run_token: token })
+      }
       if (seg[5] === 'claim') {
         if (t.claimed_by && t.claimed_by !== body.device) return this.json({ error: '已被认领' }, 409)
         t.claimed_by = body.device
         this.touch(card)
       } else if (seg[5] === 'approve') {
         t.status = body.approve ? 'queued' : 'stopped'
+        if (body.approve) t.approved = true
         if (!body.approve) t.note = 'rejected'
         this.touch(card)
       } else if (seg[5] === 'action') {
         t.pending_action = body.action
         this.touch(card)
-      } else if (method === 'PATCH') {
-        for (const key of [
-          'status',
-          'title',
-          'summary',
-          'diff',
-          'error',
-          'note',
-          'decision',
-          'progress',
-          'round',
-          'reason',
-        ])
-          if (key in body) t[key] = body[key]
-        if (body.clear_action) t.pending_action = null
-        // 运行记录只追加，同一轮同一结束时间不重复（同云端 teams.addRuns）
-        if (Array.isArray(body.add_runs)) {
-          const runs = Array.isArray(t.runs) ? (t.runs as Record<string, unknown>[]) : []
-          for (const r of body.add_runs as Record<string, unknown>[])
-            if (!runs.some(o => o.n === r.n && o.ended_at === r.ended_at)) runs.push(r)
-          t.runs = runs
-        }
-        if (['done', 'failed', 'stopped'].includes(t.status as string)) t.ended_at = this.time()
-        this.touch(card)
-      }
+      } else if (method === 'PATCH') this.patchCard(card, body)
       return this.json({ message: card })
     }
     // 成员、邀请、团队本身：只记调用
     if (['members', 'invites', 'me'].includes(seg[3]) || seg.length === 3) return this.json({})
     return this.json({ error: '不存在' }, 404)
+  }
+
+  /** 改任务卡（登录令牌和运行凭证两条路一样） */
+  private patchCard(card: Json, body: Json): void {
+    const t = card.task as Json
+    for (const key of [
+      'status',
+      'title',
+      'summary',
+      'diff',
+      'error',
+      'note',
+      'decision',
+      'progress',
+      'round',
+      'reason',
+    ])
+      if (key in body) t[key] = body[key]
+    if (body.clear_action) t.pending_action = null
+    // 运行记录只追加，同一轮同一结束时间不重复（同云端 teams.addRuns）
+    if (Array.isArray(body.add_runs)) {
+      const runs = Array.isArray(t.runs) ? (t.runs as Record<string, unknown>[]) : []
+      for (const r of body.add_runs as Record<string, unknown>[])
+        if (!runs.some(o => o.n === r.n && o.ended_at === r.ended_at)) runs.push(r)
+      t.runs = runs
+    }
+    if (ENDED.includes(t.status as string)) {
+      t.ended_at = this.time()
+      this.runTokens.delete(card.id as string)
+    }
+    this.touch(card)
   }
 
   private listMessages(cid: string, q: URLSearchParams): Response {
@@ -342,18 +424,7 @@ export class FakeCloud {
       .get(cid)!
       .find(m => m.author === author && body.client_id && m.client_id === body.client_id)
     if (dup) return this.json({ message: dup, tasks: [] })
-    if (body.agent_id) {
-      const m = this.message(cid, 'message', author, {
-        text: body.text,
-        format: 'markdown',
-        reply_to: body.reply_to ?? null,
-        mentions: body.mentions ?? [],
-        task_id: body.task_id ?? null,
-        client_id: body.client_id,
-      })
-      this.frame(cid, m)
-      return this.json({ message: m, tasks: [] })
-    }
+    if (body.agent_id) return this.json(this.agentPost(cid, body))
     const { message, tasks } = this.userPost(
       this.me.id,
       cid,
@@ -363,6 +434,25 @@ export class FakeCloud {
       (body.client_id as string) ?? '',
     )
     return this.json({ message, tasks })
+  }
+
+  /** AI 成员发结果（登录令牌带 agent_id，或运行凭证接口） */
+  private agentPost(cid: string, body: Json): { message: Json; tasks: Json[] } {
+    const author = body.agent_id as string
+    const dup = this.messages
+      .get(cid)!
+      .find(m => m.author === author && body.client_id && m.client_id === body.client_id)
+    if (dup) return { message: dup, tasks: [] }
+    const m = this.message(cid, 'message', author, {
+      text: body.text,
+      format: 'markdown',
+      reply_to: body.reply_to ?? null,
+      mentions: body.mentions ?? [],
+      task_id: body.task_id ?? null,
+      client_id: body.client_id,
+    })
+    this.frame(cid, m)
+    return { message: m, tasks: [] }
   }
 
   private overview(): Json {

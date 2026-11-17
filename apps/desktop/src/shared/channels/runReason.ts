@@ -10,6 +10,8 @@ const REASONS: readonly RunReason[] = [
   'queue_expired',
   'session_gone',
   'not_deployed',
+  'not_allowed',
+  'requester_left',
   'engine.auth',
   'engine.quota',
   'engine.model',

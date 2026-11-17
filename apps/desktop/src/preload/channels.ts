@@ -118,8 +118,8 @@ export interface ChannelsBridge {
   // ── Phase C：多人团队（docs/ui/channels-phase-c.md §9.2） ──
   /** 等主人同意的活（approval）：同意 / 拒绝 */
   approveTask(taskId: string, approve: boolean): Promise<void>
-  /** 团队频道里我的 AI 成员：别人 @ 它要不要我同意 */
-  setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy): Promise<void>
+  /** 团队频道里我的 AI 成员谁能派活；listed 时 allow 是能直接派的人（团队成员 id），不带就不改 */
+  setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void>
   /** 新建团队，返回团队 id */
   createTeam(name: string): Promise<string>
   updateTeam(teamId: string, patch: { name?: string; queueGraceHours?: number }): Promise<void>

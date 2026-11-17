@@ -4,7 +4,8 @@ import type { RunReason } from '../../../../shared/types/channels'
 
 /** 建议给谁看：引擎、会话、成员的问题只有主人能处理；「主人电脑离线」是给别人看的；排队过期谁都能重新派 */
 function hintFor(reason: RunReason, mine: boolean): boolean {
-  if (reason === 'queue_expired') return true
+  // 开工前核对没通过（docs/multica-learn.md §11.3）：派活的人和主人都要知道下一步
+  if (reason === 'queue_expired' || reason === 'not_allowed' || reason === 'requester_left') return true
   if (reason === 'machine_offline') return !mine
   return mine
 }
