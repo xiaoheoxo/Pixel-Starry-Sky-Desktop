@@ -395,6 +395,9 @@ export function ChannelTaskCard({
       {task.status === 'queued' && task.ownerOffline && !mine && (
         <p className="mt-1 text-meta text-fg-muted">{tr('team.task.ownerOffline', { owner: ownerName })}</p>
       )}
+      {task.status === 'queued' && task.runnerOffline && (
+        <p className="mt-1 text-meta text-fg-muted">{tr('team.task.runnerOffline')}</p>
+      )}
       {pending && <p className="mt-1 text-meta text-fg-faint">{tr(PENDING_KEY[pending])}</p>}
       {task.checks && (
         <CheckSummary

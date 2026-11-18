@@ -523,7 +523,11 @@ export class FakeCloud {
         return this.json({ message: card, outcome, run_token: token })
       }
       if (seg[5] === 'claim') {
-        if (t.claimed_by && t.claimed_by !== body.device) return this.json({ error: '已被认领' }, 409)
+        // 同云端 Claim（docs/multica-learn.md §11.7）：成员登记的执行端可以接手别人认领着的卡。成员不归它接时真云端回 409，
+        // 这里不拦——测的是执行端自己不去认领
+        const bound = this.agent(t.assignee as string)?.executor
+        if (t.claimed_by && t.claimed_by !== body.device && bound !== body.device)
+          return this.json({ error: '已被认领' }, 409)
         t.claimed_by = body.device
         this.touch(card)
       } else if (seg[5] === 'approve') {

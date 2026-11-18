@@ -742,6 +742,8 @@ export interface ChannelTask extends ChannelMessageBase {
   > | null
   /** Phase C：主人的电脑不在线（queued 时显示「上线后开始」） */
   ownerOffline?: boolean
+  /** Phase C：AI 成员绑的执行机不在线（queued 时显示「执行机离线，上线后开始」，docs/multica-learn.md §11.7） */
+  runnerOffline?: boolean
   /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
   routedBy?: { memberId: string; note: string; moved?: boolean } | null
   /**

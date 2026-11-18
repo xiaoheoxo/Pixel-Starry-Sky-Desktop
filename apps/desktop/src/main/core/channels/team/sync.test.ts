@@ -339,4 +339,30 @@ describe('TeamSync', () => {
     })
     expect(t.sync.taskOf(tasks[0].id as string)).toMatchObject({ status: 'queued', ownerOffline: true })
   })
+  it('绑了执行机的成员（docs/multica-learn.md §11.7）：在线看执行机；排队的卡写「执行机离线」，主人自己也看得到；执行机上线后推 team 帧重拉', async () => {
+    const t = setup()
+    const runner = { id: 'rn_1', name: 'hk-1', online: false, last_seen_at: null }
+    // 周宁在线、执行机离线；我自己的成员也绑了这台执行机
+    const theirs = t.cloud.addAgent('u:2', 'm-2', { policy: 'team', status: 'running', executor: 'rn_1', runner })
+    const mine = t.cloud.addAgent('u:1', 'm-1', { policy: 'team', executor: 'rn_1', runner: { ...runner } })
+    await t.online()
+    expect(t.sync.agentById(theirs.id as string)).toMatchObject({
+      executor: 'rn_1',
+      runner: { id: 'rn_1', online: false },
+    })
+    expect(t.sync.members().find(m => m.id === theirs.id)).toMatchObject({ status: 'offline' })
+    const a = t.cloud.userPost('u:1', 'tc_1', '@审查员 看看', [theirs.id as string]).tasks[0].id as string
+    const b = t.cloud.userPost('u:2', 'tc_1', '@前端助手 改改', [mine.id as string]).tasks[0].id as string
+    await t.sync.page('tc_1')
+    expect(t.sync.taskOf(a)).toMatchObject({ status: 'queued', ownerOffline: false, runnerOffline: true })
+    expect(t.sync.taskOf(b)).toMatchObject({ status: 'queued', ownerOffline: false, runnerOffline: true })
+    // 执行机上线：云端推 team 帧，重拉总览后成员和卡都换过来；主人离线也不影响
+    for (const x of [theirs, mine]) (x.runner as typeof runner).online = true
+    t.cloud.users['u:2'].online = false
+    t.frame({ type: 'team', team: 'tm_1', seq: 200 })
+    await until(() => t.sync.agentById(theirs.id as string)?.runner?.online === true)
+    expect(t.sync.members().find(m => m.id === theirs.id)).toMatchObject({ status: 'running' })
+    expect(t.sync.taskOf(a)).toMatchObject({ ownerOffline: false, runnerOffline: false })
+    expect(t.sync.taskOf(b)).toMatchObject({ runnerOffline: false })
+  })
 })

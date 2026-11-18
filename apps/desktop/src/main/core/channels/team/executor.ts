@@ -8,7 +8,7 @@ import { mentionsAll } from '../../../../shared/channels/mentions'
 import { MAX_RUNS, runReasonOf } from '../../../../shared/channels/runReason'
 import { continuePrompt, dispatchPrompt, followUpPrompt, historyLines, wakeupRequest } from '../prompt'
 import { newTaskRun, type TaskRun, type TeamRunRef } from '../tracker'
-import { TeamError, type TaskPatch, type TeamMessage, type TeamTaskData } from './api'
+import { TeamError, isRunnerId, type TaskPatch, type TeamMessage, type TeamTaskData } from './api'
 import type { TeamSync } from './sync'
 
 /** 进度更新最快每秒写回一次 */
@@ -70,6 +70,14 @@ interface Outbox {
 
 const terminal = (status: string): boolean => status === 'done' || status === 'failed' || status === 'stopped'
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * 云端登记的「由谁接」（docs/multica-learn.md §11.7）归不归 self 这个执行端：登记了的只认那一个；
+ * 没登记的（旧数据）主人的哪台桌面都接，执行机不接
+ */
+export function executes(executor: string | null | undefined, self: string): boolean {
+  return executor ? executor === self : !isRunnerId(self)
+}
 
 export class TeamExecutor {
   private readonly sync: TeamSync
@@ -135,6 +143,20 @@ export class TeamExecutor {
       })
   }
 
+  /** 这个成员的活归不归这台（云端没有这个成员时按旧数据算：认领后判「已被删除」） */
+  private mine(assignee: string): boolean {
+    return executes(this.sync.agentById(assignee)?.executor, this.device)
+  }
+
+  /**
+   * 能不能接这张卡（认领、开新一轮、重试）：要归这台；别人认领着的只有成员登记的就是这台时才接手
+   * （改了由谁接之后，云端放行合格的一方重新认领）
+   */
+  private takes(t: TeamTaskData): boolean {
+    if (!this.mine(t.assignee)) return false
+    return !t.claimedBy || t.claimedBy === this.device || this.sync.agentById(t.assignee)?.executor === this.device
+  }
+
   private versionOf(id: string): string {
     const tm = this.sync.card(id)?.tm
     return tm ? `${tm.seq}/${tm.updatedAt}` : ''
@@ -148,7 +170,8 @@ export class TeamExecutor {
     const run = this.host.run(id)
     if (t.pendingAction) return this.perform(card.teamId, tm, run)
     if (t.status !== 'queued') return
-    if (t.claimedBy && t.claimedBy !== this.device) return
+    // 不归这台的（另一台桌面、执行机接的成员）不去认领：认领了也没有这个成员，只会把卡判成「已被删除」
+    if (!this.takes(t)) return
     if (!run) return this.accept(card.teamId, tm)
     if (t.round <= run.round) return
     if (t.followupMessage && t.followupMessage === run.team?.follow) return
@@ -415,7 +438,8 @@ export class TeamExecutor {
   private async perform(teamId: string, tm: TeamMessage, run: TaskRun | undefined): Promise<void> {
     const t = tm.task!
     if (this.acting.has(tm.id)) return
-    if (t.claimedBy && t.claimedBy !== this.device) return
+    // 重试归现在接这个成员的一方（改了由谁接之后由新的一方接手）；取消、停止归认领着的一方（它手上可能还在跑）
+    if (t.pendingAction === 'retry' ? !this.takes(t) : t.claimedBy && t.claimedBy !== this.device) return
     this.acting.add(tm.id)
     try {
       const action = t.pendingAction!
@@ -438,11 +462,20 @@ export class TeamExecutor {
 
   private async retry(teamId: string, tm: TeamMessage, run: TaskRun | undefined): Promise<void> {
     const locale = this.host.locale()
-    const card = this.sync.taskOf(tm.id)
+    let card = this.sync.taskOf(tm.id)
     if (!card) return
     // 重试唤醒的一轮还算唤醒轮（§11.6，同本机）：云端的 wake 标记只在有人追加要求时清掉
     const wake = tm.task?.wake ?? undefined
     if (run) {
+      // 卡被别的执行端认领过（成员改绑过又改回来）：先接手，不然开工前核对过不去
+      const by = tm.task?.claimedBy
+      if (by && by !== this.device) {
+        if (!(await this.claim(teamId, tm))) return
+        // await 期间运行信息、卡可能被停掉或删掉：重新读最新的
+        card = this.sync.taskOf(tm.id)
+        run = this.host.run(tm.id)
+        if (!card || !run) return
+      }
       // 还没开始就失败：原样再发一次；做到一半：发「继续」
       const team = run.team ?? this.refOf(teamId, tm)
       this.host.nextRound(
@@ -675,10 +708,14 @@ export class TeamExecutor {
   private async report(): Promise<void> {
     if (this.sync.connection() !== 'online') return
     for (const teamId of this.sync.teamIds()) {
-      const agents = this.sync.myAgents(teamId).map(a => {
-        const s = this.host.agentStatus(a.localId)
-        return { id: a.id, status: s.status === 'offline' ? ('idle' as const) : s.status, task: s.task }
-      })
+      // 只报归这台接的成员：别的桌面的成员这台没有，报上去会把那边的「进行中」盖成空闲
+      const agents = this.sync
+        .myAgents(teamId)
+        .filter(a => executes(a.executor, this.device))
+        .map(a => {
+          const s = this.host.agentStatus(a.localId)
+          return { id: a.id, status: s.status === 'offline' ? ('idle' as const) : s.status, task: s.task }
+        })
       if (!agents.length) continue
       const key = JSON.stringify(agents)
       if (this.reported.get(teamId) === key) continue

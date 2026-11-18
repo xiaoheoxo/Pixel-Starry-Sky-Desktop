@@ -100,10 +100,38 @@ export interface TeamAgentData {
   policy: AgentPolicy
   /** 「指定的人直接派」的名单（owner key）；旧云端没有 */
   allow: string[]
+  /**
+   * 由哪个执行端接（docs/multica-learn.md §11.7）：桌面的设备 id、执行机 id（rn_…）；null 是旧数据（主人的哪台桌面都接、
+   * 执行机不接），旧云端没有
+   */
+  executor: string | null
+  /** 绑的执行机（executor 是执行机、还没停用时才有）和它在不在线 */
+  runner: TeamRunnerState | null
   status: 'idle' | 'running' | 'waiting'
   task: string | null
   updatedAt: number
 }
+
+/** AI 成员绑的执行机：总览里带在线状态，排队的卡「上线后开始」看它 */
+export interface TeamRunnerState {
+  id: string
+  name: string
+  online: boolean
+  lastSeenAt: number | null
+}
+
+/** 我的执行机（GET /v1/teams/runners）：version 是执行机报的版本，没报为 null */
+export interface TeamRunnerData {
+  id: string
+  name: string
+  version: string | null
+  createdAt: number
+  lastSeenAt: number | null
+  online: boolean
+}
+
+/** 执行机 id 的前缀（和云端 IsRunnerID 一致）；桌面的设备 id 是 dev-… */
+export const isRunnerId = (id: string | null | undefined): boolean => !!id && id.startsWith('rn_')
 
 export interface TeamData {
   id: string
@@ -266,6 +294,8 @@ export interface AgentRegistration {
   policy: AgentPolicy
   /** 「指定的人直接派」的名单；不带就不改 */
   allow?: string[]
+  /** 由哪个执行端接（桌面的设备 id、自己的执行机 id）；不带就不改，null 清掉（谁都接） */
+  executor?: string | null
 }
 
 /** 开工前核对的结果（docs/multica-learn.md §11.3）：ok 时带这一轮的运行凭证；旧云端没有这个接口时 ok、没有凭证 */
@@ -353,7 +383,24 @@ function parseChannel(v: unknown): TeamChannelData | null {
   }
 }
 
-function parseAgent(v: unknown): TeamAgentData | null {
+function parseRunnerState(v: unknown): TeamRunnerState | null {
+  if (!isObj(v) || typeof v.id !== 'string' || !v.id) return null
+  return { id: v.id, name: str(v.name), online: v.online === true, lastSeenAt: time(v.last_seen_at) || null }
+}
+
+function parseRunner(v: unknown): TeamRunnerData | null {
+  if (!isObj(v) || typeof v.id !== 'string' || !v.id) return null
+  return {
+    id: v.id,
+    name: str(v.name),
+    version: strOrNull(v.version),
+    createdAt: time(v.created_at),
+    lastSeenAt: time(v.last_seen_at) || null,
+    online: v.online === true,
+  }
+}
+
+export function parseAgent(v: unknown): TeamAgentData | null {
   if (!isObj(v) || typeof v.id !== 'string' || !v.id) return null
   return {
     id: v.id,
@@ -367,6 +414,8 @@ function parseAgent(v: unknown): TeamAgentData | null {
     project: str(v.project),
     policy: oneOf(v.policy, AGENT_POLICIES, 'approve'),
     allow: Array.isArray(v.allow) ? v.allow.filter((x): x is string => typeof x === 'string' && !!x) : [],
+    executor: strOrNull(v.executor),
+    runner: parseRunnerState(v.runner),
     status: oneOf(v.status, AGENT_STATUS, 'idle'),
     task: strOrNull(v.task),
     updatedAt: time(v.updated_at),
@@ -963,5 +1012,46 @@ export class TeamApi {
         ),
       ),
     )
+  }
+
+  // ---- 执行机（docs/multica-learn.md §11.7）----
+
+  /** 桌面要一个执行机配对码（5 分钟、只能用一次）；带 runnerId 是给这台重新配对、换令牌。台数到了席位数是 CONFLICT */
+  async runnerPairing(name: string, runnerId?: string): Promise<{ code: string; expiresAt: number }> {
+    const body = await this.json(
+      await this.request('POST', '/v1/teams/runners/pairings', { name, ...(runnerId ? { runner_id: runnerId } : {}) }),
+    )
+    const o = isObj(body) ? body : {}
+    const code = str(o.code)
+    if (!code) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    return { code, expiresAt: time(o.expires_at) }
+  }
+
+  /** 执行机用配对码换令牌（不要登录，请求函数由执行机自己给）。码不对、过期、用过是 NOT_FOUND */
+  async pairRunner(code: string, version: string): Promise<{ runnerId: string; name: string; token: string }> {
+    const body = await this.json(await this.request('POST', '/v1/teams/runners/pair', { code, version }))
+    const o = isObj(body) ? body : {}
+    const runnerId = str(o.runner_id)
+    const token = str(o.token)
+    if (!isRunnerId(runnerId) || !token.startsWith('rn_')) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    return { runnerId, name: str(o.name), token }
+  }
+
+  /** 我的执行机（按配对先后）。旧云端没有这个接口（404 且不是 JSON 错误）：null */
+  async runners(): Promise<TeamRunnerData[] | null> {
+    let res: Response
+    try {
+      res = await this.request('GET', '/v1/teams/runners')
+    } catch (e) {
+      if (e instanceof TeamError && e.code === 'NOT_FOUND' && e.message === '团队、频道或消息不存在') return null
+      throw e
+    }
+    const body = await this.json(res)
+    return arr(isObj(body) ? body.runners : null, parseRunner)
+  }
+
+  /** 停用执行机：令牌作废、断开连接，绑它的 AI 成员改回谁都接 */
+  removeRunner(runnerId: string): Promise<void> {
+    return this.call('DELETE', `/v1/teams/runners/${seg(runnerId)}`)
   }
 }

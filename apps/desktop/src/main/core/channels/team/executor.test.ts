@@ -3,8 +3,8 @@ import type { AgentConfig, ChannelTask } from '../../../../shared/types/channels
 import type { TaskRun, TeamRunRef } from '../tracker'
 import { newTaskRun } from '../tracker'
 import { TeamApi } from './api'
-import { TeamExecutor, type ExecutorHost } from './executor'
-import { FakeCloud, until } from './fake-cloud'
+import { TeamExecutor, executes, type ExecutorHost } from './executor'
+import { FakeCloud, until, type FakeCall } from './fake-cloud'
 import type { RealtimeStatus, TeamFrame } from './realtime'
 import { TeamSync } from './sync'
 
@@ -26,17 +26,25 @@ function config(id: string, name: string): AgentConfig {
   }
 }
 
-function setup() {
-  const cloud = new FakeCloud()
+/** 一台桌面；cloud 传同一个就是同一账号的几台桌面连着同一个云端（推送每台都收到，calls 只记这台发的） */
+function setup(cloud = new FakeCloud(), device = DEVICE) {
   let handlers!: { onFrame(f: TeamFrame): void; onStatus(s: RealtimeStatus): void }
+  const calls: FakeCall[] = []
   const sync = new TeamSync({
-    api: new TeamApi(cloud.fetch),
+    api: new TeamApi((method, path, body, timeout, runToken) => {
+      calls.push({ method, path, body: body as FakeCall['body'] })
+      return cloud.fetch(method, path, body, timeout, runToken)
+    }),
     realtime: h => {
       handlers = h
       return { start() {}, stop() {}, restart() {} }
     },
   })
-  cloud.push = f => handlers.onFrame(f)
+  const others = cloud.push
+  cloud.push = f => {
+    others(f)
+    handlers.onFrame(f)
+  }
   const members = new Map<string, AgentConfig>([['m-1', config('m-1', '前端助手')]])
   const runs = new Map<string, TaskRun>()
   const finals: (TeamRunRef['final'] | undefined)[] = []
@@ -57,7 +65,7 @@ function setup() {
     agentStatus: vi.fn(() => ({ status, task: status === 'running' ? '改设置页' : null })),
     locale: () => 'zh-CN' as const,
   } satisfies ExecutorHost
-  const exec = new TeamExecutor({ sync, host, deviceId: DEVICE, progressMs: 60, statusMs: 10 })
+  const exec = new TeamExecutor({ sync, host, deviceId: device, progressMs: 60, statusMs: 10 })
   const online = async () => {
     sync.start()
     handlers.onStatus('online')
@@ -67,6 +75,7 @@ function setup() {
   const patches = () => cloud.calls.filter(c => c.method === 'PATCH' && c.path.includes('/tasks/'))
   return {
     cloud,
+    calls,
     sync,
     exec,
     host,
@@ -610,5 +619,106 @@ describe('TeamExecutor 上报成员状态', () => {
     t.exec.statusChanged()
     await until(() => reports().length === 3)
     expect(reports()[2].body).toEqual({ agents: [{ id: agent.id, status: 'idle', task: null }] })
+  })
+})
+
+describe('TeamExecutor 由谁接（docs/multica-learn.md §11.7）', () => {
+  it('登记了由谁接的只认那一个；没登记的（旧数据）桌面都接、执行机不接', () => {
+    expect(executes('dev-A', 'dev-A')).toBe(true)
+    expect(executes('dev-B', 'dev-A')).toBe(false)
+    expect(executes('rn_1', 'dev-A')).toBe(false)
+    expect(executes(null, 'dev-A')).toBe(true)
+    expect(executes('rn_1', 'rn_1')).toBe(true)
+    expect(executes(null, 'rn_1')).toBe(false)
+  })
+
+  /** 同一账号的两台桌面连着同一个云端：A 上有 m-1、B 上有 m-2，云端登记了各自由哪台接 */
+  function twoDesktops() {
+    const cloud = new FakeCloud()
+    const a = setup(cloud, 'dev-A')
+    const b = setup(cloud, 'dev-B')
+    b.members.clear()
+    b.members.set('m-2', config('m-2', '后端助手'))
+    const one = cloud.addAgent('u:1', 'm-1', { policy: 'team', executor: 'dev-A' }).id as string
+    const two = cloud.addAgent('u:1', 'm-2', { policy: 'team', name: '后端助手', executor: 'dev-B' }).id as string
+    const post = (agent: string, text: string) => cloud.userPost('u:2', 'tc_1', text, [agent]).tasks[0].id as string
+    return { cloud, a, b, one, two, post }
+  }
+
+  it('同一账号两台桌面：只接登记在自己名下的成员，不把对方的卡判成「已被删除」，也不盖掉对方报的状态', async () => {
+    const { cloud, a, b, one, two, post } = twoDesktops()
+    const forA = post(one, '@前端助手 改设置页')
+    const forB = post(two, '@后端助手 加接口')
+    // B 先连上：只认领自己的那张，A 的卡原样排着
+    await b.online()
+    await until(() => b.host.enqueue.mock.calls.length === 1)
+    await new Promise(r => setTimeout(r, 40))
+    expect(b.host.enqueue.mock.calls[0][0]).toMatchObject({ taskId: forB, memberId: 'm-2' })
+    expect(cloud.task(forA)).toMatchObject({ status: 'queued', claimed_by: null })
+    // A 连上后接自己的，B 的不碰
+    await a.online()
+    await until(() => a.host.enqueue.mock.calls.length === 1)
+    await new Promise(r => setTimeout(r, 40))
+    expect(a.host.enqueue.mock.calls[0][0]).toMatchObject({ taskId: forA, memberId: 'm-1' })
+    expect(cloud.task(forA)).toMatchObject({ status: 'queued', claimed_by: 'dev-A' })
+    expect(cloud.task(forB)).toMatchObject({ status: 'queued', claimed_by: 'dev-B' })
+    expect(a.host.enqueue).toHaveBeenCalledTimes(1)
+    expect(b.host.enqueue).toHaveBeenCalledTimes(1)
+    // 成员状态各报各的：B 再报一次也不把 A 的「进行中」盖掉
+    a.setStatus('running')
+    a.exec.statusChanged()
+    await until(() => cloud.agent(one)?.status === 'running')
+    const reports = (t: typeof a) => t.calls.filter(c => c.path.endsWith('/agents/status'))
+    const before = reports(b).length
+    b.setStatus('waiting')
+    b.exec.statusChanged()
+    await until(() => reports(b).length > before)
+    expect(cloud.agent(one)).toMatchObject({ status: 'running', task: '改设置页' })
+    expect(cloud.agent(two)).toMatchObject({ status: 'waiting' })
+    for (const r of reports(a)) expect(r.body).toEqual({ agents: [expect.objectContaining({ id: one })] })
+    for (const r of reports(b)) expect(r.body).toEqual({ agents: [expect.objectContaining({ id: two })] })
+  })
+
+  it('改了由谁接：新登记的一方接手别人认领着的排队卡和等重试的卡，原来那台不再动它们', async () => {
+    const { cloud, a, b, one, post } = twoDesktops()
+    b.members.set('m-1', config('m-1', '前端助手'))
+    cloud.agent(one)!.executor = 'dev-B'
+    // A 认领过、还在排队的卡（本机没有运行记录）；A 做过、失败了的卡（本机有运行记录）
+    const queuedCard = post(one, '@前端助手 改设置页')
+    cloud.task(queuedCard).claimed_by = 'dev-A'
+    const failedCard = post(one, '@前端助手 修登录')
+    Object.assign(cloud.task(failedCard), { claimed_by: 'dev-A', status: 'failed' })
+    a.runs.set(failedCard, {
+      ...newTaskRun({
+        taskId: failedCard,
+        channelId: 'tc_1',
+        memberId: 'm-1',
+        queuedAt: 1,
+        round: 1,
+        prompt: '原提示词',
+        freshPrompt: '原提示词',
+        team: { teamId: 'tm_1', channelId: 'tc_1', messageId: failedCard, agentId: one },
+      }),
+      phase: 'ended',
+    })
+    await a.online()
+    await b.online()
+    await until(() => b.host.enqueue.mock.calls.length === 1)
+    expect(b.host.enqueue.mock.calls[0][0]).toMatchObject({ taskId: queuedCard, memberId: 'm-1' })
+    expect(cloud.task(queuedCard)).toMatchObject({ status: 'queued', claimed_by: 'dev-B' })
+    // 有人点重试：B 接手开下一轮，A 手上那份运行记录不再用
+    await b.sync.page('tc_1')
+    await b.sync.taskCall(failedCard, teamId => b.sync.api.action(teamId, failedCard, 'retry'))
+    await until(() => b.host.nextRound.mock.calls.length === 1)
+    await until(() => cloud.task(failedCard).pending_action === null)
+    expect(cloud.task(failedCard).claimed_by).toBe('dev-B')
+    expect(b.host.nextRound.mock.calls[0][1]).toBeNull()
+    await new Promise(r => setTimeout(r, 40))
+    expect(a.host.enqueue).not.toHaveBeenCalled()
+    expect(a.host.nextRound).not.toHaveBeenCalled()
+    expect(cloud.task(queuedCard).status).toBe('queued')
+    expect(
+      a.calls.filter(c => c.path.endsWith('/claim') || (c.method === 'PATCH' && c.path.includes('/tasks/'))),
+    ).toEqual([])
   })
 })

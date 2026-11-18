@@ -1,6 +1,7 @@
 // 团队实时通道的 WebSocket 客户端（docs/ui/channels-phase-c.md §8.3）。重连、看门狗照 mobile/relay.ts：
-// 断线指数退避加随机、60 秒没收到任何帧（含云端每 20 秒一次的 tick）就当连接已死、4001 换令牌马上重连。
-// socket 工厂和令牌都由应用层注入，这里不碰 Electron。客户端不发业务帧，只收。
+// 断线指数退避加随机、60 秒没收到任何帧（含云端每 20 秒一次的 tick）就当连接已死、4001 换令牌马上重连、
+// 4010（执行机台数超过席位，docs/multica-learn.md §11.7）停下不再重连。
+// socket 工厂和令牌都由应用层注入，这里不碰 Electron（执行机进程也用它）。客户端不发业务帧，只收。
 import { isObj, parseInboxItem, parseMessage, type TeamMessage } from './api'
 import type { TeamInboxItem } from '../../../../shared/types/channels'
 
@@ -14,6 +15,13 @@ export type TeamFrame =
   | { type: 'inbox'; team: string; item: TeamInboxItem }
 
 export type RealtimeStatus = 'connecting' | 'online' | 'offline'
+/** 云端让客户端别再连的原因（随 offline 一起给）：seats 是执行机台数超过席位（关闭码 4010） */
+export type RealtimeStop = 'seats'
+
+/** 团队实时通道的地址：登录服务的同一个地址（https → wss） */
+export function teamsWsUrl(base: string): string {
+  return base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/teams/ws'
+}
 
 /** WebSocket 的最小子集（测试里用假的） */
 export interface SocketLike {
@@ -30,11 +38,14 @@ export interface RealtimeOptions {
   /** 访问令牌；force 为 true 时先刷新。没登录返回 null */
   token(force: boolean): Promise<string | null>
   onFrame(frame: TeamFrame): void
-  onStatus(status: RealtimeStatus): void
+  /** stop：云端让别再连（之后不自动重连，start() / restart() 才再连） */
+  onStatus(status: RealtimeStatus, stop?: RealtimeStop): void
   socket?: (url: string, protocols: string[]) => SocketLike
 }
 
 const CLOSE_UNAUTHORIZED = 4001
+/** 收到就停、不重连的关闭码 */
+const NO_RETRY: Record<number, RealtimeStop> = { 4010: 'seats' }
 const MIN_DELAY = 1000
 const MAX_DELAY = 30_000
 export const DEAD_AFTER = 60_000
@@ -207,6 +218,13 @@ export class TeamRealtime {
       if (this.ws !== ws) return
       this.ws = null
       if (this.stopped) return
+      const stop = NO_RETRY[event.code]
+      if (stop) {
+        // 重连也一样会被关：停下，等调用方 start() / restart()
+        this.stopped = true
+        this.o.onStatus('offline', stop)
+        return
+      }
       if (event.code === CLOSE_UNAUTHORIZED) {
         // 访问令牌过期或被吊销：换个令牌马上重连（第二次还不行再按退避来）
         this.refresh = true

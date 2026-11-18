@@ -14,7 +14,7 @@ import { machineOf } from '../machines/identity'
 import { baseUrl, bridgeToken, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
 import { TeamApi } from '../core/channels/team/api'
 import { loadDeviceId } from '../core/channels/team/device'
-import { TeamRealtime } from '../core/channels/team/realtime'
+import { TeamRealtime, teamsWsUrl } from '../core/channels/team/realtime'
 import { TeamSync } from '../core/channels/team/sync'
 import { ChannelStore } from '../core/channels/store'
 import { Channels, type MachineLite } from '../core/channels/service'
@@ -73,11 +73,6 @@ const role = (value: unknown): Exclude<TeamRole, 'owner'> => {
  */
 export function teamsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.PIXELSKY_TEAMS !== '0'
-}
-
-/** 团队实时通道的地址：登录服务的同一个地址（https → wss） */
-export function teamsWsUrl(base: string): string {
-  return base.replace(/^http/, 'ws').replace(/\/+$/, '') + '/v1/teams/ws'
 }
 
 function selfName(): string {

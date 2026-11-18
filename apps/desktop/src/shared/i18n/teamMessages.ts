@@ -141,6 +141,10 @@ export const teamMessages = {
     zh: '{owner} 的电脑离线，上线后开始',
     en: "{owner}'s computer is offline. It starts when they're back online.",
   },
+  'team.task.runnerOffline': {
+    zh: '执行机离线，上线后开始',
+    en: "The runner is offline. It starts when it's back online.",
+  },
   'team.task.pendingCancel': { zh: '已请求取消…', en: 'Cancel requested…' },
   'team.task.pendingStop': { zh: '已请求停止…', en: 'Stop requested…' },
   'team.task.pendingRetry': { zh: '已请求重试…', en: 'Retry requested…' },

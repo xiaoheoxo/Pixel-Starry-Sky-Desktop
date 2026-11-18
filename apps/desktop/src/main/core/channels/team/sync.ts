@@ -30,7 +30,7 @@ import {
   type TeamWakeupData,
   type WakeupInput,
 } from './api'
-import type { RealtimeStatus, TeamFrame } from './realtime'
+import type { RealtimeStatus, RealtimeStop, TeamFrame } from './realtime'
 import type { Mentionable } from '../../../../shared/channels/mentions'
 import { titleWithoutAll } from '../prompt'
 
@@ -64,7 +64,10 @@ export interface TeamSyncListener {
 export interface TeamSyncDeps {
   api: TeamApi
   /** 创建实时通道；帧和状态交给 TeamSync 处理 */
-  realtime: (handlers: { onFrame(frame: TeamFrame): void; onStatus(status: RealtimeStatus): void }) => RealtimeLike
+  realtime: (handlers: {
+    onFrame(frame: TeamFrame): void
+    onStatus(status: RealtimeStatus, stop?: RealtimeStop): void
+  }) => RealtimeLike
   now?: () => number
   log?: (message: string, error?: unknown) => void
   /** 我自己的 AI 成员在本机的情况（状态、配置、会话）；没有就只用云端登记的信息 */
@@ -203,7 +206,7 @@ export class TeamSync {
     this.localAgent = deps.localAgent
     this.realtime = deps.realtime({
       onFrame: frame => this.frame(frame),
-      onStatus: status => this.linkStatus(status),
+      onStatus: (status, stop) => this.linkStatus(status, stop),
     })
   }
 
@@ -278,8 +281,10 @@ export class TeamSync {
     return 'connecting'
   }
 
-  private linkStatus(status: RealtimeStatus): void {
+  private linkStatus(status: RealtimeStatus, stop?: RealtimeStop): void {
     if (this.stopped) return
+    // 云端让别再连（实时通道已经停下，手动重试才再连）：记一笔原因
+    if (stop === 'seats') this.deps.log?.('团队实时通道被云端关闭：执行机台数超过席位，不再自动重连')
     const was = this.ws
     this.ws = status
     if (status === 'online' && was !== 'online') void this.reload('connected')
@@ -838,6 +843,14 @@ export class TeamSync {
     return userId === this.me?.id || (this.online.get(teamId)?.has(userId) ?? false)
   }
 
+  /** 排队的卡在等谁上线：成员绑的执行机（主人自己看也提示），没绑的是主人的电脑（别人看才提示） */
+  private offlineOf(teamId: string, t: TeamTaskData): { ownerOffline: boolean; runnerOffline: boolean } {
+    if (t.status !== 'queued') return { ownerOffline: false, runnerOffline: false }
+    const runner = this.teams.get(teamId)?.agents.find(a => a.id === t.assignee)?.runner
+    if (runner) return { ownerOffline: false, runnerOffline: !runner.online }
+    return { ownerOffline: t.owner !== this.me?.id && !this.isOnline(teamId, t.owner), runnerOffline: false }
+  }
+
   // -------------------------------------------------------------------------
   // 映射
   // -------------------------------------------------------------------------
@@ -885,7 +898,8 @@ export class TeamSync {
         endedAt: t.endedAt,
         ownerId: t.owner,
         pendingAction: t.pendingAction,
-        ownerOffline: t.status === 'queued' && t.owner !== this.me?.id && !this.isOnline(teamId, t.owner),
+        // 绑了执行机的成员（docs/multica-learn.md §11.7）：「上线后开始」看执行机在不在线，不看主人
+        ...this.offlineOf(teamId, t),
         ...(t.wakeups ? { teamWakeups: true } : {}),
       }
     }
@@ -984,7 +998,8 @@ export class TeamSync {
 
   private agentMember(team: TeamData, a: TeamAgentData): AgentMember {
     const mine = a.owner === this.me?.id
-    const ownerOnline = mine || this.isOnline(team.id, a.owner)
+    // 绑了执行机的成员在不在线看执行机（它的连接不算主人在线，docs/multica-learn.md §11.7）
+    const ownerOnline = a.runner ? a.runner.online : mine || this.isOnline(team.id, a.owner)
     const base: AgentMember = {
       id: a.id,
       kind: 'agent',

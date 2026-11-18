@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TeamApi, TeamError, parseMessage, parseOverview, type TeamFetch } from './api'
+import { TeamApi, TeamError, isRunnerId, parseMessage, parseOverview, type TeamFetch } from './api'
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -235,5 +235,115 @@ describe('TeamApi 请求', () => {
     })
     expect(t.calls[3].body).toEqual({ device: 'dev-1' })
     expect(t.calls[4].body).toEqual({ status: 'done', summary: '好了', clear_action: true })
+  })
+})
+
+describe('由谁接、执行机（docs/multica-learn.md §11.7）', () => {
+  const agent = { id: 'ta_1', channel_id: 'tc_1', owner: 'u:1', local_id: 'm-1', name: '夜班', policy: 'team' }
+
+  it('成员带 executor 和执行机在线状态；旧云端没有时是 null', () => {
+    const ov = parseOverview({
+      me: { id: 'u:1' },
+      teams: [
+        {
+          id: 'tm_1',
+          agents: [
+            {
+              ...agent,
+              executor: 'rn_1',
+              runner: { id: 'rn_1', name: 'hk-1', online: true, last_seen_at: '2026-11-18T09:00:00Z' },
+            },
+            { ...agent, id: 'ta_2', executor: 'dev-A', runner: null },
+            { ...agent, id: 'ta_3' },
+          ],
+        },
+      ],
+    })
+    const [a, b, c] = ov.teams[0].agents
+    expect(a).toMatchObject({
+      executor: 'rn_1',
+      runner: { id: 'rn_1', name: 'hk-1', online: true, lastSeenAt: Date.parse('2026-11-18T09:00:00Z') },
+    })
+    expect(b).toMatchObject({ executor: 'dev-A', runner: null })
+    expect(c).toMatchObject({ executor: null, runner: null })
+    expect(isRunnerId('rn_1')).toBe(true)
+    expect(isRunnerId('dev-A')).toBe(false)
+    expect(isRunnerId(null)).toBe(false)
+  })
+
+  it('登记成员带 executor；不带就不发', async () => {
+    const t = api(() => json({}))
+    const reg = { name: '夜班', engine: 'claude', model: '', machine: 'PC', project: 'api', policy: 'team' as const }
+    await t.api.putAgent('tm_1', 'tc_1', 'm-1', { ...reg, executor: 'dev-A' })
+    await t.api.putAgent('tm_1', 'tc_1', 'm-1', reg)
+    expect(t.calls[0].body).toMatchObject({ executor: 'dev-A' })
+    expect(t.calls[1].body).not.toHaveProperty('executor')
+  })
+
+  it('配对码、配对、列表、停用：路径、请求体和解析', async () => {
+    const t = api((method, path) => {
+      if (path === '/v1/teams/runners/pairings')
+        return json({ code: 'aAJcAUWH7oiYINpX', expires_at: '2026-11-18T09:23:59Z' }, 201)
+      if (path === '/v1/teams/runners/pair') return json({ runner_id: 'rn_1', name: 'hk-1', token: 'rn_secret' }, 201)
+      if (method === 'GET')
+        return json({
+          runners: [
+            {
+              id: 'rn_1',
+              name: 'hk-1',
+              version: '0.9.0',
+              created_at: '2026-11-18T09:00:00Z',
+              last_seen_at: null,
+              online: true,
+            },
+            { name: '没有 id 的丢掉' },
+          ],
+        })
+      return new Response(null, { status: 204 })
+    })
+    expect(await t.api.runnerPairing('hk-1')).toEqual({
+      code: 'aAJcAUWH7oiYINpX',
+      expiresAt: Date.parse('2026-11-18T09:23:59Z'),
+    })
+    await t.api.runnerPairing('hk-1', 'rn_1')
+    expect(await t.api.pairRunner('aAJcAUWH7oiYINpX', '0.9.0')).toEqual({
+      runnerId: 'rn_1',
+      name: 'hk-1',
+      token: 'rn_secret',
+    })
+    expect(await t.api.runners()).toEqual([
+      {
+        id: 'rn_1',
+        name: 'hk-1',
+        version: '0.9.0',
+        createdAt: Date.parse('2026-11-18T09:00:00Z'),
+        lastSeenAt: null,
+        online: true,
+      },
+    ])
+    await t.api.removeRunner('rn_1')
+    expect(t.calls.map(c => `${c.method} ${c.path}`)).toEqual([
+      'POST /v1/teams/runners/pairings',
+      'POST /v1/teams/runners/pairings',
+      'POST /v1/teams/runners/pair',
+      'GET /v1/teams/runners',
+      'DELETE /v1/teams/runners/rn_1',
+    ])
+    expect(t.calls.map(c => c.body).slice(0, 3)).toEqual([
+      { name: 'hk-1' },
+      { name: 'hk-1', runner_id: 'rn_1' },
+      { code: 'aAJcAUWH7oiYINpX', version: '0.9.0' },
+    ])
+  })
+
+  it('旧云端没有执行机接口：列表是 null；席位满是 CONFLICT；令牌不像执行机令牌当作异常', async () => {
+    expect(await api(() => new Response('404 page not found', { status: 404 })).api.runners()).toBeNull()
+    const full = api(() => json({ error: '执行机台数已达席位上限' }, 409))
+    await expect(full.api.runnerPairing('hk-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: '执行机台数已达席位上限',
+    })
+    const bad = api(() => json({ runner_id: 'rn_1', token: 'tok' }, 201))
+    await expect(bad.api.pairRunner('x', '1')).rejects.toMatchObject({ code: 'UNAVAILABLE' })
   })
 })

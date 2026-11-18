@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEAD_AFTER, TeamRealtime, parseFrame, type RealtimeStatus, type SocketLike, type TeamFrame } from './realtime'
+import {
+  DEAD_AFTER,
+  TeamRealtime,
+  parseFrame,
+  teamsWsUrl,
+  type RealtimeStatus,
+  type RealtimeStop,
+  type SocketLike,
+  type TeamFrame,
+} from './realtime'
 
 class FakeSocket implements SocketLike {
   readyState = 0
@@ -31,6 +40,7 @@ function setup(token: (force: boolean) => Promise<string | null> = async () => '
   const sockets: FakeSocket[] = []
   const frames: TeamFrame[] = []
   const statuses: RealtimeStatus[] = []
+  const stops: RealtimeStop[] = []
   const tokens: boolean[] = []
   const rt = new TeamRealtime({
     url: 'wss://cloud.example/v1/teams/ws',
@@ -39,14 +49,17 @@ function setup(token: (force: boolean) => Promise<string | null> = async () => '
       return token(force)
     },
     onFrame: f => frames.push(f),
-    onStatus: s => statuses.push(s),
+    onStatus: (s, stop) => {
+      statuses.push(s)
+      if (stop) stops.push(stop)
+    },
     socket: (url, protocols) => {
       const s = new FakeSocket(url, protocols)
       sockets.push(s)
       return s
     },
   })
-  return { rt, sockets, frames, statuses, tokens }
+  return { rt, sockets, frames, statuses, stops, tokens }
 }
 
 const flush = async (): Promise<void> => {
@@ -141,6 +154,22 @@ describe('TeamRealtime', () => {
     t.rt.stop()
   })
 
+  it('4010（执行机台数超过席位）：停下不再重连，带上原因；start 才再连', async () => {
+    const t = setup()
+    t.rt.start()
+    await flush()
+    t.sockets[0].open()
+    t.sockets[0].drop(4010)
+    expect(t.statuses.at(-1)).toBe('offline')
+    expect(t.stops).toEqual(['seats'])
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(t.sockets).toHaveLength(1)
+    t.rt.start()
+    await flush()
+    expect(t.sockets).toHaveLength(2)
+    t.rt.stop()
+  })
+
   it('没登录（拿不到令牌）：不连，稍后再试', async () => {
     let token: string | null = null
     const t = setup(async () => token)
@@ -205,6 +234,11 @@ describe('TeamRealtime', () => {
     onmessage?.({ data: JSON.stringify({ type: 'invites' }) })
     expect(t.frames).toHaveLength(0)
     t.rt.stop()
+  })
+
+  it('teamsWsUrl：登录服务的地址换成 ws，去掉结尾的斜杠', () => {
+    expect(teamsWsUrl('https://cloud.example/')).toBe('wss://cloud.example/v1/teams/ws')
+    expect(teamsWsUrl('http://127.0.0.1:8080')).toBe('ws://127.0.0.1:8080/v1/teams/ws')
   })
 
   it('parseFrame 逐字段防御', () => {

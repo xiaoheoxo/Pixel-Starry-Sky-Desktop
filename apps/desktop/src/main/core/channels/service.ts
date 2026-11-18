@@ -212,7 +212,7 @@ import {
 } from './tracker'
 import type { TeamSync } from './team/sync'
 import { TeamExecutor } from './team/executor'
-import type { AgentRegistration, WakeupInput } from './team/api'
+import { isRunnerId, type AgentRegistration, type WakeupInput } from './team/api'
 
 export const SELF_ID = 'you'
 
@@ -6041,6 +6041,9 @@ export class Channels {
     if (!config) throw new Error('成员不存在')
     const project = this.deps.projects().find(p => p.id === config.projectId)
     const machine = this.machineLabel(config.machineId)
+    const team = this.requireTeam()
+    // 由这台电脑接（docs/multica-learn.md §11.7，同一账号的另一台桌面就不会去认领）；已经绑了执行机的不在这里改
+    const bound = team.agentsOfLocal(config.id).find(a => a.channelId === channelId)?.executor
     const reg: AgentRegistration = {
       name: config.name,
       engine: config.engine,
@@ -6049,8 +6052,9 @@ export class Channels {
       project: project?.name ?? '',
       policy,
       ...(allow ? { allow } : {}),
+      ...(isRunnerId(bound) ? {} : { executor: this.deps.deviceId ?? 'device' }),
     }
-    await this.requireTeam().putAgent(info.teamId, channelId, config.id, reg)
+    await team.putAgent(info.teamId, channelId, config.id, reg)
   }
 
   /** 团队频道里我的 AI 成员谁能派活（docs/multica-learn.md §4、§11.3）；listed 时 allow 是能直接派的人 */

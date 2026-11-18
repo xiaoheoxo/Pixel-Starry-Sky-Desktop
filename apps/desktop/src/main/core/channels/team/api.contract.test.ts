@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { TeamApi, parseMessage, parseOverview, type TeamFetch, type TeamTaskData } from './api'
+import { TeamApi, isObj, parseAgent, parseMessage, parseOverview, type TeamFetch, type TeamTaskData } from './api'
 
 // 云端服务的契约样例（services/cloud/testdata/contract/desktop/teams-*.json，形如 {endpoint, status, body}）：
 // Go 那边检查实际响应和样例一致，这里用同一份样例喂桌面端的解析代码。样例还没生成时整组跳过。
@@ -24,8 +24,12 @@ function expectFields(value: Record<string, unknown>, fields: Record<string, str
 }
 
 function serve(s: Sample): TeamApi {
+  // 204 不能带响应体
   const fetcher: TeamFetch = async () =>
-    new Response(JSON.stringify(s.body), { status: s.status, headers: { 'Content-Type': 'application/json' } })
+    new Response(s.status === 204 ? null : JSON.stringify(s.body), {
+      status: s.status,
+      headers: { 'Content-Type': 'application/json' },
+    })
   return new TeamApi(fetcher)
 }
 
@@ -72,6 +76,22 @@ function expectMessage(raw: unknown): void {
     }
   }
   if (m!.kind === 'event') expect(m!.event).not.toBeNull()
+}
+
+/** 成员的由谁接、绑的执行机：样例里有这两个字段时逐个对上（旧样例没有，跳过） */
+function expectExecutor(raw: Record<string, unknown>, agent: ReturnType<typeof parseAgent>): void {
+  expect(agent).not.toBeNull()
+  if ('executor' in raw) expect(agent!.executor).toBe(raw.executor || null)
+  if (!('runner' in raw)) return
+  if (!isObj(raw.runner)) return expect(agent!.runner).toBeNull()
+  expectFields(agent!.runner as unknown as Record<string, unknown>, {
+    id: 'string',
+    name: 'string',
+    online: 'boolean',
+    lastSeenAt: ['number', 'null'],
+  })
+  expect(agent!.runner!.id).toBe(raw.runner.id)
+  expect(agent!.executor).toBe(agent!.runner!.id)
 }
 
 function expectWakeup(w: NonNullable<TeamTaskData['wakeups']>[number]): void {
@@ -144,6 +164,11 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
             expect(Array.isArray(a.allow)).toBe(true)
           }
         }
+        // 由谁接、绑的执行机（docs/multica-learn.md §11.7）：云端带了就原样解析出来
+        const raws = (body.teams as { agents?: Record<string, unknown>[] }[]).flatMap(t => t.agents ?? [])
+        const parsed = ov.teams.flatMap(t => t.agents)
+        expect(parsed).toHaveLength(raws.length)
+        raws.forEach((raw, i) => expectExecutor(raw, parsed[i]))
         for (const i of ov.invites)
           expectFields(i as unknown as Record<string, unknown>, {
             id: 'string',
@@ -264,6 +289,58 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
     expect(woken?.task?.wake).toMatchObject({ ruleId: expect.any(String), kind: expect.any(String) })
     const watched = cards.find(m => m.task!.wakeups?.some(w => w.id === woken!.task!.wake!.ruleId))
     expect(watched?.task?.wakeups?.find(w => w.id === woken!.task!.wake!.ruleId)?.card).toBe(woken!.id)
+  })
+
+  // 执行机（docs/multica-learn.md §11.7）的样例：同上，云端分支没合进 services/cloud 时各自跳过
+  it.skipIf(!has('teams-agent-put.json'))('teams-agent-put.json：登记返回的成员带由谁接', () => {
+    const s = sample('teams-agent-put.json')
+    expectExecutor(s.body as Record<string, unknown>, parseAgent(s.body))
+  })
+
+  it.skipIf(!has('teams-runner-pairing.json'))('teams-runner-pairing.json：配对码和到期时间', async () => {
+    const res = await serve(sample('teams-runner-pairing.json')).runnerPairing('hk-1')
+    expect(res.code).toHaveLength(16)
+    expect(res.expiresAt).toBeGreaterThan(0)
+  })
+
+  it.skipIf(!has('teams-runner-pair.json'))('teams-runner-pair.json：执行机换到 id 和令牌', async () => {
+    const res = await serve(sample('teams-runner-pair.json')).pairRunner('aAJcAUWH7oiYINpX', '0.9.0')
+    expect(res.runnerId).toMatch(/^rn_/)
+    expect(res.token).toMatch(/^rn_/)
+    expect(res.name).not.toBe('')
+  })
+
+  it.skipIf(!has('teams-runner-seats.json'))('teams-runner-seats.json：席位满了要配对码是 CONFLICT', async () => {
+    const s = sample('teams-runner-seats.json')
+    await expect(serve(s).runnerPairing('hk-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: (s.body as { error: string }).error,
+    })
+  })
+
+  it.skipIf(!has('teams-runner-pair-invalid.json'))('teams-runner-pair-invalid.json：码不对是 NOT_FOUND', async () => {
+    await expect(serve(sample('teams-runner-pair-invalid.json')).pairRunner('x', '1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  })
+
+  it.skipIf(!has('teams-runners.json'))('teams-runners.json：我的执行机', async () => {
+    const s = sample('teams-runners.json')
+    const list = await serve(s).runners()
+    expect(list).toHaveLength((s.body as { runners: unknown[] }).runners.length)
+    for (const r of list!)
+      expectFields(r as unknown as Record<string, unknown>, {
+        id: 'string',
+        name: 'string',
+        version: ['string', 'null'],
+        createdAt: 'number',
+        lastSeenAt: ['number', 'null'],
+        online: 'boolean',
+      })
+  })
+
+  it.skipIf(!has('teams-runner-remove.json'))('teams-runner-remove.json：停用是 204', async () => {
+    await expect(serve(sample('teams-runner-remove.json')).removeRunner('rn_1')).resolves.toBeUndefined()
   })
 
   it('parseOverview 对样例不抛错', () => {

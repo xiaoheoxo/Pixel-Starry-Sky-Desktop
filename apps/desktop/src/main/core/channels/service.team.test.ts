@@ -273,13 +273,24 @@ describe('协作频道 Phase C：团队频道分流', () => {
       machine: '林夏的电脑',
       project: 'pixel-web',
       policy: 'approve',
+      // 由这台电脑接（docs/multica-learn.md §11.7）：同一账号的另一台桌面不去认领
+      executor: 'dev-A',
     })
     const view = c.state().members.find(m => m.kind === 'agent' && m.teamAgentId) as AgentMember
     expect(view).toMatchObject({ mine: true, policy: 'approve', ownerId: 'u:1', status: 'idle' })
     expect(view.config?.id).toBe(member)
+    expect(sync.agentById(view.id)?.executor).toBe('dev-A')
     // 再加一次不重复登记（也不把规则改回去）
     await c.setAgentPolicy('tc_1', view.id, 'team')
     expect(cloud.agent(view.id)?.policy).toBe('team')
+    expect(cloud.calls.filter(x => x.method === 'PUT').at(-1)?.body).toMatchObject({ executor: 'dev-A' })
+    // 已经绑了执行机的：改派活规则不带 executor（不把绑定改回这台）
+    cloud.agent(view.id)!.executor = 'rn_1'
+    await sync.reload('plain')
+    await c.setAgentPolicy('tc_1', view.id, 'approve')
+    expect(cloud.calls.filter(x => x.method === 'PUT').at(-1)?.body).not.toHaveProperty('executor')
+    expect(cloud.agent(view.id)).toMatchObject({ policy: 'approve', executor: 'rn_1' })
+    await c.setAgentPolicy('tc_1', view.id, 'team')
     await c.addMember('tc_1', member)
     expect(cloud.agents).toHaveLength(1)
     expect(cloud.agent(view.id)?.policy).toBe('team')
