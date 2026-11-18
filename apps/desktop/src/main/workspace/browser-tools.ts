@@ -2,6 +2,8 @@
 // 只管对一个网页做事；哪个网页、权限和广播在 browser.ts
 import { nativeImage, type NativeImage, type Session, type WebContents } from 'electron'
 import { BROWSER_CAPTURE_MAX_HEIGHT, type BrowserCapture } from '../../shared/types/project-browser'
+import { dirname, isAbsolute, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** 缩放档位（和 Chrome 一样） */
 export const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5]
@@ -45,6 +47,32 @@ export function opensInside(url: string, opener: string): boolean {
 export function reloadsPage(path: string): boolean {
   if (/(^|\/)(node_modules|\.git)(\/|$)/.test(path)) return false
   return /\.(html?|css|m?js|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?)$/i.test(path)
+}
+
+const foldCase = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
+
+/** file:// 网页所在的目录，相对项目根、用 /（就在根上是 ''）；不是本地文件或不在项目里时 null */
+export function pageDirIn(root: string, url: string): string | null {
+  let file: string
+  try {
+    file = fileURLToPath(url)
+  } catch {
+    return null
+  }
+  const rel = relative(root, dirname(file))
+  // 叫 ..x 的文件夹在项目里，只有 .. 本身或 ../ 开头才是项目外
+  if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) return null
+  return foldCase(rel.split(sep).join('/'))
+}
+
+/**
+ * 项目里这个文件变了要不要刷新网页（docs/ui/browser-v2.md §3.3）：只看网页所在目录和它下面的。
+ * 原来整个项目任何一个 .json / .js 变了都刷新，项目里跑测试、构建时网页一秒刷一次，还会抢走输入框的焦点
+ */
+export function reloadsFor(path: string, pageDir: string): boolean {
+  if (!reloadsPage(path)) return false
+  const p = foldCase(path)
+  return pageDir === '' || p.startsWith(pageDir + '/')
 }
 
 /** 记住的缩放：按网站（zoomSiteOf），100% 不记，最多记这么多个网站 */

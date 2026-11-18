@@ -54,7 +54,8 @@ import {
   isZoomMove,
   nextZoom,
   opensInside,
-  reloadsPage,
+  pageDirIn,
+  reloadsFor,
   rememberZoom,
   toggleDevTools,
   zoomSiteOf,
@@ -325,14 +326,39 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       fileWatches.set(
         scope,
         fileWatcher.subscribe([{ path: root!, prefix: '' }], change => {
-          if (!change.overflow && ![...change.added, ...change.changed].some(reloadsPage)) return
-          for (const v of filePages(scope)) v.view.webContents.reload()
+          const paths = [...change.added, ...change.changed]
+          for (const v of filePages(scope)) {
+            // 只看网页所在目录下的文件；不在项目里的网页这里监听不到它的目录，不刷新
+            const dir = pageDirIn(root!, v.view.webContents.getURL())
+            if (dir !== null && (change.overflow || paths.some(p => reloadsFor(p, dir)))) refreshFile(v)
+          }
         }),
       )
     else if (!need && off) {
       off()
       fileWatches.delete(scope)
     }
+  }
+  /** 文件变了、但网页不在眼前：先不刷新，下次显示时再刷新（place） */
+  const staleFiles = new WeakSet<View>()
+  /**
+   * 刷新本地文件网页。不在眼前的只记下（藏着的视图刷新也会抢走应用窗口的焦点，输入框点进去就丢）；
+   * 刷新前应用窗口有焦点、刷新后焦点跑到了网页上，就还给应用窗口
+   */
+  const refreshFile = (v: View): void => {
+    const wc = v.view.webContents
+    if (wc.isDestroyed()) return
+    if (!v.view.getVisible()) {
+      staleFiles.add(v)
+      return
+    }
+    const host = v.owner.webContents
+    const hadFocus = !host.isDestroyed() && host.isFocused()
+    wc.reload()
+    if (hadFocus)
+      wc.once('did-stop-loading', () => {
+        if (!host.isDestroyed() && !wc.isDestroyed() && wc.isFocused()) host.focus()
+      })
   }
   const persist = (): void => {
     void store.transaction(() => {}).catch(() => {})
@@ -365,6 +391,8 @@ export async function initProjectBrowser(ctx: AppContext, dir: string, host: Too
       void emulate(v, size)
     }
     v.view.setVisible(show)
+    // 藏着时文件变过：显示出来时补一次刷新
+    if (show && staleFiles.delete(v) && !v.view.webContents.isDestroyed()) v.view.webContents.reload()
   }
   /** 按工作区的设备、网页主题模拟；手机 / 平板标识变了重新加载（服务器按标识出页面） */
   const emulate = (v: View, size = deviceSize(state(v.scope).preview)): Promise<void> => {

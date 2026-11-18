@@ -1,10 +1,14 @@
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   ZOOM_SITES_MAX,
   isZoomMove,
   nextZoom,
   opensInside,
+  pageDirIn,
   rememberZoom,
+  reloadsFor,
   reloadsPage,
   zoomSiteOf,
 } from './browser-tools'
@@ -81,5 +85,28 @@ describe('本地文件自动刷新看哪些文件', () => {
     expect(reloadsPage('.git/index')).toBe(false)
     expect(reloadsPage('logs/server.log')).toBe(false)
     expect(reloadsPage('data.sqlite')).toBe(false)
+  })
+})
+
+describe('本地文件自动刷新只看网页所在目录', () => {
+  const root = process.platform === 'win32' ? 'D:\\proj' : '/proj'
+  const url = (rel: string): string => pathToFileURL(join(root, rel)).href
+
+  it('网页相对项目的目录；在根上是空串，不在项目里、不是本地文件是 null', () => {
+    expect(pageDirIn(root, url('docs/ui/a.html'))).toBe('docs/ui')
+    expect(pageDirIn(root, url('index.html'))).toBe('')
+    expect(pageDirIn(root, pathToFileURL(join(root, '..', 'other', 'a.html')).href)).toBeNull()
+    expect(pageDirIn(root, 'http://localhost:5173/')).toBeNull()
+    expect(pageDirIn(root, url('..assets/a.html'))).toBe('..assets')
+  })
+
+  it('只有网页目录（含子目录）里的网页相关文件才刷新（原来项目里任何 .json 变了都刷新）', () => {
+    expect(reloadsFor('docs/ui/a.html', 'docs/ui')).toBe(true)
+    expect(reloadsFor('docs/ui/img/x.png', 'docs/ui')).toBe(true)
+    expect(reloadsFor('scratch/tmp-1/devices.json', 'docs/ui')).toBe(false)
+    expect(reloadsFor('docs/ui-old/a.css', 'docs/ui')).toBe(false)
+    expect(reloadsFor('docs/ui/notes.log', 'docs/ui')).toBe(false)
+    // 网页在项目根上：整个项目都算
+    expect(reloadsFor('src/app.js', '')).toBe(true)
   })
 })
