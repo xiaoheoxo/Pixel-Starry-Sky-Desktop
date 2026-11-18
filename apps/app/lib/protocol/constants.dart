@@ -141,6 +141,7 @@ const engines = <String, EngineDescriptor>{
     liveModelSwitch: false,
     livePermissionSwitch: false,
     rewind: false,
+    sideChat: false,
   ),
 };
 

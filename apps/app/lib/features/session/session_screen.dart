@@ -48,6 +48,7 @@ import 'session_menu.dart';
 import 'user_menu.dart';
 import '../tools/common.dart';
 import '../tools/tools.dart';
+import '../settings/log_screen.dart' show showErrorSnack;
 
 /// 打开会话页；replace 为 true 时换掉当前页（抽屉里从一个会话切到另一个）
 void openSession(
@@ -286,7 +287,7 @@ class _SessionScreenState extends State<SessionScreen> {
         );
       }
     } catch (e) {
-      _toast(actionError(e));
+      if (mounted) showErrorSnack(context, actionError(e));
     }
   }
 
@@ -303,7 +304,7 @@ class _SessionScreenState extends State<SessionScreen> {
       }
       _images.discard(rewound.images);
     } catch (e) {
-      _toast(actionError(e));
+      if (mounted) showErrorSnack(context, actionError(e));
     } finally {
       if (mounted) {
         setState(() {

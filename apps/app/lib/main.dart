@@ -1,14 +1,18 @@
 // 像素星空手机 App 入口（docs/mobile-app.md）：读出配对过的电脑并连上，没有就先去配对
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:app_links/app_links.dart';
 
 import 'app/app.dart';
 import 'app/background.dart';
+import 'app/log.dart';
 import 'app/settings.dart';
 import 'app/scope.dart';
+import 'app/version.dart';
 import 'connection/connections.dart';
 import 'connection/pair.dart';
 import 'connection/socket.dart';
@@ -26,6 +30,7 @@ import 'platform/share_inbox.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  catchErrorsIntoLog(appLog);
   language.value = languageFor(
     WidgetsBinding.instance.platformDispatcher.locale,
   );
@@ -40,6 +45,8 @@ Future<void> main() async {
   // 演示模式不写本机：设置和列表缓存都只放内存
   final settings = AppSettings(persist: demo == null);
   final notifier = LocalNotifier();
+  // 手机日志（§19）：演示模式只放内存
+  if (demo == null) unawaited(_attachLog());
   await Future.wait([connections.load(), settings.load()]);
   // App 内检查更新（§16.1）：只在安卓上（iOS 还没有能装的版本）；演示模式给假的新版本
   final updater = demo != null || Platform.isAndroid
@@ -73,5 +80,19 @@ Future<void> main() async {
         demo: demo != null,
       ),
     ),
+  );
+}
+
+/// 日志文件放 App 私有目录（安卓 filesDir，不会像缓存目录那样被系统清掉）
+Future<void> _attachLog() async {
+  String? dir;
+  try {
+    dir = await const MethodChannel('pixelsky/update')
+        .invokeMethod<String>('filesDir');
+  } catch (_) {}
+  await appLog.attach(FileLogStore('${dir ?? Directory.systemTemp.path}/logs'));
+  appLog.info(
+    '程序',
+    '启动 $appVersion+$appBuild（${Platform.operatingSystem} ${Platform.operatingSystemVersion}）',
   );
 }

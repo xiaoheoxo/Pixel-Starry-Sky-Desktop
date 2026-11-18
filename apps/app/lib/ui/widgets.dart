@@ -385,7 +385,7 @@ class Section extends StatelessWidget {
           ),
         ClipRRect(
           borderRadius: BorderRadius.circular(Radii.card),
-          child: ColoredBox(
+          child: Material(
             color: c.bgSubtle,
             child: Column(
               children: [

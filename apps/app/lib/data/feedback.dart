@@ -136,12 +136,16 @@ String composeFeedbackBody({
   required String body,
   String steps = '',
   required String phone,
+  String phoneLog = '',
 }) {
   final parts = [
     body.trim(),
     if (steps.trim().isNotEmpty)
       '## ${L('复现步骤', 'Steps to reproduce')}\n${steps.trim()}',
     '## ${L('手机', 'Phone')}\n$phone\n${L('（从手机 App 提交）', '(Sent from the phone app)')}',
+    // 手机日志（§19）：放最后，限额不够时只留最新的几行
+    if (phoneLog.isNotEmpty)
+      '## ${L('手机日志（最近 2 小时）', 'Phone log (last 2 hours)')}\n```\n$phoneLog\n```',
   ];
   return parts.join('\n\n');
 }

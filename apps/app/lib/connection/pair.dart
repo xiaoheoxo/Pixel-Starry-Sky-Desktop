@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../app/log.dart';
 import '../link/link.dart';
 import 'nodes.dart';
 import 'offer.dart';
@@ -82,7 +83,8 @@ Future<Pairing> pairWithOffer(
       'code': code,
       'name': phoneName,
     });
-  } catch (_) {
+  } catch (e) {
+    appLog.warn('配对', '连不上云端：$e');
     throw const PairException(PairError.network);
   }
   final body = res.body is Map ? res.body as Map : const {};
@@ -90,6 +92,7 @@ Future<Pairing> pairWithOffer(
   if (res.status != 200 && res.status != 201 ||
       deviceId is! String ||
       token is! String) {
+    appLog.warn('配对', '云端回 ${res.status}：${body['error'] ?? '没有设备号'}');
     throw PairException(switch (body['error']) {
       'invalid_code' => PairError.invalidCode,
       'too_many_devices' => PairError.tooManyDevices,

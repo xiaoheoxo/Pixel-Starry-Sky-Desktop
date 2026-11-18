@@ -14,11 +14,12 @@ import java.io.File
 class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        // App 内更新（docs/mobile-app.md §16.1）：缓存目录、调起系统安装
+        // App 内更新（docs/mobile-app.md §16.1）：缓存目录、调起系统安装；filesDir 给手机日志（§19）
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "pixelsky/update")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "cacheDir" -> result.success(cacheDir.absolutePath)
+                    "filesDir" -> result.success(filesDir.absolutePath)
                     "install" -> result.success(install(call.argument<String>("path")))
                     else -> result.notImplemented()
                 }

@@ -9,6 +9,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../app/log.dart';
 import '../app/version.dart';
 import '../protocol/json.dart';
 
@@ -192,8 +193,9 @@ class AppUpdater extends ChangeNotifier {
         error = null;
         notifyListeners();
       }
-    } catch (_) {
-      // 没网、正式站没有：下次再查，不打扰
+    } catch (e) {
+      // 没网、正式站没有：下次再查，不打扰（只记一行日志）
+      appLog.info('更新', '检查更新失败：$e');
     }
   }
 
@@ -229,6 +231,7 @@ class AppUpdater extends ChangeNotifier {
       } catch (e) {
         step = UpdateStep.failed;
         error = e is FormatException ? 'sha256' : '$e';
+        appLog.error('更新', '下载 ${r.version} 失败：$error');
         notifyListeners();
         return;
       }

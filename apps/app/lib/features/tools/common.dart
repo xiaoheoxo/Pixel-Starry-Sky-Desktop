@@ -9,6 +9,7 @@ import '../../ui/theme/theme.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
+import '../settings/log_screen.dart';
 
 /// 一个工具页要知道的：哪台电脑、哪个项目；打开会话、新建会话交回给打开它的地方（右边栏里也要在主区打开）
 class ToolContext {
@@ -161,10 +162,42 @@ class ToolBanner extends StatelessWidget {
         color: tone == null ? c.bgSubtle : color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(Radii.card),
       ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: Fs.list, height: 1.5, color: color),
-      ),
+      child: tone != Tone.danger
+          ? Text(
+              text,
+              style: TextStyle(fontSize: Fs.list, height: 1.5, color: color),
+            )
+          // 出错时带「查看日志」（§19）
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: Fs.list,
+                      height: 1.5,
+                      color: color,
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => openLogs(context, errorsOnly: true),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Text(
+                      L('查看日志', 'View log'),
+                      style: TextStyle(
+                        fontSize: Fs.list,
+                        height: 1.5,
+                        color: c.accent,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -212,7 +245,7 @@ class Group extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(Radii.card),
-        child: ColoredBox(
+        child: Material(
           color: c.bgSubtle,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

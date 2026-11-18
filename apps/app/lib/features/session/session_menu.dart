@@ -13,10 +13,7 @@ import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../tools/tools.dart' show ToolTile;
 import 'approval_card.dart' show confirm;
-
-void _toast(BuildContext context, String text) =>
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(text)));
+import '../settings/log_screen.dart' show showErrorSnack;
 
 /// record：会话记录（id、title、pinnedAt、projectId）；running：是否在跑
 Future<void> showSessionMenu(
@@ -173,7 +170,7 @@ Future<void> showSessionMenu(
       try {
         await actions.pin(!pinned);
       } catch (e) {
-        if (context.mounted) _toast(context, actionError(e));
+        if (context.mounted) showErrorSnack(context, actionError(e));
       }
     case 'new':
       onNew?.call(projectId!);
@@ -228,10 +225,10 @@ Future<void> archiveSession(
         await actions.archive(stop: true);
         onArchived?.call();
       } catch (e) {
-        if (context.mounted) _toast(context, actionError(e));
+        if (context.mounted) showErrorSnack(context, actionError(e));
       }
     } else if (context.mounted) {
-      _toast(context, actionError(e));
+      showErrorSnack(context, actionError(e));
     }
   }
 }

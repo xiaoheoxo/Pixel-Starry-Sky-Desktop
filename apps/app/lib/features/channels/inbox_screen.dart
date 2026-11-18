@@ -13,6 +13,7 @@ import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import 'channels_screen.dart';
+import '../settings/log_screen.dart' show showErrorSnack;
 
 class InboxScreen extends StatelessWidget {
   const InboxScreen({
@@ -33,7 +34,7 @@ class InboxScreen extends StatelessWidget {
     try {
       await f();
     } catch (e) {
-      if (context.mounted) _toast(context, actionError(e));
+      if (context.mounted) showErrorSnack(context, actionError(e));
     }
   }
 
@@ -155,7 +156,7 @@ class InboxScreen extends StatelessWidget {
                               return true;
                             } catch (e) {
                               if (context.mounted) {
-                                _toast(context, actionError(e));
+                                showErrorSnack(context, actionError(e));
                               }
                               return false;
                             }

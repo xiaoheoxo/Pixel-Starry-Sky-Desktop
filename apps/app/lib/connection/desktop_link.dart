@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import 'package:clock/clock.dart';
 
+import '../app/log.dart';
 import '../link/link.dart';
 import 'pairing.dart';
 import 'socket.dart';
@@ -234,6 +235,10 @@ class DesktopLink {
       if (e is LinkException && e.message.startsWith('RPC_TIMEOUT')) {
         if (identical(_rpc, rpc)) _probe();
       }
+      // 日志只记方法名和错误码，参数不记（§19）
+      if (method != 'away') {
+        appLog.warn('调用', '${pairing.desktopName} · $method 失败：$e');
+      }
       throw e;
     });
   }
@@ -274,8 +279,42 @@ class DesktopLink {
       retryAt = null;
     }
     state = next;
+    _logState(next);
     _hooks.onState(next);
   }
+
+  /// 连接状态进日志（§19）：连接中、握手中这些过渡状态不记
+  void _logState(LinkState s) {
+    final name = pairing.desktopName;
+    switch (s) {
+      case LinkState.ready:
+        appLog.info('连接', '$name 已连上');
+      case LinkState.desktopOffline:
+        appLog.info('连接', '$name 不在线（中转连上了，电脑没连）');
+      // 没网时每 30 秒重试一次：前 3 次记，之后每 10 次记一条
+      case LinkState.offline when retries <= 3 || retries % 10 == 0:
+        appLog.warn(
+          '连接',
+          '$name 连不上中转（第 $retries 次，关闭码 $_lastClose），'
+              '${retryAt == null ? '' : '${retryAt!.difference(clock.now()).inSeconds} 秒后重试'}',
+        );
+      case LinkState.removed:
+        appLog.warn('连接', '$name 已在电脑上移除这部手机，或配对被拒绝');
+      case LinkState.unrecognized:
+        appLog.warn('连接', '$name 不认识这部手机的配对，稍后再试');
+      case LinkState.incompatible:
+        appLog.error('连接', '$name 的连接协议版本和手机不一致');
+      case LinkState.replaced:
+        appLog.warn('连接', '$name：远程席位用满，被别的设备顶掉');
+      case LinkState.offline ||
+          LinkState.connecting ||
+          LinkState.handshaking ||
+          LinkState.waitingConfirm:
+        break;
+    }
+  }
+
+  int _lastClose = 0;
 
   void _reset() {
     _rpc?.close();
@@ -363,6 +402,7 @@ class DesktopLink {
     }
     final wait = _delay * (0.8 + _random.nextDouble() * 0.4);
     retries++;
+    _lastClose = code;
     retryAt = clock.now().add(wait);
     _set(LinkState.offline);
     _timer?.cancel();
@@ -428,7 +468,10 @@ class DesktopLink {
     final ws = _ws;
     _guard = Timer(timings.handshakeTimeout, () {
       _guard = null;
-      if (identical(_ws, ws) && state != LinkState.ready) _lost(ws, 0);
+      if (identical(_ws, ws) && state != LinkState.ready) {
+        appLog.warn('连接', '${pairing.desktopName} 握手超时，断开重连');
+        _lost(ws, 0);
+      }
     });
   }
 
@@ -447,7 +490,8 @@ class DesktopLink {
         if (initiator == null) return;
         try {
           _finish(initiator.readMessage2(f.body).result);
-        } catch (_) {
+        } catch (e) {
+          appLog.error('连接', '${pairing.desktopName} 握手失败：$e');
           _lost(_ws, 0);
         }
       case FrameType.data:
@@ -492,6 +536,7 @@ class DesktopLink {
       _unguard();
       _set(LinkState.incompatible);
     } else if (status == 'unavailable' || status == 'handshake_failed') {
+      appLog.warn('连接', '${pairing.desktopName} 电脑回：$status，稍后重新握手');
       _retryHandshake(timings.retrySoon);
     }
   }

@@ -7,6 +7,7 @@ import '../../data/reviews.dart';
 import '../../i18n/i18n.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
+import '../settings/log_screen.dart' show showErrorSnack;
 
 class ReviewCard extends StatefulWidget {
   const ReviewCard({
@@ -34,8 +35,7 @@ class _ReviewCardState extends State<ReviewCard> {
       await f();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(SnackBar(content: Text(actionError(e))));
+        showErrorSnack(context, actionError(e));
       }
     } finally {
       if (mounted) setState(() => _busy = null);

@@ -18,6 +18,7 @@ import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../session/session_screen.dart';
 import 'inbox_screen.dart';
+import '../settings/log_screen.dart' show showErrorSnack;
 
 /// inbox：直接打开团队收件箱（点了团队提醒，§16.2）
 void openChannels(BuildContext context, String deviceId, {bool inbox = false}) {
@@ -452,8 +453,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       await t.approve(e.id, yes);
     } catch (err) {
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(SnackBar(content: Text(actionError(err))));
+        showErrorSnack(context, actionError(err));
       }
     }
   }

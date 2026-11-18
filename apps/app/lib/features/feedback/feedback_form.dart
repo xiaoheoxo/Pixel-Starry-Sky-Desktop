@@ -1,6 +1,8 @@
 // 新反馈（docs/mobile-app.md §8.5，照电脑 docs/ui/feedback.md §2.3）：类型、标题、描述、复现步骤（仅问题）、截图，
 // 附带信息：手机信息（总带，拼在正文末尾）、电脑诊断信息（默认带）、电脑最近 2 小时日志（问题默认勾，可预览原文）。
 // 日志只发时间窗，电脑自己取；草稿按电脑存本机（图片不存）。提交成功后换成这条反馈的详情。
+import '../../app/log.dart';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../app/scope.dart';
@@ -39,6 +41,9 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   final _images = PendingImages();
   bool _diagnostics = true;
   late bool _logs = _type == 'bug';
+
+  /// 附上手机日志（§19，同电脑日志：问题默认勾）
+  late bool _phoneLog = _type == 'bug';
 
   /// 手机信息一行（异步取机型）
   String _phone = '';
@@ -109,11 +114,29 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
     }
   }
 
-  String get _fullBody => composeFeedbackBody(
-    body: _body.text,
-    steps: _type == 'bug' ? _steps.text : '',
-    phone: _phone,
-  );
+  String get _fullBody {
+    final steps = _type == 'bug' ? _steps.text : '';
+    final base = composeFeedbackBody(
+      body: _body.text,
+      steps: steps,
+      phone: _phone,
+    );
+    final log = _phoneLogText;
+    if (!_phoneLog || log.isEmpty) return base;
+    // 手机日志占剩下的额度（标题、代码块的框留 60 字）；剩得太少就不带
+    final room = FeedbackLimits.bodyChars - base.length - 60;
+    if (room < 200) return base;
+    return composeFeedbackBody(
+      body: _body.text,
+      steps: steps,
+      phone: _phone,
+      phoneLog: tailLines(log, room),
+    );
+  }
+
+  /// 最近 2 小时的手机日志（§19）
+  String get _phoneLogText =>
+      logText(recentLogs(appLog.entries, feedbackLogWindow));
 
   Future<void> _submit() async {
     final limit = feedbackLimitError(
@@ -260,6 +283,7 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
             _type = v.first;
             // 换类型时日志默认跟着变（同电脑：只有问题默认带）
             _logs = _type == 'bug';
+            _phoneLog = _type == 'bug';
             _saveDraft();
           },
         ),
@@ -384,6 +408,21 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
                         '${logs['lines']} 行 · ${fileSize((logs['bytes'] as num?)?.toInt() ?? 0)} · 已脱敏',
                         '${logs['lines']} lines · ${fileSize((logs['bytes'] as num?)?.toInt() ?? 0)} · redacted',
                       ),
+                style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
+              ),
+            ),
+            CheckboxListTile(
+              value: _phoneLog,
+              onChanged: (v) => setState(() => _phoneLog = v == true),
+              title: Text(
+                L('手机最近 2 小时的日志', "This phone's log from the last 2 hours"),
+                style: TextStyle(fontSize: Fs.prose, color: c.text),
+              ),
+              subtitle: Text(
+                L(
+                  '${recentLogs(appLog.entries, feedbackLogWindow).length} 条 · 只有事件和错误，不含消息内容',
+                  '${recentLogs(appLog.entries, feedbackLogWindow).length} ${recentLogs(appLog.entries, feedbackLogWindow).length == 1 ? 'entry' : 'entries'} · events and errors only, no message content',
+                ),
                 style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
               ),
             ),

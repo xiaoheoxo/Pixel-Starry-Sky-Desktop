@@ -18,6 +18,7 @@ import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../lock/lock_screen.dart';
 import '../feedback/feedback_screen.dart';
+import 'log_screen.dart';
 import '../pairing/add_computer_screen.dart';
 import '../pairing/texts.dart';
 import '../session/approval_card.dart' show confirm;
@@ -332,11 +333,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                     style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
                   ),
                 ),
-              if (active != null) ...[
-                const SizedBox(height: 8),
-                Section(
-                  title: L('反馈', 'Feedback'),
-                  children: [
+              const SizedBox(height: 8),
+              Section(
+                title: L('反馈', 'Feedback'),
+                children: [
+                  if (active != null)
                     ListRow(
                       leading: Icon(
                         Icons.chat_bubble_outline,
@@ -365,9 +366,21 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ),
                       onTap: () => openFeedback(context, active.deviceId),
                     ),
-                  ],
-                ),
-              ],
+                  // 手机日志（§19）：没配对也能看（配对失败也记在这里）
+                  ListRow(
+                    leading: Icon(
+                      Icons.receipt_long_outlined,
+                      color: c.textMuted,
+                    ),
+                    title: L('日志', 'Log'),
+                    subtitle: L(
+                      '连接、调用失败和报错，出问题时看这里',
+                      'Connection, failed calls and errors',
+                    ),
+                    onTap: () => openLogs(context),
+                  ),
+                ],
+              ),
               Padding(
                 padding: const EdgeInsets.only(top: 28),
                 child: Text(

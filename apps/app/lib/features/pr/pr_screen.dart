@@ -11,6 +11,7 @@ import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../session/session_menu.dart';
+import '../settings/log_screen.dart' show showErrorSnack;
 
 /// 在系统浏览器里打开（只开 https）
 Future<void> openExternal(String url) async {
@@ -198,7 +199,7 @@ class _PrScreenState extends State<PrScreen> {
       await f();
       if (mounted) _toast(done);
     } catch (e) {
-      if (mounted) _toast(actionError(e));
+      if (mounted) showErrorSnack(context, actionError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -209,7 +210,7 @@ class _PrScreenState extends State<PrScreen> {
     try {
       await widget.prs.refresh();
     } catch (e) {
-      if (mounted) _toast(actionError(e));
+      if (mounted) showErrorSnack(context, actionError(e));
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -220,7 +221,7 @@ class _PrScreenState extends State<PrScreen> {
     try {
       options = await widget.prs.mergeOptions(pr.url);
     } catch (e) {
-      if (mounted) _toast(actionError(e));
+      if (mounted) showErrorSnack(context, actionError(e));
       return;
     }
     if (!mounted) return;

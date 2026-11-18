@@ -22,6 +22,7 @@ import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../lock/lock_screen.dart';
+import '../settings/log_screen.dart' show showErrorSnack;
 
 void openAccount(BuildContext context, String deviceId) {
   Navigator.of(context).push(
@@ -281,8 +282,11 @@ class _AccountScreenState extends State<AccountScreen> {
                                 final full = await _checkout.get(o.id);
                                 if (mounted) await _openOrder(full);
                               } catch (e) {
-                                if (mounted) {
-                                  _toast(checkoutError(actionError(e)));
+                                if (context.mounted) {
+                                  showErrorSnack(
+                                    context,
+                                    checkoutError(actionError(e)),
+                                  );
                                 }
                               }
                             },
@@ -634,7 +638,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
       final next = await widget.checkout.cancel(_order.id);
       if (mounted) setState(() => _order = next);
     } catch (e) {
-      if (mounted) _toast(checkoutError(actionError(e)));
+      if (mounted) showErrorSnack(context, checkoutError(actionError(e)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
