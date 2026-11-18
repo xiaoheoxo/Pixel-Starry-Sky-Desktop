@@ -142,6 +142,8 @@ export interface Runtime {
   sourceSwitching?: boolean
   /** 启动这个进程时的引擎级设置（launchKey）；设置变了，下一条消息前重启进程 */
   sessionLaunch?: string
+  /** 启动这个进程时按模型定下的部分（settings.modelLaunchKey）：Codex 一轮结束时据此判断要不要关掉旧进程（D343） */
+  sessionModelKey?: string
   /**
    * 启动这个进程时的订阅账号（accounts.currentId）；走平台 / 自定义接口的进程为 null。换账号后正在跑的这一轮和
    * 空闲着的旧进程仍用它（下一条消息前才换进程）：额度用完归到它、借进程读额度也要和当前账号对得上

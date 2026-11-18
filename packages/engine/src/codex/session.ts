@@ -30,6 +30,7 @@ import {
   noticeErrorOf,
   parseGoalCommand,
   ULTRAFAST_DROPPED,
+  autoImageInput,
   codexUltrafastAllowed,
   platformUltrafastModel,
   viaGateway,
@@ -53,6 +54,7 @@ import { codexQuotaPatch, parseCodexRateLimits } from './quota'
 import { codexChanges, CodexTranslator, tokenCounts, codexReview } from './translate'
 import { CODEX_WINDOW_ENV, codexContextConfig } from './context-config'
 import { pixelAutoWindow } from '../pixel/context-window'
+import type { CatalogExtras } from './model-catalog'
 import { codexGoal, goalUnsupported, sameGoal } from './goal'
 import { queueSettings } from '../queue'
 
@@ -85,7 +87,7 @@ export interface CodexLaunchOptions {
     model: string,
     window: number | null,
     auto: number | null,
-    ultrafast: boolean,
+    extras: CatalogExtras,
   ) => Promise<string | null>
   /** Codex 报过的各模型窗口（没改窗口时记下），算自动压缩的 token 数用 */
   knownWindows?: Map<string, number>
@@ -393,15 +395,18 @@ export async function codexLaunchConfig(
   delete environment[CODEX_WINDOW_ENV]
   if (context.window) config('model_context_window', context.window)
   // 经网关（云端线路、自定义 API）：Codex 把窗口限制在模型资料的上限内，没有资料的模型只有 272K。用户自己写了目录时不管。
-  // 平台线路上能开 Ultrafast 的模型还要在目录里声明这一档，否则 Codex 会把它从请求里去掉（docs/codex-ultrafast-platform.md）
+  // 平台线路上能开 Ultrafast 的模型还要在目录里声明这一档，否则 Codex 会把它从请求里去掉（docs/codex-ultrafast-platform.md）；
+  // 没资料的模型写上能不能看图（和 codexModelSees 同一个判断），不能看的 Codex 才会把历史里的图换成文字
   if (
     gatewayProvider &&
     model &&
     options.modelCatalog &&
     !(options.args ?? []).some(arg => arg.includes('model_catalog_json'))
   ) {
-    const ultrafast = !!record.platform && platformUltrafastModel(model)
-    const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model), ultrafast).catch(() => null)
+    const extras: CatalogExtras = record.platform
+      ? { ultrafast: platformUltrafastModel(model), images: autoImageInput(model, 'responses').images }
+      : {}
+    const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model), extras).catch(() => null)
     if (file) config('model_catalog_json', file)
   }
   if (context.limit) config('model_auto_compact_token_limit', context.limit)

@@ -408,6 +408,25 @@ export class HostEvents {
         const turnEngine = (rt.execution ?? rt.snapshot.record).engine
         const awaitingGuidance = rt.snapshot.queue.some(q => q.status === 'delivering')
         if (!awaitingGuidance) rt.execution = null
+        // 这一轮跑着时换了 Codex 的模型（跑着改不了，D343）：进程是按旧模型起的，现在关掉。不然目标模式用旧进程、旧模型
+        // 接着开轮：网关按新模型拒绝，旧资料还会把历史截图发给不能看图的模型。下一条消息起新进程，恢复线程时 active 的目标接着做
+        const live = rt.snapshot.record
+        if (
+          !awaitingGuidance &&
+          rt.session &&
+          live.engine === 'codex' &&
+          rt.sessionModelKey !== undefined &&
+          m.settings.modelLaunchKey(live) !== rt.sessionModelKey
+        ) {
+          const stale = rt.session
+          rt.session = null
+          if (rt.idleTimer) {
+            clearTimeout(rt.idleTimer)
+            rt.idleTimer = null
+          }
+          // 还在这个会话自己的回调里：等它返回再关
+          queueMicrotask(() => void stale.close().catch(() => undefined))
+        }
         if (event.outcome !== 'completed' && !reconnecting) rt.snapshot = { ...rt.snapshot, queuePaused: true }
         m.queue.publishQueue(id)
         this.apply(id, { type: 'status', state: awaitingGuidance ? 'starting' : 'idle' })

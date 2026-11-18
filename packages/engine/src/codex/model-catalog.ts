@@ -27,9 +27,11 @@ export const FALLBACK_WINDOW = 272_000
 
 /**
  * 没有资料的模型：照 Codex 默认资料的一项（实测发出的请求和默认资料一致），只改窗口。
- * 字段是 Codex 0.163 的必填项；其余缺省值和默认资料一样
+ * 字段是 Codex 0.163 的必填项；其余缺省值和默认资料一样。
+ * images：这个模型能不能看图（平台线路按模型能力表）。写成只收文字时，Codex 会把历史里的图换成一句文字再发；
+ * 不写时 Codex 当它能看，换到不能看图的模型后旧截图照发，上游报错、会话卡死（0.169 实测）。undefined 不写
  */
-export function fallbackEntry(slug: string, window: number, instructions: string): CatalogModel {
+export function fallbackEntry(slug: string, window: number, instructions: string, images?: boolean): CatalogModel {
   return {
     slug,
     display_name: slug,
@@ -44,7 +46,14 @@ export function fallbackEntry(slug: string, window: number, instructions: string
     truncation_policy: { mode: 'bytes', limit: 10_000 },
     experimental_supported_tools: [],
     base_instructions: instructions,
+    ...(images === undefined ? {} : { input_modalities: images ? ['text', 'image'] : ['text'] }),
   }
+}
+
+/** 生成目录时的附加项：ultrafast 见 withUltrafast；images 见 fallbackEntry（只用于 Codex 没资料的模型） */
+export interface CatalogExtras {
+  ultrafast?: boolean
+  images?: boolean
 }
 
 /** 平台线路的 Ultrafast 档位（Codex 目录里 service_tiers 的一项）；Fast 一起声明，没有资料的模型原本两个都没有 */
@@ -71,7 +80,8 @@ export function withUltrafast(entry: CatalogModel): CatalogModel {
  * 要不要生成目录、生成什么（纯函数）。window 是填的窗口，auto 是按系列自动定的：
  * - 自带目录里有这个模型：填的窗口大于它的上限才复制这一项改窗口，否则 null（只带 model_context_window 就够）；
  * - 没有：加一项默认资料，窗口取 填的 ?? 自动的 ?? 默认的 272000；没有提示词时 null（照现在用默认资料）
- * ultrafast：平台线路上这个模型能开 Ultrafast，这一项要声明 Fast、Ultrafast 档位（有资料的模型因此也要复制一份）
+ * extras.ultrafast：平台线路上这个模型能开 Ultrafast，这一项要声明 Fast、Ultrafast 档位（有资料的模型因此也要复制一份）；
+ * extras.images：没资料的模型能不能看图
  */
 export function catalogWith(
   bundled: readonly CatalogModel[],
@@ -79,8 +89,9 @@ export function catalogWith(
   window: number | null,
   auto: number | null,
   instructions: string | null,
-  ultrafast = false,
+  extras: CatalogExtras = {},
 ): { models: CatalogModel[] } | null {
+  const ultrafast = extras.ultrafast === true
   const tiers = (entry: CatalogModel): CatalogModel => (ultrafast ? withUltrafast(entry) : entry)
   const own = bundled.find(m => m.slug === model)
   if (own) {
@@ -91,7 +102,9 @@ export function catalogWith(
     return { models: bundled.map(m => (m === own ? changed : m)) }
   }
   if (!instructions) return null
-  return { models: [...bundled, tiers(fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions))] }
+  return {
+    models: [...bundled, tiers(fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions, extras.images))],
+  }
 }
 
 /** 隔离的环境：空的临时 CODEX_HOME，不读用户的配置、不写用户的数据 */
@@ -283,11 +296,11 @@ export class CodexCatalog {
     model: string,
     window: number | null,
     auto: number | null,
-    ultrafast = false,
+    extras: CatalogExtras = {},
   ): Promise<string | null> {
     const { bundled, instructions } = await this.sources(launcher, version, env)
     if (!bundled) return null
-    const catalog = catalogWith(bundled, model, window, auto, instructions, ultrafast)
+    const catalog = catalogWith(bundled, model, window, auto, instructions, extras)
     if (!catalog) return null
     const text = JSON.stringify(catalog)
     const path = join(this.dir, `catalog-${createHash('sha256').update(text).digest('hex').slice(0, 16)}.json`)

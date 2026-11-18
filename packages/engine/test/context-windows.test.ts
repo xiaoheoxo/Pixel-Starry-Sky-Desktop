@@ -335,7 +335,7 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
       { slug: 'gpt-5', context_window: 272_000 },
     ]
     expect(catalogWith(bundled, 'gpt-6-astra', null, null, 'P')).toBeNull()
-    const astra = catalogWith(bundled, 'gpt-6-astra', null, null, 'P', true)!.models
+    const astra = catalogWith(bundled, 'gpt-6-astra', null, null, 'P', { ultrafast: true })!.models
     expect(astra[0].service_tiers).toEqual([
       { id: 'priority', name: 'Fast' },
       expect.objectContaining({ id: 'ultrafast' }),
@@ -343,7 +343,7 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
     expect(astra[0].additional_speed_tiers).toEqual(['fast'])
     expect(astra[1]).toBe(bundled[1])
     // 没有资料的模型（GPT-6.2 不在 0.169 的自带目录里）：默认资料加上两个档位
-    const sol = catalogWith(bundled, 'gpt-6.2-sol', null, null, 'P', true)!.models[2]
+    const sol = catalogWith(bundled, 'gpt-6.2-sol', null, null, 'P', { ultrafast: true })!.models[2]
     expect(sol).toMatchObject({ slug: 'gpt-6.2-sol', base_instructions: 'P' })
     expect((sol.service_tiers as Array<{ id: string }>).map(x => x.id)).toEqual(['priority', 'ultrafast'])
     // 已经声明过的不重复
@@ -395,6 +395,65 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
     expect(launches().length).toBeGreaterThan(before)
     const sol = readCatalog(launches().at(-1)!).models.find(m => m.slug === 'gpt-6.2-sol')
     expect((sol?.service_tiers as Array<{ id: string }>).map(x => x.id)).toContain('ultrafast')
+  })
+  // 卡死的会话（2026-11-18 日志）：换到不能看图的模型后，旧截图照发，上游报 input[N].content[1] 不对，之后每轮都失败
+  it('没资料的模型写上能不能看图：不能看的只收文字，没判断的不写', () => {
+    const bundled = [{ slug: 'gpt-5', context_window: 272_000 }]
+    expect(
+      catalogWith(bundled, 'deepseek-v4-pro', null, null, 'P', { images: false })!.models[1].input_modalities,
+    ).toEqual(['text'])
+    expect(catalogWith(bundled, 'glm-5', null, null, 'P', { images: true })!.models[1].input_modalities).toEqual([
+      'text',
+      'image',
+    ])
+    expect(catalogWith(bundled, 'glm-5', null, null, 'P')!.models[1]).not.toHaveProperty('input_modalities')
+  })
+
+  it('平台会话空闲时换到不能看图的模型：马上换进程，新目录里这个模型只收文字', async () => {
+    const { host, project, launches } = codexHost()
+    const s = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'gpt-6.2-sol',
+      platform: { groupId: '7', account: 'a@example.com' },
+      permissionMode: 'ask',
+    })
+    await host.send(s.id, '一')
+    await waitFor(() => turnsDone(s.id) === 1)
+    const before = launches().length
+    await host.update(s.id, { model: 'deepseek-v4-pro' })
+    await host.send(s.id, '二')
+    await waitFor(() => turnsDone(s.id) === 2)
+    expect(launches().length).toBe(before + 1)
+    const argv = launches().at(-1)!
+    const deepseek = readCatalog(argv).models.find(m => m.slug === 'deepseek-v4-pro')
+    expect(deepseek?.input_modalities).toEqual(['text'])
+  })
+
+  it('平台会话跑着时换模型：这一轮结束就关掉旧进程（目标模式不会用旧模型接着开轮），下一条按新模型起', async () => {
+    const { host, project, launches } = codexHost()
+    const s = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'gpt-6.2-sol',
+      platform: { groupId: '7', account: 'a@example.com' },
+      permissionMode: 'ask',
+    })
+    await host.send(s.id, '慢一点')
+    await waitFor(() => host.open(s.id).state === 'running')
+    await host.update(s.id, { model: 'deepseek-v4-pro' })
+    await waitFor(() => turnsDone(s.id) === 1)
+    // 一轮结束就放掉旧进程，不等下一条消息（目标模式会在这中间用旧进程接着开轮）
+    const runtime = (host as unknown as { ctx: { runtimes: Map<string, { session: unknown }> } }).ctx.runtimes.get(
+      s.id,
+    )!
+    await waitFor(() => runtime.session === null)
+    const before = launches().length
+    await host.send(s.id, '二')
+    await waitFor(() => turnsDone(s.id) === 2)
+    expect(launches().length).toBe(before + 1)
+    const deepseek = readCatalog(launches().at(-1)!).models.find(m => m.slug === 'deepseek-v4-pro')
+    expect(deepseek?.input_modalities).toEqual(['text'])
   })
 })
 

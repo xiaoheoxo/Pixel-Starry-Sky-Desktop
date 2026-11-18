@@ -330,6 +330,16 @@ export class HostSessions {
       next.titleEdited = true
     }
     if (patch.model !== undefined) next.model = patch.model
+    // Codex 换模型要换进程的（走网关、按模型定窗口）：空闲时现在就关进程，下一条消息起新的。不关的话目标模式自动接着跑的
+    // 轮次还用旧进程的旧模型：网关按新模型拒绝（「请求模型与当前平台会话不一致」），旧资料还会把历史截图发给不能看图的模型
+    if (
+      current.engine === 'codex' &&
+      patch.model !== undefined &&
+      !running &&
+      rt.session &&
+      m.settings.modelLaunchKey({ ...current, ...next }) !== m.settings.modelLaunchKey(current)
+    )
+      restart = true
     // 自己改了来源、线路或模型：不再自动换回订阅（docs/ui/engine-accounts.md §5.2）
     if ((changed || (patch.model !== undefined && patch.model !== current.model)) && current.platformFallback)
       next.platformFallback = null

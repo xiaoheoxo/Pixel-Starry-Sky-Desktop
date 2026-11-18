@@ -122,6 +122,7 @@ export class HostTurn {
         rt.sessionSource = source
         rt.sessionMaxRetries = maxRetries
         rt.sessionLaunch = launch
+        rt.sessionModelKey = m.settings.modelLaunchKey(record)
         // launchKey 里带着当前账号，和这里取的是同一个：这个进程就用它
         rt.sessionAccount = source === null ? m.accounts.currentId(record.engine) : null
         rt.session = this.createEngineSession(id, adapter, { extensions, maxRetries, engineId: info.id })
