@@ -261,7 +261,10 @@ export {
   AUTO_REVIEW_TEXT,
   PERMISSION_MODES,
   ULTRAFAST_DROPPED,
+  codexUltrafastAllowed,
   diffStat,
+  platformUltrafastModel,
+  platformUltrafastMultiplier,
   ultrafastEligible,
 } from './util'
 export type { EffortPanelDefaults } from './util'

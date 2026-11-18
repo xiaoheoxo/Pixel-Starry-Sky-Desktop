@@ -30,7 +30,8 @@ import {
   noticeErrorOf,
   parseGoalCommand,
   ULTRAFAST_DROPPED,
-  ultrafastEligible,
+  codexUltrafastAllowed,
+  platformUltrafastModel,
   viaGateway,
 } from '@pixelsky/protocol'
 import type { GoalAction, SessionGoal } from '@pixelsky/protocol'
@@ -80,7 +81,12 @@ export interface CodexLaunchOptions {
    * 经网关时要交给 model_catalog_json 的模型目录文件（docs/ui/context-settings-branch-switch.md §2.3.1）：放开 272K 上限、
    * 补上 Codex 没有资料的模型；window 是填的窗口，auto 是按系列自动定的。不需要时 null
    */
-  modelCatalog?: (model: string, window: number | null, auto: number | null) => Promise<string | null>
+  modelCatalog?: (
+    model: string,
+    window: number | null,
+    auto: number | null,
+    ultrafast: boolean,
+  ) => Promise<string | null>
   /** Codex 报过的各模型窗口（没改窗口时记下），算自动压缩的 token 数用 */
   knownWindows?: Map<string, number>
   /** 以前派出过的子智能体（从 rollout 还原）：接着跑完时在原来的追踪上更新 */
@@ -386,14 +392,16 @@ export async function codexLaunchConfig(
   })
   delete environment[CODEX_WINDOW_ENV]
   if (context.window) config('model_context_window', context.window)
-  // 经网关（云端线路、自定义 API）：Codex 把窗口限制在模型资料的上限内，没有资料的模型只有 272K。用户自己写了目录时不管
+  // 经网关（云端线路、自定义 API）：Codex 把窗口限制在模型资料的上限内，没有资料的模型只有 272K。用户自己写了目录时不管。
+  // 平台线路上能开 Ultrafast 的模型还要在目录里声明这一档，否则 Codex 会把它从请求里去掉（docs/codex-ultrafast-platform.md）
   if (
     gatewayProvider &&
     model &&
     options.modelCatalog &&
     !(options.args ?? []).some(arg => arg.includes('model_catalog_json'))
   ) {
-    const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model)).catch(() => null)
+    const ultrafast = !!record.platform && platformUltrafastModel(model)
+    const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model), ultrafast).catch(() => null)
     if (file) config('model_catalog_json', file)
   }
   if (context.limit) config('model_auto_compact_token_limit', context.limit)
@@ -1170,7 +1178,7 @@ export class CodexSession implements EngineSession {
    */
   private ultrafastOk(): boolean {
     const id = this.settings.model ?? this.catalog?.currentModel ?? this.threadModel ?? null
-    return !viaGateway(this.ctx.record()) && ultrafastEligible(this.catalog, id)
+    return codexUltrafastAllowed(this.ctx.record(), this.catalog, id)
   }
   /** 换模型或线路后用不了 Ultrafast：退回 Fast 并说一声，换回来不悄悄恢复 8 倍扣费 */
   private dropUltrafast(): void {

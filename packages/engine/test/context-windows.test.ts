@@ -8,7 +8,7 @@ import { ClaudeAdapter, CodexAdapter, EngineHost } from '../src'
 import { windowSettings } from '../src/claude/long-context'
 import { claudeSettingsArgument } from '../src/claude/session'
 import { codexContextConfig } from '../src/codex/context-config'
-import { CodexCatalog, FALLBACK_WINDOW, catalogWith, fallbackEntry } from '../src/codex/model-catalog'
+import { CodexCatalog, FALLBACK_WINDOW, catalogWith, fallbackEntry, withUltrafast } from '../src/codex/model-catalog'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
 const FAKE_CLAUDE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
@@ -326,6 +326,75 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
         .at(-1)!
         .match(/model_catalog_json/g),
     ).toHaveLength(1)
+  })
+
+  // docs/codex-ultrafast-platform.md：Codex 只发目录里声明了的档位
+  it('平台线路的 Ultrafast：目录里给这个模型声明 Fast、Ultrafast；有资料的模型不改窗口也复制一份', () => {
+    const bundled = [
+      { slug: 'gpt-6-astra', context_window: 272_000, service_tiers: [{ id: 'priority', name: 'Fast' }] },
+      { slug: 'gpt-5', context_window: 272_000 },
+    ]
+    expect(catalogWith(bundled, 'gpt-6-astra', null, null, 'P')).toBeNull()
+    const astra = catalogWith(bundled, 'gpt-6-astra', null, null, 'P', true)!.models
+    expect(astra[0].service_tiers).toEqual([
+      { id: 'priority', name: 'Fast' },
+      expect.objectContaining({ id: 'ultrafast' }),
+    ])
+    expect(astra[0].additional_speed_tiers).toEqual(['fast'])
+    expect(astra[1]).toBe(bundled[1])
+    // 没有资料的模型（GPT-6.2 不在 0.169 的自带目录里）：默认资料加上两个档位
+    const sol = catalogWith(bundled, 'gpt-6.2-sol', null, null, 'P', true)!.models[2]
+    expect(sol).toMatchObject({ slug: 'gpt-6.2-sol', base_instructions: 'P' })
+    expect((sol.service_tiers as Array<{ id: string }>).map(x => x.id)).toEqual(['priority', 'ultrafast'])
+    // 已经声明过的不重复
+    expect(withUltrafast(withUltrafast(bundled[0])).service_tiers).toHaveLength(2)
+  })
+
+  it('平台线路开 Ultrafast：认的模型启动带声明了 ultrafast 的目录、每轮发 ultrafast；不认的模型退回 Fast', async () => {
+    const { host, project, launches } = codexHost()
+    const s = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'gpt-6.2-sol',
+      platform: { groupId: '7', account: 'a@example.com' },
+      permissionMode: 'ask',
+    })
+    await host.update(s.id, { fast: true, ultrafast: true })
+    await host.send(s.id, '一')
+    await waitFor(() => turnsDone(s.id) === 1)
+    const sol = readCatalog(launches().at(-1)!).models.find(m => m.slug === 'gpt-6.2-sol')
+    expect((sol?.service_tiers as Array<{ id: string }>).map(x => x.id)).toContain('ultrafast')
+    const turns = lines(join(root, 'rpc.jsonl'))
+      .map(m => m as unknown as { method?: string; params?: { serviceTier?: string } })
+      .filter(m => m.method === 'turn/start')
+    expect(turns.at(-1)?.params?.serviceTier).toBe('ultrafast')
+    expect(host.open(s.id).record).toMatchObject({ fast: true, ultrafast: true })
+
+    // 换到 sub2api 不按 Ultrafast 计价的模型：退回 Fast 并提示
+    await host.update(s.id, { model: 'grok-4.7' })
+    await waitFor(() => host.open(s.id).record.ultrafast === false)
+    expect(host.open(s.id).record.fast).toBe(true)
+  })
+
+  it('平台会话中途从不认的模型换到认的：下一条换进程，新目录里有它的 Ultrafast', async () => {
+    const { host, project, launches } = codexHost()
+    const s = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'grok-4.7',
+      platform: { groupId: '7', account: 'a@example.com' },
+      permissionMode: 'ask',
+    })
+    await host.send(s.id, '一')
+    await waitFor(() => turnsDone(s.id) === 1)
+    const before = launches().length
+    await host.update(s.id, { model: 'gpt-6.2-sol' })
+    await host.update(s.id, { fast: true, ultrafast: true })
+    await host.send(s.id, '二')
+    await waitFor(() => turnsDone(s.id) === 2)
+    expect(launches().length).toBeGreaterThan(before)
+    const sol = readCatalog(launches().at(-1)!).models.find(m => m.slug === 'gpt-6.2-sol')
+    expect((sol?.service_tiers as Array<{ id: string }>).map(x => x.id)).toContain('ultrafast')
   })
 })
 

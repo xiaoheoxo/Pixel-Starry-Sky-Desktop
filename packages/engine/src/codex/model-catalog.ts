@@ -47,10 +47,31 @@ export function fallbackEntry(slug: string, window: number, instructions: string
   }
 }
 
+/** 平台线路的 Ultrafast 档位（Codex 目录里 service_tiers 的一项）；Fast 一起声明，没有资料的模型原本两个都没有 */
+const ULTRAFAST_TIER = { id: 'ultrafast', name: 'Ultrafast', description: 'Lowest latency; higher usage' }
+const PRIORITY_TIER = { id: 'priority', name: 'Fast', description: 'Faster responses; higher usage' }
+
+/** 给一项加上 Fast、Ultrafast 档位（已有的不重复、不改） */
+export function withUltrafast(entry: CatalogModel): CatalogModel {
+  const tiers = Array.isArray(entry.service_tiers) ? (entry.service_tiers as Array<{ id?: unknown }>) : []
+  const has = (id: string): boolean => tiers.some(t => t && typeof t === 'object' && t.id === id)
+  const speed = Array.isArray(entry.additional_speed_tiers) ? (entry.additional_speed_tiers as unknown[]) : []
+  return {
+    ...entry,
+    service_tiers: [
+      ...tiers,
+      ...(has('priority') ? [] : [PRIORITY_TIER]),
+      ...(has('ultrafast') ? [] : [ULTRAFAST_TIER]),
+    ],
+    additional_speed_tiers: speed.includes('fast') ? speed : [...speed, 'fast'],
+  }
+}
+
 /**
  * 要不要生成目录、生成什么（纯函数）。window 是填的窗口，auto 是按系列自动定的：
  * - 自带目录里有这个模型：填的窗口大于它的上限才复制这一项改窗口，否则 null（只带 model_context_window 就够）；
  * - 没有：加一项默认资料，窗口取 填的 ?? 自动的 ?? 默认的 272000；没有提示词时 null（照现在用默认资料）
+ * ultrafast：平台线路上这个模型能开 Ultrafast，这一项要声明 Fast、Ultrafast 档位（有资料的模型因此也要复制一份）
  */
 export function catalogWith(
   bundled: readonly CatalogModel[],
@@ -58,17 +79,19 @@ export function catalogWith(
   window: number | null,
   auto: number | null,
   instructions: string | null,
+  ultrafast = false,
 ): { models: CatalogModel[] } | null {
+  const tiers = (entry: CatalogModel): CatalogModel => (ultrafast ? withUltrafast(entry) : entry)
   const own = bundled.find(m => m.slug === model)
   if (own) {
     const max = own.max_context_window ?? own.context_window ?? FALLBACK_WINDOW
-    if (!window || window <= max) return null
-    return {
-      models: bundled.map(m => (m === own ? { ...m, context_window: window, max_context_window: window } : m)),
-    }
+    const wider = !!window && window > max
+    if (!wider && !ultrafast) return null
+    const changed = tiers(wider ? { ...own, context_window: window, max_context_window: window } : own)
+    return { models: bundled.map(m => (m === own ? changed : m)) }
   }
   if (!instructions) return null
-  return { models: [...bundled, fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions)] }
+  return { models: [...bundled, tiers(fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions))] }
 }
 
 /** 隔离的环境：空的临时 CODEX_HOME，不读用户的配置、不写用户的数据 */
@@ -260,10 +283,11 @@ export class CodexCatalog {
     model: string,
     window: number | null,
     auto: number | null,
+    ultrafast = false,
   ): Promise<string | null> {
     const { bundled, instructions } = await this.sources(launcher, version, env)
     if (!bundled) return null
-    const catalog = catalogWith(bundled, model, window, auto, instructions)
+    const catalog = catalogWith(bundled, model, window, auto, instructions, ultrafast)
     if (!catalog) return null
     const text = JSON.stringify(catalog)
     const path = join(this.dir, `catalog-${createHash('sha256').update(text).digest('hex').slice(0, 16)}.json`)

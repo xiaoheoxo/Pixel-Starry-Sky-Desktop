@@ -20,8 +20,7 @@ import {
   type SessionSnapshot,
   type SessionSummary,
   ULTRAFAST_DROPPED,
-  ultrafastEligible,
-  viaGateway,
+  codexUltrafastAllowed,
 } from '@pixelsky/protocol'
 import { queueSettings } from '../queue'
 import { ENGINES } from '../registry'
@@ -447,7 +446,8 @@ export class HostSessions {
     // await 期间记录可能又变了（docs 里「反复出现的缺陷」）：按最新的判断
     const fresh = rt.snapshot.record
     // 目录还没读到时不动，进程起来后引擎会再判断
-    if (!fresh.ultrafast || !catalog?.models || (!viaGateway(fresh) && ultrafastEligible(catalog, fresh.model)))
+    // 平台线路按模型名单判断，不用目录；自己登录的目录还没读到时不动
+    if (!fresh.ultrafast || (!fresh.platform && !catalog?.models) || codexUltrafastAllowed(fresh, catalog, fresh.model))
       return fresh
     const record = m.events.patchRecord(id, { ultrafast: false })
     if (rt.execution) rt.execution.ultrafast = false

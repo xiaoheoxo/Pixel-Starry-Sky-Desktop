@@ -1,4 +1,4 @@
-import type { Effort, EngineCatalog, FileChange, PermissionMode, SessionDefaults } from './types'
+import type { Effort, EngineCatalog, FileChange, PermissionMode, SessionDefaults, SessionSettings } from './types'
 
 /** 权限模式，按菜单里的顺序 */
 /**
@@ -50,6 +50,38 @@ export function ultrafastEligible(catalog: EngineCatalog | null | undefined, mod
   // 跟随默认、config.toml 也没写模型时，实际用的是目录标的默认模型
   const id = model ?? catalog.currentModel
   return catalog.models?.find(m => (id ? m.id === id : m.isDefault))?.ultrafast === true
+}
+/**
+ * 平台线路上能开 Ultrafast 的模型（docs/codex-ultrafast-platform.md）：照 sub2api 0.2.23 的 openAIModelSupportsUltrafast，
+ * 它按这几个模型的倍率扣费；别的模型带了 ultrafast 只按 Fast 收、上游也不一定认，不给开。model 可以带 provider/ 前缀
+ */
+export function platformUltrafastModel(model: string | null | undefined): boolean {
+  const id = (model ?? '').trim().toLowerCase().split('/').at(-1) ?? ''
+  return (
+    id === 'gpt-6.1-sol' ||
+    id === 'gpt-6.2-sol' ||
+    id === 'gpt-6.2-astra' ||
+    id === 'gpt-6-astra' ||
+    id.startsWith('gpt-6-astra-')
+  )
+}
+/** 平台线路 Ultrafast 的扣费倍数（sub2api 0.2.23）：GPT-6.2 在 2027-03-01 00:00 太平洋时间前 3 倍，之后和其余模型一样 6 倍 */
+export function platformUltrafastMultiplier(model: string | null | undefined, now = Date.now()): number {
+  const id = (model ?? '').trim().toLowerCase().split('/').at(-1) ?? ''
+  return id.startsWith('gpt-6.2-') && now < Date.UTC(2027, 2, 1, 8) ? 3 : 6
+}
+/**
+ * 这个会话能不能开 Ultrafast：平台线路按模型名单；自定义接口不给；自己登录按官方规则（ultrafastEligible）。
+ * Codex 的界面、引擎、宿主共用
+ */
+export function codexUltrafastAllowed(
+  source: Pick<SessionSettings, 'platform' | 'provider'>,
+  catalog: EngineCatalog | null | undefined,
+  model: string | null,
+): boolean {
+  if (source.platform) return platformUltrafastModel(model)
+  if (source.provider) return false
+  return ultrafastEligible(catalog, model)
 }
 /** 退回 Fast 时留在会话里的提示（界面按 codex.ultrafastDropped 翻译） */
 export const ULTRAFAST_DROPPED = 'This model or route has no Ultrafast, so it was changed to Fast'

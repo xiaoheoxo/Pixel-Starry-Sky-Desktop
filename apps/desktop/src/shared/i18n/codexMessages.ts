@@ -94,6 +94,15 @@ export const codexMessages = {
     zh: '最快的速度。订阅额度按 8 倍扣，credits 按 6 倍',
     en: 'The fastest speed. Subscription limits count 8x, credits 6x',
   },
+  // 平台线路（docs/codex-ultrafast-platform.md）：倍数照 sub2api 的扣费，不是官方订阅的 8 倍
+  'speed.platformUltrafastDesc': {
+    zh: '最快的速度。按 {n} 倍扣平台额度',
+    en: 'The fastest speed. Uses Pixel Starry Sky credits at {n}x',
+  },
+  'speed.platformHoldHint': {
+    zh: '点一下开关 Fast（2 倍），按住开 Ultrafast（{n} 倍）',
+    en: 'Click for Fast (2x), press and hold for Ultrafast ({n}x)',
+  },
   'speed.holdHint': {
     zh: '点一下开关 Fast（2.5 倍），按住开 Ultrafast（8 倍）',
     en: 'Click for Fast (2.5x), press and hold for Ultrafast (8x)',

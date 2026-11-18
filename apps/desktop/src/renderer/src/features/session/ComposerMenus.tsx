@@ -251,7 +251,11 @@ export function EffortMenu({
                 description={
                   live.effortEngine === 'pixel'
                     ? `${live.ultrafast ? '' : tr('speed.pixelHold') + ' '}${live.fastHint ?? tr('speed.pixelCost')}`
-                    : undefined
+                    : live.ultrafastCost !== null
+                      ? tr(live.ultrafast ? 'speed.platformUltrafastDesc' : 'speed.platformHoldHint', {
+                          n: live.ultrafastCost,
+                        })
+                      : undefined
                 }
                 speed={live.ultrafast ? 'ultrafast' : live.fast ? 'fast' : 'off'}
                 pending={fastPending}

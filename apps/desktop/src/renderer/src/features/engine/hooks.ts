@@ -30,6 +30,8 @@ import {
   type SessionSettings,
   type SessionSnapshot,
   sourceKey,
+  platformUltrafastModel,
+  platformUltrafastMultiplier,
   ultrafastEligible,
 } from '@pixelsky/protocol'
 import {
@@ -406,8 +408,10 @@ export interface ComposerController {
   fastPending: boolean
   fast: boolean
   setFast(on: boolean): void
-  /** 官方登录、当前模型能开 Ultrafast（新任务也算，只看模型目录）；否则界面还是 Fast 开关 */
+  /** 官方登录、当前模型能开 Ultrafast（新任务也算，只看模型目录），或平台线路上 sub2api 认的模型；否则界面还是 Fast 开关 */
   ultrafastAvailable: boolean
+  /** 平台线路的 Ultrafast 扣费倍数（docs/codex-ultrafast-platform.md）；官方登录、Pixel 是 null，用各自的说明 */
+  ultrafastCost: number | null
   ultrafast: boolean
   setUltrafast(): void
   /** 显示思考摘要 */
@@ -748,7 +752,9 @@ export function useComposerController(
   const pixelFast = pixelLiveSpeed?.fast ?? (source === 'self' && !!catalogModel(model)?.fastTier)
   const ultrafastAvailable =
     selectedEngineId === engineId &&
-    ((engineId === 'codex' && source === 'self' && ultrafastEligible(catalog, model)) ||
+    ((engineId === 'codex' &&
+      ((source === 'self' && ultrafastEligible(catalog, model)) ||
+        (source === 'platform' && platformUltrafastModel(model)))) ||
       (engineId === 'pixel' &&
         (pixelLiveSpeed?.ultrafast ?? (source === 'self' && catalogModel(model)?.ultrafast === true))))
   const ultrafast = ultrafastAvailable && (record ? record.ultrafast : base.ultrafast) === true
@@ -976,6 +982,8 @@ export function useComposerController(
     fast: record ? record.fast : base.fast,
     setFast: fast => patch({ fast, ultrafast: false }),
     ultrafastAvailable,
+    ultrafastCost:
+      ultrafastAvailable && engineId === 'codex' && source === 'platform' ? platformUltrafastMultiplier(model) : null,
     ultrafast,
     setUltrafast: () => patch({ fast: true, ultrafast: true }),
     thinkingSupported: engine?.caps.thinkingSummaries ?? false,

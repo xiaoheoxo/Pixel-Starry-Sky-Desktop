@@ -452,8 +452,16 @@ export class CodexAdapter implements EngineAdapter {
       ...(this.opts.launchOptions?.() ?? { askQuestions: true }),
       defaultModel: () => this.catalogCache?.currentModel ?? null,
       knownWindows: this.knownWindows,
-      modelCatalog: (model, window, auto) =>
-        this.modelCatalog.file(launcher, version, toolEnvironment(launcher, this.baseEnv()), model, window, auto),
+      modelCatalog: (model, window, auto, ultrafast) =>
+        this.modelCatalog.file(
+          launcher,
+          version,
+          toolEnvironment(launcher, this.baseEnv()),
+          model,
+          window,
+          auto,
+          ultrafast,
+        ),
     }
   }
   /**
