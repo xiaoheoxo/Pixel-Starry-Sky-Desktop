@@ -36,14 +36,17 @@ class FakeSocket implements SocketLike {
   }
 }
 
-function setup(token: (force: boolean) => Promise<string | null> = async () => 'tok') {
+function setup(
+  token: (force: boolean) => Promise<string | null> = async () => 'tok',
+  url: string | (() => string) = 'wss://cloud.example/v1/teams/ws',
+) {
   const sockets: FakeSocket[] = []
   const frames: TeamFrame[] = []
   const statuses: RealtimeStatus[] = []
   const stops: RealtimeStop[] = []
   const tokens: boolean[] = []
   const rt = new TeamRealtime({
-    url: 'wss://cloud.example/v1/teams/ws',
+    url,
     token: force => {
       tokens.push(force)
       return token(force)
@@ -138,6 +141,19 @@ describe('TeamRealtime', () => {
     expect(t.statuses).toContain('offline')
     await vi.advanceTimersByTimeAsync(1100)
     expect(t.sockets).toHaveLength(2)
+    t.rt.stop()
+  })
+
+  it('地址给函数时每次连接都重新取：线路换了，重连就用新的', async () => {
+    let base = 'wss://cdn.example'
+    const t = setup(undefined, () => base + '/v1/teams/ws')
+    t.rt.start()
+    await flush()
+    expect(t.sockets[0].url).toBe('wss://cdn.example/v1/teams/ws')
+    base = 'wss://direct.example'
+    t.sockets[0].drop()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(t.sockets.at(-1)!.url).toBe('wss://direct.example/v1/teams/ws')
     t.rt.stop()
   })
 

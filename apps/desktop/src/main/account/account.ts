@@ -25,6 +25,7 @@ import {
   probeBeforeLogin,
   probeRoute,
   routeOf,
+  wsRoute,
   type CloudRoute,
   type ProbeResult,
   type RouteMode,
@@ -165,6 +166,12 @@ export function baseUrl(): string {
   if (raw && overrideAllowed(raw)) return raw
   const id = mode === 'auto' ? route : mode
   return id ? routeOf(id).base : DEFAULT_AUTH_URL
+}
+
+/** 长连接（WebSocket）用的云端地址：自动模式下走直连（CDN 会去掉升级头，见 cloud-route.ts 的 wsRoute）；有覆盖时同 baseUrl */
+export function wsBaseUrl(): string {
+  if (!routingEnabled()) return baseUrl()
+  return routeOf(wsRoute(mode, lastProbe)).base
 }
 
 // ---------------------------------------------------------------------------

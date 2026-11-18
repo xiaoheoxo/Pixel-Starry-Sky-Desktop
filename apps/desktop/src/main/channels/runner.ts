@@ -5,7 +5,7 @@ import { readFile, writeFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
-import { baseUrl } from '../account/account'
+import { wsBaseUrl } from '../account/account'
 import { machineOf } from '../machines/identity'
 import type { Channels } from '../core/channels/service'
 import { TeamError, isRunnerId, type TeamRunnerData } from '../core/channels/team/api'
@@ -160,7 +160,8 @@ export function initRunners(
       // 重新装同一台：沿用原来的执行机（云端换新令牌，旧的作废），绑它的成员不用重绑
       const pairing = await api().runnerPairing(info.name, map[machineId]?.runnerId)
       const result = await remote<{ runnerId: string; linger: boolean }>(machineId, 'runner:install', [
-        { code: pairing.code, base: baseUrl() },
+        // 执行机所有请求和长连接都走这个地址：用长连接的那条（CDN 会去掉 WebSocket 升级头）
+        { code: pairing.code, base: wsBaseUrl() },
       ])
       if (!isRunnerId(result?.runnerId)) throw new Error('执行机返回的数据异常')
       map = { ...map, [machineId]: { runnerId: result.runnerId } }

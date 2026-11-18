@@ -11,7 +11,7 @@ import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
 import { windowLocale } from '../app/ui-language'
 import { machineOf } from '../machines/identity'
-import { baseUrl, bridgeToken, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
+import { bridgeToken, wsBaseUrl, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
 import { TeamApi } from '../core/channels/team/api'
 import { loadDeviceId } from '../core/channels/team/device'
 import { TeamRealtime, teamsWsUrl } from '../core/channels/team/realtime'
@@ -95,7 +95,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     ? new TeamSync({
         api: new TeamApi(teamsFetch),
         realtime: handlers =>
-          new TeamRealtime({ url: teamsWsUrl(baseUrl()), token: force => bridgeToken(force), ...handlers }),
+          new TeamRealtime({ url: () => teamsWsUrl(wsBaseUrl()), token: force => bridgeToken(force), ...handlers }),
         log: (message, error) => log.warn(message, error ? { error: describeError(error) } : undefined),
       })
     : null

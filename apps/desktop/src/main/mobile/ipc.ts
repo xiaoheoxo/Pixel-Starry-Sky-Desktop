@@ -19,6 +19,7 @@ import { addProjectPath } from '../core/engine/ops'
 import {
   accountSnapshot,
   baseUrl,
+  wsBaseUrl,
   bridgeFetch,
   bridgeToken,
   onAccountChange,
@@ -106,7 +107,7 @@ export function initMobile(ctx: AppContext): void {
     status,
     error,
     desktopName: hostname(),
-    relayDefault: defaultRelay(baseUrl()),
+    relayDefault: defaultRelay(wsBaseUrl()),
     fingerprint: store.prefs.enabled ? store.fingerprint() : null,
     devices: store.devices.map(d => ({
       id: d.id,
@@ -125,7 +126,7 @@ export function initMobile(ctx: AppContext): void {
     assignedFor: string | null = null,
     resolving = false,
     lastPremium: boolean | null = null
-  const relayUrl = (): string => pickRelay(store.prefs.relay, assigned, defaultRelay(baseUrl()))
+  const relayUrl = (): string => pickRelay(store.prefs.relay, assigned, defaultRelay(wsBaseUrl()))
   /** 向云端要中转地址，拿到（或失败）后重新判断连接；取的时候换了账号就丢掉结果 */
   const resolveRelay = (email: string): void => {
     if (resolving) return
@@ -181,7 +182,7 @@ export function initMobile(ctx: AppContext): void {
     desktopName: () => hostname(),
     relay: relayUrl,
     // 手机网页版总在主站（优质节点只做中转）；手机按二维码里的中转地址去连，只认主站列出的节点
-    web: () => webUrl(store.prefs.relay || defaultRelay(baseUrl())) || null,
+    web: () => webUrl(store.prefs.relay || defaultRelay(wsBaseUrl())) || null,
     // 手机的调用不经过 ipc.handle，自己计时：通道名加 mobile: 前缀，卡顿诊断里和窗口的请求分得开
     call: (channel, args, owner) =>
       ipc.track(`mobile:${channel}`, async () => {

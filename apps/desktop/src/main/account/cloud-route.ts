@@ -92,4 +92,14 @@ export function parseSavedRoute(raw: unknown): { route: CloudRoute['id'] | null;
   return { route: isRouteId(o.route) ? o.route : null, mode: isRouteId(o.mode) ? o.mode : 'auto' }
 }
 
+/**
+ * 长连接（团队频道、手机中转、执行机的 WebSocket）走哪条（docs/network-direct.md §9）：CDN 节点大多把 WebSocket 的升级头
+ * 去掉（云端回 426，连不上），所以自动模式下固定走直连，只有上次测到直连不通才走 CDN。长连接只握手一次，慢一点不要紧。
+ * 用户在账号页指定了线路就按指定的
+ */
+export function wsRoute(mode: RouteMode, probe: readonly ProbeResult[]): CloudRoute['id'] {
+  if (mode !== 'auto') return mode
+  return probe.some(r => r.id === 'direct' && r.ms === null) ? 'cdn' : 'direct'
+}
+
 export const isRouteMode = (v: unknown): v is RouteMode => v === 'auto' || isRouteId(v)

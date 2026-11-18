@@ -7,6 +7,7 @@ import {
   pickRoute,
   probeBeforeLogin,
   probeRoute,
+  wsRoute,
 } from './cloud-route'
 
 const r = (id: 'cdn' | 'direct', ms: number | null) => ({ id, ms })
@@ -59,5 +60,15 @@ describe('登录前要不要先测速（docs/network-direct.md §8）', () => {
     expect(probeBeforeLogin('cdn', [ok('cdn', null), ok('direct', 500)], now - 1_000, now)).toBe(true)
     expect(probeBeforeLogin('direct', [ok('cdn', null), ok('direct', 500)], now - 1_000, now)).toBe(false)
     expect(probeBeforeLogin(null, [ok('cdn', 300), ok('direct', 500)], now - 1_000, now)).toBe(false)
+  })
+})
+
+describe('wsRoute：长连接走哪条', () => {
+  it('自动模式固定走直连（CDN 去掉 WebSocket 升级头）；直连上次测不通才走 CDN；用户指定了就按指定的', () => {
+    expect(wsRoute('auto', [])).toBe('direct')
+    expect(wsRoute('auto', [r('cdn', 100), r('direct', 900)])).toBe('direct')
+    expect(wsRoute('auto', [r('cdn', 100), r('direct', null)])).toBe('cdn')
+    expect(wsRoute('cdn', [r('cdn', 100), r('direct', 50)])).toBe('cdn')
+    expect(wsRoute('direct', [r('direct', null)])).toBe('direct')
   })
 })

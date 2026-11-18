@@ -34,7 +34,8 @@ export interface SocketLike {
 }
 
 export interface RealtimeOptions {
-  url: string
+  /** 地址；给函数时每次连接（含重连）都重新取：线路择优换了线路，下次重连就用新的 */
+  url: string | (() => string)
   /** 访问令牌；force 为 true 时先刷新。没登录返回 null */
   token(force: boolean): Promise<string | null>
   onFrame(frame: TeamFrame): void
@@ -158,9 +159,8 @@ export class TeamRealtime {
     const protocols = [PROTOCOL, `bearer.${token}`]
     let ws: SocketLike
     try {
-      ws = this.o.socket
-        ? this.o.socket(this.o.url, protocols)
-        : (new WebSocket(this.o.url, protocols) as unknown as SocketLike)
+      const url = typeof this.o.url === 'function' ? this.o.url() : this.o.url
+      ws = this.o.socket ? this.o.socket(url, protocols) : (new WebSocket(url, protocols) as unknown as SocketLike)
     } catch {
       this.o.onStatus('offline')
       this.retry()
