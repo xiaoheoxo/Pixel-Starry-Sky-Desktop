@@ -1,5 +1,6 @@
 import { BrowserWindow, screen, type IpcMainInvokeEvent } from 'electron'
 import * as ipc from '../ipc/guard'
+import { minimizeTarget } from './owned-window'
 import { sendTo } from './rendererHealth'
 import type { WindowSnapLayout, WindowState } from '../../shared/types/window'
 
@@ -91,7 +92,8 @@ export function initWindowControls(): void {
   ipc.handle(
     'window:minimize',
     event => {
-      callingWindow(event).minimize()
+      // 子窗口（置顶的设置窗口）的最小化按钮：最小化整个软件，不让它单独缩成左下角的白条
+      minimizeTarget(callingWindow(event)).minimize()
     },
     callerOnly,
   )

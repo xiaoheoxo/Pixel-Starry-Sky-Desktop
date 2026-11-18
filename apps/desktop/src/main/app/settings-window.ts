@@ -8,6 +8,7 @@ import * as ipc from '../ipc/guard'
 import type { MainWindowAction, SettingsTarget, SettingsWindowState } from '../../shared/types/settings-window'
 import type { AppContext } from './context'
 import { sendTo, sendWhenReady } from './rendererHealth'
+import { minimizeWithParent } from './owned-window'
 import { markSettingsWindow, isSettingsWindow } from './settingsWindowRegistry'
 import {
   SETTINGS_MIN,
@@ -94,6 +95,8 @@ export function initSettingsWindow(ctx: AppContext, deps: SettingsWindowDeps): S
     })
     win = created
     markSettingsWindow(created)
+    // 置顶（有 parent）时单独最小化会缩成屏幕左下角的白条：改成整个软件一起最小化
+    minimizeWithParent(created)
     // 要跳到哪随地址带过去（页面一加载就能读到，不用等界面订阅好再推）
     const query = { view: 'settings', ...(Object.keys(target).length > 0 && { target: JSON.stringify(target) }) }
     deps.setup(created, { view: 'settings' })

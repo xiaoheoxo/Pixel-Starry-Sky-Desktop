@@ -5,6 +5,7 @@
 import { BrowserWindow, session, shell, type Session, type WebContents } from 'electron'
 import { accountEpoch, onAccountChange } from './account'
 import { payPageOf } from './checkout'
+import { minimizeWithParent } from '../app/owned-window'
 import { markPayWindow } from '../app/payWindowRegistry'
 import { sendTo } from '../app/rendererHealth'
 import { windowLocale } from '../app/ui-language'
@@ -238,6 +239,7 @@ export async function openPayWindow(owner: BrowserWindow | null, orderId: unknow
     },
   })
   markPayWindow(win)
+  minimizeWithParent(win)
   if (process.platform !== 'darwin') win.removeMenu() // 窗口里不要软件的应用菜单
   const ownerContents = owner.webContents
   const rec: Current = {
