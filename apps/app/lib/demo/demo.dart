@@ -130,7 +130,12 @@ class DemoDesktop {
 
   List<Json> _summaries() => [
     for (final e in _snaps.entries)
-      {'record': e.value['record'], 'state': e.value['state']},
+      {
+        'record': e.value['record'],
+        'state': e.value['state'],
+        if (((e.value['background'] as num?) ?? 0) > 0)
+          'background': e.value['background'],
+      },
   ];
 
   /// 推一个会话事件：先折进自己的快照，再发给手机
@@ -683,6 +688,34 @@ class DemoDesktop {
       case 'engine:interrupt':
         _stop(id);
         return null;
+      // 压缩上下文（§18）：先转圈，一会儿后剩一小截
+      case 'engine:compact':
+        final window =
+            (objOrNull(_snaps[id]?['context'])?['window'] as num?) ?? 200000;
+        _push(id, {
+          'type': 'context',
+          'context': {
+            'used': 0,
+            'window': window,
+            'stale': false,
+            'compacting': true,
+          },
+        });
+        _later(id, [
+          (
+            1500,
+            () => _push(id, {
+              'type': 'context',
+              'context': {
+                'used': 21000,
+                'window': window,
+                'stale': false,
+                'compacting': false,
+              },
+            }),
+          ),
+        ]);
+        return null;
       case 'engine:answer':
         final requestId = args[1] as String;
         _push(id, {'type': 'approval_resolved', 'requestId': requestId});
@@ -1062,6 +1095,9 @@ class DemoDesktop {
       'pending': s['pending'] ?? const <Json>[],
       'queue': s['queue'] ?? const <Json>[],
       'context': s['context'],
+      // 一轮说完、后台子智能体还在跑（§17）
+      if (s['subagents'] != null) 'subagents': s['subagents'],
+      if (s['background'] != null) 'background': s['background'],
     };
   }
 
@@ -1204,6 +1240,29 @@ class DemoDesktop {
       'outcome': 'completed',
       'lastReply': L10n.reply3.split('\n').first,
       'updatedAt': now - 2 * 3600000,
+      'context': {
+        'used': 172000,
+        'window': 200000,
+        'stale': false,
+        'compacting': false,
+      },
+      'background': 2,
+      'subagents': [
+        {
+          'id': 'ag1',
+          'label': '查 Noise 规范',
+          'status': 'running',
+          'background': true,
+          'message': '读规范第 7 节',
+        },
+        {
+          'id': 'ag2',
+          'label': '补握手测试',
+          'status': 'running',
+          'background': true,
+          'message': null,
+        },
+      ],
       'items': [
         {
           'kind': 'user',

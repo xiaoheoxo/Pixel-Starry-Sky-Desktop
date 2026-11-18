@@ -25,6 +25,7 @@ class Composer extends StatefulWidget {
     this.autofocus = false,
     this.placeholder,
     this.top,
+    this.trailing,
   });
 
   final TextEditingController draft;
@@ -45,6 +46,9 @@ class Composer extends StatefulWidget {
 
   /// 卡片里输入行上面的一行（会话页运行中的「正在回复 0:12」）
   final Widget? top;
+
+  /// 发送按钮左边的小东西（会话页的上下文圆环，§18）
+  final Widget? trailing;
 
   @override
   State<Composer> createState() => _ComposerState();
@@ -203,6 +207,7 @@ class _ComposerState extends State<Composer> {
                         ),
                       ),
                     ),
+                    ?widget.trailing,
                     if (stopping)
                       _Circle(
                         icon: Icons.stop_rounded,

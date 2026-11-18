@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../app/scope.dart';
 import '../../connection/desktop_link.dart';
+import '../../data/background_agents.dart';
 import '../../data/actions.dart';
 import '../../data/images.dart';
 import '../../data/share.dart';
@@ -40,6 +41,8 @@ import 'items.dart';
 import 'message_images.dart';
 import '../../ui/markdown_image.dart';
 import 'mode_sheet.dart';
+import 'background_strip.dart';
+import 'context_ring.dart';
 import 'queue_view.dart';
 import 'session_menu.dart';
 import 'user_menu.dart';
@@ -340,6 +343,11 @@ class _SessionScreenState extends State<SessionScreen> {
         final running = snapshot != null
             ? truthy(snapshot['turnId'])
             : summary?.state == 'running' || summary?.state == 'starting';
+        // 一轮说完、后台子智能体还在跑（§17）：输入框上面一条，不算「做完了」
+        final agents = backgroundAgents(snapshot);
+        final bgCount = snapshot != null
+            ? (snapshot['background'] as num?)?.toInt() ?? 0
+            : summary?.background ?? 0;
         final pendingList = objList(snapshot?['pending']);
         final pending = pendingList.isEmpty
             ? null
@@ -699,7 +707,16 @@ class _SessionScreenState extends State<SessionScreen> {
                       if (_rewound != null && !running)
                         RewindBar(onUndo: _undoRewind, busy: _undoing),
                       Composer(
-                        top: running ? RunningStrip(items: items) : null,
+                        trailing: ContextRing(
+                          info: objOrNull(snapshot['context']),
+                          canCompact: canAct && !running,
+                          onCompact: _actions.compact,
+                        ),
+                        top: running
+                            ? RunningStrip(items: items)
+                            : agents.isNotEmpty || bgCount > 0
+                            ? BackgroundStrip(agents: agents, count: bgCount)
+                            : null,
                         draft: _draft,
                         canAct: canAct,
                         running: running,

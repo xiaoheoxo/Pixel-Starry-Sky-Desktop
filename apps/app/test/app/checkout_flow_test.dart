@@ -61,7 +61,12 @@ void main() {
     await until(() => find.text('\$96.25').evaluate().isNotEmpty, '余额');
     await until(() => find.textContaining('¥200').evaluate().isNotEmpty, '商品');
     await tester.pump(const Duration(seconds: 1));
+    // 额度那一节在余额下面（§17），充值的选项要往下翻
+    await tester.ensureVisible(find.text('¥200 · 送 5%'));
+    await tester.pump();
     await tester.tap(find.text('¥200 · 送 5%'));
+    await tester.pump();
+    await tester.ensureVisible(find.text('用支付宝付 ¥200'));
     await tester.pump();
     expect(find.textContaining('含赠送'), findsOneWidget);
     await tester.tap(find.text('用支付宝付 ¥200'));
@@ -71,6 +76,8 @@ void main() {
     await until(() => find.text('已到账').evaluate().isNotEmpty, '到账');
     expect(find.textContaining('到账 \$'), findsOneWidget);
     await tester.tap(find.text('完成'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.drag(find.byType(ListView).first, const Offset(0, 2000));
     await until(() => find.text('\$125.65').evaluate().isNotEmpty, '余额更新');
 
     await tester.pumpWidget(const SizedBox());

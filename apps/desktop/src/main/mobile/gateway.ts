@@ -20,9 +20,11 @@ import {
   type EngineCaps,
   type EngineCatalog,
   type EngineId,
+  type EngineQuotaProvider,
   type HostEvent,
   type ImageAttachment,
   type QueuedMessage,
+  type AccountQuota,
   type ArtifactResponse,
   type IpcChannelSpec,
   type Item,
@@ -154,6 +156,8 @@ export interface LocalQueries {
   addProject?(path: string): ProjectRecord | Promise<ProjectRecord>
   /** 电脑登录的平台账号（抽屉底部的头像、余额）；没登录为 null */
   account?(): Promise<PhoneAccount | null> | PhoneAccount | null
+  /** 订阅账号的额度（Claude / ChatGPT / Google，docs/mobile-app.md §17）：一分钟内取过就用缓存 */
+  quota?(provider: EngineQuotaProvider): Promise<AccountQuota | null>
   /** 这个引擎在电脑上配好的额度来源（平台线路、自定义接口）；没有时手机不能换来源 */
   sources?(engine: EngineId): Promise<DesktopSources>
   /** 电脑的反馈（设置 › 反馈）；反馈模块还没起来时为 null */
@@ -207,20 +211,48 @@ export interface PhoneChannels {
   attachments(channelId: string, messageId: string): ChannelAttachments | Promise<ChannelAttachments>
 }
 
-/** 手机能看到的账号信息：只有名字、余额、套餐名，不带邮箱、分组、限流、额度 */
+/** 手机能看到的账号信息：名字、余额、套餐名、平台额度窗口（§17），不带邮箱、分组 */
 export type PhoneAccount = {
   name: string
   balance: number | null
   currency: string
   plan: string | null
   updatedAt: number
+  /** 平台额度：每个窗口（「5h」「1d」「7d」）已用金额和上限；上限 0 是不限 */
+  rateLimits: { window: string; used: number; limit: number }[]
 }
 
-/** 给手机的账号信息：只挑名字、余额、套餐名，邮箱、分组、限流、额度都不带 */
+/** 给手机的账号信息：挑名字、余额、套餐名和额度窗口，邮箱、分组都不带 */
 export function phoneAccount(info: AccountInfo | null): PhoneAccount | null {
   if (!info) return null
   const { name, balance, currency, plan, updatedAt } = info
-  return { name, balance, currency, plan: plan?.name ?? null, updatedAt }
+  const rateLimits = (info.rateLimits ?? []).slice(0, 10).map(r => ({ window: r.window, used: r.used, limit: r.limit }))
+  return { name, balance, currency, plan: plan?.name ?? null, updatedAt, rateLimits }
+}
+
+/** 给手机的订阅额度（§17）：窗口、分模型额度、整体被拒；不带账号邮箱、点数和重置卡明细 */
+export function phoneQuota(q: AccountQuota | null): Record<string, unknown> | null {
+  if (!q) return null
+  const win = (w: {
+    durationMins: number | null
+    usedPercent: number
+    resetsAt: number | null
+    rejected?: boolean
+  }) => ({
+    durationMins: w.durationMins,
+    usedPercent: w.usedPercent,
+    resetsAt: w.resetsAt,
+    rejected: w.rejected === true,
+  })
+  return {
+    provider: q.provider,
+    status: q.status,
+    plan: q.plan,
+    windows: q.windows.map(w => ({ id: w.id, ...win(w) })),
+    models: (q.extras.models ?? []).slice(0, 10).map(m => ({ name: cut(m.name, 40), ...win(m) })),
+    blocked: q.blocked ? { resetsAt: q.blocked.resetsAt } : null,
+    observedAt: q.observedAt,
+  }
 }
 
 /** 手机搜索对话内容的结果 */
@@ -905,6 +937,8 @@ export function sanitize(method: string, args: unknown[]): unknown[] {
       // 第四个参数告诉电脑这是手机答的：批准计划后不回完全放行（ops.ts 的 engine:answer）
       return [args[0], args[1], args[2], 'mobile']
     }
+    case 'engine:compact':
+      return [asString(args[0])]
     default:
       return args
   }
@@ -1171,6 +1205,14 @@ export class MobileGateway {
     if (method === 'account') {
       if (!this.d.local?.account) throw new Error('MOBILE_UNSUPPORTED')
       return (await this.d.local.account()) ?? null
+    }
+    if (method === 'quota') {
+      // 订阅账号的额度（§17）：只看，view 就能读
+      if (!this.d.local?.quota) throw new Error('MOBILE_UNSUPPORTED')
+      const provider = args[0]
+      if (provider !== 'claude' && provider !== 'chatgpt' && provider !== 'google')
+        throw new Error('MOBILE_BAD_ARGUMENT')
+      return phoneQuota(await this.d.local.quota(provider))
     }
     if (method === 'sources') {
       // 这个引擎在电脑上配好的额度来源（docs/mobile-app.md §14.4）；平台账号不给手机

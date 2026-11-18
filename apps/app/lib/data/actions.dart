@@ -121,6 +121,9 @@ class SessionActions {
 
   Future<void> interrupt() => _call('engine:interrupt');
 
+  /// 压缩上下文（§18，要「可以操作」）
+  Future<void> compact() => _call('engine:compact');
+
   /// 审批 / 提问的决定：{type: allow | deny | allow_always(scope) | answer(answers)}
   Future<void> answer(String requestId, Json decision) =>
       _call('engine:answer', [requestId, decision]);

@@ -207,7 +207,15 @@ export const IPC_CONTRACT = {
     mobile: 'view',
     trust: 'sender',
   },
-  'engine:compact': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:compact', trust: 'sender' },
+  // 手机输入框的上下文圆环里能压缩（docs/mobile-app.md §18）
+  'engine:compact': {
+    kind: 'invoke',
+    route: 'resource',
+    ids: [0],
+    remote: 'engine:compact',
+    mobile: 'act',
+    trust: 'sender',
+  },
   'engine:config': { kind: 'invoke', route: 'selected', ids: [0], remote: 'engine:config', trust: 'sender' },
   'engine:context': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:context', trust: 'sender' },
   'engine:createSession': {

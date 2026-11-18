@@ -28,7 +28,9 @@ export const PUSH_GAP = 5500
 /** 几种同时有时取最要紧的 */
 const ORDER: PushKind[] = ['waiting', 'failed', 'completed']
 
-const busy = (s: SessionSummary | undefined): boolean => s?.state === 'running' || s?.state === 'starting'
+/** 在忙：这一轮在跑，或者说完了但后台子智能体 / 编排还在跑（跑完才算做完，同电脑 notifications/policy.ts） */
+const busy = (s: SessionSummary | undefined): boolean =>
+  s?.state === 'running' || s?.state === 'starting' || (s?.background ?? 0) > 0
 
 /**
  * 和手机 apps/mobile/src/data/notify.ts 的规则一样，只是「等你处理」要上一份列表里有这个会话：
@@ -42,7 +44,7 @@ export function pushChanges(prev: readonly SessionSummary[] | null, next: readon
     if (s.record.archivedAt) continue
     const old = before.get(s.record.id)
     if (s.state === 'waiting' && old && old.state !== 'waiting') counts.waiting.add(s.record.id)
-    else if (busy(old) && s.state === 'idle') {
+    else if (busy(old) && !busy(s) && s.state === 'idle') {
       if (s.record.lastOutcome === 'failed') counts.failed.add(s.record.id)
       else if (s.record.lastOutcome === 'completed') counts.completed.add(s.record.id)
     }

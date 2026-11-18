@@ -5,6 +5,8 @@
 // 新建对话页用同一个面板，只是改的是本地的选择（NewModeSheet）。
 import 'package:material_ui/material_ui.dart';
 
+import '../../data/quota.dart';
+import '../account/quota_section.dart';
 import '../../data/actions.dart';
 import '../../data/mode.dart';
 import '../../data/session_controller.dart';
@@ -67,8 +69,12 @@ class ModePanel extends StatelessWidget {
     this.error,
     this.busy = false,
     this.readOnly = false,
+    this.header,
   });
   final String title;
+
+  /// 标题下面的一行（会话的额度简写，§17）
+  final Widget? header;
   final List<ModeGroup> groups;
   final List<ModeToggle> toggles;
   final String? note;
@@ -110,6 +116,7 @@ class ModePanel extends StatelessWidget {
               ],
             ],
           ),
+          ?header,
           for (final g in groups) ...[
             Padding(
               padding: const EdgeInsets.only(top: 18, bottom: 6),
@@ -465,6 +472,12 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
         final viaSource = custom || truthy(record['platform']);
         final sourceList = viaSource ? sourceModels(sources, record) : null;
         final caps = engines[engine];
+        // 额度简写（§17）：平台线路的会话看平台额度，自定义接口没有额度，其余看引擎的订阅账号
+        final quotaProvider = custom
+            ? null
+            : truthy(record['platform'])
+            ? 'platform'
+            : engineQuotaProvider(engine);
         final model = str(record['model']);
         final effort = str(record['effort']);
         final permission = str(record['permissionMode']);
@@ -480,6 +493,13 @@ class _SessionModeSheetState extends State<SessionModeSheet> {
         final canAct = widget.actions.canAct;
         return ModePanel(
           title: L('这个会话的模式', 'Conversation mode'),
+          header: quotaProvider == null
+              ? null
+              : QuotaLine(
+                  key: ValueKey(quotaProvider),
+                  deviceId: widget.desktop.deviceId,
+                  provider: quotaProvider,
+                ),
           busy: _busy,
           readOnly: !canAct || _unsupported,
           error:

@@ -16,6 +16,12 @@ extension type SessionSummary(Json json) implements Json {
   bool get pinned => record['pinnedAt'] != null;
   String? get lastOutcome => str(record['lastOutcome']);
   String? get lastReply => str(record['lastReply']);
+
+  /// 说完了但后台还在跑的子智能体 / 编排有几个（§17）
+  int get background => (json['background'] as num?)?.toInt() ?? 0;
+
+  /// 在忙：这一轮在跑，或者后台子智能体还在跑
+  bool get busy => state == 'running' || state == 'starting' || background > 0;
 }
 
 List<SessionSummary> summariesOf(Object? raw) => [
@@ -73,6 +79,15 @@ enum Tone { danger, online, warn }
     'running' => (
       tone: Tone.online,
       text: L('正在回复…', 'Replying…'),
+      pulse: true,
+    ),
+    // 一轮说完了但后台子智能体还在跑：还没做完（§17）
+    _ when s.background > 0 => (
+      tone: Tone.online,
+      text: L(
+        '后台 ${s.background} 个子智能体在跑',
+        '${s.background} subagent${s.background == 1 ? '' : 's'} running in background',
+      ),
       pulse: true,
     ),
     _ when s.lastOutcome == 'failed' => (

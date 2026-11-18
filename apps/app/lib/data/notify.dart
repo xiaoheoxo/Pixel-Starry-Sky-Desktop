@@ -17,8 +17,9 @@ typedef NotifySessions = Map<NotifyKind, Set<String>>;
 
 NotifySessions emptyNotify() => {for (final k in _order) k: <String>{}};
 
+/// 在忙：这一轮在跑，或者说完了但后台子智能体还在跑（跑完才算做完，§17）
 bool _busy(SessionSummary? s) =>
-    s?.state == 'running' || s?.state == 'starting';
+    s?.state == 'running' || s?.state == 'starting' || (s?.background ?? 0) > 0;
 
 /// 前后两次列表之间要提醒的会话；prev 为 null（刚连上）时不算，免得把旧状态当成新消息。
 /// 「等你处理」要上一份里有这个会话（远程机器连上时它的会话整批出现，已经在等的不算新的）
@@ -34,7 +35,7 @@ NotifySessions notifyChanges(
     final old = before[s.id];
     if (s.state == 'waiting' && old != null && old.state != 'waiting') {
       out[NotifyKind.waiting]!.add(s.id);
-    } else if (_busy(old) && s.state == 'idle') {
+    } else if (_busy(old) && !_busy(s) && s.state == 'idle') {
       if (s.lastOutcome == 'failed') out[NotifyKind.failed]!.add(s.id);
       if (s.lastOutcome == 'completed') out[NotifyKind.completed]!.add(s.id);
     }

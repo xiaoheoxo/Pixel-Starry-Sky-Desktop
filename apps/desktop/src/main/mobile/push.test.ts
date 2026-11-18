@@ -18,6 +18,13 @@ const of = (parts: Partial<Record<'waiting' | 'failed' | 'completed', string[]>>
 const none = { waiting: [], failed: [], completed: [] }
 
 describe('pushChanges', () => {
+  it('后台子智能体还在跑时不算做完，都跑完了才提醒（mobile-app.md §17）', () => {
+    const bg = (n: number) => ({ ...s('a', 'idle', 'completed'), background: n }) as SessionSummary
+    expect(ids(pushChanges([s('a', 'running')], [bg(2)]))).toEqual(none)
+    expect(ids(pushChanges([bg(2)], [bg(1)]))).toEqual(none)
+    expect(ids(pushChanges([bg(1)], [s('a', 'idle', 'completed')]))).toEqual({ ...none, completed: ['a'] })
+  })
+
   it('collects sessions that start waiting, and running ones that finish or fail', () => {
     const prev = [
       s('a', 'running'),

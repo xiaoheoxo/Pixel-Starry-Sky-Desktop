@@ -19,6 +19,7 @@ import {
   type Keypair,
 } from '@pixelsky/link'
 import {
+  type AccountQuota,
   codedError,
   ENGINES,
   type ImageAttachment,
@@ -496,6 +497,8 @@ describe('MobileGateway calls', () => {
     expect(await p.call('projectTools:gitStatus', ref)).toEqual({ ok: 'projectTools:gitStatus' })
     await expect(p.call('projectTools:gitCommit', ref, { message: 'x' })).rejects.toThrow('MOBILE_FORBIDDEN')
     await expect(p.call('projectTools:createTask', 'proj', { title: 'x' })).rejects.toThrow('MOBILE_FORBIDDEN')
+    // 压缩上下文（mobile-app.md §18）也要「可以操作」
+    await expect(p.call('engine:compact', 's1')).rejects.toThrow('MOBILE_FORBIDDEN')
     // 参数不对的不发给电脑
     await expect(p.call('projectTools:gitDiff', ref, { path: 'a', area: 'commit' })).rejects.toThrow(
       'MOBILE_BAD_ARGUMENT',
@@ -578,7 +581,7 @@ describe('MobileGateway calls', () => {
     await expect(p.call('image', 's1', 'u1', -1)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
   })
 
-  const acct = { name: 'Ann', balance: 3.5, currency: 'USD', plan: null, updatedAt: 7 }
+  const acct = { name: 'Ann', balance: 3.5, currency: 'USD', plan: null, updatedAt: 7, rateLimits: [] }
   it('account: slim object, unsupported without local.account, allowed for a view-only phone', async () => {
     const t = setup({ local: { defaultEngine: () => 'codex', search: async () => ({}) as never, account: () => acct } })
     gateways.push(t.gateway)
@@ -1063,7 +1066,53 @@ describe('MobileGateway calls', () => {
     await expect((await paired(none)).call('prs', 's1')).rejects.toThrow('MOBILE_UNSUPPORTED')
   })
 
-  it('phoneAccount keeps only name, balance, currency, plan name and updatedAt', () => {
+  // 订阅额度（docs/mobile-app.md §17）：只认三种账号，view 能读；不带邮箱、点数、重置卡
+  it('quota: view-only phones read a slim snapshot; unknown provider refused', async () => {
+    const asked: string[] = []
+    const quota = {
+      provider: 'claude',
+      status: 'ok',
+      plan: 'max',
+      account: 'a@b.c',
+      windows: [{ id: 'five_hour', durationMins: 300, usedPercent: 62, resetsAt: 9 }],
+      extras: {
+        models: [{ name: 'Opus', durationMins: 10080, usedPercent: 40, resetsAt: null, rejected: true }],
+        credits: { hasCredits: true, unlimited: false, balance: 5 },
+      },
+      blocked: null,
+      observedAt: 3,
+      fetchedAt: 3,
+      source: 'usage',
+    } as unknown as AccountQuota
+    const t = setup({
+      local: {
+        defaultEngine: () => 'codex',
+        search: async () => ({}) as never,
+        quota: async provider => (asked.push(provider), quota),
+      },
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    t.devices[0].access = 'view'
+    const got = (await p.call('quota', 'claude')) as Record<string, unknown>
+    expect(asked).toEqual(['claude'])
+    expect(got).toEqual({
+      provider: 'claude',
+      status: 'ok',
+      plan: 'max',
+      windows: [{ id: 'five_hour', durationMins: 300, usedPercent: 62, resetsAt: 9, rejected: false }],
+      models: [{ name: 'Opus', durationMins: 10080, usedPercent: 40, resetsAt: null, rejected: true }],
+      blocked: null,
+      observedAt: 3,
+    })
+    expect(JSON.stringify(got)).not.toContain('a@b.c')
+    await expect(p.call('quota', 'platform')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    const none = setup({ local: { defaultEngine: () => 'codex', search: async () => ({}) as never } })
+    gateways.push(none.gateway)
+    await expect((await paired(none)).call('quota', 'claude')).rejects.toThrow('MOBILE_UNSUPPORTED')
+  })
+
+  it('phoneAccount keeps name, balance, currency, plan name, updatedAt and the platform quota windows', () => {
     const info = {
       email: 'a@b.c',
       name: 'Ann',
@@ -1074,7 +1123,14 @@ describe('MobileGateway calls', () => {
       rateLimits: [{ window: '5h', used: 1, limit: 2 }],
       updatedAt: 7,
     }
-    expect(phoneAccount(info)).toEqual({ name: 'Ann', balance: 3.5, currency: 'USD', plan: 'Pro', updatedAt: 7 })
+    expect(phoneAccount(info)).toEqual({
+      name: 'Ann',
+      balance: 3.5,
+      currency: 'USD',
+      plan: 'Pro',
+      updatedAt: 7,
+      rateLimits: [{ window: '5h', used: 1, limit: 2 }],
+    })
     expect(phoneAccount({ ...info, plan: null })?.plan).toBeNull()
     expect(phoneAccount(null)).toBeNull()
   })
@@ -1669,6 +1725,7 @@ describe('helpers', () => {
     expect(() => sanitize('engine:createSession', [{}])).toThrow('MOBILE_BAD_ARGUMENT')
     expect(() => sanitize('engine:send', ['s', { text: 'x' }])).toThrow('MOBILE_BAD_ARGUMENT')
     expect(sanitize('engine:interrupt', ['s'])).toEqual(['s'])
+    expect(sanitize('engine:compact', ['s', 'extra'])).toEqual(['s'])
     // 调序：新形态 { before } 和旧手机的数字下标都原样放行（校验在电脑上的 engine:moveQueued）
     expect(sanitize('engine:moveQueued', ['s', 'q1', { before: 'q2' }])).toEqual(['s', 'q1', { before: 'q2' }])
     expect(sanitize('engine:moveQueued', ['s', 'q1', { before: null }])).toEqual(['s', 'q1', { before: null }])

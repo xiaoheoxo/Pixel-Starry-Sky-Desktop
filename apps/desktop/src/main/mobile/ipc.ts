@@ -209,6 +209,9 @@ export function initMobile(ctx: AppContext): void {
         if (!ctx.engine) throw new Error('项目尚未加载')
         return ctx.engine.search({ requestId: ++searchSeq, text, scope: 'all', projectId }, signal)
       },
+      // 订阅额度（§17）：和电脑打开额度弹窗一样，一分钟内取过就用缓存
+      quota: async provider =>
+        ctx.engine ? ctx.engine.refreshAccountQuota(provider, { force: false, maxAgeMs: 60_000 }) : null,
       // 手机换额度来源（docs/mobile-app.md §14.4）：平台线路和兜底换线路同一套筛法；自定义接口只给名字和模型
       sources: async engine => {
         const routes = await enginePlatformRoutes(engine)

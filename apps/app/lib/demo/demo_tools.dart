@@ -337,6 +337,69 @@ Future<void> main() async {
           'currency': 'USD',
           'plan': 'Pro',
           'updatedAt': _now(),
+          'rateLimits': [
+            {'window': '5h', 'used': 3.2, 'limit': 10},
+            {'window': '7d', 'used': 41.5, 'limit': 50},
+          ],
+        };
+      // 订阅额度（§17）：Claude 有、ChatGPT 快用完、Antigravity 没登录
+      case 'quota':
+        final now = _now();
+        return switch (args.isEmpty ? null : args[0]) {
+          'claude' => {
+            'provider': 'claude',
+            'status': 'ok',
+            'plan': 'max',
+            'windows': [
+              {
+                'id': 'five_hour',
+                'durationMins': 300,
+                'usedPercent': 62,
+                'resetsAt': now + 2 * 3600000 + 20 * 60000,
+                'rejected': false,
+              },
+              {
+                'id': 'seven_day',
+                'durationMins': 10080,
+                'usedPercent': 40,
+                'resetsAt': now + 3 * 86400000,
+                'rejected': false,
+              },
+            ],
+            'models': [
+              {
+                'name': 'Opus',
+                'durationMins': 10080,
+                'usedPercent': 55,
+                'resetsAt': now + 3 * 86400000,
+                'rejected': false,
+              },
+            ],
+            'blocked': null,
+            'observedAt': now,
+          },
+          'chatgpt' => {
+            'provider': 'chatgpt',
+            'status': 'ok',
+            'plan': 'pro',
+            'windows': [
+              {
+                'id': 'five_hour',
+                'durationMins': 300,
+                'usedPercent': 93,
+                'resetsAt': now + 40 * 60000,
+                'rejected': false,
+              },
+            ],
+            'models': const <Object?>[],
+            'blocked': null,
+            'observedAt': now,
+          },
+          _ => {
+            'provider': 'google',
+            'status': 'unsupported',
+            'windows': const <Object?>[],
+          },
         };
       case 'projectTools:gitStatus':
         return _status(projectId);

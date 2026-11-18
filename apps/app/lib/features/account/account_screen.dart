@@ -10,6 +10,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'quota_section.dart';
 import '../../app/scope.dart';
 import '../../data/actions.dart';
 import '../../data/checkout.dart';
@@ -237,18 +238,29 @@ class _AccountScreenState extends State<AccountScreen> {
             onPressed: () => Navigator.of(context).pop(),
           ),
           body: signedOut
-              ? EmptyState(
-                  icon: Icons.account_circle_outlined,
-                  title: L('电脑上没登录账号', 'Not signed in on the computer'),
-                  body: L(
-                    '在电脑的设置 › 账号里登录像素星空账号后，这里就能看余额、充值。',
-                    'Sign in under Settings › Account on the computer to see your balance and top up here.',
-                  ),
+              ? ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                  children: [
+                    SizedBox(
+                      height: 280,
+                      child: EmptyState(
+                        icon: Icons.account_circle_outlined,
+                        title: L('电脑上没登录账号', 'Not signed in on the computer'),
+                        body: L(
+                          '在电脑的设置 › 账号里登录像素星空账号后，这里就能看余额、充值。',
+                          'Sign in under Settings › Account on the computer to see your balance and top up here.',
+                        ),
+                      ),
+                    ),
+                    // 没登录平台账号也能看订阅额度（§17）
+                    QuotaSection(deviceId: widget.deviceId),
+                  ],
                 )
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
                   children: [
                     _BalanceCard(account: account),
+                    QuotaSection(deviceId: widget.deviceId, account: raw),
                     for (final o in _pending)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
