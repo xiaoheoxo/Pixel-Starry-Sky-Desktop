@@ -102,9 +102,8 @@ writeFileSync(
   }),
 )
 
-const { deviceName, extensionsFetch, initAccount, platformFetch, setPlatformHeaders, signedInEmail } = await import(
-  './account'
-)
+const { deviceName, extensionsFetch, initAccount, platformFetch, setPlatformHeaders, signedInEmail, teamsFetch } =
+  await import('./account')
 const { markPayWindow } = await import('../app/payWindowRegistry')
 vi.useFakeTimers({ toFake: ['setInterval'] })
 initAccount()
@@ -176,6 +175,20 @@ describe('extensionsFetch 的代理提示', () => {
     await extensionsFetch('GET', '/v1/extensions/publisher')
     await expect(extensionsFetch('GET', '/v1/platform/x')).rejects.toThrow()
     expect(mocks.netCalls).toEqual([])
+  })
+})
+
+describe('teamsFetch', () => {
+  it('团队、邀请、收件箱的接口带登录令牌发出去；别的路径在发请求前就被拒', async () => {
+    requests.length = 0
+    for (const path of ['/v1/teams', '/v1/invites/x', '/v1/inbox', '/v1/teams/t1/inbox/k'])
+      await teamsFetch('GET', path)
+    expect(requests.map(r => r.path)).toEqual(['/v1/teams', '/v1/invites/x', '/v1/inbox', '/v1/teams/t1/inbox/k'])
+    expect(requests[2].headers.get('Authorization')).toBe('Bearer pss_a')
+    requests.length = 0
+    for (const path of ['/v1/inboxx', '/v1/platform/x', '/v1/inbox/../platform', '/v1/teams/%2e%2e/x'])
+      await expect(teamsFetch('GET', path), path).rejects.toThrow('无效的团队接口')
+    expect(requests).toEqual([])
   })
 })
 
