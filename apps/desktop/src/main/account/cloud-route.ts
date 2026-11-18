@@ -102,4 +102,12 @@ export function wsRoute(mode: RouteMode, probe: readonly ProbeResult[]): CloudRo
   return probe.some(r => r.id === 'direct' && r.ms === null) ? 'cdn' : 'direct'
 }
 
+/** 长连接的候选档（docs/network-direct.md §10）：ip = 直连域名，但固定连源站 IP（跳过 DNS，SNI、证书仍按域名） */
+export type WsTier = CloudRoute['id'] | 'ip'
+/** 源站 IP，direct.pixelstarrysky.xyz 的 A 记录 */
+export const ORIGIN_IP = '51.81.246.245'
+
+/** 长连接依次试的几档：一直自动，不跟账号页选的线路（用户 2026-11-18：默认 CDN，不行直连，再不行 IP，恢复了切回去） */
+export const WS_TIERS: readonly WsTier[] = ['cdn', 'direct', 'ip']
+
 export const isRouteMode = (v: unknown): v is RouteMode => v === 'auto' || isRouteId(v)

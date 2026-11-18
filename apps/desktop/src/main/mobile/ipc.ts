@@ -5,7 +5,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
 import { app, powerSaveBlocker } from 'electron'
-import { logger } from '@pixelsky/engine'
+import { describeError, logger } from '@pixelsky/engine'
 import { fingerprint, fromBase64Url, toBase64Url, type Codec } from '@pixelsky/link'
 import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
@@ -20,6 +20,7 @@ import {
   accountSnapshot,
   baseUrl,
   wsBaseUrl,
+  wsTargets,
   bridgeFetch,
   bridgeToken,
   onAccountChange,
@@ -38,7 +39,8 @@ import { fetchStore } from '../account/store'
 import { createDesktopRegistrar } from './desktop-register'
 import { parseRelay, parseSeats, pickRelay } from './cloud-devices'
 import { MobileGateway, phoneAccount, type CloudDevices } from './gateway'
-import { RelayLink } from './relay'
+import { RelayLink, relayHost } from './relay'
+import type { WsTarget } from '../core/ws-tiers'
 import { MobileStore } from './store'
 import { enginePlatformRoutes } from '../platform/platform'
 import { engineProviderProtocols } from '../platform/pixel-env'
@@ -91,6 +93,7 @@ async function cloudGet(path: string): Promise<unknown> {
 }
 
 export function initMobile(ctx: AppContext): void {
+  const log = logger('mobile')
   const store = new MobileStore(join(app.getPath('userData'), 'mobile'), systemCipher, {
     enabled: false,
     // 空：用云端（defaultRelay）；环境变量只给开发测试用
@@ -126,13 +129,23 @@ export function initMobile(ctx: AppContext): void {
     assignedFor: string | null = null,
     resolving = false,
     lastPremium: boolean | null = null
-  const relayUrl = (): string => pickRelay(store.prefs.relay, assigned, defaultRelay(wsBaseUrl()))
+  /** 连哪个中转：手填 > 云端分配的优质节点 > 默认（按 CDN → 直连 → IP 依次试，docs/network-direct.md §10）；换了才重连 */
+  const relayKey = (): string => pickRelay(store.prefs.relay, assigned, 'default')
+  const relayTargets = (): WsTarget[] =>
+    store.prefs.relay
+      ? [{ tier: 'manual', url: store.prefs.relay }]
+      : assigned
+        ? [{ tier: 'assigned', url: assigned }]
+        : wsTargets(defaultRelay)
   /** 向云端要中转地址，拿到（或失败）后重新判断连接；取的时候换了账号就丢掉结果 */
   const resolveRelay = (email: string): void => {
     if (resolving) return
     resolving = true
     void cloudGet('/v1/bridge/relay')
-      .then(parseRelay, () => null)
+      .then(parseRelay, (e: unknown) => {
+        log.warn('取云端分配的中转失败，用默认中转', { error: describeError(e) })
+        return null
+      })
       .then(url => {
         resolving = false
         // 取的时候换了账号：结果作废，按新账号重新判断（会再问一次）
@@ -159,7 +172,7 @@ export function initMobile(ctx: AppContext): void {
     },
     call: (method, path, body) => bridgeFetch(method, path, body),
     ver: app.getVersion(),
-    warn: msg => logger('mobile').warn(msg),
+    warn: msg => log.warn(msg),
   })
   const cloud: CloudDevices = {
     pairing: async () => {
@@ -180,7 +193,8 @@ export function initMobile(ctx: AppContext): void {
   const gateway = new MobileGateway({
     store,
     desktopName: () => hostname(),
-    relay: relayUrl,
+    // 二维码里的中转：手填 > 优质节点 > 默认（直连域名，手机 App 也认 CDN 域名并自己换成直连）
+    relay: () => pickRelay(store.prefs.relay, assigned, defaultRelay(wsBaseUrl())),
     // 手机网页版总在主站（优质节点只做中转）；手机按二维码里的中转地址去连，只认主站列出的节点
     web: () => webUrl(store.prefs.relay || defaultRelay(wsBaseUrl())) || null,
     // 手机的调用不经过 ipc.handle，自己计时：通道名加 mobile: 前缀，卡顿诊断里和窗口的请求分得开
@@ -311,16 +325,28 @@ export function initMobile(ctx: AppContext): void {
         return
       }
     }
-    const relay = relayUrl()
+    const relay = relayKey()
     if (link && (!want || linkUrl !== relay)) stopLink()
     if (want && !link) {
       linkUrl = relay
+      // 用的是哪个地址、从哪来的：手填 > 云端分配的优质节点 > 默认的几档
+      log.info('手机中转地址', {
+        source: store.prefs.relay ? 'manual' : assigned ? 'assigned' : 'default',
+        targets: relayTargets()
+          .map(t => `${t.tier} ${relayHost(t.url)}${t.ip ? ' @' + t.ip : ''}`)
+          .join(' → '),
+      })
       link = new RelayLink({
-        url: relay,
+        targets: relayTargets,
         desktopId: store.desktopId,
         token: force => bridgeToken(force),
         onFrame: (phone, frame) => gateway.receive(phone, frame),
         onNotice: notice => {
+          if (notice.type === 'phone_joined' || notice.type === 'phone_left')
+            log.info(notice.type === 'phone_joined' ? '手机连上中转' : '手机离开中转', {
+              phone: notice.phone.slice(0, 8),
+              known: !!store.device(notice.phone),
+            })
           if (notice.type === 'phone_left') gateway.phoneLeft(notice.phone)
         },
         onStatus: (next, reason) => {
@@ -335,7 +361,10 @@ export function initMobile(ctx: AppContext): void {
     }
     if (!want) {
       status = 'off'
-      error = !enabled ? null : !email ? 'MOBILE_NEED_LOGIN' : 'MOBILE_NO_CIPHER'
+      const why = !enabled ? null : !email ? 'MOBILE_NEED_LOGIN' : 'MOBILE_NO_CIPHER'
+      // 开着却连不了（没登录、没有密钥）：原因变了才记
+      if (why && why !== error) log.warn('手机远程开着但没连', { reason: why })
+      error = why
       gateway.cancelPairing()
     }
     keepAwake()

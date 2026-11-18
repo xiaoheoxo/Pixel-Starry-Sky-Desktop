@@ -103,9 +103,13 @@ export function validRelay(v: unknown): v is string {
   }
 }
 
-/** GET /v1/bridge/relay 的返回 → 分配的中转地址；不对返回 null（用默认中转） */
+/**
+ * GET /v1/bridge/relay 的返回 → 分配的中转地址；不对返回 null（用默认中转）。
+ * 主站节点（node 为 default）也返回 null：云端给的是 CDN 域名（API_URL），WebSocket 会被 CDN 拦成 426，
+ * 用本机的默认几档（CDN → 直连 → IP，docs/network-direct.md §10）
+ */
 export function parseRelay(raw: unknown): string | null {
-  return isObj(raw) && validRelay(raw.url) ? raw.url : null
+  return isObj(raw) && raw.node !== 'default' && validRelay(raw.url) ? raw.url : null
 }
 
 /** 连哪个中转：设置里手填的（或 PIXELSKY_MOBILE_RELAY）优先，其次云端分配的，最后是登录站的默认中转 */

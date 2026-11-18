@@ -11,10 +11,11 @@ import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
 import { windowLocale } from '../app/ui-language'
 import { machineOf } from '../machines/identity'
-import { bridgeToken, wsBaseUrl, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
+import { bridgeToken, wsTargets, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
 import { TeamApi } from '../core/channels/team/api'
 import { loadDeviceId } from '../core/channels/team/device'
-import { TeamRealtime, teamsWsUrl } from '../core/channels/team/realtime'
+import { TeamRealtime, teamsWsUrl, type SocketLike } from '../core/channels/team/realtime'
+import { openWs } from '../account/ws-open'
 import { TeamSync } from '../core/channels/team/sync'
 import { ChannelStore } from '../core/channels/store'
 import { Channels, type MachineLite } from '../core/channels/service'
@@ -95,7 +96,14 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     ? new TeamSync({
         api: new TeamApi(teamsFetch),
         realtime: handlers =>
-          new TeamRealtime({ url: () => teamsWsUrl(wsBaseUrl()), token: force => bridgeToken(force), ...handlers }),
+          new TeamRealtime({
+            // CDN → 直连 → IP 依次试，恢复了切回去（docs/network-direct.md §10）
+            targets: () => wsTargets(teamsWsUrl),
+            socket: (url, protocols, target) => openWs({ ...target, url }, protocols) as unknown as SocketLike,
+            log: (message, fields) => log.info(message, fields),
+            token: force => bridgeToken(force),
+            ...handlers,
+          }),
         log: (message, error) => log.warn(message, error ? { error: describeError(error) } : undefined),
       })
     : null

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEAD_AFTER,
+  HANDSHAKE_TIMEOUT,
   TeamRealtime,
   parseFrame,
   teamsWsUrl,
@@ -9,6 +10,7 @@ import {
   type SocketLike,
   type TeamFrame,
 } from './realtime'
+import { RECOVER_MS, type WsTarget } from '../../ws-tiers'
 
 class FakeSocket implements SocketLike {
   readyState = 0
@@ -140,7 +142,8 @@ describe('TeamRealtime', () => {
     expect(t.sockets[0].closed).toBe(true)
     expect(t.statuses).toContain('offline')
     await vi.advanceTimersByTimeAsync(1100)
-    expect(t.sockets).toHaveLength(2)
+    // 新连接一直没握手完时还会按握手超时继续重试，这里只看重连过
+    expect(t.sockets.length).toBeGreaterThanOrEqual(2)
     t.rt.stop()
   })
 
@@ -267,5 +270,83 @@ describe('TeamRealtime', () => {
     )
     expect(parseFrame({ type: 'message', team: 'tm_1' })).toBeNull()
     expect(parseFrame({ type: 'hello', online: { a: ['u:1', 5] } })).toEqual({ type: 'hello', online: { a: ['u:1'] } })
+  })
+})
+
+describe('TeamRealtime 候选线路', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  const tiers: WsTarget[] = [
+    { tier: 'cdn', url: 'wss://cdn.example/v1/teams/ws' },
+    { tier: 'direct', url: 'wss://direct.example/v1/teams/ws' },
+    { tier: 'ip', url: 'wss://direct.example/v1/teams/ws', ip: '192.0.2.1' },
+  ]
+  const tierSetup = () => {
+    const sockets: { s: FakeSocket; target: WsTarget }[] = []
+    const statuses: RealtimeStatus[] = []
+    const logs: string[] = []
+    const probe = vi.fn(async (_t: WsTarget): Promise<number | null> => 426)
+    const rt = new TeamRealtime({
+      targets: () => tiers,
+      token: async () => 'tok',
+      onFrame: () => {},
+      onStatus: s => statuses.push(s),
+      log: message => logs.push(message),
+      probe: t => probe(t),
+      socket: (url, protocols, target) => {
+        const s = new FakeSocket(url, protocols)
+        sockets.push({ s, target })
+        return s
+      },
+    })
+    return { rt, sockets, statuses, logs, probe }
+  }
+
+  it('握手没成功马上换下一档；4010 没连上也照样停下不重连', async () => {
+    const t = tierSetup()
+    t.rt.start()
+    await flush()
+    t.sockets[0].s.drop(1006)
+    await flush()
+    expect(t.sockets.map(x => x.target.tier)).toEqual(['cdn', 'direct'])
+    expect(t.statuses).not.toContain('offline')
+    await vi.advanceTimersByTimeAsync(HANDSHAKE_TIMEOUT)
+    expect(t.sockets.map(x => x.target.tier)).toEqual(['cdn', 'direct', 'ip'])
+    t.sockets[2].s.drop(4010)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(t.sockets).toHaveLength(3)
+    expect(t.statuses.at(-1)).toBe('offline')
+  })
+
+  it('连在直连上：CDN 恢复（101）后切回 CDN', async () => {
+    const t = tierSetup()
+    t.rt.start()
+    await flush()
+    t.sockets[0].s.drop(1006)
+    await flush()
+    t.sockets[1].s.open()
+    // 云端每 20 秒一个 tick，不然 60 秒没消息会被当成死连接
+    const alive = async (ms: number): Promise<void> => {
+      for (let left = ms; left > 0; left -= 20_000) {
+        await vi.advanceTimersByTimeAsync(Math.min(20_000, left))
+        t.sockets[1].s.send({ type: 'tick' })
+      }
+    }
+    await alive(RECOVER_MS)
+    expect(t.sockets[1].s.closed).toBe(false)
+    t.probe.mockImplementation(async x => (x.tier === 'cdn' ? 101 : 426))
+    await alive(RECOVER_MS)
+    await flush()
+    expect(t.sockets[1].s.closed).toBe(true)
+    expect(t.sockets.at(-1)?.target.tier).toBe('cdn')
+    expect(t.logs).toContain('团队实时通道换回更好的线路')
+    t.rt.stop()
   })
 })

@@ -18,6 +18,7 @@ import { isUnreachable, requestViaIp, withIpFallback } from './ip-fallback'
 import {
   CLOUD_ROUTES,
   FAILURE_PROBE_GAP_MS,
+  ORIGIN_IP,
   RECHECK_MS,
   isRouteMode,
   parseSavedRoute,
@@ -26,10 +27,12 @@ import {
   probeRoute,
   routeOf,
   wsRoute,
+  WS_TIERS,
   type CloudRoute,
   type ProbeResult,
   type RouteMode,
 } from './cloud-route'
+import type { WsTarget } from '../core/ws-tiers'
 import type {
   AccountInfo,
   AccountPlan,
@@ -166,6 +169,19 @@ export function baseUrl(): string {
   if (raw && overrideAllowed(raw)) return raw
   const id = mode === 'auto' ? route : mode
   return id ? routeOf(id).base : DEFAULT_AUTH_URL
+}
+
+/**
+ * 长连接的候选（docs/network-direct.md §10）：一直是 CDN → 直连 → IP（直连域名 + 源站 IP），按顺序试、恢复了切回去
+ * （连接那边的 TierCursor 管）。toUrl 把云端基址拼成具体的 WebSocket 地址；PIXELSKY_AUTH_URL 指到别处时只有那一个
+ */
+export function wsTargets(toUrl: (base: string) => string): WsTarget[] {
+  if (!routingEnabled()) return [{ tier: 'custom', url: toUrl(baseUrl()) }]
+  return WS_TIERS.map(tier =>
+    tier === 'ip'
+      ? { tier, url: toUrl(routeOf('direct').base), ip: ORIGIN_IP }
+      : { tier, url: toUrl(routeOf(tier).base) },
+  )
 }
 
 /** 长连接（WebSocket）用的云端地址：自动模式下走直连（CDN 会去掉升级头，见 cloud-route.ts 的 wsRoute）；有覆盖时同 baseUrl */

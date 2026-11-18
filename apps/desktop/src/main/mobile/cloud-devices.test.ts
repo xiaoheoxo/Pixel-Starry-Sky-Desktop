@@ -131,6 +131,8 @@ describe('中转地址', () => {
     expect(parseRelay({ url: 'wss://node1.example.com/v1/bridge/ws', node: 'n1', premium: true })).toBe(
       'wss://node1.example.com/v1/bridge/ws',
     )
+    // 主站节点：云端给的是 CDN 域名，不用它，按本机的几档走
+    expect(parseRelay({ url: 'wss://pixelstarrysky.xyz/v1/bridge/ws', node: 'default', premium: false })).toBeNull()
     expect(parseRelay({ url: 'https://node1.example.com' })).toBeNull()
     expect(parseRelay({ url: 'wss://user:pw@node1.example.com' })).toBeNull()
     expect(parseRelay({ url: 'wss://a b' })).toBeNull()
