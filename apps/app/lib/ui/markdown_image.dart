@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
 
 import '../i18n/i18n.dart';
+import 'image_bytes.dart';
 import 'image_viewer.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
@@ -17,11 +18,31 @@ class MarkdownImages extends InheritedWidget {
     super.key,
     required this.load,
     required this.describe,
+    this.scope,
     required super.child,
   });
 
-  /// 按图片地址（原样）向电脑取
-  final Future<Uint8List> Function(String src) load;
+  /// 在上一层 MarkdownImages 下面给一条回复套上它的 id；没有上一层时原样返回 child
+  static Widget scoped(
+    BuildContext context,
+    String scope, {
+    required Widget child,
+  }) {
+    final parent = maybeOf(context);
+    if (parent == null) return child;
+    return MarkdownImages(
+      load: parent.load,
+      describe: parent.describe,
+      scope: scope,
+      child: child,
+    );
+  }
+
+  /// 按图片地址（原样）向电脑取；scope 是引用它的那条回复的 id
+  final Future<Uint8List> Function(String src, String? scope) load;
+
+  /// 这条回复的 id：取图时带上，新回复引用同一路径不会拿到旧图（§16.3）
+  final String? scope;
 
   /// 取不到的原因换成人话
   final String Function(Object error) describe;
@@ -31,7 +52,7 @@ class MarkdownImages extends InheritedWidget {
 
   @override
   bool updateShouldNotify(MarkdownImages old) =>
-      old.load != load || old.describe != describe;
+      old.load != load || old.describe != describe || old.scope != scope;
 }
 
 /// 图片地址是不是网址（http、https、data）；别的当本地路径
@@ -74,14 +95,15 @@ class _MarkdownImageState extends State<_MarkdownImage> {
       return Future(() => base64Decode(src.substring(comma + 1)));
     }
     if (_remote(src)) return null;
-    return source?.load(src);
+    return source?.load(src, source.scope);
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final source = MarkdownImages.maybeOf(context);
-    final key = '${widget.src}|${identityHashCode(source)}';
+    final key =
+        '${widget.src}|${identityHashCode(source?.load)}|${source?.scope}';
     if (_for != key) {
       _for = key;
       _bytes = _load(source);
@@ -150,11 +172,7 @@ class _MarkdownImageState extends State<_MarkdownImage> {
         return GestureDetector(
           onTap: () => _open(context, data),
           child: frame(
-            Image.memory(
-              data,
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => _Placeholder(_name, null),
-            ),
+            bytesImage(data, onError: () => _Placeholder(_name, null)),
           ),
         );
       },

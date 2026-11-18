@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../connection/connections.dart';
 import '../connection/pair.dart';
+import '../data/app_update.dart';
 import '../data/desktop_lists.dart';
 import '../data/feedback.dart';
 import '../platform/notifier.dart';
@@ -22,6 +23,7 @@ class AppServices {
     this.feedback,
     this.share = const NoShareInbox(),
     this.homeWidget = const NoHomeWidget(),
+    this.updater,
     this.demo = false,
   });
   final Connections connections;
@@ -47,6 +49,9 @@ class AppServices {
 
   /// 桌面小部件（D3）
   final HomeScreenWidget homeWidget;
+
+  /// App 内检查更新（§16.1）；测试里不给就不查
+  final AppUpdater? updater;
 
   /// 演示模式：不连电脑，用假数据（--dart-define=DEMO=1）
   final bool demo;

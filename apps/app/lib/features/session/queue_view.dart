@@ -232,7 +232,14 @@ class _QueuedMessagesState extends State<QueuedMessages> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final q in starting) ...[
-          UserBubble(text: q.text, images: q.attachments, faded: true),
+          UserBubble(
+            text: q.text,
+            images: q.attachments,
+            itemId: q.id,
+            imageMeta: q.imageMeta,
+            queued: true,
+            faded: true,
+          ),
           _StatusLine(text: L('正在启动', 'Starting'), busy: true),
         ],
         if (pausedAll && items.isNotEmpty)
@@ -259,7 +266,14 @@ class _QueuedMessagesState extends State<QueuedMessages> {
         for (final q in items) ...[
           GestureDetector(
             onLongPress: widget.canAct ? () => _menu(q, items) : null,
-            child: UserBubble(text: q.text, images: q.attachments, faded: true),
+            child: UserBubble(
+              text: q.text,
+              images: q.attachments,
+              itemId: q.id,
+              imageMeta: q.imageMeta,
+              queued: true,
+              faded: true,
+            ),
           ),
           _StatusLine(
             text: [

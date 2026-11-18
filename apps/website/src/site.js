@@ -490,6 +490,20 @@
   render()
   onScroll()
 
+  // ---------- 手机 App 安卓版：读下载目录里的 latest.json（scripts/publish-app.mjs 写的），按钮指向那个安装包 ----------
+  if ($('#app-android'))
+    fetch(`${BASE}app/latest.json`, { cache: 'no-cache' })
+      .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then(m => {
+        if (!/^[\w.-]+\.apk$/.test(m.file) || typeof m.version !== 'string') return Promise.reject('bad')
+        $('#app-android').href = `${BASE}app/${m.file}`
+        $('#app-android-meta').textContent = `v${m.version}${m.size ? ' · ' + mb(m.size) : ''}`
+      })
+      .catch(() => {
+        $('#app-android').removeAttribute('href')
+        $('#app-android-meta').textContent = lang === 'en' ? 'Not available yet' : '暂时还没有可下载的版本'
+      })
+
   // ---------- 读 GitHub（同一会话里缓存 10 分钟，翻页不重复请求） ----------
   const CACHE = 'ps-releases'
   const use = list => list.length && ((releases = list), render())

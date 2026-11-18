@@ -2,6 +2,8 @@
 // 按项目分组的会话；底部「工具与项目」和账号（名字 + 余额，点了去设置；电脑不给账号时只显示「设置」，A4）。标题右边「新对话」，长按会话行弹出会话菜单（置顶、重命名、归档，A2）。
 import 'package:material_ui/material_ui.dart';
 
+import '../settings/update_banner.dart';
+
 import '../../app/scope.dart';
 import '../../connection/desktop_link.dart';
 import '../../data/tasks.dart';
@@ -213,6 +215,8 @@ class _AppDrawerState extends State<AppDrawer> {
                       : _grouped(active.deviceId, sessions, projects),
                 ),
                 Divider(height: 1, color: c.borderSubtle),
+                // 有新版本（§16.1）
+                UpdateBanner(AppScope.of(context).updater, compact: true),
                 if (active != null)
                   ListRow(
                     title: L('频道', 'Channels'),

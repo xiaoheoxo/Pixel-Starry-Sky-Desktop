@@ -16,6 +16,11 @@ extension type Queued(Json json) implements Json {
   Json? get reconnect => objOrNull(json['reconnect']);
   Json? get limit => objOrNull(json['limit']);
   int get attachments => (json['attachments'] as List?)?.length ?? 0;
+
+  /// 图片的元数据（名字、宽高；数据电脑去掉了，看得到时经 queueImage 取，§16.3）
+  List<Json> get imageMeta => [
+    for (final a in (json['attachments'] as List?) ?? const []) obj(a),
+  ];
   int get reconnected => (json['reconnected'] as num?)?.toInt() ?? 0;
 }
 

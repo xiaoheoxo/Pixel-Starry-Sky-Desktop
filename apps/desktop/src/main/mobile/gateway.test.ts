@@ -346,6 +346,77 @@ describe('MobileGateway calls', () => {
     ])
   })
 
+  it('fileImage: svg as text, missing vs offline told apart (§16.3)', async () => {
+    let offline = false
+    const t = setup({
+      call: async (channel, args) => {
+        if (channel === 'files:target') {
+          if (offline) throw new Error('机器「box」连不上')
+          return { ref: args[0], name: 'app', path: '/home/me/app' }
+        }
+        if (channel === 'files:read') {
+          if (args[1] === 'gone.png') throw new Error('PIXELSKY_ERR:{"code":"files.notFound"}')
+          if (args[1] === 'flaky.png') throw new Error('SSH 连接断开')
+          const content = args[1] === 'logo.svg' ? '<svg xmlns="http://www.w3.org/2000/svg"></svg>' : 'not svg'
+          return {
+            kind: 'text',
+            path: String(args[1]),
+            content,
+            version: 'v',
+            bytes: content.length,
+            bom: false,
+            newline: 'lf',
+          }
+        }
+        return null
+      },
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    const svg = (await p.call('fileImage', 's1', './logo.svg')) as { mediaType: string; dataBase64: string }
+    expect(svg.mediaType).toBe('image/svg+xml')
+    expect(Buffer.from(svg.dataBase64, 'base64').toString()).toContain('<svg')
+    // 叫 .svg 但不是 SVG：照旧不给
+    await expect(p.call('fileImage', 's1', './fake.svg')).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('fileImage', 's1', './gone.png')).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('fileImage', 's1', './flaky.png')).rejects.toThrow('MOBILE_OFFLINE')
+    offline = true
+    await expect(p.call('fileImage', 's1', './logo.svg')).rejects.toThrow('MOBILE_OFFLINE')
+  })
+
+  it('queueImage: a queued message image from the host snapshot (§16.3)', async () => {
+    const t = setup({
+      call: async channel =>
+        channel === 'engine:openSession'
+          ? {
+              queue: [
+                {
+                  id: 'q1',
+                  text: 'look',
+                  attachments: [
+                    {
+                      id: 'a',
+                      name: 'a.png',
+                      mediaType: 'image/png',
+                      bytes: 3,
+                      width: 1,
+                      height: 1,
+                      dataBase64: 'QUJD',
+                    },
+                  ],
+                },
+              ],
+            }
+          : null,
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    expect(await p.call('queueImage', 's1', 'q1', 0)).toMatchObject({ dataBase64: 'QUJD' })
+    await expect(p.call('queueImage', 's1', 'q1', 1)).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('queueImage', 's1', 'nope', 0)).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('queueImage', 's1', 'q1', -1)).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+  })
+
   it('serves the tools with rebuilt arguments and phone-sized results', async () => {
     const calls: [string, unknown[], string][] = []
     const long = Array.from({ length: 40_000 }, (_, i) => `${i} ${'x'.repeat(20)}`).join('\n')
@@ -717,7 +788,7 @@ describe('MobileGateway calls', () => {
     await rm(file, { force: true })
   })
 
-  it('channels: local only, read-only for view phones; text cut, thread / flow hidden; new messages pushed to the open channel', async () => {
+  it('channels: local and team, read-only for view phones; text cut, thread / flow hidden; new messages pushed to the open channel', async () => {
     const msg = (id: string, extra: object = {}) =>
       ({ id, channelId: 'c1', at: 1, kind: 'message', authorId: 'me', text: 'hi', format: 'plain', ...extra }) as never
     const messages = [
@@ -773,8 +844,10 @@ describe('MobileGateway calls', () => {
     const p = await paired(t)
     t.devices[0].access = 'view'
     const list = (await p.call('channels')) as { channels: { id: string; last: unknown }[]; members: object[] }
-    expect(list.channels.map(c => c.id)).toEqual(['c1'])
+    // 团队频道也列出来（§16.2）；这里它的一页取不到（离线），最后一条就不写
+    expect(list.channels.map(c => c.id)).toEqual(['c1', 'team1'])
     expect(list.channels[0].last).toEqual({ authorId: 'me', text: '拆分登录页' })
+    expect(list.channels[1]).toMatchObject({ scope: 'team', last: null })
     expect(list.members[1]).toEqual({
       id: 'a1',
       kind: 'agent',
@@ -789,7 +862,7 @@ describe('MobileGateway calls', () => {
     expect((page.messages[0].text as string).length).toBe(CHANNEL_TEXT_LIMIT + 1)
     expect(page.messages[0]).toMatchObject({ images: 1, files: ['f.txt'] })
     expect(page.messages[1]).toMatchObject({ kind: 'task', status: 'done', sessionId: 's9' })
-    await expect(p.call('channelMessages', 'team1')).rejects.toThrow('MOBILE_NOT_FOUND')
+    await expect(p.call('channelMessages', 'nope')).rejects.toThrow('MOBILE_NOT_FOUND')
     expect(await p.call('channelImage', 'c1', 'm1', 0)).toMatchObject({ dataBase64: 'small' })
 
     // 新消息只推给开着这个频道的手机；关了就不推
@@ -809,6 +882,115 @@ describe('MobileGateway calls', () => {
     })
     gateways.push(none.gateway)
     await expect((await paired(none)).call('channels')).rejects.toThrow('MOBILE_UNSUPPORTED')
+  })
+
+  it('team: inbox, inbox patch and approve go through the desktop; act needed to change (§16.2)', async () => {
+    const calls: unknown[][] = []
+    const card = (extra: object) =>
+      ({
+        id: 'k1',
+        channelId: 'tc',
+        at: 3,
+        kind: 'task',
+        authorId: 'u2',
+        assigneeId: 'ta_1',
+        title: '修登录',
+        ...extra,
+      }) as never
+    let cards = [
+      card({ status: 'approval', ownerId: 'u1' }),
+      card({ id: 'k2', status: 'failed', ownerId: 'u9', reason: 'machine_offline', runs: [{}, {}] }),
+    ]
+    const channels = {
+      state: () =>
+        ({
+          self: { id: 'me' },
+          channels: [
+            {
+              id: 'tc',
+              name: '后端',
+              topic: null,
+              scope: 'team',
+              teamId: 'T1',
+              memberIds: ['u1', 'u2'],
+              unread: 0,
+              createdAt: 1,
+            },
+          ],
+          members: [
+            { id: 'me', kind: 'human', name: '我', you: true },
+            { id: 'u1', kind: 'human', name: '我（团队）', you: true },
+          ],
+          teams: [{ id: 'T1', name: '星空组' }],
+          inboxSupported: true,
+          inbox: [
+            {
+              teamId: 'T1',
+              key: 'k1',
+              channelId: 'tc',
+              kind: 'approval',
+              actor: 'u2',
+              text: '修登录',
+              count: 1,
+              at: 5,
+              read: false,
+              archived: false,
+              snoozeUntil: null,
+              muted: false,
+            },
+          ],
+        }) as never,
+      page: async () => ({ messages: cards, more: false }),
+      attachments: () => ({ images: [], files: [] }) as never,
+      patchInbox: async (...a: unknown[]) => void calls.push(['patch', ...a]),
+      approveTask: async (...a: unknown[]) => void calls.push(['approve', ...a]),
+    }
+    const t = setup({
+      local: { defaultEngine: () => 'codex', search: async () => ({}) as never, channels: () => channels },
+    })
+    gateways.push(t.gateway)
+    const p = await paired(t)
+    const list = (await p.call('channels')) as { channels: Record<string, unknown>[]; teams: unknown[] }
+    expect(list.channels[0]).toMatchObject({ id: 'tc', scope: 'team', teamId: 'T1', last: { text: '修登录' } })
+    expect(list.teams).toEqual([{ id: 'T1', name: '星空组' }])
+    const page = (await p.call('channelMessages', 'tc')) as { messages: Record<string, unknown>[]; selfId: string }
+    // 这个频道里的「我」是团队成员 id；只有我是主人的那张能点同意
+    expect(page.selfId).toBe('u1')
+    expect(page.messages[0]).toMatchObject({ status: 'approval', canApprove: true })
+    expect(page.messages[1]).toMatchObject({ canApprove: false, reason: 'machine_offline', runs: 2 })
+    expect(await p.call('teamInbox')).toEqual({
+      supported: true,
+      items: [
+        {
+          teamId: 'T1',
+          key: 'k1',
+          channelId: 'tc',
+          kind: 'approval',
+          actor: 'u2',
+          text: '修登录',
+          count: 1,
+          at: 5,
+          read: false,
+          snoozeUntil: null,
+          muted: false,
+        },
+      ],
+    })
+    await p.call('teamInboxPatch', 'T1', 'k1', { read: true, secret: 1 })
+    await p.call('teamApprove', 'k1', true)
+    expect(calls).toEqual([
+      ['patch', 'T1', 'k1', { read: true }],
+      ['approve', 'k1', true],
+    ])
+    await expect(p.call('teamInboxPatch', 'T1', 'k1', {})).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await expect(p.call('teamInboxPatch', 'T1', 'k1', { read: 'yes' })).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    await expect(p.call('teamApprove', 'k1', 'yes')).rejects.toThrow('MOBILE_BAD_ARGUMENT')
+    // 只看的手机：能看收件箱，不能改、不能同意
+    t.devices[0].access = 'view'
+    expect(((await p.call('teamInbox')) as { items: unknown[] }).items).toHaveLength(1)
+    await expect(p.call('teamApprove', 'k1', true)).rejects.toThrow('MOBILE_FORBIDDEN')
+    await expect(p.call('teamInboxPatch', 'T1', 'k1', { read: true })).rejects.toThrow('MOBILE_FORBIDDEN')
+    cards = []
   })
 
   it('PRs: only the session own PRs; fix text built on the desktop; act needed to fix / merge; changes pushed to watchers', async () => {

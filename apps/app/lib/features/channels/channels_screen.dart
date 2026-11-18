@@ -1,5 +1,6 @@
-// 手机看频道（第三批 C5，docs/mobile-app.md §15.6，只读）：频道列表 → 时间线（成员头像、任务卡状态、图片点开看），
-// 任务卡里的会话点了跳到会话页。不能发消息、批准任务、标已读（待确认 3）。
+// 手机看频道（第三批 C5，docs/mobile-app.md §15.6）：频道列表 → 时间线（成员头像、任务卡状态、图片点开看），
+// 任务卡里的会话点了跳到会话页。第四批（§16.2）：团队频道按团队分组、团队收件箱、同意 / 拒绝队友派的活；
+// 还不能发消息。
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -8,6 +9,7 @@ import '../../app/scope.dart';
 import '../../data/actions.dart';
 import '../../data/channels.dart';
 import '../../data/tasks.dart';
+import '../../data/team_inbox.dart';
 import '../../i18n/i18n.dart';
 import '../../protocol/json.dart';
 import '../../ui/markdown.dart';
@@ -15,10 +17,14 @@ import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
 import '../../ui/widgets.dart';
 import '../session/session_screen.dart';
+import 'inbox_screen.dart';
 
-void openChannels(BuildContext context, String deviceId) {
+/// inbox：直接打开团队收件箱（点了团队提醒，§16.2）
+void openChannels(BuildContext context, String deviceId, {bool inbox = false}) {
   Navigator.of(context).push(
-    MaterialPageRoute<void>(builder: (_) => ChannelsScreen(deviceId: deviceId)),
+    MaterialPageRoute<void>(
+      builder: (_) => ChannelsScreen(deviceId: deviceId, openInbox: inbox),
+    ),
   );
 }
 
@@ -68,8 +74,13 @@ class MemberAvatar extends StatelessWidget {
 }
 
 class ChannelsScreen extends StatefulWidget {
-  const ChannelsScreen({super.key, required this.deviceId});
+  const ChannelsScreen({
+    super.key,
+    required this.deviceId,
+    this.openInbox = false,
+  });
   final String deviceId;
+  final bool openInbox;
 
   @override
   State<ChannelsScreen> createState() => _ChannelsScreenState();
@@ -77,17 +88,55 @@ class ChannelsScreen extends StatefulWidget {
 
 class _ChannelsScreenState extends State<ChannelsScreen> {
   ChannelList? _list;
+  TeamInbox? _inbox;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _list ??= ChannelList(AppScope.read(context).connections, widget.deviceId);
+    final connections = AppScope.read(context).connections;
+    _list ??= ChannelList(connections, widget.deviceId);
+    if (_inbox == null) {
+      _inbox = TeamInbox(connections, widget.deviceId);
+      if (widget.openInbox) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openInbox();
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
     _list?.dispose();
+    _inbox?.dispose();
     super.dispose();
+  }
+
+  void _openInbox() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => InboxScreen(
+        deviceId: widget.deviceId,
+        inbox: _inbox!,
+        channels: _list!,
+      ),
+    ),
+  );
+
+  Widget _row(ChannelSummary ch) {
+    final list = _list!;
+    return _ChannelRow(
+      channel: ch,
+      author: list.members[ch.lastAuthor],
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChannelScreen(
+            deviceId: widget.deviceId,
+            channel: ch,
+            members: list.members,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -96,8 +145,9 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
     final list = _list!;
     final pairing = AppScope.of(context).connections.pairings
         .where((p) => p.deviceId == widget.deviceId);
+    final inbox = _inbox!;
     return ListenableBuilder(
-      listenable: list,
+      listenable: Listenable.merge([list, inbox]),
       builder: (context, _) => AppScreen(
         title: L('频道', 'Channels'),
         subtitle: pairing.isEmpty ? null : pairing.first.desktopName,
@@ -114,7 +164,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                 title: L('看不了频道', "Can't load channels"),
                 body: actionError(list.error!),
               )
-            : list.channels.isEmpty
+            : list.channels.isEmpty && !inbox.supported
             ? EmptyState(
                 icon: Icons.forum_outlined,
                 title: L('还没有频道', 'No channels yet'),
@@ -128,27 +178,49 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 32),
                   children: [
-                    for (final ch in list.channels)
-                      _ChannelRow(
-                        channel: ch,
-                        author: list.members[ch.lastAuthor],
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => ChannelScreen(
-                              deviceId: widget.deviceId,
-                              channel: ch,
-                              members: list.members,
+                    // 团队收件箱（§16.2）：电脑登录了、云端开了团队才有
+                    if (inbox.supported)
+                      ListRow(
+                        title: L('通知', 'Inbox'),
+                        subtitle: L(
+                          '@ 你、等你同意、你要的活',
+                          'Mentions, approvals, your requests',
+                        ),
+                        leading: Icon(
+                          Icons.inbox_outlined,
+                          color: c.textSecondary,
+                        ),
+                        trailing: inbox.unread > 0
+                            ? _Count(inbox.unread)
+                            : null,
+                        onTap: _openInbox,
+                      ),
+                    for (final g in channelGroups(
+                      list.channels,
+                      list.teams,
+                    )) ...[
+                      // 只有本机频道时不写组名（和以前一样）
+                      if (list.teams.isNotEmpty || g.teamId != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 16, 12, 4),
+                          child: Text(
+                            g.title,
+                            style: TextStyle(
+                              fontSize: Fs.meta,
+                              fontWeight: FontWeight.w600,
+                              color: c.textMuted,
                             ),
                           ),
                         ),
-                      ),
+                      for (final ch in g.channels) _row(ch),
+                    ],
                     if (list.channels.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.all(16),
                         child: Text(
                           L(
-                            '手机上只能看 · 发消息、批准任务请在电脑上',
-                            'View only on the phone — post and approve on the computer',
+                            '手机上能看、能同意队友派的活 · 发消息请在电脑上',
+                            'View and approve teammates’ requests here — post on the computer',
                           ),
                           textAlign: TextAlign.center,
                           style: TextStyle(
@@ -347,6 +419,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       onImage: (i) => _openImage(t, e, i),
                       onSession: (id) =>
                           openSession(context, widget.deviceId, id),
+                      onApprove: (yes) => _approve(t, e, yes),
                     ),
                   if (t.loadingOlder)
                     const Padding(
@@ -363,8 +436,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
           color: c.bgSubtle,
           child: Text(
             L(
-              '手机上只能看 · 发消息、批准任务请在电脑上',
-              'View only on the phone — post and approve on the computer',
+              '手机上还不能发消息 · 请在电脑上',
+              "You can't post from the phone yet — use the computer",
             ),
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
@@ -372,6 +445,17 @@ class _ChannelScreenState extends State<ChannelScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _approve(ChannelTimeline t, ChannelEntry e, bool yes) async {
+    try {
+      await t.approve(e.id, yes);
+    } catch (err) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text(actionError(err))));
+      }
+    }
   }
 
   void _openImage(ChannelTimeline t, ChannelEntry e, int index) {
@@ -422,11 +506,13 @@ class _Entry extends StatelessWidget {
     required this.members,
     required this.onImage,
     required this.onSession,
+    required this.onApprove,
   });
   final ChannelEntry entry;
   final Map<String, ChannelMember> members;
   final void Function(int index) onImage;
   final void Function(String sessionId) onSession;
+  final Future<void> Function(bool yes) onApprove;
 
   @override
   Widget build(BuildContext context) {
@@ -480,7 +566,7 @@ class _Entry extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 if (e.kind == 'task')
-                  _TaskCard(e, onSession: onSession)
+                  _TaskCard(e, onSession: onSession, onApprove: onApprove)
                 else ...[
                   if (e.text.isNotEmpty)
                     e.markdown
@@ -532,17 +618,26 @@ class _Entry extends StatelessWidget {
 }
 
 class _TaskCard extends StatelessWidget {
-  const _TaskCard(this.task, {required this.onSession});
+  const _TaskCard(
+    this.task, {
+    required this.onSession,
+    required this.onApprove,
+  });
   final ChannelEntry task;
   final void Function(String sessionId) onSession;
+  final Future<void> Function(bool yes) onApprove;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final s = taskStatus(c, task.status);
     final diff = task.diff;
+    final reason = reasonText(task.reason);
+    final error = task.error;
     final note =
-        task.error ??
+        // 失败：先写原因（团队卡，§16.2），认不出的留错误原文
+        (reason != null && error != null ? '$reason · $error' : reason) ??
+        error ??
         task.summary ??
         (diff == null
             ? null
@@ -596,11 +691,24 @@ class _TaskCard extends StatelessWidget {
               style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
             ),
           ],
-          if (task.status == 'waiting' || task.status == 'approval')
+          if (task.runs > 1)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                L('在电脑上处理', 'Handle it on the computer'),
+                L('跑过 ${task.runs} 次', 'Ran ${task.runs} times'),
+                style: TextStyle(fontSize: Fs.meta, color: c.textFaint),
+              ),
+            ),
+          // 队友派来、等我同意的（§16.2）：直接点；别的「等确认」还在电脑上处理
+          if (task.canApprove)
+            ApproveButtons(onAnswer: onApprove)
+          else if (task.status == 'waiting' || task.status == 'approval')
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                task.status == 'approval'
+                    ? L('等 AI 成员的主人同意', "Waiting for the AI member's owner")
+                    : L('在电脑上处理', 'Handle it on the computer'),
                 style: TextStyle(fontSize: Fs.meta, color: c.textMuted),
               ),
             ),
@@ -671,6 +779,74 @@ class _ImagePageState extends State<_ImagePage> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// 未读数的小圆标
+class _Count extends StatelessWidget {
+  const _Count(this.n);
+  final int n;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+      decoration: BoxDecoration(
+        color: c.accent,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        n > 99 ? '99+' : '$n',
+        style: TextStyle(fontSize: Fs.meta, color: c.accentOn),
+      ),
+    );
+  }
+}
+
+/// 「拒绝 / 同意」两个按钮：点了以后转圈，答完（或出错）恢复；电脑和云端再核对一次还在不在等
+class ApproveButtons extends StatefulWidget {
+  const ApproveButtons({super.key, required this.onAnswer});
+  final Future<void> Function(bool yes) onAnswer;
+  @override
+  State<ApproveButtons> createState() => _ApproveButtonsState();
+}
+
+class _ApproveButtonsState extends State<ApproveButtons> {
+  bool? _busy;
+
+  Future<void> _answer(bool yes) async {
+    setState(() => _busy = yes);
+    try {
+      await widget.onAnswer(yes);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget label(bool yes, String text) => _busy == yes
+        ? const SizedBox.square(
+            dimension: 14,
+            child: CircularProgressIndicator(strokeWidth: 1.5),
+          )
+        : Text(text);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          OutlinedButton(
+            onPressed: _busy == null ? () => _answer(false) : null,
+            child: label(false, L('拒绝', 'Decline')),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: _busy == null ? () => _answer(true) : null,
+            child: label(true, L('同意', 'Approve')),
+          ),
+        ],
       ),
     );
   }

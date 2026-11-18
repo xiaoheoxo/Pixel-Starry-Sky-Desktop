@@ -51,7 +51,8 @@ WidgetState widgetState(
   }
   final n = waiting.length;
   return WidgetState(
-    title: L('等你处理 $n 件', n == 1 ? '1 task needs you' : '$n tasks need you'),
+    // 英文短一些：默认 2×1 放得下（§16.3）
+    title: L('等你处理 $n 件', '$n waiting'),
     body: '${taskTitle(waiting.first)} · ${_clock(syncedAt)}',
     waiting: true,
   );

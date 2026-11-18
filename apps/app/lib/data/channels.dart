@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../connection/connections.dart';
 import '../connection/desktop_link.dart';
+import '../i18n/i18n.dart';
 import '../protocol/json.dart';
 
 /// 频道成员（人或 AI）
@@ -41,6 +42,10 @@ extension type ChannelSummary(Json json) implements Json {
     for (final m in (json['memberIds'] as List? ?? const []))
       if (m is String) m,
   ];
+
+  /// local（本机 AI 协作）/ team（团队频道，§16.2）；旧电脑不给，当本机
+  bool get team => json['scope'] == 'team';
+  String? get teamId => str(json['teamId']);
   String? get lastAuthor => str(obj(json['last'])['authorId']);
   String? get lastText => str(obj(json['last'])['text']);
 }
@@ -67,6 +72,11 @@ extension type ChannelEntry(Json json) implements Json {
   String? get sessionId => str(json['sessionId']);
   String? get summary => str(json['summary']);
   String? get error => str(json['error']);
+
+  /// 团队卡（§16.2）：失败原因代码、跑过几次、等同意时我能不能点
+  String? get reason => str(json['reason']);
+  int get runs => (json['runs'] as num?)?.toInt() ?? 0;
+  bool get canApprove => json['canApprove'] == true;
   ({int added, int removed})? get diff {
     final d = objOrNull(json['diff']);
     if (d == null) return null;
@@ -81,6 +91,46 @@ extension type ChannelEntry(Json json) implements Json {
   String get actorId => str(json['actorId']) ?? '';
   String? get targetId => str(json['targetId']);
   String? get value => str(json['value']);
+}
+
+/// 失败原因代码 → 一句话（同电脑 run.reason.*；认不出的不写，留错误原文）
+String? reasonText(String? reason) => switch (reason) {
+  'machine_offline' => L('主人的电脑离线', "The owner's computer is offline"),
+  'queue_expired' => L('排队太久，已过期', 'Waited too long in the queue'),
+  'session_gone' => L('会话没了', 'The conversation is gone'),
+  'not_deployed' => L('云端还没开这个功能', 'Not available on the cloud yet'),
+  'not_allowed' => L('主人改了派活规则', 'The owner changed who can assign'),
+  'requester_left' => L('派活的人已离开团队', 'The requester left the team'),
+  'project_blocked' => L('这个项目不接队友的活', 'This project is closed to teammates'),
+  'engine.auth' => L('引擎没登录', 'The engine is signed out'),
+  'engine.quota' => L('额度用完了', 'Out of quota'),
+  'engine.model' => L('模型用不了', 'The model is unavailable'),
+  'engine.busy' => L('引擎太忙', 'The engine is busy'),
+  'engine.context' => L('上下文太长', 'The context is too long'),
+  _ => null,
+};
+
+/// 频道分组（§16.2）：本机频道一组，每个团队一组（团队名从电脑给的 teams 里取）
+List<({String? teamId, String title, List<ChannelSummary> channels})>
+channelGroups(List<ChannelSummary> list, Map<String, String> teams) {
+  final local = [
+    for (final c in list)
+      if (!c.team) c,
+  ];
+  final byTeam = <String, List<ChannelSummary>>{};
+  for (final c in list) {
+    if (c.team) (byTeam[c.teamId ?? ''] ??= []).add(c);
+  }
+  return [
+    if (local.isNotEmpty)
+      (teamId: null, title: L('本机频道', 'On this computer'), channels: local),
+    for (final e in byTeam.entries)
+      (
+        teamId: e.key,
+        title: teams[e.key] ?? L('团队', 'Team'),
+        channels: e.value,
+      ),
+  ];
 }
 
 /// 频道列表：没归档的按最后一条时间排，归档的放后面
@@ -120,6 +170,9 @@ class ChannelList extends ChangeNotifier {
 
   List<ChannelSummary> channels = const [];
   final members = <String, ChannelMember>{};
+
+  /// 团队 id → 名字
+  final teams = <String, String>{};
   bool loaded = false;
   String? error;
 
@@ -144,6 +197,12 @@ class ChannelList extends ChangeNotifier {
         ..addEntries([
           for (final m in objList(r['members']))
             MapEntry(str(m['id']) ?? '', ChannelMember(m)),
+        ]);
+      teams
+        ..clear()
+        ..addEntries([
+          for (final t in objList(r['teams']))
+            MapEntry(str(t['id']) ?? '', str(t['name']) ?? ''),
         ]);
       error = null;
     } catch (e) {
@@ -246,6 +305,14 @@ class ChannelTimeline extends ChangeNotifier {
     if (m == null) return;
     entries = mergeEntry(entries, ChannelEntry(m));
     notifyListeners();
+  }
+
+  /// 同意 / 拒绝队友派的活（§16.2）：电脑转给云端，云端再核对一次还在不在等；成功后重取这一页
+  Future<void> approve(String taskId, bool yes) async {
+    final l = _link;
+    if (l == null) throw const LinkNotReady();
+    await l.call('teamApprove', [taskId, yes]);
+    if (!_disposed) await _load();
   }
 
   /// 一条消息里的第 index 张图（放不进一帧时电脑缩小了）

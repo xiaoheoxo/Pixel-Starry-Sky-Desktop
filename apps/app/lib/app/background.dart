@@ -8,6 +8,8 @@ import '../data/desktop_lists.dart';
 import '../data/notify.dart';
 import '../data/quick_answer.dart';
 import '../data/tasks.dart';
+import '../data/team_inbox.dart';
+import '../protocol/json.dart';
 import '../i18n/i18n.dart';
 import '../platform/notifier.dart';
 import 'settings.dart';
@@ -70,9 +72,35 @@ class BackgroundWatcher {
         .catchError((Object _) {});
   }
 
+  final _inbox = <String, List<InboxItem>>{};
+
+  /// 电脑给的团队收件箱（§16.2）：在后台时，新来的「@ 你」「等你同意」「失败」弹一条，点了打开收件箱
+  void teamInbox(String device, List<InboxItem> items) {
+    final prev = _inbox[device];
+    _inbox[device] = items;
+    if (_foreground) return;
+    final alerts = inboxAlerts(
+      prev,
+      items,
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    if (alerts.isEmpty) return;
+    notifier
+        .show(
+          NotifyPayload(
+            NotifyKind.team,
+            alerts.length > 99 ? 99 : alerts.length,
+            null,
+          ),
+          device,
+        )
+        .catchError((Object _) {});
+  }
+
   /// 忘掉的电脑
   void forget(String device) {
     _prev.remove(device);
+    _inbox.remove(device);
     _pending.remove(device)?.timer.cancel();
   }
 
@@ -118,7 +146,23 @@ class BackgroundWatcher {
 
     lists.addListener(sync);
     sync();
+    // 电脑说频道变了（收件箱也在里面）：取一次收件箱比较；旧电脑不认就不管
+    _channelEvents?.cancel();
+    _channelEvents = connections.events.listen((e) async {
+      if (e.channel != 'channels:changed') return;
+      final link = connections.link(e.deviceId);
+      if (link == null) return;
+      try {
+        final r = obj(await link.call('teamInbox'));
+        if (r['supported'] != true) return;
+        teamInbox(e.deviceId, [
+          for (final i in objList(r['items'])) InboxItem(i),
+        ]);
+      } catch (_) {}
+    });
   }
+
+  StreamSubscription<DesktopEvent>? _channelEvents;
 
   final _seen = <String, DesktopData>{};
 }

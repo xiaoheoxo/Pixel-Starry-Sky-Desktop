@@ -2,6 +2,8 @@
 // 提醒（通知、后台保持连接）、安全（面容 / 指纹锁、电脑和本机指纹）、反馈（问题与建议，有新回复时红点）、页脚版本号。
 import 'dart:io';
 
+import 'update_banner.dart';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../app/scope.dart';
@@ -169,6 +171,8 @@ class _SettingsScreenState extends State<SettingsScreen>
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
+              // 有新版本（§16.1）
+              UpdateBanner(s.updater),
               Section(
                 title: L('电脑', 'Computers'),
                 children: [

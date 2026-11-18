@@ -5,6 +5,7 @@ import 'package:gal/gal.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../i18n/i18n.dart';
+import 'image_bytes.dart';
 import 'widgets.dart';
 
 class ImageViewer extends StatefulWidget {
@@ -65,7 +66,8 @@ class _ImageViewerState extends State<ImageViewer> {
             onPressed: () => Navigator.of(context).pop(),
           ),
           trailing: [
-            if (data != null)
+            // SVG 存不进相册（相册只认位图）
+            if (data != null && !looksLikeSvg(data))
               RoundIconButton(
                 icon: Icons.download_outlined,
                 tooltip: L('存到相册', 'Save to Photos'),
@@ -83,9 +85,9 @@ class _ImageViewerState extends State<ImageViewer> {
               : InteractiveViewer(
                   maxScale: 6,
                   child: Center(
-                    child: Image.memory(
+                    child: bytesImage(
                       data,
-                      errorBuilder: (_, _, _) => EmptyState(
+                      onError: () => EmptyState(
                         icon: Icons.broken_image_outlined,
                         title: L('打不开这张图', "Can't open this image"),
                       ),

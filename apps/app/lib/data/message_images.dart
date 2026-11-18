@@ -23,9 +23,17 @@ class MessageImages {
   Future<Uint8List> load(String itemId, int index) =>
       _fetch('$itemId/$index', 'image', [sessionId, itemId, index]);
 
-  /// 回复里 Markdown 图片指向的本地文件（§15.17）：地址原样交给电脑，按这个会话的工作目录读，项目外的不给
-  Future<Uint8List> file(String src) =>
-      _fetch('file:$src', 'fileImage', [sessionId, src]);
+  /// 回复里 Markdown 图片指向的本地文件（§15.17）：地址原样交给电脑，按这个会话的工作目录读，项目外的不给。
+  /// scope 是引用它的那条回复（§16.3）：同一条回复反复显示用缓存，新的回复引用同一路径（文件可能重新生成了）重新取
+  Future<Uint8List> file(String src, [String? scope]) =>
+      _fetch('file:${scope ?? ''}:$src', 'fileImage', [sessionId, src]);
+
+  /// 排队中消息的第几张图（§16.3）
+  Future<Uint8List> queued(String queueId, int index) => _fetch(
+    'queue:$queueId/$index',
+    'queueImage',
+    [sessionId, queueId, index],
+  );
 
   Future<Uint8List> _fetch(String key, String method, List<Object?> args) {
     final hit = _cache.remove(key);
@@ -64,6 +72,10 @@ String imageError(Object e) {
       'Too large — view it on the computer',
     ),
     'MOBILE_NOT_FOUND' => L('图片已经不在了', 'This image is no longer available'),
+    'MOBILE_OFFLINE' => L(
+      '电脑离线，连上后点一下重试',
+      'The computer is offline — tap to retry once it reconnects',
+    ),
     _ => actionError(e),
   };
 }

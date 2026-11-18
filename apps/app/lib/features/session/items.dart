@@ -12,6 +12,7 @@ import '../../protocol/constants.dart';
 import '../../protocol/json.dart';
 import '../../protocol/turn_fold.dart';
 import '../../ui/markdown.dart';
+import '../../ui/markdown_image.dart';
 import '../../ui/theme/theme.dart';
 import '../../ui/theme/tokens.dart';
 import '../../ui/theme/type.dart';
@@ -282,7 +283,11 @@ class ItemView extends StatelessWidget {
         if (jsTrim(item.text).isEmpty) return const SizedBox();
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
-          child: ReplyMarkdown(item.text),
+          child: MarkdownImages.scoped(
+            context,
+            item.id,
+            child: ReplyMarkdown(item.text),
+          ),
         );
       case 'reasoning':
         return _Expandable(
@@ -323,6 +328,7 @@ class UserBubble extends StatelessWidget {
     this.images = 0,
     this.itemId,
     this.imageMeta = const [],
+    this.queued = false,
     this.guidance = false,
     this.faded = false,
     this.onLongPress,
@@ -335,6 +341,9 @@ class UserBubble extends StatelessWidget {
   /// 发出去的消息：条目 id 和图片元数据，看得到时向电脑取缩略图
   final String? itemId;
   final List<Json> imageMeta;
+
+  /// 排队中的：itemId 是队列里的 id，图经 queueImage 取
+  final bool queued;
   final bool guidance;
   final bool faded;
   final VoidCallback? onLongPress;
@@ -377,7 +386,11 @@ class UserBubble extends StatelessWidget {
               if (itemId != null && imageMeta.isNotEmpty)
                 Padding(
                   padding: EdgeInsets.only(top: text.isEmpty ? 0 : 8),
-                  child: ImageStrip(itemId: itemId!, images: imageMeta),
+                  child: ImageStrip(
+                    itemId: itemId!,
+                    images: imageMeta,
+                    queued: queued,
+                  ),
                 )
               else if (images > 0)
                 ImageCount(images),
@@ -1223,7 +1236,11 @@ class _ProcessBlockState extends State<ProcessBlock> {
             if (reply != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: ReplyMarkdown(reply.text),
+                child: MarkdownImages.scoped(
+                  context,
+                  reply.id,
+                  child: ReplyMarkdown(reply.text),
+                ),
               ),
           ],
         ),
@@ -1303,7 +1320,11 @@ class _ProcessItem extends StatelessWidget {
   Widget build(BuildContext context) => item.kind == 'assistant'
       ? Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: ReplyMarkdown(item.text),
+          child: MarkdownImages.scoped(
+            context,
+            item.id,
+            child: ReplyMarkdown(item.text),
+          ),
         )
       : StepRow(item);
 }

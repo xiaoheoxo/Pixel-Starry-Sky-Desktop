@@ -1656,6 +1656,12 @@ html.js .stagger.in > a:hover,
   color: var(--fg-2);
   font-size: 14px;
 }
+.contact small {
+  display: block;
+  margin-top: 6px;
+  font: 500 12px var(--mono);
+  color: var(--faint);
+}
 
 /* 更新说明 */
 .notes {

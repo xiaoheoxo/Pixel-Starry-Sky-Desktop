@@ -1,10 +1,12 @@
 // 本机打手机 App（apps/app）的安卓正式签名包（docs/mobile-app.md §8.6）：
-// flutter build apk --release → apps/app/build/dist/pixelsky-<版本>.apk，打印 SHA-256 和签名证书指纹。
+// flutter build apk --release → apps/app/build/dist/pixelsky-<版本>.apk，打印 SHA-256 和签名证书指纹；
+// 同目录写 latest.json（App 内检查更新和官网读它，§16.1），更新说明取 .github/release-notes/app-v<版本>.md。
+// 上传到官网下载目录用 scripts/publish-app.mjs。
 // 签名密钥在仓库外（默认 ~/.pixelsky/app-release.properties，或环境变量 PIXELSKY_KEY_PROPERTIES），找不到就不打包。
 // 需要 flutter 在 PATH 上；打印证书指纹要 ANDROID_HOME（没有就跳过这一项）。iOS 包只能在工作流（.github/workflows/app.yml）里打。
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +47,24 @@ copyFileSync(built, target)
 
 const sha = createHash('sha256').update(readFileSync(target)).digest('hex')
 console.log(`\n安装包：${target}\n版本：${version}\nSHA-256：${sha}`)
+
+// latest.json：字段和 App 的 AppRelease.parse（apps/app/lib/data/app_update.dart）对应，文件名只能是同目录下的
+const build = Number(version.split('+')[1])
+if (!Number.isInteger(build) || build <= 0) throw new Error(`pubspec.yaml 的 version 要带 +版本号数字：${version}`)
+const notesFile = join(root, '.github', 'release-notes', `app-v${name}.md`)
+const notes = existsSync(notesFile) ? readFileSync(notesFile, 'utf8').trim() : ''
+if (!notes) console.warn(`没有更新说明（${notesFile}），latest.json 里 notes 为空`)
+const manifest = {
+  version: name,
+  build,
+  file: `pixelsky-${name}.apk`,
+  size: statSync(target).size,
+  sha256: sha,
+  notes,
+  date: new Date().toISOString().slice(0, 10),
+}
+writeFileSync(join(dist, 'latest.json'), JSON.stringify(manifest, null, 2) + '\n')
+console.log(`更新清单：${join(dist, 'latest.json')}`)
 
 // 签名证书指纹：每次都应该是同一个，变了就是用错了密钥（装不上覆盖）
 const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT

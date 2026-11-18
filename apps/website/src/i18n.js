@@ -98,6 +98,15 @@
     'c1.d': 'Settings › Feedback — logs and screenshots can be attached, and replies show up in the app.',
     'c2.t': 'GitHub issues',
     'c2.d': 'Report bugs or suggest features in public.',
+    'app.k': 'Phone app',
+    'app.title': 'Keep an eye on your desktop AI from your phone',
+    'app.lead':
+      'Scan the QR code on your computer to pair. Follow sessions, approve commands, get notified — data travels encrypted between your computer and phone only.',
+    'app.a.t': 'Android',
+    'app.a.d':
+      'Download the APK (allow “Install unknown apps” the first time); after that it updates from inside the app.',
+    'app.i.t': 'iPhone',
+    'app.i.d': 'Coming soon.',
     'cta.title': 'Try it now',
     'cta.lead': 'Free to download — start with the subscription you already have.',
     'foot.hint': 'Or use Settings › Feedback in the app',

@@ -29,9 +29,17 @@ class MessageImageScope extends InheritedWidget {
 
 /// 一条消息的几张图：一张时按宽高比放大一点，多张时一排方块
 class ImageStrip extends StatelessWidget {
-  const ImageStrip({super.key, required this.itemId, required this.images});
+  const ImageStrip({
+    super.key,
+    required this.itemId,
+    required this.images,
+    this.queued = false,
+  });
   final String itemId;
   final List<Json> images;
+
+  /// 排队中消息的图（itemId 是队列里的 id）
+  final bool queued;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +55,7 @@ class ImageStrip extends StatelessWidget {
             source: source,
             itemId: itemId,
             index: i,
+            queued: queued,
             meta: images[i],
             size: single ? _singleSize(images[i]) : const Size(72, 72),
           ),
@@ -91,12 +100,14 @@ class _Thumb extends StatefulWidget {
     required this.source,
     required this.itemId,
     required this.index,
+    required this.queued,
     required this.meta,
     required this.size,
   });
   final MessageImages source;
   final String itemId;
   final int index;
+  final bool queued;
   final Json meta;
   final Size size;
 
@@ -107,13 +118,16 @@ class _Thumb extends StatefulWidget {
 class _ThumbState extends State<_Thumb> {
   late Future<Uint8List> _bytes = _load();
 
-  Future<Uint8List> _load() => widget.source.load(widget.itemId, widget.index);
+  Future<Uint8List> _load() => widget.queued
+      ? widget.source.queued(widget.itemId, widget.index)
+      : widget.source.load(widget.itemId, widget.index);
 
   @override
   void didUpdateWidget(_Thumb old) {
     super.didUpdateWidget(old);
     // 这个位置换成了别的条目 / 别的一张：重新取，不显示上一张
     if (old.itemId != widget.itemId ||
+        old.queued != widget.queued ||
         old.index != widget.index ||
         old.source != widget.source) {
       _bytes = _load();
@@ -130,11 +144,8 @@ class _ThumbState extends State<_Thumb> {
       child: GestureDetector(
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => ImageViewer(
-              title: name,
-              load: () => widget.source.load(widget.itemId, widget.index),
-              describe: imageError,
-            ),
+            builder: (_) =>
+                ImageViewer(title: name, load: _load, describe: imageError),
           ),
         ),
         child: ClipRRect(

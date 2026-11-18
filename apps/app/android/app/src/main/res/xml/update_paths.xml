@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- App 内更新（docs/mobile-app.md §16.1）：只开放缓存目录里的 update/ -->
+<paths>
+    <cache-path name="update" path="update/" />
+</paths>

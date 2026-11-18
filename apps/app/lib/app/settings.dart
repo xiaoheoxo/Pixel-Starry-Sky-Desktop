@@ -40,6 +40,10 @@ class AppSettings extends ChangeNotifier {
   static const _languageKey = 'pixelsky.language';
   static const _projectKey = 'pixelsky.project.';
   static const _draftKey = 'pixelsky.feedbackDraft.';
+  static const _skipUpdateKey = 'pixelsky.update.skip';
+
+  /// App 内更新「这版不再提醒」的版本号数字（§16.1）
+  int? skipUpdate;
 
   /// 切到后台时保持和电脑的连接（安卓前台服务），默认开
   bool keepAlive = true;
@@ -69,6 +73,7 @@ class AppSettings extends ChangeNotifier {
     try {
       keepAlive = await p.getBool(_keepAliveKey) ?? true;
       lock = await p.getBool(_lockKey) ?? false;
+      skipUpdate = await p.getInt(_skipUpdateKey);
       appearance = _parse(
         Appearance.values,
         await p.getString(_appearanceKey),
@@ -101,6 +106,11 @@ class AppSettings extends ChangeNotifier {
     keepAlive = v;
     notifyListeners();
     await _prefs?.setBool(_keepAliveKey, v);
+  }
+
+  Future<void> setSkipUpdate(int build) async {
+    skipUpdate = build;
+    await _prefs?.setInt(_skipUpdateKey, build);
   }
 
   Future<void> setLock(bool v) async {

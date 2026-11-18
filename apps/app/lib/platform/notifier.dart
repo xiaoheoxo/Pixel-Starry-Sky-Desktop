@@ -112,6 +112,7 @@ class LocalNotifier implements Notifier {
     NotifyKind.waiting: 11,
     NotifyKind.failed: 12,
     NotifyKind.completed: 13,
+    NotifyKind.team: 15,
   };
 
   static const _settings = InitializationSettings(
@@ -266,6 +267,7 @@ class LocalNotifier implements Notifier {
         session: payload.session,
         waiting: payload.kind == NotifyKind.waiting,
         request: a?.requestId,
+        inbox: payload.kind == NotifyKind.team,
       ).encode(),
     );
   }

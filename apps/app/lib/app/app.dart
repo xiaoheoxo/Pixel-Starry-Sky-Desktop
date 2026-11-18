@@ -10,6 +10,7 @@ import 'package:material_ui/material_ui.dart';
 import '../data/notify.dart';
 import '../data/quick_answer.dart';
 import '../data/tasks.dart';
+import '../features/channels/channels_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/lock/lock_screen.dart';
 import '../features/pairing/add_computer_screen.dart';
@@ -160,6 +161,10 @@ class _PixelSkyAppState extends State<PixelSkyApp> with WidgetsBindingObserver {
     final ctx = _navigator.currentContext;
     if (nav == null || ctx == null || !ctx.mounted) return;
     nav.popUntil((r) => r.isFirst);
+    if (t.inbox) {
+      openChannels(ctx, t.device, inbox: true);
+      return;
+    }
     if (t.session != null) {
       openSession(ctx, t.device, t.session!, notified: t.waiting);
       return;

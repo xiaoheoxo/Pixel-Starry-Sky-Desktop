@@ -3,6 +3,7 @@
 // 所以重新打开看到的和推送的一致。能发消息（跑一段写好的回合）、排队、审批 / 提问、停止、改模式、改名、置顶、归档、新建。
 // 只用来看界面、截图；正式包里 DEMO 是 false，这个文件不会被用到。
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../connection/pairing.dart';
@@ -117,6 +118,10 @@ class DemoDesktop {
 
   /// 消息里图片的数据（会话内容里去掉了，同电脑）：「会话/条目」→ 每张的 base64，image 方法按第几张取
   final _imageData = <String, List<String>>{};
+
+  /// 团队演示的状态：收件箱（能标已读、归档）、答过的任务卡
+  List<Json> _inbox = [for (final i in L10n.teamInbox) obj(_recent(i))];
+  final _approved = <String, bool>{};
   int _ids = 0;
   String _id(String p) => '$p${++_ids}';
   int get _now => DateTime.now().millisecondsSinceEpoch;
@@ -549,7 +554,24 @@ class DemoDesktop {
             'dataBase64': L10n.shotSettings,
           };
         }
+        // SVG 原文（电脑把 .svg 当文本读出来原样带上，§16.3）
+        if ('${args.length > 1 ? args[1] : ''}'.endsWith('.svg')) {
+          return {
+            'id': 'file',
+            'name': 'logo.svg',
+            'mediaType': 'image/svg+xml',
+            'dataBase64': base64Encode(utf8.encode(_demoSvg)),
+          };
+        }
         throw const LinkException('MOBILE_NOT_FOUND');
+      // 排队中消息的一张图（同电脑网关的 queueImage）
+      case 'queueImage':
+        return {
+          'id': 'q',
+          'name': 'image.png',
+          'mediaType': 'image/png',
+          'dataBase64': L10n.shotBrowser,
+        };
       // 消息里的一张图（用户发的、工具结果里的），同电脑网关的 image
       case 'image':
         final data = _imageData['${args[0]}/${args[1]}'];
@@ -593,8 +615,40 @@ class DemoDesktop {
       case 'channels':
         return _recent(L10n.channels);
       case 'channelMessages':
+        if (id == 'tc1') {
+          return {
+            'messages': [
+              for (final m in (_recent(L10n.teamMessages) as List).map(obj))
+                _approved.containsKey(m['id'])
+                    ? {
+                        ...m,
+                        'status': _approved[m['id']]! ? 'running' : 'stopped',
+                        'canApprove': false,
+                      }
+                    : m,
+            ],
+            'more': false,
+            'selfId': 'u1',
+          };
+        }
         if (id != 'c1') throw const LinkException('MOBILE_NOT_FOUND');
         return {'messages': _recent(L10n.channelMessages), 'more': false};
+      // 团队（§16.2）：收件箱、改一行、同意 / 拒绝
+      case 'teamInbox':
+        return {'supported': true, 'items': _inbox};
+      case 'teamInboxPatch':
+        final patch = obj(args.length > 2 ? args[2] : null);
+        _inbox = [
+          for (final i in _inbox)
+            if (i['key'] != args[1])
+              i
+            else if (patch['archived'] != true)
+              {...i, ...patch},
+        ];
+        return null;
+      case 'teamApprove':
+        _approved['${args.first}'] = args.length > 1 && args[1] == true;
+        return null;
       case 'channelImage':
         throw const LinkException('MOBILE_NOT_FOUND');
       case 'defaults':
@@ -1253,7 +1307,8 @@ class DemoDesktop {
           'kind': 'assistant',
           'id': 'a1',
           // 回复里的本地图片（§15.17）：经 fileImage 向电脑取
-          'text': '${L10n.reply5}\n\n![设置页截图](./screens/settings.png)',
+          'text':
+              '${L10n.reply5}\n\n![设置页截图](./screens/settings.png)\n\n![图标](./assets/logo.svg)',
           'status': 'completed',
         },
       ],
@@ -1422,9 +1477,28 @@ abstract final class L10n {
         'memberIds': ['me', 'a1', 'a2'],
         'last': {'authorId': 'a1', 'text': '登录页已拆成三个组件，等你看'},
       },
+      // 团队频道（§16.2）：队友小林派活给我的 Claude，等我同意
+      {
+        'id': 'tc1',
+        'name': '后端',
+        'topic': null,
+        'unread': 1,
+        'mentioned': true,
+        'archived': false,
+        'lastAt': 1763436000000,
+        'memberIds': ['u1', 'u2', 'a2'],
+        'scope': 'team',
+        'teamId': 'T1',
+        'last': {'authorId': 'u2', 'text': '接口限流加一下'},
+      },
+    ],
+    'teams': [
+      {'id': 'T1', 'name': '星空小组'},
     ],
     'members': [
       {'id': 'me', 'kind': 'human', 'name': '我', 'you': true},
+      {'id': 'u1', 'kind': 'human', 'name': '我', 'you': true},
+      {'id': 'u2', 'kind': 'human', 'name': '小林', 'you': false},
       {
         'id': 'a1',
         'kind': 'agent',
@@ -1479,6 +1553,88 @@ abstract final class L10n {
       'sessionId': null,
     },
   ];
+
+  /// 团队频道「后端」的时间线
+  static const teamMessages = [
+    {
+      'id': 'tk2',
+      'kind': 'task',
+      'at': 1763432000000,
+      'authorId': 'u2',
+      'assigneeId': 'a2',
+      'title': '升级数据库驱动',
+      'status': 'failed',
+      'sessionId': null,
+      'error': '连不上主人的电脑',
+      'reason': 'machine_offline',
+      'runs': 2,
+    },
+    {
+      'id': 'tm1',
+      'kind': 'message',
+      'at': 1763435000000,
+      'authorId': 'u2',
+      'text': '@Claude 接口限流加一下，登录接口每分钟 10 次',
+      'format': 'plain',
+      'images': 0,
+      'files': <String>[],
+    },
+    {
+      'id': 'tk1',
+      'kind': 'task',
+      'at': 1763436000000,
+      'authorId': 'u2',
+      'assigneeId': 'a2',
+      'title': '登录接口加限流',
+      'status': 'approval',
+      'sessionId': null,
+      'canApprove': true,
+    },
+  ];
+
+  /// 团队收件箱：等你同意、@ 你、失败
+  static const teamInbox = [
+    {
+      'teamId': 'T1',
+      'key': 'tk1',
+      'channelId': 'tc1',
+      'kind': 'approval',
+      'actor': 'u2',
+      'text': '登录接口加限流',
+      'count': 1,
+      'at': 1763436000000,
+      'read': false,
+      'snoozeUntil': null,
+      'muted': false,
+    },
+    {
+      'teamId': 'T1',
+      'key': 'tm1',
+      'channelId': 'tc1',
+      'kind': 'mention',
+      'actor': 'u2',
+      'text': '@Claude 接口限流加一下，登录接口每分钟 10 次',
+      'count': 1,
+      'at': 1763435000000,
+      'read': false,
+      'snoozeUntil': null,
+      'muted': false,
+    },
+    {
+      'teamId': 'T1',
+      'key': 'tk2',
+      'channelId': 'tc1',
+      'kind': 'failed',
+      'actor': 'a2',
+      'text': '升级数据库驱动',
+      'count': 2,
+      'at': 1763432000000,
+      'read': true,
+      'snoozeUntil': null,
+      'muted': false,
+    },
+  ];
+
   static const sideAnswer =
       '它正在改 `src/router/index.ts`，懒加载用 `() => import(...)` 的写法；这一轮不受影响。';
 
@@ -1644,3 +1800,10 @@ final out = r.writeMessage2();
     },
   ];
 }
+
+/// 演示回复里引用的 SVG（一个像素星空风格的小图标）
+const _demoSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24">'
+    '<rect width="24" height="24" rx="6" fill="#1f6f5c"/>'
+    '<path d="M6 15l6-9 6 9h-4l-2-3-2 3z" fill="#f4efe6"/>'
+    '<circle cx="18" cy="6" r="1.5" fill="#f4efe6"/></svg>';

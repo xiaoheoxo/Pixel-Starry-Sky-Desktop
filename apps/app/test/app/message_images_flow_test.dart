@@ -3,6 +3,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pixelsky_app/app/app.dart';
@@ -22,7 +23,10 @@ import 'package:pixelsky_app/platform/notifier.dart';
 import 'package:pixelsky_app/features/tools/git_screen.dart';
 import 'package:pixelsky_app/protocol/json.dart';
 import 'package:pixelsky_app/ui/image_viewer.dart';
+import 'package:pixelsky_app/features/session/items.dart';
+import 'package:pixelsky_app/ui/image_bytes.dart';
 import 'package:pixelsky_app/ui/markdown.dart';
+import 'package:pixelsky_app/ui/markdown_image.dart';
 import 'package:pixelsky_app/ui/theme/theme.dart';
 
 void main() {
@@ -192,6 +196,99 @@ void main() {
   test('取不到的图：错误换人话', () {
     expect(imageError(Exception('MOBILE_TOO_LARGE')), contains('太大'));
     expect(imageError(Exception('MOBILE_NOT_FOUND')), contains('不在'));
+    // 电脑离线和真的找不到分开说（§16.3）
+    expect(imageError(Exception('MOBILE_OFFLINE')), contains('离线'));
+  });
+
+  test('SVG 认得出来：开头的空白、XML 声明都跳过，普通图片不算', () {
+    expect(
+      looksLikeSvg(
+        utf8.encode('  <?xml version="1.0"?>\n<svg xmlns="x"></svg>'),
+      ),
+      isTrue,
+    );
+    expect(looksLikeSvg(utf8.encode('<svg viewBox="0 0 1 1"/>')), isTrue);
+    expect(looksLikeSvg(utf8.encode('<svg>')), isTrue);
+    expect(looksLikeSvg(base64Decode(L10n.shotSettings)), isFalse);
+    expect(looksLikeSvg(utf8.encode('hello <svg>')), isFalse);
+  });
+
+  Widget reply(Widget child) => MaterialApp(
+    theme: buildTheme(Brightness.light),
+    home: Scaffold(body: SingleChildScrollView(child: child)),
+  );
+
+  testWidgets('回复里的 SVG 用 flutter_svg 画（§16.3）', (tester) async {
+    await tester.pumpWidget(
+      reply(
+        MarkdownImages(
+          load: (src, scope) async => utf8.encode(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
+          ),
+          describe: imageError,
+          child: const ReplyMarkdown('图：\n\n![](./logo.svg)'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(SvgPicture), findsOneWidget);
+  });
+
+  testWidgets('同一路径在两条回复里：各按自己的回复 id 取，新回复不拿旧图（§16.3）', (tester) async {
+    final asked = <String>[];
+    final png = base64Decode(L10n.shotSettings);
+    await tester.pumpWidget(
+      reply(
+        MarkdownImages(
+          load: (src, scope) async {
+            asked.add('$scope|$src');
+            return png;
+          },
+          describe: imageError,
+          child: Builder(
+            builder: (context) => Column(
+              children: [
+                MarkdownImages.scoped(
+                  context,
+                  'r1',
+                  child: const ReplyMarkdown('![](./out.png)'),
+                ),
+                MarkdownImages.scoped(
+                  context,
+                  'r2',
+                  child: const ReplyMarkdown('![](./out.png)'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(asked, unorderedEquals(['r1|./out.png', 'r2|./out.png']));
+  });
+
+  testWidgets('排队中消息的图：经 queueImage 取缩略图（§16.3）', (tester) async {
+    final images = _FakeImages(DemoDesktop());
+    await tester.pumpWidget(
+      reply(
+        MessageImageScope(
+          images: images,
+          child: const UserBubble(
+            text: '看这张',
+            images: 1,
+            itemId: 'q1',
+            imageMeta: [
+              {'name': 'a.png', 'width': 10, 'height': 10},
+            ],
+            queued: true,
+            faded: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(images.calls, ['queue:q1/0']);
   });
 }
 
@@ -204,6 +301,12 @@ class _FakeImages extends MessageImages {
         's',
       );
   final calls = <String>[];
+  @override
+  Future<Uint8List> queued(String queueId, int index) {
+    calls.add('queue:$queueId/$index');
+    return Future.value(base64Decode(L10n.shotBrowser));
+  }
+
   @override
   Future<Uint8List> load(String itemId, int index) {
     calls.add('$itemId/$index');

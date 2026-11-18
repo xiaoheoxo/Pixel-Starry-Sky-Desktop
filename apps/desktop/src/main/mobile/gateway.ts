@@ -22,6 +22,7 @@ import {
   type EngineId,
   type HostEvent,
   type ImageAttachment,
+  type QueuedMessage,
   type ArtifactResponse,
   type IpcChannelSpec,
   type Item,
@@ -59,7 +60,14 @@ import type { PhoneFeedback } from '../../shared/types/feedback'
 import type { MobilePairing } from '../../shared/types/mobile'
 import type { CheckoutOrder, StoreCatalog } from '../../shared/types/account'
 import { reviewFixRequest, type ReviewStatus, type SessionReviews } from '../../shared/types/ai'
-import type { Channel, ChannelAttachments, ChannelMember, ChannelMessage } from '../../shared/types/channels'
+import type {
+  Channel,
+  ChannelAttachments,
+  ChannelMember,
+  ChannelMessage,
+  TeamInboxItem,
+  TeamInboxPatch,
+} from '../../shared/types/channels'
 import {
   prChecksRequest,
   prConflictRequest,
@@ -179,9 +187,18 @@ export interface PhoneReviews {
   markSent(sessionId: string, turnKey: string, ids: readonly string[], text: string): void
 }
 
-/** 网关用到的频道服务那几个读操作（core/channels/service.ts 的 Channels） */
+/** 网关用到的频道服务那几样（core/channels/service.ts 的 Channels）：读频道，团队的收件箱和同意派活（§16.2） */
 export interface PhoneChannels {
-  state(): { self: { id: string }; channels: Channel[]; members: ChannelMember[] }
+  state(): {
+    self: { id: string }
+    channels: Channel[]
+    members: ChannelMember[]
+    teams?: { id: string; name: string }[]
+    inbox?: TeamInboxItem[]
+    inboxSupported?: boolean
+  }
+  patchInbox?(teamId: string, key: string, patch: TeamInboxPatch): Promise<void>
+  approveTask?(taskId: string, approve: boolean): Promise<void>
   page(
     channelId: string,
     before?: number | null,
@@ -487,9 +504,23 @@ export function phoneReviews(turns: SessionReviews): SessionReviews {
 }
 
 /** 手机看频道的调用（docs/mobile-app.md §15.6）：第一版只读，「只看」的手机也能用 */
-export const CHANNEL_METHODS = new Set(['channels', 'channelMessages', 'channelImage', 'channelUnwatch'])
+export const CHANNEL_METHODS = new Set([
+  'channels',
+  'channelMessages',
+  'channelImage',
+  'channelUnwatch',
+  'teamInbox',
+  'teamInboxPatch',
+  'teamApprove',
+])
 /** 频道消息正文最多给手机多少字 */
 export const CHANNEL_TEXT_LIMIT = 4000
+
+/** 电脑文件接口的报错是不是「文件 / 目录 / 会话不存在」（其余当读不到：机器离线、SSH 断了） */
+export function fileMissing(e: unknown): boolean {
+  const message = e instanceof Error ? e.message : String(e)
+  return /files\.notFound|ENOENT|不存在|not found/i.test(message)
+}
 
 const cut = (text: string | null | undefined, limit: number): string | null =>
   text == null ? null : text.length > limit ? text.slice(0, limit) + '…' : text
@@ -509,7 +540,7 @@ export function phoneMember(m: ChannelMember): Record<string, unknown> {
 }
 
 /** 手机看的一条频道消息：只留时间线要画的；讨论串里的、流程卡不给（手机第一版不画） */
-export function phoneChannelMessage(m: ChannelMessage): Record<string, unknown> | null {
+export function phoneChannelMessage(m: ChannelMessage, selfId: string | null = null): Record<string, unknown> | null {
   const base = { id: m.id, at: m.at }
   if (m.kind === 'event')
     return {
@@ -533,6 +564,10 @@ export function phoneChannelMessage(m: ChannelMessage): Record<string, unknown> 
       diff: m.diff ?? null,
       error: cut(m.error, 300),
       decision: cut(m.decision, 300),
+      // 团队卡（§16.2）：失败原因代码（手机换成文字）、跑过几次、等同意时我能不能点（同电脑 teamModel.canApprove）
+      reason: m.reason ?? null,
+      runs: m.runs?.length ?? 0,
+      canApprove: m.status === 'approval' && !!selfId && m.ownerId === selfId,
     }
   if (m.threadId || m.flow) return null
   return {
@@ -545,6 +580,42 @@ export function phoneChannelMessage(m: ChannelMessage): Record<string, unknown> 
     images: (m.attached?.images ?? []).length,
     files: (m.attached?.files ?? []).map(f => f.name),
   }
+}
+
+/** 收件箱一行（§16.2）：原文截短，时间、状态照给 */
+export function phoneInboxItem(i: TeamInboxItem): Record<string, unknown> {
+  return {
+    teamId: i.teamId,
+    key: i.key,
+    channelId: i.channelId,
+    kind: i.kind,
+    actor: i.actor,
+    text: cut(i.text, 300),
+    count: i.count,
+    at: i.at,
+    read: i.read,
+    snoozeUntil: i.snoozeUntil,
+    muted: i.muted,
+  }
+}
+
+/** 手机改收件箱一行：只认这四个字段（同 channels/ipc.ts 的 channels:inbox） */
+export function inboxPatch(raw: unknown): TeamInboxPatch {
+  const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const patch: TeamInboxPatch = {}
+  for (const k of ['read', 'archived', 'muted'] as const) {
+    if (p[k] === undefined) continue
+    if (typeof p[k] !== 'boolean') throw new Error('MOBILE_BAD_ARGUMENT')
+    patch[k] = p[k]
+  }
+  const snooze = p.snoozeUntil
+  if (snooze !== undefined) {
+    if (snooze !== null && (typeof snooze !== 'number' || !Number.isFinite(snooze)))
+      throw new Error('MOBILE_BAD_ARGUMENT')
+    patch.snoozeUntil = snooze
+  }
+  if (!Object.keys(patch).length) throw new Error('MOBILE_BAD_ARGUMENT')
+  return patch
 }
 
 /** 列表上的一行：最后一条的预览；事件、讨论串、流程卡不算 */
@@ -1110,10 +1181,11 @@ export class MobileGateway {
     if (method === 'search') return this.search(peer, args)
     if (method === 'image') return this.image(peer, args)
     if (method === 'fileImage') return this.fileImage(peer, args)
+    if (method === 'queueImage') return this.queueImage(peer, args)
     if (method === 'directories' || method === 'addProject') return this.project(device.access, method, args)
     if (Object.hasOwn(FEEDBACK_ACCESS, method)) return this.feedback(device.access, method, args)
     if (Object.hasOwn(PR_ACCESS, method)) return this.pr(peer, device.access, method, args)
-    if (CHANNEL_METHODS.has(method)) return this.channels(peer, method, args)
+    if (CHANNEL_METHODS.has(method)) return this.channels(peer, device.access, method, args)
     if (Object.hasOwn(REVIEW_ACCESS, method)) return this.reviews(peer, device.access, method, args)
     if (Object.hasOwn(CHECKOUT_ACCESS, method)) return this.checkout(device.access, method, args)
     const tool = Object.hasOwn(PHONE_TOOLS, method) ? PHONE_TOOLS[method] : undefined
@@ -1274,17 +1346,36 @@ export class MobileGateway {
   private async fileImage(peer: Peer, args: unknown[]): Promise<ImageAttachment> {
     const ref = { sessionId: asString(args[0]) }
     const owner = 'mobile:' + peer.phone
-    const target = (await this.d.call('files:target', [ref], owner).catch(() => null)) as WorkspaceTarget | null
+    // 读失败和「文件不存在」分开（§16.3）：找不到才是 NOT_FOUND，其余（会话所在的机器离线、SSH 断了）是 OFFLINE
+    const failed = (e: unknown): never => {
+      throw new Error(fileMissing(e) ? 'MOBILE_NOT_FOUND' : 'MOBILE_OFFLINE')
+    }
+    const target = (await this.d.call('files:target', [ref], owner).catch(failed)) as WorkspaceTarget | null
     const path = target && phoneImagePath(asString(args[1], 4096), target)
     if (!path) throw new Error('MOBILE_NOT_FOUND')
-    const doc = (await this.d.call('files:read', [ref, path], owner).catch(() => null)) as FileDocument | null
+    const doc = (await this.d.call('files:read', [ref, path], owner).catch(failed)) as FileDocument | null
+    const name = path.split('/').pop() ?? 'image'
+    // SVG：files:read 当文本给；原样带上，手机用 flutter_svg 画（不执行脚本、不加载外部资源）
+    if (doc?.kind === 'text' && /\.svg$/i.test(path) && /<svg[\s>]/i.test(doc.content)) {
+      const data = Buffer.from(doc.content, 'utf8').toString('base64')
+      if (data.length > IMAGE_INLINE) throw new Error('MOBILE_TOO_LARGE')
+      return {
+        id: 'file',
+        name,
+        mediaType: 'image/svg+xml' as ImageAttachment['mediaType'],
+        bytes: doc.bytes,
+        width: 0,
+        height: 0,
+        dataBase64: data,
+      }
+    }
     if (doc?.kind !== 'image') throw new Error('MOBILE_NOT_FOUND')
     const dataUrl = this.fitDataUrl(doc.dataUrl, doc.bytes, IMAGE_INLINE)
     const m = dataUrl && /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
     if (!m) throw new Error('MOBILE_TOO_LARGE')
     return {
       id: 'file',
-      name: path.split('/').pop() ?? 'image',
+      name,
       mediaType: m[1] as ImageAttachment['mediaType'],
       bytes: doc.bytes,
       width: 0,
@@ -1420,19 +1511,38 @@ export class MobileGateway {
   }
 
   /** 频道只读：本机频道的列表、时间线、图片 */
-  private async channels(peer: Peer, method: string, args: unknown[]): Promise<unknown> {
+  private async channels(peer: Peer, access: MobileAccess, method: string, args: unknown[]): Promise<unknown> {
     if (method === 'channelUnwatch') {
       if (peer.openChannel === args[0]) peer.openChannel = null
       return null
     }
     const c = this.d.local?.channels?.()
     if (!c) throw new Error('MOBILE_UNSUPPORTED')
+    // 团队（§16.2）：收件箱借电脑的登录读；改收件箱、同意派活要「可以操作」
+    if (method === 'teamInbox') {
+      const st = c.state()
+      return { supported: st.inboxSupported === true, items: (st.inbox ?? []).slice(0, 200).map(phoneInboxItem) }
+    }
+    if (method === 'teamInboxPatch' || method === 'teamApprove') {
+      if (access !== 'act') throw new Error('MOBILE_FORBIDDEN')
+      if (method === 'teamApprove') {
+        if (!c.approveTask) throw new Error('MOBILE_UNSUPPORTED')
+        if (typeof args[1] !== 'boolean') throw new Error('MOBILE_BAD_ARGUMENT')
+        await c.approveTask(asString(args[0]), args[1])
+        return null
+      }
+      if (!c.patchInbox) throw new Error('MOBILE_UNSUPPORTED')
+      await c.patchInbox(asString(args[0]), asString(args[1], 200), inboxPatch(args[2]))
+      return null
+    }
     const state = c.state()
-    const local = state.channels.filter(ch => ch.scope === 'local')
+    // 本机频道和团队频道（团队频道只有文字，没有附件）
+    const visible = state.channels.filter(ch => ch.scope === 'local' || ch.scope === 'team')
     if (method === 'channels') {
       const channels = await Promise.all(
-        local.map(async ch => {
-          const page = await c.page(ch.id)
+        visible.map(async ch => {
+          // 团队频道第一次要向云端取一页；取不到（离线）就不写最后一条
+          const page = await (async () => c.page(ch.id))().catch(() => ({ messages: [] as ChannelMessage[] }))
           const last = page.messages.findLast(m => lastPreview(m) !== null)
           return {
             id: ch.id,
@@ -1443,20 +1553,35 @@ export class MobileGateway {
             archived: !!ch.archivedAt,
             lastAt: ch.lastAt ?? ch.createdAt,
             memberIds: ch.memberIds,
+            scope: ch.scope,
+            teamId: ch.teamId ?? null,
             last: last && last.kind !== 'event' ? { authorId: last.authorId, text: lastPreview(last) } : null,
           }
         }),
       )
-      return { selfId: state.self.id, channels, members: state.members.map(phoneMember) }
+      return {
+        selfId: state.self.id,
+        channels,
+        members: state.members.map(phoneMember),
+        teams: (state.teams ?? []).map(t => ({ id: t.id, name: cut(t.name, 100) })),
+      }
     }
     const id = asString(args[0])
-    if (!local.some(ch => ch.id === id)) throw new Error('MOBILE_NOT_FOUND')
+    if (!visible.some(ch => ch.id === id)) throw new Error('MOBILE_NOT_FOUND')
     if (method === 'channelMessages') {
       const before = typeof args[1] === 'number' ? args[1] : null
       const beforeId = typeof args[2] === 'string' ? args[2] : null
       const page = await c.page(id, before, beforeId)
       peer.openChannel = id
-      return { messages: page.messages.map(phoneChannelMessage).filter(m => m !== null), more: page.more }
+      // 这个频道里的「我」（团队频道是我在这个团队的成员 id，同电脑 selfIdIn）
+      const ch = visible.find(x => x.id === id)
+      const selfId =
+        state.members.find(m => m.kind === 'human' && m.you && !!ch?.memberIds.includes(m.id))?.id ?? state.self.id
+      return {
+        messages: page.messages.map(m => phoneChannelMessage(m, selfId)).filter(m => m !== null),
+        more: page.more,
+        selfId,
+      }
     }
     // channelImage(channelId, messageId, index)：一张图，放不进一帧就缩小
     const index = args[2]
@@ -1577,6 +1702,24 @@ export class MobileGateway {
       [sessionId, itemId, index],
       'mobile:' + peer.phone,
     )) as ImageAttachment | null
+    return this.fitImage(image)
+  }
+
+  /** 排队中消息的一张图（§16.3）：宿主快照里的队列带着原图（手机拿到的那份被 slimForPhone 清空了） */
+  private async queueImage(peer: Peer, args: unknown[]): Promise<ImageAttachment> {
+    const sessionId = asString(args[0]),
+      queueId = asString(args[1]),
+      index = args[2]
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 100)
+      throw new Error('MOBILE_BAD_ARGUMENT')
+    const snapshot = (await this.d.call('engine:openSession', [sessionId], 'mobile:' + peer.phone)) as {
+      queue?: QueuedMessage[]
+    } | null
+    return this.fitImage(snapshot?.queue?.find(q => q.id === queueId)?.attachments?.[index])
+  }
+
+  /** 一张图放得进一帧就原样给，不然一档档缩小；没有数据是 NOT_FOUND，缩不下是 TOO_LARGE */
+  private fitImage(image: ImageAttachment | null | undefined): ImageAttachment {
     if (!image?.dataBase64) throw new Error('MOBILE_NOT_FOUND')
     if (image.dataBase64.length <= IMAGE_INLINE) return image
     for (const edge of SHRINK_EDGES) {

@@ -1,4 +1,6 @@
 // 像素星空手机 App 入口（docs/mobile-app.md）：读出配对过的电脑并连上，没有就先去配对
+import 'dart:io';
+
 import 'package:material_ui/material_ui.dart';
 
 import 'package:app_links/app_links.dart';
@@ -11,10 +13,12 @@ import 'connection/connections.dart';
 import 'connection/pair.dart';
 import 'connection/socket.dart';
 import 'connection/storage.dart';
+import 'data/app_update.dart';
 import 'data/desktop_lists.dart';
 import 'data/feedback.dart';
 import 'data/list_cache.dart';
 import 'demo/demo.dart';
+import 'demo/demo_update.dart';
 import 'i18n/i18n.dart';
 import 'platform/notifier.dart';
 import 'platform/home_widget.dart';
@@ -37,6 +41,16 @@ Future<void> main() async {
   final settings = AppSettings(persist: demo == null);
   final notifier = LocalNotifier();
   await Future.wait([connections.load(), settings.load()]);
+  // App 内检查更新（§16.1）：只在安卓上（iOS 还没有能装的版本）；演示模式给假的新版本
+  final updater = demo != null || Platform.isAndroid
+      ? (AppUpdater(
+          platform: demo != null
+              ? DemoUpdatePlatform()
+              : const IoUpdatePlatform(),
+          skipped: settings.skipUpdate,
+          onSkip: settings.setSkipUpdate,
+        )..start())
+      : null;
   runApp(
     PixelSkyApp(
       links: AppLinks(),
@@ -55,6 +69,7 @@ Future<void> main() async {
         feedback: FeedbackUnread(connections),
         share: PluginShareInbox(),
         homeWidget: PluginHomeWidget(),
+        updater: updater,
         demo: demo != null,
       ),
     ),

@@ -7,7 +7,8 @@ import '../i18n/i18n.dart';
 import '../protocol/json.dart';
 import 'tasks.dart';
 
-enum NotifyKind { waiting, failed, completed }
+/// team：团队收件箱里来了「@ 你」「等你同意」「失败」（§16.2，不在 _order 里，单独算）
+enum NotifyKind { waiting, failed, completed, team }
 
 /// 几种同时有时取最要紧的
 const _order = [NotifyKind.waiting, NotifyKind.failed, NotifyKind.completed];
@@ -129,6 +130,10 @@ String notifyText(NotifyKind kind, int n) => switch (kind) {
     '$n 个任务完成',
     n == 1 ? '1 task finished' : '$n tasks finished',
   ),
+  NotifyKind.team => L(
+    '团队里有 $n 件事找你',
+    n == 1 ? '1 team update needs you' : '$n team updates need you',
+  ),
 };
 
 /// 点通知去哪：哪台电脑、哪个会话（涉及多个时没有）、是不是「等你处理」
@@ -138,10 +143,14 @@ class NotifyTarget {
     this.session,
     this.waiting = false,
     this.request,
+    this.inbox = false,
   });
   final String device;
   final String? session;
   final bool waiting;
+
+  /// 团队收件箱的提醒（§16.2）：点了打开收件箱
+  final bool inbox;
 
   /// 通知上带「允许 / 拒绝」时：那条审批的 id
   final String? request;
@@ -151,6 +160,7 @@ class NotifyTarget {
     'session': ?session,
     'waiting': waiting,
     'request': ?request,
+    if (inbox) 'inbox': true,
   });
 
   static final _id = RegExp(r'^[A-Za-z0-9_.:~-]{1,128}$');
@@ -175,6 +185,7 @@ class NotifyTarget {
       session: session is String && _id.hasMatch(session) ? session : null,
       waiting: v['waiting'] == true,
       request: request is String && _id.hasMatch(request) ? request : null,
+      inbox: v['inbox'] == true,
     );
   }
 }
