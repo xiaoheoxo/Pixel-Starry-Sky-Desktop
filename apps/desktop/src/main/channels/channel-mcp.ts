@@ -207,6 +207,23 @@ const TOOLS = [
     },
     annotations: READ_ONLY,
   },
+  {
+    name: 'schedule_wakeup',
+    description:
+      '过一会儿或定期回来看这件事（等 CI、等部署、每天检查一次）：到点会在这件事上开一张唤醒卡叫你自己，带上你写的指令和这件事现在的情况。只能在你正在做的这项活里用；after_minutes 和 every 二选一，定期检查要写 time（HH:MM，每小时只看分钟）和 until_days（默认 7，最多 30）。这件事上你最多同时挂 3 条、一共 10 条。被叫醒后查完没什么要说的，只回复 [silent]。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', minLength: 1, description: '到时候要做什么（唤醒指令），写清楚要查什么' },
+        after_minutes: { type: 'integer', minimum: 1, maximum: 43200, description: '多少分钟后叫你（只一次）' },
+        every: { type: 'string', enum: ['hourly', 'daily', 'weekdays'], description: '定期检查：每小时、每天、工作日' },
+        time: { type: 'string', description: '定期检查的钟点，HH:MM（本机时间）' },
+        until_days: { type: 'integer', minimum: 1, maximum: 30, description: '定期检查几天后结束，默认 7' },
+      },
+      required: ['text'],
+    },
+    annotations: RECORD,
+  },
 ].map(tool => ({
   ...tool,
   annotations: { title: tool.name, ...tool.annotations },
@@ -218,7 +235,8 @@ const INSTRUCTIONS =
   '你是像素星空协作频道里的 AI 成员。channel_read / thread_read 查频道记录；channel_reply 在你这项活的串里写进展；' +
   'task_propose 提议给别的成员派活（用户决定）；频道允许时 task_handover 直接交接。' +
   '流程里的一步：做完调用 task_done 交付，需要别的成员提供东西用 member_ask，要用户拍板的用 user_ask。' +
-  '要看频道里的图片和附件用 attachment_read，不要开电脑控制、截屏去看。不能删消息、改频道设置、给别的频道发消息。'
+  '要看频道里的图片和附件用 attachment_read，不要开电脑控制、截屏去看。' +
+  '要过一会儿或定期回来看这件事（等 CI、等部署）用 schedule_wakeup。不能删消息、改频道设置、给别的频道发消息。'
 
 const str = (args: ToolArgs, key: string, required = false): string | undefined => {
   const value = args[key]
@@ -258,6 +276,9 @@ function mcpServer(channels: () => Channels | null, sessionId: string): Server {
           return text(await c.toolAsk(sessionId, str(args, 'member', true)!, str(args, 'question', true)!))
         case 'user_ask':
           return text(await c.toolUserAsk(sessionId, str(args, 'question', true)!))
+        case 'schedule_wakeup':
+          // 其余参数的形状由 Channels.toolWakeup 校验
+          return text(c.toolWakeup(sessionId, { ...args, text: str(args, 'text', true) }))
         case 'attachment_read': {
           const read = await c.toolAttachments(sessionId, str(args, 'id'))
           return {

@@ -351,6 +351,8 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     return channels.markNeeds(marks, done === true)
   })
   ipc.handle('channels:dispatchIssue', (_e, id, issue) => channels.dispatchIssue(str(id, '频道'), issue))
+  // 事项唤醒（docs/multica-learn.md §11.6）：参数由 Channels.wakeupAction 逐项校验
+  ipc.handle('channels:wakeup', (_e, id, op: unknown) => channels.wakeupAction(str(id, '频道'), op))
   ipc.handle('channels:search', (_e, text, opts) => {
     const o = (opts ?? {}) as { limit?: unknown; projectId?: unknown }
     return channels.search(typeof text === 'string' ? text : '', {

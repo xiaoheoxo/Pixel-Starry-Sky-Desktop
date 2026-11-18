@@ -14,6 +14,7 @@ import { stopTerminalsUnder } from '../terminal/ipc'
 import { initProjectBrowser } from './browser'
 import { machineOf, remoteMethod } from '../machines/identity'
 import type { WorkspaceChoice } from '../../shared/types/machines'
+import { issueJustDone } from '../../shared/channels/wakeup'
 
 export async function initProjectTools(ctx: AppContext): Promise<void> {
   const host = workspaceToolsHost(ctx)
@@ -59,14 +60,27 @@ export async function initProjectTools(ctx: AppContext): Promise<void> {
       ])
     return openWorkspace(context, choice)
   })
+  // 看板事项改成完成：挂在它派出去那张卡上的唤醒一起取消（docs/multica-learn.md §11.6）。
+  // 窗口（含远端项目）和手机（本机项目）改事项都经过这里；团队频道、频道删了不管
+  const issueSettled = async (result: unknown): Promise<unknown> => {
+    const task = await result
+    const link = issueJustDone(task)
+    try {
+      if (link) ctx.channels?.wakeupAction(link.channelId, { op: 'cancel', on: link.taskId })
+    } catch {
+      // 团队频道没有唤醒、频道已经删了
+    }
+    return task
+  }
   const handle = (channel: ipc.InvokeChannel, fn: (e: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void => {
     ipc.handle(channel, (event, ...args) => {
-      return ctx.machines ? ctx.machines.invoke(channel, args, () => fn(event, ...args)) : fn(event, ...args)
+      const result = ctx.machines ? ctx.machines.invoke(channel, args, () => fn(event, ...args)) : fn(event, ...args)
+      return channel === 'projectTools:updateTask' ? issueSettled(result) : result
     })
   }
   for (const [channel, op] of opEntries(PROJECT_TOOL_OPS)) {
     const run = (args: unknown[]) => op(context, ...args)
-    ctx.toolOps.set(channel, run)
+    ctx.toolOps.set(channel, channel === 'projectTools:updateTask' ? args => issueSettled(run(args)) : run)
     handle(channel, (_event, ...args) => run(args))
   }
   // 以下只在本机：系统对话框、打开目录、打开网址

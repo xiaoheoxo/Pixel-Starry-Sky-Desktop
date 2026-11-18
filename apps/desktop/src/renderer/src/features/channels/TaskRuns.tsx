@@ -9,6 +9,8 @@ import type { ChannelRun } from '../../../../shared/types/channels'
 import { STATUS_LABEL } from './ChannelTaskCard'
 import { durText } from './format'
 import { reasonText } from './runText'
+import { WakeupTag } from './WakeupParts'
+import { runWakeupTag } from './wakeupModel'
 
 /** 失败的卡在错误原文上面一行 */
 export function RunReasonLine({ task, mine }: { task: ChannelTask; mine: boolean }) {
@@ -75,12 +77,15 @@ function RunRow({
     run.model || run.engine,
     run.startedAt ? durText(run.endedAt - run.startedAt) : null,
   ].filter(Boolean)
+  // 事项唤醒开的这一轮（docs/multica-learn.md §11.6）：连续回 [silent] 的合成一行写次数
+  const wakeup = runWakeupTag(run)
   return (
     <li className="flex min-w-0 flex-col text-meta">
       <span className="flex min-w-0 items-center gap-1.5">
         <span className={cn('min-w-0 truncate', run.status === 'failed' ? 'text-danger' : 'text-fg-muted')}>
           {parts.join(' · ')}
         </span>
+        {wakeup && <WakeupTag text={wakeup} />}
         {mine && run.sessionId && (
           <button
             type="button"

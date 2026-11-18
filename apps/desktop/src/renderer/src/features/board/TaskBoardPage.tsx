@@ -2,6 +2,7 @@
 // 手动任务能拖着换列；AI 卡片（会话）的位置由会话自己的状态决定，只能在卡片上直接处理。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlarmClock,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -26,7 +27,9 @@ import { isDemo, projects as demoProjects } from '@/data'
 import { bridge, isLive, useEngineState } from '@/features/engine'
 import { machineOf, useMachines } from '@/features/machines/store'
 import { setPage, showWorkbench } from '@/features/layout/page'
-import { channelActions, useChannels } from '@/features/channels/store'
+import { channelActions, getChannels, useChannels } from '@/features/channels/store'
+import { WakeupDialog } from '@/features/channels/WakeupDialog'
+import type { WakeupOn } from '@/features/channels/wakeupModel'
 import { paneActions } from '@/features/panes/store'
 import { openTask } from '@/features/panel/openTask'
 import { pinTask } from '@/features/panel/pinnedTasks'
@@ -53,6 +56,7 @@ import {
   ReviewDialog,
   RulesDialog,
   dispatchIssue,
+  issueWakeTarget,
   openIssueCard,
   useAssignRules,
   useAssigneeChoices,
@@ -145,6 +149,10 @@ export function TaskBoardPage() {
   const [editing, setEditing] = useState<{ task: ManualTask; form: Form; isNew?: boolean } | null>(null)
   const [deleting, setDeleting] = useState<ManualTask | null>(null)
   const [reviewing, setReviewing] = useState<ManualTask | null>(null)
+  // 事项唤醒（docs/multica-learn.md §11.6）：挂在事项派出去的那张卡上
+  const [waking, setWaking] = useState<WakeupOn | null>(null)
+  // 不订阅频道消息（卡在跑时一秒变好几次，整个看板跟着重画）：能不能挂只看频道，卡片的标题、负责人点的时候再读
+  const wakeTarget = (task: ManualTask) => issueWakeTarget(task, channels, getChannels().messages)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [rules, setRules] = useAssignRules()
   const choices = useAssigneeChoices(editing?.task.projectId ?? null)
@@ -629,6 +637,7 @@ export function TaskBoardPage() {
                       onMenu={(x, y, trigger) => setMenu({ task, x, y, trigger })}
                       onDispatch={() => dispatch(task)}
                       onReview={() => setReviewing(task)}
+                      onWakeup={wakeTarget(task) ? () => setWaking(wakeTarget(task)) : undefined}
                       onDragStart={() => setDragging(task.id)}
                       onDragEnd={() => {
                         setDragging(null)
@@ -699,6 +708,9 @@ export function TaskBoardPage() {
               icon: Check,
               run: () => toggle(menu.task),
             },
+            ...(wakeTarget(menu.task)
+              ? [{ label: tr('wakeup.open'), icon: AlarmClock, run: () => setWaking(wakeTarget(menu.task)) }]
+              : []),
             {
               label: tr(menu.task.pinnedAt ? 'board.unpin' : 'board.pin'),
               icon: menu.task.pinnedAt ? PinOff : Pin,
@@ -876,6 +888,7 @@ export function TaskBoardPage() {
       {reviewing && (
         <ReviewDialog task={tasks.find(t => t.id === reviewing.id) ?? reviewing} onClose={() => setReviewing(null)} />
       )}
+      {waking && <WakeupDialog target={waking} onClose={() => setWaking(null)} />}
       {rulesOpen && (
         <RulesDialog projects={projects} saved={rules} onSave={setRules} onClose={() => setRulesOpen(false)} />
       )}

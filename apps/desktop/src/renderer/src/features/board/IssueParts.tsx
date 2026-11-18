@@ -1,13 +1,16 @@
 // 事项（docs/ui/channels-collab-v2.md §9）：卡片上的负责人和派出去的卡片、编辑里的负责人和验收标准、验收弹窗、分配规则
 import { useMemo, useState } from 'react'
-import { Bot, CircleAlert, ExternalLink, Plus, Send, ShieldCheck, X } from 'lucide-react'
+import { AlarmClock, Bot, CircleAlert, ExternalLink, Plus, Send, ShieldCheck, X } from 'lucide-react'
 import { Button, IconButton, Select, Spinner, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { tr, translateMessage, type TranslationKey } from '@/i18n/core'
 import { setPage } from '@/features/layout/page'
 import { channelActions, useChannels } from '@/features/channels/store'
+import { canWakeup } from '@/features/channels/WakeupParts'
+import { wakeupHint, type WakeupOn } from '@/features/channels/wakeupModel'
 import { FIELD, Field, useRemember } from '@/features/panel/ToolsUi'
 import type { IssueAssignee, IssueLink, ManualTask } from '../../../../shared/types/project-tools'
+import type { Channel, ChannelMessage } from '../../../../shared/types/channels'
 import { reloadBoardTasks, updateBoardTask } from './boardTasks'
 import {
   assigneeChoices,
@@ -71,21 +74,52 @@ export async function dispatchIssue(task: ManualTask): Promise<void> {
     })
 }
 
-/** 卡片上的事项一行：负责人、卡片的状态和检查、验收进度，以及「交给…」「验收」 */
+/**
+ * 事项唤醒（docs/multica-learn.md §11.6）挂在事项派出去的那张卡上：本机频道、事项没完成、卡没停才能挂。
+ * 卡片的标题和负责人从频道里读（还没读进来时用事项自己的）
+ */
+export function issueWakeTarget(
+  task: ManualTask,
+  channels: readonly Channel[],
+  messages: Readonly<Record<string, readonly ChannelMessage[] | undefined>>,
+): WakeupOn | null {
+  const link = task.link
+  if (!link || task.status === 'completed' || link.state === 'stopped') return null
+  if (!canWakeup(channels.find(c => c.id === link.channelId))) return null
+  const card = messages[link.channelId]?.find(m => m.id === link.taskId)
+  return {
+    channelId: link.channelId,
+    on: link.taskId,
+    kind: 'task',
+    title: card?.kind === 'task' ? card.title : task.title,
+    assigneeId: card?.kind === 'task' ? card.assigneeId : (task.assignee?.memberId ?? null),
+  }
+}
+
+/** 卡片上的事项一行：负责人、卡片的状态和检查、验收进度、挂着的唤醒，以及「交给…」「验收」 */
 export function IssueLine({
   task,
   busy,
   onDispatch,
   onReview,
+  onWakeup,
 }: {
   task: ManualTask
   busy: boolean
   onDispatch(): void
   onReview(): void
+  /** 点「⏰ 下次 …」：打开唤醒对话框 */
+  onWakeup?(): void
 }) {
   const a = task.assignee
   const link = task.link
   const acceptance = task.acceptance ?? []
+  const channel = useChannels(s => (link ? (s.channels.find(c => c.id === link.channelId) ?? null) : null))
+  const members = useChannels(s => s.members)
+  const wakeup =
+    link && task.status !== 'completed'
+      ? wakeupHint(channel, link.taskId, id => members.find(m => m.id === id)?.name ?? '?', Date.now())
+      : null
   if (!a && !acceptance.length) return null
   const done = acceptance.filter(x => x.done).length
   const stop = (fn: () => void) => (e: React.MouseEvent) => {
@@ -138,6 +172,20 @@ export function IssueLine({
         </span>
       )}
       {acceptance.length > 0 && <span>· {tr('board.issue.acceptanceCount', { done, total: acceptance.length })}</span>}
+      {wakeup && (
+        <button
+          type="button"
+          tabIndex={-1}
+          data-issue-wakeup
+          title={wakeup.title}
+          disabled={!onWakeup}
+          onClick={stop(() => onWakeup?.())}
+          className="press inline-flex min-w-0 items-center gap-1 rounded px-1 text-accent-fg enabled:hover:bg-hover"
+        >
+          · <AlarmClock size={11} strokeWidth={1.75} className="shrink-0" />
+          <span className="truncate">{wakeup.text}</span>
+        </button>
+      )}
       {/* 操作按钮单独一行，不跟着上面的信息折行 */}
       {(canDispatch(task) || task.status === 'review') && <span className="basis-full" />}
       {a && canDispatch(task) && (

@@ -20,7 +20,13 @@ import type {
   TeamRole,
 } from '../shared/types/channels'
 import type { ChannelAlertAction } from '../shared/channels/alerts'
-import type { FlowScheduleInput, IssueDispatch, TeamInboxPatch, TeammateRules } from '../shared/types/channels'
+import type {
+  FlowScheduleInput,
+  IssueDispatch,
+  TeamInboxPatch,
+  TeammateRules,
+  WakeupOp,
+} from '../shared/types/channels'
 import type { CloudImageInput } from './image'
 
 /** 协作频道 Phase B（docs/ui/channels-phase-b.md §11） */
@@ -86,6 +92,11 @@ export interface ChannelsBridge {
   flow(channelId: string, action: FlowAction): Promise<{ messageId: string }>
   /** 把任务看板的事项交给频道成员（docs/ui/channels-collab-v2.md §9）：返回派出的任务卡 id */
   dispatchIssue(channelId: string, issue: IssueDispatch): Promise<{ taskId: string }>
+  /**
+   * 事项唤醒（docs/multica-learn.md §11.6，只有本机频道）：挂一条规则（返回规则 id），或取消一条（id）/
+   * 一张卡上的全部（on，看板事项验收完时用）
+   */
+  wakeup(channelId: string, op: WakeupOp): Promise<{ id?: string }>
   /** 搜频道消息（§3.1 #8）：新的在前；projectId 只搜默认项目是它的频道 */
   search(text: string, opts?: { limit?: number; projectId?: string | null }): Promise<ChannelSearchResult>
   delete(id: string): Promise<void>

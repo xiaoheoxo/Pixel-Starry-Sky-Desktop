@@ -79,6 +79,24 @@ describe('「需要你」（docs/ui/channels-collab-v2.md §2）', () => {
     expect(needs.map(n => n.key)).toContain('approval:wait')
   })
 
+  it('事项唤醒回 [silent] 的几轮不让处理过的「要你决定」重新冒出来：按提出它的那一轮算（§11.6）', () => {
+    const wake = { ruleId: 'r', kind: 'every' }
+    const runs = [
+      { n: 2, status: 'done', startedAt: 1, endedAt: 30, wakeup: wake },
+      { n: 3, status: 'failed', startedAt: 40, endedAt: 50, wakeup: wake },
+      { n: 5, status: 'done', startedAt: 60, endedAt: 90, wakeup: { ...wake, silent: 2 } },
+    ]
+    const card = (id: string) => task(id, { status: 'done', decision: '要不要回滚？', round: 5, endedAt: 90, runs })
+    const cards = [card('replied'), msg('r', 35, { replyToId: 'replied' }), card('marked'), card('open')]
+    const { needs, done } = channelNeeds(
+      [{ id: 'c', needsDone: { 'decision:marked': '2' } }],
+      new Map([['c', cards]]),
+      'you',
+    )
+    expect(done.map(n => n.key)).toEqual(['decision:marked'])
+    expect(needs.map(n => [n.key, n.sig, n.at])).toEqual([['decision:open', '2', 30]])
+  })
+
   it('找不到目标的带上原因；这时「要你确认」也能标为已处理', () => {
     const gone = (n: { kind: string }) => (n.kind === 'approval' ? 'session' : n.kind === 'failed' ? 'member' : null)
     const { needs, done } = channelNeeds(

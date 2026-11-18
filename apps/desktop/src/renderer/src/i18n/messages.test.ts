@@ -187,6 +187,10 @@ describe('中英文词典', () => {
       'Too many requests',
       'Bad Gateway: upstream',
       'local · main',
+      // 事项唤醒的界面标签（「截止 {date}」「{name} 自己挂的」「{time}：叫 {name}」）
+      'until tomorrow',
+      'set by admin',
+      'Retry: wake up the server',
     ]) {
       expect(translateMessage(text, 'zh-CN')).toBe(text)
     }

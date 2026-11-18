@@ -10,7 +10,13 @@ import { join } from 'node:path'
 import type { AgentConfig, ChannelAttachments, ChannelMessage, ChannelTask } from '../../../shared/types/channels'
 import type { TaskRun } from './tracker'
 
-import type { ChannelAlertRule, ChannelNotify, FlowSchedule, RelayRules } from '../../../shared/types/channels'
+import type {
+  ChannelAlertRule,
+  ChannelNotify,
+  ChannelWakeup,
+  FlowSchedule,
+  RelayRules,
+} from '../../../shared/types/channels'
 import { cleanTeammate, DEFAULT_TEAMMATE, type TeammateRules } from '../../../shared/types/channels'
 
 export interface StoredChannel {
@@ -46,6 +52,10 @@ export interface StoredChannel {
   planFirst?: boolean
   /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）；旧数据没有 */
   schedules?: FlowSchedule[]
+  /** 事项唤醒的规则（docs/multica-learn.md §11.6）：活着的和最近结束的；旧数据没有 */
+  wakeups?: ChannelWakeup[]
+  /** AI 在每张卡上一共挂过几条唤醒（只增不减：结束的规则会被修剪，不能从列表里数）；旧数据没有 */
+  wakeupAi?: Record<string, number>
   /** 点过「这条接力不再限制」的接力（chain），最近的在后 */
   relayFree?: string[]
   /** 主动提醒的规则开关、每日简报几点发、上次发简报的时间（docs/ui/channels-collab-v2.md §6） */

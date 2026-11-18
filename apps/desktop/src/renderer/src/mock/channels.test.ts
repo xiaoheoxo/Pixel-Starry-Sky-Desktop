@@ -27,8 +27,9 @@ describe('协作频道演示数据', () => {
         expect(m.channelId).toBe(channelId)
         if (i > 0) expect(m.at, m.id).toBeGreaterThanOrEqual(list[i - 1].at)
         if (m.kind === 'event') expect(ids.has(m.actorId), m.id).toBe(true)
-        // 主动提醒是系统发的（SYSTEM_AUTHOR），不是成员
-        else if (!(m.kind === 'message' && m.alert)) expect(ids.has(m.authorId), m.id).toBe(true)
+        // 主动提醒、事项唤醒叫成员的那条是系统发的（SYSTEM_AUTHOR），不是成员
+        else if (!(m.kind === 'message' && (m.alert || (m.wakeup && m.authorId === 'system'))))
+          expect(ids.has(m.authorId), m.id).toBe(true)
         // 例外：一张交给已删成员的旧卡（演示「需要你」里找不到成员的那一组）
         if (m.kind === 'task' && m.assigneeId !== DEMO_DELETED_MEMBER) expect(ids.has(m.assigneeId), m.id).toBe(true)
         if (m.kind === 'message' && m.replyToId) expect(own.has(m.replyToId), m.id).toBe(true)

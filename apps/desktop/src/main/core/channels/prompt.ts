@@ -2,7 +2,7 @@
 import { codexPlainText } from '@pixelsky/protocol'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import type { Locale } from '../../../shared/i18n/messages'
-import type { ChannelMessage, ChannelTaskStatus } from '../../../shared/types/channels'
+import type { ChannelFlow, ChannelMessage, ChannelTaskStatus } from '../../../shared/types/channels'
 import { excerpt, splitMentions, type Mentionable } from '../../../shared/channels/mentions'
 
 /** 最近的讨论最多带这么多条 / 这么多字，先到哪个停在哪个 */
@@ -407,6 +407,95 @@ export function leadWakeRequest(locale: Locale, dispatchOnly: boolean): string {
 /** 同一条接力上又有成员交回结果：拼进牵头还没做完的那张唤醒卡 */
 export function leadWakeMore(locale: Locale, h: Handoff): string {
   return `${handoffText(h, locale)}\n${en(locale) ? 'Take this into account when you decide the next step.' : '决定下一步时一起考虑。'}`
+}
+
+/** 事项唤醒（docs/multica-learn.md §11.6）盯着的卡现在的样子：提示词里带上，被叫的成员不用自己去翻 */
+export type WakeupTarget = {
+  title: string
+  /** 负责人（流程卡没有） */
+  owner?: string | null
+  summary?: string | null
+  decision?: string | null
+  /** 最后一次发回的结果（截断过） */
+  result?: string | null
+} & ({ kind: 'task'; status: ChannelTaskStatus } | { kind: 'flow'; status: ChannelFlow['status']; steps: string[] })
+
+const FLOW_STATUS: Record<ChannelFlow['status'], [string, string]> = {
+  planning: ['在拆', 'planning'],
+  draft: ['草稿', 'draft'],
+  running: ['进行中', 'running'],
+  paused: ['暂停了', 'paused'],
+  done: ['全部交付了', 'all delivered'],
+  stopped: ['已停止', 'stopped'],
+}
+
+/** 盯着的卡的结果最多带这么多字 */
+export const WAKEUP_RESULT_CHARS = 4000
+
+/**
+ * 唤醒这一轮的要求（§11.6）：为什么叫、唤醒指令、盯着的卡现在怎样，最后说明没什么要说的回 [silent]。
+ * 指令以 / 开头（斜杠命令）时原样发，前后不拼东西（AGENTS.md「往用户消息前拼内容」）。
+ * merged：并进排着的别的一轮（追加要求），那一轮照常回复，不带 [silent] 那句
+ */
+export function wakeupRequest(input: {
+  locale: Locale
+  kind: 'at' | 'every' | 'ended'
+  text: string
+  target: WakeupTarget
+  merged?: boolean
+}): string {
+  const text = input.text.trim()
+  if (text.startsWith('/')) return text
+  const e = en(input.locale)
+  const t = input.target
+  const status = (t.kind === 'task' ? STATUS[t.status] : FLOW_STATUS[t.status])[e ? 1 : 0]
+  const why = e
+    ? {
+        at: 'It is the time you were asked to come back',
+        every: 'Scheduled check',
+        ended: 'What you were waiting for has ended',
+      }
+    : { at: '到了约定回来看的时间', every: '定期检查的时间到了', ended: '等着的那件事结束了' }
+  const result = t.result?.trim()
+    ? t.result.trim().length > WAKEUP_RESULT_CHARS
+      ? `${t.result.trim().slice(0, WAKEUP_RESULT_CHARS)}…`
+      : t.result.trim()
+    : ''
+  const quote = result ? `> ${result.replace(/\n/g, '\n> ')}` : ''
+  const steps = t.kind === 'flow' ? t.steps : []
+  if (e)
+    return [
+      `(Wakeup: ${why[input.kind]}.)\n${text}`,
+      [
+        `The card you are watching: ${t.kind === 'flow' ? 'flow ' : ''}"${t.title}" · ${status}${t.owner ? ` · assigned to ${t.owner}` : ''}`,
+        t.summary?.trim() ? `Summary: ${t.summary.trim()}` : '',
+        t.decision?.trim() ? `Waiting for a decision: ${t.decision.trim()}` : '',
+        quote ? `Latest result:\n${quote}` : '',
+        steps.length ? `Steps:\n${steps.join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      input.merged
+        ? ''
+        : 'If there is nothing worth reporting, reply with just [silent] (nothing is posted to the channel).',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+  return [
+    `（事项唤醒：${why[input.kind]}）\n${text}`,
+    [
+      `盯着的卡：${t.kind === 'flow' ? '流程' : ''}「${t.title}」· ${status}${t.owner ? ` · 负责人 ${t.owner}` : ''}`,
+      t.summary?.trim() ? `摘要：${t.summary.trim()}` : '',
+      t.decision?.trim() ? `等人决定的：${t.decision.trim()}` : '',
+      quote ? `最后的结果：\n${quote}` : '',
+      steps.length ? `步骤：\n${steps.join('\n')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    input.merged ? '' : '查完没有要说的，只回复 [silent]（不会发到频道里）。',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 /** 回复任务卡 = 追加要求：会话里已经有上下文，只带原文（§7.1） */

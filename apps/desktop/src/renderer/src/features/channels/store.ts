@@ -32,8 +32,11 @@ import type {
   TeammateRules,
   TeamInboxItem,
   TeamInboxPatch,
+  ChannelWakeup,
+  WakeupOp,
 } from '../../../../shared/types/channels'
 import { DEFAULT_TEAMMATE } from '../../../../shared/types/channels'
+import { cleanWakeupAdd, endWakeup, wakeupFirst } from '../../../../shared/channels/wakeup'
 import { getPage, subscribePage } from '@/features/layout/page'
 import { appendMessage, createMessage, firstUnreadAt, markRead, unreadTotal } from './model'
 import { channelDraftKey } from './draftKey'
@@ -514,6 +517,40 @@ export const channelActions = {
     if (issue.note) lines.push(issue.note)
     await channelActions.postText(channelId, lines.join('\n\n'))
     return null
+  },
+  /**
+   * 事项唤醒（docs/multica-learn.md §11.6，只有本机频道）：挂一条（返回规则 id）或取消（id 一条 / on 一张卡上的全部）。
+   * 演示模式只改内存，到点不会真的叫
+   */
+  async wakeup(channelId: string, op: WakeupOp): Promise<string | null> {
+    if (channelsBridge) return (await channelsBridge.wakeup(channelId, op)).id ?? null
+    const now = Date.now()
+    if (op.op === 'cancel') {
+      const hit = (w: ChannelWakeup) => w.state === 'active' && (op.id ? w.id === op.id : w.on === op.on)
+      set({
+        channels: state.channels.map(c =>
+          c.id === channelId
+            ? { ...c, wakeups: (c.wakeups ?? []).map(w => (hit(w) ? endWakeup(w, 'cancelled', null, now) : w)) }
+            : c,
+        ),
+      })
+      return null
+    }
+    const input = cleanWakeupAdd(op, now)
+    const rule: ChannelWakeup = {
+      ...input,
+      id: crypto.randomUUID(),
+      card: null,
+      by: selfMember(state)?.id ?? 'you',
+      next: wakeupFirst(input.when, now),
+      fired: 0,
+      state: 'active',
+      createdAt: now,
+    }
+    set({
+      channels: state.channels.map(c => (c.id === channelId ? { ...c, wakeups: [...(c.wakeups ?? []), rule] } : c)),
+    })
+    return rule.id
   },
   /** 一条消息带的图片和文件全文（演示模式只在本次运行的内存里） */
   attachments(channelId: string, messageId: string): Promise<ChannelAttachments> {

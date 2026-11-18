@@ -8,6 +8,7 @@ import { Copies, busyMessage } from './copies'
 import { parseHolders, shallowFiles } from './holders'
 import { Services, redact, childEnvironment, portStatus } from './services'
 import { directory, git, JsonStore, type ToolsHost } from './common'
+import { issueJustDone } from '../../../shared/channels/wakeup'
 let root: string, project: string, host: ToolsHost
 const managers: Services[] = []
 beforeEach(async () => {
@@ -127,6 +128,21 @@ describe('project tools storage and task operations', () => {
     await tasks.update(a.id, { title: 'A2' })
     expect(tasks.all()[0]).toMatchObject({ title: 'A2', assignee, link: { taskId: 'k1' } })
     expect(await tasks.syncIssue('missing', { link: link('k1', 'done') })).toBeNull()
+  })
+  it('事项刚改成完成：认出派出去的那张卡（挂在上面的唤醒一起取消，docs/multica-learn.md §11.6）；本来就完成的、没派过的不认', async () => {
+    const tasks = new Tasks(root, host, () => {})
+    await tasks.init()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    const a = await tasks.create('p', { title: 'A' })
+    const plain = await tasks.create('p', { title: 'B' })
+    const link = { channelId: 'c1', taskId: 'k1', state: 'done', round: 1, checks: null, at: 1 }
+    await tasks.syncIssue(a.id, { link, status: 'review', fresh: true })
+    now.mockReturnValue(2_000)
+    expect(issueJustDone(await tasks.update(a.id, { status: 'completed' }))).toEqual({ channelId: 'c1', taskId: 'k1' })
+    expect(issueJustDone(await tasks.update(plain.id, { status: 'completed' }))).toBeNull()
+    now.mockReturnValue(3_000)
+    expect(issueJustDone(await tasks.update(a.id, { title: 'A2', status: 'completed' }))).toBeNull()
+    now.mockRestore()
   })
   it('failed snapshots restore state and keep live object references', async () => {
     const store = new JsonStore(join(root, 'data.json'), { tasks: [{ id: 'a', title: 'before' }] })

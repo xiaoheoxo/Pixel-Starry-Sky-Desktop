@@ -571,6 +571,7 @@ const channels: ChannelsBridge = {
   markNeeds: (items, done) => call('channels:markNeeds', items, done),
   flow: (id, action) => call('channels:flow', id, action),
   dispatchIssue: (id, issue) => call('channels:dispatchIssue', id, issue),
+  wakeup: (id, op) => call('channels:wakeup', id, op),
   search: (text, opts) => call('channels:search', text, opts),
   saveMember: (channelId, input) => call('channels:saveMember', channelId, input),
   addMember: (channelId, memberId) => call('channels:addMember', channelId, memberId),

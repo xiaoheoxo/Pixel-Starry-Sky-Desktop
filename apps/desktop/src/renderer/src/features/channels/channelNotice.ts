@@ -46,13 +46,17 @@ export function channelNotice(
       : intent.kind === 'failed'
         ? tr('channels.notify.failed', { detail: what })
         : tr('channels.notify.waiting', { detail: what })
+  // 事项唤醒的一轮回 [silent]（docs/multica-learn.md §11.6）：不弹「做完了」。主进程收尾时先推卡片再转发引擎事件，
+  // 读进来的卡上已经是这一轮的记录；卡还没读进来、看不出是不是静默的也不弹（有结果会发到频道里）
+  const last = task?.kind === 'task' ? task.runs?.at(-1) : undefined
+  const quiet = intent.kind === 'completed' && !!ref.wakeup && (task?.kind !== 'task' || !!last?.wakeup?.silent)
   return {
     id: [PREFIX, channel.id, ref.taskId].join('|'),
     title: clip(tr('channels.notify.title', { channel: channel.name, member: member?.name ?? '?' }), 120),
     body: clip(body, 300),
     channelId: channel.id,
     taskId: ref.taskId,
-    muted: channel.notify === 'mute' || (channel.notify === 'important' && intent.kind === 'completed'),
+    muted: quiet || channel.notify === 'mute' || (channel.notify === 'important' && intent.kind === 'completed'),
   }
 }
 

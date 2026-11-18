@@ -64,7 +64,24 @@ import type {
   FlowStep,
   FlowStepSettings,
   TeamRole,
+  ChannelWakeup,
+  ChannelWakeupTag,
 } from '../../../shared/types/channels'
+import {
+  WAKEUP_AI_LIVE_MAX,
+  WAKEUP_AI_TOTAL_MAX,
+  WAKEUP_CHANNEL_MAX,
+  WAKEUP_DEFAULT_DAYS,
+  WAKEUP_LIVE_MAX,
+  WAKEUP_MAX_DAYS,
+  appendWakeupRun,
+  cleanWakeupAdd,
+  endWakeup,
+  endedVerdict,
+  pruneWakeups,
+  wakeupAfterFire,
+  wakeupFirst,
+} from '../../../shared/channels/wakeup'
 import {
   cleanRelayRules,
   cleanTeammate,
@@ -101,7 +118,7 @@ import { ChannelStore, type StoredChannel } from './store'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { channelNeeds } from '../../../shared/channels/needs'
-import { appendRun, runReasonOf, TEAMMATE_PROJECT_ERROR } from '../../../shared/channels/runReason'
+import { runReasonOf, TEAMMATE_PROJECT_ERROR } from '../../../shared/channels/runReason'
 import { jsonObjects } from '../json-reply'
 import {
   DEFAULT_MAX_REJECTS,
@@ -148,8 +165,10 @@ import {
   isSilent,
   leadWakeMore,
   leadWakeRequest,
+  wakeupRequest,
   type FlowInput,
   type Handoff,
+  type WakeupTarget,
 } from './prompt'
 import {
   ASK_TIMEOUT_MS,
@@ -222,11 +241,11 @@ const HANDOFF_CHARS = 4000
 const IMAGE_READ_MS = 10_000
 const RELAY_REQUEST_CHARS = 2000
 
-/** 别的 AI 成员交过来的一跳：提示词里写谁交的、要求是什么、交接了什么 */
+/** 别的 AI 成员交过来的一跳：提示词里写谁交的、要求是什么、交接了什么（事项唤醒只有谁挂的和要求） */
 interface RelayInput {
   author: string
   request: string
-  handoff: Handoff
+  handoff?: Handoff
 }
 const PAGE = 200
 /** 不问你就能改文件的成员（同一目录排队只管这些，docs/multica-learn.md §11.2）；没设权限按会改 */
@@ -659,6 +678,7 @@ export class Channels {
         leadDispatchOnly: c.leadDispatchOnly === true,
         planFirst: c.planFirst ?? this.deps.planFirst ?? true,
         schedules: c.schedules ?? [],
+        wakeups: c.wakeups ?? [],
         alerts: alertRulesOf(c),
         digestHour: c.digestHour ?? DIGEST_HOUR,
         maxRejects: c.maxRejects ?? DEFAULT_MAX_REJECTS,
@@ -691,7 +711,12 @@ export class Channels {
           if (m.kind === 'task' && m.sessionId) {
             sessionChannels[m.sessionId] = name
             // 消息按时间排：同一个会话（共用会话的成员）留最后一张卡
-            sessionTasks[m.sessionId] = { channelId, taskId: m.id, memberId: m.assigneeId }
+            sessionTasks[m.sessionId] = {
+              channelId,
+              taskId: m.id,
+              memberId: m.assigneeId,
+              ...(this.store.runs.get(m.id)?.wakeup ? { wakeup: true } : {}),
+            }
           }
     }
     const members: ChannelMember[] = [
@@ -890,6 +915,8 @@ export class Channels {
   async dispose(): Promise<void> {
     for (const t of this.issueTimers.values()) clearTimeout(t)
     this.issueTimers.clear()
+    for (const t of this.wakeTimers.values()) clearTimeout(t)
+    this.wakeTimers.clear()
     if (this.alertTimer) clearInterval(this.alertTimer)
     this.alertTimer = null
     if (this.usageTimer) clearTimeout(this.usageTimer)
@@ -1853,8 +1880,10 @@ export class Channels {
     relay?: RelayInput & { from: string; relay: ChannelRelay },
     /** 除了来源消息自己的，还要带上哪些消息的附件（交活的成员手上那项活带的） */
     inherit: string[] = [],
-    /** 卡片上另外的字段（牵头唤醒卡的标题、wake）：开会话前就要在卡上 */
-    fields?: Pick<ChannelTask, 'title' | 'wake'>,
+    /** 卡片上另外的字段（牵头唤醒卡的标题、wake；事项唤醒卡的标题、挂规则的人、AI 挂的接着算的接力）：开会话前就要在卡上 */
+    fields?: Partial<Pick<ChannelTask, 'title' | 'wake' | 'authorId' | 'relay'>>,
+    /** 这一轮另外的运行信息（事项唤醒：自己的提示词、wakeup 标记），盖过上面拼好的 */
+    runExtra?: Partial<TaskRun>,
   ): string {
     const member = this.member(memberId)!
     const now = this.now()
@@ -1913,6 +1942,7 @@ export class Channels {
       followUps: [],
       notice: null,
       ...(attach.length ? { attach } : {}),
+      ...runExtra,
     }
     this.store.runs.set(task.id, run)
     this.saveRuns()
@@ -1978,22 +2008,7 @@ export class Channels {
     const open = this.openWake(c.id, lead, relay.chain)
     const openTask = open && this.taskOf(open)
     if (open && openTask?.wake) {
-      const more = leadWakeMore(locale, handoff)
-      this.store.runs.set(
-        open.taskId,
-        open.phase === 'waiting'
-          ? {
-              ...open,
-              prompt: `${open.prompt}\n\n${more}`,
-              freshPrompt: `${open.freshPrompt}\n\n${more}`,
-              ...(inherit.length ? { attach: [...new Set([...(open.attach ?? []), ...inherit])] } : {}),
-            }
-          : {
-              ...open,
-              followUps: [...open.followUps, more],
-              ...(inherit.length ? { followUpAttach: [...(open.followUpAttach ?? []), ...inherit] } : {}),
-            },
-      )
+      this.mergeIntoRun(open, leadWakeMore(locale, handoff), inherit)
       if (inherit.length)
         this.patch(c.id, openTask.id, { attach: [...new Set([...(openTask.attach ?? []), ...inherit])] })
       this.patch(c.id, openTask.id, { wake: { from: [...openTask.wake.from, from].slice(-20) } })
@@ -2016,6 +2031,25 @@ export class Channels {
       },
       inherit,
       { title: title.slice(0, 80), wake: { from: [from] } },
+    )
+  }
+
+  /** 并进一项还没做完的活：排着的拼进这一轮的提示词，在做的记成追加要求（做完接着发）；带的附件跟着走 */
+  private mergeIntoRun(open: TaskRun, more: string, inherit: string[] = []): void {
+    this.store.runs.set(
+      open.taskId,
+      open.phase === 'waiting'
+        ? {
+            ...open,
+            prompt: `${open.prompt}\n\n${more}`,
+            freshPrompt: `${open.freshPrompt}\n\n${more}`,
+            ...(inherit.length ? { attach: [...new Set([...(open.attach ?? []), ...inherit])] } : {}),
+          }
+        : {
+            ...open,
+            followUps: [...open.followUps, more],
+            ...(inherit.length ? { followUpAttach: [...(open.followUpAttach ?? []), ...inherit] } : {}),
+          },
     )
   }
 
@@ -2118,12 +2152,12 @@ export class Channels {
       error: null,
       reason: null,
       note: null,
-      decision: null,
       request: null,
       progress: null,
       activity: null,
       endedAt: null,
-      checks: null,
+      // 事项唤醒的一轮（§11.6）：回 [silent] 时上一轮要你决定的事、检查结果照旧留着（没改文件不重跑检查）
+      ...(next.wakeup ? {} : { decision: null, checks: null }),
     })
     this.saveRuns()
     void this.pump(next.memberId)
@@ -2139,6 +2173,8 @@ export class Channels {
     // 事项派出的卡片：状态、检查、轮次变了写回事项
     if (task?.issue && ['status', 'checks', 'round', 'error', 'issue'].some(k => k in patch))
       this.syncIssue(task.id, 'issue' in patch)
+    // 挂着唤醒的卡（§11.6）：只记一下有变化，下一拍再按最新状态判断（检查在做完之后才开始）
+    if (task && ('status' in patch || 'checks' in patch)) this.armWakeups(channelId, taskId)
     return task
   }
 
@@ -2523,11 +2559,13 @@ export class Channels {
         disconnected: false,
         endedAt: now,
       }
+      // 事项唤醒的一轮回 [silent]（§11.6）：不发消息，不覆盖摘要、要你决定的事、改动统计，连续几次只留一条运行记录
+      const quiet = finish.status === 'done' && !!run.wakeup && isSilent(run.reply?.trim() ?? '')
       // 这一轮的运行记录和原因（docs/multica-learn.md §1、§2）：发出去过的、或没发出去就失败的；还在排队时取消的不算
       patch.reason = runReasonOf(finish.status, patch.error)
       if (run.phase !== 'waiting' || finish.status === 'failed') {
         const config = this.member(run.memberId)
-        patch.runs = appendRun(task.runs, {
+        patch.runs = appendWakeupRun(task.runs, {
           n: run.round,
           status: finish.status,
           // 卡片上的 startedAt 只记第一轮；旧的运行信息没有自己的开始时间时，只有第一轮能借用
@@ -2539,9 +2577,10 @@ export class Channels {
           model: config?.settings.model ?? null,
           machine: config ? this.machineLabel(config.machineId) : null,
           sessionId: run.sessionId ?? null,
+          ...(run.wakeup ? { wakeup: { ...run.wakeup, ...(quiet ? { silent: 1 } : {}) } } : {}),
         })
       }
-      if (finish.status === 'done' || run.reply) {
+      if ((finish.status === 'done' || run.reply) && !quiet) {
         const diff = diffTotal(run)
         if (diff) patch.diff = diff
       }
@@ -2552,23 +2591,25 @@ export class Channels {
         const reply = run.reply?.trim() ?? ''
         const locale = this.deps.locale()
         // 牵头的唤醒卡回 [silent]：不发消息（docs/multica-learn.md §11.2）
-        const silent = !!task.wake && isSilent(reply)
+        const silent = quiet || (!!task.wake && isSilent(reply))
         // 这一轮生成的图随结果带回频道（docs/ui/channel-image-gen.md §3.2）；团队频道不支持附件
         const images = run.team || !run.sessionId ? [] : (run.images ?? [])
-        patch.summary = silent
-          ? locale === 'en-US'
-            ? 'Nothing to add'
-            : '没有要说的'
-          : reply
-            ? summaryOf(reply)
-            : images.length
-              ? locale === 'en-US'
-                ? `Generated ${images.length} image(s)`
-                : `生成了 ${images.length} 张图`
-              : locale === 'en-US'
-                ? 'No reply text'
-                : '没有回复文字'
-        patch.decision = reply && !silent ? decisionOf(reply) : null
+        if (!quiet) {
+          patch.summary = silent
+            ? locale === 'en-US'
+              ? 'Nothing to add'
+              : '没有要说的'
+            : reply
+              ? summaryOf(reply)
+              : images.length
+                ? locale === 'en-US'
+                  ? `Generated ${images.length} image(s)`
+                  : `生成了 ${images.length} 张图`
+                : locale === 'en-US'
+                  ? 'No reply text'
+                  : '没有回复文字'
+          patch.decision = reply && !silent ? decisionOf(reply) : null
+        }
         if (silent) {
           // 不发消息、不接力
         } else if (reply && run.team) {
@@ -2601,6 +2642,7 @@ export class Channels {
               patch.decision || ((relays.some(r => r.relay.held) || wake?.relay.held) && c && relayRulesOf(c).notify)
                 ? [SELF_ID]
                 : [],
+            ...(run.wakeup ? { wakeup: run.wakeup } : {}),
           }
           // 接力的决定在读图（await）之前定好；读完后按最新的频道发（AGENTS.md「await 之后写回」）
           const send = (): void => {
@@ -2639,8 +2681,9 @@ export class Channels {
       }
       if (run.team) this.patchTeam(ended, patch, teamResult)
       else this.patch(run.channelId, run.taskId, patch)
-      // 做完了、后面没有排着的追加要求：跑产出检查
-      if (!run.team && finish.status === 'done' && !run.followUps.length) void this.check(ended)
+      // 做完了、后面没有排着的追加要求：跑产出检查（唤醒的一轮没改文件不跑，§11.6）
+      const unchanged = !!run.wakeup && !changedFiles(run).length && !diffTotal(run)
+      if (!run.team && finish.status === 'done' && !run.followUps.length && !unchanged) void this.check(ended)
       // 做的时候追加的要求：接着发
       if (run.followUps.length && finish.note !== 'cancelled') {
         if (run.flow) this.flowRoundEnded(ended, finish, true)
@@ -3123,6 +3166,8 @@ export class Channels {
     void this.store.append(next).catch(e => this.deps.log?.('保存流程失败', e))
     this.pushMessage(next)
     this.changed()
+    // 盯着这个流程的唤醒（§11.6）：全部交付了、停了，下一拍判断
+    if (flow.status !== m.flow.status) this.armWakeups(channelId, messageId)
     return flow
   }
 
@@ -4895,6 +4940,8 @@ export class Channels {
   /** 每分钟巡检一次：等你回答太久、很久没进展、@ 了没人接；情况变了的提醒标为处理过；到点发每日简报 */
   async checkAlerts(): Promise<void> {
     const now = this.now()
+    // 事项唤醒（§11.6）：同步判断、记下、派活，每个频道单独兜住；放在最前面，后面的提醒出错也不耽误
+    for (const id of [...this.store.channels.keys()]) this.sweepWakeups(id, now)
     const en = this.deps.locale() === 'en-US'
     for (const c of [...this.store.channels.values()]) {
       if (c.archivedAt) continue
@@ -5044,6 +5091,408 @@ export class Channels {
     if (!task || task.checks?.id !== pending.id) return
     this.patch(run.channelId, run.taskId, { checks: result })
     this.changed()
+  }
+
+  // -------------------------------------------------------------------------
+  // 事项唤醒（docs/multica-learn.md §11.6）：规则存在频道里，每分钟的巡检和事件后的下一拍按最新状态判断。
+  // 每条规则一张唤醒卡（第一次叫时派出去，回复被盯的卡），以后都在它上面开下一轮；被盯的卡不动。
+  // 判断、记下（saveChannel 同步换掉内存里那份）、派活之间没有 await，两次巡检不会叫两遍
+  // -------------------------------------------------------------------------
+
+  private readonly wakeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  /**
+   * 有规则盯着这张卡、或这是唤醒卡：下一拍按最新状态判断一次。不在 patch 里直接判断：做完之后才开始跑产出检查，
+   * 有排着的追加要求时「做完」只停一瞬间
+   */
+  private armWakeups(channelId: string, id: string): void {
+    if (this.wakeTimers.has(channelId)) return
+    const c = this.store.channels.get(channelId)
+    if (!c?.wakeups?.some(w => w.state === 'active' && (w.on === id || w.card === id))) return
+    const timer = setTimeout(() => {
+      this.wakeTimers.delete(channelId)
+      this.sweepWakeups(channelId, this.now())
+    }, 0)
+    timer.unref?.()
+    this.wakeTimers.set(channelId, timer)
+  }
+
+  /** 一个频道的唤醒巡检：清掉失效的、结束到期的，叫到点的；出错只记日志，不影响别的频道 */
+  private sweepWakeups(channelId: string, now: number): void {
+    try {
+      const c = this.store.channels.get(channelId)
+      if (!c?.wakeups?.some(w => w.state === 'active') || c.archivedAt) return
+      const fires: ChannelWakeup[] = []
+      let touched = false
+      const rules = c.wakeups.map(rule => {
+        if (rule.state !== 'active') return rule
+        const verdict = this.wakeupVerdict(c, rule, now)
+        if (!verdict) return rule
+        touched = true
+        if (verdict.fire) fires.push(verdict.rule)
+        return verdict.rule
+      })
+      if (!touched) return
+      // 先记下（次数、下次时间、结束），再派活
+      this.saveWakeups(c, pruneWakeups(rules))
+      for (const rule of fires) this.fireWakeup(channelId, rule)
+      this.changed()
+    } catch (e) {
+      this.deps.log?.('事项唤醒巡检失败', e)
+    }
+  }
+
+  /** 一条活着的规则这一拍怎么办：null 不动；fire 叫一次（rule 是记下之后的）；否则结束（失效、到截止） */
+  private wakeupVerdict(
+    c: StoredChannel,
+    rule: ChannelWakeup,
+    now: number,
+  ): { rule: ChannelWakeup; fire?: boolean } | null {
+    const end = (state: 'done' | 'expired' | 'cancelled', note: string | null) => ({
+      rule: endWakeup(rule, state, note, now),
+    })
+    if (!c.memberIds.includes(rule.memberId) || !this.member(rule.memberId))
+      return end('cancelled', '要叫的成员不在频道里了')
+    const on = (this.store.messages.get(c.id) ?? []).find(m => m.id === rule.on)
+    const flow = on?.kind === 'message' ? on.flow : null
+    if (!on || on.kind === 'event' || (on.kind === 'message' && !flow)) return end('cancelled', '盯的卡不在了')
+    if (on.kind === 'task' && on.flow) return end('cancelled', '流程里的步骤卡不能挂唤醒')
+    const card = rule.card ? this.store.task(rule.card) : null
+    if (card?.land?.kind === 'merged') return end('cancelled', '唤醒卡已经合并回去了')
+    let due: boolean
+    if (rule.when.kind === 'ended') {
+      const run = on.kind === 'task' ? this.store.runs.get(on.id) : undefined
+      const verdict = flow
+        ? flow.status === 'done'
+          ? 'fire'
+          : flow.status === 'stopped'
+            ? 'cancel'
+            : null
+        : on.kind === 'task'
+          ? endedVerdict(
+              rule.when,
+              {
+                status: on.status,
+                round: on.round ?? 1,
+                checksRunning: on.checks?.status === 'running',
+                active: !!run && run.phase !== 'ended',
+              },
+              rule.sig,
+            )
+          : null
+      if (verdict === 'cancel') return end('cancelled', flow ? '盯的流程停了' : '盯的卡停了')
+      // 盯的卡合并回去了：开不了下一轮，等不到了
+      if (!verdict && on.kind === 'task' && on.land?.kind === 'merged') return end('cancelled', '盯的卡已经合并回去了')
+      // 最多等到截止：没等到就结束（不叫）
+      if (!verdict) return rule.until !== null && now >= rule.until ? end('expired', null) : null
+      due = true
+    } else {
+      // 盯的卡停了、合并回去了，盯的流程停了：挂在上面的规则不用再跑
+      if (flow?.status === 'stopped') return end('cancelled', '盯的流程停了')
+      if (on.kind === 'task') {
+        const run = this.store.runs.get(on.id)
+        if (on.status === 'stopped' && (!run || run.phase === 'ended')) return end('cancelled', '盯的卡停了')
+        if (on.land?.kind === 'merged') return end('cancelled', '盯的卡已经合并回去了')
+      }
+      if (rule.until !== null && now >= rule.until) return end('done', null)
+      due = rule.next !== null && rule.next <= now
+    }
+    // 唤醒卡这一轮还在做、正在合并：等它结束，下一拍再叫
+    const busy = !!card && (this.store.runs.get(card.id)?.phase === 'sent' || this.landLocked(card))
+    if (!due || busy) return null
+    return { rule: wakeupAfterFire(rule, now), fire: true }
+  }
+
+  /**
+   * 叫一次：第一次发一条 @ 它的系统消息（回复被盯的卡），派一张唤醒卡；以后在唤醒卡上开下一轮，
+   * 这一轮还在排队就把指令并进去。开不了（卡合并回去了等）就把这条规则标成取消，写上原因
+   */
+  private fireWakeup(channelId: string, rule: ChannelWakeup): void {
+    const c = this.store.channels.get(channelId)
+    const member = this.member(rule.memberId)
+    if (!c || !member) return
+    try {
+      const locale = this.deps.locale()
+      const en = locale === 'en-US'
+      const target = this.wakeupTarget(c, rule.on)
+      const request = wakeupRequest({ locale, kind: rule.when.kind, text: rule.text, target })
+      // 斜杠命令原样发，不拼频道背景
+      const slash = rule.text.trim().startsWith('/')
+      const tag: ChannelWakeupTag = { ruleId: rule.id, kind: rule.when.kind }
+      const relay = { author: this.nameOf(rule.by), request }
+      const card = rule.card ? this.store.task(rule.card) : null
+      if (card) {
+        const run = this.store.runs.get(card.id) ?? null
+        if (run?.phase === 'waiting') {
+          // 还在排队：这条规则叫的那一轮已经排着、或已经并进去过就不重复拼；排着的是别的（追加要求）就把指令并进去，
+          // 那一轮照常回复，不带「只回 [silent]」那句
+          if (run.wakeup?.ruleId !== rule.id && !run.wakeupMerged?.includes(rule.id)) {
+            this.mergeIntoRun(
+              { ...run, wakeupMerged: [...(run.wakeupMerged ?? []), rule.id] },
+              wakeupRequest({ locale, kind: rule.when.kind, text: rule.text, target, merged: true }),
+            )
+            this.saveRuns()
+          }
+          return
+        }
+        const source = (this.store.messages.get(c.id) ?? []).find(m => m.id === card.sourceMessageId)
+        const prompt = slash
+          ? request
+          : followUpPrompt({ locale, channel: c.name, author: relay.author, text: request })
+        const fresh =
+          slash || source?.kind !== 'message' ? prompt : this.freshPrompt(c, source, member, rule.on, false, relay)
+        this.nextRound(card, run, prompt, fresh, undefined, undefined, undefined, { wakeup: tag })
+        return
+      }
+      const msg: ChannelTextMessage = {
+        kind: 'message',
+        id: randomUUID(),
+        channelId: c.id,
+        at: this.now(),
+        authorId: SYSTEM_AUTHOR,
+        text: `${en ? '⏰ Wakeup' : '⏰ 唤醒'} @${member.name}${en ? ': ' : '：'}${rule.text}`,
+        format: 'plain',
+        replyToId: rule.on,
+        mentions: [member.id],
+        wakeup: tag,
+      }
+      void this.store.append(msg).catch(e => this.deps.log?.('保存频道消息失败', e))
+      this.pushMessage(msg)
+      const shared = member.mode === 'shared'
+      const prompt = slash ? request : this.freshPrompt(c, msg, member, rule.on, shared, relay)
+      const fresh = slash || !shared ? prompt : this.freshPrompt(c, msg, member, rule.on, false, relay)
+      const title = (en ? 'Wakeup: ' : '唤醒：') + (taskTitle(rule.text, this.channelMembers(c)) || target.title)
+      // AI 挂的：唤醒卡是挂它的那条接力的下一跳，超了防刷规则照旧停下等你放行
+      const stop = rule.relay ? this.relayHeld(c, rule.relay.chain, rule.by, member.id) : null
+      const chain = rule.relay
+        ? {
+            relay: {
+              chain: rule.relay.chain,
+              hop: rule.relay.hop + 1,
+              held: stop?.held ?? null,
+              ...(stop ? { limit: stop.limit } : {}),
+            },
+          }
+        : {}
+      const id = this.newTask(
+        c,
+        msg,
+        member.id,
+        rule.on,
+        undefined,
+        [],
+        { title: title.slice(0, 80), authorId: rule.by, ...chain },
+        { prompt, freshPrompt: fresh, wakeup: tag },
+      )
+      this.updateWakeup(channelId, rule.id, w => ({ ...w, card: id }))
+    } catch (e) {
+      this.deps.log?.('事项唤醒没开成', e)
+      this.updateWakeup(channelId, rule.id, w => endWakeup(w, 'cancelled', message(e), this.now()))
+    }
+  }
+
+  /** 被盯的卡现在的样子（提示词里带上）：任务卡的状态、摘要、最后的结果；流程卡每一步一行 */
+  private wakeupTarget(c: StoredChannel, on: string): WakeupTarget {
+    const list = this.store.messages.get(c.id) ?? []
+    const m = list.find(x => x.id === on)
+    const en = this.deps.locale() === 'en-US'
+    if (m?.kind === 'message' && m.flow) {
+      const f = m.flow
+      return {
+        kind: 'flow',
+        title: f.title,
+        status: f.status,
+        steps: f.steps.map(
+          s =>
+            `${this.stepNo(f, s.id)} ${s.title} · ${this.nameOf(s.memberId)} · ${STEP_STATUS[en ? 'en' : 'zh'][s.status]}` +
+            (s.result?.summary ? `${en ? ': ' : '：'}${s.result.summary}` : ''),
+        ),
+      }
+    }
+    if (m?.kind !== 'task') throw new Error('盯的卡不在了')
+    let result: string | null = null
+    for (let i = list.length - 1; i >= 0 && result === null; i--) {
+      const x = list[i]
+      if (x.kind === 'message' && x.taskId === m.id) result = x.text
+    }
+    return {
+      kind: 'task',
+      title: m.title,
+      status: m.status,
+      owner: this.nameOf(m.assigneeId),
+      summary: m.summary ?? null,
+      decision: m.decision ?? null,
+      result,
+    }
+  }
+
+  private saveWakeups(c: StoredChannel, wakeups: ChannelWakeup[]): void {
+    void this.store.saveChannel({ ...c, wakeups }).catch(e => this.deps.log?.('保存唤醒规则失败', e))
+  }
+
+  /** 按存着的最新那份改一条规则 */
+  private updateWakeup(channelId: string, id: string, change: (w: ChannelWakeup) => ChannelWakeup): void {
+    const c = this.store.channels.get(channelId)
+    if (!c?.wakeups?.some(w => w.id === id)) return
+    this.saveWakeups(
+      c,
+      c.wakeups.map(w => (w.id === id ? change(w) : w)),
+    )
+    this.changed()
+  }
+
+  /** 挂 / 取消事项唤醒（channels:wakeup）：只有本机频道；参数由 cleanWakeupAdd 逐项校验 */
+  wakeupAction(channelId: string, raw: unknown): { id?: string } {
+    if (this.isTeam(channelId)) throw new Error('团队频道还不支持唤醒')
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+    if (r.op === 'add') return { id: this.addWakeup(channelId, cleanWakeupAdd(raw, this.now()), SELF_ID) }
+    if (r.op !== 'cancel') throw new Error('不支持的操作')
+    const id = typeof r.id === 'string' && r.id ? r.id : null
+    const on = typeof r.on === 'string' && r.on ? r.on : null
+    if (!id === !on) throw new Error('参数不正确')
+    const c = this.channel(channelId)
+    if (id && !c.wakeups?.some(w => w.id === id)) throw new Error('这条唤醒不存在')
+    const now = this.now()
+    let hit = false
+    const next = (c.wakeups ?? []).map(w => {
+      if (w.state !== 'active' || (id ? w.id !== id : w.on !== on)) return w
+      hit = true
+      // 按卡取消是看板事项验收完了（§11.6）
+      return endWakeup(w, 'cancelled', on ? '事项已经验收完了' : null, now)
+    })
+    if (hit) {
+      this.saveWakeups(c, next)
+      this.changed()
+    }
+    return {}
+  }
+
+  /** 挂一条规则（界面或 AI）：查被盯的卡、要叫的成员、上限；by 是 SELF_ID 或 AI 成员 */
+  private addWakeup(
+    channelId: string,
+    input: ReturnType<typeof cleanWakeupAdd>,
+    by: string,
+    relay?: ChannelWakeup['relay'],
+  ): string {
+    const c = this.writable(channelId)
+    const on = (this.store.messages.get(c.id) ?? []).find(m => m.id === input.on)
+    const flow = on?.kind === 'message' ? on.flow : null
+    if (!on || on.kind === 'event' || (on.kind === 'message' && !flow)) throw new Error('只能挂在任务卡或流程卡上')
+    if (on.kind === 'task' && on.flow) throw new Error('流程里的步骤卡不能挂唤醒，挂在流程卡上')
+    if (on.kind === 'task' && (on.status === 'stopped' || this.landLocked(on)))
+      throw new Error('这张卡已经停了或合并回去了，不能挂唤醒')
+    if (flow?.status === 'stopped') throw new Error('流程已经停了，不能挂唤醒')
+    if (flow?.status === 'done' && input.when.kind === 'ended') throw new Error('流程已经全部交付了')
+    if (!c.memberIds.includes(input.memberId) || !this.member(input.memberId)) throw new Error('要叫的成员不在频道里')
+    // 「等结束」叫被盯卡自己的负责人：它每做完一轮就叫醒自己
+    if (input.when.kind === 'ended' && on.kind === 'task' && on.assigneeId === input.memberId)
+      throw new Error('「等结束」不能叫这张卡自己的负责人')
+    const all = c.wakeups ?? []
+    const live = all.filter(w => w.state === 'active')
+    if (live.length >= WAKEUP_CHANNEL_MAX) throw new Error(`一个频道最多挂 ${WAKEUP_CHANNEL_MAX} 条唤醒`)
+    if (live.filter(w => w.on === input.on).length >= WAKEUP_LIVE_MAX)
+      throw new Error(`一张卡上最多挂 ${WAKEUP_LIVE_MAX} 条唤醒`)
+    // AI 自己挂的：活着的、一共的都有上限，免得每次被叫醒都再续一条一直花钱
+    const aiTotal = c.wakeupAi?.[input.on] ?? 0
+    if (by !== SELF_ID) {
+      if (live.filter(w => w.on === input.on && w.by !== SELF_ID).length >= WAKEUP_AI_LIVE_MAX)
+        throw new Error(`这件事上你已经挂了 ${WAKEUP_AI_LIVE_MAX} 条还没结束的唤醒，先等它们结束`)
+      if (aiTotal >= WAKEUP_AI_TOTAL_MAX) throw new Error(`这件事上 AI 一共只能挂 ${WAKEUP_AI_TOTAL_MAX} 条唤醒`)
+    }
+    const now = this.now()
+    // 「等结束」挂上时卡已经是结束的那一轮：这一轮不算，等下一次结束
+    const run = on.kind === 'task' ? this.store.runs.get(on.id) : undefined
+    const sig =
+      on.kind === 'task' &&
+      input.when.kind === 'ended' &&
+      endedVerdict(
+        input.when,
+        {
+          status: on.status,
+          round: on.round ?? 1,
+          checksRunning: on.checks?.status === 'running',
+          active: !!run && run.phase !== 'ended',
+        },
+        null,
+      ) === 'fire'
+        ? String(on.round ?? 1)
+        : null
+    const rule: ChannelWakeup = {
+      id: randomUUID(),
+      on: input.on,
+      memberId: input.memberId,
+      card: null,
+      by,
+      when: input.when,
+      text: input.text,
+      until: input.until,
+      next: wakeupFirst(input.when, now),
+      fired: 0,
+      state: 'active',
+      endNote: null,
+      sig,
+      ...(relay ? { relay } : {}),
+      createdAt: now,
+      lastAt: null,
+    }
+    this.saveWakeups(
+      by === SELF_ID ? c : { ...c, wakeupAi: { ...c.wakeupAi, [input.on]: aiTotal + 1 } },
+      pruneWakeups([...all, rule]),
+    )
+    this.changed()
+    return rule.id
+  }
+
+  /**
+   * schedule_wakeup（§11.6）：只在这张卡正在做的这一轮里用，只叫自己；几分钟后，或定期检查（必须有截止）。
+   * 在唤醒卡上做的挂在它盯的那张卡上（上限按那张卡算）。从已有会话加入的成员、流程步骤不给
+   */
+  toolWakeup(sessionId: string, args: Record<string, unknown>): string {
+    const { c, task, run, member } = this.callerOf(sessionId)
+    if (!task || run?.phase !== 'sent' || run.taskId !== task.id) throw new Error('只能在你正在做的这项活里挂唤醒')
+    if (c.archivedAt) throw new Error('频道已归档，不能挂唤醒')
+    if (member.bound) throw new Error('从已有会话加入的成员不能挂唤醒')
+    if (task.flow) throw new Error('流程里的步骤不能挂唤醒')
+    // 唤醒卡的来源是那条 @ 它的系统消息，回复的就是盯的卡（规则结束后会被修剪，不从规则里找）
+    const source = this.store.messages.get(c.id)?.find(m => m.id === task.sourceMessageId)
+    const on = source?.kind === 'message' && source.wakeup && source.replyToId ? source.replyToId : task.id
+    const now = this.now()
+    const minutes = args.after_minutes
+    const every = args.every
+    if ((minutes === undefined) === (every === undefined))
+      throw new Error('after_minutes 和 every 要填一个，只能填一个')
+    const maxMinutes = WAKEUP_MAX_DAYS * 1440
+    let when: unknown
+    let until: number | null = null
+    if (minutes !== undefined) {
+      if (!Number.isInteger(minutes) || (minutes as number) < 1 || (minutes as number) > maxMinutes)
+        throw new Error(`after_minutes 要在 1～${maxMinutes} 之间`)
+      when = { kind: 'at', at: now + (minutes as number) * 60_000 }
+    } else {
+      const time = typeof args.time === 'string' ? /^(\d{1,2}):(\d{2})$/.exec(args.time.trim()) : null
+      if (args.time !== undefined && !time) throw new Error('time 要写成 HH:MM')
+      if (!time && every !== 'hourly') throw new Error('每天 / 工作日检查要写 time（HH:MM）')
+      const days = args.until_days ?? WAKEUP_DEFAULT_DAYS
+      if (!Number.isInteger(days) || (days as number) < 1 || (days as number) > WAKEUP_MAX_DAYS)
+        throw new Error(`until_days 要在 1～${WAKEUP_MAX_DAYS} 之间`)
+      when = { kind: 'every', freq: every, hour: time ? Number(time[1]) : 0, minute: time ? Number(time[2]) : 0 }
+      until = now + (days as number) * DAY
+    }
+    const input = cleanWakeupAdd({ on, memberId: member.id, when, text: args.text, until }, now)
+    const id = this.addWakeup(c.id, input, member.id, {
+      chain: task.relay?.chain ?? task.id,
+      hop: task.relay?.hop ?? 0,
+    })
+    const next = this.store.channels.get(c.id)?.wakeups?.find(w => w.id === id)?.next ?? null
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const clock = (ms: number | null) => {
+      if (!ms) return '?'
+      const d = new Date(ms)
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+    return input.when.kind === 'every'
+      ? `已挂上定期检查：第一次 ${clock(next)}，截止 ${clock(until)}。每次到点会在唤醒卡上叫你，查完没什么要说的就只回复 [silent]。`
+      : `已挂上唤醒：${clock(next)} 叫你。到点会开一张唤醒卡，带上你写的指令。`
   }
 
   /** 去掉很久以前结束的运行信息 */
@@ -5227,9 +5676,9 @@ export class Channels {
       if (!this.member(task.assigneeId)) throw new Error('成员不存在')
       const c = this.writable(task.channelId)
       const source = this.store.messages.get(c.id)?.find(m => m.id === task.sourceMessageId)
-      // 别的 AI 交过来的：派活时的提示词（交接内容）原样用
+      // 别的 AI 交过来的、事项唤醒的一轮：派活时的提示词（交接内容、唤醒要求）原样用
       const fresh =
-        source?.kind === 'message' && !task.relay && !run?.flow
+        source?.kind === 'message' && !task.relay && !run?.flow && !run?.wakeup
           ? this.freshPrompt(c, source, this.member(task.assigneeId)!, source.replyToId ?? null, false)
           : (run?.freshPrompt ?? task.title)
       // 还没开始就失败：原样再发一次；做到一半：发「继续」
@@ -5238,7 +5687,9 @@ export class Channels {
       const attach = run?.started
         ? undefined
         : (run?.attach ?? (source?.kind === 'message' && source.attached ? [source.id] : undefined))
-      this.nextRound(task, run ?? null, prompt, fresh, undefined, undefined, attach)
+      // 重试唤醒的一轮还算唤醒轮（§11.6）：回 [silent] 照样静默、不清要你决定的事
+      const extra = run?.wakeup ? { wakeup: run.wakeup } : undefined
+      this.nextRound(task, run ?? null, prompt, fresh, undefined, undefined, attach, extra)
       return
     }
     if (!run || run.phase === 'ended') return

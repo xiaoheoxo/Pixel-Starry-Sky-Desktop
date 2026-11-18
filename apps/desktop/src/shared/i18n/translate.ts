@@ -97,6 +97,7 @@ import { channelMiscMessages } from './channelMiscMessages'
 import { agentsSettingsMessages } from './agentsSettingsMessages'
 import { channelLimitsMessages } from './channelLimitsMessages'
 import { channelLandUiMessages } from './channelLandUiMessages'
+import { wakeupMessages } from './wakeupMessages'
 import { replaceCodedErrors } from '@pixelsky/protocol'
 import type { Locale } from './messages'
 
@@ -201,6 +202,7 @@ export const allMessages = {
   ...agentsSettingsMessages,
   ...channelLimitsMessages,
   ...channelLandUiMessages,
+  ...wakeupMessages,
 }
 export type TranslationKey = keyof typeof allMessages
 
@@ -222,8 +224,15 @@ const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g
 const literalChars = (text: string): number => text.replace(/\{\w+\}/g, '').match(/[\p{L}\p{N}]/gu)?.length ?? 0
 const patterns = Object.entries(allMessages)
   // customTheme：「{name} 副本」这类只有界面自己用，拿去匹配引擎原文会把 Failed to copy 改成 Failed to 副本；
-  // overview 同理：「{count} connected」会把 Server connected 改成 Server 个已连接
-  .filter(([key]) => !(key in catalog) && !key.startsWith('customTheme.') && !key.startsWith('overview.'))
+  // overview 同理：「{count} connected」会把 Server connected 改成 Server 个已连接；
+  // 事项唤醒的界面标签也是（「Daily {time}」会把 Daily limit reached 改成「每天 limit reached」），只留主进程的报错和取消原因
+  .filter(
+    ([key]) =>
+      !(key in catalog) &&
+      !key.startsWith('customTheme.') &&
+      !key.startsWith('overview.') &&
+      !(key.startsWith('wakeup.') && !key.startsWith('wakeup.error.') && !key.startsWith('wakeup.note.')),
+  )
   .map(([, message]) => message)
   .flatMap(message => {
     if (!/\{\w+\}/.test(message.zh)) return []

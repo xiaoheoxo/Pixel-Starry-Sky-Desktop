@@ -2,6 +2,7 @@
 // 时间相对本地 0 点推算，日期分隔始终是「昨天 / 今天」。
 import type { Channel, ChannelMember, ChannelMessage } from '@/data/types'
 import type { PendingInvite, TeamInboxItem, TeamInfo } from '../../../shared/types/channels'
+import { nextSlot } from '../../../shared/schedule'
 
 const NOW = Date.now()
 const HOUR = 3_600_000
@@ -145,6 +146,39 @@ export const demoChannels: Channel[] = [
         enabled: true,
         lastRunAt: YESTERDAY + 9 * 3_600_000,
         lastFlowMessageId: null,
+      },
+    ],
+    // 事项唤醒（docs/multica-learn.md §11.6）：每小时叫审查员看一次测试修好没有（唤醒卡 web-wk1）；
+    // 「设置页迁移」做完后叫审查员审一遍。看板上对应的两个事项显示「⏰ 下次 …」「⏰ 做完或失败后叫 审查员」
+    wakeups: [
+      {
+        id: 'wk-web1',
+        on: 'web-t1',
+        memberId: 'a-reviewer',
+        card: 'web-wk1',
+        by: 'm-linxia',
+        when: { kind: 'every', freq: 'hourly', hour: 0, minute: 0 },
+        text: '跑一下 pnpm run test，看 SidebarRow 的方向键测试修好没有；没变化回 [silent]',
+        until: TODAY + 8 * DAY - 1,
+        next: nextSlot({ freq: 'hourly', hour: 0, minute: 0, weekday: 0 }, NOW),
+        fired: 6,
+        state: 'active',
+        createdAt: at(YESTERDAY, '10:40'),
+        lastAt: at(TODAY, '09:00'),
+      },
+      {
+        id: 'wk-web2',
+        on: 'web-t2',
+        memberId: 'a-reviewer',
+        card: null,
+        by: 'm-linxia',
+        when: { kind: 'ended', failed: true },
+        text: '审查一遍设置页的改动，重点看校验提示的文案',
+        until: NOW + 3 * DAY,
+        next: null,
+        fired: 0,
+        state: 'active',
+        createdAt: at(TODAY, '09:45'),
       },
     ],
     memberIds: ['m-linxia', 'a-frontend', 'a-reviewer'],
@@ -291,6 +325,69 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
       authorId: 'a-reviewer',
       format: 'markdown',
       text: '看完了，整体结构没问题，改了几处：\n\n- 「最近任务」固定在账号行上方，不再跟着项目列表滚动\n- 会话行的状态点统一成 6px\n- 补了 `SidebarRow` 的方向键导航测试\n\n构建通过，没有新的告警。',
+    },
+    // 事项唤醒（docs/multica-learn.md §11.6）：第一次到点发一条 @ 审查员的系统消息、开一张唤醒卡；
+    // 以后都在这张卡上接着做，后面几次没变化回 [silent]，运行记录合成一行
+    {
+      kind: 'message',
+      id: 'web-wk1m',
+      channelId: 'c-web',
+      at: at(YESTERDAY, '11:00'),
+      authorId: 'system',
+      format: 'plain',
+      replyToId: 'web-t1',
+      mentions: ['a-reviewer'],
+      text: '⏰ 唤醒 @审查员：跑一下 pnpm run test，看 SidebarRow 的方向键测试修好没有；没变化回 [silent]',
+      wakeup: { ruleId: 'wk-web1', kind: 'every' },
+    },
+    {
+      kind: 'task',
+      id: 'web-wk1',
+      channelId: 'c-web',
+      at: at(YESTERDAY, '11:00', 5),
+      authorId: 'm-linxia',
+      assigneeId: 'a-reviewer',
+      title: '唤醒：跑一下 pnpm run test，看 SidebarRow 的方向键测试修好没有',
+      status: 'done',
+      sourceMessageId: 'web-wk1m',
+      round: 6,
+      sessionId: 's-redesign',
+      summary: '方向键测试还是没过：「最近任务」分组的顺序和断言对不上。',
+      endedAt: at(TODAY, '09:02'),
+      runs: [
+        {
+          n: 1,
+          status: 'done',
+          startedAt: at(YESTERDAY, '11:00', 10),
+          endedAt: at(YESTERDAY, '11:03'),
+          engine: 'codex',
+          model: 'gpt-5.5',
+          machine: '这台电脑',
+          wakeup: { ruleId: 'wk-web1', kind: 'every' },
+        },
+        {
+          n: 6,
+          status: 'done',
+          startedAt: at(TODAY, '09:00', 10),
+          endedAt: at(TODAY, '09:02'),
+          engine: 'codex',
+          model: 'gpt-5.5',
+          machine: '这台电脑',
+          wakeup: { ruleId: 'wk-web1', kind: 'every', silent: 5 },
+        },
+      ],
+    },
+    {
+      kind: 'message',
+      id: 'web-wk1r',
+      channelId: 'c-web',
+      at: at(YESTERDAY, '11:03'),
+      authorId: 'a-reviewer',
+      format: 'markdown',
+      replyToId: 'web-wk1',
+      taskId: 'web-wk1',
+      text: '方向键测试还是没过：`SidebarRow.test.tsx` 期望「账号」在「最近任务」前面，现在的分组顺序反过来了。等前端助手改完我再看。',
+      wakeup: { ruleId: 'wk-web1', kind: 'every' },
     },
     {
       kind: 'message',

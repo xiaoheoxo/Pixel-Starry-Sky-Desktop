@@ -8,6 +8,7 @@ import type {
   ChannelStepBody,
   ChannelTask,
   ChannelWait,
+  ChannelWakeupTag,
   FlowBrief,
   FlowResult,
   FlowStep,
@@ -117,6 +118,10 @@ export interface TaskRun {
    * isolate 是不带我的 MCP。几轮之间接着用
    */
   guard?: { capped?: string; copy?: { id: string; branch: string; path: string }; isolate?: boolean }
+  /** 事项唤醒开的这一轮（docs/multica-learn.md §11.6）：回 [silent] 不发消息、不覆盖摘要；只这一轮，下一轮不带 */
+  wakeup?: ChannelWakeupTag
+  /** 排着的这一轮不是唤醒轮（追加要求）时已经并进来的唤醒规则：再到点不重复拼 */
+  wakeupMerged?: string[]
 }
 
 /** 流程里一个成员问另一个成员的问题 */

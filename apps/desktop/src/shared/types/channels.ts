@@ -305,6 +305,8 @@ export interface Channel {
   planFirst?: boolean
   /** 每天定时运行的流程（§10.3），只有本机频道 */
   schedules?: FlowSchedule[]
+  /** 事项唤醒（docs/multica-learn.md §11.6），只有本机频道：活着的和最近结束的 */
+  wakeups?: ChannelWakeup[]
   /** 主动提醒的规则开关（docs/ui/channels-collab-v2.md §6）；没写的按默认（shared/channels/alerts.ts） */
   alerts?: Partial<Record<ChannelAlertRule, boolean>>
   /** 每日简报几点发（0–23，默认 9） */
@@ -363,7 +365,65 @@ export interface ChannelTextMessage extends ChannelMessageBase {
   attached?: ChannelAttachedMeta
   /** 频道里云端生图发的（docs/ui/channel-image-gen.md §3.1）：图在 attached 里，正文是提示词 */
   generated?: ChannelGenerated | null
+  /** 事项唤醒（docs/multica-learn.md §11.6）：第一次叫时那条 @ 成员的系统消息、唤醒那一轮发回的结果 */
+  wakeup?: ChannelWakeupTag | null
 }
+
+/** 事项唤醒的条件（docs/multica-learn.md §11.6）：到某个时间（只一次）、定期检查、等某件事结束 */
+export type WakeupFreq = 'hourly' | 'daily' | 'weekdays'
+export type WakeupWhen =
+  | { kind: 'at'; at: number }
+  /** hourly 只用 minute；时间按这台电脑的时区 */
+  | { kind: 'every'; freq: WakeupFreq; hour: number; minute: number }
+  /** 盯的任务卡做完且产出检查跑完（failed / stopped：失败、停下也算）；盯的是流程卡时只认「全部交付」 */
+  | { kind: 'ended'; failed?: boolean; stopped?: boolean }
+export type WakeupKind = WakeupWhen['kind']
+
+/** 消息、运行记录上的「唤醒」标记：哪条规则、什么条件 */
+export interface ChannelWakeupTag {
+  ruleId: string
+  kind: WakeupKind
+}
+
+/**
+ * 一条事项唤醒规则（docs/multica-learn.md §11.6）：盯着一张任务卡或流程卡，到点 / 那件事结束时叫一个 AI 成员。
+ * 每条规则一张唤醒卡：第一次叫时派给成员（回复被盯的卡），以后都在这张卡上开下一轮；被盯的卡不动
+ */
+export interface ChannelWakeup {
+  id: string
+  /** 盯的卡：任务卡或流程卡（流程那条消息）的 id */
+  on: string
+  /** 叫谁（AI 成员 id） */
+  memberId: string
+  /** 唤醒卡：第一次叫时建 */
+  card: string | null
+  /** 谁挂的：SELF_ID，或 AI 成员 id（频道工具 schedule_wakeup） */
+  by: string
+  when: WakeupWhen
+  /** 唤醒指令 */
+  text: string
+  /** 截止：定期检查到这里结束，等结束的最多等到这里；到某个时间的没有 */
+  until: number | null
+  /** 下次到点（绝对时间）；等结束的是 null */
+  next: number | null
+  /** 叫过几次 */
+  fired: number
+  /** done：正常结束；expired：等到截止也没等到；cancelled：取消了或失效了（endNote 写原因） */
+  state: 'active' | 'done' | 'expired' | 'cancelled'
+  endNote?: string | null
+  /** 等结束：挂规则时被盯的卡已经是结束的那一轮（轮次），这一轮不算 */
+  sig?: string | null
+  /** AI 挂的：挂的时候那张卡在哪条接力上、第几跳。唤醒卡接着算这条接力的跳数，换一张卡不会绕过防刷规则 */
+  relay?: { chain: string; hop: number }
+  createdAt: number
+  /** 最近一次叫的时间 / 结束的时间 */
+  lastAt?: number | null
+}
+
+/** 挂 / 取消唤醒（channels:wakeup）：取消给 id（一条）或 on（这张卡上的全部，看板事项验收完时用） */
+export type WakeupOp =
+  | { op: 'add'; on: string; memberId: string; when: WakeupWhen; text: string; until?: number | null }
+  | { op: 'cancel'; id?: string; on?: string }
 
 /** 频道里云端生图的说明（消息上的一行小字） */
 export interface ChannelGenerated {
@@ -741,6 +801,8 @@ export interface ChannelRun {
   machine?: string | null
   /** 本机的会话（团队卡里别人的没有） */
   sessionId?: string | null
+  /** 事项唤醒开的这一轮（docs/multica-learn.md §11.6）；silent：连续几次回 [silent]（合成这一条） */
+  wakeup?: (ChannelWakeupTag & { silent?: number }) | null
 }
 
 export interface TaskCopy {
@@ -902,7 +964,16 @@ export interface ChannelsSnapshot {
    * 本机频道开出来的会话 → 最近一张任务卡（docs/ui/channels-local-ai.md §3.1 #12）：
    * 这些会话的系统提醒按频道的说法写，点开回到频道定位到卡片
    */
-  sessionTasks?: Record<string, { channelId: string; taskId: string; memberId: string }>
+  sessionTasks?: Record<
+    string,
+    {
+      channelId: string
+      taskId: string
+      memberId: string
+      /** 这张卡最近一轮是事项唤醒开的（docs/multica-learn.md §11.6）：回 [silent] 的不弹「做完了」 */
+      wakeup?: boolean
+    }
+  >
   /** 加入了频道的会话（docs/ui/import-collab.md 第 5 项②）→ 在哪些频道里、是哪个成员（会话菜单「退出频道」、标题旁的 # 频道） */
   sessionBindings?: Record<string, { channelId: string; memberId: string }[]>
   /** 「需要你」（docs/ui/channels-collab-v2.md §2）：本机频道里等你处理的事，新的在前 */

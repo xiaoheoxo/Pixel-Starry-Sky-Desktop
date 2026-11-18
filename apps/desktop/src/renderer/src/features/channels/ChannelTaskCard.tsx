@@ -2,6 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage, type TranslationKey } from '../../i18n/core'
 import { useRef, useState, type ReactNode } from 'react'
 import {
+  AlarmClock,
   ChevronDown,
   CircleCheck,
   CirclePause,
@@ -34,6 +35,9 @@ import { CheckSummary } from '@/features/checks/CheckSummary'
 import { landView } from './taskLand'
 import { TaskChanges } from './TaskChanges'
 import { RunReasonLine, TaskRuns } from './TaskRuns'
+import { canWakeup, WakeupOrigin, WakeupRules } from './WakeupParts'
+import { WakeupDialog } from './WakeupDialog'
+import { liveWakeups } from './wakeupModel'
 
 export const STATUS_LABEL: Record<ChannelTaskStatus, TranslationKey> = {
   queued: 'channels.task.queued',
@@ -181,8 +185,26 @@ export function ChannelTaskCard({
   ]
     .filter(Boolean)
     .join(' · ')
-  const dialog = editRules && channel && (
-    <ChannelDialog channel={channel} agents={[]} onClose={() => setEditRules(false)} />
+  // 事项唤醒（docs/multica-learn.md §11.6）：本机频道、不是流程步骤、没停也没合并回去的卡能挂
+  const [waking, setWaking] = useState(false)
+  const canWake = canWakeup(channel) && !task.flow && task.status !== 'stopped' && !land.locked
+  const wakeups = liveWakeups(channel, task.id).length
+  const dialog = (
+    <>
+      {editRules && channel && <ChannelDialog channel={channel} agents={[]} onClose={() => setEditRules(false)} />}
+      {waking && (
+        <WakeupDialog
+          target={{
+            channelId: task.channelId,
+            on: task.id,
+            kind: 'task',
+            title: task.title,
+            assigneeId: task.assigneeId,
+          }}
+          onClose={() => setWaking(false)}
+        />
+      )}
+    </>
   )
   // 要你处理的：等你确认、等主人同意、接力停下等放行
   const attention = !!held || task.status === 'waiting' || task.status === 'approval'
@@ -284,6 +306,9 @@ export function ChannelTaskCard({
           </span>
         </p>
       )}
+      {/* 唤醒卡是哪条规则开的；挂在这张卡上的唤醒（docs/multica-learn.md §11.6） */}
+      <WakeupOrigin channel={channel} task={task} membersById={membersById} />
+      <WakeupRules channel={channel} on={task.id} membersById={membersById} />
       {task.guard && (task.guard.capped || task.guard.copy) && (
         // 队友派来的活在我这边的限制（docs/multica-learn.md §11.4，只有主人看得到）
         <p data-task-guard className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
@@ -587,6 +612,11 @@ export function ChannelTaskCard({
               {tr('channels.task.followUp')}
             </Button>
           )}
+          {canWake && (
+            <Button variant="ghost" className="h-7 px-2.5 text-meta" onClick={() => setWaking(true)}>
+              {tr('wakeup.open')}
+            </Button>
+          )}
           {open && (live || task.status !== 'waiting') && (
             <Button variant="outline" className="h-7 px-2.5 text-meta" onClick={open}>
               {tr('channels.openSession')}
@@ -643,6 +673,11 @@ export function ChannelTaskCard({
       {!attached && <span className="min-w-0 shrink-[99] truncate text-fg-faint">{task.title}</span>}
       {task.diff && task.status === 'done' && (
         <DiffStat added={task.diff.added} removed={task.diff.removed} className="shrink-0" />
+      )}
+      {wakeups > 0 && (
+        <span data-chip-wakeup title={tr('wakeup.line.chip', { n: wakeups })} className="shrink-0 text-accent-fg">
+          <AlarmClock size={11} strokeWidth={2} aria-label={tr('wakeup.line.chip', { n: wakeups })} />
+        </span>
       )}
       <ChevronDown
         size={12}

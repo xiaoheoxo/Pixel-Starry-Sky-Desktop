@@ -69,6 +69,7 @@ export function TaskCard({
   onDragEnd,
   onDispatch,
   onReview,
+  onWakeup,
 }: {
   task: ManualTask
   column: string
@@ -83,6 +84,8 @@ export function TaskCard({
   /** 事项（docs/ui/channels-collab-v2.md §9）：交给负责人、验收 */
   onDispatch: () => void
   onReview: () => void
+  /** 事项唤醒（docs/multica-learn.md §11.6）：派出去的卡能挂时才有 */
+  onWakeup?: () => void
 }) {
   const done = task.status === 'completed'
   const late = overdue(task, now)
@@ -189,7 +192,7 @@ export function TaskCard({
         ))}
       </div>
       {firstLine && <p className="truncate pl-6 text-meta text-fg-muted">{firstLine}</p>}
-      <IssueLine task={task} busy={busy} onDispatch={onDispatch} onReview={onReview} />
+      <IssueLine task={task} busy={busy} onDispatch={onDispatch} onReview={onReview} onWakeup={onWakeup} />
     </div>
   )
 }

@@ -25,6 +25,7 @@ function fakeChannels(calls: unknown[][]): Channels {
     toolHandover: async () => {
       throw new Error('没有打开互相派活')
     },
+    toolWakeup: (...args: unknown[]) => (calls.push(['wakeup', ...args]), '已挂上'),
   } as unknown as Channels
 }
 
@@ -56,6 +57,7 @@ describe('频道工具 MCP（docs/ui/channels-collab-v2.md §1）', () => {
       'member_ask',
       'user_ask',
       'attachment_read',
+      'schedule_wakeup',
     ])
     // Claude 靠这个把工具直接声明给模型，不藏进 ToolSearch
     expect(tools.every(t => t._meta?.['anthropic/alwaysLoad'] === true)).toBe(true)
@@ -78,10 +80,17 @@ describe('频道工具 MCP（docs/ui/channels-collab-v2.md §1）', () => {
     const failed = await client.callTool({ name: 'task_handover', arguments: { member: 'a', request: 'b' } })
     expect(failed.isError).toBe(true)
     expect(text(failed)).toBe('没有打开互相派活')
+    // schedule_wakeup 只记在频道里：拟计划的会话（计划模式）里也能直接用
+    expect(tools.find(t => t.name === 'schedule_wakeup')?.annotations?.readOnlyHint).toBe(true)
+    expect((await client.callTool({ name: 'schedule_wakeup', arguments: { after_minutes: 30 } })).isError).toBe(true)
+    expect(
+      text(await client.callTool({ name: 'schedule_wakeup', arguments: { text: '看 CI', after_minutes: 30 } })),
+    ).toBe('已挂上')
     expect(calls).toEqual([
       ['read', 's1', { before: 'm9', limit: 5 }],
       ['reply', 's1', '进展'],
       ['propose', 's1', '文档', '写'],
+      ['wakeup', 's1', { text: '看 CI', after_minutes: 30 }],
     ])
   })
 })

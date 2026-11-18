@@ -67,6 +67,34 @@ describe('channelNotice', () => {
     ])
     expect([muted('mute', 'waiting'), muted('mute', 'failed')]).toEqual([true, true])
   })
+  it('事项唤醒的一轮回 [silent]：不弹「做完了」；有结果的、失败的照常；卡没读进来看不出来的也不弹', () => {
+    const wake = { ruleId: 'r1', kind: 'every' as const }
+    const run = (silent?: number) => ({
+      n: 2,
+      status: 'done' as const,
+      startedAt: 1,
+      endedAt: 2,
+      wakeup: { ...wake, silent },
+    })
+    const of = (runs: ChannelTask['runs'], loaded = true) => {
+      const s = state(undefined, loaded)
+      return {
+        ...s,
+        sessionTasks: { s1: { ...s.sessionTasks.s1, wakeup: true } },
+        messages: (loaded ? { c1: [{ ...task, runs }] } : {}) as Record<string, ChannelMessage[]>,
+      }
+    }
+    const muted = (s: ReturnType<typeof of>, kind: 'completed' | 'failed' = 'completed') =>
+      channelNotice(intent(kind), '', s, null)!.muted
+    expect(muted(of([run(3)]))).toBe(true)
+    expect(muted(of([run(3)]), 'failed')).toBe(false)
+    expect(muted(of([run(3), run()]))).toBe(false)
+    expect(muted(of([run(3)], false))).toBe(true)
+    // 不是唤醒轮（唤醒卡上你的追加要求）：照常
+    expect(
+      channelNotice(intent('completed'), '', { ...of([run(3)]), sessionTasks: state().sessionTasks }, null)!.muted,
+    ).toBe(false)
+  })
   it('点了提醒：从 id 认出频道和任务卡；别的提醒不认', () => {
     const { id } = channelNotice(intent('waiting'), '', state(), null)!
     expect(taskOfNotice(id)).toEqual({ channelId: 'c1', taskId: 't1' })

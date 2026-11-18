@@ -27,6 +27,8 @@ import { GateActions } from './GateActions'
 import { StartDialog } from './StartDialog'
 import { scheduleToInput, type FlowPart } from './model'
 import { channelActions, useChannels } from './store'
+import { canWakeup, WakeupRules } from './WakeupParts'
+import { WakeupDialog } from './WakeupDialog'
 
 const NUMBERS = '①②③④⑤⑥⑦⑧⑨'
 const num = (i: number): string => NUMBERS[i] ?? String(i + 1)
@@ -960,6 +962,19 @@ export function ChannelFlowCard({
   const questionsPart = part === 'questions'
   // 回答过的问题默认展开，能收起
   const [collapsed, setCollapsed] = useState(false)
+  // 事项唤醒（docs/multica-learn.md §11.6）：开工后的流程卡能挂（停了的不能）；交付完了只能按时间叫
+  const channel = useChannels(s => s.channels.find(c => c.id === message.channelId) ?? null)
+  const [waking, setWaking] = useState(false)
+  const canWake =
+    !readOnly &&
+    !questionsPart &&
+    canWakeup(channel) &&
+    (flow.status === 'running' || flow.status === 'paused' || flow.status === 'done')
+  const wakeButton = canWake && (
+    <button type="button" className={LINK} onClick={() => setWaking(true)}>
+      {tr('wakeup.open')}
+    </button>
+  )
   const headTitle = (
     <span className="min-w-0 truncate text-ui font-semibold text-fg">
       {showTitle ? flow.title : tr('channels.plan.planner', { name: planner?.name ?? '?' })}
@@ -1046,8 +1061,10 @@ export function ChannelFlowCard({
         </span>
       )}
       {pill}
+      {flow.status === 'done' && wakeButton}
       {!readOnly && (flow.status === 'running' || flow.status === 'paused') && (
         <span className="flex items-center gap-0.5">
+          {wakeButton}
           {flow.status === 'running' ? (
             <button type="button" className={LINK} disabled={busy} onClick={() => act('pause')}>
               {tr('channels.flow.pause')}
@@ -1248,6 +1265,7 @@ export function ChannelFlowCard({
           }) + (flow.limits.costUsd ? ` · ${limitText('Cost', flow.limits.costUsd)}` : '')}
         </p>
       )}
+      <WakeupRules channel={channel} on={message.id} membersById={membersById} flow className="px-1.5" />
     </>
   )
 
@@ -1265,6 +1283,19 @@ export function ChannelFlowCard({
     >
       {header}
       {body && <div className="p-3">{body}</div>}
+      {waking && (
+        <WakeupDialog
+          target={{
+            channelId: message.channelId,
+            on: message.id,
+            kind: 'flow',
+            title: flow.title,
+            assigneeId: null,
+            ended: flow.status === 'done',
+          }}
+          onClose={() => setWaking(false)}
+        />
+      )}
     </article>
   )
   return attached ? (
