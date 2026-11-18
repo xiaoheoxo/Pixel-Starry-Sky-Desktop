@@ -61,12 +61,12 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
   ipc.handle(
     'dotChat:pickFiles',
     async (event, value: unknown) => {
-      const { key } = bind(event.sender, value)
+      bind(event.sender, value)
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win) throw new Error('Dot chat window required')
       const result = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
       if (result.canceled || win.isDestroyed()) return []
-      return sessions.pickFiles(key, result.filePaths)
+      return result.filePaths
     },
     deny,
   )

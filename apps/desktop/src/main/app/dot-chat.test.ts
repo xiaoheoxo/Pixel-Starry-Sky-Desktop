@@ -2,13 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   constructor: vi.fn(),
+  fromWebContents: vi.fn(),
+  showOpenDialog: vi.fn(),
   snapshot: vi.fn((key: string) => ({ record: { id: `session-${key}` } })),
   send: vi.fn(),
   release: vi.fn(),
   notify: vi.fn(),
   read: vi.fn(),
 }))
-vi.mock('electron', () => ({ BrowserWindow: mocks.constructor, dialog: {} }))
+vi.mock('electron', () => ({
+  BrowserWindow: Object.assign(mocks.constructor, { fromWebContents: mocks.fromWebContents }),
+  dialog: { showOpenDialog: mocks.showOpenDialog },
+}))
 vi.mock('./data-dir', () => ({ dataRoot: () => 'isolated-data' }))
 vi.mock('./rendererHealth', () => ({ sendWhenReady: mocks.notify }))
 vi.mock('../ipc/guard', () => ({
@@ -56,14 +61,28 @@ describe('Dot in the main conversation view', () => {
     initDotChat({ engine: {} } as never, () => main as never)
     const sender = { once: vi.fn<(event: string, listener: () => void) => void>() }
     mocks.handlers.get('dotChat:snapshot')!({ sender }, first)
-    mocks.handlers.get('dotChat:send')!({ sender }, second, 'session', 'hello', ['file'])
+    const files = [{ name: 'image.png', path: '/staged/file-image.png' }]
+    mocks.handlers.get('dotChat:send')!({ sender }, second, 'session', 'hello', files)
     mocks.handlers.get('dotChat:read')!({ sender }, first, { overview: true })
     expect(mocks.snapshot).toHaveBeenCalledWith(first)
-    expect(mocks.send).toHaveBeenCalledWith(second, 'session', 'hello', ['file'])
+    expect(mocks.send).toHaveBeenCalledWith(second, 'session', 'hello', files)
     expect(mocks.read).toHaveBeenCalledWith(first, { before: undefined, overview: true }, expect.any(AbortSignal))
     expect(() => mocks.handlers.get('dotChat:snapshot')!({ sender }, 'c'.repeat(32))).toThrow('unavailable')
     sender.once.mock.calls[0][1]()
     expect(mocks.release).toHaveBeenCalledWith(first)
     expect(mocks.release).toHaveBeenCalledWith(second)
+  })
+  it('returns paths from the native picker and leaves sending to the composer', async () => {
+    initDotChat({ engine: {} } as never, () => main as never)
+    const sender = { once: vi.fn() }
+    const win = { isDestroyed: () => false }
+    const filePaths = ['D:\\Project\\plan.txt', 'D:\\Project\\photo.png']
+    mocks.fromWebContents.mockReturnValue(win)
+    mocks.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths })
+    mocks.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    const pick = mocks.handlers.get('dotChat:pickFiles')!
+    await expect(pick({ sender }, first)).resolves.toEqual(filePaths)
+    await expect(pick({ sender }, first)).resolves.toEqual([])
+    expect(mocks.send).not.toHaveBeenCalled()
   })
 })

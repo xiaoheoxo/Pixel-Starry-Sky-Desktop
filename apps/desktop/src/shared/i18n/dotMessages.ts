@@ -1,6 +1,16 @@
 // ChatGPT Dot：引擎和主进程报错的英文原文（en 与 throw 的文字一字不差，translateMessage 按它换成中文），和后加的界面文字。
 // 其余 Dot 界面文字在 modelChannelMessages.ts 开头。
 export const dotMessages = {
+  'dot.pathReference': { zh: '本地路径引用', en: 'Local path reference' },
+  'dot.dropReferences': { zh: '松开以引用本地路径', en: 'Drop to reference local paths' },
+  'dot.dropMissingPath': {
+    zh: '无法取得本地路径，请从文件管理器拖入',
+    en: 'Local path unavailable. Drag from your file manager.',
+  },
+  'dot.composerTooLong': {
+    zh: '消息和路径引用合计超过 100,000 字符',
+    en: 'The message and path references exceed 100,000 characters.',
+  },
   'dot.experimental': { zh: '实验', en: 'Experimental' },
   'dot.experimentalHint': {
     zh: '实验功能：通过 ChatGPT 网页的接口连接，ChatGPT 改版后可能暂时用不了',

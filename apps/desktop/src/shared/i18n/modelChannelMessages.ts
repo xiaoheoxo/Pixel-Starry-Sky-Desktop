@@ -25,7 +25,7 @@ export const modelChannelMessages = {
   'dot.task': { zh: '工作任务', en: 'Task' },
   'dot.loadEarlier': { zh: '加载更早的消息', en: 'Load earlier messages' },
   'dot.add': { zh: '添加', en: 'Add' },
-  'dot.addFiles': { zh: '添加照片和文件', en: 'Add photos and files' },
+  'dot.addFiles': { zh: '引用本地文件', en: 'Reference local files' },
   'dot.pendingFiles': { zh: '待发送附件', en: 'Pending attachments' },
   'dot.download': { zh: '下载文件', en: 'Download file' },
   'dot.imageUnavailable': { zh: '图片暂不可用，点击重试。', en: 'Image unavailable. Click to retry.' },

@@ -1,14 +1,28 @@
 import { dotError } from './errors'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowUp, ExternalLink, File, Mic, Monitor, MoreHorizontal, PanelRight, Paperclip, Plus, X } from 'lucide-react'
+import {
+  ArrowUp,
+  ExternalLink,
+  File,
+  Link,
+  Mic,
+  Monitor,
+  MoreHorizontal,
+  PanelRight,
+  Paperclip,
+  Plus,
+  X,
+} from 'lucide-react'
 import type { SessionSnapshot } from '@pixelsky/protocol'
 import type { DotChatMessage, DotOverview } from '@pixelsky/engine'
-import type { DotEntry, DotLocalFile } from '../../../../shared/types/dot-chat'
+import type { DotClipboardFile, DotEntry } from '../../../../shared/types/dot-chat'
+import { DOT_CLIPBOARD_FILE_LIMIT, DOT_COMPOSER_FILE_LIMIT } from '../../../../shared/types/dot-chat'
 import { CopyButton, IconButton, Spinner } from '@/ui'
 import { Markdown } from '@/ui/markdown/Markdown'
 import { ActionMenu } from '@/ui/ActionMenu'
 import { ComposerArea } from '@/features/session/ComposerArea'
 import { CARD_STYLE } from '@/features/session/composerStyles'
+import { discardStaged, releaseStaged, stageFile } from '@/features/session/attachments/stage'
 import '@/features/session/conversation.css'
 import { tr, translateMessage } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -19,6 +33,7 @@ import { dotTranscript, mergeDotHistory } from './conversation'
 import { DotFile } from './DotFile'
 import { DotComputer } from './DotComputer'
 import { DotDeliveryNotice } from './DotDeliveryNotice'
+import { dotMessageWithReferences, dotPathReference, dotTransferFiles, type DotComposerFile } from './composerFiles'
 import './dot.css'
 
 function readDraft(key: string): string {
@@ -42,11 +57,14 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [serverError, setServerError] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const submitting = useRef(false)
   const [resolving, setResolving] = useState(false)
   const refreshSnapshot = useRef<() => Promise<void>>(async () => {})
   const [snapshotError, setSnapshotError] = useState('')
   const [picking, setPicking] = useState(false)
-  const [files, setFiles] = useState<DotLocalFile[]>([])
+  const [files, setFiles] = useState<(DotComposerFile & { id: string })[]>([])
+  const [dragging, setDragging] = useState(false)
+  const composerInput = useRef<HTMLTextAreaElement>(null)
   const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null)
   const [computer, setComputer] = useState(false)
   const [details, setDetails] = useState(() => window.innerWidth > 940)
@@ -94,7 +112,10 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const visible = useRef(active)
   visible.current = active
   useEffect(() => {
-    if (!active) setComputer(false)
+    if (!active) {
+      setComputer(false)
+      setDragging(false)
+    }
   }, [active])
 
   useEffect(() => {
@@ -184,24 +205,60 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const busy =
     resolving || sending || !snapshot || snapshot.state !== 'idle' || snapshot.queue.some(q => q.status !== 'failed')
   const send = async (): Promise<void> => {
-    if (!snapshot || (!text.trim() && !files.length) || busy) return
+    if (!snapshot || (!text.trim() && !files.length) || busy || picking || submitting.current) return
+    const message = dotMessageWithReferences(text, files)
+    if (message.length > 100_000) {
+      setError(tr('dot.composerTooLong'))
+      return
+    }
+    const ref = { sessionId: snapshot.record.id }
+    const staged: DotClipboardFile[] = []
+    submitting.current = true
     setSending(true)
     setError('')
     try {
-      await window.pixelsky!.dotChat.send(
-        entryKey,
-        snapshot.record.id,
-        text,
-        files.map(f => f.id),
-      )
+      for (const item of files) {
+        if ('file' in item) staged.push({ name: item.name, path: await stageFile(item.file, ref) })
+      }
+      await window.pixelsky!.dotChat.send(entryKey, ref.sessionId, message, staged)
+      releaseStaged(staged.map(item => item.path))
       setText(current => (current === text ? '' : current))
       const sentIds = new Set(files.map(file => file.id))
       setFiles(current => current.filter(file => !sentIds.has(file.id)))
     } catch (e) {
+      await Promise.all(staged.map(item => discardStaged(item.path, ref)))
       setError(dotError(e))
     } finally {
+      submitting.current = false
       setSending(false)
     }
+  }
+
+  const addFiles = (incoming: DotComposerFile[], missingPath = false): void => {
+    const paths = new Set(files.flatMap(file => ('path' in file ? [file.path] : [])))
+    let issue = missingPath ? tr('dot.dropMissingPath') : ''
+    const added = incoming.filter(item => {
+      if ('path' in item) {
+        if (paths.has(item.path)) return false
+        paths.add(item.path)
+      } else if (item.file.size > DOT_CLIPBOARD_FILE_LIMIT) {
+        issue ||= tr('dot.error.fileTooLarge')
+        return false
+      }
+      return true
+    })
+    const next = added
+      .slice(0, DOT_COMPOSER_FILE_LIMIT - files.length)
+      .map(item => ({ ...item, id: crypto.randomUUID() }))
+    setFiles(previous => [...previous, ...next].slice(0, DOT_COMPOSER_FILE_LIMIT))
+    setError(issue || (next.length < added.length ? tr('composer.file.tooMany') : ''))
+  }
+
+  const addTransfer = (transfer: DataTransfer, source: 'paste' | 'drop'): boolean => {
+    const incoming = dotTransferFiles(transfer, source, file => window.pixelsky?.pathForFile(file) ?? '')
+    if (!incoming.files.length && !incoming.missingPath) return false
+    addFiles(incoming.files, incoming.missingPath)
+    return true
   }
 
   const pickFiles = async () => {
@@ -210,7 +267,10 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     setError('')
     try {
       const chosen = await window.pixelsky!.dotChat.pickFiles(entryKey)
-      setFiles(previous => [...previous, ...chosen].slice(0, 10))
+      if (alive.current && chosen.length) {
+        addFiles(chosen.map(dotPathReference))
+        composerInput.current?.focus()
+      }
     } catch (e) {
       setError(dotError(e))
     } finally {
@@ -402,12 +462,48 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                   {tr('dot.waiting')}
                 </p>
               )}
-              <div className={`${CARD_STYLE} dot-composer`}>
+              <div
+                className={`${CARD_STYLE} dot-composer relative${dragging ? ' ring-2 ring-accent' : ''}`}
+                onDragEnter={e => {
+                  if (!e.dataTransfer.types.includes('Files')) return
+                  e.preventDefault()
+                  setDragging(true)
+                }}
+                onDragOver={e => {
+                  if (!e.dataTransfer.types.includes('Files')) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'copy'
+                }}
+                onDragLeave={e => {
+                  if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget))
+                    setDragging(false)
+                }}
+                onDrop={e => {
+                  setDragging(false)
+                  if (!e.dataTransfer.types.includes('Files')) return
+                  e.preventDefault()
+                  addTransfer(e.dataTransfer, 'drop')
+                  composerInput.current?.focus()
+                }}
+              >
+                {dragging && (
+                  <div className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-accent-line bg-accent-soft/80 text-ui font-medium text-accent-fg">
+                    {tr('dot.dropReferences')}
+                  </div>
+                )}
                 {!!files.length && (
                   <div className="mb-3 flex flex-wrap gap-2" aria-label={tr('dot.pendingFiles')}>
                     {files.map(file => (
-                      <div className="dot-file-chip" key={file.id}>
-                        <Paperclip size={16} />
+                      <div
+                        className="dot-file-chip max-w-full"
+                        key={file.id}
+                        title={'path' in file ? file.path : file.name}
+                      >
+                        {'path' in file ? (
+                          <Link size={16} aria-label={tr('dot.pathReference')} />
+                        ) : (
+                          <Paperclip size={16} />
+                        )}
                         <span>{file.name}</span>
                         <button
                           type="button"
@@ -422,6 +518,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                   </div>
                 )}
                 <textarea
+                  ref={composerInput}
                   autoFocus
                   rows={3}
                   aria-label={tr('dot.message')}
@@ -434,6 +531,9 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                     el.style.height = `${Math.min(192, Math.max(72, el.scrollHeight))}px`
                   }}
                   onChange={e => setText(e.target.value)}
+                  onPaste={e => {
+                    if (addTransfer(e.clipboardData, 'paste')) e.preventDefault()
+                  }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault()

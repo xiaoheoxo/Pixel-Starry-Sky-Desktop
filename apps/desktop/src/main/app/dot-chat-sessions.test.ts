@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { EngineHost } from '@pixelsky/engine'
 import type { SessionRecord } from '@pixelsky/protocol'
+import { WorkspaceFiles } from '../core/workspace-files'
 import { DotChatSessions } from './dot-chat-sessions'
 
 describe('multi-account Dot chats', () => {
@@ -81,6 +82,61 @@ describe('multi-account Dot chats', () => {
       const catalog = await new DotChatSessions(host as unknown as EngineHost, root).catalog(true)
       expect(catalog).toEqual({ eligible: false, entries: [], errors: [] })
       expect(host.dotCatalog).not.toHaveBeenCalled()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it('accepts staged clipboard contents and rejects local paths as upload attachments', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dot-clipboard-'))
+    const key = 'a'.repeat(32)
+    const record = { id: 's', engine: 'dot', dot: { account: 'a', id: 'dot', threadId: 't' } }
+    const host = { sessions: () => [{ record }], open: () => ({ record }), send: vi.fn() }
+    try {
+      writeFileSync(
+        join(root, 'dot-chats.json'),
+        JSON.stringify({
+          sessions: { [key]: record.id },
+          entries: [{ ...record.dot, key, accountName: 'A', name: 'Dot', status: 'active' }],
+        }),
+      )
+      const service = new DotChatSessions(host as unknown as EngineHost, root)
+      const local = join(root, 'local.txt')
+      writeFileSync(local, 'local file')
+      const stager = new WorkspaceFiles(ref => ({ ref, path: root, name: 'Dot' }), {
+        attachmentDir: join(root, 'attachments'),
+      })
+      const id = 'aaaa0000-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
+      const ref = { sessionId: record.id }
+      await stager.stage(ref, { action: 'begin', id, name: 'image.png', bytes: 9 })
+      await stager.stage(ref, {
+        action: 'chunk',
+        id,
+        offset: 0,
+        dataBase64: Buffer.from('clipboard').toString('base64'),
+      })
+      const { path: staged } = await stager.stage(ref, { action: 'finish', id })
+      const linkedDir = join(root, 'attachments', 'bbbb0000-bbbb-4bbb-bbbb-bbbbbbbbbbbb')
+      symlinkSync(root, linkedDir, 'junction')
+      const escaped = join(linkedDir, 'file-local.txt')
+      writeFileSync(join(root, 'file-local.txt'), 'outside stage')
+
+      await expect(service.send(key, record.id, '', [{ path: local, name: 'local.txt' }])).rejects.toThrow(
+        'Invalid Dot attachments',
+      )
+      await expect(service.send(key, record.id, '', [{ path: escaped, name: 'local.txt' }])).rejects.toThrow(
+        'Invalid Dot attachments',
+      )
+      expect(host.send).not.toHaveBeenCalled()
+      await service.send(key, record.id, `@${local}`)
+      expect(host.send).toHaveBeenLastCalledWith(record.id, `@${local}`)
+      await service.send(key, record.id, '', [{ path: staged, name: 'image.png' }])
+      expect(host.send).toHaveBeenLastCalledWith(
+        record.id,
+        expect.objectContaining({
+          text: '',
+          files: [expect.objectContaining({ name: 'image.png', bytes: 9, staged: true })],
+        }),
+      )
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

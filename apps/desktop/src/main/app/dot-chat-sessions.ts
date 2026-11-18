@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { realpath, stat } from 'node:fs/promises'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { DOT_FILE_LIMIT } from '@pixelsky/engine'
 import type { EngineHost } from '@pixelsky/engine'
 import type { FileAttachment, SessionSnapshot } from '@pixelsky/protocol'
 import { CHAT_PROJECT_ID, supportsChatGptDot } from '@pixelsky/protocol'
 import type { DotCatalogState, DotEntry } from '../../shared/types/dot-chat'
+import { DOT_COMPOSER_FILE_LIMIT } from '../../shared/types/dot-chat'
 import { readWindowFile, mergeWindowFile } from './windowFile'
 
 /** 只保存账号引用与 Dot 身份。登录、凭据及刷新全部交给引擎的 Codex 账号库。 */
@@ -17,7 +18,6 @@ export class DotChatSessions {
   private refreshing: Promise<DotCatalogState> | null = null
   private readonly file: string
   private readonly knownFiles = new Map<string, Set<string>>()
-  private readonly selected = new Map<string, Map<string, FileAttachment>>()
   constructor(
     private readonly host: EngineHost,
     private readonly root: string,
@@ -109,46 +109,47 @@ export class DotChatSessions {
     mergeWindowFile(this.file, { entries: this.entries, sessions: this.sessions })
     return this.host.open(created.id)
   }
-  async send(key: string, sessionId: unknown, text: unknown, fileIds: unknown = []): Promise<void> {
+  async send(key: string, sessionId: unknown, text: unknown, clipboardFiles: unknown = []): Promise<void> {
     if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid Dot message')
-    if (!Array.isArray(fileIds) || fileIds.length > 10 || fileIds.some(id => typeof id !== 'string'))
+    if (!Array.isArray(clipboardFiles) || clipboardFiles.length > DOT_COMPOSER_FILE_LIMIT)
       throw new Error('Invalid Dot attachments')
-    const files = fileIds.map(id => {
-      const file = this.selected.get(key)?.get(id)
-      if (!file) throw new Error('Dot attachment unavailable; select it again')
-      return file
-    })
-    if (!text.trim() && !files.length) throw new Error('Invalid Dot message')
+    if (!text.trim() && !clipboardFiles.length) throw new Error('Invalid Dot message')
     const snapshot = this.snapshot(key)
     if (snapshot.record.id !== sessionId) throw new Error('Dot conversation changed; reload before sending')
+    const files = await Promise.all(clipboardFiles.map(file => this.clipboardFile(file)))
     await this.host.send(snapshot.record.id, files.length ? { text, files, clientMessageId: randomUUID() } : text)
-    for (const id of fileIds) this.selected.get(key)?.delete(id)
   }
 
-  async pickFiles(key: string, paths: string[]) {
-    this.entry(key)
-    const selected = this.selected.get(key) ?? new Map<string, FileAttachment>()
-    this.selected.set(key, selected)
-    const next: FileAttachment[] = []
-    for (const path of paths.slice(0, 10)) {
-      const info = await stat(path)
-      if (!info.isFile() || info.size > DOT_FILE_LIMIT)
-        throw new Error('Dot attachment exceeds 20 MiB or is not a file')
-      next.push({
-        id: randomUUID(),
-        name: basename(path),
-        bytes: info.size,
-        path,
-        pathOnly: true,
-        lines: 0,
-        encoding: 'utf-8',
-        text: '',
-      })
+  private async clipboardFile(value: unknown): Promise<FileAttachment> {
+    if (!value || typeof value !== 'object' || !('path' in value) || !('name' in value))
+      throw new Error('Invalid Dot attachments')
+    const { name, path } = value
+    if (typeof name !== 'string' || !name || name.length > 512 || typeof path !== 'string' || !isAbsolute(path))
+      throw new Error('Invalid Dot attachments')
+
+    // 只有 files:stage 生成的应用暂存副本可以进入上传链路。本地目标只出现在消息正文。
+    const root = join(this.root, 'attachments')
+    const isStagedFile = (base: string, candidate: string): boolean => {
+      const rel = relative(base, candidate)
+      const parts = rel.split(sep)
+      return parts.length === 2 && /^[0-9a-f-]{36}$/i.test(parts[0]) && parts[1].startsWith('file-')
     }
-    // 限制每个窗口尚未发送的本地引用，路径不传给 renderer。
-    for (const file of next) selected.set(file.id, file)
-    while (selected.size > 50) selected.delete(selected.keys().next().value!)
-    return next.map(({ id, name, bytes }) => ({ id, name, bytes }))
+    if (!isStagedFile(root, path)) throw new Error('Invalid Dot attachments')
+    const [stageRoot, stagedPath] = await Promise.all([realpath(root), realpath(path)])
+    if (!isStagedFile(stageRoot, stagedPath)) throw new Error('Invalid Dot attachments')
+    const info = await stat(stagedPath)
+    if (!info.isFile() || info.size > DOT_FILE_LIMIT) throw new Error('Dot attachment exceeds 20 MiB or is not a file')
+    return {
+      id: randomUUID(),
+      name,
+      bytes: info.size,
+      path: stagedPath,
+      staged: true,
+      pathOnly: true,
+      lines: 0,
+      encoding: 'utf-8',
+      text: '',
+    }
   }
 
   async download(key: string, fileId: unknown, signal?: AbortSignal) {
@@ -167,7 +168,6 @@ export class DotChatSessions {
 
   release(key: string) {
     this.knownFiles.delete(key)
-    this.selected.delete(key)
   }
 
   async read(key: string, options: { before?: string; overview?: boolean }, signal?: AbortSignal) {

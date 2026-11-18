@@ -674,7 +674,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
     open: (key?: string) => invoke<void>('dotChat:open', key),
     catalog: (refresh?: boolean) => invoke('dotChat:catalog', refresh),
     snapshot: (key: string) => invoke('dotChat:snapshot', key),
-    send: (key: string, id: string, text: string, files?: string[]) =>
+    send: (key: string, id: string, text: string, files?: import('../shared/types/dot-chat').DotClipboardFile[]) =>
       invoke<void>('dotChat:send', key, id, text, files),
     read: (key: string, options?: { before?: string; overview?: boolean }) => invoke('dotChat:read', key, options),
     pickFiles: (key: string) => invoke('dotChat:pickFiles', key),
