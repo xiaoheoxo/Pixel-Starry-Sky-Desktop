@@ -217,6 +217,21 @@ describe('TeamExecutor 认领和派活', () => {
     t.cloud.userPost('u:2', 'tc_1', '@前端助手 来活了', [agent.id as string])
     await until(() => t.host.enqueue.mock.calls.length === 1)
   })
+
+  it('唤醒卡（docs/multica-learn.md §11.6）：被盯的卡不在缓存里（重启后频道没打开）时从最近的消息里找', async () => {
+    const t = setup()
+    const { agent, id } = queued(t)
+    Object.assign(t.cloud.task(id), { status: 'done', summary: '迁完了' })
+    const rule = t.cloud.putWakeup(id, { member: agent.id, owner: 'u:1', by: 'u:2', text: '看看 CI 过了没有' })
+    const w = t.cloud.fireWakeup(id, rule.id as string).id as string
+    await t.online()
+    await until(() => t.host.enqueue.mock.calls.length > 0)
+    const run = t.host.enqueue.mock.calls[0][0]
+    expect(run).toMatchObject({ taskId: w, wakeup: { ruleId: rule.id, kind: 'at' } })
+    expect(run.prompt).toContain('看看 CI 过了没有')
+    expect(run.prompt).toContain('盯着的卡：「把设置页迁到新表单」· ')
+    expect(run.prompt).toContain('摘要：迁完了')
+  })
 })
 
 describe('TeamExecutor 写回云端', () => {

@@ -4,11 +4,13 @@ import type {
   AgentPolicy,
   ChannelRun,
   ChannelTaskStatus,
+  ChannelWakeupTag,
   RunReason,
   TeamInboxItem,
   TeamInboxKind,
   TeamInboxPatch,
   TeamRole,
+  WakeupFreq,
 } from '../../../../shared/types/channels'
 import { parseRunReason } from '../../../../shared/channels/runReason'
 
@@ -154,6 +156,47 @@ export interface TeamTaskData {
   runs: ChannelRun[]
   /** 这一轮是谁要的（docs/multica-learn.md §11.3）；旧云端没有 */
   requestedBy: string | null
+  /** 挂在这张卡上的事项唤醒（docs/multica-learn.md §11.6）：活着的和最近结束的；null 是旧云端（没有这个字段，不支持唤醒） */
+  wakeups: TeamWakeupData[] | null
+  /** 这一轮是事项唤醒开的（哪条规则、什么条件）；有人追加要求时云端清掉 */
+  wake: ChannelWakeupTag | null
+}
+
+/** 团队卡上的唤醒条件：到某个时间（只一次）、定期检查（按挂规则的人的时区 tz） */
+export type TeamWakeWhen =
+  | { kind: 'at'; at: number }
+  | { kind: 'every'; freq: WakeupFreq; hour: number; minute: number; tz: string }
+
+/** 团队卡上的一条事项唤醒规则（云端字段，时间转成毫秒） */
+export interface TeamWakeupData {
+  id: string
+  /** 叫谁（ta_…） */
+  member: string
+  /** 这个 AI 成员的主人（等同意时由他同意） */
+  owner: string
+  /** 谁挂的 */
+  by: string
+  when: TeamWakeWhen
+  text: string
+  until: number | null
+  next: number | null
+  fired: number
+  /** 唤醒卡：第一次叫时建 */
+  card: string | null
+  state: 'pending' | 'active' | 'done' | 'expired' | 'cancelled'
+  /** 规则自己结束的原因代码（card_stopped、member_gone、creator_left、not_allowed、rejected）；有人点取消的是 null */
+  endNote: string | null
+  approved: boolean
+  createdAt: number
+  lastAt: number | null
+}
+
+/** 挂一条唤醒（POST /tasks/{mid}/wakeups）：定期检查必须给截止 */
+export interface WakeupInput {
+  member: string
+  when: TeamWakeWhen
+  text: string
+  until: number | null
 }
 
 export interface TeamEventData {
@@ -396,7 +439,57 @@ function parseTask(v: unknown): TeamTaskData | null {
     reason: parseRunReason(v.reason),
     runs: arr(v.runs, parseRun),
     requestedBy: strOrNull(v.requested_by),
+    // 有这个字段（哪怕是空的）就是支持唤醒的云端
+    wakeups: Array.isArray(v.wakeups) ? arr(v.wakeups, parseWakeup) : null,
+    wake:
+      isObj(v.wake) && typeof v.wake.rule_id === 'string' && v.wake.rule_id
+        ? { ruleId: v.wake.rule_id, kind: oneOf(v.wake.kind, ['at', 'every', 'ended'] as const, 'at') }
+        : null,
   }
+}
+
+const WAKE_STATES = ['pending', 'active', 'done', 'expired', 'cancelled'] as const
+const WAKE_FREQS = ['hourly', 'daily', 'weekdays'] as const
+
+function parseWakeWhen(v: unknown): TeamWakeWhen | null {
+  if (!isObj(v)) return null
+  if (v.kind === 'at') {
+    const at = time(v.at)
+    return at ? { kind: 'at', at } : null
+  }
+  if (v.kind !== 'every' || !(WAKE_FREQS as readonly unknown[]).includes(v.freq)) return null
+  return { kind: 'every', freq: v.freq as WakeupFreq, hour: int(v.hour), minute: int(v.minute), tz: str(v.tz) }
+}
+
+/** 一条唤醒规则；不认识的条件、状态（云端以后新加的）丢掉，界面画不出来 */
+function parseWakeup(v: unknown): TeamWakeupData | null {
+  if (!isObj(v) || typeof v.id !== 'string' || !v.id) return null
+  const when = parseWakeWhen(v.when)
+  if (!when || !(WAKE_STATES as readonly unknown[]).includes(v.state)) return null
+  return {
+    id: v.id,
+    member: str(v.member),
+    owner: str(v.owner),
+    by: str(v.by),
+    when,
+    text: str(v.text),
+    until: time(v.until) || null,
+    next: time(v.next) || null,
+    fired: Math.max(0, int(v.fired)),
+    card: strOrNull(v.card),
+    state: v.state as TeamWakeupData['state'],
+    endNote: strOrNull(v.end_note),
+    approved: v.approved === true,
+    createdAt: time(v.created_at),
+    lastAt: time(v.last_at) || null,
+  }
+}
+
+/** 唤醒条件的线上形状（时间写成 RFC 3339） */
+function wakeWhenWire(w: TeamWakeWhen): Record<string, unknown> {
+  return w.kind === 'at'
+    ? { kind: 'at', at: new Date(w.at).toISOString() }
+    : { kind: 'every', freq: w.freq, hour: w.hour, minute: w.minute, tz: w.tz }
 }
 
 const RUN_STATUSES = ['done', 'failed', 'stopped'] as const
@@ -828,6 +921,46 @@ export class TeamApi {
     return messageOf(
       await this.json(
         await this.request('POST', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}/action`, { action }),
+      ),
+    )
+  }
+
+  /** 在任务卡上挂一条事项唤醒（docs/multica-learn.md §11.6）：返回改后的卡和新规则（要主人同意的是 pending） */
+  async addWakeup(
+    teamId: string,
+    messageId: string,
+    input: WakeupInput,
+  ): Promise<{ message: TeamMessage; wakeup: TeamWakeupData | null }> {
+    const wire = {
+      member: input.member,
+      when: wakeWhenWire(input.when),
+      text: input.text,
+      until: input.until === null ? null : new Date(input.until).toISOString(),
+    }
+    const body = await this.json(
+      await this.request('POST', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}/wakeups`, wire),
+    )
+    return { message: messageOf(body), wakeup: isObj(body) ? parseWakeup(body.wakeup) : null }
+  }
+
+  /** 取消一条唤醒（挂的人、成员的主人）；已经结束的云端原样返回 */
+  async cancelWakeup(teamId: string, messageId: string, wakeupId: string): Promise<TeamMessage> {
+    return messageOf(
+      await this.json(
+        await this.request('DELETE', `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}/wakeups/${seg(wakeupId)}`),
+      ),
+    )
+  }
+
+  /** 成员的主人同意 / 不同意一条等同意的唤醒 */
+  async approveWakeup(teamId: string, messageId: string, wakeupId: string, approve: boolean): Promise<TeamMessage> {
+    return messageOf(
+      await this.json(
+        await this.request(
+          'POST',
+          `/v1/teams/${seg(teamId)}/tasks/${seg(messageId)}/wakeups/${seg(wakeupId)}/approve`,
+          { approve },
+        ),
       ),
     )
   }

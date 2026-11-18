@@ -60,7 +60,12 @@ export function everyText(when: { freq: WakeupFreq; hour: number; minute: number
 export function wakeupHead(rule: Pick<ChannelWakeup, 'when'>, name: string, now: number, flow = false): string {
   const w = rule.when
   if (w.kind === 'at') return tr('wakeup.line.at', { time: dayClock(w.at, now), name })
-  if (w.kind === 'every') return tr('wakeup.line.every', { when: everyText(w), name })
+  if (w.kind === 'every') {
+    // 团队卡上的按挂规则的人的时区（tz）算：和这台电脑的不一样时写上时区，免得和后面按本机算的「下次」对不上
+    const tz = w.tz && w.tz !== Intl.DateTimeFormat().resolvedOptions().timeZone ? w.tz : null
+    const when = tz ? tr('wakeup.when.zone', { when: everyText(w), tz }) : everyText(w)
+    return tr('wakeup.line.every', { when, name })
+  }
   if (flow) return tr('wakeup.line.endedFlow', { name })
   const key: TranslationKey =
     w.failed && w.stopped
@@ -85,10 +90,13 @@ export function wakeupMeta(rule: Pick<ChannelWakeup, 'when' | 'next' | 'until'>,
   return []
 }
 
+/** 还活着：在跑，或团队卡上等成员的主人同意 */
+export const isLiveWakeup = (w: Pick<ChannelWakeup, 'state'>): boolean => w.state === 'active' || w.state === 'pending'
+
 /** 挂在这张卡上、还活着的规则：有下次时间的按时间排在前，等结束的在后 */
 export function liveWakeups(channel: Pick<Channel, 'wakeups'> | null | undefined, on: string): ChannelWakeup[] {
   return (channel?.wakeups ?? [])
-    .filter(w => w.state === 'active' && w.on === on)
+    .filter(w => isLiveWakeup(w) && w.on === on)
     .sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity) || a.createdAt - b.createdAt)
 }
 

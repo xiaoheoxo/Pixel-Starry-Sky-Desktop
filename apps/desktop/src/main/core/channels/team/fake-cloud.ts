@@ -45,6 +45,8 @@ export class FakeCloud {
   inbox: Json[] | null = []
   /** 设了时 GET /v1/inbox 等它放行才回（测拉取期间推来的帧） */
   inboxGate: Promise<void> | null = null
+  /** 事项唤醒（docs/multica-learn.md §11.6）：false 是旧云端（卡上没有 wakeups / wake 字段，没有唤醒接口） */
+  wakeups = true
   push: (frame: TeamFrame) => void = () => {}
   private seq = 100
   private tick = 0
@@ -163,15 +165,7 @@ export class FakeCloud {
     const observer = this.users[author]?.role === 'observer'
     const target = replyTo ? this.messages.get(cid)!.find(x => x.id === replyTo && x.kind === 'task') : undefined
     const assignees = mentions.map(id => this.agent(id)).filter((a): a is Json => !!a)
-    // 同云端 dispatchStatus：主人自己、团队都能派、名单里有他 → queued；只有我 → 不建卡；其余要同意
-    const status = (a: Json): string | null =>
-      a.owner === author ||
-      a.policy === 'team' ||
-      (a.policy === 'listed' && ((a.allow as string[] | undefined) ?? []).includes(author))
-        ? 'queued'
-        : a.policy === 'owner'
-          ? null
-          : 'approval'
+    const status = (a: Json): string | null => this.dispatchStatus(a, author)
     if (!observer && target && (!assignees.length || assignees.every(a => a.id === (target.task as Json).assignee))) {
       const t = target.task as Json
       const a = this.agent(t.assignee as string)!
@@ -182,42 +176,190 @@ export class FakeCloud {
       t.status = status(a)
       t.followup_message = m.id
       t.error = t.note = t.summary = t.decision = t.progress = t.ended_at = null
+      // 有人追加要求：不再是唤醒开的一轮
+      if (this.wakeups) t.wake = null
       this.touch(target)
       tasks.push(target)
     } else if (!observer)
       for (const a of assignees) {
         if (!status(a)) continue
-        const card = this.message(cid, 'task', author, {
-          task: {
-            assignee: a.id,
-            owner: a.owner,
-            // 和云端 taskTitle 一样：只去掉被派活的 AI 成员名（@全体、@真人 都留着），取第一行
-            title:
-              assignees
-                .reduce((t, x) => t.split(`@${x.name as string}`).join(''), text)
-                .split('\n')
-                .map(l => l.replace(/\s+/g, ' ').trim())
-                .find(Boolean) ?? text,
-            status: status(a),
-            round: 1,
-            summary: null,
-            diff: null,
-            error: null,
-            note: null,
-            decision: null,
-            progress: null,
-            claimed_by: null,
-            pending_action: null,
-            source_message: m.id,
-            ended_at: null,
-            requested_by: author,
-            approved: false,
-          },
-        })
-        this.frame(cid, card)
+        // 和云端 taskTitle 一样：只去掉被派活的 AI 成员名（@全体、@真人 都留着），取第一行
+        const title =
+          assignees
+            .reduce((t, x) => t.split(`@${x.name as string}`).join(''), text)
+            .split('\n')
+            .map(l => l.replace(/\s+/g, ' ').trim())
+            .find(Boolean) ?? text
+        const card = this.newCard(cid, author, a, m.id as string, title, status(a)!)
         tasks.push(card)
       }
     return { message: m, tasks }
+  }
+
+  /** 同云端 dispatchStatus：主人自己、团队都能派、名单里有他 → queued；只有我 → null（不能派）；其余要同意 */
+  private dispatchStatus(a: Json, author: string): string | null {
+    return a.owner === author ||
+      a.policy === 'team' ||
+      (a.policy === 'listed' && ((a.allow as string[] | undefined) ?? []).includes(author))
+      ? 'queued'
+      : a.policy === 'owner'
+        ? null
+        : 'approval'
+  }
+
+  /** 建一张任务卡并推出去（发消息派活、事项唤醒第一次叫） */
+  private newCard(
+    cid: string,
+    author: string,
+    a: Json,
+    source: string,
+    title: string,
+    status: string,
+    extra: Json = {},
+  ): Json {
+    const card = this.message(cid, 'task', author, {
+      task: {
+        assignee: a.id,
+        owner: a.owner,
+        title,
+        status,
+        round: 1,
+        summary: null,
+        diff: null,
+        error: null,
+        note: null,
+        decision: null,
+        progress: null,
+        claimed_by: null,
+        pending_action: null,
+        source_message: source,
+        ended_at: null,
+        requested_by: author,
+        approved: false,
+        ...(this.wakeups ? { wakeups: [], wake: null } : {}),
+        ...extra,
+      },
+    })
+    this.frame(cid, card)
+    return card
+  }
+
+  /** 直接在卡上放一条规则（测别人挂的、要我同意的）；返回规则 */
+  putWakeup(cardId: string, rule: Json): Json {
+    const t = this.task(cardId)
+    const w = {
+      id: this.id('tw'),
+      member: '',
+      owner: '',
+      by: this.me.id,
+      when: { kind: 'at', at: '2026-10-14T07:00:00Z' },
+      text: '看看 CI',
+      until: null,
+      next: '2026-10-14T07:00:00Z',
+      fired: 0,
+      card: null,
+      state: 'active',
+      end_note: null,
+      approved: false,
+      created_at: this.time(),
+      last_at: null,
+      ...rule,
+    }
+    ;((t.wakeups as Json[] | undefined) ?? (t.wakeups = [])).push(w)
+    this.touch(this.card(cardId))
+    return w
+  }
+
+  /**
+   * 叫一次（同云端 fireRule）：第一次以挂的人的名义发一条回复被盯的卡、@ 成员的消息，派一张带 wake 的唤醒卡；
+   * 以后在唤醒卡上发一条追加要求（正文是指令）开下一轮，上一轮的摘要、决定留着
+   */
+  fireWakeup(cardId: string, ruleId: string): Json {
+    const watched = this.card(cardId)
+    const w = ((watched.task as Json).wakeups as Json[]).find(x => x.id === ruleId)!
+    const a = this.agent(w.member as string)!
+    const cid = watched.channel_id as string
+    const kind = (w.when as Json).kind as string
+    const wake = { rule_id: w.id, kind }
+    w.fired = (w.fired as number) + 1
+    w.last_at = this.time()
+    if (!w.card) {
+      const m = this.message(cid, 'message', w.by as string, {
+        text: `⏰ 唤醒 @${a.name as string}：${w.text as string}`,
+        reply_to: cardId,
+        mentions: [a.id],
+      })
+      this.frame(cid, m)
+      const card = this.newCard(cid, w.by as string, a, m.id as string, `唤醒：${w.text as string}`, 'queued', {
+        wake,
+        approved: w.approved,
+      })
+      w.card = card.id
+      if (kind === 'at') Object.assign(w, { state: 'done', next: null })
+      this.touch(watched)
+      return card
+    }
+    const card = this.card(w.card as string)
+    const m = this.message(cid, 'message', w.by as string, { text: w.text, reply_to: card.id })
+    this.frame(cid, m)
+    const t = card.task as Json
+    Object.assign(t, {
+      round: (t.round as number) + 1,
+      status: 'queued',
+      requested_by: w.by,
+      approved: w.approved,
+      followup_message: m.id,
+      error: null,
+      note: null,
+      progress: null,
+      ended_at: null,
+      wake,
+    })
+    this.touch(card)
+    this.touch(watched)
+    return card
+  }
+
+  /** 唤醒接口（POST /tasks/{mid}/wakeups、DELETE …/{wid}、POST …/{wid}/approve），同云端 AddWakeup / CancelWakeup / ApproveWakeup */
+  private wakeupRoute(card: Json, method: string, seg: string[], body: Json): Response {
+    const t = card.task as Json
+    const list = t.wakeups as Json[]
+    if (seg.length === 6 && method === 'POST') {
+      const a = this.agent(body.member as string)
+      if (!a || a.channel_id !== card.channel_id || !body.text) return this.json({ error: '提交的内容不对' }, 400)
+      const status = this.dispatchStatus(a, this.me.id)
+      if (!status || this.role === 'observer') return this.json({ error: '没有权限' }, 403)
+      if (t.status === 'stopped') return this.json({ error: '任务现在的状态不能做这个操作' }, 409)
+      const when = body.when as Json
+      const w = this.putWakeup(card.id as string, {
+        member: a.id,
+        owner: a.owner,
+        by: this.me.id,
+        when,
+        text: body.text,
+        until: body.until ?? null,
+        next: when.kind === 'at' ? when.at : '2026-10-15T01:00:00Z',
+        state: status === 'queued' ? 'active' : 'pending',
+      })
+      return this.json({ message: card, wakeup: w }, 201)
+    }
+    const w = list.find(x => x.id === seg[6])
+    if (!w) return this.json({ error: '不存在' }, 404)
+    if (method === 'DELETE') {
+      if (w.by !== this.me.id && w.owner !== this.me.id) return this.json({ error: '没有权限' }, 403)
+      if (w.state === 'active' || w.state === 'pending') Object.assign(w, { state: 'cancelled', next: null })
+    } else if (seg[7] === 'approve') {
+      if (w.owner !== this.me.id) return this.json({ error: '没有权限' }, 403)
+      if (w.state !== 'pending') return this.json({ error: '任务现在的状态不能做这个操作' }, 409)
+      Object.assign(
+        w,
+        body.approve === false
+          ? { state: 'cancelled', end_note: 'rejected', next: null }
+          : { state: 'active', approved: true },
+      )
+    }
+    this.touch(card)
+    return this.json({ message: card })
   }
 
   card(id: string): Json {
@@ -352,6 +494,10 @@ export class FakeCloud {
       const card = this.cards().find(m => m.id === seg[4])
       if (!card) return this.json({ error: '不存在' }, 404)
       const t = card.task as Json
+      if (seg[5] === 'wakeups')
+        return this.wakeups
+          ? this.wakeupRoute(card, method, seg, body)
+          : new Response('404 page not found', { status: 404 })
       if (seg[5] === 'start') {
         // 旧云端：没有这个接口（Go 的 404 是纯文字）
         if (!this.startOutcome) return new Response('404 page not found', { status: 404 })

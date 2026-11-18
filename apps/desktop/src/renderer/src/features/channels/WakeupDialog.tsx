@@ -11,7 +11,8 @@ import type { ChannelMember } from '@/data/types'
 import type { WakeupFreq, WakeupKind } from '../../../../shared/types/channels'
 import { WAKEUP_MAX_DAYS, WAKEUP_TEXT_MAX, WAKEUP_WAIT_DAYS, wakeupFirst } from '../../../../shared/channels/wakeup'
 import { agentPlace } from './ChannelMessage'
-import { channelActions, useChannels } from './store'
+import { channelActions, selfIdIn, useChannels } from './store'
+import { mentionNote, myRole } from './teamModel'
 import {
   AT_PRESETS,
   WAKEUP_FREQS,
@@ -33,6 +34,8 @@ import {
 
 const DAY = 86_400_000
 const KINDS: readonly WakeupKind[] = ['at', 'every', 'ended']
+/** 团队卡只能按时间叫（docs/multica-learn.md §11.6 团队部分第一版） */
+const TEAM_KINDS: readonly WakeupKind[] = ['at', 'every']
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -51,14 +54,19 @@ export function WakeupDialog({ target, onClose }: { target: WakeupOn; onClose():
   useI18n()
   const channel = useChannels(s => s.channels.find(c => c.id === target.channelId) ?? null)
   const members = useChannels(s => s.members)
-  // 频道里的 AI 成员，按频道成员的顺序
+  const team = channel?.scope === 'team'
+  const role = useChannels(s => myRole(s.teams, channel?.teamId))
+  const selfId = useChannels(s => selfIdIn(s, channel?.memberIds))
+  // 频道里的 AI 成员，按频道成员的顺序；团队频道只列我能派活的（别人「只有我」的成员不列，要同意的列上、写明要谁同意）
   const agents = useMemo(
     () =>
       (channel?.memberIds ?? []).flatMap(id => {
         const m = members.find(x => x.id === id)
-        return m?.kind === 'agent' ? [m] : []
+        if (m?.kind !== 'agent') return []
+        const note = team ? mentionNote(m, role, selfId) : null
+        return note === 'owner' || note === 'observer' ? [] : [m]
       }),
-    [channel, members],
+    [channel, members, team, role, selfId],
   )
   const [draft, setDraft] = useState(() => wakeupDraft(target, agents, Date.now()))
   const [busy, setBusy] = useState(false)
@@ -67,8 +75,14 @@ export function WakeupDialog({ target, onClose }: { target: WakeupOn; onClose():
   const built = buildWakeup(draft, target, now)
   const problem = 'error' in built ? built.error : null
   const choices: ChannelMember[] = wakeupChoices(draft.kind, target, agents)
-  // 流程已经全部交付：只能按时间叫
-  const kinds = target.ended ? KINDS.filter(k => k !== 'ended') : KINDS
+  // 流程已经全部交付、团队卡：只能按时间叫
+  const kinds = team ? TEAM_KINDS : target.ended ? KINDS.filter(k => k !== 'ended') : KINDS
+  // 团队卡上选的成员要主人同意：挂上后先等同意一次
+  const picked = choices.find(m => m.id === draft.memberId)
+  const approver =
+    team && picked?.kind === 'agent' && mentionNote(picked, role, selfId) === 'approval'
+      ? picked.ownerName || members.find(m => m.id === picked.ownerId)?.name || '?'
+      : null
   const patch = (p: Partial<WakeupDraft>) => {
     setError(null)
     setDraft(d => ({ ...d, ...p }))
@@ -101,7 +115,7 @@ export function WakeupDialog({ target, onClose }: { target: WakeupOn; onClose():
       onConfirm={submit}
       description={
         <div data-wakeup-dialog className="flex flex-col gap-3 text-left">
-          <p className="text-meta text-fg-muted">{tr('wakeup.dialog.intro')}</p>
+          <p className="text-meta text-fg-muted">{tr(team ? 'wakeup.dialog.introTeam' : 'wakeup.dialog.intro')}</p>
           <Row label={tr('wakeup.kind.label')}>
             <Segmented<WakeupKind>
               label={tr('wakeup.kind.label')}
@@ -258,6 +272,7 @@ export function WakeupDialog({ target, onClose }: { target: WakeupOn; onClose():
           {draft.kind === 'ended' && target.kind === 'task' && target.assigneeId && (
             <Hint>{tr('wakeup.who.notSelf')}</Hint>
           )}
+          {approver && <Hint>{tr('wakeup.who.approval', { owner: approver })}</Hint>}
 
           <label className="flex min-w-0 flex-col gap-1 text-meta text-fg-muted">
             {tr('wakeup.text')}

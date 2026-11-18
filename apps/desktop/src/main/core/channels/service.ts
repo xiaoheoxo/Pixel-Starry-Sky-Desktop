@@ -212,7 +212,7 @@ import {
 } from './tracker'
 import type { TeamSync } from './team/sync'
 import { TeamExecutor } from './team/executor'
-import type { AgentRegistration, TeamMessage } from './team/api'
+import type { AgentRegistration, WakeupInput } from './team/api'
 
 export const SELF_ID = 'you'
 
@@ -491,8 +491,8 @@ export class Channels {
             this.saveRuns()
             void this.pump(run.memberId)
           },
-          nextRound: (card, run, prompt, fresh, ref, memberId) =>
-            this.nextRound(card, run, prompt, fresh, ref, memberId),
+          nextRound: (card, run, prompt, fresh, ref, memberId, wakeup) =>
+            this.nextRound(card, run, prompt, fresh, ref, memberId, undefined, wakeup ? { wakeup } : undefined),
           addFollowUp: (taskId, text, ref) => this.addTeamFollowUp(taskId, text, ref),
           action: (taskId, action) => this.runAction(taskId, action),
           setFinal: (taskId, final) => {
@@ -727,10 +727,24 @@ export class Channels {
     if (this.team && team) {
       channels.push(...this.team.channels())
       members.push(...this.team.members())
+      const latest = new Map<string, TaskRun>()
       for (const run of this.store.runs.values()) {
         const name = run.team && run.sessionId ? this.team.channelInfo(run.channelId)?.name : null
-        if (name && run.sessionId) sessionChannels[run.sessionId] = name
+        if (!name || !run.sessionId) continue
+        sessionChannels[run.sessionId] = name
+        const prev = latest.get(run.sessionId)
+        if (!prev || run.queuedAt >= prev.queuedAt) latest.set(run.sessionId, run)
       }
+      // 团队卡上事项唤醒的一轮（§11.6）：会话提醒按频道的说法写，回 [silent] 的不弹「做完了」（channelNotice）。
+      // 共用会话只看最近的那条运行：之后又在同一个会话里做了普通的活，就不再指着唤醒卡
+      for (const [sessionId, run] of latest)
+        if (run.wakeup)
+          sessionTasks[sessionId] = {
+            channelId: run.channelId,
+            taskId: run.taskId,
+            memberId: run.team?.agentId ?? run.memberId,
+            wakeup: true,
+          }
     }
     return {
       self: this.self(),
@@ -5341,7 +5355,48 @@ export class Channels {
     this.changed()
   }
 
-  /** 挂 / 取消事项唤醒（channels:wakeup）：只有本机频道；参数由 cleanWakeupAdd 逐项校验 */
+  /** channels:wakeup 的入口：团队频道转给云端（teamWakeup），本机频道走 wakeupAction */
+  async wakeup(channelId: string, raw: unknown): Promise<{ id?: string }> {
+    return this.isTeam(channelId) ? this.teamWakeup(channelId, raw) : this.wakeupAction(channelId, raw)
+  }
+
+  /**
+   * 团队卡上的事项唤醒（docs/multica-learn.md §11.6 团队部分）：挂、取消、主人同意都转给云端，返回的卡进同步。
+   * 只有到某个时间、定期检查（按这台电脑的时区）；谁能挂、要不要主人同意、谁能取消都由云端按派活规则判
+   */
+  private async teamWakeup(channelId: string, raw: unknown): Promise<{ id?: string }> {
+    const team = this.requireTeam()
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+    if (r.op === 'add') {
+      const input = cleanWakeupAdd(raw, this.now())
+      if (input.when.kind === 'ended') throw new Error('团队频道只能按时间叫：到某个时间或定期检查')
+      const card = team.card(input.on)
+      if (!card?.tm.task || card.tm.channelId !== channelId) throw new Error('只能挂在任务卡或流程卡上')
+      if (!card.tm.task.wakeups) throw new Error('这个团队的云端还不支持唤醒')
+      const agent = team.agentById(input.memberId)
+      if (!agent || agent.channelId !== channelId) throw new Error('要叫的成员不在频道里')
+      const when: WakeupInput['when'] =
+        input.when.kind === 'at'
+          ? input.when
+          : { ...input.when, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }
+      const id = await team.addWakeup(card.tm.id, { member: agent.id, when, text: input.text, until: input.until })
+      return id ? { id } : {}
+    }
+    if (r.op !== 'cancel' && r.op !== 'approve') throw new Error('不支持的操作')
+    const id = typeof r.id === 'string' && r.id ? r.id : null
+    if (!id) throw new Error('参数不正确')
+    const hit = team.wakeupRule(id)
+    if (!hit || hit.tm.channelId !== channelId) throw new Error('这条唤醒不存在')
+    const mid = hit.tm.id
+    await team.taskCall(mid, teamId =>
+      r.op === 'cancel'
+        ? team.api.cancelWakeup(teamId, mid, id)
+        : team.api.approveWakeup(teamId, mid, id, r.approve !== false),
+    )
+    return {}
+  }
+
+  /** 挂 / 取消事项唤醒（本机频道；channels:wakeup 经 wakeup 转来）：参数由 cleanWakeupAdd 逐项校验 */
   wakeupAction(channelId: string, raw: unknown): { id?: string } {
     if (this.isTeam(channelId)) throw new Error('团队频道还不支持唤醒')
     const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
@@ -5864,8 +5919,15 @@ export class Channels {
     const run = this.store.runs.get(m.id)
     if (!run?.team) return m
     const local = this.teamLocal.get(m.id)
+    // 事项唤醒的这一轮（§11.6）做完了：云端的运行记录不带唤醒标记，补在这一轮那条上（回 [silent] 的不弹「做完了」）
+    const last = m.runs?.at(-1)
+    const woke =
+      run.wakeup && run.phase === 'ended' && last?.n === run.round
+        ? { ...run.wakeup, ...(isSilent(run.reply?.trim() ?? '') ? { silent: 1 } : {}) }
+        : null
     return {
       ...m,
+      ...(woke && last ? { runs: [...m.runs!.slice(0, -1), { ...last, wakeup: woke }] } : {}),
       sessionId: run.sessionId ?? m.sessionId ?? null,
       request: m.status === 'waiting' ? (run.requests[0] ?? null) : null,
       ...(local?.ahead !== undefined ? { ahead: local.ahead } : {}),
@@ -5893,6 +5955,8 @@ export class Channels {
     if (Object.keys(wire).length || result) this.exec?.send(run, wire, result)
     const task = this.taskOf(run)
     if (task) this.pushMessage(task)
+    // 事项唤醒的一轮排上、开了会话：重发快照（sessionTasks 带着它，回 [silent] 的不弹「做完了」）
+    if (run.wakeup && (patch.sessionId !== undefined || patch.status === 'queued')) this.changed()
     return task
   }
 
@@ -6001,10 +6065,21 @@ export class Channels {
     await this.registerAgent(info, channelId, agent.localId, policy, allow)
   }
 
-  /** 等主人同意的活：同意 / 拒绝 */
+  /**
+   * 等主人同意的活：同意 / 拒绝。手机收件箱「等你同意」那一行也走这里（key 是卡 id）：卡上挂的唤醒等我同意时云端记在
+   * 同一行，卡本身不在等同意的，同意 / 拒绝的是卡上所有等我同意的唤醒（docs/multica-learn.md §11.6）
+   */
   async approveTask(taskId: string, approve: boolean): Promise<void> {
     const team = this.requireTeam()
-    await team.taskCall(taskId, teamId => team.api.approve(teamId, taskId, !!approve))
+    const task = team.card(taskId)?.tm.task
+    const me = team.getMe()?.id
+    const rules =
+      task && task.status !== 'approval'
+        ? (task.wakeups ?? []).filter(w => w.state === 'pending' && w.owner === me)
+        : []
+    if (!rules.length) return team.taskCall(taskId, teamId => team.api.approve(teamId, taskId, !!approve))
+    for (const w of rules)
+      await team.taskCall(taskId, teamId => team.api.approveWakeup(teamId, taskId, w.id, !!approve))
   }
 
   private async postTeam(

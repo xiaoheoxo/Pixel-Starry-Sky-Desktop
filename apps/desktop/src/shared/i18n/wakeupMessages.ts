@@ -8,6 +8,10 @@ export const wakeupMessages = {
     zh: '到点、或这件事结束时，叫一个 AI 成员来做事。第一次叫时开一张唤醒卡回复这张卡，以后都在唤醒卡上接着做，这张卡不动。',
     en: 'At a time, or when this work ends, call an AI member to do something. The first wakeup opens a wakeup card that replies to this one; later ones continue on that card. This card is left as it is.',
   },
+  'wakeup.dialog.introTeam': {
+    zh: '到点时叫一个 AI 成员来做事，算你派的活。第一次叫时开一张唤醒卡回复这张卡，以后都在唤醒卡上接着做，这张卡不动；这张卡还有一轮没结束时，等它结束再叫。',
+    en: 'At a time, call an AI member to do something, as work you assigned. The first wakeup opens a wakeup card that replies to this one; later ones continue on that card. This card is left as it is. While this card still has a round in progress, the wakeup waits for it to end.',
+  },
   'wakeup.dialog.confirm': { zh: '挂上', en: 'Set wakeup' },
   'wakeup.dialog.cancel': { zh: '取消', en: 'Cancel' },
   'wakeup.dialog.failed': { zh: '没挂上：{error}', en: "Couldn't set the wakeup: {error}" },
@@ -63,6 +67,10 @@ export const wakeupMessages = {
     en: '"When it ends" can\'t wake the card\'s own assignee (it would keep waking itself)',
   },
   'wakeup.who.none': { zh: '频道里没有能叫的 AI 成员', en: 'No AI member in this channel can be woken' },
+  'wakeup.who.approval': {
+    zh: '要 {owner} 同意一次：挂上后先等同意，同意之后每次到点直接叫',
+    en: '{owner} needs to approve once: the wakeup waits for approval, then fires on schedule',
+  },
   'wakeup.text': { zh: '要它做什么', en: 'What to do' },
   'wakeup.text.at': {
     zh: '例如：看一下部署有没有成功，没成功就查原因',
@@ -83,6 +91,7 @@ export const wakeupMessages = {
   'wakeup.when.hourly': { zh: '每小时第 {minute} 分', en: 'Hourly at :{minute}' },
   'wakeup.when.daily': { zh: '每天 {time}', en: 'Daily {time}' },
   'wakeup.when.weekdays': { zh: '工作日 {time}', en: 'Weekdays {time}' },
+  'wakeup.when.zone': { zh: '{when}（{tz}）', en: '{when} ({tz})' },
   'wakeup.line.at': { zh: '{time} 叫 {name}', en: '{time}: wake {name}' },
   'wakeup.line.every': { zh: '{when} 叫 {name}', en: '{when}: wake {name}' },
   'wakeup.line.ended': { zh: '做完后叫 {name}', en: 'When done, wake {name}' },
@@ -95,6 +104,11 @@ export const wakeupMessages = {
   'wakeup.line.waitUntil': { zh: '最多等到 {date}', en: 'waits until {date}' },
   'wakeup.line.fired': { zh: '叫过 {n} 次', en: 'woken {n}×' },
   'wakeup.line.byAi': { zh: '{name} 自己挂的', en: 'set by {name}' },
+  'wakeup.line.byHuman': { zh: '{name} 挂的', en: 'set by {name}' },
+  'wakeup.line.pending': { zh: '等 {name} 同意', en: 'waiting for {name} to approve' },
+  'wakeup.line.approve': { zh: '同意', en: 'Approve' },
+  'wakeup.line.reject': { zh: '不同意这条唤醒', en: 'Decline this wakeup' },
+  'wakeup.line.approveFailed': { zh: '没处理成：{error}', en: "Couldn't do that: {error}" },
   'wakeup.line.cancel': { zh: '取消这条唤醒', en: 'Cancel this wakeup' },
   'wakeup.line.cancelFailed': { zh: '取消唤醒没成功：{error}', en: "Couldn't cancel the wakeup: {error}" },
   'wakeup.line.cancelled': { zh: '唤醒已取消：{note}', en: 'Wakeup cancelled: {note}' },
@@ -126,6 +140,14 @@ export const wakeupMessages = {
   'wakeup.error.until': { zh: '截止时间不对', en: 'Invalid end date' },
   'wakeup.error.untilMax': { zh: '截止最多 {n} 天', en: 'The end date can be at most {n} days ahead' },
   'wakeup.error.team': { zh: '团队频道还不支持唤醒', en: "Team channels don't support wakeups yet" },
+  'wakeup.error.teamOld': {
+    zh: '这个团队的云端还不支持唤醒',
+    en: "This team's cloud service doesn't support wakeups yet",
+  },
+  'wakeup.error.teamKind': {
+    zh: '团队频道只能按时间叫：到某个时间或定期检查',
+    en: 'In team channels a wakeup can only be time based: at a time or a regular check',
+  },
   'wakeup.error.missing': { zh: '这条唤醒不存在', en: "This wakeup doesn't exist" },
   'wakeup.error.cardKind': { zh: '只能挂在任务卡或流程卡上', en: 'Wakeups can only be set on task or flow cards' },
   'wakeup.error.flowStep': {
@@ -155,4 +177,15 @@ export const wakeupMessages = {
   'wakeup.note.cardStopped': { zh: '盯的卡停了', en: 'the watched card was stopped' },
   'wakeup.note.cardMerged': { zh: '盯的卡已经合并回去了', en: 'the watched card was merged back' },
   'wakeup.note.reviewed': { zh: '事项已经验收完了', en: 'the board item was accepted' },
+  // 团队卡上云端结束的规则（core/channels/team/sync.ts 把云端的代码换成这几句）
+  'wakeup.note.creatorLeft': { zh: '挂这条唤醒的人离开了团队', en: 'the person who set it left the team' },
+  'wakeup.note.notAllowed': {
+    zh: '派活规则不再允许挂的人叫这个成员',
+    en: "the member's assignment rules no longer let its creator wake it",
+  },
+  'wakeup.note.rejected': { zh: '成员的主人没同意', en: "the member's owner declined" },
+  'wakeup.note.pendingExpired': {
+    zh: '等主人同意的时候已经过了时间',
+    en: 'the time passed while waiting for approval',
+  },
 } as const

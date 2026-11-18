@@ -8,6 +8,7 @@ import type {
   ChannelMember,
   ChannelMessage,
   ChannelTask,
+  ChannelWakeup,
   HumanMember,
   PendingInvite,
   TeamInfo,
@@ -26,6 +27,8 @@ import {
   type TeamData,
   type TeamMessage,
   type TeamTaskData,
+  type TeamWakeupData,
+  type WakeupInput,
 } from './api'
 import type { RealtimeStatus, TeamFrame } from './realtime'
 import type { Mentionable } from '../../../../shared/channels/mentions'
@@ -87,6 +90,45 @@ interface Meta {
   lastAt: number
   readN: number
 }
+
+/**
+ * 云端规则自己结束的原因代码 → 卡上那一行的说法（docs/multica-learn.md §11.6）：和本机规则的 endNote 一样写中文原文，
+ * 界面用 translateMessage 翻。不认识的代码不写原因
+ */
+const WAKE_NOTES: Record<string, string> = {
+  card_stopped: '盯的卡停了',
+  member_gone: '要叫的成员不在频道里了',
+  creator_left: '挂这条唤醒的人离开了团队',
+  not_allowed: '派活规则不再允许挂的人叫这个成员',
+  rejected: '成员的主人没同意',
+}
+/** 云端的 expired 只在等同意期间过了期限时出现（定期检查的截止、到某个时间的那个时间；在跑的定期检查到截止记 done）：卡上按取消写明原因 */
+const WAKE_EXPIRED_NOTE = '等主人同意的时候已经过了时间'
+
+/** 团队卡上的一条规则 → 频道里的唤醒规则（on 是挂着它的卡） */
+function wakeupOf(on: string, w: TeamWakeupData): ChannelWakeup {
+  const expired = w.state === 'expired'
+  return {
+    id: w.id,
+    on,
+    memberId: w.member,
+    card: w.card,
+    by: w.by,
+    when: w.when,
+    text: w.text,
+    until: w.until,
+    next: w.next,
+    fired: w.fired,
+    state: expired ? 'cancelled' : w.state,
+    endNote: expired ? WAKE_EXPIRED_NOTE : w.endNote ? (WAKE_NOTES[w.endNote] ?? null) : null,
+    owner: w.owner,
+    createdAt: w.createdAt,
+    lastAt: w.lastAt,
+  }
+}
+
+const sameRules = (a: TeamTaskData | null | undefined, b: TeamTaskData | null | undefined): boolean =>
+  JSON.stringify(a?.wakeups ?? []) === JSON.stringify(b?.wakeups ?? [])
 
 /** 云端事件类型 → 事件行（不认识的不显示） */
 function eventKind(type: string): ChannelEvent['event'] | null {
@@ -545,11 +587,14 @@ export class TeamSync {
   ingest(teamId: string, channelId: string, tm: TeamMessage): void {
     let changed = false
     let newer = false
+    // 卡上的唤醒规则变了：规则放在频道快照里（Channel.wakeups），要重发快照
+    let rules = false
     if (tm.kind === 'task' && tm.task) {
       const old = this.cards.get(tm.id)
       if (!old || tm.seq > old.tm.seq || (tm.seq === old.tm.seq && tm.updatedAt > old.tm.updatedAt)) {
         this.cards.set(tm.id, { teamId, tm })
         changed = true
+        rules = !sameRules(old?.tm.task, tm.task)
       }
     }
     const cache = this.caches.get(channelId)
@@ -567,7 +612,7 @@ export class TeamSync {
     if (!changed && !newer) return
     const mapped = this.toMessage(teamId, tm)
     if (mapped) for (const l of this.listeners) l.message?.({ channelId, message: mapped })
-    if (newer) this.emitChanged()
+    if (newer || rules) this.emitChanged()
     if (tm.kind === 'task') for (const l of this.listeners) l.card?.(teamId, channelId, tm)
   }
 
@@ -630,11 +675,13 @@ export class TeamSync {
         cache = { teamId: meta.teamId, list: [], hasMore: first.hasMore, syncedSeq: meta.data.seq }
         this.caches.set(channelId, cache)
       }
+      let rules = false
       for (const tm of first.messages) {
         this.upsert(cache, tm)
-        if (tm.kind === 'task' && tm.task) this.rememberCard(meta.teamId, tm)
+        if (tm.kind === 'task' && tm.task) rules = this.rememberCard(meta.teamId, tm) || rules
       }
       cache.hasMore = first.hasMore
+      if (rules) this.emitChanged()
     }
     const older = before != null || !!beforeId
     const have = (): TeamMessage[] => {
@@ -645,11 +692,13 @@ export class TeamSync {
     if (older && have().length < PAGE && cache.hasMore && cache.list.length) {
       const oldest = cache.list[0].n
       const earlier = await this.api.messages(meta.teamId, channelId, { before: oldest, limit: PAGE })
+      let rules = false
       for (const tm of earlier.messages) {
         this.upsert(cache, tm)
-        if (tm.kind === 'task' && tm.task) this.rememberCard(meta.teamId, tm)
+        if (tm.kind === 'task' && tm.task) rules = this.rememberCard(meta.teamId, tm) || rules
       }
       cache.hasMore = earlier.hasMore
+      if (rules) this.emitChanged()
     }
     const list = have()
     const start = Math.max(0, list.length - PAGE)
@@ -657,9 +706,12 @@ export class TeamSync {
     return { messages, more: start > 0 || cache.hasMore }
   }
 
-  private rememberCard(teamId: string, tm: TeamMessage): void {
+  /** 记下一张卡；返回卡上的唤醒规则有没有变（变了要重发频道快照） */
+  private rememberCard(teamId: string, tm: TeamMessage): boolean {
     const old = this.cards.get(tm.id)
-    if (!old || tm.seq > old.tm.seq) this.cards.set(tm.id, { teamId, tm })
+    if (old && tm.seq <= old.tm.seq) return false
+    this.cards.set(tm.id, { teamId, tm })
+    return !sameRules(old?.tm.task, tm.task)
   }
 
   /** 看完这个频道：已读位置往前走（只在有新内容时才通知云端） */
@@ -766,6 +818,15 @@ export class TeamSync {
     return this.cards.get(id)
   }
 
+  /** 一条唤醒规则挂在哪张卡上（取消、同意时找卡；执行端找唤醒那一轮盯着的卡）；缓存里没有时 null */
+  wakeupRule(ruleId: string): { teamId: string; tm: TeamMessage; rule: TeamWakeupData } | null {
+    for (const card of this.cards.values()) {
+      const rule = card.tm.task?.wakeups?.find(w => w.id === ruleId)
+      if (rule) return { ...card, rule }
+    }
+    return null
+  }
+
   /** 任务卡（映射成频道里的任务消息） */
   taskOf(id: string): ChannelTask | null {
     const card = this.cards.get(id)
@@ -825,6 +886,7 @@ export class TeamSync {
         ownerId: t.owner,
         pendingAction: t.pendingAction,
         ownerOffline: t.status === 'queued' && t.owner !== this.me?.id && !this.isOnline(teamId, t.owner),
+        ...(t.wakeups ? { teamWakeups: true } : {}),
       }
     }
     return {
@@ -859,9 +921,16 @@ export class TeamSync {
     return { teams, invites: this.invites, connection: this.connection(), syncedAt: this.syncedAt }
   }
 
-  /** 团队频道，按最后一条消息的时间从新到旧 */
+  /** 团队频道，按最后一条消息的时间从新到旧；卡上的唤醒规则汇总到频道上（和本机频道一样读 Channel.wakeups） */
   channels(): Channel[] {
     const out: Channel[] = []
+    const wakeups = new Map<string, ChannelWakeup[]>()
+    for (const { tm } of this.cards.values())
+      for (const w of tm.task?.wakeups ?? []) {
+        const list = wakeups.get(tm.channelId) ?? []
+        list.push(wakeupOf(tm.id, w))
+        wakeups.set(tm.channelId, list)
+      }
     for (const team of this.teams.values())
       for (const ch of team.channels) {
         const meta = this.meta.get(ch.id)
@@ -878,6 +947,7 @@ export class TeamSync {
           mentioned: meta?.mentioned ?? false,
           createdAt: ch.createdAt,
           lastAt: meta?.lastAt ?? ch.lastAt,
+          wakeups: wakeups.get(ch.id) ?? [],
         })
       }
     return out.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -1022,6 +1092,15 @@ export class TeamSync {
     if (!card) throw new Error('任务不存在')
     const tm = await call(card.teamId)
     this.ingest(card.teamId, tm.channelId || card.tm.channelId, tm)
+  }
+
+  /** 在任务卡上挂一条事项唤醒（docs/multica-learn.md §11.6）：响应里的卡马上进缓存，返回新规则的 id */
+  async addWakeup(id: string, input: WakeupInput): Promise<string | null> {
+    const card = this.cards.get(id)
+    if (!card) throw new Error('任务不存在')
+    const res = await this.api.addWakeup(card.teamId, id, input)
+    this.ingest(card.teamId, res.message.channelId || card.tm.channelId, res.message)
+    return res.wakeup?.id ?? null
   }
 
   /** 写回任务卡（执行端）：响应里的卡片进缓存 */

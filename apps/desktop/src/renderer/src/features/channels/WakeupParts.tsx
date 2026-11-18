@@ -4,49 +4,78 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useState } from 'react'
 import { AlarmClock, X } from 'lucide-react'
-import { IconButton, cn, useToast } from '@/ui'
+import { Button, IconButton, cn, useToast } from '@/ui'
 import type { Channel, ChannelMember, ChannelTask } from '@/data/types'
-import type { ChannelWakeup } from '../../../../shared/types/channels'
-import { channelActions, useChannels } from './store'
-import { isWakeupCard, liveWakeups, recentEndedWakeup, wakeupHead, wakeupMeta, wakeupOrigin } from './wakeupModel'
+import type { ChannelWakeup, TeamRole, WakeupOp } from '../../../../shared/types/channels'
+import { channelActions, selfIdIn, useChannels } from './store'
+import {
+  isLiveWakeup,
+  isWakeupCard,
+  liveWakeups,
+  recentEndedWakeup,
+  wakeupHead,
+  wakeupMeta,
+  wakeupOrigin,
+} from './wakeupModel'
 
 type Members = ReadonlyMap<string, ChannelMember>
 
-/** 能挂 / 取消唤醒：只有本机频道，归档的只读（团队频道第一版还不支持，docs/multica-learn.md §11.6） */
+/** 能挂 / 取消唤醒：本机频道，归档的只读（看板事项、流程卡只有本机频道；团队卡看 canWakeupTask） */
 export const canWakeup = (channel: Pick<Channel, 'scope' | 'archivedAt'> | null | undefined): boolean =>
   !!channel && channel.scope === 'local' && !channel.archivedAt
 
-/** 一条规则：「⏰ 每天 09:00 叫 审查员 · 检查 CI · 下次 明天 09:00 · 截止 11-25 ×」 */
+/**
+ * 这张任务卡上能挂唤醒（docs/multica-learn.md §11.6）：本机频道按 canWakeup；团队卡要云端支持（卡上带 wakeups 字段，
+ * 旧云端不显示入口），观察者不能派活也就不能挂
+ */
+export const canWakeupTask = (
+  channel: Pick<Channel, 'scope' | 'archivedAt'> | null | undefined,
+  task: Pick<ChannelTask, 'teamWakeups'>,
+  role: TeamRole | undefined,
+): boolean =>
+  channel?.scope === 'team' ? !!task.teamWakeups && role !== 'observer' && !channel.archivedAt : canWakeup(channel)
+
+/** 一条规则：「⏰ 每天 09:00 叫 审查员 · 检查 CI · 下次 明天 09:00 · 截止 11-25 ×」；团队卡上等同意的写「等 X 同意」 */
 function WakeupRow({
-  channelId,
+  channel,
   rule,
   membersById,
   flow,
-  editable,
 }: {
-  channelId: string
+  channel: Channel
   rule: ChannelWakeup
   membersById: Members
   flow: boolean
-  editable: boolean
 }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const selfId = useChannels(s => selfIdIn(s, channel.memberIds))
   const now = Date.now()
+  const team = channel.scope === 'team'
   const head = wakeupHead(rule, membersById.get(rule.memberId)?.name ?? '?', now, flow)
   const by = membersById.get(rule.by)
+  const pending = rule.state === 'pending'
+  // 团队卡：挂的人、成员的主人能取消；等同意时主人点「同意」，主人的 × 是不同意（告诉挂的人）
+  const owner = team && !!selfId && rule.owner === selfId
+  const editable = team ? !channel.archivedAt && (owner || (!!selfId && rule.by === selfId)) : canWakeup(channel)
   const meta = [
+    pending ? tr('wakeup.line.pending', { name: membersById.get(rule.owner ?? '')?.name ?? '?' }) : '',
     ...wakeupMeta(rule, now),
-    by?.kind === 'agent' ? tr('wakeup.line.byAi', { name: by.name }) : '',
+    by?.kind === 'agent'
+      ? tr('wakeup.line.byAi', { name: by.name })
+      : team && by && rule.by !== selfId
+        ? tr('wakeup.line.byHuman', { name: by.name })
+        : '',
     rule.fired > 0 && rule.when.kind === 'every' ? tr('wakeup.line.fired', { n: rule.fired }) : '',
   ].filter(Boolean)
-  const cancel = () => {
+  const act = (op: WakeupOp, failed: 'wakeup.line.cancelFailed' | 'wakeup.line.approveFailed') => {
     setBusy(true)
     channelActions
-      .wakeup(channelId, { op: 'cancel', id: rule.id })
-      .catch(e => toast(tr('wakeup.line.cancelFailed', { error: translateMessage((e as Error).message) })))
+      .wakeup(channel.id, op)
+      .catch(e => toast(tr(failed, { error: translateMessage((e as Error).message) })))
       .finally(() => setBusy(false))
   }
+  const reject = pending && owner
   return (
     <p data-wakeup={rule.id} className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
       <AlarmClock size={12} strokeWidth={1.75} className="shrink-0 text-accent-fg" aria-hidden />
@@ -55,14 +84,28 @@ function WakeupRow({
         <span className="text-fg-faint"> · {rule.text}</span>
       </span>
       {meta.length > 0 && <span className="shrink-0 text-fg-faint tabular-nums">· {meta.join(' · ')}</span>}
+      {pending && owner && !channel.archivedAt && (
+        <Button
+          variant="ghost"
+          className="h-5 shrink-0 px-1.5 text-meta"
+          disabled={busy}
+          onClick={() => act({ op: 'approve', id: rule.id, approve: true }, 'wakeup.line.approveFailed')}
+        >
+          {tr('wakeup.line.approve')}
+        </Button>
+      )}
       {editable && (
         <IconButton
           icon={X}
-          label={tr('wakeup.line.cancel')}
+          label={tr(reject ? 'wakeup.line.reject' : 'wakeup.line.cancel')}
           size={18}
           iconSize={11}
           disabled={busy}
-          onClick={cancel}
+          onClick={() =>
+            reject
+              ? act({ op: 'approve', id: rule.id, approve: false }, 'wakeup.line.approveFailed')
+              : act({ op: 'cancel', id: rule.id }, 'wakeup.line.cancelFailed')
+          }
         />
       )}
     </p>
@@ -87,18 +130,10 @@ export function WakeupRules({
   const live = liveWakeups(channel, on)
   const ended = live.length ? null : recentEndedWakeup(channel, on, Date.now())
   if (!channel || (!live.length && !ended)) return null
-  const editable = canWakeup(channel)
   return (
     <div data-wakeups={on} className={cn('flex min-w-0 flex-col', className)}>
       {live.map(w => (
-        <WakeupRow
-          key={w.id}
-          channelId={channel.id}
-          rule={w}
-          membersById={membersById}
-          flow={flow}
-          editable={editable}
-        />
+        <WakeupRow key={w.id} channel={channel} rule={w} membersById={membersById} flow={flow} />
       ))}
       {ended && (
         <p data-wakeup-ended={ended.state} className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-faint">
@@ -159,14 +194,8 @@ function OriginLine({
           <span className="truncate">{text}</span>
         </p>
       )}
-      {channel && origin.rule?.state === 'active' && (
-        <WakeupRow
-          channelId={channel.id}
-          rule={origin.rule}
-          membersById={membersById}
-          flow={flow}
-          editable={canWakeup(channel)}
-        />
+      {channel && origin.rule && isLiveWakeup(origin.rule) && (
+        <WakeupRow channel={channel} rule={origin.rule} membersById={membersById} flow={flow} />
       )}
     </div>
   )

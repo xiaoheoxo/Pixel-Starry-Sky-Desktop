@@ -135,7 +135,7 @@ export interface FlowQuestion {
 /** 新的一轮运行信息（团队执行端用；本机频道在 service.ts 里自己拼） */
 export function newTaskRun(
   init: Pick<TaskRun, 'taskId' | 'channelId' | 'memberId' | 'queuedAt' | 'round' | 'prompt' | 'freshPrompt'> &
-    Partial<Pick<TaskRun, 'sessionId' | 'team'>>,
+    Partial<Pick<TaskRun, 'sessionId' | 'team' | 'wakeup'>>,
 ): TaskRun {
   return {
     sessionId: null,

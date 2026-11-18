@@ -27,7 +27,7 @@ import { relayDuration } from './RelayRules'
 import { useChannels } from './store'
 import { formatClock } from './format'
 import { agentPlace, MemberAvatar } from './ChannelMessage'
-import { canApprove, canControlTask, canWithdraw, isMyTask } from './teamModel'
+import { canApprove, canControlTask, canWithdraw, isMyTask, myRole } from './teamModel'
 import { approvalSummary } from '@/features/session/live/approvals/model'
 import { activityView } from './taskActivity'
 import { ActivityLines, TaskElapsed } from './ActivityLines'
@@ -35,7 +35,7 @@ import { CheckSummary } from '@/features/checks/CheckSummary'
 import { landView } from './taskLand'
 import { TaskChanges } from './TaskChanges'
 import { RunReasonLine, TaskRuns } from './TaskRuns'
-import { canWakeup, WakeupOrigin, WakeupRules } from './WakeupParts'
+import { canWakeupTask, WakeupOrigin, WakeupRules } from './WakeupParts'
 import { WakeupDialog } from './WakeupDialog'
 import { liveWakeups } from './wakeupModel'
 
@@ -185,9 +185,10 @@ export function ChannelTaskCard({
   ]
     .filter(Boolean)
     .join(' · ')
-  // 事项唤醒（docs/multica-learn.md §11.6）：本机频道、不是流程步骤、没停也没合并回去的卡能挂
+  // 事项唤醒（docs/multica-learn.md §11.6）：不是流程步骤、没停也没合并回去的卡能挂（团队卡要云端支持、不是观察者）
   const [waking, setWaking] = useState(false)
-  const canWake = canWakeup(channel) && !task.flow && task.status !== 'stopped' && !land.locked
+  const role = useChannels(s => myRole(s.teams, channel?.teamId))
+  const canWake = canWakeupTask(channel, task, role) && !task.flow && task.status !== 'stopped' && !land.locked
   const wakeups = liveWakeups(channel, task.id).length
   const dialog = (
     <>

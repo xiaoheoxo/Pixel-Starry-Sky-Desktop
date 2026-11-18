@@ -57,6 +57,15 @@ describe('唤醒规则的文字', () => {
     expect(wakeupHead(rule({ when: { kind: 'every', freq: 'weekdays', hour: 18, minute: 30 } }), '小A', NOW)).toBe(
       '工作日 18:30 叫 小A',
     )
+    // 团队卡上别的时区的人挂的：写上时区；和这台电脑同一个时区的不写
+    const here = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const away = here === 'Asia/Kolkata' ? 'Europe/Berlin' : 'Asia/Kolkata'
+    expect(wakeupHead(rule({ when: { kind: 'every', freq: 'daily', hour: 9, minute: 0, tz: away } }), '小A', NOW)).toBe(
+      `每天 09:00（${away}） 叫 小A`,
+    )
+    expect(wakeupHead(rule({ when: { kind: 'every', freq: 'daily', hour: 9, minute: 0, tz: here } }), '小A', NOW)).toBe(
+      '每天 09:00 叫 小A',
+    )
     const at = rule({ when: { kind: 'at', at: NOW + 10 * 60_000 }, until: null, next: NOW + 10 * 60_000 })
     expect(wakeupHead(at, '小A', NOW)).toBe('今天 15:40 叫 小A')
     expect(wakeupMeta(at, NOW)).toEqual([])

@@ -519,19 +519,21 @@ export const channelActions = {
     return null
   },
   /**
-   * 事项唤醒（docs/multica-learn.md §11.6，只有本机频道）：挂一条（返回规则 id）或取消（id 一条 / on 一张卡上的全部）。
-   * 演示模式只改内存，到点不会真的叫
+   * 事项唤醒（docs/multica-learn.md §11.6）：挂一条（返回规则 id）、取消（id 一条 / on 一张卡上的全部）、
+   * 团队卡上等同意的由主人同意。演示模式只改内存，到点不会真的叫
    */
   async wakeup(channelId: string, op: WakeupOp): Promise<string | null> {
     if (channelsBridge) return (await channelsBridge.wakeup(channelId, op)).id ?? null
     const now = Date.now()
-    if (op.op === 'cancel') {
-      const hit = (w: ChannelWakeup) => w.state === 'active' && (op.id ? w.id === op.id : w.on === op.on)
+    if (op.op === 'cancel' || op.op === 'approve') {
+      const on = op.op === 'cancel' ? op.on : undefined
+      const hit = (w: ChannelWakeup) =>
+        (w.state === 'active' || w.state === 'pending') && (op.id ? w.id === op.id : w.on === on)
+      const next = (w: ChannelWakeup): ChannelWakeup =>
+        op.op === 'approve' && op.approve !== false ? { ...w, state: 'active' } : endWakeup(w, 'cancelled', null, now)
       set({
         channels: state.channels.map(c =>
-          c.id === channelId
-            ? { ...c, wakeups: (c.wakeups ?? []).map(w => (hit(w) ? endWakeup(w, 'cancelled', null, now) : w)) }
-            : c,
+          c.id === channelId ? { ...c, wakeups: (c.wakeups ?? []).map(w => (hit(w) ? next(w) : w)) } : c,
         ),
       })
       return null

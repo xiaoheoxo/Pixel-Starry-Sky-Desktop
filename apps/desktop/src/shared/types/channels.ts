@@ -373,8 +373,8 @@ export interface ChannelTextMessage extends ChannelMessageBase {
 export type WakeupFreq = 'hourly' | 'daily' | 'weekdays'
 export type WakeupWhen =
   | { kind: 'at'; at: number }
-  /** hourly 只用 minute；时间按这台电脑的时区 */
-  | { kind: 'every'; freq: WakeupFreq; hour: number; minute: number }
+  /** hourly 只用 minute；时间按这台电脑的时区（团队卡上的按挂规则的人的时区 tz，IANA 名） */
+  | { kind: 'every'; freq: WakeupFreq; hour: number; minute: number; tz?: string }
   /** 盯的任务卡做完且产出检查跑完（failed / stopped：失败、停下也算）；盯的是流程卡时只认「全部交付」 */
   | { kind: 'ended'; failed?: boolean; stopped?: boolean }
 export type WakeupKind = WakeupWhen['kind']
@@ -408,9 +408,14 @@ export interface ChannelWakeup {
   next: number | null
   /** 叫过几次 */
   fired: number
-  /** done：正常结束；expired：等到截止也没等到；cancelled：取消了或失效了（endNote 写原因） */
-  state: 'active' | 'done' | 'expired' | 'cancelled'
+  /**
+   * done：正常结束；expired：等到截止也没等到；cancelled：取消了或失效了（endNote 写原因）；
+   * pending：团队卡上要叫的成员要主人同意，等主人同意一次（docs/multica-learn.md §12 第 11 问）
+   */
+  state: 'pending' | 'active' | 'done' | 'expired' | 'cancelled'
   endNote?: string | null
+  /** 团队卡：要叫的成员的主人（等同意时由他同意，他也能取消） */
+  owner?: string
   /** 等结束：挂规则时被盯的卡已经是结束的那一轮（轮次），这一轮不算 */
   sig?: string | null
   /** AI 挂的：挂的时候那张卡在哪条接力上、第几跳。唤醒卡接着算这条接力的跳数，换一张卡不会绕过防刷规则 */
@@ -420,10 +425,14 @@ export interface ChannelWakeup {
   lastAt?: number | null
 }
 
-/** 挂 / 取消唤醒（channels:wakeup）：取消给 id（一条）或 on（这张卡上的全部，看板事项验收完时用） */
+/**
+ * 挂 / 取消唤醒（channels:wakeup）：取消给 id（一条）或 on（这张卡上的全部，看板事项验收完时用，只有本机频道）；
+ * approve：团队卡上等同意的规则，成员的主人同意（approve 为 false 是不同意）
+ */
 export type WakeupOp =
   | { op: 'add'; on: string; memberId: string; when: WakeupWhen; text: string; until?: number | null }
   | { op: 'cancel'; id?: string; on?: string }
+  | { op: 'approve'; id: string; approve?: boolean }
 
 /** 频道里云端生图的说明（消息上的一行小字） */
 export interface ChannelGenerated {
@@ -742,6 +751,8 @@ export interface ChannelTask extends ChannelMessageBase {
   guard?: { capped?: string | null; copy?: string | null } | null
   /** 牵头被成员交回的结果叫起来的卡（docs/multica-learn.md §11.2）：哪些成员交回的（名字，并进来的接在后面） */
   wake?: { from: string[] } | null
+  /** 团队卡：云端支持事项唤醒（卡上带着 wakeups 字段，docs/multica-learn.md §11.6）；旧云端、本机卡没有 */
+  teamWakeups?: boolean
   /**
    * 排队中、在等同一个目录里别人的活做完（§10）：哪个成员、哪项活；canCopy 时可以「改用副本马上开始」
    */

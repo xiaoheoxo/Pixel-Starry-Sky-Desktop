@@ -3,10 +3,10 @@
 // 状态变化写回云端任务卡，做完以 AI 成员的身份把结果发成频道消息，并处理别人点的取消 / 停止 / 重试。
 // 本文件只管和云端的往来和「接不接这项活」的判断；本机怎么跑由宿主（Channels）实现。
 import type { Locale } from '../../../../shared/i18n/messages'
-import type { AgentConfig, ChannelMessage, ChannelTask } from '../../../../shared/types/channels'
+import type { AgentConfig, ChannelMessage, ChannelTask, ChannelWakeupTag } from '../../../../shared/types/channels'
 import { mentionsAll } from '../../../../shared/channels/mentions'
 import { MAX_RUNS, runReasonOf } from '../../../../shared/channels/runReason'
-import { continuePrompt, dispatchPrompt, followUpPrompt, historyLines } from '../prompt'
+import { continuePrompt, dispatchPrompt, followUpPrompt, historyLines, wakeupRequest } from '../prompt'
 import { newTaskRun, type TaskRun, type TeamRunRef } from '../tracker'
 import { TeamError, type TaskPatch, type TeamMessage, type TeamTaskData } from './api'
 import type { TeamSync } from './sync'
@@ -26,7 +26,7 @@ export interface ExecutorHost {
   runs(): TaskRun[]
   /** 新活：登记运行信息，排进成员的队列 */
   enqueue(run: TaskRun): void
-  /** 开下一轮（追加要求、重试） */
+  /** 开下一轮（追加要求、重试）；wakeup：这一轮是事项唤醒开的（云端卡上带 wake，回 [silent] 静默结束） */
   nextRound(
     card: ChannelTask,
     run: TaskRun | null,
@@ -34,6 +34,7 @@ export interface ExecutorHost {
     fresh: string,
     team: TeamRunRef,
     memberId: string,
+    wakeup?: ChannelWakeupTag,
   ): void
   /** 这一轮还没做完时追加的要求 */
   addFollowUp(taskId: string, text: string, team: TeamRunRef): void
@@ -243,6 +244,8 @@ export class TeamExecutor {
         prompt,
         freshPrompt: prompt,
         team,
+        // 事项唤醒派来的唤醒卡（docs/multica-learn.md §11.6）：回 [silent] 不发结果、不覆盖摘要
+        ...(t.wake ? { wakeup: t.wake } : {}),
       }),
     )
   }
@@ -255,24 +258,32 @@ export class TeamExecutor {
     const follow = t.followupMessage
     const locale = this.host.locale()
     const info = this.sync.channelInfo(claimed.channelId)
-    const msg = follow ? await this.find(teamId, claimed.channelId, follow) : null
-    const text = msg
-      ? followUpPrompt({
-          locale,
-          channel: info?.name ?? '',
-          author: this.sync.nameOf(teamId, msg.author),
-          text: msg.text,
-        })
-      : continuePrompt(locale)
+    const list = follow || t.wake ? await this.recent(teamId, claimed.channelId) : []
+    const msg = follow ? (list.find(m => m.id === follow) ?? null) : null
+    // 事项唤醒以后几次（§11.6）：追加要求那条是挂规则的人发的指令，换成唤醒的要求（带盯着的卡、[silent] 那句）；
+    // 这一轮还没做完（并进去）的照常回复，不带 [silent] 那句
+    const ended = run.phase === 'ended'
+    const wake = t.wake ? this.wakeRequest(teamId, claimed, list, msg?.text ?? '', !ended) : null
+    const text =
+      wake !== null && wake.startsWith('/')
+        ? wake
+        : msg || wake !== null
+          ? followUpPrompt({
+              locale,
+              channel: info?.name ?? '',
+              author: this.sync.nameOf(teamId, msg?.author ?? t.requestedBy ?? claimed.author),
+              text: wake ?? msg!.text,
+            })
+          : continuePrompt(locale)
     const team: TeamRunRef = { ...(run.team ?? this.refOf(teamId, claimed)), follow }
-    if (run.phase !== 'ended') {
+    if (!ended) {
       this.host.addFollowUp(run.taskId, text, team)
       return
     }
     const member = this.host.member(run.memberId)
     const fresh = member ? await this.fresh(teamId, claimed, member, follow) : text
     const card = this.sync.taskOf(claimed.id)
-    if (card) this.host.nextRound(card, run, text, fresh, team, run.memberId)
+    if (card) this.host.nextRound(card, run, text, fresh, team, run.memberId, t.wake ?? undefined)
   }
 
   private refOf(teamId: string, tm: TeamMessage): TeamRunRef {
@@ -290,15 +301,49 @@ export class TeamExecutor {
   // 提示词：最近的讨论从云端拉
   // -------------------------------------------------------------------------
 
-  /** 在频道最近的消息里找一条 */
-  private async find(teamId: string, channelId: string, id: string): Promise<TeamMessage | null> {
+  /** 频道最近的消息（追加要求那条、盯着的卡最后的结果从这里找）；拉不到是空的 */
+  private async recent(teamId: string, channelId: string): Promise<TeamMessage[]> {
     try {
-      const page = await this.sync.api.messages(teamId, channelId, { limit: 60 })
-      return page.messages.find(m => m.id === id) ?? null
+      return (await this.sync.api.messages(teamId, channelId, { limit: 60 })).messages
     } catch (error) {
       this.deps.log?.('拉取团队消息失败', error)
-      return null
+      return []
     }
+  }
+
+  /**
+   * 事项唤醒开的这一轮（云端卡上带 wake，docs/multica-learn.md §11.6）的要求：唤醒指令、盯着的卡现在的样子，
+   * 没什么要说的回 [silent]（和本机唤醒同一套 wakeupRequest）。被盯的卡先找缓存，没有（重启后频道还没打开）再到 list
+   * 里找带着这条规则的卡；都找不到时用 fallback（那条消息的正文）当指令、不写盯着的卡。
+   * merged：并进还没做完的一轮，不带 [silent] 那句
+   */
+  private wakeRequest(teamId: string, tm: TeamMessage, list: TeamMessage[], fallback: string, merged = false): string {
+    const t = tm.task!
+    const wake = t.wake!
+    const watched =
+      this.sync.wakeupRule(wake.ruleId)?.tm ??
+      list.find(m => m.kind === 'task' && m.task?.wakeups?.some(r => r.id === wake.ruleId))
+    const w = watched?.task
+    let result: string | null = null
+    for (let i = list.length - 1; i >= 0 && result === null && watched; i--)
+      if (list[i].kind === 'message' && list[i].taskId === watched.id) result = list[i].text
+    return wakeupRequest({
+      locale: this.host.locale(),
+      kind: wake.kind,
+      text: w?.wakeups?.find(r => r.id === wake.ruleId)?.text || fallback || t.title,
+      target: w
+        ? {
+            kind: 'task',
+            title: w.title,
+            status: w.status,
+            owner: this.sync.nameOf(teamId, w.assignee),
+            summary: w.summary,
+            decision: w.decision,
+            result,
+          }
+        : null,
+      merged,
+    })
   }
 
   /** 第一次派给成员的提示词（Phase B §4.2）：带最近的讨论和被引用的消息；follow 是追加要求那条消息 */
@@ -320,6 +365,9 @@ export class TeamExecutor {
     }
     const requestId = follow ?? t.sourceMessage
     const source = list.find(m => m.id === requestId)
+    // 事项唤醒开的一轮：要求换成唤醒的要求；斜杠命令原样发，前后不拼东西（AGENTS.md「往用户消息前拼内容」）
+    const wake = t.wake ? this.wakeRequest(teamId, tm, list, source?.text ?? '') : null
+    if (wake?.startsWith('/')) return wake
     const mapped = list.flatMap(m => this.sync.toMessage(teamId, m) ?? ([] as ChannelMessage[]))
     const quoted = follow
       ? t.title
@@ -346,8 +394,8 @@ export class TeamExecutor {
           })
         : [],
       quoted,
-      request: source?.text ?? t.title,
-      together: source && !follow ? this.together(tm.channelId, source, t.assignee) : [],
+      request: wake ?? source?.text ?? t.title,
+      together: source && !follow && !wake ? this.together(tm.channelId, source, t.assignee) : [],
     })
   }
 
@@ -392,6 +440,8 @@ export class TeamExecutor {
     const locale = this.host.locale()
     const card = this.sync.taskOf(tm.id)
     if (!card) return
+    // 重试唤醒的一轮还算唤醒轮（§11.6，同本机）：云端的 wake 标记只在有人追加要求时清掉
+    const wake = tm.task?.wake ?? undefined
     if (run) {
       // 还没开始就失败：原样再发一次；做到一半：发「继续」
       const team = run.team ?? this.refOf(teamId, tm)
@@ -402,6 +452,7 @@ export class TeamExecutor {
         run.freshPrompt,
         team,
         run.memberId,
+        wake,
       )
       return
     }
@@ -411,7 +462,7 @@ export class TeamExecutor {
     const member = agent && agent.owner === this.sync.getMe()?.id ? this.host.member(agent.localId) : undefined
     if (!member) return this.fail(teamId, claimed, NOT_DEPLOYED_ERROR)
     const prompt = await this.fresh(teamId, claimed, member, null)
-    this.host.nextRound(card, null, prompt, prompt, this.refOf(teamId, claimed), member.id)
+    this.host.nextRound(card, null, prompt, prompt, this.refOf(teamId, claimed), member.id, wake)
   }
 
   // -------------------------------------------------------------------------

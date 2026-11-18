@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { TeamApi, parseMessage, parseOverview, type TeamFetch } from './api'
+import { TeamApi, parseMessage, parseOverview, type TeamFetch, type TeamTaskData } from './api'
 
 // 云端服务的契约样例（services/cloud/testdata/contract/desktop/teams-*.json，形如 {endpoint, status, body}）：
 // Go 那边检查实际响应和样例一致，这里用同一份样例喂桌面端的解析代码。样例还没生成时整组跳过。
@@ -64,8 +64,36 @@ function expectMessage(raw: unknown): void {
       endedAt: ['number', 'null'],
     })
     expect(STATUSES).toContain(m!.task!.status)
+    // 事项唤醒（docs/multica-learn.md §11.6）：云端带了 wakeups 字段，每条规则都认得（不认识的会被丢掉）
+    const wakeups = (raw as { task?: { wakeups?: unknown } }).task?.wakeups
+    if (Array.isArray(wakeups)) {
+      expect(m!.task!.wakeups, '规则一条都不丢').toHaveLength(wakeups.length)
+      for (const w of m!.task!.wakeups!) expectWakeup(w)
+    }
   }
   if (m!.kind === 'event') expect(m!.event).not.toBeNull()
+}
+
+function expectWakeup(w: NonNullable<TeamTaskData['wakeups']>[number]): void {
+  expectFields(w as unknown as Record<string, unknown>, {
+    id: 'string',
+    member: 'string',
+    owner: 'string',
+    by: 'string',
+    text: 'string',
+    until: ['number', 'null'],
+    next: ['number', 'null'],
+    fired: 'number',
+    card: ['string', 'null'],
+    state: 'string',
+    endNote: ['string', 'null'],
+    approved: 'boolean',
+    createdAt: 'number',
+    lastAt: ['number', 'null'],
+  })
+  expect(['at', 'every']).toContain(w.when.kind)
+  if (w.when.kind === 'every') expect(w.when.tz).not.toBe('')
+  expect(w.createdAt).toBeGreaterThan(0)
 }
 
 describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
@@ -201,6 +229,42 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
       })
     }
   }
+
+  // 事项唤醒（docs/multica-learn.md §11.6 团队部分）的样例：云端分支还没合进 services/cloud 时没有这几份，各自跳过
+  const has = (name: string): boolean => files.includes(name)
+
+  it.skipIf(!has('teams-wakeup-add.json'))('teams-wakeup-add.json：挂唤醒返回卡和新规则', async () => {
+    const s = sample('teams-wakeup-add.json')
+    const res = await serve(s).addWakeup('tm_1', 'tg_1', {
+      member: 'ta_1',
+      when: { kind: 'at', at: 1 },
+      text: 'x',
+      until: null,
+    })
+    expect(res.wakeup).not.toBeNull()
+    expect(res.message.task?.wakeups?.some(w => w.id === res.wakeup!.id)).toBe(true)
+    expect(['pending', 'active']).toContain(res.wakeup!.state)
+    expect(res.message.task?.wake).toBeNull()
+  })
+
+  it.skipIf(!has('teams-wakeup-cancel.json'))('teams-wakeup-cancel.json：取消返回卡', async () => {
+    const m = await serve(sample('teams-wakeup-cancel.json')).cancelWakeup('tm_1', 'tg_1', 'tw_1')
+    expect(m.task?.wakeups?.some(w => w.state === 'cancelled')).toBe(true)
+  })
+
+  it.skipIf(!has('teams-wakeup-approve.json'))('teams-wakeup-approve.json：主人同意返回卡', async () => {
+    const m = await serve(sample('teams-wakeup-approve.json')).approveWakeup('tm_1', 'tg_1', 'tw_1', true)
+    expect(m.task?.wakeups?.some(w => w.state === 'active' && w.approved)).toBe(true)
+  })
+
+  it.skipIf(!has('teams-wakeup-fired.json'))('teams-wakeup-fired.json：唤醒卡带 wake，被盯的卡记下唤醒卡', async () => {
+    const page = await serve(sample('teams-wakeup-fired.json')).messages('tm_1', 'tc_1')
+    const cards = page.messages.filter(m => m.task)
+    const woken = cards.find(m => m.task!.wake)
+    expect(woken?.task?.wake).toMatchObject({ ruleId: expect.any(String), kind: expect.any(String) })
+    const watched = cards.find(m => m.task!.wakeups?.some(w => w.id === woken!.task!.wake!.ruleId))
+    expect(watched?.task?.wakeups?.find(w => w.id === woken!.task!.wake!.ruleId)?.card).toBe(woken!.id)
+  })
 
   it('parseOverview 对样例不抛错', () => {
     for (const name of files) {

@@ -735,3 +735,171 @@ describe('收件箱（docs/multica-learn.md §11.5）', () => {
     expect(t.c.state()).toMatchObject({ inbox: [], inboxSupported: false })
   })
 })
+
+describe('事项唤醒：团队卡（docs/multica-learn.md §11.6 团队部分）', () => {
+  const DAY = 86_400_000
+  const rulesOf = (c: Channels) => c.state().channels.find(x => x.id === 'tc_1')?.wakeups ?? []
+
+  it('挂、取消、主人同意都转给云端；规则进频道快照，等同意的带主人，云端的结束原因换成中文', async () => {
+    const t = await open()
+    const theirs = t.cloud.addAgent('u:2', 'm-9', { policy: 'approve' })
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const mine = (t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).mine) as AgentMember).id
+    const card = t.cloud.userPost('u:1', 'tc_1', '@审查员 看看最近的改动', [theirs.id as string]).tasks[0].id as string
+    const page = await t.c.page('tc_1')
+    expect(page.messages.find(m => m.id === card)).toMatchObject({ teamWakeups: true })
+    // 别人「要我同意」的成员：挂上是等同意
+    const end = now + 3 * DAY
+    const { id } = await t.c.wakeup('tc_1', {
+      op: 'add',
+      on: card,
+      memberId: theirs.id as string,
+      when: { kind: 'every', freq: 'daily', hour: 9, minute: 0 },
+      text: '每天看一眼 CI',
+      until: end,
+    })
+    const add = t.cloud.calls.find(x => x.method === 'POST' && x.path === `/v1/teams/tm_1/tasks/${card}/wakeups`)
+    expect(add?.body).toMatchObject({
+      member: theirs.id,
+      text: '每天看一眼 CI',
+      when: { kind: 'every', freq: 'daily', hour: 9, minute: 0 },
+      until: new Date(end).toISOString(),
+    })
+    expect(typeof (add?.body?.when as { tz?: unknown }).tz).toBe('string')
+    expect(rulesOf(t.c)).toEqual([
+      expect.objectContaining({ id, on: card, memberId: theirs.id, by: 'u:1', owner: 'u:2', state: 'pending' }),
+    ])
+    // 挂的人取消
+    await t.c.wakeup('tc_1', { op: 'cancel', id: id! })
+    expect(
+      t.cloud.calls.some(x => x.method === 'DELETE' && x.path === `/v1/teams/tm_1/tasks/${card}/wakeups/${id}`),
+    ).toBe(true)
+    expect(rulesOf(t.c).find(w => w.id === id)?.state).toBe('cancelled')
+    // 周宁挂在我的成员上、等我同意的：同意走云端
+    const asked = t.cloud.putWakeup(card, { member: mine, owner: 'u:1', by: 'u:2', state: 'pending' })
+    await until(() => rulesOf(t.c).some(w => w.id === asked.id))
+    await t.c.wakeup('tc_1', { op: 'approve', id: asked.id as string, approve: true })
+    const approve = t.cloud.calls.find(x => x.path === `/v1/teams/tm_1/tasks/${card}/wakeups/${asked.id}/approve`)
+    expect(approve?.body).toEqual({ approve: true })
+    expect(rulesOf(t.c).find(w => w.id === asked.id)).toMatchObject({ state: 'active', owner: 'u:1', by: 'u:2' })
+    // 云端自己结束的：原因代码换成卡上那句话
+    const gone = t.cloud.putWakeup(card, { member: mine, state: 'cancelled', end_note: 'creator_left', next: null })
+    await until(() => rulesOf(t.c).some(w => w.id === gone.id))
+    expect(rulesOf(t.c).find(w => w.id === gone.id)?.endNote).toBe('挂这条唤醒的人离开了团队')
+    // 团队卡只能按时间叫；找不到的规则不发请求
+    await expect(
+      t.c.wakeup('tc_1', { op: 'add', on: card, memberId: mine, when: { kind: 'ended' }, text: '审查一遍' }),
+    ).rejects.toThrow('只能按时间叫')
+    await expect(t.c.wakeup('tc_1', { op: 'cancel', id: 'tw_nope' })).rejects.toThrow('不存在')
+  })
+
+  it('手机收件箱点「同意 / 拒绝」（key 是卡 id）：卡本身不在等我同意时，处理的是卡上等我同意的唤醒', async () => {
+    const t = await open()
+    const theirs = t.cloud.addAgent('u:2', 'm-9', { policy: 'team' })
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const mine = (t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).mine) as AgentMember).id
+    const card = t.cloud.userPost('u:1', 'tc_1', '@审查员 看看', [theirs.id as string]).tasks[0].id as string
+    await t.c.page('tc_1')
+    const asked = t.cloud.putWakeup(card, { member: mine, owner: 'u:1', by: 'u:2', state: 'pending' })
+    await until(() => rulesOf(t.c).some(w => w.id === asked.id))
+    await t.c.approveTask(card, false)
+    const call = t.cloud.calls.find(x => x.path === `/v1/teams/tm_1/tasks/${card}/wakeups/${asked.id}/approve`)
+    expect(call?.body).toEqual({ approve: false })
+    expect(t.cloud.calls.some(x => x.path === `/v1/teams/tm_1/tasks/${card}/approve`)).toBe(false)
+    expect(t.cloud.task(card).status).toBe('queued')
+    expect(rulesOf(t.c).find(w => w.id === asked.id)?.state).toBe('cancelled')
+  })
+
+  it('旧云端（卡上没有 wakeups 字段）：卡上没有入口标记，挂唤醒直接报错、不发请求', async () => {
+    const t = await open()
+    t.cloud.wakeups = false
+    const theirs = t.cloud.addAgent('u:2', 'm-9', { policy: 'team' })
+    await t.online()
+    const card = t.cloud.userPost('u:1', 'tc_1', '@审查员 看看', [theirs.id as string]).tasks[0].id as string
+    const page = await t.c.page('tc_1')
+    expect(page.messages.find(m => m.id === card)).not.toHaveProperty('teamWakeups')
+    await expect(
+      t.c.wakeup('tc_1', {
+        op: 'add',
+        on: card,
+        memberId: theirs.id as string,
+        when: { kind: 'at', at: now + 3_600_000 },
+        text: '看看 CI',
+      }),
+    ).rejects.toThrow('还不支持唤醒')
+    expect(t.cloud.calls.some(x => x.path.includes('/wakeups'))).toBe(false)
+    expect(rulesOf(t.c)).toEqual([])
+  })
+
+  it('云端叫起来的唤醒轮：带唤醒要求；回 [silent] 不发结果、不覆盖摘要；有人追加要求后不再算唤醒轮', async () => {
+    const t = await open()
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const agentId = (t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember)
+      .id
+    await t.c.setAgentPolicy('tc_1', agentId, 'team')
+    // 被盯的卡：周宁派的，做完了
+    const a = t.cloud.userPost('u:2', 'tc_1', '@前端助手 改登录页', [agentId]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    complete(t.c, 's1', sent[0].clientMessageId, '改好了')
+    await until(() => t.cloud.task(a).status === 'done')
+    // 周宁挂的定期检查，到点了（云端先发一条 @ 成员的消息，派一张带 wake 的唤醒卡）
+    const rule = t.cloud.putWakeup(a, {
+      member: agentId,
+      owner: 'u:1',
+      by: 'u:2',
+      when: { kind: 'every', freq: 'hourly', hour: 0, minute: 5, tz: 'Asia/Shanghai' },
+      until: '2026-10-20T00:00:00Z',
+    })
+    const w = t.cloud.fireWakeup(a, rule.id as string).id as string
+    await until(() => sent.length === 2)
+    expect(sent[1].clientMessageId).toBe(`ch-${w}-1`)
+    expect(sent[1].text).toContain('定期检查的时间到了')
+    expect(sent[1].text).toContain('看看 CI')
+    expect(sent[1].text).toContain('盯着的卡：「改登录页」')
+    expect(sent[1].text).toContain('改好了')
+    expect(sent[1].text).toContain('[silent]')
+    expect(t.store.runs.get(w)?.wakeup).toEqual({ ruleId: rule.id, kind: 'every' })
+    // 有结果：照常发
+    const results = () => t.cloud.messages.get('tc_1')!.filter(m => m.author === agentId && m.task_id === w)
+    complete(t.c, sent[1].sessionId, sent[1].clientMessageId, 'CI 挂了一个用例')
+    await until(() => t.cloud.task(w).status === 'done' && results().length === 1)
+    expect(t.cloud.task(w).summary).toBe('CI 挂了一个用例')
+    // 第二次到点：在唤醒卡上开下一轮；回 [silent] 不发结果、不覆盖摘要
+    t.cloud.fireWakeup(a, rule.id as string)
+    await until(() => sent.length === 3)
+    expect(sent[2].clientMessageId).toBe(`ch-${w}-2`)
+    expect(sent[2].text).toContain('定期检查的时间到了')
+    expect(sent[2].text).toContain('[silent]')
+    expect(t.store.runs.get(w)?.wakeup).toEqual({ ruleId: rule.id, kind: 'every' })
+    complete(t.c, sent[2].sessionId, sent[2].clientMessageId, '[silent]')
+    await until(() => t.cloud.task(w).status === 'done' && t.cloud.task(w).round === 2)
+    await new Promise(r => setTimeout(r, 30))
+    expect(results()).toHaveLength(1)
+    expect(t.cloud.task(w).summary).toBe('CI 挂了一个用例')
+    expect((t.cloud.task(w).runs as unknown[]).length).toBe(2)
+    // 主人这边：会话提醒按频道的说法、认得是唤醒轮；卡上这一轮记成「没有要说的」（回 [silent] 的不弹「做完了」）
+    expect(t.c.state().sessionTasks?.[sent[2].sessionId]).toEqual({
+      channelId: 'tc_1',
+      taskId: w,
+      memberId: agentId,
+      wakeup: true,
+    })
+    const shown = pushes()
+      .filter(m => m.id === w)
+      .at(-1) as ChannelTask
+    expect(shown.runs?.at(-1)).toMatchObject({ n: 2, wakeup: { ruleId: rule.id, kind: 'every', silent: 1 } })
+    // 有人追加要求：云端清掉唤醒标记，这一轮照常（不带 [silent] 那句）
+    t.cloud.userPost('u:2', 'tc_1', '再看看日志', [], w)
+    await until(() => sent.length === 4)
+    expect(sent[3].text).toContain('再看看日志')
+    expect(sent[3].text).not.toContain('[silent]')
+    expect(t.store.runs.get(w)?.wakeup).toBeUndefined()
+    expect(t.c.state().sessionTasks?.[sent[3].sessionId]).toBeUndefined()
+  })
+})

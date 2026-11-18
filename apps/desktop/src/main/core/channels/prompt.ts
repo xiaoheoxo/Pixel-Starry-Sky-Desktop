@@ -441,14 +441,15 @@ export function wakeupRequest(input: {
   locale: Locale
   kind: 'at' | 'every' | 'ended'
   text: string
-  target: WakeupTarget
+  /** 盯着的卡；找不到时（团队卡不在缓存、最近的消息里也没有）为 null，不写那几行 */
+  target: WakeupTarget | null
   merged?: boolean
 }): string {
   const text = input.text.trim()
   if (text.startsWith('/')) return text
   const e = en(input.locale)
   const t = input.target
-  const status = (t.kind === 'task' ? STATUS[t.status] : FLOW_STATUS[t.status])[e ? 1 : 0]
+  const status = t ? (t.kind === 'task' ? STATUS[t.status] : FLOW_STATUS[t.status])[e ? 1 : 0] : ''
   const why = e
     ? {
         at: 'It is the time you were asked to come back',
@@ -456,25 +457,26 @@ export function wakeupRequest(input: {
         ended: 'What you were waiting for has ended',
       }
     : { at: '到了约定回来看的时间', every: '定期检查的时间到了', ended: '等着的那件事结束了' }
-  const result = t.result?.trim()
+  const result = t?.result?.trim()
     ? t.result.trim().length > WAKEUP_RESULT_CHARS
       ? `${t.result.trim().slice(0, WAKEUP_RESULT_CHARS)}…`
       : t.result.trim()
     : ''
   const quote = result ? `> ${result.replace(/\n/g, '\n> ')}` : ''
-  const steps = t.kind === 'flow' ? t.steps : []
+  const steps = t?.kind === 'flow' ? t.steps : []
   if (e)
     return [
       `(Wakeup: ${why[input.kind]}.)\n${text}`,
-      [
-        `The card you are watching: ${t.kind === 'flow' ? 'flow ' : ''}"${t.title}" · ${status}${t.owner ? ` · assigned to ${t.owner}` : ''}`,
-        t.summary?.trim() ? `Summary: ${t.summary.trim()}` : '',
-        t.decision?.trim() ? `Waiting for a decision: ${t.decision.trim()}` : '',
-        quote ? `Latest result:\n${quote}` : '',
-        steps.length ? `Steps:\n${steps.join('\n')}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
+      t &&
+        [
+          `The card you are watching: ${t.kind === 'flow' ? 'flow ' : ''}"${t.title}" · ${status}${t.owner ? ` · assigned to ${t.owner}` : ''}`,
+          t.summary?.trim() ? `Summary: ${t.summary.trim()}` : '',
+          t.decision?.trim() ? `Waiting for a decision: ${t.decision.trim()}` : '',
+          quote ? `Latest result:\n${quote}` : '',
+          steps.length ? `Steps:\n${steps.join('\n')}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
       input.merged
         ? ''
         : 'If there is nothing worth reporting, reply with just [silent] (nothing is posted to the channel).',
@@ -483,15 +485,16 @@ export function wakeupRequest(input: {
       .join('\n\n')
   return [
     `（事项唤醒：${why[input.kind]}）\n${text}`,
-    [
-      `盯着的卡：${t.kind === 'flow' ? '流程' : ''}「${t.title}」· ${status}${t.owner ? ` · 负责人 ${t.owner}` : ''}`,
-      t.summary?.trim() ? `摘要：${t.summary.trim()}` : '',
-      t.decision?.trim() ? `等人决定的：${t.decision.trim()}` : '',
-      quote ? `最后的结果：\n${quote}` : '',
-      steps.length ? `步骤：\n${steps.join('\n')}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    t &&
+      [
+        `盯着的卡：${t.kind === 'flow' ? '流程' : ''}「${t.title}」· ${status}${t.owner ? ` · 负责人 ${t.owner}` : ''}`,
+        t.summary?.trim() ? `摘要：${t.summary.trim()}` : '',
+        t.decision?.trim() ? `等人决定的：${t.decision.trim()}` : '',
+        quote ? `最后的结果：\n${quote}` : '',
+        steps.length ? `步骤：\n${steps.join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
     input.merged ? '' : '查完没有要说的，只回复 [silent]（不会发到频道里）。',
   ]
     .filter(Boolean)
