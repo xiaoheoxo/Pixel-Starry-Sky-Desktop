@@ -14,13 +14,15 @@ import { nativeText, windowLocale } from '../app/ui-language'
 import { isPayWindow } from '../app/payWindowRegistry'
 import { sendTo } from '../app/rendererHealth'
 import * as ipc from '../ipc/guard'
-import { requestViaIp, withIpFallback } from './ip-fallback'
+import { isUnreachable, requestViaIp, withIpFallback } from './ip-fallback'
 import {
   CLOUD_ROUTES,
+  FAILURE_PROBE_GAP_MS,
   RECHECK_MS,
   isRouteMode,
   parseSavedRoute,
   pickRoute,
+  probeBeforeLogin,
   probeRoute,
   routeOf,
   type CloudRoute,
@@ -175,6 +177,19 @@ let route: CloudRoute['id'] | null = null
 let mode: RouteMode = 'auto'
 /** 最近一次测速（「关于」页、账号页显示） */
 let lastProbe: ProbeResult[] = []
+let lastProbeAt = 0
+let probing: Promise<void> | null = null
+
+/**
+ * 请求连不上（DNS 失败、拒绝连接、超时）：自动模式下马上重测，不等下一次定时（docs/network-direct.md §8）。
+ * 当前这次请求照样失败，之后新发的请求走测出来的线路
+ */
+function noteUnreachable(e: unknown): void {
+  if (!routingEnabled() || mode !== 'auto' || !isUnreachable(e)) return
+  if (probing || Date.now() - lastProbeAt < FAILURE_PROBE_GAP_MS) return
+  log.warn('云端连不上，马上重测线路', { route, reason: describeError(e) })
+  void probeCloudRoutes()
+}
 
 const routeFile = (): string => join(app.getPath('userData'), 'cloud-route.json')
 
@@ -198,11 +213,17 @@ export function cloudRouteInfo(): {
   return { route: mode === 'auto' ? route : mode, mode, probe: lastProbe }
 }
 
-/** 测一轮；自动模式下按规则换线路，只换之后新发的请求 */
-export async function probeCloudRoutes(): Promise<void> {
-  if (!routingEnabled()) return
+/** 测一轮；自动模式下按规则换线路，只换之后新发的请求。同一时间只测一轮（定时、请求失败、登录前都会触发） */
+export function probeCloudRoutes(): Promise<void> {
+  if (!routingEnabled()) return Promise.resolve()
+  probing ??= doProbe().finally(() => (probing = null))
+  return probing
+}
+
+async function doProbe(): Promise<void> {
   const results = await Promise.all(CLOUD_ROUTES.map(r => probeRoute(r, fetch)))
   lastProbe = results
+  lastProbeAt = Date.now()
   const text = results.map(r => `${r.id} ${r.ms === null ? '不通' : `${r.ms} ms`}`).join(' / ')
   if (mode !== 'auto') return log.info('云端线路（用户指定）', { mode, probe: text })
   const next = pickRoute(route, results)
@@ -217,9 +238,15 @@ export async function probeCloudRoutes(): Promise<void> {
 export async function setCloudRouteMode(next: RouteMode): Promise<ReturnType<typeof cloudRouteInfo>> {
   if (routingEnabled() && next !== mode) {
     log.warn('云端线路模式', { from: mode, to: next })
+    const before = baseUrl()
     mode = next
     saveRoute()
     await probeCloudRoutes()
+    // 正在登录：授权页还开在原来那条线路上（可能正是连不上才换的），按新线路重新打开（docs/network-direct.md §8）
+    if (flow && !flow.done && baseUrl() !== before) {
+      log.warn('登录中切换了线路，重新打开授权页', { to: baseUrl() })
+      void login()
+    }
   }
   return cloudRouteInfo()
 }
@@ -382,6 +409,7 @@ async function http(
       },
     )
   } catch (e) {
+    noteUnreachable(e)
     throw new TransientError(`网络错误：${describeError(e)}`)
   }
 }
@@ -549,7 +577,10 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
     if (!tokens || epoch !== requestEpoch) throw loggedOut()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${tokens.accessToken}`)
-    return fetch(`${baseUrl()}${path}`, { ...init, headers, redirect: 'error' })
+    return fetch(`${baseUrl()}${path}`, { ...init, headers, redirect: 'error' }).catch((e: unknown) => {
+      noteUnreachable(e)
+      throw e
+    })
   }
   const used = tokens?.accessToken
   let res = await send()
@@ -1126,6 +1157,11 @@ async function login(): Promise<void> {
   }
   redirectUri = `http://127.0.0.1:${addr.port}/callback`
 
+  // 自动模式：授权页要开在连得上的线路上，测速旧了或上次测到当前线路不通就先测一轮（最多 5 秒，docs/network-direct.md §8）
+  if (routingEnabled() && mode === 'auto' && probeBeforeLogin(route, lastProbe, lastProbeAt, Date.now())) {
+    await probeCloudRoutes()
+    if (flow !== f) return // 测速期间被取消或重启
+  }
   const authorize = new URL(baseUrl() + '/cli/oauth')
   authorize.search = new URLSearchParams({
     response_type: 'code',

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { CLOUD_ROUTES, SWITCH_MARGIN_MS, parseSavedRoute, pickRoute, probeRoute } from './cloud-route'
+import {
+  CLOUD_ROUTES,
+  LOGIN_PROBE_FRESH_MS,
+  SWITCH_MARGIN_MS,
+  parseSavedRoute,
+  pickRoute,
+  probeBeforeLogin,
+  probeRoute,
+} from './cloud-route'
 
 const r = (id: 'cdn' | 'direct', ms: number | null) => ({ id, ms })
 
@@ -37,5 +45,19 @@ describe('云端线路择优（docs/network-direct.md §3）', () => {
     expect(parseSavedRoute({ route: 'cdn', mode: 'direct' })).toEqual({ route: 'cdn', mode: 'direct' })
     expect(parseSavedRoute({ route: 'x', mode: 'x' })).toEqual({ route: null, mode: 'auto' })
     expect(parseSavedRoute(null)).toEqual({ route: null, mode: 'auto' })
+  })
+})
+
+describe('登录前要不要先测速（docs/network-direct.md §8）', () => {
+  const now = 1_000_000
+  const ok = (id: 'cdn' | 'direct', ms: number | null) => ({ id, ms })
+  it('还没测过、测速超过一分钟要先测', () => {
+    expect(probeBeforeLogin('cdn', [], 0, now)).toBe(true)
+    expect(probeBeforeLogin('cdn', [ok('cdn', 300), ok('direct', 500)], now - LOGIN_PROBE_FRESH_MS, now)).toBe(true)
+  })
+  it('刚测过：当前这条不通要重测（CDN 炸了还停在 CDN），通就直接用', () => {
+    expect(probeBeforeLogin('cdn', [ok('cdn', null), ok('direct', 500)], now - 1_000, now)).toBe(true)
+    expect(probeBeforeLogin('direct', [ok('cdn', null), ok('direct', 500)], now - 1_000, now)).toBe(false)
+    expect(probeBeforeLogin(null, [ok('cdn', 300), ok('direct', 500)], now - 1_000, now)).toBe(false)
   })
 })

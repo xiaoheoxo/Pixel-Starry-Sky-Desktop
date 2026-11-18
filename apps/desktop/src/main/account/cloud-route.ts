@@ -62,6 +62,25 @@ export function pickRoute(current: CloudRoute['id'] | null, results: readonly Pr
 
 export const routeOf = (id: CloudRoute['id']): CloudRoute => CLOUD_ROUTES.find(r => r.id === id)!
 
+/** 登录前测速的结果在这么久内算新的，不用再测 */
+export const LOGIN_PROBE_FRESH_MS = 60_000
+/** 请求连不上触发的重测，最多这么久一次 */
+export const FAILURE_PROBE_GAP_MS = 15_000
+
+/**
+ * 自动模式下开始登录前要不要先测一轮（docs/network-direct.md §8）：授权页在浏览器里打开，开在连不上的线路上
+ * 用户只能干等。还没测过、上次测速太旧、或上次测到当前这条不通时先测
+ */
+export function probeBeforeLogin(
+  current: CloudRoute['id'] | null,
+  probe: readonly ProbeResult[],
+  probedAt: number,
+  now: number,
+): boolean {
+  if (!probe.length || now - probedAt >= LOGIN_PROBE_FRESH_MS) return true
+  return current !== null && probe.some(r => r.id === current && r.ms === null)
+}
+
 /** 用户在账号页选的：auto 按测速择优；cdn / direct 固定走那条，不通也不换（docs/network-direct.md §7） */
 export type RouteMode = 'auto' | CloudRoute['id']
 
