@@ -122,7 +122,7 @@ describe('安装、配置、停用（假的命令和云端）', () => {
     expect(readFileSync(paths.script, 'utf8')).toBe('// helper')
     expect(readAccount(paths.dir)).toMatchObject({ runnerId: 'rn_1', token: 'rn_secret', base: 'https://cloud.test' })
     expect(readFileSync(paths.unit, 'utf8')).toContain('runner run')
-    expect(calls).toContain('systemctl --user enable --now pixelsky-runner.service')
+    expect(calls).toContain('systemctl --user restart pixelsky-runner.service')
     expect(calls).toContain('loginctl enable-linger lin')
     const s = await state(paths, 'lin', exec)
     expect(s).toMatchObject({ installed: true, runnerId: 'rn_1', linger: false })
@@ -132,6 +132,17 @@ describe('安装、配置、停用（假的命令和云端）', () => {
     configure(paths, config)
     expect(() => configure(paths, { ...config, installer: 'dev-B' })).toThrow('另一台电脑装的')
     expect(() => configure(paths, { format: 9 })).toThrow('配置不对')
+
+    // 重新安装（换了一台桌面）：旧配置清掉、服务重启，新桌面推的配置认得
+    calls = []
+    await install(
+      paths,
+      { code: 'C0DE', base: 'https://cloud.test', helper, node: '/usr/bin/node', path: '/usr/bin', user: 'lin' },
+      exec,
+    )
+    expect(existsSync(join(paths.dir, 'config.json'))).toBe(false)
+    expect(calls).toContain('systemctl --user restart pixelsky-runner.service')
+    configure(paths, { ...config, installer: 'dev-B' })
 
     await remove(paths, exec)
     expect(existsSync(paths.unit)).toBe(false)

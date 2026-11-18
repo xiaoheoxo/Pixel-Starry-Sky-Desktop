@@ -94,11 +94,15 @@ export async function install(paths: RunnerPaths, input: InstallInput, exec: Exe
   if (!probe.ok) throw new Error('这台机器没有 systemd 用户服务（容器里或没开 systemd 的 WSL 不行）')
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
   copyFileSync(input.helper, paths.script)
+  // 重新安装（可能换了一台桌面、换了账号）：旧配置不留，等这次装它的桌面推新的
+  rmSync(join(paths.dir, 'config.json'), { force: true })
   const runnerId = await pairWithCode(paths.dir, input.base, input.code, bundleVersion(paths.script))
   writeUnit(paths, input)
   for (const args of [
     ['--user', 'daemon-reload'],
-    ['--user', 'enable', '--now', UNIT_NAME],
+    ['--user', 'enable', UNIT_NAME],
+    // 已经在跑的（重新安装）也重启：旧进程手里还是作废了的令牌
+    ['--user', 'restart', UNIT_NAME],
   ]) {
     const r = await exec('systemctl', args)
     if (!r.ok) throw new Error(`启动执行机失败：${(r.stderr || r.stdout).trim().slice(0, 300)}`)

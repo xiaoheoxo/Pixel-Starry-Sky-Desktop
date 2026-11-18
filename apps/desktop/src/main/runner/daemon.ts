@@ -102,8 +102,14 @@ export async function runDaemon(dir: string, script: string): Promise<(() => Pro
     if (!next) return
     const members = []
     for (const m of next.members) {
-      const project = (await call('engine:addProject', [m.projectPath])) as ProjectRecord
-      members.push(runnerAgent(m, project.id))
+      // 一个成员的项目目录在这台机器上没有：只跳过它，别的成员照常接活
+      try {
+        const project = (await call('engine:addProject', [m.projectPath])) as ProjectRecord
+        members.push(runnerAgent(m, project.id))
+      } catch (e) {
+        process.stderr.write(`执行机加项目失败 ${m.projectPath} ${e instanceof Error ? e.message : String(e)}
+`)
+      }
     }
     // await 之后：配置可能又变了，只用最新的那份
     if (next !== config) return
@@ -192,13 +198,15 @@ export async function runDaemon(dir: string, script: string): Promise<(() => Pro
     const next = nextScript(script)
     if (existsSync(next) && channels?.runnerLoad().running === 0) {
       renameSync(next, script)
-      process.exit(0)
+      // 先好好关掉（运行信息写完盘）再退出
+      void close().finally(() => process.exit(0))
     }
   }, STATUS_EVERY_MS)
-  return async () => {
+  const close = async (): Promise<void> => {
     clearInterval(timer)
     team.stop()
     await channels?.dispose()
     await runtime.close()
   }
+  return close
 }
