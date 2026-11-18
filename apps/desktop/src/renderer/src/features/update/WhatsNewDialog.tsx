@@ -11,6 +11,7 @@ import { Markdown } from '@/ui/markdown/Markdown'
 import {
   countKinds,
   issueUrl,
+  noteWhatsNewShown,
   notesFor,
   olderNotes,
   parseNotes,
@@ -49,6 +50,13 @@ function Dialog({ version, previous, manual }: { version: string; previous: stri
   const notes = useMemo(() => notesFor({ version, previous }), [version, previous])
   const older = useMemo(() => olderNotes({ version, previous }), [version, previous])
   const total = useMemo(() => countKinds(notes.flatMap(n => parseNotes(n.text))), [notes])
+  const logged = useRef(false)
+  useEffect(() => {
+    // StrictMode 下效果会跑两遍，只记一次
+    if (logged.current) return
+    logged.current = true
+    noteWhatsNewShown({ version, previous }, manual, notes.length)
+  }, [version, previous, manual, notes.length])
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null
     done.current?.focus({ preventScroll: true })
@@ -56,7 +64,7 @@ function Dialog({ version, previous, manual }: { version: string; previous: stri
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        whatsNewActions.close()
+        whatsNewActions.close(false, 'esc')
       }
       if (event.key === 'Tab') {
         const items = [...(ref.current?.querySelectorAll<HTMLElement>('button, a[href]') ?? [])]
@@ -88,7 +96,7 @@ function Dialog({ version, previous, manual }: { version: string; previous: stri
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-scrim p-6"
       onMouseDown={event => {
-        if (event.target === event.currentTarget) whatsNewActions.close()
+        if (event.target === event.currentTarget) whatsNewActions.close(false, 'backdrop')
       }}
     >
       <div
@@ -112,7 +120,7 @@ function Dialog({ version, previous, manual }: { version: string; previous: stri
             type="button"
             aria-label={tr('whatsNew.close')}
             title={tr('whatsNew.close')}
-            onClick={() => whatsNewActions.close()}
+            onClick={() => whatsNewActions.close(false, 'x')}
             className="press no-drag -mt-1 -mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg"
           >
             <X size={16} strokeWidth={1.5} />
@@ -148,7 +156,7 @@ function Dialog({ version, previous, manual }: { version: string; previous: stri
           {!manual && (
             <button
               type="button"
-              onClick={() => whatsNewActions.close(true)}
+              onClick={() => whatsNewActions.close(true, 'mute')}
               className="press rounded-md px-3 py-2 text-ui text-fg-secondary hover:bg-hover hover:text-fg"
             >
               {tr('whatsNew.mute')}
@@ -157,7 +165,7 @@ function Dialog({ version, previous, manual }: { version: string; previous: stri
           <button
             ref={done}
             type="button"
-            onClick={() => whatsNewActions.close()}
+            onClick={() => whatsNewActions.close(false, 'done')}
             className="press rounded-md bg-primary px-3 py-2 text-ui font-medium text-primary-fg"
           >
             {tr(manual ? 'whatsNew.close' : 'whatsNew.done')}

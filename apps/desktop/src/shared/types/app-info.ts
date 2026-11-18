@@ -44,6 +44,17 @@ export interface WhatsNew {
   previous: string | null
 }
 
+/**
+ * 界面改「更新内容」的记录：seen 这一版看过了，muted「不再提示」。
+ * via（怎么关的）、from（在哪个窗口改的）只写进日志，排查「更新后没弹」用
+ */
+export interface WhatsNewPatch {
+  seen?: true
+  muted?: boolean
+  via?: 'done' | 'x' | 'esc' | 'backdrop' | 'mute' | 'noNotes'
+  from?: 'main' | 'settingsWindow'
+}
+
 export interface WhatsNewState {
   /** 这次启动要弹；不用弹时为 null */
   pending: WhatsNew | null

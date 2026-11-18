@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { WhatsNewStore } from './whats-new'
+import { WhatsNewStore, whatsNewPatch } from './whats-new'
 
 const dirs: string[] = []
 const fresh = () => {
@@ -49,5 +49,32 @@ describe('更新内容弹窗', () => {
     writeFileSync(join(dir, 'whats-new.json'), '{oops')
     expect(new WhatsNewStore(dir, '0.2.2-beta').pending).toBeNull()
     expect(JSON.parse(readFileSync(join(dir, 'whats-new.json'), 'utf8'))).toEqual({ seen: '0.2.2-beta', muted: false })
+  })
+
+  it('启动日志用的字段：看过的版本、是不是第一次安装', () => {
+    const dir = fresh()
+    const first = new WhatsNewStore(dir, '0.2.2-beta')
+    expect([first.seenAtStart, first.firstInstall]).toEqual([null, true])
+    const next = new WhatsNewStore(dir, '0.2.3-beta')
+    expect([next.seenAtStart, next.firstInstall]).toEqual(['0.2.2-beta', false])
+    const old = fresh()
+    mkdirSync(join(old, 'engine'))
+    const upgraded = new WhatsNewStore(old, '0.2.3-beta')
+    expect([upgraded.seenAtStart, upgraded.firstInstall, upgraded.pending]).toEqual([
+      null,
+      false,
+      { version: '0.2.3-beta', previous: null },
+    ])
+  })
+
+  it('界面传来的改动只留认识的字段', () => {
+    expect(whatsNewPatch({ seen: true, via: 'backdrop', from: 'settingsWindow' })).toEqual({
+      seen: true,
+      via: 'backdrop',
+      from: 'settingsWindow',
+    })
+    expect(whatsNewPatch({ seen: 'yes', muted: 1, via: 'evil', from: 'x' })).toEqual({})
+    expect(whatsNewPatch({ muted: false })).toEqual({ muted: false })
+    expect(whatsNewPatch(null)).toEqual({})
   })
 })

@@ -5,7 +5,8 @@ import { dataRoot } from './data-dir'
 import type { AppInfo, AppLink } from '../../shared/types/app-info'
 import { baseUrl, cloudRouteInfo } from '../account/account'
 import * as ipc from '../ipc/guard'
-import { WhatsNewStore } from './whats-new'
+import { logger } from '@pixelsky/engine'
+import { WhatsNewStore, whatsNewPatch } from './whats-new'
 
 export const REPO_URL = 'https://github.com/xiaoheoxo/Pixel-Starry-Sky-Desktop'
 
@@ -77,17 +78,27 @@ export function initAppInfo(): void {
   )
   // 更新后的「更新内容」（GitHub #13）：开发模式下不弹
   const whatsNew = new WhatsNewStore(app.getPath('userData'), app.getVersion())
-  ipc.handle(
-    'app:whatsNew',
-    () => ({ pending: channel() === 'dev' ? null : whatsNew.pending, muted: whatsNew.muted }),
-    deny,
-  )
+  // 启动时的判断写一条：用户说「更新后没弹」时分得清是关了提示、已经看过，还是该弹没弹
+  const log = logger('app')
+  const dev = channel() === 'dev'
+  log.info('更新内容状态', {
+    version: app.getVersion(),
+    seen: whatsNew.seenAtStart,
+    muted: whatsNew.muted,
+    pending: !dev && !!whatsNew.pending,
+    firstInstall: whatsNew.firstInstall,
+    ...(dev ? { dev } : {}),
+  })
+  ipc.handle('app:whatsNew', () => ({ pending: dev ? null : whatsNew.pending, muted: whatsNew.muted }), deny)
   ipc.handle(
     'app:whatsNewSet',
     (_event, raw: unknown) => {
-      const patch = (raw ?? {}) as { seen?: unknown; muted?: unknown }
-      if (typeof patch.muted === 'boolean') whatsNew.setMuted(patch.muted)
-      if (patch.seen === true) whatsNew.done()
+      const patch = whatsNewPatch(raw)
+      if (patch.muted !== undefined) whatsNew.setMuted(patch.muted)
+      if (patch.seen) whatsNew.done()
+      if (patch.seen)
+        log.info('更新内容已关', { version: app.getVersion(), via: patch.via ?? null, muted: whatsNew.muted })
+      else if (patch.muted !== undefined) log.info('更新内容提示开关', { muted: patch.muted, from: patch.from ?? null })
     },
     deny,
   )

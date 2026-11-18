@@ -2,7 +2,7 @@
 // 打包进界面，不用联网。跳过了几个版本时，把中间每一版的说明都列出来（新的在前）。
 import { useSyncExternalStore } from 'react'
 import { isNewerVersion } from '@pixelsky/protocol'
-import type { WhatsNew, WhatsNewState } from '../../../../shared/types/app-info'
+import type { WhatsNew, WhatsNewPatch, WhatsNewState } from '../../../../shared/types/app-info'
 
 const files = import.meta.glob<string>('../../../../../../../.github/release-notes/v*.md', {
   eager: true,
@@ -169,7 +169,7 @@ export function startWhatsNew(): void {
     (s: WhatsNewState) => {
       // 这一版没写说明（例如自己打的包）就不弹，也记成看过
       const open = s.pending && notesFor(s.pending).length ? s.pending : null
-      if (s.pending && !open) void window.pixelsky?.app.setWhatsNew({ seen: true })
+      if (s.pending && !open) void window.pixelsky?.app.setWhatsNew({ seen: true, via: 'noNotes' })
       state = { open, manual: false, muted: s.muted }
       emit()
     },
@@ -177,22 +177,40 @@ export function startWhatsNew(): void {
   )
 }
 
+/** 当前页面在哪个窗口：写进日志，分得清是主窗口还是独立设置窗口（?view=settings）里点的 */
+const from: NonNullable<WhatsNewPatch['from']> =
+  typeof location !== 'undefined' && new URLSearchParams(location.search).get('view') === 'settings'
+    ? 'settingsWindow'
+    : 'main'
+
+/** 弹窗真的画出来了（WhatsNewDialog 挂上时调）：和主进程的「更新内容状态」「更新内容已关」对着看 */
+export function noteWhatsNewShown(open: WhatsNew, manual: boolean, notes: number): void {
+  window.pixelsky?.log?.write('info', '更新内容弹出', {
+    version: open.version,
+    previous: open.previous,
+    manual,
+    notes,
+    from,
+  })
+}
+
 export const whatsNewActions = {
   /** 关于页「本版更新内容」 */
   show(version: string): void {
+    window.pixelsky?.log?.write('info', '点了本版更新内容', { version, from })
     state = { ...state, open: { version, previous: null }, manual: true }
     emit()
   },
-  /** 关掉弹窗：这一版记成看过；mute 为 true 时以后不再弹 */
-  close(mute = false): void {
+  /** 关掉弹窗：这一版记成看过；mute 为 true 时以后不再弹；via 是怎么关的（只写日志） */
+  close(mute: boolean, via: NonNullable<WhatsNewPatch['via']>): void {
     state = { open: null, manual: false, muted: mute || state.muted }
     emit()
-    void window.pixelsky?.app.setWhatsNew(mute ? { seen: true, muted: true } : { seen: true })
+    void window.pixelsky?.app.setWhatsNew(mute ? { seen: true, muted: true, via } : { seen: true, via })
   },
   setMuted(muted: boolean): void {
     state = { ...state, muted }
     emit()
-    void window.pixelsky?.app.setWhatsNew({ muted })
+    void window.pixelsky?.app.setWhatsNew({ muted, from })
   },
 }
 
