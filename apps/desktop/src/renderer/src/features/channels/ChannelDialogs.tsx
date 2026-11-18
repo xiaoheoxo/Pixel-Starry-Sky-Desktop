@@ -45,6 +45,7 @@ import {
   type ChannelAlertRules,
 } from '../../../../shared/channels/alerts'
 import { MemberTools } from './MemberTools'
+import { useRunners } from '@/features/machines/RunnerRow'
 import { AiFilled, MemberQuickFill } from './MemberQuickFill'
 import { PROMPT_CONTEXT_LIMIT, type AiMemberDraft, type MemberDraftField } from '../../../../shared/types/ai'
 import { formatMultiplier, groupProblem, usePlatformCatalog } from '@/features/account/platform'
@@ -792,7 +793,20 @@ export function AgentDialog({
     })
   }
   // 名字和职责说明（最长 2000 字）是自己打的字、AI 填过表：改过就先问再关
-  const dirty = drafted || quick.typed || name !== initial.name || instructions !== initial.instructions
+  // 团队活由谁接（docs/multica-learn.md §11.7）：成员所在机器设为执行机时才有；null = 没改
+  const runners = useRunners(editing ? 'member' : null)
+  const runner = editing ? runners.list.find(r => r.runnerId && r.machineId === machineOf(projectId)) : undefined
+  const runnerEngine = engine === 'claude' || engine === 'codex'
+  const boundRunner = !!(editing && runner?.members.includes(editing.id))
+  const [onRunner, setOnRunner] = useState<boolean | null>(null)
+  const runnerChoice = onRunner ?? boundRunner
+  const runnerMachine = useMachines().machines.find(m => m.id === runner?.machineId)?.name ?? ''
+  const dirty =
+    drafted ||
+    quick.typed ||
+    name !== initial.name ||
+    instructions !== initial.instructions ||
+    (onRunner !== null && onRunner !== boundRunner)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const copies = useCopies(projectId)
@@ -948,8 +962,8 @@ export function AgentDialog({
   const submit = () => {
     if (!canSave) return
     // async：来源不能用时 settingsForSource 抛的错也走 run 的错误提示
-    run(async () =>
-      channelActions.saveMember(editing ? null : channel.id, {
+    run(async () => {
+      await channelActions.saveMember(editing ? null : channel.id, {
         ...(editing ? { id: editing.id } : {}),
         name,
         engine,
@@ -971,8 +985,14 @@ export function AgentDialog({
           ? { copyPerTask: true }
           : {}),
         ...(sameDir !== 'queue' ? { sameDir } : {}),
-      }),
-    )
+      })
+      // 存好设置再改由谁接：换成别的引擎的不再由执行机接
+      const wantRunner = runnerChoice && runnerEngine && !!runner
+      // 换到别的机器上的成员：原来那台执行机不再接它
+      const boundAny = !!editing && runners.list.some(r => r.members.includes(editing.id))
+      if (editing && (wantRunner ? !boundRunner : boundAny))
+        await window.pixelsky!.channels.bindRunner(editing.id, wantRunner)
+    })
   }
 
   return (
@@ -1330,6 +1350,21 @@ export function AgentDialog({
                   onChange={v => setSameDir(v as SameDirPolicy)}
                 />
                 <span className="text-meta text-fg-faint">{tr('channels.agent.sameDirHint')}</span>
+              </div>
+            )}
+            {editing && runner && runnerEngine && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-meta font-medium text-fg-muted">{tr('runner.member.label')}</span>
+                <Select
+                  label={tr('runner.member.label')}
+                  value={runnerChoice ? 'runner' : 'desktop'}
+                  options={[
+                    { value: 'desktop', label: tr('runner.member.desktop') },
+                    { value: 'runner', label: tr('runner.member.runner', { name: runnerMachine }) },
+                  ]}
+                  onChange={v => setOnRunner(v === 'runner')}
+                />
+                <span className="text-meta text-fg-faint">{tr('runner.member.hint')}</span>
               </div>
             )}
             {!editing?.bound && (

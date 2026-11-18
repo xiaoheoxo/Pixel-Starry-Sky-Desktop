@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EngineEvent, HostEvent, ProjectRecord, SessionSummary } from '@pixelsky/protocol'
 import type { AgentInput, AgentMember, ChannelMessage, ChannelTask } from '../../../shared/types/channels'
 import { ChannelStore } from './store'
-import { Channels, SELF_ID } from './service'
+import { Channels, SELF_ID, UNATTENDED_DENY } from './service'
 import { TeamApi } from './team/api'
 import { FakeCloud, until } from './team/fake-cloud'
 import type { RealtimeStatus, TeamFrame } from './team/realtime'
@@ -18,6 +18,7 @@ let opened: Channels[]
 let emitted: { channel: string; value: unknown }[]
 let sent: { sessionId: string; text: string; clientMessageId: string }[]
 let created: Record<string, unknown>[]
+let answers: unknown[][]
 let sessions: SessionSummary[]
 let now: number
 
@@ -43,6 +44,7 @@ async function open(extra: Partial<ConstructorParameters<typeof Channels>[0]> = 
         sessions.push({ record: { id, projectId: 'p1' }, state: 'idle' } as SessionSummary)
         return { id }
       }
+      if (channel === 'engine:answer') answers.push(args)
       if (channel === 'engine:send')
         sent.push({ sessionId: args[0] as string, ...(args[1] as { text: string; clientMessageId: string }) })
       return null
@@ -103,6 +105,7 @@ beforeEach(async () => {
   emitted = []
   sent = []
   created = []
+  answers = []
   sessions = []
   now = 1_000_000
 })
@@ -912,5 +915,67 @@ describe('事项唤醒：团队卡（docs/multica-learn.md §11.6 团队部分�
     expect(sent[3].text).not.toContain('[silent]')
     expect(t.store.runs.get(w)?.wakeup).toBeUndefined()
     expect(t.c.state().sessionTasks?.[sent[3].sessionId]).toBeUndefined()
+  })
+})
+
+describe('执行机（docs/multica-learn.md §11.7）', () => {
+  it('没人看着：团队活里的权限请求自动拒绝，卡不停在等确认', async () => {
+    const t = await open({ unattended: true })
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    const id = t.cloud.userPost('u:2', 'tc_1', '@前端助手 装依赖', [view.id]).tasks[0].id as string
+    await until(() => sent.length === 1)
+    t.c.hostEvent(
+      ev('s1', {
+        type: 'approval_request',
+        request: { requestId: 'r1', itemId: null, kind: 'command', title: '运行命令', alwaysScopes: [] },
+      }),
+    )
+    await until(() => answers.length === 1)
+    expect(answers[0]).toEqual(['s1', 'r1', { type: 'deny', message: UNATTENDED_DENY }])
+    expect(t.store.runs.get(id)?.phase).toBe('sent')
+  })
+
+  it('成员改由执行机接：团队频道的登记改「由谁接」，改回这台电脑', async () => {
+    const t = await open()
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const reg = () => t.cloud.agents.filter(a => a.local_id === member)
+    expect(reg()[0].executor).toBe('dev-A')
+    await t.c.bindRunner(member, 'rn_1')
+    await until(() => t.c.runnerMembers('rn_1').length === 1)
+    expect(reg().map(a => a.executor)).toEqual(['rn_1'])
+    // 不能给像素星空引擎的成员绑
+    const pixel = await t.c.saveMember(null, agent('写手', { engine: 'pixel' }))
+    await expect(t.c.bindRunner(pixel, 'rn_1')).rejects.toThrow('只能跑 Claude Code / Codex')
+    await t.c.bindRunner(member, null)
+    await until(() => t.c.runnerMembers('rn_1').length === 0)
+    expect(reg().map(a => a.executor)).toEqual(['dev-A'])
+  })
+
+  it('同时最多跑几件：满了排着，做完一件再开下一件（不同成员也算）', async () => {
+    const t = await open({ maxRunning: 1 })
+    await t.online()
+    const ids: string[] = []
+    for (const name of ['前端助手', '后端助手']) {
+      const member = await t.c.saveMember(null, agent(name))
+      await t.c.addMember('tc_1', member)
+      const view = t.c
+        .state()
+        .members.find(m => m.kind === 'agent' && m.name === name && (m as AgentMember).teamAgentId) as AgentMember
+      await t.c.setAgentPolicy('tc_1', view.id, 'team')
+      ids.push(view.id)
+    }
+    t.cloud.userPost('u:2', 'tc_1', '@前端助手 第一件', [ids[0]])
+    t.cloud.userPost('u:2', 'tc_1', '@后端助手 第二件', [ids[1]])
+    await until(() => sent.length === 1)
+    await new Promise(r => setTimeout(r, 60))
+    expect(sent).toHaveLength(1)
+    complete(t.c, sent[0].sessionId, sent[0].clientMessageId, '做完了')
+    await until(() => sent.length === 2)
   })
 })

@@ -128,6 +128,11 @@ export const IPC_CONTRACT = {
   'channels:update': { kind: 'invoke', route: 'local', trust: 'sender' },
   // 事项唤醒（docs/multica-learn.md §11.6）：挂 / 取消规则；只有本机频道
   'channels:wakeup': { kind: 'invoke', route: 'local', trust: 'sender' },
+  // 执行机（docs/multica-learn.md §11.7）：机器页的执行机一行、设为执行机 / 停用、成员的团队活由谁接；只在本机
+  'channels:runners': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:runnerInstall': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:runnerRemove': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:bindRunner': { kind: 'invoke', route: 'local', trust: 'sender' },
   'editor:changed': { kind: 'push', route: 'push', trust: 'none' },
   'editor:choose': { kind: 'invoke', route: 'local', trust: 'sender' },
   'editor:open': { kind: 'invoke', route: 'selected', picker: true, trust: 'sender' },

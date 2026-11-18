@@ -1,4 +1,4 @@
-import { homedir, hostname, platform, arch } from 'node:os'
+import { homedir, hostname, platform, arch, userInfo } from 'node:os'
 import { basename, join, dirname } from 'node:path'
 import { mkdir, writeFile } from 'node:fs/promises'
 import {
@@ -26,6 +26,8 @@ import type { WorkspaceRef } from '../../shared/types/workspace'
 import { TunnelEnd, type TunnelPeer } from './tunnel'
 import { collectStats } from './stats'
 import { REMOTE_CLI_NODE_MIN, remoteCliSupported } from './remote-cli'
+import { configure, execCommand, install, remove, runnerPaths, stageUpgrade, state, writeUnit } from '../runner/install'
+import { bundleVersion } from '../runner/files'
 
 /**
  * 桌面端没把像素星空命令行装到这台机器上时为什么（ssh.ts / wsl.ts 的 installCli 按同样的条件跳过）：
@@ -60,6 +62,11 @@ type HelperMethod =
   | 'tunnel:listen'
   | 'tunnel:connect'
   | 'stats'
+  | 'runner:install'
+  | 'runner:configure'
+  | 'runner:state'
+  | 'runner:upgrade'
+  | 'runner:remove'
 
 export async function createRemoteRuntime(
   peer: TunnelPeer,
@@ -174,6 +181,42 @@ export async function createRemoteRuntime(
     'platform:compaction': (id, report) => host.compactionRequest(id, report),
     ...tunnel.methods,
     stats: () => collectStats(),
+    // 执行机（docs/multica-learn.md §11.7）：桌面经 SSH 在这台机器上装、配置、查看、升级、停用。
+    // 返回值里不用 id / taskId / sessionId 这类字段名（machines/identity.ts 会给它们加机器前缀）
+    'runner:install': (input: unknown) => {
+      const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+      if (typeof o.code !== 'string' || typeof o.base !== 'string' || !/^https?:\/\//.test(o.base))
+        throw new Error('执行机配对参数不对')
+      return install(
+        runnerPaths(),
+        {
+          code: o.code,
+          base: o.base.replace(/\/+$/, ''),
+          helper: process.argv[1],
+          node: process.execPath,
+          path: process.env.PATH ?? '',
+          user: userInfo().username,
+        },
+        execCommand,
+      )
+    },
+    'runner:configure': (config: unknown) => {
+      configure(runnerPaths(), config)
+      return true
+    },
+    'runner:state': async () => {
+      const paths = runnerPaths()
+      const s = await state(paths, userInfo().username, execCommand)
+      // 桌面每次连上核对一次单元文件：node 换了位置（nvm 换版本）要重写，下次重启生效
+      if (s.installed && writeUnit(paths, { node: process.execPath, path: process.env.PATH ?? '' }))
+        await execCommand('systemctl', ['--user', 'daemon-reload'])
+      return { ...s, helper: bundleVersion(process.argv[1]) }
+    },
+    'runner:upgrade': () => {
+      stageUpgrade(runnerPaths(), process.argv[1])
+      return true
+    },
+    'runner:remove': () => remove(runnerPaths(), execCommand),
   }
   const methods: Record<string, Handler> = { ...helperMethods, ...contractMethods }
   return {

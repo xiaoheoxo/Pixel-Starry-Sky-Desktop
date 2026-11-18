@@ -1,3 +1,4 @@
+import type { RunnerView } from '../shared/types/runner'
 import type {
   AgentInput,
   ChannelAttachments,
@@ -97,6 +98,14 @@ export interface ChannelsBridge {
    * 一张卡上的全部（on，看板事项验收完时用）
    */
   wakeup(channelId: string, op: WakeupOp): Promise<{ id?: string }>
+  /** 执行机（docs/multica-learn.md §11.7）：每台 Linux 的 SSH / WSL 机器一条 */
+  runners(): Promise<RunnerView[]>
+  /** 把这台机器设为执行机（要连着）；linger 没开时机器页提示 sudo loginctl enable-linger */
+  runnerInstall(machineId: string): Promise<{ runnerId: string; linger: boolean }>
+  /** 停用：绑它的成员改回这台电脑接，云端作废令牌，连着时停掉服务 */
+  runnerRemove(machineId: string): Promise<void>
+  /** 成员的团队活由它所在机器上的执行机接（on），或这台电脑接 */
+  bindRunner(memberId: string, on: boolean): Promise<void>
   /** 搜频道消息（§3.1 #8）：新的在前；projectId 只搜默认项目是它的频道 */
   search(text: string, opts?: { limit?: number; projectId?: string | null }): Promise<ChannelSearchResult>
   delete(id: string): Promise<void>

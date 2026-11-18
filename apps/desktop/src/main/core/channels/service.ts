@@ -285,6 +285,13 @@ export interface ChannelsDeps {
   deviceId?: string
   /** Phase C：登记 AI 成员时给别人看的机器名 */
   machineName?: () => string
+  /**
+   * 没人看着（执行机，docs/multica-learn.md §11.7、§12 第 12 问）：团队活的权限请求自动拒绝、这一轮接着做，
+   * 卡上写明；桌面不传
+   */
+  unattended?: boolean
+  /** 同时最多跑几件活（执行机写死 4）；不传不限 */
+  maxRunning?: number
   /** 测试里调小团队写回的节流 / 上报间隔 */
   teamTiming?: { progressMs?: number; statusMs?: number }
   /** 生成的图放进频道前整理（主进程的 fitImage：补宽高、超限转 JPEG，docs/ui/channel-image-gen.md）；没接时只收放得下的 */
@@ -335,6 +342,10 @@ export interface ChannelsDeps {
     ): Promise<{ url: string; number?: number | null }>
   }
 }
+
+/** 执行机自动拒绝权限请求时给引擎的原因（给 AI 看的，不进界面） */
+export const UNATTENDED_DENY =
+  'Denied automatically: this task runs on an unattended PixelSky runner and nobody can approve requests. Continue without this action, or finish and state in your reply what needs approval.'
 
 const terminal = (status: ChannelTask['status']): boolean =>
   status === 'done' || status === 'failed' || status === 'stopped'
@@ -530,6 +541,11 @@ export class Channels {
 
   private member(id: string): AgentConfig | undefined {
     return this.store.members.find(m => m.id === id)
+  }
+
+  /** 成员设置（执行机绑定按它所在的机器找执行机，channels/runner.ts） */
+  memberConfig(id: string): AgentConfig | null {
+    return this.member(id) ?? null
   }
 
   private projectPath(member: AgentConfig): string {
@@ -2296,6 +2312,9 @@ export class Channels {
     })
     this.changed()
     if (busy || !waiting.length) return
+    // 执行机同时最多跑几件（§11.7）：满了就等别的做完（finish 里会再排一次）
+    const cap = this.deps.maxRunning
+    if (cap && [...this.store.runs.values()].filter(r => r.phase === 'sent').length >= cap) return
     const next = this.dirCheck(waiting[0])
     if (next) await this.start(next)
   }
@@ -2720,6 +2739,8 @@ export class Channels {
     this.prune()
     void this.pump(run.memberId)
     this.pumpDirWaiters(run.memberId)
+    // 执行机限了同时跑几件：空出一个位子，别的成员排着的也能开始
+    if (this.deps.maxRunning) for (const m of this.store.members) if (m.id !== run.memberId) void this.pump(m.id)
   }
 
   /**
@@ -5786,6 +5807,17 @@ export class Channels {
               })
             continue
           }
+          if (ev.type === 'approval_request' && run.team && this.deps.unattended) {
+            // 执行机上没人能确认：拒绝，引擎收到原因自己想办法或停下
+            void this.deps
+              .call('engine:answer', [
+                event.sessionId,
+                ev.request.requestId,
+                { type: 'deny', message: UNATTENDED_DENY },
+              ])
+              .catch(e => this.deps.log?.('执行机自动拒绝权限请求失败', e))
+            continue
+          }
           this.apply(run, trackEvent(run, event.event, this.now()))
           const latest = this.store.runs.get(run.taskId)
           if (latest && !latest.team) this.conflictCheck(latest, event)
@@ -5812,6 +5844,21 @@ export class Channels {
   }
 
   /** 机器连上 / 断开（machines:changed） */
+  /** 执行机的负载：在做的、排着的（写进 status.json 给桌面看） */
+  runnerLoad(): { running: number; queued: number } {
+    const runs = [...this.store.runs.values()]
+    return {
+      running: runs.filter(r => r.phase === 'sent').length,
+      queued: runs.filter(r => r.phase === 'waiting').length,
+    }
+  }
+
+  /** 成员表从外面换了（执行机收到桌面推来的新配置）：重新排一次 */
+  membersChanged(): void {
+    this.changed()
+    for (const m of this.store.members) void this.pump(m.id)
+  }
+
   machinesChanged(): void {
     const machines = this.deps.machines()
     const down = new Set(machines.filter(m => m.id !== 'local' && !m.connected).map(m => m.id))
@@ -6035,6 +6082,8 @@ export class Channels {
     policy: AgentPolicy,
     /** 「指定的人直接派」的名单；不带就不改 */
     allow?: string[],
+    /** 改由谁接（执行机 id，或这台桌面的设备 id）；不带时已经绑了执行机的不改 */
+    executor?: string,
   ): Promise<void> {
     if (info.role === 'observer') throw new Error('观察者不能添加 AI 成员')
     const config = this.member(localId)
@@ -6042,8 +6091,12 @@ export class Channels {
     const project = this.deps.projects().find(p => p.id === config.projectId)
     const machine = this.machineLabel(config.machineId)
     const team = this.requireTeam()
-    // 由这台电脑接（docs/multica-learn.md §11.7，同一账号的另一台桌面就不会去认领）；已经绑了执行机的不在这里改
-    const bound = team.agentsOfLocal(config.id).find(a => a.channelId === channelId)?.executor
+    // 由这台电脑接（docs/multica-learn.md §11.7，同一账号的另一台桌面就不会去认领）。这个频道里已经绑了执行机的
+    // 不带（云端停用执行机时会改回来，别拿本机记着的旧 id 又绑回去）；新加进的频道跟着别的频道里绑的那台执行机
+    const regs = team.agentsOfLocal(config.id)
+    const here = regs.find(a => a.channelId === channelId)
+    const runner = regs.find(a => isRunnerId(a.executor))?.executor
+    const keep = !executor && isRunnerId(here?.executor)
     const reg: AgentRegistration = {
       name: config.name,
       engine: config.engine,
@@ -6052,9 +6105,47 @@ export class Channels {
       project: project?.name ?? '',
       policy,
       ...(allow ? { allow } : {}),
-      ...(isRunnerId(bound) ? {} : { executor: this.deps.deviceId ?? 'device' }),
+      ...(keep ? {} : { executor: executor ?? (here ? null : runner) ?? this.deps.deviceId ?? 'device' }),
     }
     await team.putAgent(info.teamId, channelId, config.id, reg)
+  }
+
+  /**
+   * 这个成员的团队活改由执行机接（runnerId），或改回这台桌面（null）（docs/multica-learn.md §11.7）：
+   * 它在每个团队频道里的登记都重新写一遍「由谁接」，派活规则、名单不变
+   */
+  async bindRunner(memberId: string, runnerId: string | null): Promise<void> {
+    const team = this.requireTeam()
+    const config = this.member(memberId)
+    if (!config) throw new Error('成员不存在')
+    if (runnerId && config.engine !== 'claude' && config.engine !== 'codex')
+      throw new Error('执行机上只能跑 Claude Code / Codex 的成员')
+    const me = team.getMe()?.id
+    for (const agent of team.agentsOfLocal(memberId)) {
+      if (agent.owner !== me) continue
+      const info = team.channelInfo(agent.channelId)
+      if (!info) continue
+      await this.registerAgent(
+        info,
+        agent.channelId,
+        memberId,
+        agent.policy,
+        agent.allow,
+        runnerId ?? this.deps.deviceId ?? 'device',
+      )
+    }
+  }
+
+  /** 团队活绑在这台执行机上的我的成员（云端登记的「由谁接」是它） */
+  runnerMembers(runnerId: string): AgentConfig[] {
+    const team = this.deps.team
+    if (!team) return []
+    return this.store.members.filter(m => team.agentsOfLocal(m.id).some(a => a.executor === runnerId))
+  }
+
+  /** 队友派来的活的限制（推给执行机用） */
+  teammateRules(): TeammateRules {
+    return this.store.teammate
   }
 
   /** 团队频道里我的 AI 成员谁能派活（docs/multica-learn.md §4、§11.3）；listed 时 allow 是能直接派的人 */

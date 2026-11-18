@@ -24,7 +24,19 @@ const tableKeys = (file: string, text: string, pattern: RegExp): string[] =>
   })
 
 /** 远端方法表里不对应任何通道的辅助方法：握手，以及远端 → 本机会话回调用的平台请求。 */
-const HELPER_METHODS = ['hello', 'platform:request', 'platform:record', 'platform:compaction', 'stats']
+const HELPER_METHODS = [
+  'hello',
+  'platform:request',
+  'platform:record',
+  'platform:compaction',
+  'stats',
+  // 执行机（docs/multica-learn.md §11.7）：桌面的 machines 服务直接调，不对应 IPC 通道
+  'runner:install',
+  'runner:configure',
+  'runner:state',
+  'runner:upgrade',
+  'runner:remove',
+]
 
 const walk = (dir: string): string[] =>
   readdirSync(dir).flatMap(name => {

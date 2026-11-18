@@ -19,6 +19,7 @@ import { TeamSync } from '../core/channels/team/sync'
 import { ChannelStore } from '../core/channels/store'
 import { Channels, type MachineLite } from '../core/channels/service'
 import { channelToolsServer } from './channel-mcp'
+import { initRunners } from './runner'
 import { fitImage } from '../image/fit'
 import { cancelCloudImage, startCloudImage } from '../image/job'
 import { cloudImageArgs } from '../core/image/cloud-image'
@@ -236,6 +237,15 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   // 频道工具（pixelsky_channel）：频道派活的本机会话发消息前由扩展准备挂上（docs/ui/channels-collab-v2.md §1）
   ctx.dispatchIssue = (channelId, issue) => channels.dispatchIssue(channelId, issue)
   ctx.channels = channels
+  initRunners(ctx, {
+    channels,
+    team,
+    deviceId,
+    dir,
+    selfName,
+    locale: () => (windowLocale() === 'en-US' ? 'en-US' : 'zh-CN'),
+    log: (message, error) => log.warn(message, error ? { error: describeError(error) } : undefined),
+  })
   const tools = channelToolsServer(() => channels)
   ctx.channelTools = tools
   app.on('will-quit', () => tools.close())

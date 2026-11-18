@@ -19,6 +19,7 @@ import { demo } from '@/data/demo'
 import { getFiles } from '@/features/files/store'
 import { confirmFiles } from '@/features/files/FileConfirm'
 import { useUnsavedCheck } from '@/features/settings/unsavedEdits'
+import { RunnerRow, useRunners } from './RunnerRow'
 
 const FIELD =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg outline-none focus:border-accent-line'
@@ -151,6 +152,8 @@ export function MachineDialogs() {
     setChecked(new Set())
   }
   const current = state.machines.find(m => m.id === state.currentId)
+  // 执行机（docs/multica-learn.md §11.7）：机器页打开时读，连上 / 断开时重读
+  const runners = useRunners(view === 'machines' ? state.machines.map(m => m.status).join() : null)
   if (!view) return null
   return (
     <>
@@ -252,6 +255,13 @@ export function MachineDialogs() {
                       </>
                     )}
                   </div>
+                  {machine.id !== 'local' && (
+                    <RunnerRow
+                      machine={machine}
+                      view={runners.list.find(r => r.machineId === machine.id)}
+                      reload={runners.reload}
+                    />
+                  )}
                 </div>
               ))}
             {!form ? (

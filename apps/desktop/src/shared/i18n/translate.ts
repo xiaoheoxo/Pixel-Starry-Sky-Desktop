@@ -98,6 +98,7 @@ import { agentsSettingsMessages } from './agentsSettingsMessages'
 import { channelLimitsMessages } from './channelLimitsMessages'
 import { channelLandUiMessages } from './channelLandUiMessages'
 import { wakeupMessages } from './wakeupMessages'
+import { runnerMessages } from './runnerMessages'
 import { replaceCodedErrors } from '@pixelsky/protocol'
 import type { Locale } from './messages'
 
@@ -203,6 +204,7 @@ export const allMessages = {
   ...channelLimitsMessages,
   ...channelLandUiMessages,
   ...wakeupMessages,
+  ...runnerMessages,
 }
 export type TranslationKey = keyof typeof allMessages
 

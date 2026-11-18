@@ -72,6 +72,8 @@ export interface TeamSyncDeps {
   log?: (message: string, error?: unknown) => void
   /** 我自己的 AI 成员在本机的情况（状态、配置、会话）；没有就只用云端登记的信息 */
   localAgent?: (localId: string) => Partial<AgentMember> | undefined
+  /** false：不拉收件箱（执行机的令牌不能读收件箱，docs/multica-learn.md §11.7） */
+  inbox?: boolean
 }
 
 interface Cache {
@@ -410,6 +412,7 @@ export class TeamSync {
 
   /** 拉一次收件箱（连上、重拉总览时）；失败只记日志，留着上次的 */
   private async loadInbox(epoch: number): Promise<void> {
+    if (this.deps.inbox === false) return
     let items: TeamInboxItem[] | null
     const fresh = new Map<string, TeamInboxItem>()
     this.inboxFresh = fresh
