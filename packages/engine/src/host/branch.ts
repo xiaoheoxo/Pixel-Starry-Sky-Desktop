@@ -312,6 +312,11 @@ export class HostBranch {
     // 留着回退前的条目文件：撤销时放回的条目从它补回截掉的大字段
     ctx.store.replaceItems(id, kept, { keepOld: true })
     m.events.apply(id, { type: 'items_truncated', fromItemId: userItemId })
+    // 被截掉的消息在队列里还留着发送失败 / 待核对的卡：一起清掉（原文已经放回输入框，留着的卡关不掉，只能重试或撤回）
+    const cut = new Set(users.map(item => item.id))
+    for (const q of rt.snapshot.queue)
+      if ((q.status === 'failed' || q.status === 'uncertain') && q.messageUuid && cut.has(q.messageUuid))
+        m.queue.removeQueue(id, q.id, 'cancelled')
     m.cache.reset(id)
     // Missing native records must never silently preserve the discarded context.
     let patch: Partial<SessionRecord>

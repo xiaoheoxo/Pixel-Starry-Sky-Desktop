@@ -143,6 +143,23 @@ describe('消息队列：调度与恢复', () => {
       attachments: [image],
     })
   })
+  it('回退掉发送失败的消息：队列里那张失败卡一起清掉（以前留下的卡点「关掉」报「还没发出去」）', async () => {
+    const { host, adapter, record, send } = setup()
+    await send('m1', '一')
+    await until(() => !!adapter.sessions[0]?.active)
+    adapter.sessions[0].finish('completed')
+    await until(() => host.open(record.id).state === 'idle')
+    await send('m2', '二')
+    await until(() => !!adapter.sessions[0]?.active)
+    adapter.sessions[0].finish('failed')
+    await until(() => host.open(record.id).queue[0]?.status === 'failed')
+    await expect(host.rewind(record.id, 'm2', { conversation: true, code: false })).resolves.toMatchObject({
+      text: '二',
+    })
+    const s = host.open(record.id)
+    expect(s.items.some(i => i.id === 'm2')).toBe(false)
+    expect(s.queue).toEqual([])
+  })
   it('文本文件：接在消息后面发给引擎，对话和队列里单独保留，重启恢复不丢', async () => {
     const { host, adapter, record } = setup()
     const file: FileAttachment = {
