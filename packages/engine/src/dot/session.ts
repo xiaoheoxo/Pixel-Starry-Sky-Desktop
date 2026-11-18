@@ -8,17 +8,20 @@ import type {
   WorkflowRun,
 } from '@pixelsky/protocol'
 import type { ChatSeed } from '../chat-log'
-import { DOT_FILE_LIMIT } from './client'
+import { DOT_FILE_LIMIT, dotRetryable } from './client'
 import type { EngineSession, SessionContext } from '../adapter'
 import type { DotClient, DotIdentity, DotMessage, DotWorkflow } from './client'
 
 export interface DotSessionOptions {
   pollMs?: number
   replyTimeoutMs?: number
+  /** 读取出错后隔多久再试，试完这几次还不行才报错 */
+  retryMs?: readonly number[]
   acquire?: (dot: DotIdentity) => () => void
 }
 
 const terminal = (status: DotWorkflow['status']) => ['completed', 'failed', 'interrupted'].includes(status)
+const RETRY_MS: readonly number[] = [1500, 3000, 6000, 12_000]
 
 /** Chat and delegated work have separate lifetimes. Closing only detaches the local client. */
 export class DotSession implements EngineSession {
@@ -109,7 +112,8 @@ export class DotSession implements EngineSession {
       for (;;) {
         signal.throwIfAborted()
         if (Date.now() >= deadline) throw new Error('Dot reply wait timed out; check ChatGPT before continuing')
-        const messages = await this.client.messages(dot, after, signal)
+        const from = after
+        const messages = await this.poll(() => this.client.messages(dot, from, signal), signal)
         for (const m of messages) {
           after = m.id
           if (m.account_user_id !== dot.memberId || m.deleted_at || emitted.has(m.id)) continue
@@ -131,7 +135,7 @@ export class DotSession implements EngineSession {
                 await this.refresh(dot, m, attachment.thread_id, signal)
               } catch {
                 signal.throwIfAborted()
-                this.monitorNotice(dot, attachment.thread_id)
+                this.monitorNotice(attachment.thread_id)
               }
               this.watch(dot, m, attachment.thread_id)
             } else {
@@ -141,7 +145,7 @@ export class DotSession implements EngineSession {
                   id: `dot-attachment-${m.id}`,
                   kind: 'notice',
                   level: 'info',
-                  text: `View the Dot attachment in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+                  text: 'View the Dot attachment in ChatGPT',
                 },
               })
             }
@@ -153,12 +157,12 @@ export class DotSession implements EngineSession {
                 id: `dot-approval-${m.id}`,
                 kind: 'notice',
                 level: 'info',
-                text: `Dot needs your input in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+                text: 'Dot needs your input in ChatGPT',
               },
             })
         }
         if (received) {
-          const activity = await this.client.activity(dot, signal)
+          const activity = await this.poll(() => this.client.activity(dot, signal), signal)
           if (activity === 'systemError') throw new Error('Dot reported a system error; open ChatGPT')
           if (activity === 'idle') break
         }
@@ -185,6 +189,23 @@ export class DotSession implements EngineSession {
     }
   }
 
+  /**
+   * 读取类请求（查新消息、查状态、查任务）出错：连不上、5xx、429 隔一会儿再试，别的错马上报。
+   * 发送不走这里：失败的回应也可能已经送达，不能重发
+   */
+  private async poll<T>(read: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    const waits = this.options.retryMs ?? RETRY_MS
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await read()
+      } catch (error) {
+        signal.throwIfAborted()
+        if (attempt >= waits.length || !dotRetryable(error)) throw error
+        await delay(waits[attempt], undefined, { signal })
+      }
+    }
+  }
+
   private background(): number {
     return [...this.watches.keys()].filter(
       id => !['completed', 'failed', 'interrupted'].includes(this.workflows.get(id)?.status ?? ''),
@@ -192,7 +213,7 @@ export class DotSession implements EngineSession {
   }
 
   private async refresh(dot: DotIdentity, card: DotMessage, id: string, signal: AbortSignal): Promise<boolean> {
-    const task = await this.client.workflow(dot, card, id, signal)
+    const task = await this.poll(() => this.client.workflow(dot, card, id, signal), signal)
     this.workflows.set(id, {
       id,
       name: task.title,
@@ -205,7 +226,8 @@ export class DotSession implements EngineSession {
       toolCalls: 0,
       phases: [],
       agents: [],
-      toolUseId: null,
+      // 派出这个任务的那条 Dot 消息（会话里的条目 id）：界面把任务卡片放在它下面
+      toolUseId: `dot-${card.id}`,
     })
     this.ctx.emit({ type: 'runs', runs: { workflows: [...this.workflows.values()], agents: [] } })
     this.ctx.emit({ type: 'background', count: this.background() })
@@ -216,20 +238,20 @@ export class DotSession implements EngineSession {
           id: `dot-input-${id}`,
           kind: 'notice',
           level: 'info',
-          text: `Dot workflow needs your input in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+          text: 'Dot workflow needs your input in ChatGPT',
         },
       })
     return terminal(task.status)
   }
 
-  private monitorNotice(dot: DotIdentity, id: string): void {
+  private monitorNotice(id: string): void {
     this.ctx.emit({
       type: 'item_completed',
       item: {
         id: `dot-watch-${id}`,
         kind: 'notice',
         level: 'warn',
-        text: `Dot workflow status unavailable. Review it in ChatGPT: https://chatgpt.com/dots/${encodeURIComponent(dot.id)}`,
+        text: 'Dot workflow status unavailable. Review it in ChatGPT',
       },
     })
   }
@@ -249,7 +271,7 @@ export class DotSession implements EngineSession {
           if (await this.refresh(dot, card, id, signal)) return
         }
       } catch {
-        if (!signal.aborted) this.monitorNotice(dot, id)
+        if (!signal.aborted) this.monitorNotice(id)
       } finally {
         this.watches.delete(id)
         if (!signal.aborted) this.ctx.emit({ type: 'background', count: this.background() })

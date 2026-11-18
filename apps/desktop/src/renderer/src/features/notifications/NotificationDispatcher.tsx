@@ -117,6 +117,37 @@ export function NotificationDispatcher() {
       const intent = notificationFor(event)
       if (intent) deliver(intent)
     })
+    // Dot 在两轮之间发来的新消息（docs/ui/dot-optimize.md §7 #3）：走「任务完成」的开关、勿扰、前台规则，点开回到那个对话
+    const offDot = bridge.dotChat?.onChange?.(({ notice }) => {
+      if (!notice) return
+      const decision = decide(
+        {
+          kind: 'completed',
+          sessionId: notice.sessionId,
+          dedupeKey: `dot:${notice.key}:${notice.messageId}`,
+          detail: null,
+        },
+        {
+          prefs: getNotificationPrefs(),
+          focused: document.hasFocus(),
+          viewing: isViewingSession(notice.sessionId),
+          now: Date.now(),
+        },
+        state,
+      )
+      if (!decision.show) return
+      const preview = notice.preview.replace(/\s+/g, ' ').trim()
+      void bridge.notifications
+        .show({
+          id: `dot-${notice.key}`,
+          title: clip(notice.name, 120),
+          body: clip(preview || tr('dot.newMessage'), 300),
+          sessionId: notice.sessionId,
+          sound: getNotificationPrefs().sound,
+          attention: false,
+        })
+        .catch(() => {})
+    })
     // 崩溃后重新加载：恢复期间丢掉的审批请求，等会话列表到了补一次（只补一次）
     let offRecovered: (() => void) | undefined
     if (recovered) {
@@ -148,6 +179,7 @@ export function NotificationDispatcher() {
     })
     return () => {
       offEvents()
+      offDot?.()
       offRecovered?.()
       offClicks()
       for (const timer of settling.values()) clearTimeout(timer)

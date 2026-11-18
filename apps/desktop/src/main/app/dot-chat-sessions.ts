@@ -1,12 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { stat } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { rmSync } from 'node:fs'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, isAbsolute, join } from 'node:path'
 import { DOT_FILE_LIMIT } from '@pixelsky/engine'
 import type { EngineHost } from '@pixelsky/engine'
 import type { FileAttachment, SessionSnapshot } from '@pixelsky/protocol'
 import { CHAT_PROJECT_ID, supportsChatGptDot } from '@pixelsky/protocol'
-import type { DotCatalogState, DotEntry } from '../../shared/types/dot-chat'
+import type { DotChatMessage } from '@pixelsky/engine'
+import type { DotCatalogState, DotChatChange, DotEntry } from '../../shared/types/dot-chat'
+import { safeFileName } from '../../shared/safeFileName'
 import { readWindowFile, mergeWindowFile } from './windowFile'
+
+/** 界面这么久内读过这个 Dot，后台就不再查 */
+export const DOT_POLL_SKIP_MS = 50_000
+/** 粘贴进来的内容按 base64 传：20 MiB 对应的长度上限 */
+const BASE64_LIMIT = Math.ceil(DOT_FILE_LIMIT / 3) * 4
 
 /** 只保存账号引用与 Dot 身份。登录、凭据及刷新全部交给引擎的 Codex 账号库。 */
 export class DotChatSessions {
@@ -18,11 +26,28 @@ export class DotChatSessions {
   private readonly file: string
   private readonly knownFiles = new Map<string, Set<string>>()
   private readonly selected = new Map<string, Map<string, FileAttachment>>()
+  /** 看过的最新一条 Dot 消息的时间（键 → createdAt），存盘；没有记录的第一次读当基线 */
+  private seen: Record<string, number> = {}
+  /** 有没看过的新消息的 Dot：键 → 那条消息的 id */
+  private readonly unread = new Map<string, string>()
+  private readonly readAt = new Map<string, number>()
+  /** 粘贴进来存成的临时文件夹：键 → 目录 */
+  private readonly temps = new Map<string, Set<string>>()
+  private polling = false
+  /** 未读变了（主进程广播给界面） */
+  onChange: ((change: DotChatChange) => void) | null = null
   constructor(
     private readonly host: EngineHost,
     private readonly root: string,
+    private readonly now: () => number = Date.now,
   ) {
     this.file = join(root, 'dot-chats.json')
+    // 上次运行留下的粘贴临时文件：没发出去的已经没用了
+    try {
+      rmSync(this.uploads(), { recursive: true, force: true })
+    } catch {
+      /* 删不掉就留着，下次再删 */
+    }
     const saved = readWindowFile(this.file)
     if (Array.isArray(saved.entries))
       this.entries = saved.entries.filter(
@@ -35,9 +60,22 @@ export class DotChatSessions {
       this.sessions = Object.fromEntries(
         Object.entries(saved.sessions).filter(([, id]) => typeof id === 'string'),
       ) as Record<string, string>
+    if (saved.seen && typeof saved.seen === 'object')
+      this.seen = Object.fromEntries(
+        Object.entries(saved.seen).filter(([, at]) => typeof at === 'number' && Number.isFinite(at)),
+      ) as Record<string, number>
+  }
+  private uploads(): string {
+    return join(this.root, 'dot-uploads')
+  }
+  private save(): void {
+    mergeWindowFile(this.file, { entries: this.entries, sessions: this.sessions, seen: this.seen })
+  }
+  private state(): DotCatalogState {
+    return { eligible: this.eligible, entries: this.entries, errors: this.errors, unread: [...this.unread.keys()] }
   }
   catalog(refresh = false): Promise<DotCatalogState> {
-    if (!refresh) return Promise.resolve({ eligible: this.eligible, entries: this.entries, errors: this.errors })
+    if (!refresh) return Promise.resolve(this.state())
     return (this.refreshing ??= this.refresh().finally(() => {
       this.refreshing = null
     }))
@@ -73,8 +111,10 @@ export class DotChatSessions {
     this.eligible = eligible
     this.entries = entries
     this.errors = errors
-    mergeWindowFile(this.file, { entries, sessions: this.sessions })
-    return { eligible, entries, errors }
+    // 不在列表里的 Dot（登出、降档）不再算未读
+    for (const key of [...this.unread.keys()]) if (!entries.some(e => e.key === key)) this.unread.delete(key)
+    this.save()
+    return this.state()
   }
   entry(key: string): DotEntry {
     const entry = this.entries.find(e => e.key === key)
@@ -106,7 +146,7 @@ export class DotChatSessions {
     })
     this.host.renameSession(created.id, `${entry.name} · ${entry.accountName}`)
     this.sessions[key] = created.id
-    mergeWindowFile(this.file, { entries: this.entries, sessions: this.sessions })
+    this.save()
     return this.host.open(created.id)
   }
   async send(key: string, sessionId: unknown, text: unknown, fileIds: unknown = []): Promise<void> {
@@ -165,14 +205,106 @@ export class DotChatSessions {
     return this.host.dotComputerOffer(entry.account, entry, offer, signal)
   }
 
+  /**
+   * 拖进来、粘贴的文件（docs/ui/dot-optimize.md §7 #5）：有本机路径的直接登记；只有内容的（剪贴板截图）
+   * 写到 <数据目录>/dot-uploads/<随机>/ 再登记，关窗口或下次启动时删
+   */
+  async addFiles(key: string, raw: unknown) {
+    this.entry(key)
+    if (!Array.isArray(raw) || !raw.length || raw.length > 10) throw new Error('Invalid Dot file drop')
+    const paths: string[] = []
+    for (const item of raw) {
+      const file = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+      if (typeof file.path === 'string') {
+        if (!isAbsolute(file.path) || file.path.length > 4096 || file.path.includes('\0'))
+          throw new Error('Invalid Dot file drop')
+        paths.push(file.path)
+      } else if (typeof file.name === 'string' && typeof file.dataBase64 === 'string') {
+        if (file.dataBase64.length > BASE64_LIMIT) throw new Error('Dot attachment exceeds 20 MiB')
+        const dir = join(this.uploads(), randomUUID())
+        await mkdir(dir, { recursive: true })
+        const temps = this.temps.get(key) ?? new Set<string>()
+        this.temps.set(key, temps.add(dir))
+        const path = join(dir, safeFileName(basename(file.name.replaceAll('\\', '/')), 120, 'attachment'))
+        await writeFile(path, Buffer.from(file.dataBase64, 'base64'))
+        paths.push(path)
+      } else throw new Error('Invalid Dot file drop')
+    }
+    return this.pickFiles(key, paths)
+  }
+
   release(key: string) {
     this.knownFiles.delete(key)
     this.selected.delete(key)
+    for (const dir of this.temps.get(key) ?? []) void rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    this.temps.delete(key)
   }
 
-  async read(key: string, options: { before?: string; overview?: boolean }, signal?: AbortSignal) {
+  /**
+   * 记下这次读到的最新一条 Dot 消息（docs/ui/dot-optimize.md §7 #3）。seen：用户正看着，算看过；
+   * 没有记录的第一次读当基线，不算未读。比看过的新就记未读并通知界面；这条如果是本轮回复里已经收到的
+   * （会话里有 dot-<id>，那一轮结束时提醒过了），只出未读点、不带 notice
+   */
+  private track(entry: DotEntry, items: readonly DotChatMessage[], seen: boolean): void {
+    const key = entry.key
+    this.readAt.set(key, this.now())
+    const latest = items.filter(m => m.role === 'assistant').at(-1)
+    if (!latest) return
+    const known = this.seen[key]
+    if (seen || known === undefined) {
+      if (known === undefined || latest.createdAt > known) {
+        this.seen[key] = latest.createdAt
+        this.save()
+      }
+      if (this.unread.delete(key)) this.onChange?.({ unread: [...this.unread.keys()] })
+      return
+    }
+    if (latest.createdAt <= known || this.unread.get(key) === latest.id) return
+    this.unread.set(key, latest.id)
+    const sessionId = this.sessions[key]
+    const delivered = !!sessionId && !!this.host.item(sessionId, `dot-${latest.id}`)
+    this.onChange?.({
+      unread: [...this.unread.keys()],
+      ...(sessionId && !delivered
+        ? { notice: { key, sessionId, name: entry.name, messageId: latest.id, preview: latest.text.slice(0, 200) } }
+        : {}),
+    })
+  }
+
+  /**
+   * 后台查新消息：只查在应用里打开过的 Dot；会话正在回复（消息由会话事件带来）、界面刚读过的跳过。
+   * 一次只跑一轮，出错不报（下一轮再查）
+   */
+  async poll(): Promise<void> {
+    if (!this.eligible || this.polling) return
+    this.polling = true
+    try {
+      const busy = new Set(
+        this.host
+          .sessions()
+          .filter(s => s.state !== 'idle')
+          .map(s => s.record.id),
+      )
+      for (const entry of this.entries) {
+        const sessionId = this.sessions[entry.key]
+        if (!sessionId || entry.status === 'unavailable' || busy.has(sessionId)) continue
+        if (this.now() - (this.readAt.get(entry.key) ?? 0) < DOT_POLL_SKIP_MS) continue
+        await this.read(entry.key, {}).catch(() => undefined)
+      }
+    } finally {
+      this.polling = false
+    }
+  }
+
+  async read(key: string, options: { before?: string; overview?: boolean; seen?: boolean }, signal?: AbortSignal) {
     const entry = this.entry(key)
-    const data = await this.host.readDot(entry.account, entry, options, signal)
+    const data = await this.host.readDot(
+      entry.account,
+      entry,
+      { before: options.before, overview: options.overview },
+      signal,
+    )
+    if (!options.before) this.track(entry, data.history.items, options.seen === true)
     const known = this.knownFiles.get(key) ?? new Set<string>()
     for (const message of data.history.items)
       for (const file of message.attachments) if (file.type === 'file' && file.fileId) known.add(file.fileId)

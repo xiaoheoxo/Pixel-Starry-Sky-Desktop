@@ -21,12 +21,19 @@
 .dot-tab {
   display: flex;
   min-width: 0;
-  max-width: 320px;
   align-items: center;
   gap: 8px;
 }
+.dot-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-inline: 4px;
+  background: var(--border);
+}
 .dot-tab-title {
-  min-width: 0;
+  max-width: 240px;
+  flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -49,6 +56,7 @@
   background: var(--bg-hover);
 }
 .dot-avatar {
+  position: relative;
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -60,6 +68,32 @@
   height: 100%;
   object-fit: contain;
   border-radius: var(--radius-md);
+}
+/* 头像右下角的状态点：在线绿、暂停橙、其余灰；描边用所在区域的底色 */
+.dot-avatar-status,
+.dot-presence-dot {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.dot-avatar-status {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-shadow: 0 0 0 1.5px var(--dot-ring, var(--bg-app));
+}
+.dot-presence-dot {
+  width: 6px;
+  height: 6px;
+}
+.dot-avatar-status[data-tone='on'],
+.dot-presence-dot[data-tone='on'] {
+  background: var(--success);
+}
+.dot-avatar-status[data-tone='paused'],
+.dot-presence-dot[data-tone='paused'] {
+  background: var(--warn);
 }
 .dot-body {
   position: relative;
@@ -161,6 +195,8 @@
   font-size: var(--text-ui);
 }
 .dot-message-scroll {
+  /* 消息里只给读屏的文字是绝对定位的：定位到这里，跟着一起滚，不把外层撑高 */
+  position: relative;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
@@ -169,8 +205,140 @@
   display: flex;
   min-height: 100%;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
   padding-block: 24px;
+}
+/* 按天分隔：今天 / 昨天 / 日期，两边细线 */
+.dot-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-faint);
+  font-size: var(--text-label);
+}
+.dot-day::before,
+.dot-day::after {
+  height: 1px;
+  flex: 1;
+  background: var(--border-subtle);
+  content: '';
+}
+/* Dot 一组回复前的头像、名字、时间 */
+.dot-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+.dot-who b {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.dot-who time,
+.dot-time {
+  color: var(--text-faint);
+  font-size: var(--text-label);
+}
+/* 「正在回复」：在对话最后一行，三个点轮流跳 */
+.dot-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+.dot-typing-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.dot-typing-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  animation: dot-typing-bob 1.2s infinite;
+}
+.dot-typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dot-typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot-typing-bob {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: none;
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+/* 提示条、报错条：浅底 + 图标，右边放链接或按钮；警告橙、报错红 */
+.dot-note {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-meta);
+}
+.dot-note-icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.dot-note[data-level='warn'] {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.dot-note[data-level='warn'] .dot-note-icon {
+  color: var(--warn);
+}
+.dot-note[data-level='error'] {
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+.dot-note[data-level='error'] .dot-note-icon {
+  color: var(--danger);
+}
+.dot-web-link {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  white-space: nowrap;
+}
+.dot-note .dot-web-link {
+  color: var(--accent-text);
+}
+.dot-note .dot-web-link:hover {
+  text-decoration: underline;
+}
+.dot-small-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--text-meta);
+  white-space: nowrap;
+}
+button.dot-small-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.dot-small-button:disabled {
+  opacity: 0.5;
 }
 .dot-chat-empty {
   display: flex;
@@ -179,9 +347,28 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 12px;
   color: var(--text-muted);
   text-align: center;
+}
+.dot-suggestions {
+  display: flex;
+  max-width: 460px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.dot-suggestion {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: var(--text-meta);
+}
+.dot-suggestion:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .dot-message {
   min-width: 0;
@@ -190,7 +377,9 @@
 }
 .dot-message.is-user {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
 }
 .dot-message.is-assistant {
   width: 100%;
@@ -198,7 +387,10 @@
 .dot-user-bubble {
   width: fit-content;
 }
+/* 复制按钮平时不显示：借一点下面的间距，免得每条回复后面空一大截 */
 .dot-message-actions {
+  margin-top: 4px;
+  margin-bottom: -10px;
   opacity: 0;
   transition: opacity var(--dur-fast);
 }
@@ -213,37 +405,79 @@
   gap: 8px;
   margin-top: 10px;
 }
-.dot-file-chip {
+/* 文件卡片：对话里 Dot 发来的文件（点了下载）、输入框里待发的附件（带缩略图和大小） */
+.dot-file-card {
   display: inline-flex;
-  max-width: 100%;
+  max-width: min(260px, 100%);
   align-items: center;
   gap: 8px;
+  padding: 4px 6px 4px 4px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 9px 12px;
   background: var(--bg-surface);
-  color: var(--text);
-  font-size: var(--text-meta);
+  text-align: left;
 }
-.dot-file-chip img {
-  max-width: min(240px, 100%);
-  max-height: 220px;
+button.dot-file-card:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.dot-file-thumb {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   border-radius: var(--radius-md);
-  object-fit: contain;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
 }
-.dot-file-chip span {
+.dot-file-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.dot-file-text {
   min-width: 0;
+  line-height: 1.25;
+}
+.dot-file-text b {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
+  font-size: var(--text-meta);
+  font-weight: 400;
 }
-/* 对话里 Dot 派出的任务：一行一个，状态彩色小标签，点了在 ChatGPT 打开 */
+.dot-file-text span {
+  color: var(--text-faint);
+  font-size: var(--text-label);
+}
+.dot-file-remove {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+button.dot-file-remove:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.dot-pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 2px 8px;
+}
+/* 对话里 Dot 派出的任务：左边状态图标，标题下面一行状态，点了在 ChatGPT 打开；等你处理的橙色描边 */
 .dot-task-card {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
@@ -251,20 +485,51 @@
 .dot-task-card:hover {
   background: var(--bg-hover);
 }
+.dot-task-card[data-need] {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  background: color-mix(in srgb, var(--warn) 6%, var(--bg-surface));
+}
+.dot-status-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-faint);
+}
+.dot-status-icon[data-tone='done'] {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+.dot-status-icon[data-tone='warn'] {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+.dot-status-icon[data-tone='danger'] {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
 .dot-composer-form {
   width: 100%;
   min-width: 0;
   padding-top: 8px;
 }
+/* 输入框：一行起，跟着内容增高；「＋」在左，语音和发送在右，都贴着最后一行 */
 .dot-composer {
-  padding: 14px 16px 10px;
+  padding: 8px 8px 8px 10px;
+}
+.dot-composer-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
 }
 .dot-composer textarea {
   display: block;
-  width: 100%;
   min-width: 0;
   max-height: 192px;
-  min-height: 72px;
+  min-height: 32px;
+  flex: 1;
+  padding: 4px;
   resize: none;
   border: 0;
   outline: none;
@@ -276,16 +541,10 @@
 .dot-composer textarea::placeholder {
   color: var(--text-faint);
 }
-.dot-composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-}
 .dot-send {
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
@@ -297,13 +556,8 @@
   background: var(--btn-disabled-bg);
   color: var(--btn-disabled-text);
 }
-.dot-composer-hint {
-  margin-top: 8px;
-  color: var(--text-faint);
-  font-size: var(--text-label);
-  text-align: center;
-}
 .dot-detail-column {
+  --dot-ring: var(--bg-panel);
   width: 296px;
   flex-shrink: 0;
   overflow-y: auto;
@@ -313,17 +567,17 @@
 .dot-profile-panel {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 24px 18px;
+  gap: 20px;
+  padding: 20px 16px;
 }
 .dot-profile-identity {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .dot-profile-identity h2 {
-  margin: 0 0 5px;
-  font-size: var(--text-section);
+  margin: 0 0 2px;
+  font-size: var(--text-ui);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -335,29 +589,67 @@
 .dot-computer-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
 }
+.dot-computer-card:hover {
+  background: var(--bg-hover);
+}
 .dot-computer-icon {
   display: inline-flex;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
   color: var(--text-secondary);
 }
-.dot-computer-card strong,
-.dot-computer-card span > span {
+.dot-computer-card strong {
   display: block;
   font-size: var(--text-ui);
+  font-weight: 500;
 }
-.dot-computer-card span > span {
-  margin-top: 3px;
+.dot-computer-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+/* 图片产出：三列缩略图 */
+.dot-thumbs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.dot-image-tile.dot-thumb {
+  border-radius: var(--radius-md);
+}
+.dot-image-tile.dot-thumb img {
+  object-fit: cover;
+}
+/* 「在 ChatGPT 里」的一排小按钮 */
+.dot-quick {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: var(--text-label);
+}
+.dot-quick:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .dot-profile-panel section {
   display: flex;
@@ -428,4 +720,27 @@
     transition: none !important;
     scroll-behavior: auto !important;
   }
+  .dot-typing-dots i {
+    animation: none;
+  }
+}
+
+/* 拖文件进来时的提示（docs/ui/dot-optimize.md §7 #5）：盖在对话区上，不挡鼠标事件 */
+.dot-conversation {
+  position: relative;
+}
+.dot-drop-hint {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1.5px dashed var(--accent-border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  color: var(--accent-text);
+  font-size: var(--text-ui);
+  pointer-events: none;
 }

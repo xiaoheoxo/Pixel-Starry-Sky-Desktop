@@ -14,6 +14,44 @@ export const dotMessages = {
   'dot.handleInWeb': { zh: '到 ChatGPT 处理', en: 'Handle in ChatGPT' },
   'dot.group': { zh: '展开或收起 Dot', en: 'Expand or collapse Dots' },
   'dot.openOne': { zh: '打开', en: 'Open' },
+  // 对话里的提示条（engine/dot/session.ts 的 notice）：原文不带链接，界面在右边放「在 ChatGPT 查看」
+  'dot.notice.attachment': {
+    zh: 'Dot 发来了这里显示不了的附件',
+    en: 'View the Dot attachment in ChatGPT',
+  },
+  'dot.notice.input': { zh: 'Dot 需要你输入', en: 'Dot needs your input in ChatGPT' },
+  'dot.notice.taskInput': {
+    zh: 'Dot 的任务需要你输入',
+    en: 'Dot workflow needs your input in ChatGPT',
+  },
+  'dot.notice.taskUnknown': {
+    zh: '读不到 Dot 任务的状态',
+    en: 'Dot workflow status unavailable. Review it in ChatGPT',
+  },
+  'dot.error.network': { zh: '连不上 ChatGPT，请检查网络后重试', en: 'Dot network request failed' },
+  'dot.error.deliveryNetwork': {
+    zh: '不确定消息有没有送到，请先到 ChatGPT 核对再重发',
+    en: 'Dot delivery unknown; check ChatGPT before resending',
+  },
+  // 新消息提醒、拖入 / 粘贴文件（docs/ui/dot-optimize.md §7）
+  'dot.unread': { zh: '有新消息', en: 'New messages' },
+  'dot.newMessage': { zh: '发来了新消息', en: 'sent a new message' },
+  'dot.dropHint': { zh: '松开添加附件', en: 'Drop to attach' },
+  'dot.error.addFiles': { zh: '添加附件失败，请重新选择', en: 'Invalid Dot file drop' },
+  // 界面和排版（docs/ui/dot-optimize.md §8）
+  'dot.presence.on': { zh: '在线', en: 'Online' },
+  'dot.presence.off': { zh: '不在线', en: 'Offline' },
+  'dot.replying': { zh: '{name} 正在回复', en: '{name} is replying' },
+  'dot.placeholderName': { zh: '给 {name} 发消息…', en: 'Message {name}…' },
+  'dot.view': { zh: '查看', en: 'View' },
+  'dot.voiceShort': { zh: '语音', en: 'Voice' },
+  // 空对话里的三个建议：点了把 fill 填进输入框，不自动发
+  'dot.suggest.today': { zh: '今天有什么要我处理的？', en: 'What needs my attention today?' },
+  'dot.suggest.today.fill': { zh: '今天有什么要我处理的？', en: 'What needs my attention today?' },
+  'dot.suggest.summary': { zh: '总结一下昨天做完的任务', en: 'Summarize what you finished yesterday' },
+  'dot.suggest.summary.fill': { zh: '总结一下昨天做完的任务', en: 'Summarize what you finished yesterday' },
+  'dot.suggest.lookup': { zh: '帮我查一下…', en: 'Look something up…' },
+  'dot.suggest.lookup.fill': { zh: '帮我查一下', en: 'Look up ' },
   'dot.error.generic': { zh: 'Dot 出错了，请重试', en: 'Something went wrong with Dot. Please retry.' },
   'dot.error.signIn': {
     zh: '在 Codex 里登录 ChatGPT Pro 账号后才能用 Dot',

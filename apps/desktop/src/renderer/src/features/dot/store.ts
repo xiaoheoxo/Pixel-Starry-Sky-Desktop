@@ -10,6 +10,7 @@ let state: DotCatalogState & { loading: boolean; checked: boolean } = {
   eligible: false,
   entries: [],
   errors: [],
+  unread: [],
   loading: false,
   checked: false,
 }
@@ -55,6 +56,11 @@ export function useDots() {
       window.setTimeout(() => {
         void refreshDots()
       }, 500)
+    })
+    // 未读变了（docs/ui/dot-optimize.md §7 #3）：主进程查到新消息、或用户看过了
+    window.pixelsky?.dotChat?.onChange?.(change => {
+      state = { ...state, unread: change.unread }
+      publish()
     })
     void refreshDots()
   }, [])

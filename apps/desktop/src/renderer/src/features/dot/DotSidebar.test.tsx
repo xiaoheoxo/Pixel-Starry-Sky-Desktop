@@ -6,13 +6,18 @@ const state = vi.hoisted(() => ({
   eligible: true,
   loading: false,
   errors: [] as string[],
+  unread: [] as string[],
   entries: [
     { key: 'first', account: 'a', name: 'Dot One', accountName: 'one@example.com' },
     { key: 'second', account: 'a', name: 'Dot Two', accountName: 'one@example.com' },
   ],
 }))
 vi.mock('./store', () => ({ useDots: () => state, refreshDots: vi.fn() }))
-vi.mock('@/features/engine', () => ({ useEngineState: () => undefined }))
+const engine = vi.hoisted(() => ({
+  sessions: [] as { record: { id: string; dot?: { account: string; id: string } } }[],
+  unread: {} as Record<string, boolean>,
+}))
+vi.mock('@/features/engine', () => ({ useEngineState: (pick: (s: typeof engine) => unknown) => pick(engine) }))
 vi.mock('@/features/panel/ToolsUi', () => ({ useRemember: (_key: string, value: unknown) => [value, vi.fn()] }))
 const render = () =>
   renderToStaticMarkup(
@@ -37,6 +42,19 @@ describe('Dot sidebar group', () => {
     state.eligible = false
     expect(render()).toBe('')
     state.eligible = true
+  })
+  // docs/ui/dot-optimize.md §7 #3
+  it('marks a Dot with unseen messages: from the background check, or from a finished turn nobody opened', () => {
+    expect(render()).not.toContain('data-dot-unread')
+    state.unread = ['second']
+    expect(render().match(/data-dot-unread/g)).toHaveLength(1)
+    state.unread = []
+    state.entries[0] = { ...state.entries[0], id: 'dot-1' } as (typeof state.entries)[number]
+    engine.sessions = [{ record: { id: 's1', dot: { account: 'a', id: 'dot-1' } } }]
+    engine.unread = { s1: true }
+    expect(render().match(/data-dot-unread/g)).toHaveLength(1)
+    engine.sessions = []
+    engine.unread = {}
   })
   it('shows main-process errors in Chinese', () => {
     const entries = state.entries

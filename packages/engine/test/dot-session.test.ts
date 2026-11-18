@@ -32,7 +32,11 @@ function setup() {
     setEngineSessionId: vi.fn(),
     emit: (event: EngineEvent) => events.push(event),
   } as unknown as SessionContext
-  const session = new DotSession(client as unknown as DotClient, ctx, { pollMs: 1, replyTimeoutMs: 200 })
+  const session = new DotSession(client as unknown as DotClient, ctx, {
+    pollMs: 1,
+    replyTimeoutMs: 200,
+    retryMs: [1, 1],
+  })
   return { session, events, client, ctx }
 }
 
@@ -151,6 +155,56 @@ describe('Dot session', () => {
     await vi.waitFor(() => expect(completed(events)).toHaveLength(1))
     expect(completed(events)[0]).toMatchObject({ outcome: 'completed' })
     expect(events.some(e => e.type === 'item_completed' && e.item.kind === 'notice')).toBe(true)
+    await session.close()
+  })
+
+  // docs/ui/dot-optimize.md §7 #2：读取出错隔一会儿再试，消息已经送达，不能因为一次轮询失败就报整轮失败
+  it('retries a failed read while waiting for the reply; the turn still completes', async () => {
+    const { session, events, client } = setup()
+    client.messages.mockRejectedValueOnce(new Error('Dot network request failed'))
+    client.activity.mockRejectedValueOnce(new Error('Dot network request failed'))
+    session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(events)).toHaveLength(1))
+    expect(completed(events)[0]).toMatchObject({ outcome: 'completed', error: null })
+    expect(client.messages).toHaveBeenCalledTimes(2)
+    expect(client.activity).toHaveBeenCalledTimes(2)
+    expect(client.send).toHaveBeenCalledTimes(1)
+    await session.close()
+  })
+
+  it('gives up after the retries run out, and does not retry errors that retrying cannot fix', async () => {
+    const down = setup()
+    down.client.messages.mockRejectedValue(new Error('Dot network request failed'))
+    down.session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(down.events)).toHaveLength(1))
+    expect(completed(down.events)[0]).toMatchObject({ outcome: 'failed', error: 'Dot network request failed' })
+    expect(down.client.messages).toHaveBeenCalledTimes(3)
+    await down.session.close()
+
+    const changed = setup()
+    changed.client.messages.mockRejectedValue(new Error('Dot protocol identity or response changed'))
+    changed.session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(changed.events)).toHaveLength(1))
+    expect(changed.client.messages).toHaveBeenCalledTimes(1)
+    await changed.session.close()
+  })
+
+  it('keeps watching delegated work across a failed status read, and records which message started it', async () => {
+    const { session, events, client } = setup()
+    client.messages.mockResolvedValue([
+      { ...reply, content: { text: 'Working on it', attachments: [{ type: 'thread', thread_id: 'task' }] } },
+    ])
+    client.workflow
+      .mockResolvedValueOnce({ id: 'task', title: 'Build', status: 'inProgress', startedAt: 1, updatedAt: 2 })
+      .mockRejectedValueOnce(new Error('Dot network request failed'))
+    session.send('build', 'turn', 'user')
+    await vi.waitFor(() => expect(client.workflow).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() =>
+      expect(events.filter(e => e.type === 'runs').at(-1)).toMatchObject({
+        runs: { workflows: [{ status: 'completed', toolUseId: 'dot-reply' }] },
+      }),
+    )
+    expect(events.some(e => e.type === 'item_completed' && e.item.kind === 'notice')).toBe(false)
     await session.close()
   })
 

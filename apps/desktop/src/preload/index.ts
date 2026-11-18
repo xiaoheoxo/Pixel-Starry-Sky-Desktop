@@ -676,8 +676,17 @@ contextBridge.exposeInMainWorld('pixelsky', {
     snapshot: (key: string) => invoke('dotChat:snapshot', key),
     send: (key: string, id: string, text: string, files?: string[]) =>
       invoke<void>('dotChat:send', key, id, text, files),
-    read: (key: string, options?: { before?: string; overview?: boolean }) => invoke('dotChat:read', key, options),
+    read: (key: string, options?: { before?: string; overview?: boolean; seen?: boolean }) =>
+      invoke('dotChat:read', key, options),
     pickFiles: (key: string) => invoke('dotChat:pickFiles', key),
+    addFiles: (key: string, files: import('../shared/types/dot-chat').DotDroppedFile[]) =>
+      invoke('dotChat:addFiles', key, files),
+    onChange: (callback: (change: import('../shared/types/dot-chat').DotChatChange) => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, change: import('../shared/types/dot-chat').DotChatChange) =>
+        callback(change)
+      on('dotChat:changed', listener)
+      return () => ipcRenderer.removeListener('dotChat:changed', listener)
+    },
     file: (key: string, fileId: string) => invoke('dotChat:file', key, fileId),
     saveFile: (key: string, fileId: string) => invoke<boolean>('dotChat:saveFile', key, fileId),
     computerOffer: (key: string, offer: string) => invoke<string>('dotChat:computerOffer', key, offer),

@@ -22,6 +22,13 @@ export function DotNavGroup({ selectedSessionId }: { selectedSessionId?: string 
   const selected = useEngineState(s =>
     selectedSessionId ? s.sessions.find(x => x.record.id === selectedSessionId)?.record.dot : undefined,
   )
+  // 这一轮回完了、还没点开看的 Dot 会话（会话自己的未读，和别的会话一样由引擎状态记）：不用等主进程下一次查
+  const unreadSessions = useEngineState(s =>
+    s.sessions
+      .filter(x => x.record.dot && s.unread[x.record.id])
+      .map(x => `${x.record.dot!.account}\n${x.record.dot!.id}`)
+      .join('|'),
+  ).split('|')
   if (!dots.eligible) return null
   const accounts = new Set(dots.entries.map(e => e.account))
   const Chevron = open ? ChevronDown : ChevronRight
@@ -55,8 +62,17 @@ export function DotNavGroup({ selectedSessionId }: { selectedSessionId?: string 
               void window.pixelsky?.dotChat.open(entry.key).catch(e => setError(dotError(e)))
             }}
           >
-            <DotAvatar name={entry.name} url={entry.avatarUrl} size={18} />
+            <DotAvatar name={entry.name} url={entry.avatarUrl} size={18} status={entry.status} />
             <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+            {(dots.unread.includes(entry.key) || unreadSessions.includes(`${entry.account}\n${entry.id}`)) && (
+              <span
+                data-dot-unread
+                role="status"
+                aria-label={tr('dot.unread')}
+                title={tr('dot.unread')}
+                className="size-2 shrink-0 rounded-full bg-accent"
+              />
+            )}
             {accounts.size > 1 && (
               <span className="max-w-[45%] truncate text-meta text-fg-faint">{entry.accountName}</span>
             )}

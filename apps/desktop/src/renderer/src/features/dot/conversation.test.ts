@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { dotTranscript, mergeDotHistory } from './conversation'
+import { dotNotice, dotTranscript, markDotRows, mergeDotHistory, placeDotTasks, readDropped } from './conversation'
+import { translateMessage } from '../../../../shared/i18n/translate'
 describe('Dot native conversation', () => {
   it('deduplicates native request echoes and local Dot responses while preserving history order', () => {
     const history = [
@@ -33,5 +34,84 @@ describe('Dot native conversation', () => {
         ],
       ).map(m => m.text),
     ).toEqual(['Original', 'Edited'])
+  })
+})
+
+// docs/ui/dot-optimize.md §7
+describe('Dot conversation details', () => {
+  it('notices: the link suffix of old records is dropped so the dictionary matches; ChatGPT-only ones get a link', () => {
+    const old = dotNotice('Dot needs your input in ChatGPT: https://chatgpt.com/dots/abc%20d')
+    expect(old).toEqual({ text: 'Dot needs your input in ChatGPT', web: true })
+    expect(translateMessage(old.text, 'zh-CN')).toBe('Dot 需要你输入')
+    for (const text of [
+      'View the Dot attachment in ChatGPT',
+      'Dot workflow needs your input in ChatGPT',
+      'Dot workflow status unavailable. Review it in ChatGPT',
+    ]) {
+      expect(dotNotice(text).web).toBe(true)
+      expect(translateMessage(text, 'zh-CN')).not.toBe(text)
+    }
+    expect(dotNotice('Status')).toEqual({ text: 'Status', web: false })
+    expect(translateMessage('Dot network request failed', 'zh-CN')).toBe('连不上 ChatGPT，请检查网络后重试')
+    expect(translateMessage('Dot delivery unknown; check ChatGPT before resending', 'zh-CN')).toContain('核对')
+  })
+  it('task cards go under the message that started them; unknown or unloaded ones go last', () => {
+    const rows = [{ id: 'dot-a' }, { id: 'dot-b' }]
+    const tasks = [
+      { id: 't1', toolUseId: 'dot-b' },
+      { id: 't2', toolUseId: null },
+      { id: 't3', toolUseId: 'dot-gone' },
+      { id: 't4', toolUseId: 'dot-b' },
+    ]
+    const placed = placeDotTasks(rows, tasks)
+    expect(placed.under.get('dot-b')?.map(t => t.id)).toEqual(['t1', 't4'])
+    expect(placed.under.has('dot-a')).toBe(false)
+    expect(placed.rest.map(t => t.id)).toEqual(['t2', 't3'])
+  })
+  it('dropped files: a local path is passed as is, content only when there is no path, 20 MiB limit', async () => {
+    const file = (name: string, text: string, size?: number) =>
+      ({ name, size: size ?? text.length, arrayBuffer: async () => new TextEncoder().encode(text).buffer }) as File
+    const paths: Record<string, string> = { 'a.txt': 'C:\\docs\\a.txt' }
+    const pathOf = (f: File) => paths[f.name] ?? ''
+    expect(await readDropped([file('a.txt', 'x'), file('image.png', 'png!')], pathOf)).toEqual([
+      { path: 'C:\\docs\\a.txt' },
+      { name: 'image.png', dataBase64: btoa('png!') },
+    ])
+    await expect(readDropped([file('big.bin', '', 20 * 1024 * 1024 + 1)], pathOf)).rejects.toThrow('exceeds 20 MiB')
+  })
+  it('marks where a new day starts and where a run of Dot replies begins', () => {
+    const at = (day: number, h: number, m: number) => new Date(2026, 10, day, h, m).getTime()
+    const row = (id: string, role: 'user' | 'assistant' | 'notice', createdAt: number) => ({
+      id,
+      role,
+      text: id,
+      createdAt,
+      attachments: [],
+    })
+    const marks = markDotRows([
+      // 没有时间的本地提示行（排序序号）：不写日期也不写时间
+      row('note', 'notice', 1),
+      row('u1', 'user', at(17, 21, 14)),
+      row('a1', 'assistant', at(17, 21, 14)),
+      row('note2', 'notice', at(17, 21, 15)),
+      // 中间夹着提示行，还是同一组
+      row('a2', 'assistant', at(17, 21, 16)),
+      // 隔了 5 分钟以上：再写一次名字
+      row('a3', 'assistant', at(17, 21, 30)),
+      // 换了一天：写日期，名字也再写一次
+      row('a4', 'assistant', at(18, 9, 2)),
+      row('a5', 'assistant', at(18, 9, 3)),
+      row('u2', 'user', at(18, 9, 5)),
+    ])
+    const day17 = new Date(2026, 10, 17).getTime()
+    const day18 = new Date(2026, 10, 18).getTime()
+    expect(marks.get('note')).toEqual({ day: null, head: false, time: null })
+    expect(marks.get('u1')).toEqual({ day: day17, head: false, time: at(17, 21, 14) })
+    expect(marks.get('a1')).toMatchObject({ day: null, head: true })
+    expect(marks.get('a2')).toMatchObject({ day: null, head: false })
+    expect(marks.get('a3')).toMatchObject({ day: null, head: true })
+    expect(marks.get('a4')).toMatchObject({ day: day18, head: true })
+    expect(marks.get('a5')).toMatchObject({ day: null, head: false })
+    expect(marks.get('u2')).toMatchObject({ day: null, head: false, time: at(18, 9, 5) })
   })
 })

@@ -10,8 +10,68 @@ import { useDotKey } from './context'
 export const isDotImage = (file: DotAttachment): boolean =>
   /^image\/(png|jpeg|webp|gif)$/i.test(file.mime ?? '') || /\.(png|jpe?g|webp|gif)$/i.test(file.name)
 
-/** 只按当前房间的文件 ID 取图；不使用历史消息里的过期公开 URL。 */
-export function DotFile({ file, compact = false }: { file: DotAttachment; compact?: boolean }) {
+/** 文件卡片第二行：扩展名大写（Dot 的附件没带大小）；没有扩展名写「附件」 */
+export function dotFileKind(name: string): string {
+  const ext = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]
+  return ext ? ext.toUpperCase() : tr('dot.attachment')
+}
+
+/** 同一张图在对话里和详情栏各画一次：共用一次下载，都不用了再收回对象地址；下载失败的不留，重试时重新下 */
+const shared = new Map<string, { url: Promise<string>; users: number }>()
+function acquireImage(
+  key: string,
+  fileId: string,
+  fallbackMime: string | undefined,
+  name: string,
+): { url: Promise<string>; release: () => void } {
+  const id = `${key}\n${fileId}`
+  let hit = shared.get(id)
+  if (!hit) {
+    const made = {
+      users: 0,
+      url: window.pixelsky!.dotChat.file(key, fileId).then(data => {
+        const bytes = Uint8Array.from(atob(data.dataBase64), char => char.charCodeAt(0))
+        const mime = /^image\/(png|jpeg|webp|gif)$/i.test(data.mime)
+          ? data.mime
+          : fallbackMime ||
+            `image/${/\.jpe?g$/i.test(name) ? 'jpeg' : /\.webp$/i.test(name) ? 'webp' : /\.gif$/i.test(name) ? 'gif' : 'png'}`
+        return URL.createObjectURL(new Blob([bytes], { type: mime }))
+      }),
+    }
+    made.url.catch(() => {
+      if (shared.get(id) === made) shared.delete(id)
+    })
+    shared.set(id, made)
+    hit = made
+  }
+  const entry = hit
+  entry.users++
+  return {
+    url: entry.url,
+    release: () => {
+      if (--entry.users > 0) return
+      if (shared.get(id) === entry) shared.delete(id)
+      void entry.url.then(
+        url => URL.revokeObjectURL(url),
+        () => undefined,
+      )
+    },
+  }
+}
+
+/**
+ * 只按当前房间的文件 ID 取图；不使用历史消息里的过期公开 URL。
+ * compact：详情栏的一行；thumb：详情栏的缩略图（只给图片用）；都不传是对话里的图片 / 文件卡片
+ */
+export function DotFile({
+  file,
+  compact = false,
+  thumb = false,
+}: {
+  file: DotAttachment
+  compact?: boolean
+  thumb?: boolean
+}) {
   const key = useDotKey()
   const image = isDotImage(file)
   const [url, setUrl] = useState('')
@@ -33,20 +93,12 @@ export function DotFile({ file, compact = false }: { file: DotAttachment; compac
   useEffect(() => {
     if (!image || !wanted || !file.fileId) return
     let gone = false
-    let objectUrl = ''
     setBusy(true)
     setError('')
-    void window
-      .pixelsky!.dotChat.file(key, file.fileId)
-      .then(data => {
-        if (gone) return
-        const bytes = Uint8Array.from(atob(data.dataBase64), char => char.charCodeAt(0))
-        const mime = /^image\/(png|jpeg|webp|gif)$/i.test(data.mime)
-          ? data.mime
-          : file.mime ||
-            `image/${/\.jpe?g$/i.test(name) ? 'jpeg' : /\.webp$/i.test(name) ? 'webp' : /\.gif$/i.test(name) ? 'gif' : 'png'}`
-        objectUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
-        setUrl(objectUrl)
+    const loading = acquireImage(key, file.fileId, file.mime, name)
+    void loading.url
+      .then(objectUrl => {
+        if (!gone) setUrl(objectUrl)
       })
       .catch(e => {
         if (!gone) setError(dotError(e))
@@ -56,7 +108,7 @@ export function DotFile({ file, compact = false }: { file: DotAttachment; compac
       })
     return () => {
       gone = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      loading.release()
       setUrl('')
     }
   }, [key, file.fileId, file.mime, image, name, wanted, attempt])
@@ -72,39 +124,59 @@ export function DotFile({ file, compact = false }: { file: DotAttachment; compac
       setBusy(false)
     }
   }
+  const picture = image && !compact
   return (
-    <div className={compact ? 'min-w-0' : image ? 'dot-image-file' : 'min-w-0'}>
+    <div className={picture && !thumb ? 'dot-image-file' : 'min-w-0'}>
       <button
         ref={tile}
         type="button"
-        className={compact ? 'dot-output-row w-full text-left' : image ? 'dot-image-tile' : 'dot-file-chip'}
-        title={name}
+        className={
+          compact
+            ? 'dot-output-row w-full text-left'
+            : image
+              ? thumb
+                ? 'dot-image-tile dot-thumb'
+                : 'dot-image-tile'
+              : 'dot-file-card'
+        }
+        title={thumb && error ? translateMessage(error) : name}
         aria-label={`${tr(image ? 'composer.attachment.preview' : 'dot.download')} ${name}`}
         disabled={!file.fileId || (busy && !image)}
         onClick={() => (image ? (error ? setAttempt(v => v + 1) : setOpen(true)) : void save())}
       >
-        {!compact && image ? (
+        {picture ? (
           <>
             {url && !error ? (
               <img src={url} alt={name} onError={() => setError(tr('dot.imageUnavailable'))} />
             ) : busy ? (
               <Spinner />
             ) : error ? (
-              <RefreshCw size={20} />
+              <RefreshCw size={thumb ? 16 : 20} />
             ) : (
-              <ImageIcon size={24} />
+              <ImageIcon size={thumb ? 18 : 24} />
             )}
-            <span className="dot-image-caption">{name}</span>
+            {!thumb && <span className="dot-image-caption">{name}</span>}
           </>
-        ) : (
+        ) : compact ? (
           <>
             <File size={17} />
             <span className="truncate">{name}</span>
             {busy ? <Spinner /> : !image && <Download size={13} />}
           </>
+        ) : (
+          <>
+            <span className="dot-file-thumb">
+              <File size={16} />
+            </span>
+            <span className="dot-file-text">
+              <b>{name}</b>
+              <span>{dotFileKind(name)}</span>
+            </span>
+            <span className="dot-file-remove">{busy ? <Spinner /> : <Download size={14} />}</span>
+          </>
         )}
       </button>
-      {error && (
+      {error && !thumb && (
         <p role="alert" className="mt-1 max-w-56 text-label text-warn">
           {translateMessage(error)}
         </p>

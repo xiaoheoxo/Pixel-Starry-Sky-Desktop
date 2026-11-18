@@ -182,6 +182,8 @@ describe('Dot through EngineHost', () => {
         dot: new DotAdapter({
           fetch: request,
           credentials: () => ({ accessToken: 'token', accountId: 'account', accountUserId: 'human' }),
+          // 读取出错会重试（docs/ui/dot-optimize.md §7 #2）：试完还不行才报失败，发送始终只发一次
+          retryMs: [1, 1],
         }),
       },
     })

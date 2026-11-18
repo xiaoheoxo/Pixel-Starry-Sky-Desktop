@@ -22,6 +22,8 @@ export {
 
 export interface DotAdapterOptions extends Omit<DotClientOptions, 'credentials'> {
   credentials: (signal?: AbortSignal, account?: string) => DotCredentials | null | Promise<DotCredentials | null>
+  /** 会话里读取出错后的重试间隔（测试时缩短），见 DotSessionOptions.retryMs */
+  retryMs?: readonly number[]
 }
 
 export class DotAdapter implements EngineAdapter {
@@ -86,6 +88,7 @@ export class DotAdapter implements EngineAdapter {
         })
       : this.client
     return new DotSession(client, ctx, {
+      retryMs: this.options.retryMs,
       acquire: dot => {
         // A personal Dot has one shared native room, not one remote conversation per local tab.
         const key = client.connectionKey(dot)

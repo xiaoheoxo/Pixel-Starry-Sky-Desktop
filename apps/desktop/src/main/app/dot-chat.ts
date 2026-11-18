@@ -5,11 +5,17 @@ import type { AppContext } from './context'
 import * as ipc from '../ipc/guard'
 import { dataRoot } from './data-dir'
 import { DotChatSessions } from './dot-chat-sessions'
+
+/** 后台多久查一次新消息 */
+const DOT_POLL_MS = 60_000
 import { sendWhenReady } from './rendererHealth'
 
 /** Dot 复用主窗口的对话标签；每次调用显式携带账号 + Dot 引用，切标签不改变目标。 */
 export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): void {
   const sessions = new DotChatSessions(ctx.engine!, dataRoot())
+  // 新消息提醒（docs/ui/dot-optimize.md §7 #3）：未读变了广播给所有窗口；每分钟查一次打开过的 Dot
+  sessions.onChange = change => ctx.events.broadcast('dotChat:changed', change)
+  setInterval(() => void sessions.poll(), DOT_POLL_MS).unref?.()
   const owners = new Map<Electron.WebContents, { abort: AbortController; keys: Set<string> }>()
   const bind = (sender: Electron.WebContents, value: unknown) => {
     if (typeof value !== 'string' || !/^[a-f0-9]{32}$/.test(value)) throw new Error('Invalid Dot entry')
@@ -71,6 +77,11 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
     deny,
   )
   ipc.handle(
+    'dotChat:addFiles',
+    (event, value: unknown, files: unknown) => sessions.addFiles(bind(event.sender, value).key, files),
+    deny,
+  )
+  ipc.handle(
     'dotChat:file',
     async (event, value: unknown, fileId: unknown) => {
       const { key, signal } = bind(event.sender, value)
@@ -106,16 +117,21 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
     (event, value: unknown, raw: unknown) => {
       const options = raw === undefined ? {} : raw
       if (!options || typeof options !== 'object' || Array.isArray(options)) throw new Error('Invalid Dot read options')
-      const input = options as { before?: unknown; overview?: unknown }
+      const input = options as { before?: unknown; overview?: unknown; seen?: unknown }
       if (
         (input.before !== undefined && (typeof input.before !== 'string' || input.before.length > 500)) ||
-        (input.overview !== undefined && typeof input.overview !== 'boolean')
+        (input.overview !== undefined && typeof input.overview !== 'boolean') ||
+        (input.seen !== undefined && typeof input.seen !== 'boolean')
       )
         throw new Error('Invalid Dot read options')
       const { key, signal } = bind(event.sender, value)
       return sessions.read(
         key,
-        { before: input.before as string | undefined, overview: input.overview as boolean | undefined },
+        {
+          before: input.before as string | undefined,
+          overview: input.overview as boolean | undefined,
+          seen: input.seen as boolean | undefined,
+        },
         signal,
       )
     },

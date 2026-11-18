@@ -133,6 +133,12 @@ class DotHttpError extends Error {
     super(`Dot HTTP ${status}`)
   }
 }
+const NETWORK_FAILED = 'Dot network request failed'
+/** 读取类请求值得隔一会儿再试的错：连不上、超时、5xx、429；登录失效、协议变了这类重试也没用 */
+export function dotRetryable(error: unknown): boolean {
+  if (error instanceof DotHttpError) return error.status >= 500 || error.status === 429 || error.status === 408
+  return error instanceof Error && error.message === NETWORK_FAILED
+}
 
 function message(value: unknown): DotMessage {
   const m = object(value)
@@ -209,9 +215,7 @@ export class DotClient {
       })
     } catch {
       signal?.throwIfAborted()
-      throw new Error(
-        body === undefined ? 'Dot network request failed' : 'Dot delivery unknown; check ChatGPT before resending',
-      )
+      throw new Error(body === undefined ? NETWORK_FAILED : 'Dot delivery unknown; check ChatGPT before resending')
     }
     if (!response.ok) throw new DotHttpError(response.status)
     try {

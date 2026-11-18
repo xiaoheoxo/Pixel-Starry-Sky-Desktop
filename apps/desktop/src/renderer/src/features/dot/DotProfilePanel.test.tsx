@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from '@/i18n/I18nProvider'
-import { DotProfilePanel, statusTone } from './DotProfilePanel'
+import { DotProfilePanel } from './DotProfilePanel'
+import { dotPresence, presenceTone, statusTone } from './status'
+import { dotFileKind } from './DotFile'
 import { DotKeyContext } from './context'
 const entry = {
   key: 'key',
@@ -33,6 +35,8 @@ describe('Dot profile panel', () => {
     )
     expect(html).toContain('云电脑')
     expect(html).toContain('已就绪')
+    // 头像旁写在不在线，没读到上次活动时间时不写「未获取」
+    expect(html).toContain('在线')
     expect(html).toContain('整理更新说明')
     expect(html).toContain('等待输入')
     expect(html).toContain('result.mp4')
@@ -57,5 +61,21 @@ describe('Dot profile panel', () => {
     expect(statusTone('needsInput')).toBe('warn')
     expect(statusTone('failed')).toBe('danger')
     expect(statusTone('completed')).toBe('muted')
+  })
+  it('shows whether the Dot is there: online, paused, anything else offline', () => {
+    expect(presenceTone('active')).toBe('on')
+    expect(presenceTone('ready')).toBe('on')
+    expect(presenceTone('paused')).toBe('paused')
+    expect(presenceTone('unknown')).toBe('off')
+    expect(presenceTone(undefined)).toBe('off')
+    expect(dotPresence('active')).toBe('在线')
+    expect(dotPresence('paused')).toBe('已暂停')
+    expect(dotPresence('disconnected')).toBe('未连接')
+    // 认不出的状态不把原文露给用户
+    expect(dotPresence('unknown')).toBe('不在线')
+  })
+  it('labels a file card by its extension', () => {
+    expect(dotFileKind('cdn-compare.xlsx')).toBe('XLSX')
+    expect(dotFileKind('README')).toBe('附件')
   })
 })
