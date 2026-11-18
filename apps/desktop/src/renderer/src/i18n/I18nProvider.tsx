@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Locale } from '../../../shared/i18n/messages'
 import { tr, setCurrentLocale, translateText } from './core'
+import { chooseLocale, localeOfSystem } from '../../../shared/i18n/systemLocale'
 
 const STORAGE_KEY = 'pixelsky.locale'
 interface I18nValue {
@@ -11,17 +12,33 @@ interface I18nValue {
 }
 const I18nContext = createContext<I18nValue | null>(null)
 
-function readLocale(): Locale {
+const systemLanguages = (): readonly string[] =>
+  typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language]
+
+/**
+ * 现在用哪种语言（D330）：选过就用选的；没选过按系统语言。
+ * first：启动时那一次——这台电脑上用过像素星空（存着别的设置）的老用户记成中文，升级后别突然变成英文
+ */
+function readLocale(first = false): Locale {
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'en-US' ? 'en-US' : 'zh-CN'
+    const stored = localStorage.getItem(STORAGE_KEY)
+    let usedBefore = false
+    if (first && stored === null)
+      for (let i = 0; i < localStorage.length && !usedBefore; i++) {
+        const key = localStorage.key(i)
+        usedBefore = !!key && key.startsWith('pixelsky.') && key !== STORAGE_KEY
+      }
+    const { locale, persist } = chooseLocale(stored, usedBefore, systemLanguages())
+    if (persist) localStorage.setItem(STORAGE_KEY, locale)
+    return locale
   } catch {
-    return 'zh-CN'
+    return localeOfSystem(systemLanguages())
   }
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => {
-    const initial = readLocale()
+    const initial = readLocale(true)
     setCurrentLocale(initial)
     return initial
   })

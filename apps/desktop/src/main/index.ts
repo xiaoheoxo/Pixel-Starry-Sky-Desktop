@@ -529,7 +529,7 @@ async function ensureDataRoot(): Promise<boolean> {
     if (state.kind !== 'missing') return true
     log.warn('找不到数据位置', { path: state.path })
     // 还没有窗口报过界面语言：按系统语言
-    const text = trayText(app.getLocale().toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US')
+    const text = trayText(windowLocale())
     splash?.dispose()
     const { response } = await dialog.showMessageBox({
       type: 'warning',
