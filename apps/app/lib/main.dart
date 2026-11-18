@@ -15,6 +15,7 @@ import 'app/scope.dart';
 import 'app/version.dart';
 import 'connection/connections.dart';
 import 'connection/pair.dart';
+import 'connection/route.dart';
 import 'connection/socket.dart';
 import 'connection/storage.dart';
 import 'data/app_update.dart';
@@ -41,13 +42,20 @@ Future<void> main() async {
           store: MemoryPairingStore([demo.pairing]),
           connect: demo.accept,
         )
-      : Connections(store: SecurePairingStore(), connect: connectRelay);
+      : Connections(
+          store: SecurePairingStore(),
+          connect: connectRouted,
+          route: appRoute,
+        );
   // 演示模式不写本机：设置和列表缓存都只放内存
   final settings = AppSettings(persist: demo == null);
   final notifier = LocalNotifier();
   // 手机日志（§19）：演示模式只放内存
   if (demo == null) unawaited(_attachLog());
+  // 连接线路（§20）：先读出上次用哪档，再连电脑；演示模式不用
+  if (demo == null) await appRoute.load();
   await Future.wait([connections.load(), settings.load()]);
+  if (demo == null) appRoute.start();
   // App 内检查更新（§16.1）：只在安卓上（iOS 还没有能装的版本）；演示模式给假的新版本
   final updater = demo != null || Platform.isAndroid
       ? (AppUpdater(

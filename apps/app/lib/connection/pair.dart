@@ -8,6 +8,7 @@ import '../link/link.dart';
 import 'nodes.dart';
 import 'offer.dart';
 import 'pairing.dart';
+import 'route.dart';
 
 enum PairError {
   /// 二维码不是经云端配对的（没有配对码）
@@ -41,28 +42,34 @@ abstract interface class BridgeApi {
   Future<({int status, Object? body})> postJson(Uri url, Object body);
 }
 
+/// 正式站的地址按线路（CDN → 直连 → IP，docs/mobile-app.md §20）试；5xx 也换下一档
 class IoBridgeApi implements BridgeApi {
-  IoBridgeApi([HttpClient? client]) : _client = client ?? HttpClient();
-  final HttpClient _client;
+  IoBridgeApi({this._route});
+  final RouteState? _route;
 
   @override
-  Future<Object?> getJson(Uri url) async {
-    final req = await _client.getUrl(url);
+  Future<Object?> getJson(Uri url) => routedHttp(url, (client, url) async {
+    final req = await client.getUrl(url).timeout(tierTimeout);
     req.headers.set(HttpHeaders.acceptHeader, 'application/json');
     final res = await req.close().timeout(const Duration(seconds: 15));
     final text = await res.transform(utf8.decoder).join();
+    if (res.statusCode >= 500) throw RetryOtherTier('HTTP ${res.statusCode}');
     return res.statusCode == 200 ? decodeJsonBody(text) : null;
-  }
+  }, route: _route);
 
   @override
-  Future<({int status, Object? body})> postJson(Uri url, Object body) async {
-    final req = await _client.postUrl(url);
-    req.headers.contentType = ContentType.json;
-    req.write(jsonEncode(body));
-    final res = await req.close().timeout(const Duration(seconds: 15));
-    final text = await res.transform(utf8.decoder).join();
-    return (status: res.statusCode, body: decodeJsonBody(text));
-  }
+  Future<({int status, Object? body})> postJson(Uri url, Object body) =>
+      routedHttp(url, (client, url) async {
+        final req = await client.postUrl(url).timeout(tierTimeout);
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode(body));
+        final res = await req.close().timeout(const Duration(seconds: 15));
+        final text = await res.transform(utf8.decoder).join();
+        if (res.statusCode >= 500) {
+          throw RetryOtherTier('HTTP ${res.statusCode}');
+        }
+        return (status: res.statusCode, body: decodeJsonBody(text));
+      }, route: _route);
 }
 
 Future<Pairing> pairWithOffer(

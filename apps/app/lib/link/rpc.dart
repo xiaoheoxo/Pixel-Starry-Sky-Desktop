@@ -79,6 +79,9 @@ class RpcCore {
 
   bool get isClosed => _closed;
 
+  /// 还在等回复的调用有几个（换线路时等它们都回来，docs/mobile-app.md §20）
+  int get pending => _pending.length;
+
   /// 超时报 `RPC_TIMEOUT: <method>`；连接关闭时挂着的调用都以关闭原因失败
   Future<Object?> call(
     String method, [

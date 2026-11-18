@@ -12,6 +12,7 @@ import 'package:clock/clock.dart';
 import '../app/log.dart';
 import '../link/link.dart';
 import 'pairing.dart';
+import 'route.dart';
 import 'socket.dart';
 
 enum LinkState {
@@ -185,6 +186,9 @@ class DesktopLink {
   void stop() {
     _stopped = true;
     _timer?.cancel();
+    _rerouteTimer?.cancel();
+    _rerouteTimer = null;
+    _rerouteWanted = false;
     _unguard();
     _reset();
     _drop();
@@ -195,6 +199,41 @@ class DesktopLink {
     if (pairing.status == PairingStatus.removed || !_stopped) return;
     _timer?.cancel();
     _stopped = false;
+    _delay = timings.firstDelay;
+    _open();
+  }
+
+  bool _rerouteWanted = false;
+  Timer? _rerouteTimer;
+  DateTime _lastCall = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 线路后台试探通了（docs/mobile-app.md §20）：空闲时（没有等回复的调用、3 秒内没新调用）断开重连到新线路。
+  /// 跟随优质节点、非正式站的连接不受线路影响，不用换
+  void rerouteWhenIdle() {
+    if (_stopped || !isOfficialHost(pairing.relayUrl.host)) return;
+    _rerouteWanted = true;
+    _maybeReroute();
+  }
+
+  void _maybeReroute() {
+    if (!_rerouteWanted || _stopped) return;
+    // 没连着：下次连接本来就按新线路
+    if (_ws == null) {
+      _rerouteWanted = false;
+      return;
+    }
+    final busy =
+        (_rpc?.pending ?? 0) > 0 ||
+        clock.now().difference(_lastCall) < const Duration(seconds: 3);
+    if (busy) {
+      _rerouteTimer ??= Timer(const Duration(seconds: 5), () {
+        _rerouteTimer = null;
+        _maybeReroute();
+      });
+      return;
+    }
+    _rerouteWanted = false;
+    appLog.info('线路', '${pairing.desktopName} 空闲，重连到新线路');
     _delay = timings.firstDelay;
     _open();
   }
@@ -228,6 +267,7 @@ class DesktopLink {
     if (rpc == null || state != LinkState.ready) {
       return Future.error(const LinkNotReady());
     }
+    _lastCall = clock.now();
     return rpc.call(method, args, timeout ?? timings.callTimeout).catchError((
       Object e,
     ) {

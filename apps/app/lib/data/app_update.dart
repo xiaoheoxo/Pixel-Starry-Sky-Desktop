@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import '../app/log.dart';
 import '../app/version.dart';
 import '../protocol/json.dart';
+import '../connection/route.dart';
 
 const appUpdateBase = 'https://pixelstarrysky.xyz/download/app/';
 const appUpdateManifest = '${appUpdateBase}latest.json';
@@ -87,19 +88,20 @@ class IoUpdatePlatform implements UpdatePlatform {
   static const _channel = MethodChannel('pixelsky/update');
 
   @override
-  Future<Object?> fetchManifest() async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
-    try {
-      final req = await client.getUrl(Uri.parse(appUpdateManifest));
-      final res = await req.close().timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
-      final text = await res.transform(const Utf8Decoder()).join();
-      return jsonDecode(text);
-    } finally {
-      client.close();
-    }
-  }
+  // 正式站的地址按线路（CDN → 直连 → IP，docs/mobile-app.md §20）试；换档后路径不变，APK 照旧核 sha256
+  Future<Object?> fetchManifest() =>
+      routedHttp(Uri.parse(appUpdateManifest), (client, url) async {
+        final req = await client.getUrl(url).timeout(tierTimeout);
+        final res = await req.close().timeout(const Duration(seconds: 20));
+        if (res.statusCode >= 500) {
+          throw RetryOtherTier('HTTP ${res.statusCode}');
+        }
+        if (res.statusCode != 200) {
+          throw HttpException('HTTP ${res.statusCode}');
+        }
+        final text = await res.transform(const Utf8Decoder()).join();
+        return jsonDecode(text);
+      });
 
   @override
   Future<String> download(
@@ -107,32 +109,38 @@ class IoUpdatePlatform implements UpdatePlatform {
     String path,
     void Function(int got) onProgress,
   ) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
-    final sink = Sha256().toSync().newHashSink();
     final file = File(path);
     await file.parent.create(recursive: true);
-    final out = file.openWrite();
-    try {
-      final req = await client.getUrl(Uri.parse(url));
-      final res = await req.close();
-      if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
-      var got = 0;
-      // 一分钟没收到数据算断了（不然卡在「正在下载」，按钮一直灰着）
-      await for (final chunk in res.timeout(const Duration(minutes: 1))) {
-        sink.add(chunk);
-        out.add(chunk);
-        got += chunk.length;
-        onProgress(got);
+    // 换一档时从头下（文件、哈希都重来）
+    return routedHttp(Uri.parse(url), (client, url) async {
+      final sink = Sha256().toSync().newHashSink();
+      final out = file.openWrite();
+      try {
+        final req = await client.getUrl(url).timeout(tierTimeout);
+        final res = await req.close().timeout(const Duration(seconds: 20));
+        if (res.statusCode >= 500) {
+          throw RetryOtherTier('HTTP ${res.statusCode}');
+        }
+        if (res.statusCode != 200) {
+          throw HttpException('HTTP ${res.statusCode}');
+        }
+        var got = 0;
+        onProgress(0);
+        // 一分钟没收到数据算断了（不然卡在「正在下载」，按钮一直灰着）
+        await for (final chunk in res.timeout(const Duration(minutes: 1))) {
+          sink.add(chunk);
+          out.add(chunk);
+          got += chunk.length;
+          onProgress(got);
+        }
+      } finally {
+        await out.close();
       }
-    } finally {
-      await out.close();
-      client.close();
-    }
-    sink.close();
-    final hash = await sink.hash();
-    return [for (final b in hash.bytes) b.toRadixString(16).padLeft(2, '0')]
-        .join();
+      sink.close();
+      final hash = await sink.hash();
+      return [for (final b in hash.bytes) b.toRadixString(16).padLeft(2, '0')]
+          .join();
+    });
   }
 
   @override

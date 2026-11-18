@@ -22,6 +22,7 @@ import 'log_screen.dart';
 import '../pairing/add_computer_screen.dart';
 import '../pairing/texts.dart';
 import '../session/approval_card.dart' show confirm;
+import '../../connection/route.dart';
 
 void openSettings(BuildContext context) =>
     Navigator.of(context)
@@ -366,6 +367,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ),
                       onTap: () => openFeedback(context, active.deviceId),
                     ),
+                  // 连接线路（§20）：只显示现在走哪档、最近一次为什么换，不给手动选
+                  ListenableBuilder(
+                    listenable: appRoute,
+                    builder: (context, _) => ListRow(
+                      leading: Icon(Icons.route_outlined, color: c.textMuted),
+                      title: L('线路', 'Route'),
+                      subtitle: routeSummary(appRoute),
+                    ),
+                  ),
                   // 手机日志（§19）：没配对也能看（配对失败也记在这里）
                   ListRow(
                     leading: Icon(
@@ -433,4 +443,21 @@ class _ComputerRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 设置页「线路」一行的说明：现在走哪档；换过时带上时间和原因（原因是中文日志文字，英文界面只显示档位）
+String routeSummary(RouteState route) {
+  final tier = switch (route.current) {
+    RouteTier.cdn => L('CDN', 'CDN'),
+    RouteTier.direct => L('直连', 'Direct'),
+    RouteTier.ip => L('IP 直连', 'Direct IP'),
+  };
+  final at = route.changedAt;
+  final why = route.reason;
+  if (at == null || why == null) {
+    return L('现在走 $tier（自动）', 'Using $tier (automatic)');
+  }
+  final hm =
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+  return L('现在走 $tier · $hm 换的：$why', 'Using $tier · switched at $hm');
 }

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'desktop_link.dart';
 import 'pairing.dart';
+import 'route.dart';
 import 'socket.dart';
 import 'storage.dart';
 
@@ -17,7 +18,18 @@ class Connections extends ChangeNotifier {
     required this._store,
     required this._connect,
     this._timings = const LinkTimings(),
-  });
+    this._route,
+  }) {
+    // 线路后台试探通了（docs/mobile-app.md §20）：每台电脑空闲时重连到新线路
+    _rerouted = _route?.improved.listen((_) {
+      for (final l in _links.values) {
+        l.rerouteWhenIdle();
+      }
+    });
+  }
+
+  final RouteState? _route;
+  StreamSubscription<RouteTier>? _rerouted;
 
   final PairingStore _store;
   final SocketFactory _connect;
@@ -138,11 +150,14 @@ class Connections extends ChangeNotifier {
       if (foreground) l.wake();
       l.away(!foreground);
     }
+    // 回到前台时也试一次靠前的线路
+    if (foreground) unawaited(_route?.probeNow());
   }
 
   @override
   void dispose() {
     _heartbeat?.cancel();
+    _rerouted?.cancel();
     for (final l in _links.values) {
       l.stop();
     }
