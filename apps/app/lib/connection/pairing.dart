@@ -68,12 +68,7 @@ class Pairing {
   /// 实时连接的地址（同网页版 link.ts 的 relayUrl）
   Uri get relayUrl {
     final node = this.node;
-    final base = node != null
-        ? Uri.parse(node)
-        : Uri.parse(origin).replace(
-            scheme: Uri.parse(origin).scheme == 'https' ? 'wss' : 'ws',
-            path: '/v1/bridge/ws',
-          );
+    final base = node != null ? Uri.parse(node) : originRelay(origin);
     return base.replace(queryParameters: {'role': 'phone'});
   }
 
@@ -152,4 +147,20 @@ class Pairing {
           : null,
     );
   }
+}
+
+/// 正式站走 CDN 的域名：CDN 会去掉 WebSocket 的升级头（云端回 426，连不上），实时连接改走直连域名
+/// （docs/network-direct.md §9）。以前配对时记下的是 CDN 域名，不用重新配对
+const _cdnHost = 'pixelstarrysky.xyz';
+const _directHost = 'direct.pixelstarrysky.xyz';
+
+/// 主站地址（https://host）对应的中转地址：wss://host/v1/bridge/ws；正式站的 CDN 域名换成直连域名
+Uri originRelay(String origin) {
+  final o = Uri.parse(origin);
+  final host = o.host.toLowerCase() == _cdnHost ? _directHost : o.host;
+  return o.replace(
+    scheme: o.scheme == 'https' ? 'wss' : 'ws',
+    host: host,
+    path: '/v1/bridge/ws',
+  );
 }
