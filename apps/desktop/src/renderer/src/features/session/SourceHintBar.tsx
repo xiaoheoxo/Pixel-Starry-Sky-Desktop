@@ -129,6 +129,11 @@ export function SourceHintBar({
       : ''
     const fromEngineName = live.sessionEngine?.name ?? engineName
     const sourceChanged = !switchEngine || confirm.choice?.channel !== live.channel
+    // 只有自己结束后台任务的引擎（Claude、Antigravity）才提示；Dot 的后台在云端，不受换进程影响
+    const stopsBackground =
+      (switchEngine || sourceChanged) &&
+      live.backgroundWork.count > 0 &&
+      live.sessionEngine?.caps.backgroundTasks === true
     const label = switchEngine
       ? nextEngineName
       : confirm.choice
@@ -192,6 +197,14 @@ export function SourceHintBar({
             : live.running
               ? tr('session.SourceHintBar.takesEffectFromNextMessage')
               : tr('session.SourceHintBar.engineRestartsAndResumes')}{' '}
+          {/* 换进程会连同后台命令 / 后台子智能体一起结束（docs/ui/source-switch.md §9） */}
+          {stopsBackground &&
+            tr('session.SourceHintBar.stopsBackground', {
+              n: live.backgroundWork.count,
+              names:
+                live.backgroundWork.names.join(tr('session.SourceHintBar.listSeparator')) ||
+                tr('session.SourceHintBar.backgroundAgents'),
+            })}
         </div>
         {error && <div className="text-danger">{translateMessage(error)}</div>}
       </Bar>

@@ -452,6 +452,11 @@ export interface ComposerController {
   /** 还在跑的后台子智能体 / 编排个数（停止按钮的提示用）；引擎没有后台任务时为 0 */
   backgroundAgents: number
   /**
+   * 换进程时会一起结束的后台任务（后台命令的名字；只有后台子智能体时 names 为空）：换来源 / 换引擎的确认条提示用
+   * （docs/ui/source-switch.md §9）。count 为 0 表示没有
+   */
+  backgroundWork: { count: number; names: string[] }
+  /**
    * 接着终端里的 Claude Code 会话时新对话用的设置（docs/ui/claude-resume.md §2.3）：模型用会话最后用的（当前额度来源能跑时），
    * 额度来源、权限、推理强度跟输入框；平台没登录 / 线路没读到时抛出给用户看的错误
    */
@@ -1044,6 +1049,10 @@ export function useComposerController(
     running: !!snap && snap.state !== 'idle',
     awaitingApproval: !!snap && snap.pending.length > 0,
     backgroundAgents: stopTargets(snap).length,
+    backgroundWork: {
+      count: snap?.tasks.length || (snap?.background ?? 0),
+      names: (snap?.tasks ?? []).map(t => t.description.trim() || t.kind),
+    },
     stop: () =>
       record
         ? b.interrupt(

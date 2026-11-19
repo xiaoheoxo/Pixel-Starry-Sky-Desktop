@@ -22,6 +22,7 @@ import {
 } from '@pixelsky/protocol'
 import { queueSettings } from '../queue'
 import { NO_REPLY, seedTurns, type ChatSeed } from '../chat-log'
+import { logger } from '../log'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { QuotaReading } from '../quota'
 import { claudeMcpServers, McpReporter } from '../mcp'
@@ -48,6 +49,8 @@ const samePath = (a: string, b: string): boolean =>
   process.platform === 'win32' ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b)
 import { obj, str } from './shape'
 import { claudeModelName, type ModelSettings } from './long-context'
+
+const log = logger('engine.claude')
 
 type Msg = Record<string, unknown>
 
@@ -1141,7 +1144,18 @@ export class ClaudeSession implements EngineSession {
     const starting = this.starting
     if (starting) await starting.catch(() => null)
     try {
-      await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
+      const proc = this.proc
+      // 还有后台命令 / 后台子智能体：只关 stdin 的话 Claude Code 自己退了，它们在 Windows 上留成孤儿（还在跑、界面上没了、
+      // 跑完不叫醒模型、没法再停），所以连同进程树一起结束（docs/ui/source-switch.md §9）
+      if (proc && this.translator.hasBackgroundWork()) {
+        log.info('关会话时还有后台任务，连同它们一起结束', { sessionId: this.ctx.record().id })
+        proc.kill()
+        // 和正常关闭一样有上限（退出应用时 quick 只等 1 秒）：结束不掉（权限不够）也不能把换来源、归档、退出一直卡住
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const limit = opts.quick ? QUICK_CLOSE_MS : 5_000
+        await Promise.race([proc.exitPromise, new Promise<void>(r => (timer = setTimeout(r, limit)))])
+        clearTimeout(timer)
+      } else await proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
     } finally {
       this.dropTempFiles()
       this.deps.extensions?.dispose?.()

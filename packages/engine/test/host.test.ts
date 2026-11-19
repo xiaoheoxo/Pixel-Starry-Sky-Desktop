@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { HostEvent, SessionRecord } from '@pixelsky/protocol'
 import { ClaudeAdapter, EngineHost, LONG_CONTEXT_ENV, type EngineHostOptions } from '../src'
+import { setLogSink } from '../src/log'
 
 const FAKE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
 
@@ -1131,6 +1132,28 @@ describe('EngineHost + Claude（假引擎）', () => {
     await waitFor(() => host.open(record.id).tasks.length === 0)
     snap = host.open(record.id)
     expect(snap.items.some(i => i.kind === 'notice' && i.text === '后台命令已停止：npm run dev')).toBe(true)
+  })
+
+  it('空闲时换额度来源而后台命令还在跑：连同进程树一起结束，不留孤儿，对话里留提示（docs/ui/source-switch.md §9）', async () => {
+    const logs: string[] = []
+    setLogSink({ enabled: () => true, write: (_level, _scope, message) => logs.push(message) })
+    try {
+      const host = makeHost()
+      const { record } = setup(host)
+      await host.send(record.id, '起个后台服务')
+      await waitFor(() => turnsDone(record.id) === 1)
+      expect(host.open(record.id).tasks).toHaveLength(1)
+      await host.update(record.id, { platform: { groupId: '7', account: 'someone@example.com' } })
+      const snap = host.open(record.id)
+      expect(snap.tasks).toEqual([])
+      expect(snap.items.filter(i => i.kind === 'notice').map(i => i.text)).toContain(
+        '换了额度来源，结束了正在后台跑的 1 个任务：npm run dev',
+      )
+      // 走的是强制结束进程树，不是只关 stdin
+      expect(logs).toContain('关会话时还有后台任务，连同它们一起结束')
+    } finally {
+      setLogSink(null)
+    }
   })
 
   it('智能体追踪：重新打开的会话从保存的文件读出以前的编排和子智能体，能读子智能体的对话', async () => {

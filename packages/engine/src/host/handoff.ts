@@ -140,7 +140,7 @@ export class HostHandoff {
     rt.session = null
     // 换引擎时旧进程最多等 1 秒自己退（以前 5 秒：Claude Code 的 SessionEnd 钩子常常拖满，换过去的第一轮就晚 5 秒）；
     // 还是等它退完再往下走，不和新引擎同时跑
-    await old?.close({ quick: true })
+    if (old) await m.sessions.closeForSwitch(id, old, 'engine', { quick: true })
     // 关进程期间记录可能变了（引擎回报的会话 id 等），换引擎用最新的
     const record = rt.snapshot.record
     if (record.engine === target) return

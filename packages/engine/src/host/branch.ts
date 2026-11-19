@@ -110,7 +110,8 @@ export class HostBranch {
       clearTimeout(rt.idleTimer)
       rt.idleTimer = null
     }
-    await old?.close()
+    // 还有后台命令时会一起结束，对话里留提示（docs/ui/source-switch.md §9）
+    if (old) await this.ctx.m.sessions.closeForSwitch(id, old, 'restart')
   }
 
   /** 回退前检查代码：要还原哪些文件 */

@@ -277,6 +277,11 @@ export class ClaudeTranslator {
     this.cb.emit({ type: 'runs', runs: this.runs.snapshot() })
   }
 
+  /** 还有后台命令或后台子智能体在跑（关进程时要连它们一起结束，不然 Windows 上留成没人管的进程） */
+  hasBackgroundWork(): boolean {
+    return this.bgTasks.length > 0 || this.asyncAgents.size > 0 || this.backgroundCount > 0
+  }
+
   /** 进程退出：后台任务、子智能体都没了，追踪里还在跑的标成已停止 */
   processGone(): void {
     if (this.bgTasks.length > 0) {

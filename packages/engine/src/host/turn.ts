@@ -113,7 +113,7 @@ export class HostTurn {
       ) {
         const old = rt.session
         rt.session = null
-        await old.close()
+        await m.sessions.closeForSwitch(id, old, rt.sessionSource !== source ? 'source' : 'restart')
       }
       if (!stillCurrent()) return
       // 执行设置里的引擎就是正在用的这个，nextEngine（还没生效的选择）不带进来

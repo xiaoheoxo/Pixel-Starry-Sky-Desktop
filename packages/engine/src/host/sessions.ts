@@ -24,6 +24,7 @@ import {
 } from '@pixelsky/protocol'
 import { queueSettings } from '../queue'
 import { ENGINES } from '../registry'
+import type { CloseOptions, EngineSession } from '../adapter'
 import type { HostContext, Runtime } from './context'
 import { NEW_TITLE } from './title'
 import { checkPlanReturn, nextPlanReturn } from './plan-return'
@@ -31,6 +32,16 @@ import { under } from '../native/paths'
 import { logger } from '../log'
 
 const log = logger('engine.sessions')
+
+/** 换进程的原因：换额度来源、换引擎、其他（引擎设置、重试次数、模型要换进程） */
+export type SwitchReason = 'source' | 'engine' | 'restart'
+
+/** 换进程时结束了后台任务的提示（界面按词典 sessions.backgroundStopped.* 翻译，文字要和词典的 zh 一致） */
+export const BACKGROUND_STOPPED: Record<SwitchReason, string> = {
+  source: '换了额度来源，结束了正在后台跑的 {n} 个任务：{names}',
+  engine: '换了引擎，结束了正在后台跑的 {n} 个任务：{names}',
+  restart: '重启了引擎进程，结束了正在后台跑的 {n} 个任务：{names}',
+}
 
 export class HostSessions {
   constructor(private readonly ctx: HostContext) {}
@@ -124,6 +135,32 @@ export class HostSessions {
     }
     m.events.broadcastSessions()
     return record
+  }
+
+  /**
+   * 换进程（换额度来源、换引擎、引擎设置变了）时关掉旧进程。还有后台命令 / 后台子智能体时，引擎的 close 会连它们一起结束
+   * （Claude、Antigravity；只关 stdin 的话 Windows 上会留成没人管的进程），这里在对话里留一条提示说清楚结束了什么
+   * （docs/ui/source-switch.md §9）
+   */
+  async closeForSwitch(id: string, session: EngineSession, why: SwitchReason, opts?: CloseOptions): Promise<void> {
+    const rt = this.runtime(id)
+    const engine = rt.execution?.engine ?? rt.snapshot.record.engine
+    // 关之前记下来：关的时候引擎会把列表清空
+    const tasks = rt.snapshot.tasks
+    const count = tasks.length || (rt.snapshot.background ?? 0)
+    await session.close(opts)
+    if (!count || !ENGINES[engine].caps.backgroundTasks) return
+    const names = tasks.map(t => t.description.trim() || t.kind).join('、') || '后台子智能体'
+    log.info('换进程时结束了后台任务', { sessionId: id, why, count })
+    this.ctx.m.events.apply(id, {
+      type: 'item_completed',
+      item: {
+        kind: 'notice',
+        id: `background-stopped-${randomUUID()}`,
+        level: 'warn',
+        text: BACKGROUND_STOPPED[why].replace('{n}', String(count)).replace('{names}', names),
+      },
+    })
   }
 
   /** 会话的运行时；第一次访问时从磁盘读条目和队列，并排期续跑未完成的结算 */
@@ -408,7 +445,7 @@ export class HostSessions {
       }
       const s = rt.session
       rt.session = null
-      await s.close()
+      await this.closeForSwitch(id, s, changed ? 'source' : 'restart')
     }
     if (Object.keys(settings).length > 0) {
       // 模型和权限记住用户的选择，作为以后新会话的默认值；推理强度那几项只影响这个会话，

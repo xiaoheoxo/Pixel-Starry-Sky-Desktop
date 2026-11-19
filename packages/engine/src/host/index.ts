@@ -898,7 +898,7 @@ export class EngineHost {
             clearTimeout(rt.idleTimer)
             rt.idleTimer = null
           }
-          await prev.close()
+          await m.sessions.closeForSwitch(id, prev, 'restart')
         }
         rt.session = m.turn.createEngineSession(id, adapter, {
           extensions,
@@ -958,7 +958,8 @@ export class EngineHost {
         clearTimeout(rt.idleTimer)
         rt.idleTimer = null
       }
-      await old?.close()
+      // 切到终端要关界面进程：还有后台命令时会一起结束，对话里留提示（docs/ui/source-switch.md §9）
+      if (old) await m.sessions.closeForSwitch(id, old, 'restart')
 
       // 关进程后再查一次外部占用（自己的已关，不算；不能用 tuiBlock：changingSessions 里有自己）
       const live = this.tuiLiveBlock(m.sessions.runtime(id).snapshot.record)

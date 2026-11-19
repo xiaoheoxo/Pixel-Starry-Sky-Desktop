@@ -595,4 +595,24 @@ export const sessionMessages = {
     zh: '演示模式：这里只示意终端切换，不会真的启动 Claude Code',
     en: 'Demo: terminal mode is simulated; Claude Code is not launched',
   },
+  // 换进程时结束了后台任务（docs/ui/source-switch.md §9）：zh 和引擎 host/sessions.ts 的 BACKGROUND_STOPPED 一字不差
+  'sessions.backgroundStopped.source': {
+    zh: '换了额度来源，结束了正在后台跑的 {n} 个任务：{names}',
+    en: 'Switched the credit source and stopped {n} background task(s): {names}',
+  },
+  'sessions.backgroundStopped.engine': {
+    zh: '换了引擎，结束了正在后台跑的 {n} 个任务：{names}',
+    en: 'Switched engines and stopped {n} background task(s): {names}',
+  },
+  'sessions.backgroundStopped.restart': {
+    zh: '重启了引擎进程，结束了正在后台跑的 {n} 个任务：{names}',
+    en: 'Restarted the engine process and stopped {n} background task(s): {names}',
+  },
+  // 已开始的对话换来源 / 换引擎的确认条：还有后台任务在跑时多一句（§9）
+  'session.SourceHintBar.stopsBackground': {
+    zh: '正在后台跑的 {n} 个任务（{names}）会一起结束。',
+    en: 'The {n} background task(s) still running ({names}) will be stopped.',
+  },
+  'session.SourceHintBar.backgroundAgents': { zh: '后台子智能体', en: 'background subagents' },
+  'session.SourceHintBar.listSeparator': { zh: '、', en: ', ' },
 } as const
