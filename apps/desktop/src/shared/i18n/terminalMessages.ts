@@ -57,8 +57,8 @@ export const terminalMessages = {
     en: 'The terminal no longer exists or belongs to another window',
   },
   'terminal.limit': {
-    zh: '最多打开 12 个终端，请先关闭部分标签',
-    en: 'You can open up to 12 terminals. Close some tabs first.',
+    zh: '最多同时运行 12 个终端，请先关闭部分标签',
+    en: 'Up to 12 terminals can run at once. Close some tabs first.',
   },
   'terminal.inputLimit': { zh: '终端输入过长', en: 'Terminal input is too long' },
   'terminal.noMatches': { zh: '未找到', en: 'No matches' },

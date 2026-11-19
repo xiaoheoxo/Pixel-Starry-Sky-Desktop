@@ -550,6 +550,10 @@ export class Machines {
     const link = this.states.get(id)?.connection
     return link instanceof WslConnection ? link.stats() : null
   }
+  /** 这台机器还在配置里（含暂时隐藏的 WSL 发行版）；删掉的 SSH 机器为 false */
+  has(id: string): boolean {
+    return this.states.has(id)
+  }
   connection(id: string): RemoteLink {
     const state = this.states.get(id)
     if (!state?.connection?.peer || state.info.status !== 'connected') throw new Error('SSH_NOT_CONNECTED')

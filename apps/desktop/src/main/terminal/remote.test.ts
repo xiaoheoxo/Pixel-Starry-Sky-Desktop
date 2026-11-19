@@ -102,3 +102,68 @@ describe('RemoteTerminals 启动 shell', () => {
     expect(terminals.hasRunning(1)).toBe(true)
   })
 })
+
+describe('RemoteTerminals 名额只算在跑的、删掉的机器的标签清掉', () => {
+  const machinesWith = (ids: string[]) =>
+    ({
+      currentId: 'ssh-a',
+      has: (id: string) => ids.includes(id),
+      state: () => ({ machines: [] }),
+      target: () => ({ name: 'proj', path: '/home/me/proj' }),
+      record: () => null,
+      connection: () => ({ hello: { shell: '/bin/sh' }, openShell: () => new Promise(() => {}) }),
+    }) as unknown as Machines
+  const scratchDir = async () => {
+    const scratch = resolve('../../scratch')
+    await mkdir(scratch, { recursive: true })
+    dir = await mkdtemp(join(scratch, 'remote-terminals-'))
+    return dir
+  }
+  const rec = (id: string, status = 'stopped', projectId = 'ssh-a:p', cwd = '/home/me/proj') => ({
+    id,
+    projectId,
+    projectName: 'proj',
+    cwd,
+    profileId: 'ssh-shell',
+    profileLabel: 'SSH Shell',
+    title: 'SSH Shell',
+    titleEdited: false,
+    status,
+    generation: 0,
+    createdAt: 0,
+  })
+
+  it('启动时丢掉删掉的 SSH 机器的标签，WSL 的留着（发行版启动后才探测出来）', async () => {
+    const d = await scratchDir()
+    const { writeFile, readFile } = await import('node:fs/promises')
+    await writeFile(
+      join(d, 'ssh-terminals.json'),
+      JSON.stringify([rec('ssh-a~1'), rec('ssh-dead~2'), rec('wsl-0abc~3'), rec('local~4')]),
+    )
+    const terminals = new RemoteTerminals(machinesWith(['ssh-a']), d, () => {})
+    await terminals.init()
+    expect(terminals.state(1).terminals.map(t => t.id)).toEqual(['ssh-a~1', 'wsl-0abc~3'])
+    await vi.waitFor(async () => {
+      const saved = JSON.parse(await readFile(join(d, 'ssh-terminals.json'), 'utf8')) as { id: string }[]
+      expect(saved.map(t => t.id)).toEqual(['ssh-a~1', 'wsl-0abc~3'])
+    })
+  })
+
+  it('别处 30 个停着的标签不挡新建；在跑的满 12 个才拦，重启停着的也拦', async () => {
+    const terminals = new RemoteTerminals(machinesWith(['ssh-a']), await scratchDir(), () => {})
+    const inner = terminals as unknown as { records: ReturnType<typeof rec>[] }
+    for (let i = 0; i < 30; i++) inner.records.push(rec('ssh-b~s' + i, 'stopped', 'ssh-b:q', '/srv'))
+    const created = await Promise.race([
+      terminals.create(1, { projectId: 'ssh-a:p' }, 'ssh-shell', 'req-1'),
+      new Promise(r => setTimeout(() => r('started'), 50)),
+    ])
+    expect(created).toBe('started') // 过了名额检查，卡在打开 shell（测试里不回）
+    inner.records.splice(0, inner.records.length)
+    for (let i = 0; i < 12; i++) inner.records.push(rec('ssh-b~r' + i, 'running', 'ssh-b:q', '/srv'))
+    inner.records.push(rec('ssh-a~idle', 'stopped'))
+    await expect(terminals.create(1, { projectId: 'ssh-a:p' }, 'ssh-shell', 'req-2')).rejects.toThrow(
+      '最多同时运行 12 个远程终端，请先关闭部分标签（其中 12 个在其他机器、项目或副本里）',
+    )
+    await expect(terminals.change(1, 'ssh-a~idle', true)).rejects.toThrow('最多同时运行 12 个远程终端')
+  })
+})

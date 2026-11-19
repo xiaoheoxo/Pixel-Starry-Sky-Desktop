@@ -13,6 +13,11 @@ import type { Machines } from '../machines/service'
 export const shellLabel = (machine: string, name?: string): string =>
   machine.startsWith('wsl-') && name ? `WSL · ${name}` : 'SSH Shell'
 
+/** 远程终端同时在跑的最多这么多（所有机器、项目加起来）；停着的标签不算（和本机终端 manager.ts 的 MAX_RUNNING 一样） */
+export const REMOTE_MAX_RUNNING = 12
+/** 存盘的远程终端标签最多这么多 */
+export const REMOTE_MAX_SAVED = 36
+
 interface Run {
   channel: ShellChannel
   owner: number
@@ -28,6 +33,8 @@ export class RemoteTerminals {
   private changing = new Set<string>()
   private writes = Promise.resolve()
   private requests = new Map<string, Promise<TerminalRecord>>()
+  /** 已经过了数量检查、还在保存没开始启动的新建终端 */
+  private pendingCreates = 0
   private file: string
   constructor(
     private machines: Machines,
@@ -39,11 +46,16 @@ export class RemoteTerminals {
   async init(): Promise<void> {
     try {
       const data = JSON.parse(await readFile(this.file, 'utf8'))
-      if (Array.isArray(data))
-        this.records = data
-          .filter(r => machineOf(r.id) !== 'local' && typeof r.cwd === 'string')
-          .slice(0, 36)
-          .map(r => ({ ...r, status: 'stopped', generation: 0 }))
+      if (Array.isArray(data)) {
+        // 删掉的 SSH 机器留下的标签再也打不开，丢掉；WSL 发行版启动后才探测出来，不按这个判断
+        const kept = data.filter(r => {
+          if (typeof r?.id !== 'string' || typeof r.cwd !== 'string') return false
+          const machine = machineOf(r.id)
+          return machine !== 'local' && (!machine.startsWith('ssh-') || this.machines.has(machine))
+        })
+        this.records = kept.slice(0, REMOTE_MAX_SAVED).map(r => ({ ...r, status: 'stopped', generation: 0 }))
+        if (kept.length !== data.length) void this.save().catch(() => {})
+      }
     } catch {}
   }
   private save(): Promise<void> {
@@ -89,14 +101,30 @@ export class RemoteTerminals {
     if (this.requests.size > 64) this.requests.delete(this.requests.keys().next().value!)
     return promise
   }
+  /**
+   * 还能不能再开一个远程 Shell：在开的、开着的（加上正在建的）才算名额，停着的标签不算。
+   * 以前按全部标签算：别的机器、项目、删掉的机器留下的标签（终端面板只显示当前目录的）会把名额占满
+   */
+  private assertRunSlot(target: { projectId: string; cwd: string }): void {
+    const live = this.records.filter(r => r.status === 'starting' || r.status === 'running')
+    if (live.length + this.pendingCreates < REMOTE_MAX_RUNNING) return
+    const elsewhere = live.filter(r => r.projectId !== target.projectId || r.cwd !== target.cwd).length
+    throw new Error(
+      `最多同时运行 ${REMOTE_MAX_RUNNING} 个远程终端，请先关闭部分标签` +
+        (elsewhere ? `（其中 ${elsewhere} 个在其他机器、项目或副本里）` : ''),
+    )
+  }
   private async createOnce(owner: number, ref: WorkspaceRef): Promise<TerminalRecord> {
-    if (this.records.length >= 36) throw new Error('最多打开 12 个终端，请先关闭部分标签')
     const machine = machineOf(ref.projectId ?? ref.sessionId),
       label = shellLabel(machine, this.machines.state().machines.find(m => m.id === machine)?.name),
       target = this.machines.target(ref)
     if (!target) throw new Error('项目已不存在')
     const projectId = ref.projectId ?? this.machines.record(ref.sessionId!)?.projectId
     if (!projectId) throw new Error('项目已不存在')
+    // 数量检查到 push、记名额之间不能有 await，否则并发的创建会一起越过上限
+    this.assertRunSlot({ projectId, cwd: target.path })
+    if (this.records.length >= REMOTE_MAX_SAVED)
+      throw new Error(`远程终端标签太多（所有机器共 ${REMOTE_MAX_SAVED} 个），请先关闭部分标签`)
     const record: TerminalRecord = {
       id: machine + '~' + randomUUID(),
       projectId,
@@ -111,7 +139,13 @@ export class RemoteTerminals {
       createdAt: Date.now(),
     }
     this.records.push(record)
-    await this.save()
+    // 保存期间还没开始启动：先记一个名额
+    this.pendingCreates++
+    try {
+      await this.save()
+    } finally {
+      this.pendingCreates--
+    }
     return this.start(owner, record)
   }
   private async start(owner: number, record: TerminalRecord): Promise<TerminalRecord> {
@@ -214,7 +248,11 @@ export class RemoteTerminals {
     try {
       if (run) await this.stop(run)
       // 等 shell 开好再放开 changing：连点两次重启不会多开一个
-      if (restart) return await this.start(owner, record)
+      if (restart) {
+        // 停着的标签重新启动也占名额，不然一个个点「重启」就绕过了上限（检查到 start 置成 starting 之间没有 await）
+        this.assertRunSlot(record)
+        return await this.start(owner, record)
+      }
       this.records = this.records.filter(r => r.id !== id)
       await this.save()
     } finally {

@@ -1,7 +1,7 @@
 import { registerOwnClaudePid, unregisterOwnClaudePid } from '@pixelsky/engine'
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rename, stat } from 'node:fs/promises'
 import { statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import * as pty from 'node-pty'
 import type {
@@ -46,6 +46,55 @@ interface Runtime {
 const HIGH = 256 * 1024,
   LOW = 64 * 1024,
   HARD = 4 * 1024 * 1024
+/**
+ * 新建终端的上限：同时在跑的 Shell 最多 12 个（占的是进程），停着的标签不算。
+ * 以前按全部标签算，别的项目、删掉的副本里留下的标签（终端面板只显示当前目录的，看不见）会把名额占满
+ */
+export const MAX_RUNNING = 12
+/** 存盘的终端标签最多这么多（所有项目加起来），防止越攒越多 */
+export const MAX_SAVED = 48
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+const missing = (e: unknown): boolean => {
+  const code = (e as { code?: unknown }).code
+  return code === 'ENOENT' || code === 'ENOTDIR'
+}
+
+/**
+ * 启动时清理用：工作目录**确定**已经不在了才返回 true（删掉的副本、挪走的项目）。
+ * 网络路径、WSL（\\ 开头）不查：同步查可能卡很久或把 WSL 拉起来，查不到也不一定是没了；
+ * 盘符整个不在（外接盘没插）也留着；别的错误（没权限、超时）都当还在
+ */
+export async function goneDirectory(path: string): Promise<boolean> {
+  if (/^[\\/]{2}/.test(path)) return false
+  try {
+    return !(await stat(path)).isDirectory()
+  } catch (e) {
+    if (!missing(e)) return false
+    try {
+      await stat(parse(resolve(path)).root)
+    } catch {
+      return false
+    }
+    return true
+  }
+}
+
+/** 同一个目录：Windows 上不分大小写、斜杠方向，去掉结尾分隔符 */
+function samePath(a: string, b: string): boolean {
+  const norm = (v: string): string => {
+    const r = resolve(v)
+    return process.platform === 'win32' ? r.toLowerCase() : r
+  }
+  return norm(a) === norm(b)
+}
 /** 把 extra 并进环境变量；Windows 上变量名不分大小写，先去掉同名的（免得 Prompt 和 PROMPT 并存） */
 function mergeEnv(env: Record<string, string>, extra: Record<string, string>): void {
   for (const [key, value] of Object.entries(extra)) {
@@ -117,6 +166,8 @@ export class TerminalManager {
   private creates = new Map<string, Promise<TerminalRecord>>()
   private writes: Promise<void> = Promise.resolve()
   private stopping = false
+  /** 已经过了数量检查、还在保存没启动的新建终端 */
+  private pendingCreates = 0
   constructor(
     dataDir: string,
     private resolve: (ref: WorkspaceRef) => TerminalTarget,
@@ -150,7 +201,15 @@ export class TerminalManager {
       if (typeof data.defaultProfileId === 'string' && data.defaultProfileId) this.storedDefault = data.defaultProfileId
       if (data.encoding === 'system') this.encoding = 'system'
       const ids = new Set<string>()
-      for (const raw of Array.isArray(data.terminals) ? data.terminals.slice(0, 12) : []) {
+      let pruned = false
+      const saved = Array.isArray(data.terminals) ? data.terminals.slice(0, MAX_SAVED) : []
+      // 异步一起查：不卡主进程
+      const gone = await Promise.all(
+        saved.map((raw: { cwd?: unknown } | null) =>
+          typeof raw?.cwd === 'string' ? goneDirectory(raw.cwd) : Promise.resolve(false),
+        ),
+      )
+      for (const [index, raw] of saved.entries()) {
         if (
           !raw ||
           !['id', 'projectId', 'projectName', 'cwd', 'profileId', 'profileLabel', 'title'].every(
@@ -159,6 +218,11 @@ export class TerminalManager {
           ids.has(raw.id)
         )
           continue
+        // 工作目录已经不在了（删掉的副本、挪走的项目）：这个标签再也打不开，丢掉
+        if (gone[index]) {
+          pruned = true
+          continue
+        }
         try {
           const record: TerminalRecord = {
             id: raw.id,
@@ -179,6 +243,8 @@ export class TerminalManager {
           /* invalid metadata never starts a shell */
         }
       }
+      // 丢掉了打不开的标签：写回去，免得每次启动都再判断一遍
+      if (pruned) void this.save().catch(() => {})
     } catch {
       /* first use or damaged state */
     }
@@ -406,12 +472,27 @@ export class TerminalManager {
     if (this.creates.size > 64) this.creates.delete(this.creates.keys().next().value!)
     return task
   }
+  /** 还能不能再跑一个 Shell：在跑的（加上正在建、还没启动的）才算名额，会话 TUI 不算；新建和重新启动停着的标签都查 */
+  private assertRunSlot(target: { id?: string; projectId: string; cwd: string }): void {
+    // 重启的那个自己不算（进程已经没了、kill 抛错时 stop 立刻返回，它还留在 running 里）
+    const live = [...this.running.values()].filter(run => !run.record.sessionId && run.record.id !== target.id)
+    if (live.length + this.pendingCreates < MAX_RUNNING) return
+    const elsewhere = live.filter(
+      run => run.record.projectId !== target.projectId || !samePath(run.record.cwd, target.cwd),
+    ).length
+    throw new Error(
+      `最多同时运行 ${MAX_RUNNING} 个终端，请先关闭部分标签` +
+        (elsewhere ? `（其中 ${elsewhere} 个在其他项目或副本里）` : ''),
+    )
+  }
   private async createOnce(owner: number, ref: WorkspaceRef, profileId?: string): Promise<TerminalRecord> {
     // 先等检测，再做数量和关闭检查：检查到 push 记录之间不能再有 await，否则并发的创建会一起越过上限
     await this.settle(profileId ?? this.defaultId)
     if (this.stopping) throw new Error('终端正在关闭')
-    if (this.records.filter(r => !r.sessionId).length >= 12) throw new Error('最多打开 12 个终端，请先关闭部分标签')
     const target = this.resolve(ref)
+    this.assertRunSlot(target)
+    if (this.records.filter(r => !r.sessionId).length >= MAX_SAVED)
+      throw new Error(`终端标签太多（所有项目共 ${MAX_SAVED} 个），请先关闭部分标签`)
     const profile = this.profiles.find(p => p.id === (profileId ?? this.defaultId))
     if (!profile?.available) throw new Error('所选 Shell 不可用')
     this.checkDirectory(target.cwd)
@@ -428,16 +509,19 @@ export class TerminalManager {
     }
     this.records.push(record)
     this.owners.set(record.id, owner)
-    await this.save()
-    // 保存期间窗口关了 / 刷新了（shutdown(owner) 已清掉归属）或终端被关掉：不再为它启动进程，否则一直留到退出
-    if (this.owners.get(record.id) !== owner) return { ...record }
-    return this.start(owner, record)
+    // 保存期间还没进 running：先记一个名额，免得并发的创建一起越过上限
+    this.pendingCreates++
+    try {
+      await this.save()
+      // 保存期间窗口关了 / 刷新了（shutdown(owner) 已清掉归属）或终端被关掉：不再为它启动进程，否则一直留到退出
+      if (this.owners.get(record.id) !== owner) return { ...record }
+      return this.start(owner, record)
+    } finally {
+      this.pendingCreates--
+    }
   }
   private checkDirectory(cwd: string): void {
-    try {
-      if (statSync(cwd).isDirectory()) return
-    } catch {}
-    throw new Error('项目目录不存在')
+    if (!isDirectory(cwd)) throw new Error('项目目录不存在')
   }
   private startCommand(
     owner: number,
@@ -728,6 +812,8 @@ export class TerminalManager {
       if (run) await this.stop(run)
       if (restart) {
         await this.settle(record.profileId)
+        // 停着的标签能存 48 个：重新启动也要占名额，不然一个个点「重启」就绕过了上限（检查到启动之间没有 await）
+        this.assertRunSlot(record)
         return this.start(owner, record)
       }
       this.records = this.records.filter(r => r.id !== id)
