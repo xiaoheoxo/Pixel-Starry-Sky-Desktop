@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import readline from 'node:readline'
@@ -29,6 +29,40 @@ const lockedThread = id => {
   const value = process.env.FAKE_CODEX_LOCKED
   return !!value && (value === '1' || value === '*' || value.split(',').includes(id))
 }
+/**
+ * FAKE_CODEX_LOCK_DIR：像真 Codex 一样的线程写入锁，跨进程生效。加载线程时写 <dir>/<id>.pid，
+ * 别的活着的进程已经写了就报 active writer；进程退出时删掉自己的（真 Codex 退出即放锁）
+ */
+const lockDir = process.env.FAKE_CODEX_LOCK_DIR
+const holdThread = id => {
+  if (!lockDir || !id) return true
+  const file = join(lockDir, id + '.pid')
+  if (existsSync(file)) {
+    const pid = Number(readFileSync(file, 'utf8'))
+    if (pid !== process.pid) {
+      try {
+        process.kill(pid, 0)
+        return false
+      } catch {
+        // 写锁的进程已经不在了
+      }
+    }
+  }
+  mkdirSync(lockDir, { recursive: true })
+  writeFileSync(file, String(process.pid))
+  return true
+}
+process.on('exit', () => {
+  if (!lockDir || !existsSync(lockDir)) return
+  for (const name of readdirSync(lockDir))
+    try {
+      if (Number(readFileSync(join(lockDir, name), 'utf8')) === process.pid) rmSync(join(lockDir, name))
+    } catch {
+      // 别的进程刚删掉
+    }
+})
+/** FAKE_CODEX_LOCKED_FILE：这个文件在时 thread/resume 一律报 active writer（测试删掉文件模拟占用的进程退出了） */
+const lockedByFile = () => !!process.env.FAKE_CODEX_LOCKED_FILE && existsSync(process.env.FAKE_CODEX_LOCKED_FILE)
 /** 测试通过创建这个文件打开「恢复线程失败」开关：thread/resume 报错，thread/start 给新线程 id */
 const resumeFails = () =>
   !!process.env.FAKE_CODEX_RESUME_FAIL_FILE && existsSync(process.env.FAKE_CODEX_RESUME_FAIL_FILE)
@@ -409,7 +443,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         break
       }
       // FAKE_CODEX_LOCKED：另一个进程正写着这个线程（终端里的 codex）。逗号分隔的线程 id；'1' 或 '*' 是所有线程
-      if (m.method === 'thread/resume' && lockedThread(p.threadId)) {
+      if (m.method === 'thread/resume' && (lockedThread(p.threadId) || lockedByFile() || !holdThread(p.threadId))) {
         out({ id: m.id, error: { code: -32000, message: 'thread ' + p.threadId + ' already has an active writer' } })
         break
       }
@@ -440,6 +474,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         saveThreads()
         bindProvider(thread, p.modelProvider)
       } else thread = p.threadId ?? (resumeFails() ? 'fake-thread-new' : 'fake-thread')
+      if (m.method === 'thread/start') holdThread(thread)
       response(m, { thread: { id: thread, turns: [] }, ...threadReport(m.method === 'thread/resume') })
       rateUpdate()
       break
@@ -983,4 +1018,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       out({ id: m.id, error: { code: -32601, message: 'Unknown method ' + m.method } })
   }
 })
-process.stdin.on('end', () => process.exit(0))
+// FAKE_CODEX_EXIT_DELAY_MS：关了 stdin 以后过一会儿才退（真 Codex 收尾、暂停目标时会慢）
+process.stdin.on('end', () => {
+  const delay = Number(process.env.FAKE_CODEX_EXIT_DELAY_MS) || 0
+  if (delay) setTimeout(() => process.exit(0), delay)
+  else process.exit(0)
+})

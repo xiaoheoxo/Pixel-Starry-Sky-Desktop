@@ -28,6 +28,7 @@ import {
   withoutOwnFeatures,
   type CodexLaunchOptions,
   cleanPrediction,
+  resumeRetry,
 } from '../src/codex/session'
 import { CODEX_MIN_VERSION, codexVersionStatus } from '../src/codex/discover'
 import { CodexTranslator, tokenCounts } from '../src/codex/translate'
@@ -35,10 +36,14 @@ import { loadCodexRuns } from '../src/codex/runs'
 import { makeTmp, removeTmp } from './helpers/tmp'
 import { NATIVE_TEXT } from '../src/native/text'
 let root: string, host: EngineHost | undefined
+const RESUME_RETRY = resumeRetry.delaysMs
 beforeEach(() => {
   root = makeTmp('codex-test')
+  // 撞上 active writer 的重试间隔改短，不然一直占着的用例要等 5 秒
+  resumeRetry.delaysMs = [30, 30]
 })
 afterEach(async () => {
+  resumeRetry.delaysMs = RESUME_RETRY
   await host?.shutdown()
   host = undefined
   removeTmp(root)
@@ -731,6 +736,49 @@ describe('Codex app-server adapter', () => {
     const queued = host!.open(session.id).queue.find(q => q.error)
     expect(parseCodedError(queued?.error)?.code).toBe('resume.live')
     expect(host!.open(session.id).record.engineSessionId).toBe(oldId)
+  })
+  it('线程刚才被占着、一会儿就放了（占用的进程退了）：重试后接上原线程，不报 resume.live、不开新线程', async () => {
+    const lockedFile = join(root, 'locked')
+    const { session, messages } = setup(50, { env: { FAKE_CODEX_LOCKED_FILE: lockedFile } })
+    await host!.send(session.id, 'first')
+    await wait(() => host!.open(session.id).items.some(i => i.kind === 'turn_stats'))
+    const oldId = host!.open(session.id).record.engineSessionId
+    await new Promise(r => setTimeout(r, 150))
+    resumeRetry.delaysMs = [200, 200]
+    writeFileSync(lockedFile, '')
+    setTimeout(() => rmSync(lockedFile, { force: true }), 150)
+    await host!.send(session.id, 'second')
+    await wait(() => host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2)
+    expect(host!.open(session.id).queue.some(q => q.error)).toBe(false)
+    expect(messages().filter(m => m.method === 'thread/resume').length).toBeGreaterThanOrEqual(2)
+    expect(messages().filter(m => m.method === 'thread/start')).toHaveLength(1)
+    expect(host!.open(session.id).record.engineSessionId).toBe(oldId)
+  })
+  it('一轮跑着时换了模型（D343）：这一轮结束后马上发下一条，新进程等旧进程退完再接线程，不撞 active writer', async () => {
+    // 不给重试：只靠「等上一个进程关完」
+    resumeRetry.delaysMs = []
+    const { session, messages } = setup(5_000, {
+      env: {
+        PIXELSKY_CODEX_BASE_URL: 'http://127.0.0.1:9/v1',
+        PIXELSKY_CODEX_TOKEN: 'tok',
+        FAKE_CODEX_LOCK_DIR: join(root, 'locks'),
+        FAKE_CODEX_EXIT_DELAY_MS: '600',
+      },
+    })
+    await host!.update(session.id, { provider: { id: 'my-api' } })
+    await host!.send(session.id, '慢一点')
+    await wait(() => host!.open(session.id).state === 'running')
+    await host!.update(session.id, { model: 'fake-codex-2' })
+    await wait(() => host!.open(session.id).items.some(i => i.kind === 'turn_stats'))
+    // 旧进程这时还在关（关了 stdin 600 毫秒后才退），线程锁还在它手上
+    await host!.send(session.id, '二')
+    await wait(
+      () =>
+        host!.open(session.id).items.filter(i => i.kind === 'turn_stats').length === 2 ||
+        host!.open(session.id).queue.some(q => q.error),
+    )
+    expect(host!.open(session.id).queue.find(q => q.error)?.error).toBeUndefined()
+    expect(messages().filter(m => m.method === 'thread/resume')).toHaveLength(1)
   })
   it('停止后等原生结束这一轮，不会直接结束进程', async () => {
     const { session, messages, events } = setup()

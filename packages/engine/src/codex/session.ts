@@ -1,6 +1,7 @@
 import { GenTimer } from '../genTimer'
 import { randomUUID } from 'node:crypto'
-import { delimiter } from 'node:path'
+import { homedir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import type {
   ApprovalDecision,
   AgentRun,
@@ -47,6 +48,7 @@ import { codexCatalog, codexModelSees } from './catalog'
 import { codexThreadName } from './native'
 import { describeError, logger } from '../log'
 import { forkToProvider } from './provider-switch'
+import { lockHolderReport } from './lock-holders'
 import { FIREWALL_BLOCKED, isFirewallBlock } from '../retry'
 import { NATIVE_TEXT } from '../native/text'
 import { codexCommandParts } from './command'
@@ -127,6 +129,21 @@ export function reservedCodexArg(args: readonly string[]): string | null {
   return null
 }
 const log = logger('engine.codex')
+
+/** 线程正被别的进程写着（Codex 的报错文字） */
+const ACTIVE_WRITER = /already has an active writer/i
+/**
+ * 撞上 active writer 后隔多久再试（docs/ui/codex-resume.md §13.3）：像素星空自己刚关的进程可能还没退完（退出即放锁），
+ * 等一会儿就能接上；都不行才报 resume.live。测试里改短
+ */
+export const resumeRetry: { delaysMs: readonly number[] } = { delaysMs: [1_000, 2_000, 2_000] }
+
+/**
+ * 正在关的会话进程占着的线程 → 关完的时刻。宿主有几处不等旧进程退完就起新的（例如一轮里换了模型，D343），
+ * 新进程接同一个线程前先等它（最多 CLOSING_WAIT_MS），不然撞上 active writer
+ */
+const closingThreads = new Map<string, Promise<void>>()
+const CLOSING_WAIT_MS = 10_000
 /** 「允许中途向我提问」时打开的 Codex 开发中功能：Default 模式（非计划）下模型也有 request_user_input */
 const DEFAULT_MODE_ASK = 'default_mode_request_user_input'
 /** Codex 启动时连 ChatGPT 超时的原文（只有英文，界面翻不了）；重试后还超时就换成词典里的 ROUTING_TIMEOUT_TEXT */
@@ -605,20 +622,27 @@ export class CodexSession implements EngineSession {
     this.procViaGateway = !!gatewayProvider
     this.ownAskFlag = launched.ownAskFlag
     this.windowOverridden = launched.windowOverridden
-    const proc = new CodexProcess(this.launcher, args, record.cwd, environment, {
-      notification: (method, params) => this.notification(method, params),
-      request: (id, method, params) => this.request(id, method, params),
-      exit: (_code, tail) => {
-        // 带开关启动时在 initialize 前退出：connect() 会不带开关重试，不在这里结束这一轮
-        if (this.proc !== proc || (askFlag && this.startup === 'pending')) return
-        if (!this.closed && this.active) this.finish('failed', tail || 'Codex process exited')
-        this.threadId = null
-        this.setGoal(null, false)
-        this.mcpStartup.clear()
-        this.mcpReporter.stale()
-        this.own(null)
+    const proc = new CodexProcess(
+      this.launcher,
+      args,
+      record.cwd,
+      environment,
+      {
+        notification: (method, params) => this.notification(method, params),
+        request: (id, method, params) => this.request(id, method, params),
+        exit: (_code, tail) => {
+          // 带开关启动时在 initialize 前退出：connect() 会不带开关重试，不在这里结束这一轮
+          if (this.proc !== proc || (askFlag && this.startup === 'pending')) return
+          if (!this.closed && this.active) this.finish('failed', tail || 'Codex process exited')
+          this.threadId = null
+          this.setGoal(null, false)
+          this.mcpStartup.clear()
+          this.mcpReporter.stale()
+          this.own(null)
+        },
       },
-    })
+      { purpose: 'session', sessionId: record.id },
+    )
     this.proc = proc
     try {
       // 额外技能根、turn/start 的 collaborationMode（计划模式）都是实验字段，一律声明实验接口（docs/codex-engine.md §3.5）
@@ -667,13 +691,27 @@ export class CodexSession implements EngineSession {
       let lost: string | null = null
       if (record.engineSessionId) {
         let threadId = record.engineSessionId
+        // 同一个线程的上一个会话进程还在关：等它退完（退出即放锁）
+        const previous = closingThreads.get(threadId)
+        if (previous) {
+          const started = Date.now()
+          let timer: NodeJS.Timeout | undefined
+          await Promise.race([previous, new Promise(resolve => (timer = setTimeout(resolve, CLOSING_WAIT_MS)))])
+          clearTimeout(timer)
+          log.info('等上一个进程退完再接线程', { sessionId: record.id, threadId, waitedMs: Date.now() - started })
+        }
         try {
-          thread = await proc.request('thread/resume', { threadId, ...threadParams })
+          thread = await this.resumeThread(
+            proc,
+            threadId,
+            threadParams,
+            environment.CODEX_HOME || join(homedir(), '.codex'),
+          )
         } catch (error) {
           // 进程已经退出说明是连接问题，照常报错
           if (!proc.alive) throw error
           // 另一个进程（例如终端里的 codex）正写着这个线程：改开新线程会丢上下文，报给界面让用户选
-          if (/already has an active writer/i.test((error as Error).message))
+          if (ACTIVE_WRITER.test((error as Error).message))
             throw codedError('resume.live', { source: record.imported?.source ?? 'other' })
           // 新版 Codex 不让线程换 provider，换了额度来源就接不上（docs/codex-engine.md §15）：
           // 分叉到当前来源，上下文整条带过去、轮次 id 不变；线程找不到或已损坏时分叉也失败，再改用新线程
@@ -805,6 +843,38 @@ export class CodexSession implements EngineSession {
       this.proc = null
       await proc.close()
       throw error
+    }
+  }
+  /**
+   * thread/resume；撞上 active writer 时后台查一次是谁占着（写日志），隔一会儿重试几次再把错误交出去
+   */
+  private async resumeThread(
+    proc: CodexProcess,
+    threadId: string,
+    params: Message,
+    codexHome: string,
+  ): Promise<Message> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const thread = await proc.request('thread/resume', { threadId, ...params })
+        if (attempt)
+          log.info('线程刚才被占着，重试后接上了', { sessionId: this.ctx.record().id, threadId, attempts: attempt + 1 })
+        return thread
+      } catch (error) {
+        if (!proc.alive || !ACTIVE_WRITER.test((error as Error).message)) throw error
+        if (attempt === 0) {
+          const sessionId = this.ctx.record().id
+          void lockHolderReport(codexHome, threadId)
+            .then(report =>
+              log.warn('线程被占着', { sessionId, threadId, codexVersion: this.options.version ?? null, ...report }),
+            )
+            .catch(() => undefined)
+        }
+        const delay = resumeRetry.delaysMs[attempt]
+        if (delay === undefined || this.closed) throw error
+        await new Promise(resolve => setTimeout(resolve, delay))
+        if (!proc.alive || this.closed) throw error
+      }
     }
   }
   /**
@@ -2227,13 +2297,29 @@ export class CodexSession implements EngineSession {
 
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
-    this.cancelPrediction()
-    if (this.mcpTimer) clearTimeout(this.mcpTimer)
-    this.mcpReporter.dispose()
-    this.own(null)
-    await this.interrupt()
-    await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
-    this.ctx.extensions?.dispose?.()
+    // 还在启动（opening）时线程 id 还没拿到，但进程可能马上就接上记录里的线程：按记录里的登记
+    const thread =
+      this.proc?.alive || this.opening ? (this.threadId ?? this.ctx.record().engineSessionId ?? null) : null
+    const done = (async () => {
+      this.cancelPrediction()
+      if (this.mcpTimer) clearTimeout(this.mcpTimer)
+      this.mcpReporter.dispose()
+      this.own(null)
+      await this.interrupt()
+      await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
+    })()
+    if (thread) {
+      const settled = done.catch(() => undefined)
+      closingThreads.set(thread, settled)
+      void settled.then(() => {
+        if (closingThreads.get(thread) === settled) closingThreads.delete(thread)
+      })
+    }
+    try {
+      await done
+    } finally {
+      this.ctx.extensions?.dispose?.()
+    }
   }
 }
 

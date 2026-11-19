@@ -67,6 +67,7 @@ async function openProcess(launch: ReaderLaunch, onExit: () => void): Promise<Re
         onExit()
       },
     },
+    { purpose: 'reader' },
   )
   try {
     // ThreadListParams 的几个过滤字段是实验字段

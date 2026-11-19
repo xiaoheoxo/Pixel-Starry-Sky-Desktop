@@ -15,6 +15,20 @@ export const string = (v: unknown): string => (typeof v === 'string' ? v : '')
 export const array = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 export const number = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0)
 
+/** 进程是干什么的（写进启动 / 退出日志；线程被占着时对照进程列表认出自己的进程） */
+export type CodexPurpose = 'session' | 'reader' | 'oneshot' | 'detect' | 'probe' | 'history' | 'tui-check' | 'other'
+export interface CodexProcessTag {
+  purpose: CodexPurpose
+  /** 会话进程：像素星空的会话 id */
+  sessionId?: string
+}
+
+/** 像素星空现在开着的 Codex 进程：pid → 用途（进程退出时撤销） */
+const running = new Map<number, CodexProcessTag>()
+export function runningCodexProcesses(): ReadonlyMap<number, CodexProcessTag> {
+  return running
+}
+
 export interface RpcHandlers {
   notification(method: string, params: Message): void
   request(id: string | number, method: string, params: Message): void
@@ -33,7 +47,14 @@ export class CodexProcess {
   private stopping = false
   readonly exitPromise: Promise<void>
 
-  constructor(launcher: Launcher, args: string[], cwd: string, env: NodeJS.ProcessEnv, handlers: RpcHandlers) {
+  constructor(
+    launcher: Launcher,
+    args: string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+    handlers: RpcHandlers,
+    tag?: CodexProcessTag,
+  ) {
     this.child = spawn(launcher.command, [...launcher.args, ...args], {
       cwd,
       env,
@@ -42,12 +63,13 @@ export class CodexProcess {
       // macOS / Linux：自成进程组，强制结束时连同它启动的命令一起结束
       detached: process.platform !== 'win32',
     })
+    if (this.child.pid !== undefined) running.set(this.child.pid, tag ?? { purpose: 'other' })
     this.child.stdin.on('error', () => {})
     this.child.stderr.on('data', (data: Buffer) => this.stderr.push(redact(data.toString('utf8'))))
     logProcess(
       log,
       this.child,
-      { command: launcher.command, cwd },
+      { command: launcher.command, cwd, ...(tag ? { fields: { ...tag } } : {}) },
       () => this.stderr.toString(),
       () => this.stopping,
     )
@@ -93,6 +115,7 @@ export class CodexProcess {
       const finish = (code: number | null): void => {
         if (this.exited) return
         this.exited = true
+        if (this.child.pid !== undefined) running.delete(this.child.pid)
         for (const request of this.pending.values()) {
           clearTimeout(request.timer)
           request.reject(new Error('Codex process exited'))
@@ -107,6 +130,9 @@ export class CodexProcess {
         finish(null)
       })
     })
+  }
+  get pid(): number | undefined {
+    return this.child.pid
   }
   get alive(): boolean {
     return !this.exited

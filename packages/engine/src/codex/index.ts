@@ -240,6 +240,7 @@ export class CodexAdapter implements EngineAdapter {
       homedir(),
       toolEnvironment(launcher, this.env(dir)),
       { notification() {}, request: id => proc.respondError(id, 'No interactive session'), exit() {} },
+      { purpose: 'probe' },
     )
     try {
       await proc.initialize()
@@ -314,6 +315,7 @@ export class CodexAdapter implements EngineAdapter {
         request: id => proc.respondError(id, 'No interactive session'),
         exit: (_code, tail) => (stderr = tail),
       },
+      { purpose: 'detect' },
     )
     try {
       await proc.initialize()
@@ -431,6 +433,7 @@ export class CodexAdapter implements EngineAdapter {
         record.cwd,
         this.sessionEnvironment(launcher, record),
         { notification() {}, request: id => p.respondError(id, 'Read-only history'), exit() {} },
+        { purpose: 'history', sessionId: record.id },
       ))
       await p.initialize()
       // 从终端导入的线程：用户条目的 id 就是 turn id，每一轮都能对位
@@ -533,6 +536,7 @@ export class CodexAdapter implements EngineAdapter {
         record.cwd,
         launched.env,
         { notification() {}, request: id => p.respondError(id, 'Read-only history'), exit() {} },
+        { purpose: 'tui-check', sessionId: record.id },
       ))
       await p.initialize(true)
       const bound = string(

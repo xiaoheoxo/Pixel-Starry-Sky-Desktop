@@ -101,6 +101,7 @@ export async function codexOneShot(
         finish({ ok: false, error: new OneShotError(oneShotProblem(message), message) })
       },
     },
+    { purpose: 'oneshot' },
   )
   const onAbort = (): void => finish({ ok: false, error: new OneShotError('cancelled', '已停止') })
   signal.addEventListener('abort', onAbort, { once: true })

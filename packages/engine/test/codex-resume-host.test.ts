@@ -14,6 +14,7 @@ import {
 } from '@pixelsky/protocol'
 import { CodexAdapter, EngineHost } from '../src'
 import { clearCodexCaches } from '../src/codex/native'
+import { resumeRetry } from '../src/codex/session'
 import { IS_WINDOWS } from '../src/exec'
 import { NATIVE_TEXT } from '../src/native/text'
 import { makeTmp, removeTmp } from './helpers/tmp'
@@ -24,13 +25,17 @@ let root: string
 let events: HostEvent[]
 let hosts: EngineHost[]
 
+const RESUME_RETRY = resumeRetry.delaysMs
 beforeEach(() => {
   root = makeTmp('codex-resume')
   events = []
   hosts = []
   clearCodexCaches()
+  // 一直占着的用例不用等满 5 秒的重试
+  resumeRetry.delaysMs = [30, 30]
 })
 afterEach(async () => {
+  resumeRetry.delaysMs = RESUME_RETRY
   vi.restoreAllMocks()
   await Promise.all(hosts.map(h => h.shutdown()))
   removeTmp(root)
@@ -842,7 +847,8 @@ describe('正开着', { timeout: 20_000 }, () => {
     })
     const queued = t.host.open(id).queue.find(q => q.id === receipt.queueId)
     expect(parseCodedError(queued?.error)).toMatchObject({ code: 'resume.live', params: { source: 'terminal' } })
-    expect(called('thread/resume')).toHaveLength(1)
+    // 第一次 + 重试两次（beforeEach 把重试间隔改成两次 30 毫秒）都被占着才报
+    expect(called('thread/resume')).toHaveLength(3)
     expect(called('thread/start')).toHaveLength(0)
     expect(JSON.stringify(threadsOf()[x])).toBe(turnsBefore)
 
