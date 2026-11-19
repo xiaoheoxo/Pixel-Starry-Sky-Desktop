@@ -732,10 +732,13 @@ async function publicReachable(): Promise<boolean> {
  * 连中转用的访问令牌（WebSocket 不能走 authedFetch）：快过期或中转说令牌失效（force）时先刷新。
  * 没登录、刷新被拒（同时退出登录）时返回 null。
  */
-export async function bridgeToken(force = false): Promise<string | null> {
+export async function bridgeToken(force = false, rejected?: string): Promise<string | null> {
   const used = tokens?.accessToken
   if (!tokens || !used) return null
-  if (force || tokens.accessExpiresAt - Date.now() < REFRESH_SKEW_MS) {
+  // 被拒的那份已经不是当前令牌（别处刚刷新过）：直接用当前的，不再刷新。
+  // 云端每刷新一次就让旧的访问令牌失效，两条长连接各自强制刷新会互相把对方的令牌刷掉（每分钟断一次）
+  const stale = force && (rejected === undefined || rejected === used)
+  if (stale || tokens.accessExpiresAt - Date.now() < REFRESH_SKEW_MS) {
     try {
       if (tokens?.accessToken === used) await refreshTokens()
     } catch (e) {
@@ -744,6 +747,21 @@ export async function bridgeToken(force = false): Promise<string | null> {
     }
   }
   return tokens?.accessToken ?? null
+}
+
+/**
+ * 给一条长连接（团队实时通道、手机中转）用的取令牌函数：记住这条连接上次拿到的令牌，
+ * 被云端拒了（force）时把它当成「被拒的那份」交给 bridgeToken，当前令牌已经换过就不再刷新
+ */
+export function bridgeTokenSource(
+  get: (force: boolean, rejected?: string) => Promise<string | null> = bridgeToken,
+): (force: boolean) => Promise<string | null> {
+  let last: string | undefined
+  return async force => {
+    const token = await get(force, force ? last : undefined)
+    last = token ?? undefined
+    return token
+  }
 }
 
 export function signedInEmail(): string | null {

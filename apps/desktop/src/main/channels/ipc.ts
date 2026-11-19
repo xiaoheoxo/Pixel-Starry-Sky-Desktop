@@ -11,7 +11,7 @@ import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
 import { windowLocale } from '../app/ui-language'
 import { machineOf } from '../machines/identity'
-import { bridgeToken, wsTargets, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
+import { bridgeTokenSource, wsTargets, onAccountChange, signedInEmail, teamsFetch } from '../account/account'
 import { TeamApi } from '../core/channels/team/api'
 import { loadDeviceId } from '../core/channels/team/device'
 import { TeamRealtime, teamsWsUrl, type SocketLike } from '../core/channels/team/realtime'
@@ -101,7 +101,7 @@ export async function initChannels(ctx: AppContext): Promise<void> {
             targets: () => wsTargets(teamsWsUrl),
             socket: (url, protocols, target) => openWs({ ...target, url }, protocols) as unknown as SocketLike,
             log: (message, fields) => log.info(message, fields),
-            token: force => bridgeToken(force),
+            token: bridgeTokenSource(),
             ...handlers,
           }),
         log: (message, error) => log.warn(message, error ? { error: describeError(error) } : undefined),

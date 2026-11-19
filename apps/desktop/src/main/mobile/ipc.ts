@@ -22,7 +22,7 @@ import {
   wsBaseUrl,
   wsTargets,
   bridgeFetch,
-  bridgeToken,
+  bridgeTokenSource,
   onAccountChange,
   refreshAccountIfStale,
   signedInEmail,
@@ -339,7 +339,7 @@ export function initMobile(ctx: AppContext): void {
       link = new RelayLink({
         targets: relayTargets,
         desktopId: store.desktopId,
-        token: force => bridgeToken(force),
+        token: bridgeTokenSource(),
         onFrame: (phone, frame) => gateway.receive(phone, frame),
         onNotice: notice => {
           if (notice.type === 'phone_joined' || notice.type === 'phone_left')
