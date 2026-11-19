@@ -50,6 +50,41 @@ export function fallbackEntry(slug: string, window: number, instructions: string
   }
 }
 
+/** 型号系列：gpt-6.2-sol → 系列 gpt-sol、版本 [6, 2]；认不出返回 null */
+function seriesOf(slug: string): { family: string; version: number[] } | null {
+  const m = /^([a-z]+)-(\d+(?:\.\d+)*)-([a-z]+)$/i.exec(slug)
+  return m ? { family: `${m[1]}-${m[3]}`.toLowerCase(), version: m[2].split('.').map(Number) } : null
+}
+
+const newerVersion = (a: number[], b: number[]): boolean => {
+  for (let i = 0; i < Math.max(a.length, b.length); i++)
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
+  return false
+}
+
+/**
+ * 没资料的新模型的推理档位：抄 Codex 自带资料里同一系列、版本最高、有档位的那个（gpt-6.2-sol 抄 gpt-6.1-sol）。
+ * 默认资料的档位是空的，Codex 会把模型报成不能调强度（平台上 Codex 还没收录的 6.2 系列就是这样）。
+ * 找不到同系列的（自定义接口的 deepseek 之类）返回空，照旧不写
+ */
+export function reasoningFromSibling(bundled: readonly CatalogModel[], slug: string): Partial<CatalogModel> {
+  const own = seriesOf(slug)
+  if (!own) return {}
+  let best: { entry: CatalogModel; version: number[] } | null = null
+  for (const entry of bundled) {
+    const s = seriesOf(entry.slug)
+    const levels = entry.supported_reasoning_levels
+    if (!s || s.family !== own.family || !Array.isArray(levels) || !levels.length) continue
+    if (!best || newerVersion(s.version, best.version)) best = { entry, version: s.version }
+  }
+  if (!best) return {}
+  const { supported_reasoning_levels, default_reasoning_level } = best.entry
+  return {
+    supported_reasoning_levels,
+    ...(default_reasoning_level === undefined ? {} : { default_reasoning_level }),
+  }
+}
+
 /** 生成目录时的附加项：ultrafast 见 withUltrafast；images 见 fallbackEntry（只用于 Codex 没资料的模型） */
 export interface CatalogExtras {
   ultrafast?: boolean
@@ -79,7 +114,7 @@ export function withUltrafast(entry: CatalogModel): CatalogModel {
 /**
  * 要不要生成目录、生成什么（纯函数）。window 是填的窗口，auto 是按系列自动定的：
  * - 自带目录里有这个模型：填的窗口大于它的上限才复制这一项改窗口，否则 null（只带 model_context_window 就够）；
- * - 没有：加一项默认资料，窗口取 填的 ?? 自动的 ?? 默认的 272000；没有提示词时 null（照现在用默认资料）
+ * - 没有：加一项默认资料，窗口取 填的 ?? 自动的 ?? 默认的 272000，推理档位抄同系列的（reasoningFromSibling）；没有提示词时 null（照现在用默认资料）
  * extras.ultrafast：平台线路上这个模型能开 Ultrafast，这一项要声明 Fast、Ultrafast 档位（有资料的模型因此也要复制一份）；
  * extras.images：没资料的模型能不能看图
  */
@@ -103,7 +138,13 @@ export function catalogWith(
   }
   if (!instructions) return null
   return {
-    models: [...bundled, tiers(fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions, extras.images))],
+    models: [
+      ...bundled,
+      tiers({
+        ...fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions, extras.images),
+        ...reasoningFromSibling(bundled, model),
+      }),
+    ],
   }
 }
 

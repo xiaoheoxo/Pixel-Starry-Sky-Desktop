@@ -8,7 +8,14 @@ import { ClaudeAdapter, CodexAdapter, EngineHost } from '../src'
 import { windowSettings } from '../src/claude/long-context'
 import { claudeSettingsArgument } from '../src/claude/session'
 import { codexContextConfig } from '../src/codex/context-config'
-import { CodexCatalog, FALLBACK_WINDOW, catalogWith, fallbackEntry, withUltrafast } from '../src/codex/model-catalog'
+import {
+  CodexCatalog,
+  FALLBACK_WINDOW,
+  catalogWith,
+  fallbackEntry,
+  reasoningFromSibling,
+  withUltrafast,
+} from '../src/codex/model-catalog'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
 const FAKE_CLAUDE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
@@ -275,6 +282,35 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
     expect(catalogWith(bundled, 'glm-5', null, null, 'P')!.models[1].max_context_window).toBe(FALLBACK_WINDOW)
     // 没拿到默认提示词：照现在用 Codex 的默认资料
     expect(catalogWith(bundled, 'glm-5', 300_000, null, null)).toBeNull()
+  })
+
+  it('没资料的新模型抄自带目录里同系列、版本最高的推理档位；找不到同系列的照旧不写', () => {
+    const levels = (n: number) => Array.from({ length: n }, (_, i) => ({ effort: 'e' + i, description: '' }))
+    const bundled = [
+      { slug: 'gpt-6-sol', supported_reasoning_levels: levels(2), default_reasoning_level: 'medium' },
+      { slug: 'gpt-6.1-sol', supported_reasoning_levels: levels(6), default_reasoning_level: 'low' },
+      { slug: 'gpt-5.6-sol', supported_reasoning_levels: levels(3) },
+      { slug: 'gpt-6-astra', supported_reasoning_levels: levels(6), default_reasoning_level: 'low' },
+      { slug: 'gpt-6-luna', supported_reasoning_levels: [] },
+      { slug: 'codex-auto-review', supported_reasoning_levels: levels(1) },
+    ]
+    expect(reasoningFromSibling(bundled, 'gpt-6.2-sol')).toEqual({
+      supported_reasoning_levels: levels(6),
+      default_reasoning_level: 'low',
+    })
+    expect(reasoningFromSibling(bundled, 'gpt-6.2-astra').supported_reasoning_levels).toEqual(levels(6))
+    // 同系列只有空档位的、认不出系列的、别家的：不写
+    expect(reasoningFromSibling(bundled, 'gpt-6.2-luna')).toEqual({})
+    expect(reasoningFromSibling(bundled, 'deepseek-v4-pro')).toEqual({})
+    expect(reasoningFromSibling(bundled, 'kimi-k3')).toEqual({})
+    // 生成目录时并进补的那一项，Ultrafast 照常声明
+    const added = catalogWith(bundled, 'gpt-6.2-sol', null, null, 'P', { ultrafast: true })!.models.at(-1)!
+    expect(added).toMatchObject({ slug: 'gpt-6.2-sol', default_reasoning_level: 'low', base_instructions: 'P' })
+    expect(added.supported_reasoning_levels).toEqual(levels(6))
+    expect((added.service_tiers as { id: string }[]).map(t => t.id)).toContain('ultrafast')
+    expect(catalogWith(bundled, 'deepseek-v4-pro', null, null, 'P')!.models.at(-1)!.supported_reasoning_levels).toEqual(
+      [],
+    )
   })
 
   it('取自带目录、实测默认提示词（只测一次，存到磁盘），写出目录文件', async () => {
