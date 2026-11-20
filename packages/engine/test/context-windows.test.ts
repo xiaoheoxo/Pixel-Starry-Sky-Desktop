@@ -88,6 +88,7 @@ function codexHost(sessionEnv?: (r: { provider?: unknown; model?: string | null 
         args: o.args,
         autoCompactPct: o.autoCompactPct,
         contextWindows: o.contextWindows,
+        autoReviewModel: o.autoReviewModel,
         steeringValidated: true,
       }
     },
@@ -273,15 +274,43 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
     expect(catalogWith(bundled, 'gpt-5', 200_000, null, 'P')).toBeNull()
     expect(catalogWith(bundled, 'gpt-5', null, 500_000, 'P')).toBeNull()
     expect(catalogWith(bundled, 'gpt-5', 500_000, null, null)?.models).toEqual([
-      { slug: 'gpt-5', context_window: 500_000, max_context_window: 500_000, extra: 1 },
+      {
+        slug: 'gpt-5',
+        context_window: 500_000,
+        max_context_window: 500_000,
+        extra: 1,
+        auto_review_model_override: 'gpt-5',
+      },
     ])
     const added = catalogWith(bundled, 'grok-4.7', null, 500_000, 'P')!.models
     expect(added[0]).toBe(bundled[0])
-    expect(added[1]).toEqual(fallbackEntry('grok-4.7', 500_000, 'P'))
+    expect(added[1]).toEqual({ ...fallbackEntry('grok-4.7', 500_000, 'P'), auto_review_model_override: 'grok-4.7' })
     expect(catalogWith(bundled, 'glm-5', 300_000, 500_000, 'P')!.models[1].context_window).toBe(300_000)
     expect(catalogWith(bundled, 'glm-5', null, null, 'P')!.models[1].max_context_window).toBe(FALLBACK_WINDOW)
     // 没拿到默认提示词：照现在用 Codex 的默认资料
     expect(catalogWith(bundled, 'glm-5', 300_000, null, null)).toBeNull()
+  })
+
+  it('自动审核用的模型（docs/ui/codex-auto-review-model.md）：生成的这一项总写上，不设就是对话模型；只有换审核模型才为自带模型生成', () => {
+    const bundled = [
+      { slug: 'gpt-6.1-sol', context_window: 272_000 },
+      { slug: 'codex-auto-review', context_window: 272_000 },
+    ]
+    // 不给文件时 Codex 本来就用对话模型审核（实测 0.169）：不设审核模型、窗口也没超，照旧不生成
+    expect(catalogWith(bundled, 'gpt-6.1-sol', null, null, 'P')).toBeNull()
+    expect(catalogWith(bundled, 'gpt-6.1-sol', null, null, 'P', { reviewModel: 'gpt-6.1-sol' })).toBeNull()
+    const own = catalogWith(bundled, 'gpt-6.1-sol', null, null, 'P', { reviewModel: 'gpt-6-luna' })!.models
+    expect(own[0]).toEqual({ slug: 'gpt-6.1-sol', context_window: 272_000, auto_review_model_override: 'gpt-6-luna' })
+    // 别的模型那几项不动
+    expect(own[1]).toBe(bundled[1])
+    // 没资料的模型：加的那一项写上审核模型，不设时是对话模型自己（不然 Codex 会改用 codex-auto-review）
+    expect(catalogWith(bundled, 'gpt-6.2-astra', null, null, 'P')!.models.at(-1)!.auto_review_model_override).toBe(
+      'gpt-6.2-astra',
+    )
+    expect(
+      catalogWith(bundled, 'gpt-6.2-astra', null, null, 'P', { reviewModel: 'codex-auto-review' })!.models.at(-1)!
+        .auto_review_model_override,
+    ).toBe('codex-auto-review')
   })
 
   it('没资料的新模型抄自带目录里同系列、版本最高的推理档位；找不到同系列的照旧不写', () => {
@@ -464,6 +493,45 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
     const argv = launches().at(-1)!
     const deepseek = readCatalog(argv).models.find(m => m.slug === 'deepseek-v4-pro')
     expect(deepseek?.input_modalities).toEqual(['text'])
+  })
+
+  it('设了自动审核模型：平台会话启动时写进目录（审核请求用它），改设置后下一条重启进程；自己的账号不受影响', async () => {
+    const { host, project, launches } = codexHost()
+    await host.setEngineConfig('codex', { autoReviewModel: 'gpt-6-luna' })
+    expect(host.engineConfig().codex.autoReviewModel).toBe('gpt-6-luna')
+    await expect(host.setEngineConfig('codex', { autoReviewModel: 'a b' })).rejects.toThrow('自动审核模型不对')
+    // 名字里有 s 的照常能存（gpt-6.2-sol）
+    await host.setEngineConfig('codex', { autoReviewModel: 'gpt-6.2-sol' })
+    await host.setEngineConfig('codex', { autoReviewModel: 'gpt-6-luna' })
+    const s = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'deepseek-v4-pro',
+      platform: { groupId: '7', account: 'a@example.com' },
+      permissionMode: 'auto',
+    })
+    await host.send(s.id, '一')
+    await waitFor(() => turnsDone(s.id) === 1)
+    const entry = (argv: string) => readCatalog(argv).models.find(m => m.slug === 'deepseek-v4-pro')
+    expect(entry(launches().at(-1)!)?.auto_review_model_override).toBe('gpt-6-luna')
+    // 改回跟随对话模型：下一条消息前换进程，这一项写回对话模型自己
+    const before = launches().length
+    await host.setEngineConfig('codex', { autoReviewModel: null })
+    await host.send(s.id, '二')
+    await waitFor(() => turnsDone(s.id) === 2)
+    expect(launches().length).toBe(before + 1)
+    expect(entry(launches().at(-1)!)?.auto_review_model_override).toBe('deepseek-v4-pro')
+    // 自己的账号：不经网关，不生成目录
+    await host.setEngineConfig('codex', { autoReviewModel: 'gpt-6-luna' })
+    const own = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'fake-codex',
+      permissionMode: 'auto',
+    })
+    await host.send(own.id, '三')
+    await waitFor(() => turnsDone(own.id) === 1)
+    expect(launches().at(-1)).not.toContain('model_catalog_json')
   })
 
   it('平台会话跑着时换模型：这一轮结束就关掉旧进程（目标模式不会用旧模型接着开轮），下一条按新模型起', async () => {

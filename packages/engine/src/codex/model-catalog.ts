@@ -89,6 +89,11 @@ export function reasoningFromSibling(bundled: readonly CatalogModel[], slug: str
 export interface CatalogExtras {
   ultrafast?: boolean
   images?: boolean
+  /**
+   * 自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给就用对话的模型。写进这一项的 auto_review_model_override：
+   * 不写的话 Codex 拿到目录文件后会改用自带目录里隐藏的 codex-auto-review（实测 0.169），经网关的线路上没有它
+   */
+  reviewModel?: string | null
 }
 
 /** 平台线路的 Ultrafast 档位（Codex 目录里 service_tiers 的一项）；Fast 一起声明，没有资料的模型原本两个都没有 */
@@ -117,6 +122,7 @@ export function withUltrafast(entry: CatalogModel): CatalogModel {
  * - 没有：加一项默认资料，窗口取 填的 ?? 自动的 ?? 默认的 272000，推理档位抄同系列的（reasoningFromSibling）；没有提示词时 null（照现在用默认资料）
  * extras.ultrafast：平台线路上这个模型能开 Ultrafast，这一项要声明 Fast、Ultrafast 档位（有资料的模型因此也要复制一份）；
  * extras.images：没资料的模型能不能看图
+ * extras.reviewModel：自动审核用别的模型时，有资料的模型也要复制一份写上；生成的这一项总写上审核模型（默认对话模型）
  */
 export function catalogWith(
   bundled: readonly CatalogModel[],
@@ -127,12 +133,17 @@ export function catalogWith(
   extras: CatalogExtras = {},
 ): { models: CatalogModel[] } | null {
   const ultrafast = extras.ultrafast === true
-  const tiers = (entry: CatalogModel): CatalogModel => (ultrafast ? withUltrafast(entry) : entry)
+  const review = extras.reviewModel || model
+  const tiers = (entry: CatalogModel): CatalogModel => ({
+    ...(ultrafast ? withUltrafast(entry) : entry),
+    auto_review_model_override: review,
+  })
   const own = bundled.find(m => m.slug === model)
   if (own) {
     const max = own.max_context_window ?? own.context_window ?? FALLBACK_WINDOW
     const wider = !!window && window > max
-    if (!wider && !ultrafast) return null
+    // 不给目录文件时 Codex 的自动审核本来就用对话的模型：只有审核要换模型才为它生成
+    if (!wider && !ultrafast && review === model) return null
     const changed = tiers(wider ? { ...own, context_window: window, max_context_window: window } : own)
     return { models: bundled.map(m => (m === own ? changed : m)) }
   }

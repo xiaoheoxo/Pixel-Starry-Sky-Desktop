@@ -175,6 +175,8 @@ export function platformGateway(options: {
   rewrite?: (body: string, models: () => Promise<string[]>) => Promise<string>
   /** 平台线路的模型，压缩换模型时核对 */
   routeModels?: (groupId: string) => Promise<string[]>
+  /** Codex 自动审核用的模型（设置 › Codex，docs/ui/codex-auto-review-model.md）；null 跟随对话模型 */
+  reviewModel?: () => string | null
   /** 自定义 API：按 id 取接口配置（带真实 Key） */
   provider?: (id: string) => ResolvedProvider | null
   /** 直接发往自定义接口的 fetch（测试时替换） */
@@ -410,6 +412,12 @@ export function platformGateway(options: {
      * 自定义 API：换上真实 Key 发往配置里的地址，不跟随跳转。请求的模型不在接口的模型列表里时（开关默认开），
      * Haiku 这类后台小任务换成后台小模型，其他换成会话当前的模型。
      */
+    /** 这次请求是 Codex 自动审核、用的是设置的审核模型（不是对话模型）：调不通时换回的对话模型；不是这种请求为 null */
+    const reviewRetryModel = (record: SessionRecord, requested: unknown): string | null => {
+      if (!responses || record.engine !== 'codex' || !record.model || typeof requested !== 'string') return null
+      if (requested === record.model) return null
+      return requested === options.reviewModel?.() ? record.model : null
+    }
     const forwardCustom = async (
       p: ResolvedProvider,
       record: SessionRecord,
@@ -449,15 +457,26 @@ export function platformGateway(options: {
           return
         }
       }
+      const post = (): Promise<Response> =>
+        (options.upstream ?? fetch)(url, { method: 'POST', headers, body, redirect: 'error', signal: abort.signal })
       let upstream: Response
       try {
-        upstream = await (options.upstream ?? fetch)(url, {
-          method: 'POST',
-          headers,
-          body,
-          redirect: 'error',
-          signal: abort.signal,
-        })
+        upstream = await post()
+        // Codex 自动审核用了设置的审核模型、接口不认：换成对话模型重发一次（docs/ui/codex-auto-review-model.md）。
+        // 上面已经按接口的模型列表换成了别的模型：这次发的就不是审核模型，失败了不再重发
+        const sentModel = (JSON.parse(body) as { model?: unknown }).model
+        const retryWith = sentModel === requested ? reviewRetryModel(record, requested) : null
+        if (retryWith && !upstream.ok) {
+          const detail = (await upstream.text().catch(() => '')).slice(0, 200)
+          log.warn('自动审核模型调不通，改用对话模型重发', {
+            ...trace(),
+            status: upstream.status,
+            model: requested,
+            detail,
+          })
+          body = JSON.stringify({ ...(JSON.parse(body) as object), model: retryWith })
+          upstream = await post()
+        }
       } catch (error) {
         if (abort.signal.aborted) throw error
         log.warn('连不上自定义接口', trace(error))
@@ -723,9 +742,23 @@ export function platformGateway(options: {
         return
       }
       const trackRequest = options.requestContext?.(record)
+      // Codex 自动审核可以用设置的审核模型（docs/ui/codex-auto-review-model.md）：分组里有就放行、调不通时换回对话模型重发；
+      // 分组里没有直接换成对话模型。别的模型照旧拒绝
+      let reviewFallback: string | null = null
       if (responses && (!parsed.model || (record.model && parsed.model !== record.model))) {
-        fail(403, '请求模型与当前平台会话不一致')
-        return
+        const back = reviewRetryModel(record, parsed.model)
+        if (!back) {
+          fail(403, '请求模型与当前平台会话不一致')
+          return
+        }
+        const models = await (options.routeModels?.(platform.groupId) ?? Promise.resolve([])).catch(
+          () => [] as string[],
+        )
+        if (models.includes(String(parsed.model))) reviewFallback = back
+        else {
+          log.info('自动审核模型不在这个分组里，改用对话模型', { ...trace(), model: parsed.model })
+          body = JSON.stringify({ ...parsed, model: back })
+        }
       }
       const headers = new Headers({
         'Content-Type': 'application/json',
@@ -747,7 +780,7 @@ export function platformGateway(options: {
         if (fallback) body = JSON.stringify({ ...sent, model: fallback })
       }
       requestId = `pixelsky-${randomUUID()}`
-      const model = String((JSON.parse(body) as { model?: string }).model ?? record.model ?? 'unknown')
+      let model = String((JSON.parse(body) as { model?: string }).model ?? record.model ?? 'unknown')
       const modelApi = platformModelApi(model)
       if (modelApi && modelApi !== api) {
         fail(403, '线路协议与当前引擎不兼容')
@@ -776,6 +809,22 @@ export function platformGateway(options: {
           await sleep(reservationRetry.delayMs, abort.signal)
           upstream = await send()
         } else upstream = new Response(text, { status: upstream.status, headers: upstream.headers })
+      }
+      // 自动审核模型被上游拒绝（渠道没配价格、限流、账号不支持）：换成对话模型、换个请求 ID 重发一次
+      if (reviewFallback && !upstream.ok) {
+        const detail = (await upstream.text().catch(() => '')).slice(0, 200)
+        log.warn('自动审核模型调不通，改用对话模型重发', {
+          ...trace(),
+          status: upstream.status,
+          model: parsed.model,
+          detail,
+        })
+        body = JSON.stringify({ ...(JSON.parse(body) as object), model: reviewFallback })
+        model = reviewFallback
+        requestId = `pixelsky-${randomUUID()}`
+        headers.set('X-Client-Request-ID', requestId)
+        await trackRequest?.(requestId, reviewFallback)
+        upstream = await send()
       }
       // Sub2api 不认我们的 ID，调用记录按它自己生成、回在响应头里的 ID 记（docs/cloud-service.md §4.9）
       const chargeId = upstream.headers.get('x-client-request-id')

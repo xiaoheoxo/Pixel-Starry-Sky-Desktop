@@ -146,6 +146,8 @@ export type SessionDefaults = Pick<
  * - subagentModel / subagentEffort：Codex 派出的子智能体用的模型和推理强度（docs/ui/codex-subagent-model.md）；
  *   null 跟随主会话。只对 Codex 生效，经 `agents.default_subagent_model` 传给它，角色自带模型的（explorer）不受影响
  * - inputPrediction：Codex 每轮结束后预测用户下一句，显示成灰字按 Tab 填入（docs/ui/codex-input-prediction.md）。只对 Codex 生效
+ * - autoReviewModel：Codex 自动审核用的模型（docs/ui/codex-auto-review-model.md）；null 跟随对话模型。只对平台、自定义接口的
+ *   Codex 对话生效（自己的账号照 Codex 自己的默认）；模型不在平台分组里、或调不通时退回对话模型
  *
  * 除 defaults 外，改了对已开始的会话也生效：下一条消息开始前用新设置重启引擎进程并接上原对话。
  */
@@ -167,6 +169,7 @@ export interface EngineLocalConfig {
   subagentModel: string | null
   subagentEffort: Effort | null
   inputPrediction: InputPrediction
+  autoReviewModel: string | null
   /** 周限快到时自动用重置卡（docs/ui/codex-reset-card.md）；只对 Codex 生效，null 关 */
   resetCreditAuto: import('../quota').ResetCreditAuto | null
 }

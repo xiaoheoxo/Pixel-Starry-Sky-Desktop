@@ -24,6 +24,7 @@ import { CodexSubagentCard } from '../CodexSubagentCard'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useUnmountFlush } from '@/ui/useUnmountFlush'
 import { platformModels, usePlatform } from '@/features/account/platform'
+import { platformModelsFor } from '@/features/channels/agentSource'
 import { EFFORT_LABEL, PERMISSION_INFO, bridge, isLive, redetectEngines } from '@/features/engine'
 import { envLines, parseEnvLines } from './envLines'
 import { migrateEnv, providerEnvKeys } from './migrateEnv'
@@ -421,6 +422,9 @@ export function EngineDetail({
         {e.caps.launchSettings && (
           <CompactModelRow engine={e} value={config.compactModel} onChange={compactModel => run({ compactModel })} />
         )}
+        {e.id === 'codex' && (
+          <AutoReviewModelRow value={config.autoReviewModel} onChange={autoReviewModel => run({ autoReviewModel })} />
+        )}
         {e.id !== 'pixel' && e.id !== 'antigravity' && (
           <ModelWindowsRow
             engine={e}
@@ -735,6 +739,37 @@ function CompactModelRow({
       control={
         <Select
           label={tr('settings.engines.EngineDetail.contextCompactionModel2', { p0: e.name })}
+          mono
+          value={value ?? ''}
+          onChange={v => onChange(v || null)}
+          options={[
+            {
+              value: '',
+              get label() {
+                return tr('settings.engines.EngineDetail.useConversationModel')
+              },
+            },
+            ...(value && !models.includes(value) ? [{ value, label: value }] : []),
+            ...models.map(m => ({ value: m, label: m })),
+          ]}
+        />
+      }
+    />
+  )
+}
+
+/** Codex 自动审核用的模型（docs/ui/codex-auto-review-model.md）：只管平台和自定义接口的对话，不选就跟随对话模型 */
+function AutoReviewModelRow({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  useI18n()
+  const platform = usePlatform()
+  const models = platformModelsFor('codex', platform.groups)
+  return (
+    <Row
+      title={tr('settings.engines.EngineDetail.autoReviewModel')}
+      description={tr('settings.engines.EngineDetail.autoReviewModelHint')}
+      control={
+        <Select
+          label={tr('settings.engines.EngineDetail.autoReviewModel')}
           mono
           value={value ?? ''}
           onChange={v => onChange(v || null)}

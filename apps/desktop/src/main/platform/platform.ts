@@ -343,6 +343,8 @@ export async function initPlatform(
   subagents: () => SubagentSettings = () => DEFAULT_SUBAGENT_SETTINGS,
   /** 设置 › 模型通道里给云端模型填的窗口（像素星空那份）：子智能体单独走云端线路时用 */
   pixelPlatformWindows: () => Record<string, number> = () => ({}),
+  /** 设置 › Codex 自动审核用的模型（docs/ui/codex-auto-review-model.md）；null 跟随对话模型 */
+  codexReviewModel: () => string | null = () => null,
 ): Promise<(record: SessionRecord) => NodeJS.ProcessEnv> {
   clearGatewaySettings(join(localRoot(), 'gateway'))
   // 重启后续接的会话要在界面读分组目录之前选协议：先用上次存的，登录后再读一次新的
@@ -424,6 +426,7 @@ export async function initPlatform(
     requestContext,
     compaction,
     routeModels,
+    reviewModel: codexReviewModel,
     provider: id => providers?.resolve(id) ?? null,
     rewrite: async (body, models) => {
       const model = compactModel()

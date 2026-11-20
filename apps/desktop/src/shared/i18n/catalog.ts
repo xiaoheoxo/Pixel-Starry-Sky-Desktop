@@ -4049,6 +4049,14 @@ export const catalog = {
     zh: '跟随会话模型',
     en: 'Use conversation model',
   },
+  'settings.engines.EngineDetail.autoReviewModel': {
+    zh: '自动审核用的模型',
+    en: 'Auto-review model',
+  },
+  'settings.engines.EngineDetail.autoReviewModelHint': {
+    zh: '只对平台和自定义接口的对话生效：权限选「自动审核」时，审核请求改用这个模型；当前线路没有它或调不通时仍用会话模型。自有账号的对话由 Codex 自己决定。',
+    en: 'Platform and custom API conversations only: when permissions are set to Auto review, review requests use this model, falling back to the session model if the route lacks it or the request fails. Own-account conversations are managed by Codex.',
+  },
   'settings.engines.EngineDetail.thisLineIsNot': {
     zh: '这一行不是 KEY=VALUE：{p0}',
     en: 'This line is not KEY=VALUE: {p0}',

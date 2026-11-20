@@ -238,6 +238,7 @@ const demoLocal = (): EngineLocalConfig => ({
   subagentModel: null,
   subagentEffort: null,
   inputPrediction: 'off',
+  autoReviewModel: null,
   resetCreditAuto: null,
 })
 

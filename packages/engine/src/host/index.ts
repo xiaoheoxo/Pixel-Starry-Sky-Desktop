@@ -168,6 +168,7 @@ export class EngineHost {
             subagentModel: o.subagentModel,
             subagentEffort: o.subagentEffort,
             inputPrediction: o.inputPrediction,
+            autoReviewModel: o.autoReviewModel,
             steeringValidated: true,
           }
         },

@@ -74,6 +74,8 @@ export interface CodexLaunchOptions {
   subagentEffort?: Effort | null
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
   inputPrediction?: 'off' | 'cheap' | 'same'
+  /** 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给用对话的模型 */
+  autoReviewModel?: string | null
   /** 检测到的 Codex 版本；null 是读不到（替换的命令不一定报版本） */
   version?: string | null
   /** Codex 带着 Default 模式提问开关起不来时记在适配器上：之后新开的会话不用再失败一次（重新检测后清掉） */
@@ -345,6 +347,7 @@ export async function codexLaunchConfig(
     | 'modelCatalog'
     | 'subagentModel'
     | 'subagentEffort'
+    | 'autoReviewModel'
   >,
   askFlag: boolean,
 ): Promise<{
@@ -420,9 +423,10 @@ export async function codexLaunchConfig(
     options.modelCatalog &&
     !(options.args ?? []).some(arg => arg.includes('model_catalog_json'))
   ) {
+    const reviewModel = options.autoReviewModel || null
     const extras: CatalogExtras = record.platform
-      ? { ultrafast: platformUltrafastModel(model), images: autoImageInput(model, 'responses').images }
-      : {}
+      ? { ultrafast: platformUltrafastModel(model), images: autoImageInput(model, 'responses').images, reviewModel }
+      : { reviewModel }
     const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model), extras).catch(() => null)
     if (file) config('model_catalog_json', file)
   }

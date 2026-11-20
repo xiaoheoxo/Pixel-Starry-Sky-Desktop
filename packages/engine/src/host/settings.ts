@@ -206,6 +206,7 @@ export class HostSettings {
     subagentModel: string | null
     subagentEffort: Effort | null
     inputPrediction: InputPrediction
+    autoReviewModel: string | null
   } {
     const o = this.file.options[engine] ?? {}
     return {
@@ -221,6 +222,7 @@ export class HostSettings {
       subagentModel: typeof o.subagentModel === 'string' && o.subagentModel ? o.subagentModel : null,
       subagentEffort: EFFORTS.includes(o.subagentEffort as Effort) ? (o.subagentEffort as Effort) : null,
       inputPrediction: o.inputPrediction === 'cheap' || o.inputPrediction === 'same' ? o.inputPrediction : 'off',
+      autoReviewModel: typeof o.autoReviewModel === 'string' && o.autoReviewModel ? o.autoReviewModel : null,
     }
   }
 
@@ -390,6 +392,14 @@ export class HostSettings {
         throw new Error('子智能体模型不对')
       if (m) options.subagentModel = m
       else delete options.subagentModel
+    }
+    // Codex 自动审核用的模型（docs/ui/codex-auto-review-model.md）：和子智能体模型同样的格式；null 跟随对话模型
+    if (patch.autoReviewModel !== undefined) {
+      const m = patch.autoReviewModel
+      if (m !== null && (typeof m !== 'string' || !m || /\s/.test(m) || m.length > 200))
+        throw new Error('自动审核模型不对')
+      if (m) options.autoReviewModel = m
+      else delete options.autoReviewModel
     }
     if (patch.inputPrediction !== undefined) {
       if (!INPUT_PREDICTIONS.includes(patch.inputPrediction)) throw new Error('「输入预测」的值不对')

@@ -1124,3 +1124,138 @@ describe('自定义 Gemini 接口给 Antigravity（docs/ui/custom-api.md §15）
     expect(((await res.json()) as { error: { message: string } }).error.message).toContain('连接被拒绝')
   })
 })
+
+describe('Codex 自动审核用的模型（docs/ui/codex-auto-review-model.md）', () => {
+  const start = async (opts: {
+    review: string | null
+    models: string[]
+    upstream: (body: { model: string }) => Response
+    record?: Partial<SessionRecord>
+    provider?: ResolvedProvider
+  }) => {
+    const record = {
+      id: 'session',
+      engine: 'codex',
+      model: 'gpt-6.2-astra',
+      platform: { groupId: '35', account: 'user' },
+      ...opts.record,
+    } as SessionRecord
+    const sent: string[] = []
+    const tracked: Array<[string, string]> = []
+    const reply = async (init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { model: string }
+      sent.push(body.model)
+      return opts.upstream(body)
+    }
+    server = platformGateway({
+      sessions: new Map([['session', { recordId: 'session', secret: 's' }]]),
+      record: () => record,
+      account: () => 'user',
+      reviewModel: () => opts.review,
+      routeModels: async () => opts.models,
+      requestContext: () => (id, model, chargeId) => {
+        if (!chargeId) tracked.push([id, model])
+      },
+      provider: () => opts.provider ?? null,
+      fetch: (_path, init) => reply(init),
+      upstream: ((_url: string, init: RequestInit) => reply(init)) as unknown as Fetch,
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const base = 'http://127.0.0.1:' + (server.address() as { port: number }).port
+    const send = (model: string) =>
+      fetch(base + '/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer s' },
+        body: JSON.stringify({ model, stream: true }),
+      })
+    return { send, sent, tracked }
+  }
+  const ok = () =>
+    new Response('event: response.completed\ndata: {}\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
+
+  it('分组里有设置的审核模型：放行；别的模型照旧 403', async () => {
+    const t = await start({ review: 'codex-auto-review', models: ['gpt-6.2-astra', 'codex-auto-review'], upstream: ok })
+    expect((await t.send('codex-auto-review')).status).toBe(200)
+    expect((await t.send('gpt-6-luna')).status).toBe(403)
+    expect(t.sent).toEqual(['codex-auto-review'])
+  })
+
+  it('没设审核模型：审核请求不是对话模型就照旧拒绝（Codex 不该再发别的模型）', async () => {
+    const t = await start({ review: null, models: ['gpt-6.2-astra', 'codex-auto-review'], upstream: ok })
+    expect((await t.send('codex-auto-review')).status).toBe(403)
+    expect(t.sent).toEqual([])
+  })
+
+  it('分组里没有审核模型：直接换成对话模型发出去', async () => {
+    const t = await start({ review: 'gpt-6-luna', models: ['gpt-6.2-astra'], upstream: ok })
+    expect((await t.send('gpt-6-luna')).status).toBe(200)
+    expect(t.sent).toEqual(['gpt-6.2-astra'])
+  })
+
+  it('审核模型被上游拒绝（渠道没配价格的 503）：换成对话模型、换个请求 ID 重发一次，引擎看到的是成功', async () => {
+    const t = await start({
+      review: 'codex-auto-review',
+      models: ['gpt-6.2-astra', 'codex-auto-review'],
+      upstream: body =>
+        body.model === 'codex-auto-review'
+          ? new Response('{"error":{"message":"Service temporarily unavailable"}}', { status: 503 })
+          : ok(),
+    })
+    const res = await t.send('codex-auto-review')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('response.completed')
+    expect(t.sent).toEqual(['codex-auto-review', 'gpt-6.2-astra'])
+    expect(t.tracked.map(([, m]) => m)).toEqual(['codex-auto-review', 'gpt-6.2-astra'])
+    expect(t.tracked[0][0]).not.toBe(t.tracked[1][0])
+  })
+
+  it('对话模型自己的请求被拒绝：不重发，原样交给引擎', async () => {
+    const t = await start({
+      review: 'codex-auto-review',
+      models: ['gpt-6.2-astra', 'codex-auto-review'],
+      upstream: () => new Response('{"error":{"message":"busy"}}', { status: 429 }),
+    })
+    expect((await t.send('gpt-6.2-astra')).status).toBe(429)
+    expect(t.sent).toEqual(['gpt-6.2-astra'])
+  })
+
+  it('自定义接口：审核模型调不通时换成对话模型重发一次', async () => {
+    const t = await start({
+      review: 'review-model',
+      models: [],
+      record: { platform: null, provider: { id: 'p1' }, model: 'my-model' } as Partial<SessionRecord>,
+      provider: {
+        id: 'p1',
+        name: 'P',
+        baseUrl: 'https://example.test/v1',
+        protocol: 'responses',
+        apiKey: 'k',
+        models: [],
+      } as unknown as ResolvedProvider,
+      upstream: body => (body.model === 'review-model' ? new Response('no such model', { status: 404 }) : ok()),
+    })
+    expect((await t.send('review-model')).status).toBe(200)
+    expect(t.sent).toEqual(['review-model', 'my-model'])
+  })
+
+  it('自定义接口：审核模型已按接口的模型列表换成对话模型，那次失败不再重发（不重复扣费）', async () => {
+    const t = await start({
+      review: 'review-model',
+      models: [],
+      record: { platform: null, provider: { id: 'p1' }, model: 'my-model' } as Partial<SessionRecord>,
+      provider: {
+        id: 'p1',
+        name: 'P',
+        baseUrl: 'https://example.test/v1',
+        protocol: 'responses',
+        apiKey: 'k',
+        modelFallback: true,
+        models: [{ id: 'my-model' }],
+      } as unknown as ResolvedProvider,
+      upstream: () => new Response('boom', { status: 500 }),
+    })
+    expect((await t.send('review-model')).status).toBe(500)
+    expect(t.sent).toEqual(['my-model'])
+  })
+})
