@@ -212,4 +212,84 @@ describe('Dot through EngineHost', () => {
       /not a model API/,
     )
   })
+
+  it('Dot 回完话还在忙时发的消息先排队，忙完自动发出（docs/ui/dot-optimize.md §9）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dot-host-queue-'))
+    // 假的 Dot：每发一条就回一条；第一条回完后主对话还忙 300 毫秒
+    const room: { id: string; account_user_id: string; created_at: string; content: { text: string } }[] = []
+    let busyUntil = 0
+    const posted: string[] = []
+    const request = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input))
+      const path = url.pathname
+      const json = (data: unknown) => Response.json(data)
+      if (path.endsWith('/tbo/primary'))
+        return json({ selection: { available: true, aeon_id: 'dot', thread_id: 'root', messaging_room_id: 'room' } })
+      if (path.endsWith('/tbo/by-thread/root'))
+        return json({ id: 'dot', status: 'active', messaging_room_id: 'room', active_root_thread_id: 'root' })
+      if (path.endsWith('/messaging/rooms/room'))
+        return json({
+          id: 'room',
+          type: 'DM',
+          app_source: 'chatgpt:messaging',
+          aeon_id: 'dot',
+          members: [{ account_user_id: 'human' }, { account_user_id: 'bot', aeon_id: 'dot' }],
+        })
+      if (path.endsWith('/messages') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { request_id: string; content: { text: string } }
+        const n = posted.push(body.content.text)
+        const at = (offset: number) => new Date(Date.UTC(2026, 10, 20, 0, 0, n * 10 + offset)).toISOString()
+        const sent = { id: `sent-${n}`, account_user_id: 'human', created_at: at(0), content: body.content }
+        room.push(sent, { id: `reply-${n}`, account_user_id: 'bot', created_at: at(1), content: { text: `回复 ${n}` } })
+        if (n === 1) busyUntil = Date.now() + 300
+        return json({ ...sent, request_id: body.request_id })
+      }
+      if (path.endsWith('/messages')) {
+        const after = url.searchParams.get('after')
+        const from = after ? room.findIndex(m => m.id === after) + 1 : 0
+        return json({ items: room.slice(from) })
+      }
+      if (path.endsWith('/v1/threads/root'))
+        return json({ thread: { id: 'root', status: { type: Date.now() < busyUntil ? 'active' : 'idle' } } })
+      throw new Error(`Unexpected Dot request: ${path}`)
+    })
+    const host = new EngineHost({
+      dataDir: join(root, 'data'),
+      emit: () => {},
+      adapters: {
+        dot: new DotAdapter({
+          fetch: request,
+          pollMs: 20,
+          credentials: () => ({ accessToken: 'token', accountId: 'account', accountUserId: 'human' }),
+        }),
+      },
+    })
+    try {
+      const project = host.addProject(root)
+      const record = host.createSession({ projectId: project.id, engine: 'dot' })
+      await host.send(record.id, '重做 Release 日志')
+      await vi.waitFor(() =>
+        expect(host.open(record.id).items).toContainEqual(expect.objectContaining({ text: '回复 1' })),
+      )
+      // Dot 回了话但还在忙：这一轮没结束，接着发的这条先排队，还没发到 Dot
+      expect(host.open(record.id).state).not.toBe('idle')
+      await host.send(record.id, '保持同名')
+      expect(host.open(record.id).queue.map(q => q.status)).toContain('queued')
+      expect(posted).toEqual(['重做 Release 日志'])
+      // 忙完：排队的自动发出，拿到回复
+      await vi.waitFor(
+        () => {
+          const snapshot = host.open(record.id)
+          expect(snapshot.items).toContainEqual(expect.objectContaining({ text: '回复 2' }))
+          expect(snapshot.state).toBe('idle')
+          expect(snapshot.queue).toHaveLength(0)
+        },
+        { timeout: 5000 },
+      )
+      expect(posted).toEqual(['重做 Release 日志', '保持同名'])
+    } finally {
+      await host.shutdown()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

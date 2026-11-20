@@ -294,6 +294,19 @@ describe('native Dot client', () => {
     await expect(client.send(dot, 'hello', 'request-1')).rejects.toThrow(/account changed/i)
   })
 
+  it('主对话在忙但带等待标记时报 waiting，其余照原样（docs/ui/dot-optimize.md §9）', async () => {
+    const status = (value: unknown) => setup({ '/v1/threads/root': { thread: { id: 'root', status: value } } }).client
+    for (const [value, expected] of [
+      [{ type: 'idle' }, 'idle'],
+      [{ type: 'notLoaded' }, 'notLoaded'],
+      [{ type: 'active', activeFlags: [] }, 'active'],
+      [{ type: 'active', activeFlags: ['waitingOnUserInput'] }, 'waiting'],
+    ] as const) {
+      const client = status(value)
+      expect(await client.activity(await client.discover())).toBe(expected)
+    }
+  })
+
   it('only loads workflow threads attached by the verified Dot', async () => {
     const { client, request } = setup({
       '/v1/threads/task': { thread: { id: 'task', name: 'Build', updatedAt: 10, status: { type: 'idle' } } },

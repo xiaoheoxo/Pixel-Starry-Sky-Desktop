@@ -546,7 +546,10 @@ export class DotClient {
     )
     const thread = object(value.thread)
     if (thread.id !== dot.threadId) invalid()
-    return string(object(thread.status).type)
+    const status = object(thread.status)
+    const type = string(status.type)
+    // 在忙但带着等待标记（等你确认或回答，和 workflow() 的 needsInput 同一个判断）：报成 waiting
+    return type === 'active' && Array.isArray(status.activeFlags) && status.activeFlags.length ? 'waiting' : type
   }
 
   async workflow(dot: DotIdentity, card: DotMessage, threadId: string, signal?: AbortSignal): Promise<DotWorkflow> {

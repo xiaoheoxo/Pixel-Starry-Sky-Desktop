@@ -2,6 +2,7 @@ import { dotError } from './errors'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUp,
+  Clock,
   ExternalLink,
   File,
   ImageIcon,
@@ -29,7 +30,15 @@ import { DotAvatar } from './DotAvatar'
 import { DotProfilePanel, dotWebUrl } from './DotProfilePanel'
 import { DotStatusIcon, dotPresence, dotStatus } from './status'
 import { DotExperimental } from './DotExperimental'
-import { dotNotice, dotTranscript, markDotRows, mergeDotHistory, placeDotTasks, readDropped } from './conversation'
+import {
+  dotComposerState,
+  dotNotice,
+  dotTranscript,
+  markDotRows,
+  mergeDotHistory,
+  placeDotTasks,
+  readDropped,
+} from './conversation'
 import { formatClock, formatDay } from '@/features/channels/format'
 import { fileSize } from '@/features/session/attachments/files'
 import { keyForConversation } from '@/features/search/ConversationFind'
@@ -245,10 +254,14 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     void refreshSnapshot.current()
     void remote.current({ overview: true })
   }
-  const uncertain = snapshot?.queue.filter(q => q.status === 'uncertain') ?? []
-  const busy =
-    resolving || sending || !snapshot || snapshot.state !== 'idle' || snapshot.queue.some(q => q.status !== 'failed')
-  const replying = busy && !!snapshot && !uncertain.length
+  // Dot 正在回复时也能发，消息排队、忙完自动发出（docs/ui/dot-optimize.md §9）
+  const { busy, replying, uncertain, queued } = dotComposerState(snapshot, { sending, resolving })
+  const queueAction = (action: () => Promise<unknown>): void => {
+    setError('')
+    void action()
+      .then(() => refreshSnapshot.current())
+      .catch(e => setError(dotError(e)))
+  }
   useEffect(() => {
     if (follow.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
   }, [rows, replying])
@@ -264,6 +277,8 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         files.map(f => f.id),
       )
       setText(current => (current === text ? '' : current))
+      // Dot 正在忙时这条进了队列，不会马上有会话事件：主动刷新一次，排队卡片立刻出来
+      void refreshSnapshot.current()
       const sentIds = new Set(files.map(file => file.id))
       setFiles(current => current.filter(file => !sentIds.has(file.id)))
     } catch (e) {
@@ -588,6 +603,48 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                   </span>
                 </div>
               )}
+              {snapshot &&
+                queued.map(item => (
+                  <div key={item.id} className="dot-queued" data-queued={item.id}>
+                    {item.text && <div className="dot-queued-text">{item.text}</div>}
+                    {!!item.files?.length && (
+                      <div className="dot-queued-files">
+                        {item.files.map(file => (
+                          <span key={file.id}>
+                            <Paperclip size={12} />
+                            {file.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="dot-queued-meta">
+                      <Clock size={12} />
+                      <span>{snapshot.queuePaused ? tr('dot.queue.paused') : tr('dot.queue.waiting', { name })}</span>
+                      {snapshot.queuePaused && (
+                        <button
+                          type="button"
+                          className="dot-small-button"
+                          onClick={() => queueAction(() => window.pixelsky!.engine.resumeQueue(snapshot.record.id))}
+                        >
+                          {tr('dot.queue.resume')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="dot-small-button"
+                        onClick={() =>
+                          queueAction(async () => {
+                            await window.pixelsky!.engine.cancelQueued(snapshot.record.id, item.id)
+                            // 撤回的文字放回输入框（已经在写别的就不覆盖）；附件要重新选
+                            setText(current => (current.trim() ? current : item.text))
+                          })
+                        }
+                      >
+                        {tr('dot.queue.withdraw')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
             </div>
           </div>
           <ComposerArea>

@@ -244,6 +244,20 @@ describe('Dot unread messages and dropped files', () => {
       await expect(t.service.addFiles(t.key, [])).rejects.toThrow('Invalid Dot file drop')
       t.service.release(t.key)
       await vi.waitFor(() => expect(readdirSync(uploads)).toHaveLength(0))
+      // Dot 忙时发的消息还排着（docs/ui/dot-optimize.md §9）：关窗口不删它带的粘贴文件，别的照删
+      const sessionId = t.service.snapshot(t.key).record.id
+      await t.service.addFiles(t.key, [{ name: 'queued.png', dataBase64: Buffer.from('q').toString('base64') }])
+      const queuedPath = join(uploads, readdirSync(uploads)[0]!, 'queued.png')
+      await t.service.addFiles(t.key, [{ name: 'other.png', dataBase64: Buffer.from('o').toString('base64') }])
+      expect(readdirSync(uploads)).toHaveLength(2)
+      const open = t.host.open
+      t.host.open = (id: string) => ({
+        ...open(id),
+        queue: id === sessionId ? [{ id: 'q1', status: 'queued', files: [{ path: queuedPath }] }] : [],
+      })
+      t.service.release(t.key)
+      await vi.waitFor(() => expect(readdirSync(uploads)).toHaveLength(1))
+      expect(existsSync(queuedPath)).toBe(true)
       // 下次启动：留下的临时文件夹整个删掉
       writeFileSync(join(uploads, 'left.txt'), 'x')
       new DotChatSessions(t.host as unknown as EngineHost, t.root)

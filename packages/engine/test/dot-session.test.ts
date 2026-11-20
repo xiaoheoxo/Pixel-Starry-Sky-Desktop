@@ -208,6 +208,76 @@ describe('Dot session', () => {
     await session.close()
   })
 
+  // docs/ui/dot-optimize.md §9：回完话后 Dot 怎样算忙完，排队的消息才能接着发
+  it('回复后状态不是 active（如 notLoaded）就结束这一轮', async () => {
+    const { session, events, client } = setup()
+    client.activity.mockResolvedValue('notLoaded')
+    session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(events)).toHaveLength(1))
+    expect(completed(events)[0]).toMatchObject({ outcome: 'completed', error: null })
+  })
+
+  it('Dot 在 ChatGPT 里等你处理：结束这一轮并提示一次（回复里已带询问时不重复）', async () => {
+    const { session, events, client } = setup()
+    client.activity.mockResolvedValue('waiting')
+    session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(events)).toHaveLength(1))
+    expect(completed(events)[0]).toMatchObject({ outcome: 'completed' })
+    const notices = (list: EngineEvent[]) =>
+      list.flatMap(e => (e.type === 'item_completed' && e.item.kind === 'notice' ? [e.item.text] : []))
+    expect(notices(events)).toEqual(['Dot needs your input in ChatGPT'])
+
+    const asked = setup()
+    asked.client.messages.mockResolvedValue([{ ...reply, content: { text: '确认一下？', elicitation: {} } }])
+    asked.client.activity.mockResolvedValue('waiting')
+    asked.session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(asked.events)).toHaveLength(1))
+    expect(notices(asked.events)).toEqual(['Dot needs your input in ChatGPT'])
+  })
+
+  it('回复后 Dot 一直在忙：超过等回复的时限也不报错，忙完照常结束', async () => {
+    const { session, events, client } = setup()
+    const start = Date.now()
+    // setup 的 replyTimeoutMs 是 200 毫秒：忙 400 毫秒，以前会报「等待回复超时」
+    client.activity.mockImplementation(async () => (Date.now() - start < 400 ? 'active' : 'idle'))
+    session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(events)).toHaveLength(1), { timeout: 3000 })
+    expect(completed(events)[0]).toMatchObject({ outcome: 'completed', error: null })
+  })
+
+  it('回复后忙满上限：按完成结束并提示去 ChatGPT 跟进', async () => {
+    const events: EngineEvent[] = []
+    const client = {
+      discover: vi.fn().mockResolvedValue(dot),
+      send: vi.fn().mockResolvedValue({ id: 'sent' }),
+      messages: vi.fn().mockResolvedValue([reply]),
+      activity: vi.fn().mockResolvedValue('active'),
+    }
+    const ctx = {
+      record: () => ({ engineSessionId: null }) as SessionRecord,
+      setEngineSessionId: vi.fn(),
+      emit: (event: EngineEvent) => events.push(event),
+    } as unknown as SessionContext
+    const session = new DotSession(client as unknown as DotClient, ctx, { pollMs: 1, busyTimeoutMs: 100 })
+    session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(events)).toHaveLength(1), { timeout: 3000 })
+    expect(completed(events)[0]).toMatchObject({ outcome: 'completed', error: null })
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'item_completed',
+        item: expect.objectContaining({ text: 'Dot is still working; follow up in ChatGPT' }),
+      }),
+    )
+  })
+
+  it('还没收到回复时照旧最多等 replyTimeoutMs，超时报错', async () => {
+    const { session, events, client } = setup()
+    client.messages.mockResolvedValue([])
+    session.send('hello', 'turn', 'user')
+    await vi.waitFor(() => expect(completed(events)).toHaveLength(1), { timeout: 3000 })
+    expect(completed(events)[0]).toMatchObject({ outcome: 'failed', error: expect.stringMatching(/timed out/) })
+  })
+
   it('close aborts pending reads and completes a turn exactly once', async () => {
     const { session, events, client } = setup()
     client.messages.mockImplementation(

@@ -20,6 +20,11 @@ export const dotMessages = {
     en: 'View the Dot attachment in ChatGPT',
   },
   'dot.notice.input': { zh: 'Dot 需要你输入', en: 'Dot needs your input in ChatGPT' },
+  // 回完话后 Dot 一直在忙，等满上限就不再陪等（docs/ui/dot-optimize.md §9）
+  'dot.notice.stillWorking': {
+    zh: 'Dot 还在干活，可以在 ChatGPT 里跟进',
+    en: 'Dot is still working; follow up in ChatGPT',
+  },
   'dot.notice.taskInput': {
     zh: 'Dot 的任务需要你输入',
     en: 'Dot workflow needs your input in ChatGPT',
@@ -42,6 +47,11 @@ export const dotMessages = {
   'dot.presence.on': { zh: '在线', en: 'Online' },
   'dot.presence.off': { zh: '不在线', en: 'Offline' },
   'dot.replying': { zh: '{name} 正在回复', en: '{name} is replying' },
+  // Dot 还在忙时发的消息先排队（docs/ui/dot-optimize.md §9）
+  'dot.queue.waiting': { zh: '排队中 · {name} 忙完后自动发出', en: 'Queued · sends when {name} is free' },
+  'dot.queue.paused': { zh: '已暂停 · 上一条没发成功', en: 'Paused · the previous message failed' },
+  'dot.queue.resume': { zh: '继续发送', en: 'Send now' },
+  'dot.queue.withdraw': { zh: '撤回', en: 'Withdraw' },
   'dot.placeholderName': { zh: '给 {name} 发消息…', en: 'Message {name}…' },
   'dot.view': { zh: '查看', en: 'View' },
   'dot.voiceShort': { zh: '语音', en: 'Voice' },

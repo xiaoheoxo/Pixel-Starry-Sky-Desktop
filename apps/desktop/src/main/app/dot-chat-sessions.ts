@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join, sep } from 'node:path'
 import { DOT_FILE_LIMIT } from '@pixelsky/engine'
 import type { EngineHost } from '@pixelsky/engine'
 import type { FileAttachment, SessionSnapshot } from '@pixelsky/protocol'
@@ -236,8 +236,25 @@ export class DotChatSessions {
   release(key: string) {
     this.knownFiles.delete(key)
     this.selected.delete(key)
-    for (const dir of this.temps.get(key) ?? []) void rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    // Dot 忙时发的消息还排着（docs/ui/dot-optimize.md §9）：它带的粘贴文件要留到发出去，下次启动时再一起删
+    const queued = this.queuedPaths(key)
+    for (const dir of this.temps.get(key) ?? [])
+      if (!queued.some(path => path.startsWith(dir + sep)))
+        void rm(dir, { recursive: true, force: true }).catch(() => undefined)
     this.temps.delete(key)
+  }
+
+  /** 这个 Dot 的会话里还没发出去的消息带的本机文件 */
+  private queuedPaths(key: string): string[] {
+    const id = this.sessions[key]
+    if (!id) return []
+    try {
+      return (this.host.open(id).queue ?? [])
+        .filter(q => q.status === 'queued' || q.status === 'dispatching')
+        .flatMap(q => (q.files ?? []).flatMap(file => (file.path ? [file.path] : [])))
+    } catch {
+      return []
+    }
   }
 
   /**

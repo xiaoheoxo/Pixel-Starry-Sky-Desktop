@@ -1,4 +1,4 @@
-import type { Item } from '@pixelsky/protocol'
+import type { Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
 import type { DotAttachment, DotChatMessage } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
 
@@ -152,4 +152,27 @@ export function mergeDotHistory(previous: DotChatMessage[], incoming: DotChatMes
   const messages = new Map(previous.map(m => [m.id, m]))
   for (const item of incoming) messages.set(item.id, item)
   return [...messages.values()].sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/**
+ * 输入框和「正在回复」的状态（docs/ui/dot-optimize.md §9）：
+ * - busy：不能发。只在没读到会话、正在发这一下、有待核对的消息（要先处理）时；Dot 正在回复时也能发，消息进宿主的队列，忙完自动发出
+ * - replying：真的有一轮在跑（以前有排队的消息也算，排队卡片另外显示）
+ * - queued：排着等发的消息
+ */
+export function dotComposerState(
+  snapshot: Pick<SessionSnapshot, 'state' | 'queue'> | null,
+  now: { sending: boolean; resolving: boolean },
+): { busy: boolean; replying: boolean; uncertain: QueuedMessage[]; queued: QueuedMessage[] } {
+  const queue = snapshot?.queue ?? []
+  const uncertain = queue.filter(q => q.status === 'uncertain')
+  const queued = queue.filter(q => q.status === 'queued')
+  const busy = now.resolving || now.sending || !snapshot || uncertain.length > 0
+  const replying =
+    !!snapshot &&
+    !uncertain.length &&
+    (now.sending ||
+      snapshot.state !== 'idle' ||
+      queue.some(q => q.status === 'dispatching' || q.status === 'running' || q.status === 'delivering'))
+  return { busy, replying, uncertain, queued }
 }

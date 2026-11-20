@@ -387,6 +387,44 @@ button.dot-small-button:hover:not(:disabled) {
 .dot-user-bubble {
   width: fit-content;
 }
+/* Dot 还在忙时发的消息先排队（docs/ui/dot-optimize.md §9）：靠右的虚线框，忙完自动发出 */
+.dot-queued {
+  display: flex;
+  max-width: 78%;
+  flex-direction: column;
+  align-self: flex-end;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+}
+.dot-queued-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dot-queued-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+.dot-queued-files span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dot-queued-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: var(--text-meta);
+}
+.dot-queued-meta span {
+  flex: 1;
+}
 /* 复制按钮平时不显示：借一点下面的间距，免得每条回复后面空一大截 */
 .dot-message-actions {
   margin-top: 4px;

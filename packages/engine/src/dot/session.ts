@@ -14,7 +14,10 @@ import type { DotClient, DotIdentity, DotMessage, DotWorkflow } from './client'
 
 export interface DotSessionOptions {
   pollMs?: number
+  /** 发出后最多等多久收到 Dot 的回复，超时报错 */
   replyTimeoutMs?: number
+  /** 收到回复后 Dot 还在主对话里干活，最多再陪它等多久；到点按完成结束，排队的消息接着发（docs/ui/dot-optimize.md §9） */
+  busyTimeoutMs?: number
   /** 读取出错后隔多久再试，试完这几次还不行才报错 */
   retryMs?: readonly number[]
   acquire?: (dot: DotIdentity) => () => void
@@ -107,11 +110,27 @@ export class DotSession implements EngineSession {
       this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed' })
       let after = sent.id
       let received = false
+      let asked = false
       const emitted = new Set<string>()
-      const deadline = Date.now() + (this.options.replyTimeoutMs ?? 10 * 60_000)
+      const start = Date.now()
+      const replyDeadline = start + (this.options.replyTimeoutMs ?? 10 * 60_000)
+      const busyDeadline = start + (this.options.busyTimeoutMs ?? 60 * 60_000)
       for (;;) {
         signal.throwIfAborted()
-        if (Date.now() >= deadline) throw new Error('Dot reply wait timed out; check ChatGPT before continuing')
+        if (!received && Date.now() >= replyDeadline)
+          throw new Error('Dot reply wait timed out; check ChatGPT before continuing')
+        if (received && Date.now() >= busyDeadline) {
+          this.ctx.emit({
+            type: 'item_completed',
+            item: {
+              id: `dot-still-working-${sent.id}`,
+              kind: 'notice',
+              level: 'info',
+              text: 'Dot is still working; follow up in ChatGPT',
+            },
+          })
+          break
+        }
         const from = after
         const messages = await this.poll(() => this.client.messages(dot, from, signal), signal)
         for (const m of messages) {
@@ -150,7 +169,8 @@ export class DotSession implements EngineSession {
               })
             }
           }
-          if (m.content.elicitation)
+          if (m.content.elicitation) {
+            asked = true
             this.ctx.emit({
               type: 'item_completed',
               item: {
@@ -160,11 +180,27 @@ export class DotSession implements EngineSession {
                 text: 'Dot needs your input in ChatGPT',
               },
             })
+          }
         }
         if (received) {
           const activity = await this.poll(() => this.client.activity(dot, signal), signal)
           if (activity === 'systemError') throw new Error('Dot reported a system error; open ChatGPT')
-          if (activity === 'idle') break
+          // 等你在 ChatGPT 里确认 / 回答：这一轮到此为止，排队的消息（可能就是回答）接着发
+          if (activity === 'waiting') {
+            if (!asked)
+              this.ctx.emit({
+                type: 'item_completed',
+                item: {
+                  id: `dot-waiting-${sent.id}`,
+                  kind: 'notice',
+                  level: 'info',
+                  text: 'Dot needs your input in ChatGPT',
+                },
+              })
+            break
+          }
+          // 不在忙就算这一轮结束（idle 之外 notLoaded 等也算）；还在忙就接着等它的新回复
+          if (activity !== 'active') break
         }
         await delay(this.options.pollMs ?? 1500, undefined, { signal })
       }

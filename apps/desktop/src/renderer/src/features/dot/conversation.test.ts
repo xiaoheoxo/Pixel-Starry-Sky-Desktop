@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { dotNotice, dotTranscript, markDotRows, mergeDotHistory, placeDotTasks, readDropped } from './conversation'
+import {
+  dotComposerState,
+  dotNotice,
+  dotTranscript,
+  markDotRows,
+  mergeDotHistory,
+  placeDotTasks,
+  readDropped,
+} from './conversation'
+import type { QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
 import { translateMessage } from '../../../../shared/i18n/translate'
 describe('Dot native conversation', () => {
   it('deduplicates native request echoes and local Dot responses while preserving history order', () => {
@@ -113,5 +122,37 @@ describe('Dot conversation details', () => {
     expect(marks.get('a4')).toMatchObject({ day: day18, head: true })
     expect(marks.get('a5')).toMatchObject({ day: null, head: false })
     expect(marks.get('u2')).toMatchObject({ day: null, head: false, time: at(18, 9, 5) })
+  })
+})
+
+// docs/ui/dot-optimize.md §9：Dot 回完话还在忙时也能发，消息排队、忙完自动发出
+describe('dotComposerState', () => {
+  const q = (status: QueuedMessage['status']) => ({ id: status, text: status, status }) as QueuedMessage
+  const snap = (state: SessionSnapshot['state'], queue: QueuedMessage[] = []) => ({ state, queue })
+  const idle = { sending: false, resolving: false }
+
+  it('Dot 正在回复时不锁发送，排队的消息单独列出', () => {
+    const s = dotComposerState(snap('running', [q('running'), q('queued')]), idle)
+    expect(s.busy).toBe(false)
+    expect(s.replying).toBe(true)
+    expect(s.queued.map(x => x.id)).toEqual(['queued'])
+  })
+
+  it('只有排队的消息、没有在跑的一轮（队列暂停）：不显示「正在回复」', () => {
+    expect(dotComposerState(snap('idle', [q('queued')]), idle)).toMatchObject({ busy: false, replying: false })
+  })
+
+  it('有待核对的消息要先处理：不能发，也不显示「正在回复」', () => {
+    expect(dotComposerState(snap('idle', [q('uncertain')]), idle)).toMatchObject({ busy: true, replying: false })
+  })
+
+  it('没读到会话、正在发这一下、正在核对：不能发', () => {
+    expect(dotComposerState(null, idle).busy).toBe(true)
+    expect(dotComposerState(snap('idle'), { sending: true, resolving: false })).toMatchObject({
+      busy: true,
+      replying: true,
+    })
+    expect(dotComposerState(snap('idle'), { sending: false, resolving: true }).busy).toBe(true)
+    expect(dotComposerState(snap('idle'), idle)).toMatchObject({ busy: false, replying: false })
   })
 })
