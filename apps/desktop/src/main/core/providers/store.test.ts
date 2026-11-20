@@ -313,6 +313,20 @@ describe('发往接口的请求', () => {
     })
   })
 
+  it('用户在接口设置里写的头优先、不分大小写：透传的 user-agent 不和用户写的 User-Agent 拼在一起', () => {
+    const headers = providerHeaders(
+      { ...p, headers: { 'User-Agent': 'MyRelayClient/1.0' } },
+      { 'user-agent': 'codex_cli_rs/0.169.0', originator: 'codex_cli_rs' },
+    )
+    expect(headers).toEqual({
+      'User-Agent': 'MyRelayClient/1.0',
+      originator: 'codex_cli_rs',
+      authorization: `Bearer ${KEY}`,
+    })
+    // 用户没写：透传的照常带上
+    expect(providerHeaders(p, { 'user-agent': 'codex_cli_rs/0.169.0' })['user-agent']).toBe('codex_cli_rs/0.169.0')
+  })
+
   it('错误翻成人话，接口回显的 Key 打码', () => {
     expect(classifyStatus(401, `{"error":{"message":"bad key ${KEY}"}}`, p, 'gpt-5')).toEqual({
       problem: 'auth',

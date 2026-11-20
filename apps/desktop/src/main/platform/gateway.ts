@@ -390,10 +390,12 @@ export function platformGateway(options: {
     }
     const passthrough = (): Record<string, string> => {
       const out: Record<string, string> = {}
+      // 引擎自己的 User-Agent 都带上（Codex 的 codex_cli_rs/…、像素星空引擎的）：不带的话上游看到的是网关的默认 UA，
+      // 中转按 UA 认客户端、排查日志都对不上
       for (const name of chat
-        ? []
+        ? ['user-agent']
         : responses
-          ? ['session_id', 'conversation_id', 'originator', 'openai-beta']
+          ? ['session_id', 'conversation_id', 'originator', 'openai-beta', 'user-agent']
           : // Claude Code 的身份头：Sub2api「仅限 Claude Code」的分组靠 User-Agent / X-App / anthropic-beta 认终端
             [
               'anthropic-version',

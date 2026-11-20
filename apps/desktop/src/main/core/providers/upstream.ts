@@ -41,7 +41,12 @@ export function providerHeaders(
   p: Pick<ResolvedProvider, 'protocol' | 'auth' | 'apiKey' | 'headers'>,
   base: Record<string, string> = {},
 ): Record<string, string> {
-  const headers: Record<string, string> = { ...base, ...p.headers }
+  // 用户在接口设置里写的头优先，不分大小写：透传的 user-agent 和用户写的 User-Agent 同时在时，fetch 会把两个值拼成一个
+  const own = new Set(Object.keys(p.headers ?? {}).map(k => k.toLowerCase()))
+  const headers: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(base).filter(([k]) => !own.has(k.toLowerCase()))),
+    ...p.headers,
+  }
   if (p.apiKey) {
     // Gemini：Google 官方和 Sub2api、new-api 的 Gemini 入口都认 x-goog-api-key（不放进 ?key=，免得进日志）
     if (p.protocol === 'gemini') headers['x-goog-api-key'] = p.apiKey

@@ -1259,3 +1259,71 @@ describe('Codex 自动审核用的模型（docs/ui/codex-auto-review-model.md）
     expect(t.sent).toEqual(['my-model'])
   })
 })
+
+describe('引擎的 User-Agent 原样带给上游（Codex 的 Responses、像素星空的 Chat）', () => {
+  const UA = 'codex_cli_rs/0.169.0 (Windows 10.0.26300; x86_64) pixelsky'
+  const run = async (record: Partial<SessionRecord>, path: string, provider?: ResolvedProvider) => {
+    const seen: Headers[] = []
+    const ok = () => new Response('data: {}\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
+    server = platformGateway({
+      sessions: new Map([['session', { recordId: 'session', secret: 's' }]]),
+      record: () => ({ id: 'session', ...record }) as SessionRecord,
+      account: () => 'user',
+      provider: () => provider ?? null,
+      fetch: async (_path, init) => {
+        seen.push(new Headers(init.headers))
+        return ok()
+      },
+      upstream: (async (_url: string, init: RequestInit) => {
+        seen.push(new Headers(init.headers as Record<string, string>))
+        return ok()
+      }) as unknown as Fetch,
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const res = await fetch('http://127.0.0.1:' + (server.address() as { port: number }).port + path, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer s', 'User-Agent': UA, originator: 'codex_cli_rs' },
+      body: JSON.stringify({ model: 'gpt-6.1-sol', stream: true, messages: [] }),
+    })
+    expect(res.status).toBe(200)
+    await res.text()
+    return seen
+  }
+  const custom = (protocol: string) =>
+    ({
+      id: 'p1',
+      name: 'P',
+      baseUrl: 'https://example.test/v1',
+      protocol,
+      apiKey: 'k',
+      models: [],
+    }) as unknown as ResolvedProvider
+
+  it('平台线路：Codex 的 UA 和 originator 一起带给云端', async () => {
+    const [h] = await run(
+      { engine: 'codex', model: 'gpt-6.1-sol', platform: { groupId: '7', account: 'user' } },
+      '/v1/responses',
+    )
+    expect(h.get('user-agent')).toBe(UA)
+    expect(h.get('originator')).toBe('codex_cli_rs')
+  })
+
+  it('自定义 Responses 接口：同样带上 UA', async () => {
+    const [h] = await run(
+      { engine: 'codex', model: 'gpt-6.1-sol', platform: null, provider: { id: 'p1' } } as Partial<SessionRecord>,
+      '/v1/responses',
+      custom('responses'),
+    )
+    expect(h.get('user-agent')).toBe(UA)
+  })
+
+  it('自定义 Chat 接口（像素星空）：带上 UA', async () => {
+    const [h] = await run(
+      { engine: 'pixel', model: 'gpt-6.1-sol', platform: null, provider: { id: 'p1' } } as Partial<SessionRecord>,
+      '/v1/chat/completions',
+      custom('chat'),
+    )
+    expect(h.get('user-agent')).toBe(UA)
+  })
+})
