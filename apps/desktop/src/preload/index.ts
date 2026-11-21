@@ -246,6 +246,7 @@ const log: LogBridge = {
   exportDiagnostics: () => call('log:export'),
   write: (level, message, fields) => send('log:write', { level, message, fields }),
   uncaught: () => send('log:uncaught'),
+  frames: report => send('log:frames', report),
   // 内存分项只有 preload 拿得到（界面主世界没有 process / webFrame）：转发前附上（docs/memory-tier2.md §2）
   sample: sample =>
     call('log:sample', {

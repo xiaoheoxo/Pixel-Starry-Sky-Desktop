@@ -12,10 +12,22 @@ const mocks = vi.hoisted(() => ({
   }[],
   lines: [] as { level: string; message: string; fields?: Record<string, unknown> }[],
   flushSync: vi.fn(),
+  /** powerMonitor / screen 上注册的监听，按事件名 */
+  listeners: new Map<string, (...args: unknown[]) => void>(),
+  gpuInfo: { gpuDevice: [] as unknown[], auxAttributes: {} as Record<string, unknown> },
 }))
 vi.mock('electron', () => ({
-  app: { getAppMetrics: () => mocks.metrics, commandLine: { appendSwitch: vi.fn() } },
-  powerMonitor: { on: vi.fn() },
+  app: {
+    getAppMetrics: () => mocks.metrics,
+    commandLine: { appendSwitch: vi.fn() },
+    getGPUInfo: () => Promise.resolve(mocks.gpuInfo),
+    getGPUFeatureStatus: () => ({ gpu_compositing: 'enabled', rasterization: 'enabled' }),
+  },
+  powerMonitor: { on: vi.fn((name: string, fn: () => void) => mocks.listeners.set(name, fn)) },
+  screen: {
+    on: (name: string, fn: () => void) => mocks.listeners.set(name, fn),
+    getAllDisplays: () => [{}, {}],
+  },
   BrowserWindow: { fromWebContents: vi.fn() },
   ipcMain: { handle: vi.fn(), on: vi.fn() },
 }))
@@ -36,11 +48,15 @@ vi.mock('./logging', () => ({ logService: () => ({ flushSync: mocks.flushSync })
 
 import {
   allowCallStacks,
+  gpuList,
+  logGpuInfo,
   mainLag,
   memoryLevel,
+  parseFrameReport,
   remoteMemoryChecker,
   stallFields,
   trimStack,
+  watchDisplays,
   watchMemory,
   watchRemoteMemory,
   watchWindow,
@@ -245,5 +261,94 @@ describe('WSL 内存占用高', () => {
     expect(mocks.lines.map(l => l.fields)).toEqual([{ machine: 'wsl-ok', rssMb: 1_600, processes: 2 }])
     await vi.advanceTimersByTimeAsync(2_000) // 下一轮继续
     expect(stats).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe('画面停止刷新', () => {
+  it('parses the page report and drops what it cannot trust', () => {
+    expect(
+      parseFrameReport({
+        state: 'stalled',
+        stalledMs: 3000.4,
+        sinceInputMs: 812,
+        sinceVisibleMs: 40,
+        elements: 4200,
+        heapMb: -1,
+        inactiveDuring: 'yes',
+        extra: 'x',
+      }),
+    ).toEqual({ stalled: true, fields: { stalledMs: 3000, sinceInputMs: 812, sinceVisibleMs: 40, elements: 4200 } })
+    expect(parseFrameReport({ state: 'recovered', stalledMs: 9000, inactiveDuring: true })).toEqual({
+      stalled: false,
+      fields: { stalledMs: 9000, inactiveDuring: true },
+    })
+    expect(parseFrameReport({ state: 'frozen', stalledMs: 1 })).toBeNull()
+    expect(parseFrameReport(null)).toBeNull()
+  })
+})
+
+describe('显卡信息', () => {
+  const nvidia = { vendorId: 0x10de, deviceString: 'NVIDIA GeForce RTX 4070', driverVersion: '32.0.15.6094' }
+  const basic = { vendorId: 0x1414, deviceString: 'Microsoft Basic Render Driver', driverVersion: '10.0.26100' }
+
+  it('merges repeated devices and drops the software renderer unless it is the only one', () => {
+    expect(gpuList([nvidia, nvidia, basic])).toEqual(['NVIDIA GeForce RTX 4070 · 32.0.15.6094'])
+    expect(gpuList([basic])).toEqual(['Microsoft Basic Render Driver · 10.0.26100'])
+    expect(gpuList([{ vendorId: 0x8086 }])).toEqual(['vendor 32902'])
+    expect(gpuList([])).toEqual([])
+  })
+
+  it('logs once after the delay, with the acceleration status and hybrid graphics', async () => {
+    vi.useFakeTimers()
+    mocks.gpuInfo = { gpuDevice: [nvidia, basic], auxAttributes: { optimus: true, amdSwitchable: false } }
+    logGpuInfo(10_000)
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(mocks.lines).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mocks.lines).toEqual([
+      {
+        level: 'info',
+        message: '显卡信息',
+        fields: {
+          gpus: ['NVIDIA GeForce RTX 4070 · 32.0.15.6094'],
+          compositing: 'enabled',
+          raster: 'enabled',
+          optimus: true,
+        },
+      },
+    ])
+  })
+})
+
+describe('锁屏、显示器变化', () => {
+  const display = { id: 7, size: { width: 2560, height: 1440 }, scaleFactor: 1.5, rotation: 0 }
+  const emit = (name: string, ...args: unknown[]): void => mocks.listeners.get(name)!({}, ...args)
+
+  it('logs lock / unlock, plugged / unplugged, and real metric changes (not work-area only)', () => {
+    watchDisplays()
+    mocks.listeners.get('lock-screen')!()
+    mocks.listeners.get('unlock-screen')!()
+    emit('display-added', display)
+    emit('display-removed', { ...display, rotation: 90 })
+    emit('display-metrics-changed', display, ['workArea'])
+    emit('display-metrics-changed', display, ['workArea', 'scaleFactor'])
+    expect(mocks.lines.map(l => [l.message, l.fields])).toEqual([
+      ['锁屏', undefined],
+      ['解锁', undefined],
+      ['接上显示器', { id: 7, size: '2560x1440', scale: 1.5, displays: 2 }],
+      ['拔掉显示器', { id: 7, size: '2560x1440', scale: 1.5, rotation: 90, displays: 2 }],
+      ['显示器设置变化', { id: 7, size: '2560x1440', scale: 1.5, displays: 2, changed: ['scaleFactor'] }],
+    ])
+  })
+
+  it('keeps display lines to 20 a minute', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-21T10:00:00Z'))
+    watchDisplays()
+    for (let i = 0; i < 30; i++) emit('display-metrics-changed', display, ['bounds'])
+    expect(mocks.lines).toHaveLength(20)
+    vi.setSystemTime(new Date('2026-11-21T10:01:00Z'))
+    emit('display-metrics-changed', display, ['bounds'])
+    expect(mocks.lines).toHaveLength(21)
   })
 })

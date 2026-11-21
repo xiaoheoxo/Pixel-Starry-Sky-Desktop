@@ -1,9 +1,11 @@
 // 卡顿诊断（docs/ui/logging.md §4.9）：窗口没响应、主进程被占住、内存涨得很高时写进本机日志，
 // 下次卡死能从日志看出卡在哪一边、卡在哪段代码。用户卡住后多半直接结束进程，所以窗口没响应的记录马上同步写盘。
-import { app, powerMonitor, type BrowserWindow, type Session } from 'electron'
+// 画面停住（GPU 那边）另记显卡、锁屏、显示器变化，用来分辨是驱动、换显示器还是内存。
+import { app, BrowserWindow, powerMonitor, screen, type Display, type Session, type WebContents } from 'electron'
 import { logger } from '@pixelsky/engine'
-import { ipcInFlight, ipcRecent } from '../ipc/guard'
+import * as ipc from '../ipc/guard'
 import { logService } from './logging'
+import { systemNow } from './memory'
 
 const log = logger('perf')
 
@@ -41,9 +43,14 @@ export function allowCallStacks(session: Session, isAppUrl: (url: string) => boo
   })
 }
 
+type ProcessMetric = ReturnType<typeof app.getAppMetrics>[number]
+
 /** 某个进程的内存（MB）；进程已经没了时为 null */
-function processMemory(pid: number): { workingSetMb: number; privateMb?: number } | null {
-  const memory = app.getAppMetrics().find(p => p.pid === pid)?.memory
+function processMemory(
+  find: (p: ProcessMetric) => boolean,
+  metrics = app.getAppMetrics(),
+): { workingSetMb: number; privateMb?: number } | null {
+  const memory = metrics.find(find)?.memory
   if (!memory) return null
   return {
     workingSetMb: mb(memory.workingSetSize),
@@ -69,9 +76,25 @@ async function callStack(win: BrowserWindow): Promise<string | null> {
   }
 }
 
+interface WindowTimes {
+  focus?: number
+  blur?: number
+  restore?: number
+  show?: number
+}
+/** watchWindow 记的各窗口上次切回、切走、还原的时刻；「画面停止刷新」也要用 */
+const windowTimes = new WeakMap<BrowserWindow, WindowTimes>()
+
+/** 离上次切回、切走、还原（没最小化过就是显示）窗口多久；没发生过为 null */
+function sinceSwitch(at: WindowTimes, now: number): Record<string, number | null> {
+  const ago = (t: number | undefined): number | null => (t === undefined ? null : now - t)
+  return { sinceFocusMs: ago(at.focus), sinceBlurMs: ago(at.blur), sinceRestoreMs: ago(at.restore ?? at.show) }
+}
+
 /** 窗口没响应、恢复响应时记日志；带上离上次切回窗口多久、页面进程的内存和正在跑的 JS 调用栈 */
 export function watchWindow(win: BrowserWindow): void {
-  const at: { focus?: number; blur?: number; restore?: number; show?: number } = {}
+  const at: WindowTimes = {}
+  windowTimes.set(win, at)
   win.on('focus', () => (at.focus = Date.now()))
   win.on('blur', () => (at.blur = Date.now()))
   win.on('restore', () => (at.restore = Date.now()))
@@ -83,7 +106,6 @@ export function watchWindow(win: BrowserWindow): void {
     repeat = null
     since = null
   }
-  const ago = (t: number | undefined, now: number): number | null => (t === undefined ? null : now - t)
 
   const report = async (message: string): Promise<void> => {
     if (since === null || win.isDestroyed()) return
@@ -98,10 +120,8 @@ export function watchWindow(win: BrowserWindow): void {
       focused: win.isFocused(),
       minimized: win.isMinimized(),
       visible: win.isVisible(),
-      sinceFocusMs: ago(at.focus, now),
-      sinceBlurMs: ago(at.blur, now),
-      sinceRestoreMs: ago(at.restore ?? at.show, now),
-      memory: processMemory(win.webContents.getOSProcessId()),
+      ...sinceSwitch(at, now),
+      memory: processMemory(p => p.pid === win.webContents.getOSProcessId()),
       ...(stack ? { stack } : {}),
     })
     logService()?.flushSync()
@@ -126,6 +146,144 @@ export function watchWindow(win: BrowserWindow): void {
   win.on('closed', stop)
 }
 
+/** 页面每分钟最多报这么多条画面停止 / 恢复刷新 */
+const FRAMES_PER_MINUTE = 10
+
+/** 页面报来的画面停止 / 恢复刷新：不信任，数字取有限非负值取整，布尔只认 true；state 不对为 null */
+export function parseFrameReport(raw: unknown): { stalled: boolean; fields: Record<string, unknown> } | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  if (r.state !== 'stalled' && r.state !== 'recovered') return null
+  const fields: Record<string, unknown> = {}
+  for (const key of ['stalledMs', 'sinceInputMs', 'sinceVisibleMs', 'elements', 'heapMb']) {
+    const v = r[key]
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) fields[key] = Math.round(v)
+  }
+  if (r.inactiveDuring === true) fields.inactiveDuring = true
+  return { stalled: r.state === 'stalled', fields }
+}
+
+/**
+ * 画面停止 / 恢复刷新（log:frames）：页面量的数补上窗口状态、界面进程和 GPU 进程的内存、整机内存再写；
+ * 停住那条马上同步写盘（屏幕不动了，用户多半直接关掉）
+ */
+export function watchFrames(): void {
+  const budget = new WeakMap<WebContents, { minute: number; count: number }>()
+  ipc.on('log:frames', (event, raw: unknown) => {
+    const report = parseFrameReport(raw)
+    if (!report) return
+    const minute = Math.floor(Date.now() / 60_000)
+    const used = budget.get(event.sender)
+    if (used?.minute === minute && used.count >= FRAMES_PER_MINUTE) return
+    budget.set(event.sender, { minute, count: used?.minute === minute ? used.count + 1 : 1 })
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const metrics = app.getAppMetrics()
+    const pid = event.sender.getOSProcessId()
+    const times = win ? windowTimes.get(win) : undefined
+    const fields = {
+      ...report.fields,
+      window: event.sender.id,
+      ...(win ? { focused: win.isFocused(), visible: win.isVisible(), minimized: win.isMinimized() } : {}),
+      ...(times ? sinceSwitch(times, Date.now()) : {}),
+      renderer: processMemory(p => p.pid === pid, metrics),
+      gpu: processMemory(p => p.type === 'GPU', metrics),
+      system: systemNow(),
+      ...(gpus ? { gpus } : {}),
+      // 只读主进程缓存的状态，不经过 GPU 进程（它可能正卡着）
+      compositing: app.getGPUFeatureStatus().gpu_compositing,
+    }
+    if (!report.stalled) return log.info('画面恢复刷新', fields)
+    log.warn('画面停止刷新', fields)
+    logService()?.flushSync()
+  })
+}
+
+/** Windows 自带的软件渲染器（Microsoft Basic Render Driver）的厂商号 */
+const MICROSOFT_VENDOR = 0x1414
+/** 启动后多久记显卡信息：GPU 进程起来之前 getGPUFeatureStatus 全是「软件」 */
+const GPU_INFO_DELAY_MS = 10_000
+
+/** getGPUInfo('basic') 里用到的部分 */
+export interface GpuDevice {
+  vendorId?: number
+  deviceString?: string
+  driverVersion?: string
+}
+
+/** 启动时查到的显卡（gpuList），「画面停止刷新」带上；还没查到为 null */
+let gpus: string[] | null = null
+
+/** 每块显卡「型号 · 驱动版本」：同一块会列好几次，合并；有别的显卡时不列 Windows 自带的软件渲染器 */
+export function gpuList(devices: readonly GpuDevice[]): string[] {
+  const real = devices.filter(d => d.vendorId !== MICROSOFT_VENDOR)
+  const names = (real.length ? real : devices).map(d =>
+    [d.deviceString || `vendor ${d.vendorId ?? '?'}`, d.driverVersion].filter(Boolean).join(' · '),
+  )
+  return [...new Set(names)]
+}
+
+/** 启动后 10 秒记一次显卡、驱动版本和硬件加速开没开（docs/ui/logging.md §4.9） */
+export function logGpuInfo(delayMs = GPU_INFO_DELAY_MS): void {
+  setTimeout(() => {
+    app.getGPUInfo('basic').then(
+      raw => {
+        const info = raw as { gpuDevice?: GpuDevice[]; auxAttributes?: Record<string, unknown> }
+        gpus = gpuList(info.gpuDevice ?? [])
+        const status = app.getGPUFeatureStatus()
+        log.info('显卡信息', {
+          gpus,
+          compositing: status.gpu_compositing,
+          raster: status.rasterization,
+          ...(info.auxAttributes?.optimus === true ? { optimus: true } : {}),
+          ...(info.auxAttributes?.amdSwitchable === true ? { amdSwitchable: true } : {}),
+        })
+      },
+      (err: unknown) => log.warn('读不到显卡信息', { error: err instanceof Error ? err.message : String(err) }),
+    )
+  }, delayMs).unref()
+}
+
+/** 显示器的日志字段 */
+export function displayFields(
+  d: Pick<Display, 'id' | 'size' | 'scaleFactor' | 'rotation'>,
+  displays: number,
+): Record<string, unknown> {
+  return {
+    id: d.id,
+    size: `${d.size.width}x${d.size.height}`,
+    scale: d.scaleFactor,
+    ...(d.rotation ? { rotation: d.rotation } : {}),
+    displays,
+  }
+}
+
+/** 显示器变化每分钟最多记这么多条（驱动出问题时可能来回跳） */
+const DISPLAY_PER_MINUTE = 20
+
+/** 锁屏 / 解锁、显示器接上 / 拔掉 / 分辨率缩放旋转变了各记一条：GPU 卡住常常紧跟在这些之后 */
+export function watchDisplays(): void {
+  powerMonitor.on('lock-screen', () => log.info('锁屏'))
+  powerMonitor.on('unlock-screen', () => log.info('解锁'))
+  let minute = -1
+  let count = 0
+  const note = (message: string, d: Display, extra: Record<string, unknown> = {}): void => {
+    const now = Math.floor(Date.now() / 60_000)
+    if (now !== minute) {
+      minute = now
+      count = 0
+    }
+    if (++count > DISPLAY_PER_MINUTE) return
+    log.info(message, { ...displayFields(d, screen.getAllDisplays().length), ...extra })
+  }
+  screen.on('display-added', (_event, d) => note('接上显示器', d))
+  screen.on('display-removed', (_event, d) => note('拔掉显示器', d))
+  screen.on('display-metrics-changed', (_event, d, changed) => {
+    // 只是任务栏让出的工作区变了不记
+    const real = changed.filter(c => c !== 'workArea')
+    if (real.length) note('显示器设置变化', d, { changed: real })
+  })
+}
+
 /** 计时器晚到多少毫秒算主进程卡住；刚睡眠唤醒的不算 */
 export function mainLag(lateMs: number, sleeping: boolean): number | null {
   return !sleeping && lateMs >= LAG_MS ? Math.round(lateMs) : null
@@ -146,7 +304,7 @@ export function stallFields(lagMs: number, engine?: () => EngineCounts | null | 
   } catch {
     counts = null
   }
-  return { lagMs, ipc: ipcInFlight(), recent: ipcRecent(lagMs), ...(counts ? { engine: counts } : {}) }
+  return { lagMs, ipc: ipc.ipcInFlight(), recent: ipc.ipcRecent(lagMs), ...(counts ? { engine: counts } : {}) }
 }
 
 /**

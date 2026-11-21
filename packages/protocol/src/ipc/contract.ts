@@ -743,6 +743,7 @@ export const IPC_CONTRACT = {
   // 本机日志（docs/ui/logging.md §4.7）：只在本机，不跟随选中的机器
   'log:entry': { kind: 'push', route: 'push', trust: 'none' },
   'log:export': { kind: 'invoke', route: 'local', trust: 'window' },
+  'log:frames': { kind: 'send', route: 'local', trust: 'sender' },
   'log:open': { kind: 'invoke', route: 'local', trust: 'sender' },
   'log:read': { kind: 'invoke', route: 'local', trust: 'sender' },
   'log:sample': { kind: 'invoke', route: 'local', trust: 'sender' },

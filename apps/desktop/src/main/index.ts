@@ -48,7 +48,10 @@ import { initLogIpc, initLogging, logService } from './app/logging'
 import {
   allowCallStacks,
   enableCallStacks,
+  logGpuInfo,
   memoryChecker,
+  watchDisplays,
+  watchFrames,
   watchMainLoop,
   watchMemory,
   watchRemoteMemory,
@@ -563,6 +566,9 @@ app.whenReady().then(async () => {
   // 卡顿诊断：窗口没响应、主进程卡住、内存过高时写日志（docs/ui/logging.md §4.9）
   allowCallStacks(session.defaultSession, isAppUrl)
   watchMainLoop(() => ctx.engine?.memoryStats())
+  // 画面停住时分辨是不是驱动、锁屏、换显示器：启动后记显卡信息，锁屏和显示器变化各记一条
+  logGpuInfo()
+  watchDisplays()
   // 内存：界面每次 log.sample() 进来时取主进程这边的数；这个每分钟的定时器兼做「内存占用高」分档和界面不报时的看门狗
   initMemory({
     engine: () => ctx.engine?.memoryStats() ?? { runtimes: 0, processes: 0, running: 0 },
@@ -596,6 +602,7 @@ app.whenReady().then(async () => {
   initAppInfo() // 「关于」页的版本与运行环境，见 app/info.ts
   startup.step('initAppInfo')
   initLogIpc() // 设置 › 日志，见 app/logging.ts
+  watchFrames() // 画面停止刷新（页面报来），见 app/responsiveness.ts
   startup.step('initLogIpc')
   initUpdater(ctx) // 自动更新（GitHub Releases），见 app/updater.ts
   startup.step('initUpdater')
