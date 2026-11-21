@@ -1,6 +1,6 @@
 // 用户消息拆分与折叠阈值（docs/ui/conversation-ux-2.md §2.4）
 import { describe, expect, it } from 'vitest'
-import { shouldFoldUser, userBlocks } from './userBlocks'
+import { shouldFoldGuidance, shouldFoldUser, userBlocks } from './userBlocks'
 
 describe('用户消息拆成文字段和代码段', () => {
   it('成对的代码块按代码显示，前后的空行去掉', () => {
@@ -35,5 +35,14 @@ describe('长消息折叠', () => {
     expect(shouldFoldUser(Array(17).fill('a').join('\n'))).toBe(true)
     expect(shouldFoldUser('字'.repeat(1200))).toBe(false)
     expect(shouldFoldUser('字'.repeat(1201))).toBe(true)
+  })
+})
+
+describe('引导消息折叠', () => {
+  it('超过 6 行或 300 个字就折叠，比普通消息紧', () => {
+    expect(shouldFoldGuidance(Array(6).fill('a').join('\n'))).toBe(false)
+    expect(shouldFoldGuidance(Array(7).fill('a').join('\n'))).toBe(true)
+    expect(shouldFoldGuidance('字'.repeat(300))).toBe(false)
+    expect(shouldFoldGuidance('字'.repeat(301))).toBe(true)
   })
 })

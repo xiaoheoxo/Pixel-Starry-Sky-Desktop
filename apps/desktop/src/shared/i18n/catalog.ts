@@ -1160,6 +1160,10 @@ export const catalog = {
     zh: '展开全文',
     en: 'Show all',
   },
+  'session.live.UserBody.expandLines': {
+    zh: '展开全文（共 {n} 行）',
+    en: 'Show all ({n} lines)',
+  },
   'session.live.UserBody.collapse': {
     zh: '收起',
     en: 'Show less',

@@ -49,3 +49,9 @@ export const USER_FOLD_LINES = 16
 export const USER_FOLD_CHARS = 1200
 export const shouldFoldUser = (text: string): boolean =>
   text.length > USER_FOLD_CHARS || text.split('\n').length > USER_FOLD_LINES
+
+/** 引导（插话）消息收得更紧：超过 6 行或 300 个字就折叠，只露 3 行 */
+export const GUIDANCE_FOLD_LINES = 6
+export const GUIDANCE_FOLD_CHARS = 300
+export const shouldFoldGuidance = (text: string): boolean =>
+  text.length > GUIDANCE_FOLD_CHARS || text.split('\n').length > GUIDANCE_FOLD_LINES

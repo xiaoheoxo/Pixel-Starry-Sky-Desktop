@@ -2,7 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { useApprovalWait, locateApproval, useSelectedApprovalItem } from './approvals/focus'
 import { tr, translateMessage, type TranslationKey } from '../../../i18n/core'
 // 对话流里各种条目的显示（docs/engines.md §5.3、§11）
-import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Ban,
   Bot,
@@ -42,7 +42,7 @@ import { StepMark } from './ProgressCard'
 import { StatusDot } from './StatusDot'
 import { rowLook, useLiveOwned } from './liveOwner'
 import { UserText } from './UserText'
-import { shouldFoldUser, userBlocks } from './userBlocks'
+import { GUIDANCE_FOLD_LINES, shouldFoldGuidance, shouldFoldUser, userBlocks } from './userBlocks'
 import { CodeBlock } from '@/ui/code/CodeBlock'
 import { freshRequest, useExpandRequest } from '@/features/search/expand'
 import { openFile } from '@/features/files/store'
@@ -85,9 +85,13 @@ export function UserBubble({ item, actions }: { item: ItemOf<'user'>; actions?: 
   const minimal = useMinimal()
   if (item.mode === 'guidance')
     return (
-      <div className="border-l border-accent-line pl-3 text-list whitespace-pre-wrap text-fg-muted">
-        <span className="mr-2 text-accent-fg">{tr('session.live.ItemRows.steered')}</span>
-        <UserText text={item.text} />
+      <div className="min-w-0 border-l border-accent-line pl-3 text-list break-words whitespace-pre-wrap text-fg-muted">
+        <UserBody
+          id={item.id}
+          text={item.text}
+          guidance
+          lead={<span className="mr-2 text-accent-fg">{tr('session.live.ItemRows.steered')}</span>}
+        />
         {!!item.attachments?.length && (
           <div className="mt-2">
             <ImageAttachments images={item.attachments} itemId={item.id} />
@@ -153,21 +157,45 @@ export function UserBubble({ item, actions }: { item: ItemOf<'user'>; actions?: 
 /**
  * 用户消息正文（docs/ui/conversation-ux-2.md §2.4）：代码块按代码显示；长消息只显示前面一段，底部渐隐。
  * 折叠时全文仍在页面上（只是被裁掉）：对话内搜索照常能搜到，跳到被裁掉的命中时点 data-folded 里的展开按钮；
- * 全局搜索跳到这条消息时也展开。
+ * 全局搜索跳到这条消息时也展开。阈值按字数、行数估，宽窗口里其实没裁掉的（比如英文）不渐隐、不给按钮。
+ * guidance：引导（插话）消息，收得更紧（userBlocks.ts 的阈值，只露 3 行）；它没有气泡底色，
+ * 底部渐隐用遮罩而不是叠一层底色。lead 是排在正文最前面的行内标记（「已引导」）。
  */
-function UserBody({ id, text }: { id: string; text: string }) {
+function UserBody({ id, text, guidance, lead }: { id: string; text: string; guidance?: boolean; lead?: ReactNode }) {
   useI18n()
   const blocks = useMemo(() => userBlocks(text), [text])
-  const foldable = shouldFoldUser(text)
+  const foldable = guidance ? shouldFoldGuidance(text) : shouldFoldUser(text)
+  const lines = text.split('\n').length
   const [expanded, setExpanded] = useState(false)
   const request = useExpandRequest(id)
   useEffect(() => {
     if (freshRequest(request)) setExpanded(true)
   }, [request])
-  const folded = foldable && !expanded
+  const box = useRef<HTMLDivElement>(null)
+  const [clips, setClips] = useState(true)
+  const capped = foldable && !expanded
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!capped || !el) return
+    // 内容没超过上限时框跟着内容变高变矮，宽度一变就会触发；超过后框高不变，但那时本来就是裁掉的
+    const check = () => setClips(el.scrollHeight > el.clientHeight + 1)
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [capped, text])
+  const folded = capped && clips
   return (
     <div data-folded={folded || undefined}>
-      <div className={cn('relative', folded && 'max-h-[12lh] overflow-hidden')}>
+      <div
+        ref={box}
+        className={cn(
+          'relative',
+          capped && (guidance ? 'max-h-[3lh] overflow-hidden' : 'max-h-[12lh] overflow-hidden'),
+          folded && guidance && '[mask-image:linear-gradient(to_bottom,#000_calc(100%_-_1.2lh),transparent)]',
+        )}
+      >
+        {lead}
         {blocks.map((b, i) =>
           b.kind === 'code' ? (
             <CodeBlock key={i} code={b.code} lang={b.lang} className="my-2 whitespace-normal" />
@@ -175,11 +203,11 @@ function UserBody({ id, text }: { id: string; text: string }) {
             <UserText key={i} text={b.text} leading={i === 0} />
           ),
         )}
-        {folded && (
+        {folded && !guidance && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-subtle to-transparent" />
         )}
       </div>
-      {foldable && (
+      {(expanded || folded) && (
         <button
           type="button"
           aria-expanded={expanded}
@@ -187,7 +215,11 @@ function UserBody({ id, text }: { id: string; text: string }) {
           className="press mt-1 inline-flex items-center gap-1 rounded-md text-meta whitespace-normal text-fg-muted hover:text-fg"
         >
           {expanded ? <ChevronUp size={13} strokeWidth={1.75} /> : <ChevronDown size={13} strokeWidth={1.75} />}
-          {expanded ? tr('session.live.UserBody.collapse') : tr('session.live.UserBody.expand')}
+          {expanded
+            ? tr('session.live.UserBody.collapse')
+            : guidance && lines > GUIDANCE_FOLD_LINES
+              ? tr('session.live.UserBody.expandLines', { n: lines })
+              : tr('session.live.UserBody.expand')}
         </button>
       )}
     </div>
