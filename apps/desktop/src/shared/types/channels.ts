@@ -367,6 +367,8 @@ export interface ChannelTextMessage extends ChannelMessageBase {
   generated?: ChannelGenerated | null
   /** 事项唤醒（docs/multica-learn.md §11.6）：第一次叫时那条 @ 成员的系统消息、唤醒那一轮发回的结果 */
   wakeup?: ChannelWakeupTag | null
+  /** 你的话成了追加要求（docs/ui/channels-collab-v2.md §3.1）：交给了哪个成员、算第几轮，气泡下面写「已交给」 */
+  handed?: { memberId: string; round: number } | null
 }
 
 /** 事项唤醒的条件（docs/multica-learn.md §11.6）：到某个时间（只一次）、定期检查、等某件事结束 */

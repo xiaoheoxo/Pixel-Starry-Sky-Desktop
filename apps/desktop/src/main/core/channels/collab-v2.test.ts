@@ -133,11 +133,13 @@ describe('讨论串（§3）', () => {
     const note = await c.post(ch, { text: '颜色再深一点也行', threadId: card.id, clientId: '2' })
     expect(note.tasks).toEqual([])
     expect(note.message.threadId).toBe(card.id)
+    expect(note.message.handed).toBeUndefined()
     expect(sends()).toHaveLength(1)
 
     const more = await c.post(ch, { text: '@前端 禁用状态也改', threadId: card.id, clientId: '3' })
     await settle()
     expect(more.tasks).toEqual([card.id])
+    expect(more.message.handed).toEqual({ memberId: a, round: 2 })
     expect(sends()).toHaveLength(2)
     expect(sends()[1].sessionId).toBe(sends()[0].sessionId)
     expect(tasks(c, ch)[0].round).toBe(2)
@@ -154,6 +156,33 @@ describe('讨论串（§3）', () => {
     // 别处来的串 id 不认
     const stray = await c.post(ch, { text: '随便说一句', threadId: 'nope', clientId: '5' })
     expect(stray.message.threadId).toBeUndefined()
+  })
+
+  it('卡片在等你决定时，串里不 @ 的话就是回答：交给负责人开下一轮、记「已交给」；回过之后再说只是留言（§3.1）', async () => {
+    const c = await open()
+    const a = await c.saveMember(null, agent('前端'))
+    const ch = await c.create({ name: 'web', memberIds: [a] })
+    await c.post(ch, { text: '@前端 改登录页', clientId: '1' })
+    await settle()
+    const card = tasks(c, ch)[0]
+    finishLast(c, '改好了。\n\n需要你决定：「记住我」默认勾上吗？')
+    await settle()
+    expect(tasks(c, ch)[0]).toMatchObject({ status: 'done', decision: '「记住我」默认勾上吗？' })
+
+    const answer = await c.post(ch, { text: '默认不勾', threadId: card.id, clientId: '2' })
+    await settle()
+    expect(answer.tasks).toEqual([card.id])
+    expect(answer.message.handed).toEqual({ memberId: a, round: 2 })
+    expect(sends()).toHaveLength(2)
+    expect(sends()[1].sessionId).toBe(sends()[0].sessionId)
+    expect(tasks(c, ch)[0]).toMatchObject({ round: 2, decision: null })
+
+    finishLast(c, '按你说的改好了')
+    await settle()
+    const thanks = await c.post(ch, { text: '辛苦了', threadId: card.id, clientId: '3' })
+    expect(thanks.tasks).toEqual([])
+    expect(thanks.message.handed).toBeUndefined()
+    expect(sends()).toHaveLength(2)
   })
 })
 

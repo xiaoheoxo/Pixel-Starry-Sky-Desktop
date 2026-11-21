@@ -1,7 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { BellRing, CornerUpLeft, Forward, MessageSquareText, Pin, PinOff } from 'lucide-react'
+import { BellRing, Check, CornerUpLeft, Forward, MessageSquareText, Pin, PinOff } from 'lucide-react'
 import { Avatar, Button, cn, CopyButton, EngineIcon, IconButton, useToast } from '@/ui'
 import { appendComposerDraft } from '@/features/engine/drafts'
 import { channelDraftKey } from './draftKey'
@@ -578,6 +578,16 @@ export function MessageGroup({
               )}
               {m.alert && <AlertButtons message={m} readOnly={proposalsReadOnly} />}
               {m.attached && <MessageAttachments message={m} />}
+              {m.handed && (
+                // 你的话成了追加要求（docs/ui/channels-collab-v2.md §3.1）
+                <span data-handed="" className="mt-0.5 inline-flex items-center gap-1 px-1 text-meta text-fg-faint">
+                  <Check size={11} strokeWidth={2} className="shrink-0 text-success" />
+                  {tr('channels.handed', {
+                    name: membersById.get(m.handed.memberId)?.name ?? '?',
+                    round: m.handed.round,
+                  })}
+                </span>
+              )}
               {m.generated && <GeneratedLine generated={m.generated} />}
               {m.wakeup && (
                 // 事项唤醒（docs/multica-learn.md §11.6）：叫成员的那条系统消息、唤醒那一轮发回的结果

@@ -106,6 +106,7 @@ export function ChannelComposer({
   inputRef,
   threadId = null,
   placeholder,
+  answering = null,
   slash,
 }: {
   channel: Channel
@@ -127,6 +128,8 @@ export function ChannelComposer({
   /** 讨论串面板里的输入框（docs/ui/channels-collab-v2.md §3）：草稿单独存，排版收窄 */
   threadId?: string | null
   placeholder?: string
+  /** 串里的任务卡在等你决定（docs/ui/channels-collab-v2.md §3.1）：输入框上方挂「回答 {成员}」和问题原文，发出就是回答 */
+  answering?: { assigneeId: string; name: string; question: string } | null
   /** 斜杠命令（只给本机频道的主输入框）：可用的命令和执行；不认识的 /xxx 照常发出 */
   slash?: { available: readonly SlashId[]; run: (id: SlashId, arg: string) => Promise<void> }
 }) {
@@ -183,6 +186,8 @@ export function ChannelComposer({
     () => (followUp && continuesTask(value, members, followUp.assigneeId) ? followUp : null),
     [followUp, value, members],
   )
+  // 等你决定时 @ 了别的 AI 成员：那是给别人派活，不是回答，回答条不挂（同上面的引用条）
+  const answeringNow = answering && continuesTask(value, members, answering.assigneeId) ? answering : null
   const [sending, setSending] = useState(false)
   // 云端生图（docs/ui/channel-image-gen.md §3.1）：打开时发送 = 生图，生成的图作为你的消息进频道；@ 菜单、斜杠命令关掉
   const platformCatalog = usePlatformCatalog()
@@ -446,6 +451,18 @@ export function ChannelComposer({
                   inputRef.current?.focus()
                 }}
               />
+            </div>
+          )}
+          {answeringNow && !replyTo && (
+            <div
+              data-answering=""
+              className="flex min-w-0 items-center gap-2 border-b border-line-subtle py-1 pr-3 pl-3 text-meta text-fg-muted"
+            >
+              <CornerUpLeft size={13} strokeWidth={1.5} className="shrink-0" />
+              <span className="shrink-0 font-medium text-accent-fg">
+                {tr('channels.thread.answering', { name: answeringNow.name })}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-fg-faint">{excerpt(answeringNow.question)}</span>
             </div>
           )}
           {sharedDir.length > 0 && (

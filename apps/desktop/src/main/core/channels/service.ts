@@ -117,7 +117,7 @@ import {
 import { ChannelStore, type StoredChannel } from './store'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
-import { channelNeeds } from '../../../shared/channels/needs'
+import { awaitsDecision, channelNeeds } from '../../../shared/channels/needs'
 import { runReasonOf, TEAMMATE_PROJECT_ERROR } from '../../../shared/channels/runReason'
 import { jsonObjects } from '../json-reply'
 import {
@@ -1466,9 +1466,17 @@ export class Channels {
       mentions: only ? [only] : parseMentions(text, members).filter(id => id !== SELF_ID),
     }
     const agents = (message.mentions ?? []).filter(id => this.member(id))
-    // 讨论串里：@ 同一个成员 = 追加要求，不 @ 只是留言（docs/ui/channels-collab-v2.md §3）；引用卡片照旧，不 @ 也算追加要求
+    // 讨论串里：@ 同一个成员 = 追加要求，不 @ 只是留言（docs/ui/channels-collab-v2.md §3）；引用卡片照旧，不 @ 也算追加要求。
+    // 卡片在等你决定时（§3.1），串里不 @ 的话就是回答，也交给负责人；已合并回去的卡照旧只算留言
     const target = this.replyTask(channelId, threadId ?? replyToId)
-    const following = !!target && (!threadId || agents.length > 0) && agents.every(id => id === target.assigneeId)
+    const answering =
+      !!target &&
+      !!threadId &&
+      !agents.length &&
+      !this.landLocked(target) &&
+      awaitsDecision(this.store.messages.get(channelId) ?? [], target, SELF_ID)
+    const following =
+      !!target && (!threadId || agents.length > 0 || answering) && agents.every(id => id === target.assigneeId)
     // 合并中、已合并的卡不能再追加：写进频道之前拦下
     if (target && following && this.landLocked(target)) throw new Error('这张卡已经合并回去了，不能再追加')
     if (images.length || files.length) {
@@ -1478,6 +1486,12 @@ export class Channels {
         images: images.map(({ dataBase64: _d, ...meta }) => meta),
         files: files.map(({ text: _t, tail: _l, ...meta }) => meta),
       }
+    }
+    if (target && following && this.member(target.assigneeId)) {
+      // 「已交给」（§3.1）：成员还在做这一轮时追加进这一轮，做完了开下一轮（和 followUp / nextRound 一致）
+      const run = this.store.runs.get(target.id)
+      const round = run && run.phase !== 'ended' ? run.round : (target.round ?? 1) + 1
+      message.handed = { memberId: target.assigneeId, round }
     }
     this.posted.set(clientId, message.id)
     await this.store.append(message)

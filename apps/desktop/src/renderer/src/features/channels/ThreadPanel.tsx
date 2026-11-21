@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import { IconButton } from '@/ui'
 import type { Channel, ChannelMember, ChannelMessage, ChannelTask } from '@/data/types'
 import { threadMessages } from '../../../../shared/channels/threads'
+import { awaitsDecision } from '../../../../shared/channels/needs'
 import { MessageGroup, type Quotable } from './ChannelMessage'
 import { ChannelTaskCard, type TaskCardActions } from './ChannelTaskCard'
 import { ChannelComposer } from './ChannelComposer'
@@ -14,7 +15,8 @@ import { useFollowBottom } from './useFollowBottom'
 
 /**
  * 右侧的讨论串（docs/ui/channels-collab-v2.md §3）：和成员面板共用位置。
- * 上面是任务卡（或那条消息），下面是串里的回复和输入框；在串里 @ 同一成员 = 追加要求，不 @ 只是留言
+ * 上面是任务卡（或那条消息），下面是串里的回复和输入框；在串里 @ 同一成员 = 追加要求，不 @ 只是留言。
+ * 本机频道的卡在等你决定时（§3.1），串里的话就是回答，不用 @：输入框挂「回答 {成员}」
  */
 export function ThreadPanel({
   channel,
@@ -51,6 +53,16 @@ export function ThreadPanel({
   const root = messagesById.get(rootId)
   const items = useMemo(() => threadMessages(messages, rootId), [messages, rootId])
   const assignee = root?.kind === 'task' ? membersById.get(root.assigneeId) : undefined
+  // 判断和主进程同一份（shared/channels/needs.ts）；团队频道发消息另走云端，不在这次范围
+  const answering =
+    root?.kind === 'task' &&
+    assignee &&
+    channel.scope === 'local' &&
+    selfId &&
+    root.decision &&
+    awaitsDecision(messages, root, selfId)
+      ? { assigneeId: assignee.id, name: assignee.name, question: root.decision }
+      : null
 
   // 打开串、来了新回复：到底部
   const nearBottom = useRef(true)
@@ -137,10 +149,13 @@ export function ThreadPanel({
           followUp={null}
           threadId={rootId}
           placeholder={
-            assignee
-              ? tr('channels.thread.placeholder', { name: assignee.name })
-              : tr('channels.thread.placeholderPlain')
+            answering
+              ? tr('channels.thread.answerPlaceholder')
+              : assignee
+                ? tr('channels.thread.placeholder', { name: assignee.name })
+                : tr('channels.thread.placeholderPlain')
           }
+          answering={answering}
           onSend={(text, extra) => channelActions.send(channel.id, text, extra, rootId)}
           onCancelReply={() => {}}
           inputRef={input}

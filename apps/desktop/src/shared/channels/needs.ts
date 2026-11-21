@@ -20,6 +20,26 @@ function decisionRun(runs: readonly ChannelRun[]): ChannelRun | undefined {
   return undefined
 }
 
+/**
+ * 卡片在等你决定（docs/ui/channels-collab-v2.md §3.1）：做完了、带「需要你决定」、提出它的那一轮之后你还没回过。
+ * since 是那一轮结束的时间，from 是那一轮（事项唤醒回 [silent] 的几轮不算，§11.6）。
+ * 主进程判断串里的话要不要交给负责人、「需要你」、串里输入框的回答条都用它
+ */
+export function pendingDecision(
+  list: readonly ChannelMessage[],
+  task: ChannelTask,
+  selfId: string,
+): { since: number; from: ChannelRun | undefined } | null {
+  if (task.status !== 'done' || !task.decision) return null
+  // 事项唤醒回 [silent]、没做完的几轮不改要你决定的事：按提出它的那一轮算回过没有、标没标过，不然每静默一轮都重新冒出来
+  const from = task.runs?.at(-1)?.wakeup ? decisionRun(task.runs) : undefined
+  const since = from?.endedAt ?? task.endedAt ?? task.at
+  return answered(list, task, selfId, since) ? null : { since, from }
+}
+
+export const awaitsDecision = (list: readonly ChannelMessage[], task: ChannelTask, selfId: string): boolean =>
+  !!pendingDecision(list, task, selfId)
+
 function taskSession(list: readonly ChannelMessage[], taskId: string): string | null {
   const t = list.find(x => x.id === taskId)
   return t?.kind === 'task' ? (t.sessionId ?? null) : null
@@ -167,21 +187,16 @@ export function channelNeeds(
             detail: problems.failed.map(f => f.label).join(' · ') || null,
             findings: problems.findings.length,
           })
-        if (m.decision) {
-          // 事项唤醒回 [silent]、没做完的几轮不改要你决定的事（docs/multica-learn.md §11.6）：按提出它的那一轮算
-          // 回过没有、标没标过，不然每静默一轮都重新冒出来
-          const from = m.runs?.at(-1)?.wakeup ? decisionRun(m.runs) : undefined
-          const since = from?.endedAt ?? task.at
-          if (!answered(list, m, selfId, since))
-            found.push({
-              ...task,
-              at: since,
-              key: `decision:${m.id}`,
-              kind: 'decision',
-              sig: `${from?.n ?? round}`,
-              detail: m.decision,
-            })
-        }
+        const pending = pendingDecision(list, m, selfId)
+        if (pending)
+          found.push({
+            ...task,
+            at: pending.since,
+            key: `decision:${m.id}`,
+            kind: 'decision',
+            sig: `${pending.from?.n ?? round}`,
+            detail: m.decision,
+          })
       }
       if (ACTIVE.has(m.status) && !(m.status === 'queued' && m.relay?.held) && m.status !== 'waiting')
         following.push({

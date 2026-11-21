@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChannelMessage } from '../types/channels'
-import { channelNeeds } from './needs'
+import { awaitsDecision, channelNeeds } from './needs'
 import { alertRulesOf, cleanAlertRules, cleanDigestHour, dangerousCommand } from './alerts'
 
 const task = (id: string, patch: Record<string, unknown>): ChannelMessage =>
@@ -130,5 +130,26 @@ describe('主动提醒的规则（§6）', () => {
     expect(cleanAlertRules({ digest: true, nope: true, waiting: 'yes' })).toEqual({ digest: true })
     expect(cleanDigestHour(23)).toBe(23)
     expect(cleanDigestHour(24)).toBe(9)
+  })
+})
+
+describe('卡片在等你决定（docs/ui/channels-collab-v2.md §3.1）', () => {
+  it('做完、带要你决定、之后你没在串里说过话才算；主进程和「需要你」用的同一份', () => {
+    const card = task('d', { status: 'done', decision: '默认勾上吗？', endedAt: 30 }) as Extract<
+      ChannelMessage,
+      { kind: 'task' }
+    >
+    expect(awaitsDecision([card], card, 'you')).toBe(true)
+    // 串里说过话（不 @ 也算）、引用过卡片：回过了
+    expect(awaitsDecision([card, msg('t', 40, { threadId: 'd' })], card, 'you')).toBe(false)
+    expect(awaitsDecision([card, msg('q', 40, { replyToId: 'd' })], card, 'you')).toBe(false)
+    // 提出之前说的不算；别人说的不算
+    expect(awaitsDecision([card, msg('old', 20, { threadId: 'd' })], card, 'you')).toBe(true)
+    expect(awaitsDecision([card, msg('o', 40, { threadId: 'd', authorId: 'a' })], card, 'you')).toBe(true)
+    // 没在等：还在做、没有要你决定的事
+    const running = { ...card, status: 'running' as const }
+    expect(awaitsDecision([running], running, 'you')).toBe(false)
+    const plain = { ...card, decision: null }
+    expect(awaitsDecision([plain], plain, 'you')).toBe(false)
   })
 })

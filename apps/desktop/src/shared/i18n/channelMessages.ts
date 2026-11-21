@@ -620,6 +620,10 @@ export const channelMessages = {
     en: 'Reply in this thread; @{name} adds to the task',
   },
   'channels.thread.placeholderPlain': { zh: '回复这个串', en: 'Reply in this thread' },
+  // 卡片在等你决定时，串里的话就是回答（docs/ui/channels-collab-v2.md §3.1）
+  'channels.thread.answering': { zh: '回答 {name}', en: 'Answer {name}' },
+  'channels.thread.answerPlaceholder': { zh: '写下你的决定，Enter 发送', en: 'Write your decision, Enter to send' },
+  'channels.handed': { zh: '已交给 {name} · 第 {round} 轮', en: 'Sent to {name} · round {round}' },
   'channels.thread.missing': { zh: '这条消息已经不在了', en: 'This message is no longer here' },
   'channels.proposal.title': { zh: '提议派给 {name}', en: 'Proposes handing to {name}' },
   'channels.proposal.send': { zh: '派出去', en: 'Send' },
