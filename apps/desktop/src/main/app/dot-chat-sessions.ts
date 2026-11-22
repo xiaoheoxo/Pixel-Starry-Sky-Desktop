@@ -262,23 +262,35 @@ export class DotChatSessions {
    * 没有记录的第一次读当基线，不算未读。比看过的新就记未读并通知界面；这条如果是本轮回复里已经收到的
    * （会话里有 dot-<id>，那一轮结束时提醒过了），只出未读点、不带 notice
    */
-  private track(entry: DotEntry, items: readonly DotChatMessage[], seen: boolean, noNewer: boolean): void {
+  private track(
+    entry: DotEntry,
+    items: readonly DotChatMessage[],
+    seen: boolean,
+    alreadyVisible?: { id: string; createdAt: number },
+  ): void {
     const key = entry.key
     this.readAt.set(key, this.now())
     const latest = items.findLast(m => m.role === 'assistant')
     const unread = this.unread.get(key)
     const known = this.seen[key]
     if (seen || known === undefined) {
-      const observedAt = seen && noNewer ? unread?.createdAt : latest?.createdAt
-      if (observedAt === undefined) return
+      const observed = latest ?? (seen && unread === alreadyVisible ? alreadyVisible : undefined)
+      if (!observed) return
+      const observedAt = observed.createdAt
       if (known === undefined || observedAt > known) {
         this.seen[key] = observedAt
         this.save()
       }
-      if (this.unread.delete(key)) this.onChange?.({ unread: [...this.unread.keys()] })
+      if (unread && (unread.id === observed.id || unread.createdAt < observedAt) && this.unread.delete(key))
+        this.onChange?.({ unread: [...this.unread.keys()] })
       return
     }
-    if (!latest || latest.createdAt <= known || unread?.id === latest.id) return
+    if (
+      !latest ||
+      latest.createdAt <= known ||
+      (unread && (unread.id === latest.id || unread.createdAt > latest.createdAt))
+    )
+      return
     this.unread.set(key, { id: latest.id, createdAt: latest.createdAt })
     const sessionId = this.sessions[key]
     const delivered = !!sessionId && !!this.host.item(sessionId, `dot-${latest.id}`)
@@ -321,6 +333,7 @@ export class DotChatSessions {
     signal?: AbortSignal,
   ) {
     const entry = this.entry(key)
+    const unreadBeforeRead = this.unread.get(key)
     const data = await this.host.readDot(
       entry.account,
       entry,
@@ -332,7 +345,9 @@ export class DotChatSessions {
         entry,
         data.history.items,
         options.seen === true,
-        !!options.after && data.history.latest === options.after && !data.history.items.length,
+        options.after && data.history.latest === options.after && !data.history.items.length
+          ? unreadBeforeRead
+          : undefined,
       )
     const known = this.knownFiles.get(key) ?? new Set<string>()
     for (const message of data.history.items)

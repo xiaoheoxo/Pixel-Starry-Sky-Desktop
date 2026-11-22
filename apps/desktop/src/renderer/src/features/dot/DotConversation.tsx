@@ -33,10 +33,10 @@ import { DotExperimental } from './DotExperimental'
 import {
   dotComposerState,
   dotGuidanceTurn,
+  dotHistoryUpdate,
   dotNotice,
   dotTranscript,
   markDotRows,
-  mergeDotHistory,
   placeDotTasks,
   readDropped,
 } from './conversation'
@@ -139,8 +139,9 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         })
         if (!alive.current) return
         setEntry(previous => previous ?? next.entry)
-        setHistory(previous => mergeDotHistory(previous, next.history.items))
-        if (options.before || !haveHistory.current) setBefore(next.history.before)
+        const update = dotHistoryUpdate(next.history, options.before, haveHistory.current)
+        setHistory(update.merge)
+        if (update.replaceBefore) setBefore(next.history.before)
         if (!options.before) latest.current = next.history.latest
         haveHistory.current = true
         setServerError('')

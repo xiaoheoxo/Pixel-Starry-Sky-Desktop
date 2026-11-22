@@ -1,5 +1,5 @@
 import type { Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
-import type { DotAttachment, DotChatMessage } from '@pixelsky/engine'
+import type { DotAttachment, DotChatMessage, DotHistoryPage } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
 
 export interface DotTranscriptRow {
@@ -153,6 +153,14 @@ export function mergeDotHistory(previous: DotChatMessage[], incoming: DotChatMes
   const messages = new Map(previous.map(m => [m.id, m]))
   for (const item of incoming) messages.set(item.id, item)
   return [...messages.values()].sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/** A replacement page is contiguous on its own; never keep an older cursor across an unknown gap. */
+export function dotHistoryUpdate(page: DotHistoryPage, before: string | undefined, loaded: boolean) {
+  return {
+    merge: (previous: DotChatMessage[]) => (page.reset ? page.items : mergeDotHistory(previous, page.items)),
+    replaceBefore: !!before || !loaded || page.reset === true,
+  }
 }
 
 /**

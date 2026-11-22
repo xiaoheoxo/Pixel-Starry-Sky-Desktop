@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   dotComposerState,
   dotGuidanceTurn,
+  dotHistoryUpdate,
   dotNotice,
   dotTranscript,
   markDotRows,
@@ -174,4 +175,21 @@ describe('dotGuidanceTurn', () => {
   it.each(['delivering', 'uncertain'] as const)('blocks guidance while another message is %s', status => {
     expect(dotGuidanceTurn({ ...snap, queue: [{ status } as QueuedMessage] })).toBeNull()
   })
+})
+
+it('rebases history and its older button after the newest cursor is rejected', () => {
+  const row = (id: string, createdAt: number) => ({
+    id,
+    role: 'assistant' as const,
+    text: id,
+    createdAt,
+    attachments: [],
+  })
+  const replacement = { reset: true as const, before: 'gap', latest: 'new', items: [row('new', 3)] }
+  const update = dotHistoryUpdate(replacement, undefined, true)
+  expect(update.replaceBefore).toBe(true)
+  expect(update.merge([row('old', 1)])).toEqual(replacement.items)
+  const older = dotHistoryUpdate({ before: null, items: [row('missed', 2)] }, 'gap', true)
+  expect(older.merge(replacement.items).map(m => m.id)).toEqual(['missed', 'new'])
+  expect(dotHistoryUpdate({ before: null, items: [] }, undefined, true).replaceBefore).toBe(false)
 })

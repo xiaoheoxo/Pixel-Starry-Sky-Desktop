@@ -210,13 +210,23 @@ describe('native Dot client', () => {
   it('recovers an invalid cursor in the same room and keeps optional 404s out of conversation errors', async () => {
     const { client } = setup({
       '/backend-api/messaging/rooms/room/messages?limit=32&after=gone': new Response('', { status: 404 }),
-      '/backend-api/messaging/rooms/room/messages?limit=32': { items: [message('new')] },
+      '/backend-api/messaging/rooms/room/messages?limit=32': {
+        items: Array.from({ length: 32 }, (_, i) => message(`msg-${i + 9}`)),
+        prev_cursor: 'missing-eight',
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&before=missing-eight': {
+        items: Array.from({ length: 8 }, (_, i) => message(`msg-${i + 1}`)),
+      },
       '/backend-api/tbo/dot/environment/status': { status: 'connected' },
       '/backend-api/tbo/dot/activity?limit=5': new Response('', { status: 404 }),
       '/backend-api/tbo/dot/tasks?limit=25': new Response('', { status: 404 }),
     })
     const dot = await client.discover()
-    expect(await client.historyAfter(dot, 'gone')).toMatchObject({ items: [{ id: 'new' }], latest: 'new' })
+    const repaired = await client.historyAfter(dot, 'gone')
+    expect(repaired).toMatchObject({ reset: true, before: 'missing-eight', latest: 'msg-40' })
+    expect(repaired.items).toHaveLength(32)
+    const recovered = await client.history(dot, repaired.before!)
+    expect(recovered.items.map(row => row.id)).toEqual(Array.from({ length: 8 }, (_, i) => `msg-${i + 1}`))
     expect(await client.overview(dot)).toMatchObject({
       activity: null,
       tasks: null,

@@ -75,6 +75,7 @@ export interface DotHistoryPage {
   items: DotChatMessage[]
   before: string | null
   latest?: string
+  reset?: true
 }
 export interface DotOverview {
   profile: DotProfile
@@ -335,7 +336,7 @@ export class DotClient {
     } catch (error) {
       // The room cursor may have been removed. Reload the newest page in the same verified room.
       if (error instanceof DotHttpError && (error.status === 400 || error.status === 404))
-        return this.history(dot, undefined, signal)
+        return { ...(await this.history(dot, undefined, signal)), reset: true }
       throw error
     }
   }

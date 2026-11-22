@@ -218,6 +218,31 @@ describe('Dot unread messages and dropped files', () => {
     }
   })
 
+  it('does not mark a reply discovered during an older foreground read as seen', async () => {
+    const t = await setup()
+    try {
+      await t.service.read(t.key, { seen: true })
+      t.arrive('m2', 200)
+      await t.service.read(t.key, { after: 'm1' })
+      type Result = Awaited<ReturnType<typeof t.host.readDot>>
+      let finish!: (result: Result) => void
+      const inFlight = new Promise<Result>(resolve => {
+        finish = resolve
+      })
+      t.host.readDot.mockReturnValueOnce(inFlight)
+      const foreground = t.service.read(t.key, { after: 'm2', seen: true })
+      t.arrive('m3', 300)
+      await t.service.read(t.key, { after: 'm2' })
+      finish({ history: { items: [], before: null, latest: 'm2' } })
+      await foreground
+      expect((await t.service.catalog()).unread).toEqual([t.key])
+      await t.service.read(t.key, { after: 'm2', seen: true })
+      expect((await t.service.catalog()).unread).toEqual([])
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
+
   it('a reply already delivered in a turn only marks unread (no notice); reading while looking clears it and is remembered', async () => {
     const t = await setup()
     try {
