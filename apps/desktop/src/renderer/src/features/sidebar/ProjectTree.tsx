@@ -2,7 +2,6 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import {
-  Archive,
   ChevronRight,
   Ellipsis,
   Folder,
@@ -30,8 +29,16 @@ import { cardsOf, lanesOf } from './runFilter'
 import { SessionItem } from './SessionItem'
 import { useChannels } from '@/features/channels/store'
 import { ProjectRow } from './ProjectRow'
+import { MoreRow } from './MoreRow'
 import { GroupNameDialog } from './GroupNameDialog'
-import { ARCHIVED_PAGE, projectSessionRows, projectCounts, projectFolders, visibleArchived } from './projectTreeModel'
+import {
+  ARCHIVED_PAGE,
+  extraConversations,
+  projectSessionRows,
+  projectCounts,
+  projectFolders,
+  visibleArchived,
+} from './projectTreeModel'
 import {
   addToGroup,
   arrangeProjects,
@@ -92,7 +99,7 @@ export function ProjectTree({
   const groups = prefs.groups ?? []
   const saved = prefs.order ?? []
   const pinned = prefs.pinned ?? []
-  const [showAll, setShowAll] = useState<Record<string, boolean>>({})
+  const [sessionPages, setSessionPages] = useState<Record<string, number>>({})
   const [archivedOpen, setArchivedOpen] = useState<Record<string, boolean>>({})
   // 频道收成的那一行点开没有（项目 + 频道名；这次打开应用里记住），docs/ui/sidebar-channel-fold.md
   const [channelOpen, setChannelOpen] = useState<Record<string, boolean>>({})
@@ -138,7 +145,7 @@ export function ProjectTree({
     }
     anchor.current = p.id
     if (pickedNow.length) setPicked([])
-    if (open && !filtering) setShowAll(state => ({ ...state, [p.id]: false }))
+    if (open && !filtering) setSessionPages(state => ({ ...state, [p.id]: 0 }))
     setProjectsCollapsed([p.id], open)
   }
   /** 项目菜单里的分区操作：右键的是选中的项目之一时对整批，否则只对这一个 */
@@ -275,13 +282,14 @@ export function ProjectTree({
   const renderProject = (p: Project, inGroup = false, top = false) => {
     const open = filtering || !collapsed.has(p.id)
     const { running, waiting } = projectCounts(p.sessions, lanes)
-    const all = !!showAll[p.id]
-    const { rows, hiddenInPreview } = projectSessionRows(p.sessions, {
+    const pages = sessionPages[p.id] ?? 0
+    const all = pages === Infinity
+    const { rows, hidden, hiddenInPreview } = projectSessionRows(p.sessions, {
       channelOf: id => sessionChannels[id] ?? null,
       channelOpen: name => channelOpen[`${p.id}/${name}`],
       all,
+      additional: extraConversations(pages),
       filtering,
-      selected: selectedSessionId,
       lanes,
     })
     const item = (s: Session, inChannel = false) => (
@@ -353,9 +361,10 @@ export function ProjectTree({
             })}
             {hiddenInPreview > 0 && (
               <MoreRow
-                label={all ? tr('sidebar.tree.less') : tr('sidebar.tree.more', { count: hiddenInPreview })}
-                open={all}
-                onClick={() => setShowAll(state => ({ ...state, [p.id]: !state[p.id] }))}
+                label={hidden ? tr('sidebar.tree.more', { count: hidden }) : tr('sidebar.tree.less')}
+                open={!hidden}
+                onClick={() => setSessionPages(state => ({ ...state, [p.id]: hidden ? (state[p.id] ?? 0) + 1 : 0 }))}
+                onShowAll={hidden ? () => setSessionPages(state => ({ ...state, [p.id]: Infinity })) : undefined}
               />
             )}
             <ArchivedRows
@@ -736,38 +745,5 @@ export function ArchivedRows({
         />
       )}
     </>
-  )
-}
-
-/** 对话下面的小字行：「还有 N 个对话 ›」/「收起」文字、「已归档 N 个」图标均与会话标题左侧对齐 */
-export function MoreRow({
-  label,
-  open,
-  onClick,
-  icon,
-}: {
-  label: string
-  open: boolean
-  onClick: () => void
-  icon?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      aria-expanded={open}
-      onClick={onClick}
-      className={cn(
-        'flex h-7 w-full min-w-0 shrink-0 items-center rounded-md pr-2.5 pl-[28px] text-left text-meta text-fg-muted hover:bg-hover hover:text-fg',
-        icon ? 'gap-2.5' : 'gap-1.5',
-      )}
-    >
-      {icon && <Archive size={12} strokeWidth={1.5} className="shrink-0" />}
-      <span className="min-w-0 truncate">{label}</span>
-      <ChevronRight
-        size={12}
-        strokeWidth={1.75}
-        className={cn('shrink-0 transition-transform duration-150', open && (icon ? 'rotate-90' : '-rotate-90'))}
-      />
-    </button>
   )
 }

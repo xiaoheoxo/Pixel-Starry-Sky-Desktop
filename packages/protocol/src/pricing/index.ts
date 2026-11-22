@@ -2,6 +2,15 @@
 import type { ModelTurnUsage } from '../types'
 import { OFFICIAL_PRICES } from './official'
 
+// Short-context Standard prices verified on 2026-11-22. The generated catalog wins once it includes these IDs.
+// https://developers.openai.com/api/docs/models/gpt-6.2-astra
+// https://developers.openai.com/api/docs/models/gpt-6.2-sol
+const PRICES: typeof OFFICIAL_PRICES = {
+  'gpt-6.2-astra': ['o', 8, 40, 0.4, 10, 922000],
+  'gpt-6.2-sol': ['o', 2, 10, 0.1, 2.5, 922000],
+  ...OFFICIAL_PRICES,
+}
+
 export interface OfficialPrice {
   /** 价格表里的官方模型名 */
   model: string
@@ -27,7 +36,7 @@ const MODEL_ALIASES: Record<string, string> = {
 }
 
 const price = (model: string): OfficialPrice | null => {
-  const p = Object.prototype.hasOwnProperty.call(OFFICIAL_PRICES, model) ? OFFICIAL_PRICES[model] : undefined
+  const p = Object.prototype.hasOwnProperty.call(PRICES, model) ? PRICES[model] : undefined
   return p
     ? {
         model,
@@ -105,7 +114,7 @@ export function estimateCost(
 
 /** 价格表里的官方模型名（设置页「计价参照」的选项），可按厂商筛 */
 export function officialModels(vendor?: OfficialPrice['vendor']): string[] {
-  return Object.keys(OFFICIAL_PRICES)
-    .filter(m => !vendor || VENDOR_OF[OFFICIAL_PRICES[m][0]] === vendor)
+  return Object.keys(PRICES)
+    .filter(m => !vendor || VENDOR_OF[PRICES[m][0]] === vendor)
     .filter(m => !/-\d{8}$|-\d{4}-\d{2}-\d{2}$/.test(m))
 }

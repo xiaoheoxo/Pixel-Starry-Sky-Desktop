@@ -5,8 +5,9 @@ import type { Session } from '@/data'
 import { useSessionCards } from '@/features/board/useSessionCards'
 import { cardsOf, lanesOf } from './runFilter'
 import { SessionItem } from './SessionItem'
-import { ArchivedRows, MoreRow } from './ProjectTree'
-import { SHOWN_SESSIONS, visibleSessions } from './projectTreeModel'
+import { ArchivedRows } from './ProjectTree'
+import { MoreRow } from './MoreRow'
+import { extraConversations, visibleSessions } from './projectTreeModel'
 
 /** 侧栏「对话」分组：不用项目的对话，和项目下面的对话一样先列 5 个，其余收进「还有 N 个对话」，归档的收进「已归档 N 个」 */
 export function ChatList({
@@ -28,10 +29,18 @@ export function ChatList({
   const cards = useSessionCards()
   const lanes = useMemo(() => lanesOf(cards), [cards])
   const cardById = useMemo(() => cardsOf(cards), [cards])
-  const [showAll, setShowAll] = useState(false)
+  const [pages, setPages] = useState(0)
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [archivedShown, setArchivedShown] = useState<number>()
-  const { shown, hidden } = visibleSessions(chats, { all: filtering || showAll, selected: selectedSessionId, lanes })
+  const options = { all: filtering }
+  const preview = visibleSessions(chats, options)
+  const { shown, hidden } = pages
+    ? visibleSessions(chats, {
+        ...options,
+        all: filtering || pages === Infinity,
+        additional: extraConversations(pages),
+      })
+    : preview
   return (
     <div data-chat-sessions className="flex flex-col gap-px">
       {shown.map(s => (
@@ -46,11 +55,12 @@ export function ChatList({
           flipKey={`chat/${s.id}`}
         />
       ))}
-      {!filtering && (hidden > 0 || (showAll && chats.length > SHOWN_SESSIONS)) && (
+      {!filtering && preview.hidden > 0 && (
         <MoreRow
           label={hidden > 0 ? tr('sidebar.tree.more', { count: hidden }) : tr('sidebar.tree.less')}
           open={!hidden}
-          onClick={() => setShowAll(!showAll)}
+          onClick={() => setPages(current => (hidden ? current + 1 : 0))}
+          onShowAll={hidden ? () => setPages(Infinity) : undefined}
         />
       )}
       <ArchivedRows

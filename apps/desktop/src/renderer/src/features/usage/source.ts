@@ -4,16 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isDemo } from '@/data'
 import { groupByDay, heatmapDays, listRecords, summarize, toCsv } from './aggregate'
-import type {
-  UsageBucket,
-  UsageFilter,
-  UsageGroupRow,
-  UsagePage,
-  UsageRangeId,
-  UsageRecord,
-  UsageSummary,
-  UsageTotals,
-} from './types'
+import type { UsageBucket, UsageFilter, UsagePage, UsageRangeId, UsageRecord, UsageSummary, UsageTotals } from './types'
 import { demo } from '@/data/demo'
 
 export interface UsageQuery {
@@ -184,39 +175,12 @@ export function useUsageActions() {
   return { exportCsv, clear }
 }
 
-/** 额度估算每页读多少（主进程上限 500）。范围用 30 天：「7 天」从 6 天前的零点算，周窗口快到头时开头那段不在里面 */
-const ESTIMATE_PAGE = 500
-const ESTIMATE_PAGES_MAX = 20
-
-/**
- * 额度估算（docs/ui/quota-estimate.md）：from 之后的记录（新的在前，按页读到 from 之前为止）和近 30 天按模型的合计。
- * coveredFrom：记录读全到哪一刻（读满上限时晚于 from）。读不到抛错，调用方不写估计
- */
-export async function readQuotaUsage(
-  filter: UsageFilter,
-  from: number,
-): Promise<{ records: UsageRecord[]; models: UsageGroupRow[]; coveredFrom: number }> {
+/** 本机 API 等价值只读 30 天模型汇总，不再为额度节奏逐页拉取历史记录。 */
+export async function readQuotaMonth(filter: UsageFilter): Promise<UsageSummary['groups']['model']> {
   const now = Date.now()
   const b = bridge()
-  if (!b?.usageSummary || !b.usageList)
-    return {
-      records: listRecords(localRecords, '30d', filter, now, 0, Number.MAX_SAFE_INTEGER).records.filter(
-        r => r.endedAt >= from,
-      ),
-      models: summarize(localRecords, '30d', filter, now).groups.model,
-      coveredFrom: from,
-    }
-  const records: UsageRecord[] = []
-  let coveredFrom = from
-  for (let page = 0; page < ESTIMATE_PAGES_MAX; page++) {
-    const p = await b.usageList({ range: '30d', filter, now, offset: page * ESTIMATE_PAGE, limit: ESTIMATE_PAGE })
-    records.push(...p.records.filter(r => r.endedAt >= from))
-    if (p.records.length < ESTIMATE_PAGE || p.records.at(-1)!.endedAt < from) break
-    // 读满上限还没到 from：更早的没读到，只有最早一条之后的算数
-    if (page === ESTIMATE_PAGES_MAX - 1) coveredFrom = p.records.at(-1)!.endedAt
-  }
-  const summary = await b.usageSummary({ range: '30d', filter, now, tzOffset: new Date().getTimezoneOffset() })
-  return { records, models: summary.groups.model, coveredFrom }
+  if (!b?.usageSummary) return summarize(localRecords, '30d', filter, now).groups.model
+  return (await b.usageSummary({ range: '30d', filter, now, tzOffset: new Date().getTimezoneOffset() })).groups.model
 }
 
 /** 新的一轮记下来、清空后回调 */

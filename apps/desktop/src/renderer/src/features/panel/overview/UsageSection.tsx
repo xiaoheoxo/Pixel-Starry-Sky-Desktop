@@ -1,7 +1,7 @@
 // 概况 › 额度（「状态」里的一格）：最紧的那个窗口和照这个速度会不会提前用完。点开：账号的每个窗口（和输入框的额度按钮同一份数据），
 // 条上竖线是这个窗口过了多少时间；本会话的轮次、用时、Token、费用（算得出才显示）、每轮 Token 的小柱图、按模型合计
 import { useMemo, useRef } from 'react'
-import { Activity, Check, TriangleAlert } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn, Select } from '@/ui'
 import { useI18n } from '@/i18n/I18nProvider'
@@ -10,7 +10,6 @@ import { useAccount } from '@/features/account/useAccount'
 import { useEngineState } from '@/features/engine'
 import { shortModel } from '@/features/session/live/agentTrace'
 import {
-  durationText,
   percentText,
   planEntries,
   quotaEntries,
@@ -21,21 +20,14 @@ import {
 } from '@/features/session/quota/quotaModel'
 import { useMinuteNow } from '@/features/session/quota/quotaStore'
 import { usdText } from '@/features/session/quota/estimate'
+import { budgetLine, forecastBasis, forecastLine, localValueLine } from '@/features/session/quota/forecastPresentation'
 import { feeRatio, usePlanFee, useQuotaEstimate, type QuotaEstimate } from '@/features/session/quota/useQuotaEstimate'
 import { replyStatParts } from '@/features/session/turnStatsData'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { formatTokens } from '@/features/usage/format'
 import { LEVEL_TONE } from './ContextSection'
 import { useSessionQuota } from './overviewData'
-import {
-  countsForUsage,
-  modelUsage,
-  quotaPace,
-  quotaRows,
-  sessionUsage,
-  windowElapsed,
-  type SessionUsage,
-} from './overviewModel'
+import { countsForUsage, modelUsage, quotaRows, sessionUsage, windowElapsed, type SessionUsage } from './overviewModel'
 import type { SectionProps } from './OverviewPanel'
 import { Meter, NOTE, SECTION_LINKS, SectionLink, StatusTile, SUB_LABEL } from './Section'
 
@@ -90,7 +82,7 @@ function UsageBody({ sessionId }: { sessionId: string }) {
   const cost = parts.find(p => p.key === 'cost')
   const elapsed = usage && usage.usage.durationMs > 0 ? parts.find(p => p.key === 'elapsed') : undefined
   const tight = tightestEntry(entries)
-  const pace = tight && quotaPace(tight, now)
+  const tightEstimate = tight ? estimate?.windows[tight.id] : undefined
   return (
     <StatusTile
       id="usage"
@@ -100,10 +92,10 @@ function UsageBody({ sessionId }: { sessionId: string }) {
       folded={tight ? `${tr('overview.quota')} ${percentText(tight.percent)}` : undefined}
       tone={tight ? LEVEL_TONE[tight.level] : undefined}
       visual={tight && <PaceBar entry={tight} now={now} className="mt-[3px]" />}
-      subTone={pace?.fast ? 'warn' : undefined}
+      subTone={tightEstimate?.emptyAt != null ? 'warn' : undefined}
       sub={
-        pace?.fast
-          ? tr('overview.paceEmptyShort', { time: durationText(pace.emptyIn) })
+        tightEstimate?.emptyAt != null
+          ? (forecastLine(tightEstimate, now) ?? undefined)
           : tight?.resetsAt != null
             ? resetShort(tight.resetsAt, now)
             : usage
@@ -120,8 +112,9 @@ function UsageBody({ sessionId }: { sessionId: string }) {
               <span className="whitespace-nowrap text-fg-muted tabular-nums">{row.value}</span>
             </div>
           )
-        const p = quotaPace(entry, now)
         const est = estimate?.windows[entry.id]
+        const forecast = est ? forecastLine(est, now) : null
+        const budget = est ? budgetLine(est) : null
         return (
           <div key={row.id} title={row.hover} className="[&+&]:mt-2.5">
             <div className="flex min-w-0 items-baseline gap-1.5">
@@ -132,27 +125,15 @@ function UsageBody({ sessionId }: { sessionId: string }) {
               </span>
             </div>
             <PaceBar entry={entry} now={now} className="mt-[5px] [&>[role=progressbar]]:h-1.5" />
-            {p && (
+            {forecast && est && (
               <div
-                className={cn('mt-[5px] flex items-center gap-1 text-label', p.fast ? 'text-warn-fg' : 'text-success')}
+                title={forecastBasis(est)}
+                className={cn('mt-1 text-label tabular-nums', est.emptyAt !== null ? 'text-warn-fg' : 'text-fg-muted')}
               >
-                {p.fast ? (
-                  <TriangleAlert size={12} strokeWidth={1.6} className="shrink-0" />
-                ) : (
-                  <Check size={12} strokeWidth={1.8} className="shrink-0" />
-                )}
-                {p.fast
-                  ? tr('overview.paceFast', { time: durationText(p.emptyIn), early: durationText(p.early) })
-                  : tr('overview.paceOk')}
+                {forecast}
               </div>
             )}
-            {est?.usd != null && entry.level !== 'full' && (
-              <div className="mt-[3px] text-label text-fg-muted tabular-nums">
-                {est.turns == null
-                  ? tr('quotaEst.run', { usd: usdText(est.usd) })
-                  : tr(est.turns ? 'quotaEst.runTurns' : 'quotaEst.runFew', { usd: usdText(est.usd), n: est.turns })}
-              </div>
-            )}
+            {budget && <div className="mt-1 text-label text-fg-muted tabular-nums">{budget}</div>}
           </div>
         )
       })}
@@ -261,7 +242,7 @@ function MonthWorth({
   return (
     <>
       <div className="mt-2.5 flex min-h-7 flex-wrap items-center gap-x-1.5 gap-y-1 text-fg-secondary tabular-nums">
-        <span>{tr('quotaEst.worth', { usd: usdText(month.usd) })}</span>
+        <span>{localValueLine(month)}</span>
         {ratio && <span className="text-fg-muted">· {tr('quotaEst.ratio', { n: ratio })}</span>}
         {options.length > 0 && (
           <Select
@@ -288,6 +269,7 @@ function MonthWorth({
           ))}
         </details>
       )}
+      {month.unpricedModels > 0 && <p className={NOTE}>{tr('quotaEst.unpriced', { n: month.unpricedModels })}</p>}
       <p className={NOTE}>{tr('quotaEst.fine')}</p>
     </>
   )

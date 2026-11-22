@@ -384,3 +384,26 @@ describe('Google / Antigravity 弹窗', () => {
     expect(html).toContain('额度按钮设置')
   })
 })
+
+it('separates the reported quota, conditional forecast, budget and local API comparison', () => {
+  const html = render({
+    estimate: {
+      windows: {
+        five_hour: {
+          elapsed: 0.45,
+          projected: 63,
+          emptyAt: null,
+          basis: 'recent',
+          budget: { percent: 26, unit: 'hour' },
+        },
+      },
+      month: { usd: 233, models: [], unpricedModels: 1 },
+    },
+  })
+  expect(html).toContain('aria-valuenow="42"')
+  expect(html).toContain('预计恢复时剩 37%')
+  expect(html).toContain('均摊至恢复：26%/小时')
+  expect(html).toContain('本机近 30 天 · 已计价部分 ≈ $233')
+  expect(html).not.toContain('还能跑')
+  expect(html).not.toContain('约 328 轮')
+})

@@ -1,26 +1,40 @@
-// 订阅额度估算（docs/ui/quota-estimate.md，样稿 docs/ui/quota-estimate-mockup.html）
+// Subscription quotas and local API-price comparisons are separate measurements.
 export const quotaEstimateMessages = {
   'quotaEst.left': { zh: '剩 {p}', en: '{p} left' },
-  'quotaEst.emptyAt': { zh: '约 {time} 用完', en: 'Runs out ~{time}' },
-  'quotaEst.leftAtReset': { zh: '恢复时约剩 {p}', en: '~{p} left at reset' },
-  'quotaEst.run': { zh: '还能跑 {usd} 额度', en: '{usd} of usage left' },
-  'quotaEst.turnsReset': { zh: '约 {n} 轮 · {reset}', en: '~{n} turns · {reset}' },
-  'quotaEst.turnsResetFew': { zh: '不到 1 轮 · {reset}', en: 'Under 1 turn · {reset}' },
-  'quotaEst.worth': { zh: '近 30 天按 API 价 {usd}', en: 'Last 30 days at API prices {usd}' },
-  'quotaEst.ratio': { zh: '月费的 {n} 倍', en: '{n}× the plan fee' },
-  'quotaEst.detail': { zh: '明细', en: 'Details' },
-  'quotaEst.paceTip': { zh: '这个窗口过了 {p} 的时间', en: '{p} of this window has passed' },
-  'quotaEst.projTip': {
-    zh: '浅色：照现在的速度到恢复时会用到哪',
-    en: 'Light part: where usage lands at reset at the current pace',
+  'quotaEst.emptyAt': { zh: '预计 {time} 用完', en: 'May run out around {time}' },
+  'quotaEst.leftAtReset': { zh: '预计恢复时剩 {p}', en: 'Estimated {p} left at reset' },
+  'quotaEst.basis.recent': {
+    zh: '根据近期同一账号、同一周期的用量快照推算。',
+    en: 'Based on recent usage readings for the same account and window.',
   },
-  'quotaEst.runTurns': { zh: '还能跑 {usd} 额度 · 约 {n} 轮', en: '{usd} of usage left · ~{n} turns' },
-  'quotaEst.runFew': { zh: '还能跑 {usd} 额度 · 不到 1 轮', en: '{usd} of usage left · under 1 turn' },
+  'quotaEst.basis.window': {
+    zh: '近期样本不足，按本周期平均用量粗估。',
+    en: 'Limited recent data: rough estimate using the full window average.',
+  },
+  'quotaEst.budget.day': { zh: '均摊至恢复：{p}/天', en: 'Budget until reset: {p}/day' },
+  'quotaEst.budget.hour': { zh: '均摊至恢复：{p}/小时', en: 'Budget until reset: {p}/hour' },
+  'quotaEst.worth': { zh: '本机近 30 天 · API 等价 {usd}', en: 'Local 30 days · API equivalent {usd}' },
+  'quotaEst.worthPartial': {
+    zh: '本机近 30 天 · 已计价部分 {usd}',
+    en: 'Local 30 days · priced portion {usd}',
+  },
+  'quotaEst.worthUnavailable': {
+    zh: '本机近 30 天 · 暂无可用模型价格',
+    en: 'Local 30 days · model prices unavailable',
+  },
+  'quotaEst.ratio': { zh: '对比月费 {n}×', en: '{n}× plan fee for comparison' },
+  'quotaEst.detail': { zh: '明细', en: 'Details' },
+  'quotaEst.paceTip': { zh: '这个周期已过 {p}', en: '{p} of this window has passed' },
+  'quotaEst.projTip': {
+    zh: '浅色是推算，实色是服务上报的已用量。',
+    en: 'The pale fill is a forecast. The solid fill is reported usage.',
+  },
   'quotaEst.fee': { zh: '订阅月费', en: 'Plan fee' },
   'quotaEst.feeNone': { zh: '选月费', en: 'Pick fee' },
   'quotaEst.byModel': { zh: '按模型', en: 'By model' },
   'quotaEst.fine': {
-    zh: '只算这台电脑上的使用；网页、手机、别的电脑用掉的会让百分比涨，所以「还能跑」和金额偏少。金额按官方 API 价折合。',
-    en: 'Only counts use on this computer. Use on the web, phone or other computers raises the percentage too, so "usage left" and the amounts read low. Amounts use official API prices.',
+    zh: '按本机记录和 API 参考价折算，可能合并同引擎多账号；不是实扣金额或订阅余额。部分模型仅能按标准短上下文价估算。',
+    en: 'An API reference value for local records, possibly from several accounts on this engine. Not a charge or subscription balance. Some models use standard short-context prices only.',
   },
+  'quotaEst.unpriced': { zh: '{n} 个模型缺少价格，未完整计入。', en: '{n} models are not fully priced.' },
 } as const

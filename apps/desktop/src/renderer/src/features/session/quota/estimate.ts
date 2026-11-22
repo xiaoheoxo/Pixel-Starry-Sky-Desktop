@@ -1,95 +1,92 @@
-// 订阅额度估算（docs/ui/quota-estimate.md）：每个窗口照现在的速度会不会提前用完、还能跑多少额度（按官方 API 价折合）、
-// 大约几轮；近 30 天按 API 价折合多少、是月费的几倍。纯函数，时间由调用方传 now。
-import type { QuotaProvider, UsageGroupRow, UsageRecord } from '@pixelsky/protocol'
+import type { QuotaProvider, UsageGroupRow } from '@pixelsky/protocol'
 import { estimateCost, officialPrice } from '@pixelsky/protocol'
 import type { QuotaEntry } from './quotaModel'
+import type { QuotaHistory, QuotaObservation } from './observations'
 
-/** 窗口里至少用了这么多、至少有这么多轮，才按「每 1% 多少钱」往后推；不够就不写估计 */
-const MIN_PERCENT = 1
-const MIN_TURNS = 2
-/** 窗口过了这么多时间才按均速推用完时间（同概况的 quotaPace） */
-const MIN_ELAPSED = 0.1
-
-/** 一条记录按官方 API 价值多少：引擎报了费用用它，没报（Codex）按 Token × 官方价；算不出为 null */
-export function recordUsd(r: Pick<UsageRecord, 'costUsd' | 'model' | 'input' | 'output' | 'cacheRead' | 'cacheWrite'>) {
-  return r.costUsd ?? estimateCost(r, officialPrice(r.model))
-}
+const HOUR = 3_600_000
 
 export interface WindowEstimate {
-  /** 窗口过了多少时间（0–1），条上的竖线 */
   elapsed: number
-  /** 照现在的均速到恢复时会用到多少（0–100，顶到 100 = 会提前用完）；窗口刚开始、时长不明时为 null */
   projected: number | null
-  /** 会提前用完时：大约哪一刻用完 */
   emptyAt: number | null
-  /** 剩下的百分比按这个窗口里每 1% 的价钱折合多少美元；数据不够为 null */
-  usd: number | null
-  /** 剩下的大约还能跑几轮；数据不够为 null */
-  turns: number | null
+  basis: 'recent' | 'window' | null
+  /** Percentage points available per hour (short windows) or day. This is a budget, not a forecast. */
+  budget: { percent: number; unit: 'hour' | 'day' } | null
 }
 
-/**
- * 一个窗口的估计。records 是这个账号走订阅的记录（时间不限，这里按窗口开始筛）。
- * shortcut: 速度用窗口开始以来的均速，不看最近的斜率（没有额度快照历史）；要更准时记快照再算最近 60 分钟
- */
+function recentRate(points: readonly QuotaObservation[], latest: QuotaObservation, span: number): number | null {
+  const lookback = Math.min(48 * HOUR, span * 0.6)
+  const minSpan = Math.min(6 * HOUR, span * 0.1)
+  const candidates = points.filter(p => p.time >= latest.time - lookback && p.time <= latest.time - minSpan)
+  if (candidates.length < 2 || latest.time - candidates[0]!.time < minSpan * 1.5) return null
+  const observedGrowth = latest.used - candidates[0]!.used
+  if (observedGrowth > 0 && observedGrowth < 2) return null
+  // Reduce the influence of an unusually bursty or idle interval. Don't estimate from a one-point rounding step.
+  const rates = candidates.map(p => Math.max(0, latest.used - p.used) / (latest.time - p.time)).sort((a, b) => a - b)
+  const middle = Math.floor(rates.length / 2)
+  return rates.length % 2 ? rates[middle]! : (rates[middle - 1]! + rates[middle]!) / 2
+}
+
+/** Extrapolate only observed, account-specific percentages, never local API dollars or turn counts. */
 export function windowEstimate(
   e: QuotaEntry,
-  records: readonly Pick<
-    UsageRecord,
-    'endedAt' | 'sessionId' | 'turnId' | 'costUsd' | 'model' | 'input' | 'output' | 'cacheRead' | 'cacheWrite'
-  >[],
   now: number,
-  /** 记录读全到哪一刻；窗口开始比它早时窗口里的记录不全，不写金额和轮数 */
-  coveredFrom = -Infinity,
+  observedAt: number | null,
+  history?: QuotaHistory,
 ): WindowEstimate | null {
   if (e.kind !== 'window' || !e.durationMins || e.resetsAt === null || e.expired || e.resetsAt <= now) return null
   const span = e.durationMins * 60_000
   const start = e.resetsAt - span
-  const elapsed = (now - start) / span
-  const used = Math.min(100, Math.max(0, e.percent))
-  let projected: number | null = null
-  let emptyAt: number | null = null
-  if (elapsed >= MIN_ELAPSED && elapsed <= 1) {
-    projected = Math.min(100, used / elapsed)
-    if (used > 0 && projected >= 100) emptyAt = Math.min(e.resetsAt, start + ((now - start) * 100) / used)
+  if (now < start && (observedAt === null || observedAt < start)) return null
+  const elapsed = Math.max(0, Math.min(1, (now - start) / span))
+  const result: WindowEstimate = { elapsed, projected: null, emptyAt: null, basis: null, budget: null }
+  const left = 100 - e.percent
+  if (left <= 0 || e.rejected || observedAt === null || observedAt < start || observedAt >= e.resetsAt) return result
+  // The render clock runs once a minute, so a fresh packet can predate its next tick.
+  const clock = Math.max(now, observedAt)
+  if (clock - observedAt > Math.min(6 * HOUR, span * 0.1)) return result
+  const unit = span < 24 * HOUR ? 'hour' : 'day'
+  result.budget = {
+    percent: Math.min(left, (left * (unit === 'hour' ? HOUR : 24 * HOUR)) / (e.resetsAt - clock)),
+    unit,
   }
-  if (used >= 100) emptyAt = null
-  let usd = 0
-  const turns = new Set<string>()
-  for (const r of records) {
-    // 不卡 now：now 是按分钟走的时钟，刚记下的一轮会比它晚
-    if (r.endedAt < start) continue
-    const v = recordUsd(r)
-    if (v !== null) usd += v
-    turns.add(`${r.sessionId}:${r.turnId}`)
+
+  const recent = recentRate(history?.points ?? [], { time: observedAt, used: e.percent }, span)
+  const sinceStart = observedAt - start
+  const wholeWindow = !history?.discontinuity && sinceStart >= span * 0.1 && e.percent >= 1
+  if (recent === null && !wholeWindow) return result
+  const rate = recent ?? e.percent / sinceStart
+  result.basis = recent === null ? 'window' : 'recent'
+  result.projected = Math.min(100, e.percent + (e.resetsAt - observedAt) * rate)
+  const emptyAt = rate > 0 ? observedAt + left / rate : Infinity
+  if (emptyAt < e.resetsAt && emptyAt > clock) result.emptyAt = emptyAt
+  // Do not imply that an elapsed prediction is an observed exhaustion; wait for a new measurement.
+  if (emptyAt <= clock) {
+    result.projected = null
+    result.basis = null
   }
-  const enough = start >= coveredFrom && used >= MIN_PERCENT && used < 100 && turns.size >= MIN_TURNS && usd > 0
-  const left = 100 - used
-  return {
-    elapsed: Math.min(1, Math.max(0, elapsed)),
-    projected,
-    emptyAt,
-    usd: enough ? (usd / used) * left : used >= 100 ? 0 : null,
-    turns: enough ? Math.floor((turns.size / used) * left) : used >= 100 ? 0 : null,
-  }
+  return result
 }
 
 export interface MonthValue {
   usd: number
+  unpricedModels: number
   /** 按模型，从多到少 */
   models: { model: string; usd: number }[]
 }
 
 /** 近 30 天按模型的合计折合多少：整组都有引擎报的费用就用它，否则整组按 Token × 官方价（混着用会重复算） */
 export function monthValue(rows: readonly UsageGroupRow[]): MonthValue | null {
+  let unpricedModels = 0
   const models = rows
-    .map(r => ({
-      model: r.key,
-      usd: r.costKnown === r.records ? r.costUsd : (estimateCost(r, officialPrice(r.key)) ?? r.costUsd),
-    }))
+    .map(r => {
+      const price = officialPrice(r.key)
+      if (!price && r.costKnown < r.records && r.input + r.output + r.cacheRead + r.cacheWrite > 0) unpricedModels++
+      return { model: r.key, usd: r.costKnown === r.records ? r.costUsd : (estimateCost(r, price) ?? r.costUsd) }
+    })
     .filter(m => m.usd > 0)
     .sort((a, b) => b.usd - a.usd)
-  return models.length ? { usd: models.reduce((s, m) => s + m.usd, 0), models } : null
+  return models.length || unpricedModels ? { usd: models.reduce((s, m) => s + m.usd, 0), models, unpricedModels } : null
 }
 
 /** 明细里能选的月费（美元）；id 存在本机 */
@@ -101,7 +98,9 @@ export const PLAN_FEES: Record<'claude' | 'chatgpt' | 'google', { id: string; la
   ],
   chatgpt: [
     { id: 'plus', label: 'Plus $20', usd: 20 },
-    { id: 'pro', label: 'Pro $200', usd: 200 },
+    { id: 'prolite', label: 'Pro 100 · $100', usd: 100 },
+    { id: 'pro', label: 'Pro 200 · $200', usd: 200 },
+    { id: 'promax', label: 'Pro 500 · $500', usd: 500 },
   ],
   google: [
     { id: 'pro', label: 'AI Pro $20', usd: 20 },

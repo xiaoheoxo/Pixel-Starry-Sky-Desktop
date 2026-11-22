@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionLane } from '@/features/board/sessionLanes'
 import {
   ARCHIVED_PAGE,
+  extraConversations,
   foldChannels,
   projectCounts,
   projectFolders,
@@ -34,28 +35,41 @@ describe('项目标题的状态数', () => {
 
 describe('先列哪几个对话', () => {
   const sessions = Array.from({ length: 9 }, (_, i) => session(`s${i}`))
-  const none = new Map<string, SessionLane>()
-
   it('不超过 5 个全部列出', () => {
-    expect(visibleSessions(sessions.slice(0, 5), { all: false, selected: null, lanes: none })).toEqual({
+    expect(visibleSessions(sessions.slice(0, 5), { all: false })).toEqual({
       shown: sessions.slice(0, 5),
       hidden: 0,
     })
   })
 
-  it('先列 5 个，后面的只露当前打开的和有状态的', () => {
+  it('keeps exactly five recent conversations even with older active or unread conversations', () => {
     const list = sessions.map(s => (s.id === 's7' ? session('s7', 'unread') : s))
-    const lanes = new Map<string, SessionLane>([['s6', 'waiting']])
-    const { shown, hidden } = visibleSessions(list, { all: false, selected: 's8', lanes })
-    expect(shown.map(s => s.id)).toEqual(['s0', 's1', 's2', 's3', 's4', 's6', 's7', 's8'])
-    expect(hidden).toBe(1)
+    const { shown, hidden } = visibleSessions(list, { all: false })
+    expect(shown).toEqual(list.slice(0, 5))
+    expect(hidden).toBe(4)
   })
 
-  it('点了「还有 N 个」全部列出', () => {
-    expect(visibleSessions(sessions, { all: true, selected: null, lanes: none })).toEqual({
+  it('双击「还有 N 个」全部列出', () => {
+    expect(visibleSessions(sessions, { all: true })).toEqual({
       shown: sessions,
       hidden: 0,
     })
+  })
+})
+
+describe('incremental conversation pagination', () => {
+  const sessions = Array.from({ length: 60 }, (_, i) => session(`s${i}`))
+  const options = { all: false }
+
+  it('shows 5, 10, 20, 35, 55, then the remainder with each batch growing by 5', () => {
+    expect(
+      [0, 1, 2, 3, 4, 5].map(pages => {
+        const { shown, hidden } = visibleSessions(sessions, { ...options, additional: extraConversations(pages) })
+        expect(shown).toEqual(sessions.slice(0, shown.length))
+        expect(hidden).toBe(60 - shown.length)
+        return shown.length
+      }),
+    ).toEqual([5, 10, 20, 35, 55, 60])
   })
 })
 
@@ -116,7 +130,6 @@ describe('频道的会话收成一行（sidebar-channel-fold.md）', () => {
     } = foldChannels([...members, ...own], {
       channelOf,
       all: false,
-      selected: null,
       lanes: none,
     })
     expect(entries.map(e => (e.kind === 'channel' ? `#${e.name}:${e.sessions.length}` : e.session.id))).toEqual([
@@ -138,7 +151,6 @@ describe('频道的会话收成一行（sidebar-channel-fold.md）', () => {
     const { entries } = foldChannels([session('m1', 'running'), session('m2'), session('x')], {
       channelOf: id => (id === 'x' ? '别的频道' : channelOf(id)),
       all: false,
-      selected: null,
       lanes,
     })
     expect(entries[0]).toMatchObject({ kind: 'channel', running: 1, waiting: 1 })
@@ -149,7 +161,6 @@ describe('频道的会话收成一行（sidebar-channel-fold.md）', () => {
     const { entries, hidden } = foldChannels([...members, ...own], {
       channelOf: () => null,
       all: false,
-      selected: null,
       lanes: none,
     })
     expect(entries).toHaveLength(5)
@@ -164,14 +175,14 @@ describe('project conversation disclosure', () => {
     channelOpen: () => undefined,
     all: false,
     filtering: false,
-    selected: null,
     lanes: new Map<string, SessionLane>(),
   }
 
   it('counts hidden channel members as well as conversations past the preview cap', () => {
     const { rows, hiddenInPreview } = projectSessionRows(list, options)
     expect(hiddenInPreview).toBe(7)
-    expect(rows[0]).toMatchObject({ kind: 'channel', open: false, visibleMembers: [] })
+    expect(rows[0]).toMatchObject({ kind: 'channel', open: true, visibleMembers: list.slice(0, 3) })
+    expect(rows.slice(1)).toEqual(list.slice(3, 5).map(session => ({ kind: 'session', session })))
   })
 
   it('shows every unarchived conversation in order in full mode', () => {
@@ -180,15 +191,29 @@ describe('project conversation disclosure', () => {
     expect(hiddenInPreview).toBe(7)
   })
 
-  it('offers show more even if there are no standalone rows', () => {
-    const { hiddenInPreview } = projectSessionRows(list.slice(0, 3), options)
-    expect(hiddenInPreview).toBe(3)
+  it('does not offer more when every conversation fits, even if all are in a channel', () => {
+    const { hiddenInPreview, rows } = projectSessionRows(list.slice(0, 3), options)
+    expect(hiddenInPreview).toBe(0)
+    expect(rows[0]).toMatchObject({ visibleMembers: list.slice(0, 3) })
+  })
+
+  it('adds five hidden conversations including older folded channel members; preserves grouping until show all', () => {
+    const { rows, hidden, hiddenInPreview } = projectSessionRows(list, {
+      ...options,
+      additional: extraConversations(1),
+    })
+    expect(hiddenInPreview).toBe(7)
+    expect(hidden).toBe(2)
+    expect(rows[0]).toMatchObject({ kind: 'channel', open: true, visibleMembers: list.slice(0, 3) })
+    expect(rows.slice(1)).toEqual(list.slice(3, 10).map(session => ({ kind: 'session', session })))
+    expect(projectSessionRows(list, { ...options, additional: extraConversations(2) }).hidden).toBe(0)
   })
 
   it('keeps explicitly expanded channels in preview and ignores disclosure while filtering', () => {
-    expect(projectSessionRows(list, { ...options, channelOpen: () => true }).hiddenInPreview).toBe(4)
+    expect(projectSessionRows(list, { ...options, channelOpen: () => true }).hiddenInPreview).toBe(7)
     expect(projectSessionRows(list, { ...options, filtering: true })).toEqual({
       rows: list.map(session => ({ kind: 'session', session })),
+      hidden: 0,
       hiddenInPreview: 0,
     })
   })

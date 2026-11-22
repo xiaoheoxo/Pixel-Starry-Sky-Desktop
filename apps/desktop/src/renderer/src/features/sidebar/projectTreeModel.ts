@@ -26,18 +26,15 @@ export function projectCounts(
 /** 每个项目先列这么多个对话 */
 export const SHOWN_SESSIONS = 5
 
-/**
- * 先列前 5 个；后面的里头当前打开的、在跑的、等你的、有新回复的也列出来，不会被藏进「还有 N 个」。
- * all 为 true（点了「还有 N 个」或按状态筛选时）全部列出
- */
-export function visibleSessions<T extends Pick<Session, 'id' | 'status'>>(
+/** First reveal adds five, then ten, fifteen, and so on. */
+export const extraConversations = (pages: number): number => (SHOWN_SESSIONS * pages * (pages + 1)) / 2
+
+/** List only the newest conversations up to the disclosure cap; filtering and show-all bypass it. */
+export function visibleSessions<T extends Pick<Session, 'id'>>(
   sessions: readonly T[],
-  options: { all: boolean; selected: string | null; lanes: ReadonlyMap<string, SessionLane> },
+  options: { all: boolean; additional?: number },
 ): { shown: T[]; hidden: number } {
-  if (options.all || sessions.length <= SHOWN_SESSIONS) return { shown: [...sessions], hidden: 0 }
-  const shown = sessions.filter(
-    (s, i) => i < SHOWN_SESSIONS || s.id === options.selected || s.status !== 'idle' || options.lanes.has(s.id),
-  )
+  const shown = options.all ? [...sessions] : sessions.slice(0, SHOWN_SESSIONS + (options.additional ?? 0))
   return { shown, hidden: sessions.length - shown.length }
 }
 
@@ -71,7 +68,7 @@ export type FoldEntry<T> =
 
 /**
  * 同一个频道有 2 个及以上会话时收成一行，放在它最近那个会话的位置；
- * 「先列 5 个」只算项目自己的对话（visibleSessions），频道行不占名额。
+ * 频道行不占名额；projectSessionRows 单独分页具体对话。
  * hidden / own 是项目自己的对话收起了几个、一共几个；channelOf 返回 null 的会话照常列
  */
 export function foldChannels<T extends Pick<Session, 'id' | 'status'>>(
@@ -79,7 +76,6 @@ export function foldChannels<T extends Pick<Session, 'id' | 'status'>>(
   options: {
     channelOf: (id: string) => string | null
     all: boolean
-    selected: string | null
     lanes: ReadonlyMap<string, SessionLane>
   },
 ): { entries: FoldEntry<T>[]; hidden: number; own: number } {
@@ -113,31 +109,37 @@ type ProjectSessionRow<T> =
   | Extract<FoldEntry<T>, { kind: 'session' }>
   | (Extract<FoldEntry<T>, { kind: 'channel' }> & { open: boolean; visibleMembers: T[] })
 
-/** Preview keeps channel groups; “show more” lists every unarchived conversation in project order. */
+/** Page all conversations in recency order. Channel headers don't consume slots. */
 export function projectSessionRows<T extends Pick<Session, 'id' | 'status'>>(
   sessions: readonly T[],
   options: {
     channelOf: (id: string) => string | null
     channelOpen: (key: string) => boolean | undefined
     all: boolean
+    additional?: number
     filtering: boolean
-    selected: string | null
     lanes: ReadonlyMap<string, SessionLane>
   },
-): { rows: ProjectSessionRow<T>[]; hiddenInPreview: number } {
+): { rows: ProjectSessionRow<T>[]; hidden: number; hiddenInPreview: number } {
   const flatRows = (): ProjectSessionRow<T>[] => sessions.map(session => ({ kind: 'session', session }))
-  if (options.filtering) return { rows: flatRows(), hiddenInPreview: 0 }
+  if (options.filtering) return { rows: flatRows(), hidden: 0, hiddenInPreview: 0 }
 
-  const { entries, hidden } = foldChannels(sessions, { ...options, all: false })
-  let hiddenInPreview = hidden
-  const preview = entries.map(row => {
-    if (row.kind === 'session') return row
-    const open = options.channelOpen(row.key) ?? row.sessions.some(s => s.id === options.selected)
-    const visibleMembers = open
-      ? row.sessions
-      : row.sessions.filter(s => s.id === options.selected || needsYou(options.lanes.get(s.id)))
-    hiddenInPreview += row.sessions.length - visibleMembers.length
-    return { ...row, open, visibleMembers }
+  const hiddenInPreview = Math.max(0, sessions.length - SHOWN_SESSIONS)
+  if (options.all) return { rows: flatRows(), hidden: 0, hiddenInPreview }
+  const { shown, hidden } = visibleSessions(sessions, options)
+  const ids = new Set(shown.map(session => session.id))
+  const { entries } = foldChannels(sessions, { ...options, all: true })
+  const rows = entries.flatMap<ProjectSessionRow<T>>(row => {
+    if (row.kind === 'session') return ids.has(row.session.id) ? [row] : []
+    const preview = row.sessions.filter(member => ids.has(member.id))
+    const open = options.channelOpen(row.key)
+    return [
+      {
+        ...row,
+        open: open ?? preview.length > 0,
+        visibleMembers: open === true ? row.sessions : open === false ? [] : preview,
+      },
+    ]
   })
-  return { rows: options.all ? flatRows() : preview, hiddenInPreview }
+  return { rows, hidden, hiddenInPreview }
 }

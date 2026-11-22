@@ -1,7 +1,7 @@
 // 订阅额度估算的数据（docs/ui/quota-estimate.md §2）：这个引擎走订阅登录（route cli）的用量记录 + 月费选择。
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import type { AccountQuota, QuotaProvider, UsageGroupRow, UsageRecord } from '@pixelsky/protocol'
-import { onUsageChange, readQuotaUsage } from '@/features/usage/source'
+import type { AccountQuota, QuotaProvider, UsageGroupRow } from '@pixelsky/protocol'
+import { onUsageChange, readQuotaMonth } from '@/features/usage/source'
 import {
   PLAN_FEES,
   PROVIDER_ENGINE,
@@ -12,8 +12,8 @@ import {
   type WindowEstimate,
 } from './estimate'
 import { quotaEntries } from './quotaModel'
+import { quotaObservations } from './observations'
 
-const WEEK = 7 * 86_400_000
 /** 一轮记下来后等这么久再重读：连着几轮结束、多个模型各记一条时只读一次 */
 const REREAD_DELAY_MS = 15_000
 
@@ -23,10 +23,7 @@ export interface QuotaEstimate {
   month: MonthValue | null
 }
 
-/**
- * 弹窗、概况共用。不支持的账号（平台、读不到额度）为 null。
- * shortcut: 记录不带账号，按「这个引擎走订阅登录」算，同一台电脑换过账号会混在一起；记录带上账号后再按账号筛
- */
+/** Account forecasts and this computer's aggregate API comparison are independent. */
 export function useQuotaEstimate(
   provider: QuotaProvider | null,
   quota: AccountQuota | null,
@@ -38,15 +35,8 @@ export function useQuotaEstimate(
     () => (supported ? quotaEntries(quota, now).filter(e => e.kind === 'window') : []),
     [supported, quota, now],
   )
-  // 最早的窗口开始（按分钟取整，分钟时钟走动不重读）；没有时长的按 7 天
-  const from = windows.reduce(
-    (min, e) => (e.durationMins && e.resetsAt !== null ? Math.min(min, e.resetsAt - e.durationMins * 60_000) : min),
-    now,
-  )
-  const fromKey = Math.floor(Math.max(from, now - WEEK) / 60_000)
-  const [data, setData] = useState<{ records: UsageRecord[]; models: UsageGroupRow[]; coveredFrom: number } | null>(
-    null,
-  )
+  const day = new Date(now).toDateString()
+  const [data, setData] = useState<{ engine: string; models: UsageGroupRow[] } | null>(null)
   const [version, setVersion] = useState(0)
   useEffect(() => {
     if (!supported) return
@@ -63,24 +53,29 @@ export function useQuotaEstimate(
     }
   }, [supported])
   useEffect(() => {
-    if (!supported) return
+    if (!supported || !engine) return
     let cancelled = false
-    readQuotaUsage({ engine, route: 'cli' }, fromKey * 60_000)
-      .then(d => !cancelled && setData(d))
+    readQuotaMonth({ engine, route: 'cli' })
+      .then(models => !cancelled && setData({ engine, models }))
       .catch(() => !cancelled && setData(null))
     return () => {
       cancelled = true
     }
-  }, [supported, engine, fromKey, version])
+  }, [supported, engine, day, version])
   return useMemo(() => {
-    if (!supported || !data) return null
+    if (!supported || !quota) return null
     const out: Record<string, WindowEstimate> = {}
     for (const e of windows) {
-      const est = windowEstimate(e, data.records, now, data.coveredFrom)
+      const est = windowEstimate(
+        e,
+        now,
+        quota.status === 'ok' ? quota.observedAt : null,
+        quotaObservations.forWindow(quota, e.id),
+      )
       if (est) out[e.id] = est
     }
-    return { windows: out, month: monthValue(data.models) }
-  }, [supported, data, windows, now])
+    return { windows: out, month: data && data.engine === engine ? monthValue(data.models) : null }
+  }, [supported, data, engine, quota, windows, now])
 }
 
 const FEE_KEY = 'pixelsky.quotaFee.'
@@ -106,4 +101,4 @@ export function usePlanFee(provider: QuotaProvider | null, plan: string | null) 
 
 /** 折合金额是月费的几倍，一位小数 */
 export const feeRatio = (month: MonthValue | null, fee: { usd: number } | null): string | null =>
-  month && fee ? (month.usd / fee.usd).toFixed(1) : null
+  month && month.usd > 0 && !month.unpricedModels && fee ? (month.usd / fee.usd).toFixed(1) : null

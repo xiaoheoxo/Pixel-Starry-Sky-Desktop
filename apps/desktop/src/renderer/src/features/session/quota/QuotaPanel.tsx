@@ -10,15 +10,16 @@ import {
   maskAccount,
   percentText,
   planBadge,
+  resetClock,
   providerTitle,
   quotaLayout,
-  resetClock,
   type PlanLimit,
   type QuotaCard,
   type QuotaLevel,
   type QuotaRow,
 } from './quotaModel'
-import { usdText, type WindowEstimate } from './estimate'
+import type { WindowEstimate } from './estimate'
+import { budgetLine, forecastBasis, forecastLine, localValueLine } from './forecastPresentation'
 import type { QuotaEstimate } from './useQuotaEstimate'
 
 const TEXT: Record<QuotaLevel, string> = { normal: 'text-fg', warn: 'text-warn', full: 'text-danger' }
@@ -186,8 +187,11 @@ export function QuotaPanel({
               </div>
             )}
             {estimate?.month && (
-              <div className="mt-2 flex items-baseline gap-2 px-0.5 text-label text-fg-muted tabular-nums">
-                <span className="min-w-0 truncate">{tr('quotaEst.worth', { usd: usdText(estimate.month.usd) })}</span>
+              <div
+                title={tr('quotaEst.fine')}
+                className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-0.5 text-label text-fg-muted tabular-nums"
+              >
+                <span>{localValueLine(estimate.month)}</span>
                 {feeRatio && (
                   <span className="ml-auto shrink-0 text-fg-faint">{tr('quotaEst.ratio', { n: feeRatio })}</span>
                 )}
@@ -371,7 +375,9 @@ function FootButton({
 function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: number }) {
   const full = card.level === 'full'
   const e = card.type === 'meter' && !full ? est : undefined
-  const hot = !!e?.emptyAt
+  const hot = e?.emptyAt != null
+  const forecast = e ? forecastLine(e, now) : null
+  const budget = e ? budgetLine(e) : null
   return (
     <div
       title={card.hover || undefined}
@@ -379,7 +385,7 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
     >
       <div className="flex items-baseline gap-1.5 text-label text-fg-muted">
         <span className="min-w-0 truncate">{card.name}</span>
-        {e && (
+        {card.type === 'meter' && (
           <span className="ml-auto shrink-0 text-fg-faint tabular-nums">
             {tr('quotaEst.left', { p: percentText(100 - card.percent) })}
           </span>
@@ -428,29 +434,23 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
           )}
         </div>
       )}
-      {e && (hot || e.projected !== null) && (
-        <div className={cn('mt-1.5 truncate text-label tabular-nums', hot ? 'text-warn' : 'text-fg-muted')}>
-          {hot
-            ? tr('quotaEst.emptyAt', { time: resetClock(e.emptyAt!, now) })
-            : tr('quotaEst.leftAtReset', { p: percentText(100 - e.projected!) })}
+      {forecast && e && (
+        <div
+          title={forecastBasis(e)}
+          className={cn('mt-1.5 text-label tabular-nums', hot ? 'text-warn' : 'text-fg-muted')}
+        >
+          {forecast}
         </div>
       )}
-      {e?.usd != null && (
-        <div className="mt-px truncate text-label text-fg-secondary tabular-nums">
-          {tr('quotaEst.run', { usd: usdText(e.usd) })}
-        </div>
-      )}
+      {budget && <div className="text-label text-fg-secondary tabular-nums">{budget}</div>}
       <div
         className={cn(
-          e ? 'mt-px' : 'mt-1.5',
+          forecast || budget ? 'mt-px' : 'mt-1.5',
           'text-label tabular-nums',
-          card.type === 'meter' && 'truncate',
           full ? 'text-danger' : 'text-fg-faint',
         )}
       >
-        {e?.turns == null
-          ? card.note
-          : tr(e.turns ? 'quotaEst.turnsReset' : 'quotaEst.turnsResetFew', { n: e.turns, reset: card.note })}
+        {card.note}
       </div>
     </div>
   )

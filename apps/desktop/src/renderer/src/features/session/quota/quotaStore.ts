@@ -15,6 +15,7 @@ import { isDemo, demo } from '@/data/demo'
 import { useAccount } from '@/features/account/useAccount'
 import { platformPlanLimits, platformQuota } from './platformQuota'
 import type { PlanLimit } from './quotaModel'
+import { quotaObservations } from './observations'
 
 /** 第一次显示按钮时：快照比这个旧（或没有）才去读 */
 export const FIRST_SHOW_MAX_AGE_MS = 10 * 60_000
@@ -57,6 +58,7 @@ function bridge(): QuotaBridge | null {
 }
 
 function put(provider: EngineQuotaProvider, patch: Partial<Entry>): void {
+  if (patch.quota) quotaObservations.record(patch.quota)
   entries = { ...entries, [provider]: { ...(entries[provider] ?? EMPTY), ...patch } }
   listeners.forEach(fn => fn())
 }

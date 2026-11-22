@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageGroupRow } from '@pixelsky/protocol'
 import { defaultFeeId, monthValue, windowEstimate } from './estimate'
+import type { QuotaHistory } from './observations'
 import type { QuotaEntry } from './quotaModel'
 
 const HOUR = 3_600_000
@@ -15,57 +16,61 @@ const entry = (percent: number, elapsedHours: number, over: Partial<QuotaEntry> 
     expired: false,
     ...over,
   }) as QuotaEntry
-const rec = (hoursAgo: number, costUsd: number | null, turnId: string, model = 'claude-sonnet-4-5') => ({
-  endedAt: now - hoursAgo * HOUR,
-  sessionId: 's',
-  turnId,
-  costUsd,
-  model,
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-})
-
 describe('windowEstimate', () => {
-  it('用得比时间快：顶到 100、写出用完时刻；剩余按每 1% 的价钱和轮数折合', () => {
-    // 2 小时用了 50%：再 2 小时用完；窗口里 4 轮共 $10 → 每 1% $0.2，剩 50% ≈ $10、4 轮
-    const records = [rec(0.5, 2, 'a'), rec(1, 3, 'b'), rec(1.5, 4, 'c'), rec(1.9, 1, 'd'), rec(3, 99, 'old')]
-    const e = windowEstimate(entry(50, 2), records, now)!
-    expect(e.projected).toBe(100)
-    expect(e.emptyAt).toBe(now + 2 * HOUR)
-    expect(e.usd).toBeCloseTo(10)
-    expect(e.turns).toBe(4)
+  it('uses the official account percentage, anchors to the observation and labels a window-average fallback', () => {
+    const e = windowEstimate(entry(50, 2), now, now)!
+    expect(e).toMatchObject({
+      basis: 'window',
+      projected: 100,
+      emptyAt: now + 2 * HOUR,
+      budget: { percent: 50 / 3, unit: 'hour' },
+    })
+    const staleClock = now + 5 * 60_000
+    expect(windowEstimate(entry(50, 2), staleClock, now)?.emptyAt).toBe(e.emptyAt)
   })
-  it('够用：写恢复时会用到多少，没有用完时刻', () => {
-    const e = windowEstimate(entry(20, 2), [rec(1, 1, 'a'), rec(1, 1, 'b')], now)!
-    expect(e.projected).toBeCloseTo(50)
+
+  it('uses the recent median rate instead of extrapolating an old burst across the week', () => {
+    const week = entry(45, 72, { durationMins: 10_080, resetsAt: now + 96 * HOUR })
+    const history: QuotaHistory = {
+      plan: 'prolite',
+      resetsAt: week.resetsAt!,
+      durationMins: 10_080,
+      discontinuity: false,
+      points: [
+        { time: now - 18 * HOUR, used: 42 },
+        { time: now - 12 * HOUR, used: 43 },
+        { time: now - 6 * HOUR, used: 44 },
+        { time: now, used: 45 },
+      ],
+    }
+    const e = windowEstimate(week, now, now, history)!
+    expect(e.basis).toBe('recent')
+    expect(e.projected).toBeCloseTo(61)
     expect(e.emptyAt).toBeNull()
+    expect(e.budget).toEqual({ percent: 13.75, unit: 'day' })
   })
-  it('刚记下、比按分钟走的 now 晚几十秒的一轮也算进去', () => {
-    const e = windowEstimate(entry(20, 2), [rec(1, 1, 'a'), rec(-0.01, 1, 'b')], now)!
-    expect(e.usd).toBeCloseTo(8)
+
+  it('does not extrapolate from stale, reset, partial, failed, or exhausted windows', () => {
+    const window = entry(35, 2)
+    const reset: QuotaHistory = {
+      plan: 'pro',
+      resetsAt: window.resetsAt!,
+      durationMins: 300,
+      discontinuity: true,
+      points: [{ time: now, used: 35 }],
+    }
+    expect(windowEstimate(window, now, now, reset)?.basis).toBeNull()
+    expect(windowEstimate(window, now, now - HOUR)?.budget).toBeNull()
+    expect(windowEstimate(window, now, null)?.projected).toBeNull()
+    expect(windowEstimate(entry(30, 0.2), now, now)?.projected).toBeNull()
+    expect(windowEstimate(entry(100, 2), now, now)?.projected).toBeNull()
+    expect(windowEstimate(entry(40, 2, { expired: true }), now, now)).toBeNull()
+    expect(windowEstimate(entry(40, 2, { durationMins: null }), now, now)).toBeNull()
   })
-  it('数据不够不写估计：轮数太少、记录没价钱、窗口刚开始', () => {
-    expect(windowEstimate(entry(30, 2), [rec(1, 5, 'a')], now)!.usd).toBeNull()
-    expect(
-      windowEstimate(entry(30, 2), [rec(1, null, 'a', 'unknown-x'), rec(1, null, 'b', 'unknown-x')], now)!.usd,
-    ).toBeNull()
-    expect(windowEstimate(entry(30, 0.2), [], now)!.projected).toBeNull()
-    expect(windowEstimate(entry(30, 2, { durationMins: null }), [], now)).toBeNull()
-    expect(windowEstimate(entry(30, 2, { expired: true }), [], now)).toBeNull()
-  })
-  it('记录没读全到窗口开始（读满上限）：不写金额和轮数，用完时间照写', () => {
-    const records = [rec(0.5, 2, 'a'), rec(1, 3, 'b')]
-    const e = windowEstimate(entry(50, 2), records, now, now - HOUR)!
-    expect(e.usd).toBeNull()
-    expect(e.turns).toBeNull()
-    expect(e.emptyAt).toBe(now + 2 * HOUR)
-  })
-  it('已用完：剩 0，不再写用完时刻', () => {
-    const e = windowEstimate(entry(100, 2), [], now)!
-    expect(e.emptyAt).toBeNull()
-    expect(e.usd).toBe(0)
+
+  it('does not turn a forecast already in the past into an observed quota block', () => {
+    const dataTime = now - 10 * 60_000
+    expect(windowEstimate(entry(97, 2), now, dataTime)).toMatchObject({ basis: null, projected: null, emptyAt: null })
   })
 })
 
@@ -78,8 +83,13 @@ describe('monthValue', () => {
     expect(m.models[1].usd).toBeGreaterThan(0)
     expect(m.usd).toBeCloseTo(30 + m.models[1].usd)
   })
-  it('一分钱都算不出为 null', () => {
-    expect(monthValue([row('unknown-x', 0, 0, 2, 100)])).toBeNull()
+  it('distinguishes unpriced usage from no use and picks up verified GPT-6.2 pricing', () => {
+    expect(monthValue([row('unknown-x', 0, 0, 2, 100)])).toEqual({ usd: 0, models: [], unpricedModels: 1 })
+    expect(monthValue([row('unknown-x', 0, 0, 2)])).toBeNull()
+    expect(monthValue([row('gpt-6.2-sol', 0, 0, 1, 1_000_000), row('unknown-x', 0, 0, 1, 10)])).toMatchObject({
+      usd: 10,
+      unpricedModels: 1,
+    })
   })
 })
 
@@ -89,6 +99,8 @@ describe('defaultFeeId', () => {
     expect(defaultFeeId('claude', 'max_5x')).toBe('max_5x')
     expect(defaultFeeId('claude', 'team_5x')).toBeNull()
     expect(defaultFeeId('chatgpt', 'pro')).toBe('pro')
+    expect(defaultFeeId('chatgpt', 'prolite')).toBe('prolite')
+    expect(defaultFeeId('chatgpt', 'promax')).toBe('promax')
     expect(defaultFeeId('chatgpt', 'team')).toBeNull()
     expect(defaultFeeId('google', 'Google AI Ultra')).toBe('ultra_20x')
     expect(defaultFeeId('google', 'Google AI Ultra 5x')).toBe('ultra_5x')
