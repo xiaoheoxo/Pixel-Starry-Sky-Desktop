@@ -1,5 +1,8 @@
 // Subscription quotas and local API-price comparisons are separate measurements.
 export const quotaEstimateMessages = {
+  'quotaEst.reported.label': { zh: '账号实际额度', en: 'Reported account limits' },
+  'quotaEst.reported.used': { zh: '已用 {p}', en: '{p} used' },
+  'quotaEst.reported.awaiting': { zh: '已到恢复时间，等待更新', en: 'Reset time passed; awaiting update' },
   'quotaEst.left': { zh: '剩 {p}', en: '{p} left' },
   'quotaEst.emptyAt': { zh: '预计 {time} 用完', en: 'May run out around {time}' },
   'quotaEst.leftAtReset': { zh: '预计恢复时剩 {p}', en: 'Estimated {p} left at reset' },

@@ -407,3 +407,21 @@ it('separates the reported quota, conditional forecast, budget and local API com
   expect(html).not.toContain('还能跑')
   expect(html).not.toContain('约 328 轮')
 })
+
+it('shows five-hour and weekly account limits as separate reported rows, excluding model-specific windows', () => {
+  const html = render({})
+  expect(count(html, 'data-quota-reported=')).toBe(2)
+  expect(html).toMatch(/data-quota-reported="five_hour"[^]*?已用 42%[^]*?剩 58%[^]*?16:45 恢复/)
+  expect(html).toMatch(/data-quota-reported="seven_day"[^]*?已用 18%[^]*?剩 82%[^]*?周四 09:00 恢复/)
+  expect(html.indexOf('data-quota-reported="seven_day"')).toBeLessThan(html.indexOf('role="progressbar"'))
+})
+
+it('only shows supported account windows and does not report zero for an expired reading', () => {
+  const html = render({
+    q: quota({ provider: 'chatgpt', plan: 'prolite', windows: [win(10_080, 80, at(14, 31))] }),
+  })
+  expect(count(html, 'data-quota-reported=')).toBe(1)
+  const row = html.match(/data-quota-reported="seven_day"[^]*?<\/li>/)?.[0]
+  expect(row).toContain('已到恢复时间，等待更新')
+  expect(row).not.toContain('0%')
+})

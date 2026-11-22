@@ -1,6 +1,6 @@
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import { Check, ChevronRight, ExternalLink, RefreshCw, Settings, X } from 'lucide-react'
-import type { AccountQuota, QuotaProvider, QuotaResetCredits } from '@pixelsky/protocol'
+import { QUOTA_WINDOW_MINS, type AccountQuota, type QuotaProvider, type QuotaResetCredits } from '@pixelsky/protocol'
 import { translateMessage, tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { cn, PlanBadge } from '@/ui'
@@ -11,10 +11,13 @@ import {
   percentText,
   planBadge,
   resetClock,
+  resetShort,
   providerTitle,
+  quotaEntries,
   quotaLayout,
   type PlanLimit,
   type QuotaCard,
+  type QuotaEntry,
   type QuotaLevel,
   type QuotaRow,
 } from './quotaModel'
@@ -92,6 +95,15 @@ export function QuotaPanel({
   const layout =
     quota && quota.status !== 'unsupported' ? quotaLayout(quota, { provider, now, balanceText, planLimits }) : null
   const hasData = !!layout && (layout.cards.length > 0 || layout.rows.length > 0)
+  const reported =
+    quota && layout && provider !== 'platform'
+      ? quotaEntries(quota, now).filter(
+          entry =>
+            entry.kind === 'window' &&
+            (entry.durationMins === QUOTA_WINDOW_MINS.fiveHour || entry.durationMins === QUOTA_WINDOW_MINS.week),
+        )
+      : []
+
   const failed = quota?.status === 'error'
   const waiting = !hasData && loading
   const plan = quota ? planBadge(provider, quota.plan) : null
@@ -179,6 +191,7 @@ export function QuotaPanel({
           </p>
         ) : (
           <>
+            {reported.length > 0 && <ReportedWindows windows={reported} now={now} />}
             {layout.cards.length > 0 && (
               <div className={cn('grid gap-2', layout.cards.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
                 {layout.cards.map(card => (
@@ -368,6 +381,41 @@ function FootButton({
     >
       {children}
     </button>
+  )
+}
+
+/** Use the server's actual windows, not predictions, plan labels or model-specific buckets. */
+function ReportedWindows({ windows, now }: { windows: QuotaEntry[]; now: number }) {
+  return (
+    <ul
+      aria-label={tr('quotaEst.reported.label')}
+      className="mb-2 divide-y divide-line-subtle rounded-lg bg-subtle px-2.5"
+    >
+      {windows.map(window => (
+        <li
+          key={window.id}
+          data-quota-reported={window.id}
+          className="flex min-h-7 min-w-0 items-center gap-x-2 text-label tabular-nums"
+        >
+          <span className="min-w-0 truncate font-medium">{window.name}</span>
+          {window.expired ? (
+            <span className="ml-auto shrink-0 text-fg-muted">{tr('quotaEst.reported.awaiting')}</span>
+          ) : (
+            <>
+              <span className={cn('shrink-0', TEXT[window.level])}>
+                {tr('quotaEst.reported.used', { p: percentText(window.percent) })}
+              </span>
+              <span className="shrink-0 text-fg-muted">
+                {tr('quotaEst.left', { p: percentText(100 - window.percent) })}
+              </span>
+              {window.resetsAt !== null && (
+                <span className="ml-auto shrink-0 text-fg-muted">{resetShort(window.resetsAt, now)}</span>
+              )}
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }
 
