@@ -4,6 +4,7 @@ import type { Effort, SubagentAdvisor } from '@pixelsky/protocol'
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { effortLabel } from '@/features/engine/labels'
+import { modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Select, Switch } from '@/ui'
@@ -80,7 +81,11 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
               onChange={id => save({ subagentAdvisor: { ...advisor, evaluator: id || null } })}
               options={[
                 { value: '', label: tr('subagentRoute.advisor.local') },
-                ...models.map(m => ({ value: m.id, label: m.label || m.id })),
+                ...models.map(m => ({
+                  value: m.id,
+                  label: m.label || m.id,
+                  description: modelRoleGuide(m.id)?.evaluator,
+                })),
               ]}
             />
             {advisor.evaluator && <p className="text-label text-fg-muted">{tr('subagentRoute.advisor.remoteHint')}</p>}
@@ -100,8 +105,12 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
                         save({ subagentAdvisor: { ...advisor, models: next } })
                       }}
                       options={[
-                        { value: '', label: tr('subagentRoute.advisor.auto') },
-                        ...models.map(m => ({ value: m.id, label: m.label || m.id })),
+                        { value: '', label: tr('subagentRoute.advisor.noAdvice') },
+                        ...models.map(m => ({
+                          value: m.id,
+                          label: m.label || m.id,
+                          description: modelRoleGuide(m.id)?.main,
+                        })),
                       ]}
                     />
                   </div>

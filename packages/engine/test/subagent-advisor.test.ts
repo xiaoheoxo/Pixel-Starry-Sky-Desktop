@@ -1,23 +1,52 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseSubagentAdvisor } from '@pixelsky/protocol'
-import { evaluateDifficulty, localDifficulty, recommendSubagent, subagentAdvice } from '../src/codex/subagent-advisor'
+import {
+  evaluateDifficulty,
+  hasConfiguredSubagent,
+  localDifficulty,
+  recommendSubagent,
+  subagentAdvice,
+} from '../src/codex/subagent-advisor'
 
 describe('Agnes advisory model selection', () => {
   const defaults = { evaluator: null, models: [null, null, null] } as const
   const cfg = parseSubagentAdvisor(defaults)!
-  it('keeps small edits on cheaper workers and complex work away from unsupported or lower tiers', () => {
+  it('classifies common task shapes', () => {
     expect(localDifficulty('修正按钮上的错别字', false)).toBe('light')
     expect(localDifficulty('补齐当前播放页', false)).toBe('medium')
     expect(localDifficulty('修复跨平台竞态', false)).toBe('difficult')
     expect(localDifficulty('改标题', true)).toBe('difficult')
-    const catalog = ['gpt-6.1-terra', 'gpt-6.2-sol', 'gpt-6.2-astra']
-    expect(recommendSubagent('light', cfg, catalog)).toBe('gpt-6.1-terra')
-    expect(recommendSubagent('medium', cfg, catalog)).toBe('gpt-6.2-sol')
-    expect(recommendSubagent('difficult', cfg, ['gpt-6.1-terra'])).toBeNull()
-    expect(
-      recommendSubagent('light', { evaluator: null, models: ['custom', null, null] }, [...catalog, 'custom']),
-    ).toBe('custom')
-    expect(subagentAdvice('gpt-6.2-sol', 'medium')).toContain('Do not change the main model')
+  })
+
+  it('uses only exact user-configured IDs in the active catalog; empty tiers never fall back', () => {
+    const catalog = ['gpt-6.1-terra', 'gpt-6.2-sol', 'gpt-6.2-astra', 'custom']
+    const selected = parseSubagentAdvisor({ evaluator: 'gpt-6.2-astra', models: ['custom', null, 'gpt-6.2-sol'] })!
+    expect(hasConfiguredSubagent(cfg, catalog)).toBe(false)
+    expect(subagentAdvice('medium', cfg, catalog)).toBeNull()
+    expect(recommendSubagent('light', selected, catalog)).toBe('custom')
+    expect(recommendSubagent('medium', selected, catalog)).toBeNull()
+    expect(subagentAdvice('medium', selected, catalog)).toBeNull()
+    expect(recommendSubagent('difficult', selected, ['openai/gpt-6.2-sol'])).toBeNull()
+    expect(hasConfiguredSubagent(selected, ['openai/gpt-6.2-sol'])).toBe(false)
+    const advice = subagentAdvice('light', selected, catalog)
+    expect(advice).toContain('consider custom')
+    expect(advice).toContain('difficult: gpt-6.2-sol')
+    expect(advice).not.toContain('gpt-6.2-astra')
+    expect(advice).not.toContain('gpt-6.1-terra')
+  })
+
+  it('describes only configured, available IDs, even with another generation in the catalog', () => {
+    const catalog = ['gpt-6-astra', 'gpt-6.2-astra', 'gpt-6.5-astra', 'custom-worker']
+    const settings = parseSubagentAdvisor({
+      evaluator: 'gpt-6-astra',
+      models: ['custom-worker', null, 'gpt-6.5-astra'],
+    })!
+    const advice = subagentAdvice('difficult', settings, catalog)!
+    expect(advice).toContain('gpt-6.5-astra (Astra family:')
+    expect(advice).not.toContain('gpt-6-astra')
+    expect(advice).not.toContain('gpt-6.2-astra')
+    expect(advice).toContain('light: custom-worker;')
+    expect(advice).not.toContain('custom-worker (')
   })
 
   it('uses the selected evaluator but accepts only a structured difficulty, never a model or tool decision', async () => {

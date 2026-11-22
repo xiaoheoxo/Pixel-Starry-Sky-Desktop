@@ -1,13 +1,7 @@
-import type { SubagentAdvisor } from '@pixelsky/protocol'
+import { getModelRoleGuide, type SubagentAdvisor } from '@pixelsky/protocol'
 
 export type Difficulty = 'light' | 'medium' | 'difficult'
 const tiers = ['light', 'medium', 'difficult'] as const
-const defaults = [
-  ['gpt-6.1-terra', 'gpt-6-luna'],
-  ['gpt-6.2-sol', 'gpt-6.1-sol', 'gpt-6-sol'],
-  ['gpt-6.2-astra', 'gpt-6-astra'],
-] as const
-
 /** Deterministic local baseline; unfamiliar or ambiguous work never defaults to the cheapest tier. */
 export function localDifficulty(text: string, hasAttachments: boolean): Difficulty {
   if (
@@ -32,15 +26,12 @@ export function recommendSubagent(
   settings: SubagentAdvisor,
   available: readonly string[],
 ): string | null {
-  const i = tiers.indexOf(tier)
-  // Do not silently substitute a lower tier when a higher capability is required.
-  for (let j = i; j < tiers.length; j++) {
-    const selected = settings.models[j]
-    const candidates = selected ? [selected, ...defaults[j]!] : defaults[j]!
-    const match = candidates.find(model => available.includes(model))
-    if (match) return match
-  }
-  return null
+  const configured = settings.models[tiers.indexOf(tier)]
+  return configured && available.includes(configured) ? configured : null
+}
+
+export function hasConfiguredSubagent(settings: SubagentAdvisor, available: readonly string[]): boolean {
+  return settings.models.some(model => model !== null && available.includes(model))
 }
 
 export const advisorPrompt = (text: string): string =>
@@ -83,19 +74,18 @@ export async function evaluateDifficulty(
 }
 
 export function subagentAdvice(
-  model: string,
   difficulty: Difficulty,
-  settings?: SubagentAdvisor,
-  catalog: readonly string[] = [],
-): string {
-  const available = settings
-    ? tiers.flatMap(tier => {
-        const worker = recommendSubagent(tier, settings, catalog)
-        return worker ? [`${tier}: ${worker}`] : []
-      })
-    : []
-  const routing = available.length
-    ? ` Classify each delegated subtask independently; even a difficult request can have cheap subtasks. Available recommendations: ${available.join('; ')}.`
-    : ''
-  return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. If delegation is useful and the tool lets you choose a model, consider ${model} for work of this complexity instead of inheriting the conversation model.${routing} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. If a separate model cannot be selected, continue normally.`
+  settings: SubagentAdvisor,
+  catalog: readonly string[],
+): string | null {
+  const model = recommendSubagent(difficulty, settings, catalog)
+  if (!model) return null
+  const available = tiers.flatMap(tier => {
+    const worker = recommendSubagent(tier, settings, catalog)
+    if (!worker) return []
+    const role = getModelRoleGuide(worker, 'en')?.main
+    return [role ? `${tier}: ${worker} (${role})` : `${tier}: ${worker}`]
+  })
+  const routing = ` Classify each delegated subtask independently; even a difficult request can have cheap subtasks. Available recommendations: ${available.join('; ')}.`
+  return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. If delegation is useful and the tool lets you choose a model, consider ${model} for work of this complexity instead of inheriting the conversation model.${routing} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. Only consider the listed models. If no recommendation is listed for a subtask, or a separate model cannot be selected, continue with the normal Codex behavior.`
 }

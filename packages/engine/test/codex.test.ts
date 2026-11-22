@@ -1699,6 +1699,35 @@ describe('Codex app-server adapter', () => {
     )
     expect(host!.open(session.id).items.some(item => item.kind === 'user' && item.text === '帮我整理这一页')).toBe(true)
   })
+  it('Agnes sends no evaluator request or advice when no configured model is available', async () => {
+    const { adapter, session, messages } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: { subagentAdvisor: { evaluator: 'fake-plain', models: ['missing-worker', null, null] } },
+    })
+    const evaluate = vi.spyOn(adapter, 'oneShot')
+    await host!.send(session.id, '帮我整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(messages().find(m => m.method === 'turn/start')?.params.input).toEqual([
+      expect.objectContaining({ type: 'text', text: '帮我整理这一页' }),
+    ])
+  })
+  it('Agnes does not send advice from a model removed while the evaluator was running', async () => {
+    const launch: Partial<CodexLaunchOptions> = {
+      subagentAdvisor: { evaluator: 'fake-plain', models: [null, 'fake-plain', null] },
+    }
+    const { adapter, session, messages } = setup(50, { env: { FAKE_CODEX_PROVIDER: 'openai' }, launch })
+    vi.spyOn(adapter, 'oneShot').mockImplementation(async () => {
+      launch.subagentAdvisor = null
+      return { model: 'fake-plain', text: '{"difficulty":"medium"}', usage: null }
+    })
+    await host!.send(session.id, '帮我整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(adapter.oneShot).toHaveBeenCalledOnce()
+    expect(messages().find(m => m.method === 'turn/start')?.params.input).toEqual([
+      expect.objectContaining({ type: 'text', text: '帮我整理这一页' }),
+    ])
+  })
   it('Ultrafast：config.toml 没写模型、会话跟随默认时按目录的默认模型算', async () => {
     const { session, messages } = setup(50, { env: { ...ULTRA, FAKE_CODEX_NO_MODEL: '1' }, model: null })
     await host!.update(session.id, { fast: true, ultrafast: true })

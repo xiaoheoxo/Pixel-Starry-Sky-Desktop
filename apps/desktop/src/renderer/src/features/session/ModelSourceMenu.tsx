@@ -63,6 +63,7 @@ import {
   executorName,
   showTriggerSource,
 } from '@/features/model-channels/channelLabels'
+import { modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
@@ -388,6 +389,7 @@ export function ModelSourceMenu({
           title={rowTitle(c, row)}
           mono={c === 'platform'}
           desc={rowDesc(c, row)}
+          guide={modelRoleGuide(row.target.model)}
           descMono={c === 'custom'}
           meta={rowMeta(c, row)}
           query={query}
@@ -428,6 +430,7 @@ export function ModelSourceMenu({
                 indent
                 mono
                 title={m.id}
+                guide={modelRoleGuide(m.id)}
                 selected={m.id === live.model}
                 active={i === active}
                 onPick={pickModel}
@@ -684,7 +687,12 @@ export function ModelSourceMenu({
   /** 搜索：所有显示的通道里找，按通道分组；这个对话跑不了的按通道数一下 */
   const renderSearch = (): ReactNode => {
     const found = searchChannels(channels, query, (g, row) =>
-      [rowTitle(g.channel, row), row.target.model ?? '', rowDesc(g.channel, row) ?? ''].join(' '),
+      [
+        rowTitle(g.channel, row),
+        row.target.model ?? '',
+        rowDesc(g.channel, row) ?? '',
+        modelRoleGuide(row.target.model)?.main ?? '',
+      ].join(' '),
     )
     if (!found.length)
       return <Empty title={tr('modelChannels.menu.noMatch')}>{tr('modelChannels.menu.noMatchHint')}</Empty>
@@ -723,7 +731,15 @@ export function ModelSourceMenu({
       return live.channel === 'custom' && endpoint && endpoint.models.length > 1 ? endpoint.models.length : 0
     return live.channel === g.channel && live.model && !g.rows.some(r => r.target.model === live.model) ? 1 : 0
   }
-  const listPx = listRows(channels, extraRows) * MENU_ROW + 4
+  const listPx =
+    listRows(channels, g => {
+      const described =
+        g.rows.filter(row => modelRoleGuide(row.target.model)).length +
+        (g.channel === 'custom' && extraRows(g) ? (endpoint?.models.filter(m => modelRoleGuide(m.id)).length ?? 0) : 0)
+      return extraRows(g) + described * (GUIDED_MODEL_EXTRA_PX / MENU_ROW)
+    }) *
+      MENU_ROW +
+    4
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.nativeEvent.isComposing) return
@@ -1178,12 +1194,15 @@ function AccountTag({
   )
 }
 
-/** 菜单里的一行（30px 单行）：勾、名字、淡色说明，右边倍率 / 线路数和执行者 */
+const GUIDED_MODEL_EXTRA_PX = 12
+
+/** 勾、模型名、来源和可选的用途说明，右侧保留倍率和执行者。 */
 function ModelRow({
   title,
   mono,
   desc,
   descMono,
+  guide,
   meta,
   chip,
   query = '',
@@ -1199,6 +1218,7 @@ function ModelRow({
   mono?: boolean
   desc?: string
   descMono?: boolean
+  guide?: ReturnType<typeof modelRoleGuide>
   meta?: ReactNode
   chip?: ReactNode
   query?: string
@@ -1217,10 +1237,17 @@ function ModelRow({
       data-model-row
       data-active={active || undefined}
       data-selected={selected || undefined}
-      title={off ? offTitle : undefined}
+      title={
+        off && offTitle
+          ? offTitle
+          : guide
+            ? `${guide.main} ${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}`
+            : undefined
+      }
       onMouseEnter={onHover}
+      style={{ minHeight: MENU_ROW + (guide ? GUIDED_MODEL_EXTRA_PX : 0) }}
       className={cn(
-        'group flex h-[30px] items-center gap-2 rounded-md pr-1.5',
+        'group flex items-center gap-2 rounded-md pr-1.5',
         indent ? 'pl-6' : 'pl-1.5',
         selected ? 'bg-selected' : active && 'bg-hover',
       )}
@@ -1236,20 +1263,29 @@ function ModelRow({
         <span className="flex w-3.5 shrink-0 justify-center">
           {selected && <Check size={13} strokeWidth={2.25} className="text-accent-fg" />}
         </span>
-        <span
-          className={cn(
-            'min-w-0 truncate',
-            mono ? 'font-mono text-meta' : 'text-ui',
-            off ? 'text-fg-faint' : 'text-fg',
-          )}
-        >
-          <Mark text={title} query={query} />
-        </span>
-        {desc && (
-          <span className={cn('min-w-0 flex-1 truncate text-label text-fg-faint', descMono && 'font-mono')}>
-            <Mark text={desc} query={query} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span
+              className={cn(
+                'min-w-0 truncate',
+                mono ? 'font-mono text-meta' : 'text-ui',
+                off ? 'text-fg-faint' : 'text-fg',
+              )}
+            >
+              <Mark text={title} query={query} />
+            </span>
+            {desc && (
+              <span className={cn('min-w-0 flex-1 truncate text-label text-fg-faint', descMono && 'font-mono')}>
+                <Mark text={desc} query={query} />
+              </span>
+            )}
           </span>
-        )}
+          {guide && (
+            <span className="block truncate text-label text-fg-muted">
+              <Mark text={guide.main} query={query} />
+            </span>
+          )}
+        </span>
       </button>
       {(meta || chip) && (
         <span className="flex shrink-0 items-center gap-1.5 text-label text-fg-muted tabular-nums">
