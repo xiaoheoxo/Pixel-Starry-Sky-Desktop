@@ -1,3 +1,4 @@
+export { parseSubagentAdvisor, type SubagentAdvisor } from './subagentAdvisor'
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {
   pixelSpeedCapability,

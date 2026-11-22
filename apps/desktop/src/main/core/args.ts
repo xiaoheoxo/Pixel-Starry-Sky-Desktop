@@ -154,6 +154,8 @@ export function engineConfigPatch(patch: unknown): EngineConfigPatch {
   if (typeof p.hidden === 'boolean') out.hidden = p.hidden
   if (typeof p.rememberChoices === 'boolean') out.rememberChoices = p.rememberChoices
   // Codex 子智能体、输入预测、自动用重置卡：取值由 EngineHost 查
+  if (p.subagentAdvisor === null || (p.subagentAdvisor && typeof p.subagentAdvisor === 'object'))
+    out.subagentAdvisor = p.subagentAdvisor as EngineConfigPatch['subagentAdvisor']
   if (p.subagentModel === null || typeof p.subagentModel === 'string') out.subagentModel = p.subagentModel
   if (p.autoReviewModel === null || typeof p.autoReviewModel === 'string') out.autoReviewModel = p.autoReviewModel
   if (p.subagentEffort === null || typeof p.subagentEffort === 'string')

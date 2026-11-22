@@ -583,6 +583,10 @@ export class CodexAdapter implements EngineAdapter {
       ...this.sessionOptions(result.launcher, result.info.version ?? null),
       // 宿主的运行时里已经有（打开会话时从 rollout 读过，之后实时更新）：直接用，不再整读一遍 rollout。
       // 没有进程可接着跑了，还停在 running 的标成已中断（与 loadCodexRuns 一致）
+      evaluateSubagent: async (model, prompt, signal) => {
+        const reply = await this.oneShot({ model, prompt, requireEphemeral: true }, signal)
+        return reply.model && reply.model !== model ? '' : reply.text
+      },
       savedAgents: () =>
         ctx.runs
           ? ctx.runs().agents.map(agent => ({ ...interruptedAgent(agent) }))

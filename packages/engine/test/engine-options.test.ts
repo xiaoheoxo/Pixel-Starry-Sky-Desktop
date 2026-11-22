@@ -226,6 +226,18 @@ describe('本机引擎详情设置', () => {
     )
   })
 
+  it('Agnes settings are opt-in and validate evaluator and worker IDs independently', async () => {
+    const host = makeHost()
+    expect(host.engineConfig().codex.subagentAdvisor).toBeNull()
+    const config = { evaluator: 'gpt-6-luna', models: ['gpt-6.1-terra', 'gpt-6.2-sol', 'gpt-6.2-astra'] } as const
+    await host.setEngineConfig('codex', { subagentAdvisor: { ...config, models: [...config.models] } })
+    expect(host.engineConfig().codex.subagentAdvisor).toEqual(config)
+    await expect(
+      host.setEngineConfig('codex', { subagentAdvisor: { evaluator: 'invalid model', models: [null, null, null] } }),
+    ).rejects.toThrow('模型建议配置不对')
+    await host.setEngineConfig('codex', { subagentAdvisor: null })
+    expect(host.engineConfig().codex.subagentAdvisor).toBeNull()
+  })
   it('Codex 子智能体模型 / 强度：存指定的，null 不存；带空白、不认识的档位报错', async () => {
     const host = makeHost()
     expect(host.engineConfig().codex).toMatchObject({ subagentModel: null, subagentEffort: null })

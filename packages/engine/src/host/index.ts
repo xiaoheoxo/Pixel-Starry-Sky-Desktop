@@ -167,6 +167,7 @@ export class EngineHost {
             contextWindows: o.contextWindows,
             subagentModel: o.subagentModel,
             subagentEffort: o.subagentEffort,
+            subagentAdvisor: o.subagentAdvisor,
             inputPrediction: o.inputPrediction,
             autoReviewModel: o.autoReviewModel,
             steeringValidated: true,

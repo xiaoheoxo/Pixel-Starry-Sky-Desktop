@@ -265,6 +265,21 @@ export const subagentRouteMessages = {
     en: 'How many can run at once in a session; the rest wait in line.',
   },
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
+  'subagentRoute.advisor.title': { zh: 'Agnes 子智能体模型建议', en: 'Agnes subagent model advice' },
+  'subagentRoute.advisor.hint': {
+    zh: '按轻量、常规、困难三档建议子智能体模型。仅提供建议，不切换主模型，也不会自动派出子智能体。',
+    en: 'Suggest worker models for light, standard, and difficult tasks. Does not switch the main model or launch workers.',
+  },
+  'subagentRoute.advisor.evaluator': { zh: '难度评估方式', en: 'Difficulty evaluator' },
+  'subagentRoute.advisor.local': { zh: '本机规则（不发额外请求）', en: 'Local rules (no extra requests)' },
+  'subagentRoute.advisor.remoteHint': {
+    zh: '所选模型会通过当前 Codex 账号单独评估任务文本，可能消耗额度。附件和平台／自定义通道仅用本机规则；超时也会回退。',
+    en: 'The selected model evaluates task text in a separate Codex request that can use quota. Attachments, platform/custom routes and timeouts use local rules.',
+  },
+  'subagentRoute.advisor.auto': { zh: '自动选择', en: 'Choose automatically' },
+  'subagentRoute.advisor.light': { zh: '轻量任务', en: 'Light tasks' },
+  'subagentRoute.advisor.medium': { zh: '常规任务', en: 'Standard tasks' },
+  'subagentRoute.advisor.difficult': { zh: '困难任务', en: 'Difficult tasks' },
   'subagentRoute.codex.title': { zh: 'Codex 子智能体', en: 'Codex subagents' },
   'subagentRoute.codex.hint': {
     zh: 'Codex 派出的子智能体用这个模型，主会话不变；跟随主会话时 Astra 会派出一批 Astra。只影响之后派出的；自带模型的角色（explorer）不受影响。',

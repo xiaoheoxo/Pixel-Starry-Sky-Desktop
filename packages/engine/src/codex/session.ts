@@ -1,3 +1,4 @@
+import { evaluateDifficulty, localDifficulty, recommendSubagent, subagentAdvice } from './subagent-advisor'
 import { GenTimer } from '../genTimer'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -72,6 +73,8 @@ export interface CodexLaunchOptions {
   /** 派出的子智能体用的模型 / 推理强度（docs/ui/codex-subagent-model.md）；不给跟随主会话 */
   subagentModel?: string | null
   subagentEffort?: Effort | null
+  subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
+  evaluateSubagent?: (model: string, prompt: string, signal: AbortSignal) => Promise<string>
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
   inputPrediction?: 'off' | 'cheap' | 'same'
   /** 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给用对话的模型 */
@@ -1169,6 +1172,26 @@ export class CodexSession implements EngineSession {
       // 模型不能看图：host 以为带上的图片被丢掉了，告诉用户
       if (seed && !sees) this.droppedImages(injected ? seedImageCount(seed) : (seed.fallbackImages?.length ?? 0))
       if (!this.active || this.active !== active || this.closed) return
+      const advisor = this.options.subagentAdvisor
+      const available = this.catalog?.models?.map(model => model.id) ?? []
+      let advice: string | null = null
+      if (advisor && available.length && text.trim() && !text.trimStart().startsWith('/')) {
+        let tier = localDifficulty(text, attachments.length > 0)
+        const evaluate = this.options.evaluateSubagent
+        // Keep custom/platform prompts on their chosen route, and don't send attachments to the assessor.
+        if (
+          !attachments.length &&
+          !viaGateway(this.ctx.record()) &&
+          (this.catalog?.currentProvider ?? 'openai') === 'openai' &&
+          advisor.evaluator &&
+          evaluate &&
+          available.includes(advisor.evaluator)
+        )
+          tier = (await evaluateDifficulty(advisor.evaluator, text, evaluate)) ?? tier
+        if (this.active !== active || this.closed) return
+        const model = recommendSubagent(tier, advisor, available)
+        if (model) advice = subagentAdvice(model, tier, advisor, available)
+      }
       const collab = this.collaboration()
       const tier = this.serviceTier()
       log.info('Codex 这一轮的服务档位', {
@@ -1181,7 +1204,7 @@ export class CodexSession implements EngineSession {
       const result = await this.proc!.request('turn/start', {
         threadId: this.threadId,
         clientUserMessageId: userItemId,
-        input: this.input(body, images),
+        input: [...(advice ? [{ type: 'text', text: advice }] : []), ...this.input(body, images)],
         ...codexPermission(this.settings.permissionMode, this.ctx.record().cwd, this.ctx.record().extraDirs),
         ...this.reviewer(),
         ...(this.settings.model ? { model: this.settings.model } : {}),

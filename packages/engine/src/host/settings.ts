@@ -1,3 +1,4 @@
+import { parseSubagentAdvisor } from '@pixelsky/protocol'
 // 引擎设置：默认值、本机配置、引擎级启动选项、重试次数（docs/ui/engine-settings-redesign.md）
 // 设置对象每次修改都整体替换；适配器的回调每次都读 this.file，拿到的总是最新值。
 import {
@@ -205,6 +206,7 @@ export class HostSettings {
     peekSessions: PeekScope
     subagentModel: string | null
     subagentEffort: Effort | null
+    subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
     inputPrediction: InputPrediction
     autoReviewModel: string | null
   } {
@@ -220,6 +222,7 @@ export class HostSettings {
       peerMessages: o.peerMessages === true,
       peekSessions: o.peekSessions === 'project' || o.peekSessions === 'all' ? o.peekSessions : 'off',
       subagentModel: typeof o.subagentModel === 'string' && o.subagentModel ? o.subagentModel : null,
+      ...(engine === 'codex' ? { subagentAdvisor: parseSubagentAdvisor(o.subagentAdvisor) } : {}),
       subagentEffort: EFFORTS.includes(o.subagentEffort as Effort) ? (o.subagentEffort as Effort) : null,
       inputPrediction: o.inputPrediction === 'cheap' || o.inputPrediction === 'same' ? o.inputPrediction : 'off',
       autoReviewModel: typeof o.autoReviewModel === 'string' && o.autoReviewModel ? o.autoReviewModel : null,
@@ -411,6 +414,13 @@ export class HostSettings {
       if (engine !== 'codex' || (r !== null && !validResetAuto(r))) throw new Error('「自动用重置卡」的值不对')
       if (r) options.resetCreditAuto = { threshold: r.threshold, minLeftHours: r.minLeftHours, perWeek: r.perWeek }
       else delete options.resetCreditAuto
+    }
+    if (patch.subagentAdvisor !== undefined) {
+      const advisor = parseSubagentAdvisor(patch.subagentAdvisor)
+      if (engine !== 'codex' || (!advisor && patch.subagentAdvisor !== null))
+        throw new Error('子智能体模型建议配置不对')
+      if (advisor) options.subagentAdvisor = advisor
+      else delete options.subagentAdvisor
     }
     if (patch.subagentEffort !== undefined) {
       const e = patch.subagentEffort

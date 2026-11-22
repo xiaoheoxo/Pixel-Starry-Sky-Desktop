@@ -130,13 +130,14 @@ export async function codexOneShot(
             excludeTurns: true,
           })
         : await proc.request('thread/start', { ...params, ephemeral: true }).catch((error: Error) => {
-            if (/ephemeral|unknown field|invalid params/i.test(error.message))
+            if (!req.requireEphemeral && /ephemeral|unknown field|invalid params/i.test(error.message))
               return proc.request('thread/start', params)
             throw error
           })
       const threadId = string(object(thread.thread).id)
       if (!threadId) throw new Error('Codex 没有开出线程')
       const model = string(thread.model) || req.model
+      if (req.requireEphemeral && model !== req.model) throw new Error('Codex selected a different evaluator model')
       // 线程记着协作模式：会话在计划模式时分叉出来仍按计划的说明走，旁聊这一轮显式切回默认
       const mode =
         fork && model
@@ -150,6 +151,21 @@ export async function codexOneShot(
       await proc.request('turn/start', {
         threadId,
         input: [{ type: 'text', text: req.prompt }],
+        ...(req.requireEphemeral
+          ? {
+              model: req.model,
+              sandboxPolicy: {
+                type: 'readOnly',
+                access: { type: 'restricted', includePlatformDefaults: false, readableRoots: [home] },
+              },
+              outputSchema: {
+                type: 'object',
+                properties: { difficulty: { type: 'string', enum: ['light', 'medium', 'difficult'] } },
+                required: ['difficulty'],
+                additionalProperties: false,
+              },
+            }
+          : {}),
         ...(fork?.effort ? { effort: fork.effort } : {}),
         ...mode,
       })

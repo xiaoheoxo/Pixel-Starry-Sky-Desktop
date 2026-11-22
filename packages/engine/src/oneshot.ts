@@ -5,6 +5,7 @@
 export interface OneShotRequest {
   prompt: string
   model: string | null
+  requireEphemeral?: true
 }
 
 export interface OneShotUsage {

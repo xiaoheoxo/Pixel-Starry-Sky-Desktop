@@ -1,12 +1,12 @@
 // 设置 › 本机引擎 › Codex › Codex 子智能体（docs/ui/codex-subagent-model.md）：Codex 派出的子智能体统一用哪个模型 / 强度，
 // 主会话不变。存在引擎级设置（engine:setConfig 的 subagentModel / subagentEffort），启动 Codex 时经 agents.default_subagent_* 传给它
-import type { Effort } from '@pixelsky/protocol'
+import type { Effort, SubagentAdvisor } from '@pixelsky/protocol'
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { effortLabel } from '@/features/engine/labels'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
-import { Select } from '@/ui'
+import { Select, Switch } from '@/ui'
 
 export function CodexSubagentCard({ onError }: { onError: (message: string | null) => void }) {
   useI18n()
@@ -14,8 +14,13 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
   const catalog = useEngineCatalog('codex')
   const models = catalog?.models ?? []
   const model = config?.subagentModel ?? ''
+  const advisor = config?.subagentAdvisor ?? null
   const efforts = models.find(m => m.id === model)?.efforts ?? []
-  const save = (patch: { subagentModel?: string | null; subagentEffort?: Effort | null }): void => {
+  const save = (patch: {
+    subagentModel?: string | null
+    subagentEffort?: Effort | null
+    subagentAdvisor?: SubagentAdvisor | null
+  }): void => {
     onError(null)
     void bridge
       ?.setConfig('codex', patch)
@@ -52,6 +57,58 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
               ...efforts.map(e => ({ value: e, label: effortLabel(e) })),
             ]}
           />
+        )}
+      </div>
+      <div className="@container space-y-2 border-t border-line-card px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h5 className="text-ui font-medium">{tr('subagentRoute.advisor.title')}</h5>
+            <p className="mt-1 text-label text-fg-muted">{tr('subagentRoute.advisor.hint')}</p>
+          </div>
+          <Switch
+            label={tr('subagentRoute.advisor.title')}
+            checked={!!advisor}
+            onChange={on => save({ subagentAdvisor: on ? { evaluator: null, models: [null, null, null] } : null })}
+          />
+        </div>
+        {advisor && (
+          <>
+            <div className="text-label text-fg-muted">{tr('subagentRoute.advisor.evaluator')}</div>
+            <Select
+              label={tr('subagentRoute.advisor.evaluator')}
+              value={advisor.evaluator ?? ''}
+              onChange={id => save({ subagentAdvisor: { ...advisor, evaluator: id || null } })}
+              options={[
+                { value: '', label: tr('subagentRoute.advisor.local') },
+                ...models.map(m => ({ value: m.id, label: m.label || m.id })),
+              ]}
+            />
+            {advisor.evaluator && <p className="text-label text-fg-muted">{tr('subagentRoute.advisor.remoteHint')}</p>}
+            <div className="grid grid-cols-1 gap-2 @[550px]:grid-cols-3">
+              {([0, 1, 2] as const).map(i => {
+                const key = (['light', 'medium', 'difficult'] as const)[i]
+                const label = tr(`subagentRoute.advisor.${key}`)
+                return (
+                  <div key={key} className="min-w-0">
+                    <div className="mb-1 text-label text-fg-muted">{label}</div>
+                    <Select
+                      label={label}
+                      value={advisor.models[i] ?? ''}
+                      onChange={id => {
+                        const next: SubagentAdvisor['models'] = [...advisor.models]
+                        next[i] = id || null
+                        save({ subagentAdvisor: { ...advisor, models: next } })
+                      }}
+                      options={[
+                        { value: '', label: tr('subagentRoute.advisor.auto') },
+                        ...models.map(m => ({ value: m.id, label: m.label || m.id })),
+                      ]}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
       {!models.length && <p className="px-4 pb-3 text-label text-fg-faint">{tr('subagentRoute.codex.noCatalog')}</p>}

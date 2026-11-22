@@ -1669,6 +1669,36 @@ describe('Codex app-server adapter', () => {
     await wait(() => host!.open(gateway.session.id).state === 'idle')
     expect(gateway.launches().at(-1)!.join(' ')).not.toContain('default_subagent')
   })
+  it('Agnes asks the selected evaluator, advises only a catalog worker, and leaves the main model unchanged', async () => {
+    const { adapter, session, messages } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: { subagentAdvisor: { evaluator: 'fake-plain', models: [null, 'fake-plain', null] } },
+    })
+    const evaluate = vi.spyOn(adapter, 'oneShot').mockResolvedValue({
+      model: 'fake-plain',
+      text: '{"difficulty":"medium"}',
+      usage: null,
+    })
+    await host!.send(session.id, '帮我整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'fake-plain',
+        requireEphemeral: true,
+        prompt: expect.stringContaining('帮我整理这一页'),
+      }),
+      expect.any(AbortSignal),
+    )
+    const input = messages().find(m => m.method === 'turn/start')?.params
+    expect(input.model).toBe('fake-codex')
+    expect(input.input).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('consider fake-plain') }),
+        expect.objectContaining({ text: '帮我整理这一页' }),
+      ]),
+    )
+    expect(host!.open(session.id).items.some(item => item.kind === 'user' && item.text === '帮我整理这一页')).toBe(true)
+  })
   it('Ultrafast：config.toml 没写模型、会话跟随默认时按目录的默认模型算', async () => {
     const { session, messages } = setup(50, { env: { ...ULTRA, FAKE_CODEX_NO_MODEL: '1' }, model: null })
     await host!.update(session.id, { fast: true, ultrafast: true })
