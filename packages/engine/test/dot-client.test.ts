@@ -235,19 +235,52 @@ describe('native Dot client', () => {
     })
   })
 
-  it('loads overview independently without touching the conversation history', async () => {
+  it('recovers sidebar files and work cards beyond the visible page without changing message cursors', async () => {
     const { request } = setup({
       '/backend-api/tbo/dot/environment/status': { status: 'connected' },
-      '/backend-api/tbo/dot/activity?limit=5': { data: [] },
+      '/backend-api/tbo/dot/activity?limit=5': new Response('', { status: 404 }),
       '/backend-api/tbo/dot/tasks?limit=25': { data: [] },
+      '/backend-api/messaging/rooms/room/messages?limit=32': { items: [message('recent')], prev_cursor: 'older' },
+      '/backend-api/messaging/rooms/room/messages?limit=32&before=older': {
+        items: [
+          {
+            ...message('old'),
+            content: {
+              attachments: [
+                { type: 'file', file_id: 'output', file: { name: 'result.png' } },
+                { type: 'thread', thread_id: 'work-1' },
+              ],
+            },
+          },
+          {
+            ...message('other-user'),
+            account_user_id: 'human',
+            content: {
+              attachments: [
+                { type: 'thread', thread_id: 'not-ours' },
+                { type: 'file', file_id: 'user-upload' },
+              ],
+            },
+          },
+        ],
+      },
+      '/v1/threads/work-1': { thread: { id: 'work-1', name: 'Build result', status: { type: 'idle' } } },
+      '/v2/threads/work-1/turns?limit=1&sortDirection=desc&itemsView=notLoaded': { data: [{ status: 'completed' }] },
     })
     const adapter = new DotAdapter({ credentials: () => identity, fetch: request })
     const target = { id: 'dot', threadId: 'root' }
     expect(await adapter.readDot('account', target, { overviewOnly: true })).toMatchObject({
       history: { items: [], before: null },
-      overview: { activity: [], tasks: [], errors: [] },
+      overview: {
+        activity: null,
+        tasks: [],
+        errors: [],
+        roomOutputs: [{ fileId: 'output', name: 'result.png' }],
+        roomTasks: [{ id: 'work-1', title: 'Build result', status: 'completed' }],
+        roomContentPartial: false,
+      },
     })
-    expect(request.mock.calls.some(([input]) => String(input).includes('/messages'))).toBe(false)
+    expect(request.mock.calls.some(([input]) => String(input).includes('not-ours'))).toBe(false)
   })
 
   it('accepts the canonical ChatGPT user as the room member when account-user and user claims differ', async () => {

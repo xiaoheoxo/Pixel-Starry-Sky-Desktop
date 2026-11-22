@@ -20,7 +20,6 @@ import type { DotChatMessage, DotOverview } from '@pixelsky/engine'
 import type { DotEntry, DotLocalFile } from '../../../../shared/types/dot-chat'
 import { CopyButton, IconButton, Spinner, useToast } from '@/ui'
 import { Markdown } from '@/ui/markdown/Markdown'
-import { ActionMenu } from '@/ui/ActionMenu'
 import { ComposerArea } from '@/features/session/ComposerArea'
 import { CARD_STYLE } from '@/features/session/composerStyles'
 import '@/features/session/conversation.css'
@@ -50,6 +49,7 @@ import { VoiceButton, useVoiceInput } from '@/features/voice/useVoiceInput'
 import { DotFile, isDotImage } from './DotFile'
 import { DotComputer } from './DotComputer'
 import { DotDeliveryNotice } from './DotDeliveryNotice'
+import { DotAddMenu, chatGptReference } from './DotAddMenu'
 import './dot.css'
 
 function readDraft(key: string): string {
@@ -83,6 +83,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const thumbUrls = useRef<Record<string, string>>({})
   thumbUrls.current = thumbs
+  const [reference, setReference] = useState<string | null>(null)
   const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null)
   const [computer, setComputer] = useState(false)
   const [details, setDetails] = useState(() => window.innerWidth > 940)
@@ -119,6 +120,16 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const lastReplyAt = history.findLast(row => row.role === 'assistant')?.createdAt
   const web = dotWebUrl(entry?.id)
   const name = entry?.name ?? tr('dot.yourDot')
+
+  const insertDraft = (value: string): void => setText(draft => (draft ? draft + '\n' + value : value))
+  const addReference = (): void => {
+    const url = chatGptReference(reference ?? '')
+    if (!url) return setError(tr('dot.add.invalidReference'))
+    insertDraft(url)
+    setError('')
+    setReference(null)
+    area.current?.focus()
+  }
 
   const readRemote = useCallback(
     async (options: { before?: string; catchUp?: boolean } = {}) => {
@@ -790,6 +801,38 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                     ))}
                   </div>
                 )}
+                {reference !== null && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-list outline-none focus:border-accent-line"
+                      value={reference}
+                      placeholder={tr('dot.add.referenceHint')}
+                      aria-label={tr('dot.add.reference')}
+                      onChange={e => setReference(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Escape') {
+                          setReference(null)
+                          area.current?.focus()
+                        }
+                        if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+                        e.preventDefault()
+                        addReference()
+                      }}
+                    />
+                    <button type="button" className="dot-small-button" onClick={addReference}>
+                      {tr('dot.add')}
+                    </button>
+                    <button
+                      type="button"
+                      className="dot-icon-button"
+                      aria-label={tr('dot.closeDetails')}
+                      onClick={() => setReference(null)}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
                 <div className="dot-composer-line">
                   <button
                     type="button"
@@ -862,6 +905,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
               workflows={snapshot?.runs.workflows}
               lastReplyAt={lastReplyAt}
               onOpenComputer={() => setComputer(true)}
+              onRefresh={() => void readOverview()}
             />
           </div>
         )}
@@ -873,14 +917,15 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         </div>
       )}
       {addMenu && (
-        <ActionMenu
+        <DotAddMenu
           {...addMenu}
-          label={tr('dot.add')}
+          web={web}
           onClose={() => setAddMenu(null)}
-          actions={[
-            { label: tr('dot.addFiles'), section: tr('dot.add'), icon: Paperclip, run: () => void pickFiles() },
-            { label: tr('dot.computer'), icon: Monitor, run: () => setComputer(true) },
-          ]}
+          onFiles={() => void pickFiles()}
+          onComputer={() => setComputer(true)}
+          onReference={() => setReference('')}
+          onPlugin={insertDraft}
+          onSettings={() => settings.openSettings('extensions')}
         />
       )}
     </main>

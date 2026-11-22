@@ -480,6 +480,12 @@ export class EngineHost {
     return this.m.sessions.createSession(opts, workspacePath)
   }
 
+  installedCodexPlugins(signal?: AbortSignal) {
+    const adapter = this.ctx.adapters.codex
+    if (!(adapter instanceof CodexAdapter)) throw new Error('Codex unavailable')
+    return adapter.installedPlugins(signal)
+  }
+
   /** 读取指定已保存账号的 Dot 列表，不改变 Codex 当前账号。 */
   dotCatalog(account: string, signal?: AbortSignal) {
     const adapter = this.ctx.adapters.dot

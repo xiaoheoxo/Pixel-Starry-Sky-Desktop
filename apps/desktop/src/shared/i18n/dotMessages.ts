@@ -10,6 +10,34 @@ export const dotMessages = {
   'dot.callName': { zh: '呼叫 {name}', en: 'Call {name}' },
   'dot.slack': { zh: '管理 Slack 连接', en: 'Manage Slack connection' },
   'dot.voice': { zh: '语音对话', en: 'Voice chat' },
+  'dot.partialRoomContent': {
+    zh: '这里只列出近期能读取的对话产物；在 ChatGPT 查看完整活动',
+    en: 'Showing available recent conversation outputs. View full activity in ChatGPT',
+  },
+  'dot.add.reference': { zh: '粘贴 ChatGPT 链接', en: 'Paste a ChatGPT link' },
+  'dot.add.referenceHint': {
+    zh: '粘贴对话、文件、页面或资料空间链接，仅加入草稿',
+    en: 'Paste a chat, file, page or space link to add to the draft',
+  },
+  'dot.add.invalidReference': {
+    zh: '请输入有效的 https://chatgpt.com 链接',
+    en: 'Enter a valid https://chatgpt.com link',
+  },
+  'dot.add.native': { zh: '在 ChatGPT 中选择插件、对话或资料', en: 'Pick plugins, chats or resources in ChatGPT' },
+  'dot.add.plugins': { zh: '编码插件', en: 'Coding plugins' },
+  'dot.add.pluginSettings': { zh: '查看本机插件配置', en: 'View local plugin settings' },
+  'dot.add.pluginRef': {
+    zh: '仅加入插件引用；不会在 Dot 中启用插件',
+    en: 'Add a plugin reference only; does not enable the plugin in Dot',
+  },
+  'dot.add.pluginDraft': {
+    zh: '如需使用此插件，请在对应的 {engine} 会话中运行：{id}',
+    en: 'If this plugin is needed, use it in a compatible {engine} session: {id}',
+  },
+  'dot.add.pluginLoading': { zh: '正在读取插件…', en: 'Loading plugins…' },
+  'dot.add.pluginUnavailable': { zh: '未能读取插件列表', en: 'Plugin list unavailable' },
+  'dot.add.noPlugins': { zh: '没有已安装的插件', en: 'No installed plugins' },
+  'dot.add.pluginDisabled': { zh: '已停用', en: 'Disabled' },
   'dot.activityUnavailable': {
     zh: '近期活动暂不可用，在 ChatGPT 查看',
     en: 'Recent activity unavailable. View in ChatGPT',

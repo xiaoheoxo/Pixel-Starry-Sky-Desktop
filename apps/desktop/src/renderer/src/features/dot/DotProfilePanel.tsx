@@ -44,6 +44,7 @@ export function DotProfilePanel({
   workflows = [],
   lastReplyAt,
   onOpenComputer,
+  onRefresh,
 }: {
   entry: DotEntry | null
   overview?: DotOverview
@@ -52,6 +53,7 @@ export function DotProfilePanel({
   workflows?: WorkflowRun[]
   lastReplyAt?: number
   onOpenComputer?: () => void
+  onRefresh?: () => void
 }) {
   const { locale } = useI18n()
   const web = dotWebUrl(entry?.id)
@@ -71,12 +73,15 @@ export function DotProfilePanel({
   for (const item of [...(overview?.tasks ?? []), ...(overview?.activity ?? [])]) {
     if (!recent.has(item.id)) recent.set(item.id, item)
   }
+  for (const task of overview?.roomTasks ?? []) {
+    if (!recent.has(task.id)) recent.set(task.id, task)
+  }
   // Verified workflow cards are still available when the optional recent activity feed is missing.
   for (const flow of [...workflows].sort((a, b) => b.startedAt - a.startedAt)) {
     if (!recent.has(flow.id)) recent.set(flow.id, { id: flow.id, title: flow.name, status: flow.status })
   }
   const uniqueFiles = new Map<string, DotAttachment>()
-  for (const file of outputs) {
+  for (const file of [...outputs, ...(overview?.roomOutputs ?? [])]) {
     const key = file.fileId || file.url || file.name
     if (!uniqueFiles.has(key)) uniqueFiles.set(key, file)
   }
@@ -130,7 +135,14 @@ export function DotProfilePanel({
         <span className="shrink-0 text-meta text-fg-muted">{tr('dot.view')}</span>
       </button>
       <section>
-        <h3>{tr('dot.recentTasks')}</h3>
+        <h3>
+          {tr('dot.recentTasks')}{' '}
+          {onRefresh && (
+            <button type="button" className="dot-small-button ml-2" onClick={onRefresh}>
+              {tr('dot.refresh')}
+            </button>
+          )}
+        </h3>
         {recentRows.length ? (
           <>
             {recentRows.slice(0, 5).map(renderTask)}
@@ -199,6 +211,13 @@ export function DotProfilePanel({
           <WebButton href={web} icon={Hash} label="Slack" title={tr('dot.slack')} />
         </div>
       </section>
+      {overview?.roomContentPartial && (
+        <p className="dot-panel-empty">
+          <a href={web} target="_blank" rel="noreferrer">
+            {tr('dot.partialRoomContent')}
+          </a>
+        </p>
+      )}
       {Array.from(new Set([...(overview?.errors ?? []), ...(overviewError ? [overviewError] : [])])).map((error, i) => (
         <p key={i} className={cn('text-meta text-warn', i === 0 && 'mt-2')}>
           {dotError(error)}

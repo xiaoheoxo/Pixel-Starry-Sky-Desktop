@@ -352,6 +352,7 @@ export class DotChatSessions {
     const known = this.knownFiles.get(key) ?? new Set<string>()
     for (const message of data.history.items)
       for (const file of message.attachments) if (file.type === 'file' && file.fileId) known.add(file.fileId)
+    for (const file of data.overview?.roomOutputs ?? []) if (file.fileId) known.add(file.fileId)
     while (known.size > 2000) known.delete(known.values().next().value!)
     this.knownFiles.set(key, known)
     return { ...data, entry: { ...entry, ...data.overview?.profile } }

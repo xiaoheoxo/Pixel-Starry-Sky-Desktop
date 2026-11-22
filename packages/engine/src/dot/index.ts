@@ -124,7 +124,7 @@ export class DotAdapter implements EngineAdapter {
         : client.history(dot, options.before, signal)
     const [history, overview] = await Promise.all([
       historyRequest,
-      options.overview || options.overviewOnly ? client.overview(dot, signal) : undefined,
+      options.overview || options.overviewOnly ? client.overview(dot, signal, options.overviewOnly) : undefined,
     ])
     return { history, ...(overview ? { overview } : {}) }
   }

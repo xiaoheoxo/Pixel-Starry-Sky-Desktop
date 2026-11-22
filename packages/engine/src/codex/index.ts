@@ -37,6 +37,7 @@ import { forkToProvider } from './provider-switch'
 import { describeError, logger } from '../log'
 import { parseCodexRateLimits } from './quota'
 import { codexCatalog } from './catalog'
+import { installedCodexPlugins } from './plugins'
 import { CodexCatalog } from './model-catalog'
 import { CodexSession, codexLaunchConfig, reservedCodexArg, tomlValue, type CodexLaunchOptions } from './session'
 import { CodexReader } from './reader'
@@ -232,6 +233,10 @@ export class CodexAdapter implements EngineAdapter {
    * 临时起一个 app-server 读某个账号：登录了没有、邮箱、套餐、额度（docs/ui/engine-accounts.md §3）。
    * 不复用读取进程：它跟着当前账号走
    */
+  async installedPlugins(signal?: AbortSignal) {
+    return installedCodexPlugins(await this.reader.request('plugin/list', {}, signal))
+  }
+
   async accountProbe(dir: string | null): Promise<AccountProbe> {
     const launcher = await this.loginLauncher()
     const proc = new CodexProcess(

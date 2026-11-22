@@ -148,6 +148,7 @@ export class Extensions {
       return value
     }
     // 只有插件页要显示钩子；会话的连接器面板（带 sessionId）不用每次读钩子文件
+    handle('codexPlugins', () => ctx.engine?.installedCodexPlugins(AbortSignal.timeout(12_000)) ?? [])
     handle('state', ref => service().state(project(ref), !(ref && typeof ref === 'object' && 'sessionId' in ref)))
     handle('save', raw => {
       const data = object(raw)

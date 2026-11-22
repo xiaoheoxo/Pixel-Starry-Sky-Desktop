@@ -860,6 +860,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
   artifacts,
   conversationExport,
   extensions: {
+    codexPlugins: () => call('extensions:codexPlugins'),
     state: ref => call('extensions:state', ref),
     save: data => call('extensions:save', data),
     import: data => call('extensions:import', data),

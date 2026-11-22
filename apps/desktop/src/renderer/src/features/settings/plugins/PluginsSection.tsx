@@ -57,9 +57,21 @@ export function PluginsSection() {
     [error, setError] = useState<string | null>(null),
     [update, setUpdate] = useState<string | null>(null),
     [nativeSkill, setNativeSkill] = useState('')
+  const [codexPlugins, setCodexPlugins] = useState<
+    Array<{ id: string; name: string; description: string; enabled: boolean }> | 'error' | null
+  >(null)
   const generation = useRef(0)
   const refresh = async (): Promise<void> => {
     const n = ++generation.current
+    if (bridge?.codexPlugins)
+      void bridge
+        .codexPlugins()
+        .then(next => {
+          if (n === generation.current) setCodexPlugins(next)
+        })
+        .catch(() => {
+          if (n === generation.current) setCodexPlugins('error')
+        })
     try {
       const next = await bridge?.state(workspace.ref)
       if (n === generation.current && next) {
@@ -568,6 +580,33 @@ export function PluginsSection() {
             </div>
           )
         })
+      )}
+      {tab === 'plugin' && range === 'global' && group !== 'managed' && (
+        <section className="flex flex-col gap-2" aria-label="Codex">
+          <h4 className="text-label text-fg-muted">Codex</h4>
+          {codexPlugins === null || codexPlugins === 'error' ? (
+            <p className="text-meta text-fg-muted">
+              {tr(codexPlugins === 'error' ? 'dot.add.pluginUnavailable' : 'dot.add.pluginLoading')}
+            </p>
+          ) : !codexPlugins.length ? (
+            <p className="text-meta text-fg-muted">{tr('dot.add.noPlugins')}</p>
+          ) : (
+            codexPlugins
+              .filter(p => `${p.name} ${p.description} ${p.id}`.toLowerCase().includes(query.toLowerCase()))
+              .map(p => (
+                <div key={p.id} className="flex items-center gap-3 rounded-md border border-line bg-surface p-3">
+                  <Puzzle size={18} className="shrink-0 text-fg-muted" />
+                  <div className="min-w-0 flex-1">
+                    <strong className="text-list">{p.name}</strong>
+                    <p className="break-words text-meta text-fg-muted">{p.description || p.id}</p>
+                  </div>
+                  <span className="text-meta text-fg-muted">
+                    {p.enabled ? t('已配置') : tr('dot.add.pluginDisabled')} · {t('只读')}
+                  </span>
+                </div>
+              ))
+          )}
+        </section>
       )}
       {!!state?.warnings.length && (
         <details className="text-meta text-warn">

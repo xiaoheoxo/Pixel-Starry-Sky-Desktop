@@ -11,6 +11,7 @@ import type {
 } from '@pixelsky/protocol'
 import type { WorkspaceRef } from '../shared/types/workspace'
 export interface ExtensionsBridge {
+  codexPlugins(): Promise<Array<{ id: string; name: string; description: string; enabled: boolean }>>
   state(ref?: WorkspaceRef | null): Promise<ExtensionState>
   save(data: ExtensionInput): Promise<ExtensionEntry>
   import(data: ExtensionImport): Promise<ExtensionEntry>

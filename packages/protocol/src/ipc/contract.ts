@@ -658,6 +658,7 @@ export const IPC_CONTRACT = {
   'extensions:reveal': { kind: 'invoke', route: 'local', trust: 'sender' },
   'extensions:save': { kind: 'invoke', route: 'local', trust: 'sender' },
   'extensions:skillText': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'extensions:codexPlugins': { kind: 'invoke', route: 'local', trust: 'sender' },
   'extensions:state': { kind: 'invoke', route: 'local', trust: 'sender' },
   'extensions:toggle': { kind: 'invoke', route: 'local', trust: 'sender' },
   'extensions:update': { kind: 'invoke', route: 'local', trust: 'sender' },

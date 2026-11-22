@@ -83,6 +83,9 @@ export interface DotOverview {
   activity: { id: string; title: string; status: string }[] | null
   tasks: { id: string; title: string; status: string }[] | null
   errors: string[]
+  roomOutputs?: DotAttachment[]
+  roomTasks?: DotWorkflow[]
+  roomContentPartial?: boolean
 }
 
 function httpsUrl(value: unknown): string | undefined {
@@ -309,6 +312,11 @@ export class DotClient {
 
   /** 原生历史按 before 向前翻页，与发送后用 after 等回复的读取分开。 */
   async history(dot: DotIdentity, before?: string, signal?: AbortSignal): Promise<DotHistoryPage> {
+    const { messages, cursor } = await this.historyPage(dot, before, signal)
+    return { items: this.toHistory(dot, messages), before: cursor, latest: messages.at(-1)?.id }
+  }
+
+  private async historyPage(dot: DotIdentity, before?: string, signal?: AbortSignal) {
     const connection = this.connection(dot)
     const query = new URLSearchParams({ limit: '32' })
     if (before) query.set('before', before)
@@ -325,7 +333,7 @@ export class DotClient {
     const messages = page.items.map(message).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
     const cursor = page.prev_cursor ? string(page.prev_cursor) : messages.length === 32 ? messages[0].id : null
     if (cursor && cursor === before) throw new Error('Dot history pagination repeated')
-    return { items: this.toHistory(dot, messages), before: cursor, latest: messages.at(-1)?.id }
+    return { messages, cursor }
   }
 
   /** Fetch all additions after a verified room's cursor, not just its newest 32 messages. */
@@ -355,7 +363,56 @@ export class DotClient {
       }))
   }
 
-  async overview(dot: DotIdentity, signal?: AbortSignal): Promise<DotOverview> {
+  /** Verified outputs and work cards survive restarts and are not limited to the visible transcript. */
+  private async recentRoomContent(dot: DotIdentity, ownerSignal?: AbortSignal) {
+    const signal = AbortSignal.any([...(ownerSignal ? [ownerSignal] : []), AbortSignal.timeout(12_000)])
+    const files = new Map<string, DotAttachment>()
+    const cards = new Map<string, DotMessage>()
+    const visited = new Set<string>()
+    let before: string | undefined
+    let partial = false
+    for (let page = 0; page < 4; page++) {
+      try {
+        const { messages, cursor } = await this.historyPage(dot, before, signal)
+        for (const message of messages.reverse()) {
+          if (message.account_user_id !== dot.memberId || message.deleted_at) continue
+          for (const raw of message.content.attachments ?? []) {
+            if (
+              raw.type === 'thread' &&
+              typeof raw.thread_id === 'string' &&
+              raw.thread_id &&
+              cards.size < 6 &&
+              !cards.has(raw.thread_id)
+            )
+              cards.set(raw.thread_id, message)
+            if (raw.type !== 'file') continue
+            const file = attachmentOf(raw)
+            if (file.fileId && !files.has(file.fileId)) files.set(file.fileId, file)
+          }
+        }
+        if (!cursor) break
+        if (visited.has(cursor) || page === 3) {
+          partial = true
+          break
+        }
+        visited.add(cursor)
+        before = cursor
+      } catch {
+        ownerSignal?.throwIfAborted()
+        partial = true
+        break
+      }
+    }
+    const tasks = await Promise.allSettled([...cards].map(([id, message]) => this.workflow(dot, message, id, signal)))
+    ownerSignal?.throwIfAborted()
+    return {
+      roomOutputs: [...files.values()],
+      roomTasks: tasks.flatMap(task => (task.status === 'fulfilled' ? [task.value] : [])),
+      roomContentPartial: partial || tasks.some(task => task.status === 'rejected'),
+    }
+  }
+
+  async overview(dot: DotIdentity, signal?: AbortSignal, includeRoom = false): Promise<DotOverview> {
     const connection = this.connection(dot)
     const path = `/tbo/${encodeURIComponent(dot.id)}`
     const errors: string[] = []
@@ -386,7 +443,7 @@ export class DotClient {
             typeof item.status === 'string' ? item.status : typeof item.state === 'string' ? item.state : 'unknown',
         }))
     }
-    const [environment, activity, tasks] = await Promise.all([
+    const [environment, activity, tasks, content] = await Promise.all([
       read(`${path}/environment/status`, data => ({
         status: string(data.status),
         capabilities: Array.isArray(data.capabilities)
@@ -395,8 +452,9 @@ export class DotClient {
       })),
       read(`${path}/activity?limit=5`, rows, true),
       read(`${path}/tasks?limit=25`, rows, true),
+      includeRoom ? this.recentRoomContent(dot, signal) : undefined,
     ])
-    return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors }
+    return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors, ...content }
   }
 
   async messages(dot: DotIdentity, after = '', signal?: AbortSignal): Promise<DotMessage[]> {
