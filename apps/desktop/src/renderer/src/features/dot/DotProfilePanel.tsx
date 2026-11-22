@@ -1,5 +1,6 @@
 import { ChevronDown, Hash, Mic, Monitor, Phone, type LucideIcon } from 'lucide-react'
 import type { DotAttachment, DotOverview } from '@pixelsky/engine'
+import type { WorkflowRun } from '@pixelsky/protocol'
 import type { DotEntry } from '../../../../shared/types/dot-chat'
 import { cn } from '@/ui'
 import { tr } from '@/i18n/core'
@@ -38,18 +39,24 @@ function WebButton({
 export function DotProfilePanel({
   entry,
   overview,
+  overviewError,
   outputs,
+  workflows = [],
+  lastReplyAt,
   onOpenComputer,
 }: {
   entry: DotEntry | null
   overview?: DotOverview
+  overviewError?: string
   outputs: DotAttachment[]
+  workflows?: WorkflowRun[]
+  lastReplyAt?: number
   onOpenComputer?: () => void
 }) {
   const { locale } = useI18n()
   const web = dotWebUrl(entry?.id)
   const name = entry?.name ?? 'Dot'
-  const active = entry?.lastActiveAt
+  const active = Math.max(entry?.lastActiveAt ?? 0, lastReplyAt ?? 0)
   const minutes = active ? Math.max(0, Math.floor((Date.now() - active) / 60_000)) : null
   const ago =
     minutes === null
@@ -60,9 +67,40 @@ export function DotProfilePanel({
         )
   const environment = overview?.environment
   const desktop = environment?.capabilities.find(c => c.type === 'remote_desktop')?.status ?? environment?.status
-  // 近期任务：有任务列表用它，没有时退回近期活动
-  const recent = overview?.tasks?.length ? overview.tasks : (overview?.activity ?? null)
-  const files = [...new Map(outputs.map(a => [a.fileId || a.url || a.name, a])).values()]
+  const recent = new Map<string, { id: string; title: string; status: string }>()
+  for (const item of [...(overview?.tasks ?? []), ...(overview?.activity ?? [])]) {
+    if (!recent.has(item.id)) recent.set(item.id, item)
+  }
+  // Verified workflow cards are still available when the optional recent activity feed is missing.
+  for (const flow of [...workflows].sort((a, b) => b.startedAt - a.startedAt)) {
+    if (!recent.has(flow.id)) recent.set(flow.id, { id: flow.id, title: flow.name, status: flow.status })
+  }
+  const uniqueFiles = new Map<string, DotAttachment>()
+  for (const file of outputs) {
+    const key = file.fileId || file.url || file.name
+    if (!uniqueFiles.has(key)) uniqueFiles.set(key, file)
+  }
+  const files = [...uniqueFiles.values()]
+  const recentRows = [...recent.values()]
+  const renderTask = (item: (typeof recentRows)[number]) => {
+    const tone = statusTone(item.status)
+    return (
+      <a
+        key={item.id}
+        href={web}
+        target="_blank"
+        rel="noreferrer"
+        className="dot-output-row"
+        title={dotStatus(item.status)}
+      >
+        <DotStatusIcon status={item.status} size={18} />
+        <span className={cn('min-w-0 flex-1 truncate', item.status === 'completed' && 'text-fg-muted')}>
+          {item.title || tr('dot.task')}
+        </span>
+        {(tone === 'warn' || tone === 'danger') && <DotStatusPill status={item.status} />}
+      </a>
+    )
+  }
   // 能取到的图片排成缩略图，其余排成行
   const pictures = files.filter(file => isDotImage(file) && file.fileId).slice(0, THUMBS)
   const rows = files.filter(file => !pictures.includes(file))
@@ -93,28 +131,27 @@ export function DotProfilePanel({
       </button>
       <section>
         <h3>{tr('dot.recentTasks')}</h3>
-        {recent?.length ? (
-          recent.map(item => {
-            const tone = statusTone(item.status)
-            return (
-              <a
-                key={item.id}
-                href={web}
-                target="_blank"
-                rel="noreferrer"
-                className="dot-output-row"
-                title={dotStatus(item.status)}
-              >
-                <DotStatusIcon status={item.status} size={18} />
-                <span className={cn('min-w-0 flex-1 truncate', item.status === 'completed' && 'text-fg-muted')}>
-                  {item.title || tr('dot.task')}
-                </span>
-                {(tone === 'warn' || tone === 'danger') && <DotStatusPill status={item.status} />}
-              </a>
-            )
-          })
+        {recentRows.length ? (
+          <>
+            {recentRows.slice(0, 5).map(renderTask)}
+            {recentRows.length > 5 && (
+              <details className="dot-more-outputs">
+                <summary>
+                  <ChevronDown size={15} />
+                  {tr('dot.showMore')}
+                </summary>
+                {recentRows.slice(5).map(renderTask)}
+              </details>
+            )}
+          </>
+        ) : overview?.tasks || overview?.activity ? (
+          <p className="dot-panel-empty">{tr('dot.noActivity')}</p>
+        ) : overview ? (
+          <a className="dot-panel-empty dot-web-link" href={web} target="_blank" rel="noreferrer">
+            {tr('dot.activityUnavailable')}
+          </a>
         ) : (
-          <p className="dot-panel-empty">{tr(recent ? 'dot.noActivity' : 'dot.notLoaded')}</p>
+          <p className="dot-panel-empty">{tr('dot.notLoaded')}</p>
         )}
       </section>
       <section>
@@ -162,7 +199,7 @@ export function DotProfilePanel({
           <WebButton href={web} icon={Hash} label="Slack" title={tr('dot.slack')} />
         </div>
       </section>
-      {overview?.errors.map((error, i) => (
+      {Array.from(new Set([...(overview?.errors ?? []), ...(overviewError ? [overviewError] : [])])).map((error, i) => (
         <p key={i} className={cn('text-meta text-warn', i === 0 && 'mt-2')}>
           {dotError(error)}
         </p>

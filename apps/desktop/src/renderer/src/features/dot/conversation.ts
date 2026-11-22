@@ -149,6 +149,7 @@ export async function readDropped(files: readonly File[], pathOf: (file: File) =
 }
 
 export function mergeDotHistory(previous: DotChatMessage[], incoming: DotChatMessage[]): DotChatMessage[] {
+  if (!incoming.length) return previous
   const messages = new Map(previous.map(m => [m.id, m]))
   for (const item of incoming) messages.set(item.id, item)
   return [...messages.values()].sort((a, b) => a.createdAt - b.createdAt)

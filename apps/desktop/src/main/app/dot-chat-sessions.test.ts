@@ -138,7 +138,13 @@ describe('Dot unread messages and dropped files', () => {
       renameSession: vi.fn(),
       open: (id: string) => ({ record: records.find(r => r.id === id), items: [] }),
       item: (_id: string, itemId: string) => (delivered.has(itemId) ? { id: itemId } : null),
-      readDot: vi.fn(async () => ({ history: { items, before: null } })),
+      readDot: vi.fn(async (_account, _entry, options: { after?: string } = {}) => ({
+        history: {
+          items: options.after ? items.slice(items.findIndex(row => row.id === options.after) + 1) : items,
+          before: null,
+          latest: items.at(-1)?.id,
+        },
+      })),
     }
     const service = new DotChatSessions(host as unknown as EngineHost, root, () => clock)
     const changes: unknown[] = []
@@ -190,6 +196,23 @@ describe('Dot unread messages and dropped files', () => {
       t.later(60_000)
       await t.service.poll()
       expect(t.changes).toHaveLength(1)
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
+
+  it('clears unread on an empty incremental read when the room is already caught up', async () => {
+    const t = await setup()
+    try {
+      t.service.snapshot(t.key)
+      await t.service.read(t.key, {})
+      t.arrive('m2', 200)
+      await t.service.read(t.key, { after: 'm1' })
+      expect((await t.service.catalog()).unread).toEqual([t.key])
+      await t.service.read(t.key, { after: 'm2', seen: true })
+      expect((await t.service.catalog()).unread).toEqual([])
+      await t.service.read(t.key, {})
+      expect(t.changes.at(-1)).toEqual({ unread: [] })
     } finally {
       rmSync(t.root, { recursive: true, force: true })
     }

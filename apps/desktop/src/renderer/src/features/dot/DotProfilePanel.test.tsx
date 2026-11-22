@@ -47,6 +47,35 @@ describe('Dot profile panel', () => {
     expect(html).toContain('Dot 已暂停或暂不可用')
     expect(html).not.toContain('pro@example.com')
   })
+  it('shows real conversation tasks when the optional activity list is missing', () => {
+    const html = renderToStaticMarkup(
+      <I18nProvider>
+        <DotProfilePanel
+          entry={entry}
+          overview={{ profile: entry, activity: null, tasks: null, environment: null, errors: [] }}
+          outputs={[]}
+          workflows={Array.from({ length: 6 }, (_, i) => ({
+            id: `w${i}`,
+            name: `真实任务 ${i}`,
+            description: '',
+            status: 'completed',
+            startedAt: i,
+            durationMs: 1,
+            tokens: 0,
+            toolCalls: 0,
+            phases: [],
+            agents: [],
+            toolUseId: null,
+          }))}
+        />
+      </I18nProvider>,
+    )
+    expect(html).toContain('真实任务 5')
+    expect(html).toContain('真实任务 0')
+    expect(html).toContain('<details')
+    expect(html).not.toContain('近期活动暂不可用')
+  })
+
   it('does not claim that a computer is ready when the status could not be read', () => {
     const html = renderToStaticMarkup(
       <I18nProvider>

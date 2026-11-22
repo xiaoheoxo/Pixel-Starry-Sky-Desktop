@@ -29,7 +29,7 @@ export class DotChatSessions {
   /** 看过的最新一条 Dot 消息的时间（键 → createdAt），存盘；没有记录的第一次读当基线 */
   private seen: Record<string, number> = {}
   /** 有没看过的新消息的 Dot：键 → 那条消息的 id */
-  private readonly unread = new Map<string, string>()
+  private readonly unread = new Map<string, { id: string; createdAt: number }>()
   private readonly readAt = new Map<string, number>()
   /** 粘贴进来存成的临时文件夹：键 → 目录 */
   private readonly temps = new Map<string, Set<string>>()
@@ -262,22 +262,24 @@ export class DotChatSessions {
    * 没有记录的第一次读当基线，不算未读。比看过的新就记未读并通知界面；这条如果是本轮回复里已经收到的
    * （会话里有 dot-<id>，那一轮结束时提醒过了），只出未读点、不带 notice
    */
-  private track(entry: DotEntry, items: readonly DotChatMessage[], seen: boolean): void {
+  private track(entry: DotEntry, items: readonly DotChatMessage[], seen: boolean, noNewer: boolean): void {
     const key = entry.key
     this.readAt.set(key, this.now())
-    const latest = items.filter(m => m.role === 'assistant').at(-1)
-    if (!latest) return
+    const latest = items.findLast(m => m.role === 'assistant')
+    const unread = this.unread.get(key)
     const known = this.seen[key]
     if (seen || known === undefined) {
-      if (known === undefined || latest.createdAt > known) {
-        this.seen[key] = latest.createdAt
+      const observedAt = seen && noNewer ? unread?.createdAt : latest?.createdAt
+      if (observedAt === undefined) return
+      if (known === undefined || observedAt > known) {
+        this.seen[key] = observedAt
         this.save()
       }
       if (this.unread.delete(key)) this.onChange?.({ unread: [...this.unread.keys()] })
       return
     }
-    if (latest.createdAt <= known || this.unread.get(key) === latest.id) return
-    this.unread.set(key, latest.id)
+    if (!latest || latest.createdAt <= known || unread?.id === latest.id) return
+    this.unread.set(key, { id: latest.id, createdAt: latest.createdAt })
     const sessionId = this.sessions[key]
     const delivered = !!sessionId && !!this.host.item(sessionId, `dot-${latest.id}`)
     this.onChange?.({
@@ -313,15 +315,25 @@ export class DotChatSessions {
     }
   }
 
-  async read(key: string, options: { before?: string; overview?: boolean; seen?: boolean }, signal?: AbortSignal) {
+  async read(
+    key: string,
+    options: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean; seen?: boolean },
+    signal?: AbortSignal,
+  ) {
     const entry = this.entry(key)
     const data = await this.host.readDot(
       entry.account,
       entry,
-      { before: options.before, overview: options.overview },
+      { before: options.before, after: options.after, overview: options.overview, overviewOnly: options.overviewOnly },
       signal,
     )
-    if (!options.before) this.track(entry, data.history.items, options.seen === true)
+    if (!options.before && !options.overviewOnly)
+      this.track(
+        entry,
+        data.history.items,
+        options.seen === true,
+        !!options.after && data.history.latest === options.after && !data.history.items.length,
+      )
     const known = this.knownFiles.get(key) ?? new Set<string>()
     for (const message of data.history.items)
       for (const file of message.attachments) if (file.type === 'file' && file.fileId) known.add(file.fileId)

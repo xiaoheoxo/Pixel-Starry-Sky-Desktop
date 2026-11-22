@@ -117,10 +117,25 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
     (event, value: unknown, raw: unknown) => {
       const options = raw === undefined ? {} : raw
       if (!options || typeof options !== 'object' || Array.isArray(options)) throw new Error('Invalid Dot read options')
-      const input = options as { before?: unknown; overview?: unknown; seen?: unknown }
+      const input = options as {
+        before?: unknown
+        after?: unknown
+        overview?: unknown
+        overviewOnly?: unknown
+        seen?: unknown
+      }
       if (
         (input.before !== undefined && (typeof input.before !== 'string' || input.before.length > 500)) ||
+        (input.after !== undefined &&
+          (typeof input.after !== 'string' ||
+            !input.after ||
+            input.after.length > 500 ||
+            input.before !== undefined)) ||
         (input.overview !== undefined && typeof input.overview !== 'boolean') ||
+        (input.overviewOnly !== undefined &&
+          (typeof input.overviewOnly !== 'boolean' ||
+            (input.overviewOnly &&
+              (input.before !== undefined || input.after !== undefined || input.seen !== undefined)))) ||
         (input.seen !== undefined && typeof input.seen !== 'boolean')
       )
         throw new Error('Invalid Dot read options')
@@ -129,7 +144,9 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
         key,
         {
           before: input.before as string | undefined,
+          after: input.after as string | undefined,
           overview: input.overview as boolean | undefined,
+          overviewOnly: input.overviewOnly as boolean | undefined,
           seen: input.seen as boolean | undefined,
         },
         signal,

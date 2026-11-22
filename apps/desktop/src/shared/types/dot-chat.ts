@@ -38,7 +38,10 @@ export interface DotChatBridge {
   snapshot(key: string): Promise<SessionSnapshot>
   send(key: string, sessionId: string, text: string, files?: string[]): Promise<void>
   /** seen：用户正看着这个对话（标签可见、窗口在前台），读到的消息算看过 */
-  read(key: string, options?: { before?: string; overview?: boolean; seen?: boolean }): Promise<DotChatRead>
+  read(
+    key: string,
+    options?: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean; seen?: boolean },
+  ): Promise<DotChatRead>
   pickFiles(key: string): Promise<DotLocalFile[]>
   addFiles(key: string, files: DotDroppedFile[]): Promise<DotLocalFile[]>
   onChange(callback: (change: DotChatChange) => void): () => void

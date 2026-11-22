@@ -74,6 +74,7 @@ export interface DotChatMessage {
 export interface DotHistoryPage {
   items: DotChatMessage[]
   before: string | null
+  latest?: string
 }
 export interface DotOverview {
   profile: DotProfile
@@ -321,8 +322,28 @@ export class DotClient {
     )
     if (!Array.isArray(page.items)) invalid()
     const messages = page.items.map(message).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
-    const items = messages
-      .filter(m => !m.deleted_at && (m.account_user_id === connection.member || m.account_user_id === dot.memberId))
+    const cursor = page.prev_cursor ? string(page.prev_cursor) : messages.length === 32 ? messages[0].id : null
+    if (cursor && cursor === before) throw new Error('Dot history pagination repeated')
+    return { items: this.toHistory(dot, messages), before: cursor, latest: messages.at(-1)?.id }
+  }
+
+  /** Fetch all additions after a verified room's cursor, not just its newest 32 messages. */
+  async historyAfter(dot: DotIdentity, after: string, signal?: AbortSignal): Promise<DotHistoryPage> {
+    try {
+      const messages = await this.messages(dot, after, signal)
+      return { items: this.toHistory(dot, messages), before: null, latest: messages.at(-1)?.id ?? after }
+    } catch (error) {
+      // The room cursor may have been removed. Reload the newest page in the same verified room.
+      if (error instanceof DotHttpError && (error.status === 400 || error.status === 404))
+        return this.history(dot, undefined, signal)
+      throw error
+    }
+  }
+
+  private toHistory(dot: DotIdentity, messages: DotMessage[]): DotChatMessage[] {
+    const { member } = this.connection(dot)
+    return messages
+      .filter(m => !m.deleted_at && (m.account_user_id === member || m.account_user_id === dot.memberId))
       .map(m => ({
         id: m.id,
         ...(m.request_id ? { requestId: m.request_id } : {}),
@@ -331,20 +352,23 @@ export class DotClient {
         createdAt: Date.parse(m.created_at),
         attachments: (m.content.attachments ?? []).map(attachmentOf),
       }))
-    const cursor = page.prev_cursor ? string(page.prev_cursor) : messages.length === 32 ? messages[0].id : null
-    if (cursor && cursor === before) throw new Error('Dot history pagination repeated')
-    return { items, before: cursor }
   }
 
   async overview(dot: DotIdentity, signal?: AbortSignal): Promise<DotOverview> {
     const connection = this.connection(dot)
     const path = `/tbo/${encodeURIComponent(dot.id)}`
     const errors: string[] = []
-    const read = async <T>(route: string, parse: (data: Record<string, unknown>) => T): Promise<T | null> => {
+    const read = async <T>(
+      route: string,
+      parse: (data: Record<string, unknown>) => T,
+      optional = false,
+    ): Promise<T | null> => {
       try {
         return parse(object(await this.request(route, signal, undefined, false, connection)))
       } catch (error) {
         signal?.throwIfAborted()
+        // Activity/task endpoints are optional on some deployments. A missing list is not a conversation error.
+        if (optional && error instanceof DotHttpError && error.status === 404) return null
         errors.push(error instanceof Error ? error.message : 'Dot status unavailable')
         return null
       }
@@ -368,8 +392,8 @@ export class DotClient {
           ? data.capabilities.map(object).map(c => ({ type: string(c.type), status: string(c.status) }))
           : [],
       })),
-      read(`${path}/activity?limit=5`, rows),
-      read(`${path}/tasks?limit=25`, rows),
+      read(`${path}/activity?limit=5`, rows, true),
+      read(`${path}/tasks?limit=25`, rows, true),
     ])
     return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors }
   }

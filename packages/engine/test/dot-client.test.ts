@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DotClient } from '../src/dot/client'
+import { DotAdapter } from '../src/dot'
 
 const identity = {
   accountId: 'account',
@@ -184,6 +185,59 @@ describe('native Dot client', () => {
     expect(overview.activity).toEqual([])
     expect(overview.tasks).toBeNull()
     expect(overview.errors).toEqual(['Dot HTTP 503'])
+  })
+
+  it('loads every incremental page, preserves the room cursor, and excludes deleted or unrelated messages', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=known': {
+        items: [message('m1'), { ...message('deleted'), deleted_at: '2026-11-17T00:00:01Z' }],
+        next_cursor: 'next',
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=next': {
+        items: [{ ...message('other'), account_user_id: 'other' }, message('m2')],
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=m2': { items: [] },
+    })
+    const dot = await client.discover()
+    expect(await client.historyAfter(dot, 'known')).toMatchObject({
+      items: [{ id: 'm1' }, { id: 'm2' }],
+      latest: 'm2',
+      before: null,
+    })
+    expect(await client.historyAfter(dot, 'm2')).toEqual({ items: [], latest: 'm2', before: null })
+  })
+
+  it('recovers an invalid cursor in the same room and keeps optional 404s out of conversation errors', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=gone': new Response('', { status: 404 }),
+      '/backend-api/messaging/rooms/room/messages?limit=32': { items: [message('new')] },
+      '/backend-api/tbo/dot/environment/status': { status: 'connected' },
+      '/backend-api/tbo/dot/activity?limit=5': new Response('', { status: 404 }),
+      '/backend-api/tbo/dot/tasks?limit=25': new Response('', { status: 404 }),
+    })
+    const dot = await client.discover()
+    expect(await client.historyAfter(dot, 'gone')).toMatchObject({ items: [{ id: 'new' }], latest: 'new' })
+    expect(await client.overview(dot)).toMatchObject({
+      activity: null,
+      tasks: null,
+      errors: [],
+      environment: { status: 'connected' },
+    })
+  })
+
+  it('loads overview independently without touching the conversation history', async () => {
+    const { request } = setup({
+      '/backend-api/tbo/dot/environment/status': { status: 'connected' },
+      '/backend-api/tbo/dot/activity?limit=5': { data: [] },
+      '/backend-api/tbo/dot/tasks?limit=25': { data: [] },
+    })
+    const adapter = new DotAdapter({ credentials: () => identity, fetch: request })
+    const target = { id: 'dot', threadId: 'root' }
+    expect(await adapter.readDot('account', target, { overviewOnly: true })).toMatchObject({
+      history: { items: [], before: null },
+      overview: { activity: [], tasks: [], errors: [] },
+    })
+    expect(request.mock.calls.some(([input]) => String(input).includes('/messages'))).toBe(false)
   })
 
   it('accepts the canonical ChatGPT user as the room member when account-user and user claims differ', async () => {

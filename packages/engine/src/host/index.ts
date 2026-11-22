@@ -496,7 +496,7 @@ export class EngineHost {
   readDot(
     account: string,
     target: { id: string; threadId: string },
-    options: { before?: string; overview?: boolean } = {},
+    options: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean } = {},
     signal?: AbortSignal,
   ) {
     const adapter = this.ctx.adapters.dot

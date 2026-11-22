@@ -89,6 +89,10 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [menu, setMenu] = useState(false)
   const menuRef = useRef<HTMLDetailsElement>(null)
   const network = useRef(false)
+  const catchUpPending = useRef(false)
+  const latest = useRef<string | undefined>(undefined)
+  const overviewReading = useRef(false)
+  const [overviewError, setOverviewError] = useState('')
   const haveHistory = useRef(false)
   const alive = useRef(true)
   const draftKey = `pixelsky.dot.draft.${entryKey}`
@@ -99,33 +103,46 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const marks = useMemo(() => markDotRows(rows), [rows])
   // 任务卡片放在派出它的那条消息下面（docs/ui/dot-optimize.md §7 #4）
   const tasks = useMemo(() => placeDotTasks(rows, snapshot?.runs.workflows ?? []), [rows, snapshot?.runs.workflows])
-  /** 会话正在回复：消息由会话事件带来，界面不另外拉历史（§7 #6） */
-  const running = useRef(false)
-  running.current = !!snapshot && snapshot.state !== 'idle'
   const [dragging, setDragging] = useState(false)
   const root = useRef<HTMLElement>(null)
   const area = useRef<HTMLTextAreaElement>(null)
   const toast = useToast()
   const settings = useSettings()
-  const outputs = useMemo(() => rows.filter(row => row.role === 'assistant').flatMap(row => row.attachments), [rows])
+  const outputs = useMemo(
+    () =>
+      rows
+        .slice()
+        .reverse()
+        .flatMap(row => (row.role === 'assistant' ? row.attachments.filter(file => file.type === 'file') : [])),
+    [rows],
+  )
+  const lastReplyAt = history.findLast(row => row.role === 'assistant')?.createdAt
   const web = dotWebUrl(entry?.id)
   const name = entry?.name ?? tr('dot.yourDot')
 
   const readRemote = useCallback(
-    async (options: { before?: string; overview?: boolean } = {}) => {
-      if (network.current) return
+    async (options: { before?: string; catchUp?: boolean } = {}) => {
+      if (network.current) {
+        if (options.catchUp) catchUpPending.current = true
+        return
+      }
       network.current = true
       setReading(true)
       try {
         // 正看着这个对话（标签可见、窗口在前台）读到的消息算看过，侧栏的未读点消掉（§7 #3）
         const seen = !options.before && visible.current && document.visibilityState === 'visible' && document.hasFocus()
-        const next = await window.pixelsky!.dotChat.read(entryKey, { ...options, ...(seen ? { seen } : {}) })
+        const after = options.before ? undefined : latest.current
+        const next = await window.pixelsky!.dotChat.read(entryKey, {
+          before: options.before,
+          after,
+          ...(seen ? { seen } : {}),
+        })
         if (!alive.current) return
-        setEntry(next.entry)
+        setEntry(previous => previous ?? next.entry)
         setHistory(previous => mergeDotHistory(previous, next.history.items))
         if (options.before || !haveHistory.current) setBefore(next.history.before)
+        if (!options.before) latest.current = next.history.latest
         haveHistory.current = true
-        if (next.overview) setOverview(next.overview)
         setServerError('')
       } catch (e) {
         if (alive.current) setServerError(dotError(e))
@@ -134,18 +151,37 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         if (alive.current) {
           setLoading(false)
           setReading(false)
+          if (catchUpPending.current) {
+            catchUpPending.current = false
+            void remote.current()
+          }
         }
       }
     },
     [entryKey],
   )
+  const readOverview = useCallback(async () => {
+    if (overviewReading.current) return
+    overviewReading.current = true
+    try {
+      const next = await window.pixelsky!.dotChat.read(entryKey, { overviewOnly: true })
+      if (!alive.current) return
+      setEntry(next.entry)
+      setOverview(next.overview)
+      setOverviewError('')
+    } catch (error) {
+      if (alive.current) setOverviewError(dotError(error))
+    } finally {
+      overviewReading.current = false
+    }
+  }, [entryKey])
   const remote = useRef(readRemote)
   remote.current = readRemote
   const visible = useRef(active)
   visible.current = active
   useEffect(() => {
     if (!active) setComputer(false)
-    else if (haveHistory.current && !running.current) void remote.current()
+    else if (haveHistory.current) void remote.current({ catchUp: true })
   }, [active])
 
   useEffect(() => {
@@ -153,26 +189,30 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     void window.pixelsky?.dotChat
       .catalog()
       .then(catalog => {
-        if (alive.current) setEntry(catalog.entries.find(e => e.key === entryKey) ?? null)
+        if (alive.current) setEntry(previous => previous ?? catalog.entries.find(e => e.key === entryKey) ?? null)
       })
       .catch(() => undefined)
-    void remote.current({ overview: true })
+    void remote.current()
+    void readOverview()
     let polls = 0
     const timer = window.setInterval(() => {
-      if (!visible.current || document.visibilityState !== 'visible' || running.current) return
-      void remote.current({ overview: ++polls % 6 === 0 })
+      if (!visible.current || document.visibilityState !== 'visible') return
+      void remote.current()
+      if (++polls % 6 === 0) void readOverview()
     }, 10_000)
     // 回到这个窗口：马上读一次（把读到的记成看过），不等下一个 10 秒
     const back = (): void => {
-      if (visible.current && document.visibilityState === 'visible' && !running.current) void remote.current()
+      if (visible.current && document.visibilityState === 'visible') void remote.current({ catchUp: true })
     }
     window.addEventListener('focus', back)
+    document.addEventListener('visibilitychange', back)
     return () => {
       alive.current = false
       clearInterval(timer)
       window.removeEventListener('focus', back)
+      document.removeEventListener('visibilitychange', back)
     }
-  }, [entryKey])
+  }, [entryKey, readOverview])
 
   useEffect(() => {
     let mounted = true
@@ -203,14 +243,17 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     const off = window.pixelsky?.engine.onEvent(e => {
       if (e.kind !== 'session' || (current.current && e.sessionId !== current.current)) return
       void refresh()
-      if (e.event.type === 'turn_completed') void remote.current({ overview: true })
+      if (e.event.type === 'turn_completed') {
+        void remote.current({ catchUp: true })
+        void readOverview()
+      }
     })
     void refresh()
     return () => {
       mounted = false
       off?.()
     }
-  }, [entryKey])
+  }, [entryKey, readOverview])
   useEffect(() => {
     try {
       localStorage.setItem(draftKey, text)
@@ -254,7 +297,8 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
 
   const retry = () => {
     void refreshSnapshot.current()
-    void remote.current({ overview: true })
+    void remote.current()
+    void readOverview()
   }
   // Dot 正在回复时也能发，消息排队、忙完自动发出（docs/ui/dot-optimize.md §9）
   const { busy, replying, uncertain, queued } = dotComposerState(snapshot, { sending, resolving })
@@ -812,7 +856,10 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
             <DotProfilePanel
               entry={entry}
               overview={overview}
+              overviewError={overviewError}
               outputs={outputs}
+              workflows={snapshot?.runs.workflows}
+              lastReplyAt={lastReplyAt}
               onOpenComputer={() => setComputer(true)}
             />
           </div>

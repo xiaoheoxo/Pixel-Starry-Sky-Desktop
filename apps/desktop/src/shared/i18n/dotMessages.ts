@@ -10,6 +10,10 @@ export const dotMessages = {
   'dot.callName': { zh: '呼叫 {name}', en: 'Call {name}' },
   'dot.slack': { zh: '管理 Slack 连接', en: 'Manage Slack connection' },
   'dot.voice': { zh: '语音对话', en: 'Voice chat' },
+  'dot.activityUnavailable': {
+    zh: '近期活动暂不可用，在 ChatGPT 查看',
+    en: 'Recent activity unavailable. View in ChatGPT',
+  },
   'dot.recentTasks': { zh: '近期任务', en: 'Recent tasks' },
   'dot.handleInWeb': { zh: '到 ChatGPT 处理', en: 'Handle in ChatGPT' },
   'dot.group': { zh: '展开或收起 Dot', en: 'Expand or collapse Dots' },

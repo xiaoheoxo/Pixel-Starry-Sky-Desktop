@@ -18,7 +18,7 @@ export function DotSessionView({
     <div className="dot-window min-w-0 flex-1">
       {entry ? (
         <DotKeyContext.Provider value={entry.key}>
-          <DotConversation entryKey={entry.key} active={active} />
+          <DotConversation key={entry.key} entryKey={entry.key} active={active} />
         </DotKeyContext.Provider>
       ) : (
         <div role="status" className="flex h-full items-center justify-center gap-3">
