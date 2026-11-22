@@ -6,6 +6,7 @@ export interface OneShotRequest {
   prompt: string
   model: string | null
   requireEphemeral?: true
+  advisorModelIds?: readonly string[]
 }
 
 export interface OneShotUsage {

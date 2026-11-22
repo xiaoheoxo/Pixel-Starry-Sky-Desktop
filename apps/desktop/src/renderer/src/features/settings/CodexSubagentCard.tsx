@@ -78,7 +78,15 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
             <Select
               label={tr('subagentRoute.advisor.evaluator')}
               value={advisor.evaluator ?? ''}
-              onChange={id => save({ subagentAdvisor: { ...advisor, evaluator: id || null } })}
+              onChange={id =>
+                save({
+                  subagentAdvisor: {
+                    ...advisor,
+                    evaluator: id || null,
+                    evaluatorPicksModel: id && id === advisor.evaluator ? advisor.evaluatorPicksModel : undefined,
+                  },
+                })
+              }
               options={[
                 { value: '', label: tr('subagentRoute.advisor.local') },
                 ...models.map(m => ({
@@ -88,7 +96,24 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
                 })),
               ]}
             />
-            {advisor.evaluator && <p className="text-label text-fg-muted">{tr('subagentRoute.advisor.remoteHint')}</p>}
+            {advisor.evaluator && (
+              <>
+                <p className="text-label text-fg-muted">{tr('subagentRoute.advisor.remoteHint')}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-ui font-medium">{tr('subagentRoute.advisor.evaluatorPicksModel')}</div>
+                    <p className="mt-1 text-label text-fg-muted">{tr('subagentRoute.advisor.evaluatorPicksHint')}</p>
+                  </div>
+                  <Switch
+                    label={tr('subagentRoute.advisor.evaluatorPicksModel')}
+                    checked={advisor.evaluatorPicksModel === true}
+                    onChange={on =>
+                      save({ subagentAdvisor: { ...advisor, evaluatorPicksModel: on ? true : undefined } })
+                    }
+                  />
+                </div>
+              </>
+            )}
             <div className="grid grid-cols-1 gap-2 @[550px]:grid-cols-3">
               {([0, 1, 2] as const).map(i => {
                 const key = (['light', 'medium', 'difficult'] as const)[i]

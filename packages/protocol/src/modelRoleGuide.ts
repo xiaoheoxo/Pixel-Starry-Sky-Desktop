@@ -89,7 +89,7 @@ const families: ReadonlyArray<readonly [RegExp, Localized]> = [
     },
   ],
   [
-    /^deepseek-(?:v4(?:[.-]1)?-)?flash\b/,
+    /^deepseek-(?:v\d+(?:\.\d+)?-)?flash\b/,
     {
       zh: ['快速：适合日常编码、摘要和批量整理。', '适合初筛明确请求，区分小改动和常规任务。'],
       en: [
@@ -99,12 +99,25 @@ const families: ReadonlyArray<readonly [RegExp, Localized]> = [
     },
   ],
   [
-    /^deepseek-v4(?:[.-]1)?-pro\b/,
+    /^deepseek-(?:v\d+(?:\.\d+)?-)?pro\b/,
     {
       zh: ['深度推理：适合复杂编码、多步骤调试和长上下文分析。', '适合复核复杂约束和跨模块影响。'],
       en: [
         'Deep reasoning for complex coding, multi-step debugging, and long-context analysis.',
         'Recheck complex constraints and cross-module impact.',
+      ],
+    },
+  ],
+  [
+    /^deepseek(?:-v?\d+(?:\.\d+)?)?$/,
+    {
+      zh: [
+        'DeepSeek 系列：适合代码分析、文本处理和推理，具体用途随型号变化。',
+        '适合按文本目标和约束评估任务；未识别具体档位。',
+      ],
+      en: [
+        'DeepSeek family for code analysis, text work, and reasoning; capabilities vary by model.',
+        'Assess the task from its text goals and constraints; the variant is unknown.',
       ],
     },
   ],
@@ -203,16 +216,41 @@ const families: ReadonlyArray<readonly [RegExp, Localized]> = [
   ],
 ]
 
+/** Expand bounded, recognizable shorthand for copy lookup only; never use it as a routed model ID. */
+function expandModelShorthand(model: string): string {
+  const deep = /^(?:deepseek|deep|ds)-?v?(\d+(?:\.\d+)?)(?:-?(flash|pro|f|p))?$/.exec(model)
+  if (deep) {
+    const variant = deep[2]
+    return `deepseek-v${deep[1]}${variant ? (variant.startsWith('f') ? '-flash' : '-pro') : ''}`
+  }
+  const gpt = /^(?:gpt-?)?(\d+(?:\.\d+)?)-?(astra|as|sol|terra|luna)$/.exec(model)
+  if (gpt) return `gpt-${gpt[1]}-${gpt[2] === 'as' ? 'astra' : gpt[2]}`
+
+  const glm = /^glm-?(\d+(?:\.\d+)?)-?(flash|f|air)$/.exec(model)
+  if (glm) return `glm-${glm[1]}-${glm[2] === 'f' ? 'flash' : glm[2]}`
+
+  const qwen = /^qwen-?(\d+(?:\.\d+)?)-?(max|plus|flash|f)$/.exec(model)
+  if (qwen) return `qwen${qwen[1]}-${qwen[2] === 'f' ? 'flash' : qwen[2]}`
+
+  return model
+    .replace(/^grok(?=\d)/, 'grok-')
+    .replace(/^kimik(?=\d)/, 'kimi-k')
+    .replace(/^nemotron(?=\d)/, 'nemotron-')
+}
+
 export function getModelRoleGuide(
   id: string | null | undefined,
   language: 'zh' | 'en',
 ): { main: string; evaluator: string } | undefined {
-  const model = id
+  const label = id
     ?.toLowerCase()
     .split('/')
     .at(-1)
     ?.replace(/^(?:(?:us|eu|apac|global)\.)?(?:amazon|meta|mistral|ai21|cohere)\./, '')
-  if (!model) return undefined
+    ?.trim()
+    .replace(/[\s_]+/g, '-')
+  if (!label) return undefined
+  const model = expandModelShorthand(label)
   const supplemental = /(?:^|-)(?:embed(?:ding)?|rerank(?:er)?|reward|tts|asr|guard|moderation)(?:-|$)/.test(model)
     ? undefined
     : publicModelFamilies.find(([pattern]) => pattern.test(model))?.[1]

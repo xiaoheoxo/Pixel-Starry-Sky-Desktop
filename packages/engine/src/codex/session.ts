@@ -1,4 +1,11 @@
-import { evaluateDifficulty, hasConfiguredSubagent, localDifficulty, subagentAdvice } from './subagent-advisor'
+import {
+  advisorCandidates,
+  evaluateAdvisor,
+  hasConfiguredSubagent,
+  localDifficulty,
+  subagentAdvice,
+  type AdvisorEvaluator,
+} from './subagent-advisor'
 import { GenTimer } from '../genTimer'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -75,7 +82,7 @@ export interface CodexLaunchOptions {
   subagentEffort?: Effort | null
   subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
   currentSubagentAdvisor?: () => import('@pixelsky/protocol').SubagentAdvisor | null
-  evaluateSubagent?: (model: string, prompt: string, signal: AbortSignal) => Promise<string>
+  evaluateSubagent?: AdvisorEvaluator
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
   inputPrediction?: 'off' | 'cheap' | 'same'
   /** 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给用对话的模型 */
@@ -1179,7 +1186,8 @@ export class CodexSession implements EngineSession {
       const available = this.catalog?.models?.map(model => model.id) ?? []
       let advice: string | null = null
       if (advisor && hasConfiguredSubagent(advisor, available) && text.trim() && !text.trimStart().startsWith('/')) {
-        let tier = localDifficulty(text, attachments.length > 0)
+        const localTier = localDifficulty(text, attachments.length > 0)
+        let estimate: Awaited<ReturnType<typeof evaluateAdvisor>> = null
         const evaluate = this.options.evaluateSubagent
         // Keep custom/platform prompts on their chosen route, and don't send attachments to the assessor.
         if (
@@ -1190,12 +1198,21 @@ export class CodexSession implements EngineSession {
           evaluate &&
           available.includes(advisor.evaluator)
         )
-          tier = (await evaluateDifficulty(advisor.evaluator, text, evaluate)) ?? tier
+          estimate = await evaluateAdvisor(
+            advisor.evaluator,
+            text,
+            evaluate,
+            advisor.evaluatorPicksModel ? advisorCandidates(advisor, available) : [],
+          )
         if (this.active !== active || this.closed) return
         const latest = currentAdvisor()
         if (latest) {
-          if (latest.evaluator !== advisor.evaluator) tier = localDifficulty(text, attachments.length > 0)
-          advice = subagentAdvice(tier, latest, available)
+          const stillCurrent =
+            latest.evaluator === advisor.evaluator &&
+            latest.evaluatorPicksModel === advisor.evaluatorPicksModel &&
+            latest.models.every((model, index) => model === advisor.models[index])
+          if (!stillCurrent) estimate = null
+          advice = subagentAdvice(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
         }
       }
       const collab = this.collaboration()

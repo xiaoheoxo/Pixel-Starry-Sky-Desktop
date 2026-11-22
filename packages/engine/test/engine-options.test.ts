@@ -232,6 +232,10 @@ describe('本机引擎详情设置', () => {
     const config = { evaluator: 'gpt-6-luna', models: ['gpt-6.1-terra', 'gpt-6.2-sol', 'gpt-6.2-astra'] } as const
     await host.setEngineConfig('codex', { subagentAdvisor: { ...config, models: [...config.models] } })
     expect(host.engineConfig().codex.subagentAdvisor).toEqual(config)
+    await host.setEngineConfig('codex', {
+      subagentAdvisor: { ...config, evaluatorPicksModel: true, models: [...config.models] },
+    })
+    expect(host.engineConfig().codex.subagentAdvisor).toEqual({ ...config, evaluatorPicksModel: true })
     await expect(
       host.setEngineConfig('codex', { subagentAdvisor: { evaluator: 'invalid model', models: [null, null, null] } }),
     ).rejects.toThrow('模型建议配置不对')

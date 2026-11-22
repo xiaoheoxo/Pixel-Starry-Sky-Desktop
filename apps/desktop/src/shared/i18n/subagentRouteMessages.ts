@@ -267,14 +267,19 @@ export const subagentRouteMessages = {
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
   'subagentRoute.advisor.title': { zh: 'Agnes 子智能体模型建议', en: 'Agnes subagent model advice' },
   'subagentRoute.advisor.hint': {
-    zh: '只建议你在下方选中的模型。对应难度未配置或模型不可用时，不发送建议。不会切换主模型或自动派出子智能体。',
-    en: 'Only suggests the models selected below. No advice is sent for an unconfigured tier or an unavailable model. Does not switch the main model or launch workers.',
+    zh: '只建议你在下方选中的可用模型。默认按难度分档，空档不发送建议。不会切换主模型或自动派出子智能体。',
+    en: 'Only suggests available models selected below. By default an unconfigured tier produces no advice. Does not switch the main model or launch workers.',
   },
   'subagentRoute.advisor.evaluator': { zh: '难度评估方式', en: 'Difficulty evaluator' },
   'subagentRoute.advisor.local': { zh: '本机规则（不发额外请求）', en: 'Local rules (no extra requests)' },
   'subagentRoute.advisor.remoteHint': {
     zh: '所选模型会通过当前 Codex 账号单独评估任务文本，可能消耗额度。附件和平台／自定义通道仅用本机规则；超时也会回退。',
     en: 'The selected model evaluates task text in a separate Codex request that can use quota. Attachments, platform/custom routes and timeouts use local rules.',
+  },
+  'subagentRoute.advisor.evaluatorPicksModel': { zh: '让评估模型选型', en: 'Let the evaluator pick a model' },
+  'subagentRoute.advisor.evaluatorPicksHint': {
+    zh: '额外发送下方已配置且可用的型号 ID 和档位，评估模型可以跨档选择或不推荐。这会增加输入 token；关闭后只评估难度。',
+    en: 'Also send the available model IDs and tiers selected below. The evaluator can pick across tiers or abstain. This uses extra input tokens; turn it off to assess difficulty only.',
   },
   'subagentRoute.advisor.noAdvice': { zh: '不发送建议', en: 'No advice' },
   'subagentRoute.advisor.light': { zh: '轻量任务', en: 'Light tasks' },

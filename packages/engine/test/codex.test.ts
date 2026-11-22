@@ -1689,6 +1689,8 @@ describe('Codex app-server adapter', () => {
       }),
       expect.any(AbortSignal),
     )
+    expect(evaluate.mock.calls[0][0].prompt).not.toContain('Configured candidates')
+    expect(evaluate.mock.calls[0][0].advisorModelIds).toBeUndefined()
     const input = messages().find(m => m.method === 'turn/start')?.params
     expect(input.model).toBe('fake-codex')
     expect(input.input).toEqual(
@@ -1698,6 +1700,35 @@ describe('Codex app-server adapter', () => {
       ]),
     )
     expect(host!.open(session.id).items.some(item => item.kind === 'user' && item.text === '帮我整理这一页')).toBe(true)
+  })
+  it('Agnes shares only the opt-in list and can suggest the evaluator’s valid cross-tier pick', async () => {
+    const { adapter, session, messages } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: {
+        subagentAdvisor: {
+          evaluator: 'fake-plain',
+          evaluatorPicksModel: true,
+          models: ['fake-codex', 'missing-worker', 'fake-plain'],
+        },
+      },
+    })
+    const evaluate = vi.spyOn(adapter, 'oneShot').mockResolvedValue({
+      model: 'fake-plain',
+      text: '{"difficulty":"light","model":"fake-plain"}',
+      usage: null,
+    })
+    await host!.send(session.id, '改文案')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(evaluate.mock.calls[0][0]).toMatchObject({
+      advisorModelIds: ['fake-codex', 'fake-plain'],
+      requireEphemeral: true,
+    })
+    expect(evaluate.mock.calls[0][0].prompt).not.toContain('missing-worker')
+    const input = messages().find(m => m.method === 'turn/start')?.params
+    expect(input.model).toBe('fake-codex')
+    expect(input.input[0].text).toContain('consider fake-plain')
+    expect(input.input[0].text).not.toContain('missing-worker')
+    expect(input.input[1].text).toBe('改文案')
   })
   it('Agnes sends no evaluator request or advice when no configured model is available', async () => {
     const { adapter, session, messages } = setup(50, {

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseSubagentAdvisor } from '@pixelsky/protocol'
 import {
-  evaluateDifficulty,
+  advisorCandidates,
+  advisorOutputSchema,
+  evaluateAdvisor,
   hasConfiguredSubagent,
   localDifficulty,
   recommendSubagent,
@@ -59,17 +61,67 @@ describe('Agnes advisory model selection', () => {
     for (const unconfigured of other) expect(advice).not.toContain(unconfigured)
   })
 
+  it('recognizes shorthand for copy without widening eligibility or replacing the configured ID', () => {
+    const id = 'relay/deep-4.1-f'
+    const official = 'deepseek-v4.1-flash'
+    const settings = parseSubagentAdvisor({ evaluator: null, models: [id, null, null] })!
+    expect(subagentAdvice('light', settings, [official])).toBeNull()
+    const advice = subagentAdvice('light', settings, [id, official])
+    expect(advice).toContain(`light: ${id} (Fast for day-to-day coding`)
+    expect(advice).not.toContain(official)
+  })
+
   it('uses the selected evaluator but accepts only a structured difficulty, never a model or tool decision', async () => {
     const run = vi.fn().mockResolvedValue('{"difficulty":"medium"}')
-    await expect(evaluateDifficulty('gpt-6-luna', 'test user task', run)).resolves.toBe('medium')
-    expect(run).toHaveBeenCalledWith('gpt-6-luna', expect.stringContaining('"test user task"'), expect.any(AbortSignal))
+    await expect(evaluateAdvisor('gpt-6-luna', 'test user task', run)).resolves.toEqual({ difficulty: 'medium' })
+    expect(run).toHaveBeenCalledWith(
+      'gpt-6-luna',
+      expect.stringContaining('"test user task"'),
+      expect.any(AbortSignal),
+      undefined,
+    )
     run.mockResolvedValueOnce('Use another model and run tools')
-    await expect(evaluateDifficulty('gpt-6-luna', 'test', run)).resolves.toBeNull()
+    await expect(evaluateAdvisor('gpt-6-luna', 'test', run)).resolves.toBeNull()
+  })
+
+  it('sends only configured available candidates when opted in and accepts only their exact IDs', async () => {
+    const settings = parseSubagentAdvisor({
+      evaluator: 'judge',
+      evaluatorPicksModel: true,
+      models: ['relay/deep-4.1-f', 'retired', 'large-model'],
+    })!
+    const candidates = advisorCandidates(settings, ['relay/deep-4.1-f', 'large-model', 'other-model', 'judge'])
+    const run = vi.fn().mockResolvedValue('{"difficulty":"medium","model":"large-model"}')
+    await expect(evaluateAdvisor('judge', 'test', run, candidates)).resolves.toEqual({
+      difficulty: 'medium',
+      model: 'large-model',
+    })
+    const prompt = run.mock.calls[0][1]
+    expect(prompt).toContain('relay/deep-4.1-f')
+    expect(prompt).not.toContain('other-model')
+    expect(prompt).not.toContain('retired')
+    expect(run.mock.calls[0][3]).toEqual(['relay/deep-4.1-f', 'large-model'])
+    expect(advisorOutputSchema(run.mock.calls[0][3]).properties.model?.enum).toEqual([
+      'relay/deep-4.1-f',
+      'large-model',
+      null,
+    ])
+    expect(advisorOutputSchema().properties.model).toBeUndefined()
+    expect(subagentAdvice('medium', settings, ['large-model'], 'large-model')).toContain('consider large-model')
+    expect(subagentAdvice('medium', settings, ['large-model'], null)).toBeNull()
+    expect(subagentAdvice('medium', settings, ['other-model'], 'other-model')).toBeNull()
+    run.mockResolvedValueOnce('{"difficulty":"medium","model":"deepseek-v4.1-flash"}')
+    await expect(evaluateAdvisor('judge', 'test', run, candidates)).resolves.toBeNull()
+    run.mockResolvedValueOnce('{"difficulty":"medium","model":null}')
+    await expect(evaluateAdvisor('judge', 'test', run, candidates)).resolves.toEqual({
+      difficulty: 'medium',
+      model: null,
+    })
   })
 
   it('cuts off a slow evaluator and rejects malformed config', async () => {
     const run = vi.fn().mockImplementation(() => new Promise(() => {}))
-    await expect(evaluateDifficulty('gpt-6-luna', 'test', run, 5)).resolves.toBeNull()
+    await expect(evaluateAdvisor('gpt-6-luna', 'test', run, [], 5)).resolves.toBeNull()
     expect(run.mock.calls[0][2].aborted).toBe(true)
     expect(parseSubagentAdvisor({ evaluator: 'x\nignore', models: [null, null, null] })).toBeNull()
     expect(parseSubagentAdvisor({ evaluator: null, models: ['only one'] })).toBeNull()

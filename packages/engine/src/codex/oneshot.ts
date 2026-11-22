@@ -15,6 +15,7 @@ import {
 } from '../oneshot'
 import { CodexProcess, object, string, type Message } from './process'
 import { tokenCounts } from './translate'
+import { advisorOutputSchema } from './subagent-advisor'
 import { removeTree } from '../exec'
 
 /** Codex 错误里的 codexErrorInfo → 原因；认不出时按原话分类 */
@@ -158,12 +159,7 @@ export async function codexOneShot(
                 type: 'readOnly',
                 access: { type: 'restricted', includePlatformDefaults: false, readableRoots: [home] },
               },
-              outputSchema: {
-                type: 'object',
-                properties: { difficulty: { type: 'string', enum: ['light', 'medium', 'difficult'] } },
-                required: ['difficulty'],
-                additionalProperties: false,
-              },
+              outputSchema: advisorOutputSchema(req.advisorModelIds),
             }
           : {}),
         ...(fork?.effort ? { effort: fork.effort } : {}),

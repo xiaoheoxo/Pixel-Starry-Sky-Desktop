@@ -72,6 +72,32 @@ describe('model role copy', () => {
     expect(getModelRoleGuide('llama-guard-4-12b', 'en')).toBeUndefined()
   })
 
+  it.each([
+    ['deep-4.1-f', 'deepseek-v4.1-flash'],
+    ['relay/DEEP_4.1_F', 'deepseek-v4.1-flash'],
+    ['DeepSeek 4.1 F', 'deepseek-v4.1-flash'],
+    ['ds4.1f', 'deepseek-v4.1-flash'],
+    ['deep4.1p', 'deepseek-v4.1-pro'],
+    ['gpt6.2as', 'gpt-6.2-astra'],
+    ['6.5-as', 'gpt-6.5-astra'],
+    ['glm5.3f', 'glm-5.3-flash'],
+    ['qwen-3.8-f', 'qwen3.8-flash'],
+    ['grok4.7', 'grok-4.7'],
+    ['kimik3.1-pro', 'kimi-k3.1-pro'],
+    ['nemotron3.5-lightning', 'nemotron-3.5-lightning'],
+  ])('matches bounded shorthand %s to the same copy as %s', (short, canonical) => {
+    const guide = getModelRoleGuide(canonical, 'en')
+    expect(guide?.main).toBeTruthy()
+    expect(getModelRoleGuide(short, 'en')).toEqual(guide)
+  })
+
+  it('does not guess a variant if the shorthand omits it or has an unidentified suffix', () => {
+    expect(getModelRoleGuide('deep-4.1', 'en')?.main).toContain('DeepSeek family')
+    expect(getModelRoleGuide('as', 'en')).toBeUndefined()
+    expect(getModelRoleGuide('deep-4.1-x', 'en')).toBeUndefined()
+    expect(getModelRoleGuide('f', 'en')).toBeUndefined()
+  })
+
   it('prefers exact copy and falls back to family-only language for later variants', () => {
     const current = getModelRoleGuide('gpt-6.2-astra', 'en')
     const future = getModelRoleGuide('gpt-6.5-astra', 'en')
