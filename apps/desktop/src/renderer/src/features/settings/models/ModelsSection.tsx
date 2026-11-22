@@ -16,6 +16,7 @@ import {
   refreshPlatform,
   usePlatform,
 } from '@/features/account/platform'
+import { ModelDetailsSection } from './ModelDetailsSection'
 import { MenuModels } from './MenuModels'
 import { GroupTitle, SectionTitle } from '../SettingRow'
 import { takeModelsScroll } from './scroll'
@@ -184,6 +185,9 @@ export function ModelsSection() {
       )}
 
       {/* 自定义 API 的模型也能在这里填窗口（docs/ui/context-settings-branch-switch.md §2.3.1） */}
+      <ModelDetailsSection
+        platformGroups={[...platform.groups, ...codexPlatform.groups, ...pixelPlatform.groups, ...agyPlatform.groups]}
+      />
       <CustomModelWindows />
     </section>
   )

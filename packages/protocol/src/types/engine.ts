@@ -169,6 +169,7 @@ export interface EngineLocalConfig {
   subagentModel: string | null
   subagentEffort: Effort | null
   subagentAdvisor?: import('../subagentAdvisor').SubagentAdvisor | null
+  modelDetails?: Record<string, import('../modelDetails').ModelDetail>
   inputPrediction: InputPrediction
   autoReviewModel: string | null
   /** 周限快到时自动用重置卡（docs/ui/codex-reset-card.md）；只对 Codex 生效，null 关 */
@@ -199,9 +200,10 @@ export const CONTEXT_WINDOW_MAX = 100_000_000
 export type EngineConfig = Record<EngineId, EngineLocalConfig>
 
 /** contextWindows 按模型合并：值为 null 时删掉这个模型的设置 */
-export type EngineConfigPatch = Partial<Omit<EngineLocalConfig, 'defaults' | 'contextWindows'>> & {
+export type EngineConfigPatch = Partial<Omit<EngineLocalConfig, 'defaults' | 'contextWindows' | 'modelDetails'>> & {
   defaults?: Partial<SessionDefaults>
   contextWindows?: Partial<Record<keyof ContextWindows, Record<string, number | null>>>
+  modelDetail?: import('../modelDetails').ModelDetailPatch
 }
 
 /** 引擎实际报上来的可选项（目前是输出风格），从引擎的初始化握手里读，读不到为空 */

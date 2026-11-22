@@ -36,6 +36,7 @@ import {
 import { selfModelLabel, selfModelOptions, type SourceMenuController } from '@/features/engine'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { useEngineCatalog } from '@/features/engine/catalog'
+import { useEngineState } from '@/features/engine/store'
 import { requestModelsScroll } from '@/features/settings/models/scroll'
 import {
   AUTH_ENGINE,
@@ -63,7 +64,7 @@ import {
   executorName,
   showTriggerSource,
 } from '@/features/model-channels/channelLabels'
-import { modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
+import { channelModelDetail, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
@@ -137,6 +138,7 @@ export function ModelSourceMenu({
   onRequestChoice: (choice: ChannelChoice) => void
 }) {
   useI18n()
+  const modelDetails = useEngineState(s => s.config?.codex.modelDetails)
   const engineId: EngineId = live.engine?.id ?? 'claude'
   const platform = usePlatform(engineId)
   const catalog = usePlatformCatalog()
@@ -319,6 +321,20 @@ export function ModelSourceMenu({
     }
     return selfOption(c, row)?.hint
   }
+  const rowGuide = (c: ChannelId, row: ChannelRow) => {
+    const model = row.target.model
+    if (!model || c === 'dot') return undefined
+    const platformGroups = c === 'platform' ? groupsForModel(catalog.groups, model) : []
+    const sourceId =
+      c === 'platform'
+        ? row.selected && live.groupId
+          ? live.groupId
+          : platformGroups.length === 1
+            ? platformGroups[0].id
+            : null
+        : row.target.providerId
+    return modelRoleGuide(model, channelModelDetail(modelDetails, { channel: c, sourceId, model }))
+  }
   /** 平台模型右边：最低倍率，多条线路时写条数 */
   const rowMeta = (c: ChannelId, row: ChannelRow): ReactNode => {
     if (c !== 'platform') return null
@@ -389,7 +405,7 @@ export function ModelSourceMenu({
           title={rowTitle(c, row)}
           mono={c === 'platform'}
           desc={rowDesc(c, row)}
-          guide={modelRoleGuide(row.target.model)}
+          guide={rowGuide(c, row)}
           descMono={c === 'custom'}
           meta={rowMeta(c, row)}
           query={query}
@@ -430,7 +446,10 @@ export function ModelSourceMenu({
                 indent
                 mono
                 title={m.id}
-                guide={modelRoleGuide(m.id)}
+                guide={modelRoleGuide(
+                  m.id,
+                  channelModelDetail(modelDetails, { channel: 'custom', sourceId: provider!.id, model: m.id }),
+                )}
                 selected={m.id === live.model}
                 active={i === active}
                 onPick={pickModel}
@@ -691,7 +710,7 @@ export function ModelSourceMenu({
         rowTitle(g.channel, row),
         row.target.model ?? '',
         rowDesc(g.channel, row) ?? '',
-        modelRoleGuide(row.target.model)?.main ?? '',
+        rowGuide(g.channel, row)?.main ?? '',
       ].join(' '),
     )
     if (!found.length)
@@ -734,8 +753,16 @@ export function ModelSourceMenu({
   const listPx =
     listRows(channels, g => {
       const described =
-        g.rows.filter(row => modelRoleGuide(row.target.model)).length +
-        (g.channel === 'custom' && extraRows(g) ? (endpoint?.models.filter(m => modelRoleGuide(m.id)).length ?? 0) : 0)
+        g.rows.filter(row => rowGuide(g.channel, row)?.main).length +
+        (g.channel === 'custom' && extraRows(g)
+          ? (endpoint?.models.filter(
+              m =>
+                modelRoleGuide(
+                  m.id,
+                  channelModelDetail(modelDetails, { channel: 'custom', sourceId: endpoint.id, model: m.id }),
+                )?.main,
+            ).length ?? 0)
+          : 0)
       return extraRows(g) + described * (GUIDED_MODEL_EXTRA_PX / MENU_ROW)
     }) *
       MENU_ROW +
@@ -1241,11 +1268,13 @@ function ModelRow({
         off && offTitle
           ? offTitle
           : guide
-            ? `${guide.main} ${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}`
+            ? [guide.main, guide.evaluator ? `${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}` : '']
+                .filter(Boolean)
+                .join(' ')
             : undefined
       }
       onMouseEnter={onHover}
-      style={{ minHeight: MENU_ROW + (guide ? GUIDED_MODEL_EXTRA_PX : 0) }}
+      style={{ minHeight: MENU_ROW + (guide?.main ? GUIDED_MODEL_EXTRA_PX : 0) }}
       className={cn(
         'group flex items-center gap-2 rounded-md pr-1.5',
         indent ? 'pl-6' : 'pl-1.5',
@@ -1280,7 +1309,7 @@ function ModelRow({
               </span>
             )}
           </span>
-          {guide && (
+          {guide?.main && (
             <span className="block truncate text-label text-fg-muted">
               <Mark text={guide.main} query={query} />
             </span>

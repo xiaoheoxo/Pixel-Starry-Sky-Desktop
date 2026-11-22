@@ -226,6 +226,27 @@ describe('本机引擎详情设置', () => {
     )
   })
 
+  it('saves per-channel model details without overwriting other channels and can restore defaults', async () => {
+    const host = makeHost()
+    const direct = { channel: 'chatgpt', sourceId: null, model: 'same-id' } as const
+    const custom = { channel: 'custom', sourceId: 'custom-endpoint', model: 'same-id' } as const
+    await host.setEngineConfig('codex', { modelDetail: { target: direct, detail: { main: 'direct note' } } })
+    await host.setEngineConfig('codex', {
+      modelDetail: {
+        target: custom,
+        detail: { main: 'endpoint note', price: { currency: 'USD', input: 1, output: 3 } },
+      },
+    })
+    expect(Object.values(host.engineConfig().codex.modelDetails ?? {}).map(detail => detail.main)).toEqual([
+      'direct note',
+      'endpoint note',
+    ])
+    await host.setEngineConfig('codex', { modelDetail: { target: direct, detail: null } })
+    expect(Object.values(host.engineConfig().codex.modelDetails ?? {}).map(detail => detail.main)).toEqual([
+      'endpoint note',
+    ])
+  })
+
   it('Agnes settings are opt-in and validate evaluator and worker IDs independently', async () => {
     const host = makeHost()
     expect(host.engineConfig().codex.subagentAdvisor).toBeNull()

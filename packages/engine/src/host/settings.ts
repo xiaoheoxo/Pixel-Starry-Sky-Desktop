@@ -1,3 +1,4 @@
+import { modelDetailKey, parseModelDetailPatch, type ModelDetail } from '@pixelsky/protocol'
 import { parseSubagentAdvisor } from '@pixelsky/protocol'
 // 引擎设置：默认值、本机配置、引擎级启动选项、重试次数（docs/ui/engine-settings-redesign.md）
 // 设置对象每次修改都整体替换；适配器的回调每次都读 this.file，拿到的总是最新值。
@@ -276,6 +277,20 @@ export class HostSettings {
     this.ctx.store.saveSettings(this.file)
   }
 
+  modelDetails(): Record<string, ModelDetail> {
+    const out: Record<string, ModelDetail> = {}
+    for (const [key, detail] of Object.entries(this.file.options.codex?.modelDetails ?? {})) {
+      try {
+        const [channel, sourceId, model] = JSON.parse(key)
+        const parsed = parseModelDetailPatch({ target: { channel, sourceId, model }, detail })
+        if (parsed?.detail) out[modelDetailKey(parsed.target)] = parsed.detail
+      } catch {
+        // Ignore malformed entries in the editable local settings file.
+      }
+    }
+    return out
+  }
+
   engineConfig(): EngineConfig {
     const one = (id: EngineId): EngineLocalConfig => ({
       path: this.file.paths[id] ?? null,
@@ -286,6 +301,7 @@ export class HostSettings {
       hidden: this.file.options[id]?.hidden === true && id !== this.file.defaults.engine,
       rememberChoices: this.remembersChoices(id),
       resetCreditAuto: id === 'codex' ? this.resetCreditAuto() : null,
+      ...(id === 'codex' ? { modelDetails: this.modelDetails() } : {}),
     })
     return Object.fromEntries(ENGINE_ORDER.map(id => [id, one(id)])) as EngineConfig
   }
@@ -414,6 +430,15 @@ export class HostSettings {
       if (engine !== 'codex' || (r !== null && !validResetAuto(r))) throw new Error('「自动用重置卡」的值不对')
       if (r) options.resetCreditAuto = { threshold: r.threshold, minLeftHours: r.minLeftHours, perWeek: r.perWeek }
       else delete options.resetCreditAuto
+    }
+    if (patch.modelDetail !== undefined) {
+      const change = parseModelDetailPatch(patch.modelDetail)
+      if (engine !== 'codex' || !change) throw new Error('Invalid model details')
+      const details = this.modelDetails()
+      const key = modelDetailKey(change.target)
+      if (change.detail) details[key] = change.detail
+      else delete details[key]
+      options.modelDetails = details
     }
     if (patch.subagentAdvisor !== undefined) {
       const advisor = parseSubagentAdvisor(patch.subagentAdvisor)

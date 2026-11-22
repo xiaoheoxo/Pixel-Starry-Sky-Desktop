@@ -98,6 +98,7 @@ export interface EngineOptions {
   subagentModel?: string
   subagentEffort?: Effort
   subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor
+  modelDetails?: Record<string, import('@pixelsky/protocol').ModelDetail>
   /** Codex 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；只存指定了的 */
   autoReviewModel?: string
   /** Codex 输入预测；只存 cheap / same */

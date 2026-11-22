@@ -4,7 +4,7 @@ import { MAX_ADVISOR_EXTRA_MODELS, type Effort, type SubagentAdvisor } from '@pi
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { effortLabel } from '@/features/engine/labels'
-import { modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
+import { channelModelDetail, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Select, Switch } from '@/ui'
@@ -16,6 +16,8 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
   const models = catalog?.models ?? []
   const model = config?.subagentModel ?? ''
   const advisor = config?.subagentAdvisor ?? null
+  const guide = (model: string) =>
+    modelRoleGuide(model, channelModelDetail(config?.modelDetails, { channel: 'chatgpt', sourceId: null, model }))
   const efforts = models.find(m => m.id === model)?.efforts ?? []
   const save = (patch: {
     subagentModel?: string | null
@@ -92,7 +94,7 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
                 ...models.map(m => ({
                   value: m.id,
                   label: m.label || m.id,
-                  description: modelRoleGuide(m.id)?.evaluator,
+                  description: guide(m.id)?.evaluator,
                 })),
               ]}
             />
@@ -134,7 +136,7 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
                         ...models.map(m => ({
                           value: m.id,
                           label: m.label || m.id,
-                          description: modelRoleGuide(m.id)?.main,
+                          description: guide(m.id)?.main,
                         })),
                       ]}
                     />
@@ -190,7 +192,7 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
                         .map(m => ({
                           value: m.id,
                           label: m.label || m.id,
-                          description: modelRoleGuide(m.id)?.main,
+                          description: guide(m.id)?.main,
                         })),
                     ]}
                   />

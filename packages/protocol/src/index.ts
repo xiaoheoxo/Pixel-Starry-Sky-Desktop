@@ -1,3 +1,15 @@
+export {
+  MODEL_DETAIL_CHANNELS,
+  MODEL_PRICE_CURRENCIES,
+  MODEL_DETAIL_MAX_TEXT,
+  modelDetailKey,
+  parseModelDetailPatch,
+  type ModelDetail,
+  type ModelDetailChannel,
+  type ModelDetailTarget,
+  type ModelDetailPatch,
+  type ModelTokenPrice,
+} from './modelDetails'
 export { getModelRoleGuide, getModelVendorGuide } from './modelRoleGuide'
 export { parseSubagentAdvisor, MAX_ADVISOR_EXTRA_MODELS, type SubagentAdvisor } from './subagentAdvisor'
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'

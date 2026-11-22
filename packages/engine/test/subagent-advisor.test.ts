@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseSubagentAdvisor } from '@pixelsky/protocol'
+import { modelDetailKey, parseSubagentAdvisor } from '@pixelsky/protocol'
 import {
   advisorCandidates,
   advisorOutputSchema,
@@ -182,6 +182,38 @@ describe('Agnes advisory model selection', () => {
     expect(parsed.extraModels).toEqual(['deep-4.1-f'])
     expect(hasConfiguredSubagent(parsed, ['deep-4.1-f'])).toBe(false)
     expect(hasConfiguredSubagent({ ...parsed, evaluatorPicksModel: true }, ['deep-4.1-f'])).toBe(true)
+  })
+
+  it('shares only the current channel’s explicit price, not unrelated prices or private notes', async () => {
+    const model = 'relay/deep-4.1-f'
+    const settings = parseSubagentAdvisor({
+      evaluator: 'judge',
+      evaluatorPicksModel: true,
+      models: [model, null, 'other'],
+    })!
+    const available = [model, 'other']
+    const chatgpt = modelDetailKey({ channel: 'chatgpt', sourceId: null, model })
+    const custom = modelDetailKey({ channel: 'custom', sourceId: 'different-route', model: 'other' })
+    const details = {
+      [chatgpt]: {
+        main: 'private description',
+        evaluator: 'private evaluator note',
+        price: { currency: 'CNY' as const, input: 0, output: 12 },
+      },
+      [custom]: { price: { currency: 'USD' as const, input: 3, output: 30 } },
+    }
+    const candidates = advisorCandidates(settings, available, details)
+    const run = vi.fn().mockResolvedValue('{"difficulty":"light","model":"relay/deep-4.1-f"}')
+    await evaluateAdvisor('judge', 'task', run, candidates)
+    const prompt = run.mock.calls[0][1]
+    expect(prompt).toContain('"pricePerMillionTokens":{"currency":"CNY","input":0,"output":12}')
+    for (const other of ['private description', 'private evaluator note', 'different-route', '"USD"'])
+      expect(prompt).not.toContain(other)
+    expect(
+      groupAdvisorCandidates(candidates)
+        .flatMap(group => group.candidates)
+        .find(c => c.id === 'other'),
+    ).not.toHaveProperty('pricePerMillionTokens')
   })
 
   it('cuts off a slow evaluator and rejects malformed config', async () => {

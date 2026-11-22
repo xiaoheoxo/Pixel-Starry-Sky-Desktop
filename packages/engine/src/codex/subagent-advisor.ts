@@ -1,4 +1,11 @@
-import { getModelRoleGuide, getModelVendorGuide, type SubagentAdvisor } from '@pixelsky/protocol'
+import {
+  getModelRoleGuide,
+  getModelVendorGuide,
+  modelDetailKey,
+  type ModelDetail,
+  type ModelTokenPrice,
+  type SubagentAdvisor,
+} from '@pixelsky/protocol'
 
 export type Difficulty = 'light' | 'medium' | 'difficult'
 const tiers = ['light', 'medium', 'difficult'] as const
@@ -37,9 +44,14 @@ export function hasConfiguredSubagent(settings: SubagentAdvisor, available: read
 interface Candidate {
   tier?: Difficulty
   model: string
+  price?: ModelTokenPrice
 }
 
-export function advisorCandidates(settings: SubagentAdvisor, available: readonly string[]): Candidate[] {
+export function advisorCandidates(
+  settings: SubagentAdvisor,
+  available: readonly string[],
+  details?: Readonly<Record<string, ModelDetail>>,
+): Candidate[] {
   const configured: Candidate[] = tiers.flatMap(tier => {
     const model = recommendSubagent(tier, settings, available)
     return model ? [{ tier, model }] : []
@@ -50,18 +62,23 @@ export function advisorCandidates(settings: SubagentAdvisor, available: readonly
         configured.push({ model })
     }
   }
-  return configured
+  return details
+    ? configured.map(candidate => {
+        const price = details[modelDetailKey({ channel: 'chatgpt', sourceId: null, model: candidate.model })]?.price
+        return price ? { ...candidate, price } : candidate
+      })
+    : configured
 }
 
 interface VendorGroup {
   vendor: string
   overview?: string
-  candidates: { id: string; tiers?: Difficulty[]; role?: string }[]
+  candidates: { id: string; tiers?: Difficulty[]; role?: string; pricePerMillionTokens?: ModelTokenPrice }[]
 }
 
 export function groupAdvisorCandidates(candidates: readonly Candidate[]): VendorGroup[] {
   const groups = new Map<string, VendorGroup>()
-  for (const { model, tier } of candidates) {
+  for (const { model, tier, price } of candidates) {
     const info = getModelVendorGuide(model)
     const vendor = info?.vendor ?? 'Unidentified vendor'
     let group = groups.get(vendor)
@@ -74,7 +91,12 @@ export function groupAdvisorCandidates(candidates: readonly Candidate[]): Vendor
       if (tier && !existing.tiers?.includes(tier)) existing.tiers = [...(existing.tiers ?? []), tier]
     } else {
       const role = getModelRoleGuide(model, 'en', false)?.main
-      group.candidates.push({ id: model, ...(tier ? { tiers: [tier] } : {}), ...(role ? { role } : {}) })
+      group.candidates.push({
+        id: model,
+        ...(tier ? { tiers: [tier] } : {}),
+        ...(role ? { role } : {}),
+        ...(price ? { pricePerMillionTokens: price } : {}),
+      })
     }
   }
   return [...groups.values()]
@@ -104,7 +126,7 @@ export const advisorPrompt = (text: string, candidates: readonly Candidate[] = [
   'Light: simple wording, formatting, or a tightly scoped edit. Medium: ordinary development or investigation. ' +
   'Difficult: architecture, broad changes, concurrency, risk, or unclear high-impact work. Return a JSON object with a difficulty field: light, medium, or difficult.\n' +
   (candidates.length
-    ? 'Also return model: choose one exact listed model ID using the task and configured tier labels, or null if no model fits. Do not invent capabilities or IDs.\nConfigured candidates by model vendor (overviews are general, not guarantees for unrecognized models): ' +
+    ? 'Also return model: choose one exact listed model ID using the task and configured tier labels, or null if no model fits. If suitable candidates have comparable user-entered prices, consider input and output cost together. Missing price is unknown, not free; do not compare different currencies or assume subscription or billing rates. Do not invent capabilities or IDs.\nConfigured candidates by model vendor (overviews are general, not guarantees for unrecognized models): ' +
       JSON.stringify(groupAdvisorCandidates(candidates)) +
       '\n'
     : '') +

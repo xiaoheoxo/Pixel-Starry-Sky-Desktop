@@ -1,5 +1,42 @@
 // 模型通道（docs/ui/model-channels.md）：四条通道、谁来执行、授权弹窗、设置页
 export const modelChannelMessages = {
+  'modelDetails.title': { zh: '模型明细与参考价格', en: 'Model details and reference prices' },
+  'modelDetails.hint': {
+    zh: '同一型号在不同通道可独立编辑。用途说明默认来自内置模型库，修改后只在本机显示。',
+    en: 'Customize the same model independently by channel. Usage descriptions start from the built-in guide; edits stay on this device.',
+  },
+  'modelDetails.noModels': {
+    zh: '还没有可配置的模型。请先检测引擎或设置模型通道。',
+    en: 'No models to configure yet. Detect an engine or set up a model channel first.',
+  },
+  'modelDetails.channel': { zh: '模型通道', en: 'Model channel' },
+  'modelDetails.model': { zh: '型号', en: 'Model' },
+  'modelDetails.main': { zh: '主模型用途', en: 'Main model use' },
+  'modelDetails.evaluator': { zh: '评估模型用途', en: 'Evaluator use' },
+  'modelDetails.price': { zh: '通道价格 · 每百万 token', en: 'Channel price per million tokens' },
+  'modelDetails.currency': { zh: '币种', en: 'Currency' },
+  'modelDetails.input': { zh: '输入', en: 'Input' },
+  'modelDetails.output': { zh: '输出', en: 'Output' },
+  'modelDetails.reference': {
+    zh: '资料库 API 参考（{model}）：输入 USD {input}，输出 USD {output}。不是当前通道实价。',
+    en: 'Catalog API reference ({model}): USD {input} input, USD {output} output. Not the current channel price.',
+  },
+  'modelDetails.priceHint': {
+    zh: '留空表示未知，不是免费。ChatGPT 通道的自填价格仅在开启「让评估模型选型」时随候选发送，不影响扣费。',
+    en: 'Blank means unknown, not free. Manually configured ChatGPT prices are shared with Agnes candidates only when evaluator selection is enabled. Billing is unchanged.',
+  },
+  'modelDetails.invalidPrice': {
+    zh: '请填写有效的非负输入和输出价格，或两项都留空。',
+    en: 'Enter valid non-negative input and output prices, or leave both blank.',
+  },
+  'modelDetails.error': { zh: '未能保存模型明细。', en: 'Could not save model details.' },
+  'modelDetails.saved': { zh: '已保存', en: 'Saved' },
+  'modelDetails.restored': {
+    zh: '已恢复默认说明并清除自填价格',
+    en: 'Restored default descriptions and cleared the custom price',
+  },
+  'modelDetails.save': { zh: '保存', en: 'Save' },
+  'modelDetails.restore': { zh: '恢复默认', en: 'Restore defaults' },
   'dot.title': { zh: 'Dot', en: 'Dot' },
   'dot.yourDot': { zh: '你的 Dot', en: 'Your Dot' },
   'dot.details': { zh: 'Dot 详情', en: 'Dot details' },

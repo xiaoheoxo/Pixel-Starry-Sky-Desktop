@@ -81,6 +81,7 @@ export interface CodexLaunchOptions {
   subagentModel?: string | null
   subagentEffort?: Effort | null
   subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
+  modelDetails?: () => Readonly<Record<string, import('@pixelsky/protocol').ModelDetail>>
   currentSubagentAdvisor?: () => import('@pixelsky/protocol').SubagentAdvisor | null
   evaluateSubagent?: AdvisorEvaluator
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
@@ -1202,7 +1203,7 @@ export class CodexSession implements EngineSession {
             advisor.evaluator,
             text,
             evaluate,
-            advisor.evaluatorPicksModel ? advisorCandidates(advisor, available) : [],
+            advisor.evaluatorPicksModel ? advisorCandidates(advisor, available, this.options.modelDetails?.()) : [],
           )
         if (this.active !== active || this.closed) return
         const latest = currentAdvisor()
