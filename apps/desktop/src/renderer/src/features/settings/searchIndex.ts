@@ -171,7 +171,9 @@ export const SETTINGS_INDEX: SearchEntry[] = [
     get title() {
       return tr('settings.QuickModelBar.title')
     },
-    keywords: '模型 推理 强度 快速 模型栏 输入框 model reasoning effort composer codex',
+    get keywords() {
+      return tr('settings.QuickModelBar.keywords')
+    },
   },
   {
     section: 'editor',

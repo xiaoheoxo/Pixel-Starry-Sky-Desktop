@@ -3637,6 +3637,10 @@ export const catalog = {
     zh: '快速模型栏',
     en: 'Quick model bar',
   },
+  'settings.QuickModelBar.keywords': {
+    zh: '模型 推理 强度 快速 模型栏 输入框 model reasoning effort composer codex',
+    en: 'model reasoning effort quick control composer codex',
+  },
   'settings.QuickModelBar.description': {
     zh: '在输入框中把模型和推理强度合在一处。关闭后恢复为两个独立按钮。',
     en: 'Group model and reasoning effort in the composer. Turn off to show separate controls.',
