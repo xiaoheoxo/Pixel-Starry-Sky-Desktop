@@ -126,11 +126,13 @@ export function ModelSourceMenu({
   open,
   onOpenChange,
   onRequestChoice,
+  compact = false,
 }: {
   live: SourceMenuController
   /** 欢迎页的输入框：没自己选过时写「接着上次」 */
   newTask?: boolean
   open: boolean
+  compact?: boolean
   onOpenChange: (open: boolean) => void
   /** 已开始的对话换到别的通道：由输入框先弹确认（会重启引擎并接上原对话） */
   onRequestChoice: (choice: ChannelChoice) => void
@@ -1060,6 +1062,7 @@ export function ModelSourceMenu({
         onClick={() => onOpenChange(!open)}
         className={cn(TRIGGER, 'max-w-full')}
         title={`${modelText} · ${channelText} · ${executorName(engineId)}`}
+        aria-label={`${modelText} · ${channelText} · ${executorName(engineId)}`}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -1068,7 +1071,7 @@ export function ModelSourceMenu({
           {modelText}
         </span>
         {/* 账号模式（自己的 Claude / ChatGPT / Antigravity 授权）：图标就说明了来源，不再写「· 来源」，悬停提示里有（docs/ui/composer-model-button-mockup.html 方案 B） */}
-        {showTriggerSource(live.channel) && (
+        {!compact && showTriggerSource(live.channel) && (
           <span data-model-source className="shrink-0 text-meta text-fg-muted">
             · {channelText}
           </span>

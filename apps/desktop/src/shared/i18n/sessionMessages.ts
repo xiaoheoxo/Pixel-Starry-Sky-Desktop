@@ -369,6 +369,11 @@ export const sessionMessages = {
   'session.live.tool.imageGeneration': { zh: '生成图片', en: 'Generated image' },
   'session.live.tool.imageGenerating': { zh: '正在生成图片', en: 'Generating image' },
   'session.live.tool.cloudImage': { zh: '云端生图', en: 'Cloud image' },
+  'session.connectorActivity.calls': { zh: '{provider} · {n} 次调用', en: '{provider} · {n} calls' },
+  'session.connectorActivity.more': { zh: '{names} 等 {n} 项', en: '{names} +{n} more' },
+  'session.connectorActivity.running': { zh: '正在调用', en: 'Running' },
+  'session.connectorActivity.completed': { zh: '已完成', en: 'Completed' },
+  'session.connectorActivity.failed': { zh: '调用失败', en: 'Call failed' },
   'session.live.tool.cloudImaging': { zh: '正在云端生图', en: 'Generating in the cloud' },
   'session.live.tool.cloudImageStop': { zh: '停止', en: 'Stop' },
   // 云端生图（docs/ui/image-gen.md §6）

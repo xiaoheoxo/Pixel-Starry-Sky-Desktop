@@ -364,6 +364,18 @@ export const catalog = {
     zh: '停止本轮',
     en: 'Stop this turn',
   },
+  'session.ConversationChangesBar.file': {
+    zh: '{n} 个文件已更改',
+    en: '{n} file changed',
+  },
+  'session.ConversationChangesBar.files': {
+    zh: '{n} 个文件已更改',
+    en: '{n} files changed',
+  },
+  'session.ConversationChangesBar.scope': {
+    zh: '统计此对话中已记录的编辑，不是工作区的净变更。',
+    en: 'Edits recorded in this conversation, not the net workspace diff.',
+  },
   'session.ChangedFilesCard.editedFile': {
     zh: '编辑了 {n} 个文件',
     en: 'Edited {n} file',
@@ -3620,6 +3632,14 @@ export const catalog = {
   'settings.AccentSettings.graphite': {
     zh: '石墨',
     en: 'Graphite',
+  },
+  'settings.QuickModelBar.title': {
+    zh: '快速模型栏',
+    en: 'Quick model bar',
+  },
+  'settings.QuickModelBar.description': {
+    zh: '在输入框中把模型和推理强度合在一处。关闭后恢复为两个独立按钮。',
+    en: 'Group model and reasoning effort in the composer. Turn off to show separate controls.',
   },
   'settings.ComposerStyleSettings.composerStyle': {
     zh: '对话框风格',

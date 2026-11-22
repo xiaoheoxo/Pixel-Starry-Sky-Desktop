@@ -6,6 +6,7 @@ import { useEffect, useMemo, type ReactNode } from 'react'
 import { ChevronRight, FilePen, FileText, Globe, Layers, Search, SquareTerminal, type LucideIcon } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
+import { ConnectorActivitySummary } from './ConnectorActivitySummary'
 import { REQUEST_MS, useExpandAny } from '@/features/search/expand'
 import { formatDuration } from './agentTrace'
 import { liveStatus, stepTitle } from './currentStep'
@@ -88,6 +89,7 @@ export function ProcessGroup({
             </span>
           </>
         )}
+        <ConnectorActivitySummary items={items} />
         <span className="min-w-0 truncate">{summaryText(summary, shown.length)}</span>
         {summary.failed > 0 && (
           <span className="shrink-0 text-danger">

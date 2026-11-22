@@ -11,18 +11,26 @@ import { OlderFoldSettings } from './OlderFoldSettings'
 import { PortTipSettings } from './PortTipSettings'
 import { QuotaDisplaySettings } from './QuotaDisplaySettings'
 import { ReplyStatsSettings } from './ReplyStatsSettings'
-import { GroupTitle, SectionTitle } from './SettingRow'
+import { GroupTitle, SectionTitle, SettingRow, Toggle } from './SettingRow'
+import { setQuickModelBar, useQuickModelBar } from './quickModelBar'
 import { StopBackgroundAgentsSettings } from './StopBackgroundAgentsSettings'
 import { SubagentViewSettings } from './SubagentViewSettings'
 import { TurnRailSettings } from './TurnRailSettings'
 
 export function ChatSection() {
   useI18n()
+  const quickModelBar = useQuickModelBar()
+  const quickModelTitle = tr('settings.QuickModelBar.title')
   return (
     <section>
       <SectionTitle>{tr('settingsNav.chat')}</SectionTitle>
       <GroupTitle>{tr('settingsChat.composer')}</GroupTitle>
       <ComposerStyleSettings />
+      <SettingRow
+        title={quickModelTitle}
+        description={tr('settings.QuickModelBar.description')}
+        control={<Toggle label={quickModelTitle} checked={quickModelBar} onChange={setQuickModelBar} />}
+      />
       <QuotaDisplaySettings />
       <FullAccessStripSettings />
 

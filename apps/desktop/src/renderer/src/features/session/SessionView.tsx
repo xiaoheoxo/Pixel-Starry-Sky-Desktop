@@ -16,6 +16,7 @@ import { Composer, composerDraftKey } from './Composer'
 import { BranchBanner, BranchReadOnlyBar, BranchStartDivider, PendingMergeBar } from './branch/BranchViews'
 import { branchReadOnly } from './branch/store'
 import { ComposerArea } from './ComposerArea'
+import { ConversationChangesBar } from './ConversationChangesBar'
 import { WelcomeView } from './WelcomeView'
 import { hasConversation } from './conversation'
 import { LiveTranscript } from './live/LiveTranscript'
@@ -752,6 +753,14 @@ function LiveSessionView({
                     />
                     {record?.pendingMerge && !readOnly && (
                       <PendingMergeBar sessionId={sessionId} pending={record.pendingMerge} />
+                    )}
+                    {snapshot && (
+                      <ConversationChangesBar
+                        key={sessionId}
+                        sessionId={sessionId}
+                        items={snapshot.items}
+                        cwd={snapshot.record.cwd ?? null}
+                      />
                     )}
                     {readOnly ? (
                       <BranchReadOnlyBar />

@@ -47,6 +47,7 @@ export function ChangedFilesCard({
   undo,
   style,
   aiReview,
+  inlineHistory = false,
 }: {
   className?: string
   style?: CSSProperties
@@ -58,11 +59,13 @@ export function ChangedFilesCard({
   undo?: CardUndo | null
   /** 「AI 审查」（docs/ui/review-pr-actions.md §2）：不传不显示 */
   aiReview?: { onClick: () => void; running: boolean } | null
+  /** 对话总览展示已记录的补丁，不打开工作区当前的 diff。 */
+  inlineHistory?: boolean
 }) {
   useI18n()
   const comingSoon = useComingSoon()
   const toast = useToast()
-  const code = useAppMode() === 'code'
+  const code = useAppMode() === 'code' && !inlineHistory
   const [error, setError] = useState('')
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
   if (!data) return null

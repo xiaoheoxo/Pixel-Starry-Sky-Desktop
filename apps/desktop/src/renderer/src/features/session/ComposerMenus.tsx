@@ -7,6 +7,7 @@ import {
   Brain,
   Check,
   ChevronDown,
+  ChevronRight,
   ListChecks,
   Rocket,
   RotateCcw,
@@ -91,11 +92,13 @@ export function EffortMenu({
   live,
   open: controlled,
   onOpenChange,
+  onChooseModel,
 }: {
   live: ComposerController
   /** 由外面控制开合（输入框的 /effort 打开它）；不传时自己管 */
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  onChooseModel?: () => void
 }) {
   useI18n()
   const [own, setOwn] = useState(false)
@@ -184,6 +187,16 @@ export function EffortMenu({
         <ChevronDown size={14} strokeWidth={1.5} className="text-fg-muted" />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} side="top" align="end" offset={8} className="w-80 p-3">
+        {onChooseModel && (
+          <button
+            type="button"
+            className="press mb-2 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-ui text-fg-secondary hover:bg-hover hover:text-fg"
+            onClick={onChooseModel}
+          >
+            {tr('session.ModelSourceMenu.chooseModel')}
+            <ChevronRight size={14} aria-hidden="true" />
+          </button>
+        )}
         <div className="mb-3 flex h-6 min-w-0 items-center gap-2">
           <span className="shrink-0 text-ui whitespace-nowrap text-fg-secondary">
             {tr('session.Composer.reasoningEffort')}

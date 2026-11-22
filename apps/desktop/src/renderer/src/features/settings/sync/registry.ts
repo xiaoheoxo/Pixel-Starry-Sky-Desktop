@@ -120,6 +120,7 @@ export const SYNC_ENTRIES: readonly SyncEntry[] = [
   storageEntry('desktop.sidebar', 'appearance', 'pixelsky.sidebar'),
   // 对话显示
   storageEntry('desktop.composerStyle', 'display', 'pixelsky.composer-style'),
+  storageEntry('desktop.quickModelBar', 'display', 'pixelsky.quick-model-bar'),
   storageEntry('desktop.quotaDisplay', 'display', 'pixelsky.quota-display'),
   storageEntry('desktop.replyStats', 'display', 'pixelsky.reply-stats'),
   storageEntry('desktop.turnRail', 'display', 'pixelsky.turn-rail'),

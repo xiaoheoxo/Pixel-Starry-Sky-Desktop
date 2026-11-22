@@ -167,6 +167,13 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   },
   { section: 'chat', title: '对话框风格', keywords: '输入框 风格 样式 布局 chatgpt claude 工具框内 框外' },
   {
+    section: 'chat',
+    get title() {
+      return tr('settings.QuickModelBar.title')
+    },
+    keywords: '模型 推理 强度 快速 模型栏 输入框 model reasoning effort composer codex',
+  },
+  {
     section: 'editor',
     title: '默认外部编辑器',
     keywords: '编辑器 Cursor VS Code Windsurf Trae TraeCode CN 打开项目 默认',

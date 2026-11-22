@@ -1,5 +1,15 @@
 import { translateMessage } from '../../i18n/core'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from 'react'
 import {
   AtSign,
   ChevronDown,
@@ -57,6 +67,7 @@ import { SessionCheckBar } from '@/features/checks/SessionCheckBar'
 import { ContextWindowButton } from './ContextWindowButton'
 import { QuotaButton } from './quota/QuotaButton'
 import { useComposerStyle } from '@/features/settings/composerStyle'
+import { useQuickModelBar } from '@/features/settings/quickModelBar'
 import { useStopBackgroundAgents } from '@/features/settings/stopBackgroundAgents'
 import { ComposerStatusBar } from './ComposerStatusBar'
 import { insertSpoken } from '@/features/voice/model'
@@ -171,6 +182,7 @@ export function Composer({
   const toast = useToast()
   const { text: translate } = useI18n()
   const style = useComposerStyle()
+  const quickModelBar = useQuickModelBar()
   const chatgpt = style === 'chatgpt'
   // 极简模式：上面那一排浮在输入框上、不占位置，工具按钮要用时才出现（docs/ui/minimal-mode.md §13）
   const minimal = useMinimal()
@@ -222,7 +234,15 @@ export function Composer({
   /** 输入框内容的高度（含内边距），输入框报上来 */
   const [contentHeight, setContentHeight] = useState(56)
   // 引擎 / 额度来源 / 模型菜单；已开始的会话切换平台 ↔ 自有前先确认（docs/ui/source-switch.md §3.4）
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [modelControlOpen, setModelControlOpen] = useState<'model' | 'effort' | null>(null)
+  const menuOpen = modelControlOpen === 'model'
+  const effortOpen = modelControlOpen === 'effort'
+  const setMenuOpen = useCallback((open: boolean) => {
+    setModelControlOpen(active => (open ? 'model' : active === 'model' ? null : active))
+  }, [])
+  const setEffortOpen = useCallback((open: boolean) => {
+    setModelControlOpen(active => (open ? 'effort' : active === 'effort' ? null : active))
+  }, [])
   const [addMenu, setAddMenu] = useState(false)
   // 云端生图（docs/ui/image-gen.md §6）：打开时输入框上方是选项，发送走生图、不发给 AI。只在本机、登录了平台、有能生图的分组时给
   const [cloudImage, setCloudImage] = useState<CloudImageOptions | null>(null)
@@ -256,7 +276,6 @@ export function Composer({
   // Codex 会话里像素星空自己处理的命令（docs/ui/codex-flow-slash-feedback.md B，D277）：选了打开已有的功能，不发给 Codex
   const sessionActions = useSessionActions()
   const appMode = useAppMode()
-  const [effortOpen, setEffortOpen] = useState(false)
   const appContext: AppCommandContext | null = live
     ? {
         live,
@@ -1357,26 +1376,33 @@ export function Composer({
 
           <div className="flex-1" />
 
-          {live ? (
-            <>
-              <ModelSourceMenu
+          <div
+            className={
+              quickModelBar
+                ? 'inline-flex min-w-0 items-center rounded-lg border border-line-subtle bg-subtle'
+                : 'contents'
+            }
+            role={quickModelBar ? 'group' : undefined}
+            aria-label={quickModelBar ? tr('settings.QuickModelBar.title') : undefined}
+            data-quick-model-bar={quickModelBar ? '' : undefined}
+          >
+            <ModelSourceMenu
+              live={live ?? demoSource}
+              newTask={newTask}
+              open={menuOpen}
+              compact={quickModelBar}
+              onOpenChange={setMenuOpen}
+              onRequestChoice={live ? requestChoice : c => void demoSource.applyChoice(c)}
+            />
+            {quickModelBar && <span className="h-4 w-px shrink-0 bg-line-subtle" aria-hidden="true" />}
+            {live ? (
+              <EffortMenu
                 live={live}
-                newTask={newTask}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-                onRequestChoice={requestChoice}
+                open={effortOpen}
+                onOpenChange={setEffortOpen}
+                onChooseModel={quickModelBar ? () => setMenuOpen(true) : undefined}
               />
-              <EffortMenu live={live} open={effortOpen} onOpenChange={setEffortOpen} />
-            </>
-          ) : (
-            <>
-              <ModelSourceMenu
-                live={demoSource}
-                newTask={newTask}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-                onRequestChoice={c => void demoSource.applyChoice(c)}
-              />
+            ) : (
               <button
                 type="button"
                 onClick={() => comingSoon(translate('推理强度'))}
@@ -1385,8 +1411,8 @@ export function Composer({
                 <span>{composer.effort}</span>
                 <ChevronDown size={14} strokeWidth={1.5} className="text-fg-muted" />
               </button>
-            </>
-          )}
+            )}
+          </div>
           {chatgpt && <VoiceButton voice={voice} />}
           {/* 窄宽时 composerCompact.css 靠 data-composer-quota 把额度按钮收成只剩图标 */}
           <span data-composer-quota className="contents">

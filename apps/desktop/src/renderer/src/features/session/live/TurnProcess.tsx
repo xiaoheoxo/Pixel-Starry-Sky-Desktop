@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, ChevronRight, Circle, Layers } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
+import { ConnectorActivitySummary } from './ConnectorActivitySummary'
 import { REQUEST_MS, useExpandAny } from '@/features/search/expand'
 import { formatDuration } from './agentTrace'
 import { planResult } from './progressData'
@@ -89,6 +90,7 @@ function PlanStage({
         <span aria-hidden className="shrink-0 text-fg-faint">
           ·
         </span>
+        <ConnectorActivitySummary items={stage.items} />
         <span className="min-w-0 truncate">{summaryText(summary, stage.items.length)}</span>
         {summary.failed > 0 && (
           <span className="shrink-0 text-danger">
@@ -211,6 +213,7 @@ export function TurnProcess({
         <span aria-hidden className="shrink-0 text-fg-faint">
           ·
         </span>
+        <ConnectorActivitySummary items={items} />
         <span className="min-w-0 truncate">{summaryText(summary, shown.length)}</span>
         {plan && (
           <span className={cn('min-w-0 truncate', plan.stoppedAt ? 'text-warn' : 'text-success')}>
