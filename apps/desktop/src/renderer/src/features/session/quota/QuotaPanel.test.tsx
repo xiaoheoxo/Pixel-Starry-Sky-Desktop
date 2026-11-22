@@ -408,20 +408,37 @@ it('separates the reported quota, conditional forecast, budget and local API com
   expect(html).not.toContain('约 328 轮')
 })
 
-it('shows five-hour and weekly account limits as separate reported rows, excluding model-specific windows', () => {
-  const html = render({})
-  expect(count(html, 'data-quota-reported=')).toBe(2)
-  expect(html).toMatch(/data-quota-reported="five_hour"[^]*?已用 42%[^]*?剩 58%[^]*?16:45 恢复/)
-  expect(html).toMatch(/data-quota-reported="seven_day"[^]*?已用 18%[^]*?剩 82%[^]*?周四 09:00 恢复/)
-  expect(html.indexOf('data-quota-reported="seven_day"')).toBeLessThan(html.indexOf('role="progressbar"'))
+it('shows each supported forecast in its own row without duplicating it in the actual cards', () => {
+  const html = render({
+    estimate: {
+      windows: {
+        five_hour: { elapsed: 0.45, projected: 63, emptyAt: null, basis: 'recent', budget: null },
+        seven_day: { elapsed: 0.65, projected: 100, emptyAt: at(16, 45), basis: 'window', budget: null },
+      },
+      month: null,
+    },
+  })
+  expect(count(html, 'data-quota-forecast=')).toBe(2)
+  expect(html).toMatch(/data-quota-forecast="five_hour"[^]*?5 小时预测[^]*?预计恢复时剩 37%/)
+  expect(html).toMatch(/data-quota-forecast="seven_day"[^]*?周限预测[^]*?预计 16:45 用完/)
+  expect(count(html, '预计恢复时剩 37%')).toBe(1)
+  expect(count(html, '预计 16:45 用完')).toBe(1)
+  expect(html).toContain('aria-valuenow="42"')
+  expect(html.indexOf('role="progressbar"')).toBeLessThan(html.indexOf('data-quota-forecast="five_hour"'))
+  expect(html).not.toContain('data-quota-reported=')
 })
 
-it('only shows supported account windows and does not report zero for an expired reading', () => {
+it('does not invent a missing five-hour window or use expired data for weekly forecasting', () => {
   const html = render({
     q: quota({ provider: 'chatgpt', plan: 'prolite', windows: [win(10_080, 80, at(14, 31))] }),
   })
-  expect(count(html, 'data-quota-reported=')).toBe(1)
-  const row = html.match(/data-quota-reported="seven_day"[^]*?<\/li>/)?.[0]
-  expect(row).toContain('已到恢复时间，等待更新')
+  expect(count(html, 'data-quota-forecast=')).toBe(1)
+  const row = html.match(/data-quota-forecast="seven_day"[^]*?<\/li>/)?.[0]
+  expect(row).toContain('等待新周期数据')
   expect(row).not.toContain('0%')
+})
+
+it('makes missing forecast data explicit instead of treating it as a zero estimate', () => {
+  const html = render({})
+  expect(count(html, '暂无法预测')).toBe(2)
 })

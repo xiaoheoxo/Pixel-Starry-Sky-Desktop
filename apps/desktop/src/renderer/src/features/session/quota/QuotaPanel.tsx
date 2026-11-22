@@ -11,7 +11,6 @@ import {
   percentText,
   planBadge,
   resetClock,
-  resetShort,
   providerTitle,
   quotaEntries,
   quotaLayout,
@@ -95,7 +94,7 @@ export function QuotaPanel({
   const layout =
     quota && quota.status !== 'unsupported' ? quotaLayout(quota, { provider, now, balanceText, planLimits }) : null
   const hasData = !!layout && (layout.cards.length > 0 || layout.rows.length > 0)
-  const reported =
+  const forecastWindows =
     quota && layout && provider !== 'platform'
       ? quotaEntries(quota, now).filter(
           entry =>
@@ -191,14 +190,20 @@ export function QuotaPanel({
           </p>
         ) : (
           <>
-            {reported.length > 0 && <ReportedWindows windows={reported} now={now} />}
             {layout.cards.length > 0 && (
               <div className={cn('grid gap-2', layout.cards.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
                 {layout.cards.map(card => (
-                  <Tile key={card.id} card={card} est={estimate?.windows[card.id]} now={now} />
+                  <Tile
+                    key={card.id}
+                    card={card}
+                    est={estimate?.windows[card.id]}
+                    now={now}
+                    separateForecast={forecastWindows.some(window => window.id === card.id)}
+                  />
                 ))}
               </div>
             )}
+            {forecastWindows.length > 0 && <ForecastWindows windows={forecastWindows} estimate={estimate} now={now} />}
             {estimate?.month && (
               <div
                 title={tr('quotaEst.fine')}
@@ -384,47 +389,62 @@ function FootButton({
   )
 }
 
-/** Use the server's actual windows, not predictions, plan labels or model-specific buckets. */
-function ReportedWindows({ windows, now }: { windows: QuotaEntry[]; now: number }) {
+/** Separate forecasts from reported use and the local API comparison. */
+function ForecastWindows({
+  windows,
+  estimate,
+  now,
+}: {
+  windows: QuotaEntry[]
+  estimate: QuotaEstimate | null
+  now: number
+}) {
   return (
-    <ul
-      aria-label={tr('quotaEst.reported.label')}
-      className="mb-2 divide-y divide-line-subtle rounded-lg bg-subtle px-2.5"
-    >
-      {windows.map(window => (
-        <li
-          key={window.id}
-          data-quota-reported={window.id}
-          className="flex min-h-7 min-w-0 items-center gap-x-2 text-label tabular-nums"
-        >
-          <span className="min-w-0 truncate font-medium">{window.name}</span>
-          {window.expired ? (
-            <span className="ml-auto shrink-0 text-fg-muted">{tr('quotaEst.reported.awaiting')}</span>
-          ) : (
-            <>
-              <span className={cn('shrink-0', TEXT[window.level])}>
-                {tr('quotaEst.reported.used', { p: percentText(window.percent) })}
-              </span>
-              <span className="shrink-0 text-fg-muted">
-                {tr('quotaEst.left', { p: percentText(100 - window.percent) })}
-              </span>
-              {window.resetsAt !== null && (
-                <span className="ml-auto shrink-0 text-fg-muted">{resetShort(window.resetsAt, now)}</span>
+    <ul aria-label={tr('quotaEst.rows.label')} className="mt-2 divide-y divide-line-subtle rounded-lg bg-subtle px-2.5">
+      {windows.map(window => {
+        const forecast = estimate?.windows[window.id]
+        const line = !window.expired && forecast ? forecastLine(forecast, now) : null
+        return (
+          <li
+            key={window.id}
+            data-quota-forecast={window.id}
+            className="flex min-h-7 min-w-0 items-center justify-between gap-x-2 text-label tabular-nums"
+            title={line && forecast ? forecastBasis(forecast) : undefined}
+          >
+            <span className="min-w-0 shrink-0 font-medium">
+              {tr(window.durationMins === QUOTA_WINDOW_MINS.fiveHour ? 'quotaEst.rows.fiveHour' : 'quotaEst.rows.week')}
+            </span>
+            <span
+              className={cn(
+                'min-w-0 truncate text-right',
+                line && forecast?.emptyAt != null ? 'text-warn' : 'text-fg-muted',
               )}
-            </>
-          )}
-        </li>
-      ))}
+            >
+              {line ?? tr(window.expired ? 'quotaEst.rows.awaiting' : 'quotaEst.rows.unavailable')}
+            </span>
+          </li>
+        )
+      })}
     </ul>
   )
 }
 
 /** 大数字卡片：名字、大百分比、进度条、恢复时间（平台是金额）；有估算时加「剩 N%」、浅色的预计段、时间竖线和预估几行 */
-function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: number }) {
+function Tile({
+  card,
+  est,
+  now,
+  separateForecast,
+}: {
+  card: QuotaCard
+  est?: WindowEstimate
+  now: number
+  separateForecast: boolean
+}) {
   const full = card.level === 'full'
   const e = card.type === 'meter' && !full ? est : undefined
   const hot = e?.emptyAt != null
-  const forecast = e ? forecastLine(e, now) : null
+  const forecast = e && !separateForecast ? forecastLine(e, now) : null
   const budget = e ? budgetLine(e) : null
   return (
     <div
@@ -461,7 +481,7 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
             aria-valuemax={100}
             className="relative h-1 overflow-hidden rounded-full bg-selected"
           >
-            {e?.projected != null && e.projected > card.percent && (
+            {!separateForecast && e?.projected != null && e.projected > card.percent && (
               <i
                 title={tr('quotaEst.projTip')}
                 className={cn('absolute inset-y-0 left-0 rounded-full opacity-30', hot ? 'bg-warn' : FILL[card.level])}
