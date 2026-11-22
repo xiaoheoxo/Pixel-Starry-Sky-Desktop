@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   dotComposerState,
+  dotEventHasNewMessage,
   dotReplyDisplay,
   dotGuidanceTurn,
   dotHistoryUpdate,
@@ -201,4 +202,40 @@ it('shows unanswered at one minute only after acknowledged delivery and clears o
   expect(dotReplyDisplay(true, 10_000, 70_000)).toBe('unanswered')
   expect(dotReplyDisplay(true, undefined, 70_000)).toBe('working')
   expect(dotReplyDisplay(false, 10_000, 70_000)).toBe('none')
+})
+
+it('refreshes canonical room history for replies and attachment notices, not workflow status events', () => {
+  expect(
+    dotEventHasNewMessage({
+      type: 'item_completed',
+      item: { id: 'dot-m1', kind: 'assistant', text: 'ready', status: 'completed' },
+    }),
+  ).toBe(true)
+  expect(
+    dotEventHasNewMessage({
+      type: 'item_completed',
+      item: { id: 'dot-attachment-m2', kind: 'notice', text: 'file', level: 'info' },
+    }),
+  ).toBe(true)
+  expect(dotEventHasNewMessage({ type: 'runs', runs: { workflows: [], agents: [] } })).toBe(false)
+  expect(
+    dotEventHasNewMessage({
+      type: 'item_completed',
+      item: { id: 'dot-watch-task', kind: 'notice', text: 'slow', level: 'warn' },
+    }),
+  ).toBe(false)
+})
+
+it('anchors a locally delivered reply to the matching server echo even if the local clock differs', () => {
+  const rows = dotTranscript(
+    [
+      { id: 'request', requestId: 'u', role: 'user', text: 'Question', createdAt: 100, attachments: [] },
+      { id: 'later', role: 'assistant', text: 'Later', createdAt: 150, attachments: [] },
+    ],
+    [
+      { id: 'u', kind: 'user', text: 'Question', createdAt: 1000 },
+      { id: 'dot-early', kind: 'assistant', text: 'First reply', status: 'completed' },
+    ],
+  )
+  expect(rows.map(row => row.text)).toEqual(['Question', 'First reply', 'Later'])
 })

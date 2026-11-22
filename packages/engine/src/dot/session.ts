@@ -188,12 +188,7 @@ export class DotSession implements EngineSession {
             })
           for (const attachment of m.content.attachments ?? []) {
             if (attachment.type === 'thread' && attachment.thread_id) {
-              try {
-                await this.refresh(dot, m, attachment.thread_id, signal)
-              } catch {
-                signal.throwIfAborted()
-                this.monitorNotice(attachment.thread_id)
-              }
+              // Work-card metadata can be slow. It must not block the room message cursor.
               this.watch(dot, m, attachment.thread_id)
             } else {
               this.ctx.emit({
@@ -376,8 +371,8 @@ export class DotSession implements EngineSession {
     const done = (async () => {
       try {
         for (;;) {
-          await delay(this.options.pollMs ?? 3000, undefined, { signal })
           if (await this.refresh(dot, card, id, signal)) return
+          await delay(this.options.pollMs ?? 3000, undefined, { signal })
         }
       } catch {
         if (!signal.aborted) this.monitorNotice(id)

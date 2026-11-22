@@ -1,8 +1,17 @@
-import type { Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
+import type { EngineEvent, Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
 import type { DotAttachment, DotChatMessage, DotHistoryPage } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
 
 import type { DotLocalSend } from './localImagePreviews'
+
+/** These events signal a remote message, not a reason to reload profile data. */
+export function dotEventHasNewMessage(event: EngineEvent): boolean {
+  return (
+    event.type === 'item_completed' &&
+    ((event.item.kind === 'assistant' && event.item.id.startsWith('dot-')) ||
+      (event.item.kind === 'notice' && event.item.id.startsWith('dot-attachment-')))
+  )
+}
 
 export interface DotTranscriptRow {
   id: string
@@ -27,7 +36,7 @@ export function dotTranscript(
   }
   let at = 0
   for (const item of local) {
-    if (item.kind === 'user') at = item.createdAt
+    if (item.kind === 'user') at = rows.get(item.id)?.createdAt ?? item.createdAt
     else at++
     if (rows.has(item.id)) continue
     if (item.kind === 'user' || item.kind === 'assistant' || item.kind === 'notice')

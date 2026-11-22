@@ -32,6 +32,7 @@ import { DotExperimental } from './DotExperimental'
 import {
   DOT_NO_REPLY_MS,
   dotComposerState,
+  dotEventHasNewMessage,
   dotReplyDisplay,
   dotGuidanceTurn,
   dotHistoryUpdate,
@@ -279,15 +280,20 @@ export function DotConversation({
     const back = (): void => {
       if (visible.current && document.visibilityState === 'visible') void remote.current({ catchUp: true })
     }
+    // The main process may learn about a ChatGPT reply first. Catch up for this room only.
+    const off = window.pixelsky?.dotChat?.onChange?.(change => {
+      if (change.notice?.key === entryKey) back()
+    })
     window.addEventListener('focus', back)
     document.addEventListener('visibilitychange', back)
     return () => {
       alive.current = false
       clearInterval(timer)
+      off?.()
       window.removeEventListener('focus', back)
       document.removeEventListener('visibilitychange', back)
     }
-  }, [readOverview, roomKey])
+  }, [entryKey, readOverview, roomKey])
 
   useEffect(() => {
     let mounted = true
@@ -323,6 +329,9 @@ export function DotConversation({
     const off = window.pixelsky?.engine.onEvent(e => {
       if (e.kind !== 'session' || (current.current && e.sessionId !== current.current)) return
       void refresh()
+      if (e.sessionId !== current.current) return
+      if (visible.current && document.visibilityState === 'visible' && dotEventHasNewMessage(e.event))
+        void remote.current({ catchUp: true })
       if (e.event.type === 'turn_completed') {
         void remote.current({ catchUp: true })
         void readOverview()

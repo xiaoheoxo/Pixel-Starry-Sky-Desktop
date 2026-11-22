@@ -138,6 +138,35 @@ describe('Dot session', () => {
     await session.close()
   })
 
+  it('receives later replies even while a workflow card is still loading', async () => {
+    const { session, events, client } = setup()
+    let resolveTask!: (task: unknown) => void
+    client.workflow.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveTask = resolve
+      }),
+    )
+    client.messages
+      .mockResolvedValueOnce([
+        { ...reply, content: { text: 'Working', attachments: [{ type: 'thread', thread_id: 'task' }] } },
+      ])
+      .mockResolvedValueOnce([{ ...reply, id: 'later', content: { text: 'Later reply' } }])
+    client.activity.mockResolvedValueOnce('active')
+    try {
+      session.send('build', 'turn', 'user')
+      await vi.waitFor(() =>
+        expect(events).toContainEqual({
+          type: 'item_completed',
+          item: { id: 'dot-later', kind: 'assistant', text: 'Later reply', status: 'completed' },
+        }),
+      )
+      expect(completed(events)[0]).toMatchObject({ outcome: 'completed', background: 1 })
+    } finally {
+      resolveTask({ id: 'task', title: 'Build', status: 'completed', startedAt: 1, updatedAt: 2 })
+      await session.close()
+    }
+  })
+
   it('a workflow metadata failure does not fail an already received chat reply', async () => {
     const { session, events, client } = setup()
     client.messages.mockResolvedValue([
