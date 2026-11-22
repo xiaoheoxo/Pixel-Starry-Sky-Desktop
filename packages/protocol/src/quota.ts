@@ -115,6 +115,8 @@ export interface AccountQuota {
   blocked: { kind: string; resetsAt: number | null } | null
   /** 最近一次拿到数据（主动读取或事件）的时间，毫秒；从没拿到为 null */
   observedAt: number | null
+  /** Time each main window was measured; a partial event must not refresh unrelated windows. */
+  windowObservedAt?: Record<string, number>
   /** 最近一次主动读取成功的时间；「打开弹窗超过 1 分钟才取」按它算 */
   fetchedAt: number | null
   source: QuotaSource
@@ -127,6 +129,11 @@ export interface AccountQuota {
    * 读完的快照没有这一项
    */
   pending?: boolean
+}
+
+/** Legacy full reads can use their common timestamp; legacy partial events cannot. */
+export function quotaWindowObservedAt(quota: AccountQuota, id: string): number | null {
+  return quota.windowObservedAt?.[id] ?? (quota.source === 'event' ? null : quota.observedAt)
 }
 
 /** quota:refresh 的选项 */

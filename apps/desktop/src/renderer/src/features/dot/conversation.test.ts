@@ -239,3 +239,18 @@ it('anchors a locally delivered reply to the matching server echo even if the lo
   )
   expect(rows.map(row => row.text)).toEqual(['Question', 'First reply', 'Later'])
 })
+
+it('keeps a local follow-up after the matching native reply while history catches up', () => {
+  const rows = dotTranscript(
+    [
+      { id: 'echo', requestId: 'user', role: 'user', text: 'Question', createdAt: 100, attachments: [] },
+      { id: 'first', role: 'assistant', text: 'First reply', createdAt: 130, attachments: [] },
+    ],
+    [
+      { id: 'user', kind: 'user', text: 'Question', createdAt: 100 },
+      { id: 'dot-first', kind: 'assistant', text: 'First reply', status: 'completed' },
+      { id: 'dot-second', kind: 'assistant', text: 'Second reply', status: 'completed' },
+    ],
+  )
+  expect(rows.map(row => row.text)).toEqual(['Question', 'First reply', 'Second reply'])
+})

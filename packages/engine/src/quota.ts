@@ -1,5 +1,6 @@
 // 账号额度（docs/ui/account-quota.md §3.1）：引擎内部的类型和纯函数，不进协议。
 // Claude 的 get_usage / rate_limit_event、Codex 的 account/rateLimits/* 各自解析成这里的形状，宿主（host/quota.ts）再合并。
+import { quotaWindowObservedAt } from '@pixelsky/protocol'
 import type { AccountQuota, QuotaCredits, QuotaExtraUsage, QuotaModelLimit, QuotaWindow } from '@pixelsky/protocol'
 
 /** 一次主动读取的结果（会话进程或临时进程） */
@@ -72,13 +73,23 @@ export function mergeQuota(prev: AccountQuota, patch: AccountQuotaPatch): Accoun
   // 这个账号没有订阅额度（自己配了转发地址等）：对话里的事件不是它的额度，不能把状态翻成 ok
   if (prev.status === 'unsupported') return prev
   let windows = prev.windows
+  const windowObservedAt: Record<string, number> = {}
+  for (const old of prev.windows) {
+    const seen = quotaWindowObservedAt(prev, old.id)
+    if (seen !== null) windowObservedAt[old.id] = seen
+  }
   let models = prev.extras.models
   // 请求被放行：之前标的「用完」作废（新带来的窗口自己说了算）
   if (patch.allowed) {
     windows = windows.map(w => (w.rejected ? withoutRejected(w) : w))
     models = models?.map(m => (m.rejected ? withoutRejected(m) : m))
   }
-  if (patch.windows?.length) windows = mergeById(windows, patch.windows, w => w.id)
+  const incoming = patch.windows?.filter(w => {
+    if ((windowObservedAt[w.id] ?? -Infinity) > patch.observedAt) return false
+    windowObservedAt[w.id] = patch.observedAt
+    return true
+  })
+  if (incoming?.length) windows = mergeById(windows, incoming, w => w.id)
   if (patch.models?.length) models = mergeById(models ?? [], patch.models, modelKey)
   const extras: AccountQuota['extras'] = { ...prev.extras }
   if (models) extras.models = models
@@ -98,7 +109,8 @@ export function mergeQuota(prev: AccountQuota, patch: AccountQuotaPatch): Accoun
     windows,
     extras,
     blocked: patch.blocked !== undefined ? patch.blocked : prev.blocked,
-    observedAt: patch.observedAt,
+    observedAt: Math.max(prev.observedAt ?? patch.observedAt, patch.observedAt),
+    windowObservedAt,
     source: 'event',
     error: status === 'ok' ? null : prev.error,
   }

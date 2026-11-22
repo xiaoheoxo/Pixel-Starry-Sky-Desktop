@@ -284,7 +284,7 @@ export function ProjectTree({
     const { running, waiting } = projectCounts(p.sessions, lanes)
     const pages = sessionPages[p.id] ?? 0
     const all = pages === Infinity
-    const { rows, hidden, hiddenInPreview } = projectSessionRows(p.sessions, {
+    const { rows, hidden, hiddenInPreview, hasNextPage } = projectSessionRows(p.sessions, {
       channelOf: id => sessionChannels[id] ?? null,
       channelOpen: name => channelOpen[`${p.id}/${name}`],
       all,
@@ -361,10 +361,19 @@ export function ProjectTree({
             })}
             {hiddenInPreview > 0 && (
               <MoreRow
-                label={hidden ? tr('sidebar.tree.more', { count: hidden }) : tr('sidebar.tree.less')}
+                label={
+                  hidden
+                    ? tr(hasNextPage ? 'sidebar.tree.more' : 'sidebar.tree.revealCollapsed', { count: hidden })
+                    : tr('sidebar.tree.less')
+                }
                 open={!hidden}
-                onClick={() => setSessionPages(state => ({ ...state, [p.id]: hidden ? (state[p.id] ?? 0) + 1 : 0 }))}
-                onShowAll={hidden ? () => setSessionPages(state => ({ ...state, [p.id]: Infinity })) : undefined}
+                onClick={() =>
+                  setSessionPages(state => ({
+                    ...state,
+                    [p.id]: hasNextPage ? (state[p.id] ?? 0) + 1 : hidden ? Infinity : 0,
+                  }))
+                }
+                onShowAll={hasNextPage ? () => setSessionPages(state => ({ ...state, [p.id]: Infinity })) : undefined}
               />
             )}
             <ArchivedRows

@@ -497,5 +497,5 @@ export type {
   QuotaStatus,
   QuotaWindow,
 } from './quota'
-export { QUOTA_WINDOW_MINS, quotaWindowId } from './quota'
+export { QUOTA_WINDOW_MINS, quotaWindowId, quotaWindowObservedAt } from './quota'
 export { supportsChatGptDot } from './dot'

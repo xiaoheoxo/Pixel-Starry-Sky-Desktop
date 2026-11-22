@@ -61,3 +61,19 @@ it('drops old baselines when usage regresses or a plan changes, but starts natur
     points: [{ time: 162 * HOUR, used: 1 }],
   })
 })
+
+it('keeps unchanged weekly data out of the latest samples after a short-window event', () => {
+  const store = createQuotaObservations()
+  const initial = quota(24 * HOUR, 42)
+  store.record(initial)
+  const partial: AccountQuota = {
+    ...initial,
+    source: 'event',
+    observedAt: 33 * HOUR,
+    windows: [...initial.windows, { id: 'five_hour', durationMins: 300, usedPercent: 30, resetsAt: 36 * HOUR }],
+    windowObservedAt: { seven_day: 24 * HOUR, five_hour: 33 * HOUR },
+  }
+  store.record(partial)
+  expect(store.forWindow(partial, 'seven_day')?.points).toEqual([{ time: 24 * HOUR, used: 42 }])
+  expect(store.forWindow(partial, 'five_hour')?.points).toEqual([{ time: 33 * HOUR, used: 30 }])
+})

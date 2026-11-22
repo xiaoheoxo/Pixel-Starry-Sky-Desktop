@@ -36,9 +36,11 @@ export function dotTranscript(
   }
   let at = 0
   for (const item of local) {
-    if (item.kind === 'user') at = rows.get(item.id)?.createdAt ?? item.createdAt
+    const echoed = rows.get(item.id)
+    if (item.kind === 'user') at = echoed?.createdAt ?? item.createdAt
+    else if (echoed) at = Math.max(at, echoed.createdAt)
     else at++
-    if (rows.has(item.id)) continue
+    if (echoed) continue
     if (item.kind === 'user' || item.kind === 'assistant' || item.kind === 'notice')
       rows.set(item.id, {
         id: item.id,

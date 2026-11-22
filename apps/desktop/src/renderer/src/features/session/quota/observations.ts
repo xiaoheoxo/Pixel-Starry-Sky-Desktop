@@ -1,4 +1,4 @@
-import type { AccountQuota } from '@pixelsky/protocol'
+import { quotaWindowObservedAt, type AccountQuota } from '@pixelsky/protocol'
 
 const MAX_SERIES = 32
 const MAX_POINTS = 96
@@ -25,9 +25,10 @@ export function createQuotaObservations() {
   const windows = new Map<string, QuotaHistory>()
   return {
     record(q: AccountQuota) {
-      if (q.status !== 'ok' || q.pending || q.observedAt == null || !Number.isFinite(q.observedAt)) return
-      const time = q.observedAt
+      if (q.status !== 'ok' || q.pending) return
       for (const w of q.windows) {
+        const time = quotaWindowObservedAt(q, w.id)
+        if (time === null || !Number.isFinite(time)) continue
         const key = windowKey(q, w.id)
         if (!key || !w.durationMins || w.resetsAt === null || w.resetsAt <= time || !Number.isFinite(w.usedPercent))
           continue

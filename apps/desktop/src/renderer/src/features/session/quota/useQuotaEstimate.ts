@@ -1,6 +1,6 @@
 // 订阅额度估算的数据（docs/ui/quota-estimate.md §2）：这个引擎走订阅登录（route cli）的用量记录 + 月费选择。
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import type { AccountQuota, QuotaProvider, UsageGroupRow } from '@pixelsky/protocol'
+import { quotaWindowObservedAt, type AccountQuota, type QuotaProvider, type UsageGroupRow } from '@pixelsky/protocol'
 import { onUsageChange, readQuotaMonth } from '@/features/usage/source'
 import {
   PLAN_FEES,
@@ -69,7 +69,7 @@ export function useQuotaEstimate(
       const est = windowEstimate(
         e,
         now,
-        quota.status === 'ok' ? quota.observedAt : null,
+        quota.status === 'ok' && !quota.pending ? quotaWindowObservedAt(quota, e.id) : null,
         quotaObservations.forWindow(quota, e.id),
       )
       if (est) out[e.id] = est

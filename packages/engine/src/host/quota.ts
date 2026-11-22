@@ -323,7 +323,11 @@ export class HostQuota {
   }
 
   private publish(provider: EngineQuotaProvider, quota: AccountQuota): void {
-    const json = JSON.stringify({ ...quota, observedAt: null })
+    // Timestamp-only observations matter for forecast freshness, but don't broadcast every identical reply.
+    const timeBuckets =
+      quota.windowObservedAt &&
+      Object.fromEntries(Object.entries(quota.windowObservedAt).map(([id, time]) => [id, Math.floor(time / 60_000)]))
+    const json = JSON.stringify({ ...quota, observedAt: null, windowObservedAt: timeBuckets })
     if (this.sent.get(provider) === json) return
     this.sent.set(provider, json)
     if (!this.ctx.closing) this.ctx.opts.onQuota?.(quota)
@@ -477,6 +481,7 @@ export class HostQuota {
         account: account ?? id.email,
         ...data,
         observedAt: now,
+        windowObservedAt: Object.fromEntries(reading.windows.map(window => [window.id, now])),
         fetchedAt: now,
         source: 'usage',
         refreshable: true,
@@ -493,6 +498,7 @@ export class HostQuota {
         status: 'unsupported',
         plan: null,
         windows: [],
+        windowObservedAt: {},
         extras: {},
         blocked: null,
         observedAt: now,

@@ -209,12 +209,54 @@ describe('project conversation disclosure', () => {
     expect(projectSessionRows(list, { ...options, additional: extraConversations(2) }).hidden).toBe(0)
   })
 
+  it('leaves deliberately collapsed members hidden without reserving page slots for them', () => {
+    const collapsed = { ...options, channelOpen: () => false }
+    const first = projectSessionRows(list, collapsed)
+    expect(first).toMatchObject({ hidden: 7, hiddenInPreview: 7, hasNextPage: true })
+    expect(first.rows[0]).toMatchObject({ kind: 'channel', open: false, visibleMembers: [] })
+    expect(first.rows.slice(1)).toEqual(list.slice(3, 8).map(session => ({ kind: 'session', session })))
+
+    const next = projectSessionRows(list, { ...collapsed, additional: extraConversations(1) })
+    expect(next).toMatchObject({ hidden: 3, hiddenInPreview: 7, hasNextPage: false })
+    expect(next.rows[0]).toMatchObject({ kind: 'channel', open: false, visibleMembers: [] })
+    expect(next.rows.slice(1)).toEqual(list.slice(3).map(session => ({ kind: 'session', session })))
+
+    const full = projectSessionRows(list, { ...collapsed, all: true })
+    expect(full).toMatchObject({ hidden: 0, hiddenInPreview: 7, hasNextPage: false })
+    expect(full.rows).toEqual(list.map(session => ({ kind: 'session', session })))
+    expect(projectSessionRows(list, collapsed)).toEqual(first)
+  })
+
+  it('offers an explicit show-all when only collapsed members remain, even below the preview cap', () => {
+    const collapsed = { ...options, channelOpen: () => false }
+    expect(projectSessionRows(list.slice(0, 3), collapsed)).toMatchObject({
+      rows: [{ kind: 'channel', open: false, visibleMembers: [] }],
+      hidden: 3,
+      hiddenInPreview: 3,
+      hasNextPage: false,
+    })
+  })
+
+  it('does not charge the next page for older members already visible in an open channel', () => {
+    const olderGroup = {
+      ...options,
+      channelOf: (id: string) => (Number(id.slice(1)) > 5 ? 'older' : null),
+      channelOpen: () => true,
+    }
+    const first = projectSessionRows(list, olderGroup)
+    expect(first).toMatchObject({ hidden: 1, hiddenInPreview: 1, hasNextPage: true })
+    const next = projectSessionRows(list, { ...olderGroup, additional: extraConversations(1) })
+    expect(next).toMatchObject({ hidden: 0, hiddenInPreview: 1, hasNextPage: false })
+    expect(next.rows[5]).toMatchObject({ kind: 'session', session: list[5] })
+  })
+
   it('keeps explicitly expanded channels in preview and ignores disclosure while filtering', () => {
     expect(projectSessionRows(list, { ...options, channelOpen: () => true }).hiddenInPreview).toBe(7)
     expect(projectSessionRows(list, { ...options, filtering: true })).toEqual({
       rows: list.map(session => ({ kind: 'session', session })),
       hidden: 0,
       hiddenInPreview: 0,
+      hasNextPage: false,
     })
   })
 })

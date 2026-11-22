@@ -120,26 +120,47 @@ export function projectSessionRows<T extends Pick<Session, 'id' | 'status'>>(
     filtering: boolean
     lanes: ReadonlyMap<string, SessionLane>
   },
-): { rows: ProjectSessionRow<T>[]; hidden: number; hiddenInPreview: number } {
+): { rows: ProjectSessionRow<T>[]; hidden: number; hiddenInPreview: number; hasNextPage: boolean } {
   const flatRows = (): ProjectSessionRow<T>[] => sessions.map(session => ({ kind: 'session', session }))
-  if (options.filtering) return { rows: flatRows(), hidden: 0, hiddenInPreview: 0 }
+  if (options.filtering) return { rows: flatRows(), hidden: 0, hiddenInPreview: 0, hasNextPage: false }
 
-  const hiddenInPreview = Math.max(0, sessions.length - SHOWN_SESSIONS)
-  if (options.all) return { rows: flatRows(), hidden: 0, hiddenInPreview }
-  const { shown, hidden } = visibleSessions(sessions, options)
-  const ids = new Set(shown.map(session => session.id))
-  const { entries } = foldChannels(sessions, { ...options, all: true })
+  const { entries } = foldChannels(sessions, {
+    channelOf: options.channelOf,
+    all: true,
+    lanes: options.lanes,
+  })
+  const channelStates = new Map<string, boolean>()
+  const collapsedMembers = new Set<string>()
+  const expandedMembers = new Set<string>()
+  for (const row of entries) {
+    if (row.kind !== 'channel') continue
+    const open = options.channelOpen(row.key)
+    if (open === undefined) continue
+    channelStates.set(row.key, open)
+    const ids = open ? expandedMembers : collapsedMembers
+    for (const session of row.sessions) ids.add(session.id)
+  }
+
+  // A hidden member of a manually collapsed channel must not consume a visible page slot.
+  const pageable = collapsedMembers.size ? sessions.filter(s => !collapsedMembers.has(s.id)) : sessions
+  const ids = new Set(pageable.slice(0, SHOWN_SESSIONS).map(s => s.id))
+  for (const id of expandedMembers) ids.add(id)
+  const hiddenInPreview = sessions.length - ids.size
+  if (options.all) return { rows: flatRows(), hidden: 0, hiddenInPreview, hasNextPage: false }
+
+  // An explicitly opened channel may already cover some older sessions. Skip those when paging.
+  let additional = options.additional ?? 0
+  for (const session of pageable) {
+    if (additional === 0) break
+    if (!ids.has(session.id)) {
+      ids.add(session.id)
+      additional--
+    }
+  }
   const rows = entries.flatMap<ProjectSessionRow<T>>(row => {
     if (row.kind === 'session') return ids.has(row.session.id) ? [row] : []
-    const preview = row.sessions.filter(member => ids.has(member.id))
-    const open = options.channelOpen(row.key)
-    return [
-      {
-        ...row,
-        open: open ?? preview.length > 0,
-        visibleMembers: open === true ? row.sessions : open === false ? [] : preview,
-      },
-    ]
+    const visibleMembers = row.sessions.filter(member => ids.has(member.id))
+    return [{ ...row, open: channelStates.get(row.key) ?? visibleMembers.length > 0, visibleMembers }]
   })
-  return { rows, hidden, hiddenInPreview }
+  return { rows, hidden: sessions.length - ids.size, hiddenInPreview, hasNextPage: ids.size < pageable.length }
 }

@@ -120,6 +120,7 @@ export const sidebarMessages = {
     zh: '单击逐批展开，双击或 Shift+单击全部展开',
     en: 'Click for the next batch; double-click or Shift+click to show all',
   },
+  'sidebar.tree.revealCollapsed': { zh: '显示其余 {count} 个对话', en: 'Show remaining {count} conversations' },
   'sidebar.tree.less': { zh: '收起', en: 'Show less' },
   'sidebar.tree.running': { zh: '{count} 个在运行', en: '{count} running' },
   'sidebar.tree.waiting': { zh: '{count} 个等你处理', en: '{count} need you' },
