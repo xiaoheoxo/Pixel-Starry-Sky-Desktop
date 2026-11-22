@@ -14,6 +14,7 @@ export const publicModelFamilies = [
   [
     /^glm-(?:\d|z1\b)/,
     {
+      vendorOnly: true,
       zh: ['GLM 通用系列：适合中文研发、代码分析和多步骤工具任务。', '适合复核多模块改动和中文需求中的隐含约束。'],
       en: [
         'General GLM family for Chinese-language development, code analysis, and multi-step tool workflows.',
@@ -54,6 +55,7 @@ export const publicModelFamilies = [
   [
     /^qwen(?:[0-9.]+|-(?:plus|vl)\b)/,
     {
+      vendorOnly: true,
       zh: ['Qwen 通用系列：适合多语言写作、常规开发和信息整理。', '适合按目标、步骤和验收条件判断任务范围。'],
       en: [
         'General Qwen family for multilingual writing, routine development, and information processing.',
@@ -84,6 +86,7 @@ export const publicModelFamilies = [
   [
     /^mistral-(?:large|small)\b/,
     {
+      vendorOnly: true,
       zh: ['Mistral 通用系列：适合多语言写作、日常编码和材料整理。', '适合判断任务范围；具体能力按型号区分。'],
       en: [
         'General Mistral models for multilingual writing, coding, and document work.',
@@ -104,6 +107,7 @@ export const publicModelFamilies = [
   [
     /^llama-?[0-9]/,
     {
+      vendorOnly: true,
       zh: [
         'Llama 通用系列：适合指令任务、摘要和内容整理，能力随型号变化。',
         '适合评估描述明确的常规任务，先按型号验证效果。',
@@ -173,6 +177,7 @@ export const publicModelFamilies = [
   [
     /^(?:nvidia-)?nemotron-3(?:[.-]5)?\b/,
     {
+      vendorOnly: true,
       zh: ['Nemotron 系列：面向智能体推理、长流程和工具协作。', '适合复核长任务的步骤、依赖和检查点。'],
       en: [
         'Nemotron family for agentic reasoning and long tool workflows.',

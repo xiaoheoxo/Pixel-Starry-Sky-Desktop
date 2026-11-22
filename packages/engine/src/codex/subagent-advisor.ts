@@ -1,4 +1,4 @@
-import { getModelRoleGuide, type SubagentAdvisor } from '@pixelsky/protocol'
+import { getModelRoleGuide, getModelVendorGuide, type SubagentAdvisor } from '@pixelsky/protocol'
 
 export type Difficulty = 'light' | 'medium' | 'difficult'
 const tiers = ['light', 'medium', 'difficult'] as const
@@ -31,19 +31,53 @@ export function recommendSubagent(
 }
 
 export function hasConfiguredSubagent(settings: SubagentAdvisor, available: readonly string[]): boolean {
-  return settings.models.some(model => model !== null && available.includes(model))
+  return advisorCandidates(settings, available).length > 0
 }
 
 interface Candidate {
-  tier: Difficulty
+  tier?: Difficulty
   model: string
 }
 
 export function advisorCandidates(settings: SubagentAdvisor, available: readonly string[]): Candidate[] {
-  return tiers.flatMap(tier => {
+  const configured: Candidate[] = tiers.flatMap(tier => {
     const model = recommendSubagent(tier, settings, available)
     return model ? [{ tier, model }] : []
   })
+  if (settings.evaluatorPicksModel) {
+    for (const model of settings.extraModels ?? []) {
+      if (available.includes(model) && !configured.some(candidate => candidate.model === model))
+        configured.push({ model })
+    }
+  }
+  return configured
+}
+
+interface VendorGroup {
+  vendor: string
+  overview?: string
+  candidates: { id: string; tiers?: Difficulty[]; role?: string }[]
+}
+
+export function groupAdvisorCandidates(candidates: readonly Candidate[]): VendorGroup[] {
+  const groups = new Map<string, VendorGroup>()
+  for (const { model, tier } of candidates) {
+    const info = getModelVendorGuide(model)
+    const vendor = info?.vendor ?? 'Unidentified vendor'
+    let group = groups.get(vendor)
+    if (!group) {
+      group = { vendor, ...(info ? { overview: info.overview } : {}), candidates: [] }
+      groups.set(vendor, group)
+    }
+    const existing = group.candidates.find(candidate => candidate.id === model)
+    if (existing) {
+      if (tier && !existing.tiers?.includes(tier)) existing.tiers = [...(existing.tiers ?? []), tier]
+    } else {
+      const role = getModelRoleGuide(model, 'en', false)?.main
+      group.candidates.push({ id: model, ...(tier ? { tiers: [tier] } : {}), ...(role ? { role } : {}) })
+    }
+  }
+  return [...groups.values()]
 }
 
 export type AdvisorEvaluator = (
@@ -70,8 +104,8 @@ export const advisorPrompt = (text: string, candidates: readonly Candidate[] = [
   'Light: simple wording, formatting, or a tightly scoped edit. Medium: ordinary development or investigation. ' +
   'Difficult: architecture, broad changes, concurrency, risk, or unclear high-impact work. Return a JSON object with a difficulty field: light, medium, or difficult.\n' +
   (candidates.length
-    ? 'Also return model: choose one exact listed model ID using the task and configured tier labels, or null if no model fits. Do not invent capabilities or IDs.\nConfigured candidates: ' +
-      JSON.stringify(candidates) +
+    ? 'Also return model: choose one exact listed model ID using the task and configured tier labels, or null if no model fits. Do not invent capabilities or IDs.\nConfigured candidates by model vendor (overviews are general, not guarantees for unrecognized models): ' +
+      JSON.stringify(groupAdvisorCandidates(candidates)) +
       '\n'
     : '') +
   'Task: ' +
@@ -128,10 +162,12 @@ export function subagentAdvice(
       ? recommendSubagent(difficulty, settings, catalog)
       : configured.find(candidate => candidate.model === chosen)?.model
   if (!model) return null
-  const available = configured.map(({ tier, model: worker }) => {
-    const role = getModelRoleGuide(worker, 'en')?.main
-    return role ? `${tier}: ${worker} (${role})` : `${tier}: ${worker}`
-  })
+  const available = configured
+    .filter(candidate => candidate.tier || candidate.model === model)
+    .map(({ tier, model: worker }) => {
+      const role = getModelRoleGuide(worker, 'en')?.main
+      return role ? `${tier ?? 'evaluator pick'}: ${worker} (${role})` : `${tier ?? 'evaluator pick'}: ${worker}`
+    })
   const routing = ` Classify each delegated subtask independently; even a difficult request can have cheap subtasks. Available recommendations: ${available.join('; ')}.`
   return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. If delegation is useful and the tool lets you choose a model, consider ${model} for work of this complexity instead of inheriting the conversation model.${routing} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. Only consider the listed models. If no recommendation is listed for a subtask, or a separate model cannot be selected, continue with the normal Codex behavior.`
 }

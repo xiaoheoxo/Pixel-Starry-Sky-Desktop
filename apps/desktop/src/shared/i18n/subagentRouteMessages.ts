@@ -278,9 +278,16 @@ export const subagentRouteMessages = {
   },
   'subagentRoute.advisor.evaluatorPicksModel': { zh: '让评估模型选型', en: 'Let the evaluator pick a model' },
   'subagentRoute.advisor.evaluatorPicksHint': {
-    zh: '额外发送下方已配置且可用的型号 ID 和档位，评估模型可以跨档选择或不推荐。这会增加输入 token；关闭后只评估难度。',
-    en: 'Also send the available model IDs and tiers selected below. The evaluator can pick across tiers or abstain. This uses extra input tokens; turn it off to assess difficulty only.',
+    zh: '按厂商发送已配置且可用的候选和简要说明。评估模型可跨档选择或不推荐。这会增加输入 token；关闭后只评估难度。',
+    en: 'Send available configured candidates grouped by vendor, with short descriptions. The evaluator may pick across tiers or abstain. This uses extra input tokens; turn it off to assess difficulty only.',
   },
+  'subagentRoute.advisor.extraModels': { zh: '额外候选模型', en: 'Extra candidate models' },
+  'subagentRoute.advisor.extraHint': {
+    zh: '最多再选 {max} 个，不绑定难度档位。仅在评估模型选型时使用。',
+    en: 'Add up to {max} more models without fixed tiers. Used only when the evaluator picks a model.',
+  },
+  'subagentRoute.advisor.addModel': { zh: '添加候选模型', en: 'Add candidate model' },
+  'subagentRoute.advisor.removeModel': { zh: '移除 {id}', en: 'Remove {id}' },
   'subagentRoute.advisor.noAdvice': { zh: '不发送建议', en: 'No advice' },
   'subagentRoute.advisor.light': { zh: '轻量任务', en: 'Light tasks' },
   'subagentRoute.advisor.medium': { zh: '常规任务', en: 'Standard tasks' },

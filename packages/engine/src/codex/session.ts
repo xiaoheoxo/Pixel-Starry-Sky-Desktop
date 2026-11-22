@@ -1210,7 +1210,9 @@ export class CodexSession implements EngineSession {
           const stillCurrent =
             latest.evaluator === advisor.evaluator &&
             latest.evaluatorPicksModel === advisor.evaluatorPicksModel &&
-            latest.models.every((model, index) => model === advisor.models[index])
+            latest.models.every((model, index) => model === advisor.models[index]) &&
+            (latest.extraModels?.length ?? 0) === (advisor.extraModels?.length ?? 0) &&
+            (latest.extraModels ?? []).every((model, index) => model === advisor.extraModels?.[index])
           if (!stillCurrent) estimate = null
           advice = subagentAdvice(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
         }

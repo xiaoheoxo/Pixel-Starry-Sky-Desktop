@@ -4,6 +4,7 @@ import {
   advisorCandidates,
   advisorOutputSchema,
   evaluateAdvisor,
+  groupAdvisorCandidates,
   hasConfiguredSubagent,
   localDifficulty,
   recommendSubagent,
@@ -117,6 +118,70 @@ describe('Agnes advisory model selection', () => {
       difficulty: 'medium',
       model: null,
     })
+  })
+
+  it('groups five vendors in a single assessment, with one brief per vendor and no guessed role', async () => {
+    const gpt = 'gpt-6.1-terra'
+    const deep = 'deep-4.1-f'
+    const grok = 'grok-4.7'
+    const glm = 'zai/experimental-next'
+    const claude = 'claude-sonnet-5-5'
+    const custom = 'groq/opaque-worker'
+    const catalog = [gpt, deep, grok, glm, claude, custom, 'gpt-6.2-astra']
+    const settings = parseSubagentAdvisor({
+      evaluator: gpt,
+      evaluatorPicksModel: true,
+      models: [gpt, deep, gpt],
+      extraModels: [grok, glm, claude, custom, deep, 'unavailable-model'],
+    })!
+    const candidates = advisorCandidates(settings, catalog)
+    const groups = groupAdvisorCandidates(candidates)
+    expect(groups.map(group => group.vendor)).toEqual([
+      'GPT / OpenAI',
+      'DeepSeek',
+      'Grok / xAI',
+      'GLM / Z.ai',
+      'Claude / Anthropic',
+      'Unidentified vendor',
+    ])
+    expect(groups[0].candidates).toEqual([
+      expect.objectContaining({
+        id: gpt,
+        tiers: ['light', 'difficult'],
+        role: expect.stringContaining('Fast execution'),
+      }),
+    ])
+    expect(groups[3].overview).toBeTruthy()
+    expect(groups[3].candidates).toEqual([{ id: glm }])
+    expect(groups[5]).not.toHaveProperty('overview')
+    const run = vi.fn().mockResolvedValue(JSON.stringify({ difficulty: 'medium', model: claude }))
+    await expect(evaluateAdvisor(gpt, 'test', run, candidates)).resolves.toEqual({
+      difficulty: 'medium',
+      model: claude,
+    })
+    expect(run).toHaveBeenCalledOnce()
+    const [, prompt, , ids] = run.mock.calls[0]
+    expect(ids).toEqual([gpt, deep, grok, glm, claude, custom])
+    expect(prompt).not.toContain('gpt-6.2-astra')
+    expect(prompt).not.toContain('unavailable-model')
+    expect(prompt).not.toContain('deepseek-v4.1-flash')
+    expect(subagentAdvice('medium', settings, catalog, claude)).toContain(`evaluator pick: ${claude}`)
+    expect(subagentAdvice('medium', settings, catalog, claude)).not.toContain(grok)
+    expect(advisorCandidates({ ...settings, evaluatorPicksModel: undefined }, catalog).map(c => c.model)).toEqual([
+      gpt,
+      deep,
+      gpt,
+    ])
+  })
+
+  it('only accepts a bounded explicit list and does not share extras when opt-in is off', () => {
+    const base = { evaluator: 'judge', models: [null, null, null] }
+    expect(parseSubagentAdvisor({ ...base, extraModels: Array.from({ length: 9 }, (_, i) => `model-${i}`) })).toBeNull()
+    expect(parseSubagentAdvisor({ ...base, extraModels: ['x', null] })).toBeNull()
+    const parsed = parseSubagentAdvisor({ ...base, extraModels: ['deep-4.1-f', 'deep-4.1-f'] })!
+    expect(parsed.extraModels).toEqual(['deep-4.1-f'])
+    expect(hasConfiguredSubagent(parsed, ['deep-4.1-f'])).toBe(false)
+    expect(hasConfiguredSubagent({ ...parsed, evaluatorPicksModel: true }, ['deep-4.1-f'])).toBe(true)
   })
 
   it('cuts off a slow evaluator and rejects malformed config', async () => {

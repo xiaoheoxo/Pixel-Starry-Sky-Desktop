@@ -1,7 +1,8 @@
+import { modelVendorGuides } from './modelVendorGuide'
 import { publicModelFamilies } from './publicModelFamilies'
 
 type Copy = readonly [main: string, evaluator: string]
-type Localized = { zh: Copy; en: Copy }
+type Localized = { zh: Copy; en: Copy; vendorOnly?: true }
 
 // Usage guidance, not model specs or routing policy. A recognized family does not make an ID eligible.
 const exact: ReadonlyMap<string, Localized> = new Map([
@@ -111,6 +112,7 @@ const families: ReadonlyArray<readonly [RegExp, Localized]> = [
   [
     /^deepseek(?:-v?\d+(?:\.\d+)?)?$/,
     {
+      vendorOnly: true,
       zh: [
         'DeepSeek 系列：适合代码分析、文本处理和推理，具体用途随型号变化。',
         '适合按文本目标和约束评估任务；未识别具体档位。',
@@ -238,24 +240,46 @@ function expandModelShorthand(model: string): string {
     .replace(/^nemotron(?=\d)/, 'nemotron-')
 }
 
+const vendorNamespacePrefix = /^(?:(?:us|eu|apac|global)\.)?(amazon|meta|mistral|ai21|cohere)\./
+
+function normalizedModelLabel(id: string | null | undefined): string {
+  return (
+    id
+      ?.toLowerCase()
+      .split('/')
+      .at(-1)
+      ?.trim()
+      .replace(vendorNamespacePrefix, '')
+      .replace(/[\s_]+/g, '-') ?? ''
+  )
+}
+
+export function getModelVendorGuide(id: string): { vendor: string; overview: string } | undefined {
+  const normalized = id.toLowerCase().trim()
+  const parts = normalized.split('/')
+  const namespace = parts.length > 1 ? parts.at(-2) : vendorNamespacePrefix.exec(normalized)?.[1]
+  const label = normalizedModelLabel(id)
+  const model = expandModelShorthand(label)
+  const matched =
+    modelVendorGuides.find(([, family]) => family.test(model)) ??
+    modelVendorGuides.find(([, , provider]) => namespace && provider.test(namespace))
+  return matched ? { vendor: matched[0], overview: matched[3] } : undefined
+}
+
 export function getModelRoleGuide(
   id: string | null | undefined,
   language: 'zh' | 'en',
+  includeVendorFallback = true,
 ): { main: string; evaluator: string } | undefined {
-  const label = id
-    ?.toLowerCase()
-    .split('/')
-    .at(-1)
-    ?.replace(/^(?:(?:us|eu|apac|global)\.)?(?:amazon|meta|mistral|ai21|cohere)\./, '')
-    ?.trim()
-    .replace(/[\s_]+/g, '-')
+  const label = normalizedModelLabel(id)
   if (!label) return undefined
   const model = expandModelShorthand(label)
-  const supplemental = /(?:^|-)(?:embed(?:ding)?|rerank(?:er)?|reward|tts|asr|guard|moderation)(?:-|$)/.test(model)
-    ? undefined
-    : publicModelFamilies.find(([pattern]) => pattern.test(model))?.[1]
+  const supplemental: Localized | undefined =
+    /(?:^|-)(?:embed(?:ding)?|rerank(?:er)?|reward|tts|asr|guard|moderation)(?:-|$)/.test(model)
+      ? undefined
+      : publicModelFamilies.find(([pattern]) => pattern.test(model))?.[1]
   const entry = exact.get(model) ?? families.find(([pattern]) => pattern.test(model))?.[1] ?? supplemental
-  if (!entry) return undefined
+  if (!entry || (!includeVendorFallback && entry.vendorOnly)) return undefined
   const [main, evaluator] = entry[language]
   return { main, evaluator }
 }

@@ -1,5 +1,5 @@
-export { getModelRoleGuide } from './modelRoleGuide'
-export { parseSubagentAdvisor, type SubagentAdvisor } from './subagentAdvisor'
+export { getModelRoleGuide, getModelVendorGuide } from './modelRoleGuide'
+export { parseSubagentAdvisor, MAX_ADVISOR_EXTRA_MODELS, type SubagentAdvisor } from './subagentAdvisor'
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {
   pixelSpeedCapability,

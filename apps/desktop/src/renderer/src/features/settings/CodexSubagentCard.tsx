@@ -1,6 +1,6 @@
 // 设置 › 本机引擎 › Codex › Codex 子智能体（docs/ui/codex-subagent-model.md）：Codex 派出的子智能体统一用哪个模型 / 强度，
 // 主会话不变。存在引擎级设置（engine:setConfig 的 subagentModel / subagentEffort），启动 Codex 时经 agents.default_subagent_* 传给它
-import type { Effort, SubagentAdvisor } from '@pixelsky/protocol'
+import { MAX_ADVISOR_EXTRA_MODELS, type Effort, type SubagentAdvisor } from '@pixelsky/protocol'
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { effortLabel } from '@/features/engine/labels'
@@ -142,6 +142,61 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
                 )
               })}
             </div>
+            {advisor.evaluator && advisor.evaluatorPicksModel && (
+              <div className="space-y-1.5">
+                <div className="text-label text-fg-muted">{tr('subagentRoute.advisor.extraModels')}</div>
+                <p className="text-label text-fg-faint">
+                  {tr('subagentRoute.advisor.extraHint', { max: MAX_ADVISOR_EXTRA_MODELS })}
+                </p>
+                {!!advisor.extraModels?.length && (
+                  <ul className="flex flex-wrap gap-1.5">
+                    {advisor.extraModels.map(id => (
+                      <li
+                        key={id}
+                        className="flex min-w-0 items-center gap-1 rounded-md border border-line-card px-2 py-1 text-label"
+                      >
+                        <span className="truncate">{models.find(model => model.id === id)?.label ?? id}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 px-1 text-fg-muted hover:text-fg"
+                          aria-label={tr('subagentRoute.advisor.removeModel', { id })}
+                          onClick={() =>
+                            save({
+                              subagentAdvisor: {
+                                ...advisor,
+                                extraModels: advisor.extraModels?.filter(model => model !== id),
+                              },
+                            })
+                          }
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {(advisor.extraModels?.length ?? 0) < MAX_ADVISOR_EXTRA_MODELS && (
+                  <Select
+                    label={tr('subagentRoute.advisor.addModel')}
+                    value=""
+                    onChange={id => {
+                      if (id)
+                        save({ subagentAdvisor: { ...advisor, extraModels: [...(advisor.extraModels ?? []), id] } })
+                    }}
+                    options={[
+                      { value: '', label: tr('subagentRoute.advisor.addModel') },
+                      ...models
+                        .filter(m => !advisor.models.includes(m.id) && !advisor.extraModels?.includes(m.id))
+                        .map(m => ({
+                          value: m.id,
+                          label: m.label || m.id,
+                          description: modelRoleGuide(m.id)?.main,
+                        })),
+                    ]}
+                  />
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
