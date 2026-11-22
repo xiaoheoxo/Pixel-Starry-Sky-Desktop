@@ -1,6 +1,8 @@
 import { dotError } from './errors'
 import { useEffect, useSyncExternalStore } from 'react'
 import type { DotCatalogState } from '../../../../shared/types/dot-chat'
+import { dotRoomKey, dotViewCache } from './viewCache'
+import { dotImageCache } from './imageCache'
 
 /**
  * Dot 入口只对「本机登录着 ChatGPT Pro」的用户显示（docs/ui/dot-optimize.md §2）：eligible 由主进程逐个账号核对后给出，
@@ -30,6 +32,9 @@ export function refreshDots(): Promise<void> {
     .catalog(true)
     .then(
       next => {
+        const authorizedRooms = new Set(next.entries.map(dotRoomKey))
+        dotViewCache.retain(authorizedRooms)
+        dotImageCache.retain(authorizedRooms)
         state = { ...next, loading: false, checked: true }
       },
       error => {

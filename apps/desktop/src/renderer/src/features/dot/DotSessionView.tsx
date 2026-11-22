@@ -2,8 +2,9 @@ import type { SessionRecord } from '@pixelsky/protocol'
 import { Button, Spinner } from '@/ui'
 import { tr } from '@/i18n/core'
 import { refreshDots, useDots } from './store'
-import { DotKeyContext } from './context'
+import { DotKeyContext, DotRoomContext } from './context'
 import { DotConversation } from './DotConversation'
+import { dotRoomKey } from './viewCache'
 
 export function DotSessionView({
   target,
@@ -14,11 +15,14 @@ export function DotSessionView({
 }) {
   const dots = useDots()
   const entry = dots.entries.find(e => e.account === target.account && e.id === target.id)
+  const roomKey = entry && dotRoomKey(entry)
   return (
     <div className="dot-window min-w-0 flex-1">
-      {entry ? (
+      {entry && roomKey ? (
         <DotKeyContext.Provider value={entry.key}>
-          <DotConversation key={entry.key} entryKey={entry.key} active={active} />
+          <DotRoomContext.Provider value={roomKey}>
+            <DotConversation key={roomKey} initialEntry={entry} roomKey={roomKey} active={active} />
+          </DotRoomContext.Provider>
         </DotKeyContext.Provider>
       ) : (
         <div role="status" className="flex h-full items-center justify-center gap-3">

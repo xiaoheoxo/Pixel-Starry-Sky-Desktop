@@ -54,6 +54,8 @@ import { DotDeliveryNotice } from './DotDeliveryNotice'
 import { DotAddMenu, chatGptReference } from './DotAddMenu'
 import { DotQuickSettings, useDotQuickSettings } from './DotQuickSettings'
 import { dotPreviewAttachments, type DotLocalSend } from './localImagePreviews'
+import { dotRoomKey, dotViewCache } from './viewCache'
+import { refreshDots } from './store'
 import './dot.css'
 
 function readDraft(key: string): string {
@@ -64,15 +66,26 @@ function readDraft(key: string): string {
   }
 }
 
-export function DotConversation({ entryKey, active = true }: { entryKey: string; active?: boolean }) {
+export function DotConversation({
+  initialEntry,
+  roomKey,
+  active = true,
+}: {
+  initialEntry: DotEntry
+  roomKey: string
+  active?: boolean
+}) {
   useI18n()
+  const entryKey = initialEntry.key
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
   const current = useRef<string | null>(null)
-  const [entry, setEntry] = useState<DotEntry | null>(null)
-  const [history, setHistory] = useState<DotChatMessage[]>([])
-  const [before, setBefore] = useState<string | null>(null)
-  const [overview, setOverview] = useState<DotOverview>()
-  const [loading, setLoading] = useState(true)
+  const [entry, setEntry] = useState(initialEntry)
+  const [cached] = useState(() => dotViewCache.read(roomKey))
+  const [history, setHistory] = useState<DotChatMessage[]>(() => cached.history?.items ?? [])
+  const historyWindow = useRef(cached.history ?? { items: [], before: null, latest: undefined })
+  const [before, setBefore] = useState<string | null>(historyWindow.current.before)
+  const [overview, setOverview] = useState<DotOverview | undefined>(cached.overview)
+  const [loading, setLoading] = useState(!cached.history)
   const [reading, setReading] = useState(false)
   const [serverError, setServerError] = useState('')
   const [error, setError] = useState('')
@@ -96,11 +109,10 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const menuRef = useRef<HTMLDetailsElement>(null)
   const network = useRef(false)
   const catchUpPending = useRef(false)
-  const latest = useRef<string | undefined>(undefined)
   const overviewReading = useRef(false)
-  const [overviewLoading, setOverviewLoading] = useState(true)
+  const [overviewLoading, setOverviewLoading] = useState(!cached.overview)
   const [overviewError, setOverviewError] = useState('')
-  const haveHistory = useRef(false)
+  const haveHistory = useRef(!!cached.history)
   const alive = useRef(true)
   const draftKey = `pixelsky.dot.draft.${entryKey}`
   const [text, setText] = useState(() => readDraft(draftKey))
@@ -178,18 +190,28 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       try {
         // 正看着这个对话（标签可见、窗口在前台）读到的消息算看过，侧栏的未读点消掉（§7 #3）
         const seen = !options.before && visible.current && document.visibilityState === 'visible' && document.hasFocus()
-        const after = options.before ? undefined : latest.current
+        const after = options.before ? undefined : historyWindow.current.latest
         const next = await window.pixelsky!.dotChat.read(entryKey, {
           before: options.before,
           after,
           ...(seen ? { seen } : {}),
         })
         if (!alive.current) return
-        setEntry(previous => previous ?? next.entry)
+        if (dotRoomKey(next.entry) !== roomKey) {
+          void refreshDots()
+          return
+        }
         const update = dotHistoryUpdate(next.history, options.before, haveHistory.current)
-        setHistory(update.merge)
-        if (update.replaceBefore) setBefore(next.history.before)
-        if (!options.before) latest.current = next.history.latest
+        const previous = historyWindow.current
+        const loaded = {
+          items: update.merge(previous.items),
+          before: update.replaceBefore ? next.history.before : previous.before,
+          latest: options.before ? previous.latest : next.history.latest,
+        }
+        historyWindow.current = loaded
+        dotViewCache.putHistory(roomKey, loaded)
+        setHistory(loaded.items)
+        if (update.replaceBefore) setBefore(loaded.before)
         haveHistory.current = true
         setServerError('')
       } catch (e) {
@@ -206,7 +228,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         }
       }
     },
-    [entryKey],
+    [entryKey, roomKey],
   )
   const readOverview = useCallback(async () => {
     if (overviewReading.current) return
@@ -215,8 +237,15 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     try {
       const next = await window.pixelsky!.dotChat.read(entryKey, { overviewOnly: true })
       if (!alive.current) return
+      if (dotRoomKey(next.entry) !== roomKey) {
+        void refreshDots()
+        return
+      }
       setEntry(next.entry)
-      setOverview(next.overview)
+      if (next.overview) {
+        dotViewCache.putOverview(roomKey, next.overview)
+        setOverview(next.overview)
+      }
       setOverviewError('')
     } catch (error) {
       if (alive.current) setOverviewError(dotError(error))
@@ -224,26 +253,22 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       overviewReading.current = false
       if (alive.current) setOverviewLoading(false)
     }
-  }, [entryKey])
+  }, [entryKey, roomKey])
   const remote = useRef(readRemote)
   remote.current = readRemote
   const visible = useRef(active)
   visible.current = active
+  const wasActive = useRef(active)
   useEffect(() => {
     if (!active) setComputer(false)
-    else if (haveHistory.current) void remote.current({ catchUp: true })
+    else if (!wasActive.current) void remote.current({ catchUp: true })
+    wasActive.current = active
   }, [active])
 
   useEffect(() => {
     alive.current = true
-    void window.pixelsky?.dotChat
-      .catalog()
-      .then(catalog => {
-        if (alive.current) setEntry(previous => previous ?? catalog.entries.find(e => e.key === entryKey) ?? null)
-      })
-      .catch(() => undefined)
     void remote.current()
-    void readOverview()
+    if (dotViewCache.shouldRefreshOverview(roomKey)) void readOverview()
     let polls = 0
     const timer = window.setInterval(() => {
       if (!visible.current || document.visibilityState !== 'visible') return
@@ -262,7 +287,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       window.removeEventListener('focus', back)
       document.removeEventListener('visibilitychange', back)
     }
-  }, [entryKey, readOverview])
+  }, [readOverview, roomKey])
 
   useEffect(() => {
     let mounted = true
@@ -279,9 +304,14 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         try {
           const next = await window.pixelsky!.dotChat.snapshot(entryKey)
           if (mounted) {
-            current.current = next.record.id
-            setSnapshot(next)
-            setSnapshotError('')
+            if (!next.record.dot || dotRoomKey(next.record.dot) !== roomKey) {
+              setSnapshot(null)
+              void refreshDots()
+            } else {
+              current.current = next.record.id
+              setSnapshot(next)
+              setSnapshotError('')
+            }
           }
         } catch (e) {
           if (mounted) setSnapshotError(dotError(e))
@@ -303,7 +333,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       mounted = false
       off?.()
     }
-  }, [entryKey, readOverview])
+  }, [entryKey, roomKey, readOverview])
   useEffect(() => {
     try {
       localStorage.setItem(draftKey, text)
