@@ -6,6 +6,12 @@ import type { EngineHost } from '@pixelsky/engine'
 import type { SessionRecord } from '@pixelsky/protocol'
 import { DotChatSessions } from './dot-chat-sessions'
 
+const native = vi.hoisted(() => ({
+  createThumbnailFromPath: vi.fn(),
+  createFromPath: vi.fn(),
+}))
+vi.mock('electron', () => ({ nativeImage: native }))
+
 describe('multi-account Dot chats', () => {
   it('filters Plus before network access, keeps same-name Dots separate, and reopens the saved session', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dot-chats-'))
@@ -164,6 +170,28 @@ describe('Dot unread messages and dropped files', () => {
       busy: (on: boolean) => (state = on ? 'running' : 'idle'),
     }
   }
+
+  it('returns a bounded local picker preview even when the OS thumbnailer fails', async () => {
+    const t = await setup()
+    try {
+      const path = join(t.root, 'preview.webp')
+      writeFileSync(path, 'placeholder')
+      const resized = { isEmpty: () => false, toPNG: () => Buffer.from('preview') }
+      const resize = vi.fn(() => resized)
+      native.createThumbnailFromPath.mockRejectedValueOnce(new Error('No thumbnail provider'))
+      native.createFromPath.mockReturnValueOnce({
+        isEmpty: () => false,
+        getSize: () => ({ width: 800, height: 600 }),
+        resize,
+      })
+      expect(await t.service.pickFiles(t.key, [path], true)).toEqual([
+        expect.objectContaining({ name: 'preview.webp', previewPng: Buffer.from('preview').toString('base64') }),
+      ])
+      expect(resize).toHaveBeenCalledWith({ width: 400 })
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
 
   it('background check: only Dots opened here, not while replying or just read; a newer Dot message becomes unread once', async () => {
     const t = await setup()

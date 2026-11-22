@@ -240,6 +240,13 @@ describe('native Dot client', () => {
       '/backend-api/tbo/dot/environment/status': { status: 'connected' },
       '/backend-api/tbo/dot/activity?limit=5': new Response('', { status: 404 }),
       '/backend-api/tbo/dot/tasks?limit=25': { data: [] },
+      '/backend-api/tbo/dot/automations': {
+        automations: [
+          { id: 'schedule-a', title: 'Check build', is_enabled: false, prompt: 'must not be exposed' },
+          { id: 'schedule-b', title: 'Follow up', status: 'completed', is_enabled: false },
+          { id: 'schedule-c', title: 'Read CI', enabled: true },
+        ],
+      },
       '/backend-api/messaging/rooms/room/messages?limit=32': { items: [message('recent')], prev_cursor: 'older' },
       '/backend-api/messaging/rooms/room/messages?limit=32&before=older': {
         items: [
@@ -278,9 +285,39 @@ describe('native Dot client', () => {
         roomOutputs: [{ fileId: 'output', name: 'result.png' }],
         roomTasks: [{ id: 'work-1', title: 'Build result', status: 'completed' }],
         roomContentPartial: false,
+        scheduledActivity: [
+          { id: 'schedule-a', title: 'Check build', status: 'paused' },
+          { id: 'schedule-b', title: 'Follow up', status: 'completed' },
+          { id: 'schedule-c', title: 'Read CI', status: 'active' },
+        ],
       },
     })
     expect(request.mock.calls.some(([input]) => String(input).includes('not-ours'))).toBe(false)
+  })
+
+  it('does not confuse a failed or wrong-owner schedule request with an empty list', async () => {
+    const { client, routes } = setup({
+      '/backend-api/tbo/dot/environment/status': { status: 'connected' },
+      '/backend-api/tbo/dot/activity?limit=5': { data: [] },
+      '/backend-api/tbo/dot/tasks?limit=25': { data: [] },
+      '/backend-api/messaging/rooms/room/messages?limit=32': { items: [] },
+      '/backend-api/tbo/dot/automations': new Response('', { status: 403 }),
+    })
+    const dot = await client.discover()
+    expect(await client.overview(dot, undefined, true)).toMatchObject({
+      scheduledActivity: null,
+      scheduledActivityError: 'Dot HTTP 403',
+      errors: [],
+      roomOutputs: [],
+    })
+    const route = '/backend-api/tbo/dot/automations'
+    routes[route] = { data: { automations: [{ id: 'foreign', title: 'Foreign', aeon_id: 'another-dot' }] } }
+    expect(await client.overview(dot, undefined, true)).toMatchObject({
+      scheduledActivity: null,
+      scheduledActivityError: 'Dot schedule response unavailable',
+    })
+    routes[route] = []
+    expect(await client.overview(dot, undefined, true)).toMatchObject({ scheduledActivity: [] })
   })
 
   it('accepts the canonical ChatGPT user as the room member when account-user and user claims differ', async () => {

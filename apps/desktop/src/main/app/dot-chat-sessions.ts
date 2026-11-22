@@ -1,3 +1,4 @@
+import { nativeImage } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -7,7 +8,7 @@ import type { EngineHost } from '@pixelsky/engine'
 import type { FileAttachment, SessionSnapshot } from '@pixelsky/protocol'
 import { CHAT_PROJECT_ID, supportsChatGptDot } from '@pixelsky/protocol'
 import type { DotChatMessage } from '@pixelsky/engine'
-import type { DotCatalogState, DotChatChange, DotEntry } from '../../shared/types/dot-chat'
+import type { DotCatalogState, DotChatChange, DotEntry, DotLocalFile } from '../../shared/types/dot-chat'
 import { safeFileName } from '../../shared/safeFileName'
 import { readWindowFile, mergeWindowFile } from './windowFile'
 
@@ -149,7 +150,18 @@ export class DotChatSessions {
     this.save()
     return this.host.open(created.id)
   }
-  async send(key: string, sessionId: unknown, text: unknown, fileIds: unknown = []): Promise<void> {
+  async send(
+    key: string,
+    sessionId: unknown,
+    text: unknown,
+    fileIds: unknown = [],
+    requestId?: unknown,
+  ): Promise<void> {
+    if (
+      requestId !== undefined &&
+      (typeof requestId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(requestId))
+    )
+      throw new Error('Invalid Dot request ID')
     if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid Dot message')
     if (!Array.isArray(fileIds) || fileIds.length > 10 || fileIds.some(id => typeof id !== 'string'))
       throw new Error('Invalid Dot attachments')
@@ -161,11 +173,14 @@ export class DotChatSessions {
     if (!text.trim() && !files.length) throw new Error('Invalid Dot message')
     const snapshot = this.snapshot(key)
     if (snapshot.record.id !== sessionId) throw new Error('Dot conversation changed; reload before sending')
-    await this.host.send(snapshot.record.id, files.length ? { text, files, clientMessageId: randomUUID() } : text)
+    await this.host.send(
+      snapshot.record.id,
+      files.length ? { text, files, clientMessageId: (requestId as string | undefined) ?? randomUUID() } : text,
+    )
     for (const id of fileIds) this.selected.get(key)?.delete(id)
   }
 
-  async pickFiles(key: string, paths: string[]) {
+  async pickFiles(key: string, paths: string[], withPreviews = false): Promise<DotLocalFile[]> {
     this.entry(key)
     const selected = this.selected.get(key) ?? new Map<string, FileAttachment>()
     this.selected.set(key, selected)
@@ -188,7 +203,12 @@ export class DotChatSessions {
     // 限制每个窗口尚未发送的本地引用，路径不传给 renderer。
     for (const file of next) selected.set(file.id, file)
     while (selected.size > 50) selected.delete(selected.keys().next().value!)
-    return next.map(({ id, name, bytes }) => ({ id, name, bytes }))
+    return Promise.all(
+      next.map(async ({ id, name, bytes, path }) => {
+        const previewPng = withPreviews && path ? await selectedImagePreview(path, bytes) : undefined
+        return { id, name, bytes, ...(previewPng ? { previewPng } : {}) }
+      }),
+    )
   }
 
   async download(key: string, fileId: unknown, signal?: AbortSignal) {
@@ -356,5 +376,28 @@ export class DotChatSessions {
     while (known.size > 2000) known.delete(known.values().next().value!)
     this.knownFiles.set(key, known)
     return { ...data, entry: { ...entry, ...data.overview?.profile } }
+  }
+}
+
+/** The system thumbnailer reads only paths explicitly chosen in the native picker. */
+async function selectedImagePreview(path: string, bytes: number): Promise<string | undefined> {
+  if (!/\.(png|jpe?g|webp|gif)$/i.test(path)) return
+  try {
+    let image = await nativeImage.createThumbnailFromPath(path, { width: 400, height: 400 }).catch(() => undefined)
+    // The OS provider is not available on all platforms. Limit the synchronous fallback to small selected files.
+    if ((!image || image.isEmpty()) && bytes <= 2 * 1024 * 1024) {
+      const original = nativeImage.createFromPath(path)
+      if (original.isEmpty()) return
+      const { width, height } = original.getSize()
+      image =
+        width > height
+          ? original.resize({ width: Math.min(width, 400) })
+          : original.resize({ height: Math.min(height, 400) })
+    }
+    if (!image || image.isEmpty()) return
+    const png = image.toPNG()
+    return png.byteLength <= 768 * 1024 ? png.toString('base64') : undefined
+  } catch {
+    // Corrupt or unsupported images keep the placeholder until they can be fetched from the remote host.
   }
 }

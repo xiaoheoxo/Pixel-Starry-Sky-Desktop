@@ -60,8 +60,8 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
   ipc.handle('dotChat:snapshot', (event, key: unknown) => sessions.snapshot(bind(event.sender, key).key), deny)
   ipc.handle(
     'dotChat:send',
-    (event, key: unknown, id: unknown, text: unknown, files?: unknown) =>
-      sessions.send(bind(event.sender, key).key, id, text, files),
+    (event, key: unknown, id: unknown, text: unknown, files?: unknown, requestId?: unknown) =>
+      sessions.send(bind(event.sender, key).key, id, text, files, requestId),
     deny,
   )
   ipc.handle(
@@ -72,7 +72,7 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
       if (!win) throw new Error('Dot chat window required')
       const result = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
       if (result.canceled || win.isDestroyed()) return []
-      return sessions.pickFiles(key, result.filePaths)
+      return sessions.pickFiles(key, result.filePaths, true)
     },
     deny,
   )

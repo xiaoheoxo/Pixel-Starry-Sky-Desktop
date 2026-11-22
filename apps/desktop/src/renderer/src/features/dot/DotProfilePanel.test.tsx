@@ -76,6 +76,51 @@ describe('Dot profile panel', () => {
     expect(html).not.toContain('近期活动暂不可用')
   })
 
+  it('separates recent scheduled activity from conversation tasks and shows errors instead of empty results', () => {
+    const overview = { profile: entry, activity: [], tasks: [], environment: null, errors: [] }
+    const render = (feed: Partial<import('@pixelsky/engine').DotOverview>) =>
+      renderToStaticMarkup(
+        <I18nProvider>
+          <DotProfilePanel entry={entry} overview={{ ...overview, ...feed }} outputs={[]} />
+        </I18nProvider>,
+      )
+    expect(render({ scheduledActivity: [{ id: 'a', title: 'CI monitor', status: 'paused' }] })).toContain('CI monitor')
+    expect(render({ scheduledActivity: null, scheduledActivityError: 'Dot HTTP 403' })).toContain(
+      '暂时无法获取定时任务',
+    )
+    expect(render({ scheduledActivity: [] })).toContain('没有定时任务')
+    expect(
+      renderToStaticMarkup(
+        <I18nProvider>
+          <DotProfilePanel entry={entry} outputs={[]} overviewLoading />
+        </I18nProvider>,
+      ),
+    ).toContain('正在读取详情')
+  })
+
+  it('uses a live work title and keeps unanswered distinct from completed and scheduled work', () => {
+    const html = renderToStaticMarkup(
+      <I18nProvider>
+        <DotProfilePanel
+          entry={entry}
+          outputs={[]}
+          replyDisplay="unanswered"
+          overview={{
+            profile: entry,
+            environment: null,
+            tasks: [],
+            errors: [],
+            activity: [{ id: 'live', title: 'Verifying product version', status: 'in_progress' }],
+            scheduledActivity: [{ id: 'scheduled', title: 'Daily build', status: 'active' }],
+          }}
+        />
+      </I18nProvider>,
+    )
+    expect(html).toContain('Verifying product version')
+    expect(html).toContain('暂未回复')
+    expect(html).toContain('Daily build')
+  })
+
   it('does not claim that a computer is ready when the status could not be read', () => {
     const html = renderToStaticMarkup(
       <I18nProvider>

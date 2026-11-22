@@ -1,4 +1,4 @@
-import { ChevronDown, Hash, Mic, Monitor, Phone, type LucideIcon } from 'lucide-react'
+import { ChevronDown, Clock, Hash, Mic, Monitor, Phone, type LucideIcon } from 'lucide-react'
 import type { DotAttachment, DotOverview } from '@pixelsky/engine'
 import type { WorkflowRun } from '@pixelsky/protocol'
 import type { DotEntry } from '../../../../shared/types/dot-chat'
@@ -45,6 +45,9 @@ export function DotProfilePanel({
   lastReplyAt,
   onOpenComputer,
   onRefresh,
+  overviewLoading = false,
+  replyDisplay = 'none',
+  awaitingInput = false,
 }: {
   entry: DotEntry | null
   overview?: DotOverview
@@ -54,6 +57,9 @@ export function DotProfilePanel({
   lastReplyAt?: number
   onOpenComputer?: () => void
   onRefresh?: () => void
+  overviewLoading?: boolean
+  replyDisplay?: 'none' | 'working' | 'unanswered'
+  awaitingInput?: boolean
 }) {
   const { locale } = useI18n()
   const web = dotWebUrl(entry?.id)
@@ -87,6 +93,28 @@ export function DotProfilePanel({
   }
   const files = [...uniqueFiles.values()]
   const recentRows = [...recent.values()]
+  const workRows = [...recentRows, ...(overview?.activity ?? [])]
+  const inProgress = workRows.filter(item => /^(?:in[ _-]?progress|thinking|running|active)$/i.test(item.status))
+  const needsInput = awaitingInput || workRows.some(item => /^(?:needs[ _-]?input|waiting)$/i.test(item.status))
+  const currentWork = inProgress.find(item => item.title.trim())?.title
+  const workHint = needsInput
+    ? tr('dot.workAwaitingInput')
+    : replyDisplay === 'unanswered'
+      ? tr('dot.unanswered', { name })
+      : currentWork || replyDisplay === 'working'
+        ? tr('dot.workInProgress')
+        : null
+  const scheduled = overview?.scheduledActivity
+  const loading = !overview && (overviewLoading || !overviewError)
+  const renderSchedule = (task: NonNullable<typeof scheduled>[number]) => (
+    <a key={task.id} href={web} target="_blank" rel="noreferrer" className="dot-output-row" title={task.title}>
+      <Clock size={16} className="shrink-0 text-fg-muted" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{task.title}</span>
+      <span className="shrink-0 text-meta text-fg-muted">
+        {task.status === 'unknown' ? tr('dot.notLoaded') : dotStatus(task.status)}
+      </span>
+    </a>
+  )
   const renderTask = (item: (typeof recentRows)[number]) => {
     const tone = statusTone(item.status)
     return (
@@ -121,6 +149,16 @@ export function DotProfilePanel({
           </p>
         </div>
       </div>
+      {workHint && (
+        <div role="status" className="min-w-0 rounded-md bg-subtle px-3 py-2">
+          {currentWork && (
+            <p className="truncate text-list font-medium text-fg" title={currentWork}>
+              {currentWork}
+            </p>
+          )}
+          <p className="text-meta text-fg-muted">{workHint}</p>
+        </div>
+      )}
       <button type="button" className="dot-computer-card" onClick={onOpenComputer}>
         <span className="dot-computer-icon">
           <Monitor size={17} strokeWidth={1.6} />
@@ -136,13 +174,44 @@ export function DotProfilePanel({
       </button>
       <section>
         <h3>
-          {tr('dot.recentTasks')}{' '}
+          {tr('dot.scheduledActivity')}{' '}
           {onRefresh && (
-            <button type="button" className="dot-small-button ml-2" onClick={onRefresh}>
-              {tr('dot.refresh')}
+            <button type="button" className="dot-small-button ml-2" disabled={overviewLoading} onClick={onRefresh}>
+              {tr('dot.refreshOverview')}
             </button>
           )}
         </h3>
+        {scheduled?.length ? (
+          <>
+            {scheduled.slice(0, 5).map(renderSchedule)}
+            {scheduled.length > 5 && (
+              <details className="dot-more-outputs">
+                <summary>
+                  <ChevronDown size={15} />
+                  {tr('dot.showMore')}
+                </summary>
+                {scheduled.slice(5).map(renderSchedule)}
+              </details>
+            )}
+          </>
+        ) : scheduled ? (
+          <p className="dot-panel-empty">{tr('dot.noSchedules')}</p>
+        ) : loading ? (
+          <ProfileSkeleton />
+        ) : (
+          <div className="dot-panel-empty">
+            <p>
+              {tr('dot.scheduleUnavailable')}
+              {overview?.scheduledActivityError ? ` · ${dotError(overview.scheduledActivityError)}` : ''}
+            </p>
+            <a href={web} target="_blank" rel="noreferrer">
+              {tr('dot.viewSchedules')}
+            </a>
+          </div>
+        )}
+      </section>
+      <section>
+        <h3>{tr('dot.recentTasks')}</h3>
         {recentRows.length ? (
           <>
             {recentRows.slice(0, 5).map(renderTask)}
@@ -156,8 +225,10 @@ export function DotProfilePanel({
               </details>
             )}
           </>
+        ) : loading ? (
+          <ProfileSkeleton />
         ) : overview?.tasks || overview?.activity ? (
-          <p className="dot-panel-empty">{tr('dot.noActivity')}</p>
+          <p className="dot-panel-empty">{tr('dot.noConversationTasks')}</p>
         ) : overview ? (
           <a className="dot-panel-empty dot-web-link" href={web} target="_blank" rel="noreferrer">
             {tr('dot.activityUnavailable')}
@@ -199,6 +270,8 @@ export function DotProfilePanel({
               </details>
             )}
           </>
+        ) : loading ? (
+          <ProfileSkeleton />
         ) : (
           <p className="dot-panel-empty">{tr('dot.noOutputs')}</p>
         )}
@@ -224,5 +297,19 @@ export function DotProfilePanel({
         </p>
       ))}
     </aside>
+  )
+}
+
+function ProfileSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label={tr('dot.loadOverview')}
+      className="flex flex-col gap-2 py-2 motion-safe:animate-pulse"
+    >
+      <span aria-hidden className="h-3 w-3/4 rounded bg-hover" />
+      <span aria-hidden className="h-3 w-1/2 rounded bg-hover" />
+      <span aria-hidden className="h-3 w-2/3 rounded bg-hover" />
+    </div>
   )
 }

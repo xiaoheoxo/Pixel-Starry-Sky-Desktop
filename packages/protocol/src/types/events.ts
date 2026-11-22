@@ -78,6 +78,8 @@ export interface SessionFlags {
   compactAvailable?: boolean
   /** 经过验证且当前进程声明所需能力，才能开启引导 */
   steerAvailable?: boolean
+  /** Dot delivery acknowledged, but no reply yet. A display hint only; it cannot expire delivery. */
+  dotReplyWaitingSince?: number
   ultracodeAvailable: boolean | null
   /** Fast 模式现在能不能开 */
   fastAvailable: boolean | null

@@ -56,10 +56,11 @@ describe('Dot in the main conversation view', () => {
     initDotChat({ engine: {} } as never, () => main as never)
     const sender = { once: vi.fn<(event: string, listener: () => void) => void>() }
     mocks.handlers.get('dotChat:snapshot')!({ sender }, first)
-    mocks.handlers.get('dotChat:send')!({ sender }, second, 'session', 'hello', ['file'])
+    const requestId = 'a0000000-b000-4000-8000-c00000000000'
+    mocks.handlers.get('dotChat:send')!({ sender }, second, 'session', 'hello', ['file'], requestId)
     mocks.handlers.get('dotChat:read')!({ sender }, first, { overview: true })
     expect(mocks.snapshot).toHaveBeenCalledWith(first)
-    expect(mocks.send).toHaveBeenCalledWith(second, 'session', 'hello', ['file'])
+    expect(mocks.send).toHaveBeenCalledWith(second, 'session', 'hello', ['file'], requestId)
     expect(mocks.read).toHaveBeenCalledWith(
       first,
       { before: undefined, after: undefined, overview: true, overviewOnly: undefined },

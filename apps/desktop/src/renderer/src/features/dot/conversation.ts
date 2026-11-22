@@ -2,21 +2,28 @@ import type { Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
 import type { DotAttachment, DotChatMessage, DotHistoryPage } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
 
+import type { DotLocalSend } from './localImagePreviews'
+
 export interface DotTranscriptRow {
   id: string
   role: 'user' | 'assistant' | 'notice'
   text: string
   createdAt: number
   attachments: DotAttachment[]
+  native?: true
   level?: 'info' | 'warn' | 'error'
 }
 
 /** 将原生房间记录与本地正在发送的条目合并，使用 request_id 和 Dot 消息 ID 去重。 */
-export function dotTranscript(history: DotChatMessage[], local: Item[]): DotTranscriptRow[] {
+export function dotTranscript(
+  history: DotChatMessage[],
+  local: Item[],
+  pending: readonly DotLocalSend[] = [],
+): DotTranscriptRow[] {
   const rows = new Map<string, DotTranscriptRow>()
   for (const message of history) {
     const id = message.role === 'user' && message.requestId ? message.requestId : `dot-${message.id}`
-    rows.set(id, { ...message, id })
+    rows.set(id, { ...message, id, native: true })
   }
   let at = 0
   for (const item of local) {
@@ -32,6 +39,10 @@ export function dotTranscript(history: DotChatMessage[], local: Item[]): DotTran
         attachments: [],
         ...(item.kind === 'notice' ? { level: item.level } : {}),
       })
+  }
+  for (const draft of pending) {
+    if (draft.optimistic && !rows.has(draft.id))
+      rows.set(draft.id, { id: draft.id, role: 'user', text: draft.text, createdAt: draft.createdAt, attachments: [] })
   }
   return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt)
 }
@@ -193,4 +204,15 @@ export function dotGuidanceTurn(
   if (snapshot?.state !== 'running' || !snapshot.flags.steerAvailable) return null
   if (snapshot.queue.some(q => q.status === 'delivering' || q.status === 'uncertain')) return null
   return snapshot.turnId
+}
+
+export const DOT_NO_REPLY_MS = 60_000
+
+export function dotReplyDisplay(
+  replying: boolean,
+  waitingSince: number | undefined,
+  now: number,
+): 'none' | 'working' | 'unanswered' {
+  if (!replying) return 'none'
+  return waitingSince !== undefined && now - waitingSince >= DOT_NO_REPLY_MS ? 'unanswered' : 'working'
 }

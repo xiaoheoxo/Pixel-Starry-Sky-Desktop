@@ -14,8 +14,6 @@ import type { DotClient, DotIdentity, DotMessage, DotWorkflow } from './client'
 
 export interface DotSessionOptions {
   pollMs?: number
-  /** 发出后最多等多久收到 Dot 的回复，超时报错 */
-  replyTimeoutMs?: number
   /** 收到回复后 Dot 还在主对话里干活，最多再陪它等多久；到点按完成结束，排队的消息接着发（docs/ui/dot-optimize.md §9） */
   busyTimeoutMs?: number
   /** 读取出错后隔多久再试，试完这几次还不行才报错 */
@@ -24,8 +22,9 @@ export interface DotSessionOptions {
 }
 
 const terminal = (status: DotWorkflow['status']) => ['completed', 'failed', 'interrupted'].includes(status)
-const dotFlags = (steerAvailable: boolean) => ({
+const dotFlags = (steerAvailable: boolean, dotReplyWaitingSince?: number) => ({
   steerAvailable,
+  dotReplyWaitingSince,
   ultracodeAvailable: null,
   fastAvailable: null,
   fastState: null,
@@ -88,6 +87,7 @@ export class DotSession implements EngineSession {
       const sent = await this.client.send(dot, text, userItemId, signal, fileIds)
       turn.lastGuidanceId = sent.id
       this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed' })
+      this.ctx.emit({ type: 'flags', flags: dotFlags(true, Date.now()) })
     })().catch(error => {
       this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'uncertain' })
       throw error
@@ -125,15 +125,13 @@ export class DotSession implements EngineSession {
       confirmed = true
       this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed' })
       turn.dot = dot
-      this.ctx.emit({ type: 'flags', flags: dotFlags(true) })
+      this.ctx.emit({ type: 'flags', flags: dotFlags(true, Date.now()) })
       let after = sent.id
       let received = false
       let asked = false
       const emitted = new Set<string>()
       const start = Date.now()
-      const replyTimeout = this.options.replyTimeoutMs ?? 10 * 60_000
       const busyTimeout = this.options.busyTimeoutMs ?? 60 * 60_000
-      let replyDeadline = start + replyTimeout
       let busyDeadline = start + busyTimeout
       let acknowledgedGuidance: string | undefined
       let awaitingGuidanceReply = false
@@ -150,11 +148,8 @@ export class DotSession implements EngineSession {
           awaitingGuidanceReply = true
           received = false
           asked = false
-          replyDeadline = Date.now() + replyTimeout
           busyDeadline = Date.now() + busyTimeout
         }
-        if (!received && Date.now() >= replyDeadline)
-          throw new Error('Dot reply wait timed out; check ChatGPT before continuing')
         if (received && Date.now() >= busyDeadline) {
           this.ctx.emit({
             type: 'item_completed',
@@ -175,7 +170,12 @@ export class DotSession implements EngineSession {
           if (m.id === acknowledgedGuidance) awaitingGuidanceReply = false
           if (m.account_user_id !== dot.memberId || m.deleted_at || emitted.has(m.id)) continue
           emitted.add(m.id)
-          if (!awaitingGuidanceReply) received = true
+          const isReply = !!(m.content.text?.trim() || m.content.attachments?.length || m.content.elicitation)
+          if (!received && !awaitingGuidanceReply && isReply) {
+            received = true
+            busyDeadline = Date.now() + busyTimeout
+            this.ctx.emit({ type: 'flags', flags: dotFlags(true) })
+          }
           if (m.content.text)
             this.ctx.emit({
               type: 'item_completed',
@@ -263,6 +263,7 @@ export class DotSession implements EngineSession {
         background: this.background(),
       })
     } finally {
+      this.ctx.emit({ type: 'flags', flags: dotFlags(false) })
       release?.()
     }
   }

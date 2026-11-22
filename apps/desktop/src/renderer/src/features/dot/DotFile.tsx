@@ -1,6 +1,6 @@
 import { dotError } from './errors'
 import { useEffect, useRef, useState } from 'react'
-import { Download, File, ImageIcon, RefreshCw } from 'lucide-react'
+import { Download, File, RefreshCw } from 'lucide-react'
 import type { DotAttachment } from '@pixelsky/engine'
 import { ImageViewer } from '@/ui/ImageViewer'
 import { Spinner } from '@/ui'
@@ -67,14 +67,18 @@ export function DotFile({
   file,
   compact = false,
   thumb = false,
+  localUrl,
 }: {
   file: DotAttachment
   compact?: boolean
   thumb?: boolean
+  localUrl?: string
 }) {
   const key = useDotKey()
-  const image = isDotImage(file)
+  const image = !!localUrl || isDotImage(file)
   const [url, setUrl] = useState('')
+  const [localFailed, setLocalFailed] = useState<string>()
+  const [decoded, setDecoded] = useState<string>()
   const [near, setNear] = useState(false)
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -82,7 +86,13 @@ export function DotFile({
   const [attempt, setAttempt] = useState(0)
   const tile = useRef<HTMLButtonElement>(null)
   const name = file.name || tr('dot.attachment')
-  const wanted = near || open
+  const local = localUrl && localUrl !== localFailed ? localUrl : undefined
+  const wanted = (!local && near) || open
+  const source = local || (error ? '' : url)
+  const retryImage = (): void => {
+    setError('')
+    setAttempt(v => v + 1)
+  }
   useEffect(() => {
     const el = tile.current
     if (!el || !image || compact) return
@@ -141,19 +151,29 @@ export function DotFile({
         }
         title={thumb && error ? translateMessage(error) : name}
         aria-label={`${tr(image ? 'composer.attachment.preview' : 'dot.download')} ${name}`}
-        disabled={!file.fileId || (busy && !image)}
-        onClick={() => (image ? (error ? setAttempt(v => v + 1) : setOpen(true)) : void save())}
+        disabled={(!file.fileId && !local) || (busy && !image)}
+        onClick={() => (image ? (error && !local ? retryImage() : setOpen(true)) : void save())}
       >
         {picture ? (
           <>
-            {url && !error ? (
-              <img src={url} alt={name} onError={() => setError(tr('dot.imageUnavailable'))} />
-            ) : busy ? (
-              <Spinner />
-            ) : error ? (
+            {!source && error ? (
               <RefreshCw size={thumb ? 16 : 20} />
             ) : (
-              <ImageIcon size={thumb ? 18 : 24} />
+              <>
+                {(!source || decoded !== source) && <span className="dot-image-skeleton" aria-hidden />}
+                {source && (
+                  <img
+                    src={source}
+                    alt={name}
+                    data-decoded={decoded === source || undefined}
+                    onLoad={() => setDecoded(source)}
+                    onError={() => {
+                      if (local) setLocalFailed(local)
+                      else setError(tr('dot.imageUnavailable'))
+                    }}
+                  />
+                )}
+              </>
             )}
             {!thumb && <span className="dot-image-caption">{name}</span>}
           </>
@@ -176,12 +196,12 @@ export function DotFile({
           </>
         )}
       </button>
-      {error && !thumb && (
+      {error && !thumb && !local && (
         <p role="alert" className="mt-1 max-w-56 text-label text-warn">
           {translateMessage(error)}
         </p>
       )}
-      {open && url && !error && <ImageViewer src={url} name={name} onClose={() => setOpen(false)} />}
+      {open && source && <ImageViewer src={(!error && url) || source} name={name} onClose={() => setOpen(false)} />}
     </div>
   )
 }

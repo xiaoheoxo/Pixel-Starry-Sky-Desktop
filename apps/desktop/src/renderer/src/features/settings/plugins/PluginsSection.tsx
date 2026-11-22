@@ -601,7 +601,8 @@ export function PluginsSection() {
                     <p className="break-words text-meta text-fg-muted">{p.description || p.id}</p>
                   </div>
                   <span className="text-meta text-fg-muted">
-                    {p.enabled ? t('已配置') : tr('dot.add.pluginDisabled')} · {t('只读')}
+                    {tr(p.enabled ? 'dot.add.pluginConfigured' : 'dot.add.pluginDisabled')} ·{' '}
+                    {tr('dot.add.pluginReadOnly')}
                   </span>
                 </div>
               ))

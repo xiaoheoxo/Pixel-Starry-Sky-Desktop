@@ -77,12 +77,19 @@ export interface DotHistoryPage {
   latest?: string
   reset?: true
 }
+export interface DotScheduledActivity {
+  id: string
+  title: string
+  status: 'active' | 'paused' | 'completed' | 'unknown'
+}
 export interface DotOverview {
   profile: DotProfile
   environment: { status: string; capabilities: { type: string; status: string }[] } | null
   activity: { id: string; title: string; status: string }[] | null
   tasks: { id: string; title: string; status: string }[] | null
   errors: string[]
+  scheduledActivity?: DotScheduledActivity[] | null
+  scheduledActivityError?: string
   roomOutputs?: DotAttachment[]
   roomTasks?: DotWorkflow[]
   roomContentPartial?: boolean
@@ -412,6 +419,42 @@ export class DotClient {
     }
   }
 
+  /** Profile activity has a distinct scheduled-task feed; never infer it from conversation attachments. */
+  private async scheduledActivity(dot: DotIdentity, signal?: AbortSignal): Promise<DotScheduledActivity[]> {
+    const raw = await this.request(
+      `/tbo/${encodeURIComponent(dot.id)}/automations`,
+      signal,
+      undefined,
+      false,
+      this.connection(dot),
+    )
+    const envelope = Array.isArray(raw) ? null : object(raw)
+    const payload = envelope?.automations ?? envelope?.items ?? envelope?.data ?? raw
+    const rows = Array.isArray(payload) ? payload : object(payload).automations
+    if (!Array.isArray(rows)) invalid()
+    const results = new Map<string, DotScheduledActivity>()
+    for (const row of rows) {
+      const item = object(row)
+      const owner = item.aeon_id ?? item.aeonId
+      if (typeof owner === 'string' && owner !== dot.id) invalid()
+      const id = string(item.id ?? item.automation_id ?? item.automationId)
+      const title = string(item.title ?? item.name).trim()
+      if (!title) invalid()
+      const state = typeof item.status === 'string' ? item.status.toLowerCase() : undefined
+      const enabled = item.is_enabled ?? item.isEnabled ?? item.enabled
+      const status =
+        state === 'completed'
+          ? 'completed'
+          : state === 'paused' || enabled === false
+            ? 'paused'
+            : state === 'active' || enabled === true
+              ? 'active'
+              : 'unknown'
+      results.set(id, { id, title, status })
+    }
+    return [...results.values()]
+  }
+
   async overview(dot: DotIdentity, signal?: AbortSignal, includeRoom = false): Promise<DotOverview> {
     const connection = this.connection(dot)
     const path = `/tbo/${encodeURIComponent(dot.id)}`
@@ -443,7 +486,7 @@ export class DotClient {
             typeof item.status === 'string' ? item.status : typeof item.state === 'string' ? item.state : 'unknown',
         }))
     }
-    const [environment, activity, tasks, content] = await Promise.all([
+    const [environment, activity, tasks, content, schedules] = await Promise.all([
       read(`${path}/environment/status`, data => ({
         status: string(data.status),
         capabilities: Array.isArray(data.capabilities)
@@ -453,8 +496,21 @@ export class DotClient {
       read(`${path}/activity?limit=5`, rows, true),
       read(`${path}/tasks?limit=25`, rows, true),
       includeRoom ? this.recentRoomContent(dot, signal) : undefined,
+      includeRoom
+        ? this.scheduledActivity(dot, signal).then(
+            scheduledActivity => ({ scheduledActivity }),
+            (error: unknown) => {
+              signal?.throwIfAborted()
+              return {
+                scheduledActivity: null,
+                scheduledActivityError:
+                  error instanceof DotHttpError ? `Dot HTTP ${error.status}` : 'Dot schedule response unavailable',
+              }
+            },
+          )
+        : undefined,
     ])
-    return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors, ...content }
+    return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors, ...content, ...schedules }
   }
 
   async messages(dot: DotIdentity, after = '', signal?: AbortSignal): Promise<DotMessage[]> {

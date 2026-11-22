@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   dotComposerState,
+  dotReplyDisplay,
   dotGuidanceTurn,
   dotHistoryUpdate,
   dotNotice,
@@ -192,4 +193,12 @@ it('rebases history and its older button after the newest cursor is rejected', (
   const older = dotHistoryUpdate({ before: null, items: [row('missed', 2)] }, 'gap', true)
   expect(older.merge(replacement.items).map(m => m.id)).toEqual(['missed', 'new'])
   expect(dotHistoryUpdate({ before: null, items: [] }, undefined, true).replaceBefore).toBe(false)
+})
+
+it('shows unanswered at one minute only after acknowledged delivery and clears on reply', () => {
+  expect(dotReplyDisplay(true, undefined, 120_000)).toBe('working')
+  expect(dotReplyDisplay(true, 10_000, 69_999)).toBe('working')
+  expect(dotReplyDisplay(true, 10_000, 70_000)).toBe('unanswered')
+  expect(dotReplyDisplay(true, undefined, 70_000)).toBe('working')
+  expect(dotReplyDisplay(false, 10_000, 70_000)).toBe('none')
 })

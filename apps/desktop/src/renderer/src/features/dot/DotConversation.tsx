@@ -30,7 +30,9 @@ import { DotProfilePanel, dotWebUrl } from './DotProfilePanel'
 import { DotStatusIcon, dotPresence, dotStatus } from './status'
 import { DotExperimental } from './DotExperimental'
 import {
+  DOT_NO_REPLY_MS,
   dotComposerState,
+  dotReplyDisplay,
   dotGuidanceTurn,
   dotHistoryUpdate,
   dotNotice,
@@ -50,6 +52,8 @@ import { DotFile, isDotImage } from './DotFile'
 import { DotComputer } from './DotComputer'
 import { DotDeliveryNotice } from './DotDeliveryNotice'
 import { DotAddMenu, chatGptReference } from './DotAddMenu'
+import { DotQuickSettings, useDotQuickSettings } from './DotQuickSettings'
+import { dotPreviewAttachments, type DotLocalSend } from './localImagePreviews'
 import './dot.css'
 
 function readDraft(key: string): string {
@@ -79,20 +83,22 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [snapshotError, setSnapshotError] = useState('')
   const [picking, setPicking] = useState(false)
   const [files, setFiles] = useState<DotLocalFile[]>([])
-  /** 拖进来、粘贴的图片的缩略图（文件 id → 本页的对象地址）；从对话框选的没有内容，只画图标 */
+  /** Locally selected image previews, indexed by the attachment ID assigned by the main process. */
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const thumbUrls = useRef<Record<string, string>>({})
-  thumbUrls.current = thumbs
+  const [localSends, setLocalSends] = useState<DotLocalSend[]>([])
   const [reference, setReference] = useState<string | null>(null)
   const [addMenu, setAddMenu] = useState<{ x: number; y: number } | null>(null)
   const [computer, setComputer] = useState(false)
   const [details, setDetails] = useState(() => window.innerWidth > 940)
   const [menu, setMenu] = useState(false)
+  const quick = useDotQuickSettings()
   const menuRef = useRef<HTMLDetailsElement>(null)
   const network = useRef(false)
   const catchUpPending = useRef(false)
   const latest = useRef<string | undefined>(undefined)
   const overviewReading = useRef(false)
+  const [overviewLoading, setOverviewLoading] = useState(true)
   const [overviewError, setOverviewError] = useState('')
   const haveHistory = useRef(false)
   const alive = useRef(true)
@@ -100,7 +106,37 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [text, setText] = useState(() => readDraft(draftKey))
   const scroller = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
-  const rows = useMemo(() => dotTranscript(history, snapshot?.items ?? []), [history, snapshot?.items])
+  const localById = useMemo(() => new Map(localSends.map(item => [item.id, item])), [localSends])
+  const rows = useMemo(
+    () =>
+      dotTranscript(
+        history,
+        snapshot?.items ?? [],
+        localSends.filter(
+          item =>
+            !snapshot?.queue.some(
+              queued =>
+                queued.id === item.id &&
+                (queued.status === 'queued' ||
+                  queued.status === 'uncertain' ||
+                  (queued.status === 'delivering' && queued.mode === 'guidance')),
+            ),
+        ),
+      ),
+    [history, snapshot?.items, snapshot?.queue, localSends],
+  )
+  useEffect(() => {
+    const observed = new Set([
+      ...(snapshot?.queue ?? []).map(item => item.id),
+      ...(snapshot?.items ?? []).filter(item => item.kind === 'user').map(item => item.id),
+      ...history.flatMap(item => (item.role === 'user' && item.requestId ? [item.requestId] : [])),
+    ])
+    setLocalSends(current =>
+      current.some(item => item.optimistic && observed.has(item.id))
+        ? current.map(item => (item.optimistic && observed.has(item.id) ? { ...item, optimistic: false } : item))
+        : current,
+    )
+  }, [history, snapshot?.items, snapshot?.queue])
   const marks = useMemo(() => markDotRows(rows), [rows])
   // 任务卡片放在派出它的那条消息下面（docs/ui/dot-optimize.md §7 #4）
   const tasks = useMemo(() => placeDotTasks(rows, snapshot?.runs.workflows ?? []), [rows, snapshot?.runs.workflows])
@@ -175,6 +211,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const readOverview = useCallback(async () => {
     if (overviewReading.current) return
     overviewReading.current = true
+    setOverviewLoading(true)
     try {
       const next = await window.pixelsky!.dotChat.read(entryKey, { overviewOnly: true })
       if (!alive.current) return
@@ -185,6 +222,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       if (alive.current) setOverviewError(dotError(error))
     } finally {
       overviewReading.current = false
+      if (alive.current) setOverviewLoading(false)
     }
   }, [entryKey])
   const remote = useRef(readRemote)
@@ -273,20 +311,27 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       /* 保留内存草稿 */
     }
   }, [draftKey, text])
+  const addThumbs = (made: Record<string, string>): void => {
+    Object.assign(thumbUrls.current, made)
+    setThumbs({ ...thumbUrls.current })
+  }
   useEffect(() => {
-    setThumbs(current => {
-      const keep = new Set(files.map(file => file.id))
-      const gone = Object.keys(current).filter(id => !keep.has(id))
-      if (!gone.length) return current
-      const next = { ...current }
-      for (const id of gone) {
-        URL.revokeObjectURL(next[id]!)
-        delete next[id]
-      }
-      return next
-    })
-  }, [files])
-  useEffect(() => () => Object.values(thumbUrls.current).forEach(url => URL.revokeObjectURL(url)), [])
+    const keep = new Set([...files, ...localSends.flatMap(send => send.files)].map(file => file.id))
+    const gone = Object.keys(thumbUrls.current).filter(id => !keep.has(id))
+    if (!gone.length) return
+    for (const id of gone) {
+      URL.revokeObjectURL(thumbUrls.current[id]!)
+      delete thumbUrls.current[id]
+    }
+    setThumbs({ ...thumbUrls.current })
+  }, [files, localSends])
+  useEffect(
+    () => () => {
+      Object.values(thumbUrls.current).forEach(url => URL.revokeObjectURL(url))
+      thumbUrls.current = {}
+    },
+    [],
+  )
   // 输入框一行起，跟着内容增高（语音、点建议、发送后清空也要重算）
   useLayoutEffect(() => {
     const el = area.current
@@ -314,6 +359,23 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   }
   // Dot 正在回复时也能发，消息排队、忙完自动发出（docs/ui/dot-optimize.md §9）
   const { busy, replying, uncertain, queued } = dotComposerState(snapshot, { sending, resolving })
+  const waitingSince = snapshot?.flags.dotReplyWaitingSince
+  const [elapsedSince, setElapsedSince] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (!replying || waitingSince === undefined) return
+    const remaining = waitingSince + DOT_NO_REPLY_MS - Date.now()
+    if (remaining <= 0) {
+      setElapsedSince(waitingSince)
+      return
+    }
+    const timer = window.setTimeout(() => setElapsedSince(waitingSince), remaining)
+    return () => window.clearTimeout(timer)
+  }, [replying, waitingSince])
+  const replyDisplay = dotReplyDisplay(
+    replying,
+    waitingSince,
+    elapsedSince === waitingSince && waitingSince !== undefined ? waitingSince + DOT_NO_REPLY_MS : Date.now(),
+  )
   const guidanceTurn = dotGuidanceTurn(snapshot)
   const guide = async (queueId: string): Promise<void> => {
     if (!snapshot || !guidanceTurn || guiding || busy) return
@@ -341,12 +403,25 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     if (!snapshot || (!text.trim() && !files.length) || busy) return
     setSending(true)
     setError('')
+    const id = files.length ? crypto.randomUUID() : undefined
+    if (id) {
+      const local: DotLocalSend = {
+        id,
+        text,
+        createdAt: Date.now(),
+        files,
+        optimistic: true,
+      }
+      // Retain recent previews, not a permanent cache of the local files.
+      setLocalSends(current => [...current.slice(-9), local])
+    }
     try {
       await window.pixelsky!.dotChat.send(
         entryKey,
         snapshot.record.id,
         text,
         files.map(f => f.id),
+        id,
       )
       setText(current => (current === text ? '' : current))
       // Dot 正在忙时这条进了队列，不会马上有会话事件：主动刷新一次，排队卡片立刻出来
@@ -354,6 +429,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
       const sentIds = new Set(files.map(file => file.id))
       setFiles(current => current.filter(file => !sentIds.has(file.id)))
     } catch (e) {
+      if (id) setLocalSends(current => current.filter(item => item.id !== id))
       setError(dotError(e))
     } finally {
       setSending(false)
@@ -376,7 +452,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         chosen.forEach((file, i) => {
           if (list[i]!.type.startsWith('image/')) made[file.id] = URL.createObjectURL(list[i]!)
         })
-        setThumbs(current => ({ ...current, ...made }))
+        addThumbs(made)
       }
       setFiles(previous => [...previous, ...chosen].slice(0, 10))
     } catch (e) {
@@ -440,7 +516,16 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
     setError('')
     try {
       const chosen = await window.pixelsky!.dotChat.pickFiles(entryKey)
-      setFiles(previous => [...previous, ...chosen].slice(0, 10))
+      if (!alive.current) return
+      const accepted = chosen.slice(0, 10 - files.length)
+      const made: Record<string, string> = {}
+      for (const file of accepted) {
+        if (!file.previewPng) continue
+        const data = Uint8Array.from(atob(file.previewPng), char => char.charCodeAt(0))
+        made[file.id] = URL.createObjectURL(new Blob([data], { type: 'image/png' }))
+      }
+      addThumbs(made)
+      setFiles(previous => [...previous, ...accepted.map(({ id, name, bytes }) => ({ id, name, bytes }))].slice(0, 10))
     } catch (e) {
       setError(dotError(e))
     } finally {
@@ -469,10 +554,26 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
         void addDropped([...e.dataTransfer.files])
       }}
     >
-      <header className="dot-toolbar">
+      <header className="dot-toolbar" onContextMenu={entry ? quick.onContextMenu : undefined}>
         <div className="dot-tab">
           <DotAvatar name={name} url={entry?.avatarUrl} size={26} status={entry?.status} />
-          <h1 className="dot-tab-title">{name}</h1>
+          <h1 className="dot-tab-title">
+            {entry ? (
+              <button
+                type="button"
+                className="max-w-full truncate rounded outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-haspopup="menu"
+                aria-expanded={!!quick.point}
+                title={tr('dot.quick.title')}
+                onKeyDown={quick.onKeyDown}
+                onClick={e => quick.openAt(e.currentTarget)}
+              >
+                {name}
+              </button>
+            ) : (
+              name
+            )}
+          </h1>
           {entry?.accountName && (
             <span className="min-w-0 truncate text-meta text-fg-faint" title={entry.accountName}>
               · {entry.accountName}
@@ -554,8 +655,10 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                 </button>
               )}
               {loading && (
-                <div className="self-center">
-                  <Spinner />
+                <div className="dot-history-skeleton" role="status" aria-label={tr('dot.loading')}>
+                  <i aria-hidden />
+                  <i aria-hidden />
+                  <i aria-hidden />
                 </div>
               )}
               {!loading && !rows.length && !serverError && (
@@ -618,6 +721,12 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                     </div>,
                   ]
                 }
+                const attachments = dotPreviewAttachments(
+                  row.attachments,
+                  row.role === 'user' ? localById.get(row.id) : undefined,
+                  !!row.native,
+                  thumbs,
+                )
                 const clock = mark?.time == null ? null : formatClock(mark.time)
                 const stamp = mark?.time == null ? undefined : new Date(mark.time).toISOString()
                 return [
@@ -638,13 +747,13 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                       }
                     >
                       {row.text && (row.role === 'user' ? row.text : <Markdown text={row.text} />)}
-                      {!!row.attachments.length && (
+                      {!!attachments.length && (
                         <div className="dot-attachments">
                           {/* 图片排前面，文件卡片另起一行 */}
-                          {[...row.attachments]
-                            .sort((a, b) => Number(isDotImage(b)) - Number(isDotImage(a)))
-                            .map((file, i) => (
-                              <DotFile key={file.fileId ?? i} file={file} />
+                          {attachments
+                            .sort((a, b) => Number(isDotImage(b.file)) - Number(isDotImage(a.file)))
+                            .map(({ key, file, url }) => (
+                              <DotFile key={key} file={file} localUrl={url} />
                             ))}
                         </div>
                       )}
@@ -667,12 +776,14 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
               {replying && (
                 <div role="status" className="dot-typing">
                   <DotAvatar name={name} url={entry?.avatarUrl} size={20} />
-                  <span>{tr('dot.replying', { name })}</span>
-                  <span className="dot-typing-dots" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
+                  <span>{tr(replyDisplay === 'unanswered' ? 'dot.unanswered' : 'dot.replying', { name })}</span>
+                  {replyDisplay !== 'unanswered' && (
+                    <span className="dot-typing-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  )}
                 </div>
               )}
               {snapshot &&
@@ -683,7 +794,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                       <div className="dot-queued-files">
                         {item.files.map(file => (
                           <span key={file.id}>
-                            <Paperclip size={12} />
+                            {thumbs[file.id] ? <img src={thumbs[file.id]} alt="" /> : <Paperclip size={12} />}
                             {file.name}
                           </span>
                         ))}
@@ -900,6 +1011,9 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
             <DotProfilePanel
               entry={entry}
               overview={overview}
+              overviewLoading={overviewLoading}
+              replyDisplay={replyDisplay}
+              awaitingInput={snapshot?.state === 'waiting' || !!snapshot?.pending.length}
               overviewError={overviewError}
               outputs={outputs}
               workflows={snapshot?.runs.workflows}
@@ -915,6 +1029,15 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
           <Paperclip size={18} />
           {tr('dot.dropHint')}
         </div>
+      )}
+      {quick.point && entry && (
+        <DotQuickSettings
+          dotId={entry.id}
+          point={quick.point}
+          onClose={quick.close}
+          onRefresh={retry}
+          refreshing={overviewLoading}
+        />
       )}
       {addMenu && (
         <DotAddMenu

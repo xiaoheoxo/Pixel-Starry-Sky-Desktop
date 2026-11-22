@@ -34,7 +34,6 @@ function setup() {
   } as unknown as SessionContext
   const session = new DotSession(client as unknown as DotClient, ctx, {
     pollMs: 1,
-    replyTimeoutMs: 200,
     retryMs: [1, 1],
   })
   return { session, events, client, ctx }
@@ -238,7 +237,7 @@ describe('Dot session', () => {
   it('回复后 Dot 一直在忙：超过等回复的时限也不报错，忙完照常结束', async () => {
     const { session, events, client } = setup()
     const start = Date.now()
-    // setup 的 replyTimeoutMs 是 200 毫秒：忙 400 毫秒，以前会报「等待回复超时」
+    // A working Dot can deliver several updates before the room becomes idle.
     client.activity.mockImplementation(async () => (Date.now() - start < 400 ? 'active' : 'idle'))
     session.send('hello', 'turn', 'user')
     await vi.waitFor(() => expect(completed(events)).toHaveLength(1), { timeout: 3000 })
@@ -270,12 +269,34 @@ describe('Dot session', () => {
     )
   })
 
-  it('还没收到回复时照旧最多等 replyTimeoutMs，超时报错', async () => {
+  it('keeps waiting silently after one minute and accepts a late reply without resending', async () => {
     const { session, events, client } = setup()
+    const now = vi.spyOn(Date, 'now')
+    const clock = Date.now()
+    now.mockReturnValue(clock)
     client.messages.mockResolvedValue([])
-    session.send('hello', 'turn', 'user')
-    await vi.waitFor(() => expect(completed(events)).toHaveLength(1), { timeout: 3000 })
-    expect(completed(events)[0]).toMatchObject({ outcome: 'failed', error: expect.stringMatching(/timed out/) })
+    try {
+      session.send('hello', 'turn', 'user')
+      await vi.waitFor(() => expect(client.messages).toHaveBeenCalled())
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: 'flags',
+          flags: expect.objectContaining({ dotReplyWaitingSince: clock }),
+        }),
+      )
+      now.mockReturnValue(clock + 61_000)
+      await vi.waitFor(() => expect(client.messages.mock.calls.length).toBeGreaterThan(1))
+      expect(completed(events)).toEqual([])
+      expect(client.send).toHaveBeenCalledTimes(1)
+      expect(events.filter(e => e.type === 'item_completed')).toEqual([])
+      client.messages.mockResolvedValue([reply])
+      await vi.waitFor(() => expect(completed(events)).toHaveLength(1))
+      expect(completed(events)[0]).toMatchObject({ outcome: 'completed', error: null })
+      expect(client.send).toHaveBeenCalledTimes(1)
+    } finally {
+      now.mockRestore()
+      await session.close()
+    }
   })
 
   it('close aborts pending reads and completes a turn exactly once', async () => {
