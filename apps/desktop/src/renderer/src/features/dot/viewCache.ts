@@ -1,4 +1,4 @@
-import type { DotChatMessage, DotOverview } from '@pixelsky/engine'
+import type { DotChatMessage, DotOverview, DotReadReceipt } from '@pixelsky/engine'
 import type { DotEntry } from '../../../../shared/types/dot-chat'
 
 const VIEW_TTL = 10 * 60_000
@@ -14,6 +14,7 @@ interface CachedHistory {
   items: DotChatMessage[]
   before: string | null
   latest: string | undefined
+  readReceipt?: DotReadReceipt
 }
 type Updated<T> = { value: T; expiresAt: number }
 interface RoomCache {

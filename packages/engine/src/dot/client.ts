@@ -71,6 +71,12 @@ export interface DotChatMessage {
   createdAt: number
   attachments: DotAttachment[]
 }
+export interface DotReadReceipt {
+  /** Native room cursor: the Dot has read messages through this creation time. */
+  readThroughAt: number
+  /** Native timestamp when the cursor moved, not the message send time. */
+  updatedAt?: number
+}
 export interface DotHistoryPage {
   items: DotChatMessage[]
   before: string | null
@@ -315,6 +321,48 @@ export class DotClient {
       seen.add(cursor)
     }
     throw new Error('Dot catalog too large')
+  }
+
+  /** Read only the verified Dot participant's native room cursor, never the owner's. */
+  async readReceipt(dot: DotIdentity, signal?: AbortSignal): Promise<DotReadReceipt | undefined> {
+    const connection = this.connection(dot)
+    const room = object(
+      await this.request(`/messaging/rooms/${encodeURIComponent(dot.roomId)}`, signal, undefined, false, connection),
+    )
+    if (
+      room.id !== dot.roomId ||
+      room.aeon_id !== dot.id ||
+      room.type !== 'DM' ||
+      room.app_source !== 'chatgpt:messaging' ||
+      !Array.isArray(room.members) ||
+      room.members.length !== 2
+    )
+      invalid()
+    const members = room.members.map(object)
+    if (
+      !members.some(m => m.aeon_id === dot.id && m.account_user_id === dot.memberId) ||
+      !members.some(m => !m.aeon_id && m.account_user_id === connection.member)
+    )
+      invalid()
+    if (!Array.isArray(room.read_receipts)) return undefined
+
+    let newest: DotReadReceipt | undefined
+    for (const value of room.read_receipts) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const row = object(value)
+      if (row.account_user_id !== dot.memberId || typeof row.last_read_at !== 'string') continue
+      const readThroughAt = Date.parse(row.last_read_at)
+      if (!Number.isFinite(readThroughAt) || readThroughAt <= 0) continue
+      const updated = typeof row.read_cursor_updated_at === 'string' ? Date.parse(row.read_cursor_updated_at) : NaN
+      const updatedAt = Number.isFinite(updated) && updated >= readThroughAt ? updated : undefined
+      if (
+        !newest ||
+        readThroughAt > newest.readThroughAt ||
+        (readThroughAt === newest.readThroughAt && updatedAt !== undefined && updatedAt > (newest.updatedAt ?? 0))
+      )
+        newest = { readThroughAt, ...(updatedAt !== undefined ? { updatedAt } : {}) }
+    }
+    return newest
   }
 
   /** 原生历史按 before 向前翻页，与发送后用 after 等回复的读取分开。 */

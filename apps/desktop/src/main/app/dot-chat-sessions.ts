@@ -349,7 +349,14 @@ export class DotChatSessions {
 
   async read(
     key: string,
-    options: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean; seen?: boolean },
+    options: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+      seen?: boolean
+      includeReadReceipt?: boolean
+    },
     signal?: AbortSignal,
   ) {
     const entry = this.entry(key)
@@ -357,7 +364,13 @@ export class DotChatSessions {
     const data = await this.host.readDot(
       entry.account,
       entry,
-      { before: options.before, after: options.after, overview: options.overview, overviewOnly: options.overviewOnly },
+      {
+        before: options.before,
+        after: options.after,
+        overview: options.overview,
+        overviewOnly: options.overviewOnly,
+        ...(options.includeReadReceipt ? { includeReadReceipt: true } : {}),
+      },
       signal,
     )
     if (!options.before && !options.overviewOnly)

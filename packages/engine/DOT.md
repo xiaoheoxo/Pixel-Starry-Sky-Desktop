@@ -57,3 +57,5 @@ const messages = await client.messages(dot, sent.id, signal)
 - 审批和远端停止操作在 ChatGPT 完成。本地关闭仅断开观察，不会停止云端 Dot；能力表不宣称支持远端中断。
 - 引擎会话轮询覆盖这次发送之后的回复及其任务卡片；Dot 对话另外读取最近历史和主动消息。不会在应用重启后自动恢复任务观察。远程桌面当前支持鼠标和普通键盘；中文输入法与剪贴板同步尚未实现。
 - 2026-11-17 已通过真实 Pro 10x 账号的 Electron 只读联调：目录 1 个 Dot、身份验证、32 条历史、签名附件、环境 connected / remote_desktop ready，活动与任务接口返回空列表。真实消息发送和云端工作流的验收结果另见根目录 `TODO.md`；只读成功不代表这两项已经通过。
+
+Dot 已读提示只读取经校验的房间原生 `read_receipts`；`last_read_at` 用于匹配发送消息，`read_cursor_updated_at` 用于显示已读时间。字段缺失时不从回复推断，不上报本机已读。原生字段参考：[公开桥接实现](https://github.com/beeper/chatgpt-dots/blob/562c0a9fe1b49336284af7714faa8c8d96dbf610/pkg/chatgpt/signals.go)。

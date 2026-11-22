@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import type { SessionSnapshot, WorkflowRun } from '@pixelsky/protocol'
-import type { DotChatMessage, DotOverview } from '@pixelsky/engine'
+import type { DotChatMessage, DotOverview, DotReadReceipt } from '@pixelsky/engine'
 import type { DotEntry, DotLocalFile } from '../../../../shared/types/dot-chat'
 import { CopyButton, IconButton, Spinner, useToast } from '@/ui'
 import { Markdown } from '@/ui/markdown/Markdown'
@@ -37,6 +37,8 @@ import {
   dotGuidanceTurn,
   dotHistoryUpdate,
   dotNotice,
+  dotReadReceiptRow,
+  mergeDotReadReceipt,
   dotTranscript,
   markDotRows,
   placeDotTasks,
@@ -83,7 +85,8 @@ export function DotConversation({
   const [entry, setEntry] = useState(initialEntry)
   const [cached] = useState(() => dotViewCache.read(roomKey))
   const [history, setHistory] = useState<DotChatMessage[]>(() => cached.history?.items ?? [])
-  const historyWindow = useRef(cached.history ?? { items: [], before: null, latest: undefined })
+  const historyWindow = useRef(cached.history ?? { items: [], before: null, latest: undefined, readReceipt: undefined })
+  const [readReceipt, setReadReceipt] = useState<DotReadReceipt | undefined>(cached.history?.readReceipt)
   const [before, setBefore] = useState<string | null>(historyWindow.current.before)
   const [overview, setOverview] = useState<DotOverview | undefined>(cached.overview)
   const [loading, setLoading] = useState(!cached.history)
@@ -151,6 +154,7 @@ export function DotConversation({
     )
   }, [history, snapshot?.items, snapshot?.queue])
   const marks = useMemo(() => markDotRows(rows), [rows])
+  const receiptRow = useMemo(() => dotReadReceiptRow(rows, readReceipt), [rows, readReceipt])
   // 任务卡片放在派出它的那条消息下面（docs/ui/dot-optimize.md §7 #4）
   const tasks = useMemo(() => placeDotTasks(rows, snapshot?.runs.workflows ?? []), [rows, snapshot?.runs.workflows])
   const [dragging, setDragging] = useState(false)
@@ -192,10 +196,18 @@ export function DotConversation({
         // 正看着这个对话（标签可见、窗口在前台）读到的消息算看过，侧栏的未读点消掉（§7 #3）
         const seen = !options.before && visible.current && document.visibilityState === 'visible' && document.hasFocus()
         const after = options.before ? undefined : historyWindow.current.latest
+        const lastSent = historyWindow.current.items.findLast(item => item.role === 'user')
+        const cursor = historyWindow.current.readReceipt
+        const includeReadReceipt =
+          !options.before &&
+          visible.current &&
+          document.visibilityState === 'visible' &&
+          (!lastSent || !cursor || cursor.readThroughAt < lastSent.createdAt || cursor.updatedAt === undefined)
         const next = await window.pixelsky!.dotChat.read(entryKey, {
           before: options.before,
           after,
           ...(seen ? { seen } : {}),
+          ...(includeReadReceipt ? { includeReadReceipt } : {}),
         })
         if (!alive.current) return
         if (dotRoomKey(next.entry) !== roomKey) {
@@ -208,10 +220,12 @@ export function DotConversation({
           items: update.merge(previous.items),
           before: update.replaceBefore ? next.history.before : previous.before,
           latest: options.before ? previous.latest : next.history.latest,
+          readReceipt: mergeDotReadReceipt(previous.readReceipt, next.readReceipt),
         }
         historyWindow.current = loaded
         dotViewCache.putHistory(roomKey, loaded)
         setHistory(loaded.items)
+        setReadReceipt(loaded.readReceipt)
         if (update.replaceBefore) setBefore(loaded.before)
         haveHistory.current = true
         setServerError('')
@@ -797,11 +811,23 @@ export function DotConversation({
                         </div>
                       )}
                     </div>
-                    {row.role === 'user' && clock && (
+                    {row.id === receiptRow && readReceipt ? (
+                      <div className="dot-time">
+                        {tr('dot.readReceipt')}
+                        {readReceipt.updatedAt !== undefined && (
+                          <>
+                            {' '}
+                            <time dateTime={new Date(readReceipt.updatedAt).toISOString()}>
+                              {formatClock(readReceipt.updatedAt)}
+                            </time>
+                          </>
+                        )}
+                      </div>
+                    ) : row.role === 'user' && clock ? (
                       <time className="dot-time" dateTime={stamp}>
                         {clock}
                       </time>
-                    )}
+                    ) : null}
                     {row.role === 'assistant' && row.text && (
                       <div className="dot-message-actions flex text-fg-faint">
                         <CopyButton text={row.text} iconOnly />

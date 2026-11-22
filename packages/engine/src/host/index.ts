@@ -502,7 +502,13 @@ export class EngineHost {
   readDot(
     account: string,
     target: { id: string; threadId: string },
-    options: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean } = {},
+    options: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+      includeReadReceipt?: boolean
+    } = {},
     signal?: AbortSignal,
   ) {
     const adapter = this.ctx.adapters.dot

@@ -123,6 +123,7 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
         overview?: unknown
         overviewOnly?: unknown
         seen?: unknown
+        includeReadReceipt?: unknown
       }
       if (
         (input.before !== undefined && (typeof input.before !== 'string' || input.before.length > 500)) ||
@@ -136,7 +137,8 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
           (typeof input.overviewOnly !== 'boolean' ||
             (input.overviewOnly &&
               (input.before !== undefined || input.after !== undefined || input.seen !== undefined)))) ||
-        (input.seen !== undefined && typeof input.seen !== 'boolean')
+        (input.seen !== undefined && typeof input.seen !== 'boolean') ||
+        (input.includeReadReceipt !== undefined && typeof input.includeReadReceipt !== 'boolean')
       )
         throw new Error('Invalid Dot read options')
       const { key, signal } = bind(event.sender, value)
@@ -148,6 +150,7 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
           overview: input.overview as boolean | undefined,
           overviewOnly: input.overviewOnly as boolean | undefined,
           seen: input.seen as boolean | undefined,
+          ...(input.includeReadReceipt === true ? { includeReadReceipt: true } : {}),
         },
         signal,
       )

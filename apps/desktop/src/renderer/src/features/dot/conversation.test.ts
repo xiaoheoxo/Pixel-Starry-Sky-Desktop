@@ -6,6 +6,8 @@ import {
   dotGuidanceTurn,
   dotHistoryUpdate,
   dotNotice,
+  dotReadReceiptRow,
+  mergeDotReadReceipt,
   dotTranscript,
   markDotRows,
   mergeDotHistory,
@@ -15,6 +17,32 @@ import {
 import type { QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
 import { translateMessage } from '../../../../shared/i18n/translate'
 describe('Dot native conversation', () => {
+  it('puts a read receipt on the newest confirmed outgoing message reached by the Dot cursor', () => {
+    const history = [
+      { id: 'older', role: 'user' as const, text: 'one', createdAt: 10, attachments: [] },
+      { id: 'read', requestId: 'local-request', role: 'user' as const, text: 'two', createdAt: 20, attachments: [] },
+      { id: 'assistant', role: 'assistant' as const, text: 'reply', createdAt: 25, attachments: [] },
+      { id: 'pending', role: 'user' as const, text: 'three', createdAt: 30, attachments: [] },
+    ]
+    const rows = dotTranscript(history, [
+      { id: 'optimistic', kind: 'user', text: 'not echoed', createdAt: 23, files: [] },
+    ])
+    expect(dotReadReceiptRow(rows, undefined)).toBeUndefined()
+    expect(dotReadReceiptRow(rows, { readThroughAt: 9 })).toBeUndefined()
+    expect(dotReadReceiptRow(rows, { readThroughAt: 25, updatedAt: 27 })).toBe('local-request')
+    expect(dotReadReceiptRow(rows, { readThroughAt: 30 })).toBe('dot-pending')
+  })
+
+  it('keeps the highest confirmed read cursor and enriches it with a later native timestamp', () => {
+    const cursor = { readThroughAt: 20 }
+    expect(mergeDotReadReceipt(cursor, undefined)).toBe(cursor)
+    expect(mergeDotReadReceipt(cursor, { readThroughAt: 19, updatedAt: 29 })).toBe(cursor)
+    expect(mergeDotReadReceipt(cursor, { readThroughAt: 20, updatedAt: 21 })).toEqual({
+      readThroughAt: 20,
+      updatedAt: 21,
+    })
+  })
+
   it('deduplicates native request echoes and local Dot responses while preserving history order', () => {
     const history = [
       { id: 'old', role: 'assistant' as const, text: 'Earlier', createdAt: 1, attachments: [] },

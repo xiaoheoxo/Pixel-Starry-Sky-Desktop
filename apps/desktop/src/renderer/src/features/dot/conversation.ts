@@ -1,5 +1,5 @@
 import type { EngineEvent, Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
-import type { DotAttachment, DotChatMessage, DotHistoryPage } from '@pixelsky/engine'
+import type { DotAttachment, DotChatMessage, DotHistoryPage, DotReadReceipt } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
 
 import type { DotLocalSend } from './localImagePreviews'
@@ -56,6 +56,29 @@ export function dotTranscript(
       rows.set(draft.id, { id: draft.id, role: 'user', text: draft.text, createdAt: draft.createdAt, attachments: [] })
   }
   return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/** An optimistic/local echo is not a native message and cannot have a remote read receipt. */
+export function dotReadReceiptRow(
+  rows: readonly DotTranscriptRow[],
+  receipt: DotReadReceipt | undefined,
+): string | undefined {
+  if (!receipt) return undefined
+  return rows.findLast(
+    row => row.role === 'user' && row.native && row.createdAt > 0 && row.createdAt <= receipt.readThroughAt,
+  )?.id
+}
+
+/** Don't move a verified cursor backwards when a mirror request fails or responds out of order. */
+export function mergeDotReadReceipt(
+  previous: DotReadReceipt | undefined,
+  next: DotReadReceipt | undefined,
+): DotReadReceipt | undefined {
+  if (!next) return previous
+  if (!previous || next.readThroughAt > previous.readThroughAt) return next
+  return next.readThroughAt === previous.readThroughAt && (next.updatedAt ?? 0) > (previous.updatedAt ?? 0)
+    ? next
+    : previous
 }
 
 /** 这之后才是真的时间（2001 年）：没有时间的本地条目用的是排序序号，不能当时间显示 */

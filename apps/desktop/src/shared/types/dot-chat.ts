@@ -1,5 +1,5 @@
 import type { SessionSnapshot } from '@pixelsky/protocol'
-import type { DotProfile, DotHistoryPage, DotOverview } from '@pixelsky/engine'
+import type { DotProfile, DotHistoryPage, DotOverview, DotReadReceipt } from '@pixelsky/engine'
 
 export interface DotEntry extends DotProfile {
   key: string
@@ -14,6 +14,7 @@ export interface DotChatRead {
   entry: DotEntry
   history: DotHistoryPage
   overview?: DotOverview
+  readReceipt?: DotReadReceipt
 }
 export interface DotCatalogState {
   eligible: boolean
@@ -40,7 +41,14 @@ export interface DotChatBridge {
   /** seen：用户正看着这个对话（标签可见、窗口在前台），读到的消息算看过 */
   read(
     key: string,
-    options?: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean; seen?: boolean },
+    options?: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+      seen?: boolean
+      includeReadReceipt?: boolean
+    },
   ): Promise<DotChatRead>
   pickFiles(key: string): Promise<DotLocalFile[]>
   addFiles(key: string, files: DotDroppedFile[]): Promise<DotLocalFile[]>

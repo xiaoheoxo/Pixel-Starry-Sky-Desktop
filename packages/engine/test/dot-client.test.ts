@@ -63,6 +63,54 @@ describe('native Dot client', () => {
     }
   })
 
+  it('reads only the verified Dot participant’s receipt and keeps the native timestamp', async () => {
+    const path = '/backend-api/messaging/rooms/room'
+    const { client, request, routes } = setup()
+    const dot = await client.discover()
+    const through = '2026-11-17T07:35:00Z'
+    const updated = '2026-11-17T07:36:00Z'
+    routes[path] = {
+      ...room,
+      read_receipts: [
+        { account_user_id: 'human', last_read_at: '2026-11-17T08:00:00Z' },
+        { account_user_id: 'other', last_read_at: '2026-11-17T09:00:00Z' },
+        { account_user_id: 'bot', last_read_at: 'invalid' },
+        { account_user_id: 'bot', last_read_at: through, read_cursor_updated_at: updated },
+        { account_user_id: 'bot', last_read_at: '2026-11-17T07:34:00Z' },
+      ],
+    }
+    await expect(client.readReceipt(dot)).resolves.toEqual({
+      readThroughAt: Date.parse(through),
+      updatedAt: Date.parse(updated),
+    })
+    expect(request.mock.calls.at(-1)?.[1]?.method).toBe('GET')
+    routes[path] = { ...room, read_receipts: [{ account_user_id: 'bot', last_read_at: through }] }
+    await expect(client.readReceipt(dot)).resolves.toEqual({ readThroughAt: Date.parse(through) })
+    routes[path] = { ...room, read_receipts: [{ account_user_id: 'human', last_read_at: through }] }
+    await expect(client.readReceipt(dot)).resolves.toBeUndefined()
+    routes[path] = { ...room, members: [{ account_user_id: 'human' }, { account_user_id: 'other', aeon_id: 'dot' }] }
+    await expect(client.readReceipt(dot)).rejects.toThrow('identity')
+  })
+
+  it('can refresh a receipt without new messages and does not require the optional receipt request to succeed', async () => {
+    const roomPath = '/backend-api/messaging/rooms/room'
+    const after = roomPath + '/messages?limit=32&after=sent'
+    const { request, routes } = setup({ [after]: { items: [] } })
+    const adapter = new DotAdapter({ credentials: () => identity, fetch: request })
+    const target = { id: 'dot', threadId: 'root' }
+    await adapter.readDot('account', target, { after: 'sent' })
+    const cursor = '2026-11-17T07:35:00Z'
+    routes[roomPath] = { ...room, read_receipts: [{ account_user_id: 'bot', last_read_at: cursor }] }
+    await expect(adapter.readDot('account', target, { after: 'sent', includeReadReceipt: true })).resolves.toEqual({
+      history: { items: [], before: null, latest: 'sent' },
+      readReceipt: { readThroughAt: Date.parse(cursor) },
+    })
+    routes[roomPath] = new Response('', { status: 503 })
+    await expect(adapter.readDot('account', target, { after: 'sent', includeReadReceipt: true })).resolves.toEqual({
+      history: { items: [], before: null, latest: 'sent' },
+    })
+  })
+
   it('never replaces a missing Dot with the primary Dot or an unrelated profile', async () => {
     const { request, routes } = setup({
       '/backend-api/tbo/by-thread/root': new Response('', { status: 404 }),

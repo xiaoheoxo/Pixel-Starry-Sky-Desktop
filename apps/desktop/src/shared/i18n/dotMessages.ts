@@ -6,6 +6,7 @@ export const dotMessages = {
     zh: '实验功能：通过 ChatGPT 网页的接口连接，ChatGPT 改版后可能暂时用不了',
     en: 'Experimental: connects through ChatGPT web endpoints and may stop working when ChatGPT changes',
   },
+  'dot.readReceipt': { zh: '已读', en: 'Read' },
   'dot.inChatGpt': { zh: '在 ChatGPT 里', en: 'In ChatGPT' },
   'dot.callName': { zh: '呼叫 {name}', en: 'Call {name}' },
   'dot.slack': { zh: '管理 Slack 连接', en: 'Manage Slack connection' },
