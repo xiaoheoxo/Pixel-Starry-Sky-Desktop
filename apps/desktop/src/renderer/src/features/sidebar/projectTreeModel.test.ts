@@ -5,6 +5,7 @@ import {
   foldChannels,
   projectCounts,
   projectFolders,
+  projectSessionRows,
   visibleArchived,
   visibleSessions,
 } from './projectTreeModel'
@@ -153,5 +154,42 @@ describe('频道的会话收成一行（sidebar-channel-fold.md）', () => {
     })
     expect(entries).toHaveLength(5)
     expect(hidden).toBe(6)
+  })
+})
+
+describe('project conversation disclosure', () => {
+  const list = Array.from({ length: 12 }, (_, i) => session(`s${i}`))
+  const options = {
+    channelOf: (id: string) => (Number(id.slice(1)) < 3 ? 'team' : null),
+    channelOpen: () => undefined,
+    all: false,
+    filtering: false,
+    selected: null,
+    lanes: new Map<string, SessionLane>(),
+  }
+
+  it('counts hidden channel members as well as conversations past the preview cap', () => {
+    const { rows, hiddenInPreview } = projectSessionRows(list, options)
+    expect(hiddenInPreview).toBe(7)
+    expect(rows[0]).toMatchObject({ kind: 'channel', open: false, visibleMembers: [] })
+  })
+
+  it('shows every unarchived conversation in order in full mode', () => {
+    const { rows, hiddenInPreview } = projectSessionRows(list, { ...options, all: true })
+    expect(rows).toEqual(list.map(session => ({ kind: 'session', session })))
+    expect(hiddenInPreview).toBe(7)
+  })
+
+  it('offers show more even if there are no standalone rows', () => {
+    const { hiddenInPreview } = projectSessionRows(list.slice(0, 3), options)
+    expect(hiddenInPreview).toBe(3)
+  })
+
+  it('keeps explicitly expanded channels in preview and ignores disclosure while filtering', () => {
+    expect(projectSessionRows(list, { ...options, channelOpen: () => true }).hiddenInPreview).toBe(4)
+    expect(projectSessionRows(list, { ...options, filtering: true })).toEqual({
+      rows: list.map(session => ({ kind: 'session', session })),
+      hiddenInPreview: 0,
+    })
   })
 })

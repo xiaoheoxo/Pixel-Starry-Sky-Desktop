@@ -108,3 +108,36 @@ export function foldChannels<T extends Pick<Session, 'id' | 'status'>>(
   }
   return { entries, hidden, own: own.length }
 }
+
+type ProjectSessionRow<T> =
+  | Extract<FoldEntry<T>, { kind: 'session' }>
+  | (Extract<FoldEntry<T>, { kind: 'channel' }> & { open: boolean; visibleMembers: T[] })
+
+/** Preview keeps channel groups; “show more” lists every unarchived conversation in project order. */
+export function projectSessionRows<T extends Pick<Session, 'id' | 'status'>>(
+  sessions: readonly T[],
+  options: {
+    channelOf: (id: string) => string | null
+    channelOpen: (key: string) => boolean | undefined
+    all: boolean
+    filtering: boolean
+    selected: string | null
+    lanes: ReadonlyMap<string, SessionLane>
+  },
+): { rows: ProjectSessionRow<T>[]; hiddenInPreview: number } {
+  const flatRows = (): ProjectSessionRow<T>[] => sessions.map(session => ({ kind: 'session', session }))
+  if (options.filtering) return { rows: flatRows(), hiddenInPreview: 0 }
+
+  const { entries, hidden } = foldChannels(sessions, { ...options, all: false })
+  let hiddenInPreview = hidden
+  const preview = entries.map(row => {
+    if (row.kind === 'session') return row
+    const open = options.channelOpen(row.key) ?? row.sessions.some(s => s.id === options.selected)
+    const visibleMembers = open
+      ? row.sessions
+      : row.sessions.filter(s => s.id === options.selected || needsYou(options.lanes.get(s.id)))
+    hiddenInPreview += row.sessions.length - visibleMembers.length
+    return { ...row, open, visibleMembers }
+  })
+  return { rows: options.all ? flatRows() : preview, hiddenInPreview }
+}

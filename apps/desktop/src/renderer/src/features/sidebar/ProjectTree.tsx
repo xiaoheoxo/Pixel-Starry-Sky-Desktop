@@ -31,15 +31,7 @@ import { SessionItem } from './SessionItem'
 import { useChannels } from '@/features/channels/store'
 import { ProjectRow } from './ProjectRow'
 import { GroupNameDialog } from './GroupNameDialog'
-import {
-  ARCHIVED_PAGE,
-  SHOWN_SESSIONS,
-  foldChannels,
-  needsYou,
-  projectCounts,
-  projectFolders,
-  visibleArchived,
-} from './projectTreeModel'
+import { ARCHIVED_PAGE, projectSessionRows, projectCounts, projectFolders, visibleArchived } from './projectTreeModel'
 import {
   addToGroup,
   arrangeProjects,
@@ -73,7 +65,7 @@ function placeBy(event: DragEvent<HTMLElement>, header: string): DropPlace {
 
 /**
  * 项目列表（docs/ui/sidebar-hierarchy.md）：项目行像小标题，展开后对话挂在一条竖线下面；
- * 每个项目先列 5 个对话，其余收进「还有 N 个对话」。收起哪些项目记在侧栏偏好里，重启后还在。
+ * 每个项目先列 5 个对话，其余收进「还有 N 个对话」。点标题收起后，下次展开回到预览。
  * 分区（docs/ui/sidebar-groups.md）：几个项目归成一组放在最上面；Ctrl / Shift 点项目多选，右键组成分区，
  * 也能把项目拖进拖出分区。右键项目打开项目菜单。
  * 拖动换位置：项目拖到别的项目上半 / 下半就排到它前面 / 后面（目标在分区里就跟着进去），分区标题拖到别的分区上同理；
@@ -146,6 +138,7 @@ export function ProjectTree({
     }
     anchor.current = p.id
     if (pickedNow.length) setPicked([])
+    if (open && !filtering) setShowAll(state => ({ ...state, [p.id]: false }))
     setProjectsCollapsed([p.id], open)
   }
   /** 项目菜单里的分区操作：右键的是选中的项目之一时对整批，否则只对这一个 */
@@ -282,14 +275,12 @@ export function ProjectTree({
   const renderProject = (p: Project, inGroup = false, top = false) => {
     const open = filtering || !collapsed.has(p.id)
     const { running, waiting } = projectCounts(p.sessions, lanes)
-    // 按状态筛选时不收，全部平铺
-    const {
-      entries: rows,
-      hidden,
-      own,
-    } = foldChannels(p.sessions, {
-      channelOf: id => (filtering ? null : (sessionChannels[id] ?? null)),
-      all: filtering || !!showAll[p.id],
+    const all = !!showAll[p.id]
+    const { rows, hiddenInPreview } = projectSessionRows(p.sessions, {
+      channelOf: id => sessionChannels[id] ?? null,
+      channelOpen: name => channelOpen[`${p.id}/${name}`],
+      all,
+      filtering,
       selected: selectedSessionId,
       lanes,
     })
@@ -344,11 +335,6 @@ export function ProjectTree({
             {rows.map(row => {
               if (row.kind === 'session') return item(row.session)
               const key = `${p.id}/${row.key}`
-              const opened = channelOpen[key] ?? row.sessions.some(s => s.id === selectedSessionId)
-              // 收起时也露出来：等你处理的、当前打开的
-              const members = opened
-                ? row.sessions
-                : row.sessions.filter(s => s.id === selectedSessionId || needsYou(lanes.get(s.id)))
               return (
                 <div key={key} data-channel-fold-group={row.name} className="flex flex-col gap-px">
                   <ChannelFoldRow
@@ -358,17 +344,17 @@ export function ProjectTree({
                     waiting={row.waiting}
                     time={row.sessions.find(s => s.time)?.time}
                     unread={row.sessions.some(s => s.status === 'unread' || lanes.get(s.id) === 'unread')}
-                    open={opened}
-                    onClick={() => setChannelOpen(state => ({ ...state, [key]: !opened }))}
+                    open={row.open}
+                    onClick={() => setChannelOpen(state => ({ ...state, [key]: !row.open }))}
                   />
-                  {members.map(s => item(s, true))}
+                  {row.visibleMembers.map(s => item(s, true))}
                 </div>
               )
             })}
-            {!filtering && (hidden > 0 || (showAll[p.id] && own > SHOWN_SESSIONS)) && (
+            {hiddenInPreview > 0 && (
               <MoreRow
-                label={hidden > 0 ? tr('sidebar.tree.more', { count: hidden }) : tr('sidebar.tree.less')}
-                open={!hidden}
+                label={all ? tr('sidebar.tree.less') : tr('sidebar.tree.more', { count: hiddenInPreview })}
+                open={all}
                 onClick={() => setShowAll(state => ({ ...state, [p.id]: !state[p.id] }))}
               />
             )}
