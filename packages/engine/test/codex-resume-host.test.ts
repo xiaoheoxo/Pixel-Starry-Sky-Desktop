@@ -14,6 +14,7 @@ import {
 } from '@pixelsky/protocol'
 import { CodexAdapter, EngineHost } from '../src'
 import { clearCodexCaches } from '../src/codex/native'
+import { CodexProcess } from '../src/codex/process'
 import { resumeRetry } from '../src/codex/session'
 import { IS_WINDOWS } from '../src/exec'
 import { NATIVE_TEXT } from '../src/native/text'
@@ -915,8 +916,15 @@ describe('正开着', { timeout: 20_000 }, () => {
     expect(own().has(a)).toBe(true)
     expect((await live())[a]).toBeNull()
     expect((await live())[b]).toBe(IS_WINDOWS ? null : 'maybe')
-    // 会话关掉以后线程放开了，又会按锁文件标出来
+    // stdin 开始关闭时 app-server 还活着、持有写锁，不能提前算成外部进程。
+    const close = CodexProcess.prototype.close
+    const ownedAtClose: boolean[] = []
+    vi.spyOn(CodexProcess.prototype, 'close').mockImplementation(function (this: CodexProcess, ...args) {
+      if (this.alive) ownedAtClose.push(own().has(a))
+      return close.apply(this, args)
+    })
     await t.host.shutdown()
+    expect(ownedAtClose).toContain(true)
     expect(own().has(a)).toBe(false)
     expect((t.adapter.nativeLive([{ id: a, mtimeMs: 0 }]).get(a) ?? null) === (IS_WINDOWS ? null : 'maybe')).toBe(true)
   })
@@ -1083,10 +1091,27 @@ describe('加载更早的 / 补上', { timeout: 30_000 }, () => {
     appendTurns(x, fxTurn(1, 3, { status: 'inProgress' }, '半截'))
     const live = vi.spyOn(t.adapter, 'nativeLive').mockReturnValue(new Map([[x, 'terminal']]))
     // 正开着：结果带 live，界面据此提示并每 5 秒再补（native-sync.md §3）
-    await expect(t.host.nativeSessionAction(id, 'check')).resolves.toEqual({ added: 0, live: true })
-    await expect(t.host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0, live: true })
+    await expect(t.host.nativeSessionAction(id, 'check')).resolves.toEqual({
+      added: 0,
+      live: true,
+      liveSource: 'unknown',
+    })
+    await expect(t.host.nativeSessionAction(id, 'sync')).resolves.toEqual({
+      added: 0,
+      live: true,
+      liveSource: 'unknown',
+    })
     expect(userIds(t.host, id)).toEqual([turnId(1, 1), turnId(1, 2)])
     expect(t.host.open(id).record.imported).toMatchObject({ turns: 2 })
+    // Codex thread 的创建来源不能证明当前谁持有锁；无法确认的残留锁也不能显示占用。
+    live.mockReturnValue(new Map([[x, 'other']]))
+    await expect(t.host.nativeSessionAction(id, 'sync')).resolves.toEqual({
+      added: 0,
+      live: true,
+      liveSource: 'unknown',
+    })
+    live.mockReturnValue(new Map([[x, 'maybe']]))
+    await expect(t.host.nativeSessionAction(id, 'sync')).resolves.toEqual({ added: 0 })
     // 不再开着（它也跑完了）：补上整轮
     live.mockReturnValue(new Map([[x, null]]))
     write('threads.json', {

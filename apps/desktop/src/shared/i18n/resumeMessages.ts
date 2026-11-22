@@ -28,6 +28,10 @@ export const resumeMessages = {
     zh: '终端里正在用这个会话：那边每回完一轮，这里自动补上。别在两边同时发消息',
     en: 'This session is open in the terminal: each finished turn there shows up here. Don’t send from both sides at once',
   },
+  'resume.followingExternal': {
+    zh: '检测到其他程序正在使用这个会话。外部回复完成后会自动同步，请避免同时发送消息',
+    en: 'This session is open in another program. Finished replies will sync here; avoid sending from both sides at once.',
+  },
   'resume.inplace': { zh: '直接接着聊', en: 'Continue directly' },
   'resume.closeThere': { zh: '我去那边关掉再来', en: 'I’ll close it there first' },
   'resume.closeThereDone': { zh: '关掉后再按 Enter', en: 'Press Enter again after closing it' },

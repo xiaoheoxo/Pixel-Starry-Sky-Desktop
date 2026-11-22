@@ -555,7 +555,7 @@ export class HostNative {
       if (action === 'earlier') return await this.earlier(id, imp, adapter)
       if (action === 'copy') return await this.toCopy(id, imp, adapter)
       const result = await this.newer(id, imp, adapter, action === 'sync')
-      return this.liveNow(imp.engine, imp.sessionId) ? { ...result, live: true } : result
+      return this.withLive(result, imp.engine, imp.sessionId)
     } finally {
       ctx.changingSessions.delete(id)
     }
@@ -579,9 +579,11 @@ export class HostNative {
   }
 
   /** 终端或别的程序（不算像素星空自己的进程）现在开着这个原生会话 */
-  private liveNow(engine: EngineId, sessionId: string): boolean {
+  private withLive(result: NativeActionResult, engine: EngineId, sessionId: string): NativeActionResult {
     const state = this.ctx.adapters[engine]?.nativeLive?.([{ id: sessionId, mtimeMs: 0 }]).get(sessionId)
-    return state === 'terminal' || state === 'other'
+    if (state !== 'terminal' && state !== 'other') return result
+    // Codex labels locks using the original thread source, not the current writer.
+    return { ...result, live: true, liveSource: engine === 'codex' ? 'unknown' : state }
   }
 
   /** 自己开的会话自动补上：空闲、不在终端模式（那边切回时自己补）、有原生会话时才查；对不上就什么都不做 */
@@ -595,7 +597,7 @@ export class HostNative {
     // 一句都没发过的新对话不整段读原生记录（syncFromTui 在没有用户条目时会整段读）
     if (!rt.snapshot.items.some(item => item.kind === 'user')) return { added: 0 }
     const { added } = await this.syncFromTui(id)
-    return this.liveNow(record.engine, record.engineSessionId) ? { added, live: true } : { added }
+    return this.withLive({ added }, record.engine, record.engineSessionId)
   }
 
   /**

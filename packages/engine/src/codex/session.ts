@@ -2308,9 +2308,13 @@ export class CodexSession implements EngineSession {
       this.cancelPrediction()
       if (this.mcpTimer) clearTimeout(this.mcpTimer)
       this.mcpReporter.dispose()
-      this.own(null)
-      await this.interrupt()
-      await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
+      try {
+        await this.interrupt()
+        await this.proc?.close(opts.quick ? QUICK_CLOSE_MS : undefined)
+      } finally {
+        // Until app-server exits, its writer lock still belongs to PixelSky.
+        this.own(null)
+      }
     })()
     if (thread) {
       const settled = done.catch(() => undefined)

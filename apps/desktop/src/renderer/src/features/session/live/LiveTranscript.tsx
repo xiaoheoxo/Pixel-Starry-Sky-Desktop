@@ -1131,7 +1131,7 @@ export function LiveTranscript({
                       className="conversation-message flex items-center gap-2 text-meta text-fg-faint"
                     >
                       <Spinner size={12} />
-                      {tr('resume.following')}
+                      {tr(terminalLive === 'terminal' ? 'resume.following' : 'resume.followingExternal')}
                     </p>
                   )}
                 </div>

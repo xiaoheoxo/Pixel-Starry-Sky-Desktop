@@ -166,6 +166,7 @@ function DemoSessionView({
 
 /** 真实会话：数据来自引擎（docs/engines.md §11、§15） */
 function LiveSessionView({
+  active = true,
   sessionId,
   title,
   sidebarOpen,
@@ -754,12 +755,13 @@ function LiveSessionView({
                     {record?.pendingMerge && !readOnly && (
                       <PendingMergeBar sessionId={sessionId} pending={record.pendingMerge} />
                     )}
-                    {snapshot && (
+                    {active && !readOnly && snapshot && (
                       <ConversationChangesBar
                         key={sessionId}
                         sessionId={sessionId}
                         items={snapshot.items}
                         cwd={snapshot.record.cwd ?? null}
+                        running={snapshot.state !== 'idle' && snapshot.turnId !== null}
                       />
                     )}
                     {readOnly ? (

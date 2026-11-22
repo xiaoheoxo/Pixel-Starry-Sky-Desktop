@@ -172,6 +172,7 @@ function ArtifactsBody({
   latest.current = { load, setTab }
   useEffect(() => {
     if (!active || !freshFocus(focus) || pendingFocus.current?.focus.token === focus.token) return
+    setPreview(null)
     latest.current.setTab('changes')
     const reload = !demo && !!window.pixelsky
     pendingFocus.current = { focus, after: request.current + (reload ? 1 : 0) }

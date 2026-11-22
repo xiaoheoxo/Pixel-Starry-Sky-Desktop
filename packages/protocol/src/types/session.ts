@@ -365,6 +365,8 @@ export interface NativeActionResult {
   added: number
   /** check / sync：终端或别的程序现在正开着这个会话（docs/ui/native-sync.md §3），界面据此提示并接着跟 */
   live?: boolean
+  /** Confirmed writer; Codex locks do not identify the program that owns them. */
+  liveSource?: 'terminal' | 'other' | 'unknown'
 }
 
 /** 回退要做什么（docs/ui/rewind-fork-sidechat.md §1）；省略时只回退对话 */
