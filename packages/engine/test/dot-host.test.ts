@@ -213,11 +213,12 @@ describe('Dot through EngineHost', () => {
     )
   })
 
-  it('Dot 回完话还在忙时发的消息先排队，忙完自动发出（docs/ui/dot-optimize.md §9）', async () => {
+  it.each(['queue', 'guide', 'uncertain'] as const)('handles a busy Dot with delivery mode %s', async mode => {
     const root = mkdtempSync(join(tmpdir(), 'dot-host-queue-'))
-    // 假的 Dot：每发一条就回一条；第一条回完后主对话还忙 300 毫秒
+    // The Dot remains active until the test explicitly releases it.
     const room: { id: string; account_user_id: string; created_at: string; content: { text: string } }[] = []
-    let busyUntil = 0
+    let active = true
+    let guidanceReply: (typeof room)[number] | undefined
     const posted: string[] = []
     const request = vi.fn<typeof fetch>(async (input, init) => {
       const url = new URL(String(input))
@@ -236,12 +237,20 @@ describe('Dot through EngineHost', () => {
           members: [{ account_user_id: 'human' }, { account_user_id: 'bot', aeon_id: 'dot' }],
         })
       if (path.endsWith('/messages') && init?.method === 'POST') {
-        const body = JSON.parse(String(init.body)) as { request_id: string; content: { text: string } }
+        const body = JSON.parse(String(init.body)) as {
+          request_id: string
+          content: { text: string; attachments?: unknown[] }
+        }
         const n = posted.push(body.content.text)
         const at = (offset: number) => new Date(Date.UTC(2026, 10, 20, 0, 0, n * 10 + offset)).toISOString()
         const sent = { id: `sent-${n}`, account_user_id: 'human', created_at: at(0), content: body.content }
-        room.push(sent, { id: `reply-${n}`, account_user_id: 'bot', created_at: at(1), content: { text: `回复 ${n}` } })
-        if (n === 1) busyUntil = Date.now() + 300
+        const reply = { id: `reply-${n}`, account_user_id: 'bot', created_at: at(1), content: { text: `回复 ${n}` } }
+        room.push(sent)
+        if (n === 2 && mode === 'guide') {
+          expect(body.content).toEqual({ text: '保持同名', attachments: [{ type: 'file', file_id: 'uploaded' }] })
+          guidanceReply = reply
+        } else if (n === 2 && mode === 'uncertain') return new Response('', { status: 502 })
+        else room.push(reply)
         return json({ ...sent, request_id: body.request_id })
       }
       if (path.endsWith('/messages')) {
@@ -249,8 +258,9 @@ describe('Dot through EngineHost', () => {
         const from = after ? room.findIndex(m => m.id === after) + 1 : 0
         return json({ items: room.slice(from) })
       }
+      if (path.endsWith('/files') && init?.method === 'POST') return json({ id: 'uploaded' })
       if (path.endsWith('/v1/threads/root'))
-        return json({ thread: { id: 'root', status: { type: Date.now() < busyUntil ? 'active' : 'idle' } } })
+        return json({ thread: { id: 'root', status: { type: active ? 'active' : 'idle' } } })
       throw new Error(`Unexpected Dot request: ${path}`)
     })
     const host = new EngineHost({
@@ -273,10 +283,57 @@ describe('Dot through EngineHost', () => {
       )
       // Dot 回了话但还在忙：这一轮没结束，接着发的这条先排队，还没发到 Dot
       expect(host.open(record.id).state).not.toBe('idle')
-      await host.send(record.id, '保持同名')
+      const file = join(root, 'test.txt')
+      writeFileSync(file, 'test')
+      const { queueId } = await host.send(record.id, {
+        text: '保持同名',
+        clientMessageId: 'follow-up',
+        ...(mode === 'guide'
+          ? {
+              files: [
+                {
+                  id: 'local',
+                  name: 'test.txt',
+                  path: file,
+                  bytes: 4,
+                  pathOnly: true,
+                  text: '',
+                  lines: 0,
+                  encoding: 'utf-8' as const,
+                },
+              ],
+            }
+          : {}),
+      })
       expect(host.open(record.id).queue.map(q => q.status)).toContain('queued')
       expect(posted).toEqual(['重做 Release 日志'])
-      // 忙完：排队的自动发出，拿到回复
+      if (mode !== 'queue') {
+        const turnId = host.open(record.id).turnId!
+        await expect(host.steerQueued(record.id, queueId, 'stale-turn')).rejects.toThrow()
+        expect(posted).toHaveLength(1)
+        if (mode === 'uncertain') {
+          await expect(host.steerQueued(record.id, queueId, turnId)).rejects.toThrow('Dot HTTP 502')
+          expect(host.open(record.id).queue.find(q => q.id === queueId)?.status).toBe('uncertain')
+          active = false
+          await vi.waitFor(() => expect(host.open(record.id).state).toBe('idle'))
+          expect(posted).toEqual(['重做 Release 日志', '保持同名'])
+          return
+        }
+        await host.steerQueued(record.id, queueId, turnId)
+        expect(posted).toEqual(['重做 Release 日志', '保持同名'])
+        expect(host.open(record.id).items).toContainEqual(
+          expect.objectContaining({ kind: 'user', id: queueId, mode: 'guidance', text: '保持同名' }),
+        )
+        expect(host.open(record.id).turnId).toBe(turnId)
+        // The previous reply alone must not finish this turn, even if activity is now idle.
+        active = false
+        await vi.waitFor(() =>
+          expect(request.mock.calls.some(([url]) => String(url).includes('after=sent-2'))).toBe(true),
+        )
+        expect(host.open(record.id).state).toBe('running')
+        room.push(guidanceReply!)
+      }
+      active = false
       await vi.waitFor(
         () => {
           const snapshot = host.open(record.id)

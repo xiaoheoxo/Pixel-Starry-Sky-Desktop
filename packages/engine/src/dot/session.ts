@@ -24,12 +24,28 @@ export interface DotSessionOptions {
 }
 
 const terminal = (status: DotWorkflow['status']) => ['completed', 'failed', 'interrupted'].includes(status)
+const dotFlags = (steerAvailable: boolean) => ({
+  steerAvailable,
+  ultracodeAvailable: null,
+  fastAvailable: null,
+  fastState: null,
+  fastBlocked: null,
+})
 const RETRY_MS: readonly number[] = [1500, 3000, 6000, 12_000]
+
+type DotTurn = {
+  abort: AbortController
+  done?: Promise<void>
+  dot?: DotIdentity
+  guidance?: Promise<void>
+  guidanceVersion: number
+  lastGuidanceId?: string
+}
 
 /** Chat and delegated work have separate lifetimes. Closing only detaches the local client. */
 export class DotSession implements EngineSession {
   private closed = false
-  private turn: { abort: AbortController; done: Promise<void> } | null = null
+  private turn: DotTurn | null = null
   private readonly abort = new AbortController()
   private readonly watches = new Map<string, Promise<void>>()
   private readonly workflows = new Map<string, WorkflowRun>()
@@ -53,20 +69,45 @@ export class DotSession implements EngineSession {
   ): void {
     if (this.closed || this.turn) throw new Error('Dot session closed or busy')
     if (attachments?.length) throw new Error('Dot image input is not supported')
-    const abort = new AbortController()
-    const done = this.run(text, turnId, userItemId, abort.signal, files).finally(() => {
+    const turn: DotTurn = { abort: new AbortController(), guidanceVersion: 0 }
+    this.turn = turn
+    this.ctx.emit({ type: 'flags', flags: dotFlags(false) })
+    turn.done = this.run(text, turnId, userItemId, turn, files).finally(() => {
       this.turn = null
     })
-    this.turn = { abort, done }
+  }
+
+  async steer(text: string, userItemId: string, _images?: ImageAttachment[], files?: FileAttachment[]): Promise<void> {
+    const turn = this.turn
+    if (!turn?.dot || turn.guidance) throw new Error('Dot is not ready to receive guidance')
+    const { dot } = turn
+    const signal = turn.abort.signal
+    turn.guidanceVersion++
+    const delivery = (async () => {
+      const fileIds = await this.upload(dot, files ?? [], signal)
+      const sent = await this.client.send(dot, text, userItemId, signal, fileIds)
+      turn.lastGuidanceId = sent.id
+      this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed' })
+    })().catch(error => {
+      this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'uncertain' })
+      throw error
+    })
+    turn.guidance = delivery
+    try {
+      await delivery
+    } finally {
+      turn.guidance = undefined
+    }
   }
 
   private async run(
     text: string,
     turnId: string,
     userItemId: string,
-    signal: AbortSignal,
+    turn: DotTurn,
     files: FileAttachment[] = [],
   ): Promise<void> {
+    const signal = turn.abort.signal
     let attempted = false
     let confirmed = false
     let release: (() => void) | undefined
@@ -77,46 +118,41 @@ export class DotSession implements EngineSession {
       if (previous && previous !== dot.threadId)
         throw new Error('Dot thread changed; select the current Dot in a new session')
       this.ctx.setEngineSessionId(dot.threadId)
-      const fileIds: string[] = []
-      if (files.length > 10) throw new Error('Dot supports at most 10 attachments per message')
-      for (const file of files) {
-        if (!file.path) throw new Error('Dot attachment requires a local file')
-        const handle = await open(file.path, 'r')
-        try {
-          const info = await handle.stat()
-          if (!info.isFile() || info.size > DOT_FILE_LIMIT)
-            throw new Error('Dot attachment exceeds 20 MiB or is not a file')
-          if (info.size !== file.bytes) throw new Error('Dot attachment changed; select it again')
-          const data = new Uint8Array(info.size + 1)
-          let size = 0
-          while (size < data.length) {
-            signal.throwIfAborted()
-            const result = await handle.read(data, size, data.length - size)
-            if (!result.bytesRead) break
-            size += result.bytesRead
-          }
-          if (size > DOT_FILE_LIMIT) throw new Error('Dot attachment exceeds 20 MiB')
-          if (size !== info.size || (await handle.stat()).mtimeMs !== info.mtimeMs)
-            throw new Error('Dot attachment changed; select it again')
-          fileIds.push(await this.client.upload(dot, { name: file.name, data: data.subarray(0, size) }, signal))
-        } finally {
-          await handle.close()
-        }
-      }
+      const fileIds = await this.upload(dot, files, signal)
       attempted = true
       // Stable request ID across ambiguous transport responses. No implicit resend.
       const sent = await this.client.send(dot, text, userItemId, signal, fileIds)
       confirmed = true
       this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed' })
+      turn.dot = dot
+      this.ctx.emit({ type: 'flags', flags: dotFlags(true) })
       let after = sent.id
       let received = false
       let asked = false
       const emitted = new Set<string>()
       const start = Date.now()
-      const replyDeadline = start + (this.options.replyTimeoutMs ?? 10 * 60_000)
-      const busyDeadline = start + (this.options.busyTimeoutMs ?? 60 * 60_000)
+      const replyTimeout = this.options.replyTimeoutMs ?? 10 * 60_000
+      const busyTimeout = this.options.busyTimeoutMs ?? 60 * 60_000
+      let replyDeadline = start + replyTimeout
+      let busyDeadline = start + busyTimeout
+      let acknowledgedGuidance: string | undefined
+      let awaitingGuidanceReply = false
       for (;;) {
         signal.throwIfAborted()
+        // Do not advance the room cursor past a guidance message before its POST has settled.
+        if (turn.guidance) {
+          await turn.guidance.catch(() => undefined)
+          continue
+        }
+        const version = turn.guidanceVersion
+        if (acknowledgedGuidance !== turn.lastGuidanceId) {
+          acknowledgedGuidance = turn.lastGuidanceId
+          awaitingGuidanceReply = true
+          received = false
+          asked = false
+          replyDeadline = Date.now() + replyTimeout
+          busyDeadline = Date.now() + busyTimeout
+        }
         if (!received && Date.now() >= replyDeadline)
           throw new Error('Dot reply wait timed out; check ChatGPT before continuing')
         if (received && Date.now() >= busyDeadline) {
@@ -134,10 +170,12 @@ export class DotSession implements EngineSession {
         const from = after
         const messages = await this.poll(() => this.client.messages(dot, from, signal), signal)
         for (const m of messages) {
+          if (version !== turn.guidanceVersion) break
           after = m.id
+          if (m.id === acknowledgedGuidance) awaitingGuidanceReply = false
           if (m.account_user_id !== dot.memberId || m.deleted_at || emitted.has(m.id)) continue
           emitted.add(m.id)
-          received = true
+          if (!awaitingGuidanceReply) received = true
           if (m.content.text)
             this.ctx.emit({
               type: 'item_completed',
@@ -182,8 +220,10 @@ export class DotSession implements EngineSession {
             })
           }
         }
+        if (version !== turn.guidanceVersion) continue
         if (received) {
           const activity = await this.poll(() => this.client.activity(dot, signal), signal)
+          if (version !== turn.guidanceVersion) continue
           if (activity === 'systemError') throw new Error('Dot reported a system error; open ChatGPT')
           // 等你在 ChatGPT 里确认 / 回答：这一轮到此为止，排队的消息（可能就是回答）接着发
           if (activity === 'waiting') {
@@ -212,6 +252,8 @@ export class DotSession implements EngineSession {
         background: this.background(),
       })
     } catch (error) {
+      // A poll can fail while the user is sending guidance. Settle that delivery before ending the turn.
+      await turn.guidance?.catch(() => undefined)
       if (attempted && !confirmed) this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'uncertain' })
       this.ctx.emit({
         type: 'turn_completed',
@@ -223,6 +265,36 @@ export class DotSession implements EngineSession {
     } finally {
       release?.()
     }
+  }
+
+  private async upload(dot: DotIdentity, files: FileAttachment[], signal: AbortSignal): Promise<string[]> {
+    const fileIds: string[] = []
+    if (files.length > 10) throw new Error('Dot supports at most 10 attachments per message')
+    for (const file of files) {
+      if (!file.path) throw new Error('Dot attachment requires a local file')
+      const handle = await open(file.path, 'r')
+      try {
+        const info = await handle.stat()
+        if (!info.isFile() || info.size > DOT_FILE_LIMIT)
+          throw new Error('Dot attachment exceeds 20 MiB or is not a file')
+        if (info.size !== file.bytes) throw new Error('Dot attachment changed; select it again')
+        const data = new Uint8Array(info.size + 1)
+        let size = 0
+        while (size < data.length) {
+          signal.throwIfAborted()
+          const result = await handle.read(data, size, data.length - size)
+          if (!result.bytesRead) break
+          size += result.bytesRead
+        }
+        if (size > DOT_FILE_LIMIT) throw new Error('Dot attachment exceeds 20 MiB')
+        if (size !== info.size || (await handle.stat()).mtimeMs !== info.mtimeMs)
+          throw new Error('Dot attachment changed; select it again')
+        fileIds.push(await this.client.upload(dot, { name: file.name, data: data.subarray(0, size) }, signal))
+      } finally {
+        await handle.close()
+      }
+    }
+    return fileIds
   }
 
   /**

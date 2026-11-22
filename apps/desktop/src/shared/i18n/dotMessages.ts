@@ -51,6 +51,9 @@ export const dotMessages = {
   'dot.queue.waiting': { zh: '排队中 · {name} 忙完后自动发出', en: 'Queued · sends when {name} is free' },
   'dot.queue.paused': { zh: '已暂停 · 上一条没发成功', en: 'Paused · the previous message failed' },
   'dot.queue.resume': { zh: '继续发送', en: 'Send now' },
+  'dot.queue.guide': { zh: '引导', en: 'Guide' },
+  'dot.queue.guideHint': { zh: '立即发给 {name}，不等当前回复', en: 'Send to {name} now without waiting' },
+  'dot.queue.guiding': { zh: '正在发送引导…', en: 'Sending guidance…' },
   'dot.queue.withdraw': { zh: '撤回', en: 'Withdraw' },
   'dot.placeholderName': { zh: '给 {name} 发消息…', en: 'Message {name}…' },
   'dot.view': { zh: '查看', en: 'View' },
@@ -100,6 +103,14 @@ export const dotMessages = {
   'dot.error.busy': {
     zh: 'Dot 正在回复另一个标签，请等它回完',
     en: 'Dot is serving another local session; wait for its reply',
+  },
+  'dot.error.guidanceNotReady': {
+    zh: '当前回复暂时不能接收引导',
+    en: 'Dot is not ready to receive guidance',
+  },
+  'dot.error.guidancePending': {
+    zh: '上一条引导正在发送，或需要核对是否送达',
+    en: 'Dot guidance is already sending or its delivery needs verification',
   },
   'dot.error.closed': { zh: 'Dot 对话已关闭或正忙', en: 'Dot session closed or busy' },
   'dot.error.changed': {

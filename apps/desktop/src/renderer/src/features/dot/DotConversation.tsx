@@ -32,6 +32,7 @@ import { DotStatusIcon, dotPresence, dotStatus } from './status'
 import { DotExperimental } from './DotExperimental'
 import {
   dotComposerState,
+  dotGuidanceTurn,
   dotNotice,
   dotTranscript,
   markDotRows,
@@ -72,6 +73,7 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   const [serverError, setServerError] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const [guiding, setGuiding] = useState(false)
   const [resolving, setResolving] = useState(false)
   const refreshSnapshot = useRef<() => Promise<void>>(async () => {})
   const [snapshotError, setSnapshotError] = useState('')
@@ -256,6 +258,20 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
   }
   // Dot 正在回复时也能发，消息排队、忙完自动发出（docs/ui/dot-optimize.md §9）
   const { busy, replying, uncertain, queued } = dotComposerState(snapshot, { sending, resolving })
+  const guidanceTurn = dotGuidanceTurn(snapshot)
+  const guide = async (queueId: string): Promise<void> => {
+    if (!snapshot || !guidanceTurn || guiding || busy) return
+    setGuiding(true)
+    setError('')
+    try {
+      await window.pixelsky!.engine.steerQueued(snapshot.record.id, queueId, guidanceTurn)
+    } catch (e) {
+      setError(dotError(e))
+    } finally {
+      await refreshSnapshot.current()
+      setGuiding(false)
+    }
+  }
   const queueAction = (action: () => Promise<unknown>): void => {
     setError('')
     void action()
@@ -619,19 +635,38 @@ export function DotConversation({ entryKey, active = true }: { entryKey: string;
                     )}
                     <div className="dot-queued-meta">
                       <Clock size={12} />
-                      <span>{snapshot.queuePaused ? tr('dot.queue.paused') : tr('dot.queue.waiting', { name })}</span>
-                      {snapshot.queuePaused && (
+                      <span role={item.status === 'delivering' ? 'status' : undefined}>
+                        {item.status === 'delivering'
+                          ? tr('dot.queue.guiding')
+                          : snapshot.queuePaused
+                            ? tr('dot.queue.paused')
+                            : tr('dot.queue.waiting', { name })}
+                      </span>
+                      {snapshot.queuePaused && item.status === 'queued' && (
                         <button
                           type="button"
                           className="dot-small-button"
+                          disabled={guiding || busy}
                           onClick={() => queueAction(() => window.pixelsky!.engine.resumeQueue(snapshot.record.id))}
                         >
                           {tr('dot.queue.resume')}
                         </button>
                       )}
+                      {guidanceTurn && item.status === 'queued' && (
+                        <button
+                          type="button"
+                          className="dot-small-button dot-guide-button"
+                          title={tr('dot.queue.guideHint', { name })}
+                          disabled={guiding || busy}
+                          onClick={() => void guide(item.id)}
+                        >
+                          {tr('dot.queue.guide')}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="dot-small-button"
+                        disabled={guiding || item.status === 'delivering'}
                         onClick={() =>
                           queueAction(async () => {
                             await window.pixelsky!.engine.cancelQueued(snapshot.record.id, item.id)

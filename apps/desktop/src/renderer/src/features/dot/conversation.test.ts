@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   dotComposerState,
+  dotGuidanceTurn,
   dotNotice,
   dotTranscript,
   markDotRows,
@@ -154,5 +155,23 @@ describe('dotComposerState', () => {
     })
     expect(dotComposerState(snap('idle'), { sending: false, resolving: true }).busy).toBe(true)
     expect(dotComposerState(snap('idle'), idle)).toMatchObject({ busy: false, replying: false })
+  })
+})
+
+describe('dotGuidanceTurn', () => {
+  const snap = {
+    state: 'running' as const,
+    turnId: 'current-turn',
+    flags: { steerAvailable: true } as SessionSnapshot['flags'],
+    queue: [],
+  }
+  it('targets only the current ready turn', () => {
+    expect(dotGuidanceTurn(snap)).toBe('current-turn')
+    expect(dotGuidanceTurn({ ...snap, state: 'idle' })).toBeNull()
+    expect(dotGuidanceTurn({ ...snap, flags: { ...snap.flags, steerAvailable: false } })).toBeNull()
+    expect(dotGuidanceTurn(null)).toBeNull()
+  })
+  it.each(['delivering', 'uncertain'] as const)('blocks guidance while another message is %s', status => {
+    expect(dotGuidanceTurn({ ...snap, queue: [{ status } as QueuedMessage] })).toBeNull()
   })
 })

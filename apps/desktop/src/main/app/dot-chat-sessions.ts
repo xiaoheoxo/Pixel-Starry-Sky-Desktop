@@ -250,7 +250,7 @@ export class DotChatSessions {
     if (!id) return []
     try {
       return (this.host.open(id).queue ?? [])
-        .filter(q => q.status === 'queued' || q.status === 'dispatching')
+        .filter(q => q.status === 'queued' || q.status === 'dispatching' || q.status === 'delivering')
         .flatMap(q => (q.files ?? []).flatMap(file => (file.path ? [file.path] : [])))
     } catch {
       return []

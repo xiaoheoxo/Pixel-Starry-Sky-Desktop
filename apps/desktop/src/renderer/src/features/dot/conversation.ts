@@ -166,7 +166,7 @@ export function dotComposerState(
 ): { busy: boolean; replying: boolean; uncertain: QueuedMessage[]; queued: QueuedMessage[] } {
   const queue = snapshot?.queue ?? []
   const uncertain = queue.filter(q => q.status === 'uncertain')
-  const queued = queue.filter(q => q.status === 'queued')
+  const queued = queue.filter(q => q.status === 'queued' || (q.status === 'delivering' && q.mode === 'guidance'))
   const busy = now.resolving || now.sending || !snapshot || uncertain.length > 0
   const replying =
     !!snapshot &&
@@ -175,4 +175,13 @@ export function dotComposerState(
       snapshot.state !== 'idle' ||
       queue.some(q => q.status === 'dispatching' || q.status === 'running' || q.status === 'delivering'))
   return { busy, replying, uncertain, queued }
+}
+
+/** Use the observed turn ID so a click cannot be applied to a later reply. */
+export function dotGuidanceTurn(
+  snapshot: Pick<SessionSnapshot, 'state' | 'turnId' | 'flags' | 'queue'> | null,
+): string | null {
+  if (snapshot?.state !== 'running' || !snapshot.flags.steerAvailable) return null
+  if (snapshot.queue.some(q => q.status === 'delivering' || q.status === 'uncertain')) return null
+  return snapshot.turnId
 }

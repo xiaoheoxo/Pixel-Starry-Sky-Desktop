@@ -417,6 +417,7 @@ button.dot-small-button:hover:not(:disabled) {
 }
 .dot-queued-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   color: var(--text-faint);
@@ -424,6 +425,9 @@ button.dot-small-button:hover:not(:disabled) {
 }
 .dot-queued-meta span {
   flex: 1;
+}
+.dot-guide-button {
+  color: var(--accent-text);
 }
 /* 复制按钮平时不显示：借一点下面的间距，免得每条回复后面空一大截 */
 .dot-message-actions {
