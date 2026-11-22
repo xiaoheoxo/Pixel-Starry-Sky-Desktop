@@ -49,6 +49,16 @@ describe('Agnes advisory model selection', () => {
     expect(advice).not.toContain('custom-worker (')
   })
 
+  it('uses the generic registry only to describe the exact configured candidate', () => {
+    const model = 'provider-a/qwen3-coder-plus'
+    const settings = parseSubagentAdvisor({ evaluator: null, models: [null, model, null] })!
+    const other = ['provider-b/qwen3-coder-plus', 'glm-5.3', 'nemotron-3.5-lightning']
+    expect(subagentAdvice('medium', settings, other)).toBeNull()
+    const advice = subagentAdvice('medium', settings, [...other, model])
+    expect(advice).toContain(`medium: ${model} (Coding-focused model`)
+    for (const unconfigured of other) expect(advice).not.toContain(unconfigured)
+  })
+
   it('uses the selected evaluator but accepts only a structured difficulty, never a model or tool decision', async () => {
     const run = vi.fn().mockResolvedValue('{"difficulty":"medium"}')
     await expect(evaluateDifficulty('gpt-6-luna', 'test user task', run)).resolves.toBe('medium')

@@ -1,3 +1,5 @@
+import { publicModelFamilies } from './publicModelFamilies'
+
 type Copy = readonly [main: string, evaluator: string]
 type Localized = { zh: Copy; en: Copy }
 
@@ -35,7 +37,7 @@ const exact: ReadonlyMap<string, Localized> = new Map([
   ],
 ])
 
-const families: ReadonlyArray<[RegExp, Localized]> = [
+const families: ReadonlyArray<readonly [RegExp, Localized]> = [
   [
     /^gpt-6(?:\.\d+)?-astra\b/,
     {
@@ -205,9 +207,16 @@ export function getModelRoleGuide(
   id: string | null | undefined,
   language: 'zh' | 'en',
 ): { main: string; evaluator: string } | undefined {
-  const model = id?.toLowerCase().split('/').at(-1)
+  const model = id
+    ?.toLowerCase()
+    .split('/')
+    .at(-1)
+    ?.replace(/^(?:(?:us|eu|apac|global)\.)?(?:amazon|meta|mistral|ai21|cohere)\./, '')
   if (!model) return undefined
-  const entry = exact.get(model) ?? families.find(([pattern]) => pattern.test(model))?.[1]
+  const supplemental = /(?:^|-)(?:embed(?:ding)?|rerank(?:er)?|reward|tts|asr|guard|moderation)(?:-|$)/.test(model)
+    ? undefined
+    : publicModelFamilies.find(([pattern]) => pattern.test(model))?.[1]
+  const entry = exact.get(model) ?? families.find(([pattern]) => pattern.test(model))?.[1] ?? supplemental
   if (!entry) return undefined
   const [main, evaluator] = entry[language]
   return { main, evaluator }
