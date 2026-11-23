@@ -1,7 +1,8 @@
-const { test } = require('node:test')
-const assert = require('node:assert/strict')
-const { beforeDispatch } = require('./route.cjs')
+import assert from 'node:assert/strict'
+import { test } from 'vitest'
+import route from '../assets/agnes-dispatch/hooks/route.cjs'
 
+const { beforeDispatch } = route
 const env = mode => ({
   PIXELSKY_AGNES_MODE: mode,
   PIXELSKY_AGNES_URL: 'http://127.0.0.1:1234/agnes',
