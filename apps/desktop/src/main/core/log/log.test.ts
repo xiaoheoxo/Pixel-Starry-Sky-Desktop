@@ -202,6 +202,69 @@ describe('日志服务', () => {
     expect(got[3].fields).toMatchObject({ outcome: 'completed', durationMs: 5 })
   })
 
+  it('上下文压缩：同一次的几个完成事件合成一行，一轮结束时写，带触发方式和前后大小；迟到的更新不再写', () => {
+    const svc = new LogService({ dir, now: () => t0 })
+    setLogSink(svc)
+    const got: LogEntry[] = []
+    svc.subscribe(e => got.push(e))
+    const session = (event: unknown) =>
+      logHostEvent({ kind: 'session', sessionId: 'c1', seq: 1, event } as Parameters<typeof logHostEvent>[0])
+    const compaction = (id: string, fields: object) => ({
+      type: 'item_completed',
+      item: {
+        kind: 'compaction',
+        id,
+        status: 'completed',
+        trigger: null,
+        startedAt: t0,
+        durationMs: 30_000,
+        preTokens: 960_000,
+        postTokens: null,
+        ...fields,
+      },
+    })
+    session({ type: 'turn_started', turnId: 't1' })
+    // 「Autocompact is thrashing」那种：一轮里压缩 3 次，每次先是结束帧、再是带触发方式和大小的边界
+    for (const id of ['k1', 'k2', 'k3']) {
+      session({ ...compaction(id, {}), item: { ...compaction(id, {}).item, status: 'running' } })
+      session(compaction(id, {}))
+      session(compaction(id, { trigger: 'auto', postTokens: 180_000 }))
+    }
+    session({ type: 'turn_completed', turnId: 't1', outcome: 'failed', error: '请求无效' })
+    // 写完之后同一条迟到的更新：不再写
+    session(compaction('k3', { trigger: 'auto', postTokens: 181_000 }))
+    session({ type: 'turn_completed', turnId: 't2', outcome: 'completed', error: null })
+    // 压缩失败记 warn
+    session(compaction('k4', { status: 'failed', error: 'empty response' }))
+    session({ type: 'turn_completed', turnId: 't3', outcome: 'failed', error: 'x' })
+    // 只来了开始事件、这一轮就被停了：按这一轮的结果收尾（和 reduce 一样，那时不再发完成事件）
+    session({ type: 'item_started', item: { ...compaction('k5', {}).item, status: 'running', durationMs: null } })
+    session({ type: 'turn_completed', turnId: 't4', outcome: 'interrupted', error: null })
+
+    expect(got.map(e => [e.level, e.message])).toEqual([
+      ['info', '上下文压缩'],
+      ['info', '上下文压缩'],
+      ['info', '上下文压缩'],
+      ['warn', '一轮失败'],
+      ['info', '一轮结束'],
+      ['warn', '上下文压缩没成功'],
+      ['warn', '一轮失败'],
+      ['warn', '上下文压缩没成功'],
+      ['warn', '一轮中断'],
+    ])
+    expect(got[0].fields).toEqual({
+      sessionId: 'c1',
+      turnId: 't1',
+      status: 'completed',
+      trigger: 'auto',
+      preTokens: 960_000,
+      postTokens: 180_000,
+      durationMs: 30_000,
+    })
+    expect(got[5].fields).toMatchObject({ turnId: 't3', status: 'failed', error: 'empty response' })
+    expect(got[7].fields).toMatchObject({ turnId: 't4', status: 'interrupted', preTokens: 960_000, durationMs: null })
+  })
+
   it('一轮结束写上额度来源和这一轮用到的模型', () => {
     const svc = new LogService({ dir, now: () => t0 })
     setLogSink(svc)
