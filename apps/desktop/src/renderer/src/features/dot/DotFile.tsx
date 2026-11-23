@@ -125,7 +125,11 @@ export function DotFile({
         title={thumb && error ? translateMessage(error) : name}
         aria-label={`${tr(image ? 'composer.attachment.preview' : 'dot.download')} ${name}`}
         disabled={(!file.fileId && !local) || (busy && !image)}
-        onClick={() => (image ? (error && !local ? retryImage() : setOpen(true)) : void save())}
+        onClick={() => {
+          if (!image) return void save()
+          setOpen(true)
+          if (error && !local) retryImage()
+        }}
       >
         {picture ? (
           <>

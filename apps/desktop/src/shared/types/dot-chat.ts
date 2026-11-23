@@ -48,6 +48,7 @@ export interface DotChatBridge {
       seen?: boolean
     },
   ): Promise<DotChatRead>
+  previewSelectedImage(key: string, id: string): Promise<DotRemoteFile>
   readReceipt(key: string): Promise<DotReadReceipt | undefined>
   pickFiles(key: string): Promise<DotLocalFile[]>
   addFiles(key: string, files: DotDroppedFile[]): Promise<DotLocalFile[]>

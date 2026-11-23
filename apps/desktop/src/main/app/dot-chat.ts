@@ -82,6 +82,14 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
     deny,
   )
   ipc.handle(
+    'dotChat:previewSelectedImage',
+    (event, value: unknown, id: unknown) => {
+      const { key } = bind(event.sender, value)
+      return sessions.previewSelectedImage(key, id)
+    },
+    deny,
+  )
+  ipc.handle(
     'dotChat:file',
     async (event, value: unknown, fileId: unknown) => {
       const { key, signal } = bind(event.sender, value)

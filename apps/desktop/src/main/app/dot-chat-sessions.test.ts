@@ -193,6 +193,27 @@ describe('Dot unread messages and dropped files', () => {
     }
   })
 
+  it('previews original selected image bytes without resolving arbitrary paths or mislabeled data', async () => {
+    const t = await setup()
+    try {
+      const image = join(t.root, 'original.png')
+      const fake = join(t.root, 'not-image.png')
+      const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+      writeFileSync(image, bytes)
+      writeFileSync(fake, 'not an image')
+      const [valid, invalid] = await t.service.pickFiles(t.key, [image, fake])
+      await expect(t.service.previewSelectedImage(t.key, valid.id)).resolves.toEqual({
+        name: 'original.png',
+        mime: 'image/png',
+        dataBase64: bytes.toString('base64'),
+      })
+      await expect(t.service.previewSelectedImage(t.key, image)).rejects.toThrow('select it again')
+      await expect(t.service.previewSelectedImage(t.key, invalid.id)).rejects.toThrow('image unavailable')
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
+
   it('background check: only Dots opened here, not while replying or just read; a newer Dot message becomes unread once', async () => {
     const t = await setup()
     try {

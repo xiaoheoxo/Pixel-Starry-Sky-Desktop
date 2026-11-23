@@ -1,7 +1,7 @@
 import { nativeImage } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { rmSync } from 'node:fs'
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join, sep } from 'node:path'
 import { DOT_FILE_LIMIT } from '@pixelsky/engine'
 import type { EngineHost } from '@pixelsky/engine'
@@ -211,6 +211,31 @@ export class DotChatSessions {
     )
   }
 
+  async previewSelectedImage(key: string, id: unknown) {
+    this.entry(key)
+    const selected = typeof id === 'string' ? this.selected.get(key)?.get(id) : undefined
+    if (!selected?.path || !/\.(png|jpe?g|webp|gif)$/i.test(selected.name))
+      throw new Error('Dot attachment unavailable; select it again')
+    const handle = await open(selected.path, 'r')
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.size <= 0 || info.size > DOT_FILE_LIMIT)
+        throw new Error('Dot attachment exceeds 20 MiB or is not a file')
+      const data = Buffer.alloc(info.size)
+      let filled = 0
+      while (filled < data.length) {
+        const { bytesRead } = await handle.read(data, filled, data.length - filled, filled)
+        if (!bytesRead) throw new Error('Dot attachment unavailable; select it again')
+        filled += bytesRead
+      }
+      const mime = draftImageMime(data)
+      if (!mime) throw new Error('Dot image unavailable')
+      return { name: selected.name, mime, dataBase64: data.toString('base64') }
+    } finally {
+      await handle.close()
+    }
+  }
+
   async download(key: string, fileId: unknown, signal?: AbortSignal) {
     if (typeof fileId !== 'string' || !this.knownFiles.get(key)?.has(fileId))
       throw new Error('Dot file is not in this conversation')
@@ -393,6 +418,16 @@ export class DotChatSessions {
     this.knownFiles.set(key, known)
     return { ...data, entry: { ...entry, ...data.overview?.profile } }
   }
+}
+
+function draftImageMime(data: Buffer): string | undefined {
+  if (data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
+  if (data.subarray(0, 6).toString('ascii') === 'GIF87a' || data.subarray(0, 6).toString('ascii') === 'GIF89a')
+    return 'image/gif'
+  if (data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP')
+    return 'image/webp'
+  return undefined
 }
 
 /** The system thumbnailer reads only paths explicitly chosen in the native picker. */

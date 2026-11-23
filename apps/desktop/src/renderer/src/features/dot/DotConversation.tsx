@@ -4,8 +4,6 @@ import {
   ArrowUp,
   Clock,
   ExternalLink,
-  File,
-  ImageIcon,
   Info,
   Monitor,
   MoreHorizontal,
@@ -45,13 +43,13 @@ import {
   readDropped,
 } from './conversation'
 import { formatClock, formatDay } from '@/features/channels/format'
-import { fileSize } from '@/features/session/attachments/files'
 import { keyForConversation } from '@/features/search/ConversationFind'
 import { TOGGLE_VOICE } from '@/features/layout/shortcuts'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { insertSpoken } from '@/features/voice/model'
 import { VoiceButton, useVoiceInput } from '@/features/voice/useVoiceInput'
 import { DotFile, isDotImage } from './DotFile'
+import { DotDraftAttachment } from './DotDraftAttachment'
 import { DotComputer } from './DotComputer'
 import { DotDeliveryNotice } from './DotDeliveryNotice'
 import { DotAddMenu, chatGptReference } from './DotAddMenu'
@@ -100,6 +98,7 @@ export function DotConversation({
   const [snapshotError, setSnapshotError] = useState('')
   const [picking, setPicking] = useState(false)
   const [files, setFiles] = useState<DotLocalFile[]>([])
+  const [previewingFile, setPreviewingFile] = useState<string | null>(null)
   /** Locally selected image previews, indexed by the attachment ID assigned by the main process. */
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   const thumbUrls = useRef<Record<string, string>>({})
@@ -965,29 +964,18 @@ export function DotConversation({
                 {!!files.length && (
                   <div className="dot-pending-files" aria-label={tr('dot.pendingFiles')}>
                     {files.map(file => (
-                      <div className="dot-file-card" key={file.id} title={file.name}>
-                        <span className="dot-file-thumb">
-                          {thumbs[file.id] ? (
-                            <img src={thumbs[file.id]} alt="" />
-                          ) : isDotImage({ type: 'file', name: file.name }) ? (
-                            <ImageIcon size={16} />
-                          ) : (
-                            <File size={16} />
-                          )}
-                        </span>
-                        <span className="dot-file-text">
-                          <b>{file.name}</b>
-                          <span>{fileSize(file.bytes)}</span>
-                        </span>
-                        <button
-                          type="button"
-                          className="dot-file-remove"
-                          aria-label={`${tr('composer.attachment.remove')} ${file.name}`}
-                          onClick={() => setFiles(current => current.filter(f => f.id !== file.id))}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
+                      <DotDraftAttachment
+                        key={file.id}
+                        entryKey={entryKey}
+                        file={file}
+                        thumbnail={thumbs[file.id]}
+                        open={previewingFile === file.id}
+                        onPreview={open => setPreviewingFile(open ? file.id : null)}
+                        onRemove={() => {
+                          setPreviewingFile(current => (current === file.id ? null : current))
+                          setFiles(current => current.filter(f => f.id !== file.id))
+                        }}
+                      />
                     ))}
                   </div>
                 )}
