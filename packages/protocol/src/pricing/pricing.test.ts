@@ -50,3 +50,8 @@ describe('按官方模型定价估算（docs/ui/custom-api.md §4.3）', () => {
     expect(estimateCost({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, null)).toBeNull()
   })
 })
+
+it('includes verified short-context Standard GPT-6.2 rates, including cached input', () => {
+  expect(officialPrice('gpt-6.2-astra')).toMatchObject({ input: 8, output: 40, cacheRead: 0.4, cacheWrite: 10 })
+  expect(officialPrice('openai/gpt-6.2-sol')).toMatchObject({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 })
+})

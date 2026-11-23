@@ -226,3 +226,15 @@ describe('classifyQuotaError', () => {
     })
   })
 })
+
+it('does not update the weekly sample time on five-hour or status-only events', () => {
+  const initial = quota({ windows: [five(20), week(42)], source: 'usage', observedAt: 10 })
+  const partial = mergeQuota(initial, { observedAt: 20, windows: [five(22)] })
+  expect(partial.windowObservedAt).toEqual({ five_hour: 20, seven_day: 10 })
+  const allowed = mergeQuota(partial, { observedAt: 30, allowed: true })
+  expect(allowed.windowObservedAt).toEqual({ five_hour: 20, seven_day: 10 })
+  const current = mergeQuota(allowed, { observedAt: 40, windows: [week(45)] })
+  const late = mergeQuota(current, { observedAt: 35, windows: [week(21)] })
+  expect(late.windowObservedAt).toEqual({ five_hour: 20, seven_day: 40 })
+  expect(late.windows).toEqual([five(22), week(45)])
+})

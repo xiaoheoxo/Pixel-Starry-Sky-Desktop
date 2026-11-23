@@ -316,8 +316,9 @@ describe('英文界面', () => {
 
 describe('重置卡（docs/ui/codex-reset-card.md §2）', () => {
   const NOW_RC = 1_800_000_000_000
-  const withResets = (onUse?: () => void, auto: number | null = null) =>
-    renderToStaticMarkup(
+  const withResets = (onUse?: () => void, auto: number | null = null) => {
+    vi.stubGlobal('localStorage', { getItem: () => 'zh-CN', setItem: () => undefined })
+    return renderToStaticMarkup(
       <I18nProvider>
         <QuotaPanel
           provider="chatgpt"
@@ -351,6 +352,7 @@ describe('重置卡（docs/ui/codex-reset-card.md §2）', () => {
         />
       </I18nProvider>,
     )
+  }
 
   it('显示张数、快过期、不过期、还有几张；给了回调才有「使用一张」', () => {
     const html = withResets(() => undefined)
@@ -383,4 +385,100 @@ describe('Google / Antigravity 弹窗', () => {
     expect(html).not.toContain('<a ')
     expect(html).toContain('额度按钮设置')
   })
+})
+
+it('separates the reported quota, conditional forecast, budget and local API comparison', () => {
+  const html = render({
+    estimate: {
+      windows: {
+        five_hour: {
+          elapsed: 0.45,
+          projected: 63,
+          emptyAt: null,
+          basis: 'recent',
+          budget: { percent: 26, unit: 'hour' },
+        },
+      },
+      month: { usd: 233, models: [], unpricedModels: 1 },
+    },
+  })
+  expect(html).toContain('aria-valuenow="42"')
+  expect(html).toContain('预计恢复时剩 37%')
+  expect(html).toMatch(/class="mt-1\.5 text-label text-fg-secondary tabular-nums">均摊至恢复：26%\/小时</)
+  expect(html).toContain('本机近 30 天 · 已计价部分 ≈ $233')
+  expect(html).not.toContain('还能跑')
+  expect(html).not.toContain('约 328 轮')
+})
+
+it('shows each supported forecast in its own row without duplicating it in the actual cards', () => {
+  const html = render({
+    estimate: {
+      windows: {
+        five_hour: { elapsed: 0.45, projected: 63, emptyAt: null, basis: 'recent', budget: null },
+        seven_day: { elapsed: 0.65, projected: 100, emptyAt: at(16, 45), basis: 'window', budget: null },
+      },
+      month: null,
+    },
+  })
+  expect(count(html, 'data-quota-forecast=')).toBe(2)
+  expect(html).toMatch(/data-quota-forecast="five_hour"[^]*?5 小时预测[^]*?预计恢复时剩 37%/)
+  expect(html).toMatch(/data-quota-forecast="seven_day"[^]*?周限预测[^]*?粗估：预计 16:45 用完/)
+  expect(count(html, '预计恢复时剩 37%')).toBe(1)
+  expect(count(html, '粗估：预计 16:45 用完')).toBe(1)
+  expect(html).toContain('aria-valuenow="42"')
+  expect(html.indexOf('role="progressbar"')).toBeLessThan(html.indexOf('data-quota-forecast="five_hour"'))
+  expect(html).not.toContain('data-quota-reported=')
+})
+
+it('does not invent a missing five-hour window or use expired data for weekly forecasting', () => {
+  const html = render({
+    q: quota({ provider: 'chatgpt', plan: 'prolite', windows: [win(10_080, 80, at(14, 31))] }),
+  })
+  expect(count(html, 'data-quota-forecast=')).toBe(1)
+  const row = html.match(/data-quota-forecast="seven_day"[^]*?<\/li>/)?.[0]
+  expect(row).toContain('等待新周期数据')
+  expect(row).not.toContain('0%')
+})
+
+it('makes missing forecast data explicit instead of treating it as a zero estimate', () => {
+  const html = render({})
+  expect(count(html, '暂无法预测')).toBe(2)
+})
+
+it('shows measured collection progress without replacing a rough forecast or mislabeling a stale reading', () => {
+  const html = render({
+    estimate: {
+      month: null,
+      windows: {
+        five_hour: {
+          elapsed: 0.5,
+          projected: null,
+          emptyAt: null,
+          basis: null,
+          budget: null,
+          collection: { state: 'stale' },
+        },
+        seven_day: {
+          elapsed: 0.5,
+          projected: 62,
+          emptyAt: null,
+          basis: 'window',
+          budget: null,
+          collection: {
+            state: 'collecting',
+            samples: 2,
+            requiredSamples: 3,
+            spanMs: 6 * 3_600_000,
+            requiredSpanMs: 9 * 3_600_000,
+            rounded: false,
+          },
+        },
+      },
+    },
+  })
+  expect(html).toMatch(/data-quota-forecast="five_hour"[^]*?读数过旧，等待刷新/)
+  const week = html.match(/data-quota-forecast="seven_day"[^]*?<\/li>/)?.[0]
+  expect(week).toContain('粗估：预计恢复时剩 38%')
+  expect(week).toContain('有效读数 2/3 · 跨度 6/9 小时')
+  expect(week).toMatch(/role="progressbar"[^>]*aria-valuenow="66"/)
 })

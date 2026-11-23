@@ -1,6 +1,6 @@
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import { Check, ChevronRight, ExternalLink, RefreshCw, Settings, X } from 'lucide-react'
-import type { AccountQuota, QuotaProvider, QuotaResetCredits } from '@pixelsky/protocol'
+import { QUOTA_WINDOW_MINS, type AccountQuota, type QuotaProvider, type QuotaResetCredits } from '@pixelsky/protocol'
 import { translateMessage, tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { cn, PlanBadge } from '@/ui'
@@ -10,15 +10,18 @@ import {
   maskAccount,
   percentText,
   planBadge,
-  providerTitle,
-  quotaLayout,
   resetClock,
+  providerTitle,
+  quotaEntries,
+  quotaLayout,
   type PlanLimit,
   type QuotaCard,
+  type QuotaEntry,
   type QuotaLevel,
   type QuotaRow,
 } from './quotaModel'
-import { usdText, type WindowEstimate } from './estimate'
+import type { WindowEstimate } from './estimate'
+import { budgetLine, forecastBasis, forecastCollectionText, forecastLine, localValueLine } from './forecastPresentation'
 import type { QuotaEstimate } from './useQuotaEstimate'
 
 const TEXT: Record<QuotaLevel, string> = { normal: 'text-fg', warn: 'text-warn', full: 'text-danger' }
@@ -91,6 +94,15 @@ export function QuotaPanel({
   const layout =
     quota && quota.status !== 'unsupported' ? quotaLayout(quota, { provider, now, balanceText, planLimits }) : null
   const hasData = !!layout && (layout.cards.length > 0 || layout.rows.length > 0)
+  const forecastWindows =
+    quota && layout && provider !== 'platform'
+      ? quotaEntries(quota, now).filter(
+          entry =>
+            entry.kind === 'window' &&
+            (entry.durationMins === QUOTA_WINDOW_MINS.fiveHour || entry.durationMins === QUOTA_WINDOW_MINS.week),
+        )
+      : []
+
   const failed = quota?.status === 'error'
   const waiting = !hasData && loading
   const plan = quota ? planBadge(provider, quota.plan) : null
@@ -181,13 +193,23 @@ export function QuotaPanel({
             {layout.cards.length > 0 && (
               <div className={cn('grid gap-2', layout.cards.length === 1 ? 'grid-cols-1' : 'grid-cols-2')}>
                 {layout.cards.map(card => (
-                  <Tile key={card.id} card={card} est={estimate?.windows[card.id]} now={now} />
+                  <Tile
+                    key={card.id}
+                    card={card}
+                    est={estimate?.windows[card.id]}
+                    now={now}
+                    separateForecast={forecastWindows.some(window => window.id === card.id)}
+                  />
                 ))}
               </div>
             )}
+            {forecastWindows.length > 0 && <ForecastWindows windows={forecastWindows} estimate={estimate} now={now} />}
             {estimate?.month && (
-              <div className="mt-2 flex items-baseline gap-2 px-0.5 text-label text-fg-muted tabular-nums">
-                <span className="min-w-0 truncate">{tr('quotaEst.worth', { usd: usdText(estimate.month.usd) })}</span>
+              <div
+                title={tr('quotaEst.fine')}
+                className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-0.5 text-label text-fg-muted tabular-nums"
+              >
+                <span>{localValueLine(estimate.month)}</span>
                 {feeRatio && (
                   <span className="ml-auto shrink-0 text-fg-faint">{tr('quotaEst.ratio', { n: feeRatio })}</span>
                 )}
@@ -367,11 +389,94 @@ function FootButton({
   )
 }
 
+/** Separate forecasts from reported use and the local API comparison. */
+function ForecastWindows({
+  windows,
+  estimate,
+  now,
+}: {
+  windows: QuotaEntry[]
+  estimate: QuotaEstimate | null
+  now: number
+}) {
+  return (
+    <ul aria-label={tr('quotaEst.rows.label')} className="mt-2 divide-y divide-line-subtle rounded-lg bg-subtle px-2.5">
+      {windows.map(window => {
+        const forecast = estimate?.windows[window.id]
+        const line = !window.expired && forecast ? forecastLine(forecast, now) : null
+        const collection = !window.expired ? forecast?.collection : undefined
+        const collecting = collection?.state === 'collecting' ? collection : null
+        const detail = collection ? forecastCollectionText(collection) : null
+        const missing = tr(window.expired ? 'quotaEst.rows.awaiting' : 'quotaEst.rows.unavailable')
+        const pct =
+          collecting && !collecting.rounded
+            ? Math.floor(
+                Math.min(
+                  1,
+                  collecting.samples / collecting.requiredSamples,
+                  collecting.spanMs / collecting.requiredSpanMs,
+                ) * 100,
+              )
+            : null
+        return (
+          <li
+            key={window.id}
+            data-quota-forecast={window.id}
+            className="min-w-0 py-1.5 text-label tabular-nums"
+            title={line && forecast ? forecastBasis(forecast) : undefined}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-x-2">
+              <span className="shrink-0 font-medium">
+                {tr(
+                  window.durationMins === QUOTA_WINDOW_MINS.fiveHour ? 'quotaEst.rows.fiveHour' : 'quotaEst.rows.week',
+                )}
+              </span>
+              <span
+                className={cn('min-w-0 text-right', line && forecast?.emptyAt != null ? 'text-warn' : 'text-fg-muted')}
+              >
+                {line ?? (collecting ? tr('quotaEst.collection.collecting') : (detail ?? missing))}
+              </span>
+            </div>
+            {collecting && (
+              <div data-quota-collection className="mt-1 space-y-1 text-fg-muted">
+                <div>{detail}</div>
+                {pct !== null && (
+                  <div
+                    role="progressbar"
+                    aria-label={tr('quotaEst.collection.progress')}
+                    aria-valuenow={pct}
+                    aria-valuetext={detail ?? undefined}
+                    className="h-[3px] overflow-hidden rounded-full bg-line"
+                  >
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 /** 大数字卡片：名字、大百分比、进度条、恢复时间（平台是金额）；有估算时加「剩 N%」、浅色的预计段、时间竖线和预估几行 */
-function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: number }) {
+function Tile({
+  card,
+  est,
+  now,
+  separateForecast,
+}: {
+  card: QuotaCard
+  est?: WindowEstimate
+  now: number
+  separateForecast: boolean
+}) {
   const full = card.level === 'full'
   const e = card.type === 'meter' && !full ? est : undefined
-  const hot = !!e?.emptyAt
+  const hot = e?.emptyAt != null
+  const forecast = e && !separateForecast ? forecastLine(e, now) : null
+  const budget = e ? budgetLine(e) : null
   return (
     <div
       title={card.hover || undefined}
@@ -379,7 +484,7 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
     >
       <div className="flex items-baseline gap-1.5 text-label text-fg-muted">
         <span className="min-w-0 truncate">{card.name}</span>
-        {e && (
+        {card.type === 'meter' && (
           <span className="ml-auto shrink-0 text-fg-faint tabular-nums">
             {tr('quotaEst.left', { p: percentText(100 - card.percent) })}
           </span>
@@ -407,7 +512,7 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
             aria-valuemax={100}
             className="relative h-1 overflow-hidden rounded-full bg-selected"
           >
-            {e?.projected != null && e.projected > card.percent && (
+            {!separateForecast && e?.projected != null && e.projected > card.percent && (
               <i
                 title={tr('quotaEst.projTip')}
                 className={cn('absolute inset-y-0 left-0 rounded-full opacity-30', hot ? 'bg-warn' : FILL[card.level])}
@@ -428,29 +533,25 @@ function Tile({ card, est, now }: { card: QuotaCard; est?: WindowEstimate; now: 
           )}
         </div>
       )}
-      {e && (hot || e.projected !== null) && (
-        <div className={cn('mt-1.5 truncate text-label tabular-nums', hot ? 'text-warn' : 'text-fg-muted')}>
-          {hot
-            ? tr('quotaEst.emptyAt', { time: resetClock(e.emptyAt!, now) })
-            : tr('quotaEst.leftAtReset', { p: percentText(100 - e.projected!) })}
+      {forecast && e && (
+        <div
+          title={forecastBasis(e)}
+          className={cn('mt-1.5 text-label tabular-nums', hot ? 'text-warn' : 'text-fg-muted')}
+        >
+          {forecast}
         </div>
       )}
-      {e?.usd != null && (
-        <div className="mt-px truncate text-label text-fg-secondary tabular-nums">
-          {tr('quotaEst.run', { usd: usdText(e.usd) })}
-        </div>
+      {budget && (
+        <div className={cn(forecast ? 'mt-px' : 'mt-1.5', 'text-label text-fg-secondary tabular-nums')}>{budget}</div>
       )}
       <div
         className={cn(
-          e ? 'mt-px' : 'mt-1.5',
+          forecast || budget ? 'mt-px' : 'mt-1.5',
           'text-label tabular-nums',
-          card.type === 'meter' && 'truncate',
           full ? 'text-danger' : 'text-fg-faint',
         )}
       >
-        {e?.turns == null
-          ? card.note
-          : tr(e.turns ? 'quotaEst.turnsReset' : 'quotaEst.turnsResetFew', { n: e.turns, reset: card.note })}
+        {card.note}
       </div>
     </div>
   )
