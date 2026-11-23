@@ -36,12 +36,35 @@ export function AgnesAdvisorCard() {
             label={tr('subagentRoute.advisor.title')}
             checked={!!advisor}
             onChange={on =>
-              save({ subagentAdvisor: on ? { evaluator: null, models: [null, null, null, null] } : null })
+              save({
+                subagentAdvisor: on
+                  ? { evaluator: null, dispatchMode: 'suggest', models: [null, null, null, null] }
+                  : null,
+              })
             }
           />
         </div>
         {advisor && (
           <>
+            <div className="text-label text-fg-muted">{tr('subagentRoute.advisor.dispatchMode')}</div>
+            <Select
+              label={tr('subagentRoute.advisor.dispatchMode')}
+              value={advisor.dispatchMode ?? ''}
+              onChange={value =>
+                save({
+                  subagentAdvisor: {
+                    ...advisor,
+                    dispatchMode: value === 'suggest' || value === 'force' ? value : undefined,
+                  },
+                })
+              }
+              options={[
+                { value: '', label: tr('subagentRoute.advisor.dispatchLegacy') },
+                { value: 'suggest', label: tr('subagentRoute.advisor.dispatchSuggest') },
+                { value: 'force', label: tr('subagentRoute.advisor.dispatchForce') },
+              ]}
+            />
+            <p className="text-label text-fg-muted">{tr('subagentRoute.advisor.dispatchHint')}</p>
             <div className="text-label text-fg-muted">{tr('subagentRoute.advisor.evaluator')}</div>
             <p className="text-label text-fg-faint">{tr('subagentRoute.advisor.catalogHint')}</p>
             <Select

@@ -61,6 +61,7 @@ export interface CodexAdapterOptions {
   systemProxy?: () => string | null
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   launcher?: Launcher
+  agnesDispatchBundle?: string | null
   launchOptions?: () => CodexLaunchOptions
   /** 桌面端的私有 Node.js：没装 Node.js 时一键安装先装它；它和装在里面的 Codex 补在 PATH 最后（docs/ui/engine-update.md §7） */
   nodeRuntime?: NodeRuntime
@@ -594,6 +595,7 @@ export class CodexAdapter implements EngineAdapter {
       // 没有进程可接着跑了，还停在 running 的标成已中断（与 loadCodexRuns 一致）
       currentSubagentFollowAdvisor: () => this.opts.launchOptions?.().subagentFollowAdvisor === true,
       currentSubagentAdvisor: () => this.opts.launchOptions?.().subagentAdvisor ?? null,
+      dispatchBundle: this.opts.agnesDispatchBundle,
       evaluateSubagent: async (model, prompt, signal, candidates) => {
         const reply = await this.oneShot(
           { model, prompt, requireEphemeral: true, ...(candidates?.length ? { advisorModelIds: candidates } : {}) },

@@ -151,6 +151,7 @@ export class EngineHost {
         dataDir: opts.dataDir,
       }),
       codex: new CodexAdapter({
+        agnesDispatchBundle: opts.agnesDispatchBundle,
         overridePath: () => settings.file.paths.codex ?? null,
         extraEnv: () => settings.file.env.codex ?? {},
         systemProxy: () => opts.systemProxy?.('codex') ?? null,

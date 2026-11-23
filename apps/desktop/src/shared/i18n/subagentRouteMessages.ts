@@ -274,6 +274,14 @@ export const subagentRouteMessages = {
     zh: '下拉选项来自当前 Codex 模型目录。只会把你选中且当前可用的候选发给评估模型；像素星空的自定义接口不会加入远程评估目录。',
     en: 'Options come from the current Codex catalog. Only your selected, currently available candidates are sent for evaluation; PixelSky custom endpoints are not added to the remote evaluator.',
   },
+  'subagentRoute.advisor.dispatchMode': { zh: '评估触发与派遣', en: 'Evaluation and dispatch' },
+  'subagentRoute.advisor.dispatchLegacy': { zh: '发消息时评估（旧版）', en: 'Evaluate before each turn (legacy)' },
+  'subagentRoute.advisor.dispatchSuggest': { zh: '派遣时评估 · 建议', en: 'Evaluate on dispatch · Suggest' },
+  'subagentRoute.advisor.dispatchForce': { zh: '派遣时评估 · 强制', en: 'Evaluate on dispatch · Enforce' },
+  'subagentRoute.advisor.dispatchHint': {
+    zh: '选择派遣时评估后，像素星空会在下次打开本机 Codex 会话时注册内置组件，无需下载插件。首次使用仍需在 Codex 的 /hooks 中确认信任。强制模式只支持可指定模型的独立派遣；评估失败则拒绝。',
+    en: 'PixelSky registers the built-in component when opening your next local Codex session. No download is needed. Review and trust it in Codex /hooks once. Enforcement supports isolated dispatches with model overrides and rejects them if evaluation fails.',
+  },
   'subagentRoute.advisor.evaluator': { zh: '难度评估方式', en: 'Difficulty evaluator' },
   'subagentRoute.advisor.local': { zh: '本机规则（不发额外请求）', en: 'Local rules (no extra requests)' },
   'subagentRoute.advisor.remoteHint': {

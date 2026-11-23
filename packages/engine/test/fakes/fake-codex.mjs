@@ -386,6 +386,26 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           : { account: { type: 'apiKey' }, requiresOpenaiAuth: true },
       )
       break
+    case 'hooks/list':
+      response(m, {
+        data: [
+          {
+            hooks: process.env.FAKE_AGNES_DISPATCH_TRUSTED
+              ? [
+                  {
+                    source: 'plugin',
+                    pluginId: 'pixelsky-agnes-dispatch@pixelsky-agnes-builtin',
+                    eventName: 'preToolUse',
+                    matcher: '^(collaboration[.:])?(spawn_agent|Agent)$',
+                    enabled: true,
+                    trustStatus: 'trusted',
+                  },
+                ]
+              : [],
+          },
+        ],
+      })
+      break
     case 'model/list':
       response(m, { data: models, nextCursor: null })
       break
@@ -684,6 +704,25 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           emit('turn/started', { threadId: thread, turn: { id, status: 'inProgress' } })
           response(m, { turn: { id, status: 'inProgress' } })
         }, 400)
+        break
+      }
+      if (process.env.FAKE_AGNES_DISPATCH_TRUSTED && text === 'test native delegation') {
+        turn = { id, item: 'msg-' + next, text: '', timer: null, slow: false }
+        emit('turn/started', { threadId: thread, turn: { id, status: 'inProgress' } })
+        response(m, { turn: { id, status: 'inProgress' } })
+        const url = process.env.PIXELSKY_AGNES_URL
+        fetch(url, {
+          method: 'POST',
+          headers: { authorization: process.env.PIXELSKY_AGNES_AUTH },
+          body: JSON.stringify({ threadId: thread, turnId: id, task: 'Review the tiny parser only' }),
+        })
+          .then(r => r.json())
+          .then(result => {
+            if (!turn || turn.id !== id) return
+            turn.text = 'dispatch decision: ' + (result.model ?? result.reason)
+            finish('completed')
+          })
+          .catch(() => finish('failed'))
         break
       }
       // 缓停：收到 turn/interrupt 后约 1 秒才回 interrupted，且不会自己结束

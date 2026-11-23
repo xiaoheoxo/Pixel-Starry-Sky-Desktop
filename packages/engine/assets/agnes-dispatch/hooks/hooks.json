@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(collaboration[.:])?(spawn_agent|Agent)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(require('node:path').join(process.env.PLUGIN_ROOT,'hooks','route.cjs')).main()\"",
+            "timeout": 20,
+            "statusMessage": "Agnes is evaluating the delegated task"
+          }
+        ]
+      }
+    ]
+  }
+}

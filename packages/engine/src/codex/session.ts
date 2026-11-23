@@ -1,4 +1,13 @@
 import {
+  registerBundledDispatch,
+  startDispatchBridge,
+  trustedDispatchHook,
+  type DispatchDecision,
+  type DispatchMode,
+  type DispatchRequest,
+} from './agnes-dispatch'
+import { agnesEffort } from './agnes-effort'
+import {
   ADVISOR_FAILURE_TEXT,
   advisorCandidates,
   evaluateAdvisor,
@@ -90,6 +99,7 @@ export interface CodexLaunchOptions {
   currentSubagentFollowAdvisor?: () => boolean
   currentSubagentAdvisor?: () => import('@pixelsky/protocol').SubagentAdvisor | null
   evaluateSubagent?: AdvisorEvaluator
+  dispatchBundle?: string | null
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
   inputPrediction?: 'off' | 'cheap' | 'same'
   /** 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给用对话的模型 */
@@ -464,6 +474,79 @@ const speedOf = (s: Pick<SessionSettings, 'fast' | 'ultrafast'>): Speed =>
   !s.fast ? 'off' : s.ultrafast ? 'ultrafast' : 'fast'
 
 export class CodexSession implements EngineSession {
+  private dispatchBridge?: Awaited<ReturnType<typeof startDispatchBridge>>
+  private dispatchMode?: DispatchMode
+  private dispatchSetupError: string | null = null
+  private dispatchNotice: string | null = null
+  private dispatchAbort = new AbortController()
+
+  private async evaluateDispatch(input: DispatchRequest, signal: AbortSignal): Promise<DispatchDecision> {
+    const settings = this.options.currentSubagentAdvisor
+      ? this.options.currentSubagentAdvisor()
+      : this.options.subagentAdvisor
+    const mode = this.dispatchMode
+    const catalog = this.catalog?.models ?? []
+    const ids = catalog.map(model => model.id)
+    if (
+      !this.active ||
+      this.closed ||
+      input.threadId !== this.threadId ||
+      input.turnId !== this.nativeTurnId ||
+      !settings?.dispatchMode ||
+      settings.dispatchMode !== mode ||
+      (this.catalog?.currentProvider ?? 'openai') !== 'openai' ||
+      viaGateway(this.ctx.record())
+    )
+      return { reason: 'Agnes could not match the dispatch to an active managed Codex turn.' }
+    if (!hasConfiguredSubagent(settings, ids)) return { reason: 'Agnes has no available configured worker model.' }
+    if (signal.aborted || this.dispatchAbort.signal.aborted) return { reason: 'Agnes evaluation was canceled.' }
+    if (!settings.evaluator) {
+      const difficulty = localDifficulty(input.task, false)
+      const model = selectedAdvisorModel(difficulty, settings, ids)
+      if (!model) return { reason: 'Agnes has no configured model for this task difficulty.' }
+      const effort = agnesEffort(
+        catalog.find(candidate => candidate.id === model),
+        difficulty,
+      )
+      return { model, ...(effort ? { effort } : {}) }
+    }
+    const evaluation = this.options.evaluateSubagent
+    if (!evaluation || !ids.includes(settings.evaluator))
+      return { reason: 'Agnes has no available evaluator for this session.' }
+    const combined = AbortSignal.any([signal, this.dispatchAbort.signal])
+    if (settings.evaluatorPicksModel) await this.options.advisorPublicMetadata?.refresh()
+    if (combined.aborted || this.nativeTurnId !== input.turnId)
+      return { reason: 'Agnes canceled evaluation because the parent turn ended.' }
+    const candidates = settings.evaluatorPicksModel
+      ? advisorCandidates(settings, ids, this.options.modelDetails?.(), this.options.advisorPublicMetadata)
+      : []
+    let reason = 'Agnes did not return a recommendation.'
+    const estimate = await evaluateAdvisor(
+      settings.evaluator,
+      input.task,
+      evaluation,
+      candidates,
+      12_000,
+      combined,
+      failure => {
+        reason = ADVISOR_FAILURE_TEXT[failure]
+      },
+    )
+    if (!estimate || combined.aborted) return { reason }
+    const current = this.options.currentSubagentAdvisor
+      ? this.options.currentSubagentAdvisor()
+      : this.options.subagentAdvisor
+    if (JSON.stringify(current) !== JSON.stringify(settings))
+      return { reason: 'Agnes configuration changed during evaluation.' }
+    const model = selectedAdvisorModel(estimate.difficulty, settings, ids, estimate.model)
+    if (!model) return { reason: 'Agnes has no recommendation for this specific task.' }
+    const effort = agnesEffort(
+      catalog.find(candidate => candidate.id === model),
+      estimate.difficulty,
+    )
+    return { model, ...(effort ? { effort } : {}) }
+  }
+
   private proc: CodexProcess | null = null
   /** 进程还活着（宿主查某个账号目录还有没有人在用） */
   get processAlive(): boolean {
@@ -639,6 +722,31 @@ export class CodexSession implements EngineSession {
     this.startup = 'pending'
     const record = this.ctx.record()
     const launched = await codexLaunchConfig(record, this.env, this.ctx, this.options, askFlag)
+    this.dispatchBridge?.close()
+    this.dispatchBridge = undefined
+    const advisor = this.options.currentSubagentAdvisor
+      ? this.options.currentSubagentAdvisor()
+      : this.options.subagentAdvisor
+    this.dispatchMode = !launched.gatewayProvider ? advisor?.dispatchMode : undefined
+    this.dispatchSetupError = null
+    this.dispatchNotice = null
+    // Never enable a bridge using environment variables inherited from a different app/session.
+    delete launched.env.PIXELSKY_AGNES_MODE
+    delete launched.env.PIXELSKY_AGNES_URL
+    delete launched.env.PIXELSKY_AGNES_AUTH
+    if (this.dispatchMode) {
+      try {
+        if (this.options.dispatchBundle)
+          await registerBundledDispatch(this.launcher, this.env, this.options.dispatchBundle)
+        if (this.closed) throw new Error('Codex session is closed')
+        this.dispatchBridge = await startDispatchBridge((input, signal) => this.evaluateDispatch(input, signal))
+        Object.assign(launched.env, this.dispatchBridge.env, { PIXELSKY_AGNES_MODE: this.dispatchMode })
+      } catch (error) {
+        if (this.closed) throw error
+        this.dispatchSetupError = describeError(error)
+      }
+    }
+    const localDispatch = this.dispatchBridge
     const environment = launched.env,
       args = ['app-server', '--listen', 'stdio://', ...launched.args]
     const ext = this.ctx.extensions,
@@ -655,6 +763,7 @@ export class CodexSession implements EngineSession {
         notification: (method, params) => this.notification(method, params),
         request: (id, method, params) => this.request(id, method, params),
         exit: (_code, tail) => {
+          localDispatch?.close()
           // 带开关启动时在 initialize 前退出：connect() 会不带开关重试，不在这里结束这一轮
           if (this.proc !== proc || (askFlag && this.startup === 'pending')) return
           if (!this.closed && this.active) this.finish('failed', tail || 'Codex process exited')
@@ -1199,6 +1308,34 @@ export class CodexSession implements EngineSession {
       const routeSupportsAdvice =
         !viaGateway(this.ctx.record()) && (this.catalog?.currentProvider ?? 'openai') === 'openai'
       const workerConfigured = advisor && hasConfiguredSubagent(advisor, available)
+      if (advisor?.dispatchMode) {
+        const mode = advisor.dispatchMode
+        let issue = this.dispatchSetupError
+        if (!routeSupportsAdvice) issue = '当前线路不支持 Agnes 派遣评估。'
+        else if (this.dispatchMode !== mode) issue = '设置已变更，请重新打开本机 Codex 会话。'
+        else if (!issue) {
+          const hooks = this.dispatchBridge
+            ? await this.proc!.request('hooks/list', { threadId: this.threadId }, 2_000).catch(() => null)
+            : null
+          if (!trustedDispatchHook(hooks))
+            issue = '请在同一 Codex 配置的 /hooks 中确认信任 Agnes 内置钩子，再重新打开此会话。'
+        }
+        if (this.active !== active || this.closed) return
+        if (issue && mode === 'force') throw new Error(`Agnes 强制派遣未启动：${issue}`)
+        if (issue && issue !== this.dispatchNotice)
+          this.ctx.emit({
+            type: 'item_completed',
+            item: {
+              kind: 'notice',
+              id: `cx-agnes-${Date.now()}-${++this.noticeSeq}`,
+              level: 'warn',
+              text: `Agnes 派遣评估不可用，本次保持 Codex 默认派遣。${issue}`,
+              detail: null,
+            },
+          })
+        this.dispatchNotice = issue
+      }
+      if (this.active !== active || this.closed) return
       let evaluatorStatus = !advisor?.evaluator
         ? '未选择评估模型'
         : !available.includes(advisor.evaluator)
@@ -1212,7 +1349,7 @@ export class CodexSession implements EngineSession {
       let recommendation: string | null = null
       let sent = false
       let attribution: AgnesAttribution | undefined
-      if (advisor && workerConfigured && text.trim() && !text.trimStart().startsWith('/')) {
+      if (advisor && !advisor.dispatchMode && workerConfigured && text.trim() && !text.trimStart().startsWith('/')) {
         const isCurrent = (latest: ReturnType<typeof currentAdvisor>) =>
           !!latest &&
           latest.evaluator === advisor.evaluator &&
@@ -1318,7 +1455,12 @@ export class CodexSession implements EngineSession {
         if (this.active !== active || this.closed) return
       }
       const follow = follows()
-      if ((follow || advisor?.evaluator) && text.trim() && !text.trimStart().startsWith('/')) {
+      if (
+        !advisor?.dispatchMode &&
+        (follow || advisor?.evaluator) &&
+        text.trim() &&
+        !text.trimStart().startsWith('/')
+      ) {
         const reason = !currentAdvisor()
           ? '未开启 Agnes'
           : !workerConfigured
@@ -2105,6 +2247,8 @@ export class CodexSession implements EngineSession {
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
     active.advisorAbort?.abort()
+    this.dispatchAbort.abort()
+    this.dispatchAbort = new AbortController()
     this.translator.setAgnesAttribution(undefined)
     if (this.speedNext !== null) {
       this.settings = {
@@ -2484,6 +2628,8 @@ export class CodexSession implements EngineSession {
 
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    this.dispatchBridge?.close()
+    this.dispatchBridge = undefined
     // 还在启动（opening）时线程 id 还没拿到，但进程可能马上就接上记录里的线程：按记录里的登记
     const thread =
       this.proc?.alive || this.opening ? (this.threadId ?? this.ctx.record().engineSessionId ?? null) : null

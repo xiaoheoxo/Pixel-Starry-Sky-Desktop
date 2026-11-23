@@ -1829,6 +1829,72 @@ describe('Codex app-server adapter', () => {
     )
     expect(messages().find(m => m.method === 'turn/start')?.params.model).toBe('fake-codex')
   })
+  it('does not evaluate ordinary messages in dispatch mode; evaluates the delegated task on the callback', async () => {
+    const { session, adapter } = setup(60_000, {
+      env: { FAKE_CODEX_PROVIDER: 'openai', FAKE_AGNES_DISPATCH_TRUSTED: '1' },
+      launch: {
+        subagentAdvisor: {
+          evaluator: 'fake-plain',
+          dispatchMode: 'force',
+          models: [null, 'fake-plain', null],
+        },
+      },
+    })
+    const evaluate = vi
+      .spyOn(adapter, 'oneShot')
+      .mockResolvedValue({ model: 'fake-plain', text: '{"difficulty":"medium"}', usage: null })
+    await host!.send(session.id, 'ordinary parent message')
+    await wait(
+      () => host!.open(session.id).items.some(i => i.kind === 'turn_stats') && host!.open(session.id).state === 'idle',
+    )
+    expect(evaluate).not.toHaveBeenCalled()
+    await host!.send(session.id, 'test native delegation')
+    await wait(() =>
+      host!
+        .open(session.id)
+        .items.some(i => i.kind === 'assistant' && i.text.includes('dispatch decision: fake-plain')),
+    )
+    expect(evaluate).toHaveBeenCalledOnce()
+    const text = evaluate.mock.calls[0][0].prompt
+    expect(text).toContain('Review the tiny parser only')
+    expect(text).not.toContain('ordinary parent message')
+    expect(text).not.toContain('test native delegation')
+  })
+
+  it('uses configured local rules at dispatch without calling any remote evaluator', async () => {
+    const { session, adapter } = setup(60_000, {
+      env: { FAKE_CODEX_PROVIDER: 'openai', FAKE_AGNES_DISPATCH_TRUSTED: '1' },
+      launch: {
+        subagentAdvisor: {
+          evaluator: null,
+          dispatchMode: 'force',
+          models: ['fake-plain', 'fake-plain', 'fake-plain', 'fake-plain'],
+        },
+      },
+    })
+    const evaluate = vi.spyOn(adapter, 'oneShot')
+    await host!.send(session.id, 'test native delegation')
+    await wait(() =>
+      host!
+        .open(session.id)
+        .items.some(i => i.kind === 'assistant' && i.text.includes('dispatch decision: fake-plain')),
+    )
+    expect(evaluate).not.toHaveBeenCalled()
+  })
+
+  it('refuses an Agnes force-mode turn when the native dispatch hook is not trusted', async () => {
+    const { session, messages } = setup(60_000, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: {
+        subagentAdvisor: { evaluator: 'fake-plain', dispatchMode: 'force', models: [null, 'fake-plain', null] },
+      },
+    })
+    await host!.send(session.id, 'ordinary parent message')
+    await wait(() =>
+      host!.open(session.id).items.some(i => i.kind === 'notice' && i.text.includes('Agnes 强制派遣未启动')),
+    )
+    expect(messages().some(m => m.method === 'turn/start')).toBe(false)
+  })
   it('aborts Agnes when the user stops and does not start the cancelled main turn', async () => {
     const { session, messages, adapter } = setup(50, {
       env: { FAKE_CODEX_PROVIDER: 'openai' },
