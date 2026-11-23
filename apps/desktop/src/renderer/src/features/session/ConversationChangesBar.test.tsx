@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Item } from '@pixelsky/protocol'
@@ -38,4 +39,16 @@ it('uses exactly one button and a hover preview for the active turn, even for a 
 it('removes the button and preview as soon as the turn ends', () => {
   expect(render(history, false)).toBe('')
   expect(render([], true)).toBe('')
+})
+
+it('does not share a reconciliation key with the composer when the streaming footer changes', () => {
+  const source = readFileSync(new URL('./SessionView.tsx', import.meta.url), 'utf8')
+  const footer =
+    [...source.matchAll(/<ComposerArea>([\s\S]*?)<\/ComposerArea>/g)].find(([, body]) =>
+      body?.includes('<ConversationChangesBar'),
+    )?.[1] ?? ''
+  const bar = footer.match(/<ConversationChangesBar\b[^>]*>/)?.[0]
+  const composer = footer.match(/<Composer\s[^>]*>/)?.[0]
+  expect(bar).toContain('key={`conversation-changes:${sessionId}`}')
+  expect(composer).toContain('key={sessionId}')
 })

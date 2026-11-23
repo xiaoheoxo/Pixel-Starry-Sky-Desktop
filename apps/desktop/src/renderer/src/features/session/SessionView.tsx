@@ -757,7 +757,7 @@ function LiveSessionView({
                     )}
                     {active && !readOnly && snapshot && (
                       <ConversationChangesBar
-                        key={sessionId}
+                        key={`conversation-changes:${sessionId}`}
                         sessionId={sessionId}
                         items={snapshot.items}
                         cwd={snapshot.record.cwd ?? null}
