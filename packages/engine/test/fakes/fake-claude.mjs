@@ -20,6 +20,8 @@
 // 环境变量：
 //   FAKE_CLAUDE_LOG       每次启动把命令行参数追加到这个文件（一行一个 JSON 数组）
 //                         另外把收到的控制请求类型按顺序写到 .control.log（一行一个）
+//   FAKE_CLAUDE_MODE_LOG  收到 set_permission_mode 时把模式名追加到这个文件（一行一个）
+//   FAKE_CLAUDE_MODE_STATUS 回完 set_permission_mode 多少毫秒后才报 status；off 不报；不设就马上报
 //   FAKE_CLAUDE_MODEL_LOG 收到 set_model 时把模型名追加到这个文件（一行一个）
 //   FAKE_CLAUDE_PROJECTS  收到消息时在这里创建会话记录文件（模拟 ~/.claude/projects）
 //   FAKE_CLAUDE_QUOTA     get_usage（账号额度，docs/ui/account-quota.md）：1 回 fixtures/claude-get-usage.json 的实测样本；
@@ -963,8 +965,13 @@ function handle(msg) {
         return
       case 'set_permission_mode':
         permissionMode = r.mode
+        if (process.env.FAKE_CLAUDE_MODE_LOG) appendFileSync(process.env.FAKE_CLAUDE_MODE_LOG, `${r.mode}\n`)
         respond(msg.request_id, { mode: r.mode })
-        out({ type: 'system', subtype: 'status', status: null, permissionMode })
+        // 和真实 CLI 一样：先回应答，再单独发一条 status
+        const report = () => out({ type: 'system', subtype: 'status', status: null, permissionMode: r.mode })
+        const delay = process.env.FAKE_CLAUDE_MODE_STATUS
+        if (!delay) report()
+        else if (delay !== 'off') setTimeout(report, Number(delay))
         return
       case 'rewind_files': {
         const sim = process.env.FAKE_CLAUDE_REWIND ? JSON.parse(process.env.FAKE_CLAUDE_REWIND) : null

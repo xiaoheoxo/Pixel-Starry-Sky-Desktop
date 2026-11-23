@@ -64,6 +64,9 @@ export const TO_CLAUDE_MODE: Record<PermissionMode, string> = {
   full: 'bypassPermissions',
 }
 
+/** 权限切换的应答之后最多等它的 status 多久 */
+const MODE_ECHO_MS = 1000
+
 /**
  * 固定参数：
  * - stream-json 双向 + 流式增量；
@@ -308,6 +311,12 @@ export class ClaudeSession implements EngineSession {
   private lateSettings: Partial<SessionSettings> | null = null
   /** 当前进程已经用上的设置：每轮开始前 update 只发变了的（以前每轮把 7~8 项设置串行重发一遍，Fast 还要多一次 initialize） */
   private applied: Partial<SessionSettings> = {}
+  /** 改设置排队：前一次发完才轮到后一次，去重按那时进程真正用上的比 */
+  private updates: Promise<void> = Promise.resolve()
+  /** 还没换上的权限切换（排着队的、等应答的）有几次：这期间进程报的模式都早于用户最后选的，不写回记录 */
+  private modeChanges = 0
+  /** 自己发出去、status 还没到的权限切换（CLI 先回应答、再单独报 status），按顺序 */
+  private modeEchoes: { mode: PermissionMode; until: number }[] = []
   /** 跨引擎接力还没注入的聊天：启动进程时写进会话记录；进程已经在跑或写不进去时，发消息时退回文字交接 */
   private seed: ChatSeed | null = null
   private readonly translator: ClaudeTranslator
@@ -336,10 +345,14 @@ export class ClaudeSession implements EngineSession {
         if (id !== ctx.record().engineSessionId) ctx.setEngineSessionId(id)
       },
       permissionMode: mode => {
+        // 自己那次切换的回声，不是引擎换了模式：晚到时不能盖掉后选的，也不能当成批准了计划
+        this.modeEchoes = this.modeEchoes.filter(e => e.until > Date.now())
+        const echo = this.modeEchoes.findIndex(e => e.mode === mode)
+        if (echo >= 0) return void this.modeEchoes.splice(0, echo + 1)
         // 进程报的就是它现在用的模式（批准计划后 Claude Code 自己切回原模式）：记成已用上，用户再选回原来的才会发出去
         this.applied = { ...this.applied, permissionMode: mode }
         // 启动期间用户新选的模式还没补给进程：进程报的是启动时的旧模式，不能写回去盖掉
-        if (this.lateSettings?.permissionMode) return
+        if (this.lateSettings?.permissionMode || this.modeChanges > 0) return
         if (mode !== ctx.record().permissionMode) ctx.setPermissionMode(mode)
       },
       fastState: (state, blocked) => this.onFastState(state, blocked),
@@ -773,6 +786,7 @@ export class ClaudeSession implements EngineSession {
     this.proc = proc
     this.procViaGateway = launchedViaGateway
     this.applied = launched
+    this.modeEchoes = []
     if (sid !== rec.engineSessionId) this.ctx.setEngineSessionId(sid)
     if (rec.pendingRewind) this.ctx.clearPendingRewind?.()
     if (rec.pendingFork) this.ctx.clearPendingFork?.()
@@ -1020,9 +1034,29 @@ export class ClaudeSession implements EngineSession {
       if (this.starting) this.lateSettings = { ...this.lateSettings, ...patch }
       return
     }
+    let waiting = patch.permissionMode !== undefined
+    if (waiting) this.modeChanges++
+    const modeSettled = (): void => {
+      if (waiting) this.modeChanges--
+      waiting = false
+    }
+    const run = this.updates.then(() => this.applyUpdate(proc, patch, strict, modeSettled)).finally(modeSettled)
+    this.updates = run.catch(() => undefined)
+    return run
+  }
+
+  private async applyUpdate(
+    proc: ClaudeProcess,
+    patch: Partial<SessionSettings>,
+    strict: boolean,
+    modeSettled: () => void,
+  ): Promise<void> {
+    // 排队时进程换了或退了：新进程按记录启动，记录里已经是新设置
+    if (this.proc !== proc || !proc.alive) return
     const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
     const applied = this.applied as Record<string, unknown>
     patch = Object.fromEntries(Object.entries(patch).filter(([key, value]) => !same(applied[key], value)))
+    if (!patch.permissionMode) modeSettled()
     if ('model' in patch || 'platform' in patch) this.translator.context.reset(false, true)
     try {
       if ('model' in patch)
@@ -1030,8 +1064,12 @@ export class ClaudeSession implements EngineSession {
           model: patch.model ? claudeModelName(patch.model, this.deps.env) : 'default',
         })
       if (patch.effort) await proc.request('apply_flag_settings', { settings: { effortLevel: patch.effort } })
-      if (patch.permissionMode)
-        await proc.request('set_permission_mode', { mode: TO_CLAUDE_MODE[patch.permissionMode] })
+      const { permissionMode, ...rest } = patch
+      if (permissionMode) {
+        await this.setMode(proc, permissionMode)
+        modeSettled()
+        patch = rest
+      }
       if (patch.ultracode !== undefined) {
         await proc.request('apply_flag_settings', { settings: { ultracode: patch.ultracode } })
       }
@@ -1046,6 +1084,20 @@ export class ClaudeSession implements EngineSession {
     } catch (err) {
       if (strict) throw err
       this.translator.notice('warn', `设置没能立即生效：${(err as Error).message}`)
+    }
+  }
+
+  private async setMode(proc: ClaudeProcess, mode: PermissionMode): Promise<void> {
+    const echo = { mode, until: Infinity }
+    this.modeEchoes.push(echo)
+    try {
+      await proc.request('set_permission_mode', { mode: TO_CLAUDE_MODE[mode] })
+      this.applied = { ...this.applied, permissionMode: mode }
+      // status 紧跟着应答；CLI 没报的话过一会儿就不等了，免得把引擎之后自己换的模式当成回声
+      echo.until = Date.now() + MODE_ECHO_MS
+    } catch (err) {
+      this.modeEchoes = this.modeEchoes.filter(e => e !== echo)
+      throw err
     }
   }
 

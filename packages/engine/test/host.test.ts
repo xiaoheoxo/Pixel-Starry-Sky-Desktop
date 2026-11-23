@@ -1460,6 +1460,84 @@ describe('Claude 每轮开始前只发变了的设置', () => {
   })
 })
 
+describe('连着切权限：停在最后选的那档（docs/ui/plan-mode-split.md §10）', () => {
+  const CLAUDE: Record<string, string> = {
+    ask: 'default',
+    edits: 'acceptEdits',
+    plan: 'plan',
+    full: 'bypassPermissions',
+  }
+  const start = async (status?: string) => {
+    const log = join(root, 'modes.log')
+    const host = makeHost(60_000, {
+      FAKE_CLAUDE_MODE_LOG: log,
+      ...(status ? { FAKE_CLAUDE_MODE_STATUS: status } : {}),
+    })
+    const { record } = setup(host)
+    const turn = async (text: string): Promise<void> => {
+      const done = turnsDone(record.id)
+      await host.send(record.id, text)
+      await waitFor(() => turnsDone(record.id) > done && host.open(record.id).state === 'idle')
+    }
+    await turn('你好')
+    return {
+      host,
+      id: record.id,
+      turn,
+      rec: () => host.open(record.id).record,
+      /** 进程依次收到的模式 */
+      sent: () => {
+        try {
+          return readFileSync(log, 'utf8').split('\n').filter(Boolean)
+        } catch {
+          return []
+        }
+      },
+    }
+  }
+  const settle = (ms = 300) => new Promise(r => setTimeout(r, ms))
+  type Mode = SessionRecord['permissionMode']
+
+  // 上一次还没应答就切下一次：按顺序都发，切回原来那档也不能当成没变丢掉
+  it.each<[Mode[]]>([[['full', 'ask']], [['plan', 'ask']], [['full', 'ask', 'plan']], [['edits', 'full', 'plan']]])(
+    '不等应答连着切 %j',
+    async modes => {
+      const { host, id, rec, sent } = await start()
+      await Promise.all(modes.map(permissionMode => host.update(id, { permissionMode })))
+      await settle()
+      expect(sent()).toEqual(modes.map(m => CLAUDE[m]))
+      expect(rec().permissionMode).toBe(modes.at(-1))
+    },
+  )
+
+  // 应答到了、status 还没到就切下一次：晚到的 status 是自己那次切换的回声，不能盖掉后选的、也不能当成引擎批准了计划
+  it.each<[Mode[], Mode | null]>([
+    [['full', 'ask', 'plan'], 'ask'],
+    [['edits', 'full', 'plan'], 'full'],
+    [['plan', 'full', 'plan'], 'full'],
+    [['plan', 'full', 'ask'], null],
+  ])('status 晚到时连着切 %j', async (modes, planReturn) => {
+    const { host, id, rec, sent } = await start('40')
+    for (const permissionMode of modes) await host.update(id, { permissionMode })
+    await settle()
+    expect(sent()).toEqual(modes.map(m => CLAUDE[m]))
+    expect(rec()).toMatchObject({ permissionMode: modes.at(-1), planReturn })
+  })
+
+  it('CLI 不报 status：之后引擎自己退出计划照样认', async () => {
+    const { host, id, rec, turn, sent } = await start('off')
+    await host.update(id, { permissionMode: 'full' })
+    await host.update(id, { permissionMode: 'ask' })
+    await host.update(id, { permissionMode: 'plan', planReturn: 'full' })
+    // 过了等回声的时间，引擎报「每步问我」就不再当成上面那次切换的回声
+    await settle(1200)
+    await turn('切回')
+    await waitFor(() => sent().length === 4)
+    expect(rec()).toMatchObject({ permissionMode: 'full', planReturn: null })
+    expect(sent().at(-1)).toBe('bypassPermissions')
+  })
+})
+
 describe('先出计划：批准后回到进计划前那档（docs/ui/plan-mode-split.md）', () => {
   const modes = (): string[] => {
     try {
