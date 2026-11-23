@@ -1749,7 +1749,7 @@ describe('Codex app-server adapter', () => {
     expect(injected.content[0].text).not.toContain('reasoning_effort=')
     expect(launches().at(-1)!.join(' ')).not.toContain('agents.default_subagent')
     expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
-      '未选择评估模型；本地规则建议 fake-plain',
+      '已回退至本地规则。原因：未选择评估模型；建议 fake-plain',
     )
     expect(messages().find(m => m.method === 'turn/start')?.params.model).toBe('fake-codex')
   })
@@ -1761,12 +1761,12 @@ describe('Codex app-server adapter', () => {
     expect(evaluate).not.toHaveBeenCalled()
     expect(messages().some(m => m.method === 'thread/inject_items')).toBe(false)
     expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
-      'Agnes：未开启 Agnes',
+      'Agnes：已回退至 Codex 常规派遣（未发送 Agnes 建议）。原因：未开启 Agnes',
     )
   })
   it.each([
     ['{"difficulty":"medium"}', '已完成评估（fake-plain）；评估建议 fake-plain'],
-    ['not valid', '评估返回无效结果；本地规则建议 fake-plain'],
+    ['not valid', '已回退至本地规则。原因：评估返回无效结果；建议 fake-plain'],
   ])('reports evaluator outcome before claiming adoption: %s', async (text, expected) => {
     const { session, adapter } = setup(50, {
       env: { FAKE_CODEX_PROVIDER: 'openai' },
@@ -1781,6 +1781,29 @@ describe('Codex app-server adapter', () => {
     expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
       expected + '，已交给主模型，尚未确认采用',
     )
+  })
+  it('warns that dispatch fell back to Codex when the server could not inject the Agnes advice', async () => {
+    const { session, adapter, messages } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai', FAKE_CODEX_INJECT_FAIL: '1' },
+      launch: {
+        subagentAdvisor: { evaluator: 'fake-plain', models: [null, 'fake-plain', null] },
+      },
+    })
+    vi.spyOn(adapter, 'oneShot').mockResolvedValue({
+      model: 'fake-plain',
+      text: '{"difficulty":"medium"}',
+      usage: null,
+    })
+    await host!.send(session.id, '整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(host!.open(session.id).items).toContainEqual(
+      expect.objectContaining({
+        kind: 'notice',
+        level: 'warn',
+        text: 'Agnes：已回退至 Codex 常规派遣（未发送 Agnes 建议）。原因：建议 fake-plain 未能交给主模型',
+      }),
+    )
+    expect(messages().find(m => m.method === 'turn/start')?.params.model).toBe('fake-codex')
   })
   it('aborts Agnes when the user stops and does not start the cancelled main turn', async () => {
     const { session, messages, adapter } = setup(50, {

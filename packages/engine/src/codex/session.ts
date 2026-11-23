@@ -1269,7 +1269,12 @@ export class CodexSession implements EngineSession {
         if (this.active !== active || this.closed) return
         const latest = currentAdvisor()
         if (latest) {
-          if (!isCurrent(latest)) estimate = null
+          if (!isCurrent(latest)) {
+            estimate = null
+            evaluatorStatus = '评估期间设置已变更'
+          } else if (estimate?.model === null) {
+            evaluatorStatus += '，未推荐模型'
+          }
           const follow = follows() && routeSupportsAdvice
           if (follow || !follows()) {
             recommendation = selectedAdvisorModel(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
@@ -1315,24 +1320,31 @@ export class CodexSession implements EngineSession {
         }
         if (this.active !== active || this.closed) return
       }
-      if (follows() && text.trim() && !text.trimStart().startsWith('/')) {
-        const status = !currentAdvisor()
+      const follow = follows()
+      if ((follow || advisor?.evaluator) && text.trim() && !text.trimStart().startsWith('/')) {
+        const reason = !currentAdvisor()
           ? '未开启 Agnes'
           : !workerConfigured
             ? '没有已配置且在当前目录中可用的候选模型'
-            : !routeSupportsAdvice
+            : follow && !routeSupportsAdvice
               ? '当前线路不支持 Agnes 跟随'
               : !recommendation
                 ? `${evaluatorStatus}；本轮没有推荐模型`
-                : sent
-                  ? `${evaluatorStatus}；${attribution ? '评估' : '本地规则'}建议 ${recommendation}，已交给主模型，尚未确认采用`
-                  : `${evaluatorStatus}；建议 ${recommendation} 未能交给主模型`
+                : !sent
+                  ? `建议 ${recommendation} 未能交给主模型`
+                  : null
+        const fallback = reason !== null || !attribution
+        const status = reason
+          ? `已回退至 Codex 常规派遣（未发送 Agnes 建议）。原因：${reason}`
+          : !attribution
+            ? `已回退至本地规则。原因：${evaluatorStatus}；建议 ${recommendation}，已交给主模型，尚未确认采用`
+            : `${evaluatorStatus}；评估建议 ${recommendation}，已交给主模型，尚未确认采用`
         this.ctx.emit({
           type: 'item_completed',
           item: {
             kind: 'notice',
             id: `cx-agnes-${Date.now()}-${++this.noticeSeq}`,
-            level: 'info',
+            level: fallback ? 'warn' : 'info',
             text: `Agnes：${status}`,
             detail: null,
           },
