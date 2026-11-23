@@ -54,18 +54,19 @@ export function IdleReleaseSettings() {
       description={tr('idleRelease.description')}
       hint={error ? translateMessage(error) : tr('idleRelease.hint')}
       hintTone={error ? 'danger' : undefined}
-    >
-      <Segmented
-        label={tr('idleRelease.mode')}
-        value={toChoice(minutes)}
-        options={[
-          { value: '5', label: tr('idleRelease.min5') },
-          { value: '10', label: tr('idleRelease.min10') },
-          { value: '30', label: tr('idleRelease.min30') },
-          { value: 'off', label: tr('idleRelease.off') },
-        ]}
-        onChange={change}
-      />
-    </SettingRow>
+      control={
+        <Segmented
+          label={tr('idleRelease.mode')}
+          value={toChoice(minutes)}
+          options={[
+            { value: '5', label: tr('idleRelease.min5') },
+            { value: '10', label: tr('idleRelease.min10') },
+            { value: '30', label: tr('idleRelease.min30') },
+            { value: 'off', label: tr('idleRelease.off') },
+          ]}
+          onChange={change}
+        />
+      }
+    />
   )
 }

@@ -35,8 +35,10 @@ export function AccentSettings() {
               data-accent-swatch={value}
               onClick={() => setAccent(value)}
               className={cn(
-                'flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-meta hover:border-line-strong',
-                active ? 'border-accent-line bg-accent-soft text-accent-fg' : 'border-line-card text-fg-muted',
+                'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-meta transition-colors',
+                active
+                  ? 'border-accent-line bg-accent-soft text-accent-fg'
+                  : 'border-transparent bg-subtle/75 text-fg-muted hover:bg-hover hover:text-fg',
               )}
             >
               <span aria-hidden className="inline-flex size-4 items-center justify-center rounded-full bg-accent">

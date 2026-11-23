@@ -49,7 +49,7 @@ function ChannelCard({
     channel.status === 'online' && channel.bound ? 'im.status.bound' : (`im.status.${channel.status}` as TranslationKey)
 
   return (
-    <div data-im-channel={platform} className="rounded-md border border-line p-4">
+    <div data-im-channel={platform} className="rounded-xl bg-surface p-5 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-ui font-medium text-fg">{t(wechat ? 'im.wechat.name' : 'im.qq.name')}</span>
         <PackBadge tone={tone}>{t(statusKey)}</PackBadge>
@@ -256,57 +256,61 @@ export function ImSection() {
 
       {state && (
         <>
-          <div className="mb-4">
-            <div className="text-ui font-medium text-fg">{t('im.dest')}</div>
-            <div role="radiogroup" aria-label={t('im.dest')} className="mt-2 grid gap-2 sm:grid-cols-2">
-              {DESTINATIONS.map(d => (
-                <button
-                  key={d.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={state.target === d.value}
-                  data-im-dest={d.value}
-                  className={cn(
-                    'rounded-md border p-3 text-left hover:bg-hover',
-                    state.target === d.value ? 'border-accent-line bg-subtle' : 'border-line',
-                  )}
-                  onClick={() => void act(() => bridge?.setTarget(d.value, null))}
-                >
-                  <span className="block text-ui font-medium text-fg">{t(d.title)}</span>
-                  <span className="mt-0.5 block text-meta text-fg-muted">{t(d.desc)}</span>
-                </button>
-              ))}
+          <div className="mb-5 rounded-xl bg-surface p-5 shadow-sm">
+            <div className="mb-4">
+              <div className="text-ui font-medium text-fg">{t('im.dest')}</div>
+              <div role="radiogroup" aria-label={t('im.dest')} className="mt-2 grid gap-2 sm:grid-cols-2">
+                {DESTINATIONS.map(d => (
+                  <button
+                    key={d.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={state.target === d.value}
+                    data-im-dest={d.value}
+                    className={cn(
+                      'cursor-pointer rounded-lg border p-3 text-left transition-colors hover:bg-hover',
+                      state.target === d.value
+                        ? 'border-accent-line bg-accent-soft/35'
+                        : 'border-transparent bg-subtle/65',
+                    )}
+                    onClick={() => void act(() => bridge?.setTarget(d.value, null))}
+                  >
+                    <span className="block text-ui font-medium text-fg">{t(d.title)}</span>
+                    <span className="mt-0.5 block text-meta text-fg-muted">{t(d.desc)}</span>
+                  </button>
+                ))}
+              </div>
             </div>
+            {state.target === 'session' ? (
+              <div>
+                <div className="text-ui font-medium text-fg">{t('im.project')}</div>
+                <p className="mt-0.5 mb-2 text-meta text-fg-muted">{t('im.projectHint')}</p>
+                <Select
+                  label={t('im.project')}
+                  value={state.projectId ?? ''}
+                  placeholder={t('im.projectNone')}
+                  options={state.projects.map(p => ({ value: p.id, label: p.name }))}
+                  onChange={id => void act(() => bridge?.setProject(id))}
+                />
+              </div>
+            ) : (
+              <div>
+                <div className="text-ui font-medium text-fg">{t('im.channel')}</div>
+                <p className="mt-0.5 mb-2 text-meta text-fg-muted">{t('im.channelHint')}</p>
+                <Select
+                  label={t('im.channel')}
+                  value={state.channelId ?? ''}
+                  placeholder={t('im.channelNone')}
+                  options={state.targets.map(c => ({ value: c.id, label: `# ${c.name}` }))}
+                  onChange={id => void act(() => bridge?.setTarget('channel', id))}
+                />
+                {selected && <MemberList channel={selected} />}
+              </div>
+            )}
+            <p className="mt-3 text-meta text-fg-faint">
+              {t(state.target === 'channel' ? 'im.rulesChannel' : 'im.rules')}
+            </p>
           </div>
-          {state.target === 'session' ? (
-            <div className="mb-4">
-              <div className="text-ui font-medium text-fg">{t('im.project')}</div>
-              <p className="mt-1 mb-2 text-meta text-fg-muted">{t('im.projectHint')}</p>
-              <Select
-                label={t('im.project')}
-                value={state.projectId ?? ''}
-                placeholder={t('im.projectNone')}
-                options={state.projects.map(p => ({ value: p.id, label: p.name }))}
-                onChange={id => void act(() => bridge?.setProject(id))}
-              />
-            </div>
-          ) : (
-            <div className="mb-4">
-              <div className="text-ui font-medium text-fg">{t('im.channel')}</div>
-              <p className="mt-1 mb-2 text-meta text-fg-muted">{t('im.channelHint')}</p>
-              <Select
-                label={t('im.channel')}
-                value={state.channelId ?? ''}
-                placeholder={t('im.channelNone')}
-                options={state.targets.map(c => ({ value: c.id, label: `# ${c.name}` }))}
-                onChange={id => void act(() => bridge?.setTarget('channel', id))}
-              />
-              {selected && <MemberList channel={selected} />}
-            </div>
-          )}
-          <p className="mb-4 text-meta text-fg-muted">
-            {t(state.target === 'channel' ? 'im.rulesChannel' : 'im.rules')}
-          </p>
           {error && (
             <p role="alert" className="mb-4 text-meta text-danger">
               {error}

@@ -2,7 +2,7 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../i18n/core'
 import { useEffect, useState } from 'react'
 import { Button, cn } from '@/ui'
-import { GroupTitle, SectionTitle, SettingRow, Toggle } from './SettingRow'
+import { SectionTitle, SettingGroup, SettingRow, Toggle } from './SettingRow'
 import { setNotificationPrefs, useNotificationPrefs } from './notifications'
 import { inSchedule, nextMorning, type NotificationPrefs } from '../notifications/policy'
 
@@ -65,103 +65,111 @@ export function NotificationsSection() {
       {supported === false && (
         <p className="mb-4 rounded-md bg-subtle px-3 py-2 text-meta text-danger">{t('notifications.unsupported')}</p>
       )}
-      <GroupTitle>{tr('notifications.events')}</GroupTitle>
-      {row('completed')}
-      {row('failed')}
-      {row('waiting')}
-      <GroupTitle>{tr('notifications.when')}</GroupTitle>
-      <SettingRow
-        title={tr('notifications.unfocused.title')}
-        description={tr('notifications.unfocused.desc')}
-        control={
-          <Toggle
-            label={tr('notifications.unfocused.title')}
-            checked={prefs.unfocusedOnly}
-            onChange={value => setNotificationPrefs({ unfocusedOnly: value })}
-          />
-        }
-      />
-      <SettingRow
-        title={tr('notifications.sound.title')}
-        description={tr('notifications.sound.desc')}
-        control={
-          <Toggle
-            label={tr('notifications.sound.title')}
-            checked={prefs.sound}
-            onChange={value => setNotificationPrefs({ sound: value })}
-          />
-        }
-      />
-      <SettingRow title={tr('notifications.dnd.title')} description={tr('notifications.dnd.desc')}>
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn('mr-1 text-meta', dndActive ? 'font-medium text-warn' : 'text-fg-faint')}
-            aria-live="polite"
-          >
-            {dndActive ? t('notifications.dnd.until', { time: time(prefs.dndUntil!) }) : t('notifications.dnd.off')}
-          </span>
-          <Button onClick={() => setNotificationPrefs({ dndUntil: Date.now() + 3600_000 })}>
-            {t('notifications.dnd.hour')}
-          </Button>
-          <Button onClick={() => setNotificationPrefs({ dndUntil: nextMorning(new Date()) })}>
-            {t('notifications.dnd.morning')}
-          </Button>
-          {dndActive && (
-            <Button variant="ghost" onClick={() => setNotificationPrefs({ dndUntil: null })}>
-              {t('notifications.dnd.end')}
+
+      <SettingGroup title={tr('notifications.events')}>
+        {row('completed')}
+        {row('failed')}
+        {row('waiting')}
+      </SettingGroup>
+
+      <SettingGroup title={tr('notifications.when')}>
+        <SettingRow
+          title={tr('notifications.unfocused.title')}
+          description={tr('notifications.unfocused.desc')}
+          control={
+            <Toggle
+              label={tr('notifications.unfocused.title')}
+              checked={prefs.unfocusedOnly}
+              onChange={value => setNotificationPrefs({ unfocusedOnly: value })}
+            />
+          }
+        />
+        <SettingRow
+          title={tr('notifications.sound.title')}
+          description={tr('notifications.sound.desc')}
+          control={
+            <Toggle
+              label={tr('notifications.sound.title')}
+              checked={prefs.sound}
+              onChange={value => setNotificationPrefs({ sound: value })}
+            />
+          }
+        />
+        <SettingRow
+          title={tr('notifications.dnd.title')}
+          description={tr('notifications.dnd.desc')}
+          control={
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={cn('mr-1 text-meta', dndActive ? 'font-medium text-warn' : 'text-fg-faint')}
+                aria-live="polite"
+              >
+                {dndActive ? t('notifications.dnd.until', { time: time(prefs.dndUntil!) }) : t('notifications.dnd.off')}
+              </span>
+              <Button onClick={() => setNotificationPrefs({ dndUntil: Date.now() + 3600_000 })}>
+                {t('notifications.dnd.hour')}
+              </Button>
+              <Button onClick={() => setNotificationPrefs({ dndUntil: nextMorning(new Date()) })}>
+                {t('notifications.dnd.morning')}
+              </Button>
+              {dndActive && (
+                <Button variant="ghost" onClick={() => setNotificationPrefs({ dndUntil: null })}>
+                  {t('notifications.dnd.end')}
+                </Button>
+              )}
+            </div>
+          }
+        />
+        <SettingRow
+          title={tr('notifications.schedule.title')}
+          description={tr('notifications.schedule.desc')}
+          hint={inSchedule(prefs.schedule, new Date(now)) ? tr('notifications.schedule.active') : undefined}
+          control={
+            <Toggle
+              label={tr('notifications.schedule.title')}
+              checked={prefs.schedule.enabled}
+              onChange={value => setNotificationPrefs({ schedule: { ...prefs.schedule, enabled: value } })}
+            />
+          }
+        >
+          <div className={cn('flex flex-wrap items-center gap-3', !prefs.schedule.enabled && 'opacity-55')}>
+            <label className="flex items-center gap-2 text-meta text-fg-muted">
+              {t('notifications.schedule.from')}
+              <input
+                type="time"
+                value={prefs.schedule.from}
+                disabled={!prefs.schedule.enabled}
+                className={TIME}
+                onChange={e =>
+                  e.target.value && setNotificationPrefs({ schedule: { ...prefs.schedule, from: e.target.value } })
+                }
+              />
+            </label>
+            <label className="flex items-center gap-2 text-meta text-fg-muted">
+              {t('notifications.schedule.to')}
+              <input
+                type="time"
+                value={prefs.schedule.to}
+                disabled={!prefs.schedule.enabled}
+                className={TIME}
+                onChange={e =>
+                  e.target.value && setNotificationPrefs({ schedule: { ...prefs.schedule, to: e.target.value } })
+                }
+              />
+            </label>
+          </div>
+        </SettingRow>
+        <SettingRow
+          title={tr('notifications.test.title')}
+          description={tr('notifications.test.desc')}
+          hint={sent ? tr('notifications.test.sent') : tr('notifications.focusAssist')}
+          control={
+            <Button disabled={supported === false || !window.pixelsky} onClick={() => void test()}>
+              {t('notifications.test.button')}
             </Button>
-          )}
-        </div>
-      </SettingRow>
-      <SettingRow
-        title={tr('notifications.schedule.title')}
-        description={tr('notifications.schedule.desc')}
-        hint={inSchedule(prefs.schedule, new Date(now)) ? tr('notifications.schedule.active') : undefined}
-        control={
-          <Toggle
-            label={tr('notifications.schedule.title')}
-            checked={prefs.schedule.enabled}
-            onChange={value => setNotificationPrefs({ schedule: { ...prefs.schedule, enabled: value } })}
-          />
-        }
-      >
-        <div className={cn('flex flex-wrap items-center gap-3', !prefs.schedule.enabled && 'opacity-55')}>
-          <label className="flex items-center gap-2 text-meta text-fg-muted">
-            {t('notifications.schedule.from')}
-            <input
-              type="time"
-              value={prefs.schedule.from}
-              disabled={!prefs.schedule.enabled}
-              className={TIME}
-              onChange={e =>
-                e.target.value && setNotificationPrefs({ schedule: { ...prefs.schedule, from: e.target.value } })
-              }
-            />
-          </label>
-          <label className="flex items-center gap-2 text-meta text-fg-muted">
-            {t('notifications.schedule.to')}
-            <input
-              type="time"
-              value={prefs.schedule.to}
-              disabled={!prefs.schedule.enabled}
-              className={TIME}
-              onChange={e =>
-                e.target.value && setNotificationPrefs({ schedule: { ...prefs.schedule, to: e.target.value } })
-              }
-            />
-          </label>
-        </div>
-      </SettingRow>
-      <SettingRow
-        title={tr('notifications.test.title')}
-        description={tr('notifications.test.desc')}
-        hint={sent ? tr('notifications.test.sent') : tr('notifications.focusAssist')}
-        control={
-          <Button disabled={supported === false || !window.pixelsky} onClick={() => void test()}>
-            {t('notifications.test.button')}
-          </Button>
-        }
-      />
+          }
+        />
+      </SettingGroup>
     </section>
   )
 }

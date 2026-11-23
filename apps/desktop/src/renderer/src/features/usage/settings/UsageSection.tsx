@@ -130,7 +130,7 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-3">
+        <div className="flex items-center gap-3 [&_h3]:mb-0">
           <SectionTitle>{tr('nav.TopNav.usage')}</SectionTitle>
           <Segmented
             label={tr('settings.usage.UsageSection.recordSource')}
@@ -139,7 +139,7 @@ export function UsageSection({ onOpenSession }: { onOpenSession: (sessionId: str
             onChange={changeMode}
           />
         </div>
-        <div className="-mt-4 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <Button
             icon={Download}
             disabled={busy || empty || mode !== 'local'}
@@ -335,7 +335,7 @@ function AccountModeBody({
   if (rm.status === 'error') return <ErrorLine>{translateMessage(rm.error)}</ErrorLine>
   if (rm.status === 'loading' || rm.page === null) {
     return (
-      <div className="overflow-hidden rounded-lg border border-line bg-surface p-4 text-meta text-fg-muted tabular-nums">
+      <div className="overflow-hidden rounded-xl bg-surface p-5 text-meta text-fg-muted tabular-nums shadow-sm">
         {tr('settings.usage.UsageSection.loadingAccountRequests')}
       </div>
     )
@@ -389,12 +389,12 @@ function AccountModeBody({
 const errorText = (e: unknown): string => translateMessage((e as Error)?.message ?? String(e))
 
 function ErrorLine({ children }: { children: React.ReactNode }) {
-  return <p className="mb-4 rounded-md border border-line bg-surface px-3 py-2 text-meta text-danger">{children}</p>
+  return <p className="mb-4 rounded-xl bg-surface px-4 py-2.5 text-meta text-danger shadow-sm">{children}</p>
 }
 
 function Panel({ children }: { children: React.ReactNode }) {
   useI18n()
-  return <div className="overflow-hidden rounded-lg border border-line bg-surface p-4">{children}</div>
+  return <div className="overflow-hidden rounded-xl bg-surface p-5 shadow-sm">{children}</div>
 }
 
 function EmptyState({ filtered }: { filtered: boolean }) {

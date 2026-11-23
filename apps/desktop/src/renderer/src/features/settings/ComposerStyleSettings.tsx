@@ -13,20 +13,19 @@ export function ComposerStyleSettings() {
   useI18n()
   const selected = useComposerStyle()
   return (
-    // 不包一层 div：这一行要直接跟在小标题后面，才留得出和别的小标题一样的间距
-    <>
-      <SettingRow
-        title={tr('settings.ComposerStyleSettings.composerStyle')}
-        description={tr('settings.ComposerStyleSettings.chatgptPlacesToolsInside')}
-      >
+    <SettingRow
+      title={tr('settings.ComposerStyleSettings.composerStyle')}
+      description={tr('settings.ComposerStyleSettings.chatgptPlacesToolsInside')}
+      control={
         <Segmented
           label={tr('settings.ComposerStyleSettings.composerStyle')}
           options={OPTIONS}
           value={selected}
           onChange={setComposerStyle}
         />
-      </SettingRow>
-      <div className="mb-5 grid grid-cols-2 gap-3 @max-[640px]:grid-cols-1">
+      }
+    >
+      <div className="grid grid-cols-2 gap-3 @max-[640px]:grid-cols-1">
         {OPTIONS.map(option => (
           <button
             key={option.value}
@@ -35,8 +34,8 @@ export function ComposerStyleSettings() {
             aria-pressed={selected === option.value}
             onClick={() => setComposerStyle(option.value)}
             className={cn(
-              'rounded-lg border p-3 text-left hover:border-line-strong',
-              selected === option.value ? 'border-accent-line bg-accent-soft/40' : 'border-line-card bg-subtle',
+              'cursor-pointer rounded-lg border p-3 text-left transition-colors hover:bg-hover',
+              selected === option.value ? 'border-accent-line bg-accent-soft/35' : 'border-transparent bg-subtle/65',
             )}
           >
             <div className="mb-2 flex items-center justify-between text-ui font-medium text-fg">
@@ -69,7 +68,7 @@ export function ComposerStyleSettings() {
           </button>
         ))}
       </div>
-    </>
+    </SettingRow>
   )
 }
 function PreviewTools({ send = false }: { send?: boolean }) {

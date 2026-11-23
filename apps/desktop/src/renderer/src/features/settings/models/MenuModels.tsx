@@ -117,7 +117,7 @@ export function MenuModels({
           placeholder={tr('menuModels.search')}
           aria-label={tr('menuModels.search')}
           spellCheck={false}
-          className="h-8 min-w-44 flex-1 rounded-md border border-line bg-subtle px-2.5 text-meta text-fg outline-none placeholder:text-fg-faint focus:border-line-strong focus:bg-surface"
+          className="h-8 min-w-44 flex-1 rounded-lg border border-transparent bg-surface px-2.5 text-meta text-fg shadow-sm outline-none placeholder:text-fg-faint focus:border-accent-line"
         />
         <div role="tablist" className="inline-flex rounded-md bg-subtle p-0.5">
           {(
@@ -163,7 +163,7 @@ export function MenuModels({
           </button>
         )}
       </div>
-      <div className="overflow-hidden rounded-lg border border-line">
+      <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
         {sections.length === 0 && (
           <div className="px-4 py-3 text-center text-meta text-fg-faint">
             {tr('session.ModelSourceMenu.noMatchingModels')}

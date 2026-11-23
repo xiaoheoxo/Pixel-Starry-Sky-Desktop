@@ -117,7 +117,7 @@ export function KpiCards({
         </button>
       </div>
       {more && (
-        <div className="mt-1.5 grid grid-cols-5 gap-3 rounded-lg border border-line bg-surface px-3.5 py-2.5 @max-[700px]:grid-cols-3">
+        <div className="mt-1.5 grid grid-cols-5 gap-3 rounded-xl bg-surface px-4 py-3 shadow-sm @max-[700px]:grid-cols-3">
           {[
             [tr('usageColumns.freshInput'), formatTokens(totals.input)],
             [tr('session.live.SessionStrips.output'), formatTokens(totals.output)],
@@ -159,7 +159,7 @@ function Card({
 }) {
   useI18n()
   return (
-    <div className="min-w-0 rounded-lg border border-line bg-surface px-3.5 py-3">
+    <div className="min-w-0 rounded-xl bg-surface px-4 py-3.5 shadow-sm">
       <div className="flex items-baseline justify-between gap-2 text-meta text-fg-muted">
         <span className="truncate">{label}</span>
         {delta && (

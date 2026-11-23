@@ -63,7 +63,7 @@ export function AboutSection() {
 
   return (
     <section>
-      <div className="mb-6 flex items-center gap-4">
+      <div className="mb-6 flex flex-wrap items-center gap-4 rounded-xl bg-surface p-5 shadow-sm">
         <Logo size={56} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
@@ -208,7 +208,7 @@ function UpdateGroup({ update }: { update: UpdateState }) {
   return (
     <Group title={tr('update.group')}>
       {line && (
-        <div data-update-status={status} className="px-4 py-2.5">
+        <div data-update-status={status} className="px-5 py-3">
           <p className={cn('text-ui', status === 'error' ? 'text-danger' : 'text-fg')}>{line}</p>
           {hint && <p className="mt-0.5 text-meta text-fg-muted">{hint}</p>}
           {status === 'downloading' && (
@@ -260,8 +260,8 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   useI18n()
   return (
     <div className="mb-5">
-      <h4 className="mb-2 text-meta font-medium text-fg-muted">{title}</h4>
-      <dl className="overflow-hidden rounded-lg border border-line">{children}</dl>
+      <h4 className="mb-2 px-0.5 text-label font-semibold text-fg-muted">{title}</h4>
+      <dl className="overflow-hidden rounded-xl bg-surface shadow-sm">{children}</dl>
     </div>
   )
 }
@@ -281,7 +281,11 @@ function Row({
 }) {
   const { locale } = useI18n()
   return (
-    <div className="flex min-h-10 items-center gap-4 border-b border-line-subtle px-4 py-1.5 last:border-b-0">
+    <div className="relative flex min-h-11 items-center gap-4 px-5 py-2 first:[&>.about-row-divider]:hidden">
+      <span
+        aria-hidden
+        className="about-row-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55"
+      />
       {/* 英文标签比中文长：标签列放宽，只在词与词之间换行，不压到右边的值 */}
       <dt className={cn('shrink-0 text-ui leading-snug text-fg-muted', locale === 'en-US' ? 'w-32' : 'w-20')}>
         {label}

@@ -361,7 +361,7 @@ export function ModelCell({ model, source }: { model: string; source: string }) 
 export function UsageDetailCard({ fields, footer }: { fields: Array<[string, string]>; footer: ReactNode }) {
   useI18n()
   return (
-    <div className="@container rounded-md border border-line bg-surface p-3">
+    <div className="@container rounded-lg bg-subtle/75 p-3.5">
       <dl className="grid grid-cols-3 gap-x-6 gap-y-2 text-meta @max-[520px]:grid-cols-2">
         {fields.map(([k, v]) => (
           <div key={k} className="min-w-0">
@@ -372,7 +372,7 @@ export function UsageDetailCard({ fields, footer }: { fields: Array<[string, str
           </div>
         ))}
       </dl>
-      <div className="mt-3 flex min-w-0 items-center justify-between gap-3 border-t border-line-subtle pt-2.5">
+      <div className="mt-3 flex min-w-0 items-center justify-between gap-3 border-t border-line-subtle/55 pt-2.5">
         {footer}
       </div>
     </div>

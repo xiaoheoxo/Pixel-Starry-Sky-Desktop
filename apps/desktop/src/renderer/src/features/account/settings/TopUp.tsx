@@ -171,10 +171,7 @@ export function TopUp({
           <>
             <ul className="flex flex-wrap gap-2" aria-label={tr('settings.account.TopUp.paymentMethod')}>
               {methods.map(m => (
-                <li
-                  key={m.type}
-                  className="rounded-md border border-line bg-subtle px-2.5 py-1 text-meta text-fg-secondary"
-                >
+                <li key={m.type} className="rounded-md bg-subtle px-2.5 py-1 text-meta text-fg-secondary">
                   {m.label}
                 </li>
               ))}
@@ -184,7 +181,7 @@ export function TopUp({
         )}
       </div>
 
-      <div className="rounded-lg border border-line bg-surface p-4">
+      <div className="rounded-xl bg-surface p-5 shadow-sm">
         <dl className="flex flex-col gap-1.5 text-ui">
           <div className="flex justify-between gap-4">
             <dt className="text-fg-muted">{tr('settings.account.TopUp.creditsReceived')}</dt>

@@ -22,7 +22,7 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
       .catch((e: Error) => onError(tr('subagentRoute.saveFailed', { error: e.message })))
   }
   return (
-    <div className="rounded-xl border border-line-card bg-surface">
+    <div className="rounded-xl bg-surface shadow-sm">
       <h4 data-setting-title={tr('subagentRoute.codex.title')} className="px-4 pt-3 text-ui font-semibold text-fg">
         {tr('subagentRoute.codex.title')}
       </h4>

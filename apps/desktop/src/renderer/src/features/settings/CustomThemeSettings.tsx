@@ -118,8 +118,8 @@ export function MyThemes() {
               aria-label={tr('customTheme.choose', { name: theme.name })}
               onClick={() => setActiveTheme(theme.id)}
               className={cn(
-                'rounded-lg border p-1.5 text-left hover:border-line-strong',
-                active ? 'border-accent-line bg-accent-soft/40' : 'border-line-card',
+                'rounded-lg border p-1.5 text-left transition-colors',
+                active ? 'border-accent-line bg-accent-soft/40' : 'border-transparent bg-subtle/60 hover:bg-subtle',
               )}
             >
               {/* 缩略图的主区画的是对话区：真实界面里用户看到的就是它 */}

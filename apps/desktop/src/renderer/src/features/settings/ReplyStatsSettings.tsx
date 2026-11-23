@@ -24,7 +24,7 @@ export function ReplyStatsSettings() {
       description={tr('settings.ReplyStatsSettings.chooseWhichStatisticsAppear')}
     >
       <div
-        className="mb-3 rounded-lg border border-line bg-subtle px-3 py-3"
+        className="mb-3 rounded-lg bg-subtle/75 px-3.5 py-3"
         aria-label={tr('settings.ReplyStatsSettings.replyStatisticsPreview')}
       >
         <div className="mb-2 text-label text-fg-muted">{tr('settings.ReplyStatsSettings.previewSampleData')}</div>

@@ -103,6 +103,7 @@ export function ProjectsSection() {
   const [paths, setPaths] = useState('')
   const [group, setGroup] = useState('')
   const [groupName, setGroupName] = useState('')
+  const [migrationOpen, setMigrationOpen] = useState(false)
   const known = useRef(new Set<string>())
 
   const load = useCallback(async (fn: () => Promise<ProjectImportBatch | null>): Promise<boolean> => {
@@ -144,8 +145,8 @@ export function ProjectsSection() {
       <section>
         <SectionTitle>{tr('projects.title')}</SectionTitle>
         <p className="mb-5 text-meta text-fg-muted">{tr('projectImport.localOnly')}</p>
-        <CodexImportCard onOpened={closeSettings} />
         <ProjectChecksCard />
+        <CodexImportCard onOpened={closeSettings} />
       </section>
     )
 
@@ -225,12 +226,28 @@ export function ProjectsSection() {
   return (
     <section className="flex min-h-full flex-col">
       <SectionTitle>{tr('projects.title')}</SectionTitle>
-      <p className="-mt-2 mb-5 text-meta text-fg-muted">{tr('projectImport.settingsIntro')}</p>
-      <CodexImportCard onOpened={closeSettings} />
-      <details className="mb-6 text-meta text-fg-muted">
-        <summary className="mb-2 cursor-pointer">{tr('codexImport.legacy')}</summary>
-        <ResumeScanCard onOpened={closeSettings} />
-      </details>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-meta text-fg-muted">{tr('projectImport.settingsIntro')}</p>
+        <Button
+          className="h-7 px-2.5 text-meta"
+          onClick={() => setMigrationOpen(open => !open)}
+          aria-expanded={migrationOpen}
+        >
+          {tr(migrationOpen ? 'settingsLayout.projects.hideMigration' : 'settingsLayout.projects.migration')}
+        </Button>
+      </div>
+
+      {migrationOpen && (
+        <div className="mb-6 rounded-xl bg-surface p-5 shadow-sm">
+          <CodexImportCard onOpened={closeSettings} />
+          <details className="text-meta text-fg-muted">
+            <summary className="mb-2 cursor-pointer font-medium">{tr('codexImport.legacy')}</summary>
+            <ResumeScanCard onOpened={closeSettings} />
+          </details>
+        </div>
+      )}
+
+      {/* 高频项目规则置顶；批量扫描添加在后 */}
       <ProjectChecksCard />
 
       <div data-setting-title={tr('projectImport.fromTools')} className="mb-2 flex items-baseline justify-between">
@@ -472,7 +489,7 @@ export function ProjectsSection() {
       ) : (
         <>
           <div className="mt-5 mb-2 flex flex-wrap items-center gap-2">
-            <label className="flex h-8 min-w-48 flex-1 items-center gap-2 rounded-md border border-line bg-surface px-2.5 focus-within:border-line-strong">
+            <label className="flex h-8 min-w-48 flex-1 items-center gap-2 rounded-lg border border-transparent bg-surface px-2.5 shadow-sm transition-colors focus-within:border-accent-line">
               <Search size={14} className="shrink-0 text-fg-faint" />
               <input
                 aria-label={tr('projectImport.search')}
@@ -502,8 +519,8 @@ export function ProjectsSection() {
             />
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-line">
-            <div className="grid h-8 grid-cols-[36px_minmax(0,1fr)_176px_96px_32px] items-center border-b border-line bg-subtle text-label text-fg-muted @max-[720px]:grid-cols-[36px_minmax(0,1fr)_96px_32px]">
+          <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
+            <div className="grid h-8 grid-cols-[36px_minmax(0,1fr)_176px_96px_32px] items-center border-b border-line-subtle/55 bg-subtle/75 text-label text-fg-muted @max-[720px]:grid-cols-[36px_minmax(0,1fr)_96px_32px]">
               <span className="grid place-items-center">
                 <button
                   type="button"

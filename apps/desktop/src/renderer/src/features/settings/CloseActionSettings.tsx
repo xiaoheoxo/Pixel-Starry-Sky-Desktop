@@ -27,29 +27,33 @@ export function CloseActionSettings() {
   }, [tray])
   if (!tray || value === null) return null
   return (
-    <SettingRow title={tr('tray.closeAction')} description={tr('tray.closeActionDescription')}>
-      <Segmented
-        label={tr('tray.closeAction')}
-        options={[
-          { value: 'hide', label: tr('tray.closeHide') },
-          { value: 'quit', label: tr('tray.closeQuit') },
-        ]}
-        value={value}
-        onChange={next => {
-          const prev = value
-          const n = ++request.current
-          setValue(next)
-          void tray
-            .setPrefs({ closeToTray: next === 'hide' })
-            .then(p => n === request.current && setValue(p.closeToTray ? 'hide' : 'quit'))
-            .catch((e: Error) => {
-              if (n !== request.current) return
-              // 没存上：退回原来的选项，免得界面和实际行为对不上
-              setValue(prev)
-              toast(tr('tray.closeActionFailed', { error: translateMessage(e?.message ?? String(e)) }))
-            })
-        }}
-      />
-    </SettingRow>
+    <SettingRow
+      title={tr('tray.closeAction')}
+      description={tr('tray.closeActionDescription')}
+      control={
+        <Segmented
+          label={tr('tray.closeAction')}
+          options={[
+            { value: 'hide', label: tr('tray.closeHide') },
+            { value: 'quit', label: tr('tray.closeQuit') },
+          ]}
+          value={value}
+          onChange={next => {
+            const prev = value
+            const n = ++request.current
+            setValue(next)
+            void tray
+              .setPrefs({ closeToTray: next === 'hide' })
+              .then(p => n === request.current && setValue(p.closeToTray ? 'hide' : 'quit'))
+              .catch((e: Error) => {
+                if (n !== request.current) return
+                // 没存上：退回原来的选项，免得界面和实际行为对不上
+                setValue(prev)
+                toast(tr('tray.closeActionFailed', { error: translateMessage(e?.message ?? String(e)) }))
+              })
+          }}
+        />
+      }
+    />
   )
 }

@@ -9,7 +9,7 @@ import { CircleArrowUp, ChevronRight, CircleCheck, Download, Loader2 } from 'luc
 import type { EngineConfig, EngineConfigPatch, EngineId } from '@pixelsky/protocol'
 import { Button, EngineIcon, cn } from '@/ui'
 import { bridge, isLive, useEngineState } from '@/features/engine'
-import { GroupTitle, SectionTitle } from '../SettingRow'
+import { SectionTitle, SettingGroup } from '../SettingRow'
 import { RequestRetrySettings } from '../models/RequestRetrySettings'
 import { EngineDetail } from './EngineDetail'
 import { openEngineDetail, useEngineDetail } from './nav'
@@ -81,7 +81,7 @@ export function EnginesSection() {
       </p>
       <div className="flex flex-col gap-2">
         {engines.length === 0 && (
-          <div className="rounded-xl border border-line px-4 py-3 text-meta text-fg-muted">
+          <div className="rounded-xl bg-surface px-5 py-3.5 text-meta text-fg-muted shadow-sm">
             {tr('settings.engines.EnginesSection.detectingLocalEngines')}
           </div>
         )}
@@ -96,10 +96,11 @@ export function EnginesSection() {
         ))}
       </div>
       {/* 默认引擎在「模型通道 › 新对话用」里定，这里只显示角标（docs/ui/settings-reorg.md §3） */}
-      <GroupTitle>{tr('settingsEngines.shared')}</GroupTitle>
-      {isLive && <SystemProxySettings />}
-      <RequestRetrySettings />
-      {isLive && <IdleReleaseSettings />}
+      <SettingGroup title={tr('settingsEngines.shared')} className="mt-6">
+        {isLive && <SystemProxySettings />}
+        <RequestRetrySettings />
+        {isLive && <IdleReleaseSettings />}
+      </SettingGroup>
     </section>
   )
 }
@@ -124,7 +125,7 @@ function EngineRow({
   return (
     <div
       data-setting-title={e.name}
-      className={cn('rounded-xl border border-line bg-surface/60', !unsupported && 'hover:border-line-strong')}
+      className={cn('rounded-xl bg-surface shadow-sm transition-colors', !unsupported && 'hover:bg-popover')}
     >
       <div className="flex items-center gap-2 pr-3">
         <button
@@ -136,7 +137,7 @@ function EngineRow({
         >
           <span
             className={cn(
-              'flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle',
+              'flex size-9 shrink-0 items-center justify-center rounded-lg bg-subtle',
               unsupported && 'opacity-60',
             )}
           >

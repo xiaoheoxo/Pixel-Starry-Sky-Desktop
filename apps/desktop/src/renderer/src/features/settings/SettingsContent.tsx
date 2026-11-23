@@ -1,8 +1,12 @@
-import { Button } from '@/ui'
+import { ENGINES } from '@pixelsky/protocol'
+import { Button, IconButton, Segmented, cn } from '@/ui'
 import { tr } from '../../i18n/core'
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowLeft,
+  ArrowRight,
   Bell,
+  Bot,
   ChartColumn,
   CodeXml,
   Cpu,
@@ -10,29 +14,30 @@ import {
   HardDrive,
   Info,
   Keyboard,
-  MessageSquareText,
   MessageCircle,
+  MessageSquareText,
   MessagesSquare,
   Monitor,
-  ScrollText,
-  SlidersHorizontal,
-  Smartphone,
-  Sparkles,
   Moon,
   Network,
-  Bot,
   Palette,
   Puzzle,
   Route,
+  ScrollText,
   Search,
+  SlidersHorizontal,
+  Smartphone,
+  Sparkles,
+  SquareArrowOutUpRight,
   Sun,
   TerminalSquare,
   UserRound,
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { CountBadge, Segmented, cn } from '@/ui'
 import { useTheme, type MotionPreference, type ThemePreference } from '@/features/appearance/ThemeProvider'
+import { useEngineState } from '@/features/engine'
+import { openAccountsPage, useAccountsPage } from '@/features/model-channels/accountsStore'
 import { AboutSection } from './AboutSection'
 import { AccountSection } from '../account/settings/AccountSection'
 import { FontSettings } from './FontSettings'
@@ -49,14 +54,14 @@ import type { PaneFocusMotion } from '@/features/appearance/paneFocusMotion'
 import { UsageSection } from '../usage/settings/UsageSection'
 import { ModelsSection } from './models/ModelsSection'
 import { EnginesSection } from './engines/EnginesSection'
-import { openEngineDetail } from './engines/nav'
+import { openEngineDetail, useEngineDetail } from './engines/nav'
 import { openExtTab } from '@/features/extstore/nav'
 import { EditorSection } from '../editor/settings/EditorSection'
 import { ExtensionsSection } from './extensions/ExtensionsSection'
 import { FileIconThemeSettings } from './FileIconThemeSettings'
 import { EditorThemeSettings } from './EditorThemeSettings'
 import { searchSettings, type SearchEntry } from './searchIndex'
-import { GroupTitle, SectionTitle, SettingRow } from './SettingRow'
+import { SectionTitle, SettingGroup, SettingRow, SettingsPaneProvider } from './SettingRow'
 import { useI18n } from '@/i18n/I18nProvider'
 import { TerminalSection } from './TerminalSection'
 import { SidebarSettings } from './SidebarSettings'
@@ -261,9 +266,8 @@ const SECTIONS: Array<{ id: SectionId; label: string; nav?: string; icon: Lucide
   },
 ]
 
-/** 左侧导航分组（docs/ui/settings-reorg.md §4：按这一页管的是什么分）；label 为 null 的组不显示标题。
- *  machines、agents、plugins 不在导航里，只留作旧入口 */
-const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
+/** 左侧主导航 5 个分组（18 项）；低频三项「日志 / 反馈 / 关于」固定在左栏底栏，默认高度一屏零滚动 */
+const MAIN_NAV_GROUPS: Array<{ label: string; ids: SectionId[] }> = [
   {
     get label() {
       return tr('settingsNav.group.account')
@@ -294,18 +298,59 @@ const NAV_GROUPS: Array<{ label: string | null; ids: SectionId[] }> = [
     },
     ids: ['extensions', 'mobile', 'im'],
   },
-  { label: null, ids: ['logs', 'feedback', 'about'] },
 ]
 
-const sectionLabel = (id: SectionId): string => SECTIONS.find(s => s.id === id)?.label ?? id
+const FOOTER_NAV_IDS: readonly SectionId[] = ['logs', 'feedback', 'about']
 
-/** 设置的内容：左侧分区导航 + 搜索，右侧分区页。浮层（SettingsDialog）和独立窗口（SettingsWindow）共用，外框各管各的 */
+/** 需要宽容器展示图表、多列表格、商店网格或双栏预览的页面；其余表单页限制在 680px 阅读宽度内 */
+const WIDE_SECTIONS = new Set<SectionId>([
+  'usage',
+  'projects',
+  'shortcuts',
+  'subagents',
+  'extensions',
+  'plugins',
+  'logs',
+])
+
+const APPEARANCE_ANCHORS = [
+  { id: 'theme', key: 'settingsLayout.anchor.theme' },
+  { id: 'wallpaper', key: 'settingsLayout.anchor.wallpaper' },
+  { id: 'fonts', key: 'settingsLayout.anchor.fonts' },
+  { id: 'motion', key: 'settingsLayout.anchor.motion' },
+  { id: 'sidebar', key: 'settingsLayout.anchor.sidebar' },
+] as const
+
+const sectionInfo = (id: SectionId) => SECTIONS.find(s => s.id === id)!
+const sectionLabel = (id: SectionId): string => sectionInfo(id)?.label ?? id
+
+/** 高亮搜索命中子串（忽略大小写） */
+function HighlightMatch({ value, query }: { value: string; query: string }) {
+  const q = query.trim()
+  if (!q) return <>{value}</>
+  const idx = value.toLowerCase().indexOf(q.toLowerCase())
+  if (idx < 0) return <>{value}</>
+  return (
+    <>
+      {value.slice(0, idx)}
+      <mark className="rounded-xs bg-accent-soft px-0.5 font-medium text-accent-fg">
+        {value.slice(idx, idx + q.length)}
+      </mark>
+      {value.slice(idx + q.length)}
+    </>
+  )
+}
+
+/** 设置的内容：左侧通顶分区导航 + 底栏三项固定，右侧吸顶页头 + 阅读宽度分档内容区 */
 export function SettingsContent({
   section,
   onSectionChange,
   standalone,
   onClose,
   onEscape,
+  onPopOut,
+  onStartMove,
+  onResetSize,
   jumpToken = 0,
 }: {
   /** 与入口共享当前分类，内部导航与搜索跳转也同步更新。 */
@@ -317,40 +362,69 @@ export function SettingsContent({
   onClose: () => void
   /** Esc：搜索框里有字时先清空；没有字了再调它。独立窗口不传（Esc 不关窗口，只清空搜索） */
   onEscape?: () => void
+  /** 浮层里「在独立窗口中打开」 */
+  onPopOut?: () => void
+  /** 浮层里按住吸顶页头或侧栏空白拖动设置窗口 */
+  onStartMove?: (e: React.MouseEvent) => void
+  /** 双击吸顶栏空白处恢复默认尺寸并居中 */
+  onResetSize?: () => void
   /** 数字变一次，就再取一次要跳到的那一行（takeSettingsRow）：设置已经开着，又从别处要求跳到某一行 */
   jumpToken?: number
 }) {
   const { text, t } = useI18n()
   const feedbackUnread = useFeedbackUnread()
-  // 切到别的分区会卸载当前分区：编辑区有没保存的改动先问（unsavedEdits.tsx）
-  const setSection = (id: SectionId): void =>
-    id === section ? onSectionChange(id) : leaveSettings(() => onSectionChange(id))
-  // 设置搜索（docs/ui/plan-search-panes-compact.md §1）：结果替换左侧导航，点一条跳到那一页并高亮那一行
+  const engineDetailId = useEngineDetail()
+  const liveEngines = useEngineState(s => s.engines)
+  const accountsPage = useAccountsPage()
+  const [activeAnchor, setActiveAnchor] = useState<string>('theme')
+  const [selectedHitIdx, setSelectedHitIdx] = useState(0)
+  const [scrolled, setScrolled] = useState(false)
+
+  const setSection = (id: SectionId): void => {
+    setQuery('')
+    if (id === section) {
+      if (id === 'engines' && engineDetailId) openEngineDetail(null)
+      if (id === 'models' && accountsPage) openAccountsPage(null)
+      onSectionChange(id)
+      return
+    }
+    leaveSettings(() => onSectionChange(id))
+  }
+
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const [jump, setJump] = useState<{ title: string; n: number } | null>(null)
   const hits = searchSettings(query, id => text(sectionLabel(id)))
+  const safeHitIdx = hits.length > 0 ? Math.min(selectedHitIdx, hits.length - 1) : 0
+
   const openHit = (hit: SearchEntry): void => {
     const go = (): void => {
-      // 本机引擎的详情页里的设置：先打开那个引擎的详情（docs/ui/engine-settings-redesign.md §3.1）
       if (hit.section === 'engines') openEngineDetail(hit.engine ?? null)
       if (hit.extTab) openExtTab(hit.extTab)
+      setQuery('')
       onSectionChange(hit.section)
       setJump(j => ({ title: hit.title, n: (j?.n ?? 0) + 1 }))
     }
     if (hit.section === section) go()
     else leaveSettings(go)
   }
-  // 从别处（例如额度弹窗的「额度按钮设置」）打开设置时带来的目标行：取一次，走下面同一套滚动 + 高亮
+
   useEffect(() => {
     const title = takeSettingsRow()
     if (title) setJump(j => ({ title, n: (j?.n ?? 0) + 1 }))
   }, [section, jumpToken])
+
+  // 切换分区或进出二级页时回到顶部，并复位吸顶阴影与外观锚点
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0
+    setScrolled(false)
+    if (section === 'appearance') setActiveAnchor('theme')
+  }, [section, engineDetailId, accountsPage])
+
   useEffect(() => {
     if (!jump) return
-    // 等新页面渲染出来再找
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       const root = contentRef.current
       const el = [...(root?.querySelectorAll<HTMLElement>('[data-setting-title]') ?? [])].find(
         e => text(e.dataset.settingTitle ?? '') === text(jump.title),
@@ -362,12 +436,11 @@ export function SettingsContent({
         easing: 'ease-out',
       })
     }, 60)
-    return () => clearTimeout(t)
-  }, [jump, section])
+    return () => clearTimeout(timer)
+  }, [jump, section, text])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+F：聚焦设置搜索；搜索框里有字时 Esc 先清空
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         searchRef.current?.focus()
@@ -375,9 +448,7 @@ export function SettingsContent({
         return
       }
       if (e.key !== 'Escape' || e.isComposing) return
-      const search = searchRef.current
-      // 浮层里只在搜索框拿着焦点时清；独立窗口里 Esc 只干这一件事，不管焦点在哪
-      if (search?.value && (document.activeElement === search || !onEscape)) {
+      if (query.trim() && (document.activeElement === searchRef.current || !onEscape)) {
         setQuery('')
         return
       }
@@ -385,30 +456,89 @@ export function SettingsContent({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onEscape])
+  }, [onEscape, query])
+
+  const dragBlank = (e: React.MouseEvent) => {
+    if (!onStartMove) return
+    if ((e.target as HTMLElement).closest('button, input, label, a, select, textarea, [role="button"]')) return
+    onStartMove(e)
+  }
+
+  const resetBlank = (e: React.MouseEvent) => {
+    if (!onResetSize) return
+    if ((e.target as HTMLElement).closest('button, input, label, a, select, textarea, [role="button"]')) return
+    onResetSize()
+  }
+
+  const engineSubTitle =
+    section === 'engines' && engineDetailId
+      ? (liveEngines.find(e => e.id === engineDetailId)?.name ?? ENGINES[engineDetailId]?.name ?? engineDetailId)
+      : null
+  const modelsSubTitle =
+    section === 'models' && accountsPage
+      ? tr('accounts.pageTitle', { channel: tr(`modelChannels.tab.${accountsPage}`) })
+      : null
+  const searching = query.trim().length > 0
+  const contentWidthClass = WIDE_SECTIONS.has(section) && !searching ? 'max-w-[1160px]' : 'max-w-[920px]'
+
+  const scrollToAppearanceAnchor = (id: string): void => {
+    setActiveAnchor(id)
+    const el = contentRef.current?.querySelector<HTMLElement>(`[data-appearance-group="${id}"]`)
+    if (el) scrollInPane(el, 'start', { behavior: 'smooth' })
+  }
+
+  const onContentScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget
+    setScrolled(el.scrollTop > 4)
+    if (section !== 'appearance' || searching) return
+    const top = el.getBoundingClientRect().top + 40
+    let current = APPEARANCE_ANCHORS[0].id as string
+    for (const a of APPEARANCE_ANCHORS) {
+      const node = el.querySelector<HTMLElement>(`[data-appearance-group="${a.id}"]`)
+      if (node && node.getBoundingClientRect().top <= top) current = a.id
+    }
+    setActiveAnchor(prev => (prev === current ? prev : current))
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
       <UnsavedLeaveDialog />
       <nav
         aria-label={t('sidebar.SidebarFooter.settings')}
-        className="flex w-[196px] shrink-0 flex-col border-r border-line bg-sidebar p-2"
+        onMouseDown={dragBlank}
+        className={cn(
+          'flex w-[228px] shrink-0 flex-col bg-sidebar p-2.5 select-none',
+          onStartMove && 'cursor-grab active:cursor-grabbing',
+        )}
       >
-        <label className="mb-2 flex h-8 shrink-0 items-center gap-2 rounded-md border border-line bg-surface px-2.5 focus-within:border-line-strong">
+        <label className="group mb-2.5 flex h-8 shrink-0 cursor-text items-center gap-2 rounded-lg border border-transparent bg-hover/70 px-2.5 transition-colors focus-within:border-accent-line focus-within:bg-surface">
           <Search size={14} className="shrink-0 text-fg-muted" />
           <input
             ref={searchRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => {
+              setQuery(e.target.value)
+              setSelectedHitIdx(0)
+            }}
             onKeyDown={e => {
-              if (e.key === 'Enter' && hits[0] && !e.nativeEvent.isComposing) openHit(hits[0])
+              if (e.nativeEvent.isComposing) return
+              if (e.key === 'ArrowDown' && hits.length > 0) {
+                e.preventDefault()
+                setSelectedHitIdx(i => (i + 1) % hits.length)
+              } else if (e.key === 'ArrowUp' && hits.length > 0) {
+                e.preventDefault()
+                setSelectedHitIdx(i => (i - 1 + hits.length) % hits.length)
+              } else if (e.key === 'Enter' && hits[safeHitIdx]) {
+                e.preventDefault()
+                openHit(hits[safeHitIdx])
+              }
             }}
             placeholder={tr('settings.SettingsDialog.nav.search')}
             aria-label={`${text('搜索设置')}（Ctrl+F）`}
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent text-ui text-fg outline-none placeholder:text-fg-faint"
           />
-          {query && (
+          {query ? (
             <button
               type="button"
               aria-label={tr('settings.SettingsDialog.clearSearch')}
@@ -417,147 +547,296 @@ export function SettingsContent({
             >
               <X size={13} />
             </button>
+          ) : (
+            <kbd className="shrink-0 rounded bg-subtle px-1 font-mono text-[10px] leading-4 text-fg-faint group-focus-within:hidden">
+              Ctrl+F
+            </kbd>
           )}
         </label>
+
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {query.trim() ? (
-            hits.length === 0 ? (
-              <p className="px-2.5 py-2 text-meta text-fg-faint">{text('没有匹配的设置')}</p>
-            ) : (
-              <ul aria-label={text('搜索结果')} className="flex flex-col gap-0.5">
-                {hits.map(h => (
-                  <li key={`${h.section}-${h.title}`}>
-                    <button
-                      type="button"
-                      onClick={() => openHit(h)}
-                      className={cn(
-                        'press flex w-full flex-col rounded-md px-2.5 py-1.5 text-left hover:bg-hover',
-                        h.section === section && jump?.title === h.title && 'bg-accent-soft',
-                      )}
-                    >
-                      <span className="truncate text-ui text-fg">{text(h.title)}</span>
-                      <span className="truncate text-label text-fg-muted">{text(sectionLabel(h.section))}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          {MAIN_NAV_GROUPS.map((g, gi) => (
+            <div key={gi} className={cn(gi > 0 && 'mt-3')}>
+              <div className="px-2.5 pb-1 text-[11px] leading-4 font-medium text-fg-faint">{text(g.label)}</div>
+              {g.ids.map(id => {
+                const { label, nav, icon: Icon } = sectionInfo(id)
+                const active = !searching && (id === section || (id === 'extensions' && section === 'plugins'))
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-current={active ? 'page' : undefined}
+                    title={text(label)}
+                    onClick={() => setSection(id)}
+                    className={cn(
+                      'press flex h-[29px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-ui transition-colors',
+                      active ? 'bg-accent-soft font-medium text-accent-fg' : 'text-fg-secondary hover:bg-hover',
+                    )}
+                  >
+                    <Icon
+                      size={15}
+                      strokeWidth={1.6}
+                      className={cn('shrink-0', active ? 'text-accent-fg' : 'text-fg-muted')}
+                    />
+                    <span className="min-w-0 truncate">{text(nav ?? label)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* 底栏固定三格：日志 / 反馈（图标右上角未读红点，不挤压文字） / 关于 */}
+        <div className="mt-2 grid shrink-0 grid-cols-3 gap-1 pt-2">
+          {FOOTER_NAV_IDS.map(id => {
+            const { label, nav, icon: Icon } = sectionInfo(id)
+            const active = !searching && id === section
+            const unread = id === 'feedback' ? feedbackUnread : 0
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                title={unread > 0 ? `${text(label)} (${unread})` : text(label)}
+                onClick={() => setSection(id)}
+                className={cn(
+                  'press flex h-8 min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-1 text-meta whitespace-nowrap transition-colors',
+                  active ? 'bg-accent-soft font-medium text-accent-fg' : 'text-fg-muted hover:bg-hover hover:text-fg',
+                )}
+              >
+                <span className="relative inline-flex shrink-0">
+                  <Icon size={14} strokeWidth={1.6} />
+                  {unread > 0 && (
+                    <span
+                      aria-label={String(unread)}
+                      className="absolute -top-0.5 -right-1 size-1.5 rounded-full bg-notify ring-2 ring-sidebar"
+                    />
+                  )}
+                </span>
+                <span className="truncate">{text(nav ?? label)}</span>
+              </button>
             )
-          ) : (
-            NAV_GROUPS.map((g, gi) => (
-              <div key={gi} className={cn(gi > 0 && 'mt-2 border-t border-line-subtle pt-2')}>
-                {g.label && <div className="px-2.5 pb-1 text-label font-medium text-fg-faint">{text(g.label)}</div>}
-                {g.ids.map(id => {
-                  const { label, nav, icon: Icon } = SECTIONS.find(s => s.id === id)!
-                  const active = id === section || (id === 'extensions' && section === 'plugins')
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-current={active ? 'page' : undefined}
-                      title={text(label)}
-                      onClick={() => setSection(id)}
-                      className={cn(
-                        'press flex h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui',
-                        active ? 'bg-accent-soft font-medium text-accent-fg' : 'text-fg-secondary hover:bg-hover',
-                      )}
-                    >
-                      <Icon
-                        size={16}
-                        strokeWidth={1.5}
-                        className={cn('shrink-0', active ? 'text-accent-fg' : 'text-fg-muted')}
-                      />
-                      {/* 一行放不下（别的语言、等宽字体）就省略，不折行撑破行高；悬停看全名 */}
-                      <span className="min-w-0 truncate">{text(nav ?? label)}</span>
-                      {id === 'feedback' && feedbackUnread > 0 && (
-                        <CountBadge tone="notify" count={feedbackUnread} max={9} className="ml-auto" />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            ))
-          )}
+          })}
         </div>
       </nav>
 
-      <div
-        ref={contentRef}
-        className="@container min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 py-6 [scrollbar-gutter:stable] @max-[640px]:px-5"
-      >
-        {section === 'account' ? (
-          <AccountSection />
-        ) : section === 'editor' ? (
-          <EditorSection />
-        ) : section === 'projects' ? (
-          <ProjectsSection />
-        ) : section === 'storage' ? (
-          <>
-            <StorageSection
-              onOpenSession={sessionId => {
-                runMainAction({ kind: 'openSession', sessionId })
-                if (!standalone) onClose()
-              }}
-            />
-            <div className="mt-6">
-              <DataLocationRow />
+      <div className="flex min-w-0 flex-1 flex-col bg-app">
+        {/* 右侧吸顶页头：静止无边框融于底色，滚动后才浮现细线柔影；双击空白还原默认尺寸 */}
+        <header
+          onMouseDown={dragBlank}
+          onDoubleClick={resetBlank}
+          className={cn(
+            'relative z-10 flex shrink-0 items-center border-b bg-app px-8 transition-[border-color,box-shadow] select-none @max-[640px]:px-5',
+            standalone ? 'h-11' : 'h-12',
+            scrolled ? 'border-line-layout shadow-xs' : 'border-transparent',
+            onStartMove && 'cursor-grab active:cursor-grabbing',
+          )}
+        >
+          <div
+            className={cn('mx-auto flex w-full min-w-0 items-center gap-3', contentWidthClass, !standalone && 'pr-16')}
+          >
+            {searching ? (
+              <h2 className="truncate text-section font-semibold text-fg">
+                {tr('settingsLayout.searchResults', { n: hits.length })}
+              </h2>
+            ) : engineSubTitle ? (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => openEngineDetail(null)}
+                  className="press -ml-2 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-ui text-fg-muted hover:bg-hover hover:text-fg"
+                >
+                  <ArrowLeft size={14} />
+                  {text(sectionLabel('engines'))}
+                </button>
+                <span className="text-fg-faint">/</span>
+                <h2 className="truncate text-section font-semibold text-fg">{engineSubTitle}</h2>
+              </div>
+            ) : modelsSubTitle ? (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => openAccountsPage(null)}
+                  className="press -ml-2 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-ui text-fg-muted hover:bg-hover hover:text-fg"
+                >
+                  <ArrowLeft size={14} />
+                  {text(sectionLabel('models'))}
+                </button>
+                <span className="text-fg-faint">/</span>
+                <h2 className="truncate text-section font-semibold text-fg">{modelsSubTitle}</h2>
+              </div>
+            ) : (
+              <>
+                <h2 className="shrink-0 text-section font-semibold text-fg">{text(sectionLabel(section))}</h2>
+                {section === 'appearance' && (
+                  <div className="hidden min-w-0 items-center gap-0.5 overflow-x-auto rounded-full bg-subtle p-0.5 sm:inline-flex">
+                    {APPEARANCE_ANCHORS.map(a => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => scrollToAppearanceAnchor(a.id)}
+                        className={cn(
+                          'cursor-pointer rounded-full px-2.5 py-0.5 text-[11.5px] whitespace-nowrap transition-colors',
+                          activeAnchor === a.id
+                            ? 'bg-surface font-medium text-fg shadow-xs'
+                            : 'text-fg-muted hover:text-fg',
+                        )}
+                      >
+                        {tr(a.key)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="absolute right-2.5 flex shrink-0 items-center gap-1">
+            {searching && (
+              <Button className="h-7 px-2.5 text-meta" onClick={() => setQuery('')}>
+                {tr('settingsLayout.clearSearch')}
+              </Button>
+            )}
+            {!standalone && onPopOut && (
+              <IconButton icon={SquareArrowOutUpRight} label={tr('settingsWindow.popOutTip')} onClick={onPopOut} />
+            )}
+            {!standalone && <IconButton icon={X} label={text('关闭（Esc）')} onClick={() => leaveSettings(onClose)} />}
+          </div>
+        </header>
+
+        <SettingsPaneProvider>
+          <div
+            ref={contentRef}
+            data-settings-pane=""
+            onScroll={onContentScroll}
+            className="@container min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 py-6 [scrollbar-gutter:stable] @max-[640px]:px-5"
+          >
+            <div className={cn('mx-auto w-full [&_[data-section-title]+p]:mt-0', contentWidthClass)}>
+              {searching ? (
+                <SettingGroup title={tr('settingsLayout.searchHint')}>
+                  {hits.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-meta text-fg-muted">
+                      {tr('settingsLayout.searchEmpty', { query: query.trim() })}
+                    </div>
+                  ) : (
+                    hits.map((h, idx) => {
+                      const info = sectionInfo(h.section)
+                      const Icon = info?.icon ?? SlidersHorizontal
+                      const itemTitle = text(h.title)
+                      const catLabel = text(sectionLabel(h.section))
+                      const selected = idx === safeHitIdx
+                      return (
+                        <button
+                          key={`${h.section}-${h.title}-${h.engine ?? ''}-${h.extTab ?? ''}`}
+                          type="button"
+                          onMouseEnter={() => setSelectedHitIdx(idx)}
+                          onClick={() => openHit(h)}
+                          className={cn(
+                            'relative flex w-full cursor-pointer items-center gap-3 px-5 py-3 text-left transition-colors first:[&>.search-hit-divider]:hidden',
+                            selected ? 'bg-accent-soft/55' : 'hover:bg-hover',
+                          )}
+                        >
+                          <span
+                            aria-hidden
+                            className="search-hit-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55"
+                          />
+                          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-subtle text-fg-muted">
+                            <Icon size={15} strokeWidth={1.6} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-ui font-medium text-fg">
+                              <HighlightMatch value={itemTitle} query={query} />
+                            </span>
+                            <span className="mt-0.5 block truncate text-meta text-fg-muted">
+                              <HighlightMatch value={catLabel} query={query} />
+                              {h.engine && ` › ${ENGINES[h.engine]?.name ?? h.engine}`}
+                            </span>
+                          </span>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-subtle px-2 py-0.5 text-label text-fg-secondary">
+                            {catLabel}
+                            <ArrowRight size={11} />
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
+                </SettingGroup>
+              ) : section === 'account' ? (
+                <AccountSection />
+              ) : section === 'editor' ? (
+                <EditorSection />
+              ) : section === 'projects' ? (
+                <ProjectsSection />
+              ) : section === 'storage' ? (
+                <>
+                  <StorageSection
+                    onOpenSession={sessionId => {
+                      runMainAction({ kind: 'openSession', sessionId })
+                      if (!standalone) onClose()
+                    }}
+                  />
+                  <SettingGroup className="mt-5">
+                    <DataLocationRow />
+                  </SettingGroup>
+                </>
+              ) : section === 'general' ? (
+                <GeneralSection />
+              ) : section === 'chat' ? (
+                <ChatSection />
+              ) : section === 'assist' ? (
+                <AssistSection />
+              ) : section === 'models' ? (
+                <ModelsSection />
+              ) : section === 'agents' ? (
+                <AgentsSection />
+              ) : section === 'subagents' ? (
+                <SubagentsSection openChannels={() => setSection('models')} />
+              ) : section === 'extensions' || section === 'plugins' ? (
+                <ExtensionsSection key={section} initialGroup={section === 'plugins' ? 'ai' : 'all'} />
+              ) : section === 'machines' ? (
+                <section>
+                  <SectionTitle>{t('machines.title')}</SectionTitle>
+                  <p className="mb-4 text-meta text-fg-muted">{t('machines.requirements')}</p>
+                  <Button
+                    onClick={() => {
+                      if (!standalone) onClose()
+                      runMainAction({ kind: 'manageMachines' })
+                    }}
+                  >
+                    {t('machines.title')}
+                  </Button>
+                </section>
+              ) : section === 'mobile' ? (
+                <MobileSection />
+              ) : section === 'im' ? (
+                <ImSection />
+              ) : section === 'terminal' ? (
+                <TerminalSection />
+              ) : section === 'engines' ? (
+                <EnginesSection />
+              ) : section === 'usage' ? (
+                <UsageSection
+                  onOpenSession={sessionId => {
+                    runMainAction({ kind: 'openSession', sessionId })
+                    if (!standalone) onClose()
+                  }}
+                />
+              ) : section === 'notifications' ? (
+                <NotificationsSection />
+              ) : section === 'appearance' ? (
+                <AppearanceSection />
+              ) : section === 'shortcuts' ? (
+                <ShortcutsSettings />
+              ) : section === 'feedback' ? (
+                <FeedbackSection />
+              ) : section === 'logs' ? (
+                <LogsSection />
+              ) : (
+                <AboutSection />
+              )}
             </div>
-          </>
-        ) : section === 'general' ? (
-          <GeneralSection />
-        ) : section === 'chat' ? (
-          <ChatSection />
-        ) : section === 'assist' ? (
-          <AssistSection />
-        ) : section === 'models' ? (
-          <ModelsSection />
-        ) : section === 'agents' ? (
-          <AgentsSection />
-        ) : section === 'subagents' ? (
-          <SubagentsSection openChannels={() => setSection('models')} />
-        ) : section === 'extensions' || section === 'plugins' ? (
-          <ExtensionsSection key={section} initialGroup={section === 'plugins' ? 'ai' : 'all'} />
-        ) : section === 'machines' ? (
-          <section>
-            <SectionTitle>{t('machines.title')}</SectionTitle>
-            <p className="mb-4 text-meta text-fg-muted">{t('machines.requirements')}</p>
-            <Button
-              onClick={() => {
-                if (!standalone) onClose()
-                runMainAction({ kind: 'manageMachines' })
-              }}
-            >
-              {t('machines.title')}
-            </Button>
-          </section>
-        ) : section === 'mobile' ? (
-          <MobileSection />
-        ) : section === 'im' ? (
-          <ImSection />
-        ) : section === 'terminal' ? (
-          <TerminalSection />
-        ) : section === 'engines' ? (
-          <EnginesSection />
-        ) : section === 'usage' ? (
-          <UsageSection
-            onOpenSession={sessionId => {
-              // 由 App 打开对应会话（docs/ui/usage.md §3）；浮层里先关掉设置，独立窗口不关（主窗口被提到前面）
-              runMainAction({ kind: 'openSession', sessionId })
-              if (!standalone) onClose()
-            }}
-          />
-        ) : section === 'notifications' ? (
-          <NotificationsSection />
-        ) : section === 'appearance' ? (
-          <AppearanceSection />
-        ) : section === 'shortcuts' ? (
-          <ShortcutsSettings />
-        ) : section === 'feedback' ? (
-          <FeedbackSection />
-        ) : section === 'logs' ? (
-          <LogsSection />
-        ) : (
-          <AboutSection />
-        )}
+          </div>
+        </SettingsPaneProvider>
       </div>
     </div>
   )
@@ -640,73 +919,81 @@ function AppearanceSection() {
   return (
     <section>
       <SectionTitle>{tr('settings.SettingsDialog.appearance')}</SectionTitle>
-      <GroupTitle>{tr('settingsAppearance.theme')}</GroupTitle>
-      <SettingRow
-        title={tr('settings.searchIndex.theme')}
-        description={tr('settings.SettingsDialog.whenFollowingSystemTheme')}
-      >
-        <Segmented
-          label={text('主题')}
-          options={THEME_OPTIONS.map(option => ({ ...option, label: text(option.label) }))}
-          value={preference}
-          onChange={setPreference}
+
+      <SettingGroup title={tr('settingsAppearance.theme')} anchorId="theme">
+        <SettingRow
+          title={tr('settings.searchIndex.theme')}
+          description={tr('settings.SettingsDialog.whenFollowingSystemTheme')}
+          control={
+            <Segmented
+              label={text('主题')}
+              options={THEME_OPTIONS.map(option => ({ ...option, label: text(option.label) }))}
+              value={preference}
+              onChange={setPreference}
+            />
+          }
         />
-      </SettingRow>
-      <PaletteSettings />
-      <AccentSettings />
-      <FileIconThemeSettings />
-      <EditorThemeSettings />
-      <MinimalModeSettings />
-      <WorkbenchFrameSettings />
+        <PaletteSettings />
+        <AccentSettings />
+        <FileIconThemeSettings />
+        <EditorThemeSettings />
+        <MinimalModeSettings />
+        <WorkbenchFrameSettings />
+      </SettingGroup>
 
       {/* 壁纸在毛玻璃前面：毛玻璃的提示写着「在上面选壁纸」 */}
-      <GroupTitle>{tr('settingsAppearance.wallpaper')}</GroupTitle>
-      <WallpaperSettings />
-      <GlassSettings />
+      <SettingGroup title={tr('settingsAppearance.wallpaper')} anchorId="wallpaper">
+        <WallpaperSettings />
+        <GlassSettings />
+      </SettingGroup>
 
-      <GroupTitle>{tr('settings.SettingsDialog.fonts')}</GroupTitle>
-      <FontSettings />
+      <SettingGroup title={tr('settings.SettingsDialog.fonts')} anchorId="fonts">
+        <FontSettings />
+      </SettingGroup>
 
-      <GroupTitle>{tr('settingsAppearance.motion')}</GroupTitle>
-      <SettingRow
-        title={tr('settings.searchIndex.motion')}
-        description={tr('settings.SettingsDialog.animationsForSidebarAnd')}
-        hint={
-          systemReducedMotion
-            ? motion === 'on'
-              ? tr('settings.SettingsDialog.systemAnimationsAreDisabled')
-              : motion === 'system'
-                ? tr('settings.SettingsDialog.systemAnimationsAreDisabled2')
-                : undefined
-            : undefined
-        }
-      >
-        <Segmented
-          label={text('动画')}
-          options={MOTION_OPTIONS.map(option => ({ ...option, label: text(option.label) }))}
-          value={motion}
-          onChange={setMotion}
+      <SettingGroup title={tr('settingsAppearance.motion')} anchorId="motion">
+        <SettingRow
+          title={tr('settings.searchIndex.motion')}
+          description={tr('settings.SettingsDialog.animationsForSidebarAnd')}
+          hint={
+            systemReducedMotion
+              ? motion === 'on'
+                ? tr('settings.SettingsDialog.systemAnimationsAreDisabled')
+                : motion === 'system'
+                  ? tr('settings.SettingsDialog.systemAnimationsAreDisabled2')
+                  : undefined
+              : undefined
+          }
+          control={
+            <Segmented
+              label={text('动画')}
+              options={MOTION_OPTIONS.map(option => ({ ...option, label: text(option.label) }))}
+              value={motion}
+              onChange={setMotion}
+            />
+          }
         />
-      </SettingRow>
 
-      <SettingRow
-        title={tr('settings.searchIndex.paneSwitching')}
-        description={tr('settings.SettingsDialog.highlightBrieflyLightsUp')}
-        hint={
-          motionDisabled
-            ? tr('settings.SettingsDialog.motionIsDisabledPane')
-            : tr('settings.SettingsDialog.onlyAffectsFocusChanges')
-        }
-      >
-        <Segmented
-          label={text('切换窗格时')}
-          options={PANE_FOCUS_OPTIONS.map(option => ({ ...option, label: text(option.label) }))}
-          value={paneFocusMotion}
-          onChange={setPaneFocusMotion}
-          disabled={motionDisabled}
+        <SettingRow
+          title={tr('settings.searchIndex.paneSwitching')}
+          description={tr('settings.SettingsDialog.highlightBrieflyLightsUp')}
+          hint={
+            motionDisabled
+              ? tr('settings.SettingsDialog.motionIsDisabledPane')
+              : tr('settings.SettingsDialog.onlyAffectsFocusChanges')
+          }
+          control={
+            <Segmented
+              label={text('切换窗格时')}
+              options={PANE_FOCUS_OPTIONS.map(option => ({ ...option, label: text(option.label) }))}
+              value={paneFocusMotion}
+              onChange={setPaneFocusMotion}
+              disabled={motionDisabled}
+            />
+          }
         />
-      </SettingRow>
-      <ModeTransitionSettings />
+        <ModeTransitionSettings />
+      </SettingGroup>
 
       <SidebarSettings />
     </section>

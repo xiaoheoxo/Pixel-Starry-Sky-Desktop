@@ -21,14 +21,15 @@ export function ModeTransitionSettings() {
       title={tr('coding.shell.transition.setting')}
       description={tr('coding.shell.transition.hint')}
       hint={reduced ? tr('coding.shell.transition.motionOff') : undefined}
-    >
-      <Segmented
-        label={tr('coding.shell.transition.setting')}
-        options={options}
-        value={value}
-        onChange={setModeTransition}
-        disabled={reduced}
-      />
-    </SettingRow>
+      control={
+        <Segmented
+          label={tr('coding.shell.transition.setting')}
+          options={options}
+          value={value}
+          onChange={setModeTransition}
+          disabled={reduced}
+        />
+      }
+    />
   )
 }

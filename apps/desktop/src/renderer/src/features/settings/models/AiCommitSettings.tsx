@@ -23,7 +23,7 @@ import {
   useAiCommitSettings,
   type AiCommitModel,
 } from '../aiCommit'
-import { GroupTitle, SettingRow, Toggle } from '../SettingRow'
+import { SettingGroup, SettingRow, Toggle } from '../SettingRow'
 import { useCommitChannels } from './useCommitChannels'
 import type { AiCommitLanguage, AiCommitStyle, AiSource } from '../../../../../shared/types/ai'
 
@@ -55,114 +55,125 @@ export function AiCommitSettings() {
 
   return (
     <div>
-      <GroupTitle>{tr('settingsAssist.channel')}</GroupTitle>
-      <SettingRow
-        title={tr('aiCommit.settings.source')}
-        description={`${tr('settingsAssist.channelHint')}${tr('aiCommit.settings.sourceHint')}`}
-      >
-        {ready.length === 0 ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-meta text-warn">{tr('settingsAssist.noChannel')}</p>
-            <Button className="h-7 px-2.5 text-meta" onClick={() => settings.openSettings('models')}>
-              {tr('settingsAssist.openChannels')}
-            </Button>
-          </div>
-        ) : (
-          <div className="max-w-xl rounded-lg border border-line">
-            <div className="p-3">
-              <Select<AiSource>
-                label={tr('aiCommit.settings.source')}
-                className="w-full"
-                // 没选过时不当成选中：显示「X · 自动选的」，点任何一项（包括同一项）都会存下来
-                value={model.source ?? ('' as AiSource)}
-                placeholder={`${channels.name(selected)} · ${tr('aiCommit.settings.auto')}`}
-                onChange={source => setAiCommitModel({ source })}
-                options={[
-                  ...ready.map(c => ({
-                    value: c.source,
-                    label: channels.name(c.source),
-                    hint: channels.costLabel(c.source),
-                  })),
-                  // 没设置好的也列出来，说明为什么不能选；去「模型通道」里设置
-                  ...unset.map(c => ({
-                    value: c.source,
-                    label: channels.name(c.source),
-                    description: channelStateText(COMMIT_CHANNEL[c.source], c.state) ?? undefined,
-                    disabled: true,
-                  })),
-                ]}
-              />
+      <SettingGroup title={tr('settingsAssist.channel')}>
+        <SettingRow
+          title={tr('aiCommit.settings.source')}
+          description={`${tr('settingsAssist.channelHint')}${tr('aiCommit.settings.sourceHint')}`}
+        >
+          {ready.length === 0 ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-meta text-warn">{tr('settingsAssist.noChannel')}</p>
+              <Button className="h-7 px-2.5 text-meta" onClick={() => settings.openSettings('models')}>
+                {tr('settingsAssist.openChannels')}
+              </Button>
             </div>
-            {ready.some(c => c.source === selected) && (
-              <ChannelDetail source={selected} model={model} channels={channels} />
-            )}
-          </div>
-        )}
-      </SettingRow>
+          ) : (
+            <div className="max-w-xl rounded-lg bg-subtle/65">
+              <div className="p-3">
+                <Select<AiSource>
+                  label={tr('aiCommit.settings.source')}
+                  className="w-full"
+                  // 没选过时不当成选中：显示「X · 自动选的」，点任何一项（包括同一项）都会存下来
+                  value={model.source ?? ('' as AiSource)}
+                  placeholder={`${channels.name(selected)} · ${tr('aiCommit.settings.auto')}`}
+                  onChange={source => setAiCommitModel({ source })}
+                  options={[
+                    ...ready.map(c => ({
+                      value: c.source,
+                      label: channels.name(c.source),
+                      hint: channels.costLabel(c.source),
+                    })),
+                    // 没设置好的也列出来，说明为什么不能选；去「模型通道」里设置
+                    ...unset.map(c => ({
+                      value: c.source,
+                      label: channels.name(c.source),
+                      description: channelStateText(COMMIT_CHANNEL[c.source], c.state) ?? undefined,
+                      disabled: true,
+                    })),
+                  ]}
+                />
+              </div>
+              {ready.some(c => c.source === selected) && (
+                <ChannelDetail source={selected} model={model} channels={channels} />
+              )}
+            </div>
+          )}
+        </SettingRow>
+      </SettingGroup>
 
-      <GroupTitle>{tr('settingsAssist.commit')}</GroupTitle>
-      <SettingRow
-        title={tr('aiCommit.settings.enabled')}
-        description={tr('aiCommit.settings.enabledHint')}
-        control={
-          <Toggle
-            label={tr('aiCommit.settings.enabled')}
-            checked={writing.enabled}
-            onChange={enabled => setAiCommitWriting({ enabled })}
+      <SettingGroup title={tr('settingsAssist.commit')}>
+        <SettingRow
+          title={tr('aiCommit.settings.enabled')}
+          description={tr('aiCommit.settings.enabledHint')}
+          control={
+            <Toggle
+              label={tr('aiCommit.settings.enabled')}
+              checked={writing.enabled}
+              onChange={enabled => setAiCommitWriting({ enabled })}
+            />
+          }
+        />
+        <SettingRow
+          title={tr('aiCommit.settings.language')}
+          description=""
+          control={
+            <Segmented<AiCommitLanguage>
+              label={tr('aiCommit.settings.language')}
+              value={writing.language}
+              onChange={language => setAiCommitWriting({ language })}
+              options={[
+                { value: 'auto', label: tr('aiCommit.settings.languageAuto') },
+                { value: 'zh', label: tr('aiCommit.settings.chinese') },
+                { value: 'en', label: tr('aiCommit.settings.english') },
+              ]}
+            />
+          }
+        />
+        <SettingRow
+          title={tr('aiCommit.settings.style')}
+          description=""
+          control={
+            <Segmented<AiCommitStyle>
+              label={tr('aiCommit.settings.style')}
+              value={writing.style}
+              onChange={style => setAiCommitWriting({ style })}
+              options={[
+                { value: 'body', label: tr('aiCommit.settings.styleBody') },
+                { value: 'subject', label: tr('aiCommit.settings.styleSubject') },
+              ]}
+            />
+          }
+        />
+        <SettingRow title={tr('aiCommit.settings.instructions')} description="">
+          <textarea
+            value={instructions}
+            maxLength={INSTRUCTIONS_LIMIT}
+            rows={2}
+            aria-label={tr('aiCommit.settings.instructions')}
+            placeholder={tr('aiCommit.settings.instructionsPlaceholder')}
+            onChange={e => {
+              setInstructions(e.target.value)
+              unsaved.current = true
+            }}
+            onBlur={saveInstructions}
+            className="block max-h-40 min-h-14 w-full max-w-xl resize-y rounded-md border border-line bg-surface px-2.5 py-2 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent"
           />
-        }
-      />
-      <SettingRow title={tr('aiCommit.settings.language')} description="">
-        <Segmented<AiCommitLanguage>
-          label={tr('aiCommit.settings.language')}
-          value={writing.language}
-          onChange={language => setAiCommitWriting({ language })}
-          options={[
-            { value: 'auto', label: tr('aiCommit.settings.languageAuto') },
-            { value: 'zh', label: tr('aiCommit.settings.chinese') },
-            { value: 'en', label: tr('aiCommit.settings.english') },
-          ]}
-        />
-      </SettingRow>
-      <SettingRow title={tr('aiCommit.settings.style')} description="">
-        <Segmented<AiCommitStyle>
-          label={tr('aiCommit.settings.style')}
-          value={writing.style}
-          onChange={style => setAiCommitWriting({ style })}
-          options={[
-            { value: 'body', label: tr('aiCommit.settings.styleBody') },
-            { value: 'subject', label: tr('aiCommit.settings.styleSubject') },
-          ]}
-        />
-      </SettingRow>
-      <SettingRow title={tr('aiCommit.settings.instructions')} description="">
-        <textarea
-          value={instructions}
-          maxLength={INSTRUCTIONS_LIMIT}
-          rows={2}
-          aria-label={tr('aiCommit.settings.instructions')}
-          placeholder={tr('aiCommit.settings.instructionsPlaceholder')}
-          onChange={e => {
-            setInstructions(e.target.value)
-            unsaved.current = true
-          }}
-          onBlur={saveInstructions}
-          className="block max-h-40 min-h-14 w-full max-w-xl resize-y rounded-md border border-line bg-surface px-2.5 py-2 text-list text-fg outline-none placeholder:text-fg-faint focus-visible:border-accent"
-        />
-      </SettingRow>
+        </SettingRow>
+      </SettingGroup>
 
-      <GroupTitle>{tr('settingsAssist.prompt')}</GroupTitle>
-      <SettingRow
-        title={tr('promptOptimize.settings.enabled')}
-        description={tr('promptOptimize.settings.enabledHint')}
-        control={
-          <Toggle
-            label={tr('promptOptimize.settings.enabled')}
-            checked={writing.promptButton}
-            onChange={promptButton => setAiCommitWriting({ promptButton })}
-          />
-        }
-      />
+      <SettingGroup title={tr('settingsAssist.prompt')}>
+        <SettingRow
+          title={tr('promptOptimize.settings.enabled')}
+          description={tr('promptOptimize.settings.enabledHint')}
+          control={
+            <Toggle
+              label={tr('promptOptimize.settings.enabled')}
+              checked={writing.promptButton}
+              onChange={promptButton => setAiCommitWriting({ promptButton })}
+            />
+          }
+        />
+      </SettingGroup>
     </div>
   )
 }

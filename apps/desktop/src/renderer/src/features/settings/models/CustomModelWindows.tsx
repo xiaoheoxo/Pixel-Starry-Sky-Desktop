@@ -40,7 +40,7 @@ export function CustomModelWindows() {
           </p>
         )}
       </div>
-      <div className="overflow-hidden rounded-lg border border-line">
+      <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
         {withModels.map(p => (
           <div key={p.id} className="border-t border-line-subtle first:border-t-0">
             <div className="bg-subtle px-4 py-1.5 text-meta text-fg-muted">{p.name}</div>

@@ -4,7 +4,7 @@ import { AlertCircle, Paperclip, Plus, Search, Users } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { Button, Dot, Segmented, Spinner, cn, useToast } from '@/ui'
-import { SectionTitle, SettingRow } from '../settings/SettingRow'
+import { SectionTitle, SettingGroup, SettingRow } from '../settings/SettingRow'
 import type { FeedbackSummary } from '../../../../shared/types/feedback'
 import { clip, errorText, isAuthExpired, mergeThreads } from './logic'
 import { StatusWord, TypeIcon, friendlyTime } from './parts'
@@ -91,15 +91,17 @@ export function FeedbackList({
   return (
     <section data-feedback-list>
       <SectionTitle>{tr('feedback.title')}</SectionTitle>
-      <SettingRow
-        title={tr('feedback.send')}
-        description={tr('feedback.intro')}
-        control={
-          <Button icon={Plus} variant="primary" onClick={onNew} data-feedback-new>
-            {tr('feedback.new')}
-          </Button>
-        }
-      />
+      <SettingGroup>
+        <SettingRow
+          title={tr('feedback.send')}
+          description={tr('feedback.intro')}
+          control={
+            <Button icon={Plus} variant="primary" onClick={onNew} data-feedback-new>
+              {tr('feedback.new')}
+            </Button>
+          }
+        />
+      </SettingGroup>
 
       {unread.length > 0 && (
         <UnreadBanner
@@ -127,7 +129,7 @@ export function FeedbackList({
         <div
           data-feedback-load-error
           role="alert"
-          className="mt-4 flex items-start gap-3 rounded-lg border border-line bg-subtle px-4 py-4"
+          className="mt-4 flex items-start gap-3 rounded-xl bg-surface px-5 py-4 shadow-sm"
         >
           <AlertCircle size={18} className="mt-0.5 shrink-0 text-danger" />
           <div className="min-w-0 flex-1">
@@ -139,15 +141,15 @@ export function FeedbackList({
           <Button onClick={refresh}>{tr('feedback.retry')}</Button>
         </div>
       ) : all.length === 0 ? (
-        <div className="mt-2 flex flex-col items-start gap-3 border-t border-line py-8">
+        <div className="mt-4 flex flex-col items-start gap-3 rounded-xl bg-surface px-5 py-8 shadow-sm">
           <p className="text-ui text-fg-muted">{tr('feedback.empty')}</p>
           <Button onClick={onNew}>{tr('feedback.emptyAction')}</Button>
         </div>
       ) : (
         <>
-          <div className="mt-2 mb-3 flex flex-col gap-2.5 border-t border-line pt-5">
+          <div className="mt-5 mb-3 flex flex-col gap-2.5">
             <div className="flex items-center justify-between gap-3">
-              <h4 data-setting-title={tr('feedback.mine')} className="text-label font-medium text-fg-muted">
+              <h4 data-setting-title={tr('feedback.mine')} className="px-0.5 text-label font-semibold text-fg-muted">
                 {tr('feedback.mine')}
               </h4>
               <Segmented<Segment>
@@ -162,7 +164,7 @@ export function FeedbackList({
               />
             </div>
             <div className="flex items-center gap-2">
-              <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-surface px-2.5 text-fg-muted focus-within:border-accent">
+              <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent bg-surface px-2.5 text-fg-muted shadow-sm transition-colors focus-within:border-accent-line">
                 <Search size={14} className="shrink-0" />
                 <input
                   data-feedback-search
@@ -299,8 +301,8 @@ function Card({ thread, onOpen }: { thread: FeedbackSummary; onOpen: (id: string
       data-unread={thread.unread || undefined}
       onClick={() => onOpen(thread.id)}
       className={cn(
-        'press flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left hover:bg-hover',
-        thread.unread ? 'border-accent-line bg-accent-soft/40' : 'border-line bg-surface',
+        'press flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left shadow-sm transition-colors hover:bg-hover',
+        thread.unread ? 'border-accent-line bg-accent-soft/40' : 'border-transparent bg-surface',
         closed && 'opacity-80',
       )}
     >

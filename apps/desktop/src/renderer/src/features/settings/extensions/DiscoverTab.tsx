@@ -214,7 +214,7 @@ export function DiscoverTab() {
     <div ref={rootRef} data-ext-discover className="flex flex-col gap-4 @min-[44rem]:flex-row @min-[44rem]:items-start">
       <div className="@container min-w-0 flex-1">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <label className="flex h-8 min-w-40 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-fg-muted focus-within:border-line-strong">
+          <label className="flex h-8 min-w-40 flex-1 items-center gap-1.5 rounded-lg border border-transparent bg-surface px-2.5 text-fg-muted shadow-sm transition-colors focus-within:border-accent-line">
             <Search size={14} strokeWidth={1.5} className="shrink-0" />
             <input
               ref={searchRef}
@@ -242,12 +242,12 @@ export function DiscoverTab() {
         {status === 'error' ? (
           <OfflineNotice onRetry={() => setReloadKey(k => k + 1)} />
         ) : status === 'loading' && items.length === 0 ? (
-          <p className="flex items-center justify-center gap-2 rounded-lg border border-line px-3 py-6 text-ui text-fg-faint">
+          <p className="flex items-center justify-center gap-2 rounded-xl bg-surface px-4 py-6 text-ui text-fg-faint shadow-sm">
             <Spinner />
             {t('extstore.loading')}
           </p>
         ) : items.length === 0 ? (
-          <p className="rounded-lg border border-line px-3 py-6 text-center text-ui text-fg-faint">
+          <p className="rounded-xl bg-surface px-4 py-6 text-center text-ui text-fg-faint shadow-sm">
             {t('extstore.empty')}
           </p>
         ) : (
@@ -260,7 +260,7 @@ export function DiscoverTab() {
               </ul>
             )}
             {rest.length > 0 && (
-              <ul className="divide-y divide-line-subtle rounded-lg border border-line">
+              <ul className="divide-y divide-line-subtle/55 overflow-hidden rounded-xl bg-surface shadow-sm">
                 {rest.map(item => (
                   <StoreRow key={item.id} item={item} state={stateOf(item)} handlers={handlers} />
                 ))}
@@ -289,7 +289,10 @@ export function DiscoverTab() {
 export function OfflineNotice({ onRetry }: { onRetry(): void }) {
   const { t } = useI18n()
   return (
-    <div role="alert" className="flex flex-col items-center gap-2 rounded-lg border border-line px-3 py-8 text-center">
+    <div
+      role="alert"
+      className="flex flex-col items-center gap-2 rounded-xl bg-surface px-4 py-8 text-center shadow-sm"
+    >
       <p className="text-ui font-medium text-fg">{t('extstore.offline.title')}</p>
       <p className="text-meta text-fg-muted">{t('extstore.offline.hint')}</p>
       <Button onClick={onRetry}>{t('extstore.retry')}</Button>

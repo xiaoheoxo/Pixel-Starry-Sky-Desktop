@@ -20,14 +20,18 @@ export function FileIconThemeSettings(): JSX.Element | null {
   const options = iconThemeOptions(state, locale)
   if (!iconThemesAvailable(state)) return null
   return (
-    <SettingRow title={tr('extensions.appearance.fileIcons')} description={tr('fileIcons.description')}>
-      <Select
-        label={tr('extensions.appearance.fileIcons')}
-        value={effectiveIconChoice(choice, state)}
-        options={options}
-        onChange={setIconThemeChoice}
-        fitContent
-      />
-    </SettingRow>
+    <SettingRow
+      title={tr('extensions.appearance.fileIcons')}
+      description={tr('fileIcons.description')}
+      control={
+        <Select
+          label={tr('extensions.appearance.fileIcons')}
+          value={effectiveIconChoice(choice, state)}
+          options={options}
+          onChange={setIconThemeChoice}
+          fitContent
+        />
+      }
+    />
   )
 }

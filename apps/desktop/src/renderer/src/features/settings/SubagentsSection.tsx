@@ -241,7 +241,7 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
         </section>
 
         <aside className="flex min-w-0 flex-col gap-4 @4xl:sticky @4xl:top-0">
-          <div className="rounded-xl border border-line-card bg-surface">
+          <div className="rounded-xl bg-surface shadow-sm">
             <h4 data-setting-title={tr('subagentRoute.shared')} className="px-4 pt-3 text-ui font-semibold text-fg">
               {tr('subagentRoute.shared')}
             </h4>
@@ -278,7 +278,7 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
             </div>
           </div>
 
-          <div className="rounded-xl border border-line-card bg-surface">
+          <div className="rounded-xl bg-surface shadow-sm">
             <div className="flex items-baseline justify-between gap-3 px-4 pt-3">
               <h4 className="text-ui font-semibold text-fg">{tr('subagentRoute.preview')}</h4>
               <span className="text-label text-fg-faint">{tr('subagentRoute.previewTool')}</span>

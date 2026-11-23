@@ -115,7 +115,7 @@ export function StoreFeaturedCard({
     <li
       data-store-item={item.id}
       data-store-card="featured"
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-line bg-surface p-3 hover:bg-hover"
+      className="flex min-w-0 flex-col gap-2 rounded-xl bg-surface p-3.5 shadow-sm transition-colors hover:bg-hover"
     >
       <button
         type="button"

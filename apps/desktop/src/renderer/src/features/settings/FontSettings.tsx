@@ -64,28 +64,30 @@ export function FontSettings() {
       <SettingRow
         title={tr('settings.FontSettings.fontSize')}
         description={tr('settings.FontSettings.scaleTextOnlyButtons')}
-      >
-        <Segmented
-          label={tr('settings.FontSettings.fontSize')}
-          options={SCALE_OPTIONS}
-          value={String(f.scale)}
-          onChange={v => setFontPrefs({ scale: Number(v) })}
-        />
-      </SettingRow>
+        control={
+          <Segmented
+            label={tr('settings.FontSettings.fontSize')}
+            options={SCALE_OPTIONS}
+            value={String(f.scale)}
+            onChange={v => setFontPrefs({ scale: Number(v) })}
+          />
+        }
+      />
       <SettingRow
         title={tr('settings.FontSettings.serifConversationText')}
         description={tr('settings.FontSettings.useSerifFontsSongti')}
-      >
-        <Segmented
-          label={tr('settings.FontSettings.serifConversationText')}
-          options={SERIF_OPTIONS}
-          value={f.serifProse ? 'on' : 'off'}
-          onChange={v => setFontPrefs({ serifProse: v === 'on' })}
-        />
-      </SettingRow>
+        control={
+          <Segmented
+            label={tr('settings.FontSettings.serifConversationText')}
+            options={SERIF_OPTIONS}
+            value={f.serifProse ? 'on' : 'off'}
+            onChange={v => setFontPrefs({ serifProse: v === 'on' })}
+          />
+        }
+      />
       {!isDefault && (
-        <div className="-mt-2 pb-2">
-          <Button variant="ghost" className="-ml-3" onClick={resetFontPrefs}>
+        <div className="border-t border-line-subtle px-4 py-2.5">
+          <Button variant="ghost" className="-ml-2 h-7 px-2 text-meta" onClick={resetFontPrefs}>
             {tr('settings.FontSettings.resetFontSettings')}{' '}
           </Button>
         </div>

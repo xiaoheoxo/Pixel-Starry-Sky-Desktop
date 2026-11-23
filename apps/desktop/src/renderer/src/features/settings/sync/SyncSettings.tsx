@@ -35,7 +35,7 @@ export function SyncSettings() {
   // 演示模式也显示（同步本身不跑，见 engine.ts）
   if (!window.pixelsky?.settingsSync) return null
   return (
-    <div data-setting-title="设置云同步" className="mt-4 rounded-lg border border-line bg-surface p-4">
+    <div data-setting-title="设置云同步" className="mt-4 rounded-xl bg-surface p-5 shadow-sm">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-ui font-medium text-fg">{tr('settings.sync.title')}</div>
@@ -61,7 +61,7 @@ export function SyncSettings() {
               </label>
             ))}
           </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle pt-3">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle/55 pt-3.5">
             <span className={cn('text-meta', status.error ? 'text-danger' : 'text-fg-muted')} role="status">
               {status.syncing
                 ? tr('settings.sync.syncing')

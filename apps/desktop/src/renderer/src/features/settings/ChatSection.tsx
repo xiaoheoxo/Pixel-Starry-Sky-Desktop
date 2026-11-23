@@ -1,4 +1,4 @@
-// 设置 › 对话（docs/ui/settings-reorg.md §4）：原来外观页「对话」一组的 13 项，分成五个小标题
+// 设置 › 对话（docs/ui/settings-reorg.md §4）：原来外观页「对话」一组的 13 项，分成五个分组卡片
 import { tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { CacheMissSettings } from './CacheMissSettings'
@@ -11,7 +11,7 @@ import { OlderFoldSettings } from './OlderFoldSettings'
 import { PortTipSettings } from './PortTipSettings'
 import { QuotaDisplaySettings } from './QuotaDisplaySettings'
 import { ReplyStatsSettings } from './ReplyStatsSettings'
-import { GroupTitle, SectionTitle } from './SettingRow'
+import { SectionTitle, SettingGroup } from './SettingRow'
 import { StopBackgroundAgentsSettings } from './StopBackgroundAgentsSettings'
 import { SubagentViewSettings } from './SubagentViewSettings'
 import { TurnRailSettings } from './TurnRailSettings'
@@ -21,28 +21,34 @@ export function ChatSection() {
   return (
     <section>
       <SectionTitle>{tr('settingsNav.chat')}</SectionTitle>
-      <GroupTitle>{tr('settingsChat.composer')}</GroupTitle>
-      <ComposerStyleSettings />
-      <QuotaDisplaySettings />
-      <FullAccessStripSettings />
 
-      <GroupTitle>{tr('settingsChat.messages')}</GroupTitle>
-      <ReplyStatsSettings />
-      <MessageActionsSettings />
-      <TurnRailSettings />
-      <SubagentViewSettings />
+      <SettingGroup title={tr('settingsChat.composer')}>
+        <ComposerStyleSettings />
+        <QuotaDisplaySettings />
+        <FullAccessStripSettings />
+      </SettingGroup>
 
-      <GroupTitle>{tr('settingsChat.long')}</GroupTitle>
-      <LongConversationSettings />
-      <OlderFoldSettings />
+      <SettingGroup title={tr('settingsChat.messages')}>
+        <ReplyStatsSettings />
+        <MessageActionsSettings />
+        <TurnRailSettings />
+        <SubagentViewSettings />
+      </SettingGroup>
 
-      <GroupTitle>{tr('settingsChat.running')}</GroupTitle>
-      <StopBackgroundAgentsSettings />
+      <SettingGroup title={tr('settingsChat.long')}>
+        <LongConversationSettings />
+        <OlderFoldSettings />
+      </SettingGroup>
 
-      <GroupTitle>{tr('settingsChat.tips')}</GroupTitle>
-      <CacheMissSettings />
-      <PortTipSettings />
-      <FeatureTipsSettings />
+      <SettingGroup title={tr('settingsChat.running')}>
+        <StopBackgroundAgentsSettings />
+      </SettingGroup>
+
+      <SettingGroup title={tr('settingsChat.tips')}>
+        <CacheMissSettings />
+        <PortTipSettings />
+        <FeatureTipsSettings />
+      </SettingGroup>
     </section>
   )
 }

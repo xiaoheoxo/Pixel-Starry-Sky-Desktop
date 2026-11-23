@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { SquareArrowOutUpRight, X } from 'lucide-react'
-import { IconButton } from '@/ui'
 import { tr } from '../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { SettingsContent, type SectionId } from './SettingsContent'
@@ -16,26 +14,40 @@ interface Rect {
 }
 
 const SIZE_KEY = 'pixelsky.settings-size'
-const MIN_W = 640
-const MIN_H = 440
+const MIN_W = 660
+const MIN_H = 460
 /** 和窗口边缘至少留的距离 */
 const MARGIN = 12
+/** Windows 无边框窗口右上角自绘三键热区高度与宽度（docs/ui/design-tokens.md §1.6） */
+const WIN_TITLEBAR_H = 48
+const WIN_BUTTONS_W = 148
 
-/** 限制在窗口内：最小 640 × 440，不超过窗口；位置不跑出窗口 */
+/** 限制在窗口内：最小 660 × 460，不超过窗口；Windows 下靠右贴顶时避让系统窗口按钮防撞车 */
 function clampRect(r: Rect): Rect {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const w = Math.max(Math.min(MIN_W, vw - MARGIN * 2), Math.min(r.w, vw - MARGIN * 2))
-  const h = Math.max(Math.min(MIN_H, vh - MARGIN * 2), Math.min(r.h, vh - MARGIN * 2))
   const x = Math.min(Math.max(MARGIN, r.x), vw - w - MARGIN)
-  const y = Math.min(Math.max(MARGIN, r.y), vh - h - MARGIN)
+  const overlapsWinButtons =
+    window.pixelsky?.platform === 'win32' && x + w > vw - WIN_BUTTONS_W && vh >= MIN_H + WIN_TITLEBAR_H + MARGIN
+  const topMin = overlapsWinButtons ? WIN_TITLEBAR_H : MARGIN
+  const h = Math.max(Math.min(MIN_H, vh - topMin - MARGIN), Math.min(r.h, vh - topMin - MARGIN))
+  const y = Math.min(Math.max(topMin, r.y), vh - h - MARGIN)
   return { x, y, w, h }
 }
 
-/** 打开时：沿用上次的尺寸（默认 980 × 680），在窗口里居中 */
+/** 打开时：沿用上次的尺寸（默认 1080 × 760，左侧 21 项零滚动且比例舒展），在窗口里居中 */
+const DEFAULT_W = 1080
+const DEFAULT_H = 760
+
+function centeredDefaultRect(): Rect {
+  const r = clampRect({ x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H })
+  return clampRect({ ...r, x: (window.innerWidth - r.w) / 2, y: (window.innerHeight - r.h) / 2 })
+}
+
 function initialRect(): Rect {
-  let w = 980
-  let h = 680
+  let w = DEFAULT_W
+  let h = DEFAULT_H
   try {
     const s = JSON.parse(localStorage.getItem(SIZE_KEY) ?? 'null')
     if (s && typeof s.w === 'number' && typeof s.h === 'number') {
@@ -50,9 +62,8 @@ function initialRect(): Rect {
 }
 
 /**
- * 设置浮层的外框：遮罩、拖动标题栏移动、右下角改大小、Esc / 点遮罩 / × 关闭（docs/ui/settings.md §10）。
+ * 设置浮层的外框：遮罩、左右通顶分栏、按住吸顶栏或侧栏顶部拖动、右下角改大小、Esc / 点遮罩 / × 关闭。
  * 里面的导航和分区页是 SettingsContent，独立窗口（SettingsWindow）共用。
- * 标题栏的「在独立窗口中打开」把设置弹成一个系统窗口（docs/ui/settings-window.md）。
  */
 export function SettingsDialog({
   section,
@@ -67,8 +78,7 @@ export function SettingsDialog({
   /** 在独立窗口中打开；没有这个入口（演示、没有主进程）时不传，不显示按钮 */
   onPopOut?: () => void
 }) {
-  const { text, t } = useI18n()
-  // 位置和尺寸（docs/ui/settings.md §10）：标题栏拖动移动、右下角拖动缩放；尺寸记在本机，位置每次打开居中
+  const { t } = useI18n()
   const [rect, setRect] = useState<Rect>(() => initialRect())
   const rectRef = useRef(rect)
   rectRef.current = rect
@@ -88,7 +98,6 @@ export function SettingsDialog({
     e.stopPropagation()
     const start = { x: e.clientX, y: e.clientY, rect: rectRef.current }
     document.body.style.cursor = mode === 'move' ? 'grabbing' : 'se-resize'
-    // 最后一次计算出的尺寸：松手时直接存它，不读 rectRef（松手前可能还没重新渲染，读到的是旧值）
     let last = start.rect
     const onMove = (ev: MouseEvent) => {
       const dx = ev.clientX - start.x
@@ -128,34 +137,11 @@ export function SettingsDialog({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="settings-title"
+        aria-label={t('sidebar.SidebarFooter.settings')}
         data-settings-dialog
-        className="pop-in outline-none absolute flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-popover"
+        className="pop-in absolute flex flex-col overflow-hidden rounded-xl border border-line-card bg-app shadow-popover outline-none"
         style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
       >
-        {/* 标题栏空白处按住拖动，移动设置窗口 */}
-        <header
-          onMouseDown={e => {
-            if ((e.target as HTMLElement).closest('button')) return
-            startDrag(e, 'move')
-          }}
-          className="flex h-12 shrink-0 cursor-grab items-center justify-between border-b border-line pr-2 pl-5 select-none active:cursor-grabbing"
-        >
-          <h2 id="settings-title" className="text-section font-semibold text-fg">
-            {t('sidebar.SidebarFooter.settings')}
-          </h2>
-          <div className="flex items-center gap-0.5">
-            {onPopOut && (
-              <IconButton
-                icon={SquareArrowOutUpRight}
-                label={tr('settingsWindow.popOutTip')}
-                onClick={() => leaveSettings(onPopOut)}
-              />
-            )}
-            <IconButton icon={X} label={text('关闭（Esc）')} onClick={() => leaveSettings(onClose)} />
-          </div>
-        </header>
-
         {/* 右下角的调整大小手柄：拖动改变宽 / 高（记住尺寸，下次打开沿用） */}
         <div
           aria-hidden
@@ -174,6 +160,16 @@ export function SettingsDialog({
           standalone={false}
           onClose={onClose}
           onEscape={onClose}
+          onPopOut={onPopOut ? () => leaveSettings(onPopOut) : undefined}
+          onStartMove={e => startDrag(e, 'move')}
+          onResetSize={() => {
+            try {
+              localStorage.removeItem(SIZE_KEY)
+            } catch {
+              /* 忽略 */
+            }
+            setRect(centeredDefaultRect())
+          }}
         />
       </div>
     </div>

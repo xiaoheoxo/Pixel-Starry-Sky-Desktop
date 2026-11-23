@@ -7,7 +7,7 @@ import { updateActions, useUpdateState } from '@/features/update/store'
 import { useWhatsNew, whatsNewActions } from '@/features/update/whatsNew'
 import { CloseActionSettings } from './CloseActionSettings'
 import { KeepAwakeSettings } from './KeepAwakeSettings'
-import { GroupTitle, SectionTitle, SettingRow, Toggle } from './SettingRow'
+import { SectionTitle, SettingGroup, SettingRow, Toggle } from './SettingRow'
 
 export function GeneralSection() {
   const { locale, setLocale, t } = useI18n()
@@ -16,42 +16,46 @@ export function GeneralSection() {
   return (
     <section>
       <SectionTitle>{tr('settingsNav.general')}</SectionTitle>
-      <SettingRow
-        title={tr('settings.SettingsDialog.interfaceLanguage')}
-        description={tr('settings.SettingsDialog.chooseLanguageUsedBy')}
-      >
-        <Segmented
-          label={t('settings.SettingsDialog.interfaceLanguage')}
-          options={LOCALE_OPTIONS}
-          value={locale}
-          onChange={value => setLocale(value as Locale)}
-        />
-      </SettingRow>
-      <CloseActionSettings />
-      <KeepAwakeSettings />
-
-      <GroupTitle>{tr('update.group')}</GroupTitle>
-      <SettingRow
-        title={tr('whatsNew.setting')}
-        description={tr('whatsNew.settingHint')}
-        control={
-          <Toggle label={tr('whatsNew.setting')} checked={!muted} onChange={on => whatsNewActions.setMuted(!on)} />
-        }
-      />
-      {update && (
+      <SettingGroup title={tr('settingsLayout.general.basic')}>
         <SettingRow
-          title={tr('update.beta')}
-          description={tr('update.betaHint')}
+          title={tr('settings.SettingsDialog.interfaceLanguage')}
+          description={tr('settings.SettingsDialog.chooseLanguageUsedBy')}
           control={
-            <Switch
-              checked={update.beta}
-              disabled={update.status === 'unsupported'}
-              label={tr('update.beta')}
-              onChange={on => void updateActions.setBeta(on)}
+            <Segmented
+              label={t('settings.SettingsDialog.interfaceLanguage')}
+              options={LOCALE_OPTIONS}
+              value={locale}
+              onChange={value => setLocale(value as Locale)}
             />
           }
         />
-      )}
+        <CloseActionSettings />
+        <KeepAwakeSettings />
+      </SettingGroup>
+
+      <SettingGroup title={tr('update.group')}>
+        <SettingRow
+          title={tr('whatsNew.setting')}
+          description={tr('whatsNew.settingHint')}
+          control={
+            <Toggle label={tr('whatsNew.setting')} checked={!muted} onChange={on => whatsNewActions.setMuted(!on)} />
+          }
+        />
+        {update && (
+          <SettingRow
+            title={tr('update.beta')}
+            description={tr('update.betaHint')}
+            control={
+              <Switch
+                checked={update.beta}
+                disabled={update.status === 'unsupported'}
+                label={tr('update.beta')}
+                onChange={on => void updateActions.setBeta(on)}
+              />
+            }
+          />
+        )}
+      </SettingGroup>
     </section>
   )
 }

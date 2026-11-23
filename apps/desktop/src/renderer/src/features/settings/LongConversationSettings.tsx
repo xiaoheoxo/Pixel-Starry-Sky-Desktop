@@ -4,7 +4,7 @@ import { Segmented } from '@/ui'
 import { SettingRow } from './SettingRow'
 import { setLongConversation, useLongConversation, type LongConversationChoice } from './longConversation'
 
-/** 设置 › 外观 › 对话：长对话先显示最近几轮（docs/ui/turn-rail.md §9）；全部 = 不折叠 */
+/** 设置 › 对话：长对话先显示最近几轮（docs/ui/turn-rail.md §9）；全部 = 不折叠 */
 export function LongConversationSettings() {
   useI18n()
   const value = useLongConversation()
@@ -14,13 +14,17 @@ export function LongConversationSettings() {
     { value: 'all', label: tr('longConversation.all') },
   ]
   return (
-    <SettingRow title={tr('longConversation.setting')} description={tr('longConversation.settingHint')}>
-      <Segmented
-        label={tr('longConversation.setting')}
-        options={options}
-        value={value}
-        onChange={setLongConversation}
-      />
-    </SettingRow>
+    <SettingRow
+      title={tr('longConversation.setting')}
+      description={tr('longConversation.settingHint')}
+      control={
+        <Segmented
+          label={tr('longConversation.setting')}
+          options={options}
+          value={value}
+          onChange={setLongConversation}
+        />
+      }
+    />
   )
 }

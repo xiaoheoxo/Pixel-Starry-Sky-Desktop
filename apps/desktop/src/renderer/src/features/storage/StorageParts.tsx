@@ -10,7 +10,7 @@ import { formatBytes } from './storageView'
 export type OnDeleted = (ids: string[], freed: number, failed: number) => void
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('rounded-lg border border-line-card bg-surface', className)}>{children}</div>
+  return <div className={cn('overflow-hidden rounded-xl bg-surface shadow-sm', className)}>{children}</div>
 }
 
 export function Row({
@@ -27,7 +27,11 @@ export function Row({
   children?: ReactNode
 }) {
   return (
-    <div className="border-t border-line-subtle px-4 py-3 first:border-t-0">
+    <div className="relative px-5 py-3.5 first:[&>.storage-row-divider]:hidden">
+      <span
+        aria-hidden
+        className="storage-row-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55"
+      />
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-ui font-medium text-fg">

@@ -91,7 +91,7 @@ function SignedOut() {
   return (
     <section data-feedback-view="signed-out">
       <SectionTitle>{tr('feedback.title')}</SectionTitle>
-      <div className="rounded-lg border border-line bg-subtle px-5 py-6">
+      <div className="rounded-xl bg-surface px-5 py-6 shadow-sm">
         <p className="mb-4 text-ui text-fg">{tr('feedback.signedOut')}</p>
         <Button variant="primary" disabled={signingIn} onClick={() => void account.login()}>
           {signingIn ? tr('feedback.signingIn') : tr('feedback.signIn')}
@@ -113,7 +113,7 @@ function NotDeployed() {
   return (
     <section data-feedback-view="not-deployed">
       <SectionTitle>{tr('feedback.title')}</SectionTitle>
-      <div className="rounded-lg border border-line bg-subtle px-5 py-6">
+      <div className="rounded-xl bg-surface px-5 py-6 shadow-sm">
         <p className="mb-4 text-ui text-fg">{tr('feedback.notDeployed')}</p>
         <Button onClick={openIssues}>{tr('feedback.githubOpen')}</Button>
       </div>

@@ -7,7 +7,7 @@ import { Button, IconButton, Segmented, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { useAccount } from '@/features/account'
 import type { MobileAccess, MobilePairing, MobileSeats, MobileState } from '../../../../../shared/types/mobile'
-import { GroupTitle, SectionTitle, SettingRow, Toggle } from '../../settings/SettingRow'
+import { GroupTitle, SectionTitle, SettingGroup, SettingRow, Toggle } from '../../settings/SettingRow'
 import { StorePages } from '../../account/settings/StorePages'
 import { QrCode } from '@/ui/QrCode'
 import { useTheme } from '../../appearance/ThemeProvider'
@@ -122,39 +122,41 @@ export function MobileSection() {
       <SectionTitle>{tr('mobile.title')}</SectionTitle>
       <p className="mb-5 text-meta text-fg-muted">{t('mobile.intro')}</p>
 
-      <SettingRow
-        title={tr('mobile.enable')}
-        description={tr('mobile.enableDesc')}
-        control={
-          <Toggle
-            label={t('mobile.enable')}
-            checked={state.prefs.enabled}
-            onChange={enabled => {
-              setError(null)
-              run(bridge.setPrefs({ enabled }))
-            }}
-          />
-        }
-      >
-        {state.prefs.enabled && (
-          <p className="flex items-center gap-2 text-meta text-fg-muted">
-            <span
-              aria-hidden
-              className={cn(
-                'size-2 rounded-full',
-                state.status === 'online' ? 'bg-online' : state.status === 'error' ? 'bg-danger' : 'bg-fg-faint',
-              )}
+      <SettingGroup>
+        <SettingRow
+          title={tr('mobile.enable')}
+          description={tr('mobile.enableDesc')}
+          control={
+            <Toggle
+              label={t('mobile.enable')}
+              checked={state.prefs.enabled}
+              onChange={enabled => {
+                setError(null)
+                run(bridge.setPrefs({ enabled }))
+              }}
             />
-            {t(`mobile.status.${state.status}`)}
-            {state.fingerprint && (
-              <span className="text-fg-faint">· {t('mobile.fingerprint', { p0: state.fingerprint })}</span>
-            )}
-          </p>
-        )}
-        {state.prefs.enabled && acc.status === 'signed-in' && (
-          <p className="mt-1 text-meta text-fg-faint">{t('mobile.accountVisible')}</p>
-        )}
-      </SettingRow>
+          }
+        >
+          {state.prefs.enabled && (
+            <p className="flex items-center gap-2 text-meta text-fg-muted">
+              <span
+                aria-hidden
+                className={cn(
+                  'size-2 rounded-full',
+                  state.status === 'online' ? 'bg-online' : state.status === 'error' ? 'bg-danger' : 'bg-fg-faint',
+                )}
+              />
+              {t(`mobile.status.${state.status}`)}
+              {state.fingerprint && (
+                <span className="text-fg-faint">· {t('mobile.fingerprint', { p0: state.fingerprint })}</span>
+              )}
+            </p>
+          )}
+          {state.prefs.enabled && acc.status === 'signed-in' && (
+            <p className="mt-1 text-meta text-fg-faint">{t('mobile.accountVisible')}</p>
+          )}
+        </SettingRow>
+      </SettingGroup>
 
       {shown && error !== 'MOBILE_BAD_RELAY' && <p className="mb-4 text-meta text-danger">{shown}</p>}
 
@@ -207,9 +209,16 @@ export function MobileSection() {
           {t('mobile.noDevices')}
         </p>
       ) : (
-        <ul className="divide-y divide-line-subtle rounded-lg border border-line bg-surface">
+        <ul className="overflow-hidden rounded-xl bg-surface shadow-sm">
           {rows.map(row => (
-            <li key={row.id} className="flex items-center gap-3 px-3.5 py-3">
+            <li
+              key={row.id}
+              className="relative flex items-center gap-3 px-5 py-3.5 first:[&>.mobile-row-divider]:hidden"
+            >
+              <span
+                aria-hidden
+                className="mobile-row-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55"
+              />
               <span
                 className={cn(
                   'relative flex size-8 shrink-0 items-center justify-center rounded-md bg-subtle',
@@ -270,35 +279,36 @@ export function MobileSection() {
         </ul>
       )}
       {/* 中转地址只有本机测试才要填，收在最下面 */}
-      <GroupTitle>{tr('settingsMobile.advanced')}</GroupTitle>
-      {/* 保存出错的提示跟着这一行：页面顶上那行报错这时已经滚出视野 */}
-      <SettingRow
-        title={tr('mobile.relay')}
-        description={tr('mobile.relayDesc')}
-        hint={error === 'MOBILE_BAD_RELAY' ? (shown ?? undefined) : undefined}
-        hintTone="danger"
-      >
-        <form
-          className="flex gap-2"
-          onSubmit={e => {
-            e.preventDefault()
-            setError(null)
-            run(bridge.setPrefs({ relay }))
-          }}
+      <SettingGroup title={tr('settingsMobile.advanced')} className="mt-6">
+        {/* 保存出错的提示跟着这一行：页面顶上那行报错这时已经滚出视野 */}
+        <SettingRow
+          title={tr('mobile.relay')}
+          description={tr('mobile.relayDesc')}
+          hint={error === 'MOBILE_BAD_RELAY' ? (shown ?? undefined) : undefined}
+          hintTone="danger"
         >
-          <input
-            value={relay}
-            onChange={e => setRelay(e.target.value)}
-            spellCheck={false}
-            placeholder={state.relayDefault}
-            aria-label={t('mobile.relay')}
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-2 font-mono text-ui text-fg outline-none focus:border-accent"
-          />
-          <Button type="submit" disabled={relay.trim() === state.prefs.relay}>
-            {t('mobile.relaySave')}
-          </Button>
-        </form>
-      </SettingRow>
+          <form
+            className="flex gap-2"
+            onSubmit={e => {
+              e.preventDefault()
+              setError(null)
+              run(bridge.setPrefs({ relay }))
+            }}
+          >
+            <input
+              value={relay}
+              onChange={e => setRelay(e.target.value)}
+              spellCheck={false}
+              placeholder={state.relayDefault}
+              aria-label={t('mobile.relay')}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-2 font-mono text-ui text-fg outline-none focus:border-accent"
+            />
+            <Button type="submit" disabled={relay.trim() === state.prefs.relay}>
+              {t('mobile.relaySave')}
+            </Button>
+          </form>
+        </SettingRow>
+      </SettingGroup>
       {removing && (
         <ConfirmDialog
           title={t('mobile.revoke')}
@@ -356,8 +366,8 @@ function SeatsCard({
   const groups = shop === 'seats' ? seats.seatGroups : shop === 'premium' ? seats.premiumGroups : []
   const account = acc.status === 'signed-in' ? acc.account : null
   return (
-    <div className="mt-3 mb-5 rounded-lg border border-line bg-surface">
-      <div className="flex items-start gap-4 p-4">
+    <div className="mb-5 overflow-hidden rounded-xl bg-surface shadow-sm">
+      <div className="flex items-start gap-4 p-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="text-title leading-none font-semibold text-fg tabular-nums">
@@ -392,7 +402,7 @@ function SeatsCard({
         <IconButton icon={RefreshCw} label={t('mobile.seatsRefresh')} disabled={loading} onClick={onRefresh} />
       </div>
       {account && (seats.seatGroups.length > 0 || seats.premiumGroups.length > 0) && (
-        <div className="flex flex-wrap gap-2 border-t border-line-subtle px-4 py-3">
+        <div className="flex flex-wrap gap-2 border-t border-line-subtle/55 px-5 py-3">
           {seats.seatGroups.length > 0 && (
             <Button
               variant={shop === 'seats' ? 'subtle' : 'outline'}
@@ -416,7 +426,7 @@ function SeatsCard({
         </div>
       )}
       {account && shop && groups.length > 0 && (
-        <div className="border-t border-line-subtle p-4">
+        <div className="border-t border-line-subtle/55 p-5">
           <div className="mb-3 flex items-center justify-between gap-2">
             <span className="text-ui font-medium text-fg">
               {shop === 'seats' ? t('mobile.shopSeats') : t('mobile.shopPremium')}
@@ -464,7 +474,7 @@ function Pairing({
   const left = Math.max(0, Math.ceil((pairing.expires - now) / 1000))
   const expired = pairing.status === 'expired' || (pairing.status === 'waiting' && left === 0)
   return (
-    <div ref={box} className="mt-3 mb-5 rounded-lg border border-line bg-panel p-4">
+    <div ref={box} className="mt-3 mb-5 rounded-xl bg-surface p-5 shadow-sm">
       {pairing.status === 'confirm' && pairing.request ? (
         <div>
           <div className="text-ui font-medium text-fg">{t('mobile.pairConfirm', { p0: pairing.request.name })}</div>

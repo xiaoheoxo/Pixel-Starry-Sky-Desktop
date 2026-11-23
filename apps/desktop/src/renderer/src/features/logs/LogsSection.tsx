@@ -5,7 +5,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { ChevronRight, ClipboardCopy, FileDown, FolderOpen, MessageSquareText, Search, X } from 'lucide-react'
 import { formatLogLine, type LogEntry, type LogLevel, type LogQuery, type LogSettings } from '@pixelsky/protocol'
 import { Button, CopyButton, Segmented, Select, Spinner, cn } from '@/ui'
-import { SectionTitle, SettingRow, Toggle } from '../settings/SettingRow'
+import { SectionTitle, SettingGroup, SettingRow, Toggle } from '../settings/SettingRow'
 import { MAX_ENTRIES, appendLive, entryKey, recentProblems, remaining, scopesOf, shortTime } from './logView'
 import { onLogFocus, takeLogFocus, type LogFocus } from './focus'
 import { requestFeedback } from '../feedback/focus'
@@ -213,22 +213,24 @@ export function LogsSection() {
         </p>
       )}
 
-      <SettingRow
-        title={tr('logs.verbose')}
-        description={tr('logs.verboseDesc')}
-        hint={
-          left
-            ? tr('logs.verboseLeft', {
-                p0: left[0]
-                  ? tr('logs.hoursMinutes', { p0: left[0], p1: left[1] })
-                  : tr('logs.minutes', { p0: left[1] }),
-              })
-            : undefined
-        }
-        control={<Toggle label={tr('logs.verbose')} checked={!!left} onChange={setVerbose} />}
-      />
+      <SettingGroup className="mb-4">
+        <SettingRow
+          title={tr('logs.verbose')}
+          description={tr('logs.verboseDesc')}
+          hint={
+            left
+              ? tr('logs.verboseLeft', {
+                  p0: left[0]
+                    ? tr('logs.hoursMinutes', { p0: left[0], p1: left[1] })
+                    : tr('logs.minutes', { p0: left[1] }),
+                })
+              : undefined
+          }
+          control={<Toggle label={tr('logs.verbose')} checked={!!left} onChange={setVerbose} />}
+        />
+      </SettingGroup>
 
-      <div className="mt-2 mb-2 flex flex-wrap items-center gap-2">
+      <div className="mb-2.5 flex flex-wrap items-center gap-2">
         <Segmented<LevelFilter>
           label={tr('logs.level')}
           value={level}
@@ -247,7 +249,7 @@ export function LogsSection() {
           mono
           options={[{ value: '', label: tr('logs.scopeAll') }, ...scopes.map(s => ({ value: s, label: s }))]}
         />
-        <label className="flex h-8 min-w-40 flex-1 items-center gap-1.5 rounded-md border border-line bg-surface px-2 focus-within:border-accent">
+        <label className="flex h-8 min-w-40 flex-1 items-center gap-1.5 rounded-lg border border-transparent bg-surface px-2.5 shadow-sm transition-colors focus-within:border-accent-line">
           <Search size={14} strokeWidth={1.75} className="shrink-0 text-fg-faint" />
           <input
             value={input}
@@ -284,7 +286,7 @@ export function LogsSection() {
           const el = e.currentTarget
           follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
         }}
-        className="selectable h-[420px] overflow-auto rounded-md border border-line bg-surface font-mono text-meta"
+        className="selectable h-[420px] overflow-auto rounded-xl bg-surface font-mono text-meta shadow-sm"
       >
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-fg-muted">
@@ -327,7 +329,7 @@ const LogRow = memo(function LogRow({
   return (
     <div
       className={cn(
-        'border-b border-line-subtle [contain-intrinsic-size:auto_26px] [content-visibility:auto] last:border-b-0',
+        'border-b border-line-subtle/55 [contain-intrinsic-size:auto_26px] [content-visibility:auto] last:border-b-0',
         open && 'bg-subtle',
       )}
     >

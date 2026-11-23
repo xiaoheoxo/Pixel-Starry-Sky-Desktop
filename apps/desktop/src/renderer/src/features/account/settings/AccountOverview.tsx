@@ -158,7 +158,7 @@ export function AccountOverview({
 function Card({ title, children }: { title: string; children: ReactNode }) {
   useI18n()
   return (
-    <div className="flex min-w-0 flex-col rounded-lg border border-line bg-surface p-4">
+    <div className="flex min-w-0 flex-col rounded-xl bg-surface p-5 shadow-sm">
       <h4 className="mb-2 text-meta font-medium text-fg-muted">{title}</h4>
       {children}
     </div>

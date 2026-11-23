@@ -110,7 +110,7 @@ export function ResumeScanCard({ onOpened }: { onOpened: () => void }) {
   if (machines.currentId !== 'local') {
     const machine = machines.machines.find(m => m.id === machines.currentId)
     return (
-      <div data-resume-scan="remote" className="mb-6 rounded-lg border border-line p-3.5">
+      <div data-resume-scan="remote" className="mb-5 rounded-xl bg-surface p-5 shadow-sm">
         <div className="text-ui font-medium text-fg">{tr('resume.scan.title')}</div>
         <div className="mt-2.5 flex items-center gap-3 rounded-md bg-subtle p-3.5 text-meta">
           <Monitor size={20} strokeWidth={1.5} className="shrink-0 text-fg-muted" />
@@ -147,7 +147,7 @@ export function ResumeScanCard({ onOpened }: { onOpened: () => void }) {
   ].filter(Boolean) as string[]
 
   return (
-    <div data-resume-scan="local" className="mb-6 rounded-lg border border-line p-3.5">
+    <div data-resume-scan="local" className="mb-5 rounded-xl bg-surface p-5 shadow-sm">
       <div className="flex flex-wrap items-center gap-2.5">
         <span className="text-ui font-medium text-fg">{tr('resume.scan.title')}</span>
         <span className="flex-1" />

@@ -15,9 +15,11 @@ export function MinimalModeSettings() {
     { value: 'off', label: tr('minimal.off') },
   ]
   return (
-    <SettingRow title={tr('minimal.setting')} description={tr('minimal.settingHint')}>
-      <Segmented label={tr('minimal.setting')} options={options} value={minimal} onChange={setMinimal} />
-    </SettingRow>
+    <SettingRow
+      title={tr('minimal.setting')}
+      description={tr('minimal.settingHint')}
+      control={<Segmented label={tr('minimal.setting')} options={options} value={minimal} onChange={setMinimal} />}
+    />
   )
 }
 
@@ -30,13 +32,17 @@ export function WorkbenchFrameSettings() {
     { value: 'line', label: tr('workbenchFrame.line') },
   ]
   return (
-    <SettingRow title={tr('workbenchFrame.setting')} description={tr('workbenchFrame.settingHint')}>
-      <Segmented
-        label={tr('workbenchFrame.setting')}
-        options={options}
-        value={workbenchFrame}
-        onChange={setWorkbenchFrame}
-      />
-    </SettingRow>
+    <SettingRow
+      title={tr('workbenchFrame.setting')}
+      description={tr('workbenchFrame.settingHint')}
+      control={
+        <Segmented
+          label={tr('workbenchFrame.setting')}
+          options={options}
+          value={workbenchFrame}
+          onChange={setWorkbenchFrame}
+        />
+      }
+    />
   )
 }

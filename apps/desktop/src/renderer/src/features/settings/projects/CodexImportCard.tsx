@@ -28,7 +28,7 @@ export function CodexImportCard({ onOpened }: { onOpened: () => void }) {
   const result = state.result
   const byId = new Map(sessions.map(s => [s.record.id, s]))
   return (
-    <div data-codex-import className="mb-6 rounded-lg border border-line p-3.5">
+    <div data-codex-import className="mb-5 rounded-xl bg-surface p-5 shadow-sm">
       <div className="flex items-center gap-2.5">
         <History size={16} className="text-fg-muted" />
         <span className="flex-1 text-ui font-medium text-fg">{tr('codexImport.title')}</span>

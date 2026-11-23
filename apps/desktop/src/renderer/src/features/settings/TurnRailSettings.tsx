@@ -4,7 +4,7 @@ import { Segmented } from '@/ui'
 import { SettingRow } from './SettingRow'
 import { setTurnRailSide, useTurnRailOn } from './turnRail'
 
-/** 设置 › 外观 › 对话：滚动条上显示轮次（docs/ui/turn-rail.md §3、§8）；关掉时只剩滚动条 */
+/** 设置 › 对话：滚动条上显示轮次（docs/ui/turn-rail.md §3、§8）；关掉时只剩滚动条 */
 export function TurnRailSettings() {
   useI18n()
   const on = useTurnRailOn()
@@ -13,13 +13,17 @@ export function TurnRailSettings() {
     { value: 'off', label: tr('turnRail.off') },
   ]
   return (
-    <SettingRow title={tr('turnRail.setting')} description={tr('turnRail.settingHint')}>
-      <Segmented
-        label={tr('turnRail.setting')}
-        options={options}
-        value={on ? 'on' : 'off'}
-        onChange={v => setTurnRailSide(v === 'on' ? 'right' : 'off')}
-      />
-    </SettingRow>
+    <SettingRow
+      title={tr('turnRail.setting')}
+      description={tr('turnRail.settingHint')}
+      control={
+        <Segmented
+          label={tr('turnRail.setting')}
+          options={options}
+          value={on ? 'on' : 'off'}
+          onChange={v => setTurnRailSide(v === 'on' ? 'right' : 'off')}
+        />
+      }
+    />
   )
 }

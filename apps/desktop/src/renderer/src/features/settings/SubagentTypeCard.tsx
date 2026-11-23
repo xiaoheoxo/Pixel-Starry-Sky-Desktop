@@ -158,10 +158,10 @@ export function SubagentTypeCard({
     <div
       data-subagent-type={type.id}
       className={cn(
-        'rounded-xl border bg-surface transition-[border-color,box-shadow]',
+        'rounded-xl border bg-surface shadow-sm transition-[border-color,box-shadow]',
         open
-          ? 'border-[color-mix(in_srgb,var(--color-accent)_55%,var(--color-line-card))] shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_10%,transparent)]'
-          : 'border-line-card',
+          ? 'border-accent-line shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-accent)_10%,transparent)]'
+          : 'border-transparent',
       )}
     >
       <div className="flex items-center gap-3.5 px-4 py-3.5">

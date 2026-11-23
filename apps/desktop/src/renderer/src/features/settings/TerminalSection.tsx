@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Plus, RefreshCw } from 'lucide-react'
 import { useI18n } from '@/i18n/I18nProvider'
-import { Select, Button } from '@/ui'
+import { Select, Button, cn } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import {
   terminalProfile,
@@ -11,7 +11,7 @@ import {
   terminalSetEncoding,
   useTerminalStore,
 } from '@/features/terminal/store'
-import { SectionTitle, SettingRow, Toggle } from './SettingRow'
+import { SectionTitle, SettingGroup, SettingRow, Toggle } from './SettingRow'
 import {
   SCROLLBACK_CHOICES,
   setTerminalScreenReader,
@@ -22,7 +22,7 @@ import {
 import { useSettings } from './SettingsProvider'
 import type { TerminalEncoding, TerminalProfile } from '../../../../shared/types/terminal'
 import { isDemo } from '@/data'
-import { translateMessage } from '@/i18n/core'
+import { tr, translateMessage } from '@/i18n/core'
 import { useMachines } from '@/features/machines/store'
 import { useUnsavedCheck } from './unsavedEdits'
 
@@ -32,18 +32,26 @@ function TerminalViewPrefs() {
   const prefs = useTerminalPrefs()
   return (
     <>
-      <SettingRow title={t('terminal.scrollback')} description={t('terminal.scrollbackHint')}>
-        <Select<ScrollbackChoice>
-          label={t('terminal.scrollback')}
-          value={prefs.scrollback}
-          fitContent
-          options={SCROLLBACK_CHOICES.map(n => ({ value: n, label: t('terminal.scrollbackLines', { n }) }))}
-          onChange={setTerminalScrollback}
-        />
-      </SettingRow>
-      <SettingRow title={t('terminal.screenReader')} description={t('terminal.screenReaderHint')}>
-        <Toggle label={t('terminal.screenReader')} checked={prefs.screenReader} onChange={setTerminalScreenReader} />
-      </SettingRow>
+      <SettingRow
+        title={t('terminal.scrollback')}
+        description={t('terminal.scrollbackHint')}
+        control={
+          <Select<ScrollbackChoice>
+            label={t('terminal.scrollback')}
+            value={prefs.scrollback}
+            fitContent
+            options={SCROLLBACK_CHOICES.map(n => ({ value: n, label: t('terminal.scrollbackLines', { n }) }))}
+            onChange={setTerminalScrollback}
+          />
+        }
+      />
+      <SettingRow
+        title={t('terminal.screenReader')}
+        description={t('terminal.screenReaderHint')}
+        control={
+          <Toggle label={t('terminal.screenReader')} checked={prefs.screenReader} onChange={setTerminalScreenReader} />
+        }
+      />
     </>
   )
 }
@@ -70,7 +78,6 @@ export function TerminalSection() {
       setBusy(false)
     }
   }
-  // 打开编辑时的样子：改过再取消 / Esc / 点背景要先问（ConfirmDialog 的 dirty）
   const origin = useRef('')
   useUnsavedCheck(() => editing !== null && JSON.stringify(editing) !== origin.current)
   const edit = (p?: TerminalProfile): void => {
@@ -102,93 +109,142 @@ export function TerminalSection() {
     return (
       <section>
         <SectionTitle>{t('settingsNav.terminal')}</SectionTitle>
-        <p className="text-ui text-fg-muted">{t('SSH_SHELL_MANAGED_REMOTELY')}</p>
-        <TerminalViewPrefs />
+        <p className="mb-4 text-meta text-fg-muted">{t('SSH_SHELL_MANAGED_REMOTELY')}</p>
+        <SettingGroup title={tr('settingsLayout.terminal.behavior')}>
+          <TerminalViewPrefs />
+        </SettingGroup>
       </section>
     )
   return (
     <section>
-      <div className="flex items-start justify-between">
-        <SectionTitle>{t('settingsNav.terminal')}</SectionTitle>
-        <Button icon={RefreshCw} disabled={busy} onClick={() => void run(() => refreshTerminals(true))}>
-          {t('terminal.detect')}
-        </Button>
-      </div>
+      <SectionTitle>{t('settingsNav.terminal')}</SectionTitle>
       {error && !editing && !confirm && (
         <p role="alert" className="mb-4 text-meta text-danger">
           {error}
         </p>
       )}
-      <SettingRow title={t('terminal.defaultShell')} description={t('terminal.directoryHint')}>
-        <Select
-          label={t('terminal.defaultShell')}
-          value={state.defaultProfileId}
-          fitContent
-          options={state.profiles.map(p => ({
-            value: p.id,
-            label: p.label,
-            disabled: !p.available,
-            description: p.available ? undefined : t('terminal.notDetected'),
-          }))}
-          disabled={busy}
-          onChange={id => void run(() => terminalSetDefault(id))}
-        />
-      </SettingRow>
-      {state.encoding && (
-        <SettingRow title={t('terminal.encoding')} description={t('terminal.encodingHint')}>
-          <Select<TerminalEncoding>
-            label={t('terminal.encoding')}
-            value={state.encoding}
-            fitContent
-            options={[
-              { value: 'utf8', label: t('terminal.encodingUtf8') },
-              { value: 'system', label: t('terminal.encodingSystem'), description: t('terminal.encodingSystemHint') },
-            ]}
+      <SettingGroup
+        title={tr('settingsLayout.terminal.behavior')}
+        action={
+          <Button
+            icon={RefreshCw}
+            className="h-7 px-2.5 text-meta"
             disabled={busy}
-            onChange={encoding => void run(() => terminalSetEncoding(encoding))}
+            onClick={() => void run(() => refreshTerminals(true))}
+          >
+            {t('terminal.detect')}
+          </Button>
+        }
+      >
+        <SettingRow
+          title={t('terminal.defaultShell')}
+          description={t('terminal.directoryHint')}
+          control={
+            <Select
+              label={t('terminal.defaultShell')}
+              value={state.defaultProfileId}
+              fitContent
+              options={state.profiles.map(p => ({
+                value: p.id,
+                label: p.label,
+                disabled: !p.available,
+                description: p.available ? undefined : t('terminal.notDetected'),
+              }))}
+              disabled={busy}
+              onChange={id => void run(() => terminalSetDefault(id))}
+            />
+          }
+        />
+        {state.encoding && (
+          <SettingRow
+            title={t('terminal.encoding')}
+            description={t('terminal.encodingHint')}
+            control={
+              <Select<TerminalEncoding>
+                label={t('terminal.encoding')}
+                value={state.encoding}
+                fitContent
+                options={[
+                  { value: 'utf8', label: t('terminal.encodingUtf8') },
+                  {
+                    value: 'system',
+                    label: t('terminal.encodingSystem'),
+                    description: t('terminal.encodingSystemHint'),
+                  },
+                ]}
+                disabled={busy}
+                onChange={encoding => void run(() => terminalSetEncoding(encoding))}
+              />
+            }
           />
-        </SettingRow>
-      )}
-      <TerminalViewPrefs />
-      <div className="space-y-2">
+        )}
+        <TerminalViewPrefs />
+      </SettingGroup>
+
+      <SettingGroup
+        title={tr('settingsLayout.terminal.profiles')}
+        action={
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button icon={Plus} className="h-7 px-2.5 text-meta" disabled={busy} onClick={() => edit()}>
+              {t('terminal.custom')}
+            </Button>
+            <Button className="h-7 px-2.5 text-meta" disabled={busy} onClick={() => setConfirm('reset')}>
+              {t('terminal.reset')}
+            </Button>
+            <Button className="h-7 px-2.5 text-meta" onClick={() => settings.openSettings('appearance')}>
+              {t('terminal.fonts')}
+            </Button>
+          </div>
+        }
+      >
         {state.profiles.map(p => (
-          <div key={p.id} className="rounded-md border border-line px-3 py-2">
+          <div
+            key={p.id}
+            className={cn('relative px-5 py-3.5 first:[&>.terminal-row-divider]:hidden', !p.available && 'opacity-70')}
+          >
+            <span
+              aria-hidden
+              className="terminal-row-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55"
+            />
             <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-ui font-medium">{p.label}</span>
+              <span className="min-w-0 flex-1 truncate text-ui font-medium text-fg">{p.label}</span>
+              {p.id === state.defaultProfileId && (
+                <span className="rounded-full bg-accent-soft px-2 py-0.5 text-label font-medium text-accent-fg">
+                  {tr('openWith.default')}
+                </span>
+              )}
               {!p.available && <span className="text-label text-warn">{t('terminal.unavailable')}</span>}
               {p.custom && (
                 <>
-                  <button disabled={busy} onClick={() => edit(p)} className="text-meta text-accent-fg">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => edit(p)}
+                    className="text-meta text-accent-fg hover:underline"
+                  >
                     {t('terminal.edit')}
                   </button>
                   <button
+                    type="button"
                     disabled={busy}
                     onClick={() => {
                       setConfirm(p.id)
                       setError(null)
                     }}
-                    className="text-meta text-danger"
+                    className="text-meta text-danger hover:underline"
                   >
                     {t('terminal.remove')}
                   </button>
                 </>
               )}
             </div>
-            <p title={p.command} className="mt-1 truncate font-mono text-meta text-fg-muted">
+            <p title={p.command} className="mt-0.5 truncate font-mono text-meta text-fg-muted">
               {p.command} {p.args.join(' ')}
             </p>
           </div>
         ))}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button icon={Plus} disabled={busy} onClick={() => edit()}>
-          {t('terminal.custom')}
-        </Button>
-        <Button disabled={busy} onClick={() => setConfirm('reset')}>
-          {t('terminal.reset')}
-        </Button>
-        <Button onClick={() => settings.openSettings('appearance')}>{t('terminal.fonts')}</Button>
-      </div>
+      </SettingGroup>
+
       {editing && (
         <ConfirmDialog
           title={t('terminal.custom')}

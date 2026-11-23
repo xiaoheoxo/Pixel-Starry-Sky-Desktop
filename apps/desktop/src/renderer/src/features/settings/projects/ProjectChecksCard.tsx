@@ -86,7 +86,7 @@ export function ProjectChecksCard() {
   }
 
   return (
-    <div data-project-checks="" className="mb-6 rounded-lg border border-line p-3.5">
+    <div data-project-checks="" className="mb-6 rounded-xl bg-surface p-5 shadow-sm">
       <div className="flex items-center gap-2 text-ui font-medium text-fg">
         <ListChecks size={15} strokeWidth={1.5} className="text-fg-muted" />
         {tr('checks.settings.title')}

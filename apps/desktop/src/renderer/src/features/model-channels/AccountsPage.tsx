@@ -87,7 +87,7 @@ function AccountsTable({ engine }: { engine: AccountEngine }) {
     void fn().catch((e: unknown) => toast(translateMessage((e as Error).message)))
 
   return (
-    <div data-accounts-table={engine} className="rounded-lg border border-line">
+    <div data-accounts-table={engine} className="overflow-hidden rounded-xl bg-surface shadow-sm">
       <div className="flex items-center gap-3 px-4 py-3">
         <span className="min-w-0 flex-1 text-ui font-medium text-fg">
           {tr('accounts.list')}
@@ -388,7 +388,7 @@ function AutoSwitchCard({ engine }: { engine: AccountEngine }) {
   const set = (patch: Partial<typeof auto>): void =>
     void setAccountAuto(engine, patch).catch((e: unknown) => toast(translateMessage((e as Error).message)))
   return (
-    <div data-account-auto={engine} className="mt-4 rounded-lg border border-line">
+    <div data-account-auto={engine} className="mt-4 overflow-hidden rounded-xl bg-surface shadow-sm">
       <div className="flex items-start gap-4 px-4 py-3">
         <span className="min-w-0 flex-1">
           <span className="block text-ui font-medium text-fg">{tr('accounts.autoTitle')}</span>

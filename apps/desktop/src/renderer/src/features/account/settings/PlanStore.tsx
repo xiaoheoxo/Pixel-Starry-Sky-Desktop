@@ -96,8 +96,8 @@ function PlanCard({
   return (
     <div
       className={cn(
-        'flex min-w-0 flex-col rounded-lg border bg-surface p-3.5',
-        current ? 'border-accent-line' : 'border-line',
+        'flex min-w-0 flex-col rounded-xl border bg-surface p-4 shadow-sm',
+        current ? 'border-accent-line' : 'border-transparent',
       )}
     >
       <div className="flex min-h-5 items-center gap-1.5">
@@ -122,7 +122,7 @@ function PlanCard({
       {plan.description && <p className="mt-2 text-meta text-fg-muted">{plan.description}</p>}
 
       {rows.length > 0 && (
-        <dl className="mt-3 flex flex-col gap-1 border-t border-line-subtle pt-3 text-meta">
+        <dl className="mt-3 flex flex-col gap-1 border-t border-line-subtle/55 pt-3 text-meta">
           {rows.map(([key, label]) => (
             <div key={key} className="flex justify-between gap-2">
               <dt className="text-fg-muted">

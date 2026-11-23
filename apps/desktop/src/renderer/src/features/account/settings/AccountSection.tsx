@@ -89,7 +89,7 @@ export function AccountSection() {
     <section>
       <SectionTitle>{tr('settings.AboutSection.account')}</SectionTitle>
 
-      <div className="rounded-lg border border-line bg-surface">
+      <div className="rounded-xl bg-surface shadow-sm">
         <div className="flex items-center gap-3.5 p-4">
           <Avatar name={acc.user.name} size={44} />
           <div className="min-w-0 flex-1">
@@ -154,7 +154,7 @@ function SignedOutCard() {
   const acc = useAccount()
   const signingIn = acc.status === 'signing-in'
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-5">
+    <div className="flex flex-col gap-4 rounded-xl bg-surface p-5 shadow-sm">
       {acc.error && (
         <p role="alert" className="text-meta text-danger">
           {translateMessage(acc.error)}
@@ -223,54 +223,59 @@ function AccountService() {
   const pinnedDown = route && route.mode !== 'auto' && route.probe.find(p => p.id === route.mode)?.ms === null
   return (
     <div className="mt-6">
-      <h4 className="mb-2 text-meta font-medium text-fg-muted">
+      <h4 className="mb-2 px-0.5 text-label font-semibold text-fg-muted">
         {tr('settings.account.AccountSection.accountServices')}
       </h4>
-      <div className="flex min-h-11 items-center gap-4 rounded-lg border border-line px-4 py-1.5">
-        <span className="w-20 shrink-0 text-ui text-fg-muted">{tr('settings.AboutSection.authenticationService')}</span>
-        <span className="selectable min-w-0 flex-1 truncate font-mono text-meta text-fg">
-          {authUrl?.replace(/^https?:\/\//, '') ?? '—'}
-        </span>
-        <Button
-          variant="ghost"
-          icon={ExternalLink}
-          className="h-7 px-2 text-meta"
-          onClick={() => void window.pixelsky?.app.open('auth')}
-        >
-          {tr('settings.account.AccountSection.manageInBrowser')}{' '}
-        </Button>
-      </div>
-      {/* 有环境变量覆盖（测试站、本机）时 route 为 null，不显示（docs/network-direct.md §7） */}
-      {route?.route && (
-        <div className="mt-2 rounded-lg border border-line px-4 py-2">
-          <div className="flex min-h-7 flex-wrap items-center gap-x-4 gap-y-1.5">
-            <span
-              className="w-20 shrink-0 text-ui text-fg-muted"
-              title={tr('settings.account.AccountSection.routeHint')}
-            >
-              {tr('settings.AboutSection.cloudRoute')}
-            </span>
-            <Segmented
-              label={tr('settings.AboutSection.cloudRoute')}
-              options={ROUTE_MODES}
-              value={route.mode}
-              onChange={pick}
-            />
-            <span className="selectable min-w-0 flex-1 truncate text-right font-mono text-meta text-fg-muted">
-              {switching && <Spinner />}
-              {!switching &&
-                route.probe
-                  .map(
-                    p => `${routeName(p.id)} ${p.ms === null ? tr('settings.AboutSection.routeDown') : `${p.ms} ms`}`,
-                  )
-                  .join(' · ')}
-            </span>
-          </div>
-          {pinnedDown && !switching && (
-            <p className="mt-1.5 text-meta text-warning">{tr('settings.account.AccountSection.routePinnedDown')}</p>
-          )}
+      <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
+        <div className="flex min-h-12 items-center gap-4 px-5 py-2">
+          <span className="w-20 shrink-0 text-ui text-fg-muted">
+            {tr('settings.AboutSection.authenticationService')}
+          </span>
+          <span className="selectable min-w-0 flex-1 truncate font-mono text-meta text-fg">
+            {authUrl?.replace(/^https?:\/\//, '') ?? '—'}
+          </span>
+          <Button
+            variant="ghost"
+            icon={ExternalLink}
+            className="h-7 px-2 text-meta"
+            onClick={() => void window.pixelsky?.app.open('auth')}
+          >
+            {tr('settings.account.AccountSection.manageInBrowser')}{' '}
+          </Button>
         </div>
-      )}
+        {/* 有环境变量覆盖（测试站、本机）时 route 为 null，不显示（docs/network-direct.md §7） */}
+        {route?.route && (
+          <div className="relative px-5 py-3">
+            <div aria-hidden className="pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55" />
+            <div className="flex min-h-7 flex-wrap items-center gap-x-4 gap-y-1.5">
+              <span
+                className="w-20 shrink-0 text-ui text-fg-muted"
+                title={tr('settings.account.AccountSection.routeHint')}
+              >
+                {tr('settings.AboutSection.cloudRoute')}
+              </span>
+              <Segmented
+                label={tr('settings.AboutSection.cloudRoute')}
+                options={ROUTE_MODES}
+                value={route.mode}
+                onChange={pick}
+              />
+              <span className="selectable min-w-0 flex-1 truncate text-right font-mono text-meta text-fg-muted">
+                {switching && <Spinner />}
+                {!switching &&
+                  route.probe
+                    .map(
+                      p => `${routeName(p.id)} ${p.ms === null ? tr('settings.AboutSection.routeDown') : `${p.ms} ms`}`,
+                    )
+                    .join(' · ')}
+              </span>
+            </div>
+            {pinnedDown && !switching && (
+              <p className="mt-1.5 text-meta text-warning">{tr('settings.account.AccountSection.routePinnedDown')}</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

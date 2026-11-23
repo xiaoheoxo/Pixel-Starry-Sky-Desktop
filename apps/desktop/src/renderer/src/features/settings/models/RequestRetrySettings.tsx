@@ -27,31 +27,33 @@ export function RequestRetrySettings() {
       title={tr('settings.models.ModelsSection.requestRetries')}
       description={tr('settings.models.RequestRetrySettings.maximumAutomaticRetriesFor')}
       hint={tr('settings.models.RequestRetrySettings.appliesToClaudeCode')}
+      control={
+        <Segmented
+          label={tr('settings.models.RequestRetrySettings.requestRetryMode')}
+          value={state.maxRetries === null ? 'engine' : 'custom'}
+          options={[
+            {
+              value: 'engine',
+              get label() {
+                return tr('settings.models.RequestRetrySettings.engineDefault')
+              },
+            },
+            {
+              value: 'custom',
+              get label() {
+                return tr('settings.account.TopUp.custom')
+              },
+            },
+          ]}
+          onChange={v => {
+            if (!busy) save(v === 'engine' ? null : (parse() ?? 3))
+          }}
+        />
+      }
     >
-      <Segmented
-        label={tr('settings.models.RequestRetrySettings.requestRetryMode')}
-        value={state.maxRetries === null ? 'engine' : 'custom'}
-        options={[
-          {
-            value: 'engine',
-            get label() {
-              return tr('settings.models.RequestRetrySettings.engineDefault')
-            },
-          },
-          {
-            value: 'custom',
-            get label() {
-              return tr('settings.account.TopUp.custom')
-            },
-          },
-        ]}
-        onChange={v => {
-          if (!busy) save(v === 'engine' ? null : (parse() ?? 3))
-        }}
-      />
       {state.maxRetries !== null && (
         <form
-          className="mt-3 space-y-3"
+          className="space-y-3"
           onSubmit={e => {
             e.preventDefault()
             const value = parse()
@@ -131,24 +133,18 @@ export function RequestRetrySettings() {
         </form>
       )}
       {state.maxRetries === null && (
-        <p className="mt-3 text-meta text-fg-muted">
-          {tr('settings.models.RequestRetrySettings.useEnginesCurrentRetry')}
-        </p>
+        <p className="text-meta text-fg-muted">{tr('settings.models.RequestRetrySettings.useEnginesCurrentRetry')}</p>
       )}
       {(error || state.error) && (
-        <p role="alert" className="mt-3 text-meta text-danger">
+        <p role="alert" className="mt-2 text-meta text-danger">
           {translateMessage(error ?? state.error ?? '')}
         </p>
       )}
-      <Button
-        variant="ghost"
-        icon={RotateCcw}
-        className="mt-2 -ml-3"
-        disabled={busy || state.maxRetries === null}
-        onClick={() => save(null)}
-      >
-        {tr('settings.models.RequestRetrySettings.resetToDefault')}
-      </Button>
+      {state.maxRetries !== null && (
+        <Button variant="ghost" icon={RotateCcw} className="mt-2 -ml-3" disabled={busy} onClick={() => save(null)}>
+          {tr('settings.models.RequestRetrySettings.resetToDefault')}
+        </Button>
+      )}
     </SettingRow>
   )
 }

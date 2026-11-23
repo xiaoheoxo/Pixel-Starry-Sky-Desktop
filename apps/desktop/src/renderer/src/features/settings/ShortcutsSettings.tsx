@@ -19,9 +19,11 @@ import {
   useKeybindings,
   type ActionId,
 } from '@/features/layout/keybindings'
-import { GroupTitle, SectionTitle } from './SettingRow'
+import { SectionTitle, SettingGroup } from './SettingRow'
 
-const ROW = 'flex min-h-11 items-center gap-2 border-b border-line-subtle px-4 py-1.5 text-ui text-fg last:border-b-0'
+const ROW =
+  'relative flex min-h-11 items-center gap-2 px-5 py-1.5 text-ui text-fg first:[&>.shortcut-row-divider]:hidden'
+const ROW_DIVIDER = 'shortcut-row-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55'
 const KEYS = 'rounded-sm border border-line bg-subtle px-1.5 py-0.5 text-fg-secondary'
 
 export function ShortcutsSettings() {
@@ -75,8 +77,9 @@ export function ShortcutsSettings() {
 
   return (
     <section>
-      <div className="flex items-start justify-between gap-3">
-        <SectionTitle>{tr('settings.searchIndex.shortcuts')}</SectionTitle>
+      <SectionTitle>{tr('settings.searchIndex.shortcuts')}</SectionTitle>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-meta text-fg-muted">{tr('settings.shortcuts.hint')}</p>
         <Button
           variant="outline"
           icon={RotateCcw}
@@ -91,13 +94,13 @@ export function ShortcutsSettings() {
           {tr('settings.shortcuts.resetAll')}
         </Button>
       </div>
-      <p className="-mt-2 mb-4 text-meta text-fg-muted">{tr('settings.shortcuts.hint')}</p>
-      <ul className="overflow-hidden rounded-lg border border-line">
+      <ul className="overflow-hidden rounded-xl bg-surface shadow-sm">
         {ACTIONS.map(action => {
           const active = recording === action.id
           const rowError = error?.id === action.id ? error.text : null
           return (
             <li key={action.id} className={cn(ROW, 'flex-wrap')} data-shortcut={action.id}>
+              <span aria-hidden className={ROW_DIVIDER} />
               <span className="min-w-0 flex-1">{tr(action.label)}</span>
               {isCustomized(action.id) && !active && (
                 <IconButton
@@ -134,16 +137,21 @@ export function ShortcutsSettings() {
           )
         })}
       </ul>
-      <GroupTitle>{tr('settings.shortcuts.fixed')}</GroupTitle>
-      <p className="mb-3 text-meta text-fg-muted">{tr('settings.shortcuts.fixedHint')}</p>
-      <ul className="overflow-hidden rounded-lg border border-line">
-        {FIXED.map(item => (
-          <li key={item.label} className={ROW}>
-            <span className="min-w-0 flex-1">{tr(item.label)}</span>
-            <Kbd className={KEYS}>{item.keys()}</Kbd>
-          </li>
-        ))}
-      </ul>
+      <SettingGroup
+        title={tr('settings.shortcuts.fixed')}
+        description={tr('settings.shortcuts.fixedHint')}
+        className="mt-6"
+      >
+        <ul>
+          {FIXED.map(item => (
+            <li key={item.label} className={ROW}>
+              <span aria-hidden className={ROW_DIVIDER} />
+              <span className="min-w-0 flex-1">{tr(item.label)}</span>
+              <Kbd className={KEYS}>{item.keys()}</Kbd>
+            </li>
+          ))}
+        </ul>
+      </SettingGroup>
     </section>
   )
 }

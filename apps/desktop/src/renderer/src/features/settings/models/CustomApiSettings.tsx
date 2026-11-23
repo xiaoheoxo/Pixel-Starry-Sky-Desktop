@@ -119,7 +119,7 @@ export function CustomApiSettings() {
           {tr('customApi.empty')}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line">
+        <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
           {providers.providers.map(p => (
             <ProviderRow key={p.id} p={p} onEdit={() => setEditing(p)} onRemove={() => setRemoving(p)} />
           ))}

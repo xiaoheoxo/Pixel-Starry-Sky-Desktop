@@ -16,8 +16,9 @@ import { useTheme } from '@/features/appearance/ThemeProvider'
 import { CustomThemeEditor, MyThemes } from './CustomThemeSettings'
 import { PalettePreview, paletteName } from './PalettePreview'
 
-const CARD = 'rounded-lg border p-1.5 text-left hover:border-line-strong'
-const cardState = (active: boolean): string => (active ? 'border-accent-line bg-accent-soft/40' : 'border-line-card')
+const CARD = 'rounded-lg border p-1.5 text-left transition-colors'
+const cardState = (active: boolean): string =>
+  active ? 'border-accent-line bg-accent-soft/40' : 'border-transparent bg-subtle/60 hover:bg-subtle'
 
 function CardName({ name, active }: { name: string; active: boolean }) {
   return (

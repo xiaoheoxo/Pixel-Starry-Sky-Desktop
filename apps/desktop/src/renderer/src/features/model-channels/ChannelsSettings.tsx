@@ -84,7 +84,7 @@ function Card({
     <div
       data-channel-card={channel}
       data-setting-title={channelLabel(channel)}
-      className="scroll-mt-4 rounded-lg border border-line"
+      className="scroll-mt-4 rounded-xl bg-surface shadow-sm"
     >
       <div className="flex items-center gap-3 px-4 py-3">
         <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-subtle text-meta font-semibold text-fg-secondary">
@@ -434,7 +434,7 @@ function MenuLayoutRow() {
   return (
     <div
       data-setting-title={tr('modelChannels.menu.layout')}
-      className="flex items-center justify-between gap-4 rounded-lg border border-line px-4 py-3"
+      className="flex items-center justify-between gap-4 rounded-xl bg-surface px-5 py-3.5 shadow-sm"
     >
       <div className="min-w-0">
         <div className="text-ui font-medium text-fg">{tr('modelChannels.menu.layout')}</div>
@@ -502,7 +502,7 @@ function NewTaskRow() {
   return (
     <div
       data-setting-title={tr('modelChannels.newTask.title')}
-      className="mt-2 rounded-lg border border-line px-4 py-3"
+      className="mt-2 rounded-xl bg-surface px-5 py-3.5 shadow-sm"
     >
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">

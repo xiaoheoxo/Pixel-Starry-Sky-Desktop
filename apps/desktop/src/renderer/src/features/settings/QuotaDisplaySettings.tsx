@@ -73,10 +73,7 @@ export function QuotaDisplayRow({
               />
             </div>
           </div>
-          <div
-            className="rounded-lg border border-line bg-subtle px-3 py-3"
-            aria-label={tr('quota.settings.previewLabel')}
-          >
+          <div className="rounded-lg bg-subtle/75 px-3.5 py-3" aria-label={tr('quota.settings.previewLabel')}>
             <div className="mb-2 text-label text-fg-muted">{tr('quota.settings.preview')}</div>
             <div
               aria-hidden

@@ -135,14 +135,18 @@ export function ModelsSection() {
               )}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-line">
+            <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
               {platform.groups.map(g => {
                 const problem = groupProblem(g, account.account?.balance ?? null)
                 return (
                   <div
                     key={g.id}
-                    className="flex items-center gap-3 border-t border-line-subtle px-4 py-2.5 first:border-t-0"
+                    className="relative flex items-center gap-3 px-5 py-3 first:[&>.route-row-divider]:hidden"
                   >
+                    <span
+                      aria-hidden
+                      className="route-row-divider pointer-events-none absolute top-0 right-5 left-5 h-px bg-line-subtle/55"
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-ui text-fg">{g.name}</span>
                       <span className={cn('block text-meta', problem ? 'text-danger' : 'truncate text-fg-muted')}>
