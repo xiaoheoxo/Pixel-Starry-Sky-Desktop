@@ -49,8 +49,8 @@ export const subagentRouteMessages = {
     en: 'The main session can hand subtasks such as research or batch edits to subagents. Split them into types by purpose; each type can use its own site, model and tool permissions.',
   },
   'subagentRoute.scope': {
-    zh: '下面的类型只对 Pixel 的会话生效；Claude Code 用自带的子智能体，Codex 的在「本机引擎 › Codex」里设置',
-    en: 'These types apply to Pixel sessions only. Claude Code keeps its own subagents; set Codex’s under Local engines › Codex',
+    zh: '子智能体类型仅对 Pixel 会话生效。Claude Code 使用自带的子智能体；Codex 的默认子智能体模型仍在「本机引擎 › Codex」设置。',
+    en: 'Subagent types apply only to Pixel sessions. Claude Code uses its own subagents; set Codex’s default subagent model under Local engines › Codex.',
   },
   'subagentRoute.types': { zh: '类型', en: 'Types' },
   'subagentRoute.typesHint': {
@@ -267,8 +267,8 @@ export const subagentRouteMessages = {
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
   'subagentRoute.advisor.title': { zh: 'Agnes 子智能体模型建议', en: 'Agnes subagent model advice' },
   'subagentRoute.advisor.hint': {
-    zh: '只建议你在下方选中的可用模型。默认按难度分档，空档不发送建议。不会切换主模型或自动派出子智能体。',
-    en: 'Only suggests available models selected below. By default an unconfigured tier produces no advice. Does not switch the main model or launch workers.',
+    zh: '适用于 Codex 会话，只建议你在下方选中的可用模型。默认按难度分档，空档不发送建议。不会切换主模型或自动派出子智能体。',
+    en: 'For Codex sessions. Only suggests available models selected below. By default an unconfigured tier produces no advice. Does not switch the main model or launch workers.',
   },
   'subagentRoute.advisor.evaluator': { zh: '难度评估方式', en: 'Difficulty evaluator' },
   'subagentRoute.advisor.local': { zh: '本机规则（不发额外请求）', en: 'Local rules (no extra requests)' },
@@ -314,7 +314,7 @@ export const subagentRouteMessages = {
     en: 'The type you are editing is not saved. Leaving will lose your changes.',
   },
   // 改版（docs/ui/subagent-settings-v2-mockup.html）：两栏、从模板新建、主会话看到的类型说明
-  'subagentRoute.scopeShort': { zh: '只对 Pixel 生效', en: 'Pixel only' },
+  'subagentRoute.scopeShort': { zh: '类型仅适用于 Pixel', en: 'Types: Pixel only' },
   'subagentRoute.count': { zh: '{n} / {max}', en: '{n} / {max}' },
   'subagentRoute.templates': { zh: '从模板新建', en: 'Start from a template' },
   'subagentRoute.templatesHint': { zh: '点一下建好，展开再改', en: 'One click creates it; adjust before saving' },

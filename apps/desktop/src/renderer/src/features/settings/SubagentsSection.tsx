@@ -9,6 +9,7 @@ import { Button, Segmented, Switch } from '@/ui'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { usePlatform } from '@/features/account/platform'
 import { providersFor, useProviders } from '@/features/account/providers'
+import { AgnesAdvisorCard } from './AgnesAdvisorCard'
 import { savedTypes, setSubagentSettings, useSubagentSettings } from './subagents'
 import { SubagentTypeCard, TYPE_ICONS, minutesLabel, typeName, type SiteContext } from './SubagentTypeCard'
 import { useUnsavedCheck } from './unsavedEdits'
@@ -129,6 +130,10 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
         </span>
       </div>
       <p className="mt-2 text-meta text-fg-faint @3xl:hidden">{tr('subagentRoute.scope')}</p>
+
+      <div className="mt-6">
+        <AgnesAdvisorCard />
+      </div>
 
       <div className="mt-6 grid items-start gap-6 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
         <section className="min-w-0">
