@@ -544,6 +544,20 @@ export const sessionMessages = {
   'archiveOld.toast': { zh: '已归档 {count} 个会话', en: 'Archived {count} sessions' },
   'archiveOld.undone': { zh: '已恢复 {count} 个会话', en: 'Restored {count} sessions' },
   'archiveOld.undoFailed': { zh: '有 {count} 个会话没能恢复', en: '{count} sessions could not be restored' },
+  'session.mobileHandoff.action': { zh: '交给手机接管', en: 'Hand off to phone' },
+  'session.mobileHandoff.released': {
+    zh: '像素星空已释放此会话。请回到手机 ChatGPT 点「重试」。',
+    en: 'PixelSky released this conversation. Tap Retry in ChatGPT on your phone.',
+  },
+  'session.mobileHandoff.busy': {
+    zh: '当前会话还在运行或有待处理事项。请等它结束后再交接。',
+    en: 'This conversation is still running or has pending work. Wait for it to finish before handing off.',
+  },
+  'session.mobileHandoff.unsupported': { zh: '此会话不支持手机接管。', en: 'This conversation cannot be handed off.' },
+  'session.mobileHandoff.failed': {
+    zh: '未能释放此会话，请稍后重试。',
+    en: 'Could not release this conversation. Try again.',
+  },
   'session.tui.toggle': { zh: '界面 / 终端', en: 'UI / Terminal' },
   'session.tui.commandPalette': { zh: '命令面板…', en: 'Command palette…' },
   'session.tui.ui': { zh: '界面', en: 'UI' },

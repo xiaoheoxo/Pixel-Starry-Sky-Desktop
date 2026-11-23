@@ -60,7 +60,7 @@ import type {
   UsageBucket,
   UsageSummary,
 } from '@pixelsky/protocol'
-import { backgroundAgents } from '@pixelsky/protocol'
+import { backgroundAgents, viaGateway } from '@pixelsky/protocol'
 import { ClaudeAdapter } from '../claude'
 import type { CompactionRequestReport } from '../compaction'
 import { CodexAdapter } from '../codex'
@@ -400,6 +400,35 @@ export class EngineHost {
   /** 内存紧张时放掉所有闲置会话的引擎进程，最久没用的先放；返回放了几个（桌面主进程按整机内存调） */
   releaseIdleProcesses(reason: 'memory'): number {
     return this.m.events.releaseIdle(reason)
+  }
+
+  /** Yield the existing local Codex thread to the official remote-control host without stopping active work. */
+  async handoffCodexToMobile(id: string): Promise<'released' | 'busy' | 'unsupported'> {
+    const record = this.record(id)
+    if (!record || record.engine !== 'codex' || !record.engineSessionId || viaGateway(record) || record.dot)
+      return 'unsupported'
+    if (record.tui || record.pendingFork || record.pendingRewind || this.ctx.changingSessions.has(id)) return 'busy'
+    const rt = this.ctx.runtimes.get(id)
+    if (!rt) return 'released'
+    const snap = rt.snapshot
+    if (this.ctx.closing || rt.pumping || rt.stopping || snap.state !== 'idle' || snap.goal?.status === 'active')
+      return 'busy'
+    const session = rt.session
+    if (!session) return 'released'
+    if (!this.m.events.canRelease(id, rt)) return 'busy'
+    // A queued send cannot reacquire the lock between detach and process exit.
+    this.ctx.changingSessions.add(id)
+    if (rt.idleTimer) {
+      clearTimeout(rt.idleTimer)
+      rt.idleTimer = null
+    }
+    try {
+      await session.close()
+      return 'released'
+    } finally {
+      if (rt.session === session) rt.session = null
+      this.ctx.changingSessions.delete(id)
+    }
   }
 
   /** 记住会话里改过的选择：写到 patch.engine（缺省为默认引擎）名下的默认值，不改默认引擎 */

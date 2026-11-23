@@ -182,6 +182,7 @@ const engine: EngineBridge = {
   nativeSessionAction: (id, kind) => call('engine:nativeSessionAction', id, kind),
   sideQuestion: (id, question, history) => call('engine:sideQuestion', id, question, history),
   cancelSideQuestion: id => call('engine:cancelSideQuestion', id),
+  handoffCodexToMobile: sessionId => call('engine:handoffCodexToMobile', sessionId),
   tuiCheck: sessionId => call('engine:tuiCheck', sessionId),
   tuiOpen: sessionId => call('engine:tuiOpen', sessionId),
   tuiClose: (sessionId, opts) => call('engine:tuiClose', sessionId, opts),

@@ -1,6 +1,14 @@
-import { Ellipsis, Keyboard, MessageSquare, PanelLeft, PanelRight, SquareArrowOutUpRight } from 'lucide-react'
+import {
+  Ellipsis,
+  Keyboard,
+  MessageSquare,
+  PanelLeft,
+  PanelRight,
+  Smartphone,
+  SquareArrowOutUpRight,
+} from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
-import { cn, IconButton, SEGMENT_ICON, SEGMENT_TRACK } from '@/ui'
+import { cn, IconButton, SEGMENT_ICON, SEGMENT_TRACK, useToast } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { isMac } from '@/features/layout/keybindings'
 import {
@@ -22,6 +30,9 @@ import { LayoutActionButton } from '@/features/layout/LayoutActionButton'
 import { ToolbarContext } from '@/features/layout/ToolbarContext'
 import { SessionChannelBadge } from '@/features/channels/SessionChannelBadge'
 import { useOpenInActions } from '@/features/editor/OpenInButton'
+import { useEngineState } from '@/features/engine/store'
+import { machineOf } from '@/features/machines/store'
+import { viaGateway } from '@pixelsky/protocol'
 
 interface SessionHeaderProps {
   title: string
@@ -76,7 +87,19 @@ export function SessionHeader({
   const openInMenu = headerItems === MINIMAL_HEADER && openIn.length > 0
   const [more, setMore] = useState<{ x: number; y: number } | null>(null)
   const moreLabel = text('更多')
-  const showMore = showActions || !!tui || openInMenu
+  const record = useEngineState(s => s.sessions.find(session => session.record.id === sessionId)?.record)
+  const toast = useToast()
+  const [handingOff, setHandingOff] = useState(false)
+  const canHandoff =
+    !!sessionId &&
+    machineOf(sessionId) === 'local' &&
+    record?.engine === 'codex' &&
+    !!record.engineSessionId &&
+    !record.dot &&
+    !viaGateway(record) &&
+    !record.tui &&
+    typeof window.pixelsky?.engine.handoffCodexToMobile === 'function'
+  const showMore = showActions || !!tui || openInMenu || canHandoff
   const tuiActive = Boolean(tui?.running || tui?.mode === 'terminal')
 
   const moreActions = useMemo((): MenuAction[] => {
@@ -118,9 +141,24 @@ export function SessionHeader({
         hint: COMMAND_PALETTE.label,
       })
     }
+    if (canHandoff && sessionId) {
+      actions.push({
+        label: tr('session.mobileHandoff.action'),
+        icon: Smartphone,
+        disabled: handingOff,
+        run: () => {
+          setHandingOff(true)
+          void window
+            .pixelsky!.engine.handoffCodexToMobile(sessionId)
+            .then(result => toast(tr(`session.mobileHandoff.${result}`)))
+            .catch(() => toast(tr('session.mobileHandoff.failed')))
+            .finally(() => setHandingOff(false))
+        },
+      })
+    }
     if (openInMenu) actions.push({ label: tr('sidebar.action.openIn'), icon: SquareArrowOutUpRight, children: openIn })
     return actions
-  }, [tui, commands, openInMenu, openIn])
+  }, [tui, commands, openInMenu, openIn, canHandoff, sessionId, handingOff, toast])
 
   return (
     <header
