@@ -417,6 +417,7 @@ export class PixelTranslator {
     this.turnModels = {}
     this.gen.reset()
     this.assistantError = null
+    this.compacted = null
   }
   /** 本轮的用量；一个请求都没有时没有 models */
   turnUsage(durationMs: number): TurnUsage {
@@ -935,11 +936,12 @@ export class PixelTranslator {
       kind: 'compaction',
       id,
       status: 'running',
-      trigger: reason === 'manual' ? 'manual' : reason ? 'auto' : null,
+      trigger: reason === 'manual' || raw.type === 'manual_compaction_start' ? 'manual' : reason ? 'auto' : null,
       startedAt: Date.now(),
       durationMs: null,
       preTokens: this.lastContext,
       postTokens: null,
+      ...(raw.mode === 'handoff' ? { handoff: '' } : {}),
     }
     this.compaction = { id, startedAt: item.startedAt, preTokens: this.lastContext }
     this.put(item, false)
@@ -963,9 +965,11 @@ export class PixelTranslator {
         preTokens: before,
         postTokens: post,
         ...(failed ? { error: string(raw.errorMessage) } : {}),
+        ...(prior.handoff === undefined ? {} : { handoff: string(result.summary) }),
       },
       true,
     )
+    this.compacted = prior.id
     // 生成摘要的那次调用也花了钱：记在压缩用的模型（会话当前的模型）名下，先记上再报用量，累计里才有它
     const usage = object(result.usage)
     const spent = Object.keys(usage).length > 0
@@ -983,6 +987,23 @@ export class PixelTranslator {
     const compacted = status === 'completed' && post !== null
     if (compacted) this.setContext(post)
     if (compacted || spent) this.emitUsage()
+  }
+
+  /** 这一轮里刚结束的压缩条目 */
+  private compacted: string | null = null
+
+  /** 这一轮压缩过（成没成都在条目上了） */
+  get compactionShown(): boolean {
+    return this.compacted !== null
+  }
+
+  /** omp 的压缩结果里没有压缩后的大小：另外问来的补上 */
+  compactedTo(tokens: number): void {
+    const item = this.compacted ? this.items.get(this.compacted) : null
+    if (item?.kind !== 'compaction' || item.status !== 'completed' || item.postTokens !== null) return
+    this.put({ ...item, postTokens: tokens }, true)
+    this.setContext(tokens)
+    this.emitUsage()
   }
 
   /** 一轮结束：还在运行的条目收尾 */

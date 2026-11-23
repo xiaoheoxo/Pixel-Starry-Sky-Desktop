@@ -11,6 +11,14 @@ describe('目标模式的文案（docs/ui/codex-goal.md）', () => {
       'Goal set: 把测试修好。全部通过为止. Codex will keep working turn after turn until it’s done. Type /goal pause to pause or /goal clear to clear it',
     )
     expect(translateMessage(set, 'zh-CN')).toBe(set)
+    expect(translateMessage(set.replace('Codex', 'oh-my-pi'), 'en-US')).toContain('oh-my-pi will keep working')
+    for (const text of [
+      '先退出计划模式，再设目标或继续目标',
+      '设置改了，oh-my-pi 换了进程，目标先停下；发一条消息后接着做',
+      '目标会一轮接一轮地做，一直用平台额度，直到完成或你停下；输入 /goal pause 暂停',
+      '这一轮没有新的进展，oh-my-pi 先停下了，目标还在；发一条消息就接着做，或者 /goal clear 清除',
+    ])
+      expect(translateMessage(text, 'en-US')).not.toBe(text)
     expect(translateMessage('当前目标（已暂停）：修 bug', 'en-US')).toBe('Current goal (paused): 修 bug')
     expect(translateMessage('目标已完成：修 bug', 'en-US')).toBe('Goal complete: 修 bug')
     expect(translateMessage('目标已暂停', 'en-US')).toBe('Goal paused')

@@ -776,6 +776,11 @@ export class EngineHost {
     return this.m.turn.subagentTranscript(id, agentId)
   }
 
+  /** 引擎自己的 HTML 导出（oh-my-pi，docs/omp-engine.md §13.3） */
+  exportHtml(id: string): Promise<string> {
+    return this.m.branch.exportHtml(id)
+  }
+
   renameSession(id: string, title: unknown): SessionRecord {
     return this.m.sessions.renameSession(id, title)
   }

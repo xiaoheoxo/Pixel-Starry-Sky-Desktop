@@ -1,5 +1,6 @@
 // oh-my-pi（omp，用户自己装的引擎，docs/omp-engine.md）：协议和 Pi 同源，会话复用 PixelSession（flavor: 'omp'）
 import { existsSync, mkdtempSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import {
@@ -17,7 +18,7 @@ import type { EngineAdapter, EngineSession, Launcher, RewindAnchor, SessionConte
 import type { ListOptions, NativeRead, NativeSessionList, NewerTurns, ReadOptions } from '../native/types'
 import { markOfFile, readSinceMark } from '../pixel/tui'
 import { engineEnv, systemProxyEnv } from '../env'
-import { removeTree, startupReason } from '../exec'
+import { crashReason, removeTree, run, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { pixelCatalog } from '../pixel/catalog'
 import { PixelProcess, object, string } from '../pixel/process'
@@ -197,6 +198,29 @@ export class OmpAdapter implements EngineAdapter {
     const file = ompAgentFile(record.engineSessionId ?? '', agentId)
     if (!file) throw new Error('这个子智能体还没有对话记录')
     return transcriptItems(file, record.cwd)
+  }
+
+  /** omp 自己的 HTML 导出：一条命令读会话文件写出来，不起会话、不花钱；写到临时目录再读回（远程机器也一样） */
+  async exportHtml(record: SessionRecord): Promise<string> {
+    await this.info()
+    const launcher = this.launcher()
+    const file = record.engineSessionId
+    if (!file || !isAbsolute(file) || !existsSync(file)) throw new Error('先发一条消息，再用 oh-my-pi 导出')
+    // 回退要到下一条消息才落实，现在导出的还带着回退掉的
+    if (record.pendingRewind) throw new Error('回退之后先发一条消息，再用 oh-my-pi 导出')
+    const dir = mkdtempSync(join(tmpdir(), 'pixelsky-omp-export-'))
+    try {
+      const out = join(dir, 'session.html')
+      const result = await run(launcher, ['--export', file, out], this.env(), 120_000, { cwd: dir })
+      if (!existsSync(out)) throw new Error(crashReason(result.stderr) || 'oh-my-pi 没有导出成功')
+      return await readFile(out, 'utf8')
+    } finally {
+      try {
+        removeTree(dir)
+      } catch {
+        // 还被占着：留给系统清
+      }
+    }
   }
 
   private launcher(): Launcher {

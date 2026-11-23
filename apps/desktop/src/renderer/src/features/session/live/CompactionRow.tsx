@@ -10,6 +10,7 @@ import type { CompactionProgress } from '@pixelsky/protocol'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { cn, Popover } from '@/ui'
+import { Markdown } from '@/ui/markdown/Markdown'
 import { useSimulatedProgress } from '@/ui/simulatedProgress'
 import { isDemo } from '@/data'
 import { bridge } from '@/features/engine'
@@ -297,6 +298,14 @@ function CompactionDetails({
         )}
       </div>
       {note && <p className="text-label text-fg-faint">{note}</p>}
+      {item.handoff && (
+        <div className="flex flex-col gap-1 border-t border-line-subtle pt-2">
+          <span className="text-label text-fg-faint">{tr('session.compaction.handoff.title')}</span>
+          <div className="max-h-80 overflow-y-auto">
+            <Markdown text={item.handoff} className="selectable text-fg-secondary" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -343,13 +352,16 @@ export function CompactionRow({ item }: { item: CompactionItem }) {
 
   const stalled = view?.stalledMs != null
   const trouble = phase === 'retrying' || phase === 'upstreamError' || stalled
+  const handoff = item.handoff !== undefined
   const title = running
-    ? tr('session.compaction.running')
+    ? tr(handoff ? 'session.compaction.handoff.running' : 'session.compaction.running')
     : item.status === 'completed'
-      ? tr(item.trigger === 'auto' ? 'session.compaction.autoDone' : 'session.compaction.done')
+      ? handoff
+        ? tr('session.compaction.handoff.done')
+        : tr(item.trigger === 'auto' ? 'session.compaction.autoDone' : 'session.compaction.done')
       : item.status === 'interrupted'
-        ? tr('session.compaction.interrupted')
-        : tr('session.compaction.failed')
+        ? tr(handoff ? 'session.compaction.handoff.interrupted' : 'session.compaction.interrupted')
+        : tr(handoff ? 'session.compaction.handoff.failed' : 'session.compaction.failed')
   const failed = item.status === 'failed'
   const time = running
     ? compactionClock(now - item.startedAt)
@@ -546,7 +558,7 @@ export function CompactionRow({ item }: { item: CompactionItem }) {
           bare
           role="dialog"
           aria-label={tr('session.compaction.details')}
-          className="w-80 p-3 select-text"
+          className={cn('p-3 select-text', item.handoff ? 'w-[32rem] max-w-[90vw]' : 'w-80')}
         >
           <CompactionDetails item={item} progress={p} live={live} now={now} />
         </Popover>

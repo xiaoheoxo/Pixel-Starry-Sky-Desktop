@@ -18,6 +18,16 @@ export const exportMessages = {
   'export.format.md': { zh: '适合贴进工单或文档。', en: 'Good for pasting into tickets or docs.' },
   'export.format.html': { zh: 'HTML 是单文件网页。', en: 'HTML is a single-file web page.' },
   'export.format.json': { zh: 'JSON 保留完整结构。', en: 'JSON keeps the full structure.' },
+  'export.format.omp': {
+    zh: 'oh-my-pi 自己的网页：整个会话，不能选轮次和内容，不能打码；打开时要联网加载查看器。',
+    en: 'oh-my-pi’s own web page: the whole session, no turn or content selection, no masking. Opening it loads a viewer from the internet.',
+  },
+  'export.omp.label': { zh: 'HTML（oh-my-pi）', en: 'HTML (oh-my-pi)' },
+  'export.omp.hits': {
+    zh: '会话里有 {n} 处疑似密钥，这种格式会原样带上；要打码请换别的格式',
+    en: '{n} likely secrets in this session would be included as is. Use another format to mask them',
+  },
+  'export.omp.done': { zh: '已导出', en: 'Exported' },
   'export.include': { zh: '包含', en: 'Include' },
   'export.include.tools': { zh: '工具调用', en: 'Tool calls' },
   'export.include.toolsHint': { zh: '读文件、命令、编辑，折叠成一行', en: 'Reads, commands and edits, one line each' },

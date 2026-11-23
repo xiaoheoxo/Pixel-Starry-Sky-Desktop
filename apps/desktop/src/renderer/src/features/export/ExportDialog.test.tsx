@@ -10,7 +10,7 @@ vi.hoisted(() => {
   }
 })
 const sessions: Record<string, { record: object; items: Item[] }> = {}
-vi.mock('@/features/engine', () => ({ useSession: (id: string) => sessions[id] ?? null }))
+vi.mock('@/features/engine', () => ({ bridge: null, useSession: (id: string) => sessions[id] ?? null }))
 // 外框用 portal 挂到 document.body，服务端渲染没有：换成就地渲染，只看里面的内容和按钮文字
 vi.mock('@/ui/ConfirmDialog', () => ({
   ConfirmDialog: (p: {
@@ -42,6 +42,7 @@ sessions.leaky = {
   record,
   items: [user('u1', '你好'), reply('a1', '好'), user('u2', `key: OPENAI_API_KEY=${KEY}`), reply('a2', '收到')],
 }
+sessions.omp = { record: { ...record, engine: 'omp' }, items: sessions.leaky.items }
 sessions.empty = { record, items: [] }
 // 标题里有密钥，但只导出范围外没有命中的那一轮
 sessions.titled = {
@@ -49,10 +50,10 @@ sessions.titled = {
   items: [user('u1', '你好'), reply('a1', '好'), user('u2', '再见'), reply('a2', '再见')],
 }
 
-const render = (sessionId: string, itemId?: string) =>
+const render = (sessionId: string, itemId?: string, format?: 'omp') =>
   renderToStaticMarkup(
     <I18nProvider>
-      <ExportDialog request={{ sessionId, itemId }} />
+      <ExportDialog request={{ sessionId, itemId, format }} />
     </I18nProvider>,
   )
 
@@ -94,5 +95,18 @@ describe('ExportDialog', () => {
 
   it('没有内容：导出按钮不可点', () => {
     expect(render('empty')).toContain('data-disabled="yes"')
+  })
+
+  it('oh-my-pi 会话多一种它自己的 HTML：整个会话、不能打码、没有复制，有命中要再确认', () => {
+    expect(render('clean')).not.toContain('HTML（oh-my-pi）')
+    expect(render('omp')).toContain('HTML（oh-my-pi）')
+    const html = render('omp', 'a2', 'omp')
+    expect(html).toContain('打开时要联网加载查看器')
+    expect(html).toContain('会话里有 1 处疑似密钥，这种格式会原样带上')
+    expect(html).toContain('<button>原样导出…</button>')
+    expect(html).toContain('修复登录页.html')
+    expect(html).toContain('data-warn="yes"')
+    expect(html).not.toContain('复制到剪贴板')
+    expect(html).not.toContain('export-secret-choice')
   })
 })

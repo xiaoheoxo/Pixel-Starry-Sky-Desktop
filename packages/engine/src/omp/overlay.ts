@@ -35,7 +35,12 @@ export function ompOverlayText(
   settings: Pick<SessionSettings, 'thinkingSummaries' | 'ultracode'>,
   isolated = false,
 ): string {
-  const lines = [`omitThinking: ${settings.thinkingSummaries ? 'false' : 'true'}`]
+  // 目标在 RPC 里默认不自己接着做（docs/omp-engine.md §13.1）
+  const lines = [
+    `omitThinking: ${settings.thinkingSummaries ? 'false' : 'true'}`,
+    'goal:',
+    '  continuationModes: [interactive, rpc]',
+  ]
   if (settings.ultracode) lines.push('task:', '  eager: always', `  maxConcurrency: ${OMP_ULTRACODE_CONCURRENCY}`)
   if (isolated) lines.push(`disabledProviders: [${OMP_ISOLATED_SOURCES.join(', ')}]`, 'enabledProviders: []')
   return lines.join('\n') + '\n'

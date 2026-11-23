@@ -360,6 +360,7 @@ export const ENGINE_OPS = {
   },
   'engine:stopTask': (c, id, taskId) => c.host.stopTask(str(id, 'id'), str(taskId, 'taskId')),
   'engine:goal': (c, id, action) => c.host.goal(str(id, 'id'), goalAction(action)),
+  'engine:exportHtml': (c, id) => c.host.exportHtml(str(id, 'id')),
   // 右侧「连接器」（docs/ui/connectors.md）
   'engine:mcp': (c, id, op) => c.host.mcp(str(id, 'id'), mcpOp(op)),
   'engine:taskOutput': (c, id, taskId) => c.host.taskOutput(str(id, 'id'), str(taskId, 'taskId')),

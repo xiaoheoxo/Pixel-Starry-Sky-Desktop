@@ -22,6 +22,8 @@ describe('oh-my-pi 的报错和提示', () => {
     expect(translateMessage('oh-my-pi 60 秒没有开始处理这条消息，已让它停下', 'en-US')).toBe(
       'oh-my-pi did not start on this message within 60 seconds, so it was stopped',
     )
+    expect(translateMessage('Nothing to compact (session too small)', 'zh-CN')).toBe('对话还太短，没有可以压缩的内容')
+    expect(translateMessage('Handoff generation produced an invalid document', 'zh-CN')).toMatch(/^模型写的交接文档/)
     expect(translateMessage('oh-my-pi 启动不了', 'zh-CN')).toBe('oh-my-pi 启动不了')
     expect(translateMessage('oh-my-pi 的这个模型不支持 Fast，已关闭', 'en-US')).toBe(
       'This oh-my-pi model does not support Fast, so it was turned off',

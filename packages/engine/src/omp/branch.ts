@@ -1,10 +1,21 @@
 // oh-my-pi 的回退和分叉（docs/omp-engine.md §12.6）：会话文件是一棵只追加的树，每轮开始前由 turn-ext.ts 在树上记一条
 // 标记（我们的用户条目 id），截断点就是那条标记。回退在同一个文件里用 navigate_tree 移过去；分叉把文件复制一份再移过去
 // （不用 omp 的 fork 命令：工作目录不一样时 switch_session 会被拒，实测；来源会话也可能正开着）
-import { randomUUID } from 'node:crypto'
-import { closeSync, cpSync, existsSync, ftruncateSync, openSync, readSync, rmSync, writeSync } from 'node:fs'
+import { randomBytes, randomUUID } from 'node:crypto'
+import {
+  appendFileSync,
+  closeSync,
+  cpSync,
+  existsSync,
+  ftruncateSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeSync,
+} from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { RewindAnchor } from '../adapter'
+import { entries } from '../pixel/agents'
 import { object, string, type Message } from '../pixel/process'
 import { IMPORT_ID } from '../pixel/transcript'
 import { TURN_ENTRY } from './turn-ext'
@@ -202,4 +213,23 @@ export function ompForkFile(source: string, dir: string, cwd: string): string {
     // 少了只影响点开以前的子智能体、读以前的大输出
   }
   return dest
+}
+
+/** 会话文件里有没有过进行中的目标（mode_change，mode 是 goal） */
+export function ompHasGoal(file: string): boolean {
+  return entries(file, '"mode":"goal"').some(e => e.type === 'mode_change')
+}
+
+/**
+ * 分叉的副本里把目标清掉：在截断点后面记一条和 omp 清目标时一样的（mode 是 none），返回新的截断点；
+ * 没有过目标的不动
+ */
+export function ompDropGoal(file: string, at: string): string {
+  if (!ompHasGoal(file)) return at
+  const parent = ompPath(ompTree(file), at)[0]?.id
+  if (!parent) return at
+  const id = randomBytes(4).toString('hex')
+  const entry = { type: 'mode_change', id, parentId: parent, timestamp: new Date().toISOString(), mode: 'none' }
+  appendFileSync(file, JSON.stringify(entry) + '\n')
+  return id
 }

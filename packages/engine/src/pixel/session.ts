@@ -1,10 +1,12 @@
 // 像素星空会话：一个会话一个 `pixelsky --mode rpc` 子进程（docs/own-cli.md §4.1）
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { delimiter, dirname } from 'node:path'
 import type {
   ApprovalDecision,
   ApprovalRequest,
   Effort,
+  GoalAction,
   ImageAttachment,
   InterruptOptions,
   Item,
@@ -12,13 +14,18 @@ import type {
   McpOpResult,
   PermissionMode,
   SessionFlags,
+  SessionGoal,
   SessionSettings,
   SkillCommand,
   TurnOutcome,
 } from '@pixelsky/protocol'
 import {
   EMPTY_FLAGS,
+  GOAL_NO_ENGINE,
+  GOAL_NO_PROCESS,
+  codedError,
   looksVisual,
+  parseGoalCommand,
   viaGateway,
   pixelSpeedCapability,
   pixelSpeedOf,
@@ -29,6 +36,9 @@ import {
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { ChatSeed } from '../chat-log'
 import { McpReporter, pixelMcpServers } from '../mcp'
+import { NATIVE_TEXT } from '../native/text'
+import { describeError, logger } from '../log'
+import { queueSettings } from '../queue'
 import { crashReason } from '../exec'
 import { effortOfLevel, effortsFromLevels, findModel, modelEfforts, piThinkingLevel } from './catalog'
 import { pixelWindow } from './context-window'
@@ -45,7 +55,8 @@ import {
 } from './agents'
 import { PixelProcess, array, object, string, type Message, type PixelResponse } from './process'
 import { ompRunsFromSession } from '../omp/agents'
-import { ompForkFile } from '../omp/branch'
+import { ompDropGoal, ompForkFile, ompHasGoal } from '../omp/branch'
+import { ompGoal, ompOutput, sameGoal } from '../omp/goal'
 import { ompCwd } from '../omp/native'
 import { OMP_TURN_COMMAND } from '../omp/turn-ext'
 import { OmpBtw } from '../omp/btw'
@@ -62,6 +73,8 @@ import {
   toolNameFromTitle,
 } from './translate'
 import type { Totals } from './translate'
+
+const log = logger('engine.omp')
 
 /** 批准扩展里运行中切换权限模式的命令（packages/cli/src/extensions/approval.ts 的 MODE_COMMAND） */
 const MODE_COMMAND = 'pixelsky-mode'
@@ -326,6 +339,18 @@ interface ActiveTurn {
   result?: Message
   /** omp：用户按了停止。主智能体只是在等子智能体时，omp 照样报完成（实测），要按中断记 */
   stopped?: boolean
+  /** omp 自己跑的（目标接着做）：没有 prompt_result，到会话安定或下一次接着做时结束 */
+  own?: boolean
+  /** own 的一轮不是用户发的消息开的：宿主这时派发来的消息可以接管它（send） */
+  auto?: boolean
+  /** auto 的一轮已经告诉宿主了（turn_started） */
+  announced?: boolean
+  /** 用户的消息接管了 omp 自己开的一轮，还没送进去 */
+  taken?: boolean
+  /** omp 开始跑了（agent_start） */
+  began?: boolean
+  /** 这一轮里目标已经接着做过一次：再来一次算下一轮 */
+  continued?: boolean
 }
 
 /** Pi 取消等着的重试时报的 finalError（用户停止、超过重试次数设置时）：不是请求错误 */
@@ -436,6 +461,13 @@ export class PixelSession implements EngineSession {
   private closing: Promise<void> = Promise.resolve()
   /** 已经提示过的会话文件通知（omp 会重放） */
   private movedNotice = ''
+  /** omp 的目标（docs/omp-engine.md §13.1）；没有为 null */
+  private goalState: SessionGoal | null = null
+  /** 有没有目标接口；null 是还没问过 */
+  private goalSupported: boolean | null = null
+  private goalSeq = 0
+  /** 已经提醒过目标会一直用平台额度 */
+  private goalWarned = false
   /** omp 各模型（provider/id）能不能开 Fast：试开一次记下来 */
   private readonly ompFastModels = new Map<string, boolean>()
 
@@ -505,6 +537,10 @@ export class PixelSession implements EngineSession {
     )
     const environment = launch.env,
       args = ['--mode', 'rpc', ...launch.args]
+    // 会话里有过目标：启动时就打开这个文件，进行中的目标读回来是暂停的；switch_session 切过去的话，
+    // omp 不等用户发消息就接着做（实测）
+    if (this.omp && record.engineSessionId && ompHasGoal(record.engineSessionId))
+      args.push('--session', record.engineSessionId)
     if (this.omp) this.launchedApproval = args[args.indexOf('--approval-mode') + 1] ?? null
     // 命令 id 每个进程从头数：上个进程没等到的标记不能吞掉这个进程的结束
     this.marking.clear()
@@ -516,6 +552,7 @@ export class PixelSession implements EngineSession {
         this.ready = false
         this.btw.abort('oh-my-pi 进程退出了，旁聊没有答完')
         if (this.omp) this.translator.stopOmpAgents()
+        this.setGoal(null, false)
         this.rejectApprovals()
         this.mcpReporter.stale()
         for (const w of this.mcpWaiters.splice(0)) w.resolve({ error: '引擎进程已退出' })
@@ -607,6 +644,7 @@ export class PixelSession implements EngineSession {
         ultracodeAvailable: this.omp ? this.ompUltracode(state) : false,
       }
       this.emitFlags()
+      if (this.omp) await this.readGoal(proc, !!branch)
       await this.emitCommands(proc)
       // 回退只移动了内存里的位置，在树上落一条才留得住（重新打开从最后一条接着）
       if (branch) await this.markTurn(proc, '')
@@ -645,13 +683,15 @@ export class PixelSession implements EngineSession {
   ): Promise<string | null> {
     const fork = record.engineSessionId ? null : record.pendingFork
     // 上次启动已经换到副本、后面失败了：engineSessionId 有了，位置还要再移一次
-    const at = record.pendingRewind ?? record.pendingFork?.at
+    let at = record.pendingRewind ?? record.pendingFork?.at
     if (!at || this.resumeFailure) return null
     try {
       if (fork) {
         // 自己的会话文件所在的文件夹就是 omp 给这个工作目录的；新会话还没写盘，文件夹可能也没有
         mkdirSync(dirname(ownFile), { recursive: true })
         const copy = (this.forkCopy = ompForkFile(fork.from, dirname(ownFile), cwd))
+        // 来源的目标不带过去：切过去会马上接着做，变成两个会话同时做同一个目标
+        at = ompDropGoal(copy, at)
         if (object((await proc.request('switch_session', { sessionPath: copy })).data).cancelled === true)
           throw new Error('切换会话被取消了')
       }
@@ -837,15 +877,28 @@ export class PixelSession implements EngineSession {
         invocation: 'slash',
       },
     ]
+    if (this.goalSupported)
+      commands.push({
+        name: 'goal',
+        description: 'Set a goal oh-my-pi keeps working toward (/goal pause · resume · clear)',
+        source: 'engine',
+        builtin: true,
+        invocation: 'slash',
+      })
+    const own = new Set(commands.map(c => c.name))
     for (const raw of array(found.data.commands)) {
       const c = object(raw)
       const name = string(c.name)
+      // omp 自己也列 /compact：只留一条
+      if (own.has(name)) continue
       // 适配器自己用的扩展命令（切换权限模式、连接器操作）不列；用户自己装的扩展命令、技能和提示词模板照常给用户
       if (!name || (c.source === 'extension' && INTERNAL_COMMANDS.has(name))) continue
       commands.push({
         name,
         description: string(c.description),
         source: 'engine',
+        // 这两条我们接过来做（run 里的交接、界面的导出），菜单里用我们的说明
+        ...(this.omp && c.source === 'builtin' && (name === 'handoff' || name === 'export') ? { builtin: true } : {}),
         invocation: c.source === 'skill' ? 'skill' : 'slash',
         ...(string(object(c.sourceInfo).path) ? { path: string(object(c.sourceInfo).path) } : {}),
       })
@@ -955,16 +1008,23 @@ export class PixelSession implements EngineSession {
     _seed?: ChatSeed,
     handoffImages: ImageAttachment[] = [],
   ): void {
-    if (this.active) {
-      this.ctx.emit({ type: 'turn_completed', turnId, outcome: 'failed', error: 'Pixel turn already running' })
-      return
+    let active: ActiveTurn
+    if (this.active?.auto) {
+      // 目标自己接着做的一轮还在跑（宿主派发这条时它刚开始）：这条消息接管它，run() 再送进那一轮（同 Codex）
+      active = this.active
+      Object.assign(active, { id: turnId, auto: false, announced: true, taken: true })
+    } else {
+      if (this.active) {
+        this.ctx.emit({ type: 'turn_completed', turnId, outcome: 'failed', error: 'Pixel turn already running' })
+        return
+      }
+      active = { id: turnId, started: Date.now(), promptSent: false }
+      this.active = active
+      this.asked.clear()
+      this.translator.beginTurn()
     }
-    const active: ActiveTurn = { id: turnId, started: Date.now(), promptSent: false }
-    this.active = active
     this.promptUserSeen = false
     this.guidance.length = 0
-    this.asked.clear()
-    this.translator.beginTurn()
     void this.run(active, text, userItemId, attachments, handoffImages).catch(error => {
       if (this.active === active) this.finish('failed', (error as Error).message)
     })
@@ -996,11 +1056,22 @@ export class PixelSession implements EngineSession {
       )
     const proc = this.proc!
     const compact = /^\/compact(?:\s+([\s\S]*))?$/.exec(text.trim())
+    // omp 的交接（docs/omp-engine.md §13.2）：写一份交接文档代替前面的历史；当提示发的话等不到它做完
+    const handoff = this.omp ? /^\/(?:handoff|compact\s+handoff)(?:\s+([\s\S]*))?$/.exec(text.trim()) : null
     if (this.omp) {
       await this.markTurn(proc, userItemId)
       if (this.active !== active || this.closed) return
     }
     active.promptSent = true
+    const goal = this.omp ? parseGoalCommand(text) : null
+    if (goal) return this.runGoal(goal, active, userItemId, attachments)
+    // 接管的一轮：从这里起以这条消息的 prompt_result 结束
+    Object.assign(active, { own: false, taken: false })
+    if (this.omp && (handoff ?? compact)) {
+      const instructions = (handoff ?? compact)![1]?.trim()
+      this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed', mode: 'normal' })
+      return this.ompCompact(proc, active, handoff ? 'handoff' : 'compact', instructions)
+    }
     if (compact) {
       // Pi 内置的 /compact 只在终端里有，RPC 里用 compact 命令；没有 agent_settled，回应就是结束
       const instructions = compact[1]?.trim()
@@ -1011,16 +1082,48 @@ export class PixelSession implements EngineSession {
     }
     const response = await this.startPrompt(proc, active, {
       message,
+      // 目标正接着做时并进那一轮；空闲时和普通的一样（实测）
+      ...(this.omp ? { streamingBehavior: 'steer' } : {}),
       ...(images.length
         ? { images: images.map(i => ({ type: 'image', data: i.dataBase64, mimeType: i.mediaType })) }
         : {}),
     })
     if (this.active !== active) return
     this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed', mode: 'normal' })
+    if (this.omp) void this.releaseGoal(proc)
     // handled：被扩展命令或输入处理器吃掉，不会有这一轮的 agent_settled；
     // omp 的 agentInvoked: false 是在本地做完了（内置斜杠命令等），不会再有 prompt_result
     if (string(response.data.disposition) === 'handled' || (this.omp && response.data.agentInvoked === false))
       this.finish('completed', null)
+  }
+
+  /** omp 的压缩、交接：回应就是结束；没成的原因写在压缩条目上 */
+  private async ompCompact(
+    proc: PixelProcess,
+    active: ActiveTurn,
+    type: 'handoff' | 'compact',
+    instructions: string | undefined,
+  ): Promise<void> {
+    try {
+      await proc.request(type, instructions ? { customInstructions: instructions } : {}, 10 * 60_000)
+      const used = await this.contextTokens(proc)
+      if (this.active === active && used !== null) this.translator.compactedTo(used)
+    } catch (error) {
+      if (this.active !== active) return
+      if (active.stopped) return this.finish('interrupted', null)
+      if (!this.translator.compactionShown) throw error
+    }
+    if (this.active === active) this.finish('completed', null)
+  }
+
+  private contextTokens(proc: PixelProcess): Promise<number | null> {
+    return proc.request('get_session_stats', {}, 10_000).then(
+      r => {
+        const used = object(r.data.contextUsage).tokens
+        return typeof used === 'number' ? used : null
+      },
+      () => null,
+    )
   }
 
   /**
@@ -1166,6 +1269,7 @@ export class PixelSession implements EngineSession {
     // 主智能体停了、子智能体还在后台跑：进度照样更新（omp 不会因此再让主智能体接着跑，实测）
     if (this.omp && !this.active && type === 'tool_execution_update' && string(raw.toolName) === SUBAGENT_TOOL)
       return this.translator.event(raw)
+    if (this.omp && this.ompOwn(type, raw)) return
     if (!this.active) return
     if (type === 'agent_settled' && !this.omp) return this.settled(raw.aborted === true, '')
     if (this.omp && type === 'prompt_result') {
@@ -1176,6 +1280,7 @@ export class PixelSession implements EngineSession {
     }
     if (this.omp && type === 'session_settled') {
       if (this.active.result) this.ompSettled(this.active.result)
+      else if (this.active.own && !(this.active.taken && !this.active.stopped)) this.settled(false, '')
       return
     }
     if (type === 'auto_retry_start') {
@@ -1210,8 +1315,214 @@ export class PixelSession implements EngineSession {
     }
     // queue_update 不转成 queue 事件：排队由宿主管理，引导的交付以用户消息为准（userMessage）
     this.translator.event(raw)
+    const proc = this.proc
+    if (this.omp && proc && type === 'auto_compaction_end' && raw.aborted !== true)
+      void this.contextTokens(proc).then(used => {
+        if (used !== null && this.proc === proc) this.translator.compactedTo(used)
+      })
     if (this.planUnlinked && type === 'tool_execution_start' && string(raw.toolName) === EXIT_PLAN_TOOL)
       this.linkPlanLate()
+  }
+
+  /** omp 自己开的轮次、目标、内置命令的输出；处理完、不用再往下走的返回 true */
+  private ompOwn(type: string, raw: Message): boolean {
+    if (type === 'goal_updated') {
+      const goal = ompGoal(raw.goal)
+      this.setGoal(goal, true)
+      // 做完的目标 omp 那边就没有了
+      if (goal?.status === 'complete') this.setGoal(null, false)
+      return true
+    }
+    if (type === 'command_output') {
+      const output = ompOutput(string(raw.text))
+      if (output) this.translator.notice('info', output.text, output.detail)
+      return true
+    }
+    if (!this.ready || this.closed) return false
+    // 安定了目标还在进行：omp 觉得没有进展（没调工具、只重复同样的），不再自己接着做
+    if (type === 'session_settled' && this.goalState?.status === 'active' && this.active?.own && !this.active.stopped)
+      this.goalNotice(NATIVE_TEXT.ompGoalIdle, 'warn')
+    if (type === 'agent_start') {
+      if (!this.active) this.beginAuto()
+      this.active!.began = true
+    } else if (type === 'message_start' && object(raw.message).customType === 'goal-continuation') this.continueGoal()
+    return false
+  }
+
+  /** 目标接着做了一次：用户那一轮、上一次接着做的那一轮到这里结束，另开一轮 */
+  private continueGoal(): void {
+    const active = this.active
+    if (active?.own && !active.taken && !active.continued) {
+      active.continued = true
+      return
+    }
+    if (active) {
+      // 用户的消息还没做完（刚接管、排着等送进去）：不算结束
+      if (active.taken || (!active.own && !active.result)) return
+      if (active.result) this.ompSettled(active.result)
+      else this.settled(false, '')
+    }
+    // 结束时换了进程（权限档、模型变了）：不接着做了
+    if (!this.ready) return
+    // 结束时宿主可能马上派发了排队的消息（send）：那条消息并进这一轮
+    if (!this.active) this.beginAuto()
+    if (this.active) Object.assign(this.active, { began: true, continued: true })
+  }
+
+  /** omp 自己开了一轮：照普通的一轮显示、统计、收尾。晚一个宏任务告诉宿主，让它先派发排队的消息（同 Codex beginAuto） */
+  private beginAuto(): void {
+    const active: ActiveTurn = { id: randomUUID(), started: Date.now(), promptSent: true, own: true, auto: true }
+    this.active = active
+    // 这一轮没有提示：之后的用户消息都是引导
+    this.promptUserSeen = true
+    this.guidance.length = 0
+    this.asked.clear()
+    this.translator.beginTurn()
+    setTimeout(() => this.announce(active), 0)
+  }
+
+  private announce(active: ActiveTurn): void {
+    if (this.active !== active || !active.auto || active.announced) return
+    active.announced = true
+    this.ctx.emit({ type: 'turn_started', turnId: active.id, execution: queueSettings(this.ctx.record()) })
+  }
+
+  // ---------------------------------------------------------------------------
+  // 目标（docs/omp-engine.md §13.1）
+  // ---------------------------------------------------------------------------
+
+  async goal(action: GoalAction): Promise<SessionGoal | null> {
+    if (!this.omp) throw codedError(GOAL_NO_ENGINE)
+    if (this.opening) await this.opening.catch(() => {})
+    const proc = this.proc
+    if (this.closed || !proc?.alive || !this.ready) throw codedError(GOAL_NO_PROCESS)
+    return this.applyGoal(proc, action)
+  }
+
+  private async applyGoal(proc: PixelProcess, action: GoalAction): Promise<SessionGoal | null> {
+    if (this.goalSupported === false) throw new Error(NATIVE_TEXT.ompGoalUnsupported)
+    // 用户自己动了目标：关进程时记下的暂停作废
+    if (action.kind !== 'get' && this.ctx.record().goalHeldAt != null) this.ctx.holdGoal?.(null)
+    const op = async (name: string, extra: Message = {}): Promise<SessionGoal | null> => {
+      const { data } = await proc.request('goal', { op: name, ...extra })
+      this.setGoal(ompGoal(data.goal), false)
+      return this.goalState
+    }
+    if (action.kind === 'get') return op('get')
+    if (action.kind === 'clear') return this.goalState ? op('drop') : null
+    if (action.kind === 'pause') {
+      if (!this.goalState) throw new Error(NATIVE_TEXT.goalNone)
+      return op('pause')
+    }
+    // 计划档是我们自己的扩展，omp 不知道，不会替我们拦
+    if (this.settings.permissionMode === 'plan') throw new Error(NATIVE_TEXT.ompGoalPlan)
+    if (action.kind === 'resume') {
+      if (!this.goalState) throw new Error(NATIVE_TEXT.goalNone)
+      if (this.goalState.status === 'active') return this.goalState
+      return op('resume')
+    }
+    if (this.goalState) await op('drop')
+    const goal = await op('create', { objective: action.objective })
+    if (this.ctx.record().platform && !this.goalWarned) {
+      this.goalWarned = true
+      this.translator.notice('warn', NATIVE_TEXT.ompGoalCost)
+    }
+    return goal
+  }
+
+  /** 打开会话后读一次目标。接上的会话里目标该是暂停的：万一还在进行（换过文件），先停下，等用户发消息 */
+  private async readGoal(proc: PixelProcess, branched: boolean): Promise<void> {
+    // 回退、分叉：之前记下的暂停不作数
+    if (branched && this.ctx.record().goalHeldAt != null) this.ctx.holdGoal?.(null)
+    try {
+      const { data } = await proc.request('goal', { op: 'get' }, 10_000)
+      this.goalSupported = true
+      const goal = ompGoal(data.goal)
+      this.setGoal(goal, false)
+      if (goal?.status !== 'active') return
+      this.holdGoal()
+      await proc.request('abort', {}, 10_000)
+    } catch (error) {
+      this.goalSupported = false
+      log.info('读不到 oh-my-pi 的目标', { error: describeError(error) })
+    }
+  }
+
+  /** 要关进程了、目标还在进行：记下来，下次发消息时接着做（omp 重新打开时目标是暂停的） */
+  private holdGoal(): void {
+    // 记成负数：和 Codex 的分开，换引擎后不会把对方停下的当成自己的
+    if (this.goalState?.status === 'active') this.ctx.holdGoal?.(-Math.max(1, this.goalState.updatedAt))
+  }
+
+  /** 关进程时停下的目标：消息已经送进去了，改回进行中，这一轮做完 omp 接着做 */
+  private async releaseGoal(proc: PixelProcess): Promise<void> {
+    const held = this.ctx.record().goalHeldAt
+    if (held == null || held >= 0 || this.settings.permissionMode === 'plan') return
+    this.ctx.holdGoal?.(null)
+    if (this.goalState?.status !== 'paused' || !proc.alive) return
+    await this.applyGoal(proc, { kind: 'resume' }).catch(error =>
+      log.info('目标没能改回进行中', { error: describeError(error) }),
+    )
+  }
+
+  /** 目标变了：告诉界面；announce 时（omp 自己报的）完成、预算用完在对话里说一句 */
+  private setGoal(next: SessionGoal | null, announce: boolean): void {
+    const prev = this.goalState
+    if (sameGoal(prev, next)) return
+    this.goalState = next
+    this.ctx.emit({ type: 'goal', goal: next })
+    if (!announce || !next || prev?.status === next.status) return
+    if (next.status === 'complete') this.goalNotice(NATIVE_TEXT.goalComplete(next.objective))
+    else if (next.status === 'budgetLimited') this.goalNotice(NATIVE_TEXT.goalBudgetLimited, 'warn')
+  }
+
+  private goalNotice(text: string, level: 'info' | 'warn' = 'info'): void {
+    this.ctx.emit({
+      type: 'item_completed',
+      item: { kind: 'notice', id: `px-goal-${Date.now()}-${++this.goalSeq}`, level, text, detail: null },
+    })
+  }
+
+  /** 输入框发来的 /goal（进程没在跑时按普通消息发过来的）：做完说一句；设目标 / 继续后 omp 自己开跑，就接在这一轮里 */
+  private async runGoal(
+    action: GoalAction,
+    active: ActiveTurn,
+    userItemId: string,
+    attachments: ImageAttachment[],
+  ): Promise<void> {
+    this.ctx.emit({ type: 'input_ack', id: userItemId, state: 'consumed', mode: 'normal' })
+    // 接管的一轮照旧由 omp 跑完；自己开的这一轮只在 omp 开跑时留着
+    const running = !!active.taken
+    Object.assign(active, { own: true, taken: false })
+    const end = (): void => {
+      if (this.active === active && !active.began && !running) this.finish('completed', null)
+    }
+    if (attachments.length) {
+      this.goalNotice(NATIVE_TEXT.goalImages, 'warn')
+      return end()
+    }
+    let goal: SessionGoal | null
+    try {
+      goal = await this.applyGoal(this.proc!, action)
+    } catch (error) {
+      this.goalNotice((error as Error).message, 'warn')
+      return end()
+    }
+    if (this.active !== active) return
+    if (action.kind === 'get')
+      this.goalNotice(
+        goal ? NATIVE_TEXT.goalShow(goal.objective, NATIVE_TEXT.goalStatus[goal.status]) : NATIVE_TEXT.goalNone,
+      )
+    else if (action.kind === 'pause') this.goalNotice(NATIVE_TEXT.goalPaused)
+    else if (action.kind === 'clear') this.goalNotice(NATIVE_TEXT.goalCleared)
+    else {
+      this.goalNotice(
+        action.kind === 'set' ? NATIVE_TEXT.goalSet(action.objective, 'oh-my-pi') : NATIVE_TEXT.goalResumed,
+      )
+      for (let i = 0; i < 30 && this.active === active && !active.began && !this.closed; i++)
+        await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    end()
   }
 
   /** omp 的会话文件通知：被别的进程占着、在外面被改过时，它把会话改存到新文件 */
@@ -1468,6 +1779,7 @@ export class PixelSession implements EngineSession {
   private finish(outcome: TurnOutcome, error: string | null): void {
     const active = this.active
     if (!active) return
+    this.announce(active)
     this.active = null
     const info = error ? textError(error) : undefined
     if (outcome === 'failed' && error)
@@ -1498,7 +1810,9 @@ export class PixelSession implements EngineSession {
     this.turnWaiters = []
     for (const w of waiters) w()
     this.syncFile()
-    if (this.modeRestart) this.recycle()
+    // 换了要换进程的模型（网关注册的不一样）：目标不能用旧进程、旧模型接着做
+    const stale = this.goalState?.status === 'active' && this.restartsForModel(this.ctx.record().model)
+    if (this.modeRestart || stale) this.recycle()
   }
 
   /** omp 没有运行中改权限档的命令：关掉进程，下一轮按新档重启，续接同一会话（engineSessionId 是会话文件） */
@@ -1506,11 +1820,16 @@ export class PixelSession implements EngineSession {
     this.modeRestart = false
     const proc = this.proc
     if (!proc) return
+    if (this.goalState?.status === 'active') {
+      this.holdGoal()
+      this.goalNotice(NATIVE_TEXT.ompGoalHeld, 'warn')
+    }
     this.proc = null
     this.ready = false
     this.rejectApprovals()
     this.btw.abort('oh-my-pi 换了进程（权限档、设置变了），旁聊被打断，请再问一次')
     this.translator.stopOmpAgents()
+    this.setGoal(null, false)
     this.closing = this.fileSync.then(() => proc.close())
   }
 
@@ -1742,6 +2061,7 @@ export class PixelSession implements EngineSession {
   }
 
   async close(opts: CloseOptions = {}): Promise<void> {
+    if (this.omp) this.holdGoal()
     this.closed = true
     this.btw.abort('会话已关闭')
     this.mcpReporter.dispose()

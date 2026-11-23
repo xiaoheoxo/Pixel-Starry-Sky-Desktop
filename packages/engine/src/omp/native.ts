@@ -213,6 +213,7 @@ function itemsOf(list: readonly Message[], cwd: string): Item[] {
       durationMs: null,
       preTokens: number(e.tokensBefore) || null,
       postTokens: number(e.tokensAfter) || null,
+      ...(e.method === 'handoff' ? { handoff: string(e.summary) } : {}),
     })
   }
   flush()

@@ -51,6 +51,10 @@ export const commandMessages = {
     zh: '设定目标，持续工作直到满足完成条件',
     en: 'Set a goal and keep working until its completion condition is met',
   },
+  'commands.handoff': {
+    zh: '写一份交接文档代替前面的历史（和换引擎的交接不是一回事）',
+    en: 'Write a handoff document that replaces earlier history (not the same as switching engines)',
+  },
   'commands.agents': {
     zh: '了解如何创建或管理子代理及其配置',
     en: 'Learn how to create or manage subagents and their configuration',

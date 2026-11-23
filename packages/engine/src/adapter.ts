@@ -311,6 +311,8 @@ export interface EngineAdapter {
   close?(opts?: CloseOptions): Promise<void>
   /** 旁聊：带着会话上下文单独问一次，没有工具、不写记录（§3） */
   sideQuestion?(record: SessionRecord, prompt: string, signal: AbortSignal): Promise<string>
+  /** 引擎自己的 HTML 导出（oh-my-pi，docs/omp-engine.md §13.3）：返回整个网页 */
+  exportHtml?(record: SessionRecord): Promise<string>
   /** 不带会话、用引擎自己的登录单独问一次（AI 写提交信息，docs/ui/ai-commit-channels.md）；出错抛 OneShotError */
   oneShot?(req: OneShotRequest, signal: AbortSignal): Promise<OneShotReply>
   /** 电脑从待机唤醒（docs/ui/claude-login-recovery.md §1 第 2 条）：sleptMs 是待机了多久 */

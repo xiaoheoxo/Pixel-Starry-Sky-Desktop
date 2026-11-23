@@ -7,6 +7,8 @@ export interface ExportRequest {
   sessionId: string
   /** 从对话里某条消息打开：范围预选它所在的那一轮 */
   itemId?: string
+  /** 一打开就选好的格式：omp 是 oh-my-pi 自己的 HTML */
+  format?: 'omp'
 }
 
 let request: ExportRequest | null = null

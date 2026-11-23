@@ -244,12 +244,14 @@ describe('oh-my-pi 适配器', () => {
     await host!.send(session.id, '你好')
     await wait(() => idle(session.id) && !!snap(session.id).record.engineSessionId)
     const file = snap(session.id).record.engineSessionId
-    expect(config()).toBe('omitThinking: false\n')
+    expect(config()).toBe('omitThinking: false\ngoal:\n  continuationModes: [interactive, rpc]\n')
     expect(snap(session.id).flags.ultracodeAvailable).toBe(true)
     await host!.update(session.id, { ultracode: true, thinkingSummaries: false })
     await host!.send(session.id, '再来')
     await wait(() => idle(session.id) && argvs().length === 2)
-    expect(config()).toBe('omitThinking: true\ntask:\n  eager: always\n  maxConcurrency: 8\n')
+    expect(config()).toBe(
+      'omitThinking: true\ngoal:\n  continuationModes: [interactive, rpc]\ntask:\n  eager: always\n  maxConcurrency: 8\n',
+    )
     expect(
       messages()
         .filter(m => m.type === 'switch_session')

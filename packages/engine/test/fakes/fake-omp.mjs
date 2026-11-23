@@ -25,6 +25,16 @@ if (process.argv.includes('--version')) {
   process.stdout.write('omp/19.1.0\n')
   process.exit(0)
 }
+// omp --export <会话文件> <输出>：FAKE_OMP_EXPORT_FAIL=1 报错退出
+if (process.argv.includes('--export')) {
+  const [file, target] = process.argv.slice(process.argv.indexOf('--export') + 1)
+  if (process.env.FAKE_OMP_EXPORT_FAIL) {
+    process.stderr.write('Error: bad session\n')
+    process.exit(1)
+  }
+  writeFileSync(target, `<html>${readFileSync(file, 'utf8').length}</html>`)
+  process.exit(0)
+}
 const dir = process.env.FAKE_OMP_DIR ?? process.cwd()
 mkdirSync(dir, { recursive: true })
 const CHUNK = 1024 * 1024
@@ -64,6 +74,7 @@ for (const [provider, config] of Object.entries(
 // 每次 prompt 记下当时的档位（FAKE_OMP_LOG 里 prompt 那行之后追加 {type:'tier', fast}）
 let fast = process.env.FAKE_OMP_FAST === '1'
 const fastActive = () => fast && process.env.FAKE_OMP_FAST_NO !== model.id
+let turning = false
 let model = models[0],
   sessionFile = join(dir, `omp-${process.pid}.jsonl`),
   approval = null,
@@ -107,7 +118,12 @@ const loadFile = file => {
   rows = lines.filter(l => l.type !== 'session' && l.type !== 'title')
   leaf = rows.at(-1)?.id ?? null
 }
-if (process.argv.includes('--session')) loadFile(process.argv[process.argv.indexOf('--session') + 1])
+const resumed = process.argv.includes('--session') ? process.argv[process.argv.indexOf('--session') + 1] : null
+if (resumed) {
+  loadFile(resumed)
+  // 旁聊的副本只读内容
+  if (existsSync(resumed)) sessionFile = resumed
+}
 const message = (role, text) =>
   append({ type: 'message', message: { role, content: [{ type: 'text', text }], provider: 'fake', model: model.id } })
 const save = () =>
@@ -115,6 +131,67 @@ const save = () =>
     sessionFile,
     [{ type: 'title', title: '会话' }, head, ...rows].map(l => JSON.stringify(l) + '\n').join(''),
   )
+
+// 目标（真 omp 的时序）：一次接一次地跑，做到「做 N 次」完成；用户消息的 prompt_result 在下一次的 agent_start 之后才到。
+// 文件里是进行中的：--session 打开读成暂停的，switch_session 切过去马上接着做
+let goal = null,
+  goalRuns = 0,
+  goalRunning = false
+const steered = []
+const journal = () => {
+  append({
+    type: 'mode_change',
+    mode: !goal ? 'none' : goal.status === 'active' ? 'goal' : 'goal_paused',
+    ...(goal ? { data: { goal: { ...goal } } } : {}),
+  })
+  if (existsSync(sessionFile)) save()
+}
+const goalEvent = (g = goal) => out({ type: 'goal_updated', goal: g })
+const restoreGoal = starting => {
+  const row = path().findLast(x => x.type === 'mode_change')
+  goal = row?.data?.goal ? { ...row.data.goal } : null
+  if (goal?.status !== 'active') return
+  if (starting) goal.status = 'paused'
+  else void goalLoop([])
+}
+async function goalLoop(results) {
+  if (goalRunning) return
+  goalRunning = true
+  const flush = sessionSettled => {
+    for (const r of results.splice(0)) out({ ...r, sessionSettled })
+  }
+  while (goal?.status === 'active') {
+    out({ type: 'agent_start' })
+    flush(false)
+    for (const customType of ['goal-mode-context', 'goal-continuation'])
+      out({ type: 'message_start', message: { role: 'custom', customType, content: 'x' } })
+    await sleep(goal.objective.includes('慢') ? 60 : 5)
+    if (goal?.status === 'active') {
+      goal.tokensUsed += 10
+      goal.updatedAt++
+      goalEvent()
+      await say(`目标第 ${++goalRuns} 次`)
+      for (let m = steered.shift(); m; m = steered.shift()) {
+        message('user', String(m.message))
+        out({ type: 'message_start', message: { role: 'user', content: [{ type: 'text', text: m.message }] } })
+        await say(`收到：${m.message}`)
+        results.push({ type: 'prompt_result', id: m.id, agentInvoked: true, status: 'completed' })
+      }
+    }
+    if (goal?.status === 'active' && goalRuns >= Number(/做 (\d+) 次/.exec(goal.objective)?.[1] ?? 99)) {
+      goalEvent({ ...goal, status: 'complete' })
+      goal = null
+      journal()
+    }
+    save()
+    out({ type: 'agent_end' })
+    // 没有进展：停下，目标还是进行中
+    if (goal?.objective.includes('没进展')) break
+  }
+  goalRunning = false
+  flush(true)
+  out({ type: 'session_settled' })
+}
 
 async function say(content) {
   message('assistant', content.slice(0, 200))
@@ -453,16 +530,12 @@ async function turn(m) {
   save()
   out({ type: 'turn_end' })
   out({ type: 'agent_end' })
-  out({
-    type: 'prompt_result',
-    id: m.id,
-    agentInvoked: true,
-    status,
-    ...(error ? { error } : {}),
-    sessionSettled: true,
-  })
+  const result = { type: 'prompt_result', id: m.id, agentInvoked: true, status, ...(error ? { error } : {}) }
+  if (goal?.status === 'active') return void goalLoop([result])
+  out({ ...result, sessionSettled: true })
   out({ type: 'session_settled' })
 }
+if (resumed) restoreGoal(true)
 
 out({ type: 'ready', protocolVersion: 1, supportedProtocolVersions: [1, 2], maxFrameBytes: CHUNK })
 const rl = readline.createInterface({ input: process.stdin })
@@ -489,7 +562,30 @@ rl.on('line', async line => {
       if (cwdOf(m.sessionPath) !== process.cwd()) return response(m, { cancelled: true })
       sessionFile = m.sessionPath
       loadFile(sessionFile)
+      restoreGoal(false)
       return response(m, { cancelled: false })
+    case 'goal': {
+      if (process.env.FAKE_OMP_NO_GOAL) return fail(m, 'unknown command goal')
+      const reply = () => response(m, { goal, state: null })
+      if (m.op === 'get') return reply()
+      if (m.op === 'create') {
+        if (goal) return fail(m, 'A goal already exists')
+        goal = { id: 'g', objective: m.objective, status: 'active', tokensUsed: 0, timeUsedSeconds: 0, updatedAt: 1000 }
+        goalRuns = 0
+      } else if (!goal) return fail(m, 'No goal')
+      else if (m.op === 'drop') {
+        goalEvent({ ...goal, status: 'dropped' })
+        goal = null
+        journal()
+        return reply()
+      } else goal.status = m.op === 'pause' ? 'paused' : 'active'
+      goal.updatedAt++
+      journal()
+      goalEvent()
+      reply()
+      if (goal.status === 'active' && !aborter && !turning) void goalLoop([])
+      return
+    }
     case 'navigate_tree': {
       const row = rows.find(r => r.id === m.entryId)
       if (!row) return fail(m, `Entry ${m.entryId} not found`)
@@ -521,11 +617,49 @@ rl.on('line', async line => {
     case 'get_available_thinking_levels':
       return response(m, { levels: ['off', 'low', 'medium', 'high'] })
     case 'get_session_stats':
-      return response(m, { tokens: { input: btwInput, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 })
+      return response(m, {
+        tokens: { input: btwInput, output: 0, cacheRead: 0, cacheWrite: 0 },
+        cost: 0,
+        contextUsage: { tokens: 321 },
+      })
+    case 'compact':
+    case 'handoff': {
+      // 要求里含「太小」→ 没东西可压；「写坏」→ 文档不合格式；「慢」→ 等 abort
+      const want = String(m.customInstructions ?? '')
+      out({ type: 'manual_compaction_start', ...(m.type === 'handoff' ? { mode: 'handoff' } : {}) })
+      const end = extra => out({ type: 'manual_compaction_end', aborted: false, ...extra })
+      if (want.includes('慢')) {
+        await new Promise(resolve => (aborter = resolve))
+        end({ aborted: true, errorMessage: 'Compaction cancelled' })
+        return fail(m, 'Compaction cancelled')
+      }
+      const bad = want.includes('太小')
+        ? 'Nothing to compact (session too small)'
+        : want.includes('写坏')
+          ? 'Handoff generation produced an invalid document'
+          : ''
+      if (bad) {
+        end({ errorMessage: bad, ...(want.includes('太小') ? { skipped: true } : {}) })
+        return fail(m, bad)
+      }
+      const summary = `## Goal\n${want}`
+      append({
+        type: 'compaction',
+        summary,
+        tokensBefore: 900,
+        tokensAfter: 321,
+        ...(m.type === 'handoff' ? { method: 'handoff' } : {}),
+      })
+      save()
+      end({ result: { summary, firstKeptEntryId: 'x', tokensBefore: 900 } })
+      return response(m, m.type === 'handoff' ? {} : { summary })
+    }
     case 'get_available_commands':
       return response(m, {
         commands: [
           { name: 'security', description: 'Security scans' },
+          { name: 'compact', description: 'Compact', source: 'builtin' },
+          { name: 'handoff', description: 'Handoff', source: 'builtin' },
           // FAKE_OMP_NO_TURN=1：像用户的参数关掉了扩展
           ...(process.env.FAKE_OMP_NO_TURN ? [] : [{ name: 'pixelsky-turn', description: 'x', source: 'extension' }]),
         ],
@@ -541,8 +675,14 @@ rl.on('line', async line => {
       if (process.env.FAKE_OMP_LOG)
         appendFileSync(process.env.FAKE_OMP_LOG, JSON.stringify({ type: 'tier', fast: fastActive() }) + '\n')
       if (String(m.message).startsWith('/security')) return response(m, { agentInvoked: false })
+      if (String(m.message).startsWith('/usage')) {
+        out({ type: 'command_output', text: 'Usage\n\u001b[1mTotal\u001b[22m: 0' })
+        return response(m, { agentInvoked: false })
+      }
       response(m, { agentInvoked: true })
-      return void turn(m)
+      if (goalRunning) return void steered.push(m)
+      turning = true
+      return void turn(m).finally(() => (turning = false))
     case 'extension_ui_response':
       if (approval?.id === m.id) {
         const a = approval
@@ -578,6 +718,12 @@ rl.on('line', async line => {
       return response(m, { cancelled: !!cancel })
     }
     case 'abort':
+      if (goal?.status === 'active') {
+        goal.status = 'paused'
+        goal.updatedAt++
+        journal()
+        goalEvent()
+      }
       aborter?.()
       aborter = null
       await sleep(5)

@@ -4,7 +4,7 @@ import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import { isDemo } from '@/data'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '@/i18n/core'
-import { useSession } from '@/features/engine'
+import { bridge as engineBridge, useSession } from '@/features/engine'
 import { clipboardWrite } from '@/features/session/contextMenu/clipboard'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { Segmented, cn, useToast } from '@/ui'
@@ -30,6 +30,8 @@ const MIME: Record<ExportFormat, string> = {
   json: 'application/json;charset=utf-8',
 }
 const FORMAT_LABEL: Record<ExportFormat, string> = { md: 'Markdown', html: 'HTML', json: 'JSON' }
+/** 对话框里的格式：多一种 oh-my-pi 自己的 HTML（docs/omp-engine.md §13.3） */
+type DialogFormat = ExportFormat | 'omp'
 /** 警告块里最多列几行，其余折成「还有 N 处」 */
 const HITS_SHOWN = 6
 
@@ -75,7 +77,10 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
   const total = doc?.total ?? 0
 
   const [prefs] = useState(loadPrefs)
-  const [format, setFormat] = useState<ExportFormat>(prefs.format)
+  const ompAvailable = snapshot?.record.engine === 'omp'
+  const [picked, setPicked] = useState<DialogFormat>(request.format ?? prefs.format)
+  const omp = picked === 'omp' && ompAvailable
+  const format: ExportFormat = picked === 'omp' ? prefs.format : picked
   const [tools, setTools] = useState(prefs.tools)
   const [thinking, setThinking] = useState(prefs.thinking)
   // 从消息右键菜单打开：范围预选那条消息所在的一轮
@@ -94,15 +99,17 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
   }
   const a = clampTurn(fromText, 1),
     b = clampTurn(toText, total)
-  const lo = scope === 'all' ? 1 : Math.min(a, b),
-    hi = scope === 'all' ? total : Math.max(a, b)
+  const all = scope === 'all' || omp
+  const lo = all ? 1 : Math.min(a, b),
+    hi = all ? total : Math.max(a, b)
 
   const selected = useMemo(
-    () => (doc ? selectDoc(doc, { tools, thinking, from: lo, to: hi }) : null),
-    [doc, tools, thinking, lo, hi],
+    // oh-my-pi 的整个会话都在里面：扫描也按全部内容
+    () => (doc ? selectDoc(doc, { tools: tools || omp, thinking: thinking || omp, from: lo, to: hi }) : null),
+    [doc, tools, thinking, omp, lo, hi],
   )
   const hits = useMemo(() => (selected ? scanDoc(selected) : []), [selected])
-  const masked = choice === 'mask' && hits.length > 0
+  const masked = !omp && choice === 'mask' && hits.length > 0
   // 选了打码就一律过 redactDoc（没命中时什么都不改）：范围外的标题里可能有密钥，文件名也用打码后的标题
   const shown = useMemo(() => (selected && choice === 'mask' ? redactDoc(selected) : selected), [selected, choice])
   const text = useMemo(
@@ -111,7 +118,7 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
   )
   const counts = selected ? summarize(selected) : { users: 0, replies: 0, tools: 0 }
   const empty = !selected || selected.turns.every(t => t.parts.length === 0)
-  const fileName = shown ? `${exportBaseName(shown)}.${format}` : ''
+  const fileName = shown ? `${exportBaseName(shown)}.${omp ? 'html' : format}` : ''
   const hitTurns = new Set(hits.map(h => h.turn))
   const turnCount = selected?.turns.length ?? 0
 
@@ -140,7 +147,7 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
     if (!shown || busy) return
     setBusy(true)
     setError(null)
-    savePrefs({ format, tools, thinking })
+    if (!omp) savePrefs({ format, tools, thinking })
     try {
       if (action === 'copy') {
         await clipboardWrite(text)
@@ -149,12 +156,15 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
         return
       }
       const name = exportBaseName(shown)
-      const done = masked
-        ? tr('export.doneMasked', { n: turnCount, m: hits.length })
-        : tr('export.done', { n: turnCount })
+      const done = omp
+        ? tr('export.omp.done')
+        : masked
+          ? tr('export.doneMasked', { n: turnCount, m: hits.length })
+          : tr('export.done', { n: turnCount })
       const bridge = isDemo ? undefined : window.pixelsky?.conversationExport
       if (bridge) {
-        const path = await bridge.save({ name, ext: format, content: text })
+        const content = omp ? await engineBridge!.exportHtml(request.sessionId) : text
+        const path = await bridge.save({ name, ext: omp ? 'html' : format, content })
         if (!path) {
           setRawAsk(null) // 在保存对话框里取消：回到导出对话框
           return
@@ -187,7 +197,7 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
   }
   // 原样导出（含复制）有命中时要再确认一次
   const start = (action: 'save' | 'copy'): void => {
-    if (hits.length > 0 && choice === 'raw') setRawAsk(action)
+    if (hits.length > 0 && (omp || choice === 'raw')) setRawAsk(action)
     else void run(action)
   }
 
@@ -212,6 +222,7 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
       : masked
         ? tr('export.btn.exportMasked', { n: hits.length })
         : tr('export.btn.exportRaw')
+  const formats: DialogFormat[] = ompAvailable && !isDemo ? [...EXPORT_FORMATS, 'omp'] : [...EXPORT_FORMATS]
 
   return (
     <ConfirmDialog
@@ -225,14 +236,15 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
           <Row label={tr('export.scope')}>
             <Segmented<'all' | 'range'>
               label={tr('export.scope')}
-              value={scope}
+              value={all ? 'all' : scope}
+              disabled={omp}
               options={[
                 { value: 'all', label: tr('export.scope.all') },
                 { value: 'range', label: tr('export.scope.range') },
               ]}
               onChange={setScope}
             />
-            {scope === 'range' && (
+            {!all && (
               <>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-list text-fg-secondary">
                   {tr('export.range.from')}
@@ -280,22 +292,29 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
             )}
           </Row>
           <Row label={tr('export.format')}>
-            <Segmented<ExportFormat>
+            <Segmented<DialogFormat>
               label={tr('export.format')}
-              value={format}
-              options={EXPORT_FORMATS.map(f => ({ value: f, label: FORMAT_LABEL[f] }))}
-              onChange={setFormat}
+              value={omp ? 'omp' : format}
+              options={formats.map(f => ({ value: f, label: f === 'omp' ? tr('export.omp.label') : FORMAT_LABEL[f] }))}
+              onChange={setPicked}
             />
-            <div className="mt-1 text-meta text-fg-faint">{tr(`export.format.${format}` as TranslationKey)}</div>
+            <div className="mt-1 text-meta text-fg-faint">
+              {tr(`export.format.${omp ? 'omp' : format}` as TranslationKey)}
+            </div>
           </Row>
           <Row label={tr('export.include')}>
             <label className="flex h-7 items-center gap-2 text-list text-fg">
-              <input type="checkbox" checked={tools} onChange={e => setTools(e.target.checked)} />
+              <input type="checkbox" checked={tools || omp} disabled={omp} onChange={e => setTools(e.target.checked)} />
               {tr('export.include.tools')}
               <span className="text-meta text-fg-faint">{tr('export.include.toolsHint')}</span>
             </label>
             <label className="flex h-7 items-center gap-2 text-list text-fg">
-              <input type="checkbox" checked={thinking} onChange={e => setThinking(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={thinking || omp}
+                disabled={omp}
+                onChange={e => setThinking(e.target.checked)}
+              />
               {tr('export.include.thinking')}
             </label>
           </Row>
@@ -307,9 +326,11 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
                 <>
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate font-mono text-meta text-fg">{fileName}</span>
-                    <span className="shrink-0 text-meta text-fg-muted">
-                      {tr('export.preview.size', { size: sizeLabel(text) })}
-                    </span>
+                    {!omp && (
+                      <span className="shrink-0 text-meta text-fg-muted">
+                        {tr('export.preview.size', { size: sizeLabel(text) })}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-0.5 text-meta text-fg-muted">
                     {tr('export.preview.counts', { u: counts.users, a: counts.replies, t: counts.tools })}
@@ -364,27 +385,34 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
                   </div>
                 )}
               </div>
-              <div
-                role="radiogroup"
-                aria-label={tr('export.choice.label')}
-                className="mt-1.5 border-t border-warn/25 bg-surface/70 px-3 py-1.5"
-              >
-                {(['mask', 'raw'] as const).map(value => (
-                  <label key={value} className="flex items-start gap-2 py-1">
-                    <input
-                      type="radio"
-                      name="export-secret-choice"
-                      className="mt-0.5"
-                      checked={choice === value}
-                      onChange={() => setChoice(value)}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-list font-medium text-fg">{tr(`export.choice.${value}`)}</span>
-                      <span className="block text-meta text-fg-muted">{tr(`export.choice.${value}Hint`)}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              {omp && (
+                <div className="mt-1.5 border-t border-warn/25 bg-surface/70 px-3 py-2 text-meta text-fg-secondary">
+                  {tr('export.omp.hits', { n: hits.length })}
+                </div>
+              )}
+              {!omp && (
+                <div
+                  role="radiogroup"
+                  aria-label={tr('export.choice.label')}
+                  className="mt-1.5 border-t border-warn/25 bg-surface/70 px-3 py-1.5"
+                >
+                  {(['mask', 'raw'] as const).map(value => (
+                    <label key={value} className="flex items-start gap-2 py-1">
+                      <input
+                        type="radio"
+                        name="export-secret-choice"
+                        className="mt-0.5"
+                        checked={choice === value}
+                        onChange={() => setChoice(value)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-list font-medium text-fg">{tr(`export.choice.${value}`)}</span>
+                        <span className="block text-meta text-fg-muted">{tr(`export.choice.${value}Hint`)}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -393,9 +421,9 @@ export function ExportDialog({ request }: { request: ExportRequest }) {
       cancelLabel={tr('export.btn.cancel')}
       busy={busy}
       error={error}
-      warn={hits.length > 0 && choice === 'raw'}
+      warn={hits.length > 0 && (omp || choice === 'raw')}
       confirmDisabled={empty}
-      extra={empty ? undefined : { label: tr('export.btn.copy'), onClick: () => start('copy') }}
+      extra={empty || omp ? undefined : { label: tr('export.btn.copy'), onClick: () => start('copy') }}
       onConfirm={() => start('save')}
       onCancel={closeExport}
     />

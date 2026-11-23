@@ -618,6 +618,15 @@ export class HostBranch {
     }
   }
 
+  /** 引擎自己的 HTML 导出（oh-my-pi） */
+  async exportHtml(id: string): Promise<string> {
+    const { ctx } = this
+    const record = ctx.m.sessions.stored(id)
+    const adapter = ctx.adapters[record.engine]
+    if (!adapter?.exportHtml) throw new Error('这个引擎没有自己的导出')
+    return adapter.exportHtml(record)
+  }
+
   cancelSideQuestion(id: string): void {
     this.sideQuestions.get(id)?.abort()
     this.sideQuestions.delete(id)

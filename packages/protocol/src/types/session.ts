@@ -261,7 +261,7 @@ export interface SessionRecord extends SessionSettings {
   scheduleTaskId?: string | null
   /**
    * Codex 目标是像素星空关进程时暂停的（docs/ui/codex-goal.md §2.1）：那时目标的 updatedAt。下次发普通消息时，
-   * 目标还是这次暂停的样子就改回进行中；用户自己停止、暂停的不记
+   * 目标还是这次暂停的样子就改回进行中；用户自己停止、暂停的不记。oh-my-pi 的记成负数（docs/omp-engine.md §13.1）
    */
   goalHeldAt?: number | null
   /**

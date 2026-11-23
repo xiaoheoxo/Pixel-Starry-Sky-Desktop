@@ -261,6 +261,8 @@ type ItemVariant =
       firstTokenMs?: number | null
       outputTokens?: number | null
       requests?: number
+      /** oh-my-pi 的交接（/handoff，docs/omp-engine.md §13.2）：代替前面历史的那份交接文档；还在写、没写成时是空的 */
+      handoff?: string
     }
   /** 一轮结束后的统计（耗时、token、费用、模型），显示在这一轮回复下方（docs/ui/usage.md §4） */
   | { kind: 'turn_stats'; id: string; turnId: string; outcome: TurnOutcome; usage: TurnUsage }

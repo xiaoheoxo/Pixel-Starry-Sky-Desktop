@@ -53,6 +53,24 @@ export const ompMessages = {
     zh: '没能接上原来的 oh-my-pi 会话，已改开新会话（之前的上下文没有带过去）',
     en: 'Could not resume the previous oh-my-pi session, so a new one was started (the earlier context was not carried over).',
   },
+  'engine.omp.export.fresh': {
+    zh: '先发一条消息，再用 oh-my-pi 导出',
+    en: 'Send a message first, then export with oh-my-pi',
+  },
+  'engine.omp.export.rewound': {
+    zh: '回退之后先发一条消息，再用 oh-my-pi 导出',
+    en: 'After rewinding, send a message before exporting with oh-my-pi',
+  },
+  'engine.omp.export.failed': { zh: 'oh-my-pi 没有导出成功', en: 'oh-my-pi could not export the session' },
+  // omp 自己报的英文
+  'engine.omp.compact.small': {
+    zh: '对话还太短，没有可以压缩的内容',
+    en: 'Nothing to compact (session too small)',
+  },
+  'engine.omp.compact.badHandoff': {
+    zh: '模型写的交接文档不合格式，没有采用；可以再试一次',
+    en: 'Handoff generation produced an invalid document',
+  },
   'engine.omp.notice.sessionMoved': {
     zh: '这个会话的文件被别的程序占用或改过（比如终端里的 omp），之后的内容存到新的会话文件，对话照常继续',
     en: 'Another program (such as omp in a terminal) is using or has changed this session file. New messages are saved to a new session file and the chat continues as usual.',

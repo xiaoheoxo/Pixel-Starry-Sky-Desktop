@@ -53,6 +53,7 @@ import { setLayoutSize, useLayoutSize } from '@/features/layout/sizes'
 import { useComposerDraft } from '@/features/engine/drafts'
 import { QueuedMessages } from './QueuedMessages'
 import { GoalBar, goalResultText } from './GoalBar'
+import { openExport } from '@/features/export/store'
 import { SessionCheckBar } from '@/features/checks/SessionCheckBar'
 import { ContextWindowButton } from './ContextWindowButton'
 import { QuotaButton } from './quota/QuotaButton'
@@ -755,6 +756,12 @@ export function Composer({
       else setText('')
       return
     }
+    // oh-my-pi 的 /export：打开导出对话框，不让它悄悄写进项目目录（docs/omp-engine.md §13.3）
+    if (live?.engine?.id === 'omp' && live.sessionId && /^\/export(\s|$)/.test(text.trim())) {
+      openExport({ sessionId: live.sessionId, format: 'omp' })
+      setText('')
+      return
+    }
     // 手打 /resume [关键词 | 完整 id] 回车：打开选择框，不发给 Claude
     const resume = resumeCommand ? parseResumeCommand(text) : null
     if (resume) {
@@ -773,8 +780,8 @@ export function Composer({
       if (hasContent) comingSoon(translate('发送'))
       return
     }
-    // Codex 的 /goal（docs/ui/codex-goal.md §2）：进程在跑时直接改目标，不排队、不发给模型；
-    // 不是 Codex 会话、进程没在跑、带了附件时照普通消息发（会话启动后由 Codex 会话处理，Claude Code 有自己的 /goal）
+    // Codex、oh-my-pi 的 /goal（docs/ui/codex-goal.md §2）：进程在跑时直接改目标，不排队、不发给模型；
+    // 不是这两种会话、进程没在跑、带了附件时照普通消息发（会话启动后由会话自己处理，Claude Code 有自己的 /goal）
     const goal = images.length || textFiles.length ? null : parseGoalCommand(text)
     if (goal && canSend && !submitting.current && !pendingReads.current) {
       const typed = text
@@ -786,7 +793,7 @@ export function Composer({
         const done = await live.goal(goal)
         if (done) {
           setText(current => (current === typed ? '' : current))
-          toast(goalResultText(goal, done.goal))
+          toast(goalResultText(goal, done.goal, live.engine?.id))
         } else handled = false
       } catch (err) {
         setError((err as Error).message)

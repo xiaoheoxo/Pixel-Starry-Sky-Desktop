@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Pause, Play, Target, X } from 'lucide-react'
-import type { GoalAction, GoalStatus, SessionGoal } from '@pixelsky/protocol'
+import type { EngineId, GoalAction, GoalStatus, SessionGoal } from '@pixelsky/protocol'
 import { Button, IconButton, Spinner, cn } from '@/ui'
 import { useEngineState } from '@/features/engine/store'
 import { formatDuration, formatTime, formatTokens } from '@/features/usage/format'
@@ -46,9 +46,13 @@ const HINT_KEY: Partial<Record<GoalStatus, TranslationKey>> = {
   budgetLimited: 'goal.bar.hint.budgetLimited',
 }
 
+/** 文案里的引擎名 */
+const goalEngine = (engine: EngineId | undefined): string => (engine === 'omp' ? 'oh-my-pi' : 'Codex')
+
 /** 输入框里的 /goal 直接生效后的提示（和进程没在跑时引擎在对话里说的同一句） */
-export function goalResultText(action: GoalAction, goal: SessionGoal | null): string {
-  if (action.kind === 'set') return tr('goal.native.set', { p0: action.objective })
+export function goalResultText(action: GoalAction, goal: SessionGoal | null, engine?: EngineId): string {
+  if (action.kind === 'set')
+    return tr(engine === 'omp' ? 'goal.native.ompSet' : 'goal.native.set', { p0: action.objective })
   if (action.kind === 'pause') return tr('goal.native.paused')
   if (action.kind === 'resume') return tr('goal.native.resumed')
   if (action.kind === 'clear') return tr('goal.native.cleared')
@@ -86,7 +90,7 @@ export function goalStats(goal: SessionGoal): { label: string; value: string; wa
 }
 
 /**
- * 输入框上方的目标栏（Codex /goal，docs/ui/codex-goal.md §2）：会话有目标时显示目标、状态、用量，
+ * 输入框上方的目标栏（Codex、oh-my-pi 的 /goal，docs/ui/codex-goal.md §2）：会话有目标时显示目标、状态、用量，
  * 点这一行展开看完整目标、用量明细和当前计划，能就地改目标。按钮马上生效（不排队）。
  * onAction 返回 null 表示引擎进程不在了（目标也就跟着没了）
  */
@@ -99,6 +103,7 @@ export function GoalBar({
 }) {
   useI18n()
   const goal = useEngineState(s => (sessionId ? (s.snapshots[sessionId]?.goal ?? null) : null))
+  const engine = useEngineState(s => goalEngine(sessionId ? s.snapshots[sessionId]?.record?.engine : undefined))
   const items = useEngineState(s => (sessionId ? s.snapshots[sessionId]?.items : undefined))
   const [busy, setBusy] = useState<GoalAction['kind'] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -193,7 +198,7 @@ export function GoalBar({
               variant="ghost"
               icon={Pause}
               disabled={!!busy}
-              title={tr('goal.bar.pauseHint')}
+              title={tr('goal.bar.pauseHint', { engine })}
               className="h-6 px-2 text-meta"
               onClick={() => void act({ kind: 'pause' })}
             >
@@ -205,7 +210,7 @@ export function GoalBar({
               variant="ghost"
               icon={Play}
               disabled={!!busy}
-              title={tr('goal.bar.resumeHint')}
+              title={tr('goal.bar.resumeHint', { engine })}
               className="h-6 px-2 text-meta"
               onClick={() => void act({ kind: 'resume' })}
             >
@@ -258,7 +263,7 @@ export function GoalBar({
                   className="min-h-24 resize-y rounded-md border border-line bg-app px-2.5 py-1.5 text-list text-fg outline-none focus-visible:border-accent"
                 />
                 <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 text-label text-fg-faint">{tr('goal.bar.editHint')}</span>
+                  <span className="min-w-0 flex-1 text-label text-fg-faint">{tr('goal.bar.editHint', { engine })}</span>
                   <Button variant="ghost" className="h-6 px-2 text-meta" onClick={closeEditor}>
                     {tr('goal.bar.editCancel')}
                   </Button>

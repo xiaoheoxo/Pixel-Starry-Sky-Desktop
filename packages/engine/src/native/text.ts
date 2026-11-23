@@ -54,8 +54,8 @@ export const NATIVE_TEXT = {
   resumeLost: (turns: number, engine = 'Claude Code') =>
     `没能接上原来的 ${engine} 会话，已改开新的引擎会话，并把像素星空里的聊天（${turns} 轮）带了过去（工具调用和文件改动没有带过去）`,
   /** 目标模式（Codex /goal，docs/ui/codex-goal.md） */
-  goalSet: (objective: string) =>
-    `已设目标：${objective}。Codex 会一轮接一轮地做，直到完成；输入 /goal pause 暂停，/goal clear 清除`,
+  goalSet: (objective: string, engine = 'Codex') =>
+    `已设目标：${objective}。${engine} 会一轮接一轮地做，直到完成；输入 /goal pause 暂停，/goal clear 清除`,
   goalWaiting: 'Codex 已经记下目标，会自己接着做',
   goalNone: '这个对话没有目标。输入 /goal 加上要达成的目标来设一个',
   goalShow: (objective: string, status: string) => `当前目标（${status}）：${objective}`,
@@ -67,6 +67,11 @@ export const NATIVE_TEXT = {
   goalUsageLimited: '额度用完了，目标先停下',
   goalBudgetLimited: '目标的 token 预算用完了',
   goalUnsupported: '这个 Codex 版本没有目标模式（/goal），请更新到 0.128 以上',
+  ompGoalUnsupported: '这个 oh-my-pi 版本没有目标模式（/goal），请在终端运行 omp update',
+  ompGoalPlan: '先退出计划模式，再设目标或继续目标',
+  ompGoalCost: '目标会一轮接一轮地做，一直用平台额度，直到完成或你停下；输入 /goal pause 暂停',
+  ompGoalIdle: '这一轮没有新的进展，oh-my-pi 先停下了，目标还在；发一条消息就接着做，或者 /goal clear 清除',
+  ompGoalHeld: '设置改了，oh-my-pi 换了进程，目标先停下；发一条消息后接着做',
   goalImages: '目标只能是文字，/goal 不能带图片',
   goalStatus: {
     active: '进行中',
