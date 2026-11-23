@@ -56,14 +56,41 @@ describe('Dot in the main conversation view', () => {
     initDotChat({ engine: {} } as never, () => main as never)
     const sender = { once: vi.fn<(event: string, listener: () => void) => void>() }
     mocks.handlers.get('dotChat:snapshot')!({ sender }, first)
-    mocks.handlers.get('dotChat:send')!({ sender }, second, 'session', 'hello', ['file'])
+    const requestId = 'a0000000-b000-4000-8000-c00000000000'
+    mocks.handlers.get('dotChat:send')!({ sender }, second, 'session', 'hello', ['file'], requestId)
     mocks.handlers.get('dotChat:read')!({ sender }, first, { overview: true })
     expect(mocks.snapshot).toHaveBeenCalledWith(first)
-    expect(mocks.send).toHaveBeenCalledWith(second, 'session', 'hello', ['file'])
-    expect(mocks.read).toHaveBeenCalledWith(first, { before: undefined, overview: true }, expect.any(AbortSignal))
+    expect(mocks.send).toHaveBeenCalledWith(second, 'session', 'hello', ['file'], requestId)
+    expect(mocks.read).toHaveBeenCalledWith(
+      first,
+      { before: undefined, after: undefined, overview: true, overviewOnly: undefined },
+      expect.any(AbortSignal),
+    )
     expect(() => mocks.handlers.get('dotChat:snapshot')!({ sender }, 'c'.repeat(32))).toThrow('unavailable')
     sender.once.mock.calls[0][1]()
     expect(mocks.release).toHaveBeenCalledWith(first)
     expect(mocks.release).toHaveBeenCalledWith(second)
+  })
+  it('validates cursors and keeps overview-only reads separate from history', () => {
+    initDotChat({ engine: {} } as never, () => main as never)
+    const sender = { once: vi.fn() }
+    const read = mocks.handlers.get('dotChat:read')!
+    expect(() => read({ sender }, first, { after: 'a', before: 'b' })).toThrow('Invalid')
+    expect(() => read({ sender }, first, { overviewOnly: true, seen: true })).toThrow('Invalid')
+    expect(() => read({ sender }, first, { after: '' })).toThrow('Invalid')
+    read({ sender }, first, { after: 'm1', seen: true })
+    read({ sender }, second, { overviewOnly: true })
+    expect(mocks.read).toHaveBeenNthCalledWith(
+      1,
+      first,
+      expect.objectContaining({ after: 'm1', seen: true }),
+      expect.any(AbortSignal),
+    )
+    expect(mocks.read).toHaveBeenNthCalledWith(
+      2,
+      second,
+      expect.objectContaining({ overviewOnly: true }),
+      expect.any(AbortSignal),
+    )
   })
 })

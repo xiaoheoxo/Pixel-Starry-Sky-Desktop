@@ -681,10 +681,14 @@ contextBridge.exposeInMainWorld('pixelsky', {
     open: (key?: string) => invoke<void>('dotChat:open', key),
     catalog: (refresh?: boolean) => invoke('dotChat:catalog', refresh),
     snapshot: (key: string) => invoke('dotChat:snapshot', key),
-    send: (key: string, id: string, text: string, files?: string[]) =>
-      invoke<void>('dotChat:send', key, id, text, files),
-    read: (key: string, options?: { before?: string; overview?: boolean; seen?: boolean }) =>
-      invoke('dotChat:read', key, options),
+    send: (key: string, id: string, text: string, files?: string[], requestId?: string) =>
+      invoke<void>('dotChat:send', key, id, text, files, requestId),
+    read: (
+      key: string,
+      options?: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean; seen?: boolean },
+    ) => invoke('dotChat:read', key, options),
+    readReceipt: (key: string) => invoke('dotChat:readReceipt', key),
+    previewSelectedImage: (key: string, id: string) => invoke('dotChat:previewSelectedImage', key, id),
     pickFiles: (key: string) => invoke('dotChat:pickFiles', key),
     addFiles: (key: string, files: import('../shared/types/dot-chat').DotDroppedFile[]) =>
       invoke('dotChat:addFiles', key, files),

@@ -130,7 +130,7 @@ export interface EngineSession {
    * （云端线路只有会话的模型，自定义 API 是接口当时的模型）。宿主派发前据此换进程，运行中换模型时不当作已生效
    */
   restartsForModel?(model: string | null): boolean
-  steer?(text: string, userItemId: string, attachments?: ImageAttachment[]): Promise<void>
+  steer?(text: string, userItemId: string, attachments?: ImageAttachment[], files?: FileAttachment[]): Promise<void>
   /**
    * 上下文明细。flags.contextLive 时运行中也可调用；否则仅宿主确认会话空闲后调用。
    * summary 用最近请求的计数加本地估算，full 调 Token 计数接口。

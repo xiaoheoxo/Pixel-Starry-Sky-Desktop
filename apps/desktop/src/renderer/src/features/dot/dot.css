@@ -194,6 +194,24 @@
   padding: 4px 20px 20px;
   font-size: var(--text-ui);
 }
+.dot-jump-bottom {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--bg-app);
+  color: var(--text);
+  font-size: var(--text-meta);
+}
+.dot-jump-bottom:hover {
+  background: var(--bg-hover);
+}
 .dot-message-scroll {
   /* 消息里只给读屏的文字是绝对定位的：定位到这里，跟着一起滚，不把外层撑高 */
   position: relative;
@@ -417,6 +435,7 @@ button.dot-small-button:hover:not(:disabled) {
 }
 .dot-queued-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   color: var(--text-faint);
@@ -424,6 +443,9 @@ button.dot-small-button:hover:not(:disabled) {
 }
 .dot-queued-meta span {
   flex: 1;
+}
+.dot-guide-button {
+  color: var(--accent-text);
 }
 /* 复制按钮平时不显示：借一点下面的间距，免得每条回复后面空一大截 */
 .dot-message-actions {
@@ -781,4 +803,60 @@ button.dot-file-remove:hover {
   color: var(--accent-text);
   font-size: var(--text-ui);
   pointer-events: none;
+}
+
+.dot-image-skeleton,
+.dot-history-skeleton > i {
+  background: linear-gradient(110deg, var(--bg-subtle) 20%, var(--bg-hover) 48%, var(--bg-subtle) 76%);
+  background-size: 220% 100%;
+  animation: dot-skeleton-shimmer 1.55s ease-in-out infinite;
+}
+.dot-image-skeleton {
+  position: absolute;
+  inset: 0;
+}
+.dot-image-tile img:not([data-decoded]) {
+  opacity: 0;
+}
+.dot-queued-files img {
+  inline-size: 22px;
+  block-size: 22px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+@keyframes dot-skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot-image-skeleton,
+  .dot-history-skeleton > i {
+    animation: none;
+  }
+}
+
+.dot-history-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(540px, 100%);
+  margin: auto;
+}
+.dot-history-skeleton > i {
+  display: block;
+  width: 70%;
+  height: 42px;
+  border-radius: var(--radius-lg);
+}
+.dot-history-skeleton > i:nth-child(even) {
+  align-self: flex-end;
+  width: 48%;
+}
+.dot-history-skeleton > i:last-child {
+  width: 58%;
+  height: 62px;
 }

@@ -6,6 +6,12 @@ import type { EngineHost } from '@pixelsky/engine'
 import type { SessionRecord } from '@pixelsky/protocol'
 import { DotChatSessions } from './dot-chat-sessions'
 
+const native = vi.hoisted(() => ({
+  createThumbnailFromPath: vi.fn(),
+  createFromPath: vi.fn(),
+}))
+vi.mock('electron', () => ({ nativeImage: native }))
+
 describe('multi-account Dot chats', () => {
   it('filters Plus before network access, keeps same-name Dots separate, and reopens the saved session', async () => {
     const root = mkdtempSync(join(tmpdir(), 'dot-chats-'))
@@ -138,7 +144,13 @@ describe('Dot unread messages and dropped files', () => {
       renameSession: vi.fn(),
       open: (id: string) => ({ record: records.find(r => r.id === id), items: [] }),
       item: (_id: string, itemId: string) => (delivered.has(itemId) ? { id: itemId } : null),
-      readDot: vi.fn(async () => ({ history: { items, before: null } })),
+      readDot: vi.fn(async (_account, _entry, options: { after?: string } = {}) => ({
+        history: {
+          items: options.after ? items.slice(items.findIndex(row => row.id === options.after) + 1) : items,
+          before: null,
+          latest: items.at(-1)?.id,
+        },
+      })),
     }
     const service = new DotChatSessions(host as unknown as EngineHost, root, () => clock)
     const changes: unknown[] = []
@@ -158,6 +170,49 @@ describe('Dot unread messages and dropped files', () => {
       busy: (on: boolean) => (state = on ? 'running' : 'idle'),
     }
   }
+
+  it('returns a bounded local picker preview even when the OS thumbnailer fails', async () => {
+    const t = await setup()
+    try {
+      const path = join(t.root, 'preview.webp')
+      writeFileSync(path, 'placeholder')
+      const resized = { isEmpty: () => false, toPNG: () => Buffer.from('preview') }
+      const resize = vi.fn(() => resized)
+      native.createThumbnailFromPath.mockRejectedValueOnce(new Error('No thumbnail provider'))
+      native.createFromPath.mockReturnValueOnce({
+        isEmpty: () => false,
+        getSize: () => ({ width: 800, height: 600 }),
+        resize,
+      })
+      expect(await t.service.pickFiles(t.key, [path], true)).toEqual([
+        expect.objectContaining({ name: 'preview.webp', previewPng: Buffer.from('preview').toString('base64') }),
+      ])
+      expect(resize).toHaveBeenCalledWith({ width: 400 })
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
+
+  it('previews original selected image bytes without resolving arbitrary paths or mislabeled data', async () => {
+    const t = await setup()
+    try {
+      const image = join(t.root, 'original.png')
+      const fake = join(t.root, 'not-image.png')
+      const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+      writeFileSync(image, bytes)
+      writeFileSync(fake, 'not an image')
+      const [valid, invalid] = await t.service.pickFiles(t.key, [image, fake])
+      await expect(t.service.previewSelectedImage(t.key, valid.id)).resolves.toEqual({
+        name: 'original.png',
+        mime: 'image/png',
+        dataBase64: bytes.toString('base64'),
+      })
+      await expect(t.service.previewSelectedImage(t.key, image)).rejects.toThrow('select it again')
+      await expect(t.service.previewSelectedImage(t.key, invalid.id)).rejects.toThrow('image unavailable')
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
 
   it('background check: only Dots opened here, not while replying or just read; a newer Dot message becomes unread once', async () => {
     const t = await setup()
@@ -190,6 +245,48 @@ describe('Dot unread messages and dropped files', () => {
       t.later(60_000)
       await t.service.poll()
       expect(t.changes).toHaveLength(1)
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
+
+  it('clears unread on an empty incremental read when the room is already caught up', async () => {
+    const t = await setup()
+    try {
+      t.service.snapshot(t.key)
+      await t.service.read(t.key, {})
+      t.arrive('m2', 200)
+      await t.service.read(t.key, { after: 'm1' })
+      expect((await t.service.catalog()).unread).toEqual([t.key])
+      await t.service.read(t.key, { after: 'm2', seen: true })
+      expect((await t.service.catalog()).unread).toEqual([])
+      await t.service.read(t.key, {})
+      expect(t.changes.at(-1)).toEqual({ unread: [] })
+    } finally {
+      rmSync(t.root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not mark a reply discovered during an older foreground read as seen', async () => {
+    const t = await setup()
+    try {
+      await t.service.read(t.key, { seen: true })
+      t.arrive('m2', 200)
+      await t.service.read(t.key, { after: 'm1' })
+      type Result = Awaited<ReturnType<typeof t.host.readDot>>
+      let finish!: (result: Result) => void
+      const inFlight = new Promise<Result>(resolve => {
+        finish = resolve
+      })
+      t.host.readDot.mockReturnValueOnce(inFlight)
+      const foreground = t.service.read(t.key, { after: 'm2', seen: true })
+      t.arrive('m3', 300)
+      await t.service.read(t.key, { after: 'm2' })
+      finish({ history: { items: [], before: null, latest: 'm2' } })
+      await foreground
+      expect((await t.service.catalog()).unread).toEqual([t.key])
+      await t.service.read(t.key, { after: 'm2', seen: true })
+      expect((await t.service.catalog()).unread).toEqual([])
     } finally {
       rmSync(t.root, { recursive: true, force: true })
     }

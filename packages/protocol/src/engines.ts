@@ -187,7 +187,7 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
       imageInput: false,
       interrupt: false,
       resume: true,
-      steer: false,
+      steer: true,
       rewind: false,
       fork: false,
       sideChat: false,

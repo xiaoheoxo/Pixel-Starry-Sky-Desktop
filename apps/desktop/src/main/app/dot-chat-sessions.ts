@@ -1,13 +1,14 @@
+import { nativeImage } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { rmSync } from 'node:fs'
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join, sep } from 'node:path'
 import { DOT_FILE_LIMIT } from '@pixelsky/engine'
 import type { EngineHost } from '@pixelsky/engine'
 import type { FileAttachment, SessionSnapshot } from '@pixelsky/protocol'
 import { CHAT_PROJECT_ID, supportsChatGptDot } from '@pixelsky/protocol'
 import type { DotChatMessage } from '@pixelsky/engine'
-import type { DotCatalogState, DotChatChange, DotEntry } from '../../shared/types/dot-chat'
+import type { DotCatalogState, DotChatChange, DotEntry, DotLocalFile } from '../../shared/types/dot-chat'
 import { safeFileName } from '../../shared/safeFileName'
 import { readWindowFile, mergeWindowFile } from './windowFile'
 
@@ -29,7 +30,7 @@ export class DotChatSessions {
   /** 看过的最新一条 Dot 消息的时间（键 → createdAt），存盘；没有记录的第一次读当基线 */
   private seen: Record<string, number> = {}
   /** 有没看过的新消息的 Dot：键 → 那条消息的 id */
-  private readonly unread = new Map<string, string>()
+  private readonly unread = new Map<string, { id: string; createdAt: number }>()
   private readonly readAt = new Map<string, number>()
   /** 粘贴进来存成的临时文件夹：键 → 目录 */
   private readonly temps = new Map<string, Set<string>>()
@@ -149,7 +150,18 @@ export class DotChatSessions {
     this.save()
     return this.host.open(created.id)
   }
-  async send(key: string, sessionId: unknown, text: unknown, fileIds: unknown = []): Promise<void> {
+  async send(
+    key: string,
+    sessionId: unknown,
+    text: unknown,
+    fileIds: unknown = [],
+    requestId?: unknown,
+  ): Promise<void> {
+    if (
+      requestId !== undefined &&
+      (typeof requestId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(requestId))
+    )
+      throw new Error('Invalid Dot request ID')
     if (typeof text !== 'string' || text.length > 100_000) throw new Error('Invalid Dot message')
     if (!Array.isArray(fileIds) || fileIds.length > 10 || fileIds.some(id => typeof id !== 'string'))
       throw new Error('Invalid Dot attachments')
@@ -161,11 +173,14 @@ export class DotChatSessions {
     if (!text.trim() && !files.length) throw new Error('Invalid Dot message')
     const snapshot = this.snapshot(key)
     if (snapshot.record.id !== sessionId) throw new Error('Dot conversation changed; reload before sending')
-    await this.host.send(snapshot.record.id, files.length ? { text, files, clientMessageId: randomUUID() } : text)
+    await this.host.send(
+      snapshot.record.id,
+      files.length ? { text, files, clientMessageId: (requestId as string | undefined) ?? randomUUID() } : text,
+    )
     for (const id of fileIds) this.selected.get(key)?.delete(id)
   }
 
-  async pickFiles(key: string, paths: string[]) {
+  async pickFiles(key: string, paths: string[], withPreviews = false): Promise<DotLocalFile[]> {
     this.entry(key)
     const selected = this.selected.get(key) ?? new Map<string, FileAttachment>()
     this.selected.set(key, selected)
@@ -188,7 +203,37 @@ export class DotChatSessions {
     // 限制每个窗口尚未发送的本地引用，路径不传给 renderer。
     for (const file of next) selected.set(file.id, file)
     while (selected.size > 50) selected.delete(selected.keys().next().value!)
-    return next.map(({ id, name, bytes }) => ({ id, name, bytes }))
+    return Promise.all(
+      next.map(async ({ id, name, bytes, path }) => {
+        const previewPng = withPreviews && path ? await selectedImagePreview(path, bytes) : undefined
+        return { id, name, bytes, ...(previewPng ? { previewPng } : {}) }
+      }),
+    )
+  }
+
+  async previewSelectedImage(key: string, id: unknown) {
+    this.entry(key)
+    const selected = typeof id === 'string' ? this.selected.get(key)?.get(id) : undefined
+    if (!selected?.path || !/\.(png|jpe?g|webp|gif)$/i.test(selected.name))
+      throw new Error('Dot attachment unavailable; select it again')
+    const handle = await open(selected.path, 'r')
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.size <= 0 || info.size > DOT_FILE_LIMIT)
+        throw new Error('Dot attachment exceeds 20 MiB or is not a file')
+      const data = Buffer.alloc(info.size)
+      let filled = 0
+      while (filled < data.length) {
+        const { bytesRead } = await handle.read(data, filled, data.length - filled, filled)
+        if (!bytesRead) throw new Error('Dot attachment unavailable; select it again')
+        filled += bytesRead
+      }
+      const mime = draftImageMime(data)
+      if (!mime) throw new Error('Dot image unavailable')
+      return { name: selected.name, mime, dataBase64: data.toString('base64') }
+    } finally {
+      await handle.close()
+    }
   }
 
   async download(key: string, fileId: unknown, signal?: AbortSignal) {
@@ -250,7 +295,7 @@ export class DotChatSessions {
     if (!id) return []
     try {
       return (this.host.open(id).queue ?? [])
-        .filter(q => q.status === 'queued' || q.status === 'dispatching')
+        .filter(q => q.status === 'queued' || q.status === 'dispatching' || q.status === 'delivering')
         .flatMap(q => (q.files ?? []).flatMap(file => (file.path ? [file.path] : [])))
     } catch {
       return []
@@ -262,22 +307,36 @@ export class DotChatSessions {
    * 没有记录的第一次读当基线，不算未读。比看过的新就记未读并通知界面；这条如果是本轮回复里已经收到的
    * （会话里有 dot-<id>，那一轮结束时提醒过了），只出未读点、不带 notice
    */
-  private track(entry: DotEntry, items: readonly DotChatMessage[], seen: boolean): void {
+  private track(
+    entry: DotEntry,
+    items: readonly DotChatMessage[],
+    seen: boolean,
+    alreadyVisible?: { id: string; createdAt: number },
+  ): void {
     const key = entry.key
     this.readAt.set(key, this.now())
-    const latest = items.filter(m => m.role === 'assistant').at(-1)
-    if (!latest) return
+    const latest = items.findLast(m => m.role === 'assistant')
+    const unread = this.unread.get(key)
     const known = this.seen[key]
     if (seen || known === undefined) {
-      if (known === undefined || latest.createdAt > known) {
-        this.seen[key] = latest.createdAt
+      const observed = latest ?? (seen && unread === alreadyVisible ? alreadyVisible : undefined)
+      if (!observed) return
+      const observedAt = observed.createdAt
+      if (known === undefined || observedAt > known) {
+        this.seen[key] = observedAt
         this.save()
       }
-      if (this.unread.delete(key)) this.onChange?.({ unread: [...this.unread.keys()] })
+      if (unread && (unread.id === observed.id || unread.createdAt < observedAt) && this.unread.delete(key))
+        this.onChange?.({ unread: [...this.unread.keys()] })
       return
     }
-    if (latest.createdAt <= known || this.unread.get(key) === latest.id) return
-    this.unread.set(key, latest.id)
+    if (
+      !latest ||
+      latest.createdAt <= known ||
+      (unread && (unread.id === latest.id || unread.createdAt > latest.createdAt))
+    )
+      return
+    this.unread.set(key, { id: latest.id, createdAt: latest.createdAt })
     const sessionId = this.sessions[key]
     const delivered = !!sessionId && !!this.host.item(sessionId, `dot-${latest.id}`)
     this.onChange?.({
@@ -313,20 +372,83 @@ export class DotChatSessions {
     }
   }
 
-  async read(key: string, options: { before?: string; overview?: boolean; seen?: boolean }, signal?: AbortSignal) {
+  readReceipt(key: string, signal?: AbortSignal) {
     const entry = this.entry(key)
+    return this.host.readDotReceipt(entry.account, entry, signal)
+  }
+
+  async read(
+    key: string,
+    options: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+      seen?: boolean
+    },
+    signal?: AbortSignal,
+  ) {
+    const entry = this.entry(key)
+    const unreadBeforeRead = this.unread.get(key)
     const data = await this.host.readDot(
       entry.account,
       entry,
-      { before: options.before, overview: options.overview },
+      {
+        before: options.before,
+        after: options.after,
+        overview: options.overview,
+        overviewOnly: options.overviewOnly,
+      },
       signal,
     )
-    if (!options.before) this.track(entry, data.history.items, options.seen === true)
+    if (!options.before && !options.overviewOnly)
+      this.track(
+        entry,
+        data.history.items,
+        options.seen === true,
+        options.after && data.history.latest === options.after && !data.history.items.length
+          ? unreadBeforeRead
+          : undefined,
+      )
     const known = this.knownFiles.get(key) ?? new Set<string>()
     for (const message of data.history.items)
       for (const file of message.attachments) if (file.type === 'file' && file.fileId) known.add(file.fileId)
+    for (const file of data.overview?.roomOutputs ?? []) if (file.fileId) known.add(file.fileId)
     while (known.size > 2000) known.delete(known.values().next().value!)
     this.knownFiles.set(key, known)
     return { ...data, entry: { ...entry, ...data.overview?.profile } }
+  }
+}
+
+function draftImageMime(data: Buffer): string | undefined {
+  if (data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
+  if (data.subarray(0, 6).toString('ascii') === 'GIF87a' || data.subarray(0, 6).toString('ascii') === 'GIF89a')
+    return 'image/gif'
+  if (data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP')
+    return 'image/webp'
+  return undefined
+}
+
+/** The system thumbnailer reads only paths explicitly chosen in the native picker. */
+async function selectedImagePreview(path: string, bytes: number): Promise<string | undefined> {
+  if (!/\.(png|jpe?g|webp|gif)$/i.test(path)) return
+  try {
+    let image = await nativeImage.createThumbnailFromPath(path, { width: 400, height: 400 }).catch(() => undefined)
+    // The OS provider is not available on all platforms. Limit the synchronous fallback to small selected files.
+    if ((!image || image.isEmpty()) && bytes <= 2 * 1024 * 1024) {
+      const original = nativeImage.createFromPath(path)
+      if (original.isEmpty()) return
+      const { width, height } = original.getSize()
+      image =
+        width > height
+          ? original.resize({ width: Math.min(width, 400) })
+          : original.resize({ height: Math.min(height, 400) })
+    }
+    if (!image || image.isEmpty()) return
+    const png = image.toPNG()
+    return png.byteLength <= 768 * 1024 ? png.toString('base64') : undefined
+  } catch {
+    // Corrupt or unsupported images keep the placeholder until they can be fetched from the remote host.
   }
 }

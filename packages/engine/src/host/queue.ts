@@ -564,11 +564,15 @@ export class HostQueue {
       throw new Error('当前引擎尚未通过运行中引导验证，可等待或插队')
     const item = rt.snapshot.queue.find(q => q.id === queueId && q.status === 'queued')
     if (!item) throw new Error('这条消息已经开始交付')
+    const dot = rt.snapshot.record.engine === 'dot'
+    if (dot && rt.snapshot.queue.some(q => q.status === 'delivering' || q.status === 'uncertain'))
+      throw new Error('Dot guidance is already sending or its delivery needs verification')
     if (!sameQueueSettings(item.settings, queueSettings(rt.execution ?? rt.snapshot.record)))
       throw new Error('设置与当前任务不同，可等待或插队')
     this.changeQueue(id, queueId, { status: 'delivering', mode: 'guidance' })
     try {
-      await rt.session.steer(messageWithFiles(item.text, item.files), item.id, item.attachments)
+      if (dot) await rt.session.steer(item.text, item.id, item.attachments, item.files)
+      else await rt.session.steer(messageWithFiles(item.text, item.files), item.id, item.attachments)
     } catch (err) {
       this.changeQueue(id, queueId, { status: 'uncertain', error: `引导交付结果待核对：${(err as Error).message}` })
       rt.snapshot = { ...rt.snapshot, queuePaused: true }

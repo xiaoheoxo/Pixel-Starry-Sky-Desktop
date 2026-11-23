@@ -134,7 +134,7 @@ const engines = <String, EngineDescriptor>{
     efforts: [],
     imageInput: false,
     interrupt: false,
-    steer: false,
+    steer: true,
     ultracode: false,
     fast: false,
     thinkingSummaries: false,

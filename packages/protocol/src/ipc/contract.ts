@@ -1312,6 +1312,8 @@ export const IPC_CONTRACT = {
   'dotChat:snapshot': { kind: 'invoke', route: 'local', trust: 'window' },
   'dotChat:send': { kind: 'invoke', route: 'local', trust: 'window' },
   'dotChat:read': { kind: 'invoke', route: 'local', trust: 'window' },
+  'dotChat:readReceipt': { kind: 'invoke', route: 'local', trust: 'window' },
+  'dotChat:previewSelectedImage': { kind: 'invoke', route: 'local', trust: 'window' },
   'dotChat:pickFiles': { kind: 'invoke', route: 'local', trust: 'window' },
   // 拖进来、粘贴的文件；未读变化（docs/ui/dot-optimize.md §7）
   'dotChat:addFiles': { kind: 'invoke', route: 'local', trust: 'window' },

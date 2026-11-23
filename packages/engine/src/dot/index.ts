@@ -1,7 +1,7 @@
 import type { EngineInfo, SessionRecord } from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, SessionContext } from '../adapter'
 import { engineBase } from '../registry'
-import { DotClient, type DotClientOptions, type DotCredentials, type DotIdentity } from './client'
+import { DotClient, type DotClientOptions, type DotCredentials, type DotHistoryPage, type DotIdentity } from './client'
 import { DotSession } from './session'
 
 export {
@@ -14,6 +14,7 @@ export {
   type DotProfile,
   type DotChatMessage,
   type DotHistoryPage,
+  type DotReadReceipt,
   type DotOverview,
   type DotAttachment,
   type DotFileData,
@@ -113,15 +114,31 @@ export class DotAdapter implements EngineAdapter {
   async readDot(
     account: string,
     target: { id: string; threadId: string },
-    options: { before?: string; overview?: boolean },
+    options: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+    },
     signal?: AbortSignal,
   ) {
     const { client, dot } = await this.reader(account, target, signal)
+    const historyRequest: DotHistoryPage | Promise<DotHistoryPage> = options.overviewOnly
+      ? { items: [], before: null }
+      : options.after
+        ? client.historyAfter(dot, options.after, signal)
+        : client.history(dot, options.before, signal)
     const [history, overview] = await Promise.all([
-      client.history(dot, options.before, signal),
-      options.overview ? client.overview(dot, signal) : undefined,
+      historyRequest,
+      options.overview || options.overviewOnly ? client.overview(dot, signal, options.overviewOnly) : undefined,
     ])
     return { history, ...(overview ? { overview } : {}) }
+  }
+
+  async readDotReceipt(account: string, target: { id: string; threadId: string }, owner?: AbortSignal) {
+    const signal = AbortSignal.any([...(owner ? [owner] : []), AbortSignal.timeout(2_000)])
+    const { client, dot } = await this.reader(account, target, signal)
+    return client.readReceipt(dot, signal)
   }
 
   async download(account: string, target: { id: string; threadId: string }, fileId: string, signal?: AbortSignal) {

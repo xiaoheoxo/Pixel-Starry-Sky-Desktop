@@ -60,8 +60,8 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
   ipc.handle('dotChat:snapshot', (event, key: unknown) => sessions.snapshot(bind(event.sender, key).key), deny)
   ipc.handle(
     'dotChat:send',
-    (event, key: unknown, id: unknown, text: unknown, files?: unknown) =>
-      sessions.send(bind(event.sender, key).key, id, text, files),
+    (event, key: unknown, id: unknown, text: unknown, files?: unknown, requestId?: unknown) =>
+      sessions.send(bind(event.sender, key).key, id, text, files, requestId),
     deny,
   )
   ipc.handle(
@@ -72,13 +72,21 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
       if (!win) throw new Error('Dot chat window required')
       const result = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
       if (result.canceled || win.isDestroyed()) return []
-      return sessions.pickFiles(key, result.filePaths)
+      return sessions.pickFiles(key, result.filePaths, true)
     },
     deny,
   )
   ipc.handle(
     'dotChat:addFiles',
     (event, value: unknown, files: unknown) => sessions.addFiles(bind(event.sender, value).key, files),
+    deny,
+  )
+  ipc.handle(
+    'dotChat:previewSelectedImage',
+    (event, value: unknown, id: unknown) => {
+      const { key } = bind(event.sender, value)
+      return sessions.previewSelectedImage(key, id)
+    },
     deny,
   )
   ipc.handle(
@@ -113,14 +121,37 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
     deny,
   )
   ipc.handle(
+    'dotChat:readReceipt',
+    (event, value: unknown) => {
+      const { key, signal } = bind(event.sender, value)
+      return sessions.readReceipt(key, signal)
+    },
+    deny,
+  )
+  ipc.handle(
     'dotChat:read',
     (event, value: unknown, raw: unknown) => {
       const options = raw === undefined ? {} : raw
       if (!options || typeof options !== 'object' || Array.isArray(options)) throw new Error('Invalid Dot read options')
-      const input = options as { before?: unknown; overview?: unknown; seen?: unknown }
+      const input = options as {
+        before?: unknown
+        after?: unknown
+        overview?: unknown
+        overviewOnly?: unknown
+        seen?: unknown
+      }
       if (
         (input.before !== undefined && (typeof input.before !== 'string' || input.before.length > 500)) ||
+        (input.after !== undefined &&
+          (typeof input.after !== 'string' ||
+            !input.after ||
+            input.after.length > 500 ||
+            input.before !== undefined)) ||
         (input.overview !== undefined && typeof input.overview !== 'boolean') ||
+        (input.overviewOnly !== undefined &&
+          (typeof input.overviewOnly !== 'boolean' ||
+            (input.overviewOnly &&
+              (input.before !== undefined || input.after !== undefined || input.seen !== undefined)))) ||
         (input.seen !== undefined && typeof input.seen !== 'boolean')
       )
         throw new Error('Invalid Dot read options')
@@ -129,7 +160,9 @@ export function initDotChat(ctx: AppContext, showMain: () => BrowserWindow): voi
         key,
         {
           before: input.before as string | undefined,
+          after: input.after as string | undefined,
           overview: input.overview as boolean | undefined,
+          overviewOnly: input.overviewOnly as boolean | undefined,
           seen: input.seen as boolean | undefined,
         },
         signal,

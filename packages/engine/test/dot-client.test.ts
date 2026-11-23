@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DotClient } from '../src/dot/client'
+import { DotAdapter } from '../src/dot'
 
 const identity = {
   accountId: 'account',
@@ -60,6 +61,57 @@ describe('native Dot client', () => {
       expect(init?.cache).toBe('no-store')
       expect(init?.credentials).toBe('omit')
     }
+  })
+
+  it('reads only the verified Dot participant’s receipt and keeps the native timestamp', async () => {
+    const path = '/backend-api/messaging/rooms/room'
+    const { client, request, routes } = setup()
+    const dot = await client.discover()
+    const through = '2026-11-17T07:35:00Z'
+    const updated = '2026-11-17T07:36:00Z'
+    routes[path] = {
+      ...room,
+      read_receipts: [
+        { account_user_id: 'human', last_read_at: '2026-11-17T08:00:00Z' },
+        { account_user_id: 'other', last_read_at: '2026-11-17T09:00:00Z' },
+        { account_user_id: 'bot', last_read_at: 'invalid' },
+        { account_user_id: 'bot', last_read_at: through, read_cursor_updated_at: updated },
+        { account_user_id: 'bot', last_read_at: '2026-11-17T07:34:00Z' },
+      ],
+    }
+    await expect(client.readReceipt(dot)).resolves.toEqual({
+      readThroughAt: Date.parse(through),
+      updatedAt: Date.parse(updated),
+    })
+    expect(request.mock.calls.at(-1)?.[1]?.method).toBe('GET')
+    routes[path] = { ...room, read_receipts: [{ account_user_id: 'bot', last_read_at: through }] }
+    await expect(client.readReceipt(dot)).resolves.toEqual({ readThroughAt: Date.parse(through) })
+    routes[path] = { ...room, read_receipts: [{ account_user_id: 'human', last_read_at: through }] }
+    await expect(client.readReceipt(dot)).resolves.toBeUndefined()
+    routes[path] = { ...room, members: [{ account_user_id: 'human' }, { account_user_id: 'other', aeon_id: 'dot' }] }
+    await expect(client.readReceipt(dot)).rejects.toThrow('identity')
+  })
+
+  it('refreshes receipt separately: a slow receipt never holds or fails message history', async () => {
+    const roomPath = '/backend-api/messaging/rooms/room'
+    const after = roomPath + '/messages?limit=32&after=sent'
+    const { request } = setup({ [after]: { items: [] } })
+    const adapter = new DotAdapter({ credentials: () => identity, fetch: request })
+    const target = { id: 'dot', threadId: 'root' }
+    await adapter.readDot('account', target, { after: 'sent' })
+    const original = request.getMockImplementation()!
+    let release!: (response: Response) => void
+    const delayed = new Promise<Response>(resolve => (release = resolve))
+    request.mockImplementation(async (input, init) =>
+      new URL(String(input)).pathname === roomPath ? delayed : original(input, init),
+    )
+    const pending = adapter.readDotReceipt('account', target)
+    await expect(adapter.readDot('account', target, { after: 'sent' })).resolves.toEqual({
+      history: { items: [], before: null, latest: 'sent' },
+    })
+    const cursor = '2026-11-17T07:35:00Z'
+    release(Response.json({ ...room, read_receipts: [{ account_user_id: 'bot', last_read_at: cursor }] }))
+    await expect(pending).resolves.toEqual({ readThroughAt: Date.parse(cursor) })
   })
 
   it('never replaces a missing Dot with the primary Dot or an unrelated profile', async () => {
@@ -184,6 +236,139 @@ describe('native Dot client', () => {
     expect(overview.activity).toEqual([])
     expect(overview.tasks).toBeNull()
     expect(overview.errors).toEqual(['Dot HTTP 503'])
+  })
+
+  it('loads every incremental page, preserves the room cursor, and excludes deleted or unrelated messages', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=known': {
+        items: [message('m1'), { ...message('deleted'), deleted_at: '2026-11-17T00:00:01Z' }],
+        next_cursor: 'next',
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=next': {
+        items: [{ ...message('other'), account_user_id: 'other' }, message('m2')],
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=m2': { items: [] },
+    })
+    const dot = await client.discover()
+    expect(await client.historyAfter(dot, 'known')).toMatchObject({
+      items: [{ id: 'm1' }, { id: 'm2' }],
+      latest: 'm2',
+      before: null,
+    })
+    expect(await client.historyAfter(dot, 'm2')).toEqual({ items: [], latest: 'm2', before: null })
+  })
+
+  it('recovers an invalid cursor in the same room and keeps optional 404s out of conversation errors', async () => {
+    const { client } = setup({
+      '/backend-api/messaging/rooms/room/messages?limit=32&after=gone': new Response('', { status: 404 }),
+      '/backend-api/messaging/rooms/room/messages?limit=32': {
+        items: Array.from({ length: 32 }, (_, i) => message(`msg-${i + 9}`)),
+        prev_cursor: 'missing-eight',
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32&before=missing-eight': {
+        items: Array.from({ length: 8 }, (_, i) => message(`msg-${i + 1}`)),
+      },
+      '/backend-api/tbo/dot/environment/status': { status: 'connected' },
+      '/backend-api/tbo/dot/activity?limit=5': new Response('', { status: 404 }),
+      '/backend-api/tbo/dot/tasks?limit=25': new Response('', { status: 404 }),
+    })
+    const dot = await client.discover()
+    const repaired = await client.historyAfter(dot, 'gone')
+    expect(repaired).toMatchObject({ reset: true, before: 'missing-eight', latest: 'msg-40' })
+    expect(repaired.items).toHaveLength(32)
+    const recovered = await client.history(dot, repaired.before!)
+    expect(recovered.items.map(row => row.id)).toEqual(Array.from({ length: 8 }, (_, i) => `msg-${i + 1}`))
+    expect(await client.overview(dot)).toMatchObject({
+      activity: null,
+      tasks: null,
+      errors: [],
+      environment: { status: 'connected' },
+    })
+  })
+
+  it('recovers sidebar files and work cards beyond the visible page without changing message cursors', async () => {
+    const { request } = setup({
+      '/backend-api/tbo/dot/environment/status': { status: 'connected' },
+      '/backend-api/tbo/dot/activity?limit=5': new Response('', { status: 404 }),
+      '/backend-api/tbo/dot/tasks?limit=25': { data: [] },
+      '/backend-api/tbo/dot/automations': {
+        automations: [
+          { id: 'schedule-a', title: 'Check build', is_enabled: false, prompt: 'must not be exposed' },
+          { id: 'schedule-b', title: 'Follow up', status: 'completed', is_enabled: false },
+          { id: 'schedule-c', title: 'Read CI', enabled: true },
+        ],
+      },
+      '/backend-api/messaging/rooms/room/messages?limit=32': { items: [message('recent')], prev_cursor: 'older' },
+      '/backend-api/messaging/rooms/room/messages?limit=32&before=older': {
+        items: [
+          {
+            ...message('old'),
+            content: {
+              attachments: [
+                { type: 'file', file_id: 'output', file: { name: 'result.png' } },
+                { type: 'thread', thread_id: 'work-1' },
+              ],
+            },
+          },
+          {
+            ...message('other-user'),
+            account_user_id: 'human',
+            content: {
+              attachments: [
+                { type: 'thread', thread_id: 'not-ours' },
+                { type: 'file', file_id: 'user-upload' },
+              ],
+            },
+          },
+        ],
+      },
+      '/v1/threads/work-1': { thread: { id: 'work-1', name: 'Build result', status: { type: 'idle' } } },
+      '/v2/threads/work-1/turns?limit=1&sortDirection=desc&itemsView=notLoaded': { data: [{ status: 'completed' }] },
+    })
+    const adapter = new DotAdapter({ credentials: () => identity, fetch: request })
+    const target = { id: 'dot', threadId: 'root' }
+    expect(await adapter.readDot('account', target, { overviewOnly: true })).toMatchObject({
+      history: { items: [], before: null },
+      overview: {
+        activity: null,
+        tasks: [],
+        errors: [],
+        roomOutputs: [{ fileId: 'output', name: 'result.png' }],
+        roomTasks: [{ id: 'work-1', title: 'Build result', status: 'completed' }],
+        roomContentPartial: false,
+        scheduledActivity: [
+          { id: 'schedule-a', title: 'Check build', status: 'paused' },
+          { id: 'schedule-b', title: 'Follow up', status: 'completed' },
+          { id: 'schedule-c', title: 'Read CI', status: 'active' },
+        ],
+      },
+    })
+    expect(request.mock.calls.some(([input]) => String(input).includes('not-ours'))).toBe(false)
+  })
+
+  it('does not confuse a failed or wrong-owner schedule request with an empty list', async () => {
+    const { client, routes } = setup({
+      '/backend-api/tbo/dot/environment/status': { status: 'connected' },
+      '/backend-api/tbo/dot/activity?limit=5': { data: [] },
+      '/backend-api/tbo/dot/tasks?limit=25': { data: [] },
+      '/backend-api/messaging/rooms/room/messages?limit=32': { items: [] },
+      '/backend-api/tbo/dot/automations': new Response('', { status: 403 }),
+    })
+    const dot = await client.discover()
+    expect(await client.overview(dot, undefined, true)).toMatchObject({
+      scheduledActivity: null,
+      scheduledActivityError: 'Dot HTTP 403',
+      errors: [],
+      roomOutputs: [],
+    })
+    const route = '/backend-api/tbo/dot/automations'
+    routes[route] = { data: { automations: [{ id: 'foreign', title: 'Foreign', aeon_id: 'another-dot' }] } }
+    expect(await client.overview(dot, undefined, true)).toMatchObject({
+      scheduledActivity: null,
+      scheduledActivityError: 'Dot schedule response unavailable',
+    })
+    routes[route] = []
+    expect(await client.overview(dot, undefined, true)).toMatchObject({ scheduledActivity: [] })
   })
 
   it('accepts the canonical ChatGPT user as the room member when account-user and user claims differ', async () => {

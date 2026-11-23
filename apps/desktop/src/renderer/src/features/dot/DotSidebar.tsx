@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, CircleDot, RefreshCw } from 'lucide-react'
 import { IconButton } from '@/ui'
 import { tr } from '@/i18n/core'
@@ -9,6 +9,25 @@ import { SidebarRow } from '@/features/sidebar/SidebarSection'
 import { refreshDots, useDots } from './store'
 import { DotAvatar } from './DotAvatar'
 import { dotError } from './errors'
+import { DotQuickSettings, useDotQuickSettings } from './DotQuickSettings'
+
+function DotRowMenu({ dotId, refreshing, children }: { dotId: string; refreshing: boolean; children: ReactNode }) {
+  const quick = useDotQuickSettings()
+  return (
+    <div className="min-w-0" onContextMenu={quick.onContextMenu} onKeyDown={quick.onKeyDown}>
+      {children}
+      {quick.point && (
+        <DotQuickSettings
+          dotId={dotId}
+          point={quick.point}
+          onClose={quick.close}
+          onRefresh={() => void refreshDots()}
+          refreshing={refreshing}
+        />
+      )}
+    </div>
+  )
+}
 
 /**
  * 侧栏「频道」下面的 Dot 组（docs/ui/dot-optimize.md §4.1）：只对本机登录着 ChatGPT Pro 的用户显示；
@@ -52,31 +71,33 @@ export function DotNavGroup({ selectedSessionId }: { selectedSessionId?: string 
       </div>
       {open &&
         dots.entries.map(entry => (
-          <SidebarRow
-            key={entry.key}
-            className="pl-7"
-            selected={!!selected && selected.account === entry.account && selected.id === entry.id}
-            title={`${entry.name} · ${entry.accountName}`}
-            onClick={() => {
-              setError('')
-              void window.pixelsky?.dotChat.open(entry.key).catch(e => setError(dotError(e)))
-            }}
-          >
-            <DotAvatar name={entry.name} url={entry.avatarUrl} size={18} status={entry.status} />
-            <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-            {(dots.unread.includes(entry.key) || unreadSessions.includes(`${entry.account}\n${entry.id}`)) && (
-              <span
-                data-dot-unread
-                role="status"
-                aria-label={tr('dot.unread')}
-                title={tr('dot.unread')}
-                className="size-2 shrink-0 rounded-full bg-accent"
-              />
-            )}
-            {accounts.size > 1 && (
-              <span className="max-w-[45%] truncate text-meta text-fg-faint">{entry.accountName}</span>
-            )}
-          </SidebarRow>
+          <DotRowMenu key={entry.key} dotId={entry.id} refreshing={dots.loading}>
+            <SidebarRow
+              aria-haspopup="menu"
+              className="pl-7"
+              selected={!!selected && selected.account === entry.account && selected.id === entry.id}
+              title={`${entry.name} · ${entry.accountName}`}
+              onClick={() => {
+                setError('')
+                void window.pixelsky?.dotChat.open(entry.key).catch(e => setError(dotError(e)))
+              }}
+            >
+              <DotAvatar name={entry.name} url={entry.avatarUrl} size={18} status={entry.status} />
+              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+              {(dots.unread.includes(entry.key) || unreadSessions.includes(`${entry.account}\n${entry.id}`)) && (
+                <span
+                  data-dot-unread
+                  role="status"
+                  aria-label={tr('dot.unread')}
+                  title={tr('dot.unread')}
+                  className="size-2 shrink-0 rounded-full bg-accent"
+                />
+              )}
+              {accounts.size > 1 && (
+                <span className="max-w-[45%] truncate text-meta text-fg-faint">{entry.accountName}</span>
+              )}
+            </SidebarRow>
+          </DotRowMenu>
         ))}
       {open && !dots.entries.length && (
         <p className="py-1 pr-2.5 pl-7 text-meta text-fg-faint">

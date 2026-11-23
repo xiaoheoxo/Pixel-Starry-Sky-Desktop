@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   dotComposerState,
+  dotEventHasNewMessage,
+  dotReplyDisplay,
+  dotGuidanceTurn,
+  dotHistoryUpdate,
   dotNotice,
+  dotReadReceiptRow,
+  mergeDotReadReceipt,
   dotTranscript,
   markDotRows,
   mergeDotHistory,
@@ -11,6 +17,32 @@ import {
 import type { QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
 import { translateMessage } from '../../../../shared/i18n/translate'
 describe('Dot native conversation', () => {
+  it('puts a read receipt on the newest confirmed outgoing message reached by the Dot cursor', () => {
+    const history = [
+      { id: 'older', role: 'user' as const, text: 'one', createdAt: 10, attachments: [] },
+      { id: 'read', requestId: 'local-request', role: 'user' as const, text: 'two', createdAt: 20, attachments: [] },
+      { id: 'assistant', role: 'assistant' as const, text: 'reply', createdAt: 25, attachments: [] },
+      { id: 'pending', role: 'user' as const, text: 'three', createdAt: 30, attachments: [] },
+    ]
+    const rows = dotTranscript(history, [
+      { id: 'optimistic', kind: 'user', text: 'not echoed', createdAt: 23, files: [] },
+    ])
+    expect(dotReadReceiptRow(rows, undefined)).toBeUndefined()
+    expect(dotReadReceiptRow(rows, { readThroughAt: 9 })).toBeUndefined()
+    expect(dotReadReceiptRow(rows, { readThroughAt: 25, updatedAt: 27 })).toBe('local-request')
+    expect(dotReadReceiptRow(rows, { readThroughAt: 30 })).toBe('dot-pending')
+  })
+
+  it('keeps the highest confirmed read cursor and enriches it with a later native timestamp', () => {
+    const cursor = { readThroughAt: 20 }
+    expect(mergeDotReadReceipt(cursor, undefined)).toBe(cursor)
+    expect(mergeDotReadReceipt(cursor, { readThroughAt: 19, updatedAt: 29 })).toBe(cursor)
+    expect(mergeDotReadReceipt(cursor, { readThroughAt: 20, updatedAt: 21 })).toEqual({
+      readThroughAt: 20,
+      updatedAt: 21,
+    })
+  })
+
   it('deduplicates native request echoes and local Dot responses while preserving history order', () => {
     const history = [
       { id: 'old', role: 'assistant' as const, text: 'Earlier', createdAt: 1, attachments: [] },
@@ -155,4 +187,98 @@ describe('dotComposerState', () => {
     expect(dotComposerState(snap('idle'), { sending: false, resolving: true }).busy).toBe(true)
     expect(dotComposerState(snap('idle'), idle)).toMatchObject({ busy: false, replying: false })
   })
+})
+
+describe('dotGuidanceTurn', () => {
+  const snap = {
+    state: 'running' as const,
+    turnId: 'current-turn',
+    flags: { steerAvailable: true } as SessionSnapshot['flags'],
+    queue: [],
+  }
+  it('targets only the current ready turn', () => {
+    expect(dotGuidanceTurn(snap)).toBe('current-turn')
+    expect(dotGuidanceTurn({ ...snap, state: 'idle' })).toBeNull()
+    expect(dotGuidanceTurn({ ...snap, flags: { ...snap.flags, steerAvailable: false } })).toBeNull()
+    expect(dotGuidanceTurn(null)).toBeNull()
+  })
+  it.each(['delivering', 'uncertain'] as const)('blocks guidance while another message is %s', status => {
+    expect(dotGuidanceTurn({ ...snap, queue: [{ status } as QueuedMessage] })).toBeNull()
+  })
+})
+
+it('rebases history and its older button after the newest cursor is rejected', () => {
+  const row = (id: string, createdAt: number) => ({
+    id,
+    role: 'assistant' as const,
+    text: id,
+    createdAt,
+    attachments: [],
+  })
+  const replacement = { reset: true as const, before: 'gap', latest: 'new', items: [row('new', 3)] }
+  const update = dotHistoryUpdate(replacement, undefined, true)
+  expect(update.replaceBefore).toBe(true)
+  expect(update.merge([row('old', 1)])).toEqual(replacement.items)
+  const older = dotHistoryUpdate({ before: null, items: [row('missed', 2)] }, 'gap', true)
+  expect(older.merge(replacement.items).map(m => m.id)).toEqual(['missed', 'new'])
+  expect(dotHistoryUpdate({ before: null, items: [] }, undefined, true).replaceBefore).toBe(false)
+})
+
+it('shows unanswered at one minute only after acknowledged delivery and clears on reply', () => {
+  expect(dotReplyDisplay(true, undefined, 120_000)).toBe('working')
+  expect(dotReplyDisplay(true, 10_000, 69_999)).toBe('working')
+  expect(dotReplyDisplay(true, 10_000, 70_000)).toBe('unanswered')
+  expect(dotReplyDisplay(true, undefined, 70_000)).toBe('working')
+  expect(dotReplyDisplay(false, 10_000, 70_000)).toBe('none')
+})
+
+it('refreshes canonical room history for replies and attachment notices, not workflow status events', () => {
+  expect(
+    dotEventHasNewMessage({
+      type: 'item_completed',
+      item: { id: 'dot-m1', kind: 'assistant', text: 'ready', status: 'completed' },
+    }),
+  ).toBe(true)
+  expect(
+    dotEventHasNewMessage({
+      type: 'item_completed',
+      item: { id: 'dot-attachment-m2', kind: 'notice', text: 'file', level: 'info' },
+    }),
+  ).toBe(true)
+  expect(dotEventHasNewMessage({ type: 'runs', runs: { workflows: [], agents: [] } })).toBe(false)
+  expect(
+    dotEventHasNewMessage({
+      type: 'item_completed',
+      item: { id: 'dot-watch-task', kind: 'notice', text: 'slow', level: 'warn' },
+    }),
+  ).toBe(false)
+})
+
+it('anchors a locally delivered reply to the matching server echo even if the local clock differs', () => {
+  const rows = dotTranscript(
+    [
+      { id: 'request', requestId: 'u', role: 'user', text: 'Question', createdAt: 100, attachments: [] },
+      { id: 'later', role: 'assistant', text: 'Later', createdAt: 150, attachments: [] },
+    ],
+    [
+      { id: 'u', kind: 'user', text: 'Question', createdAt: 1000 },
+      { id: 'dot-early', kind: 'assistant', text: 'First reply', status: 'completed' },
+    ],
+  )
+  expect(rows.map(row => row.text)).toEqual(['Question', 'First reply', 'Later'])
+})
+
+it('keeps a local follow-up after the matching native reply while history catches up', () => {
+  const rows = dotTranscript(
+    [
+      { id: 'echo', requestId: 'user', role: 'user', text: 'Question', createdAt: 100, attachments: [] },
+      { id: 'first', role: 'assistant', text: 'First reply', createdAt: 130, attachments: [] },
+    ],
+    [
+      { id: 'user', kind: 'user', text: 'Question', createdAt: 100 },
+      { id: 'dot-first', kind: 'assistant', text: 'First reply', status: 'completed' },
+      { id: 'dot-second', kind: 'assistant', text: 'Second reply', status: 'completed' },
+    ],
+  )
+  expect(rows.map(row => row.text)).toEqual(['Question', 'First reply', 'Second reply'])
 })

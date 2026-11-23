@@ -54,6 +54,9 @@ export const modelChannelMessages = {
   'dot.status.unavailable': { zh: '暂不可用', en: 'Unavailable' },
   'dot.chats': { zh: 'Dot 聊天', en: 'Dot chats' },
   'dot.open': { zh: '打开 Dot 聊天', en: 'Open Dot chat' },
+  'dot.quick.title': { zh: 'Dot 快速设置', en: 'Dot quick settings' },
+  'dot.quick.open': { zh: '打开 ChatGPT 网页', en: 'Open in ChatGPT' },
+  'dot.quick.refresh': { zh: '刷新状态', en: 'Refresh status' },
   'dot.refresh': { zh: '刷新 Dot 列表', en: 'Refresh Dots' },
   'dot.empty': {
     zh: '还没有可用的 Dot，请在 ChatGPT 中创建后刷新。',

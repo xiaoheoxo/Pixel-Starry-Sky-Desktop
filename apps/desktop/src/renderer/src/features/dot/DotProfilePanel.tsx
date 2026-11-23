@@ -1,5 +1,6 @@
-import { ChevronDown, Hash, Mic, Monitor, Phone, type LucideIcon } from 'lucide-react'
+import { ChevronDown, Clock, Hash, Mic, Monitor, Phone, type LucideIcon } from 'lucide-react'
 import type { DotAttachment, DotOverview } from '@pixelsky/engine'
+import type { WorkflowRun } from '@pixelsky/protocol'
 import type { DotEntry } from '../../../../shared/types/dot-chat'
 import { cn } from '@/ui'
 import { tr } from '@/i18n/core'
@@ -38,18 +39,32 @@ function WebButton({
 export function DotProfilePanel({
   entry,
   overview,
+  overviewError,
   outputs,
+  workflows = [],
+  lastReplyAt,
   onOpenComputer,
+  onRefresh,
+  overviewLoading = false,
+  replyDisplay = 'none',
+  awaitingInput = false,
 }: {
   entry: DotEntry | null
   overview?: DotOverview
+  overviewError?: string
   outputs: DotAttachment[]
+  workflows?: WorkflowRun[]
+  lastReplyAt?: number
   onOpenComputer?: () => void
+  onRefresh?: () => void
+  overviewLoading?: boolean
+  replyDisplay?: 'none' | 'working' | 'unanswered'
+  awaitingInput?: boolean
 }) {
   const { locale } = useI18n()
   const web = dotWebUrl(entry?.id)
   const name = entry?.name ?? 'Dot'
-  const active = entry?.lastActiveAt
+  const active = Math.max(entry?.lastActiveAt ?? 0, lastReplyAt ?? 0)
   const minutes = active ? Math.max(0, Math.floor((Date.now() - active) / 60_000)) : null
   const ago =
     minutes === null
@@ -60,9 +75,65 @@ export function DotProfilePanel({
         )
   const environment = overview?.environment
   const desktop = environment?.capabilities.find(c => c.type === 'remote_desktop')?.status ?? environment?.status
-  // 近期任务：有任务列表用它，没有时退回近期活动
-  const recent = overview?.tasks?.length ? overview.tasks : (overview?.activity ?? null)
-  const files = [...new Map(outputs.map(a => [a.fileId || a.url || a.name, a])).values()]
+  const recent = new Map<string, { id: string; title: string; status: string }>()
+  for (const item of [...(overview?.tasks ?? []), ...(overview?.activity ?? [])]) {
+    if (!recent.has(item.id)) recent.set(item.id, item)
+  }
+  for (const task of overview?.roomTasks ?? []) {
+    if (!recent.has(task.id)) recent.set(task.id, task)
+  }
+  // Verified workflow cards are still available when the optional recent activity feed is missing.
+  for (const flow of [...workflows].sort((a, b) => b.startedAt - a.startedAt)) {
+    if (!recent.has(flow.id)) recent.set(flow.id, { id: flow.id, title: flow.name, status: flow.status })
+  }
+  const uniqueFiles = new Map<string, DotAttachment>()
+  for (const file of [...outputs, ...(overview?.roomOutputs ?? [])]) {
+    const key = file.fileId || file.url || file.name
+    if (!uniqueFiles.has(key)) uniqueFiles.set(key, file)
+  }
+  const files = [...uniqueFiles.values()]
+  const recentRows = [...recent.values()]
+  const workRows = [...recentRows, ...(overview?.activity ?? [])]
+  const inProgress = workRows.filter(item => /^(?:in[ _-]?progress|thinking|running|active)$/i.test(item.status))
+  const needsInput = awaitingInput || workRows.some(item => /^(?:needs[ _-]?input|waiting)$/i.test(item.status))
+  const currentWork = inProgress.find(item => item.title.trim())?.title
+  const workHint = needsInput
+    ? tr('dot.workAwaitingInput')
+    : replyDisplay === 'unanswered'
+      ? tr('dot.unanswered', { name })
+      : currentWork || replyDisplay === 'working'
+        ? tr('dot.workInProgress')
+        : null
+  const scheduled = overview?.scheduledActivity
+  const loading = !overview && (overviewLoading || !overviewError)
+  const renderSchedule = (task: NonNullable<typeof scheduled>[number]) => (
+    <a key={task.id} href={web} target="_blank" rel="noreferrer" className="dot-output-row" title={task.title}>
+      <Clock size={16} className="shrink-0 text-fg-muted" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{task.title}</span>
+      <span className="shrink-0 text-meta text-fg-muted">
+        {task.status === 'unknown' ? tr('dot.notLoaded') : dotStatus(task.status)}
+      </span>
+    </a>
+  )
+  const renderTask = (item: (typeof recentRows)[number]) => {
+    const tone = statusTone(item.status)
+    return (
+      <a
+        key={item.id}
+        href={web}
+        target="_blank"
+        rel="noreferrer"
+        className="dot-output-row"
+        title={dotStatus(item.status)}
+      >
+        <DotStatusIcon status={item.status} size={18} />
+        <span className={cn('min-w-0 flex-1 truncate', item.status === 'completed' && 'text-fg-muted')}>
+          {item.title || tr('dot.task')}
+        </span>
+        {(tone === 'warn' || tone === 'danger') && <DotStatusPill status={item.status} />}
+      </a>
+    )
+  }
   // 能取到的图片排成缩略图，其余排成行
   const pictures = files.filter(file => isDotImage(file) && file.fileId).slice(0, THUMBS)
   const rows = files.filter(file => !pictures.includes(file))
@@ -78,6 +149,16 @@ export function DotProfilePanel({
           </p>
         </div>
       </div>
+      {workHint && (
+        <div role="status" className="min-w-0 rounded-md bg-subtle px-3 py-2">
+          {currentWork && (
+            <p className="truncate text-list font-medium text-fg" title={currentWork}>
+              {currentWork}
+            </p>
+          )}
+          <p className="text-meta text-fg-muted">{workHint}</p>
+        </div>
+      )}
       <button type="button" className="dot-computer-card" onClick={onOpenComputer}>
         <span className="dot-computer-icon">
           <Monitor size={17} strokeWidth={1.6} />
@@ -92,29 +173,68 @@ export function DotProfilePanel({
         <span className="shrink-0 text-meta text-fg-muted">{tr('dot.view')}</span>
       </button>
       <section>
-        <h3>{tr('dot.recentTasks')}</h3>
-        {recent?.length ? (
-          recent.map(item => {
-            const tone = statusTone(item.status)
-            return (
-              <a
-                key={item.id}
-                href={web}
-                target="_blank"
-                rel="noreferrer"
-                className="dot-output-row"
-                title={dotStatus(item.status)}
-              >
-                <DotStatusIcon status={item.status} size={18} />
-                <span className={cn('min-w-0 flex-1 truncate', item.status === 'completed' && 'text-fg-muted')}>
-                  {item.title || tr('dot.task')}
-                </span>
-                {(tone === 'warn' || tone === 'danger') && <DotStatusPill status={item.status} />}
-              </a>
-            )
-          })
+        <h3>
+          {tr('dot.scheduledActivity')}{' '}
+          {onRefresh && (
+            <button type="button" className="dot-small-button ml-2" disabled={overviewLoading} onClick={onRefresh}>
+              {tr('dot.refreshOverview')}
+            </button>
+          )}
+        </h3>
+        {scheduled?.length ? (
+          <>
+            {scheduled.slice(0, 5).map(renderSchedule)}
+            {scheduled.length > 5 && (
+              <details className="dot-more-outputs">
+                <summary>
+                  <ChevronDown size={15} />
+                  {tr('dot.showMore')}
+                </summary>
+                {scheduled.slice(5).map(renderSchedule)}
+              </details>
+            )}
+          </>
+        ) : scheduled ? (
+          <p className="dot-panel-empty">{tr('dot.noSchedules')}</p>
+        ) : loading ? (
+          <ProfileSkeleton />
         ) : (
-          <p className="dot-panel-empty">{tr(recent ? 'dot.noActivity' : 'dot.notLoaded')}</p>
+          <div className="dot-panel-empty">
+            <p>
+              {tr('dot.scheduleUnavailable')}
+              {overview?.scheduledActivityError ? ` · ${dotError(overview.scheduledActivityError)}` : ''}
+            </p>
+            <a href={web} target="_blank" rel="noreferrer">
+              {tr('dot.viewSchedules')}
+            </a>
+          </div>
+        )}
+      </section>
+      <section>
+        <h3>{tr('dot.recentTasks')}</h3>
+        {recentRows.length ? (
+          <>
+            {recentRows.slice(0, 5).map(renderTask)}
+            {recentRows.length > 5 && (
+              <details className="dot-more-outputs">
+                <summary>
+                  <ChevronDown size={15} />
+                  {tr('dot.showMore')}
+                </summary>
+                {recentRows.slice(5).map(renderTask)}
+              </details>
+            )}
+          </>
+        ) : loading ? (
+          <ProfileSkeleton />
+        ) : overview?.tasks || overview?.activity ? (
+          <p className="dot-panel-empty">{tr('dot.noConversationTasks')}</p>
+        ) : overview ? (
+          <a className="dot-panel-empty dot-web-link" href={web} target="_blank" rel="noreferrer">
+            {tr('dot.activityUnavailable')}
+          </a>
+        ) : (
+          <p className="dot-panel-empty">{tr('dot.notLoaded')}</p>
         )}
       </section>
       <section>
@@ -150,6 +270,8 @@ export function DotProfilePanel({
               </details>
             )}
           </>
+        ) : loading ? (
+          <ProfileSkeleton />
         ) : (
           <p className="dot-panel-empty">{tr('dot.noOutputs')}</p>
         )}
@@ -162,11 +284,32 @@ export function DotProfilePanel({
           <WebButton href={web} icon={Hash} label="Slack" title={tr('dot.slack')} />
         </div>
       </section>
-      {overview?.errors.map((error, i) => (
+      {overview?.roomContentPartial && (
+        <p className="dot-panel-empty">
+          <a href={web} target="_blank" rel="noreferrer">
+            {tr('dot.partialRoomContent')}
+          </a>
+        </p>
+      )}
+      {Array.from(new Set([...(overview?.errors ?? []), ...(overviewError ? [overviewError] : [])])).map((error, i) => (
         <p key={i} className={cn('text-meta text-warn', i === 0 && 'mt-2')}>
           {dotError(error)}
         </p>
       ))}
     </aside>
+  )
+}
+
+function ProfileSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label={tr('dot.loadOverview')}
+      className="flex flex-col gap-2 py-2 motion-safe:animate-pulse"
+    >
+      <span aria-hidden className="h-3 w-3/4 rounded bg-hover" />
+      <span aria-hidden className="h-3 w-1/2 rounded bg-hover" />
+      <span aria-hidden className="h-3 w-2/3 rounded bg-hover" />
+    </div>
   )
 }

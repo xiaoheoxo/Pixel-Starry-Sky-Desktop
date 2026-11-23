@@ -525,12 +525,23 @@ export class EngineHost {
   readDot(
     account: string,
     target: { id: string; threadId: string },
-    options: { before?: string; overview?: boolean } = {},
+    options: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+    } = {},
     signal?: AbortSignal,
   ) {
     const adapter = this.ctx.adapters.dot
     if (!(adapter instanceof DotAdapter)) throw new Error('Dot unavailable')
     return adapter.readDot(account, target, options, signal)
+  }
+
+  readDotReceipt(account: string, target: { id: string; threadId: string }, signal?: AbortSignal) {
+    const adapter = this.ctx.adapters.dot
+    if (!(adapter instanceof DotAdapter)) throw new Error('Dot unavailable')
+    return adapter.readDotReceipt(account, target, signal)
   }
 
   downloadDotFile(account: string, target: { id: string; threadId: string }, fileId: string, signal?: AbortSignal) {

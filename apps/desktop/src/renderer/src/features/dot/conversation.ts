@@ -1,6 +1,17 @@
-import type { Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
-import type { DotAttachment, DotChatMessage } from '@pixelsky/engine'
+import type { EngineEvent, Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
+import type { DotAttachment, DotChatMessage, DotHistoryPage, DotReadReceipt } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
+
+import type { DotLocalSend } from './localImagePreviews'
+
+/** These events signal a remote message, not a reason to reload profile data. */
+export function dotEventHasNewMessage(event: EngineEvent): boolean {
+  return (
+    event.type === 'item_completed' &&
+    ((event.item.kind === 'assistant' && event.item.id.startsWith('dot-')) ||
+      (event.item.kind === 'notice' && event.item.id.startsWith('dot-attachment-')))
+  )
+}
 
 export interface DotTranscriptRow {
   id: string
@@ -8,21 +19,28 @@ export interface DotTranscriptRow {
   text: string
   createdAt: number
   attachments: DotAttachment[]
+  native?: true
   level?: 'info' | 'warn' | 'error'
 }
 
 /** 将原生房间记录与本地正在发送的条目合并，使用 request_id 和 Dot 消息 ID 去重。 */
-export function dotTranscript(history: DotChatMessage[], local: Item[]): DotTranscriptRow[] {
+export function dotTranscript(
+  history: DotChatMessage[],
+  local: Item[],
+  pending: readonly DotLocalSend[] = [],
+): DotTranscriptRow[] {
   const rows = new Map<string, DotTranscriptRow>()
   for (const message of history) {
     const id = message.role === 'user' && message.requestId ? message.requestId : `dot-${message.id}`
-    rows.set(id, { ...message, id })
+    rows.set(id, { ...message, id, native: true })
   }
   let at = 0
   for (const item of local) {
-    if (item.kind === 'user') at = item.createdAt
+    const echoed = rows.get(item.id)
+    if (item.kind === 'user') at = echoed?.createdAt ?? item.createdAt
+    else if (echoed) at = Math.max(at, echoed.createdAt)
     else at++
-    if (rows.has(item.id)) continue
+    if (echoed) continue
     if (item.kind === 'user' || item.kind === 'assistant' || item.kind === 'notice')
       rows.set(item.id, {
         id: item.id,
@@ -33,7 +51,34 @@ export function dotTranscript(history: DotChatMessage[], local: Item[]): DotTran
         ...(item.kind === 'notice' ? { level: item.level } : {}),
       })
   }
+  for (const draft of pending) {
+    if (draft.optimistic && !rows.has(draft.id))
+      rows.set(draft.id, { id: draft.id, role: 'user', text: draft.text, createdAt: draft.createdAt, attachments: [] })
+  }
   return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/** An optimistic/local echo is not a native message and cannot have a remote read receipt. */
+export function dotReadReceiptRow(
+  rows: readonly DotTranscriptRow[],
+  receipt: DotReadReceipt | undefined,
+): string | undefined {
+  if (!receipt) return undefined
+  return rows.findLast(
+    row => row.role === 'user' && row.native && row.createdAt > 0 && row.createdAt <= receipt.readThroughAt,
+  )?.id
+}
+
+/** Don't move a verified cursor backwards when a mirror request fails or responds out of order. */
+export function mergeDotReadReceipt(
+  previous: DotReadReceipt | undefined,
+  next: DotReadReceipt | undefined,
+): DotReadReceipt | undefined {
+  if (!next) return previous
+  if (!previous || next.readThroughAt > previous.readThroughAt) return next
+  return next.readThroughAt === previous.readThroughAt && (next.updatedAt ?? 0) > (previous.updatedAt ?? 0)
+    ? next
+    : previous
 }
 
 /** 这之后才是真的时间（2001 年）：没有时间的本地条目用的是排序序号，不能当时间显示 */
@@ -149,9 +194,18 @@ export async function readDropped(files: readonly File[], pathOf: (file: File) =
 }
 
 export function mergeDotHistory(previous: DotChatMessage[], incoming: DotChatMessage[]): DotChatMessage[] {
+  if (!incoming.length) return previous
   const messages = new Map(previous.map(m => [m.id, m]))
   for (const item of incoming) messages.set(item.id, item)
   return [...messages.values()].sort((a, b) => a.createdAt - b.createdAt)
+}
+
+/** A replacement page is contiguous on its own; never keep an older cursor across an unknown gap. */
+export function dotHistoryUpdate(page: DotHistoryPage, before: string | undefined, loaded: boolean) {
+  return {
+    merge: (previous: DotChatMessage[]) => (page.reset ? page.items : mergeDotHistory(previous, page.items)),
+    replaceBefore: !!before || !loaded || page.reset === true,
+  }
 }
 
 /**
@@ -166,7 +220,7 @@ export function dotComposerState(
 ): { busy: boolean; replying: boolean; uncertain: QueuedMessage[]; queued: QueuedMessage[] } {
   const queue = snapshot?.queue ?? []
   const uncertain = queue.filter(q => q.status === 'uncertain')
-  const queued = queue.filter(q => q.status === 'queued')
+  const queued = queue.filter(q => q.status === 'queued' || (q.status === 'delivering' && q.mode === 'guidance'))
   const busy = now.resolving || now.sending || !snapshot || uncertain.length > 0
   const replying =
     !!snapshot &&
@@ -175,4 +229,24 @@ export function dotComposerState(
       snapshot.state !== 'idle' ||
       queue.some(q => q.status === 'dispatching' || q.status === 'running' || q.status === 'delivering'))
   return { busy, replying, uncertain, queued }
+}
+
+/** Use the observed turn ID so a click cannot be applied to a later reply. */
+export function dotGuidanceTurn(
+  snapshot: Pick<SessionSnapshot, 'state' | 'turnId' | 'flags' | 'queue'> | null,
+): string | null {
+  if (snapshot?.state !== 'running' || !snapshot.flags.steerAvailable) return null
+  if (snapshot.queue.some(q => q.status === 'delivering' || q.status === 'uncertain')) return null
+  return snapshot.turnId
+}
+
+export const DOT_NO_REPLY_MS = 60_000
+
+export function dotReplyDisplay(
+  replying: boolean,
+  waitingSince: number | undefined,
+  now: number,
+): 'none' | 'working' | 'unanswered' {
+  if (!replying) return 'none'
+  return waitingSince !== undefined && now - waitingSince >= DOT_NO_REPLY_MS ? 'unanswered' : 'working'
 }

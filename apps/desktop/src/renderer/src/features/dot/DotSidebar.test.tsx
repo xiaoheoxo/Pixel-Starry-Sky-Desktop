@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from '@/i18n/I18nProvider'
 import { DotNavGroup } from './DotSidebar'
@@ -26,11 +26,14 @@ const render = () =>
     </I18nProvider>,
   )
 describe('Dot sidebar group', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', { getItem: () => 'zh-CN' }))
+  afterEach(() => vi.unstubAllGlobals())
   it('lists every Dot in one group; the account stays in the tooltip while there is only one', () => {
     const html = render()
     expect(html).toContain('data-dot-group')
     expect(html).toContain('Dot One')
     expect(html).toContain('Dot Two')
+    expect(html.match(/aria-haspopup="menu"/g)).toHaveLength(2)
     expect(html).not.toContain('>one@example.com<')
     expect(html).toContain('title="Dot One · one@example.com"')
   })

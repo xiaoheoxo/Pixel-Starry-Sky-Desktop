@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from '@/i18n/I18nProvider'
+import { setCurrentLocale } from '@/i18n/core'
 import { DotProfilePanel } from './DotProfilePanel'
 import { dotPresence, presenceTone, statusTone } from './status'
 import { dotFileKind } from './DotFile'
@@ -15,6 +16,12 @@ const entry = {
   status: 'active',
 }
 describe('Dot profile panel', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', { getItem: () => 'zh-CN', setItem: () => undefined })
+    setCurrentLocale('zh-CN')
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
   it('shows the computer, recent tasks with status, files and links into ChatGPT', () => {
     const html = renderToStaticMarkup(
       <I18nProvider>
@@ -47,6 +54,80 @@ describe('Dot profile panel', () => {
     expect(html).toContain('Dot 已暂停或暂不可用')
     expect(html).not.toContain('pro@example.com')
   })
+  it('shows real conversation tasks when the optional activity list is missing', () => {
+    const html = renderToStaticMarkup(
+      <I18nProvider>
+        <DotProfilePanel
+          entry={entry}
+          overview={{ profile: entry, activity: null, tasks: null, environment: null, errors: [] }}
+          outputs={[]}
+          workflows={Array.from({ length: 6 }, (_, i) => ({
+            id: `w${i}`,
+            name: `真实任务 ${i}`,
+            description: '',
+            status: 'completed',
+            startedAt: i,
+            durationMs: 1,
+            tokens: 0,
+            toolCalls: 0,
+            phases: [],
+            agents: [],
+            toolUseId: null,
+          }))}
+        />
+      </I18nProvider>,
+    )
+    expect(html).toContain('真实任务 5')
+    expect(html).toContain('真实任务 0')
+    expect(html).toContain('<details')
+    expect(html).not.toContain('近期活动暂不可用')
+  })
+
+  it('separates recent scheduled activity from conversation tasks and shows errors instead of empty results', () => {
+    const overview = { profile: entry, activity: [], tasks: [], environment: null, errors: [] }
+    const render = (feed: Partial<import('@pixelsky/engine').DotOverview>) =>
+      renderToStaticMarkup(
+        <I18nProvider>
+          <DotProfilePanel entry={entry} overview={{ ...overview, ...feed }} outputs={[]} />
+        </I18nProvider>,
+      )
+    expect(render({ scheduledActivity: [{ id: 'a', title: 'CI monitor', status: 'paused' }] })).toContain('CI monitor')
+    expect(render({ scheduledActivity: null, scheduledActivityError: 'Dot HTTP 403' })).toContain(
+      '暂时无法获取定时任务',
+    )
+    expect(render({ scheduledActivity: [] })).toContain('没有定时任务')
+    expect(
+      renderToStaticMarkup(
+        <I18nProvider>
+          <DotProfilePanel entry={entry} outputs={[]} overviewLoading />
+        </I18nProvider>,
+      ),
+    ).toContain('正在读取详情')
+  })
+
+  it('uses a live work title and keeps unanswered distinct from completed and scheduled work', () => {
+    const html = renderToStaticMarkup(
+      <I18nProvider>
+        <DotProfilePanel
+          entry={entry}
+          outputs={[]}
+          replyDisplay="unanswered"
+          overview={{
+            profile: entry,
+            environment: null,
+            tasks: [],
+            errors: [],
+            activity: [{ id: 'live', title: 'Verifying product version', status: 'in_progress' }],
+            scheduledActivity: [{ id: 'scheduled', title: 'Daily build', status: 'active' }],
+          }}
+        />
+      </I18nProvider>,
+    )
+    expect(html).toContain('Verifying product version')
+    expect(html).toContain('暂未回复')
+    expect(html).toContain('Daily build')
+  })
+
   it('does not claim that a computer is ready when the status could not be read', () => {
     const html = renderToStaticMarkup(
       <I18nProvider>

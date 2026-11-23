@@ -1,5 +1,5 @@
 import type { SessionSnapshot } from '@pixelsky/protocol'
-import type { DotProfile, DotHistoryPage, DotOverview } from '@pixelsky/engine'
+import type { DotProfile, DotHistoryPage, DotOverview, DotReadReceipt } from '@pixelsky/engine'
 
 export interface DotEntry extends DotProfile {
   key: string
@@ -36,9 +36,20 @@ export interface DotChatBridge {
   open(key?: string): Promise<void>
   catalog(refresh?: boolean): Promise<DotCatalogState>
   snapshot(key: string): Promise<SessionSnapshot>
-  send(key: string, sessionId: string, text: string, files?: string[]): Promise<void>
+  send(key: string, sessionId: string, text: string, files?: string[], requestId?: string): Promise<void>
   /** seen：用户正看着这个对话（标签可见、窗口在前台），读到的消息算看过 */
-  read(key: string, options?: { before?: string; overview?: boolean; seen?: boolean }): Promise<DotChatRead>
+  read(
+    key: string,
+    options?: {
+      before?: string
+      after?: string
+      overview?: boolean
+      overviewOnly?: boolean
+      seen?: boolean
+    },
+  ): Promise<DotChatRead>
+  previewSelectedImage(key: string, id: string): Promise<DotRemoteFile>
+  readReceipt(key: string): Promise<DotReadReceipt | undefined>
   pickFiles(key: string): Promise<DotLocalFile[]>
   addFiles(key: string, files: DotDroppedFile[]): Promise<DotLocalFile[]>
   onChange(callback: (change: DotChatChange) => void): () => void
@@ -51,6 +62,8 @@ export interface DotLocalFile {
   id: string
   name: string
   bytes: number
+  /** Bounded PNG preview of a user-selected image, never its filesystem path. */
+  previewPng?: string
 }
 export interface DotRemoteFile {
   name: string

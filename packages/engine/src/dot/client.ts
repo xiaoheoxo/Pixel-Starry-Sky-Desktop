@@ -71,9 +71,22 @@ export interface DotChatMessage {
   createdAt: number
   attachments: DotAttachment[]
 }
+export interface DotReadReceipt {
+  /** Native room cursor: the Dot has read messages through this creation time. */
+  readThroughAt: number
+  /** Native timestamp when the cursor moved, not the message send time. */
+  updatedAt?: number
+}
 export interface DotHistoryPage {
   items: DotChatMessage[]
   before: string | null
+  latest?: string
+  reset?: true
+}
+export interface DotScheduledActivity {
+  id: string
+  title: string
+  status: 'active' | 'paused' | 'completed' | 'unknown'
 }
 export interface DotOverview {
   profile: DotProfile
@@ -81,6 +94,11 @@ export interface DotOverview {
   activity: { id: string; title: string; status: string }[] | null
   tasks: { id: string; title: string; status: string }[] | null
   errors: string[]
+  scheduledActivity?: DotScheduledActivity[] | null
+  scheduledActivityError?: string
+  roomOutputs?: DotAttachment[]
+  roomTasks?: DotWorkflow[]
+  roomContentPartial?: boolean
 }
 
 function httpsUrl(value: unknown): string | undefined {
@@ -305,8 +323,55 @@ export class DotClient {
     throw new Error('Dot catalog too large')
   }
 
+  /** Read only the verified Dot participant's native room cursor, never the owner's. */
+  async readReceipt(dot: DotIdentity, signal?: AbortSignal): Promise<DotReadReceipt | undefined> {
+    const connection = this.connection(dot)
+    const room = object(
+      await this.request(`/messaging/rooms/${encodeURIComponent(dot.roomId)}`, signal, undefined, false, connection),
+    )
+    if (
+      room.id !== dot.roomId ||
+      room.aeon_id !== dot.id ||
+      room.type !== 'DM' ||
+      room.app_source !== 'chatgpt:messaging' ||
+      !Array.isArray(room.members) ||
+      room.members.length !== 2
+    )
+      invalid()
+    const members = room.members.map(object)
+    if (
+      !members.some(m => m.aeon_id === dot.id && m.account_user_id === dot.memberId) ||
+      !members.some(m => !m.aeon_id && m.account_user_id === connection.member)
+    )
+      invalid()
+    if (!Array.isArray(room.read_receipts)) return undefined
+
+    let newest: DotReadReceipt | undefined
+    for (const value of room.read_receipts) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const row = object(value)
+      if (row.account_user_id !== dot.memberId || typeof row.last_read_at !== 'string') continue
+      const readThroughAt = Date.parse(row.last_read_at)
+      if (!Number.isFinite(readThroughAt) || readThroughAt <= 0) continue
+      const updated = typeof row.read_cursor_updated_at === 'string' ? Date.parse(row.read_cursor_updated_at) : NaN
+      const updatedAt = Number.isFinite(updated) && updated >= readThroughAt ? updated : undefined
+      if (
+        !newest ||
+        readThroughAt > newest.readThroughAt ||
+        (readThroughAt === newest.readThroughAt && updatedAt !== undefined && updatedAt > (newest.updatedAt ?? 0))
+      )
+        newest = { readThroughAt, ...(updatedAt !== undefined ? { updatedAt } : {}) }
+    }
+    return newest
+  }
+
   /** 原生历史按 before 向前翻页，与发送后用 after 等回复的读取分开。 */
   async history(dot: DotIdentity, before?: string, signal?: AbortSignal): Promise<DotHistoryPage> {
+    const { messages, cursor } = await this.historyPage(dot, before, signal)
+    return { items: this.toHistory(dot, messages), before: cursor, latest: messages.at(-1)?.id }
+  }
+
+  private async historyPage(dot: DotIdentity, before?: string, signal?: AbortSignal) {
     const connection = this.connection(dot)
     const query = new URLSearchParams({ limit: '32' })
     if (before) query.set('before', before)
@@ -321,8 +386,28 @@ export class DotClient {
     )
     if (!Array.isArray(page.items)) invalid()
     const messages = page.items.map(message).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
-    const items = messages
-      .filter(m => !m.deleted_at && (m.account_user_id === connection.member || m.account_user_id === dot.memberId))
+    const cursor = page.prev_cursor ? string(page.prev_cursor) : messages.length === 32 ? messages[0].id : null
+    if (cursor && cursor === before) throw new Error('Dot history pagination repeated')
+    return { messages, cursor }
+  }
+
+  /** Fetch all additions after a verified room's cursor, not just its newest 32 messages. */
+  async historyAfter(dot: DotIdentity, after: string, signal?: AbortSignal): Promise<DotHistoryPage> {
+    try {
+      const messages = await this.messages(dot, after, signal)
+      return { items: this.toHistory(dot, messages), before: null, latest: messages.at(-1)?.id ?? after }
+    } catch (error) {
+      // The room cursor may have been removed. Reload the newest page in the same verified room.
+      if (error instanceof DotHttpError && (error.status === 400 || error.status === 404))
+        return { ...(await this.history(dot, undefined, signal)), reset: true }
+      throw error
+    }
+  }
+
+  private toHistory(dot: DotIdentity, messages: DotMessage[]): DotChatMessage[] {
+    const { member } = this.connection(dot)
+    return messages
+      .filter(m => !m.deleted_at && (m.account_user_id === member || m.account_user_id === dot.memberId))
       .map(m => ({
         id: m.id,
         ...(m.request_id ? { requestId: m.request_id } : {}),
@@ -331,20 +416,108 @@ export class DotClient {
         createdAt: Date.parse(m.created_at),
         attachments: (m.content.attachments ?? []).map(attachmentOf),
       }))
-    const cursor = page.prev_cursor ? string(page.prev_cursor) : messages.length === 32 ? messages[0].id : null
-    if (cursor && cursor === before) throw new Error('Dot history pagination repeated')
-    return { items, before: cursor }
   }
 
-  async overview(dot: DotIdentity, signal?: AbortSignal): Promise<DotOverview> {
+  /** Verified outputs and work cards survive restarts and are not limited to the visible transcript. */
+  private async recentRoomContent(dot: DotIdentity, ownerSignal?: AbortSignal) {
+    const signal = AbortSignal.any([...(ownerSignal ? [ownerSignal] : []), AbortSignal.timeout(12_000)])
+    const files = new Map<string, DotAttachment>()
+    const cards = new Map<string, DotMessage>()
+    const visited = new Set<string>()
+    let before: string | undefined
+    let partial = false
+    for (let page = 0; page < 4; page++) {
+      try {
+        const { messages, cursor } = await this.historyPage(dot, before, signal)
+        for (const message of messages.reverse()) {
+          if (message.account_user_id !== dot.memberId || message.deleted_at) continue
+          for (const raw of message.content.attachments ?? []) {
+            if (
+              raw.type === 'thread' &&
+              typeof raw.thread_id === 'string' &&
+              raw.thread_id &&
+              cards.size < 6 &&
+              !cards.has(raw.thread_id)
+            )
+              cards.set(raw.thread_id, message)
+            if (raw.type !== 'file') continue
+            const file = attachmentOf(raw)
+            if (file.fileId && !files.has(file.fileId)) files.set(file.fileId, file)
+          }
+        }
+        if (!cursor) break
+        if (visited.has(cursor) || page === 3) {
+          partial = true
+          break
+        }
+        visited.add(cursor)
+        before = cursor
+      } catch {
+        ownerSignal?.throwIfAborted()
+        partial = true
+        break
+      }
+    }
+    const tasks = await Promise.allSettled([...cards].map(([id, message]) => this.workflow(dot, message, id, signal)))
+    ownerSignal?.throwIfAborted()
+    return {
+      roomOutputs: [...files.values()],
+      roomTasks: tasks.flatMap(task => (task.status === 'fulfilled' ? [task.value] : [])),
+      roomContentPartial: partial || tasks.some(task => task.status === 'rejected'),
+    }
+  }
+
+  /** Profile activity has a distinct scheduled-task feed; never infer it from conversation attachments. */
+  private async scheduledActivity(dot: DotIdentity, signal?: AbortSignal): Promise<DotScheduledActivity[]> {
+    const raw = await this.request(
+      `/tbo/${encodeURIComponent(dot.id)}/automations`,
+      signal,
+      undefined,
+      false,
+      this.connection(dot),
+    )
+    const envelope = Array.isArray(raw) ? null : object(raw)
+    const payload = envelope?.automations ?? envelope?.items ?? envelope?.data ?? raw
+    const rows = Array.isArray(payload) ? payload : object(payload).automations
+    if (!Array.isArray(rows)) invalid()
+    const results = new Map<string, DotScheduledActivity>()
+    for (const row of rows) {
+      const item = object(row)
+      const owner = item.aeon_id ?? item.aeonId
+      if (typeof owner === 'string' && owner !== dot.id) invalid()
+      const id = string(item.id ?? item.automation_id ?? item.automationId)
+      const title = string(item.title ?? item.name).trim()
+      if (!title) invalid()
+      const state = typeof item.status === 'string' ? item.status.toLowerCase() : undefined
+      const enabled = item.is_enabled ?? item.isEnabled ?? item.enabled
+      const status =
+        state === 'completed'
+          ? 'completed'
+          : state === 'paused' || enabled === false
+            ? 'paused'
+            : state === 'active' || enabled === true
+              ? 'active'
+              : 'unknown'
+      results.set(id, { id, title, status })
+    }
+    return [...results.values()]
+  }
+
+  async overview(dot: DotIdentity, signal?: AbortSignal, includeRoom = false): Promise<DotOverview> {
     const connection = this.connection(dot)
     const path = `/tbo/${encodeURIComponent(dot.id)}`
     const errors: string[] = []
-    const read = async <T>(route: string, parse: (data: Record<string, unknown>) => T): Promise<T | null> => {
+    const read = async <T>(
+      route: string,
+      parse: (data: Record<string, unknown>) => T,
+      optional = false,
+    ): Promise<T | null> => {
       try {
         return parse(object(await this.request(route, signal, undefined, false, connection)))
       } catch (error) {
         signal?.throwIfAborted()
+        // Activity/task endpoints are optional on some deployments. A missing list is not a conversation error.
+        if (optional && error instanceof DotHttpError && error.status === 404) return null
         errors.push(error instanceof Error ? error.message : 'Dot status unavailable')
         return null
       }
@@ -361,17 +534,31 @@ export class DotClient {
             typeof item.status === 'string' ? item.status : typeof item.state === 'string' ? item.state : 'unknown',
         }))
     }
-    const [environment, activity, tasks] = await Promise.all([
+    const [environment, activity, tasks, content, schedules] = await Promise.all([
       read(`${path}/environment/status`, data => ({
         status: string(data.status),
         capabilities: Array.isArray(data.capabilities)
           ? data.capabilities.map(object).map(c => ({ type: string(c.type), status: string(c.status) }))
           : [],
       })),
-      read(`${path}/activity?limit=5`, rows),
-      read(`${path}/tasks?limit=25`, rows),
+      read(`${path}/activity?limit=5`, rows, true),
+      read(`${path}/tasks?limit=25`, rows, true),
+      includeRoom ? this.recentRoomContent(dot, signal) : undefined,
+      includeRoom
+        ? this.scheduledActivity(dot, signal).then(
+            scheduledActivity => ({ scheduledActivity }),
+            (error: unknown) => {
+              signal?.throwIfAborted()
+              return {
+                scheduledActivity: null,
+                scheduledActivityError:
+                  error instanceof DotHttpError ? `Dot HTTP ${error.status}` : 'Dot schedule response unavailable',
+              }
+            },
+          )
+        : undefined,
     ])
-    return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors }
+    return { profile: this.profiles.get(dot)!, environment, activity, tasks, errors, ...content, ...schedules }
   }
 
   async messages(dot: DotIdentity, after = '', signal?: AbortSignal): Promise<DotMessage[]> {

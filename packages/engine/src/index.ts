@@ -45,6 +45,7 @@ export {
   type DotProfile,
   type DotChatMessage,
   type DotHistoryPage,
+  type DotReadReceipt,
   type DotOverview,
   type DotAttachment,
   type DotFileData,
