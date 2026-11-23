@@ -541,3 +541,56 @@ it('keeps only the safe state of native cards in Dot history, not secure form da
   expect(items[2].card).toEqual({ kind: 'browserHandoff' })
   expect(JSON.stringify(items)).not.toMatch(/credential|placeholder|never show|never mirror/)
 })
+
+it('keeps a generated ZIP from an attachment-only message, and isolates malformed neighboring cards', async () => {
+  const id = 'CalpicoFile_testZip'
+  const host = 'https://files.oaiusercontent.com/fixture'
+  const { client, request, routes } = setup({
+    '/backend-api/messaging/rooms/room/messages?limit=32': {
+      items: [
+        {
+          ...message('zip'),
+          content: {
+            text: null,
+            attachments: [
+              {
+                type: 'file',
+                file: {
+                  id,
+                  file_name: 'extension.zip',
+                  mime_type: 'application/zip',
+                  url: 'https://not-used.example/',
+                },
+              },
+              null,
+              { type: 'thread' },
+              { type: 'file', target: '..' },
+            ],
+          },
+        },
+        { ...message('gone'), deleted_at: '2026-11-17T00:00:00Z', content: null },
+        { ...message('next'), content: { text: 'still readable', attachments: null } },
+      ],
+    },
+    ['/backend-api/messaging/rooms/room/files/' + id]: {
+      id,
+      file: { id, file_name: 'extension.zip', mime_type: 'application/zip', download_url: host },
+    },
+  })
+  routes['/fixture'] = new Response(new Uint8Array([80, 75, 3, 4]))
+  const dot = await client.discover()
+  const page = await client.history(dot)
+  expect(page.items).toHaveLength(2)
+  expect(page.items[0].attachments).toEqual([
+    { type: 'file', name: 'extension.zip', mime: 'application/zip', fileId: id },
+    { type: 'unsupported', name: '' },
+    { type: 'unsupported', name: '' },
+    { type: 'file', name: '' },
+  ])
+  expect(page.items[1].text).toBe('still readable')
+  const result = await client.download(dot, id)
+  expect(result).toEqual({ name: 'extension.zip', mime: 'application/zip', data: new Uint8Array([80, 75, 3, 4]) })
+  await expect(client.download(dot, '..')).rejects.toThrow('download unavailable')
+  expect(request.mock.calls.at(-1)?.[0]).toBe(host)
+  expect(request.mock.calls.at(-1)?.[1]).not.toHaveProperty('headers')
+})

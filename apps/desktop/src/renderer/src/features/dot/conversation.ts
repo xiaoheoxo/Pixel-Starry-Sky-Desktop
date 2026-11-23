@@ -44,6 +44,9 @@ export function dotTranscript(
     if (
       echoed ||
       (item.kind === 'notice' &&
+        item.id.startsWith('dot-attachment-') &&
+        rows.get(item.id.replace(/^dot-attachment-/, 'dot-'))?.attachments.length) ||
+      (item.kind === 'notice' &&
         item.id.startsWith('dot-approval-') &&
         rows.get(item.id.replace(/^dot-approval-/, 'dot-'))?.card)
     )

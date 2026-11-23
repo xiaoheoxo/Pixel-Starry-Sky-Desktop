@@ -54,6 +54,14 @@ export const dotMessages = {
   'dot.group': { zh: '展开或收起 Dot', en: 'Expand or collapse Dots' },
   'dot.openOne': { zh: '打开', en: 'Open' },
   // 对话里的提示条（engine/dot/session.ts 的 notice）：原文不带链接，界面在右边放「在 ChatGPT 查看」
+  'dot.attachments.openUnavailable': {
+    zh: '在 ChatGPT 查看未能下载的附件',
+    en: 'View unavailable attachments in ChatGPT',
+  },
+  'dot.error.attachmentUnavailable': {
+    zh: '暂时无法下载此附件，请在 ChatGPT 打开原消息。',
+    en: 'Dot attachment download unavailable',
+  },
   'dot.notice.attachment': {
     zh: 'Dot 发来了这里显示不了的附件',
     en: 'View the Dot attachment in ChatGPT',

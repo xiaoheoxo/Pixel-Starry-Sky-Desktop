@@ -24,9 +24,18 @@ export interface DotMessage {
   message_metadata?: unknown
   content: {
     text?: string
-    attachments?: { type: string; thread_id?: string }[]
+    attachments?: DotNativeAttachment[]
     elicitation?: unknown
   }
+}
+
+interface DotNativeAttachment {
+  type: string
+  thread_id?: string
+  file_id?: unknown
+  file?: unknown
+  target?: unknown
+  [key: string]: unknown
 }
 
 export interface DotWorkflow {
@@ -125,15 +134,30 @@ function profileOf(item: Record<string, unknown>): DotProfile {
     ...(Number.isFinite(lastActiveAt) ? { lastActiveAt } : {}),
   }
 }
-function attachmentOf(value: unknown): DotAttachment {
-  const a = object(value)
-  const file = a.file && typeof a.file === 'object' ? object(a.file) : a
+const optionalRecord = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+
+const stringField = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() ? value : undefined
+
+const safeFileId = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(value) ? value : undefined
+
+const roomFileId = (value: unknown): string | undefined =>
+  safeFileId(value)?.startsWith('CalpicoFile_') ? (value as string) : undefined
+
+function attachmentOf(a: DotNativeAttachment): DotAttachment {
+  const file = optionalRecord(a.file) ?? a
+  const fileId =
+    a.type === 'file'
+      ? (safeFileId(a.file_id) ?? roomFileId(file.file_id) ?? roomFileId(file.id) ?? roomFileId(a.target))
+      : undefined
   return {
-    type: string(a.type),
-    name: typeof file.name === 'string' ? file.name : typeof file.file_name === 'string' ? file.file_name : '',
-    ...(typeof a.file_id === 'string' ? { fileId: a.file_id } : {}),
+    type: a.type,
+    name:
+      stringField(file.name) ?? stringField(file.file_name) ?? stringField(a.name) ?? stringField(a.file_name) ?? '',
+    ...(fileId ? { fileId } : {}),
     ...(typeof file.mime_type === 'string' ? { mime: file.mime_type } : {}),
-    ...(httpsUrl(file.download_url ?? file.url) ? { url: httpsUrl(file.download_url ?? file.url) } : {}),
   }
 }
 
@@ -167,16 +191,28 @@ function message(value: unknown): DotMessage {
   string(m.id)
   string(m.account_user_id)
   if (!Number.isFinite(Date.parse(string(m.created_at)))) invalid()
-  const content = object(m.content)
-  if (content.text !== undefined && typeof content.text !== 'string') invalid()
-  if (content.attachments !== undefined && !Array.isArray(content.attachments)) invalid()
-  if (Array.isArray(content.attachments))
-    for (const attachment of content.attachments) {
-      const a = object(attachment)
-      string(a.type)
-      if (a.type === 'thread') string(a.thread_id)
-    }
-  return m as unknown as DotMessage
+  const content = m.deleted_at ? (optionalRecord(m.content) ?? {}) : object(m.content)
+  // Attachment-only messages may use null text. A malformed attachment should not poison the room cursor.
+  const attachments: DotNativeAttachment[] = Array.isArray(content.attachments)
+    ? content.attachments.map(value => {
+        const a = optionalRecord(value)
+        const type = stringField(a?.type)
+        if (!a || !type) return { type: 'unsupported' }
+        if (type === 'thread' && !stringField(a.thread_id)) return { type: 'unsupported' }
+        return { ...a, type } as DotNativeAttachment
+      })
+    : content.attachments == null
+      ? []
+      : [{ type: 'unsupported' }]
+  if (content.text != null && typeof content.text !== 'string') invalid()
+  return {
+    ...m,
+    content: {
+      ...(typeof content.text === 'string' ? { text: content.text } : {}),
+      attachments,
+      elicitation: content.elicitation,
+    },
+  } as unknown as DotMessage
 }
 
 export class DotClient {
@@ -652,6 +688,7 @@ export class DotClient {
   /** 历史消息内的 URL 可能失效；先从同一房间按文件 ID 获取新的签名下载地址。 */
   async download(dot: DotIdentity, fileId: string, signal?: AbortSignal): Promise<DotFileData> {
     const connection = this.connection(dot)
+    if (!safeFileId(fileId)) throw new Error('Dot attachment download unavailable')
     const metadata = object(
       await this.request(
         `/messaging/rooms/${encodeURIComponent(dot.roomId)}/files/${encodeURIComponent(string(fileId))}`,
@@ -663,7 +700,15 @@ export class DotClient {
     )
     if ((metadata.id && metadata.id !== fileId) || (metadata.file_id && metadata.file_id !== fileId))
       throw new Error('Dot attachment identity mismatch')
-    const url = new URL(string(metadata.download_url))
+    const metadataFile = optionalRecord(metadata.file) ?? metadata
+    if (
+      metadataFile !== metadata &&
+      ((metadataFile.id && metadataFile.id !== fileId) || (metadataFile.file_id && metadataFile.file_id !== fileId))
+    )
+      throw new Error('Dot attachment identity mismatch')
+    const signed = httpsUrl(metadataFile.download_url)
+    if (!signed) throw new Error('Dot attachment download unavailable')
+    const url = new URL(signed)
     if (
       url.protocol !== 'https:' ||
       url.username ||
@@ -707,10 +752,10 @@ export class DotClient {
       offset += chunk.byteLength
     }
     return {
-      name: typeof metadata.name === 'string' ? metadata.name : 'attachment',
+      name: stringField(metadataFile.name) ?? stringField(metadataFile.file_name) ?? 'attachment',
       mime:
-        typeof metadata.mime_type === 'string'
-          ? metadata.mime_type
+        typeof metadataFile.mime_type === 'string'
+          ? metadataFile.mime_type
           : response.headers.get('content-type')?.split(';')[0] || 'application/octet-stream',
       data,
     }

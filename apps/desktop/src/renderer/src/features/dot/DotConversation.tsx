@@ -819,6 +819,10 @@ export function DotConversation({
                   !!row.native,
                   thumbs,
                 )
+                const available = attachments.filter(({ file, url }) => file.type === 'file' && (file.fileId || url))
+                const unavailable = row.attachments.some(
+                  file => file.type !== 'thread' && (file.type !== 'file' || !file.fileId),
+                )
                 const clock = mark?.time == null ? null : formatClock(mark.time)
                 const stamp = mark?.time == null ? undefined : new Date(mark.time).toISOString()
                 return [
@@ -844,17 +848,22 @@ export function DotConversation({
                     >
                       {row.text && (row.role === 'user' ? row.text : <Markdown text={row.text} />)}
                       {row.card && <DotSpecialMessage card={row.card} web={web} />}
-                      {!!attachments.length && (
+                      {available.length > 0 && (
                         <div className="dot-attachments">
                           {/* 图片排前面，文件卡片另起一行 */}
-                          {attachments
+                          {available
                             .sort((a, b) => Number(isDotImage(b.file)) - Number(isDotImage(a.file)))
                             .map(({ key, file, url }) => (
-                              <DotFile key={key} file={file} localUrl={url} />
+                              <DotFile key={key} file={file} localUrl={url} web={web} />
                             ))}
                         </div>
                       )}
                     </div>
+                    {unavailable && (
+                      <a className="dot-web-link" href={web} target="_blank" rel="noreferrer">
+                        {tr('dot.attachments.openUnavailable')} <ExternalLink size={12} aria-hidden />
+                      </a>
+                    )}
                     {row.id === receiptRow && readReceipt ? (
                       <div className="dot-time">
                         {tr('dot.readReceipt')}
