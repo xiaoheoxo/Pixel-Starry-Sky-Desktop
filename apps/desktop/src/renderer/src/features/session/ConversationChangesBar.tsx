@@ -37,7 +37,7 @@ export function ConversationChangesBar({
             { n: data.files.length },
           )}
         </span>
-        <DiffStat added={data.added} removed={data.removed} />
+        <DiffStat added={data.added} removed={data.removed} animate />
       </button>
       <div
         id={previewId}
