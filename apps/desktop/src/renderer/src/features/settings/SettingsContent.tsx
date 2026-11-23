@@ -1,7 +1,7 @@
 import { ENGINES } from '@pixelsky/protocol'
 import { Button, IconButton, Segmented, cn } from '@/ui'
 import { tr } from '../../i18n/core'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -435,6 +435,8 @@ export function SettingsContent({
         duration: 1600,
         easing: 'ease-out',
       })
+      // 跳一次就清掉：留着的话，以后每次切到有这一行的分区都会再滚过去、再闪一下
+      setJump(null)
     }, 60)
     return () => clearTimeout(timer)
   }, [jump, section, text])
@@ -448,7 +450,8 @@ export function SettingsContent({
         return
       }
       if (e.key !== 'Escape' || e.isComposing) return
-      if (query.trim() && (document.activeElement === searchRef.current || !onEscape)) {
+      // 搜索结果盖着整页：有字时不管焦点在哪都先清空
+      if (query.trim()) {
         setQuery('')
         return
       }
@@ -479,6 +482,21 @@ export function SettingsContent({
       ? tr('accounts.pageTitle', { channel: tr(`modelChannels.tab.${accountsPage}`) })
       : null
   const searching = query.trim().length > 0
+  // 搜索结果和分区页共用一个滚动区：开始搜索时回到顶部，清空后回到原来的位置
+  const pageScroll = useRef(0)
+  useLayoutEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    if (!searching) {
+      el.scrollTop = pageScroll.current
+      return
+    }
+    pageScroll.current = el.scrollTop
+    el.scrollTop = 0
+  }, [searching])
+  useEffect(() => {
+    if (searching) contentRef.current?.querySelector('[data-hit-selected]')?.scrollIntoView({ block: 'nearest' })
+  }, [searching, safeHitIdx])
   const contentWidthClass = WIDE_SECTIONS.has(section) && !searching ? 'max-w-[1160px]' : 'max-w-[920px]'
 
   const scrollToAppearanceAnchor = (id: string): void => {
@@ -669,7 +687,7 @@ export function SettingsContent({
               <>
                 <h2 className="shrink-0 text-section font-semibold text-fg">{text(sectionLabel(section))}</h2>
                 {section === 'appearance' && (
-                  <div className="hidden min-w-0 items-center gap-0.5 overflow-x-auto rounded-full bg-subtle p-0.5 sm:inline-flex">
+                  <div className="hidden min-w-0 items-center gap-0.5 overflow-x-auto rounded-full bg-subtle p-0.5 [scrollbar-width:none] sm:inline-flex [&::-webkit-scrollbar]:hidden">
                     {APPEARANCE_ANCHORS.map(a => (
                       <button
                         key={a.id}
@@ -712,7 +730,7 @@ export function SettingsContent({
             className="@container min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 py-6 [scrollbar-gutter:stable] @max-[640px]:px-5"
           >
             <div className={cn('mx-auto w-full [&_[data-section-title]+p]:mt-0', contentWidthClass)}>
-              {searching ? (
+              {searching && (
                 <SettingGroup title={tr('settingsLayout.searchHint')}>
                   {hits.length === 0 ? (
                     <div className="px-4 py-6 text-center text-meta text-fg-muted">
@@ -729,6 +747,7 @@ export function SettingsContent({
                         <button
                           key={`${h.section}-${h.title}-${h.engine ?? ''}-${h.extTab ?? ''}`}
                           type="button"
+                          data-hit-selected={selected || undefined}
                           onMouseEnter={() => setSelectedHitIdx(idx)}
                           onClick={() => openHit(h)}
                           className={cn(
@@ -761,79 +780,83 @@ export function SettingsContent({
                     })
                   )}
                 </SettingGroup>
-              ) : section === 'account' ? (
-                <AccountSection />
-              ) : section === 'editor' ? (
-                <EditorSection />
-              ) : section === 'projects' ? (
-                <ProjectsSection />
-              ) : section === 'storage' ? (
-                <>
-                  <StorageSection
+              )}
+              {/* 搜索时分区页只藏起来、不卸载：卸载会把没保存的改动（子智能体、自定义接口……）丢掉，也不会问 */}
+              <div className={searching ? 'hidden' : undefined}>
+                {section === 'account' ? (
+                  <AccountSection />
+                ) : section === 'editor' ? (
+                  <EditorSection />
+                ) : section === 'projects' ? (
+                  <ProjectsSection />
+                ) : section === 'storage' ? (
+                  <>
+                    <StorageSection
+                      onOpenSession={sessionId => {
+                        runMainAction({ kind: 'openSession', sessionId })
+                        if (!standalone) onClose()
+                      }}
+                    />
+                    <SettingGroup className="mt-5">
+                      <DataLocationRow />
+                    </SettingGroup>
+                  </>
+                ) : section === 'general' ? (
+                  <GeneralSection />
+                ) : section === 'chat' ? (
+                  <ChatSection />
+                ) : section === 'assist' ? (
+                  <AssistSection />
+                ) : section === 'models' ? (
+                  <ModelsSection />
+                ) : section === 'agents' ? (
+                  <AgentsSection />
+                ) : section === 'subagents' ? (
+                  <SubagentsSection openChannels={() => setSection('models')} />
+                ) : section === 'extensions' || section === 'plugins' ? (
+                  <ExtensionsSection key={section} initialGroup={section === 'plugins' ? 'ai' : 'all'} />
+                ) : section === 'machines' ? (
+                  <section>
+                    <SectionTitle>{t('machines.title')}</SectionTitle>
+                    <p className="mb-4 text-meta text-fg-muted">{t('machines.requirements')}</p>
+                    <Button
+                      onClick={() => {
+                        if (!standalone) onClose()
+                        runMainAction({ kind: 'manageMachines' })
+                      }}
+                    >
+                      {t('machines.title')}
+                    </Button>
+                  </section>
+                ) : section === 'mobile' ? (
+                  <MobileSection />
+                ) : section === 'im' ? (
+                  <ImSection />
+                ) : section === 'terminal' ? (
+                  <TerminalSection />
+                ) : section === 'engines' ? (
+                  <EnginesSection />
+                ) : section === 'usage' ? (
+                  <UsageSection
                     onOpenSession={sessionId => {
                       runMainAction({ kind: 'openSession', sessionId })
                       if (!standalone) onClose()
                     }}
                   />
-                  <SettingGroup className="mt-5">
-                    <DataLocationRow />
-                  </SettingGroup>
-                </>
-              ) : section === 'general' ? (
-                <GeneralSection />
-              ) : section === 'chat' ? (
-                <ChatSection />
-              ) : section === 'assist' ? (
-                <AssistSection />
-              ) : section === 'models' ? (
-                <ModelsSection />
-              ) : section === 'agents' ? (
-                <AgentsSection />
-              ) : section === 'subagents' ? (
-                <SubagentsSection openChannels={() => setSection('models')} />
-              ) : section === 'extensions' || section === 'plugins' ? (
-                <ExtensionsSection key={section} initialGroup={section === 'plugins' ? 'ai' : 'all'} />
-              ) : section === 'machines' ? (
-                <section>
-                  <SectionTitle>{t('machines.title')}</SectionTitle>
-                  <p className="mb-4 text-meta text-fg-muted">{t('machines.requirements')}</p>
-                  <Button
-                    onClick={() => {
-                      if (!standalone) onClose()
-                      runMainAction({ kind: 'manageMachines' })
-                    }}
-                  >
-                    {t('machines.title')}
-                  </Button>
-                </section>
-              ) : section === 'mobile' ? (
-                <MobileSection />
-              ) : section === 'im' ? (
-                <ImSection />
-              ) : section === 'terminal' ? (
-                <TerminalSection />
-              ) : section === 'engines' ? (
-                <EnginesSection />
-              ) : section === 'usage' ? (
-                <UsageSection
-                  onOpenSession={sessionId => {
-                    runMainAction({ kind: 'openSession', sessionId })
-                    if (!standalone) onClose()
-                  }}
-                />
-              ) : section === 'notifications' ? (
-                <NotificationsSection />
-              ) : section === 'appearance' ? (
-                <AppearanceSection />
-              ) : section === 'shortcuts' ? (
-                <ShortcutsSettings />
-              ) : section === 'feedback' ? (
-                <FeedbackSection />
-              ) : section === 'logs' ? (
-                <LogsSection />
-              ) : (
-                <AboutSection />
-              )}
+                ) : section === 'notifications' ? (
+                  <NotificationsSection />
+                ) : section === 'appearance' ? (
+                  <AppearanceSection />
+                ) : section === 'shortcuts' ? (
+                  <ShortcutsSettings />
+                ) : section === 'feedback' ? (
+                  <FeedbackSection />
+                ) : section === 'logs' ? (
+                  <LogsSection />
+                ) : (
+                  <AboutSection />
+                )}
+              </div>
             </div>
           </div>
         </SettingsPaneProvider>

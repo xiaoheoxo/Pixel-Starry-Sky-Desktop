@@ -35,13 +35,12 @@ export function EditorSection() {
 
   useUnsavedCheck(() => customOpen && name.trim() !== tr('settings.editor.EditorSection.customEditor'))
 
-  const run = async (fn: () => Promise<unknown>, onDone?: () => void): Promise<void> => {
+  const run = async (fn: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
     setError('')
     try {
       if (isDemo) throw new Error(tr('settings.editor.EditorSection.demoModeCannotChange'))
       await fn()
-      onDone?.()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -56,12 +55,16 @@ export function EditorSection() {
   const choose = (kind: EditorKind, onDone?: () => void): void => {
     void run(async () => {
       const result = await window.pixelsky!.editor.choose(kind, name, mode)
-      if (result) setEditors(result)
-    }, onDone)
+      // 在选文件的对话框里点了取消：什么都不变，填好的名称留着
+      if (!result) return
+      setEditors(result)
+      onDone?.()
+    })
   }
 
   const items = state?.items ?? []
-  const missingKnown = KNOWN_EXTERNAL_EDITORS.filter(k => !items.some(i => i.kind === k.kind))
+  // JetBrains 一直列着：它可以装好几个（IDEA、PyCharm……），再选一个是添加，不是换路径
+  const missingKnown = KNOWN_EXTERNAL_EDITORS.filter(k => k.kind === 'jetbrains' || !items.some(i => i.kind === k.kind))
 
   return (
     <section>
@@ -201,7 +204,7 @@ export function EditorSection() {
                       {tr('openWith.setDefault')}
                     </Button>
                   )}
-                  {item.kind !== 'custom' && (
+                  {item.kind !== 'custom' && item.kind !== 'jetbrains' && (
                     <Button
                       variant="ghost"
                       className="h-7 px-2 text-meta"
@@ -243,7 +246,9 @@ export function EditorSection() {
                 </span>
                 <div className="min-w-0">
                   <span className="text-ui text-fg-secondary">{entry.label}</span>
-                  <span className="ml-2 text-label text-fg-faint">· {tr('settingsLayout.editor.notDetected')}</span>
+                  {!items.some(i => i.kind === entry.kind) && (
+                    <span className="ml-2 text-label text-fg-faint">· {tr('settingsLayout.editor.notDetected')}</span>
+                  )}
                   {entry.kind === 'jetbrains' && (
                     <p className="mt-0.5 text-label text-fg-faint">
                       {tr('settings.editor.EditorSection.jetbrainsHint')}

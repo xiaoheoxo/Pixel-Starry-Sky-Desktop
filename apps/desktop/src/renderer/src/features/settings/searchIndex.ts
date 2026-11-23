@@ -99,6 +99,7 @@ export const SETTINGS_INDEX: SearchEntry[] = [
   },
   {
     section: 'extensions',
+    extTab: 'installed',
     get title() {
       return tr('extensions.loadFolder')
     },
