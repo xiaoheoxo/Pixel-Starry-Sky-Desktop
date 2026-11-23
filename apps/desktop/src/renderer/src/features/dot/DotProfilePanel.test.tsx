@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from '@/i18n/I18nProvider'
+import { setCurrentLocale } from '@/i18n/core'
 import { DotProfilePanel } from './DotProfilePanel'
 import { dotPresence, presenceTone, statusTone } from './status'
 import { dotFileKind } from './DotFile'
@@ -15,6 +16,12 @@ const entry = {
   status: 'active',
 }
 describe('Dot profile panel', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', { getItem: () => 'zh-CN', setItem: () => undefined })
+    setCurrentLocale('zh-CN')
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
   it('shows the computer, recent tasks with status, files and links into ChatGPT', () => {
     const html = renderToStaticMarkup(
       <I18nProvider>

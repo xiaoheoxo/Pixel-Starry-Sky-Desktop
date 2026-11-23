@@ -1,4 +1,5 @@
 import type { DotChatMessage, DotOverview, DotReadReceipt } from '@pixelsky/engine'
+import type { DotScrollPosition } from './scrollPosition'
 import type { DotEntry } from '../../../../shared/types/dot-chat'
 
 const VIEW_TTL = 10 * 60_000
@@ -20,6 +21,7 @@ type Updated<T> = { value: T; expiresAt: number }
 interface RoomCache {
   history?: Updated<CachedHistory>
   overview?: Updated<DotOverview>
+  scroll?: Updated<DotScrollPosition>
 }
 
 // Never write private transcript or attachment data to disk.
@@ -37,6 +39,13 @@ export function createDotViewCache(now = Date.now) {
     read(key: string) {
       const room = rooms.get(key)
       return { history: fresh(room?.history), overview: fresh(room?.overview) }
+    },
+    readScroll(key: string) {
+      const room = rooms.get(key)
+      return fresh(room?.history) ? fresh(room?.scroll) : undefined
+    },
+    putScroll(key: string, position: DotScrollPosition) {
+      put(key, { scroll: { value: position, expiresAt: now() + VIEW_TTL } })
     },
     shouldRefreshOverview(key: string) {
       const cached = rooms.get(key)?.overview

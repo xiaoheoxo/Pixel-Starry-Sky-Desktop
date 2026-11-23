@@ -1,6 +1,7 @@
 import { dotError } from './errors'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
+  ArrowDown,
   ArrowUp,
   Clock,
   ExternalLink,
@@ -57,6 +58,7 @@ import { DotQuickSettings, useDotQuickSettings } from './DotQuickSettings'
 import { dotPreviewAttachments, type DotLocalSend } from './localImagePreviews'
 import { dotRoomKey, dotViewCache } from './viewCache'
 import { refreshDots } from './store'
+import { useDotScroll } from './useDotScroll'
 import './dot.css'
 
 function readDraft(key: string): string {
@@ -119,8 +121,10 @@ export function DotConversation({
   const alive = useRef(true)
   const draftKey = `pixelsky.dot.draft.${entryKey}`
   const [text, setText] = useState(() => readDraft(draftKey))
-  const scroller = useRef<HTMLDivElement>(null)
-  const follow = useRef(true)
+  const { scroller, messages, showJump, trackScroll, beforePrepend, jumpToBottom } = useDotScroll(
+    roomKey,
+    active && !computer,
+  )
   const localById = useMemo(() => new Map(localSends.map(item => [item.id, item])), [localSends])
   const rows = useMemo(
     () =>
@@ -237,6 +241,7 @@ export function DotConversation({
         }
         historyWindow.current = loaded
         dotViewCache.putHistory(roomKey, loaded)
+        if (options.before && loaded.items !== previous.items) beforePrepend()
         setHistory(loaded.items)
         if (!options.before) void refreshReadReceipt()
         if (update.replaceBefore) setBefore(loaded.before)
@@ -256,7 +261,7 @@ export function DotConversation({
         }
       }
     },
-    [entryKey, roomKey, refreshReadReceipt],
+    [entryKey, roomKey, refreshReadReceipt, beforePrepend],
   )
   const readOverview = useCallback(async () => {
     if (overviewReading.current) return
@@ -462,9 +467,6 @@ export function DotConversation({
       .then(() => refreshSnapshot.current())
       .catch(e => setError(dotError(e)))
   }
-  useEffect(() => {
-    if (follow.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
-  }, [rows, replying])
   const send = async (): Promise<void> => {
     if (!snapshot || (!text.trim() && !files.length) || busy) return
     setSending(true)
@@ -701,21 +703,16 @@ export function DotConversation({
             className="dot-message-scroll conversation-scroller selectable"
             role="log"
             aria-label={tr('dot.messages')}
-            onScroll={e => {
-              const el = e.currentTarget
-              follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-            }}
+            tabIndex={0}
+            onScroll={trackScroll}
           >
-            <div className="dot-messages conversation-inset conversation-reading">
+            <div ref={messages} className="dot-messages conversation-inset conversation-reading">
               {before && (
                 <button
                   type="button"
                   className="self-center rounded-lg px-3 py-2 text-meta text-fg-muted hover:bg-hover"
                   disabled={reading}
-                  onClick={() => {
-                    follow.current = false
-                    void readRemote({ before })
-                  }}
+                  onClick={() => void readRemote({ before })}
                 >
                   {tr('dot.loadEarlier')}
                 </button>
@@ -772,6 +769,7 @@ export function DotConversation({
                     ...day,
                     <div
                       key={row.id}
+                      data-dot-scroll-row={row.id}
                       role={row.level === 'error' ? 'alert' : undefined}
                       className="dot-note"
                       data-level={row.level ?? 'info'}
@@ -797,7 +795,11 @@ export function DotConversation({
                 const stamp = mark?.time == null ? undefined : new Date(mark.time).toISOString()
                 return [
                   ...day,
-                  <article key={row.id} className={`dot-message ${row.role === 'user' ? 'is-user' : 'is-assistant'}`}>
+                  <article
+                    key={row.id}
+                    data-dot-scroll-row={row.id}
+                    className={`dot-message ${row.role === 'user' ? 'is-user' : 'is-assistant'}`}
+                  >
                     {mark?.head && (
                       <div className="dot-who">
                         <DotAvatar name={name} url={entry?.avatarUrl} size={20} />
@@ -928,6 +930,12 @@ export function DotConversation({
             </div>
           </div>
           <ComposerArea>
+            {showJump && (
+              <button type="button" className="dot-jump-bottom" onClick={jumpToBottom}>
+                <ArrowDown size={14} aria-hidden="true" />
+                {tr('dot.jumpBottom')}
+              </button>
+            )}
             <form
               className="dot-composer-form"
               onSubmit={e => {

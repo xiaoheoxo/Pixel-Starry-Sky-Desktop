@@ -36,3 +36,14 @@ it('does not serve older data after its own expiry or trim away messages behind 
   cache.putHistory(room, { ...history, items: Array.from({ length: 501 }, () => item) })
   expect(cache.read(room).history).toBeUndefined()
 })
+
+it('restores a position only for a fresh history window in the same room', () => {
+  let now = 0
+  const cache = createDotViewCache(() => now)
+  cache.putHistory(room, history)
+  cache.putScroll(room, { bottom: false, top: 95, anchor: { id: 'm2', offset: -10 } })
+  expect(cache.readScroll(room)).toMatchObject({ bottom: false, anchor: { id: 'm2' } })
+  expect(cache.readScroll(otherRoom)).toBeUndefined()
+  now = 11 * 60_000
+  expect(cache.readScroll(room)).toBeUndefined()
+})

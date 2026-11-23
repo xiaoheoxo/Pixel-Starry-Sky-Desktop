@@ -194,6 +194,24 @@
   padding: 4px 20px 20px;
   font-size: var(--text-ui);
 }
+.dot-jump-bottom {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--bg-app);
+  color: var(--text);
+  font-size: var(--text-meta);
+}
+.dot-jump-bottom:hover {
+  background: var(--bg-hover);
+}
 .dot-message-scroll {
   /* 消息里只给读屏的文字是绝对定位的：定位到这里，跟着一起滚，不把外层撑高 */
   position: relative;
