@@ -6,4 +6,5 @@ export default defineConfig({
   resolve: {
     alias: { '@': resolve(__dirname, 'src/renderer/src') },
   },
+  test: { setupFiles: [resolve(__dirname, 'vitest.setup.ts')] },
 })
