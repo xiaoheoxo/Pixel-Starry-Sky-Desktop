@@ -218,6 +218,10 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     copyPath: async (projectId, copyId) => ctx.projectTools?.copyPath(projectId, copyId),
     projectTools: () => ctx.projectTools ?? undefined,
   }
+  ipc.handle('engine:handoffCodexToMobile', (_e, sessionId) => {
+    if (typeof sessionId !== 'string' || !sessionId || machineOf(sessionId) !== 'local') return 'unsupported'
+    return h.handoffCodexToMobile(sessionId)
+  })
   // 会话 ⇄ 终端（TUI）（docs/ui/tui-toggle.md §4.1）：只本机，不经 Machines.invoke
   ipc.handle('engine:tuiCheck', (_e, sessionId) => {
     if (typeof sessionId !== 'string' || !sessionId) throw new Error('会话不正确')

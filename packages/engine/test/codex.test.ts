@@ -737,6 +737,38 @@ describe('Codex app-server adapter', () => {
     expect(parseCodedError(queued?.error)?.code).toBe('resume.live')
     expect(host!.open(session.id).record.engineSessionId).toBe(oldId)
   })
+  it('hands off the same Codex thread to mobile only after its desktop writer lock is released', async () => {
+    const lockDir = join(root, 'mobile-locks')
+    const { session, messages } = setup(60_000, {
+      env: { FAKE_CODEX_LOCK_DIR: lockDir, FAKE_CODEX_EXIT_DELAY_MS: '200' },
+    })
+    expect(await host!.handoffCodexToMobile(session.id)).toBe('unsupported')
+    await host!.send(session.id, 'first')
+    await wait(
+      () => host!.open(session.id).items.some(i => i.kind === 'turn_stats') && host!.open(session.id).state === 'idle',
+    )
+    const thread = host!.open(session.id).record.engineSessionId!
+    const lock = join(lockDir, thread + '.pid')
+    expect(existsSync(lock)).toBe(true)
+    expect(await host!.handoffCodexToMobile(session.id)).toBe('released')
+    expect(existsSync(lock)).toBe(false)
+    expect(host!.open(session.id).record.engineSessionId).toBe(thread)
+    writeFileSync(lock, String(process.pid)) // Simulate the phone's official host taking the same lock.
+    await host!.send(session.id, 'while the phone owns it')
+    await wait(() => host!.open(session.id).queue.some(q => q.error))
+    expect(parseCodedError(host!.open(session.id).queue.find(q => q.error)?.error)?.code).toBe('resume.live')
+    expect(messages().filter(m => m.method === 'thread/start')).toHaveLength(1)
+    expect(messages().filter(m => m.method === 'thread/fork')).toHaveLength(0)
+  })
+
+  it('does not interrupt active work to hand a Codex conversation to mobile', async () => {
+    const { session, messages } = setup(60_000)
+    await host!.send(session.id, '缓停')
+    await wait(() => host!.open(session.id).state === 'running' && !!host!.record(session.id)?.engineSessionId)
+    expect(await host!.handoffCodexToMobile(session.id)).toBe('busy')
+    expect(messages().some(m => m.method === 'turn/interrupt')).toBe(false)
+  })
+
   it('线程刚才被占着、一会儿就放了（占用的进程退了）：重试后接上原线程，不报 resume.live、不开新线程', async () => {
     const lockedFile = join(root, 'locked')
     const { session, messages } = setup(50, { env: { FAKE_CODEX_LOCKED_FILE: lockedFile } })

@@ -211,6 +211,7 @@ export interface EngineBridge {
   /** 旁聊：单独问一次，不进主对话（§3） */
   sideQuestion(id: string, question: string, history: import('@pixelsky/protocol').SideTurn[]): Promise<string>
   cancelSideQuestion(id: string): Promise<void>
+  handoffCodexToMobile(sessionId: string): Promise<'released' | 'busy' | 'unsupported'>
   /** 切到终端模式（docs/ui/tui-toggle.md）：返回终端 id */
   /** 切终端前的灰态原因；能切返回 null */
   tuiCheck(sessionId: string): Promise<string | null>
