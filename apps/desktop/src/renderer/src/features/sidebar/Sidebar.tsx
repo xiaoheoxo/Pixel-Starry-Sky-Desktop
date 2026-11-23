@@ -37,6 +37,7 @@ import { ProjectTree } from './ProjectTree'
 import { ChatList } from './ChatList'
 import { openArchiveOld } from './archiveOldData'
 import { arrangeProjects, groupKey } from './projectGroups'
+import { reconcileExpandedScope, sessionOwnerScope, type ExpandedScopeState } from './projectTreeModel'
 import { RecentItem } from './RecentItem'
 import { RunStatusPill } from './RunStatusPill'
 import { cardsOf, filterProjects, filterSessions, lanesOf, useScrollFade, type RunFilter } from './runFilter'
@@ -113,8 +114,34 @@ export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
     ...arrangeProjects(projects, prefs.groups ?? []).flatMap(e => (e.kind === 'group' ? [groupKey(e.group.id)] : [])),
   ]
   const anyOpen = foldKeys.some(key => !prefs.collapsed?.includes(key))
+  // 手风琴式分批展开：同时只保留一个项目或「对话」分组处于「展开更多」，切到别的项目会话或折叠项目时自动收回前 5 个
+  const [expandedMore, setExpandedMore] = useState<ExpandedScopeState | null>(null)
+  const activeScope = useMemo(
+    () => sessionOwnerScope(selectedSessionId, chats, chatsArchived, projects),
+    [selectedSessionId, chats, chatsArchived, projects],
+  )
+  const prevSelectedSessionId = useRef<string | null>(selectedSessionId)
+  useEffect(() => {
+    const prev = prevSelectedSessionId.current
+    prevSelectedSessionId.current = selectedSessionId
+    setExpandedMore(cur =>
+      reconcileExpandedScope(cur, {
+        selectedSessionId,
+        prevSelectedSessionId: prev,
+        activeScope,
+        collapsedIds: new Set(prefs.collapsed ?? []),
+      }),
+    )
+  }, [selectedSessionId, activeScope, prefs.collapsed])
+  const expandScopeMore = (scope: string): void =>
+    setExpandedMore(cur => ({ scope, pages: cur?.scope === scope ? cur.pages + 1 : 1 }))
+  const expandScopeAll = (scope: string): void => setExpandedMore({ scope, pages: Infinity })
+  const collapseScopeMore = (): void => setExpandedMore(null)
+
   const scroller = useRef<HTMLDivElement>(null)
   useScrollFade(scroller)
+  const recentScroller = useRef<HTMLDivElement>(null)
+  useScrollFade(recentScroller)
   // 鼠标在侧栏里时冻结按最近活动的自动换位置；离开后换到新顺序，行用 FLIP 滑过去，动画关了就直接换
   const root = useRef<HTMLElement>(null)
   useSidebarFreezeOn(root)
@@ -159,7 +186,7 @@ export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
       <div
         ref={scroller}
         data-sidebar-scroll
-        className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-3 pt-4 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="sidebar-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-3 pt-4 pb-6"
       >
         {runFilter && (
           <div className="-mb-2 flex h-7 shrink-0 items-center gap-1 rounded-md bg-selected pr-1 pl-2.5 text-meta text-fg">
@@ -213,6 +240,10 @@ export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
               selectedSessionId={selectedSessionId}
               onSelectSession={onSelectSession}
               filtering={!!runFilter}
+              expandedPages={expandedMore?.scope === 'chat' ? expandedMore.pages : 0}
+              onExpandMore={() => expandScopeMore('chat')}
+              onExpandAll={() => expandScopeAll('chat')}
+              onCollapseMore={collapseScopeMore}
             />
           </SidebarSection>
         )}
@@ -292,6 +323,10 @@ export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
               selectedSessionId={selectedSessionId}
               onSelectSession={onSelectSession}
               filtering={!!runFilter}
+              expandedMore={expandedMore}
+              onExpandMore={expandScopeMore}
+              onExpandAll={expandScopeAll}
+              onCollapseMore={collapseScopeMore}
             />
           ) : (
             <>
@@ -336,7 +371,7 @@ export function Sidebar({ selectedSessionId, onSelectSession }: SidebarProps) {
             aria-hidden={!recentShown}
             inert={!recentShown}
           >
-            <div className="min-h-0 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div ref={recentScroller} className="sidebar-scroll min-h-0 overflow-x-hidden overflow-y-auto">
               <div className="flex flex-col gap-px">
                 {recent.map(r => (
                   <RecentItem

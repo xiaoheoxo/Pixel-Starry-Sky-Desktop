@@ -33,12 +33,14 @@ import { ProjectRow } from './ProjectRow'
 import { GroupNameDialog } from './GroupNameDialog'
 import {
   ARCHIVED_PAGE,
-  SHOWN_SESSIONS,
+  extraConversations,
   foldChannels,
   needsYou,
+  nextBatchCount,
   projectCounts,
   projectFolders,
   visibleArchived,
+  type ExpandedScopeState,
 } from './projectTreeModel'
 import {
   addToGroup,
@@ -84,12 +86,21 @@ export function ProjectTree({
   selectedSessionId,
   onSelectSession,
   filtering = false,
+  expandedMore,
+  onExpandMore,
+  onExpandAll,
+  onCollapseMore,
 }: {
   projects: Project[]
   selectedSessionId: string | null
   onSelectSession: (id: string) => void
   /** 侧栏按状态筛选时：项目和分区全部展开（不改记住的展开状态）、对话全部列出，右边写原因 */
   filtering?: boolean
+  /** 由侧栏统一协调的手风琴展开状态（不传时退回本组件局部状态） */
+  expandedMore?: ExpandedScopeState | null
+  onExpandMore?: (projectId: string) => void
+  onExpandAll?: (projectId: string) => void
+  onCollapseMore?: () => void
 }) {
   useI18n()
   const cards = useSessionCards()
@@ -100,7 +111,14 @@ export function ProjectTree({
   const groups = prefs.groups ?? []
   const saved = prefs.order ?? []
   const pinned = prefs.pinned ?? []
-  const [showAll, setShowAll] = useState<Record<string, boolean>>({})
+  const [localExpanded, setLocalExpanded] = useState<ExpandedScopeState | null>(null)
+  const activeExpanded = expandedMore !== undefined ? expandedMore : localExpanded
+  const expandMore =
+    onExpandMore ??
+    ((projectId: string) =>
+      setLocalExpanded(cur => ({ scope: projectId, pages: cur?.scope === projectId ? cur.pages + 1 : 1 })))
+  const expandAll = onExpandAll ?? ((projectId: string) => setLocalExpanded({ scope: projectId, pages: Infinity }))
+  const collapseMore = onCollapseMore ?? (() => setLocalExpanded(null))
   const [archivedOpen, setArchivedOpen] = useState<Record<string, boolean>>({})
   // 频道收成的那一行点开没有（项目 + 频道名；这次打开应用里记住），docs/ui/sidebar-channel-fold.md
   const [channelOpen, setChannelOpen] = useState<Record<string, boolean>>({})
@@ -282,17 +300,24 @@ export function ProjectTree({
   const renderProject = (p: Project, inGroup = false, top = false) => {
     const open = filtering || !collapsed.has(p.id)
     const { running, waiting } = projectCounts(p.sessions, lanes)
-    // 按状态筛选时不收，全部平铺
-    const {
-      entries: rows,
-      hidden,
-      own,
-    } = foldChannels(p.sessions, {
-      channelOf: id => (filtering ? null : (sessionChannels[id] ?? null)),
-      all: filtering || !!showAll[p.id],
+    const pages = activeExpanded?.scope === p.id ? activeExpanded.pages : 0
+    const channelOf = (id: string) => (filtering ? null : (sessionChannels[id] ?? null))
+    // 按状态筛选时不收，全部平铺；平时保留「在跑 / 等你 / 新回复 / 当前打开」例外，其余按批次递增展开
+    const preview = foldChannels(p.sessions, {
+      channelOf,
+      all: filtering,
       selected: selectedSessionId,
       lanes,
     })
+    const { entries: rows, hidden } = pages
+      ? foldChannels(p.sessions, {
+          channelOf,
+          all: filtering || !Number.isFinite(pages),
+          additional: extraConversations(pages),
+          selected: selectedSessionId,
+          lanes,
+        })
+      : preview
     const item = (s: Session, inChannel = false) => (
       <SessionItem
         key={s.id}
@@ -365,11 +390,14 @@ export function ProjectTree({
                 </div>
               )
             })}
-            {!filtering && (hidden > 0 || (showAll[p.id] && own > SHOWN_SESSIONS)) && (
+            {!filtering && preview.hidden > 0 && (
               <MoreRow
                 label={hidden > 0 ? tr('sidebar.tree.more', { count: hidden }) : tr('sidebar.tree.less')}
                 open={!hidden}
-                onClick={() => setShowAll(state => ({ ...state, [p.id]: !state[p.id] }))}
+                title={hidden > 0 ? tr('sidebar.tree.moreHint', { batch: nextBatchCount(pages, hidden) }) : undefined}
+                onClick={() => (hidden > 0 ? expandMore(p.id) : collapseMore())}
+                onShowAll={hidden > 0 ? () => expandAll(p.id) : undefined}
+                onCollapse={hidden > 0 && pages > 0 ? collapseMore : undefined}
               />
             )}
             <ArchivedRows
@@ -753,25 +781,36 @@ export function ArchivedRows({
   )
 }
 
-/** 对话下面的小字行：「还有 N 个对话 ›」/「收起」文字、「已归档 N 个」图标均与会话标题左侧对齐 */
+/** 对话下面的小字行：「还有 N 个对话 ›」/「收起」文字、「已归档 N 个」图标均与会话标题左侧对齐；已展开多批时右侧并排提供「收起」 */
 export function MoreRow({
   label,
   open,
+  title,
   onClick,
+  onShowAll,
+  onCollapse,
   icon,
 }: {
   label: string
   open: boolean
+  title?: string
   onClick: () => void
+  onShowAll?: () => void
+  onCollapse?: () => void
   icon?: boolean
 }) {
-  return (
+  const button = (
     <button
       type="button"
       aria-expanded={open}
-      onClick={onClick}
+      title={title}
+      onClick={event => {
+        if (event.shiftKey && onShowAll) onShowAll()
+        else onClick()
+      }}
       className={cn(
-        'flex h-7 w-full min-w-0 shrink-0 items-center rounded-md pr-2.5 pl-[28px] text-left text-meta text-fg-muted hover:bg-hover hover:text-fg',
+        'flex h-7 min-w-0 shrink-0 items-center rounded-md pr-2.5 pl-[28px] text-left text-meta text-fg-muted hover:bg-hover hover:text-fg',
+        onCollapse ? 'flex-1' : 'w-full',
         icon ? 'gap-2.5' : 'gap-1.5',
       )}
     >
@@ -783,5 +822,19 @@ export function MoreRow({
         className={cn('shrink-0 transition-transform duration-150', open && (icon ? 'rotate-90' : '-rotate-90'))}
       />
     </button>
+  )
+  if (!onCollapse) return button
+  return (
+    <div data-more-row className="flex min-w-0 items-center gap-0.5">
+      {button}
+      <button
+        type="button"
+        data-more-collapse
+        onClick={onCollapse}
+        className="h-7 shrink-0 rounded-md px-2 text-meta text-fg-faint hover:bg-hover hover:text-fg"
+      >
+        {tr('sidebar.tree.less')}
+      </button>
+    </div>
   )
 }

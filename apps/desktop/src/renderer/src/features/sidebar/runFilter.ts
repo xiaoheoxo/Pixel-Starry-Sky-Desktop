@@ -42,26 +42,38 @@ export function filterSessions<T extends { id: string }>(
 }
 
 /**
- * 竖向滚动区上下还有内容时两头淡出（data-fade-top / data-fade-bottom，globals.css）：
- * 侧栏隐藏了滚动条，最后一行被切一半时看不出下面还有
+ * 竖向滚动区上下还有内容时两头淡出（data-fade-top / data-fade-bottom，globals.css）；
+ * 滚动时临时标上 data-scrolling 让细滚动条浮现，停滚约 0.9 秒后淡出。
  */
 export function useScrollFade(ref: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     const el = ref.current
     if (!el) return
+    let hideTimer: ReturnType<typeof setTimeout> | null = null
     const update = (): void => {
       el.toggleAttribute('data-fade-top', el.scrollTop > 1)
       el.toggleAttribute('data-fade-bottom', el.scrollTop + el.clientHeight < el.scrollHeight - 1)
     }
+    const onScroll = (): void => {
+      update()
+      el.setAttribute('data-scrolling', '')
+      if (hideTimer !== null) clearTimeout(hideTimer)
+      hideTimer = setTimeout(() => {
+        hideTimer = null
+        el.removeAttribute('data-scrolling')
+      }, 900)
+    }
     update()
-    el.addEventListener('scroll', update, { passive: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
     const resize = new ResizeObserver(update)
     resize.observe(el)
     // 内容变了（展开项目、筛选）高度也会变
     const mutation = new MutationObserver(update)
     mutation.observe(el, { childList: true, subtree: true })
     return () => {
-      el.removeEventListener('scroll', update)
+      if (hideTimer !== null) clearTimeout(hideTimer)
+      el.removeAttribute('data-scrolling')
+      el.removeEventListener('scroll', onScroll)
       resize.disconnect()
       mutation.disconnect()
     }

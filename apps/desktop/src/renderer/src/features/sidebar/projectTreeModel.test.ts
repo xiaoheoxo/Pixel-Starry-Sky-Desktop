@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { SessionLane } from '@/features/board/sessionLanes'
 import {
   ARCHIVED_PAGE,
+  extraConversations,
   foldChannels,
+  nextBatchCount,
   projectCounts,
   projectFolders,
+  reconcileExpandedScope,
+  sessionOwnerScope,
   visibleArchived,
   visibleSessions,
 } from './projectTreeModel'
@@ -55,6 +59,100 @@ describe('先列哪几个对话', () => {
       shown: sessions,
       hidden: 0,
     })
+  })
+
+  it('渐进分批展开（5 → +10 → +20 → +30…），且运行中/选中项不吃掉新批次名额', () => {
+    expect([0, 1, 2, 3, 4, 5, 6].map(extraConversations)).toEqual([0, 10, 30, 60, 100, 150, 210])
+    expect(extraConversations(Infinity)).toBe(Infinity)
+    expect(nextBatchCount(0, 200)).toBe(10)
+    expect(nextBatchCount(1, 190)).toBe(20)
+    expect(nextBatchCount(2, 12)).toBe(12)
+
+    const many = Array.from({ length: 40 }, (_, i) => session(`s${i}`, i === 6 || i === 7 ? 'running' : 'idle'))
+    const lanes = new Map<string, SessionLane>([['s8', 'waiting']])
+    // 初始 5 条 + s6/s7/s8 例外 = 8 条，隐藏 32 条
+    const p0 = visibleSessions(many, { all: false, additional: extraConversations(0), selected: 's35', lanes })
+    expect(p0.shown.map(s => s.id)).toEqual(['s0', 's1', 's2', 's3', 's4', 's6', 's7', 's8', 's35'])
+    expect(p0.hidden).toBe(31)
+
+    // 第 1 次点击：从隐藏的 31 条里准确多露 10 条（不被运行中 s6/s7/s8 吃掉名额）
+    const p1 = visibleSessions(many, { all: false, additional: extraConversations(1), selected: 's35', lanes })
+    expect(p1.shown).toHaveLength(19)
+    expect(p1.hidden).toBe(21)
+
+    // 第 2 次点击（累计额外 +30）：再多露 20 条，只剩 1 条隐藏
+    const p2 = visibleSessions(many, { all: false, additional: extraConversations(2), selected: 's35', lanes })
+    expect(p2.shown).toHaveLength(39)
+    expect(p2.hidden).toBe(1)
+
+    // Shift+点击（Infinity）：全部展开
+    const all = visibleSessions(many, { all: false, additional: extraConversations(Infinity), selected: 's35', lanes })
+    expect(all.shown).toHaveLength(40)
+    expect(all.hidden).toBe(0)
+  })
+})
+
+describe('手风琴式自动收缩', () => {
+  const chats = [session('c1')]
+  const projects = [
+    { id: 'p1', sessions: [session('a1'), session('a2')], archived: [session('a3')] },
+    { id: 'p2', sessions: [session('b1')] },
+  ]
+
+  it('识别当前会话归属的分组或项目', () => {
+    expect(sessionOwnerScope('c1', chats, [], projects)).toBe('chat')
+    expect(sessionOwnerScope('a3', chats, [], projects)).toBe('p1')
+    expect(sessionOwnerScope('b1', chats, [], projects)).toBe('p2')
+    expect(sessionOwnerScope('missing', chats, [], projects)).toBeNull()
+  })
+
+  it('切到别的项目会话或折叠当前项目时自动收缩，在本项目内浏览不收缩', () => {
+    const state = { scope: 'p1', pages: 2 }
+    // 仍在 p1 内切换会话：不收缩
+    expect(
+      reconcileExpandedScope(state, {
+        selectedSessionId: 'a2',
+        prevSelectedSessionId: 'a1',
+        activeScope: 'p1',
+        collapsedIds: new Set(),
+      }),
+    ).toEqual(state)
+    // 原先选在 p2，但用户刚刚手动展开 p1（selectedSessionId 没变）：不误收缩
+    expect(
+      reconcileExpandedScope(state, {
+        selectedSessionId: 'b1',
+        prevSelectedSessionId: 'b1',
+        activeScope: 'p2',
+        collapsedIds: new Set(),
+      }),
+    ).toEqual(state)
+    // 原先选在 p2 的 b1、展开了 p1，又点到 p2 的另一个会话 b2：自动收缩 p1
+    expect(
+      reconcileExpandedScope(state, {
+        selectedSessionId: 'b2',
+        prevSelectedSessionId: 'b1',
+        activeScope: 'p2',
+        collapsedIds: new Set(),
+      }),
+    ).toBeNull()
+    // 用户从 p1 切到 p2 的会话：自动收缩
+    expect(
+      reconcileExpandedScope(state, {
+        selectedSessionId: 'b1',
+        prevSelectedSessionId: 'a1',
+        activeScope: 'p2',
+        collapsedIds: new Set(),
+      }),
+    ).toBeNull()
+    // 折叠 p1：自动重置，再次展开回到前 5 个
+    expect(
+      reconcileExpandedScope(state, {
+        selectedSessionId: 'a1',
+        prevSelectedSessionId: 'a1',
+        activeScope: 'p1',
+        collapsedIds: new Set(['p1']),
+      }),
+    ).toBeNull()
   })
 })
 

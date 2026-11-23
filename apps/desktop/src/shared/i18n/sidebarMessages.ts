@@ -116,6 +116,10 @@ export const sidebarMessages = {
   'sidebar.tree.summary': { zh: '{count} 个对话 · {time}', en: '{count} chats · {time}' },
   'sidebar.tree.empty': { zh: '还没有对话', en: 'No chats yet' },
   'sidebar.tree.more': { zh: '还有 {count} 个对话', en: '{count} more' },
+  'sidebar.tree.moreHint': {
+    zh: '单击再展开 {batch} 个，Shift+单击全部展开',
+    en: 'Click to show {batch} more; Shift+click to show all',
+  },
   'sidebar.tree.less': { zh: '收起', en: 'Show less' },
   'sidebar.tree.running': { zh: '{count} 个在运行', en: '{count} running' },
   'sidebar.tree.waiting': { zh: '{count} 个等你处理', en: '{count} need you' },
