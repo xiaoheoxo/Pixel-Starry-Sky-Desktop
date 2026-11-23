@@ -222,6 +222,10 @@ export const IPC_CONTRACT = {
     trust: 'sender',
   },
   'engine:config': { kind: 'invoke', route: 'selected', ids: [0], remote: 'engine:config', trust: 'sender' },
+  'modelMetadata:get': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'modelMetadata:setDetail': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'modelMetadata:setCloudCatalog': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'modelDisplay:references': { kind: 'invoke', route: 'local', trust: 'sender' },
   'engine:context': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:context', trust: 'sender' },
   'engine:createSession': {
     kind: 'invoke',

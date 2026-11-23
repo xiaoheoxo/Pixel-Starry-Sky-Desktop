@@ -11,6 +11,7 @@ import {
   type EngineId,
   type EngineInfo,
   type HostEvent,
+  type ModelDetail,
   type NativeAction,
   type NativeActionResult,
   type NativeImportResult,
@@ -41,6 +42,10 @@ export interface EngineState {
   defaults: EngineDefaults | null
   /** 各引擎的本机配置（设置 › 本机引擎）；输入框的引擎菜单按 hidden 过滤 */
   config: EngineConfig | null
+  /** 按通道保存的模型说明与自填参考价（顶层跨引擎独立存储） */
+  modelDetails: Record<string, ModelDetail>
+  /** 是否允许联网拉取 Models.dev / OpenRouter 公开模型说明与参考价 */
+  cloudModelCatalog: boolean
   projects: ProjectRecord[]
   sessions: SessionSummary[]
   /** 打开过的会话快照 */
@@ -57,6 +62,8 @@ let state: EngineState = {
   detectGen: 0,
   defaults: null,
   config: null,
+  modelDetails: {},
+  cloudModelCatalog: true,
   projects: [],
   sessions: [],
   snapshots: isDemo ? { ...demo().conversations.snapshots } : {},
@@ -233,6 +240,9 @@ function onHostEvent(e: HostEvent): void {
       set({ config: e.config })
       void refreshDefaults()
       return
+    case 'model_metadata':
+      set({ modelDetails: e.metadata.details, cloudModelCatalog: e.metadata.cloudCatalog })
+      return
   }
 }
 
@@ -251,6 +261,10 @@ export function startEngineStore(): void {
   })
   void bridge.engines().then(engines => set({ engines }))
   void bridge.config().then(config => set({ config }))
+  void bridge
+    .modelMetadata?.()
+    .then(meta => set({ modelDetails: meta.details, cloudModelCatalog: meta.cloudCatalog }))
+    .catch(() => {})
 }
 
 /** 确保会话快照已加载 */

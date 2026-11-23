@@ -4,6 +4,7 @@ import type {
   AccountAutoSwitch,
   AccountPatch,
   ApprovalDecision,
+  CloudModelReference,
   EngineAccountQuota,
   EngineAccounts,
   EngineCatalog,
@@ -18,6 +19,8 @@ import type {
   HostEvent,
   Item,
   MessageInput,
+  ModelDetailPatch,
+  ModelMetadataSettings,
   SendReceipt,
   SearchQuery,
   SearchResponse,
@@ -49,6 +52,11 @@ export interface EngineBridge {
   setDefaultEngine(engine: EngineId): Promise<EngineDefaults>
   /** 引擎实际报上来的可选项（输出风格）；不发消息 */
   catalog(engine: EngineId, force?: boolean): Promise<EngineCatalog>
+  /** 按通道模型明细、自填价与联网公开目录开关 */
+  modelMetadata(): Promise<ModelMetadataSettings>
+  setModelDetail(patch: ModelDetailPatch): Promise<ModelMetadataSettings>
+  setCloudModelCatalog(enabled: boolean): Promise<ModelMetadataSettings>
+  modelDisplayReferences(ids: readonly string[], force?: boolean): Promise<Record<string, CloudModelReference>>
   /** 检查更新（Claude Code：claude update），结束后重新检测 */
   updateEngine(engine: EngineId): Promise<EngineUpdateResult>
   /** 一键安装（只在 EngineInfo.installable 时可用）；过程看 engine:event 的 engine_job */

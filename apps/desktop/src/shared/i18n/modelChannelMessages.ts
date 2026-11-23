@@ -1,5 +1,69 @@
 // 模型通道（docs/ui/model-channels.md）：四条通道、谁来执行、授权弹窗、设置页
 export const modelChannelMessages = {
+  'modelDetails.position.flagship': { zh: '旗舰', en: 'Flagship' },
+  'modelDetails.position.subflagship': { zh: '次旗舰', en: 'Sub-flagship' },
+  'modelDetails.position.efficient': { zh: '高效', en: 'Efficient' },
+  'modelDetails.position.lightweight': { zh: '轻量', en: 'Lightweight' },
+  'modelDetails.cloudToggleTitle': {
+    zh: '自动拉取公开模型说明与参考价',
+    en: 'Fetch public model descriptions and reference prices',
+  },
+  'modelDetails.cloudToggleHint': {
+    zh: '从 Models.dev 与 OpenRouter 公开目录核对模型介绍和原厂 API 参考价（1 小时缓存，仅匹配型号，不传账号或对话）。离线或内网环境可关闭。',
+    en: 'Cross-check model descriptions and direct API reference prices from Models.dev and OpenRouter (1-hour cache; sends no account or chat data). Turn off in offline environments.',
+  },
+  'modelDetails.cloudDisabled': {
+    zh: '已关闭联网目录拉取，当前仅使用内置模型库与本机自填明细。',
+    en: 'Public catalog fetch is turned off; using built-in model guides and local overrides only.',
+  },
+  'modelDetails.title': { zh: '模型明细与参考价格', en: 'Model details and reference prices' },
+  'modelDetails.hint': {
+    zh: '同一型号在不同通道可独立编辑。用途说明默认来自内置模型库，修改后只在本机显示，不影响实际扣费。',
+    en: 'Customize the same model independently by channel. Usage descriptions start from the built-in guide; edits stay on this device and never change billing.',
+  },
+  'modelDetails.editedCount': { zh: '已自定义 {n} 个模型', en: '{n} customized' },
+  'modelDetails.editedBadge': { zh: '已自填', en: 'Custom' },
+  'modelDetails.noModels': {
+    zh: '还没有可配置的模型。请先检测引擎或设置模型通道。',
+    en: 'No models to configure yet. Detect an engine or set up a model channel first.',
+  },
+  'modelDetails.channel': { zh: '模型通道', en: 'Model channel' },
+  'modelDetails.model': { zh: '型号', en: 'Model' },
+  'modelDetails.main': { zh: '主模型用途', en: 'Main model use' },
+  'modelDetails.evaluator': { zh: 'Agnes 评估用途', en: 'Agnes evaluator use' },
+  'modelDetails.price': { zh: '通道价格 · 每百万 token', en: 'Channel price per million tokens' },
+  'modelDetails.currency': { zh: '币种', en: 'Currency' },
+  'modelDetails.input': { zh: '输入', en: 'Input' },
+  'modelDetails.output': { zh: '输出', en: 'Output' },
+  'modelDetails.fillReference': { zh: '填入原厂参考价', en: 'Use reference price' },
+  'modelDetails.reference': {
+    zh: 'Models.dev 原厂 API 参考（{model}）：输入 USD {input}，输出 USD {output}（每百万，非当前通道实价）。',
+    en: 'Models.dev API reference ({model}): USD {input} input, USD {output} output per 1M (not current channel billing).',
+  },
+  'modelDetails.cloudPrice': {
+    zh: '默认：Models.dev 原厂 API 参考价，不是订阅、平台线路或中转实际扣费。',
+    en: 'Default: Models.dev direct API reference, not subscription, platform, or relay billing.',
+  },
+  'modelDetails.cloudDescription': {
+    zh: 'OpenRouter 公开介绍（已核对型号）：{description}',
+    en: 'OpenRouter description (model identity verified): {description}',
+  },
+  'modelDetails.priceHint': {
+    zh: '留空表示未知，不是免费。自填价格优先于公开目录参考价；仅在开启「让评估模型选型」时随候选发给评估器，不影响扣费。',
+    en: 'Blank means unknown, not free. Custom prices override catalog references and are only shared with the evaluator when enabled. Billing is unchanged.',
+  },
+  'modelDetails.invalidPrice': {
+    zh: '请填写有效的非负输入和输出价格，或两项都留空。',
+    en: 'Enter valid non-negative input and output prices, or leave both blank.',
+  },
+  'modelDetails.error': { zh: '未能保存模型明细。', en: 'Could not save model details.' },
+  'modelDetails.saved': { zh: '已保存', en: 'Saved' },
+  'modelDetails.restored': {
+    zh: '已恢复默认说明并清除自填价格',
+    en: 'Restored default descriptions and cleared custom price',
+  },
+  'modelDetails.save': { zh: '保存', en: 'Save' },
+  'modelDetails.restore': { zh: '恢复默认', en: 'Restore defaults' },
   'dot.title': { zh: 'Dot', en: 'Dot' },
   'dot.yourDot': { zh: '你的 Dot', en: 'Your Dot' },
   'dot.details': { zh: 'Dot 详情', en: 'Dot details' },
@@ -213,6 +277,29 @@ export const modelChannelMessages = {
   'modelChannels.menu.layoutCols': { zh: '两栏', en: 'Two columns' },
   'modelChannels.menu.switchAccount': { zh: '切换账号', en: 'Switch account' },
   'modelChannels.menu.manageEndpoints': { zh: '管理接口', en: 'Manage endpoints' },
+  'modelChannels.menu.priceValue': {
+    zh: '{currency} {input} 入 / {output} 出 · 每百万',
+    en: '{currency} {input} in / {output} out · /1M',
+  },
+  'modelChannels.menu.priceCompact': {
+    zh: '{symbol}{input}/{symbol}{output} {tag}',
+    en: '{symbol}{input}/{symbol}{output} {tag}',
+  },
+  'modelChannels.menu.priceReference': { zh: '参考', en: 'Ref.' },
+  'modelChannels.menu.priceCustom': { zh: '自填', en: 'Custom' },
+  'modelChannels.menu.priceBasis.custom': { zh: '此通道的用户自填价。', en: 'User-configured rate for this channel.' },
+  'modelChannels.menu.priceBasis.catalog': {
+    zh: '公开 API 目录参考价，不是订阅实际费用。',
+    en: 'Public API catalog reference, not subscription billing.',
+  },
+  'modelChannels.menu.priceBasis.standard': {
+    zh: '官方 API Standard 短上下文参考价，长上下文和加速档可能不同；非订阅费。',
+    en: 'Official API Standard short-context reference; long context and faster tiers may differ. Not a subscription charge.',
+  },
+  'modelChannels.menu.priceBasis.relay-reference': {
+    zh: '原厂 API 短上下文参考价，不是中转实际扣费。',
+    en: 'Vendor short-context API reference, not relay billing.',
+  },
   'modelChannels.menu.refresh': { zh: '刷新模型和线路', en: 'Refresh models and routes' },
   'modelChannels.menu.manage': { zh: '管理模型…', en: 'Manage models…' },
   'modelChannels.menu.hiddenCount': { zh: '（已隐藏 {p0} 个）', en: '({p0} hidden)' },

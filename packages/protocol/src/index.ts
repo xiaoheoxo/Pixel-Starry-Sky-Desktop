@@ -1,5 +1,23 @@
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {
+  MAX_MODEL_DETAILS,
+  MODEL_DETAIL_CHANNELS,
+  MODEL_DETAIL_MAX_TEXT,
+  MODEL_PRICE_CURRENCIES,
+  currentCloudModelPrice,
+  modelDetailKey,
+  parseModelDetailPatch,
+  type CloudModelReference,
+  type ModelDetail,
+  type ModelDetailChannel,
+  type ModelDetailPatch,
+  type ModelDetailTarget,
+  type ModelMetadataSettings,
+  type ModelTokenPrice,
+} from './modelDetails'
+export { GPT56_SOL_PROMO_END, openAiApiReference, publicApiPriceReference } from './modelEvidence'
+export { getModelPosition, getModelRoleGuide, getModelVendorGuide, type ModelPosition } from './modelRoleGuide'
+export {
   pixelSpeedCapability,
   pixelSpeedOf,
   pixelSpeedTier,

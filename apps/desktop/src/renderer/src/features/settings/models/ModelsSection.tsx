@@ -25,6 +25,7 @@ import { openAccountsPage, useAccountsPage } from '@/features/model-channels/acc
 import { KeyChip, KeyLegend, KeyModeRow } from './PlatformKeyMode'
 import { useKeyMode } from '@/features/account/keyMode'
 import { CustomModelWindows } from './CustomModelWindows'
+import { ModelDetailsSection } from './ModelDetailsSection'
 import { setContextWindow, useContextWindows } from './contextWindows'
 import {
   mergedModels,
@@ -189,6 +190,9 @@ export function ModelsSection() {
 
       {/* 自定义 API 的模型也能在这里填窗口（docs/ui/context-settings-branch-switch.md §2.3.1） */}
       <CustomModelWindows />
+
+      {/* 联网公开目录开关与按通道模型明细编辑（docs/ui/agnes-model-guide-plan.md §4） */}
+      <ModelDetailsSection />
     </section>
   )
 }

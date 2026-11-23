@@ -73,6 +73,10 @@ export interface EngineSettingsFile {
   engineDefaults: Partial<Record<EngineId, SessionDefaults>>
   /** 各引擎的对话 / 上下文 / 菜单选项 */
   options: Partial<Record<EngineId, EngineOptions>>
+  /** 按通道保存的模型说明与参考价（顶层跨引擎独立存储；docs/ui/agnes-model-guide-plan.md §4.1） */
+  modelDetails?: Record<string, import('@pixelsky/protocol').ModelDetail>
+  /** 是否允许联网拉取 Models.dev / OpenRouter 公开模型说明与参考价（默认 true） */
+  cloudModelCatalog?: boolean
 }
 
 /** 设置 › 本机引擎 › 详情里的引擎级选项；没写的项用默认值 */
@@ -274,6 +278,10 @@ export class Store {
       compactModels: { ...(data?.compactModels ?? {}) },
       engineDefaults: { ...(data?.engineDefaults ?? {}) },
       options: { ...(data?.options ?? {}) },
+      ...(data?.modelDetails && typeof data.modelDetails === 'object' && !Array.isArray(data.modelDetails)
+        ? { modelDetails: { ...data.modelDetails } }
+        : {}),
+      ...(typeof data?.cloudModelCatalog === 'boolean' ? { cloudModelCatalog: data.cloudModelCatalog } : {}),
     }
   }
 

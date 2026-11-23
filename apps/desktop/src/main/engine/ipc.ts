@@ -156,6 +156,22 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   // 闲置多久关引擎进程（docs/engine-idle-release.md）：只管本机，值的校验在宿主里
   ipc.handle('engine:idleRelease', () => h.idleRelease())
   ipc.handle('engine:setIdleRelease', (_event, minutes: unknown) => h.setIdleRelease(minutes))
+  // 按通道模型明细与联网公开目录参考（docs/ui/agnes-model-guide-plan.md）
+  ipc.handle('modelMetadata:get', () => h.modelMetadata())
+  ipc.handle('modelMetadata:setDetail', (_event, patch: unknown) => h.setModelDetail(patch))
+  ipc.handle('modelMetadata:setCloudCatalog', (_event, enabled: unknown) => h.setCloudModelCatalog(enabled))
+  ipc.handle('modelDisplay:references', (_event, values: unknown, force: unknown) => {
+    const ids = Array.isArray(values)
+      ? [
+          ...new Set(
+            values
+              .slice(0, 2048)
+              .filter((id): id is string => typeof id === 'string' && id.length <= 300 && id.length > 0),
+          ),
+        ]
+      : []
+    return h.modelDisplayReferences(ids, force === true)
+  })
   registerQuotaIpc(h)
   watchSleep(h)
   backfillAfterSignIn(h)

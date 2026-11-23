@@ -232,6 +232,8 @@ export interface EngineModel {
   fastTier?: string
   /** model/list 的 serviceTiers 里列了 ultrafast */
   ultrafast?: boolean
+  /** 联网拉取的公开目录参考信息（Models.dev / OpenRouter），不代表实际扣费 */
+  cloudReference?: import('../modelDetails').CloudModelReference
 }
 
 /** 检查更新的结果 */

@@ -148,6 +148,8 @@ export type HostEvent =
   | { kind: 'retry_settings'; settings: { maxRetries: number | null } }
   /** 设置 › 本机引擎改了（输入框的引擎菜单按 hidden 过滤） */
   | { kind: 'engine_config'; config: EngineConfig }
+  /** 按通道模型明细或联网目录开关改了 */
+  | { kind: 'model_metadata'; metadata: import('../modelDetails').ModelMetadataSettings }
   | { kind: 'cache_warning'; warning: CacheWarning }
   /** seq：这个会话的事件序号，每个事件加一 */
   | { kind: 'session'; sessionId: string; seq: number; event: EngineEvent }

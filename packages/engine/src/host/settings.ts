@@ -4,13 +4,17 @@ import {
   AUTO_COMPACT_PCTS,
   CONTEXT_WINDOW_MAX,
   CONTEXT_WINDOW_MIN,
+  MAX_MODEL_DETAILS,
   codedError,
+  modelDetailKey,
+  parseModelDetailPatch,
   PROVIDER_ENV,
   EFFORTS,
   INPUT_PREDICTIONS,
   PEEK_SCOPES,
   PERMISSION_MODES,
   quietWarningKey,
+  type CloudModelReference,
   type ContextWindows,
   type Effort,
   type EngineCatalog,
@@ -23,6 +27,8 @@ import {
   type EngineLocalConfig,
   type EngineUpdateResult,
   type InputPrediction,
+  type ModelDetail,
+  type ModelMetadataSettings,
   type PeekScope,
   type ResetCreditAuto,
   type SessionDefaults,
@@ -32,6 +38,7 @@ import { logger } from '../log'
 import { ENGINE_ORDER, unsupportedInfo } from '../registry'
 import { retryLimit } from '../retry'
 import { DEFAULT_SETTINGS, idleReleaseMinutes, type EngineSettingsFile, type IdleReleaseMinutes } from '../store'
+import { CloudModelMetadata } from './cloud-model-metadata'
 import type { HostContext, Runtime } from './context'
 
 const WINDOW_SOURCES = ['platform', 'self'] as const
@@ -126,9 +133,12 @@ export class HostSettings {
   private readonly updating = new Map<EngineId, EngineJob['action']>()
   /** 引擎运行时报的配置类警告：引擎 → 类别 → 最新一条原文（reportConfigWarning），engines() 带进引擎信息 */
   private readonly configWarnings: Partial<Record<EngineId, Map<string, string>>> = {}
+  /** 联网公开目录参考价与模型说明缓存（models.dev + OpenRouter；仅在 cloudModelCatalog 开启时请求） */
+  private readonly cloudModelMetadata: CloudModelMetadata
 
   constructor(private readonly ctx: HostContext) {
     this.file = ctx.store.loadSettings()
+    this.cloudModelMetadata = new CloudModelMetadata(ctx.opts.fetch)
   }
 
   /** force：重新检测；userDetect：用户自己点的「重新检测」（只有这时才清掉记下的配置警告） */
@@ -442,6 +452,73 @@ export class HostSettings {
     return this.defaults()
   }
 
+  /** 按通道保存的模型说明与参考价（顶层跨引擎独立存储，兼容旧 options.codex.modelDetails 读取） */
+  modelDetails(): Record<string, ModelDetail> {
+    const legacy = (this.file.options.codex as { modelDetails?: Record<string, unknown> } | undefined)?.modelDetails
+    const raw = this.file.modelDetails ?? legacy ?? {}
+    const out: Record<string, ModelDetail> = {}
+    for (const [key, detail] of Object.entries(raw)) {
+      if (Object.keys(out).length >= MAX_MODEL_DETAILS) break
+      try {
+        const parsedKey = JSON.parse(key)
+        if (!Array.isArray(parsedKey) || parsedKey.length !== 3) continue
+        const [channel, sourceId, model] = parsedKey
+        const parsed = parseModelDetailPatch({ target: { channel, sourceId, model }, detail })
+        if (parsed?.detail) out[modelDetailKey(parsed.target)] = parsed.detail
+      } catch {
+        // 忽略手改设置文件里的畸形键
+      }
+    }
+    return out
+  }
+
+  cloudModelCatalog(): boolean {
+    return this.file.cloudModelCatalog !== false
+  }
+
+  modelMetadata(): ModelMetadataSettings {
+    return { details: this.modelDetails(), cloudCatalog: this.cloudModelCatalog() }
+  }
+
+  setModelDetail(raw: unknown): ModelMetadataSettings {
+    const change = parseModelDetailPatch(raw)
+    if (!change) throw new Error('模型明细参数不对')
+    const details = this.modelDetails()
+    const key = modelDetailKey(change.target)
+    if (change.detail) {
+      if (!(key in details) && Object.keys(details).length >= MAX_MODEL_DETAILS)
+        throw new Error('自定义模型明细数量已达上限')
+      details[key] = change.detail
+    } else {
+      delete details[key]
+    }
+    const next: EngineSettingsFile = { ...this.file }
+    if (Object.keys(details).length > 0) next.modelDetails = details
+    else delete next.modelDetails
+    this.ctx.store.saveSettings(next)
+    this.file = next
+    const metadata = this.modelMetadata()
+    this.ctx.opts.emit({ kind: 'model_metadata', metadata })
+    return metadata
+  }
+
+  setCloudModelCatalog(enabled: unknown): ModelMetadataSettings {
+    if (typeof enabled !== 'boolean') throw new Error('联网目录开关的值不对')
+    const next: EngineSettingsFile = { ...this.file }
+    if (enabled) delete next.cloudModelCatalog
+    else next.cloudModelCatalog = false
+    this.ctx.store.saveSettings(next)
+    this.file = next
+    const metadata = this.modelMetadata()
+    this.ctx.opts.emit({ kind: 'model_metadata', metadata })
+    return metadata
+  }
+
+  modelDisplayReferences(ids: readonly string[], force = false): Promise<Record<string, CloudModelReference>> {
+    if (!this.cloudModelCatalog() || !ids.length) return Promise.resolve({})
+    return this.cloudModelMetadata.displayReferences(ids, force)
+  }
+
   async engineCatalog(engine: EngineId, force = false): Promise<EngineCatalog> {
     const adapter = this.ctx.adapters[engine]
     if (!adapter?.catalog) return { outputStyles: [], currentOutputStyle: null }
@@ -449,7 +526,23 @@ export class HostSettings {
     const catalog = await adapter.catalog(force)
     const nextPlan = (await adapter.info().catch(() => null))?.account?.plan
     if (nextPlan !== prevPlan) this.ctx.opts.emit({ kind: 'engines', engines: await this.engines() })
-    return catalog
+    if (!this.cloudModelCatalog()) return catalog
+    const provider =
+      engine === 'codex' ? 'openai' : engine === 'claude' ? 'anthropic' : engine === 'antigravity' ? 'google' : null
+    if (
+      !provider ||
+      !catalog.models?.length ||
+      (engine === 'codex' && catalog.currentProvider && catalog.currentProvider !== 'openai')
+    )
+      return catalog
+    await this.cloudModelMetadata.refresh()
+    return {
+      ...catalog,
+      models: catalog.models.map(model => ({
+        ...model,
+        cloudReference: this.cloudModelMetadata.get(provider, model.resolved ?? model.id),
+      })),
+    }
   }
 
   async updateEngine(engine: EngineId): Promise<EngineUpdateResult> {

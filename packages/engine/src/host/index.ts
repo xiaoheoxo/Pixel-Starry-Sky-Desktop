@@ -310,6 +310,23 @@ export class EngineHost {
     return this.m.settings.engineCatalog(engine, force)
   }
 
+  /** 跨通道模型说明、自填价与联网公开目录开关 */
+  modelMetadata() {
+    return this.m.settings.modelMetadata()
+  }
+
+  setModelDetail(patch: unknown) {
+    return this.m.settings.setModelDetail(patch)
+  }
+
+  setCloudModelCatalog(enabled: unknown) {
+    return this.m.settings.setCloudModelCatalog(enabled)
+  }
+
+  modelDisplayReferences(ids: readonly string[], force = false) {
+    return this.m.settings.modelDisplayReferences(ids, force)
+  }
+
   /** 检查更新：交给引擎自己的更新命令，结束后重新检测并广播 */
   async updateEngine(engine: EngineId): Promise<EngineUpdateResult> {
     return this.m.settings.updateEngine(engine)
