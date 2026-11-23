@@ -159,6 +159,7 @@ describe('消息队列：调度与恢复', () => {
     const s = host.open(record.id)
     expect(s.items.some(i => i.id === 'm2')).toBe(false)
     expect(s.queue).toEqual([])
+    expect(s.queuePaused).toBe(false)
   })
   it('文本文件：接在消息后面发给引擎，对话和队列里单独保留，重启恢复不丢', async () => {
     const { host, adapter, record } = setup()

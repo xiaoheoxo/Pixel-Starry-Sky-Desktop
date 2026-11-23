@@ -733,8 +733,8 @@ describe('断线自动重连：回退与重新排期', () => {
     expect(session().inputs).toHaveLength(1)
   })
 
-  it('held 的重连项（旧版本存盘可能留下）界面不显示卡片，回退也不拦', async () => {
-    const { host, record, send, queue, hostCtx, session } = setup({ reconnectDelays: [60_000] })
+  it('held 的重连项（旧版本存盘可能留下）界面不显示卡片，回退也不拦；回退后一起清掉，发新消息不再带出来', async () => {
+    const { host, adapter, record, send, queue, hostCtx, session } = setup({ reconnectDelays: [60_000] })
     await send('a')
     await until(() => !!session()?.active)
     session().drop()
@@ -742,6 +742,15 @@ describe('断线自动重连：回退与重新排期', () => {
     hostCtx().m.queue.changeQueue(record.id, 'a', { held: true })
     await host.rewind(record.id, 'a')
     expect(host.open(record.id).items.some(i => i.id === 'a')).toBe(false)
+    expect(queue()).toEqual([])
+    expect(host.open(record.id).queuePaused).toBe(false)
+    await send('b')
+    // 回退关掉了原来的进程：新消息在新进程里
+    const last = () => adapter.sessions.at(-1)!
+    await until(() => adapter.sessions.length === 2 && !!last().active)
+    last().finish()
+    await until(() => host.open(record.id).state === 'idle')
+    expect(adapter.sessions.flatMap(x => x.inputs.map(i => i.id))).toEqual(['a', 'b'])
   })
 
   it('到点时会话正忙：1 秒后再排，不会一直卡住', async () => {
