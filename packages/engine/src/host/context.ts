@@ -52,6 +52,8 @@ export interface EngineHostOptions {
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   /** 像素星空命令行的自带入口（开发时 packages/cli/src/cli.ts；PIXELSKY_CLI_BIN 优先于它，再其次是 PATH 上的 pixelsky） */
   pixelCli?: string | null
+  /** 应用自带的本机 Codex 派遣组件，不从扩展商店或项目加载。 */
+  agnesDispatchBundle?: string | null
   /** 对话检查点（docs/ui/undo-changes.md）：每轮前后给工作目录拍快照。桌面端和远程辅助进程打开，测试默认关 */
   checkpoints?: boolean
   /** 测试用：这个目录所在磁盘的剩余字节数（默认 fs.statfs）；少于 5 GiB 不拍新快照（docs/ui/checkpoint-disk.md） */

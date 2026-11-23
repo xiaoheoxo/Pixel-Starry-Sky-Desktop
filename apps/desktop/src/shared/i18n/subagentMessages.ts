@@ -14,6 +14,12 @@ export const subagentMessages = {
   'subagent.box.untitled': { zh: '子任务', en: 'Subagent' },
   'subagent.box.workflow': { zh: '多智能体编排', en: 'Multi-agent workflow' },
   'subagent.box.agents': { zh: '{n} 个智能体', en: '{n} agents' },
+  'subagent.box.agnes': { zh: '采纳 Agnes 建议', en: 'Agnes recommendation used' },
+  'subagent.box.agnesMatch': { zh: '符合 Agnes 建议', en: 'Matches Agnes advice' },
+  'subagent.box.agnesMatchHint': {
+    zh: '实际报告的模型与本轮建议一致，未确认是否由主模型采纳。',
+    en: 'The reported model matches the advice for this turn; adoption is not confirmed.',
+  },
   'subagent.box.chosen': { zh: '主模型选的', en: 'Picked by main model' },
   'subagent.box.outsideGroup': { zh: '分组外', en: 'Outside group' },
   'subagent.box.approval': { zh: '等你批准', en: 'Needs approval' },

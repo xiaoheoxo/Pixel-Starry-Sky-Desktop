@@ -161,6 +161,7 @@ export class EngineHost {
         sessionEnv: opts.sessionEnv,
         // 当前订阅账号的目录（docs/ui/engine-accounts.md）；模块装好之前（构造时不会启动进程）用原来的
         account: () => ctx.m?.accounts.currentDir('codex') ?? null,
+        agnesDispatchBundle: opts.agnesDispatchBundle,
         launchOptions: () => {
           const o = settings.launchOptions('codex')
           return {
@@ -170,6 +171,10 @@ export class EngineHost {
             contextWindows: o.contextWindows,
             subagentModel: o.subagentModel,
             subagentEffort: o.subagentEffort,
+            subagentFollowAdvisor: o.subagentFollowAdvisor,
+            subagentAdvisor: o.subagentAdvisor,
+            modelDetails: () => settings.modelDetails(),
+            advisorPublicMetadata: settings.advisorPublicMetadata(),
             inputPrediction: o.inputPrediction,
             autoReviewModel: o.autoReviewModel,
             steeringValidated: true,

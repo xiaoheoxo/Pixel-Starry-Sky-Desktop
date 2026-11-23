@@ -1,3 +1,4 @@
+import { AgnesModelBadge } from './AgnesModelBadge'
 import { translateMessage } from '../../../i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, type TranslationKey } from '../../../i18n/core'
@@ -172,6 +173,11 @@ function AgentRow({
             </span>
           )}
         </span>
+        {(a.modelSource === 'agnes' || a.modelSource === 'agnes-match') && (
+          <span className="w-fit">
+            <AgnesModelBadge source={a.modelSource} />
+          </span>
+        )}
         {act && (
           <span
             data-activity={act.kind}
@@ -688,6 +694,7 @@ function AgentFocus({
                 .join(' · ')}
             </span>
           )}
+          <AgnesModelBadge source={agent.modelSource} />
           <span>{RUN_STATE_LABEL[s]}</span>
           <span>{formatDuration(elapsed(agent, s, now))}</span>
           <span>{formatCount(agent.tokens)} tokens</span>

@@ -29,7 +29,7 @@ import { withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { customCodex, discoverCodex, toolEnvironment } from './discover'
-import { codexOneShot } from './oneshot'
+import { codexAdvisorOneShot, codexOneShot } from './oneshot'
 import { OneShotError, type OneShotReply, type OneShotRequest } from '../oneshot'
 import { codexAnchor, readCodexTurns } from './branch'
 import { CodexProcess, object, string } from './process'
@@ -61,6 +61,7 @@ export interface CodexAdapterOptions {
   systemProxy?: () => string | null
   sessionEnv?: (record: SessionRecord) => NodeJS.ProcessEnv
   launcher?: Launcher
+  agnesDispatchBundle?: string | null
   launchOptions?: () => CodexLaunchOptions
   /** 桌面端的私有 Node.js：没装 Node.js 时一键安装先装它；它和装在里面的 Codex 补在 PATH 最后（docs/ui/engine-update.md §7） */
   nodeRuntime?: NodeRuntime
@@ -357,7 +358,15 @@ export class CodexAdapter implements EngineAdapter {
    * （以前一个子智能体开着详情两分钟就起了五十多个进程）
    */
   /** 不带会话、用当前登录的账号单独问一次（AI 写提交信息，docs/ui/ai-commit-channels.md §4） */
-  async oneShot(req: OneShotRequest, signal: AbortSignal): Promise<OneShotReply> {
+  async oneShot(
+    req: OneShotRequest,
+    signal: AbortSignal,
+    bound?: { launcher: Launcher; args: string[]; env: NodeJS.ProcessEnv },
+  ): Promise<OneShotReply> {
+    if (bound)
+      return req.requireEphemeral
+        ? codexAdvisorOneShot(bound.launcher, bound.env, req, signal)
+        : codexOneShot(bound.launcher, bound.args, bound.env, req, signal)
     const info = await this.info()
     const launcher = this.cached?.launcher
     if (!launcher || info.status === 'missing' || info.status === 'outdated' || info.status === 'unsupported')
@@ -579,10 +588,22 @@ export class CodexAdapter implements EngineAdapter {
     )
       throw new Error(result?.info.message ?? 'Codex is unavailable')
     const env = this.sessionEnvironment(result.launcher, ctx.record())
+    const advisorAccount = { launcher: result.launcher, args: [], env: { ...env } }
     const session = new CodexSession(result.launcher, env, ctx, {
       ...this.sessionOptions(result.launcher, result.info.version ?? null),
       // 宿主的运行时里已经有（打开会话时从 rollout 读过，之后实时更新）：直接用，不再整读一遍 rollout。
       // 没有进程可接着跑了，还停在 running 的标成已中断（与 loadCodexRuns 一致）
+      currentSubagentFollowAdvisor: () => this.opts.launchOptions?.().subagentFollowAdvisor === true,
+      currentSubagentAdvisor: () => this.opts.launchOptions?.().subagentAdvisor ?? null,
+      dispatchBundle: this.opts.agnesDispatchBundle,
+      evaluateSubagent: async (model, prompt, signal, candidates) => {
+        const reply = await this.oneShot(
+          { model, prompt, requireEphemeral: true, ...(candidates?.length ? { advisorModelIds: candidates } : {}) },
+          signal,
+          advisorAccount,
+        )
+        return reply.model && reply.model !== model ? '' : reply.text
+      },
       savedAgents: () =>
         ctx.runs
           ? ctx.runs().agents.map(agent => ({ ...interruptedAgent(agent) }))

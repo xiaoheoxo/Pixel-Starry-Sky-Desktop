@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { makeTmp, removeTmp } from './helpers/tmp'
 // 单独问一次（AI 写提交信息的 Claude 授权 / ChatGPT 授权通道，docs/ui/ai-commit-channels.md §4）
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { OneShotError, oneShotProblem } from '../src/oneshot'
+import { AdvisorIsolationError, OneShotError, oneShotProblem } from '../src/oneshot'
 import { oneShotArgs, oneShotOnce, parseOneShot } from '../src/claude/helper'
-import { codexOneShot, codexOneShotProblem } from '../src/codex/oneshot'
+import { codexAdvisorOneShot, codexOneShot, codexOneShotProblem } from '../src/codex/oneshot'
 
 const FAKE_CLAUDE = fileURLToPath(new URL('./fakes/fake-claude.mjs', import.meta.url))
 const FAKE_CODEX = fileURLToPath(new URL('./fakes/fake-codex.mjs', import.meta.url))
@@ -123,6 +126,63 @@ describe('Codex 单独问一次', () => {
       model: 'gpt-mini',
       usage: { input: 50, output: 10, cacheRead: 50, cacheWrite: 0 },
     })
+  })
+
+  it('requires an explicit ephemeral result for Agnes before sending user text', async () => {
+    const run = (state: string) =>
+      codexOneShot(
+        launcher,
+        [],
+        { ...process.env, FAKE_CODEX_THREAD_MODEL: 'gpt-mini', FAKE_CODEX_ADVISOR: state },
+        { prompt: 'private text', model: 'gpt-mini', requireEphemeral: true },
+        new AbortController().signal,
+      )
+    expect(await caught(run('missing'))).toMatchObject({
+      stage: 'thread',
+      message: expect.stringContaining('not confirmed ephemeral'),
+    })
+    expect(await caught(run('network'))).toMatchObject({ stage: 'thread' })
+    expect(await caught(run('wrong-profile'))).toMatchObject({ stage: 'thread' })
+    expect(await caught(run('wrong-provider'))).toMatchObject({ kind: 'model' })
+    expect((await run('confirmed')).text).toContain('private text')
+  })
+
+  it('disables configured MCP entries in the evaluator process and confirms isolation again', async () => {
+    const tmp = makeTmp('agnes-isolation')
+    const log = join(tmp, 'rpc.log')
+    const opts = { ...process.env, FAKE_CODEX_THREAD_MODEL: 'gpt-mini', FAKE_CODEX_ADVISOR: 'mcp', FAKE_CODEX_LOG: log }
+    const req = { prompt: 'synthetic evaluation', model: 'gpt-mini', requireEphemeral: true } as const
+    try {
+      const direct = await caught(codexOneShot(launcher, [], opts, req, new AbortController().signal))
+      expect(direct).toBeInstanceOf(AdvisorIsolationError)
+      expect(direct).toMatchObject({ stage: 'tools', mcpToDisable: ['test-connector'] })
+      expect(readFileSync(log, 'utf8')).not.toMatch(/thread\/start|turn\/start|synthetic evaluation/)
+      const reply = await codexAdvisorOneShot(launcher, opts, req, new AbortController().signal)
+      expect(reply.text).toContain('synthetic evaluation')
+      const sent = readFileSync(log, 'utf8')
+      expect(sent.match(/"method":"turn\/start"/g)).toHaveLength(1)
+      const messages = sent
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line))
+      const open = messages.find(m => m.method === 'thread/start').params
+      const turn = messages.find(m => m.method === 'turn/start').params
+      expect(open.permissions).toMatch(/^pixelsky-agnes-/)
+      expect(turn.permissions).toBe(open.permissions)
+      expect(open).not.toHaveProperty('sandbox')
+      expect(turn).not.toHaveProperty('sandboxPolicy')
+      await expect(
+        codexAdvisorOneShot(
+          launcher,
+          { ...opts, FAKE_CODEX_ADVISOR: 'tools-unsafe' },
+          req,
+          new AbortController().signal,
+        ),
+      ).rejects.toMatchObject({ stage: 'tools', mcpToDisable: [] })
+      expect(readFileSync(log, 'utf8').match(/"method":"turn\/start"/g)).toHaveLength(1)
+    } finally {
+      removeTmp(tmp)
+    }
   })
 
   it('额度用完报 usageLimit', async () => {

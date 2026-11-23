@@ -11,6 +11,7 @@ import { usePlatform } from '@/features/account/platform'
 import { providersFor, useProviders } from '@/features/account/providers'
 import { savedTypes, setSubagentSettings, useSubagentSettings } from './subagents'
 import { SubagentTypeCard, TYPE_ICONS, minutesLabel, typeName, type SiteContext } from './SubagentTypeCard'
+import { AgnesAdvisorCard } from './AgnesAdvisorCard'
 import { useUnsavedCheck } from './unsavedEdits'
 import {
   SUBAGENT_TEMPLATES,
@@ -241,6 +242,8 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
         </section>
 
         <aside className="flex min-w-0 flex-col gap-4 @4xl:sticky @4xl:top-0">
+          <AgnesAdvisorCard />
+
           <div className="rounded-xl bg-surface shadow-sm">
             <h4 data-setting-title={tr('subagentRoute.shared')} className="px-4 pt-3 text-ui font-semibold text-fg">
               {tr('subagentRoute.shared')}

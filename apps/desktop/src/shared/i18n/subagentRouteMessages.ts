@@ -49,8 +49,8 @@ export const subagentRouteMessages = {
     en: 'The main session can hand subtasks such as research or batch edits to subagents. Split them into types by purpose; each type can use its own site, model and tool permissions.',
   },
   'subagentRoute.scope': {
-    zh: '下面的类型只对 Pixel 的会话生效；Claude Code 用自带的子智能体，Codex 的在「本机引擎 › Codex」里设置',
-    en: 'These types apply to Pixel sessions only. Claude Code keeps its own subagents; set Codex’s under Local engines › Codex',
+    zh: '子智能体类型仅对 Pixel 会话生效。Claude Code 使用自带的子智能体；Codex 的默认子智能体模型仍在「本机引擎 › Codex」设置。',
+    en: 'Subagent types apply only to Pixel sessions. Claude Code uses its own subagents; set Codex’s default subagent model under Local engines › Codex.',
   },
   'subagentRoute.types': { zh: '类型', en: 'Types' },
   'subagentRoute.typesHint': {
@@ -265,6 +265,60 @@ export const subagentRouteMessages = {
     en: 'How many can run at once in a session; the rest wait in line.',
   },
   'subagentRoute.minutes': { zh: '{n} 分钟', en: '{n} min' },
+  'subagentRoute.advisor.title': { zh: 'Agnes 子智能体模型建议', en: 'Agnes subagent model advice' },
+  'subagentRoute.advisor.hint': {
+    zh: '适用于 Codex 会话，只建议你在下方选中的可用模型。按子任务难度匹配模型与推荐推理强度，不会切换主模型或自动派出子智能体。',
+    en: 'For Codex sessions. Only suggests available models selected below, matching model and reasoning effort by task difficulty without switching the main model or launching workers.',
+  },
+  'subagentRoute.advisor.dispatchMode': { zh: '派遣执行方式', en: 'Dispatch mode' },
+  'subagentRoute.advisor.dispatchSuggestShort': { zh: '建议', en: 'Suggest' },
+  'subagentRoute.advisor.dispatchForceShort': { zh: '强制', en: 'Enforce' },
+  'subagentRoute.advisor.dispatchSuggestHint': {
+    zh: '派遣子智能体时经内置组件注入建议（首次需在 Codex /hooks 确认信任），不阻断派遣。',
+    en: 'Injects model advice when spawning subagents via the built-in hook (review and trust once in Codex /hooks); never blocks dispatch.',
+  },
+  'subagentRoute.advisor.dispatchForceHint': {
+    zh: '派遣时强制改写模型与推理强度并带回执核验（仅支持隔离上下文的独立派遣；评估失败会拒绝派遣）。首次需在 Codex /hooks 确认信任。',
+    en: 'Rewrites model and reasoning effort on dispatch with receipt verification (requires isolated dispatch; rejects on evaluation failure). Review and trust once in Codex /hooks.',
+  },
+  'subagentRoute.advisor.evaluator': { zh: '难度评估方式', en: 'Difficulty evaluator' },
+  'subagentRoute.advisor.local': { zh: '本机规则（零额外请求）', en: 'Local rules (no extra requests)' },
+  'subagentRoute.advisor.localHint': {
+    zh: '纯本地规则判定难度，不发送任何额外请求、不消耗额度。',
+    en: 'Assesses task difficulty locally without sending extra requests or using quota.',
+  },
+  'subagentRoute.advisor.remoteHint': {
+    zh: '所选模型经当前 Codex 账号单独评估任务文本（隔离历史与 MCP），可能消耗额度；附件、平台／自定义通道与超时自动回退本机规则。',
+    en: 'The selected model evaluates task text in an isolated Codex request (may use quota). Attachments, platform/custom routes, and timeouts fall back to local rules.',
+  },
+  'subagentRoute.advisor.advanced': {
+    zh: '进阶：让评估模型自主选型与额外候选池',
+    en: 'Advanced: evaluator model selection & extra pool',
+  },
+  'subagentRoute.advisor.advancedCount': { zh: '已添 {n} 个', en: '{n} added' },
+  'subagentRoute.advisor.expand': { zh: '展开', en: 'Expand' },
+  'subagentRoute.advisor.collapse': { zh: '收起', en: 'Collapse' },
+  'subagentRoute.advisor.evaluatorPicksModel': { zh: '让评估模型自主选型', en: 'Let the evaluator pick a model' },
+  'subagentRoute.advisor.evaluatorPicksHint': {
+    zh: '按厂商把已选可用候选的简短用途与自填参考价发给评估模型，允许跨档挑模或放弃推荐（增加少量输入 token）。',
+    en: 'Shares available configured candidates grouped by vendor with short guides and custom prices so the evaluator may pick across tiers or abstain.',
+  },
+  'subagentRoute.advisor.extraModels': { zh: '额外候选模型', en: 'Extra candidate models' },
+  'subagentRoute.advisor.extraHint': {
+    zh: '最多再选 {max} 个，不绑定难度档位，仅在开启「让评估模型自主选型」时生效。',
+    en: 'Add up to {max} more models without fixed tiers. Used only when evaluator selection is enabled.',
+  },
+  'subagentRoute.advisor.addModel': { zh: '添加候选模型…', en: 'Add candidate model…' },
+  'subagentRoute.advisor.removeModel': { zh: '移除 {id}', en: 'Remove {id}' },
+  'subagentRoute.advisor.noAdvice': { zh: '不发送建议', en: 'No advice' },
+  'subagentRoute.advisor.light': { zh: '轻量任务', en: 'Light tasks' },
+  'subagentRoute.advisor.lightSub': { zh: '搜索 / 小修改', en: 'Search / small edits' },
+  'subagentRoute.advisor.medium': { zh: '常规任务', en: 'Standard tasks' },
+  'subagentRoute.advisor.mediumSub': { zh: '功能开发 / 单测', en: 'Features / tests' },
+  'subagentRoute.advisor.difficult': { zh: '困难任务', en: 'Difficult tasks' },
+  'subagentRoute.advisor.difficultSub': { zh: '跨模块重构 / 排障', en: 'Refactors / debugging' },
+  'subagentRoute.advisor.expert': { zh: '极难任务', en: 'Expert tasks' },
+  'subagentRoute.advisor.expertSub': { zh: '核心架构 / 根因分析', en: 'Architecture / deep root cause' },
   'subagentRoute.codex.title': { zh: 'Codex 子智能体', en: 'Codex subagents' },
   'subagentRoute.codex.hint': {
     zh: 'Codex 派出的子智能体用这个模型，主会话不变；跟随主会话时 Astra 会派出一批 Astra。只影响之后派出的；自带模型的角色（explorer）不受影响。',
@@ -272,6 +326,16 @@ export const subagentRouteMessages = {
   },
   'subagentRoute.codex.model': { zh: '子智能体模型', en: 'Subagent model' },
   'subagentRoute.codex.follow': { zh: '跟随主会话', en: 'Follow main session' },
+  'subagentRoute.codex.followAdvisor': { zh: '跟随 Agnes 智能建议', en: 'Follow Agnes model selection' },
+  'subagentRoute.codex.followAdvisorHint': {
+    zh: '子智能体将按「设置 › 子智能体」里的 Agnes 候选池与派遣模式选模；仅在核验采纳或型号匹配时显示对应徽章。',
+    en: 'Subagents follow your Agnes configuration under Settings › Subagents. Badges appear on verified adoption or matching models.',
+  },
+  'subagentRoute.codex.agnesOffWarn': {
+    zh: 'Agnes 当前已关闭，选择跟随暂不会生效。',
+    en: 'Agnes is currently off, so following it will not take effect yet.',
+  },
+  'subagentRoute.codex.enableAgnesNow': { zh: '立即开启 Agnes', en: 'Enable Agnes now' },
   'subagentRoute.codex.noCatalog': {
     zh: 'Codex 还没报上模型列表，检测好再选。',
     en: 'Codex has not reported its models yet; pick one after detection.',
@@ -287,7 +351,7 @@ export const subagentRouteMessages = {
     en: 'The type you are editing is not saved. Leaving will lose your changes.',
   },
   // 改版（docs/ui/subagent-settings-v2-mockup.html）：两栏、从模板新建、主会话看到的类型说明
-  'subagentRoute.scopeShort': { zh: '只对 Pixel 生效', en: 'Pixel only' },
+  'subagentRoute.scopeShort': { zh: '类型仅适用于 Pixel', en: 'Types: Pixel only' },
   'subagentRoute.count': { zh: '{n} / {max}', en: '{n} / {max}' },
   'subagentRoute.templates': { zh: '从模板新建', en: 'Start from a template' },
   'subagentRoute.templatesHint': { zh: '点一下建好，展开再改', en: 'One click creates it; adjust before saving' },

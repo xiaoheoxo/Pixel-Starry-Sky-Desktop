@@ -168,6 +168,8 @@ export interface EngineLocalConfig {
   peekSessions: PeekScope
   subagentModel: string | null
   subagentEffort: Effort | null
+  subagentFollowAdvisor?: boolean
+  subagentAdvisor?: import('../subagentAdvisor').SubagentAdvisor | null
   inputPrediction: InputPrediction
   autoReviewModel: string | null
   /** 周限快到时自动用重置卡（docs/ui/codex-reset-card.md）；只对 Codex 生效，null 关 */

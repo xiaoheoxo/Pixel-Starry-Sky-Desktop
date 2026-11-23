@@ -101,6 +101,8 @@ export interface EngineOptions {
   /** Codex 子智能体的模型和推理强度（docs/ui/codex-subagent-model.md）；只存指定了的 */
   subagentModel?: string
   subagentEffort?: Effort
+  subagentFollowAdvisor?: true
+  subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor
   /** Codex 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；只存指定了的 */
   autoReviewModel?: string
   /** Codex 输入预测；只存 cheap / same */

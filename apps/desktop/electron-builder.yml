@@ -22,6 +22,9 @@ afterPack: build/after-pack.cjs
 extraResources:
   - from: build/tray
     to: tray
+  - from: ../../packages/engine/assets/agnes-dispatch
+    to: agnes-dispatch
+    filter: ['.agents/**', '.codex-plugin/**', 'hooks/hooks.json', 'hooks/route.cjs', 'README*.md']
   # 预装扩展（预装主题、毛玻璃）
   - from: ../../extensions/builtin
     to: builtin-extensions
@@ -106,6 +109,9 @@ linux:
   extraResources:
     - from: build/icon.png
       to: icon.png
+    - from: ../../packages/engine/assets/agnes-dispatch
+      to: agnes-dispatch
+      filter: ['.agents/**', '.codex-plugin/**', 'hooks/hooks.json', 'hooks/route.cjs', 'README*.md']
     # Linux 的 extraResources 会覆盖顶层的，命令行和预装扩展要再写一遍
     - from: ../../packages/cli/dist/pixel-cli
       to: pixel-cli

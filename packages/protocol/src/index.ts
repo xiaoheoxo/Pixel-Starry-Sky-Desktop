@@ -1,5 +1,12 @@
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {
+  ADVISOR_DIFFICULTIES,
+  MAX_ADVISOR_EXTRA_MODELS,
+  parseSubagentAdvisor,
+  type AdvisorDifficulty,
+  type SubagentAdvisor,
+} from './subagentAdvisor'
+export {
   MAX_MODEL_DETAILS,
   MODEL_DETAIL_CHANNELS,
   MODEL_DETAIL_MAX_TEXT,

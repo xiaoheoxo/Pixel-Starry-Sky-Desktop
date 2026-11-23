@@ -5,6 +5,8 @@
 export interface OneShotRequest {
   prompt: string
   model: string | null
+  requireEphemeral?: true
+  advisorModelIds?: readonly string[]
 }
 
 export interface OneShotUsage {
@@ -41,6 +43,18 @@ export class OneShotError extends Error {
   ) {
     super(message)
     this.name = 'OneShotError'
+  }
+}
+
+/** Safe, structured Agnes diagnostics; never show raw RPC bodies or credentials. */
+export class AdvisorIsolationError extends OneShotError {
+  constructor(
+    readonly stage: 'tools' | 'thread' | 'action',
+    message: string,
+    readonly mcpToDisable: readonly string[] = [],
+  ) {
+    super('failed', message)
+    this.name = 'AdvisorIsolationError'
   }
 }
 

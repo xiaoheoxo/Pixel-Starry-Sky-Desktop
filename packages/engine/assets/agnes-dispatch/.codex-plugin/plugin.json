@@ -1,0 +1,6 @@
+{
+  "name": "pixelsky-agnes-dispatch",
+  "version": "0.1.1",
+  "description": "Evaluate the actual Codex subagent task at dispatch through PixelSky.",
+  "hooks": "./hooks/hooks.json"
+}

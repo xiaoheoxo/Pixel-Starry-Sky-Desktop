@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import readline from 'node:readline'
+import agnesHook from '../../assets/agnes-dispatch/hooks/route.cjs'
 // 模型目录要用的两种模式（debug models、实测默认提示词）：命中时这个模块不往下执行
 import './fake-codex-catalog.mjs'
 if (process.env.FAKE_CODEX_ARGV)
@@ -386,6 +387,26 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           : { account: { type: 'apiKey' }, requiresOpenaiAuth: true },
       )
       break
+    case 'hooks/list':
+      response(m, {
+        data: [
+          {
+            hooks: process.env.FAKE_AGNES_DISPATCH_TRUSTED
+              ? [
+                  {
+                    source: 'plugin',
+                    pluginId: 'pixelsky-agnes-dispatch@pixelsky-agnes-builtin',
+                    eventName: 'preToolUse',
+                    matcher: '^(collaboration[.:])?(spawn_agent|Agent)$',
+                    enabled: true,
+                    trustStatus: 'trusted',
+                  },
+                ]
+              : [],
+          },
+        ],
+      })
+      break
     case 'model/list':
       response(m, { data: models, nextCursor: null })
       break
@@ -395,6 +416,25 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           ...(process.env.FAKE_CODEX_NO_MODEL ? {} : { model: 'fake-codex' }),
           model_provider: process.env.FAKE_CODEX_PROVIDER ?? 'fake',
           windows: { sandbox: 'elevated' },
+          ...(process.env.FAKE_CODEX_ADVISOR
+            ? {
+                web_search: process.env.FAKE_CODEX_ADVISOR === 'tools-unsafe' ? 'live' : 'disabled',
+                mcp_servers:
+                  process.env.FAKE_CODEX_ADVISOR === 'mcp'
+                    ? {
+                        'test-connector': {
+                          enabled: !process.argv.includes('mcp_servers.test-connector.enabled=false'),
+                        },
+                      }
+                    : {},
+                features: Object.fromEntries(
+                  process.argv.flatMap(arg => {
+                    const feature = /^features\.(\w+)=false$/.exec(arg)
+                    return feature ? [[feature[1], false]] : []
+                  }),
+                ),
+              }
+            : {}),
           ...(process.env.FAKE_CODEX_REVIEWER ? { approvals_reviewer: process.env.FAKE_CODEX_REVIEWER } : {}),
         },
         // includeLayers 时：命令行 -c 在 sessionFlags 层；FAKE_CODEX_USER_ASK 模拟用户 config.toml 里也开了同一个功能
@@ -475,7 +515,26 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         bindProvider(thread, p.modelProvider)
       } else thread = p.threadId ?? (resumeFails() ? 'fake-thread-new' : 'fake-thread')
       if (m.method === 'thread/start') holdThread(thread)
-      response(m, { thread: { id: thread, turns: [] }, ...threadReport(m.method === 'thread/resume') })
+      response(m, {
+        thread: {
+          id: thread,
+          turns: [],
+          ...(p.ephemeral && process.env.FAKE_CODEX_ADVISOR && process.env.FAKE_CODEX_ADVISOR !== 'missing'
+            ? { ephemeral: true }
+            : {}),
+        },
+        ...threadReport(m.method === 'thread/resume'),
+        ...(process.env.FAKE_CODEX_ADVISOR
+          ? {
+              approvalPolicy: p.approvalPolicy,
+              activePermissionProfile: {
+                id: process.env.FAKE_CODEX_ADVISOR === 'wrong-profile' ? ':read-only' : p.permissions,
+              },
+              sandbox: { type: 'readOnly', networkAccess: process.env.FAKE_CODEX_ADVISOR === 'network' },
+              modelProvider: process.env.FAKE_CODEX_ADVISOR === 'wrong-provider' ? 'other' : p.modelProvider,
+            }
+          : {}),
+      })
       rateUpdate()
       break
     case 'thread/fork': {
@@ -598,6 +657,13 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       response(m, {})
       break
     case 'turn/start': {
+      if (process.env.FAKE_CODEX_ADVISOR && (!p.permissions || p.sandboxPolicy)) {
+        rpcError(
+          m,
+          'Invalid request: readOnly.access is no longer supported; use permissionProfile for restricted reads',
+        )
+        break
+      }
       if (predictForks.has(p.threadId)) {
         // 预测这一轮：回一句（FAKE_CODEX_PREDICTION，可以是空的），FAKE_CODEX_PREDICT_MS 之后结束
         const fork = p.threadId,
@@ -639,6 +705,53 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           emit('turn/started', { threadId: thread, turn: { id, status: 'inProgress' } })
           response(m, { turn: { id, status: 'inProgress' } })
         }, 400)
+        break
+      }
+      if (process.env.FAKE_AGNES_DISPATCH_TRUSTED && text === 'test native delegation') {
+        turn = { id, item: 'msg-' + next, text: '', timer: null, slow: false }
+        emit('turn/started', { threadId: thread, turn: { id, status: 'inProgress' } })
+        response(m, { turn: { id, status: 'inProgress' } })
+        const input = { fork_turns: 'none', model: 'fake-codex', message: 'Review the tiny parser only' }
+        agnesHook
+          .beforeDispatch(
+            {
+              hook_event_name: 'PreToolUse',
+              tool_name: 'spawn_agent',
+              session_id: thread,
+              turn_id: id,
+              tool_input: input,
+            },
+            process.env,
+          )
+          .then(result => {
+            if (!turn || turn.id !== id) return
+            const hook = result.hookSpecificOutput
+            const accepted = hook?.permissionDecision === 'allow' ? hook.updatedInput : input
+            const child = 'native-dispatch-' + id
+            emit('item/started', {
+              threadId: thread,
+              turnId: id,
+              item: {
+                id: 'spawn-' + id,
+                type: 'subAgentActivity',
+                kind: 'started',
+                agentThreadId: child,
+                model: accepted.model,
+              },
+            })
+            emit('item/started', {
+              threadId: child,
+              turnId: id,
+              item: {
+                id: 'child-task-' + id,
+                type: 'userMessage',
+                content: [{ type: 'text', text: accepted.message }],
+              },
+            })
+            turn.text = 'dispatch decision: ' + accepted.model
+            finish('completed')
+          })
+          .catch(() => finish('failed'))
         break
       }
       // 缓停：收到 turn/interrupt 后约 1 秒才回 interrupted，且不会自己结束

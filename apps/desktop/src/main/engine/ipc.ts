@@ -38,6 +38,7 @@ import { Extensions } from '../extensions/ipc'
 import { historyEnabled, historyServer } from './history-mcp'
 import { threadsServer } from './threads-mcp'
 import { bundledPixelCli } from './pixel-cli'
+import { bundledAgnesDispatch } from './agnes-bundle'
 import { registerQuotaIpc } from './quota-ipc'
 import { spawnTui } from './tui-spawn'
 import { initTerminalIpc, localTerminals } from '../terminal/ipc'
@@ -124,6 +125,7 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     trash: path => shell.trashItem(path),
     checkpoints: true,
     pixelCli: bundledPixelCli(),
+    agnesDispatchBundle: bundledAgnesDispatch(),
     // 有 SSH 机器时由它合并本机与远端的项目 / 会话再广播
     emit: (e: HostEvent) => {
       logHostEvent(e, id => ctx.engine?.record(id) ?? null)

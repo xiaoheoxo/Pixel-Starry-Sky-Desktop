@@ -1,3 +1,4 @@
+import { AgnesModelBadge } from './AgnesModelBadge'
 import { useEffect, useState } from 'react'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
@@ -55,7 +56,7 @@ function BoxView({ model }: { model: BoxModel }) {
       title={model.summary || label}
       onClick={() => model.target && openTrace?.(model.target)}
       className={cn(
-        'flex h-9 w-fit max-w-full min-w-[min(320px,100%)] items-center gap-2 rounded-lg border border-line bg-surface px-3 text-left text-list text-fg-secondary',
+        'flex min-h-9 w-fit max-w-full min-w-[min(320px,100%)] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-line bg-surface px-3 py-1 text-left text-list text-fg-secondary',
         clickable ? 'press hover:bg-hover' : 'cursor-default',
       )}
     >
@@ -76,6 +77,7 @@ function BoxView({ model }: { model: BoxModel }) {
           {model.model}
         </span>
       )}
+      <AgnesModelBadge source={model.modelSource} />
       {model.chosen && (
         <span data-box-chosen className="shrink-0 text-meta text-fg-faint">
           {tr('subagent.box.chosen')}

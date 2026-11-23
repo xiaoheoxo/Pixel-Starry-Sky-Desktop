@@ -1,3 +1,4 @@
+import { stripAgnesTag, type AgnesAttribution } from './agnes-attribution'
 import { plainCodexMcpName } from '../mcp'
 import type { AgentRun, EngineEvent, FileChange, Item, ItemReview, ItemStatus } from '@pixelsky/protocol'
 import { array, object, string, number, type Message } from './process'
@@ -84,6 +85,59 @@ export class CodexTranslator {
     readonly agents = new Map<string, AgentRun>(),
     private readonly cwd?: string,
   ) {}
+  private agnes?: AgnesAttribution
+  private readonly dispatchMarkers = new Map<string, string>()
+  private readonly agnesChildren = new Set<string>()
+  private readonly taggedChildren = new Map<string, string>()
+  private readonly observedChildTasks = new Set<string>()
+
+  setAgnesAttribution(attribution: AgnesAttribution | undefined): void {
+    this.agnes = attribution
+    this.dispatchMarkers.clear()
+    this.agnesChildren.clear()
+    this.taggedChildren.clear()
+    this.observedChildTasks.clear()
+  }
+
+  registerAgnesDispatch(marker: string, model: string): void {
+    this.dispatchMarkers.set(marker, model)
+  }
+
+  private agnesMarker(text: string): string | undefined {
+    return /^\s*\[pixelsky-agnes:([0-9a-f-]{36})\][ \t]*(?:\r?\n|$)/.exec(text)?.[1]
+  }
+
+  private confirmAgnes(marker: string, model: string): boolean {
+    if (this.dispatchMarkers.get(marker) === model && model) {
+      this.dispatchMarkers.delete(marker)
+      return true
+    }
+    return this.agnes?.marker === marker && this.agnes.model === model
+  }
+
+  /** Child-first and parent-first notifications are both possible; match on the actual resolved model. */
+  observeAgnesChild(threadId: string, method: string, params: Message): void {
+    if ((!this.agnes?.marker && !this.dispatchMarkers.size) || !['item/started', 'item/completed'].includes(method))
+      return
+    const item = object(params.item)
+    if (item.type !== 'userMessage') return
+    const text = string(
+      array(item.content)
+        .map(object)
+        .find(part => part.type === 'text')?.text,
+    )
+    if (!text || this.observedChildTasks.has(threadId) || this.observedChildTasks.size >= 64) return
+    this.observedChildTasks.add(threadId)
+    const marker = this.agnesMarker(text)
+    if (!marker || (marker !== this.agnes?.marker && !this.dispatchMarkers.has(marker))) return
+    const agent = this.agents.get(threadId)
+    if (agent?.model && this.agnesChildren.has(threadId)) {
+      if (!this.confirmAgnes(marker, agent.model) || agent.modelSource === 'agnes') return
+      this.agents.set(threadId, { ...agent, modelSource: 'agnes' })
+      this.emitRuns()
+    } else if (this.taggedChildren.size < 64) this.taggedChildren.set(threadId, marker)
+  }
+
   /** timed：是否算思考用时。冷读的历史（子智能体记录）一次性全倒进来，算出来都是 0，不算，界面按没有用时显示 */
   item(raw: Message, complete: boolean, timed = true): void {
     const id = 'cx-' + string(raw.id),
@@ -191,7 +245,10 @@ export class CodexTranslator {
             : spawns
               ? 'spawn_agent'
               : type,
-        title: string(raw.command || raw.query || raw.prompt || raw.path || raw.tool || raw.name) || type,
+        title:
+          (spawns ? stripAgnesTag(string(raw.prompt)) : string(raw.command || raw.query || raw.prompt || raw.path)) ||
+          string(raw.tool || raw.name) ||
+          type,
         output: clip(
           raw.error ? JSON.stringify(raw.error) : raw.result ? JSON.stringify(raw.result) : string(raw.output),
         ),
@@ -206,18 +263,28 @@ export class CodexTranslator {
         if (!agentId) continue
         const state = object(states[agentId]),
           priorAgent = this.agents.get(agentId)
+        const actual = string(raw.model)
+        const eligible = spawns && status !== 'failed' && !!actual
+        if (eligible) this.agnesChildren.add(agentId)
+        const marker = eligible ? (this.agnesMarker(string(raw.prompt)) ?? this.taggedChildren.get(agentId)) : undefined
+        const matching = eligible && actual === this.agnes?.model
+        const source =
+          marker && this.confirmAgnes(marker, actual)
+            ? 'agnes'
+            : (priorAgent?.modelSource ?? (matching ? 'agnes-match' : undefined))
         this.agents.set(agentId, {
           id: agentId,
           label: agentId.slice(0, 8),
           type: 'Codex',
-          model: string(raw.model) || priorAgent?.model || '',
+          model: (spawns ? string(raw.model) : '') || priorAgent?.model || '',
+          ...(source ? { modelSource: source } : {}),
           state: string(state.status) || (complete ? 'completed' : 'running'),
           startedAt: priorAgent?.startedAt ?? Date.now(),
           durationMs: 0,
           tokens: 0,
           toolCalls: 0,
           phase: null,
-          prompt: string(raw.prompt) || priorAgent?.prompt || '',
+          prompt: stripAgnesTag(string(raw.prompt)) || priorAgent?.prompt || '',
           result: string(state.message),
           // 只有派出调用认领子智能体；等待 / 发消息 / 关闭沿用派出时的卡片 id
           toolUseId: spawns ? id : (priorAgent?.toolUseId ?? id),
@@ -270,11 +337,23 @@ export class CodexTranslator {
       this.items.set(id, item)
       this.emit({ type: complete ? 'item_completed' : 'item_started', item })
     }
+    const model = string(raw.model) || prior?.model || ''
+    const actual = string(raw.model)
+    const eligible = kind === 'started' && raw.status !== 'failed' && !!actual
+    if (eligible) this.agnesChildren.add(agentId)
+    const marker = eligible ? this.taggedChildren.get(agentId) : undefined
+    if (marker) this.taggedChildren.delete(agentId)
+    const matching = eligible && actual === this.agnes?.model
+    const source =
+      marker && this.confirmAgnes(marker, actual)
+        ? 'agnes'
+        : (prior?.modelSource ?? (matching ? 'agnes-match' : undefined))
     this.agents.set(agentId, {
       id: agentId,
       label,
       type: 'Codex',
-      model: string(raw.model) || prior?.model || '',
+      model,
+      ...(source ? { modelSource: source } : {}),
       state: done ? 'completed' : 'running',
       startedAt,
       durationMs: done ? Date.now() - startedAt : 0,
@@ -289,6 +368,7 @@ export class CodexTranslator {
   }
   /** 子智能体线程自己的事件：只算工具次数和 token，不进主对话 */
   child(threadId: string, method: string, params: Message): void {
+    this.observeAgnesChild(threadId, method, params)
     const agent = this.agents.get(threadId)
     if (!agent) return
     let next = agent

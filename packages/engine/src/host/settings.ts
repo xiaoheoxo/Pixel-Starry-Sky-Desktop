@@ -8,6 +8,7 @@ import {
   codedError,
   modelDetailKey,
   parseModelDetailPatch,
+  parseSubagentAdvisor,
   PROVIDER_ENV,
   EFFORTS,
   INPUT_PREDICTIONS,
@@ -33,11 +34,18 @@ import {
   type ResetCreditAuto,
   type SessionDefaults,
   type SessionRecord,
+  type SubagentAdvisor,
 } from '@pixelsky/protocol'
 import { logger } from '../log'
 import { ENGINE_ORDER, unsupportedInfo } from '../registry'
 import { retryLimit } from '../retry'
-import { DEFAULT_SETTINGS, idleReleaseMinutes, type EngineSettingsFile, type IdleReleaseMinutes } from '../store'
+import {
+  DEFAULT_SETTINGS,
+  idleReleaseMinutes,
+  type EngineOptions,
+  type EngineSettingsFile,
+  type IdleReleaseMinutes,
+} from '../store'
 import { CloudModelMetadata } from './cloud-model-metadata'
 import type { HostContext, Runtime } from './context'
 
@@ -215,6 +223,8 @@ export class HostSettings {
     peekSessions: PeekScope
     subagentModel: string | null
     subagentEffort: Effort | null
+    subagentFollowAdvisor: boolean
+    subagentAdvisor: SubagentAdvisor | null
     inputPrediction: InputPrediction
     autoReviewModel: string | null
   } {
@@ -231,6 +241,8 @@ export class HostSettings {
       peekSessions: o.peekSessions === 'project' || o.peekSessions === 'all' ? o.peekSessions : 'off',
       subagentModel: typeof o.subagentModel === 'string' && o.subagentModel ? o.subagentModel : null,
       subagentEffort: EFFORTS.includes(o.subagentEffort as Effort) ? (o.subagentEffort as Effort) : null,
+      subagentFollowAdvisor: engine === 'codex' && o.subagentFollowAdvisor === true,
+      subagentAdvisor: engine === 'codex' ? parseSubagentAdvisor(o.subagentAdvisor) : null,
       inputPrediction: o.inputPrediction === 'cheap' || o.inputPrediction === 'same' ? o.inputPrediction : 'off',
       autoReviewModel: typeof o.autoReviewModel === 'string' && o.autoReviewModel ? o.autoReviewModel : null,
     }
@@ -422,6 +434,19 @@ export class HostSettings {
       if (r) options.resetCreditAuto = { threshold: r.threshold, minLeftHours: r.minLeftHours, perWeek: r.perWeek }
       else delete options.resetCreditAuto
     }
+    if (patch.subagentFollowAdvisor !== undefined) {
+      if (engine !== 'codex' || typeof patch.subagentFollowAdvisor !== 'boolean')
+        throw new Error('子智能体跟随 Agnes 建议配置不对')
+      if (patch.subagentFollowAdvisor) options.subagentFollowAdvisor = true
+      else delete options.subagentFollowAdvisor
+    }
+    if (patch.subagentAdvisor !== undefined) {
+      const advisor = parseSubagentAdvisor(patch.subagentAdvisor)
+      if (engine !== 'codex' || (!advisor && patch.subagentAdvisor !== null))
+        throw new Error('子智能体模型建议配置不对')
+      if (advisor) options.subagentAdvisor = advisor
+      else delete options.subagentAdvisor
+    }
     if (patch.subagentEffort !== undefined) {
       const e = patch.subagentEffort
       if (e !== null && !EFFORTS.includes(e)) throw new Error('子智能体推理强度不对')
@@ -495,6 +520,15 @@ export class HostSettings {
     const next: EngineSettingsFile = { ...this.file }
     if (Object.keys(details).length > 0) next.modelDetails = details
     else delete next.modelDetails
+    // 清掉旧版挂在 options.codex 下的残留，防止删空最后一条时回退复活
+    const codexOpt = next.options.codex as (EngineOptions & { modelDetails?: unknown }) | undefined
+    if (codexOpt && 'modelDetails' in codexOpt) {
+      const rest: EngineOptions & { modelDetails?: unknown } = { ...codexOpt }
+      delete rest.modelDetails
+      next.options = { ...next.options }
+      if (Object.keys(rest).length > 0) next.options.codex = rest
+      else delete next.options.codex
+    }
     this.ctx.store.saveSettings(next)
     this.file = next
     const metadata = this.modelMetadata()
@@ -517,6 +551,14 @@ export class HostSettings {
   modelDisplayReferences(ids: readonly string[], force = false): Promise<Record<string, CloudModelReference>> {
     if (!this.cloudModelCatalog() || !ids.length) return Promise.resolve({})
     return this.cloudModelMetadata.displayReferences(ids, force)
+  }
+
+  /** 给 Agnes 评估器用的公开参考代理：关闭联网目录开关时静默返回空、不发外网请求 */
+  advisorPublicMetadata(): Pick<CloudModelMetadata, 'get' | 'refresh'> {
+    return {
+      get: (provider, id) => (this.cloudModelCatalog() ? this.cloudModelMetadata.get(provider, id) : undefined),
+      refresh: force => (this.cloudModelCatalog() ? this.cloudModelMetadata.refresh(force) : Promise.resolve()),
+    }
   }
 
   async engineCatalog(engine: EngineId, force = false): Promise<EngineCatalog> {

@@ -1,3 +1,23 @@
+import {
+  registerBundledDispatch,
+  startDispatchBridge,
+  trustedDispatchHook,
+  type DispatchDecision,
+  type DispatchMode,
+  type DispatchRequest,
+} from './agnes-dispatch'
+import { agnesEffort } from './agnes-effort'
+import {
+  ADVISOR_FAILURE_TEXT,
+  advisorCandidates,
+  evaluateAdvisor,
+  hasConfiguredSubagent,
+  localDifficulty,
+  subagentAdvice,
+  selectedAdvisorModel,
+  type AdvisorEvaluator,
+} from './subagent-advisor'
+import type { AgnesAttribution } from './agnes-attribution'
 import { GenTimer } from '../genTimer'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -72,6 +92,14 @@ export interface CodexLaunchOptions {
   /** 派出的子智能体用的模型 / 推理强度（docs/ui/codex-subagent-model.md）；不给跟随主会话 */
   subagentModel?: string | null
   subagentEffort?: Effort | null
+  subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
+  advisorPublicMetadata?: Pick<import('../host/cloud-model-metadata').CloudModelMetadata, 'get' | 'refresh'>
+  modelDetails?: () => Readonly<Record<string, import('@pixelsky/protocol').ModelDetail>>
+  subagentFollowAdvisor?: boolean
+  currentSubagentFollowAdvisor?: () => boolean
+  currentSubagentAdvisor?: () => import('@pixelsky/protocol').SubagentAdvisor | null
+  evaluateSubagent?: AdvisorEvaluator
+  dispatchBundle?: string | null
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
   inputPrediction?: 'off' | 'cheap' | 'same'
   /** 平台 / 自定义接口对话自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给用对话的模型 */
@@ -347,6 +375,7 @@ export async function codexLaunchConfig(
     | 'modelCatalog'
     | 'subagentModel'
     | 'subagentEffort'
+    | 'subagentFollowAdvisor'
     | 'autoReviewModel'
   >,
   askFlag: boolean,
@@ -433,7 +462,7 @@ export async function codexLaunchConfig(
   if (context.limit) config('model_auto_compact_token_limit', context.limit)
   // 子智能体的默认模型 / 强度：Codex 0.166 的 agents.default_subagent_*（自带模型的角色如 explorer 不受影响）。
   // 模型名来自自己登录的 Codex 目录，平台线路 / 自定义接口里不一定有，经网关的不带
-  if (!gatewayProvider) {
+  if (!gatewayProvider && !options.subagentFollowAdvisor) {
     if (options.subagentModel) config('agents.default_subagent_model', options.subagentModel)
     if (options.subagentEffort) config('agents.default_subagent_reasoning_effort', options.subagentEffort)
   }
@@ -445,6 +474,84 @@ const speedOf = (s: Pick<SessionSettings, 'fast' | 'ultrafast'>): Speed =>
   !s.fast ? 'off' : s.ultrafast ? 'ultrafast' : 'fast'
 
 export class CodexSession implements EngineSession {
+  private dispatchBridge?: Awaited<ReturnType<typeof startDispatchBridge>>
+  private dispatchMode?: DispatchMode
+  private dispatchSetupError: string | null = null
+  private dispatchNotice: string | null = null
+  private dispatchAbort = new AbortController()
+
+  private async evaluateDispatch(input: DispatchRequest, signal: AbortSignal): Promise<DispatchDecision> {
+    const settings = this.options.currentSubagentAdvisor
+      ? this.options.currentSubagentAdvisor()
+      : this.options.subagentAdvisor
+    const mode = this.dispatchMode
+    const catalog = this.catalog?.models ?? []
+    const ids = catalog.map(model => model.id)
+    if (
+      !this.active ||
+      this.closed ||
+      input.threadId !== this.threadId ||
+      input.turnId !== this.nativeTurnId ||
+      !settings?.dispatchMode ||
+      settings.dispatchMode !== mode ||
+      (this.catalog?.currentProvider ?? 'openai') !== 'openai' ||
+      viaGateway(this.ctx.record())
+    )
+      return { reason: 'Agnes could not match the dispatch to an active managed Codex turn.' }
+    if (!hasConfiguredSubagent(settings, ids)) return { reason: 'Agnes has no available configured worker model.' }
+    if (signal.aborted || this.dispatchAbort.signal.aborted) return { reason: 'Agnes evaluation was canceled.' }
+    const decision = (model: string, effort: string | null | undefined): DispatchDecision => {
+      const marker = mode === 'force' ? randomUUID() : undefined
+      if (marker) this.translator.registerAgnesDispatch(marker, model)
+      return { model, ...(effort ? { effort } : {}), ...(marker ? { marker } : {}) }
+    }
+    if (!settings.evaluator) {
+      const difficulty = localDifficulty(input.task, false)
+      const model = selectedAdvisorModel(difficulty, settings, ids)
+      if (!model) return { reason: 'Agnes has no configured model for this task difficulty.' }
+      const effort = agnesEffort(
+        catalog.find(candidate => candidate.id === model),
+        difficulty,
+      )
+      return decision(model, effort)
+    }
+    const evaluation = this.options.evaluateSubagent
+    if (!evaluation || !ids.includes(settings.evaluator))
+      return { reason: 'Agnes has no available evaluator for this session.' }
+    const combined = AbortSignal.any([signal, this.dispatchAbort.signal])
+    if (settings.evaluatorPicksModel) await this.options.advisorPublicMetadata?.refresh()
+    if (combined.aborted || this.nativeTurnId !== input.turnId)
+      return { reason: 'Agnes canceled evaluation because the parent turn ended.' }
+    const candidates = settings.evaluatorPicksModel
+      ? advisorCandidates(settings, ids, this.options.modelDetails?.(), this.options.advisorPublicMetadata)
+      : []
+    let reason = 'Agnes did not return a recommendation.'
+    const estimate = await evaluateAdvisor(
+      settings.evaluator,
+      input.task,
+      evaluation,
+      candidates,
+      12_000,
+      combined,
+      failure => {
+        reason = ADVISOR_FAILURE_TEXT[failure]
+      },
+    )
+    if (!estimate || combined.aborted) return { reason }
+    const current = this.options.currentSubagentAdvisor
+      ? this.options.currentSubagentAdvisor()
+      : this.options.subagentAdvisor
+    if (JSON.stringify(current) !== JSON.stringify(settings))
+      return { reason: 'Agnes configuration changed during evaluation.' }
+    const model = selectedAdvisorModel(estimate.difficulty, settings, ids, estimate.model)
+    if (!model) return { reason: 'Agnes has no recommendation for this specific task.' }
+    const effort = agnesEffort(
+      catalog.find(candidate => candidate.id === model),
+      estimate.difficulty,
+    )
+    return decision(model, effort)
+  }
+
   private proc: CodexProcess | null = null
   /** 进程还活着（宿主查某个账号目录还有没有人在用） */
   get processAlive(): boolean {
@@ -479,6 +586,7 @@ export class CodexSession implements EngineSession {
     baseline: ReturnType<typeof tokenCounts>
     usageSeen: boolean
     activity: boolean
+    advisorAbort?: AbortController
     /** Codex 自己开的一轮（目标模式接着做），不是像素星空发的 */
     auto?: boolean
     /** 自己开的一轮已经告诉宿主了（turn_started） */
@@ -619,6 +727,31 @@ export class CodexSession implements EngineSession {
     this.startup = 'pending'
     const record = this.ctx.record()
     const launched = await codexLaunchConfig(record, this.env, this.ctx, this.options, askFlag)
+    this.dispatchBridge?.close()
+    this.dispatchBridge = undefined
+    const advisor = this.options.currentSubagentAdvisor
+      ? this.options.currentSubagentAdvisor()
+      : this.options.subagentAdvisor
+    this.dispatchMode = !launched.gatewayProvider ? advisor?.dispatchMode : undefined
+    this.dispatchSetupError = null
+    this.dispatchNotice = null
+    // Never enable a bridge using environment variables inherited from a different app/session.
+    delete launched.env.PIXELSKY_AGNES_MODE
+    delete launched.env.PIXELSKY_AGNES_URL
+    delete launched.env.PIXELSKY_AGNES_AUTH
+    if (this.dispatchMode) {
+      try {
+        if (this.options.dispatchBundle)
+          await registerBundledDispatch(this.launcher, this.env, this.options.dispatchBundle)
+        if (this.closed) throw new Error('Codex session is closed')
+        this.dispatchBridge = await startDispatchBridge((input, signal) => this.evaluateDispatch(input, signal))
+        Object.assign(launched.env, this.dispatchBridge.env, { PIXELSKY_AGNES_MODE: this.dispatchMode })
+      } catch (error) {
+        if (this.closed) throw error
+        this.dispatchSetupError = describeError(error)
+      }
+    }
+    const localDispatch = this.dispatchBridge
     const environment = launched.env,
       args = ['app-server', '--listen', 'stdio://', ...launched.args]
     const ext = this.ctx.extensions,
@@ -635,6 +768,7 @@ export class CodexSession implements EngineSession {
         notification: (method, params) => this.notification(method, params),
         request: (id, method, params) => this.request(id, method, params),
         exit: (_code, tail) => {
+          localDispatch?.close()
           // 带开关启动时在 initialize 前退出：connect() 会不带开关重试，不在这里结束这一轮
           if (this.proc !== proc || (askFlag && this.startup === 'pending')) return
           if (!this.closed && this.active) this.finish('failed', tail || 'Codex process exited')
@@ -1169,6 +1303,197 @@ export class CodexSession implements EngineSession {
       // 模型不能看图：host 以为带上的图片被丢掉了，告诉用户
       if (seed && !sees) this.droppedImages(injected ? seedImageCount(seed) : (seed.fallbackImages?.length ?? 0))
       if (!this.active || this.active !== active || this.closed) return
+      const currentAdvisor = () =>
+        this.options.currentSubagentAdvisor ? this.options.currentSubagentAdvisor() : this.options.subagentAdvisor
+      const advisor = currentAdvisor()
+      const catalog = this.catalog?.models ?? []
+      const available = catalog.map(model => model.id)
+      const follows = () =>
+        (this.options.currentSubagentFollowAdvisor?.() ?? this.options.subagentFollowAdvisor) === true
+      const routeSupportsAdvice =
+        !viaGateway(this.ctx.record()) && (this.catalog?.currentProvider ?? 'openai') === 'openai'
+      const workerConfigured = advisor && hasConfiguredSubagent(advisor, available)
+      if (advisor?.dispatchMode) {
+        const mode = advisor.dispatchMode
+        let issue = this.dispatchSetupError
+        if (!routeSupportsAdvice) issue = '当前线路不支持 Agnes 派遣评估。'
+        else if (this.dispatchMode !== mode) issue = '设置已变更，请重新打开本机 Codex 会话。'
+        else if (!issue) {
+          const hooks = this.dispatchBridge
+            ? await this.proc!.request('hooks/list', { threadId: this.threadId }, 2_000).catch(() => null)
+            : null
+          if (!trustedDispatchHook(hooks))
+            issue = '请在同一 Codex 配置的 /hooks 中确认信任 Agnes 内置钩子，再重新打开此会话。'
+        }
+        if (this.active !== active || this.closed) return
+        if (issue && mode === 'force') throw new Error(`Agnes 强制派遣未启动：${issue}`)
+        if (issue && issue !== this.dispatchNotice)
+          this.ctx.emit({
+            type: 'item_completed',
+            item: {
+              kind: 'notice',
+              id: `cx-agnes-${Date.now()}-${++this.noticeSeq}`,
+              level: 'warn',
+              text: `Agnes 派遣评估不可用，本次保持 Codex 默认派遣。${issue}`,
+              detail: null,
+            },
+          })
+        this.dispatchNotice = issue
+      }
+      if (this.active !== active || this.closed) return
+      let evaluatorStatus = !advisor?.evaluator
+        ? '未选择评估模型'
+        : !available.includes(advisor.evaluator)
+          ? '当前 Codex 目录找不到所选评估模型'
+          : attachments.length
+            ? '带附件的消息不发送给独立评估模型'
+            : !routeSupportsAdvice
+              ? '当前线路不支持独立评估'
+              : '评估未返回有效结果'
+      let advice: string | null = null
+      let recommendation: string | null = null
+      let sent = false
+      let attribution: AgnesAttribution | undefined
+      if (advisor && !advisor.dispatchMode && workerConfigured && text.trim() && !text.trimStart().startsWith('/')) {
+        const isCurrent = (latest: ReturnType<typeof currentAdvisor>) =>
+          !!latest &&
+          latest.evaluator === advisor.evaluator &&
+          latest.evaluatorPicksModel === advisor.evaluatorPicksModel &&
+          latest.models.length === advisor.models.length &&
+          latest.models.every((model, index) => model === advisor.models[index]) &&
+          (latest.extraModels?.length ?? 0) === (advisor.extraModels?.length ?? 0) &&
+          (latest.extraModels ?? []).every((model, index) => model === advisor.extraModels?.[index])
+        const localTier = localDifficulty(text, attachments.length > 0)
+        let estimate: Awaited<ReturnType<typeof evaluateAdvisor>> = null
+        const evaluate = this.options.evaluateSubagent
+        // Keep custom/platform prompts on their chosen route, and don't send attachments to the assessor.
+        if (
+          !attachments.length &&
+          routeSupportsAdvice &&
+          advisor.evaluator &&
+          evaluate &&
+          available.includes(advisor.evaluator)
+        ) {
+          if (advisor.evaluatorPicksModel) await this.options.advisorPublicMetadata?.refresh()
+          if (this.active !== active || this.closed) return
+          if (isCurrent(currentAdvisor())) {
+            const abort = new AbortController()
+            active.advisorAbort = abort
+            try {
+              estimate = await evaluateAdvisor(
+                advisor.evaluator,
+                text,
+                evaluate,
+                advisor.evaluatorPicksModel
+                  ? advisorCandidates(
+                      advisor,
+                      available,
+                      this.options.modelDetails?.(),
+                      this.options.advisorPublicMetadata,
+                    )
+                  : [],
+                12_000,
+                abort.signal,
+                reason => {
+                  evaluatorStatus = ADVISOR_FAILURE_TEXT[reason]
+                },
+              )
+              if (estimate) evaluatorStatus = `已完成评估（${advisor.evaluator}）`
+            } finally {
+              delete active.advisorAbort
+            }
+          }
+        }
+        if (this.active !== active || this.closed) return
+        const latest = currentAdvisor()
+        if (latest) {
+          if (!isCurrent(latest)) {
+            estimate = null
+            evaluatorStatus = '评估期间设置已变更'
+          } else if (estimate?.model === null) {
+            evaluatorStatus += '，未推荐模型'
+          }
+          const follow = follows() && routeSupportsAdvice
+          if (follow || !follows()) {
+            recommendation = selectedAdvisorModel(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
+          }
+          if (estimate && recommendation) attribution = { model: recommendation, marker: randomUUID() }
+          advice =
+            recommendation &&
+            subagentAdvice(
+              estimate?.difficulty ?? localTier,
+              latest,
+              available,
+              estimate?.model,
+              follow ? catalog : undefined,
+              attribution?.marker,
+            )
+        }
+      }
+      if (advice) {
+        try {
+          await this.proc!.request(
+            'thread/inject_items',
+            {
+              threadId: this.threadId,
+              items: [
+                {
+                  type: 'message',
+                  role: 'developer',
+                  content: [
+                    {
+                      type: 'input_text',
+                      text: `Applies only to the next user task; ignore for later turns. ${advice}`,
+                    },
+                  ],
+                },
+              ],
+            },
+            2_000,
+          )
+          sent = true
+          if (recommendation && this.active === active && !this.closed)
+            this.translator.setAgnesAttribution(attribution ?? { model: recommendation })
+        } catch {
+          // Unsupported native servers receive no advice rather than putting it into the user's message.
+        }
+        if (this.active !== active || this.closed) return
+      }
+      const follow = follows()
+      if (
+        !advisor?.dispatchMode &&
+        (follow || advisor?.evaluator) &&
+        text.trim() &&
+        !text.trimStart().startsWith('/')
+      ) {
+        const reason = !currentAdvisor()
+          ? '未开启 Agnes'
+          : !workerConfigured
+            ? '没有已配置且在当前目录中可用的候选模型'
+            : follow && !routeSupportsAdvice
+              ? '当前线路不支持 Agnes 跟随'
+              : !recommendation
+                ? `${evaluatorStatus}；本轮没有推荐模型`
+                : !sent
+                  ? `建议 ${recommendation} 未能交给主模型`
+                  : null
+        const fallback = reason !== null || !attribution
+        const status = reason
+          ? `已回退至 Codex 常规派遣（未发送 Agnes 建议）。原因：${reason}`
+          : !attribution
+            ? `已回退至本地规则。原因：${evaluatorStatus}；建议 ${recommendation}，已交给主模型，尚未确认采用`
+            : `${evaluatorStatus}；评估建议 ${recommendation}，已交给主模型，尚未确认采用`
+        this.ctx.emit({
+          type: 'item_completed',
+          item: {
+            kind: 'notice',
+            id: `cx-agnes-${Date.now()}-${++this.noticeSeq}`,
+            level: fallback ? 'warn' : 'info',
+            text: `Agnes：${status}`,
+            detail: null,
+          },
+        })
+      }
       const collab = this.collaboration()
       const tier = this.serviceTier()
       log.info('Codex 这一轮的服务档位', {
@@ -1553,7 +1878,10 @@ export class CodexSession implements EngineSession {
       return this.predictionEvent(method, params)
     // 子智能体线程的事件只记进追踪（工具次数、token）
     if (eventThread && this.agents.has(eventThread)) return this.translator.child(eventThread, method, params)
-    if (eventThread && this.threadId && eventThread !== this.threadId) return
+    if (eventThread && this.threadId && eventThread !== this.threadId) {
+      if (this.active) this.translator.observeAgnesChild(eventThread, method, params)
+      return
+    }
     if (method === 'thread/goal/updated' || method === 'thread/goal/cleared') {
       this.goalSupported = true
       this.setGoal(method === 'thread/goal/cleared' ? null : codexGoal(params.goal), true)
@@ -1923,6 +2251,10 @@ export class CodexSession implements EngineSession {
     this.adopting = null
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
+    active.advisorAbort?.abort()
+    this.dispatchAbort.abort()
+    this.dispatchAbort = new AbortController()
+    this.translator.setAgnesAttribution(undefined)
     if (this.speedNext !== null) {
       this.settings = {
         ...this.settings,
@@ -2301,6 +2633,8 @@ export class CodexSession implements EngineSession {
 
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    this.dispatchBridge?.close()
+    this.dispatchBridge = undefined
     // 还在启动（opening）时线程 id 还没拿到，但进程可能马上就接上记录里的线程：按记录里的登记
     const thread =
       this.proc?.alive || this.opening ? (this.threadId ?? this.ctx.record().engineSessionId ?? null) : null

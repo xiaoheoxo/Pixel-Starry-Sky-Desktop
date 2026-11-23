@@ -1,3 +1,4 @@
+import { AgnesModelBadge } from './AgnesModelBadge'
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '../../../i18n/core'
 // 进度卡片：显示当前计划和子智能体，按对话区宽度浮着或收成顶部一条，概况开着时停靠进右栏（docs/ui/progress-card.md §4，参考 Claude 桌面版）
@@ -312,6 +313,11 @@ function Agents({
                       )
                     )}
                   </span>
+                  {(a.modelSource === 'agnes' || a.modelSource === 'agnes-match') && (
+                    <span className="w-fit">
+                      <AgnesModelBadge source={a.modelSource} />
+                    </span>
+                  )}
                   <ActivityLine agent={a} now={now} seen={seen} />
                 </span>
               </button>
