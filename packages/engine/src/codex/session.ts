@@ -364,6 +364,7 @@ export async function codexLaunchConfig(
     | 'modelCatalog'
     | 'subagentModel'
     | 'subagentEffort'
+    | 'subagentFollowAdvisor'
     | 'autoReviewModel'
   >,
   askFlag: boolean,
@@ -450,7 +451,7 @@ export async function codexLaunchConfig(
   if (context.limit) config('model_auto_compact_token_limit', context.limit)
   // 子智能体的默认模型 / 强度：Codex 0.166 的 agents.default_subagent_*（自带模型的角色如 explorer 不受影响）。
   // 模型名来自自己登录的 Codex 目录，平台线路 / 自定义接口里不一定有，经网关的不带
-  if (!gatewayProvider) {
+  if (!gatewayProvider && !options.subagentFollowAdvisor) {
     if (options.subagentModel) config('agents.default_subagent_model', options.subagentModel)
     if (options.subagentEffort) config('agents.default_subagent_reasoning_effort', options.subagentEffort)
   }
@@ -1192,13 +1193,30 @@ export class CodexSession implements EngineSession {
       const advisor = currentAdvisor()
       const catalog = this.catalog?.models ?? []
       const available = catalog.map(model => model.id)
+      const follows = () =>
+        (this.options.currentSubagentFollowAdvisor?.() ?? this.options.subagentFollowAdvisor) === true
+      const routeSupportsAdvice =
+        !viaGateway(this.ctx.record()) && (this.catalog?.currentProvider ?? 'openai') === 'openai'
+      const workerConfigured = advisor && hasConfiguredSubagent(advisor, available)
+      let evaluatorStatus = !advisor?.evaluator
+        ? '未选择评估模型'
+        : !available.includes(advisor.evaluator)
+          ? '当前 Codex 目录找不到所选评估模型'
+          : attachments.length
+            ? '带附件的消息不发送给独立评估模型'
+            : !routeSupportsAdvice
+              ? '当前线路不支持独立评估'
+              : '评估未返回有效结果'
       let advice: string | null = null
+      let recommendation: string | null = null
+      let sent = false
       let attribution: AgnesAttribution | undefined
-      if (advisor && hasConfiguredSubagent(advisor, available) && text.trim() && !text.trimStart().startsWith('/')) {
+      if (advisor && workerConfigured && text.trim() && !text.trimStart().startsWith('/')) {
         const isCurrent = (latest: ReturnType<typeof currentAdvisor>) =>
           !!latest &&
           latest.evaluator === advisor.evaluator &&
           latest.evaluatorPicksModel === advisor.evaluatorPicksModel &&
+          latest.models.length === advisor.models.length &&
           latest.models.every((model, index) => model === advisor.models[index]) &&
           (latest.extraModels?.length ?? 0) === (advisor.extraModels?.length ?? 0) &&
           (latest.extraModels ?? []).every((model, index) => model === advisor.extraModels?.[index])
@@ -1208,8 +1226,7 @@ export class CodexSession implements EngineSession {
         // Keep custom/platform prompts on their chosen route, and don't send attachments to the assessor.
         if (
           !attachments.length &&
-          !viaGateway(this.ctx.record()) &&
-          (this.catalog?.currentProvider ?? 'openai') === 'openai' &&
+          routeSupportsAdvice &&
           advisor.evaluator &&
           evaluate &&
           available.includes(advisor.evaluator)
@@ -1232,9 +1249,18 @@ export class CodexSession implements EngineSession {
                       this.options.advisorPublicMetadata,
                     )
                   : [],
-                undefined,
+                follows() ? 12_000 : undefined,
                 abort.signal,
+                reason => {
+                  evaluatorStatus =
+                    reason === 'timeout'
+                      ? '评估超时'
+                      : reason === 'failed'
+                        ? '评估请求失败或 Codex 未通过隔离检查'
+                        : '评估返回无效结果'
+                },
               )
+              if (estimate) evaluatorStatus = `已完成评估（${advisor.evaluator}）`
             } finally {
               delete active.advisorAbort
             }
@@ -1244,20 +1270,21 @@ export class CodexSession implements EngineSession {
         const latest = currentAdvisor()
         if (latest) {
           if (!isCurrent(latest)) estimate = null
-          const follow =
-            (this.options.currentSubagentFollowAdvisor?.() ?? this.options.subagentFollowAdvisor) === true &&
-            !viaGateway(this.ctx.record()) &&
-            this.catalog?.currentProvider === 'openai'
-          const picked = estimate && selectedAdvisorModel(estimate.difficulty, latest, available, estimate.model)
-          if (picked) attribution = { model: picked, marker: randomUUID() }
-          advice = subagentAdvice(
-            estimate?.difficulty ?? localTier,
-            latest,
-            available,
-            estimate?.model,
-            follow ? catalog : undefined,
-            attribution?.marker,
-          )
+          const follow = follows() && routeSupportsAdvice
+          if (follow || !follows()) {
+            recommendation = selectedAdvisorModel(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
+          }
+          if (estimate && recommendation) attribution = { model: recommendation, marker: randomUUID() }
+          advice =
+            recommendation &&
+            subagentAdvice(
+              estimate?.difficulty ?? localTier,
+              latest,
+              available,
+              estimate?.model,
+              follow ? catalog : undefined,
+              attribution?.marker,
+            )
         }
       }
       if (advice) {
@@ -1281,11 +1308,35 @@ export class CodexSession implements EngineSession {
             },
             2_000,
           )
+          sent = true
           if (attribution && this.active === active && !this.closed) this.translator.setAgnesAttribution(attribution)
         } catch {
           // Unsupported native servers receive no advice rather than putting it into the user's message.
         }
         if (this.active !== active || this.closed) return
+      }
+      if (follows() && text.trim() && !text.trimStart().startsWith('/')) {
+        const status = !currentAdvisor()
+          ? '未开启 Agnes'
+          : !workerConfigured
+            ? '没有已配置且在当前目录中可用的候选模型'
+            : !routeSupportsAdvice
+              ? '当前线路不支持 Agnes 跟随'
+              : !recommendation
+                ? `${evaluatorStatus}；本轮没有推荐模型`
+                : sent
+                  ? `${evaluatorStatus}；${attribution ? '评估' : '本地规则'}建议 ${recommendation}，已交给主模型，尚未确认采用`
+                  : `${evaluatorStatus}；建议 ${recommendation} 未能交给主模型`
+        this.ctx.emit({
+          type: 'item_completed',
+          item: {
+            kind: 'notice',
+            id: `cx-agnes-${Date.now()}-${++this.noticeSeq}`,
+            level: 'info',
+            text: `Agnes：${status}`,
+            detail: null,
+          },
+        })
       }
       const collab = this.collaboration()
       const tier = this.serviceTier()

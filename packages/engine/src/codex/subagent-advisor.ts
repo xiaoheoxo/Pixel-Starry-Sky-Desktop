@@ -185,6 +185,7 @@ export async function evaluateAdvisor(
   candidates: readonly Candidate[] = [],
   timeout = 4500,
   parentSignal?: AbortSignal,
+  onFailure?: (reason: 'timeout' | 'invalid' | 'failed') => void,
 ): Promise<{ difficulty: Difficulty; model?: string | null } | null> {
   if (parentSignal?.aborted) return null
   const abort = new AbortController()
@@ -192,6 +193,10 @@ export async function evaluateAdvisor(
   let timer: ReturnType<typeof setTimeout> | undefined
   let stop: (() => void) | undefined
   const ids = [...new Set(candidates.map(candidate => candidate.model))]
+  const invalid = () => {
+    onFailure?.('invalid')
+    return null
+  }
   try {
     const answer = await Promise.race([
       new Promise<null>(resolve => {
@@ -201,18 +206,27 @@ export async function evaluateAdvisor(
       }),
       run(model, advisorPrompt(text, candidates), signal, ids.length ? ids : undefined),
     ])
-    if (!answer || answer.length > (ids.length ? 512 : 128)) return null
-    const result: unknown = JSON.parse(answer)
-    if (!result || typeof result !== 'object' || !('difficulty' in result)) return null
+    if (signal.aborted || !answer || answer.length > (ids.length ? 512 : 128)) {
+      if (!parentSignal?.aborted) onFailure?.(abort.signal.aborted ? 'timeout' : 'invalid')
+      return null
+    }
+    let result: unknown
+    try {
+      result = JSON.parse(answer)
+    } catch {
+      return invalid()
+    }
+    if (!result || typeof result !== 'object' || !('difficulty' in result)) return invalid()
     const difficulty = tiers.find(tier => tier === result.difficulty)
-    if (!difficulty) return null
-    if (!ids.length) return Object.keys(result).length === 1 ? { difficulty } : null
-    if (Object.keys(result).length !== 2 || !('model' in result)) return null
+    if (!difficulty) return invalid()
+    if (!ids.length) return Object.keys(result).length === 1 ? { difficulty } : invalid()
+    if (Object.keys(result).length !== 2 || !('model' in result)) return invalid()
     const selected = result.model
     return selected === null || (typeof selected === 'string' && ids.includes(selected))
       ? { difficulty, model: selected }
-      : null
+      : invalid()
   } catch {
+    if (!parentSignal?.aborted) onFailure?.(abort.signal.aborted ? 'timeout' : 'failed')
     return null
   } finally {
     clearTimeout(timer)

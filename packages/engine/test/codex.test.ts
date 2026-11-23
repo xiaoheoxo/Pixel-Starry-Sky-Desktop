@@ -1731,7 +1731,7 @@ describe('Codex app-server adapter', () => {
     expect(context).not.toContain('missing-worker')
     expect(input.input[0].text).toBe('改文案')
   })
-  it('prefers the Agnes pick for explicit Codex spawn overrides without replacing native defaults', async () => {
+  it('prefers the Agnes pick for explicit Codex spawn overrides without leaking the previous pinned defaults', async () => {
     const { session, messages, launches } = setup(50, {
       env: { FAKE_CODEX_PROVIDER: 'openai' },
       launch: {
@@ -1747,8 +1747,40 @@ describe('Codex app-server adapter', () => {
     expect(injected.role).toBe('developer')
     expect(injected.content[0].text).toContain('prefer passing model=fake-plain')
     expect(injected.content[0].text).not.toContain('reasoning_effort=')
-    expect(launches().at(-1)).toContain('agents.default_subagent_reasoning_effort="low"')
+    expect(launches().at(-1)!.join(' ')).not.toContain('agents.default_subagent')
+    expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
+      '未选择评估模型；本地规则建议 fake-plain',
+    )
     expect(messages().find(m => m.method === 'turn/start')?.params.model).toBe('fake-codex')
+  })
+  it('reports that following Agnes alone does not start an evaluator', async () => {
+    const { session, adapter, messages } = setup(50, { launch: { subagentFollowAdvisor: true } })
+    const evaluate = vi.spyOn(adapter, 'oneShot')
+    await host!.send(session.id, '整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(messages().some(m => m.method === 'thread/inject_items')).toBe(false)
+    expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
+      'Agnes：未开启 Agnes',
+    )
+  })
+  it.each([
+    ['{"difficulty":"medium"}', '已完成评估（fake-plain）；评估建议 fake-plain'],
+    ['not valid', '评估返回无效结果；本地规则建议 fake-plain'],
+  ])('reports evaluator outcome before claiming adoption: %s', async (text, expected) => {
+    const { session, adapter } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: {
+        subagentFollowAdvisor: true,
+        subagentAdvisor: { evaluator: 'fake-plain', models: [null, 'fake-plain', null] },
+      },
+    })
+    vi.spyOn(adapter, 'oneShot').mockResolvedValue({ model: 'fake-plain', text, usage: null })
+    await host!.send(session.id, '整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
+      expected + '，已交给主模型，尚未确认采用',
+    )
   })
   it('aborts Agnes when the user stops and does not start the cancelled main turn', async () => {
     const { session, messages, adapter } = setup(50, {

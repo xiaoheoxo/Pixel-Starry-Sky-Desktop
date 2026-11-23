@@ -58,7 +58,8 @@ describe('Agnes settings placement', () => {
     engine.config.codex.subagentFollowAdvisor = true
     const html = render(<CodexSubagentCard onError={() => undefined} />)
     expect(html).toContain('跟随预测模型选择')
-    expect(html).toContain('保留原有默认模型和强度')
+    expect(html).toContain('要运行独立评估，再选择评估模型')
+    expect(html).toContain('实际采用时才会标记')
     expect(html).not.toContain('Agnes 子智能体模型建议')
   })
 })

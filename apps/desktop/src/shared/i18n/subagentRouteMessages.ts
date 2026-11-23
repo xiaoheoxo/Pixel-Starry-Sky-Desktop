@@ -305,8 +305,8 @@ export const subagentRouteMessages = {
   'subagentRoute.codex.follow': { zh: '跟随主会话', en: 'Follow main session' },
   'subagentRoute.codex.followAdvisor': { zh: '跟随预测模型选择', en: 'Follow Agnes model selection' },
   'subagentRoute.codex.followAdvisorHint': {
-    zh: '在「设置 › 子智能体」配置 Agnes。Codex 支持单次派遣指定模型时优先采用建议；没有建议或不支持时保留原有默认模型和强度。',
-    en: 'Configure Agnes under Settings › Subagents. Codex prefers its advice when per-spawn overrides are available; otherwise the existing model and effort defaults stay in effect.',
+    zh: '先开启 Agnes 并选好候选模型；要运行独立评估，再选择评估模型。建议不会强制替换 Codex 的派遣选择，实际采用时才会标记。',
+    en: 'Enable Agnes and configure candidates. Select an evaluator model to run a separate assessment. Advice does not override Codex dispatch; the badge only appears on verified adoption.',
   },
   'subagentRoute.codex.noCatalog': {
     zh: 'Codex 还没报上模型列表，检测好再选。',
