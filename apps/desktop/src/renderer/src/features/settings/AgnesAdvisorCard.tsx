@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MAX_ADVISOR_EXTRA_MODELS, type SubagentAdvisor } from '@pixelsky/protocol'
+import { ADVISOR_DIFFICULTIES, MAX_ADVISOR_EXTRA_MODELS, type SubagentAdvisor } from '@pixelsky/protocol'
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { channelModelDetail, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
@@ -35,7 +35,9 @@ export function AgnesAdvisorCard() {
           <Switch
             label={tr('subagentRoute.advisor.title')}
             checked={!!advisor}
-            onChange={on => save({ subagentAdvisor: on ? { evaluator: null, models: [null, null, null] } : null })}
+            onChange={on =>
+              save({ subagentAdvisor: on ? { evaluator: null, models: [null, null, null, null] } : null })
+            }
           />
         </div>
         {advisor && (
@@ -81,16 +83,15 @@ export function AgnesAdvisorCard() {
                 </div>
               </>
             )}
-            <div className="grid grid-cols-1 gap-2 @[550px]:grid-cols-3">
-              {([0, 1, 2] as const).map(i => {
-                const key = (['light', 'medium', 'difficult'] as const)[i]
+            <div className="grid grid-cols-1 gap-2 @[420px]:grid-cols-2 @[760px]:grid-cols-4">
+              {ADVISOR_DIFFICULTIES.map((key, i) => {
                 const label = tr(`subagentRoute.advisor.${key}`)
                 return (
                   <div key={key} className="min-w-0">
                     <div className="mb-1 text-label text-fg-muted">{label}</div>
                     <Select
                       label={label}
-                      value={advisor.models[i] ?? ''}
+                      value={(i === 3 && advisor.models.length === 3 ? advisor.models[2] : advisor.models[i]) ?? ''}
                       onChange={id => {
                         const next: SubagentAdvisor['models'] = [...advisor.models]
                         next[i] = id || null

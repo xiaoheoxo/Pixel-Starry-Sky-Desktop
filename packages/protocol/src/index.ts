@@ -13,7 +13,13 @@ export {
   type ModelTokenPrice,
 } from './modelDetails'
 export { getModelPosition, getModelRoleGuide, getModelVendorGuide, type ModelPosition } from './modelRoleGuide'
-export { parseSubagentAdvisor, MAX_ADVISOR_EXTRA_MODELS, type SubagentAdvisor } from './subagentAdvisor'
+export {
+  parseSubagentAdvisor,
+  ADVISOR_DIFFICULTIES,
+  MAX_ADVISOR_EXTRA_MODELS,
+  type AdvisorDifficulty,
+  type SubagentAdvisor,
+} from './subagentAdvisor'
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {
   pixelSpeedCapability,

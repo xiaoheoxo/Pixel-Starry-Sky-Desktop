@@ -100,7 +100,7 @@ export class CodexTranslator {
   /** Newer Codex sends the resolved model on the parent spawn item and the message on the child thread. */
   observeAgnesChild(threadId: string, method: string, params: Message): void {
     const attribution = this.agnes
-    if (!attribution || (method !== 'item/started' && method !== 'item/completed')) return
+    if (!attribution?.marker || (method !== 'item/started' && method !== 'item/completed')) return
     const item = object(params.item)
     if (item.type !== 'userMessage') return
     const first = array(item.content)
@@ -244,14 +244,11 @@ export class CodexTranslator {
         if (!agentId) continue
         const state = object(states[agentId]),
           priorAgent = this.agents.get(agentId)
-        const attributed =
-          spawns &&
-          status !== 'failed' &&
-          typeof raw.model === 'string' &&
-          this.agnes &&
-          raw.model === this.agnes.model &&
-          hasAgnesTag(string(raw.prompt), this.agnes.marker)
-        const source = attributed ? 'agnes' : priorAgent?.modelSource
+        const matching = spawns && status !== 'failed' && this.agnes && raw.model === this.agnes.model
+        const source =
+          matching && this.agnes?.marker && hasAgnesTag(string(raw.prompt), this.agnes.marker)
+            ? 'agnes'
+            : (priorAgent?.modelSource ?? (matching ? 'agnes-match' : undefined))
         this.agents.set(agentId, {
           id: agentId,
           label: agentId.slice(0, 8),
@@ -318,11 +315,13 @@ export class CodexTranslator {
       this.emit({ type: complete ? 'item_completed' : 'item_started', item })
     }
     const model = string(raw.model) || prior?.model || ''
-    if (kind === 'started' && this.agnes && model === this.agnes.model) this.agnesChildren.add(agentId)
+    const matching =
+      kind === 'started' && raw.status !== 'failed' && this.agnes && string(raw.model) === this.agnes.model
+    if (matching) this.agnesChildren.add(agentId)
     const source =
-      kind === 'started' && this.agnesChildren.has(agentId) && this.taggedChildren.delete(agentId)
+      matching && this.taggedChildren.delete(agentId)
         ? 'agnes'
-        : prior?.modelSource
+        : (prior?.modelSource ?? (matching ? 'agnes-match' : undefined))
     this.agents.set(agentId, {
       id: agentId,
       label,

@@ -20,6 +20,7 @@ describe('Agnes advisory model selection', () => {
     expect(localDifficulty('补齐当前播放页', false)).toBe('medium')
     expect(localDifficulty('修复跨平台竞态', false)).toBe('difficult')
     expect(localDifficulty('改标题', true)).toBe('difficult')
+    expect(localDifficulty('制定生产数据迁移方案', false)).toBe('expert')
   })
 
   it('uses only exact user-configured IDs in the active catalog; empty tiers never fall back', () => {
@@ -37,6 +38,24 @@ describe('Agnes advisory model selection', () => {
     expect(advice).toContain('difficult: gpt-6.2-sol')
     expect(advice).not.toContain('gpt-6.2-astra')
     expect(advice).not.toContain('gpt-6.1-terra')
+  })
+
+  it('routes expert work to the fourth slot without changing legacy three-tier behavior', async () => {
+    const catalog = ['difficult-model', 'expert-model']
+    const legacy = parseSubagentAdvisor({ evaluator: null, models: [null, null, 'difficult-model'] })!
+    const settings = parseSubagentAdvisor({
+      evaluator: 'judge',
+      models: [null, null, 'difficult-model', 'expert-model'],
+    })!
+    const blank = parseSubagentAdvisor({ evaluator: null, models: [null, null, 'difficult-model', null] })!
+    expect(recommendSubagent('expert', legacy, catalog)).toBe('difficult-model')
+    expect(recommendSubagent('expert', settings, catalog)).toBe('expert-model')
+    expect(recommendSubagent('expert', blank, catalog)).toBeNull()
+    expect(advisorCandidates(settings, catalog)).toContainEqual({ tier: 'expert', model: 'expert-model' })
+    const judge = vi.fn().mockResolvedValue('{"difficulty":"expert"}')
+    await expect(evaluateAdvisor('judge', 'production data migration', judge)).resolves.toEqual({
+      difficulty: 'expert',
+    })
   })
 
   it('describes only configured, available IDs, even with another generation in the catalog', () => {

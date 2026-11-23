@@ -42,6 +42,12 @@ describe('派发小框', () => {
     expect(dispatchBox(call('running'), runs(run())).chosen).toBeUndefined()
   })
 
+  it('passes Agnes provenance to the inline dispatch card', () => {
+    expect(dispatchBox(call('running', 'spawn_agent'), runs(run({ modelSource: 'agnes-match' })))).toMatchObject({
+      modelSource: 'agnes-match',
+    })
+  })
+
   it('任务名、模型短名、状态来自条目和追踪里的运行记录；点开定位到这次调用', () => {
     expect(dispatchBox(call('running'), runs(run()))).toMatchObject({
       icon: 'bot',

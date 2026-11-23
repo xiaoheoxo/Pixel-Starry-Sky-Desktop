@@ -1314,7 +1314,8 @@ export class CodexSession implements EngineSession {
             2_000,
           )
           sent = true
-          if (attribution && this.active === active && !this.closed) this.translator.setAgnesAttribution(attribution)
+          if (recommendation && this.active === active && !this.closed)
+            this.translator.setAgnesAttribution(attribution ?? { model: recommendation })
         } catch {
           // Unsupported native servers receive no advice rather than putting it into the user's message.
         }

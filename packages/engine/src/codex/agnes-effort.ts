@@ -6,7 +6,7 @@ import type { Difficulty } from './subagent-advisor'
  * These are recommendations, not benchmark scores, pricing, or a model compatibility list.
  * Never use family/alias matching for benchmark results.
  */
-const benchmarkProfiles: ReadonlyMap<string, Record<Difficulty, Effort>> = new Map([
+const benchmarkProfiles: ReadonlyMap<string, Record<Exclude<Difficulty, 'expert'>, Effort>> = new Map([
   ['gpt-6.2-astra', { light: 'low', medium: 'high', difficult: 'xhigh' }],
   ['gpt-6.2-sol', { light: 'low', medium: 'medium', difficult: 'high' }],
   ['gpt-6.1-terra', { light: 'low', medium: 'high', difficult: 'xhigh' }],
@@ -17,6 +17,6 @@ export function agnesEffort(
   difficulty: Difficulty,
 ): Effort | undefined {
   if (!model) return undefined
-  const recommended = benchmarkProfiles.get(model.id)?.[difficulty]
+  const recommended = benchmarkProfiles.get(model.id)?.[difficulty === 'expert' ? 'difficult' : difficulty]
   return recommended && model.efforts.includes(recommended) ? recommended : undefined
 }

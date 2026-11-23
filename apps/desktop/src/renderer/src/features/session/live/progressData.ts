@@ -1,5 +1,5 @@
 // 进度卡片的数据（docs/ui/progress-card.md §2、§3）：当前计划、子智能体行、这一轮的 key
-import type { AgentRuns, Item, SubagentStatus, TodoStep } from '@pixelsky/protocol'
+import type { AgentRun, AgentRuns, Item, SubagentStatus, TodoStep } from '@pixelsky/protocol'
 import { runState, type RunState } from './agentTrace'
 import { agentSteps, type AgentStep } from './agentActivity'
 
@@ -17,6 +17,7 @@ export interface ProgressAgent {
   label: string
   state: RunState
   model: string
+  modelSource?: AgentRun['modelSource']
   type: string
   message: string | null
   startedAt: number
@@ -75,6 +76,7 @@ export function progressAgents(
       label: a.label || run?.label || a.id.slice(0, 8),
       state: runState(a.status),
       model: run?.model ?? '',
+      ...(run?.modelSource ? { modelSource: run.modelSource } : {}),
       ...(run && 'effort' in run ? { effort: run.effort } : {}),
       type: run?.type ?? '',
       message: a.message,

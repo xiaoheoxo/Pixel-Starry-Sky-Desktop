@@ -184,7 +184,19 @@ describe('Agnes attribution', () => {
       prompt: 'Implement the requested change',
     })
     expect(translator.items.get('cx-yes')).toMatchObject({ title: 'Implement the requested change' })
-    for (const id of ['plain', 'wrong', 'inherited']) expect(translator.agents.get(id)?.modelSource).toBeUndefined()
+    expect(translator.agents.get('plain')?.modelSource).toBe('agnes-match')
+    for (const id of ['wrong', 'inherited']) expect(translator.agents.get(id)?.modelSource).toBeUndefined()
+  })
+
+  it('marks an exact reported model match without claiming the recommendation was adopted', () => {
+    const translator = new CodexTranslator(() => {})
+    translator.setAgnesAttribution({ model })
+    translator.item(spawn('matching'), true)
+    translator.child('matching', 'item/started', task(tagged))
+    expect(translator.agents.get('matching')?.modelSource).toBe('agnes-match')
+    translator.setAgnesAttribution(undefined)
+    translator.item(spawn('next-turn'), true)
+    expect(translator.agents.get('next-turn')?.modelSource).toBeUndefined()
   })
 
   it('joins modern spawn and initial task on the same child regardless of arrival order', () => {
@@ -202,7 +214,7 @@ describe('Agnes attribution', () => {
     expect(translator.agents.get('early')?.modelSource).toBe('agnes')
     expect(translator.agents.get('late')?.modelSource).toBe('agnes')
     expect(translator.agents.get('wrong')?.modelSource).toBeUndefined()
-    expect(translator.agents.get('followup')?.modelSource).toBeUndefined()
+    expect(translator.agents.get('followup')?.modelSource).toBe('agnes-match')
     translator.setAgnesAttribution(undefined)
     translator.item({ ...spawn('early'), kind: 'completed' }, true)
     expect(translator.agents.get('early')).toMatchObject({ modelSource: 'agnes', state: 'completed' })

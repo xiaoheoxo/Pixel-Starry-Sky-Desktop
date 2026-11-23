@@ -32,6 +32,7 @@ export interface BoxModel {
   /** 子智能体的类型名（像素星空，设置 › 子智能体）；没有为空 */
   typeLabel: string
   /** 主模型调度：模型是主模型自己选的 / 在主模型的分组以外 */
+  modelSource?: AgentRun['modelSource']
   chosen?: boolean
   outsideGroup?: boolean
   state: BoxState
@@ -64,7 +65,8 @@ function itemState(status: ItemStatus): RunState {
 
 const NONE: AgentRuns = { workflows: [], agents: [] }
 
-const dispatchFlags = (agent: AgentRun | undefined): Pick<BoxModel, 'chosen' | 'outsideGroup'> => ({
+const dispatchFlags = (agent: AgentRun | undefined): Pick<BoxModel, 'chosen' | 'outsideGroup' | 'modelSource'> => ({
+  ...(agent?.modelSource ? { modelSource: agent.modelSource } : {}),
   ...(agent?.modelSource === 'chosen' ? { chosen: true } : {}),
   ...(agent?.outsideGroup ? { outsideGroup: true } : {}),
 })

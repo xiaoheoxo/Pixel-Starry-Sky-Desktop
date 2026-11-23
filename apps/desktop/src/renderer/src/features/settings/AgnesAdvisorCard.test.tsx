@@ -46,6 +46,7 @@ describe('Agnes settings placement', () => {
     expect(html).toContain('aria-checked="true"')
     expect(html).toContain('Configured model')
     expect(html).toContain('previous-extra')
+    expect(html).toContain('极难任务')
   })
 
   it('leaves native subagent defaults in the Codex card without duplicating Agnes', () => {

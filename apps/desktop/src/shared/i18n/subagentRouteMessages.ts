@@ -296,6 +296,7 @@ export const subagentRouteMessages = {
   'subagentRoute.advisor.light': { zh: '轻量任务', en: 'Light tasks' },
   'subagentRoute.advisor.medium': { zh: '常规任务', en: 'Standard tasks' },
   'subagentRoute.advisor.difficult': { zh: '困难任务', en: 'Difficult tasks' },
+  'subagentRoute.advisor.expert': { zh: '极难任务', en: 'Expert tasks' },
   'subagentRoute.codex.title': { zh: 'Codex 子智能体', en: 'Codex subagents' },
   'subagentRoute.codex.hint': {
     zh: 'Codex 派出的子智能体用这个模型，主会话不变；跟随主会话时 Astra 会派出一批 Astra。只影响之后派出的；自带模型的角色（explorer）不受影响。',

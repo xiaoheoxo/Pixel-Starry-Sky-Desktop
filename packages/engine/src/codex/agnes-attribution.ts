@@ -1,6 +1,6 @@
 export interface AgnesAttribution {
   model: string
-  marker: string
+  marker?: string
 }
 
 export const agnesTag = (marker: string): string => `[pixelsky-agnes:${marker}]`
