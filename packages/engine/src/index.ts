@@ -27,6 +27,7 @@ export {
   type CompactionRequestReport,
 } from './compaction'
 export { LONG_CONTEXT_ENV, claudeModelName } from './claude/long-context'
+export { AUTOCOMPACT_THRASHING, THINKING_SIGNATURE } from './claude/apiError'
 export { registerOwnClaudePid, unregisterOwnClaudePid, ownClaudePids } from './claude/process'
 export { CODEX_WINDOW_ENV } from './codex/context-config'
 export { CodexAdapter } from './codex'

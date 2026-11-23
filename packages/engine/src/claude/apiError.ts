@@ -28,6 +28,11 @@ export const ERROR_TEXT: Record<string, string> = {
   cloud_credential_error: '云服务凭据有问题',
 }
 
+export const THINKING_SIGNATURE =
+  '对话记录里有一段思考内容校验不过（多半是上一轮中途断了，或线路换了上游），这个对话直接再发还会失败：回退到出错前那条消息重发，或从那里分叉、开新会话继续'
+export const AUTOCOMPACT_THRASHING =
+  '上下文刚压缩完又被塞满，连续 3 次，Claude Code 停下了：多半是这一轮在读很大的文件或命令输出。让 AI 分段读、只看需要的部分（比如日志的最后几百行），或开一个新会话继续'
+
 const CJK = /[一-鿿]/
 const UNREACHABLE =
   /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ECONNRESET|EAI_AGAIN|connection (?:refused|error|reset)|fetch failed|network error/i
@@ -50,6 +55,18 @@ const STREAM_FORMAT: Array<[RegExp, string]> = [
     '接口的回复没发完就断了，上面的内容可能不完整；可以重试，反复出现就换一个接口',
   ],
 ]
+/**
+ * 原因确定、网关和适配层不会写出这几句英文的（docs/ui/error-retry.md §10.1）：原文里夹着中文（中转加的前缀）也照样认。
+ * 上面几种留在中文判断后面：网关中途断流时写的中文说明比通用的一句具体
+ */
+const SURE_CAUSES: Array<[RegExp, string]> = [
+  // 历史里某条回复的思考块签名校验不过（上一轮中途断了留下半截，或线路换了上游）：同一段历史再发还是这个错，重试没用
+  [/invalid\W{0,2}signature\W{0,2}in\W{0,2}thinking\W{0,2}block/i, THINKING_SIGNATURE],
+  // Claude Code 自己停下：压缩完 3 轮内又塞满、连着 3 次。再压缩也一样，所以不给「压缩后重试」
+  [/autocompact is thrashing/i, AUTOCOMPACT_THRASHING],
+]
+/** 只按原文认的（不给按钮） */
+const BY_TEXT = [...SURE_CAUSES, ...STREAM_FORMAT]
 
 /** 把状态码放进提示的第一小句后面：「服务出错，通常是…」→「服务出错（HTTP 502），通常是…」；没有逗号就放在最后 */
 function withStatus(text: string, status: number | undefined): string {
@@ -75,8 +92,11 @@ export function errorCodeFromText(raw: string): string | null {
 /**
  * 一次 API 报错给用户看的那句；认不出时返回 null，照原文显示。
  * 原文里带中文的也返回 null：那是像素星空自己的平台网关、适配层写好的说明，换成通用的一句反而丢信息。
+ * 例外是 SURE_CAUSES 那两句：网关不会写，原因又确定。
  */
 export function friendlyApiError(code: string | null, raw: string): string | null {
+  const sure = SURE_CAUSES.find(([re]) => re.test(raw))
+  if (sure) return sure[1]
   if (CJK.test(raw)) return null
   const format = STREAM_FORMAT.find(([re]) => re.test(raw))
   if (format) return format[1]
@@ -118,7 +138,7 @@ export function apiNoticeError(code: string | null, raw: string): NoticeError | 
   const status = httpStatusOf(raw)
   const byCode = c ? ERROR_CODE_KIND[c] : undefined
   let kind: NoticeErrorKind | undefined
-  if (STREAM_FORMAT.some(([re]) => re.test(raw))) kind = undefined
+  if (BY_TEXT.some(([re]) => re.test(raw))) kind = undefined
   // 已知的代码 / 状态码优先：限流提示里带 “too many tokens” 之类的话不能被当成上下文超限
   else if (!byCode && errorKindOfStatus(status) === undefined && isOverflowText(raw)) kind = 'overflow'
   else if (CJK.test(raw)) kind = classifyErrorText(raw) ?? byCode

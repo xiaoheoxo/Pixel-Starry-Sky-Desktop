@@ -1032,6 +1032,15 @@ export const systemMessages = {
     zh: '请求无效',
     en: 'Invalid request',
   },
+  // engine claude/apiError.ts 的 THINKING_SIGNATURE、AUTOCOMPACT_THRASHING，两边要一字不差
+  'system.thinkingSignatureInvalid': {
+    zh: '对话记录里有一段思考内容校验不过（多半是上一轮中途断了，或线路换了上游），这个对话直接再发还会失败：回退到出错前那条消息重发，或从那里分叉、开新会话继续',
+    en: 'A thinking block in this conversation’s history failed signature validation (usually because the previous turn was cut off, or the route switched upstreams). Sending again here will keep failing: rewind to the message before the error and resend, or fork from there or start a new session.',
+  },
+  'system.autocompactThrashing': {
+    zh: '上下文刚压缩完又被塞满，连续 3 次，Claude Code 停下了：多半是这一轮在读很大的文件或命令输出。让 AI 分段读、只看需要的部分（比如日志的最后几百行），或开一个新会话继续',
+    en: 'The context filled up again right after compacting, 3 times in a row, so Claude Code stopped. This turn is probably reading a very large file or command output. Ask the AI to read in chunks and only what it needs (e.g. the last few hundred lines of a log), or continue in a new session.',
+  },
   'system.selectedModelNotFound': {
     zh: '找不到所选模型',
     en: 'Selected model not found',

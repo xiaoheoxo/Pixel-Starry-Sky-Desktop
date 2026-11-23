@@ -4,7 +4,13 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EngineEvent, HostEvent } from '@pixelsky/protocol'
 import { ClaudeAdapter, EngineHost } from '../src'
-import { errorCodeFromText, friendlyApiError } from '../src/claude/apiError'
+import {
+  AUTOCOMPACT_THRASHING,
+  THINKING_SIGNATURE,
+  apiNoticeError,
+  errorCodeFromText,
+  friendlyApiError,
+} from '../src/claude/apiError'
 import { ClaudeTranslator } from '../src/claude/translate'
 import { makeTmp, removeTmp } from './helpers/tmp'
 
@@ -89,6 +95,25 @@ describe('报错归类', () => {
     expect(friendlyApiError('invalid_request', 'Prompt is too long')).toBe(
       '上下文太长：先压缩（/compact）或开一个新会话',
     )
+  })
+
+  it('思考签名校验不过、自动压缩连续塞满：给原因和怎么办，不给「压缩后重试」', () => {
+    // 用户日志原文（2026-11-23）：中转把每一跳的 request id 拼在后面
+    const signature =
+      'API Error: 400 messages.12.content.0: Invalid `signature` in `thinking` block (request id: 202611221700224190985448268d9d6yCXse6dy) (request id: 202611221700163085467068268d9d6NyrE6NHO)'
+    expect(friendlyApiError('invalid_request', signature)).toBe(THINKING_SIGNATURE)
+    // 原文前面有中转加的中文也照样认
+    expect(friendlyApiError(null, `上游返回错误：${signature}`)).toBe(THINKING_SIGNATURE)
+    const thrash =
+      'Autocompact is thrashing: the context refilled to the limit within 3 turns of the previous compact, 3 times in a row. A file being read or a tool output is likely too large for the context window. Try reading in smaller chunks, or use /clear to start fresh.'
+    expect(friendlyApiError('invalid_request', thrash)).toBe(AUTOCOMPACT_THRASHING)
+    for (const raw of [signature, thrash]) expect(apiNoticeError('invalid_request', raw)?.kind).toBeUndefined()
+    // 中文说明里没有这几句英文的：照旧原样
+    expect(friendlyApiError('invalid_request', '平台余额不足')).toBeNull()
+    // 网关中途断流写的中文说明比通用的一句具体：夹着 never arrived 也照旧原样
+    expect(
+      friendlyApiError(null, 'API Error: 上游连接中途断开，已转发 120 KB。Part of the response never arrived.'),
+    ).toBeNull()
   })
 
   it('子智能体因 API 报错提前结束：警告里的报错也说人话', () => {
