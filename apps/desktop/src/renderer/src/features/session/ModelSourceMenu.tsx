@@ -5,7 +5,7 @@ import { tr } from '../../i18n/core'
 // 输入框的模型菜单（docs/ui/model-channels.md §2.3、§2.5）：上面一个跨通道的搜索框，下面按通道分标签页（默认）
 // 或两栏（设置里换，窗格放不下时按标签页），没设置的通道收进「＋」。能换执行者的行右边有下拉。
 // 平台模型的线路在子页里，按倍率从低到高排（docs/ui/source-switch.md §3.2）。
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   Check,
   ChevronDown,
@@ -20,7 +20,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react'
-import type { EngineId } from '@pixelsky/protocol'
+import type { EngineId, ModelIq, ModelIqSnapshot } from '@pixelsky/protocol'
 import { EngineIcon, Kbd, PlanBadge, Popover, Spinner, cn } from '@/ui'
 import { useAccount } from '@/features/account/useAccount'
 import { menuProvider, useProviders } from '@/features/account/providers'
@@ -33,7 +33,7 @@ import {
   usePlatform,
   usePlatformCatalog,
 } from '@/features/account/platform'
-import { selfModelLabel, selfModelOptions, type SourceMenuController } from '@/features/engine'
+import { bridge, selfModelLabel, selfModelOptions, type SourceMenuController } from '@/features/engine'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { useEngineState } from '@/features/engine/store'
@@ -138,6 +138,25 @@ export function ModelSourceMenu({
   onRequestChoice: (choice: ChannelChoice) => void
 }) {
   useI18n()
+  const [iq, setIq] = useState<ModelIqSnapshot>()
+  const [iqBusy, setIqBusy] = useState(false)
+  const [iqFailed, setIqFailed] = useState(false)
+  const refreshIq = useCallback(async (force = false) => {
+    if (!bridge?.modelIq) return
+    setIqBusy(true)
+    setIqFailed(false)
+    try {
+      setIq(await bridge.modelIq(force))
+    } catch {
+      setIqFailed(true)
+      setIq(undefined)
+    } finally {
+      setIqBusy(false)
+    }
+  }, [])
+  useEffect(() => {
+    if (open) void refreshIq()
+  }, [open, refreshIq])
   const modelDetails = useEngineState(s => s.config?.codex.modelDetails)
   const engineId: EngineId = live.engine?.id ?? 'claude'
   const platform = usePlatform(engineId)
@@ -407,6 +426,7 @@ export function ModelSourceMenu({
           desc={rowDesc(c, row)}
           guide={rowGuide(c, row)}
           position={modelPositionLabel(row.target.model)}
+          iq={c === 'chatgpt' && row.target.model ? iq?.scores[row.target.model] : undefined}
           descMono={c === 'custom'}
           meta={rowMeta(c, row)}
           query={query}
@@ -1070,6 +1090,31 @@ export function ModelSourceMenu({
           </button>
         ))}
       </div>
+      {bridge?.modelIq && (
+        <button
+          type="button"
+          data-model-iq-refresh
+          disabled={iqBusy}
+          aria-busy={iqBusy}
+          aria-label={tr('modelChannels.menu.refreshIq')}
+          title={tr(
+            iqBusy
+              ? 'modelChannels.menu.iqLoading'
+              : iqFailed || (iq?.failedSources.length && !Object.keys(iq.scores).length)
+                ? 'modelChannels.menu.iqFailed'
+                : iq?.failedSources.length
+                  ? 'modelChannels.menu.iqCached'
+                  : iq && !Object.keys(iq.scores).length
+                    ? 'modelChannels.menu.iqNoOverlap'
+                    : 'modelChannels.menu.refreshIq',
+          )}
+          onClick={() => void refreshIq(true)}
+          className="flex h-[26px] shrink-0 items-center gap-1 rounded-md px-1.5 text-label text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-50"
+        >
+          <RefreshCw size={11} className={cn(iqBusy && 'motion-safe:animate-spin')} />
+          IQ
+        </button>
+      )}
       <button
         type="button"
         disabled={catalog.loading}
@@ -1231,6 +1276,7 @@ function ModelRow({
   desc,
   descMono,
   position,
+  iq,
   guide,
   meta,
   chip,
@@ -1248,6 +1294,7 @@ function ModelRow({
   desc?: string
   descMono?: boolean
   position?: string
+  iq?: ModelIq
   guide?: ReturnType<typeof modelRoleGuide>
   meta?: ReactNode
   chip?: ReactNode
@@ -1309,6 +1356,24 @@ function ModelRow({
             {position && (
               <span className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary">
                 {position}
+              </span>
+            )}
+            {iq && (
+              <span
+                data-model-iq
+                title={tr('modelChannels.menu.iqHint', {
+                  score: iq.score,
+                  effort: iq.effort,
+                  n: iq.cohortSize,
+                  radar: iq.radarScore,
+                  analysis: iq.analysisScore,
+                  radarWeight: iq.radarWeight,
+                  analysisWeight: 100 - iq.radarWeight,
+                  disagreement: iq.disagreement,
+                })}
+                className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary tabular-nums"
+              >
+                IQ {iq.score}
               </span>
             )}
             {desc && (

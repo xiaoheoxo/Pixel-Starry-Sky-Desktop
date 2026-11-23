@@ -110,6 +110,7 @@ const engine: EngineBridge = {
   setConfig: (engine, patch) => call('engine:setConfig', engine, patch),
   setDefaultEngine: engine => call('engine:setDefaultEngine', engine),
   catalog: (engine, force) => call('engine:catalog', engine, force),
+  modelIq: force => call('modelIq:refresh', force),
   updateEngine: engine => call('engine:update', engine),
   installEngine: engine => call('engine:install', engine),
   loginEngine: (engine, method) => call('engine:login', engine, method),

@@ -1,0 +1,8 @@
+# Model IQ reference
+
+The ChatGPT model menu shows a **relative benchmark rank**, not human IQ, an accuracy percentage, or a routing promise. Comparisons use xhigh, independent of the composer's selected reasoning effort. No score is shown for relay aliases or an unmatched revision. The button marked IQ refreshes both public sources without detecting models, launching agents, or sending account or task data.
+
+- [Codex Radar](https://codexradar.com/en/) publishes a community Codex matrix scored out of 150. Read the published, versioned round with its completion timestamp, not live work-in-progress or votes.
+- [Artificial Analysis OpenAI results](https://artificialanalysis.ai/providers/openai/) publish API results from a separate [methodology](https://artificialanalysis.ai/methodology/intelligence-benchmarking). Read only standard xhigh variants from the Intelligence Index table. The provider table does not reliably date each benchmark row; do not substitute fetch date for test date.
+
+Require at least three exact model IDs in the intersection. Convert each source to a midrank percentile on that same cohort, then weight the percentiles, never raw scores. The relative reliability priors are 0.75 (narrow community suite) and 1.0 (broader independent suite). Each prior is adjusted by shared coverage, snapshot cache age and measurement freshness (14-day half-life where dated, 0.8 multiplier where unknown). The relative influence is recomputed on request. Show both raw scores, effective weights and percentile disagreement in the tooltip. No single-source composite, and expired caches are excluded. An ordinary reopen uses the hourly cache; an explicit refresh bypasses it. Concurrent requests share one in-flight request.

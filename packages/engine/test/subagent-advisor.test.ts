@@ -271,7 +271,7 @@ describe('Agnes advisory model selection', () => {
     const candidate = (details: Parameters<typeof advisorCandidates>[2]) =>
       groupAdvisorCandidates(advisorCandidates(settings, [model], details, metadata))[0].candidates[0]
     expect(candidate(undefined)).toMatchObject({
-      position: 'efficient',
+      position: 'subflagship',
       priceBasis: 'public-reference',
       referenceDescription: 'Public reference',
     })

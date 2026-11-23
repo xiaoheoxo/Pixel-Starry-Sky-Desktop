@@ -259,6 +259,18 @@ export const modelChannelMessages = {
   'modelChannels.menu.layoutCols': { zh: '两栏', en: 'Two columns' },
   'modelChannels.menu.switchAccount': { zh: '切换账号', en: 'Switch account' },
   'modelChannels.menu.manageEndpoints': { zh: '管理接口', en: 'Manage endpoints' },
+  'modelChannels.menu.refreshIq': { zh: '刷新模型 IQ', en: 'Refresh model IQ' },
+  'modelChannels.menu.iqLoading': { zh: '正在请求两家基准来源', en: 'Fetching both benchmarks' },
+  'modelChannels.menu.iqFailed': { zh: '来源暂不可用，点击重试', en: 'Benchmark source unavailable; retry' },
+  'modelChannels.menu.iqCached': {
+    zh: '部分来源未更新，暂用有效缓存；点击重试',
+    en: 'Some sources did not update. Using valid cache; retry',
+  },
+  'modelChannels.menu.iqNoOverlap': { zh: '可交叉比较的型号不足，点击重试', en: 'Too few comparable models; retry' },
+  'modelChannels.menu.iqHint': {
+    zh: 'IQ 参考分 {score}/100（{effort}，同档 {n} 个型号的相对排名，非人类 IQ）。Codex Radar {radar}/150（权重 {radarWeight}%）；Artificial Analysis 指数 {analysis}（权重 {analysisWeight}%）；两榜百分位相差 {disagreement} 点。',
+    en: 'IQ reference {score}/100 ({effort}, relative rank among {n} matched models, not human IQ). Codex Radar {radar}/150 ({radarWeight}% weight); Artificial Analysis Index {analysis} ({analysisWeight}% weight); source percentiles differ by {disagreement} points.',
+  },
   'modelChannels.menu.refresh': { zh: '刷新模型和线路', en: 'Refresh models and routes' },
   'modelChannels.menu.manage': { zh: '管理模型…', en: 'Manage models…' },
   'modelChannels.menu.hiddenCount': { zh: '（已隐藏 {p0} 个）', en: '({p0} hidden)' },

@@ -101,7 +101,11 @@ describe('model role copy', () => {
   it('labels known positions and leaves unknown variants unranked', () => {
     expect(getModelPosition('gpt-6.2-astra')).toBe('flagship')
     expect(getModelPosition('anthropic/claude-opus-5.5')).toBe('subflagship')
-    expect(getModelPosition('openai/gpt-6.2-sol')).toBe('efficient')
+    expect(getModelPosition('openai/gpt-6.2-sol')).toBe('subflagship')
+    expect(getModelPosition('gpt-6.1-sol')).toBe('subflagship')
+    expect(getModelPosition('gpt-6-sol')).toBe('subflagship')
+    expect(getModelPosition('gpt-5.6-sol')).toBe('subflagship')
+    expect(getModelPosition('gpt-6.1-terra')).toBe('efficient')
     expect(getModelPosition('gpt-6-luna')).toBe('lightweight')
     expect(getModelPosition('gpt-6.5-astra')).toBeUndefined()
   })

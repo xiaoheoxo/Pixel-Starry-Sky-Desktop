@@ -11,7 +11,7 @@ import { app, BrowserWindow, dialog, net, powerMonitor, session, shell, type Ipc
 import { dataRoot, localRoot } from '../app/data-dir'
 import * as ipc from '../ipc/guard'
 import { nativeText, windowLocale } from '../app/ui-language'
-import { EngineHost } from '@pixelsky/engine'
+import { CloudModelIq, EngineHost } from '@pixelsky/engine'
 import { ENGINES, isChatProject, type HostEvent, type SessionRecord } from '@pixelsky/protocol'
 import type { AppContext } from '../app/context'
 import { platformCalls, platformCharges, accountCalls, accountSummary } from '../platform/billing'
@@ -112,6 +112,8 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     if (typeof enabled !== 'boolean') throw new Error('参数不对')
     return systemProxy.setEnabled(enabled)
   })
+  const modelIq = new CloudModelIq((url, init) => net.fetch(url, init))
+  ipc.handle('modelIq:refresh', (_event, force) => modelIq.refresh(force === true))
   const h = new EngineHost({
     systemProxy: engine => systemProxy.forEngine(engine),
     // 没装 Node.js 时一键安装 Codex / Claude Code 先装一份私有的（docs/ui/engine-update.md §7）；net.fetch 走系统代理

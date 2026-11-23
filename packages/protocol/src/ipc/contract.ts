@@ -221,6 +221,7 @@ export const IPC_CONTRACT = {
     mobile: 'act',
     trust: 'sender',
   },
+  'modelIq:refresh': { kind: 'invoke', route: 'local', trust: 'sender' },
   'engine:config': { kind: 'invoke', route: 'selected', ids: [0], remote: 'engine:config', trust: 'sender' },
   'engine:context': { kind: 'invoke', route: 'resource', ids: [0], remote: 'engine:context', trust: 'sender' },
   'engine:createSession': {

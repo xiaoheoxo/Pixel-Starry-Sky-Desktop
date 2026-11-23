@@ -101,3 +101,5 @@ export {
   strings,
   text,
 } from './extensions/parse'
+
+export { CloudModelIq } from './host/model-iq'

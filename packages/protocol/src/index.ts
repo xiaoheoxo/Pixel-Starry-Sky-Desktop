@@ -514,3 +514,5 @@ export type {
 } from './quota'
 export { QUOTA_WINDOW_MINS, quotaWindowId } from './quota'
 export { supportsChatGptDot } from './dot'
+
+export type { ModelIq, ModelIqSnapshot, ModelIqSource } from './modelIq'
