@@ -20,7 +20,13 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react'
-import type { EngineId } from '@pixelsky/protocol'
+import {
+  currentCloudModelPrice,
+  type CloudModelReference,
+  type EngineId,
+  type ModelDetailChannel,
+  type ModelDetailTarget,
+} from '@pixelsky/protocol'
 import { EngineIcon, Kbd, PlanBadge, Popover, Spinner, cn } from '@/ui'
 import { useAccount } from '@/features/account/useAccount'
 import { menuProvider, useProviders } from '@/features/account/providers'
@@ -33,7 +39,7 @@ import {
   usePlatform,
   usePlatformCatalog,
 } from '@/features/account/platform'
-import { selfModelLabel, selfModelOptions, type SourceMenuController } from '@/features/engine'
+import { bridge, selfModelLabel, selfModelOptions, useEngineState, type SourceMenuController } from '@/features/engine'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { requestModelsScroll } from '@/features/settings/models/scroll'
@@ -63,12 +69,17 @@ import {
   executorName,
   showTriggerSource,
 } from '@/features/model-channels/channelLabels'
+import {
+  channelModelDetail,
+  menuModelPrice,
+  modelPositionLabel,
+  modelRoleGuide,
+} from '@/features/model-channels/modelRoleGuide'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
   COLS_MENU_WIDTH,
   MENU_ROW,
-  highlightParts,
   isBroken,
   listRows,
   resolveView,
@@ -83,6 +94,7 @@ import { useChannelEngines } from '@/features/model-channels/loginStore'
 import { openAccountsPage, useAccounts } from '@/features/model-channels/accountsStore'
 import { AccountPickList } from '@/features/model-channels/AccountsUI'
 import { MenuRow, TRIGGER } from './ComposerMenus'
+import { MODEL_DETAIL_LINE_PX, ModelRow } from './ModelMenuRow'
 import { QuotaInline } from './quota/QuotaInline'
 
 const CLIPS = /(hidden|clip|auto|scroll)/
@@ -136,6 +148,8 @@ export function ModelSourceMenu({
   onRequestChoice: (choice: ChannelChoice) => void
 }) {
   useI18n()
+  const modelDetails = useEngineState(s => s.modelDetails)
+  const cloudModelCatalog = useEngineState(s => s.cloudModelCatalog)
   const engineId: EngineId = live.engine?.id ?? 'claude'
   const platform = usePlatform(engineId)
   const catalog = usePlatformCatalog()
@@ -220,6 +234,37 @@ export function ModelSourceMenu({
     engines,
     remembered: prefs.executors,
   })
+  const [displayReferences, setDisplayReferences] = useState<Record<string, CloudModelReference>>({})
+  const [displayRefresh, setDisplayRefresh] = useState(0)
+  const appliedDisplayRefresh = useRef(0)
+  const displayKey = JSON.stringify(
+    [
+      ...new Set(
+        [
+          ...groups.flatMap(group => group.rows.map(row => row.target.model)),
+          ...menuProviders.flatMap(provider => provider.models.flatMap(model => [model.id, model.priceRef?.trim()])),
+        ].filter((id): id is string => !!id),
+      ),
+    ].sort(),
+  )
+  useEffect(() => {
+    if (!open || !cloudModelCatalog || !bridge?.modelDisplayReferences) return
+    const ids = JSON.parse(displayKey) as string[]
+    if (!ids.length) return
+    const force = displayRefresh > appliedDisplayRefresh.current
+    appliedDisplayRefresh.current = displayRefresh
+    let cancelled = false
+    void bridge
+      .modelDisplayReferences(ids, force)
+      .then(refs => {
+        if (!cancelled && refs && Object.keys(refs).length) setDisplayReferences(prev => ({ ...prev, ...refs }))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, cloudModelCatalog, displayKey, displayRefresh])
+
   const channels = splitChannels(groups, { current: live.channel, started: live.started })
   const layout: MenuLayout = prefs.menuLayout === 'cols' && fit.cols ? 'cols' : 'tabs'
   const narrow = prefs.menuLayout === 'cols' && !fit.cols
@@ -289,6 +334,47 @@ export function ModelSourceMenu({
   const providerOf = (row: ChannelRow) => menuProviders.find(p => p.id === row.target.providerId)
   const selfOption = (c: ChannelId, row: ChannelRow) =>
     isAuthChannel(c) ? selfModels[c].find(m => m.value === row.target.model) : undefined
+  const authCatalogModel = (c: ChannelId, model: string | null | undefined) => {
+    if (!model) return undefined
+    const list =
+      c === 'claude'
+        ? claudeCatalog?.models
+        : c === 'chatgpt'
+          ? codexCatalog?.models
+          : c === 'google'
+            ? agyCatalog?.models
+            : undefined
+    return list?.find(m => m.id === model)
+  }
+  const detailChannelOf = (c: ChannelId): ModelDetailChannel | null => (c === 'dot' ? null : c)
+  const rowGuideInfo = (
+    c: ChannelId,
+    model: string | null | undefined,
+    sourceId: string | null,
+    priceRef?: string | null,
+  ) => {
+    const dc = detailChannelOf(c)
+    if (!dc || !model) return undefined
+    const target: ModelDetailTarget = { channel: dc, sourceId, model }
+    const detail = channelModelDetail(modelDetails, target)
+    const cloudRef = cloudModelCatalog
+      ? (authCatalogModel(c, model)?.cloudReference ??
+        displayReferences[model] ??
+        (priceRef ? displayReferences[priceRef.trim()] : undefined))
+      : undefined
+    const guide = modelRoleGuide(model, detail, cloudRef?.description)
+    const position = modelPositionLabel(model)
+    const price = menuModelPrice(target, detail?.price, currentCloudModelPrice(cloudRef), undefined, priceRef)
+    return { channel: dc, detail, guide, position, price }
+  }
+  const rowSourceId = (c: ChannelId, row: ChannelRow): string | null => {
+    if (c === 'custom') return row.target.providerId ?? null
+    if (c === 'platform') {
+      const gs = groupsForModel(catalog.groups, row.target.model)
+      return gs[0] ? String(gs[0].id) : null
+    }
+    return null
+  }
   const rowTitle = (c: ChannelId, row: ChannelRow): string =>
     c === 'dot'
       ? 'ChatGPT Dot'
@@ -382,13 +468,24 @@ export function ModelSourceMenu({
       }
     }
     const idx = row.disabled ? -1 : picks.push(pick) - 1
+    const singleProviderModel = c === 'custom' && provider && !multi ? provider.models[0] : undefined
+    const info =
+      c === 'custom' && multi
+        ? undefined
+        : rowGuideInfo(c, row.target.model, rowSourceId(c, row), singleProviderModel?.priceRef)
     return (
       <div key={row.key}>
         <ModelRow
           title={rowTitle(c, row)}
+          modelId={row.target.model}
+          channel={info?.channel}
           mono={c === 'platform'}
           desc={rowDesc(c, row)}
           descMono={c === 'custom'}
+          guide={info?.guide}
+          position={info?.position}
+          price={info?.price}
+          customEdited={!!info?.detail}
           meta={rowMeta(c, row)}
           query={query}
           selected={row.selected && !expand}
@@ -422,12 +519,19 @@ export function ModelSourceMenu({
           provider!.models.map(m => {
             const pickModel = (): void => choose({ ...row.target, model: m.id }, row.pick.engine)
             const i = picks.push(pickModel) - 1
+            const mInfo = rowGuideInfo('custom', m.id, provider!.id, m.priceRef)
             return (
               <ModelRow
                 key={m.id}
                 indent
                 mono
                 title={m.id}
+                modelId={m.id}
+                channel="custom"
+                guide={mInfo?.guide}
+                position={mInfo?.position}
+                price={mInfo?.price}
+                customEdited={!!mInfo?.detail}
                 selected={m.id === live.model}
                 active={i === active}
                 onPick={pickModel}
@@ -681,11 +785,18 @@ export function ModelSourceMenu({
     )
   }
 
-  /** 搜索：所有显示的通道里找，按通道分组；这个对话跑不了的按通道数一下 */
+  /** 搜索：所有显示的通道里找，按通道分组；同时匹配模型名、ID 与用途说明 */
   const renderSearch = (): ReactNode => {
-    const found = searchChannels(channels, query, (g, row) =>
-      [rowTitle(g.channel, row), row.target.model ?? '', rowDesc(g.channel, row) ?? ''].join(' '),
-    )
+    const found = searchChannels(channels, query, (g, row) => {
+      const info = rowGuideInfo(g.channel, row.target.model, rowSourceId(g.channel, row))
+      return [
+        rowTitle(g.channel, row),
+        row.target.model ?? '',
+        rowDesc(g.channel, row) ?? '',
+        info?.position ?? '',
+        info?.guide?.main ?? '',
+      ].join(' ')
+    })
     if (!found.length)
       return <Empty title={tr('modelChannels.menu.noMatch')}>{tr('modelChannels.menu.noMatchHint')}</Empty>
     return (
@@ -723,7 +834,30 @@ export function ModelSourceMenu({
       return live.channel === 'custom' && endpoint && endpoint.models.length > 1 ? endpoint.models.length : 0
     return live.channel === g.channel && live.model && !g.rows.some(r => r.target.model === live.model) ? 1 : 0
   }
-  const listPx = listRows(channels, extraRows) * MENU_ROW + 4
+  const listPx =
+    listRows(channels, g => {
+      const guideLines = g.rows.reduce((count, row) => {
+        const provider = g.channel === 'custom' ? providerOf(row) : undefined
+        if (provider && provider.models.length > 1) return count
+        const info = rowGuideInfo(
+          g.channel,
+          row.target.model,
+          rowSourceId(g.channel, row),
+          provider?.models[0]?.priceRef,
+        )
+        return count + Number(!!info?.guide?.main)
+      }, 0)
+      const expandedLines =
+        g.channel === 'custom' && live.channel === 'custom' && endpoint && endpoint.models.length > 1
+          ? endpoint.models.reduce(
+              (count, m) => count + Number(!!rowGuideInfo('custom', m.id, endpoint.id, m.priceRef)?.guide?.main),
+              0,
+            )
+          : 0
+      return extraRows(g) + (guideLines + expandedLines) * (MODEL_DETAIL_LINE_PX / MENU_ROW)
+    }) *
+      MENU_ROW +
+    4
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.nativeEvent.isComposing) return
@@ -1031,6 +1165,7 @@ export function ModelSourceMenu({
         disabled={catalog.loading}
         onClick={() => {
           void refreshPlatform()
+          if (cloudModelCatalog) setDisplayRefresh(n => n + 1)
           live.redetect()
         }}
         title={tr('modelChannels.menu.refresh')}
@@ -1147,19 +1282,6 @@ function Empty({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-/** 搜索命中的那一段标出来 */
-function Mark({ text, query }: { text: string; query: string }) {
-  const parts = highlightParts(text, query)
-  if (!parts) return <>{text}</>
-  return (
-    <>
-      {parts[0]}
-      <mark className="rounded-sm bg-warn/25 px-px text-inherit">{parts[1]}</mark>
-      {parts[2]}
-    </>
-  )
-}
-
 /** 授权通道的信息行：打码的邮箱 + 套餐小标签，悬停看完整邮箱 */
 function AccountTag({
   account,
@@ -1175,89 +1297,6 @@ function AccountTag({
       {account.email && <span className="truncate">{maskEmail(account.email)}</span>}
       {plan && <PlanBadge label={plan.label} tone={plan.tone} />}
     </span>
-  )
-}
-
-/** 菜单里的一行（30px 单行）：勾、名字、淡色说明，右边倍率 / 线路数和执行者 */
-function ModelRow({
-  title,
-  mono,
-  desc,
-  descMono,
-  meta,
-  chip,
-  query = '',
-  selected,
-  active,
-  off,
-  offTitle,
-  indent,
-  onPick,
-  onHover,
-}: {
-  title: string
-  mono?: boolean
-  desc?: string
-  descMono?: boolean
-  meta?: ReactNode
-  chip?: ReactNode
-  query?: string
-  selected?: boolean
-  /** 键盘或鼠标停在这行 */
-  active?: boolean
-  /** 这个对话跑不了 / 执行者不可用：灰掉不能点 */
-  off?: boolean
-  offTitle?: string
-  indent?: boolean
-  onPick?: () => void
-  onHover?: () => void
-}) {
-  return (
-    <div
-      data-model-row
-      data-active={active || undefined}
-      data-selected={selected || undefined}
-      title={off ? offTitle : undefined}
-      onMouseEnter={onHover}
-      className={cn(
-        'group flex h-[30px] items-center gap-2 rounded-md pr-1.5',
-        indent ? 'pl-6' : 'pl-1.5',
-        selected ? 'bg-selected' : active && 'bg-hover',
-      )}
-    >
-      <button
-        type="button"
-        data-menu-item
-        disabled={off || !onPick}
-        onClick={onPick}
-        className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left disabled:cursor-default"
-      >
-        {/* 勾放最左边一列：每行的模型名对齐 */}
-        <span className="flex w-3.5 shrink-0 justify-center">
-          {selected && <Check size={13} strokeWidth={2.25} className="text-accent-fg" />}
-        </span>
-        <span
-          className={cn(
-            'min-w-0 truncate',
-            mono ? 'font-mono text-meta' : 'text-ui',
-            off ? 'text-fg-faint' : 'text-fg',
-          )}
-        >
-          <Mark text={title} query={query} />
-        </span>
-        {desc && (
-          <span className={cn('min-w-0 flex-1 truncate text-label text-fg-faint', descMono && 'font-mono')}>
-            <Mark text={desc} query={query} />
-          </span>
-        )}
-      </button>
-      {(meta || chip) && (
-        <span className="flex shrink-0 items-center gap-1.5 text-label text-fg-muted tabular-nums">
-          {meta}
-          {chip}
-        </span>
-      )}
-    </div>
   )
 }
 
