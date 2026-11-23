@@ -482,3 +482,19 @@ it('shows measured collection progress without replacing a rough forecast or mis
   expect(week).toContain('有效读数 2/3 · 跨度 6/9 小时')
   expect(week).toMatch(/role="progressbar"[^>]*aria-valuenow="66"/)
 })
+
+it('shows API-equivalent full weekly value separately, and never in the 5-hour forecast', () => {
+  const q = quota({ provider: 'chatgpt', windows: [win(300, 23, at(17, 5)), win(10_080, 55, at(12, 0, 1))] })
+  const estimate = {
+    windows: {},
+    month: null,
+    weeklyApi: { id: quotaWindowId(10_080), value: { full: 300, pointsUsed: 30 } },
+  }
+  const html = render({ q, estimate })
+  expect(count(html, '周限用满折合 API')).toBe(1)
+  expect(html).toContain('周限用满折合 API ≈ $300')
+  expect(html.indexOf('周限用满折合 API')).toBeGreaterThan(html.indexOf('周限预测'))
+  expect(render({ q, estimate: { ...estimate, weeklyApi: { ...estimate.weeklyApi, value: null } } })).toContain(
+    '暂无可靠估算',
+  )
+})

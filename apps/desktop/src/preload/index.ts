@@ -824,6 +824,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
     get: provider => call('quota:get', provider),
     refresh: (provider, opts) => call('quota:refresh', provider, opts),
     useResetCredit: () => call('quota:useResetCredit'),
+    weeklyApiSample: query => call('quota:weeklyApiSample', query),
     onChange: callback => {
       const listener = (_e: Electron.IpcRendererEvent, quota: import('@pixelsky/protocol').AccountQuota) =>
         callback(quota)

@@ -524,3 +524,4 @@ export type {
 } from './quota'
 export { QUOTA_WINDOW_MINS, quotaWindowId, quotaWindowObservedAt } from './quota'
 export { supportsChatGptDot } from './dot'
+export type { WeeklyApiQuery, WeeklyApiSample } from './weekly-api'

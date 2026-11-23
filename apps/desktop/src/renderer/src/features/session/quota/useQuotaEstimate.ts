@@ -1,6 +1,13 @@
 // 订阅额度估算的数据（docs/ui/quota-estimate.md §2）：这个引擎走订阅登录（route cli）的用量记录 + 月费选择。
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { quotaWindowObservedAt, type AccountQuota, type QuotaProvider, type UsageGroupRow } from '@pixelsky/protocol'
+import {
+  QUOTA_WINDOW_MINS,
+  quotaWindowObservedAt,
+  type WeeklyApiSample,
+  type AccountQuota,
+  type QuotaProvider,
+  type UsageGroupRow,
+} from '@pixelsky/protocol'
 import { onUsageChange, readQuotaMonth } from '@/features/usage/source'
 import {
   PLAN_FEES,
@@ -13,6 +20,7 @@ import {
 } from './estimate'
 import { quotaEntries } from './quotaModel'
 import { quotaObservations } from './observations'
+import { weeklyApiCalibration, weeklyApiValue } from './weeklyApi'
 
 /** 一轮记下来后等这么久再重读：连着几轮结束、多个模型各记一条时只读一次 */
 const REREAD_DELAY_MS = 15_000
@@ -21,6 +29,7 @@ export interface QuotaEstimate {
   /** 按额度条目 id（同卡片 id） */
   windows: Record<string, WindowEstimate>
   month: MonthValue | null
+  weeklyApi?: { id: string; value: ReturnType<typeof weeklyApiValue> }
 }
 
 /** Account forecasts and this computer's aggregate API comparison are independent. */
@@ -38,6 +47,26 @@ export function useQuotaEstimate(
   const day = new Date(now).toDateString()
   const [data, setData] = useState<{ engine: string; models: UsageGroupRow[] } | null>(null)
   const [version, setVersion] = useState(0)
+  const week = provider === 'chatgpt' ? windows.find(w => w.durationMins === QUOTA_WINDOW_MINS.week) : undefined
+  const calibration =
+    week && quota ? weeklyApiCalibration(quota, week.id, now, quotaObservations.forWindow(quota, week.id)) : null
+  const { account, plan, from, to, resetsAt } = calibration?.query ?? {}
+  const [weekly, setWeekly] = useState<{ key: string; sample: WeeklyApiSample | null } | null>(null)
+  const key = account && from !== undefined ? JSON.stringify([account, plan, from, to, resetsAt, version]) : ''
+  useEffect(() => {
+    if (!key || !account || plan === undefined || from === undefined || to === undefined || resetsAt === undefined)
+      return
+    let cancelled = false
+    window.pixelsky?.quota
+      ?.weeklyApiSample?.({ account, plan, from, to, resetsAt })
+      .then(sample => !cancelled && setWeekly({ key, sample }))
+      .catch(() => !cancelled && setWeekly({ key, sample: null }))
+    return () => {
+      cancelled = true
+    }
+  }, [key, account, plan, from, to, resetsAt])
+  const weeklyValue = calibration && weekly?.key === key ? weeklyApiValue(weekly.sample, calibration.pointsUsed) : null
+  const weeklyId = week?.id
   useEffect(() => {
     if (!supported) return
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -74,8 +103,12 @@ export function useQuotaEstimate(
       )
       if (est) out[e.id] = est
     }
-    return { windows: out, month: data && data.engine === engine ? monthValue(data.models) : null }
-  }, [supported, data, engine, quota, windows, now])
+    return {
+      windows: out,
+      month: data && data.engine === engine ? monthValue(data.models) : null,
+      ...(weeklyId ? { weeklyApi: { id: weeklyId, value: weeklyValue } } : {}),
+    }
+  }, [supported, data, engine, quota, windows, now, weeklyId, weeklyValue])
 }
 
 const FEE_KEY = 'pixelsky.quotaFee.'

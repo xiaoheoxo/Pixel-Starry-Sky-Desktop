@@ -21,7 +21,15 @@ import {
   type QuotaRow,
 } from './quotaModel'
 import type { WindowEstimate } from './estimate'
-import { budgetLine, forecastBasis, forecastCollectionText, forecastLine, localValueLine } from './forecastPresentation'
+import {
+  budgetLine,
+  forecastBasis,
+  forecastCollectionText,
+  forecastLine,
+  localValueLine,
+  weeklyApiDetail,
+  weeklyApiLine,
+} from './forecastPresentation'
 import type { QuotaEstimate } from './useQuotaEstimate'
 
 const TEXT: Record<QuotaLevel, string> = { normal: 'text-fg', warn: 'text-warn', full: 'text-danger' }
@@ -437,6 +445,11 @@ function ForecastWindows({
                 {line ?? (collecting ? tr('quotaEst.collection.collecting') : (detail ?? missing))}
               </span>
             </div>
+            {estimate?.weeklyApi?.id === window.id && !window.expired && (
+              <p className="mt-1 text-fg-muted" title={weeklyApiDetail(estimate.weeklyApi.value)}>
+                {weeklyApiLine(estimate.weeklyApi.value)}
+              </p>
+            )}
             {collecting && (
               <div data-quota-collection className="mt-1 space-y-1 text-fg-muted">
                 <div>{detail}</div>

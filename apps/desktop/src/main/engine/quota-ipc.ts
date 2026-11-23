@@ -2,7 +2,7 @@
 // 不用 engine: 前缀、也不放进 ENGINE_OPS：engine:* 会被转发到当前选中的远程机器，而额度只属于本机的账号；
 // 推送 quota:changed 在 ipc.ts 里随 EngineHost 的 onQuota 广播，也不经过 engine:event。
 import type { EngineHost } from '@pixelsky/engine'
-import type { EngineQuotaProvider, QuotaRefreshOptions } from '@pixelsky/protocol'
+import type { EngineQuotaProvider, QuotaRefreshOptions, WeeklyApiQuery } from '@pixelsky/protocol'
 import * as ipc from '../ipc/guard'
 
 /** 快照比这个新就不取；渲染层没传或传了不合法的值时用它 */
@@ -25,10 +25,26 @@ export function quotaRefreshOptions(value: unknown): Required<QuotaRefreshOption
   return { force: raw.force === true, maxAgeMs: maxAge }
 }
 
+export function weeklyApiQuery(value: unknown): WeeklyApiQuery {
+  const q = (value ?? {}) as Partial<WeeklyApiQuery>
+  if (
+    typeof q.account !== 'string' ||
+    !q.account.trim() ||
+    q.account.length > 320 ||
+    (q.plan !== null && (typeof q.plan !== 'string' || q.plan.length > 80)) ||
+    !Number.isSafeInteger(q.resetsAt) ||
+    !Number.isSafeInteger(q.from) ||
+    !Number.isSafeInteger(q.to)
+  )
+    throw new Error('参数不对')
+  return { account: q.account, plan: q.plan, resetsAt: q.resetsAt!, from: q.from!, to: q.to! }
+}
+
 export function registerQuotaIpc(host: EngineHost): void {
   ipc.handle('quota:get', (_event, provider: unknown) => host.accountQuota(quotaProvider(provider)))
   ipc.handle('quota:refresh', (_event, provider: unknown, opts: unknown) =>
     host.refreshAccountQuota(quotaProvider(provider), quotaRefreshOptions(opts)),
   )
   ipc.handle('quota:useResetCredit', () => host.useResetCredit())
+  ipc.handle('quota:weeklyApiSample', (_event, query: unknown) => host.weeklyApiSample(weeklyApiQuery(query)))
 }

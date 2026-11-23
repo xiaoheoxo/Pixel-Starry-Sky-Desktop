@@ -4,7 +4,10 @@ import { CodexProcess, array, object, string } from './process'
 
 const log = logger('engine.codex')
 
-export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
+export async function codexCatalog(
+  proc: CodexProcess,
+  onSubscriptionAccount?: (email: string) => void,
+): Promise<EngineCatalog> {
   const models: EngineModel[] = []
   let cursor: string | null = null
   const seen = new Set<string>()
@@ -52,6 +55,10 @@ export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
   ])
   // undefined 是没读到，null 是读到了但没登录
   const authType = auth ? string(object(auth.account).type) || null : undefined
+  const currentProvider = string(object(config.config).model_provider) || 'openai'
+  const email = string(object(auth?.account).email).trim()
+  if (authType === 'chatgpt' && currentProvider === 'openai' && auth?.requiresOpenaiAuth !== false && email)
+    onSubscriptionAccount?.(email)
   const rateLimits =
     authType === 'chatgpt' ? await proc.request('account/rateLimits/read', {}, 8000).catch(() => null) : null
   return {
@@ -59,7 +66,7 @@ export async function codexCatalog(proc: CodexProcess): Promise<EngineCatalog> {
     currentOutputStyle: null,
     models,
     currentModel: string(object(config.config).model) || null,
-    currentProvider: string(object(config.config).model_provider) || 'openai',
+    currentProvider,
     authType,
     rateLimits,
   }

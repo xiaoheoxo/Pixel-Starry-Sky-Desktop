@@ -16,6 +16,7 @@ import { settleUsage } from '../billing'
 import { backfillRows, clockOffset, matchCalls, type BackfillTurn } from '../backfill'
 import type { UsageQuery } from '../usage'
 import type { HostContext } from './context'
+import { subscriptionUsageKey } from '../weekly-api'
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -82,6 +83,11 @@ export class HostUsage {
     }
     if (record.provider && !record.platform) usage = this.customEstimate(record, usage)
     this.platformRequests.delete(key)
+    const account =
+      !record.platform && !record.provider && record.engine === 'codex'
+        ? rt.session?.usageSubscriptionAccount?.()
+        : null
+    const subscriptionKey = account ? subscriptionUsageKey(account) : undefined
     const endedAt = Date.now()
     // 对话不算项目：写 null，用量页显示「未归属项目」（存的名字不随界面语言变）
     const project = record.projectId === CHAT_PROJECT_ID ? null : (ctx.m.projects.find(record.projectId)?.name ?? null)
@@ -99,6 +105,7 @@ export class HostUsage {
       model,
       // 目前引擎都用命令行自己的登录；像素星空账号网关做好后是 'pixelsky'（Q5）
       route: record.platform ? 'pixelsky' : record.provider ? 'api-key' : 'cli',
+      ...(subscriptionKey ? { subscriptionUsageKey: subscriptionKey } : {}),
       requests: m.requests,
       input: m.input,
       cacheRead: m.cacheRead,
@@ -316,6 +323,10 @@ export class HostUsage {
   /** 退出应用：停掉所有进行中的结算 */
   abortSettlements(): void {
     for (const job of this.settlements.values()) job.abort()
+  }
+
+  weeklySampleRows(from: number): UsageRecord[] {
+    return this.ctx.usage.load(from)
   }
 
   usageSummary(q: UsageQuery): UsageSummary {
