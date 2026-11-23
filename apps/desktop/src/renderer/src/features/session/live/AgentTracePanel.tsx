@@ -143,6 +143,7 @@ function AgentRow({
     a.type,
     showModel && shortModel(a.model),
     a.modelSource === 'chosen' && tr('subagent.box.chosen'),
+    a.modelSource === 'agnes' && tr('subagent.box.agnes'),
     a.outsideGroup && tr('subagent.box.outsideGroup'),
   ]
     .filter(Boolean)
@@ -686,6 +687,11 @@ function AgentFocus({
               ]
                 .filter(Boolean)
                 .join(' · ')}
+            </span>
+          )}
+          {agent.modelSource === 'agnes' && (
+            <span data-agent-source="agnes" className="rounded bg-accent-soft px-1.5 font-medium text-accent-fg">
+              {tr('subagent.box.agnes')}
             </span>
           )}
           <span>{RUN_STATE_LABEL[s]}</span>

@@ -44,7 +44,7 @@ export interface AgentRun {
   typeLabel?: string
   model: string
   /** 主模型调度（像素星空）：chosen 主模型自己选的，default 用规则标的默认；老记录、其他情况没有 */
-  modelSource?: 'chosen' | 'default'
+  modelSource?: 'chosen' | 'default' | 'agnes'
   /** 走的是主模型分组以外的模型 */
   outsideGroup?: boolean
   /** 原始状态词，界面统一归成 运行中 / 已完成 / 失败 / 已停止 / 排队中 */

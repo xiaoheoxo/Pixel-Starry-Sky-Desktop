@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRun, EngineEvent } from '@pixelsky/protocol'
+import { agnesTag } from '../src/codex/agnes-attribution'
 import { CodexTranslator, codexReview } from '../src/codex/translate'
 
 describe('自动审核的审查结果', () => {
@@ -147,5 +148,63 @@ describe('Codex 计划：每轮一行，记下更新次数（C16）', () => {
     plan('inProgress')
     plan('completed')
     expect(last()).toMatchObject({ item: { id: 'cx-plan-t1', updates: 2 } })
+  })
+})
+
+describe('Agnes attribution', () => {
+  const marker = 'c5af97be-8337-491c-a796-05afe8d9139a'
+  const model = 'gpt-6.1-terra'
+  const tagged = `${agnesTag(marker)}\nImplement the requested change`
+  const task = (text: string) => ({ item: { type: 'userMessage', content: [{ type: 'text', text }] } })
+  const spawn = (id: string, actual = model) => ({
+    type: 'subAgentActivity',
+    id: `spawn-${id}`,
+    kind: 'started',
+    agentThreadId: id,
+    model: actual,
+  })
+
+  it('checks explicit tagged spawn requests on legacy Codex, not merely equal model names', () => {
+    const translator = new CodexTranslator(() => {})
+    translator.setAgnesAttribution({ marker, model })
+    const legacy = (id: string, prompt: string, picked: string) => ({
+      type: 'collabAgentToolCall',
+      id,
+      tool: 'spawn_agent',
+      receiverThreadIds: [id],
+      prompt,
+      model: picked,
+    })
+    translator.item(legacy('yes', tagged, model), true)
+    translator.item(legacy('plain', 'same model independently', model), true)
+    translator.item(legacy('wrong', tagged, 'gpt-6.2-sol'), true)
+    translator.item(legacy('inherited', tagged, ''), true)
+    expect(translator.agents.get('yes')).toMatchObject({
+      modelSource: 'agnes',
+      prompt: 'Implement the requested change',
+    })
+    expect(translator.items.get('cx-yes')).toMatchObject({ title: 'Implement the requested change' })
+    for (const id of ['plain', 'wrong', 'inherited']) expect(translator.agents.get(id)?.modelSource).toBeUndefined()
+  })
+
+  it('joins modern spawn and initial task on the same child regardless of arrival order', () => {
+    const translator = new CodexTranslator(() => {})
+    translator.setAgnesAttribution({ marker, model })
+    translator.observeAgnesChild('early', 'item/completed', task(tagged))
+    translator.item(spawn('early'), true)
+    translator.item(spawn('late'), true)
+    translator.child('late', 'item/started', task(tagged))
+    translator.item(spawn('wrong', 'gpt-6.2-sol'), true)
+    translator.child('wrong', 'item/completed', task(tagged))
+    translator.item(spawn('followup'), true)
+    translator.child('followup', 'item/completed', task('untagged first task'))
+    translator.child('followup', 'item/completed', task(tagged))
+    expect(translator.agents.get('early')?.modelSource).toBe('agnes')
+    expect(translator.agents.get('late')?.modelSource).toBe('agnes')
+    expect(translator.agents.get('wrong')?.modelSource).toBeUndefined()
+    expect(translator.agents.get('followup')?.modelSource).toBeUndefined()
+    translator.setAgnesAttribution(undefined)
+    translator.item({ ...spawn('early'), kind: 'completed' }, true)
+    expect(translator.agents.get('early')).toMatchObject({ modelSource: 'agnes', state: 'completed' })
   })
 })

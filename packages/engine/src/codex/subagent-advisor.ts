@@ -11,6 +11,7 @@ import {
   type SubagentAdvisor,
 } from '@pixelsky/protocol'
 import { agnesEffort } from './agnes-effort'
+import { agnesTag } from './agnes-attribution'
 
 export type Difficulty = 'light' | 'medium' | 'difficult'
 const tiers = ['light', 'medium', 'difficult'] as const
@@ -220,18 +221,27 @@ export async function evaluateAdvisor(
   }
 }
 
+export function selectedAdvisorModel(
+  difficulty: Difficulty,
+  settings: SubagentAdvisor,
+  catalog: readonly string[],
+  chosen?: string | null,
+): string | null {
+  return chosen === undefined
+    ? recommendSubagent(difficulty, settings, catalog)
+    : (advisorCandidates(settings, catalog).find(candidate => candidate.model === chosen)?.model ?? null)
+}
+
 export function subagentAdvice(
   difficulty: Difficulty,
   settings: SubagentAdvisor,
   catalog: readonly string[],
   chosen?: string | null,
   followCatalog?: readonly EngineModel[],
+  attributionMarker?: string,
 ): string | null {
   const configured = advisorCandidates(settings, catalog)
-  const model =
-    chosen === undefined
-      ? recommendSubagent(difficulty, settings, catalog)
-      : configured.find(candidate => candidate.model === chosen)?.model
+  const model = selectedAdvisorModel(difficulty, settings, catalog, chosen)
   if (!model) return null
   const recommended = (id: string, tier: Difficulty) =>
     agnesEffort(
@@ -250,5 +260,8 @@ export function subagentAdvice(
   const selection = followCatalog
     ? `Agnes follow mode is enabled. If delegation is useful and the spawn tool accepts explicit overrides, prefer passing model=${model}${effort ? ` and reasoning_effort=${effort}` : ''} for work of this complexity. Use only the indicated effort for the matching model and tier; if none is listed or accepted, omit that override. Omit all overrides if the tool does not accept them or an explicit user or role choice applies.`
     : `If delegation is useful and the tool lets you choose a model, consider ${model} for work of this complexity instead of inheriting the conversation model.`
-  return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. ${selection}${routing} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. Only consider the listed models. If no recommendation is listed for a subtask, or a separate model cannot be selected, continue with the normal Codex behavior.`
+  const attribution = attributionMarker
+    ? ` If you adopt this recommendation and explicitly set model=${model} in spawn_agent, prepend the standalone line ${agnesTag(attributionMarker)} to that call's initial message (or first text item). This is only a tracking tag, not a task instruction. Do not put it in other calls or in your reply. Do not send it on an inherited or different model.`
+    : ''
+  return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. ${selection}${routing}${attribution} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. Only consider the listed models. If no recommendation is listed for a subtask, or a separate model cannot be selected, continue with the normal Codex behavior.`
 }

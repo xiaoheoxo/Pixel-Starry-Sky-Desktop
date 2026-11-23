@@ -270,6 +270,10 @@ export const subagentRouteMessages = {
     zh: '适用于 Codex 会话，只建议你在下方选中的可用模型。默认按难度分档，空档不发送建议。不会切换主模型或自动派出子智能体。',
     en: 'For Codex sessions. Only suggests available models selected below. By default an unconfigured tier produces no advice. Does not switch the main model or launch workers.',
   },
+  'subagentRoute.advisor.catalogHint': {
+    zh: '下拉选项来自当前 Codex 模型目录。只会把你选中且当前可用的候选发给评估模型；像素星空的自定义接口不会加入远程评估目录。',
+    en: 'Options come from the current Codex catalog. Only your selected, currently available candidates are sent for evaluation; PixelSky custom endpoints are not added to the remote evaluator.',
+  },
   'subagentRoute.advisor.evaluator': { zh: '难度评估方式', en: 'Difficulty evaluator' },
   'subagentRoute.advisor.local': { zh: '本机规则（不发额外请求）', en: 'Local rules (no extra requests)' },
   'subagentRoute.advisor.remoteHint': {

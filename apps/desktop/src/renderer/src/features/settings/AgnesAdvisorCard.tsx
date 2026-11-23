@@ -41,6 +41,7 @@ export function AgnesAdvisorCard() {
         {advisor && (
           <>
             <div className="text-label text-fg-muted">{tr('subagentRoute.advisor.evaluator')}</div>
+            <p className="text-label text-fg-faint">{tr('subagentRoute.advisor.catalogHint')}</p>
             <Select
               label={tr('subagentRoute.advisor.evaluator')}
               value={advisor.evaluator ?? ''}

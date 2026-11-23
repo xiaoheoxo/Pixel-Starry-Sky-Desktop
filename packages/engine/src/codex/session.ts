@@ -4,8 +4,10 @@ import {
   hasConfiguredSubagent,
   localDifficulty,
   subagentAdvice,
+  selectedAdvisorModel,
   type AdvisorEvaluator,
 } from './subagent-advisor'
+import type { AgnesAttribution } from './agnes-attribution'
 import { GenTimer } from '../genTimer'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -1191,6 +1193,7 @@ export class CodexSession implements EngineSession {
       const catalog = this.catalog?.models ?? []
       const available = catalog.map(model => model.id)
       let advice: string | null = null
+      let attribution: AgnesAttribution | undefined
       if (advisor && hasConfiguredSubagent(advisor, available) && text.trim() && !text.trimStart().startsWith('/')) {
         const isCurrent = (latest: ReturnType<typeof currentAdvisor>) =>
           !!latest &&
@@ -1245,12 +1248,15 @@ export class CodexSession implements EngineSession {
             (this.options.currentSubagentFollowAdvisor?.() ?? this.options.subagentFollowAdvisor) === true &&
             !viaGateway(this.ctx.record()) &&
             this.catalog?.currentProvider === 'openai'
+          const picked = estimate && selectedAdvisorModel(estimate.difficulty, latest, available, estimate.model)
+          if (picked) attribution = { model: picked, marker: randomUUID() }
           advice = subagentAdvice(
             estimate?.difficulty ?? localTier,
             latest,
             available,
             estimate?.model,
             follow ? catalog : undefined,
+            attribution?.marker,
           )
         }
       }
@@ -1275,6 +1281,7 @@ export class CodexSession implements EngineSession {
             },
             2_000,
           )
+          if (attribution && this.active === active && !this.closed) this.translator.setAgnesAttribution(attribution)
         } catch {
           // Unsupported native servers receive no advice rather than putting it into the user's message.
         }
@@ -1664,7 +1671,10 @@ export class CodexSession implements EngineSession {
       return this.predictionEvent(method, params)
     // 子智能体线程的事件只记进追踪（工具次数、token）
     if (eventThread && this.agents.has(eventThread)) return this.translator.child(eventThread, method, params)
-    if (eventThread && this.threadId && eventThread !== this.threadId) return
+    if (eventThread && this.threadId && eventThread !== this.threadId) {
+      if (this.active) this.translator.observeAgnesChild(eventThread, method, params)
+      return
+    }
     if (method === 'thread/goal/updated' || method === 'thread/goal/cleared') {
       this.goalSupported = true
       this.setGoal(method === 'thread/goal/cleared' ? null : codexGoal(params.goal), true)
@@ -2035,6 +2045,7 @@ export class CodexSession implements EngineSession {
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
     active.advisorAbort?.abort()
+    this.translator.setAgnesAttribution(undefined)
     if (this.speedNext !== null) {
       this.settings = {
         ...this.settings,
