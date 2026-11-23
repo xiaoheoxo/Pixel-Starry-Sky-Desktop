@@ -259,6 +259,30 @@ export const modelChannelMessages = {
   'modelChannels.menu.layoutCols': { zh: '两栏', en: 'Two columns' },
   'modelChannels.menu.switchAccount': { zh: '切换账号', en: 'Switch account' },
   'modelChannels.menu.manageEndpoints': { zh: '管理接口', en: 'Manage endpoints' },
+  'modelChannels.menu.benchmark': { zh: '基准', en: 'Bench' },
+  'modelChannels.menu.arcBenchmark': {
+    zh: 'ARC-AGI-2（XHigh）：{score}%，快照权重 {weight}%。',
+    en: 'ARC-AGI-2 (XHigh): {score}%, snapshot weight {weight}%.',
+  },
+  'modelChannels.menu.terminalBenchmark': {
+    zh: 'Terminal-Bench 4.1（{effort}）：{score}%，仅参考。',
+    en: 'Terminal-Bench 4.1 ({effort}): {score}%, reference only.',
+  },
+  'modelChannels.menu.priceValue': {
+    zh: '{currency} {input} 入 / {output} 出 · 每百万',
+    en: '{currency} {input} in / {output} out · /1M',
+  },
+  'modelChannels.menu.priceReference': { zh: '参考', en: 'Ref.' },
+  'modelChannels.menu.priceCustom': { zh: '配置', en: 'Configured' },
+  'modelChannels.menu.priceBasis.custom': { zh: '此通道的用户配置价。', en: 'User-configured rate for this channel.' },
+  'modelChannels.menu.priceBasis.catalog': {
+    zh: '云端 API 目录参考价，不是订阅实际费用。',
+    en: 'Public API catalog reference, not subscription billing.',
+  },
+  'modelChannels.menu.priceBasis.standard': {
+    zh: '官方 API Standard 短上下文参考价，长上下文和加速档可能不同；非订阅费。',
+    en: 'Official API Standard short-context reference; long context and faster tiers may differ. Not a subscription charge.',
+  },
   'modelChannels.menu.refreshIq': { zh: '刷新模型 IQ', en: 'Refresh model IQ' },
   'modelChannels.menu.iqLoading': { zh: '正在请求两家基准来源', en: 'Fetching both benchmarks' },
   'modelChannels.menu.iqFailed': { zh: '来源暂不可用，点击重试', en: 'Benchmark source unavailable; retry' },

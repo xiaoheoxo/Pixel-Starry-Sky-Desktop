@@ -4,6 +4,7 @@ import {
   MODEL_PRICE_CURRENCIES,
   modelDetailKey,
   officialPrice,
+  openAiApiReference,
   parseModelDetailPatch,
   type CloudModelReference,
   type ModelDetail,
@@ -132,7 +133,8 @@ function DetailEditor({
     output: price ? String(price.output) : '',
   })
   const [draftPrice, setDraftPrice] = useState<ReturnType<typeof priceFields> | null>(null)
-  const currentPrice = draftPrice ?? priceFields(saved?.price ?? cloudReference?.price)
+  const standardPrice = target.channel === 'chatgpt' ? openAiApiReference(target.model) : undefined
+  const currentPrice = draftPrice ?? priceFields(saved?.price ?? cloudReference?.price ?? standardPrice)
   const { currency, input, output } = currentPrice
   const setCurrency = (next: typeof currency) => setDraftPrice({ ...currentPrice, currency: next })
   const setInput = (next: string) => setDraftPrice({ ...currentPrice, input: next })
@@ -258,6 +260,8 @@ function DetailEditor({
           </div>
           {cloudReference?.price ? (
             <p className="text-label text-fg-faint">{tr('modelDetails.cloudPrice')}</p>
+          ) : standardPrice ? (
+            <p className="text-label text-fg-faint">{tr('modelChannels.menu.priceBasis.standard')}</p>
           ) : (
             reference && (
               <p className="text-label text-fg-faint">

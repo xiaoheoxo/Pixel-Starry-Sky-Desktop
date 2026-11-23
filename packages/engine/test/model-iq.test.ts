@@ -36,6 +36,24 @@ describe('cross-benchmark IQ', () => {
     expect(fresh['gpt-6.2-sol'].radarWeight).toBeGreaterThan(old['gpt-6.2-sol'].radarWeight)
     expect(fresh['gpt-6.2-sol'].score).toBeLessThan(old['gpt-6.2-sol'].score)
   })
+  it('adds dated ARC weight only for covered pairs and keeps the live cohort', () => {
+    const a = parseRadar(radar(), now)!
+    const b = parseAnalysis(aa, now)!
+    // 6.1 Terra has no ARC XHigh entry.
+    a.scores.set('gpt-6.1-sol', 130)
+    b.scores.set('gpt-6.1-sol', 48)
+    const result = aggregateIq(a, b, now)
+    expect(Object.keys(result)).toHaveLength(4)
+    expect(result['gpt-6.1-sol'].arcWeight).toBeGreaterThan(0)
+    expect(result['gpt-6.1-terra'].arcWeight).toBeUndefined()
+    for (const value of Object.values(result)) {
+      expect(value.radarWeight + value.analysisWeight + (value.arcWeight ?? 0)).toBe(100)
+    }
+    const later = now + 46 * day
+    const freshRadar = { ...a, measuredAt: later, fetchedAt: later }
+    expect(aggregateIq(freshRadar, { ...b, fetchedAt: later }, later)['gpt-6.1-sol'].arcWeight).toBeUndefined()
+  })
+
   it('requires both current sources and rejects incompatible or stale data', () => {
     const primary = parseRadar(radar(), now)!
     const secondary = parseAnalysis(aa, now)!

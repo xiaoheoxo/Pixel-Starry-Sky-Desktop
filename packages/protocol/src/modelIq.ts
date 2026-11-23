@@ -6,6 +6,8 @@ export interface ModelIq {
   effort: 'xhigh'
   cohortSize: number
   radarWeight: number
+  analysisWeight: number
+  arcWeight?: number
   radarScore: number
   analysisScore: number
   disagreement: number

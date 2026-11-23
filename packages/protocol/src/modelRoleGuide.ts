@@ -17,6 +17,36 @@ const exact: ReadonlyMap<string, Localized> = new Map([
     },
   ],
   [
+    'gpt-5.6-sol',
+    {
+      zh: ['次旗舰：适合复杂开发、前端布局设计和多阶段交付。', '适合审查跨模块改动与验收条件，不必用于简单初筛。'],
+      en: [
+        'Sub-flagship for complex development, frontend layout, and multi-stage delivery.',
+        'Review cross-module changes and acceptance criteria rather than routine triage.',
+      ],
+    },
+  ],
+  [
+    'gpt-5.6-terra',
+    {
+      zh: ['高效：适合范围明确的修复、测试补齐和成本敏感的批量工作。', '适合区分常规开发和需要升级的复杂任务。'],
+      en: [
+        'Efficient for scoped fixes, test coverage, and cost-sensitive batch work.',
+        'Separate routine development from work that needs escalation.',
+      ],
+    },
+  ],
+  [
+    'gpt-6.1-sol',
+    {
+      zh: ['次旗舰：适合复杂编码、跨文件重构和有明确验收的长任务。', '适合识别跨模块依赖与验证难度。'],
+      en: [
+        'Sub-flagship for complex coding, cross-file refactors, and long tasks with clear criteria.',
+        'Assess cross-module dependencies and validation effort.',
+      ],
+    },
+  ],
+  [
     'deepseek-v4.1-flash',
     {
       zh: ['快速：适合日常编码、摘要和批量整理。', '适合快速识别任务范围，区分小改动和常规开发。'],
@@ -267,7 +297,7 @@ const positions: ReadonlyArray<readonly [RegExp, ModelPosition]> = [
     'subflagship',
   ],
   [
-    /^(?:gpt-6\.1-terra|claude-sonnet-5-5|gemini-4-argon|gemini-4-hydrogen|deepseek-v4(?:\.1)?-flash|mistral-small-(?:4|2603)|glm-5\.3-flash|minimax-m3\.1-flash)(?:$|-(?:latest|preview|\d{4,8})$)/,
+    /^(?:gpt-(?:5\.6|6\.1)-terra|claude-sonnet-5-5|gemini-4-argon|gemini-4-hydrogen|deepseek-v4(?:\.1)?-flash|mistral-small-(?:4|2603)|glm-5\.3-flash|minimax-m3\.1-flash)(?:$|-(?:latest|preview|\d{4,8})$)/,
     'efficient',
   ],
   [

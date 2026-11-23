@@ -1,3 +1,4 @@
+import { openAiBenchmarkEvidence } from '@pixelsky/protocol'
 import type { ModelIqSnapshot, ModelIqSource } from '@pixelsky/protocol'
 
 const DAY = 86_400_000
@@ -62,8 +63,8 @@ export function parseAnalysis(html: string, now: number): IqObservation | null {
   return rows.size >= 3 ? { scores: rows, fetchedAt: now } : null
 }
 
-const percentile = (score: number, values: number[]) =>
-  (100 * values.reduce((sum, value) => sum + (score > value ? 1 : score === value ? 0.5 : 0), 0)) / values.length
+const compare = (score: number, other: number) => (score > other ? 100 : score === other ? 50 : 0)
+const arcSnapshotDate = Date.parse('2026-11-23T00:00:00Z')
 
 export function aggregateIq(radar: IqObservation, analysis: IqObservation, now: number): ModelIqSnapshot['scores'] {
   if (now - Math.min(radar.fetchedAt, analysis.fetchedAt) > 2 * DAY || now - (radar.measuredAt ?? 0) > 45 * DAY)
@@ -72,7 +73,7 @@ export function aggregateIq(radar: IqObservation, analysis: IqObservation, now: 
   if (cohort.length < 3) return {}
   const observations = { radar, analysis }
   const ids = ['radar', 'analysis'] as const
-  const weights = ids.map(id => {
+  const baseline = ids.map(id => {
     const data = observations[id]
     const observationAge = data.measuredAt === undefined ? null : Math.max(0, now - data.measuredAt) / DAY
     // Never substitute download time for an undisclosed evaluation date.
@@ -81,21 +82,50 @@ export function aggregateIq(radar: IqObservation, analysis: IqObservation, now: 
     const coverage = Math.sqrt(cohort.length / data.scores.size)
     return SOURCES[id].prior * freshness * 2 ** -cacheAge * coverage
   })
-  const radarWeight = weights[0] / (weights[0] + weights[1])
-  const values = ids.map(id => cohort.map(model => observations[id].scores.get(model)!))
+  const arc = new Map(cohort.map(id => [id, openAiBenchmarkEvidence(id)?.arc2Xhigh]))
+  const arcRows = [...arc.values()].filter(value => value !== undefined).length
+  const arcAge = (now - arcSnapshotDate) / DAY
+  // A narrow, dated snapshot can cross-check known pairs, not shrink the live cohort.
+  const arcPrior =
+    arcRows >= 3 && arcAge >= 0 && arcAge < 45
+      ? Math.min(0.35 * 0.8 * 2 ** (-arcAge / 14) * Math.sqrt(arcRows / cohort.length), (baseline[0] + baseline[1]) / 4)
+      : 0
   return Object.fromEntries(
     cohort.map(model => {
-      const normalized = ids.map((id, index) => percentile(observations[id].scores.get(model)!, values[index]))
+      const raw = [radar.scores.get(model)!, analysis.scores.get(model)!]
+      const arcScore = arc.get(model)
+      let sum = 0,
+        radarWeight = 0,
+        extraWeight = 0,
+        radarRank = 0,
+        analysisRank = 0
+      for (const other of cohort) {
+        const rr = compare(raw[0], radar.scores.get(other)!)
+        const ar = compare(raw[1], analysis.scores.get(other)!)
+        const arcOther = arc.get(other)
+        const useArc = arcScore !== undefined && arcOther !== undefined
+        const extra = useArc ? arcPrior : 0
+        const total = baseline[0] + baseline[1] + extra
+        sum += (rr * baseline[0] + ar * baseline[1] + (useArc ? compare(arcScore, arcOther) * extra : 0)) / total
+        radarRank += rr
+        analysisRank += ar
+        radarWeight += baseline[0] / total
+        extraWeight += extra / total
+      }
+      const rw = Math.round((100 * radarWeight) / cohort.length)
+      const ew = Math.round((100 * extraWeight) / cohort.length)
       return [
         model,
         {
-          score: Math.round(normalized[0] * radarWeight + normalized[1] * (1 - radarWeight)),
+          score: Math.round(sum / cohort.length),
           effort: EFFORT,
           cohortSize: cohort.length,
-          radarWeight: Math.round(100 * radarWeight),
-          radarScore: Math.round(radar.scores.get(model)! * 100) / 100,
-          analysisScore: analysis.scores.get(model)!,
-          disagreement: Math.round(Math.abs(normalized[0] - normalized[1])),
+          radarWeight: rw,
+          analysisWeight: 100 - rw - ew,
+          ...(ew ? { arcWeight: ew } : {}),
+          radarScore: Math.round(raw[0] * 100) / 100,
+          analysisScore: raw[1],
+          disagreement: Math.round(Math.abs(radarRank - analysisRank) / cohort.length),
         },
       ]
     }),

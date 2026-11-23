@@ -20,7 +20,14 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react'
-import type { EngineId, ModelIq, ModelIqSnapshot } from '@pixelsky/protocol'
+import {
+  openAiBenchmarkEvidence,
+  type EngineId,
+  type ModelDetailTarget,
+  type ModelEvidence,
+  type ModelIq,
+  type ModelIqSnapshot,
+} from '@pixelsky/protocol'
 import { EngineIcon, Kbd, PlanBadge, Popover, Spinner, cn } from '@/ui'
 import { useAccount } from '@/features/account/useAccount'
 import { menuProvider, useProviders } from '@/features/account/providers'
@@ -64,7 +71,13 @@ import {
   executorName,
   showTriggerSource,
 } from '@/features/model-channels/channelLabels'
-import { channelModelDetail, modelPositionLabel, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
+import {
+  channelModelDetail,
+  menuModelPrice,
+  modelPositionLabel,
+  modelRoleGuide,
+  type MenuModelPrice,
+} from '@/features/model-channels/modelRoleGuide'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
@@ -340,7 +353,7 @@ export function ModelSourceMenu({
     }
     return selfOption(c, row)?.hint
   }
-  const rowGuide = (c: ChannelId, row: ChannelRow) => {
+  const detailTarget = (c: ChannelId, row: ChannelRow): ModelDetailTarget | undefined => {
     const model = row.target.model
     if (!model || c === 'dot') return undefined
     const platformGroups = c === 'platform' ? groupsForModel(catalog.groups, model) : []
@@ -352,7 +365,28 @@ export function ModelSourceMenu({
             ? platformGroups[0].id
             : null
         : row.target.providerId
-    return modelRoleGuide(model, channelModelDetail(modelDetails, { channel: c, sourceId, model }))
+    return { channel: c, sourceId, model }
+  }
+  const rowGuide = (c: ChannelId, row: ChannelRow) => {
+    const target = detailTarget(c, row)
+    return target && modelRoleGuide(target.model, channelModelDetail(modelDetails, target))
+  }
+  const rowPrice = (c: ChannelId, row: ChannelRow) => {
+    const target = detailTarget(c, row)
+    if (!target) return undefined
+    const models =
+      c === 'chatgpt'
+        ? codexCatalog?.models
+        : c === 'claude'
+          ? claudeCatalog?.models
+          : c === 'google'
+            ? agyCatalog?.models
+            : undefined
+    return menuModelPrice(
+      target,
+      channelModelDetail(modelDetails, target)?.price,
+      models?.find(m => m.id === target.model)?.cloudReference?.price,
+    )
   }
   /** 平台模型右边：最低倍率，多条线路时写条数 */
   const rowMeta = (c: ChannelId, row: ChannelRow): ReactNode => {
@@ -425,6 +459,8 @@ export function ModelSourceMenu({
           mono={c === 'platform'}
           desc={rowDesc(c, row)}
           guide={rowGuide(c, row)}
+          price={rowPrice(c, row)}
+          evidence={c === 'chatgpt' && row.target.model ? openAiBenchmarkEvidence(row.target.model) : undefined}
           position={modelPositionLabel(row.target.model)}
           iq={c === 'chatgpt' && row.target.model ? iq?.scores[row.target.model] : undefined}
           descMono={c === 'custom'}
@@ -467,6 +503,11 @@ export function ModelSourceMenu({
                 indent
                 mono
                 title={m.id}
+                position={modelPositionLabel(m.id)}
+                price={menuModelPrice(
+                  { channel: 'custom', sourceId: provider!.id, model: m.id },
+                  channelModelDetail(modelDetails, { channel: 'custom', sourceId: provider!.id, model: m.id })?.price,
+                )}
                 guide={modelRoleGuide(
                   m.id,
                   channelModelDetail(modelDetails, { channel: 'custom', sourceId: provider!.id, model: m.id }),
@@ -1277,6 +1318,8 @@ function ModelRow({
   descMono,
   position,
   iq,
+  price,
+  evidence,
   guide,
   meta,
   chip,
@@ -1295,6 +1338,8 @@ function ModelRow({
   descMono?: boolean
   position?: string
   iq?: ModelIq
+  price?: MenuModelPrice
+  evidence?: ModelEvidence
   guide?: ReturnType<typeof modelRoleGuide>
   meta?: ReactNode
   chip?: ReactNode
@@ -1309,22 +1354,42 @@ function ModelRow({
   onPick?: () => void
   onHover?: () => void
 }) {
+  const benchmark = [
+    evidence?.arc2Xhigh !== undefined &&
+      tr('modelChannels.menu.arcBenchmark', { score: evidence.arc2Xhigh, weight: iq?.arcWeight ?? 0 }),
+    evidence?.terminal41 &&
+      tr('modelChannels.menu.terminalBenchmark', {
+        score: evidence.terminal41.score,
+        effort: evidence.terminal41.effort,
+      }),
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const priceValue =
+    price &&
+    tr('modelChannels.menu.priceValue', {
+      currency: price.price.currency,
+      input: price.price.input,
+      output: price.price.output,
+    })
+  const priceDescription = price && tr(`modelChannels.menu.priceBasis.${price.basis}`)
   return (
     <div
       data-model-row
       data-active={active || undefined}
       data-selected={selected || undefined}
       title={
-        off && offTitle
-          ? offTitle
-          : guide
-            ? [guide.main, guide.evaluator ? `${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}` : '']
-                .filter(Boolean)
-                .join(' ')
-            : undefined
+        [
+          off && offTitle,
+          guide?.main,
+          guide?.evaluator && `${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}`,
+          benchmark,
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined
       }
       onMouseEnter={onHover}
-      style={{ minHeight: MENU_ROW + (guide?.main ? GUIDED_MODEL_EXTRA_PX : 0) }}
+      style={{ minHeight: MENU_ROW + (guide?.main || priceValue ? GUIDED_MODEL_EXTRA_PX : 0) }}
       className={cn(
         'group flex items-center gap-2 rounded-md pr-1.5',
         indent ? 'pl-6' : 'pl-1.5',
@@ -1361,19 +1426,29 @@ function ModelRow({
             {iq && (
               <span
                 data-model-iq
-                title={tr('modelChannels.menu.iqHint', {
-                  score: iq.score,
-                  effort: iq.effort,
-                  n: iq.cohortSize,
-                  radar: iq.radarScore,
-                  analysis: iq.analysisScore,
-                  radarWeight: iq.radarWeight,
-                  analysisWeight: 100 - iq.radarWeight,
-                  disagreement: iq.disagreement,
-                })}
+                title={[
+                  tr('modelChannels.menu.iqHint', {
+                    score: iq.score,
+                    effort: iq.effort,
+                    n: iq.cohortSize,
+                    radar: iq.radarScore,
+                    analysis: iq.analysisScore,
+                    radarWeight: iq.radarWeight,
+                    analysisWeight: iq.analysisWeight,
+                    disagreement: iq.disagreement,
+                  }),
+                  benchmark,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary tabular-nums"
               >
                 IQ {iq.score}
+              </span>
+            )}
+            {!iq && benchmark && (
+              <span title={benchmark} className="shrink-0 rounded bg-subtle px-1 text-label text-fg-muted">
+                {tr('modelChannels.menu.benchmark')}
               </span>
             )}
             {desc && (
@@ -1382,9 +1457,21 @@ function ModelRow({
               </span>
             )}
           </span>
-          {guide?.main && (
-            <span className="block truncate text-label text-fg-muted">
-              <Mark text={guide.main} query={query} />
+          {(guide?.main || priceValue) && (
+            <span className="flex items-center gap-2 text-label text-fg-muted">
+              {guide?.main && (
+                <span className="min-w-0 flex-1 truncate">
+                  <Mark text={guide.main} query={query} />
+                </span>
+              )}
+              {priceValue && (
+                <span data-model-price title={`${priceValue} · ${priceDescription}`} className="shrink-0 tabular-nums">
+                  {priceValue} ·{' '}
+                  {tr(
+                    price?.basis === 'custom' ? 'modelChannels.menu.priceCustom' : 'modelChannels.menu.priceReference',
+                  )}
+                </span>
+              )}
             </span>
           )}
         </span>

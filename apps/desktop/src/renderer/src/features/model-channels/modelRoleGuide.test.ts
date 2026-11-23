@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getModelPosition, getModelRoleGuide } from '@pixelsky/protocol'
+import { menuModelPrice } from './modelRoleGuide'
 
 describe('model role copy', () => {
   it.each([
@@ -117,5 +118,26 @@ describe('model role copy', () => {
     expect(future?.main).toContain('Astra family')
     expect(future).not.toEqual(current)
     expect(getModelRoleGuide('example/unknown-model', 'en')).toBeUndefined()
+  })
+})
+
+describe('model menu public price and descriptions', () => {
+  it('preserves manual channel price and never assumes API price is a relay rate', () => {
+    const now = Date.parse('2026-11-23T00:00:00Z')
+    const target = { channel: 'chatgpt' as const, sourceId: null, model: 'openai/gpt-5.6-sol' }
+    const price = { currency: 'CNY' as const, input: 0, output: 5 }
+    expect(menuModelPrice(target, price, undefined, now)).toEqual({ basis: 'custom', price })
+    expect(menuModelPrice(target, undefined, undefined, now)).toEqual({
+      basis: 'standard',
+      price: { currency: 'USD', input: 4, output: 20 },
+    })
+    expect(menuModelPrice({ ...target, channel: 'platform' }, undefined, price, now)).toBeUndefined()
+    expect(menuModelPrice({ ...target, channel: 'custom' }, undefined, price, now)).toBeUndefined()
+    expect(menuModelPrice(target, undefined, undefined, Date.parse('2026-12-01'))).toBeUndefined()
+  })
+  it('adds descriptions and positioning to the 5.6 models across namespaced IDs', () => {
+    expect(getModelRoleGuide('openai/gpt-5.6-sol', 'zh')?.main).toContain('前端布局')
+    expect(getModelRoleGuide('gpt-5.6-terra', 'zh')?.main).toContain('范围明确')
+    expect(getModelPosition('openai/gpt-5.6-terra')).toBe('efficient')
   })
 })

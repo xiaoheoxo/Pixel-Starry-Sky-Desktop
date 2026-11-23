@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from '@/i18n/I18nProvider'
 import { ModelDetailsSection } from './ModelDetailsSection'
@@ -12,8 +12,16 @@ vi.mock('@/features/engine/catalog', () => ({
     engine === 'codex' ? { models: [{ id: 'gpt-6.2-astra', label: 'GPT 6.2 Astra' }] } : null,
 }))
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
 describe('model channel details', () => {
-  it('prefills catalog descriptions, but does not assume a real channel price', () => {
+  it('prefills descriptions and labels the OpenAI rate as a reference only', () => {
+    vi.stubGlobal('localStorage', { getItem: () => 'zh-CN', setItem: () => undefined })
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-23T00:00:00Z'))
     const html = renderToStaticMarkup(
       <I18nProvider>
         <ModelDetailsSection platformGroups={[]} />
@@ -23,7 +31,9 @@ describe('model channel details', () => {
     expect(html).toContain('适合架构决策')
     expect(html).toContain('复核误判代价高')
     expect(html).toContain('留空表示未知，不是免费')
-    expect(html.match(/type="number"[^>]*value=""/g)).toHaveLength(2)
+    expect(html).toContain('官方 API Standard 短上下文参考价')
+    expect(html).toMatch(/type="number"[^>]*value="8"/)
+    expect(html).toMatch(/type="number"[^>]*value="40"/)
   })
 
   it('uses a local note only for the exact matching model channel', () => {

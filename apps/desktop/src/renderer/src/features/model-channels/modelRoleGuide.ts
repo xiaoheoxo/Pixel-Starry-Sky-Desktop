@@ -2,6 +2,8 @@ import {
   getModelPosition,
   getModelRoleGuide,
   modelDetailKey,
+  openAiApiReference,
+  type ModelTokenPrice,
   type ModelDetail,
   type ModelDetailTarget,
 } from '@pixelsky/protocol'
@@ -28,4 +30,19 @@ export function modelPositionLabel(id: string | null | undefined): string | unde
   const position = getModelPosition(id)
   if (!position) return undefined
   return tr(`modelDetails.position.${position}`)
+}
+
+export type MenuModelPrice = { price: ModelTokenPrice; basis: 'custom' | 'catalog' | 'standard' }
+
+export function menuModelPrice(
+  target: ModelDetailTarget,
+  custom?: ModelTokenPrice,
+  catalog?: ModelTokenPrice,
+  now?: number,
+): MenuModelPrice | undefined {
+  if (custom) return { price: custom, basis: 'custom' }
+  if (target.channel === 'platform' || target.channel === 'custom') return undefined
+  if (catalog) return { price: catalog, basis: 'catalog' }
+  const standard = target.channel === 'chatgpt' ? openAiApiReference(target.model, now) : undefined
+  return standard && { price: standard, basis: 'standard' }
 }
