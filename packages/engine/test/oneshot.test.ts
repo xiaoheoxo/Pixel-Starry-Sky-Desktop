@@ -142,6 +142,7 @@ describe('Codex 单独问一次', () => {
       message: expect.stringContaining('not confirmed ephemeral'),
     })
     expect(await caught(run('network'))).toMatchObject({ stage: 'thread' })
+    expect(await caught(run('wrong-profile'))).toMatchObject({ stage: 'thread' })
     expect(await caught(run('wrong-provider'))).toMatchObject({ kind: 'model' })
     expect((await run('confirmed')).text).toContain('private text')
   })
@@ -160,6 +161,16 @@ describe('Codex 单独问一次', () => {
       expect(reply.text).toContain('synthetic evaluation')
       const sent = readFileSync(log, 'utf8')
       expect(sent.match(/"method":"turn\/start"/g)).toHaveLength(1)
+      const messages = sent
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line))
+      const open = messages.find(m => m.method === 'thread/start').params
+      const turn = messages.find(m => m.method === 'turn/start').params
+      expect(open.permissions).toMatch(/^pixelsky-agnes-/)
+      expect(turn.permissions).toBe(open.permissions)
+      expect(open).not.toHaveProperty('sandbox')
+      expect(turn).not.toHaveProperty('sandboxPolicy')
       await expect(
         codexAdvisorOneShot(
           launcher,

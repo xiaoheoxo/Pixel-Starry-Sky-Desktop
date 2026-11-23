@@ -506,6 +506,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         ...(process.env.FAKE_CODEX_ADVISOR
           ? {
               approvalPolicy: p.approvalPolicy,
+              activePermissionProfile: {
+                id: process.env.FAKE_CODEX_ADVISOR === 'wrong-profile' ? ':read-only' : p.permissions,
+              },
               sandbox: { type: 'readOnly', networkAccess: process.env.FAKE_CODEX_ADVISOR === 'network' },
               modelProvider: process.env.FAKE_CODEX_ADVISOR === 'wrong-provider' ? 'other' : p.modelProvider,
             }
@@ -633,6 +636,13 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       response(m, {})
       break
     case 'turn/start': {
+      if (process.env.FAKE_CODEX_ADVISOR && (!p.permissions || p.sandboxPolicy)) {
+        rpcError(
+          m,
+          'Invalid request: readOnly.access is no longer supported; use permissionProfile for restricted reads',
+        )
+        break
+      }
       if (predictForks.has(p.threadId)) {
         // 预测这一轮：回一句（FAKE_CODEX_PREDICTION，可以是空的），FAKE_CODEX_PREDICT_MS 之后结束
         const fork = p.threadId,

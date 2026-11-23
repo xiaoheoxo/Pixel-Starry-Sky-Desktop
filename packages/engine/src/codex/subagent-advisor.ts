@@ -208,7 +208,7 @@ export const ADVISOR_FAILURE_TEXT: Record<AdvisorFailure, string> = {
   usageLimit: '评估请求失败：额度或请求频率受限',
   model: '评估请求失败：Codex 未确认所选模型或服务商',
   'isolation-tools': '隔离检查未通过：无法确认工具和连接器均已关闭',
-  'isolation-thread': '隔离检查未通过：无法确认临时线程或只读权限',
+  'isolation-thread': '隔离检查未通过：无法确认临时线程或专用只读权限配置',
   'isolation-action': '隔离检查未通过：评估器尝试了非文本操作，已终止',
 }
 

@@ -1,6 +1,7 @@
 // Codex 单独问一次（AI 写提交信息的 ChatGPT 授权通道，docs/ui/ai-commit-channels.md §4）：起一个临时 app-server，
 // 在临时目录里开线程（只读沙箱、从不审批、尽量不留记录），发一条消息，等这一轮结束，取最后一条回复。
 // 旁聊（docs/ui/codex-sidechat.md）传 fork：改成从会话的线程临时分叉（带上下文、不落盘），在会话目录里跑
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -133,7 +134,13 @@ export async function codexOneShot(
   advisorOverrides: readonly string[] = [],
 ): Promise<OneShotReply> {
   if (signal.aborted) throw new OneShotError('cancelled', '已停止')
+  if (fork && req.requireEphemeral) throw new AdvisorIsolationError('thread', 'Evaluator cannot reuse a conversation')
   const home = mkdtempSync(join(tmpdir(), 'pixelsky-codex-oneshot-'))
+  // Scoped to this subprocess. A unique name avoids merging permissions into a user's saved profile.
+  const profile = req.requireEphemeral ? `pixelsky-agnes-${randomUUID()}` : null
+  const profileConfig = profile
+    ? ['-c', `permissions.${profile}={filesystem={${JSON.stringify(home)}="read"},network={enabled=false}}`]
+    : []
   let text = ''
   let usage: OneShotReply['usage'] = null
   let lastError: unknown = null
@@ -145,7 +152,7 @@ export async function codexOneShot(
       'app-server',
       '--listen',
       'stdio://',
-      ...(req.requireEphemeral ? [...ADVISOR_ARGS, ...advisorOverrides] : launchArgs),
+      ...(req.requireEphemeral ? [...ADVISOR_ARGS, ...advisorOverrides, ...profileConfig] : launchArgs),
     ],
     fork?.cwd ?? home,
     env,
@@ -216,7 +223,7 @@ export async function codexOneShot(
       const params = {
         cwd: fork?.cwd ?? home,
         approvalPolicy: 'never',
-        sandbox: 'read-only',
+        ...(profile ? { permissions: profile } : { sandbox: 'read-only' }),
         ...(req.model ? { model: req.model } : {}),
         ...(req.requireEphemeral ? { modelProvider: 'openai' } : {}),
       }
@@ -241,7 +248,13 @@ export async function codexOneShot(
         if (opened.ephemeral !== true)
           throw new AdvisorIsolationError('thread', 'Evaluator thread is not confirmed ephemeral')
         const sandbox = object(thread.sandbox)
-        if (thread.approvalPolicy !== 'never' || sandbox.type !== 'readOnly' || sandbox.networkAccess !== false)
+        if (
+          !profile ||
+          object(thread.activePermissionProfile).id !== profile ||
+          thread.approvalPolicy !== 'never' ||
+          sandbox.type !== 'readOnly' ||
+          sandbox.networkAccess !== false
+        )
           throw new AdvisorIsolationError('thread', 'Evaluator thread did not confirm the requested permissions')
         if (thread.modelProvider !== 'openai' || !req.model || thread.model !== req.model)
           throw new OneShotError('model', 'Codex did not confirm the selected evaluator model and provider')
@@ -266,10 +279,8 @@ export async function codexOneShot(
         ...(req.requireEphemeral
           ? {
               model: req.model,
-              sandboxPolicy: {
-                type: 'readOnly',
-                access: { type: 'restricted', includePlatformDefaults: false, readableRoots: [home] },
-              },
+              // Codex 0.171 rejects the pre-profile readOnly.access payload at the RPC boundary.
+              permissions: profile,
               outputSchema: advisorOutputSchema(req.advisorModelIds),
             }
           : {}),
