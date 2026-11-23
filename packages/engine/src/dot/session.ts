@@ -11,6 +11,7 @@ import type { ChatSeed } from '../chat-log'
 import { DOT_FILE_LIMIT, dotRetryable } from './client'
 import type { EngineSession, SessionContext } from '../adapter'
 import type { DotClient, DotIdentity, DotMessage, DotWorkflow } from './client'
+import { dotSpecialCard } from './cards'
 
 export interface DotSessionOptions {
   pollMs?: number
@@ -170,23 +171,31 @@ export class DotSession implements EngineSession {
           if (m.id === acknowledgedGuidance) awaitingGuidanceReply = false
           if (m.account_user_id !== dot.memberId || m.deleted_at || emitted.has(m.id)) continue
           emitted.add(m.id)
-          const isReply = !!(m.content.text?.trim() || m.content.attachments?.length || m.content.elicitation)
+          const card = dotSpecialCard(m.content.elicitation, m.message_metadata)
+          const secure = card?.kind === 'signIn'
+          const text = secure ? undefined : m.content.text
+          const attachments = secure ? [] : (m.content.attachments ?? [])
+          const needsInput =
+            card &&
+            (card.kind === 'input' || card.kind === 'signIn') &&
+            (card.status === 'pending' || card.status === 'unknown')
+          const isReply = !!(text?.trim() || attachments.length || needsInput)
           if (!received && !awaitingGuidanceReply && isReply) {
             received = true
             busyDeadline = Date.now() + busyTimeout
             this.ctx.emit({ type: 'flags', flags: dotFlags(true) })
           }
-          if (m.content.text)
+          if (text)
             this.ctx.emit({
               type: 'item_completed',
               item: {
                 id: `dot-${m.id}`,
                 kind: 'assistant',
-                text: m.content.text,
+                text,
                 status: 'completed',
               },
             })
-          for (const attachment of m.content.attachments ?? []) {
+          for (const attachment of attachments) {
             if (attachment.type === 'thread' && attachment.thread_id) {
               // Work-card metadata can be slow. It must not block the room message cursor.
               this.watch(dot, m, attachment.thread_id)
@@ -202,15 +211,15 @@ export class DotSession implements EngineSession {
               })
             }
           }
-          if (m.content.elicitation) {
-            asked = true
+          if (card) {
+            if (needsInput) asked = true
             this.ctx.emit({
               type: 'item_completed',
               item: {
                 id: `dot-approval-${m.id}`,
                 kind: 'notice',
                 level: 'info',
-                text: 'Dot needs your input in ChatGPT',
+                text: needsInput ? 'Dot needs your input in ChatGPT' : 'View this Dot card in ChatGPT',
               },
             })
           }

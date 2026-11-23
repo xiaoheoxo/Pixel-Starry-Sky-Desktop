@@ -3,6 +3,7 @@ import type { EngineAdapter, EngineSession, SessionContext } from '../adapter'
 import { engineBase } from '../registry'
 import { DotClient, type DotClientOptions, type DotCredentials, type DotHistoryPage, type DotIdentity } from './client'
 import { DotSession } from './session'
+export type { DotSpecialCard } from './cards'
 
 export {
   DotClient,

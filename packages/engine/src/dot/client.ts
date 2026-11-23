@@ -1,4 +1,6 @@
 // Native web protocol, documented references and compatibility limits: packages/engine/DOT.md.
+import { dotSpecialCard, type DotSpecialCard } from './cards'
+
 export interface DotCredentials {
   accessToken: string
   accountId: string
@@ -19,6 +21,7 @@ export interface DotMessage {
   created_at: string
   deleted_at?: string | null
   request_id?: string
+  message_metadata?: unknown
   content: {
     text?: string
     attachments?: { type: string; thread_id?: string }[]
@@ -70,6 +73,7 @@ export interface DotChatMessage {
   text: string
   createdAt: number
   attachments: DotAttachment[]
+  card?: DotSpecialCard
 }
 export interface DotReadReceipt {
   /** Native room cursor: the Dot has read messages through this creation time. */
@@ -408,14 +412,20 @@ export class DotClient {
     const { member } = this.connection(dot)
     return messages
       .filter(m => !m.deleted_at && (m.account_user_id === member || m.account_user_id === dot.memberId))
-      .map(m => ({
-        id: m.id,
-        ...(m.request_id ? { requestId: m.request_id } : {}),
-        role: m.account_user_id === dot.memberId ? ('assistant' as const) : ('user' as const),
-        text: m.content.text ?? '',
-        createdAt: Date.parse(m.created_at),
-        attachments: (m.content.attachments ?? []).map(attachmentOf),
-      }))
+      .map(m => {
+        const card =
+          m.account_user_id === dot.memberId ? dotSpecialCard(m.content.elicitation, m.message_metadata) : undefined
+        const secure = card?.kind === 'signIn'
+        return {
+          id: m.id,
+          ...(m.request_id ? { requestId: m.request_id } : {}),
+          role: m.account_user_id === dot.memberId ? ('assistant' as const) : ('user' as const),
+          text: secure ? '' : (m.content.text ?? ''),
+          createdAt: Date.parse(m.created_at),
+          attachments: secure ? [] : (m.content.attachments ?? []).map(attachmentOf),
+          ...(card ? { card } : {}),
+        }
+      })
   }
 
   /** Verified outputs and work cards survive restarts and are not limited to the visible transcript. */
@@ -431,6 +441,7 @@ export class DotClient {
         const { messages, cursor } = await this.historyPage(dot, before, signal)
         for (const message of messages.reverse()) {
           if (message.account_user_id !== dot.memberId || message.deleted_at) continue
+          if (dotSpecialCard(message.content.elicitation, message.message_metadata)?.kind === 'signIn') continue
           for (const raw of message.content.attachments ?? []) {
             if (
               raw.type === 'thread' &&

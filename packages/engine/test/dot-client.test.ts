@@ -506,3 +506,38 @@ describe('native Dot client', () => {
     expect(String(request.mock.calls.at(-1)![0])).toMatch(/^https:\/\/codex-cloud-backend.chatgpt.com\//)
   })
 })
+
+it('keeps only the safe state of native cards in Dot history, not secure form data or handoff links', async () => {
+  const candidate = {
+    ...message('native'),
+    content: {
+      text: 'never show secure text',
+      attachments: [{ type: 'file', file_id: 'hidden' }],
+      elicitation: {
+        status: 'submitted',
+        params: { _meta: { codex_approval_kind: 'browser_auth' }, requestedSchema: { fields: ['placeholder'] } },
+        result: { password: 'fixture-not-a-credential' },
+      },
+    },
+  }
+  const { client } = setup({
+    '/backend-api/messaging/rooms/room/messages?limit=32': {
+      items: [
+        candidate,
+        { ...candidate, id: 'human', account_user_id: 'human', content: { elicitation: {} } },
+        { ...candidate, id: 'foreign', account_user_id: 'foreign' },
+        { ...candidate, id: 'deleted', deleted_at: '2026-11-17T00:00:00Z' },
+        {
+          ...message('handoff', ''),
+          message_metadata: { cloud_browser_handoff: { internal: 'never mirror this' } },
+        },
+      ],
+    },
+  })
+  const items = (await client.history(await client.discover())).items
+  expect(items.map(item => item.id)).toEqual(['native', 'human', 'handoff'])
+  expect(items[0]).toMatchObject({ card: { kind: 'signIn', status: 'submitted' }, text: '', attachments: [] })
+  expect(items[1]).not.toHaveProperty('card')
+  expect(items[2].card).toEqual({ kind: 'browserHandoff' })
+  expect(JSON.stringify(items)).not.toMatch(/credential|placeholder|never show|never mirror/)
+})
