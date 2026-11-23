@@ -125,6 +125,19 @@ describe('Codex 单独问一次', () => {
     })
   })
 
+  it('requires an explicit ephemeral result for Agnes before sending user text', async () => {
+    const run = (state: string) =>
+      codexOneShot(
+        launcher,
+        [],
+        { ...process.env, FAKE_CODEX_THREAD_MODEL: 'gpt-mini', FAKE_CODEX_ADVISOR: state },
+        { prompt: 'private text', model: 'gpt-mini', requireEphemeral: true },
+        new AbortController().signal,
+      )
+    expect((await caught(run('missing'))).message).toContain('not confirmed ephemeral')
+    expect((await run('confirmed')).text).toContain('private text')
+  })
+
   it('额度用完报 usageLimit', async () => {
     const e = await caught(
       codexOneShot(launcher, [], process.env, { prompt: '额度用完', model: null }, new AbortController().signal),

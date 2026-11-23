@@ -3,6 +3,7 @@ import {
   getModelRoleGuide,
   modelDetailKey,
   openAiApiReference,
+  publicApiPriceReference,
   type ModelTokenPrice,
   type ModelDetail,
   type ModelDetailTarget,
@@ -32,16 +33,21 @@ export function modelPositionLabel(id: string | null | undefined): string | unde
   return tr(`modelDetails.position.${position}`)
 }
 
-export type MenuModelPrice = { price: ModelTokenPrice; basis: 'custom' | 'catalog' | 'standard' }
+export type MenuModelPrice = { price: ModelTokenPrice; basis: 'custom' | 'catalog' | 'standard' | 'relay-reference' }
 
 export function menuModelPrice(
   target: ModelDetailTarget,
   custom?: ModelTokenPrice,
   catalog?: ModelTokenPrice,
   now?: number,
+  priceRef?: string | null,
 ): MenuModelPrice | undefined {
   if (custom) return { price: custom, basis: 'custom' }
-  if (target.channel === 'platform' || target.channel === 'custom') return undefined
+  if (target.channel === 'platform') return undefined
+  if (target.channel === 'custom') {
+    const reference = publicApiPriceReference(priceRef?.trim() || target.model, now)
+    return reference && { price: reference, basis: 'relay-reference' }
+  }
   if (catalog) return { price: catalog, basis: 'catalog' }
   const standard = target.channel === 'chatgpt' ? openAiApiReference(target.model, now) : undefined
   return standard && { price: standard, basis: 'standard' }

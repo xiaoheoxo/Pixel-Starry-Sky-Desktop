@@ -3,8 +3,7 @@ import {
   MODEL_DETAIL_MAX_TEXT,
   MODEL_PRICE_CURRENCIES,
   modelDetailKey,
-  officialPrice,
-  openAiApiReference,
+  currentCloudModelPrice,
   parseModelDetailPatch,
   type CloudModelReference,
   type ModelDetail,
@@ -15,7 +14,7 @@ import { useProviders } from '@/features/account/providers'
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { channelLabel } from '@/features/model-channels/channelLabels'
-import { modelPositionLabel, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
+import { menuModelPrice, modelPositionLabel, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { Button, Select } from '@/ui'
@@ -133,15 +132,14 @@ function DetailEditor({
     output: price ? String(price.output) : '',
   })
   const [draftPrice, setDraftPrice] = useState<ReturnType<typeof priceFields> | null>(null)
-  const standardPrice = target.channel === 'chatgpt' ? openAiApiReference(target.model) : undefined
-  const currentPrice = draftPrice ?? priceFields(saved?.price ?? cloudReference?.price ?? standardPrice)
+  const price = menuModelPrice(target, saved?.price, currentCloudModelPrice(cloudReference), undefined, priceRef)
+  const currentPrice = draftPrice ?? priceFields(price?.price)
   const { currency, input, output } = currentPrice
   const setCurrency = (next: typeof currency) => setDraftPrice({ ...currentPrice, currency: next })
   const setInput = (next: string) => setDraftPrice({ ...currentPrice, input: next })
   const setOutput = (next: string) => setDraftPrice({ ...currentPrice, output: next })
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ error: boolean; text: string }>()
-  const reference = officialPrice(target.model, priceRef)
   const save = async (detail: ModelDetail | null) => {
     if (!bridge) return
     setBusy(true)
@@ -258,20 +256,8 @@ function DetailEditor({
               />
             </label>
           </div>
-          {cloudReference?.price ? (
-            <p className="text-label text-fg-faint">{tr('modelDetails.cloudPrice')}</p>
-          ) : standardPrice ? (
-            <p className="text-label text-fg-faint">{tr('modelChannels.menu.priceBasis.standard')}</p>
-          ) : (
-            reference && (
-              <p className="text-label text-fg-faint">
-                {tr('modelDetails.reference', {
-                  model: reference.model,
-                  input: reference.input,
-                  output: reference.output,
-                })}
-              </p>
-            )
+          {price && !draftPrice && (
+            <p className="text-label text-fg-faint">{tr(`modelChannels.menu.priceBasis.${price.basis}`)}</p>
           )}
           <p className="text-label text-fg-muted">{tr('modelDetails.priceHint')}</p>
         </div>

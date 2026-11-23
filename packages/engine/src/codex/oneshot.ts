@@ -190,7 +190,11 @@ export async function codexOneShot(
               return proc.request('thread/start', params)
             throw error
           })
-      const threadId = string(object(thread.thread).id)
+      const opened = object(thread.thread)
+      if (req.requireEphemeral && opened.ephemeral !== true)
+        throw new Error('Evaluator thread is not confirmed ephemeral')
+      signal.throwIfAborted()
+      const threadId = string(opened.id)
       if (!threadId) throw new Error('Codex 没有开出线程')
       const model = string(thread.model) || req.model
       if (req.requireEphemeral && model !== req.model) throw new Error('Codex selected a different evaluator model')

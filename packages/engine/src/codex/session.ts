@@ -494,6 +494,7 @@ export class CodexSession implements EngineSession {
     baseline: ReturnType<typeof tokenCounts>
     usageSeen: boolean
     activity: boolean
+    advisorAbort?: AbortController
     /** Codex 自己开的一轮（目标模式接着做），不是像素星空发的 */
     auto?: boolean
     /** 自己开的一轮已经告诉宿主了（turn_started） */
@@ -1212,20 +1213,29 @@ export class CodexSession implements EngineSession {
         ) {
           if (advisor.evaluatorPicksModel) await this.options.advisorPublicMetadata?.refresh()
           if (this.active !== active || this.closed) return
-          if (isCurrent(currentAdvisor()))
-            estimate = await evaluateAdvisor(
-              advisor.evaluator,
-              text,
-              evaluate,
-              advisor.evaluatorPicksModel
-                ? advisorCandidates(
-                    advisor,
-                    available,
-                    this.options.modelDetails?.(),
-                    this.options.advisorPublicMetadata,
-                  )
-                : [],
-            )
+          if (isCurrent(currentAdvisor())) {
+            const abort = new AbortController()
+            active.advisorAbort = abort
+            try {
+              estimate = await evaluateAdvisor(
+                advisor.evaluator,
+                text,
+                evaluate,
+                advisor.evaluatorPicksModel
+                  ? advisorCandidates(
+                      advisor,
+                      available,
+                      this.options.modelDetails?.(),
+                      this.options.advisorPublicMetadata,
+                    )
+                  : [],
+                undefined,
+                abort.signal,
+              )
+            } finally {
+              delete active.advisorAbort
+            }
+          }
         }
         if (this.active !== active || this.closed) return
         const latest = currentAdvisor()
@@ -2024,6 +2034,7 @@ export class CodexSession implements EngineSession {
     this.adopting = null
     if (this.nativeTurnId) this.markFinished(this.nativeTurnId)
     this.active = null
+    active.advisorAbort?.abort()
     if (this.speedNext !== null) {
       this.settings = {
         ...this.settings,

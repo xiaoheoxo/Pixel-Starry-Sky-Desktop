@@ -21,7 +21,9 @@ import {
   X,
 } from 'lucide-react'
 import {
-  openAiBenchmarkEvidence,
+  openAiBenchmarkId,
+  publicBenchmarkEvidence,
+  currentCloudModelPrice,
   type EngineId,
   type ModelDetailTarget,
   type ModelIqSnapshot,
@@ -379,11 +381,18 @@ export function ModelSourceMenu({
           : c === 'google'
             ? agyCatalog?.models
             : undefined
+    const priceRef = c === 'custom' ? providerOf(row)?.models.find(m => m.id === target.model)?.priceRef : undefined
     return menuModelPrice(
       target,
       channelModelDetail(modelDetails, target)?.price,
-      models?.find(m => m.id === target.model)?.cloudReference?.price,
+      currentCloudModelPrice(models?.find(m => m.id === target.model)?.cloudReference),
+      undefined,
+      priceRef,
     )
+  }
+  const iqFor = (model: string | null) => {
+    const id = model ? openAiBenchmarkId(model) : undefined
+    return id ? iq?.scores[id] : undefined
   }
   /** 平台模型右边：最低倍率，多条线路时写条数 */
   const rowMeta = (c: ChannelId, row: ChannelRow): ReactNode => {
@@ -457,9 +466,14 @@ export function ModelSourceMenu({
           desc={rowDesc(c, row)}
           guide={rowGuide(c, row)}
           price={rowPrice(c, row)}
-          evidence={c === 'chatgpt' && row.target.model ? openAiBenchmarkEvidence(row.target.model) : undefined}
+          evidence={
+            (c === 'chatgpt' || c === 'custom') && row.target.model
+              ? publicBenchmarkEvidence(row.target.model)
+              : undefined
+          }
           position={modelPositionLabel(row.target.model)}
-          iq={c === 'chatgpt' && row.target.model ? iq?.scores[row.target.model] : undefined}
+          iq={c === 'chatgpt' || c === 'custom' ? iqFor(row.target.model) : undefined}
+          referenceOnly={c === 'custom'}
           descMono={c === 'custom'}
           meta={rowMeta(c, row)}
           query={query}
@@ -501,9 +515,15 @@ export function ModelSourceMenu({
                 mono
                 title={m.id}
                 position={modelPositionLabel(m.id)}
+                iq={iqFor(m.id)}
+                evidence={publicBenchmarkEvidence(m.id)}
+                referenceOnly
                 price={menuModelPrice(
                   { channel: 'custom', sourceId: provider!.id, model: m.id },
                   channelModelDetail(modelDetails, { channel: 'custom', sourceId: provider!.id, model: m.id })?.price,
+                  undefined,
+                  undefined,
+                  m.priceRef,
                 )}
                 guide={modelRoleGuide(
                   m.id,

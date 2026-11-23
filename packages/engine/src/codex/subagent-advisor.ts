@@ -1,4 +1,5 @@
 import {
+  currentCloudModelPrice,
   getModelPosition,
   getModelRoleGuide,
   getModelVendorGuide,
@@ -89,7 +90,7 @@ export function advisorCandidates(
     const provider = vendorReferenceProvider.get(getModelVendorGuide(candidate.model)?.vendor ?? '')
     const cloud = provider ? metadata?.get(provider, candidate.model) : undefined
     const explicit = details?.[modelDetailKey({ channel: 'chatgpt', sourceId: null, model: candidate.model })]?.price
-    const reference = provider === 'openai' ? cloud?.price : undefined
+    const reference = provider === 'openai' ? currentCloudModelPrice(cloud) : undefined
     return {
       ...candidate,
       ...(explicit
@@ -182,19 +183,22 @@ export async function evaluateAdvisor(
   run: AdvisorEvaluator,
   candidates: readonly Candidate[] = [],
   timeout = 4500,
+  parentSignal?: AbortSignal,
 ): Promise<{ difficulty: Difficulty; model?: string | null } | null> {
+  if (parentSignal?.aborted) return null
   const abort = new AbortController()
+  const signal = parentSignal ? AbortSignal.any([parentSignal, abort.signal]) : abort.signal
   let timer: ReturnType<typeof setTimeout> | undefined
+  let stop: (() => void) | undefined
   const ids = [...new Set(candidates.map(candidate => candidate.model))]
   try {
     const answer = await Promise.race([
-      run(model, advisorPrompt(text, candidates), abort.signal, ids.length ? ids : undefined),
       new Promise<null>(resolve => {
-        timer = setTimeout(() => {
-          abort.abort()
-          resolve(null)
-        }, timeout)
+        stop = () => resolve(null)
+        signal.addEventListener('abort', stop, { once: true })
+        timer = setTimeout(() => abort.abort(), timeout)
       }),
+      run(model, advisorPrompt(text, candidates), signal, ids.length ? ids : undefined),
     ])
     if (!answer || answer.length > (ids.length ? 512 : 128)) return null
     const result: unknown = JSON.parse(answer)
@@ -211,6 +215,7 @@ export async function evaluateAdvisor(
     return null
   } finally {
     clearTimeout(timer)
+    if (stop) signal.removeEventListener('abort', stop)
     abort.abort()
   }
 }

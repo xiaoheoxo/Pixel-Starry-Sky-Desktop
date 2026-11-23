@@ -268,6 +268,15 @@ export const modelChannelMessages = {
     zh: 'Terminal-Bench 4.1（{effort}）：{score}%，仅参考。',
     en: 'Terminal-Bench 4.1 ({effort}): {score}%, reference only.',
   },
+  'modelChannels.menu.iqReference': { zh: 'IQ {score} 参考', en: 'IQ {score} ref.' },
+  'modelChannels.menu.relayBenchmarkHint': {
+    zh: '原厂公开基准参考，未验证此中转接口实际使用的模型或档位。',
+    en: 'Public base-model reference; the relay’s actual model and effort are unverified.',
+  },
+  'modelChannels.menu.priceBasis.relay-reference': {
+    zh: '原厂 API 短上下文参考价，不是中转实际扣费。',
+    en: 'Vendor short-context API reference, not the relay’s actual charge.',
+  },
   'modelChannels.menu.priceValue': {
     zh: '{currency} {input} 入 / {output} 出 · 每百万',
     en: '{currency} {input} in / {output} out · /1M',

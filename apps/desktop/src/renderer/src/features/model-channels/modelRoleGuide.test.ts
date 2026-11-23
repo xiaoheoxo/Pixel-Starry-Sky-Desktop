@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getModelPosition, getModelRoleGuide } from '@pixelsky/protocol'
+import { getModelPosition, getModelRoleGuide, openAiBenchmarkId, publicBenchmarkEvidence } from '@pixelsky/protocol'
 import { menuModelPrice } from './modelRoleGuide'
 
 describe('model role copy', () => {
@@ -132,7 +132,21 @@ describe('model menu public price and descriptions', () => {
       price: { currency: 'USD', input: 4, output: 20 },
     })
     expect(menuModelPrice({ ...target, channel: 'platform' }, undefined, price, now)).toBeUndefined()
-    expect(menuModelPrice({ ...target, channel: 'custom' }, undefined, price, now)).toBeUndefined()
+    const relay = { ...target, channel: 'custom' as const, sourceId: 'relay' }
+    expect(menuModelPrice(relay, undefined, price, now)).toEqual({
+      basis: 'relay-reference',
+      price: { currency: 'USD', input: 4, output: 20 },
+    })
+    expect(menuModelPrice(relay, price, undefined, now)).toEqual({ basis: 'custom', price })
+    expect(menuModelPrice({ ...relay, model: 'unknown-deployment' }, undefined, price, now)).toBeUndefined()
+    expect(menuModelPrice({ ...relay, model: 'grok-4.6' }, undefined, undefined, now)?.price).toEqual({
+      currency: 'USD',
+      input: 2,
+      output: 6,
+    })
+    expect(openAiBenchmarkId('openai/gpt-6.2-sol')).toBe('gpt-6.2-sol')
+    expect(openAiBenchmarkId('proxy/gpt-6.2-sol')).toBeUndefined()
+    expect(publicBenchmarkEvidence('grok-4.6')?.terminal41?.effort).toBe('high')
     expect(menuModelPrice(target, undefined, undefined, Date.parse('2026-12-01'))).toBeUndefined()
   })
   it('adds descriptions and positioning to the 5.6 models across namespaced IDs', () => {

@@ -1750,6 +1750,23 @@ describe('Codex app-server adapter', () => {
     expect(launches().at(-1)).toContain('agents.default_subagent_reasoning_effort="low"')
     expect(messages().find(m => m.method === 'turn/start')?.params.model).toBe('fake-codex')
   })
+  it('aborts Agnes when the user stops and does not start the cancelled main turn', async () => {
+    const { session, messages, adapter } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: { subagentAdvisor: { evaluator: 'fake-plain', models: [null, 'fake-plain', null] } },
+    })
+    let evaluatorSignal: AbortSignal | undefined
+    vi.spyOn(adapter, 'oneShot').mockImplementation((_req, signal) => {
+      evaluatorSignal = signal
+      return new Promise(() => {})
+    })
+    await host!.send(session.id, '整理这一页')
+    await wait(() => !!evaluatorSignal)
+    await host!.interrupt(session.id)
+    expect(evaluatorSignal?.aborted).toBe(true)
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(messages().some(m => m.method === 'turn/start')).toBe(false)
+  })
   it('Agnes sends no evaluator request or advice when no configured model is available', async () => {
     const { adapter, session, messages } = setup(50, {
       env: { FAKE_CODEX_PROVIDER: 'openai' },

@@ -31,6 +31,7 @@ export function ModelRow({
   iq,
   price,
   evidence,
+  referenceOnly,
   guide,
   meta,
   chip,
@@ -51,6 +52,7 @@ export function ModelRow({
   iq?: ModelIq
   price?: MenuModelPrice
   evidence?: ModelEvidence
+  referenceOnly?: boolean
   guide?: ReturnType<typeof modelRoleGuide>
   meta?: ReactNode
   chip?: ReactNode
@@ -65,6 +67,7 @@ export function ModelRow({
   onPick?: () => void
   onHover?: () => void
 }) {
+  const referenceNotice = referenceOnly && tr('modelChannels.menu.relayBenchmarkHint')
   const benchmark = [
     evidence?.arc2Xhigh !== undefined &&
       tr('modelChannels.menu.arcBenchmark', { score: evidence.arc2Xhigh, weight: iq?.arcWeight ?? 0 }),
@@ -95,6 +98,7 @@ export function ModelRow({
           guide?.main,
           guide?.evaluator && `${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}`,
           benchmark,
+          benchmark && referenceNotice,
         ]
           .filter(Boolean)
           .join(' ') || undefined
@@ -149,16 +153,20 @@ export function ModelRow({
                     disagreement: iq.disagreement,
                   }),
                   benchmark,
+                  referenceNotice,
                 ]
                   .filter(Boolean)
                   .join(' ')}
                 className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary tabular-nums"
               >
-                IQ {iq.score}
+                {referenceOnly ? tr('modelChannels.menu.iqReference', { score: iq.score }) : `IQ ${iq.score}`}
               </span>
             )}
             {!iq && benchmark && (
-              <span title={benchmark} className="shrink-0 rounded bg-subtle px-1 text-label text-fg-muted">
+              <span
+                title={[benchmark, referenceNotice].filter(Boolean).join(' ')}
+                className="shrink-0 rounded bg-subtle px-1 text-label text-fg-muted"
+              >
                 {tr('modelChannels.menu.benchmark')}
               </span>
             )}

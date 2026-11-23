@@ -7,8 +7,16 @@ export type ModelTokenPrice = { currency: (typeof MODEL_PRICE_CURRENCIES)[number
 /** Exact public catalog reference; not a subscription, relay, or invoiced price. */
 export interface CloudModelReference {
   price?: ModelTokenPrice
+  priceExpiresAt?: number
   /** OpenRouter copy, present only when the provider/model ID also exists in Models.dev. */
   description?: string
+}
+export function currentCloudModelPrice(
+  reference: CloudModelReference | undefined,
+  now = Date.now(),
+): ModelTokenPrice | undefined {
+  if (!reference || (reference.priceExpiresAt !== undefined && now >= reference.priceExpiresAt)) return undefined
+  return reference.price
 }
 export interface ModelDetailTarget {
   channel: ModelDetailChannel

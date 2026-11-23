@@ -3,6 +3,7 @@ export {
   MODEL_PRICE_CURRENCIES,
   MODEL_DETAIL_MAX_TEXT,
   modelDetailKey,
+  currentCloudModelPrice,
   parseModelDetailPatch,
   type CloudModelReference,
   type ModelDetail,
@@ -517,4 +518,12 @@ export { supportsChatGptDot } from './dot'
 
 export type { ModelIq, ModelIqSnapshot, ModelIqSource } from './modelIq'
 
-export { openAiApiReference, openAiBenchmarkEvidence, type ModelEvidence } from './modelEvidence'
+export {
+  openAiApiReference,
+  openAiBenchmarkEvidence,
+  openAiBenchmarkId,
+  publicApiPriceReference,
+  publicBenchmarkEvidence,
+  GPT56_SOL_PROMO_END,
+  type ModelEvidence,
+} from './modelEvidence'

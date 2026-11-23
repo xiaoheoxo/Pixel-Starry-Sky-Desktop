@@ -395,6 +395,18 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           ...(process.env.FAKE_CODEX_NO_MODEL ? {} : { model: 'fake-codex' }),
           model_provider: process.env.FAKE_CODEX_PROVIDER ?? 'fake',
           windows: { sandbox: 'elevated' },
+          ...(process.env.FAKE_CODEX_ADVISOR
+            ? {
+                web_search: 'disabled',
+                mcp_servers: {},
+                features: Object.fromEntries(
+                  process.argv.flatMap(arg => {
+                    const feature = /^features\.(\w+)=false$/.exec(arg)
+                    return feature ? [[feature[1], false]] : []
+                  }),
+                ),
+              }
+            : {}),
           ...(process.env.FAKE_CODEX_REVIEWER ? { approvals_reviewer: process.env.FAKE_CODEX_REVIEWER } : {}),
         },
         // includeLayers 时：命令行 -c 在 sessionFlags 层；FAKE_CODEX_USER_ASK 模拟用户 config.toml 里也开了同一个功能
@@ -475,7 +487,14 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         bindProvider(thread, p.modelProvider)
       } else thread = p.threadId ?? (resumeFails() ? 'fake-thread-new' : 'fake-thread')
       if (m.method === 'thread/start') holdThread(thread)
-      response(m, { thread: { id: thread, turns: [] }, ...threadReport(m.method === 'thread/resume') })
+      response(m, {
+        thread: {
+          id: thread,
+          turns: [],
+          ...(process.env.FAKE_CODEX_ADVISOR === 'confirmed' ? { ephemeral: true } : {}),
+        },
+        ...threadReport(m.method === 'thread/resume'),
+      })
       rateUpdate()
       break
     case 'thread/fork': {

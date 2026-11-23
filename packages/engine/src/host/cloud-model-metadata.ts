@@ -1,4 +1,4 @@
-import type { CloudModelReference } from '@pixelsky/protocol'
+import { currentCloudModelPrice, GPT56_SOL_PROMO_END, type CloudModelReference } from '@pixelsky/protocol'
 
 const PROVIDERS = {
   openai: 'openai',
@@ -69,14 +69,18 @@ export function pickCloudReference(catalog: Prices, provider: string, id: string
 
 export class CloudModelMetadata {
   private state = empty()
-  private fetchedAt = 0
+  private lastAttempt: number | null = null
   private pending?: Promise<void>
 
-  constructor(private readonly fetcher?: typeof fetch) {}
+  constructor(
+    private readonly fetcher?: typeof fetch,
+    private readonly clock = Date.now,
+  ) {}
 
   refresh(): Promise<void> {
-    if (!this.fetcher || Date.now() - this.fetchedAt < 60 * 60_000) return Promise.resolve()
     if (this.pending) return this.pending
+    if (!this.fetcher || (this.lastAttempt !== null && this.clock() - this.lastAttempt < 60 * 60_000))
+      return Promise.resolve()
     const read = async (url: string): Promise<unknown> => {
       try {
         const response = await this.fetcher!(url, {
@@ -91,14 +95,27 @@ export class CloudModelMetadata {
     }
     this.pending = Promise.all([read('https://models.dev/api.json'), read('https://openrouter.ai/api/v1/models')])
       .then(([dev, router]) => {
-        this.fetchedAt = Date.now()
-        if (dev) this.state = crossCheckCatalogs(dev, router)
+        const now = this.clock()
+        this.lastAttempt = now
+        if (!dev) return
+        const next = crossCheckCatalogs(dev, router)
+        for (const [provider, models] of next.byProvider) {
+          for (const [id, entry] of models) {
+            if (!entry.price) continue
+            const promo =
+              provider === 'openai' && id === 'gpt-5.6-sol' && entry.price.input === 4 && entry.price.output === 20
+            entry.priceExpiresAt = Math.min(now + 24 * 60 * 60_000, promo ? GPT56_SOL_PROMO_END : Infinity)
+          }
+        }
+        this.state = next
       })
       .finally(() => (this.pending = undefined))
     return this.pending
   }
 
   get(provider: string, id: string): CloudModelReference | undefined {
-    return pickCloudReference(this.state, provider, id)
+    const reference = pickCloudReference(this.state, provider, id)
+    if (!reference || currentCloudModelPrice(reference, this.clock()) || !reference.price) return reference
+    return reference.description ? { description: reference.description } : undefined
   }
 }
