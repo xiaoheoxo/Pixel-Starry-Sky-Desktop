@@ -36,6 +36,28 @@ describe('reportedMode', () => {
       push: false,
     })
   })
+  it('批准了计划但用户已经换到别的档：以用户换的为准，和引擎报的不同就推回去（§11）', () => {
+    expect(reportedMode(rec('ask'), 'full', false, true)).toEqual({
+      permissionMode: 'ask',
+      planReturn: null,
+      push: true,
+    })
+    expect(reportedMode(rec('ask'), 'ask', false, true)).toEqual({
+      permissionMode: 'ask',
+      planReturn: null,
+      push: false,
+    })
+    // 还在计划中就是普通的批准；引擎又进计划、用户在审批里明确选的不归它管
+    expect(reportedMode(rec('plan', 'edits'), 'ask', false, true)).toEqual({
+      permissionMode: 'edits',
+      planReturn: null,
+      push: true,
+    })
+    expect(reportedMode(rec('ask'), 'plan', false, true)).toMatchObject({ permissionMode: 'plan', planReturn: 'ask' })
+    expect(reportedMode(rec('ask'), 'full', true, true)).toMatchObject({ permissionMode: 'full', push: false })
+    // 没批准过计划：照引擎报的
+    expect(reportedMode(rec('ask'), 'edits')).toMatchObject({ permissionMode: 'edits', push: false })
+  })
   it('引擎自己进计划：记下原来那档', () => {
     expect(reportedMode(rec('full'), 'plan')).toEqual({ permissionMode: 'plan', planReturn: 'full', push: false })
     expect(reportedMode(rec('plan', 'edits'), 'plan')).toEqual({

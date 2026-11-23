@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EngineHost, PixelAdapter } from '../src'
-import type { EngineInfo, HostEvent } from '@pixelsky/protocol'
+import type { EngineInfo, HostEvent, SessionRecord } from '@pixelsky/protocol'
 import type { EngineAdapter, EngineSession, SessionContext } from '../src/adapter'
 import { ENGINES } from '../src/registry'
 import { PIXEL_MODES, pixelModelsConfig, reservedPixelArg, mcpWaiterFor, searchToolArgs } from '../src/pixel/session'
@@ -437,6 +437,59 @@ describe('Pixel 引擎适配器', () => {
         messages().some(m => m.type === 'prompt' && m.message === '/pixelsky-mode bypassPermissions'),
     )
     expect(host!.record(session.id)).toMatchObject({ permissionMode: 'full', planReturn: null })
+  })
+  describe('换权限档', () => {
+    const start = async () => {
+      const file = join(root, 'modes')
+      const t = setup(10_000, {
+        env: { ...pixelEnv(), FAKE_PIXEL_LOG: join(root, 'rpc.jsonl'), FAKE_PIXEL_DIR: root, FAKE_PIXEL_MODES: file },
+      })
+      const id = t.session.id
+      await host!.send(id, '第一轮')
+      await wait(() => idle(id) && snap(id).items.some(i => i.kind === 'turn_stats'))
+      return {
+        id,
+        rec: () => snap(id).record,
+        /** 命令行依次换过的模式，最后一个就是现在的 */
+        modes: () => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []),
+      }
+    }
+    const settle = () => new Promise(r => setTimeout(r, 200))
+    type Mode = SessionRecord['permissionMode']
+
+    // 计划卡等着时换了档再批准：命令行回到它进计划时记的那档，以用户后来换的为准（plan-mode-split.md §11）
+    it.each<[Mode, Mode]>([
+      ['full', 'ask'],
+      ['full', 'edits'],
+      ['ask', 'edits'],
+    ])('%s 进计划，计划卡等着时换到 %s 再批准', async (from, to) => {
+      const { id, rec, modes } = await start()
+      await host!.update(id, { permissionMode: from })
+      await host!.update(id, { permissionMode: 'plan' })
+      await host!.send(id, '交计划')
+      await wait(() => snap(id).pending.length === 1)
+      await host!.update(id, { permissionMode: to })
+      host!.answer(id, snap(id).pending[0].requestId, { type: 'allow' })
+      await wait(() => idle(id))
+      await settle()
+      expect(rec()).toMatchObject({ permissionMode: to, planReturn: null })
+      expect(modes().at(-1)).toBe(PIXEL_MODES[to])
+    })
+
+    it('计划卡等着时换了档又换回计划再批准：照常回到进计划前那档', async () => {
+      const { id, rec, modes } = await start()
+      await host!.update(id, { permissionMode: 'full' })
+      await host!.update(id, { permissionMode: 'plan' })
+      await host!.send(id, '交计划')
+      await wait(() => snap(id).pending.length === 1)
+      await host!.update(id, { permissionMode: 'edits' })
+      await host!.update(id, { permissionMode: 'plan' })
+      host!.answer(id, snap(id).pending[0].requestId, { type: 'allow' })
+      await wait(() => idle(id))
+      await settle()
+      expect(rec()).toMatchObject({ permissionMode: 'edits', planReturn: null })
+      expect(modes().at(-1)).toBe('acceptEdits')
+    })
   })
   it('停止：abort 后这一轮以 interrupted 结束；等批准时停止也行', async () => {
     const { session, messages, events } = setup(60_000)

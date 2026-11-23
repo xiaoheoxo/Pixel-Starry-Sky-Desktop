@@ -138,6 +138,8 @@ export interface Runtime {
   generation: number
   activeId: string | null
   turn?: TurnTrack
+  /** 刚批准了计划，引擎还没报它退回的档（plan-return.ts reportedMode） */
+  planApproved?: boolean
   execution: SessionRecord | null
   sessionSource: string | null | undefined
   /** 正在为这个会话挑平台线路（订阅额度用完、自动改用平台）：挑完之前不派发，免得又用订阅发一次 */

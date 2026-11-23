@@ -497,6 +497,25 @@ describe('oh-my-pi 适配器', () => {
     expect(next.some(a => a.endsWith('pixelsky-plan.mjs'))).toBe(true)
     expect(argvs().at(-1).plan).toBeNull()
   })
+  it.each<[SessionRecord['permissionMode'] & ('ask' | 'full'), 'ask' | 'edits', string]>([
+    ['full', 'ask', 'always-ask'],
+    ['full', 'edits', 'write'],
+    ['ask', 'edits', 'write'],
+  ])('%s 进计划，计划卡等着时换到 %s 再批准：以后来换的为准，下一轮按它启动', async (from, to, approval) => {
+    const { session, argvs } = setup(from)
+    await host!.update(session.id, { permissionMode: 'plan' })
+    await host!.send(session.id, '交计划')
+    await wait(() => snap(session.id).pending.length === 1)
+    await host!.update(session.id, { permissionMode: to })
+    host!.answer(session.id, snap(session.id).pending[0].requestId, { type: 'allow' })
+    await wait(() => idle(session.id))
+    expect(snap(session.id).record).toMatchObject({ permissionMode: to, planReturn: null })
+    await host!.send(session.id, '你好')
+    await wait(() => idle(session.id) && argvs().length === 2)
+    const next = argvs().at(-1).argv as string[]
+    expect(next[next.indexOf('--approval-mode') + 1]).toBe(approval)
+    expect(snap(session.id).record.permissionMode).toBe(to)
+  })
   it('Ultracode：没有 task 工具时不能开，开着的关掉并提示', async () => {
     const { session, events } = setup('ask', { FAKE_OMP_NO_TASK: '1' })
     await host!.update(session.id, { ultracode: true })

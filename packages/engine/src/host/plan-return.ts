@@ -25,15 +25,19 @@ export function nextPlanReturn(current: SessionRecord, mode: PermissionMode, pat
 
 /**
  * 引擎自己报了新的模式：会话在计划中、引擎报「离开计划」（各引擎的计划批准）时改用 planReturn。
- * 返回要写进记录的模式，以及要不要推回给引擎（引擎报的和要用的不一样时）
+ * 返回要写进记录的模式，以及要不要推回给引擎（引擎报的和要用的不一样时）。
+ * approved：刚批准了计划、引擎还没报它退回的档；这时用户已经不在计划中，就是计划卡等着时换了档，以用户换的为准（§11）
  */
 export function reportedMode(
   current: SessionRecord,
   reported: PermissionMode,
   chosen = false,
+  approved = false,
 ): { permissionMode: PermissionMode; planReturn: Return | null; push: boolean } {
   if (current.permissionMode === 'plan' && reported !== 'plan' && current.planReturn && !chosen)
     return { permissionMode: current.planReturn, planReturn: null, push: current.planReturn !== reported }
+  if (approved && current.permissionMode !== 'plan' && reported !== 'plan' && !chosen)
+    return { permissionMode: current.permissionMode, planReturn: null, push: current.permissionMode !== reported }
   // 引擎自己进了计划（Claude 的 EnterPlanMode）：同样记下原来那档
   if (reported === 'plan' && current.permissionMode !== 'plan')
     return { permissionMode: 'plan', planReturn: current.permissionMode, push: false }

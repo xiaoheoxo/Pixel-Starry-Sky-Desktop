@@ -312,6 +312,7 @@ export class HostEvents {
         else this.broadcastSessions()
         break
       case 'turn_completed': {
+        rt.planApproved = false
         if (event.usage || m.usage.hasPlatformRequests(id, event.turnId))
           m.usage.recordUsage(id, event.turnId, event.outcome, event.usage ?? { models: {}, durationMs: 0 })
         // 这一轮结束：执行它的引擎看到了对话到现在为止的全部（没带交接的斜杠命令除外，交接留给下一条普通消息；

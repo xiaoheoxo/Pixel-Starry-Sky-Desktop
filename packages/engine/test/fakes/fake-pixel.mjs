@@ -1,5 +1,6 @@
 // 假的像素星空命令行（Pi RPC 协议）：测试用。按提示词里的关键字走不同的剧本。
-// 环境变量：FAKE_PIXEL_LOG 记录收到的每条命令；FAKE_PIXEL_DIR 放会话文件；FAKE_PIXEL_ARGV 记录启动参数。
+// 权限模式照批准扩展（cli/src/extensions/approval.ts）：切换时先报状态、再回应答；批准计划后回到进计划前那档。
+// 环境变量：FAKE_PIXEL_MODES 记录换过的权限模式（一行一个）；FAKE_PIXEL_LOG 记录收到的每条命令；FAKE_PIXEL_DIR 放会话文件；FAKE_PIXEL_ARGV 记录启动参数。
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import readline from 'node:readline'
@@ -54,6 +55,20 @@ const out = value => process.stdout.write(JSON.stringify(value) + '\n')
 /** 批准扩展三选一的选项原文 */
 const APPROVAL = ['允许 / Allow', '本会话不再询问 / Always allow in this session', '拒绝 / Deny']
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+let mode = process.argv[process.argv.indexOf('--permission-mode') + 1] ?? 'default'
+let beforePlan = 'default'
+const setMode = next => {
+  if (next === 'plan' && mode !== 'plan') beforePlan = mode
+  mode = next
+  if (process.env.FAKE_PIXEL_MODES) appendFileSync(process.env.FAKE_PIXEL_MODES, next + '\n')
+  out({
+    type: 'extension_ui_request',
+    id: 'ui-mode',
+    method: 'setStatus',
+    statusKey: 'pixelsky-mode',
+    statusText: next,
+  })
+}
 const models = [
   {
     provider: 'fake',
@@ -173,14 +188,7 @@ async function tool(toolName, args, result, isError = false, partial = null) {
       options: ['开始执行 / Start implementing', '继续完善计划 / Keep planning'],
     })
     const start = await new Promise(resolve => (approval = { id, resolve }))
-    if (start === true)
-      out({
-        type: 'extension_ui_request',
-        id: `ui-${++tools}`,
-        method: 'setStatus',
-        statusKey: 'pixelsky-mode',
-        statusText: 'default',
-      })
+    if (start === true) setMode(beforePlan === 'plan' ? 'default' : beforePlan)
     result = {
       content: [
         {
@@ -581,7 +589,10 @@ readline
           })
           return response(m, { disposition: 'handled' })
         }
-        if (m.message.startsWith('/pixelsky-mode ')) return response(m, { disposition: 'handled' })
+        if (m.message.startsWith('/pixelsky-mode ')) {
+          setMode(m.message.slice('/pixelsky-mode '.length).trim())
+          return response(m, { disposition: 'handled' })
+        }
         if (running) return fail(m, 'Agent is already processing')
         messages++
         running = { aborted: false, release: null }

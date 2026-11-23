@@ -310,7 +310,13 @@ export class HostTurn {
       },
       setPermissionMode: (reported, chosen) => {
         // 计划批准后引擎自己退回的档（Claude 回 default 等）换成进计划前那档，再推回引擎（docs/ui/plan-mode-split.md §7）
-        const { permissionMode, planReturn, push } = reportedMode(rt.snapshot.record, reported, chosen === true)
+        const { permissionMode, planReturn, push } = reportedMode(
+          rt.snapshot.record,
+          reported,
+          chosen === true,
+          rt.planApproved,
+        )
+        rt.planApproved = false
         if (rt.execution) rt.execution.permissionMode = permissionMode
         m.events.patchRecord(id, { permissionMode, planReturn })
         const session = rt.session
@@ -458,6 +464,8 @@ export class HostTurn {
   answer(id: string, requestId: string, decision: ApprovalDecision): void {
     const rt = this.ctx.runtimes.get(id)
     if (!rt?.session) return
+    const request = rt.snapshot.pending.find(p => p.requestId === requestId)
+    rt.planApproved = request?.kind === 'plan' && decision.type !== 'deny'
     rt.session.answer(requestId, decision)
   }
 
