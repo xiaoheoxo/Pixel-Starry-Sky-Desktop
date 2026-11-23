@@ -500,6 +500,11 @@ export class CodexSession implements EngineSession {
       return { reason: 'Agnes could not match the dispatch to an active managed Codex turn.' }
     if (!hasConfiguredSubagent(settings, ids)) return { reason: 'Agnes has no available configured worker model.' }
     if (signal.aborted || this.dispatchAbort.signal.aborted) return { reason: 'Agnes evaluation was canceled.' }
+    const decision = (model: string, effort: string | null | undefined): DispatchDecision => {
+      const marker = mode === 'force' ? randomUUID() : undefined
+      if (marker) this.translator.registerAgnesDispatch(marker, model)
+      return { model, ...(effort ? { effort } : {}), ...(marker ? { marker } : {}) }
+    }
     if (!settings.evaluator) {
       const difficulty = localDifficulty(input.task, false)
       const model = selectedAdvisorModel(difficulty, settings, ids)
@@ -508,7 +513,7 @@ export class CodexSession implements EngineSession {
         catalog.find(candidate => candidate.id === model),
         difficulty,
       )
-      return { model, ...(effort ? { effort } : {}) }
+      return decision(model, effort)
     }
     const evaluation = this.options.evaluateSubagent
     if (!evaluation || !ids.includes(settings.evaluator))
@@ -544,7 +549,7 @@ export class CodexSession implements EngineSession {
       catalog.find(candidate => candidate.id === model),
       estimate.difficulty,
     )
-    return { model, ...(effort ? { effort } : {}) }
+    return decision(model, effort)
   }
 
   private proc: CodexProcess | null = null

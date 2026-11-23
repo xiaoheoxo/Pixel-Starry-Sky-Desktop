@@ -1854,6 +1854,9 @@ describe('Codex app-server adapter', () => {
         .open(session.id)
         .items.some(i => i.kind === 'assistant' && i.text.includes('dispatch decision: fake-plain')),
     )
+    expect(host!.open(session.id).runs.agents).toContainEqual(
+      expect.objectContaining({ model: 'fake-plain', modelSource: 'agnes' }),
+    )
     expect(evaluate).toHaveBeenCalledOnce()
     const text = evaluate.mock.calls[0][0].prompt
     expect(text).toContain('Review the tiny parser only')

@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import readline from 'node:readline'
+import agnesHook from '../../assets/agnes-dispatch/hooks/route.cjs'
 // 模型目录要用的两种模式（debug models、实测默认提示词）：命中时这个模块不往下执行
 import './fake-codex-catalog.mjs'
 if (process.env.FAKE_CODEX_ARGV)
@@ -710,16 +711,44 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         turn = { id, item: 'msg-' + next, text: '', timer: null, slow: false }
         emit('turn/started', { threadId: thread, turn: { id, status: 'inProgress' } })
         response(m, { turn: { id, status: 'inProgress' } })
-        const url = process.env.PIXELSKY_AGNES_URL
-        fetch(url, {
-          method: 'POST',
-          headers: { authorization: process.env.PIXELSKY_AGNES_AUTH },
-          body: JSON.stringify({ threadId: thread, turnId: id, task: 'Review the tiny parser only' }),
-        })
-          .then(r => r.json())
+        const input = { fork_turns: 'none', model: 'fake-codex', message: 'Review the tiny parser only' }
+        agnesHook
+          .beforeDispatch(
+            {
+              hook_event_name: 'PreToolUse',
+              tool_name: 'spawn_agent',
+              session_id: thread,
+              turn_id: id,
+              tool_input: input,
+            },
+            process.env,
+          )
           .then(result => {
             if (!turn || turn.id !== id) return
-            turn.text = 'dispatch decision: ' + (result.model ?? result.reason)
+            const hook = result.hookSpecificOutput
+            const accepted = hook?.permissionDecision === 'allow' ? hook.updatedInput : input
+            const child = 'native-dispatch-' + id
+            emit('item/started', {
+              threadId: thread,
+              turnId: id,
+              item: {
+                id: 'spawn-' + id,
+                type: 'subAgentActivity',
+                kind: 'started',
+                agentThreadId: child,
+                model: accepted.model,
+              },
+            })
+            emit('item/started', {
+              threadId: child,
+              turnId: id,
+              item: {
+                id: 'child-task-' + id,
+                type: 'userMessage',
+                content: [{ type: 'text', text: accepted.message }],
+              },
+            })
+            turn.text = 'dispatch decision: ' + accepted.model
             finish('completed')
           })
           .catch(() => finish('failed'))

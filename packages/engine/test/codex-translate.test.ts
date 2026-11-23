@@ -188,6 +188,22 @@ describe('Agnes attribution', () => {
     for (const id of ['wrong', 'inherited']) expect(translator.agents.get(id)?.modelSource).toBeUndefined()
   })
 
+  it('attributes concurrent forced dispatches independently, without same-model guesses', () => {
+    const translator = new CodexTranslator(() => {})
+    const second = '8f9cced2-8105-4ab5-ac86-5e10067af413'
+    const otherModel = 'gpt-6.2-sol'
+    translator.registerAgnesDispatch(marker, model)
+    translator.registerAgnesDispatch(second, otherModel)
+    translator.observeAgnesChild('second', 'item/started', task(`${agnesTag(second)}\nOther task`))
+    translator.item(spawn('first'), true)
+    translator.item(spawn('second', otherModel), true)
+    translator.child('first', 'item/started', task(tagged))
+    translator.item(spawn('unrelated'), true)
+    expect(translator.agents.get('second')?.modelSource).toBe('agnes')
+    expect(translator.agents.get('first')?.modelSource).toBe('agnes')
+    expect(translator.agents.get('unrelated')?.modelSource).toBeUndefined()
+  })
+
   it('marks an exact reported model match without claiming the recommendation was adopted', () => {
     const translator = new CodexTranslator(() => {})
     translator.setAgnesAttribution({ model })

@@ -42,7 +42,7 @@ describe('Agnes built-in registration', () => {
       .mockResolvedValueOnce(result({ marketplaces: [] }))
       .mockResolvedValueOnce(result({ marketplaceName: 'pixelsky-agnes-builtin' }))
       .mockResolvedValueOnce(result({ installed: [] }))
-      .mockResolvedValueOnce(result({ pluginId }))
+      .mockResolvedValueOnce(result({ pluginId, version: '0.1.1' }))
     await Promise.all([
       registerBundledDispatch(launcher, env, bundle, cmd),
       registerBundledDispatch(launcher, env, bundle, cmd),
@@ -54,6 +54,16 @@ describe('Agnes built-in registration', () => {
       ['plugin', 'add', pluginId, '--json'],
     ])
     expect(cmd.mock.calls.every(call => call[2] === env)).toBe(true)
+  })
+
+  it('updates an enabled stale copy through native add', async () => {
+    const cmd = vi
+      .fn<typeof run>()
+      .mockResolvedValueOnce(result({ marketplaces: [recognized] }))
+      .mockResolvedValueOnce(result({ installed: [{ pluginId, enabled: true, version: '0.1.0' }] }))
+      .mockResolvedValueOnce(result({ pluginId, version: '0.1.1' }))
+    await registerBundledDispatch(launcher, env, bundle, cmd)
+    expect(cmd.mock.calls[2][1]).toEqual(['plugin', 'add', pluginId, '--json'])
   })
 
   it('never overwrites foreign registrations or reenables a disabled plugin', async () => {

@@ -1,4 +1,4 @@
-import { hasAgnesTag, stripAgnesTag, type AgnesAttribution } from './agnes-attribution'
+import { stripAgnesTag, type AgnesAttribution } from './agnes-attribution'
 import { plainCodexMcpName } from '../mcp'
 import type { AgentRun, EngineEvent, FileChange, Item, ItemReview, ItemStatus } from '@pixelsky/protocol'
 import { array, object, string, number, type Message } from './process'
@@ -86,37 +86,56 @@ export class CodexTranslator {
     private readonly cwd?: string,
   ) {}
   private agnes?: AgnesAttribution
+  private readonly dispatchMarkers = new Map<string, string>()
   private readonly agnesChildren = new Set<string>()
-  private readonly taggedChildren = new Set<string>()
+  private readonly taggedChildren = new Map<string, string>()
   private readonly observedChildTasks = new Set<string>()
 
   setAgnesAttribution(attribution: AgnesAttribution | undefined): void {
     this.agnes = attribution
+    this.dispatchMarkers.clear()
     this.agnesChildren.clear()
     this.taggedChildren.clear()
     this.observedChildTasks.clear()
   }
 
-  /** Newer Codex sends the resolved model on the parent spawn item and the message on the child thread. */
+  registerAgnesDispatch(marker: string, model: string): void {
+    this.dispatchMarkers.set(marker, model)
+  }
+
+  private agnesMarker(text: string): string | undefined {
+    return /^\s*\[pixelsky-agnes:([0-9a-f-]{36})\][ \t]*(?:\r?\n|$)/.exec(text)?.[1]
+  }
+
+  private confirmAgnes(marker: string, model: string): boolean {
+    if (this.dispatchMarkers.get(marker) === model && model) {
+      this.dispatchMarkers.delete(marker)
+      return true
+    }
+    return this.agnes?.marker === marker && this.agnes.model === model
+  }
+
+  /** Child-first and parent-first notifications are both possible; match on the actual resolved model. */
   observeAgnesChild(threadId: string, method: string, params: Message): void {
-    const attribution = this.agnes
-    if (!attribution?.marker || (method !== 'item/started' && method !== 'item/completed')) return
+    if ((!this.agnes?.marker && !this.dispatchMarkers.size) || !['item/started', 'item/completed'].includes(method))
+      return
     const item = object(params.item)
     if (item.type !== 'userMessage') return
-    const first = array(item.content)
-      .map(object)
-      .find(part => part.type === 'text')
-    const text = string(first?.text)
+    const text = string(
+      array(item.content)
+        .map(object)
+        .find(part => part.type === 'text')?.text,
+    )
     if (!text || this.observedChildTasks.has(threadId) || this.observedChildTasks.size >= 64) return
     this.observedChildTasks.add(threadId)
-    if (!hasAgnesTag(text, attribution.marker)) return
+    const marker = this.agnesMarker(text)
+    if (!marker || (marker !== this.agnes?.marker && !this.dispatchMarkers.has(marker))) return
     const agent = this.agents.get(threadId)
-    if (agent) {
-      if (!this.agnesChildren.has(threadId) || agent.model !== attribution.model || agent.modelSource === 'agnes')
-        return
+    if (agent?.model && this.agnesChildren.has(threadId)) {
+      if (!this.confirmAgnes(marker, agent.model) || agent.modelSource === 'agnes') return
       this.agents.set(threadId, { ...agent, modelSource: 'agnes' })
       this.emitRuns()
-    } else if (this.taggedChildren.size < 64) this.taggedChildren.add(threadId)
+    } else if (this.taggedChildren.size < 64) this.taggedChildren.set(threadId, marker)
   }
 
   /** timed：是否算思考用时。冷读的历史（子智能体记录）一次性全倒进来，算出来都是 0，不算，界面按没有用时显示 */
@@ -244,9 +263,13 @@ export class CodexTranslator {
         if (!agentId) continue
         const state = object(states[agentId]),
           priorAgent = this.agents.get(agentId)
-        const matching = spawns && status !== 'failed' && this.agnes && raw.model === this.agnes.model
+        const actual = string(raw.model)
+        const eligible = spawns && status !== 'failed' && !!actual
+        if (eligible) this.agnesChildren.add(agentId)
+        const marker = eligible ? (this.agnesMarker(string(raw.prompt)) ?? this.taggedChildren.get(agentId)) : undefined
+        const matching = eligible && actual === this.agnes?.model
         const source =
-          matching && this.agnes?.marker && hasAgnesTag(string(raw.prompt), this.agnes.marker)
+          marker && this.confirmAgnes(marker, actual)
             ? 'agnes'
             : (priorAgent?.modelSource ?? (matching ? 'agnes-match' : undefined))
         this.agents.set(agentId, {
@@ -315,11 +338,14 @@ export class CodexTranslator {
       this.emit({ type: complete ? 'item_completed' : 'item_started', item })
     }
     const model = string(raw.model) || prior?.model || ''
-    const matching =
-      kind === 'started' && raw.status !== 'failed' && this.agnes && string(raw.model) === this.agnes.model
-    if (matching) this.agnesChildren.add(agentId)
+    const actual = string(raw.model)
+    const eligible = kind === 'started' && raw.status !== 'failed' && !!actual
+    if (eligible) this.agnesChildren.add(agentId)
+    const marker = eligible ? this.taggedChildren.get(agentId) : undefined
+    if (marker) this.taggedChildren.delete(agentId)
+    const matching = eligible && actual === this.agnes?.model
     const source =
-      matching && this.taggedChildren.delete(agentId)
+      marker && this.confirmAgnes(marker, actual)
         ? 'agnes'
         : (prior?.modelSource ?? (matching ? 'agnes-match' : undefined))
     this.agents.set(agentId, {

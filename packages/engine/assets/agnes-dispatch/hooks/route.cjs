@@ -55,10 +55,18 @@ async function beforeDispatch(event, env, request = fetch) {
       return tell(
         `Agnes recommends ${result.model} for this specific dispatch. This is a recommendation, not a confirmation that the agent used it.`,
       )
+    if (typeof result.marker !== 'string' || !/^[0-9a-f-]{36}$/.test(result.marker))
+      return block('Agnes: the evaluator returned an invalid dispatch receipt.')
+    const tag = `[pixelsky-agnes:${result.marker}]\n`
     const updatedInput = { ...input, model: result.model }
+    if (typeof input.message === 'string') updatedInput.message = tag + input.message
+    else {
+      const index = input.items.findIndex(item => item?.type === 'text' && typeof item.text === 'string')
+      updatedInput.items = input.items.map((item, i) => (i === index ? { ...item, text: tag + item.text } : item))
+    }
     if (input.model !== result.model) delete updatedInput.reasoning_effort
     if (/^(minimal|low|medium|high|xhigh|max)$/.test(result.effort ?? '')) updatedInput.reasoning_effort = result.effort
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput } }
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput } }
   } catch {
     return fallback('Agnes: evaluation timed out or the local connection failed.')
   }

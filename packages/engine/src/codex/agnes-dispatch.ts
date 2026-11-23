@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { Launcher } from '../adapter'
@@ -26,6 +26,8 @@ export function registerBundledDispatch(
   } catch {
     return Promise.reject(new Error('像素星空安装中缺少 Agnes 内置组件。'))
   }
+  const version = () =>
+    string(object(JSON.parse(readFileSync(join(root, '.codex-plugin', 'plugin.json'), 'utf8'))).version)
   const key = JSON.stringify([launcher, env.CODEX_HOME ?? join(homedir(), '.codex'), root])
   const earlier = pending.get(key)
   if (earlier) return earlier
@@ -60,11 +62,12 @@ export function registerBundledDispatch(
     const installed = (await command('list')).installed
     if (!Array.isArray(installed)) throw new Error('当前 Codex 未返回可识别的插件列表。')
     const plugin = installed.map(object).find(p => p.pluginId === AGNES_PLUGIN_ID)
-    if (!plugin) {
+    if (plugin && plugin.enabled !== true) throw new Error('Agnes 内置组件在 Codex 中已停用。')
+    const expectedVersion = version()
+    if (!plugin || plugin.version !== expectedVersion) {
       const added = await command('add', AGNES_PLUGIN_ID)
-      if (added.pluginId !== AGNES_PLUGIN_ID) throw new Error('Agnes 内置组件标识不匹配。')
-    } else if (plugin.enabled !== true) {
-      throw new Error('Agnes 内置组件在 Codex 中已停用。')
+      if (added.pluginId !== AGNES_PLUGIN_ID || added.version !== expectedVersion)
+        throw new Error('Agnes 内置组件标识或版本不匹配。')
     }
   }
   const work = register().finally(() => pending.delete(key))
@@ -77,7 +80,7 @@ export interface DispatchRequest {
   turnId: string
   task: string
 }
-export type DispatchDecision = { model: string; effort?: string } | { reason: string }
+export type DispatchDecision = { model: string; effort?: string; marker?: string } | { reason: string }
 
 export function trustedDispatchHook(value: unknown): boolean {
   return array(object(value).data).some(entry =>
