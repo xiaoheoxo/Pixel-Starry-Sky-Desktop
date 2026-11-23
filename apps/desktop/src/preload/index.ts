@@ -686,6 +686,7 @@ contextBridge.exposeInMainWorld('pixelsky', {
       key: string,
       options?: { before?: string; after?: string; overview?: boolean; overviewOnly?: boolean; seen?: boolean },
     ) => invoke('dotChat:read', key, options),
+    readReceipt: (key: string) => invoke('dotChat:readReceipt', key),
     pickFiles: (key: string) => invoke('dotChat:pickFiles', key),
     addFiles: (key: string, files: import('../shared/types/dot-chat').DotDroppedFile[]) =>
       invoke('dotChat:addFiles', key, files),

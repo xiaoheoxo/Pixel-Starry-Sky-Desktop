@@ -347,6 +347,11 @@ export class DotChatSessions {
     }
   }
 
+  readReceipt(key: string, signal?: AbortSignal) {
+    const entry = this.entry(key)
+    return this.host.readDotReceipt(entry.account, entry, signal)
+  }
+
   async read(
     key: string,
     options: {
@@ -355,7 +360,6 @@ export class DotChatSessions {
       overview?: boolean
       overviewOnly?: boolean
       seen?: boolean
-      includeReadReceipt?: boolean
     },
     signal?: AbortSignal,
   ) {
@@ -369,7 +373,6 @@ export class DotChatSessions {
         after: options.after,
         overview: options.overview,
         overviewOnly: options.overviewOnly,
-        ...(options.includeReadReceipt ? { includeReadReceipt: true } : {}),
       },
       signal,
     )

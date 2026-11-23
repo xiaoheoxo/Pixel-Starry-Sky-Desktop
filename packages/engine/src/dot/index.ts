@@ -119,7 +119,6 @@ export class DotAdapter implements EngineAdapter {
       after?: string
       overview?: boolean
       overviewOnly?: boolean
-      includeReadReceipt?: boolean
     },
     signal?: AbortSignal,
   ) {
@@ -129,16 +128,17 @@ export class DotAdapter implements EngineAdapter {
       : options.after
         ? client.historyAfter(dot, options.after, signal)
         : client.history(dot, options.before, signal)
-    const receiptSignal =
-      options.includeReadReceipt && !options.before && !options.overviewOnly
-        ? AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(2_000)])
-        : undefined
-    const [history, overview, readReceipt] = await Promise.all([
+    const [history, overview] = await Promise.all([
       historyRequest,
       options.overview || options.overviewOnly ? client.overview(dot, signal, options.overviewOnly) : undefined,
-      receiptSignal ? client.readReceipt(dot, receiptSignal).catch(() => undefined) : undefined,
     ])
-    return { history, ...(overview ? { overview } : {}), ...(readReceipt ? { readReceipt } : {}) }
+    return { history, ...(overview ? { overview } : {}) }
+  }
+
+  async readDotReceipt(account: string, target: { id: string; threadId: string }, owner?: AbortSignal) {
+    const signal = AbortSignal.any([...(owner ? [owner] : []), AbortSignal.timeout(2_000)])
+    const { client, dot } = await this.reader(account, target, signal)
+    return client.readReceipt(dot, signal)
   }
 
   async download(account: string, target: { id: string; threadId: string }, fileId: string, signal?: AbortSignal) {

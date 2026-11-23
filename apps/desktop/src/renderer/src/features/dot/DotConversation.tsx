@@ -184,6 +184,28 @@ export function DotConversation({
     area.current?.focus()
   }
 
+  const receiptReading = useRef(false)
+  const refreshReadReceipt = useCallback(async () => {
+    if (receiptReading.current || !visible.current || document.visibilityState !== 'visible') return
+    const { items, readReceipt } = historyWindow.current
+    const lastSent = items.findLast(item => item.role === 'user')
+    if (!lastSent || (readReceipt?.updatedAt !== undefined && readReceipt.readThroughAt >= lastSent.createdAt)) return
+    receiptReading.current = true
+    try {
+      const latest = await window.pixelsky!.dotChat.readReceipt(entryKey)
+      if (!alive.current) return
+      const current = historyWindow.current
+      const next = mergeDotReadReceipt(current.readReceipt, latest)
+      if (next === current.readReceipt) return
+      historyWindow.current = { ...current, readReceipt: next }
+      dotViewCache.putHistory(roomKey, historyWindow.current)
+      setReadReceipt(next)
+    } catch {
+      // Optional read status must never block the conversation or replace its error.
+    } finally {
+      receiptReading.current = false
+    }
+  }, [entryKey, roomKey])
   const readRemote = useCallback(
     async (options: { before?: string; catchUp?: boolean } = {}) => {
       if (network.current) {
@@ -196,18 +218,10 @@ export function DotConversation({
         // 正看着这个对话（标签可见、窗口在前台）读到的消息算看过，侧栏的未读点消掉（§7 #3）
         const seen = !options.before && visible.current && document.visibilityState === 'visible' && document.hasFocus()
         const after = options.before ? undefined : historyWindow.current.latest
-        const lastSent = historyWindow.current.items.findLast(item => item.role === 'user')
-        const cursor = historyWindow.current.readReceipt
-        const includeReadReceipt =
-          !options.before &&
-          visible.current &&
-          document.visibilityState === 'visible' &&
-          (!lastSent || !cursor || cursor.readThroughAt < lastSent.createdAt || cursor.updatedAt === undefined)
         const next = await window.pixelsky!.dotChat.read(entryKey, {
           before: options.before,
           after,
           ...(seen ? { seen } : {}),
-          ...(includeReadReceipt ? { includeReadReceipt } : {}),
         })
         if (!alive.current) return
         if (dotRoomKey(next.entry) !== roomKey) {
@@ -220,12 +234,12 @@ export function DotConversation({
           items: update.merge(previous.items),
           before: update.replaceBefore ? next.history.before : previous.before,
           latest: options.before ? previous.latest : next.history.latest,
-          readReceipt: mergeDotReadReceipt(previous.readReceipt, next.readReceipt),
+          readReceipt: previous.readReceipt,
         }
         historyWindow.current = loaded
         dotViewCache.putHistory(roomKey, loaded)
         setHistory(loaded.items)
-        setReadReceipt(loaded.readReceipt)
+        if (!options.before) void refreshReadReceipt()
         if (update.replaceBefore) setBefore(loaded.before)
         haveHistory.current = true
         setServerError('')
@@ -243,7 +257,7 @@ export function DotConversation({
         }
       }
     },
-    [entryKey, roomKey],
+    [entryKey, roomKey, refreshReadReceipt],
   )
   const readOverview = useCallback(async () => {
     if (overviewReading.current) return

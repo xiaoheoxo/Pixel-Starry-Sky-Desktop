@@ -92,23 +92,26 @@ describe('native Dot client', () => {
     await expect(client.readReceipt(dot)).rejects.toThrow('identity')
   })
 
-  it('can refresh a receipt without new messages and does not require the optional receipt request to succeed', async () => {
+  it('refreshes receipt separately: a slow receipt never holds or fails message history', async () => {
     const roomPath = '/backend-api/messaging/rooms/room'
     const after = roomPath + '/messages?limit=32&after=sent'
-    const { request, routes } = setup({ [after]: { items: [] } })
+    const { request } = setup({ [after]: { items: [] } })
     const adapter = new DotAdapter({ credentials: () => identity, fetch: request })
     const target = { id: 'dot', threadId: 'root' }
     await adapter.readDot('account', target, { after: 'sent' })
+    const original = request.getMockImplementation()!
+    let release!: (response: Response) => void
+    const delayed = new Promise<Response>(resolve => (release = resolve))
+    request.mockImplementation(async (input, init) =>
+      new URL(String(input)).pathname === roomPath ? delayed : original(input, init),
+    )
+    const pending = adapter.readDotReceipt('account', target)
+    await expect(adapter.readDot('account', target, { after: 'sent' })).resolves.toEqual({
+      history: { items: [], before: null, latest: 'sent' },
+    })
     const cursor = '2026-11-17T07:35:00Z'
-    routes[roomPath] = { ...room, read_receipts: [{ account_user_id: 'bot', last_read_at: cursor }] }
-    await expect(adapter.readDot('account', target, { after: 'sent', includeReadReceipt: true })).resolves.toEqual({
-      history: { items: [], before: null, latest: 'sent' },
-      readReceipt: { readThroughAt: Date.parse(cursor) },
-    })
-    routes[roomPath] = new Response('', { status: 503 })
-    await expect(adapter.readDot('account', target, { after: 'sent', includeReadReceipt: true })).resolves.toEqual({
-      history: { items: [], before: null, latest: 'sent' },
-    })
+    release(Response.json({ ...room, read_receipts: [{ account_user_id: 'bot', last_read_at: cursor }] }))
+    await expect(pending).resolves.toEqual({ readThroughAt: Date.parse(cursor) })
   })
 
   it('never replaces a missing Dot with the primary Dot or an unrelated profile', async () => {

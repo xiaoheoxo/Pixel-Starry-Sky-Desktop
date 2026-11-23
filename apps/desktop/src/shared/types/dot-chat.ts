@@ -14,7 +14,6 @@ export interface DotChatRead {
   entry: DotEntry
   history: DotHistoryPage
   overview?: DotOverview
-  readReceipt?: DotReadReceipt
 }
 export interface DotCatalogState {
   eligible: boolean
@@ -47,9 +46,9 @@ export interface DotChatBridge {
       overview?: boolean
       overviewOnly?: boolean
       seen?: boolean
-      includeReadReceipt?: boolean
     },
   ): Promise<DotChatRead>
+  readReceipt(key: string): Promise<DotReadReceipt | undefined>
   pickFiles(key: string): Promise<DotLocalFile[]>
   addFiles(key: string, files: DotDroppedFile[]): Promise<DotLocalFile[]>
   onChange(callback: (change: DotChatChange) => void): () => void
