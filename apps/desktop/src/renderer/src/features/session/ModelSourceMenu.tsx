@@ -24,8 +24,6 @@ import {
   openAiBenchmarkEvidence,
   type EngineId,
   type ModelDetailTarget,
-  type ModelEvidence,
-  type ModelIq,
   type ModelIqSnapshot,
 } from '@pixelsky/protocol'
 import { EngineIcon, Kbd, PlanBadge, Popover, Spinner, cn } from '@/ui'
@@ -76,14 +74,12 @@ import {
   menuModelPrice,
   modelPositionLabel,
   modelRoleGuide,
-  type MenuModelPrice,
 } from '@/features/model-channels/modelRoleGuide'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
   COLS_MENU_WIDTH,
   MENU_ROW,
-  highlightParts,
   isBroken,
   listRows,
   resolveView,
@@ -98,6 +94,7 @@ import { useChannelEngines } from '@/features/model-channels/loginStore'
 import { openAccountsPage, useAccounts } from '@/features/model-channels/accountsStore'
 import { AccountPickList } from '@/features/model-channels/AccountsUI'
 import { MenuRow, TRIGGER } from './ComposerMenus'
+import { ModelRow, MODEL_DETAIL_LINE_PX } from './ModelMenuRow'
 import { QuotaInline } from './quota/QuotaInline'
 
 const CLIPS = /(hidden|clip|auto|scroll)/
@@ -814,18 +811,22 @@ export function ModelSourceMenu({
   }
   const listPx =
     listRows(channels, g => {
-      const described =
-        g.rows.filter(row => rowGuide(g.channel, row)?.main).length +
-        (g.channel === 'custom' && extraRows(g)
-          ? (endpoint?.models.filter(
-              m =>
-                modelRoleGuide(
-                  m.id,
-                  channelModelDetail(modelDetails, { channel: 'custom', sourceId: endpoint.id, model: m.id }),
-                )?.main,
-            ).length ?? 0)
-          : 0)
-      return extraRows(g) + described * (GUIDED_MODEL_EXTRA_PX / MENU_ROW)
+      const lines = g.rows.reduce(
+        (count, row) => count + Number(!!rowGuide(g.channel, row)?.main) + Number(!!rowPrice(g.channel, row)),
+        0,
+      )
+      const customLines =
+        g.channel === 'custom' && extraRows(g) && endpoint
+          ? endpoint.models.reduce((count, model) => {
+              const detail = channelModelDetail(modelDetails, {
+                channel: 'custom',
+                sourceId: endpoint.id,
+                model: model.id,
+              })
+              return count + Number(!!modelRoleGuide(model.id, detail)?.main) + Number(!!detail?.price)
+            }, 0)
+          : 0
+      return extraRows(g) + (lines + customLines) * (MODEL_DETAIL_LINE_PX / MENU_ROW)
     }) *
       MENU_ROW +
     4
@@ -1277,19 +1278,6 @@ function Empty({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-/** 搜索命中的那一段标出来 */
-function Mark({ text, query }: { text: string; query: string }) {
-  const parts = highlightParts(text, query)
-  if (!parts) return <>{text}</>
-  return (
-    <>
-      {parts[0]}
-      <mark className="rounded-sm bg-warn/25 px-px text-inherit">{parts[1]}</mark>
-      {parts[2]}
-    </>
-  )
-}
-
 /** 授权通道的信息行：打码的邮箱 + 套餐小标签，悬停看完整邮箱 */
 function AccountTag({
   account,
@@ -1305,184 +1293,6 @@ function AccountTag({
       {account.email && <span className="truncate">{maskEmail(account.email)}</span>}
       {plan && <PlanBadge label={plan.label} tone={plan.tone} />}
     </span>
-  )
-}
-
-const GUIDED_MODEL_EXTRA_PX = 12
-
-/** 勾、模型名、来源和可选的用途说明，右侧保留倍率和执行者。 */
-function ModelRow({
-  title,
-  mono,
-  desc,
-  descMono,
-  position,
-  iq,
-  price,
-  evidence,
-  guide,
-  meta,
-  chip,
-  query = '',
-  selected,
-  active,
-  off,
-  offTitle,
-  indent,
-  onPick,
-  onHover,
-}: {
-  title: string
-  mono?: boolean
-  desc?: string
-  descMono?: boolean
-  position?: string
-  iq?: ModelIq
-  price?: MenuModelPrice
-  evidence?: ModelEvidence
-  guide?: ReturnType<typeof modelRoleGuide>
-  meta?: ReactNode
-  chip?: ReactNode
-  query?: string
-  selected?: boolean
-  /** 键盘或鼠标停在这行 */
-  active?: boolean
-  /** 这个对话跑不了 / 执行者不可用：灰掉不能点 */
-  off?: boolean
-  offTitle?: string
-  indent?: boolean
-  onPick?: () => void
-  onHover?: () => void
-}) {
-  const benchmark = [
-    evidence?.arc2Xhigh !== undefined &&
-      tr('modelChannels.menu.arcBenchmark', { score: evidence.arc2Xhigh, weight: iq?.arcWeight ?? 0 }),
-    evidence?.terminal41 &&
-      tr('modelChannels.menu.terminalBenchmark', {
-        score: evidence.terminal41.score,
-        effort: evidence.terminal41.effort,
-      }),
-  ]
-    .filter(Boolean)
-    .join(' ')
-  const priceValue =
-    price &&
-    tr('modelChannels.menu.priceValue', {
-      currency: price.price.currency,
-      input: price.price.input,
-      output: price.price.output,
-    })
-  const priceDescription = price && tr(`modelChannels.menu.priceBasis.${price.basis}`)
-  return (
-    <div
-      data-model-row
-      data-active={active || undefined}
-      data-selected={selected || undefined}
-      title={
-        [
-          off && offTitle,
-          guide?.main,
-          guide?.evaluator && `${tr('subagentRoute.advisor.evaluator')}: ${guide.evaluator}`,
-          benchmark,
-        ]
-          .filter(Boolean)
-          .join(' ') || undefined
-      }
-      onMouseEnter={onHover}
-      style={{ minHeight: MENU_ROW + (guide?.main || priceValue ? GUIDED_MODEL_EXTRA_PX : 0) }}
-      className={cn(
-        'group flex items-center gap-2 rounded-md pr-1.5',
-        indent ? 'pl-6' : 'pl-1.5',
-        selected ? 'bg-selected' : active && 'bg-hover',
-      )}
-    >
-      <button
-        type="button"
-        data-menu-item
-        disabled={off || !onPick}
-        onClick={onPick}
-        className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left disabled:cursor-default"
-      >
-        {/* 勾放最左边一列：每行的模型名对齐 */}
-        <span className="flex w-3.5 shrink-0 justify-center">
-          {selected && <Check size={13} strokeWidth={2.25} className="text-accent-fg" />}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span
-              className={cn(
-                'min-w-0 truncate',
-                mono ? 'font-mono text-meta' : 'text-ui',
-                off ? 'text-fg-faint' : 'text-fg',
-              )}
-            >
-              <Mark text={title} query={query} />
-            </span>
-            {position && (
-              <span className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary">
-                {position}
-              </span>
-            )}
-            {iq && (
-              <span
-                data-model-iq
-                title={[
-                  tr('modelChannels.menu.iqHint', {
-                    score: iq.score,
-                    effort: iq.effort,
-                    n: iq.cohortSize,
-                    radar: iq.radarScore,
-                    analysis: iq.analysisScore,
-                    radarWeight: iq.radarWeight,
-                    analysisWeight: iq.analysisWeight,
-                    disagreement: iq.disagreement,
-                  }),
-                  benchmark,
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary tabular-nums"
-              >
-                IQ {iq.score}
-              </span>
-            )}
-            {!iq && benchmark && (
-              <span title={benchmark} className="shrink-0 rounded bg-subtle px-1 text-label text-fg-muted">
-                {tr('modelChannels.menu.benchmark')}
-              </span>
-            )}
-            {desc && (
-              <span className={cn('min-w-0 flex-1 truncate text-label text-fg-faint', descMono && 'font-mono')}>
-                <Mark text={desc} query={query} />
-              </span>
-            )}
-          </span>
-          {(guide?.main || priceValue) && (
-            <span className="flex items-center gap-2 text-label text-fg-muted">
-              {guide?.main && (
-                <span className="min-w-0 flex-1 truncate">
-                  <Mark text={guide.main} query={query} />
-                </span>
-              )}
-              {priceValue && (
-                <span data-model-price title={`${priceValue} · ${priceDescription}`} className="shrink-0 tabular-nums">
-                  {priceValue} ·{' '}
-                  {tr(
-                    price?.basis === 'custom' ? 'modelChannels.menu.priceCustom' : 'modelChannels.menu.priceReference',
-                  )}
-                </span>
-              )}
-            </span>
-          )}
-        </span>
-      </button>
-      {(meta || chip) && (
-        <span className="flex shrink-0 items-center gap-1.5 text-label text-fg-muted tabular-nums">
-          {meta}
-          {chip}
-        </span>
-      )}
-    </div>
   )
 }
 
