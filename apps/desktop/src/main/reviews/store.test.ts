@@ -15,7 +15,10 @@ const review = (ids: string[] = ['a', 'b']): TurnReview => ({
 })
 
 const dirs: string[] = []
+const stores: ReviewStore[] = []
 afterEach(async () => {
+  // 写盘是排队的：没写完就删目录会删不空
+  for (const s of stores.splice(0)) await s.flush()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 async function file(): Promise<string> {
@@ -24,10 +27,16 @@ async function file(): Promise<string> {
   return join(d, 'ai-reviews.json')
 }
 
+function open(path: string): ReviewStore {
+  const store = new ReviewStore(path)
+  stores.push(store)
+  return store
+}
+
 describe('ReviewStore', () => {
   it('saves, reloads, deletes a turn and tells listeners', async () => {
     const path = await file()
-    const store = new ReviewStore(path)
+    const store = open(path)
     const seen: unknown[] = []
     store.onChange(c => seen.push(c))
     store.set('s1', 't1', review())
@@ -36,7 +45,7 @@ describe('ReviewStore', () => {
     store.set('s1', 'missing', null)
     await store.flush()
     expect(seen).toHaveLength(3)
-    const again = new ReviewStore(path)
+    const again = open(path)
     await again.load()
     expect(Object.keys(again.session('s1'))).toEqual(['t2'])
     store.set('s1', 't2', null)
@@ -45,7 +54,7 @@ describe('ReviewStore', () => {
   })
 
   it('imports old localStorage results once, without overwriting, dropping junk', async () => {
-    const store = new ReviewStore(await file())
+    const store = open(await file())
     store.set('s1', 't1', review(['new']))
     const all = store.importLegacy({
       s1: { t1: review(['old']) },
@@ -59,7 +68,7 @@ describe('ReviewStore', () => {
   })
 
   it('keeps only the most recent sessions', async () => {
-    const store = new ReviewStore(await file())
+    const store = open(await file())
     for (let i = 0; i <= SESSION_LIMIT; i++) store.set('s' + i, 't', review())
     store.set('s1', 't', review())
     const ids = Object.keys(store.all())
@@ -69,7 +78,7 @@ describe('ReviewStore', () => {
   })
 
   it('phone: ignore one item; send items to fix records the fix text unless already rechecked', async () => {
-    const store = new ReviewStore(await file())
+    const store = open(await file())
     store.set('s1', 't1', review())
     expect(store.setStatus('s1', 't1', 'a', 'ignored')).toBe(true)
     expect(store.setStatus('s1', 't1', 'zz', 'ignored')).toBe(false)
@@ -85,7 +94,7 @@ describe('ReviewStore', () => {
   it('keeps a .bad copy of a corrupt file before starting empty', async () => {
     const path = await file()
     await writeFile(path, '{not json', 'utf8')
-    const store = new ReviewStore(path)
+    const store = open(path)
     await store.load()
     expect(store.all()).toEqual({})
     expect(await readFile(`${path}.bad`, 'utf8')).toBe('{not json')
