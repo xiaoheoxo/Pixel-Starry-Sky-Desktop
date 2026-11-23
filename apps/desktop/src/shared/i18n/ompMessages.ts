@@ -141,6 +141,18 @@ export const ompMessages = {
     zh: 'oh-my-pi 换了进程（权限档、设置变了），旁聊被打断，请再问一次',
     en: 'oh-my-pi restarted (permission or settings changed), interrupting the side chat. Please ask again.',
   },
+  // 上下文明细（omp/context.ts）
+  'engine.omp.noContext': { zh: 'oh-my-pi 没有给出上下文明细', en: 'oh-my-pi did not report context details' },
+  'session.contextData.systemContext': { zh: '系统上下文', en: 'System context' },
+  'session.contextData.instructionFiles': { zh: '指令文件', en: 'Instruction files' },
+  'session.ContextWindowButton.ompRefresh': {
+    zh: '由 oh-my-pi 在本机估算，不请求模型',
+    en: 'Estimated locally by oh-my-pi without calling the model',
+  },
+  'session.ContextWindowButton.ompEstimateNote': {
+    zh: '分类由 oh-my-pi 在本机估算，不请求模型；合计可能和占用略有出入。',
+    en: 'oh-my-pi estimates the categories locally without calling the model; the total may differ slightly from usage.',
+  },
   'engine.omp.sessionsDir': { zh: 'oh-my-pi 没有给出会话目录', en: 'oh-my-pi did not report its sessions folder' },
   'engine.omp.unknownFile': {
     zh: '认不出这个对话的会话文件',

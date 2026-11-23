@@ -5,6 +5,7 @@ import { delimiter, dirname } from 'node:path'
 import type {
   ApprovalDecision,
   ApprovalRequest,
+  ContextDiagnostic,
   Effort,
   GoalAction,
   ImageAttachment,
@@ -56,6 +57,7 @@ import {
 import { PixelProcess, array, object, string, type Message, type PixelResponse } from './process'
 import { ompRunsFromSession } from '../omp/agents'
 import { ompDropGoal, ompForkFile, ompHasGoal } from '../omp/branch'
+import { OMP_CONTEXT_COMMAND, ompContext, ompNoContext } from '../omp/context'
 import { ompGoal, ompOutput, sameGoal } from '../omp/goal'
 import { ompCwd } from '../omp/native'
 import { OMP_TURN_COMMAND } from '../omp/turn-ext'
@@ -465,6 +467,11 @@ export class PixelSession implements EngineSession {
   private movedNotice = ''
   /** omp 的目标（docs/omp-engine.md §13.1）；没有为 null */
   private goalState: SessionGoal | null = null
+  /** 这个 omp 进程有没有自带的 /context（没有的话发过去会进模型，花钱） */
+  private contextBuiltin = false
+  /** 正在取上下文明细；发出去到应答之间收到的内置命令输出先放 contextOutputs */
+  private contextRead: Promise<ContextDiagnostic | null> | null = null
+  private contextOutputs: string[] | null = null
   /** 有没有目标接口；null 是还没问过 */
   private goalSupported: boolean | null = null
   private goalSeq = 0
@@ -654,6 +661,7 @@ export class PixelSession implements EngineSession {
       if (this.omp && record.pendingFork) this.ctx.clearPendingFork?.()
       this.ready = true
       this.forkCopy = ''
+      this.refreshContext()
     } catch (error) {
       this.proc = null
       await proc.close()
@@ -870,6 +878,8 @@ export class PixelSession implements EngineSession {
     const found = await proc.request(name).catch(() => ({ command: name, data: {} as Message }))
     this.speedSupported = array(found.data.commands).some(c => object(c).name === SPEED_COMMAND)
     this.turnCommand = this.omp && array(found.data.commands).some(c => object(c).name === OMP_TURN_COMMAND)
+    this.contextBuiltin =
+      this.omp && array(found.data.commands).some(c => object(c).name === 'context' && object(c).source === 'builtin')
     const commands: SkillCommand[] = [
       {
         name: 'compact',
@@ -1321,6 +1331,7 @@ export class PixelSession implements EngineSession {
     if (this.omp && proc && type === 'auto_compaction_end' && raw.aborted !== true)
       void this.contextTokens(proc).then(used => {
         if (used !== null && this.proc === proc) this.translator.compactedTo(used)
+        this.refreshContext()
       })
     if (this.planUnlinked && type === 'tool_execution_start' && string(raw.toolName) === EXIT_PLAN_TOOL)
       this.linkPlanLate()
@@ -1336,8 +1347,8 @@ export class PixelSession implements EngineSession {
       return true
     }
     if (type === 'command_output') {
-      const output = ompOutput(string(raw.text))
-      if (output) this.translator.notice('info', output.text, output.detail)
+      if (this.contextOutputs) this.contextOutputs.push(string(raw.text))
+      else this.showOutput(string(raw.text))
       return true
     }
     if (!this.ready || this.closed) return false
@@ -1349,6 +1360,63 @@ export class PixelSession implements EngineSession {
       this.active!.began = true
     } else if (type === 'message_start' && object(raw.message).customType === 'goal-continuation') this.continueGoal()
     return false
+  }
+
+  private showOutput(text: string): void {
+    const output = ompOutput(text)
+    if (output) this.translator.notice('info', output.text, output.detail)
+  }
+
+  /** 上下文明细（docs/omp-engine.md §15）：omp 自带的 /context，本机算、不进对话，运行中也能取 */
+  async context(): Promise<ContextDiagnostic> {
+    await this.open()
+    const diagnostic = this.proc ? await this.readContext(this.proc) : null
+    if (!diagnostic) throw new Error('oh-my-pi 没有给出上下文明细')
+    return diagnostic
+  }
+
+  /** 连上、一轮结束、压缩、换模型之后自动取；取不到不提示 */
+  private refreshContext(): void {
+    const proc = this.proc
+    if (proc?.alive && this.ready) void this.readContext(proc).catch(() => {})
+  }
+
+  private readContext(proc: PixelProcess): Promise<ContextDiagnostic | null> {
+    if (!this.contextBuiltin) return Promise.resolve(null)
+    this.contextRead ??= this.askContext(proc).finally(() => (this.contextRead = null))
+    return this.contextRead
+  }
+
+  private async askContext(proc: PixelProcess): Promise<ContextDiagnostic | null> {
+    const used = await this.contextTokens(proc)
+    const outputs: string[] = (this.contextOutputs = [])
+    try {
+      // 不限时：前一条消息还在做发送前的准备（压缩）时排在它后面，放弃的话迟到的输出会显示到对话里
+      const reply = await proc.request('prompt', { message: OMP_CONTEXT_COMMAND }, 0)
+      // 输出紧挨在应答之前，最后一条合格的是自己的；别的（用户同时跑的 /usage 等）照常显示
+      const model = string(this.modelInfo.id) || 'oh-my-pi'
+      const parsed = outputs.map(text => ompContext(text, model, used))
+      const own = parsed.findLastIndex(d => d !== null)
+      // 进了模型、认不出格式：这个进程不再取
+      const broken = own < 0 && outputs.length > 0 && !outputs.some(ompNoContext)
+      if (reply.data.agentInvoked === true || broken) this.contextBuiltin = false
+      if (own >= 0 || !broken)
+        outputs.forEach((text, i) => {
+          if (i !== own && !ompNoContext(text)) this.showOutput(text)
+        })
+      if (this.proc !== proc) return null
+      const live = own >= 0
+      if (live || !this.contextBuiltin) {
+        if (!!this.flags.contextLive !== live) {
+          this.flags = { ...this.flags, contextLive: live }
+          this.emitFlags()
+        }
+      }
+      if (live) this.translator.setDiagnostic(parsed[own]!)
+      return live ? parsed[own]! : null
+    } finally {
+      this.contextOutputs = null
+    }
   }
 
   /** 目标接着做了一次：用户那一轮、上一次接着做的那一轮到这里结束，另开一轮 */
@@ -1815,6 +1883,7 @@ export class PixelSession implements EngineSession {
     // 换了要换进程的模型（网关注册的不一样）：目标不能用旧进程、旧模型接着做
     const stale = this.goalState?.status === 'active' && this.restartsForModel(this.ctx.record().model)
     if (this.modeRestart || stale) this.recycle()
+    else this.refreshContext()
   }
 
   /** omp 没有运行中改权限档的命令：关掉进程，下一轮按新档重启，续接同一会话（engineSessionId 是会话文件） */
@@ -1985,6 +2054,7 @@ export class PixelSession implements EngineSession {
         this.emitFlags()
       }
       if (speedChanged || thinking) await this.syncSpeed(proc)
+      if (thinking) this.refreshContext()
       if (this.omp && ompRestarts(before, patch)) {
         // 有一轮在跑就等它结束（finish 里关），否则马上关；下一轮 connect 带新的 --approval-mode / --config
         if (this.active) this.modeRestart = true

@@ -446,7 +446,13 @@ export function ContextWindowButton({ sessionId, engine }: { sessionId: string |
                       type="button"
                       disabled={!canRefresh || (busy === 'inspect' && !spinning)}
                       title={
-                        !canInspect && !isDemo ? reason : tr('session.ContextWindowButton.engineDiagnosticsMayQuery')
+                        !canInspect && !isDemo
+                          ? reason
+                          : tr(
+                              engine === 'omp'
+                                ? 'session.ContextWindowButton.ompRefresh'
+                                : 'session.ContextWindowButton.engineDiagnosticsMayQuery',
+                            )
                       }
                       onClick={() => void refresh()}
                       className={cn(
@@ -545,9 +551,11 @@ export function ContextWindowButton({ sessionId, engine }: { sessionId: string |
                   <p className="mt-2 text-label text-fg-faint">
                     {diagnostic
                       ? tr(
-                          diagnostic.detail === 'summary'
-                            ? 'session.ContextWindowButton.summaryEstimateNote'
-                            : 'session.ContextWindowButton.diagnosticsEstimateNewlyAdded',
+                          engine === 'omp'
+                            ? 'session.ContextWindowButton.ompEstimateNote'
+                            : diagnostic.detail === 'summary'
+                              ? 'session.ContextWindowButton.summaryEstimateNote'
+                              : 'session.ContextWindowButton.diagnosticsEstimateNewlyAdded',
                         )
                       : tr('session.ContextWindowButton.usageIsSumOf')}
                   </p>

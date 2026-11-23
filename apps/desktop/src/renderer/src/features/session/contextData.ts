@@ -57,6 +57,13 @@ const LABELS: Record<string, string> = {
   get 'System tools'() {
     return tr('session.contextData.systemTools')
   },
+  // oh-my-pi 的两类（omp/context.ts）
+  get 'System context'() {
+    return tr('session.contextData.systemContext')
+  },
+  get 'Instruction files'() {
+    return tr('session.contextData.instructionFiles')
+  },
   get 'System tools (deferred)'() {
     return tr('session.contextData.systemToolsDeferred')
   },

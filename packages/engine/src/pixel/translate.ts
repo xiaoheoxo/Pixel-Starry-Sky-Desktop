@@ -6,6 +6,7 @@ import { isAbsolute, resolve } from 'node:path'
 import type {
   AgentRun,
   ApprovalRequest,
+  ContextDiagnostic,
   EngineEvent,
   FileChange,
   ImageAttachment,
@@ -387,11 +388,20 @@ export class PixelTranslator {
   setContext(used: number | null): void {
     this.lastContext = used
     this.lastRequest = null
+    this.diagnosticStale = true
   }
   /** 最近一次请求用的模型 */
   lastModel: string | null = null
   /** 最近一次请求的输入 / 缓存 / 输出（上下文明细用）；压缩后、刚接上会话时不知道 */
   private lastRequest: { input: number; cacheRead: number; cacheWrite: number; output: number } | null = null
+  /** 分类明细（omp 的 /context，omp/context.ts）；之后又有请求、压缩就过期 */
+  private diagnostic: ContextDiagnostic | null = null
+  private diagnosticStale = true
+  setDiagnostic(diagnostic: ContextDiagnostic): void {
+    this.diagnostic = diagnostic
+    this.diagnosticStale = false
+    this.emitContext()
+  }
   private turnModels: Record<string, ModelTurnUsage> = {}
   private gen = new GenTimer()
   private assistantError: string | null = null
@@ -584,6 +594,7 @@ export class PixelTranslator {
     this.addUsage(this.lastModel, counts, cost)
     this.lastContext = number(usage.totalTokens) || counts.input + counts.output + counts.cacheRead + counts.cacheWrite
     this.lastRequest = counts
+    this.diagnosticStale = true
     this.emitUsage()
   }
 
@@ -624,12 +635,16 @@ export class PixelTranslator {
         costUsd: this.totals.cost,
       },
     })
+    this.emitContext()
+  }
+
+  private emitContext(): void {
     this.emit({
       type: 'context',
       context: {
         model: this.lastModel,
         used: this.lastContext,
-        window,
+        window: this.options.contextWindow?.() ?? null,
         input: this.lastRequest?.input ?? null,
         cacheRead: this.lastRequest?.cacheRead ?? null,
         cacheWrite: this.lastRequest?.cacheWrite ?? null,
@@ -638,8 +653,8 @@ export class PixelTranslator {
         source: 'request',
         stale: false,
         compacting: false,
-        diagnostic: null,
-        diagnosticStale: true,
+        diagnostic: this.diagnostic,
+        diagnosticStale: this.diagnosticStale,
       },
     })
   }

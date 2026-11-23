@@ -31,7 +31,7 @@ export function sameGoal(a: SessionGoal | null, b: SessionGoal | null): boolean 
 }
 
 // eslint-disable-next-line no-control-regex
-const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g
+export const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g
 
 /** 这么多行以内的直接显示 */
 const OUTPUT_LINES = 10

@@ -59,6 +59,19 @@ const out = value => {
 }
 /** 在跑的子智能体 → 停它 */
 const live = new Map()
+// 真 omp 19.1.1 的 /context 输出（进度条缩短了）
+const CONTEXT = [
+  'Context window: 200000 tokens (11% used)',
+  '  System prompt    [\u001b[38;5;243m░░\u001b[39m\u001b[1m░\u001b[22m] 1%  1731 tokens',
+  '  System tools     [█░░] 2%  4397 tokens',
+  '  System context   [░░░] 0%  451 tokens',
+  '  Instruction files [░░░] 2%  3207 tokens',
+  '  Skills           [░░░] 0%  7 tokens',
+  '  Messages         [█░░] 6%  12028 tokens',
+  '  Auto-compact buf [█░░] 15%  30000 tokens',
+  '  Free             [██░] 74%  148179 tokens',
+  'Snapcompact: inactive (model has no image input)',
+].join('\n')
 const SESSION_ID = '01a2070e-7df1-70f9-9687-f0bd83d92fbc'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const models = [
@@ -660,6 +673,8 @@ rl.on('line', async line => {
           { name: 'security', description: 'Security scans' },
           { name: 'compact', description: 'Compact', source: 'builtin' },
           { name: 'handoff', description: 'Handoff', source: 'builtin' },
+          // FAKE_OMP_CONTEXT：有自带的 /context；值是 bad 时输出认不出的格式
+          ...(process.env.FAKE_OMP_CONTEXT ? [{ name: 'context', description: 'Context', source: 'builtin' }] : []),
           // FAKE_OMP_NO_TURN=1：像用户的参数关掉了扩展
           ...(process.env.FAKE_OMP_NO_TURN ? [] : [{ name: 'pixelsky-turn', description: 'x', source: 'extension' }]),
         ],
@@ -674,6 +689,12 @@ rl.on('line', async line => {
       }
       if (process.env.FAKE_OMP_LOG)
         appendFileSync(process.env.FAKE_OMP_LOG, JSON.stringify({ type: 'tier', fast: fastActive() }) + '\n')
+      // 输出在应答之前；mixed 夹一条别的内置命令的输出（用户同时跑的）
+      if (m.message === '/context' && process.env.FAKE_OMP_CONTEXT) {
+        if (process.env.FAKE_OMP_CONTEXT === 'mixed') out({ type: 'command_output', text: '别的输出' })
+        out({ type: 'command_output', text: process.env.FAKE_OMP_CONTEXT === 'bad' ? 'Ctx 5%' : CONTEXT })
+        return response(m, { agentInvoked: false })
+      }
       if (String(m.message).startsWith('/security')) return response(m, { agentInvoked: false })
       if (String(m.message).startsWith('/usage')) {
         out({ type: 'command_output', text: 'Usage\n\u001b[1mTotal\u001b[22m: 0' })
