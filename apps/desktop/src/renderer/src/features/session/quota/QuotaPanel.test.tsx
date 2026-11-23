@@ -316,8 +316,9 @@ describe('英文界面', () => {
 
 describe('重置卡（docs/ui/codex-reset-card.md §2）', () => {
   const NOW_RC = 1_800_000_000_000
-  const withResets = (onUse?: () => void, auto: number | null = null) =>
-    renderToStaticMarkup(
+  const withResets = (onUse?: () => void, auto: number | null = null) => {
+    vi.stubGlobal('localStorage', { getItem: () => 'zh-CN', setItem: () => undefined })
+    return renderToStaticMarkup(
       <I18nProvider>
         <QuotaPanel
           provider="chatgpt"
@@ -351,6 +352,7 @@ describe('重置卡（docs/ui/codex-reset-card.md §2）', () => {
         />
       </I18nProvider>,
     )
+  }
 
   it('显示张数、快过期、不过期、还有几张；给了回调才有「使用一张」', () => {
     const html = withResets(() => undefined)
@@ -441,4 +443,42 @@ it('does not invent a missing five-hour window or use expired data for weekly fo
 it('makes missing forecast data explicit instead of treating it as a zero estimate', () => {
   const html = render({})
   expect(count(html, '暂无法预测')).toBe(2)
+})
+
+it('shows measured collection progress without replacing a rough forecast or mislabeling a stale reading', () => {
+  const html = render({
+    estimate: {
+      month: null,
+      windows: {
+        five_hour: {
+          elapsed: 0.5,
+          projected: null,
+          emptyAt: null,
+          basis: null,
+          budget: null,
+          collection: { state: 'stale' },
+        },
+        seven_day: {
+          elapsed: 0.5,
+          projected: 62,
+          emptyAt: null,
+          basis: 'window',
+          budget: null,
+          collection: {
+            state: 'collecting',
+            samples: 2,
+            requiredSamples: 3,
+            spanMs: 6 * 3_600_000,
+            requiredSpanMs: 9 * 3_600_000,
+            rounded: false,
+          },
+        },
+      },
+    },
+  })
+  expect(html).toMatch(/data-quota-forecast="five_hour"[^]*?读数过旧，等待刷新/)
+  const week = html.match(/data-quota-forecast="seven_day"[^]*?<\/li>/)?.[0]
+  expect(week).toContain('预计恢复时剩 38%')
+  expect(week).toContain('有效读数 2/3 · 跨度 6/9 小时')
+  expect(week).toMatch(/role="progressbar"[^>]*aria-valuenow="66"/)
 })

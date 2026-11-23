@@ -4,27 +4,53 @@ import type { QuotaEntry } from './quotaModel'
 import type { QuotaHistory, QuotaObservation } from './observations'
 
 const HOUR = 3_600_000
+const RECENT_SAMPLES = 3
+
+export type ForecastCollection =
+  | { state: 'waiting' | 'stale' | 'elapsed' | 'exhausted' }
+  | {
+      state: 'collecting'
+      samples: number
+      requiredSamples: number
+      spanMs: number
+      requiredSpanMs: number
+      rounded: boolean
+    }
 
 export interface WindowEstimate {
   elapsed: number
   projected: number | null
   emptyAt: number | null
   basis: 'recent' | 'window' | null
+  collection?: ForecastCollection
   /** Percentage points available per hour (short windows) or day. This is a budget, not a forecast. */
   budget: { percent: number; unit: 'hour' | 'day' } | null
 }
 
-function recentRate(points: readonly QuotaObservation[], latest: QuotaObservation, span: number): number | null {
+function recentTrend(points: readonly QuotaObservation[], latest: QuotaObservation, span: number) {
   const lookback = Math.min(48 * HOUR, span * 0.6)
   const minSpan = Math.min(6 * HOUR, span * 0.1)
   const candidates = points.filter(p => p.time >= latest.time - lookback && p.time <= latest.time - minSpan)
-  if (candidates.length < 2 || latest.time - candidates[0]!.time < minSpan * 1.5) return null
-  const observedGrowth = latest.used - candidates[0]!.used
-  if (observedGrowth > 0 && observedGrowth < 2) return null
+  const samples = candidates.length + 1 // Including the current official reading.
+  const spanMs = candidates.length ? latest.time - candidates[0]!.time : 0
+  const requiredSpanMs = minSpan * 1.5
+  const growth = candidates.length ? latest.used - candidates[0]!.used : 0
+  const rounded = samples >= RECENT_SAMPLES && spanMs >= requiredSpanMs && growth > 0 && growth < 2
+  if (samples < RECENT_SAMPLES || spanMs < requiredSpanMs || rounded) {
+    const collection: ForecastCollection = {
+      state: 'collecting',
+      samples,
+      requiredSamples: RECENT_SAMPLES,
+      spanMs,
+      requiredSpanMs,
+      rounded,
+    }
+    return { rate: null, collection }
+  }
   // Reduce the influence of an unusually bursty or idle interval. Don't estimate from a one-point rounding step.
   const rates = candidates.map(p => Math.max(0, latest.used - p.used) / (latest.time - p.time)).sort((a, b) => a - b)
   const middle = Math.floor(rates.length / 2)
-  return rates.length % 2 ? rates[middle]! : (rates[middle - 1]! + rates[middle]!) / 2
+  return { rate: rates.length % 2 ? rates[middle]! : (rates[middle - 1]! + rates[middle]!) / 2 }
 }
 
 /** Extrapolate only observed, account-specific percentages, never local API dollars or turn counts. */
@@ -41,17 +67,20 @@ export function windowEstimate(
   const elapsed = Math.max(0, Math.min(1, (now - start) / span))
   const result: WindowEstimate = { elapsed, projected: null, emptyAt: null, basis: null, budget: null }
   const left = 100 - e.percent
-  if (left <= 0 || e.rejected || observedAt === null || observedAt < start || observedAt >= e.resetsAt) return result
+  if (left <= 0 || e.rejected) return { ...result, collection: { state: 'exhausted' } }
+  if (observedAt === null || observedAt < start || observedAt >= e.resetsAt)
+    return { ...result, collection: { state: 'waiting' } }
   // The render clock runs once a minute, so a fresh packet can predate its next tick.
   const clock = Math.max(now, observedAt)
-  if (clock - observedAt > Math.min(6 * HOUR, span * 0.1)) return result
+  if (clock - observedAt > Math.min(6 * HOUR, span * 0.1)) return { ...result, collection: { state: 'stale' } }
   const unit = span < 24 * HOUR ? 'hour' : 'day'
   result.budget = {
     percent: Math.min(left, (left * (unit === 'hour' ? HOUR : 24 * HOUR)) / (e.resetsAt - clock)),
     unit,
   }
 
-  const recent = recentRate(history?.points ?? [], { time: observedAt, used: e.percent }, span)
+  const { rate: recent, collection } = recentTrend(history?.points ?? [], { time: observedAt, used: e.percent }, span)
+  if (collection) result.collection = collection
   const sinceStart = observedAt - start
   const wholeWindow = !history?.discontinuity && sinceStart >= span * 0.1 && e.percent >= 1
   if (recent === null && !wholeWindow) return result
@@ -64,6 +93,7 @@ export function windowEstimate(
   if (emptyAt <= clock) {
     result.projected = null
     result.basis = null
+    result.collection = { state: 'elapsed' }
   }
   return result
 }

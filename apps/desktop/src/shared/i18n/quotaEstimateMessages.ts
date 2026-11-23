@@ -5,6 +5,27 @@ export const quotaEstimateMessages = {
   'quotaEst.rows.week': { zh: '周限预测', en: 'Weekly forecast' },
   'quotaEst.rows.awaiting': { zh: '等待新周期数据', en: 'Waiting for reset data' },
   'quotaEst.rows.unavailable': { zh: '暂无法预测', en: 'Forecast unavailable' },
+  'quotaEst.collection.collecting': { zh: '收集预测数据中', en: 'Collecting forecast data' },
+  'quotaEst.collection.progress': { zh: '近期预测样本收集进度', en: 'Recent forecast sample progress' },
+  'quotaEst.collection.hours': {
+    zh: '有效读数 {n}/{target} · 跨度 {span}/{need} 小时',
+    en: 'Readings {n}/{target} · Span {span}/{need} hr',
+  },
+  'quotaEst.collection.minutes': {
+    zh: '有效读数 {n}/{target} · 跨度 {span}/{need} 分钟',
+    en: 'Readings {n}/{target} · Span {span}/{need} min',
+  },
+  'quotaEst.collection.rounded': {
+    zh: '有效读数已齐 · 等待更明确的用量变化',
+    en: 'Enough readings · Waiting for a clearer usage change',
+  },
+  'quotaEst.collection.waiting': { zh: '等待本周期的有效读数', en: 'Waiting for a valid reading this window' },
+  'quotaEst.collection.stale': { zh: '读数过旧，等待刷新', en: 'Reading is old; waiting for refresh' },
+  'quotaEst.collection.elapsed': {
+    zh: '上次预测已过，等待新读数',
+    en: 'Previous estimate passed; waiting for a new reading',
+  },
+  'quotaEst.collection.exhausted': { zh: '额度已用完', en: 'Quota exhausted' },
   'quotaEst.left': { zh: '剩 {p}', en: '{p} left' },
   'quotaEst.emptyAt': { zh: '预计 {time} 用完', en: 'May run out around {time}' },
   'quotaEst.leftAtReset': { zh: '预计恢复时剩 {p}', en: 'Estimated {p} left at reset' },

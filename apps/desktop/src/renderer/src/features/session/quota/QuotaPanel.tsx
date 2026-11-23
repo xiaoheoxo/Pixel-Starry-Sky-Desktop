@@ -21,7 +21,7 @@ import {
   type QuotaRow,
 } from './quotaModel'
 import type { WindowEstimate } from './estimate'
-import { budgetLine, forecastBasis, forecastLine, localValueLine } from './forecastPresentation'
+import { budgetLine, forecastBasis, forecastCollectionText, forecastLine, localValueLine } from './forecastPresentation'
 import type { QuotaEstimate } from './useQuotaEstimate'
 
 const TEXT: Record<QuotaLevel, string> = { normal: 'text-fg', warn: 'text-warn', full: 'text-danger' }
@@ -404,24 +404,55 @@ function ForecastWindows({
       {windows.map(window => {
         const forecast = estimate?.windows[window.id]
         const line = !window.expired && forecast ? forecastLine(forecast, now) : null
+        const collection = !window.expired ? forecast?.collection : undefined
+        const collecting = collection?.state === 'collecting' ? collection : null
+        const detail = collection ? forecastCollectionText(collection) : null
+        const missing = tr(window.expired ? 'quotaEst.rows.awaiting' : 'quotaEst.rows.unavailable')
+        const pct =
+          collecting && !collecting.rounded
+            ? Math.floor(
+                Math.min(
+                  1,
+                  collecting.samples / collecting.requiredSamples,
+                  collecting.spanMs / collecting.requiredSpanMs,
+                ) * 100,
+              )
+            : null
         return (
           <li
             key={window.id}
             data-quota-forecast={window.id}
-            className="flex min-h-7 min-w-0 items-center justify-between gap-x-2 text-label tabular-nums"
+            className="min-w-0 py-1.5 text-label tabular-nums"
             title={line && forecast ? forecastBasis(forecast) : undefined}
           >
-            <span className="min-w-0 shrink-0 font-medium">
-              {tr(window.durationMins === QUOTA_WINDOW_MINS.fiveHour ? 'quotaEst.rows.fiveHour' : 'quotaEst.rows.week')}
-            </span>
-            <span
-              className={cn(
-                'min-w-0 truncate text-right',
-                line && forecast?.emptyAt != null ? 'text-warn' : 'text-fg-muted',
-              )}
-            >
-              {line ?? tr(window.expired ? 'quotaEst.rows.awaiting' : 'quotaEst.rows.unavailable')}
-            </span>
+            <div className="flex min-w-0 items-center justify-between gap-x-2">
+              <span className="shrink-0 font-medium">
+                {tr(
+                  window.durationMins === QUOTA_WINDOW_MINS.fiveHour ? 'quotaEst.rows.fiveHour' : 'quotaEst.rows.week',
+                )}
+              </span>
+              <span
+                className={cn('min-w-0 text-right', line && forecast?.emptyAt != null ? 'text-warn' : 'text-fg-muted')}
+              >
+                {line ?? (collecting ? tr('quotaEst.collection.collecting') : (detail ?? missing))}
+              </span>
+            </div>
+            {collecting && (
+              <div data-quota-collection className="mt-1 space-y-1 text-fg-muted">
+                <div>{detail}</div>
+                {pct !== null && (
+                  <div
+                    role="progressbar"
+                    aria-label={tr('quotaEst.collection.progress')}
+                    aria-valuenow={pct}
+                    aria-valuetext={detail ?? undefined}
+                    className="h-[3px] overflow-hidden rounded-full bg-line"
+                  >
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+              </div>
+            )}
           </li>
         )
       })}

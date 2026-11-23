@@ -1,11 +1,30 @@
 import { tr } from '@/i18n/core'
-import { usdText, type MonthValue, type WindowEstimate } from './estimate'
+import { usdText, type ForecastCollection, type MonthValue, type WindowEstimate } from './estimate'
 import { percentText, resetClock } from './quotaModel'
 
 export function forecastLine(estimate: WindowEstimate, now: number): string | null {
   if (estimate.emptyAt !== null) return tr('quotaEst.emptyAt', { time: resetClock(estimate.emptyAt, now) })
   if (estimate.projected === null) return null
   return tr('quotaEst.leftAtReset', { p: percentText(100 - estimate.projected) })
+}
+
+export function forecastCollectionText(collection: ForecastCollection): string {
+  if (collection.state !== 'collecting') return tr(`quotaEst.collection.${collection.state}`)
+  const hours = collection.requiredSpanMs >= 3_600_000
+  const unit = hours ? 3_600_000 : 60_000
+  return tr(
+    collection.rounded
+      ? 'quotaEst.collection.rounded'
+      : hours
+        ? 'quotaEst.collection.hours'
+        : 'quotaEst.collection.minutes',
+    {
+      n: Math.min(collection.samples, collection.requiredSamples),
+      target: collection.requiredSamples,
+      span: Math.floor((Math.min(collection.spanMs, collection.requiredSpanMs) * 10) / unit) / 10,
+      need: collection.requiredSpanMs / unit,
+    },
+  )
 }
 
 export function forecastBasis(estimate: WindowEstimate): string | undefined {

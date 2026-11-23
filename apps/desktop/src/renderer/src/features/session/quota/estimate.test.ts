@@ -50,6 +50,40 @@ describe('windowEstimate', () => {
     expect(e.budget).toEqual({ percent: 13.75, unit: 'day' })
   })
 
+  it('reports count and time coverage used by the recent forecast', () => {
+    const week = entry(19, 72, { durationMins: 10_080, resetsAt: now + 96 * HOUR })
+    const history: QuotaHistory = {
+      plan: 'prolite',
+      resetsAt: week.resetsAt!,
+      durationMins: 10_080,
+      discontinuity: true,
+      points: [
+        { time: now - 6 * HOUR, used: 16 },
+        { time: now - 3 * HOUR, used: 17 },
+        { time: now, used: 19 },
+      ],
+    }
+    expect(windowEstimate(week, now, now, history)).toMatchObject({
+      projected: null,
+      collection: { state: 'collecting', samples: 2, requiredSamples: 3, spanMs: 6 * HOUR, requiredSpanMs: 9 * HOUR },
+    })
+    expect(
+      windowEstimate(week, now, now, {
+        ...history,
+        points: [
+          { time: now - 12 * HOUR, used: 18 },
+          { time: now - 6 * HOUR, used: 18 },
+        ],
+      }),
+    ).toMatchObject({ projected: null, collection: { state: 'collecting', samples: 3, rounded: true } })
+    const ready = windowEstimate(week, now, now, {
+      ...history,
+      points: [{ time: now - 12 * HOUR, used: 17 }, ...history.points],
+    })
+    expect(ready?.basis).toBe('recent')
+    expect(ready?.collection).toBeUndefined()
+  })
+
   it('does not extrapolate from stale, reset, partial, failed, or exhausted windows', () => {
     const window = entry(35, 2)
     const reset: QuotaHistory = {
@@ -60,8 +94,8 @@ describe('windowEstimate', () => {
       points: [{ time: now, used: 35 }],
     }
     expect(windowEstimate(window, now, now, reset)?.basis).toBeNull()
-    expect(windowEstimate(window, now, now - HOUR)?.budget).toBeNull()
-    expect(windowEstimate(window, now, null)?.projected).toBeNull()
+    expect(windowEstimate(window, now, now - HOUR)).toMatchObject({ budget: null, collection: { state: 'stale' } })
+    expect(windowEstimate(window, now, null)).toMatchObject({ projected: null, collection: { state: 'waiting' } })
     expect(windowEstimate(entry(30, 0.2), now, now)?.projected).toBeNull()
     expect(windowEstimate(entry(100, 2), now, now)?.projected).toBeNull()
     expect(windowEstimate(entry(40, 2, { expired: true }), now, now)).toBeNull()
@@ -70,7 +104,12 @@ describe('windowEstimate', () => {
 
   it('does not turn a forecast already in the past into an observed quota block', () => {
     const dataTime = now - 10 * 60_000
-    expect(windowEstimate(entry(97, 2), now, dataTime)).toMatchObject({ basis: null, projected: null, emptyAt: null })
+    expect(windowEstimate(entry(97, 2), now, dataTime)).toMatchObject({
+      basis: null,
+      projected: null,
+      emptyAt: null,
+      collection: { state: 'elapsed' },
+    })
   })
 })
 
