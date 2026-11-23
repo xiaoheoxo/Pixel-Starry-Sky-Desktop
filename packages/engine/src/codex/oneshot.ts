@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Launcher } from '../adapter'
 import {
+  AdvisorIsolationError,
   ONE_SHOT_TIMEOUT,
   OneShotError,
   oneShotProblem,
@@ -30,6 +31,7 @@ export function codexOneShotProblem(error: unknown): OneShotProblem {
   if (info && typeof info === 'object')
     for (const value of Object.values(info as Record<string, unknown>))
       if (object(value).httpStatusCode === 401) return 'notAuthorized'
+      else if (object(value).httpStatusCode === 429) return 'usageLimit'
   return oneShotProblem(string(e.message))
 }
 
@@ -85,17 +87,40 @@ const ADVISOR_ARGS = [
   ...ADVISOR_DISABLED.flatMap(flag => ['-c', `features.${flag}=false`]),
 ]
 
-export function advisorConfigIsolated(config: unknown): boolean {
+function advisorMcpToDisable(config: unknown): string[] | null {
   const settings = object(config)
   const features = object(settings.features)
-  return (
-    settings.web_search === 'disabled' &&
-    ADVISOR_DISABLED.every(flag => features[flag] === false) &&
-    settings.mcp_servers !== null &&
-    typeof settings.mcp_servers === 'object' &&
-    !Array.isArray(settings.mcp_servers) &&
-    Object.values(object(settings.mcp_servers)).every(server => object(server).enabled === false)
+  if (
+    settings.web_search !== 'disabled' ||
+    !ADVISOR_DISABLED.every(flag => features[flag] === false) ||
+    !settings.mcp_servers ||
+    typeof settings.mcp_servers !== 'object' ||
+    Array.isArray(settings.mcp_servers)
   )
+    return null
+  return Object.entries(object(settings.mcp_servers)).flatMap(([name, server]) =>
+    object(server).enabled === false ? [] : [name],
+  )
+}
+
+export function advisorConfigIsolated(config: unknown): boolean {
+  return advisorMcpToDisable(config)?.length === 0
+}
+
+/** Empty CLI tables merge with config.toml. Disable named connectors only in a new process and verify again. */
+export async function codexAdvisorOneShot(
+  launcher: Launcher,
+  env: NodeJS.ProcessEnv,
+  req: OneShotRequest,
+  signal: AbortSignal,
+): Promise<OneShotReply> {
+  try {
+    return await codexOneShot(launcher, [], env, req, signal)
+  } catch (error) {
+    if (!(error instanceof AdvisorIsolationError) || !error.mcpToDisable.length || signal.aborted) throw error
+    const args = error.mcpToDisable.flatMap(name => ['-c', `mcp_servers.${name}.enabled=false`])
+    return codexOneShot(launcher, [], env, req, signal, undefined, args)
+  }
 }
 
 export async function codexOneShot(
@@ -105,6 +130,7 @@ export async function codexOneShot(
   req: OneShotRequest,
   signal: AbortSignal,
   fork?: CodexSideFork,
+  advisorOverrides: readonly string[] = [],
 ): Promise<OneShotReply> {
   if (signal.aborted) throw new OneShotError('cancelled', '已停止')
   const home = mkdtempSync(join(tmpdir(), 'pixelsky-codex-oneshot-'))
@@ -115,7 +141,12 @@ export async function codexOneShot(
   const ended = new Promise<{ ok: true } | { ok: false; error: OneShotError }>(resolve => (finish = resolve))
   const proc: CodexProcess = new CodexProcess(
     launcher,
-    ['app-server', '--listen', 'stdio://', ...(req.requireEphemeral ? ADVISOR_ARGS : launchArgs)],
+    [
+      'app-server',
+      '--listen',
+      'stdio://',
+      ...(req.requireEphemeral ? [...ADVISOR_ARGS, ...advisorOverrides] : launchArgs),
+    ],
     fork?.cwd ?? home,
     env,
     {
@@ -123,7 +154,7 @@ export async function codexOneShot(
         if (req.requireEphemeral && (method === 'item/started' || method === 'item/completed')) {
           const kind = string(object(params.item).type)
           if (kind && !['userMessage', 'agentMessage', 'reasoning'].includes(kind)) {
-            finish({ ok: false, error: new OneShotError('failed', 'Evaluator attempted a non-text action') })
+            finish({ ok: false, error: new AdvisorIsolationError('action', 'Evaluator attempted a non-text action') })
             return
           }
         }
@@ -164,8 +195,22 @@ export async function codexOneShot(
     const run = (async () => {
       await proc.initialize(true)
       if (req.requireEphemeral) {
-        const effective = object(await proc.request('config/read', { includeLayers: false })).config
-        if (!advisorConfigIsolated(effective)) throw new Error('Evaluator tool isolation could not be verified')
+        const read = await proc.request('config/read', { includeLayers: false }).catch(() => {
+          signal.throwIfAborted()
+          throw new AdvisorIsolationError('tools', 'Evaluator tool isolation could not be verified')
+        })
+        const pending = advisorMcpToDisable(read.config)
+        if (!pending || pending.length) {
+          // CLI dotted keys are not TOML-quoted keys. Only use safe, bounded server identifiers.
+          const safeToRetry =
+            !advisorOverrides.length &&
+            pending &&
+            pending.length <= 64 &&
+            pending.every(name => /^[A-Za-z0-9_-]{1,128}$/.test(name))
+              ? pending
+              : []
+          throw new AdvisorIsolationError('tools', 'Evaluator tool isolation could not be verified', safeToRetry)
+        }
         signal.throwIfAborted()
       }
       const params = {
@@ -173,6 +218,7 @@ export async function codexOneShot(
         approvalPolicy: 'never',
         sandbox: 'read-only',
         ...(req.model ? { model: req.model } : {}),
+        ...(req.requireEphemeral ? { modelProvider: 'openai' } : {}),
       }
       // 临时分叉必须 excludeTurns（0.166 起），不然报错；分叉做不到就不问，不留一份记录在用户的 Codex 历史里
       // 不留记录（ephemeral）：旧版 Codex 不认这个字段时不带它再开一次
@@ -191,13 +237,19 @@ export async function codexOneShot(
             throw error
           })
       const opened = object(thread.thread)
-      if (req.requireEphemeral && opened.ephemeral !== true)
-        throw new Error('Evaluator thread is not confirmed ephemeral')
+      if (req.requireEphemeral) {
+        if (opened.ephemeral !== true)
+          throw new AdvisorIsolationError('thread', 'Evaluator thread is not confirmed ephemeral')
+        const sandbox = object(thread.sandbox)
+        if (thread.approvalPolicy !== 'never' || sandbox.type !== 'readOnly' || sandbox.networkAccess !== false)
+          throw new AdvisorIsolationError('thread', 'Evaluator thread did not confirm the requested permissions')
+        if (thread.modelProvider !== 'openai' || !req.model || thread.model !== req.model)
+          throw new OneShotError('model', 'Codex did not confirm the selected evaluator model and provider')
+      }
       signal.throwIfAborted()
       const threadId = string(opened.id)
       if (!threadId) throw new Error('Codex 没有开出线程')
       const model = string(thread.model) || req.model
-      if (req.requireEphemeral && model !== req.model) throw new Error('Codex selected a different evaluator model')
       // 线程记着协作模式：会话在计划模式时分叉出来仍按计划的说明走，旁聊这一轮显式切回默认
       const mode =
         fork && model

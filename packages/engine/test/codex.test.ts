@@ -1,3 +1,4 @@
+import { AdvisorIsolationError } from '../src/oneshot'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1781,6 +1782,29 @@ describe('Codex app-server adapter', () => {
     expect(JSON.stringify(host!.open(session.id).items.filter(item => item.kind === 'notice'))).toContain(
       expected + '，已交给主模型，尚未确认采用',
     )
+  })
+  it.each([
+    [new Error('raw transport diagnostic'), '评估请求失败'],
+    [new AdvisorIsolationError('tools', 'raw isolation diagnostic'), '隔离检查未通过：无法确认工具和连接器均已关闭'],
+  ])('shows a distinct Agnes fallback notice for %s', async (error, cause) => {
+    const { session, adapter } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: {
+        subagentFollowAdvisor: true,
+        subagentAdvisor: { evaluator: 'fake-plain', models: [null, 'fake-plain', null] },
+      },
+    })
+    vi.spyOn(adapter, 'oneShot').mockRejectedValue(error)
+    await host!.send(session.id, '整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    expect(host!.open(session.id).items).toContainEqual(
+      expect.objectContaining({
+        kind: 'notice',
+        level: 'warn',
+        text: `Agnes：已回退至本地规则。原因：${cause}；建议 fake-plain，已交给主模型，尚未确认采用`,
+      }),
+    )
+    expect(JSON.stringify(host!.open(session.id).items)).not.toContain('raw ')
   })
   it('warns that dispatch fell back to Codex when the server could not inject the Agnes advice', async () => {
     const { session, adapter, messages } = setup(50, {

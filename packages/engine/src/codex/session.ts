@@ -1,4 +1,5 @@
 import {
+  ADVISOR_FAILURE_TEXT,
   advisorCandidates,
   evaluateAdvisor,
   hasConfiguredSubagent,
@@ -1249,15 +1250,10 @@ export class CodexSession implements EngineSession {
                       this.options.advisorPublicMetadata,
                     )
                   : [],
-                follows() ? 12_000 : undefined,
+                12_000,
                 abort.signal,
                 reason => {
-                  evaluatorStatus =
-                    reason === 'timeout'
-                      ? '评估超时'
-                      : reason === 'failed'
-                        ? '评估请求失败或 Codex 未通过隔离检查'
-                        : '评估返回无效结果'
+                  evaluatorStatus = ADVISOR_FAILURE_TEXT[reason]
                 },
               )
               if (estimate) evaluatorStatus = `已完成评估（${advisor.evaluator}）`

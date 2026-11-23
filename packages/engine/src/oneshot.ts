@@ -46,6 +46,18 @@ export class OneShotError extends Error {
   }
 }
 
+/** Safe, structured Agnes diagnostics; never show raw RPC bodies or credentials. */
+export class AdvisorIsolationError extends OneShotError {
+  constructor(
+    readonly stage: 'tools' | 'thread' | 'action',
+    message: string,
+    readonly mcpToDisable: readonly string[] = [],
+  ) {
+    super('failed', message)
+    this.name = 'AdvisorIsolationError'
+  }
+}
+
 /** 一次最多等这么久 */
 export const ONE_SHOT_TIMEOUT = 90_000
 

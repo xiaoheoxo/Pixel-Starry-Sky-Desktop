@@ -14,6 +14,7 @@ import {
 } from '@pixelsky/protocol'
 import { agnesEffort } from './agnes-effort'
 import { agnesTag } from './agnes-attribution'
+import { AdvisorIsolationError, OneShotError } from '../oneshot'
 
 export type Difficulty = AdvisorDifficulty
 const tiers = ADVISOR_DIFFICULTIES
@@ -188,6 +189,42 @@ export const advisorPrompt = (text: string, candidates: readonly Candidate[] = [
   'Task: ' +
   JSON.stringify(text.slice(0, 4000))
 
+type AdvisorFailure =
+  | 'timeout'
+  | 'invalid'
+  | 'failed'
+  | 'notAuthorized'
+  | 'usageLimit'
+  | 'model'
+  | 'isolation-tools'
+  | 'isolation-thread'
+  | 'isolation-action'
+
+export const ADVISOR_FAILURE_TEXT: Record<AdvisorFailure, string> = {
+  timeout: '评估超时',
+  invalid: '评估返回无效结果',
+  failed: '评估请求失败',
+  notAuthorized: '评估请求失败：Codex 未登录或授权已失效',
+  usageLimit: '评估请求失败：额度或请求频率受限',
+  model: '评估请求失败：Codex 未确认所选模型或服务商',
+  'isolation-tools': '隔离检查未通过：无法确认工具和连接器均已关闭',
+  'isolation-thread': '隔离检查未通过：无法确认临时线程或只读权限',
+  'isolation-action': '隔离检查未通过：评估器尝试了非文本操作，已终止',
+}
+
+function advisorFailure(error: unknown): AdvisorFailure {
+  if (error instanceof AdvisorIsolationError) return `isolation-${error.stage}`
+  if (
+    error instanceof OneShotError &&
+    (error.kind === 'notAuthorized' ||
+      error.kind === 'usageLimit' ||
+      error.kind === 'model' ||
+      error.kind === 'timeout')
+  )
+    return error.kind
+  return 'failed'
+}
+
 export async function evaluateAdvisor(
   model: string,
   text: string,
@@ -195,7 +232,7 @@ export async function evaluateAdvisor(
   candidates: readonly Candidate[] = [],
   timeout = 4500,
   parentSignal?: AbortSignal,
-  onFailure?: (reason: 'timeout' | 'invalid' | 'failed') => void,
+  onFailure?: (reason: AdvisorFailure) => void,
 ): Promise<{ difficulty: Difficulty; model?: string | null } | null> {
   if (parentSignal?.aborted) return null
   const abort = new AbortController()
@@ -235,8 +272,8 @@ export async function evaluateAdvisor(
     return selected === null || (typeof selected === 'string' && ids.includes(selected))
       ? { difficulty, model: selected }
       : invalid()
-  } catch {
-    if (!parentSignal?.aborted) onFailure?.(abort.signal.aborted ? 'timeout' : 'failed')
+  } catch (error) {
+    if (!parentSignal?.aborted) onFailure?.(abort.signal.aborted ? 'timeout' : advisorFailure(error))
     return null
   } finally {
     clearTimeout(timer)

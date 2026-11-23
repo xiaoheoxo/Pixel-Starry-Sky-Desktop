@@ -1,3 +1,4 @@
+import { AdvisorIsolationError, OneShotError } from '../src/oneshot'
 import { ADVISOR_DISABLED, advisorConfigIsolated } from '../src/codex/oneshot'
 import { describe, expect, it, vi } from 'vitest'
 import { modelDetailKey, parseSubagentAdvisor, type Effort, type EngineModel } from '@pixelsky/protocol'
@@ -130,6 +131,18 @@ describe('Agnes advisory model selection', () => {
     expect(subagentAdvice('medium', settings, available, undefined, models)).toContain('model=relay/gpt-6.2-astra for')
     expect(subagentAdvice('difficult', settings, available)).not.toContain('reasoning_effort')
     expect(subagentAdvice('difficult', settings, available, null, models)).toBeNull()
+  })
+
+  it.each([
+    [new AdvisorIsolationError('tools', 'raw diagnostic'), 'isolation-tools'],
+    [new AdvisorIsolationError('thread', 'raw diagnostic'), 'isolation-thread'],
+    [new OneShotError('notAuthorized', 'raw diagnostic'), 'notAuthorized'],
+    [new Error('transport failed'), 'failed'],
+  ])('makes the evaluator failure class available to the UI', async (error, reason) => {
+    const onFailure = vi.fn()
+    const run = vi.fn().mockRejectedValue(error)
+    expect(await evaluateAdvisor('judge', 'test', run, [], undefined, undefined, onFailure)).toBeNull()
+    expect(onFailure).toHaveBeenCalledWith(reason)
   })
 
   it('uses the selected evaluator but accepts only a structured difficulty, never a model or tool decision', async () => {

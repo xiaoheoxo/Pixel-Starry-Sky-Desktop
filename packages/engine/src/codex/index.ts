@@ -29,7 +29,7 @@ import { withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { customCodex, discoverCodex, toolEnvironment } from './discover'
-import { codexOneShot } from './oneshot'
+import { codexAdvisorOneShot, codexOneShot } from './oneshot'
 import { OneShotError, type OneShotReply, type OneShotRequest } from '../oneshot'
 import { codexAnchor, readCodexTurns } from './branch'
 import { CodexProcess, object, string } from './process'
@@ -362,7 +362,10 @@ export class CodexAdapter implements EngineAdapter {
     signal: AbortSignal,
     bound?: { launcher: Launcher; args: string[]; env: NodeJS.ProcessEnv },
   ): Promise<OneShotReply> {
-    if (bound) return codexOneShot(bound.launcher, bound.args, bound.env, req, signal)
+    if (bound)
+      return req.requireEphemeral
+        ? codexAdvisorOneShot(bound.launcher, bound.env, req, signal)
+        : codexOneShot(bound.launcher, bound.args, bound.env, req, signal)
     const info = await this.info()
     const launcher = this.cached?.launcher
     if (!launcher || info.status === 'missing' || info.status === 'outdated' || info.status === 'unsupported')

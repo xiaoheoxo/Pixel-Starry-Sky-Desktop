@@ -397,8 +397,15 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
           windows: { sandbox: 'elevated' },
           ...(process.env.FAKE_CODEX_ADVISOR
             ? {
-                web_search: 'disabled',
-                mcp_servers: {},
+                web_search: process.env.FAKE_CODEX_ADVISOR === 'tools-unsafe' ? 'live' : 'disabled',
+                mcp_servers:
+                  process.env.FAKE_CODEX_ADVISOR === 'mcp'
+                    ? {
+                        'test-connector': {
+                          enabled: !process.argv.includes('mcp_servers.test-connector.enabled=false'),
+                        },
+                      }
+                    : {},
                 features: Object.fromEntries(
                   process.argv.flatMap(arg => {
                     const feature = /^features\.(\w+)=false$/.exec(arg)
@@ -491,9 +498,18 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
         thread: {
           id: thread,
           turns: [],
-          ...(process.env.FAKE_CODEX_ADVISOR === 'confirmed' ? { ephemeral: true } : {}),
+          ...(p.ephemeral && process.env.FAKE_CODEX_ADVISOR && process.env.FAKE_CODEX_ADVISOR !== 'missing'
+            ? { ephemeral: true }
+            : {}),
         },
         ...threadReport(m.method === 'thread/resume'),
+        ...(process.env.FAKE_CODEX_ADVISOR
+          ? {
+              approvalPolicy: p.approvalPolicy,
+              sandbox: { type: 'readOnly', networkAccess: process.env.FAKE_CODEX_ADVISOR === 'network' },
+              modelProvider: process.env.FAKE_CODEX_ADVISOR === 'wrong-provider' ? 'other' : p.modelProvider,
+            }
+          : {}),
       })
       rateUpdate()
       break
