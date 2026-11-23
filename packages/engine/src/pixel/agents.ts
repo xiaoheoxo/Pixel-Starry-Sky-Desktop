@@ -4,7 +4,7 @@
 import { closeSync, existsSync, openSync, readSync } from 'node:fs'
 import { subagentEffort, type AgentRun, type SubagentStatus } from '@pixelsky/protocol'
 import { LINE_MAX } from '../jsonl'
-import { number, object, string, type Message } from './process'
+import { array, number, object, string, type Message } from './process'
 
 export const SUBAGENT_TOOL = 'task'
 /** 主会话文件里子智能体结果的条目类型（subagent.ts 的 SUBAGENT_ENTRY） */
@@ -203,4 +203,60 @@ export function runsFromSession(
     byCall.set(call, { ...subagentRun(data, call), sessionFile: string(data.sessionFile) || null })
   }
   return [...byCall.values()]
+}
+
+/** oh-my-pi 的 task 工具进度（TaskToolDetails：results、progress，一次调用可以派几个子智能体，docs/omp-engine.md §11.4） */
+export function isOmpTaskDetails(details: Message): boolean {
+  return Array.isArray(details.results) && ('totalDurationMs' in details || Array.isArray(details.progress))
+}
+
+const OMP_AGENT_STATE: Record<string, string> = {
+  pending: 'queued',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  aborted: 'stopped',
+}
+
+/** omp 一次 task 调用里的各个子智能体 → 追踪里的智能体（id 是 omp 给的子智能体 id）；lastTool 是正在用的工具 */
+export function ompSubagentRuns(
+  details: Message,
+  toolCallId: string,
+  startedAt: (id: string) => number,
+): Array<{ run: AgentRun; lastTool: string | null }> {
+  const results = new Map(array(details.results).map(r => [string(object(r).id), object(r)]))
+  const progress = new Map(array(details.progress).map(p => [string(object(p).id), object(p)]))
+  const ids = [...new Set([...progress.keys(), ...results.keys()])].filter(Boolean)
+  return ids.map(id => {
+    const p = progress.get(id) ?? {},
+      r = results.get(id)
+    const src = r ?? p
+    const state = r
+      ? r.aborted === true
+        ? 'stopped'
+        : number(r.exitCode) === 0 && !string(r.error)
+          ? 'completed'
+          : 'failed'
+      : (OMP_AGENT_STATE[string(p.status)] ?? 'running')
+    const live = string(p.stage) || string(p.lastIntent) || string(array(p.recentOutput).at(-1))
+    return {
+      run: {
+        id,
+        // 没写说明时用它的名字（omp 的 id 就是派活时起的名字）
+        label: string(src.description) || id,
+        type: string(src.agent) || 'task',
+        model: string(src.resolvedModel).replace(/:[^/:]*$/, ''),
+        state,
+        startedAt: startedAt(id),
+        durationMs: number(src.durationMs),
+        tokens: number(src.tokens),
+        toolCalls: number(p.toolCount),
+        phase: null,
+        prompt: (string(src.assignment) || string(src.task)).slice(0, 500),
+        result: (r ? string(r.output) || string(r.error) || string(r.stderr) : live).slice(0, 500),
+        toolUseId: subagentItemId(toolCallId),
+      },
+      lastTool: string(p.currentTool) || null,
+    }
+  })
 }

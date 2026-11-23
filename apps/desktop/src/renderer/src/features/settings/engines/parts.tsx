@@ -41,6 +41,9 @@ export const ENGINE_INTRO: Record<EngineId, string> = {
   get antigravity() {
     return tr('settings.engines.parts.antigravityIntro')
   },
+  get omp() {
+    return tr('engine.omp.intro')
+  },
 }
 
 export const FIELD =

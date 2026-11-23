@@ -120,6 +120,8 @@ export interface NativeRead {
   cwd?: string
   /** 只能复制一份、不能原地接着聊 */
   copyOnly?: boolean
+  /** 接着聊时记的引擎会话 id 和列表里的不一样时给（oh-my-pi 记会话文件的路径） */
+  sessionId?: string
   /** 这个会话是像素星空自己建的 */
   pixelsky?: boolean
 }

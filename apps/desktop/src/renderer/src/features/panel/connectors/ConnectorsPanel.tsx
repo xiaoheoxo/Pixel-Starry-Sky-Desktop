@@ -40,6 +40,7 @@ const ENGINE_NAME: Record<EngineId, () => string> = {
   codex: () => 'Codex',
   pixel: () => tr('engine.pixel.name'),
   antigravity: () => 'Antigravity',
+  omp: () => 'oh-my-pi',
 }
 
 /** 头像底色（按名字固定） */

@@ -95,7 +95,7 @@ export function input(v: unknown): ExtensionInput {
     if (
       !Array.isArray(o.engines) ||
       !o.engines.length ||
-      o.engines.some(e => e !== 'claude' && e !== 'codex' && e !== 'pixel' && e !== 'antigravity')
+      o.engines.some(e => e !== 'claude' && e !== 'codex' && e !== 'pixel' && e !== 'antigravity' && e !== 'omp')
     )
       throw new Error('适用引擎不正确')
     base.engines = [...new Set(o.engines)] as ExtensionEngine[]

@@ -1637,6 +1637,42 @@ describe('MobileGateway session settings', () => {
     expect(mutations()).toHaveLength(2)
   })
 
+  it('手机能新建 oh-my-pi 的会话、读它的模型目录；权限照手机的规矩，没有完全放行', async () => {
+    const { t, mutations } = settingsSetup()
+    const p = await paired(t)
+    await p.call('engine:createSession', {
+      projectId: 'proj',
+      engine: 'omp',
+      permissionMode: 'plan',
+      planReturn: 'edits',
+      effort: 'max',
+      thinkingSummaries: false,
+      fast: true,
+    })
+    expect(mutations()).toEqual([
+      [
+        'engine:createSession',
+        [
+          {
+            projectId: 'proj',
+            engine: 'omp',
+            permissionMode: 'plan',
+            planReturn: 'edits',
+            effort: 'max',
+            thinkingSummaries: false,
+            fast: true,
+          },
+        ],
+      ],
+    ])
+    expect(sanitize('engine:catalog', ['omp'])).toEqual(['omp'])
+    for (const bad of [{ permissionMode: 'full' }, { effort: 'ultra' }, { model: 'x' }])
+      await expect(p.call('engine:createSession', { projectId: 'proj', engine: 'omp', ...bad })).rejects.toThrow(
+        'MOBILE_BAD_ARGUMENT',
+      )
+    expect(mutations()).toHaveLength(1)
+  })
+
   it('checks rename, pin and archive arguments', async () => {
     const { t, mutations } = settingsSetup()
     const p = await paired(t)

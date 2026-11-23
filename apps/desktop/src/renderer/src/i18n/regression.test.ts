@@ -10,6 +10,7 @@ import { sessionMessages } from '../../../shared/i18n/sessionMessages'
 import { commandMessages } from '../../../shared/i18n/commandMessages'
 import { codexMessages } from '../../../shared/i18n/codexMessages'
 import { pixelMessages } from '../../../shared/i18n/pixelMessages'
+import { ompMessages } from '../../../shared/i18n/ompMessages'
 import { projectToolsMessages } from '../../../shared/i18n/projectToolsMessages'
 import { terminalMessages } from '../../../shared/i18n/terminalMessages'
 import { sidebarMessages } from '../../../shared/i18n/sidebarMessages'
@@ -114,6 +115,7 @@ const dictionaries: Record<string, Record<string, unknown>> = {
   commandMessages,
   codexMessages,
   pixelMessages,
+  ompMessages,
   projectToolsMessages,
   terminalMessages,
   sidebarMessages,

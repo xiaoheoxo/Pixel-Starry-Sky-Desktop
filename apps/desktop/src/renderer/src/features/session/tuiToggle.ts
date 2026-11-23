@@ -139,8 +139,8 @@ export function useTuiToggle(
       toast(tr('session.tui.mismatch'), {
         duration: 15_000,
         // 聊天没有项目文件夹，选择框列不出东西：不给导入按钮。按这个对话的引擎打开（原来写死 Claude，Codex 也开成了 Claude 的）；
-        // Pixel 没有 /resume 选择器，只提示
-        ...(isChatProject(projectId) || !isTuiEngine(engine) || engine === 'pixel'
+        // Pixel、oh-my-pi 没有 /resume 选择器，只提示
+        ...(isChatProject(projectId) || !isTuiEngine(engine) || engine === 'pixel' || engine === 'omp'
           ? {}
           : {
               action: {

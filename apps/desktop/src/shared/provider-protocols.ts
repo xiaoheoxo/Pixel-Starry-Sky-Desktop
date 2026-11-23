@@ -6,16 +6,23 @@ import type { ProviderProtocol } from './types/providers'
  * Antigravity ↔ Gemini；不认识的引擎一个都不给
  */
 export function engineProviderProtocols(engine: string): ProviderProtocol[] {
+  if (speaksPi(engine)) return ['anthropic', 'responses', 'chat']
   switch (engine) {
     case 'claude':
       return ['anthropic']
     case 'codex':
       return ['responses']
-    case 'pixel':
-      return ['anthropic', 'responses', 'chat']
     case 'antigravity':
       return ['gemini']
     default:
       return []
   }
+}
+
+/**
+ * 协议和 Pi 同源的引擎（像素星空、oh-my-pi，docs/omp-engine.md §4）：Messages / Responses / Chat Completions 都会说，
+ * 平台线路里写了 claude 或 codex 的分组也能用，网关按 Pi 的习惯处理（余额不足、413、长上下文后缀）
+ */
+export function speaksPi(engine: string): boolean {
+  return engine === 'pixel' || engine === 'omp'
 }

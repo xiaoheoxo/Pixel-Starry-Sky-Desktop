@@ -515,7 +515,10 @@ export class HostTurn {
     const record = sessions.runtime(id).snapshot.record
     const adapter = this.ctx.adapters[record.engine]
     if (!adapter?.subagentTranscript) throw new Error('这个引擎没有智能体追踪')
-    if (record.engine === 'codex' && !sessions.runtime(id).snapshot.runs.agents.some(agent => agent.id === agentId))
+    if (
+      (record.engine === 'codex' || record.engine === 'omp') &&
+      !sessions.runtime(id).snapshot.runs.agents.some(agent => agent.id === agentId)
+    )
       throw new Error('子智能体不属于当前会话')
     return adapter.subagentTranscript(record, agentId)
   }

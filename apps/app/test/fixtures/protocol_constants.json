@@ -223,6 +223,49 @@
     "pluginCommands": false,
     "platformSwitch": false
    }
+  },
+  {
+   "id": "omp",
+   "name": "oh-my-pi",
+   "short": "Om",
+   "caps": {
+    "imageInput": true,
+    "interrupt": true,
+    "resume": true,
+    "steer": true,
+    "rewind": true,
+    "fork": true,
+    "sideChat": true,
+    "liveModelSwitch": true,
+    "livePermissionSwitch": false,
+    "permissionModes": [
+     "ask",
+     "edits",
+     "plan",
+     "full"
+    ],
+    "efforts": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ],
+    "ultracode": true,
+    "fast": true,
+    "thinkingSummaries": true,
+    "backgroundTasks": true,
+    "agentTrace": true,
+    "promptSuggestions": false,
+    "alwaysScopes": [
+     "session"
+    ],
+    "costUsd": true,
+    "selfUpdate": false,
+    "launchSettings": false,
+    "pluginCommands": false,
+    "platformSwitch": false
+   }
   }
  ]
 }

@@ -298,8 +298,9 @@ function LiveSessionView({
     (target?: TraceTarget) => {
       let focus = target?.agentId ?? null
       if (!focus && target?.toolUseId && runs) {
-        // Agent 工具调用 → 它派出的子智能体；Workflow 工具调用 → 总览
-        focus = runs.agents.find(a => a.toolUseId === target.toolUseId)?.id ?? null
+        // Agent 工具调用 → 它派出的子智能体；Workflow 工具调用、一次派了几个的（oh-my-pi）→ 总览
+        const sent = runs.agents.filter(a => a.toolUseId === target.toolUseId)
+        focus = sent.length === 1 ? sent[0].id : null
       }
       setTrace({ focus })
     },

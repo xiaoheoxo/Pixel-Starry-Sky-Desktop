@@ -4,7 +4,10 @@ import { entries } from './agents'
 import { array, object, string, type Message } from './process'
 import { resultImages, toolItem } from './translate'
 
-function textOf(content: unknown): string {
+/** 会话条目翻成的用户条目（终端里聊的 px-tui、导入的 px-imp）：id 里带着引擎的条目 id */
+export const IMPORT_ID = /^px-(?:tui|imp)-(.+)-u$/
+
+export function textOf(content: unknown): string {
   if (typeof content === 'string') return content
   return array(content)
     .map(b => (object(b).type === 'text' ? string(object(b).text) : ''))

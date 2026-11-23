@@ -36,6 +36,8 @@ export interface IssueLink {
 /** 定时任务（docs/ui/board-schedule.md）：频率只给预设，时间按本机本地时区 */
 export type ScheduleFreq = 'hourly' | 'daily' | 'weekdays' | 'weekly'
 export const SCHEDULE_FREQS: readonly ScheduleFreq[] = ['hourly', 'daily', 'weekdays', 'weekly']
+/** 定时任务能用的引擎（校验和界面下拉共用）；Antigravity、Dot 没有接（docs/antigravity-engine.md） */
+export const SCHEDULE_ENGINES: readonly EngineId[] = ['claude', 'codex', 'pixel', 'omp']
 /** 每个定时任务最多留几条运行记录 */
 export const SCHEDULE_RUNS_MAX = 20
 

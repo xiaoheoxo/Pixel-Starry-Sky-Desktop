@@ -214,9 +214,57 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
     accent: null,
     nativeModelPrefix: null,
   },
+  // oh-my-pi（用户自己装的 omp，--mode rpc，docs/omp-engine.md）：协议和像素星空引擎同源（Pi），适配器复用 pixel/；
+  omp: {
+    id: 'omp',
+    name: 'oh-my-pi',
+    short: 'Om',
+    caps: {
+      imageInput: true,
+      interrupt: true,
+      resume: true,
+      steer: true,
+      // 只回退 / 分叉对话（omp/branch.ts），omp 没有我们能用的文件检查点：rewindCode 不开
+      rewind: true,
+      fork: true,
+      // 旁聊：复制会话文件起临时进程用 btw 问一次（omp/side.ts）
+      sideChat: true,
+      liveModelSwitch: true,
+      // omp 没有运行中切换确认档的命令：会话等这一轮结束后换进程（--approval-mode），续接同一个会话，下一轮才生效
+      livePermissionSwitch: false,
+      // auto 按 edits（write）；plan 用我们自己的计划扩展（omp/plan-ext.ts，docs/omp-engine.md §11.5）
+      permissionModes: ['ask', 'edits', 'plan', 'full'],
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      // Ultracode = task.eager: always（--config 叠加设置，换进程生效，omp/overlay.ts）；没有 task 工具时不能开
+      ultracode: true,
+      // Fast：set_fast_mode，以 omp 回的 active 为准（OpenAI 家族、自己的 anthropic / openai 账号），没有 Ultrafast
+      fast: true,
+      // 显示思考 = omitThinking（--config 叠加设置，换进程生效）
+      thinkingSummaries: true,
+      // 子智能体能单独停、停主智能体时一起停（cancel_subagent）；后台命令没有对应的列表，不显示
+      backgroundTasks: true,
+      // 子智能体卡片：task 工具进度里的 progress / results（pixel/agents.ts ompSubagentRuns）；对话从它的会话文件读（omp/agents.ts）
+      agentTrace: true,
+      promptSuggestions: false,
+      // 确认三选一：Approve / Approve <工具> for this session / Deny
+      alwaysScopes: ['session'],
+      costUsd: true,
+      // 用户自己装、自己更新（omp update）
+      selfUpdate: false,
+      launchSettings: false,
+      pluginCommands: false,
+      platformSwitch: false,
+    },
+    wireApi: 'messages',
+    // 平台线路和像素星空引擎一样：Messages、Responses 都会说
+    platformVendors: ['anthropic', 'claude', 'openai'],
+    unlabeledGroups: false,
+    accent: null,
+    nativeModelPrefix: null,
+  },
 }
 
-export const ENGINE_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity', 'dot']
+export const ENGINE_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'omp', 'antigravity', 'dot']
 
 /** 版本号 a 是否比 b 新（按点分的数字逐段比，-beta 之类的后缀不计） */
 export function isNewerVersion(a: string | null | undefined, b: string | null | undefined): boolean {

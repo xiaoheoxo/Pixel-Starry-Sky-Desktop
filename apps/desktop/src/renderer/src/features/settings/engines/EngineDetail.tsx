@@ -365,7 +365,7 @@ export function EngineDetail({
         </div>
       )}
       {/* 多会话（docs/ui/import-collab.md 第 5 项③④）：只读查看本机其他会话；Claude Code 自带的跨会话收件 */}
-      {(e.id === 'claude' || e.id === 'antigravity') && (
+      {(e.id === 'claude' || e.id === 'antigravity' || e.id === 'omp') && (
         <Group title={tr('settings.engines.EngineDetail.multiSession')}>
           {peekRow}
           {e.caps.launchSettings && (
@@ -386,53 +386,56 @@ export function EngineDetail({
       {/* 上下文（GitHub #20）：Codex 也有自动压缩和模型窗口；压缩用的模型只有 Claude Code 能换。
           像素星空只有阈值（Pi 补丁按比例判断，docs/own-cli.md §15）；本机模型的窗口 Pi 自己知道，不显示 */}
       {/* Antigravity 只有阈值：到了由我们在下一条消息前发 /compact；窗口 agy 自己报、不能改（docs/antigravity-engine.md §12） */}
-      <Group title={tr('session.ContextWindowButton.context2')}>
-        <Row
-          title={tr('settings.engines.EngineDetail.autocompactThreshold')}
-          description={tr('settings.engines.EngineDetail.automaticallyCompactAtThis')}
-          hint={
-            e.id === 'codex'
-              ? tr('contextWindow.codexCompactHint')
-              : e.id === 'pixel'
-                ? tr('contextWindow.pixelCompactHint')
-                : e.id === 'antigravity'
-                  ? tr('contextWindow.agyCompactHint')
-                  : undefined
-          }
-          control={
-            <Select
-              label={tr('settings.engines.EngineDetail.autocompactThreshold')}
-              value={config.autoCompactPct === null ? '' : String(config.autoCompactPct)}
-              onChange={v => run({ autoCompactPct: v ? Number(v) : null })}
-              options={[
-                {
-                  value: '',
-                  get label() {
-                    return tr('settings.engines.EngineDetail.defaultBuiltInThreshold')
+      {/* oh-my-pi 的压缩和窗口照它自己的设置（~/.omp），这里的两项它都不读，整组不显示（docs/omp-engine.md §10） */}
+      {e.id !== 'omp' && (
+        <Group title={tr('session.ContextWindowButton.context2')}>
+          <Row
+            title={tr('settings.engines.EngineDetail.autocompactThreshold')}
+            description={tr('settings.engines.EngineDetail.automaticallyCompactAtThis')}
+            hint={
+              e.id === 'codex'
+                ? tr('contextWindow.codexCompactHint')
+                : e.id === 'pixel'
+                  ? tr('contextWindow.pixelCompactHint')
+                  : e.id === 'antigravity'
+                    ? tr('contextWindow.agyCompactHint')
+                    : undefined
+            }
+            control={
+              <Select
+                label={tr('settings.engines.EngineDetail.autocompactThreshold')}
+                value={config.autoCompactPct === null ? '' : String(config.autoCompactPct)}
+                onChange={v => run({ autoCompactPct: v ? Number(v) : null })}
+                options={[
+                  {
+                    value: '',
+                    get label() {
+                      return tr('settings.engines.EngineDetail.defaultBuiltInThreshold')
+                    },
                   },
-                },
-                ...AUTO_COMPACT_PCTS.map(p => ({
-                  value: String(p),
-                  label: tr('settings.engines.EngineDetail.atUsage', { p0: p }),
-                })),
-              ]}
-            />
-          }
-        />
-        {e.caps.launchSettings && (
-          <CompactModelRow engine={e} value={config.compactModel} onChange={compactModel => run({ compactModel })} />
-        )}
-        {e.id === 'codex' && (
-          <AutoReviewModelRow value={config.autoReviewModel} onChange={autoReviewModel => run({ autoReviewModel })} />
-        )}
-        {e.id !== 'pixel' && e.id !== 'antigravity' && (
-          <ModelWindowsRow
-            engine={e}
-            windows={config.contextWindows.self}
-            onChange={(model, value) => run({ contextWindows: { self: { [model]: value } } })}
+                  ...AUTO_COMPACT_PCTS.map(p => ({
+                    value: String(p),
+                    label: tr('settings.engines.EngineDetail.atUsage', { p0: p }),
+                  })),
+                ]}
+              />
+            }
           />
-        )}
-      </Group>
+          {e.caps.launchSettings && (
+            <CompactModelRow engine={e} value={config.compactModel} onChange={compactModel => run({ compactModel })} />
+          )}
+          {e.id === 'codex' && (
+            <AutoReviewModelRow value={config.autoReviewModel} onChange={autoReviewModel => run({ autoReviewModel })} />
+          )}
+          {e.id !== 'pixel' && e.id !== 'antigravity' && (
+            <ModelWindowsRow
+              engine={e}
+              windows={config.contextWindows.self}
+              onChange={(model, value) => run({ contextWindows: { self: { [model]: value } } })}
+            />
+          )}
+        </Group>
+      )}
 
       <Group title={tr('settings.engines.EngineDetail.advanced')}>
         <Row

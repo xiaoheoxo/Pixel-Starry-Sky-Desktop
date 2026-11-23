@@ -20,7 +20,7 @@ export interface FormTarget {
   copy?: ExtensionEntry
   preset?: { name: string; description: string; mcp: McpConfig }
 }
-const ENGINES_NO_AGY: ExtensionEngine[] = ['claude', 'codex', 'pixel']
+const ENGINES_NO_AGY: ExtensionEngine[] = ['claude', 'codex', 'pixel', 'omp']
 const ENGINES_WITH_AGY: ExtensionEngine[] = [...ENGINES_NO_AGY, 'antigravity']
 const INPUT =
   'w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-list text-fg outline-none focus:border-accent-line'

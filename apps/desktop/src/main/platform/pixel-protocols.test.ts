@@ -208,10 +208,12 @@ describe('引擎与协议的对应', () => {
     expect(engineProviderProtocols('unknown')).toEqual([])
   })
   it('线路目录：openai 线路像素星空也能用；写了 claude / codex 的它都能用', () => {
-    expect(groupEngines({ platform: 'openai' })).toEqual(['codex', 'pixel'])
-    expect(groupEngines({ platform: 'anthropic' })).toEqual(['claude', 'pixel'])
-    expect(groupEngines({ platform: 'x', supported_engines: ['codex'] })).toEqual(['codex', 'pixel'])
-    expect(groupEngines({ platform: 'x', supported_engines: ['claude', 'pixel'] })).toEqual(['claude', 'pixel'])
+    // oh-my-pi 和像素星空同一套协议，跟着它（docs/omp-engine.md §4）
+    expect(groupEngines({ platform: 'openai' })).toEqual(['codex', 'pixel', 'omp'])
+    expect(groupEngines({ platform: 'anthropic' })).toEqual(['claude', 'pixel', 'omp'])
+    expect(groupEngines({ platform: 'x', supported_engines: ['codex'] })).toEqual(['codex', 'pixel', 'omp'])
+    expect(groupEngines({ platform: 'x', supported_engines: ['claude', 'pixel'] })).toEqual(['claude', 'pixel', 'omp'])
+    expect(groupEngines({ platform: 'x', supported_engines: ['antigravity'] })).toEqual(['antigravity'])
   })
 })
 
@@ -266,6 +268,12 @@ describe('网关：像素星空走 Responses / Chat Completions', () => {
     const rate = await limited.post('/v1/chat/completions', { model: 'm' })
     expect(rate.status).toBe(429)
     expect(await rate.text()).toContain('slow down')
+  })
+
+  it('oh-my-pi 和像素星空一样能走 Chat 接口（docs/omp-engine.md §4）', async () => {
+    const { calls, post } = await start('omp', provider('chat', 'https://x.example/v1'), () => new Response('{}'))
+    expect((await post('/v1/chat/completions', { model: 'm' })).status).toBe(200)
+    expect(calls).toHaveLength(1)
   })
 
   it.each(['claude', 'codex'])('Chat 接口不让 %s 用', async engine => {

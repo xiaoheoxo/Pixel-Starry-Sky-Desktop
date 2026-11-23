@@ -1,7 +1,7 @@
 export type ExtensionKind = 'plugin' | 'mcp' | 'cli' | 'skill'
 export type ExtensionScope = { kind: 'global' } | { kind: 'project'; path: string }
 /** 扩展适用的引擎；Antigravity 只接 MCP 连接器（技能没有可指定的目录，docs/antigravity-engine.md §12） */
-export type ExtensionEngine = 'claude' | 'codex' | 'pixel' | 'antigravity'
+export type ExtensionEngine = 'claude' | 'codex' | 'pixel' | 'antigravity' | 'omp'
 export interface McpConfig {
   type: 'stdio' | 'http' | 'sse'
   command?: string
@@ -108,6 +108,8 @@ export interface ExtensionLaunch {
   pathDirs: string[]
   /** 走会话参数的 MCP（Antigravity 的 session/new mcpServers）：own 是应用自己的只读服务（免审批） */
   acpMcp?: Array<McpConfig & { name: string; own?: boolean }>
+  /** 应用自己的本机工具服务（频道、对话历史、查看其他会话），oh-my-pi 用扩展注册成普通工具（omp/tools-ext.ts） */
+  ownTools?: Array<{ name: string; url: string; token: string }>
   /**
    * 只用项目自己的 MCP 配置、不带用户级的（队友派来的活，docs/multica-learn.md §8、§11.4）：
    * Claude 加 --strict-mcp-config 并只带项目的 .mcp.json；Codex 清空 mcp_servers（再加上面给的）

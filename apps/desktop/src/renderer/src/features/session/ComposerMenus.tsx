@@ -239,7 +239,9 @@ export function EffortMenu({
                 desc={
                   ultraUnavailable
                     ? tr('session.ComposerMenus.notSupportedByThis')
-                    : tr('session.ComposerMenus.orchestrateMultipleSubagentsFor')
+                    : effortEngine === 'omp'
+                      ? tr('engine.omp.ultracodeDesc')
+                      : tr('session.ComposerMenus.orchestrateMultipleSubagentsFor')
                 }
                 checked={ultracode}
                 disabled={ultraUnavailable && !ultracode}
@@ -295,7 +297,11 @@ export function EffortMenu({
                   />
                 }
                 label={tr('session.ComposerMenus.showThinkingSummaries')}
-                desc={tr('session.ComposerMenus.showSummaryOfModel')}
+                desc={
+                  effortEngine === 'omp'
+                    ? tr('engine.omp.thinkingDesc')
+                    : tr('session.ComposerMenus.showSummaryOfModel')
+                }
                 checked={live.thinkingSummaries}
                 onChange={live.setThinkingSummaries}
               />

@@ -64,6 +64,9 @@ const FAST_BLOCKED: Record<string, string> = {
   get pixel_speed_unavailable() {
     return tr('speed.pixelUnavailable')
   },
+  get omp_fast_unavailable() {
+    return tr('speed.ompUnavailable')
+  },
   get free() {
     return tr('engine.labels.unavailableForFreeAccounts')
   },
@@ -101,6 +104,9 @@ const FAST_HINT: Record<string, string> = {
   },
   get codex_unverified() {
     return tr('codex.fastUnverified')
+  },
+  get omp_fast_cost() {
+    return tr('speed.ompCost')
   },
 }
 
@@ -287,6 +293,18 @@ export const SELF_MODELS: Record<EngineId, Array<{ value: string | null; label: 
       },
       get hint() {
         return tr('engine.pixel.useSettings')
+      },
+    },
+  ],
+  // oh-my-pi：模型同样来自它报上来的目录
+  omp: [
+    {
+      value: null,
+      get label() {
+        return tr('engine.labels.default')
+      },
+      get hint() {
+        return tr('engine.omp.useSettings')
       },
     },
   ],

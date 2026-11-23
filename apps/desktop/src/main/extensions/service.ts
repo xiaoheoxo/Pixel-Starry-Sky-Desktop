@@ -397,7 +397,12 @@ export class ExtensionService {
         !Array.isArray(o.engines) ||
         !o.engines.length ||
         o.engines.some(
-          engine => engine !== 'claude' && engine !== 'codex' && engine !== 'pixel' && engine !== 'antigravity',
+          engine =>
+            engine !== 'claude' &&
+            engine !== 'codex' &&
+            engine !== 'pixel' &&
+            engine !== 'antigravity' &&
+            engine !== 'omp',
         )
       )
         throw new Error('适用引擎不正确')
@@ -559,7 +564,7 @@ export class ExtensionService {
   }
   /**
    * 从别的软件导入（import-apps.ts 扫出来、主进程里带原值的那几项）：同名自动改名，一项失败不影响别的。
-   * MCP 给所有引擎（含 Antigravity），技能给能用技能的三个；来源本身是我们的某个引擎（Claude Code、Antigravity）时
+   * MCP 给所有引擎（含 Antigravity），技能给能用技能的四个；来源本身是我们的某个引擎（Claude Code、Antigravity）时
    * 不再给它（它自己本来就有）
    */
   async importFromApp(
@@ -569,7 +574,7 @@ export class ExtensionService {
   ): Promise<{ imported: number; failed: Array<{ name: string; error: string }> }> {
     let imported = 0
     const failed: Array<{ name: string; error: string }> = []
-    const all: ExtensionEngine[] = ['claude', 'codex', 'pixel', 'antigravity']
+    const all: ExtensionEngine[] = ['claude', 'codex', 'pixel', 'omp', 'antigravity']
     for (const item of items) {
       const engines = all.filter(e => e !== app.own && (item.kind === 'mcp' || e !== 'antigravity'))
       try {
@@ -732,7 +737,8 @@ export class ExtensionService {
       for (const c of e.components.filter(c => c.kind === 'cli' && c.path)) pathDirs.push(c.path!)
     }
     // 应用自己提供的 MCP 服务器（对话历史等）：不进扩展配置，也不能被同名的扩展盖掉；key 带上地址，变了就换进程（令牌不进 key）
-    Object.assign(servers, structuredClone(extraServers))
+    // oh-my-pi 的走它的扩展（ExtensionLaunch.ownTools，ipc.ts 给），不进这个文件
+    if (engine !== 'omp') Object.assign(servers, structuredClone(extraServers))
     const extraKey = Object.entries(extraServers)
       .map(([name, c]) => `|${name}:${c.url ?? c.command ?? ''}`)
       .join('')
@@ -789,8 +795,8 @@ export class ExtensionService {
         ) + extraKey,
       pluginDirs,
       pathDirs: [...new Set(pathDirs)],
-      // 像素星空：MCP 也走这个文件（命令行的 MCP 扩展注册），技能每个目录一个 --skill
-      ...(engine === 'pixel' ? { skillRoots: [...new Set(skillRoots)] } : {}),
+      // 像素星空：MCP 也走这个文件（命令行的 MCP 扩展注册），技能每个目录一个 --skill；oh-my-pi 把两样拼成插件目录（omp/plugin-dir.ts）
+      ...(engine === 'pixel' || engine === 'omp' ? { skillRoots: [...new Set(skillRoots)] } : {}),
       mcpFile: file,
       dispose: () => {
         if (file) rmSync(inside(join(this.dir, 'runtime'), file), { force: true })

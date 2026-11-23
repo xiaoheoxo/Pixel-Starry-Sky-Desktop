@@ -55,6 +55,21 @@ describe('派发小框', () => {
     })
   })
 
+  it('一次派了几个（oh-my-pi）：写个数，用时取最早开始的、最长的，状态看条目', () => {
+    const several = runs(
+      run({ startedAt: 2_000, durationMs: 5, state: 'completed' }),
+      run({ id: 'a2', durationMs: 9, model: 'x' }),
+    )
+    expect(dispatchBox(call('running'), several)).toMatchObject({
+      agents: 2,
+      model: '',
+      state: 'running',
+      startedAt: 1_000,
+      durationMs: 9,
+    })
+    expect(dispatchBox(call('running'), runs(run())).agents).toBeNull()
+  })
+
   it('条目结束以条目为准；还在跑看运行记录；没有运行记录（Codex）只看条目', () => {
     expect(dispatchBox(call('completed'), runs(run())).state).toBe('done')
     expect(dispatchBox(call('failed')).state).toBe('failed')

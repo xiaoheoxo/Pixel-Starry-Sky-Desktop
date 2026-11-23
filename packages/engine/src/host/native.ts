@@ -127,7 +127,7 @@ export class HostNative {
       size: s.size,
       model: s.model,
       source: s.source,
-      ownerId: owners.get(s.id) ?? null,
+      ownerId: owners.get(s.id) ?? owners.get(s.file) ?? null,
       live: live?.get(s.id) ?? null,
     }))
   }
@@ -388,7 +388,9 @@ export class HostNative {
     copy ||= legacy && !opts.readOnly
     if (copy && !read.at) throw new Error(NATIVE_TEXT.nothingToCopy)
     // 读文件期间可能被别的对话占用了
-    const owner2 = this.owners(opts.readOnly).get(nativeId)
+    const sid = read.sessionId ?? nativeId
+    const owners2 = this.owners(opts.readOnly)
+    const owner2 = owners2.get(nativeId) ?? owners2.get(sid)
     if (owner2) return { ownerId: owner2 }
 
     // 对话的工作目录跟着会话原来的目录（Codex 读线程时给；核对过在项目下面才用，没有列表缓存的 /resume <id> 也靠它拿到子文件夹）
@@ -420,7 +422,7 @@ export class HostNative {
     ctx.store.replaceItems(record.id, items)
     const imported: ImportedSession = {
       engine,
-      sessionId: nativeId,
+      sessionId: sid,
       at: Date.now(),
       turns: read.turns,
       shown: read.shown,
@@ -438,10 +440,10 @@ export class HostNative {
       ...(copy
         ? {
             engineSessionId: null,
-            pendingFork: { from: nativeId, at: read.at! },
+            pendingFork: { from: sid, at: read.at! },
             engineSessions: { [engine]: { id: null, seen } },
           }
-        : { engineSessionId: nativeId, engineSessions: { [engine]: { id: nativeId, seen } } }),
+        : { engineSessionId: sid, engineSessions: { [engine]: { id: sid, seen } } }),
     })
     m.events.broadcastSessions()
     return { sessionId: record.id, model: read.model, turns: read.turns, shown: read.shown }
@@ -540,6 +542,8 @@ export class HostNative {
       throw new Error(ctx.changingSessions.has(id) ? '正在处理这个会话，请稍后重试' : '任务运行中，结束后再试')
     }
     if (action !== 'earlier' && imp.forked) return { added: 0 }
+    // 看不出终端里新聊了什么的引擎（Antigravity、oh-my-pi）：打开时的检查不报错
+    if ((action === 'check' || action === 'sync') && !adapter.newerNativeTurns) return { added: 0 }
     // 按导入的那个引擎看：换了引擎的话，当前引擎的会话 id 和待执行的回退都不是原会话的，原引擎的存在 engineSessions 里
     const mine = this.followed(rt.snapshot.record, imp)
     // 回退了还没发消息：原生记录要等下次启动才截到 pendingRewind，截断点之后读到的都是刚回退掉的轮次，不是终端里新聊的

@@ -5,6 +5,7 @@ import { sessionMessages } from './sessionMessages'
 import { commandMessages } from './commandMessages'
 import { codexMessages } from './codexMessages'
 import { pixelMessages } from './pixelMessages'
+import { ompMessages } from './ompMessages'
 import { projectToolsMessages } from './projectToolsMessages'
 import { terminalMessages } from './terminalMessages'
 import { sidebarMessages } from './sidebarMessages'
@@ -110,6 +111,7 @@ export const allMessages = {
   ...commandMessages,
   ...codexMessages,
   ...pixelMessages,
+  ...ompMessages,
   ...projectToolsMessages,
   ...terminalMessages,
   ...sidebarMessages,

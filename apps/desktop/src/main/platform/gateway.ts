@@ -17,6 +17,7 @@ import {
   type Fetch,
 } from '../core/providers/upstream'
 import { stripLongContextSuffix } from './pixel-env'
+import { speaksPi } from '../../shared/provider-protocols'
 import { trimOldImages } from './codex-images'
 import { chatUsage, withUsageOption } from './chat-usage'
 import { CacheUsageFix } from './usageFix'
@@ -676,15 +677,15 @@ export function platformGateway(options: {
       }
       // 像素星空三种协议都能走：Messages（与 Claude Code 共用）、Responses（与 Codex 共用）、Chat Completions（只有它）
       const engineOk = chat
-        ? record.engine === 'pixel'
+        ? speaksPi(record.engine)
         : responses
-          ? record.engine === 'codex' || record.engine === 'pixel'
-          : record.engine === 'claude' || record.engine === 'pixel'
+          ? record.engine === 'codex' || speaksPi(record.engine)
+          : record.engine === 'claude' || speaksPi(record.engine)
       if (!engineOk) {
         fail(403, '线路协议与当前引擎不兼容')
         return
       }
-      pixel = record.engine === 'pixel'
+      pixel = speaksPi(record.engine)
       if (provider) {
         const p = provider
         balanceWhere = `自定义接口「${p.name}」`

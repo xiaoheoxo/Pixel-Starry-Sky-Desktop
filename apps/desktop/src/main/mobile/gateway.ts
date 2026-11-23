@@ -833,9 +833,12 @@ const asAnyEngine = (v: unknown): EngineId => {
   return v as EngineId
 }
 
+/** 手机上能新建、读模型目录的引擎 */
+const PHONE_ENGINES: readonly unknown[] = ['claude', 'codex', 'pixel', 'omp'] satisfies EngineId[]
+
 const asEngine = (v: unknown): EngineId => {
-  if (v !== 'claude' && v !== 'codex' && v !== 'pixel') throw new Error('MOBILE_BAD_ARGUMENT')
-  return v
+  if (!PHONE_ENGINES.includes(v)) throw new Error('MOBILE_BAD_ARGUMENT')
+  return v as EngineId
 }
 
 /** 会话标题：去首尾空白、非空、不含控制字符、不超过桌面重命名的上限 */
@@ -889,7 +892,7 @@ export function sanitize(method: string, args: unknown[]): unknown[] {
   switch (method) {
     case 'engine:createSession': {
       const o = (args[0] ?? {}) as Record<string, unknown>
-      const engine = o.engine === 'claude' || o.engine === 'codex' || o.engine === 'pixel' ? { engine: o.engine } : {}
+      const engine = PHONE_ENGINES.includes(o.engine) ? { engine: o.engine } : {}
       return [{ projectId: asString(o.projectId), ...engine, ...phoneSettings(o) }]
     }
     case 'engine:updateSession': {

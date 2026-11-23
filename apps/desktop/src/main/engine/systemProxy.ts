@@ -13,6 +13,7 @@ const TARGETS: Record<EngineId, string> = {
   claude: 'https://api.anthropic.com',
   codex: 'https://api.openai.com',
   pixel: 'https://api.anthropic.com',
+  omp: 'https://api.anthropic.com',
   antigravity: 'https://generativelanguage.googleapis.com',
 }
 const FILE = 'system-proxy.json'

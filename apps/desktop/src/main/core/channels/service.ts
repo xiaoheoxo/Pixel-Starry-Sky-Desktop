@@ -257,7 +257,7 @@ const SEARCH_TEXT_MAX = 200
 const DAY = 86_400_000
 /** 结束了的运行信息留这么久（重试、追加要求用） */
 const KEEP_ENDED = 30 * DAY
-const ENGINES = new Set(['claude', 'codex', 'pixel', 'antigravity'])
+const ENGINES = new Set(['claude', 'codex', 'pixel', 'omp', 'antigravity'])
 
 export interface MachineLite {
   id: string

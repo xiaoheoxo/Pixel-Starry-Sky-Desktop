@@ -3,6 +3,7 @@
 import { tr, translateMessage } from '@/i18n/core'
 import { replaceCodedErrors, type NativeSessionDetail, type NativeSessionSummary } from '@pixelsky/protocol'
 import { groupsForModel, type CreditSource, type PlatformGroup } from '@/features/account/platform'
+import type { ResumeEngine } from './store'
 
 /** 会话 id 的格式（和引擎里 transcript.ts 的 UUID 同一个规则） */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -161,7 +162,7 @@ export function loadingImportedEngine(
 }
 
 /** 选择框读不到会话时显示的文字：Codex 的引擎错误本身就是一整句（已翻译），不再套一层；其余套「读不到……」 */
-export function unreadableText(engine: 'claude' | 'codex' | 'antigravity', error: string): string {
+export function unreadableText(engine: ResumeEngine, error: string): string {
   const shown = translateMessage(error)
   if (engine === 'codex') {
     // 引擎发的整句在词典里有译文：英文译文和原文不同，就是整句

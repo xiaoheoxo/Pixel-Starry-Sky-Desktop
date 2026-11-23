@@ -38,7 +38,7 @@ export interface BoxModel {
   /** 开始时间（毫秒时间戳，0：不知道）和已报告的时长，运行中用 now 往前走 */
   startedAt: number
   durationMs: number
-  /** Workflow 编排里的智能体个数；其余为 null */
+  /** Workflow 编排里、一次派出去（oh-my-pi）的智能体个数；其余为 null */
   agents: number | null
   /** 点了打开追踪里的哪里；null：不能点 */
   target: TraceTarget | null
@@ -83,8 +83,13 @@ const CODEX_SPAWN = /^spawn_agent$/
 export function dispatchBox(item: ToolItem, runs: AgentRuns = NONE, approval = false): BoxModel {
   const workflow: WorkflowRun | undefined =
     item.name === 'Workflow' ? runs.workflows.find(w => w.toolUseId === item.id) : undefined
-  const agent: AgentRun | undefined = workflow ? undefined : runs.agents.find(a => a.toolUseId === item.id)
-  const run = workflow ?? agent
+  // 一次派了几个（oh-my-pi）：写个数，用时取最早开始的、最长的
+  const sent = workflow ? [] : runs.agents.filter(a => a.toolUseId === item.id)
+  const several = sent.length > 1
+  const agent: AgentRun | undefined = several ? undefined : sent[0]
+  const run = several
+    ? { startedAt: Math.min(...sent.map(a => a.startedAt)), durationMs: Math.max(...sent.map(a => a.durationMs)) }
+    : (workflow ?? agent)
   // 条目已经结束就以条目为准；还在跑时看运行记录（后台子智能体的条目要等它真正结束才收尾）。
   // Codex 派出成功只说明派出去了，有运行记录时看子智能体自己的状态
   const state: RunState =
@@ -92,7 +97,7 @@ export function dispatchBox(item: ToolItem, runs: AgentRuns = NONE, approval = f
       ? runState(agent.state)
       : item.status !== 'running'
         ? itemState(item.status)
-        : run
+        : workflow || agent
           ? runState(workflow ? workflow.status : agent!.state)
           : 'running'
   return {
@@ -105,7 +110,7 @@ export function dispatchBox(item: ToolItem, runs: AgentRuns = NONE, approval = f
     state: approval && state === 'running' ? 'approval' : state,
     startedAt: run?.startedAt ?? 0,
     durationMs: run?.durationMs ?? 0,
-    agents: workflow ? workflow.agents.length : null,
+    agents: workflow ? workflow.agents.length : several ? sent.length : null,
     target: { toolUseId: item.id },
     summary: '',
   }

@@ -20,6 +20,52 @@ export const string = (v: unknown): string => (typeof v === 'string' ? v : '')
 export const array = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 export const number = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0)
 
+/** 拼好的一条最大多少字节（oh-my-pi ready 帧里的 maxReassembledFrameBytes 是 64 MiB） */
+const MAX_REASSEMBLED = 64 * 1024 * 1024
+/** 同时在拼的最多几条（拼不全的不能一直留着占内存） */
+const MAX_OPEN_CHUNKS = 8
+
+/**
+ * oh-my-pi 第 2 版协议（negotiate_protocol 之后）：超过 1 MiB 的消息拆成一串 rpc_chunk，
+ * 每块是一段字节的 base64（各自补齐），按 chunkId 拼回原来那条 JSON（docs/omp-engine.md §3）。Pi 不发这种帧
+ */
+export class ChunkAssembler {
+  private readonly open = new Map<string, { parts: (Buffer | undefined)[]; got: number; bytes: number }>()
+  /** 收到一块；拼齐了返回原来那条消息，否则 null（格式不对、超限的整条丢掉） */
+  push(frame: Message): Message | null {
+    const id = string(frame.chunkId)
+    const count = Number(frame.count),
+      index = Number(frame.index)
+    if (!id || !Number.isInteger(count) || count < 1 || !Number.isInteger(index) || index < 0 || index >= count)
+      return null
+    let entry = this.open.get(id)
+    if (!entry) {
+      if (Number(frame.byteLength) > MAX_REASSEMBLED) return null
+      if (this.open.size >= MAX_OPEN_CHUNKS) this.open.delete(this.open.keys().next().value as string)
+      entry = { parts: new Array<Buffer | undefined>(count), got: 0, bytes: 0 }
+      this.open.set(id, entry)
+    }
+    if (entry.parts.length !== count) return null
+    if (!entry.parts[index]) {
+      const part = Buffer.from(string(frame.data), 'base64')
+      entry.bytes += part.length
+      if (entry.bytes > MAX_REASSEMBLED) {
+        this.open.delete(id)
+        return null
+      }
+      entry.parts[index] = part
+      entry.got++
+    }
+    if (entry.got < count) return null
+    this.open.delete(id)
+    try {
+      return object(JSON.parse(Buffer.concat(entry.parts as Buffer[]).toString('utf8')))
+    } catch {
+      return null
+    }
+  }
+}
+
 export interface PixelHandlers {
   /** 命令回应以外的所有记录：会话事件、extension_ui_request 等 */
   event(event: Message): void
@@ -74,6 +120,7 @@ export class PixelProcess {
       this.pending.delete(id as string)
       request.reject(new Error(`Pixel response too large (${Math.round(dropped.length / 1024 / 1024)} MB), dropped`))
     })
+    const chunks = new ChunkAssembler()
     this.child.stdout.on('data', (data: Buffer) => {
       for (const raw of splitter.push(decoder.write(data))) {
         // 只按 \n 切；兼容 CRLF，去掉行尾的 \r（\r 可能落在上一块末尾，所以在整行拼好后再去）
@@ -83,6 +130,11 @@ export class PixelProcess {
           value = object(JSON.parse(line))
         } catch {
           continue
+        }
+        if (value.type === 'rpc_chunk') {
+          const whole = chunks.push(value)
+          if (!whole) continue
+          value = whole
         }
         if (value.type === 'response' && typeof value.id === 'string' && this.pending.has(value.id)) {
           const request = this.pending.get(value.id)!
@@ -147,6 +199,10 @@ export class PixelProcess {
       this.pending.set(id, { resolve, reject, timer })
       this.write({ id, type, ...params })
     })
+  }
+  /** 刚发出的那条命令的 id（omp 的 prompt_result 按它对） */
+  get lastId(): string {
+    return `px-${this.sequence}`
   }
   /** extension_ui_response：没有回应记录 */
   respondUi(id: string, value: { value: string } | { confirmed: boolean } | { cancelled: true }): void {

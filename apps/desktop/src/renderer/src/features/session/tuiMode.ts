@@ -15,8 +15,8 @@ export function tuiModeOf(record: SessionRecord | null | undefined): TuiMode {
   return tuiActive(record) ? 'terminal' : 'ui'
 }
 
-/** 能切到终端的引擎（宿主 host/index.ts 的 TUI_ENGINES 要一起改）；除 Pixel 外都能「从 /resume 导入」 */
-export const TUI_ENGINES = ['claude', 'codex', 'antigravity', 'pixel'] as const
+/** 能切到终端的引擎（宿主 host/index.ts 的 TUI_ENGINES 要一起改）；除 Pixel、oh-my-pi 外都能「从 /resume 导入」 */
+export const TUI_ENGINES = ['claude', 'codex', 'antigravity', 'pixel', 'omp'] as const
 export type TuiEngine = (typeof TUI_ENGINES)[number]
 export const isTuiEngine = (engine: EngineId | undefined): engine is TuiEngine =>
   (TUI_ENGINES as readonly string[]).includes(engine ?? '')
@@ -35,6 +35,8 @@ export function tuiDisabledReason(snapshot: SessionSnapshot | null | undefined):
   // Codex 不能预先指定线程 id，界面进程也不能 warm（切之前落实不了回退 / 分叉）：先在界面里发一条消息
   if (record.engine === 'codex' && (!record.engineSessionId || record.pendingRewind || record.pendingFork))
     return 'session.tui.disabledFresh'
+  // oh-my-pi 的 --resume 打不开还没写出来的会话文件：先在界面里发一条消息
+  if (record.engine === 'omp' && !record.engineSessionId) return 'engine.omp.tuiFresh'
   // 后台子智能体还在跑也不行：切过去要关界面进程，会把它们一起停掉
   if (state !== 'idle' || queue.length > 0 || (pending?.length ?? 0) > 0 || stopTargets(snapshot).length > 0)
     return 'session.tui.disabledBusy'
@@ -46,6 +48,7 @@ export function tuiDisabledReason(snapshot: SessionSnapshot | null | undefined):
 const BLOCK_KEY: Record<string, TranslationKey> = {
   engine: 'session.tui.disabledEngine',
   fresh: 'session.tui.disabledFresh',
+  freshOmp: 'engine.omp.tuiFresh',
   busy: 'session.tui.disabledBusy',
   liveTerminal: 'session.tui.disabledLiveTerminal',
   liveOther: 'session.tui.disabledLiveOther',

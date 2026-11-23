@@ -3,11 +3,12 @@ import { useSyncExternalStore } from 'react'
 import type { SessionSettings } from '@pixelsky/protocol'
 
 /** 能接着聊的引擎 */
-export type ResumeEngine = 'claude' | 'codex' | 'antigravity'
+export type ResumeEngine = 'claude' | 'codex' | 'antigravity' | 'omp'
 export const RESUME_ENGINE_NAMES: Record<ResumeEngine, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   antigravity: 'Antigravity',
+  omp: 'oh-my-pi',
 }
 
 export interface ResumeRequest {

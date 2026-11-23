@@ -86,15 +86,15 @@ export const sameTarget = (a: ModelTarget | null, b: ModelTarget | null): boolea
 /** 能跑这个协议的执行者，默认的排第一 */
 export const protocolExecutors = (p: ProviderProtocol): EngineId[] =>
   p === 'anthropic'
-    ? ['claude', 'pixel']
+    ? ['claude', 'pixel', 'omp']
     : p === 'responses'
-      ? ['codex', 'pixel']
+      ? ['codex', 'pixel', 'omp']
       : p === 'gemini'
         ? ['antigravity']
-        : ['pixel']
+        : ['pixel', 'omp']
 
-/** 官方工具排在像素星空前面 */
-const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
+/** 官方工具排在像素星空前面，用户自己装的 oh-my-pi 在像素星空后面 */
+const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'omp', 'antigravity']
 
 /** 能跑这个模型的执行者，默认的排第一；平台同时核对模型协议和线路声明的引擎能力 */
 export function executorsFor(
@@ -330,7 +330,7 @@ export function buildChannelMenu(input: MenuInput): ChannelGroupView[] {
 export const EXECUTOR_KEY = 'pixelsky.channels.executor.v1'
 export const NEW_TASK_KEY = 'pixelsky.channels.newTask.v1'
 
-const ENGINE_IDS: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity', 'dot']
+const ENGINE_IDS: readonly EngineId[] = ['claude', 'codex', 'pixel', 'omp', 'antigravity', 'dot']
 const isEngine = (v: unknown): v is EngineId => typeof v === 'string' && (ENGINE_IDS as string[]).includes(v)
 
 export function parseExecutorMemory(raw: string | null): Record<string, EngineId> {

@@ -9,9 +9,10 @@ vi.hoisted(() => {
 import { resumeAvailable } from './useResumeCommand'
 
 describe('resumeAvailable', () => {
-  it('Claude Code 和 Codex 都有 /resume，别的执行者没有', () => {
+  it('能接着聊的引擎有 /resume，别的执行者没有', () => {
     expect(resumeAvailable('claude', 'p1')).toBe(true)
     expect(resumeAvailable('codex', 'p1')).toBe(true)
+    expect(resumeAvailable('omp', 'p1')).toBe(true)
     expect(resumeAvailable('pixel', 'p1')).toBe(false)
     expect(resumeAvailable(null, 'p1')).toBe(false)
     expect(resumeAvailable(undefined, 'p1')).toBe(false)

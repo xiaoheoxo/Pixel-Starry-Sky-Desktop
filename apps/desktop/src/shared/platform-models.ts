@@ -1,4 +1,5 @@
 import { ENGINES, type EngineId } from '@pixelsky/protocol'
+import { speaksPi } from './provider-protocols'
 
 /** 平台官方模型的请求协议。自定义接口可能做协议转换，不使用这条规则。 */
 export function platformModelApi(model: string | null | undefined): 'messages' | 'responses' | null {
@@ -17,7 +18,7 @@ export function platformModelApi(model: string | null | undefined): 'messages' |
 export function platformModelSupportsEngine(model: string | null | undefined, engine: EngineId): boolean {
   if (ENGINES[engine].wireApi === 'native') return false
   const api = platformModelApi(model)
-  return engine === 'pixel' || api === null || api === ENGINES[engine].wireApi
+  return speaksPi(engine) || api === null || api === ENGINES[engine].wireApi
 }
 
 /** 引擎自己的目录只保留兼容模型；全量目录仍用于跨引擎选择。 */

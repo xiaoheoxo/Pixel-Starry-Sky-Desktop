@@ -44,11 +44,12 @@ export interface ThreadsServer {
   close(): void
 }
 
-/** 这个会话的 AI 能看哪些别的会话：本机的 Claude Code / Codex / Antigravity 会话，按所用引擎的设置；其余为 off */
+/** 这个会话的 AI 能看哪些别的会话：本机的 Claude Code / Codex / Antigravity / oh-my-pi 会话，按所用引擎的设置；其余为 off */
 export function threadsScope(record: SessionRecord, config: EngineConfig | null | undefined): PeekScope {
   if (!config || machineOf(record.id) !== 'local') return 'off'
-  if (record.engine !== 'claude' && record.engine !== 'codex' && record.engine !== 'antigravity') return 'off'
-  return config[record.engine].peekSessions
+  const { engine } = record
+  if (engine !== 'claude' && engine !== 'codex' && engine !== 'antigravity' && engine !== 'omp') return 'off'
+  return config[engine].peekSessions
 }
 
 const TOOLS = [

@@ -7,6 +7,7 @@ import { ENGINES, type EngineId } from '@pixelsky/protocol'
 import type { AccountState } from '../../../../shared/types/account'
 import type { PlatformGroupInfo, PlatformKeyMode } from '../../../../shared/types/platform-catalog'
 import { platformModelsForEngine } from '../../../../shared/platform-models'
+import { speaksPi } from '../../../../shared/provider-protocols'
 import { demo } from '@/data/demo'
 
 /** 额度来源：平台、自有、自定义 API（docs/ui/custom-api.md） */
@@ -51,7 +52,7 @@ const HIDDEN_KEY = 'pixelsky.platform.hiddenModels'
 const ENGINE_KEY = 'pixelsky.sources.v2'
 /** 除 Claude Code 外，每个引擎各自存一份默认（Claude Code 的在 state 里）；像素星空走 Anthropic 线路但模型自己定 */
 type OwnEngine = Exclude<EngineId, 'claude'>
-const OWN_ENGINES: readonly OwnEngine[] = ['codex', 'pixel', 'antigravity', 'dot']
+const OWN_ENGINES: readonly OwnEngine[] = ['codex', 'pixel', 'omp', 'antigravity', 'dot']
 /**
  * 新装还没选过时的默认来源：登录了用平台；没登录时 Codex 用自有（它自己的登录），
  * 像素星空也用平台——它的自有是命令行自己配的 Key，新装多半没配，落到自有只会发出去才报错；平台没登录时输入框直接提示登录。
@@ -73,9 +74,10 @@ const enginePreferences: Record<OwnEngine, SourcePreference> = {
   dot: blankPreference('dot'),
   codex: blankPreference('codex'),
   pixel: blankPreference('pixel'),
+  omp: blankPreference('omp'),
   antigravity: blankPreference('antigravity'),
 }
-const engineUnsaved: Record<OwnEngine, boolean> = { codex: true, pixel: true, antigravity: true, dot: true }
+const engineUnsaved: Record<OwnEngine, boolean> = { codex: true, pixel: true, omp: true, antigravity: true, dot: true }
 function readEnginePreferences(raw: string | null): void {
   const all = JSON.parse(raw ?? '{}') as Record<string, Record<string, unknown> | undefined>
   for (const engine of OWN_ENGINES) {
@@ -104,14 +106,14 @@ export function groupSupportsEngine(group: PlatformGroupInfo, engine: EngineId):
   // 像素星空两种协议（Messages / Responses）都会说
   if (
     group.supported_apis &&
-    !(engine === 'pixel' ? ['messages', 'responses'] : [desc.wireApi]).some(a => group.supported_apis!.includes(a))
+    !(speaksPi(engine) ? ['messages', 'responses'] : [desc.wireApi]).some(a => group.supported_apis!.includes(a))
   )
     return false
   // 目录里写了 claude 或 codex 的线路像素星空也能用
   if (group.supported_engines)
     return (
       (group.supported_engines as readonly string[]).includes(engine) ||
-      (engine === 'pixel' && (group.supported_engines.includes('claude') || group.supported_engines.includes('codex')))
+      (speaksPi(engine) && (group.supported_engines.includes('claude') || group.supported_engines.includes('codex')))
     )
   // 旧目录没有写平台字段的分组，只归给允许的引擎（unlabeledGroups）
   if (!group.platform) return desc.unlabeledGroups

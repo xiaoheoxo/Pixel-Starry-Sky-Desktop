@@ -19,7 +19,7 @@ import type {
 import type { Channel, FlowSchedule } from '../../../../shared/types/channels'
 import { moveFocus } from './BoardCards'
 import { assigneeKey, type AssigneeChoice } from './issues'
-import { defaultSchedule, parseTime, timeText } from './scheduleModel'
+import { defaultSchedule, parseTime, scheduleDefaultEngine, scheduleEngines, timeText } from './scheduleModel'
 
 const CARD =
   'group relative flex w-full flex-col gap-1 rounded-lg border border-line-card bg-surface px-3 py-2.5 text-left shadow-sm outline-none transition-colors hover:border-line-strong focus-visible:ring-2 focus-visible:ring-accent'
@@ -346,7 +346,8 @@ export function ScheduleFields({
   onAssignee: (a: IssueAssignee | null) => void
 }) {
   useI18n()
-  const engines = useEngineState(s => s.engines)
+  const all = useEngineState(s => s.engines)
+  const engines = scheduleEngines(all)
   const engine = schedule?.engine ?? 'claude'
   const catalog = useEngineCatalog(engine)
   const patch = (p: Partial<TaskSchedule>) => schedule && onChange({ ...schedule, ...p })
@@ -379,7 +380,7 @@ export function ScheduleFields({
           size="sm"
           checked={!!schedule}
           label={tr('board.schedule.section')}
-          onChange={on => onChange(on ? defaultSchedule(engines[0]?.id) : null)}
+          onChange={on => onChange(on ? defaultSchedule(scheduleDefaultEngine(all)) : null)}
         />
       </div>
       {schedule && (

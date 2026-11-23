@@ -84,13 +84,22 @@ export class Extensions {
     const allow = Object.keys(servers).map(name => `mcp__${name}`)
     const allowed = allow.length ? { ...base, allowTools: allow } : base
     // 队友派来的活（docs/multica-learn.md §11.4）：引擎也不读用户级 MCP，只用项目里的
-    const launch = isolated ? { ...allowed, strictMcp: true } : allowed
+    // oh-my-pi 的应用自己的工具走扩展（omp/tools-ext.ts）；隔离靠启动时的叠加设置，key 里带上才会换进程
+    const omp =
+      record.engine === 'omp'
+        ? {
+            ...allowed,
+            ...(isolated ? { key: allowed.key + '|isolated' } : {}),
+            ownTools: own.flatMap(([name, entry]) => (entry ? [{ name, url: entry.url, token: entry.token }] : [])),
+          }
+        : allowed
+    const launch = isolated ? { ...omp, strictMcp: true } : omp
     // 扩展包的技能也不带
     if (isolated) return launch
     // Antigravity 只接 MCP（launch 给的 acpMcp，应用自己的标了 own 免审批），扩展包的技能没地方放（docs/antigravity-engine.md §12）
     if (record.engine === 'antigravity') return launch
-    // 扩展包里的技能：Claude 走生成的插件目录，Codex 走技能目录；没有时 key 和原来一字不差
-    const packs = this.ctx.extPacks?.skillLaunch(record.engine)
+    // 扩展包里的技能：Claude 走生成的插件目录，Codex 走技能目录，oh-my-pi 和像素星空给同样的；没有时 key 和原来一字不差
+    const packs = this.ctx.extPacks?.skillLaunch(record.engine === 'omp' ? 'pixel' : record.engine)
     if (!packs) return launch
     return {
       ...launch,

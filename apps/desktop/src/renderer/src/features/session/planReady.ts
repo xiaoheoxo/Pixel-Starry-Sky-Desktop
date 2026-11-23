@@ -1,8 +1,8 @@
 // 「计划写好了」条该不该显示（docs/ui/plan-mode-split.md §7），界面在 PlanReadyBar.tsx
 import type { EngineId, SessionSnapshot } from '@pixelsky/protocol'
 
-/** 计划写完有审批卡的引擎（Claude 的 ExitPlanMode、像素星空的计划确认）：不出这个条 */
-const HAS_PLAN_CARD: ReadonlySet<EngineId> = new Set(['claude', 'pixel'])
+/** 计划写完有审批卡的引擎（Claude 的 ExitPlanMode、像素星空和 oh-my-pi 的计划确认）：不出这个条 */
+const HAS_PLAN_CARD: ReadonlySet<EngineId> = new Set(['claude', 'pixel', 'omp'])
 
 type View = Pick<SessionSnapshot, 'state' | 'pending'> & {
   record: Pick<SessionSnapshot['record'], 'permissionMode' | 'lastOutcome' | 'engine'>

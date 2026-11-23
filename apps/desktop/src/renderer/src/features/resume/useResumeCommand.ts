@@ -15,9 +15,9 @@ export interface AppCommand {
   group?: 'chat' | 'mode' | 'view'
 }
 
-/** 执行者是 Claude Code、Codex 或 Antigravity、对话不在远程机器上才出现（执行者看 nextEngine ?? engine，新任务看草稿 / 默认） */
+/** 执行者是能接着聊的引擎（Claude Code、Codex、Antigravity、oh-my-pi）、对话不在远程机器上才出现（执行者看 nextEngine ?? engine，新任务看草稿 / 默认） */
 export function resumeAvailable(engine: EngineId | null | undefined, workspaceId: string | null | undefined): boolean {
-  return (engine === 'claude' || engine === 'codex' || engine === 'antigravity') && machineOf(workspaceId) === 'local'
+  return !!engine && Object.hasOwn(RESUME_ENGINE_NAMES, engine) && machineOf(workspaceId) === 'local'
 }
 
 export function useResumeCommand(

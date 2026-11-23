@@ -22,7 +22,17 @@ import { MAX_RESULT_IMAGES, displayPath } from '../claude/tools'
 import { diffAdded, diffText } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
 import { cut } from '../text'
-import { SUBAGENT_TOOL, subagentItemId, subagentRun, subagentStatus, subagentUsage, type SubagentUsage } from './agents'
+import {
+  SUBAGENT_TOOL,
+  isOmpTaskDetails,
+  ompSubagentRuns,
+  subagentItemId,
+  subagentRun,
+  subagentStatus,
+  subagentUsage,
+  type SubagentUsage,
+} from './agents'
+import { ompAgentFile, ompAgentStats, type OmpAgentStats } from '../omp/agents'
 import { array, number, object, string, type Message } from './process'
 
 /** Pixel 只给一句报错原文：从原文认状态码和归类（notice.error）；认不出时 undefined */
@@ -156,8 +166,10 @@ function toolTitle(name: string, args: Message, cwd: string): { tool: ToolKind; 
     case 'read':
     case 'ls':
       return { tool: 'read', title: path }
+    // glob：oh-my-pi 按通配符找文件
     case 'find':
     case 'grep':
+    case 'glob':
       return { tool: 'search', title: [string(args.pattern), path].filter(Boolean).join(' · ') }
   }
   if (name === 'web_fetch') return { tool: 'web', title: string(args.url) }
@@ -200,7 +212,14 @@ export function toolItem(id: string, name: string, args: Message, cwd: string): 
       id,
       tool: 'task',
       name: 'Agent',
-      title: string(args.description) || 'Subagent',
+      // omp 的 task 是 { context, tasks: [{ name, task }] }，一次可以派几个
+      title:
+        string(args.description) ||
+        array(args.tasks)
+          .map(t => string(object(t).name) || string(object(t).task).slice(0, 60))
+          .filter(Boolean)
+          .join('、') ||
+        'Subagent',
       output: '',
       status: 'running',
     }
@@ -251,8 +270,21 @@ export function planApproval(requestId: string, title: string, item: Item | null
 export function isApprovalSelect(title: string, options: readonly string[]): boolean {
   return (
     !!toolNameFromTitle(title) &&
-    options.length === APPROVAL_OPTIONS.length &&
-    options.every((o, i) => o === APPROVAL_OPTIONS[i])
+    ((options.length === APPROVAL_OPTIONS.length && options.every((o, i) => o === APPROVAL_OPTIONS[i])) ||
+      isOmpApprovalOptions(options))
+  )
+}
+
+/**
+ * oh-my-pi 的确认三选一（docs/omp-engine-trial.md §3）：Approve / Approve <工具> for this session / Deny。
+ * 按结构认（工具名在中间那项里），回答时按位置取选项原文（session.ts answer）
+ */
+export function isOmpApprovalOptions(options: readonly string[]): boolean {
+  return (
+    options.length === 3 &&
+    options[0] === 'Approve' &&
+    /^Approve \S+ for this session$/.test(options[1] ?? '') &&
+    options[2] === 'Deny'
   )
 }
 
@@ -316,9 +348,9 @@ export function approvalSummary(args: Message, toolName = ''): string {
   }
 }
 
-/** 批准扩展的标题是「允许工具 xxx？ / Allow tool xxx?」 */
+/** 批准扩展的标题是「允许工具 xxx？ / Allow tool xxx?」；oh-my-pi 的是「Allow tool: xxx」 */
 export function toolNameFromTitle(title: string): string {
-  return /(?:允许工具 |Allow tool )([^\s？?]+)/.exec(title)?.[1] ?? ''
+  return /(?:允许工具 |Allow tool:? )([^\s？?]+)/.exec(title)?.[1] ?? ''
 }
 
 export interface TranslatorOptions {
@@ -329,9 +361,11 @@ export interface TranslatorOptions {
   contextWindow?: () => number | null
   /** 当前模型的 id（压缩生成摘要用的就是它，Pi 的压缩结果里不带模型） */
   model?: () => string | null
+  /** omp 的主会话文件：子智能体的会话文件在它旁边 */
+  sessionFile?: () => string | null
 }
 
-interface Totals {
+export interface Totals {
   input: number
   output: number
   cacheRead: number
@@ -372,7 +406,11 @@ export class PixelTranslator {
     return this.compaction !== null
   }
 
+  /** 有一轮在进行：这之外的用量只进会话累计，不改已经结束的那一轮 */
+  private turnOpen = false
+
   beginTurn(): void {
+    this.turnOpen = true
     this.items.clear()
     this.toolNames.clear()
     this.toolSummaries.clear()
@@ -453,9 +491,14 @@ export class PixelTranslator {
         return this.toolUpdate(raw)
       case 'tool_execution_end':
         return this.toolEnd(raw)
+      // auto_ / manual_：oh-my-pi 分成自动和手动两种
       case 'compaction_start':
+      case 'auto_compaction_start':
+      case 'manual_compaction_start':
         return this.compactionStart(raw)
       case 'compaction_end':
+      case 'auto_compaction_end':
+      case 'manual_compaction_end':
         return this.compactionEnd(raw)
       case 'extension_error':
         return this.notice('warn', string(raw.error) || 'Extension error', string(raw.extensionPath) || null)
@@ -556,6 +599,7 @@ export class PixelTranslator {
     t.cacheRead += counts.cacheRead
     t.cacheWrite += counts.cacheWrite
     t.cost += cost
+    if (!this.turnOpen) return
     const m = (this.turnModels[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, costUsd: 0, requests: 0 })
     m.input += counts.input
     m.cacheRead += counts.cacheRead
@@ -621,6 +665,9 @@ export class PixelTranslator {
     const call = string(raw.toolCallId)
     const details = object(final ? object(raw.result).details : object(raw.partialResult).details)
     if (!Object.keys(details).length && !final) return
+    if (isOmpTaskDetails(details)) return this.ompSubagents(call, details, final, raw.isError === true)
+    // omp 的 task 出错时 details 是空的：这次调用里还在跑的都算失败
+    if (final && raw.isError === true && this.ompAgentCalls.has(call)) return this.ompSubagentsFailed(call, raw)
     const prior = this.agents.get(call)
     let run = Object.keys(details).length ? subagentRun(details, call) : prior
     if (!run) return
@@ -656,15 +703,144 @@ export class PixelTranslator {
     this.agentUsage.set(call, now)
     if (added) this.emitUsage()
   }
-  private emitRuns(): void {
+  /** omp 的子智能体第一次出现的时间（omp 的进度里只有用时，没有开始时间） */
+  private readonly ompStarted = new Map<string, number>()
+  /** 派过 omp 子智能体的 task 调用 */
+  private readonly ompAgentCalls = new Set<string>()
+  /**
+   * oh-my-pi 的 task：一次调用可以派几个子智能体，进度里是各自的 progress / results。按「调用:子智能体 id」各记一项；
+   * 用量从它自己的会话文件算（ompUsage）。后台派的（details.async）工具马上就返回，条目等子智能体都结束才收尾
+   */
+  private ompSubagents(call: string, details: Message, final: boolean, failed: boolean): void {
+    this.ompAgentCalls.add(call)
+    const started = (id: string): number => {
+      if (!this.ompStarted.has(id)) this.ompStarted.set(id, Date.now())
+      return this.ompStarted.get(id)!
+    }
+    for (const { run, lastTool } of ompSubagentRuns(details, call, started)) {
+      const key = `${call}:${run.id}`
+      const ended = final && !details.async && run.state === 'running'
+      const next = ended ? { ...run, state: failed ? 'failed' : 'completed' } : run
+      this.agents.set(key, next)
+      this.agentTools.set(key, lastTool ?? this.agentTools.get(key) ?? null)
+      if (next.state !== 'running' && next.state !== 'queued') this.ompUsage(next)
+    }
+    this.emitRuns()
+    this.settleOmpTask(call)
+  }
+
+  /** 打开会话时从主会话文件读回的（omp/agents.ts）：进程刚起来，之前在跑的都已经不在了 */
+  seedOmpRuns(runs: readonly AgentRun[]): void {
+    for (const run of runs) {
+      const key = `${run.toolUseId?.replace(/^px-task-/, '') ?? ''}:${run.id}`
+      const prior = this.agents.get(key)
+      if (!prior || prior.state === 'running' || prior.state === 'queued') this.agents.set(key, run)
+      this.ompUsage(run, true)
+    }
+  }
+
+  /** 各子智能体已经算进用量的部分（按子智能体 id） */
+  private readonly ompSeen = new Map<string, OmpAgentStats>()
+  /** 子智能体的用量合计（omp 的会话统计不含它们，实测）：旁聊按统计算用量时要扣掉 */
+  readonly ompAgentTotals: Totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }
+
+  /** 按子智能体的会话文件把多出来的用量加进来；baseline 只记下、算进会话累计，不算这一轮的 */
+  private ompUsage(run: AgentRun, baseline = false): void {
+    const main = this.options.sessionFile?.() ?? ''
+    const file = main ? ompAgentFile(main, run.id) : null
+    if (!file) return
+    let stats: OmpAgentStats
+    const seen = this.ompSeen.get(run.id)
+    try {
+      if (!baseline && seen && statSync(file).size === seen.size) return
+      stats = ompAgentStats(file)
+    } catch {
+      // 正在写、刚被删：下次再算
+      return
+    }
+    this.ompSeen.set(run.id, stats)
+    let added = false
+    for (const [model, u] of Object.entries(stats.usage)) {
+      const p = seen?.usage[model]
+      const d = (k: 'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'cost' | 'requests'): number =>
+        Math.max(0, u[k] - (p?.[k] ?? 0))
+      for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'cost'] as const)
+        this.ompAgentTotals[key] += d(key)
+      if (baseline || d('requests') <= 0) continue
+      const counts = { input: d('input'), output: d('output'), cacheRead: d('cacheRead'), cacheWrite: d('cacheWrite') }
+      this.addUsage(model, counts, d('cost'), d('requests'))
+      const m = this.turnOpen ? this.turnModels[model] : undefined
+      // 没有价格的模型费用是 0：记成不知道，不当成免费（同 addSubagentUsage）
+      if (m && u.cost === 0 && !m.costUsd) m.costUsd = null
+      added = true
+    }
+    if (added) this.emitUsage()
+  }
+
+  /** 后台派活、还没收尾的 task 条目（按工具调用 id） */
+  private readonly ompTasks = new Map<string, Extract<Item, { kind: 'tool' }>>()
+
+  /** 这次调用派的子智能体都结束了：条目跟着它们收尾（都停了算中断，都失败算失败） */
+  private settleOmpTask(call: string): void {
+    const item = this.ompTasks.get(call)
+    if (!item) return
+    const states = [...this.agents].flatMap(([key, run]) => (key.startsWith(`${call}:`) ? [run.state] : []))
+    if (states.some(s => s === 'running' || s === 'queued')) return
+    this.ompTasks.delete(call)
+    const status: ItemStatus = states.every(s => s === 'stopped')
+      ? 'interrupted'
+      : states.every(s => s === 'failed')
+        ? 'failed'
+        : 'completed'
+    this.put({ ...item, status }, true)
+  }
+
+  private liveCount = 0
+  /** omp 还没结束的子智能体（在跑、排队） */
+  ompLive(): AgentRun[] {
+    return [...this.agents.values()].filter(r => r.state === 'running' || r.state === 'queued')
+  }
+
+  /** omp 进程没了：还在跑的子智能体跟着没了 */
+  stopOmpAgents(): void {
+    let changed = false
+    for (const [key, run] of this.agents)
+      if (run.state === 'running' || run.state === 'queued') {
+        this.agents.set(key, { ...run, state: 'stopped' })
+        this.ompUsage(run)
+        changed = true
+      }
+    if (!changed) return
+    this.emitRuns()
+    for (const call of [...this.ompTasks.keys()]) this.settleOmpTask(call)
+  }
+  private ompSubagentsFailed(call: string, raw: Message): void {
+    const reason = resultText(object(raw.result)).slice(0, 500)
+    for (const [key, run] of this.agents)
+      if (key.startsWith(`${call}:`) && (run.state === 'running' || run.state === 'queued'))
+        this.agents.set(key, { ...run, state: 'failed', result: reason || run.result })
+    this.emitRuns()
+  }
+
+  emitRuns(): void {
     const runs = [...this.agents.values()]
     this.emit({ type: 'runs', runs: { workflows: [], agents: runs } })
     this.emit({
       type: 'subagents',
       subagents: [...this.agents.entries()]
         .filter(([, r]) => r.state === 'running')
-        .map(([call, r]) => subagentStatus(r, this.agentTools.get(call) ?? null)),
+        .map(([call, r]) => ({
+          ...subagentStatus(r, this.agentTools.get(call) ?? null),
+          // omp 的都能单独停（PixelSession.stopTask）
+          ...(this.options.sessionFile ? { background: true } : {}),
+        })),
     })
+    if (!this.options.sessionFile) return
+    // 还在跑、排队的个数：会话列表显示后台还在跑，宿主不按空闲关进程、换来源前先提醒（host/events.ts）
+    const count = this.ompLive().length
+    if (count === this.liveCount) return
+    this.liveCount = count
+    this.emit({ type: 'background', count })
   }
 
   private toolStart(raw: Message): void {
@@ -739,6 +915,15 @@ export class PixelTranslator {
         status: stopped && status === 'completed' ? 'interrupted' : status,
         ...(images.length ? { images } : {}),
       }
+      const call = string(raw.toolCallId)
+      const pending = [...this.agents].some(
+        ([key, r]) => key.startsWith(`${call}:`) && (r.state === 'running' || r.state === 'queued'),
+      )
+      if (!isError && pending && object(result.details).async) {
+        item = { ...item, status: 'running' }
+        this.ompTasks.set(call, item)
+        return this.put(item, false)
+      }
     }
     this.put(item, true)
   }
@@ -802,12 +987,17 @@ export class PixelTranslator {
 
   /** 一轮结束：还在运行的条目收尾 */
   finish(outcome: ItemStatus): void {
+    // 子智能体的会话文件可能比它结束的通知晚写：结束这一轮前再算一次
+    if (this.ompAgentCalls.size)
+      for (const run of this.agents.values()) if (this.ompSeen.has(run.id)) this.ompUsage(run)
+    this.turnOpen = false
+    const waiting = new Set([...this.ompTasks.values()].map(i => i.id))
     for (const item of [...this.items.values()]) {
       if (!('status' in item) || item.status !== 'running') continue
+      // 主轮结束了、子智能体还在后台跑（主智能体被停）：先记中断，跑完再按结果改（settleOmpTask），不能先写「已完成」
+      const status = waiting.has(item.id) ? 'interrupted' : outcome
       const finished: Item =
-        item.kind === 'compaction'
-          ? { ...item, status: outcome, durationMs: Date.now() - item.startedAt }
-          : { ...item, status: outcome }
+        item.kind === 'compaction' ? { ...item, status, durationMs: Date.now() - item.startedAt } : { ...item, status }
       this.items.set(item.id, finished)
       this.emit({ type: 'item_completed', item: finished })
     }

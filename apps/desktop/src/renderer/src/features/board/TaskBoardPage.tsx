@@ -49,7 +49,7 @@ import {
   useBoardTasks,
 } from './boardTasks'
 import { FlowScheduleCard, ScheduleCard, ScheduleEmpty, ScheduleFields, ScheduleHistoryDialog } from './ScheduleParts'
-import { SCHEDULE_TEMPLATES, defaultSchedule, sameSchedule } from './scheduleModel'
+import { SCHEDULE_TEMPLATES, defaultSchedule, sameSchedule, scheduleDefaultEngine } from './scheduleModel'
 import { useSessionCards } from './useSessionCards'
 import {
   IssueFields,
@@ -243,7 +243,7 @@ export function TaskBoardPage() {
       setError(tr('board.noProject'))
       return
     }
-    const engine = engines.find(e => e.status === 'ready')?.id ?? engines[0]?.id
+    const engine = scheduleDefaultEngine(engines)
     setEditing({
       isNew: true,
       task: {

@@ -256,7 +256,10 @@ export { engineProviderProtocols } from '../../shared/provider-protocols'
 export function groupEngines(group: Pick<PlatformGroupInfo, 'platform' | 'supported_engines'>): string[] {
   const engines = group.supported_engines ?? (group.platform === 'openai' ? ['codex', 'pixel'] : ['claude', 'pixel'])
   // 像素星空两种协议都会说：目录里写了 claude 或 codex 的线路它也能用
-  return engines.includes('pixel') || !(engines.includes('claude') || engines.includes('codex'))
-    ? engines
-    : [...engines, 'pixel']
+  const all =
+    engines.includes('pixel') || !(engines.includes('claude') || engines.includes('codex'))
+      ? engines
+      : [...engines, 'pixel']
+  // oh-my-pi 和像素星空同一套协议：像素星空能用的线路它也能用
+  return all.includes('pixel') && !all.includes('omp') ? [...all, 'omp'] : all
 }

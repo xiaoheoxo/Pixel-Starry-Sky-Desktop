@@ -142,6 +142,26 @@ export const demoEngineStatus: EngineLite[] = [
       platformSwitch: false,
     },
   },
+  {
+    // 用户自己装的 oh-my-pi（docs/omp-engine.md）
+    id: 'omp',
+    name: ENGINES.omp.name,
+    status: 'ready',
+    version: '19.1.0',
+    message: null,
+    path: 'C:\\Users\\linxia\\AppData\\Local\\omp\\omp.exe',
+    caps: {
+      permissionModes: ENGINES.omp.caps.permissionModes,
+      efforts: ENGINES.omp.caps.efforts,
+      ultracode: false,
+      fast: false,
+      thinkingSummaries: false,
+      selfUpdate: false,
+      launchSettings: false,
+      pluginCommands: false,
+      platformSwitch: false,
+    },
+  },
 ]
 
 /** 演示模式下 Claude Code 报上来的输出风格（设置 › 本机引擎 › 对话） */
@@ -249,6 +269,7 @@ export const demoEngineConfig: EngineConfig = {
   codex: demoLocal(),
   pixel: demoLocal(),
   antigravity: demoLocal(),
+  omp: demoLocal(),
 }
 
 /** 演示用的两条自定义 API（docs/ui/custom-api.md §5 A4） */

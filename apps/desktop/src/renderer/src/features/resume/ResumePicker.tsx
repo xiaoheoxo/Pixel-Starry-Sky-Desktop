@@ -291,6 +291,7 @@ const HELP_KEYS = {
     'resume.help.codex.legacy',
     'resume.help.codex.engine',
   ],
+  omp: ['resume.help.switch', 'resume.help.history', 'resume.help.omp.context', 'resume.help.omp.newer'],
   antigravity: ['resume.help.switch', 'resume.help.agy.history', 'resume.help.agy.context', 'resume.help.agy.copy'],
 } as const
 

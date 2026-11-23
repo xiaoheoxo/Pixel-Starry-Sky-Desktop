@@ -1,6 +1,6 @@
 // 定时任务的界面数据（docs/ui/board-schedule.md）：默认值、模板、"配置有没有改" 的比较。纯函数，不依赖 window
-import type { EngineId } from '@pixelsky/protocol'
-import type { TaskSchedule } from '../../../../shared/types/project-tools'
+import type { EngineId, EngineInfo } from '@pixelsky/protocol'
+import { SCHEDULE_ENGINES, type TaskSchedule } from '../../../../shared/types/project-tools'
 
 export const defaultSchedule = (engine: EngineId = 'claude'): TaskSchedule => ({
   enabled: true,
@@ -15,6 +15,16 @@ export const defaultSchedule = (engine: EngineId = 'claude'): TaskSchedule => ({
   lastSlot: 0,
   runs: [],
 })
+
+/** 定时任务能选的引擎 */
+export const scheduleEngines = <T extends Pick<EngineInfo, 'id'>>(engines: readonly T[]): T[] =>
+  engines.filter(e => SCHEDULE_ENGINES.includes(e.id))
+
+/** 新建时默认用哪个引擎：能用的里排最前的 */
+export const scheduleDefaultEngine = (engines: readonly Pick<EngineInfo, 'id' | 'status'>[]): EngineId | undefined => {
+  const list = scheduleEngines(engines)
+  return (list.find(e => e.status === 'ready') ?? list[0])?.id
+}
 
 /** 空状态里的三个模板：点了打开编辑框并填好（标题、备注走词典 board.schedule.tpl.<id>.*） */
 export const SCHEDULE_TEMPLATES = [

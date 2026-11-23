@@ -65,6 +65,7 @@ import { ClaudeAdapter } from '../claude'
 import type { CompactionRequestReport } from '../compaction'
 import { CodexAdapter } from '../codex'
 import { PixelAdapter } from '../pixel'
+import { OmpAdapter } from '../omp'
 import { AntigravityAdapter } from '../antigravity'
 import { DotAdapter } from '../dot'
 import { supportsChatGptDot } from '@pixelsky/protocol'
@@ -99,15 +100,17 @@ export type { SyncableEngineSettings } from './settings'
  * fresh：Codex 对话还没有线程（不能预先指定线程 id），或有待落实的回退 / 分叉（Codex 的界面进程不能 warm，切之前落实不了）：
  * 先在界面里发一条消息
  */
-export type TuiBlock = 'engine' | 'fresh' | 'busy' | 'liveTerminal' | 'liveOther'
+export type TuiBlock = 'engine' | 'fresh' | 'freshOmp' | 'busy' | 'liveTerminal' | 'liveOther'
 
 /** 能切到终端的引擎（docs/ui/tui-toggle.md；界面 tuiMode.ts 的 TUI_ENGINES 要一起改） */
-const TUI_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['claude', 'codex', 'antigravity', 'pixel'])
+const TUI_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['claude', 'codex', 'antigravity', 'pixel', 'omp'])
 
 /** 切换时直接报错用的文字（和界面 session.tui.disabled* 的中文一致，界面能翻译） */
 const TUI_BLOCK_TEXT: Record<TuiBlock, string> = {
   engine: '当前引擎不支持终端模式',
   fresh: 'Codex 对话先在界面里发一条消息，再切到终端',
+  // omp 的 --resume 打不开还没写出来的会话文件（docs/omp-engine.md §11.7）
+  freshOmp: 'oh-my-pi 要先在界面里发一条消息，才能切到终端',
   busy: '请先停止当前任务再切换',
   liveTerminal: '外部终端正开着这个会话',
   liveOther: '其他程序正开着这个会话',
@@ -183,6 +186,18 @@ export class EngineHost {
         launchOptions: () => {
           const o = settings.launchOptions('pixel')
           return { args: o.args, contextWindows: o.contextWindows, autoCompactPct: o.autoCompactPct }
+        },
+      }),
+      // oh-my-pi（用户自己装，docs/omp-engine.md）
+      omp: new OmpAdapter({
+        overridePath: () => settings.file.paths.omp ?? null,
+        extraEnv: () => settings.file.env.omp ?? {},
+        systemProxy: () => opts.systemProxy?.('omp') ?? null,
+        sessionEnv: opts.sessionEnv,
+        dataDir: opts.dataDir,
+        launchOptions: () => {
+          const o = settings.launchOptions('omp')
+          return { args: o.args, contextWindows: o.contextWindows }
         },
       }), // Antigravity（agy acp，docs/antigravity-engine.md）
       dot: new DotAdapter({
@@ -874,6 +889,7 @@ export class EngineHost {
     if (record.tui) return null
     if (record.engine === 'codex' && (!record.engineSessionId || record.pendingRewind || record.pendingFork))
       return 'fresh'
+    if (record.engine === 'omp' && !record.engineSessionId) return 'freshOmp'
     if (
       ctx.closing ||
       ctx.changingSessions.has(id) ||

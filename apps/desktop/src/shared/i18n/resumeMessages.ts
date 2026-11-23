@@ -112,6 +112,14 @@ export const resumeMessages = {
     zh: '可以在模型菜单换到 Codex 接着聊（Codex 拿到的是聊天回放，不含工具和压缩摘要）。换回 Claude 时，Codex 期间的聊天会写进终端那份记录。',
     en: 'You can switch to Codex from the model menu (Codex gets a chat replay without tools or compaction summaries). Switching back writes the Codex-era chat into the terminal’s session record.',
   },
+  'resume.help.omp.context': {
+    zh: '原地接着就写在 omp 自己的会话文件里，终端里照样能接着聊；终端里正开着同一个会话时，omp 会把这边改存到一份新文件，两边各聊各的。',
+    en: 'Continuing in place writes to omp’s own session file, so you can pick it up in the terminal too. If the same session is open in a terminal, omp saves this side to a new file and the two continue separately.',
+  },
+  'resume.help.omp.newer': {
+    zh: '之后在终端里又接着聊的，模型看得到，但不会自动补显示到这里。',
+    en: 'Turns you add in the terminal later are visible to the model, but are not added to this conversation automatically.',
+  },
   'resume.help.agy.history': {
     zh: 'agy 的记录不在文件里：导入时临时启动一次 agy 把整段对话读出来，一次全部显示。',
     en: 'agy does not keep its history in files: importing starts agy once to read the whole conversation, shown in full.',

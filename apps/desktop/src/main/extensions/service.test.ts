@@ -113,6 +113,28 @@ describe('管理配置与凭据', () => {
     px.dispose?.()
     expect(existsSync(px.mcpFile!)).toBe(false)
   })
+  it('oh-my-pi：勾了它的 MCP 和技能和像素星空一样给；应用自己的工具不进这个文件，变了照样换进程', () => {
+    service.upsert({
+      kind: 'mcp',
+      name: 'omp-tools',
+      scope: global,
+      engines: ['omp'],
+      mcp: { type: 'http', url: 'https://example.com/mcp' },
+    })
+    service.upsert({
+      kind: 'skill',
+      name: 'omp-skill',
+      scope: global,
+      engines: ['omp'],
+      text: '---\nname: omp-skill\ndescription: test\n---\nRead.',
+    })
+    const own = { pixelsky_history: { type: 'http' as const, url: 'http://127.0.0.1:1/mcp' } }
+    const launch = service.launch(project, 'omp', {}, own)
+    expect(Object.keys(JSON.parse(readFileSync(launch.mcpFile!, 'utf8')).mcpServers)).toEqual(['omp-tools'])
+    expect(launch.skillRoots).toHaveLength(1)
+    expect(launch.key).not.toBe(service.launch(project, 'omp').key)
+    expect(service.launch(project, 'pixel').mcpFile).toBeUndefined()
+  })
   it('Antigravity 只拿勾了它的 MCP，转成会话参数列表；应用自己的标 own；技能不给', () => {
     service.upsert({
       kind: 'mcp',
@@ -211,7 +233,7 @@ describe('管理配置与凭据', () => {
     expect(r.failed.map(f => f.name)).toEqual(['missing'])
     const entries = service.state(null).entries.filter(e => e.origin === 'managed')
     const gh2 = entries.find(e => e.name === 'gh-2')!
-    expect(gh2.engines).toEqual(['claude', 'codex', 'pixel', 'antigravity'])
+    expect(gh2.engines).toEqual(['claude', 'codex', 'pixel', 'omp', 'antigravity'])
     expect(gh2.description).toBe('从 Cursor 导入')
     expect(entries.some(e => e.name === 'brave-search')).toBe(true)
     const launch = service.launch(project, 'pixel')
@@ -225,9 +247,14 @@ describe('管理配置与凭据', () => {
       { name: 'Claude Code', own: 'claude' },
     )
     expect(fromClaude.imported).toBe(1)
-    expect(service.state(null).entries.find(e => e.name === 'cc')!.engines).toEqual(['codex', 'pixel', 'antigravity'])
+    expect(service.state(null).entries.find(e => e.name === 'cc')!.engines).toEqual([
+      'codex',
+      'pixel',
+      'omp',
+      'antigravity',
+    ])
   })
-  it('从 Claude Code 导入：只给 Codex / Pixel，不因为和原生的同名而改名', async () => {
+  it('从 Claude Code 导入：只给别的引擎，不因为和原生的同名而改名', async () => {
     mkdirSync(join(root, 'native'), { recursive: true })
     writeFileSync(
       join(root, 'native', '.claude.json'),
@@ -244,6 +271,7 @@ describe('管理配置与凭据', () => {
     expect(service.state(null).entries.find(e => e.origin === 'managed' && e.name === 'cc')?.engines).toEqual([
       'codex',
       'pixel',
+      'omp',
       'antigravity',
     ])
     expect(service.hasName('cc', 'mcp', null, true)).toBe(true)

@@ -77,14 +77,16 @@ describe('通道和现有存储互相换算（docs/ui/model-channels.md §4.1）
 
 describe('谁来执行（§2.5）', () => {
   const ctx = { groups, providers }
-  it('官方模型交给官方工具，像素星空排后面', () => {
+  it('官方模型交给官方工具，像素星空、oh-my-pi 排后面', () => {
     expect(executorsFor({ channel: 'platform', model: 'claude-opus-5-5', providerId: null }, ctx)).toEqual([
       'claude',
       'pixel',
+      'omp',
     ])
     expect(executorsFor({ channel: 'platform', model: 'gpt-6.1-sol', providerId: null }, ctx)).toEqual([
       'codex',
       'pixel',
+      'omp',
     ])
     expect(executorsFor({ channel: 'claude', model: null, providerId: null }, ctx)).toEqual(['claude'])
     expect(executorsFor({ channel: 'chatgpt', model: 'gpt-6.1', providerId: null }, ctx)).toEqual(['codex'])
@@ -108,11 +110,11 @@ describe('谁来执行（§2.5）', () => {
       executorsFor({ channel: 'platform', model: 'gemini-3.8-flash', providerId: null }, { groups: [gem], providers }),
     ).toEqual(['antigravity'])
   })
-  it('自定义按协议；Chat 只有像素星空能跑', () => {
+  it('自定义按协议；Chat 只有像素星空、oh-my-pi 能跑', () => {
     const t = (providerId: string) => executorsFor({ channel: 'custom', model: null, providerId }, ctx)
-    expect(t('relay')).toEqual(['claude', 'pixel'])
-    expect(t('oa')).toEqual(['codex', 'pixel'])
-    expect(t('ds')).toEqual(['pixel'])
+    expect(t('relay')).toEqual(['claude', 'pixel', 'omp'])
+    expect(t('oa')).toEqual(['codex', 'pixel', 'omp'])
+    expect(t('ds')).toEqual(['pixel', 'omp'])
     expect(t('gone')).toEqual([])
   })
   it('线路同时声明两个官方引擎时，GPT 仍只给 Codex，Claude 只给 Claude Code', () => {
@@ -126,16 +128,17 @@ describe('谁来执行（§2.5）', () => {
       expect(executorsFor({ channel: 'platform', model, providerId: null }, { groups: mixed, providers })).toEqual([
         'codex',
         'pixel',
+        'omp',
       ])
     expect(
       executorsFor({ channel: 'platform', model: 'claude-opus-5-5', providerId: null }, { groups: mixed, providers }),
-    ).toEqual(['claude', 'pixel'])
+    ).toEqual(['claude', 'pixel', 'omp'])
   })
   it('线路只写了 Claude Code 的模型，像素星空也能跑；目录里没有的模型谁都不能跑', () => {
     const only = [group('c', 'anthropic', ['claude-haiku-5-5'], { supported_engines: ['claude'] })]
     expect(
       executorsFor({ channel: 'platform', model: 'claude-haiku-5-5', providerId: null }, { groups: only, providers }),
-    ).toEqual(['claude', 'pixel'])
+    ).toEqual(['claude', 'pixel', 'omp'])
     expect(executorsFor({ channel: 'platform', model: 'nope', providerId: null }, ctx)).toEqual([])
   })
 

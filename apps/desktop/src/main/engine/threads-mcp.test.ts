@@ -135,6 +135,8 @@ describe('threadsScope', () => {
     expect(threadsScope(record(ME, { engine: 'codex' }), config('off', 'all'))).toBe('all')
     expect(threadsScope(record(ME, { engine: 'pixel' }), config('all', 'all'))).toBe('off')
     expect(threadsScope(record(SSH), config('all'))).toBe('off')
+    const omp = { ...config('off'), omp: { peekSessions: 'project' } } as EngineConfig
+    expect(threadsScope(record(ME, { engine: 'omp' }), omp)).toBe('project')
     expect(threadsScope(record(ME), null)).toBe('off')
   })
 

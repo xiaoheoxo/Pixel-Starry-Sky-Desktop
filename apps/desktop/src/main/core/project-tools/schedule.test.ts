@@ -30,6 +30,11 @@ describe('cleanSchedule', () => {
     expect(cleanSchedule({ ...input, permission: 'edits' }, prior, now)?.lastSessionId).toBeNull()
     expect(cleanSchedule({ ...input, hour: 10 }, prior, now)?.lastSlot).toBe(new Date(2026, 9, 26, 10, 0).getTime())
   })
+  it('oh-my-pi 能存；没接定时任务的引擎报错', () => {
+    expect(cleanSchedule({ ...input, engine: 'omp' }, null, now)?.engine).toBe('omp')
+    for (const engine of ['antigravity', 'dot', 'nope', undefined])
+      expect(() => cleanSchedule({ ...input, engine }, null, now)).toThrow('参数不正确')
+  })
   it('null 清除；非法值报错；不给 full 权限', () => {
     expect(cleanSchedule(null, undefined, now)).toBeNull()
     expect(() => cleanSchedule({ ...input, hour: 24 }, null, now)).toThrow()

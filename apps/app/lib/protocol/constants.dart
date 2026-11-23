@@ -143,6 +143,24 @@ const engines = <String, EngineDescriptor>{
     rewind: false,
     sideChat: false,
   ),
+  // 用户自己装的 oh-my-pi（桌面端 docs/omp-engine.md）：换确认档、显示思考、Ultracode 下一轮才生效；计划档用像素星空自己的计划扩展
+  'omp': EngineDescriptor(
+    id: 'omp',
+    name: 'oh-my-pi',
+    short: 'Om',
+    permissionModes: ['ask', 'edits', 'plan', 'full'],
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    imageInput: true,
+    interrupt: true,
+    steer: true,
+    ultracode: true,
+    fast: true,
+    thinkingSummaries: true,
+    liveModelSwitch: true,
+    livePermissionSwitch: false,
+    rewind: true,
+    sideChat: true,
+  ),
 };
 
 /// 汇总几处改动的增删行数

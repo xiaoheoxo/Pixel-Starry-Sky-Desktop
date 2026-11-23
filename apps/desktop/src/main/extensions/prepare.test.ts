@@ -47,6 +47,22 @@ describe('扩展准备', () => {
     expect(launch.allowTools).toBeUndefined()
   })
 
+  it('oh-my-pi：应用自己的工具另给（走它的扩展）、带扩展包；队友派来的活隔离，key 不同会换进程', async () => {
+    const omp = { ...record, engine: 'omp' } as SessionRecord
+    const { ext, launches } = make(false)
+    const plain = await ext.prepare(omp)
+    expect(plain.ownTools?.map(t => t.name)).toEqual(['pixelsky_history', 'pixelsky_threads', 'pixelsky_channel'])
+    expect(plain.ownTools?.[2]).toEqual({ name: 'pixelsky_channel', url: 'http://127.0.0.1/ch', token: 't' })
+    expect(launches[0][1]).toBe('omp')
+    expect(launches[0][5]).toHaveProperty('mine')
+    const isolated = make(true)
+    const launch = await isolated.ext.prepare(omp)
+    expect(launch.strictMcp).toBe(true)
+    expect(launch.ownTools).toEqual([])
+    expect(isolated.launches[0][5]).toEqual({})
+    expect(launch.key).toBe('base|isolated')
+  })
+
   it('平常：照旧带应用自己的 MCP 和扩展包', async () => {
     const { ext, launches } = make(false)
     const launch = await ext.prepare(record)

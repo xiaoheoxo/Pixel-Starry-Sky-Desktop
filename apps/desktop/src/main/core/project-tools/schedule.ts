@@ -1,5 +1,6 @@
 // 定时任务的校验（docs/ui/board-schedule.md §3）。运行记录、lastSlot、lastSessionId 只由主进程改，界面传来的忽略
 import {
+  SCHEDULE_ENGINES,
   SCHEDULE_FREQS,
   SCHEDULE_RUNS_MAX,
   type ScheduleRun,
@@ -8,7 +9,6 @@ import {
 import { latestSlot } from '../../../shared/schedule'
 import { value } from './common'
 
-const ENGINES = ['claude', 'codex', 'pixel'] as const
 /** 无人值守不给 full */
 const PERMISSIONS = ['plan', 'ask', 'edits'] as const
 
@@ -27,7 +27,7 @@ export function cleanSchedule(raw: unknown, prior: TaskSchedule | null | undefin
     permission = r.permission as TaskSchedule['permission']
   if (
     !SCHEDULE_FREQS.includes(freq) ||
-    !(ENGINES as readonly string[]).includes(engine) ||
+    !SCHEDULE_ENGINES.includes(engine) ||
     !(PERMISSIONS as readonly string[]).includes(permission)
   )
     throw new Error('参数不正确')

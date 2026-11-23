@@ -1,0 +1,589 @@
+// 假的 oh-my-pi（omp --mode rpc）：测试用，照试验录到的帧（docs/omp-engine-trial.md §3）。
+// 环境变量：FAKE_OMP_LOG 记录收到的每条命令；FAKE_OMP_ARGV 记录启动参数；FAKE_OMP_DIR 放会话文件。
+// 提示词关键字：「工具」→ bash 确认（omp 的英文三选一）；「慢」→ 等 abort；「大」→ 回复超过 1 MiB，按第 2 版拆成 rpc_chunk；
+// 「坏」→ prompt_result status: error；「派活」→ task 一次派两个子智能体；「后台分」→ task 派两个到后台，工具先返回、之后跑完（含「取消」→ 一个被停，含「停」→ 主轮停了才跑完）；「并发」→ 派两个、同时只跑一个，等着被停；FAKE_OMP_STUCK_AGENTS=1 停不掉；「占用」→ 会话改存到新文件并报警告；「悄悄换」→ 不报就换文件；会话文件是一棵树（navigate_tree、new_session、/pixelsky-turn），每轮在 FAKE_OMP_LOG 记 { type: 'context', users }；「计划」（加载了计划扩展时）→ 计划卡，批准后报回到的档。btw：问题含「旁聊失败」→ status error；含「旁聊慢」→ 等 btw_cancel；
+// 否则回答「旁聊回答：<进程 pid>，<模型>，问：<问题末尾>」
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import readline from 'node:readline'
+
+if (process.env.FAKE_OMP_ARGV)
+  appendFileSync(
+    process.env.FAKE_OMP_ARGV,
+    JSON.stringify({
+      argv: process.argv.slice(2),
+      token: process.env.PIXELSKY_PIXEL_TOKEN ?? null,
+      providers: process.env.PIXELSKY_PIXEL_PROVIDERS ? JSON.parse(process.env.PIXELSKY_PIXEL_PROVIDERS) : null,
+      inferred: process.env.PIXELSKY_PIXEL_INFERRED ?? null,
+      plan: process.env.PIXELSKY_OMP_PLAN ?? null,
+      head: process.argv.includes('--session')
+        ? readFileSync(process.argv[process.argv.indexOf('--session') + 1], 'utf8')
+        : null,
+    }) + '\n',
+  )
+if (process.argv.includes('--version')) {
+  process.stdout.write('omp/19.1.0\n')
+  process.exit(0)
+}
+const dir = process.env.FAKE_OMP_DIR ?? process.cwd()
+mkdirSync(dir, { recursive: true })
+const CHUNK = 1024 * 1024
+let protocol = 1
+const out = value => {
+  const line = JSON.stringify(value)
+  if (protocol < 2 || Buffer.byteLength(line) <= CHUNK) return void process.stdout.write(line + '\n')
+  const bytes = Buffer.from(line, 'utf8'),
+    count = Math.ceil(bytes.length / CHUNK),
+    chunkId = `c${Date.now()}`
+  for (let index = 0; index < count; index++)
+    process.stdout.write(
+      JSON.stringify({
+        type: 'rpc_chunk',
+        chunkId,
+        index,
+        count,
+        byteLength: bytes.length,
+        data: bytes.subarray(index * CHUNK, (index + 1) * CHUNK).toString('base64'),
+      }) + '\n',
+    )
+}
+/** 在跑的子智能体 → 停它 */
+const live = new Map()
+const SESSION_ID = '01a2070e-7df1-70f9-9687-f0bd83d92fbc'
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+const models = [
+  { provider: 'fake', id: 'fake-omp', name: 'Fake omp', reasoning: true, input: ['text'], contextWindow: 200000 },
+  { provider: 'fake', id: 'fake-omp-2', name: 'Fake omp 2', reasoning: true, input: ['text'], contextWindow: 200000 },
+]
+for (const [provider, config] of Object.entries(
+  process.env.PIXELSKY_PIXEL_PROVIDERS ? JSON.parse(process.env.PIXELSKY_PIXEL_PROVIDERS) : {},
+))
+  for (const m of config.models ?? []) models.push({ provider, name: m.id, contextWindow: 128000, ...m })
+// FAKE_OMP_FAST=1：一开始就是 Fast 档（像用户配置里写了 tier.openai: priority）；FAKE_OMP_FAST_STUCK=1：关不掉。
+// FAKE_OMP_FAST_NO=<模型 id>：这个模型开了也不生效（active: false，像平台 Messages 线路上的 Claude）。
+// 每次 prompt 记下当时的档位（FAKE_OMP_LOG 里 prompt 那行之后追加 {type:'tier', fast}）
+let fast = process.env.FAKE_OMP_FAST === '1'
+const fastActive = () => fast && process.env.FAKE_OMP_FAST_NO !== model.id
+let model = models[0],
+  sessionFile = join(dir, `omp-${process.pid}.jsonl`),
+  approval = null,
+  aborter = null,
+  tools = 0,
+  btwCancel = null,
+  btwInput = 0
+const response = (m, data) =>
+  out({ id: m.id, type: 'response', command: m.type, success: true, ...(data === undefined ? {} : { data }) })
+const fail = (m, error) => out({ id: m.id, type: 'response', command: m.type, success: false, error })
+const assistant = content => ({ role: 'assistant', content, provider: 'fake', model: model.id, stopReason: 'stop' })
+
+// 会话文件：一棵只追加的树（条目有 id、parentId，leaf 是当前位置；重新打开时从最后一条接着）
+let rows = [],
+  leaf = null,
+  head = { type: 'session', version: 3, id: SESSION_ID, cwd: process.cwd() }
+const append = row => {
+  const { type, ...rest } = row
+  const id = `${process.pid}x${rows.length}`
+  const base = { id, parentId: leaf, timestamp: '2026-11-23T06:41:46.541Z' }
+  // 真 omp：消息条目 id 在前，自定义条目 id 在正文后面
+  rows.push(type === 'message' ? { type, ...base, ...rest } : { type, ...rest, ...base })
+  leaf = id
+}
+const path = () => {
+  const out = []
+  for (let r = rows.find(x => x.id === leaf); r; r = rows.find(x => x.id === r.parentId)) out.unshift(r)
+  return out
+}
+const cwdOf = file =>
+  readFileSync(file, 'utf8')
+    .split('\n')
+    .flatMap(l => (l.startsWith('{"type":"session"') ? [JSON.parse(l).cwd] : []))[0]
+const loadFile = file => {
+  if (!existsSync(file)) return
+  const lines = readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .map(l => JSON.parse(l))
+  head = lines.find(l => l.type === 'session') ?? head
+  rows = lines.filter(l => l.type !== 'session' && l.type !== 'title')
+  leaf = rows.at(-1)?.id ?? null
+}
+if (process.argv.includes('--session')) loadFile(process.argv[process.argv.indexOf('--session') + 1])
+const message = (role, text) =>
+  append({ type: 'message', message: { role, content: [{ type: 'text', text }], provider: 'fake', model: model.id } })
+const save = () =>
+  writeFileSync(
+    sessionFile,
+    [{ type: 'title', title: '会话' }, head, ...rows].map(l => JSON.stringify(l) + '\n').join(''),
+  )
+
+async function say(content) {
+  message('assistant', content.slice(0, 200))
+  out({ type: 'message_start', message: assistant([]) })
+  out({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } })
+  out({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: content } })
+  out({ type: 'message_update', assistantMessageEvent: { type: 'text_end', contentIndex: 0, content } })
+  out({ type: 'message_end', message: assistant([{ type: 'text', text: content }]) })
+}
+
+async function turn(m) {
+  message('user', String(m.message))
+  // 关键字只看用户自己的话：前面拼的交接材料里什么词都有
+  const text = String(m.message).split('</pixelsky-handoff>').pop()
+  // 这一轮发出去时上下文里的用户消息
+  if (process.env.FAKE_OMP_LOG)
+    appendFileSync(
+      process.env.FAKE_OMP_LOG,
+      JSON.stringify({
+        type: 'context',
+        users: path().flatMap(r => (r.message?.role === 'user' ? [r.message.content[0].text] : [])),
+      }) + '\n',
+    )
+  out({ type: 'agent_start' })
+  out({ type: 'turn_start' })
+  out({ type: 'message_start', message: { role: 'user', content: [{ type: 'text', text }] } })
+  out({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text }] } })
+  let status = 'completed',
+    error
+  if (text.includes('工具')) {
+    const toolCallId = `call-${++tools}`
+    out({ type: 'tool_execution_start', toolCallId, toolName: 'bash', args: { command: 'echo hi' } })
+    const id = `ui-${tools}`
+    out({
+      type: 'extension_ui_request',
+      id,
+      method: 'select',
+      title: 'Allow tool: bash\nCommand: echo hi',
+      options: ['Approve', 'Approve bash for this session', 'Deny'],
+    })
+    const value = await new Promise(resolve => (approval = { id, resolve }))
+    const denied = value === 'Deny'
+    out({
+      type: 'tool_execution_end',
+      toolCallId,
+      toolName: 'bash',
+      isError: denied,
+      result: { content: [{ type: 'text', text: denied ? 'Tool call denied by user: bash' : 'hi' }] },
+    })
+    await say(`选了 ${value}`)
+  } else if (text.includes('派活')) {
+    // omp 的 task：一次派两个子智能体，进度里是各自的 progress，结束时是 results（一个成功、一个失败）
+    const toolCallId = 'call-task'
+    const base = { agent: 'task', agentSource: 'bundled', recentTools: [], recentOutput: [], requests: 1, cost: 0 }
+    out({
+      type: 'tool_execution_start',
+      toolCallId,
+      toolName: 'task',
+      args: {
+        tasks: [
+          { name: 'a', task: '查 A' },
+          { name: 'b', task: '查 B' },
+        ],
+      },
+    })
+    out({
+      type: 'tool_execution_update',
+      toolCallId,
+      toolName: 'task',
+      partialResult: {
+        content: [],
+        details: {
+          projectAgentsDir: null,
+          results: [],
+          totalDurationMs: 0,
+          progress: [
+            {
+              ...base,
+              index: 0,
+              id: '0-a',
+              status: 'running',
+              description: 'a',
+              task: '查 A',
+              toolCount: 2,
+              tokens: 50,
+              durationMs: 10,
+              currentTool: 'read',
+            },
+            {
+              ...base,
+              index: 1,
+              id: '1-b',
+              status: 'pending',
+              description: 'b',
+              task: '查 B',
+              toolCount: 0,
+              tokens: 0,
+              durationMs: 0,
+            },
+          ],
+        },
+      },
+    })
+    await sleep(5)
+    out({
+      type: 'tool_execution_end',
+      toolCallId,
+      toolName: 'task',
+      isError: false,
+      result: {
+        content: [{ type: 'text', text: 'done' }],
+        details: {
+          projectAgentsDir: null,
+          totalDurationMs: 30,
+          results: [
+            {
+              index: 0,
+              id: '0-a',
+              agent: 'task',
+              description: 'a',
+              task: '查 A',
+              exitCode: 0,
+              output: 'A 的结果',
+              stderr: '',
+              truncated: false,
+              durationMs: 20,
+              tokens: 80,
+              requests: 2,
+              resolvedModel: 'fake/fake-omp:high',
+            },
+            {
+              index: 1,
+              id: '1-b',
+              agent: 'task',
+              description: 'b',
+              task: '查 B',
+              exitCode: 1,
+              output: '',
+              stderr: '',
+              error: 'B 失败了',
+              truncated: false,
+              durationMs: 5,
+              tokens: 10,
+              requests: 1,
+            },
+          ],
+        },
+      },
+    })
+    await say('派完了')
+  } else if (text.includes('计划') && process.env.PIXELSKY_OMP_PLAN === '1') {
+    // 计划扩展加载时：exit_plan_mode 的对话框比它的 tool_execution_start 先到（实测 omp 的顺序）
+    const toolCallId = 'call-plan'
+    const id = 'ui-plan'
+    out({
+      type: 'extension_ui_request',
+      id,
+      method: 'select',
+      title: '计划已就绪，要开始执行吗？ / Ready to implement this plan?\n# 计划\n1. 改 a',
+      options: ['开始执行 / Start implementing', '继续完善计划 / Keep planning'],
+    })
+    out({ type: 'tool_execution_start', toolCallId, toolName: 'exit_plan_mode', args: { plan: '# 计划\n1. 改 a' } })
+    const value = await new Promise(resolve => (approval = { id, resolve }))
+    const approved = value === '开始执行 / Start implementing'
+    if (approved)
+      out({
+        type: 'extension_ui_request',
+        id: 'ui-status',
+        method: 'setStatus',
+        statusKey: 'pixelsky-mode',
+        statusText: process.env.PIXELSKY_OMP_PLAN_RETURN || 'default',
+      })
+    out({
+      type: 'tool_execution_end',
+      toolCallId,
+      toolName: 'exit_plan_mode',
+      isError: false,
+      result: { content: [{ type: 'text', text: approved ? 'approved' : 'keep refining' }], details: {} },
+    })
+    await say(approved ? '开始做' : '再想想')
+  } else if (text.includes('后台分')) {
+    // 真 omp 的派活：工具马上返回（details.async），子智能体在后台跑，跑完再报 update 和 async-result；
+    // 「停」：主轮被停以后子智能体才跑完
+    const toolCallId = `call-bg-${++tools}`
+    const agents = ['Alpha', 'Beta']
+    const progress = status =>
+      agents.map((id, index) => ({
+        index,
+        id,
+        agent: 'task',
+        status: id === 'Beta' && status === 'completed' && text.includes('取消') ? 'aborted' : status,
+        assignment: `查 ${id}`,
+        recentOutput: [],
+        toolCount: 1,
+        tokens: 110,
+        durationMs: 20,
+        resolvedModel: 'fake/fake-omp:high',
+      }))
+    const details = (status, extra = {}) => ({
+      projectAgentsDir: null,
+      results: [],
+      totalDurationMs: 1,
+      progress: progress(status),
+      ...extra,
+    })
+    const update = status =>
+      out({
+        type: 'tool_execution_update',
+        toolCallId,
+        toolName: 'task',
+        partialResult: { content: [], details: details(status) },
+      })
+    out({
+      type: 'tool_execution_start',
+      toolCallId,
+      toolName: 'task',
+      args: { tasks: agents.map(name => ({ name, task: `查 ${name}` })) },
+    })
+    update('running')
+    const result = {
+      content: [{ type: 'text', text: 'Spawned 2 background agents' }],
+      details: details('pending', { async: { state: 'running', jobId: 'Alpha', type: 'task' } }),
+    }
+    out({ type: 'tool_execution_end', toolCallId, toolName: 'task', isError: false, result })
+    update('running')
+    append({
+      type: 'message',
+      message: { role: 'toolResult', toolCallId, toolName: 'task', ...result, isError: false },
+    })
+    const finish = () => {
+      const folder = sessionFile.replace(/\.jsonl$/, '')
+      mkdirSync(folder, { recursive: true })
+      for (const id of agents) {
+        const usage = { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, cost: { total: 0.5 } }
+        const content = [{ type: 'text', text: `${id} 查完了` }]
+        const call = [{ type: 'toolCall', id: 'c1', name: 'read', arguments: { path: 'a.txt' } }]
+        writeFileSync(
+          join(folder, `${id}.jsonl`),
+          [
+            { type: 'title', title: '' },
+            { type: 'session', version: 3, id, parentSession: sessionFile },
+            { type: 'message', id: 'm1', message: { role: 'user', content: [{ type: 'text', text: `查 ${id}` }] } },
+            { type: 'message', id: 'm2', message: { role: 'assistant', content: call, model: 'fake-omp' } },
+            {
+              type: 'message',
+              id: 'm3',
+              message: {
+                role: 'toolResult',
+                toolCallId: 'c1',
+                toolName: 'read',
+                content: [{ type: 'text', text: 'ok' }],
+              },
+            },
+            { type: 'message', id: 'm4', message: { role: 'assistant', content, usage, model: 'fake-omp' } },
+          ]
+            .map(l => JSON.stringify(l) + '\n')
+            .join(''),
+        )
+        const status = id === 'Beta' && text.includes('取消') ? 'cancelled' : 'completed'
+        const body = status === 'completed' ? `<output>\n${id} 的结果\n</output>` : '<abort-reason>停了</abort-reason>'
+        append({
+          type: 'custom_message',
+          customType: 'async-result',
+          content: `<system-notice>\n<task-result id="${id}" agent="task" status="${status}">\n\n${body}\n</task-result>\n</system-notice>`,
+          details: { jobs: [{ jobId: id, type: 'task', status, agentId: id, label: id, durationMs: 1400 }] },
+        })
+      }
+      update('completed')
+    }
+    if (text.includes('停')) {
+      await new Promise(resolve => (aborter = resolve))
+      status = 'aborted'
+      setTimeout(() => {
+        finish()
+        save()
+      }, 150)
+    } else {
+      await say('派出去了')
+      finish()
+    }
+  } else if (text.includes('并发')) {
+    // 派两个到后台、同时只跑一个：cancel_subagent 停掉在跑的，排队的补上来；主轮被停时照样报 completed（真 omp 在等子智能体时就这样）
+    const toolCallId = `call-par-${++tools}`
+    const states = { Alpha: 'running', Beta: 'pending' }
+    const details = () => ({
+      results: [],
+      totalDurationMs: 1,
+      progress: Object.entries(states).map(([id, s]) => ({ id, agent: 'task', status: s, assignment: id })),
+    })
+    const update = () =>
+      out({ type: 'tool_execution_update', toolCallId, toolName: 'task', partialResult: { details: details() } })
+    const begin = id => {
+      states[id] = 'running'
+      live.set(id, () => {
+        live.delete(id)
+        states[id] = 'aborted'
+        if (states.Beta === 'pending') begin('Beta')
+        update()
+      })
+    }
+    out({
+      type: 'tool_execution_start',
+      toolCallId,
+      toolName: 'task',
+      args: { tasks: [{ name: 'Alpha' }, { name: 'Beta' }] },
+    })
+    begin('Alpha')
+    const result = {
+      content: [{ type: 'text', text: 'Spawned' }],
+      details: { ...details(), async: { state: 'running' } },
+    }
+    out({ type: 'tool_execution_end', toolCallId, toolName: 'task', isError: false, result })
+    update()
+    await new Promise(resolve => (aborter = resolve))
+  } else if (text.includes('占用')) {
+    // 会话文件被别的 omp 进程占着：改存到新文件，报一条警告（会重放）
+    const from = sessionFile
+    sessionFile = join(dir, `moved-${process.pid}.jsonl`)
+    const notice = `Session ${from} is open for writing in another omp process, so this session now saves to ${sessionFile} instead of mixing its entries into that file.`
+    for (let i = 0; i < 2; i++)
+      out({ type: 'notice', level: 'warning', message: notice, source: 'session-persistence' })
+    await say('换了文件')
+  } else if (text.includes('悄悄换')) {
+    // 没有通知就换了（用户发 /new 之类）
+    sessionFile = join(dir, `new-${process.pid}.jsonl`)
+    await say('换了文件')
+  } else if (text.includes('慢')) {
+    await new Promise(resolve => (aborter = resolve))
+    status = 'aborted'
+  } else if (text.includes('大')) {
+    await say('x'.repeat(CHUNK + 1000))
+  } else if (text.includes('坏')) {
+    status = 'error'
+    error = { message: 'boom from omp' }
+  } else await say('好的')
+  save()
+  out({ type: 'turn_end' })
+  out({ type: 'agent_end' })
+  out({
+    type: 'prompt_result',
+    id: m.id,
+    agentInvoked: true,
+    status,
+    ...(error ? { error } : {}),
+    sessionSettled: true,
+  })
+  out({ type: 'session_settled' })
+}
+
+out({ type: 'ready', protocolVersion: 1, supportedProtocolVersions: [1, 2], maxFrameBytes: CHUNK })
+const rl = readline.createInterface({ input: process.stdin })
+rl.on('line', async line => {
+  const m = JSON.parse(line)
+  if (process.env.FAKE_OMP_LOG) appendFileSync(process.env.FAKE_OMP_LOG, line + '\n')
+  switch (m.type) {
+    case 'negotiate_protocol':
+      protocol = m.protocolVersion
+      return response(m, { protocolVersion: protocol })
+    case 'get_state':
+      return response(m, {
+        sessionId: `id-${process.pid}`,
+        sessionFile,
+        model,
+        thinkingLevel: 'medium',
+        fastModeEnabled: fast,
+        fastModeActive: fastActive(),
+        // FAKE_OMP_NO_TASK=1：像用户用 --tools 关掉了 task
+        dumpTools: ['read', 'bash', ...(process.env.FAKE_OMP_NO_TASK === '1' ? [] : ['task'])].map(name => ({ name })),
+      })
+    case 'switch_session':
+      // 文件头里的工作目录对不上就拒绝，盘符大小写也算（真 omp 这样）
+      if (cwdOf(m.sessionPath) !== process.cwd()) return response(m, { cancelled: true })
+      sessionFile = m.sessionPath
+      loadFile(sessionFile)
+      return response(m, { cancelled: false })
+    case 'navigate_tree': {
+      const row = rows.find(r => r.id === m.entryId)
+      if (!row) return fail(m, `Entry ${m.entryId} not found`)
+      leaf = row.message?.role === 'user' ? row.parentId : row.id
+      return response(m, { cancelled: false })
+    }
+    case 'new_session':
+      sessionFile = join(dir, `fresh-${process.pid}.jsonl`)
+      rows = []
+      leaf = null
+      head = { ...head, id: `${process.pid}-fresh` }
+      save()
+      return response(m, { cancelled: false })
+    case 'get_available_models':
+      return response(m, { models })
+    case 'set_model': {
+      const found = models.find(x => x.provider === m.provider && x.id === m.modelId)
+      if (!found) return fail(m, 'model not found')
+      model = found
+      // 档位按模型家族记：FAKE_OMP_FAST_ON_SWITCH=1 时换模型后又回到 Fast（像另一家写了 tier: priority）
+      if (process.env.FAKE_OMP_FAST_ON_SWITCH === '1') fast = true
+      return response(m, model)
+    }
+    case 'set_fast_mode':
+      if (process.env.FAKE_OMP_FAST_STUCK !== '1') fast = m.enabled === true
+      return response(m, { enabled: fast, active: fastActive() })
+    case 'set_thinking_level':
+      return response(m)
+    case 'get_available_thinking_levels':
+      return response(m, { levels: ['off', 'low', 'medium', 'high'] })
+    case 'get_session_stats':
+      return response(m, { tokens: { input: btwInput, output: 0, cacheRead: 0, cacheWrite: 0 }, cost: 0 })
+    case 'get_available_commands':
+      return response(m, {
+        commands: [
+          { name: 'security', description: 'Security scans' },
+          // FAKE_OMP_NO_TURN=1：像用户的参数关掉了扩展
+          ...(process.env.FAKE_OMP_NO_TURN ? [] : [{ name: 'pixelsky-turn', description: 'x', source: 'extension' }]),
+        ],
+      })
+    case 'prompt':
+      // 扩展命令：记一条自定义条目；回应里没有 agentInvoked，做完另报一条 prompt_result（实测）
+      if (String(m.message).startsWith('/pixelsky-turn')) {
+        append({ type: 'custom', customType: 'pixelsky.turn', data: { id: String(m.message).slice(15) } })
+        if (existsSync(sessionFile)) save()
+        response(m, {})
+        return out({ type: 'prompt_result', id: m.id, agentInvoked: false, status: 'completed', sessionSettled: true })
+      }
+      if (process.env.FAKE_OMP_LOG)
+        appendFileSync(process.env.FAKE_OMP_LOG, JSON.stringify({ type: 'tier', fast: fastActive() }) + '\n')
+      if (String(m.message).startsWith('/security')) return response(m, { agentInvoked: false })
+      response(m, { agentInvoked: true })
+      return void turn(m)
+    case 'extension_ui_response':
+      if (approval?.id === m.id) {
+        const a = approval
+        approval = null
+        a.resolve(m.cancelled ? 'Deny' : m.value)
+      }
+      return
+    case 'btw': {
+      const question = String(m.question)
+      const record = { id: 'btw-1', leafId: null, question, answer: '', status: 'running', createdAt: 1, updatedAt: 1 }
+      // 实测：running 那一帧比回应先到
+      out({ type: 'btw_record', record })
+      response(m, { record })
+      if (question.includes('旁聊慢'))
+        return void (btwCancel = () => out({ type: 'btw_record', record: { ...record, status: 'cancelled' } }))
+      await sleep(5)
+      if (question.includes('旁聊失败'))
+        return out({ type: 'btw_record', record: { ...record, status: 'error', error: 'btw boom' } })
+      const answer = `旁聊回答：${process.pid}，${model.provider}/${model.id}，问：${question.slice(-12)}`
+      btwInput += 100
+      out({ type: 'btw_delta', recordId: 'btw-1', delta: answer })
+      return out({ type: 'btw_record', record: { ...record, status: 'complete', answer } })
+    }
+    case 'btw_cancel':
+      btwCancel?.()
+      btwCancel = null
+      return response(m, { cancelled: true })
+    case 'get_subagents':
+      return response(m, { subagents: [...live.keys()].map(id => ({ id, status: 'running' })) })
+    case 'cancel_subagent': {
+      const cancel = process.env.FAKE_OMP_STUCK_AGENTS ? null : live.get(m.subagentId)
+      cancel?.()
+      return response(m, { cancelled: !!cancel })
+    }
+    case 'abort':
+      aborter?.()
+      aborter = null
+      await sleep(5)
+      return response(m)
+    default:
+      return fail(m, `unknown command ${m.type}`)
+  }
+})
+rl.on('close', () => process.exit(0))
