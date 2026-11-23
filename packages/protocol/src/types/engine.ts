@@ -225,6 +225,7 @@ export interface EngineModel {
   label: string
   /** 模型说明（引擎报上来的一句话） */
   description?: string
+  cloudReference?: import('../modelDetails').CloudModelReference
   /** 别名指向的完整模型 id，例如 opus → claude-opus-5-5 */
   resolved?: string
   efforts: Effort[]

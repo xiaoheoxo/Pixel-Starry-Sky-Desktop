@@ -254,6 +254,29 @@ function normalizedModelLabel(id: string | null | undefined): string {
   )
 }
 
+export type ModelPosition = 'flagship' | 'subflagship' | 'efficient' | 'lightweight'
+
+/** Relative vendor-family positioning for known variants, not a universal capability ranking. */
+const positions: ReadonlyArray<readonly [RegExp, ModelPosition]> = [
+  [
+    /^(?:gpt-6(?:\.2)?-astra|claude-fable-5-2|gemini-4-carbon|deepseek-v4-pro|kimi-k3\.1-pro|mistral-large-(?:4|2610)|qwen4-max|glm-5\.3|grok-4\.7)(?:$|-(?:latest|preview|\d{4,8})$)/,
+    'flagship',
+  ],
+  [/^(?:claude-opus-5-5|gemini-4-neon|kimi-k3|grok-4\.6)(?:$|-(?:latest|preview|\d{4,8})$)/, 'subflagship'],
+  [
+    /^(?:gpt-6(?:\.[12])?-sol|gpt-6\.1-terra|claude-sonnet-5-5|gemini-4-argon|gemini-4-hydrogen|deepseek-v4(?:\.1)?-flash|mistral-small-(?:4|2603)|glm-5\.3-flash|minimax-m3\.1-flash)(?:$|-(?:latest|preview|\d{4,8})$)/,
+    'efficient',
+  ],
+  [
+    /^(?:gpt-(?:6|5\.6)-luna|claude-haiku-5-5|gemini-\d+(?:\.\d+)?-flash-lite|nova-2-lite)(?:$|-(?:latest|preview|\d{4,8})$)/,
+    'lightweight',
+  ],
+]
+export function getModelPosition(id: string | null | undefined): ModelPosition | undefined {
+  const model = expandModelShorthand(normalizedModelLabel(id)).replace(/^(claude-[a-z]+-\d+)\.(\d+)/, '$1-$2')
+  return positions.find(([pattern]) => pattern.test(model))?.[1]
+}
+
 export function getModelVendorGuide(id: string): { vendor: string; overview: string } | undefined {
   const normalized = id.toLowerCase().trim()
   const parts = normalized.split('/')

@@ -5,6 +5,7 @@ import {
   modelDetailKey,
   officialPrice,
   parseModelDetailPatch,
+  type CloudModelReference,
   type ModelDetail,
   type ModelDetailTarget,
 } from '@pixelsky/protocol'
@@ -13,7 +14,7 @@ import { useProviders } from '@/features/account/providers'
 import { bridge, useEngineState } from '@/features/engine'
 import { useEngineCatalog } from '@/features/engine/catalog'
 import { channelLabel } from '@/features/model-channels/channelLabels'
-import { modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
+import { modelPositionLabel, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { tr } from '@/i18n/core'
 import { useI18n } from '@/i18n/I18nProvider'
 import { Button, Select } from '@/ui'
@@ -22,7 +23,7 @@ type Source = {
   channel: ModelDetailTarget['channel']
   id: string | null
   label: string
-  models: { value: string; label: string; priceRef?: string | null }[]
+  models: { value: string; label: string; priceRef?: string | null; cloudReference?: CloudModelReference }[]
 }
 const sourceKey = (source: Source) => JSON.stringify([source.channel, source.id])
 const field = 'w-full rounded-md border border-line bg-surface px-3 py-2 text-ui text-fg'
@@ -54,7 +55,11 @@ export function ModelDetailsSection({ platformGroups }: { platformGroups: readon
       channel,
       id: null,
       label: channelLabel(channel),
-      models: (catalog?.models ?? []).map(model => ({ value: model.id, label: model.label || model.id })),
+      models: (catalog?.models ?? []).map(model => ({
+        value: model.id,
+        label: model.label || model.id,
+        cloudReference: model.cloudReference,
+      })),
     })),
     ...providers.providers.map(provider => ({
       channel: 'custom' as const,
@@ -93,7 +98,13 @@ export function ModelDetailsSection({ platformGroups }: { platformGroups: readon
               onChange={setModelId}
             />
           </div>
-          <DetailEditor key={key} target={target} saved={details?.[key]} priceRef={model.priceRef} />
+          <DetailEditor
+            key={key}
+            target={target}
+            saved={details?.[key]}
+            priceRef={model.priceRef}
+            cloudReference={model.cloudReference}
+          />
         </>
       )}
     </details>
@@ -104,18 +115,28 @@ function DetailEditor({
   target,
   saved,
   priceRef,
+  cloudReference,
 }: {
   target: ModelDetailTarget
   saved?: ModelDetail
   priceRef?: string | null
+  cloudReference?: CloudModelReference
 }) {
   const id = useId()
   const baseline = modelRoleGuide(target.model)
   const [main, setMain] = useState(saved?.main ?? baseline?.main ?? '')
   const [evaluator, setEvaluator] = useState(saved?.evaluator ?? baseline?.evaluator ?? '')
-  const [currency, setCurrency] = useState(saved?.price?.currency ?? 'USD')
-  const [input, setInput] = useState(saved?.price ? String(saved.price.input) : '')
-  const [output, setOutput] = useState(saved?.price ? String(saved.price.output) : '')
+  const priceFields = (price: ModelDetail['price']) => ({
+    currency: price?.currency ?? ('USD' as const),
+    input: price ? String(price.input) : '',
+    output: price ? String(price.output) : '',
+  })
+  const [draftPrice, setDraftPrice] = useState<ReturnType<typeof priceFields> | null>(null)
+  const currentPrice = draftPrice ?? priceFields(saved?.price ?? cloudReference?.price)
+  const { currency, input, output } = currentPrice
+  const setCurrency = (next: typeof currency) => setDraftPrice({ ...currentPrice, currency: next })
+  const setInput = (next: string) => setDraftPrice({ ...currentPrice, input: next })
+  const setOutput = (next: string) => setDraftPrice({ ...currentPrice, output: next })
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ error: boolean; text: string }>()
   const reference = officialPrice(target.model, priceRef)
@@ -139,7 +160,9 @@ function DetailEditor({
     const detail = {
       ...(main !== (baseline?.main ?? '') ? { main } : {}),
       ...(evaluator !== (baseline?.evaluator ?? '') ? { evaluator } : {}),
-      ...(a || b ? { price: { currency, input: a ? Number(a) : NaN, output: b ? Number(b) : NaN } } : {}),
+      ...((draftPrice || saved?.price) && (a || b)
+        ? { price: { currency, input: a ? Number(a) : NaN, output: b ? Number(b) : NaN } }
+        : {}),
     }
     const patch = parseModelDetailPatch({ target, detail })
     if (!patch) return setResult({ error: true, text: tr('modelDetails.invalidPrice') })
@@ -153,9 +176,7 @@ function DetailEditor({
       await bridge.setConfig('codex', { modelDetail: { target, detail: null } })
       setMain(baseline?.main ?? '')
       setEvaluator(baseline?.evaluator ?? '')
-      setCurrency('USD')
-      setInput('')
-      setOutput('')
+      setDraftPrice(null)
       setResult({ error: false, text: tr('modelDetails.restored') })
     } catch {
       setResult({ error: true, text: tr('modelDetails.error') })
@@ -165,6 +186,11 @@ function DetailEditor({
   }
   return (
     <form className="mt-3 space-y-3" onSubmit={submit}>
+      {modelPositionLabel(target.model) && (
+        <span className="inline-flex rounded-md bg-subtle px-2 py-1 text-label font-medium text-fg-secondary">
+          {modelPositionLabel(target.model)}
+        </span>
+      )}
       <fieldset disabled={busy} className="space-y-3">
         <label className="block text-label" htmlFor={`${id}-main`}>
           {tr('modelDetails.main')}
@@ -188,6 +214,11 @@ function DetailEditor({
             onChange={e => setEvaluator(e.target.value)}
           />
         </label>
+        {cloudReference?.description && (
+          <p className="text-label text-fg-muted">
+            {tr('modelDetails.cloudDescription', { description: cloudReference.description })}
+          </p>
+        )}
         <div className="space-y-1">
           <div className="text-label font-medium">{tr('modelDetails.price')}</div>
           <div className="grid items-end gap-2 sm:grid-cols-3">
@@ -225,14 +256,18 @@ function DetailEditor({
               />
             </label>
           </div>
-          {reference && (
-            <p className="text-label text-fg-faint">
-              {tr('modelDetails.reference', {
-                model: reference.model,
-                input: reference.input,
-                output: reference.output,
-              })}
-            </p>
+          {cloudReference?.price ? (
+            <p className="text-label text-fg-faint">{tr('modelDetails.cloudPrice')}</p>
+          ) : (
+            reference && (
+              <p className="text-label text-fg-faint">
+                {tr('modelDetails.reference', {
+                  model: reference.model,
+                  input: reference.input,
+                  output: reference.output,
+                })}
+              </p>
+            )
           )}
           <p className="text-label text-fg-muted">{tr('modelDetails.priceHint')}</p>
         </div>

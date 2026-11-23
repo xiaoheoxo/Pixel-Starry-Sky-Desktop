@@ -4,6 +4,12 @@ export const MODEL_PRICE_CURRENCIES = ['USD', 'CNY', 'EUR'] as const
 export const MODEL_DETAIL_MAX_TEXT = 600
 export type ModelDetailChannel = (typeof MODEL_DETAIL_CHANNELS)[number]
 export type ModelTokenPrice = { currency: (typeof MODEL_PRICE_CURRENCIES)[number]; input: number; output: number }
+/** Exact public catalog reference; not a subscription, relay, or invoiced price. */
+export interface CloudModelReference {
+  price?: ModelTokenPrice
+  /** OpenRouter copy, present only when the provider/model ID also exists in Models.dev. */
+  description?: string
+}
 export interface ModelDetailTarget {
   channel: ModelDetailChannel
   /** Custom endpoint or platform line ID. Null for the direct authorization channels. */

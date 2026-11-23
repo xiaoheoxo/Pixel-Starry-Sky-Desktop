@@ -1,3 +1,4 @@
+import { ADVISOR_DISABLED, advisorConfigIsolated } from '../src/codex/oneshot'
 import { describe, expect, it, vi } from 'vitest'
 import { modelDetailKey, parseSubagentAdvisor } from '@pixelsky/protocol'
 import {
@@ -214,6 +215,42 @@ describe('Agnes advisory model selection', () => {
         .flatMap(group => group.candidates)
         .find(c => c.id === 'other'),
     ).not.toHaveProperty('pricePerMillionTokens')
+  })
+
+  it('keeps public reference descriptions separate from private notes, and manual price wins', () => {
+    const model = 'gpt-6.2-sol'
+    const settings = parseSubagentAdvisor({
+      evaluator: 'judge',
+      evaluatorPicksModel: true,
+      models: [model, null, null],
+    })!
+    const metadata = {
+      get: () => ({ price: { currency: 'USD' as const, input: 2, output: 10 }, description: 'Public reference' }),
+    }
+    const key = modelDetailKey({ channel: 'chatgpt', sourceId: null, model })
+    const candidate = (details: Parameters<typeof advisorCandidates>[2]) =>
+      groupAdvisorCandidates(advisorCandidates(settings, [model], details, metadata))[0].candidates[0]
+    expect(candidate(undefined)).toMatchObject({
+      position: 'efficient',
+      priceBasis: 'public-reference',
+      referenceDescription: 'Public reference',
+    })
+    expect(
+      candidate({ [key]: { main: 'secret note', price: { currency: 'CNY', input: 0, output: 1 } } }),
+    ).toMatchObject({
+      priceBasis: 'user',
+      pricePerMillionTokens: { currency: 'CNY', input: 0, output: 1 },
+    })
+    expect(JSON.stringify(candidate({ [key]: { main: 'secret note' } }))).not.toContain('secret note')
+  })
+
+  it('fails closed if tool isolation cannot be verified', () => {
+    const features = Object.fromEntries(ADVISOR_DISABLED.map(flag => [flag, false]))
+    const config = { web_search: 'disabled', features, mcp_servers: {} }
+    expect(advisorConfigIsolated(config)).toBe(true)
+    expect(advisorConfigIsolated({ ...config, mcp_servers: { active: { enabled: true } } })).toBe(false)
+    expect(advisorConfigIsolated({ ...config, mcp_servers: undefined })).toBe(false)
+    expect(advisorConfigIsolated({ ...config, features: { ...features, shell_tool: true } })).toBe(false)
   })
 
   it('cuts off a slow evaluator and rejects malformed config', async () => {

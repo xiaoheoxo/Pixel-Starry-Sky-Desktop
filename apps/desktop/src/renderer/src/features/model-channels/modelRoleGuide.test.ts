@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getModelRoleGuide } from '@pixelsky/protocol'
+import { getModelPosition, getModelRoleGuide } from '@pixelsky/protocol'
 
 describe('model role copy', () => {
   it.each([
@@ -96,6 +96,14 @@ describe('model role copy', () => {
     expect(getModelRoleGuide('as', 'en')).toBeUndefined()
     expect(getModelRoleGuide('deep-4.1-x', 'en')).toBeUndefined()
     expect(getModelRoleGuide('f', 'en')).toBeUndefined()
+  })
+
+  it('labels known positions and leaves unknown variants unranked', () => {
+    expect(getModelPosition('gpt-6.2-astra')).toBe('flagship')
+    expect(getModelPosition('anthropic/claude-opus-5.5')).toBe('subflagship')
+    expect(getModelPosition('openai/gpt-6.2-sol')).toBe('efficient')
+    expect(getModelPosition('gpt-6-luna')).toBe('lightweight')
+    expect(getModelPosition('gpt-6.5-astra')).toBeUndefined()
   })
 
   it('prefers exact copy and falls back to family-only language for later variants', () => {

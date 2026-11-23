@@ -1,5 +1,9 @@
 // 模型通道（docs/ui/model-channels.md）：四条通道、谁来执行、授权弹窗、设置页
 export const modelChannelMessages = {
+  'modelDetails.position.flagship': { zh: '旗舰', en: 'Flagship' },
+  'modelDetails.position.subflagship': { zh: '次旗舰', en: 'Sub-flagship' },
+  'modelDetails.position.efficient': { zh: '高效', en: 'Efficient' },
+  'modelDetails.position.lightweight': { zh: '轻量', en: 'Lightweight' },
   'modelDetails.title': { zh: '模型明细与参考价格', en: 'Model details and reference prices' },
   'modelDetails.hint': {
     zh: '同一型号在不同通道可独立编辑。用途说明默认来自内置模型库，修改后只在本机显示。',
@@ -21,9 +25,17 @@ export const modelChannelMessages = {
     zh: '资料库 API 参考（{model}）：输入 USD {input}，输出 USD {output}。不是当前通道实价。',
     en: 'Catalog API reference ({model}): USD {input} input, USD {output} output. Not the current channel price.',
   },
+  'modelDetails.cloudPrice': {
+    zh: '默认：Models.dev 原厂 API 参考价。不是订阅、平台线路或中转实际扣费。',
+    en: 'Default: Models.dev direct API reference, not the subscription, platform, or relay charge.',
+  },
+  'modelDetails.cloudDescription': {
+    zh: '云端介绍（OpenRouter，已核对型号）：{description}',
+    en: 'Public description (OpenRouter, model identity cross-checked): {description}',
+  },
   'modelDetails.priceHint': {
-    zh: '留空表示未知，不是免费。ChatGPT 通道的自填价格仅在开启「让评估模型选型」时随候选发送，不影响扣费。',
-    en: 'Blank means unknown, not free. Manually configured ChatGPT prices are shared with Agnes candidates only when evaluator selection is enabled. Billing is unchanged.',
+    zh: '留空表示未知，不是免费。ChatGPT 通道的自填价优先于云端 API 参考价。仅在开启「让评估模型选型」时随候选发送，不影响扣费。',
+    en: 'Blank means unknown, not free. ChatGPT prices you enter override public API references. Prices are shared only when evaluator selection is enabled. Billing is unchanged.',
   },
   'modelDetails.invalidPrice': {
     zh: '请填写有效的非负输入和输出价格，或两项都留空。',

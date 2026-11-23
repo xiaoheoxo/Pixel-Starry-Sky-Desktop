@@ -1,5 +1,11 @@
-import { getModelRoleGuide, modelDetailKey, type ModelDetail, type ModelDetailTarget } from '@pixelsky/protocol'
-import { getLocale } from '@/i18n/core'
+import {
+  getModelPosition,
+  getModelRoleGuide,
+  modelDetailKey,
+  type ModelDetail,
+  type ModelDetailTarget,
+} from '@pixelsky/protocol'
+import { getLocale, tr } from '@/i18n/core'
 
 export function modelRoleGuide(
   id: string | null | undefined,
@@ -16,4 +22,10 @@ export function channelModelDetail(
   target: ModelDetailTarget,
 ): ModelDetail | undefined {
   return details?.[modelDetailKey(target)]
+}
+
+export function modelPositionLabel(id: string | null | undefined): string | undefined {
+  const position = getModelPosition(id)
+  if (!position) return undefined
+  return tr(`modelDetails.position.${position}`)
 }

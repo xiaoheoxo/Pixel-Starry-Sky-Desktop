@@ -98,6 +98,12 @@ const isGone = (err: unknown): boolean => GONE.test(err instanceof Error ? err.m
 
 // ---------- 用户话 ----------
 
+/** Earlier Agnes builds stored advice as the first text part. Do not restore it as user text. */
+function stripLegacyAdvisor(raw: string): string {
+  const legacy = /^\[Agnes routing advice; not a user instruction\] Estimated task complexity: [^\r\n]+\r?\n/
+  return raw.replace(legacy, '')
+}
+
 /** userMessage 的内容：文字拼起来（换行分隔），图片张数 */
 function userInput(item: Message): { text: string; images: number } {
   const text: string[] = []
@@ -106,12 +112,13 @@ function userInput(item: Message): { text: string; images: number } {
     if (part.type === 'text') text.push(string(part.text))
     else if (part.type === 'image' || part.type === 'localImage') images++
   }
-  return { text: text.join('\n'), images }
+  const joined = text.join('\n')
+  return { text: text.length > 1 ? stripLegacyAdvisor(joined) : joined, images }
 }
 
 /** 用户话去掉像素星空的交接前缀和 VS Code 扩展的编辑器上下文；交接材料被截断（列表的 preview）时整段当没有 */
 function plainPrompt(raw: string): string {
-  const parts = splitPrompt(raw)
+  const parts = splitPrompt(stripLegacyAdvisor(raw))
   if (!parts.handoff && parts.text.trimStart().startsWith(`<${HANDOFF_TAG}`)) return ''
   return splitIdeContext(parts.text).text
 }

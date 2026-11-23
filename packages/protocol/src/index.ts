@@ -4,13 +4,14 @@ export {
   MODEL_DETAIL_MAX_TEXT,
   modelDetailKey,
   parseModelDetailPatch,
+  type CloudModelReference,
   type ModelDetail,
   type ModelDetailChannel,
   type ModelDetailTarget,
   type ModelDetailPatch,
   type ModelTokenPrice,
 } from './modelDetails'
-export { getModelRoleGuide, getModelVendorGuide } from './modelRoleGuide'
+export { getModelPosition, getModelRoleGuide, getModelVendorGuide, type ModelPosition } from './modelRoleGuide'
 export { parseSubagentAdvisor, MAX_ADVISOR_EXTRA_MODELS, type SubagentAdvisor } from './subagentAdvisor'
 export { SUBAGENT_EFFORTS, subagentEffort, parseSubagentOverrides, type SubagentOverride } from './subagents'
 export {

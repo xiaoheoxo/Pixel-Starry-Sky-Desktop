@@ -1688,17 +1688,17 @@ describe('Codex app-server adapter', () => {
         prompt: expect.stringContaining('帮我整理这一页'),
       }),
       expect.any(AbortSignal),
+      expect.objectContaining({ env: expect.objectContaining({ FAKE_CODEX_PROVIDER: 'openai' }) }),
     )
     expect(evaluate.mock.calls[0][0].prompt).not.toContain('Configured candidates')
     expect(evaluate.mock.calls[0][0].advisorModelIds).toBeUndefined()
     const input = messages().find(m => m.method === 'turn/start')?.params
     expect(input.model).toBe('fake-codex')
-    expect(input.input).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ text: expect.stringContaining('consider fake-plain') }),
-        expect.objectContaining({ text: '帮我整理这一页' }),
-      ]),
-    )
+    expect(input.input).toEqual([expect.objectContaining({ text: '帮我整理这一页' })])
+    expect(messages().find(m => m.method === 'thread/inject_items')?.params.items[0]).toMatchObject({
+      role: 'developer',
+      content: [expect.objectContaining({ text: expect.stringContaining('consider fake-plain') })],
+    })
     expect(host!.open(session.id).items.some(item => item.kind === 'user' && item.text === '帮我整理这一页')).toBe(true)
   })
   it('Agnes shares only the opt-in list and can suggest the evaluator’s valid cross-tier pick', async () => {
@@ -1726,9 +1726,10 @@ describe('Codex app-server adapter', () => {
     expect(evaluate.mock.calls[0][0].prompt).not.toContain('missing-worker')
     const input = messages().find(m => m.method === 'turn/start')?.params
     expect(input.model).toBe('fake-codex')
-    expect(input.input[0].text).toContain('consider fake-plain')
-    expect(input.input[0].text).not.toContain('missing-worker')
-    expect(input.input[1].text).toBe('改文案')
+    const context = messages().find(m => m.method === 'thread/inject_items')?.params.items[0].content[0].text
+    expect(context).toContain('consider fake-plain')
+    expect(context).not.toContain('missing-worker')
+    expect(input.input[0].text).toBe('改文案')
   })
   it('Agnes sends no evaluator request or advice when no configured model is available', async () => {
     const { adapter, session, messages } = setup(50, {

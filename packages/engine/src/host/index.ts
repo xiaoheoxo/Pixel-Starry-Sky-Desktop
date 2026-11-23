@@ -169,6 +169,7 @@ export class EngineHost {
             subagentEffort: o.subagentEffort,
             subagentAdvisor: o.subagentAdvisor,
             modelDetails: () => settings.modelDetails(),
+            advisorPublicMetadata: settings.cloudModelMetadata,
             inputPrediction: o.inputPrediction,
             autoReviewModel: o.autoReviewModel,
             steeringValidated: true,

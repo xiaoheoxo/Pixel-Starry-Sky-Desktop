@@ -81,6 +81,7 @@ export interface CodexLaunchOptions {
   subagentModel?: string | null
   subagentEffort?: Effort | null
   subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
+  advisorPublicMetadata?: Pick<import('../host/cloud-model-metadata').CloudModelMetadata, 'get' | 'refresh'>
   modelDetails?: () => Readonly<Record<string, import('@pixelsky/protocol').ModelDetail>>
   currentSubagentAdvisor?: () => import('@pixelsky/protocol').SubagentAdvisor | null
   evaluateSubagent?: AdvisorEvaluator
@@ -1187,6 +1188,13 @@ export class CodexSession implements EngineSession {
       const available = this.catalog?.models?.map(model => model.id) ?? []
       let advice: string | null = null
       if (advisor && hasConfiguredSubagent(advisor, available) && text.trim() && !text.trimStart().startsWith('/')) {
+        const isCurrent = (latest: ReturnType<typeof currentAdvisor>) =>
+          !!latest &&
+          latest.evaluator === advisor.evaluator &&
+          latest.evaluatorPicksModel === advisor.evaluatorPicksModel &&
+          latest.models.every((model, index) => model === advisor.models[index]) &&
+          (latest.extraModels?.length ?? 0) === (advisor.extraModels?.length ?? 0) &&
+          (latest.extraModels ?? []).every((model, index) => model === advisor.extraModels?.[index])
         const localTier = localDifficulty(text, attachments.length > 0)
         let estimate: Awaited<ReturnType<typeof evaluateAdvisor>> = null
         const evaluate = this.options.evaluateSubagent
@@ -1198,25 +1206,56 @@ export class CodexSession implements EngineSession {
           advisor.evaluator &&
           evaluate &&
           available.includes(advisor.evaluator)
-        )
-          estimate = await evaluateAdvisor(
-            advisor.evaluator,
-            text,
-            evaluate,
-            advisor.evaluatorPicksModel ? advisorCandidates(advisor, available, this.options.modelDetails?.()) : [],
-          )
+        ) {
+          if (advisor.evaluatorPicksModel) await this.options.advisorPublicMetadata?.refresh()
+          if (this.active !== active || this.closed) return
+          if (isCurrent(currentAdvisor()))
+            estimate = await evaluateAdvisor(
+              advisor.evaluator,
+              text,
+              evaluate,
+              advisor.evaluatorPicksModel
+                ? advisorCandidates(
+                    advisor,
+                    available,
+                    this.options.modelDetails?.(),
+                    this.options.advisorPublicMetadata,
+                  )
+                : [],
+            )
+        }
         if (this.active !== active || this.closed) return
         const latest = currentAdvisor()
         if (latest) {
-          const stillCurrent =
-            latest.evaluator === advisor.evaluator &&
-            latest.evaluatorPicksModel === advisor.evaluatorPicksModel &&
-            latest.models.every((model, index) => model === advisor.models[index]) &&
-            (latest.extraModels?.length ?? 0) === (advisor.extraModels?.length ?? 0) &&
-            (latest.extraModels ?? []).every((model, index) => model === advisor.extraModels?.[index])
-          if (!stillCurrent) estimate = null
+          if (!isCurrent(latest)) estimate = null
           advice = subagentAdvice(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
         }
+      }
+      if (advice) {
+        try {
+          await this.proc!.request(
+            'thread/inject_items',
+            {
+              threadId: this.threadId,
+              items: [
+                {
+                  type: 'message',
+                  role: 'developer',
+                  content: [
+                    {
+                      type: 'input_text',
+                      text: `Applies only to the next user task; ignore for later turns. ${advice}`,
+                    },
+                  ],
+                },
+              ],
+            },
+            2_000,
+          )
+        } catch {
+          // Unsupported native servers receive no advice rather than putting it into the user's message.
+        }
+        if (this.active !== active || this.closed) return
       }
       const collab = this.collaboration()
       const tier = this.serviceTier()
@@ -1230,7 +1269,7 @@ export class CodexSession implements EngineSession {
       const result = await this.proc!.request('turn/start', {
         threadId: this.threadId,
         clientUserMessageId: userItemId,
-        input: [...(advice ? [{ type: 'text', text: advice }] : []), ...this.input(body, images)],
+        input: this.input(body, images),
         ...codexPermission(this.settings.permissionMode, this.ctx.record().cwd, this.ctx.record().extraDirs),
         ...this.reviewer(),
         ...(this.settings.model ? { model: this.settings.model } : {}),

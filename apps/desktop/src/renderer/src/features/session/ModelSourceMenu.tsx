@@ -64,7 +64,7 @@ import {
   executorName,
   showTriggerSource,
 } from '@/features/model-channels/channelLabels'
-import { channelModelDetail, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
+import { channelModelDetail, modelPositionLabel, modelRoleGuide } from '@/features/model-channels/modelRoleGuide'
 import { rememberExecutor, setMenuLayout, useChannelPrefs } from '@/features/model-channels/channelPrefs'
 import { planInfo, type PlanProvider } from '@/features/model-channels/plans'
 import {
@@ -406,6 +406,7 @@ export function ModelSourceMenu({
           mono={c === 'platform'}
           desc={rowDesc(c, row)}
           guide={rowGuide(c, row)}
+          position={modelPositionLabel(row.target.model)}
           descMono={c === 'custom'}
           meta={rowMeta(c, row)}
           query={query}
@@ -1229,6 +1230,7 @@ function ModelRow({
   mono,
   desc,
   descMono,
+  position,
   guide,
   meta,
   chip,
@@ -1245,6 +1247,7 @@ function ModelRow({
   mono?: boolean
   desc?: string
   descMono?: boolean
+  position?: string
   guide?: ReturnType<typeof modelRoleGuide>
   meta?: ReactNode
   chip?: ReactNode
@@ -1303,6 +1306,11 @@ function ModelRow({
             >
               <Mark text={title} query={query} />
             </span>
+            {position && (
+              <span className="shrink-0 rounded bg-subtle px-1 text-label font-medium text-fg-secondary">
+                {position}
+              </span>
+            )}
             {desc && (
               <span className={cn('min-w-0 flex-1 truncate text-label text-fg-faint', descMono && 'font-mono')}>
                 <Mark text={desc} query={query} />

@@ -55,6 +55,49 @@ export interface CodexSideFork {
 /** 旁聊和 Claude 旁聊一样等 5 分钟（会话强度可能很高）；提交信息这类单次问答仍是 ONE_SHOT_TIMEOUT */
 const SIDE_TIMEOUT = 5 * 60_000
 
+// Advisory subprocesses do not inherit custom launch arguments. Explicitly turn off tool surfaces
+// and verify the effective config before any task text is sent. Incompatible servers use local rules.
+export const ADVISOR_DISABLED = [
+  'shell_tool',
+  'unified_exec',
+  'plugins',
+  'apps',
+  'computer_use',
+  'in_app_browser',
+  'image_generation',
+  'multi_agent',
+  'multi_agent_v2',
+  'tool_suggest',
+  'skill_mcp_dependency_install',
+  'remote_plugin',
+  'skill_search',
+  'memories',
+] as const
+const ADVISOR_ARGS = [
+  '-c',
+  'mcp_servers={}',
+  '-c',
+  'web_search="disabled"',
+  '-c',
+  'project_doc_max_bytes=0',
+  '-c',
+  'shell_environment_policy.inherit="none"',
+  ...ADVISOR_DISABLED.flatMap(flag => ['-c', `features.${flag}=false`]),
+]
+
+export function advisorConfigIsolated(config: unknown): boolean {
+  const settings = object(config)
+  const features = object(settings.features)
+  return (
+    settings.web_search === 'disabled' &&
+    ADVISOR_DISABLED.every(flag => features[flag] === false) &&
+    settings.mcp_servers !== null &&
+    typeof settings.mcp_servers === 'object' &&
+    !Array.isArray(settings.mcp_servers) &&
+    Object.values(object(settings.mcp_servers)).every(server => object(server).enabled === false)
+  )
+}
+
 export async function codexOneShot(
   launcher: Launcher,
   launchArgs: string[],
@@ -72,11 +115,18 @@ export async function codexOneShot(
   const ended = new Promise<{ ok: true } | { ok: false; error: OneShotError }>(resolve => (finish = resolve))
   const proc: CodexProcess = new CodexProcess(
     launcher,
-    ['app-server', '--listen', 'stdio://', ...launchArgs],
+    ['app-server', '--listen', 'stdio://', ...(req.requireEphemeral ? ADVISOR_ARGS : launchArgs)],
     fork?.cwd ?? home,
     env,
     {
       notification: (method: string, params: Message) => {
+        if (req.requireEphemeral && (method === 'item/started' || method === 'item/completed')) {
+          const kind = string(object(params.item).type)
+          if (kind && !['userMessage', 'agentMessage', 'reasoning'].includes(kind)) {
+            finish({ ok: false, error: new OneShotError('failed', 'Evaluator attempted a non-text action') })
+            return
+          }
+        }
         if (method === 'item/completed') {
           const item = object(params.item)
           if (item.type === 'agentMessage' && string(item.text).trim()) text = string(item.text)
@@ -113,6 +163,11 @@ export async function codexOneShot(
   try {
     const run = (async () => {
       await proc.initialize(true)
+      if (req.requireEphemeral) {
+        const effective = object(await proc.request('config/read', { includeLayers: false })).config
+        if (!advisorConfigIsolated(effective)) throw new Error('Evaluator tool isolation could not be verified')
+        signal.throwIfAborted()
+      }
       const params = {
         cwd: fork?.cwd ?? home,
         approvalPolicy: 'never',

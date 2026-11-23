@@ -357,7 +357,12 @@ export class CodexAdapter implements EngineAdapter {
    * （以前一个子智能体开着详情两分钟就起了五十多个进程）
    */
   /** 不带会话、用当前登录的账号单独问一次（AI 写提交信息，docs/ui/ai-commit-channels.md §4） */
-  async oneShot(req: OneShotRequest, signal: AbortSignal): Promise<OneShotReply> {
+  async oneShot(
+    req: OneShotRequest,
+    signal: AbortSignal,
+    bound?: { launcher: Launcher; args: string[]; env: NodeJS.ProcessEnv },
+  ): Promise<OneShotReply> {
+    if (bound) return codexOneShot(bound.launcher, bound.args, bound.env, req, signal)
     const info = await this.info()
     const launcher = this.cached?.launcher
     if (!launcher || info.status === 'missing' || info.status === 'outdated' || info.status === 'unsupported')
@@ -579,6 +584,7 @@ export class CodexAdapter implements EngineAdapter {
     )
       throw new Error(result?.info.message ?? 'Codex is unavailable')
     const env = this.sessionEnvironment(result.launcher, ctx.record())
+    const advisorAccount = { launcher: result.launcher, args: [], env: { ...env } }
     const session = new CodexSession(result.launcher, env, ctx, {
       ...this.sessionOptions(result.launcher, result.info.version ?? null),
       // 宿主的运行时里已经有（打开会话时从 rollout 读过，之后实时更新）：直接用，不再整读一遍 rollout。
@@ -588,6 +594,7 @@ export class CodexAdapter implements EngineAdapter {
         const reply = await this.oneShot(
           { model, prompt, requireEphemeral: true, ...(candidates?.length ? { advisorModelIds: candidates } : {}) },
           signal,
+          advisorAccount,
         )
         return reply.model && reply.model !== model ? '' : reply.text
       },

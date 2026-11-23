@@ -34,6 +34,7 @@ import { logger } from '../log'
 import { ENGINE_ORDER, unsupportedInfo } from '../registry'
 import { retryLimit } from '../retry'
 import { DEFAULT_SETTINGS, idleReleaseMinutes, type EngineSettingsFile, type IdleReleaseMinutes } from '../store'
+import { CloudModelMetadata } from './cloud-model-metadata'
 import type { HostContext, Runtime } from './context'
 
 const WINDOW_SOURCES = ['platform', 'self'] as const
@@ -129,7 +130,9 @@ export class HostSettings {
   /** 引擎运行时报的配置类警告：引擎 → 类别 → 最新一条原文（reportConfigWarning），engines() 带进引擎信息 */
   private readonly configWarnings: Partial<Record<EngineId, Map<string, string>>> = {}
 
+  readonly cloudModelMetadata: CloudModelMetadata
   constructor(private readonly ctx: HostContext) {
+    this.cloudModelMetadata = new CloudModelMetadata(ctx.opts.fetch)
     this.file = ctx.store.loadSettings()
   }
 
@@ -484,7 +487,22 @@ export class HostSettings {
     const catalog = await adapter.catalog(force)
     const nextPlan = (await adapter.info().catch(() => null))?.account?.plan
     if (nextPlan !== prevPlan) this.ctx.opts.emit({ kind: 'engines', engines: await this.engines() })
-    return catalog
+    const provider =
+      engine === 'codex' ? 'openai' : engine === 'claude' ? 'anthropic' : engine === 'antigravity' ? 'google' : null
+    if (
+      !provider ||
+      !catalog.models?.length ||
+      (engine === 'codex' && catalog.currentProvider && catalog.currentProvider !== 'openai')
+    )
+      return catalog
+    await this.cloudModelMetadata.refresh()
+    return {
+      ...catalog,
+      models: catalog.models.map(model => ({
+        ...model,
+        cloudReference: this.cloudModelMetadata.get(provider, model.resolved ?? model.id),
+      })),
+    }
   }
 
   async updateEngine(engine: EngineId): Promise<EngineUpdateResult> {
