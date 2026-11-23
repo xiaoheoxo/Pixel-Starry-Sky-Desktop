@@ -185,7 +185,7 @@ function LiveSessionView({
   const demoQueue = useDemoQueueController(composer ? null : sessionId)
   const status = useStatusBar(sessionId, draftKey)
   // 智能体追踪面板：null 表示关着；focus 是定位到的智能体（null 是总览）
-  const [trace, setTrace] = useState<{ focus: string | null } | null>(null)
+  const [trace, setTrace] = useState<{ focus: string | null; filePath?: string } | null>(null)
   useEffect(() => setTrace(null), [sessionId])
   // 对话内搜索（Ctrl+F）：token 每按一次加一，已经打开时重新聚焦（docs/ui/content-highlight.md §2 E）
   const mainRef = useRef<HTMLElement>(null)
@@ -303,7 +303,7 @@ function LiveSessionView({
         // Agent 工具调用 → 它派出的子智能体；Workflow 工具调用 → 总览
         focus = runs.agents.find(a => a.toolUseId === target.toolUseId)?.id ?? null
       }
-      setTrace({ focus })
+      setTrace({ focus, filePath: target?.filePath })
     },
     [runs],
   )
@@ -760,6 +760,7 @@ function LiveSessionView({
                         key={`conversation-changes:${sessionId}`}
                         sessionId={sessionId}
                         items={snapshot.items}
+                        agents={runs?.agents}
                         cwd={snapshot.record.cwd ?? null}
                         running={snapshot.state !== 'idle' && snapshot.turnId !== null}
                       />
@@ -875,6 +876,7 @@ function LiveSessionView({
                       sessionId={sessionId}
                       runs={runs}
                       focus={trace.focus}
+                      filePath={trace.filePath}
                       onFocus={focus => setTrace({ focus })}
                       onClose={() => setTrace(null)}
                       belowHeader={!embedded}

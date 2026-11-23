@@ -65,3 +65,53 @@ describe('activeConversationChanges', () => {
     expect(data?.files).toMatchObject([{ path: 'src/File.ts', added: 5, removed: 0 }])
   })
 })
+
+it('combines edits for the total and preserves ownership when two agents edit the same file', () => {
+  const call = (id: string): Item => ({
+    kind: 'tool',
+    id,
+    tool: 'task',
+    name: 'spawn_agent',
+    title: id,
+    output: '',
+    status: 'completed',
+  })
+  const agent = (id: string, added: number) => ({
+    id,
+    label: id,
+    type: 'Codex',
+    model: 'model',
+    state: 'running',
+    startedAt: 0,
+    durationMs: 0,
+    tokens: 0,
+    toolCalls: 0,
+    phase: null,
+    prompt: '',
+    result: '',
+    toolUseId: id,
+    fileChanges: [{ path: '/proj/a.ts', kind: 'update' as const, added, removed: 0 }],
+  })
+  const data = activeConversationChanges(
+    [
+      user('old'),
+      call('old-agent'),
+      user('current'),
+      call('layout'),
+      call('verify'),
+      edit('main', 'completed', patch('a.ts', 1)),
+    ],
+    '/proj',
+    true,
+    [agent('old-agent', 100), agent('layout', 5), agent('verify', 6)],
+  )
+  expect(data).toMatchObject({
+    added: 12,
+    files: [{ path: 'a.ts', added: 12 }],
+    groups: [
+      { label: null, files: [{ added: 1 }] },
+      { label: 'layout', files: [{ added: 5 }] },
+      { label: 'verify', files: [{ added: 6 }] },
+    ],
+  })
+})

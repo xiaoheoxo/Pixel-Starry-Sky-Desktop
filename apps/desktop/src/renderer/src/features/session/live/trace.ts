@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react'
 /** 打开后定位到哪里：某个智能体，或某次 Agent / Workflow 工具调用；都不给时打开总览 */
 export interface TraceTarget {
   agentId?: string
+  filePath?: string
   toolUseId?: string
 }
 

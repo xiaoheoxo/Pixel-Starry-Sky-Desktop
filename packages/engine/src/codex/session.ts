@@ -1553,7 +1553,10 @@ export class CodexSession implements EngineSession {
       return this.predictionEvent(method, params)
     // 子智能体线程的事件只记进追踪（工具次数、token）
     if (eventThread && this.agents.has(eventThread)) return this.translator.child(eventThread, method, params)
-    if (eventThread && this.threadId && eventThread !== this.threadId) return
+    if (eventThread && this.threadId && eventThread !== this.threadId) {
+      if (this.active && method === 'item/completed') this.translator.childFileChange(eventThread, object(params.item))
+      return
+    }
     if (method === 'thread/goal/updated' || method === 'thread/goal/cleared') {
       this.goalSupported = true
       this.setGoal(method === 'thread/goal/cleared' ? null : codexGoal(params.goal), true)

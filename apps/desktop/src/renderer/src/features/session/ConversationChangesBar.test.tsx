@@ -1,16 +1,16 @@
 import { readFileSync } from 'node:fs'
 import { expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Item } from '@pixelsky/protocol'
+import type { AgentRun, Item } from '@pixelsky/protocol'
 import { I18nProvider } from '@/i18n/I18nProvider'
 import { ConversationChangesBar } from './ConversationChangesBar'
 
 vi.mock('@/features/panel/artifacts/focus', () => ({ reviewTurn: vi.fn(), reviewTurnFile: vi.fn() }))
 
-function render(items: readonly Item[], running: boolean) {
+function render(items: readonly Item[], running: boolean, agents?: AgentRun[]) {
   return renderToStaticMarkup(
     <I18nProvider>
-      <ConversationChangesBar items={items} cwd="C:/project" sessionId="branch" running={running} />
+      <ConversationChangesBar items={items} cwd="C:/project" sessionId="branch" running={running} agents={agents} />
     </I18nProvider>,
   )
 }
@@ -54,6 +54,45 @@ it('makes every changed file selectable, including same-name files and files bey
   expect(html.match(/<button\b/g)).toHaveLength(12)
   expect(html).toContain('aria-label="src-0/ControlCenterScreen.java"')
   expect(html).toContain('aria-label="src-10/ControlCenterScreen.java"')
+})
+
+it('lists live agent edits under the agent name and puts the basename before the directory', () => {
+  const agent: AgentRun = {
+    id: 'sub-id',
+    label: 'pages',
+    model: 'model',
+    state: 'running',
+    type: 'Codex',
+    startedAt: 0,
+    durationMs: 0,
+    tokens: 0,
+    toolCalls: 0,
+    phase: null,
+    prompt: '',
+    result: '',
+    toolUseId: 'spawn-pages',
+    fileChanges: [{ path: 'C:/project/very/long/file/AutomationClient.java', added: 5, removed: 1, kind: 'update' }],
+  }
+  const html = render(
+    [
+      { kind: 'user', id: 'message', text: 'go', createdAt: 2 },
+      {
+        kind: 'tool',
+        id: 'spawn-pages',
+        tool: 'task',
+        title: 'pages',
+        name: 'spawn_agent',
+        output: '',
+        status: 'completed',
+      },
+    ],
+    true,
+    [agent],
+  )
+  expect(html).toMatch(/<h3[^>]*>pages<\/h3>/)
+  expect(html).toMatch(
+    /<span[^>]*data-change-filename[^>]*>AutomationClient.java<\/span>[^]*?<span[^>]*data-change-dir[^>]*>very\/long\/file\/<\/span>/,
+  )
 })
 
 it('removes the button and preview as soon as the turn ends', () => {

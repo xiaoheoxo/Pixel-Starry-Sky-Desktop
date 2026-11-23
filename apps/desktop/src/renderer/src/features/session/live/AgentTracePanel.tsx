@@ -46,6 +46,7 @@ import { Markdown } from '@/ui/markdown/Markdown'
 import { ReasoningBlock, ToolItemRow, UserBubble } from './ItemRows'
 import { useDockFloat, type DragKind } from './useDockFloat'
 import { ChangedFilesCard } from '../ChangedFilesCard'
+import { conversationChangePath } from '../conversationChangesModel'
 import { agentFileCount, filesByAgent } from './changeBlocks'
 import type { ResizeDir } from './traceWindow'
 import { ago, endedAt, partitionRuns, turnToolUseIds, type TraceEntry } from './traceHistory'
@@ -600,12 +601,14 @@ function AgentFocus({
   run,
   now,
   onBack,
+  filePath,
 }: {
   sessionId: string
   agent: AgentRun
   run: WorkflowRun | null
   now: number
   onBack: () => void
+  filePath?: string
 }) {
   useI18n()
   const [items, setItems] = useState<Item[] | null>(null)
@@ -649,12 +652,20 @@ function AgentFocus({
   const task = items?.[0]?.kind === 'user' ? items[0].text : agent.prompt
   const rest = items?.[0]?.kind === 'user' ? items.slice(1) : (items ?? [])
   // 它改了哪些文件：从它自己的对话里汇总（docs/ui/subagent-changes.md §2.3）
+  const cwd = useEngineState(s => s.snapshots[sessionId]?.record.cwd ?? null)
   const changes = useMemo(
     () =>
       toChangedFiles(
-        (items ?? []).flatMap(it => (it.kind === 'file_change' && it.status === 'completed' ? it.changes : [])),
+        (items ?? []).flatMap(it =>
+          it.kind === 'file_change' && it.status === 'completed'
+            ? it.changes.filter(
+                change =>
+                  !filePath || conversationChangePath(cwd, change.path) === conversationChangePath(cwd, filePath),
+              )
+            : [],
+        ),
       ),
-    [items],
+    [items, cwd, filePath],
   )
   const target = useMemo(() => ({ sessionId }), [sessionId])
 
@@ -715,7 +726,10 @@ function AgentFocus({
           )}
         </section>
       )}
-      {changes && <ChangedFilesCard data={changes} target={target} />}
+      {changes && <ChangedFilesCard data={changes} target={target} initiallyExpanded={!!filePath} filenameFirst />}
+      {filePath && items && !changes && (
+        <p className="break-all text-meta text-fg-muted">{tr('artifacts.focusMissingFile', { path: filePath })}</p>
+      )}
       {agent.result && !items?.length && (
         <div className="text-meta text-fg-muted">
           {tr('session.live.AgentTracePanel.result')}
@@ -745,13 +759,22 @@ export interface AgentTracePanelProps {
   runs: AgentRuns
   /** 打开时定位的智能体；null 表示总览 */
   focus: string | null
+  filePath?: string
   onFocus: (agentId: string | null) => void
   onClose: () => void
   /** 主区顶部有会话顶部栏（不在窗格里）时让开它；窗格里顶部栏在主区外面，面板从顶上开始 */
   belowHeader?: boolean
 }
 
-export function AgentTracePanel({ sessionId, runs, focus, onFocus, onClose, belowHeader }: AgentTracePanelProps) {
+export function AgentTracePanel({
+  sessionId,
+  runs,
+  focus,
+  filePath,
+  onFocus,
+  onClose,
+  belowHeader,
+}: AgentTracePanelProps) {
   useI18n()
   const [now, setNow] = useState(() => Date.now())
   const running = anyRunning(runs.workflows, runs.agents)
@@ -954,9 +977,10 @@ export function AgentTracePanel({ sessionId, runs, focus, onFocus, onClose, belo
       <div className="selectable @container min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {focus && focused ? (
           <AgentFocus
-            key={focused.agent.id}
+            key={`${focused.agent.id}:${filePath ?? ''}`}
             sessionId={sessionId}
             agent={focused.agent}
+            filePath={filePath}
             run={focused.run}
             now={now}
             onBack={() => onFocus(null)}

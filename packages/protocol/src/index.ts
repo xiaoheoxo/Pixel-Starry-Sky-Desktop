@@ -13,6 +13,7 @@ export type {
   EngineAccount,
   EngineAccountQuota,
   EngineAccounts,
+  AgentFileChange,
   AgentRun,
   AgentRuns,
   AlwaysScope,

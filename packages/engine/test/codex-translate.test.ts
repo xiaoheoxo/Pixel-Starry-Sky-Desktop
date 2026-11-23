@@ -149,3 +149,24 @@ describe('Codex 计划：每轮一行，记下更新次数（C16）', () => {
     expect(last()).toMatchObject({ item: { id: 'cx-plan-t1', updates: 2 } })
   })
 })
+
+it('records completed child edits without injecting them into the parent transcript or counting duplicate events', () => {
+  const events: unknown[] = []
+  const translator = new CodexTranslator(event => events.push(event))
+  const item = {
+    type: 'fileChange',
+    id: 'edit',
+    status: 'completed',
+    changes: [{ path: '/proj/file.java', kind: 'update', diff: '+one\n-two' }],
+  }
+  translator.childFileChange('child', item)
+  translator.subagent({ kind: 'started', id: 'spawn', agentThreadId: 'child', agentPath: '/pages' }, true)
+  translator.child('child', 'item/completed', { item })
+  translator.child('child', 'item/completed', { item: { ...item, id: 'declined', status: 'declined' } })
+  translator.subagent({ kind: 'completed', id: 'done', agentThreadId: 'child' }, true)
+  expect(translator.agents.get('child')).toMatchObject({
+    label: 'pages',
+    fileChanges: [{ path: '/proj/file.java', added: 1, removed: 1 }],
+  })
+  expect(events).not.toContainEqual(expect.objectContaining({ item: expect.objectContaining({ kind: 'file_change' }) }))
+})

@@ -91,7 +91,15 @@ export type {
   ToolKind,
 } from './item'
 export type { ApprovalDecision, ApprovalRequest, Question, QuestionOption } from './approval'
-export type { AgentRun, AgentRuns, BackgroundTask, SubagentStatus, TaskOutput, WorkflowRun } from './agents'
+export type {
+  AgentFileChange,
+  AgentRun,
+  AgentRuns,
+  BackgroundTask,
+  SubagentStatus,
+  TaskOutput,
+  WorkflowRun,
+} from './agents'
 export type { GoalAction, GoalStatus, SessionGoal } from './goal'
 export { GOAL_NO_ENGINE, GOAL_NO_PROCESS, parseGoalCommand } from './goal'
 export type { EngineEvent, HostEvent, OpenedSession, SessionFlags, SessionSnapshot } from './events'

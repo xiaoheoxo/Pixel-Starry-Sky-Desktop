@@ -31,6 +31,8 @@ export interface SubagentStatus {
   toolUseId?: string
 }
 
+export type AgentFileChange = Pick<import('./item').FileChange, 'path' | 'kind' | 'added' | 'removed'>
+
 /** 智能体追踪里的一个智能体（编排里的智能体，或 Agent 工具派出的子智能体） */
 export interface AgentRun {
   /** 子进程实际使用的推理强度；未报告时缺省，不支持推理时 null。 */
@@ -62,6 +64,8 @@ export interface AgentRun {
   result: string
   /** 派出它的工具调用 id（Agent 工具） */
   toolUseId: string | null
+  /** Display-only completed edits from a separate agent transcript. Not parent undo input. */
+  fileChanges?: AgentFileChange[]
 }
 
 /** 一次多智能体编排（Workflow） */

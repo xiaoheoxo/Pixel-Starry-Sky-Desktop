@@ -1,5 +1,13 @@
 import { plainCodexMcpName } from '../mcp'
-import type { AgentRun, EngineEvent, FileChange, Item, ItemReview, ItemStatus } from '@pixelsky/protocol'
+import type {
+  AgentFileChange,
+  AgentRun,
+  EngineEvent,
+  FileChange,
+  Item,
+  ItemReview,
+  ItemStatus,
+} from '@pixelsky/protocol'
 import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
@@ -68,6 +76,9 @@ export const interruptedAgent = (agent: AgentRun): AgentRun =>
 export class CodexTranslator {
   readonly items = new Map<string, Item>()
   private reviews = new Map<string, ItemReview>()
+  private childEditIds = new Map<string, Set<string>>()
+  private pendingChildEdits = new Map<string, Message[]>()
+
   /** 压缩完了还没有压缩后的大小：等下一次用量更新补上（docs/ui/compaction.md） */
   private compactionSize: string | null = null
   /**
@@ -215,13 +226,15 @@ export class CodexTranslator {
           startedAt: priorAgent?.startedAt ?? Date.now(),
           durationMs: 0,
           tokens: 0,
-          toolCalls: 0,
+          toolCalls: priorAgent?.toolCalls ?? 0,
+          fileChanges: priorAgent?.fileChanges,
           phase: null,
           prompt: string(raw.prompt) || priorAgent?.prompt || '',
           result: string(state.message),
           // 只有派出调用认领子智能体；等待 / 发消息 / 关闭沿用派出时的卡片 id
           toolUseId: spawns ? id : (priorAgent?.toolUseId ?? id),
         })
+        this.flushChildFileChanges(agentId)
       }
       this.emitRuns()
     }
@@ -280,22 +293,57 @@ export class CodexTranslator {
       durationMs: done ? Date.now() - startedAt : 0,
       tokens: prior?.tokens ?? 0,
       toolCalls: prior?.toolCalls ?? 0,
+      fileChanges: prior?.fileChanges,
       phase: null,
       prompt: prior?.prompt ?? '',
       result: prior?.result ?? '',
       toolUseId,
     })
+    this.flushChildFileChanges(agentId)
     this.emitRuns()
   }
+  /** Child events may arrive before the parent announces that agent. Never import unrecognized threads. */
+  childFileChange(threadId: string, raw: Message): void {
+    const id = string(raw.id)
+    if (!id || raw.type !== 'fileChange' || statusOf(raw.status, true) !== 'completed') return
+    const agent = this.agents.get(threadId)
+    if (!agent) {
+      const pending = this.pendingChildEdits.get(threadId) ?? []
+      if (pending.length < 16 && (pending.length || this.pendingChildEdits.size < 16)) {
+        this.pendingChildEdits.set(threadId, [...pending, raw])
+      }
+      return
+    }
+    const seen = this.childEditIds.get(threadId) ?? new Set()
+    if (seen.has(id)) return
+    seen.add(id)
+    this.childEditIds.set(threadId, seen)
+    const byPath = new Map<string, AgentFileChange>((agent.fileChanges ?? []).map(change => [change.path, change]))
+    for (const { path, kind, added, removed } of codexChanges(raw.changes)) {
+      const prior = byPath.get(path)
+      byPath.set(path, { path, kind, added: (prior?.added ?? 0) + added, removed: (prior?.removed ?? 0) + removed })
+    }
+    this.agents.set(threadId, { ...agent, fileChanges: [...byPath.values()] })
+  }
+
+  private flushChildFileChanges(threadId: string): void {
+    const pending = this.pendingChildEdits.get(threadId)
+    if (!pending) return
+    this.pendingChildEdits.delete(threadId)
+    for (const raw of pending) this.childFileChange(threadId, raw)
+  }
+
   /** 子智能体线程自己的事件：只算工具次数和 token，不进主对话 */
   child(threadId: string, method: string, params: Message): void {
     const agent = this.agents.get(threadId)
     if (!agent) return
     let next = agent
     if (method === 'item/completed') {
+      this.childFileChange(threadId, object(params.item))
+      next = this.agents.get(threadId) ?? agent
       const type = string(object(params.item).type)
       if (!/^(agentMessage|plan|reasoning|userMessage|contextCompaction)$/.test(type))
-        next = { ...agent, toolCalls: agent.toolCalls + 1 }
+        next = { ...next, toolCalls: agent.toolCalls + 1 }
     } else if (method === 'thread/tokenUsage/updated')
       next = { ...agent, tokens: tokenCounts(object(params.tokenUsage).total).total }
     if (next === agent) return

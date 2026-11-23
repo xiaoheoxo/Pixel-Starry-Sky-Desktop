@@ -364,6 +364,7 @@ export const catalog = {
     zh: '停止本轮',
     en: 'Stop this turn',
   },
+  'session.ConversationChangesBar.main': { zh: '主会话', en: 'Main session' },
   'session.ConversationChangesBar.file': {
     zh: '{n} 个文件已更改',
     en: '{n} file changed',

@@ -47,6 +47,8 @@ export function ChangedFilesCard({
   undo,
   style,
   aiReview,
+  initiallyExpanded = false,
+  filenameFirst = false,
 }: {
   className?: string
   style?: CSSProperties
@@ -58,13 +60,17 @@ export function ChangedFilesCard({
   undo?: CardUndo | null
   /** 「AI 审查」（docs/ui/review-pr-actions.md §2）：不传不显示 */
   aiReview?: { onClick: () => void; running: boolean } | null
+  initiallyExpanded?: boolean
+  filenameFirst?: boolean
 }) {
   useI18n()
   const comingSoon = useComingSoon()
   const toast = useToast()
   const code = useAppMode() === 'code'
   const [error, setError] = useState('')
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
+  const [open, setOpen] = useState<ReadonlySet<string>>(
+    () => new Set(initiallyExpanded ? data?.files.map(file => file.dir + file.name) : undefined),
+  )
   if (!data) return null
   const codeRef = target ?? (isDemo && projects[0] ? { projectId: projects[0].id } : null)
   const firstDiff = data.files.find(f => f.diffs?.length) ?? data.files[0]
@@ -108,11 +114,17 @@ export function ChangedFilesCard({
         <div
           data-change-row
           data-reverted={reverted || undefined}
-          className="group/file flex h-[34px] items-center gap-1 rounded-md pr-1 pl-2 text-list hover:bg-hover"
+          className={cn(
+            'group/file flex items-center gap-1 rounded-md pr-1 pl-2 text-list hover:bg-hover',
+            filenameFirst ? 'min-h-[40px]' : 'h-[34px]',
+          )}
         >
           <button
             type="button"
-            className="flex h-full min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default',
+              filenameFirst ? 'min-h-[40px]' : 'h-full',
+            )}
             aria-expanded={diffs.length ? expanded : undefined}
             title={
               diffs.length
@@ -142,8 +154,23 @@ ${path}${ref && !isRemoteRef(ref) ? `\n${tr('path.hintDiff')}` : ''}`
                 reverted && 'text-fg-faint line-through',
               )}
             >
-              <span className={reverted ? undefined : 'text-fg-muted'}>{f.dir}</span>
-              <span className={reverted ? undefined : 'text-fg'}>{f.name}</span>
+              {filenameFirst ? (
+                <>
+                  <span className={cn('block truncate', !reverted && 'text-fg')} data-change-filename>
+                    {f.name}
+                  </span>
+                  {f.dir && (
+                    <span className="block truncate text-meta text-fg-muted" data-change-dir>
+                      {f.dir}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className={reverted ? undefined : 'text-fg-muted'}>{f.dir}</span>
+                  <span className={reverted ? undefined : 'text-fg'}>{f.name}</span>
+                </>
+              )}
             </span>
             <DiffStat
               added={f.added}
