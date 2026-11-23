@@ -23,6 +23,7 @@ import {
 import { queueSettings } from '../queue'
 import { NO_REPLY, seedTurns, type ChatSeed } from '../chat-log'
 import { logger } from '../log'
+import { ModeEchoes } from '../mode-echo'
 import { QUICK_CLOSE_MS, type CloseOptions, type EngineSession, type Launcher, type SessionContext } from '../adapter'
 import type { QuotaReading } from '../quota'
 import { claudeMcpServers, McpReporter } from '../mcp'
@@ -63,9 +64,6 @@ export const TO_CLAUDE_MODE: Record<PermissionMode, string> = {
   plan: 'plan',
   full: 'bypassPermissions',
 }
-
-/** 权限切换的应答之后最多等它的 status 多久 */
-const MODE_ECHO_MS = 1000
 
 /**
  * 固定参数：
@@ -315,8 +313,8 @@ export class ClaudeSession implements EngineSession {
   private updates: Promise<void> = Promise.resolve()
   /** 还没换上的权限切换（排着队的、等应答的）有几次：这期间进程报的模式都早于用户最后选的，不写回记录 */
   private modeChanges = 0
-  /** 自己发出去、status 还没到的权限切换（CLI 先回应答、再单独报 status），按顺序 */
-  private modeEchoes: { mode: PermissionMode; until: number }[] = []
+  /** 自己发出去、status 还没到的权限切换 */
+  private readonly modeEchoes = new ModeEchoes()
   /** 跨引擎接力还没注入的聊天：启动进程时写进会话记录；进程已经在跑或写不进去时，发消息时退回文字交接 */
   private seed: ChatSeed | null = null
   private readonly translator: ClaudeTranslator
@@ -346,9 +344,7 @@ export class ClaudeSession implements EngineSession {
       },
       permissionMode: mode => {
         // 自己那次切换的回声，不是引擎换了模式：晚到时不能盖掉后选的，也不能当成批准了计划
-        this.modeEchoes = this.modeEchoes.filter(e => e.until > Date.now())
-        const echo = this.modeEchoes.findIndex(e => e.mode === mode)
-        if (echo >= 0) return void this.modeEchoes.splice(0, echo + 1)
+        if (this.modeEchoes.take(mode)) return
         // 进程报的就是它现在用的模式（批准计划后 Claude Code 自己切回原模式）：记成已用上，用户再选回原来的才会发出去
         this.applied = { ...this.applied, permissionMode: mode }
         // 启动期间用户新选的模式还没补给进程：进程报的是启动时的旧模式，不能写回去盖掉
@@ -786,7 +782,7 @@ export class ClaudeSession implements EngineSession {
     this.proc = proc
     this.procViaGateway = launchedViaGateway
     this.applied = launched
-    this.modeEchoes = []
+    this.modeEchoes.reset()
     if (sid !== rec.engineSessionId) this.ctx.setEngineSessionId(sid)
     if (rec.pendingRewind) this.ctx.clearPendingRewind?.()
     if (rec.pendingFork) this.ctx.clearPendingFork?.()
@@ -1088,15 +1084,13 @@ export class ClaudeSession implements EngineSession {
   }
 
   private async setMode(proc: ClaudeProcess, mode: PermissionMode): Promise<void> {
-    const echo = { mode, until: Infinity }
-    this.modeEchoes.push(echo)
+    const echo = this.modeEchoes.sent(mode)
     try {
       await proc.request('set_permission_mode', { mode: TO_CLAUDE_MODE[mode] })
       this.applied = { ...this.applied, permissionMode: mode }
-      // status 紧跟着应答；CLI 没报的话过一会儿就不等了，免得把引擎之后自己换的模式当成回声
-      echo.until = Date.now() + MODE_ECHO_MS
+      echo.acked()
     } catch (err) {
-      this.modeEchoes = this.modeEchoes.filter(e => e !== echo)
+      echo.failed()
       throw err
     }
   }

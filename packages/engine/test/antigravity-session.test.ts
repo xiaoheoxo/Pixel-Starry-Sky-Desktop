@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import type { EngineEvent, SessionRecord } from '@pixelsky/protocol'
 import type { SessionContext } from '../src/adapter'
 import type { AgyProcessOps } from '../src/antigravity/background'
+import { nextPlanReturn, reportedMode } from '../src/host/plan-return'
 import { AntigravitySession, agySystemPrompt, pickEffort, type AgyLaunch } from '../src/antigravity/session'
 import { agyModels } from '../src/antigravity/discover'
 
@@ -40,13 +41,21 @@ createInterface({ input: process.stdin }).on('line', line => {
     if (m.params.configId === 'model') model = m.params.value
     if (m.params.configId === 'thought_level') level = m.params.value
     if (m.params.configId === 'mode') mode = m.params.value
-    return out({ id: m.id, result: { configOptions: opts() } })
+    out({ id: m.id, result: { configOptions: opts() } })
+    if (m.params.configId === 'mode') {
+      // 实测（1.5.14）：应答之后再单独推 current_mode_update、config_option_update，可能晚于下一次切换
+      const currentModeId = mode, configOptions = opts(), late = Number(process.env.FAKE_LATE ?? 0)
+      setTimeout(() => upd({ sessionUpdate: 'current_mode_update', currentModeId }), late)
+      setTimeout(() => upd({ sessionUpdate: 'config_option_update', configOptions }), late)
+    }
+    return
   }
   if (m.method === 'session/cancel') return cancelTurn?.()
   if (m.method !== 'session/prompt') return
   const text = m.params.prompt[0].text
   const end = (stopReason = 'end_turn') => out({ id: m.id, result: { stopReason, usage: { inputTokens: 10, outputTokens: 2, cachedReadTokens: 5, cachedWriteTokens: 0 } } })
   upd({ sessionUpdate: 'usage_update', used: 100, size: 1000 })
+  if (text.includes('switch:')) { mode = text.split('switch:')[1]; upd({ sessionUpdate: 'current_mode_update', currentModeId: mode }); return end() }
   if (text.includes('slow') || (text === '/compact' && process.env.FAKE_SLOW_COMPACT)) { cancelTurn = () => end('cancelled'); return }
   if (text.includes('err')) { upd({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '\\n⚠ agent executor error: Error 404 no model\\n' } }); return end() }
   if (text.includes('ask')) {
@@ -127,13 +136,18 @@ function setup(
     extensions,
     emit: (e: EngineEvent) => events.push(e),
     setEngineSessionId: (id: string) => (rec = { ...rec, engineSessionId: id }),
-    setPermissionMode: () => {},
+    // 和宿主一样（host/turn.ts）
+    setPermissionMode: (reported: SessionRecord['permissionMode']) => {
+      const { permissionMode, planReturn, push } = reportedMode(rec, reported)
+      rec = { ...rec, permissionMode, planReturn }
+      if (push) void Promise.resolve().then(() => session.update({ permissionMode }))
+    },
     setUltracode: () => {},
     setFast: () => {},
     setEffort: (effort: SessionRecord['effort']) => (rec = { ...rec, effort }),
   } as unknown as SessionContext
   const env = { ...process.env, FAKE_LOG: logFile, GEMINI_API_KEY: 'k', ...extraEnv }
-  const session = new AntigravitySession(
+  const session: AntigravitySession = new AntigravitySession(
     { command: process.execPath, args: [fake] },
     env,
     ctx,
@@ -156,8 +170,85 @@ function setup(
       }
       tick()
     })
-  return { session, events, sent, turnDone, rec: () => rec }
+  /** 用户换权限档，和宿主一样先改记录再发给会话 */
+  const pick = (permissionMode: SessionRecord['permissionMode']): Promise<void> => {
+    rec = { ...rec, planReturn: nextPlanReturn(rec, permissionMode, undefined), permissionMode }
+    return session.update({ permissionMode })
+  }
+  return { session, events, sent, turnDone, pick, rec: () => rec }
 }
+
+describe('Antigravity 换权限档（plan-mode-split.md §11）', () => {
+  type Mode = SessionRecord['permissionMode']
+  const AGY: Record<string, string> = { ask: 'default', edits: 'accept-edits', full: 'accept-edits', plan: 'plan' }
+  const start = async (late?: string) => {
+    const t = setup(
+      { permissionMode: 'ask' },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      late ? { FAKE_LATE: late } : {},
+    )
+    t.session.send('hi', 't0', 'u0')
+    await t.turnDone('t0')
+    return {
+      ...t,
+      /** agy 现在的模式：最后一次设的，没设过是 default */
+      agy: () =>
+        t
+          .sent()
+          .filter(m => m.method === 'session/set_config_option' && m.params.configId === 'mode')
+          .at(-1)?.params.value ?? 'default',
+      settle: () => new Promise(r => setTimeout(r, 200)),
+    }
+  }
+  const LISTS: [Mode[]][] = [
+    [['full', 'ask']],
+    [['plan', 'ask']],
+    [['full', 'ask', 'plan']],
+    [['edits', 'full', 'plan']],
+    [['plan', 'full', 'plan']],
+    [['plan', 'full', 'ask']],
+  ]
+  it.each(LISTS)('不等应答连着切 %j：停在最后选的那档', async list => {
+    const { pick, rec, agy, settle, session } = await start()
+    await Promise.all(list.map(pick))
+    await settle()
+    expect(rec().permissionMode).toBe(list.at(-1))
+    expect(agy()).toBe(AGY[list.at(-1)!])
+    await session.close()
+  })
+  it.each(LISTS)('通知晚到时连着切 %j：停在最后选的那档', async list => {
+    const { pick, rec, agy, settle, session } = await start('30')
+    for (const m of list) await pick(m)
+    await settle()
+    expect(rec().permissionMode).toBe(list.at(-1))
+    expect(rec().planReturn ?? null).toBe(list.at(-1) === 'plan' ? list.at(-2) : null)
+    expect(agy()).toBe(AGY[list.at(-1)!])
+    // 晚到的 config_option_update 也不能让下一次切换被当成没变
+    await pick('ask')
+    await settle()
+    expect(agy()).toBe('default')
+    await session.close()
+  })
+  it('agy 自己换的模式照样认', async () => {
+    const { pick, rec, agy, settle, session, turnDone } = await start()
+    await pick('full')
+    await pick('plan')
+    await settle()
+    session.send('switch:default', 't1', 'u1')
+    await turnDone('t1')
+    await settle()
+    // 计划中退出：回到进计划前那档，并推回 agy
+    expect(rec()).toMatchObject({ permissionMode: 'full', planReturn: null })
+    expect(agy()).toBe('accept-edits')
+    session.send('switch:plan', 't2', 'u2')
+    await turnDone('t2')
+    expect(rec()).toMatchObject({ permissionMode: 'plan', planReturn: 'full' })
+    await session.close()
+  })
+})
 
 describe('Antigravity 会话（假 agy）', () => {
   it('提问：弹提问卡片、这一轮不结束，回答当下一次 prompt 发回去；文字版的问题不显示', async () => {

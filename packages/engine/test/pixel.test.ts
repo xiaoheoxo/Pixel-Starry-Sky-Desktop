@@ -457,6 +457,21 @@ describe('Pixel 引擎适配器', () => {
     const settle = () => new Promise(r => setTimeout(r, 200))
     type Mode = SessionRecord['permissionMode']
 
+    // 命令行先报状态、再应答：不等应答就接着切，前面几次的状态到的时候已经选了后面的
+    it.each<[Mode[], Mode | null]>([
+      [['full', 'ask'], null],
+      [['full', 'ask', 'plan'], 'ask'],
+      [['edits', 'full', 'plan'], 'full'],
+      [['plan', 'full', 'plan'], 'full'],
+    ])('不等应答连着切 %j：停在最后选的那档', async (list, planReturn) => {
+      const { id, rec, modes } = await start()
+      await Promise.all(list.map(permissionMode => host!.update(id, { permissionMode })))
+      await settle()
+      expect(modes()).toEqual(list.map(m => PIXEL_MODES[m]))
+      expect(rec().permissionMode).toBe(list.at(-1))
+      expect(rec().planReturn ?? null).toBe(planReturn)
+    })
+
     // 计划卡等着时换了档再批准：命令行回到它进计划时记的那档，以用户后来换的为准（plan-mode-split.md §11）
     it.each<[Mode, Mode]>([
       ['full', 'ask'],

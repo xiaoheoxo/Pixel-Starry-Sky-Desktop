@@ -17,6 +17,7 @@ import type {
 import type { CloseOptions, EngineSession, Launcher, SessionContext } from '../adapter'
 import { ACP_AUTH_REQUIRED, AcpConnection } from '../acp/connection'
 import { forgetKeyAuth, keyAuthCameBack } from './auth-state'
+import { ModeEchoes } from '../mode-echo'
 import { AgyBackgroundTracker, defaultAgyProcessOps, type AgyProcessOps } from './background'
 import { AGY_ERROR_PREFIX, AgyTranslator, agyTurnUsage, type AgyQuestion } from './translate'
 
@@ -41,6 +42,8 @@ export function configOptions(v: unknown): ConfigOption[] {
     })),
   }))
 }
+
+const modeOf = (options: ConfigOption[]): string => options.find(o => o.id === 'mode')?.currentValue ?? ''
 
 /** 我们的权限模式 ↔ agy 的模式（§7：default 要审批、accept-edits 改文件不问、plan） */
 const MODE_OUT: Partial<Record<PermissionMode, string>> = {
@@ -139,6 +142,14 @@ export class AntigravitySession implements EngineSession {
   private opening: Promise<void> | null = null
   private sessionId: string | null = null
   private options: ConfigOption[] = []
+  /** agy 现在用的模式。不看 options 里的：晚到的 config_option_update 会把它写回旧的 */
+  private agyMode = ''
+  /** 改设置排队：前一次发完才轮到后一次，去重按那时真正用上的比 */
+  private updates: Promise<void> = Promise.resolve()
+  /** 还没换上的权限切换有几次：这期间 agy 报的模式都早于用户最后选的，不写回 */
+  private modeChanges = 0
+  /** 自己发出去、通知还没到的切换（agy 的模式名） */
+  private readonly modeEchoes = new ModeEchoes()
   private settings: SessionSettings
   private active: Active | null = null
   private closed = false
@@ -240,6 +251,8 @@ export class AntigravitySession implements EngineSession {
         this.ctx.setEngineSessionId(this.sessionId)
       }
       this.options = configOptions(result?.configOptions)
+      this.agyMode = modeOf(this.options)
+      this.modeEchoes.reset()
       await this.apply(this.settings, true)
     } catch (error) {
       this.sessionId = null
@@ -274,7 +287,18 @@ export class AntigravitySession implements EngineSession {
     }
     if (all || 'permissionMode' in want) {
       const mode = MODE_OUT[this.settings.permissionMode] ?? 'default'
-      await set('mode', mode)
+      const option = this.options.find(o => o.id === 'mode')
+      if (mode === this.agyMode || !option?.options.some(o => o.value === mode)) return
+      const echo = this.modeEchoes.sent(mode)
+      try {
+        const r = obj(await conn.request('session/set_config_option', { sessionId, configId: 'mode', value: mode }))
+        this.options = configOptions(r.configOptions)
+        this.agyMode = mode
+        echo.acked()
+      } catch (error) {
+        echo.failed()
+        throw error
+      }
     }
   }
 
@@ -283,16 +307,18 @@ export class AntigravitySession implements EngineSession {
     const u = obj(params.update)
     if (u.sessionUpdate === 'config_option_update') {
       this.options = configOptions(u.configOptions)
+      if (this.modeChanges === 0 && this.modeEchoes.empty) this.agyMode = modeOf(this.options)
       return
     }
     const r = this.translator.update(u)
     if (r.backgroundStarted) this.bg.register(r.backgroundStarted)
     if (r.backgroundKilled) this.bg.killedByModel(r.backgroundKilled)
-    if (r.mode) {
+    if (r.mode && !this.modeEchoes.take(r.mode)) {
+      this.agyMode = r.mode
       const mode = MODE_IN[r.mode]
       // 完全放行在 agy 那边就是 accept-edits，它报回来时别把我们的改回「自动编辑」
       const same = mode === 'edits' && this.settings.permissionMode === 'full'
-      if (mode && !same && mode !== this.settings.permissionMode) {
+      if (mode && !same && mode !== this.settings.permissionMode && this.modeChanges === 0) {
         this.settings = { ...this.settings, permissionMode: mode }
         this.ctx.setPermissionMode(mode)
       }
@@ -556,11 +582,17 @@ export class AntigravitySession implements EngineSession {
 
   async update(patch: Partial<SessionSettings>, strict = false): Promise<void> {
     this.settings = { ...this.settings, ...patch }
+    const mode = patch.permissionMode !== undefined
+    if (mode) this.modeChanges++
     if (this.opening) await this.opening.catch(() => {})
+    const run = this.updates.then(() => this.apply(patch))
+    this.updates = run.catch(() => undefined)
     try {
-      await this.apply(patch)
+      await run
     } catch (error) {
       if (strict) throw error
+    } finally {
+      if (mode) this.modeChanges--
     }
   }
 

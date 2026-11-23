@@ -411,6 +411,8 @@ export class PixelSession implements EngineSession {
   private speedApplied: PixelSpeed = 'off'
   private speedSeq = 0
   private settingsRevision = 0
+  /** 发出去还没应答的 /pixelsky-mode 有几次：命令行先报状态、再应答，这期间报的都是自己切换的回声或更早的 */
+  private modeChanges = 0
   private speedQueue: Promise<void> = Promise.resolve()
   /** 自己在改模型 / 强度（期间 Pi 报的 thinking_level_changed 是中间状态，不当作被夹紧） */
   private syncing = 0
@@ -1715,7 +1717,7 @@ export class PixelSession implements EngineSession {
   /** 命令行自己换了权限模式（计划确认后退出计划模式）：记下来并告诉宿主，不再发 /pixelsky-mode */
   private syncMode(text: string): void {
     const mode = (Object.keys(PIXEL_MODES) as PermissionMode[]).find(m => PIXEL_MODES[m] === text)
-    if (!mode || mode === this.settings.permissionMode) return
+    if (!mode || mode === this.settings.permissionMode || this.modeChanges > 0) return
     this.settings.permissionMode = mode
     this.ctx.setPermissionMode(mode)
     // omp 批准计划后：进程的 --approval-mode 和回到的档不一致（回到「完全放行」时计划阶段最多是自动改文件）就换进程，
@@ -1989,9 +1991,10 @@ export class PixelSession implements EngineSession {
         else this.recycle()
       } else if (patch.permissionMode !== undefined && patch.permissionMode !== before.permissionMode) {
         // 批准扩展的命令：prompt 里以 / 开头的扩展命令立即执行，不进模型，回应 disposition 为 handled
-        const response = await proc.request('prompt', {
-          message: `/${MODE_COMMAND} ${PIXEL_MODES[patch.permissionMode]}`,
-        })
+        this.modeChanges++
+        const response = await proc
+          .request('prompt', { message: `/${MODE_COMMAND} ${PIXEL_MODES[patch.permissionMode]}` })
+          .finally(() => this.modeChanges--)
         if (string(response.data.disposition) !== 'handled') throw new Error('Pixel did not switch the permission mode')
       }
     } catch (error) {
