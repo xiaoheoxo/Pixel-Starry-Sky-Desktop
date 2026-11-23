@@ -1,13 +1,15 @@
 // 「审查」：从对话里的改动卡片定位到产物面板里的这一轮（docs/ui/conversation-ux.md §2.1）。
 // 对话那边调用 reviewTurn，打开右侧「产物」页并登记请求；产物面板读到数据后滚过去、闪一下、展开各文件的 diff
 import { useSyncExternalStore } from 'react'
-import type { ArtifactDelivery, ArtifactTurn } from '@pixelsky/protocol'
+import type { ArtifactDelivery, ArtifactFile, ArtifactTurn } from '@pixelsky/protocol'
+import { relativePath } from '@/features/coding/ai/turnChangesModel'
 import { openRightTab } from '../workspaceStore'
 
 export interface ArtifactsFocus {
   sessionId: string
   /** 这一轮的用户消息；会话开头、第一条用户消息之前的改动为 null（和产物数据一致） */
   userItemId: string | null
+  file?: { path: string; cwd: string | null }
   token: number
   at: number
 }
@@ -30,7 +32,15 @@ const subscribe = (listener: () => void): (() => void) => {
 }
 
 export function reviewTurn(sessionId: string, userItemId: string | null, now = Date.now()): void {
-  current = { sessionId, userItemId, token: ++sequence, at: now }
+  requestFocus(sessionId, userItemId, now)
+}
+
+export function reviewTurnFile(sessionId: string, userItemId: string | null, path: string, cwd: string | null): void {
+  requestFocus(sessionId, userItemId, Date.now(), { path, cwd })
+}
+
+function requestFocus(sessionId: string, userItemId: string | null, at: number, file?: ArtifactsFocus['file']): void {
+  current = { sessionId, userItemId, token: ++sequence, at, ...(file ? { file } : {}) }
   emit()
   openRightTab('artifacts')
 }
@@ -87,6 +97,22 @@ export function findFocusTurn(
   focus: Pick<ArtifactsFocus, 'sessionId' | 'userItemId'>,
 ): ArtifactTurn | null {
   return turns.find(t => t.sessionId === focus.sessionId && t.userItemId === focus.userItemId) ?? null
+}
+
+export function findFocusFile(turn: ArtifactTurn, target: NonNullable<ArtifactsFocus['file']>): ArtifactFile | null {
+  const root = target.cwd ?? ''
+  // Remote files follow their own workspace's path syntax, not the renderer's OS.
+  const insensitive = /^(?:[a-z]:[\\/]|\\\\)/i.test(root || target.path)
+  const key = (path: string) => {
+    const relative = relativePath(root, path, insensitive)
+    return insensitive ? relative.toLowerCase() : relative
+  }
+  const requested = key(target.path)
+  return (
+    turn.files.find(file => key(file.absolute) === requested) ??
+    (!root ? turn.files.find(file => key(file.path) === requested) : undefined) ??
+    null
+  )
 }
 
 /** 产物面板里一轮的标识（TurnBlock 的 key 也用它） */

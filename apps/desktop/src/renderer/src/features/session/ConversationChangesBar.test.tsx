@@ -5,7 +5,7 @@ import type { Item } from '@pixelsky/protocol'
 import { I18nProvider } from '@/i18n/I18nProvider'
 import { ConversationChangesBar } from './ConversationChangesBar'
 
-vi.mock('@/features/panel/artifacts/focus', () => ({ reviewTurn: vi.fn() }))
+vi.mock('@/features/panel/artifacts/focus', () => ({ reviewTurn: vi.fn(), reviewTurnFile: vi.fn() }))
 
 function render(items: readonly Item[], running: boolean) {
   return renderToStaticMarkup(
@@ -25,15 +25,35 @@ const history = Array.from({ length: 19 }, (_, i): Item[] => [
   },
 ]).flat()
 
-it('uses exactly one button and a hover preview for the active turn, even for a long branch conversation', () => {
+it('uses one summary button and a separate file button for the active turn, even for a long branch conversation', () => {
   const html = render(history, true)
-  expect(html.match(/<button\b/g)).toHaveLength(1)
-  expect(html.match(/role="tooltip"/g)).toHaveLength(1)
+  expect(html.match(/<button\b/g)).toHaveLength(2)
+  expect(html.match(/data-conversation-changes/g)).toHaveLength(1)
   expect(html).toContain('readme-18.md')
   expect(html).not.toContain('readme-17.md')
-  const previewId = html.match(/aria-describedby="([^"]+)"/)?.[1]
+  const previewId = html.match(/aria-controls="([^"]+)"/)?.[1]
   expect(previewId).toBeTruthy()
-  expect(html).toContain(`id="${previewId}" role="tooltip"`)
+  expect(html).toContain(`id="${previewId}" role="group"`)
+})
+
+it('makes every changed file selectable, including same-name files and files beyond the former preview limit', () => {
+  const changes = Array.from({ length: 11 }, (_, i) => ({
+    path: `C:/project/src-${i}/ControlCenterScreen.java`,
+    kind: 'update' as const,
+    diff: '',
+    added: 1,
+    removed: 0,
+  }))
+  const html = render(
+    [
+      { kind: 'user', id: 'u1', text: 'go', createdAt: 0 },
+      { kind: 'file_change', id: 'changes', status: 'completed', changes },
+    ],
+    true,
+  )
+  expect(html.match(/<button\b/g)).toHaveLength(12)
+  expect(html).toContain('aria-label="src-0/ControlCenterScreen.java"')
+  expect(html).toContain('aria-label="src-10/ControlCenterScreen.java"')
 })
 
 it('removes the button and preview as soon as the turn ends', () => {
