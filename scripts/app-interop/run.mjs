@@ -29,7 +29,7 @@ function print(text) {
   appendFileSync(logFile, text + '\n')
 }
 
-/** desktop.mjs 要导入桌面端的 TS 源码：先用 esbuild 打包（@pixelsky/engine 只取 diff.ts，免得拉进整个引擎） */
+/** desktop.mjs 要导入桌面端的 TS 源码：先用 esbuild 打包（@pixelsky/engine 换成 engine.mjs，只取用到的模块） */
 async function loadDesktop() {
   const out = join(outDir, 'desktop.bundle.mjs')
   await need('esbuild').build({
@@ -39,7 +39,9 @@ async function loadDesktop() {
     platform: 'node',
     format: 'esm',
     logLevel: 'warning',
-    alias: { '@pixelsky/engine': join(root, 'packages', 'engine', 'src', 'diff.ts') },
+    // ws 是 CommonJS，打进 ESM 后要有 require 才能取 node 内置模块
+    banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url)" },
+    alias: { '@pixelsky/engine': join(root, 'scripts', 'app-interop', 'engine.mjs') },
   })
   return import(pathToFileURL(out).href)
 }

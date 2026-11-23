@@ -216,7 +216,7 @@ export async function startDesktop({ relayUrl, relay, log }) {
   let resolveOnline
   const ready = new Promise(r => (resolveOnline = r))
   const link = new RelayLink({
-    url: relayUrl,
+    targets: () => [{ tier: 'only', url: relayUrl }],
     desktopId: DESKTOP_ID,
     token: async () => 'desktop-access-token',
     onFrame: (phone, frame) => {
