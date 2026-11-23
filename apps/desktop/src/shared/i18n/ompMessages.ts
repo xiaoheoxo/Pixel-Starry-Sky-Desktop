@@ -1,16 +1,16 @@
 // oh-my-pi（omp，用户自己装的引擎）的界面文案，docs/omp-engine.md
 export const ompMessages = {
   'engine.omp.intro': {
-    zh: '开源的编码智能体 oh-my-pi（omp，基于 Pi，MIT 协议），需要你自己安装。可以用它自己登录的账号和 Key，也可以用平台余额。',
-    en: 'The open-source coding agent oh-my-pi (omp, built on Pi, MIT license). Install it yourself; use its own sign-ins and keys, or your platform balance.',
+    zh: '开源的编码智能体 oh-my-pi（omp，基于 Pi，MIT 协议），用它的官方安装器安装。可以用它自己登录的账号和 Key，也可以用平台余额。',
+    en: 'The open-source coding agent oh-my-pi (omp, built on Pi, MIT license), installed with its official installer. Use its own sign-ins and keys, or your platform balance.',
   },
   'engine.omp.useSettings': {
     zh: '使用 omp 自己设置的默认模型',
     en: 'Use the default model from omp settings',
   },
   'modelChannels.executor.desc.omp': {
-    zh: '开源的 oh-my-pi，要自己安装；工具多，带 LSP、调试器',
-    en: 'Open-source oh-my-pi; install it yourself. Lots of tools, including LSP and a debugger',
+    zh: '开源的 oh-my-pi，要另外安装；工具多，带 LSP、调试器',
+    en: 'Open-source oh-my-pi, installed separately. Lots of tools, including LSP and a debugger',
   },
   'fullAccess.confirm.omp': {
     zh: 'oh-my-pi 会跳过所有权限检查',
@@ -26,8 +26,17 @@ export const ompMessages = {
     en: 'oh-my-pi (omp) not found. Install it in a terminal: curl -fsSL https://omp.sh/install | sh',
   },
   'engine.omp.tooOld': {
-    zh: 'oh-my-pi {p0} 版本太低（需要 {p1} 以上）：在终端运行 omp update',
-    en: 'oh-my-pi {p0} is too old (requires {p1} or later). Run omp update in a terminal.',
+    zh: 'oh-my-pi {p0} 版本太低（需要 {p1} 以上）：点更新按钮，或在终端运行 omp update',
+    en: 'oh-my-pi {p0} is too old (requires {p1} or later). Use the update button, or run omp update in a terminal.',
+  },
+  'engine.omp.notFound': { zh: '没找到 oh-my-pi', en: 'oh-my-pi not found' },
+  'engine.omp.updateCustom': {
+    zh: '自定义的命令不叫 omp，没法在软件里更新',
+    en: 'The custom command is not named omp, so it cannot be updated in the app',
+  },
+  'engine.omp.noInstaller': {
+    zh: '没找到 PowerShell / curl，请按提示在终端安装 oh-my-pi',
+    en: 'PowerShell / curl not found. Install oh-my-pi from a terminal as shown',
   },
   'engine.omp.noVersion': { zh: '读不出 oh-my-pi 的版本', en: 'Could not read the oh-my-pi version' },
   'engine.omp.cannotStart': { zh: 'oh-my-pi 启动不了', en: 'oh-my-pi could not start' },

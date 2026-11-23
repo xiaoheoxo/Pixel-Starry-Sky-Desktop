@@ -2,13 +2,14 @@
 import { existsSync, mkdtempSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, parse } from 'node:path'
 import {
   codedError,
   viaGateway,
   type AgentRuns,
   type EngineCatalog,
   type EngineInfo,
+  type EngineUpdateResult,
   type ExtensionLaunch,
   type Item,
   type SessionRecord,
@@ -18,7 +19,7 @@ import type { EngineAdapter, EngineSession, Launcher, RewindAnchor, SessionConte
 import type { ListOptions, NativeRead, NativeSessionList, NewerTurns, ReadOptions } from '../native/types'
 import { markOfFile, readSinceMark } from '../pixel/tui'
 import { engineEnv, systemProxyEnv } from '../env'
-import { crashReason, removeTree, run, startupReason } from '../exec'
+import { crashReason, outputTail, pathValue, removeTree, run, runStream, startupReason } from '../exec'
 import { engineBase } from '../registry'
 import { pixelCatalog } from '../pixel/catalog'
 import { PixelProcess, object, string } from '../pixel/process'
@@ -26,7 +27,7 @@ import { PixelSession, negotiateOmp, ompStartupHint, type PixelLaunchOptions } f
 import { transcriptItems } from '../pixel/transcript'
 import { ompAgentFile, ompRunsFromSession } from './agents'
 import { ompAnchor } from './branch'
-import { customOmp, discoverOmp } from './discover'
+import { customOmp, discoverOmp, ompInstaller } from './discover'
 import { writeOmpGateway } from './gateway-ext'
 import { ompNativeSessions, ompReadNative, ompCwd, ompSessionFile } from './native'
 import { ompApproval, ompLaunch, ompTuiArgs, reservedOmpArg } from './launch'
@@ -99,6 +100,34 @@ export class OmpAdapter implements EngineAdapter {
     this.cached = result
     this.catalogCache = null
     return result.info
+  }
+
+  /** npm 上的版本和官方安装器给的稳定版一致（docs/omp-engine.md §14） */
+  readonly npmPackage = '@oh-my-pi/pi-coding-agent'
+  /** 正在跑也换得了文件；先关空闲的进程，下一条消息就用新版本 */
+  readonly updateNeedsIdle = true
+
+  /** omp update：安装器、Homebrew、mise、bun、npm 装的它自己认。它按 PATH 找自己，所以把这份的目录放到最前 */
+  async update(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
+    const launcher = this.cached?.launcher ?? (await this.info(true), this.cached?.launcher)
+    if (!launcher) throw new Error('没找到 oh-my-pi')
+    if (parse(launcher.command).name.toLowerCase() !== 'omp') throw new Error('自定义的命令不叫 omp，没法在软件里更新')
+    const base = this.env()
+    const env = Object.fromEntries(Object.entries(base).filter(([k]) => k.toUpperCase() !== 'PATH'))
+    env.PATH = dirname(launcher.command) + delimiter + pathValue(base)
+    const r = await runStream(launcher, ['update'], env, 10 * 60_000, onLine)
+    // Nix、别的软件管着的：只打印一句，退出码仍是 0
+    const managed = /cannot update itself|installed and kept up to date by/.test(r.stdout)
+    return { ok: r.ok && !managed, output: outputTail(r), version: null }
+  }
+
+  /** 官方安装器：放到 %LOCALAPPDATA%\omp 或 ~/.local/bin，检测本来就会找那里 */
+  async install(onLine: (line: string) => void = () => undefined): Promise<EngineUpdateResult> {
+    const env = this.env()
+    const installer = ompInstaller(env)
+    if (!installer) throw new Error('没找到 PowerShell / curl，请按提示在终端安装 oh-my-pi')
+    const r = await runStream(installer, [], env, 10 * 60_000, onLine)
+    return { ok: r.ok, output: outputTail(r), version: null }
   }
 
   /** 模型目录：起一个临时 RPC 进程问 get_available_models（不发消息、不花钱），结果缓存（同像素星空引擎） */

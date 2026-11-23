@@ -156,7 +156,7 @@ export const demoEngineStatus: EngineLite[] = [
       ultracode: false,
       fast: false,
       thinkingSummaries: false,
-      selfUpdate: false,
+      selfUpdate: true,
       launchSettings: false,
       pluginCommands: false,
       platformSwitch: false,

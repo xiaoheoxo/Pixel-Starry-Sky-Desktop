@@ -168,7 +168,7 @@ export function dirsOnPath(fileName: string, env: NodeJS.ProcessEnv = process.en
 }
 
 /** PATH 环境变量的值（Windows 上键名大小写不定，复制出来的环境对象不再忽略大小写） */
-function pathValue(env: NodeJS.ProcessEnv): string {
+export function pathValue(env: NodeJS.ProcessEnv): string {
   const key = Object.keys(env).find(k => k.toUpperCase() === 'PATH')
   return (key ? env[key] : undefined) ?? ''
 }

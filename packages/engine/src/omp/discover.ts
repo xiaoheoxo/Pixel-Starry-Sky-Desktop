@@ -18,7 +18,7 @@ export function ompVersionStatus(version: string | null): { status: EngineInfo['
   if (!versionAtLeast(version, OMP_MIN_VERSION))
     return {
       status: 'outdated',
-      message: `oh-my-pi ${version} 版本太低（需要 ${OMP_MIN_VERSION} 以上）：在终端运行 omp update`,
+      message: `oh-my-pi ${version} 版本太低（需要 ${OMP_MIN_VERSION} 以上）：点更新按钮，或在终端运行 omp update`,
     }
   return { status: 'ready', message: null }
 }
@@ -47,7 +47,23 @@ export function customOmp(command: string, env: NodeJS.ProcessEnv): { path: stri
 /** omp --version 输出「omp/19.1.0」 */
 export const ompVersionOf = (stdout: string): string | null => stdout.match(/\d+\.\d+\.\d+/)?.[0] ?? null
 
-/** override 为用户替换的命令，null 按 PATH 和安装器的位置找。我们不替用户安装（用户自己装，和 Claude Code、Codex 一样） */
+/** 官方安装器：Windows 用 PowerShell 跑 install.ps1，其他系统 curl … | sh；都没有时 null（界面不给「安装」） */
+export function ompInstaller(env: NodeJS.ProcessEnv): Launcher | null {
+  if (IS_WINDOWS) {
+    const ps =
+      findOnPath('powershell.exe', env) ??
+      [join(env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')].find(isFile)
+    if (!ps) return null
+    // PowerShell 5.1 画下载进度条会把下载拖得很慢
+    const script = "$ProgressPreference='SilentlyContinue'; irm https://omp.sh/install.ps1 | iex"
+    return { command: ps, args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script] }
+  }
+  const sh = findOnPath('sh', env) ?? ['/bin/sh'].find(isFile)
+  if (!sh || !findOnPath('curl', env)) return null
+  return { command: sh, args: ['-c', 'curl -fsSL https://omp.sh/install | sh'] }
+}
+
+/** override 为用户替换的命令，null 按 PATH 和安装器的位置找 */
 export async function discoverOmp(
   override: string | null,
   env: NodeJS.ProcessEnv,
@@ -74,6 +90,7 @@ export async function discoverOmp(
         status: 'missing',
         version: null,
         path: null,
+        installable: !override && ompInstaller(env) !== null,
         message: IS_WINDOWS
           ? '没找到 oh-my-pi（omp）。安装：在 PowerShell 运行 irm https://omp.sh/install.ps1 | iex'
           : '没找到 oh-my-pi（omp）。安装：在终端运行 curl -fsSL https://omp.sh/install | sh',

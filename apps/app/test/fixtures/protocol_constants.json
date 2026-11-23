@@ -261,7 +261,7 @@
      "session"
     ],
     "costUsd": true,
-    "selfUpdate": false,
+    "selfUpdate": true,
     "launchSettings": false,
     "pluginCommands": false,
     "platformSwitch": false

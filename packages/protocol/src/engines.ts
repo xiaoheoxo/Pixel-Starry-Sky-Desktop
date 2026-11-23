@@ -249,8 +249,8 @@ export const ENGINES: Record<EngineId, EngineDescriptor> = {
       // 确认三选一：Approve / Approve <工具> for this session / Deny
       alwaysScopes: ['session'],
       costUsd: true,
-      // 用户自己装、自己更新（omp update）
-      selfUpdate: false,
+      // omp update（docs/omp-engine.md §14）
+      selfUpdate: true,
       launchSettings: false,
       pluginCommands: false,
       platformSwitch: false,
