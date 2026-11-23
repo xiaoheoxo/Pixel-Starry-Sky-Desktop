@@ -1005,6 +1005,49 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
   color: transparent !important;
   animation: effort-sweep 3.2s linear infinite;
 }
+/* oh-my-pi：平时粉 → 紫的淡色，最高档三色流动（docs/ui/effort-menu-strip.md §4） */
+.effort-omp {
+  background: linear-gradient(90deg, var(--omp-1), var(--omp-2), var(--omp-3), var(--omp-2), var(--omp-1));
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  animation: effort-sweep 3.2s linear infinite;
+}
+.effort-slider[data-omp] {
+  --effort-accent: var(--omp-2);
+  --omp-mix: 52%;
+}
+:root[data-theme='dark'] .effort-slider[data-omp] {
+  --omp-mix: 66%;
+}
+.effort-slider[data-omp] .effort-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--omp-1) 34%, transparent),
+    color-mix(in oklab, var(--omp-2) 46%, transparent)
+  );
+}
+:root[data-theme='dark'] .effort-slider[data-omp][data-top] .effort-fill,
+.effort-slider[data-omp][data-top] .effort-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--omp-1) var(--omp-mix), transparent),
+    color-mix(in oklab, var(--omp-2) var(--omp-mix), transparent),
+    color-mix(in oklab, var(--omp-3) var(--omp-mix), transparent),
+    color-mix(in oklab, var(--omp-2) var(--omp-mix), transparent),
+    color-mix(in oklab, var(--omp-1) var(--omp-mix), transparent)
+  );
+  background-size: 200% 100%;
+  animation: effort-sweep 2.8s linear infinite;
+}
+.effort-slider[data-omp][data-top] .effort-thumb {
+  box-shadow:
+    var(--shadow-popover),
+    0 0 0 3px color-mix(in oklab, var(--omp-2) 34%, transparent),
+    -6px 0 16px color-mix(in oklab, var(--omp-1) 50%, transparent),
+    6px 0 16px color-mix(in oklab, var(--omp-3) 50%, transparent);
+}
 .effort-slider[data-ultra] {
   --ultra-mix: 58%;
 }
@@ -1039,14 +1082,15 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
     -6px 0 16px color-mix(in oklab, var(--ultra-1) 50%, transparent),
     6px 0 16px color-mix(in oklab, var(--ultra-5) 50%, transparent);
 }
-:root[data-motion='off'] :is(.effort-slider *, .effort-max, .effort-ultra) {
+/* !important：深色主题最高档的填充规则选择器更长，不加的话关了动画还在流动 */
+:root[data-motion='off'] :is(.effort-slider *, .effort-max, .effort-ultra, .effort-omp) {
   transition: none;
-  animation: none;
+  animation: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-motion='system'] :is(.effort-slider *, .effort-max, .effort-ultra) {
+  :root[data-motion='system'] :is(.effort-slider *, .effort-max, .effort-ultra, .effort-omp) {
     transition: none;
-    animation: none;
+    animation: none !important;
   }
 }
 
@@ -1713,6 +1757,7 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
     .animate-pulse,
     .effort-max,
     .effort-ultra,
+    .effort-omp,
     .effort-slider[data-top] .effort-fill,
     .effort-slider[data-ultra] .effort-fill,
     .compaction-icon,
@@ -1745,17 +1790,153 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
   }
 }
 
-/* Ultrafast 长按（docs/codex-engine.md §3.5）：按住时开关铺满、圆点滑过去，按满起飞。进度说明还要按多久，关闭动画时也照走。
-   时长 300ms = SpeedRow 的 HOLD_MS - CLICK_MS */
+/* 推理强度菜单的图标条（features/session/SwitchStrip.tsx，docs/ui/effort-menu-strip.md）：每格是一个 role=switch，一样宽。
+   格子里不用 span 做直接子元素：全局的 [role='switch'] > span 动画是给圆点的 */
+.switch-strip {
+  container-type: inline-size;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+.switch-cell {
+  --on: var(--accent);
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 2px 7px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: var(--text-label);
+  line-height: 1.3;
+  touch-action: none;
+  user-select: none;
+}
+.switch-cell[data-tone='ultracode'] {
+  --on: var(--ultracode);
+}
+.switch-cell[data-tone='warn'] {
+  --on: var(--warn);
+}
+.switch-cell > :not(.speed-fill) {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+}
+.switch-cell:is(:hover, [data-shown]):not([aria-disabled]) {
+  background: var(--bg-hover);
+}
+.switch-cell[aria-checked='true'],
+.switch-cell[aria-checked='true']:is(:hover, [data-shown]):not([aria-disabled]) {
+  background: color-mix(in srgb, var(--on) 18%, var(--bg-popover));
+  color: var(--text);
+}
+.switch-cell[aria-checked='true'] svg {
+  color: var(--on);
+}
+.switch-cell[data-pending] svg {
+  color: var(--warn);
+}
+.switch-cell[data-pending]::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--warn);
+}
+.switch-cell[aria-disabled] {
+  opacity: 0.42;
+  cursor: default;
+}
+.switch-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.switch-cell-name {
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 四格：每格宽是（条宽 - 3 个间隔）/ 4 再减左右内边距；等宽字的 Ultracode 约 5.5em，放不下时四个名字一起缩小 */
+.switch-strip[data-count='4'] .switch-cell-name {
+  font-size: min(var(--text-label), calc(((100cqw - 12px) / 4 - 4px) / 5.5));
+}
+.switch-strip:is([data-count='1'], [data-count='2']) .switch-cell {
+  flex-direction: row;
+  gap: 7px;
+  padding: 10px 6px;
+  font-size: var(--text-meta);
+}
+.switch-mini {
+  flex: none;
+  width: 22px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  transition: background-color var(--dur-base) var(--ease-out);
+}
+.switch-mini::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--text-faint);
+  transition: translate var(--dur-switch) var(--ease-spring);
+}
+[aria-checked='true'] > .switch-mini {
+  background: var(--on);
+  box-shadow: none;
+}
+[aria-checked='true'] > .switch-mini::after {
+  background: var(--bg-surface);
+  translate: 10px;
+}
+:root[data-motion='off'] .switch-mini,
+:root[data-motion='off'] .switch-mini::after {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion='system'] .switch-mini,
+  :root[data-motion='system'] .switch-mini::after {
+    transition: none;
+  }
+}
+/* 所有可能出现的说明叠在一格里占位，换一条时菜单高度不变 */
+.switch-help {
+  display: grid;
+}
+.switch-help > div {
+  grid-area: 1 / 1;
+  min-width: 0;
+  visibility: hidden;
+}
+.switch-help > div[data-shown] {
+  visibility: visible;
+}
+
+/* Ultrafast 长按（docs/codex-engine.md §3.5）：按住时格子从左到右填满，按满起飞。进度说明还要按多久，关闭动画时也照走。
+   时长 300ms = speedHold.ts 的 HOLD_MS - CLICK_MS */
 .speed-fill {
   position: absolute;
   inset: 0;
   transform-origin: left;
-  background: var(--warn);
+  background: color-mix(in srgb, var(--warn) 42%, transparent);
   animation: speed-fill 300ms linear forwards;
-}
-.speed-holding[aria-checked='false'] > .ui-switch-knob {
-  animation: speed-knob 300ms linear forwards;
 }
 .speed-trail {
   position: absolute;
@@ -1787,11 +1968,6 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
   }
   to {
     transform: scaleX(1);
-  }
-}
-@keyframes speed-knob {
-  to {
-    translate: 14px;
   }
 }
 @keyframes speed-glow {

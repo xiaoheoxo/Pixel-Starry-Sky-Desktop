@@ -108,12 +108,12 @@ export const codexMessages = {
     en: 'Click for Fast (2.5x), press and hold for Ultrafast (8x)',
   },
   'speed.holding': {
-    zh: '继续按住开启：订阅额度按 8 倍扣',
-    en: 'Keep holding to turn on. Subscription limits count 8x',
+    zh: '继续按住开启：{p0}',
+    en: 'Keep holding to turn on. {p0}',
   },
   'speed.tooShort': {
-    zh: '要按满 0.6 秒才开启，这样不会误点。订阅额度按 8 倍扣',
-    en: "Hold for 0.6 seconds to turn it on, so it can't happen by accident. Subscription limits count 8x",
+    zh: '要按满 0.6 秒才开启，这样不会误点',
+    en: "Hold for 0.6 seconds to turn it on, so it can't happen by accident",
   },
   'speed.holdLabel': { zh: 'Fast 模式，按住开 Ultrafast', en: 'Fast mode, press and hold for Ultrafast' },
   'speed.next': {

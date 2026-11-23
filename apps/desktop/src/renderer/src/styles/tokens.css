@@ -85,6 +85,10 @@
   --ultra-4: #2b9a66;
   --ultra-5: #1c7ed6;
   --ultra-6: #7c3aed;
+  /* oh-my-pi 的档位动画：它图标的粉、紫、青（docs/ui/effort-menu-strip.md §4） */
+  --omp-1: #c2259a;
+  --omp-2: #7a35e0;
+  --omp-3: #0e8a9c;
   --avatar-bg: #f0e2d6;
   --avatar-text: #7a5a43;
 
@@ -250,6 +254,9 @@
   --ultra-4: #6fdca3;
   --ultra-5: #74b9ff;
   --ultra-6: #c4a7ff;
+  --omp-1: #f472cf;
+  --omp-2: #b27dff;
+  --omp-3: #5ad8e6;
   --avatar-bg: #3a332d;
   --avatar-text: #e8d9cb;
 

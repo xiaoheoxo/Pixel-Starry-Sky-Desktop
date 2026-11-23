@@ -78,6 +78,7 @@ export function EffortSlider({
         data-tinted={accent ? true : undefined}
         data-top={top || undefined}
         data-ultra={ultra || undefined}
+        data-omp={engine === 'omp' || undefined}
         data-dragging={drag !== null || undefined}
         role="slider"
         tabIndex={disabled ? -1 : 0}

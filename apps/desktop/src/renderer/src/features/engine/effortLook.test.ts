@@ -29,6 +29,11 @@ describe('推理强度的特效', () => {
     expect(effortLook('xhigh', TO_XHIGH, 'codex')).toMatchObject({ className: 'effort-max', accent: '', top: true })
   })
 
+  it('oh-my-pi 的最高档是自己的渐变流光，其余档位没有', () => {
+    expect(effortLook('max', TO_MAX, 'omp')).toEqual({ className: 'effort-omp', accent: '', top: true, ultra: false })
+    expect(effortLook('high', TO_MAX, 'omp')).toEqual({ className: '', accent: '', top: false, ultra: false })
+  })
+
   it('像素星空不变：没有品牌色，最高档单色流光', () => {
     expect(effortLook('max', TO_MAX, 'pixel')).toEqual({ className: 'effort-max', accent: '', top: true, ultra: false })
   })

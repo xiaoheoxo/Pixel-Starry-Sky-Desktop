@@ -23,7 +23,8 @@ import type { EngineId, PermissionMode } from '@pixelsky/protocol'
 import { IconButton, Popover, cn, useToast } from '@/ui'
 import { PERMISSION_HINTS, PERMISSION_INFO, effortLabel, effortLook, type ComposerController } from '@/features/engine'
 import { EffortSlider } from './EffortSlider'
-import { SpeedRow } from './SpeedRow'
+import { SwitchStrip } from './SwitchStrip'
+import { effortSwitches } from './effortSwitches'
 import { SwitchRow } from './SwitchRow'
 import { useSessionCheckSwitch } from '@/features/checks/sessionChecks'
 import { effortDiff } from '@/features/engine/effortDefaults'
@@ -105,10 +106,8 @@ export function EffortMenu({
     if (onOpenChange) onOpenChange(value)
     else setOwn(value)
   }
-  const { effort, efforts, ultracode, ultracodeSupported, ultracodeAvailable, effortEngine } = live
+  const { effort, efforts, ultracode, ultracodeSupported, effortEngine } = live
   const look = effortLook(effort, efforts, effortEngine)
-  const ultraUnavailable = ultracodeAvailable === false
-  const fastUnavailable = live.fastAvailable === false
   const accentStyle = { '--effort-accent': look.accent || 'var(--text)' } as CSSProperties
   const toast = useToast()
   const [saving, setSaving] = useState(false)
@@ -132,7 +131,7 @@ export function EffortMenu({
     on: live.draftAutoCheck,
     set: live.setDraftAutoCheck,
   })
-  const hasSwitches = ultracodeSupported || live.fastSupported || live.thinkingSupported || canCheck
+  const switches = effortSwitches(live, canCheck ? { on: autoCheck, set: setAutoCheck } : null)
   // 开启的会话开关同步显示在按钮上，都用图标：Ultracode 紫色 ✦，Fast / 思考摘要 / 做完自动检查强调色；名字在悬停提示里。
   const fastOn = live.fastSupported && live.fast
   // 跑着的这一轮和开关不一致：图标变橙色，说明还没生效
@@ -190,7 +189,11 @@ export function EffortMenu({
           </span>
           <span
             key={effort ?? ''}
-            className={cn('shrink-0 text-ui font-semibold whitespace-nowrap text-fg', look.className)}
+            className={cn(
+              'shrink-0 text-ui font-semibold whitespace-nowrap',
+              effortEngine === 'omp' && effort ? 'text-(--omp-2)' : 'text-fg',
+              look.className,
+            )}
             style={accentStyle}
           >
             {effortLabel(effort)}
@@ -227,100 +230,9 @@ export function EffortMenu({
         ) : (
           <p className="text-meta text-fg-muted">{tr('session.ComposerMenus.modelHasNoEffortLevels')}</p>
         )}
-        {hasSwitches && (
-          <div className="mt-3 flex flex-col border-t border-line-subtle pt-1">
-            {ultracodeSupported && (
-              <SwitchRow
-                icon={
-                  <Sparkles size={14} strokeWidth={1.75} className={ultracode ? 'text-ultracode' : 'text-fg-muted'} />
-                }
-                label="Ultracode"
-                tone="ultracode"
-                desc={
-                  ultraUnavailable
-                    ? tr('session.ComposerMenus.notSupportedByThis')
-                    : effortEngine === 'omp'
-                      ? tr('engine.omp.ultracodeDesc')
-                      : tr('session.ComposerMenus.orchestrateMultipleSubagentsFor')
-                }
-                checked={ultracode}
-                disabled={ultraUnavailable && !ultracode}
-                onChange={live.setUltracode}
-              />
-            )}
-            {live.fastSupported && live.ultrafastAvailable && (
-              <SpeedRow
-                description={
-                  live.effortEngine === 'pixel'
-                    ? `${live.ultrafast ? '' : tr('speed.pixelHold') + ' '}${live.fastHint ?? tr('speed.pixelCost')}`
-                    : live.ultrafastCost !== null
-                      ? tr(live.ultrafast ? 'speed.platformUltrafastDesc' : 'speed.platformHoldHint', {
-                          n: live.ultrafastCost,
-                        })
-                      : undefined
-                }
-                speed={live.ultrafast ? 'ultrafast' : live.fast ? 'fast' : 'off'}
-                pending={fastPending}
-                onChange={speed => (speed === 'ultrafast' ? live.setUltrafast() : live.setFast(speed === 'fast'))}
-              />
-            )}
-            {live.fastSupported && !live.ultrafastAvailable && (
-              <SwitchRow
-                icon={
-                  <Zap
-                    size={14}
-                    strokeWidth={1.75}
-                    className={fastPending ? 'text-warn' : live.fast ? 'text-accent' : 'text-fg-muted'}
-                  />
-                }
-                label={tr('session.ComposerMenus.fastMode')}
-                pending={fastPending ? tr('codex.fastPending') : undefined}
-                desc={
-                  fastPending
-                    ? tr(live.fast ? 'codex.fastNextOn' : 'codex.fastNextOff')
-                    : fastUnavailable
-                      ? tr('session.ComposerMenus.temporarilyUnavailable', { p0: live.fastBlocked ?? '原因未知' })
-                      : (live.fastHint ?? tr('session.ComposerMenus.fasterOutputAtHigher'))
-                }
-                checked={live.fast}
-                disabled={fastUnavailable && !live.fast}
-                onChange={live.setFast}
-              />
-            )}
-            {live.thinkingSupported && (
-              <SwitchRow
-                icon={
-                  <Brain
-                    size={14}
-                    strokeWidth={1.75}
-                    className={live.thinkingSummaries ? 'text-accent' : 'text-fg-muted'}
-                  />
-                }
-                label={tr('session.ComposerMenus.showThinkingSummaries')}
-                desc={
-                  effortEngine === 'omp'
-                    ? tr('engine.omp.thinkingDesc')
-                    : tr('session.ComposerMenus.showSummaryOfModel')
-                }
-                checked={live.thinkingSummaries}
-                onChange={live.setThinkingSummaries}
-              />
-            )}
-            {canCheck && (
-              <SwitchRow
-                icon={
-                  <ListChecks size={14} strokeWidth={1.75} className={autoCheck ? 'text-accent' : 'text-fg-muted'} />
-                }
-                label={tr('checks.auto')}
-                desc={tr('checks.autoHint')}
-                checked={autoCheck}
-                onChange={setAutoCheck}
-              />
-            )}
-          </div>
-        )}
+        {switches.length > 0 && <SwitchStrip items={switches} />}
         {/* 会话里调整只影响这个会话；要改新会话的默认值点这里（GitHub #6） */}
-        <div className="mt-2 flex items-center justify-end border-t border-line-subtle pt-2">
+        <div className="mt-2 flex min-h-[calc(var(--text-meta)*1.4+17px)] items-center justify-end border-t border-line-subtle pt-2">
           {live.ultrafast ? (
             <span className="px-2 py-1 text-meta text-fg-muted">{tr('speed.sessionOnly')}</span>
           ) : (

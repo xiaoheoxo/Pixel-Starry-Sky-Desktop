@@ -629,6 +629,10 @@ export const catalog = {
     zh: '在回复前展示模型思考过程的摘要',
     en: 'Show a summary of model reasoning before the reply',
   },
+  'session.ComposerMenus.sessionSwitches': { zh: '会话开关', en: 'Session switches' },
+  'session.ComposerMenus.thinkingShort': { zh: '思考', en: 'Think' },
+  'session.ComposerMenus.checkShort': { zh: '检查', en: 'Checks' },
+  'session.ComposerMenus.usesMore': { zh: '更耗额度', en: 'Uses more' },
   'session.ComposerMenus.permissions': {
     zh: '权限：{p0}',
     en: 'Permissions: {p0}',

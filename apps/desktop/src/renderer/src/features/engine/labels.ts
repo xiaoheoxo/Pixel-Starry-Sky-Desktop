@@ -45,7 +45,7 @@ export interface EffortLook {
 
 /**
  * 某一档的特效：最高档用引擎品牌色流动；Codex 没有品牌色，Ultra 用彩虹，Max 不管是不是最高档都和 Claude 同色
- * （docs/engines.md §15.7）
+ * （docs/engines.md §15.7）。oh-my-pi 的颜色是渐变，不是一个强调色，滑块自己画（data-omp）
  */
 export function effortLook(effort: Effort | null, efforts: readonly Effort[], engine: EngineId): EffortLook {
   if (engine === 'codex' && effort === 'ultra')
@@ -53,6 +53,7 @@ export function effortLook(effort: Effort | null, efforts: readonly Effort[], en
   if (engine === 'codex' && effort === 'max')
     return { className: 'effort-max', accent: 'var(--engine-claude)', top: true, ultra: false }
   const top = !!effort && efforts.length > 1 && efforts.indexOf(effort) === efforts.length - 1
+  if (engine === 'omp') return { className: top ? 'effort-omp' : '', accent: '', top, ultra: false }
   return { className: top ? 'effort-max' : '', accent: engineAccent(engine), top, ultra: false }
 }
 
