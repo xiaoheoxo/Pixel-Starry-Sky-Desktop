@@ -36,6 +36,7 @@ import { CopyButton, DiffStat, IconButton, cn, useToast } from '@/ui'
 import { DiffView } from '@/ui/code/DiffView'
 import { CommandText } from '@/ui/code/CommandText'
 import { hasWrapperExtra } from './commandWrapper'
+import { connectorCall } from './connectorActivity'
 import { AnsiText } from '@/ui/code/AnsiText'
 import { useOpenTrace } from './trace'
 import { StepMark } from './ProgressCard'
@@ -1041,6 +1042,11 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
   // 子任务（Agent 工具）和多智能体编排（Workflow 工具）可以打开智能体追踪
   const traceable = !!openTrace && item.tool === 'task' && !item.subagent
   const named = NAMED_VERBS[item.name]
+  const integration = connectorCall(item)
+  const integrationStatus =
+    item.status === 'running' || item.status === 'completed' || item.status === 'failed'
+      ? tr(`session.connectorActivity.${item.status}`)
+      : null
   const verb = cloud
     ? tr(item.status === 'running' ? 'session.live.tool.cloudImaging' : 'session.live.tool.cloudImage')
     : generated
@@ -1057,7 +1063,7 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
       <Row
         id={item.id}
         icon={plan ? ListTodo : generated ? ImageIcon : meta.icon}
-        verb={verb}
+        verb={integration ? '' : verb}
         status={item.status}
         expandable={foldable}
         open={open}
@@ -1065,6 +1071,9 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
         trailing={
           <>
             <StatusMark status={item.status} review={item.review} />
+            {integration && integrationStatus && (
+              <span className="shrink-0 text-meta text-fg-muted">{integrationStatus}</span>
+            )}
             {images.length > 0 && !generated && (
               <span className="shrink-0 text-meta text-fg-faint">
                 {tr('session.live.viewedImages', { n: images.length })}
@@ -1098,9 +1107,18 @@ function ToolRowBody({ item }: { item: ItemOf<'command' | 'file_change' | 'tool'
           ) : undefined
         }
       >
-        <span data-tool-arg className="truncate text-fg-muted" title={item.title}>
-          {item.title}
-        </span>
+        {integration ? (
+          <span data-tool-arg className="flex min-w-0 items-center gap-1.5" title={item.name}>
+            <span className="truncate font-medium">{integration.tool || 'MCP'}</span>
+            {integration.provider && (
+              <span className="truncate rounded-sm bg-hover px-1 text-meta text-fg-muted">{integration.provider}</span>
+            )}
+          </span>
+        ) : (
+          <span data-tool-arg className="truncate text-fg-muted" title={item.title}>
+            {item.title}
+          </span>
+        )}
       </Row>
       {open &&
         shown &&

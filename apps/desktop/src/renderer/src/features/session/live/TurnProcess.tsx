@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, ChevronRight, Circle, Layers } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
+import { ConnectorActivitySummary } from './ConnectorActivitySummary'
+import { connectorCallCount, connectorUsage } from './connectorActivity'
 import { REQUEST_MS, useExpandAny } from '@/features/search/expand'
 import { formatDuration } from './agentTrace'
 import { planResult } from './progressData'
@@ -28,11 +30,14 @@ const PARTS: readonly (keyof Omit<ProcessSummary, 'failed' | 'blocked'>)[] = [
   'other',
 ]
 
-export function summaryText(s: ProcessSummary, steps: number): string {
-  const parts = PARTS.filter(k => s[k] > 0).map(k =>
-    tr(`session.process.${k}${s[k] === 1 ? 'One' : ''}` as TranslationKey, { n: s[k] }),
-  )
-  return parts.length ? parts.join(tr('session.process.joiner')) : tr('session.process.steps', { n: steps })
+export function summaryText(s: ProcessSummary, steps: number, opts?: { coveredMcp?: number }): string {
+  const coveredMcp = opts?.coveredMcp ?? 0
+  const parts = PARTS.flatMap(k => {
+    const count = k === 'mcp' ? Math.max(0, s.mcp - coveredMcp) : s[k]
+    return count > 0 ? [tr(`session.process.${k}${count === 1 ? 'One' : ''}` as TranslationKey, { n: count })] : []
+  })
+  if (parts.length) return parts.join(tr('session.process.joiner'))
+  return coveredMcp > 0 ? '' : tr('session.process.steps', { n: steps })
 }
 
 /**
@@ -68,6 +73,9 @@ function PlanStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只跟请求走
   }, [requested])
   const summary = useMemo(() => summarize(stage.items), [stage.items])
+  const connectors = useMemo(() => connectorUsage(stage.items), [stage.items])
+  const coveredMcp = useMemo(() => connectorCallCount(connectors), [connectors])
+  const summaryLine = summaryText(summary, stage.items.length, { coveredMcp })
   const open = toggled ?? (mode === 'detailed' || stage.active || summary.failed > 0 || summary.blocked > 0)
   return (
     <div data-fold={open ? 'open' : 'closed'} data-fold-items={open ? undefined : ids.join(' ')} data-plan-stage>
@@ -86,10 +94,18 @@ function PlanStage({
         <span className="min-w-0 truncate text-fg-secondary">
           {stage.n === null ? stage.step : `${stage.n}. ${stage.step}`}
         </span>
-        <span aria-hidden className="shrink-0 text-fg-faint">
-          ·
-        </span>
-        <span className="min-w-0 truncate">{summaryText(summary, stage.items.length)}</span>
+        {(connectors.length > 0 || summaryLine) && (
+          <span aria-hidden className="shrink-0 text-fg-faint">
+            ·
+          </span>
+        )}
+        <ConnectorActivitySummary items={stage.items} usage={connectors} />
+        {connectors.length > 0 && summaryLine && (
+          <span aria-hidden className="shrink-0 text-fg-faint">
+            ·
+          </span>
+        )}
+        {summaryLine && <span className="min-w-0 truncate">{summaryLine}</span>}
         {summary.failed > 0 && (
           <span className="shrink-0 text-danger">
             <span aria-hidden className="mr-1.5 text-fg-faint">
@@ -196,6 +212,8 @@ export function TurnProcess({
     : items.flatMap(i =>
         i.kind === 'tool' && !tail.includes(i) ? (i.images ?? []).map(image => ({ image, itemId: i.id })) : [],
       )
+  const connectors = connectorUsage(items)
+  const summaryLine = summaryText(summary, shown.length, { coveredMcp: connectorCallCount(connectors) })
   return (
     <div data-fold={open ? 'open' : 'closed'} data-fold-items={hidden.join(' ') || undefined} data-turn-process>
       <button
@@ -208,10 +226,18 @@ export function TurnProcess({
         {/* 运行中也只是安静的标题：在做什么写在底部的状态行上（LiveStatusLine），这里不再重复、不再闪 */}
         <Layers size={15} strokeWidth={1.5} className="mr-0.5 shrink-0" />
         <span className="shrink-0 text-fg-secondary">{tr('session.process.title')}</span>
-        <span aria-hidden className="shrink-0 text-fg-faint">
-          ·
-        </span>
-        <span className="min-w-0 truncate">{summaryText(summary, shown.length)}</span>
+        {(connectors.length > 0 || summaryLine) && (
+          <span aria-hidden className="shrink-0 text-fg-faint">
+            ·
+          </span>
+        )}
+        <ConnectorActivitySummary items={items} usage={connectors} />
+        {connectors.length > 0 && summaryLine && (
+          <span aria-hidden className="shrink-0 text-fg-faint">
+            ·
+          </span>
+        )}
+        {summaryLine && <span className="min-w-0 truncate">{summaryLine}</span>}
         {plan && (
           <span className={cn('min-w-0 truncate', plan.stoppedAt ? 'text-warn' : 'text-success')}>
             <span aria-hidden className="mr-1.5 text-fg-faint">

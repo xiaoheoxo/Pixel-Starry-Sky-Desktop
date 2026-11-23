@@ -6,6 +6,8 @@ import { useEffect, useMemo, type ReactNode } from 'react'
 import { ChevronRight, FilePen, FileText, Globe, Layers, Search, SquareTerminal, type LucideIcon } from 'lucide-react'
 import type { Item } from '@pixelsky/protocol'
 import { cn } from '@/ui'
+import { ConnectorActivitySummary } from './ConnectorActivitySummary'
+import { connectorCallCount, connectorUsage } from './connectorActivity'
 import { REQUEST_MS, useExpandAny } from '@/features/search/expand'
 import { formatDuration } from './agentTrace'
 import { liveStatus, stepTitle } from './currentStep'
@@ -63,6 +65,9 @@ export function ProcessGroup({
     const keep = new Set([...(running ? shown.slice(-TAIL) : []), ...failedItems(items)])
     return items.filter(i => keep.has(i))
   }, [open, running, shown, items])
+  const connectors = useMemo(() => connectorUsage(items), [items])
+  const coveredMcp = useMemo(() => connectorCallCount(connectors), [connectors])
+  const summaryLine = summaryText(summary, shown.length, { coveredMcp })
   const title = useMemo(() => (running ? (stepTitle(items) ?? liveStatus(items).verb) : null), [running, items])
   const Icon = groupIcon(summary)
   const hidden = open ? [] : ids.filter(id => !tail.some(i => i.id === id))
@@ -83,12 +88,20 @@ export function ProcessGroup({
         {title && (
           <>
             <span className="min-w-0 shrink truncate text-fg">{title}</span>
-            <span aria-hidden className="shrink-0 text-fg-faint">
-              ·
-            </span>
+            {(connectors.length > 0 || summaryLine) && (
+              <span aria-hidden className="shrink-0 text-fg-faint">
+                ·
+              </span>
+            )}
           </>
         )}
-        <span className="min-w-0 truncate">{summaryText(summary, shown.length)}</span>
+        <ConnectorActivitySummary items={items} usage={connectors} />
+        {connectors.length > 0 && summaryLine && (
+          <span aria-hidden className="shrink-0 text-fg-faint">
+            ·
+          </span>
+        )}
+        {summaryLine && <span className="min-w-0 truncate">{summaryLine}</span>}
         {summary.failed > 0 && (
           <span className="shrink-0 text-danger">
             <span aria-hidden className="mr-1.5 text-fg-faint">

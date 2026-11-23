@@ -37,6 +37,15 @@ const search = (id: string, query: string): Item => ({
   output: '',
   status: 'completed',
 })
+const connector = (id: string, tool: string, output: string): Item => ({
+  kind: 'tool',
+  id,
+  tool: 'mcp',
+  name: `Pixelsky Threads / ${tool}`,
+  title: tool,
+  output,
+  status: 'completed',
+})
 const edit = (id: string, ...paths: string[]): Item => ({
   kind: 'file_change',
   id,
@@ -63,6 +72,9 @@ const firstTurn = (p: string, minutesAgo: number): Item[] => [
   read(`${p}-t1`, 'src/main/kotlin/CandidatePool.kt'),
   read(`${p}-t2`, 'src/main/kotlin/UlkSession.kt'),
   search(`${p}-t3`, 'randomSource'),
+  connector(`${p}-m1`, 'list_threads', '演示结果：发现 2 条相关对话。'),
+  connector(`${p}-m2`, 'read_thread', '演示结果：候选来源开关默认关闭。'),
+  connector(`${p}-m3`, 'read_thread', '演示结果：已确认三个版本的测试名称。'),
   reasoning(
     `${p}-r2`,
     '**Wiring source toggle into session**\n\nThe toggle should default to off and only record recognised items.',
