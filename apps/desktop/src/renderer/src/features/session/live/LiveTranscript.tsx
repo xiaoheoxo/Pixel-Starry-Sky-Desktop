@@ -100,6 +100,7 @@ import { useOlderFoldOff } from './olderFoldSwitch'
 import { SubagentCompletionBox, SubagentDispatchBox } from './SubagentBox'
 import { approvalWaiting } from './subagentBoxModel'
 import { LiveStatusLine } from './LiveStatusLine'
+import { RunningChangesRow, useRunningChanges } from '../RunningChangesRow'
 import { LiveOwnerContext } from './liveOwner'
 import { useNativeCheck } from '@/features/resume/useNativeCheck'
 import { RowModeContext, onBeforeViewModeChange, useViewMode, type ViewMode } from '../viewMode'
@@ -570,18 +571,23 @@ export function LiveTranscript({
   }, [blocks])
   const liveProcess = liveBlock?.key ?? null
   const liveOpen = !!liveBlock && (folds[liveBlock.key] ?? processOpenByDefault(liveBlock.items, viewMode.mode))
+  // 进度行上的改动（docs/ui/changes-bar.md）；有进度行时「回到最新」浮在它上面
+  const changes = useRunningChanges(items, running)
+  const liveRow = showLive || !!changes
+  // 点击算刚操作过，不清掉就不跟（followResize）
+  const followBottom = (): void => {
+    stick.current = true
+    released.current = false
+    detached.current = false
+    lastInteract.current = 0
+  }
   const liveFold =
     liveProcess !== null
       ? {
           open: liveOpen,
           toggle: () => {
-            // 状态行在最下面，展开的内容在它上面：要跟到底，不然它被推出屏幕。点击算刚操作过，不清掉就不跟（followResize）
-            if (!liveOpen) {
-              stick.current = true
-              released.current = false
-              detached.current = false
-              lastInteract.current = 0
-            }
+            // 状态行在最下面，展开的内容在它上面：要跟到底，不然它被推出屏幕
+            if (!liveOpen) followBottom()
             setFold(liveProcess, !liveOpen)
           },
         }
@@ -992,6 +998,8 @@ export function LiveTranscript({
       renderBlock(b, i)
     )
 
+  const jump = away && snapshot && <JumpToLatest unseen={unseen} onClick={jumpToLatest} />
+
   return (
     <ExpandScope.Provider value={snapshot?.record.id ?? null}>
       <CompactionLiveContext.Provider value={compactionLive}>
@@ -1041,6 +1049,7 @@ export function LiveTranscript({
                 }}
                 data-search-session={snapshot?.record.id}
                 data-custom-scrollbar
+                data-live={liveRow || undefined}
                 className="conversation-scroller selectable min-h-0 flex-1 overflow-y-auto bg-app"
               >
                 <div
@@ -1124,7 +1133,6 @@ export function LiveTranscript({
                       </div>
                     </div>
                   ))}
-                  {showLive && <LiveStatusLine items={visible} turnId={snapshot?.turnId ?? null} fold={liveFold} />}
                   {terminalLive && (
                     <p
                       data-terminal-live
@@ -1134,9 +1142,23 @@ export function LiveTranscript({
                       {tr('resume.following')}
                     </p>
                   )}
+                  {snapshot && liveRow && (
+                    <RunningChangesRow
+                      key={`live-${sessionId}`}
+                      changes={changes}
+                      sessionId={snapshot.record.id}
+                      onExpand={() => {
+                        // 往上滚着时这一行贴在底部，列表看得到，不把人拽回底部
+                        if (scroller.current && nearBottom(scroller.current)) followBottom()
+                      }}
+                      jump={jump}
+                    >
+                      {showLive && <LiveStatusLine items={visible} turnId={snapshot.turnId} fold={liveFold} />}
+                    </RunningChangesRow>
+                  )}
                 </div>
               </div>
-              {away && snapshot && <JumpToLatest unseen={unseen} onClick={jumpToLatest} />}
+              {!liveRow && jump}
               {/* 滚动条和轮次刻度合成一条（docs/ui/turn-rail.md §8）；设置里关掉轮次时只剩滚动条 */}
               {snapshot && (
                 <TurnRail

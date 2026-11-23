@@ -1,6 +1,7 @@
 // 工作台原来的演示会话（docs/ui/demo-conversation.md §8）：每个会话都有快照，和演示里别处对得上
 import { describe, expect, it } from 'vitest'
 import { demoArtifacts } from './artifacts'
+import { CHANGES_BAR_ID } from './conversations'
 import { demo } from './demo'
 import { demoInbox } from './inbox'
 import { demoSearchItems } from './search'
@@ -45,6 +46,8 @@ describe('工作台演示会话', () => {
 
   it('产物面板的轮次、文件、交付条目都在对话里，行数一致', () => {
     for (const turn of demoArtifacts.turns) {
+      // 循环播放的那条一开始没有条目
+      if (turn.sessionId === CHANGES_BAR_ID) continue
       const snap = workbenchSnapshots[turn.sessionId]
       const user = snap.items.find(i => i.id === turn.userItemId)
       expect(user?.kind === 'user' && user.text, turn.userItemId ?? undefined).toBe(turn.prompt)

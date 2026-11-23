@@ -56,6 +56,7 @@ import {
 import { demo as demoData } from '@/data/demo'
 import {
   FOCUS_OPEN_MAX,
+  findFocusFile,
   findFocusTurn,
   finishArtifactsFocus,
   finishPreviewRequest,
@@ -167,16 +168,19 @@ function ArtifactsBody({
   // 读完后滚到这一轮、闪一下、展开各文件的 diff；找不到时提示
   const focus = useArtifactsFocus()
   const pendingFocus = useRef<{ focus: ArtifactsFocus; after: number } | null>(null)
-  const [focused, setFocused] = useState<{ key: string; token: number } | null>(null)
+  const [focused, setFocused] = useState<{ key: string; token: number; file?: string } | null>(null)
   const latest = useRef({ load, setTab })
   latest.current = { load, setTab }
   useEffect(() => {
     if (!active || !freshFocus(focus) || pendingFocus.current?.focus.token === focus.token) return
+    setPreview(null)
     latest.current.setTab('changes')
     const reload = !demo && !!window.pixelsky
     pendingFocus.current = { focus, after: request.current + (reload ? 1 : 0) }
     if (reload) void latest.current.load()
   }, [focus, active, demo])
+  // 演示数据不会重新读，请求来了就直接定位
+  const demoFocus = demo ? focus : null
   useEffect(() => {
     const pending = pendingFocus.current
     if (!pending || loading || !data || request.current < pending.after) return
@@ -185,10 +189,19 @@ function ArtifactsBody({
     const turn = findFocusTurn(data.turns, pending.focus)
     if (turn) {
       // 定位的这一轮和它的会话可能收着：先展开，TurnBlock 才在、才能滚过去
+      const requested = pending.focus.file
+      const file = requested ? findFocusFile(turn, requested) : null
+      if (requested && !file) {
+        toast(tr('artifacts.focusMissingFile', { path: requested }))
+        return
+      }
       latestFold.current.storeFold(revealTurn(latestFold.current.fold, turn))
-      setFocused({ key: turnKey(turn), token: pending.focus.token })
-    } else toast(tr('artifacts.focusMissing'))
-  }, [data, loading, toast])
+      setFocused({ key: turnKey(turn), token: pending.focus.token, ...(file ? { file: file.absolute } : {}) })
+    } else {
+      const requested = pending.focus.file
+      toast(requested ? tr('artifacts.focusMissingFile', { path: requested }) : tr('artifacts.focusMissing'))
+    }
+  }, [data, loading, toast, demoFocus])
   useEffect(() => {
     if (!focused) return
     const timer = window.setTimeout(() => setFocused(null), 2000)
@@ -387,6 +400,7 @@ function ArtifactsBody({
                         open={turnOpen(fold, g, turn)}
                         onToggle={() => storeFold(toggleTurn(fold, g, turn))}
                         focusToken={focused?.key === turnKey(turn) ? focused.token : undefined}
+                        focusFile={focused?.key === turnKey(turn) ? focused.file : undefined}
                       />
                     ))}
                 </section>
@@ -474,6 +488,7 @@ function TurnBlock({
   open,
   onToggle,
   focusToken,
+  focusFile,
 }: {
   turn: ArtifactTurn
   target: WorkspaceRef
@@ -483,6 +498,7 @@ function TurnBlock({
   onToggle(): void
   /** 「审查」定位到这一轮：滚过来、闪一下、展开前几个文件的 diff */
   focusToken?: number
+  focusFile?: string
 }) {
   useI18n()
   const ref = useRef<HTMLDivElement>(null)
@@ -491,16 +507,19 @@ function TurnBlock({
   useEffect(() => {
     if (!focusToken) return
     setAll(true)
-    if (ref.current) scrollInPane(ref.current, 'start', { behavior: motionEnabled() ? 'smooth' : 'auto' })
-  }, [focusToken])
-  const full = all || turn.files.length <= TURN_FILES_MAX
+    if (!focusFile && ref.current) scrollInPane(ref.current, 'start', { behavior: motionEnabled() ? 'smooth' : 'auto' })
+  }, [focusToken, focusFile])
+  const full = !!focusToken || all || turn.files.length <= TURN_FILES_MAX
   const files = full ? turn.files : turn.files.slice(0, TURN_FILES_MAX)
   const sum = open ? null : turnsSummary([turn])
   return (
     <div
       ref={ref}
       data-artifact-turn={turnKey(turn)}
-      className={cn('border-b border-line-subtle px-1.5 py-1 last:border-b-0', !!focusToken && 'search-hit')}
+      className={cn(
+        'border-b border-line-subtle px-1.5 py-1 last:border-b-0',
+        !!focusToken && !focusFile && 'search-hit',
+      )}
     >
       <div className="group/turn flex min-w-0 items-center gap-1 rounded-md pr-0.5 hover:bg-hover">
         <button
@@ -543,7 +562,10 @@ function TurnBlock({
                 turn={turn}
                 target={target}
                 demo={demo}
-                autoOpen={focusToken && i < FOCUS_OPEN_MAX ? focusToken : undefined}
+                autoOpen={
+                  focusToken && (focusFile ? f.absolute === focusFile : i < FOCUS_OPEN_MAX) ? focusToken : undefined
+                }
+                focusToken={f.absolute === focusFile ? focusToken : undefined}
               />
             ))}
           </ul>
@@ -568,6 +590,7 @@ function FileRow({
   target,
   demo,
   autoOpen,
+  focusToken,
 }: {
   file: ArtifactFile
   turn: ArtifactTurn
@@ -575,8 +598,10 @@ function FileRow({
   demo: boolean
   /** 变成新的数字时展开（「审查」） */
   autoOpen?: number
+  focusToken?: number
 }) {
   useI18n()
+  const ref = useRef<HTMLLIElement>(null)
   const [open, setOpen] = useState(false)
   // 这一轮改过这个文件的每次 diff（按先后）；同一轮改了几次时行数是合计，要全显示
   const [diffs, setDiffs] = useState<string[] | null | 'loading'>(null)
@@ -615,13 +640,16 @@ function FileRow({
   useEffect(() => {
     if (autoOpen) void latestShow.current()
   }, [autoOpen])
+  useEffect(() => {
+    if (focusToken && ref.current) scrollInPane(ref.current, 'start', { behavior: motionEnabled() ? 'smooth' : 'auto' })
+  }, [focusToken])
   const latestOpen = useRef(open)
   latestOpen.current = open
   useEffect(() => {
     if (latestOpen.current && loadedFor.current && loadedFor.current !== idsKey) void latestShow.current()
   }, [idsKey])
   return (
-    <li className="group/file">
+    <li ref={ref} className={cn('group/file', !!focusToken && 'search-hit')}>
       <div className="flex h-7 min-w-0 items-center gap-1 rounded-md pr-0.5 hover:bg-hover">
         <button
           type="button"

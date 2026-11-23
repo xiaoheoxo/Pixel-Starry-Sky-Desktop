@@ -49,7 +49,7 @@ export function LiveStatusLine({
     </>
   )
   return (
-    <div data-live-status className="conversation-message">
+    <div data-live-status className="min-w-0 overflow-hidden">
       {fold ? (
         <button
           type="button"

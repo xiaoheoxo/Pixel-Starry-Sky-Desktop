@@ -66,6 +66,41 @@
   contain-intrinsic-block-size: auto 30px;
   overflow-clip-margin: 8px;
 }
+/* 运行中的进度行（RunningChangesRow，docs/ui/changes-bar.md）：对话往上滚时贴在底部。
+   贴着时盖住下面 16px 的渐隐，所以把对话流末尾的留白（--live-pad）算进自己；停在底部时和不贴一样。
+   贴住了才铺底色和顶线：主区底色在最外层画，平时不重复叠；壁纸、玻璃主题的主区底色半透明，
+   盖不住后面的字（在带 mask 的滚动区里 backdrop-filter 也糊不掉），用不透明的卡片色 */
+[data-conversation-stream] {
+  --live-pad: 24px;
+}
+[data-conversation-stream] > [data-live-row] {
+  position: sticky;
+  bottom: -8px;
+  z-index: 5;
+  margin-bottom: calc(-1 * var(--live-pad));
+  container: live-row / scroll-state;
+  content-visibility: visible;
+}
+[data-live-row-body] {
+  margin-inline: -8px;
+  padding: 0 8px var(--live-pad);
+}
+@container live-row scroll-state(stuck: bottom) {
+  [data-live-row-body] {
+    background: var(--bg-workbench);
+    box-shadow: inset 0 1px color-mix(in srgb, var(--ink) 9%, transparent);
+  }
+  [data-coding-layout] [data-live-row-body] {
+    background: var(--bg-app);
+  }
+  :root:is([data-glass], [data-wallpaper]) [data-live-row-body] {
+    background: var(--wall-surface);
+  }
+}
+/* 键盘走到下面的内容时不停在这一行后面 */
+.conversation-scroller[data-live] {
+  scroll-padding-bottom: 60px;
+}
 /* 每轮末尾的统计行（TurnStats）是一行小字，约 24px；一轮一条，长对话里按 30 估会一路累积偏差 */
 [data-conversation-stream] > [data-turn-stats] {
   contain-intrinsic-block-size: auto 24px;

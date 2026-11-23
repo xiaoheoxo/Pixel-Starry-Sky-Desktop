@@ -1,6 +1,7 @@
 // 产物面板的演示数据（docs/ui/artifacts-panel.md），只在 `pnpm dev:demo` 显示
 import type { ArtifactResponse, FileChange } from '@pixelsky/protocol'
 import type { ArtifactPreview } from '../../../shared/types/artifacts'
+import { CHANGES_BAR_EDITS, CHANGES_BAR_ID, CHANGES_BAR_PROMPT, CHANGES_BAR_USER } from './conversations'
 import { SETTINGS_CHANGES, SIDEBAR_CHANGES, workbenchSnapshots } from './workbench'
 
 const now = Date.now()
@@ -18,9 +19,30 @@ const file = ({ path: local, kind, added, removed }: FileChange, itemId: string)
   itemIds: [itemId],
 })
 
+/** 「运行中：改动条」那一轮：同一个文件改了几次合成一行 */
+const changesBarFiles = [...new Set(CHANGES_BAR_EDITS.map(e => e.change.path))].map(path => {
+  const edits = CHANGES_BAR_EDITS.filter(e => e.change.path === path)
+  return {
+    ...file(edits[0].change, edits[0].id),
+    added: edits.reduce((n, e) => n + e.change.added, 0),
+    removed: edits.reduce((n, e) => n + e.change.removed, 0),
+    itemIds: edits.map(e => e.id),
+  }
+})
+
 export const demoArtifacts: ArtifactResponse = {
   requestId: 0,
   turns: [
+    {
+      sessionId: CHANGES_BAR_ID,
+      title: '运行中：改动条（循环播放）',
+      engine: 'claude',
+      archived: false,
+      userItemId: CHANGES_BAR_USER,
+      prompt: CHANGES_BAR_PROMPT,
+      at: now,
+      files: changesBarFiles,
+    },
     {
       sessionId: 's-settings-form',
       title: '设置页迁移到新的表单组件',
@@ -107,6 +129,8 @@ export const demoArtifacts: ArtifactResponse = {
 
 /** 产物面板点开一个文件：取对话里那条改动记录的全部改动 */
 export function demoArtifactChanges(itemId: string): FileChange[] | null {
+  const edit = CHANGES_BAR_EDITS.find(e => e.id === itemId)
+  if (edit) return [edit.change]
   for (const snap of Object.values(workbenchSnapshots))
     for (const item of snap.items) if (item.id === itemId && item.kind === 'file_change') return item.changes
   return null

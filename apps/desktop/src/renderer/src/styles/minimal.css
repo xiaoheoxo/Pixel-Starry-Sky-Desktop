@@ -132,6 +132,7 @@
 /* 对话滚到底时最后一行不被浮着的那排盖住（只加在对话流上，别处共用 .conversation-reading） */
 :root[data-minimal='on'] [data-conversation-stream] {
   padding-bottom: 36px;
+  --live-pad: 36px;
 }
 
 /* 输入框下面一排（§4）：每个按钮一样高（24px）、一圈细框的小标签，图标按钮也一样，等宽字；

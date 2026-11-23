@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ArtifactTurn } from '@pixelsky/protocol'
-import { FOCUS_MS, findFocusTurn, freshFocus, turnKey } from './focus'
+import type { ArtifactFile, ArtifactTurn } from '@pixelsky/protocol'
+import { FOCUS_MS, findFocusFile, findFocusTurn, freshFocus, turnKey } from './focus'
 
 const turn = (sessionId: string, userItemId: string | null, at = 1): ArtifactTurn => ({
   sessionId,
@@ -25,6 +25,34 @@ describe('findFocusTurn', () => {
   it('找不到时为 null', () => {
     expect(findFocusTurn(turns, { sessionId: 's3', userItemId: 'u1' })).toBeNull()
     expect(findFocusTurn(turns, { sessionId: 's2', userItemId: null })).toBeNull()
+  })
+})
+
+describe('findFocusFile', () => {
+  const file = (path: string, absolute: string, local: string | null = path): ArtifactFile => ({
+    path,
+    absolute,
+    inside: true,
+    local,
+    kind: 'update',
+    added: 1,
+    removed: 0,
+    itemId: 'edit',
+    itemIds: ['edit'],
+  })
+  it('Windows 路径不分斜杠和大小写，不按文件名猜', () => {
+    const first = file('srcA/Settings.java', 'C:\\project\\srcA\\Settings.java')
+    const second = file('srcB/Settings.java', 'C:\\project\\srcB\\Settings.java')
+    const target = { ...turn('s', 'u'), files: [first, second] }
+    expect(findFocusFile(target, 'srcb\\settings.java')).toBe(second)
+    expect(findFocusFile(target, 'c:/project/srcA/settings.java')).toBe(first)
+    expect(findFocusFile(target, 'Settings.java')).toBeNull()
+  })
+  it('Linux 路径分大小写；记录里是绝对路径也能用相对路径对上', () => {
+    const selected = file('/project/settings.java', '/project/settings.java', 'settings.java')
+    const target = { ...turn('s', null), files: [file('Settings.java', '/project/Settings.java'), selected] }
+    expect(findFocusFile(target, './settings.java')).toBe(selected)
+    expect(findFocusFile(target, 'SETTINGS.java')).toBeNull()
   })
 })
 

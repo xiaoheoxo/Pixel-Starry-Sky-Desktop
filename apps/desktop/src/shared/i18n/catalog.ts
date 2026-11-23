@@ -364,6 +364,11 @@ export const catalog = {
     zh: '停止本轮',
     en: 'Stop this turn',
   },
+  'session.runningChanges.main': { zh: '主智能体', en: 'Main agent' },
+  'session.runningChanges.title': { zh: '本轮已改 {n} 个文件', en: 'Files changed this turn: {n}' },
+  'session.runningChanges.files': { zh: '{n} 个文件', en: '{n} files' },
+  'session.runningChanges.added': { zh: '新建', en: 'Added' },
+  'session.runningChanges.modified': { zh: '修改', en: 'Modified' },
   'session.ChangedFilesCard.editedFile': {
     zh: '编辑了 {n} 个文件',
     en: 'Edited {n} file',

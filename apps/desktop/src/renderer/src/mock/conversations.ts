@@ -30,6 +30,7 @@ export const SHOWCASE_SESSIONS = [
   { id: 'demo-claude-running', title: '运行中：进度卡片、后台任务、重试' },
   { id: 'demo-claude-compacting', title: '运行中：压缩上下文（循环播放）' },
   { id: 'demo-claude-steps', title: '运行中：当前步骤（循环播放）' },
+  { id: 'demo-claude-changes-bar', title: '运行中：改动条（循环播放）' },
   { id: 'demo-claude-autofold', title: '自动收起：分步、旧轮次、压缩（循环播放）' },
   { id: 'demo-claude-compactions', title: '压缩上下文：各种结果' },
   { id: 'demo-claude-starting', title: '正在启动引擎' },
@@ -1532,6 +1533,168 @@ export function animateSteps(update: DemoUpdate): void {
   cycle()
 }
 
+// ---------- 运行中：改动条（docs/ui/changes-bar.md） ----------
+
+export const CHANGES_BAR_ID = 'demo-claude-changes-bar'
+export const CHANGES_BAR_USER = 'cb-u1'
+export const CHANGES_BAR_PROMPT = '把机器切换做成顶栏里的本机 / 云端开关，补上测试'
+const CB_TURN = 'cb-turn'
+const cbLines = (from: number, n: number, text: (i: number) => string): string[] => [
+  `@@ -${from},0 +${from},${n} @@`,
+  ...Array.from({ length: n }, (_, i) => '+' + text(i)),
+]
+/** 每次改动：第几秒改完、改了哪个文件；最后两次是子智能体改的。产物面板的演示数据也取这里（mock/artifacts.ts） */
+export const CHANGES_BAR_EDITS: { id: string; at: number; change: FileChange; agent?: boolean }[] = [
+  {
+    id: 'cb-f1',
+    at: 3,
+    change: change(
+      'src/machines/store.ts',
+      'update',
+      cbLines(12, 6, i => `  const step${i} = machines[${i}]`),
+    ),
+  },
+  {
+    id: 'cb-f2',
+    at: 6,
+    change: change(
+      'src/machines/MachineSwitch.tsx',
+      'add',
+      cbLines(1, 12, i => `  <Segment key="${i}" />`),
+    ),
+  },
+  {
+    id: 'cb-f3',
+    at: 9,
+    change: change('src/session/SessionHeader.tsx', 'update', [
+      '@@ -20,3 +20,9 @@',
+      '-  <MachineMenu />',
+      '-  <MenuArrow />',
+      '-  <Divider />',
+      ...Array.from({ length: 9 }, (_, i) => `+  <MachineSwitch slot={${i}} />`),
+    ]),
+  },
+  {
+    id: 'cb-f4',
+    at: 12,
+    change: change(
+      'src/machines/MachineSwitch.tsx',
+      'update',
+      cbLines(14, 7, i => `  onKeyDown={keys[${i}]}`),
+    ),
+  },
+  {
+    id: 'cb-f5',
+    at: 16,
+    change: change(
+      'src/machines/store.test.ts',
+      'add',
+      cbLines(1, 27, i => `it('case ${i}', () => {})`),
+    ),
+    agent: true,
+  },
+  {
+    id: 'cb-f6',
+    at: 19,
+    change: change('src/machines/store.ts', 'update', [
+      '@@ -30,1 +30,2 @@',
+      '-  return null',
+      '+  // 测试要用',
+      '+  return current',
+    ]),
+    agent: true,
+  },
+]
+const CB_END = 24
+// 前一轮：长到要滚动，往上滚能看到进度行贴在底部
+const CB_HISTORY: Item[] = [
+  user('cb-u0', '先看看现在机器是怎么切换的', 15),
+  assistant(
+    'cb-a0',
+    [
+      '现在的切换在顶栏右边的下拉里：点开列出本机和云端机器，选一个后整个窗口切过去。',
+      '## 状态在哪',
+      '- `src/machines/store.ts`：当前机器、机器列表、连接状态',
+      '- `src/session/SessionHeader.tsx`：顶栏的下拉菜单',
+      '- `src/sidebar/ProjectTree.tsx`：按当前机器显示项目',
+      '- `src/session/Composer.tsx`：输入框上面写着在哪台机器上跑',
+      '## 切换时发生什么',
+      '1. 断开旧机器的连接，收起它的终端',
+      '2. 连新机器，读项目和会话列表',
+      '3. 打开这台机器上次看的会话',
+      '中间约 300 毫秒什么都点不了，连不上时停在空白页，没有提示。',
+      '## 建议',
+      '顶栏改成本机 / 云端两段开关，云端有多台时再出二级列表；切换时先留着旧内容，连上了再换；连不上就退回原来那台，并写明原因。',
+      '键盘左右键切换，`Home` / `End` 到两头。读屏软件念出当前是哪一段、连上没有。',
+      '测试补三种：切到云端、连不上退回、切换途中又点了另一台。',
+      '## 各处现在怎么写的',
+      ...[
+        ['顶栏', '下拉菜单自己读一遍机器列表，和侧栏各存一份，加一台机器要重开菜单才看得到。'],
+        ['侧栏', '切换后整棵树重画，展开的文件夹全部收起，要一个个点回去。'],
+        ['输入框', '写着机器名，切换途中显示的还是旧的那台，这时发消息会发到旧机器上。'],
+        ['终端', '旧机器的终端直接关掉，没跑完的命令跟着断，没有确认。'],
+        ['会话标签', '别的机器上的会话还开着，但点进去是空的，要切回去才有内容。'],
+        ['通知', '云端机器上的任务跑完，人在本机时收不到提醒。'],
+      ].flatMap(([where, now]) => [`**${where}**`, now]),
+    ].join('\n\n'),
+  ),
+]
+const changesBar = snapshot(record(CHANGES_BAR_ID, { lastOutcome: 'completed', updatedAt: T0 }), [], {
+  state: 'running',
+  turnId: CB_TURN,
+  execution: { model: 'claude-opus-5-5', effort: 'high', platform: null },
+})
+
+/** 一条条改文件 → 派一个子智能体补测试 → 结束（改动条收起、改动卡片出现），停一会儿重来 */
+export function animateChangesBar(update: DemoUpdate): void {
+  const at = (sec: number, fn: () => void) => window.setTimeout(fn, sec * 1000)
+  const put = (item: Item): void =>
+    update(CHANGES_BAR_ID, items =>
+      items.some(i => i.id === item.id) ? items.map(i => (i.id === item.id ? item : i)) : [...items, item],
+    )
+  const agent = (status: 'running' | 'completed'): Item => ({
+    kind: 'tool',
+    id: 'cb-t1',
+    tool: 'task',
+    name: 'Agent',
+    title: '补上测试',
+    output: status === 'running' ? '' : '测试补好了，全部通过。',
+    status,
+  })
+  const cycle = (): void => {
+    const start: Item = { ...user(CHANGES_BAR_USER, CHANGES_BAR_PROMPT, 0, { turnId: CB_TURN }) }
+    update(CHANGES_BAR_ID, () => [...CB_HISTORY, start.kind === 'user' ? { ...start, createdAt: Date.now() } : start], {
+      state: 'running',
+      turnId: CB_TURN,
+    })
+    for (const e of CHANGES_BAR_EDITS) {
+      const item = (status: 'running' | 'completed'): Item => ({
+        kind: 'file_change',
+        id: e.id,
+        changes: [e.change],
+        status,
+        ...(e.agent ? { subagent: '补上测试', subagentCall: 'cb-t1' } : {}),
+      })
+      at(e.at - 1.5, () => put(item('running')))
+      at(e.at, () => put(item('completed')))
+    }
+    at(13, () => put(agent('running')))
+    at(20, () => put(agent('completed')))
+    at(CB_END, () => {
+      put(assistant('cb-a1', '顶栏换成了本机 / 云端开关，测试也补上了。'))
+      put(
+        stats('cb-s1', 'completed', {
+          durationMs: CB_END * 1000,
+          models: { 'claude-opus-5-5': opus(42_000, 2_100, 0.38, 6) },
+        }),
+      )
+      update(CHANGES_BAR_ID, items => items, { state: 'idle', turnId: null })
+    })
+    at(CB_END + 8, cycle)
+  }
+  cycle()
+}
+
 const AUTOFOLD_ID = 'demo-claude-autofold'
 const autofold = snapshot(record(AUTOFOLD_ID, { lastOutcome: 'completed', updatedAt: T0 }), [], { state: 'running' })
 
@@ -2364,6 +2527,7 @@ export const showcaseSnapshots: Record<string, SessionSnapshot> = Object.fromEnt
     running,
     compacting,
     steps,
+    changesBar,
     autofold,
     compactions,
     starting,

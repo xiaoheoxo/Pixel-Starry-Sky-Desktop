@@ -7,6 +7,7 @@ import { demoQuota } from './quota'
 import {
   animateCompaction,
   animateAutoFold,
+  animateChangesBar,
   animateSteps,
   showcaseSnapshots,
   showcaseSubagentTranscript,
@@ -127,6 +128,7 @@ export const demoSource: DemoSource = {
       animateCompaction(update)
       animateSteps(update)
       animateAutoFold(update)
+      animateChangesBar(update)
     },
   },
 }

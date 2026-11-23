@@ -26,6 +26,7 @@ export const artifactMessages = {
   'artifacts.viewDiff': { zh: '查看这一轮的差异', en: 'View diff for this turn' },
   'artifacts.hideDiff': { zh: '收起差异', en: 'Hide diff' },
   'artifacts.openFile': { zh: '在编辑器中打开', en: 'Open in editor' },
+  'artifacts.focusMissingFile': { zh: '未找到此文件的差异：{path}', en: 'No diff found for this file: {path}' },
   'artifacts.jump': { zh: '跳到对话', en: 'Go to conversation' },
   'artifacts.focusMissing': {
     zh: '产物里找不到这一轮的改动（右侧面板可能是别的项目，或者改动不在工作区里）',
