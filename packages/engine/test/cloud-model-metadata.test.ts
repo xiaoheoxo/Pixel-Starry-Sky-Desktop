@@ -67,3 +67,88 @@ describe('public model metadata', () => {
     expect(metadata.get('openai', 'gpt-6.2-sol')).toEqual({ description: 'Published description' })
   })
 })
+
+describe('automatic model display', () => {
+  it('matches exact market model IDs, including relay aliases, without guessing versions or mismatched vendors', async () => {
+    const fetcher = vi.fn<typeof fetch>(async url =>
+      Response.json(
+        String(url).includes('models.dev')
+          ? { deepseek: { models: { 'future-v9-flash': { cost: { input: 0.5, output: 1.5 } } } } }
+          : {
+              data: [
+                {
+                  id: 'deepseek/future-v9-flash',
+                  description: 'First line.\nSecond line.',
+                  pricing: { prompt: '0.000002', completion: '0.000005' },
+                },
+                {
+                  id: 'x-ai/future-grok',
+                  description: 'From catalog.',
+                  pricing: { prompt: '0.000003', completion: '0.000005' },
+                },
+                { id: 'someone/future-shared', description: 'First author.' },
+                { id: 'else/future-shared', description: 'Other author.' },
+              ],
+            },
+      ),
+    )
+    const metadata = new CloudModelMetadata(fetcher)
+    const refs = await metadata.displayReferences([
+      'deepseek-blue/future-v9-flash',
+      'grok-blue/future-grok',
+      'future-shared',
+      'unknown/future-v9-flash',
+      'deepseek-blue/future-v9.1-flash',
+      'someone/future-shared',
+    ])
+    expect(refs).toEqual({
+      'deepseek-blue/future-v9-flash': expect.objectContaining({
+        description: 'First line. Second line.',
+        price: { currency: 'USD', input: 0.5, output: 1.5 },
+      }),
+      'grok-blue/future-grok': expect.objectContaining({
+        description: 'From catalog.',
+        price: { currency: 'USD', input: 3, output: 5 },
+      }),
+      'someone/future-shared': { description: 'First author.' },
+    })
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      'https://models.dev/api.json',
+      'https://openrouter.ai/api/v1/models',
+    ])
+  })
+
+  it('shares concurrent refresh and keeps the last description without presenting an expired price', async () => {
+    let now = 0
+    let online = true
+    const fetcher = vi.fn<typeof fetch>(async url => {
+      if (!online) throw new Error('offline')
+      return Response.json(
+        String(url).includes('models.dev')
+          ? {}
+          : {
+              data: [
+                {
+                  id: 'brand/model-1',
+                  description: 'Description',
+                  pricing: { prompt: '0', completion: '0.000002' },
+                },
+              ],
+            },
+      )
+    })
+    const metadata = new CloudModelMetadata(fetcher, () => now)
+    const [one, two] = await Promise.all([
+      metadata.displayReferences(['brand/model-1']),
+      metadata.displayReferences(['brand/model-1'], true),
+    ])
+    expect(one).toEqual(two)
+    expect(one['brand/model-1']?.price?.input).toBe(0)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    online = false
+    now += 86_400_000
+    expect(await metadata.displayReferences(['brand/model-1'], true)).toEqual({
+      'brand/model-1': { description: 'Description' },
+    })
+  })
+})

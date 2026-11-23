@@ -156,6 +156,18 @@ export async function initEngine(ctx: AppContext): Promise<void> {
     // 账号额度变了广播给所有窗口（只在本机；docs/ui/account-quota.md §5）
     onQuota: quota => ctx.events.broadcast('quota:changed', quota),
   })
+  ipc.handle('modelDisplay:references', (_event, values: unknown, force: unknown) => {
+    const ids = Array.isArray(values)
+      ? [
+          ...new Set(
+            values
+              .slice(0, 2048)
+              .filter((id): id is string => typeof id === 'string' && id.length <= 300 && id.length > 0),
+          ),
+        ]
+      : []
+    return h.modelDisplayReferences(ids, force === true)
+  })
   ctx.engine = h
   // 闲置多久关引擎进程（docs/engine-idle-release.md）：只管本机，值的校验在宿主里
   ipc.handle('engine:idleRelease', () => h.idleRelease())

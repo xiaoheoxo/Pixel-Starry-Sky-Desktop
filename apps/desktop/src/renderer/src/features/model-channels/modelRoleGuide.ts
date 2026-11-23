@@ -13,9 +13,10 @@ import { getLocale, tr } from '@/i18n/core'
 export function modelRoleGuide(
   id: string | null | undefined,
   detail?: ModelDetail,
+  publicDescription?: string,
 ): ReturnType<typeof getModelRoleGuide> {
   const baseline = getModelRoleGuide(id, getLocale() === 'en-US' ? 'en' : 'zh')
-  const main = detail?.main ?? baseline?.main ?? ''
+  const main = detail?.main ?? publicDescription ?? baseline?.main ?? ''
   const evaluator = detail?.evaluator ?? baseline?.evaluator ?? ''
   return main || evaluator ? { main, evaluator } : undefined
 }
@@ -41,11 +42,12 @@ export function menuModelPrice(
   catalog?: ModelTokenPrice,
   now?: number,
   priceRef?: string | null,
+  relay = false,
 ): MenuModelPrice | undefined {
   if (custom) return { price: custom, basis: 'custom' }
-  if (target.channel === 'platform') return undefined
-  if (target.channel === 'custom') {
-    const reference = publicApiPriceReference(priceRef?.trim() || target.model, now)
+  if (target.channel === 'platform') return catalog && { price: catalog, basis: 'relay-reference' }
+  if (target.channel === 'custom' || relay) {
+    const reference = catalog ?? publicApiPriceReference(priceRef?.trim() || target.model, now)
     return reference && { price: reference, basis: 'relay-reference' }
   }
   if (catalog) return { price: catalog, basis: 'catalog' }

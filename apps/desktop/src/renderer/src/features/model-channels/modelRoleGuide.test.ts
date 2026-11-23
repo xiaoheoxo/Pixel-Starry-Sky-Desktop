@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getModelPosition, getModelRoleGuide, openAiBenchmarkId, publicBenchmarkEvidence } from '@pixelsky/protocol'
-import { menuModelPrice } from './modelRoleGuide'
+import { menuModelPrice, modelRoleGuide } from './modelRoleGuide'
 
 describe('model role copy', () => {
   it.each([
@@ -131,14 +131,15 @@ describe('model menu public price and descriptions', () => {
       basis: 'standard',
       price: { currency: 'USD', input: 4, output: 20 },
     })
-    expect(menuModelPrice({ ...target, channel: 'platform' }, undefined, price, now)).toBeUndefined()
-    const relay = { ...target, channel: 'custom' as const, sourceId: 'relay' }
-    expect(menuModelPrice(relay, undefined, price, now)).toEqual({
+    expect(menuModelPrice({ ...target, channel: 'platform' }, undefined, price, now)).toEqual({
       basis: 'relay-reference',
-      price: { currency: 'USD', input: 4, output: 20 },
+      price,
     })
+    const relay = { ...target, channel: 'custom' as const, sourceId: 'relay' }
+    expect(menuModelPrice(relay, undefined, price, now)).toEqual({ basis: 'relay-reference', price })
+    expect(menuModelPrice(target, undefined, price, now, undefined, true)).toEqual({ basis: 'relay-reference', price })
     expect(menuModelPrice(relay, price, undefined, now)).toEqual({ basis: 'custom', price })
-    expect(menuModelPrice({ ...relay, model: 'unknown-deployment' }, undefined, price, now)).toBeUndefined()
+    expect(menuModelPrice({ ...relay, model: 'unknown-deployment' }, undefined, undefined, now)).toBeUndefined()
     expect(menuModelPrice({ ...relay, model: 'grok-4.6' }, undefined, undefined, now)?.price).toEqual({
       currency: 'USD',
       input: 2,
@@ -148,6 +149,11 @@ describe('model menu public price and descriptions', () => {
     expect(openAiBenchmarkId('proxy/gpt-6.2-sol')).toBeUndefined()
     expect(publicBenchmarkEvidence('grok-4.6')?.terminal41?.effort).toBe('high')
     expect(menuModelPrice(target, undefined, undefined, Date.parse('2026-12-01'))).toBeUndefined()
+  })
+  it('shows automatic descriptions for new models while keeping explicit channel edits', () => {
+    expect(modelRoleGuide('new/model', undefined, 'Published description')?.main).toBe('Published description')
+    expect(modelRoleGuide('new/model', { main: 'My note' }, 'Published description')?.main).toBe('My note')
+    expect(modelRoleGuide('new/model')).toBeUndefined()
   })
   it('adds descriptions and positioning to the 5.6 models across namespaced IDs', () => {
     expect(getModelRoleGuide('openai/gpt-5.6-sol', 'zh')?.main).toContain('前端布局')

@@ -12,6 +12,7 @@ import type {
   EngineDefaults,
   EngineId,
   ModelIqSnapshot,
+  CloudModelReference,
   EngineInfo,
   EngineLogin,
   EngineUpdateResult,
@@ -51,6 +52,7 @@ export interface EngineBridge {
   /** 引擎实际报上来的可选项（输出风格）；不发消息 */
   catalog(engine: EngineId, force?: boolean): Promise<EngineCatalog>
   modelIq?(force?: boolean): Promise<ModelIqSnapshot>
+  modelDisplayReferences?(ids: string[], force?: boolean): Promise<Record<string, CloudModelReference>>
   /** 检查更新（Claude Code：claude update），结束后重新检测 */
   updateEngine(engine: EngineId): Promise<EngineUpdateResult>
   /** 一键安装（只在 EngineInfo.installable 时可用）；过程看 engine:event 的 engine_job */

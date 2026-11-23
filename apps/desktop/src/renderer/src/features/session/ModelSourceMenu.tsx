@@ -24,6 +24,7 @@ import {
   openAiBenchmarkId,
   publicBenchmarkEvidence,
   currentCloudModelPrice,
+  type CloudModelReference,
   type EngineId,
   type ModelDetailTarget,
   type ModelIqSnapshot,
@@ -254,6 +255,38 @@ export function ModelSourceMenu({
     engines,
     remembered: prefs.executors,
   })
+  const [displayReferences, setDisplayReferences] = useState<Record<string, CloudModelReference>>({})
+  const [displayRefresh, setDisplayRefresh] = useState(0)
+  const appliedDisplayRefresh = useRef(0)
+  const displayKey = JSON.stringify(
+    [
+      ...new Set(
+        [
+          ...groups.flatMap(group => group.rows.map(row => row.target.model)),
+          ...menuProviders.flatMap(provider => provider.models.flatMap(model => [model.id, model.priceRef?.trim()])),
+        ].filter((id): id is string => !!id),
+      ),
+    ].sort(),
+  )
+  useEffect(() => {
+    if (!open || !bridge?.modelDisplayReferences) return
+    let active = true
+    const force = displayRefresh !== appliedDisplayRefresh.current
+    appliedDisplayRefresh.current = displayRefresh
+    void bridge
+      .modelDisplayReferences(JSON.parse(displayKey) as string[], force)
+      .then(refs => {
+        if (active) setDisplayReferences(refs)
+      })
+      .catch(() => {
+        /* existing model metadata remains usable offline */
+      })
+    return () => {
+      active = false
+    }
+  }, [open, displayKey, displayRefresh])
+  const displayFor = (id: string | null | undefined) =>
+    id && Object.hasOwn(displayReferences, id) ? displayReferences[id] : undefined
   const channels = splitChannels(groups, { current: live.channel, started: live.started })
   const layout: MenuLayout = prefs.menuLayout === 'cols' && fit.cols ? 'cols' : 'tabs'
   const narrow = prefs.menuLayout === 'cols' && !fit.cols
@@ -368,7 +401,10 @@ export function ModelSourceMenu({
   }
   const rowGuide = (c: ChannelId, row: ChannelRow) => {
     const target = detailTarget(c, row)
-    return target && modelRoleGuide(target.model, channelModelDetail(modelDetails, target))
+    return (
+      target &&
+      modelRoleGuide(target.model, channelModelDetail(modelDetails, target), displayFor(target.model)?.description)
+    )
   }
   const rowPrice = (c: ChannelId, row: ChannelRow) => {
     const target = detailTarget(c, row)
@@ -385,9 +421,13 @@ export function ModelSourceMenu({
     return menuModelPrice(
       target,
       channelModelDetail(modelDetails, target)?.price,
-      currentCloudModelPrice(models?.find(m => m.id === target.model)?.cloudReference),
+      currentCloudModelPrice(
+        (priceRef?.trim() ? displayFor(priceRef.trim()) : displayFor(target.model)) ??
+          models?.find(m => m.id === target.model)?.cloudReference,
+      ),
       undefined,
       priceRef,
+      c === 'chatgpt' && target.model.includes('/') && !target.model.toLowerCase().startsWith('openai/'),
     )
   }
   const iqFor = (model: string | null) => {
@@ -521,13 +561,14 @@ export function ModelSourceMenu({
                 price={menuModelPrice(
                   { channel: 'custom', sourceId: provider!.id, model: m.id },
                   channelModelDetail(modelDetails, { channel: 'custom', sourceId: provider!.id, model: m.id })?.price,
-                  undefined,
+                  currentCloudModelPrice(displayFor(m.priceRef?.trim() || m.id)),
                   undefined,
                   m.priceRef,
                 )}
                 guide={modelRoleGuide(
                   m.id,
                   channelModelDetail(modelDetails, { channel: 'custom', sourceId: provider!.id, model: m.id }),
+                  displayFor(m.id)?.description,
                 )}
                 selected={m.id === live.model}
                 active={i === active}
@@ -1182,6 +1223,7 @@ export function ModelSourceMenu({
         disabled={catalog.loading}
         onClick={() => {
           void refreshPlatform()
+          setDisplayRefresh(n => n + 1)
           live.redetect()
         }}
         title={tr('modelChannels.menu.refresh')}

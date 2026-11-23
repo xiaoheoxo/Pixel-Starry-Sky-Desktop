@@ -296,6 +296,10 @@ export class EngineHost {
   }
 
   /** 引擎实际报上来的可选项（输出风格）；不发消息、不花钱 */
+  modelDisplayReferences(ids: readonly string[], force = false) {
+    return this.m.settings.cloudModelMetadata.displayReferences(ids, force)
+  }
+
   async engineCatalog(engine: EngineId, force = false): Promise<EngineCatalog> {
     return this.m.settings.engineCatalog(engine, force)
   }
