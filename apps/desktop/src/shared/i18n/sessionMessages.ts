@@ -634,4 +634,57 @@ export const sessionMessages = {
   },
   'session.SourceHintBar.backgroundAgents': { zh: '后台子智能体', en: 'background subagents' },
   'session.SourceHintBar.listSeparator': { zh: '、', en: ', ' },
+  // 侧栏「已归档 N 个」› 删除全部已归档对话（docs/ui/archived-bulk-delete.md）
+  'archivedDelete.menuLabel': { zh: '已归档对话操作', en: 'Archived conversation actions' },
+  'archivedDelete.menu': { zh: '删除全部已归档对话', en: 'Delete all archived conversations' },
+  'archivedDelete.menuCount': { zh: '{count} 个', en: '{count}' },
+  'archivedDelete.pick': { zh: '在设置里挑着删…', en: 'Choose in Settings…' },
+  'archivedDelete.titleProject': {
+    zh: '删除「{name}」的 {count} 个已归档对话？',
+    en: 'Delete {count} archived conversation(s) in “{name}”?',
+  },
+  'archivedDelete.titleChat': { zh: '删除 {count} 个已归档的对话？', en: 'Delete {count} archived chat(s)?' },
+  'archivedDelete.desc': {
+    zh: '对话记录会从本机删除，不能恢复。项目文件和 Claude Code 自己的会话记录会保留。',
+    en: 'This app’s conversation history will be permanently removed from this computer. Project files and Claude Code’s own session records will be kept.',
+  },
+  'archivedDelete.descRemote': {
+    zh: '对话记录会从那台机器上删除，不能恢复。项目文件和 Claude Code 自己的会话记录会保留。',
+    en: 'This app’s conversation history will be permanently removed from that machine. Project files and Claude Code’s own session records will be kept.',
+  },
+  'archivedDelete.descChat': {
+    zh: '对话记录会从本机删除，不能恢复。Claude Code 自己的会话记录会保留。',
+    en: 'This app’s conversation history will be permanently removed from this computer. Claude Code’s own session records will be kept.',
+  },
+  'archivedDelete.descChatRemote': {
+    zh: '对话记录会从那台机器上删除，不能恢复。Claude Code 自己的会话记录会保留。',
+    en: 'This app’s conversation history will be permanently removed from that machine. Claude Code’s own session records will be kept.',
+  },
+  'archivedDelete.files': {
+    zh: '其中 {folders} 个对话的文件夹里共有 {items} 项，会一起移到回收站，可以找回。',
+    en: '{folders} of these chats have folders holding {items} item(s) in total. They will be moved to the trash and can be restored.',
+  },
+  'archivedDelete.filesRemote': {
+    zh: '其中 {folders} 个对话的文件夹里共有 {items} 项，会一起移到软件数据目录里的回收目录。',
+    en: '{folders} of these chats have folders holding {items} item(s) in total. They will be moved to the app’s trash folder on the remote machine.',
+  },
+  'archivedDelete.remote': {
+    zh: '这些对话在远端机器 {name} 上；连不上时会删不掉，可以之后重试。',
+    en: 'These conversations are on the remote machine {name}. If it can’t be reached they won’t be deleted; you can retry later.',
+  },
+  'archivedDelete.pickHint': { zh: '只想删其中几个？', en: 'Only want to delete some?' },
+  'archivedDelete.pickLink': { zh: '在设置里挑着删', en: 'Choose in Settings' },
+  'archivedDelete.confirm': { zh: '删除 {count} 个', en: 'Delete {count}' },
+  'archivedDelete.running': { zh: '正在删除 {n}/{total}…', en: 'Deleting {n}/{total}…' },
+  'archivedDelete.partialTitle': {
+    zh: '删除了 {done} 个，还有 {left} 个没删掉',
+    en: 'Deleted {done}; {left} couldn’t be deleted',
+  },
+  'archivedDelete.partialDesc': {
+    zh: '已删除的不能恢复。没删掉的可以重试，或之后单个删除。',
+    en: 'Deleted conversations can’t be restored. Retry the rest now, or delete them one by one later.',
+  },
+  'archivedDelete.retry': { zh: '重试 {count} 个', en: 'Retry {count}' },
+  'archivedDelete.close': { zh: '关闭', en: 'Close' },
+  'archivedDelete.toast': { zh: '已删除 {count} 个已归档对话', en: 'Deleted {count} archived conversation(s)' },
 } as const

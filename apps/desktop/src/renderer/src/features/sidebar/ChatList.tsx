@@ -82,6 +82,7 @@ export function ChatList({
       )}
       <ArchivedRows
         archived={archived}
+        scope={{ kind: 'chat' }}
         selectedSessionId={selectedSessionId}
         onSelectSession={onSelectSession}
         open={archivedOpen}

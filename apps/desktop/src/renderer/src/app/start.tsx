@@ -18,6 +18,7 @@ import { SearchProvider } from '../features/search/SearchProvider'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { SessionActionsProvider } from '../features/sidebar/SessionActions'
 import { ArchiveOldHost } from '../features/sidebar/ArchiveOldHost'
+import { ArchivedDeleteHost } from '../features/sidebar/ArchivedDeleteHost'
 import { TerminalProvider } from '../features/terminal/TerminalProvider'
 import { ResumeHost } from '../features/resume/ResumeHost'
 import { ExportHost } from '../features/export/ExportDialog'
@@ -79,6 +80,7 @@ createRoot(document.getElementById('root')!, reactRootErrorOptions).render(
                     <AuthDialogHost />
                     <BranchDialogHost />
                     <ArchiveOldHost />
+                    <ArchivedDeleteHost />
                     <ResumeHost />
                     <ExportHost />
                     <ResumeHintHost />

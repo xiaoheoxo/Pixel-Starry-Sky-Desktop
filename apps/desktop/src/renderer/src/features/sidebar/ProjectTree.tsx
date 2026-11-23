@@ -12,6 +12,8 @@ import {
   Layers,
   ListPlus,
   PencilLine,
+  SlidersHorizontal,
+  Trash2,
   Ungroup,
   X,
 } from 'lucide-react'
@@ -31,6 +33,10 @@ import { SessionItem } from './SessionItem'
 import { useChannels } from '@/features/channels/store'
 import { ProjectRow } from './ProjectRow'
 import { GroupNameDialog } from './GroupNameDialog'
+import { useSettings } from '@/features/settings/SettingsProvider'
+import { machineOf } from '@/features/machines/store'
+import type { ArchivedScope } from './archivedDelete'
+import { openArchivedDelete } from './archivedDeleteData'
 import {
   ARCHIVED_PAGE,
   extraConversations,
@@ -402,6 +408,7 @@ export function ProjectTree({
             )}
             <ArchivedRows
               archived={p.archived ?? []}
+              scope={{ kind: 'project', id: p.id, name: p.name }}
               selectedSessionId={selectedSessionId}
               onSelectSession={onSelectSession}
               open={!!archivedOpen[p.id]}
@@ -737,10 +744,12 @@ function ProjectStatus({
 
 /**
  * 「已归档 N 个」，展开后列归档的会话（项目下面、「对话」分组下面共用）。
- * 开没开、列到第几个由调用方记着：收起项目、切换筛选后再展开还是原样
+ * 开没开、列到第几个由调用方记着：收起项目、切换筛选后再展开还是原样。
+ * 右键、悬停时的 ⋯、ContextMenu 键 / Shift+F10 打开菜单：删除这一组全部已归档对话（docs/ui/archived-bulk-delete.md）
  */
 export function ArchivedRows({
   archived,
+  scope,
   selectedSessionId,
   onSelectSession,
   open,
@@ -749,6 +758,8 @@ export function ArchivedRows({
   onMore,
 }: {
   archived: Session[]
+  /** 这一行属于哪一组：菜单里删除的范围 */
+  scope: ArchivedScope
   selectedSessionId: string | null
   onSelectSession: (id: string) => void
   open: boolean
@@ -757,11 +768,74 @@ export function ArchivedRows({
   limit?: number
   onMore: (limit: number) => void
 }) {
+  const settings = useSettings()
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   if (!archived.length) return null
   const { shown, hidden: more } = open ? visibleArchived(archived, limit, selectedSessionId) : { shown: [], hidden: 0 }
+  // 设置 › 存储 只管本机的会话：远端机器上的不给「在设置里挑着删」
+  const local = machineOf(archived[0].id) === 'local'
   return (
     <>
-      <MoreRow icon label={tr('session.archivedCount', { count: archived.length })} open={open} onClick={onToggle} />
+      <div
+        data-archived-row
+        className="group/archived relative"
+        onContextMenu={event => {
+          event.preventDefault()
+          setMenu({ x: event.clientX, y: event.clientY })
+        }}
+        onKeyDown={event => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          setMenu({ x: rect.left + 28, y: rect.bottom + 2 })
+        }}
+      >
+        <MoreRow icon label={tr('session.archivedCount', { count: archived.length })} open={open} onClick={onToggle} />
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-label={tr('archivedDelete.menuLabel')}
+          title={tr('archivedDelete.menuLabel')}
+          onClick={event => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMenu({ x: rect.left, y: rect.bottom + 4 })
+          }}
+          className="invisible absolute top-0.5 right-1 flex size-6 items-center justify-center rounded-md text-fg-muted group-focus-within/archived:visible group-hover/archived:visible hover:bg-selected hover:text-fg"
+        >
+          <Ellipsis size={15} strokeWidth={1.5} />
+        </button>
+      </div>
+      {menu && (
+        <ActionMenu
+          x={menu.x}
+          y={menu.y}
+          label={tr('archivedDelete.menuLabel')}
+          onClose={() => setMenu(null)}
+          actions={[
+            {
+              label: tr('archivedDelete.menu'),
+              icon: Trash2,
+              danger: true,
+              hint: tr('archivedDelete.menuCount', { count: archived.length }),
+              run: () =>
+                openArchivedDelete({
+                  scope,
+                  sessions: archived.map(s => ({ id: s.id, title: s.title, time: s.time })),
+                }),
+            },
+            ...(local
+              ? [
+                  {
+                    label: tr('archivedDelete.pick'),
+                    icon: SlidersHorizontal,
+                    separator: true,
+                    run: () => settings.openSettings('storage'),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
       {shown.map(session => (
         <SessionItem
           key={session.id}
