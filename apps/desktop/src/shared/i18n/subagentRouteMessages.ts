@@ -299,6 +299,11 @@ export const subagentRouteMessages = {
   },
   'subagentRoute.codex.model': { zh: '子智能体模型', en: 'Subagent model' },
   'subagentRoute.codex.follow': { zh: '跟随主会话', en: 'Follow main session' },
+  'subagentRoute.codex.followAdvisor': { zh: '跟随预测模型选择', en: 'Follow Agnes model selection' },
+  'subagentRoute.codex.followAdvisorHint': {
+    zh: '在「设置 › 子智能体」配置 Agnes。Codex 支持单次派遣指定模型时优先采用建议；没有建议或不支持时保留原有默认模型和强度。',
+    en: 'Configure Agnes under Settings › Subagents. Codex prefers its advice when per-spawn overrides are available; otherwise the existing model and effort defaults stay in effect.',
+  },
   'subagentRoute.codex.noCatalog': {
     zh: 'Codex 还没报上模型列表，检测好再选。',
     en: 'Codex has not reported its models yet; pick one after detection.',

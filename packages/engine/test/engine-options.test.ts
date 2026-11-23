@@ -268,6 +268,15 @@ describe('本机引擎详情设置', () => {
     expect(host.engineConfig().codex).toMatchObject({ subagentModel: null, subagentEffort: null })
     await host.setEngineConfig('codex', { subagentModel: 'gpt-6-sol', subagentEffort: 'low' })
     expect(host.engineConfig().codex).toMatchObject({ subagentModel: 'gpt-6-sol', subagentEffort: 'low' })
+    expect(host.engineConfig().codex.subagentFollowAdvisor).toBe(false)
+    await host.setEngineConfig('codex', { subagentFollowAdvisor: true })
+    expect(host.engineConfig().codex).toMatchObject({
+      subagentFollowAdvisor: true,
+      subagentModel: 'gpt-6-sol',
+      subagentEffort: 'low',
+    })
+    await host.setEngineConfig('codex', { subagentFollowAdvisor: false })
+    expect(host.engineConfig().codex.subagentFollowAdvisor).toBe(false)
     await host.setEngineConfig('codex', { subagentModel: null, subagentEffort: null })
     expect(host.engineConfig().codex).toMatchObject({ subagentModel: null, subagentEffort: null })
     await expect(host.setEngineConfig('codex', { subagentModel: 'a b' })).rejects.toThrow('子智能体模型不对')

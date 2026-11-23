@@ -1,6 +1,6 @@
 import { ADVISOR_DISABLED, advisorConfigIsolated } from '../src/codex/oneshot'
 import { describe, expect, it, vi } from 'vitest'
-import { modelDetailKey, parseSubagentAdvisor } from '@pixelsky/protocol'
+import { modelDetailKey, parseSubagentAdvisor, type Effort, type EngineModel } from '@pixelsky/protocol'
 import {
   advisorCandidates,
   advisorOutputSchema,
@@ -71,6 +71,46 @@ describe('Agnes advisory model selection', () => {
     const advice = subagentAdvice('light', settings, [id, official])
     expect(advice).toContain(`light: ${id} (Fast for day-to-day coding`)
     expect(advice).not.toContain(official)
+  })
+
+  it('only suggests exact, supported benchmark efforts when following Agnes', () => {
+    const models = [
+      { id: 'gpt-6.1-terra', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      { id: 'gpt-6.2-sol', efforts: ['low', 'medium'] },
+      { id: 'relay/gpt-6.2-astra', efforts: ['low', 'xhigh'] },
+    ].map(
+      ({ id, efforts }): EngineModel => ({
+        id,
+        label: id,
+        efforts: efforts as Effort[],
+        defaultEffort: 'medium',
+        inputModalities: ['text'],
+        isDefault: false,
+      }),
+    )
+    const available = models.map(model => model.id)
+    const settings = parseSubagentAdvisor({
+      evaluator: null,
+      models: ['gpt-6.2-sol', 'relay/gpt-6.2-astra', 'gpt-6.1-terra'],
+    })!
+    expect(subagentAdvice('difficult', settings, available, undefined, models)).toContain(
+      'model=gpt-6.1-terra and reasoning_effort=xhigh',
+    )
+    expect(subagentAdvice('light', settings, available, undefined, models)).toContain(
+      'model=gpt-6.2-sol and reasoning_effort=low',
+    )
+    expect(
+      subagentAdvice(
+        'difficult',
+        settings,
+        available,
+        undefined,
+        models.map(model => (model.id === 'gpt-6.1-terra' ? { ...model, efforts: ['low', 'high'] } : model)),
+      ),
+    ).not.toContain('reasoning_effort=xhigh')
+    expect(subagentAdvice('medium', settings, available, undefined, models)).toContain('model=relay/gpt-6.2-astra for')
+    expect(subagentAdvice('difficult', settings, available)).not.toContain('reasoning_effort')
+    expect(subagentAdvice('difficult', settings, available, null, models)).toBeNull()
   })
 
   it('uses the selected evaluator but accepts only a structured difficulty, never a model or tool decision', async () => {

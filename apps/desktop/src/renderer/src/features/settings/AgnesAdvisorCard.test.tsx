@@ -6,7 +6,9 @@ import { setCurrentLocale } from '@/i18n/core'
 import { AgnesAdvisorCard } from './AgnesAdvisorCard'
 import { CodexSubagentCard } from './CodexSubagentCard'
 
-const engine = vi.hoisted(() => ({ config: { codex: {} as { subagentAdvisor?: SubagentAdvisor } } }))
+const engine = vi.hoisted(() => ({
+  config: { codex: {} as { subagentAdvisor?: SubagentAdvisor; subagentFollowAdvisor?: boolean } },
+}))
 vi.mock('@/features/engine', () => ({
   useEngineState: (select: (state: typeof engine) => unknown) => select(engine),
 }))
@@ -51,5 +53,12 @@ describe('Agnes settings placement', () => {
     expect(html).toContain('Codex 子智能体')
     expect(html).toContain('子智能体模型')
     expect(html).not.toContain('Agnes')
+  })
+  it('shows the selected follow option in the native Codex card while keeping Agnes setup separate', () => {
+    engine.config.codex.subagentFollowAdvisor = true
+    const html = render(<CodexSubagentCard onError={() => undefined} />)
+    expect(html).toContain('跟随预测模型选择')
+    expect(html).toContain('保留原有默认模型和强度')
+    expect(html).not.toContain('Agnes 子智能体模型建议')
   })
 })

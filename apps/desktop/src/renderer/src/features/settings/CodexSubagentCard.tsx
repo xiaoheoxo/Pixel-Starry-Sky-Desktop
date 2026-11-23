@@ -8,14 +8,21 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr } from '@/i18n/core'
 import { Select } from '@/ui'
 
+const FOLLOW_ADVISOR = '@agnes'
+
 export function CodexSubagentCard({ onError }: { onError: (message: string | null) => void }) {
   useI18n()
   const config = useEngineState(s => s.config?.codex ?? null)
   const catalog = useEngineCatalog('codex')
   const models = catalog?.models ?? []
   const model = config?.subagentModel ?? ''
+  const followsAdvisor = config?.subagentFollowAdvisor === true
   const efforts = models.find(m => m.id === model)?.efforts ?? []
-  const save = (patch: { subagentModel?: string | null; subagentEffort?: Effort | null }): void => {
+  const save = (patch: {
+    subagentModel?: string | null
+    subagentEffort?: Effort | null
+    subagentFollowAdvisor?: boolean
+  }): void => {
     onError(null)
     void bridge
       ?.setConfig('codex', patch)
@@ -32,15 +39,27 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
           label={tr('subagentRoute.codex.model')}
           className="min-w-0 flex-1"
           mono
-          value={model}
+          value={followsAdvisor ? FOLLOW_ADVISOR : model}
           placeholder={model}
-          onChange={id => save({ subagentModel: id || null, ...(id ? {} : { subagentEffort: null }) })}
+          onChange={id => {
+            if (id === FOLLOW_ADVISOR) save({ subagentFollowAdvisor: true })
+            else {
+              const effort = config?.subagentEffort
+              const keepEffort = effort && models.find(m => m.id === id)?.efforts.includes(effort)
+              save({
+                subagentFollowAdvisor: false,
+                subagentModel: id || null,
+                ...(keepEffort ? {} : { subagentEffort: null }),
+              })
+            }
+          }}
           options={[
             { value: '', label: tr('subagentRoute.codex.follow') },
+            { value: FOLLOW_ADVISOR, label: tr('subagentRoute.codex.followAdvisor') },
             ...models.map(m => ({ value: m.id, label: m.label || m.id })),
           ]}
         />
-        {model && (
+        {model && !followsAdvisor && (
           <Select<Effort | ''>
             label={tr('subagentRoute.effort.title')}
             className="min-w-0 flex-1"
@@ -54,6 +73,9 @@ export function CodexSubagentCard({ onError }: { onError: (message: string | nul
           />
         )}
       </div>
+      {followsAdvisor && (
+        <p className="px-4 pb-3 text-label text-fg-muted">{tr('subagentRoute.codex.followAdvisorHint')}</p>
+      )}
       {!models.length && <p className="px-4 pb-3 text-label text-fg-faint">{tr('subagentRoute.codex.noCatalog')}</p>}
     </div>
   )

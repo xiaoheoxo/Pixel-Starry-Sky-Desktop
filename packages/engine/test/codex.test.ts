@@ -1731,6 +1731,25 @@ describe('Codex app-server adapter', () => {
     expect(context).not.toContain('missing-worker')
     expect(input.input[0].text).toBe('改文案')
   })
+  it('prefers the Agnes pick for explicit Codex spawn overrides without replacing native defaults', async () => {
+    const { session, messages, launches } = setup(50, {
+      env: { FAKE_CODEX_PROVIDER: 'openai' },
+      launch: {
+        subagentModel: 'fake-codex',
+        subagentEffort: 'low',
+        subagentFollowAdvisor: true,
+        subagentAdvisor: { evaluator: null, models: [null, 'fake-plain', null] },
+      },
+    })
+    await host!.send(session.id, '整理这一页')
+    await wait(() => host!.open(session.id).state === 'idle')
+    const injected = messages().find(m => m.method === 'thread/inject_items')?.params.items[0]
+    expect(injected.role).toBe('developer')
+    expect(injected.content[0].text).toContain('prefer passing model=fake-plain')
+    expect(injected.content[0].text).not.toContain('reasoning_effort=')
+    expect(launches().at(-1)).toContain('agents.default_subagent_reasoning_effort="low"')
+    expect(messages().find(m => m.method === 'turn/start')?.params.model).toBe('fake-codex')
+  })
   it('Agnes sends no evaluator request or advice when no configured model is available', async () => {
     const { adapter, session, messages } = setup(50, {
       env: { FAKE_CODEX_PROVIDER: 'openai' },

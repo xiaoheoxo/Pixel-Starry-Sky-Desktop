@@ -168,6 +168,7 @@ export class EngineHost {
             subagentModel: o.subagentModel,
             subagentEffort: o.subagentEffort,
             subagentAdvisor: o.subagentAdvisor,
+            subagentFollowAdvisor: o.subagentFollowAdvisor,
             modelDetails: () => settings.modelDetails(),
             advisorPublicMetadata: settings.cloudModelMetadata,
             inputPrediction: o.inputPrediction,

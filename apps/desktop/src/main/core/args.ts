@@ -157,6 +157,7 @@ export function engineConfigPatch(patch: unknown): EngineConfigPatch {
   if (p.modelDetail !== undefined) out.modelDetail = p.modelDetail as EngineConfigPatch['modelDetail']
   if (p.subagentAdvisor === null || (p.subagentAdvisor && typeof p.subagentAdvisor === 'object'))
     out.subagentAdvisor = p.subagentAdvisor as EngineConfigPatch['subagentAdvisor']
+  if (typeof p.subagentFollowAdvisor === 'boolean') out.subagentFollowAdvisor = p.subagentFollowAdvisor
   if (p.subagentModel === null || typeof p.subagentModel === 'string') out.subagentModel = p.subagentModel
   if (p.autoReviewModel === null || typeof p.autoReviewModel === 'string') out.autoReviewModel = p.autoReviewModel
   if (p.subagentEffort === null || typeof p.subagentEffort === 'string')

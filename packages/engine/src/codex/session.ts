@@ -83,6 +83,8 @@ export interface CodexLaunchOptions {
   subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
   advisorPublicMetadata?: Pick<import('../host/cloud-model-metadata').CloudModelMetadata, 'get' | 'refresh'>
   modelDetails?: () => Readonly<Record<string, import('@pixelsky/protocol').ModelDetail>>
+  subagentFollowAdvisor?: boolean
+  currentSubagentFollowAdvisor?: () => boolean
   currentSubagentAdvisor?: () => import('@pixelsky/protocol').SubagentAdvisor | null
   evaluateSubagent?: AdvisorEvaluator
   /** 输入预测（docs/ui/codex-input-prediction.md）：off 不预测；cheap 用便宜的模型；same 用会话的模型 */
@@ -1185,7 +1187,8 @@ export class CodexSession implements EngineSession {
       const currentAdvisor = () =>
         this.options.currentSubagentAdvisor ? this.options.currentSubagentAdvisor() : this.options.subagentAdvisor
       const advisor = currentAdvisor()
-      const available = this.catalog?.models?.map(model => model.id) ?? []
+      const catalog = this.catalog?.models ?? []
+      const available = catalog.map(model => model.id)
       let advice: string | null = null
       if (advisor && hasConfiguredSubagent(advisor, available) && text.trim() && !text.trimStart().startsWith('/')) {
         const isCurrent = (latest: ReturnType<typeof currentAdvisor>) =>
@@ -1228,7 +1231,17 @@ export class CodexSession implements EngineSession {
         const latest = currentAdvisor()
         if (latest) {
           if (!isCurrent(latest)) estimate = null
-          advice = subagentAdvice(estimate?.difficulty ?? localTier, latest, available, estimate?.model)
+          const follow =
+            (this.options.currentSubagentFollowAdvisor?.() ?? this.options.subagentFollowAdvisor) === true &&
+            !viaGateway(this.ctx.record()) &&
+            this.catalog?.currentProvider === 'openai'
+          advice = subagentAdvice(
+            estimate?.difficulty ?? localTier,
+            latest,
+            available,
+            estimate?.model,
+            follow ? catalog : undefined,
+          )
         }
       }
       if (advice) {

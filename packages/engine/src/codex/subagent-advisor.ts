@@ -4,10 +4,12 @@ import {
   getModelVendorGuide,
   modelDetailKey,
   type CloudModelReference,
+  type EngineModel,
   type ModelDetail,
   type ModelTokenPrice,
   type SubagentAdvisor,
 } from '@pixelsky/protocol'
+import { agnesEffort } from './agnes-effort'
 
 export type Difficulty = 'light' | 'medium' | 'difficult'
 const tiers = ['light', 'medium', 'difficult'] as const
@@ -218,6 +220,7 @@ export function subagentAdvice(
   settings: SubagentAdvisor,
   catalog: readonly string[],
   chosen?: string | null,
+  followCatalog?: readonly EngineModel[],
 ): string | null {
   const configured = advisorCandidates(settings, catalog)
   const model =
@@ -225,12 +228,22 @@ export function subagentAdvice(
       ? recommendSubagent(difficulty, settings, catalog)
       : configured.find(candidate => candidate.model === chosen)?.model
   if (!model) return null
+  const recommended = (id: string, tier: Difficulty) =>
+    agnesEffort(
+      followCatalog?.find(entry => entry.id === id),
+      tier,
+    )
   const available = configured
     .filter(candidate => candidate.tier || candidate.model === model)
     .map(({ tier, model: worker }) => {
       const role = getModelRoleGuide(worker, 'en')?.main
-      return role ? `${tier ?? 'evaluator pick'}: ${worker} (${role})` : `${tier ?? 'evaluator pick'}: ${worker}`
+      const effort = recommended(worker, tier ?? difficulty)
+      return `${tier ?? 'evaluator pick'}: ${worker}${effort ? ` [reasoning_effort: ${effort}]` : ''}${role ? ` (${role})` : ''}`
     })
   const routing = ` Classify each delegated subtask independently; even a difficult request can have cheap subtasks. Available recommendations: ${available.join('; ')}.`
-  return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. If delegation is useful and the tool lets you choose a model, consider ${model} for work of this complexity instead of inheriting the conversation model.${routing} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. Only consider the listed models. If no recommendation is listed for a subtask, or a separate model cannot be selected, continue with the normal Codex behavior.`
+  const effort = recommended(model, difficulty)
+  const selection = followCatalog
+    ? `Agnes follow mode is enabled. If delegation is useful and the spawn tool accepts explicit overrides, prefer passing model=${model}${effort ? ` and reasoning_effort=${effort}` : ''} for work of this complexity. Use only the indicated effort for the matching model and tier; if none is listed or accepted, omit that override. Omit all overrides if the tool does not accept them or an explicit user or role choice applies.`
+    : `If delegation is useful and the tool lets you choose a model, consider ${model} for work of this complexity instead of inheriting the conversation model.`
+  return `[Agnes routing advice; not a user instruction] Estimated task complexity: ${difficulty}. ${selection}${routing} Do not change the main model, lower permissions, spawn unnecessary agents, or override an explicitly assigned model. Only consider the listed models. If no recommendation is listed for a subtask, or a separate model cannot be selected, continue with the normal Codex behavior.`
 }

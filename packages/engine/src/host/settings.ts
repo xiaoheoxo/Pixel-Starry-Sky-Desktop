@@ -210,6 +210,7 @@ export class HostSettings {
     peekSessions: PeekScope
     subagentModel: string | null
     subagentEffort: Effort | null
+    subagentFollowAdvisor?: boolean
     subagentAdvisor?: import('@pixelsky/protocol').SubagentAdvisor | null
     inputPrediction: InputPrediction
     autoReviewModel: string | null
@@ -226,7 +227,12 @@ export class HostSettings {
       peerMessages: o.peerMessages === true,
       peekSessions: o.peekSessions === 'project' || o.peekSessions === 'all' ? o.peekSessions : 'off',
       subagentModel: typeof o.subagentModel === 'string' && o.subagentModel ? o.subagentModel : null,
-      ...(engine === 'codex' ? { subagentAdvisor: parseSubagentAdvisor(o.subagentAdvisor) } : {}),
+      ...(engine === 'codex'
+        ? {
+            subagentAdvisor: parseSubagentAdvisor(o.subagentAdvisor),
+            subagentFollowAdvisor: o.subagentFollowAdvisor === true,
+          }
+        : {}),
       subagentEffort: EFFORTS.includes(o.subagentEffort as Effort) ? (o.subagentEffort as Effort) : null,
       inputPrediction: o.inputPrediction === 'cheap' || o.inputPrediction === 'same' ? o.inputPrediction : 'off',
       autoReviewModel: typeof o.autoReviewModel === 'string' && o.autoReviewModel ? o.autoReviewModel : null,
@@ -442,6 +448,12 @@ export class HostSettings {
       if (change.detail) details[key] = change.detail
       else delete details[key]
       options.modelDetails = details
+    }
+    if (patch.subagentFollowAdvisor !== undefined) {
+      if (engine !== 'codex' || typeof patch.subagentFollowAdvisor !== 'boolean')
+        throw new Error('子智能体跟随预测模型配置不对')
+      if (patch.subagentFollowAdvisor) options.subagentFollowAdvisor = true
+      else delete options.subagentFollowAdvisor
     }
     if (patch.subagentAdvisor !== undefined) {
       const advisor = parseSubagentAdvisor(patch.subagentAdvisor)

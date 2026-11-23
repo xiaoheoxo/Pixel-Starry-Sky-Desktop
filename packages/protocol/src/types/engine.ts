@@ -168,6 +168,8 @@ export interface EngineLocalConfig {
   peekSessions: PeekScope
   subagentModel: string | null
   subagentEffort: Effort | null
+  /** Follow Agnes when Codex can spawn with per-agent overrides; keep manual defaults as fallback. */
+  subagentFollowAdvisor?: boolean
   subagentAdvisor?: import('../subagentAdvisor').SubagentAdvisor | null
   modelDetails?: Record<string, import('../modelDetails').ModelDetail>
   inputPrediction: InputPrediction
