@@ -28,6 +28,8 @@ import { CustomModelWindows } from './CustomModelWindows'
 import { ModelDetailsSection } from './ModelDetailsSection'
 import { setContextWindow, useContextWindows } from './contextWindows'
 import {
+  backfillId,
+  clearedBackfills,
   mergedModels,
   windowBackfill,
   windowEngines,
@@ -53,6 +55,7 @@ export function ModelsSection() {
   const keyMode = useKeyMode().mode
   const codexPlatform = usePlatform('codex')
   const pixelPlatform = usePlatform('pixel')
+  const ompPlatform = usePlatform('omp')
   const agyPlatform = usePlatform('antigravity')
   // 菜单里显示的模型和上下文窗口：各引擎的云端模型合在一起（GitHub #20），只有像素星空能跑的线路、
   // 只给 Antigravity 的 Gemini 分组也列出来（docs/ui/menu-models.md）
@@ -60,6 +63,7 @@ export function ModelsSection() {
     claude: platformModels(platform.groups),
     codex: platformModels(codexPlatform.groups),
     pixel: platformModels(pixelPlatform.groups),
+    omp: platformModels(ompPlatform.groups),
     antigravity: platformModels(agyPlatform.groups),
   }
   const models = mergedModels(lists)
@@ -67,11 +71,14 @@ export function ModelsSection() {
     claude: useContextWindows('claude').platform,
     codex: useContextWindows('codex').platform,
     pixel: useContextWindows('pixel').platform,
+    omp: useContextWindows('omp').platform,
   }
   const [windowError, setWindowError] = useState<string | null>(null)
+  const backfilled = useRef(new Set<string>())
   // 一个模型一个值，写给每个能跑它的引擎（像素星空没填时按系列自动定，engine pixel/context-window.ts）
   const saveWindow = (model: string, value: number | null): void => {
     setWindowError(null)
+    if (value === null) for (const id of clearedBackfills(model, lists, windows)) backfilled.current.add(id)
     writeWindows(
       windowEngines(model, lists).map(engine => ({ engine, model, value })),
       setWindowError,
@@ -79,13 +86,12 @@ export function ModelsSection() {
   }
   // 老版本只写了 Claude Code / Codex 的：补给同样能跑这个模型、却还没填的引擎，显示的和实际用的才一致
   const backfillKey = JSON.stringify(windowBackfill(models, lists, windows))
-  const backfilled = useRef(new Set<string>())
   useEffect(() => {
     const todo = (JSON.parse(backfillKey) as ReturnType<typeof windowBackfill>).filter(
-      w => !backfilled.current.has(`${w.engine}|${w.model}|${w.value}`),
+      w => !backfilled.current.has(backfillId(w)),
     )
     if (!todo.length) return
-    for (const w of todo) backfilled.current.add(`${w.engine}|${w.model}|${w.value}`)
+    for (const w of todo) backfilled.current.add(backfillId(w))
     writeWindows(todo, setWindowError)
   }, [backfillKey])
   const accountsPage = useAccountsPage()
@@ -178,6 +184,7 @@ export function ModelsSection() {
               claude: platform.groups,
               codex: codexPlatform.groups,
               pixel: pixelPlatform.groups,
+              omp: ompPlatform.groups,
               antigravity: agyPlatform.groups,
             }}
             windows={windows}

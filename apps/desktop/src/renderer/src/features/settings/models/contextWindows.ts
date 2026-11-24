@@ -1,10 +1,11 @@
 // 云端 / 本机模型的上下文窗口（GitHub #20，docs/ui/context-settings-branch-switch.md §2）：存在引擎设置里，
 // 每个引擎一份；主进程校验后广播 engine_config，store 跟着更新。演示模式只在内存里
 import { useSyncExternalStore } from 'react'
-import type { ContextWindows, EngineConfigPatch, EngineId } from '@pixelsky/protocol'
+import type { ContextWindows, EngineConfigPatch, EngineId, SessionRecord } from '@pixelsky/protocol'
 import { bridge, isLive, useEngineState } from '@/features/engine'
 import { demo, isDemo } from '@/data/demo'
 import { openEngineDetail } from '../engines/nav'
+import { requestModelsScroll } from './scroll'
 
 export type WindowSource = keyof ContextWindows
 
@@ -58,8 +59,24 @@ export async function setContextWindow(
   listeners.forEach(fn => fn())
 }
 
-/** 「上下文设置…」直接打开当前选中的执行引擎详情，新任务也使用输入框的选择。 */
-export function openContextSettings(engine: EngineId, open: (section: 'engines') => void): void {
+/** omp 用自己登录的模型时窗口由 omp 定，没有可改的地方，不显示「上下文设置…」 */
+export function hasContextSettings(
+  engine: EngineId,
+  record: Pick<SessionRecord, 'engine' | 'platform' | 'provider'> | undefined,
+): boolean {
+  return !(engine === 'omp' && record?.engine === 'omp' && !record.platform && !record.provider)
+}
+
+/**
+ * 「上下文设置…」直接打开当前选中的执行引擎详情，新任务也使用输入框的选择。
+ * omp 的详情里没有上下文这一组（docs/omp-engine.md §10），窗口在模型通道的「菜单里显示的模型」里填
+ */
+export function openContextSettings(engine: EngineId, open: (section: 'engines' | 'models') => void): void {
+  if (engine === 'omp') {
+    requestModelsScroll()
+    open('models')
+    return
+  }
   openEngineDetail(engine)
   open('engines')
 }

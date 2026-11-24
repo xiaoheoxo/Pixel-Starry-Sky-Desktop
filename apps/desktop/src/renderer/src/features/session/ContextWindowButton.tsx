@@ -26,7 +26,7 @@ import {
 import { displayMemoryPath, splitFileName, type MemoryPathBase } from './memoryPath'
 import { demo } from '@/data/demo'
 import { useSettings } from '@/features/settings/SettingsProvider'
-import { openContextSettings } from '@/features/settings/models/contextWindows'
+import { hasContextSettings, openContextSettings } from '@/features/settings/models/contextWindows'
 
 /** 刷新图标转一圈的时长；明细通常几十毫秒就回来，至少转完一圈（docs/ui/context-window.md §7） */
 const SPIN_MS = 700
@@ -573,17 +573,19 @@ export function ContextWindowButton({ sessionId, engine }: { sessionId: string |
                 {isDemo ? tr('session.ContextWindowButton.demoData') : ''}
               </p>
               {/* 跟随输入框当前的执行引擎，未创建会话时也能打开对应详情。 */}
-              <button
-                type="button"
-                data-context-settings
-                onClick={() => {
-                  setOpen(false)
-                  openContextSettings(engine, settings.openSettings)
-                }}
-                className="shrink-0 text-label text-accent-fg hover:underline"
-              >
-                {tr('contextWindow.settings')}
-              </button>
+              {hasContextSettings(engine, snapshot?.record) && (
+                <button
+                  type="button"
+                  data-context-settings
+                  onClick={() => {
+                    setOpen(false)
+                    openContextSettings(engine, settings.openSettings)
+                  }}
+                  className="shrink-0 text-label text-accent-fg hover:underline"
+                >
+                  {tr('contextWindow.settings')}
+                </button>
+              )}
             </div>
           </div>,
           document.body,

@@ -226,6 +226,17 @@ export class HostSettings {
     return this.file.options[engine]?.rememberChoices === true
   }
 
+  /**
+   * 一个引擎用的上下文窗口。云端模型的窗口在界面上是每个模型一个值，像素星空能跑的模型
+   * omp 就用像素星空那份（模型通道页不另写给 omp）；omp 自己那份只有像素星空跑不了的模型
+   */
+  private contextWindows(engine: EngineId): ContextWindows {
+    const own = readContextWindows(this.file.options[engine]?.contextWindows)
+    if (engine !== 'omp') return own
+    const shared = readContextWindows(this.file.options.pixel?.contextWindows).platform
+    return { ...own, platform: { ...shared, ...own.platform } }
+  }
+
   launchOptions(engine: EngineId): {
     outputStyle: string | null
     askQuestions: boolean
@@ -248,7 +259,7 @@ export class HostSettings {
       askQuestions: o.askQuestions !== false,
       autoPlan: o.autoPlan !== false,
       autoCompactPct: o.autoCompactPct ?? null,
-      contextWindows: readContextWindows(o.contextWindows),
+      contextWindows: this.contextWindows(engine),
       // 设置文件是用户可改的 JSON，读出来再过一遍
       args: Array.isArray(o.args) ? o.args.filter((a): a is string => typeof a === 'string') : [],
       peerMessages: o.peerMessages === true,

@@ -145,6 +145,24 @@ describe('设置：每个模型的上下文窗口', () => {
   })
 })
 
+describe('oh-my-pi：云端模型的窗口', () => {
+  it('没有自己的值用像素星空那份，有就用自己的；本机模型那份不带；清空后回到自动', async () => {
+    const { host } = codexHost()
+    await host.setEngineConfig('pixel', {
+      contextWindows: { platform: { 'gpt-6.2-sol': 300_000, 'gpt-6.1': 300_000 }, self: { o3: 200_000 } },
+    })
+    await host.setEngineConfig('omp', { contextWindows: { platform: { 'gpt-6.1': 200_000 } } })
+    const windows = { platform: { 'gpt-6.2-sol': 300_000, 'gpt-6.1': 200_000 }, self: {} }
+    expect(host.launchOptions('omp').contextWindows).toEqual(windows)
+    expect(host.engineConfig().omp.contextWindows).toEqual(windows)
+    // 两边都清空（设置页的做法）就回到自动
+    await host.setEngineConfig('pixel', { contextWindows: { platform: { 'gpt-6.2-sol': null } } })
+    expect(host.launchOptions('omp').contextWindows.platform).toEqual({ 'gpt-6.1': 200_000 })
+    // 其它引擎不跟着
+    expect(host.launchOptions('codex').contextWindows.platform).toEqual({})
+  })
+})
+
 describe('Codex：窗口和自动压缩的启动参数', () => {
   it('没设时不带；本机模型带窗口和按百分比算的 token 数，放在用户参数后面', async () => {
     const { host, project, launches } = codexHost()

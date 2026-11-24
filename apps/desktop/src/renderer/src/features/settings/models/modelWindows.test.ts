@@ -1,6 +1,15 @@
 // 设置 › 模型通道 › 菜单里显示的模型：三个引擎合在一起、每个模型一个上下文窗口
 import { describe, expect, it } from 'vitest'
-import { mergedModels, modelEngines, routeCount, sharedWindow, windowBackfill, windowEngines } from './modelWindows'
+import {
+  backfillId,
+  clearedBackfills,
+  mergedModels,
+  modelEngines,
+  routeCount,
+  sharedWindow,
+  windowBackfill,
+  windowEngines,
+} from './modelWindows'
 
 const lists = {
   claude: ['claude-opus-5-5'],
@@ -54,6 +63,26 @@ describe('上下文窗口', () => {
     expect(windowBackfill(mergedModels(lists), lists, { claude: { 'claude-opus-5-5': 200_000 } })).toEqual([
       { engine: 'pixel', model: 'claude-opus-5-5', value: 200_000 },
     ])
+  })
+
+  it('oh-my-pi：像素星空能跑的用像素星空那份，不另写；只有它能跑的才写给它', () => {
+    const omp = { ...lists, omp: ['gpt-6.1', 'only-omp'] }
+    expect(modelEngines('gpt-6.1', omp)).toEqual(['codex', 'pixel', 'omp'])
+    expect(windowEngines('gpt-6.1', omp)).toEqual(['codex', 'pixel'])
+    expect(windowEngines('only-omp', omp)).toEqual(['omp'])
+    expect(windowBackfill(['gpt-6.1'], omp, { codex: { 'gpt-6.1': 300_000 } })).toEqual([
+      { engine: 'pixel', model: 'gpt-6.1', value: 300_000 },
+    ])
+  })
+
+  it('清空：逐个引擎写的中间状态不会把旧值补回来（各引擎旧值不同也一样）', () => {
+    const before = { codex: { 'gpt-6.1': 300_000 }, pixel: { 'gpt-6.1': 400_000 } }
+    const skip = new Set(clearedBackfills('gpt-6.1', lists, before))
+    for (const step of [{ pixel: before.pixel }, { codex: before.codex }]) {
+      const todo = windowBackfill(['gpt-6.1'], lists, step)
+      expect(todo).toHaveLength(1)
+      expect(todo.filter(w => !skip.has(backfillId(w)))).toEqual([])
+    }
   })
 
   it('都填了、或都没填时不补；填了不同值的不动', () => {

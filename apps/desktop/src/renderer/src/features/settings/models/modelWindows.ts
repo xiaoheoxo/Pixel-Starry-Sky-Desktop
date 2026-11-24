@@ -1,4 +1,4 @@
-// 设置 › 模型通道 › 菜单里显示的模型（ModelsSection）：三个引擎的云端模型合在一起，每个模型一个上下文窗口。
+// 设置 › 模型通道 › 菜单里显示的模型（ModelsSection）：各引擎的云端模型合在一起，每个模型一个上下文窗口。
 // 规则：一个模型只有一个值，写给每个能跑它的引擎；读时取能跑它的引擎里第一个填了的。纯函数
 import type { EngineId } from '@pixelsky/protocol'
 
@@ -8,18 +8,21 @@ export type EngineModelLists = Partial<Record<EngineId, readonly string[]>>
 export type EngineWindowMaps = Partial<Record<EngineId, Readonly<Record<string, number>>>>
 
 /** 官方工具在前；像素星空什么协议都能跑，常常只有它能跑的模型排在后面；Antigravity 只跑 Gemini 分组 */
-const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'antigravity']
+const ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'omp', 'antigravity']
 /** 能改上下文窗口的引擎（Antigravity 用 agy 自己的窗口，不支持） */
-const WINDOW_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel']
+const WINDOW_ORDER: readonly EngineId[] = ['claude', 'codex', 'pixel', 'omp']
 
 /** 合在一起的模型：按引擎顺序、组内顺序去重 */
 export function mergedModels(lists: EngineModelLists): string[] {
   return [...new Set(ORDER.flatMap(e => lists[e] ?? []))]
 }
 
-/** 能改这个模型窗口的引擎（存窗口时每个都写一份）；只有 Antigravity 能跑的为空，那一行不给填 */
+/**
+ * 能改这个模型窗口的引擎（存窗口时每个都写一份）；只有 Antigravity 能跑的为空，那一行不给填。
+ * 像素星空能跑的不单独写给 omp：主进程让 omp 用像素星空那份（engine host/settings.ts），各写一份反而会不一致
+ */
 export function windowEngines(model: string, lists: EngineModelLists): EngineId[] {
-  return WINDOW_ORDER.filter(e => lists[e]?.includes(model))
+  return WINDOW_ORDER.filter(e => lists[e]?.includes(model) && !(e === 'omp' && lists.pixel?.includes(model)))
 }
 
 /** 能跑这个模型的引擎（行里的小图标） */
@@ -52,6 +55,20 @@ export function windowBackfill(
     for (const engine of windowEngines(model, lists)) if (!windows[engine]?.[model]) out.push({ engine, model, value })
   }
   return out
+}
+
+/** 一次补写的标识：同一个值只补一次 */
+export const backfillId = (w: { engine: EngineId; model: string; value: number }): string =>
+  `${w.engine}|${w.model}|${w.value}`
+
+/**
+ * 清空一个模型的窗口时不再补的：清空逐个引擎写、写一个广播一次，中间「有的空了、有的还没」看起来和老版本漏填一样，
+ * 不跳过就会把旧值补回来
+ */
+export function clearedBackfills(model: string, lists: EngineModelLists, windows: EngineWindowMaps): string[] {
+  const engines = windowEngines(model, lists)
+  const values = engines.flatMap(e => windows[e]?.[model] ?? [])
+  return engines.flatMap(engine => values.map(value => backfillId({ engine, model, value })))
 }
 
 /** 菜单里这个模型一共有几条线路：各引擎目录里含它的分组（同一个分组只算一次） */
