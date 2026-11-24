@@ -229,6 +229,8 @@ export function platformGateway(options: {
         ? compactionTap(r => report(record, r), body, requested)
         : null
     }
+    /** 请求体多大：超时、断开多半是太大传不完 */
+    let requestBytes = 0
     const trace = (error?: unknown) => ({
       path,
       ...(sessionId ? { sessionId } : {}),
@@ -237,6 +239,7 @@ export function platformGateway(options: {
       elapsedMs: Date.now() - started,
       streamMs: headersAt === null ? null : Date.now() - headersAt,
       bytes,
+      ...(requestBytes ? { requestBytes } : {}),
       ...(error === undefined ? {} : { error: describeError(error) }),
     })
     const responses = path === '/v1/responses'
@@ -700,6 +703,7 @@ export function platformGateway(options: {
         size += chunk.length
         if (size <= keep) chunks.push(Buffer.from(chunk))
       }
+      requestBytes = size
       let body = size <= keep ? Buffer.concat(chunks).toString('utf8') : ''
       if (size > BODY_LIMIT) {
         // Codex：历史里的截图每轮原样重发，删掉最早的图片直到放得下（docs/ui/pixel-request-size.md P2）

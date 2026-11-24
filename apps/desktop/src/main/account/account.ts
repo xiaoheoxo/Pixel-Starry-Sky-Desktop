@@ -16,6 +16,8 @@ import { sendTo } from '../app/rendererHealth'
 import * as ipc from '../ipc/guard'
 import { isUnreachable, requestViaIp, withIpFallback } from './ip-fallback'
 import {
+  BIG_REQUEST_BYTES,
+  BigRoute,
   CLOUD_ROUTES,
   FAILURE_PROBE_GAP_MS,
   ORIGIN_IP,
@@ -207,10 +209,10 @@ let probing: Promise<void> | null = null
  * 请求连不上（DNS 失败、拒绝连接、超时）：自动模式下马上重测，不等下一次定时（docs/network-direct.md §8）。
  * 当前这次请求照样失败，之后新发的请求走测出来的线路
  */
-function noteUnreachable(e: unknown): void {
+function noteUnreachable(e: unknown, used = route): void {
   if (!routingEnabled() || mode !== 'auto' || !isUnreachable(e)) return
   if (probing || Date.now() - lastProbeAt < FAILURE_PROBE_GAP_MS) return
-  log.warn('云端连不上，马上重测线路', { route, reason: describeError(e) })
+  log.warn('云端连不上，马上重测线路', { route: used, reason: describeError(e) })
   void probeCloudRoutes()
 }
 
@@ -256,6 +258,12 @@ async function doProbe(): Promise<void> {
     saveRoute()
   } else log.info('云端线路', { route, probe: text })
 }
+
+const bigRoute = new BigRoute()
+
+/** 大请求（推理带很多图）按上传选线路（docs/ui/pixel-request-size.md §7）：只在自动模式，用户指定了线路就按指定的 */
+const isBigRequest = (init: RequestInit): boolean =>
+  routingEnabled() && mode === 'auto' && typeof init.body === 'string' && init.body.length >= BIG_REQUEST_BYTES
 
 /** 账号页切换线路：存盘后马上测一轮，返回新的线路信息 */
 export async function setCloudRouteMode(next: RouteMode): Promise<ReturnType<typeof cloudRouteInfo>> {
@@ -600,10 +608,22 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
     if (!tokens || epoch !== requestEpoch) throw loggedOut()
     const headers = new Headers(init.headers)
     headers.set('Authorization', `Bearer ${tokens.accessToken}`)
-    return fetch(`${baseUrl()}${path}`, { ...init, headers, redirect: 'error' }).catch((e: unknown) => {
-      noteUnreachable(e)
-      throw e
-    })
+    const post = (base: string, used?: CloudRoute['id']): Promise<Response> =>
+      fetch(`${base}${path}`, { ...init, headers, redirect: 'error' }).catch((e: unknown) => {
+        noteUnreachable(e, used)
+        throw e
+      })
+    if (!isBigRequest(init)) return post(baseUrl())
+    const current = route ?? 'cdn'
+    return bigRoute.send(
+      current,
+      lastProbe,
+      id => {
+        if (id !== current) log.info('大请求换线路', { from: current, to: id, bytes: (init.body as string).length })
+        return post(routeOf(id).base, id)
+      },
+      e => isUnreachable(e, true),
+    )
   }
   const used = tokens?.accessToken
   let res = await send()

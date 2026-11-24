@@ -47,8 +47,15 @@ export async function readImage(file: File): Promise<ImageAttachment> {
     URL.revokeObjectURL(url)
   }
 }
-export function imageBlob(image: ImageAttachment): Blob {
-  return new Blob([Uint8Array.from(atob(image.dataBase64), c => c.charCodeAt(0))], { type: image.mediaType })
+/** 图片数据不是 base64（工具给的、记录坏了）时为 null */
+export function imageBlob(image: ImageAttachment): Blob | null {
+  let data: string
+  try {
+    data = atob(image.dataBase64)
+  } catch {
+    return null
+  }
+  return new Blob([Uint8Array.from(data, c => c.charCodeAt(0))], { type: image.mediaType })
 }
 export function imageSize(bytes: number): string {
   return bytes >= 1024 * 1024

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BIG_REQUEST_AVOID_MS,
+  BIG_REQUEST_SLOW_MS,
+  BigRoute,
   CLOUD_ROUTES,
   LOGIN_PROBE_FRESH_MS,
   SWITCH_MARGIN_MS,
@@ -70,5 +73,63 @@ describe('wsRoute：长连接走哪条', () => {
     expect(wsRoute('auto', [r('cdn', 100), r('direct', null)])).toBe('cdn')
     expect(wsRoute('cdn', [r('cdn', 100), r('direct', 50)])).toBe('cdn')
     expect(wsRoute('direct', [r('direct', null)])).toBe('direct')
+  })
+})
+
+describe('大请求选线路（docs/ui/pixel-request-size.md §7）', () => {
+  const both = [r('cdn', 100), r('direct', 900)]
+  const ok = new Response('ok')
+  const refused = new Error('refused')
+  const notConnected = (e: unknown): boolean => e === refused
+
+  it('不看延迟，先直连；直连测不通就用选中的', () => {
+    const big = new BigRoute()
+    expect(big.pick('cdn', both, 0)).toBe('direct')
+    expect(big.pick('cdn', [], 0)).toBe('direct')
+    expect(big.pick('cdn', [r('cdn', 100), r('direct', null)], 0)).toBe('cdn')
+  })
+
+  it('没连上换另一条重发，只换一次；别的失败不重发', async () => {
+    const used: string[] = []
+    const send = async (id: string): Promise<Response> => {
+      used.push(id)
+      if (id === 'direct') throw refused
+      return ok
+    }
+    expect(await new BigRoute().send('direct', both, send, notConnected)).toBe(ok)
+    expect(used).toEqual(['direct', 'cdn'])
+    used.length = 0
+    const down = async (id: string): Promise<Response> => {
+      used.push(id)
+      throw refused
+    }
+    await expect(new BigRoute().send('cdn', both, down, notConnected)).rejects.toBe(refused)
+    expect(used).toEqual(['direct', 'cdn'])
+    used.length = 0
+    const reset = async (id: string): Promise<Response> => {
+      used.push(id)
+      throw new Error('reset')
+    }
+    await expect(new BigRoute().send('cdn', both, reset, notConnected)).rejects.toThrow('reset')
+    expect(used).toEqual(['direct'])
+  })
+
+  it('很久没等到响应头就断开：一段时间内走另一条；断得快的（用户停了）不算', async () => {
+    let t = 0
+    const big = new BigRoute()
+    const abort = (ms: number) => async (): Promise<Response> => {
+      t += ms
+      throw new Error('aborted')
+    }
+    const run = (ms: number): Promise<unknown> =>
+      big.send('cdn', both, abort(ms), notConnected, () => t).catch(() => undefined)
+    await run(BIG_REQUEST_SLOW_MS - 1)
+    expect(big.pick('cdn', both, t)).toBe('direct')
+    await run(BIG_REQUEST_SLOW_MS)
+    expect(big.pick('cdn', both, t)).toBe('cdn')
+    expect(big.pick('cdn', both, t + BIG_REQUEST_AVOID_MS)).toBe('direct')
+    // 换过去的也传不动：换回来
+    await run(BIG_REQUEST_SLOW_MS)
+    expect(big.pick('cdn', both, t)).toBe('direct')
   })
 })

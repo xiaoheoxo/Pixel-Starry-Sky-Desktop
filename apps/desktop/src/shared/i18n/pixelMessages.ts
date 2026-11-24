@@ -18,6 +18,11 @@ export const pixelMessages = {
     zh: '这一轮已停下：连着 {p0} 步工具调用全部失败。发一条消息可以接着做。',
     en: 'Stopped this run: every tool call failed for {p0} steps in a row. Send a message to continue.',
   },
+  // 请求太大、超时（packages/cli/src/extensions/imageBudget.ts timeoutNote）：命令行发英文原文
+  'engine.pixel.timeoutTooLarge': {
+    zh: '请求超时：这次请求有 {p1} MB，可能太大，来不及传完。可以压缩上下文，或新开会话（{p0}）',
+    en: '{p0} — the request was {p1} MB and may be too large to upload in time. Compact the conversation or start a new one.',
+  },
   // 引擎（packages/engine/src/pixel）里的中文报错和提示：引擎发中文原文，英文界面按这里翻译（docs/own-cli.md §15）
   'engine.pixel.error.bundledMissing': {
     zh: '没有找到像素星空自带的命令行（{p0}），安装可能不完整：请重新安装像素星空',

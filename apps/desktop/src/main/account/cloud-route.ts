@@ -111,3 +111,52 @@ export const ORIGIN_IP = '51.81.246.245'
 export const WS_TIERS: readonly WsTier[] = ['cdn', 'direct', 'ip']
 
 export const isRouteMode = (v: unknown): v is RouteMode => v === 'auto' || isRouteId(v)
+
+/** 请求体这么大以上（多半带图）算大请求：选线路看上传，不看 /healthz 的延迟（docs/ui/pixel-request-size.md §7） */
+export const BIG_REQUEST_BYTES = 5 * 1024 * 1024
+/** 大请求发出去这么久还没等到响应头就断开，算这条路传不动（Pixel 等 5 分钟）；更短的多半是用户停的 */
+export const BIG_REQUEST_SLOW_MS = 4 * 60_000
+/** 传不动的那条，这么久内大请求不走 */
+export const BIG_REQUEST_AVOID_MS = 30 * 60_000
+
+/** 大请求走哪条：先直连（CDN 回源经常几分钟传不完），直连传不动时换 CDN。只记在内存里 */
+export class BigRoute {
+  private avoid: { id: CloudRoute['id']; until: number } | null = null
+
+  /** current 是自动选中的线路；直连上次测速不通时就用它 */
+  pick(current: CloudRoute['id'], probe: readonly ProbeResult[], now: number): CloudRoute['id'] {
+    if (probe.some(r => r.id === 'direct' && r.ms === null)) return current
+    const avoid = this.avoid && now < this.avoid.until ? this.avoid.id : null
+    return avoid === 'direct' ? 'cdn' : 'direct'
+  }
+
+  /**
+   * 发一次大请求（send 按线路发）：没连上（notConnected：请求肯定没发出去）就换另一条重发；
+   * 连上了但很久没等到响应头就断开的，之后的大请求换一条
+   */
+  async send(
+    current: CloudRoute['id'],
+    probe: readonly ProbeResult[],
+    send: (id: CloudRoute['id']) => Promise<Response>,
+    notConnected: (e: unknown) => boolean,
+    now: () => number = Date.now,
+  ): Promise<Response> {
+    let id = this.pick(current, probe, now())
+    const once = async (): Promise<Response> => {
+      const started = now()
+      try {
+        return await send(id)
+      } catch (e) {
+        if (now() - started >= BIG_REQUEST_SLOW_MS) this.avoid = { id, until: now() + BIG_REQUEST_AVOID_MS }
+        throw e
+      }
+    }
+    try {
+      return await once()
+    } catch (e) {
+      if (!notConnected(e)) throw e
+      id = id === 'direct' ? 'cdn' : 'direct'
+      return once()
+    }
+  }
+}

@@ -61,7 +61,9 @@ export function ImageAnnotator({
   const dirty = shapes.length > 0 || !!typing?.text
 
   useEffect(() => {
-    const url = URL.createObjectURL(imageBlob(image))
+    const blob = imageBlob(image)
+    if (!blob) return
+    const url = URL.createObjectURL(blob)
     const img = new Image()
     img.onload = () => setBitmap(img)
     img.src = url

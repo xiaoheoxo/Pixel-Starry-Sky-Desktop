@@ -64,9 +64,10 @@ function ImageTile({
     setMissing(false)
     void fullImage(image, sessionId, itemId).then(full => {
       if (gone) return
-      // 读不到（文件删了、在远程机器上）：缩略图位置写文件名，不空着
-      if (!full) return setMissing(true)
-      url = URL.createObjectURL(imageBlob(full))
+      // 读不到（文件删了、在远程机器上）、数据坏了：缩略图位置写文件名，不空着
+      const blob = full && imageBlob(full)
+      if (!blob) return setMissing(true)
+      url = URL.createObjectURL(blob)
       setUrl(url)
     })
     return () => {
@@ -108,7 +109,7 @@ function ImageTile({
           )}
           {missing && !url && (
             <span className="block truncate px-1.5 text-label text-fg-faint" title={image.name}>
-              {image.name}
+              {image.name || tr('markdown.image.name')}
             </span>
           )}
           {more > 0 && (
