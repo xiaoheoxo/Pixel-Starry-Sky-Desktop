@@ -2,7 +2,16 @@
 // 候选在这里现算：同账号换分组不换进程，命令行手里的启动数据会过期，只有网关知道会话现在在哪个分组。
 import { parseSubagentOverrides, type Effort, type SessionRecord, type SubagentOverride } from '@pixelsky/protocol'
 import { resolveDispatch, type DispatchCatalog } from '../../shared/subagent-dispatch'
-import type { SubagentSettings, SubagentSite, SubagentTarget, SubagentTools } from '../../shared/types/subagents'
+import {
+  OMP_SUBAGENT_TYPES,
+  ompRuleOf,
+  type OmpSubagentSettings,
+  type SubagentSettings,
+  type SubagentSite,
+  type SubagentTarget,
+  type SubagentTools,
+} from '../../shared/types/subagents'
+import type { OmpSubagentSnapshot } from '@pixelsky/engine'
 import { stripLongContextSuffix } from './pixel-env'
 
 export const SUBAGENT_OPTIONS_PATH = '/pixelsky/subagent-options'
@@ -57,6 +66,44 @@ export const recordSite = (record: SessionRecord): SubagentSite | null =>
     : record.provider
       ? { kind: 'custom', providerId: record.provider.id }
       : null
+
+/** 交给 omp 扩展的强度规则（engine omp/subagent-ext.ts） */
+export const ompSubagentSnapshot = (settings: OmpSubagentSettings): OmpSubagentSnapshot => ({
+  efforts: Object.fromEntries(OMP_SUBAGENT_TYPES.map(t => [t, settings.types[t].effort])),
+  maxEffort: settings.maxEffort,
+})
+
+export interface OmpSubagentReply {
+  omp: OmpSubagentSnapshot & {
+    /** 这个类型单独的线路；没有就跟随对话 */
+    route?: unknown
+    secret?: string
+    /** 指定的模型现在不能用的原因 */
+    problem?: string
+  }
+}
+
+/** oh-my-pi 的扩展问：派活时（只要强度规则）、子智能体启动时（spawn，另给线路）。用自己登录的会话不给线路 */
+export async function answerOmpSubagent(deps: {
+  settings: OmpSubagentSettings
+  record: SessionRecord
+  request: Record<string, unknown>
+  /** 能用返回 null，不能用返回原因 */
+  problem: (target: SubagentTarget) => Promise<string | null>
+  issue: (typeId: string, target: SubagentTarget) => { route: unknown; secret: string } | null
+}): Promise<OmpSubagentReply> {
+  const { settings, record, request } = deps
+  const omp: OmpSubagentReply['omp'] = ompSubagentSnapshot(settings)
+  const type = str(request.type)
+  const target = request.spawn === true && type && recordSite(record) ? ompRuleOf(settings, type).target : null
+  if (target) {
+    const problem = await deps.problem(target)
+    const issued = problem ? null : deps.issue(`omp:${type.replace(/[^\w-]/g, '_').slice(0, 64)}`, target)
+    if (issued) Object.assign(omp, issued)
+    else omp.problem = problem ?? '模型的通道暂不可用'
+  }
+  return { omp }
+}
 
 /** 只按当前记录和活的设置算，请求里能影响结果的只有类型和想选的模型 */
 export async function answerSubagentOptions(deps: {

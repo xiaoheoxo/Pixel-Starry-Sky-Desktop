@@ -35,6 +35,7 @@ import { ompOverlayText, writeOmpOverlay } from './overlay'
 import { writeOmpPlan } from './plan-ext'
 import { ompSideQuestion } from './side'
 import { cleanOmpPlugins, writeOmpPlugin } from './plugin-dir'
+import { writeOmpSubagents } from './subagent-ext'
 import { writeOmpTools } from './tools-ext'
 import { writeOmpTurn } from './turn-ext'
 
@@ -272,10 +273,12 @@ export class OmpAdapter implements EngineAdapter {
       flavor: 'omp',
       launch: ompLaunch,
       ...(viaGateway(record) ? { extensionFile: this.gatewayFile() } : {}),
-      configFile: (settings, isolated) => writeOmpOverlay(this.ompDir(), ompOverlayText(settings, isolated)),
+      configFile: (settings, isolated, pick) =>
+        writeOmpOverlay(this.ompDir(), ompOverlayText(settings, isolated, pick)),
       planFile: writeOmpPlan(this.ompDir()),
       turnFile: () => writeOmpTurn(this.ompDir()),
       toolsFile: () => writeOmpTools(this.ompDir()),
+      subagentFile: () => writeOmpSubagents(this.ompDir()),
       pluginDir: ext => writeOmpPlugin(this.pluginRoot(), ext),
       approvalMode: mode => ompApproval(mode),
     }
@@ -358,7 +361,8 @@ export class OmpAdapter implements EngineAdapter {
     const fork = record.engineSessionId ? null : record.pendingFork
     const file = record.engineSessionId ?? fork?.from
     if (!file || !isAbsolute(file)) throw new Error('先在主对话里发一条消息')
-    const options = this.launchOptions(record)
+    // 旁聊不派子智能体
+    const options = { ...this.launchOptions(record), subagentFile: undefined }
     // 权限按每次询问：btw 里模型发起的工具调用 omp 本来就丢掉不执行
     const { args, env } = ompLaunch(this.sessionEnvironment(record), record, 'ask', undefined, options)
     return ompSideQuestion({

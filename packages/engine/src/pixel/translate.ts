@@ -18,7 +18,7 @@ import type {
   ToolKind,
   TurnUsage,
 } from '@pixelsky/protocol'
-import { IMAGE_MEDIA_TYPES, IMAGE_PLACEHOLDER, httpStatusOf, noticeErrorOf } from '@pixelsky/protocol'
+import { IMAGE_MEDIA_TYPES, IMAGE_PLACEHOLDER, httpStatusOf, noticeErrorOf, subagentEffort } from '@pixelsky/protocol'
 import { MAX_RESULT_IMAGES, displayPath } from '../claude/tools'
 import { diffAdded, diffText } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
@@ -721,6 +721,21 @@ export class PixelTranslator {
   }
   /** omp 的子智能体第一次出现的时间（omp 的进度里只有用时，没有开始时间） */
   private readonly ompStarted = new Map<string, number>()
+  /** omp 子智能体实际用的模型和强度（subagent-ext.ts 报的，按子智能体 id） */
+  private readonly ompUses = new Map<string, Pick<AgentRun, 'effort'> & { model?: string }>()
+  ompAgentUses(id: string, model: string, effort: string): void {
+    if (!id) return
+    const used = { ...(model ? { model } : {}), effort: subagentEffort(effort) }
+    this.ompUses.set(id, used)
+    let changed = false
+    for (const [key, run] of this.agents)
+      if (run.id === id) {
+        this.agents.set(key, { ...run, ...used })
+        changed = true
+      }
+    if (changed) this.emitRuns()
+  }
+
   /** 派过 omp 子智能体的 task 调用 */
   private readonly ompAgentCalls = new Set<string>()
   /**
@@ -736,7 +751,11 @@ export class PixelTranslator {
     for (const { run, lastTool } of ompSubagentRuns(details, call, started)) {
       const key = `${call}:${run.id}`
       const ended = final && !details.async && run.state === 'running'
-      const next = ended ? { ...run, state: failed ? 'failed' : 'completed' } : run
+      const next = {
+        ...run,
+        ...this.ompUses.get(run.id),
+        ...(ended ? { state: failed ? 'failed' : 'completed' } : {}),
+      }
       this.agents.set(key, next)
       this.agentTools.set(key, lastTool ?? this.agentTools.get(key) ?? null)
       if (next.state !== 'running' && next.state !== 'queued') this.ompUsage(next)

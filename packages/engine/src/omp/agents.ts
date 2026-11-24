@@ -2,7 +2,7 @@
 // 重开应用从主会话文件读回：task 的结果里有各个子智能体，后台跑完的结果在之后的 async-result 条目里
 import { existsSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import type { AgentRun } from '@pixelsky/protocol'
+import { subagentEffort, type AgentRun } from '@pixelsky/protocol'
 import { entries, isOmpTaskDetails, ompSubagentRuns, type SubagentUsage } from '../pixel/agents'
 import { array, number, object, string } from '../pixel/process'
 import { ompPath, ompTree } from './branch'
@@ -46,6 +46,21 @@ export function ompAgentStats(file: string): OmpAgentStats {
     if (e.type === 'message') stats.tokens += total
   }
   return stats
+}
+
+/**
+ * 子智能体会话文件里最后定的强度；换到单独的线路（subagent-ext.ts 的 pixelsky-sub-n）的，派活结果里的模型还是换之前的，
+ * 一起给出换过的模型
+ */
+export function ompAgentUsed(file: string): Pick<AgentRun, 'effort'> & { model?: string } {
+  let level = ''
+  let model = ''
+  for (const e of entries(file, '_change"')) {
+    if (e.type === 'thinking_level_change') level = string(e.thinkingLevel)
+    else if (e.type === 'model_change') model = string(e.model)
+  }
+  const routed = /^pixelsky-sub-\d+\/(.+)$/.exec(model)?.[1]
+  return { effort: subagentEffort(level), ...(routed ? { model: routed } : {}) }
 }
 
 const JOB_STATE: Record<string, string> = { completed: 'completed', cancelled: 'stopped', aborted: 'stopped' }
@@ -115,6 +130,7 @@ export function ompRunsFromSession(sessionFile: string, at?: string | null): Age
         tokens: stats?.tokens || next.tokens,
         toolCalls: stats?.toolCalls || next.toolCalls,
         model: next.model || Object.keys(stats?.usage ?? {})[0] || '',
+        ...(file ? ompAgentUsed(file) : {}),
       })
     }
   }

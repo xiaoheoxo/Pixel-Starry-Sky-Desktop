@@ -22,6 +22,7 @@ import { SearchRegistry } from '../core/search-registry'
 import { bindOps } from '../core/ops'
 import { listDirectories } from '../core/directories'
 import { gatewaySettings } from '../platform/compact-window'
+import { speaksPi } from '../../shared/provider-protocols'
 import type { WorkspaceRef } from '../../shared/types/workspace'
 import { TunnelEnd, type TunnelPeer } from './tunnel'
 import { collectStats } from './stats'
@@ -78,8 +79,8 @@ export async function createRemoteRuntime(
   // 没装上像素星空命令行时，引擎列表里 pixel 写清楚原因（不然只有一句「找不到 pixelsky」）
   const pixelReason = extra.pixelCli ? null : remotePixelReason(process.versions.node, arch())
   const prepare = async (record: SessionRecord) => {
-    // 像素星空的自有会话也要桌面端给的环境变量：设置 › 子智能体（和本机 platform.ts 一样每个像素星空会话都带）
-    if (!viaGateway(record) && record.engine !== 'pixel') {
+    // 像素星空、oh-my-pi 的自有会话也要桌面端给的环境变量：设置 › 子智能体（和本机 platform.ts 一样每个会话都带）
+    if (!viaGateway(record) && !speaksPi(record.engine)) {
       environments.delete(record.id)
       return
     }

@@ -26,6 +26,7 @@ export {
   rewriteCompaction,
   type CompactionRequestReport,
 } from './compaction'
+export { OMP_SUBAGENTS_ENV, type OmpSubagentSnapshot } from './omp/subagent-ext'
 export { LONG_CONTEXT_ENV, claudeModelName } from './claude/long-context'
 export { AUTOCOMPACT_THRASHING, THINKING_SIGNATURE } from './claude/apiError'
 export { registerOwnClaudePid, unregisterOwnClaudePid, ownClaudePids } from './claude/process'

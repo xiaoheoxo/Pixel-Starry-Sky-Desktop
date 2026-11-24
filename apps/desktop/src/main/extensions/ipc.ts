@@ -27,6 +27,8 @@ export class Extensions {
     private readonly ctx: AppContext,
     private readonly history: HistoryServer | null = null,
     private readonly threads: ThreadsServer | null = null,
+    /** oh-my-pi 有子智能体类型让主模型按任务选强度：要启动时开，变了换进程（docs/omp-engine.md §18） */
+    private readonly ompPicksEffort: () => boolean = () => false,
   ) {}
 
   private env(engine: EngineId = 'claude'): Record<string, string> | undefined {
@@ -89,7 +91,7 @@ export class Extensions {
       record.engine === 'omp'
         ? {
             ...allowed,
-            ...(isolated ? { key: allowed.key + '|isolated' } : {}),
+            key: allowed.key + (isolated ? '|isolated' : '') + (this.ompPicksEffort() ? '|pick' : ''),
             ownTools: own.flatMap(([name, entry]) => (entry ? [{ name, url: entry.url, token: entry.token }] : [])),
           }
         : allowed

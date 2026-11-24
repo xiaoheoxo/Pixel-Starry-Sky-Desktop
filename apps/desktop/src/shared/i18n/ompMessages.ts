@@ -17,6 +17,10 @@ export const ompMessages = {
     en: 'oh-my-pi skips every permission check',
   },
   // 引擎（packages/engine/src/omp、pixel/session.ts 的 omp 分支）发的中文原文，英文界面按这里翻
+  'engine.omp.subagentModel': {
+    zh: '子智能体「{p0}」指定的模型用不了（{p1}），这次跟随对话的模型',
+    en: 'The model chosen for subagent “{p0}” is unavailable ({p1}); using the model of the conversation this time',
+  },
   'engine.omp.notFoundWin': {
     zh: '没找到 oh-my-pi（omp）。安装：在 PowerShell 运行 irm https://omp.sh/install.ps1 | iex',
     en: 'oh-my-pi (omp) not found. Install it in PowerShell: irm https://omp.sh/install.ps1 | iex',

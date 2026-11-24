@@ -95,7 +95,9 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   // 查看本机其他会话的 MCP 服务：设置里开了、有会话要派发消息时才启动（docs/ui/import-collab.md 第 5 项③）
   const threads = threadsServer(ctx)
   app.on('will-quit', () => threads.close())
-  const extensions = new Extensions(ctx, history, threads)
+  const extensions = new Extensions(ctx, history, threads, () =>
+    Object.values(subagents.get().omp.types).some(t => t.effort === 'pick'),
+  )
   // 系统代理补给本机引擎（Claude Code / Codex 只认环境变量）；远程机器的宿主不传
   const proxyLog = logger('proxy')
   const systemProxy = new SystemProxy({

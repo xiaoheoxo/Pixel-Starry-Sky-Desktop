@@ -9,6 +9,13 @@ import {
 } from '@pixelsky/protocol'
 import { piThinkingLevel } from '../pixel/catalog'
 import { OMP_PLAN_ENV, OMP_PLAN_RETURN_ENV } from './plan-ext'
+import {
+  OMP_SUBAGENTS_ENV,
+  OMP_SUB_BASE_URL_ENV,
+  OMP_SUB_TOKEN_ENV,
+  ompPicksEffort,
+  ompSubagentSnapshot,
+} from './subagent-ext'
 import { OMP_TOOLS_ENV } from './tools-ext'
 import {
   GATEWAY_ENV,
@@ -99,13 +106,17 @@ export function ompLaunch(
     args.push('-e', options.toolsFile())
     env[OMP_TOOLS_ENV] = JSON.stringify(ext.ownTools)
   } else delete env[OMP_TOOLS_ENV]
+  // 子智能体的模型和强度（§18）；扩展读到就把密钥拿掉，不加载扩展时不给
+  const subagents = options.subagentFile ? ompSubagentSnapshot(env) : null
+  if (subagents) args.push('-e', options.subagentFile!())
+  else for (const key of [OMP_SUBAGENTS_ENV, OMP_SUB_BASE_URL_ENV, OMP_SUB_TOKEN_ENV]) delete env[key]
   args.push(...(options.args ?? []))
   // 用户在桌面端配的 MCP、技能：拼成插件目录。放用户参数后面：两个 --plugin-dir 都生效
   const plugin = ext && !ext.strictMcp ? options.pluginDir?.(ext) : null
   if (plugin) args.push('--plugin-dir', plugin.dir)
   if (gateway) args.push(...ompGatewayRoles(record.model))
   // 会话开关的叠加设置放用户参数后面（omp 的 --config 可以给多份，都生效，实测）
-  const config = options.configFile?.(record, !!ext?.strictMcp)
+  const config = options.configFile?.(record, !!ext?.strictMcp, ompPicksEffort(subagents))
   if (config) args.push(`--config=${config}`)
   // 隔离靠叠加设置：没有它就不能起来，会带上用户的 MCP
   else if (ext?.strictMcp) throw new Error('oh-my-pi 的隔离设置没有写出来')

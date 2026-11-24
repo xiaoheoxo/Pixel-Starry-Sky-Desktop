@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROVIDERS_ENV } from '../pixel/session'
+import { OMP_MODEL_FILL_SOURCE } from './model-fill'
 
 /**
  * 扩展源码。配置结构同 pixelModelsConfig（models.json 的 providers）；omp 的 apiKey 写环境变量名（不带 $），
@@ -10,21 +11,7 @@ import { PROVIDERS_ENV } from '../pixel/session'
  * Max 会被降档，Opus 4.6 这类没有 xhigh 的还会发出不支持的档（docs/omp-engine.md §16）
  */
 export const OMP_GATEWAY_SOURCE = `// 像素星空写的文件，每次启动会覆盖。经本机网关用平台线路时注册 "pixelsky" 提供方
-let builtin
-try {
-  builtin = (await import('@oh-my-pi/pi-catalog/models')).getBundledModel
-} catch {
-  // 拿不到内置目录：档位由 omp 自己推断
-}
-const thinkingOf = (api, id) => {
-  if (api !== 'anthropic-messages') return undefined
-  try {
-    const thinking = builtin?.('anthropic', String(id).replace(/\\[1m\\]$/i, ''))?.thinking
-    return thinking && { thinking }
-  } catch {
-    return undefined
-  }
-}
+${OMP_MODEL_FILL_SOURCE}
 export default function pixelskyGateway(pi) {
   let providers
   try {
@@ -37,17 +24,7 @@ export default function pixelskyGateway(pi) {
     if (!raw || typeof raw !== 'object') continue
     const config = { ...raw }
     if (typeof config.apiKey === 'string') config.apiKey = config.apiKey.replace(/^\\$/, '')
-    if (Array.isArray(config.models))
-      config.models = config.models.map(m => ({
-        name: m.id,
-        reasoning: false,
-        input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 128000,
-        maxTokens: 16384,
-        ...thinkingOf(m.api ?? config.api, m.id),
-        ...m,
-      }))
+    if (Array.isArray(config.models)) config.models = config.models.map(m => fillModel(config.api, m))
     pi.registerProvider(name, config)
   }
 }

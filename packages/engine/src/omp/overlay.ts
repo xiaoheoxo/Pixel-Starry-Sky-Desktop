@@ -29,11 +29,13 @@ export const OMP_ISOLATED_SOURCES = [
 
 /**
  * 叠加设置的内容。omitThinking 两种都写：开着时也要盖过用户自己配置里的省略，开关和实际才一致。
+ * pickEffort：有子智能体类型让主模型按任务选强度（subagent-ext.ts）。
  * Ultracode = task.eager: always（每轮系统提示要求把改动拆开委派给 task 子智能体，首条消息前再加一段并行派活的提醒）
  */
 export function ompOverlayText(
   settings: Pick<SessionSettings, 'thinkingSummaries' | 'ultracode'>,
   isolated = false,
+  pickEffort = false,
 ): string {
   // 目标在 RPC 里默认不自己接着做（docs/omp-engine.md §13.1）
   const lines = [
@@ -41,7 +43,11 @@ export function ompOverlayText(
     'goal:',
     '  continuationModes: [interactive, rpc]',
   ]
-  if (settings.ultracode) lines.push('task:', '  eager: always', `  maxConcurrency: ${OMP_ULTRACODE_CONCURRENCY}`)
+  const task = [
+    ...(settings.ultracode ? ['  eager: always', `  maxConcurrency: ${OMP_ULTRACODE_CONCURRENCY}`] : []),
+    ...(pickEffort ? ['  enableEffort: true'] : []),
+  ]
+  if (task.length) lines.push('task:', ...task)
   if (isolated) lines.push(`disabledProviders: [${OMP_ISOLATED_SOURCES.join(', ')}]`, 'enabledProviders: []')
   return lines.join('\n') + '\n'
 }

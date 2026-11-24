@@ -56,6 +56,7 @@ import {
 } from './agents'
 import { PixelProcess, array, object, string, type Message, type PixelResponse } from './process'
 import { ompRunsFromSession } from '../omp/agents'
+import { OMP_SUB_STATUS } from '../omp/subagent-ext'
 import { ompDropGoal, ompForkFile, ompHasGoal } from '../omp/branch'
 import { OMP_CONTEXT_COMMAND, ompContext, ompNoContext } from '../omp/context'
 import { ompGoal, ompOutput, sameGoal } from '../omp/goal'
@@ -176,12 +177,19 @@ export interface PixelLaunchOptions {
   turnFile?: () => string
   /** omp 注册应用自己的工具的扩展（omp/tools-ext.ts） */
   toolsFile?: () => string
+  /** omp 子智能体的模型和强度（omp/subagent-ext.ts） */
+  subagentFile?: () => string
   /** omp 的插件目录：桌面端管理的 MCP、技能（omp/plugin-dir.ts）；没有要给的返回 null */
   pluginDir?: (ext: import('@pixelsky/protocol').ExtensionLaunch) => { dir: string; remove: () => void } | null
   /** omp 这一档用的 --approval-mode（omp/launch.ts ompApproval）：批准计划后看要不要换进程 */
   approvalMode?: (mode: PermissionMode) => string
-  /** omp 按会话开关（显示思考、Ultracode）写出的 --config 叠加设置（omp/overlay.ts），返回文件路径；isolated 时停掉用户级的 MCP 等来源 */
-  configFile?: (settings: Pick<SessionSettings, 'thinkingSummaries' | 'ultracode'>, isolated: boolean) => string
+  /** omp 按会话开关（显示思考、Ultracode）写出的 --config 叠加设置（omp/overlay.ts），返回文件路径；isolated 时停掉用户级的 MCP 等来源，
+   * pickEffort 时让主模型给子任务选强度 */
+  configFile?: (
+    settings: Pick<SessionSettings, 'thinkingSummaries' | 'ultracode'>,
+    isolated: boolean,
+    pickEffort: boolean,
+  ) => string
 }
 
 /** omp 这几项改了要换进程（--approval-mode、--config 叠加设置都只在启动时读），这一轮结束后生效 */
@@ -1684,6 +1692,13 @@ export class PixelSession implements EngineSession {
           }
         } catch {
           /* 不把扩展错误输出当成成功 */
+        }
+      } else if (key === OMP_SUB_STATUS && this.omp) {
+        try {
+          const used = object(JSON.parse(string(raw.statusText)))
+          this.translator.ompAgentUses(string(used.id), string(used.model), string(used.effort))
+        } catch {
+          // 格式不对：不显示
         }
       } else if (key === APPROVAL_CONTEXT_STATUS) this.approvalContext = subagentApproval(string(raw.statusText))
       else if (key === MCP_STATUS) {

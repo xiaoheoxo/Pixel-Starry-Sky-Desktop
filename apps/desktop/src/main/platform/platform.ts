@@ -21,6 +21,7 @@ import {
   CODEX_WINDOW_ENV,
   logger,
   LONG_CONTEXT_ENV,
+  OMP_SUBAGENTS_ENV,
   claudeModelName,
   pixelAutoWindow,
   rewriteCompaction,
@@ -42,7 +43,14 @@ import {
   type SubagentTarget,
 } from '../../shared/types/subagents'
 import type { DispatchCatalog } from '../../shared/subagent-dispatch'
-import { DISPATCH_TOKEN_ENV, answerSubagentOptions, staleSubagentKey, subagentRouteKey } from './subagent-options'
+import {
+  DISPATCH_TOKEN_ENV,
+  answerOmpSubagent,
+  answerSubagentOptions,
+  ompSubagentSnapshot,
+  staleSubagentKey,
+  subagentRouteKey,
+} from './subagent-options'
 
 const log = logger('subagents')
 const groupLog = logger('platform')
@@ -340,7 +348,7 @@ export async function initPlatform(
   providers: ProviderStore | null = null,
   /** Claude Code 压缩请求的实时进度，报给会话所在的宿主 */
   compaction?: (record: SessionRecord, report: CompactionRequestReport) => void,
-  /** 设置 › 子智能体（只管像素星空引擎的会话） */
+  /** 设置 › 子智能体（像素星空和 oh-my-pi 的会话） */
   subagents: () => SubagentSettings = () => DEFAULT_SUBAGENT_SETTINGS,
   /** 设置 › 模型通道里给云端模型填的窗口（像素星空那份）：子智能体单独走云端线路时用 */
   pixelPlatformWindows: () => Record<string, number> = () => ({}),
@@ -439,30 +447,37 @@ export async function initPlatform(
       const recordId = token ? [...optionSecrets].find(([, secret]) => secret === token)?.[0] : undefined
       const record = recordId ? await getRecord(recordId) : null
       if (!record) return null
-      return answerSubagentOptions({
-        settings: subagents(),
-        record,
-        request,
-        catalog: dispatchCatalog,
-        issue: (typeId, target) => {
-          const check = checkSubagentTarget(target, providers, signedInEmail())
-          if (!check.ok) {
-            log.info('子智能体的站点不能用', { sessionId: recordId, type: typeId, reason: check.reason })
-            return null
-          }
-          // 一个目标一把密钥，通向哪里由 target 定，主模型传什么模型名都改不了（key 的格式见 staleSubagentKey）
-          // 用登记时的 id（远端会话带机器前缀，查记录认它）
-          const key = subagentRouteKey(recordId!, typeId, target)
-          let entry = sessions.get(key)
-          if (!entry) {
-            entry = { recordId: recordId!, secret: randomBytes(32).toString('hex') }
-            sessions.set(key, entry)
-          }
-          entry.target = target
-          log.info('子智能体使用指定模型', { sessionId: recordId, type: typeId, model: target.model })
-          return { route: subagentRoute(target, check.provider, DISPATCH_TOKEN_ENV), secret: entry.secret }
-        },
-      })
+      const issue = (typeId: string, target: SubagentTarget) => {
+        const check = checkSubagentTarget(target, providers, signedInEmail())
+        if (!check.ok) {
+          log.info('子智能体的站点不能用', { sessionId: recordId, type: typeId, reason: check.reason })
+          return null
+        }
+        // 一个目标一把密钥，通向哪里由 target 定，主模型传什么模型名都改不了（key 的格式见 staleSubagentKey）
+        // 用登记时的 id（远端会话带机器前缀，查记录认它）
+        const key = subagentRouteKey(recordId!, typeId, target)
+        let entry = sessions.get(key)
+        if (!entry) {
+          entry = { recordId: recordId!, secret: randomBytes(32).toString('hex') }
+          sessions.set(key, entry)
+        }
+        entry.target = target
+        log.info('子智能体使用指定模型', { sessionId: recordId, type: typeId, model: target.model })
+        return { route: subagentRoute(target, check.provider, DISPATCH_TOKEN_ENV), secret: entry.secret }
+      }
+      if (record.engine === 'omp')
+        return answerOmpSubagent({
+          settings: subagents().omp,
+          record,
+          request: (request && typeof request === 'object' ? request : {}) as Record<string, unknown>,
+          problem: async target => {
+            const problem = (await dispatchCatalog(null)).problem(target)
+            if (problem) log.info('子智能体的站点不能用', { sessionId: recordId, reason: problem })
+            return problem
+          },
+          issue,
+        })
+      return answerSubagentOptions({ settings: subagents(), record, request, catalog: dispatchCatalog, issue })
     },
   })
   server.listen(0, '127.0.0.1')
@@ -530,14 +545,26 @@ export async function initPlatform(
     // 所有类型都能在派活时读取本会话覆盖和类型现在的设置
     const dispatching = types.length > 0
     if (dispatching) {
-      const secret = optionSecrets.get(record.id) ?? randomBytes(32).toString('hex')
-      optionSecrets.set(record.id, secret)
-      env.PIXELSKY_SUBAGENT_OPTIONS_TOKEN = secret
+      Object.assign(env, optionsEnv(record))
       env.PIXELSKY_SUBAGENT_LIVE_OPTIONS = '1'
     }
     if (used.size || dispatching) env.PIXELSKY_PIXEL_SUB_BASE_URL = `http://127.0.0.1:${address.port}`
     return env
   }
+  /** 查子智能体设置的地址和密钥 */
+  const optionsEnv = (record: SessionRecord): Record<string, string> => {
+    const secret = optionSecrets.get(record.id) ?? randomBytes(32).toString('hex')
+    optionSecrets.set(record.id, secret)
+    return {
+      PIXELSKY_SUBAGENT_OPTIONS_TOKEN: secret,
+      PIXELSKY_PIXEL_SUB_BASE_URL: `http://127.0.0.1:${address.port}`,
+    }
+  }
+  /** oh-my-pi 会话的子智能体（docs/omp-engine.md §18）：强度规则的快照；派活、启动时扩展再问网关最新的 */
+  const ompSubagentEnv = (record: SessionRecord): Record<string, string> => ({
+    ...optionsEnv(record),
+    [OMP_SUBAGENTS_ENV]: JSON.stringify(ompSubagentSnapshot(subagents().omp)),
+  })
   const sessionEnv = (record: SessionRecord): NodeJS.ProcessEnv => {
     const provider = checkProvider(record, providers)
     if (!record.platform && !provider) return {}
@@ -633,5 +660,8 @@ export async function initPlatform(
     settingsFiles.add(file)
     return { ...env, PIXELSKY_GATEWAY_SETTINGS: file }
   }
-  return record => (record.engine === 'pixel' ? { ...sessionEnv(record), ...subagentEnv(record) } : sessionEnv(record))
+  return record => ({
+    ...sessionEnv(record),
+    ...(record.engine === 'pixel' ? subagentEnv(record) : record.engine === 'omp' ? ompSubagentEnv(record) : {}),
+  })
 }

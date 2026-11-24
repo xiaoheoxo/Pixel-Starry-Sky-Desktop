@@ -6,7 +6,13 @@ import type { SessionRecord } from '@pixelsky/protocol'
 import type { DispatchCatalog } from '../../shared/subagent-dispatch'
 import { parseSubagentSettings, type SubagentSite, type SubagentTarget } from '../../shared/types/subagents'
 import { platformGateway } from './gateway'
-import { SUBAGENT_OPTIONS_PATH, answerSubagentOptions, staleSubagentKey, subagentRouteKey } from './subagent-options'
+import {
+  SUBAGENT_OPTIONS_PATH,
+  answerOmpSubagent,
+  answerSubagentOptions,
+  staleSubagentKey,
+  subagentRouteKey,
+} from './subagent-options'
 
 const target = (groupId: string, model: string): SubagentTarget => ({
   kind: 'platform',
@@ -50,6 +56,56 @@ const ask = (request: unknown, rec = record(), s = settings()) => {
   const issue = vi.fn((_type: string, t: SubagentTarget) => ({ route: { model: { id: t.model } }, secret: 'k' }))
   return { issue, reply: answerSubagentOptions({ settings: s, record: rec, request, catalog, issue }) }
 }
+
+describe('oh-my-pi 的子智能体（docs/omp-engine.md §18）', () => {
+  const omp = parseSubagentSettings({
+    omp: {
+      types: {
+        scout: { target: target('2', 'other'), effort: 'low' },
+        '*': { target: target('3', 'mine'), effort: 'follow' },
+      },
+    },
+  }).omp
+  const run = (request: Record<string, unknown>, rec: Partial<SessionRecord> = {}, problem: string | null = null) => {
+    const issue = vi.fn((_type: string, t: SubagentTarget) => ({ route: { model: { id: t.model } }, secret: 'k' }))
+    const reply = answerOmpSubagent({
+      settings: omp,
+      record: record({ engine: 'omp', ...rec }),
+      request,
+      problem: async () => problem,
+      issue,
+    })
+    return { issue, reply }
+  }
+
+  it('启动时给规则和这个类型的线路；没列出来的类型用 *', async () => {
+    expect(await run({ type: 'scout', spawn: true }).reply).toEqual({
+      omp: {
+        efforts: expect.objectContaining({ scout: 'low', task: 'pick' }),
+        maxEffort: 'max',
+        route: { model: { id: 'other' } },
+        secret: 'k',
+      },
+    })
+    const mine = run({ type: 'my agent', spawn: true })
+    expect((await mine.reply).omp.route).toEqual({ model: { id: 'mine' } })
+    expect(mine.issue.mock.calls[0]![0]).toBe('omp:my_agent')
+  })
+
+  it('派活时、跟随对话的类型、用自己登录的会话不给线路；不能用的给原因', async () => {
+    for (const r of [
+      run({ type: 'scout' }),
+      run({ type: 'task', spawn: true }),
+      run({ type: 'scout', spawn: true }, { platform: null }),
+    ]) {
+      expect((await r.reply).omp.route).toBeUndefined()
+      expect(r.issue).not.toHaveBeenCalled()
+    }
+    expect((await run({ type: 'scout', spawn: true }, {}, '平台线路已经不在了').reply).omp).toMatchObject({
+      problem: '平台线路已经不在了',
+    })
+  })
+})
 
 describe('staleSubagentKey', () => {
   const prefix = 's1#subagent:'

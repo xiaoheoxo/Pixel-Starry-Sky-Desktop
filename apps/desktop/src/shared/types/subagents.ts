@@ -1,7 +1,8 @@
 // 设置 › 子智能体（docs/ui/subagent-routing.md）：像素星空引擎的子智能体分类型，每个类型可以单独选站点和模型、工具权限。
 // 主进程存、渲染进程改；Claude Code / Codex 会话不受影响。
+// oh-my-pi 的子智能体只管模型和思考深度（omp 字段，docs/omp-engine.md §18），类型、工具、提示词归它自己。
 
-import { subagentEffort, type Effort } from '@pixelsky/protocol'
+import { SUBAGENT_EFFORTS, subagentEffort, type Effort } from '@pixelsky/protocol'
 
 /** 子智能体单独走的站点：自定义接口，或像素星空平台的一条线路（account 是选的时候登录的账号） */
 export type SubagentTarget =
@@ -64,6 +65,83 @@ export interface SubagentSettings {
   fallback: boolean
   /** 一个会话同时运行的子智能体上限 */
   maxConcurrent: SubagentConcurrency
+  /** oh-my-pi 的子智能体 */
+  omp: OmpSubagentSettings
+}
+
+/** omp 自带的类型；* 是没列出来的（用户自己在 omp 里写的） */
+export const OMP_SUBAGENT_TYPES = ['task', 'scout', 'sonic', 'reviewer', 'security-reviewer', '*'] as const
+export type OmpSubagentType = (typeof OMP_SUBAGENT_TYPES)[number]
+/** follow 跟随对话；pick 主模型派活时按任务选；omp 照 omp 自己的；其余是固定的档位 */
+export type OmpSubagentEffort = 'follow' | 'pick' | 'omp' | Effort
+export interface OmpSubagentRule {
+  /** null：跟随对话；只在走平台线路 / 自定义 API 的会话里起作用 */
+  target: SubagentTarget | null
+  effort: OmpSubagentEffort
+}
+export interface OmpSubagentSettings {
+  types: Record<OmpSubagentType, OmpSubagentRule>
+  /** pick 时主模型最高能选到的档 */
+  maxEffort: Effort
+}
+
+export const OMP_SUBAGENT_PRESETS = {
+  mix: {
+    task: 'pick',
+    scout: 'medium',
+    sonic: 'low',
+    reviewer: 'xhigh',
+    'security-reviewer': 'max',
+    '*': 'follow',
+  },
+  follow: 'follow',
+  pick: 'pick',
+  omp: 'omp',
+} as const satisfies Record<string, OmpSubagentEffort | Record<OmpSubagentType, OmpSubagentEffort>>
+export type OmpSubagentPreset = keyof typeof OMP_SUBAGENT_PRESETS
+const presetEffort = (preset: OmpSubagentPreset, type: OmpSubagentType): OmpSubagentEffort => {
+  const p = OMP_SUBAGENT_PRESETS[preset]
+  return typeof p === 'string' ? p : p[type]
+}
+/** 一键设置：只换强度，模型不动 */
+export const withOmpPreset = (settings: OmpSubagentSettings, preset: OmpSubagentPreset): OmpSubagentSettings => ({
+  ...settings,
+  types: ompTypes(type => ({ ...settings.types[type], effort: presetEffort(preset, type) })),
+})
+/** 现在的强度正好是哪一个一键设置；都不是返回 null */
+export const ompPresetOf = (settings: OmpSubagentSettings): OmpSubagentPreset | null =>
+  (Object.keys(OMP_SUBAGENT_PRESETS) as OmpSubagentPreset[]).find(p =>
+    OMP_SUBAGENT_TYPES.every(t => settings.types[t].effort === presetEffort(p, t)),
+  ) ?? null
+const ompTypes = (rule: (type: OmpSubagentType) => OmpSubagentRule): Record<OmpSubagentType, OmpSubagentRule> =>
+  Object.fromEntries(OMP_SUBAGENT_TYPES.map(t => [t, rule(t)])) as Record<OmpSubagentType, OmpSubagentRule>
+/** omp 的类型名 → 用哪条规则 */
+export const ompRuleOf = (settings: OmpSubagentSettings, type: string): OmpSubagentRule =>
+  settings.types[(OMP_SUBAGENT_TYPES as readonly string[]).includes(type) ? (type as OmpSubagentType) : '*']
+
+/** 默认「分档」（2026-11-25 用户定） */
+export const DEFAULT_OMP_SUBAGENTS: OmpSubagentSettings = {
+  types: ompTypes(type => ({ target: null, effort: presetEffort('mix', type) })),
+  maxEffort: 'max',
+}
+
+function parseOmp(raw: unknown): OmpSubagentSettings {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const types = (o.types && typeof o.types === 'object' ? o.types : {}) as Record<string, unknown>
+  return {
+    types: ompTypes(type => {
+      const r = (types[type] && typeof types[type] === 'object' ? types[type] : {}) as Record<string, unknown>
+      return {
+        target: parseTarget(r.target),
+        effort: pick<OmpSubagentEffort>(
+          ['follow', 'pick', 'omp', ...SUBAGENT_EFFORTS],
+          r.effort,
+          DEFAULT_OMP_SUBAGENTS.types[type].effort,
+        ),
+      }
+    }),
+    maxEffort: subagentEffort(o.maxEffort) ?? DEFAULT_OMP_SUBAGENTS.maxEffort,
+  }
 }
 
 export const GENERAL_TYPE = 'general'
@@ -108,6 +186,7 @@ export const DEFAULT_SUBAGENT_SETTINGS: SubagentSettings = {
   types: BUILTIN_SUBAGENT_TYPES.map(t => ({ ...t })),
   fallback: true,
   maxConcurrent: 4,
+  omp: DEFAULT_OMP_SUBAGENTS,
 }
 
 const id = (v: unknown, pattern: RegExp): string | null => (typeof v === 'string' && pattern.test(v) ? v : null)
@@ -150,6 +229,7 @@ export function parseSubagentSettings(raw: unknown): SubagentSettings {
     types,
     fallback: typeof o.fallback === 'boolean' ? o.fallback : DEFAULT_SUBAGENT_SETTINGS.fallback,
     maxConcurrent: pick(SUBAGENT_CONCURRENCY, o.maxConcurrent, DEFAULT_SUBAGENT_SETTINGS.maxConcurrent),
+    omp: parseOmp(o.omp),
   }
 }
 

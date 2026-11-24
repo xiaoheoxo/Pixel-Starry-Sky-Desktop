@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SubagentSettingsStore } from './store'
-import { DEFAULT_SUBAGENT_SETTINGS, parseSubagentSettings } from '../../shared/types/subagents'
+import {
+  DEFAULT_SUBAGENT_SETTINGS,
+  ompPresetOf,
+  parseSubagentSettings,
+  withOmpPreset,
+} from '../../shared/types/subagents'
 
 let dir: string
 beforeEach(() => {
@@ -40,6 +45,22 @@ describe('设置 › 子智能体（docs/ui/subagent-routing.md）', () => {
       ['explore', 'read', true],
     ])
     expect(DEFAULT_SUBAGENT_SETTINGS).toMatchObject({ fallback: true, maxConcurrent: 4 })
+    // oh-my-pi 默认分档（docs/omp-engine.md §18）
+    expect(ompPresetOf(DEFAULT_SUBAGENT_SETTINGS.omp)).toBe('mix')
+  })
+
+  it('oh-my-pi：认不出的回默认，一键设置只换强度', () => {
+    const target = { kind: 'custom', providerId: 'p1', model: 'm' } as const
+    const { omp } = parseSubagentSettings({
+      omp: { types: { task: { target, effort: 'high' }, scout: { effort: 'nope' }, x: {} }, maxEffort: 'ultra' },
+    })
+    expect(omp.types.task).toEqual({ target, effort: 'high' })
+    expect(omp.types.scout).toEqual({ target: null, effort: 'medium' })
+    expect(omp.maxEffort).toBe('max')
+    expect(ompPresetOf(omp)).toBeNull()
+    const all = withOmpPreset(omp, 'follow')
+    expect(ompPresetOf(all)).toBe('follow')
+    expect(all.types.task.target).toEqual(target)
   })
 
   it('内置类型总在、通用总是开着、名字不能改；标识不对或重复的丢掉；认不出的值回到默认', () => {
