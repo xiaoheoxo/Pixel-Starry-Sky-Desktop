@@ -116,6 +116,44 @@ describe('answerSubagentOptions', () => {
     expect((await ask(req, record()).reply).override).toBeUndefined()
   })
 
+  it('live：类型现在的站点、强度等一起回（改了设置不用重启会话）；不带 live 的旧命令行照旧', async () => {
+    const s = parseSubagentSettings({
+      types: [
+        { id: 'general', target: target('2', 'gpt-6.2-sol'), effort: 'high', maxMinutes: 60, instructions: '简短' },
+        { id: 'explore', target: target('2', 'm'), enabled: false },
+      ],
+      fallback: false,
+    })
+    const request = { type: 'general', pick: true, configure: true, live: true }
+    const { reply, issue } = ask(request, record(), s)
+    expect(await reply).toMatchObject({
+      pick: { outcome: 'self' },
+      current: {
+        tools: 'all',
+        maxMs: 3_600_000,
+        instructions: '简短',
+        effort: 'high',
+        fallback: false,
+        route: { model: { id: 'gpt-6.2-sol' } },
+        secret: 'k',
+      },
+    })
+    expect(issue).toHaveBeenCalledWith('general', target('2', 'gpt-6.2-sol'))
+    expect(await ask({ ...request, live: undefined }, record(), s).reply).not.toHaveProperty('current')
+    expect(await ask({ ...request, type: 'explore' }, record(), s).reply).not.toHaveProperty('current')
+    // 本会话单独指定了模型：不给类型的站点发密钥，其余照回
+    const over = ask(request, record({ subagentOverrides: [{ type: 'general', model: null }] } as never), s)
+    expect((await over.reply).current).toMatchObject({ effort: 'high', maxMs: 3_600_000 })
+    expect((await over.reply).current).not.toHaveProperty('route')
+    expect(over.issue).not.toHaveBeenCalled()
+    // 主模型调度的类型：站点由调度定
+    expect((await ask({ ...request, type: 'explore' }).reply).current).not.toHaveProperty('route')
+    // 站点不能用了：跟随主会话
+    const gone = await answerSubagentOptions({ settings: s, record: record(), request, catalog, issue: () => null })
+    expect(gone.current).toMatchObject({ effort: 'high' })
+    expect(gone.current).not.toHaveProperty('route')
+  })
+
   it('只列候选时不发密钥', async () => {
     const { issue, reply } = ask({ type: 'explore' })
     expect(await reply).toEqual({

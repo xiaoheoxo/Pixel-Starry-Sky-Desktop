@@ -52,6 +52,10 @@ export const subagentRouteMessages = {
     zh: '子智能体类型仅对 Pixel 会话生效。Claude Code 使用自带的子智能体；Codex 的默认子智能体模型仍在「本机引擎 › Codex」设置。',
     en: 'Subagent types apply only to Pixel sessions. Claude Code uses its own subagents; set Codex’s default subagent model under Local engines › Codex.',
   },
+  'subagentRoute.applyHint': {
+    zh: '模型、推理强度、工具权限、最长时间、额外说明：改完下一次派子任务就生效，正在跑的不变。新建、删除、开关类型，改名字、「什么时候用」和同时运行上限：新开的会话生效。',
+    en: 'Model, reasoning effort, tools, time limit and instructions apply to the next subtask; running ones are unchanged. Adding, removing or toggling types, names, “when to use” and the concurrency limit apply to new sessions.',
+  },
   'subagentRoute.types': { zh: '类型', en: 'Types' },
   'subagentRoute.typesHint': {
     zh: '主会话按「什么时候用」挑一种；都不合适时用「通用」。',
@@ -209,8 +213,8 @@ export const subagentRouteMessages = {
   'subagentRoute.platformHint': { zh: '平台线路 · {rate}', en: 'Platform route · {rate}' },
   'subagentRoute.pick': { zh: '选择站点', en: 'Choose a site' },
   'subagentRoute.ok': {
-    zh: '可以用。改了以后，新开或重新连上的会话生效。',
-    en: 'Ready. Changes apply to sessions opened or reconnected afterwards.',
+    zh: '可以用。改了以后，下一次派子任务就生效。',
+    en: 'Ready. Changes apply to the next subtask.',
   },
   'subagentRoute.providerGone': {
     zh: '选的自定义接口已经删除了。在你重新选之前，这个类型跟随主会话运行。',

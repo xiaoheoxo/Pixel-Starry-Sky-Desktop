@@ -446,7 +446,10 @@ export async function initPlatform(
         catalog: dispatchCatalog,
         issue: (typeId, target) => {
           const check = checkSubagentTarget(target, providers, signedInEmail())
-          if (!check.ok) return null
+          if (!check.ok) {
+            log.info('子智能体的站点不能用', { sessionId: recordId, type: typeId, reason: check.reason })
+            return null
+          }
           // 一个目标一把密钥，通向哪里由 target 定，主模型传什么模型名都改不了（key 的格式见 staleSubagentKey）
           // 用登记时的 id（远端会话带机器前缀，查记录认它）
           const key = subagentRouteKey(recordId!, typeId, target)
@@ -474,7 +477,9 @@ export async function initPlatform(
   })
   /**
    * 像素星空会话的子智能体（设置 › 子智能体）：启用的类型写进 PIXELSKY_SUBAGENT_TYPES；指定了站点且能用的类型各登记一把密钥
-   * （sessions 里 `<会话 id>#subagent:<类型>`），不能用的跟随主会话。进程启动时取一次，改了设置在新开或重新连上的会话生效。
+   * （sessions 里 `<会话 id>#subagent:<类型>`），不能用的跟随主会话。这是启动时的快照：
+   * 站点、模型、强度、工具、时长、说明、出错改走主会话派活时由网关回最新的（subagentOptions 的 current，D362）；
+   * 有哪些类型、什么时候用、同时运行上限在新开或重新连上的会话生效。
    * 每个会话另给一把查配置的密钥（PIXELSKY_SUBAGENT_OPTIONS_TOKEN），会话覆盖和调度规则派活时现算
    */
   const subagentEnv = (record: SessionRecord): Record<string, string> => {
@@ -522,7 +527,7 @@ export async function initPlatform(
     // 设置里关掉、删掉或站点不能用了的类型：旧密钥作废
     for (const key of [...sessions.keys()]) if (staleSubagentKey(key, prefix, used)) sessions.delete(key)
     env.PIXELSKY_SUBAGENT_TYPES = JSON.stringify(types)
-    // 所有类型都能在派活时读取本会话覆盖；固定类型的全局默认仍取启动时快照。
+    // 所有类型都能在派活时读取本会话覆盖和类型现在的设置
     const dispatching = types.length > 0
     if (dispatching) {
       const secret = optionSecrets.get(record.id) ?? randomBytes(32).toString('hex')

@@ -102,6 +102,10 @@ export interface SubagentTypeDef {
 const TYPE_ID = /^[a-z][a-z0-9-]{0,31}$/
 const thinkingEffort = (v: unknown): string | null =>
   typeof v === 'string' && ['low', 'medium', 'high', 'xhigh', 'max'].includes(v) ? v : null
+const typeMaxMs = (v: unknown): number | null => {
+  const ms = Number(v)
+  return Number.isFinite(ms) && ms >= 60_000 && ms <= 24 * 3600_000 ? ms : null
+}
 const TOKEN_ENV = /^PIXELSKY_PIXEL_SUB_TOKEN_\d{1,3}$/
 
 function parseRoute(raw: unknown): SubagentRoute | null {
@@ -151,13 +155,12 @@ export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
     const o = object(item)
     const id = text(o.id)
     if (!TYPE_ID.test(id) || types.some(t => t.id === id)) continue
-    const ms = Number(o.maxMs)
     types.push({
       id,
       name: text(o.name) || id,
       description: text(o.description),
       tools: o.tools === 'read' ? 'read' : 'all',
-      maxMs: Number.isFinite(ms) && ms >= 60_000 && ms <= 24 * 3600_000 ? ms : MAX_MS,
+      maxMs: typeMaxMs(o.maxMs) ?? MAX_MS,
       instructions: text(o.instructions),
       route: parseRoute(o.route),
       effort: thinkingEffort(o.effort),
@@ -170,6 +173,13 @@ export function subagentTypes(env: NodeJS.ProcessEnv): SubagentTypeDef[] {
 
 /** 网关回的候选（桌面端 main/platform/subagent-options.ts） */
 export interface DispatchReply {
+  /** 类型现在的设置，代替启动时的快照；旧桌面端、类型关了时没有 */
+  current?: Pick<SubagentTypeDef, 'tools' | 'maxMs' | 'instructions'> & {
+    effort: string | null
+    fallback: boolean
+    route: SubagentRoute | null
+    secret: string | null
+  }
   override?: { model?: string | null; effort?: string | null; route?: SubagentRoute; secret?: string }
   currentModel: string
   options: Array<{ model: string; note: string; outside: boolean }>
@@ -180,10 +190,30 @@ export interface DispatchReply {
     | { outcome: 'route'; route: SubagentRoute; secret: string; source: 'chosen' | 'default'; outside: boolean }
 }
 
+/** 内容不对时 undefined（用启动时的快照） */
+function parseCurrent(raw: unknown): DispatchReply['current'] {
+  const c = object(raw)
+  const maxMs = typeMaxMs(c.maxMs)
+  if ((c.tools !== 'all' && c.tools !== 'read') || maxMs === null || typeof c.fallback !== 'boolean') return undefined
+  const route = parseRoute(c.route)
+  const secret = text(c.secret) || null
+  // 给了站点却认不出来：不能当成跟随主会话
+  if (c.route !== undefined && (!route || !secret)) return undefined
+  return {
+    tools: c.tools,
+    maxMs,
+    instructions: text(c.instructions),
+    effort: thinkingEffort(c.effort),
+    fallback: c.fallback,
+    route,
+    secret,
+  }
+}
+
 /** 问本机网关现在能选哪些模型；pick 为真时顺便拿到选中模型的路线。回应不对就抛错 */
 export async function querySubagentOptions(
   env: NodeJS.ProcessEnv,
-  request: { type: string; mainModel?: string; model?: string; pick?: boolean; configure?: boolean },
+  request: { type: string; mainModel?: string; model?: string; pick?: boolean; configure?: boolean; live?: boolean },
   signal: AbortSignal | undefined,
   fetcher: typeof fetch = fetch,
 ): Promise<DispatchReply> {
@@ -208,6 +238,7 @@ export async function querySubagentOptions(
   const config = object(o.override)
   const configRoute = parseRoute(config.route)
   const route = parseRoute(p.route)
+  const current = parseCurrent(o.current)
   const pick: DispatchReply['pick'] =
     p.outcome === 'route' && route && text(p.secret)
       ? {
@@ -235,6 +266,7 @@ export async function querySubagentOptions(
           },
         }
       : {}),
+    ...(current ? { current } : {}),
     ...(pick ? { pick } : {}),
   }
 }
@@ -291,6 +323,11 @@ export function subagentMaxConcurrent(env: NodeJS.ProcessEnv): number {
   const n = Number(env[SUBAGENT_MAX_CONCURRENT_ENV])
   return Number.isInteger(n) && n >= 1 && n <= 16 ? n : Infinity
 }
+
+/** 主模型会去翻环境变量核对设置，看到启动时的快照就不肯派活：说清以派活时的为准 */
+const LIVE_SETTINGS_NOTE = `
+
+Each type's model, reasoning effort, tools and limits come from the user's app settings and are read when the subagent starts. Environment variables only hold a snapshot from when this session started; do not inspect them to decide whether to delegate.`
 
 /** task 工具的说明：有多个类型时列出每个类型的标识和什么时候用 */
 export function taskDescription(types: readonly SubagentTypeDef[]): string {
@@ -629,7 +666,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
   return (pi: ExtensionAPI) => {
     const env = options.env ?? process.env
     const types = subagentTypes(env)
-    const fallback = env[SUBAGENT_FALLBACK_ENV] !== '0'
+    const startFallback = env[SUBAGENT_FALLBACK_ENV] !== '0'
     // 同时运行上限：一个会话（这个进程）里所有 task 调用共用，多出来的排队
     const limit = subagentMaxConcurrent(env)
     let running = 0
@@ -701,7 +738,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
     pi.registerTool({
       name: SUBAGENT_TOOL,
       label: 'Subagent',
-      description: taskDescription(types),
+      description: taskDescription(types) + (env.PIXELSKY_SUBAGENT_LIVE_OPTIONS === '1' ? LIVE_SETTINGS_NOTE : ''),
       promptSnippet: `Delegate a self-contained task to a subagent (${SUBAGENT_TOOL})`,
       parameters: Type.Object({
         description: Type.String({ minLength: 1, description: 'A short (3-6 word) label for the task' }),
@@ -737,7 +774,8 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
           | undefined,
         ctx: ExtensionContext,
       ) {
-        const type = types.find(t => t.id === (params.type?.trim() || GENERAL_TYPE))
+        let type = types.find(t => t.id === (params.type?.trim() || GENERAL_TYPE))
+        let fallback = startFallback
         if (!type)
           throw new Error(`Unknown subagent type "${params.type}". Available types: ${types.map(t => t.id).join(', ')}`)
         const parent = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : null
@@ -759,7 +797,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
               {
                 type: type.id,
                 pick: true,
-                ...(liveOptions ? { configure: true } : {}),
+                ...(liveOptions ? { configure: true, live: true } : {}),
                 ...(requested ? { model: requested } : {}),
                 ...(parent ? { mainModel: parent.id } : {}),
               },
@@ -776,6 +814,15 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
               throw new Error(
                 `Could not check whether model "${requested}" is allowed: ${(error as Error).message}. Retry, or omit \`model\` to use your current model.`,
               )
+          }
+          // 设置页改过的马上用上（D362）；下面主模型选的、本会话单独设置的再盖过它
+          if (reply?.current) {
+            const { route, secret, fallback: retry, ...now } = reply.current
+            type = { ...type, ...now }
+            effort = now.effort ?? pi.getThinkingLevel()
+            routed = route
+            routeSecret = secret
+            fallback = retry
           }
           if (reply?.pick?.outcome === 'rejected')
             throw new Error(rejectedModelMessage(type.id, requested ?? reply.defaultModel ?? '', reply))
@@ -804,6 +851,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
             }
           }
         }
+        const { id: typeId, tools, instructions, maxMs } = type
         const parentFile = ctx.sessionManager.getSessionFile()
         const sessionDir = parentFile ? join(dirname(parentFile), 'subagents') : null
         const progress: SubagentProgress = {
@@ -838,20 +886,20 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
         }
         // 起一个子进程跑完这个任务；model 为 null 时用子进程自己的默认模型
         const attempt = async (model: { provider: string; id: string } | null): Promise<void> => {
-          const readOnly = type.tools === 'read'
+          const readOnly = tools === 'read'
           const args = childArgs({
             entry: process.argv[1] ?? '',
             mode: options.mode(),
             sessionDir,
             readOnly,
-            instructions: type.instructions,
+            instructions,
           })
           // 只读的关了 MCP，不给桌面端的服务器文件：不然 mcp.ts 照样注册，Pi 报「no loaded extension connects MCP servers」
           const childEnv = {
             ...env,
             ...(readOnly ? {} : mcpChildEnv()),
             [SUBAGENT_ENV]: '1',
-            [SUBAGENT_TYPE_ENV]: type.id,
+            [SUBAGENT_TYPE_ENV]: typeId,
             ...(routed && routeSecret
               ? { [SUBAGENT_ROUTE_ENV]: JSON.stringify(routed), [routed.token]: routeSecret }
               : {}),
@@ -915,7 +963,7 @@ export function createSubagentExtension(options: SubagentOptions): ExtensionFact
           signal?.addEventListener('abort', abort, { once: true })
           // 起进程前主会话就停了（监听加上之前），addEventListener 不会再触发
           if (signal?.aborted) abort()
-          const timer = setTimeout(abort, type.maxMs)
+          const timer = setTimeout(abort, maxMs)
           // 启动的每一步都要等子进程回应，期间可能被停止：停了就不再往下发，尤其不能再发 prompt 去调模型
           const live = () => progress.state === 'running'
           try {

@@ -1,8 +1,8 @@
 // 主模型调度（docs/ui/subagent-model-dispatch.md §4）：命令行派活时问本机网关「现在能选哪些模型」。
 // 候选在这里现算：同账号换分组不换进程，命令行手里的启动数据会过期，只有网关知道会话现在在哪个分组。
-import { parseSubagentOverrides, type SessionRecord, type SubagentOverride } from '@pixelsky/protocol'
+import { parseSubagentOverrides, type Effort, type SessionRecord, type SubagentOverride } from '@pixelsky/protocol'
 import { resolveDispatch, type DispatchCatalog } from '../../shared/subagent-dispatch'
-import type { SubagentSettings, SubagentSite, SubagentTarget } from '../../shared/types/subagents'
+import type { SubagentSettings, SubagentSite, SubagentTarget, SubagentTools } from '../../shared/types/subagents'
 import { stripLongContextSuffix } from './pixel-env'
 
 export const SUBAGENT_OPTIONS_PATH = '/pixelsky/subagent-options'
@@ -20,6 +20,16 @@ export type SubagentOptionsPick =
 export interface SubagentOptionsReply {
   /** 用户的本会话覆盖；模型指定仅限主会话当前通道，路线仍由网关签发。 */
   override?: Omit<SubagentOverride, 'type'> & { route?: unknown; secret?: string }
+  /** 这个类型现在的设置（请求里 live 为真、类型还开着时才有）：命令行用它代替启动时的快照（D362）。没有 route 是跟随主会话 */
+  current?: {
+    tools: SubagentTools
+    maxMs: number
+    instructions: string
+    effort: Effort | null
+    fallback: boolean
+    route?: unknown
+    secret?: string
+  }
   currentModel: string
   options: Array<{ model: string; note: string; outside: boolean }>
   /** 不填 model 时用的；null：用主模型自己 */
@@ -60,7 +70,8 @@ export async function answerSubagentOptions(deps: {
   const { settings, record } = deps
   const request = (deps.request && typeof deps.request === 'object' ? deps.request : {}) as Record<string, unknown>
   const typeId = str(request.type)
-  const dispatch = settings.types.find(t => t.id === typeId && t.enabled)?.dispatch
+  const type = settings.types.find(t => t.id === typeId && t.enabled)
+  const dispatch = type?.dispatch
   // 会话记录里没写模型时（跟随默认）才用命令行报的
   const model = stripLongContextSuffix(record.model || str(request.mainModel))
   const site = recordSite(record)
@@ -73,6 +84,19 @@ export async function answerSubagentOptions(deps: {
     request.configure === true && record.engine === 'pixel'
       ? parseSubagentOverrides(record.subagentOverrides).find(o => o.type === typeId)
       : undefined
+  if (type && request.live === true && record.engine === 'pixel') {
+    // 会话自己指定了模型时不用类型的站点；站点不能用了（issue 回 null）和启动时一样跟随主会话
+    const issued =
+      type.target && !dispatch && !(override && 'model' in override) ? deps.issue(typeId, type.target) : null
+    reply.current = {
+      tools: type.tools,
+      maxMs: type.maxMinutes * 60_000,
+      instructions: type.instructions,
+      effort: type.effort ?? null,
+      fallback: settings.fallback,
+      ...issued,
+    }
+  }
   if (override) {
     const { type: _type, ...config } = override
     reply.override = config

@@ -221,6 +221,43 @@ describe('子智能体类型', () => {
     await first
   })
 
+  it('设置改了不重启：下一次派活用网关回的站点、强度、工具和说明；回跟随主会话也马上生效；网关没回就用启动时的', async () => {
+    const env = { ...ENV, PIXELSKY_SUBAGENT_LIVE_OPTIONS: '1', PIXELSKY_SUBAGENT_OPTIONS_TOKEN: 'k' }
+    const route = {
+      api: 'openai-responses',
+      model: { id: 'gpt-6.2-sol' },
+      label: 'GPT Pro',
+      token: 'PIXELSKY_PIXEL_SUB_TOKEN_0',
+    }
+    const now = { tools: 'all', maxMs: 600_000, instructions: 'New rules.', effort: 'high', fallback: false }
+    let current: unknown = { ...now, route, secret: 's-new' }
+    const asked: Json[] = []
+    const fetcher = (async (_url: string, init: { body: string }) => {
+      asked.push(JSON.parse(init.body) as Json)
+      return new Response(
+        JSON.stringify({ currentModel: 'main', options: [], defaultModel: null, pick: { outcome: 'self' }, current }),
+      )
+    }) as unknown as typeof fetch
+    const run = setup(env, [() => {}, () => {}, () => {}, c => c.send(failed('site down'))], fetcher)
+    const level = (i: number) => run.children[i]!.received.find(m => m.type === 'set_thinking_level')?.level
+    await run.call({ type: 'general' })
+    expect(run.tool().description).toContain('read when the subagent starts')
+    expect(asked[0]).toMatchObject({ type: 'general', live: true })
+    expect(run.models()[0]).toMatchObject({ provider: SUBAGENT_PROVIDER, modelId: 'gpt-6.2-sol' })
+    expect(level(0)).toBe('high')
+    // 探索启动时有自己的站点：改成跟随主会话
+    current = now
+    await run.call({ type: 'explore' })
+    expect(run.models()[1]).toMatchObject({ modelId: 'claude-sonnet-5-5' })
+    current = undefined
+    await run.call({ type: 'explore' })
+    expect(run.models()[2]).toMatchObject({ provider: SUBAGENT_PROVIDER, modelId: 'deepseek-chat' })
+    // 「出错改走主会话」关掉也马上生效
+    current = { ...now, route, secret: 's-new' }
+    await expect(run.call({ type: 'general' })).rejects.toThrow('site down')
+    expect(run.children).toHaveLength(4)
+  })
+
   it('effort-only override retains the fixed route and missing live settings never silently use another model', async () => {
     const env = { ...ENV, PIXELSKY_SUBAGENT_LIVE_OPTIONS: '1', PIXELSKY_SUBAGENT_OPTIONS_TOKEN: 'k' }
     const fetcher = (async () =>

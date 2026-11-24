@@ -145,6 +145,7 @@ export function SubagentsSection({ openChannels }: { openChannels: () => void })
                 </span>
               </h4>
               <p className="mt-0.5 text-meta text-fg-muted">{tr('subagentRoute.typesHint')}</p>
+              <p className="mt-0.5 text-meta text-fg-faint">{tr('subagentRoute.applyHint')}</p>
             </div>
             <Button icon={Plus} variant="primary" disabled={!!draft} onClick={() => guard(() => startNew())}>
               {tr('subagentRoute.addType')}
