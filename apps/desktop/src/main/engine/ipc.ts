@@ -177,6 +177,11 @@ export async function initEngine(ctx: AppContext): Promise<void> {
   registerQuotaIpc(h)
   watchSleep(h)
   backfillAfterSignIn(h)
+  // 旧版截短的会话标题等启动忙完再补（docs/ui/session-title.md §2）
+  setTimeout(
+    () => void h.fixTitles().catch((e: unknown) => logger('engine').warn('补旧标题失败', { error: String(e) })),
+    5_000,
+  ).unref()
   // 引擎有新版本时设置 › 本机引擎提示「更新」（docs/ui/engine-update.md）
   scheduleEngineUpdateChecks(() => h.checkEngineUpdates())
   // 侧栏对话的状态图标：工作文件夹还在不在、对话关联的 PR（docs/ui/sidebar-status-icons.md）

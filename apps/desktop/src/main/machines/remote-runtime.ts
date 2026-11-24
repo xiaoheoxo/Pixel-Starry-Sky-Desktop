@@ -111,6 +111,8 @@ export async function createRemoteRuntime(
     validateInput: prepare,
     platformCharges: (settlement, _signal) => peer.call('platform:charges', [settlement]),
   })
+  // 旧版截短的会话标题在后台补一次（docs/ui/session-title.md §2）；补不了不影响连接
+  setTimeout(() => void host.fixTitles().catch(() => {}), 5_000).unref()
   const resolve = (ref: WorkspaceRef) => resolveLocalWorkspace(host, ref)
   const tools = createToolsHost({ host: () => host, resolve, record: id => host.record(id) })
   const changed = () => peer.event('projectTools:changed', null)

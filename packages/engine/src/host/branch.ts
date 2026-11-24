@@ -2,7 +2,8 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative } from 'node:path'
-import { normalizeSessionTitle } from '@pixelsky/protocol'
+import { normalizeSessionTitle, SESSION_TITLE_LIMIT } from '@pixelsky/protocol'
+import { clipTitle } from './title'
 import type {
   EngineId,
   EngineSessionState,
@@ -497,7 +498,7 @@ export class HostBranch {
         },
       },
       nextEngine: null,
-      title: title ? normalizeSessionTitle(title) : `${source.title}（分支）`,
+      title: title ? normalizeSessionTitle(title) : `${clipTitle(source.title, SESSION_TITLE_LIMIT - 4)}（分支）`,
       titleEdited: true,
       createdAt: now,
       updatedAt: now,

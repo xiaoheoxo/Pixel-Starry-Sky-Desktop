@@ -781,6 +781,11 @@ export class EngineHost {
     return this.m.branch.exportHtml(id)
   }
 
+  /** 旧版截短的自动标题在后台补一次（docs/ui/session-title.md §2） */
+  fixTitles(): Promise<number> {
+    return this.m.sessions.fixTitles()
+  }
+
   renameSession(id: string, title: unknown): SessionRecord {
     return this.m.sessions.renameSession(id, title)
   }

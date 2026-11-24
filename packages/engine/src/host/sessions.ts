@@ -26,7 +26,7 @@ import { queueSettings } from '../queue'
 import { ENGINES } from '../registry'
 import type { CloseOptions, EngineSession } from '../adapter'
 import type { HostContext, Runtime } from './context'
-import { NEW_TITLE } from './title'
+import { NEW_TITLE, oldClipped, oldTitleMatches, titleFrom } from './title'
 import { checkPlanReturn, nextPlanReturn } from './plan-return'
 import { under } from '../native/paths'
 import { logger } from '../log'
@@ -510,6 +510,34 @@ export class HostSessions {
     const rt = this.ctx.runtimes.get(id)
     if (rt?.execution) rt.execution = { ...rt.execution, title: name, titleEdited: true }
     return record
+  }
+
+  /** 旧版截成 30 字的自动标题按第一条消息重新算（docs/ui/session-title.md §2）；返回改了几个 */
+  async fixTitles(): Promise<number> {
+    const { ctx } = this
+    const stale = (r: SessionRecord | undefined): r is SessionRecord => !!r && !r.titleEdited && oldClipped(r.title)
+    const ids = [...ctx.records.values()].filter(stale).map(r => r.id)
+    let fixed = 0
+    if (!ids.length) return fixed
+    await ctx.m.events.batchSessions(async () => {
+      for (const id of ids) {
+        const old = ctx.records.get(id)?.title
+        const texts = await ctx.store.firstUserTexts(id)
+        // 读的间隙里关了、删了、改了名：不动
+        const record = ctx.records.get(id)
+        if (ctx.closing) return
+        if (!stale(record) || record.title !== old || ctx.changingSessions.has(id)) continue
+        const text = texts.find(t => oldTitleMatches(t, record.title))
+        const title = text === undefined ? record.title : titleFrom(text)
+        if (title === record.title || title === NEW_TITLE) continue
+        ctx.m.events.patchRecord(id, { title })
+        const rt = ctx.runtimes.get(id)
+        if (rt?.execution) rt.execution = { ...rt.execution, title }
+        fixed++
+      }
+    })
+    if (fixed) log.info('补全旧会话标题', { fixed })
+    return fixed
   }
 
   /**

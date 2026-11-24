@@ -26,6 +26,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { setImmediate as nextTurn } from 'node:timers/promises'
@@ -620,6 +621,35 @@ export class Store {
       // 读到一半出错（文件被删）：用已经读到的
     }
     return [...byId.values()]
+  }
+
+  /** 对话开头几条用户消息的文字（补旧标题用）：只读前 256 KB，最后一行没读全时（带着图片）只取文字 */
+  async firstUserTexts(sessionId: string): Promise<string[]> {
+    const out: string[] = []
+    let head: string
+    try {
+      const file = await open(join(this.sessionDir(sessionId), ITEMS), 'r')
+      try {
+        const { buffer, bytesRead } = await file.read(Buffer.alloc(256 * 1024), 0, 256 * 1024, 0)
+        head = buffer.toString('utf8', 0, bytesRead)
+      } finally {
+        await file.close()
+      }
+    } catch {
+      return out
+    }
+    for (const line of head.split('\n')) {
+      if (!line.includes('"kind":"user"')) continue
+      try {
+        const item = JSON.parse(line) as Item
+        if (item.kind === 'user' && typeof item.text === 'string') out.push(item.text)
+      } catch {
+        // 没读全的最后一行：文字写在图片前面
+        const text = /^\{"kind":"user","id":"[^"]*","text":("(?:[^"\\]|\\.)*")/.exec(line)?.[1]
+        if (text) out.push(JSON.parse(text) as string)
+      }
+    }
+    return out
   }
 
   /** items.jsonl 的字节数，没有这个文件为 0（不读条目） */
