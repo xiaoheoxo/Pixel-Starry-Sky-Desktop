@@ -81,7 +81,11 @@ export async function initTerminalIpc(
           if (name === 'state') {
             const local = service.state(owner),
               ssh = remote.state(owner)
-            return { ...(active === 'local' ? local : ssh), terminals: [...local.terminals, ...ssh.terminals] }
+            return {
+              ...(active === 'local' ? local : ssh),
+              ...(local.windowsBuild ? { windowsBuild: local.windowsBuild } : {}),
+              terminals: [...local.terminals, ...ssh.terminals],
+            }
           }
           if (id) {
             if (name === 'create') return remote.create(owner, ref(args[0]), args[1], args[2])

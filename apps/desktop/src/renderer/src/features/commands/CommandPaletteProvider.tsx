@@ -567,7 +567,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       hasProject,
       t('terminal.chooseProject'),
     )
-    for (const action of ['rename', 'search', 'clear', 'restart', 'close'] as const)
+    for (const action of ['rename', 'search', 'repair', 'clear', 'restart', 'close'] as const)
       add(
         'terminal.' + action,
         ('terminal.' + action) as TranslationKey,

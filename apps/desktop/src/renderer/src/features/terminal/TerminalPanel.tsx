@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Play,
   Plus,
+  RefreshCw,
   Rows2,
   Search,
   Settings,
@@ -411,7 +412,11 @@ export function TerminalPanel({
               return
             }
             const r = moreRef.current!.getBoundingClientRect()
-            setMenu({ x: Math.max(8, r.right - 200), y: Math.max(8, r.top - 230) })
+            const menuH = 272
+            setMenu({
+              x: Math.max(8, Math.min(r.right - 208, window.innerWidth - 216)),
+              y: r.bottom + 4 + menuH <= window.innerHeight - 8 ? r.bottom + 4 : Math.max(8, r.top - menuH),
+            })
           }}
           className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-hover"
         >
@@ -509,48 +514,53 @@ export function TerminalPanel({
             )}
           </div>
         )}
-        {state.terminals.map(record => {
-          // 所有终端都留在同一个父元素里（换位置不重建 xterm，不丢输出），分屏只改外层的顺序和宽度
-          const side = split ? (record.id === split.left ? 'left' : record.id === split.right ? 'right' : null) : null
-          const shown = split ? side !== null : active?.id === record.id
-          return (
-            <div
-              key={record.id}
-              data-terminal-side={side ?? undefined}
-              className={cn(
-                shown ? 'flex min-h-0 min-w-0 flex-col' : 'contents',
-                side === 'right' && cn('flex-1 border-line-layout', down ? 'border-t' : 'border-l'),
-                side && ui.activeId === record.id && (down ? 'terminal-split-focused-down' : 'terminal-split-focused'),
-                !split && shown && 'flex-1',
-              )}
-              style={
-                side === 'left'
-                  ? down
-                    ? { order: 0, height: firstSize, flex: 'none' }
-                    : { order: 0, width: firstSize, flex: 'none' }
-                  : side
-                    ? { order: 2 }
-                    : undefined
-              }
-              onPointerDownCapture={() => {
-                if (side && ui.activeId !== record.id) ui.select(record.id)
-              }}
-            >
-              <TerminalView
-                record={record}
-                visible={(embedded || bare ? visible : ui.open) && shown}
-                onPaste={ui.paste}
-                onFind={() => void ui.request('search', record.id)}
-                onCycle={cycle}
-                onAltArrow={key => {
-                  const id = splitMoveTarget(split, key)
-                  if (id && id !== ui.activeId) ui.select(id)
-                  return !!id
+        {state.terminals
+          // 会话 TUI 终端只在 SessionView 里挂载，不在这里重复挂隐藏的 TerminalView 抢输出流
+          .filter(r => !r.sessionId)
+          .map(record => {
+            // 所有终端都留在同一个父元素里（换位置不重建 xterm，不丢输出），分屏只改外层的顺序和宽度
+            const side = split ? (record.id === split.left ? 'left' : record.id === split.right ? 'right' : null) : null
+            const shown = split ? side !== null : active?.id === record.id
+            return (
+              <div
+                key={record.id}
+                data-terminal-side={side ?? undefined}
+                className={cn(
+                  shown ? 'flex min-h-0 min-w-0 flex-col' : 'contents',
+                  side === 'right' && cn('flex-1 border-line-layout', down ? 'border-t' : 'border-l'),
+                  side &&
+                    ui.activeId === record.id &&
+                    (down ? 'terminal-split-focused-down' : 'terminal-split-focused'),
+                  !split && shown && 'flex-1',
+                )}
+                style={
+                  side === 'left'
+                    ? down
+                      ? { order: 0, height: firstSize, flex: 'none' }
+                      : { order: 0, width: firstSize, flex: 'none' }
+                    : side
+                      ? { order: 2 }
+                      : undefined
+                }
+                onPointerDownCapture={() => {
+                  if (side && ui.activeId !== record.id) ui.select(record.id)
                 }}
-              />
-            </div>
-          )
-        })}
+              >
+                <TerminalView
+                  record={record}
+                  visible={(embedded || bare ? visible : ui.open) && shown}
+                  onPaste={ui.paste}
+                  onFind={() => void ui.request('search', record.id)}
+                  onCycle={cycle}
+                  onAltArrow={key => {
+                    const id = splitMoveTarget(split, key)
+                    if (id && id !== ui.activeId) ui.select(id)
+                    return !!id
+                  }}
+                />
+              </div>
+            )
+          })}
         {split && splitTotal > 0 && (
           <ResizeHandle
             axis={down ? 'y' : 'x'}
@@ -580,6 +590,17 @@ export function TerminalPanel({
               {text(active.error)}
             </span>
           )}
+          {active.status === 'running' && (
+            <button
+              type="button"
+              title={t('terminal.repairHint')}
+              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-fg-muted hover:bg-hover hover:text-fg"
+              onClick={() => void ui.request('repair')}
+            >
+              <RefreshCw size={11} />
+              <span>{t('terminal.repair')}</span>
+            </button>
+          )}
           {['stopped', 'error', 'exited'].includes(active.status) && (
             <button className="shrink-0 text-accent-fg" onClick={() => void ui.request('restart')}>
               {t('terminal.start')}
@@ -606,7 +627,7 @@ export function TerminalPanel({
                   },
                 ]
               : []),
-            ...(['rename', 'close', 'clear', 'restart'] as const).map(action => ({
+            ...(['rename', 'close', 'repair', 'clear', 'restart'] as const).map(action => ({
               label: t(action === 'close' ? 'workspace.removeTerminal' : `terminal.${action}`),
               danger: action === 'close',
               run: () => void ui.request(action, context.id),
@@ -644,7 +665,7 @@ export function TerminalPanel({
       {menu &&
         createPortal(
           <TerminalMenu x={menu.x} y={menu.y} close={menuClose}>
-            {(['rename', 'search', 'clear', 'restart', 'close'] as const).map(action => (
+            {(['rename', 'search', 'repair', 'clear', 'restart', 'close'] as const).map(action => (
               <button
                 key={action}
                 role="menuitem"

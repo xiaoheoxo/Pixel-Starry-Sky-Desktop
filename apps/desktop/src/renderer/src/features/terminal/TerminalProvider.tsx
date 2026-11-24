@@ -29,7 +29,7 @@ import { getAppMode } from '@/features/coding/mode'
 import { codingLayout, getCodingLayout } from '@/features/coding/layoutStore'
 import { clampRatio, liveSplit, readSplit, type TerminalSplit } from './split'
 
-type Action = 'rename' | 'close' | 'restart' | 'search' | 'clear'
+type Action = 'rename' | 'close' | 'restart' | 'search' | 'clear' | 'repair'
 interface TerminalUi {
   workspacePath: string
   open: boolean
@@ -258,6 +258,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     if (!record || dialog) return false
     if (kind === 'clear') {
       screens.get(id)?.clear()
+      return true
+    }
+    if (kind === 'repair') {
+      select(id)
+      requestAnimationFrame(() => screens.get(id)?.repair())
       return true
     }
     if (kind === 'search') {

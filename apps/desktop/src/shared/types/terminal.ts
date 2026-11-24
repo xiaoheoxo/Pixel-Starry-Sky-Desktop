@@ -44,6 +44,8 @@ export interface TerminalState {
   terminals: TerminalRecord[]
   /** 只有本机 Windows 有（SSH 机器、macOS / Linux 不给，界面不显示这一项） */
   encoding?: TerminalEncoding
+  /** 本机 Windows 的内核构建号（如 22631，给 xterm 的 windowsPty 纠偏 ConPTY）；非 Windows 不给 */
+  windowsBuild?: number
 }
 export interface TerminalProfileInput {
   id?: string

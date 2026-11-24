@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { Bot, GitBranch, History, MessagesSquare } from 'lucide-react'
 import { SessionHeader } from './SessionHeader'
 import { TerminalView } from '@/features/terminal/TerminalView'
+import { screens } from '@/features/terminal/screens'
 import { useTerminalStore } from '@/features/terminal/store'
 import { useOptionalTerminalUi } from '@/features/terminal/TerminalProvider'
 import { RunPills } from '@/features/terminal/RunPills'
@@ -547,6 +548,16 @@ function LiveSessionView({
                         <span className="min-w-0 flex-1 truncate">
                           {tr(record?.engine === 'antigravity' ? 'session.tui.bannerAgy' : 'session.tui.bannerShort')}
                         </span>
+                        {tuiTerminal && (
+                          <button
+                            type="button"
+                            title={tr('terminal.repairHint')}
+                            className="press shrink-0 rounded px-1.5 text-fg-muted hover:bg-hover hover:text-fg"
+                            onClick={() => screens.get(tuiTerminal.id)?.repair()}
+                          >
+                            {tr('terminal.repair')}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="press shrink-0 rounded px-1.5 text-accent-fg hover:bg-hover"

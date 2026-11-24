@@ -1,6 +1,8 @@
 export interface TerminalScreen {
   focus(): void
   clear(): void
+  /** 重测字体格宽、重新排版并通知 PTY 重画当前帧，不清空缓冲区 */
+  repair(): void
   find(query: string, backwards?: boolean): boolean
   endSearch(): void
   copy(): Promise<void>

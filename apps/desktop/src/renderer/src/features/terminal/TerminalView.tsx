@@ -37,6 +37,17 @@ import {
   type Rows,
 } from './errorLines'
 import { FixButton, SelectionBar, sendTerminalQuote } from './AskAi'
+import { enableUnicode11 } from './unicode11'
+import {
+  bindTerminalProtocol,
+  getAnsweredSeq,
+  isProtocolReplyData,
+  isUnrequestedFocusReport,
+  markAnsweredSeq,
+  MINIMUM_CONTRAST_RATIO,
+} from './protocol'
+import { attachTuiWheel } from './tuiWheel'
+import { remeasureCharSize, watchTerminalFont } from './fontMeasure'
 
 const ansi = [
   'black',
@@ -138,40 +149,65 @@ export function TerminalView({
   useEffect(() => {
     const el = host.current!
     // 回滚行数、读屏支持是本机设置（prefs.ts），下面的 effect 改了马上换
-    const prefs = terminalPrefs()
+    const prefs = terminalPrefs(),
+      initial = latest.current.record
+    // 只有本机 Windows 终端走 ConPTY（SSH 连 Linux 远端时不传 windowsPty）
+    const winBuild = machineOf(initial.projectId) === 'local' ? terminalState().windowsBuild : undefined
     const term = new Terminal({
       cursorBlink: true,
       scrollback: Number(prefs.scrollback),
-      allowProposedApi: false,
+      allowProposedApi: true,
+      minimumContrastRatio: MINIMUM_CONTRAST_RATIO,
+      rescaleOverlappingGlyphs: true,
       screenReaderMode: prefs.screenReader,
+      ...(winBuild ? { windowsPty: { backend: 'conpty', buildNumber: winBuild } } : {}),
     })
     const fit = new FitAddon(),
       search = new SearchAddon()
     term.loadAddon(fit)
     term.loadAddon(search)
+    enableUnicode11(term)
     term.open(el)
+    attachTuiWheel(term, () => geometry(term, el)?.cellH ?? 18)
     instance.current = term
     let disposed = false,
       seen = 0,
-      gen = record.generation
-    const applyStyle = (): void => {
-      const style = getComputedStyle(el),
-        root = getComputedStyle(document.documentElement)
+      gen = initial.generation,
+      replayPending = 0,
+      repairSeq = 0,
+      unwatchFont = (): void => {}
+    const readPalette = () => {
+      const root = getComputedStyle(document.documentElement)
       const color = (name: string) => root.getPropertyValue(name).trim()
-      const theme: ITheme = {
+      return {
         background: color('--terminal-bg'),
         foreground: color('--terminal-fg'),
         cursor: color('--terminal-cursor'),
-        selectionBackground: color('--terminal-selection'),
+        selection: color('--terminal-selection'),
+        ansi: ansi.map((_, index) => color('--terminal-ansi-' + index)),
+      }
+    }
+    const applyStyle = (): void => {
+      const style = getComputedStyle(el),
+        palette = readPalette()
+      const theme: ITheme = {
+        background: palette.background,
+        foreground: palette.foreground,
+        cursor: palette.cursor,
+        selectionBackground: palette.selection,
       }
       ansi.forEach((name, index) => {
-        theme[name] = color('--terminal-ansi-' + index)
+        theme[name] = palette.ansi[index]
       })
       term.options.theme = theme
       term.options.fontFamily = style.fontFamily
       // 用 Ctrl+= / Ctrl+- 调过就用调过的，没调过跟随界面字号
       term.options.fontSize = terminalPrefs().fontSize ?? (parseFloat(style.fontSize) || 13)
       fitNow()
+      unwatchFont()
+      unwatchFont = watchTerminalFont(term, () => {
+        if (!disposed) fitNow()
+      })
     }
     const fitNow = (): void => {
       if (disposed || el.clientWidth < 40 || el.clientHeight < 40) return
@@ -190,9 +226,25 @@ export function TerminalView({
     const mutation = new MutationObserver(applyStyle)
     mutation.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['style', 'data-theme', 'data-wallpaper'],
+      attributeFilter: ['style', 'data-theme', 'data-palette', 'data-wallpaper', 'data-glass'],
+    })
+    const protocol = bindTerminalProtocol(term, {
+      getPalette: () => {
+        const p = readPalette()
+        return { foreground: p.foreground, background: p.background, ansi: p.ansi }
+      },
+      isTransparent: () =>
+        document.documentElement.hasAttribute('data-wallpaper') || document.documentElement.hasAttribute('data-glass'),
+      sendReply: reply => {
+        const now = latest.current.record
+        if (disposed || replayPending > 0 || isDemo || now.status !== 'running') return
+        void window.pixelsky!.terminal.write(now.id, now.generation, reply).catch(() => {})
+      },
     })
     const input = term.onData(data => {
+      if (isUnrequestedFocusReport(data, !!term.modes?.sendFocusMode)) return
+      // 重挂回放旧历史期间，拦截 xterm 内置解析器触发的自动应答（如 DA2 \x1b[>0;276;0c、DSR \x1b[0n、?1004 焦点报告）
+      if (replayPending > 0 && isProtocolReplyData(data)) return
       const now = latest.current.record
       if (now.status !== 'running') return
       if (isDemo) demoWrite(now.id, data)
@@ -215,9 +267,21 @@ export function TerminalView({
       if (event.generation !== gen) {
         gen = event.generation
         seen = 0
+        replayPending = 0
         term.reset()
       }
       seen = event.seq
+      const already = getAnsweredSeq(record.id, event.generation)
+      if (!isDemo && event.seq <= already) {
+        // 切换模式重挂视图回放旧历史：计数未归零前屏蔽自动协议应答，避免把旧 OSC/CPR 查询再答一遍写进当前提示符
+        replayPending++
+        term.write(event.data, () => {
+          replayPending = Math.max(0, replayPending - 1)
+          ack()
+        })
+        return
+      }
+      if (!isDemo) markAnsweredSeq(record.id, event.generation, event.seq)
       term.write(event.data, ack)
     })
     // 选中文字后选区上方（顶上放不下就放下方）浮出「问 AI · 引用到对话 · 复制」
@@ -388,6 +452,28 @@ export function TerminalView({
         })
       },
     })
+    const repair = (): void => {
+      if (disposed) return
+      remeasureCharSize(term)
+      applyStyle()
+      term.clearTextureAtlas()
+      if (term.rows > 0) term.refresh(0, term.rows - 1)
+      const now = latest.current.record
+      if (!isDemo && now.status === 'running') {
+        const ticket = ++repairSeq
+        const cols = Math.min(500, Math.max(2, term.cols))
+        const rows = Math.min(300, Math.max(2, term.rows))
+        // 先微调 1 列再恢复真实列数，触发 SIGWINCH 让全屏 TUI / Shell 重画当前帧，不清空历史
+        const nudge = cols > 2 ? cols - 1 : cols + 1
+        void window
+          .pixelsky!.terminal.resize(record.id, now.generation, nudge, rows)
+          .then(() => {
+            if (!disposed && ticket === repairSeq && latest.current.record.generation === now.generation)
+              return window.pixelsky!.terminal.resize(record.id, now.generation, cols, rows)
+          })
+          .catch(terminalError)
+      }
+    }
     const screen = {
       focus: () => {
         fitNow()
@@ -398,6 +484,7 @@ export function TerminalView({
         term.clearSelection()
         moved()
       },
+      repair,
       find: (query: string, backwards = false) => (backwards ? search.findPrevious(query) : search.findNext(query)),
       endSearch: () => search.clearDecorations(),
       copy,
@@ -413,9 +500,11 @@ export function TerminalView({
     el.addEventListener('contextmenu', contextMenu)
     return () => {
       disposed = true
+      unwatchFont()
       stop()
       observer.disconnect()
       mutation.disconnect()
+      protocol.dispose()
       input.dispose()
       scroll.dispose()
       resize.dispose()
@@ -431,7 +520,11 @@ export function TerminalView({
     }
   }, [record.id])
   useEffect(() => {
-    if (visible) requestAnimationFrame(() => refit.current())
+    if (visible)
+      requestAnimationFrame(() => {
+        if (instance.current) remeasureCharSize(instance.current)
+        refit.current()
+      })
   }, [visible, record.generation, record.status])
   useEffect(() => {
     if (!visible) return
@@ -587,6 +680,7 @@ export function TerminalView({
             },
             { label: t('terminal.selectAll'), run: () => instance.current?.selectAll() },
             { label: t('terminal.search'), separator: true, run: onFind },
+            { label: t('terminal.repair'), run: () => screens.get(record.id)?.repair() },
             { label: t('terminal.clear'), run: () => screens.get(record.id)?.clear() },
             { label: t('terminal.copyAll'), separator: true, run: () => void copyAll().catch(terminalError) },
             {

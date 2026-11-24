@@ -2,6 +2,7 @@ import { registerOwnClaudePid, unregisterOwnClaudePid } from '@pixelsky/engine'
 import { mkdir, readFile, writeFile, rename, stat } from 'node:fs/promises'
 import { statSync } from 'node:fs'
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
+import { release } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import * as pty from 'node-pty'
 import type {
@@ -143,6 +144,12 @@ function profileCache(value: unknown): ProfileCacheEntry[] {
   }
   return list
 }
+/** Windows 内核构建号（如 10.0.22631 → 22631），给前端 xterm 的 windowsPty 纠偏 ConPTY */
+export function parseWindowsBuild(ver = release()): number | undefined {
+  const n = Number(ver.split('.')[2])
+  return Number.isInteger(n) && n > 0 ? n : undefined
+}
+
 export class TerminalManager {
   private readonly file: string
   /** bash / zsh 注入脚本所在目录；写失败为 null（只影响 bash / zsh，PowerShell / cmd 不用文件） */
@@ -356,6 +363,7 @@ export class TerminalManager {
     return task
   }
   state(owner: number): TerminalState {
+    const windowsBuild = process.platform === 'win32' ? parseWindowsBuild() : undefined
     return {
       profiles: this.profiles.map(p => ({ ...p, args: [...p.args] })),
       defaultProfileId: this.defaultId,
@@ -363,7 +371,7 @@ export class TerminalManager {
         .filter(r => !r.sessionId)
         .filter(r => !this.owners.has(r.id) || this.owners.get(r.id) === owner)
         .map(r => ({ ...r })),
-      ...(process.platform === 'win32' ? { encoding: this.encoding } : {}),
+      ...(process.platform === 'win32' ? { encoding: this.encoding, ...(windowsBuild ? { windowsBuild } : {}) } : {}),
     }
   }
   /** 改控制台编码：新开（含重启）的终端才生效，已开着的不动 */

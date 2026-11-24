@@ -12,6 +12,7 @@ import {
   writeIntegrationFiles,
   ZSH_FILES,
 } from './integration'
+import { parseWindowsBuild } from './manager'
 
 const profile = (command: string, args: string[], custom?: boolean) => ({ command, args, custom })
 
@@ -161,6 +162,48 @@ describe('zsh 注入', () => {
     expect(rc).toContain('[[ "$PIXELSKY_USER_ZDOTDIR" == "$HOME" && -z "$PIXELSKY_ORIG_ZDOTDIR" ]]; then unset ZDOTDIR')
     expect(rc).not.toContain('ZDOTDIR="$PIXELSKY_ORIG_ZDOTDIR"')
     expect(rc.indexOf('. "$PIXELSKY_USER_ZDOTDIR/.zshrc"')).toBeLessThan(rc.indexOf('precmd_functions='))
+  })
+
+  it('从像素星空终端里再起宿主时：跳过指向集成目录自身的 ZDOTDIR，脚本带重入守卫', () => {
+    const nested = shellIntegration(
+      profile('/bin/zsh', ['-l']),
+      '/data/integration',
+      { HOME: '/Users/me', ZDOTDIR: '/data/integration/zsh/' },
+      'darwin',
+    )!
+    expect(nested.env.PIXELSKY_USER_ZDOTDIR).toBe('/Users/me')
+    expect(nested.env.PIXELSKY_ORIG_ZDOTDIR).toBe('')
+
+    const withPrev = shellIntegration(
+      profile('/bin/zsh', ['-l']),
+      '/data/integration',
+      { HOME: '/Users/me', ZDOTDIR: '/data/integration/zsh', PIXELSKY_ORIG_ZDOTDIR: '/Users/me/.config/zsh' },
+      'darwin',
+    )!
+    expect(withPrev.env.PIXELSKY_USER_ZDOTDIR).toBe('/Users/me/.config/zsh')
+    expect(withPrev.env.PIXELSKY_ORIG_ZDOTDIR).toBe('/Users/me/.config/zsh')
+
+    const winNested = shellIntegration(
+      profile('zsh.exe', ['-l']),
+      'C:\\Data\\Integration',
+      { HOME: 'C:/Users/me', ZDOTDIR: 'c:\\data\\integration\\zsh\\' },
+      'win32',
+    )!
+    expect(winNested.env.PIXELSKY_USER_ZDOTDIR).toBe('C:/Users/me')
+
+    expect(ZSH_FILES['.zshenv']).toContain('__PIXELSKY_IN_ZSHENV')
+    expect(ZSH_FILES['.zprofile']).toContain('__PIXELSKY_IN_ZPROFILE')
+    expect(ZSH_FILES['.zshrc']).toContain('__PIXELSKY_IN_ZSHRC')
+    expect(ZSH_FILES['.zshenv']).toContain('"$PIXELSKY_USER_ZDOTDIR" == "$PIXELSKY_ZDOTDIR"')
+  })
+})
+
+describe('Windows 构建号解析', () => {
+  it('解析 10.0.22631 第三段正整数，非标准版本返回 undefined', () => {
+    expect(parseWindowsBuild('10.0.22631')).toBe(22631)
+    expect(parseWindowsBuild('10.0.19045')).toBe(19045)
+    expect(parseWindowsBuild('23.4.0')).toBeUndefined()
+    expect(parseWindowsBuild('invalid')).toBeUndefined()
   })
 })
 

@@ -14,6 +14,7 @@ import { createHistory, HISTORY_LIMIT_BYTES, stripAnsi, type DataEvent, type Ter
 import { applyPrompt, type PromptMarks } from './marks'
 import { endRun, reportsEnds, startRun, unseenAfterPrompt, type TerminalRun, type Unseen } from './pills'
 import { noteTuiOutput } from './tuiActivity'
+import { clearAnsweredSeq } from './protocol'
 
 interface State extends TerminalState {
   ready: boolean
@@ -305,6 +306,7 @@ export async function terminalClose(id: string, force = false): Promise<void> {
 export function forgetTerminal(id: string): void {
   pending.delete(id)
   histories.delete(id)
+  clearAnsweredSeq(id)
   notifyHistory()
   seenOutput.delete(id)
   readyWaiters.delete(id)

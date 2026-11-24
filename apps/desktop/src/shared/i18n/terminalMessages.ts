@@ -112,6 +112,11 @@ export const terminalMessages = {
   'terminal.close': { zh: '关闭终端', en: 'Close terminal' },
   'terminal.restart': { zh: '重新启动', en: 'Restart' },
   'terminal.clear': { zh: '清屏', en: 'Clear terminal' },
+  'terminal.repair': { zh: '修复显示', en: 'Repair display' },
+  'terminal.repairHint': {
+    zh: '重新测量字体、对齐行列并让终端程序重绘画面，不清空输出',
+    en: 'Remeasure font, refit rows/columns, and redraw without clearing output',
+  },
   'terminal.search': { zh: '查找终端内容', en: 'Find in terminal' },
   'terminal.project': { zh: '项目', en: 'Project' },
   'terminal.chooseProject': { zh: '请先选择项目', en: 'Choose a project first' },

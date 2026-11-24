@@ -123,21 +123,32 @@ precmd_functions=(__pixelsky_precmd \${precmd_functions:#__pixelsky_precmd})
  * zsh 用 ZDOTDIR 指向我们的目录，里面每个启动文件先把 ZDOTDIR 换回用户的、读用户自己的同名文件、再换回来
  * （用户在 .zshenv 里改 ZDOTDIR 也跟得上）；.zshrc 末尾装钩子，并把 ZDOTDIR 还原成用户启动文件跑完后的值（用户在 ~/.zshenv 里 export ZDOTDIR=~/.config/zsh 也对；
  * 只有它还是 $HOME 且启动前没设过时才 unset）。
+ * 加重入守卫与同目录兜底：宿主从像素星空终端里启动、继承到指向集成目录自身的 ZDOTDIR 时不会递归 source 自己。
  */
-const zshSource = (file: string): string => `if [[ -f "$PIXELSKY_USER_ZDOTDIR/${file}" ]]; then
-  ZDOTDIR="$PIXELSKY_USER_ZDOTDIR"
-  . "$PIXELSKY_USER_ZDOTDIR/${file}"
-  PIXELSKY_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"
-  ZDOTDIR="$PIXELSKY_ZDOTDIR"
+const zshSource = (file: string, guard: string): string => `if [[ -z "$${guard}" ]]; then
+  ${guard}=1
+  if [[ -z "$PIXELSKY_USER_ZDOTDIR" || "$PIXELSKY_USER_ZDOTDIR" == "$PIXELSKY_ZDOTDIR" ]]; then
+    PIXELSKY_USER_ZDOTDIR="$HOME"
+  fi
+  if [[ -f "$PIXELSKY_USER_ZDOTDIR/${file}" ]]; then
+    ZDOTDIR="$PIXELSKY_USER_ZDOTDIR"
+    . "$PIXELSKY_USER_ZDOTDIR/${file}"
+    if [[ "\${ZDOTDIR:-$HOME}" != "$PIXELSKY_ZDOTDIR" ]]; then
+      PIXELSKY_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"
+    fi
+    ZDOTDIR="$PIXELSKY_ZDOTDIR"
+  fi
+  unset ${guard}
 fi
 `
 export const ZSH_FILES: Record<string, string> = {
-  '.zshenv': `# 像素星空终端集成（自动生成，不要手改）\n${zshSource('.zshenv')}`,
-  '.zprofile': `# 像素星空终端集成（自动生成，不要手改）\n${zshSource('.zprofile')}`,
+  '.zshenv': `# 像素星空终端集成（自动生成，不要手改）\n${zshSource('.zshenv', '__PIXELSKY_IN_ZSHENV')}`,
+  '.zprofile': `# 像素星空终端集成（自动生成，不要手改）\n${zshSource('.zprofile', '__PIXELSKY_IN_ZPROFILE')}`,
   // /etc/zshrc（macOS）会按 ZDOTDIR 定 HISTFILE，这时 ZDOTDIR 还是我们的目录：先改回用户的
   '.zshrc': `# 像素星空终端集成（自动生成，不要手改）
+if [[ -z "$PIXELSKY_USER_ZDOTDIR" || "$PIXELSKY_USER_ZDOTDIR" == "$PIXELSKY_ZDOTDIR" ]]; then PIXELSKY_USER_ZDOTDIR="$HOME"; fi
 if [[ "$HISTFILE" == "$PIXELSKY_ZDOTDIR/.zsh_history" ]]; then HISTFILE="$PIXELSKY_USER_ZDOTDIR/.zsh_history"; fi
-${zshSource('.zshrc')}${ZSH_HOOK}if [[ "$PIXELSKY_USER_ZDOTDIR" == "$HOME" && -z "$PIXELSKY_ORIG_ZDOTDIR" ]]; then unset ZDOTDIR; else ZDOTDIR="$PIXELSKY_USER_ZDOTDIR"; fi
+${zshSource('.zshrc', '__PIXELSKY_IN_ZSHRC')}${ZSH_HOOK}if [[ "$PIXELSKY_USER_ZDOTDIR" == "$HOME" && -z "$PIXELSKY_ORIG_ZDOTDIR" ]]; then unset ZDOTDIR; else ZDOTDIR="$PIXELSKY_USER_ZDOTDIR"; fi
 unset PIXELSKY_ZDOTDIR PIXELSKY_USER_ZDOTDIR PIXELSKY_ORIG_ZDOTDIR
 `,
 }
@@ -214,7 +225,16 @@ export function shellIntegration(
   }
   if (kind === 'zsh') {
     const zdotdir = inDir(dir, 'zsh', platform)
-    const original = env.ZDOTDIR ?? ''
+    const trim = (p: string): string => {
+      const s = platform === 'win32' ? p.replaceAll('\\', '/') : p
+      return s.length > 1 ? s.replace(/\/+$/, '') : s
+    }
+    const isSelf = (p: string): boolean =>
+      !!p && (platform === 'win32' ? trim(p).toLowerCase() === trim(zdotdir).toLowerCase() : trim(p) === trim(zdotdir))
+    const raw = env.ZDOTDIR ?? ''
+    const prev = env.PIXELSKY_ORIG_ZDOTDIR ?? ''
+    // 从像素星空终端里启动开发版时 ZDOTDIR 已指向集成目录：不能当成用户目录记下，否则 .zshenv 会递归 source 自己
+    const original = !isSelf(raw) ? raw : !isSelf(prev) ? prev : ''
     return {
       kind,
       args: profile.args,
