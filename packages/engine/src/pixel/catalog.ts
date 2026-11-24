@@ -33,10 +33,14 @@ export function effortOfLevel(level: string): Effort | null {
 
 /**
  * 模型支持的强度，规则同 Pi 的 getSupportedThinkingLevels：不支持推理为空；xhigh / max 要模型明确映射才算支持。
- * 旧版命令行没有 get_available_thinking_levels 时用它
+ * 旧版命令行没有 get_available_thinking_levels 时用它。
+ * oh-my-pi 的模型把档位写在 thinking.efforts，没有 thinking 的推理模型不能调档（docs/omp-engine.md §16）
  */
-export function modelEfforts(model: Message): Effort[] {
+export function modelEfforts(model: Message, omp = false): Effort[] {
   if (model.reasoning !== true) return []
+  const own = object(model.thinking).efforts
+  if (Array.isArray(own)) return effortsFromLevels(own.map(string))
+  if (omp) return []
   const map = object(model.thinkingLevelMap)
   return LEVELS.filter(level => {
     const mapped = map[level]
@@ -48,13 +52,13 @@ export function modelEfforts(model: Message): Effort[] {
 /** 我们的强度 → Pi 的思考级别（ultra 没有对应，按最高档） */
 export const piThinkingLevel = (effort: Effort): string => (effort === 'ultra' ? 'max' : effort)
 
-export function engineModel(model: Message, current: string | null): EngineModel {
+export function engineModel(model: Message, current: string | null, omp = false): EngineModel {
   const ref = modelRef(model)
   const speed = pixelSpeedCapability(model)
   return {
     id: ref,
     label: string(model.name) || string(model.id),
-    efforts: modelEfforts(model),
+    efforts: modelEfforts(model, omp),
     defaultEffort: null,
     inputModalities: array(model.input).map(string).filter(Boolean),
     isDefault: ref === current,
@@ -64,7 +68,10 @@ export function engineModel(model: Message, current: string | null): EngineModel
 }
 
 /** 拉模型列表和当前模型；进程要已经启动 */
-export async function pixelCatalog(proc: PixelProcess): Promise<{ catalog: EngineCatalog; raw: Message[] }> {
+export async function pixelCatalog(
+  proc: PixelProcess,
+  omp = false,
+): Promise<{ catalog: EngineCatalog; raw: Message[] }> {
   const [list, state] = await Promise.all([proc.request('get_available_models'), proc.request('get_state')])
   const raw = array(list.data.models).map(object)
   const model = object(state.data.model)
@@ -72,7 +79,7 @@ export async function pixelCatalog(proc: PixelProcess): Promise<{ catalog: Engin
   return {
     raw,
     catalog: {
-      models: raw.map(m => engineModel(m, current)),
+      models: raw.map(m => engineModel(m, current, omp)),
       currentModel: current,
       currentProvider: string(model.provider) || null,
       outputStyles: [],

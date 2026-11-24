@@ -75,8 +75,33 @@ const CONTEXT = [
 const SESSION_ID = '01a2070e-7df1-70f9-9687-f0bd83d92fbc'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const models = [
-  { provider: 'fake', id: 'fake-omp', name: 'Fake omp', reasoning: true, input: ['text'], contextWindow: 200000 },
-  { provider: 'fake', id: 'fake-omp-2', name: 'Fake omp 2', reasoning: true, input: ['text'], contextWindow: 200000 },
+  {
+    provider: 'fake',
+    id: 'fake-omp',
+    name: 'Fake omp',
+    reasoning: true,
+    thinking: { mode: 'anthropic-adaptive', efforts: ['low', 'medium', 'high'] },
+    input: ['text'],
+    contextWindow: 200000,
+  },
+  {
+    provider: 'fake',
+    id: 'fake-omp-2',
+    name: 'Fake omp 2',
+    reasoning: true,
+    thinking: { mode: 'effort', efforts: ['minimal', 'low', 'high', 'xhigh', 'max'] },
+    input: ['text'],
+    contextWindow: 200000,
+  },
+  // 推理但不能调档（真 omp 的 grok-4）
+  {
+    provider: 'fake',
+    id: 'fake-omp-fixed',
+    name: 'Fake omp fixed',
+    reasoning: true,
+    input: ['text'],
+    contextWindow: 200000,
+  },
 ]
 for (const [provider, config] of Object.entries(
   process.env.PIXELSKY_PIXEL_PROVIDERS ? JSON.parse(process.env.PIXELSKY_PIXEL_PROVIDERS) : {},
@@ -628,7 +653,7 @@ rl.on('line', async line => {
     case 'set_thinking_level':
       return response(m)
     case 'get_available_thinking_levels':
-      return response(m, { levels: ['off', 'low', 'medium', 'high'] })
+      return response(m, { levels: ['off', ...(model.thinking?.efforts ?? [])] })
     case 'get_session_stats':
       return response(m, {
         tokens: { input: btwInput, output: 0, cacheRead: 0, cacheWrite: 0 },

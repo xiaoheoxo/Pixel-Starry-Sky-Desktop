@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EngineHost } from '../src'
 import type { HostEvent, SessionRecord } from '@pixelsky/protocol'
@@ -12,6 +12,7 @@ import { ompApproval, ompLaunch, ompTuiArgs, reservedOmpArg } from '../src/omp/l
 import { OMP_PLAN_ALLOW, OMP_PLAN_SOURCE } from '../src/omp/plan-ext'
 import { PLAN_OPTIONS, PLAN_TITLE } from '../src/pixel/translate'
 import { btwOutcome } from '../src/omp/btw'
+import { modelEfforts } from '../src/pixel/catalog'
 import { ChunkAssembler } from '../src/pixel/process'
 import { ompOverlayText } from '../src/omp/overlay'
 import { freshSessionId } from '../src/omp/side'
@@ -717,6 +718,52 @@ describe('oh-my-pi 启动参数、版本、确认选项', () => {
       apiKey: 'PIXELSKY_PIXEL_TOKEN',
       models: [{ id: 'm1', name: 'm1', contextWindow: 128000, maxTokens: 16384 }],
     })
+  })
+
+  it('网关扩展：Claude 照 omp 内置的同名模型写明档位；别的协议、内置里没有的、自己写了的不动', async () => {
+    const pkg = join(root, 'node_modules', '@oh-my-pi', 'pi-catalog')
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(join(pkg, 'package.json'), '{"type":"module","exports":{"./models":"./models.js"}}')
+    writeFileSync(
+      join(pkg, 'models.js'),
+      "export const getBundledModel = (p, id) => p === 'anthropic' && id === 'claude-x' ? { thinking: { mode: 'anthropic-adaptive', efforts: ['low', 'max'] } } : undefined",
+    )
+    const file = join(root, 'gateway.mjs')
+    writeFileSync(file, OMP_GATEWAY_SOURCE)
+    const own = { mode: 'budget', efforts: ['high'] }
+    const before = process.env.PIXELSKY_PIXEL_PROVIDERS
+    process.env.PIXELSKY_PIXEL_PROVIDERS = JSON.stringify({
+      a: {
+        api: 'anthropic-messages',
+        models: [{ id: 'claude-x' }, { id: 'claude-x[1m]' }, { id: 'glm' }, { id: 'claude-x', thinking: own }],
+      },
+      b: { api: 'openai-responses', models: [{ id: 'claude-x' }] },
+    })
+    const thinking: unknown[] = []
+    try {
+      const factory = (await import(/* @vite-ignore */ pathToFileURL(file).href)).default as (pi: unknown) => void
+      factory({
+        registerProvider: (_: string, c: { models: { thinking?: unknown }[] }) =>
+          thinking.push(...c.models.map(m => m.thinking)),
+      })
+    } finally {
+      if (before === undefined) delete process.env.PIXELSKY_PIXEL_PROVIDERS
+      else process.env.PIXELSKY_PIXEL_PROVIDERS = before
+    }
+    const claude = { mode: 'anthropic-adaptive', efforts: ['low', 'max'] }
+    expect(thinking).toEqual([claude, claude, undefined, own, undefined])
+  })
+
+  it('目录里的档位读 thinking.efforts：能到 Max，没有的不补，不能调档的为空', async () => {
+    setup()
+    expect((await host!.engineCatalog('omp')).models?.map(m => m.efforts)).toEqual([
+      ['low', 'medium', 'high'],
+      ['low', 'high', 'xhigh', 'max'],
+      [],
+    ])
+    // 命令行（Pi）的模型没有 thinking，照旧按 thinkingLevelMap
+    expect(modelEfforts({ reasoning: true })).toEqual(['low', 'medium', 'high'])
+    expect(modelEfforts({ reasoning: false, thinking: { efforts: ['max'] } }, true)).toEqual([])
   })
 
   it('保留参数、版本', () => {

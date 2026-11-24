@@ -137,7 +137,7 @@ export class OmpAdapter implements EngineAdapter {
     const empty: EngineCatalog = { outputStyles: [], currentOutputStyle: null }
     if (!this.cached?.launcher || info.status !== 'ready') return empty
     try {
-      this.catalogCache = await this.probe(async proc => (await pixelCatalog(proc)).catalog)
+      this.catalogCache = await this.probe(async proc => (await pixelCatalog(proc, true)).catalog)
       delete info.launchError
       return this.catalogCache
     } catch (error) {
