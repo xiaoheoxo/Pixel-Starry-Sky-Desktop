@@ -103,6 +103,8 @@ export const IPC_CONTRACT = {
   'channels:changed': { kind: 'push', route: 'push', trust: 'none' },
   'channels:create': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:delete': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:share': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:unshare': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:deleteMember': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:joinSession': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:leaveSession': { kind: 'invoke', route: 'local', trust: 'sender' },

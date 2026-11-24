@@ -96,8 +96,10 @@ export interface ChannelsState {
   imagePending: NonNullable<ChannelsSnapshot['imagePending']>
   /** 演示模式标为已处理的：频道 id → key → sig（正式模式记在主进程） */
   demoMarks: Record<string, Record<string, string>>
-  /** 频道页正在看「需要你」（代替时间线） */
+  /** 频道页正在看「需要你」或「正在做」（代替时间线）；看的是哪个记在 overview */
   needsOpen: boolean
+  /** docs/ui/channels-unify.md §2：needs 需要你，doing 正在做 */
+  overview: 'needs' | 'doing'
   /** 要时间线跳到并高亮的消息（置顶列表、提醒点进来）；时间线处理完清掉 */
   focus: { channelId: string; messageId: string } | null
 }
@@ -129,6 +131,7 @@ let state: ChannelsState = {
   imagePending: [],
   demoMarks: {},
   needsOpen: false,
+  overview: 'needs',
   focus: null,
 }
 const listeners = new Set<() => void>()
@@ -365,9 +368,10 @@ export const channelActions = {
     }
     set({ demoMarks: marks })
   },
-  /** 打开 / 关掉「需要你」 */
-  openNeeds(open: boolean): void {
-    if (state.needsOpen !== open) set({ needsOpen: open })
+  /** 打开 / 关掉「需要你」；view 传 doing 打开的是「正在做」 */
+  openNeeds(open: boolean, view: ChannelsState['overview'] = 'needs'): void {
+    if (state.needsOpen !== open || (open && state.overview !== view))
+      set({ needsOpen: open, ...(open ? { overview: view } : {}) })
   },
   /** 进入频道：记下「新消息」位置并标为已读 */
   select(id: string): void {
@@ -658,6 +662,30 @@ export const channelActions = {
     const { [id]: _messages, ...messages } = state.messages
     set({ messages, selectedId: state.selectedId === id ? null : state.selectedId })
   },
+  /** 把只有我的频道共享到团队（docs/ui/channels-unify.md §5.2），切到团队里的新频道；返回没带进去的成员的名字 */
+  async shareChannel(id: string, teamId: string, policies: Record<string, AgentPolicy>): Promise<string[]> {
+    if (!channelsBridge) return demo.moveChannel(id, teamId, Object.keys(policies))
+    const { channelId, failed } = await channelsBridge.share(id, { teamId, policies })
+    await resync()
+    // 团队里的新频道已经在快照里才切过去；还没同步到就留在原地，等它出现在列表里
+    if (state.channels.some(c => c.id === channelId)) {
+      set({ selectedId: channelId, needsOpen: false })
+      void loadMessages(channelId)
+    }
+    return failed
+  },
+  /** 把团队的频道改回只有我：切到本机留的那个频道 */
+  async unshareChannel(id: string): Promise<void> {
+    if (!channelsBridge) {
+      demo.moveChannel(id, null, [])
+      return
+    }
+    const { channelId } = await channelsBridge.unshare(id)
+    await resync()
+    const { [id]: _gone, ...messages } = state.messages
+    set({ messages, selectedId: state.channels.some(c => c.id === channelId) ? channelId : null, needsOpen: false })
+    if (state.selectedId) void loadMessages(state.selectedId)
+  },
   saveMember(channelId: string | null, input: AgentInput): Promise<string> {
     return channelsBridge!.saveMember(channelId, input)
   },
@@ -834,6 +862,28 @@ const startable = (steps: FlowStep[]): FlowStep[] => {
 }
 
 const demo = {
+  /** 共享到团队 / 改回只有我：演示里只把这个频道换个归属（teamId 为空是改回只有我），消息原样留着 */
+  moveChannel(id: string, teamId: string | null, agentIds: string[]): string[] {
+    const team = teamId ? state.teams.find(t => t.id === teamId) : undefined
+    const self = selfMember(state)?.id
+    set({
+      channels: state.channels.map(c => {
+        if (c.id !== id) return c
+        const agents = c.memberIds.filter(m => state.members.some(x => x.id === m && x.kind === 'agent'))
+        if (team)
+          return {
+            ...c,
+            scope: 'team' as const,
+            teamId: team.id,
+            memberIds: [...team.members.map(m => m.id), ...agents.filter(a => agentIds.includes(a))],
+          }
+        const { teamId: _, ...rest } = c
+        const mine = agents.filter(a => state.members.some(x => x.id === a && x.kind === 'agent' && x.mine !== false))
+        return { ...rest, scope: 'local' as const, memberIds: [...(self ? [self] : []), ...mine] }
+      }),
+    })
+    return []
+  },
   patchTeam(teamId: string, change: (team: TeamInfo) => TeamInfo): void {
     set({ teams: state.teams.map(t => (t.id === teamId ? change(t) : t)) })
   },

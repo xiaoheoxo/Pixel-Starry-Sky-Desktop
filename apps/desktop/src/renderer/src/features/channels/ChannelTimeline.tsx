@@ -89,6 +89,7 @@ export function ChannelTimeline({
   onReply,
   taskActions,
   onThread,
+  onAssign,
 }: {
   channel: Channel
   messages: readonly ChannelMessage[]
@@ -103,6 +104,8 @@ export function ChannelTimeline({
   taskActions: TaskCardActions
   /** 打开讨论串（docs/ui/channels-collab-v2.md §3）；团队频道没有 */
   onThread?: (id: string) => void
+  /** 把这条消息派给 AI 成员（docs/ui/channels-unify.md §2）：引用它，输入框里出 @ 菜单 */
+  onAssign?: (id: string) => void
 }) {
   useI18n()
   const scroller = useRef<HTMLDivElement>(null)
@@ -358,6 +361,7 @@ export function ChannelTimeline({
                   messagesById={messagesById}
                   highlight={highlight}
                   onReply={onReply}
+                  onAssign={onAssign}
                   onJump={jump}
                   threads={threads}
                   onThread={onThread}

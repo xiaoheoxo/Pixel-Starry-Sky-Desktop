@@ -67,6 +67,10 @@ export interface StoredChannel {
   stalledMinutes?: number
   /** 「需要你」里标为已处理的（docs/ui/channels-collab-v2.md §2.1）：key → 当时的 sig；旧数据没有 */
   needsDone?: Record<string, string>
+  /** 共享到了哪个团队频道（docs/ui/channels-unify.md §5.2）：共享时归档留作记录，那个频道改回只有我时接着用这个 */
+  sharedTo?: string | null
+  /** 从哪个团队频道收回来的：本机的记录已经留好、云端还没删掉时记着，再点一次只删云端、不重复留记录 */
+  unsharedFrom?: string | null
   createdAt: number
   /** 看到哪里了：这之后别人发的算未读 */
   readAt: number

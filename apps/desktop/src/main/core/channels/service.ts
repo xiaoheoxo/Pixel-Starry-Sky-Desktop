@@ -115,6 +115,7 @@ import {
   type Mentionable,
 } from '../../../shared/channels/mentions'
 import { ChannelStore, type StoredChannel } from './store'
+import { freeChannelName, sharePolicies, transcriptBlocks, transcriptChunks, transcriptHead } from './unify'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { awaitsDecision, channelNeeds } from '../../../shared/channels/needs'
@@ -222,6 +223,9 @@ const channelToolRequest = (r: { kind: string; toolName?: string; title?: string
 const NAME_MAX = 40
 const INSTRUCTIONS_MAX = 2000
 const TOPIC_MAX = 200
+/** 改回只有我时最多留多少条云端消息、记录的一条消息最多多少字（docs/ui/channels-unify.md §5.2） */
+const UNSHARE_MAX = 5000
+const TRANSCRIPT_CHUNK = 6000
 /** 频道说明最多这么长；置顶最多这么多条（docs/ui/channels-local-ai.md §3.1 #9） */
 export const NOTES_MAX = 2000
 export const PIN_MAX = 10
@@ -6086,6 +6090,123 @@ export class Channels {
         this.deps.log?.('登记团队 AI 成员失败', e),
       )
     return id
+  }
+
+  /**
+   * 把只有我的频道共享到团队（docs/ui/channels-unify.md §5.2）：在团队里建同名频道，列出来的自己的 AI 成员按各自的规则
+   * 登记进去；以前的消息不上传，原频道归档留作记录（记下共享到了哪个频道，改回来时接着用）。
+   * 还有没做完的活、没结束的流程时不让共享。failed：没登记上的成员的名字
+   */
+  async share(
+    channelId: string,
+    raw: { teamId?: unknown; policies?: unknown },
+  ): Promise<{ channelId: string; failed: string[] }> {
+    const team = this.requireTeam()
+    if (team.hasChannel(channelId)) throw new Error('这个频道已经在团队里了')
+    const c = this.writable(channelId)
+    const teamId = typeof raw?.teamId === 'string' ? raw.teamId : ''
+    const role = team.roleIn(teamId)
+    if (!role) throw new Error('团队不存在')
+    if (role === 'observer') throw new Error('观察者不能建频道')
+    if ([...this.store.runs.values()].some(r => r.channelId === channelId && r.phase !== 'ended'))
+      throw new Error('频道里还有没做完的活，做完或停掉后再共享')
+    const openFlow = (this.store.messages.get(channelId) ?? []).some(
+      m => m.kind === 'message' && !!m.flow && m.flow.status !== 'done' && m.flow.status !== 'stopped',
+    )
+    if (openFlow) throw new Error('频道里还有没结束的流程，结束后再共享')
+    const policies = sharePolicies(
+      raw?.policies,
+      c.memberIds.filter(id => id !== SELF_ID && !!this.member(id)),
+    )
+    const id = await team.createChannel(teamId, { name: c.name, topic: c.topic })
+    const failed: string[] = []
+    for (const [memberId, policy] of policies)
+      await this.registerAgent({ teamId, role }, id, memberId, policy).catch(e => {
+        failed.push(this.member(memberId)?.name ?? memberId)
+        this.deps.log?.('登记团队 AI 成员失败', e)
+      })
+    // 团队频道已经建好：原频道归档不成（这期间又派了活）也不算失败，留着照常用
+    await this.update(channelId, { archived: true }).catch(e => this.deps.log?.('共享后归档原频道失败', e))
+    // await 之后重新读最新的那份再改
+    const origin = this.store.channels.get(channelId)
+    if (origin) await this.store.saveChannel({ ...origin, sharedTo: id })
+    this.changed()
+    return { channelId: id, failed }
+  }
+
+  /**
+   * 把团队的频道改回只有我（docs/ui/channels-unify.md §5.2），只有团队所有者能做：云端的消息读回来写成一份记录留在本机
+   * （共享时归档的原频道还在就接着用它，不在就新建一个），我带进去的 AI 成员跟着回来，然后删掉云端的频道。
+   * 本机先留好再删云端；云端没删掉时记着，再点一次只删云端
+   */
+  async unshare(channelId: string): Promise<{ channelId: string }> {
+    const team = this.requireTeam()
+    const info = team.channelInfo(channelId)
+    if (!info) throw new Error('频道不存在')
+    if (info.role !== 'owner') throw new Error('只有团队所有者能把频道改回只有我')
+    let localId = [...this.store.channels.values()].find(c => c.unsharedFrom === channelId)?.id
+    if (!localId) {
+      const { messages, truncated } = await team.history(channelId, UNSHARE_MAX)
+      const locale = this.deps.locale()
+      const blocks = transcriptBlocks(messages, id => team.nameOf(info.teamId, id), locale)
+      const texts = blocks.length
+        ? [
+            transcriptHead(team.teamName(info.teamId) ?? '?', blocks.length, truncated, locale),
+            ...transcriptChunks(blocks, TRANSCRIPT_CHUNK),
+          ]
+        : []
+      const mine = team
+        .myAgents(info.teamId)
+        .filter(a => a.channelId === channelId && !!this.member(a.localId))
+        .map(a => a.localId)
+      // await 之后从 store 读最新的：共享时归档的原频道还在就恢复它
+      const origin = [...this.store.channels.values()].find(c => c.sharedTo === channelId)
+      const now = this.now()
+      const local: StoredChannel = origin
+        ? {
+            ...origin,
+            archivedAt: null,
+            sharedTo: null,
+            unsharedFrom: channelId,
+            memberIds: [...new Set([...origin.memberIds, ...mine])],
+          }
+        : {
+            id: randomUUID(),
+            name: freeChannelName(
+              info.name,
+              [...this.store.channels.values()].map(c => c.name),
+              NAME_MAX,
+            ),
+            topic: info.topic,
+            projectId: null,
+            memberIds: [SELF_ID, ...new Set(mine)],
+            unsharedFrom: channelId,
+            createdAt: now,
+            readAt: now,
+          }
+      await this.store.saveChannel(local)
+      localId = local.id
+      let at = now
+      for (const text of texts) {
+        const m: ChannelMessage = {
+          kind: 'message',
+          id: randomUUID(),
+          channelId: local.id,
+          at: at++,
+          authorId: SELF_ID,
+          text,
+          format: 'markdown',
+        }
+        await this.store.append(m)
+        this.pushMessage(m)
+      }
+      this.changed()
+    }
+    await team.deleteChannel(info.teamId, channelId)
+    const kept = this.store.channels.get(localId)
+    if (kept) await this.store.saveChannel({ ...kept, unsharedFrom: null })
+    this.changed()
+    return { channelId: localId }
   }
 
   /** 把自己的 AI 成员登记到团队频道（已登记的更新派活规则）。云端只存名字、引擎、模型、机器名、项目名和规则 */

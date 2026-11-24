@@ -714,6 +714,42 @@ export class TeamSync {
     return { messages, more: start > 0 || cache.hasMore }
   }
 
+  /**
+   * 这个频道在云端的消息，旧的在前，最多 max 条（docs/ui/channels-unify.md §5.2 改回只有我时留记录用）；
+   * truncated：更早的没取。不进缓存
+   */
+  async history(channelId: string, max: number): Promise<{ messages: ChannelMessage[]; truncated: boolean }> {
+    const meta = this.meta.get(channelId)
+    if (!meta) throw new Error('频道不存在')
+    const byId = new Map<string, TeamMessage>()
+    let before: number | undefined
+    let more = true
+    while (more && byId.size < max) {
+      const page = await this.api.messages(meta.teamId, channelId, {
+        ...(before === undefined ? {} : { before }),
+        limit: PAGE,
+      })
+      if (!page.messages.length) break
+      for (const tm of page.messages) byId.set(tm.id, tm)
+      const oldest = Math.min(...page.messages.map(m => m.n))
+      // 云端没往前走（同一页又来一次）就停，不死循环
+      if (before !== undefined && oldest >= before) break
+      before = oldest
+      more = page.hasMore
+    }
+    const list = [...byId.values()].sort((a, b) => a.n - b.n)
+    const kept = list.slice(-max)
+    return {
+      messages: kept.flatMap(tm => this.toMessage(meta.teamId, tm) ?? []),
+      truncated: more || kept.length < list.length,
+    }
+  }
+
+  /** 团队的名字；不在这个团队里是 null */
+  teamName(teamId: string): string | null {
+    return this.teams.get(teamId)?.name ?? null
+  }
+
   /** 记下一张卡；返回卡上的唤醒规则有没有变（变了要重发频道快照） */
   private rememberCard(teamId: string, tm: TeamMessage): boolean {
     const old = this.cards.get(tm.id)

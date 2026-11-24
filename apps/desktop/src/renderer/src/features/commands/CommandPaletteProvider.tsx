@@ -15,6 +15,7 @@ import {
   FolderOpen,
   GitBranch,
   Globe,
+  Hash,
   Keyboard,
   LayoutDashboard,
   ListChecks,
@@ -31,11 +32,12 @@ import {
   SquareKanban,
   TerminalSquare,
   X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { Eye as EyeIcon, ListTree as ListTreeIcon, MessagesSquare as ChatIcon } from 'lucide-react'
 import { setViewMode } from '@/features/session/viewMode'
-import { channelActions } from '@/features/channels/store'
+import { channelActions, getChannels } from '@/features/channels/store'
 import { useI18n } from '@/i18n/I18nProvider'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { OPEN_SESSION_EVENT } from '@/features/engine/openRequests'
@@ -255,6 +257,26 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       setPage('channels')
       channelActions.openNeeds(true)
     })
+    add('doing.open', 'unify.doing.open', 'terminal.categoryWorkbench', Zap, () => {
+      setPage('channels')
+      channelActions.openNeeds(true, 'doing')
+    })
+    // 跳到某个频道（docs/ui/channels-unify.md §2）：归档的不列
+    for (const c of getChannels().channels) {
+      if (c.archivedAt) continue
+      items.push({
+        id: `channel:${c.id}`,
+        label: `# ${c.name}`,
+        keywords: [c.name, c.topic ?? ''].join(' '),
+        category: tr('channels.title'),
+        icon: Hash,
+        run: () => {
+          setPage('channels')
+          channelActions.openNeeds(false)
+          channelActions.select(c.id)
+        },
+      })
+    }
     add('board.open', 'board.open', 'terminal.categoryWorkbench', SquareKanban, () => setPage('board'))
     add(
       'browser.open',

@@ -298,6 +298,11 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     channels.update(str(id, '频道'), (patch ?? {}) as Parameters<Channels['update']>[1]),
   )
   ipc.handle('channels:delete', (_e, id) => channels.delete(str(id, '频道')))
+  // 共享到团队 / 改回只有我（docs/ui/channels-unify.md §5.2）
+  ipc.handle('channels:share', (_e, id, input) =>
+    channels.share(str(id, '频道'), (input ?? {}) as Parameters<Channels['share']>[1]),
+  )
+  ipc.handle('channels:unshare', (_e, id) => channels.unshare(str(id, '频道')))
   ipc.handle('channels:post', (_e, id, input) => channels.post(str(id, '频道'), input as PostInput))
   ipc.handle('channels:attachments', (_e, id, messageId) =>
     channels.attachments(str(id, '频道'), str(messageId, '消息')),

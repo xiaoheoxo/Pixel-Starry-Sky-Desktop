@@ -1,0 +1,110 @@
+// 频道和团队融合第 2 批（docs/ui/channels-unify.md §5.2）：共享时的派活规则、改回只有我时留的记录
+import { describe, expect, it } from 'vitest'
+import type { ChannelMessage } from '../../../shared/types/channels'
+import { freeChannelName, sharePolicies, transcriptBlocks, transcriptChunks, transcriptHead } from './unify'
+
+describe('共享时的派活规则', () => {
+  it('只认这个频道里自己的成员，没列的不带进去，顺序照频道里的', () => {
+    expect(sharePolicies({ b: 'team', x: 'team', a: 'owner' }, ['a', 'b', 'c'])).toEqual([
+      ['a', 'owner'],
+      ['b', 'team'],
+    ])
+  })
+
+  it('不认识的规则、要名单的「指定的人」都按要我同意', () => {
+    expect(sharePolicies({ a: 'listed', b: 'everyone', c: null }, ['a', 'b', 'c'])).toEqual([
+      ['a', 'approve'],
+      ['b', 'approve'],
+      ['c', 'approve'],
+    ])
+  })
+
+  it('传来的不是对象：一个都不带', () => {
+    expect(sharePolicies(null, ['a'])).toEqual([])
+    expect(sharePolicies(['a'], ['a'])).toEqual([])
+    expect(sharePolicies('a', ['a'])).toEqual([])
+  })
+
+  it('原型上的名字不算列了（toString 这类）', () => {
+    expect(sharePolicies({}, ['toString', 'constructor'])).toEqual([])
+  })
+})
+
+describe('留在本机的记录', () => {
+  const names: Record<string, string> = { 'u:1': '林夏', 'u:2': '周宁', ta_1: '接口审查' }
+  const name = (id: string): string => names[id] ?? '?'
+  const time = (at: number): string => `t${at}`
+  const base = { channelId: 'c' }
+  const messages: ChannelMessage[] = [
+    { ...base, kind: 'event', id: 'e', at: 1, event: 'joined', actorId: 'u:2' } as ChannelMessage,
+    { ...base, kind: 'message', id: 'm1', at: 2, authorId: 'u:2', text: ' 稿子放好了 \n', format: 'plain' },
+    { ...base, kind: 'message', id: 'm0', at: 3, authorId: 'u:9', text: '   ', format: 'plain' },
+    {
+      ...base,
+      kind: 'task',
+      id: 't1',
+      at: 4,
+      authorId: 'u:1',
+      assigneeId: 'ta_1',
+      title: '审查接口',
+      status: 'done',
+      summary: '两处要改\n第二行',
+      error: null,
+    },
+    {
+      ...base,
+      kind: 'task',
+      id: 't2',
+      at: 5,
+      authorId: 'u:9',
+      assigneeId: 'ta_1',
+      title: '再看一遍',
+      status: 'failed',
+      error: '超时',
+    },
+  ]
+
+  it('文字消息写名字、时间和原文；任务卡写谁交给谁、状态、标题和结果；事件和空消息不记', () => {
+    expect(transcriptBlocks(messages, name, 'zh-CN', time)).toEqual([
+      '**周宁** t2\n稿子放好了',
+      '**林夏 交给 接口审查** t4 · 完成\n审查接口\n> 两处要改\n> 第二行',
+      '**? 交给 接口审查** t5 · 失败\n再看一遍\n> 超时',
+    ])
+  })
+
+  it('英文界面用英文的写法', () => {
+    expect(transcriptBlocks(messages.slice(3, 4), name, 'en-US', time)[0]).toBe(
+      '**林夏 → 接口审查** t4 · done\n审查接口\n> 两处要改\n> 第二行',
+    )
+    expect(transcriptHead('小队', 3, true, 'en-US')).toContain('3 messages (only the most recent')
+  })
+
+  it('开头一句写团队、条数，截断了要说', () => {
+    expect(transcriptHead('小队', 31, false, 'zh-CN')).toBe('从团队「小队」收回的记录：31 条。')
+    expect(transcriptHead('小队', 5000, true, 'zh-CN')).toBe('从团队「小队」收回的记录：5000 条（只留了最近的这些）。')
+  })
+
+  it('拼成几条消息：每条不超过上限，段和段之间空一行，内容一个字不少', () => {
+    const blocks = ['aaaa', 'bbbb', 'cc', 'dddddddddddd', 'e']
+    const chunks = transcriptChunks(blocks, 10)
+    expect(chunks).toEqual(['aaaa\n\nbbbb', 'cc', 'dddddddddd', 'dd', 'e'])
+    expect(chunks.every(c => c.length <= 10)).toBe(true)
+    expect(chunks.join('').replace(/\n/g, '')).toBe(blocks.join(''))
+    expect(transcriptChunks([], 10)).toEqual([])
+  })
+})
+
+describe('本机频道不重名', () => {
+  it('没被占就用原名；占了加 2、3…，比大小写不敏感', () => {
+    expect(freeChannelName('评审', ['别的'])).toBe('评审')
+    expect(freeChannelName('Review', ['review'])).toBe('Review 2')
+    expect(freeChannelName('评审', ['评审', '评审 2'])).toBe('评审 3')
+  })
+
+  it('加了后缀也不超过长度上限', () => {
+    const long = 'x'.repeat(40)
+    const next = freeChannelName(long, [long])
+    expect(next).toHaveLength(40)
+    expect(next.endsWith(' 2')).toBe(true)
+  })
+})

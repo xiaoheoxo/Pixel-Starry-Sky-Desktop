@@ -7,6 +7,7 @@ import {
   BookmarkPlus,
   ArchiveRestore,
   ArrowUpRight,
+  AtSign,
   Bot,
   ChevronDown,
   ChevronRight,
@@ -33,6 +34,7 @@ import { channelLoad, dirConflicts, memberLoad } from './model'
 import { AvatarPicker } from './AvatarPicker'
 import { AgentDialog, ChannelDialog } from './ChannelDialogs'
 import { SavePresetDialog } from './ChannelPresets'
+import { audienceLabel } from './ChannelBar'
 import { channelActions, channelsLive, useChannels } from './store'
 import { AddTeamAgentDialog, TeamSettingsDialog } from './TeamDialog'
 import { PresenceAvatar, roleLabel } from './TeamParts'
@@ -300,8 +302,11 @@ function AgentRow({
   onDuplicate,
   onRemove,
   onPolicy,
+  onMention,
 }: {
   member: AgentMember
+  /** 行尾的 @：把它写进输入框（docs/ui/channels-unify.md §2） */
+  onMention?: (member: AgentMember) => void
   /** 是这个频道的牵头成员 */
   lead: boolean
   /** 这个频道里排队的活数（channels-side-panels §4.3） */
@@ -513,6 +518,17 @@ function AgentRow({
         )}
         {open && <AgentDetails member={member} />}
       </div>
+      {onMention && !(foreign && member.policy === 'owner') && (
+        <IconButton
+          icon={AtSign}
+          label={tr('unify.mention', { name: member.name })}
+          size={26}
+          iconSize={14}
+          data-mention-agent={member.id}
+          className="shrink-0 opacity-0 group-hover/agent:opacity-100 focus-visible:opacity-100"
+          onClick={() => onMention(member)}
+        />
+      )}
       {foreign && !canRemoveOthers ? null : live ? (
         <IconButton
           icon={Ellipsis}
@@ -585,8 +601,11 @@ export function ChannelMembers({
   allMembers,
   onClose,
   onOpenSession,
+  onMention,
 }: {
   channel: Channel
+  /** AI 成员行尾的 @；没有时不出（归档的频道、观察者） */
+  onMention?: (member: AgentMember) => void
   members: readonly ChannelMember[]
   /** 全部成员（「从已有成员添加」用） */
   allMembers: readonly ChannelMember[]
@@ -629,7 +648,7 @@ export function ChannelMembers({
   )
   const team = channel.scope === 'team'
   const role = useChannels(s => myRole(s.teams, channel.teamId))
-  const teamName = useChannels(s => s.teams.find(t => t.id === channel.teamId)?.name ?? null)
+  const teamInfo = useChannels(s => (channel.teamId ? (s.teams.find(t => t.id === channel.teamId) ?? null) : null))
   const owner = canManageTeam(role)
   const confirm = (fn: () => Promise<void>) => {
     setBusy(true)
@@ -647,6 +666,40 @@ export function ChannelMembers({
   const update = (patch: Parameters<typeof channelActions.updateChannel>[1]) =>
     void channelActions.updateChannel(channel.id, patch).catch(policyFailed)
   const setArchived = (on: boolean) => update({ archived: on })
+  const agentRow = (m: AgentMember) => (
+    <AgentRow
+      key={m.id}
+      member={m}
+      lead={channel.lead === m.id}
+      queued={memberLoad(channel, m).queued}
+      dirPeers={(m.sharesDirWith ?? []).filter(n => n !== m.name && agents.some(a => a.name === n))}
+      copyName={copyNameOf(m)}
+      onDuplicate={config => setDialog({ kind: 'agent', editing: null, from: config })}
+      channelId={channel.id}
+      live={live}
+      team={team}
+      canRemoveOthers={live && owner}
+      readOnly={archived}
+      onPolicy={(member, policy) =>
+        policy === 'team'
+          ? setDialog({ kind: 'policy', member })
+          : policy === 'listed'
+            ? setDialog({ kind: 'listed', member })
+            : void channelActions.setAgentPolicy(channel.id, member.id, policy).catch(policyFailed)
+      }
+      onOpenSession={onOpenSession}
+      onEdit={config => setDialog({ kind: 'agent', editing: config })}
+      onRemove={member => setDialog({ kind: 'remove', member })}
+      onMention={archived ? undefined : onMention}
+    />
+  )
+  // 团队的频道按人分组（docs/ui/channels-unify.md §2）：每个人下面是他带进来的 AI 成员，自己名下能添加
+  const groups = humans.map(human => ({
+    human,
+    own: agents.filter(a => (a.ownerId ? a.ownerId === human.id : !!human.you && a.mine !== false)),
+  }))
+  const orphans = agents.filter(a => !groups.some(g => g.own.includes(a)))
+  const canAddMine = canAddAgent(role) && !archived
   return (
     <aside
       aria-label={tr('channels.members.title')}
@@ -672,22 +725,19 @@ export function ChannelMembers({
         <div className="mx-2 flex flex-col gap-1.5 text-list">
           {channel.topic && <p className="min-w-0 break-words text-fg-secondary">{channel.topic}</p>}
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
-            {team && teamName && (
-              <>
-                <dt className="text-fg-faint">{tr('team.panel.team')}</dt>
-                <dd className="min-w-0 truncate text-fg-secondary">{teamName}</dd>
-              </>
-            )}
+            <dt className="text-fg-faint">{tr('unify.aud.title')}</dt>
+            <dd data-channel-audience-row="" className="min-w-0 text-fg-secondary">
+              <span className="block truncate">{audienceLabel(channel, teamInfo)}</span>
+              <span className="block text-meta text-fg-faint">
+                {tr(team ? 'unify.aud.teamBody' : 'unify.aud.meBody')}
+              </span>
+            </dd>
             {channel.project && !team && (
               <>
                 <dt className="text-fg-faint">{tr('channels.members.project')}</dt>
                 <dd className="min-w-0 truncate text-fg-secondary">{channel.project}</dd>
               </>
             )}
-            <dt className="text-fg-faint">{tr('channels.members.type')}</dt>
-            <dd className="text-fg-secondary">
-              {tr(channel.scope === 'team' ? 'channels.scope.team' : 'channels.scope.local')}
-            </dd>
             {!team && (
               <>
                 <dt className="self-center text-fg-faint">{tr('channels.members.notify')}</dt>
@@ -708,33 +758,21 @@ export function ChannelMembers({
         <Section
           title={
             team
-              ? tr('team.panel.agents', { count: agents.length })
+              ? tr('team.panel.humans', { count: humans.length, online: onlineCount(humans) })
               : tr('channels.members.agents', { count: agents.length })
           }
           action={
             archived ? null : team ? (
-              <>
-                {canAddAgent(role) && (
-                  <Button
-                    icon={Bot}
-                    variant="ghost"
-                    className="h-7 px-2 text-meta"
-                    onClick={() => setDialog({ kind: 'addTeamAgent' })}
-                  >
-                    {tr('team.panel.addMine')}
-                  </Button>
-                )}
-                {owner && (
-                  <Button
-                    icon={UserPlus}
-                    variant="ghost"
-                    className="h-7 px-2 text-meta"
-                    onClick={() => setDialog({ kind: 'invite' })}
-                  >
-                    {tr('team.panel.invite')}
-                  </Button>
-                )}
-              </>
+              owner && (
+                <Button
+                  icon={UserPlus}
+                  variant="ghost"
+                  className="h-7 px-2 text-meta"
+                  onClick={() => setDialog({ kind: 'invite' })}
+                >
+                  {tr('team.panel.invite')}
+                </Button>
+              )
             ) : (
               <Button
                 icon={Bot}
@@ -789,32 +827,34 @@ export function ChannelMembers({
             )
           })}
           <div className="flex flex-col gap-1.5">
-            {agents.map(m => (
-              <AgentRow
-                key={m.id}
-                member={m}
-                lead={channel.lead === m.id}
-                queued={memberLoad(channel, m).queued}
-                dirPeers={(m.sharesDirWith ?? []).filter(n => n !== m.name && agents.some(a => a.name === n))}
-                copyName={copyNameOf(m)}
-                onDuplicate={config => setDialog({ kind: 'agent', editing: null, from: config })}
-                channelId={channel.id}
-                live={live}
-                team={team}
-                canRemoveOthers={live && owner}
-                readOnly={archived}
-                onPolicy={(member, policy) =>
-                  policy === 'team'
-                    ? setDialog({ kind: 'policy', member })
-                    : policy === 'listed'
-                      ? setDialog({ kind: 'listed', member })
-                      : void channelActions.setAgentPolicy(channel.id, member.id, policy).catch(policyFailed)
-                }
-                onOpenSession={onOpenSession}
-                onEdit={config => setDialog({ kind: 'agent', editing: config })}
-                onRemove={member => setDialog({ kind: 'remove', member })}
-              />
-            ))}
+            {team ? (
+              <>
+                {groups.map(({ human, own }) => (
+                  <div key={human.id} data-member-group={human.id} className="flex flex-col">
+                    <HumanRow member={human} team channelId={channel.id} />
+                    {(own.length > 0 || (human.you && canAddMine)) && (
+                      <div className="mb-1 ml-5 flex flex-col gap-1.5 border-l border-line-subtle pl-2">
+                        {own.map(agentRow)}
+                        {human.you && canAddMine && (
+                          <Button
+                            icon={Bot}
+                            variant="ghost"
+                            className="h-7 self-start px-2 text-meta"
+                            onClick={() => setDialog({ kind: 'addTeamAgent' })}
+                          >
+                            {tr('team.panel.addMine')}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {/* 主人不在成员名单里的（刚被移出团队）：照旧列在最后 */}
+                {orphans.map(agentRow)}
+              </>
+            ) : (
+              agents.map(agentRow)
+            )}
           </div>
         </Section>
         {!team && !archived && leadOptions.length > 0 && (
@@ -857,17 +897,13 @@ export function ChannelMembers({
           </Section>
         )}
         <PinnedList channel={channel} members={allMembers} />
-        <Section
-          title={
-            team
-              ? tr('team.panel.humans', { count: humans.length, online: onlineCount(humans) })
-              : tr('channels.members.humans', { count: humans.length })
-          }
-        >
-          {humans.map(m => (
-            <HumanRow key={m.id} member={m} team={team} channelId={channel.id} />
-          ))}
-        </Section>
+        {!team && (
+          <Section title={tr('channels.members.humans', { count: humans.length })}>
+            {humans.map(m => (
+              <HumanRow key={m.id} member={m} team={false} channelId={channel.id} />
+            ))}
+          </Section>
+        )}
         {(channel.notes || usage) && (
           <section className="flex flex-col gap-1">
             <button

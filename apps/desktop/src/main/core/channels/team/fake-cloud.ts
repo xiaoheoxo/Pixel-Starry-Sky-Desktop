@@ -414,8 +414,11 @@ export class FakeCloud {
     if (tid !== this.teamId) return this.json({ error: '不存在' }, 404)
     if (seg[3] === 'channels') {
       if (seg.length === 4 && method === 'POST') {
+        // 预置的频道也叫 tc_1：新建的跳过已经有的 id
+        let id = this.id('tc')
+        while (this.messages.has(id)) id = this.id('tc')
         const c = {
-          id: this.id('tc'),
+          id,
           name: body.name as string,
           topic: (body.topic as string | null) ?? null,
           createdBy: this.me.id,

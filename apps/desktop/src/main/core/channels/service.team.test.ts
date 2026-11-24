@@ -979,3 +979,117 @@ describe('执行机（docs/multica-learn.md §11.7）', () => {
     await until(() => sent.length === 2)
   })
 })
+
+describe('频道和团队融合：共享到团队、改回只有我（docs/ui/channels-unify.md §5.2）', () => {
+  /** 建一个带两个 AI 成员的只有我的频道，说一句话 */
+  async function localChannel(t: Awaited<ReturnType<typeof open>>) {
+    const a = await t.c.saveMember(null, agent('前端助手'))
+    const b = await t.c.saveMember(null, agent('审查员'))
+    const local = await t.c.create({ name: '网页版改版', topic: '迁移表单', memberIds: [a, b] })
+    await t.c.post(local, { text: '只有我看的话', clientId: 'x1' })
+    return { a, b, local }
+  }
+  const texts = (t: Awaited<ReturnType<typeof open>>, id: string): string[] =>
+    (t.store.messages.get(id) ?? []).flatMap(m => (m.kind === 'message' ? [m.text] : []))
+
+  it('共享：团队里建同名频道，列出来的 AI 成员按规则登记，以前的消息不上传，原频道归档并记下去向', async () => {
+    const t = await open()
+    await t.online()
+    const { a, b, local } = await localChannel(t)
+    const { channelId, failed } = await t.c.share(local, { teamId: 'tm_1', policies: { [a]: 'team' } })
+    expect(failed).toEqual([])
+    expect(t.cloud.channels.find(x => x.id === channelId)).toMatchObject({ name: '网页版改版', topic: '迁移表单' })
+    const regs = t.cloud.agents.filter(x => x.channel_id === channelId)
+    expect(regs.map(x => [x.local_id, x.policy, x.name])).toEqual([[a, 'team', '前端助手']])
+    expect(regs.some(x => x.local_id === b)).toBe(false)
+    expect((t.cloud.messages.get(channelId) ?? []).filter(m => m.kind === 'message')).toEqual([])
+    const origin = t.store.channels.get(local)!
+    expect(origin.sharedTo).toBe(channelId)
+    expect(origin.archivedAt).toBeGreaterThan(0)
+    expect(texts(t, local)).toEqual(['只有我看的话'])
+  })
+
+  it('共享：还有没做完的活、已经在团队里的频道、不在的团队都不行，云端不建频道', async () => {
+    const t = await open()
+    await t.online()
+    const { a, local } = await localChannel(t)
+    await t.c.post(local, { text: '@前端助手 改一下标题', clientId: 'x2' })
+    await expect(t.c.share(local, { teamId: 'tm_1', policies: { [a]: 'approve' } })).rejects.toThrow(
+      '频道里还有没做完的活，做完或停掉后再共享',
+    )
+    await expect(t.c.share('tc_1', { teamId: 'tm_1', policies: {} })).rejects.toThrow('这个频道已经在团队里了')
+    const idle = await t.c.create({ name: '空的' })
+    await expect(t.c.share(idle, { teamId: 'tm_x', policies: {} })).rejects.toThrow('团队不存在')
+    expect(t.cloud.channels.map(x => x.id)).toEqual(['tc_1'])
+    expect(t.store.channels.get(local)?.archivedAt ?? null).toBeNull()
+  })
+
+  it('共享：观察者不能', async () => {
+    const t = await open()
+    t.cloud.role = 'observer'
+    await t.online()
+    const idle = await t.c.create({ name: '空的' })
+    await expect(t.c.share(idle, { teamId: 'tm_1', policies: {} })).rejects.toThrow('观察者不能建频道')
+  })
+
+  it('改回只有我：云端的消息写成记录留在原频道，我的 AI 成员跟着回来，云端的频道删掉', async () => {
+    const t = await open()
+    await t.online()
+    const { a, local } = await localChannel(t)
+    const { channelId } = await t.c.share(local, { teamId: 'tm_1', policies: { [a]: 'approve' } })
+    await until(() => t.sync.hasChannel(channelId))
+    t.cloud.userPost('u:2', channelId, '稿子放好了')
+    await t.c.post(channelId, { text: '我看一下', clientId: 'y1' })
+    const back = await t.c.unshare(channelId)
+    expect(back.channelId).toBe(local)
+    expect(t.cloud.channels.some(x => x.id === channelId)).toBe(false)
+    const kept = t.store.channels.get(local)!
+    expect(kept).toMatchObject({ archivedAt: null, sharedTo: null, unsharedFrom: null })
+    expect(kept.memberIds).toContain(a)
+    const record = texts(t, local)
+    expect(record[0]).toBe('只有我看的话')
+    expect(record[1]).toBe('从团队「' + t.c.state().teams[0].name + '」收回的记录：2 条。')
+    expect(record[2]).toContain('**周宁**')
+    expect(record[2]).toContain('稿子放好了')
+    expect(record[2]).toContain('**林夏**')
+    // 记录是 Markdown、算我发的，不算未读
+    const last = (t.store.messages.get(local) ?? []).at(-1)
+    expect(last).toMatchObject({ kind: 'message', authorId: SELF_ID, format: 'markdown' })
+    expect(t.c.state().channels.find(x => x.id === local)).toMatchObject({ scope: 'local', unread: 0 })
+  })
+
+  it('改回只有我：不是所有者不行；原频道不在了就新建一个不重名的', async () => {
+    const t = await open()
+    await t.online()
+    await t.c.create({ name: '更新日志' })
+    t.cloud.userPost('u:2', 'tc_1', '0.9.2 的日志看过了')
+    const back = await t.c.unshare('tc_1')
+    expect(t.store.channels.get(back.channelId)).toMatchObject({ name: '更新日志 2', memberIds: [SELF_ID] })
+    expect(texts(t, back.channelId).join('\n')).toContain('0.9.2 的日志看过了')
+    expect(t.cloud.channels).toEqual([])
+
+    const m = await open()
+    m.cloud.role = 'member'
+    await m.online()
+    await expect(m.c.unshare('tc_1')).rejects.toThrow('只有团队所有者能把频道改回只有我')
+    expect(m.cloud.channels.map(x => x.id)).toEqual(['tc_1'])
+  })
+
+  it('改回只有我：云端没删掉时本机的记录留着，再点一次只删云端、不重复留记录', async () => {
+    const t = await open()
+    await t.online()
+    t.cloud.userPost('u:2', 'tc_1', '第一条')
+    t.cloud.failures['DELETE /v1/teams/tm_1/channels'] = 500
+    await expect(t.c.unshare('tc_1')).rejects.toThrow()
+    const local = [...t.store.channels.values()].find(x => x.unsharedFrom === 'tc_1')!
+    expect(local).toBeTruthy()
+    const before = texts(t, local.id)
+    expect(before.join('\n')).toContain('第一条')
+    t.cloud.failures = {}
+    const back = await t.c.unshare('tc_1')
+    expect(back.channelId).toBe(local.id)
+    expect(texts(t, local.id)).toEqual(before)
+    expect(t.store.channels.get(local.id)?.unsharedFrom ?? null).toBeNull()
+    expect(t.cloud.channels).toEqual([])
+  })
+})

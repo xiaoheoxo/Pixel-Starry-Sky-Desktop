@@ -25,7 +25,8 @@ import type { ChannelAttachments, TeamRole } from '../../../../shared/types/chan
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import { transferFiles, useChannelAttachments } from './useChannelAttachments'
-import type { Quotable } from './ChannelMessage'
+import { MemberAvatar, type Quotable } from './ChannelMessage'
+import { dispatchPreview } from './unifyModel'
 import { channelsLive } from './store'
 import {
   excerpt,
@@ -39,7 +40,7 @@ import {
   remoteAgents,
   sharedDirAgents,
 } from './model'
-import { MENTION_ALL } from '../../../../shared/channels/mentions'
+import { MENTION_ALL, parseMentions } from '../../../../shared/channels/mentions'
 import { MentionMenu } from './MentionMenu'
 import { SlashMenu } from './SlashMenu'
 import { matchSlash, parseSlash, slashName, slashQuery, type SlashId } from './slash'
@@ -180,6 +181,18 @@ export function ChannelComposer({
   }
   /** 写了 @全体、又有成员用同一个目录：提示可能冲突 */
   const sharedDir = useMemo(() => (mentionsAll(value, members) ? sharedDirAgents(members) : []), [value, members])
+  // 派活预告（docs/ui/channels-unify.md §2）：团队的频道里，这条消息 @ 到的 AI 成员各自会怎样（直接派、要主人同意、只当文字）
+  const preview = useMemo(() => {
+    if (!team) return []
+    const ids = new Set(parseMentions(value, members))
+    return ids.size
+      ? dispatchPreview(
+          members.filter(m => ids.has(m.id)),
+          role,
+          selfId,
+        )
+      : []
+  }, [team, value, members, role, selfId])
   const toast = useToast()
   // 引用了任务卡但又 @全体 / @ 了别的 AI 成员：不再是追加要求，引用条照普通回复写
   const continuing = useMemo(
@@ -489,6 +502,29 @@ export function ChannelComposer({
                     .join(tr('channels.composer.nameSep')),
                 })}
               </span>
+            </div>
+          )}
+          {preview.length > 0 && (
+            <div
+              data-dispatch-preview=""
+              className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line-subtle px-3 py-1.5 text-meta text-fg-muted"
+            >
+              {preview.map(p => (
+                <span key={p.member.id} data-dispatch={p.kind} className="flex min-w-0 items-center gap-1.5">
+                  <MemberAvatar member={p.member} size={14} />
+                  <span className="min-w-0 truncate text-fg-secondary">{p.member.name}</span>
+                  <span
+                    className={cn(
+                      'shrink-0',
+                      p.kind === 'approval' ? 'text-warn' : p.kind === 'text' ? 'text-fg-faint' : 'text-accent-fg',
+                    )}
+                  >
+                    {p.kind === 'approval'
+                      ? tr('unify.preview.approval', { owner: p.member.ownerName ?? '?' })
+                      : tr(p.kind === 'text' ? 'unify.preview.text' : 'unify.preview.start')}
+                  </span>
+                </span>
+              ))}
             </div>
           )}
           {hasAttachments && (

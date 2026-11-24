@@ -17,7 +17,14 @@ import { ChannelMembers } from './ChannelMembers'
 import { ChannelsEmpty } from './ChannelsEmpty'
 import { ThreadPanel } from './ThreadPanel'
 import { NeedsView } from './NeedsView'
-import { myRole } from './teamModel'
+import { DoingView } from './DoingView'
+import { ChannelBar, type ChannelTab } from './ChannelBar'
+import { ChannelTasks } from './ChannelTasks'
+import { openTaskCount } from './unifyModel'
+import { ShareChannelDialog, UnshareChannelDialog } from './ShareDialogs'
+import { canDispatch, myRole } from './teamModel'
+import { channelDraftKey } from './draftKey'
+import { appendComposerInline } from '@/features/engine/drafts'
 import { ChannelDialog } from './ChannelDialogs'
 import { pinTarget, SLASH_IDS, type SlashId } from './slash'
 import { useAppMode } from '@/features/coding/mode'
@@ -76,6 +83,7 @@ export function ChannelsPage({
   useI18n()
   const composer = useRef<HTMLTextAreaElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sharing, setSharing] = useState<'share' | 'unshare' | null>(null)
   const appMode = useAppMode()
   const channels = useChannels(s => s.channels)
   const members = useChannels(s => s.members)
@@ -83,6 +91,13 @@ export function ChannelsPage({
   const replyMap = useChannels(s => s.replyTo)
   const threadMap = useChannels(s => s.thread)
   const needsOpen = useChannels(s => s.needsOpen)
+  const overview = useChannels(s => s.overview)
+  const focus = useChannels(s => s.focus)
+  // 「消息 / 任务」（docs/ui/channels-unify.md §2）：按频道记，换频道回到消息；要跳到某条消息时也回到消息
+  const [tabOf, setTabOf] = useState<{ id: string; tab: ChannelTab } | null>(null)
+  useEffect(() => {
+    if (focus) setTabOf(null)
+  }, [focus])
   const newFromMap = useChannels(s => s.newFrom)
   const moreMap = useChannels(s => s.more)
   const channel = useChannels(selectedChannel)
@@ -196,6 +211,23 @@ export function ChannelsPage({
     onToggleMembers()
     composer.current?.focus()
   }
+  const tab: ChannelTab = tabOf?.id === channel.id && !focus ? tabOf.tab : 'messages'
+  // 把 @成员 写进输入框（docs/ui/channels-unify.md §2）：成员行上的 @、消息上的「派给 AI 成员」（name 为空只写一个 @，出成员菜单）
+  const mention = (name: string) => {
+    setTabOf(null)
+    appendComposerInline(channelDraftKey(channel.id), name ? `@${name} ` : '@')
+    requestAnimationFrame(() => {
+      const el = composer.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+      // 输入框按键盘 / 鼠标事件记光标位置：补一个，刚写进去的 @ 才出成员菜单
+      el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
+    })
+  }
+  const canMention = !archived && canDispatch(role)
+  const mentionMember = canMention ? (m: AgentMember) => mention(m.name) : undefined
+  const loadOlder = () => channelActions.loadOlder(channel.id)
   return (
     <div className="@container absolute inset-0 flex min-w-0" data-channels-page>
       <ChannelList
@@ -204,48 +236,82 @@ export function ChannelsPage({
         onSelect={selectChannel}
         onOpenSession={openSession}
         agents={agents}
+        onMention={mentionMember}
       />
       {needsOpen ? (
-        <NeedsView />
+        overview === 'doing' ? (
+          <DoingView />
+        ) : (
+          <NeedsView />
+        )
       ) : (
         <section aria-label={`# ${channel.name}`} className="conversation-view flex min-w-[360px] flex-1 flex-col">
-          <ChannelTimeline
+          <ChannelBar
             channel={channel}
-            messages={messages}
-            members={members}
-            channelMembers={channelMembers}
-            newFrom={newFromMap[channel.id] ?? null}
-            more={!!moreMap[channel.id]}
-            onLoadOlder={() => channelActions.loadOlder(channel.id)}
-            onReply={archived ? undefined : reply}
-            taskActions={taskActions}
-            onThread={openThread}
+            tab={tab}
+            onTab={next => setTabOf({ id: channel.id, tab: next })}
+            openTasks={openTaskCount(messages)}
+            onShare={!archived && connection !== 'unavailable' ? () => setSharing('share') : undefined}
+            onUnshare={() => setSharing('unshare')}
           />
-          {archived ? (
-            <ArchivedBar channel={channel} />
+          {tab === 'tasks' ? (
+            <ChannelTasks
+              channel={channel}
+              messages={messages}
+              members={members}
+              more={!!moreMap[channel.id]}
+              onLoadOlder={loadOlder}
+              taskActions={taskActions}
+            />
           ) : (
             <>
-              {channel.scope === 'local' && <LeadHint channel={channel} members={channelMembers} />}
-              {channel.scope === 'local' && <ImLinkedHint channelId={channel.id} />}
-              <ChannelComposer
-                key={channel.id}
+              <ChannelTimeline
                 channel={channel}
-                members={channelMembers}
-                selfId={selfId}
-                replyTo={replyTo}
-                replyAuthor={
-                  replyTo
-                    ? members.find(m => m.id === (replyTo.kind === 'task' ? replyTo.assigneeId : replyTo.authorId))
+                messages={messages}
+                members={members}
+                channelMembers={channelMembers}
+                newFrom={newFromMap[channel.id] ?? null}
+                more={!!moreMap[channel.id]}
+                onLoadOlder={loadOlder}
+                onReply={archived ? undefined : reply}
+                taskActions={taskActions}
+                onThread={openThread}
+                onAssign={
+                  canMention && channelMembers.some(m => m.kind === 'agent')
+                    ? id => {
+                        channelActions.setReplyTo(channel.id, id)
+                        mention('')
+                      }
                     : undefined
                 }
-                followUp={followUp}
-                role={role}
-                offline={channel.scope === 'team' && connection === 'offline'}
-                onSend={(text, extra) => channelActions.send(channel.id, text, extra)}
-                onCancelReply={() => channelActions.setReplyTo(channel.id, null)}
-                inputRef={composer}
-                slash={channel.scope === 'local' ? { available: slashAvailable, run: runSlash } : undefined}
               />
+              {archived ? (
+                <ArchivedBar channel={channel} />
+              ) : (
+                <>
+                  {channel.scope === 'local' && <LeadHint channel={channel} members={channelMembers} />}
+                  {channel.scope === 'local' && <ImLinkedHint channelId={channel.id} />}
+                  <ChannelComposer
+                    key={channel.id}
+                    channel={channel}
+                    members={channelMembers}
+                    selfId={selfId}
+                    replyTo={replyTo}
+                    replyAuthor={
+                      replyTo
+                        ? members.find(m => m.id === (replyTo.kind === 'task' ? replyTo.assigneeId : replyTo.authorId))
+                        : undefined
+                    }
+                    followUp={followUp}
+                    role={role}
+                    offline={channel.scope === 'team' && connection === 'offline'}
+                    onSend={(text, extra) => channelActions.send(channel.id, text, extra)}
+                    onCancelReply={() => channelActions.setReplyTo(channel.id, null)}
+                    inputRef={composer}
+                    slash={channel.scope === 'local' ? { available: slashAvailable, run: runSlash } : undefined}
+                  />
+                </>
+              )}
             </>
           )}
         </section>
@@ -276,10 +342,21 @@ export function ChannelsPage({
             allMembers={members}
             onClose={closeMembers}
             onOpenSession={openSession}
+            onMention={mentionMember}
           />
         )}
       </CollapsibleSlot>
       {settingsOpen && <ChannelDialog channel={channel} agents={[]} onClose={() => setSettingsOpen(false)} />}
+      {sharing === 'share' && channel.scope === 'local' && (
+        <ShareChannelDialog
+          channel={channel}
+          agents={channelMembers.filter((m): m is AgentMember => m.kind === 'agent')}
+          onClose={() => setSharing(null)}
+        />
+      )}
+      {sharing === 'unshare' && channel.scope === 'team' && (
+        <UnshareChannelDialog channel={channel} onClose={() => setSharing(null)} />
+      )}
     </div>
   )
 }

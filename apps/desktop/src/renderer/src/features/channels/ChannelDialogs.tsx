@@ -19,6 +19,7 @@ import { defaultAvatar } from '../../../../shared/channels/avatar'
 import { channelActions, useChannels } from './store'
 import { duplicateName, engineResetFields, matchAgents, scheduleToInput } from './model'
 import { RelayRulesEditor } from './RelayRules'
+import { AUD_ME, AUD_NEW, AudiencePicker } from './AudiencePicker'
 import { AlertRulesEditor } from './AlertRules'
 import { CopyFromChannel, ManagePresetsDialog, PresetChooser, PresetSummary } from './ChannelPresets'
 import {
@@ -193,12 +194,14 @@ export function ChannelDialog({
   useI18n()
   const projectOptions = useProjectOptions()
   const currentProject = useEngineState(s => s.currentProjectId)
-  const teamName = useChannels(s => {
-    const id = teamId ?? channel?.teamId
-    return id ? (s.teams.find(t => t.id === id)?.name ?? null) : null
-  })
-  const inTeam = !!teamId || channel?.scope === 'team'
+  // 谁能看到（docs/ui/channels-unify.md §1）：新建时在对话框里选，teamId 只是预选；也可以顺手新建一个团队
+  const [aud, setAud] = useState<string>(teamId ?? AUD_ME)
+  const [newTeam, setNewTeam] = useState('')
+  const pickedTeam = channel ? channel.teamId : aud === AUD_ME || aud === AUD_NEW ? undefined : aud
+  const teamName = useChannels(s => (pickedTeam ? (s.teams.find(t => t.id === pickedTeam)?.name ?? null) : null))
+  const inTeam = channel ? channel.scope === 'team' : aud !== AUD_ME
   const creating = !channel && !inTeam
+  const teamMissing = !channel && aud === AUD_NEW && !newTeam.trim()
   // 频道预设（docs/ui/channel-presets.md）：打开新建时选中默认预设
   const presets = usePresets()
   const [source, setSource] = useState<PresetSource | null>(() => {
@@ -326,9 +329,10 @@ export function ChannelDialog({
   const [error, setError] = useState<string | null>(null)
   const toast = useToast()
   // 名称、主题、说明是自己打的字：改过就先问再关（取消 / Esc / 点背景）
-  const dirty = name !== (channel?.name ?? '') || topic !== (channel?.topic ?? '') || changed || wakeChanged
+  const dirty =
+    name !== (channel?.name ?? '') || topic !== (channel?.topic ?? '') || changed || wakeChanged || !!newTeam.trim()
   const submit = () => {
-    if (!name.trim() || busy) return
+    if (!name.trim() || teamMissing || busy) return
     setBusy(true)
     setError(null)
     const input = { name, topic: topic.trim() || null, projectId: inTeam ? null : projectId || null }
@@ -354,8 +358,15 @@ export function ChannelDialog({
                 ...(leadDispatchOnly !== (channel.leadDispatchOnly === true) ? { leadDispatchOnly } : {}),
               },
         )
-      : teamId
-        ? channelActions.createChannel({ ...input, teamId })
+      : inTeam
+        ? // 新建团队成功后记下来：频道没建成再点一次不会又建一个团队
+          (aud === AUD_NEW
+            ? channelActions.createTeam(newTeam).then(id => {
+                setAud(id)
+                return id
+              })
+            : Promise.resolve(aud)
+          ).then(id => channelActions.createChannel({ ...input, teamId: id }))
         : createFromForm(channelActions, input, form).then(({ failed }) => {
             for (const e of failed) toast(tr('channels.dialog.notesFailed', { error: errorText(e) }))
           })
@@ -369,12 +380,14 @@ export function ChannelDialog({
     <ConfirmDialog
       wide={creating && presets.items.length > 0}
       title={tr(channel ? 'channels.dialog.editTitle' : 'channels.dialog.newTitle')}
-      confirmLabel={tr(channel ? 'channels.dialog.save' : 'channels.dialog.create')}
+      confirmLabel={tr(
+        channel ? 'channels.dialog.save' : aud === AUD_NEW ? 'unify.aud.createBoth' : 'channels.dialog.create',
+      )}
       cancelLabel={tr('channels.dialog.cancel')}
       busy={busy}
       error={error}
       focusInput
-      confirmDisabled={!name.trim()}
+      confirmDisabled={!name.trim() || teamMissing}
       dirty={dirty}
       onConfirm={submit}
       onCancel={onClose}
@@ -419,6 +432,7 @@ export function ChannelDialog({
           <Field label={tr('channels.dialog.topic')}>
             <input value={topic} maxLength={200} onChange={e => setTopic(e.target.value)} className={INPUT} />
           </Field>
+          {!channel && <AudiencePicker value={aud} onChange={setAud} teamName={newTeam} onTeamName={setNewTeam} />}
           {copying && (
             <CopyFromChannel
               channels={copyable}
@@ -590,7 +604,9 @@ export function ChannelDialog({
             />
           )}
           {inTeam ? (
-            teamName && <p className="text-meta text-fg-faint">{tr('team.channel.inTeam', { name: teamName })}</p>
+            <p className="text-meta text-fg-faint">
+              {channel ? teamName && tr('team.channel.inTeam', { name: teamName }) : tr('unify.aud.teamNote')}
+            </p>
           ) : (
             <div className="flex flex-col gap-1.5">
               <span className="text-meta font-medium text-fg-muted">{tr('channels.dialog.project')}</span>

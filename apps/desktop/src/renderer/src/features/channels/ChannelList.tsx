@@ -3,6 +3,7 @@ import { tr, translateMessage } from '../../i18n/core'
 import { useMemo, useState, type ReactNode } from 'react'
 import {
   Archive,
+  ArrowLeftRight,
   BookmarkPlus,
   ArchiveRestore,
   AtSign,
@@ -12,6 +13,7 @@ import {
   Ellipsis,
   Hash,
   Inbox,
+  Lock,
   LogOut,
   Pencil,
   Plus,
@@ -19,8 +21,11 @@ import {
   Settings,
   Trash2,
   UserPlus,
+  Users,
+  Zap,
+  type LucideIcon,
 } from 'lucide-react'
-import { Avatar, Button, cn, CountBadge, IconButton, Spinner, useComingSoon, useToast } from '@/ui'
+import { Avatar, Button, cn, CountBadge, IconButton, Spinner, useToast } from '@/ui'
 import { ActionMenu, type MenuAction } from '@/ui/ActionMenu'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { SidebarEmpty } from '@/features/sidebar/SidebarSection'
@@ -29,12 +34,14 @@ import type { AgentMember, Channel, ChannelMember } from '@/data/types'
 import type { PendingInvite, TeamInfo } from '../../../../shared/types/channels'
 import { channelActions, channelsLive, selfMember, useChannels } from './store'
 import { useNeeds } from './needs'
+import { unreadInbox } from './teamInboxModel'
 import { SavePresetDialog } from './ChannelPresets'
 import { MemberAvatar } from './ChannelMessage'
 import { channelLoad, memberLoad } from './model'
 import { ChannelDialog } from './ChannelDialogs'
 import { AgentsDialog } from '@/features/settings/AgentsSection'
-import { CreateTeamDialog, TeamSettingsDialog } from './TeamDialog'
+import { TeamSettingsDialog } from './TeamDialog'
+import { ShareChannelDialog, UnshareChannelDialog } from './ShareDialogs'
 import { roleLabel } from './TeamParts'
 import { formatShortTime, formatSyncTime } from './format'
 import { hitPlace, useChannelSearch } from './search'
@@ -87,7 +94,7 @@ function ChannelRow({
   members: readonly ChannelMember[]
   selected: boolean
   onSelect: () => void
-  /** 右键或点「⋯」：编辑、归档 / 恢复、删除（团队频道不给，在成员栏的菜单里按权限处理） */
+  /** 右键或点「⋯」：编辑、归档 / 恢复、删除；团队的频道是编辑、邀请队友、删除（演示模式没有） */
   onMenu?: (x: number, y: number) => void
 }) {
   useI18n()
@@ -164,10 +171,13 @@ function AgentRows({
   channel,
   agents,
   onOpenSession,
+  onMention,
 }: {
   channel: Channel
   agents: readonly AgentMember[]
   onOpenSession: (sessionId: string) => void
+  /** 悬停时行尾的 @：把它写进输入框（docs/ui/channels-unify.md §2） */
+  onMention?: (member: AgentMember) => void
 }) {
   useI18n()
   if (agents.length === 0) return null
@@ -198,19 +208,36 @@ function AgentRows({
         )
         const row =
           'flex h-[26px] w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-meta text-fg-secondary'
-        return sessionId ? (
-          <button
-            key={m.id}
-            type="button"
-            title={tr('channels.list.openAgentSession', { name: m.name })}
-            onClick={() => onOpenSession(sessionId)}
-            className={cn(row, 'hover:bg-hover')}
-          >
-            {content}
-          </button>
-        ) : (
-          <div key={m.id} title={tr('channels.list.noAgentSession', { name: m.name })} className={row}>
-            {content}
+        // 别人的「只有我」的成员 @ 了只当文字，不给 @
+        const at = onMention && !(m.mine === false && m.policy === 'owner')
+        const pad = at && 'group-hover/agent:pr-8 group-focus-within/agent:pr-8'
+        return (
+          <div key={m.id} className="group/agent relative">
+            {sessionId ? (
+              <button
+                type="button"
+                title={tr('channels.list.openAgentSession', { name: m.name })}
+                onClick={() => onOpenSession(sessionId)}
+                className={cn(row, pad, 'hover:bg-hover')}
+              >
+                {content}
+              </button>
+            ) : (
+              <div title={tr('channels.list.noAgentSession', { name: m.name })} className={cn(row, pad)}>
+                {content}
+              </div>
+            )}
+            {at && (
+              <IconButton
+                icon={AtSign}
+                label={tr('unify.mention', { name: m.name })}
+                size={22}
+                iconSize={13}
+                data-mention-agent={m.id}
+                className="absolute top-0.5 right-1 opacity-0 group-hover/agent:opacity-100 focus-visible:opacity-100"
+                onClick={() => onMention(m)}
+              />
+            )}
           </div>
         )
       })}
@@ -319,6 +346,7 @@ function InviteCard({ invite }: { invite: PendingInvite }) {
 /** 段标题：折叠箭头、名字、（团队）在线头像 / 连不上云端的图标 / ⋯ 菜单、+ 新建频道 */
 function SectionHeader({
   title,
+  icon: Icon,
   collapsed,
   onToggle,
   team,
@@ -329,6 +357,8 @@ function SectionHeader({
   onAdd,
 }: {
   title: string
+  /** 谁能看到：只有我是锁、团队是多人；「已归档」没有 */
+  icon?: LucideIcon
   collapsed: boolean
   onToggle: () => void
   team: TeamInfo | null
@@ -354,6 +384,7 @@ function SectionHeader({
           strokeWidth={1.75}
           className={cn('shrink-0 transition-transform', collapsed && '-rotate-90')}
         />
+        {Icon && <Icon size={12} strokeWidth={1.75} className="shrink-0 text-fg-faint" />}
         <h3 className="min-w-0 truncate">{title}</h3>
         {offlineTip && (
           <span title={offlineTip} aria-label={offlineTip} className="shrink-0 text-warn">
@@ -397,8 +428,11 @@ function SectionHeader({
 /** 列表顶部「需要你 N」（docs/ui/channels-collab-v2.md §2）：点开在右边看所有频道里等你处理的事 */
 function NeedsEntry() {
   useI18n()
-  const open = useChannels(s => s.needsOpen)
+  const open = useChannels(s => s.needsOpen && s.overview === 'needs')
   const { needs } = useNeeds()
+  // 团队收件箱里没读的也算（docs/ui/channels-unify.md §1）
+  const team = useChannels(s => unreadInbox(s.inbox, Date.now()))
+  const count = needs.length + team
   return (
     <button
       type="button"
@@ -412,7 +446,39 @@ function NeedsEntry() {
     >
       <Inbox size={15} strokeWidth={1.5} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-left">{tr('needs.entry')}</span>
-      {needs.length > 0 && <CountBadge count={needs.length} max={99} />}
+      {count > 0 && <CountBadge count={count} max={99} />}
+    </button>
+  )
+}
+
+/** 「正在做 N」（docs/ui/channels-unify.md §2）：所有频道里每个 AI 成员手上的活 */
+function DoingEntry() {
+  useI18n()
+  const open = useChannels(s => s.needsOpen && s.overview === 'doing')
+  const { following } = useNeeds()
+  const team = useChannels(
+    s => s.members.filter(m => m.kind === 'agent' && !!m.teamAgentId && m.status === 'running').length,
+  )
+  const count = following.length + team
+  return (
+    <button
+      type="button"
+      data-doing-entry=""
+      aria-pressed={open}
+      onClick={() => channelActions.openNeeds(!open, 'doing')}
+      className={cn(
+        'mt-px flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-list',
+        open ? 'bg-selected text-fg' : 'text-fg-secondary hover:bg-hover hover:text-fg',
+      )}
+    >
+      <Zap size={15} strokeWidth={1.5} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-left">{tr('unify.doing.title')}</span>
+      {count > 0 && (
+        <span className="flex shrink-0 items-center gap-1 text-label text-accent-fg">
+          <Spinner size={11} className="text-accent-fg" mono />
+          {count}
+        </span>
+      )}
     </button>
   )
 }
@@ -423,6 +489,7 @@ export function ChannelList({
   onSelect,
   onOpenSession,
   agents,
+  onMention,
 }: {
   channels: readonly Channel[]
   /** 新建频道时可以一起加进来的 AI 成员 */
@@ -431,9 +498,10 @@ export function ChannelList({
   onSelect: (id: string) => void
   /** 点选中频道下面的 AI 成员：打开它的会话 */
   onOpenSession: (sessionId: string) => void
+  /** 选中频道下面 AI 成员行尾的 @；没有时不出（归档的频道、观察者） */
+  onMention?: (member: AgentMember) => void
 }) {
   useI18n()
-  const comingSoon = useComingSoon()
   const toast = useToast()
   const account = useAccount()
   const teams = useChannels(s => s.teams)
@@ -460,12 +528,13 @@ export function ChannelList({
   }, [channels, teams, teamUi, query])
   const [dialog, setDialog] = useState<
     | { kind: 'channel'; teamId: string | null }
-    | { kind: 'newTeam' }
     | { kind: 'settings'; teamId: string; tab: 'members' | 'settings'; focusInvite?: boolean }
     | { kind: 'leave'; team: TeamInfo }
     | { kind: 'editChannel'; channel: Channel }
     | { kind: 'savePreset'; channel: Channel }
     | { kind: 'deleteChannel'; channel: Channel }
+    | { kind: 'share'; channel: Channel }
+    | { kind: 'unshare'; channel: Channel }
     | null
   >(null)
   const [menu, setMenu] = useState<{ x: number; y: number; team: TeamInfo } | null>(null)
@@ -473,8 +542,7 @@ export function ChannelList({
   const [busy, setBusy] = useState(false)
   const [agentsOpen, setAgentsOpen] = useState(false)
 
-  const createLocal = () =>
-    channelsLive ? setDialog({ kind: 'channel', teamId: null }) : comingSoon(tr('channels.new'))
+  const createLocal = () => setDialog({ kind: 'channel', teamId: null })
   const offlineTip =
     connection === 'offline'
       ? syncedAt
@@ -514,7 +582,7 @@ export function ChannelList({
         ]),
   ]
 
-  // 本机频道的右键菜单：和成员栏「⋯」里的一样（归档的只能恢复、删除）
+  // 频道的右键菜单：和成员栏「⋯」里的一样（归档的只能恢复、删除）
   const channelMenuActions = (c: Channel): MenuAction[] => {
     const archive = (on: boolean) =>
       void channelActions
@@ -522,6 +590,33 @@ export function ChannelList({
         .catch((e: unknown) =>
           toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) })),
         )
+    if (c.scope === 'team') {
+      const team = teams.find(t => t.id === c.teamId)
+      return [
+        { label: tr('channels.channel.edit'), icon: Pencil, run: () => setDialog({ kind: 'editChannel', channel: c }) },
+        ...(team && canManageTeam(team.role)
+          ? [
+              {
+                label: tr('unify.aud.invite'),
+                icon: UserPlus,
+                run: () => setDialog({ kind: 'settings', teamId: team.id, tab: 'members' as const, focusInvite: true }),
+              },
+              {
+                label: tr('unify.unshare.action'),
+                icon: ArrowLeftRight,
+                run: () => setDialog({ kind: 'unshare', channel: c }),
+              },
+            ]
+          : []),
+        {
+          label: tr('channels.channel.delete'),
+          icon: Trash2,
+          danger: true,
+          separator: true,
+          run: () => setDialog({ kind: 'deleteChannel', channel: c }),
+        },
+      ]
+    }
     return [
       ...(c.archivedAt
         ? [{ label: tr('channels.channel.restore'), icon: ArchiveRestore, run: () => archive(false) }]
@@ -536,6 +631,9 @@ export function ChannelList({
               icon: BookmarkPlus,
               run: () => setDialog({ kind: 'savePreset', channel: c }),
             },
+            ...(teamUi
+              ? [{ label: tr('unify.aud.invite'), icon: UserPlus, run: () => setDialog({ kind: 'share', channel: c }) }]
+              : []),
             { label: tr('channels.channel.archive'), icon: Archive, run: () => archive(true) },
           ]),
       {
@@ -566,6 +664,7 @@ export function ChannelList({
           />
         </label>
         <NeedsEntry />
+        <DoingEntry />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]">
         {teamUi && invites.map(invite => <InviteCard key={invite.id} invite={invite} />)}
@@ -590,6 +689,7 @@ export function ChannelList({
                       ? tr('channels.archived.section', { count: section.channels.length })
                       : tr('team.section.local')
                 }
+                icon={team ? Users : archived ? undefined : Lock}
                 collapsed={isCollapsed}
                 onToggle={() => toggleCollapse(archived ? ARCHIVED_OPEN : section.id)}
                 team={team}
@@ -626,17 +726,14 @@ export function ChannelList({
                           members={own}
                           selected={c.id === selectedId}
                           onSelect={() => onSelect(c.id)}
-                          onMenu={
-                            channelsLive && c.scope !== 'team'
-                              ? (x, y) => setChannelMenu({ x, y, channel: c })
-                              : undefined
-                          }
+                          onMenu={channelsLive ? (x, y) => setChannelMenu({ x, y, channel: c }) : undefined}
                         />
                         {listAgents && (
                           <AgentRows
                             channel={c}
                             agents={own.filter((m): m is AgentMember => m.kind === 'agent')}
                             onOpenSession={onOpenSession}
+                            onMention={onMention}
                           />
                         )}
                       </div>
@@ -661,16 +758,6 @@ export function ChannelList({
             </Button>
           </div>
         )}
-        {!searching && teamUi && connection !== 'signed-out' && teams.length === 0 && (
-          <button
-            type="button"
-            onClick={() => setDialog({ kind: 'newTeam' })}
-            className="mt-1 flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-list text-fg-faint hover:bg-hover hover:text-fg-secondary"
-          >
-            <Plus size={14} strokeWidth={1.5} className="shrink-0" />
-            <span className="min-w-0 truncate">{tr('team.section.newHint')}</span>
-          </button>
-        )}
       </div>
       <div className="flex shrink-0 gap-1 border-t border-line-subtle p-2">
         <button
@@ -690,16 +777,6 @@ export function ChannelList({
             data-manage-agents
             onClick={() => setAgentsOpen(true)}
           />
-        )}
-        {teamUi && connection !== 'signed-out' && (
-          <button
-            type="button"
-            onClick={() => setDialog({ kind: 'newTeam' })}
-            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-list text-fg-secondary hover:bg-hover"
-          >
-            <Plus size={14} strokeWidth={1.5} className="shrink-0 text-fg-muted" />
-            <span className="truncate">{tr('team.new')}</span>
-          </button>
         )}
       </div>
       {agentsOpen && <AgentsDialog onClose={() => setAgentsOpen(false)} />}
@@ -725,6 +802,16 @@ export function ChannelList({
         <ChannelDialog channel={null} agents={agents} teamId={dialog.teamId} onClose={() => setDialog(null)} />
       )}
       {dialog?.kind === 'savePreset' && <SavePresetDialog channel={dialog.channel} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'share' && (
+        <ShareChannelDialog
+          channel={dialog.channel}
+          agents={members.filter(
+            (m): m is AgentMember => m.kind === 'agent' && dialog.channel.memberIds.includes(m.id),
+          )}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === 'unshare' && <UnshareChannelDialog channel={dialog.channel} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'editChannel' && (
         <ChannelDialog channel={dialog.channel} agents={[]} onClose={() => setDialog(null)} />
       )}
@@ -748,12 +835,6 @@ export function ChannelList({
               .finally(() => setBusy(false))
           }}
           onCancel={() => setDialog(null)}
-        />
-      )}
-      {dialog?.kind === 'newTeam' && (
-        <CreateTeamDialog
-          onClose={() => setDialog(null)}
-          onCreated={teamId => setDialog({ kind: 'settings', teamId, tab: 'members', focusInvite: true })}
         />
       )}
       {dialog?.kind === 'settings' && (

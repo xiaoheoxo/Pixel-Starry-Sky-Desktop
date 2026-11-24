@@ -1,7 +1,7 @@
 import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { BellRing, Check, CornerUpLeft, Forward, MessageSquareText, Pin, PinOff } from 'lucide-react'
+import { AtSign, BellRing, Check, CornerUpLeft, Forward, MessageSquareText, Pin, PinOff } from 'lucide-react'
 import { Avatar, Button, cn, CopyButton, EngineIcon, IconButton, useToast } from '@/ui'
 import { appendComposerDraft } from '@/features/engine/drafts'
 import { channelDraftKey } from './draftKey'
@@ -438,6 +438,8 @@ export interface MessageGroupProps {
   highlight: string | null
   /** 没有时不能回复（归档的频道） */
   onReply?: (id: string) => void
+  /** 把这条消息派给 AI 成员（docs/ui/channels-unify.md §2） */
+  onAssign?: (id: string) => void
   onJump: (id: string) => void
   /** 频道里置顶的消息 */
   pinned?: ReadonlySet<string>
@@ -474,6 +476,7 @@ export function MessageGroup({
   messagesById,
   highlight,
   onReply,
+  onAssign,
   onJump,
   pinned,
   onPin,
@@ -624,6 +627,15 @@ export function MessageGroup({
                     size={24}
                     iconSize={13}
                     onClick={() => onReply(m.id)}
+                  />
+                )}
+                {onAssign && (
+                  <IconButton
+                    icon={AtSign}
+                    label={tr('unify.assign')}
+                    size={24}
+                    iconSize={13}
+                    onClick={() => onAssign(m.id)}
                   />
                 )}
                 {onThread && (

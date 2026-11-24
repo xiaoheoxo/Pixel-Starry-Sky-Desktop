@@ -109,6 +109,16 @@ export interface ChannelsBridge {
   /** 搜频道消息（§3.1 #8）：新的在前；projectId 只搜默认项目是它的频道 */
   search(text: string, opts?: { limit?: number; projectId?: string | null }): Promise<ChannelSearchResult>
   delete(id: string): Promise<void>
+  /**
+   * 把只有我的频道共享到团队（docs/ui/channels-unify.md §5.2）：policies 是带进去的自己的 AI 成员和各自的派活规则；
+   * 返回团队里新频道的 id 和没登记上的成员的名字
+   */
+  share(
+    id: string,
+    input: { teamId: string; policies: Record<string, AgentPolicy> },
+  ): Promise<{ channelId: string; failed: string[] }>
+  /** 把团队的频道改回只有我：返回本机频道的 id */
+  unshare(id: string): Promise<{ channelId: string }>
   post(channelId: string, input: PostInput): Promise<{ message: ChannelTextMessage; tasks: string[] }>
   /** 一条消息带的图片和文件全文；没有时两个空数组 */
   attachments(channelId: string, messageId: string): Promise<ChannelAttachments>

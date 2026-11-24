@@ -19,7 +19,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { Button, IconButton, Popover, PopoverItem, Spinner, useToast } from '@/ui'
+import { Button, cn, IconButton, Popover, PopoverItem, Spinner, useToast } from '@/ui'
+import { SEGMENT_TRACK, segmentItem } from '@/ui/Segmented'
 import { OPEN_SESSION_EVENT, bridge as engineBridge } from '@/features/engine'
 import { relativeTime } from '@/features/engine/labels'
 import { canAnswerInline } from '@/features/panel/inbox/inboxModel'
@@ -31,6 +32,12 @@ import { channelActions, useChannels } from './store'
 import { GateActions } from './GateActions'
 import { snooze, snoozeTimes, useNeeds } from './needs'
 import { STATUS_LABEL, waitingText } from './ChannelTaskCard'
+import { TeamInboxList } from './TeamInbox'
+import { visibleInbox } from './teamInboxModel'
+
+/** 看哪些（docs/ui/channels-unify.md §1）：全部、只有我的频道、团队的 */
+type Scope = 'all' | 'me' | 'team'
+const SCOPES: readonly Scope[] = ['all', 'me', 'team']
 
 const ICON: Record<ChannelNeed['kind'], LucideIcon> = {
   approval: Hand,
@@ -165,7 +172,8 @@ function Row({
 
 /**
  * 「需要你」（docs/ui/channels-collab-v2.md §2）：所有本机频道里等你处理的事，能就地处理的直接处理；
- * 下面是跟进中的活。代替频道页的时间线显示
+ * 下面是跟进中的活。代替频道页的时间线显示。
+ * 团队的收件箱也列在这里（docs/ui/channels-unify.md §1），能按「全部 / 只有我 / 团队」筛
  */
 export function NeedsView() {
   useI18n()
@@ -177,6 +185,13 @@ export function NeedsView() {
   const [goneOpen, setGoneOpen] = useState(false)
   const [confirmAll, setConfirmAll] = useState(false)
   const [showDone, setShowDone] = useState(false)
+  const [scope, setScope] = useState<Scope>('all')
+  const teamUi = useChannels(s => s.inboxSupported)
+  const inbox = useChannels(s => s.inbox)
+  const now = Date.now()
+  const teamCount = teamUi ? visibleInbox(inbox, now).length : 0
+  const shown: Scope = teamUi ? scope : 'me'
+  const counts: Record<Scope, number> = { all: needs.length + teamCount, me: needs.length, team: teamCount }
   const channelName = (id: string) => channels.find(c => c.id === id)?.name ?? '?'
   // 删掉的成员不写名字（找不到目标的那一行标签里写了「成员已删除」）
   const memberName = (id: string | null) => (id ? (members.find(m => m.id === id)?.name ?? null) : null)
@@ -416,7 +431,24 @@ export function NeedsView() {
     >
       <div className="flex h-11 shrink-0 items-center gap-2 px-5">
         <h2 className="min-w-0 flex-1 truncate text-ui font-medium text-fg">{tr('needs.title')}</h2>
-        {!showDone && markable.length > 0 && (
+        {teamUi && !showDone && (
+          <div role="radiogroup" aria-label={tr('unify.needs.filter')} className={SEGMENT_TRACK}>
+            {SCOPES.map(s => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={shown === s}
+                data-needs-scope={s}
+                onClick={() => setScope(s)}
+                className={cn(segmentItem(shown === s), 'px-2.5 text-meta')}
+              >
+                {tr(`unify.needs.filter.${s}`, { count: counts[s] })}
+              </button>
+            ))}
+          </div>
+        )}
+        {!showDone && shown !== 'team' && markable.length > 0 && (
           <div className="relative">
             <Button variant="ghost" className={small} onClick={() => setConfirmAll(v => !v)}>
               <CheckCheck size={14} strokeWidth={1.6} />
@@ -508,7 +540,7 @@ export function NeedsView() {
           </div>
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-5">
-            <div>
+            <div hidden={shown === 'team'}>
               <h3 className="flex items-baseline gap-2 px-3 pb-1 text-label font-medium text-fg-muted">
                 <span className="min-w-0 flex-1">
                   {tr('needs.todo', { count: needs.length })}
@@ -603,7 +635,17 @@ export function NeedsView() {
                 </div>
               )}
             </div>
-            <div>
+            {teamUi && shown !== 'me' && (
+              <div data-needs-team="">
+                <h3 className="px-3 pb-1 text-label font-medium text-fg-muted">
+                  {tr('unify.needs.team', { count: teamCount })}
+                </h3>
+                <div className="px-3">
+                  <TeamInboxList now={now} onError={fail} />
+                </div>
+              </div>
+            )}
+            <div hidden={shown === 'team'}>
               <h3 className="px-3 pb-1 text-label font-medium text-fg-muted">
                 {tr('needs.following', { count: following.length })}
               </h3>
