@@ -12,6 +12,7 @@ import { isDemo } from '@/data'
 import { openFile } from '@/features/files/store'
 import { findPathMatches } from '@/features/files/pathMatch'
 import { terminalFilePath } from './fileLinks'
+import { findUrls, terminalText } from './termLinks'
 import { COMMAND_PALETTE, NEW_TERMINAL, TOGGLE_TERMINAL, TOGGLE_TUI_MODE } from '@/features/layout/shortcuts'
 import { isMac } from '@/features/layout/keybindings'
 import { isCopyKey, isPasteKey, zoomKey } from './copyKey'
@@ -418,16 +419,18 @@ export function TerminalView({
     })
     const links = term.registerLinkProvider({
       provideLinks(line, callback) {
-        const value = term.buffer.active.getLine(line - 1)?.translateToString(true) ?? ''
-        const urls: ILink[] = [...value.matchAll(/https?:\/\/[^\s<>"']+/g)].map(match => ({
-          text: match[0],
-          range: { start: { x: match.index + 1, y: line }, end: { x: match.index + match[0].length, y: line } },
+        const found = terminalText(term.buffer.active, line - 1, term.cols)
+        if (!found) return callback(undefined)
+        const value = found.text
+        const urls: ILink[] = found.onRow(findUrls(value)).map(url => ({
+          text: value.slice(url.start, url.end),
+          range: found.range(url.start, url.end),
           activate: (event, text) => {
             if (event.ctrlKey && !isDemo) void window.pixelsky!.terminal.openLink(text).catch(terminalError)
           },
         }))
         // 文件路径（docs/ui/files-search-terminal-pins.md §4.2）：只标项目内实际存在的文件，Ctrl+单击在右侧打开并定位
-        const candidates = isDemo ? [] : findPathMatches(value)
+        const candidates = isDemo ? [] : found.onRow(findPathMatches(value))
         if (!candidates.length) return callback(urls.length ? urls : undefined)
         const current = latest.current.record
         void Promise.all(candidates.map(m => terminalFilePath(current, m.raw).catch(() => null))).then(resolved => {
@@ -437,7 +440,7 @@ export function TerminalView({
             return [
               {
                 text: value.slice(m.start, m.end),
-                range: { start: { x: m.start + 1, y: line }, end: { x: m.end, y: line } },
+                range: found.range(m.start, m.end),
                 activate: (event: MouseEvent) => {
                   if (event.ctrlKey || event.metaKey)
                     void openFile({ projectId: current.projectId }, path, m.line ?? undefined, m.column ?? 1).catch(
