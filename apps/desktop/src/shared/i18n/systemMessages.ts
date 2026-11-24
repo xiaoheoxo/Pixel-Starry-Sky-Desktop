@@ -795,6 +795,22 @@ export const systemMessages = {
     zh: 'Codex 没装好，读不到它的会话',
     en: 'Codex isn’t set up, so its sessions can’t be read',
   },
+  'system.nativeCodexMissing': {
+    zh: 'Codex 没装好，读不到它的会话：没找到 Codex 命令行程序（只装 Codex 桌面版不够）',
+    en: 'Codex isn’t set up, so its sessions can’t be read: the Codex CLI wasn’t found (the Codex desktop app alone isn’t enough)',
+  },
+  'system.nativeCodexOutdated': {
+    zh: 'Codex 没装好，读不到它的会话：版本 {p0} 太旧，要 {p1} 以上',
+    en: 'Codex isn’t set up, so its sessions can’t be read: version {p0} is too old, {p1} or later is required',
+  },
+  'system.nativeCodexBroken': {
+    zh: 'Codex 没装好，读不到它的会话：找到了 Codex，但启动不了或读不出版本号',
+    en: 'Codex isn’t set up, so its sessions can’t be read: Codex was found but couldn’t start or report its version',
+  },
+  'system.nativeCodexCustom': {
+    zh: 'Codex 没装好，读不到它的会话：设置里指定的 Codex 用不了',
+    en: 'Codex isn’t set up, so its sessions can’t be read: the Codex program set in Settings can’t be used',
+  },
   'system.nativeCodexUnavailableReason': {
     zh: 'Codex 没装好，读不到它的会话：{p0}',
     en: 'Codex isn’t set up, so its sessions can’t be read: {p0}',

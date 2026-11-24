@@ -18,6 +18,8 @@ export const projectMessages = {
     en: 'Each session starts with its latest 50 turns; load earlier ones from the conversation',
   },
   'codexImport.refresh': { zh: '重新读取全部', en: 'Read all again' },
+  'codexImport.setup': { zh: '去安装或设置', en: 'Install or set up' },
+  'codexImport.redetect': { zh: '重新检测', en: 'Detect again' },
   'codexImport.reading': { zh: '正在读取…', en: 'Reading…' },
   'codexImport.readingAll': {
     zh: '正在登记项目并读取会话历史，已登记的会话会自动去重并补齐新内容…',
@@ -69,7 +71,7 @@ export const projectMessages = {
   'projectImport.menuFromTools': { zh: '从其他工具导入…', en: 'Import from other tools…' },
   'projectImport.rescan': { zh: '重新扫描', en: 'Rescan' },
   'projectImport.reading': { zh: '正在读取…', en: 'Reading…' },
-  'projectImport.toolFound': { zh: '{n} 个', en: '{n} found' },
+  'projectImport.toolFound': { zh: '{n} 个项目', en: '{n} projects' },
   'projectImport.toolAddable': { zh: '{n} 个可添加', en: '{n} new' },
   'projectImport.toolAllAdded': { zh: '都已添加', en: 'all added' },
   'projectImport.toolNone': { zh: '未找到', en: 'Not found' },

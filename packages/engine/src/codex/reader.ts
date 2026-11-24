@@ -93,7 +93,8 @@ export class CodexReader implements CodexRpc {
   private generation = 0
 
   constructor(
-    private readonly launch: () => Promise<ReaderLaunch | null>,
+    /** 用不了时返回给用户看的整句原因（null 用笼统的那句） */
+    private readonly launch: () => Promise<ReaderLaunch | string | null>,
     private readonly opts: ReaderOptions = {},
   ) {}
 
@@ -178,7 +179,8 @@ export class CodexReader implements CodexRpc {
 
   /** 拿一个按当前启动配置起的进程：开着且配置没变就接着用，配置变了先关掉旧的再起新的 */
   private async acquire(generation: number): Promise<ReaderProcess> {
-    const launch = await this.launch()
+    const found = await this.launch()
+    const launch = typeof found === 'string' ? null : found
     // 取启动参数期间被 close() 了
     if (generation !== this.generation) throw new Error(NATIVE_TEXT.codexReaderClosed)
     const key = launch ? readerLaunchKey(launch) : null
@@ -192,7 +194,7 @@ export class CodexReader implements CodexRpc {
       log.debug('启动配置变了，换读取进程')
       current.kill()
     }
-    if (!launch || key === null) throw new Error(NATIVE_TEXT.codexUnavailable)
+    if (!launch || key === null) throw new Error(typeof found === 'string' ? found : NATIVE_TEXT.codexUnavailable)
     return this.start(generation, launch, key)
   }
 

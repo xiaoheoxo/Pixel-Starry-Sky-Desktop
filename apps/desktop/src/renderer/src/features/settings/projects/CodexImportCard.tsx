@@ -5,10 +5,12 @@ import { useI18n } from '@/i18n/I18nProvider'
 import { tr, translateMessage } from '@/i18n/core'
 import { isDemo } from '@/data'
 import { Button, Spinner } from '@/ui'
-import { useEngineState } from '@/features/engine'
+import { redetectEngines, useEngineState } from '@/features/engine'
 import { relativeTime } from '@/features/engine/labels'
 import { useMachines } from '@/features/machines/store'
 import { readCodexSessions, useCodexImport } from '@/features/resume/codexImport'
+import { openEngineDetail } from '../engines/nav'
+import { useSettings } from '../SettingsProvider'
 import { isSettingsWindowView, runMainAction } from '../windowBridge'
 
 export function CodexImportCard({ onOpened }: { onOpened: () => void }) {
@@ -18,6 +20,25 @@ export function CodexImportCard({ onOpened }: { onOpened: () => void }) {
   const sessions = useEngineState(s => s.sessions)
   // 不在进页面时自动读（docs/ui/codex-import-all.md §3）：读取会往项目列表里加一批项目，点了按钮才做
   const state = useCodexImport()
+  const settings = useSettings()
+  // Codex 不能用（没装、太旧、启动不了）：报错旁边给出路
+  const unusable = useEngineState(s => {
+    const status = s.engines.find(e => e.id === 'codex')?.status
+    return status !== undefined && status !== 'ready' && status !== 'unauthenticated'
+  })
+  const [detecting, setDetecting] = useState(false)
+  // 检测完再读一次：好了就直接读出来，没好就换成最新的原因
+  const redetect = async (): Promise<void> => {
+    setDetecting(true)
+    try {
+      await redetectEngines()
+      await readCodexSessions()
+    } catch {
+      // 检测请求没成：原来的报错还在
+    } finally {
+      setDetecting(false)
+    }
+  }
   // 这次运行里还没读过：卡片里先说明，按钮放在说明旁边
   const fresh = !state.running && !state.result && !state.error
 
@@ -72,6 +93,28 @@ export function CodexImportCard({ onOpened }: { onOpened: () => void }) {
             <p role="alert" className="mt-3 text-meta text-danger">
               {translateMessage(state.error)}
             </p>
+          )}
+          {state.error && unusable && (
+            <div data-codex-import-fix className="mt-2 flex items-center gap-2">
+              <Button
+                variant="primary"
+                className="h-7 px-2.5 text-meta"
+                onClick={() => {
+                  openEngineDetail('codex')
+                  settings.openSettings('engines')
+                }}
+              >
+                {tr('codexImport.setup')}
+              </Button>
+              <Button
+                icon={RotateCw}
+                className="h-7 px-2.5 text-meta"
+                disabled={detecting || state.running}
+                onClick={() => void redetect()}
+              >
+                {tr('codexImport.redetect')}
+              </Button>
+            </div>
           )}
           {result && (
             <>

@@ -149,6 +149,19 @@ export class HostSettings {
     this.cloudModelMetadata = new CloudModelMetadata(ctx.opts.fetch)
   }
 
+  /** 上次记进日志的检测结果 */
+  private readonly detected = new Map<EngineId, string>()
+  /** 检测结果变了才记：没装好之类的报错要能从诊断信息里看出原因 */
+  private logDetected(list: EngineInfo[]): void {
+    for (const { id, status, version, path, message } of list) {
+      const fields = { engine: id, status, version, path, ...(message ? { message } : {}) }
+      const key = JSON.stringify(fields)
+      if (this.detected.get(id) === key) continue
+      this.detected.set(id, key)
+      log.info('引擎检测', fields)
+    }
+  }
+
   /** force：重新检测；userDetect：用户自己点的「重新检测」（只有这时才清掉记下的配置警告） */
   async engines(force = false, userDetect = false): Promise<EngineInfo[]> {
     // 用户刚改完 config.toml 自己点的重新检测才清警告，下一轮还有的话引擎会再报；
@@ -166,6 +179,7 @@ export class HostSettings {
         ...(warnings?.size ? { configWarnings: [...warnings.values()] } : {}),
       }
     })
+    this.logDetected(list)
     if (force) this.ctx.opts.emit({ kind: 'engines', engines: list })
     return list
   }

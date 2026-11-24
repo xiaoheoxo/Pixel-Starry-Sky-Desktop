@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Item } from '@pixelsky/protocol'
+import type { EngineInfo, Item } from '@pixelsky/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearCodexCaches,
@@ -19,6 +19,7 @@ import {
   readCodexThread,
   type CodexTurn,
 } from '../src/codex/native'
+import { codexUnreadable } from '../src/codex'
 import { findCodexRollouts } from '../src/codex/runs'
 import { CodexReader, readerLaunchKey, type CodexRpc, type ReaderLaunch, type ReaderProcess } from '../src/codex/reader'
 import type { Message } from '../src/codex/process'
@@ -1445,6 +1446,13 @@ describe('CodexReader', () => {
   it('Codex 没装好：抛 codexUnavailable；起不来：抛带原因的错误', async () => {
     const none = new CodexReader(async () => null)
     await expect(none.request('thread/list', {})).rejects.toThrow(NATIVE_TEXT.codexUnavailable)
+    const why = new CodexReader(async () => NATIVE_TEXT.codexMissing)
+    await expect(why.request('thread/list', {})).rejects.toThrow(NATIVE_TEXT.codexMissing)
+    const info = { id: 'codex', version: '0.150.0', path: null, message: null } as unknown as EngineInfo
+    expect(codexUnreadable({ ...info, status: 'missing' })).toBe(NATIVE_TEXT.codexMissing)
+    expect(codexUnreadable({ ...info, status: 'missing', launch: 'custom' })).toBe(NATIVE_TEXT.codexCustom)
+    expect(codexUnreadable({ ...info, status: 'error' })).toBe(NATIVE_TEXT.codexBroken)
+    expect(codexUnreadable({ ...info, status: 'outdated' })).toContain('版本 0.150.0 太旧')
     const bad = new CodexReader(async () => launch, {
       open: async () => {
         throw new Error(`${NATIVE_TEXT.codexUnavailable}：error: unexpected argument`)

@@ -28,7 +28,8 @@ import { engineEnv, systemProxyEnv } from '../env'
 import { withPath, type NodeRuntime } from '../npm'
 import { outputTail, run, runInteractive, startupReason } from '../exec'
 import { engineBase } from '../registry'
-import { customCodex, discoverCodex, toolEnvironment } from './discover'
+import { CODEX_MIN_VERSION, customCodex, discoverCodex, toolEnvironment } from './discover'
+import { NATIVE_TEXT } from '../native/text'
 import { codexAdvisorOneShot, codexOneShot } from './oneshot'
 import { OneShotError, type OneShotReply, type OneShotRequest } from '../oneshot'
 import { codexAnchor, readCodexTurns } from './branch'
@@ -69,6 +70,13 @@ export interface CodexAdapterOptions {
   account?: () => string | null
 }
 
+/** 读不了 Codex 会话的原因（整句） */
+export function codexUnreadable(info: EngineInfo): string {
+  if (info.status === 'outdated') return NATIVE_TEXT.codexOutdated(info.version ?? '?', CODEX_MIN_VERSION)
+  if (info.launch === 'custom') return NATIVE_TEXT.codexCustom
+  return info.status === 'missing' ? NATIVE_TEXT.codexMissing : NATIVE_TEXT.codexBroken
+}
+
 export class CodexAdapter implements EngineAdapter {
   private cached: { info: EngineInfo; launcher: Launcher | null } | null = null
   private readonly detection = new Rerun(() => this.detect())
@@ -84,7 +92,8 @@ export class CodexAdapter implements EngineAdapter {
     await this.info()
     const found = this.cached
     // 没登录不影响读历史；没装好 / 检测出错读不了
-    if (!found?.launcher || (found.info.status !== 'ready' && found.info.status !== 'unauthenticated')) return null
+    if (!found?.launcher || (found.info.status !== 'ready' && found.info.status !== 'unauthenticated'))
+      return found ? codexUnreadable(found.info) : null
     return {
       launcher: found.launcher,
       args: this.launchArgs(),

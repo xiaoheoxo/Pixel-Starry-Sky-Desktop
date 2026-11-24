@@ -7,6 +7,10 @@ export const NATIVE_TEXT = {
   ideContext: '这一轮带着编辑器的上下文',
   /** 读不到 Codex 的会话（没装好 / app-server 起不来）；后面可以接冒号和原因 */
   codexUnavailable: 'Codex 没装好，读不到它的会话',
+  codexMissing: 'Codex 没装好，读不到它的会话：没找到 Codex 命令行程序（只装 Codex 桌面版不够）',
+  codexOutdated: (version: string, min: string) => `Codex 没装好，读不到它的会话：版本 ${version} 太旧，要 ${min} 以上`,
+  codexBroken: 'Codex 没装好，读不到它的会话：找到了 Codex，但启动不了或读不出版本号',
+  codexCustom: 'Codex 没装好，读不到它的会话：设置里指定的 Codex 用不了',
   gap: (turns: number) => `中间还有 ${turns} 轮没有显示`,
   images: (count: number) => `（${count} 张图片没有导入）`,
   /** 对话最上面的分隔条；missing 是还没显示的更早的轮数 */

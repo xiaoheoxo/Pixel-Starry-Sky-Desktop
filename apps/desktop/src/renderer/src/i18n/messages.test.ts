@@ -147,6 +147,14 @@ describe('中英文词典', () => {
         '没能接上原来的 Codex 会话，之前的聊天也没能放进新的引擎会话，这次没有压缩；下一条消息会把像素星空里的聊天带过去',
         'Couldn’t continue the original Codex session, and the earlier chat couldn’t be added to the new engine session, so nothing was compacted this time. Your next message will carry the chat from Pixel Starry Sky over',
       ],
+      [
+        'Codex 没装好，读不到它的会话：没找到 Codex 命令行程序（只装 Codex 桌面版不够）',
+        'Codex isn’t set up, so its sessions can’t be read: the Codex CLI wasn’t found (the Codex desktop app alone isn’t enough)',
+      ],
+      [
+        'Codex 没装好，读不到它的会话：版本 0.150.0 太旧，要 0.160.0 以上',
+        'Codex isn’t set up, so its sessions can’t be read: version 0.150.0 is too old, 0.160.0 or later is required',
+      ],
       ['Codex 没装好，读不到它的会话：spawn ENOENT', 'Codex isn’t set up, so its sessions can’t be read: spawn ENOENT'],
       ['这一轮带着编辑器的上下文', 'This turn carried context from the editor'],
       ['这个会话还没有聊完的一轮，没法复制', 'This session has no finished turn yet, so it can’t be copied'],

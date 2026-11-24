@@ -7,6 +7,7 @@ import { app, BrowserWindow, dialog, shell, type WebContents } from 'electron'
 import { localRoot } from './data-dir'
 import { logTime, type LogQuery } from '@pixelsky/protocol'
 import { describeError, logger, redact, setLogSink, type LogLevel } from '@pixelsky/engine'
+import { RepeatFilter } from '../core/log/repeat'
 import { LogService } from '../core/log/service'
 import * as ipc from '../ipc/guard'
 import type { AppContext } from './context'
@@ -34,6 +35,7 @@ function logsDir(): string {
 /** 主进程原有的 console.* 同时写进日志（scope console），原来的输出不变 */
 function captureConsole(): void {
   const log = logger('console')
+  const repeats = new RepeatFilter()
   const levels: [keyof Console & ('log' | 'info' | 'warn' | 'error' | 'debug'), LogLevel][] = [
     ['log', 'info'],
     ['info', 'info'],
@@ -45,7 +47,12 @@ function captureConsole(): void {
     const original = console[method].bind(console)
     console[method] = (...args: unknown[]) => {
       original(...args)
-      if (log.enabled(level)) log[level](format(...args))
+      if (!log.enabled(level)) return
+      const text = format(...args)
+      const write = (line: string): void => log[level](line)
+      // 同一个报错一下子来几十遍（每个项目各报一次）：只写一遍，再补一句次数
+      if (level === 'error' || level === 'warn') repeats.write(text, write)
+      else write(text)
     }
   }
 }
