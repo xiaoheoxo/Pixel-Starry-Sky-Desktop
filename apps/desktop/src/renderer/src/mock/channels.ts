@@ -207,8 +207,9 @@ export const demoChannels: Channel[] = [
     scope: 'team',
     teamId: 'tm-pixel',
     memberIds: ['m-linxia', 'm-zhouning', 'm-chenyi', 'a-docs'],
-    // 云端支持讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）
+    // 云端支持讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）、附件（§9）
     pinned: [],
+    attach: { images: 5, files: 5, imageBytes: 2 * 1024 * 1024, fileBytes: 256 * 1024 },
     unread: 2,
     mentioned: true,
     createdAt: YESTERDAY - 86_400_000,
@@ -220,8 +221,9 @@ export const demoChannels: Channel[] = [
     scope: 'team',
     teamId: 'tm-pixel',
     memberIds: ['m-linxia', 'm-zhouning', 'm-chenyi', 'ta-reviewer'],
-    // 云端支持讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）
+    // 云端支持讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）、附件（§9）
     pinned: [],
+    attach: { images: 5, files: 5, imageBytes: 2 * 1024 * 1024, fileBytes: 256 * 1024 },
     unread: 0,
     createdAt: YESTERDAY - 86_400_000,
   },

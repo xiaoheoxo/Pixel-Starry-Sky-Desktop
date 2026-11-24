@@ -218,7 +218,8 @@ function MentionText({ text, members, mine }: { text: string; members: readonly 
 function MessageAttachments({ message }: { message: ChannelTextMessage }) {
   useI18n()
   const [data, setData] = useState<ChannelAttachments | null>(null),
-    [failed, setFailed] = useState(false)
+    [failed, setFailed] = useState(false),
+    [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let alive = true
     channelActions
@@ -228,10 +229,23 @@ function MessageAttachments({ message }: { message: ChannelTextMessage }) {
     return () => {
       alive = false
     }
-  }, [message.channelId, message.id])
+  }, [message.channelId, message.id, attempt])
   const meta = message.attached
   if (!meta) return null
-  if (failed || (data && !data.images.length && !data.files.length))
+  if (failed)
+    return (
+      <button
+        type="button"
+        className="mt-1 text-left text-meta text-fg-faint hover:text-fg"
+        onClick={() => {
+          setFailed(false)
+          setAttempt(n => n + 1)
+        }}
+      >
+        {tr('channels.attach.retry')}
+      </button>
+    )
+  if (data && !data.images.length && !data.files.length)
     return <p className="mt-1 text-meta text-fg-faint">{tr('channels.attach.missing')}</p>
   if (!data)
     return (

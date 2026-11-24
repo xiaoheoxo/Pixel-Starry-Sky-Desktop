@@ -157,7 +157,15 @@ export const channelMessages = {
   'channels.image.meta': { zh: '云端生图 · {group} · {size} · {n} 张', en: 'Cloud image · {group} · {size} · {n}' },
   'channels.image.estimate': { zh: '约 {cost}', en: 'about {cost}' },
   'channels.image.dropped': { zh: '{n} 张太大没放进频道', en: '{n} too large for the channel' },
-  'channels.attach.team': { zh: '团队频道暂不支持附件', en: "Team channels don't support attachments yet" },
+  'channels.attach.team': {
+    zh: '云端还不支持在团队的频道里带附件',
+    en: 'The cloud service doesn’t support attachments in team channels yet',
+  },
+  'channels.attach.observer': {
+    zh: '观察者不能在团队的频道里发附件',
+    en: 'Observers can’t send attachments in team channels',
+  },
+  'channels.attach.retry': { zh: '附件没取到，点这里重试', en: 'Couldn’t load the attachments. Click to retry' },
   'channels.attach.missing': { zh: '附件已不在了', en: 'The attachments are no longer available' },
   'channels.attach.showDetails': { zh: '查看详情', en: 'Show details' },
   'channels.attach.hideDetails': { zh: '收起', en: 'Hide' },

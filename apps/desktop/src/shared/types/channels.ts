@@ -286,6 +286,8 @@ export interface Channel {
    */
   sideOf?: string | null
   sideMirror?: boolean
+  /** 团队频道一条消息能带的附件（docs/ui/channels-unify.md §9）；没写是云端还不支持，输入框不给加附件 */
+  attach?: ChannelAttachLimits
   /** 允许 AI 成员互相派活（docs/ui/import-collab.md 第 5 项①，§3.2 #4）：AI 回复里的 @成员 会派活；没写是关 */
   relay?: boolean
   /** 互相派活什么时候停下等你（docs/ui/relay-limits-mockup.html）；没写按「标准」 */
@@ -684,7 +686,15 @@ export interface ChannelProposal {
   attach?: string[]
 }
 
-/** 消息带的附件说明（本机频道；团队频道不支持） */
+/** 团队频道一条消息能带的附件：图片几张、文件几个、单张图多大、单个文件转成文字后多大（字节） */
+export interface ChannelAttachLimits {
+  images: number
+  files: number
+  imageBytes: number
+  fileBytes: number
+}
+
+/** 消息带的附件说明（团队频道的内容存在云端，看的时候再取） */
 export interface ChannelAttachedMeta {
   images: Omit<ImageAttachment, 'dataBase64'>[]
   files: Omit<FileAttachment, 'text' | 'tail'>[]

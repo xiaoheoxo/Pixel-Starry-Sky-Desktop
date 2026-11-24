@@ -4,6 +4,7 @@ import type {
   AgentMember,
   AgentPolicy,
   Channel,
+  ChannelAttachments,
   ChannelEvent,
   ChannelMember,
   ChannelMessage,
@@ -19,10 +20,14 @@ import type { TeamInboxItem, TeamInboxPatch } from '../../../../shared/types/cha
 import {
   TeamError,
   type AgentRegistration,
+  type AttachLimits,
   type Overview,
   type TaskPatch,
   type TeamAgentData,
   type TeamApi,
+  type TeamAttachmentData,
+  type TeamAttachmentInput,
+  type TeamAttachmentMeta,
   type TeamChannelData,
   type TeamData,
   type TeamMessage,
@@ -33,6 +38,7 @@ import {
 import type { RealtimeStatus, RealtimeStop, TeamFrame } from './realtime'
 import type { Mentionable } from '../../../../shared/channels/mentions'
 import { titleWithoutAll } from '../prompt'
+import { attachedOf, toFile, toImage } from './attach'
 
 /** 每个频道最多缓存最近这么多条，往上翻再拉 */
 export const CACHE_MAX = 500
@@ -41,6 +47,10 @@ const PAGE = 200
 const FOCUS_MIN_MS = 15_000
 const RELOAD_RETRY_MIN = 3000
 const RELOAD_RETRY_MAX = 60_000
+/** 取过的附件内容留在内存里（base64 字符数合计），超了从最早取的开始丢 */
+const ATTACH_CACHE_CHARS = 48 * 1024 * 1024
+/** 记着多少条消息的附件说明 */
+const ATTACH_INDEX_MAX = 2000
 
 export interface RealtimeLike {
   start(): void
@@ -182,6 +192,13 @@ export class TeamSync {
   private me: Overview['me'] | null = null
   private teams = new Map<string, TeamData>()
   private invites: Overview['invites'] = []
+  /** 云端支持附件时是它给的上限（docs/ui/channels-unify.md §9） */
+  private attach: AttachLimits | null = null
+  /** 取过的附件内容（附件 id → 内容），同一份正在取的共用一次请求 */
+  private readonly attachData = new Map<string, TeamAttachmentData>()
+  private readonly attachLoading = new Map<string, Promise<TeamAttachmentData>>()
+  /** 给过界面的消息带的附件说明（消息 id → 说明）：频道没打开过（没有消息缓存）时也查得到 */
+  private readonly attachIndex = new Map<string, TeamAttachmentMeta[]>()
   private readonly meta = new Map<string, Meta>()
   private readonly caches = new Map<string, Cache>()
   /** 任务卡消息（执行端和卡片更新用，不限于已打开的频道） */
@@ -263,6 +280,9 @@ export class TeamSync {
   }
 
   private clear(): void {
+    this.attach = null
+    this.attachData.clear()
+    this.attachIndex.clear()
     this.me = null
     this.teams = new Map()
     this.invites = []
@@ -436,6 +456,9 @@ export class TeamSync {
   }
 
   private clearData(): void {
+    this.attach = null
+    this.attachData.clear()
+    this.attachIndex.clear()
     this.me = null
     this.teams = new Map()
     this.invites = []
@@ -463,6 +486,7 @@ export class TeamSync {
     this.me = ov.me
     this.teams = new Map(ov.teams.map(t => [t.id, t]))
     this.invites = ov.invites
+    this.attach = ov.attach
     this.online = new Map(ov.teams.map(t => [t.id, new Set(t.members.filter(m => m.online).map(m => m.id))]))
     const alive = new Set<string>()
     for (const team of ov.teams)
@@ -800,6 +824,8 @@ export class TeamSync {
     threads: boolean
     pinned: string[]
     archived: boolean
+    /** 一条消息能带的附件；null 是云端还不支持 */
+    attach: AttachLimits | null
   } | null {
     const meta = this.meta.get(channelId)
     if (!meta) return null
@@ -812,6 +838,7 @@ export class TeamSync {
       threads: meta.data.pinned !== null,
       pinned: meta.data.pinned ?? [],
       archived: !!meta.data.archivedAt,
+      attach: this.attach,
     }
   }
 
@@ -957,6 +984,11 @@ export class TeamSync {
         ...(t.wakeups ? { teamWakeups: true } : {}),
       }
     }
+    if (tm.attachments.length) {
+      this.attachIndex.delete(tm.id)
+      this.attachIndex.set(tm.id, tm.attachments)
+      if (this.attachIndex.size > ATTACH_INDEX_MAX) this.attachIndex.delete(this.attachIndex.keys().next().value!)
+    }
     return {
       kind: 'message',
       id: tm.id,
@@ -969,6 +1001,7 @@ export class TeamSync {
       ...(tm.threadId ? { threadId: tm.threadId } : {}),
       mentions: tm.mentions,
       taskId: tm.taskId,
+      ...(attachedOf(tm.attachments) ? { attached: attachedOf(tm.attachments) } : {}),
     }
   }
 
@@ -1019,6 +1052,7 @@ export class TeamSync {
           wakeups: wakeups.get(ch.id) ?? [],
           // 有 pinned 这个字段：云端支持讨论串、置顶、归档（界面按它开这三样）
           ...(ch.pinned ? { pinned: ch.pinned, archivedAt: ch.archivedAt } : {}),
+          ...(this.attach ? { attach: this.attach } : {}),
         })
       }
     return out.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -1164,14 +1198,83 @@ export class TeamSync {
       format?: 'plain' | 'markdown'
       /** 以自己的这个 AI 成员（ta_…）的名义发 */
       agentId?: string
+      /** 要带的附件：先一份份传上去，再跟消息一起发 */
+      uploads?: TeamAttachmentInput[]
     },
   ): Promise<{ message: ChannelMessage | null; tasks: string[] }> {
     const meta = this.meta.get(channelId)
     if (!meta) throw new Error('频道不存在')
-    const res = await this.api.postMessage(meta.teamId, channelId, input)
+    const { uploads, ...rest } = input
+    const attachments: string[] = []
+    for (const up of uploads ?? []) {
+      const saved = await this.api.uploadAttachment(meta.teamId, channelId, up)
+      attachments.push(saved.id)
+      // 自己刚传的不用再取一遍
+      this.keepAttachment({ ...saved, dataBase64: up.dataBase64 })
+    }
+    const res = await this.api.postMessage(meta.teamId, channelId, { ...rest, attachments })
     this.ingest(meta.teamId, channelId, res.message)
     for (const t of res.tasks) this.ingest(meta.teamId, channelId, t)
     return { message: this.toMessage(meta.teamId, res.message), tasks: res.tasks.map(t => t.id) }
+  }
+
+  private keepAttachment(data: TeamAttachmentData): void {
+    this.attachData.delete(data.id)
+    this.attachData.set(data.id, data)
+    let total = 0
+    for (const d of this.attachData.values()) total += d.dataBase64.length
+    for (const [id, d] of this.attachData) {
+      if (total <= ATTACH_CACHE_CHARS || id === data.id) break
+      this.attachData.delete(id)
+      total -= d.dataBase64.length
+    }
+  }
+
+  /** 一份附件的内容（内存里有就不再取）；过期、不存在时抛错 */
+  attachment(teamId: string, id: string): Promise<TeamAttachmentData> {
+    const have = this.attachData.get(id)
+    if (have) return Promise.resolve(have)
+    const loading = this.attachLoading.get(id)
+    if (loading) return loading
+    const epoch = this.epoch
+    const p = this.api
+      .getAttachment(teamId, id)
+      .then(data => {
+        if (epoch === this.epoch) this.keepAttachment(data)
+        return data
+      })
+      .finally(() => this.attachLoading.delete(id))
+    this.attachLoading.set(id, p)
+    return p
+  }
+
+  /** 这条消息带的附件说明（没给过界面的消息是空的） */
+  attachedOn(messageId: string): TeamAttachmentMeta[] {
+    return this.attachIndex.get(messageId) ?? []
+  }
+
+  /**
+   * 几份附件的内容，转成本机的图片 / 文件附件；取不到的（过期、网络不通）不在结果里，数量记在 missing。
+   * 顺序和 ids 一致
+   */
+  async attachmentsBy(teamId: string, ids: string[]): Promise<ChannelAttachments & { missing: number }> {
+    const out: ChannelAttachments & { missing: number } = { images: [], files: [], missing: 0 }
+    const got = await Promise.all(
+      ids.map(id =>
+        this.attachment(teamId, id).catch(error => {
+          this.deps.log?.('取团队频道的附件失败', error)
+          return null
+        }),
+      ),
+    )
+    for (const data of got) {
+      const image = data?.kind === 'image' ? toImage(data) : null
+      const file = data?.kind === 'file' ? toFile(data) : null
+      if (image) out.images.push(image)
+      else if (file) out.files.push(file)
+      else out.missing++
+    }
+    return out
   }
 
   /** 任务卡上的操作（同意 / 拒绝、取消 / 停止 / 重试）：响应里的卡片马上进缓存 */

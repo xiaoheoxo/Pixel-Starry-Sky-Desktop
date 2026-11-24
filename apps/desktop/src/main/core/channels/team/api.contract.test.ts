@@ -258,6 +258,36 @@ describe.skipIf(!hasSamples)('云端契约样例：团队', () => {
   // 事项唤醒（docs/multica-learn.md §11.6 团队部分）的样例：云端分支还没合进 services/cloud 时没有这几份，各自跳过
   const has = (name: string): boolean => files.includes(name)
 
+  // 附件（docs/ui/channels-unify.md §9）
+  it.skipIf(!has('teams-attachment-upload.json'))('teams-attachment-upload.json：上传返回说明', async () => {
+    const s = sample('teams-attachment-upload.json')
+    const meta = await serve(s).uploadAttachment('tm_1', 'tc_1', { kind: 'file', name: '日志.txt', dataBase64: 'YQ==' })
+    expect(meta).toMatchObject({ kind: 'file', name: '日志.txt', mime: 'text/plain', bytes: 9000, lines: 120 })
+    expect(meta.id).toBe((s.body as { id: string }).id)
+  })
+  it.skipIf(!has('teams-attachment-get.json'))('teams-attachment-get.json：取到说明和内容', async () => {
+    const s = sample('teams-attachment-get.json')
+    const data = await serve(s).getAttachment('tm_1', 'tf_1')
+    expect(data).toMatchObject({ kind: 'file', name: '日志.txt', encoding: 'gb18030' })
+    expect(Buffer.from(data.dataBase64, 'base64').toString('utf8')).toBe('第一行\n第二行')
+  })
+  it.skipIf(!has('teams-post-attachments.json'))('teams-post-attachments.json：消息带着附件说明', () => {
+    const body = sample('teams-post-attachments.json').body as { message: unknown }
+    expect(parseMessage(body.message)?.attachments).toMatchObject([
+      { kind: 'image', name: '截图.png', width: 4, height: 3 },
+    ])
+  })
+  it.skipIf(!has('teams-attachment-upload.json') || !has('teams-overview.json'))(
+    'teams-overview.json：云端支持附件时总览带着上限；没有那几项是 null',
+    async () => {
+      const s = sample('teams-overview.json')
+      const ov = await serve(s).overview()
+      expect(ov.attach).toEqual({ images: 5, files: 5, imageBytes: 2 << 20, fileBytes: 256 << 10 })
+      const { limits: _l, ...old } = s.body as Record<string, unknown>
+      expect((await serve({ ...s, body: old }).overview()).attach).toBeNull()
+    },
+  )
+
   it.skipIf(!has('teams-wakeup-add.json'))('teams-wakeup-add.json：挂唤醒返回卡和新规则', async () => {
     const s = sample('teams-wakeup-add.json')
     const res = await serve(s).addWakeup('tm_1', 'tg_1', {

@@ -59,8 +59,12 @@ export function transcriptBlocks(
   const out: string[] = []
   for (const m of messages) {
     if (m.kind === 'message') {
-      if (!m.text.trim()) continue
-      out.push(`**${name(m.authorId)}** ${time(m.at)}\n${m.text.trim()}`)
+      // 附件的内容跟着云端的频道一起删了，记录里留下名字
+      const names = [...(m.attached?.images ?? []), ...(m.attached?.files ?? [])].map(a => a.name)
+      const note = !names.length ? '' : en ? `(attachments: ${names.join(', ')})` : `（附件：${names.join('、')}）`
+      const body = [m.text.trim(), note].filter(Boolean).join('\n')
+      if (!body) continue
+      out.push(`**${name(m.authorId)}** ${time(m.at)}\n${body}`)
     } else if (m.kind === 'task') {
       const head = en
         ? `**${name(m.authorId)} → ${name(m.assigneeId)}** ${time(m.at)} · ${STATUS.en[m.status]}`

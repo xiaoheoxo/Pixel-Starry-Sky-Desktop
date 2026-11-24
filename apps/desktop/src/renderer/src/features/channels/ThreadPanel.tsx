@@ -4,6 +4,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { X } from 'lucide-react'
 import { IconButton } from '@/ui'
 import type { Channel, ChannelMember, ChannelMessage, ChannelTask } from '@/data/types'
+import type { TeamRole } from '../../../../shared/types/channels'
 import { threadMessages } from '../../../../shared/channels/threads'
 import { awaitsDecision } from '../../../../shared/channels/needs'
 import { MessageGroup, type Quotable } from './ChannelMessage'
@@ -27,6 +28,7 @@ export function ThreadPanel({
   selfId,
   taskActions,
   readOnly,
+  role,
   onClose,
   width,
 }: {
@@ -39,6 +41,8 @@ export function ThreadPanel({
   taskActions: TaskCardActions
   /** 归档的频道：只能看 */
   readOnly: boolean
+  /** 我在这个团队里的角色（观察者不能派活、不能发附件） */
+  role?: TeamRole
   onClose: () => void
   width: number
 }) {
@@ -147,6 +151,7 @@ export function ThreadPanel({
           replyTo={null}
           replyAuthor={undefined}
           followUp={null}
+          role={role}
           threadId={rootId}
           placeholder={
             answering

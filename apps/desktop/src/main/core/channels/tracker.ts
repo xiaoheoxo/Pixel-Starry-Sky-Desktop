@@ -82,7 +82,7 @@ export interface TaskRun {
   failing?: string | null
   /** 团队频道派来的活（本机频道的活没有） */
   team?: TeamRunRef
-  /** 这一轮要带上哪些消息的附件（发的时候再读，runs.json 里不存图片） */
+  /** 这一轮要带上哪些消息的附件（发的时候再读，runs.json 里不存图片）；团队的活是云端附件的 id（docs/ui/channels-unify.md §9） */
   attach?: string[]
   /** 这一轮还没做完时追加的要求带的附件，做完后跟着 followUps 一起发 */
   followUpAttach?: string[]
@@ -135,7 +135,7 @@ export interface FlowQuestion {
 /** 新的一轮运行信息（团队执行端用；本机频道在 service.ts 里自己拼） */
 export function newTaskRun(
   init: Pick<TaskRun, 'taskId' | 'channelId' | 'memberId' | 'queuedAt' | 'round' | 'prompt' | 'freshPrompt'> &
-    Partial<Pick<TaskRun, 'sessionId' | 'team' | 'wakeup'>>,
+    Partial<Pick<TaskRun, 'sessionId' | 'team' | 'wakeup' | 'attach'>>,
 ): TaskRun {
   return {
     sessionId: null,

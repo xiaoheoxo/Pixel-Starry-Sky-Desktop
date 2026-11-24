@@ -385,6 +385,7 @@ export function ChannelsPage({
             selfId={selfId}
             taskActions={taskActions}
             readOnly={archived}
+            role={role}
             onClose={closeThread}
             width={THREAD_WIDTH}
           />

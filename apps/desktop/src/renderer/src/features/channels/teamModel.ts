@@ -163,6 +163,16 @@ export const canPin = (
   role: TeamRole | undefined,
 ): boolean => hasThreads(channel) && !channel.archivedAt && (channel.scope === 'local' || canDispatch(role))
 
+/**
+ * 输入框能不能加图片、文件（docs/ui/channels-unify.md §9）：只有我的频道都能；团队的频道要云端支持
+ * （主进程只在云端给了上限时才带 attach），观察者不能。不能时的原因：unsupported / observer
+ */
+export const attachBlock = (
+  channel: Pick<Channel, 'scope' | 'attach'>,
+  role: TeamRole | undefined,
+): 'unsupported' | 'observer' | null =>
+  channel.scope === 'local' ? null : !channel.attach ? 'unsupported' : canDispatch(role) ? null : 'observer'
+
 /** 任务卡上「同意 / 拒绝」：只有 AI 成员的主人能点 */
 export const canApprove = (task: Pick<ChannelTask, 'status' | 'ownerId'>, selfId: string | null): boolean =>
   task.status === 'approval' && !!selfId && task.ownerId === selfId

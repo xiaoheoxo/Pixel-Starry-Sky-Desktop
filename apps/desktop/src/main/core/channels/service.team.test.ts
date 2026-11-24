@@ -165,19 +165,6 @@ describe('协作频道 Phase C：团队频道分流', () => {
     expect(page.messages.filter(m => m.kind === 'message')).toHaveLength(1)
     expect(pushes().some(m => m.id === message.id)).toBe(true)
   })
-
-  it('团队频道不收附件', async () => {
-    const { c, online } = await open()
-    await online()
-    await expect(
-      c.post('tc_1', {
-        text: '看图',
-        clientId: 'att',
-        files: [{ id: 'f', name: 'a.log', bytes: 1, lines: 1, encoding: 'utf-8', text: 'a' }],
-      }),
-    ).rejects.toThrow('团队频道暂不支持附件')
-  })
-
   it('观察者：@ AI 成员只当文字，不带 mentions', async () => {
     const { c, cloud, online } = await open()
     cloud.role = 'observer'
@@ -1168,6 +1155,211 @@ describe('团队的频道：讨论串、置顶、归档（docs/ui/channels-unify
     expect(
       t.cloud.calls.filter(x => x.method === 'POST' && x.path.endsWith('/messages')).at(-1)?.body,
     ).not.toHaveProperty('thread_id')
+  })
+})
+
+describe('团队的频道：附件（docs/ui/channels-unify.md §9）', () => {
+  /** 1×1 的 PNG */
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const image = (id: string, bytes = 70) => ({
+    id,
+    name: `${id}.png`,
+    mediaType: 'image/png' as const,
+    bytes,
+    width: 1,
+    height: 1,
+    dataBase64: PNG,
+  })
+  const file = (id: string, text = 'hello') => ({
+    id,
+    name: `${id}.log`,
+    bytes: 5,
+    lines: 1,
+    encoding: 'utf-8' as const,
+    text,
+  })
+  /** 别人传到云端的一份附件（还没挂到消息上） */
+  const put = (cloud: FakeCloud, kind: 'image' | 'file', name: string, text = 'hello'): string => {
+    const id = `tf_x${cloud.files.size + 1}`
+    cloud.files.set(id, {
+      id,
+      kind,
+      name,
+      mime: kind === 'image' ? 'image/png' : 'text/plain',
+      bytes: 70,
+      width: kind === 'image' ? 1 : 0,
+      height: kind === 'image' ? 1 : 0,
+      lines: kind === 'image' ? 0 : 1,
+      encoding: kind === 'image' ? '' : 'utf-8',
+      data_base64: kind === 'image' ? PNG : Buffer.from(text, 'utf8').toString('base64'),
+      message: null,
+    })
+    return id
+  }
+  async function withAgent(extra: Parameters<typeof open>[0] = {}) {
+    const t = await open(extra)
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    return { ...t, member, agentId: view.id }
+  }
+  const channel = (t: { c: Channels }) => t.c.state().channels.find(x => x.id === 'tc_1')!
+  /** 发给引擎的那条消息带的附件 */
+  const carried = (i: number) => {
+    const m = sent[i] as unknown as { attachments?: { name: string }[]; files?: { name: string; text: string }[] }
+    return { images: (m.attachments ?? []).map(a => a.name), files: (m.files ?? []).map(f => [f.name, f.text]) }
+  }
+  const gets = (cloud: FakeCloud) => cloud.calls.filter(x => x.method === 'GET' && x.path.includes('/attachments/'))
+
+  it('发：先一份份传上去再跟消息一起发，正文可以为空；消息上带着说明，自己刚发的不用再取', async () => {
+    const t = await open()
+    await t.online()
+    expect(channel(t).attach).toEqual({ images: 5, files: 5, imageBytes: 2 << 20, fileBytes: 256 << 10 })
+    const { message } = await t.c.post('tc_1', {
+      text: '',
+      clientId: 'f1',
+      attachments: [image('shot')],
+      files: [file('err')],
+    })
+    const ups = t.cloud.calls.filter(x => x.method === 'POST' && x.path.endsWith('/attachments'))
+    expect(ups.map(x => [x.body?.kind, x.body?.name])).toEqual([
+      ['image', 'shot.png'],
+      ['file', 'err.log'],
+    ])
+    expect(message.attached?.images.map(i => [i.name, i.width])).toEqual([['shot.png', 1]])
+    expect(message.attached?.files.map(f => [f.name, f.lines, f.encoding])).toEqual([['err.log', 1, 'utf-8']])
+    const data = await t.c.attachments('tc_1', message.id)
+    expect(data.images.map(i => i.dataBase64)).toEqual([PNG])
+    expect(data.files.map(f => f.text)).toEqual(['hello'])
+    expect(gets(t.cloud)).toHaveLength(0)
+    // 什么都没有还是不能发
+    await expect(t.c.post('tc_1', { text: ' ', clientId: 'f2' })).rejects.toThrow('消息不能为空')
+  })
+
+  it('看：别人发的从云端取一次，再看不重复取；内容过期了说明原因', async () => {
+    const t = await open()
+    await t.online()
+    const pic = put(t.cloud, 'image', '设计稿.png')
+    const { message } = t.cloud.userPost('u:2', 'tc_1', '看图', [], null, '', null, [pic])
+    await until(() => pushes().some(m => m.id === message.id))
+    expect(pushes().find(m => m.id === message.id)).toMatchObject({ attached: { images: [{ name: '设计稿.png' }] } })
+    expect((await t.c.attachments('tc_1', message.id as string)).images.map(i => i.name)).toEqual(['设计稿.png'])
+    await t.c.attachments('tc_1', message.id as string)
+    expect(gets(t.cloud)).toHaveLength(1)
+    const old = put(t.cloud, 'file', '旧日志.log')
+    t.cloud.files.get(old)!.expired = true
+    const gone = t.cloud.userPost('u:2', 'tc_1', '很久以前的', [], null, '', null, [old]).message
+    await until(() => pushes().some(m => m.id === gone.id))
+    await expect(t.c.attachments('tc_1', gone.id as string)).rejects.toThrow('附件取不到')
+  })
+
+  it('交给 AI 成员：@ 的那条消息带的、它回复的那条消息带的都带上；取不到的告诉 AI', async () => {
+    const t = await withAgent()
+    const pic = put(t.cloud, 'image', '设计稿.png')
+    const first = t.cloud.userPost('u:2', 'tc_1', '这是设计稿', [], null, '', null, [pic]).message
+    const log = put(t.cloud, 'file', '报错.log', 'TypeError: x')
+    const lost = put(t.cloud, 'file', '旧日志.log')
+    t.cloud.files.get(lost)!.expired = true
+    t.cloud.userPost('u:2', 'tc_1', '@前端助手 照这张图改', [t.agentId], first.id as string, '', null, [log, lost])
+    await until(() => sent.length === 1)
+    expect(carried(0)).toEqual({ images: ['设计稿.png'], files: [['报错.log', 'TypeError: x']] })
+    expect(sent[0].text).toContain('1 个附件从云端取不到')
+  })
+
+  it('追加要求带的附件：还在做时并进下一轮，做完了开的下一轮也带', async () => {
+    const t = await withAgent()
+    const { tasks } = t.cloud.userPost('u:2', 'tc_1', '@前端助手 写更新日志', [t.agentId])
+    const card = tasks[0].id as string
+    await until(() => sent.length === 1)
+    expect(carried(0)).toEqual({ images: [], files: [] })
+    const a = put(t.cloud, 'file', '补充.log', '补充一')
+    t.cloud.userPost('u:2', 'tc_1', '把这个也写上', [], card, '', null, [a])
+    await until(() => t.store.runs.get(card)?.followUps.length === 1)
+    complete(t.c, 's1', sent[0].clientMessageId, '写好了')
+    await until(() => sent.length === 2)
+    expect(carried(1).files).toEqual([['补充.log', '补充一']])
+    complete(t.c, 's1', sent[1].clientMessageId, '补上了')
+    await until(() => t.cloud.task(card).status === 'done')
+    const b = put(t.cloud, 'image', '截图.png')
+    t.cloud.userPost('u:2', 'tc_1', '再对一下这张截图', [], card, '', null, [b])
+    await until(() => sent.length === 3)
+    expect(carried(2)).toEqual({ images: ['截图.png'], files: [] })
+  })
+
+  it('只发附件的追加要求：提示词里说一句附了什么（正文是空的）', async () => {
+    const t = await withAgent()
+    const log = put(t.cloud, 'file', '报错.log')
+    const { tasks } = t.cloud.userPost('u:2', 'tc_1', '@前端助手 看日志', [t.agentId], null, '', null, [log])
+    await until(() => sent.length === 1)
+    expect(sent[0].text).toContain('（附 1 个文件）')
+    complete(t.c, 's1', sent[0].clientMessageId, '看完了')
+    await until(() => t.cloud.task(tasks[0].id as string).status === 'done')
+    const pic = put(t.cloud, 'image', '截图.png')
+    t.cloud.userPost('u:2', 'tc_1', '', [], tasks[0].id as string, '', null, [pic])
+    await until(() => sent.length === 2)
+    expect(sent[1].text).toContain('（附 1 张图片）')
+  })
+
+  it('还没开始就失败的重试：附件原样再带', async () => {
+    let broken = true
+    const t = await withAgent({
+      call: async (channel, args) => {
+        if (channel === 'engine:createSession') {
+          if (broken) throw new Error('引擎没装')
+          sessions.push({ record: { id: 's1', projectId: 'p1' }, state: 'idle' } as SessionSummary)
+          return { id: 's1' }
+        }
+        if (channel === 'engine:send')
+          sent.push({ sessionId: 's1', ...(args[1] as { text: string; clientMessageId: string }) })
+        return null
+      },
+    })
+    const pic = put(t.cloud, 'image', '设计稿.png')
+    const { tasks } = t.cloud.userPost('u:2', 'tc_1', '@前端助手 照图改', [t.agentId], null, '', null, [pic])
+    const card = tasks[0].id as string
+    await until(() => t.cloud.task(card).status === 'failed')
+    broken = false
+    await t.c.taskAction(card, 'retry')
+    await until(() => sent.length === 1)
+    expect(carried(0).images).toEqual(['设计稿.png'])
+  })
+
+  it('限制：只有路径的文件不让发；太大的图先转小；旧版云端没有入口，带附件报「还不支持」', async () => {
+    const shrunk: number[] = []
+    const t = await open({
+      fitImage: (i, max) => {
+        shrunk.push(max)
+        return { ...i, bytes: 70, dataBase64: PNG }
+      },
+    })
+    await t.online()
+    await expect(
+      t.c.post('tc_1', {
+        text: '看这个包',
+        clientId: 'l1',
+        files: [{ ...file('pkg', ''), lines: 0, pathOnly: true, path: 'D:/pkg.zip' }],
+      }),
+    ).rejects.toThrow('只带了路径')
+    expect(t.cloud.calls.some(x => x.path.endsWith('/attachments'))).toBe(false)
+    const raw = Buffer.concat([Buffer.from(PNG, 'base64'), Buffer.alloc(3 << 20)])
+    await t.c.post('tc_1', {
+      text: '大图',
+      clientId: 'l2',
+      attachments: [{ ...image('big', raw.length), dataBase64: raw.toString('base64') }],
+    })
+    expect(shrunk).toEqual([2 << 20])
+    expect(t.cloud.calls.filter(x => x.path.endsWith('/attachments')).map(x => x.body?.data_base64)).toEqual([PNG])
+    const old = await open()
+    old.cloud.attach = false
+    await old.online()
+    expect(channel(old).attach).toBeUndefined()
+    await expect(old.c.post('tc_1', { text: '带图', clientId: 'l3', attachments: [image('a')] })).rejects.toThrow(
+      '云端还不支持在团队的频道里带附件',
+    )
+    const plain = await old.c.post('tc_1', { text: '不带图', clientId: 'l4' })
+    expect(plain.message.attached).toBeUndefined()
   })
 })
 

@@ -80,6 +80,14 @@ describe('留在本机的记录', () => {
     ])
   })
 
+  it('带附件的留下附件名，只发附件的也记', () => {
+    const m = { ...messages[0], kind: 'message', authorId: 'u:9', text: '', format: 'plain', at: 2 } as ChannelMessage
+    const attached = { images: [{ name: '图.png' }], files: [{ name: 'a.log' }] }
+    expect(transcriptBlocks([{ ...m, attached } as ChannelMessage], () => '周宁', 'zh-CN', time)).toEqual([
+      '**周宁** t2\n（附件：图.png、a.log）',
+    ])
+  })
+
   it('英文界面用英文的写法', () => {
     expect(transcriptBlocks(messages.slice(3, 4), name, 'en-US', time)[0]).toBe(
       '**林夏 → 接口审查** t4 · done\n审查接口\n> 两处要改\n> 第二行',

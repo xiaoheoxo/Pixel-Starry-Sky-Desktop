@@ -130,6 +130,14 @@ export function unreachableNote(names: readonly string[], locale: Locale): strin
     : `（附件 ${names.join('、')} 在发送人的电脑上，你这台机器读不到，这次没带上）`
 }
 
+/** 团队频道的附件从云端取不到（过期、连不上）、这一轮没带上的；都带上了时空串 */
+export function missingNote(count: number, locale: Locale): string {
+  if (!count) return ''
+  return en(locale)
+    ? `(${count} attachment${count > 1 ? 's' : ''} from the channel could not be fetched from the cloud (expired or offline), so not included)`
+    : `（频道里还有 ${count} 个附件从云端取不到：可能已经过期，或者连不上云端，这次没带上）`
+}
+
 /** 历史里的一行；事件和只在讨论串里的消息不带（null） */
 export function historyLine(m: ChannelMessage, nameOf: (id: string) => string, locale: Locale): string | null {
   const colon = en(locale) ? ': ' : '：'

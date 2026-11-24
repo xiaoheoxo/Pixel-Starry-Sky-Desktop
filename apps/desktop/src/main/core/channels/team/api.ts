@@ -2,6 +2,7 @@
 // 非 2xx 转成带 code 的错误。请求函数（teamsFetch）由应用层注入，这里不碰 Electron。
 import type {
   AgentPolicy,
+  ChannelAttachLimits,
   ChannelRun,
   ChannelTaskStatus,
   ChannelWakeupTag,
@@ -158,10 +159,46 @@ export interface InviteData {
   expiresAt: number
 }
 
+/** 一条消息能带的附件（云端总览的 limits） */
+export type AttachLimits = ChannelAttachLimits
+
 export interface Overview {
   me: TeamMe
   teams: TeamData[]
   invites: InviteData[]
+  /** null：云端还是旧版，团队频道不能带附件（docs/ui/channels-unify.md §9） */
+  attach: AttachLimits | null
+}
+
+/** 消息带的一份附件的说明（内容另取） */
+export interface TeamAttachmentMeta {
+  id: string
+  kind: 'image' | 'file'
+  name: string
+  mime: string
+  /** 图片是内容的大小；文件是原文件的大小 */
+  bytes: number
+  width: number
+  height: number
+  /** 文件：原文件的行数、编码（内容已经转成文字） */
+  lines: number
+  encoding: string
+}
+
+export interface TeamAttachmentData extends TeamAttachmentMeta {
+  dataBase64: string
+}
+
+/** 上传一份附件：文件的 dataBase64 是转好的文字（UTF-8），bytes / lines / encoding 是原文件的 */
+export interface TeamAttachmentInput {
+  kind: 'image' | 'file'
+  name: string
+  dataBase64: string
+  width?: number
+  height?: number
+  bytes?: number
+  lines?: number
+  encoding?: string
 }
 
 export interface TeamTaskData {
@@ -251,6 +288,8 @@ export interface TeamMessage {
   /** 讨论串的根；主时间线上的是 null */
   threadId: string | null
   mentions: string[]
+  /** 带的图片和文件；旧云端没有这项，是空的 */
+  attachments: TeamAttachmentMeta[]
   taskId: string | null
   task: TeamTaskData | null
   event: TeamEventData | null
@@ -459,10 +498,34 @@ function parsePendingInvite(v: unknown): InviteData | null {
 export function parseOverview(body: unknown): Overview {
   const o = isObj(body) ? body : {}
   const me = isObj(o.me) ? o.me : {}
+  const l = isObj(o.limits) ? o.limits : {}
+  const attach: AttachLimits = {
+    images: int(l.attach_images),
+    files: int(l.attach_files),
+    imageBytes: int(l.attach_image_bytes),
+    fileBytes: int(l.attach_file_bytes),
+  }
   return {
     me: { id: str(me.id), name: str(me.name), email: str(me.email) },
     teams: arr(o.teams, parseTeam),
     invites: arr(o.invites, parsePendingInvite),
+    attach: (attach.images > 0 && attach.imageBytes > 0) || (attach.files > 0 && attach.fileBytes > 0) ? attach : null,
+  }
+}
+
+function parseAttachmentMeta(v: unknown): TeamAttachmentMeta | null {
+  if (!isObj(v) || typeof v.id !== 'string' || !v.id || typeof v.name !== 'string' || !v.name) return null
+  if (v.kind !== 'image' && v.kind !== 'file') return null
+  return {
+    id: v.id,
+    kind: v.kind,
+    name: v.name,
+    mime: str(v.mime),
+    bytes: Math.max(0, Math.trunc(int(v.bytes))),
+    width: Math.max(0, Math.trunc(int(v.width))),
+    height: Math.max(0, Math.trunc(int(v.height))),
+    lines: Math.max(0, Math.trunc(int(v.lines))),
+    encoding: str(v.encoding),
   }
 }
 
@@ -647,6 +710,7 @@ export function parseMessage(v: unknown): TeamMessage | null {
     replyTo: strOrNull(v.reply_to),
     threadId: strOrNull(v.thread_id),
     mentions: (Array.isArray(v.mentions) ? v.mentions : []).filter((m): m is string => typeof m === 'string'),
+    attachments: arr(v.attachments, parseAttachmentMeta),
     taskId: strOrNull(v.task_id),
     task: kind === 'task' ? parseTask(v.task) : null,
     event: kind === 'event' ? event : null,
@@ -679,6 +743,7 @@ async function errorOf(res: Response, notDeployed: boolean): Promise<TeamError> 
   const s = res.status
   if (s === 404 && notDeployed) return new TeamError(message || '云端暂未开放团队功能', 'NOT_DEPLOYED')
   if (s === 404) return new TeamError(message || '团队、频道或消息不存在', 'NOT_FOUND')
+  if (s === 410) return new TeamError(message || '内容已过期，云端不再保留', 'NOT_FOUND')
   if (s === 401) return new TeamError(message || '运行凭证无效或已过期', 'RUN_TOKEN')
   if (s === 403) return new TeamError(message || '没有权限', 'FORBIDDEN')
   if (s === 409) return new TeamError(message || '操作冲突，请刷新后重试', 'CONFLICT')
@@ -688,6 +753,8 @@ async function errorOf(res: Response, notDeployed: boolean): Promise<TeamError> 
 }
 
 const seg = (id: string): string => encodeURIComponent(id)
+/** 传一份、取一份附件（几 MB）最多等这么久 */
+const ATTACH_TIMEOUT_MS = 120_000
 
 /** 任务卡写回的请求体（登录令牌和运行凭证两条路一样） */
 function taskWire(patch: TaskPatch): Record<string, unknown> {
@@ -709,12 +776,16 @@ export class TeamApi {
     body?: unknown,
     notDeployed = false,
     runToken?: string,
+    /** 不写用请求函数自己的（20 秒）；传附件、取附件要久一些 */
+    timeoutMs?: number,
   ): Promise<Response> {
     let res: Response
     try {
       res = runToken
         ? await this.fetcher(method, path, body, undefined, runToken)
-        : await this.fetcher(method, path, body)
+        : timeoutMs
+          ? await this.fetcher(method, path, body, timeoutMs)
+          : await this.fetcher(method, path, body)
     } catch (e) {
       if (e instanceof TeamError) throw e
       const err = e as { code?: unknown; name?: unknown; message?: unknown }
@@ -852,6 +923,8 @@ export class TeamApi {
       format?: 'plain' | 'markdown'
       agentId?: string
       taskId?: string
+      /** 传好的附件 id（uploadAttachment）；带了附件正文可以为空 */
+      attachments?: string[]
     },
   ): Promise<{ message: TeamMessage; tasks: TeamMessage[] }> {
     const wire = {
@@ -863,6 +936,7 @@ export class TeamApi {
       ...(input.format ? { format: input.format } : {}),
       ...(input.agentId ? { agent_id: input.agentId } : {}),
       ...(input.taskId ? { task_id: input.taskId } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     }
     const body = await this.json(
       await this.request('POST', `/v1/teams/${seg(teamId)}/channels/${seg(channelId)}/messages`, wire),
@@ -871,6 +945,50 @@ export class TeamApi {
     const message = parseMessage(o.message)
     if (!message) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
     return { message, tasks: arr(o.tasks, parseMessage) }
+  }
+
+  /** 传一份附件，返回说明；发消息时带上它的 id（一天内没挂到消息上的云端会清掉） */
+  async uploadAttachment(teamId: string, channelId: string, input: TeamAttachmentInput): Promise<TeamAttachmentMeta> {
+    const body = await this.json(
+      await this.request(
+        'POST',
+        `/v1/teams/${seg(teamId)}/channels/${seg(channelId)}/attachments`,
+        {
+          kind: input.kind,
+          name: input.name,
+          data_base64: input.dataBase64,
+          ...(input.width ? { width: input.width } : {}),
+          ...(input.height ? { height: input.height } : {}),
+          ...(input.bytes ? { bytes: input.bytes } : {}),
+          ...(input.lines ? { lines: input.lines } : {}),
+          ...(input.encoding ? { encoding: input.encoding } : {}),
+        },
+        false,
+        undefined,
+        ATTACH_TIMEOUT_MS,
+      ),
+    )
+    const meta = parseAttachmentMeta(body)
+    if (!meta) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    return meta
+  }
+
+  /** 取一份附件的内容；过期（云端只留 180 天）、不存在是 NOT_FOUND */
+  async getAttachment(teamId: string, id: string): Promise<TeamAttachmentData> {
+    const body = await this.json(
+      await this.request(
+        'GET',
+        `/v1/teams/${seg(teamId)}/attachments/${seg(id)}`,
+        undefined,
+        false,
+        undefined,
+        ATTACH_TIMEOUT_MS,
+      ),
+    )
+    const meta = parseAttachmentMeta(body)
+    const data = isObj(body) ? body.data_base64 : null
+    if (!meta || typeof data !== 'string' || !data) throw new TeamError('云端返回的数据异常', 'UNAVAILABLE')
+    return { ...meta, dataBase64: data }
   }
 
   markRead(teamId: string, channelId: string, n: number): Promise<void> {

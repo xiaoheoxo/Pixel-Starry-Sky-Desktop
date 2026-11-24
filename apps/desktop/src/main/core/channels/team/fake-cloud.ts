@@ -34,6 +34,10 @@ export class FakeCloud {
   }[] = [{ id: 'tc_1', name: '更新日志', topic: null, createdBy: 'u:1' }]
   /** 讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）：false 是旧云端（频道上没有 pinned / archived_at，消息上没有 thread_id） */
   threads = true
+  /** 附件（docs/ui/channels-unify.md §9）：false 是旧云端（总览的 limits 里没有附件那几项，消息上没有 attachments，没有附件接口） */
+  attach = true
+  /** 传上来的附件：id → 说明加内容；message 是挂到了哪条消息上；expired 是内容过期了（取的时候 410） */
+  files = new Map<string, Json>()
   agents: Json[] = []
   invites: Json[] = []
   readN: Record<string, number> = {}
@@ -136,6 +140,7 @@ export class FakeCloud {
       reply_to: null,
       ...(this.threads ? { thread_id: null } : {}),
       mentions: [],
+      ...(this.attach ? { attachments: [] } : {}),
       task_id: null,
       task: null,
       event: null,
@@ -167,6 +172,7 @@ export class FakeCloud {
     replyTo: string | null = null,
     clientId = '',
     threadId: string | null = null,
+    attachments: string[] = [],
   ): { message: Json; tasks: Json[] } {
     // 串的根：串里的消息归到它所在的串，任务结果归到它的任务卡
     const list = this.messages.get(cid)!
@@ -179,7 +185,16 @@ export class FakeCloud {
       reply_to: replyTo,
       client_id: clientId,
       ...(root ? { thread_id: root.id } : {}),
+      ...(this.attach
+        ? {
+            attachments: attachments.map(id => {
+              const { data_base64: _d, message: _m, expired: _e, ...meta } = this.files.get(id)!
+              return meta
+            }),
+          }
+        : {}),
     })
+    for (const id of attachments) this.files.get(id)!.message = m.id
     this.frame(cid, m)
     const tasks: Json[] = []
     const observer = this.users[author]?.role === 'observer'
@@ -434,6 +449,13 @@ export class FakeCloud {
     }
     const tid = seg[2]
     if (tid !== this.teamId) return this.json({ error: '不存在' }, 404)
+    if (seg[3] === 'attachments' && method === 'GET' && this.attach) {
+      const f = this.files.get(seg[4])
+      if (!f) return this.json({ error: '不存在' }, 404)
+      if (f.expired) return this.json({ error: '附件已过期：云端只保留 180 天' }, 410)
+      const { message: _m, expired: _e, ...out } = f
+      return this.json(out)
+    }
     if (seg[3] === 'channels') {
       if (seg.length === 4 && method === 'POST') {
         // 预置的频道也叫 tc_1：新建的跳过已经有的 id
@@ -452,6 +474,27 @@ export class FakeCloud {
       const cid = seg[4]
       if (!this.messages.has(cid)) return this.json({ error: '不存在' }, 404)
       const channel = this.channels.find(x => x.id === cid)!
+      if (seg[5] === 'attachments' && method === 'POST' && this.attach) {
+        if (channel.archivedAt) return this.json({ error: '频道已归档：恢复后才能发消息、派活或置顶' }, 409)
+        if (this.role === 'observer') return this.json({ error: '你在这个团队里的角色没有这个权限' }, 403)
+        const image = body.kind === 'image'
+        const data = Buffer.from(String(body.data_base64 ?? ''), 'base64')
+        if (!data.length || !body.name) return this.json({ error: '内容不完整或格式不对' }, 400)
+        if (data.length > (image ? 2 << 20 : 256 << 10)) return this.json({ error: '附件太大' }, 413)
+        const f = {
+          id: this.id('tf'),
+          kind: image ? 'image' : 'file',
+          name: body.name,
+          mime: image ? (data[0] === 0xff ? 'image/jpeg' : 'image/png') : 'text/plain',
+          bytes: image ? data.length : ((body.bytes as number | undefined) ?? data.length),
+          width: (body.width as number | undefined) ?? 0,
+          height: (body.height as number | undefined) ?? 0,
+          lines: (body.lines as number | undefined) ?? 0,
+          encoding: image ? '' : ((body.encoding as string | undefined) ?? 'utf-8'),
+        }
+        this.files.set(f.id, { ...f, data_base64: body.data_base64, message: null })
+        return this.json(f, 201)
+      }
       if (seg[5] === 'messages' && method === 'GET') return this.listMessages(cid, q)
       if (seg[5] === 'messages' && method === 'POST') {
         // 归档了只读；已经做完的活补发结果照收
@@ -660,6 +703,10 @@ export class FakeCloud {
       .find(m => m.author === author && body.client_id && m.client_id === body.client_id)
     if (dup) return this.json({ message: dup, tasks: [] })
     if (body.agent_id) return this.json(this.agentPost(cid, body))
+    const attachments = this.attach ? ((body.attachments as string[] | undefined) ?? []) : []
+    if (attachments.some(id => !this.files.has(id) || this.files.get(id)!.message))
+      return this.json({ error: '内容不完整或格式不对' }, 400)
+    if (!String(body.text ?? '').trim() && !attachments.length) return this.json({ error: '内容不完整或格式不对' }, 400)
     const { message, tasks } = this.userPost(
       this.me.id,
       cid,
@@ -668,6 +715,7 @@ export class FakeCloud {
       (body.reply_to as string | undefined) ?? null,
       (body.client_id as string) ?? '',
       (body.thread_id as string | undefined) ?? null,
+      attachments,
     )
     return this.json({ message, tasks })
   }
@@ -693,6 +741,9 @@ export class FakeCloud {
 
   private overview(): Json {
     return {
+      ...(this.attach
+        ? { limits: { attach_images: 5, attach_files: 5, attach_image_bytes: 2 << 20, attach_file_bytes: 256 << 10 } }
+        : {}),
       me: this.me,
       teams: [
         {

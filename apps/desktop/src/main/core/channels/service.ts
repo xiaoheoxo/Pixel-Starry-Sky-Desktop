@@ -152,6 +152,7 @@ import {
   dispatchPrompt,
   droppedNote,
   unreachableNote,
+  missingNote,
   followUpPrompt,
   resolvePrompt,
   HISTORY_WITH_TOOLS,
@@ -221,7 +222,8 @@ import {
 } from './tracker'
 import type { TeamSync } from './team/sync'
 import { TeamExecutor } from './team/executor'
-import { isRunnerId, type AgentRegistration, type WakeupInput } from './team/api'
+import { isRunnerId, type AgentRegistration, type TeamAttachmentInput, type WakeupInput } from './team/api'
+import { uploadsOf } from './team/attach'
 
 export const SELF_ID = 'you'
 
@@ -514,9 +516,9 @@ export class Channels {
             this.saveRuns()
             void this.pump(run.memberId)
           },
-          nextRound: (card, run, prompt, fresh, ref, memberId, wakeup) =>
-            this.nextRound(card, run, prompt, fresh, ref, memberId, undefined, wakeup ? { wakeup } : undefined),
-          addFollowUp: (taskId, text, ref) => this.addTeamFollowUp(taskId, text, ref),
+          nextRound: (card, run, prompt, fresh, ref, memberId, wakeup, attach) =>
+            this.nextRound(card, run, prompt, fresh, ref, memberId, attach, wakeup ? { wakeup } : undefined),
+          addFollowUp: (taskId, text, ref, attach) => this.addTeamFollowUp(taskId, text, ref, attach),
           action: (taskId, action) => this.runAction(taskId, action),
           setFinal: (taskId, final) => {
             const run = this.store.runs.get(taskId)
@@ -1671,9 +1673,18 @@ export class Channels {
     this.pushMessage(next)
   }
 
-  /** 一条消息带的图片和文件全文（团队频道没有附件） */
+  /** 一条消息带的图片和文件全文（团队频道的从云端取，取过的留在内存里） */
   async attachments(channelId: string, messageId: string): Promise<ChannelAttachments> {
-    if (this.isTeam(channelId)) return { images: [], files: [] }
+    if (this.isTeam(channelId)) {
+      const team = this.requireTeam()
+      const info = team.channelInfo(channelId)
+      if (!info) throw new Error('频道不存在')
+      const ids = team.attachedOn(messageId).map(a => a.id)
+      const { missing, ...data } = await team.attachmentsBy(info.teamId, ids)
+      if (missing && !data.images.length && !data.files.length)
+        throw new Error('附件取不到：可能已经过期（云端保留 180 天），或者现在连不上云端')
+      return data
+    }
     this.channel(channelId)
     return this.store.readAttachments(channelId, messageId)
   }
@@ -1689,14 +1700,23 @@ export class Channels {
     input: Pick<MessageInput, 'attachments' | 'files'>
     dropped: { images: number; files: number }
     unreachable: string[]
+    /** 团队频道的附件从云端取不到的个数 */
+    missing: number
   }> {
     const dropped = { images: 0, files: 0 }
-    if (!run.attach?.length) return { input: {}, dropped, unreachable: [] }
+    if (!run.attach?.length) return { input: {}, dropped, unreachable: [], missing: 0 }
     const images: ChannelAttachments['images'] = [],
       files: ChannelAttachments['files'] = []
     let total = 0
-    for (const id of run.attach) {
-      const data = await this.store.readAttachments(run.channelId, id)
+    const sources: ChannelAttachments[] = []
+    // 团队的活：attach 里是云端附件的 id，取不到的（过期、连不上）另外说明
+    let missing = 0
+    if (run.team) {
+      const got = this.team ? await this.team.attachmentsBy(run.team.teamId, run.attach) : null
+      if (got) sources.push(got)
+      missing = got ? got.missing : run.attach.length
+    } else for (const id of run.attach) sources.push(await this.store.readAttachments(run.channelId, id))
+    for (const data of sources) {
       for (const image of data.images) {
         // 同一张图可能在两条消息上（主对话带过一次，又接力回来）：引擎不收重复 id
         if (images.some(i => i.id === image.id)) continue
@@ -1730,6 +1750,7 @@ export class Channels {
       },
       dropped,
       unreachable,
+      missing,
     }
   }
 
@@ -2515,6 +2536,7 @@ export class Channels {
       const lost = [
         droppedNote(extra.dropped.images, extra.dropped.files, locale),
         unreachableNote(extra.unreachable, locale),
+        missingNote(extra.missing, locale),
       ]
         .filter(Boolean)
         .join('\n')
@@ -6055,12 +6077,13 @@ export class Channels {
   }
 
   /** 这一轮还没做完时又有人追加要求：攒着，做完接着发；云端卡片已回到排队，把现在的状态写回去 */
-  private addTeamFollowUp(taskId: string, text: string, team: TeamRunRef): void {
+  private addTeamFollowUp(taskId: string, text: string, team: TeamRunRef, attach?: string[]): void {
     const run = this.store.runs.get(taskId)
     if (!run) return
     const next: TaskRun = {
       ...run,
       followUps: [...run.followUps, text],
+      ...(attach?.length ? { followUpAttach: [...new Set([...(run.followUpAttach ?? []), ...attach])] } : {}),
       team: { ...(run.team ?? team), follow: team.follow },
     }
     this.store.runs.set(taskId, next)
@@ -6416,8 +6439,19 @@ export class Channels {
     const info = team.channelInfo(channelId)
     if (!info) throw new Error('频道不存在')
     const text = typeof input?.text === 'string' ? input.text.trim() : ''
-    if (input?.attachments?.length || input?.files?.length) throw new Error('团队频道暂不支持附件')
-    if (!text) throw new Error('消息不能为空')
+    const images = validateImages(input?.attachments),
+      files = validateFiles(input?.files)
+    let uploads: TeamAttachmentInput[] = []
+    if (images.length || files.length) {
+      const limits = info.attach
+      if (!limits) throw new Error('云端还不支持在团队的频道里带附件')
+      // 图片超过云端的单张上限：先转小（做不到的留着原样，下面报太大）
+      const fitted = images.map(i =>
+        i.bytes > limits.imageBytes ? (this.deps.fitImage?.(i, limits.imageBytes) ?? i) : i,
+      )
+      uploads = uploadsOf(fitted, files, limits)
+    }
+    if (!text && !uploads.length) throw new Error('消息不能为空')
     const me = team.getMe()?.id
     // 观察者不能派活：@ AI 成员只当文字
     const mentions = parseMentions(text, team.mentionables(channelId)).filter(
@@ -6430,6 +6464,7 @@ export class Channels {
       // 串的根由云端归并（串里再开串、任务结果归到任务卡）
       ...(info.threads && typeof input.threadId === 'string' && input.threadId ? { threadId: input.threadId } : {}),
       mentions,
+      ...(uploads.length ? { uploads } : {}),
     })
     if (res.message?.kind !== 'message') throw new Error('云端返回的数据异常')
     // 发消息就算看过了

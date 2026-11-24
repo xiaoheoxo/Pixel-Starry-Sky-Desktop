@@ -6,7 +6,7 @@ import type { Locale } from '../../../../shared/i18n/messages'
 import type { AgentConfig, ChannelMessage, ChannelTask, ChannelWakeupTag } from '../../../../shared/types/channels'
 import { mentionsAll } from '../../../../shared/channels/mentions'
 import { MAX_RUNS, runReasonOf } from '../../../../shared/channels/runReason'
-import { continuePrompt, dispatchPrompt, followUpPrompt, historyLines, wakeupRequest } from '../prompt'
+import { attachedNote, continuePrompt, dispatchPrompt, followUpPrompt, historyLines, wakeupRequest } from '../prompt'
 import { newTaskRun, type TaskRun, type TeamRunRef } from '../tracker'
 import { TeamError, isRunnerId, type TaskPatch, type TeamMessage, type TeamTaskData } from './api'
 import type { TeamSync } from './sync'
@@ -18,6 +18,23 @@ const MAX_ATTEMPTS = 6
 const STATUS_DELAY_MS = 1000
 const NOT_DEPLOYED_ERROR = '这个 AI 成员已被删除'
 const LOST_ERROR = '这台电脑上没有这项活的记录，请重新派活'
+
+/** 一条消息带的附件，加上它回复的那条消息（不是任务卡）带的：回复一张图再 @ 成员，图也交给它 */
+function attachIds(list: TeamMessage[], source: TeamMessage): string[] {
+  const replied = source.replyTo ? list.find(m => m.id === source.replyTo && m.kind === 'message') : undefined
+  return [...new Set([...(replied?.attachments ?? []), ...source.attachments].map(a => a.id))]
+}
+
+const attachedCount = (m: TeamMessage): { images: number; files: number } => {
+  const images = m.attachments.filter(a => a.kind === 'image').length
+  return { images, files: m.attachments.length - images }
+}
+
+/** 追加要求的正文，带了附件的说一句（只发附件时正文是空的） */
+function withAttachedNote(m: TeamMessage, locale: Locale): string {
+  const { images, files } = attachedCount(m)
+  return [m.text, attachedNote(images, files, locale)].filter(Boolean).join('\n')
+}
 
 export interface ExecutorHost {
   /** 本机 AI 成员 */
@@ -35,9 +52,11 @@ export interface ExecutorHost {
     team: TeamRunRef,
     memberId: string,
     wakeup?: ChannelWakeupTag,
+    /** 这一轮要带的附件（云端附件 id） */
+    attach?: string[],
   ): void
-  /** 这一轮还没做完时追加的要求 */
-  addFollowUp(taskId: string, text: string, team: TeamRunRef): void
+  /** 这一轮还没做完时追加的要求（attach：那条消息带的附件） */
+  addFollowUp(taskId: string, text: string, team: TeamRunRef, attach?: string[]): void
   /** Phase B 的取消 / 停止 */
   action(taskId: string, action: 'cancel' | 'stop'): Promise<void>
   /** 记下 / 清掉「这一轮的收尾还没写回云端」 */
@@ -247,7 +266,7 @@ export class TeamExecutor {
     // 认领过却没有本机记录（runs.json 丢了）：没法接着做
     if (lost) return this.fail(teamId, claimed, LOST_ERROR)
     const follow = t.round > 1 ? t.followupMessage : null
-    const prompt = await this.fresh(teamId, claimed, member, follow)
+    const { prompt, attach } = await this.fresh(teamId, claimed, member, follow)
     const team: TeamRunRef = {
       teamId,
       channelId: claimed.channelId,
@@ -267,6 +286,7 @@ export class TeamExecutor {
         prompt,
         freshPrompt: prompt,
         team,
+        ...(attach.length ? { attach } : {}),
         // 事项唤醒派来的唤醒卡（docs/multica-learn.md §11.6）：回 [silent] 不发结果、不覆盖摘要
         ...(t.wake ? { wakeup: t.wake } : {}),
       }),
@@ -295,18 +315,20 @@ export class TeamExecutor {
               locale,
               channel: info?.name ?? '',
               author: this.sync.nameOf(teamId, msg?.author ?? t.requestedBy ?? claimed.author),
-              text: wake ?? msg!.text,
+              text: wake ?? withAttachedNote(msg!, locale),
             })
           : continuePrompt(locale)
     const team: TeamRunRef = { ...(run.team ?? this.refOf(teamId, claimed)), follow }
+    // 追加要求那条消息带的图片和文件也交给成员（唤醒的一轮不带）
+    const attach = msg && wake === null ? attachIds(list, msg) : []
     if (!ended) {
-      this.host.addFollowUp(run.taskId, text, team)
+      this.host.addFollowUp(run.taskId, text, team, attach)
       return
     }
     const member = this.host.member(run.memberId)
-    const fresh = member ? await this.fresh(teamId, claimed, member, follow) : text
+    const fresh = member ? (await this.fresh(teamId, claimed, member, follow)).prompt : text
     const card = this.sync.taskOf(claimed.id)
-    if (card) this.host.nextRound(card, run, text, fresh, team, run.memberId, t.wake ?? undefined)
+    if (card) this.host.nextRound(card, run, text, fresh, team, run.memberId, t.wake ?? undefined, attach)
   }
 
   private refOf(teamId: string, tm: TeamMessage): TeamRunRef {
@@ -369,8 +391,16 @@ export class TeamExecutor {
     })
   }
 
-  /** 第一次派给成员的提示词（Phase B §4.2）：带最近的讨论和被引用的消息；follow 是追加要求那条消息 */
-  private async fresh(teamId: string, tm: TeamMessage, member: AgentConfig, follow: string | null): Promise<string> {
+  /**
+   * 第一次派给成员的提示词（Phase B §4.2）：带最近的讨论和被引用的消息；follow 是追加要求那条消息。
+   * attach 是要带上的附件（要求那条消息的，加上它回复的那条消息的；云端附件 id）
+   */
+  private async fresh(
+    teamId: string,
+    tm: TeamMessage,
+    member: AgentConfig,
+    follow: string | null,
+  ): Promise<{ prompt: string; attach: string[] }> {
     const t = tm.task!
     const locale = this.host.locale()
     const nameOf = (id: string): string => this.sync.nameOf(teamId, id)
@@ -401,7 +431,7 @@ export class TeamExecutor {
     const source = list.find(m => m.id === requestId)
     // 事项唤醒开的一轮：要求换成唤醒的要求；斜杠命令原样发，前后不拼东西（AGENTS.md「往用户消息前拼内容」）
     const wake = t.wake ? this.wakeRequest(teamId, tm, list, source?.text ?? '') : null
-    if (wake?.startsWith('/')) return wake
+    if (wake?.startsWith('/')) return { prompt: wake, attach: [] }
     const mapped = list.flatMap(m => this.sync.toMessage(teamId, m) ?? ([] as ChannelMessage[]))
     const quoted = follow
       ? t.title
@@ -413,7 +443,7 @@ export class TeamExecutor {
             return `${nameOf(q.author)}${locale === 'en-US' ? ': ' : '：'}${q.text}`
           })()
         : null
-    return dispatchPrompt({
+    const prompt = dispatchPrompt({
       locale,
       channel: { name: info?.name ?? '', topic: info?.topic ?? null },
       pinned,
@@ -430,8 +460,10 @@ export class TeamExecutor {
         : [],
       quoted,
       request: wake ?? source?.text ?? t.title,
+      attached: source && wake === null ? attachedCount(source) : null,
       together: source && !follow && !wake ? this.together(tm.channelId, source, t.assignee) : [],
     })
+    return { prompt, attach: source && wake === null ? attachIds(list, source) : [] }
   }
 
   /** 源消息 @全体 时，同时收到这项活的其他 AI 成员的名字 */
@@ -498,6 +530,8 @@ export class TeamExecutor {
         team,
         run.memberId,
         wake,
+        // 还没开始就失败的，附件原样再带；做到一半的会话里已经有了（同本机）
+        run.started ? undefined : run.attach,
       )
       return
     }
@@ -506,8 +540,8 @@ export class TeamExecutor {
     const agent = this.sync.agentById(claimed.task.assignee)
     const member = agent && agent.owner === this.sync.getMe()?.id ? this.host.member(agent.localId) : undefined
     if (!member) return this.fail(teamId, claimed, NOT_DEPLOYED_ERROR)
-    const prompt = await this.fresh(teamId, claimed, member, null)
-    this.host.nextRound(card, null, prompt, prompt, this.refOf(teamId, claimed), member.id, wake)
+    const { prompt, attach } = await this.fresh(teamId, claimed, member, null)
+    this.host.nextRound(card, null, prompt, prompt, this.refOf(teamId, claimed), member.id, wake, attach)
   }
 
   // -------------------------------------------------------------------------

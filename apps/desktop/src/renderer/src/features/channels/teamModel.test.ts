@@ -6,6 +6,7 @@ import {
   canControlTask,
   canDispatch,
   canManageTeam,
+  attachBlock,
   canPin,
   canWithdraw,
   channelOfNotice,
@@ -290,6 +291,17 @@ describe('在线状态四种（docs/multica-learn.md §2）', () => {
     expect(queuedFor('u:1', list)).toBe(0)
     expect(queuedFor('u:1', [...list, task('u:1', 'running')])).toBe(2)
     expect(queuedFor('u:2', [...list, task('u:1', 'running')])).toBe(0)
+  })
+})
+
+describe('输入框能不能加附件（docs/ui/channels-unify.md §9）', () => {
+  it('只有我的频道都能；团队的频道要云端给了上限，观察者不能', () => {
+    const attach = { images: 5, files: 5, imageBytes: 2 << 20, fileBytes: 256 << 10 }
+    expect(attachBlock({ scope: 'local' }, undefined)).toBeNull()
+    expect(attachBlock({ scope: 'team' }, 'member')).toBe('unsupported')
+    expect(attachBlock({ scope: 'team', attach }, 'member')).toBeNull()
+    expect(attachBlock({ scope: 'team', attach }, 'owner')).toBeNull()
+    expect(attachBlock({ scope: 'team', attach }, 'observer')).toBe('observer')
   })
 })
 

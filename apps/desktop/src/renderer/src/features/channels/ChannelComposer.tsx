@@ -57,7 +57,7 @@ import {
   type CloudImageOptions,
 } from '@/features/session/cloudImage/CloudImageBar'
 import { generateChannelImage } from './channelImage'
-import { canDispatch, mentionNote } from './teamModel'
+import { attachBlock, canDispatch, mentionNote } from './teamModel'
 
 export { channelDraftKey } from './draftKey'
 
@@ -138,6 +138,8 @@ export function ChannelComposer({
   const artStyle = useThemeArtStyle(useTheme().resolved)
   const menuId = useId()
   const team = channel.scope === 'team'
+  /** 这个频道不能加附件的原因（团队的频道：云端还不支持、我是观察者）；能加是 null */
+  const noAttach = attachBlock(channel, role)
   const draftKey = channelDraftKey(channel.id, threadId)
   const [value, setValue] = useComposerDraft(draftKey)
   const attach = useChannelAttachments(draftKey)
@@ -213,7 +215,7 @@ export function ChannelComposer({
   useEffect(() => {
     if (cloudImage && !imageMode) setCloudImage(null)
   }, [cloudImage, imageMode])
-  const hasAttachments = !team && (attach.images.length > 0 || attach.files.length > 0)
+  const hasAttachments = !noAttach && (attach.images.length > 0 || attach.files.length > 0)
   const canSend =
     (imageMode ? value.trim().length > 0 : value.trim().length > 0 || hasAttachments) &&
     !sending &&
@@ -325,10 +327,10 @@ export function ChannelComposer({
       .finally(() => setSending(false))
   }
 
-  /** 粘贴 / 拖进来的文件当附件；团队频道不支持，说一声 */
+  /** 粘贴 / 拖进来的文件当附件；这个频道不能加时说一声原因 */
   const takeFiles = (files: File[]): boolean => {
     if (!files.length) return false
-    if (team) toast(tr('channels.attach.team'))
+    if (noAttach) toast(tr(noAttach === 'observer' ? 'channels.attach.observer' : 'channels.attach.team'))
     else attach.add(files)
     return true
   }
@@ -337,7 +339,7 @@ export function ChannelComposer({
     // 复制的文件同时带着文字（比如文件名）时，文字照常插进去
     e.preventDefault()
     const pasted = e.clipboardData.getData('text/plain')
-    if (pasted && !team) {
+    if (pasted && !noAttach) {
       const el = e.currentTarget,
         start = el.selectionStart,
         end = el.selectionEnd
@@ -436,9 +438,9 @@ export function ChannelComposer({
           }}
           onDrop={onDrop}
           style={artStyle}
-          className={cn(CARD_STYLE, 'relative overflow-hidden', dragging && !team && 'ring-2 ring-accent')}
+          className={cn(CARD_STYLE, 'relative overflow-hidden', dragging && !noAttach && 'ring-2 ring-accent')}
         >
-          {dragging && !team && (
+          {dragging && !noAttach && (
             <div className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-accent-line bg-accent-soft/80 text-ui font-medium text-accent-fg">
               {tr('composer.file.drop')}
             </div>
@@ -539,7 +541,7 @@ export function ChannelComposer({
               {attach.files.length > 0 && <FileAttachments files={attach.files} onRemove={attach.removeFile} />}
             </div>
           )}
-          {attach.error && !team && (
+          {attach.error && !noAttach && (
             <AttachError key={attach.error} message={translateMessage(attach.error)} onDismiss={attach.dismissError} />
           )}
           {imageMode && cloudImage && (
@@ -556,8 +558,8 @@ export function ChannelComposer({
               />
             </div>
           )}
-          <div className={cn('flex items-end gap-2 py-2 pr-2', team ? 'pl-4' : 'pl-1.5')}>
-            {!team && (
+          <div className={cn('flex items-end gap-2 py-2 pr-2', noAttach ? 'pl-4' : 'pl-1.5')}>
+            {!noAttach && (
               <>
                 <IconButton
                   icon={Paperclip}

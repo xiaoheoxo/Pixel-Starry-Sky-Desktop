@@ -280,7 +280,10 @@ export const teamMessages = {
     zh: 'AI 成员的名字、模型、项目名、电脑名',
     en: 'AI members’ name, model, project name and computer name',
   },
-  'unify.share.uploads.3': { zh: '以后的消息和任务卡', en: 'Messages and task cards from now on' },
+  'unify.share.uploads.3': {
+    zh: '以后的消息、任务卡，和消息带的图片、文件',
+    en: 'Messages and task cards from now on, with the images and files attached to them',
+  },
   'unify.share.stays': { zh: '留在这台电脑', en: 'Stays on this computer' },
   'unify.share.stays.1': { zh: '代码和工作目录', en: 'Code and working folders' },
   'unify.share.stays.2': { zh: 'AI 会话的过程', en: 'What happens inside AI sessions' },
@@ -289,8 +292,8 @@ export const teamMessages = {
     en: 'Earlier messages: the original channel is archived and kept, not uploaded',
   },
   'unify.share.limits': {
-    zh: '团队的频道暂时没有附件；牵头、互相派活和流程在团队频道的「我的协作」页里用。',
-    en: 'Team channels don’t have attachments yet; leads, AI-to-AI hand-offs and flows live on the channel’s “My workspace” page.',
+    zh: '团队的频道里图片每张不超过 2 MB，文件只带文字，云端保留 180 天；牵头、互相派活和流程在团队频道的「我的协作」页里用。',
+    en: 'In team channels an image can be up to 2 MB, files carry text only, and the cloud keeps them for 180 days; leads, AI-to-AI hand-offs and flows live on the channel’s “My workspace” page.',
   },
   'unify.share.failed': {
     zh: '已共享。没带进去：{names}，可以在成员栏里再添加',
@@ -299,12 +302,12 @@ export const teamMessages = {
   'unify.share.done': { zh: '已共享，原频道归档留着', en: 'Shared; the original channel is archived' },
   'unify.unshare.title': { zh: '把 #{name} 改回只有我？', en: 'Make #{name} only you?' },
   'unify.unshare.body': {
-    zh: '{team} 的其他人会看不到这个频道，云端的消息和任务卡会删除。',
-    en: 'Others in {team} will no longer see this channel; its messages and task cards are deleted from the cloud.',
+    zh: '{team} 的其他人会看不到这个频道，云端的消息、任务卡和附件会删除。',
+    en: 'Others in {team} will no longer see this channel; its messages, task cards and attachments are deleted from the cloud.',
   },
   'unify.unshare.keep': {
-    zh: '这台电脑上留一份文字记录，你带进去的 AI 成员跟着回来，队友的 AI 成员移出。正在做的活不再跟踪。',
-    en: 'A text record is kept on this computer, the AI members you brought come back, and teammates’ AI members are removed. Running tasks are no longer tracked.',
+    zh: '这台电脑上留一份文字记录（附件只留名字），你带进去的 AI 成员跟着回来，队友的 AI 成员移出。正在做的活不再跟踪。',
+    en: 'A text record is kept on this computer (attachment names only), the AI members you brought come back, and teammates’ AI members are removed. Running tasks are no longer tracked.',
   },
   'unify.unshare.confirm': { zh: '改回只有我', en: 'Make it only me' },
   'unify.unshare.done': { zh: '已改回只有我，记录留在这台电脑', en: 'Now only you; a record is kept on this computer' },
@@ -329,6 +332,46 @@ export const teamMessages = {
   'unify.error.archiveUnsupported': {
     zh: '云端还不支持归档团队的频道',
     en: 'The cloud service doesn’t support archiving team channels yet',
+  },
+  'unify.error.attachUnsupported': {
+    zh: '云端还不支持在团队的频道里带附件',
+    en: 'The cloud service doesn’t support attachments in team channels yet',
+  },
+  'unify.error.attachImages': {
+    zh: '团队频道里每条消息的图片数不能超过 {count}',
+    en: 'A message in a team channel can have at most {count} images',
+  },
+  'unify.error.attachFiles': {
+    zh: '团队频道里每条消息的文件数不能超过 {count}',
+    en: 'A message in a team channel can have at most {count} files',
+  },
+  'unify.error.attachImageBig': {
+    zh: '图片「{name}」太大：团队频道里单张不能超过 {max}',
+    en: 'Image “{name}” is too large: the limit in team channels is {max}',
+  },
+  'unify.error.attachFileBig': {
+    zh: '文件「{name}」太大：团队频道里单个文件的文字不能超过 {max}',
+    en: 'File “{name}” is too large: the text limit per file in team channels is {max}',
+  },
+  'unify.error.attachPathOnly': {
+    zh: '文件「{name}」只带了路径，团队里的其他人读不到：换成能直接带内容的文本文件',
+    en: 'File “{name}” is only a path, which teammates can’t read: attach a text file instead',
+  },
+  'unify.error.attachEmpty': {
+    zh: '文件「{name}」是空的，团队频道里发不了',
+    en: 'File “{name}” is empty and can’t be sent in a team channel',
+  },
+  'unify.error.attachTooLarge': {
+    zh: '附件太大：图片每张不超过 2 MB，文件转成文字后不超过 256 KB',
+    en: 'The attachment is too large: up to 2 MB per image, 256 KB of text per file',
+  },
+  'unify.error.attachQuota': {
+    zh: '团队的附件空间已满（合计 500 MB）',
+    en: 'The team’s attachment space is full (500 MB in total)',
+  },
+  'unify.error.attachGone': {
+    zh: '附件取不到：可能已经过期（云端保留 180 天），或者现在连不上云端',
+    en: 'Couldn’t fetch the attachments: they may have expired (the cloud keeps them for 180 days), or the cloud is unreachable',
   },
   'unify.error.archived': {
     zh: '频道已归档：恢复后才能发消息、派活或置顶',
