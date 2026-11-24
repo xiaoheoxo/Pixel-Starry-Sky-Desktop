@@ -56,7 +56,9 @@ export function registerBundledDispatch(
       } catch {
         // Refuse replacing an existing marketplace, including stale or custom registrations.
       }
-      if (source.sourceType !== 'local' || location !== root)
+      // Some Codex versions list local marketplaces with only name and root.
+      const localOrUnspecified = existing.marketplaceSource === undefined || source.sourceType === 'local'
+      if (!localOrUnspecified || location !== root)
         throw new Error('Codex 中的 Agnes 内置市场指向另一位置，请移除旧注册后重新打开此会话。')
     }
     const installed = (await command('list')).installed

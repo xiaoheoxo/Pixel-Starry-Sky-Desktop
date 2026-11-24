@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { registerBundledDispatch, trustedDispatchHook } from '../src/codex/agnes-dispatch'
@@ -64,6 +65,27 @@ describe('Agnes built-in registration', () => {
       .mockResolvedValueOnce(result({ pluginId, version: '0.1.1' }))
     await registerBundledDispatch(launcher, env, bundle, cmd)
     expect(cmd.mock.calls[2][1]).toEqual(['plugin', 'add', pluginId, '--json'])
+  })
+
+  it('accepts the bundled path when Codex omits marketplaceSource', async () => {
+    const cmd = vi
+      .fn<typeof run>()
+      .mockResolvedValueOnce(result({ marketplaces: [{ name: recognized.name, root: bundle }] }))
+      .mockResolvedValueOnce(result({ installed: [{ pluginId, enabled: true, version: '0.1.1' }] }))
+    await registerBundledDispatch(launcher, env, bundle, cmd)
+    expect(cmd.mock.calls.map(([, args]) => args)).toEqual([
+      ['plugin', 'marketplace', 'list', '--json'],
+      ['plugin', 'list', '--json'],
+    ])
+  })
+
+  it.each([
+    { name: recognized.name, root: dirname(bundle) },
+    { ...recognized, marketplaceSource: { sourceType: 'git' } },
+  ])('rejects a foreign marketplace ($root)', async marketplace => {
+    const cmd = vi.fn<typeof run>().mockResolvedValue(result({ marketplaces: [marketplace] }))
+    await expect(registerBundledDispatch(launcher, env, bundle, cmd)).rejects.toThrow('指向另一位置')
+    expect(cmd).toHaveBeenCalledOnce()
   })
 
   it('never overwrites foreign registrations or reenables a disabled plugin', async () => {
