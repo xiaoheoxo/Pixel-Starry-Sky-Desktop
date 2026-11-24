@@ -79,6 +79,8 @@ export interface ChannelsBridge {
       /** 审查打回上限、多久没进展提醒（docs/ui/channels-local-rest.md §3.3 d） */
       maxRejects?: number
       stalledMinutes?: number
+      /** 「我的协作」里的结果发不发到团队频道（docs/ui/channels-unify.md §7.2） */
+      sideMirror?: boolean
     },
   ): Promise<void>
   /** 置顶 / 取消置顶一条文字消息（docs/ui/channels-local-ai.md §3.1 #9） */
@@ -119,6 +121,8 @@ export interface ChannelsBridge {
   ): Promise<{ channelId: string; failed: string[] }>
   /** 把团队的频道改回只有我：返回本机频道的 id */
   unshare(id: string): Promise<{ channelId: string }>
+  /** 团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：没有就建，返回那份只有我的频道的 id */
+  side(id: string): Promise<{ channelId: string }>
   post(channelId: string, input: PostInput): Promise<{ message: ChannelTextMessage; tasks: string[] }>
   /** 一条消息带的图片和文件全文；没有时两个空数组 */
   attachments(channelId: string, messageId: string): Promise<ChannelAttachments>

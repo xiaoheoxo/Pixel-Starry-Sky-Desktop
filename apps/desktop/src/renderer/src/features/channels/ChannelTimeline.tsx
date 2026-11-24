@@ -19,6 +19,7 @@ import { ChannelTaskCard, type TaskCardActions } from './ChannelTaskCard'
 import { ChannelFlowCard } from './ChannelFlowCard'
 import { PlannerHandoff, PlannerRow } from './PlannerRow'
 import { channelActions, useChannels } from './store'
+import { canPin, myRole } from './teamModel'
 import { useFollowBottom } from './useFollowBottom'
 import { ImagePendingRows } from './ImagePendingRows'
 
@@ -228,6 +229,7 @@ export function ChannelTimeline({
   }, [focus, channel.id, messages.length])
 
   const pinned = useMemo(() => new Set(channel.pinned ?? []), [channel.pinned])
+  const role = useChannels(s => myRole(s.teams, channel.teamId))
   const selfId = taskActions.selfId ?? null
 
   /** 任务卡的一行状态条：挂在派活那条消息下面时 attached，自己派的靠右 */
@@ -366,11 +368,7 @@ export function ChannelTimeline({
                   threads={threads}
                   onThread={onThread}
                   pinned={pinned}
-                  onPin={
-                    channel.scope === 'local' && !channel.archivedAt
-                      ? (id, on) => channelActions.pin(channel.id, id, on)
-                      : undefined
-                  }
+                  onPin={canPin(channel, role) ? (id, on) => channelActions.pin(channel.id, id, on) : undefined}
                 />
               )
           }

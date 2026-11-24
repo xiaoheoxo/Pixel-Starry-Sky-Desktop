@@ -38,6 +38,7 @@ import {
 import { Eye as EyeIcon, ListTree as ListTreeIcon, MessagesSquare as ChatIcon } from 'lucide-react'
 import { setViewMode } from '@/features/session/viewMode'
 import { channelActions, getChannels } from '@/features/channels/store'
+import { listedChannels } from '@/features/channels/teamModel'
 import { useI18n } from '@/i18n/I18nProvider'
 import { useSettings } from '@/features/settings/SettingsProvider'
 import { OPEN_SESSION_EVENT } from '@/features/engine/openRequests'
@@ -262,7 +263,8 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       channelActions.openNeeds(true, 'doing')
     })
     // 跳到某个频道（docs/ui/channels-unify.md §2）：归档的不列
-    for (const c of getChannels().channels) {
+    // 挂在团队频道下面的「我的协作」不单独列
+    for (const c of listedChannels(getChannels().channels)) {
       if (c.archivedAt) continue
       items.push({
         id: `channel:${c.id}`,

@@ -819,6 +819,27 @@ describe('MobileGateway calls', () => {
           channels: [
             { id: 'c1', name: '前端', topic: null, scope: 'local', memberIds: ['me', 'a1'], unread: 2, createdAt: 1 },
             { id: 'team1', name: '团队', topic: null, scope: 'team', memberIds: [], unread: 0, createdAt: 1 },
+            // 团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：挂着的团队频道还在的不单独列，不在了的照常列
+            {
+              id: 'side1',
+              name: '团队',
+              topic: null,
+              scope: 'local',
+              sideOf: 'team1',
+              memberIds: [],
+              unread: 0,
+              createdAt: 1,
+            },
+            {
+              id: 'side2',
+              name: '旧的',
+              topic: null,
+              scope: 'local',
+              sideOf: 'gone',
+              memberIds: [],
+              unread: 0,
+              createdAt: 1,
+            },
           ],
           members: [
             { id: 'me', kind: 'human', name: '我', you: true },
@@ -848,7 +869,8 @@ describe('MobileGateway calls', () => {
     t.devices[0].access = 'view'
     const list = (await p.call('channels')) as { channels: { id: string; last: unknown }[]; members: object[] }
     // 团队频道也列出来（§16.2）；这里它的一页取不到（离线），最后一条就不写
-    expect(list.channels.map(c => c.id)).toEqual(['c1', 'team1'])
+    expect(list.channels.map(c => c.id)).toEqual(['c1', 'team1', 'side2'])
+    await expect(p.call('channelMessages', 'side1')).rejects.toThrow('MOBILE_NOT_FOUND')
     expect(list.channels[0].last).toEqual({ authorId: 'me', text: '拆分登录页' })
     expect(list.channels[1]).toMatchObject({ scope: 'team', last: null })
     expect(list.members[1]).toEqual({

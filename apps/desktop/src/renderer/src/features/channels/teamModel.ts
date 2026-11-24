@@ -29,12 +29,13 @@ export function groupChannels(
   teams: readonly TeamInfo[],
   opts: { searching?: boolean } = {},
 ): ChannelSection[] {
-  const open = channels.filter(c => !c.archivedAt)
+  const listed = listedChannels(channels)
+  const open = listed.filter(c => !c.archivedAt)
   const sections: ChannelSection[] = [
     { id: LOCAL_SECTION, team: null, channels: open.filter(c => c.scope !== 'team' || !c.teamId) },
     ...teams.map(team => ({ id: team.id, team, channels: open.filter(c => c.teamId === team.id) })),
   ]
-  const archived = channels.filter(c => c.archivedAt)
+  const archived = listed.filter(c => c.archivedAt)
   if (archived.length) sections.push({ id: ARCHIVED_SECTION, team: null, channels: archived })
   return opts.searching ? sections.filter(s => s.channels.length > 0) : sections
 }
@@ -137,6 +138,30 @@ export const canDispatch = (role: TeamRole | undefined): boolean => role !== 'ob
 export const canCreateChannel = canDispatch
 export const canAddAgent = canDispatch
 export const canManageTeam = (role: TeamRole | undefined): boolean => role === 'owner'
+
+/**
+ * 「我的协作」（docs/ui/channels-unify.md §7.2）挂在哪个团队频道下面。团队频道不在了（被删、离开了团队、没登录）是 null：
+ * 这份记录当普通的只有我的频道显示
+ */
+export function sideHost(channel: Pick<Channel, 'sideOf'>, channels: readonly Channel[]): Channel | null {
+  return channel.sideOf ? (channels.find(c => c.id === channel.sideOf && c.scope === 'team') ?? null) : null
+}
+
+/** 单独列出来的频道（列表、命令面板）：挂在团队频道下面的「我的协作」不列，从团队频道的标签进 */
+export const listedChannels = (channels: readonly Channel[]): Channel[] => channels.filter(c => !sideHost(c, channels))
+
+/**
+ * 这个频道有讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）：只有我的频道都有；团队的频道要云端支持
+ * （主进程只在云端给了 pinned 时才带这个字段）
+ */
+export const hasThreads = (channel: Pick<Channel, 'scope' | 'pinned'>): boolean =>
+  channel.scope === 'local' || channel.pinned !== undefined
+
+/** 能不能置顶 / 取消置顶：没归档；团队的频道里观察者不能 */
+export const canPin = (
+  channel: Pick<Channel, 'scope' | 'pinned' | 'archivedAt'>,
+  role: TeamRole | undefined,
+): boolean => hasThreads(channel) && !channel.archivedAt && (channel.scope === 'local' || canDispatch(role))
 
 /** 任务卡上「同意 / 拒绝」：只有 AI 成员的主人能点 */
 export const canApprove = (task: Pick<ChannelTask, 'status' | 'ownerId'>, selfId: string | null): boolean =>

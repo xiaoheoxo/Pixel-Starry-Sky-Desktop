@@ -386,6 +386,17 @@ export class TeamExecutor {
     } catch (error) {
       this.deps.log?.('拉取团队讨论失败', error)
     }
+    // 置顶的消息作为资料带上（和只有我的频道一样）；读不到不挡派活
+    let pinned: string[] = []
+    if (info?.pinned.length)
+      try {
+        const sep = locale === 'en-US' ? ': ' : '：'
+        pinned = (await this.sync.api.pins(teamId, tm.channelId))
+          .filter(m => m.kind === 'message' && m.text.trim())
+          .map(m => `${nameOf(m.author)}${sep}${m.text.trim()}`)
+      } catch (error) {
+        this.deps.log?.('拉取团队频道的置顶失败', error)
+      }
     const requestId = follow ?? t.sourceMessage
     const source = list.find(m => m.id === requestId)
     // 事项唤醒开的一轮：要求换成唤醒的要求；斜杠命令原样发，前后不拼东西（AGENTS.md「往用户消息前拼内容」）
@@ -405,6 +416,7 @@ export class TeamExecutor {
     return dispatchPrompt({
       locale,
       channel: { name: info?.name ?? '', topic: info?.topic ?? null },
+      pinned,
       author: nameOf(source?.author ?? tm.author),
       instructions: member.instructions,
       history: requestId

@@ -280,6 +280,12 @@ export interface Channel {
   notify?: ChannelNotify
   /** 归档的时间（§3.1 #11）：收进列表底部「已归档」，只读，可恢复；没归档是 null / 没写 */
   archivedAt?: number | null
+  /**
+   * 团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：这份只有我的频道挂在哪个团队频道下面（不单独进列表）；
+   * sideMirror：AI 成员的结果、流程的开始和结束发不发到团队频道
+   */
+  sideOf?: string | null
+  sideMirror?: boolean
   /** 允许 AI 成员互相派活（docs/ui/import-collab.md 第 5 项①，§3.2 #4）：AI 回复里的 @成员 会派活；没写是关 */
   relay?: boolean
   /** 互相派活什么时候停下等你（docs/ui/relay-limits-mockup.html）；没写按「标准」 */

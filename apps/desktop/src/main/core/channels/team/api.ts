@@ -83,6 +83,9 @@ export interface TeamChannelData {
   readN: number
   unread: number
   mentioned: boolean
+  /** 置顶的消息 id（先后顺序）。null：云端还是旧版，没有讨论串、置顶、归档（docs/ui/channels-unify.md §7.1） */
+  pinned: string[] | null
+  archivedAt: number | null
 }
 
 export interface TeamAgentData {
@@ -245,6 +248,8 @@ export interface TeamMessage {
   text: string
   format: 'plain' | 'markdown'
   replyTo: string | null
+  /** 讨论串的根；主时间线上的是 null */
+  threadId: string | null
   mentions: string[]
   taskId: string | null
   task: TeamTaskData | null
@@ -380,6 +385,8 @@ function parseChannel(v: unknown): TeamChannelData | null {
     readN: int(v.read_n),
     unread: Math.max(0, int(v.unread)),
     mentioned: v.mentioned === true,
+    pinned: Array.isArray(v.pinned) ? v.pinned.filter((x): x is string => typeof x === 'string') : null,
+    archivedAt: time(v.archived_at) || null,
   }
 }
 
@@ -638,6 +645,7 @@ export function parseMessage(v: unknown): TeamMessage | null {
     text: str(v.text),
     format: v.format === 'markdown' ? 'markdown' : 'plain',
     replyTo: strOrNull(v.reply_to),
+    threadId: strOrNull(v.thread_id),
     mentions: (Array.isArray(v.mentions) ? v.mentions : []).filter((m): m is string => typeof m === 'string'),
     taskId: strOrNull(v.task_id),
     task: kind === 'task' ? parseTask(v.task) : null,
@@ -789,8 +797,26 @@ export class TeamApi {
     return id
   }
 
-  updateChannel(teamId: string, channelId: string, patch: { name?: string; topic?: string | null }): Promise<void> {
+  updateChannel(
+    teamId: string,
+    channelId: string,
+    patch: { name?: string; topic?: string | null; archived?: boolean },
+  ): Promise<void> {
     return this.call('PATCH', `/v1/teams/${seg(teamId)}/channels/${seg(channelId)}`, patch)
+  }
+
+  /** 置顶 / 取消置顶一条文字消息 */
+  pin(teamId: string, channelId: string, messageId: string, on: boolean): Promise<void> {
+    return this.call(
+      on ? 'PUT' : 'DELETE',
+      `/v1/teams/${seg(teamId)}/channels/${seg(channelId)}/pins/${seg(messageId)}`,
+    )
+  }
+
+  /** 置顶的消息，按置顶的先后（派活时作为资料带上） */
+  async pins(teamId: string, channelId: string): Promise<TeamMessage[]> {
+    const body = await this.json(await this.request('GET', `/v1/teams/${seg(teamId)}/channels/${seg(channelId)}/pins`))
+    return arr(isObj(body) ? body.messages : null, parseMessage)
   }
 
   deleteChannel(teamId: string, channelId: string): Promise<void> {
@@ -820,7 +846,10 @@ export class TeamApi {
       clientId: string
       text: string
       replyTo?: string | null
+      threadId?: string | null
       mentions: string[]
+      /** 不写时云端按作者定：真人 plain，AI 成员 markdown */
+      format?: 'plain' | 'markdown'
       agentId?: string
       taskId?: string
     },
@@ -829,7 +858,9 @@ export class TeamApi {
       client_id: input.clientId,
       text: input.text,
       ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+      ...(input.threadId ? { thread_id: input.threadId } : {}),
       mentions: input.mentions,
+      ...(input.format ? { format: input.format } : {}),
       ...(input.agentId ? { agent_id: input.agentId } : {}),
       ...(input.taskId ? { task_id: input.taskId } : {}),
     }

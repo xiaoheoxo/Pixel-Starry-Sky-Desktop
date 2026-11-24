@@ -1581,8 +1581,10 @@ export class MobileGateway {
       return null
     }
     const state = c.state()
-    // 本机频道和团队频道（团队频道只有文字，没有附件）
-    const visible = state.channels.filter(ch => ch.scope === 'local' || ch.scope === 'team')
+    // 本机频道和团队频道（团队频道只有文字，没有附件）。团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）
+    // 和团队频道同名，手机上不单独列；团队频道不在了它就是普通的只有我的频道，照常列
+    const all = state.channels.filter(ch => ch.scope === 'local' || ch.scope === 'team')
+    const visible = all.filter(ch => !(ch.sideOf && all.some(x => x.id === ch.sideOf && x.scope === 'team')))
     if (method === 'channels') {
       const channels = await Promise.all(
         visible.map(async ch => {

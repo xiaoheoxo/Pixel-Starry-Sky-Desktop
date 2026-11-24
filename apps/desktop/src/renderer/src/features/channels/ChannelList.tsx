@@ -49,8 +49,10 @@ import type { SearchFragment } from '@pixelsky/protocol'
 import {
   ARCHIVED_SECTION,
   canCreateChannel,
+  canDispatch,
   canManageTeam,
   groupChannels,
+  hasThreads,
   onlineMembers,
   parseCollapsed,
   toggleCollapsed,
@@ -592,8 +594,21 @@ export function ChannelList({
         )
     if (c.scope === 'team') {
       const team = teams.find(t => t.id === c.teamId)
+      const remove = {
+        label: tr('channels.channel.delete'),
+        icon: Trash2,
+        danger: true,
+        separator: true,
+        run: () => setDialog({ kind: 'deleteChannel', channel: c }),
+      }
+      // 归档了只读：只能恢复、删除（谁能归档由云端判：建立人和所有者）
+      if (c.archivedAt)
+        return [{ label: tr('channels.channel.restore'), icon: ArchiveRestore, run: () => archive(false) }, remove]
       return [
         { label: tr('channels.channel.edit'), icon: Pencil, run: () => setDialog({ kind: 'editChannel', channel: c }) },
+        ...(hasThreads(c) && canDispatch(team?.role)
+          ? [{ label: tr('channels.channel.archive'), icon: Archive, run: () => archive(true) }]
+          : []),
         ...(team && canManageTeam(team.role)
           ? [
               {
@@ -608,13 +623,7 @@ export function ChannelList({
               },
             ]
           : []),
-        {
-          label: tr('channels.channel.delete'),
-          icon: Trash2,
-          danger: true,
-          separator: true,
-          run: () => setDialog({ kind: 'deleteChannel', channel: c }),
-        },
+        remove,
       ]
     }
     return [

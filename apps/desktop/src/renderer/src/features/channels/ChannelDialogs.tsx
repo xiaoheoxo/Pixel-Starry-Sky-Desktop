@@ -212,7 +212,8 @@ export function ChannelDialog({
   const [expanded, setExpanded] = useState(false)
   const [copying, setCopying] = useState(false)
   const [managing, setManaging] = useState(false)
-  const copyable = useChannels(s => s.channels).filter(c => c.scope === 'local')
+  // 「从频道复制」：挂在团队频道下面的「我的协作」不列（和团队频道同名，分不清）
+  const copyable = useChannels(s => s.channels).filter(c => c.scope === 'local' && !c.sideOf)
   // 表单的基准：选了预设就是预设的值，只选预设不算改动
   const [base, setBase] = useState<PresetForm>(() =>
     channel

@@ -104,6 +104,49 @@ export function transcriptHead(team: string, count: number, truncated: boolean, 
   return `从团队「${team}」收回的记录：${count} 条${truncated ? '（只留了最近的这些）' : ''}。`
 }
 
+/** 团队频道里真人一条消息的字数上限（云端 MaxTextRunes），留一点给截断的省略号 */
+const SIDE_TEXT_MAX = 7900
+
+/**
+ * 「我的协作」里的结果发到团队频道时的正文（docs/ui/channels-unify.md §7.2）：成员没登记在团队频道里时以我的名义发，
+ * 开头写上成员名（name），并截到真人消息放得下；登记了的（name 为 null）原样发，长度由云端按 AI 结果的上限管
+ */
+export function sideMirrorText(text: string, name: string | null): string {
+  const body = text.trim()
+  if (!name) return body
+  const out = `**${name}**\n\n${body}`
+  return out.length > SIDE_TEXT_MAX ? `${out.slice(0, SIDE_TEXT_MAX)}…` : out
+}
+
+/**
+ * 流程的状态变了，要不要告诉团队频道、说什么：草稿点了开始 → 列出步骤；跑过的流程完成、停止各说一句。
+ * 没开始过就停掉的（牵头直接派走的、丢弃的草稿）、暂停和继续都不说（null）
+ */
+export function flowNotice(
+  before: { status: string },
+  after: { status: string; title: string; since?: unknown; steps: readonly { title: string; memberId: string }[] },
+  nameOf: (id: string) => string,
+  locale: Locale,
+): { kind: 'start' | 'done' | 'stopped'; text: string } | null {
+  if (before.status === after.status) return null
+  const en = locale === 'en-US'
+  if (before.status === 'draft' && after.status === 'running') {
+    const steps = after.steps.map(
+      (s, i) => `${i + 1}. ${s.title}${en ? ' — ' : '（'}${nameOf(s.memberId)}${en ? '' : '）'}`,
+    )
+    const head = en
+      ? `Started the flow “${after.title}” (${steps.length} steps):`
+      : `开始流程「${after.title}」（${steps.length} 步）：`
+    return { kind: 'start', text: [head, ...steps].join('\n') }
+  }
+  if (!after.since) return null
+  if (after.status === 'done')
+    return { kind: 'done', text: en ? `The flow “${after.title}” is done.` : `流程「${after.title}」完成了。` }
+  if (after.status === 'stopped')
+    return { kind: 'stopped', text: en ? `The flow “${after.title}” was stopped.` : `流程「${after.title}」停了。` }
+  return null
+}
+
 /** 本机频道不能重名：名字被占了就在后面加 2、3…（不超过 max 个字符） */
 export function freeChannelName(name: string, taken: readonly string[], max = 40): string {
   const used = new Set(taken.map(n => n.toLowerCase()))

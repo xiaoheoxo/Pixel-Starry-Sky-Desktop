@@ -207,6 +207,8 @@ export const demoChannels: Channel[] = [
     scope: 'team',
     teamId: 'tm-pixel',
     memberIds: ['m-linxia', 'm-zhouning', 'm-chenyi', 'a-docs'],
+    // 云端支持讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）
+    pinned: [],
     unread: 2,
     mentioned: true,
     createdAt: YESTERDAY - 86_400_000,
@@ -218,6 +220,8 @@ export const demoChannels: Channel[] = [
     scope: 'team',
     teamId: 'tm-pixel',
     memberIds: ['m-linxia', 'm-zhouning', 'm-chenyi', 'ta-reviewer'],
+    // 云端支持讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）
+    pinned: [],
     unread: 0,
     createdAt: YESTERDAY - 86_400_000,
   },

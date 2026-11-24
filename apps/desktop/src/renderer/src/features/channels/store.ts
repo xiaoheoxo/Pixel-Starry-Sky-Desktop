@@ -4,6 +4,7 @@
 // 进入频道时按页读消息，发消息、建频道、加成员都走 window.pixelsky.channels。
 import { useSyncExternalStore } from 'react'
 import { tr } from '../../i18n/core'
+import { listedChannels } from './teamModel'
 import { channelMembers, channelMessages, channels, channelTeams, isDemo } from '@/data'
 import type { Channel, ChannelMember, ChannelMessage, ChannelTask, ChannelTextMessage } from '@/data/types'
 import type {
@@ -171,7 +172,9 @@ export function useSessionBindings(sessionId: string): NonNullable<ChannelsSnaps
 
 /** 当前频道：选中的不存在时退回第一个 */
 export function selectedChannel(s: ChannelsState): Channel | null {
-  return s.channels.find(c => c.id === s.selectedId) ?? s.channels.find(c => !c.archivedAt) ?? s.channels[0] ?? null
+  // 没选过时落在列表里的第一个：挂在团队频道下面的「我的协作」不算
+  const listed = listedChannels(s.channels)
+  return s.channels.find(c => c.id === s.selectedId) ?? listed.find(c => !c.archivedAt) ?? listed[0] ?? null
 }
 
 export const selfMember = (s: ChannelsState): ChannelMember | null =>
@@ -674,6 +677,19 @@ export const channelActions = {
     }
     return failed
   },
+  /** 打开团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：没有就建，切过去 */
+  async openSide(teamChannelId: string): Promise<void> {
+    const channelId = channelsBridge ? (await channelsBridge.side(teamChannelId)).channelId : demo.side(teamChannelId)
+    if (channelsBridge) await resync()
+    if (!state.channels.some(c => c.id === channelId)) return
+    set({ selectedId: channelId, needsOpen: false })
+    if (channelsBridge) void loadMessages(channelId)
+  },
+  /** 「我的协作」里的结果发不发到团队频道 */
+  async setSideMirror(id: string, on: boolean): Promise<void> {
+    if (channelsBridge) return channelsBridge.update(id, { sideMirror: on })
+    set({ channels: state.channels.map(c => (c.id === id ? { ...c, sideMirror: on } : c)) })
+  },
   /** 把团队的频道改回只有我：切到本机留的那个频道 */
   async unshareChannel(id: string): Promise<void> {
     if (!channelsBridge) {
@@ -862,6 +878,36 @@ const startable = (steps: FlowStep[]): FlowStep[] => {
 }
 
 const demo = {
+  /** 「我的协作」：演示里建一份只有我的频道挂在团队频道下面，成员是我在那个频道里的 AI 成员 */
+  side(teamChannelId: string): string {
+    const old = state.channels.find(c => c.sideOf === teamChannelId)
+    if (old) return old.id
+    const host = state.channels.find(c => c.id === teamChannelId)
+    if (!host) throw new Error(tr('channels.error.channelMissing'))
+    const self = selfMember(state)?.id
+    const mine = host.memberIds.filter(id =>
+      state.members.some(m => m.id === id && m.kind === 'agent' && m.mine !== false),
+    )
+    const id = `side-${teamChannelId}`
+    set({
+      channels: [
+        ...state.channels,
+        {
+          id,
+          name: host.name,
+          topic: host.topic,
+          scope: 'local' as const,
+          sideOf: teamChannelId,
+          sideMirror: true,
+          memberIds: [...(self ? [self] : []), ...mine],
+          unread: 0,
+          createdAt: Date.now(),
+        },
+      ],
+      messages: { ...state.messages, [id]: [] },
+    })
+    return id
+  },
   /** 共享到团队 / 改回只有我：演示里只把这个频道换个归属（teamId 为空是改回只有我），消息原样留着 */
   moveChannel(id: string, teamId: string | null, agentIds: string[]): string[] {
     const team = teamId ? state.teams.find(t => t.id === teamId) : undefined

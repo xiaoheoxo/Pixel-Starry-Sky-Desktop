@@ -1093,3 +1093,181 @@ describe('频道和团队融合：共享到团队、改回只有我（docs/ui/ch
     expect(t.cloud.channels).toEqual([])
   })
 })
+
+describe('团队的频道：讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）', () => {
+  /** 我的成员登记进团队频道（团队成员可直接派活） */
+  async function withAgent() {
+    const t = await open()
+    await t.online()
+    const member = await t.c.saveMember(null, agent('前端助手'))
+    await t.c.addMember('tc_1', member)
+    const view = t.c.state().members.find(m => m.kind === 'agent' && (m as AgentMember).teamAgentId) as AgentMember
+    await t.c.setAgentPolicy('tc_1', view.id, 'team')
+    return { ...t, member, agentId: view.id }
+  }
+  const channel = (t: { c: Channels }) => t.c.state().channels.find(x => x.id === 'tc_1')!
+
+  it('讨论串：发在串里的消息带着串的根，串里不 @ 只是留言、@ 同一个成员是追加要求', async () => {
+    const t = await withAgent()
+    const { tasks } = t.cloud.userPost('u:2', 'tc_1', '@前端助手 写更新日志', [t.agentId])
+    const card = tasks[0].id as string
+    await until(() => sent.length === 1)
+    const note = await t.c.post('tc_1', { text: '标题再短一点会更好', threadId: card, clientId: 'th1' })
+    expect(note.message.threadId).toBe(card)
+    expect(note.tasks).toEqual([])
+    expect(t.cloud.task(card).round).toBe(1)
+    const follow = await t.c.post('tc_1', { text: '@前端助手 把标题改短', threadId: note.message.id, clientId: 'th2' })
+    expect(follow.message.threadId).toBe(card)
+    expect(follow.tasks).toEqual([card])
+    expect(t.cloud.task(card).round).toBe(2)
+    // 界面拿到的一页消息里带着 threadId
+    const page = await t.c.page('tc_1')
+    expect(page.messages.filter(m => m.kind === 'message' && m.threadId === card)).toHaveLength(2)
+  })
+
+  it('置顶：存在云端，频道上带着；派活时作为资料带上', async () => {
+    const t = await withAgent()
+    const tip = await t.c.post('tc_1', { text: '发版步骤：先打标签再发公告', clientId: 'p1' })
+    await t.c.pin('tc_1', tip.message.id, true)
+    expect(channel(t).pinned).toEqual([tip.message.id])
+    t.cloud.userPost('u:2', 'tc_1', '@前端助手 发个版', [t.agentId])
+    await until(() => sent.length === 1)
+    expect(sent[0].text).toContain('频道里置顶的资料')
+    expect(sent[0].text).toContain('林夏：发版步骤：先打标签再发公告')
+    await t.c.pin('tc_1', tip.message.id, false)
+    expect(channel(t).pinned).toEqual([])
+  })
+
+  it('归档：还有没结束的活不让归档；归档后只读，恢复后又能发', async () => {
+    const t = await withAgent()
+    const { tasks } = t.cloud.userPost('u:2', 'tc_1', '@前端助手 写更新日志', [t.agentId])
+    await until(() => sent.length === 1)
+    await expect(t.c.update('tc_1', { archived: true })).rejects.toThrow('频道里还有没结束的活')
+    complete(t.c, 's1', sent[0].clientMessageId, '写好了')
+    await until(() => t.cloud.task(tasks[0].id as string).status === 'done')
+    await t.c.update('tc_1', { archived: true })
+    expect(channel(t).archivedAt).toBeGreaterThan(0)
+    await expect(t.c.post('tc_1', { text: '还能发吗', clientId: 'a1' })).rejects.toThrow('频道已归档')
+    await t.c.update('tc_1', { archived: false })
+    expect(channel(t).archivedAt).toBeNull()
+    await t.c.post('tc_1', { text: '又能发了', clientId: 'a2' })
+    const events = (await t.c.page('tc_1')).messages.flatMap(m => (m.kind === 'event' ? [m.event] : []))
+    expect(events.filter(e => e === 'archived' || e === 'restored')).toEqual(['archived', 'restored'])
+  })
+
+  it('旧版云端：频道上没有这三样的标记，置顶、归档报「还不支持」，发消息不带串', async () => {
+    const t = await open()
+    t.cloud.threads = false
+    await t.online()
+    expect(channel(t).pinned).toBeUndefined()
+    const first = await t.c.post('tc_1', { text: '一条', clientId: 'o1' })
+    await expect(t.c.pin('tc_1', first.message.id, true)).rejects.toThrow('云端还不支持在团队的频道里置顶')
+    await expect(t.c.update('tc_1', { archived: true })).rejects.toThrow('云端还不支持归档团队的频道')
+    const second = await t.c.post('tc_1', { text: '两条', threadId: first.message.id, clientId: 'o2' })
+    expect(second.message.threadId ?? null).toBeNull()
+    expect(
+      t.cloud.calls.filter(x => x.method === 'POST' && x.path.endsWith('/messages')).at(-1)?.body,
+    ).not.toHaveProperty('thread_id')
+  })
+})
+
+describe('团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）', () => {
+  /** 两个本机成员，只有「前端助手」登记在团队频道里；打开「我的协作」 */
+  async function withSide() {
+    // @ 一个成员直接派活（不先出计划），测的是结果发到团队频道；流程要本机成员有频道工具
+    const t = await open({ planFirst: false, channelTools: true })
+    await t.online()
+    const a = await t.c.saveMember(null, agent('前端助手'))
+    const b = await t.c.saveMember(null, agent('审查员'))
+    await t.c.addMember('tc_1', a)
+    const { channelId: side } = await t.c.side('tc_1')
+    return { ...t, a, b, side }
+  }
+  /** 团队频道里的文字消息：[谁发的, 正文]，自己发的写「我」，AI 成员写名字 */
+  const cloudTexts = (t: { cloud: FakeCloud }): [string, string][] =>
+    (t.cloud.messages.get('tc_1') ?? [])
+      .filter(m => m.kind === 'message')
+      .map(m => [
+        m.author === t.cloud.me.id ? '我' : ((t.cloud.agents.find(x => x.id === m.author)?.name as string) ?? '?'),
+        m.text as string,
+      ])
+
+  it('第一次打开时建：成员是我登记在团队频道里的 AI 成员，不占只有我的频道的名字；再打开是同一份', async () => {
+    const t = await withSide()
+    expect(t.store.channels.get(t.side)).toMatchObject({ name: '更新日志', sideOf: 'tc_1', memberIds: [SELF_ID, t.a] })
+    expect(t.c.state().channels.find(x => x.id === t.side)).toMatchObject({
+      scope: 'local',
+      sideOf: 'tc_1',
+      sideMirror: true,
+    })
+    expect((await t.c.side('tc_1')).channelId).toBe(t.side)
+    await expect(t.c.create({ name: '更新日志' })).resolves.toBeTruthy()
+    await expect(t.c.share(t.side, { teamId: 'tm_1', policies: {} })).rejects.toThrow('已经挂在一个团队频道下面了')
+    await expect(t.c.side('不存在')).rejects.toThrow('频道不存在')
+  })
+
+  it('观察者没有这一页', async () => {
+    const t = await open()
+    t.cloud.role = 'observer'
+    await t.online()
+    await expect(t.c.side('tc_1')).rejects.toThrow('观察者没有「我的协作」')
+  })
+
+  it('结果发到团队频道：登记了的成员以它的名义发，没登记的以我的名义发并写上名字；关掉后不发', async () => {
+    const t = await withSide()
+    await t.c.post(t.side, { text: '@前端助手 写更新日志', clientId: 'k1' })
+    await until(() => sent.length === 1)
+    complete(t.c, 's1', sent[0].clientMessageId, '日志写好了')
+    await until(() => cloudTexts(t).length === 1)
+    expect(cloudTexts(t)).toEqual([['前端助手', '日志写好了']])
+    // 团队频道里没有这张任务卡：卡只在自己这边
+    expect((t.cloud.messages.get('tc_1') ?? []).some(m => m.kind === 'task')).toBe(false)
+
+    await t.c.addMember(t.side, t.b)
+    await t.c.post(t.side, { text: '@审查员 看一眼', clientId: 'k2' })
+    await until(() => sent.length === 2)
+    complete(t.c, 's2', sent[1].clientMessageId, '没问题')
+    await until(() => cloudTexts(t).length === 2)
+    expect(cloudTexts(t)[1]).toEqual(['我', '**审查员**\n\n没问题'])
+    expect(t.cloud.calls.filter(x => x.method === 'POST' && x.path.endsWith('/messages')).at(-1)?.body).toMatchObject({
+      format: 'markdown',
+    })
+
+    await t.c.update(t.side, { sideMirror: false })
+    expect(t.c.state().channels.find(x => x.id === t.side)?.sideMirror).toBe(false)
+    await t.c.post(t.side, { text: '@前端助手 再改改', clientId: 'k3' })
+    await until(() => sent.length === 3)
+    complete(t.c, 's3', sent[2].clientMessageId, '改好了')
+    await new Promise(r => setTimeout(r, 30))
+    expect(cloudTexts(t)).toHaveLength(2)
+  })
+
+  it('流程：开始时列出步骤，每一步的结果照发，完成时说一句', async () => {
+    const t = await withSide()
+    const { messageId } = await t.c.flowAction(t.side, {
+      type: 'create',
+      title: '发版',
+      steps: [{ id: 's1', title: '写日志', memberId: t.a, deps: [], kind: 'work' }],
+    })
+    expect(cloudTexts(t)).toEqual([])
+    await t.c.flowAction(t.side, { type: 'start', messageId })
+    await until(() => sent.length === 1)
+    t.c.toolDone('s1', { summary: '日志写好了' })
+    complete(t.c, 's1', sent[0].clientMessageId, '日志写好了')
+    await until(() => cloudTexts(t).length === 3)
+    expect(cloudTexts(t)).toEqual([
+      ['我', '开始流程「发版」（1 步）：\n1. 写日志（前端助手）'],
+      ['前端助手', '日志写好了'],
+      ['我', '流程「发版」完成了。'],
+    ])
+  })
+
+  it('团队频道改回只有我：这一页变回普通的只有我的频道，名字不和留下的记录撞', async () => {
+    const t = await withSide()
+    const { channelId: kept } = await t.c.unshare('tc_1')
+    const side = t.store.channels.get(t.side)!
+    expect(side.sideOf ?? null).toBeNull()
+    expect(t.c.state().channels.find(x => x.id === t.side)?.sideOf).toBeUndefined()
+    expect(side.name).not.toBe(t.store.channels.get(kept)!.name)
+  })
+})

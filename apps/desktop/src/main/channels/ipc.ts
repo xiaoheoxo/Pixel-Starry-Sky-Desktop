@@ -303,6 +303,8 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     channels.share(str(id, '频道'), (input ?? {}) as Parameters<Channels['share']>[1]),
   )
   ipc.handle('channels:unshare', (_e, id) => channels.unshare(str(id, '频道')))
+  // 团队频道的「我的协作」（§7.2）：没有就建，返回那份本机频道的 id
+  ipc.handle('channels:side', (_e, id) => channels.side(str(id, '频道')))
   ipc.handle('channels:post', (_e, id, input) => channels.post(str(id, '频道'), input as PostInput))
   ipc.handle('channels:attachments', (_e, id, messageId) =>
     channels.attachments(str(id, '频道'), str(messageId, '消息')),

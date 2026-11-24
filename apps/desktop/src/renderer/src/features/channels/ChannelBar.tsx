@@ -12,6 +12,8 @@ import { canManageTeam } from './teamModel'
 import { TeamSettingsDialog } from './TeamDialog'
 
 export type ChannelTab = 'messages' | 'tasks'
+/** 标签条上的一格：团队的频道多一格「我的协作」（docs/ui/channels-unify.md §7.2） */
+export type BarTab = ChannelTab | 'side'
 
 /** 「只有我」或「团队名 · N 人」 */
 export function audienceLabel(
@@ -30,10 +32,13 @@ export function ChannelBar({
   openTasks,
   onShare,
   onUnshare,
+  side,
 }: {
   channel: Channel
-  tab: ChannelTab
-  onTab: (tab: ChannelTab) => void
+  tab: BarTab
+  onTab: (tab: BarTab) => void
+  /** 团队的频道、我不是观察者：有「我的协作」这一格；unread 是那一页里没读的 */
+  side?: { unread: number } | null
   /** 还没结束的活有几件（写在「任务」上） */
   openTasks: number
   /** 只有我的频道：邀请队友（共享到团队）；没有时不出这一项 */
@@ -95,7 +100,7 @@ export function ChannelBar({
         {channel.topic}
       </p>
       <div role="tablist" aria-label={tr('unify.tab.label')} className={SEGMENT_TRACK}>
-        {(['messages', 'tasks'] as const).map(v => (
+        {(['messages', 'tasks', ...(side ? (['side'] as const) : [])] as const).map(v => (
           <button
             key={v}
             type="button"
@@ -107,9 +112,13 @@ export function ChannelBar({
           >
             {v === 'messages'
               ? tr('unify.tab.messages')
-              : openTasks > 0
-                ? tr('unify.tab.tasksCount', { count: openTasks })
-                : tr('unify.tab.tasks')}
+              : v === 'side'
+                ? side && side.unread > 0
+                  ? tr('unify.tab.sideCount', { count: side.unread })
+                  : tr('unify.tab.side')
+                : openTasks > 0
+                  ? tr('unify.tab.tasksCount', { count: openTasks })
+                  : tr('unify.tab.tasks')}
           </button>
         ))}
       </div>

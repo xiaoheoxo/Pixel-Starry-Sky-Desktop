@@ -41,7 +41,7 @@ import { PresenceAvatar, roleLabel } from './TeamParts'
 import { costCell, durText, presenceLabel, usageText } from './format'
 import { formatTokens } from '@/features/usage/format'
 import { AgentQueue, memberQueueTasks } from './AgentQueue'
-import { canAddAgent, canManageTeam, myRole, onlineCount, presenceOf, queuedFor } from './teamModel'
+import { canAddAgent, canManageTeam, canPin, myRole, onlineCount, presenceOf, queuedFor } from './teamModel'
 
 const STATUS_LABEL: Record<ChannelAgentStatus, TranslationKey> = {
   idle: 'channels.status.idle',
@@ -86,6 +86,7 @@ function PinnedList({ channel, members }: { channel: Channel; members: readonly 
   useI18n()
   const toast = useToast()
   const messages = useChannels(s => s.messages[channel.id])
+  const role = useChannels(s => myRole(s.teams, channel.teamId))
   const ids = channel.pinned ?? []
   if (!ids.length) return null
   const byId = new Map((messages ?? []).map(m => [m.id, m]))
@@ -118,7 +119,7 @@ function PinnedList({ channel, members }: { channel: Channel; members: readonly 
                 <span className="min-w-0 flex-1 text-meta text-fg-faint">{tr('channels.members.pinnedOld')}</span>
               )}
             </button>
-            {channel.scope === 'local' && !channel.archivedAt && (
+            {canPin(channel, role) && (
               <IconButton
                 icon={PinOff}
                 label={tr('channels.unpin')}

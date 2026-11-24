@@ -6,10 +6,13 @@ import {
   canControlTask,
   canDispatch,
   canManageTeam,
+  canPin,
   canWithdraw,
   channelOfNotice,
   groupChannels,
+  hasThreads,
   inviteDaysLeft,
+  listedChannels,
   isMyTask,
   isValidEmail,
   lastSeen,
@@ -24,6 +27,7 @@ import {
   teamNotice,
   teamNoticeId,
   toggleCollapsed,
+  sideHost,
 } from './teamModel'
 
 const channel = (id: string, scope: 'local' | 'team', teamId?: string): Channel => ({
@@ -286,5 +290,53 @@ describe('在线状态四种（docs/multica-learn.md §2）', () => {
     expect(queuedFor('u:1', list)).toBe(0)
     expect(queuedFor('u:1', [...list, task('u:1', 'running')])).toBe(2)
     expect(queuedFor('u:2', [...list, task('u:1', 'running')])).toBe(0)
+  })
+})
+
+describe('讨论串、置顶、归档在哪些频道有（docs/ui/channels-unify.md §7.1）', () => {
+  it('只有我的频道都有；团队的频道要云端给了 pinned 才有', () => {
+    expect(hasThreads({ scope: 'local' })).toBe(true)
+    expect(hasThreads({ scope: 'team' })).toBe(false)
+    expect(hasThreads({ scope: 'team', pinned: [] })).toBe(true)
+  })
+
+  it('置顶：归档了不能改；团队的频道里观察者不能', () => {
+    expect(canPin({ scope: 'local' }, undefined)).toBe(true)
+    expect(canPin({ scope: 'local', archivedAt: 5 }, undefined)).toBe(false)
+    expect(canPin({ scope: 'team', pinned: [] }, 'member')).toBe(true)
+    expect(canPin({ scope: 'team', pinned: [] }, 'observer')).toBe(false)
+    expect(canPin({ scope: 'team', pinned: [], archivedAt: 5 }, 'owner')).toBe(false)
+    expect(canPin({ scope: 'team' }, 'owner')).toBe(false)
+  })
+})
+
+describe('「我的协作」不单独列出来（docs/ui/channels-unify.md §7.2）', () => {
+  const ch = (id: string, extra: Partial<Channel> = {}): Channel => ({
+    id,
+    name: id,
+    topic: null,
+    scope: 'local',
+    memberIds: [],
+    unread: 0,
+    createdAt: 0,
+    ...extra,
+  })
+  const team = ch('tc', { scope: 'team', teamId: 'tm' })
+  const side = ch('side', { sideOf: 'tc' })
+  const orphan = ch('orphan', { sideOf: 'tc-gone' })
+  const plain = ch('plain')
+  const all = [team, side, orphan, plain]
+
+  it('挂着的团队频道还在：从团队频道的标签进，不进列表；团队频道不在了就当普通的只有我的频道', () => {
+    expect(sideHost(side, all)?.id).toBe('tc')
+    expect(sideHost(orphan, all)).toBeNull()
+    expect(sideHost(plain, all)).toBeNull()
+    expect(listedChannels(all).map(c => c.id)).toEqual(['tc', 'orphan', 'plain'])
+  })
+
+  it('列表分组里也不出现，归档了的一样', () => {
+    const teams = [{ id: 'tm', name: '小队', role: 'owner', members: [], invites: [] }] as unknown as TeamInfo[]
+    const sections = groupChannels([...all, ch('old-side', { sideOf: 'tc', archivedAt: 5 })], teams)
+    expect(sections.flatMap(s => s.channels.map(c => c.id))).toEqual(['orphan', 'plain', 'tc'])
   })
 })

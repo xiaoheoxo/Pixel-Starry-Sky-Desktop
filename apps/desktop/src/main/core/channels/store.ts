@@ -71,6 +71,12 @@ export interface StoredChannel {
   sharedTo?: string | null
   /** 从哪个团队频道收回来的：本机的记录已经留好、云端还没删掉时记着，再点一次只删云端、不重复留记录 */
   unsharedFrom?: string | null
+  /**
+   * 团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：这是哪个团队频道下面只有自己看得到的那一页；
+   * sideMirror === false 是不把结果发到团队频道（没写按开）
+   */
+  sideOf?: string | null
+  sideMirror?: boolean
   createdAt: number
   /** 看到哪里了：这之后别人发的算未读 */
   readAt: number

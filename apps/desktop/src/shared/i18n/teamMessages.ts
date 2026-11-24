@@ -206,6 +206,18 @@ export const teamMessages = {
   'unify.tab.label': { zh: '看消息还是任务', en: 'Messages or tasks' },
   'unify.tab.messages': { zh: '消息', en: 'Messages' },
   'unify.tab.tasks': { zh: '任务', en: 'Tasks' },
+  'unify.tab.side': { zh: '我的协作', en: 'My workspace' },
+  'unify.tab.sideCount': { zh: '我的协作 {count}', en: 'My workspace {count}' },
+  'unify.side.hint': {
+    zh: '只有你看得到这一页：牵头、互相派活、流程在这里和只有我的频道一样用。',
+    en: 'Only you see this page: leads, AI-to-AI hand-offs and flows work here just like in a channel that’s only yours.',
+  },
+  'unify.side.mirror': { zh: '结果发到 #{name}', en: 'Post results to #{name}' },
+  'unify.side.mirrorHint': {
+    zh: 'AI 成员交回的结果、流程的开始和结束会发到团队频道，队友能看到；流程卡和任务卡只有你看得到',
+    en: 'Results from AI members and flow start / finish notices go to the team channel for teammates; flow cards and task cards stay visible only to you',
+  },
+  'unify.side.failed': { zh: '打不开「我的协作」：{error}', en: 'Couldn’t open My workspace: {error}' },
   'unify.tab.tasksCount': { zh: '任务 {count}', en: 'Tasks {count}' },
   'unify.tasks.mine': { zh: '要你处理 · {count}', en: 'Needs you · {count}' },
   'unify.tasks.running': { zh: '进行中 · {count}', en: 'Running · {count}' },
@@ -277,8 +289,8 @@ export const teamMessages = {
     en: 'Earlier messages: the original channel is archived and kept, not uploaded',
   },
   'unify.share.limits': {
-    zh: '团队的频道暂时没有附件、讨论串、置顶、归档、流程、牵头和互相派活。',
-    en: 'Team channels don’t have attachments, threads, pins, archiving, flows, leads or AI-to-AI hand-offs yet.',
+    zh: '团队的频道暂时没有附件；牵头、互相派活和流程在团队频道的「我的协作」页里用。',
+    en: 'Team channels don’t have attachments yet; leads, AI-to-AI hand-offs and flows live on the channel’s “My workspace” page.',
   },
   'unify.share.failed': {
     zh: '已共享。没带进去：{names}，可以在成员栏里再添加',
@@ -305,6 +317,28 @@ export const teamMessages = {
     zh: '频道里还有没结束的流程，结束后再共享',
     en: 'This channel still has an unfinished flow; finish it before sharing',
   },
+  'unify.error.sideObserver': { zh: '观察者没有「我的协作」', en: 'Observers don’t have a My workspace page' },
+  'unify.error.sideShared': {
+    zh: '「我的协作」已经挂在一个团队频道下面了',
+    en: 'This My workspace page already belongs to a team channel',
+  },
+  'unify.error.pinUnsupported': {
+    zh: '云端还不支持在团队的频道里置顶',
+    en: 'The cloud service doesn’t support pins in team channels yet',
+  },
+  'unify.error.archiveUnsupported': {
+    zh: '云端还不支持归档团队的频道',
+    en: 'The cloud service doesn’t support archiving team channels yet',
+  },
+  'unify.error.archived': {
+    zh: '频道已归档：恢复后才能发消息、派活或置顶',
+    en: 'This channel is archived: restore it to post, assign work or pin',
+  },
+  'unify.error.channelBusy': {
+    zh: '频道里还有没结束的活：做完或停掉后再归档',
+    en: 'This channel still has unfinished tasks: let them finish or stop them before archiving',
+  },
+  'unify.error.pinLimit': { zh: '一个频道最多置顶 10 条', en: 'A channel can have at most 10 pins' },
   'unify.error.unshareOwner': {
     zh: '只有团队所有者能把频道改回只有我',
     en: 'Only the team owner can make a channel only theirs',

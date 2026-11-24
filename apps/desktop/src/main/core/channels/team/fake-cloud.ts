@@ -24,9 +24,16 @@ export class FakeCloud {
     'u:2': { name: '周宁', email: 'zn@example.com', role: 'member', online: true },
     'u:3': { name: '陈一', email: 'cy@example.com', role: 'observer', online: false },
   }
-  channels: { id: string; name: string; topic: string | null; createdBy: string }[] = [
-    { id: 'tc_1', name: '更新日志', topic: null, createdBy: 'u:1' },
-  ]
+  channels: {
+    id: string
+    name: string
+    topic: string | null
+    createdBy: string
+    pinned?: string[]
+    archivedAt?: string | null
+  }[] = [{ id: 'tc_1', name: '更新日志', topic: null, createdBy: 'u:1' }]
+  /** 讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）：false 是旧云端（频道上没有 pinned / archived_at，消息上没有 thread_id） */
+  threads = true
   agents: Json[] = []
   invites: Json[] = []
   readN: Record<string, number> = {}
@@ -127,6 +134,7 @@ export class FakeCloud {
       text: '',
       format: 'plain',
       reply_to: null,
+      ...(this.threads ? { thread_id: null } : {}),
       mentions: [],
       task_id: null,
       task: null,
@@ -158,13 +166,27 @@ export class FakeCloud {
     mentions: string[] = [],
     replyTo: string | null = null,
     clientId = '',
+    threadId: string | null = null,
   ): { message: Json; tasks: Json[] } {
-    const m = this.message(cid, 'message', author, { text, mentions, reply_to: replyTo, client_id: clientId })
+    // 串的根：串里的消息归到它所在的串，任务结果归到它的任务卡
+    const list = this.messages.get(cid)!
+    const at = threadId ? list.find(x => x.id === threadId) : undefined
+    const up = at && (((at.thread_id as string | null) ?? (at.kind === 'message' ? at.task_id : null)) as string | null)
+    const root = this.threads && at ? ((up ? list.find(x => x.id === up) : undefined) ?? at) : undefined
+    const m = this.message(cid, 'message', author, {
+      text,
+      mentions,
+      reply_to: replyTo,
+      client_id: clientId,
+      ...(root ? { thread_id: root.id } : {}),
+    })
     this.frame(cid, m)
     const tasks: Json[] = []
     const observer = this.users[author]?.role === 'observer'
-    const target = replyTo ? this.messages.get(cid)!.find(x => x.id === replyTo && x.kind === 'task') : undefined
     const assignees = mentions.map(id => this.agent(id)).filter((a): a is Json => !!a)
+    // 讨论串里以串的根为准：@ 了这张卡的 AI 成员才算追加，不 @ 只是留言
+    const ref = root?.id ?? replyTo
+    const target = ref && (!root || assignees.length) ? list.find(x => x.id === ref && x.kind === 'task') : undefined
     const status = (a: Json): string | null => this.dispatchStatus(a, author)
     if (!observer && target && (!assignees.length || assignees.every(a => a.id === (target.task as Json).assignee))) {
       const t = target.task as Json
@@ -429,8 +451,32 @@ export class FakeCloud {
       }
       const cid = seg[4]
       if (!this.messages.has(cid)) return this.json({ error: '不存在' }, 404)
+      const channel = this.channels.find(x => x.id === cid)!
       if (seg[5] === 'messages' && method === 'GET') return this.listMessages(cid, q)
-      if (seg[5] === 'messages' && method === 'POST') return this.postMessage(cid, body)
+      if (seg[5] === 'messages' && method === 'POST') {
+        // 归档了只读；已经做完的活补发结果照收
+        if (channel.archivedAt && !body.agent_id)
+          return this.json({ error: '频道已归档：恢复后才能发消息、派活或置顶' }, 409)
+        return this.postMessage(cid, body)
+      }
+      if (seg[5] === 'pins' && this.threads) {
+        const list = this.messages.get(cid)!
+        if (method === 'GET')
+          return this.json({ messages: (channel.pinned ?? []).flatMap(id => list.find(m => m.id === id) ?? []) })
+        if (channel.archivedAt) return this.json({ error: '频道已归档：恢复后才能发消息、派活或置顶' }, 409)
+        if (this.role === 'observer') return this.json({ error: '你在这个团队里的角色没有这个权限' }, 403)
+        const rest = (channel.pinned ?? []).filter(id => id !== seg[6])
+        if (method === 'PUT') {
+          const m = list.find(x => x.id === seg[6])
+          if (!m) return this.json({ error: '不存在' }, 404)
+          if (m.kind !== 'message') return this.json({ error: '内容不完整或格式不对' }, 400)
+          if (rest.length >= 10) return this.json({ error: '一个频道最多置顶 10 条' }, 409)
+          rest.push(seg[6])
+        }
+        channel.pinned = rest
+        this.seq++
+        return this.json({})
+      }
       if (seg[5] === 'read') {
         this.readN[cid] = Math.max(this.readN[cid] ?? 0, body.n as number)
         return this.json({})
@@ -442,9 +488,24 @@ export class FakeCloud {
         return this.json({})
       }
       if (method === 'PATCH') {
-        const c = this.channels.find(x => x.id === cid)!
+        const c = channel
+        const archiving = this.threads && body.archived === true && !c.archivedAt
+        const restoring = this.threads && body.archived === false && !!c.archivedAt
+        if (c.archivedAt && !restoring && ('name' in body || 'topic' in body))
+          return this.json({ error: '频道已归档：恢复后才能发消息、派活或置顶' }, 409)
+        const open = this.cards().some(
+          m => m.channel_id === cid && !['done', 'failed', 'stopped'].includes((m.task as Json).status as string),
+        )
+        if (archiving && open) return this.json({ error: '频道里还有没结束的活：做完或停掉后再归档' }, 409)
         if (typeof body.name === 'string') c.name = body.name
         if ('topic' in body) c.topic = body.topic as string | null
+        if (archiving || restoring) {
+          c.archivedAt = archiving ? this.time() : null
+          const e = this.message(cid, 'event', this.me.id, {
+            event: { type: archiving ? 'archived' : 'restored', actor: this.me.id, target: null, value: null },
+          })
+          this.frame(cid, e)
+        }
         return this.json({})
       }
       if (method === 'DELETE') {
@@ -606,6 +667,7 @@ export class FakeCloud {
       (body.mentions as string[]) ?? [],
       (body.reply_to as string | undefined) ?? null,
       (body.client_id as string) ?? '',
+      (body.thread_id as string | undefined) ?? null,
     )
     return this.json({ message, tasks })
   }
@@ -663,6 +725,7 @@ export class FakeCloud {
               read_n: read,
               unread: unread.length,
               mentioned: unread.some(m => (m.mentions as string[]).includes(this.me.id)),
+              ...(this.threads ? { pinned: c.pinned ?? [], archived_at: c.archivedAt ?? null } : {}),
             }
           }),
           agents: this.agents,

@@ -3,7 +3,7 @@ import { tr, translateMessage } from '../../i18n/core'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive } from 'lucide-react'
 import { ImLinkedHint } from '@/features/im/ImLinkedHint'
-import { Button, CollapsibleSlot, useToast } from '@/ui'
+import { Button, CollapsibleSlot, Switch, useToast } from '@/ui'
 import { OPEN_SESSION_EVENT, bridge as engineBridge } from '@/features/engine'
 import type { AgentMember, Channel, ChannelTask } from '@/data/types'
 import { channelActions, channelsLive, selectedChannel, selfIdIn, useChannels } from './store'
@@ -22,7 +22,7 @@ import { ChannelBar, type ChannelTab } from './ChannelBar'
 import { ChannelTasks } from './ChannelTasks'
 import { openTaskCount } from './unifyModel'
 import { ShareChannelDialog, UnshareChannelDialog } from './ShareDialogs'
-import { canDispatch, myRole } from './teamModel'
+import { canDispatch, hasThreads, myRole, sideHost } from './teamModel'
 import { channelDraftKey } from './draftKey'
 import { appendComposerInline } from '@/features/engine/drafts'
 import { ChannelDialog } from './ChannelDialogs'
@@ -84,6 +84,7 @@ export function ChannelsPage({
   const composer = useRef<HTMLTextAreaElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sharing, setSharing] = useState<'share' | 'unshare' | null>(null)
+  const toast = useToast()
   const appMode = useAppMode()
   const channels = useChannels(s => s.channels)
   const members = useChannels(s => s.members)
@@ -104,6 +105,19 @@ export function ChannelsPage({
   const selfId = useChannels(s => selfIdIn(s, selectedChannel(s)?.memberIds))
   const connection = useChannels(s => s.teamsConnection)
   const role = useChannels(s => myRole(s.teams, selectedChannel(s)?.teamId))
+  // 「我的协作」（docs/ui/channels-unify.md §7.2）：选中的是挂在团队频道下面的那一页时，标记条、列表都按团队频道显示
+  const host = useChannels(s => {
+    const c = selectedChannel(s)
+    return c ? sideHost(c, s.channels) : null
+  })
+  const hostRole = useChannels(s => {
+    const c = selectedChannel(s)
+    return myRole(s.teams, ((c && sideHost(c, s.channels)) ?? c)?.teamId)
+  })
+  const sideUnread = useChannels(s => {
+    const c = selectedChannel(s)
+    return c?.scope === 'team' ? (s.channels.find(x => x.sideOf === c.id)?.unread ?? 0) : 0
+  })
   const messages = (channel && messageMap[channel.id]) || NO_MESSAGES
   const channelMembers = useMemo(
     () => (channel ? members.filter(m => channel.memberIds.includes(m.id)) : []),
@@ -180,10 +194,11 @@ export function ChannelsPage({
         }
       : {}),
   }
-  // 讨论串（docs/ui/channels-collab-v2.md §3）：团队频道没有；根消息不在了就不显示
-  const threadRoot = channel.scope === 'local' ? (threadMap[channel.id] ?? null) : null
+  // 讨论串（docs/ui/channels-collab-v2.md §3）：团队的频道要云端支持；根消息不在了就不显示
+  const threaded = hasThreads(channel)
+  const threadRoot = threaded ? (threadMap[channel.id] ?? null) : null
   const thread = threadRoot && messages.some(m => m.id === threadRoot) ? threadRoot : null
-  const openThread = channel.scope === 'local' ? (id: string) => channelActions.openThread(channel.id, id) : undefined
+  const openThread = threaded ? (id: string) => channelActions.openThread(channel.id, id) : undefined
   const closeThread = () => {
     channelActions.openThread(channel.id, null)
     composer.current?.focus()
@@ -232,7 +247,7 @@ export function ChannelsPage({
     <div className="@container absolute inset-0 flex min-w-0" data-channels-page>
       <ChannelList
         channels={channels}
-        selectedId={channel.id}
+        selectedId={host?.id ?? channel.id}
         onSelect={selectChannel}
         onOpenSession={openSession}
         agents={agents}
@@ -247,13 +262,52 @@ export function ChannelsPage({
       ) : (
         <section aria-label={`# ${channel.name}`} className="conversation-view flex min-w-[360px] flex-1 flex-col">
           <ChannelBar
-            channel={channel}
-            tab={tab}
-            onTab={next => setTabOf({ id: channel.id, tab: next })}
-            openTasks={openTaskCount(messages)}
-            onShare={!archived && connection !== 'unavailable' ? () => setSharing('share') : undefined}
-            onUnshare={() => setSharing('unshare')}
+            channel={host ?? channel}
+            tab={host ? 'side' : tab}
+            onTab={next => {
+              const team = host ?? channel
+              if (next === 'side') {
+                if (!host)
+                  void channelActions
+                    .openSide(team.id)
+                    .catch(e => toast(tr('unify.side.failed', { error: translateMessage((e as Error).message) })))
+                return
+              }
+              if (host) channelActions.select(host.id)
+              setTabOf({ id: team.id, tab: next })
+            }}
+            openTasks={host ? 0 : openTaskCount(messages)}
+            onShare={!host && !archived && connection !== 'unavailable' ? () => setSharing('share') : undefined}
+            onUnshare={host ? undefined : () => setSharing('unshare')}
+            side={
+              (host ?? channel).scope === 'team' && canDispatch(hostRole) && connection !== 'unavailable'
+                ? { unread: host ? 0 : sideUnread }
+                : null
+            }
           />
+          {host && (
+            <div
+              data-side-hint=""
+              className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-subtle bg-subtle py-1.5 pr-3 pl-5 text-meta text-fg-muted"
+            >
+              <p className="min-w-0 flex-1">{tr('unify.side.hint')}</p>
+              <label className="flex shrink-0 items-center gap-2" title={tr('unify.side.mirrorHint')}>
+                <span>{tr('unify.side.mirror', { name: host.name })}</span>
+                <Switch
+                  size="sm"
+                  checked={channel.sideMirror !== false}
+                  label={tr('unify.side.mirror', { name: host.name })}
+                  onChange={on =>
+                    void channelActions
+                      .setSideMirror(channel.id, on)
+                      .catch(e =>
+                        toast(tr('channels.task.actionFailed', { error: translateMessage((e as Error).message) })),
+                      )
+                  }
+                />
+              </label>
+            </div>
+          )}
           {tab === 'tasks' ? (
             <ChannelTasks
               channel={channel}

@@ -1,7 +1,15 @@
 // 频道和团队融合第 2 批（docs/ui/channels-unify.md §5.2）：共享时的派活规则、改回只有我时留的记录
 import { describe, expect, it } from 'vitest'
 import type { ChannelMessage } from '../../../shared/types/channels'
-import { freeChannelName, sharePolicies, transcriptBlocks, transcriptChunks, transcriptHead } from './unify'
+import {
+  flowNotice,
+  freeChannelName,
+  sharePolicies,
+  sideMirrorText,
+  transcriptBlocks,
+  transcriptChunks,
+  transcriptHead,
+} from './unify'
 
 describe('共享时的派活规则', () => {
   it('只认这个频道里自己的成员，没列的不带进去，顺序照频道里的', () => {
@@ -106,5 +114,52 @@ describe('本机频道不重名', () => {
     const next = freeChannelName(long, [long])
     expect(next).toHaveLength(40)
     expect(next.endsWith(' 2')).toBe(true)
+  })
+})
+
+describe('「我的协作」发到团队频道的内容（§7.2）', () => {
+  it('登记了的成员原样发；没登记的开头写上成员名，放不下时截断', () => {
+    expect(sideMirrorText('  写好了\n', null)).toBe('写好了')
+    expect(sideMirrorText('写好了', '审查员')).toBe('**审查员**\n\n写好了')
+    const long = sideMirrorText('字'.repeat(9000), '审查员')
+    expect(long).toHaveLength(7901)
+    expect(long.endsWith('…')).toBe(true)
+  })
+
+  const name = (id: string): string => ({ a: '前端助手', b: '审查员' })[id] ?? '?'
+  const flow = (status: string, since?: unknown) => ({
+    status,
+    title: '发版',
+    since,
+    steps: [
+      { title: '写日志', memberId: 'a' },
+      { title: '审一遍', memberId: 'b' },
+    ],
+  })
+
+  it('草稿点了开始：列出步骤和谁做', () => {
+    expect(flowNotice({ status: 'draft' }, flow('running', { at: 1 }), name, 'zh-CN')).toEqual({
+      kind: 'start',
+      text: '开始流程「发版」（2 步）：\n1. 写日志（前端助手）\n2. 审一遍（审查员）',
+    })
+    expect(flowNotice({ status: 'draft' }, flow('running', { at: 1 }), name, 'en-US')?.text).toBe(
+      'Started the flow “发版” (2 steps):\n1. 写日志 — 前端助手\n2. 审一遍 — 审查员',
+    )
+  })
+
+  it('跑过的流程完成、停止各说一句；暂停、继续、状态没变不说', () => {
+    expect(flowNotice({ status: 'running' }, flow('done', { at: 1 }), name, 'zh-CN')).toEqual({
+      kind: 'done',
+      text: '流程「发版」完成了。',
+    })
+    expect(flowNotice({ status: 'paused' }, flow('stopped', { at: 1 }), name, 'zh-CN')?.kind).toBe('stopped')
+    expect(flowNotice({ status: 'running' }, flow('paused', { at: 1 }), name, 'zh-CN')).toBeNull()
+    expect(flowNotice({ status: 'paused' }, flow('running', { at: 1 }), name, 'zh-CN')).toBeNull()
+    expect(flowNotice({ status: 'running' }, flow('running', { at: 1 }), name, 'zh-CN')).toBeNull()
+  })
+
+  it('没开始过就停掉的（丢弃的草稿、牵头直接派走的计划）不说', () => {
+    expect(flowNotice({ status: 'draft' }, flow('stopped'), name, 'zh-CN')).toBeNull()
+    expect(flowNotice({ status: 'planning' }, flow('stopped', null), name, 'zh-CN')).toBeNull()
   })
 })

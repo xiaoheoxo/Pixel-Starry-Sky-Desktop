@@ -115,7 +115,15 @@ import {
   type Mentionable,
 } from '../../../shared/channels/mentions'
 import { ChannelStore, type StoredChannel } from './store'
-import { freeChannelName, sharePolicies, transcriptBlocks, transcriptChunks, transcriptHead } from './unify'
+import {
+  flowNotice,
+  freeChannelName,
+  sharePolicies,
+  sideMirrorText,
+  transcriptBlocks,
+  transcriptChunks,
+  transcriptHead,
+} from './unify'
 import { fitForChannel, type FitImage } from './images'
 import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from './flowUsage'
 import { awaitsDecision, channelNeeds } from '../../../shared/channels/needs'
@@ -690,6 +698,7 @@ export class Channels {
         pinned: c.pinned ?? [],
         notify: c.notify ?? 'all',
         archivedAt: c.archivedAt ?? null,
+        ...(c.sideOf ? { sideOf: c.sideOf, sideMirror: c.sideMirror !== false } : {}),
         relay: c.relay === true,
         relayRules: relayRulesOf(c),
         lead: c.lead ?? null,
@@ -980,7 +989,8 @@ export class Channels {
 
   private uniqueChannelName(name: string, except?: string): void {
     for (const c of this.store.channels.values())
-      if (c.id !== except && c.name.toLowerCase() === name.toLowerCase()) throw new Error('已经有同名的频道')
+      if (c.id !== except && !c.sideOf && c.name.toLowerCase() === name.toLowerCase())
+        throw new Error('已经有同名的频道')
   }
 
   private event(
@@ -1054,11 +1064,17 @@ export class Channels {
       /** 审查打回上限、多久没进展提醒（只有本机频道，docs/ui/channels-local-rest.md §3.3 d） */
       maxRejects?: number
       stalledMinutes?: number
+      /** 「我的协作」里的结果发不发到团队频道（docs/ui/channels-unify.md §7.2） */
+      sideMirror?: boolean
     },
   ): Promise<void> {
     const info = this.team?.channelInfo(id)
     if (info) {
-      const wire: { name?: string; topic?: string | null } = {}
+      const wire: { name?: string; topic?: string | null; archived?: boolean } = {}
+      if (patch.archived !== undefined) {
+        if (!info.threads) throw new Error('云端还不支持归档团队的频道')
+        wire.archived = patch.archived === true
+      }
       if (patch.name !== undefined) wire.name = cleanName(patch.name, '频道名')
       if (patch.topic !== undefined)
         wire.topic =
@@ -1126,6 +1142,7 @@ export class Channels {
     if (patch.digestHour !== undefined) c.digestHour = cleanDigestHour(patch.digestHour)
     if (patch.maxRejects !== undefined) c.maxRejects = cleanMaxRejects(patch.maxRejects)
     if (patch.stalledMinutes !== undefined) c.stalledMinutes = cleanStalledMinutes(patch.stalledMinutes)
+    if (patch.sideMirror !== undefined && c.sideOf) c.sideMirror = patch.sideMirror === true
     // 归档时一并标为已读：收起来的频道不再算未读
     if (archiving) {
       c.archivedAt = this.now()
@@ -1898,8 +1915,14 @@ export class Channels {
     })
   }
 
-  /** 置顶 / 取消置顶一条文字消息（本机频道） */
+  /** 置顶 / 取消置顶一条文字消息（团队的频道存在云端，上限和规则由云端判） */
   async pin(channelId: string, messageId: string, pinned: boolean): Promise<void> {
+    const info = this.team?.channelInfo(channelId)
+    if (info) {
+      if (!info.threads) throw new Error('云端还不支持在团队的频道里置顶')
+      await this.team!.pin(info.teamId, channelId, messageId, pinned)
+      return
+    }
     const c = { ...this.writable(channelId) }
     const message = (this.store.messages.get(channelId) ?? []).find(m => m.id === messageId)
     if (message?.kind !== 'message') throw new Error('只能置顶文字消息')
@@ -2701,6 +2724,7 @@ export class Channels {
             if (!latest) return
             void this.store.append(result).catch(e => this.deps.log?.('保存频道消息失败', e))
             this.pushMessage(result)
+            this.mirrorSide(latest, result.id, result.text, run.memberId)
             const handoff: Handoff = {
               from: this.nameOf(run.memberId),
               title: task.title,
@@ -3220,7 +3244,12 @@ export class Channels {
     this.pushMessage(next)
     this.changed()
     // 盯着这个流程的唤醒（§11.6）：全部交付了、停了，下一拍判断
-    if (flow.status !== m.flow.status) this.armWakeups(channelId, messageId)
+    if (flow.status !== m.flow.status) {
+      this.armWakeups(channelId, messageId)
+      const c = this.store.channels.get(channelId)
+      const notice = c?.sideOf ? flowNotice(m.flow, flow, this.nameOf, this.deps.locale()) : null
+      if (c && notice) this.mirrorSide(c, `${messageId}-${notice.kind}`, notice.text)
+    }
     return flow
   }
 
@@ -6104,6 +6133,7 @@ export class Channels {
     const team = this.requireTeam()
     if (team.hasChannel(channelId)) throw new Error('这个频道已经在团队里了')
     const c = this.writable(channelId)
+    if (c.sideOf && team.hasChannel(c.sideOf)) throw new Error('「我的协作」已经挂在一个团队频道下面了')
     const teamId = typeof raw?.teamId === 'string' ? raw.teamId : ''
     const role = team.roleIn(teamId)
     if (!role) throw new Error('团队不存在')
@@ -6205,8 +6235,74 @@ export class Channels {
     await team.deleteChannel(info.teamId, channelId)
     const kept = this.store.channels.get(localId)
     if (kept) await this.store.saveChannel({ ...kept, unsharedFrom: null })
+    // 这个团队频道的「我的协作」变回普通的只有我的频道（await 之后从 store 读最新的）
+    const side = [...this.store.channels.values()].find(c => c.sideOf === channelId)
+    if (side) {
+      const taken = [...this.store.channels.values()].filter(c => c.id !== side.id && !c.sideOf).map(c => c.name)
+      await this.store.saveChannel({ ...side, sideOf: null, name: freeChannelName(side.name, taken, NAME_MAX) })
+    }
     this.changed()
     return { channelId: localId }
+  }
+
+  /**
+   * 团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：只有自己看得到的一份本机频道，牵头、互相派活、流程在里面
+   * 和只有我的频道一样用。第一次打开时建，成员是我登记在这个团队频道里的 AI 成员；已有的只跟上团队频道的名字
+   */
+  async side(channelId: string): Promise<{ channelId: string }> {
+    const team = this.requireTeam()
+    const info = team.channelInfo(channelId)
+    if (!info) throw new Error('频道不存在')
+    if (info.role === 'observer') throw new Error('观察者没有「我的协作」')
+    const old = [...this.store.channels.values()].find(c => c.sideOf === channelId)
+    if (old) {
+      if (old.name !== info.name) {
+        await this.store.saveChannel({ ...old, name: info.name })
+        this.changed()
+      }
+      return { channelId: old.id }
+    }
+    const mine = team
+      .myAgents(info.teamId)
+      .filter(a => a.channelId === channelId && !!this.member(a.localId))
+      .map(a => a.localId)
+    const now = this.now()
+    const c: StoredChannel = {
+      id: randomUUID(),
+      name: info.name,
+      topic: info.topic,
+      projectId: null,
+      memberIds: [SELF_ID, ...new Set(mine)],
+      sideOf: channelId,
+      createdAt: now,
+      readAt: now,
+    }
+    await this.store.saveChannel(c)
+    this.changed()
+    return { channelId: c.id }
+  }
+
+  /**
+   * 「我的协作」里的结果、流程的开始和结束发到团队频道：成员登记在团队频道里就以它的名义发，没登记的以我的名义发并写上
+   * 成员名。尽力而为：团队频道不在了、归档了、发不出去都只记日志，不重试、不挡本机这边
+   */
+  private mirrorSide(c: StoredChannel, key: string, text: string, memberId?: string): void {
+    const team = this.team
+    if (!team || !c.sideOf || c.sideMirror === false || !text.trim()) return
+    const info = team.channelInfo(c.sideOf)
+    if (!info || info.archived) return
+    const agent = memberId
+      ? team.myAgents(info.teamId).find(a => a.channelId === c.sideOf && a.localId === memberId)
+      : undefined
+    void team
+      .post(c.sideOf, {
+        clientId: `side-${key}`,
+        text: sideMirrorText(text, agent || !memberId ? null : this.nameOf(memberId)),
+        mentions: [],
+        format: 'markdown',
+        ...(agent ? { agentId: agent.id } : {}),
+      })
+      .catch(e => this.deps.log?.('结果发到团队频道失败', e))
   }
 
   /** 把自己的 AI 成员登记到团队频道（已登记的更新派活规则）。云端只存名字、引擎、模型、机器名、项目名和规则 */
@@ -6331,6 +6427,8 @@ export class Channels {
       clientId: typeof input.clientId === 'string' ? input.clientId : randomUUID(),
       text,
       replyTo: input.replyToId ?? null,
+      // 串的根由云端归并（串里再开串、任务结果归到任务卡）
+      ...(info.threads && typeof input.threadId === 'string' && input.threadId ? { threadId: input.threadId } : {}),
       mentions,
     })
     if (res.message?.kind !== 'message') throw new Error('云端返回的数据异常')

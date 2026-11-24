@@ -154,6 +154,10 @@ function eventKind(type: string): ChannelEvent['event'] | null {
       return 'agentAdded'
     case 'agentremoved':
       return 'agentRemoved'
+    case 'archived':
+      return 'archived'
+    case 'restored':
+      return 'restored'
     default:
       return null
   }
@@ -786,9 +790,17 @@ export class TeamSync {
     return this.meta.has(channelId)
   }
 
-  channelInfo(
-    channelId: string,
-  ): { teamId: string; name: string; topic: string | null; role: TeamRole; createdBy: string } | null {
+  channelInfo(channelId: string): {
+    teamId: string
+    name: string
+    topic: string | null
+    role: TeamRole
+    createdBy: string
+    /** 云端有讨论串、置顶、归档（docs/ui/channels-unify.md §7.1）；旧版云端是 false */
+    threads: boolean
+    pinned: string[]
+    archived: boolean
+  } | null {
     const meta = this.meta.get(channelId)
     if (!meta) return null
     return {
@@ -797,6 +809,9 @@ export class TeamSync {
       topic: meta.data.topic,
       role: this.teams.get(meta.teamId)?.role ?? 'member',
       createdBy: meta.data.createdBy,
+      threads: meta.data.pinned !== null,
+      pinned: meta.data.pinned ?? [],
+      archived: !!meta.data.archivedAt,
     }
   }
 
@@ -951,6 +966,7 @@ export class TeamSync {
       text: tm.text,
       format: tm.format,
       replyToId: tm.replyTo,
+      ...(tm.threadId ? { threadId: tm.threadId } : {}),
       mentions: tm.mentions,
       taskId: tm.taskId,
     }
@@ -1001,6 +1017,8 @@ export class TeamSync {
           createdAt: ch.createdAt,
           lastAt: meta?.lastAt ?? ch.lastAt,
           wakeups: wakeups.get(ch.id) ?? [],
+          // 有 pinned 这个字段：云端支持讨论串、置顶、归档（界面按它开这三样）
+          ...(ch.pinned ? { pinned: ch.pinned, archivedAt: ch.archivedAt } : {}),
         })
       }
     return out.sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -1114,8 +1132,15 @@ export class TeamSync {
   createChannel(teamId: string, input: { name: string; topic: string | null }): Promise<string> {
     return this.done(this.api.createChannel(teamId, input))
   }
-  updateChannel(teamId: string, channelId: string, patch: { name?: string; topic?: string | null }): Promise<void> {
+  updateChannel(
+    teamId: string,
+    channelId: string,
+    patch: { name?: string; topic?: string | null; archived?: boolean },
+  ): Promise<void> {
     return this.done(this.api.updateChannel(teamId, channelId, patch))
+  }
+  pin(teamId: string, channelId: string, messageId: string, on: boolean): Promise<void> {
+    return this.done(this.api.pin(teamId, channelId, messageId, on))
   }
   deleteChannel(teamId: string, channelId: string): Promise<void> {
     return this.done(this.api.deleteChannel(teamId, channelId))
@@ -1130,7 +1155,16 @@ export class TeamSync {
   /** 发消息：响应里的消息和任务卡马上进缓存 */
   async post(
     channelId: string,
-    input: { clientId: string; text: string; replyTo?: string | null; mentions: string[] },
+    input: {
+      clientId: string
+      text: string
+      replyTo?: string | null
+      threadId?: string | null
+      mentions: string[]
+      format?: 'plain' | 'markdown'
+      /** 以自己的这个 AI 成员（ta_…）的名义发 */
+      agentId?: string
+    },
   ): Promise<{ message: ChannelMessage | null; tasks: string[] }> {
     const meta = this.meta.get(channelId)
     if (!meta) throw new Error('频道不存在')

@@ -568,6 +568,7 @@ const channels: ChannelsBridge = {
   delete: id => call('channels:delete', id),
   share: (id, input) => call('channels:share', id, input),
   unshare: id => call('channels:unshare', id),
+  side: id => call('channels:side', id),
   post: (id, input) => call('channels:post', id, input),
   attachments: (id, messageId) => call('channels:attachments', id, messageId),
   generateImage: input => call('channels:generateImage', input),
