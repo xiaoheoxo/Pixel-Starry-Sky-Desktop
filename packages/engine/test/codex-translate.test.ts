@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRun, EngineEvent } from '@pixelsky/protocol'
 import { agnesTag } from '../src/codex/agnes-attribution'
-import { CodexTranslator, codexReview } from '../src/codex/translate'
+import { CodexTranslator, codexAsyncQuestions, codexReview } from '../src/codex/translate'
 
 describe('自动审核的审查结果', () => {
   it('状态和风险按协议转，看不懂的不显示', () => {
@@ -234,5 +234,90 @@ describe('Agnes attribution', () => {
     translator.setAgnesAttribution(undefined)
     translator.item({ ...spawn('early'), kind: 'completed' }, true)
     expect(translator.agents.get('early')).toMatchObject({ modelSource: 'agnes', state: 'completed' })
+  })
+})
+
+describe('Codex 异步提问（request_user_input_async）转换', () => {
+  it('把 agentMessage.questions 解析为单选带自由输入或纯自由输入题目，流式增量与完成事件保留 questions', () => {
+    expect(
+      codexAsyncQuestions([
+        { title: '用哪种数据库？', options: ['PostgreSQL (Recommended)', 'SQLite'] },
+        { title: '还有什么限制？', options: null },
+        { title: '   ', options: ['x'] },
+      ]),
+    ).toEqual([
+      {
+        id: 'aq-0',
+        question: '用哪种数据库？',
+        header: '',
+        multiSelect: false,
+        allowOther: true,
+        options: [
+          { label: 'PostgreSQL (Recommended)', description: '' },
+          { label: 'SQLite', description: '' },
+        ],
+      },
+      {
+        id: 'aq-1',
+        question: '还有什么限制？',
+        header: '',
+        multiSelect: false,
+        allowOther: false,
+        options: [],
+      },
+    ])
+
+    // 重名题面自动加序号去重，防止前端按 question 键存草稿和答案时串题
+    const dup = codexAsyncQuestions([
+      { title: '确认方案', options: ['A', 'B'] },
+      { title: '确认方案', options: ['X', 'Y'] },
+    ])
+    expect(dup.map(q => q.question)).toEqual(['确认方案', '确认方案 (2)'])
+
+    const events: EngineEvent[] = []
+    const t = new CodexTranslator(e => events.push(e))
+    t.item(
+      {
+        type: 'agentMessage',
+        id: 'call_async_1',
+        text: '用哪种数据库？\n- PostgreSQL\n- SQLite',
+        delivery: 'async',
+        questions: [{ title: '用哪种数据库？', options: ['PostgreSQL', 'SQLite'] }],
+      },
+      false,
+    )
+    // 完成事件即使未重带 questions 也保留已解析的问题
+    t.item({ type: 'agentMessage', id: 'call_async_1', text: '用哪种数据库？\n- PostgreSQL\n- SQLite' }, true)
+    const completed = events.findLast(e => e.type === 'item_completed')
+    expect(completed).toMatchObject({
+      type: 'item_completed',
+      item: {
+        kind: 'assistant',
+        id: 'cx-call_async_1',
+        questions: [{ id: 'aq-0', question: '用哪种数据库？' }],
+      },
+    })
+  })
+
+  it('关闭 askQuestions 时只保留普通助手文本，不挂结构化 questions', () => {
+    const events: EngineEvent[] = []
+    const t = new CodexTranslator(e => events.push(e), undefined, undefined, undefined, false)
+    t.item(
+      {
+        type: 'agentMessage',
+        id: 'call_async_2',
+        text: '请问用什么方案？',
+        delivery: 'async',
+        questions: [{ title: '请问用什么方案？', options: ['A', 'B'] }],
+      },
+      true,
+    )
+    const item = events[0]?.type === 'item_completed' ? events[0].item : null
+    expect(item).toEqual({
+      kind: 'assistant',
+      id: 'cx-call_async_2',
+      text: '请问用什么方案？',
+      status: 'completed',
+    })
   })
 })

@@ -9,11 +9,13 @@ import { windowSettings } from '../src/claude/long-context'
 import { claudeSettingsArgument } from '../src/claude/session'
 import { codexContextConfig } from '../src/codex/context-config'
 import {
+  ASYNC_ASK_TOOL,
   CodexCatalog,
   FALLBACK_WINDOW,
   catalogWith,
   fallbackEntry,
   reasoningFromSibling,
+  withAsyncAsk,
   withUltrafast,
 } from '../src/codex/model-catalog'
 import { makeTmp, removeTmp } from './helpers/tmp'
@@ -576,6 +578,77 @@ describe('Codex 经网关：模型目录（§2.3.1）', () => {
     expect(launches().length).toBe(before + 1)
     const deepseek = readCatalog(launches().at(-1)!).models.find(m => m.slug === 'deepseek-v4-pro')
     expect(deepseek?.input_modalities).toEqual(['text'])
+  })
+
+  it('异步提问 request_user_input_async：同系列继承实验工具，网关与自有未收录 GPT-6+ 按 askQuestions 增删能力', async () => {
+    const bundled = [
+      {
+        slug: 'gpt-6.1-sol',
+        context_window: 272_000,
+        supported_reasoning_levels: [{ effort: 'low', description: '' }],
+        default_reasoning_level: 'low',
+        experimental_supported_tools: [ASYNC_ASK_TOOL, 'clock'],
+      },
+      { slug: 'gpt-5', context_window: 272_000, experimental_supported_tools: [] },
+    ]
+    // 同系列新型号自动抄走兄弟模型的 experimental_supported_tools
+    expect(reasoningFromSibling(bundled, 'gpt-6.2-sol').experimental_supported_tools).toEqual([ASYNC_ASK_TOOL, 'clock'])
+    // 已有该能力的自带型号在 asyncAsk: true 下不重复生成目录
+    expect(catalogWith(bundled, 'gpt-6.1-sol', null, null, 'P', { asyncAsk: true })).toBeNull()
+    // 网关下原本没有该能力的型号（如中转用 gpt-5 名称转发 GPT-6）：补齐 send_user_message_async
+    const unlocked = catalogWith(bundled, 'gpt-5', null, null, 'P', { asyncAsk: true })!.models
+    expect(unlocked[1].experimental_supported_tools).toEqual([ASYNC_ASK_TOOL])
+    // 关闭允许提问时剔除该能力
+    const stripped = catalogWith(bundled, 'gpt-6.1-sol', null, null, 'P', { asyncAsk: false })!.models
+    expect(stripped[0].experimental_supported_tools).toEqual(['clock'])
+    expect(withAsyncAsk(bundled[0], true)).toBe(bundled[0])
+
+    // 真实宿主：平台会话（已收录的 gpt-5 也补齐）、自有未收录的 gpt-6.2-sol 补齐，而自有已收录 gpt-5 不生成目录
+    const { host, project, launches } = codexHost()
+    const plat = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'gpt-5',
+      platform: { groupId: '7', account: 'a@example.com' },
+      permissionMode: 'ask',
+    })
+    await host.send(plat.id, '一')
+    await waitFor(() => turnsDone(plat.id) === 1)
+    expect(
+      readCatalog(launches().at(-1)!).models.find(m => m.slug === 'gpt-5')?.experimental_supported_tools,
+    ).toContain(ASYNC_ASK_TOOL)
+
+    const ownNew = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'gpt-6.2-sol',
+      permissionMode: 'ask',
+    })
+    await host.send(ownNew.id, '一')
+    await waitFor(() => turnsDone(ownNew.id) === 1)
+    expect(
+      readCatalog(launches().at(-1)!).models.find(m => m.slug === 'gpt-6.2-sol')?.experimental_supported_tools,
+    ).toContain(ASYNC_ASK_TOOL)
+
+    const ownOld = host.createSession({
+      projectId: project.id,
+      engine: 'codex',
+      model: 'gpt-5',
+      permissionMode: 'ask',
+    })
+    await host.send(ownOld.id, '一')
+    await waitFor(() => turnsDone(ownOld.id) === 1)
+    expect(launches().at(-1)).not.toContain('model_catalog_json')
+
+    // 自有会话中途从 gpt-5 切到未收录的 gpt-6.2-sol：modelLaunchKey 变化，重启进程并带上新目录
+    const beforeSwitch = launches().length
+    await host.update(ownOld.id, { model: 'gpt-6.2-sol' })
+    await host.send(ownOld.id, '二')
+    await waitFor(() => turnsDone(ownOld.id) === 2)
+    expect(launches().length).toBe(beforeSwitch + 1)
+    expect(
+      readCatalog(launches().at(-1)!).models.find(m => m.slug === 'gpt-6.2-sol')?.experimental_supported_tools,
+    ).toContain(ASYNC_ASK_TOOL)
   })
 })
 

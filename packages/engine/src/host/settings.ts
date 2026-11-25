@@ -296,7 +296,8 @@ export class HostSettings {
     if (record.engine !== 'codex') return ''
     const o = this.launchOptions('codex')
     const windows = o.contextWindows[record.platform ? 'platform' : 'self']
-    return record.provider || record.platform || o.autoCompactPct || Object.keys(windows).length
+    const ownAsync = o.askQuestions && /^gpt-[6-9](?:[.-]|$)/i.test(record.model ?? '')
+    return record.provider || record.platform || o.autoCompactPct || Object.keys(windows).length || ownAsync
       ? `|${record.model ?? ''}`
       : ''
   }

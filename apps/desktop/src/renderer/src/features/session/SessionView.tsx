@@ -21,6 +21,8 @@ import { WelcomeView } from './WelcomeView'
 import { hasConversation } from './conversation'
 import { LiveTranscript } from './live/LiveTranscript'
 import { ApprovalStack } from './live/approvals/ApprovalStack'
+import { AsyncQuestionCard, saveDismissedAsyncQuestion, useDismissedAsyncQuestions } from './live/AsyncQuestionCard'
+import { findActiveAsyncQuestion } from './live/asyncQuestionModel'
 import type { PlanActions } from './live/PlanReview'
 import { ApprovalWaitContext } from './live/approvals/focus'
 import { focusComposer } from './composerTarget'
@@ -465,6 +467,13 @@ function LiveSessionView({
     return items.slice(from).find(i => i.kind === 'user')?.id ?? null
   }, [record?.branch, items])
   const readOnly = branchReadOnly(record)
+  const askQuestionsEnabled = useEngineState(s => !record || s.config?.[record.engine]?.askQuestions !== false)
+  const dismissedAsyncIds = useDismissedAsyncQuestions(sessionId)
+  const activeAsyncQuestion = useMemo(
+    () =>
+      readOnly || !askQuestionsEnabled ? null : findActiveAsyncQuestion(items, dismissedAsyncIds, snapshot?.queue),
+    [readOnly, askQuestionsEnabled, items, dismissedAsyncIds, snapshot?.queue],
+  )
   // 打开追踪面板时对话区的卡片让开；停靠的不在对话区，不用让
   const [subagentSettings, setSubagentSettings] = useState(false)
   const progressCard =
@@ -747,6 +756,42 @@ function LiveSessionView({
                         }
                         onEscape={() => focusComposer(composerDraftKey(draftKey, composer))}
                         planActions={planActions}
+                      />
+                    )}
+                    {activeAsyncQuestion && sessionId && !snapshot?.pending.length && (
+                      <AsyncQuestionCard
+                        key={activeAsyncQuestion.itemId}
+                        active={activeAsyncQuestion}
+                        bounds={mainRef}
+                        onSubmit={async text => {
+                          if (!bridge || !composer) return
+                          // 在 await 前拍下当前轮次信息：正在跑、队列未暂停、支持引导且没挂跨引擎切换时走 turn/steer 实时喂给 Codex；其余走 composer.submit
+                          const s = latest.current
+                          const shouldSteer =
+                            !!s &&
+                            s.state === 'running' &&
+                            !s.queuePaused &&
+                            !!s.turnId &&
+                            s.flags.steerAvailable === true &&
+                            (s.record.nextEngine ?? s.record.engine) === s.record.engine
+                          const turnId = s?.turnId ?? null
+                          if (!shouldSteer || !turnId || (composer.blocker && composer.blocker.kind !== 'balance')) {
+                            await composer.submit(text)
+                            return
+                          }
+                          const receipt = await bridge.send(sessionId, {
+                            text,
+                            clientMessageId: crypto.randomUUID(),
+                            attachments: [],
+                          })
+                          if (receipt?.queueId) {
+                            await bridge.steerQueued(sessionId, receipt.queueId, turnId).catch(() => undefined)
+                          }
+                        }}
+                        onDismiss={itemId => {
+                          saveDismissedAsyncQuestion(sessionId, itemId)
+                        }}
+                        onEscape={() => focusComposer(composerDraftKey(draftKey, composer))}
                       />
                     )}
                     {branch.undo && (

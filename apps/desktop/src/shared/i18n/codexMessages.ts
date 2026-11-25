@@ -29,6 +29,14 @@ export const codexMessages = {
     zh: '允许当前操作，并将本会话切换为完全放行；可在输入框的权限菜单中改回',
     en: 'Allow this operation and enable full access for this session. Change it back in the composer permission menu.',
   },
+  'codex.asyncQuestion.title': {
+    zh: 'Codex 提问',
+    en: 'Codex question',
+  },
+  'codex.asyncQuestion.badge': {
+    zh: '异步 · 不阻塞当前执行',
+    en: 'Async · Non-blocking',
+  },
   'codex.permission.ask': {
     zh: '不受信任的命令需要确认；项目写入受沙箱约束',
     en: 'Untrusted commands require approval; workspace writes are sandboxed',

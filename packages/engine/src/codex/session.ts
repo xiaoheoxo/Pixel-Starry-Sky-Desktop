@@ -365,19 +365,20 @@ export async function codexLaunchConfig(
   record: SessionRecord,
   baseEnv: NodeJS.ProcessEnv,
   ctx: Pick<SessionContext, 'maxRetries' | 'extensions'>,
-  options: Pick<
-    CodexLaunchOptions,
-    | 'args'
-    | 'defaultModel'
-    | 'contextWindows'
-    | 'autoCompactPct'
-    | 'knownWindows'
-    | 'modelCatalog'
-    | 'subagentModel'
-    | 'subagentEffort'
-    | 'subagentFollowAdvisor'
-    | 'autoReviewModel'
-  >,
+  options: Partial<Pick<CodexLaunchOptions, 'askQuestions'>> &
+    Pick<
+      CodexLaunchOptions,
+      | 'args'
+      | 'defaultModel'
+      | 'contextWindows'
+      | 'autoCompactPct'
+      | 'knownWindows'
+      | 'modelCatalog'
+      | 'subagentModel'
+      | 'subagentEffort'
+      | 'subagentFollowAdvisor'
+      | 'autoReviewModel'
+    >,
   askFlag: boolean,
 ): Promise<{
   args: string[]
@@ -443,19 +444,26 @@ export async function codexLaunchConfig(
   })
   delete environment[CODEX_WINDOW_ENV]
   if (context.window) config('model_context_window', context.window)
-  // 经网关（云端线路、自定义 API）：Codex 把窗口限制在模型资料的上限内，没有资料的模型只有 272K。用户自己写了目录时不管。
-  // 平台线路上能开 Ultrafast 的模型还要在目录里声明这一档，否则 Codex 会把它从请求里去掉（docs/codex-ultrafast-platform.md）；
-  // 没资料的模型写上能不能看图（和 codexModelSees 同一个判断），不能看的 Codex 才会把历史里的图换成文字
+  // 经网关（云端线路、自定义 API）或自有配置下未收录的 GPT-6+ / 自定义 provider：
+  // 1. 网关会话不拉 OpenAI 远程目录，按「允许中途向我提问」补齐 send_user_message_async，放行 request_user_input_async；
+  // 2. 自有配置下若指定了未收录的新 GPT-6+ 型号或自定义 provider，也按需补齐目录（已收录型号与普通自有会话返回 null 不带参数）
+  const asyncAsk = options.askQuestions !== false
+  const needsOwnAsync = !gatewayProvider && !!model && asyncAsk && /^gpt-[6-9](?:[.-]|$)/i.test(model)
   if (
-    gatewayProvider &&
+    (gatewayProvider || needsOwnAsync) &&
     model &&
     options.modelCatalog &&
     !(options.args ?? []).some(arg => arg.includes('model_catalog_json'))
   ) {
-    const reviewModel = options.autoReviewModel || null
+    const reviewModel = gatewayProvider ? options.autoReviewModel || null : null
     const extras: CatalogExtras = record.platform
-      ? { ultrafast: platformUltrafastModel(model), images: autoImageInput(model, 'responses').images, reviewModel }
-      : { reviewModel }
+      ? {
+          ultrafast: platformUltrafastModel(model),
+          images: autoImageInput(model, 'responses').images,
+          reviewModel,
+          asyncAsk,
+        }
+      : { ...(reviewModel ? { reviewModel } : {}), asyncAsk }
     const file = await options.modelCatalog(model, context.window, pixelAutoWindow(model), extras).catch(() => null)
     if (file) config('model_catalog_json', file)
   }
@@ -680,6 +688,7 @@ export class CodexSession implements EngineSession {
       () => this.last.total || null,
       this.agents,
       this.ctx.record().cwd,
+      this.options.askQuestions !== false,
     )
   }
   private async open(): Promise<void> {
@@ -1170,6 +1179,7 @@ export class CodexSession implements EngineSession {
       () => this.last.total || null,
       this.agents,
       this.ctx.record().cwd,
+      this.options.askQuestions !== false,
     )
     this.reportedError = null
     this.blocked = null

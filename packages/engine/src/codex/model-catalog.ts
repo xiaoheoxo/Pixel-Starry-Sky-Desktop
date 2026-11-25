@@ -62,8 +62,11 @@ const newerVersion = (a: number[], b: number[]): boolean => {
   return false
 }
 
+/** Codex 在模型目录里控制 request_user_input_async 放行的能力名（实测 0.169） */
+export const ASYNC_ASK_TOOL = 'send_user_message_async'
+
 /**
- * 没资料的新模型的推理档位：抄 Codex 自带资料里同一系列、版本最高、有档位的那个（gpt-6.2-sol 抄 gpt-6.1-sol）。
+ * 没资料的新模型的推理档位与实验工具：抄 Codex 自带资料里同一系列、版本最高、有档位的那个（gpt-6.2-sol 抄 gpt-6.1-sol）。
  * 默认资料的档位是空的，Codex 会把模型报成不能调强度（平台上 Codex 还没收录的 6.2 系列就是这样）。
  * 找不到同系列的（自定义接口的 deepseek 之类）返回空，照旧不写
  */
@@ -78,10 +81,14 @@ export function reasoningFromSibling(bundled: readonly CatalogModel[], slug: str
     if (!best || newerVersion(s.version, best.version)) best = { entry, version: s.version }
   }
   if (!best) return {}
-  const { supported_reasoning_levels, default_reasoning_level } = best.entry
+  const { supported_reasoning_levels, default_reasoning_level, experimental_supported_tools } = best.entry
+  const tools = Array.isArray(experimental_supported_tools)
+    ? experimental_supported_tools.filter((t): t is string => typeof t === 'string')
+    : []
   return {
     supported_reasoning_levels,
     ...(default_reasoning_level === undefined ? {} : { default_reasoning_level }),
+    ...(tools.length ? { experimental_supported_tools: tools } : {}),
   }
 }
 
@@ -90,10 +97,28 @@ export interface CatalogExtras {
   ultrafast?: boolean
   images?: boolean
   /**
+   * 是否允许模型调用异步提问 request_user_input_async：true 确保含 send_user_message_async，false 剔除，undefined 不改动原项
+   */
+  asyncAsk?: boolean
+  /**
    * 自动审核用的模型（docs/ui/codex-auto-review-model.md）；不给就用对话的模型。写进这一项的 auto_review_model_override：
    * 不写的话 Codex 拿到目录文件后会改用自带目录里隐藏的 codex-auto-review（实测 0.169），经网关的线路上没有它
    */
   reviewModel?: string | null
+}
+
+/** 按 asyncAsk 增删目录项的 send_user_message_async，无变化时返回原引用 */
+export function withAsyncAsk(entry: CatalogModel, asyncAsk?: boolean): CatalogModel {
+  if (asyncAsk === undefined) return entry
+  const tools = Array.isArray(entry.experimental_supported_tools)
+    ? entry.experimental_supported_tools.filter((t): t is string => typeof t === 'string')
+    : []
+  const has = tools.includes(ASYNC_ASK_TOOL)
+  if (asyncAsk === has) return entry
+  return {
+    ...entry,
+    experimental_supported_tools: asyncAsk ? [...tools, ASYNC_ASK_TOOL] : tools.filter(t => t !== ASYNC_ASK_TOOL),
+  }
 }
 
 /** 平台线路的 Ultrafast 档位（Codex 目录里 service_tiers 的一项）；Fast 一起声明，没有资料的模型原本两个都没有 */
@@ -134,24 +159,25 @@ export function catalogWith(
 ): { models: CatalogModel[] } | null {
   const ultrafast = extras.ultrafast === true
   const review = extras.reviewModel || model
-  const tiers = (entry: CatalogModel): CatalogModel => ({
-    ...(ultrafast ? withUltrafast(entry) : entry),
+  const decorate = (entry: CatalogModel): CatalogModel => ({
+    ...withAsyncAsk(ultrafast ? withUltrafast(entry) : entry, extras.asyncAsk),
     auto_review_model_override: review,
   })
   const own = bundled.find(m => m.slug === model)
   if (own) {
     const max = own.max_context_window ?? own.context_window ?? FALLBACK_WINDOW
     const wider = !!window && window > max
-    // 不给目录文件时 Codex 的自动审核本来就用对话的模型：只有审核要换模型才为它生成
-    if (!wider && !ultrafast && review === model) return null
-    const changed = tiers(wider ? { ...own, context_window: window, max_context_window: window } : own)
+    const asyncChanged = withAsyncAsk(own, extras.asyncAsk) !== own
+    // 不给目录文件时 Codex 的自动审核本来就用对话的模型：只有窗口变宽、开 Ultrafast、换审核模型或改异步提问能力时才生成
+    if (!wider && !ultrafast && review === model && !asyncChanged) return null
+    const changed = decorate(wider ? { ...own, context_window: window, max_context_window: window } : own)
     return { models: bundled.map(m => (m === own ? changed : m)) }
   }
   if (!instructions) return null
   return {
     models: [
       ...bundled,
-      tiers({
+      decorate({
         ...fallbackEntry(model, window ?? auto ?? FALLBACK_WINDOW, instructions, extras.images),
         ...reasoningFromSibling(bundled, model),
       }),

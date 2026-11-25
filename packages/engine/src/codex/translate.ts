@@ -1,6 +1,6 @@
 import { stripAgnesTag, type AgnesAttribution } from './agnes-attribution'
 import { plainCodexMcpName } from '../mcp'
-import type { AgentRun, EngineEvent, FileChange, Item, ItemReview, ItemStatus } from '@pixelsky/protocol'
+import type { AgentRun, EngineEvent, FileChange, Item, ItemReview, ItemStatus, Question } from '@pixelsky/protocol'
 import { array, object, string, number, type Message } from './process'
 import { diffAdded } from '../diff'
 import { MAX_OUTPUT, clip } from '../output'
@@ -62,6 +62,36 @@ const statusOf = (value: unknown, complete: boolean): ItemStatus =>
         : complete
           ? 'completed'
           : 'running'
+/** Codex agentMessage 里的异步提问（request_user_input_async → AsyncUserInputQuestion[]）转成通用 Question 列表 */
+export function codexAsyncQuestions(value: unknown): Question[] {
+  const used = new Set<string>()
+  return array(value).flatMap((raw, index): Question[] => {
+    const q = object(raw)
+    const base = string(q.title).trim()
+    if (!base) return []
+    // questionModel 按 question 文本做草稿和答案键：Codex 允许重名 title，遇到冲突时自动加序号防串题
+    let question = base
+    for (let n = 2; used.has(question); n++) question = `${base} (${n})`
+    used.add(question)
+    const opts = Array.isArray(q.options)
+      ? q.options
+          .map(o => string(o).trim())
+          .filter(Boolean)
+          .map(label => ({ label, description: '' }))
+      : []
+    return [
+      {
+        id: `aq-${index}`,
+        question,
+        header: '',
+        multiSelect: false,
+        allowOther: opts.length > 0,
+        options: opts,
+      },
+    ]
+  })
+}
+
 /** 子智能体停在 running 的标成已中断（它的进程没了，或这一轮被中止，不会再有后续）；其他状态不动 */
 export const interruptedAgent = (agent: AgentRun): AgentRun =>
   agent.state === 'running' ? { ...agent, state: 'interrupted' } : agent
@@ -84,6 +114,8 @@ export class CodexTranslator {
     /** 子智能体按线程 id 记；会话传入同一个，跨轮保留（结束常在后面的轮次才到） */
     readonly agents = new Map<string, AgentRun>(),
     private readonly cwd?: string,
+    /** 关闭「允许中途向我提问」时不挂结构化 questions，只保留普通正文 */
+    private readonly askQuestions = true,
   ) {}
   private agnes?: AgnesAttribution
   private readonly dispatchMarkers = new Map<string, string>()
@@ -151,14 +183,17 @@ export class CodexTranslator {
       since = this.lastAt
     this.lastAt = now
     let item: Item | null = null
-    if (type === 'agentMessage' || type === 'plan')
+    if (type === 'agentMessage' || type === 'plan') {
+      const parsed = type === 'agentMessage' && this.askQuestions ? codexAsyncQuestions(raw.questions) : []
+      const questions = parsed.length ? parsed : prior?.kind === 'assistant' ? prior.questions : undefined
       item = {
         kind: 'assistant',
         id,
         text: string(raw.text) || (prior?.kind === 'assistant' ? prior.text : ''),
         status,
+        ...(questions?.length ? { questions } : {}),
       }
-    else if (type === 'reasoning') {
+    } else if (type === 'reasoning') {
       if (!this.reasoningStart.has(id)) this.reasoningStart.set(id, since)
       item = {
         kind: 'reasoning',
