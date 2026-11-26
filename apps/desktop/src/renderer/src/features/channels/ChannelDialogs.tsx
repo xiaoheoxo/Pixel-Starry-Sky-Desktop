@@ -735,6 +735,7 @@ export function AgentDialog({
   from,
   others,
   onClose,
+  onSaved,
 }: {
   channel: Channel
   editing: AgentConfig | null
@@ -743,6 +744,8 @@ export function AgentDialog({
   /** 还不在这个频道里的已有成员 */
   others: readonly AgentMember[]
   onClose: () => void
+  /** 保存成功之后（成员卡「打开设置再改…」用来把卡标成已改，docs/ui/channels-member-tools.md §1.3） */
+  onSaved?: () => Promise<void>
 }) {
   useI18n()
   const engines = useEngineState(s => s.engines)
@@ -1009,6 +1012,7 @@ export function AgentDialog({
       const boundAny = !!editing && runners.list.some(r => r.members.includes(editing.id))
       if (editing && (wantRunner ? !boundRunner : boundAny))
         await window.pixelsky!.channels.bindRunner(editing.id, wantRunner)
+      await onSaved?.()
     })
   }
 

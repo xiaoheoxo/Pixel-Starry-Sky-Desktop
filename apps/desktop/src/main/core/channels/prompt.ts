@@ -4,6 +4,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown'
 import type { Locale } from '../../../shared/i18n/messages'
 import type { ChannelFlow, ChannelMessage, ChannelTaskStatus } from '../../../shared/types/channels'
 import { excerpt, splitMentions, type Mentionable } from '../../../shared/channels/mentions'
+import { changeState } from './member-tools'
 
 /** 最近的讨论最多带这么多条 / 这么多字，先到哪个停在哪个 */
 export const HISTORY_MESSAGES = 20
@@ -148,6 +149,8 @@ export function historyLine(m: ChannelMessage, nameOf: (id: string) => string, l
       ? `${nameOf(m.authorId)} handed to ${nameOf(m.assigneeId)}: ${m.title} (${status})`
       : `${nameOf(m.authorId)} 交给 ${nameOf(m.assigneeId)}：${m.title}（${status}）`
   }
+  // 成员卡（docs/ui/channels-member-tools.md §2）：一句话加上现在的状态，AI 读频道就知道用户点了什么
+  if (m.memberChange) return `${nameOf(m.authorId)}${colon}${m.text}（${changeState(m.memberChange)}）`
   // AI 的长回复只带第一段
   const body = m.format === 'markdown' ? (m.text.split(/\n\s*\n/)[0] ?? '') : m.text
   const clipped = body.trim().length > LINE_MAX ? `${body.trim().slice(0, LINE_MAX)}…` : body.trim()
@@ -269,6 +272,7 @@ function toolsText(tools: { relay: boolean }, locale: Locale): string {
   if (en(locale))
     return [
       "You have the channel tools (MCP server pixelsky_channel): channel_read reads earlier messages in this channel (only the last few are above), thread_read reads the discussion thread of a task card, channel_reply posts a short note in this task's thread (progress, questions; it does not interrupt anyone), and task_propose suggests giving a task to another AI member (the user decides whether to send it).",
+      "member_list shows who is in this channel. If a member's model, effort or role does not fit the work, propose a change with member_update, or propose removing it from the channel with member_remove; both wait for the user to approve.",
       toolLookup(locale),
       attachmentHint(locale),
       tools.relay
@@ -279,6 +283,7 @@ function toolsText(tools: { relay: boolean }, locale: Locale): string {
       .join('\n')
   return [
     '你有频道工具（MCP 服务 pixelsky_channel）：channel_read 读这个频道更早的消息（上面只带了最近几条），thread_read 读某张任务卡的讨论串，channel_reply 在这项活的串里写一句（进展、问题，不会打断别人），task_propose 提议把一项活交给别的 AI 成员（由用户决定派不派）。',
+    'member_list 看频道里有谁；觉得某个成员的模型、强度、职责不合适，用 member_update 提议改，用 member_remove 提议移出频道，都要用户点头。',
     toolLookup(locale),
     attachmentHint(locale),
     tools.relay

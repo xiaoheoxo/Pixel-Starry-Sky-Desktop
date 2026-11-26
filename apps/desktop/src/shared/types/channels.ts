@@ -4,6 +4,7 @@ import type { CheckRun } from './checks'
 import type {
   ApprovalRequest,
   CostState,
+  Effort,
   EngineId,
   FileAttachment,
   FileChange,
@@ -365,6 +366,8 @@ export interface ChannelTextMessage extends ChannelMessageBase {
   threadId?: string | null
   /** AI 成员用频道工具 task_propose 提议的派活（§1）：要你点「派出去」才派 */
   proposal?: ChannelProposal | null
+  /** AI 成员用 member_update / member_remove 提议改、移出成员（docs/ui/channels-member-tools.md）：要你点才生效 */
+  memberChange?: ChannelMemberChange | null
   /** 主动提醒（docs/ui/channels-collab-v2.md §6）：系统发的，authorId 是 SYSTEM_AUTHOR */
   alert?: ChannelAlert | null
   /** 流程（docs/ui/channels-pipeline.md §4）：这条消息就是流程卡，步骤和状态都在这里 */
@@ -677,6 +680,35 @@ export interface ChannelAlert {
 }
 
 /** 提议的派活：给谁、做什么；open 等你决定，sent 已派出（taskId 是派出的卡），dismissed 不要了 */
+/** AI 能改的成员设置（docs/ui/channels-member-tools.md §4）；null 是跟随默认 */
+export interface MemberChangeFields {
+  model?: string | null
+  effort?: Effort | null
+  instructions?: string
+}
+
+/**
+ * 成员改动卡（docs/ui/channels-member-tools.md §2）：open 等你点；done 改了 / 移出了；dismissed 没采用；
+ * stale 失效（why：replaced 被新的替代、changed 卡发出来后你改过、gone 成员不在了）；undone 改回去 / 加回来了
+ */
+export interface ChannelMemberChange {
+  op: 'update' | 'remove'
+  memberId: string
+  /** update：发卡时的值和要改成的值，只含要改的几项 */
+  from?: MemberChangeFields
+  to?: MemberChangeFields
+  reason: string
+  state: 'open' | 'done' | 'dismissed' | 'stale' | 'undone'
+  why?: 'replaced' | 'changed' | 'gone' | null
+  /** 你在设置对话框里调整过再保存的：不能「改回去」 */
+  adjusted?: boolean
+  /** 改的是「一直用同一个会话」的成员：改之前那个会话的模型、强度（「改回去」时放回去） */
+  session?: { id: string; model?: string | null; effort?: Effort | null }
+  decidedAt?: number | null
+}
+
+export type MemberChangeAction = 'accept' | 'dismiss' | 'undo' | 'adjusted'
+
 export interface ChannelProposal {
   assigneeId: string
   request: string
@@ -1089,7 +1121,7 @@ export function cleanTeammate(raw: unknown): TeammateRules {
  */
 export interface ChannelNeed {
   key: string
-  kind: 'approval' | 'proposal' | 'held' | 'decision' | 'checks' | 'failed' | 'alert' | 'flow'
+  kind: 'approval' | 'proposal' | 'member' | 'held' | 'decision' | 'checks' | 'failed' | 'alert' | 'flow'
   /** kind 是 flow 时：草稿等你确认（null）、停下的原因，gate（一步交付了等你确认，第 12 项），或 ask（一步在问你） */
   pause?: FlowPause | 'gate' | 'ask' | null
   /** kind 是 flow、pause 是 gate 时：等你确认的那一步 */

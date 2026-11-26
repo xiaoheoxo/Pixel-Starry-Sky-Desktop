@@ -87,6 +87,47 @@ const TOOLS = [
     annotations: WRITE,
   },
   {
+    name: 'member_list',
+    description:
+      '看这个频道里有谁：名字、真人还是 AI、引擎、模型、强度、职责、手上有几项活。给 member（成员名）时只看这一个，另外列出它能换的模型、能选的强度和它还在哪些频道里；改成员前先查。',
+    inputSchema: {
+      type: 'object',
+      properties: { member: { type: 'string', description: 'AI 成员的名字，可不填' } },
+    },
+    annotations: READ_ONLY,
+  },
+  {
+    name: 'member_update',
+    description:
+      '提议改某个 AI 成员（可以是你自己）的模型、强度或职责。不会马上生效：频道里出一张卡，用户点了才改，从它的下一项活起用；成员是全局的，在别的频道里也一起变。值先用 member_list 查能选的。写清 reason。发完继续你的活，不用等；结果会写在那张卡上，channel_read 看得到。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        member: { type: 'string', minLength: 1, description: 'AI 成员的名字' },
+        model: { type: 'string', description: '换成哪个模型；空字符串是跟随默认（只有自有账号能用）' },
+        effort: { type: 'string', description: '推理强度（如 low / medium / high / xhigh / max）；空字符串是跟随默认' },
+        instructions: { type: 'string', description: '新的职责说明，整段替换；第一行写一句话概括' },
+        reason: { type: 'string', minLength: 1, description: '为什么要改，用户在卡上看到' },
+      },
+      required: ['member', 'reason'],
+    },
+    annotations: RECORD,
+  },
+  {
+    name: 'member_remove',
+    description:
+      '提议把某个 AI 成员移出这个频道（不删成员本身，以后还能加回来）。用户点了才移出：排队的活取消，在做的做完。不能移出你自己和用户。写清 reason。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        member: { type: 'string', minLength: 1, description: 'AI 成员的名字' },
+        reason: { type: 'string', minLength: 1, description: '为什么要移出，用户在卡上看到' },
+      },
+      required: ['member', 'reason'],
+    },
+    annotations: RECORD,
+  },
+  {
     name: 'task_done',
     description:
       '流程里的一步确实做完了：交付这一步（摘要、改了哪些文件），流程才会往下走。审查步骤要写 verdict（pass 通过 / reject 打回）、打回时 issues 列出问题；让你拆流程的活：要先问用户就只交 questions（一次问完），否则用 steps 交回拆好的步骤、brief 交回要点。只有流程里的活能用，一轮只算第一次。',
@@ -234,9 +275,10 @@ const TOOLS = [
 const INSTRUCTIONS =
   '你是像素星空协作频道里的 AI 成员。channel_read / thread_read 查频道记录；channel_reply 在你这项活的串里写进展；' +
   'task_propose 提议给别的成员派活（用户决定）；频道允许时 task_handover 直接交接。' +
+  'member_list 看频道里有谁；member_update / member_remove 提议改成员的模型、强度、职责或移出频道（用户点了才生效）。' +
   '流程里的一步：做完调用 task_done 交付，需要别的成员提供东西用 member_ask，要用户拍板的用 user_ask。' +
   '要看频道里的图片和附件用 attachment_read，不要开电脑控制、截屏去看。' +
-  '要过一会儿或定期回来看这件事（等 CI、等部署）用 schedule_wakeup。不能删消息、改频道设置、给别的频道发消息。'
+  '要过一会儿或定期回来看这件事（等 CI、等部署）用 schedule_wakeup。不能删消息、改频道设置、给别的频道发消息、直接改成员。'
 
 const str = (args: ToolArgs, key: string, required = false): string | undefined => {
   const value = args[key]
@@ -244,6 +286,14 @@ const str = (args: ToolArgs, key: string, required = false): string | undefined 
     if (required) throw new Error(`缺少参数 ${key}（字符串）`)
     return undefined
   }
+  if (typeof value !== 'string') throw new Error(`参数 ${key} 必须是字符串`)
+  return value
+}
+
+/** 可选的字符串参数：空字符串照样返回（member_update 里表示跟随默认） */
+const optional = (args: ToolArgs, key: string): string | undefined => {
+  const value = args[key]
+  if (value === undefined || value === null) return undefined
   if (typeof value !== 'string') throw new Error(`参数 ${key} 必须是字符串`)
   return value
 }
@@ -272,6 +322,19 @@ function mcpServer(channels: () => Channels | null, sessionId: string): Server {
           return text(await c.toolHandover(sessionId, str(args, 'member', true)!, str(args, 'request', true)!))
         case 'task_done':
           return text(c.toolDone(sessionId, args))
+        case 'member_list':
+          return text(await c.toolMembers(sessionId, str(args, 'member')))
+        case 'member_update':
+          return text(
+            await c.toolMemberUpdate(sessionId, str(args, 'member', true)!, {
+              model: optional(args, 'model'),
+              effort: optional(args, 'effort'),
+              instructions: optional(args, 'instructions'),
+              reason: str(args, 'reason', true)!,
+            }),
+          )
+        case 'member_remove':
+          return text(await c.toolMemberRemove(sessionId, str(args, 'member', true)!, str(args, 'reason', true)))
         case 'member_ask':
           return text(await c.toolAsk(sessionId, str(args, 'member', true)!, str(args, 'question', true)!))
         case 'user_ask':

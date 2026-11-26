@@ -28,6 +28,8 @@ import {
 import type { Locale } from '../../../shared/i18n/messages'
 import type {
   AgentConfig,
+  ChannelMemberChange,
+  MemberChangeAction,
   ChannelAgentLoad,
   ChannelAttachedMeta,
   ChannelGenerated,
@@ -129,6 +131,20 @@ import { addUsage, emptyUsage, knownCost, rangeUsage, sumUsage, turnKey } from '
 import { awaitsDecision, channelNeeds } from '../../../shared/channels/needs'
 import { runReasonOf, TEAMMATE_PROJECT_ERROR } from '../../../shared/channels/runReason'
 import { jsonObjects } from '../json-reply'
+import {
+  MEMBER_CARDS_OPEN_MAX,
+  MEMBER_UNDO_MS,
+  changeSummary,
+  changedFields,
+  checkUpdate,
+  cleanReason,
+  fieldNames,
+  inputWith,
+  memberDetail,
+  rosterLine,
+  type MemberUpdateArgs,
+  type RosterEntry,
+} from './member-tools'
 import {
   DEFAULT_MAX_REJECTS,
   DIGEST_HOUR,
@@ -312,6 +328,11 @@ export interface ChannelsDeps {
   fitImage?: FitImage
   /** 本机会话挂了频道工具（main/channels/channel-mcp.ts）：派活提示词只带最近几条、说明怎么用工具 */
   channelTools?: boolean
+  /**
+   * 成员能换的模型（docs/ui/channels-member-tools.md §1.2）：自有账号是引擎目录，平台是线路的，自定义接口是接口里列的；
+   * 读不到时 null（member_update 只查长度）。没接时都是 null
+   */
+  memberModels?: (member: AgentConfig) => Promise<string[] | null>
   /** 新会话的默认权限模式（本机）：成员没单独设时，聊天派活按它判断（消息通道） */
   defaultMode?: (engine: EngineId) => PermissionMode | undefined
   /** 频道没设 planFirst 时的默认：@ 一个 AI 派新活先出计划（默认开；测试里关掉沿用直接派活） */
@@ -1260,8 +1281,8 @@ export class Channels {
       ? this.store.members.map(m => (m.id === config.id ? config : m))
       : [...this.store.members, config]
     await this.store.saveMembers()
-    // 一直用同一个会话的：改了推理强度那几项，同步到那个会话（跟随默认的不动）
-    const panel = (['effort', 'fast', 'ultracode'] as const).filter(
+    // 一直用同一个会话的：改了模型、推理强度那几项，同步到那个会话（跟随默认的不动）
+    const panel = (['model', 'effort', 'fast', 'ultracode'] as const).filter(
       k => settings[k] !== undefined && settings[k] !== existing?.settings[k],
     )
     if (config.mode === 'shared' && config.sharedSessionId && panel.length)
@@ -2915,7 +2936,14 @@ export class Channels {
     const d = new Date(m.at)
     const pad = (n: number) => String(n).padStart(2, '0')
     const time = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-    const kind = m.kind === 'task' ? '任务卡' : m.kind === 'message' && m.proposal ? '提议' : '消息'
+    const kind =
+      m.kind === 'task'
+        ? '任务卡'
+        : m.kind === 'message' && m.proposal
+          ? '提议'
+          : m.kind === 'message' && m.memberChange
+            ? '成员卡'
+            : '消息'
     return `[${kind} id=${m.id} · ${time}${replies ? ` · 串里 ${replies} 条` : ''}] ${line}`
   }
 
@@ -3047,6 +3075,216 @@ export class Channels {
     this.pushMessage(message)
     this.changed()
     return `已提议把这项活交给 ${peer.name}，等用户决定派不派。不用等结果，接着做你自己的活。`
+  }
+
+  // -------------------------------------------------------------------------
+  // 成员工具（docs/ui/channels-member-tools.md）：member_list 直接返回；member_update / member_remove 发一张卡，
+  // 你点了才改。纯函数在 member-tools.ts
+  // -------------------------------------------------------------------------
+
+  /** 频道里叫这个名字的 AI 成员（可以是调用者自己）；是用户、找不到时报错并列出能选的 */
+  private memberByName(c: StoredChannel, raw: string): AgentConfig {
+    const name = raw.trim().replace(/^@/, '').toLowerCase()
+    const found = c.memberIds.map(id => this.member(id)).find(m => m && m.name.toLowerCase() === name)
+    if (found) return found
+    if (c.memberIds.some(id => !this.member(id) && this.nameOf(id).toLowerCase() === name))
+      throw new Error(`${raw.trim()} 是用户，不能改、不能移出`)
+    const names = c.memberIds.flatMap(id => this.member(id)?.name ?? [])
+    throw new Error(`频道里没有叫「${raw.trim()}」的 AI 成员。可以选：${names.join('、') || '（没有）'}`)
+  }
+
+  /** 成员在这个频道里在做、排队的活 */
+  private memberLoad(channelId: string, memberId: string): { running: number; queued: number } {
+    let running = 0
+    let queued = 0
+    for (const r of this.store.runs.values())
+      if (r.channelId === channelId && r.memberId === memberId) {
+        if (r.phase === 'sent') running++
+        else if (r.phase === 'waiting') queued++
+      }
+    return { running, queued }
+  }
+
+  private async memberModels(m: AgentConfig): Promise<string[] | null> {
+    if (!this.deps.memberModels) return null
+    return this.deps.memberModels(m).catch(e => {
+      this.deps.log?.('读成员能用的模型失败', e)
+      return null
+    })
+  }
+
+  private rosterEntry(c: StoredChannel, id: string, selfId: string): RosterEntry {
+    const m = this.member(id)
+    if (!m) return { human: true, name: this.nameOf(id) }
+    return { name: m.name, member: m, self: m.id === selfId, lead: c.lead === m.id, ...this.memberLoad(c.id, m.id) }
+  }
+
+  /** member_list：不给名字列出频道里的成员；给名字时多列能换的模型、能选的强度、还在哪些频道 */
+  async toolMembers(sessionId: string, name?: string): Promise<string> {
+    const before = this.callerOf(sessionId)
+    if (!name?.trim()) {
+      const lines = before.c.memberIds.map(id => rosterLine(this.rosterEntry(before.c, id, before.member.id)))
+      return `频道「${before.c.name}」有 ${lines.length} 个成员：\n${lines.join('\n')}`
+    }
+    const first = this.memberByName(before.c, name)
+    const models = first.bound ? null : await this.memberModels(first)
+    // 读目录期间状态可能变了：按最新的写
+    const { c, member } = this.callerOf(sessionId)
+    const m = this.memberByName(c, name)
+    const elsewhere = [...this.store.channels.values()]
+      .filter(x => x.id !== c.id && !x.archivedAt && x.memberIds.includes(m.id))
+      .map(x => x.name)
+    return `${rosterLine(this.rosterEntry(c, m.id, member.id))}\n${memberDetail(m, m.id === first.id ? models : null, elsewhere)}`
+  }
+
+  /** member_update：发一张「改成员」卡，你点「改」才改 */
+  async toolMemberUpdate(sessionId: string, name: string, args: MemberUpdateArgs): Promise<string> {
+    const before = this.callerOf(sessionId)
+    const first = this.memberByName(before.c, name)
+    const models = first.bound || args.model === undefined ? null : await this.memberModels(first)
+    // 读目录期间状态可能变了：按最新的来
+    const { c, member } = this.callerOf(sessionId)
+    if (c.archivedAt) throw new Error('频道已归档，不能再改成员')
+    const target = this.memberByName(c, name)
+    const reason = cleanReason(args.reason)
+    const { from, to } = checkUpdate(target, args, target.id === first.id ? models : null, INSTRUCTIONS_MAX)
+    const id = await this.postMemberChange(c, member, target, { op: 'update', memberId: target.id, from, to, reason })
+    const who = target.id === member.id ? '你' : target.name
+    return `卡已发到频道（id=${id}），用户点「改」才生效，从${who}的下一项活起用；${target.name} 是全局成员，在别的频道里也一起变。现在继续你的活，不用等；结果会写在那张卡上，channel_read 看得到。`
+  }
+
+  /** member_remove：发一张「移出成员」卡，你点「移出」才移出（成员本身不删） */
+  async toolMemberRemove(sessionId: string, name: string, rawReason: string | undefined): Promise<string> {
+    const { c, member } = this.callerOf(sessionId)
+    if (c.archivedAt) throw new Error('频道已归档，不能再改成员')
+    const target = this.memberByName(c, name)
+    if (target.id === member.id) throw new Error('不能把你自己移出频道；不想接着做就在回复里写明')
+    const reason = cleanReason(rawReason)
+    const id = await this.postMemberChange(c, member, target, { op: 'remove', memberId: target.id, reason })
+    return `卡已发到频道（id=${id}），用户点「移出」才生效：排队的活取消，在做的做完。现在继续你的活，不用等；结果会写在那张卡上，channel_read 看得到。`
+  }
+
+  /** 发成员卡：同一个成员、同一种改动只留一张开着的（旧的标「被新的替代」）；每个成员开着的最多 MEMBER_CARDS_OPEN_MAX 张 */
+  private async postMemberChange(
+    c: StoredChannel,
+    author: AgentConfig,
+    target: AgentConfig,
+    change: Omit<ChannelMemberChange, 'state'>,
+  ): Promise<string> {
+    const open = (this.store.messages.get(c.id) ?? []).filter(
+      (m): m is ChannelTextMessage & { memberChange: ChannelMemberChange } =>
+        m.kind === 'message' && m.memberChange?.state === 'open',
+    )
+    const replaced = open.filter(m => m.memberChange.op === change.op && m.memberChange.memberId === change.memberId)
+    if (open.filter(m => m.authorId === author.id && !replaced.includes(m)).length >= MEMBER_CARDS_OPEN_MAX)
+      throw new Error(`你发的成员卡还有 ${MEMBER_CARDS_OPEN_MAX} 张没处理，等用户处理完再发`)
+    const now = this.now()
+    // 内存里的改动（append 同步改内存）一次做完再等写盘：同时来的两次调用核对的是同一份，不会多出卡
+    const writes: Promise<void>[] = []
+    for (const old of replaced) {
+      const next: ChannelTextMessage = {
+        ...old,
+        memberChange: { ...old.memberChange, state: 'stale', why: 'replaced', decidedAt: now },
+      }
+      writes.push(this.store.append(next))
+      this.pushMessage(next)
+    }
+    const card: ChannelMemberChange = { ...change, state: 'open' }
+    const message: ChannelTextMessage = {
+      kind: 'message',
+      id: randomUUID(),
+      channelId: c.id,
+      at: now,
+      authorId: author.id,
+      text: changeSummary(card, target.name, target.id === author.id),
+      format: 'plain',
+      // 等你决定：算 @你
+      mentions: [SELF_ID],
+      memberChange: card,
+    }
+    writes.push(this.store.append(message))
+    this.pushMessage(message)
+    this.changed()
+    await Promise.all(writes)
+    return message.id
+  }
+
+  /** 正在处理的成员卡：连点两下只处理一次 */
+  private memberChanging = new Set<string>()
+
+  /**
+   * 成员卡上点的（channels:memberChange）：accept 改 / 移出；dismiss 不要；undo 改回去 / 加回来；
+   * adjusted 你在设置对话框里调整后保存了（只标状态，设置已经由对话框存好）
+   */
+  async memberChange(channelId: string, messageId: string, action: MemberChangeAction): Promise<void> {
+    if (this.memberChanging.has(messageId)) return
+    this.memberChanging.add(messageId)
+    try {
+      await this.decideMemberChange(channelId, messageId, action)
+    } finally {
+      this.memberChanging.delete(messageId)
+    }
+  }
+
+  private async decideMemberChange(channelId: string, messageId: string, action: MemberChangeAction): Promise<void> {
+    const c = this.writable(channelId)
+    const card = (): ChannelTextMessage & { memberChange: ChannelMemberChange } => {
+      const m = this.store.messages.get(channelId)?.find(x => x.id === messageId)
+      if (m?.kind !== 'message' || !m.memberChange) throw new Error('卡片不存在')
+      return m as ChannelTextMessage & { memberChange: ChannelMemberChange }
+    }
+    const ch = card().memberChange
+    const target = this.member(ch.memberId)
+    const now = this.now()
+    let next: ChannelMemberChange
+    if (action === 'undo') {
+      if (ch.state !== 'done' || ch.adjusted || now - (ch.decidedAt ?? 0) > MEMBER_UNDO_MS)
+        throw new Error('这张卡已经不能撤回了')
+      if (!target) throw new Error('这个成员已经删了')
+      if (ch.op === 'update') {
+        const changed = changedFields(target, ch.to)
+        if (changed.length) throw new Error(`改不回去：${target.name} 的${fieldNames(changed)}后来又变了`)
+        await this.saveMember(null, inputWith(target, ch.from ?? {}))
+        // 原来是跟随默认的，saveMember 不动共用会话：把会话原来的值放回去
+        const sid = this.member(target.id)?.sharedSessionId
+        if (ch.session && sid && sid === ch.session.id) {
+          const { id: _, ...settings } = ch.session
+          await this.deps
+            .call('engine:updateSession', [sid, settings])
+            .catch(e => this.deps.log?.('共用会话改回原来的设置失败', e))
+        }
+      } else if (!c.memberIds.includes(target.id)) await this.addMember(channelId, target.id)
+      next = { ...ch, state: 'undone', decidedAt: now }
+    } else {
+      if (ch.state !== 'open') return
+      if (action === 'dismiss') next = { ...ch, state: 'dismissed', decidedAt: now }
+      else if (action === 'adjusted') next = { ...ch, state: 'done', adjusted: true, decidedAt: now }
+      else if (!target || !c.memberIds.includes(target.id))
+        next = { ...ch, state: 'stale', why: 'gone', decidedAt: now }
+      else if (ch.op === 'remove') {
+        await this.removeMember(channelId, target.id)
+        next = { ...ch, state: 'done', decidedAt: now }
+      } else if (changedFields(target, ch.from).length) next = { ...ch, state: 'stale', why: 'changed', decidedAt: now }
+      else {
+        // 一直用同一个会话的：记下会话现在的模型、强度，「改回去」时放回去
+        const record =
+          target.mode === 'shared' && target.sharedSessionId
+            ? this.deps.sessions().find(s => s.record.id === target.sharedSessionId)?.record
+            : undefined
+        const keys = (['model', 'effort'] as const).filter(k => ch.to && k in ch.to)
+        const session =
+          record && keys.length
+            ? { id: record.id, ...Object.fromEntries(keys.map(k => [k, record[k] ?? null])) }
+            : undefined
+        await this.saveMember(null, inputWith(target, ch.to ?? {}))
+        next = { ...ch, state: 'done', decidedAt: now, ...(session ? { session } : {}) }
+      }
+    }
+    // await 之后按存着的最新那条写，别用之前的拷贝
+    const message: ChannelTextMessage = { ...card(), memberChange: next }
+    await this.store.append(message)
+    this.pushMessage(message)
+    this.changed()
   }
 
   private handoverCaller(sessionId: string) {

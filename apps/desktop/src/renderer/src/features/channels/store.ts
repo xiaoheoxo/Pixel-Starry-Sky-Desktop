@@ -8,6 +8,8 @@ import { listedChannels } from './teamModel'
 import { channelMembers, channelMessages, channels, channelTeams, isDemo } from '@/data'
 import type { Channel, ChannelMember, ChannelMessage, ChannelTask, ChannelTextMessage } from '@/data/types'
 import type {
+  ChannelMemberChange,
+  MemberChangeAction,
   AgentAvatar,
   AgentInput,
   AgentPolicy,
@@ -425,6 +427,30 @@ export const channelActions = {
         [channelId]: list.map(m =>
           m.kind === 'message' && m.id === messageId && m.proposal
             ? { ...m, proposal: { ...m.proposal, state: accept ? 'sent' : 'dismissed' } }
+            : m,
+        ),
+      },
+    })
+  },
+  /** 成员卡（docs/ui/channels-member-tools.md）：改 / 移出、不要、改回去 / 加回来；演示模式只改内存里的状态 */
+  async memberChange(channelId: string, messageId: string, action: MemberChangeAction): Promise<void> {
+    if (channelsBridge) {
+      await channelsBridge.memberChange(channelId, messageId, action)
+      return
+    }
+    const state_: Record<MemberChangeAction, ChannelMemberChange['state']> = {
+      accept: 'done',
+      dismiss: 'dismissed',
+      undo: 'undone',
+      adjusted: 'done',
+    }
+    const list = state.messages[channelId] ?? []
+    set({
+      messages: {
+        ...state.messages,
+        [channelId]: list.map(m =>
+          m.kind === 'message' && m.id === messageId && m.memberChange
+            ? { ...m, memberChange: { ...m.memberChange, state: state_[action], decidedAt: Date.now() } }
             : m,
         ),
       },

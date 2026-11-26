@@ -80,6 +80,16 @@ export function channelNeeds(
             messageId: m.id,
             text: m.proposal.request,
           })
+        if (m.memberChange?.state === 'open')
+          found.push({
+            ...base,
+            key: `member:${m.id}`,
+            kind: 'member',
+            sig: 'open',
+            memberId: m.memberChange.memberId,
+            messageId: m.id,
+            text: m.text,
+          })
         if (m.alert?.state === 'open')
           found.push({
             ...base,

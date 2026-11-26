@@ -116,6 +116,7 @@ export const IPC_CONTRACT = {
   'channels:messages': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:pin': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:proposal': { kind: 'invoke', route: 'local', trust: 'sender' },
+  'channels:memberChange': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:alert': { kind: 'invoke', route: 'local', trust: 'sender' },
   'channels:dispatchIssue': { kind: 'invoke', route: 'local', trust: 'sender' },
   // 会话的「做完自动检查」结果（docs/ui/channels-collab-v2.md §8）：主进程按会话记最近一次，推给窗口

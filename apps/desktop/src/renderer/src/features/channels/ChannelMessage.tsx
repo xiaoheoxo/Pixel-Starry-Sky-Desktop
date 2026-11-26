@@ -23,6 +23,7 @@ import { AgentAvatarFace } from './AgentAvatar'
 import { GeneratedLine } from './GeneratedLine'
 import { WakeupTag } from './WakeupParts'
 import { messageWakeupTag } from './wakeupModel'
+import { MemberChangeCard } from './MemberChangeCard'
 
 /** 成员头像：真人是圆形首字头像，AI 成员默认是圆角方块里的引擎图标，选了别的样式见 AgentAvatar.tsx */
 export function MemberAvatar({
@@ -523,6 +524,8 @@ export function MessageGroup({
             : undefined
         const body = m.proposal ? (
           <ProposalCard message={m} membersById={membersById} readOnly={proposalsReadOnly} />
+        ) : m.memberChange ? (
+          <MemberChangeCard message={m} membersById={membersById} readOnly={proposalsReadOnly} />
         ) : m.text ? (
           <div
             data-bubble

@@ -53,6 +53,9 @@ describe('频道工具 MCP（docs/ui/channels-collab-v2.md §1）', () => {
       'channel_reply',
       'task_propose',
       'task_handover',
+      'member_list',
+      'member_update',
+      'member_remove',
       'task_done',
       'member_ask',
       'user_ask',
@@ -62,6 +65,7 @@ describe('频道工具 MCP（docs/ui/channels-collab-v2.md §1）', () => {
     // Claude 靠这个把工具直接声明给模型，不藏进 ToolSearch
     expect(tools.every(t => t._meta?.['anthropic/alwaysLoad'] === true)).toBe(true)
     expect(tools.find(t => t.name === 'channel_read')?.annotations?.readOnlyHint).toBe(true)
+    expect(tools.find(t => t.name === 'member_list')?.annotations?.readOnlyHint).toBe(true)
     expect(await client.callTool({ name: 'attachment_read', arguments: { id: 'm1' } })).toMatchObject({
       content: [
         { type: 'text', text: '1 张图片' },

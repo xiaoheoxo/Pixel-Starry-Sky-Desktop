@@ -11,6 +11,7 @@ import {
   CircleDashed,
   CircleX,
   Forward,
+  UserCog,
   Workflow,
   Hand,
   HelpCircle,
@@ -42,6 +43,7 @@ const SCOPES: readonly Scope[] = ['all', 'me', 'team']
 const ICON: Record<ChannelNeed['kind'], LucideIcon> = {
   approval: Hand,
   proposal: Forward,
+  member: UserCog,
   held: OctagonPause,
   decision: HelpCircle,
   checks: ListChecks,
@@ -53,6 +55,7 @@ const ICON: Record<ChannelNeed['kind'], LucideIcon> = {
 const KIND_LABEL: Record<ChannelNeed['kind'], TranslationKey> = {
   approval: 'needs.kind.approval',
   proposal: 'needs.kind.proposal',
+  member: 'needs.kind.member',
   held: 'needs.kind.held',
   decision: 'needs.kind.decision',
   checks: 'needs.kind.checks',
@@ -292,6 +295,27 @@ export function NeedsView() {
             >
               {tr('channels.proposal.dismiss')}
             </Button>
+          </>
+        )
+      case 'member':
+        return (
+          <>
+            <Button
+              variant="primary"
+              className={small}
+              disabled={off}
+              onClick={() => run(n.key, () => channelActions.memberChange(n.channelId, n.messageId!, 'accept'))}
+            >
+              {tr('channels.memberChange.agree')}
+            </Button>
+            <Button
+              className={small}
+              disabled={off}
+              onClick={() => run(n.key, () => channelActions.memberChange(n.channelId, n.messageId!, 'dismiss'))}
+            >
+              {tr('channels.proposal.dismiss')}
+            </Button>
+            {view}
           </>
         )
       case 'held':

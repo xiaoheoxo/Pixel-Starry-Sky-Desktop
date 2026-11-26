@@ -577,6 +577,7 @@ const channels: ChannelsBridge = {
   markRead: id => call('channels:markRead', id),
   pin: (id, messageId, pinned) => call('channels:pin', id, messageId, pinned),
   proposal: (id, messageId, accept) => call('channels:proposal', id, messageId, accept),
+  memberChange: (id, messageId, action) => call('channels:memberChange', id, messageId, action),
   alert: (id, messageId, action) => call('channels:alert', id, messageId, action),
   markNeeds: (items, done) => call('channels:markNeeds', items, done),
   flow: (id, action) => call('channels:flow', id, action),

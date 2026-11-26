@@ -24,6 +24,7 @@ import type { ChannelAlertAction } from '../shared/channels/alerts'
 import type {
   FlowScheduleInput,
   IssueDispatch,
+  MemberChangeAction,
   TeamInboxPatch,
   TeammateRules,
   WakeupOp,
@@ -87,6 +88,8 @@ export interface ChannelsBridge {
   pin(channelId: string, messageId: string, pinned: boolean): Promise<void>
   /** AI 成员提议的派活：派出去（返回任务卡 id）或不要（docs/ui/channels-collab-v2.md §1） */
   proposal(channelId: string, messageId: string, accept: boolean): Promise<string | null>
+  /** 成员卡（docs/ui/channels-member-tools.md）：改 / 移出、不要、改回去 / 加回来、在设置里调整后保存了 */
+  memberChange(channelId: string, messageId: string, action: MemberChangeAction): Promise<void>
   /** 主动提醒上的按钮（docs/ui/channels-collab-v2.md §6）；换人时返回要放进输入框的草稿 */
   alert(channelId: string, messageId: string, action: ChannelAlertAction): Promise<{ draft?: string }>
   /** 「需要你」里标为已处理（done）/ 恢复（docs/ui/channels-collab-v2.md §2.1） */

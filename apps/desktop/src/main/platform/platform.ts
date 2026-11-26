@@ -132,6 +132,12 @@ export function platformPixelApi(groupId: string, model: string | null): PixelAp
 /** 最近读到的分组模型：DeepSeek 这类没有 Claude 模型的线路，启动 Claude Code 时把默认模型指向它们 */
 const groupModels = new Map<string, string[]>()
 
+/** 线路的模型（频道成员能换哪些，docs/ui/channels-member-tools.md §1.2）：内存里没有时读一次分组目录；读不到 null */
+export async function platformGroupModels(groupId: string): Promise<string[] | null> {
+  if (!groupModels.has(groupId)) await platformGroups().catch(() => [])
+  return groupModels.get(groupId) ?? null
+}
+
 /**
  * 这些平台分组的请求用 1 小时缓存（Claude Code 的 ENABLE_PROMPT_CACHING_1H、像素星空引擎 Pi 的 PI_CACHE_RETENTION=long）：
  * 71 = Claude Kiro[正价]（×0.35）。shortcut: 写死分组 id，要多条线路可选时改成云端分组目录里的字段

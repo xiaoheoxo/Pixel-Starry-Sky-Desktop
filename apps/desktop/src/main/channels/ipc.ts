@@ -6,7 +6,7 @@ import { app, shell } from 'electron'
 import { dataRoot } from '../app/data-dir'
 import { exec, git } from '../core/project-tools/common'
 import { describeError, logger } from '@pixelsky/engine'
-import type { HostEvent } from '@pixelsky/protocol'
+import type { EngineCatalog, HostEvent } from '@pixelsky/protocol'
 import * as ipc from '../ipc/guard'
 import type { AppContext } from '../app/context'
 import { windowLocale } from '../app/ui-language'
@@ -20,6 +20,8 @@ import { TeamSync } from '../core/channels/team/sync'
 import { ChannelStore } from '../core/channels/store'
 import { Channels, type MachineLite } from '../core/channels/service'
 import { channelToolsServer } from './channel-mcp'
+import { platformGroupModels } from '../platform/platform'
+import { platformModelSupportsEngine } from '../../shared/platform-models'
 import { initRunners } from './runner'
 import { fitImage } from '../image/fit'
 import { cancelCloudImage, startCloudImage } from '../image/job'
@@ -141,6 +143,19 @@ export async function initChannels(ctx: AppContext): Promise<void> {
     deviceId,
     machineName: () => hostname() || '这台电脑',
     channelTools: true,
+    // 成员能换的模型（docs/ui/channels-member-tools.md §1.2）：和添加成员对话框的 modelChoices 同一套来源
+    memberModels: async member => {
+      const s = member.settings
+      if (s.provider) return ctx.providers?.resolve(s.provider.id)?.models.map(m => m.id) ?? null
+      if (s.platform)
+        return (
+          (await platformGroupModels(s.platform.groupId))?.filter(m => platformModelSupportsEngine(m, member.engine)) ??
+          null
+        )
+      if (!ctx.engineCall) return null
+      const catalog = (await ctx.engineCall('engine:catalog', [member.engine], 'channels')) as EngineCatalog | null
+      return catalog?.models?.map(m => m.id) ?? null
+    },
     fitImage,
     defaultMode: engine => ctx.engine?.engineDefaults(engine).permissionMode,
     // 产出检查走项目工具的操作表，和窗口一样按会话路由到所在的机器（docs/ui/channels-collab-v2.md §8）
@@ -352,6 +367,11 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   ipc.handle('channels:proposal', (_e, id, messageId, accept) =>
     channels.proposal(str(id, '频道'), str(messageId, '消息'), accept === true),
   )
+  ipc.handle('channels:memberChange', (_e, id, messageId, action) => {
+    if (action !== 'accept' && action !== 'dismiss' && action !== 'undo' && action !== 'adjusted')
+      throw new Error('参数不正确')
+    return channels.memberChange(str(id, '频道'), str(messageId, '消息'), action)
+  })
   ipc.handle('channels:alert', (_e, id, messageId, action) => {
     if (typeof action !== 'string' || !ALERT_ACTIONS.has(action as ChannelAlertAction)) throw new Error('不支持的操作')
     return channels.alertAction(str(id, '频道'), str(messageId, '消息'), action as ChannelAlertAction)
