@@ -21,12 +21,18 @@ void openLogs(BuildContext context, {bool errorsOnly = false}) =>
 /// 出错的提示条：带「查看日志」（§19 出错处的入口）
 void showErrorSnack(BuildContext context, String text) {
   final messenger = ScaffoldMessenger.maybeOf(context);
+  // 点「查看日志」时 context 可能已经没了（会话菜单这类面板先关掉了）：现在就取导航器
+  final navigator = Navigator.maybeOf(context);
   messenger?.showSnackBar(
     SnackBar(
       content: Text(text),
       action: SnackBarAction(
         label: L('查看日志', 'View log'),
-        onPressed: () => openLogs(context, errorsOnly: true),
+        onPressed: () => navigator?.push(
+          MaterialPageRoute<void>(
+            builder: (_) => LogScreen(log: appLog, errorsOnly: true),
+          ),
+        ),
       ),
     ),
   );

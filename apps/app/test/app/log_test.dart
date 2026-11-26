@@ -1,4 +1,5 @@
 // 手机日志（docs/mobile-app.md §19）：记录、落盘、换文件、截断、附进反馈
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,16 @@ class _MemoryStore implements LogStore {
   Future<void> append(String line) async => lines.add(line);
   @override
   Future<void> clear() async => lines.clear();
+}
+
+class _SlowStore extends _MemoryStore {
+  _SlowStore(this.gate);
+  final Future<void> gate;
+  @override
+  Future<List<String>> load() async {
+    await gate;
+    return [];
+  }
 }
 
 void main() {
@@ -40,6 +51,18 @@ void main() {
     await log.clear();
     expect(log.entries, isEmpty);
     expect(store.lines, isEmpty);
+  });
+
+  test('读旧文件期间记的日志不丢，也补写进文件', () async {
+    final gate = Completer<void>();
+    final store = _SlowStore(gate.future);
+    final log = AppLog();
+    final attaching = log.attach(store);
+    log.warn('连接', '读文件时记的');
+    gate.complete();
+    await attaching;
+    expect(log.entries.map((e) => e.text), ['读文件时记的']);
+    expect(store.lines.map((l) => decodeLogLine(l)?.text), ['读文件时记的']);
   });
 
   test('内存里只留最近 limit 条', () {

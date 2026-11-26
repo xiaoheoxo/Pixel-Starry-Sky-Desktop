@@ -29,7 +29,6 @@ class AppLog extends ChangeNotifier {
 
   /// 接上文件：先读出以前的（接上之前已经记的排在后面），之后每条都写进去
   Future<void> attach(LogStore store) async {
-    final early = [..._entries];
     final old = <LogEntry>[];
     try {
       for (final line in await store.load()) {
@@ -39,6 +38,8 @@ class AppLog extends ChangeNotifier {
     } catch (_) {
       // 读不出来就当没有
     }
+    // 读文件期间记下的也算「之前的」：在 await 之后才取，接上文件前不会再有新的插进来
+    final early = [..._entries];
     _store = store;
     _entries
       ..clear()

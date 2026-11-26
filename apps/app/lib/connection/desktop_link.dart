@@ -15,6 +15,12 @@ import 'pairing.dart';
 import 'route.dart';
 import 'socket.dart';
 
+/// 调用失败记进日志的错误：只留第一行、最多 200 字（电脑回的错误文字可能带路径）
+String _brief(Object e) {
+  final line = '$e'.split('\n').first;
+  return line.length > 200 ? '${line.substring(0, 200)}…' : line;
+}
+
 enum LinkState {
   /// 正在连中转
   connecting,
@@ -277,7 +283,7 @@ class DesktopLink {
       }
       // 日志只记方法名和错误码，参数不记（§19）
       if (method != 'away') {
-        appLog.warn('调用', '${pairing.desktopName} · $method 失败：$e');
+        appLog.warn('调用', '${pairing.desktopName} · $method 失败：${_brief(e)}');
       }
       throw e;
     });
