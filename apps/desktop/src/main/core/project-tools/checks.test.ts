@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Checks, addedLines, cleanCheckConfig, detectChecks, runCommand, textChecks } from './checks'
+import { Checks, addedLines, cleanCheckConfig, detectChecks, maskMarkdown, runCommand, textChecks } from './checks'
 import type { ToolsHost } from './common'
 import { checkProblems, fixRequest } from '../../../shared/types/checks'
 
@@ -107,6 +107,85 @@ describe('文本检查', () => {
     git('commit', '-qm', 'sub')
     await writeFile(join(root, 'sub', 'b.ts'), 'x\n// TODO in sub\n')
     expect((await textChecks(join(root, 'sub'))).findings.map(f => [f.file, f.line])).toEqual([['b.ts', 2]])
+  })
+
+  it('Markdown 遮掉代码块、行内代码、HTML 注释：行数和列位置不变', () => {
+    const blank = (t: string) => ' '.repeat(t.length)
+    const lines = maskMarkdown(
+      [
+        'a `[x](y.md)` b ``[`z`](w.md)`` c',
+        '````md',
+        '```',
+        '[in](fence.md)',
+        '```',
+        '````',
+        '~~~',
+        '[tilde](t.md)',
+        '~~~',
+        'p <!-- [c](c.md) --> q <!-- open',
+        '[still](comment.md) -->[after](a.md)',
+        'unclosed ` tick [u](u.md)',
+        '```js `inline` not a fence',
+        '```',
+        '[tail](no-close.md)',
+      ].join('\r\n'),
+    )
+    expect(lines).toHaveLength(15)
+    // 引用块里的围栏也算
+    expect(maskMarkdown('> ```\n> [x](y.md)\n> ```\n> [z](w.md)')).toEqual([
+      blank('> ```'),
+      blank('> [x](y.md)'),
+      blank('> ```'),
+      '> [z](w.md)',
+    ])
+    // 列表里缩进 4 格以上的围栏也算
+    expect(maskMarkdown('- a\n    ```\n    [x](y.md)\n    ```\n[z](w.md)')).toEqual([
+      '- a',
+      '       ',
+      '             ',
+      '       ',
+      '[z](w.md)',
+    ])
+    expect(lines[0]).toBe('a ' + blank('`[x](y.md)`') + ' b ' + blank('``[`z`](w.md)``') + ' c')
+    // 外层 4 个反引号：里面的 ``` 不算收尾
+    expect(lines.slice(1, 9).every(l => !l.trim())).toBe(true)
+    expect(lines[9]).toBe('p ' + blank('<!-- [c](c.md) -->') + ' q ' + blank('<!-- open'))
+    expect(lines[10].trim()).toBe('[after](a.md)')
+    expect(lines[11]).toBe('unclosed ` tick [u](u.md)')
+    // 信息串里有反引号：是行内代码不是围栏；后面那个 ``` 开了一个没闭合的围栏，算到末尾
+    expect(lines[12]).toBe('```js ' + blank('`inline`') + ' not a fence')
+    expect(lines.slice(13).every(l => !l.trim())).toBe(true)
+  })
+
+  it('Markdown 里照抄的链接写法、示例里的 TODO 不报：新文件和已提交文件新增的几行都按整个文件判断', async () => {
+    git('init', '-q')
+    await mkdir(join(root, 'docs', 'drafts'), { recursive: true })
+    await writeFile(join(root, 'docs', 'drafts', 'a.md'), '# draft\n')
+    await writeFile(join(root, 'README.md'), '# r\n\n```\nold\n```\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    // 报告在 docs/，照抄草稿（docs/drafts/）里的写法
+    await writeFile(
+      join(root, 'docs', 'report.md'),
+      [
+        '# 报告',
+        '草稿里写的是 `[原文](../../README.md)`',
+        '```md',
+        '[代码块里的](../../README.md)',
+        '// TODO 示例代码里的',
+        '```',
+        '<!-- [注释里的](nope.md) TODO -->',
+        '真坏链接 [gone](missing.md)，真 TODO',
+        '',
+      ].join('\n'),
+    )
+    // 已提交的文件：新增的一行在原来的代码块里
+    await writeFile(join(root, 'README.md'), '# r\n\n```\nold\n[示例](x/y.md) TODO\n```\n')
+    const result = await textChecks(root)
+    expect(result.findings.map(f => [f.rule, f.file, f.line, f.text])).toEqual([
+      ['todo', 'docs/report.md', 8, '真坏链接 [gone](missing.md)，真 TODO'],
+      ['link', 'docs/report.md', 8, 'missing.md'],
+    ])
   })
 })
 

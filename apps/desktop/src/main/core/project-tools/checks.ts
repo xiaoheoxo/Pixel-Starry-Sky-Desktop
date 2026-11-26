@@ -125,6 +125,7 @@ export function cleanCheckConfig(raw: unknown): CheckConfig {
 const TODO = /\b(?:TODO|FIXME)\b/
 const PLACEHOLDER = /<(?:填写|待填写?|待补充|请填写|placeholder|TBD)[^<>\n]{0,40}>/i
 const LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/g
+const MARKDOWN = /\.(?:md|mdx|markdown)$/i
 
 /** git diff --unified=0 的输出 → 每个文件新增的行（行号是新文件里的） */
 export function addedLines(diff: string): Map<string, { line: number; text: string }[]> {
@@ -147,6 +148,57 @@ export function addedLines(diff: string): Map<string, { line: number; text: stri
     else if (raw.startsWith(' ')) next++
   }
   return files
+}
+
+/**
+ * Markdown 里的代码块（``` / ~~~ 围栏，按开头长度配对，列表里缩进的、引用块里的也算，没闭合的算到末尾）、行内代码、HTML 注释（可以跨行）换成空格，
+ * 行数、列位置不变：文本检查不看照抄的原文写法和示例代码（docs/ui/channels-collab-v2.md §8）
+ */
+export function maskMarkdown(body: string): string[] {
+  let fence: { char: string; len: number } | null = null
+  let comment = false
+  return body.split(/\r?\n/).map(line => {
+    if (fence) {
+      const close = /^[\s>]*(`{3,}|~{3,})\s*$/.exec(line)
+      if (close && close[1][0] === fence.char && close[1].length >= fence.len) fence = null
+      return ' '.repeat(line.length)
+    }
+    // 列表里缩进的、引用块（>）里的也算
+    const open = comment ? null : /^[\s>]*(`{3,}|~{3,})(.*)$/.exec(line)
+    // ``` 开头的信息串里不能再有反引号（那是行内代码）
+    if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
+      fence = { char: open[1][0], len: open[1].length }
+      return ' '.repeat(line.length)
+    }
+    let out = ''
+    let i = 0
+    while (i < line.length) {
+      if (comment) {
+        const end = line.indexOf('-->', i)
+        const stop = end < 0 ? line.length : end + 3
+        out += ' '.repeat(stop - i)
+        i = stop
+        if (end >= 0) comment = false
+      } else if (line.startsWith('<!--', i)) {
+        comment = true
+      } else if (line[i] === '`') {
+        let n = 0
+        while (line[i + n] === '`') n++
+        // 同一行里找一样长的一串反引号收尾；找不到就是普通字符
+        const tick = '`'.repeat(n)
+        let end = line.indexOf(tick, i + n)
+        while (end >= 0 && line[end + n] === '`') {
+          let skip = end
+          while (line[skip] === '`') skip++
+          end = line.indexOf(tick, skip)
+        }
+        const stop = end < 0 ? i + n : end + n
+        out += end < 0 ? tick : ' '.repeat(stop - i)
+        i = stop
+      } else out += line[i++]
+    }
+    return out
+  })
 }
 
 /** 一行里打不开的相对链接（Markdown 文件才看） */
@@ -178,6 +230,8 @@ export async function textChecks(root: string, files?: readonly string[] | null)
     return { kind: 'text', status: 'skipped', findings: [], note: '不是 Git 仓库' }
   }
   const added = new Map<string, { line: number; text: string }[]>()
+  /** 新文件的全文（Markdown 判断代码块要用，不再读一次） */
+  const bodies = new Map<string, string>()
   try {
     const { stdout } = await exec(
       'git',
@@ -204,6 +258,7 @@ export async function textChecks(root: string, files?: readonly string[] | null)
       if (only && !only.has(file)) continue
       const body = await text(join(root, file))
       if (body === null || body.includes('\0')) continue
+      if (MARKDOWN.test(file)) bodies.set(file, body)
       added.set(
         file,
         body.split(/\r?\n/).map((t, i) => ({ line: i + 1, text: t })),
@@ -218,11 +273,16 @@ export async function textChecks(root: string, files?: readonly string[] | null)
   }
   for (const [file, lines] of added) {
     if (only && !only.has(file)) continue
-    const markdown = /\.(?:md|mdx|markdown)$/i.test(file)
+    const markdown = MARKDOWN.test(file)
+    // Markdown：代码块、行内代码、注释里的不算。已提交过的文件只拿到新增的几行，按当前整个文件判断；读不到就只看这一行
+    const body = markdown ? (bodies.get(file) ?? (await text(join(root, file)))) : null
+    const masked = body !== null ? maskMarkdown(body) : null
     for (const { line, text: t } of lines) {
-      if (TODO.test(t)) push({ rule: 'todo', file, line, text: t })
-      else if (PLACEHOLDER.test(t)) push({ rule: 'placeholder', file, line, text: t })
-      if (markdown) for (const link of await brokenLinks(root, file, t)) push({ rule: 'link', file, line, text: link })
+      const scan = markdown ? (masked?.[line - 1] ?? maskMarkdown(t)[0]) : t
+      if (TODO.test(scan)) push({ rule: 'todo', file, line, text: t })
+      else if (PLACEHOLDER.test(scan)) push({ rule: 'placeholder', file, line, text: t })
+      if (markdown)
+        for (const link of await brokenLinks(root, file, scan)) push({ rule: 'link', file, line, text: link })
     }
   }
   return { kind: 'text', status: findings.length ? 'warn' : 'pass', findings }
