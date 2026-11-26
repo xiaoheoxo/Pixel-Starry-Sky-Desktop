@@ -81,6 +81,11 @@ export interface StoredChannel {
    */
   sideOf?: string | null
   sideMirror?: boolean
+  /**
+   * 「我的协作」同步过的团队频道成员登记（云端登记 id，docs/ui/channels-side-sync.md）：每次打开补上没同步过的，
+   * 你在这一页手动移出的已经记在这里，不会再加回来。旧数据没有：第一次打开时把缺的补一次
+   */
+  sideSeen?: string[]
   createdAt: number
   /** 看到哪里了：这之后别人发的算未读 */
   readAt: number

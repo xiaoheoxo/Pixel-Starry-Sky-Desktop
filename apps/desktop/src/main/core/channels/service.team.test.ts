@@ -1398,6 +1398,40 @@ describe('团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）
     await expect(t.c.side('不存在')).rejects.toThrow('频道不存在')
   })
 
+  it('之后再登记进团队频道的成员，打开时补上；在这一页移出的不再加回（docs/ui/channels-side-sync.md）', async () => {
+    const t = await withSide()
+    await t.c.addMember('tc_1', t.b)
+    expect(t.store.channels.get(t.side)?.memberIds).toEqual([SELF_ID, t.a])
+    // 再打开：补上审查员，时间线记一条加入
+    expect((await t.c.side('tc_1')).channelId).toBe(t.side)
+    expect(t.store.channels.get(t.side)?.memberIds).toEqual([SELF_ID, t.a, t.b])
+    const added = t.c
+      .messages(t.side)
+      .messages.filter(m => m.kind === 'event' && m.event === 'added')
+      .map(m => (m.kind === 'event' ? m.targetId : null))
+    expect(added).toEqual([t.b])
+    // 牵头能派给它了
+    await t.c.update(t.side, { lead: t.a })
+    expect(t.c.state().channels.find(x => x.id === t.side)?.lead).toBe(t.a)
+    // 在这一页移出：再打开不加回
+    await t.c.removeMember(t.side, t.b)
+    await t.c.side('tc_1')
+    expect(t.store.channels.get(t.side)?.memberIds).toEqual([SELF_ID, t.a])
+  })
+
+  it('旧的「我的协作」没记同步过哪些：第一次打开把缺的补一次，之后照常', async () => {
+    const t = await withSide()
+    await t.c.addMember('tc_1', t.b)
+    const { sideSeen: _seen, ...legacy } = t.store.channels.get(t.side)!
+    await t.store.saveChannel(legacy)
+    await t.c.side('tc_1')
+    expect(t.store.channels.get(t.side)?.memberIds).toEqual([SELF_ID, t.a, t.b])
+    expect(t.store.channels.get(t.side)?.sideSeen).toHaveLength(2)
+    await t.c.removeMember(t.side, t.b)
+    await t.c.side('tc_1')
+    expect(t.store.channels.get(t.side)?.memberIds).toEqual([SELF_ID, t.a])
+  })
+
   it('观察者没有这一页', async () => {
     const t = await open()
     t.cloud.role = 'observer'

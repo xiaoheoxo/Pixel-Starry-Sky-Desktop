@@ -6890,33 +6890,41 @@ export class Channels {
 
   /**
    * 团队频道的「我的协作」（docs/ui/channels-unify.md §7.2）：只有自己看得到的一份本机频道，牵头、互相派活、流程在里面
-   * 和只有我的频道一样用。第一次打开时建，成员是我登记在这个团队频道里的 AI 成员；已有的只跟上团队频道的名字
+   * 和只有我的频道一样用。第一次打开时建，成员是我登记在这个团队频道里的 AI 成员；之后每次打开补上新登记的
+   * （docs/ui/channels-side-sync.md：只加不删，同步过的记在 sideSeen，你在这一页移出的不再加回），名字跟上团队频道
    */
   async side(channelId: string): Promise<{ channelId: string }> {
     const team = this.requireTeam()
     const info = team.channelInfo(channelId)
     if (!info) throw new Error('频道不存在')
     if (info.role === 'observer') throw new Error('观察者没有「我的协作」')
+    const mine = team.myAgents(info.teamId).filter(a => a.channelId === channelId && !!this.member(a.localId))
     const old = [...this.store.channels.values()].find(c => c.sideOf === channelId)
     if (old) {
-      if (old.name !== info.name) {
-        await this.store.saveChannel({ ...old, name: info.name })
+      // 旧数据没有 sideSeen：当作都没同步过，缺的补一次
+      const seen = new Set(old.sideSeen ?? [])
+      const fresh = [
+        ...new Set(mine.filter(a => !seen.has(a.id) && !old.memberIds.includes(a.localId)).map(a => a.localId)),
+      ]
+      const sideSeen = [...new Set([...seen, ...mine.map(a => a.id)])]
+      const same = old.name === info.name && !fresh.length && sideSeen.length === (old.sideSeen?.length ?? -1)
+      if (!same) {
+        // 从读成员到这里没有 await：连着打开两次，第二次读到的已经是这一份
+        await this.store.saveChannel({ ...old, name: info.name, memberIds: [...old.memberIds, ...fresh], sideSeen })
+        for (const id of fresh) this.event(old.id, 'added', { targetId: id })
         this.changed()
       }
       return { channelId: old.id }
     }
-    const mine = team
-      .myAgents(info.teamId)
-      .filter(a => a.channelId === channelId && !!this.member(a.localId))
-      .map(a => a.localId)
     const now = this.now()
     const c: StoredChannel = {
       id: randomUUID(),
       name: info.name,
       topic: info.topic,
       projectId: null,
-      memberIds: [SELF_ID, ...new Set(mine)],
+      memberIds: [SELF_ID, ...new Set(mine.map(a => a.localId))],
       sideOf: channelId,
+      sideSeen: mine.map(a => a.id),
       createdAt: now,
       readAt: now,
     }
