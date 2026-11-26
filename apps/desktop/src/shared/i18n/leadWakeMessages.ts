@@ -15,8 +15,8 @@ export const leadWakeMessages = {
     en: 'Call the lead when a member hands back a result',
   },
   'channels.dialog.leadWakeHint': {
-    zh: '牵头经手的活，成员做完、回复里没 @ 别人时，牵头决定接着派、问你、总结还是不说话。要开着「允许 AI 成员互相派活」',
-    en: 'For work the lead handed out: when a member finishes without @-ing anyone, the lead decides whether to assign more, ask you, sum up or stay quiet. Needs "Let AI members assign work to each other"',
+    zh: '牵头经手的活，成员做完、回复里没 @ 别人时，牵头决定接着派、问你、总结还是不说话。要开着「允许 AI 成员互相派活」；只开「牵头派活自动放行」时只叫自动派出的活',
+    en: 'For work the lead handed out: when a member finishes without @-ing anyone, the lead decides whether to assign more, ask you, sum up or stay quiet. Needs "Let AI members assign work to each other"; with only lead auto-approve on, it is called for auto-sent work only',
   },
   'channels.dialog.leadDispatchOnly': { zh: '牵头只派活不动手', en: 'Lead only assigns, never edits' },
   'channels.dialog.leadDispatchOnlyHint': {

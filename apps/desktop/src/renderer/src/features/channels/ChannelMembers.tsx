@@ -28,7 +28,7 @@ import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { effortLabel, PERMISSION_INFO, relativeTime } from '@/features/engine'
 import type { AgentMember, Channel, ChannelAgentStatus, ChannelMember, HumanMember } from '@/data/types'
 import type { AgentConfig, AgentPolicy, ChannelNotify, ChannelTaskStatus } from '../../../../shared/types/channels'
-import { usesTaskCopies } from '../../../../shared/types/channels'
+import { DEFAULT_LEAD_AUTO, usesTaskCopies } from '../../../../shared/types/channels'
 import { agentCredit, machineLabel, MemberAvatar } from './ChannelMessage'
 import { channelLoad, dirConflicts, memberLoad } from './model'
 import { AvatarPicker } from './AvatarPicker'
@@ -641,6 +641,7 @@ export function ChannelMembers({
   // 牵头的候选照频道设置对话框：这个频道里本机的 AI 成员
   const leadOptions = agents.filter(m => m.machineId === 'local')
   const leadShown = leadOptions.find(m => m.id === channel.lead)?.id ?? ''
+  const locked = useChannels(s => s.leadAutoPolicy) === 'locked'
   const usage = channel.scope === 'local' ? usageText(channel.usage) : null
   // 可以加进来的：我自己的全局 AI 成员（别人的、团队频道里登记的不算）
   const others = allMembers.filter(
@@ -882,6 +883,22 @@ export function ChannelMembers({
                     checked={channel.leadRoute !== false}
                     label={tr('channels.dialog.leadRoute')}
                     onChange={on => update({ leadRoute: on })}
+                  />
+                </div>
+              )}
+              {leadShown && (
+                // 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）：细项在频道设置里改；全局一律人工复核时变灰
+                <div
+                  className="flex min-w-0 items-center gap-2"
+                  title={tr(locked ? 'channels.leadAuto.locked' : 'channels.leadAuto.hint')}
+                >
+                  <span className="min-w-0 flex-1 text-list text-fg-secondary">{tr('channels.leadAuto.title')}</span>
+                  <Switch
+                    size="sm"
+                    checked={!locked && channel.leadAuto?.on === true}
+                    disabled={locked}
+                    label={tr('channels.leadAuto.title')}
+                    onChange={on => update({ leadAuto: { ...(channel.leadAuto ?? DEFAULT_LEAD_AUTO), on } })}
                   />
                 </div>
               )}

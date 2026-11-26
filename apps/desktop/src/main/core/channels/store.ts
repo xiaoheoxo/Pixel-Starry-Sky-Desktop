@@ -11,6 +11,8 @@ import type { AgentConfig, ChannelAttachments, ChannelMessage, ChannelTask } fro
 import type { TaskRun } from './tracker'
 
 import type {
+  LeadAutoPolicy,
+  LeadAutoRules,
   ChannelAlertRule,
   ChannelNotify,
   ChannelWakeup,
@@ -48,6 +50,8 @@ export interface StoredChannel {
   leadWake?: boolean
   /** 牵头只派活不动手；旧数据没有（= 关） */
   leadDispatchOnly?: boolean
+  /** 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）；旧数据没有（= 关，没设过） */
+  leadAuto?: LeadAutoRules
   /** @ 一个 AI 派新活时先出计划；旧数据没有（= 按默认，开） */
   planFirst?: boolean
   /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）；旧数据没有 */
@@ -138,6 +142,8 @@ export class ChannelStore {
     await mkdir(this.dir, { recursive: true })
     this.members = await this.readJson<AgentConfig[]>(join(this.dir, 'members.json'), [])
     this.teammate = cleanTeammate(await this.readJson<unknown>(join(this.dir, 'teammate.json'), null))
+    const policy = (await this.readJson<{ policy?: unknown } | null>(join(this.dir, 'lead-auto.json'), null))?.policy
+    if (policy === 'off' || policy === 'locked') this.leadAutoPolicy = policy
     for (const run of await this.readJson<TaskRun[]>(join(this.dir, 'runs.json'), [])) this.runs.set(run.taskId, run)
     for (const entry of await readdir(this.dir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !ID.test(entry.name)) continue
@@ -196,6 +202,11 @@ export class ChannelStore {
 
   /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
   teammate: TeammateRules = DEFAULT_TEAMMATE
+  /** 牵头派活自动放行的全局策略（lead-auto.json）；没有文件 = 新频道默认开 */
+  leadAutoPolicy: LeadAutoPolicy = 'on'
+  saveLeadAutoPolicy(): Promise<void> {
+    return this.atomic(join(this.dir, 'lead-auto.json'), { policy: this.leadAutoPolicy })
+  }
   saveTeammate(): Promise<void> {
     return this.atomic(join(this.dir, 'teammate.json'), this.teammate)
   }

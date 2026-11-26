@@ -6,8 +6,10 @@ import { tr } from '../../i18n/core'
 import { cleanAvatar } from '../../../../shared/channels/avatar'
 import {
   DEFAULT_RELAY_RULES,
+  cleanLeadAuto,
   cleanRelayRules,
   relayRulesOf,
+  type LeadAutoRules,
   type AgentConfig,
   type ChannelAlertRule,
   type ChannelInput,
@@ -45,6 +47,8 @@ export interface ChannelPreset {
   members?: { sourceId: string; config: PresetMemberConfig }[]
   lead?: string | null
   leadRoute?: boolean
+  /** 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）；没有时新建按全局策略 */
+  leadAuto?: LeadAutoRules
   planFirst?: boolean
   relay?: boolean
   relayRules?: RelayRules
@@ -98,6 +102,12 @@ function parsePreset(raw: unknown): ChannelPreset | null {
   if (Array.isArray(p.members)) preset.members = p.members.map(parseMember).filter(m => m !== null)
   if (typeof p.lead === 'string' || p.lead === null) preset.lead = p.lead
   if (typeof p.leadRoute === 'boolean') preset.leadRoute = p.leadRoute
+  if (p.leadAuto !== undefined)
+    try {
+      preset.leadAuto = cleanLeadAuto(p.leadAuto)
+    } catch {
+      // 坏的、旧版不认识的：不带，新建按全局策略
+    }
   if (typeof p.planFirst === 'boolean') preset.planFirst = p.planFirst
   if (typeof p.relay === 'boolean') preset.relay = p.relay
   if (p.relayRules !== undefined)
@@ -209,6 +219,7 @@ export function presetFromChannel(
     preset.relayRules = relayRulesOf(channel)
     preset.planFirst = channel.planFirst !== false
     preset.leadRoute = channel.leadRoute !== false
+    if (channel.leadAutoSet && channel.leadAuto) preset.leadAuto = channel.leadAuto
     // 牵头是带上的成员之一才有意义
     preset.lead = picked.some(m => m.id === channel.lead) ? channel.lead : null
   }
@@ -232,6 +243,8 @@ export interface PresetForm {
   rules: RelayRules
   planFirst: boolean
   leadRoute: boolean
+  /** null：没设过，按全局策略 */
+  leadAuto: LeadAutoRules | null
   lead: string
   notify: ChannelNotify
   alerts: ReturnType<typeof alertRulesOf>
@@ -285,6 +298,7 @@ export function formFromPreset(preset: ChannelPreset | null, agents: readonly Ag
     rules: preset?.relayRules ?? DEFAULT_RELAY_RULES,
     planFirst: preset?.planFirst ?? true,
     leadRoute: preset?.leadRoute ?? true,
+    leadAuto: preset?.leadAuto ?? null,
     lead: preset?.lead && members.includes(preset.lead) ? preset.lead : '',
     notify: preset?.notify ?? 'all',
     alerts: alertRulesOf({ alerts: preset?.alerts }),
@@ -359,5 +373,7 @@ export async function createFromForm(
     .catch((e: unknown) => failed.push(e))
   if (form.lead && form.members.includes(form.lead))
     await actions.updateChannel(id, { lead: form.lead }).catch((e: unknown) => failed.push(e))
+  // 单独存：全局「一律人工复核」时打开的会被拒，不连累别的设置
+  if (form.leadAuto) await actions.updateChannel(id, { leadAuto: form.leadAuto }).catch((e: unknown) => failed.push(e))
   return { id, failed }
 }

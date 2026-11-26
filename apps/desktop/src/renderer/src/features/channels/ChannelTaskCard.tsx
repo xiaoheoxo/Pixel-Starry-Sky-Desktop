@@ -296,6 +296,19 @@ export function ChannelTaskCard({
           onMove={memberId => run(() => onAction!(task.id, 'reassign', memberId))}
         />
       )}
+      {/* 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md §2.1）：排着等空位、接着用了哪个对话 */}
+      {task.autoQueued && task.status === 'queued' && (
+        <p data-task-auto-queued className="mt-1 text-meta text-fg-muted">
+          {tr('channels.task.autoQueued')}
+        </p>
+      )}
+      {task.reused && (
+        <p data-task-reused className="mt-1 text-meta text-fg-faint">
+          {task.reused.context === null
+            ? tr('channels.task.reused', { name: assignee?.name ?? '?' })
+            : tr('channels.task.reusedAt', { name: assignee?.name ?? '?', n: task.reused.context })}
+        </p>
+      )}
       {task.wake && task.wake.from.length > 0 && (
         // 成员交回结果叫起来的牵头（docs/multica-learn.md §11.2）
         <p data-task-wake className="mt-1 flex min-w-0 items-center gap-1 text-meta text-fg-muted">
@@ -789,9 +802,11 @@ function RoutedLine({
       <span className="min-w-0 truncate" title={routed.note}>
         {routed.moved
           ? tr('channels.task.routedMoved')
-          : routed.note
-            ? tr('channels.task.routedWhy', { name: lead, why: routed.note })
-            : tr('channels.task.routed', { name: lead })}
+          : routed.auto
+            ? tr('channels.task.routedAuto', { name: lead })
+            : routed.note
+              ? tr('channels.task.routedWhy', { name: lead, why: routed.note })
+              : tr('channels.task.routed', { name: lead })}
       </span>
       {canMove && others.length > 0 && (
         <>

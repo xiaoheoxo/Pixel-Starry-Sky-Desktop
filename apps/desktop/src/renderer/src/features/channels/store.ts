@@ -38,7 +38,7 @@ import type {
   ChannelWakeup,
   WakeupOp,
 } from '../../../../shared/types/channels'
-import { DEFAULT_TEAMMATE } from '../../../../shared/types/channels'
+import { DEFAULT_TEAMMATE, type LeadAutoPolicy, type LeadAutoRules } from '../../../../shared/types/channels'
 import { cleanWakeupAdd, endWakeup, wakeupFirst } from '../../../../shared/channels/wakeup'
 import { getPage, subscribePage } from '@/features/layout/page'
 import { appendMessage, createMessage, firstUnreadAt, markRead, unreadTotal } from './model'
@@ -87,6 +87,8 @@ export interface ChannelsState {
   teamsSyncedAt: number | null
   /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
   teammate: TeammateRules
+  /** 牵头派活自动放行的全局策略（docs/ui/channels-lead-auto-approve.md §2.2） */
+  leadAutoPolicy: LeadAutoPolicy
   /** 收件箱（docs/multica-learn.md §11.5）：没归档的，新的在前；inboxSupported 为 false 时不显示「通知」 */
   inbox: TeamInboxItem[]
   inboxSupported: boolean
@@ -126,6 +128,7 @@ let state: ChannelsState = {
   teamsConnection: channelsLive ? 'unavailable' : channelTeams.connection,
   teamsSyncedAt: channelsLive ? null : Date.now(),
   teammate: DEFAULT_TEAMMATE,
+  leadAutoPolicy: 'on',
   inbox: channelsLive ? [] : (channelTeams.inbox ?? []),
   inboxSupported: !channelsLive && !!channelTeams.inbox,
   needs: [],
@@ -249,6 +252,7 @@ function applySnapshot(s: ChannelsSnapshot): void {
     teamsConnection: s.teamsConnection ?? 'unavailable',
     teamsSyncedAt: s.teamsSyncedAt ?? null,
     teammate: s.teammate ?? DEFAULT_TEAMMATE,
+    leadAutoPolicy: s.leadAutoPolicy ?? 'on',
     inbox: s.inbox ?? [],
     inboxSupported: s.inboxSupported ?? false,
   })
@@ -630,6 +634,8 @@ export const channelActions = {
       /** 成员交回结果时叫牵头、牵头只派活不动手（docs/multica-learn.md §11.2） */
       leadWake?: boolean
       leadDispatchOnly?: boolean
+      /** 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md） */
+      leadAuto?: LeadAutoRules
       /** 每天定时运行的流程（§10.3）：整份列表，主进程按 id 保留运行时字段 */
       schedules?: FlowScheduleInput[]
     },
@@ -809,6 +815,11 @@ export const channelActions = {
         : it,
     )
     set({ inbox: next.filter(it => !it.archived) })
+  },
+  /** 牵头派活自动放行的全局策略：只管新频道的默认和「一律人工复核」 */
+  async setLeadAutoPolicy(policy: LeadAutoPolicy): Promise<void> {
+    if (channelsBridge) await channelsBridge.setLeadAutoPolicy(policy)
+    else set({ leadAutoPolicy: policy })
   },
   /** 队友派来的活的限制：只在哪些项目接、要不要副本、带不带我的 MCP */
   async setTeammate(rules: TeammateRules): Promise<void> {

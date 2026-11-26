@@ -434,6 +434,8 @@ export async function initChannels(ctx: AppContext): Promise<void> {
   )
   // 队友派来的活的限制：主进程按 cleanTeammate 整理，不认识的字段丢掉
   ipc.handle('channels:teammate', (_e, rules) => channels.setTeammate(rules))
+  // 牵头派活自动放行的全局策略（docs/ui/channels-lead-auto-approve.md §2.2）
+  ipc.handle('channels:leadAutoPolicy', (_e, policy) => channels.setLeadAutoPolicy(policy))
   // 收件箱改一行（docs/multica-learn.md §11.5）：只认这四个字段
   ipc.handle('channels:inbox', (_e, teamId, key, raw) => {
     const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>

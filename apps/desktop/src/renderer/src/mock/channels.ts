@@ -2,6 +2,7 @@
 // 时间相对本地 0 点推算，日期分隔始终是「昨天 / 今天」。
 import type { Channel, ChannelMember, ChannelMessage } from '@/data/types'
 import type { PendingInvite, TeamInboxItem, TeamInfo } from '../../../shared/types/channels'
+import { DEFAULT_LEAD_AUTO } from '../../../shared/types/channels'
 import { nextSlot } from '../../../shared/schedule'
 
 const NOW = Date.now()
@@ -135,6 +136,9 @@ export const demoChannels: Channel[] = [
     pinned: ['web-m2'],
     // 牵头成员（docs/ui/channels-pipeline.md §8.3）
     lead: 'a-frontend',
+    // 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）
+    leadAuto: { ...DEFAULT_LEAD_AUTO },
+    leadAutoSet: true,
     // 每天定时运行（§10.3）
     schedules: [
       {
@@ -579,7 +583,98 @@ export const demoChannelMessages: Record<string, ChannelMessage[]> = {
         assigneeId: 'a-reviewer',
         request: '「外观」页改完后检查一遍暗色主题下的对比度，列出不达标的地方。',
         state: 'open',
+        // 牵头这一轮自动派出的到了上限，转回等你（docs/ui/channels-lead-auto-approve.md）
+        held: 'batch',
       },
+    },
+    {
+      kind: 'message',
+      id: 'web-p2',
+      channelId: 'c-web',
+      at: at(TODAY, '09:51', 30),
+      authorId: 'a-frontend',
+      format: 'plain',
+      replyToId: 'web-t2',
+      mentions: ['m-linxia'],
+      text: '「账号」页的表单校验补几个单元测试，覆盖必填和格式错误。',
+      proposal: {
+        assigneeId: 'a-reviewer',
+        request: '「账号」页的表单校验补几个单元测试，覆盖必填和格式错误。',
+        state: 'open',
+        held: 'batch',
+      },
+    },
+    // 牵头自动派出的两项：一项接着用审查员最近的对话在做，一项排着等空位
+    {
+      kind: 'message',
+      id: 'web-p3',
+      channelId: 'c-web',
+      at: at(TODAY, '09:51', 40),
+      authorId: 'a-frontend',
+      format: 'plain',
+      replyToId: 'web-t2',
+      mentions: [],
+      text: '审查「账号」页迁移后的表单结构，重点看字段顺序和错误提示的位置。',
+      proposal: {
+        assigneeId: 'a-reviewer',
+        request: '审查「账号」页迁移后的表单结构，重点看字段顺序和错误提示的位置。',
+        state: 'sent',
+        auto: true,
+        taskId: 'web-t8',
+      },
+    },
+    {
+      kind: 'task',
+      id: 'web-t8',
+      channelId: 'c-web',
+      at: at(TODAY, '09:51', 42),
+      authorId: 'a-frontend',
+      assigneeId: 'a-reviewer',
+      title: '审查「账号」页迁移后的表单结构',
+      status: 'running',
+      sessionId: 's-redesign',
+      summary: null,
+      diff: null,
+      startedAt: NOW - 60_000,
+      routedBy: { memberId: 'a-frontend', note: '', auto: true },
+      batch: 'web-t2:1',
+      relay: { chain: 'web-t2', hop: 1, held: null },
+      reused: { context: 32 },
+    },
+    {
+      kind: 'message',
+      id: 'web-p4',
+      channelId: 'c-web',
+      at: at(TODAY, '09:51', 44),
+      authorId: 'a-frontend',
+      format: 'plain',
+      replyToId: 'web-t2',
+      mentions: [],
+      text: '检查「通知」页的文案和空状态，列出要改的地方。',
+      proposal: {
+        assigneeId: 'a-reviewer',
+        request: '检查「通知」页的文案和空状态，列出要改的地方。',
+        state: 'sent',
+        auto: true,
+        taskId: 'web-t9',
+      },
+    },
+    {
+      kind: 'task',
+      id: 'web-t9',
+      channelId: 'c-web',
+      at: at(TODAY, '09:51', 46),
+      authorId: 'a-frontend',
+      assigneeId: 'a-reviewer',
+      title: '检查「通知」页的文案和空状态',
+      status: 'queued',
+      sessionId: null,
+      summary: null,
+      diff: null,
+      routedBy: { memberId: 'a-frontend', note: '', auto: true },
+      batch: 'web-t2:1',
+      relay: { chain: 'web-t2', hop: 1, held: null },
+      autoQueued: true,
     },
     {
       kind: 'message',

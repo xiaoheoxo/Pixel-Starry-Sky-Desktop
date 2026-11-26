@@ -244,7 +244,7 @@ export interface DispatchInput {
   /** 频道允许 AI 成员互相派活：频道里其他 AI 成员（名字、职责第一行）；不允许时 null */
   peers?: { name: string; role: string }[] | null
   /** 会话挂了频道工具（pixelsky_channel）：说明能翻更早的讨论、在串里回复、提议派活；relay 时还能直接交接 */
-  tools?: { relay: boolean } | null
+  tools?: { relay: boolean; auto?: { perBatch: number } | null } | null
 }
 
 /** 看图走工具：没这句模型会自己开电脑控制去截屏 */
@@ -268,7 +268,7 @@ function deliveryFallback(locale: Locale): string {
     : `${toolLookup(locale)}确实没有 task_done，就在回复最后写一个 json 代码块交付：{"task_done": true, "summary": "…", "files": ["…"]}（审查步骤另外写 verdict 和 issues）。`
 }
 
-function toolsText(tools: { relay: boolean }, locale: Locale): string {
+function toolsText(tools: { relay: boolean; auto?: { perBatch: number } | null }, locale: Locale): string {
   if (en(locale))
     return [
       "You have the channel tools (MCP server pixelsky_channel): channel_read reads earlier messages in this channel (only the last few are above), thread_read reads the discussion thread of a task card, channel_reply posts a short note in this task's thread (progress, questions; it does not interrupt anyone), and task_propose suggests giving a task to another AI member (the user decides whether to send it).",
@@ -277,6 +277,9 @@ function toolsText(tools: { relay: boolean }, locale: Locale): string {
       attachmentHint(locale),
       tools.relay
         ? 'This channel lets AI members hand work to each other: task_handover gives part of the work to another member right away. For the same handoff use either task_handover or "@name" in your final reply, not both.'
+        : '',
+      tools.auto
+        ? `You lead this channel and it auto-approves your task_propose: each one is sent right away (up to ${tools.auto.perBatch} per turn; members you already gave the same request to are skipped). Every task opens work that costs tokens, so do not split what one member can finish, and write each request with the background the member needs so it does not have to read the channel.`
         : '',
     ]
       .filter(Boolean)
@@ -288,6 +291,9 @@ function toolsText(tools: { relay: boolean }, locale: Locale): string {
     attachmentHint(locale),
     tools.relay
       ? '这个频道允许 AI 成员互相派活：task_handover 可以直接把一部分活交给别的成员。同一次交接用 task_handover 或在最后的回复里写「@名字」二选一，不要两样都用。'
+      : '',
+    tools.auto
+      ? `你是这个频道的牵头，频道开着自动放行：你用 task_propose 提的活会直接派出（一轮最多 ${tools.auto.perBatch} 项；同一个成员手上已有同样要求的不再派）。每项活都要花 token：一个成员能做完的不要拆；拆了的每项写清需要的背景，让成员不用再翻频道。`
       : '',
   ]
     .filter(Boolean)
@@ -394,12 +400,17 @@ export function dispatchPrompt(input: DispatchInput): string {
 /** 牵头的唤醒卡回复只有这个标记：不发到频道（docs/multica-learn.md §11.2） */
 export const isSilent = (text: string): boolean => /^\s*\[silent\]\s*$/i.test(text)
 
-/** 牵头被成员交回的结果叫起来：这次的要求（交回的结果在交接那一段里） */
-export function leadWakeRequest(locale: Locale, dispatchOnly: boolean): string {
+/**
+ * 牵头被成员交回的结果叫起来：这次的要求（交回的结果在交接那一段里）。
+ * propose：频道不允许互相派活、靠自动放行叫醒的（回复里 @ 不会派活），接着做的活用 task_propose 派
+ */
+export function leadWakeRequest(locale: Locale, dispatchOnly: boolean, propose = false): string {
   if (en(locale))
     return [
       'You lead this channel. A member has handed back the result above (without @-ing anyone). Decide what happens next:',
-      '- More work is needed: @ the right member and say clearly what they should do;',
+      propose
+        ? '- More work is needed: give it to the right member with task_propose (it is sent right away) and say clearly what they should do;'
+        : '- More work is needed: @ the right member and say clearly what they should do;',
       '- A person needs to decide: put it on its own line starting with "Needs your decision:";',
       '- The work is finished: sum up the outcome in a sentence or two;',
       '- Nothing to add: reply with just [silent] (nothing is posted to the channel).',
@@ -409,7 +420,9 @@ export function leadWakeRequest(locale: Locale, dispatchOnly: boolean): string {
     ].join('\n')
   return [
     '你是这个频道的牵头。上面是成员交回的结果（回复里没有 @ 别人）。决定下一步：',
-    '- 还要接着做：@ 对应的成员，写清楚要他做什么；',
+    propose
+      ? '- 还要接着做：用 task_propose 派给对应的成员（会直接派出），写清楚要他做什么；'
+      : '- 还要接着做：@ 对应的成员，写清楚要他做什么；',
     '- 需要人来决定：单独写一行，以「需要你决定：」开头；',
     '- 这件事做完了：用一两句话总结结果；',
     '- 没什么要说的：只回复 [silent]（不会发到频道里）。',

@@ -310,6 +310,10 @@ export interface Channel {
   leadWake?: boolean
   /** 牵头只分派和协调、不自己改文件（只是提示词里的一句）；没写按关 */
   leadDispatchOnly?: boolean
+  /** 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）：生效的规则（全局一律人工复核时 on 是 false）；只有本机频道有 */
+  leadAuto?: LeadAutoRules
+  /** 这个频道设过自动放行（升级前的频道没设过：设了牵头时提示一次可以打开） */
+  leadAutoSet?: boolean
   /** @ 一个 AI 派新活时先让它出计划，商量好、点开工才动手；没写按默认（开） */
   planFirst?: boolean
   /** 每天定时运行的流程（§10.3），只有本机频道 */
@@ -713,6 +717,10 @@ export interface ChannelProposal {
   assigneeId: string
   request: string
   state: 'open' | 'sent' | 'dismissed'
+  /** 牵头的提议没自动派出、转回等你的原因（docs/ui/channels-lead-auto-approve.md）：完全放行的成员、一次超了、这小时用量到了、连续轮数到了 */
+  held?: 'full' | 'batch' | 'hour' | 'rounds' | null
+  /** 自动放行直接派出的：时间线上不单独显示（任务卡上写了） */
+  auto?: boolean
   taskId?: string | null
   /** 提议的成员手上那项活带的附件（消息 id）：派出去时一起带上 */
   attach?: string[]
@@ -794,8 +802,17 @@ export interface ChannelTask extends ChannelMessageBase {
   ownerOffline?: boolean
   /** Phase C：AI 成员绑的执行机不在线（queued 时显示「执行机离线，上线后开始」，docs/multica-learn.md §11.7） */
   runnerOffline?: boolean
-  /** 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过 */
-  routedBy?: { memberId: string; note: string; moved?: boolean } | null
+  /**
+   * 牵头按职责分派的（docs/ui/channels-auto-route.md）：谁分的、一句为什么；moved：你改派过；
+   * auto：牵头用 task_propose 派、频道开着自动放行直接派出的（docs/ui/channels-lead-auto-approve.md）
+   */
+  routedBy?: { memberId: string; note: string; moved?: boolean; auto?: boolean } | null
+  /** 牵头同一轮派出的一批（牵头那张卡 id:轮次）：一批都交回后才叫牵头一次；自动放行按它数一次几项、连续几轮 */
+  batch?: string | null
+  /** 接着用成员在这个频道最近的对话做的（不新开）：当时的上下文占比，不知道时 null */
+  reused?: { context: number | null } | null
+  /** 自动派出的活同时开工数满了，排着等空位 */
+  autoQueued?: boolean
   /**
    * 队友派来的活在主人这边的限制（docs/multica-learn.md §11.4，只有主人看得到）：capped 是被降级前的权限，
    * copy 是这件活自己的副本分支
@@ -977,6 +994,87 @@ export function cleanRelayRules(raw: unknown): RelayRules {
   }
 }
 
+/**
+ * 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）：牵头用 task_propose 派的活直接派出，不出提议卡。
+ * 省 Token 的几项不让活停下：同时开工几项（其余排队）、成员接着用最近的对话、牵头被叫醒时回到派活的对话；
+ * 到上限的转回提议卡等你：一次几项、最近 60 分钟自动派出的活用了多少 token、牵头连续派了几轮、派给完全放行的成员
+ */
+export interface LeadAutoRules {
+  on: boolean
+  concurrent: number
+  /** 接着用多少分钟内用过的对话；0 是不接着用 */
+  reuseMinutes: number
+  /** 只接着用上下文占用不到这么多 % 的对话 */
+  reuseContext: number
+  leadSame: boolean
+  perBatch: number
+  /** 自动派出的活最近 60 分钟最多用多少 token（输入 + 输出 + 缓存写入） */
+  hourTokens: number
+  rounds: number
+  guardFull: boolean
+}
+
+/** 全局策略：新频道默认开 / 默认关 / 一律人工复核（所有频道都关，频道设置里改不了） */
+export type LeadAutoPolicy = 'on' | 'off' | 'locked'
+
+export const DEFAULT_LEAD_AUTO: LeadAutoRules = {
+  on: true,
+  concurrent: 3,
+  reuseMinutes: 30,
+  reuseContext: 50,
+  leadSame: true,
+  perBatch: 8,
+  hourTokens: 500_000,
+  rounds: 2,
+  guardFull: true,
+}
+export const LEAD_AUTO_LIMITS = {
+  concurrent: [1, 10],
+  reuseMinutes: [0, 240],
+  reuseContext: [10, 90],
+  perBatch: [1, 50],
+  hourTokens: [10_000, 100_000_000],
+  rounds: [1, 10],
+} as const
+
+/** 频道生效的规则：没设过的（升级前的频道）按关；全局「一律人工复核」时关 */
+export function leadAutoOf(channel: { leadAuto?: LeadAutoRules | null }, policy: LeadAutoPolicy): LeadAutoRules {
+  const rules = channel.leadAuto ?? { ...DEFAULT_LEAD_AUTO, on: false }
+  return policy === 'locked' ? { ...rules, on: false } : rules
+}
+
+/** 检查并整理界面 / IPC 传来的规则；不对时抛中文错误 */
+export function cleanLeadAuto(raw: unknown): LeadAutoRules {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const num = (key: keyof typeof LEAD_AUTO_LIMITS, label: string): number => {
+    const v = r[key]
+    const [min, max] = LEAD_AUTO_LIMITS[key]
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max)
+      throw new Error(`${label}要在 ${min}～${max} 之间`)
+    return v
+  }
+  const flag = (key: 'on' | 'leadSame' | 'guardFull'): boolean => {
+    if (typeof r[key] !== 'boolean') throw new Error('自动放行的设置不对')
+    return r[key] as boolean
+  }
+  return {
+    on: flag('on'),
+    concurrent: num('concurrent', '同时开工的项数'),
+    reuseMinutes: num('reuseMinutes', '接着用对话的分钟数'),
+    reuseContext: num('reuseContext', '接着用对话的上下文占比'),
+    leadSame: flag('leadSame'),
+    perBatch: num('perBatch', '一次最多派的项数'),
+    hourTokens: num('hourTokens', '每小时的 token 上限'),
+    rounds: num('rounds', '连续派活的轮数'),
+    guardFull: flag('guardFull'),
+  }
+}
+
+export function cleanLeadAutoPolicy(raw: unknown): LeadAutoPolicy {
+  if (raw !== 'on' && raw !== 'off' && raw !== 'locked') throw new Error('自动放行的全局策略不对')
+  return raw
+}
+
 export interface ChannelEvent extends ChannelMessageBase {
   kind: 'event'
   event:
@@ -1055,6 +1153,8 @@ export interface ChannelsSnapshot {
   teamsSyncedAt: number | null
   /** 队友派来的活的限制（这台电脑的设置，所有团队通用）；旧版本没有 */
   teammate?: TeammateRules
+  /** 牵头派活自动放行的全局策略（docs/ui/channels-lead-auto-approve.md §2.2） */
+  leadAutoPolicy?: LeadAutoPolicy
   /** 收件箱（docs/multica-learn.md §11.5）：没归档的，新的在前；inboxSupported 为 false 是云端还没有收件箱 */
   inbox?: TeamInboxItem[]
   inboxSupported?: boolean

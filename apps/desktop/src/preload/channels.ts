@@ -19,6 +19,8 @@ import type {
   RelayRules,
   ChannelAlertRule,
   TeamRole,
+  LeadAutoPolicy,
+  LeadAutoRules,
 } from '../shared/types/channels'
 import type { ChannelAlertAction } from '../shared/channels/alerts'
 import type {
@@ -72,6 +74,8 @@ export interface ChannelsBridge {
       leadRoute?: boolean
       leadWake?: boolean
       leadDispatchOnly?: boolean
+      /** 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md） */
+      leadAuto?: LeadAutoRules
       /** 每天定时运行的流程（docs/ui/channels-pipeline.md §10.3）：整个列表一起存 */
       schedules?: FlowScheduleInput[]
       /** 主动提醒的规则开关、每日简报几点发（docs/ui/channels-collab-v2.md §6） */
@@ -159,6 +163,8 @@ export interface ChannelsBridge {
   setAgentPolicy(channelId: string, memberId: string, policy: AgentPolicy, allow?: string[]): Promise<void>
   /** 队友派来的活的限制（docs/multica-learn.md §11.4） */
   setTeammate(rules: TeammateRules): Promise<void>
+  /** 牵头派活自动放行的全局策略：新频道默认开 / 默认关 / 一律人工复核 */
+  setLeadAutoPolicy(policy: LeadAutoPolicy): Promise<void>
   /** 收件箱改一行：已读、归档、延后、取消订阅（docs/multica-learn.md §11.5） */
   patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void>
   /** 新建团队，返回团队 id */

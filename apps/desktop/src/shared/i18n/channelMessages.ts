@@ -113,6 +113,41 @@ export const channelMessages = {
   'channels.task.cancel': { zh: '取消', en: 'Cancel' },
   // 牵头按职责分派（docs/ui/channels-auto-route.md）
   'channels.task.routed': { zh: '{name} 分派的', en: 'Assigned by {name}' },
+  // 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）
+  'channels.task.routedAuto': { zh: '{name} 分派 · 自动放行', en: 'Assigned by {name} · auto-approved' },
+  'channels.task.autoQueued': {
+    zh: '自动派出的活同时开工数满了，前面有空位再开工',
+    en: 'Auto-approved tasks are at the limit for running at once; this one starts when a slot frees up',
+  },
+  'channels.task.reused': {
+    zh: '接着用 {name} 在这个频道的对话（不新开，不用重读项目）',
+    en: 'Continues in {name}’s conversation in this channel (no new session, no re-reading the project)',
+  },
+  'channels.task.reusedAt': {
+    zh: '接着用 {name} 在这个频道的对话（上下文 {n}%，不新开）',
+    en: 'Continues in {name}’s conversation in this channel ({n}% context, no new session)',
+  },
+  'channels.proposal.autoSent': {
+    zh: '已自动派给 {name}（频道开着牵头派活自动放行）',
+    en: 'Sent to {name} automatically (this channel auto-approves the lead’s tasks)',
+  },
+  'channels.proposal.sendAll': { zh: '全部派出（{n}）', en: 'Send all ({n})' },
+  'channels.proposal.held.full': {
+    zh: '对方是完全放行的成员，频道要求派给这类成员时你确认',
+    en: 'This member runs with full access, so the channel asks you before sending',
+  },
+  'channels.proposal.held.batch': {
+    zh: '牵头这一轮自动派出的已经到上限，剩下的等你',
+    en: 'The lead hit this channel’s limit for one round; the rest wait for you',
+  },
+  'channels.proposal.held.hour': {
+    zh: '这一小时自动派出的活用的 token 到了上限，新派的等你',
+    en: 'Auto-approved tasks used this hour’s token limit; new ones wait for you',
+  },
+  'channels.proposal.held.rounds': {
+    zh: '牵头连续派活的轮数到了上限，看过结果再决定；放行后重新计数',
+    en: 'The lead reached the limit of rounds in a row; check the results first. Sending resets the count',
+  },
   'channels.task.routedWhy': { zh: '{name} 分派：{why}', en: '{name} assigned it: {why}' },
   'channels.task.routedMoved': { zh: '你改派的', en: 'You reassigned it' },
   'channels.task.reassign': { zh: '改派给…', en: 'Reassign…' },
@@ -391,6 +426,74 @@ export const channelMessages = {
     zh: '三项都不限时，两个 AI 可能一直互相派活、一直消耗额度，建议至少设一个最长运行时间。',
     en: 'With no limits at all, two AIs may keep handing work to each other and keep using quota. Set at least a longest run time.',
   },
+  'channels.leadAuto.title': { zh: '牵头派活自动放行', en: 'Auto-approve tasks from the lead' },
+  'channels.leadAuto.hint': {
+    zh: '牵头给 AI 成员派的活直接派出，不用逐张点「派出去」。其他成员的提议、成员干活时要的权限照旧问你。',
+    en: 'Tasks the lead gives AI members are sent right away, without clicking Send on each. Other members’ proposals and the permissions members ask for still come to you.',
+  },
+  'channels.leadAuto.locked': {
+    zh: '下面选了「一律人工复核」，所有频道都不能打开。',
+    en: 'Always review is selected below, so no channel can turn this on.',
+  },
+  'channels.leadAuto.groupSave': { zh: '省 Token', en: 'Save tokens' },
+  'channels.leadAuto.concurrent': { zh: '同时开工最多', en: 'Run at most' },
+  'channels.leadAuto.concurrentUnit': {
+    zh: '项，其余排队（排队的不花 token）',
+    en: 'at once; the rest wait (waiting costs no tokens)',
+  },
+  'channels.leadAuto.reuse': { zh: '同一个成员接着用同一个对话', en: 'Let a member continue in the same conversation' },
+  'channels.leadAuto.reuseHint': {
+    zh: '不用重读项目，提示缓存接得上；放久了缓存过期、上下文大了反而更贵，所以只接着用下面这种对话',
+    en: 'No re-reading the project, and the prompt cache still applies. Old or large conversations cost more, so only ones like below are reused',
+  },
+  'channels.leadAuto.reuseWithin': { zh: '只接', en: 'Only if used within' },
+  'channels.leadAuto.reuseMid': { zh: '分钟内用过、上下文不到', en: 'minutes and under' },
+  'channels.leadAuto.reuseUnit': { zh: '%', en: '% context' },
+  'channels.leadAuto.leadSame': {
+    zh: '牵头被叫醒时回到派这批活的那个对话',
+    en: 'Wake the lead in the conversation it assigned the batch from',
+  },
+  'channels.leadAuto.leadSameHint': {
+    zh: '它记得自己是怎么拆的，不用再读一遍频道',
+    en: 'It remembers how it split the work, so it doesn’t re-read the channel',
+  },
+  'channels.leadAuto.always': {
+    zh: '一直开着：同一成员手上已有同样要求的不再派；一批派出的都交回后只叫牵头一次。',
+    en: 'Always on: a request a member already has is not sent again, and the lead is woken once when a whole batch is back.',
+  },
+  'channels.leadAuto.groupLimits': { zh: '到这些上限转回等你', en: 'Wait for you at these limits' },
+  'channels.leadAuto.perBatch': { zh: '一次最多派', en: 'At most' },
+  'channels.leadAuto.perBatchUnit': { zh: '项', en: 'tasks per round' },
+  'channels.leadAuto.hour': { zh: '自动派出的活每小时最多用', en: 'Auto-approved tasks may use at most' },
+  'channels.leadAuto.hourUnit': { zh: '万 token', en: '×10k tokens per hour' },
+  'channels.leadAuto.rounds': {
+    zh: '牵头看完结果接着派，最多连续',
+    en: 'The lead may assign again after results at most',
+  },
+  'channels.leadAuto.roundsUnit': { zh: '轮', en: 'rounds in a row' },
+  'channels.leadAuto.guardFull': {
+    zh: '派给「完全放行」的成员仍要我确认',
+    en: 'Still ask me before sending to members with full access',
+  },
+  'channels.leadAuto.summary': { zh: '会在这些情况转回等你：{list}。', en: 'Waits for you when {list}.' },
+  'channels.leadAuto.sumBatch': { zh: '一次超过 {n} 项', en: 'a round has more than {n} tasks' },
+  'channels.leadAuto.sumHour': { zh: '这小时用满 {n} 万 token', en: 'this hour reaches {n}×10k tokens' },
+  'channels.leadAuto.sumRounds': { zh: '牵头连续派到第 {n} 轮', en: 'the lead reaches round {n} in a row' },
+  'channels.leadAuto.sumFull': { zh: '派给完全放行的成员', en: 'the member has full access' },
+  'channels.leadAuto.policy': { zh: '所有频道', en: 'All channels' },
+  'channels.leadAuto.policy.on': { zh: '新频道默认开', en: 'On for new channels' },
+  'channels.leadAuto.policy.off': { zh: '新频道默认关', en: 'Off for new channels' },
+  'channels.leadAuto.policy.locked': { zh: '一律人工复核', en: 'Always review' },
+  'channels.leadAuto.policyHint': {
+    zh: '新建频道按这个；「一律人工复核」时所有频道都关掉、开关变灰。已经有的频道按各自的设置。',
+    en: 'New channels follow this. Always review turns it off everywhere and locks the switch. Existing channels keep their own setting.',
+  },
+  'channels.leadAuto.offer': {
+    zh: '牵头派的活可以自动放行，不用逐张点「派出去」',
+    en: 'Tasks from the lead can be sent automatically, without clicking Send on each',
+  },
+  'channels.leadAuto.offerOpen': { zh: '打开', en: 'Turn on' },
+  'channels.leadAuto.offerNo': { zh: '不用', en: 'No thanks' },
   'channels.dialog.project': { zh: '默认项目', en: 'Default project' },
   'channels.dialog.noProject': { zh: '不设置', en: 'None' },
   'channels.dialog.members': { zh: 'AI 成员（可选）', en: 'AI members (optional)' },

@@ -600,6 +600,7 @@ const channels: ChannelsBridge = {
   setAgentPolicy: (channelId, memberId, policy, allow) =>
     call('channels:agentPolicy', channelId, memberId, policy, allow),
   setTeammate: rules => call('channels:teammate', rules),
+  setLeadAutoPolicy: policy => call('channels:leadAutoPolicy', policy),
   patchInbox: (teamId, key, patch) => call('channels:inbox', teamId, key, patch),
   createTeam: name => call('teams:create', name),
   updateTeam: (teamId, patch) => call('teams:update', teamId, patch),

@@ -68,6 +68,8 @@ import type {
   TeamRole,
   ChannelWakeup,
   ChannelWakeupTag,
+  ChannelProposal,
+  ChannelTaskStatus,
 } from '../../../shared/types/channels'
 import {
   WAKEUP_AI_LIVE_MAX,
@@ -87,6 +89,10 @@ import {
 import {
   cleanRelayRules,
   cleanTeammate,
+  cleanLeadAuto,
+  cleanLeadAutoPolicy,
+  DEFAULT_LEAD_AUTO,
+  leadAutoOf,
   relayRulesOf,
   type RelayRules,
   type TeamInboxPatch,
@@ -277,6 +283,16 @@ interface RelayInput {
   request: string
   handoff?: Handoff
 }
+/** 攒着等叫牵头的一份结果（成员交回、要叫牵头时 finish 里定好的） */
+interface HeldWake {
+  result: ChannelTextMessage
+  run: TaskRun
+  handoff: Handoff
+  inherit: string[]
+  relay: ChannelRelay
+}
+/** 一批派出的活等多久还没齐就先叫牵头 */
+const BATCH_WAKE_MS = 30 * 60_000
 const PAGE = 200
 /** 不问你就能改文件的成员（同一目录排队只管这些，docs/multica-learn.md §11.2）；没设权限按会改 */
 const editsFreely = (m: AgentConfig | undefined): boolean =>
@@ -285,6 +301,18 @@ const editsFreely = (m: AgentConfig | undefined): boolean =>
 const SEARCH_LIMIT = 50
 const SEARCH_TEXT_MAX = 200
 const DAY = 86_400_000
+const HOUR = 3_600_000
+/** 任务卡已经结束的状态 */
+const ENDED_STATUS: ReadonlySet<ChannelTaskStatus> = new Set(['done', 'failed', 'stopped'])
+/** 牵头的提议转回等你时告诉牵头的原因（docs/ui/channels-lead-auto-approve.md §2.1） */
+const HELD_NOTE: Record<NonNullable<ChannelProposal['held']>, string> = {
+  full: '对方是完全放行的成员，频道要求派给这类成员时用户确认',
+  batch: '这一轮自动派出的已经到频道设的上限',
+  hour: '这一小时自动派出的活用的 token 到了频道设的上限',
+  rounds: '你连续派活的轮数到了频道设的上限，用户看过结果后才会接着自动派',
+}
+/** 两项要求算不算同一件事：去掉空白、标点、大小写后相同 */
+const sameRequest = (text: string): string => text.replace(/[\s\p{P}\p{S}]+/gu, '').toLowerCase()
 /** 结束了的运行信息留这么久（重试、追加要求用） */
 const KEEP_ENDED = 30 * DAY
 const ENGINES = new Set(['claude', 'codex', 'pixel', 'omp', 'antigravity'])
@@ -728,6 +756,8 @@ export class Channels {
         leadRoute: c.leadRoute !== false,
         leadWake: c.leadWake !== false,
         leadDispatchOnly: c.leadDispatchOnly === true,
+        leadAuto: leadAutoOf(c, this.store.leadAutoPolicy),
+        leadAutoSet: !!c.leadAuto,
         planFirst: c.planFirst ?? this.deps.planFirst ?? true,
         schedules: c.schedules ?? [],
         wakeups: c.wakeups ?? [],
@@ -813,6 +843,7 @@ export class Channels {
       teamsConnection: this.team ? (team?.connection ?? 'signed-out') : 'unavailable',
       teamsSyncedAt: team?.syncedAt ?? null,
       teammate: this.store.teammate,
+      leadAutoPolicy: this.store.leadAutoPolicy,
       ...(() => {
         const inbox = this.team?.inboxItems() ?? null
         return { inbox: inbox ?? [], inboxSupported: inbox !== null }
@@ -1047,6 +1078,8 @@ export class Channels {
       topic: typeof raw.topic === 'string' && raw.topic.trim() ? raw.topic.trim().slice(0, TOPIC_MAX) : null,
       projectId: typeof raw.projectId === 'string' && raw.projectId ? raw.projectId : null,
       memberIds: [SELF_ID, ...new Set(agents)],
+      // 牵头派活自动放行按全局策略（docs/ui/channels-lead-auto-approve.md §2.2）
+      leadAuto: { ...DEFAULT_LEAD_AUTO, on: this.store.leadAutoPolicy === 'on' },
       createdAt: now,
       readAt: now,
     }
@@ -1079,6 +1112,8 @@ export class Channels {
       /** 成员交回结果时叫牵头、牵头只派活不动手（只有本机频道，docs/multica-learn.md §11.2） */
       leadWake?: boolean
       leadDispatchOnly?: boolean
+      /** 牵头派活自动放行（只有本机频道，docs/ui/channels-lead-auto-approve.md） */
+      leadAuto?: unknown
       /** 每天定时运行的流程（只有本机频道，§10.3）：整个列表一起存 */
       schedules?: unknown[]
       /** 主动提醒的规则开关、每日简报几点发（只有本机频道） */
@@ -1160,6 +1195,12 @@ export class Channels {
     if (patch.leadRoute !== undefined) c.leadRoute = patch.leadRoute === true
     if (patch.leadWake !== undefined) c.leadWake = patch.leadWake === true
     if (patch.leadDispatchOnly !== undefined) c.leadDispatchOnly = patch.leadDispatchOnly === true
+    if (patch.leadAuto !== undefined) {
+      const next = cleanLeadAuto(patch.leadAuto)
+      if (next.on && this.store.leadAutoPolicy === 'locked')
+        throw new Error('设置里选了「一律人工复核」，频道里不能打开自动放行')
+      c.leadAuto = next
+    }
     if (patch.schedules !== undefined) c.schedules = this.cleanSchedules(c, patch.schedules)
     if (patch.alerts !== undefined) c.alerts = cleanAlertRules(patch.alerts)
     if (patch.digestHour !== undefined) c.digestHour = cleanDigestHour(patch.digestHour)
@@ -1827,7 +1868,15 @@ export class Channels {
       together: relay ? [] : this.together(c, source, member.id),
       handoff: relay?.handoff ?? null,
       peers: c.relay ? this.relayPeers(c, member.id) : null,
-      tools: tools ? { relay: !!c.relay } : null,
+      tools: tools
+        ? {
+            relay: !!c.relay,
+            auto: (() => {
+              const rules = leadAutoOf(c, this.store.leadAutoPolicy)
+              return rules.on && c.lead === member.id ? { perBatch: rules.perBatch } : null
+            })(),
+          }
+        : null,
     })
   }
 
@@ -1994,7 +2043,7 @@ export class Channels {
     /** 除了来源消息自己的，还要带上哪些消息的附件（交活的成员手上那项活带的） */
     inherit: string[] = [],
     /** 卡片上另外的字段（牵头唤醒卡的标题、wake；事项唤醒卡的标题、挂规则的人、AI 挂的接着算的接力）：开会话前就要在卡上 */
-    fields?: Partial<Pick<ChannelTask, 'title' | 'wake' | 'authorId' | 'relay'>>,
+    fields?: Partial<Pick<ChannelTask, 'title' | 'wake' | 'authorId' | 'relay' | 'routedBy' | 'batch'>>,
     /** 这一轮另外的运行信息（事项唤醒：自己的提示词、wakeup 标记），盖过上面拼好的 */
     runExtra?: Partial<TaskRun>,
   ): string {
@@ -2076,7 +2125,14 @@ export class Channels {
     decision: string | null,
   ): { relay: ChannelRelay } | null {
     const lead = c.lead
-    if (!lead || !c.relay || c.leadWake === false || c.archivedAt || run.flow || run.team) return null
+    if (!lead || c.leadWake === false || c.archivedAt || run.flow || run.team) return null
+    // 不允许互相派活时只叫自动放行派出的活（docs/ui/channels-lead-auto-approve.md §2.1）：你放行的、牵头分派的照旧不叫
+    if (!c.relay) {
+      const leader = this.member(lead)
+      if (!task.routedBy?.auto || !leadAutoOf(c, this.store.leadAutoPolicy).on) return null
+      // 靠 task_propose 接着派：牵头得挂着频道工具
+      if (!leader || !this.hasChannelTools(leader)) return null
+    }
     if (run.memberId === lead || relays || run.tools?.handover.length || decision || !reply) return null
     if (!c.memberIds.includes(lead) || !this.flowMemberCheck(c)(lead)?.local) return null
     const chain = task.relay?.chain ?? task.id
@@ -2093,6 +2149,57 @@ export class Channels {
         ...(stop ? { limit: stop.limit } : {}),
       },
     }
+  }
+
+  /** 一批还没交回完时攒着、等着叫牵头的结果（按批） */
+  private readonly heldWakes = new Map<
+    string,
+    { channelId: string; items: HeldWake[]; timer: ReturnType<typeof setTimeout> }
+  >()
+
+  /** 这一批还有没结束的活（同一批里正在做、排着、等你的） */
+  private batchOpen(channelId: string, batch: string): boolean {
+    return (this.store.messages.get(channelId) ?? []).some(
+      t => t.kind === 'task' && t.batch === batch && !ENDED_STATUS.has(t.status),
+    )
+  }
+
+  /**
+   * 叫牵头，但一批（牵头同一轮派出的）还有活没交回时先攒着，齐了叫一次；等了 BATCH_WAKE_MS 还没齐时先叫
+   * （docs/ui/channels-lead-auto-approve.md §2.1）。攒着的只在内存，重启后不再叫
+   */
+  private wakeLeadBatched(c: StoredChannel, task: ChannelTask, item: HeldWake): void {
+    const batch = task.batch
+    // 交回的这一项自己还没标成结束：除了它还有没结束的才攒
+    const open =
+      !!batch &&
+      (this.store.messages.get(c.id) ?? []).some(
+        t => t.kind === 'task' && t.batch === batch && t.id !== task.id && !ENDED_STATUS.has(t.status),
+      )
+    if (!batch || !open) {
+      if (batch) this.flushWakes(batch)
+      this.wakeLead(c, item.result, item.run, item.handoff, item.inherit, item.relay)
+      return
+    }
+    const held = this.heldWakes.get(batch)
+    if (held) {
+      held.items.push(item)
+      return
+    }
+    const timer = setTimeout(() => this.flushWakes(batch), BATCH_WAKE_MS)
+    timer.unref?.()
+    this.heldWakes.set(batch, { channelId: c.id, items: [item], timer })
+  }
+
+  /** 攒着的结果一起叫牵头：第一份开唤醒卡，后面的并进去 */
+  private flushWakes(batch: string): void {
+    const held = this.heldWakes.get(batch)
+    if (!held) return
+    this.heldWakes.delete(batch)
+    clearTimeout(held.timer)
+    const c = this.store.channels.get(held.channelId)
+    if (!c || c.archivedAt) return
+    for (const w of held.items) this.wakeLead(c, w.result, w.run, w.handoff, w.inherit, w.relay)
   }
 
   /** 牵头在这条接力上还没做完的唤醒卡 */
@@ -2138,7 +2245,7 @@ export class Channels {
       {
         from: run.memberId,
         author: from,
-        request: leadWakeRequest(locale, c.leadDispatchOnly === true),
+        request: leadWakeRequest(locale, c.leadDispatchOnly === true, !c.relay),
         handoff,
         relay,
       },
@@ -2398,8 +2505,80 @@ export class Channels {
     // 执行机同时最多跑几件（§11.7）：满了就等别的做完（finish 里会再排一次）
     const cap = this.deps.maxRunning
     if (cap && [...this.store.runs.values()].filter(r => r.phase === 'sent').length >= cap) return
+    if (this.autoCapped(waiting[0])) return
     const next = this.dirCheck(waiting[0])
     if (next) await this.start(next)
+  }
+
+  /**
+   * 接着用成员在这个频道最近的对话（docs/ui/channels-lead-auto-approve.md §2.1）：自动派出的活、牵头被叫醒的卡，
+   * 每项活新开会话的本机成员，上一项做完不久（缓存还在）、上下文还不大、同一个项目和模型、没在做别的活时用它，不新开。
+   * 有副本的不接着用（会话开出来目录就定了）
+   */
+  private async reusableSession(
+    run: TaskRun,
+    member: AgentConfig,
+    task: ChannelTask,
+  ): Promise<{ sessionId: string; context: number | null } | null> {
+    const c = this.store.channels.get(run.channelId)
+    if (!c || member.mode !== 'per-task' || member.machineId !== 'local' || usesTaskCopies(member)) return null
+    if (run.forceCopy || task.copy || run.guard) return null
+    const rules = leadAutoOf(c, this.store.leadAutoPolicy)
+    if (!rules.on) return null
+    const wake = !!task.wake && member.id === c.lead
+    if (wake ? !rules.leadSame : !task.routedBy?.auto || !rules.reuseMinutes) return null
+    const minutes = rules.reuseMinutes || DEFAULT_LEAD_AUTO.reuseMinutes
+    let last: ChannelTask | null = null
+    for (const t of this.store.messages.get(c.id) ?? [])
+      if (t.kind === 'task' && t.id !== task.id && t.assigneeId === member.id && t.sessionId && t.endedAt)
+        if (!last || t.endedAt > (last.endedAt ?? 0)) last = t
+    // 只接着用做完的：停下、失败的那段对话多半走偏了
+    if (!last?.sessionId || !last.endedAt || last.status !== 'done' || last.copy) return null
+    if (this.now() - last.endedAt > minutes * 60_000) return null
+    const sid = last.sessionId
+    const taken = (): boolean =>
+      [...this.store.runs.values()].some(r => r.sessionId === sid && r.phase === 'sent' && r.taskId !== run.taskId)
+    if (taken() || !this.sessionIdle(sid)) return null
+    let snapshot: OpenedSession['snapshot']
+    try {
+      snapshot = ((await this.deps.call('engine:openSession', [sid])) as OpenedSession).snapshot
+    } catch {
+      return null
+    }
+    // 会话按开的时候的成员设置跑：成员改过引擎、模型、权限、强度、线路的，或会话里被改过权限的，不接着用
+    const record = snapshot.record
+    if (record.projectId !== member.projectId || record.engine !== member.engine) return null
+    const want = {
+      ...member.settings,
+      permissionMode: member.settings.permissionMode ?? this.deps.defaultMode?.(member.engine),
+    }
+    for (const [key, value] of Object.entries(want) as [keyof typeof want, unknown][])
+      if (value !== undefined && JSON.stringify(record[key] ?? null) !== JSON.stringify(value)) return null
+    const used = snapshot.usage?.contextTokens ?? null
+    const window = snapshot.usage?.contextWindow ?? null
+    const context = used !== null && window ? Math.round((used / window) * 100) : null
+    // 不知道窗口多大时按 8 万 token 算大
+    if (context === null ? (used ?? 0) > 80_000 : context >= rules.reuseContext) return null
+    // 打开会话期间可能被别的活占上了
+    if (taken() || !this.sessionIdle(sid)) return null
+    return { sessionId: sid, context }
+  }
+
+  /**
+   * 自动派出的活（docs/ui/channels-lead-auto-approve.md §2.1）同一频道同时开工数满了：卡上记 autoQueued，等空位
+   * （finish 里排别的成员）。只算自动派出的；你自己派的、你放行的不占也不受限
+   */
+  private autoCapped(run: TaskRun): boolean {
+    const task = this.taskOf(run)
+    if (!task?.routedBy?.auto) return false
+    const c = this.store.channels.get(run.channelId)
+    const limit = c ? leadAutoOf(c, this.store.leadAutoPolicy).concurrent : Infinity
+    const busy = [...this.store.runs.values()].filter(
+      r => r.channelId === run.channelId && r.phase === 'sent' && !!this.taskOf(r)?.routedBy?.auto,
+    ).length
+    const capped = busy >= limit
+    if (!!task.autoQueued !== capped) this.patch(run.channelId, run.taskId, { autoQueued: capped })
+    return capped
   }
 
   /**
@@ -2518,7 +2697,12 @@ export class Channels {
     const cmid = clientMessageId(task.id, run.round)
     let current: TaskRun = { ...run, phase: 'sent', clientMessageId: cmid }
     this.store.runs.set(run.taskId, current)
-    this.patch(run.channelId, run.taskId, { ahead: 0, disconnected: false, ...(task.dirWait ? { dirWait: null } : {}) })
+    this.patch(run.channelId, run.taskId, {
+      ahead: 0,
+      disconnected: false,
+      ...(task.dirWait ? { dirWait: null } : {}),
+      ...(task.autoQueued ? { autoQueued: false } : {}),
+    })
     try {
       if (!this.machineOnline(member.machineId)) {
         const name = this.deps.machines().find(m => m.id === member.machineId)?.name ?? member.machineId
@@ -2552,6 +2736,16 @@ export class Channels {
         const shared =
           member.mode === 'shared' && !rules && (!current.flow || (planning && this.planInShared(current, member)))
         sessionId = shared && this.sessionExists(member.sharedSessionId) ? member.sharedSessionId : null
+        // 自动派出的活、牵头的唤醒卡：接着用成员在这个频道最近的对话（docs/ui/channels-lead-auto-approve.md §2.1）
+        if (!sessionId && !rules && !current.flow && !current.team) {
+          const reuse = await this.reusableSession(current, member, task)
+          const back = this.store.runs.get(run.taskId)
+          if (!back || back.phase !== 'sent' || back.clientMessageId !== cmid) return
+          if (reuse) {
+            sessionId = reuse.sessionId
+            this.patch(run.channelId, run.taskId, { reused: { context: reuse.context } })
+          }
+        }
         if (!sessionId) {
           if (rules) guard = await this.guardFor(current, member, rules)
           // 流程里的一步：先定在哪做（并行时建副本），提示词按实际的位置写
@@ -2668,6 +2862,13 @@ export class Channels {
   async patchInbox(teamId: string, key: string, patch: TeamInboxPatch): Promise<void> {
     if (!this.team) throw new Error('还没登录团队')
     await this.team.patchInbox(teamId, key, patch)
+  }
+
+  /** 牵头派活自动放行的全局策略（docs/ui/channels-lead-auto-approve.md §2.2）：只管新频道的默认和「一律人工复核」，不改已有频道存的开关 */
+  async setLeadAutoPolicy(raw: unknown): Promise<void> {
+    this.store.leadAutoPolicy = cleanLeadAutoPolicy(raw)
+    await this.store.saveLeadAutoPolicy()
+    this.changed()
   }
 
   async setTeammate(raw: unknown): Promise<void> {
@@ -2852,7 +3053,7 @@ export class Channels {
                 },
                 inherit,
               )
-            if (wake) this.wakeLead(latest, result, run, handoff, inherit, wake.relay)
+            if (wake) this.wakeLeadBatched(latest, task, { result, run, handoff, inherit, relay: wake.relay })
           }
           if (c && images.length) void this.attachRunImages(run, result, images, locale).then(send)
           else if (c) send()
@@ -2860,6 +3061,8 @@ export class Channels {
       }
       if (run.team) this.patchTeam(ended, patch, teamResult)
       else this.patch(run.channelId, run.taskId, patch)
+      // 这一批最后一项结束了（没交回结果、要你决定的也算）：攒着的结果现在叫牵头
+      if (task.batch && !this.batchOpen(run.channelId, task.batch)) this.flushWakes(task.batch)
       // 做完了、后面没有排着的追加要求：跑产出检查（唤醒的一轮没改文件不跑，§11.6）
       const unchanged = !!run.wakeup && !changedFiles(run).length && !diffTotal(run)
       if (!run.team && finish.status === 'done' && !run.followUps.length && !unchanged) void this.check(ended)
@@ -2885,8 +3088,9 @@ export class Channels {
     this.prune()
     void this.pump(run.memberId)
     this.pumpDirWaiters(run.memberId)
-    // 执行机限了同时跑几件：空出一个位子，别的成员排着的也能开始
-    if (this.deps.maxRunning) for (const m of this.store.members) if (m.id !== run.memberId) void this.pump(m.id)
+    // 执行机限了同时跑几件、自动派出的活限了同时开工数：空出一个位子，别的成员排着的也能开始
+    if (this.deps.maxRunning || task?.routedBy?.auto)
+      for (const m of this.store.members) if (m.id !== run.memberId) void this.pump(m.id)
   }
 
   /**
@@ -3103,21 +3307,86 @@ export class Channels {
     return text
   }
 
-  /** task_propose：发一张提议卡，你点「派出去」才派 */
+  /**
+   * 牵头的提议能不能直接派出（docs/ui/channels-lead-auto-approve.md §2.3）：不是牵头本人、频道没开时 null（照旧提议）；
+   * 同一成员手上有同样的活时 dup；到上限、派给完全放行的成员时 held（转回提议卡）。和开卡在同一段同步代码里判断
+   */
+  private autoVerdict(
+    c: StoredChannel,
+    member: AgentConfig,
+    task: ChannelTask | null,
+    run: TaskRun | null,
+    peer: AgentConfig,
+    request: string,
+    hourUsed: number,
+  ):
+    | { kind: 'auto'; batch: string }
+    | { kind: 'dup'; title: string }
+    | { kind: 'held'; why: NonNullable<ChannelProposal['held']> }
+    | null {
+    const rules = leadAutoOf(c, this.store.leadAutoPolicy)
+    if (!rules.on || c.lead !== member.id || run?.team) return null
+    const list = this.store.messages.get(c.id) ?? []
+    const want = sameRequest(request)
+    for (const t of list) {
+      if (t.kind !== 'task' || t.assigneeId !== peer.id || ENDED_STATUS.has(t.status)) continue
+      const src = list.find(m => m.id === t.sourceMessageId)
+      const text = src?.kind === 'message' ? (src.proposal?.request ?? src.text) : t.title
+      if (want && sameRequest(text) === want) return { kind: 'dup', title: t.title }
+    }
+    const mode = peer.settings.permissionMode ?? this.deps.defaultMode?.(peer.engine)
+    if (rules.guardFull && mode === 'full') return { kind: 'held', why: 'full' }
+    const batch = `${task?.id ?? 'session'}:${run?.round ?? 0}`
+    const since = c.relayResetAt ?? c.createdAt
+    const autos = list.filter((t): t is ChannelTask => t.kind === 'task' && !!t.routedBy?.auto)
+    if (autos.filter(t => t.batch === batch).length >= rules.perBatch) return { kind: 'held', why: 'batch' }
+    const rounds = new Set(autos.filter(t => t.at > since && t.batch).map(t => t.batch))
+    if (!rounds.has(batch) && rounds.size >= rules.rounds) return { kind: 'held', why: 'rounds' }
+    if (hourUsed >= rules.hourTokens) return { kind: 'held', why: 'hour' }
+    return { kind: 'auto', batch }
+  }
+
+  /** 自动派出的活最近 60 分钟用了多少 token（输入 + 输出 + 缓存写入，缓存读取不算）；没有自动派出的活时不读用量记录 */
+  private async autoHourTokens(channelId: string): Promise<number> {
+    const now = this.now()
+    const keys = new Set(
+      (this.store.messages.get(channelId) ?? []).flatMap(t =>
+        // 最近一小时还在做或做完的（开工得早、一直在做的也算）
+        t.kind === 'task' && t.routedBy?.auto && (t.endedAt ?? now) >= now - HOUR ? (t.turns ?? []) : [],
+      ),
+    )
+    if (!keys.size) return 0
+    const records = (await this.deps.usageRecords?.(now)) ?? []
+    let used = 0
+    for (const r of records)
+      if (r.endedAt >= now - HOUR && keys.has(turnKey(r.sessionId, r.turnId))) used += r.input + r.output + r.cacheWrite
+    return used
+  }
+
+  /** task_propose：发一张提议卡，你点「派出去」才派；牵头的、频道开着自动放行时直接派出 */
   async toolPropose(sessionId: string, memberName: string, raw: string): Promise<string> {
     const before = this.callerOf(sessionId)
     if (before.c.archivedAt) throw new Error('频道已归档，不能再派活')
     this.peerByName(before.c, before.member, memberName)
     const id = randomUUID()
     const attached = await this.carrySessionImages(sessionId, id)
-    // 读图、存图期间状态可能变了：下面都按最新的来
+    const hourUsed = leadAutoOf(before.c, this.store.leadAutoPolicy).on ? await this.autoHourTokens(before.c.id) : 0
+    // 读图、存图、读用量期间状态可能变了：下面都按最新的来（从这里到开卡是同一段同步代码）
     const { c, task, run, member } = this.callerOf(sessionId)
     if (c.archivedAt) throw new Error('频道已归档，不能再派活')
     const peer = this.peerByName(c, member, memberName)
     const request = this.toolRequest(raw)
-    this.countTool(run, 'proposals', TOOL_PROPOSALS_MAX)
+    const verdict = this.autoVerdict(c, member, task, run, peer, request, hourUsed)
+    if (verdict?.kind === 'dup')
+      return `${peer.name} 手上已经有同样的活（「${verdict.title}」），没有再派。等它做完再看要不要补充。`
+    // 牵头开着自动放行：一张卡能提的次数跟着「一次最多派几项」走（提示词里也是这么告诉牵头的）
+    const most = verdict
+      ? Math.max(TOOL_PROPOSALS_MAX, leadAutoOf(c, this.store.leadAutoPolicy).perBatch)
+      : TOOL_PROPOSALS_MAX
+    this.countTool(run, 'proposals', most)
     // 绑定的会话早做完的那张卡（toolCaller 的兜底）带的图和现在这件事无关
     const inherit = task && run?.phase === 'sent' ? this.attachIds(task, run) : []
+    const auto = verdict?.kind === 'auto'
     const message: ChannelTextMessage = {
       kind: 'message',
       id,
@@ -3127,15 +3396,56 @@ export class Channels {
       text: request,
       format: 'plain',
       replyToId: task?.id ?? null,
-      // 等你决定：算 @你
-      mentions: [SELF_ID],
-      proposal: { assigneeId: peer.id, request, state: 'open', ...(inherit.length ? { attach: inherit } : {}) },
+      // 等你决定：算 @你；自动派出的不用
+      mentions: auto ? [] : [SELF_ID],
+      proposal: {
+        assigneeId: peer.id,
+        request,
+        state: auto ? 'sent' : 'open',
+        ...(auto ? { auto: true } : {}),
+        ...(verdict?.kind === 'held' ? { held: verdict.why } : {}),
+        ...(inherit.length ? { attach: inherit } : {}),
+      },
       ...(attached ? { attached } : {}),
     }
-    await this.store.append(message)
-    this.pushMessage(message)
+    if (verdict?.kind !== 'auto') {
+      await this.store.append(message)
+      this.pushMessage(message)
+      this.changed()
+      return verdict?.kind === 'held'
+        ? `已提议把这项活交给 ${peer.name}。${HELD_NOTE[verdict.why]}，这一项等用户决定派不派。不用等结果，接着做你自己的活。`
+        : `已提议把这项活交给 ${peer.name}，等用户决定派不派。不用等结果，接着做你自己的活。`
+    }
+    // 自动派出：挂在牵头这张卡的接力链上（一批交回时并成一次唤醒）。提议消息先进内存（拼提示词按它找前面的消息），
+    // 开卡后带上卡 id 再写一次；都不等写盘：同一批并发的另一次提议看得到这张卡
+    void this.store.append(message).catch(e => this.deps.log?.('保存频道消息失败', e))
+    const chain = task ? (task.relay?.chain ?? task.id) : id
+    const handoff: Handoff = {
+      from: member.name,
+      title: task?.title ?? '',
+      reply: '',
+      files: run ? changedFiles(run) : [],
+    }
+    const taskId = this.newTask(
+      c,
+      message,
+      peer.id,
+      null,
+      {
+        from: member.id,
+        author: member.name,
+        request,
+        handoff,
+        relay: { chain, hop: (task?.relay?.hop ?? 0) + 1, held: null },
+      },
+      inherit,
+      { routedBy: { memberId: member.id, note: '', auto: true }, batch: verdict.batch },
+    )
+    const sent: ChannelTextMessage = { ...message, proposal: { ...message.proposal!, taskId } }
+    void this.store.append(sent).catch(e => this.deps.log?.('保存频道消息失败', e))
+    this.pushMessage(sent)
     this.changed()
-    return `已提议把这项活交给 ${peer.name}，等用户决定派不派。不用等结果，接着做你自己的活。`
+    return `已派给 ${peer.name}（频道开着牵头派活自动放行），它会在自己的会话里做。不用等结果，接着做你自己的活。`
   }
 
   // -------------------------------------------------------------------------
@@ -3502,6 +3812,8 @@ export class Channels {
       null,
       { from: member.id, author: member.name, request, handoff, relay },
       run.phase === 'sent' ? this.attachIds(task, run) : [],
+      // 牵头同一轮交出去的是一批：都交回后才叫它一次（docs/ui/channels-lead-auto-approve.md §2.1）
+      c.lead === member.id ? { batch: `${task.id}:${run.round}` } : undefined,
     )
     this.changed()
     return stop
@@ -3531,6 +3843,11 @@ export class Channels {
     const next: ChannelTextMessage = {
       ...m,
       proposal: { ...m.proposal, state: accept ? 'sent' : 'dismissed', taskId },
+    }
+    // 放行因为牵头连续派活轮数停下的提议：你看过了，自动放行的轮数从现在重新数（docs/ui/channels-lead-auto-approve.md §2.1）
+    if (accept && m.proposal.held === 'rounds') {
+      const latest = this.store.channels.get(channelId)
+      if (latest) await this.store.saveChannel({ ...latest, relayResetAt: this.now() })
     }
     await this.store.append(next)
     this.pushMessage(next)

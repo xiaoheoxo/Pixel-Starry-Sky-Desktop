@@ -12,7 +12,7 @@ import { PathLinksProvider } from '@/features/files/PathLinksProvider'
 import type { ChannelMember, ChannelTask, ChannelTextMessage } from '@/data/types'
 import { excerpt, splitMentions } from './model'
 import { formatClock, messageWorkspace } from './format'
-import { channelActions } from './store'
+import { channelActions, useChannels } from './store'
 import { ImageAttachments } from '@/features/session/attachments/ImageAttachments'
 import { FileAttachments } from '@/features/session/attachments/FileAttachments'
 import type { ChannelAttachments } from '../../../../shared/types/channels'
@@ -403,6 +403,10 @@ function ProposalCard({
   const [busy, setBusy] = useState(false)
   const p = message.proposal!
   const target = membersById.get(p.assigneeId)?.name ?? '?'
+  // 这个频道里还在等你决定的提议：两张以上时每张都能「全部派出」（docs/ui/channels-lead-auto-approve.md §2.1）
+  // 选原数组，在渲染里过滤：选择器每次返回新数组会让 store 订阅无限重渲染
+  const list = useChannels(s => s.messages[message.channelId])
+  const open = (list ?? []).filter((m): m is ChannelTextMessage => m.kind === 'message' && m.proposal?.state === 'open')
   const decide = (accept: boolean) => {
     setBusy(true)
     channelActions
@@ -410,6 +414,25 @@ function ProposalCard({
       .catch(e => toast(tr('channels.proposal.failed', { error: translateMessage((e as Error).message) })))
       .finally(() => setBusy(false))
   }
+  // 一张张按顺序派：一张失败不连累后面的，失败的报一次
+  const sendAll = async () => {
+    setBusy(true)
+    for (const m of open)
+      await channelActions
+        .proposal(m.channelId, m.id, true)
+        .catch(e => toast(tr('channels.proposal.failed', { error: translateMessage((e as Error).message) })))
+    setBusy(false)
+  }
+  // 牵头的提议、频道开着自动放行直接派出的：一行说明，内容看下面的任务卡
+  if (p.auto)
+    return (
+      <div data-proposal-auto className="mt-1 flex min-w-0 items-center gap-1.5 text-meta text-fg-muted">
+        <Check size={13} strokeWidth={1.75} className="shrink-0 text-accent-fg" />
+        <span className="min-w-0 truncate" title={p.request}>
+          {tr('channels.proposal.autoSent', { name: target })}
+        </span>
+      </div>
+    )
   // 改一下：把「@成员 要求」放进输入框，改好了自己发
   const edit = () => appendComposerDraft(channelDraftKey(message.channelId), `@${target} ${p.request}`)
   return (
@@ -422,11 +445,26 @@ function ProposalCard({
         <span className="min-w-0 truncate">{tr('channels.proposal.title', { name: target })}</span>
       </div>
       <p className="text-prose break-words whitespace-pre-wrap text-fg-body">{p.request}</p>
+      {p.state === 'open' && p.held && (
+        <p data-proposal-held={p.held} className="text-meta text-warn">
+          {tr(`channels.proposal.held.${p.held}`)}
+        </p>
+      )}
       {p.state === 'open' && !readOnly ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <Button variant="primary" className="h-7 px-2.5 text-meta" disabled={busy} onClick={() => decide(true)}>
             {tr('channels.proposal.send')}
           </Button>
+          {open.length > 1 && (
+            <Button
+              className="h-7 px-2.5 text-meta"
+              data-proposal-send-all
+              disabled={busy}
+              onClick={() => void sendAll()}
+            >
+              {tr('channels.proposal.sendAll', { n: open.length })}
+            </Button>
+          )}
           <Button className="h-7 px-2.5 text-meta" disabled={busy} onClick={edit}>
             {tr('channels.proposal.edit')}
           </Button>

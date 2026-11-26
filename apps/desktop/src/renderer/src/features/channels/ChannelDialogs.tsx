@@ -13,12 +13,20 @@ import { effortLabel } from '@/features/engine/labels'
 import { effortDefaultsFor } from '@/features/engine/effortDefaults'
 import { machineOf, useMachines } from '@/features/machines/store'
 import type { AgentMember, Channel } from '@/data/types'
-import { relayRulesOf, type AgentConfig, type RelayRules, type SameDirPolicy } from '../../../../shared/types/channels'
+import {
+  DEFAULT_LEAD_AUTO,
+  relayRulesOf,
+  type AgentConfig,
+  type LeadAutoPolicy,
+  type RelayRules,
+  type SameDirPolicy,
+} from '../../../../shared/types/channels'
 import type { WorkspaceChoice } from '../../../../shared/types/machines'
 import { defaultAvatar } from '../../../../shared/channels/avatar'
 import { channelActions, useChannels } from './store'
 import { duplicateName, engineResetFields, matchAgents, scheduleToInput } from './model'
 import { RelayRulesEditor } from './RelayRules'
+import { LeadAutoEditor } from './LeadAutoEditor'
 import { AUD_ME, AUD_NEW, AudiencePicker } from './AudiencePicker'
 import { AlertRulesEditor } from './AlertRules'
 import { CopyFromChannel, ManagePresetsDialog, PresetChooser, PresetSummary } from './ChannelPresets'
@@ -224,6 +232,7 @@ export function ChannelDialog({
           rules: relayRulesOf(channel),
           planFirst: channel.planFirst !== false,
           leadRoute: channel.leadRoute !== false,
+          leadAuto: channel.leadAutoSet && channel.leadAuto ? channel.leadAuto : null,
           lead: channel.lead ?? '',
           notify: channel.notify ?? 'all',
           alerts: alertRulesOf(channel),
@@ -252,6 +261,10 @@ export function ChannelDialog({
   const [lead, setLead] = useState(base.lead)
   const [planFirst, setPlanFirst] = useState(base.planFirst)
   const [leadRoute, setLeadRoute] = useState(base.leadRoute)
+  // 牵头派活自动放行（docs/ui/channels-lead-auto-approve.md）：只在改已有频道时显示；全局策略点保存时才存
+  const [leadAuto, setLeadAuto] = useState(base.leadAuto)
+  const savedPolicy = useChannels(s => s.leadAutoPolicy)
+  const [policy, setPolicy] = useState<LeadAutoPolicy>(savedPolicy)
   // 牵头唤醒（docs/multica-learn.md §11.2）：只在改已有频道时显示，新建按默认
   const [leadWake, setLeadWake] = useState(channel?.leadWake !== false)
   const [leadDispatchOnly, setLeadDispatchOnly] = useState(channel?.leadDispatchOnly === true)
@@ -276,6 +289,7 @@ export function ChannelDialog({
     rules,
     planFirst,
     leadRoute,
+    leadAuto,
     lead,
     notify,
     alerts,
@@ -294,6 +308,7 @@ export function ChannelDialog({
     setRules(values.rules)
     setPlanFirst(values.planFirst)
     setLeadRoute(values.leadRoute)
+    setLeadAuto(values.leadAuto)
     setLead(values.lead)
     setNotify(values.notify)
     setAlerts(values.alerts)
@@ -331,33 +346,47 @@ export function ChannelDialog({
   const toast = useToast()
   // 名称、主题、说明是自己打的字：改过就先问再关（取消 / Esc / 点背景）
   const dirty =
-    name !== (channel?.name ?? '') || topic !== (channel?.topic ?? '') || changed || wakeChanged || !!newTeam.trim()
+    name !== (channel?.name ?? '') ||
+    topic !== (channel?.topic ?? '') ||
+    changed ||
+    wakeChanged ||
+    policy !== savedPolicy ||
+    !!newTeam.trim()
   const submit = () => {
     if (!name.trim() || teamMissing || busy) return
     setBusy(true)
     setError(null)
     const input = { name, topic: topic.trim() || null, projectId: inTeam ? null : projectId || null }
     // 频道建好后设置才存得上（建频道的接口不带它们）。没存上时频道已经建好（也切过去了）：照样关掉对话框，提示一下
+    // 全局策略先存：从「一律人工复核」改回来时，这个频道才打得开
+    const policyDone = channel && policy !== savedPolicy ? channelActions.setLeadAutoPolicy(policy) : Promise.resolve()
+    const autoPatch =
+      leadAuto && JSON.stringify(leadAuto) !== JSON.stringify(base.leadAuto)
+        ? { leadAuto: policy === 'locked' ? { ...leadAuto, on: false } : leadAuto }
+        : {}
     const done = channel
-      ? channelActions.updateChannel(
-          channel.id,
-          inTeam
-            ? { name, topic: input.topic }
-            : {
-                ...input,
-                notes: notes.trim() || null,
-                ...(relay !== base.relay ? { relay } : {}),
-                relayRules: rules,
-                alerts,
-                digestHour,
-                maxRejects,
-                stalledMinutes,
-                ...(lead !== base.lead ? { lead: lead || null } : {}),
-                ...(planFirst !== base.planFirst ? { planFirst } : {}),
-                ...(leadRoute !== base.leadRoute ? { leadRoute } : {}),
-                ...(leadWake !== (channel.leadWake !== false) ? { leadWake } : {}),
-                ...(leadDispatchOnly !== (channel.leadDispatchOnly === true) ? { leadDispatchOnly } : {}),
-              },
+      ? policyDone.then(() =>
+          channelActions.updateChannel(
+            channel.id,
+            inTeam
+              ? { name, topic: input.topic }
+              : {
+                  ...input,
+                  notes: notes.trim() || null,
+                  ...(relay !== base.relay ? { relay } : {}),
+                  relayRules: rules,
+                  alerts,
+                  digestHour,
+                  maxRejects,
+                  stalledMinutes,
+                  ...(lead !== base.lead ? { lead: lead || null } : {}),
+                  ...(planFirst !== base.planFirst ? { planFirst } : {}),
+                  ...(leadRoute !== base.leadRoute ? { leadRoute } : {}),
+                  ...(leadWake !== (channel.leadWake !== false) ? { leadWake } : {}),
+                  ...(leadDispatchOnly !== (channel.leadDispatchOnly === true) ? { leadDispatchOnly } : {}),
+                  ...autoPatch,
+                },
+          ),
         )
       : inTeam
         ? // 新建团队成功后记下来：频道没建成再点一次不会又建一个团队
@@ -573,6 +602,12 @@ export function ChannelDialog({
                   <p data-channel-lead-rules className="mt-1.5 text-meta break-words text-fg-faint">
                     {tr('channels.dialog.leadRules')}
                   </p>
+                  <LeadAutoEditor
+                    value={leadAuto ?? channel.leadAuto ?? { ...DEFAULT_LEAD_AUTO, on: false }}
+                    onChange={setLeadAuto}
+                    policy={policy}
+                    onPolicy={setPolicy}
+                  />
                 </>
               )}
             </Field>
