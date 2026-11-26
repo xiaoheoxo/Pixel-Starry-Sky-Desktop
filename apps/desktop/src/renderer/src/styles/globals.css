@@ -1368,6 +1368,11 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
 :root[data-wallpaper] .bg-surface {
   backdrop-filter: blur(18px) saturate(1.15);
 }
+/* 设置弹窗平时用 bg-app 做色阶最底层；有壁纸时 --bg-app 是透明的，弹窗改用卡片底色加模糊，不然下面的界面透上来 */
+:root[data-wallpaper] [data-settings-dialog] {
+  background-color: var(--bg-surface);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
 /* 终端（docs/ui/settings.md §6「终端」）：容器半透明加模糊，xterm 的视口改透明。--terminal-bg 本身不动，
    xterm 的主题要实色（它不认 color-mix，半透明会报错），反色文字也按它算 */
 :root:is([data-wallpaper], [data-glass]) .bg-terminal {
@@ -1392,7 +1397,7 @@ button:is(:hover, :focus-visible) > [data-nav-shortcut] {
 :root[data-glass] .bg-surface {
   backdrop-filter: blur(18px) saturate(1.15);
 }
-:root[data-glass] :is(.bg-popover, [role='dialog'].bg-surface) {
+:root[data-glass] :is(.bg-popover, [role='dialog'].bg-surface, [data-settings-dialog]) {
   background-color: color-mix(in srgb, var(--glass-tint-card) var(--glass-menu), transparent);
   backdrop-filter: blur(24px) saturate(1.4);
 }
