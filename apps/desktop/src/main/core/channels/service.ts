@@ -1572,15 +1572,15 @@ export class Channels {
         files: files.map(({ text: _t, tail: _l, ...meta }) => meta),
       }
     }
+    // 不派给任何人的话：是不是对最近那份提案的补充（refineTarget），是就在气泡下写「已补充到」
+    const refineTo = !(target && following) && !agents.length ? this.refineTarget(c, message) : null
+    if (refineTo) message.refined = { messageId: refineTo.id, title: refineTo.flow.title.slice(0, 80) }
     if (target && following && this.member(target.assigneeId)) {
       // 「已交给」（§3.1）：成员还在做这一轮时追加进这一轮，做完了开下一轮（和 followUp / nextRound 一致）
       const run = this.store.runs.get(target.id)
       const round = run && run.phase !== 'ended' ? run.round : (target.round ?? 1) + 1
       message.handed = { memberId: target.assigneeId, round }
     }
-    // 不派给任何人的话：是不是对最近那份提案的补充（refineTarget），是就在气泡下写「已补充到」
-    const refineTo = !(target && following) && !agents.length ? this.refineTarget(c, message) : null
-    if (refineTo) message.refined = { messageId: refineTo.id, title: refineTo.flow.title.slice(0, 80) }
     this.posted.set(clientId, message.id)
     await this.store.append(message)
     // 发消息就算看过了；AI 互相派活的防刷计数也从这里重新算。写附件期间频道可能被改、被删：按最新那份写，删了就不写
@@ -4373,6 +4373,23 @@ export class Channels {
       // 已经有提案时（接着商量）没交回就是这次不用改，提案留着
       const questions = done?.questions
       if (this.leadRoutes(run, m, finish, steps, questions, more)) return
+      // 牵头自动拆、@ 先出计划的那一轮没做完（失败、被停、断网、额度不够），手上也还没有提案：关掉并写明原因，
+      // 不留一份空草稿（空草稿会把之后不带 @ 的话都当成补充吞掉）
+      if (
+        (m.flow.planner.auto || m.flow.planner.mention) &&
+        finish.status !== 'done' &&
+        !m.flow.steps.length &&
+        !m.flow.questions?.length &&
+        !more &&
+        !this.replanning.has(run.taskId)
+      ) {
+        this.updateFlow(run.channelId, messageId, f => ({
+          ...f,
+          status: 'stopped',
+          planFailed: { error: finish.error?.slice(0, 300) ?? null },
+        }))
+        return
+      }
       if (
         (m.flow.planner.auto || m.flow.planner.mention) &&
         finish.status === 'done' &&
@@ -4401,23 +4418,6 @@ export class Channels {
     }
     if (m.flow.status !== 'running' && m.flow.status !== 'paused') return
     const step = m.flow.steps.find(s => s.id === stepId)
-      // 牵头自动拆、@ 先出计划的那一轮没做完（失败、被停、断网、额度不够），手上也还没有提案：关掉并写明原因，
-      // 不留一份空草稿（空草稿会把之后不带 @ 的话都当成补充吞掉）
-      if (
-        (m.flow.planner.auto || m.flow.planner.mention) &&
-        finish.status !== 'done' &&
-        !m.flow.steps.length &&
-        !m.flow.questions?.length &&
-        !more &&
-        !this.replanning.has(run.taskId)
-      ) {
-        this.updateFlow(run.channelId, messageId, f => ({
-          ...f,
-          status: 'stopped',
-          planFailed: { error: finish.error?.slice(0, 300) ?? null },
-        }))
-        return
-      }
     if (!step || step.taskId !== run.taskId) return
     const locale = this.deps.locale()
     if (run.answering) this.routeAnswer(run, finish.status === 'done' ? run.reply : null)
@@ -5386,6 +5386,7 @@ export class Channels {
         this.updateFlow(channelId, message.id, f => ({ ...f, planner: { ...f.planner!, taskId } }))
         void this.pump(planner.memberId)
       }
+      await saved
       this.changed()
       return { messageId: message.id }
     }
@@ -5414,7 +5415,6 @@ export class Channels {
         const problem = draftProblem(f.steps, this.flowMemberCheck(c))
         if (problem) throw new Error(problem)
         const open = openRequired(f)
-      await saved
         if (open.length) throw new Error(`还有要先定的：${open.join('、')}。在提案卡上回答，或交给 AI 定`)
         // 没设护栏的按默认上限；计数从现在算
         this.updateFlow(channelId, messageId, x => ({

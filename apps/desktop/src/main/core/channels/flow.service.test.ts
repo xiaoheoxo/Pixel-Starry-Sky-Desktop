@@ -898,6 +898,99 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
     expect(c.state().channels.find(x => x.id === ch)?.lead).toBeNull()
   })
 
+  it('回归：牵头拟计划失败关掉提案写明原因；旧提案不再吞之后的话，补充的消息标出补到哪份', async () => {
+    const { c, a, b, ch } = await setup()
+    await c.update(ch, { lead: a })
+    const flows = () => c.messages(ch).messages.filter((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)
+    const msg = (text: string) =>
+      c.messages(ch).messages.find((m): m is ChannelTextMessage => m.kind === 'message' && m.text === text)!
+
+    // 拟计划那一轮失败：提案关掉、写明原因，不留空草稿
+    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'p1' })
+    await settle()
+    const s1 = tasks(c, ch)[0].sessionId!
+    const x = lastTo(s1)
+    c.hostEvent(
+      ev(s1, {
+        type: 'item_completed',
+        item: { kind: 'user', id: x.clientMessageId, text: '', createdAt: 0, turnId: 'k' },
+      }),
+    )
+    c.hostEvent(ev(s1, { type: 'turn_completed', turnId: 'k', outcome: 'failed', error: '额度不足' }))
+    // 宿主每轮结束都紧跟一个队列事件；不在队列里（没有自动重连）才算失败
+    c.hostEvent(ev(s1, { type: 'queue', items: [], paused: true }))
+    await settle()
+    expect(flows()[0].flow).toMatchObject({ status: 'stopped', planFailed: { error: '额度不足' } })
+
+    // 接着说的另开一份；拟的期间紧接着说的算补充，消息上标出补到哪份
+    await c.post(ch, { text: '再把注册页也改成两步验证', clientId: 'p2' })
+    await c.post(ch, { text: '注册页要支持手机号登录', clientId: 'p3' })
+    await settle()
+    expect(flows()).toHaveLength(2)
+    const second = flows()[1]
+    expect(msg('再把注册页也改成两步验证').refined ?? null).toBeNull()
+    expect(msg('注册页要支持手机号登录').refined).toEqual({ messageId: second.id, title: second.flow!.title })
+    const planner = tasks(c, ch).at(-1)!
+    c.toolDone(planner.sessionId!, {
+      summary: '拆好了',
+      steps: [
+        { title: '改注册页', member: '程序员' },
+        { title: '审查', member: '审查员', deps: [1] },
+      ],
+    })
+    await endTurn(c, planner.sessionId!, '拆好了')
+    // 排在后面的补充（手机号登录）接着看一轮，没改就还是这份草稿
+    expect(lastTo(planner.sessionId!).text).toContain('注册页要支持手机号登录')
+    await endTurn(c, planner.sessionId!, '手机号登录已经包含在第一步里')
+    expect(flows()[1].flow?.status).toBe('draft')
+
+    // 中间聊了别的：草稿不再接话，新的需求交给牵头另开一张卡
+    await c.post(ch, { text: '@程序员 看一下 README 有没有错字', clientId: 'p4' })
+    await settle()
+    expect(tasks(c, ch).at(-1)?.assigneeId).toBe(b)
+    await c.post(ch, { text: '首页的按钮也改成蓝色的吧', clientId: 'p5' })
+    await settle()
+    expect(flows()).toHaveLength(3)
+    expect(msg('首页的按钮也改成蓝色的吧').refined ?? null).toBeNull()
+    expect(flows()[1].flow?.status).toBe('draft')
+
+    // 回复旧草稿卡：照样补充到那份（后面有更新的提案也一样）
+    await c.post(ch, { text: '第二步换成画师来审', replyToId: second.id, clientId: 'p6' })
+    await settle()
+    expect(msg('第二步换成画师来审').refined?.messageId).toBe(second.id)
+    expect(flows()[1].flow?.status).toBe('planning')
+    expect(flows()).toHaveLength(3)
+
+    // 几份同时在拟：最新一条是哪份的（这里是第二份拟计划成员的回复），接着说的就补到哪份，不按最新的那份
+    await endTurn(c, planner.sessionId!, '好的，第二步改成画师')
+    await c.post(ch, { text: '审查时顺便看看深色模式', clientId: 'p7' })
+    await settle()
+    expect(msg('审查时顺便看看深色模式').refined?.messageId).toBe(second.id)
+    expect(flows()).toHaveLength(3)
+  })
+
+  it('回归：补充的话写盘期间提案被丢弃：撤掉「已补充到」，照常交给牵头另开', async () => {
+    const { c, a, ch } = await setup()
+    await c.update(ch, { lead: a })
+    const flows = () => c.messages(ch).messages.filter((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)
+    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'p1' })
+    await settle()
+    const first = flows()[0]
+    const release = holdAppend(c, m => m.kind === 'message' && m.text === '登录失败时要提示剩余次数')
+    const posting = c.post(ch, { text: '登录失败时要提示剩余次数', clientId: 'p2' })
+    await settle()
+    await c.flowAction(ch, { type: 'discard', messageId: first.id })
+    release()
+    await posting
+    await settle()
+    const m = c
+      .messages(ch)
+      .messages.find((x): x is ChannelTextMessage => x.kind === 'message' && x.text === '登录失败时要提示剩余次数')!
+    expect(m.refined ?? null).toBeNull()
+    expect(flows()).toHaveLength(2)
+    expect(flows()[1].flow).toMatchObject({ status: 'planning', planner: { auto: true } })
+  })
+
   it('聊天里 @ 一个成员：流程卡和拟计划的卡都带来源，开工后每一步也带', async () => {
     const { c, ch } = await setup({ planFirst: true, defaultMode: () => 'ask' })
     const { message, root } = await c.post(ch, { text: '@画师 帮我设计一个数据中心', clientId: 'p1' }, undefined, 'qq')
@@ -998,99 +1091,6 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
 describe('流程第四批（docs/ui/channels-pipeline.md §10）', () => {
   /** 这个会话最后一轮的用量记录 */
   const record = (s: string, costUsd: number | null, input = 100): UsageRecord =>
-  it('回归：牵头拟计划失败关掉提案写明原因；旧提案不再吞之后的话，补充的消息标出补到哪份', async () => {
-    const { c, a, b, ch } = await setup()
-    await c.update(ch, { lead: a })
-    const flows = () => c.messages(ch).messages.filter((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)
-    const msg = (text: string) =>
-      c.messages(ch).messages.find((m): m is ChannelTextMessage => m.kind === 'message' && m.text === text)!
-
-    // 拟计划那一轮失败：提案关掉、写明原因，不留空草稿
-    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'p1' })
-    await settle()
-    const s1 = tasks(c, ch)[0].sessionId!
-    const x = lastTo(s1)
-    c.hostEvent(
-      ev(s1, {
-        type: 'item_completed',
-        item: { kind: 'user', id: x.clientMessageId, text: '', createdAt: 0, turnId: 'k' },
-      }),
-    )
-    c.hostEvent(ev(s1, { type: 'turn_completed', turnId: 'k', outcome: 'failed', error: '额度不足' }))
-    // 宿主每轮结束都紧跟一个队列事件；不在队列里（没有自动重连）才算失败
-    c.hostEvent(ev(s1, { type: 'queue', items: [], paused: true }))
-    await settle()
-    expect(flows()[0].flow).toMatchObject({ status: 'stopped', planFailed: { error: '额度不足' } })
-
-    // 接着说的另开一份；拟的期间紧接着说的算补充，消息上标出补到哪份
-    await c.post(ch, { text: '再把注册页也改成两步验证', clientId: 'p2' })
-    await c.post(ch, { text: '注册页要支持手机号登录', clientId: 'p3' })
-    await settle()
-    expect(flows()).toHaveLength(2)
-    const second = flows()[1]
-    expect(msg('再把注册页也改成两步验证').refined ?? null).toBeNull()
-    expect(msg('注册页要支持手机号登录').refined).toEqual({ messageId: second.id, title: second.flow!.title })
-    const planner = tasks(c, ch).at(-1)!
-    c.toolDone(planner.sessionId!, {
-      summary: '拆好了',
-      steps: [
-        { title: '改注册页', member: '程序员' },
-        { title: '审查', member: '审查员', deps: [1] },
-      ],
-    })
-    await endTurn(c, planner.sessionId!, '拆好了')
-    // 排在后面的补充（手机号登录）接着看一轮，没改就还是这份草稿
-    expect(lastTo(planner.sessionId!).text).toContain('注册页要支持手机号登录')
-    await endTurn(c, planner.sessionId!, '手机号登录已经包含在第一步里')
-    expect(flows()[1].flow?.status).toBe('draft')
-
-    // 中间聊了别的：草稿不再接话，新的需求交给牵头另开一张卡
-    await c.post(ch, { text: '@程序员 看一下 README 有没有错字', clientId: 'p4' })
-    await settle()
-    expect(tasks(c, ch).at(-1)?.assigneeId).toBe(b)
-    await c.post(ch, { text: '首页的按钮也改成蓝色的吧', clientId: 'p5' })
-    await settle()
-    expect(flows()).toHaveLength(3)
-    expect(msg('首页的按钮也改成蓝色的吧').refined ?? null).toBeNull()
-    expect(flows()[1].flow?.status).toBe('draft')
-
-    // 回复旧草稿卡：照样补充到那份（后面有更新的提案也一样）
-    await c.post(ch, { text: '第二步换成画师来审', replyToId: second.id, clientId: 'p6' })
-    await settle()
-    expect(msg('第二步换成画师来审').refined?.messageId).toBe(second.id)
-    expect(flows()[1].flow?.status).toBe('planning')
-    expect(flows()).toHaveLength(3)
-
-    // 几份同时在拟：最新一条是哪份的（这里是第二份拟计划成员的回复），接着说的就补到哪份，不按最新的那份
-    await endTurn(c, planner.sessionId!, '好的，第二步改成画师')
-    await c.post(ch, { text: '审查时顺便看看深色模式', clientId: 'p7' })
-    await settle()
-    expect(msg('审查时顺便看看深色模式').refined?.messageId).toBe(second.id)
-    expect(flows()).toHaveLength(3)
-  })
-
-  it('回归：补充的话写盘期间提案被丢弃：撤掉「已补充到」，照常交给牵头另开', async () => {
-    const { c, a, ch } = await setup()
-    await c.update(ch, { lead: a })
-    const flows = () => c.messages(ch).messages.filter((m): m is ChannelTextMessage => m.kind === 'message' && !!m.flow)
-    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'p1' })
-    await settle()
-    const first = flows()[0]
-    const release = holdAppend(c, m => m.kind === 'message' && m.text === '登录失败时要提示剩余次数')
-    const posting = c.post(ch, { text: '登录失败时要提示剩余次数', clientId: 'p2' })
-    await settle()
-    await c.flowAction(ch, { type: 'discard', messageId: first.id })
-    release()
-    await posting
-    await settle()
-    const m = c
-      .messages(ch)
-      .messages.find((x): x is ChannelTextMessage => x.kind === 'message' && x.text === '登录失败时要提示剩余次数')!
-    expect(m.refined ?? null).toBeNull()
-    expect(flows()).toHaveLength(2)
-    expect(flows()[1].flow).toMatchObject({ status: 'planning', planner: { auto: true } })
-  })
-
     ({
       id: `${s}:turn-${lastTo(s).clientMessageId}:m`,
       sessionId: s,
