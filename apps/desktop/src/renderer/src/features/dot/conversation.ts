@@ -1,5 +1,5 @@
 import type { EngineEvent, Item, QueuedMessage, SessionSnapshot } from '@pixelsky/protocol'
-import type { DotAttachment, DotChatMessage, DotHistoryPage, DotReadReceipt } from '@pixelsky/engine'
+import type { DotAttachment, DotChatMessage, DotHistoryPage, DotReadReceipt, DotSpecialCard } from '@pixelsky/engine'
 import type { DotDroppedFile } from '../../../../shared/types/dot-chat'
 
 import type { DotLocalSend } from './localImagePreviews'
@@ -9,7 +9,7 @@ export function dotEventHasNewMessage(event: EngineEvent): boolean {
   return (
     event.type === 'item_completed' &&
     ((event.item.kind === 'assistant' && event.item.id.startsWith('dot-')) ||
-      (event.item.kind === 'notice' && event.item.id.startsWith('dot-attachment-')))
+      (event.item.kind === 'notice' && /^(dot-attachment-|dot-approval-)/.test(event.item.id)))
   )
 }
 
@@ -20,6 +20,7 @@ export interface DotTranscriptRow {
   createdAt: number
   attachments: DotAttachment[]
   native?: true
+  card?: DotSpecialCard
   level?: 'info' | 'warn' | 'error'
 }
 
@@ -40,7 +41,16 @@ export function dotTranscript(
     if (item.kind === 'user') at = echoed?.createdAt ?? item.createdAt
     else if (echoed) at = Math.max(at, echoed.createdAt)
     else at++
-    if (echoed) continue
+    if (
+      echoed ||
+      (item.kind === 'notice' &&
+        item.id.startsWith('dot-attachment-') &&
+        rows.get(item.id.replace(/^dot-attachment-/, 'dot-'))?.attachments.length) ||
+      (item.kind === 'notice' &&
+        item.id.startsWith('dot-approval-') &&
+        rows.get(item.id.replace(/^dot-approval-/, 'dot-'))?.card)
+    )
+      continue
     if (item.kind === 'user' || item.kind === 'assistant' || item.kind === 'notice')
       rows.set(item.id, {
         id: item.id,
@@ -135,6 +145,7 @@ const WEB_SUFFIX = /:\s*https:\/\/chatgpt\.com\/dots\/\S+$/
 const WEB_NOTICES: ReadonlySet<string> = new Set([
   'View the Dot attachment in ChatGPT',
   'Dot needs your input in ChatGPT',
+  'View this Dot card in ChatGPT',
   'Dot workflow needs your input in ChatGPT',
   'Dot workflow status unavailable. Review it in ChatGPT',
 ])
@@ -198,6 +209,27 @@ export function mergeDotHistory(previous: DotChatMessage[], incoming: DotChatMes
   const messages = new Map(previous.map(m => [m.id, m]))
   for (const item of incoming) messages.set(item.id, item)
   return [...messages.values()].sort((a, b) => a.createdAt - b.createdAt)
+}
+
+export function dotCardNeedsRefresh(card: DotSpecialCard | undefined): boolean {
+  return (
+    !!card &&
+    (card.kind === 'input' || card.kind === 'signIn') &&
+    (card.status === 'pending' || card.status === 'unknown')
+  )
+}
+
+export function mergeDotCardUpdates(previous: DotChatMessage[], fresh: DotChatMessage[]): DotChatMessage[] {
+  const byId = new Map(fresh.map(item => [item.id, item.card]))
+  let changed = false
+  const next = previous.map(item => {
+    if (!dotCardNeedsRefresh(item.card)) return item
+    const card = byId.get(item.id)
+    if (!card || !('status' in card) || card.kind !== item.card?.kind || dotCardNeedsRefresh(card)) return item
+    changed = true
+    return { ...item, card }
+  })
+  return changed ? next : previous
 }
 
 /** A replacement page is contiguous on its own; never keep an older cursor across an unknown gap. */

@@ -36,11 +36,13 @@ export function DotFile({
   compact = false,
   thumb = false,
   localUrl,
+  web,
 }: {
   file: DotAttachment
   compact?: boolean
   thumb?: boolean
   localUrl?: string
+  web?: string
 }) {
   const key = useDotKey()
   const room = useContext(DotRoomContext) ?? key
@@ -182,6 +184,11 @@ export function DotFile({
       {error && !thumb && !local && (
         <p role="alert" className="mt-1 max-w-56 text-label text-warn">
           {translateMessage(error)}
+          {web && (
+            <a className="dot-web-link ml-1" href={web} target="_blank" rel="noreferrer">
+              {tr('dot.openWeb')}
+            </a>
+          )}
         </p>
       )}
       {open && source && <ImageViewer src={(!error && url) || source} name={name} onClose={() => setOpen(false)} />}

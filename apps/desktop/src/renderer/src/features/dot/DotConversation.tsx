@@ -28,6 +28,7 @@ import { DotAvatar } from './DotAvatar'
 import { DotProfilePanel, dotWebUrl } from './DotProfilePanel'
 import { DotStatusIcon, dotPresence, dotStatus } from './status'
 import { DotExperimental } from './DotExperimental'
+import { DotSpecialMessage } from './DotSpecialMessage'
 import {
   DOT_NO_REPLY_MS,
   dotComposerState,
@@ -38,6 +39,8 @@ import {
   dotNotice,
   dotReadReceiptRow,
   mergeDotReadReceipt,
+  mergeDotCardUpdates,
+  dotCardNeedsRefresh,
   dotTranscript,
   markDotRows,
   placeDotTasks,
@@ -209,6 +212,7 @@ export function DotConversation({
       receiptReading.current = false
     }
   }, [entryKey, roomKey])
+  const readingCards = useRef(false)
   const readRemote = useCallback(
     async (options: { before?: string; catchUp?: boolean } = {}) => {
       if (network.current) {
@@ -221,6 +225,10 @@ export function DotConversation({
         // 正看着这个对话（标签可见、窗口在前台）读到的消息算看过，侧栏的未读点消掉（§7 #3）
         const seen = !options.before && visible.current && document.visibilityState === 'visible' && document.hasFocus()
         const after = options.before ? undefined : historyWindow.current.latest
+        const refreshCards =
+          !!after &&
+          !readingCards.current &&
+          historyWindow.current.items.slice(-32).some(({ card }) => dotCardNeedsRefresh(card))
         const next = await window.pixelsky!.dotChat.read(entryKey, {
           before: options.before,
           after,
@@ -243,6 +251,26 @@ export function DotConversation({
         dotViewCache.putHistory(roomKey, loaded)
         if (options.before && loaded.items !== previous.items) beforePrepend()
         setHistory(loaded.items)
+        if (refreshCards && !next.history.reset) {
+          // Editing a native card does not advance the room cursor. Re-read only the newest page,
+          // merge existing card IDs, and keep the regular transcript's cursors/read state.
+          readingCards.current = true
+          void window
+            .pixelsky!.dotChat.read(entryKey)
+            .then(fresh => {
+              if (!alive.current || dotRoomKey(fresh.entry) !== roomKey) return
+              const state = historyWindow.current
+              const items = mergeDotCardUpdates(state.items, fresh.history.items)
+              if (items === state.items) return
+              historyWindow.current = { ...state, items }
+              dotViewCache.putHistory(roomKey, historyWindow.current)
+              setHistory(items)
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              readingCards.current = false
+            })
+        }
         if (!options.before) void refreshReadReceipt()
         if (update.replaceBefore) setBefore(loaded.before)
         haveHistory.current = true
@@ -791,6 +819,10 @@ export function DotConversation({
                   !!row.native,
                   thumbs,
                 )
+                const available = attachments.filter(({ file, url }) => file.type === 'file' && (file.fileId || url))
+                const unavailable = row.attachments.some(
+                  file => file.type !== 'thread' && (file.type !== 'file' || !file.fileId),
+                )
                 const clock = mark?.time == null ? null : formatClock(mark.time)
                 const stamp = mark?.time == null ? undefined : new Date(mark.time).toISOString()
                 return [
@@ -815,17 +847,23 @@ export function DotConversation({
                       }
                     >
                       {row.text && (row.role === 'user' ? row.text : <Markdown text={row.text} />)}
-                      {!!attachments.length && (
+                      {row.card && <DotSpecialMessage card={row.card} web={web} />}
+                      {available.length > 0 && (
                         <div className="dot-attachments">
                           {/* 图片排前面，文件卡片另起一行 */}
-                          {attachments
+                          {available
                             .sort((a, b) => Number(isDotImage(b.file)) - Number(isDotImage(a.file)))
                             .map(({ key, file, url }) => (
-                              <DotFile key={key} file={file} localUrl={url} />
+                              <DotFile key={key} file={file} localUrl={url} web={web} />
                             ))}
                         </div>
                       )}
                     </div>
+                    {unavailable && (
+                      <a className="dot-web-link" href={web} target="_blank" rel="noreferrer">
+                        {tr('dot.attachments.openUnavailable')} <ExternalLink size={12} aria-hidden />
+                      </a>
+                    )}
                     {row.id === receiptRow && readReceipt ? (
                       <div className="dot-time">
                         {tr('dot.readReceipt')}

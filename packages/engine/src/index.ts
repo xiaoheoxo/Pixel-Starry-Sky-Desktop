@@ -46,6 +46,7 @@ export {
   type DotWorkflow,
   type DotProfile,
   type DotChatMessage,
+  type DotSpecialCard,
   type DotHistoryPage,
   type DotReadReceipt,
   type DotOverview,

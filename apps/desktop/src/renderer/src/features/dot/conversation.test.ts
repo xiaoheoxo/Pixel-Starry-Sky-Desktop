@@ -282,3 +282,23 @@ it('keeps a local follow-up after the matching native reply while history catche
   )
   expect(rows.map(row => row.text)).toEqual(['Question', 'First reply', 'Second reply'])
 })
+
+it('hides the generic fallback once native history contains the ZIP attachment', () => {
+  const notice = {
+    id: 'dot-attachment-zip',
+    kind: 'notice',
+    level: 'info',
+    text: 'View the Dot attachment in ChatGPT',
+  } as const
+  const zip = {
+    id: 'zip',
+    role: 'assistant',
+    createdAt: 10,
+    text: '',
+    attachments: [{ type: 'file', fileId: 'CalpicoFile_archive', name: 'extension.zip' }],
+  } as const
+  expect(dotTranscript([], [notice]).map(row => row.id)).toEqual([notice.id])
+  expect(dotTranscript([{ ...zip, attachments: [...zip.attachments] }], [notice]).map(row => row.id)).toEqual([
+    'dot-zip',
+  ])
+})

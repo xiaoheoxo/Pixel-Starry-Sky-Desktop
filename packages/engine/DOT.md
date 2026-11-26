@@ -59,3 +59,5 @@ const messages = await client.messages(dot, sent.id, signal)
 - 2026-11-17 已通过真实 Pro 10x 账号的 Electron 只读联调：目录 1 个 Dot、身份验证、32 条历史、签名附件、环境 connected / remote_desktop ready，活动与任务接口返回空列表。真实消息发送和云端工作流的验收结果另见根目录 `TODO.md`；只读成功不代表这两项已经通过。
 
 Dot 已读提示只读取经校验的房间原生 `read_receipts`；`last_read_at` 用于匹配发送消息，`read_cursor_updated_at` 用于显示已读时间。字段缺失时不从回复推断，不上报本机已读。原生字段参考：[公开桥接实现](https://github.com/beeper/chatgpt-dots/blob/562c0a9fe1b49336284af7714faa8c8d96dbf610/pkg/chatgpt/signals.go)。
+
+原生确认、安全登录、浏览器接管和浏览器活动卡片只读显示。仅同步已校验 Dot 在当前房间发送的卡片类别和已知状态，不向渲染层传递表单、凭据、卡片结果或接管链接；打开官方 ChatGPT 才能查看或操作。只有原生状态明确报告 `submitted` 才显示「已输入登录信息」，不表示目标网站登录成功。未识别的确认状态只显示中性卡片，不猜测操作结果。当前仅复读最新一页中尚未结束的卡片状态；更早的卡片在重新加载历史时更新。
