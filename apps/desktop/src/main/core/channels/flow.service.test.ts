@@ -47,8 +47,17 @@ async function open(extra: Partial<ChannelsDeps> = {}): Promise<Channels> {
       if (channel === 'engine:createSession') {
         if (slowCreate) await slowCreate
         const id = `s${++n}`
-        sessions.push({ record: { id, projectId: 'p1' }, state: 'idle' } as SessionSummary)
+        const o = args[0] as { engine: string; permissionMode?: string }
+        sessions.push({
+          record: { id, projectId: 'p1', engine: o.engine, permissionMode: o.permissionMode ?? 'ask' },
+          state: 'idle',
+        } as SessionSummary)
         return { id }
+      }
+      // 和宿主一样改记录（拟计划在共用会话里临时切计划模式要看它）
+      if (channel === 'engine:updateSession') {
+        const s = sessions.find(x => x.record.id === args[0])
+        if (s) s.record = { ...s.record, ...(args[1] as object) }
       }
       if (channel === 'engine:cancelQueued' && slowCancel) await slowCancel
       if (channel === 'engine:send')
@@ -743,6 +752,86 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
     const card = tasks(c, ch)[0]
     expect(card.startedAt).toBeGreaterThan(card.at)
     expect(card.endedAt).toBeGreaterThan(card.startedAt!)
+  })
+
+  it('牵头设成一直用同一个会话：拆流程发进那个会话，每轮临时切计划模式、结束切回；会话正忙时照旧新开（D368）', async () => {
+    const { c, ch } = await setup()
+    const lead = await c.saveMember(null, { ...agent('牵头'), mode: 'shared', settings: { permissionMode: 'edits' } })
+    await c.addMember(ch, lead)
+    await c.update(ch, { lead })
+    // 先 @ 它聊一轮：建出共用会话
+    await c.post(ch, { text: '@牵头 先看看登录页的代码', clientId: 'q0' })
+    await settle()
+    const shared = tasks(c, ch)[0].sessionId!
+    await endTurn(c, shared, '看完了')
+    const modes = () =>
+      calls
+        .filter(x => x.channel === 'engine:updateSession' && x.args[0] === shared)
+        .map(x => (x.args[1] as { permissionMode?: string }).permissionMode)
+    const created = calls.filter(x => x.channel === 'engine:createSession').length
+
+    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'q1' })
+    await c.post(ch, { text: '顺便把注册页也改了吧谢谢', clientId: 'q2' })
+    await settle()
+    const plan = tasks(c, ch).at(-1)!
+    expect(plan.flow?.stepId).toBe('')
+    expect(plan.sessionId).toBe(shared)
+    expect(calls.filter(x => x.channel === 'engine:createSession')).toHaveLength(created)
+    expect(lastTo(shared).text).toContain('你是这个频道的牵头成员')
+    // 切计划模式排在发消息前面
+    const at = (pred: (x: (typeof calls)[number]) => boolean) => calls.findIndex(pred)
+    expect(
+      at(x => x.channel === 'engine:updateSession' && x.args[0] === shared) <
+        at(x => x.channel === 'engine:send' && (x.args[1] as { text: string }).text.includes('牵头成员')),
+    ).toBe(true)
+    expect(modes()).toEqual(['plan'])
+
+    // 接着说的那一轮：先切回，再切计划模式发；结束后切回原来的权限
+    await endTurn(c, shared, '两步验证用短信验证码就行。')
+    expect(lastTo(shared).text).toContain('顺便把注册页也改了吧谢谢')
+    expect(modes()).toEqual(['plan', 'edits', 'plan'])
+    await endTurn(c, shared, '注册页也一样。')
+    expect(modes()).toEqual(['plan', 'edits', 'plan', 'edits'])
+    expect(sessions.find(s => s.record.id === shared)?.record.permissionMode).toBe('edits')
+
+    // 共用会话正在跑（你自己在里面聊）：照旧新开计划会话，共用会话的权限不动
+    sessions.find(s => s.record.id === shared)!.state = 'running'
+    await c.post(ch, { text: '做一个新的设置页并且审查一遍', clientId: 'q3' })
+    await settle()
+    const fresh = tasks(c, ch).at(-1)!
+    expect(fresh.sessionId).not.toBe(shared)
+    expect(calls.filter(x => x.channel === 'engine:createSession').at(-1)?.args[0]).toMatchObject({
+      permissionMode: 'plan',
+    })
+    expect(modes()).toHaveLength(4)
+    // 切过去、切回来都不记成新会话的默认权限
+    expect(
+      calls
+        .filter(x => x.channel === 'engine:updateSession' && x.args[0] === shared)
+        .every(x => (x.args[1] as { rememberChoices?: boolean }).rememberChoices === false),
+    ).toBe(true)
+  })
+
+  it('牵头在共用会话里的上一项活刚结束（宿主还没标成空闲）：排着的拆流程照样发进共用会话（D368）', async () => {
+    const { c, ch } = await setup()
+    const lead = await c.saveMember(null, { ...agent('牵头'), mode: 'shared', settings: { permissionMode: 'edits' } })
+    await c.addMember(ch, lead)
+    await c.update(ch, { lead })
+    await c.post(ch, { text: '@牵头 先看看登录页的代码', clientId: 'r0' })
+    await settle()
+    const shared = tasks(c, ch)[0].sessionId!
+    const s = sessions.find(x => x.record.id === shared)!
+    s.state = 'running'
+    // 牵头手上有活：拆流程排在后面
+    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'r1' })
+    await settle()
+    expect(tasks(c, ch).at(-1)?.sessionId ?? null).toBeNull()
+    // 宿主先通知这一轮结束、随后才标成空闲：结束那一刻会话还是「在跑」
+    await endTurn(c, shared, '看完了')
+    const plan = tasks(c, ch).at(-1)!
+    expect(plan.flow?.stepId).toBe('')
+    expect(plan.sessionId).toBe(shared)
+    expect(s.record.permissionMode).toBe('plan')
   })
 
   it('牵头成员：不带 @ 的需求自动拆成流程；一次只拆一个；@、太短、斜杠、讨论串不触发；直接回答时不留草稿', async () => {

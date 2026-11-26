@@ -747,7 +747,7 @@ export class EngineHost {
    */
   async update(
     id: string,
-    patch: Partial<SessionSettings> & { title?: string; engine?: EngineId },
+    patch: Partial<SessionSettings> & { title?: string; engine?: EngineId; rememberChoices?: false },
   ): Promise<SessionRecord> {
     return this.m.sessions.update(id, patch)
   }

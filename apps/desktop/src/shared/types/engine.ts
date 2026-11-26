@@ -5,4 +5,5 @@ export interface UsageQuery {
   range: UsageRangeId
   filter: UsageFilter
 }
-export type SessionPatch = Partial<SessionSettings> & { title?: string; engine?: EngineId }
+/** rememberChoices: false：临时改的（频道拟计划切计划模式再切回），不记成新会话的默认值 */
+export type SessionPatch = Partial<SessionSettings> & { title?: string; engine?: EngineId; rememberChoices?: false }

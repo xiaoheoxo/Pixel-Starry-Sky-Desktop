@@ -2464,6 +2464,48 @@ export class Channels {
     return !!id && this.deps.sessions().some(s => s.record.id === id)
   }
 
+  /**
+   * 会话空着：没在跑、没有排着的消息。成员在这个会话里的上一项活刚结束、宿主还没标成空闲（一轮结束先通知、
+   * 收尾在后，紧接着开始的下一项活看到的还是「在跑」）也算空着
+   */
+  private sessionIdle(id: string): boolean {
+    const s = this.deps.sessions().find(x => x.record.id === id)
+    return !!s && (s.state === 'idle' || this.turnEnded.has(id)) && !s.queue?.queued
+  }
+
+  /**
+   * 拟计划这项活用成员的共用会话（D368）：指定了拟计划的模型、推理强度（共用会话不临时换模型），
+   * 或共用会话正在跑、有排着的消息（计划模式会落到你自己发的那几条上）时不用，照旧新开
+   */
+  private planInShared(run: TaskRun, member: AgentConfig): boolean {
+    const settings = run.flow ? this.flowMessage(run.channelId, run.flow.messageId)?.flow.planner?.settings : null
+    if (settings && Object.values(settings).some(v => v !== undefined && v !== null)) return false
+    return !this.sessionExists(member.sharedSessionId) || this.sessionIdle(member.sharedSessionId!)
+  }
+
+  /**
+   * 拟计划这一轮要切成计划模式的会话：返回原来的权限。已经在计划模式（你自己切的、新开的计划会话）、
+   * 引擎没有计划模式、有排着的消息时 null。上一轮刚结束、切回还没生效时用要切回的那档（切回先发，这次的切换排在它后面）
+   */
+  private planHoldOf(sessionId: string): PermissionMode | null {
+    const s = this.deps.sessions().find(x => x.record.id === sessionId)
+    const mode = this.planRestoring.get(sessionId) ?? s?.record.permissionMode
+    if (!s || !mode || mode === 'plan' || s.queue?.queued) return null
+    return ENGINE_INFO[s.record.engine]?.caps.permissionModes.includes('plan') ? mode : null
+  }
+
+  /** 拟计划那一轮结束：会话还在计划模式就切回原来的权限（期间你自己改过、引擎批准计划后已经回切的不动） */
+  private planBack(sessionId: string, mode: PermissionMode): void {
+    if (this.deps.sessions().find(x => x.record.id === sessionId)?.record.permissionMode !== 'plan') return
+    this.planRestoring.set(sessionId, mode)
+    void this.deps
+      .call('engine:updateSession', [sessionId, { permissionMode: mode, rememberChoices: false }])
+      .catch(e => this.deps.log?.('拟计划后切回权限失败', e))
+      .finally(() => {
+        if (this.planRestoring.get(sessionId) === mode) this.planRestoring.delete(sessionId)
+      })
+  }
+
   private async start(run: TaskRun): Promise<void> {
     const member = this.member(run.memberId)
     const task = this.taskOf(run)
@@ -2503,13 +2545,13 @@ export class Channels {
       let guard = current.guard
       let sessionId = current.sessionId
       let text = current.prompt
+      const planning = !!current.flow && !current.flow.stepId
       // 队友在我自己开的会话上追加要求（前几轮是我派的、没有限制）：不接着用那个会话，按限制新开一个
       if (!this.sessionExists(sessionId) || (rules && !guard)) {
-        // 流程里的步骤每步新开会话（docs/ui/channels-pipeline.md §4.2）
-        sessionId =
-          member.mode === 'shared' && !current.flow && !rules && this.sessionExists(member.sharedSessionId)
-            ? member.sharedSessionId
-            : null
+        // 流程里的步骤每步新开会话（docs/ui/channels-pipeline.md §4.2）；拟计划在成员设置的会话里做（D368）
+        const shared =
+          member.mode === 'shared' && !rules && (!current.flow || (planning && this.planInShared(current, member)))
+        sessionId = shared && this.sessionExists(member.sharedSessionId) ? member.sharedSessionId : null
         if (!sessionId) {
           if (rules) guard = await this.guardFor(current, member, rules)
           // 流程里的一步：先定在哪做（并行时建副本），提示词按实际的位置写
@@ -2527,7 +2569,7 @@ export class Channels {
               ? guard?.capped
                 ? { permissionMode: 'edits' }
                 : {}
-              : current.flow
+              : current.flow && !shared
                 ? current.flow.stepId
                   ? (this.flowStepOf(current)?.settings ?? null)
                   : // 拟计划一律开计划模式（只读，不管哪个引擎、哪个模型），开工后的步骤才按成员的权限做
@@ -2552,6 +2594,15 @@ export class Channels {
       // 读附件期间可能被取消、停止：再核对一次，取消了就不发
       const now = this.store.runs.get(run.taskId)
       if (!now || now.phase !== 'sent' || now.clientMessageId !== cmid) return
+      // 拟计划发进共用会话：这一轮切成计划模式，结束时切回（D368）。新开的计划会话本来就在计划模式
+      const hold = planning && sessionId ? this.planHoldOf(sessionId) : null
+      if (hold && sessionId) {
+        await this.deps.call('engine:updateSession', [sessionId, { permissionMode: 'plan', rememberChoices: false }])
+        const held = this.store.runs.get(run.taskId)
+        if (!held || held.phase !== 'sent' || held.clientMessageId !== cmid) return this.planBack(sessionId, hold)
+        this.store.runs.set(run.taskId, { ...held, planHold: hold })
+        this.saveRuns()
+      }
       // 带不上的（超过一条消息的上限、SSH 成员读不到路径）告诉 AI 一声
       const locale = this.deps.locale()
       const lost = [
@@ -2659,8 +2710,18 @@ export class Channels {
   /** 这一轮结束：更新任务卡，做完了就把回复发回频道，再开始成员的下一项活 */
   private finish(run: TaskRun, finish: Finish): void {
     const task = this.taskOf(run)
-    const ended: TaskRun = { ...run, phase: 'ended', requests: [], progress: null, activity: null }
+    // 拟计划那一轮在共用会话里临时切了计划模式：切回去（D368），每轮各切各的，不带到下一轮
+    const hold = this.store.runs.get(run.taskId)?.planHold ?? run.planHold
+    const { planHold: _, ...rest } = run
+    const ended: TaskRun = { ...rest, phase: 'ended', requests: [], progress: null, activity: null }
     this.store.runs.set(run.taskId, ended)
+    if (hold && run.sessionId) this.planBack(run.sessionId, hold)
+    // 这一轮刚结束：同一段调用里接着开始的下一项活把这个会话当空着的（sessionIdle）；宿主随后派发的排队消息不算
+    const ending = run.sessionId
+    if (ending && run.started) {
+      this.turnEnded.add(ending)
+      queueMicrotask(() => this.turnEnded.delete(ending))
+    }
     if (task) {
       const now = this.now()
       let teamResult: { text: string; mentions: string[] } | undefined
@@ -4697,6 +4758,10 @@ export class Channels {
 
   /** 正在由牵头拆的频道（同步占位，免得连发两条拆两个） */
   private readonly leading = new Set<string>()
+  /** 拟计划后正在切回权限的会话 → 切回的那档（D368）：切回生效前下一轮又来拟计划时按它算原来的权限 */
+  private readonly planRestoring = new Map<string, PermissionMode>()
+  /** 这一轮刚结束的会话（只在结束那一段同步调用里，见 sessionIdle） */
+  private readonly turnEnded = new Set<string>()
 
   /** 这条消息交给牵头成员（docs/ui/channels-pipeline.md §8.3）：主时间线、不带 @、不是斜杠命令、够长、没有正在拆的 */
   private leadTakes(c: StoredChannel, m: ChannelTextMessage): boolean {

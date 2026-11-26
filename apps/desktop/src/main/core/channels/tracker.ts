@@ -1,7 +1,7 @@
 // 协作频道任务的状态跟踪（docs/ui/channels-phase-b.md §5.1）：会话事件 / 会话快照 → 任务卡的变化。
 // 纯函数：输入一项活的运行信息和一个事件，返回新的运行信息、要改的任务卡字段，以及这一轮是不是结束了。
 import { codexPlainText, diffStat } from '@pixelsky/protocol'
-import type { ApprovalRequest, EngineEvent, Item, SessionSnapshot } from '@pixelsky/protocol'
+import type { ApprovalRequest, EngineEvent, Item, PermissionMode, SessionSnapshot } from '@pixelsky/protocol'
 import type {
   ChannelActivity,
   ChannelStep,
@@ -91,6 +91,8 @@ export interface TaskRun {
   // ── 流程（docs/ui/channels-pipeline.md §4）；flow 之外的几项跟着 nextRound 带到下一轮，done 每轮重来 ──
   /** 流程里的一步：流程卡消息 id、步骤 id（拆流程的活是空串） */
   flow?: { messageId: string; stepId: string }
+  /** 拟计划这一轮在共用会话里临时切成了计划模式（D368）：原来的权限，这一轮结束时切回；只这一轮 */
+  planHold?: PermissionMode
   /** 这一轮调过 task_done（第一次算数） */
   done?: FlowResult & {
     steps?: FlowStep[]

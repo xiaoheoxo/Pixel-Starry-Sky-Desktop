@@ -984,6 +984,10 @@ describe('EngineHost + Claude（假引擎）', () => {
     await host.update(record.id, { permissionMode: 'edits' })
     await host.update(record.id, { permissionMode: 'plan' })
     expect(host.defaults().permissionMode).toBe('edits')
+    // 临时改的（频道拟计划切回原来的权限）：会话改了，默认值不动
+    await host.update(record.id, { permissionMode: 'ask', rememberChoices: false })
+    expect(host.open(record.id).record.permissionMode).toBe('ask')
+    expect(host.defaults().permissionMode).toBe('edits')
     await host.update(record.id, { permissionMode: 'full' })
     await host.interrupt(record.id)
     await waitFor(() => turnsDone(record.id) === 1)

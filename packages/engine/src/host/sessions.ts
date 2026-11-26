@@ -305,7 +305,8 @@ export class HostSessions {
 
   async update(
     id: string,
-    patch: Partial<SessionSettings> & { title?: string; engine?: EngineId },
+    /** rememberChoices: false：按别处存的配置临时改的（频道拟计划切计划模式再切回），不把这几项记成默认值 */
+    patch: Partial<SessionSettings> & { title?: string; engine?: EngineId; rememberChoices?: false },
   ): Promise<SessionRecord> {
     const { ctx } = this
     const m = ctx.m
@@ -462,7 +463,8 @@ export class HostSessions {
       if (remembered.permissionMode === 'full') delete remembered.permissionMode
       // 「先出计划」只管这个任务（docs/ui/plan-mode-split.md §3），不让以后的新任务都从计划开始
       if (remembered.permissionMode === 'plan') delete remembered.permissionMode
-      if (Object.keys(remembered).length > 0) m.settings.setDefaults({ ...remembered, engine: target })
+      if (patch.rememberChoices !== false && Object.keys(remembered).length > 0)
+        m.settings.setDefaults({ ...remembered, engine: target })
       const live = { ...settings }
       if (deferred || modelLater) {
         delete live.model
