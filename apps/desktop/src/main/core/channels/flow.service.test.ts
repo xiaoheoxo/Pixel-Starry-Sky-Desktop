@@ -812,6 +812,106 @@ describe('流程第三批（docs/ui/channels-pipeline.md §8）', () => {
     ).toBe(true)
   })
 
+  it('拟计划那一轮按原来的权限答：原来完全放行的命令直接放行、计划确认拒绝、提问照常弹；原来不是完全放行的照常弹（D373）', async () => {
+    const { c, ch } = await setup()
+    const ask = (s: string, requestId: string, request: Record<string, unknown>) =>
+      c.hostEvent(
+        ev(s, {
+          type: 'approval_request',
+          request: { requestId, itemId: null, title: 't', alwaysScopes: [], ...request },
+        } as unknown as EngineEvent),
+      )
+    // 这一轮开始了（用户条目出现）才认权限请求
+    const begin = (s: string) =>
+      c.hostEvent(
+        ev(s, {
+          type: 'item_completed',
+          item: {
+            kind: 'user',
+            id: lastTo(s).clientMessageId,
+            text: '',
+            createdAt: 0,
+            turnId: 'turn-' + lastTo(s).clientMessageId,
+          },
+        }),
+      )
+    const answers = () =>
+      calls
+        .filter(x => x.channel === 'engine:answer')
+        .map(x => [x.args[1], (x.args[2] as { type: string }).type] as const)
+    const lead = await c.saveMember(null, { ...agent('牵头'), mode: 'shared', settings: { permissionMode: 'full' } })
+    await c.addMember(ch, lead)
+    await c.update(ch, { lead })
+    await c.post(ch, { text: '@牵头 先看看登录页的代码', clientId: 'u0' })
+    await settle()
+    const shared = tasks(c, ch)[0].sessionId!
+    // 不是拟计划的活：不代答
+    begin(shared)
+    ask(shared, 'r-chat', { kind: 'command', command: 'git log' })
+    await endTurn(c, shared, '看完了')
+    expect(answers()).toEqual([])
+
+    await c.post(ch, { text: '帮我把登录页改成两步验证', clientId: 'u1' })
+    await settle()
+    expect(tasks(c, ch).at(-1)?.sessionId).toBe(shared)
+    begin(shared)
+    ask(shared, 'r1', { kind: 'command', command: 'git log --oneline' })
+    ask(shared, 'r2', { kind: 'tool', toolName: 'WebFetch' })
+    ask(shared, 'r3', { kind: 'plan', plan: '# 计划' })
+    ask(shared, 'r4', { kind: 'question', questions: [] })
+    await settle()
+    expect(answers()).toEqual([
+      ['r1', 'allow'],
+      ['r2', 'allow'],
+      ['r3', 'deny'],
+    ])
+    expect(
+      (calls.find(x => x.channel === 'engine:answer' && x.args[1] === 'r3')!.args[2] as { message: string }).message,
+    ).toContain('task_done')
+    // 提问照常挂在卡上等你
+    expect(
+      storeOf(c)
+        .runs.get(tasks(c, ch).at(-1)!.id)
+        ?.requests.map(r => r.requestId),
+    ).toEqual(['r4'])
+    c.hostEvent(ev(shared, { type: 'approval_resolved', requestId: 'r4' }))
+    await endTurn(c, shared, '只是个问题')
+
+    // 原来是「自动改文件」的成员：新开的计划会话里照常弹
+    const other = await c.saveMember(null, { ...agent('写手'), settings: { permissionMode: 'edits' } })
+    await c.addMember(ch, other)
+    await c.update(ch, { lead: other })
+    await c.post(ch, { text: '做一个新的设置页并且审查一遍', clientId: 'u2' })
+    await settle()
+    const fresh = tasks(c, ch).at(-1)!.sessionId!
+    expect(fresh).not.toBe(shared)
+    begin(fresh)
+    ask(fresh, 'r5', { kind: 'command', command: 'git status' })
+    await settle()
+    expect(answers().map(a => a[0])).not.toContain('r5')
+    await endTurn(c, fresh, '只是个问题')
+
+    // 一直用同一个会话、成员设置是「自动改文件」，但你在会话里切成了完全放行；会话正忙另开了计划会话：按那个会话的档放行
+    const third = await c.saveMember(null, { ...agent('三号'), mode: 'shared', settings: { permissionMode: 'edits' } })
+    await c.addMember(ch, third)
+    await c.update(ch, { lead: third })
+    await c.post(ch, { text: '@三号 先看看注册页的代码', clientId: 'u3' })
+    await settle()
+    const own = tasks(c, ch).at(-1)!.sessionId!
+    await endTurn(c, own, '看完了')
+    const rec = sessions.find(s => s.record.id === own)!
+    rec.record = { ...rec.record, permissionMode: 'full' }
+    rec.state = 'running'
+    await c.post(ch, { text: '把注册页也改成两步验证吧', clientId: 'u4' })
+    await settle()
+    const side = tasks(c, ch).at(-1)!.sessionId!
+    expect(side).not.toBe(own)
+    begin(side)
+    ask(side, 'r6', { kind: 'command', command: 'git log' })
+    await settle()
+    expect(answers().at(-1)).toEqual(['r6', 'allow'])
+  })
+
   it('牵头在共用会话里的上一项活刚结束（宿主还没标成空闲）：排着的拆流程照样发进共用会话（D368）', async () => {
     const { c, ch } = await setup()
     const lead = await c.saveMember(null, { ...agent('牵头'), mode: 'shared', settings: { permissionMode: 'edits' } })

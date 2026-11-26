@@ -12,6 +12,8 @@ import {
   searchTerms,
   validateFiles,
   validateImages,
+  type ApprovalDecision,
+  type ApprovalRequest,
   type HostEvent,
   type ImageAttachment,
   type Item,
@@ -409,6 +411,10 @@ export interface ChannelsDeps {
 /** 执行机自动拒绝权限请求时给引擎的原因（给 AI 看的，不进界面） */
 export const UNATTENDED_DENY =
   'Denied automatically: this task runs on an unattended PixelSky runner and nobody can approve requests. Continue without this action, or finish and state in your reply what needs approval.'
+
+/** 拟计划那一轮自动拒绝计划确认（ExitPlanMode）时给引擎的原因（给 AI 看的，不进界面，D373） */
+export const PLAN_EXIT_DENY =
+  'Denied automatically: you are drafting a plan for a PixelSky channel. Stay in plan mode and do not start the work. Deliver the plan with the task_done tool; if task_done is not available, put the plan JSON in a json code block at the end of your reply.'
 
 const terminal = (status: ChannelTask['status']): boolean =>
   status === 'done' || status === 'failed' || status === 'stopped'
@@ -2683,6 +2689,28 @@ export class Channels {
     const mode = this.planRestoring.get(sessionId) ?? s?.record.permissionMode
     if (!s || !mode || mode === 'plan' || s.queue?.queued) return null
     return ENGINE_INFO[s.record.engine]?.caps.permissionModes.includes('plan') ? mode : null
+  }
+
+  /**
+   * 拟计划那一轮的权限请求按原来的权限答（D373）：原来是完全放行（共用会话切计划模式前那档；新开的计划会话看成员设置）时，
+   * 命令、改文件、其他工具直接放行，计划确认（ExitPlanMode）拒绝并说明用 task_done 交；问你的问题、别的情况返回 null 照常弹
+   */
+  private planAnswer(run: TaskRun, request: ApprovalRequest): ApprovalDecision | null {
+    if (!run.flow || run.flow.stepId || run.team) return null
+    const member = this.member(run.memberId)
+    if (!member) return null
+    // 没切过（你自己切成了计划模式、引擎没有计划模式、共用会话正忙另开了计划会话）：一直用同一个会话的成员按那个会话
+    // 现在的那档（你可能是在会话里切的完全放行，成员设置没改）；每项活新开的按成员设置
+    const shared = member.mode === 'shared' ? member.sharedSessionId : null
+    const base =
+      run.planHold ??
+      (shared && this.sessionExists(shared)
+        ? this.deps.sessions().find(x => x.record.id === shared)?.record.permissionMode
+        : (member.settings.permissionMode ?? this.deps.defaultMode?.(member.engine)))
+    if (base !== 'full') return null
+    if (request.kind === 'plan') return request.canDeny === false ? null : { type: 'deny', message: PLAN_EXIT_DENY }
+    if (request.kind === 'question' || request.formSchema !== undefined || request.canAllow === false) return null
+    return { type: 'allow' }
   }
 
   /** 拟计划那一轮结束：会话还在计划模式就切回原来的权限（期间你自己改过、引擎批准计划后已经回切的不动） */
@@ -6567,6 +6595,16 @@ export class Channels {
                 const latest = this.store.runs.get(run.taskId)
                 if (latest?.phase === 'sent') this.apply(latest, trackEvent(latest, ev, this.now()))
               })
+            continue
+          }
+          const planned = ev.type === 'approval_request' ? this.planAnswer(run, ev.request) : null
+          if (planned && ev.type === 'approval_request') {
+            // 拟计划那一轮按原来的权限答（D373）：原来完全放行的不弹给你。答失败才照常显示「等你确认」
+            void this.deps.call('engine:answer', [event.sessionId, ev.request.requestId, planned]).catch(e => {
+              this.deps.log?.('拟计划自动答权限请求失败', e)
+              const latest = this.store.runs.get(run.taskId)
+              if (latest?.phase === 'sent') this.apply(latest, trackEvent(latest, ev, this.now()))
+            })
             continue
           }
           if (ev.type === 'approval_request' && run.team && this.deps.unattended) {
