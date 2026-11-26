@@ -672,6 +672,77 @@ describe('platform settlement lifecycle', () => {
       },
     })
   })
+  it('一轮之外发的请求（后台子智能体）并进下一轮结算；补报 chargeId 不重复记（docs/ui/usage.md §14）', async () => {
+    const asked: string[][] = []
+    const { host, adapter, record, send } = setup({
+      settlementDelays: [5],
+      platformCharges: async s => {
+        asked.push(s.requests.map(r => r.id))
+        return []
+      },
+    })
+    await host.update(record.id, { platform: { account: 'alice', groupId: '7' } })
+    const done = (turnId: string) =>
+      adapter.sessions[0].ctx.emit({
+        type: 'turn_completed',
+        turnId,
+        outcome: 'completed',
+        error: null,
+        usage: { durationMs: 5, models: { alpha: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 1 } } },
+      })
+    const track = () => host.platformRequestContext(host.executionRecord(record.id)!)!
+    await send('late-a')
+    await until(() => !!adapter.sessions[0]?.active)
+    const first = adapter.sessions[0].active!
+    track()('request-in', 'alpha')
+    done(first)
+    adapter.sessions[0].active = null
+    await until(() => host.open(record.id).state === 'idle')
+    // 一轮之外：子智能体又发了一个；上一轮那个的响应才回来（远端每次回调都重新取上下文）
+    const before = Date.now()
+    track()('request-late', 'beta')
+    const after = Date.now()
+    await new Promise(r => setTimeout(r, 40))
+    track()('request-late', 'beta', '0b8f6d1e-4c3a-4e7b-9d2f-5a6b7c8d9e0f')
+    track()('request-in', 'alpha', '1b8f6d1e-4c3a-4e7b-9d2f-5a6b7c8d9e0f')
+    await send('late-b')
+    await until(() => !!adapter.sessions[0]?.active && adapter.sessions[0].active !== first)
+    const second = adapter.sessions[0].active!
+    track()('request-next', 'alpha')
+    done(second)
+    await until(() => asked.length === 2)
+    expect(asked).toEqual([['request-in'], ['request-late', 'request-next']])
+    const stats = host.open(record.id).items.filter(i => i.kind === 'turn_stats')
+    expect(stats.at(-1)).toMatchObject({
+      usage: {
+        settlement: { requests: [{ id: 'request-late', chargeId: '0b8f6d1e-4c3a-4e7b-9d2f-5a6b7c8d9e0f' }, {}] },
+      },
+    })
+    // 按开始时间往前一天查实扣：从晚到的那个请求查起
+    const startedAt = (stats.at(-1) as { usage: { settlement: { startedAt: number } } }).usage.settlement.startedAt
+    expect(startedAt).toBeGreaterThanOrEqual(before)
+    expect(startedAt).toBeLessThanOrEqual(after)
+    adapter.sessions[0].active = null
+    await until(() => host.open(record.id).state === 'idle')
+    // 一轮之外的请求之后换了账号：用新账号查不到，不并进来
+    track()('request-alice', 'alpha')
+    await host.update(record.id, { platform: { account: 'bob', groupId: '7' } })
+    await send('late-c')
+    // 换账号会重开引擎会话
+    const last = () => adapter.sessions.at(-1)!
+    await until(() => !!last().active && last().active !== second)
+    track()('request-bob', 'alpha')
+    last().ctx.emit({
+      type: 'turn_completed',
+      turnId: last().active!,
+      outcome: 'completed',
+      error: null,
+      usage: { durationMs: 5, models: { alpha: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 1 } } },
+    })
+    await until(() => asked.length === 3)
+    expect(asked[2]).toEqual(['request-bob'])
+    last().active = null
+  })
   it('does not resurrect deleted sessions or cleared usage when a delayed query finishes', async () => {
     let finish!: () => void
     const { host, adapter, record, send } = setup({

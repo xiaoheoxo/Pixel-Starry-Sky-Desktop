@@ -424,7 +424,8 @@ export class PixelTranslator {
     this.items.clear()
     this.toolNames.clear()
     this.toolSummaries.clear()
-    this.turnModels = {}
+    this.turnModels = this.lateModels
+    this.lateModels = {}
     this.gen.reset()
     this.assistantError = null
     this.compacted = null
@@ -598,28 +599,38 @@ export class PixelTranslator {
     this.emitUsage()
   }
 
-  /** 把一次请求的用量记进本轮和会话累计（压缩生成摘要的那次调用也算） */
+  /** 把一次请求的用量记进本轮和会话累计（压缩生成摘要的那次调用也算）；返回记进的那一行 */
   addUsage(
     model: string,
     counts: { input: number; output: number; cacheRead: number; cacheWrite: number },
     cost: number,
     requests = 1,
-  ): void {
+  ): ModelTurnUsage {
     const t = this.totals
     t.input += counts.input
     t.output += counts.output
     t.cacheRead += counts.cacheRead
     t.cacheWrite += counts.cacheWrite
     t.cost += cost
-    if (!this.turnOpen) return
-    const m = (this.turnModels[model] ??= { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, costUsd: 0, requests: 0 })
+    // 这一轮已经结束才报的（后台子智能体，docs/ui/usage.md §14）：记进下一轮，不丢
+    const m = ((this.turnOpen ? this.turnModels : this.lateModels)[model] ??= {
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      output: 0,
+      costUsd: 0,
+      requests: 0,
+    })
     m.input += counts.input
     m.cacheRead += counts.cacheRead
     m.cacheWrite += counts.cacheWrite
     m.output += counts.output
     m.costUsd = (m.costUsd ?? 0) + cost
     m.requests = (m.requests ?? 0) + requests
+    return m
   }
+  /** 上一轮结束后才报的用量，并进下一轮 */
+  private lateModels: Record<string, ModelTurnUsage> = {}
 
   emitUsage(): void {
     const window = this.options.contextWindow?.() ?? null
@@ -706,14 +717,14 @@ export class PixelTranslator {
       const requests = u.requests - p.requests
       if (requests <= 0) continue
       const d = (k: 'input' | 'output' | 'cacheRead' | 'cacheWrite'): number => Math.max(0, u[k] - p[k])
-      this.addUsage(
+      const m = this.addUsage(
         model,
         { input: d('input'), output: d('output'), cacheRead: d('cacheRead'), cacheWrite: d('cacheWrite') },
         Math.max(0, u.cost - p.cost),
         requests,
       )
       // 自选站点的模型 Pi 不知道价格，报的费用是 0：记成不知道（用量页显示「—」），不当成免费；主会话同一个模型有真实费用时不动
-      if (u.cost === 0 && !this.turnModels[model].costUsd) this.turnModels[model].costUsd = null
+      if (u.cost === 0 && !m.costUsd) m.costUsd = null
       added = true
     }
     this.agentUsage.set(call, now)
@@ -803,10 +814,9 @@ export class PixelTranslator {
         this.ompAgentTotals[key] += d(key)
       if (baseline || d('requests') <= 0) continue
       const counts = { input: d('input'), output: d('output'), cacheRead: d('cacheRead'), cacheWrite: d('cacheWrite') }
-      this.addUsage(model, counts, d('cost'), d('requests'))
-      const m = this.turnOpen ? this.turnModels[model] : undefined
+      const m = this.addUsage(model, counts, d('cost'), d('requests'))
       // 没有价格的模型费用是 0：记成不知道，不当成免费（同 addSubagentUsage）
-      if (m && u.cost === 0 && !m.costUsd) m.costUsd = null
+      if (u.cost === 0 && !m.costUsd) m.costUsd = null
       added = true
     }
     if (added) this.emitUsage()

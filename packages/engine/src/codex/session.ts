@@ -74,6 +74,7 @@ import { NATIVE_TEXT } from '../native/text'
 import { codexCommandParts } from './command'
 import { codexQuotaPatch, parseCodexRateLimits } from './quota'
 import { codexChanges, CodexTranslator, tokenCounts, codexReview } from './translate'
+import { addModelUsage, mergeModelUsage } from '../turn-usage'
 import { CODEX_WINDOW_ENV, codexContextConfig } from './context-config'
 import { pixelAutoWindow } from '../pixel/context-window'
 import type { CatalogExtras } from './model-catalog'
@@ -622,6 +623,12 @@ export class CodexSession implements EngineSession {
   private skills: SkillCommand[] = []
   private totals = tokenCounts({})
   private last = tokenCounts({})
+  /** 子智能体线程已经算过的累计（按线程，docs/ui/usage.md §14）：它们的用量不在主线程里，单独报 */
+  private readonly childTotals = new Map<string, ReturnType<typeof tokenCounts>>()
+  /** 还没记进哪一轮的子智能体用量：这一轮结束时并进去；这一轮已经结束才报的，记进下一轮 */
+  private childModels: Record<string, ModelTurnUsage> = {}
+  /** 在这个进程里有过动静的子线程：没动静就报的用量是恢复时补报的历史，只当基线（同主线程的 activity） */
+  private readonly childActive = new Set<string>()
   private contextWindow: number | null = null
   private compacting = false
   /** 压缩发出去、turn/started 还没到时停止了：等它开始时补发 turn/interrupt */
@@ -1887,7 +1894,12 @@ export class CodexSession implements EngineSession {
     if (eventThread && this.prediction && eventThread === this.prediction.thread)
       return this.predictionEvent(method, params)
     // 子智能体线程的事件只记进追踪（工具次数、token）
-    if (eventThread && this.agents.has(eventThread)) return this.translator.child(eventThread, method, params)
+    if (eventThread && this.agents.has(eventThread)) {
+      if (method === 'thread/tokenUsage/updated') this.childUsage(eventThread, params)
+      else if ((method === 'item/started' || method === 'item/completed') && object(params.item).type !== 'userMessage')
+        this.childActive.add(eventThread)
+      return this.translator.child(eventThread, method, params)
+    }
     if (eventThread && this.threadId && eventThread !== this.threadId) {
       if (this.active) this.translator.observeAgnesChild(eventThread, method, params)
       return
@@ -2331,6 +2343,8 @@ export class CodexSession implements EngineSession {
         costUsd: null,
       },
     }
+    mergeModelUsage(models, this.childModels)
+    this.childModels = {}
     this.gen.apply(models, active.started)
     this.ctx.emit({
       type: 'turn_completed',
@@ -2346,6 +2360,27 @@ export class CodexSession implements EngineSession {
     this.refreshMcpSoon()
     // 自己开的一轮（目标模式接着做）不预测：用户没在等着输入
     if (outcome === 'completed' && !active.auto) void this.predict()
+  }
+
+  /**
+   * 子智能体线程报的累计用量：多出来的按它的模型记下。第一次见到时只算最近这次请求（之前的是别的进程算过的），
+   * 还没动静就报的是恢复时补报的历史，一点不算
+   */
+  private childUsage(threadId: string, params: Message): void {
+    const usage = object(params.tokenUsage)
+    const total = tokenCounts(usage.total)
+    const seen = this.childTotals.get(threadId)
+    this.childTotals.set(threadId, total)
+    const last = seen ? null : this.childActive.has(threadId) ? tokenCounts(usage.last) : tokenCounts({})
+    const counts = {
+      input: Math.max(0, last ? last.input : total.input - seen!.input),
+      cacheRead: Math.max(0, last ? last.cacheRead : total.cacheRead - seen!.cacheRead),
+      cacheWrite: Math.max(0, last ? last.cacheWrite : total.cacheWrite - seen!.cacheWrite),
+      output: Math.max(0, last ? last.output : total.output - seen!.output),
+    }
+    if (!counts.input && !counts.cacheRead && !counts.cacheWrite && !counts.output) return
+    const model = this.agents.get(threadId)?.model || this.options.subagentModel || this.active?.model || 'Codex'
+    addModelUsage(this.childModels, model, counts, null)
   }
 
   /**

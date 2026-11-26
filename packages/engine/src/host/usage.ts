@@ -18,9 +18,15 @@ import type { UsageQuery } from '../usage'
 import type { HostContext } from './context'
 
 const DAY = 24 * 60 * 60 * 1000
+/** 一轮之外发的平台请求先记在这个键下（按账号分开：结算按账号查实扣） */
+const lateKey = (id: string, account: string): string => `${id}:~late:${account}`
 
 export class HostUsage {
   private readonly platformRequests = new Map<string, PlatformRequest[]>()
+  /** 最近记过的平台请求 id：响应回来补报 chargeId 时那一轮已经结算了，不再当成新请求记一次 */
+  private readonly seenRequests = new Set<string>()
+  /** 一轮之外的请求最早什么时候记的：结算按开始时间往前一天查实扣，要从这里查起 */
+  private readonly lateSince = new Map<string, number>()
   private readonly settlements = new Map<string, AbortController>()
   /** 清空用量时加一；进行中的结算不再写回已清空的记录 */
   private epoch = 0
@@ -28,7 +34,8 @@ export class HostUsage {
   constructor(private readonly ctx: HostContext) {}
 
   /**
-   * Capture the execution before the gateway awaits I/O; late requests cannot move to a later turn.
+   * Capture the execution before the gateway awaits I/O: a request sent during a turn stays with that turn;
+   * one sent between turns (a background subagent) is settled with the next turn.
    * 网关发请求前用自己的 ID 调一次；收到响应后带上 Sub2api 回传的 chargeId 再调一次，补到同一条上。
    */
   platformRequestContext(
@@ -36,26 +43,44 @@ export class HostUsage {
   ): ((requestId: string, model: string, chargeId?: string) => void) | undefined {
     const rt = this.ctx.runtimes.get(record.id),
       turnId = rt?.snapshot.turnId
-    if (!rt || !turnId || !record.platform) return
-    const key = `${record.id}:${turnId}`,
+    if (!rt || !record.platform) return
+    // 一轮之外发的（这一轮结束后还在跑的子智能体）：先记着，并进下一轮结算（docs/ui/usage.md §14）
+    const key = turnId ? `${record.id}:${turnId}` : lateKey(record.id, record.platform.account),
       groupId = record.platform.groupId
     return (requestId, model, chargeId) => {
-      if (rt.snapshot.turnId !== turnId || this.ctx.closing) return
-      const requests = this.platformRequests.get(key) ?? []
+      if (this.ctx.closing) return
       const charge = typeof chargeId === 'string' && /^[a-f0-9-]{36}$/.test(chargeId) ? chargeId : undefined
-      const known = requests.find(r => r.id === requestId)
+      // 远端每次回调都重新取上下文：补报时可能已经在下一轮或一轮之外，按 id 在这个会话待结算的请求里找
+      const known = this.pendingRequest(record.id, requestId)
       if (known) {
         if (charge) known.chargeId = charge
         return
       }
+      if (this.seenRequests.has(requestId) || (turnId && rt.snapshot.turnId !== turnId)) return
+      this.seenRequests.add(requestId)
+      if (this.seenRequests.size > 5000) this.seenRequests.delete(this.seenRequests.values().next().value!)
+      const requests = this.platformRequests.get(key) ?? []
+      if (!turnId && !this.lateSince.has(key)) this.lateSince.set(key, Date.now())
       requests.push({ id: requestId, ...(charge ? { chargeId: charge } : {}), model, groupId })
       this.platformRequests.set(key, requests)
     }
   }
 
+  private pendingRequest(id: string, requestId: string): PlatformRequest | undefined {
+    for (const [key, requests] of this.platformRequests)
+      if (key.startsWith(`${id}:`)) {
+        const found = requests.find(r => r.id === requestId)
+        if (found) return found
+      }
+  }
+
   /** 这一轮经平台网关发过请求（引擎没报用量也要记一行待结算） */
   hasPlatformRequests(id: string, turnId: string): boolean {
-    return this.platformRequests.has(`${id}:${turnId}`)
+    const rt = this.ctx.runtimes.get(id),
+      account = (rt?.execution ?? rt?.snapshot.record)?.platform?.account
+    return (
+      this.platformRequests.has(`${id}:${turnId}`) || (!!account && this.platformRequests.has(lateKey(id, account)))
+    )
   }
 
   /** 一轮结束：按模型写用量记录，并在对话流里加一行统计（显示在这一轮回复下方） */
@@ -65,6 +90,17 @@ export class HostUsage {
     if (!rt) return
     const record = rt.execution ?? rt.snapshot.record
     const key = `${id}:${turnId}`
+    let startedAt = Date.now() - usage.durationMs
+    for (const [late, requests] of this.platformRequests) {
+      if (!late.startsWith(lateKey(id, ''))) continue
+      this.platformRequests.delete(late)
+      const since = this.lateSince.get(late) ?? startedAt
+      this.lateSince.delete(late)
+      // 换过账号的不并：用这一轮的账号查不到它们的实扣，这一轮同一个模型整行都会变成「—」
+      if (!record.platform || late !== lateKey(id, record.platform.account)) continue
+      this.platformRequests.set(key, [...requests, ...(this.platformRequests.get(key) ?? [])])
+      startedAt = Math.min(startedAt, since)
+    }
     if (record.platform) {
       usage = settleUsage(
         {
@@ -72,7 +108,7 @@ export class HostUsage {
           settlement: {
             account: record.platform.account,
             requests: this.platformRequests.get(key) ?? [],
-            startedAt: Date.now() - usage.durationMs,
+            startedAt,
             complete: false,
           },
         },

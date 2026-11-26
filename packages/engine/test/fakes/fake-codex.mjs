@@ -287,6 +287,24 @@ const models = [
     isDefault: false,
   },
 ]
+let children = 0
+/** 子智能体线程的累计用量（和真 Codex 0.169 一样单独报，不在主线程里） */
+function childUsage(threadId, input, output) {
+  emit('thread/tokenUsage/updated', {
+    threadId,
+    turnId: 'child-turn',
+    tokenUsage: {
+      total: {
+        inputTokens: input,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: output,
+        totalTokens: input + output,
+      },
+      last: { inputTokens: input, cachedInputTokens: 0, outputTokens: output, totalTokens: input + output },
+    },
+  })
+}
 function finish(status = 'completed') {
   if (!turn) return
   const together = process.env.FAKE_CODEX_GOAL_GAP === '0' && goal?.status === 'active' && !batching
@@ -294,6 +312,32 @@ function finish(status = 'completed') {
   const current = turn
   turn = null
   clearTimeout(current.timer)
+  // FAKE_CODEX_CHILD：这一轮派一个子智能体（线程 child-<轮次>），一轮里报一次用量，一轮结束后再报一次
+  const child = process.env.FAKE_CODEX_CHILD ? `child-${++children}` : null
+  if (child) {
+    emit('item/completed', {
+      threadId: thread,
+      turnId: current.id,
+      item: {
+        type: 'collabAgentToolCall',
+        id: `spawn-${child}`,
+        tool: 'spawn_agent',
+        status: 'completed',
+        receiverThreadIds: [child],
+        model: 'gpt-sub',
+        prompt: 'look',
+        agentsStates: {},
+      },
+    })
+    // 子线程恢复时补报的历史：还没动静，不算
+    childUsage(child, 9000, 900)
+    emit('item/completed', {
+      threadId: child,
+      turnId: 'child-turn',
+      item: { type: 'agentMessage', id: `msg-${child}`, text: 'sub' },
+    })
+    childUsage(child, 10000, 1100)
+  }
   emit('item/completed', {
     threadId: thread,
     turnId: current.id,
@@ -316,6 +360,7 @@ function finish(status = 'completed') {
     },
   })
   emit('turn/completed', { threadId: thread, turn: { id: current.id, status, error: null } })
+  if (child) setTimeout(() => childUsage(child, 10500, 1200), 20)
   if (together) {
     continueGoal()
     const lines = batching

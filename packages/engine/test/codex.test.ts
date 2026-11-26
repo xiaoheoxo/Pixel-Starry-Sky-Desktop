@@ -224,6 +224,23 @@ describe('Codex app-server adapter', () => {
     )
     expect(Object.keys(done.at(-1)!.usage!.models)).toEqual(['fake-codex-safe'])
   })
+  it('子智能体线程的用量算进这一轮，记在它的模型上；一轮结束后才到的记进下一轮（docs/ui/usage.md §14）', async () => {
+    const { session, events } = setup(10_000, { env: { FAKE_CODEX_CHILD: '1' } })
+    const done = () =>
+      events.flatMap(e =>
+        e.kind === 'session' && e.sessionId === session.id && e.event.type === 'turn_completed' ? [e.event] : [],
+      )
+    await host!.send(session.id, '派个子智能体')
+    await wait(() => done().length === 1)
+    const first = done()[0].usage!.models
+    expect(first['gpt-sub']).toMatchObject({ input: 1000, output: 200 })
+    expect(first['fake-codex']).toBeDefined()
+    await new Promise(r => setTimeout(r, 100))
+    await host!.send(session.id, '再来')
+    await wait(() => done().length === 2)
+    // 上一轮结束后又报的 500 + 100，加上这一轮新派的 1000 + 200
+    expect(done()[1].usage!.models['gpt-sub']).toMatchObject({ input: 1500, output: 300 })
+  })
   it('重连状态和换模型提示的拼法', () => {
     expect(codexRetryState({ message: 'Reconnecting... waiting for network' }, 't1')).toEqual({
       turnId: 't1',
