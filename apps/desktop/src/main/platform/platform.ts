@@ -28,7 +28,8 @@ import {
   type CompactionRequestReport,
   type PlatformRouteResult,
 } from '@pixelsky/engine'
-import type { PlatformGroupInfo, PlatformGroupKey } from '../../shared/types/platform-catalog'
+import { PLATFORM_OFFLINE, type PlatformGroupInfo, type PlatformGroupKey } from '../../shared/types/platform-catalog'
+import { isUnreachable } from '../account/ip-fallback'
 import { platformModelApi, platformModelSupportsEngine } from '../../shared/platform-models'
 import { speaksPi } from '../../shared/provider-protocols'
 import { onAccountChange, platformBalance, platformFetch, signedInEmail } from '../account/account'
@@ -56,7 +57,13 @@ const log = logger('subagents')
 const groupLog = logger('platform')
 
 async function jsonRequest(path: string, method = 'GET'): Promise<unknown> {
-  const res = await platformFetch(path, { method, signal: AbortSignal.timeout(30_000) })
+  // 只读的目录请求：连不上时改连备用 IP（docs/network-fallback.md）；还是连不上就带上标记，界面据此沿用上次的线路
+  const res = await platformFetch(path, { method, signal: AbortSignal.timeout(30_000) }, { fallback: true }).catch(
+    (e: unknown) => {
+      if (isUnreachable(e)) throw new Error(`${PLATFORM_OFFLINE} 连不上云端，请检查网络后重试`)
+      throw e
+    },
+  )
   const body = (await res.json()) as { data?: unknown; error?: unknown }
   if (!res.ok) throw new Error(typeof body.error === 'string' ? body.error : '平台服务暂时不可用，请刷新重试')
   return body.data

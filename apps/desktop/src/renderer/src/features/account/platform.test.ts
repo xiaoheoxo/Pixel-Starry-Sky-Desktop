@@ -13,6 +13,8 @@ import {
   visibleModels,
   groupSupportsEngine,
   refreshedSelection,
+  mergeGroupModels,
+  readCatalog,
   type PlatformGroup,
 } from './platform'
 
@@ -206,5 +208,50 @@ describe('新装还没选过时的默认来源', () => {
     expect(fallbackSource('pixel', 'a@b.c')).toBe('platform')
     expect(fallbackSource('codex', null)).toBe('self')
     expect(fallbackSource('pixel', null)).toBe('platform')
+  })
+})
+
+describe('读目录时网络时好时坏：线路不忽有忽无', () => {
+  const ok = (models: string[]): PromiseSettledResult<string[]> => ({ status: 'fulfilled', value: models })
+  // 主进程标了「连不上」的，和云端明确拒绝的（分组没公开）
+  const fail: PromiseSettledResult<string[]> = {
+    status: 'rejected',
+    reason: new Error(
+      "Error invoking remote method 'platform:models': Error: PLATFORM_OFFLINE 连不上云端，请检查网络后重试",
+    ),
+  }
+  const denied: PromiseSettledResult<string[]> = { status: 'rejected', reason: new Error('分组没有公开') }
+
+  it('模型没读到：先用上次的，再用分组目录自带的，都没有才算失败', () => {
+    const list = [group('1', 1, ['opus']), group('2', 1, ['sonnet']), group('3', 1, [])]
+    const previous = [group('1', 1, ['opus', 'old'])]
+    const r = mergeGroupModels(list, [fail, fail, fail], previous)
+    expect(r.groups.map(g => [g.id, g.models, g.modelsError])).toEqual([
+      ['1', ['opus', 'old'], null],
+      ['2', ['sonnet'], null],
+      ['3', [], "Error invoking remote method 'platform:models': Error: 连不上云端，请检查网络后重试"],
+    ])
+    expect(r.stale).toBe(true)
+  })
+
+  it('云端明确拒绝的不沿用旧的，照常显示错误', () => {
+    const r = mergeGroupModels([group('1', 1, ['opus'])], [denied], [group('1', 1, ['opus'])])
+    expect(r.groups[0].models).toEqual([])
+    expect(r.groups[0].modelsError).toBe('分组没有公开')
+    expect(r.stale).toBe(false)
+  })
+
+  it('都读到了就用新的，不算旧', () => {
+    const r = mergeGroupModels([group('1', 1, ['opus'])], [ok(['opus', 'new'])], [group('1', 1, ['old'])])
+    expect(r.groups[0].models).toEqual(['opus', 'new'])
+    expect(r.stale).toBe(false)
+  })
+
+  it('本机存的目录只给同一个账号用，坏的、没模型的丢掉', () => {
+    const raw = JSON.stringify({ email: 'a@x.com', groups: [group('1', 1, ['opus']), group('2', 1, []), { id: 3 }] })
+    expect(readCatalog(raw, 'a@x.com').map(g => g.id)).toEqual(['1'])
+    expect(readCatalog(raw, 'b@x.com')).toEqual([])
+    expect(readCatalog('not json', 'a@x.com')).toEqual([])
+    expect(readCatalog(null, 'a@x.com')).toEqual([])
   })
 })

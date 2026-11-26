@@ -548,8 +548,15 @@ export function setPlatformHeaders(fn: () => Record<string, string>): void {
   platformHeaders = fn
 }
 
-/** 平台网络请求只在主进程内使用令牌，不把凭据发给渲染层或引擎。 */
-export async function platformFetch(path: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * 平台网络请求只在主进程内使用令牌，不把凭据发给渲染层或引擎。
+ * fallback：只读的小请求（分组目录、分组模型）连不上时改连 CDN 备用 IP（同账号请求，ip-fallback.ts）
+ */
+export async function platformFetch(
+  path: string,
+  init: RequestInit = {},
+  opts: { fallback?: boolean } = {},
+): Promise<Response> {
   if (
     !path.startsWith('/v1/platform/') &&
     !path.startsWith('/v1/oauth/usage/calls?') &&
@@ -558,7 +565,7 @@ export async function platformFetch(path: string, init: RequestInit = {}): Promi
     throw new Error('无效的平台接口')
   const headers = new Headers(init.headers)
   for (const [name, value] of Object.entries(platformHeaders())) headers.set(name, value)
-  return authedFetch(path, { ...init, headers })
+  return authedFetch(path, { ...init, headers }, opts)
 }
 
 /** 设置云同步（docs/ui/settings-sync.md §5.1）：只能读写 /v1/oauth/settings，不放宽 platformFetch 的白名单 */
@@ -584,7 +591,7 @@ async function ownUnauthorized(res: Response): Promise<{ own: boolean; res: Resp
 }
 
 /** 带登录令牌的请求：快过期先刷新，云端拒绝令牌（401）时刷新后重试一次，还被拒或刷新被拒就退出登录 */
-async function authedFetch(path: string, init: RequestInit): Promise<Response> {
+async function authedFetch(path: string, init: RequestInit, opts: { fallback?: boolean } = {}): Promise<Response> {
   if (!tokens) throw new Error('请先登录像素星空账号')
   const requestEpoch = epoch
   // 请求途中账号退出或切换：和登录过期同一个 code，调用方按「需要重新登录」处理
@@ -613,7 +620,7 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
         noteUnreachable(e, used)
         throw e
       })
-    if (!isBigRequest(init)) return post(baseUrl())
+    if (!isBigRequest(init)) return opts.fallback && routingEnabled() ? viaFallback(post, headers) : post(baseUrl())
     const current = route ?? 'cdn'
     return bigRoute.send(
       current,
@@ -623,6 +630,24 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
         return post(routeOf(id).base, id)
       },
       e => isUnreachable(e, true),
+    )
+  }
+  /** 先按当前线路发；连不上时按 CDN 域名改连备用 IP（SNI、证书仍校验域名），连上的 IP 记 10 分钟 */
+  const viaFallback = (post: (base: string) => Promise<Response>, headers: Headers): Promise<Response> => {
+    const url = `${routeOf('cdn').base}${path}`
+    return withIpFallback(
+      url,
+      () => post(baseUrl()),
+      async ip => {
+        const r = await requestViaIp(new URL(url), ip, {
+          method: init.method ?? 'GET',
+          headers: Object.fromEntries(headers.entries()),
+          body: typeof init.body === 'string' ? init.body : undefined,
+        })
+        // 没拿到状态码当网关错误（Response 不接受 0）
+        return new Response(r.text, { status: r.status >= 200 ? r.status : 502 })
+      },
+      { onSwitch: (ip, reason) => log.warn('域名连不上，改用备用地址', { ip, path, reason: describeError(reason) }) },
     )
   }
   const used = tokens?.accessToken

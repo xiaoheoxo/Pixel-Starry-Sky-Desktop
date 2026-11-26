@@ -5,7 +5,11 @@ import { tr } from '../../i18n/core'
 import { useEffect, useSyncExternalStore } from 'react'
 import { ENGINES, type EngineId } from '@pixelsky/protocol'
 import type { AccountState } from '../../../../shared/types/account'
-import type { PlatformGroupInfo, PlatformKeyMode } from '../../../../shared/types/platform-catalog'
+import {
+  PLATFORM_OFFLINE,
+  type PlatformGroupInfo,
+  type PlatformKeyMode,
+} from '../../../../shared/types/platform-catalog'
 import { platformModelsForEngine } from '../../../../shared/platform-models'
 import { speaksPi } from '../../../../shared/provider-protocols'
 import { demo } from '@/data/demo'
@@ -390,12 +394,93 @@ export function reloadPlatformKeys(mode: PlatformKeyMode): void {
   else void refreshPlatform()
 }
 
+/**
+ * 合并一次读目录的结果（网络时好时坏时线路不能忽有忽无）：某个分组的模型没读到，先用上次读到的，
+ * 再用分组目录里自带的；都没有才算这个分组读失败。stale 表示用了旧的，过一会儿要再读一次
+ */
+export function mergeGroupModels(
+  list: PlatformGroupInfo[],
+  results: PromiseSettledResult<string[]>[],
+  previous: readonly PlatformGroup[],
+): { groups: PlatformGroup[]; stale: boolean } {
+  let stale = false
+  const groups = list.map((g, i): PlatformGroup => {
+    const r = results[i]
+    if (r?.status === 'fulfilled') return { ...g, models: r.value, modelsError: null }
+    // 只有连不上云端才沿用旧的；云端明确拒绝（分组没公开、没有可用的 Key）照常显示错误
+    const offline = r?.status === 'rejected' && isOffline(r.reason)
+    const before = previous.find(p => p.id === g.id && p.models.length > 0)?.models
+    const fallback = offline ? (before ?? (g.models.length > 0 ? g.models : null)) : null
+    if (fallback) {
+      stale = true
+      return { ...g, models: fallback, modelsError: null }
+    }
+    return {
+      ...g,
+      models: [],
+      modelsError: (r?.status === 'rejected' && errorText(r.reason)) || tr('account.platform.failedToLoad'),
+    }
+  })
+  return { groups, stale }
+}
+
+/** 主进程标了「连不上云端」的错误（PLATFORM_OFFLINE） */
+const isOffline = (e: unknown): boolean => e instanceof Error && e.message.includes(PLATFORM_OFFLINE)
+/** 给人看的错误文字：去掉标记 */
+const errorText = (e: unknown): string => ((e as Error)?.message ?? '').replace(`${PLATFORM_OFFLINE} `, '')
+
+/** 上次读到的目录（按账号）：冷启动时云端连不上也有线路可选 */
+const CATALOG_KEY = 'pixelsky.platform.catalog'
+
+function saveCatalog(email: string, groups: PlatformGroup[]): void {
+  try {
+    localStorage.setItem(CATALOG_KEY, JSON.stringify({ email, groups: groups.filter(g => g.models.length > 0) }))
+  } catch {
+    /* 存不下就下次再读 */
+  }
+}
+
+/** 读上次存的目录；不是这个账号的、格式不对的当没有 */
+export function readCatalog(raw: string | null, email: string): PlatformGroup[] {
+  try {
+    const v = JSON.parse(raw ?? 'null') as { email?: unknown; groups?: unknown } | null
+    if (!v || v.email !== email || !Array.isArray(v.groups)) return []
+    return (v.groups as PlatformGroup[]).filter(
+      g =>
+        !!g &&
+        typeof g.id === 'string' &&
+        typeof g.name === 'string' &&
+        Array.isArray(g.models) &&
+        g.models.length > 0 &&
+        g.models.every(m => typeof m === 'string'),
+    )
+  } catch {
+    return []
+  }
+}
+
+/** 读目录失败或用了旧的：过 30 秒再读一次（只排一次，读成功了清掉） */
+const RETRY_MS = 30_000
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+let retryGen = -1
+function retryLater(gen: number): void {
+  // 换了账号：上一个账号排的那次作废，给新账号重排
+  if (retryTimer && retryGen === gen) return
+  if (retryTimer) clearTimeout(retryTimer)
+  retryGen = gen
+  retryTimer = setTimeout(() => {
+    retryTimer = null
+    if (gen === generation) void refreshPlatform()
+  }, RETRY_MS)
+}
+
 export async function refreshPlatform(): Promise<void> {
   const api = window.pixelsky?.platformCatalog
   // 演示模式用假目录，不请求真实服务
   if (!api || window.pixelsky?.demo || !state.email || state.loading) return
   reloadAfter = false
   const gen = generation
+  const email = state.email
   set({ loading: true, error: null })
   try {
     const list = await api.groups()
@@ -405,12 +490,8 @@ export async function refreshPlatform(): Promise<void> {
       list.map(g => (agyOnly(g) ? agyGroupModels(g.models, agyModels, () => api.models(g.id)) : api.models(g.id))),
     )
     if (gen !== generation) return
-    const groups: PlatformGroup[] = list.map((g, i) => {
-      const r = models[i]
-      return r.status === 'fulfilled'
-        ? { ...g, models: r.value, modelsError: null }
-        : { ...g, models: [], modelsError: (r.reason as Error)?.message ?? tr('account.platform.failedToLoad') }
-    })
+    const previous = state.groups.length > 0 ? state.groups : readCatalog(localStorage.getItem(CATALOG_KEY), email)
+    const { groups, stale } = mergeGroupModels(list, models, previous)
     const anyModel = groups.some(g => g.models.length > 0)
     const error =
       groups.length > 0 && !anyModel
@@ -420,8 +501,30 @@ export async function refreshPlatform(): Promise<void> {
       { groups, loaded: true, loading: false, error, ...refreshedSelection(groups, state.groupId, state.model) },
       true,
     )
+    if (anyModel) saveCatalog(email, groups)
+    // 只为「连不上」再读：云端明确拒绝的分组再读也一样，不每 30 秒重试
+    if (stale || models.some(r => r.status === 'rejected' && isOffline(r.reason))) retryLater(gen)
   } catch (e) {
-    if (gen === generation) set({ groups: [], loaded: true, loading: false, error: (e as Error).message })
+    if (gen === generation) {
+      // 连不上云端：留着上次的线路，没有就用本机存的，过一会儿再读；云端明确报错照常清空、显示错误
+      const kept = !isOffline(e)
+        ? []
+        : state.groups.length > 0
+          ? state.groups
+          : readCatalog(localStorage.getItem(CATALOG_KEY), email)
+      set(
+        kept.length > 0
+          ? {
+              groups: kept,
+              loaded: true,
+              loading: false,
+              error: null,
+              ...refreshedSelection(kept, state.groupId, state.model),
+            }
+          : { groups: [], loaded: true, loading: false, error: errorText(e) },
+      )
+      if (isOffline(e)) retryLater(gen)
+    }
   }
   if (reloadAfter && gen === generation) void refreshPlatform()
 }

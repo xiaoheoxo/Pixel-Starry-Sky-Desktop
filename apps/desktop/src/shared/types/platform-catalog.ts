@@ -25,3 +25,9 @@ export interface PlatformGroupKey {
 
 /** 平台额度的扣费 Key：自动（客户端专用的托管 Key，默认）/ 我的 Key（用户自己建的，没有时用托管 Key） */
 export type PlatformKeyMode = 'auto' | 'own'
+
+/**
+ * 读平台目录时「连不上云端」的错误带这个标记（main/platform/platform.ts 的 jsonRequest）：
+ * 界面只在这种情况下沿用上次的线路；云端明确拒绝（分组没公开、没有可用的 Key）照常显示错误
+ */
+export const PLATFORM_OFFLINE = 'PLATFORM_OFFLINE'

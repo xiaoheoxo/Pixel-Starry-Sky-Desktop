@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   opened: [] as string[],
   windows: [] as unknown[],
   sent: [] as Array<{ to: unknown; channel: string }>,
+  viaIp: [] as Array<{ ip: string; path: string; auth: string | undefined }>,
 }))
 vi.mock('electron', () => ({
   app: {
@@ -49,6 +50,14 @@ vi.mock('../app/rendererHealth', () => ({
     return true
   },
 }))
+// 备用 IP 只记下来、回一个成功的响应（真的连 IP 在 ip-fallback.test.ts 里测）
+vi.mock('./ip-fallback', async importOriginal => ({
+  ...(await importOriginal<typeof import('./ip-fallback')>()),
+  requestViaIp: async (url: URL, ip: string, init: { headers: Record<string, string> }) => {
+    mocks.viaIp.push({ ip, path: url.pathname, auth: init.headers.authorization })
+    return { status: 200, text: JSON.stringify({ data: ['via-ip'] }) }
+  },
+}))
 vi.mock('../ipc/guard', () => ({
   handle: (name: string, fn: (...args: unknown[]) => unknown) => mocks.handlers.set(name, fn),
 }))
@@ -62,10 +71,16 @@ const requests: Array<{
 }> = []
 let revoked = false
 let globalDown = false
+/** 连不上（带 undici 的连接超时错误码）：只有这种才会改连备用 IP */
+let connectDown = false
 /** 不为 null 时，/v1/platform/slow 的响应要等它 resolve 才回（模拟请求途中账号退出） */
 let slowGate: Promise<void> | null = null
 vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
   if (globalDown) throw new TypeError('fetch failed')
+  if (connectDown)
+    throw new TypeError('fetch failed', {
+      cause: Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+    })
   const path = new URL(input).pathname
   requests.push({
     path,
@@ -105,6 +120,7 @@ writeFileSync(
 const { deviceName, extensionsFetch, initAccount, platformFetch, setPlatformHeaders, signedInEmail, teamsFetch } =
   await import('./account')
 const { markPayWindow } = await import('../app/payWindowRegistry')
+const { resetIpFallback } = await import('./ip-fallback')
 vi.useFakeTimers({ toFake: ['setInterval'] })
 initAccount()
 
@@ -206,6 +222,24 @@ describe('platformFetch 的公共请求头', () => {
       expect(requests[1].headers.get('Authorization')).toBe('Bearer pss_a')
     } finally {
       setPlatformHeaders(() => ({}))
+    }
+  })
+})
+
+describe('platformFetch 的备用 IP', () => {
+  it('目录这类只读请求（fallback）连不上时改连备用 IP，带上令牌；其他请求照常报错', async () => {
+    connectDown = true
+    try {
+      mocks.viaIp.length = 0
+      const res = await platformFetch('/v1/platform/groups', {}, { fallback: true })
+      expect(await res.json()).toEqual({ data: ['via-ip'] })
+      expect(mocks.viaIp).toEqual([{ ip: expect.any(String), path: '/v1/platform/groups', auth: 'Bearer pss_a' }])
+      await expect(platformFetch('/v1/platform/messages', { method: 'POST' })).rejects.toThrow('fetch failed')
+      expect(mocks.viaIp).toHaveLength(1)
+    } finally {
+      connectDown = false
+      // 连上的备用 IP 会记 10 分钟：清掉，后面的测试照常走域名
+      resetIpFallback()
     }
   })
 })
