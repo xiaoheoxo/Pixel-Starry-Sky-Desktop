@@ -1144,6 +1144,14 @@ export function ChannelFlowCard({
               )}
         </p>
       )}
+      {flow.planFailed && (
+        // 拟计划那一轮没做完就关掉了（不留空草稿）：写明原因，要的话重新发一次
+        <p className="mb-1 text-meta text-danger">
+          {flow.planFailed.error
+            ? tr('channels.flow.planFailed.error', { error: flow.planFailed.error })
+            : tr('channels.flow.planFailed')}
+        </p>
+      )}
       {flow.wip && flow.status !== 'done' && flow.status !== 'stopped' && (
         <p className="mb-1 text-meta text-fg-muted">{tr('channels.flow.wip', { path: flow.wip })}</p>
       )}

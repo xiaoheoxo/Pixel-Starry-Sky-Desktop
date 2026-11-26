@@ -384,6 +384,8 @@ export interface ChannelTextMessage extends ChannelMessageBase {
   wakeup?: ChannelWakeupTag | null
   /** 你的话成了追加要求（docs/ui/channels-collab-v2.md §3.1）：交给了哪个成员、算第几轮，气泡下面写「已交给」 */
   handed?: { memberId: string; round: number } | null
+  /** 你不带 @ 的话成了对一份提案的补充（交给拆它的成员改）：气泡下写「已补充到」，点了跳到那张提案卡 */
+  refined?: { messageId: string; title: string } | null
 }
 
 /** 事项唤醒的条件（docs/multica-learn.md §11.6）：到某个时间（只一次）、定期检查、等某件事结束 */
@@ -635,6 +637,8 @@ export interface ChannelFlow {
   brief?: FlowBrief | null
   /** 提案第几版（拆流程的成员每交回一次加一） */
   rev?: number
+  /** 牵头自动拆 / @ 先出计划的那一轮没做完就关掉的（不留空草稿）：卡上写明，error 是那一轮的错误 */
+  planFailed?: { error: string | null } | null
 }
 
 /** 建 / 改流程草稿时的一步（channels:flow） */

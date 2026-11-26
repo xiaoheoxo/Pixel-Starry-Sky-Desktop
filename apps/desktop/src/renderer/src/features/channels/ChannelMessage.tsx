@@ -646,6 +646,18 @@ export function MessageGroup({
                   })}
                 </span>
               )}
+              {m.refined && (
+                // 不带 @ 的话成了对一份提案的补充：写明是哪份，点了跳过去
+                <button
+                  type="button"
+                  data-refined=""
+                  onClick={() => onJump(m.refined!.messageId)}
+                  className="mt-0.5 inline-flex items-center gap-1 px-1 text-meta text-fg-faint hover:text-fg-muted"
+                >
+                  <Check size={11} strokeWidth={2} className="shrink-0 text-success" />
+                  {tr('channels.refined', { title: m.refined.title })}
+                </button>
+              )}
               {m.generated && <GeneratedLine generated={m.generated} />}
               {m.wakeup && (
                 // 事项唤醒（docs/multica-learn.md §11.6）：叫成员的那条系统消息、唤醒那一轮发回的结果

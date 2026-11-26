@@ -113,8 +113,10 @@ describe('频道时间线', () => {
     const rows = buildTimeline([
       text('auto', 'me', DAY1 + min(600), { flow: flow(true) }),
       text('manual', 'me', DAY1 + min(601), { flow: flow(false) }),
+      // 拟计划没做完关掉的：照常显示，卡上写明原因
+      text('failed', 'me', DAY1 + min(602), { flow: { ...flow(true), planFailed: { error: '额度不足' } } }),
     ])
-    expect(rows.map(r => (r.kind === 'flow' ? r.key : r.kind))).toEqual(['day', 'manual'])
+    expect(rows.map(r => (r.kind === 'flow' ? r.key : r.kind))).toEqual(['day', 'manual', 'failed'])
   })
   it('拟计划的流程卡单独一行（拟计划的成员那边），你那条消息下面记一笔；拟计划任务卡收进流程卡，要你处理时照常显示', () => {
     const flow = {

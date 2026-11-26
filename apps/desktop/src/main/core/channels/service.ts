@@ -1578,6 +1578,9 @@ export class Channels {
       const round = run && run.phase !== 'ended' ? run.round : (target.round ?? 1) + 1
       message.handed = { memberId: target.assigneeId, round }
     }
+    // 不派给任何人的话：是不是对最近那份提案的补充（refineTarget），是就在气泡下写「已补充到」
+    const refineTo = !(target && following) && !agents.length ? this.refineTarget(c, message) : null
+    if (refineTo) message.refined = { messageId: refineTo.id, title: refineTo.flow.title.slice(0, 80) }
     this.posted.set(clientId, message.id)
     await this.store.append(message)
     // 发消息就算看过了；AI 互相派活的防刷计数也从这里重新算。写附件期间频道可能被改、被删：按最新那份写，删了就不写
@@ -1599,7 +1602,16 @@ export class Channels {
     // 有份提案在商量：不带 @ 的话（或回复提案卡）交给拆它的成员接着改，不另开、不派活
     let root: string | null = tasks.length || planning ? id : null
     if (!tasks.length && !planning) {
-      const refined = this.refineTakes(c, message)
+      // 写盘期间提案可能开工、丢弃或换了拟计划的人：按最新那份核对，不成了就撤掉「已补充到」，照常交给牵头
+      const draft = refineTo ? this.flowMessage(channelId, refineTo.id) : null
+      const open =
+        draft && (draft.flow.status === 'draft' || draft.flow.status === 'planning') && draft.flow.planner?.taskId
+      if (refineTo && !open) {
+        message.refined = null
+        void this.store.append(message).catch(e => this.deps.log?.('保存频道消息失败', e))
+        this.pushMessage(message)
+      }
+      const refined = open ? this.refineTakes(c, message, draft) : null
       if (refined) root = refined.chat?.root ?? null
       else if (this.leadTakes(c, message)) {
         root = id
@@ -4389,6 +4401,23 @@ export class Channels {
     }
     if (m.flow.status !== 'running' && m.flow.status !== 'paused') return
     const step = m.flow.steps.find(s => s.id === stepId)
+      // 牵头自动拆、@ 先出计划的那一轮没做完（失败、被停、断网、额度不够），手上也还没有提案：关掉并写明原因，
+      // 不留一份空草稿（空草稿会把之后不带 @ 的话都当成补充吞掉）
+      if (
+        (m.flow.planner.auto || m.flow.planner.mention) &&
+        finish.status !== 'done' &&
+        !m.flow.steps.length &&
+        !m.flow.questions?.length &&
+        !more &&
+        !this.replanning.has(run.taskId)
+      ) {
+        this.updateFlow(run.channelId, messageId, f => ({
+          ...f,
+          status: 'stopped',
+          planFailed: { error: finish.error?.slice(0, 300) ?? null },
+        }))
+        return
+      }
     if (!step || step.taskId !== run.taskId) return
     const locale = this.deps.locale()
     if (run.answering) this.routeAnswer(run, finish.status === 'done' ? run.reply : null)
@@ -5076,40 +5105,71 @@ export class Channels {
     }
   }
 
-  /** 正在由牵头拆的频道（同步占位，免得连发两条拆两个） */
-  private readonly leading = new Set<string>()
+  /** 换拟计划的成员时正在停的那一轮（任务 id） */
+  private readonly replanning = new Set<string>()
   /** 拟计划后正在切回权限的会话 → 切回的那档（D368）：切回生效前下一轮又来拟计划时按它算原来的权限 */
   private readonly planRestoring = new Map<string, PermissionMode>()
   /** 这一轮刚结束的会话（只在结束那一段同步调用里，见 sessionIdle） */
   private readonly turnEnded = new Set<string>()
 
-  /** 这条消息交给牵头成员（docs/ui/channels-pipeline.md §8.3）：主时间线、不带 @、不是斜杠命令、够长、没有正在拆的 */
+  /**
+   * 这条消息交给牵头成员（docs/ui/channels-pipeline.md §8.3）：主时间线、不带 @、不是斜杠命令、够长。
+   * 牵头正在拆别的、手上有活时也交给它：另开一张卡排在后面，不并进上一份提案（那份只认 refineTarget 的情况）
+   */
   private leadTakes(c: StoredChannel, m: ChannelTextMessage): boolean {
     const text = m.text.trim()
     if (!c.lead || !this.flowMemberCheck(c)(c.lead)?.local) return false
-    if (m.mentions?.length || m.threadId || m.replyToId || text.length < LEAD_MIN_CHARS || text.startsWith('/'))
-      return false
-    if (this.leading.has(c.id)) return false
-    return !(this.store.messages.get(c.id) ?? []).some(x => x.kind === 'message' && x.flow?.status === 'planning')
+    return !(m.mentions?.length || m.threadId || m.replyToId || text.length < LEAD_MIN_CHARS || text.startsWith('/'))
+  }
+
+  /**
+   * 不带 @ 的话算不算对一份提案的补充：你回复的就是这张还在拟、还是草稿的提案卡；
+   * 或者主时间线上最新的一条属于这样一份提案（提案卡、拟它的任务卡、拟计划成员的回复、你之前的补充、你对它的回答）。
+   * 早就滚上去的旧提案不再接话，照常交给牵头另开
+   */
+  private refineTarget(c: StoredChannel, m: ChannelTextMessage): (ChannelTextMessage & { flow: ChannelFlow }) | null {
+    if (m.mentions?.length || m.threadId || m.text.trim().startsWith('/')) return null
+    const list = this.store.messages.get(c.id) ?? []
+    const open = (x: ChannelMessage | undefined): x is ChannelTextMessage & { flow: ChannelFlow } =>
+      x?.kind === 'message' &&
+      !!x.flow?.planner?.taskId &&
+      (x.flow.status === 'draft' || x.flow.status === 'planning') &&
+      !!this.flowMemberCheck(c)(x.flow.planner.memberId)?.local
+    const card = (id: string | null | undefined) => (id ? list.find(x => x.id === id) : undefined)
+    // 回复哪张提案卡就补充哪份（不管后面有没有更新的提案）；回复别的不算
+    if (m.replyToId) {
+      const replied = card(m.replyToId)
+      return open(replied) ? replied : null
+    }
+    const last = [...list]
+      .reverse()
+      .find(x => x.id !== m.id && x.kind !== 'event' && !(x.kind === 'message' && x.threadId))
+    if (!last) return null
+    // 最新这条属于哪份提案（几份同时在拟时按这条认，不按最新的那份）
+    const of =
+      last.kind === 'task'
+        ? last.flow?.messageId
+        : last.kind !== 'message'
+          ? null
+          : last.flow
+            ? last.id
+            : (last.refined?.messageId ??
+              (last.taskId ? this.store.task(last.taskId)?.flow?.messageId : null) ??
+              list.find(x => x.kind === 'message' && x.flow?.answersId === last.id)?.id)
+    const target = card(of)
+    return open(target) ? target : null
   }
 
   /**
    * 草稿期间接着说（补充细节、改主意、回答提案里的问题）：交给拆这份提案的成员改，改完还是草稿，点开始才派活。
-   * 只认不带 @、不在讨论串里的话；回复别的消息不算，回复提案卡算
+   * 哪些话算补充见 refineTarget
    */
-  private refineTakes(c: StoredChannel, m: ChannelTextMessage): ChannelTextMessage | null {
-    if (m.mentions?.length || m.threadId || m.text.trim().startsWith('/')) return null
-    const draft = [...(this.store.messages.get(c.id) ?? [])]
-      .reverse()
-      .find(
-        (x): x is ChannelTextMessage & { flow: ChannelFlow } =>
-          x.kind === 'message' &&
-          !!x.flow?.planner?.taskId &&
-          (x.flow.status === 'draft' || x.flow.status === 'planning'),
-      )
-    if (!draft || (m.replyToId && m.replyToId !== draft.id)) return null
+  private refineTakes(
+    c: StoredChannel,
+    m: ChannelTextMessage,
+    draft: ChannelTextMessage & { flow: ChannelFlow },
+  ): ChannelTextMessage {
     const planner = draft.flow.planner!
-    if (!this.flowMemberCheck(c)(planner.memberId)?.local) return null
     const f = draft.flow
     // 记下原话：排着的补充是拼好的提示词，换人拟计划时会清掉，交接靠这份
     const note = { from: this.nameOf(m.authorId), text: m.text }
@@ -5230,7 +5290,6 @@ export class Channels {
 
   /** 牵头成员拆这条需求：和「让成员拆」同一条路，拆出的是草稿，你确认后才开始；只是问题时它直接回答 */
   private async leadPlan(c: StoredChannel, m: ChannelTextMessage): Promise<void> {
-    this.leading.add(c.id)
     try {
       await this.flowAction(
         c.id,
@@ -5241,8 +5300,6 @@ export class Channels {
       )
     } catch (e) {
       this.deps.log?.('牵头拆流程失败', e)
-    } finally {
-      this.leading.delete(c.id)
     }
   }
 
@@ -5308,7 +5365,8 @@ export class Channels {
           ...(a.isolate === false ? { isolate: false } : {}),
         },
       }
-      await this.store.append(message)
+      // 内存里同步写进去，拟计划的任务也同步建好再等落盘：等的期间紧接着发的话要能认出这份提案（refineTarget）
+      const saved = this.store.append(message)
       this.pushMessage(message)
       if (planner) {
         const local = new Set(c.memberIds.filter(id => this.flowMemberCheck(c)(id)?.local).map(this.nameOf))
@@ -5356,6 +5414,7 @@ export class Channels {
         const problem = draftProblem(f.steps, this.flowMemberCheck(c))
         if (problem) throw new Error(problem)
         const open = openRequired(f)
+      await saved
         if (open.length) throw new Error(`还有要先定的：${open.join('、')}。在提案卡上回答，或交给 AI 定`)
         // 没设护栏的按默认上限；计数从现在算
         this.updateFlow(channelId, messageId, x => ({
@@ -5437,7 +5496,13 @@ export class Channels {
         const oldRun = old ? this.store.runs.get(old) : undefined
         if (old && oldRun && oldRun.phase !== 'ended') {
           this.store.runs.set(old, { ...oldRun, followUps: [], inbox: [] })
-          await this.runAction(old, 'stop').catch(e => this.deps.log?.('停止拟计划失败', e))
+          // 换人时停掉的那一轮不算拟计划失败（不关提案）
+          this.replanning.add(old)
+          try {
+            await this.runAction(old, 'stop').catch(e => this.deps.log?.('停止拟计划失败', e))
+          } finally {
+            this.replanning.delete(old)
+          }
         }
         // 停的期间可能又补充了：按最新的流程交接；期间丢弃了、开工了、或已经换过人就不再派
         const now = this.flowMessage(channelId, messageId)?.flow

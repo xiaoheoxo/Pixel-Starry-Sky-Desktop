@@ -172,8 +172,16 @@ export function buildTimeline(
         m = { ...m, text: stripped.text }
       }
     }
-    // 牵头成员直接回答了、没拆出步骤的流程（docs/ui/channels-pipeline.md §8.3）：回答在任务卡下面，流程卡不显示
-    if (m.kind === 'message' && m.flow?.planner?.auto && m.flow.status === 'stopped' && !m.flow.steps.length) continue
+    // 牵头成员直接回答了、没拆出步骤的流程（docs/ui/channels-pipeline.md §8.3）：回答在任务卡下面，流程卡不显示；
+    // 拟计划没做完关掉的照常显示，卡上写明原因
+    if (
+      m.kind === 'message' &&
+      m.flow?.planner?.auto &&
+      m.flow.status === 'stopped' &&
+      !m.flow.steps.length &&
+      !m.flow.planFailed
+    )
+      continue
     if (m.kind === 'task' && m.flow?.stepId === '' && shownFlows.has(m.flow.messageId) && !plannerChipShown(m)) continue
     // 拟计划的流程卡紧跟在你那条消息后面（同一作者、没隔太久）：那条消息下面写一行「交给谁」，卡照常另起一行
     if (m.kind === 'message' && m.flow?.planner && group && group.authorId === m.authorId) {

@@ -999,6 +999,15 @@ export const channelMessages = {
     zh: '{path} 有你自己没提交的改动，没带进副本；副本基于最近一次提交',
     en: '{path} has uncommitted changes of yours; they were not copied, the copies start from the latest commit',
   },
+  'channels.flow.planFailed': {
+    zh: '拟计划没做完，这份提案已关掉；要的话重新发一次',
+    en: 'Planning did not finish, so this proposal was closed. Send the request again if needed',
+  },
+  'channels.flow.planFailed.error': {
+    zh: '拟计划没做完（{error}），这份提案已关掉；要的话重新发一次',
+    en: 'Planning did not finish ({error}), so this proposal was closed. Send the request again if needed',
+  },
+  'channels.refined': { zh: '已补充到「{title}」提案', en: 'Added to the “{title}” proposal' },
   'channels.flow.resumeLimit': { zh: '再给一份额度继续', en: 'Resume with a fresh allowance' },
   'channels.flow.limitsRow': { zh: '最多', en: 'At most' },
   'channels.flow.limitsRounds': { zh: '轮', en: 'rounds' },
