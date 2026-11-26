@@ -417,7 +417,8 @@ export function ChannelTaskCard({
           run={task.checks}
           className="mt-1.5"
           onFix={
-            onAction
+            // 计划模式（只读）的成员：查出来的不是它留下的，不让它修
+            onAction && !(assignee?.kind === 'agent' && assignee.config?.settings.permissionMode === 'plan')
               ? () =>
                   onAction(task.id, 'fix').catch(e =>
                     toast(tr('checks.fixFailed', { error: translateMessage((e as Error).message) })),

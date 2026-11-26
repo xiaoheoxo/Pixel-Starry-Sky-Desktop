@@ -184,6 +184,8 @@ export function NeedsView() {
   const { needs, gone, done, snoozed, following } = useNeeds()
   const channels = useChannels(s => s.channels)
   const members = useChannels(s => s.members)
+  const readOnlyMember = (id: string | null) =>
+    members.some(m => m.id === id && m.kind === 'agent' && m.config?.settings.permissionMode === 'plan')
   const [busy, setBusy] = useState<string | null>(null)
   const [goneOpen, setGoneOpen] = useState(false)
   const [confirmAll, setConfirmAll] = useState(false)
@@ -347,6 +349,8 @@ export function NeedsView() {
           </Button>
         )
       case 'checks':
+        // 计划模式（只读）的成员：查出来的不是它留下的，不让它修
+        if (readOnlyMember(n.memberId)) return view
         return (
           <>
             <Button

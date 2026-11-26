@@ -337,7 +337,7 @@ describe('等某件事结束', () => {
     expect(() => add(c, ch, { on: x.id, memberId: a, when: { kind: 'ended' }, text: '测一遍' })).toThrow('负责人')
     const id = add(c, ch, { on: x.id, memberId: b, when: { kind: 'ended' }, text: '按验收标准测一遍' })
     expect(rule(c, ch, id)).toMatchObject({ next: null, sig: null })
-    await endTurn(c, s1, '改好了')
+    await endTurn(c, s1, '改好了', { files: ['a.ts'] })
     // 做完紧接着开始检查：还不叫
     expect(tasks(c, ch)[0].checks?.status).toBe('running')
     await tick(c)
@@ -360,7 +360,7 @@ describe('等某件事结束', () => {
     expect(rule(c, ch, again).fired).toBe(0)
     await c.post(ch, { text: '@前端 再调一下颜色', threadId: x.id, clientId: 'more' })
     await settle()
-    await endTurn(c, s1, '调好了')
+    await endTurn(c, s1, '调好了', { files: ['a.ts'] })
     expect(rule(c, ch, again).fired).toBe(0)
     release(null)
     await settle()
@@ -443,7 +443,7 @@ describe('静默、失效、出错', () => {
         return null
       },
     })
-    await endTurn(c, s1, '改好了')
+    await endTurn(c, s1, '改好了', { files: ['a.ts'] })
     expect(checked).toBe(1)
     const id = add(c, ch, {
       on: x.id,

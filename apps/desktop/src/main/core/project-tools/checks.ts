@@ -382,7 +382,13 @@ export class Checks {
         const files = opts.files
           ?.map(f => (isAbsolute(f) ? relative(target.path, f) : f).replace(/\\/g, '/'))
           .filter(f => f && !f.startsWith('../'))
-        if (plan.config.text) run.items.push(await textChecks(target.path, files))
+        // 给了清单但是空的（频道这一轮没改项目里的文件）：不扫文件。不给清单（设置里检查、会话检查）才看整个工作区
+        if (plan.config.text)
+          run.items.push(
+            files && !files.length
+              ? { kind: 'text', status: 'skipped', findings: [], note: '这一轮没改文件' }
+              : await textChecks(target.path, files),
+          )
         return { ...run, status: 'done' as const, endedAt: Date.now() }
       })
     this.queues.set(key, job)

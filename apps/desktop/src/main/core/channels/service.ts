@@ -3063,8 +3063,9 @@ export class Channels {
       else this.patch(run.channelId, run.taskId, patch)
       // 这一批最后一项结束了（没交回结果、要你决定的也算）：攒着的结果现在叫牵头
       if (task.batch && !this.batchOpen(run.channelId, task.batch)) this.flushWakes(task.batch)
-      // 做完了、后面没有排着的追加要求：跑产出检查（唤醒的一轮没改文件不跑，§11.6）
-      const unchanged = !!run.wakeup && !changedFiles(run).length && !diffTotal(run)
+      // 做完了、后面没有排着的追加要求：跑产出检查。这一轮没记录到改动不跑（只读的活、唤醒没改文件的一轮，§11.6），
+      // 不然查出来的是别的任务留在工作区里的东西（docs/ui/channel-checks-scope-mockup.html）
+      const unchanged = !changedFiles(run).length && !diffTotal(run)
       if (!run.team && finish.status === 'done' && !run.followUps.length && !unchanged) void this.check(ended)
       // 做的时候追加的要求：接着发
       if (run.followUps.length && finish.note !== 'cancelled') {
@@ -3079,6 +3080,8 @@ export class Channels {
           run.team,
           run.memberId,
           run.followUpAttach,
+          // 这一轮因为有追加要求没跑检查：改过的文件带到下一轮，那一轮只回答、没再改时也照样检查它们
+          run.files ? { files: run.files } : undefined,
         )
         return
       }
@@ -6426,6 +6429,11 @@ export class Channels {
       if (task.status !== 'done' || task.checks?.status !== 'done' || !this.member(task.assigneeId)) return
       const { failed, findings } = checkProblems(task.checks)
       if (!failed.length && !findings.length) return
+      // 只读的成员、这一轮没改文件的活：查出来的不是它留下的，不发回去（以前的卡上可能还挂着这样的检查结果）
+      if (this.member(task.assigneeId)!.settings.permissionMode === 'plan')
+        throw new Error('这个成员是计划模式（只读），检查发现的问题不发给它')
+      if (run && !changedFiles(run).length && !diffTotal(run))
+        throw new Error('这一轮没改文件，检查发现的问题不是它留下的')
       const c = this.writable(task.channelId)
       const text = followUpPrompt({
         locale: this.deps.locale(),

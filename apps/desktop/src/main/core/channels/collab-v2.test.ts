@@ -88,7 +88,8 @@ const texts = (c: Channels, id: string) =>
   c.messages(id).messages.filter((m): m is ChannelTextMessage => m.kind === 'message')
 const ev = (sessionId: string, event: EngineEvent): HostEvent => ({ kind: 'session', sessionId, seq: 0, event })
 
-function finishLast(c: Channels, reply: string): void {
+/** files：这一轮改了哪些文件（产出检查只在改了文件的一轮跑） */
+function finishLast(c: Channels, reply: string, files: string[] = []): void {
   const s = sends().at(-1)!
   const turn = `turn-${s.clientMessageId}`
   c.hostEvent(
@@ -97,6 +98,18 @@ function finishLast(c: Channels, reply: string): void {
       item: { kind: 'user', id: s.clientMessageId, text: '', createdAt: 0, turnId: turn },
     }),
   )
+  if (files.length)
+    c.hostEvent(
+      ev(s.sessionId, {
+        type: 'item_completed',
+        item: {
+          kind: 'file_change',
+          id: `f-${turn}`,
+          status: 'completed',
+          changes: files.map(path => ({ path, kind: 'update' as const, diff: '', added: 1, removed: 0 })),
+        },
+      }),
+    )
   c.hostEvent(
     ev(s.sessionId, {
       type: 'item_completed',
@@ -498,9 +511,9 @@ describe('产出检查（§8）', () => {
     const ch = await c.create({ name: 'web', memberIds: [a] })
     await c.post(ch, { text: '@前端 改按钮', clientId: 'go' })
     await settle()
-    finishLast(c, '改好了')
+    finishLast(c, '改好了', ['src/button.tsx'])
     await settle()
-    expect(asked).toEqual([{ sessionId: sends()[0].sessionId, files: [] }])
+    expect(asked).toEqual([{ sessionId: sends()[0].sessionId, files: ['src/button.tsx'] }])
     expect(tasks(c, ch)[0].checks?.status).toBe('running')
     release(failed)
     await settle()
@@ -515,13 +528,96 @@ describe('产出检查（§8）', () => {
     expect(tasks(c, ch)[0]).toMatchObject({ round: 2, checks: null })
   })
 
+  it('改了文件的一轮中途追加了要求：这一轮不检查，下一轮只回答没再改也照样检查上一轮改的文件', async () => {
+    const asked: string[][] = []
+    const c = await open(true, {
+      runChecks: async (_s, files) => {
+        asked.push(files)
+        return null
+      },
+    })
+    const a = await c.saveMember(null, agent('前端'))
+    const ch = await c.create({ name: 'web', memberIds: [a] })
+    await c.post(ch, { text: '@前端 改按钮', clientId: 'go' })
+    await settle()
+    const s = sends()[0]
+    const turn = `turn-${s.clientMessageId}`
+    c.hostEvent(
+      ev(s.sessionId, {
+        type: 'item_completed',
+        item: { kind: 'user', id: s.clientMessageId, text: '', createdAt: 0, turnId: turn },
+      }),
+    )
+    c.hostEvent(
+      ev(s.sessionId, {
+        type: 'item_completed',
+        item: {
+          kind: 'file_change',
+          id: 'f1',
+          status: 'completed',
+          changes: [{ path: 'src/button.tsx', kind: 'update', diff: '', added: 1, removed: 0 }],
+        },
+      }),
+    )
+    await c.post(ch, { text: '@前端 顺便说说为什么这么改', threadId: tasks(c, ch)[0].id, clientId: 'more' })
+    await settle()
+    c.hostEvent(
+      ev(s.sessionId, {
+        type: 'item_completed',
+        item: { kind: 'assistant', id: 'a1', text: '改好了', status: 'completed' },
+      }),
+    )
+    c.hostEvent(ev(s.sessionId, { type: 'turn_completed', turnId: turn, outcome: 'completed', error: null }))
+    await settle()
+    expect(asked).toEqual([])
+    expect(sends()).toHaveLength(2)
+    finishLast(c, '因为……')
+    await settle()
+    expect(asked).toEqual([['src/button.tsx']])
+  })
+
+  it('这一轮没改文件不跑检查；计划模式的成员、没改文件的一轮不能「让它修」', async () => {
+    let checked = 0
+    const c = await open(true, {
+      runChecks: async () => {
+        checked++
+        return failed
+      },
+    })
+    const a = await c.saveMember(null, agent('审查员'))
+    const b = await c.saveMember(null, agent('前端'))
+    const ch = await c.create({ name: 'web', memberIds: [a, b] })
+    await c.post(ch, { text: '@审查员 看看改动', clientId: 'r' })
+    await settle()
+    finishLast(c, '没问题')
+    await settle()
+    expect(checked).toBe(0)
+    expect(tasks(c, ch)[0].checks ?? null).toBeNull()
+
+    await c.post(ch, { text: '@前端 改按钮', clientId: 'f' })
+    await settle()
+    finishLast(c, '改好了', ['src/button.tsx'])
+    await settle()
+    const card = tasks(c, ch)[1]
+    expect(card.checks).toEqual(failed)
+    // 以前的卡上可能挂着没改文件那一轮的检查结果
+    const store = (c as unknown as { store: ChannelStore }).store
+    const run = store.runs.get(card.id)!
+    store.runs.set(card.id, { ...run, files: {}, diff: {} })
+    await expect(c.taskAction(card.id, 'fix')).rejects.toThrow('没改文件')
+    store.runs.set(card.id, run)
+    await c.saveMember(null, { ...agent('前端', { settings: { permissionMode: 'plan' } }), id: b })
+    await expect(c.taskAction(card.id, 'fix')).rejects.toThrow('计划模式')
+    expect(sends()).toHaveLength(2)
+  })
+
   it('项目关了频道检查（返回 null）就不留结果；没过的检查才能「让它修」；重启后「检查中」清掉', async () => {
     const c = await open(true, { runChecks: async () => null })
     const a = await c.saveMember(null, agent('前端'))
     const ch = await c.create({ name: 'web', memberIds: [a] })
     await c.post(ch, { text: '@前端 改按钮', clientId: 'go' })
     await settle()
-    finishLast(c, '改好了')
+    finishLast(c, '改好了', ['src/button.tsx'])
     await settle()
     expect(tasks(c, ch)[0].checks).toBeNull()
     await c.taskAction(tasks(c, ch)[0].id, 'fix')
@@ -531,7 +627,7 @@ describe('产出检查（§8）', () => {
     const d = await open(true, { runChecks: () => new Promise(r => (hold = () => r(null))) })
     await d.post(ch, { text: '@前端 再改一下', clientId: 'go2' })
     await settle()
-    finishLast(d, '好了')
+    finishLast(d, '好了', ['src/button.tsx'])
     await settle()
     expect(tasks(d, ch).at(-1)?.checks?.status).toBe('running')
     await (d as unknown as { store: ChannelStore }).store.flush()
@@ -759,7 +855,7 @@ describe('事项（§9）', () => {
     expect(synced[0]).toMatchObject({ id: 'i1', input: { status: 'in_progress', fresh: true, link: { taskId } } })
     expect(synced.at(-1)).toMatchObject({ id: 'i1', input: { status: 'in_progress', fresh: false } })
 
-    finishLast(c, '改好了')
+    finishLast(c, '改好了', ['src/login.tsx'])
     await settle()
     await new Promise(r => setTimeout(r, 350))
     // 做完紧接着开始检查：还是进行中
