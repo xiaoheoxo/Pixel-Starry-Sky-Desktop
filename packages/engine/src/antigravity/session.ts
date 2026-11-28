@@ -8,6 +8,7 @@ import type {
   ExtensionLaunch,
   Effort,
   ImageAttachment,
+  Item,
   PermissionMode,
   Question,
   SessionSettings,
@@ -15,7 +16,8 @@ import type {
   TurnOutcome,
 } from '@pixelsky/protocol'
 import type { CloseOptions, EngineSession, Launcher, SessionContext } from '../adapter'
-import { ACP_AUTH_REQUIRED, AcpConnection } from '../acp/connection'
+import type { ChatSeed } from '../chat-log'
+import { ACP_AUTH_REQUIRED, AcpConnection, AcpError } from '../acp/connection'
 import { forgetKeyAuth, keyAuthCameBack } from './auth-state'
 import { ModeEchoes } from '../mode-echo'
 import { AgyBackgroundTracker, defaultAgyProcessOps, type AgyProcessOps } from './background'
@@ -113,6 +115,8 @@ export function acpMcpServers(list: NonNullable<ExtensionLaunch['acpMcp']>): Msg
 
 /** 一轮不设上限（agy 自己的 --print-timeout 也默认不限）；24 小时只是兜底 */
 const TURN_TIMEOUT = 24 * 60 * 60_000
+/** 接上原来的会话最多等多久：重启后接一段很长的对话、内存紧张时会慢，30 秒不够（2026-11-27 日志里超时后被换成了新会话） */
+const RESUME_TIMEOUT = 120_000
 
 interface Active {
   id: string
@@ -141,6 +145,8 @@ export class AntigravitySession implements EngineSession {
   private conn: AcpConnection | null = null
   private opening: Promise<void> | null = null
   private sessionId: string | null = null
+  /** 原来的会话不在了、已改开新会话：agy 回的原因，下一轮发送前带上之前的聊天后清掉 */
+  private lost: string | null = null
   private options: ConfigOption[] = []
   /** agy 现在用的模式。不看 options 里的：晚到的 config_option_update 会把它写回旧的 */
   private agyMode = ''
@@ -229,21 +235,22 @@ export class AntigravitySession implements EngineSession {
       if (record.engineSessionId)
         try {
           // resume 不回放历史（load 会回放），我们自己存着对话
-          result = obj(await conn.request('session/resume', { ...params, sessionId: record.engineSessionId }))
+          result = obj(
+            await conn.request('session/resume', { ...params, sessionId: record.engineSessionId }, RESUME_TIMEOUT),
+          )
           this.sessionId = record.engineSessionId
         } catch (error) {
           // 没登录不是会话接不上：照原样报出去（新建一样会失败），不提示「已经开了新会话」
           if ((error as { code?: unknown }).code === ACP_AUTH_REQUIRED) throw error
-          this.ctx.emit({
-            type: 'item_completed',
-            item: {
-              kind: 'notice',
-              id: 'ag-lost-' + randomUUID().slice(0, 8),
-              level: 'warn',
-              text: '原来的 Antigravity 会话接不上，已经开了新会话（之前的对话它看不到）',
-              detail: (error as Error).message,
-            },
-          })
+          // 超时、进程退出：会话多半还在，这一轮报错、不换会话 id，下次发消息再接
+          if (!(error instanceof AcpError))
+            throw new Error(
+              `这次没接上原来的 Antigravity 会话（${(error as Error).message}），没有新开会话；稍后重发这条消息再试`,
+            )
+          // agy 回了错误（会话不在了）：新开，这一轮发送前把之前的聊天带过去（run → recoverLost）
+          this.lost = (error as Error).message
+          // 上下文用量是原来那个会话的：新会话是空的，别拿它去判断要不要先 /compact
+          this.lastContext = null
         }
       if (!this.sessionId) {
         result = obj(await conn.request('session/new', params))
@@ -448,20 +455,61 @@ export class AntigravitySession implements EngineSession {
   send(
     text: string,
     turnId: string,
-    _userItemId: string,
+    userItemId: string,
     attachments: ImageAttachment[] = [],
     _seed?: unknown,
     handoffImages: ImageAttachment[] = [],
   ): void {
     const active: Active = { id: turnId, started: Date.now(), promptSent: false }
     this.active = active
-    void this.run(active, text, [...handoffImages, ...attachments])
+    void this.run(active, text, userItemId, handoffImages, attachments)
   }
 
-  private async run(active: Active, text: string, images: ImageAttachment[]): Promise<void> {
+  /**
+   * 原来的会话不在了、已改开新会话（startOnce 记下的 lost）：这一轮发送前请宿主把之前的聊天做成交接材料，加在消息前面
+   * （同 Pixel 的 recoverLost）。斜杠命令前面不能加东西：清掉宿主的游标，下一条普通消息把整段聊天带过去
+   */
+  private recoverLost(text: string, userItemId: string): { seed: ChatSeed; notice: Item } | null {
+    const reason = this.lost
+    this.lost = null
+    if (reason === null) return null
+    const notice = (text: string, detail: string) =>
+      this.ctx.emit({
+        type: 'item_completed',
+        item: { kind: 'notice', id: 'ag-lost-' + randomUUID().slice(0, 8), level: 'warn', text, detail },
+      })
+    if (text.trimStart().startsWith('/')) {
+      this.ctx.forgetSeen?.()
+      notice('原来的 Antigravity 会话不在了，已改开新会话；下一条消息会把之前的聊天一起带过去', reason)
+      return null
+    }
+    const recovered = this.ctx.lostSeed?.(userItemId, true) ?? null
+    if (!recovered) {
+      notice('原来的 Antigravity 会话不在了，已改开新会话（之前的对话没有带过去）', reason)
+      return null
+    }
+    const n = recovered.notice
+    this.ctx.emit({
+      type: 'item_completed',
+      item: n.kind === 'notice' ? { ...n, detail: [reason, n.detail].filter(Boolean).join('\n\n') } : n,
+    })
+    return recovered
+  }
+
+  private async run(
+    active: Active,
+    rawText: string,
+    userItemId: string,
+    handoffImages: ImageAttachment[],
+    attachments: ImageAttachment[],
+  ): Promise<void> {
     try {
       await this.open()
       if (this.active !== active || !this.conn || !this.sessionId) return
+      // 原来的会话没接上：之前的聊天做成交接材料放在最前面
+      const recovered = this.recoverLost(rawText, userItemId)
+      const text = recovered ? `${recovered.seed.fallback}\n\n${rawText}` : rawText
+      const images = [...(recovered?.seed.fallbackImages ?? []), ...handoffImages, ...attachments]
       // 从这里起 agy 那边有 prompt 在跑（含代发的 /compact）：停止要发 session/cancel，不能只在本地结束
       active.promptSent = true
       // 自动压缩阈值：agy 固定约 256K 才自己压，设了阈值时到了就先发一次 /compact（§12 实测上下文 53.7K → 15.4K，这一步不出文字）

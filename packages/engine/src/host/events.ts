@@ -27,6 +27,8 @@ const CODEX_IMPORTED_IDLE_MS = 2 * 60_000
 export const IDLE_KEEP = 2
 /** 到点时会话被别的流程占着、没放成：隔这么久再看一次 */
 const IDLE_RETRY_MS = 60_000
+/** 内存紧张时不放刚用完的：两轮之间关掉又马上重启、重新接上原来的会话，接得慢时还会接不上（2026-11-27 日志） */
+export const MEMORY_KEEP_MS = 2 * 60_000
 
 /**
  * 最近一轮最后一条 assistant 回复的预览（SessionRecord.lastReply）：从末尾往前找，遇到普通用户消息（这一轮的起点）就停；
@@ -648,7 +650,13 @@ export class HostEvents {
   /** 内存紧张：放掉所有能放的，最久没用的先放。返回放了几个 */
   releaseIdle(reason: 'memory'): number {
     let released = 0
-    for (const id of this.releasable()) if (this.release(id, reason)) released++
+    const now = Date.now()
+    for (const id of this.releasable()) {
+      // 闲置不到 2 分钟的留到下一次采样（还紧张再放）
+      const since = this.ctx.runtimes.get(id)?.idleSince
+      if (since !== undefined && now - since < MEMORY_KEEP_MS) continue
+      if (this.release(id, reason)) released++
+    }
     return released
   }
 

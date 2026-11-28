@@ -35,6 +35,8 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (m.method === 'initialize') return out({ id: m.id, result: { protocolVersion: 1 } })
   if (m.method === 'authenticate') return out({ id: m.id, result: {} })
   if (m.method === 'session/new') return out({ id: m.id, result: { sessionId: 's1', configOptions: opts() } })
+  // crash：接上时进程退出（和超时一样不是 agy 回的错误）
+  if (m.method === 'session/resume' && m.params.sessionId === 'crash') process.exit(1)
   if (m.method === 'session/resume')
     return m.params.sessionId === 's1' ? out({ id: m.id, result: { configOptions: opts() } }) : out({ id: m.id, error: { code: -32603, message: 'not found' } })
   if (m.method === 'session/set_config_option') {
@@ -175,7 +177,7 @@ function setup(
     rec = { ...rec, planReturn: nextPlanReturn(rec, permissionMode, undefined), permissionMode }
     return session.update({ permissionMode })
   }
-  return { session, events, sent, turnDone, pick, rec: () => rec }
+  return { session, events, sent, turnDone, pick, rec: () => rec, ctx }
 }
 
 describe('Antigravity 换权限档（plan-mode-split.md §11）', () => {
@@ -521,6 +523,49 @@ describe('Antigravity 会话（假 agy）', () => {
     await again.turnDone('t1')
     expect(again.sent().map(m => m.method)).not.toContain('session/new')
     await again.session.close()
+  })
+
+  it('接上时超时、进程退出：这一轮报错，不新开、不换会话 id', async () => {
+    const t = setup({ engineSessionId: 'crash' })
+    t.session.send('hi', 't1', 'u1')
+    const done = await t.turnDone('t1')
+    // 进程退出时退出处理先结束这一轮（「进程退出了」）；超时走 startOnce 的「没有新开会话」
+    expect(done).toMatchObject({ outcome: 'failed' })
+    expect(t.sent().map(m => m.method)).not.toContain('session/new')
+    expect(t.rec().engineSessionId).toBe('crash')
+    expect(
+      t.events.some(e => e.type === 'item_completed' && e.item.kind === 'notice' && e.item.text.includes('新会话')),
+    ).toBe(false)
+    await t.session.close()
+  })
+
+  it('会话不在了：新开，把之前的聊天放在这一轮消息前面，提示带上了', async () => {
+    const t = setup({ engineSessionId: 'gone' })
+    const asked: string[] = []
+    Object.assign(t.ctx, {
+      lostSeed: (userItemId: string) => {
+        asked.push(userItemId)
+        return {
+          seed: { fallback: '【之前的聊天】你：改按钮', fallbackImages: [] },
+          notice: { kind: 'notice', id: 'n1', level: 'warn', text: '已改开新会话，带上了之前的聊天' },
+        }
+      },
+    })
+    t.session.send('接着改颜色', 't1', 'u1')
+    await t.turnDone('t1')
+    expect(asked).toEqual(['u1'])
+    const prompt = t.sent().find(m => m.method === 'session/prompt')!
+    expect(prompt.params.prompt[0].text).toBe('【之前的聊天】你：改按钮\n\n接着改颜色')
+    const notice = t.events.find(e => e.type === 'item_completed' && e.item.kind === 'notice') as {
+      item: { text: string; detail?: string }
+    }
+    expect(notice.item).toMatchObject({ text: '已改开新会话，带上了之前的聊天', detail: 'not found' })
+    expect(t.rec().engineSessionId).toBe('s1')
+    // 只带一次
+    t.session.send('再来', 't2', 'u2')
+    await t.turnDone('t2')
+    expect(asked).toEqual(['u1'])
+    await t.session.close()
   })
 
   it('后台命令：顶条 tasks、读实时输出与端口、点停止杀子进程树并插已停止卡片', async () => {

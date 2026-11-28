@@ -8,6 +8,17 @@ import { makeTmp, removeTmp } from './helpers/tmp'
 // 闲置引擎进程释放（docs/engine-idle-release.md）：闲置时长按设置、改了马上重算、「不释放」、闲置上限、内存紧张时释放
 
 const MIN = 60_000
+
+/** 内存紧张时闲置不到 2 分钟的不放（MEMORY_KEEP_MS）：按 3 分钟后的时间放 */
+function releaseLater(host: EngineHost, after = 3 * MIN): number {
+  const now = Date.now()
+  const spy = vi.spyOn(Date, 'now').mockReturnValue(now + after)
+  try {
+    return host.releaseIdleProcesses('memory')
+  } finally {
+    spy.mockRestore()
+  }
+}
 const roots: string[] = []
 const hosts: EngineHost[] = []
 afterEach(async () => {
@@ -126,6 +137,18 @@ describe('到点释放', () => {
     expect(rearmed).toHaveLength(1)
   })
 
+  it('内存紧张时刚用完不到 2 分钟的不放，过了再放', async () => {
+    const { host, create, start, finish, closed } = setup()
+    const id = create()
+    await start(id)
+    await finish(id)
+    expect(host.releaseIdleProcesses('memory')).toBe(0)
+    expect(releaseLater(host, MIN)).toBe(0)
+    expect(closed(id)).toBe(0)
+    expect(releaseLater(host)).toBe(1)
+    await vi.waitFor(() => expect(closed(id)).toBe(1))
+  })
+
   it('改成「不释放」：清掉定时器，不再挂；内存紧张时照样能放', async () => {
     const { host, create, start, finish, closed } = setup()
     const id = create()
@@ -138,7 +161,7 @@ describe('到点释放', () => {
     expect(clears).toHaveBeenCalled()
     expect(timers.filter(t => t.ms >= MIN)).toHaveLength(1)
     expect(closed(id)).toBe(0)
-    expect(host.releaseIdleProcesses('memory')).toBe(1)
+    expect(releaseLater(host)).toBe(1)
     await vi.waitFor(() => expect(closed(id)).toBe(1))
   })
 })
@@ -193,7 +216,7 @@ describe('内存紧张时释放', () => {
       .get(tasks)!
       .emit({ type: 'tasks', tasks: [{ id: 't1', kind: 'local_bash', description: 'pnpm dev', message: null }] })
     await finish(tasks)
-    expect(host.releaseIdleProcesses('memory')).toBe(1)
+    expect(releaseLater(host)).toBe(1)
     await vi.waitFor(() => expect(closed(idle)).toBe(1))
     expect([running, agents, tasks].map(closed)).toEqual([0, 0, 0])
   })
@@ -203,8 +226,8 @@ describe('内存紧张时释放', () => {
     const id = create()
     await start(id)
     await finish(id)
-    expect(host.releaseIdleProcesses('memory')).toBe(1)
-    expect(host.releaseIdleProcesses('memory')).toBe(0)
+    expect(releaseLater(host)).toBe(1)
+    expect(releaseLater(host)).toBe(0)
     await vi.waitFor(() => expect(closed(id)).toBe(1))
   })
 })
@@ -225,7 +248,7 @@ describe('审查补的回归', () => {
     const queue = host.open(id).queue
     expect(queue.length).toBeGreaterThan(0)
     expect(queue.every(q => q.held)).toBe(true)
-    expect(host.releaseIdleProcesses('memory')).toBe(1)
+    expect(releaseLater(host)).toBe(1)
     await vi.waitFor(() => expect(closed(id)).toBe(1))
   })
 
