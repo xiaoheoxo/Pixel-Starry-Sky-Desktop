@@ -20,7 +20,14 @@ import {
 } from '@/features/session/quota/quotaModel'
 import { useMinuteNow } from '@/features/session/quota/quotaStore'
 import { usdText } from '@/features/session/quota/estimate'
-import { budgetLine, forecastBasis, forecastLine, localValueLine } from '@/features/session/quota/forecastPresentation'
+import {
+  budgetLine,
+  forecastBasis,
+  forecastLine,
+  localValueLine,
+  weeklyApiDetail,
+  weeklyApiLine,
+} from '@/features/session/quota/forecastPresentation'
 import { feeRatio, usePlanFee, useQuotaEstimate, type QuotaEstimate } from '@/features/session/quota/useQuotaEstimate'
 import { replyStatParts } from '@/features/session/turnStatsData'
 import { useSettings } from '@/features/settings/SettingsProvider'
@@ -131,6 +138,14 @@ function UsageBody({ sessionId }: { sessionId: string }) {
                 className={cn('mt-1 text-label tabular-nums', est.emptyAt !== null ? 'text-warn-fg' : 'text-fg-muted')}
               >
                 {forecast}
+              </div>
+            )}
+            {estimate?.weeklyApi?.id === entry.id && !entry.expired && (
+              <div
+                title={weeklyApiDetail(estimate.weeklyApi.value)}
+                className="mt-1 text-label text-fg-muted tabular-nums"
+              >
+                {weeklyApiLine(estimate.weeklyApi.value)}
               </div>
             )}
             {budget && <div className="mt-1 text-label text-fg-muted tabular-nums">{budget}</div>}

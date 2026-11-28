@@ -23,6 +23,8 @@ export interface UsageRecord {
   engine: string
   model: string
   route: UsageRoute
+  /** Local comparison key, saved only for verified native Codex subscription sessions. */
+  subscriptionUsageKey?: string
   requests?: number
   input: number
   cacheRead: number

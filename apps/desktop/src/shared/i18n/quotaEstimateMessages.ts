@@ -40,6 +40,19 @@ export const quotaEstimateMessages = {
   },
   'quotaEst.budget.day': { zh: '均摊至恢复：{p}/天', en: 'Budget until reset: {p}/day' },
   'quotaEst.budget.hour': { zh: '均摊至恢复：{p}/小时', en: 'Budget until reset: {p}/hour' },
+  'quotaEst.weeklyApi.value': { zh: '周限用满折合 API {usd}', en: 'Full weekly quota · API equivalent {usd}' },
+  'quotaEst.weeklyApi.unavailable': {
+    zh: '周限用满折合 API · 暂无可靠估算',
+    en: 'Full weekly quota · No reliable API estimate yet',
+  },
+  'quotaEst.weeklyApi.detail': {
+    zh: '按同账号最近消耗的 {p} 周额度和本机记录估算，沿用当前模型与缓存组合，按标准 API 价。跨设备用量、长上下文及加速差价未计入，不是账单。',
+    en: 'Extrapolated from {p} of this account’s recent weekly quota and local records, assuming the same model and cache mix at standard API rates. Other devices, long-context premiums, and speed surcharges are not included. Not a bill.',
+  },
+  'quotaEst.weeklyApi.wait': {
+    zh: '需要同账号、同周期的至少 3 次读数、1 小时跨度、10 个百分点变化和完整的本机可计价样本。',
+    en: 'Requires at least 3 readings from the same account and cycle, spanning 1 hour and 10 percentage points, with complete priced local samples.',
+  },
   'quotaEst.worth': { zh: '本机近 30 天 · API 等价 {usd}', en: 'Local 30 days · API equivalent {usd}' },
   'quotaEst.worthPartial': {
     zh: '本机近 30 天 · 已计价部分 {usd}',

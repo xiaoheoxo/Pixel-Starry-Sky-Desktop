@@ -60,7 +60,7 @@ import type {
   UsageBucket,
   UsageSummary,
 } from '@pixelsky/protocol'
-import { backgroundAgents, viaGateway } from '@pixelsky/protocol'
+import { backgroundAgents, QUOTA_WINDOW_MINS, quotaWindowObservedAt, viaGateway } from '@pixelsky/protocol'
 import { ClaudeAdapter } from '../claude'
 import type { CompactionRequestReport } from '../compaction'
 import { CodexAdapter } from '../codex'
@@ -71,6 +71,7 @@ import { DotAdapter } from '../dot'
 import { supportsChatGptDot } from '@pixelsky/protocol'
 import { Store, type IdleReleaseMinutes } from '../store'
 import { UsageStore, type UsageQuery } from '../usage'
+import { weeklyApiSample } from '../weekly-api'
 import { HostAccounts } from './accounts'
 import { HostBranch } from './branch'
 import { HostCheckpoints } from './checkpoints'
@@ -1162,6 +1163,28 @@ export class EngineHost {
   /** 当前账号的额度快照（docs/ui/account-quota.md）；不发请求，还没读过为 null */
   accountQuota(provider: EngineQuotaProvider): Promise<AccountQuota | null> {
     return this.m.quota.get(provider)
+  }
+
+  /** Read only this machine's usage, correlated to its active account and quota reading. */
+  async weeklyApiSample(query: import('@pixelsky/protocol').WeeklyApiQuery) {
+    const quota = await this.m.quota.get('chatgpt')
+    const week = quota?.windows.find(w => w.durationMins === QUOTA_WINDOW_MINS.week)
+    if (
+      !quota ||
+      quota.status !== 'ok' ||
+      quota.pending ||
+      !week ||
+      quota.account?.trim().toLowerCase() !== query.account.trim().toLowerCase() ||
+      quota.plan !== query.plan ||
+      week.resetsAt !== query.resetsAt ||
+      quotaWindowObservedAt(quota, week.id) !== query.to ||
+      query.from < query.resetsAt - QUOTA_WINDOW_MINS.week * 60_000 ||
+      query.from >= query.to ||
+      query.to >= query.resetsAt ||
+      Date.now() >= query.resetsAt
+    )
+      return null
+    return weeklyApiSample(this.m.usage.weeklySampleRows(query.from), query)
   }
 
   /** 按需 / 手动读取账号额度；不抛错，失败时返回 status 'error' 的快照 */

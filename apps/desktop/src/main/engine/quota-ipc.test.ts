@@ -12,12 +12,14 @@ import type { EngineHost } from '@pixelsky/engine'
 import { DEFAULT_QUOTA_MAX_AGE_MS, quotaProvider, quotaRefreshOptions, registerQuotaIpc } from './quota-ipc'
 
 const host = {
+  weeklyApiSample: vi.fn(async (query: unknown) => ({ query })),
   accountQuota: vi.fn(async (provider: string) => ({ provider })),
   refreshAccountQuota: vi.fn(async (provider: string, opts: unknown) => ({ provider, opts })),
 }
 const call = (name: string, ...args: unknown[]): unknown => mocks.handlers.get(name)!({}, ...args)
 
 beforeEach(() => {
+  host.weeklyApiSample.mockClear()
   host.accountQuota.mockClear()
   host.refreshAccountQuota.mockClear()
   mocks.handlers.clear()
@@ -25,8 +27,13 @@ beforeEach(() => {
 })
 
 describe('quota IPC', () => {
-  it('注册 quota:get、quota:refresh、quota:useResetCredit（quota:changed 是推送）', () => {
-    expect([...mocks.handlers.keys()].sort()).toEqual(['quota:get', 'quota:refresh', 'quota:useResetCredit'])
+  it('注册本机额度 IPC 处理器（quota:changed 是推送）', () => {
+    expect([...mocks.handlers.keys()].sort()).toEqual([
+      'quota:get',
+      'quota:refresh',
+      'quota:useResetCredit',
+      'quota:weeklyApiSample',
+    ])
   })
 
   it('provider 只认 claude / chatgpt / google，其它抛「参数不对」，不碰宿主', () => {
@@ -40,6 +47,14 @@ describe('quota IPC', () => {
     expect(quotaProvider('claude')).toBe('claude')
     expect(quotaProvider('chatgpt')).toBe('chatgpt')
     expect(quotaProvider('google')).toBe('google')
+  })
+
+  it('limits the local valuation endpoint to its comparison query fields', async () => {
+    const query = { account: 'test@example.org', plan: 'plus', resetsAt: 30, from: 10, to: 20 }
+    await expect(call('quota:weeklyApiSample', { ...query, extra: true })).resolves.toEqual({ query })
+    for (const input of [undefined, { ...query, account: '' }, { ...query, from: Infinity }])
+      expect(() => call('quota:weeklyApiSample', input)).toThrow('参数不对')
+    expect(host.weeklyApiSample).toHaveBeenCalledTimes(1)
   })
 
   it('quota:get 读缓存', async () => {

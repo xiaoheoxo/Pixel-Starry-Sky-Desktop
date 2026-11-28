@@ -1,4 +1,11 @@
-import type { AccountQuota, EngineQuotaProvider, QuotaRefreshOptions, ResetCreditOutcome } from '@pixelsky/protocol'
+import type {
+  AccountQuota,
+  EngineQuotaProvider,
+  QuotaRefreshOptions,
+  ResetCreditOutcome,
+  WeeklyApiQuery,
+  WeeklyApiSample,
+} from '@pixelsky/protocol'
 
 /** 预加载暴露的 window.pixelsky.quota（docs/ui/account-quota.md §5） */
 export interface QuotaBridge {
@@ -11,6 +18,7 @@ export interface QuotaBridge {
   refresh(provider: EngineQuotaProvider, opts?: QuotaRefreshOptions): Promise<AccountQuota>
   /** 用一张 Codex 重置卡（真实扣卡，不能撤回）；用完主进程会重读额度并广播 */
   useResetCredit(): Promise<ResetCreditOutcome>
+  weeklyApiSample(query: WeeklyApiQuery): Promise<WeeklyApiSample | null>
   /** 当前账号的快照变了（读取完成、对话里收到事件、换了账号） */
   onChange(callback: (quota: AccountQuota) => void): () => void
 }

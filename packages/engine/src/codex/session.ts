@@ -575,6 +575,8 @@ export class CodexSession implements EngineSession {
   private mcpNames = new Set<string>()
   /** 当前进程启动时是不是走本机网关：额度的来源按它判断，不读当前记录（换通道要等下一条消息才换进程） */
   private procViaGateway = false
+  private subscriptionAccount: string | null = null
+  private subscriptionAccountEpoch = 0
   private opening: Promise<void> | null = null
   private closed = false
   private threadId: string | null = null
@@ -798,6 +800,7 @@ export class CodexSession implements EngineSession {
       { purpose: 'session', sessionId: record.id },
     )
     this.proc = proc
+    this.subscriptionAccount = null
     try {
       // 额外技能根、turn/start 的 collaborationMode（计划模式）都是实验字段，一律声明实验接口（docs/codex-engine.md §3.5）
       await proc.initialize(true).catch(error => {
@@ -806,7 +809,11 @@ export class CodexSession implements EngineSession {
       })
       this.startup = 'done'
       if (ext?.skillRoots?.length) await proc.request('skills/extraRoots/set', { extraRoots: ext.skillRoots })
-      this.catalog = await codexCatalog(proc)
+      const epoch = this.subscriptionAccountEpoch
+      this.catalog = await codexCatalog(proc, email => {
+        if (!this.procViaGateway && this.proc === proc && this.subscriptionAccountEpoch === epoch)
+          this.subscriptionAccount = email
+      })
       // 用户自己的 config.toml 也开了同一个功能：警告是他们的，不替他们去掉
       if (this.ownAskFlag && (await this.userEnabledAsk(proc))) this.ownAskFlag = false
       const requirements = await proc.request('configRequirements/read').catch(() => ({}))
@@ -1784,6 +1791,10 @@ export class CodexSession implements EngineSession {
   private consume(id: string): void {
     if (this.guidance.delete(id)) this.ctx.emit({ type: 'input_ack', id, state: 'consumed', mode: 'guidance' })
   }
+  usageSubscriptionAccount(): string | null {
+    return this.subscriptionAccount
+  }
+
   /**
    * 借活着的 app-server 问账号额度（docs/ui/account-quota.md §3.3）：握手完成、不走网关才问，否则返回 null
    * （宿主改用适配器的只读进程）；绝不为它起进程
@@ -1880,6 +1891,10 @@ export class CodexSession implements EngineSession {
     }
     // 账号额度的滚动更新不带 threadId，空闲时也会到，必须先于线程过滤和 active 判断；
     // 平台 / 自定义接口经本机网关，这里的数据不是用户自己的账号
+    if (method === 'account/updated') {
+      this.subscriptionAccount = null
+      this.subscriptionAccountEpoch++
+    }
     if (method === 'account/rateLimits/updated') {
       if (!this.procViaGateway) this.ctx.reportQuota?.(codexQuotaPatch(params.rateLimits, Date.now()))
       return
