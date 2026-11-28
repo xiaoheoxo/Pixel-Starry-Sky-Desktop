@@ -56,6 +56,8 @@ import {
 import { MemberTools } from './MemberTools'
 import { useRunners } from '@/features/machines/RunnerRow'
 import { AiFilled, MemberQuickFill } from './MemberQuickFill'
+import { SessionPicker } from './SessionPicker'
+import { firstTab, pickBlocked, sessionCandidates, type SessionCandidate } from './sessionPick'
 import { PROMPT_CONTEXT_LIMIT, type AiMemberDraft, type MemberDraftField } from '../../../../shared/types/ai'
 import { formatMultiplier, groupProblem, usePlatformCatalog } from '@/features/account/platform'
 import { useProviders } from '@/features/account/providers'
@@ -864,6 +866,32 @@ export function AgentDialog({
     (onRunner !== null && onRunner !== boundRunner)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 分「已有成员 / 已有会话 / 新建成员」三块（docs/ui/import-collab.md 第 5 项 ②b）：只在本机频道新建成员时
+  const tabbed = !editing && !from && channel.scope === 'local'
+  const toast = useToast()
+  const engineSessions = useEngineState(s => s.sessions)
+  const engineProjects = useEngineState(s => s.projects)
+  const [tab, setTab] = useState<'member' | 'session' | 'new'>(() =>
+    tabbed
+      ? firstTab(
+          sessionCandidates({
+            sessions: engineSessions,
+            projects: engineProjects,
+            members: allMembers,
+            channel,
+            projectId: null,
+            query: '',
+          }).list.some(c => !pickBlocked(c)),
+          others.length > 0,
+        )
+      : 'new',
+  )
+  const [picked, setPicked] = useState<SessionCandidate | null>(null)
+  const [pickName, setPickName] = useState('')
+  const [pickRole, setPickRole] = useState('')
+  // 已是别的频道里的成员：用同一个成员、同一个名字，不再问
+  const pickBound = picked?.tag?.kind === 'bound'
+  const canJoin = !!picked && (pickBound || !!pickName.trim())
   const copies = useCopies(projectId)
   const catalog = useEngineCatalog(engine)
   const platform = usePlatformCatalog()
@@ -1051,17 +1079,38 @@ export function AgentDialog({
     })
   }
 
+  const pick = (c: SessionCandidate) => {
+    setPicked(c)
+    // 名字默认取会话标题前 20 个字（和侧栏「加入频道…」一样）；换一个会话时，没改过的名字跟着换
+    if (!picked || pickName === picked.title.slice(0, 20)) setPickName(c.title.slice(0, 20))
+  }
+  const join = () => {
+    if (!picked || !canJoin) return
+    const shown = pickBound ? picked.tag!.name : pickName.trim()
+    run(async () => {
+      await channelActions.joinSession({
+        sessionId: picked.id,
+        channelId: channel.id,
+        name: pickName,
+        instructions: pickRole,
+      })
+      toast(tr('channels.join.done', { channel: channel.name, name: shown }))
+    })
+  }
+  const onSession = tabbed && tab === 'session'
+
   return (
     <ConfirmDialog
       title={editing ? tr('channels.agent.editTitle', { name: editing.name }) : tr('channels.agent.addTitle')}
-      confirmLabel={tr(editing ? 'channels.dialog.save' : 'channels.agent.add')}
+      confirmLabel={tr(editing ? 'channels.dialog.save' : onSession ? 'channels.join.confirm' : 'channels.agent.add')}
       cancelLabel={tr('channels.dialog.cancel')}
       busy={busy}
       error={error}
-      focusInput={!!editing || !!from || others.length === 0}
-      confirmDisabled={!canSave || quick.running}
-      dirty={dirty}
-      onConfirm={submit}
+      focusInput={!!editing || !!from || (tabbed ? tab !== 'member' : others.length === 0)}
+      confirmDisabled={onSession ? !canJoin : !canSave || quick.running}
+      hideConfirm={tabbed && tab === 'member'}
+      dirty={dirty || !!pickRole.trim()}
+      onConfirm={onSession ? join : submit}
       onCancel={onClose}
       description={
         <div className="-mx-1 flex max-h-[min(60vh,560px)] flex-col gap-4 overflow-y-auto px-1 [scrollbar-width:thin]">
@@ -1070,7 +1119,34 @@ export function AgentDialog({
               {tr('channels.agent.copiedFrom', { name: from.name })}
             </p>
           )}
-          {!editing && !from && others.length > 0 && (
+          {tabbed && (
+            <Segmented
+              label={tr('channels.agent.tabs')}
+              value={tab}
+              options={[
+                ...(others.length ? [{ value: 'member' as const, label: tr('channels.agent.tab.member') }] : []),
+                { value: 'session' as const, label: tr('channels.agent.tab.session') },
+                { value: 'new' as const, label: tr('channels.agent.new') },
+              ]}
+              onChange={v => {
+                setTab(v)
+                setError(null)
+              }}
+            />
+          )}
+          {onSession && (
+            <SessionPicker
+              channel={channel}
+              picked={picked}
+              onPick={pick}
+              name={pickName}
+              onName={setPickName}
+              instructions={pickRole}
+              onInstructions={setPickRole}
+              onSubmit={join}
+            />
+          )}
+          {!editing && !from && others.length > 0 && (!tabbed || tab === 'member') && (
             <section className="flex flex-col gap-1">
               <h4 className="text-meta font-medium text-fg-muted">{tr('channels.agent.existing')}</h4>
               {others.map(a => (
@@ -1087,19 +1163,25 @@ export function AgentDialog({
                   </Button>
                 </div>
               ))}
-              <h4 className="mt-3 border-t border-line-subtle pt-3 text-meta font-medium text-fg-muted">
-                {tr('channels.agent.new')}
-              </h4>
+              {!tabbed && (
+                <h4 className="mt-3 border-t border-line-subtle pt-3 text-meta font-medium text-fg-muted">
+                  {tr('channels.agent.new')}
+                </h4>
+              )}
             </section>
           )}
           {!editing && !from && (
-            <MemberQuickFill
-              context={() => memberDraftContext(draftCtx(), PROMPT_CONTEXT_LIMIT)}
-              apply={applyAi}
-              onState={setQuick}
-            />
+            // 切到别的块时只藏起来：新建表单里填了一半的、一句话描述都留着
+            <div hidden={tabbed && tab !== 'new'}>
+              <MemberQuickFill
+                context={() => memberDraftContext(draftCtx(), PROMPT_CONTEXT_LIMIT)}
+                apply={applyAi}
+                onState={setQuick}
+              />
+            </div>
           )}
           <form
+            hidden={tabbed && tab !== 'new'}
             inert={quick.running}
             className={cn('flex flex-col gap-3', quick.running && 'opacity-60')}
             onSubmit={e => {
