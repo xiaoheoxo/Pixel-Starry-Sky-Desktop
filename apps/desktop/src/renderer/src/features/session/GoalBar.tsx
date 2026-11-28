@@ -47,7 +47,22 @@ const HINT_KEY: Partial<Record<GoalStatus, TranslationKey>> = {
 }
 
 /** 文案里的引擎名 */
-const goalEngine = (engine: EngineId | undefined): string => (engine === 'omp' ? 'oh-my-pi' : 'Codex')
+const goalEngine = (engine: EngineId | undefined): string =>
+  engine === 'omp' ? 'oh-my-pi' : engine === 'claude' ? 'Claude Code' : 'Codex'
+
+/**
+ * Claude Code 的目标（docs/ui/claude-goal.md）进行中不报用量：用时从设目标那一刻现算，token 和轮数完成 / 做不到时才有
+ * （turns 有值就是 Claude Code 给了最终数字）
+ */
+const claudeFinal = (goal: SessionGoal): boolean => goal.turns !== undefined && goal.turns !== null
+const elapsedMs = (goal: SessionGoal, claude: boolean, now: number): number =>
+  claude && !claudeFinal(goal) ? (goal.startedAt ? Math.max(0, now - goal.startedAt) : 0) : goal.timeUsedSeconds * 1000
+
+/** Claude Code 的目标栏按钮换成的 /goal 命令；暂停、继续、查看没有对应的，返回 null */
+export function claudeGoalCommand(action: GoalAction): string | null {
+  if (action.kind === 'clear') return '/goal clear'
+  return action.kind === 'set' ? `/goal ${action.objective}` : null
+}
 
 /** 输入框里的 /goal 直接生效后的提示（和进程没在跑时引擎在对话里说的同一句） */
 export function goalResultText(action: GoalAction, goal: SessionGoal | null, engine?: EngineId): string {
@@ -59,8 +74,19 @@ export function goalResultText(action: GoalAction, goal: SessionGoal | null, eng
   return goal ? tr(SHOW_KEY[goal.status], { p0: goal.objective }) : tr('goal.native.none')
 }
 
-/** 已用 token（有预算时带上预算）· 用时 */
-export function goalUsageText(goal: SessionGoal): string {
+/** 已用 token（有预算时带上预算）· 用时；Claude Code 进行中只有用时，完成后再带轮数 */
+export function goalUsageText(goal: SessionGoal, claude = false, now = Date.now()): string {
+  if (claude) {
+    const ms = elapsedMs(goal, true, now)
+    const time = ms > 0 ? tr('goal.bar.time', { time: formatDuration(ms) }) : ''
+    if (!claudeFinal(goal)) return time
+    const parts = [
+      tr('goal.bar.tokens', { used: formatTokens(goal.tokensUsed) }),
+      time,
+      tr('goal.bar.turns', { n: goal.turns! }),
+    ]
+    return parts.filter(Boolean).join(' · ')
+  }
   const used = formatTokens(goal.tokensUsed)
   const tokens =
     goal.tokenBudget === null
@@ -71,8 +97,29 @@ export function goalUsageText(goal: SessionGoal): string {
     : tokens
 }
 
-/** 展开区的四格：状态、已用 token（有预算时带比例，画进度条）、用时、最后更新 */
-export function goalStats(goal: SessionGoal): { label: string; value: string; warn?: boolean; share?: number }[] {
+/**
+ * 展开区的四格：状态、已用 token（有预算时带比例，画进度条）、用时、最后更新。
+ * Claude Code：状态、已用 token、用时、轮数，token 和轮数没有最终数字时写「完成后显示」（faint）
+ */
+export function goalStats(
+  goal: SessionGoal,
+  claude = false,
+  now = Date.now(),
+): { label: string; value: string; warn?: boolean; share?: number; faint?: boolean }[] {
+  if (claude) {
+    const final = claudeFinal(goal)
+    const pending = { value: tr('goal.bar.claude.pending'), faint: true }
+    return [
+      { label: tr('goal.bar.statStatus'), value: goalStatusText(goal.status), warn: !!HINT_KEY[goal.status] },
+      final
+        ? { label: tr('goal.bar.statTokens'), value: formatTokens(goal.tokensUsed) }
+        : { label: tr('goal.bar.statTokens'), ...pending },
+      { label: tr('goal.bar.statTime'), value: formatDuration(elapsedMs(goal, true, now)) },
+      final
+        ? { label: tr('goal.bar.statTurns'), value: tr('goal.bar.turns', { n: goal.turns! }) }
+        : { label: tr('goal.bar.statTurns'), ...pending },
+    ]
+  }
   const used = formatTokens(goal.tokensUsed)
   const budget = goal.tokenBudget
   return [
@@ -97,13 +144,28 @@ export function goalStats(goal: SessionGoal): { label: string; value: string; wa
 export function GoalBar({
   sessionId,
   onAction,
+  onCommand,
 }: {
   sessionId: string | null
   onAction: (action: GoalAction) => Promise<unknown>
+  /** 发一条消息（Claude Code 的目标没有接口：清除、改目标替你发 /goal 命令，docs/ui/claude-goal.md） */
+  onCommand?: (text: string) => Promise<unknown>
 }) {
   useI18n()
   const goal = useEngineState(s => (sessionId ? (s.snapshots[sessionId]?.goal ?? null) : null))
-  const engine = useEngineState(s => goalEngine(sessionId ? s.snapshots[sessionId]?.record?.engine : undefined))
+  const engineId = useEngineState(s => (sessionId ? s.snapshots[sessionId]?.record?.engine : undefined))
+  const engine = goalEngine(engineId)
+  // Claude Code：没有暂停 / 继续，按钮替你发 /goal 命令（docs/ui/claude-goal.md）
+  const claude = engineId === 'claude'
+  // Claude Code 进行中的用时是现算的：每 30 秒重画一次
+  const [now, setNow] = useState(() => Date.now())
+  const ticking = claude && goal?.status === 'active' && !!goal.startedAt
+  useEffect(() => {
+    if (!ticking) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [ticking])
   const items = useEngineState(s => (sessionId ? s.snapshots[sessionId]?.items : undefined))
   const [busy, setBusy] = useState<GoalAction['kind'] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -127,8 +189,11 @@ export function GoalBar({
     setBusy(action.kind)
     setError(null)
     try {
+      // Claude Code 按这个会话自己的引擎判断（不看下一条消息选的引擎）：清除、改目标发 /goal 命令
+      const text = claude ? claudeGoalCommand(action) : null
+      if (claude && (!text || !onCommand)) throw new Error(tr('errors.engine.goalNoEngine'))
       // null：这个会话现在不归 Codex 管（进程不在、下一条换了引擎），没改成
-      if ((await onAction(action)) === null) {
+      if ((await (text && onCommand ? onCommand(text) : onAction(action))) === null) {
         setError(tr('errors.engine.goalNoProcess'))
         return false
       }
@@ -155,12 +220,13 @@ export function GoalBar({
     if (objective === goal.objective || (await act({ kind: 'set', objective }))) closeEditor()
   }
   const status = goalStatusText(goal.status)
-  const usage = goalUsageText(goal)
-  const hint = HINT_KEY[goal.status]
-  const warn = !!hint
-  const canResume = goal.status !== 'active' && goal.status !== 'complete'
+  const usage = goalUsageText(goal, claude, now)
+  const hint = claude && goal.status === 'blocked' ? 'goal.bar.hint.claudeBlocked' : HINT_KEY[goal.status]
+  const warn = !!HINT_KEY[goal.status]
+  const canResume = !claude && goal.status !== 'active' && goal.status !== 'complete'
   const detailId = `goal-detail-${sessionId ?? ''}`
-  const stats = goalStats(goal)
+  const stats = goalStats(goal, claude, now)
+  const check = goal.lastCheck
   return (
     <section
       aria-label={tr('goal.bar.region')}
@@ -193,7 +259,7 @@ export function GoalBar({
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
           {busy && <Spinner size={11} />}
-          {goal.status === 'active' && (
+          {!claude && goal.status === 'active' && (
             <Button
               variant="ghost"
               icon={Pause}
@@ -222,7 +288,7 @@ export function GoalBar({
             size={24}
             iconSize={12}
             label={tr('goal.bar.clear')}
-            title={tr('goal.bar.clearHint')}
+            title={tr(claude ? 'goal.bar.claude.clearHint' : 'goal.bar.clearHint')}
             disabled={!!busy}
             onClick={() => void act({ kind: 'clear' })}
           />
@@ -263,7 +329,9 @@ export function GoalBar({
                   className="min-h-24 resize-y rounded-md border border-line bg-app px-2.5 py-1.5 text-list text-fg outline-none focus-visible:border-accent"
                 />
                 <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 text-label text-fg-faint">{tr('goal.bar.editHint', { engine })}</span>
+                  <span className="min-w-0 flex-1 text-label text-fg-faint">
+                    {claude ? tr('goal.bar.claude.editHint') : tr('goal.bar.editHint', { engine })}
+                  </span>
                   <Button variant="ghost" className="h-6 px-2 text-meta" onClick={closeEditor}>
                     {tr('goal.bar.editCancel')}
                   </Button>
@@ -283,7 +351,14 @@ export function GoalBar({
             {stats.map(s => (
               <div key={s.label} className="min-w-0 rounded-md bg-subtle px-2 py-1.5">
                 <dt className="text-label text-fg-faint">{s.label}</dt>
-                <dd className={cn('truncate text-meta tabular-nums', s.warn ? 'text-warn' : 'text-fg')}>{s.value}</dd>
+                <dd
+                  className={cn(
+                    'truncate text-meta tabular-nums',
+                    s.warn ? 'text-warn' : s.faint ? 'text-fg-faint' : 'text-fg',
+                  )}
+                >
+                  {s.value}
+                </dd>
                 {s.share !== undefined && (
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-line" aria-hidden>
                     <div
@@ -316,6 +391,23 @@ export function GoalBar({
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+          {check && (
+            // Claude Code 每次想停下时检查一次条件给的说明（英文原文）：没达成黄、达成绿
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2 text-label text-fg-faint">
+                <span>{tr(check.met ? 'goal.bar.checkMet' : 'goal.bar.check')}</span>
+                <span className="tabular-nums">{formatTime(check.at)}</span>
+              </div>
+              <p
+                className={cn(
+                  'border-l-2 py-1 pl-2.5 text-meta break-words whitespace-pre-wrap text-fg-muted',
+                  check.met ? 'border-success' : 'border-warn',
+                )}
+              >
+                {check.reason}
+              </p>
             </div>
           )}
           {hint && <p className="text-meta text-warn">{tr(hint)}</p>}

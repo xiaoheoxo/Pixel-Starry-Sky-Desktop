@@ -6,12 +6,20 @@ vi.hoisted(() => {
   ;(globalThis as { window?: unknown }).window ??= {}
 })
 const goals: Record<string, SessionGoal | null> = {}
+/** 会话的引擎（不写是 Codex） */
+const engines: Record<string, string> = {}
 vi.mock('@/features/engine/store', () => ({
-  useEngineState: <T,>(selector: (s: { snapshots: Record<string, { goal: SessionGoal | null }> }) => T): T =>
-    selector({ snapshots: Object.fromEntries(Object.entries(goals).map(([id, goal]) => [id, { goal }])) }),
+  useEngineState: <T,>(
+    selector: (s: { snapshots: Record<string, { goal: SessionGoal | null; record: { engine: string } }> }) => T,
+  ): T =>
+    selector({
+      snapshots: Object.fromEntries(
+        Object.entries(goals).map(([id, goal]) => [id, { goal, record: { engine: engines[id] ?? 'codex' } }]),
+      ),
+    }),
 }))
 import { I18nProvider } from '@/i18n/I18nProvider'
-import { GoalBar, goalResultText, goalStats, goalUsageText } from './GoalBar'
+import { GoalBar, claudeGoalCommand, goalResultText, goalStats, goalUsageText } from './GoalBar'
 
 const goal = (patch: Partial<SessionGoal> = {}): SessionGoal => ({
   objective: '把测试修好',
@@ -87,5 +95,35 @@ describe('GoalBar', () => {
     const none = goalStats(goal())
     expect(none[0].warn).toBe(false)
     expect(none[1]).toEqual({ label: '已用 token', value: '12.3k（没设预算）' })
+  })
+
+  it('Claude Code（docs/ui/claude-goal.md）：没有暂停 / 继续；进行中只有用时，完成后带 token 和轮数', () => {
+    const now = Date.UTC(2026, 10, 28, 8, 0)
+    const active = goal({ tokensUsed: 0, timeUsedSeconds: 0, startedAt: now - 12 * 60_000 })
+    goals.cc = active
+    engines.cc = 'claude'
+    const html = render('cc')
+    expect(html).toContain('进行中')
+    expect(html).not.toContain('>暂停<')
+    expect(html).not.toContain('>继续<')
+    expect(html).toContain('给 Claude Code 发 /goal clear')
+    expect(goalUsageText(active, true, now)).toBe('用时 12m 0s')
+    expect(goalStats(active, true, now).map(x => [x.label, x.value, !!x.faint])).toEqual([
+      ['状态', '进行中', false],
+      ['已用 token', '完成后显示', true],
+      ['用时', '12m 0s', false],
+      ['轮数', '完成后显示', true],
+    ])
+    const done = goal({ status: 'complete', tokensUsed: 284_000, timeUsedSeconds: 480, turns: 4, startedAt: now - 9e5 })
+    expect(goalUsageText(done, true, now)).toBe('已用 284k token · 用时 8m 0s · 4 轮')
+    expect(goalStats(done, true, now).map(x => x.value)).toEqual(['已完成', '284k', '8m 0s', '4 轮'])
+    // 按钮换成的命令
+    expect(claudeGoalCommand({ kind: 'clear' })).toBe('/goal clear')
+    expect(claudeGoalCommand({ kind: 'set', objective: '修好测试' })).toBe('/goal 修好测试')
+    expect(claudeGoalCommand({ kind: 'pause' })).toBeNull()
+    // 卡住了也没有「继续」
+    goals.cb = goal({ status: 'blocked', turns: 2 })
+    engines.cb = 'claude'
+    expect(render('cb')).not.toContain('>继续<')
   })
 })

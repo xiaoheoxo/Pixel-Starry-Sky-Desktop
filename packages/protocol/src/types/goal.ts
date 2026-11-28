@@ -12,6 +12,15 @@ export interface SessionGoal {
   timeUsedSeconds: number
   /** 毫秒 */
   updatedAt: number
+  /**
+   * 设目标的时间（毫秒）。Claude Code 的目标（docs/ui/claude-goal.md）进行中不报用量，用时由界面按它现算；
+   * 没有时省略
+   */
+  startedAt?: number | null
+  /** 一共做了几轮（Claude Code 完成 / 做不到时才给）；没有时省略 */
+  turns?: number | null
+  /** Claude Code 上一次检查条件的说明（英文原文）、时间（毫秒）、那次算不算达成；还没检查过时省略 */
+  lastCheck?: { reason: string; at: number; met: boolean } | null
 }
 
 /** 输入框的 /goal 和目标栏的按钮：get 看当前目标；set 换成新目标（进行中）；pause / resume / clear */

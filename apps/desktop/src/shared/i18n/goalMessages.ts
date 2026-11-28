@@ -111,6 +111,24 @@ export const goalMessages = {
     zh: '设置改了，oh-my-pi 换了进程，目标先停下；发一条消息后接着做',
     en: 'oh-my-pi restarted because a setting changed, so the goal is on hold. Send a message to continue',
   },
+  // Claude Code 的 /goal（docs/ui/claude-goal.md）：没有暂停 / 继续，按钮替你发 /goal 命令；用量完成后才有
+  'goal.bar.claude.clearHint': {
+    zh: '清除目标（替你给 Claude Code 发 /goal clear）',
+    en: 'Clear the goal (sends /goal clear to Claude Code)',
+  },
+  'goal.bar.claude.editHint': {
+    zh: '会替你给 Claude Code 发一条 /goal 新条件，对话里看得到；正在运行时排在这一轮后面',
+    en: 'Sends /goal with the new condition to Claude Code; it shows in the chat and waits for the current turn',
+  },
+  'goal.bar.claude.pending': { zh: '完成后显示', en: 'Shown when done' },
+  'goal.bar.statTurns': { zh: '轮数', en: 'Turns' },
+  'goal.bar.turns': { zh: '{n} 轮', en: '{n} turns' },
+  'goal.bar.check': { zh: '上次检查', en: 'Last check' },
+  'goal.bar.checkMet': { zh: '达成时的检查', en: 'Check that met the goal' },
+  'goal.bar.hint.claudeBlocked': {
+    zh: 'Claude Code 判定这个条件做不到，已经停下。看上面的说明，改目标（换个能达成的条件）或者清除',
+    en: 'Claude Code decided this condition can’t be met and stopped. Read the note above, then edit the goal or clear it',
+  },
   'goal.native.images': {
     zh: '目标只能是文字，/goal 不能带图片',
     en: 'A goal can only be text; /goal can’t include images',

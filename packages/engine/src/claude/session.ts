@@ -16,6 +16,7 @@ import {
   type SessionSettings,
   type McpOp,
   type McpOpResult,
+  type SessionGoal,
   type TaskOutput,
   parseCodedError,
   viaGateway,
@@ -32,6 +33,7 @@ import { ClaudeProcess, ownClaudePids, type ControlRequestFromCli } from './proc
 import { parseClaudeRateLimitEvent, parseClaudeUsage, unknownControl } from './quota'
 import { claudePlanFor } from './tier'
 import { liveClaudeSession } from './native'
+import { readClaudeGoal } from './goal'
 import { loadSavedRuns } from './runs'
 import { alwaysPermissions, approvalFor } from './tools'
 import {
@@ -52,6 +54,10 @@ import { obj, str } from './shape'
 import { claudeModelName, type ModelSettings } from './long-context'
 
 const log = logger('engine.claude')
+
+/** 设目标、一轮结束后等多久读会话记录里的目标状态；进行中时最多多久读一次（docs/ui/claude-goal.md） */
+const GOAL_READ_DELAY = 500
+const GOAL_ACTIVE_INTERVAL = 3000
 
 type Msg = Record<string, unknown>
 
@@ -324,6 +330,13 @@ export class ClaudeSession implements EngineSession {
   /** 中断超时、正在强制结束进程 */
   private killing = false
   private flags: SessionFlags = { ...EMPTY_FLAGS }
+  /** 会话的目标（Claude Code 的 /goal，docs/ui/claude-goal.md）：上次从会话记录读到的；没有为 null */
+  private goalState: SessionGoal | null = null
+  private goalTimer: ReturnType<typeof setTimeout> | null = null
+  /** 排着的那次读在什么时候（毫秒）：更急的读（一轮结束）可以提前它 */
+  private goalDue = 0
+  /** 收起了的那条目标结果（它的 updatedAt）：之后再读到同一条不显示 */
+  private goalDismissedAt: number | null = null
 
   constructor(
     private readonly ctx: SessionContext,
@@ -374,6 +387,72 @@ export class ClaudeSession implements EngineSession {
   private onFastState(state: string, blocked: string): void {
     const fastState = state === 'on' || state === 'cooldown' ? state : 'off'
     this.setFlags({ fastState, fastBlocked: blocked || null, fastAvailable: fastCanTurnOn(state, blocked) })
+  }
+
+  /**
+   * Claude Code 的 /goal 状态只写在会话记录里，stdout 只有一句「Goal set: …」（docs/ui/claude-goal.md）：
+   * 设目标、每轮结束时读一次；目标进行中时其他消息到来最多每 3 秒读一次（钩子挡回去接着做不会结束这一轮）。
+   * /goal clear 的回答「Goal cleared: …」「No goal set」：目标栏收起（达成 / 做不到后 Claude Code 已经自己清掉了目标，
+   * 清除不会再写记录，只能按这句回答把那条结果记成已收起）
+   */
+  private goalFrame(m: Msg): void {
+    if (m.type === 'result') return this.scheduleGoal(GOAL_READ_DELAY)
+    if ((m.type === 'assistant' || m.type === 'user') && !m.parent_tool_use_id) {
+      const message = obj(m.message)
+      const first = Array.isArray(message.content) ? obj(message.content[0]) : {}
+      const text = typeof message.content === 'string' ? message.content : str(first.text)
+      // 你发的 /goal 是合成的助手消息；AI 提议、你同意后设的目标是排进来的一条用户消息，同样以「Goal set:」开头
+      if (text.startsWith('Goal set:')) return this.scheduleGoal(GOAL_READ_DELAY)
+      if (message.model === '<synthetic>' && (text === 'No goal set' || text.startsWith('Goal cleared')))
+        return this.dismissGoal()
+    }
+    if (this.goalState?.status === 'active' && (m.type === 'assistant' || m.type === 'user'))
+      this.scheduleGoal(GOAL_ACTIVE_INTERVAL)
+  }
+
+  /** 稍后读一次（Claude Code 写记录比 stdout 晚一点）；已经排着、而且不比这次晚就不重复排 */
+  private scheduleGoal(delay: number): void {
+    if (this.closed) return
+    const due = Date.now() + delay
+    if (this.goalTimer) {
+      if (this.goalDue <= due) return
+      clearTimeout(this.goalTimer)
+    }
+    this.goalDue = due
+    this.goalTimer = setTimeout(() => {
+      this.goalTimer = null
+      this.refreshGoal()
+    }, delay)
+    this.goalTimer.unref?.()
+  }
+
+  private readGoal(): SessionGoal | null {
+    const rec = this.ctx.record()
+    const file = findClaudeTranscript(this.deps.projectsDir, rec.cwd, rec.engineSessionId ?? rec.id)
+    return file ? readClaudeGoal(file) : null
+  }
+
+  /**
+   * 读会话记录里的目标，变了就告诉界面。startup：进程刚起来，记录里已经结束（完成 / 做不到）的目标是以前的，不再显示
+   * （它在 Claude Code 里早就清掉了，清除按钮也清不掉它）
+   */
+  private refreshGoal(startup = false): void {
+    if (this.closed) return
+    let goal = this.readGoal()
+    if (goal && startup && goal.status !== 'active') this.goalDismissedAt = goal.updatedAt
+    if (goal && goal.updatedAt === this.goalDismissedAt) goal = null
+    if (JSON.stringify(goal) === JSON.stringify(this.goalState)) return
+    this.goalState = goal
+    this.ctx.emit({ type: 'goal', goal })
+  }
+
+  /** 清除之后：记录里最近那条结果不再显示；不管这个进程之前报没报过都告诉界面（目标栏可能是上一个进程留下的） */
+  private dismissGoal(): void {
+    if (this.closed) return
+    const last = this.readGoal()
+    if (last) this.goalDismissedAt = last.updatedAt
+    this.goalState = null
+    this.ctx.emit({ type: 'goal', goal: null })
   }
 
   /** 以前的编排和子智能体放进追踪数据（只读一次） */
@@ -737,6 +816,7 @@ export class ClaudeSession implements EngineSession {
             if (this.contextFrame(m)) return
             this.onInputFrame(m)
             this.translator.handle(m)
+            this.goalFrame(m)
           }
         },
         onControlRequest: r => this.onControlRequest(proc, r),
@@ -787,6 +867,8 @@ export class ClaudeSession implements EngineSession {
     if (rec.pendingRewind) this.ctx.clearPendingRewind?.()
     if (rec.pendingFork) this.ctx.clearPendingFork?.()
     this.seedRuns()
+    // 续接的会话可能带着进行中的目标
+    this.refreshGoal(true)
     // Ultracode / Fast 不是命令行参数，启动后用 flag settings 打开，再确认是否生效
     const { ultracode, fast, thinkingSummaries } = rec
     if (ultracode) await proc.request('apply_flag_settings', { settings: { ultracode: true } }).catch(() => undefined)
@@ -1186,6 +1268,8 @@ export class ClaudeSession implements EngineSession {
 
   async close(opts: CloseOptions = {}): Promise<void> {
     this.closed = true
+    if (this.goalTimer) clearTimeout(this.goalTimer)
+    this.goalTimer = null
     this.mcpReporter.dispose()
     const starting = this.starting
     if (starting) await starting.catch(() => null)

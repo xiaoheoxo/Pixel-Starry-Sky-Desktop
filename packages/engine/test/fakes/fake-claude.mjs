@@ -92,6 +92,8 @@ let msgSeq = 0
 // 真实 API 的消息 id 全局唯一；带上进程前缀，换进程（回退、恢复）后不与旧回复重复
 const runId = process.pid.toString(36)
 let cost = 0
+/** /goal 设的、还没达成也没清掉的条件 */
+let goalActive = null
 
 function transcriptFile(id = sessionId) {
   const dir = process.env.FAKE_CLAUDE_PROJECTS
@@ -314,6 +316,53 @@ async function runTurn(text) {
     await sleep(30)
     out({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 60000 } })
     result('success', { local_command: 'compact', result: 'Compacted' })
+    turn = null
+    return
+  }
+
+  if (text.startsWith('/goal ')) {
+    // Claude Code 的 /goal（docs/ui/claude-goal.md）：stdout 只有一句合成的「Goal set: …」，状态写在会话记录的 goal_status 里。
+    // 条件里有「达成」时这一轮结束前记一条达成
+    const condition = text.slice(6).trim()
+    const file = transcriptFile()
+    const note = attachment =>
+      file &&
+      appendFileSync(
+        file,
+        JSON.stringify({
+          type: 'attachment',
+          timestamp: new Date().toISOString(),
+          attachment: { type: 'goal_status', ...attachment },
+        }) + '\n',
+      )
+    const say = text =>
+      out({
+        type: 'assistant',
+        message: {
+          id: `msg_fake_${runId}_${++msgSeq}`,
+          model: '<synthetic>',
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+        },
+        parent_tool_use_id: null,
+      })
+    if (condition === 'clear') {
+      // 达成后 Claude Code 自己清掉了目标：清除只回一句「No goal set」，不写记录；进行中的才写清除标记
+      if (goalActive) note({ met: true, sentinel: true, condition: goalActive })
+      say(goalActive ? `Goal cleared: ${goalActive}` : 'No goal set')
+      goalActive = null
+      result('success', { result: 'ok' })
+      turn = null
+      return
+    }
+    note({ met: false, sentinel: true, condition })
+    goalActive = condition
+    say(`Goal set: ${condition}`)
+    await sleep(20)
+    if (condition.includes('达成')) goalActive = null
+    if (condition.includes('达成'))
+      note({ met: true, condition, reason: 'done', iterations: 2, durationMs: 90_000, tokens: 1234 })
+    result('success', { result: 'ok' })
     turn = null
     return
   }

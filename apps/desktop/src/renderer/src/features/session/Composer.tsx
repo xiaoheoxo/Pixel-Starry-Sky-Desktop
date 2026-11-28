@@ -1037,7 +1037,14 @@ export function Composer({
 
   return (
     <>
-      {live && <GoalBar sessionId={live.sessionId} onAction={action => live.goal(action)} />}
+      {live && (
+        <GoalBar
+          sessionId={live.sessionId}
+          onAction={action => live.goal(action)}
+          // Claude Code 的目标栏按钮发 /goal 命令，和在输入框里打一样（对话里看得到，正在运行时排在这一轮后面）
+          onCommand={text => live.submit(text)}
+        />
+      )}
       {live && <SessionCheckBar sessionId={live.sessionId} />}
       {(live ?? demoQueue) && (
         <QueuedMessages
